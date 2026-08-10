@@ -1,0 +1,49 @@
+{
+  "name": "optipackai",
+  "version": "1.0.0",
+  "description": "OptiPackAI - AI-Assisted Omnichannel Order Fulfillment and Packaging Optimization System (AOFP)",
+  "private": true,
+  "workspaces": [
+    "fe",
+    "be"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:be\" \"npm run dev:fe\"",
+    "dev:be": "cd be && npm run start:dev",
+    "dev:fe": "cd fe && npm run dev",
+    "build": "npm run build:be && npm run build:fe",
+    "build:be": "cd be && npm run build",
+    "build:fe": "cd fe && npm run build",
+    "lint": "npm run lint:be && npm run lint:fe",
+    "lint:be": "cd be && npm run lint",
+    "lint:fe": "cd fe && npm run lint",
+    "test": "npm run test:be",
+    "test:be": "cd be && npm run test",
+    "docker:dev": "docker-compose up -d mongodb mongo-express",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "concurrently": "^8.2.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.0.0"
+  },
+  "lint-staged": {
+    "be/**/*.ts": [
+      "npm run lint:be"
+    ],
+    "fe/**/*.{ts,tsx}": [
+      "npm run lint:fe"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "npx prettier --write"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}
