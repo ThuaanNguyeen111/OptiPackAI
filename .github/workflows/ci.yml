@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  be:
+    name: Backend (typecheck, lint, test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Cai o root vi day la npm workspaces (be + fe dung chung 1 package-lock.json)
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (tsc --noEmit)
+        working-directory: be
+        run: npx tsc --noEmit
+
+      - name: Lint
+        working-directory: be
+        run: npm run lint
+
+      - name: Unit tests
+        working-directory: be
+        run: npm run test
