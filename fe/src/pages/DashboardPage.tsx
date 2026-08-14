@@ -7,6 +7,11 @@ import { mockOrders } from '../data/mock-orders'
 import { marketplaceLabels } from '../types/orders'
 import { formatCurrency, formatRelativeTime } from '../utils/format'
 
+const marketplaceBarColor = {
+  shopee: 'bg-shopee',
+  tiktok: 'bg-tiktok',
+} as const
+
 export function DashboardPage() {
   const pendingMerge = mockOrders.filter(
     (o) => o.consolidation_type === 'pending_merge',
@@ -33,24 +38,28 @@ export function DashboardPage() {
 
   const stats = [
     {
+      id: 'pending_merge',
       label: 'Chờ gộp đơn',
       value: pendingMerge,
       hint: 'Cùng khách · nhiều sàn',
       link: '/orders/consolidation',
     },
     {
+      id: 'consolidated',
       label: 'Đã gộp',
       value: consolidated,
       hint: `${consolidationRate}% tổng đơn`,
       link: '/orders?filter=consolidated',
     },
     {
+      id: 'standalone',
       label: 'Đơn lẻ',
       value: standalone,
       hint: 'Không khớp nhóm',
       link: '/orders',
     },
     {
+      id: 'sync_error',
       label: 'Lỗi đồng bộ',
       value: syncErrors,
       hint: 'Cần xử lý metadata',
@@ -67,19 +76,30 @@ export function DashboardPage() {
       <main className="flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-6xl space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map((stat) => (
-              <Link
-                key={stat.label}
-                to={stat.link}
-                className="rounded-lg border border-hairline bg-surface-1 p-6 transition-colors hover:border-hairline-strong hover:bg-surface-2/50"
-              >
-                <p className="text-sm text-ink-subtle">{stat.label}</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight text-ink">
-                  {stat.value}
-                </p>
-                <p className="mt-1 text-xs text-ink-tertiary">{stat.hint}</p>
-              </Link>
-            ))}
+            {stats.map((stat) => {
+              const isErrorAlert = stat.id === 'sync_error' && stat.value > 0
+              return (
+                <Link
+                  key={stat.id}
+                  to={stat.link}
+                  className={`rounded-lg border bg-surface-1 p-6 transition-colors hover:bg-surface-2/50 ${
+                    isErrorAlert
+                      ? 'border-[rgba(239,68,68,0.2)] shadow-[0_0_0_1px_rgba(239,68,68,0.15)] hover:border-[rgba(239,68,68,0.35)]'
+                      : 'border-hairline hover:border-hairline-strong'
+                  }`}
+                >
+                  <p className="text-sm text-ink-subtle">{stat.label}</p>
+                  <p
+                    className={`mt-2 text-3xl font-semibold tracking-tight ${
+                      isErrorAlert ? 'text-error' : 'text-ink'
+                    }`}
+                  >
+                    {stat.value}
+                  </p>
+                  <p className="mt-1 text-xs text-ink-tertiary">{stat.hint}</p>
+                </Link>
+              )
+            })}
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -105,7 +125,7 @@ export function DashboardPage() {
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-surface-3">
                         <div
-                          className="h-full rounded-full bg-primary"
+                          className={`h-full rounded-full ${marketplaceBarColor[marketplace]}`}
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -149,7 +169,7 @@ export function DashboardPage() {
           </div>
 
           {pendingGroups > 0 ? (
-            <section className="rounded-lg border border-primary/30 bg-surface-1 p-6">
+            <section className="rounded-lg border border-primary/40 bg-surface-1 p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-sm font-medium text-ink">
@@ -161,7 +181,7 @@ export function DashboardPage() {
                 </div>
                 <Link
                   to="/orders/consolidation"
-                  className="rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-on-primary hover:bg-primary-hover"
+                  className="rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-on-primary shadow-[0_0_0_1px_rgba(99,102,241,0.35)] transition-colors hover:bg-primary-hover"
                 >
                   Duyệt gộp đơn
                 </Link>

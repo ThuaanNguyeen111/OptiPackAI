@@ -6,7 +6,7 @@ Giao diện web OptiPackAI (AOFP) — React + Vite + Tailwind CSS.
 
 UI tuân theo **[DESIGN.md](./DESIGN.md)** (Linear style từ [getdesign.md](https://getdesign.md/)).
 
-- **Dark** (mặc định): canvas `#010102`, surface ladder, lavender `#5e6ad2`
+- **Dark** (mặc định): **Twitter Dim** — canvas `#15202B`, cards `#192734` / `#22303C`, border `#38444D`, ink `#F7F9F9` · accent Linear lavender `#5e6ad2`
 - **Light**: inverse tokens (`inverse-canvas`, `inverse-surface-*`, `inverse-ink`)
 - Toggle theme trên Header (Sun/Moon) · lưu `localStorage` key `optipack-theme`
 

@@ -48,7 +48,7 @@ export function Header({ title, description }: HeaderProps) {
         >
           <Bell className="h-4 w-4" strokeWidth={1.75} />
         </button>
-        <Button variant="primary">Đồng bộ đơn</Button>
+        <Button variant="ghost">Đồng bộ đơn</Button>
       </div>
     </header>
   )
