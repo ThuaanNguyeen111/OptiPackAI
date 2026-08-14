@@ -1,75 +1,53 @@
-# React + TypeScript + Vite
+# OptiPackAI Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Giao diện web OptiPackAI (AOFP) — React + Vite + Tailwind CSS.
 
-Currently, two official plugins are available:
+## Design system
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+UI tuân theo **[DESIGN.md](./DESIGN.md)** (Linear style từ [getdesign.md](https://getdesign.md/)).
 
-## React Compiler
+Khi dùng AI coding agent, luôn nhắc:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+> Follow `fe/DESIGN.md` for all UI work.
 
-## Expanding the ESLint configuration
+## Flow 1 — Omnichannel sync & order consolidation
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+| Route | Màn hình |
+|-------|----------|
+| `/` | Dashboard — KPI gộp đơn, đơn theo sàn, sync health |
+| `/integrations` | Kết nối Shopee/TikTok, nhật ký webhook |
+| `/orders` | Danh sách đơn + filter pipeline |
+| `/orders/consolidation` | Gộp đơn theo khách (core Flow 1) |
+| `/orders/:id` | Chi tiết đơn + timeline xử lý |
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Dữ liệu hiện tại là **mock** (`src/data/`). Khi BE sẵn sàng, thay bằng API.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Chạy dev
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Scripts
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+| Lệnh | Mô tả |
+|------|--------|
+| `npm run dev` | Dev server Vite |
+| `npm run build` | Build production |
+| `npm run lint` | ESLint |
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Cấu trúc
 
+```
+src/
+  components/
+    integrations/   # Platform card, sync log
+    orders/         # Table, badges, consolidation, timeline
+    layout/         # Sidebar, Header
+    ui/             # Button, Badge
+  pages/            # Flow 1 pages
+  data/             # Mock data
+  types/            # Order, consolidation types
+  utils/            # formatCurrency, formatDate
+DESIGN.md
 ```
