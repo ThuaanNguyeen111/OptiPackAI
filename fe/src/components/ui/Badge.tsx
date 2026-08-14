@@ -10,8 +10,8 @@ type BadgeProps = {
 const toneClasses: Record<BadgeTone, string> = {
   default: 'bg-surface-2 text-ink-muted',
   success: 'bg-success/15 text-success',
-  warning: 'bg-amber-500/15 text-amber-300',
-  primary: 'bg-primary/15 text-primary-hover',
+  warning: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  primary: 'bg-primary/15 text-primary dark:text-primary-hover',
 }
 
 export function Badge({ children, tone = 'default' }: BadgeProps) {

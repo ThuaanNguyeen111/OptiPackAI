@@ -59,7 +59,9 @@ export function OrderTable({ orders }: OrderTableProps) {
                   </span>
                 ) : null}
                 {order.priority === 'urgent' ? (
-                  <span className="mt-1 block text-xs text-amber-300">Ưu tiên</span>
+                  <span className="mt-1 block text-xs text-amber-700 dark:text-amber-300">
+                    Ưu tiên
+                  </span>
                 ) : null}
               </td>
               <td className="px-4 py-3 text-ink-muted">

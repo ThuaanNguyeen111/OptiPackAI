@@ -3,22 +3,62 @@
 @import '@fontsource/inter/600.css';
 @import 'tailwindcss';
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Linear DESIGN.md tokens — dark default, light via inverse-* */
+:root,
+html.dark {
+  --app-primary: #5e6ad2;
+  --app-primary-hover: #828fff;
+  --app-primary-focus: #5e69d1;
+  --app-on-primary: #ffffff;
+  --app-ink: #f7f8f8;
+  --app-ink-muted: #d0d6e0;
+  --app-ink-subtle: #8a8f98;
+  --app-ink-tertiary: #62666d;
+  --app-canvas: #010102;
+  --app-surface-1: #0f1011;
+  --app-surface-2: #141516;
+  --app-surface-3: #18191a;
+  --app-hairline: #23252a;
+  --app-hairline-strong: #34343a;
+  --app-success: #27a644;
+}
+
+html.light {
+  --app-primary: #5e6ad2;
+  --app-primary-hover: #4f5bc4;
+  --app-primary-focus: #5e69d1;
+  --app-on-primary: #ffffff;
+  --app-ink: #000000;
+  --app-ink-muted: #3a3a3c;
+  --app-ink-subtle: #6b6b70;
+  --app-ink-tertiary: #8a8a90;
+  --app-canvas: #ffffff;
+  --app-surface-1: #f5f6f6;
+  --app-surface-2: #f6f7f7;
+  --app-surface-3: #eeeeef;
+  --app-hairline: #e5e5e7;
+  --app-hairline-strong: #d0d0d4;
+  --app-success: #27a644;
+}
+
 @theme {
-  --color-primary: #5e6ad2;
-  --color-primary-hover: #828fff;
-  --color-primary-focus: #5e69d1;
-  --color-on-primary: #ffffff;
-  --color-ink: #f7f8f8;
-  --color-ink-muted: #d0d6e0;
-  --color-ink-subtle: #8a8f98;
-  --color-ink-tertiary: #62666d;
-  --color-canvas: #010102;
-  --color-surface-1: #0f1011;
-  --color-surface-2: #141516;
-  --color-surface-3: #18191a;
-  --color-hairline: #23252a;
-  --color-hairline-strong: #34343a;
-  --color-success: #27a644;
+  --color-primary: var(--app-primary);
+  --color-primary-hover: var(--app-primary-hover);
+  --color-primary-focus: var(--app-primary-focus);
+  --color-on-primary: var(--app-on-primary);
+  --color-ink: var(--app-ink);
+  --color-ink-muted: var(--app-ink-muted);
+  --color-ink-subtle: var(--app-ink-subtle);
+  --color-ink-tertiary: var(--app-ink-tertiary);
+  --color-canvas: var(--app-canvas);
+  --color-surface-1: var(--app-surface-1);
+  --color-surface-2: var(--app-surface-2);
+  --color-surface-3: var(--app-surface-3);
+  --color-hairline: var(--app-hairline);
+  --color-hairline-strong: var(--app-hairline-strong);
+  --color-success: var(--app-success);
   --font-sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --radius-xs: 4px;
@@ -37,6 +77,10 @@
 
   html {
     color-scheme: dark;
+  }
+
+  html.light {
+    color-scheme: light;
   }
 
   body {

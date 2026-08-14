@@ -1,4 +1,5 @@
-import { Bell, Search } from 'lucide-react'
+import { Bell, Moon, Search, Sun } from 'lucide-react'
+import { useTheme } from '../../hooks/useTheme'
 import { Button } from '../ui/Button'
 
 type HeaderProps = {
@@ -7,6 +8,8 @@ type HeaderProps = {
 }
 
 export function Header({ title, description }: HeaderProps) {
+  const { theme, toggleTheme } = useTheme()
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-hairline bg-canvas px-6">
       <div>
@@ -25,6 +28,19 @@ export function Header({ title, description }: HeaderProps) {
             className="h-9 w-64 rounded-md border border-hairline bg-surface-1 py-2 pr-3 pl-9 text-sm text-ink placeholder:text-ink-tertiary focus:border-hairline-strong focus:outline-none focus:ring-2 focus:ring-primary-focus/50"
           />
         </div>
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex h-9 w-9 items-center justify-center rounded-md border border-hairline bg-surface-1 text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+          aria-label={theme === 'dark' ? 'Chuyển sang light mode' : 'Chuyển sang dark mode'}
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-4 w-4" strokeWidth={1.75} />
+          ) : (
+            <Moon className="h-4 w-4" strokeWidth={1.75} />
+          )}
+        </button>
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center rounded-md border border-hairline bg-surface-1 text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
