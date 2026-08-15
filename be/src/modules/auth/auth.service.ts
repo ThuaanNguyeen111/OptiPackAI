@@ -3,21 +3,36 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
-import { Model } from 'mongoose';
+import { randomBytes } from 'crypto';
+import { Model, Types } from 'mongoose';
+import { hashToken } from '../../common/utils/hash.util';
 import { requireEnv } from '../../common/utils/env.util';
+import { UserRole } from '../../common/enums/user-role.enum';
+import { MailService } from '../mail/mail.service';
 import { UserDocument } from '../users/schemas/user.schema';
 import { UsersService } from '../users/services/users.service';
 import { LoginAuditLog, LoginAuditLogDocument } from './schemas/login-audit-log.schema';
+import { TrustedDevice, TrustedDeviceDocument } from './schemas/trusted-device.schema';
 import { MfaService } from './services/mfa.service';
 import { RequestMeta, TokenPair, TokenService } from './services/token.service';
 
 export interface LoginResult extends TokenPair {
   must_change_password: boolean;
-  role: string;
+  role: UserRole;
+  trusted_device_token?: string;
 }
 
 export interface MfaRequiredResult {
   mfa_required: true;
+}
+
+export interface LoginParams {
+  email: string;
+  password: string;
+  mfaToken?: string;
+  backupCode?: string;
+  deviceToken?: string;
+  meta: RequestMeta;
 }
 
 interface GoogleTokenResponse {
@@ -31,11 +46,6 @@ interface GoogleUserInfo {
   picture: string;
 }
 
-//!=============================================
-// STRICT FIX: type guard cho response fetch() từ Google — .json() luôn trả
-// `any`, trước đây ép kiểu thẳng bằng `as` (unsafe). Giờ kiểm tra runtime
-// từng field bắt buộc trước khi tin dùng.
-//!=============================================
 function isGoogleTokenResponse(value: unknown): value is GoogleTokenResponse {
   if (typeof value !== 'object' || value === null) return false;
   return typeof (value as Record<string, unknown>).access_token === 'string';
@@ -55,6 +65,11 @@ function isGoogleUserInfo(value: unknown): value is GoogleUserInfo {
 const DUMMY_PASSWORD_HASH =
   '$2b$12$Xk9m3vN7pQ2wZ8yB1cD4EeR5tY6uI7oP0aS3fG9hJ2kL4mN6oQ8wS';
 
+// FIX #27: thiết bị tin cậy sống 30 ngày, không hỏi lại MFA trong khoảng này
+const TRUSTED_DEVICE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+// FIX #24: link quên mật khẩu có hạn 30 phút
+const PASSWORD_RESET_WINDOW_MINUTES = 30;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -63,19 +78,18 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly mfaService: MfaService,
+    private readonly mailService: MailService,
     @InjectModel(LoginAuditLog.name)
     private readonly auditLogModel: Model<LoginAuditLogDocument>,
+    @InjectModel(TrustedDevice.name)
+    private readonly trustedDeviceModel: Model<TrustedDeviceDocument>,
   ) {}
 
   //!=============================================
   // 1. LOGIN BẰNG EMAIL/PASSWORD
   //!=============================================
-  async login(
-    email: string,
-    password: string,
-    mfaToken: string | undefined,
-    meta: RequestMeta,
-  ): Promise<LoginResult | MfaRequiredResult> {
+  async login(params: LoginParams): Promise<LoginResult | MfaRequiredResult> {
+    const { email, password, mfaToken, backupCode, deviceToken, meta } = params;
     const user = await this.usersService.findByEmail(email);
 
     if (user && this.usersService.isLocked(user)) {
@@ -100,12 +114,22 @@ export class AuthService {
       throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin');
     }
 
+    //!=============================================
+    // FIX #25: Quá hạn 72h chưa đổi mật khẩu -> khóa cứng, chặn NGAY TỪ LÚC
+    // LOGIN (không đợi tới request sau mới bị JwtStrategy chặn —
+    // tườn minh hơn: báo lỗi ngay, không cho tưởng nhầm là đăng nhập thành công).
+    //!=============================================
+    if (this.usersService.isPastPasswordDeadline(user)) {
+      await this.writeAuditLog(email, false, meta, user.id, 'password_deadline_exceeded');
+      void this.mailService.sendAccountLocked({ to: user.email, name: user.name });
+      throw new ForbiddenException(
+        'Tài khoản đã bị khóa do không đổi mật khẩu trong vòng 72 giờ kể từ khi được cấp. Vui lòng liên hệ Admin để được mở khóa.',
+      );
+    }
+
+    let newTrustedDeviceToken: string | undefined;
+
     if (user.mfa_enabled) {
-      //!=============================================
-      // STRICT FIX: thay `user.mfa_secret!` bằng kiểm tra rõ ràng — nếu
-      // mfa_enabled=true nhưng mfa_secret rỗng thì đây là dữ liệu bất thường
-      // (không nên xảy ra, nhưng KHÔNG được cast mù nếu nó xảy ra).
-      //!=============================================
       if (!user.mfa_secret) {
         await this.writeAuditLog(email, false, meta, user.id, 'mfa_misconfigured');
         throw new UnauthorizedException(
@@ -113,14 +137,41 @@ export class AuthService {
         );
       }
 
-      if (!mfaToken) {
-        return { mfa_required: true };
-      }
+      //!=============================================
+      // Ưu tiên kiểm tra device_token TRƯỚC — nếu thiết bị đã tin
+      // cậy (verify MFA thành công trong 30 ngày gần đây trên đúng thiết bị
+      // này), bỏ qua hoàn toàn bước hỏi mã MFA.
+      //!=============================================
+      const isTrustedDevice = deviceToken
+        ? await this.isDeviceTrusted(user.id, deviceToken)
+        : false;
 
-      const isMfaValid = this.mfaService.verifyToken(mfaToken, user.mfa_secret);
-      if (!isMfaValid) {
-        await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa');
-        throw new UnauthorizedException('Mã xác thực MFA không chính xác');
+      if (!isTrustedDevice) {
+        //!=============================================
+        // Cho phép đăng nhập bằng 1 trong 10 mã dự phòng thay vì mã
+        // TOTP — dùng khi mất điện thoại/mất app Authenticator.
+        //!=============================================
+        if (backupCode) {
+          const usedIndex = await this.mfaService.verifyBackupCode(
+            backupCode,
+            user.mfa_backup_codes,
+          );
+          if (usedIndex === -1) {
+            await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa_backup_code');
+            throw new UnauthorizedException('Mã dự phòng không chính xác hoặc đã được sử dụng');
+          }
+          await this.usersService.consumeBackupCode(user.id, usedIndex);
+          newTrustedDeviceToken = await this.issueTrustedDeviceToken(user.id, meta);
+        } else if (mfaToken) {
+          const isMfaValid = this.mfaService.verifyToken(mfaToken, user.mfa_secret);
+          if (!isMfaValid) {
+            await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa');
+            throw new UnauthorizedException('Mã xác thực MFA không chính xác');
+          }
+          newTrustedDeviceToken = await this.issueTrustedDeviceToken(user.id, meta);
+        } else {
+          return { mfa_required: true };
+        }
       }
     }
 
@@ -132,7 +183,36 @@ export class AuthService {
     await this.usersService.updateLastLogin(user.id);
     await this.writeAuditLog(email, true, meta, user.id);
 
-    return { ...tokens, must_change_password: user.must_change_password, role: user.role };
+    return {
+      ...tokens,
+      must_change_password: user.must_change_password,
+      role: user.role,
+      ...(newTrustedDeviceToken ? { trusted_device_token: newTrustedDeviceToken } : {}),
+    };
+  }
+
+  //!=============================================
+  //Sinh token thiết bị tin cậy mới sau khi verify MFA thật thành
+  // công. Trả về bản PLAINTEXT cho client lưu lại — server chỉ giữ HASH.
+  //!=============================================
+  private async issueTrustedDeviceToken(userId: string, meta: RequestMeta): Promise<string> {
+    const rawToken = randomBytes(32).toString('hex');
+    await this.trustedDeviceModel.create({
+      user_id: new Types.ObjectId(userId),
+      token_hash: hashToken(rawToken),
+      user_agent: meta.user_agent,
+      expires_at: new Date(Date.now() + TRUSTED_DEVICE_WINDOW_MS),
+    });
+    return rawToken;
+  }
+
+  private async isDeviceTrusted(userId: string, deviceToken: string): Promise<boolean> {
+    const found = await this.trustedDeviceModel.findOne({
+      user_id: new Types.ObjectId(userId),
+      token_hash: hashToken(deviceToken),
+      expires_at: { $gt: new Date() },
+    });
+    return !!found;
   }
 
   //!=============================================
@@ -171,6 +251,14 @@ export class AuthService {
     if (!user.is_active) {
       await this.writeAuditLog(normalizedEmail, false, meta, user.id, 'account_inactive');
       throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin');
+    }
+
+    //  đồng bộ luôn quy tắc khóa 72h cho cả đường login Google
+    if (this.usersService.isPastPasswordDeadline(user)) {
+      await this.writeAuditLog(normalizedEmail, false, meta, user.id, 'password_deadline_exceeded');
+      throw new ForbiddenException(
+        'Tài khoản đã bị khóa do không đổi mật khẩu trong vòng 72 giờ kể từ khi được cấp. Vui lòng liên hệ Admin để được mở khóa.',
+      );
     }
 
     await this.usersService.syncGoogleAvatar(user, googleUserInfo.picture);
@@ -248,11 +336,6 @@ export class AuthService {
       throw new UnauthorizedException('Xác thực Google thất bại');
     }
 
-    //!=============================================
-    // STRICT FIX: validate response bằng type guard thay vì `as` mù —
-    // fetch().json() trả `Promise<any>` theo lib.dom.d.ts, đây là điểm unsafe
-    // kinh điển nếu không kiểm tra.
-    //!=============================================
     const tokenData: unknown = await tokenResponse.json();
     if (!isGoogleTokenResponse(tokenData)) {
       throw new UnauthorizedException('Phản hồi từ Google không đúng định dạng mong đợi');
@@ -292,6 +375,52 @@ export class AuthService {
   }
 
   //!=============================================
+  //  QUÊN MẬT KHẨU — tự động qua email.
+  // Luôn trả về message GIỐNG NHAU dù email có tồn tại hay không -> chống dò
+  // email nào đã đăng ký trong hệ thống (information disclosure).
+  //!=============================================
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    const genericMessage = {
+      message: 'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi.',
+    };
+
+    const user = await this.usersService.findByEmail(email);
+    if (!user) return genericMessage;
+
+    const rawToken = randomBytes(32).toString('hex');
+    await this.usersService.setPasswordResetToken(
+      user.id,
+      hashToken(rawToken),
+      PASSWORD_RESET_WINDOW_MINUTES,
+    );
+
+    void this.mailService.sendPasswordReset({
+      to: user.email,
+      name: user.name,
+      resetToken: rawToken,
+      expiresInMinutes: PASSWORD_RESET_WINDOW_MINUTES,
+    });
+
+    return genericMessage;
+  }
+
+  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
+    const user = await this.usersService.findByValidResetToken(hashToken(token));
+    if (!user) {
+      throw new UnauthorizedException('Token không hợp lệ hoặc đã hết hạn, vui lòng yêu cầu lại');
+    }
+
+    await this.usersService.changePassword(user.id, newPassword);
+    await this.usersService.clearPasswordResetToken(user.id);
+    // Đổi mật khẩu qua đường quên mật khẩu cũng phải thu hồi mọi session cũ,
+    // giống hệt đổi mật khẩu thông thường (FIX #3 gốc) — phòng trường hợp
+    // chính kẻ chiếm được máy cũ mới là người kích hoạt luồng quên mật khẩu.
+    await this.tokenService.revokeAllForUser(user.id);
+
+    return { message: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.' };
+  }
+
+  //!=============================================
   // MFA
   //!=============================================
   async setupMfa(userId: string, email: string): Promise<{ otpauthUrl: string }> {
@@ -300,7 +429,12 @@ export class AuthService {
     return { otpauthUrl };
   }
 
-  async verifyMfaSetup(userId: string, token: string): Promise<{ message: string }> {
+  //!=============================================
+  //Sinh 10 mã dự phòng NGAY KHI bật MFA thành công — trả PLAINTEXT
+  // về cho client hiển thị ĐÚNG 1 LẦN DUY NHẤT (client có trách nhiệm nhắc
+  // user lưu/in ra giấy). Server chỉ giữ lại bản HASH.
+  //!=============================================
+  async verifyMfaSetup(userId: string, token: string): Promise<{ message: string; backup_codes: string[] }> {
     const user = await this.usersService.findById(userId);
     if (!user.mfa_secret) {
       throw new UnauthorizedException('Chưa khởi tạo MFA, gọi /auth/mfa/setup trước');
@@ -309,8 +443,16 @@ export class AuthService {
     if (!isValid) {
       throw new UnauthorizedException('Mã xác thực không chính xác');
     }
-    await this.usersService.enableMfa(userId);
-    return { message: 'Đã bật MFA thành công' };
+
+    const { plainCodes, hashedCodes } = await this.mfaService.generateBackupCodes();
+    await this.usersService.enableMfa(userId, hashedCodes);
+    void this.mailService.sendMfaEnabled({ to: user.email, name: user.name });
+
+    return {
+      message:
+        'Đã bật MFA thành công. LƯU LẠI 10 mã dự phòng bên dưới ở nơi an toàn — mỗi mã chỉ hiển thị 1 lần duy nhất và dùng được 1 lần.',
+      backup_codes: plainCodes,
+    };
   }
 
   //!=============================================
@@ -345,8 +487,6 @@ export class AuthService {
         user_agent: meta.user_agent,
       });
     } catch (err: unknown) {
-      // STRICT FIX: useUnknownInCatchVariables (mặc định trong strict mode) —
-      // catch variable giờ là `unknown`, không phải `any` ngầm định.
       console.error('Ghi audit log đăng nhập thất bại:', err);
     }
   }

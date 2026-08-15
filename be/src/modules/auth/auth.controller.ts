@@ -16,7 +16,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, LoginResult, MfaRequiredResult } from './auth.service';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { ChangePasswordDto, LoginDto, VerifyMfaSetupDto } from './dto';
+import { ChangePasswordDto, ForgotPasswordDto, LoginDto, ResetPasswordDto, VerifyMfaSetupDto } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/authenticated-request.interface';
 import type { RequestMeta, TokenPair } from './services/token.service';
@@ -29,13 +29,7 @@ export class AuthController {
     private readonly configService: ConfigService,
   ) {}
 
-  //!=============================================
-  // STRICT FIX: ép `req.headers['user-agent']` qua `unknown` trước rồi mới
-  // narrow bằng `typeof` — không tin thẳng kiểu suy ra từ @types/express nữa
-  // (từng bị resolve nhầm thành `any` sau khi cài lại node_modules, khiến
-  // ESLint no-unsafe-assignment báo lỗi). Cách này an toàn tuyệt đối bất kể
-  // @types/express có đang bị lệch version hay không.
-  //!=============================================
+
   private extractMeta(req: Request): RequestMeta {
     const rawUserAgent: unknown = req.headers['user-agent'];
     const userAgent = typeof rawUserAgent === 'string' ? rawUserAgent : undefined;
@@ -57,16 +51,36 @@ export class AuthController {
     @Body() loginDto: LoginDto,
     @Req() req: Request,
   ): Promise<LoginResult | MfaRequiredResult> {
-    return this.authService.login(
-      loginDto.email,
-      loginDto.password,
-      loginDto.mfa_token,
-      this.extractMeta(req),
-    );
+    return this.authService.login({
+      email: loginDto.email,
+      password: loginDto.password,
+      mfaToken: loginDto.mfa_token,
+      backupCode: loginDto.backup_code,
+      deviceToken: loginDto.device_token,
+      meta: this.extractMeta(req),
+    });
   }
 
   //!=============================================
-  // 2. ĐỔI MẬT KHẨU
+  // 2. QUÊN MẬT KHẨU (tự động qua email — FIX #2)
+  //!=============================================
+  @ApiOperation({ summary: 'Gửi email hướng dẫn đặt lại mật khẩu' })
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<{ message: string }> {
+    return this.authService.forgotPassword(dto.email);
+  }
+
+  @ApiOperation({ summary: 'Đặt lại mật khẩu bằng token nhận được qua email' })
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ message: string }> {
+    return this.authService.resetPassword(dto.token, dto.new_password);
+  }
+
+  //!=============================================
+  // 3. ĐỔI MẬT KHẨU
   //!=============================================
   @ApiOperation({ summary: 'Đổi mật khẩu (bắt buộc nếu must_change_password = true)' })
   @ApiBearerAuth('JWT-auth')
@@ -104,12 +118,12 @@ export class AuthController {
   async verifyMfaSetup(
     @Body() verifyDto: VerifyMfaSetupDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; backup_codes: string[] }> {
     return this.authService.verifyMfaSetup(user.userId, verifyDto.token);
   }
 
   //!=============================================
-  // 3. REFRESH TOKEN
+  // 4. REFRESH TOKEN
   //!=============================================
   @ApiOperation({ summary: 'Làm mới access token bằng refresh token' })
   @ApiBody({ schema: { properties: { refresh_token: { type: 'string' } } } })
@@ -123,7 +137,7 @@ export class AuthController {
   }
 
   //!=============================================
-  // 4. ĐĂNG XUẤT
+  // 5. ĐĂNG XUẤT
   //!=============================================
   @ApiOperation({ summary: 'Đăng xuất khỏi hệ thống (thu hồi refresh token)' })
   @ApiBearerAuth('JWT-auth')
@@ -175,7 +189,7 @@ export class AuthController {
       const params = new URLSearchParams({
         access_token: result.access_token,
         refresh_token: result.refresh_token,
-        role: result.role,
+        role: String(result.role),
         must_change_password: String(result.must_change_password),
       });
       return { url: `${frontendUrl}?${params.toString()}` };

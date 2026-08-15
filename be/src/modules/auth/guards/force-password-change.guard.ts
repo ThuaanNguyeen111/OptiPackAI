@@ -8,11 +8,6 @@ export class ForcePasswordChangeGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const { user } = request;
-
-    //!=============================================
-    // FIX: user giờ optional -> nếu thiếu (JwtAuthGuard chưa chạy trước),
-    // không phải việc của guard này để chặn — để guard khác xử lý.
-    //!=============================================
     if (!user) {
       return true;
     }

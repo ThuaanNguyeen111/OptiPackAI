@@ -1,6 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { LoginType, UserRole } from '../../../common/enums/user-role.enum';
+import {
+  LoginType,
+  USER_ROLE_VALUES,
+  UserRole,
+} from '../../../common/enums/user-role.enum';
 
 @Schema({
   collection: 'users',
@@ -10,23 +14,23 @@ export class User {
   @Prop({ required: true, trim: true })
   name!: string;
 
-  //!=============================================
-  // FIX #10: Bỏ unique: true đơn thuần — chuyển sang PARTIAL unique index bên dưới
-  // để có thể tái sử dụng email của tài khoản đã bị vô hiệu hóa (is_active: false).
-  //!=============================================
   @Prop({ required: true, lowercase: true, trim: true })
   email!: string;
 
   @Prop()
   password?: string;
 
-  @Prop({ type: String, enum: Object.values(UserRole), required: true })
+  @Prop({ type: Number, enum: USER_ROLE_VALUES, required: true })
   role!: UserRole;
 
   @Prop({ default: '' })
   avatar!: string;
 
-  @Prop({ type: String, enum: Object.values(LoginType), default: LoginType.LOCAL })
+  @Prop({
+    type: String,
+    enum: Object.values(LoginType),
+    default: LoginType.LOCAL,
+  })
   login_type!: LoginType;
 
   @Prop({ default: true })
@@ -41,37 +45,58 @@ export class User {
   @Prop({ type: Date })
   last_login_at?: Date;
 
-  //!=============================================
-  // FIX #16: Account lockout — đếm số lần login sai liên tiếp, khóa tạm khi vượt ngưỡng
-  //!=============================================
   @Prop({ default: 0 })
   failed_login_attempts!: number;
 
   @Prop({ type: Date })
   locked_until?: Date;
 
-  //!=============================================
-  // FIX #17: MFA (TOTP) — bắt buộc cho role Admin
-  //!=============================================
   @Prop()
   mfa_secret?: string;
 
   @Prop({ default: false })
   mfa_enabled!: boolean;
+
+  @Prop({ type: [String], default: [] })
+  mfa_backup_codes!: string[];
+
+  @Prop({ trim: true })
+  phone?: string;
+
+  @Prop({ trim: true })
+  address?: string;
+
+  @Prop({ trim: true })
+  employee_code?: string;
+
+  @Prop({ trim: true })
+  department?: string;
+
+  @Prop()
+  reset_password_token_hash?: string;
+
+  @Prop({ type: Date })
+  reset_password_expires?: Date;
+
+  @Prop({ type: Date })
+  must_change_password_by?: Date;
+  created_at?: Date;
+  updated_at?: Date;
 }
 
 export type UserDocument = HydratedDocument<User>;
 export const UserSchema = SchemaFactory.createForClass(User);
 
-//!=============================================
-// FIX #10: Partial unique index — chỉ enforce unique email trong phạm vi
-// tài khoản CÒN HOẠT ĐỘNG (is_active: true). Cho phép tạo tài khoản mới với
-// email đã từng thuộc về 1 tài khoản đã bị vô hiệu hóa trước đó.
-//!=============================================
 UserSchema.index(
   { email: 1 },
   { unique: true, partialFilterExpression: { is_active: true } },
 );
 
-// Phục vụ: UsersController.findAll?role=xxx&is_active=xxx
 UserSchema.index({ role: 1, is_active: 1 });
+UserSchema.index(
+  { employee_code: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { employee_code: { $type: 'string' } },
+  },
+);

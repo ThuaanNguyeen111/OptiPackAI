@@ -1,12 +1,14 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import { isUserRole } from '../enums/user-role.enum';
+import { isUserRole, UserRole } from '../enums/user-role.enum';
 
 export interface CachedUserAuthState {
   is_active: boolean;
   must_change_password: boolean;
-  role: string;
+  role: UserRole;
+
+  must_change_password_by?: string;
 }
 
 @Injectable()
@@ -21,20 +23,17 @@ export class RedisCacheService implements OnModuleDestroy {
     });
   }
 
-  //!=============================================
-  // STRICT FIX: JSON.parse() trả về `any` — trước đây ép kiểu thẳng bằng `as`
-  // (unsafe assignment). Giờ validate TỪNG FIELD bằng type guard thật, nếu dữ
-  // liệu cache bị hỏng/không đúng shape thì coi như cache miss (an toàn hơn
-  // là tin tưởng mù quáng vào dữ liệu từ Redis).
-  //!=============================================
+
   private isCachedUserAuthState(value: unknown): value is CachedUserAuthState {
     if (typeof value !== 'object' || value === null) return false;
     const candidate = value as Record<string, unknown>;
     return (
       typeof candidate.is_active === 'boolean' &&
       typeof candidate.must_change_password === 'boolean' &&
-      typeof candidate.role === 'string' &&
-      isUserRole(candidate.role)
+      typeof candidate.role === 'number' &&
+      isUserRole(candidate.role) &&
+      (candidate.must_change_password_by === undefined ||
+        typeof candidate.must_change_password_by === 'string')
     );
   }
 

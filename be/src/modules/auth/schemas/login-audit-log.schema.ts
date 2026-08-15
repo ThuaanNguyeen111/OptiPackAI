@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 //!=============================================
-// FIX #6: Audit log đăng nhập — ghi lại MỌI lần thử login, kể cả thất bại,
+// Audit log đăng nhập — ghi lại MỌI lần thử login, kể cả thất bại,
 // phục vụ điều tra khi có sự cố bảo mật (ai truy cập, lúc nào, từ đâu).
 //!=============================================
 @Schema({
@@ -34,3 +34,12 @@ export const LoginAuditLogSchema = SchemaFactory.createForClass(LoginAuditLog);
 
 // Phục vụ: tra lịch sử đăng nhập của 1 user, mới nhất trước
 LoginAuditLogSchema.index({ user_id: 1, created_at: -1 });
+
+//!=============================================
+//  TTL index — MongoDB TỰ ĐỘNG xóa log cũ hơn 60 ngày (~2 tháng),
+// tránh collection phình theo thời gian .
+//!=============================================
+LoginAuditLogSchema.index(
+  { created_at: 1 },
+  { expireAfterSeconds: 60 * 60 * 24 * 60 },
+);

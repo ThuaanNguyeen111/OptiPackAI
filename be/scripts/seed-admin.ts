@@ -1,10 +1,3 @@
-/**
- * Tạo tài khoản Admin đầu tiên cho hệ thống — chạy 1 lần duy nhất lúc setup.
- * Vì OptiPackAI không cho tự đăng ký, cần script này để "phá vỡ" vòng lặp
- * con-gà-quả-trứng (phải có Admin mới tạo được user khác).
- *
- * Chạy: npm run seed:admin
- */
 import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
@@ -17,8 +10,8 @@ async function seedAdmin() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const userModel = app.get<Model<UserDocument>>(getModelToken(User.name));
 
-  const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@optipackai.com';
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'ChangeMe123@';
+  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@optipackai.com';
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'ChangeMe123@';
 
   const existing = await userModel.findOne({ email: adminEmail });
   if (existing) {
@@ -46,7 +39,8 @@ async function seedAdmin() {
   await app.close();
 }
 
-seedAdmin().catch((err) => {
-  console.error('❌ Lỗi khi seed Admin:', err);
+seedAdmin().catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error('❌ Lỗi khi seed Admin:', message);
   process.exit(1);
 });

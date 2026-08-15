@@ -14,10 +14,6 @@ import { TokenService } from './services/token.service';
       useFactory: (configService: ConfigService) => ({
         secret: requireEnv(configService.get<string>('jwt.secret'), 'JWT_SECRET'),
         signOptions: {
-          //!=============================================
-          // FIX: expiresIn giờ là number (giây) — khớp đúng kiểu
-          // `number | StringValue` mà @nestjs/jwt yêu cầu, không còn lỗi TS2769.
-          //!=============================================
           expiresIn: configService.get<number>('jwt.expiresIn', 86400),
           algorithm: 'HS256' as const,
         },

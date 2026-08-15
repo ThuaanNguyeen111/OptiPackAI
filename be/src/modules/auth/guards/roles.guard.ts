@@ -9,12 +9,7 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
-    //!=============================================
-    // FIX: generic đổi từ <UserRole[]> sang <UserRole[] | undefined> — khớp
-    // ĐÚNG với hành vi thực tế của getAllAndOverride() (trả undefined khi
-    // handler không gắn @Roles()). Trước đây TS tin nhầm luôn có giá trị,
-    // khiến check `!requiredRoles` bị ESLint coi là "unnecessary".
-    //!=============================================
+  
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[] | undefined>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),

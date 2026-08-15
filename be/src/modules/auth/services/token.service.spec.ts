@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Types } from 'mongoose';
+import { UserRole } from '../../../common/enums/user-role.enum';
 import { RefreshToken } from '../schemas/refresh-token.schema';
 import { TokenService } from './token.service';
 
@@ -14,18 +15,33 @@ describe('TokenService.rotateRefreshToken', () => {
     deleteOne: jest.Mock;
     deleteMany: jest.Mock;
   };
+ 
+  let generateTokenPairSpy: jest.SpyInstance;
 
   const userId = new Types.ObjectId().toString();
   const rawToken = 'raw-refresh-token';
   const meta = { ip_address: '127.0.0.1', user_agent: 'jest' };
 
-  const activeSubject = { id: userId, email: 'staff@optipackai.com', role: 'warehouse_staff', isActive: true };
+  const activeSubject = {
+    id: userId,
+    email: 'staff@optipackai.com',
+    role: UserRole.WAREHOUSE_STAFF,
+    isActive: true,
+  };
 
   //!=============================================
   // Đại diện 1 RefreshToken document còn hợp lệ (chưa revoke, chưa hết hạn).
   // save() là mock riêng để verify được gọi đúng khi rotate thành công.
   //!=============================================
-  function makeStoredToken(overrides: Partial<{ is_revoked: boolean; exp: Date }> = {}) {
+  function makeStoredToken(
+    overrides: Partial<{ is_revoked: boolean; exp: Date }> = {},
+  ): {
+    _id: Types.ObjectId;
+    user_id: Types.ObjectId;
+    is_revoked: boolean;
+    exp: Date;
+    save: jest.Mock;
+  } {
     return {
       _id: new Types.ObjectId(),
       user_id: new Types.ObjectId(userId),
@@ -45,9 +61,15 @@ describe('TokenService.rotateRefreshToken', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TokenService,
-        { provide: JwtService, useValue: { signAsync: jest.fn(), decode: jest.fn() } },
+        {
+          provide: JwtService,
+          useValue: { signAsync: jest.fn(), decode: jest.fn() },
+        },
         { provide: ConfigService, useValue: { get: jest.fn() } },
-        { provide: getModelToken(RefreshToken.name), useValue: refreshTokenModel },
+        {
+          provide: getModelToken(RefreshToken.name),
+          useValue: refreshTokenModel,
+        },
       ],
     }).compile();
 
@@ -57,17 +79,23 @@ describe('TokenService.rotateRefreshToken', () => {
     // Cô lập rotateRefreshToken() khỏi generateTokenPair() (đã có test riêng
     // ở phần khác) — chỉ cần verify rotate GỌI ĐÚNG nó với đúng subject.
     //!=============================================
-    jest.spyOn(service, 'generateTokenPair').mockResolvedValue({
-      access_token: 'new-access-token',
-      refresh_token: 'new-refresh-token',
-    });
+    generateTokenPairSpy = jest
+      .spyOn(service, 'generateTokenPair')
+      .mockResolvedValue({
+        access_token: 'new-access-token',
+        refresh_token: 'new-refresh-token',
+      });
   });
 
   it('token không tồn tại trong DB -> 401', async () => {
     refreshTokenModel.findOne.mockResolvedValue(null);
 
     await expect(
-      service.rotateRefreshToken(rawToken, meta, jest.fn().mockResolvedValue(activeSubject)),
+      service.rotateRefreshToken(
+        rawToken,
+        meta,
+        jest.fn().mockResolvedValue(activeSubject),
+      ),
     ).rejects.toThrow(UnauthorizedException);
   });
 
@@ -76,7 +104,11 @@ describe('TokenService.rotateRefreshToken', () => {
     refreshTokenModel.findOne.mockResolvedValue(stored);
 
     await expect(
-      service.rotateRefreshToken(rawToken, meta, jest.fn().mockResolvedValue(activeSubject)),
+      service.rotateRefreshToken(
+        rawToken,
+        meta,
+        jest.fn().mockResolvedValue(activeSubject),
+      ),
     ).rejects.toThrow(UnauthorizedException);
 
     // Đây là phần quan trọng nhất cần test: không chỉ từ chối token này,
@@ -85,7 +117,7 @@ describe('TokenService.rotateRefreshToken', () => {
       user_id: new Types.ObjectId(userId),
     });
     // Không được sinh token mới trong tình huống này
-    expect(service.generateTokenPair).not.toHaveBeenCalled();
+    expect(generateTokenPairSpy).not.toHaveBeenCalled();
   });
 
   it('token đã hết hạn -> 401, xóa document đó khỏi DB', async () => {
@@ -93,10 +125,16 @@ describe('TokenService.rotateRefreshToken', () => {
     refreshTokenModel.findOne.mockResolvedValue(stored);
 
     await expect(
-      service.rotateRefreshToken(rawToken, meta, jest.fn().mockResolvedValue(activeSubject)),
+      service.rotateRefreshToken(
+        rawToken,
+        meta,
+        jest.fn().mockResolvedValue(activeSubject),
+      ),
     ).rejects.toThrow(UnauthorizedException);
 
-    expect(refreshTokenModel.deleteOne).toHaveBeenCalledWith({ _id: stored._id });
+    expect(refreshTokenModel.deleteOne).toHaveBeenCalledWith({
+      _id: stored._id,
+    });
     // Hết hạn thông thường KHÔNG phải reuse-attack -> không cần revoke toàn bộ
     expect(refreshTokenModel.deleteMany).not.toHaveBeenCalled();
   });
@@ -107,7 +145,11 @@ describe('TokenService.rotateRefreshToken', () => {
     const inactiveSubject = { ...activeSubject, isActive: false };
 
     await expect(
-      service.rotateRefreshToken(rawToken, meta, jest.fn().mockResolvedValue(inactiveSubject)),
+      service.rotateRefreshToken(
+        rawToken,
+        meta,
+        jest.fn().mockResolvedValue(inactiveSubject),
+      ),
     ).rejects.toThrow(UnauthorizedException);
 
     expect(stored.save).not.toHaveBeenCalled();
@@ -123,7 +165,7 @@ describe('TokenService.rotateRefreshToken', () => {
     expect(stored.is_revoked).toBe(true);
     expect(stored.save).toHaveBeenCalledTimes(1);
     expect(getSubject).toHaveBeenCalledWith(userId);
-    expect(service.generateTokenPair).toHaveBeenCalledWith(activeSubject, meta);
+    expect(generateTokenPairSpy).toHaveBeenCalledWith(activeSubject, meta);
     expect(result).toEqual({
       access_token: 'new-access-token',
       refresh_token: 'new-refresh-token',

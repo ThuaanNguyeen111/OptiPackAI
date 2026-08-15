@@ -2,8 +2,9 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
-import { createHash } from 'crypto';
 import { Model, Types } from 'mongoose';
+import { hashToken } from '../../../common/utils/hash.util';
+import { UserRole } from '../../../common/enums/user-role.enum';
 import { RefreshToken, RefreshTokenDocument } from '../schemas/refresh-token.schema';
 
 export interface TokenPair {
@@ -14,7 +15,7 @@ export interface TokenPair {
 export interface TokenSubject {
   id: string;
   email: string;
-  role: string;
+  role: UserRole;
 }
 
 export interface RequestMeta {
@@ -22,10 +23,7 @@ export interface RequestMeta {
   user_agent?: string;
 }
 
-//!=============================================
-// STRICT FIX: kiểu + type guard cho kết quả jwtService.decode(), thay vì
-// `as { iat: number; exp: number }` (unsafe cast không kiểm chứng).
-//!=============================================
+
 interface DecodedJwtTimestamps {
   iat: number;
   exp: number;
@@ -46,35 +44,24 @@ export class TokenService {
     private readonly refreshTokenModel: Model<RefreshTokenDocument>,
   ) {}
 
-  private hashToken(rawToken: string): string {
-    return createHash('sha256').update(rawToken).digest('hex');
-  }
-
   async generateTokenPair(user: TokenSubject, meta: RequestMeta = {}): Promise<TokenPair> {
     const payload = { sub: user.id, email: user.email, role: user.role };
 
     const [accessToken, refreshTokenValue] = await Promise.all([
       this.jwtService.signAsync(payload),
       this.jwtService.signAsync(payload, {
-        //!=============================================
-        // FIX: expiresIn giờ là number (giây), không còn dùng chuỗi "30d"
-        // -> khớp đúng kiểu `number | StringValue` mà @nestjs/jwt yêu cầu.
-        //!=============================================
+      
         expiresIn: this.configService.get<number>('jwt.refreshExpiresIn', 2592000),
       }),
     ]);
 
-    //!=============================================
-    // STRICT FIX: validate kết quả decode bằng type guard, throw rõ ràng
-    // nếu bất thường thay vì cast mù rồi lỗi khó hiểu ở downstream.
-    //!=============================================
     const decoded: unknown = this.jwtService.decode(refreshTokenValue);
     if (!isDecodedJwtTimestamps(decoded)) {
       throw new Error('Không thể giải mã refresh token vừa sinh ra — lỗi hệ thống nghiêm trọng');
     }
 
     await this.refreshTokenModel.create({
-      token_hash: this.hashToken(refreshTokenValue),
+      token_hash: hashToken(refreshTokenValue),
       user_id: new Types.ObjectId(user.id),
       user_role: user.role,
       iat: new Date(decoded.iat * 1000),
@@ -92,7 +79,7 @@ export class TokenService {
     meta: RequestMeta,
     getSubject: (userId: string) => Promise<TokenSubject & { isActive: boolean }>,
   ): Promise<TokenPair> {
-    const tokenHash = this.hashToken(rawToken);
+    const tokenHash = hashToken(rawToken);
     const stored = await this.refreshTokenModel.findOne({ token_hash: tokenHash });
 
     if (!stored) {
@@ -124,7 +111,7 @@ export class TokenService {
   }
 
   async revokeToken(rawToken: string): Promise<void> {
-    const tokenHash = this.hashToken(rawToken);
+    const tokenHash = hashToken(rawToken);
     await this.refreshTokenModel.deleteOne({ token_hash: tokenHash });
   }
 
