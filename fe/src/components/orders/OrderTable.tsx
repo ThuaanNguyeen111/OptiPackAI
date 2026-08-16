@@ -45,7 +45,7 @@ export function OrderTable({ orders }: OrderTableProps) {
               className="border-b border-hairline/70 transition-colors last:border-b-0 hover:bg-surface-2/60"
             >
               <td className="px-4 py-3">
-                <Link to={`/orders/${order.id}`} className="group">
+                <Link to={`/app/orders/${order.id}`} className="group">
                   <p className="font-medium text-ink group-hover:text-primary-hover">
                     {order.id}
                   </p>

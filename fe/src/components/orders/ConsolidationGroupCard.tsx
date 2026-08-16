@@ -100,7 +100,7 @@ export function ConsolidationPreview({ group, orders }: ConsolidationPreviewProp
         {orders.map((order) => (
           <Link
             key={order.id}
-            to={`/orders/${order.id}`}
+            to={`/app/orders/${order.id}`}
             className="block rounded-md border border-hairline bg-surface-2/50 p-3 transition-colors hover:bg-surface-2"
           >
             <div className="flex items-center justify-between gap-2">

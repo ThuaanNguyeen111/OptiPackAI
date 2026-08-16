@@ -1,38 +1,64 @@
 @import '@fontsource/inter/400.css';
 @import '@fontsource/inter/500.css';
 @import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
 @import 'tailwindcss';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* Dark = Twitter Dim (#15202B) · accent indigo AI + brand marketplace */
-:root,
-html.dark {
-  /* Accent — vibrant indigo (AI / primary CTA) */
+/* Fallback before bootstrapTheme() runs — overridden by html.dark / html.light */
+:root {
   --app-primary: #6366f1;
   --app-primary-hover: #818cf8;
   --app-primary-focus: #6366f1;
   --app-on-primary: #ffffff;
-  /* Text — Twitter Dim ink */
-  --app-ink: #f7f9f9;
-  --app-ink-muted: #c8d1da;
-  --app-ink-subtle: #8b98a5;
-  --app-ink-tertiary: #6e7c8a;
-  /* Surfaces — Twitter Dim blue-black ladder */
-  --app-canvas: #15202b;
-  --app-surface-1: #192734;
-  --app-surface-2: #22303c;
-  --app-surface-3: #2a3a47;
-  --app-hairline: #38444d;
-  --app-hairline-strong: #536471;
-  /* Semantic + brand */
-  --app-success: #34d399;
-  --app-success-bg: #064e3b;
+  --app-ink: #f3f4f6;
+  --app-ink-muted: #cbd5e1;
+  --app-ink-subtle: #94a3b8;
+  --app-ink-tertiary: #64748b;
+  --app-canvas: #0b0e14;
+  --app-surface-1: #151922;
+  --app-surface-2: #1a1f2b;
+  --app-surface-3: #222734;
+  --app-hairline: #222734;
+  --app-hairline-strong: #2e3545;
+  --app-success: #10b981;
+  --app-success-bg: rgba(16, 185, 129, 0.12);
   --app-error: #f87171;
   --app-error-border: rgba(239, 68, 68, 0.2);
   --app-shopee: #ff6b00;
   --app-tiktok: #00e5ff;
-  --app-ghost-border: #374151;
+  --app-ghost-border: #222734;
+}
+
+/* Dark — OptiPackAI obsidian · indigo AI accent + marketplace brands */
+html.dark {
+  /* Accent — indigo (AI / primary CTA) */
+  --app-primary: #6366f1;
+  --app-primary-hover: #818cf8;
+  --app-primary-focus: #6366f1;
+  --app-on-primary: #ffffff;
+  /* Text */
+  --app-ink: #f3f4f6;
+  --app-ink-muted: #cbd5e1;
+  --app-ink-subtle: #94a3b8;
+  --app-ink-tertiary: #64748b;
+  /* Surfaces — deep obsidian ladder */
+  --app-canvas: #0b0e14;
+  --app-surface-1: #151922;
+  --app-surface-2: #1a1f2b;
+  --app-surface-3: #222734;
+  --app-hairline: #222734;
+  --app-hairline-strong: #2e3545;
+  /* Semantic + brand */
+  --app-success: #10b981;
+  --app-success-bg: rgba(16, 185, 129, 0.12);
+  --app-error: #f87171;
+  --app-error-border: rgba(239, 68, 68, 0.2);
+  --app-shopee: #ff6b00;
+  --app-tiktok: #00e5ff;
+  --app-ghost-border: #222734;
 }
 
 html.light {
@@ -59,6 +85,23 @@ html.light {
   --app-ghost-border: #d1d5db;
 }
 
+/* Landing page — cùng palette obsidian với /app */
+.landing {
+  --lp-bg: var(--app-canvas);
+  --lp-card: var(--app-surface-1);
+  --lp-border: var(--app-hairline);
+  --lp-ink: var(--app-ink);
+  --lp-muted: var(--app-ink-muted);
+  --lp-subtle: var(--app-ink-subtle);
+  --lp-primary: var(--app-primary);
+  --lp-primary-hover: var(--app-primary-hover);
+  --lp-shopee: var(--app-shopee);
+  --lp-tiktok: var(--app-tiktok);
+  color: var(--lp-ink);
+  background: var(--lp-bg);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+}
+
 @theme {
   --color-primary: var(--app-primary);
   --color-primary-hover: var(--app-primary-hover);
@@ -80,8 +123,14 @@ html.light {
   --color-shopee: var(--app-shopee);
   --color-tiktok: var(--app-tiktok);
   --color-ghost-border: var(--app-ghost-border);
+  --color-lp-bg: var(--app-canvas);
+  --color-lp-card: var(--app-surface-1);
+  --color-lp-border: var(--app-hairline);
+  --color-lp-ink: var(--app-ink);
+  --color-lp-muted: var(--app-ink-muted);
+  --color-lp-subtle: var(--app-ink-subtle);
   --font-sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;

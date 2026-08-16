@@ -10,26 +10,28 @@ import {
 } from 'lucide-react'
 
 const navItems = [
-  { to: '/', label: 'Tổng quan', icon: LayoutDashboard, end: true },
-  { to: '/integrations', label: 'Kết nối sàn', icon: Plug },
-  { to: '/orders', label: 'Đơn hàng', icon: ShoppingCart, end: true },
-  { to: '/orders/consolidation', label: 'Gộp đơn', icon: GitMerge },
-  { to: '/packaging', label: 'Đóng gói', icon: Box },
-  { to: '/shipping', label: 'Vận chuyển', icon: Truck },
-  { to: '/fulfillment', label: 'Fulfillment', icon: Package },
+  { to: '/app', label: 'Tổng quan', icon: LayoutDashboard, end: true },
+  { to: '/app/integrations', label: 'Kết nối sàn', icon: Plug },
+  { to: '/app/orders', label: 'Đơn hàng', icon: ShoppingCart, end: true },
+  { to: '/app/orders/consolidation', label: 'Gộp đơn', icon: GitMerge },
+  { to: '/app/packaging', label: 'Đóng gói', icon: Box },
+  { to: '/app/shipping', label: 'Vận chuyển', icon: Truck },
+  { to: '/app/fulfillment', label: 'Fulfillment', icon: Package },
 ]
 
 export function Sidebar() {
   return (
     <aside className="flex w-56 shrink-0 flex-col border-r border-hairline bg-canvas">
       <div className="flex h-14 items-center gap-2 border-b border-hairline px-4">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-semibold text-on-primary">
-          OP
-        </div>
-        <div>
-          <p className="text-sm font-medium tracking-tight text-ink">OptiPackAI</p>
-          <p className="text-xs text-ink-subtle">AOFP · Flow 1</p>
-        </div>
+        <NavLink to="/" className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-xs font-semibold text-on-primary">
+            OP
+          </div>
+          <div>
+            <p className="text-sm font-medium tracking-tight text-ink">OptiPackAI</p>
+            <p className="text-xs text-ink-subtle">AOFP · Flow 1</p>
+          </div>
+        </NavLink>
       </div>
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">

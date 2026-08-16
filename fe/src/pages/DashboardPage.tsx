@@ -1,132 +1,118 @@
-import { Link } from 'react-router-dom'
-import { Header } from '../components/layout/Header'
-import { Badge } from '../components/ui/Badge'
-import { mockConsolidationGroups } from '../data/mock-consolidation'
-import { mockIntegrations } from '../data/mock-integrations'
-import { mockOrders } from '../data/mock-orders'
-import { marketplaceLabels } from '../types/orders'
-import { formatCurrency, formatRelativeTime } from '../utils/format'
+import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { usePortal } from '../context/use-portal'
+import {
+  channelLabels,
+  channelVolume,
+  kpiOverview,
+  savingsTrend,
+} from '../data/portal-mock'
 
-const marketplaceBarColor = {
-  shopee: 'bg-shopee',
-  tiktok: 'bg-tiktok',
-} as const
+function KpiCard({
+  label,
+  value,
+  hint,
+  mono,
+}: {
+  label: string
+  value: string
+  hint: string
+  mono?: boolean
+}) {
+  return (
+    <div className="rounded-xl border border-hairline bg-surface-1 p-5">
+      <p className="text-sm text-ink-subtle">{label}</p>
+      <p
+        className={`mt-2 text-3xl font-semibold tracking-tight text-ink ${
+          mono ? 'font-mono' : ''
+        }`}
+      >
+        {value}
+      </p>
+      <p className="mt-1 text-xs text-ink-tertiary">{hint}</p>
+    </div>
+  )
+}
 
 export function DashboardPage() {
-  const pendingMerge = mockOrders.filter(
-    (o) => o.consolidation_type === 'pending_merge',
-  ).length
-  const consolidated = mockOrders.filter(
-    (o) => o.consolidation_type === 'consolidated',
-  ).length
-  const standalone = mockOrders.filter(
-    (o) => o.consolidation_type === 'standalone',
-  ).length
-  const syncErrors = mockOrders.filter(
-    (o) => o.pipeline_status === 'sync_error',
-  ).length
-
-  const shopeeCount = mockOrders.filter((o) => o.marketplace === 'shopee').length
-  const tiktokCount = mockOrders.filter((o) => o.marketplace === 'tiktok').length
-  const total = mockOrders.length
-  const consolidationRate =
-    total > 0 ? Math.round((consolidated / total) * 100) : 0
-
-  const pendingGroups = mockConsolidationGroups.filter(
-    (g) => g.status === 'pending_review',
-  ).length
-
-  const stats = [
-    {
-      id: 'pending_merge',
-      label: 'Chờ gộp đơn',
-      value: pendingMerge,
-      hint: 'Cùng khách · nhiều sàn',
-      link: '/orders/consolidation',
-    },
-    {
-      id: 'consolidated',
-      label: 'Đã gộp',
-      value: consolidated,
-      hint: `${consolidationRate}% tổng đơn`,
-      link: '/orders?filter=consolidated',
-    },
-    {
-      id: 'standalone',
-      label: 'Đơn lẻ',
-      value: standalone,
-      hint: 'Không khớp nhóm',
-      link: '/orders',
-    },
-    {
-      id: 'sync_error',
-      label: 'Lỗi đồng bộ',
-      value: syncErrors,
-      hint: 'Cần xử lý metadata',
-      link: '/integrations',
-    },
-  ]
+  const { locale } = usePortal()
+  const vi = locale === 'vi'
+  const totalChannel = channelVolume.reduce((s, c) => s + c.count, 0)
+  const maxAfter = Math.max(...savingsTrend.map((t) => t.before))
 
   return (
     <>
-      <Header
-        title="Tổng quan"
-        description="Flow 1 · Omnichannel sync & order consolidation"
+      <PortalTopBar
+        breadcrumbs={[
+          { label: 'OptiPackAI', to: '/app' },
+          { label: vi ? 'Tổng quan' : 'Dashboard Overview' },
+        ]}
       />
-      <main className="flex-1 overflow-auto p-6">
+      <main className="flex-1 overflow-auto p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-6">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">
+              {vi ? 'Tổng quan vận hành' : 'Operations Overview'}
+            </h1>
+            <p className="mt-1 text-sm text-ink-muted">
+              {vi
+                ? 'KPI hôm nay · tiết kiệm đóng gói AI · tỷ lệ fulfillment'
+                : 'Today KPIs · AI packaging savings · fulfillment rate'}
+            </p>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map((stat) => {
-              const isErrorAlert = stat.id === 'sync_error' && stat.value > 0
-              return (
-                <Link
-                  key={stat.id}
-                  to={stat.link}
-                  className={`rounded-lg border bg-surface-1 p-6 transition-colors hover:bg-surface-2/50 ${
-                    isErrorAlert
-                      ? 'border-[rgba(239,68,68,0.2)] shadow-[0_0_0_1px_rgba(239,68,68,0.15)] hover:border-[rgba(239,68,68,0.35)]'
-                      : 'border-hairline hover:border-hairline-strong'
-                  }`}
-                >
-                  <p className="text-sm text-ink-subtle">{stat.label}</p>
-                  <p
-                    className={`mt-2 text-3xl font-semibold tracking-tight ${
-                      isErrorAlert ? 'text-error' : 'text-ink'
-                    }`}
-                  >
-                    {stat.value}
-                  </p>
-                  <p className="mt-1 text-xs text-ink-tertiary">{stat.hint}</p>
-                </Link>
-              )
-            })}
+            <KpiCard
+              label={vi ? 'Đơn hôm nay' : 'Total Orders Today'}
+              value={kpiOverview.total_orders_today.toLocaleString('en-US')}
+              hint={`+${kpiOverview.total_orders_delta}% ${vi ? 'so với hôm qua' : 'vs yesterday'}`}
+              mono
+            />
+            <KpiCard
+              label={vi ? 'Tiết kiệm đóng gói AI' : 'AI Packaging Savings'}
+              value={`${kpiOverview.ai_savings_pct}%`}
+              hint={vi ? 'Giảm chi phí thể tích' : 'Volumetric cost reduced'}
+              mono
+            />
+            <KpiCard
+              label={vi ? 'Chờ đóng gói' : 'Orders Pending Packing'}
+              value={String(kpiOverview.pending_packing)}
+              hint={vi ? 'Cần xử lý trong ca' : 'Need packing this shift'}
+              mono
+            />
+            <KpiCard
+              label={vi ? 'Tỷ lệ fulfillment' : 'Fulfillment Rate'}
+              value={`${kpiOverview.fulfillment_rate}%`}
+              hint={vi ? 'Hoàn tất đúng hạn' : 'On-time completion'}
+              mono
+            />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-lg border border-hairline bg-surface-1 p-6">
-              <h2 className="text-sm font-medium text-ink">Đơn theo sàn</h2>
-              <div className="mt-4 space-y-3">
-                {(
-                  [
-                    ['shopee', shopeeCount],
-                    ['tiktok', tiktokCount],
-                  ] as const
-                ).map(([marketplace, count]) => {
-                  const pct = total > 0 ? Math.round((count / total) * 100) : 0
+            {/* Channel volume */}
+            <section className="rounded-xl border border-hairline bg-surface-1 p-5">
+              <h2 className="text-sm font-medium text-ink">
+                {vi ? 'Đơn theo kênh' : 'Order Volume by Channel'}
+              </h2>
+              <div className="mt-5 space-y-4">
+                {channelVolume.map((row) => {
+                  const pct = Math.round((row.count / totalChannel) * 100)
                   return (
-                    <div key={marketplace}>
-                      <div className="mb-1 flex justify-between text-sm">
+                    <div key={row.channel}>
+                      <div className="mb-1.5 flex justify-between text-sm">
                         <span className="text-ink-muted">
-                          {marketplaceLabels[marketplace]}
+                          {channelLabels[row.channel]}
                         </span>
                         <span className="font-mono text-ink">
-                          {count} ({pct}%)
+                          {row.count} ({pct}%)
                         </span>
                       </div>
                       <div className="h-2 overflow-hidden rounded-full bg-surface-3">
                         <div
-                          className={`h-full rounded-full ${marketplaceBarColor[marketplace]}`}
-                          style={{ width: `${pct}%` }}
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${pct}%`,
+                            backgroundColor: row.color,
+                          }}
                         />
                       </div>
                     </div>
@@ -135,88 +121,56 @@ export function DashboardPage() {
               </div>
             </section>
 
-            <section className="rounded-lg border border-hairline bg-surface-1 p-6">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-medium text-ink">Sync health</h2>
-                <Link
-                  to="/integrations"
-                  className="text-xs text-primary-hover hover:underline"
-                >
-                  Chi tiết →
-                </Link>
-              </div>
-              <div className="mt-4 space-y-3">
-                {mockIntegrations.map((integration) => (
+            {/* Savings trend */}
+            <section className="rounded-xl border border-hairline bg-surface-1 p-5">
+              <h2 className="text-sm font-medium text-ink">
+                {vi
+                  ? 'Xu hướng tiết kiệm đóng gói'
+                  : 'Packaging Cost Savings Trend'}
+              </h2>
+              <p className="mt-1 text-xs text-ink-subtle">
+                {vi ? 'Trước AI vs Sau AI (chỉ số chuẩn hóa)' : 'Before AI vs After AI (indexed)'}
+              </p>
+              <div className="mt-5 flex h-44 items-end gap-2">
+                {savingsTrend.map((point) => (
                   <div
-                    key={integration.marketplace}
-                    className="flex items-center justify-between rounded-md border border-hairline bg-surface-2/40 px-3 py-2"
+                    key={point.week}
+                    className="flex flex-1 flex-col items-center gap-1"
                   >
-                    <div>
-                      <p className="text-sm text-ink">
-                        {marketplaceLabels[integration.marketplace]}
-                      </p>
-                      <p className="text-xs text-ink-tertiary">
-                        {formatRelativeTime(integration.last_sync_at)}
-                      </p>
+                    <div className="flex h-36 w-full items-end justify-center gap-0.5">
+                      <div
+                        className="w-2 rounded-t bg-ink-tertiary/50"
+                        style={{
+                          height: `${(point.before / maxAfter) * 100}%`,
+                        }}
+                        title={`Before ${point.before}`}
+                      />
+                      <div
+                        className="w-2 rounded-t bg-primary"
+                        style={{
+                          height: `${(point.after / maxAfter) * 100}%`,
+                        }}
+                        title={`After ${point.after}`}
+                      />
                     </div>
-                    <Badge tone={integration.webhook_active ? 'success' : 'warning'}>
-                      {integration.webhook_active ? 'Webhook OK' : 'Offline'}
-                    </Badge>
+                    <span className="font-mono text-[10px] text-ink-subtle">
+                      {point.week}
+                    </span>
                   </div>
                 ))}
               </div>
-            </section>
-          </div>
-
-          {pendingGroups > 0 ? (
-            <section className="rounded-lg border border-primary/40 bg-surface-1 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-medium text-ink">
-                    {pendingGroups} nhóm chờ gộp đơn
-                  </h2>
-                  <p className="mt-1 text-sm text-ink-subtle">
-                    Khách mua trên nhiều sàn — xem preview trước khi gộp kiện
-                  </p>
-                </div>
-                <Link
-                  to="/orders/consolidation"
-                  className="rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-on-primary shadow-[0_0_0_1px_rgba(99,102,241,0.35)] transition-colors hover:bg-primary-hover"
-                >
-                  Duyệt gộp đơn
-                </Link>
+              <div className="mt-3 flex gap-4 text-[11px] text-ink-subtle">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-sm bg-ink-tertiary/50" />
+                  {vi ? 'Trước AI' : 'Before AI'}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2 w-2 rounded-sm bg-primary" />
+                  {vi ? 'Sau AI' : 'After AI'}
+                </span>
               </div>
             </section>
-          ) : null}
-
-          <section className="rounded-lg border border-hairline bg-surface-1 p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-ink">Đơn hàng gần đây</h2>
-              <Link
-                to="/orders"
-                className="text-xs text-primary-hover hover:underline"
-              >
-                Xem tất cả
-              </Link>
-            </div>
-            <div className="divide-y divide-hairline">
-              {mockOrders.slice(0, 4).map((order) => (
-                <Link
-                  key={order.id}
-                  to={`/orders/${order.id}`}
-                  className="flex items-center justify-between py-3 text-sm transition-colors hover:bg-surface-2/30"
-                >
-                  <div>
-                    <p className="font-medium text-ink">{order.id}</p>
-                    <p className="text-ink-subtle">{order.customer.name}</p>
-                  </div>
-                  <p className="font-mono text-ink-muted">
-                    {formatCurrency(order.total_amount)}
-                  </p>
-                </Link>
-              ))}
-            </div>
-          </section>
+          </div>
         </div>
       </main>
     </>

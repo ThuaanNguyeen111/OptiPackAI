@@ -25,7 +25,7 @@ export function OrderDetailPage() {
       <>
         <Header title="Không tìm thấy đơn" />
         <main className="flex flex-1 items-center justify-center p-6">
-          <Link to="/orders" className="text-sm text-primary-hover hover:underline">
+          <Link to="/app/orders" className="text-sm text-primary-hover hover:underline">
             ← Quay lại danh sách
           </Link>
         </main>
@@ -42,7 +42,7 @@ export function OrderDetailPage() {
       <main className="flex-1 overflow-auto p-6">
         <div className="mx-auto max-w-6xl">
           <Link
-            to="/orders"
+            to="/app/orders"
             className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-subtle hover:text-ink"
           >
             <ArrowLeft className="h-4 w-4" />

@@ -14,15 +14,21 @@ Khi dùng AI coding agent, luôn nhắc:
 
 > Follow `fe/DESIGN.md` for all UI work.
 
-## Flow 1 — Omnichannel sync & order consolidation
+## Routes
 
-| Route | Màn hình |
-|-------|----------|
-| `/` | Dashboard — KPI gộp đơn, đơn theo sàn, sync health |
-| `/integrations` | Kết nối Shopee/TikTok, nhật ký webhook |
-| `/orders` | Danh sách đơn + filter pipeline |
-| `/orders/consolidation` | Gộp đơn theo khách (core Flow 1) |
-| `/orders/:id` | Chi tiết đơn + timeline xử lý |
+| Path | Màn hình |
+|------|----------|
+| `/` | Landing page (GetDesign / Linear style) |
+| `/login` | Đăng nhập |
+| `/register` | Đăng ký tài khoản + chọn role |
+| `/app` | User Portal — Tổng quan KPI + charts |
+| `/app/orders` | Đơn đa kênh + AI Packing Inspector |
+| `/app/packing` | AI 3D Packing Engine |
+| `/app/shipping` | Vận chuyển & in nhãn |
+| `/app/settings` | Marketplace OAuth + quy tắc đóng gói |
+| `/app/integrations` | _(đã gộp vào Settings)_ |
+
+## Flow 1 — Omnichannel sync & order consolidation
 
 Dữ liệu hiện tại là **mock** (`src/data/`). Khi BE sẵn sàng, thay bằng API.
 
@@ -45,11 +51,13 @@ npm run dev
 ```
 src/
   components/
+    auth/           # Login/Register layout + inputs
+    landing/        # Landing page sections
     integrations/   # Platform card, sync log
     orders/         # Table, badges, consolidation, timeline
     layout/         # Sidebar, Header
     ui/             # Button, Badge
-  pages/            # Flow 1 pages
+  pages/            # Landing, Auth, Flow 1 pages
   data/             # Mock data
   types/            # Order, consolidation types
   utils/            # formatCurrency, formatDate
