@@ -113,9 +113,14 @@ describe('TokenService.rotateRefreshToken', () => {
 
     // Đây là phần quan trọng nhất cần test: không chỉ từ chối token này,
     // mà phải revoke TẤT CẢ token khác của user (khả năng bị đánh cắp).
-    expect(refreshTokenModel.deleteMany).toHaveBeenCalledWith({
-      user_id: new Types.ObjectId(userId),
-    });
+    // STRICT FIX: revokeAllForUser() giờ nhận thêm tham số session (tùy
+    // chọn, cho phép gộp vào 1 Mongoose transaction ở nơi khác gọi nó) -
+    // nhánh reuse-detection này gọi KHÔNG kèm session, nên deleteMany() thật
+    // sự nhận đúng 2 tham số, tham số thứ 2 là { session: undefined }.
+    expect(refreshTokenModel.deleteMany).toHaveBeenCalledWith(
+      { user_id: new Types.ObjectId(userId) },
+      { session: undefined },
+    );
     // Không được sinh token mới trong tình huống này
     expect(generateTokenPairSpy).not.toHaveBeenCalled();
   });

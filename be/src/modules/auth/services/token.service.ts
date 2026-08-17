@@ -2,8 +2,9 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import { hashToken } from '../../../common/utils/hash.util';
+import { requireEnv } from '../../../common/utils/env.util';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { RefreshToken, RefreshTokenDocument } from '../schemas/refresh-token.schema';
 
@@ -47,10 +48,20 @@ export class TokenService {
   async generateTokenPair(user: TokenSubject, meta: RequestMeta = {}): Promise<TokenPair> {
     const payload = { sub: user.id, email: user.email, role: user.role };
 
+    //!=============================================
+    // FIX #32: refresh token ký bằng SECRET RIÊNG (jwt.refreshSecret), KHÁC
+    // với access token (đang dùng secret mặc định của JwtModule, xem
+    // token.module.ts) - 2 secret độc lập hoàn toàn, không suy ra nhau được.
+    //!=============================================
+    const refreshSecret = requireEnv(
+      this.configService.get<string>('jwt.refreshSecret'),
+      'JWT_REFRESH_SECRET',
+    );
+
     const [accessToken, refreshTokenValue] = await Promise.all([
       this.jwtService.signAsync(payload),
       this.jwtService.signAsync(payload, {
-      
+        secret: refreshSecret,
         expiresIn: this.configService.get<number>('jwt.refreshExpiresIn', 2592000),
       }),
     ]);
@@ -115,7 +126,17 @@ export class TokenService {
     await this.refreshTokenModel.deleteOne({ token_hash: tokenHash });
   }
 
-  async revokeAllForUser(userId: string): Promise<void> {
-    await this.refreshTokenModel.deleteMany({ user_id: new Types.ObjectId(userId) });
+  //!=============================================
+  // FIX #33: tham số `session` tùy chọn - cho phép UsersService gộp lệnh
+  // xóa này vào chung 1 Mongoose transaction với thao tác sửa User (xem
+  // adminResetPassword/deactivate trong users.service.ts). Không truyền
+  // session vẫn hoạt động bình thường như cũ (các chỗ gọi hiện tại không
+  // cần transaction, ví dụ reuse-detection ở trên).
+  //!=============================================
+  async revokeAllForUser(userId: string, session?: ClientSession): Promise<void> {
+    await this.refreshTokenModel.deleteMany(
+      { user_id: new Types.ObjectId(userId) },
+      { session },
+    );
   }
 }

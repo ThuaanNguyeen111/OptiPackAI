@@ -1,8 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
-import { Model, Types } from 'mongoose';
+import { Connection, Model, Types } from 'mongoose';
 import { RedisCacheService } from '../../../common/redis/redis-cache.service';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { MailService } from '../../mail/mail.service';
@@ -35,6 +35,11 @@ export class UsersService {
   constructor(
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
+    // FIX #33: cần Connection để mở Mongoose transaction (session) khi 1 thao
+    // tác nghiệp vụ ghi nhiều hơn 1 collection (User + RefreshToken) - đảm
+    // bảo tất cả cùng thành công hoặc cùng bị hủy, không để nửa vời.
+    @InjectConnection()
+    private readonly connection: Connection,
     private readonly tokenService: TokenService,
     private readonly redisCache: RedisCacheService,
     private readonly mailService: MailService,
@@ -130,20 +135,52 @@ export class UsersService {
     const temporaryPassword = this.generateTemporaryPassword();
     const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
-    const user = await this.userModel.findByIdAndUpdate(
-      userId,
-      {
-        password: hashedPassword,
-        must_change_password: true,
-        must_change_password_by: new Date(Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS),
-        failed_login_attempts: 0,
-        locked_until: null,
-      },
-      { new: true },
-    );
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    //!=============================================
+    // FIX #33: bọc 2 thao tác ghi (User + RefreshToken) trong 1 Mongoose
+    // transaction - hoặc cả 2 cùng thành công, hoặc MongoDB tự rollback hết,
+    // không để xảy ra tình huống đổi password xong nhưng chưa kịp revoke
+    // token cũ (xem giải thích transaction trong CLAUDE.md, mục Database
+    // Design Standards).
+    //
+    // STRICT FIX: KHÔNG dùng biến `let user: UserDocument | null` khai NGOÀI
+    // rồi gán bên TRONG closure của withTransaction() như bản cũ - TypeScript
+    // không narrow được kiểu chính xác qua ranh giới closure (dù logic đúng
+    // lúc runtime, compiler vẫn coi `user` có thể là `null`/`never` sau đó,
+    // gây lỗi "unsafe assignment"/"unnecessary conditional" dây chuyền).
+    // Cách đúng: để callback TRẢ VỀ document qua return - withTransaction()
+    // của Mongoose forward đúng giá trị return đó ra ngoài với kiểu chính
+    // xác, không cần biến trung gian nào cả.
+    //!=============================================
+    const session = await this.connection.startSession();
+    let user: UserDocument;
 
-    await this.tokenService.revokeAllForUser(userId);
+    try {
+      user = await session.withTransaction(async () => {
+        const updated = await this.userModel.findByIdAndUpdate(
+          userId,
+          {
+            password: hashedPassword,
+            must_change_password: true,
+            must_change_password_by: new Date(Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS),
+            failed_login_attempts: 0,
+            locked_until: null,
+          },
+          { new: true, session },
+        );
+        if (!updated) throw new NotFoundException('Không tìm thấy người dùng');
+
+        await this.tokenService.revokeAllForUser(userId, session);
+        return updated;
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    //!=============================================
+    // Redis KHÔNG nằm trong Mongoose transaction (khác hệ CSDL) - chỉ nên
+    // xóa cache SAU KHI transaction Mongo đã commit thành công, tránh xóa
+    // cache rồi lại phải rollback Mongo (thứ tự này an toàn hơn ngược lại).
+    //!=============================================
     await this.redisCache.invalidateUserAuthState(userId);
 
     void this.mailService.sendWelcomeTempPassword({
@@ -297,10 +334,23 @@ export class UsersService {
   // 4. XÓA MỀM / KÍCH HOẠT LẠI
   //!=============================================
   async deactivate(userId: string): Promise<void> {
-    const user = await this.userModel.findByIdAndUpdate(userId, { is_active: false });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    // FIX #33: cùng nguyên tắc transaction như adminResetPassword() ở trên
+    const session = await this.connection.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const user = await this.userModel.findByIdAndUpdate(
+          userId,
+          { is_active: false },
+          { session },
+        );
+        if (!user) throw new NotFoundException('Không tìm thấy người dùng');
 
-    await this.tokenService.revokeAllForUser(userId);
+        await this.tokenService.revokeAllForUser(userId, session);
+      });
+    } finally {
+      await session.endSession();
+    }
+
     await this.redisCache.invalidateUserAuthState(userId);
   }
 

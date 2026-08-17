@@ -8,7 +8,15 @@ import { Model, Types } from 'mongoose';
 import { hashToken } from '../../common/utils/hash.util';
 import { requireEnv } from '../../common/utils/env.util';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { AUTH_MESSAGES, GOOGLE_OAUTH_MESSAGES } from '../../common/constants/messages.constants';
 import { MailService } from '../mail/mail.service';
+import {
+  GoogleAccountInactiveException,
+  GoogleAccountLockedException,
+  GoogleAccountNotRegisteredException,
+  GoogleEmailNotVerifiedException,
+  GoogleStateInvalidException,
+} from './exceptions/google-auth.exceptions';
 import { UserDocument } from '../users/schemas/user.schema';
 import { UsersService } from '../users/services/users.service';
 import { LoginAuditLog, LoginAuditLogDocument } from './schemas/login-audit-log.schema';
@@ -94,9 +102,7 @@ export class AuthService {
 
     if (user && this.usersService.isLocked(user)) {
       await this.writeAuditLog(email, false, meta, user.id, 'account_locked');
-      throw new ForbiddenException(
-        'Tài khoản tạm thời bị khóa do đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 15 phút.',
-      );
+      throw new ForbiddenException(AUTH_MESSAGES.ACCOUNT_LOCKED_FAILED_ATTEMPTS);
     }
 
     const isPasswordValid = await bcrypt.compare(password, user?.password ?? DUMMY_PASSWORD_HASH);
@@ -106,12 +112,12 @@ export class AuthService {
         await this.usersService.incrementFailedLoginAttempts(user.id);
       }
       await this.writeAuditLog(email, false, meta, user?.id, 'invalid_credentials');
-      throw new UnauthorizedException('Email hoặc mật khẩu không chính xác');
+      throw new UnauthorizedException(AUTH_MESSAGES.INVALID_CREDENTIALS);
     }
 
     if (!user.is_active) {
       await this.writeAuditLog(email, false, meta, user.id, 'account_inactive');
-      throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin');
+      throw new UnauthorizedException(AUTH_MESSAGES.ACCOUNT_INACTIVE);
     }
 
     //!=============================================
@@ -122,9 +128,7 @@ export class AuthService {
     if (this.usersService.isPastPasswordDeadline(user)) {
       await this.writeAuditLog(email, false, meta, user.id, 'password_deadline_exceeded');
       void this.mailService.sendAccountLocked({ to: user.email, name: user.name });
-      throw new ForbiddenException(
-        'Tài khoản đã bị khóa do không đổi mật khẩu trong vòng 72 giờ kể từ khi được cấp. Vui lòng liên hệ Admin để được mở khóa.',
-      );
+      throw new ForbiddenException(AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE);
     }
 
     let newTrustedDeviceToken: string | undefined;
@@ -132,9 +136,7 @@ export class AuthService {
     if (user.mfa_enabled) {
       if (!user.mfa_secret) {
         await this.writeAuditLog(email, false, meta, user.id, 'mfa_misconfigured');
-        throw new UnauthorizedException(
-          'Tài khoản cấu hình MFA không hợp lệ, vui lòng liên hệ Admin',
-        );
+        throw new UnauthorizedException(AUTH_MESSAGES.MFA_MISCONFIGURED);
       }
 
       //!=============================================
@@ -158,7 +160,7 @@ export class AuthService {
           );
           if (usedIndex === -1) {
             await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa_backup_code');
-            throw new UnauthorizedException('Mã dự phòng không chính xác hoặc đã được sử dụng');
+            throw new UnauthorizedException(AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID);
           }
           await this.usersService.consumeBackupCode(user.id, usedIndex);
           newTrustedDeviceToken = await this.issueTrustedDeviceToken(user.id, meta);
@@ -166,7 +168,7 @@ export class AuthService {
           const isMfaValid = this.mfaService.verifyToken(mfaToken, user.mfa_secret);
           if (!isMfaValid) {
             await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa');
-            throw new UnauthorizedException('Mã xác thực MFA không chính xác');
+            throw new UnauthorizedException(AUTH_MESSAGES.MFA_TOKEN_INVALID);
           }
           newTrustedDeviceToken = await this.issueTrustedDeviceToken(user.id, meta);
         } else {
@@ -229,7 +231,7 @@ export class AuthService {
     const googleUserInfo = await this.getGoogleUserInfo(code, codeVerifier);
 
     if (!googleUserInfo.email_verified) {
-      throw new UnauthorizedException('Email Google chưa được xác thực');
+      throw new GoogleEmailNotVerifiedException(GOOGLE_OAUTH_MESSAGES.EMAIL_NOT_VERIFIED);
     }
 
     const normalizedEmail = googleUserInfo.email.toLowerCase().trim();
@@ -243,22 +245,18 @@ export class AuthService {
         undefined,
         'google_account_not_registered',
       );
-      throw new UnauthorizedException(
-        'Email này chưa được đăng ký trong hệ thống. Vui lòng liên hệ Admin để được tạo tài khoản.',
-      );
+      throw new GoogleAccountNotRegisteredException(GOOGLE_OAUTH_MESSAGES.ACCOUNT_NOT_REGISTERED);
     }
 
     if (!user.is_active) {
       await this.writeAuditLog(normalizedEmail, false, meta, user.id, 'account_inactive');
-      throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin');
+      throw new GoogleAccountInactiveException(AUTH_MESSAGES.ACCOUNT_INACTIVE);
     }
 
     //  đồng bộ luôn quy tắc khóa 72h cho cả đường login Google
     if (this.usersService.isPastPasswordDeadline(user)) {
       await this.writeAuditLog(normalizedEmail, false, meta, user.id, 'password_deadline_exceeded');
-      throw new ForbiddenException(
-        'Tài khoản đã bị khóa do không đổi mật khẩu trong vòng 72 giờ kể từ khi được cấp. Vui lòng liên hệ Admin để được mở khóa.',
-      );
+      throw new GoogleAccountLockedException(AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE);
     }
 
     await this.usersService.syncGoogleAvatar(user, googleUserInfo.picture);
@@ -282,12 +280,12 @@ export class AuthService {
 
   private verifyOAuthState(state: string): void {
     if (!state) {
-      throw new UnauthorizedException('Thiếu tham số state — yêu cầu OAuth không hợp lệ');
+      throw new GoogleStateInvalidException(GOOGLE_OAUTH_MESSAGES.STATE_MISSING);
     }
     try {
       this.jwtService.verify(state);
     } catch {
-      throw new UnauthorizedException('State không hợp lệ hoặc đã hết hạn (khả năng bị giả mạo)');
+      throw new GoogleStateInvalidException(GOOGLE_OAUTH_MESSAGES.STATE_INVALID);
     }
   }
 
@@ -333,12 +331,12 @@ export class AuthService {
     });
 
     if (!tokenResponse.ok) {
-      throw new UnauthorizedException('Xác thực Google thất bại');
+      throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_AUTH_FAILED);
     }
 
     const tokenData: unknown = await tokenResponse.json();
     if (!isGoogleTokenResponse(tokenData)) {
-      throw new UnauthorizedException('Phản hồi từ Google không đúng định dạng mong đợi');
+      throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID);
     }
 
     const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -347,7 +345,7 @@ export class AuthService {
 
     const userInfoData: unknown = await userInfoResponse.json();
     if (!isGoogleUserInfo(userInfoData)) {
-      throw new UnauthorizedException('Thông tin người dùng Google không đúng định dạng mong đợi');
+      throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID);
     }
 
     return userInfoData;
@@ -366,7 +364,7 @@ export class AuthService {
     if (user.password) {
       const isValid = await bcrypt.compare(currentPassword, user.password);
       if (!isValid) {
-        throw new UnauthorizedException('Mật khẩu hiện tại không chính xác');
+        throw new UnauthorizedException(AUTH_MESSAGES.CURRENT_PASSWORD_INVALID);
       }
     }
 
@@ -407,7 +405,7 @@ export class AuthService {
   async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
     const user = await this.usersService.findByValidResetToken(hashToken(token));
     if (!user) {
-      throw new UnauthorizedException('Token không hợp lệ hoặc đã hết hạn, vui lòng yêu cầu lại');
+      throw new UnauthorizedException(AUTH_MESSAGES.RESET_TOKEN_INVALID);
     }
 
     await this.usersService.changePassword(user.id, newPassword);
@@ -437,11 +435,11 @@ export class AuthService {
   async verifyMfaSetup(userId: string, token: string): Promise<{ message: string; backup_codes: string[] }> {
     const user = await this.usersService.findById(userId);
     if (!user.mfa_secret) {
-      throw new UnauthorizedException('Chưa khởi tạo MFA, gọi /auth/mfa/setup trước');
+      throw new UnauthorizedException(AUTH_MESSAGES.MFA_SETUP_NOT_STARTED);
     }
     const isValid = this.mfaService.verifyToken(token, user.mfa_secret);
     if (!isValid) {
-      throw new UnauthorizedException('Mã xác thực không chính xác');
+      throw new UnauthorizedException(AUTH_MESSAGES.MFA_TOKEN_INVALID);
     }
 
     const { plainCodes, hashedCodes } = await this.mfaService.generateBackupCodes();

@@ -328,3 +328,181 @@ describe('AuthService.login', () => {
     expect(usersService.consumeBackupCode).not.toHaveBeenCalled();
   });
 });
+
+//!=============================================
+// FIX #38: describe RIÊNG cho googleLogin() - trước đây HOÀN TOÀN chưa có
+// test nào cho luồng này (đã nêu rõ trong đánh giá tổng thể BE). Mock
+// `global.fetch` vì getGoogleUserInfo() gọi thẳng fetch() (không inject qua
+// HttpService), và mock jwtService.verify() cho bước xác thực state.
+//!=============================================
+describe('AuthService.googleLogin', () => {
+  let service: AuthService;
+  let usersService: jest.Mocked<
+    Pick<UsersService, 'findByEmail' | 'isPastPasswordDeadline' | 'syncGoogleAvatar' | 'updateLastLogin'>
+  >;
+  let tokenService: jest.Mocked<Pick<TokenService, 'generateTokenPair'>>;
+  let jwtService: jest.Mocked<Pick<JwtService, 'verify'>>;
+  let configService: { get: jest.Mock };
+  let auditLogModel: { create: jest.Mock };
+  let fetchMock: jest.Mock;
+
+  const meta = { ip_address: '127.0.0.1', user_agent: 'jest' };
+  const googleConfig: Record<string, string> = {
+    'google.clientId': 'client-id',
+    'google.clientSecret': 'client-secret',
+    'google.redirectUri': 'http://localhost:3000/auth/google/callback',
+  };
+
+  const activeUser = {
+    id: 'user-1',
+    email: 'staff@optipackai.com',
+    role: UserRole.WAREHOUSE_STAFF,
+    is_active: true,
+    must_change_password: false,
+  };
+
+  function mockFetchSequence(tokenOk: boolean, userInfoOk = true): void {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: tokenOk,
+        json: () => Promise.resolve({ access_token: 'google-access-token' }),
+      })
+      .mockResolvedValueOnce({
+        ok: userInfoOk,
+        json: () => Promise.resolve({
+          email: 'staff@optipackai.com',
+          email_verified: true,
+          name: 'Nguyễn Văn A',
+          picture: 'https://google.com/avatar.png',
+        }),
+      });
+  }
+
+  beforeEach(async () => {
+    usersService = {
+      findByEmail: jest.fn(),
+      isPastPasswordDeadline: jest.fn().mockReturnValue(false),
+      syncGoogleAvatar: jest.fn().mockResolvedValue(undefined),
+      updateLastLogin: jest.fn().mockResolvedValue(undefined),
+    };
+    tokenService = {
+      generateTokenPair: jest.fn().mockResolvedValue({
+        access_token: 'access-token',
+        refresh_token: 'refresh-token',
+      }),
+    };
+    jwtService = { verify: jest.fn() };
+    configService = { get: jest.fn((key: string) => googleConfig[key]) };
+    auditLogModel = { create: jest.fn().mockResolvedValue(undefined) };
+
+    fetchMock = jest.fn();
+    global.fetch = fetchMock;
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        AuthService,
+        { provide: UsersService, useValue: usersService },
+        { provide: TokenService, useValue: tokenService },
+        { provide: JwtService, useValue: jwtService },
+        { provide: ConfigService, useValue: configService },
+        { provide: MfaService, useValue: { verifyToken: jest.fn(), verifyBackupCode: jest.fn() } },
+        { provide: MailService, useValue: { sendAccountLocked: jest.fn() } },
+        { provide: getModelToken(LoginAuditLog.name), useValue: auditLogModel },
+        {
+          provide: getModelToken(TrustedDevice.name),
+          useValue: { findOne: jest.fn(), create: jest.fn() },
+        },
+      ],
+    }).compile();
+
+    service = module.get(AuthService);
+  });
+
+  it('state rỗng/thiếu -> UnauthorizedException, KHÔNG gọi Google API', async () => {
+    await expect(service.googleLogin('code', '', meta)).rejects.toThrow(UnauthorizedException);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('state không hợp lệ (jwtService.verify ném lỗi) -> GoogleStateInvalidException', async () => {
+    jwtService.verify.mockImplementation(() => {
+      throw new Error('jwt expired');
+    });
+
+    await expect(service.googleLogin('code', 'bad-state', meta)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('Google trả lỗi ở bước đổi code lấy token -> UnauthorizedException', async () => {
+    jwtService.verify.mockReturnValue({});
+    mockFetchSequence(false);
+
+    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('email Google chưa xác thực -> GoogleEmailNotVerifiedException', async () => {
+    jwtService.verify.mockReturnValue({});
+    fetchMock
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'x' }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          email: 'staff@optipackai.com',
+          email_verified: false,
+          name: 'A',
+          picture: 'x',
+        }),
+      });
+
+    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('email chưa được Admin tạo tài khoản -> GoogleAccountNotRegisteredException, có ghi audit log', async () => {
+    jwtService.verify.mockReturnValue({});
+    mockFetchSequence(true);
+    usersService.findByEmail.mockResolvedValue(null);
+
+    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
+      UnauthorizedException,
+    );
+    expect(auditLogModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false, failure_reason: 'google_account_not_registered' }),
+    );
+  });
+
+  it('tài khoản đã bị vô hiệu hóa -> GoogleAccountInactiveException', async () => {
+    jwtService.verify.mockReturnValue({});
+    mockFetchSequence(true);
+    usersService.findByEmail.mockResolvedValue({ ...activeUser, is_active: false } as never);
+
+    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('tài khoản đã quá hạn 72h (khóa cứng) -> GoogleAccountLockedException (403, không phải 401)', async () => {
+    jwtService.verify.mockReturnValue({});
+    mockFetchSequence(true);
+    usersService.findByEmail.mockResolvedValue({ ...activeUser } as never);
+    usersService.isPastPasswordDeadline.mockReturnValue(true);
+
+    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(ForbiddenException);
+  });
+
+  it('mọi điều kiện hợp lệ -> đăng nhập thành công, đồng bộ avatar, sinh token', async () => {
+    jwtService.verify.mockReturnValue({});
+    mockFetchSequence(true);
+    usersService.findByEmail.mockResolvedValue({ ...activeUser } as never);
+
+    const result = await service.googleLogin('code', 'state', meta);
+
+    expect(usersService.syncGoogleAvatar).toHaveBeenCalled();
+    expect(result).toEqual(
+      expect.objectContaining({ access_token: 'access-token', refresh_token: 'refresh-token' }),
+    );
+  });
+});

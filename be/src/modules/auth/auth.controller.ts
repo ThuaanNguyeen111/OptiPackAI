@@ -15,8 +15,16 @@ import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, LoginResult, MfaRequiredResult } from './auth.service';
+import { GoogleOAuthErrorCode } from '../../common/constants/messages.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
 import { ChangePasswordDto, ForgotPasswordDto, LoginDto, ResetPasswordDto, VerifyMfaSetupDto } from './dto';
+import {
+  GoogleAccountInactiveException,
+  GoogleAccountLockedException,
+  GoogleAccountNotRegisteredException,
+  GoogleEmailNotVerifiedException,
+  GoogleStateInvalidException,
+} from './exceptions/google-auth.exceptions';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { AuthenticatedUser } from './interfaces/authenticated-request.interface';
 import type { RequestMeta, TokenPair } from './services/token.service';
@@ -38,6 +46,22 @@ export class AuthController {
       ip_address: req.ip,
       user_agent: userAgent,
     };
+  }
+
+  //!=============================================
+  // FIX #35: Nhận diện ĐÚNG loại lỗi Google OAuth (nhờ instanceof, không đoán
+  // qua nội dung message) -> trả về mã lỗi NGẮN GỌN, RIÊNG BIỆT cho từng
+  // trường hợp qua query param cho FE - thay vì gộp chung 1 mã lỗi cho mọi
+  // tình huống như trước đây.
+  //!=============================================
+  private mapGoogleErrorToCode(err: unknown): GoogleOAuthErrorCode {
+    if (err instanceof GoogleStateInvalidException) return GoogleOAuthErrorCode.INVALID_STATE;
+    if (err instanceof GoogleEmailNotVerifiedException) return GoogleOAuthErrorCode.EMAIL_NOT_VERIFIED;
+    if (err instanceof GoogleAccountNotRegisteredException)
+      return GoogleOAuthErrorCode.ACCOUNT_NOT_REGISTERED;
+    if (err instanceof GoogleAccountInactiveException) return GoogleOAuthErrorCode.ACCOUNT_INACTIVE;
+    if (err instanceof GoogleAccountLockedException) return GoogleOAuthErrorCode.ACCOUNT_LOCKED;
+    return GoogleOAuthErrorCode.SERVER_ERROR;
   }
 
   //!=============================================
@@ -176,7 +200,7 @@ export class AuthController {
     );
 
     if (!code) {
-      return { url: `${frontendUrl}?error=missing_code` };
+      return { url: `${frontendUrl}?error=${GoogleOAuthErrorCode.MISSING_CODE}` };
     }
 
     try {
@@ -193,8 +217,13 @@ export class AuthController {
         must_change_password: String(result.must_change_password),
       });
       return { url: `${frontendUrl}?${params.toString()}` };
-    } catch {
-      return { url: `${frontendUrl}?error=account_not_found` };
+    } catch (err: unknown) {
+      //!=============================================
+      // FIX #35: trước đây "catch {}" mù, gộp MỌI lỗi thành 1 mã
+      // "account_not_found" - giờ phân loại rõ ràng qua mapGoogleErrorToCode().
+      //!=============================================
+      const errorCode = this.mapGoogleErrorToCode(err);
+      return { url: `${frontendUrl}?error=${errorCode}` };
     }
   }
 }
