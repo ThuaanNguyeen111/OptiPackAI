@@ -99,15 +99,12 @@ export function LoginPage() {
             />
             Remember me
           </label>
-          <button
-            type="button"
+          <Link
+            to="/forgot-password"
             className="text-primary-hover hover:underline"
-            onClick={() =>
-              setErrors({ form: 'Forgot password sẽ kết nối email reset sau.' })
-            }
           >
-            Forgot password?
-          </button>
+            Quên mật khẩu?
+          </Link>
         </div>
 
         <Button type="submit" variant="primary" className="w-full" disabled={loading}>

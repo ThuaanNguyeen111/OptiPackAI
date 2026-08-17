@@ -1,50 +1,16 @@
 import { Link } from 'react-router-dom'
-import { Box, Moon, Sparkles, Sun } from 'lucide-react'
+import { Moon, Sparkles, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { Hero3DCanvas } from '../Hero3DCanvas'
 import { useTheme } from '../../hooks/useTheme'
 
 type AuthLayoutProps = {
   children: ReactNode
-  mode: 'login' | 'register'
+  mode: 'login' | 'register' | 'forgot'
 }
 
-function PackingPreview() {
-  return (
-    <div className="relative z-10 mx-auto my-6 w-full max-w-sm">
-      <div
-        className="pointer-events-none absolute -inset-8 rounded-full opacity-60 blur-3xl"
-        style={{
-          background:
-            'radial-gradient(circle, color-mix(in srgb, var(--app-primary) 35%, transparent), transparent 70%)',
-        }}
-      />
-      <div className="relative overflow-hidden rounded-xl border border-hairline bg-canvas/80 p-4 shadow-[0_0_40px_rgba(99,102,241,0.15)] backdrop-blur-sm">
-        <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-ink-muted">
-            <Box className="h-3.5 w-3.5 text-primary-hover" strokeWidth={1.75} />
-            3D Bin Packing
-          </div>
-          <span className="font-mono text-[10px] text-success">fill 92%</span>
-        </div>
-
-        {/* Mini carton with packed blocks */}
-        <div className="relative mx-auto aspect-[5/3] w-full max-w-[240px] rounded-lg border border-[#27272A] bg-surface-2 p-2">
-          <div className="grid h-full grid-cols-3 grid-rows-2 gap-1.5">
-            <div className="col-span-2 row-span-2 rounded-md bg-primary/80 shadow-[inset_0_0_0_1px_rgba(129,140,248,0.4)]" />
-            <div className="rounded-md bg-tiktok/70 shadow-[inset_0_0_0_1px_rgba(0,229,255,0.35)]" />
-            <div className="rounded-md bg-shopee/80 shadow-[inset_0_0_0_1px_rgba(255,107,0,0.35)]" />
-          </div>
-          <div className="pointer-events-none absolute inset-0 rounded-lg ring-1 ring-primary/20" />
-        </div>
-
-        <div className="mt-3 flex items-center justify-between font-mono text-[10px] text-ink-subtle">
-          <span>Carton-A2 · 25×15×10</span>
-          <span className="text-primary-hover">unused 8%</span>
-        </div>
-      </div>
-    </div>
-  )
-}
+const show3dPreview = (mode: AuthLayoutProps['mode']) =>
+  mode === 'login' || mode === 'register'
 
 export function AuthLayout({ children, mode }: AuthLayoutProps) {
   const { theme, toggleTheme } = useTheme()
@@ -85,7 +51,11 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
           </div>
         </div>
 
-        <PackingPreview />
+        {show3dPreview(mode) ? (
+          <div className="relative z-10 flex min-h-0 flex-1 flex-col justify-center py-4">
+            <Hero3DCanvas className="h-[260px] xl:h-[300px]" />
+          </div>
+        ) : null}
 
         <div className="relative z-10 max-w-md shrink-0 rounded-xl border border-hairline bg-canvas/70 p-4 backdrop-blur-sm">
           <p className="text-xs font-medium tracking-wider text-ink-subtle uppercase">
@@ -118,7 +88,19 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
           compact ? 'py-3' : 'py-5'
         }`}
       >
-        <div className="flex shrink-0 items-center justify-between">
+        {/* Aurora glow — center, matches login / landing */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-80"
+          aria-hidden
+          style={{
+            backgroundImage: `
+              radial-gradient(ellipse 70% 45% at 50% 35%, color-mix(in srgb, var(--app-primary) 22%, transparent), transparent 70%),
+              radial-gradient(ellipse 50% 35% at 70% 70%, color-mix(in srgb, #10B981 8%, transparent), transparent 65%)
+            `,
+          }}
+        />
+
+        <div className="relative z-10 flex shrink-0 items-center justify-between">
           <Link to="/" className="inline-flex items-center gap-2 lg:hidden">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-on-primary">
               OP
@@ -159,10 +141,15 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
         </div>
 
         <div
-          className={`mx-auto flex w-full max-w-md min-h-0 flex-1 flex-col justify-center ${
+          className={`relative z-10 mx-auto flex w-full max-w-md min-h-0 flex-1 flex-col justify-center ${
             compact ? 'py-2' : 'py-6'
           }`}
         >
+          {show3dPreview(mode) ? (
+            <div className="mb-5 shrink-0 lg:hidden">
+              <Hero3DCanvas className="h-[220px]" />
+            </div>
+          ) : null}
           {children}
         </div>
       </main>
