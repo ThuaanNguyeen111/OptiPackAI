@@ -4,8 +4,8 @@ import { useState } from 'react'
 import { useTheme } from '../../hooks/useTheme'
 
 const navLinks = [
-  { href: '#features', label: 'Tính năng' },
   { href: '#ai-engine', label: 'AI Engine' },
+  { href: '#features', label: 'Tính năng' },
   { href: '#integrations', label: 'Tích hợp' },
   { href: '#analytics', label: 'Phân tích' },
 ]

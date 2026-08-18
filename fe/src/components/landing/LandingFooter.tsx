@@ -26,19 +26,21 @@ export function LandingFooter() {
               Hệ thống hỗ trợ xử lý đơn hàng đa kênh và tối ưu hóa đóng gói thông
               minh bằng AI (AOFP).
             </p>
-            <a
-              href="mailto:contact@optipackai.local"
-              className="mt-3 inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-primary-hover"
-            >
-              <Mail className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Liên hệ: contact@optipackai.local
-            </a>
-            <Link
-              to="/login"
-              className="mt-4 inline-flex text-sm text-primary-hover hover:underline"
-            >
-              Mở Dashboard →
-            </Link>
+            <div className="mt-3 flex flex-col items-start gap-3">
+              <a
+                href="mailto:contact@optipackai.local"
+                className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-primary-hover"
+              >
+                <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                Liên hệ: contact@optipackai.local
+              </a>
+              <Link
+                to="/login"
+                className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover"
+              >
+                Mở Dashboard →
+              </Link>
+            </div>
           </div>
 
           <div>

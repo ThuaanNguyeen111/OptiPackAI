@@ -1,8 +1,9 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
-import { Edges, Environment, OrbitControls, useGLTF } from '@react-three/drei'
+import { Edges, OrbitControls, useGLTF } from '@react-three/drei'
 import gsap from 'gsap'
 import type { Group, Mesh, MeshStandardMaterial, Object3D } from 'three'
+import { useTheme } from '../hooks/useTheme'
 
 const BOX = { w: 2.4, h: 1.8, d: 1.6 }
 const KRAFT = '#C49A6C'
@@ -457,34 +458,35 @@ function AnimatedPackingScene({
 function Scene({
   timelineRef,
   isPaused,
+  isDark,
   onPackedChange,
   onCompletedChange,
 }: {
   timelineRef: React.MutableRefObject<gsap.core.Timeline | null>
   isPaused: boolean
+  isDark: boolean
   onPackedChange: (v: boolean) => void
   onCompletedChange: (v: boolean) => void
 }) {
   return (
     <>
-      <color attach="background" args={['#1a2030']} />
-      <Environment preset="city" />
-      <ambientLight intensity={0.8} />
+      <color attach="background" args={[isDark ? '#1a2030' : '#eef1f6']} />
+      <ambientLight intensity={isDark ? 0.8 : 1.05} />
       <directionalLight
         position={[5, 8, 5]}
         color="#FFFFFF"
-        intensity={1.5}
+        intensity={isDark ? 1.5 : 1.15}
         castShadow
       />
       <directionalLight
         position={[-4, 4, -3]}
         color="#FFF7ED"
-        intensity={0.45}
+        intensity={isDark ? 0.45 : 0.55}
       />
       <hemisphereLight
         color="#E0E7FF"
         groundColor="#78716C"
-        intensity={0.35}
+        intensity={isDark ? 0.35 : 0.5}
       />
       <AnimatedPackingScene
         timelineRef={timelineRef}
@@ -511,6 +513,8 @@ export function Hero3DCanvas({
   className = 'h-[350px] sm:h-[450px]',
   showLabel = true,
 }: Hero3DCanvasProps) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
   const timelineRef = useRef<gsap.core.Timeline | null>(null)
   const [isPaused, setIsPaused] = useState(false)
   const [packed, setPacked] = useState(false)
@@ -529,14 +533,19 @@ export function Hero3DCanvas({
 
   return (
     <div
-      className={`relative w-full overflow-hidden rounded-xl border border-hairline bg-[#1a2030]/80 shadow-[0_0_48px_rgba(129,140,248,0.18)] backdrop-blur-sm ${className}`}
+      className={`relative w-full overflow-hidden rounded-xl border border-hairline backdrop-blur-sm ${
+        isDark
+          ? 'bg-[#1a2030]/80 shadow-[0_0_48px_rgba(129,140,248,0.18)]'
+          : 'bg-[#eef1f6] shadow-[0_0_32px_rgba(99,102,241,0.12)]'
+      } ${className}`}
       aria-label="Animated 3D AI packing simulation — fashion items"
     >
       <div
         className="pointer-events-none absolute inset-0 opacity-70"
         style={{
-          background:
-            'radial-gradient(ellipse 80% 65% at 50% 45%, rgba(129,140,248,0.2), transparent 70%)',
+          background: isDark
+            ? 'radial-gradient(ellipse 80% 65% at 50% 45%, rgba(129,140,248,0.2), transparent 70%)'
+            : 'radial-gradient(ellipse 80% 65% at 50% 45%, rgba(99,102,241,0.12), transparent 70%)',
         }}
       />
 
@@ -544,7 +553,11 @@ export function Hero3DCanvas({
         <button
           type="button"
           onClick={handleReplayPause}
-          className="absolute top-3 right-3 z-20 rounded-md border border-white/10 bg-slate-900/85 px-2.5 py-1 text-[10px] font-medium text-slate-200 backdrop-blur-sm transition-colors hover:bg-slate-800 hover:text-white"
+          className={`absolute top-3 right-3 z-20 rounded-md border px-2.5 py-1 text-[10px] font-medium backdrop-blur-sm transition-colors ${
+            isDark
+              ? 'border-white/10 bg-slate-900/85 text-slate-200 hover:bg-slate-800 hover:text-white'
+              : 'border-slate-300 bg-white/90 text-slate-700 hover:bg-slate-100 hover:text-slate-900'
+          }`}
         >
           {isPaused ? '▶ Replay AI Packing Sequence' : '⏸ Pause'}
         </button>
@@ -573,6 +586,7 @@ export function Hero3DCanvas({
           <Scene
             timelineRef={timelineRef}
             isPaused={isPaused}
+            isDark={isDark}
             onPackedChange={setPacked}
             onCompletedChange={setCompleted}
           />
@@ -580,7 +594,7 @@ export function Hero3DCanvas({
       </Canvas>
 
       {showLabel ? (
-        <p className="pointer-events-none absolute bottom-3 left-0 right-0 z-20 text-center font-mono text-[10px] text-slate-400">
+        <p className={`pointer-events-none absolute bottom-3 left-0 right-0 z-20 text-center font-mono text-[10px] ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
           Drag to Rotate · Ngành Thời trang & Phụ kiện
         </p>
       ) : null}
