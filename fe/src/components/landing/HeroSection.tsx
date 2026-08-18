@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Play } from 'lucide-react'
-import { Hero3DCanvas } from '../Hero3DCanvas'
+import { Hero3DCanvas } from '../marketing/Hero3DCanvas'
 
 export function HeroSection() {
   return (

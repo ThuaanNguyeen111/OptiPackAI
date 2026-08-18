@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import { Moon, Sparkles, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { Hero3DCanvas } from '../Hero3DCanvas'
+import { Hero3DCanvas } from '../marketing/Hero3DCanvas'
 import { useTheme } from '../../hooks/useTheme'
 
 type AuthLayoutProps = {
