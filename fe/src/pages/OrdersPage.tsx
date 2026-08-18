@@ -412,7 +412,6 @@ export function OrdersPage() {
   )
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [platformFilter, setPlatformFilter] = useState<Channel | 'all'>('all')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
 
   const pendingMergeCount = orders.filter(
     (o) => o.classification === 'pending_merge',
@@ -435,35 +434,6 @@ export function OrdersPage() {
     () => orders.find((o) => o.id === selectedId) ?? null,
     [orders, selectedId],
   )
-
-  const allFilteredSelected =
-    filteredOrders.length > 0 &&
-    filteredOrders.every((o) => selectedIds.has(o.id))
-
-  function toggleSelectAll() {
-    if (allFilteredSelected) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        filteredOrders.forEach((o) => next.delete(o.id))
-        return next
-      })
-    } else {
-      setSelectedIds((prev) => {
-        const next = new Set(prev)
-        filteredOrders.forEach((o) => next.add(o.id))
-        return next
-      })
-    }
-  }
-
-  function toggleSelect(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
 
   const filterTabs: Array<{ key: StatusFilter; label: string }> = [
     { key: 'all', label: vi ? 'All Orders' : 'All Orders' },
@@ -655,35 +625,11 @@ export function OrdersPage() {
             </label>
           </div>
 
-          {selectedIds.size > 0 ? (
-            <div className="mb-3 flex items-center gap-3 rounded-xl border border-hairline bg-surface-1 px-3 py-2 text-xs text-ink-muted">
-              <span className="font-mono text-ink">
-                {selectedIds.size} selected
-              </span>
-              <Button
-                variant="secondary"
-                className="h-7 min-h-7 px-2 text-[11px]"
-                onClick={() => setSelectedIds(new Set())}
-              >
-                Clear
-              </Button>
-            </div>
-          ) : null}
-
           <div className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[1080px] text-left text-sm text-ink">
                 <thead>
                   <tr className="border-b border-hairline text-ink-subtle">
-                    <th className="w-10 px-3 py-3">
-                      <input
-                        type="checkbox"
-                        checked={allFilteredSelected}
-                        onChange={toggleSelectAll}
-                        aria-label="Select all"
-                        className="h-3.5 w-3.5 rounded border-hairline bg-canvas accent-indigo-600"
-                      />
-                    </th>
                     <th className="px-4 py-3 font-medium">Order / Package</th>
                     <th className="px-4 py-3 font-medium">
                       {vi ? 'Phân loại' : 'Class'}
@@ -715,15 +661,6 @@ export function OrdersPage() {
                           : ''
                       }`}
                     >
-                      <td className="px-3 py-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(order.id)}
-                          onChange={() => toggleSelect(order.id)}
-                          aria-label={`Select ${order.id}`}
-                          className="h-3.5 w-3.5 rounded border-hairline bg-canvas accent-indigo-600"
-                        />
-                      </td>
                       <td className="px-4 py-3">
                         <p className="font-mono font-medium text-ink">
                           {order.id}

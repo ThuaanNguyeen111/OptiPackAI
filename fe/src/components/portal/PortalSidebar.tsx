@@ -1,10 +1,11 @@
-import { NavLink, Link } from 'react-router-dom'
+import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
   Box,
   Boxes,
   ChevronDown,
   LayoutDashboard,
+  LogOut,
   Moon,
   Package,
   PanelLeftClose,
@@ -105,6 +106,7 @@ export function PortalSidebar() {
     activateAllShops,
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
+  const navigate = useNavigate()
   const [storeMenuOpen, setStoreMenuOpen] = useState(false)
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
@@ -327,6 +329,15 @@ export function PortalSidebar() {
             ) : (
               <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
             )}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/login', { replace: true })}
+            className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-surface-2 hover:text-red-500"
+            aria-label="Đăng xuất"
+            title="Đăng xuất"
+          >
+            <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
           </button>
           <div className="flex rounded-md border border-hairline p-0.5 text-[11px] font-medium">
             <button
