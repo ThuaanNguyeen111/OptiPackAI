@@ -16,6 +16,14 @@ export const roleLabelsVN: Record<Role, string> = {
   [Role.ADMIN]: 'Quản trị hệ thống',
 }
 
+export const roleLabelsEN: Record<Role, string> = {
+  [Role.STORE_OWNER]: 'Store Owner',
+  [Role.WAREHOUSE_STAFF]: 'Warehouse Staff',
+  [Role.PACKAGING_STAFF]: 'Packaging Specialist',
+  [Role.SHIPPING_COORDINATOR]: 'Shipping Coordinator',
+  [Role.ADMIN]: 'System Admin',
+}
+
 export type AdminUser = {
   id: string
   email: string

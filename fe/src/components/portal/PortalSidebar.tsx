@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
+  Shield,
   Sun,
   Truck,
   X,
@@ -77,6 +78,14 @@ const navItems = [
     labelVi: 'Hồ sơ & Cài đặt',
     labelEn: 'Profile & Settings',
     icon: Settings,
+    section: 'system' as NavSection,
+  },
+  {
+    to: '/app/admin',
+    end: false,
+    labelVi: 'Quản trị',
+    labelEn: 'Admin Console',
+    icon: Shield,
     section: 'system' as NavSection,
   },
 ]
