@@ -11,6 +11,7 @@ import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ShippingPage } from './pages/ShippingPage'
+import AdminPage from './pages/AdminPage'
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="packing" element={<PackingPage />} />
           <Route path="shipping" element={<ShippingPage />} />
           <Route path="packaging-rules" element={<PackagingRulesPage />} />
+          <Route path="admin" element={<AdminPage />} />
           <Route path="analytics" element={<AnalyticsReportPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<ProfilePage />} />
