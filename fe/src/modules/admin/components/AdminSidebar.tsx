@@ -121,12 +121,7 @@ export function AdminSidebar() {
         <div className="border-b border-hairline p-3">
           <div className="rounded-lg border border-primary/20 bg-primary/10 px-3 py-2">
             <p className="text-xs font-medium text-primary-hover">
-              {vi ? 'Admin Console' : 'Admin Console'}
-            </p>
-            <p className="mt-0.5 text-[11px] text-ink-subtle">
-              {vi
-                ? 'FE-08 · Users · RBAC · AI · Templates'
-                : 'FE-08 · Users · RBAC · AI · Templates'}
+              {vi ? 'Bảng điều khiển Admin' : 'Admin Console'}
             </p>
           </div>
         </div>

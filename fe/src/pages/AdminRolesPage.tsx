@@ -9,16 +9,12 @@ const modules: Array<{
   key: string
   labelVi: string
   labelEn: string
-  noteVi: string
-  noteEn: string
   access: Record<Role, Access>
 }> = [
   {
     key: 'dashboard',
-    labelVi: 'Dashboard / báo cáo',
-    labelEn: 'Dashboard / reports',
-    noteVi: 'Store Owner giám sát vận hành (Report 1)',
-    noteEn: 'Store Owner monitors operations (Report 1)',
+    labelVi: 'Dashboard',
+    labelEn: 'Dashboard',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -29,10 +25,8 @@ const modules: Array<{
   },
   {
     key: 'shops',
-    labelVi: 'Kết nối Shopee / TikTok Shop',
-    labelEn: 'Connect Shopee / TikTok Shop',
-    noteVi: 'Ngoài phạm vi: Facebook, Lazada (LI-02)',
-    noteEn: 'Out of scope: Facebook, Lazada (LI-02)',
+    labelVi: 'Kết nối sàn thương mại điện tử',
+    labelEn: 'Connect e-commerce platforms',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -43,10 +37,8 @@ const modules: Array<{
   },
   {
     key: 'orders',
-    labelVi: 'Đơn đa kênh / gộp đơn',
-    labelEn: 'Omnichannel orders / consolidation',
-    noteVi: 'FE-01, FE-02',
-    noteEn: 'FE-01, FE-02',
+    labelVi: 'Đơn đa kênh/Gộp đơn',
+    labelEn: 'Omnichannel orders/Consolidation',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'full',
@@ -57,10 +49,8 @@ const modules: Array<{
   },
   {
     key: 'picking',
-    labelVi: 'Picking / quét QR',
-    labelEn: 'Picking / QR scan',
-    noteVi: 'Warehouse Staff + Mobile (FE-06)',
-    noteEn: 'Warehouse Staff + Mobile (FE-06)',
+    labelVi: 'Picking/Quét QR',
+    labelEn: 'Picking/QR scan',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'full',
@@ -73,8 +63,6 @@ const modules: Array<{
     key: 'packing',
     labelVi: 'Duyệt gợi ý AI đóng gói',
     labelEn: 'Approve AI packing plan',
-    noteVi: 'Bắt buộc human confirm trước khi in nhãn (FE-03, R06)',
-    noteEn: 'Human confirm required before labels (FE-03, R06)',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -85,10 +73,8 @@ const modules: Array<{
   },
   {
     key: 'shipping',
-    labelVi: 'Nhãn vận đơn / ước phí',
-    labelEn: 'Shipping labels / fee estimate',
-    noteVi: 'FE-04, FE-05',
-    noteEn: 'FE-04, FE-05',
+    labelVi: 'Nhãn vận đơn/Ước phí',
+    labelEn: 'Shipping labels/Fee estimate',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -99,10 +85,8 @@ const modules: Array<{
   },
   {
     key: 'pack-rules',
-    labelVi: 'Quy tắc bao bì (Store Owner)',
-    labelEn: 'Packaging rules (Store Owner)',
-    noteVi: 'Khác với template do Admin quản lý',
-    noteEn: 'Distinct from Admin-managed templates',
+    labelVi: 'Quy tắc bao bì',
+    labelEn: 'Packaging rules',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -113,10 +97,8 @@ const modules: Array<{
   },
   {
     key: 'users-read',
-    labelVi: 'Xem danh sách user',
-    labelEn: 'List users',
-    noteVi: 'Chỉ Admin — quản lý tài khoản',
-    noteEn: 'Admin only — account management',
+    labelVi: 'Xem danh sách nhân viên',
+    labelEn: 'List employees',
     access: {
       [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -127,10 +109,8 @@ const modules: Array<{
   },
   {
     key: 'users-write',
-    labelVi: 'Tạo / sửa / vô hiệu / reset / tắt MFA',
-    labelEn: 'Create / patch / deactivate / reset / disable MFA',
-    noteVi: 'Chỉ Admin (INTEGRATION_GUIDE §8)',
-    noteEn: 'Admin only (INTEGRATION_GUIDE §8)',
+    labelVi: 'Chỉnh sửa nhân viên',
+    labelEn: 'Edit employees',
     access: {
       [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -143,8 +123,6 @@ const modules: Array<{
     key: 'ai-config',
     labelVi: 'Cấu hình tham số AI',
     labelEn: 'AI parameter config',
-    noteVi: 'Timeout ≤ 5s + fallback (Report 2 R02)',
-    noteEn: 'Timeout ≤ 5s + fallback (Report 2 R02)',
     access: {
       [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -155,10 +133,8 @@ const modules: Array<{
   },
   {
     key: 'templates',
-    labelVi: 'Packaging templates',
+    labelVi: 'Mẫu đóng gói',
     labelEn: 'Packaging templates',
-    noteVi: 'FE-08 — System Administrator',
-    noteEn: 'FE-08 — System Administrator',
     access: {
       [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -208,27 +184,11 @@ export function AdminRolesPage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
-          <div>
             <h1 className="text-xl font-semibold tracking-tight text-ink">
               {vi ? 'Phân quyền theo vai trò' : 'Role-based access'}
             </h1>
-            <p className="mt-1 text-sm text-ink-muted">
-              {vi
-                ? '5 role số 0–4 (INTEGRATION_GUIDE) · trách nhiệm actor (Report 1) · backend @Roles() enforce'
-                : '5 numeric roles 0–4 (INTEGRATION_GUIDE) · actor duties (Report 1) · backend @Roles() enforces'}
-            </p>
-          </div>
 
           <section className="rounded-xl border border-hairline bg-surface-1 p-4 sm:p-5">
-            <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
-              <Shield className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-              {vi ? 'Ma trận quyền (FE-08)' : 'Access matrix (FE-08)'}
-            </div>
-            <p className="mb-4 text-xs text-ink-subtle">
-              {vi
-                ? 'Chủ shop dùng toàn bộ trang vận hành. Admin chỉ console tài khoản/AI/template — không nhảy sang portal shop. Staff chỉ trang phận sự.'
-                : 'Store Owner gets all operations pages. Admin stays in the account/AI/template console. Staff only see their duty pages.'}
-            </p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[860px] text-left text-sm">
                 <thead>
@@ -255,9 +215,6 @@ export function AdminRolesPage() {
                       <td className="px-3 py-3">
                         <p className="text-ink">
                           {vi ? row.labelVi : row.labelEn}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-ink-tertiary">
-                          {vi ? row.noteVi : row.noteEn}
                         </p>
                       </td>
                       {ROLE_VALUES.map((r) => (

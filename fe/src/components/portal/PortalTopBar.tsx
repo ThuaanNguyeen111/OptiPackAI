@@ -55,26 +55,6 @@ export function PortalTopBar({
                 : 'Live Sync: TikTok Shop & Shopee active'}
           </span>
 
-          <div className="relative hidden md:block">
-            <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
-            <input
-              type="search"
-              placeholder={
-                isAdmin
-                  ? locale === 'vi'
-                    ? 'Tìm user / mã NV…'
-                    : 'Search user / employee ID…'
-                  : locale === 'vi'
-                    ? 'Tìm SKU / Order ID…'
-                    : 'Search SKU / Order ID…'
-              }
-              className="h-9 w-48 rounded-md border border-hairline bg-surface-1 py-1.5 pr-3 pl-8 text-xs text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40 lg:w-56"
-            />
-            <kbd className="pointer-events-none absolute top-1/2 right-2 hidden -translate-y-1/2 rounded border border-hairline bg-surface-2 px-1 font-mono text-[10px] text-ink-tertiary lg:inline">
-              ⌘K
-            </kbd>
-          </div>
-
           {isAdmin ? null : (
             <>
               <Button

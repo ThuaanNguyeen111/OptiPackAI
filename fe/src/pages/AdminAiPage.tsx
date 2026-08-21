@@ -23,16 +23,9 @@ export function AdminAiPage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
-          <div>
             <h1 className="text-xl font-semibold tracking-tight text-ink">
               {vi ? 'Cấu hình tham số AI Packaging' : 'AI Packaging parameters'}
             </h1>
-            <p className="mt-1 text-sm text-ink-muted">
-              {vi
-                ? 'FE-08 · timeout ≤ 5s (NFR) · min fill rate · fallback khi OR-Tools chậm (R02)'
-                : 'FE-08 · timeout ≤ 5s (NFR) · min fill rate · fallback when OR-Tools is slow (R02)'}
-            </p>
-          </div>
 
           <AiConfigPanel
             params={api.aiParams}

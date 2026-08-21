@@ -139,10 +139,10 @@ export function UserManagementTable({
   const filterTabs: Array<{ key: StatusFilter; label: string }> = [
     { key: 'all', label: vi ? 'Tất cả' : 'All' },
     { key: 'active', label: vi ? 'Hoạt động' : 'Active' },
-    { key: 'must_change', label: vi ? 'Cần đổi MK' : 'Must change PW' },
+    { key: 'must_change', label: vi ? 'Đổi mật khẩu' : 'Change pass' },
     { key: 'locked_72h', label: vi ? 'Khóa 72h' : 'Locked 72h' },
     { key: 'login_locked', label: vi ? 'Khóa login' : 'Login locked' },
-    { key: 'inactive', label: vi ? 'Vô hiệu' : 'Deactivated' },
+    { key: 'inactive', label: vi ? 'Vô hiệu hóa' : 'Deactivated' },
   ]
 
   const roleLabels = vi ? roleLabelsVN : roleLabelsEN
@@ -167,7 +167,7 @@ export function UserManagementTable({
           ))}
         </div>
         <label className="flex items-center gap-2 text-xs text-ink-muted">
-          <span className="shrink-0">{vi ? 'Role' : 'Role'}</span>
+          <span className="shrink-0">{vi ? 'Vai trò' : 'Role'}</span>
           <select
             value={roleFilter === 'all' ? 'all' : String(roleFilter)}
             onChange={(e) =>
@@ -179,7 +179,7 @@ export function UserManagementTable({
             }
             className="h-9 rounded-lg border border-hairline bg-surface-1 px-2.5 font-mono text-xs text-ink focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
           >
-            <option value="all">{vi ? 'Tất cả role' : 'All roles'}</option>
+            <option value="all">{vi ? 'Tất cả vai trò' : 'All roles'}</option>
             {ROLE_VALUES.map((r) => (
               <option key={r} value={r}>
                 {r} · {roleLabels[r]}
@@ -279,7 +279,9 @@ export function UserManagementTable({
                             ? vi
                               ? 'Mở khóa'
                               : 'Unlock'
-                            : 'Reset PW'}
+                            : vi
+                            ? 'Cài lại pass'
+                            : 'Reset pass'}
                         </button>
                         {u.mfaEnabled ? (
                           <button
@@ -288,8 +290,8 @@ export function UserManagementTable({
                             className={actionBtn}
                             title={
                               vi
-                                ? 'Tắt MFA hộ (mất điện thoại / hết mã dự phòng)'
-                                : 'Disable MFA (lost phone / used backup codes)'
+                                ? 'Tắt MFA hộ'
+                                : 'Disable MFA'
                             }
                           >
                             <ShieldOff className="h-3 w-3" />

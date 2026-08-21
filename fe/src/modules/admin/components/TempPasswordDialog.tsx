@@ -55,11 +55,6 @@ export function TempPasswordDialog({
           </button>
         </div>
         <div className="space-y-3 p-4">
-          <p className="text-sm text-ink-muted">
-            {vi
-              ? 'Mật khẩu tạm chỉ hiện một lần (cũng đã gửi email). User phải đổi mật khẩu trong 72 giờ, nếu không tài khoản bị khóa cứng — Admin reset lại để mở khóa.'
-              : 'This temporary password is shown once (also emailed). The user must change it within 72 hours or the account hard-locks — Admin reset-password unlocks it.'}
-          </p>
           <div className="rounded-lg border border-hairline bg-canvas px-3 py-2">
             <p className="text-[11px] text-ink-subtle">Email</p>
             <p className="font-mono text-sm text-ink">{email}</p>
@@ -72,11 +67,6 @@ export function TempPasswordDialog({
               {temporaryPassword}
             </p>
           </div>
-          <p className="text-[11px] text-amber-700 dark:text-amber-300">
-            {vi
-              ? 'Google login không tự tạo tài khoản — email này phải được Admin tạo sẵn.'
-              : 'Google login never self-registers — this email must be created by Admin first.'}
-          </p>
         </div>
         <div className="flex gap-2 border-t border-hairline p-4">
           <Button variant="ghost" className="flex-1" onClick={() => void copy()}>

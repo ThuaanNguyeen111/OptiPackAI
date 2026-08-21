@@ -62,14 +62,14 @@ export default function AdminPage() {
               onClick={() => setCreating(true)}
             >
               <Plus className="mr-1.5 h-4 w-4" />
-              {vi ? 'Tạo user' : 'Create user'}
+              {vi ? 'Tạo tài khoản' : 'Create account'}
             </Button>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[
               {
-                label: vi ? 'Tổng user' : 'Total users',
+                label: vi ? 'Tổng tài khoản' : 'Total accounts',
                 value: stats.total,
                 icon: Users,
               },

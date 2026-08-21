@@ -99,11 +99,6 @@ export function AiConfigPanel({ params, onUpdate }: Props) {
               }
               className={`${inputClass} max-w-[160px] font-mono`}
             />
-            <p className="mt-1.5 text-xs text-ink-tertiary">
-              {vi
-                ? 'NFR Report 2: gợi ý 3D bin packing phải trả trong ≤ 5 giây. R02: timeout tối đa + fallback khi OR-Tools chậm.'
-                : 'Report 2 NFR: 3D bin packing must return in ≤ 5s. R02: cap timeout and fallback if OR-Tools is slow.'}
-            </p>
           </div>
 
           <div className="rounded-lg border border-hairline bg-canvas px-4 py-3">
@@ -144,8 +139,8 @@ export function AiConfigPanel({ params, onUpdate }: Props) {
               <p className="text-sm font-medium text-ink">Auto fallback</p>
               <p className="mt-0.5 text-xs text-ink-subtle">
                 {vi
-                  ? 'R02: fallback thuật toán đơn giản / thùng lớn hơn khi timeout hoặc fill rate thấp'
-                  : 'R02: simpler fallback / larger carton when timeout or fill rate is too low'}
+                  ? 'Thùng lớn hơn khi timeout hoặc fill rate thấp'
+                  : 'Larger carton when timeout or fill rate is too low'}
               </p>
             </div>
             <button

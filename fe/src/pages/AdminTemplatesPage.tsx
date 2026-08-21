@@ -86,10 +86,10 @@ export function AdminTemplatesPage() {
     }
     if (editing) {
       await api.updateTemplate(editing.id, payload)
-      setToast(vi ? 'Đã cập nhật template' : 'Template updated')
+      setToast(vi ? 'Đã cập nhật mẫu' : 'Template updated')
     } else {
       await api.createTemplate(payload)
-      setToast(vi ? 'Đã tạo template' : 'Template created')
+      setToast(vi ? 'Đã tạo mẫu' : 'Template created')
     }
     window.setTimeout(() => setToast(null), 2800)
     closeForm()
@@ -104,27 +104,20 @@ export function AdminTemplatesPage() {
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
           { label: vi ? 'Quản trị' : 'Admin', to: '/app/admin' },
-          { label: vi ? 'Templates đóng gói' : 'Packaging templates' },
+          { label: vi ? 'Mẫu đóng gói' : 'Packaging templates' },
         ]}
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
               <h1 className="text-xl font-semibold tracking-tight text-ink">
                 {vi
-                  ? 'Packaging templates'
+                  ? 'Mẫu đóng gói'
                   : 'Packaging templates'}
               </h1>
-              <p className="mt-1 text-sm text-ink-muted">
-                {vi
-                  ? 'FE-08 · catalog thùng + cushioning cho AI bin packing (khác quy tắc kho của Store Owner)'
-                  : 'FE-08 · carton + cushioning catalog for AI bin packing (distinct from Store Owner warehouse rules)'}
-              </p>
-            </div>
             <Button variant="primary" className="h-9 min-h-9" onClick={openCreate}>
               <Plus className="mr-1.5 h-4 w-4" />
-              {vi ? 'Thêm template' : 'Add template'}
+              {vi ? 'Thêm mẫu' : 'Add template'}
             </Button>
           </div>
 
@@ -134,15 +127,23 @@ export function AdminTemplatesPage() {
                 <thead>
                   <tr className="border-b border-hairline text-ink-subtle">
                     <th className="px-4 py-3 font-medium">
-                      {vi ? 'Template' : 'Template'}
+                      {vi ? 'Mẫu' : 'Template'}
                     </th>
-                    <th className="px-4 py-3 font-medium">Box Code</th>
+                    <th className="px-4 py-3 font-medium">
+                      {vi ? 'Mã hộp' : 'Box code'}
+                    </th>
                     <th className="px-4 py-3 font-medium">
                       {vi ? 'Kích thước' : 'Dimensions'}
                     </th>
-                    <th className="px-4 py-3 font-medium">Max Weight</th>
-                    <th className="px-4 py-3 font-medium">Cushioning</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
+                    <th className="px-4 py-3 font-medium">
+                      {vi ? 'Trọng lượng tối đa' : 'Max Weight'}
+                    </th>
+                    <th className="px-4 py-3 font-medium">
+                      {vi ? 'Đệm lót' : 'Cushioning'}
+                    </th>
+                    <th className="px-4 py-3 font-medium">
+                      {vi ? 'Trạng thái' : 'Status'}
+                    </th>
                     <th className="px-4 py-3 font-medium">
                       {vi ? 'Thao tác' : 'Action'}
                     </th>
@@ -225,10 +226,10 @@ export function AdminTemplatesPage() {
               <h2 className="text-sm font-medium text-ink">
                 {editing
                   ? vi
-                    ? 'Sửa template'
+                    ? 'Sửa mẫu'
                     : 'Edit template'
                   : vi
-                    ? 'Thêm template'
+                    ? 'Thêm mẫu'
                     : 'Add template'}
               </h2>
               <button
@@ -242,7 +243,7 @@ export function AdminTemplatesPage() {
             <div className="grid max-h-[70vh] gap-3 overflow-y-auto p-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-xs font-medium text-ink-subtle">
-                  {vi ? 'Tên template' : 'Template name'}
+                  {vi ? 'Tên mẫu' : 'Template name'}
                 </label>
                 <input
                   className={inputClass}
@@ -252,7 +253,7 @@ export function AdminTemplatesPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-xs font-medium text-ink-subtle">
-                  Box code
+                  {vi ? 'Mã hộp' : 'Box code'}
                 </label>
                 <input
                   className={`${inputClass} font-mono`}
@@ -304,7 +305,7 @@ export function AdminTemplatesPage() {
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-ink-subtle">
-                  Max kg
+                  {vi ? 'Trọng lượng tối đa (kg)' : 'Max weight (kg)'}
                 </label>
                 <input
                   type="number"
@@ -317,7 +318,7 @@ export function AdminTemplatesPage() {
               </div>
               <div className="sm:col-span-2">
                 <label className="mb-1 block text-xs font-medium text-ink-subtle">
-                  Cushioning
+                  {vi ? 'Đệm lót' : 'Cushioning'}
                 </label>
                 <input
                   className={inputClass}

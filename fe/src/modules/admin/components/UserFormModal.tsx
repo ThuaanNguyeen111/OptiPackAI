@@ -127,20 +127,6 @@ export function UserFormModal({
         </div>
 
         <div className="max-h-[70vh] space-y-4 overflow-y-auto p-4">
-          {isCreate ? (
-            <p className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-[11px] text-ink-subtle">
-              {vi
-                ? 'POST /users chỉ nhận name, email, role. Hệ thống sinh mật khẩu tạm — user phải đổi trong 72 giờ. Google OAuth không tự đăng ký.'
-                : 'POST /users accepts name, email, role only. A temp password is issued — change required within 72h. Google OAuth never self-registers.'}
-            </p>
-          ) : (
-            <p className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-[11px] text-ink-subtle">
-              {vi
-                ? 'PATCH /users/:id: tên, role, SĐT, địa chỉ, mã NV, phòng ban. Không đổi email tại đây.'
-                : 'PATCH /users/:id: name, role, phone, address, employee code, department. Email cannot be changed here.'}
-            </p>
-          )}
-
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-subtle">
               Email
