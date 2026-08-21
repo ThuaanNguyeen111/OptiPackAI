@@ -8,12 +8,17 @@ import { AuthLayout } from '../components/auth/AuthLayout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../context/use-auth'
 import { formatApiError } from '../lib/api'
+import { homePath } from '../lib/rbac'
 import {
   getDeviceToken,
   getRememberedEmail,
   setRememberedEmail,
 } from '../lib/auth-storage'
-import { ACCOUNT_LOCKED_DEADLINE, isMfaRequired } from '../types/auth'
+import {
+  ACCOUNT_LOCKED_DEADLINE,
+  isMfaRequired,
+  type LoginSuccess,
+} from '../types/auth'
 
 type LoginErrors = {
   email?: string
@@ -50,10 +55,10 @@ export function LoginPage() {
     return Object.keys(next).length === 0
   }
 
-  function finishLogin(mustChange: boolean) {
+  function finishLogin(mustChange: boolean, role: LoginSuccess['role']) {
     if (remember) setRememberedEmail(email.trim())
     else setRememberedEmail(null)
-    navigate(mustChange ? '/change-password' : '/app', { replace: true })
+    navigate(mustChange ? '/change-password' : homePath(role), { replace: true })
   }
 
   async function submitLogin(extra?: {
@@ -78,7 +83,7 @@ export function LoginPage() {
       }
 
       applyLoginSuccess(res)
-      finishLogin(res.must_change_password)
+      finishLogin(res.must_change_password, res.role)
     } catch (err) {
       const message = formatApiError(err)
       if (message.includes('72 giờ')) {

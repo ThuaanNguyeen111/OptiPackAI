@@ -11,7 +11,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
-  Shield,
   Sun,
   Truck,
   X,
@@ -21,6 +20,8 @@ import { PLATFORM_META } from '../../context/portal-context-value'
 import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
 import { useTheme } from '../../hooks/useTheme'
+import { canSeeNavItem } from '../../lib/rbac'
+import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
 
 type NavSection = 'overview' | 'logistics' | 'analytics' | 'system'
 
@@ -81,14 +82,6 @@ const navItems = [
     icon: Settings,
     section: 'system' as NavSection,
   },
-  {
-    to: '/app/admin',
-    end: false,
-    labelVi: 'Quản trị',
-    labelEn: 'Admin Console',
-    icon: Shield,
-    section: 'system' as NavSection,
-  },
 ]
 
 const sectionLabels: Record<
@@ -117,8 +110,12 @@ export function PortalSidebar() {
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
-  const { logout } = useAuth()
+  const { logout, session } = useAuth()
   const [storeMenuOpen, setStoreMenuOpen] = useState(false)
+  const role = session?.role ?? UserRole.STORE_OWNER
+  const visibleNav = navItems.filter((item) => canSeeNavItem(role, item.to))
+  const roleLabel =
+    locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
   const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
@@ -259,8 +256,8 @@ export function PortalSidebar() {
       ) : null}
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-        {navItems.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
-          const prevSection = idx > 0 ? navItems[idx - 1].section : null
+        {visibleNav.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
+          const prevSection = idx > 0 ? visibleNav[idx - 1].section : null
           const showSection =
             !sidebarCollapsed &&
             section !== prevSection &&
@@ -309,7 +306,7 @@ export function PortalSidebar() {
           >
             <p className="text-sm font-medium text-ink">Nguyễn Minh Anh</p>
             <span className="mt-1 inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
-              Store Owner
+              {roleLabel}
             </span>
           </Link>
         ) : (

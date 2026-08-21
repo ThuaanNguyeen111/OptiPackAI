@@ -1,5 +1,6 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
+import { canAccessPath, homePath } from '../../lib/rbac'
 
 export function ProtectedRoute() {
   const { session, ready } = useAuth()
@@ -12,6 +13,9 @@ export function ProtectedRoute() {
   if (session.mustChangePassword && location.pathname !== '/change-password') {
     return <Navigate to="/change-password" replace />
   }
+  if (!canAccessPath(session.role, location.pathname)) {
+    return <Navigate to={homePath(session.role)} replace />
+  }
   return <Outlet />
 }
 
@@ -23,7 +27,7 @@ export function GuestRoute() {
     return <Navigate to="/change-password" replace />
   }
   if (session) {
-    return <Navigate to="/app" replace />
+    return <Navigate to={homePath(session.role)} replace />
   }
   return <Outlet />
 }
@@ -36,7 +40,7 @@ export function ForceChangeRoute() {
     return <Navigate to="/login" replace />
   }
   if (!session.mustChangePassword) {
-    return <Navigate to="/app" replace />
+    return <Navigate to={homePath(session.role)} replace />
   }
   return <Outlet />
 }

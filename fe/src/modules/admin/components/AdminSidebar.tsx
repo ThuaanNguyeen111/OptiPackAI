@@ -2,7 +2,6 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   Box,
   Cpu,
-  LayoutDashboard,
   LogOut,
   Moon,
   PanelLeftClose,
@@ -134,21 +133,6 @@ export function AdminSidebar() {
       ) : null}
 
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-        <NavLink
-          to="/app"
-          end
-          onClick={() => setMobileNavOpen(false)}
-          title={vi ? 'Về vận hành' : 'Back to operations'}
-          className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink ${
-            sidebarCollapsed ? 'justify-center' : ''
-          }`}
-        >
-          <LayoutDashboard className="h-4 w-4 shrink-0" strokeWidth={1.75} />
-          {!sidebarCollapsed ? (
-            <span>{vi ? 'Về vận hành' : 'Operations'}</span>
-          ) : null}
-        </NavLink>
-
         {navItems.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
           const prevSection = idx > 0 ? navItems[idx - 1].section : null
           const showSection =

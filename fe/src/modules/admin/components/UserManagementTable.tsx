@@ -61,7 +61,7 @@ function StatusCell({ user }: { user: AdminUser }) {
 
   if (state === 'inactive') {
     return (
-      <Badge tone="warning">{vi ? 'Vô hiệu (xóa mềm)' : 'Deactivated'}</Badge>
+      <Badge tone="warning">{vi ? 'Vô hiệu' : 'Deactivated'}</Badge>
     )
   }
   if (state === 'locked_72h') {

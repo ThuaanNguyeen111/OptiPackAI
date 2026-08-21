@@ -53,16 +53,9 @@ export default function AdminPage() {
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
               <h1 className="text-xl font-semibold tracking-tight text-ink">
                 {vi ? 'Quản trị người dùng' : 'User administration'}
               </h1>
-              <p className="mt-1 text-sm text-ink-muted">
-                {vi
-                  ? 'Tạo tài khoản · phân quyền · MFA · reset / mở khóa 72h · xóa mềm'
-                  : 'Create accounts · RBAC · MFA · reset / unlock 72h · soft-delete'}
-              </p>
-            </div>
             <Button
               variant="primary"
               className="h-9 min-h-9"
@@ -149,7 +142,7 @@ export default function AdminPage() {
             }}
             onDeactivate={async (id) => {
               await api.deactivate(id)
-              showToast(vi ? 'Đã vô hiệu hóa (xóa mềm)' : 'Account deactivated')
+              showToast(vi ? 'Đã vô hiệu hóa' : 'Account deactivated')
             }}
             onReactivate={async (id) => {
               await api.reactivate(id)

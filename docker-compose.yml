@@ -28,9 +28,21 @@ services:
     networks:
       - optipackai-network
 
+  redis:
+    image: redis:7
+    container_name: optipackai-redis
+    restart: unless-stopped
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    networks:
+      - optipackai-network
+
 networks:
   optipackai-network:
     driver: bridge
 
 volumes:
   mongodb_data:
+  redis_data:

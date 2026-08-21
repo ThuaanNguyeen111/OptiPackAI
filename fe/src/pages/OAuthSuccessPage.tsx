@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AuthLayout } from '../components/auth/AuthLayout'
 import { Button } from '../components/ui/Button'
 import { useAuth } from '../context/use-auth'
+import { homePath } from '../lib/rbac'
 import {
   GOOGLE_OAUTH_ERRORS,
   isUserRole,
@@ -39,7 +40,7 @@ export function OAuthSuccessPage() {
       must_change_password: mustChange,
     }
     applyLoginSuccess(result)
-    navigate(mustChange ? '/change-password' : '/app', { replace: true })
+    navigate(mustChange ? '/change-password' : homePath(role), { replace: true })
   }, [applyLoginSuccess, error, navigate, params])
 
   const missingTokens =

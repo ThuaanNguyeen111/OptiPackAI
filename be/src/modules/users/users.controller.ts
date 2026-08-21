@@ -141,7 +141,7 @@ export class UsersController {
     return { message: 'Đã tắt MFA cho tài khoản này. Nhân viên cần setup lại MFA từ đầu nếu muốn bật lại.' };
   }
 
-  @ApiOperation({ summary: 'Admin kích hoạt lại tài khoản đã xóa mềm' })
+  @ApiOperation({ summary: 'Admin kích hoạt lại tài khoản đã vô hiệu hóa' })
   @Roles(UserRole.ADMIN)
   @Post(':id/reactivate')
   async reactivate(@Param('id') id: string): Promise<{ message: string }> {
@@ -160,7 +160,7 @@ export class UsersController {
     return toPublicProfile(updated);
   }
 
-  @ApiOperation({ summary: 'Vô hiệu hóa tài khoản nhân viên (xóa mềm)' })
+  @ApiOperation({ summary: 'Vô hiệu hóa tài khoản nhân viên' })
   @Roles(UserRole.ADMIN)
   @Delete(':id')
   async deactivate(@Param('id') id: string): Promise<{ message: string }> {

@@ -24,7 +24,7 @@ const modules: Array<{
       [Role.WAREHOUSE_STAFF]: 'none',
       [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'none',
-      [Role.ADMIN]: 'full',
+      [Role.ADMIN]: 'none',
     },
   },
   {
@@ -38,7 +38,7 @@ const modules: Array<{
       [Role.WAREHOUSE_STAFF]: 'none',
       [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'none',
-      [Role.ADMIN]: 'full',
+      [Role.ADMIN]: 'none',
     },
   },
   {
@@ -48,11 +48,11 @@ const modules: Array<{
     noteVi: 'FE-01, FE-02',
     noteEn: 'FE-01, FE-02',
     access: {
-      [Role.STORE_OWNER]: 'read',
+      [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'full',
-      [Role.PACKAGING_STAFF]: 'read',
-      [Role.SHIPPING_COORDINATOR]: 'read',
-      [Role.ADMIN]: 'full',
+      [Role.PACKAGING_STAFF]: 'none',
+      [Role.SHIPPING_COORDINATOR]: 'none',
+      [Role.ADMIN]: 'none',
     },
   },
   {
@@ -62,11 +62,11 @@ const modules: Array<{
     noteVi: 'Warehouse Staff + Mobile (FE-06)',
     noteEn: 'Warehouse Staff + Mobile (FE-06)',
     access: {
-      [Role.STORE_OWNER]: 'none',
+      [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'full',
       [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'none',
-      [Role.ADMIN]: 'full',
+      [Role.ADMIN]: 'none',
     },
   },
   {
@@ -76,11 +76,11 @@ const modules: Array<{
     noteVi: 'Bắt buộc human confirm trước khi in nhãn (FE-03, R06)',
     noteEn: 'Human confirm required before labels (FE-03, R06)',
     access: {
-      [Role.STORE_OWNER]: 'none',
+      [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
       [Role.PACKAGING_STAFF]: 'full',
       [Role.SHIPPING_COORDINATOR]: 'none',
-      [Role.ADMIN]: 'full',
+      [Role.ADMIN]: 'none',
     },
   },
   {
@@ -90,11 +90,11 @@ const modules: Array<{
     noteVi: 'FE-04, FE-05',
     noteEn: 'FE-04, FE-05',
     access: {
-      [Role.STORE_OWNER]: 'read',
+      [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
       [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'full',
-      [Role.ADMIN]: 'full',
+      [Role.ADMIN]: 'none',
     },
   },
   {
@@ -106,19 +106,19 @@ const modules: Array<{
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
-      [Role.PACKAGING_STAFF]: 'read',
+      [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'none',
-      [Role.ADMIN]: 'full',
+      [Role.ADMIN]: 'none',
     },
   },
   {
     key: 'users-read',
     labelVi: 'Xem danh sách user',
     labelEn: 'List users',
-    noteVi: 'GET /users — Admin + Store Owner',
-    noteEn: 'GET /users — Admin + Store Owner',
+    noteVi: 'Chỉ Admin — quản lý tài khoản',
+    noteEn: 'Admin only — account management',
     access: {
-      [Role.STORE_OWNER]: 'read',
+      [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',
       [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'none',
@@ -160,9 +160,9 @@ const modules: Array<{
     noteVi: 'FE-08 — System Administrator',
     noteEn: 'FE-08 — System Administrator',
     access: {
-      [Role.STORE_OWNER]: 'read',
+      [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',
-      [Role.PACKAGING_STAFF]: 'read',
+      [Role.PACKAGING_STAFF]: 'none',
       [Role.SHIPPING_COORDINATOR]: 'none',
       [Role.ADMIN]: 'full',
     },
@@ -226,8 +226,8 @@ export function AdminRolesPage() {
             </div>
             <p className="mb-4 text-xs text-ink-subtle">
               {vi
-                ? 'Quyền được gán khi Admin tạo/sửa user (PATCH role). Ma trận này phản ánh policy đã chốt trên backend — không phải quyền động mỗi shop.'
-                : 'Access is assigned when Admin creates/edits a user (PATCH role). This matrix reflects backend policy — not per-shop dynamic permissions.'}
+                ? 'Chủ shop dùng toàn bộ trang vận hành. Admin chỉ console tài khoản/AI/template — không nhảy sang portal shop. Staff chỉ trang phận sự.'
+                : 'Store Owner gets all operations pages. Admin stays in the account/AI/template console. Staff only see their duty pages.'}
             </p>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[860px] text-left text-sm">

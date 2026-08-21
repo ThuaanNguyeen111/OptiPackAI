@@ -1,10 +1,12 @@
-export enum UserRole {
-  STORE_OWNER = 0,
-  WAREHOUSE_STAFF = 1,
-  PACKAGING_STAFF = 2,
-  SHIPPING_COORDINATOR = 3,
-  ADMIN = 4,
-}
+export const UserRole = {
+  STORE_OWNER: 0,
+  WAREHOUSE_STAFF: 1,
+  PACKAGING_STAFF: 2,
+  SHIPPING_COORDINATOR: 3,
+  ADMIN: 4,
+} as const
+
+export type UserRole = (typeof UserRole)[keyof typeof UserRole]
 
 export const USER_ROLE_LABELS: Record<UserRole, { vi: string; en: string }> = {
   [UserRole.STORE_OWNER]: { vi: 'Chủ cửa hàng', en: 'Store Owner' },
