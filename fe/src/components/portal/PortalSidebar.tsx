@@ -18,6 +18,7 @@ import {
 import { useState } from 'react'
 import { PLATFORM_META } from '../../context/portal-context-value'
 import { usePortal } from '../../context/use-portal'
+import { useAuth } from '../../context/use-auth'
 import { useTheme } from '../../hooks/useTheme'
 
 type NavSection = 'overview' | 'logistics' | 'analytics' | 'system'
@@ -107,6 +108,7 @@ export function PortalSidebar() {
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const { logout } = useAuth()
   const [storeMenuOpen, setStoreMenuOpen] = useState(false)
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
@@ -332,7 +334,9 @@ export function PortalSidebar() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/login', { replace: true })}
+            onClick={() => {
+              void logout().then(() => navigate('/login', { replace: true }))
+            }}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-surface-2 hover:text-red-500"
             aria-label="Đăng xuất"
             title="Đăng xuất"

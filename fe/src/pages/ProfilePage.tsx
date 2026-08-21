@@ -22,6 +22,10 @@ import {
   type ShopPlatform,
 } from '../context/portal-context-value'
 import { usePortal } from '../context/use-portal'
+import { useAuth } from '../context/use-auth'
+import { changePassword } from '../api/auth.api'
+import { formatApiError } from '../lib/api'
+import { validateNewPassword } from '../lib/password'
 
 type ProfileTab = 'personal' | 'marketplaces' | 'preferences'
 
@@ -88,6 +92,7 @@ export function ProfilePage() {
     toggleShopActive,
     activateAllShops,
   } = usePortal()
+  const { logout } = useAuth()
   const vi = locale === 'vi'
   const [tab, setTab] = useState<ProfileTab>('personal')
   const [loggingOut, setLoggingOut] = useState(false)
@@ -129,7 +134,7 @@ export function ProfilePage() {
 
   async function handleLogout() {
     setLoggingOut(true)
-    await new Promise((r) => setTimeout(r, 400))
+    await logout()
     setLoggingOut(false)
     navigate('/login', { replace: true })
   }
@@ -169,13 +174,27 @@ export function ProfilePage() {
       )
       return
     }
-    void simulateSave(setSavingPassword, vi ? 'Đã đổi mật khẩu' : 'Password updated').then(
-      () => {
+    const policy = validateNewPassword(newPassword)
+    if (policy) {
+      showToast(policy)
+      return
+    }
+    setSavingPassword(true)
+    void changePassword(currentPassword, newPassword)
+      .then(async () => {
+        showToast(vi ? 'Đã đổi mật khẩu' : 'Password updated')
         setCurrentPassword('')
         setNewPassword('')
         setConfirmPassword('')
-      },
-    )
+        await logout()
+        navigate('/login', { replace: true })
+      })
+      .catch((err: unknown) => {
+        showToast(formatApiError(err))
+      })
+      .finally(() => {
+        setSavingPassword(false)
+      })
   }
 
   async function handleAddShop(e: FormEvent) {

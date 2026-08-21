@@ -127,7 +127,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
                 to="/register"
                 className="rounded-md border border-[#27272A] px-3 py-1.5 text-sm text-ink-muted transition-colors hover:text-ink"
               >
-                Create account
+                Liên hệ Admin
               </Link>
             ) : (
               <Link

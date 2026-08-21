@@ -34,10 +34,10 @@ export function HeroSection() {
 
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Link
-              to="/register"
+              to="/login"
               className="inline-flex h-11 items-center rounded-md bg-gradient-to-r from-primary to-primary-hover px-5 text-sm font-semibold text-on-primary shadow-[0_0_28px_rgba(99,102,241,0.35)] transition-opacity hover:opacity-95"
             >
-              Bắt đầu miễn phí
+              Đăng nhập hệ thống
             </Link>
             <a
               href="#ai-engine"

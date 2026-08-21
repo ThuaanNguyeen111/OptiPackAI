@@ -5,9 +5,9 @@ type PasswordStrengthProps = {
 function getStrength(password: string) {
   let score = 0
   if (password.length >= 8) score += 1
-  if (/[A-Z]/.test(password)) score += 1
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score += 1
   if (/[0-9]/.test(password)) score += 1
-  if (/[^A-Za-z0-9]/.test(password)) score += 1
+  if (/[@$!%*?&]/.test(password)) score += 1
   return score
 }
 
@@ -33,7 +33,7 @@ export function PasswordStrength({ password }: PasswordStrengthProps) {
         />
       </div>
       <p className="mt-0.5 text-[10px] text-ink-subtle">
-        {password ? labels[score] : 'Use 8+ chars with number & symbol'}
+        {password ? labels[score] : '8+ chars, hoa/thường, số, ký tự đặc biệt'}
       </p>
     </div>
   )

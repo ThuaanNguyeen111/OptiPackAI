@@ -2,9 +2,11 @@ import type { FormEvent } from 'react'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Loader2, Mail, MailCheck } from 'lucide-react'
+import { forgotPassword } from '../api/auth.api'
 import { AuthInput } from '../components/auth/AuthInput'
 import { AuthLayout } from '../components/auth/AuthLayout'
 import { Button } from '../components/ui/Button'
+import { formatApiError } from '../lib/api'
 
 const RESEND_SECONDS = 60
 
@@ -14,6 +16,7 @@ export function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [sentTo, setSentTo] = useState('')
+  const [info, setInfo] = useState('')
   const [cooldown, setCooldown] = useState(0)
   const [resending, setResending] = useState(false)
 
@@ -35,10 +38,10 @@ export function ForgotPasswordPage() {
   }
 
   async function sendReset(target: string) {
-    // Mock — thay bằng API khi BE sẵn sàng
-    await new Promise((r) => setTimeout(r, 900))
+    const res = await forgotPassword(target)
     setSentTo(target)
     setSent(true)
+    setInfo(res.message)
     setCooldown(RESEND_SECONDS)
   }
 
@@ -53,6 +56,8 @@ export function ForgotPasswordPage() {
     setLoading(true)
     try {
       await sendReset(email.trim())
+    } catch (err) {
+      setError(formatApiError(err))
     } finally {
       setLoading(false)
     }
@@ -61,8 +66,11 @@ export function ForgotPasswordPage() {
   async function handleResend() {
     if (cooldown > 0 || !sentTo) return
     setResending(true)
+    setError(undefined)
     try {
       await sendReset(sentTo)
+    } catch (err) {
+      setError(formatApiError(err))
     } finally {
       setResending(false)
     }
@@ -157,9 +165,14 @@ export function ForgotPasswordPage() {
             Kiểm tra hòm thư của bạn
           </h1>
           <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-            Chúng tôi đã gửi hướng dẫn đặt lại mật khẩu đến{' '}
+            {info ||
+              'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi.'}{' '}
             <span className="font-mono text-ink">{sentTo}</span>
           </p>
+
+          {error ? (
+            <p className="mt-3 text-sm text-error">{error}</p>
+          ) : null}
 
           <div className="mt-8 space-y-3">
             <Button
@@ -179,7 +192,7 @@ export function ForgotPasswordPage() {
               variant="ghost"
               className="w-full"
               disabled={cooldown > 0 || resending}
-              onClick={handleResend}
+              onClick={() => void handleResend()}
             >
               {resending ? (
                 <>
