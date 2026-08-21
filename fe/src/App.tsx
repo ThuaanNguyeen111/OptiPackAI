@@ -5,7 +5,8 @@ import { PortalProvider } from './context/portal-provider'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { AdminAiPage } from './pages/AdminAiPage'
 import AdminPage from './pages/AdminPage'
-import { AdminSettingsPage } from './pages/AdminSettingsPage'
+import { AdminRolesPage } from './pages/AdminRolesPage'
+import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { LandingPage } from './pages/LandingPage'
@@ -47,8 +48,9 @@ function App() {
           </Route>
           <Route path="admin" element={<AdminLayout />}>
             <Route index element={<AdminPage />} />
+            <Route path="roles" element={<AdminRolesPage />} />
             <Route path="ai" element={<AdminAiPage />} />
-            <Route path="settings" element={<AdminSettingsPage />} />
+            <Route path="templates" element={<AdminTemplatesPage />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

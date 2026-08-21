@@ -1,33 +1,13 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, Plus, Search, Shield, UserCheck, UserX, Users } from 'lucide-react'
+import { Plus, Search, Shield, UserCheck, UserX, Users } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
 import { useAdminUsers } from '../hooks/useAdminUsers'
+import { AdminToast } from '../modules/admin/components/AdminToast'
+import { TempPasswordDialog } from '../modules/admin/components/TempPasswordDialog'
 import { UserManagementTable } from '../modules/admin/components/UserManagementTable'
-import { Role } from '../types/admin'
-
-function Toast({
-  message,
-  onClose,
-}: {
-  message: string
-  onClose: () => void
-}) {
-  return (
-    <div className="fixed right-4 bottom-4 z-50 flex max-w-sm items-start gap-3 rounded-xl border border-success/30 bg-surface-1 px-4 py-3 shadow-lg shadow-black/30">
-      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-success" />
-      <p className="min-w-0 flex-1 text-sm font-medium text-ink">{message}</p>
-      <button
-        type="button"
-        onClick={onClose}
-        className="text-xs text-ink-subtle hover:text-ink"
-      >
-        ✕
-      </button>
-    </div>
-  )
-}
+import { Role, getUserLockState } from '../types/admin'
 
 export default function AdminPage() {
   const { locale } = usePortal()
@@ -36,13 +16,21 @@ export default function AdminPage() {
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [tempPw, setTempPw] = useState<{
+    email: string
+    temporaryPassword: string
+    reason: 'create' | 'reset'
+  } | null>(null)
 
   const stats = useMemo(() => {
     const active = api.users.filter((u) => u.active).length
+    const locked72 = api.users.filter(
+      (u) => getUserLockState(u) === 'locked_72h',
+    ).length
     return {
       total: api.users.length,
       active,
-      locked: api.users.length - active,
+      locked72,
       admins: api.users.filter((u) => u.role === Role.ADMIN).length,
     }
   }, [api.users])
@@ -71,8 +59,8 @@ export default function AdminPage() {
               </h1>
               <p className="mt-1 text-sm text-ink-muted">
                 {vi
-                  ? 'Role · MFA · khóa tài khoản · reset mật khẩu'
-                  : 'Roles · MFA · lock accounts · reset passwords'}
+                  ? 'Tạo tài khoản · phân quyền · MFA · reset / mở khóa 72h · xóa mềm'
+                  : 'Create accounts · RBAC · MFA · reset / unlock 72h · soft-delete'}
               </p>
             </div>
             <Button
@@ -98,8 +86,8 @@ export default function AdminPage() {
                 icon: UserCheck,
               },
               {
-                label: vi ? 'Bị khóa' : 'Locked',
-                value: stats.locked,
+                label: vi ? 'Khóa cứng 72h' : 'Hard-locked 72h',
+                value: stats.locked72,
                 icon: UserX,
               },
               {
@@ -149,30 +137,54 @@ export default function AdminPage() {
               showToast(vi ? 'Đã cập nhật người dùng' : 'User updated')
             }}
             onResetPassword={async (id) => {
-              await api.resetPassword(id)
-              showToast(vi ? 'Đã reset mật khẩu' : 'Password reset')
+              const user = api.users.find((u) => u.id === id)
+              const { temporaryPassword } = await api.resetPassword(id)
+              if (user) {
+                setTempPw({
+                  email: user.email,
+                  temporaryPassword,
+                  reason: 'reset',
+                })
+              }
             }}
-            onToggleActive={async (id, active) => {
-              await api.setActive(id, active)
+            onDeactivate={async (id) => {
+              await api.deactivate(id)
+              showToast(vi ? 'Đã vô hiệu hóa (xóa mềm)' : 'Account deactivated')
+            }}
+            onReactivate={async (id) => {
+              await api.reactivate(id)
+              showToast(vi ? 'Đã kích hoạt lại' : 'Account reactivated')
+            }}
+            onDisableMfa={async (id) => {
+              await api.disableMfa(id)
               showToast(
-                active
-                  ? vi
-                    ? 'Đã kích hoạt tài khoản'
-                    : 'Account enabled'
-                  : vi
-                    ? 'Đã khóa tài khoản'
-                    : 'Account locked',
+                vi
+                  ? 'Đã tắt MFA — user phải setup lại nếu muốn bật'
+                  : 'MFA disabled — user must set up again to re-enable',
               )
             }}
-            onCreateUser={async (user) => {
-              await api.createUser(user)
-              showToast(vi ? 'Đã tạo người dùng' : 'User created')
+            onCreateUser={async (input) => {
+              const { temporaryPassword } = await api.createUser(input)
+              setTempPw({
+                email: input.email,
+                temporaryPassword,
+                reason: 'create',
+              })
+              return { temporaryPassword }
             }}
           />
         </div>
       </main>
 
-      {toast ? <Toast message={toast} onClose={() => setToast(null)} /> : null}
+      {toast ? <AdminToast message={toast} onClose={() => setToast(null)} /> : null}
+      {tempPw ? (
+        <TempPasswordDialog
+          email={tempPw.email}
+          temporaryPassword={tempPw.temporaryPassword}
+          reason={tempPw.reason}
+          onClose={() => setTempPw(null)}
+        />
+      ) : null}
     </>
   )
 }

@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Loader2, X } from 'lucide-react'
-import type { AdminUser } from '../../../types/admin'
-import { Role, roleLabelsEN, roleLabelsVN } from '../../../types/admin'
+import type {
+  AdminUser,
+  CreateUserInput,
+  UpdateUserInput,
+} from '../../../types/admin'
+import { ROLE_VALUES, roleLabelsEN, roleLabelsVN, Role } from '../../../types/admin'
 import { Button } from '../../../components/ui/Button'
 import { usePortal } from '../../../context/use-portal'
 
@@ -10,25 +14,14 @@ const inputClass =
 
 const optionClass = 'bg-white text-slate-900 dark:bg-[#1C212D] dark:text-[#F3F4F6]'
 
-const ROLE_OPTIONS: Role[] = [
-  Role.STORE_OWNER,
-  Role.WAREHOUSE_STAFF,
-  Role.PACKAGING_STAFF,
-  Role.SHIPPING_COORDINATOR,
-  Role.ADMIN,
-]
-
-type CreatePayload = Omit<AdminUser, 'id' | 'createdAt'>
-type EditPayload = Partial<
-  Pick<AdminUser, 'role' | 'employeeCode' | 'department'>
->
-
 type Props = {
   open: boolean
   onClose: () => void
   user: AdminUser | null
-  onSave: (id: string, patch: EditPayload) => Promise<void>
-  onCreate?: (user: CreatePayload) => Promise<void>
+  onSave: (id: string, patch: UpdateUserInput) => Promise<void>
+  onCreate?: (
+    user: CreateUserInput,
+  ) => Promise<{ temporaryPassword: string } | void>
 }
 
 export function UserFormModal({
@@ -43,8 +36,10 @@ export function UserFormModal({
   const isCreate = user === null
 
   const [email, setEmail] = useState('')
-  const [fullName, setFullName] = useState('')
+  const [name, setName] = useState('')
   const [role, setRole] = useState<Role>(Role.WAREHOUSE_STAFF)
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
   const [employeeCode, setEmployeeCode] = useState('')
   const [department, setDepartment] = useState('')
   const [saving, setSaving] = useState(false)
@@ -53,14 +48,18 @@ export function UserFormModal({
     if (!open) return
     if (user) {
       setEmail(user.email)
-      setFullName(user.fullName ?? '')
+      setName(user.name)
       setRole(user.role)
+      setPhone(user.phone ?? '')
+      setAddress(user.address ?? '')
       setEmployeeCode(user.employeeCode ?? '')
       setDepartment(user.department ?? '')
     } else {
       setEmail('')
-      setFullName('')
+      setName('')
       setRole(Role.WAREHOUSE_STAFF)
+      setPhone('')
+      setAddress('')
       setEmployeeCode('')
       setDepartment('')
     }
@@ -69,24 +68,24 @@ export function UserFormModal({
   if (!open) return null
 
   async function handleSubmit() {
+    if (isCreate && (!name.trim() || !email.trim())) return
     setSaving(true)
     if (isCreate) {
-      if (!onCreate || !email.trim()) {
+      if (!onCreate) {
         setSaving(false)
         return
       }
       await onCreate({
+        name: name.trim(),
         email: email.trim(),
-        fullName: fullName.trim() || undefined,
         role,
-        employeeCode: employeeCode.trim() || undefined,
-        department: department.trim() || undefined,
-        mfaEnabled: false,
-        active: true,
       })
     } else if (user) {
       await onSave(user.id, {
+        name: name.trim(),
         role,
+        phone: phone.trim() || undefined,
+        address: address.trim() || undefined,
         employeeCode: employeeCode.trim() || undefined,
         department: department.trim() || undefined,
       })
@@ -127,7 +126,21 @@ export function UserFormModal({
           </button>
         </div>
 
-        <div className="space-y-4 p-4">
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto p-4">
+          {isCreate ? (
+            <p className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-[11px] text-ink-subtle">
+              {vi
+                ? 'POST /users chỉ nhận name, email, role. Hệ thống sinh mật khẩu tạm — user phải đổi trong 72 giờ. Google OAuth không tự đăng ký.'
+                : 'POST /users accepts name, email, role only. A temp password is issued — change required within 72h. Google OAuth never self-registers.'}
+            </p>
+          ) : (
+            <p className="rounded-lg border border-hairline bg-canvas px-3 py-2 text-[11px] text-ink-subtle">
+              {vi
+                ? 'PATCH /users/:id: tên, role, SĐT, địa chỉ, mã NV, phòng ban. Không đổi email tại đây.'
+                : 'PATCH /users/:id: name, role, phone, address, employee code, department. Email cannot be changed here.'}
+            </p>
+          )}
+
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-subtle">
               Email
@@ -138,7 +151,7 @@ export function UserFormModal({
                 className={inputClass}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@shop.local"
+                placeholder="staff@optipackai.com"
               />
             ) : (
               <div className="rounded-md border border-hairline bg-canvas px-3 py-2 font-mono text-sm text-ink">
@@ -147,19 +160,17 @@ export function UserFormModal({
             )}
           </div>
 
-          {isCreate ? (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-ink-subtle">
-                {vi ? 'Họ và tên' : 'Full name'}
-              </label>
-              <input
-                className={inputClass}
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder={vi ? 'Nguyễn Văn A' : 'Full name'}
-              />
-            </div>
-          ) : null}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-ink-subtle">
+              {vi ? 'Họ và tên' : 'Name'}
+            </label>
+            <input
+              className={inputClass}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={vi ? 'Nguyễn Văn A' : 'Full name'}
+            />
+          </div>
 
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-subtle">
@@ -170,37 +181,61 @@ export function UserFormModal({
               onChange={(e) => setRole(Number(e.target.value) as Role)}
               className={inputClass}
             >
-              {ROLE_OPTIONS.map((r) => (
+              {ROLE_VALUES.map((r) => (
                 <option key={r} value={r} className={optionClass}>
-                  {labels[r]}
+                  {r} · {labels[r]}
                 </option>
               ))}
             </select>
           </div>
 
-          <div>
-            <label className="mb-1 block text-xs font-medium text-ink-subtle">
-              {vi ? 'Mã nhân viên' : 'Employee code'}
-            </label>
-            <input
-              className={`${inputClass} font-mono`}
-              value={employeeCode}
-              onChange={(e) => setEmployeeCode(e.target.value)}
-              placeholder="EMP-001"
-            />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-xs font-medium text-ink-subtle">
-              {vi ? 'Phòng ban' : 'Department'}
-            </label>
-            <input
-              className={inputClass}
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder={vi ? 'Kho / Packing / IT' : 'Warehouse / Packing / IT'}
-            />
-          </div>
+          {isCreate ? null : (
+            <>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-subtle">
+                  {vi ? 'Số điện thoại' : 'Phone'}
+                </label>
+                <input
+                  className={`${inputClass} font-mono`}
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0912345678"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-subtle">
+                  {vi ? 'Địa chỉ' : 'Address'}
+                </label>
+                <input
+                  className={inputClass}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-subtle">
+                  {vi ? 'Mã nhân viên' : 'Employee code'}
+                </label>
+                <input
+                  className={`${inputClass} font-mono`}
+                  value={employeeCode}
+                  onChange={(e) => setEmployeeCode(e.target.value)}
+                  placeholder="NV-045"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-ink-subtle">
+                  {vi ? 'Phòng ban' : 'Department'}
+                </label>
+                <input
+                  className={inputClass}
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  placeholder={vi ? 'Kho A' : 'Warehouse A'}
+                />
+              </div>
+            </>
+          )}
         </div>
 
         <div className="flex gap-2 border-t border-hairline p-4">
@@ -211,7 +246,9 @@ export function UserFormModal({
             variant="primary"
             className="flex-1"
             onClick={() => void handleSubmit()}
-            disabled={saving || (isCreate && !email.trim())}
+            disabled={
+              saving || (isCreate && (!email.trim() || !name.trim()))
+            }
           >
             {saving ? (
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />

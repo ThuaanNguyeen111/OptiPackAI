@@ -1,12 +1,12 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
+  Box,
   Cpu,
   LayoutDashboard,
   LogOut,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-  Settings,
   Shield,
   Sun,
   Users,
@@ -15,7 +15,7 @@ import {
 import { usePortal } from '../../../context/use-portal'
 import { useTheme } from '../../../hooks/useTheme'
 
-type NavSection = 'directory' | 'ai' | 'system'
+type NavSection = 'directory' | 'ai'
 
 const navItems = [
   {
@@ -27,27 +27,34 @@ const navItems = [
     section: 'directory' as NavSection,
   },
   {
+    to: '/app/admin/roles',
+    end: false,
+    labelVi: 'Phân quyền',
+    labelEn: 'Role access',
+    icon: Shield,
+    section: 'directory' as NavSection,
+  },
+  {
     to: '/app/admin/ai',
     end: false,
-    labelVi: 'AI Packaging',
-    labelEn: 'AI Packaging',
+    labelVi: 'Tham số AI',
+    labelEn: 'AI parameters',
     icon: Cpu,
     section: 'ai' as NavSection,
   },
   {
-    to: '/app/admin/settings',
+    to: '/app/admin/templates',
     end: false,
-    labelVi: 'Cấu hình hệ thống',
-    labelEn: 'System Config',
-    icon: Settings,
-    section: 'system' as NavSection,
+    labelVi: 'Templates đóng gói',
+    labelEn: 'Packaging templates',
+    icon: Box,
+    section: 'ai' as NavSection,
   },
 ]
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   directory: { vi: 'Quản trị', en: 'Administration' },
-  ai: { vi: 'AI', en: 'AI' },
-  system: { vi: 'Hệ thống', en: 'System' },
+  ai: { vi: 'AI & đóng gói', en: 'AI & packing' },
 }
 
 export function AdminSidebar() {
@@ -118,7 +125,9 @@ export function AdminSidebar() {
               {vi ? 'Admin Console' : 'Admin Console'}
             </p>
             <p className="mt-0.5 text-[11px] text-ink-subtle">
-              {vi ? 'Nội bộ · Users · AI · Config' : 'Internal · Users · AI · Config'}
+              {vi
+                ? 'FE-08 · Users · RBAC · AI · Templates'
+                : 'FE-08 · Users · RBAC · AI · Templates'}
             </p>
           </div>
         </div>

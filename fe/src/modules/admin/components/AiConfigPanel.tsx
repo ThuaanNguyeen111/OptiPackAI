@@ -85,21 +85,24 @@ export function AiConfigPanel({ params, onUpdate }: Props) {
             </label>
             <input
               type="number"
-              min={3}
-              max={60}
+              min={1}
+              max={5}
               value={local.timeoutSeconds}
               onChange={(e) =>
                 setLocal({
                   ...local,
-                  timeoutSeconds: Number(e.target.value),
+                  timeoutSeconds: Math.max(
+                    1,
+                    Math.min(5, Number(e.target.value) || 1),
+                  ),
                 })
               }
               className={`${inputClass} max-w-[160px] font-mono`}
             />
             <p className="mt-1.5 text-xs text-ink-tertiary">
               {vi
-                ? 'Thời gian tối đa chờ gợi ý 3D bin packing'
-                : 'Max wait for 3D bin packing suggestion'}
+                ? 'NFR Report 2: gợi ý 3D bin packing phải trả trong ≤ 5 giây. R02: timeout tối đa + fallback khi OR-Tools chậm.'
+                : 'Report 2 NFR: 3D bin packing must return in ≤ 5s. R02: cap timeout and fallback if OR-Tools is slow.'}
             </p>
           </div>
 
@@ -141,8 +144,8 @@ export function AiConfigPanel({ params, onUpdate }: Props) {
               <p className="text-sm font-medium text-ink">Auto fallback</p>
               <p className="mt-0.5 text-xs text-ink-subtle">
                 {vi
-                  ? 'Tự chọn thùng lớn hơn khi AI không đạt fill rate'
-                  : 'Pick a larger carton when AI fill rate is too low'}
+                  ? 'R02: fallback thuật toán đơn giản / thùng lớn hơn khi timeout hoặc fill rate thấp'
+                  : 'R02: simpler fallback / larger carton when timeout or fill rate is too low'}
               </p>
             </div>
             <button
