@@ -1,10 +1,10 @@
 import { Outlet } from 'react-router-dom'
-import { PortalSidebar } from '../portal/PortalSidebar'
+import { AdminSidebar } from '../../modules/admin/components/AdminSidebar'
 
-export function AppLayout() {
+export function AdminLayout() {
   return (
     <div className="flex h-svh overflow-hidden bg-canvas">
-      <PortalSidebar />
+      <AdminSidebar />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Outlet />
       </div>
