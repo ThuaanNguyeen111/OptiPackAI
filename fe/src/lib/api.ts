@@ -122,7 +122,15 @@ export async function apiRequest<T>(
 }
 
 export function formatApiError(err: unknown): string {
-  if (err instanceof ApiError) return err.messages.join(' ')
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      return 'Thử đăng nhập quá nhiều lần. Đợi khoảng 1 phút rồi thử lại.'
+    }
+    return err.messages.join(' ')
+  }
+  if (err instanceof TypeError) {
+    return 'Không kết nối được máy chủ. Hãy chạy backend (cổng 3000) rồi thử lại.'
+  }
   if (err instanceof Error) return err.message
   return 'Không kết nối được máy chủ. Kiểm tra backend đang chạy.'
 }

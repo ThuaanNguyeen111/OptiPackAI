@@ -1,6 +1,5 @@
-import type { LoginResponse, LoginSuccess } from '../types/auth'
-import { UserRole } from '../types/auth'
-import { ApiError } from '../lib/api'
+import { API_BASE_URL, apiRequest } from '../lib/api'
+import { isUserRole, type LoginResponse, type LoginSuccess } from '../types/auth'
 
 export type LoginBody = {
   email: string
@@ -10,101 +9,85 @@ export type LoginBody = {
   device_token?: string
 }
 
-const delay = (ms = 600) => new Promise((r) => setTimeout(r, ms))
-
-function mockTokens(email: string): Pick<LoginSuccess, 'access_token' | 'refresh_token'> {
-  const stamp = Date.now()
-  return {
-    access_token: `mock-access.${btoa(email)}.${stamp}`,
-    refresh_token: `mock-refresh.${btoa(email)}.${stamp}`,
+function asLoginResponse(payload: unknown): LoginResponse {
+  if (typeof payload !== 'object' || payload === null) {
+    throw new Error('Phản hồi đăng nhập không hợp lệ.')
   }
+  const data = payload as Record<string, unknown>
+  if (data.mfa_required === true) {
+    return { mfa_required: true }
+  }
+
+  const role = Number(data.role)
+  if (
+    typeof data.access_token !== 'string' ||
+    typeof data.refresh_token !== 'string' ||
+    !isUserRole(role)
+  ) {
+    throw new Error('Phản hồi đăng nhập thiếu token hoặc role.')
+  }
+
+  const success: LoginSuccess = {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token,
+    must_change_password: Boolean(data.must_change_password),
+    role,
+  }
+  if (typeof data.trusted_device_token === 'string') {
+    success.trusted_device_token = data.trusted_device_token
+  }
+  return success
 }
 
-function resolveRole(email: string): UserRole {
-  const e = email.toLowerCase()
-  if (e.includes('admin')) return UserRole.ADMIN
-  if (e.includes('warehouse') || e.includes('kho')) return UserRole.WAREHOUSE_STAFF
-  if (e.includes('pack') || e.includes('donggoi')) return UserRole.PACKAGING_STAFF
-  if (e.includes('ship') || e.includes('van')) return UserRole.SHIPPING_COORDINATOR
-  return UserRole.STORE_OWNER
-}
-
-/**
- * Mock auth — không gọi BE.
- * Gợi ý thử:
- * - email bất kỳ + password ≥6 → vào app
- * - email chứa "mfa" → bước MFA (mã 123456 hoặc backup bất kỳ)
- * - email chứa "mustchange" / "admin@" → bắt đổi mật khẩu
- * - email chứa "locked" → khóa 72h
- */
 export async function login(body: LoginBody): Promise<LoginResponse> {
-  await delay()
-  const email = body.email.trim().toLowerCase()
-
-  if (email.includes('locked')) {
-    throw new ApiError(403, [
-      'Tài khoản đã bị khóa do chưa đổi mật khẩu trong 72 giờ kể từ khi được cấp. Vui lòng liên hệ Quản trị viên để được mở khóa.',
-    ])
+  const payload: Record<string, string> = {
+    email: body.email,
+    password: body.password,
   }
+  if (body.mfa_token) payload.mfa_token = body.mfa_token
+  if (body.backup_code) payload.backup_code = body.backup_code
+  if (body.device_token) payload.device_token = body.device_token
 
-  const needsMfa = email.includes('mfa')
-  if (needsMfa && !body.device_token) {
-    if (!body.mfa_token && !body.backup_code) {
-      return { mfa_required: true }
-    }
-    if (body.mfa_token && body.mfa_token !== '123456') {
-      throw new ApiError(401, ['Mã xác thực không chính xác.'])
-    }
-  }
-
-  const mustChange =
-    email.includes('mustchange') || email.startsWith('admin@')
-
-  return {
-    ...mockTokens(email),
-    must_change_password: mustChange,
-    role: resolveRole(email),
-    ...(needsMfa && (body.mfa_token || body.backup_code)
-      ? { trusted_device_token: `mock-device-${Date.now()}` }
-      : {}),
-  }
+  const raw = await apiRequest<unknown>('/auth/login', {
+    method: 'POST',
+    body: payload,
+  })
+  return asLoginResponse(raw)
 }
 
-export async function forgotPassword(_email: string) {
-  await delay()
-  return {
-    message:
-      'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi đến hộp thư.',
-  }
+export async function forgotPassword(email: string) {
+  return apiRequest<{ message: string }>('/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+  })
 }
 
-export async function resetPassword(_token: string, _new_password: string) {
-  await delay()
-  return { message: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.' }
+export async function resetPassword(token: string, new_password: string) {
+  return apiRequest<{ message: string }>('/auth/reset-password', {
+    method: 'POST',
+    body: { token, new_password },
+  })
 }
 
 export async function changePassword(
-  _current_password: string,
-  _new_password: string,
+  current_password: string,
+  new_password: string,
 ) {
-  await delay()
-  return {
-    message: 'Đổi mật khẩu thành công. Mọi phiên đăng nhập khác đã bị đăng xuất.',
-  }
-}
-
-export async function logout(_refresh_token: string) {
-  await delay(200)
-  return { message: 'Đăng xuất thành công.' }
-}
-
-/** Mock Google: redirect thẳng FE /oauth-success với token giả. */
-export function googleAuthUrl() {
-  const params = new URLSearchParams({
-    access_token: `mock-access.google.${Date.now()}`,
-    refresh_token: `mock-refresh.google.${Date.now()}`,
-    role: String(UserRole.STORE_OWNER),
-    must_change_password: 'false',
+  return apiRequest<{ message: string }>('/auth/change-password', {
+    method: 'POST',
+    auth: true,
+    body: { current_password, new_password },
   })
-  return `/oauth-success?${params.toString()}`
+}
+
+export async function logout(refresh_token: string) {
+  return apiRequest<{ message: string }>('/auth/logout', {
+    method: 'POST',
+    auth: true,
+    body: { refresh_token },
+  })
+}
+
+export function googleAuthUrl() {
+  return `${API_BASE_URL}/auth/google`
 }

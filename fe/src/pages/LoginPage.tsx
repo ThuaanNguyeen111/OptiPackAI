@@ -1,6 +1,6 @@
 import type { FormEvent } from 'react'
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { KeyRound, Loader2, Lock, Mail, Shield } from 'lucide-react'
 import { googleAuthUrl, login } from '../api/auth.api'
 import { AuthInput } from '../components/auth/AuthInput'
@@ -31,6 +31,16 @@ type MfaMode = 'totp' | 'backup'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const [passwordChanged] = useState(() => {
+    if (params.get('password_changed') === '1') return true
+    const flag = sessionStorage.getItem('optipack-password-changed')
+    if (flag === '1') {
+      sessionStorage.removeItem('optipack-password-changed')
+      return true
+    }
+    return false
+  })
   const { applyLoginSuccess } = useAuth()
   const [email, setEmail] = useState(getRememberedEmail)
   const [password, setPassword] = useState('')
@@ -73,7 +83,10 @@ export function LoginPage() {
       const res = await login({
         email: email.trim(),
         password,
-        device_token: deviceToken ?? undefined,
+        device_token:
+          deviceToken && !deviceToken.startsWith('mock-')
+            ? deviceToken
+            : undefined,
         ...extra,
       })
 
@@ -160,6 +173,12 @@ export function LoginPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate>
+        {passwordChanged && !mfaStep ? (
+          <div className="rounded-md border border-success/30 bg-success-bg px-3 py-2 text-sm text-success">
+            Đổi mật khẩu thành công. Đăng nhập lại bằng mật khẩu mới.
+          </div>
+        ) : null}
+
         {errors.form && !mfaStep ? (
           <div className="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
             {errors.form}

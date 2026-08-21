@@ -123,6 +123,7 @@ export class UsersService {
       must_change_password: false,
       must_change_password_by: null,
     });
+    await this.redisCache.invalidateUserAuthState(userId);
   }
 
   //!=============================================

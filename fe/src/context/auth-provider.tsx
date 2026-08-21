@@ -10,7 +10,14 @@ import type { AuthSession, LoginSuccess } from '../types/auth'
 import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<AuthSession | null>(() => readSession())
+  const [session, setSession] = useState<AuthSession | null>(() => {
+    const stored = readSession()
+    if (stored?.accessToken.startsWith('mock-access')) {
+      clearSession()
+      return null
+    }
+    return stored
+  })
   const [ready] = useState(true)
 
   const applyLoginSuccess = useCallback((result: LoginSuccess) => {

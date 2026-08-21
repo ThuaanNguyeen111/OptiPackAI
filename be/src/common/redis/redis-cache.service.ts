@@ -1,4 +1,4 @@
-import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { isUserRole, UserRole } from '../enums/user-role.enum';
@@ -13,16 +13,32 @@ export interface CachedUserAuthState {
 
 @Injectable()
 export class RedisCacheService implements OnModuleDestroy {
+  private readonly logger = new Logger(RedisCacheService.name);
   private readonly client: Redis;
+  private warnedOffline = false;
 
   constructor(private readonly configService: ConfigService) {
     this.client = new Redis({
       host: this.configService.get<string>('redis.host', 'localhost'),
       port: this.configService.get<number>('redis.port', 6379),
       password: this.configService.get<string>('redis.password'),
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      retryStrategy: (times: number): number | null => {
+        if (times > 8) return null;
+        return Math.min(times * 200, 2000);
+      },
+    });
+
+    this.client.on('error', (err: Error) => {
+      if (this.warnedOffline) return;
+      this.warnedOffline = true;
+      this.logger.warn(`Redis không kết nối được, fallback MongoDB: ${err.message}`);
+    });
+    this.client.on('connect', () => {
+      this.warnedOffline = false;
     });
   }
-
 
   private isCachedUserAuthState(value: unknown): value is CachedUserAuthState {
     if (typeof value !== 'object' || value === null) return false;
@@ -38,17 +54,21 @@ export class RedisCacheService implements OnModuleDestroy {
   }
 
   async getUserAuthState(userId: string): Promise<CachedUserAuthState | null> {
-    const cached = await this.client.get(`user:auth:${userId}`);
-    if (cached === null) return null;
-
-    let parsed: unknown;
     try {
-      parsed = JSON.parse(cached);
-    } catch {
-      return null; // dữ liệu cache hỏng -> coi như cache miss, không throw
-    }
+      const cached = await this.client.get(`user:auth:${userId}`);
+      if (cached === null) return null;
 
-    return this.isCachedUserAuthState(parsed) ? parsed : null;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(cached);
+      } catch {
+        return null;
+      }
+
+      return this.isCachedUserAuthState(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
   }
 
   async setUserAuthState(
@@ -56,11 +76,19 @@ export class RedisCacheService implements OnModuleDestroy {
     state: CachedUserAuthState,
     ttlSeconds = 60,
   ): Promise<void> {
-    await this.client.set(`user:auth:${userId}`, JSON.stringify(state), 'EX', ttlSeconds);
+    try {
+      await this.client.set(`user:auth:${userId}`, JSON.stringify(state), 'EX', ttlSeconds);
+    } catch {
+      // cache miss is acceptable when Redis is down
+    }
   }
 
   async invalidateUserAuthState(userId: string): Promise<void> {
-    await this.client.del(`user:auth:${userId}`);
+    try {
+      await this.client.del(`user:auth:${userId}`);
+    } catch {
+      // ignore
+    }
   }
 
   onModuleDestroy(): void {

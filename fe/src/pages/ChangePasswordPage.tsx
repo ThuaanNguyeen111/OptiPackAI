@@ -39,6 +39,7 @@ export function ChangePasswordPage() {
     setLoading(true)
     try {
       await changePassword(current, next)
+      sessionStorage.setItem('optipack-password-changed', '1')
       await logout()
       navigate('/login', { replace: true })
     } catch (err) {
