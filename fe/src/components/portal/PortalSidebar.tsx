@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { PLATFORM_META } from '../../context/portal-context-value'
 import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useTheme } from '../../hooks/useTheme'
 import { canSeeNavItem } from '../../lib/rbac'
 import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
@@ -112,6 +113,8 @@ export function PortalSidebar() {
   const navigate = useNavigate()
   const { logout, session } = useAuth()
   const [storeMenuOpen, setStoreMenuOpen] = useState(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
   const role = session?.role ?? UserRole.STORE_OWNER
   const visibleNav = navItems.filter((item) => canSeeNavItem(role, item.to))
   const roleLabel =
@@ -124,6 +127,17 @@ export function PortalSidebar() {
   ].join(' · ')
   const storeLabel =
     activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'OptiPackAI Store'
+
+  async function handleConfirmLogout() {
+    setLoggingOut(true)
+    try {
+      await logout()
+      navigate('/login', { replace: true })
+    } finally {
+      setLoggingOut(false)
+      setLogoutConfirmOpen(false)
+    }
+  }
 
   const nav = (
     <>
@@ -340,9 +354,7 @@ export function PortalSidebar() {
           </button>
           <button
             type="button"
-            onClick={() => {
-              void logout().then(() => navigate('/login', { replace: true }))
-            }}
+            onClick={() => setLogoutConfirmOpen(true)}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-surface-2 hover:text-red-500"
             aria-label="Đăng xuất"
             title="Đăng xuất"
@@ -380,6 +392,21 @@ export function PortalSidebar() {
 
   return (
     <>
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+        description={
+          locale === 'vi'
+            ? 'Bạn có chắc muốn đăng xuất khỏi OptiPackAI? Phiên làm việc hiện tại sẽ kết thúc.'
+            : 'Are you sure you want to log out of OptiPackAI? Your current session will end.'
+        }
+        confirmLabel={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+        cancelLabel={locale === 'vi' ? 'Hủy' : 'Cancel'}
+        loading={loggingOut}
+        onConfirm={() => void handleConfirmLogout()}
+        onCancel={() => setLogoutConfirmOpen(false)}
+        icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
+      />
       {/* Desktop */}
       <aside
         className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}

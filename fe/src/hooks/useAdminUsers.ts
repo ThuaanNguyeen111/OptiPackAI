@@ -1,18 +1,20 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import {
+  createUserApi,
+  deactivateUserApi,
+  disableMfaApi,
+  fetchUsers,
+  reactivateUserApi,
+  resetPasswordApi,
+  updateUserApi,
+} from '../api/users.api'
 import type {
   AdminUser,
   AiPackagingParams,
   CreateUserInput,
   UpdateUserInput,
 } from '../types/admin'
-import { LoginType } from '../types/admin'
-import { adminUsersMock, defaultAiPackagingParams } from '../data/admin-mock'
-
-function mockTempPassword() {
-  const bytes = new Uint8Array(9)
-  crypto.getRandomValues(bytes)
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-}
+import { defaultAiPackagingParams } from '../data/admin-mock'
 
 type UseAdminUsersApi = {
   users: AdminUser[]
@@ -30,87 +32,115 @@ type UseAdminUsersApi = {
 }
 
 export function useAdminUsers(): UseAdminUsersApi {
-  const [users, setUsers] = useState<AdminUser[]>(() => adminUsersMock)
+  const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
   const [aiParams, setAiParams] = useState<AiPackagingParams>(
     () => defaultAiPackagingParams,
   )
 
+  useEffect(() => {
+    let cancelled = false
+    void fetchUsers()
+      .then((data) => {
+        if (!cancelled) setUsers(data)
+      })
+      .catch(() => {
+        if (!cancelled) setUsers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const updateUser = useCallback(async (id: string, patch: UpdateUserInput) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 300))
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)))
-    setLoading(false)
+    try {
+      const updated = await updateUserApi(id, patch)
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === id
+            ? {
+                ...u,
+                ...patch,
+                ...updated,
+              }
+            : u,
+        ),
+      )
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const resetPassword = useCallback(async (id: string) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 300))
-    const temporaryPassword = mockTempPassword()
-    const until = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
-    setUsers((prev) =>
-      prev.map((u) =>
-        u.id === id
-          ? {
-              ...u,
-              mustChangePassword: true,
-              mustChangePasswordBy: until,
-              lockedUntil: undefined,
-              active: true,
-            }
-          : u,
-      ),
-    )
-    setLoading(false)
-    return { temporaryPassword }
+    try {
+      const { temporaryPassword } = await resetPasswordApi(id)
+      const until = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === id
+            ? {
+                ...u,
+                mustChangePassword: true,
+                mustChangePasswordBy: until,
+                lockedUntil: undefined,
+                active: true,
+              }
+            : u,
+        ),
+      )
+      return { temporaryPassword }
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const deactivate = useCallback(async (id: string) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 250))
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, active: false } : u)),
-    )
-    setLoading(false)
+    try {
+      await deactivateUserApi(id)
+      setUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, active: false } : u)),
+      )
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const reactivate = useCallback(async (id: string) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 250))
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, active: true } : u)),
-    )
-    setLoading(false)
+    try {
+      await reactivateUserApi(id)
+      setUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, active: true } : u)),
+      )
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const disableMfa = useCallback(async (id: string) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 250))
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, mfaEnabled: false } : u)),
-    )
-    setLoading(false)
+    try {
+      await disableMfaApi(id)
+      setUsers((prev) =>
+        prev.map((u) => (u.id === id ? { ...u, mfaEnabled: false } : u)),
+      )
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   const createUser = useCallback(async (input: CreateUserInput) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 350))
-    const temporaryPassword = mockTempPassword()
-    const newUser: AdminUser = {
-      ...input,
-      id: `u-${Math.floor(Math.random() * 10000)}`,
-      mfaEnabled: false,
-      active: true,
-      loginType: LoginType.LOCAL,
-      mustChangePassword: true,
-      mustChangePasswordBy: new Date(
-        Date.now() + 72 * 60 * 60 * 1000,
-      ).toISOString(),
-      createdAt: new Date().toISOString(),
+    try {
+      const { user, temporaryPassword } = await createUserApi(input)
+      setUsers((prev) => [user, ...prev])
+      return { temporaryPassword }
+    } finally {
+      setLoading(false)
     }
-    setUsers((prev) => [newUser, ...prev])
-    setLoading(false)
-    return { temporaryPassword }
   }, [])
 
   const updateAiParams = useCallback((next: Partial<AiPackagingParams>) => {

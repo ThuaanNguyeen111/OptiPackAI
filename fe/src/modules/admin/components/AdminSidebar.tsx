@@ -1,4 +1,5 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import {
   Box,
   Cpu,
@@ -11,7 +12,9 @@ import {
   Users,
   X,
 } from 'lucide-react'
+import { useAuth } from '../../../context/use-auth'
 import { usePortal } from '../../../context/use-portal'
+import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
 
 type NavSection = 'directory' | 'ai'
@@ -66,8 +69,22 @@ export function AdminSidebar() {
     setMobileNavOpen,
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const vi = locale === 'vi'
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  async function handleConfirmLogout() {
+    setLoggingOut(true)
+    try {
+      await logout()
+      navigate('/login', { replace: true })
+    } finally {
+      setLoggingOut(false)
+      setLogoutConfirmOpen(false)
+    }
+  }
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
 
@@ -205,7 +222,7 @@ export function AdminSidebar() {
           </button>
           <button
             type="button"
-            onClick={() => navigate('/login', { replace: true })}
+            onClick={() => setLogoutConfirmOpen(true)}
             className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-surface-2 hover:text-red-500"
             aria-label="Đăng xuất"
             title="Đăng xuất"
@@ -243,6 +260,21 @@ export function AdminSidebar() {
 
   return (
     <>
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title={vi ? 'Đăng xuất' : 'Log out'}
+        description={
+          vi
+            ? 'Bạn có chắc muốn đăng xuất khỏi OptiPackAI? Phiên làm việc hiện tại sẽ kết thúc.'
+            : 'Are you sure you want to log out of OptiPackAI? Your current session will end.'
+        }
+        confirmLabel={vi ? 'Đăng xuất' : 'Log out'}
+        cancelLabel={vi ? 'Hủy' : 'Cancel'}
+        loading={loggingOut}
+        onConfirm={() => void handleConfirmLogout()}
+        onCancel={() => setLogoutConfirmOpen(false)}
+        icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
+      />
       <aside
         className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}
       >
