@@ -1,16 +1,19 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Bell,
   Check,
   CheckCircle2,
+  Copy,
   Globe,
   Key,
   Loader2,
   Lock,
   LogOut,
+  MapPin,
   Plus,
   Shield,
+  ShieldCheck,
   Store,
   Trash2,
   User,
@@ -23,29 +26,51 @@ import {
 } from '../context/portal-context-value'
 import { usePortal } from '../context/use-portal'
 import { useAuth } from '../context/use-auth'
-import { changePassword } from '../api/auth.api'
+import { changePassword, setupMfa, verifyMfaSetup } from '../api/auth.api'
+import { fetchMyProfile, updateMyProfile } from '../api/users.api'
 import { formatApiError } from '../lib/api'
 import { validateNewPassword } from '../lib/password'
+import { USER_ROLE_LABELS } from '../types/auth'
 
 type ProfileTab = 'personal' | 'marketplaces' | 'preferences'
 
-type SystemRole =
-  | 'Store Owner'
-  | 'Warehouse Staff'
-  | 'Shipping Coordinator'
-  | 'Packaging Specialist'
-
 const inputClass =
-  'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 caret-slate-900 placeholder:text-slate-400 transition-shadow focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-[#1C212D] dark:text-[#F3F4F6] dark:caret-[#F3F4F6] dark:placeholder:text-[#9CA3AF] dark:[color-scheme:dark]'
+  'w-full rounded-md border border-hairline bg-surface-2 px-3 py-2 text-sm text-ink caret-ink placeholder:text-ink-tertiary transition-shadow focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40'
 
-const optionClass = 'bg-white text-slate-900 dark:bg-[#1C212D] dark:text-[#F3F4F6]'
+const readOnlyInputClass = `${inputClass} cursor-not-allowed opacity-80`
 
-const ROLES: SystemRole[] = [
-  'Store Owner',
-  'Warehouse Staff',
-  'Shipping Coordinator',
-  'Packaging Specialist',
-]
+const optionClass = 'bg-surface-2 text-ink'
+
+function profileInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase()
+}
+
+function isLikelyImageUrl(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  try {
+    const url = new URL(trimmed)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+function mfaQrImageUrl(otpauthUrl: string): string {
+  return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauthUrl)}`
+}
+
+function formatJoinedDate(iso: string | undefined, vi: boolean): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString(vi ? 'vi-VN' : 'en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
 
 function Toast({
   message,
@@ -97,10 +122,24 @@ export function ProfilePage() {
   const [tab, setTab] = useState<ProfileTab>('personal')
   const [loggingOut, setLoggingOut] = useState(false)
 
-  const [fullName, setFullName] = useState('Nguyễn Minh Anh')
-  const [email] = useState('minhanh@anhminh.store')
-  const [phone, setPhone] = useState('0901234567')
-  const [role, setRole] = useState<SystemRole>('Store Owner')
+  const [fullName, setFullName] = useState('')
+  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
+  const [avatar, setAvatar] = useState('')
+  const [employeeCode, setEmployeeCode] = useState('')
+  const [department, setDepartment] = useState('')
+  const [mfaEnabled, setMfaEnabled] = useState(false)
+  const [roleLabel, setRoleLabel] = useState('')
+  const [userId, setUserId] = useState('')
+  const [joinedAt, setJoinedAt] = useState<string | undefined>()
+  const [loadingProfile, setLoadingProfile] = useState(true)
+
+  const [mfaSetupUrl, setMfaSetupUrl] = useState<string | null>(null)
+  const [mfaVerifyToken, setMfaVerifyToken] = useState('')
+  const [mfaBackupCodes, setMfaBackupCodes] = useState<string[]>([])
+  const [settingUpMfa, setSettingUpMfa] = useState(false)
+  const [verifyingMfa, setVerifyingMfa] = useState(false)
 
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -132,16 +171,49 @@ export function ProfilePage() {
     '—'
   const activeCountLabel = `${activeShopIds.length}/${shops.length}`
 
+  function showToast(message: string) {
+    setToast(message)
+    window.setTimeout(() => setToast(null), 2800)
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    setLoadingProfile(true)
+    void fetchMyProfile()
+      .then((profile) => {
+        if (cancelled) return
+        setFullName(profile.name)
+        setEmail(profile.email)
+        setPhone(profile.phone ?? '')
+        setAddress(profile.address ?? '')
+        setAvatar(profile.avatar ?? '')
+        setEmployeeCode(profile.employeeCode ?? '')
+        setDepartment(profile.department ?? '')
+        setMfaEnabled(profile.mfaEnabled)
+        setRoleLabel(
+          vi
+            ? USER_ROLE_LABELS[profile.role].vi
+            : USER_ROLE_LABELS[profile.role].en,
+        )
+        setUserId(profile.id)
+        setJoinedAt(profile.createdAt)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) showToast(formatApiError(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProfile(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [vi])
+
   async function handleLogout() {
     setLoggingOut(true)
     await logout()
     setLoggingOut(false)
     navigate('/login', { replace: true })
-  }
-
-  function showToast(message: string) {
-    setToast(message)
-    window.setTimeout(() => setToast(null), 2800)
   }
 
   async function simulateSave(
@@ -156,10 +228,70 @@ export function ProfilePage() {
 
   function handleSaveProfile(e: FormEvent) {
     e.preventDefault()
-    void simulateSave(
-      setSavingProfile,
-      vi ? 'Đã cập nhật hồ sơ cá nhân' : 'Profile details saved',
-    )
+    setSavingProfile(true)
+    void updateMyProfile({
+      phone: phone.trim(),
+      address: address.trim(),
+      avatar: avatar.trim(),
+    })
+      .then((profile) => {
+        setPhone(profile.phone ?? '')
+        setAddress(profile.address ?? '')
+        setAvatar(profile.avatar ?? '')
+        showToast(vi ? 'Đã cập nhật hồ sơ cá nhân' : 'Profile details saved')
+      })
+      .catch((err: unknown) => {
+        showToast(formatApiError(err))
+      })
+      .finally(() => {
+        setSavingProfile(false)
+      })
+  }
+
+  async function handleStartMfaSetup() {
+    setSettingUpMfa(true)
+    setMfaBackupCodes([])
+    try {
+      const res = await setupMfa()
+      setMfaSetupUrl(res.otpauthUrl)
+      setMfaVerifyToken('')
+    } catch (err: unknown) {
+      showToast(formatApiError(err))
+    } finally {
+      setSettingUpMfa(false)
+    }
+  }
+
+  async function handleVerifyMfaSetup(e: FormEvent) {
+    e.preventDefault()
+    const token = mfaVerifyToken.trim()
+    if (!/^\d{6}$/.test(token)) {
+      showToast(vi ? 'Nhập mã xác thực 6 số' : 'Enter a 6-digit verification code')
+      return
+    }
+    setVerifyingMfa(true)
+    try {
+      const res = await verifyMfaSetup(token)
+      setMfaEnabled(true)
+      setMfaSetupUrl(null)
+      setMfaVerifyToken('')
+      setMfaBackupCodes(res.backup_codes)
+      showToast(res.message)
+    } catch (err: unknown) {
+      showToast(formatApiError(err))
+    } finally {
+      setVerifyingMfa(false)
+    }
+  }
+
+  async function copyBackupCodes() {
+    if (mfaBackupCodes.length === 0) return
+    try {
+      await navigator.clipboard.writeText(mfaBackupCodes.join('\n'))
+      showToast(vi ? 'Đã sao chép mã dự phòng' : 'Backup codes copied')
+    } catch {
+      showToast(vi ? 'Không thể sao chép' : 'Could not copy')
+    }
   }
 
   function handleUpdatePassword(e: FormEvent) {
@@ -269,9 +401,21 @@ export function ProfilePage() {
           <section className="rounded-xl border border-hairline bg-surface-1 p-3.5 sm:p-4">
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative shrink-0">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary bg-primary/15 text-sm font-semibold text-primary-hover shadow-[0_0_20px_rgba(99,102,241,0.4)]">
-                  NA
-                </div>
+                {isLikelyImageUrl(avatar) ? (
+                  <img
+                    src={avatar.trim()}
+                    alt=""
+                    className="h-12 w-12 rounded-full border-2 border-primary object-cover shadow-[0_0_20px_rgba(99,102,241,0.25)]"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary bg-primary/15 text-sm font-semibold text-primary-hover shadow-[0_0_20px_rgba(99,102,241,0.4)]">
+                    {loadingProfile ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      profileInitials(fullName || '?')
+                    )}
+                  </div>
+                )}
                 <span className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-surface-1 bg-success" />
               </div>
               <div className="min-w-0 flex-1">
@@ -280,12 +424,18 @@ export function ProfilePage() {
                     {fullName}
                   </h1>
                   <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary-hover">
-                    {role}
+                    {roleLabel || '—'}
                   </span>
                   <span className="inline-flex items-center gap-1 rounded-full border border-success/20 bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success">
                     <span className="h-1.5 w-1.5 rounded-full bg-success" />
                     Active
                   </span>
+                  {mfaEnabled ? (
+                    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary-hover">
+                      <ShieldCheck className="h-3 w-3" strokeWidth={2} />
+                      MFA
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-muted">
                   <Store className="h-3.5 w-3.5 text-ink-subtle" strokeWidth={1.75} />
@@ -293,7 +443,8 @@ export function ProfilePage() {
                   {vi ? 'shop active' : 'shops active'} ({platformBanner})
                 </p>
                 <p className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
-                  {vi ? 'Tham gia' : 'Joined'}: 12 Jan 2025 · ID USR-1001
+                  {vi ? 'Tham gia' : 'Joined'}: {formatJoinedDate(joinedAt, vi)}
+                  {userId ? ` · ID ${userId}` : ''}
                 </p>
               </div>
               <Button
@@ -347,9 +498,9 @@ export function ProfilePage() {
                   <div className="sm:col-span-2">
                     <FieldLabel>{vi ? 'Họ và tên' : 'Full Name'}</FieldLabel>
                     <input
-                      className={inputClass}
+                      className={readOnlyInputClass}
                       value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
+                      readOnly
                     />
                   </div>
                   <div>
@@ -372,28 +523,91 @@ export function ProfilePage() {
                       className={`${inputClass} font-mono`}
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
+                      maxLength={20}
+                      placeholder={vi ? '0912345678' : '0912345678'}
+                      disabled={loadingProfile}
                     />
                   </div>
                   <div className="sm:col-span-2">
+                    <FieldLabel>{vi ? 'Địa chỉ' : 'Address'}</FieldLabel>
+                    <div className="relative">
+                      <MapPin className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-ink-subtle" strokeWidth={1.75} />
+                      <input
+                        className={`${inputClass} pl-9`}
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        maxLength={255}
+                        placeholder={
+                          vi
+                            ? '123 Nguyễn Văn Cừ, Q5, TP.HCM'
+                            : '123 Example Street, District 5'
+                        }
+                        disabled={loadingProfile}
+                      />
+                    </div>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <FieldLabel>{vi ? 'Ảnh đại diện (URL)' : 'Avatar URL'}</FieldLabel>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                      <input
+                        className={`${inputClass} flex-1 font-mono text-xs sm:text-sm`}
+                        value={avatar}
+                        onChange={(e) => setAvatar(e.target.value)}
+                        placeholder="https://..."
+                        disabled={loadingProfile}
+                      />
+                      {isLikelyImageUrl(avatar) ? (
+                        <img
+                          src={avatar.trim()}
+                          alt=""
+                          className="h-10 w-10 shrink-0 rounded-lg border border-hairline object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-hairline bg-surface-2 text-[10px] text-ink-subtle">
+                          {profileInitials(fullName || '?')}
+                        </div>
+                      )}
+                    </div>
+                    <p className="mt-1 text-[11px] text-ink-tertiary">
+                      {vi
+                        ? 'Dán URL ảnh đã upload sẵn (BE chưa hỗ trợ upload file trực tiếp).'
+                        : 'Paste a hosted image URL (direct file upload is not supported yet).'}
+                    </p>
+                  </div>
+                  {employeeCode ? (
+                    <div>
+                      <FieldLabel>{vi ? 'Mã nhân viên' : 'Employee Code'}</FieldLabel>
+                      <input
+                        className={`${readOnlyInputClass} font-mono`}
+                        value={employeeCode}
+                        readOnly
+                      />
+                    </div>
+                  ) : null}
+                  {department ? (
+                    <div>
+                      <FieldLabel>{vi ? 'Phòng ban' : 'Department'}</FieldLabel>
+                      <input
+                        className={readOnlyInputClass}
+                        value={department}
+                        readOnly
+                      />
+                    </div>
+                  ) : null}
+                  <div className="sm:col-span-2">
                     <FieldLabel>{vi ? 'Vai trò hệ thống' : 'System Role'}</FieldLabel>
-                    <select
-                      className={inputClass}
-                      value={role}
-                      onChange={(e) => setRole(e.target.value as SystemRole)}
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r} className={optionClass}>
-                          {r}
-                        </option>
-                      ))}
-                    </select>
+                    <input
+                      className={readOnlyInputClass}
+                      value={roleLabel}
+                      readOnly
+                    />
                   </div>
                 </div>
                 <Button
                   type="submit"
                   variant="primary"
                   className="mt-3 h-9 min-h-9"
-                  disabled={savingProfile}
+                  disabled={savingProfile || loadingProfile}
                 >
                   {savingProfile ? (
                     <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -469,6 +683,139 @@ export function ProfilePage() {
                   {vi ? 'Cập nhật mật khẩu' : 'Update Password'}
                 </Button>
               </form>
+
+              <section className="rounded-xl border border-hairline bg-surface-1 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
+                  <ShieldCheck className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
+                  {vi ? 'Xác thực 2 lớp (MFA)' : 'Two-Factor Authentication (MFA)'}
+                </div>
+
+                {mfaEnabled ? (
+                  <div className="rounded-lg border border-success/20 bg-success-bg/40 px-3 py-2.5">
+                    <p className="text-sm text-ink">
+                      {vi
+                        ? 'MFA đang bật cho tài khoản này.'
+                        : 'MFA is enabled on this account.'}
+                    </p>
+                    <p className="mt-1 text-[11px] text-ink-subtle">
+                      {vi
+                        ? 'Dùng mã từ ứng dụng Authenticator hoặc mã dự phòng khi đăng nhập. Liên hệ Admin nếu cần tắt MFA.'
+                        : 'Use your authenticator app or backup codes at login. Contact an Admin to disable MFA.'}
+                    </p>
+                  </div>
+                ) : mfaBackupCodes.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="rounded-lg border border-success/20 bg-success-bg/40 px-3 py-2.5">
+                      <p className="text-sm font-medium text-ink">
+                        {vi ? 'MFA đã được kích hoạt' : 'MFA activated successfully'}
+                      </p>
+                      <p className="mt-1 text-[11px] text-ink-subtle">
+                        {vi
+                          ? 'Lưu các mã dự phòng dưới đây — chỉ hiển thị một lần.'
+                          : 'Save these backup codes — shown only once.'}
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-hairline bg-surface-2 p-3">
+                      <div className="grid grid-cols-2 gap-1.5 font-mono text-xs text-ink sm:grid-cols-3">
+                        {mfaBackupCodes.map((code) => (
+                          <span key={code} className="rounded bg-canvas px-2 py-1">
+                            {code}
+                          </span>
+                        ))}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="mt-3 h-8 min-h-8 text-xs"
+                        onClick={() => void copyBackupCodes()}
+                      >
+                        <Copy className="mr-1.5 h-3.5 w-3.5" />
+                        {vi ? 'Sao chép mã' : 'Copy codes'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : mfaSetupUrl ? (
+                  <form onSubmit={handleVerifyMfaSetup} className="space-y-3">
+                    <p className="text-xs text-ink-subtle">
+                      {vi
+                        ? 'Quét QR bằng Google Authenticator (hoặc app tương tự), rồi nhập mã 6 số.'
+                        : 'Scan the QR with Google Authenticator (or similar), then enter the 6-digit code.'}
+                    </p>
+                    <div className="flex flex-col items-center gap-3 rounded-lg border border-hairline bg-surface-2 p-4 sm:flex-row sm:items-start">
+                      <img
+                        src={mfaQrImageUrl(mfaSetupUrl)}
+                        alt={vi ? 'Mã QR MFA' : 'MFA QR code'}
+                        className="h-[180px] w-[180px] rounded-md border border-hairline bg-white p-1"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <FieldLabel>{vi ? 'Mã xác thực' : 'Verification code'}</FieldLabel>
+                        <input
+                          className={`${inputClass} font-mono`}
+                          value={mfaVerifyToken}
+                          onChange={(e) => setMfaVerifyToken(e.target.value)}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          maxLength={6}
+                          placeholder="000000"
+                        />
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="submit"
+                            variant="primary"
+                            className="h-9 min-h-9"
+                            disabled={verifyingMfa}
+                          >
+                            {verifyingMfa ? (
+                              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="mr-1.5 h-4 w-4" />
+                            )}
+                            {vi ? 'Kích hoạt MFA' : 'Enable MFA'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            className="h-9 min-h-9"
+                            onClick={() => {
+                              setMfaSetupUrl(null)
+                              setMfaVerifyToken('')
+                            }}
+                          >
+                            {vi ? 'Hủy' : 'Cancel'}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </form>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-hairline bg-surface-2 px-3 py-2.5">
+                    <div>
+                      <p className="text-sm text-ink">
+                        {vi ? 'MFA chưa được bật' : 'MFA is not enabled'}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-ink-subtle">
+                        {vi
+                          ? 'Tùy chọn — tăng bảo mật khi đăng nhập.'
+                          : 'Optional — adds an extra layer of sign-in security.'}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      className="h-9 min-h-9 shrink-0"
+                      disabled={settingUpMfa || loadingProfile}
+                      onClick={() => void handleStartMfaSetup()}
+                    >
+                      {settingUpMfa ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Shield className="mr-1.5 h-4 w-4" />
+                      )}
+                      {vi ? 'Thiết lập MFA' : 'Set up MFA'}
+                    </Button>
+                  </div>
+                )}
+              </section>
             </div>
           ) : null}
 

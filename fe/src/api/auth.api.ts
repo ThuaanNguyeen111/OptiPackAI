@@ -91,3 +91,23 @@ export async function logout(refresh_token: string) {
 export function googleAuthUrl() {
   return `${API_BASE_URL}/auth/google`
 }
+
+export async function setupMfa(): Promise<{ otpauthUrl: string }> {
+  return apiRequest<{ otpauthUrl: string }>('/auth/mfa/setup', {
+    method: 'POST',
+    auth: true,
+  })
+}
+
+export async function verifyMfaSetup(
+  token: string,
+): Promise<{ message: string; backup_codes: string[] }> {
+  return apiRequest<{ message: string; backup_codes: string[] }>(
+    '/auth/mfa/verify',
+    {
+      method: 'POST',
+      auth: true,
+      body: { token },
+    },
+  )
+}

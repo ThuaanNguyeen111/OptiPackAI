@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react'
 import {
+  ChevronLeft,
+  ChevronRight,
   KeyRound,
+  Loader2,
   Pencil,
   ShieldOff,
   ShieldCheck,
@@ -30,6 +33,13 @@ type StatusFilter = 'all' | UserLockState
 type Props = {
   users: AdminUser[]
   query?: string
+  roleFilter: Role | 'all'
+  onRoleFilterChange: (role: Role | 'all') => void
+  page: number
+  total: number
+  limit: number
+  onPageChange: (page: number) => void
+  usersLoading?: boolean
   onUpdateUser: (id: string, patch: UpdateUserInput) => Promise<void>
   onResetPassword: (id: string) => Promise<void>
   onDeactivate: (id: string) => Promise<void>
@@ -98,6 +108,13 @@ const actionBtn =
 export function UserManagementTable({
   users,
   query = '',
+  roleFilter,
+  onRoleFilterChange,
+  page,
+  total,
+  limit,
+  onPageChange,
+  usersLoading = false,
   onUpdateUser,
   onResetPassword,
   onDeactivate,
@@ -111,12 +128,10 @@ export function UserManagementTable({
   const vi = locale === 'vi'
   const [editing, setEditing] = useState<AdminUser | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [roleFilter, setRoleFilter] = useState<Role | 'all'>('all')
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return users.filter((u) => {
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false
       if (statusFilter !== 'all' && getUserLockState(u) !== statusFilter) {
         return false
       }
@@ -134,7 +149,11 @@ export function UserManagementTable({
         .toLowerCase()
       return hay.includes(q)
     })
-  }, [users, query, statusFilter, roleFilter])
+  }, [users, query, statusFilter])
+
+  const totalPages = Math.max(1, Math.ceil(total / limit))
+  const rangeStart = total === 0 ? 0 : (page - 1) * limit + 1
+  const rangeEnd = Math.min(page * limit, total)
 
   const filterTabs: Array<{ key: StatusFilter; label: string }> = [
     { key: 'all', label: vi ? 'Tất cả' : 'All' },
@@ -171,7 +190,7 @@ export function UserManagementTable({
           <select
             value={roleFilter === 'all' ? 'all' : String(roleFilter)}
             onChange={(e) =>
-              setRoleFilter(
+              onRoleFilterChange(
                 e.target.value === 'all'
                   ? 'all'
                   : (Number(e.target.value) as Role),
@@ -213,7 +232,14 @@ export function UserManagementTable({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((u) => {
+              {usersLoading ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center">
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
+                  </td>
+                </tr>
+              ) : (
+                filtered.map((u) => {
                 const state = getUserLockState(u)
                 return (
                   <tr
@@ -321,10 +347,11 @@ export function UserManagementTable({
                     </td>
                   </tr>
                 )
-              })}
+              })
+              )}
             </tbody>
           </table>
-          {filtered.length === 0 ? (
+          {!usersLoading && filtered.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-ink-subtle">
               {vi
                 ? 'Không có người dùng khớp bộ lọc.'
@@ -332,6 +359,38 @@ export function UserManagementTable({
             </p>
           ) : null}
         </div>
+        {total > limit ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-hairline px-4 py-3">
+            <p className="text-xs text-ink-subtle">
+              {vi
+                ? `Hiển thị ${rangeStart}–${rangeEnd} / ${total}`
+                : `Showing ${rangeStart}–${rangeEnd} of ${total}`}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={page <= 1 || usersLoading}
+                onClick={() => onPageChange(page - 1)}
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-hairline bg-canvas px-2.5 text-xs font-medium text-ink-muted transition-colors hover:border-primary/40 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {vi ? 'Trước' : 'Prev'}
+              </button>
+              <span className="font-mono text-xs text-ink-subtle">
+                {page}/{totalPages}
+              </span>
+              <button
+                type="button"
+                disabled={page >= totalPages || usersLoading}
+                onClick={() => onPageChange(page + 1)}
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-hairline bg-canvas px-2.5 text-xs font-medium text-ink-muted transition-colors hover:border-primary/40 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {vi ? 'Sau' : 'Next'}
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <UserFormModal

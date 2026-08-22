@@ -1,7 +1,27 @@
 import { apiRequest } from '../lib/api'
 import type { AdminUser, CreateUserInput, Role, UpdateUserInput } from '../types/admin'
 import { LoginType } from '../types/admin'
-import { isUserRole } from '../types/auth'
+import { isUserRole, type UserRole } from '../types/auth'
+
+export type UserProfile = {
+  id: string
+  name: string
+  email: string
+  role: UserRole
+  phone?: string
+  address?: string
+  avatar?: string
+  employeeCode?: string
+  department?: string
+  mfaEnabled: boolean
+  createdAt?: string
+}
+
+export type UpdateProfileInput = {
+  phone?: string
+  address?: string
+  avatar?: string
+}
 
 export type BeUserRecord = {
   _id?: string
@@ -11,6 +31,7 @@ export type BeUserRecord = {
   role: number
   phone?: string
   address?: string
+  avatar?: string
   employee_code?: string
   department?: string
   mfa_enabled?: boolean
@@ -59,6 +80,27 @@ function toLoginType(value: string | undefined): LoginType {
   return LoginType.LOCAL
 }
 
+export function mapBeUserToProfile(record: BeUserRecord): UserProfile {
+  const role = Number(record.role)
+  if (!isUserRole(role)) {
+    throw new Error('Role người dùng không hợp lệ.')
+  }
+
+  return {
+    id: resolveUserId(record),
+    name: record.name,
+    email: record.email,
+    role,
+    phone: record.phone,
+    address: record.address,
+    avatar: record.avatar,
+    employeeCode: record.employee_code,
+    department: record.department,
+    mfaEnabled: Boolean(record.mfa_enabled),
+    createdAt: toIso(record.created_at),
+  }
+}
+
 export function mapBeUserToAdminUser(record: BeUserRecord): AdminUser {
   const role = Number(record.role)
   if (!isUserRole(role)) {
@@ -96,12 +138,62 @@ function toAdminUpdateBody(patch: UpdateUserInput): Record<string, unknown> {
   return body
 }
 
-export async function fetchUsers(page = 1, limit = 100): Promise<AdminUser[]> {
-  const res = await apiRequest<PaginatedUsersResponse>(
-    `/users?page=${page}&limit=${limit}`,
-    { auth: true },
-  )
-  return res.data.map(mapBeUserToAdminUser)
+export async function fetchMyProfile(): Promise<UserProfile> {
+  const res = await apiRequest<BeUserRecord>('/users/me', { auth: true })
+  return mapBeUserToProfile(res)
+}
+
+export async function updateMyProfile(
+  patch: UpdateProfileInput,
+): Promise<UserProfile> {
+  const body: Record<string, string> = {}
+  if (patch.phone !== undefined) body.phone = patch.phone
+  if (patch.address !== undefined) body.address = patch.address
+  if (patch.avatar !== undefined) body.avatar = patch.avatar
+
+  const res = await apiRequest<BeUserRecord>('/users/me', {
+    method: 'PATCH',
+    body,
+    auth: true,
+  })
+  return mapBeUserToProfile(res)
+}
+
+export type FetchUsersParams = {
+  page?: number
+  limit?: number
+  role?: UserRole
+}
+
+export type PaginatedAdminUsers = {
+  users: AdminUser[]
+  total: number
+  page: number
+  limit: number
+}
+
+export async function fetchUsers(
+  params: FetchUsersParams = {},
+): Promise<PaginatedAdminUsers> {
+  const page = params.page ?? 1
+  const limit = params.limit ?? 100
+  const qs = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  })
+  if (params.role !== undefined) {
+    qs.set('role', String(params.role))
+  }
+
+  const res = await apiRequest<PaginatedUsersResponse>(`/users?${qs}`, {
+    auth: true,
+  })
+  return {
+    users: res.data.map(mapBeUserToAdminUser),
+    total: res.total,
+    page: res.page,
+    limit: res.limit,
+  }
 }
 
 export async function createUserApi(

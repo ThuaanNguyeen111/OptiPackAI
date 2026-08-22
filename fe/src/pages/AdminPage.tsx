@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Search, Shield, UserCheck, UserX, Users } from 'lucide-react'
+import { checkHealth } from '../api/health.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
@@ -21,6 +22,21 @@ export default function AdminPage() {
     temporaryPassword: string
     reason: 'create' | 'reset'
   } | null>(null)
+  const [apiOnline, setApiOnline] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void checkHealth()
+      .then(() => {
+        if (!cancelled) setApiOnline(true)
+      })
+      .catch(() => {
+        if (!cancelled) setApiOnline(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const stats = useMemo(() => {
     const active = api.users.filter((u) => u.active).length
@@ -28,12 +44,12 @@ export default function AdminPage() {
       (u) => getUserLockState(u) === 'locked_72h',
     ).length
     return {
-      total: api.users.length,
+      total: api.total,
       active,
       locked72,
       admins: api.users.filter((u) => u.role === Role.ADMIN).length,
     }
-  }, [api.users])
+  }, [api.users, api.total])
 
   function showToast(message: string) {
     setToast(message)
@@ -53,9 +69,33 @@ export default function AdminPage() {
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-semibold tracking-tight text-ink">
                 {vi ? 'Quản trị người dùng' : 'User administration'}
               </h1>
+              {apiOnline !== null ? (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                    apiOnline
+                      ? 'border-success/20 bg-success-bg text-success'
+                      : 'border-error/20 bg-error/10 text-error'
+                  }`}
+                >
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      apiOnline ? 'bg-success' : 'bg-error'
+                    }`}
+                  />
+                  {apiOnline
+                    ? vi
+                      ? 'API online'
+                      : 'API online'
+                    : vi
+                      ? 'API offline'
+                      : 'API offline'}
+                </span>
+              ) : null}
+            </div>
             <Button
               variant="primary"
               className="h-9 min-h-9"
@@ -123,6 +163,13 @@ export default function AdminPage() {
           <UserManagementTable
             users={api.users}
             query={query}
+            roleFilter={api.roleFilter}
+            onRoleFilterChange={api.setRoleFilter}
+            page={api.page}
+            total={api.total}
+            limit={api.limit}
+            onPageChange={api.setPage}
+            usersLoading={api.usersLoading}
             creating={creating}
             onCreatingChange={setCreating}
             onUpdateUser={async (id, patch) => {
