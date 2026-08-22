@@ -162,10 +162,10 @@ export async function updateMyProfile(
 export type FetchUsersParams = {
   page?: number
   limit?: number
-  role?: UserRole
+  role?: Role
 }
 
-export type PaginatedAdminUsers = {
+export type FetchUsersResult = {
   users: AdminUser[]
   total: number
   page: number
@@ -174,9 +174,9 @@ export type PaginatedAdminUsers = {
 
 export async function fetchUsers(
   params: FetchUsersParams = {},
-): Promise<PaginatedAdminUsers> {
+): Promise<FetchUsersResult> {
   const page = params.page ?? 1
-  const limit = params.limit ?? 100
+  const limit = params.limit ?? 20
   const qs = new URLSearchParams({
     page: String(page),
     limit: String(limit),
@@ -188,6 +188,7 @@ export async function fetchUsers(
   const res = await apiRequest<PaginatedUsersResponse>(`/users?${qs}`, {
     auth: true,
   })
+
   return {
     users: res.data.map(mapBeUserToAdminUser),
     total: res.total,

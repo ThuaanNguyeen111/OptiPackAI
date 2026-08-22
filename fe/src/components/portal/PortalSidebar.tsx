@@ -15,7 +15,8 @@ import {
   Truck,
   X,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { fetchMyProfile } from '../../api/users.api'
 import { PLATFORM_META } from '../../context/portal-context-value'
 import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
@@ -95,6 +96,13 @@ const sectionLabels: Record<
   system: { vi: 'System', en: 'System' },
 }
 
+function profileInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase()
+}
+
 export function PortalSidebar() {
   const {
     sidebarCollapsed,
@@ -115,6 +123,7 @@ export function PortalSidebar() {
   const [storeMenuOpen, setStoreMenuOpen] = useState(false)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [profileName, setProfileName] = useState<string | null>(null)
   const role = session?.role ?? UserRole.STORE_OWNER
   const visibleNav = navItems.filter((item) => canSeeNavItem(role, item.to))
   const roleLabel =
@@ -127,6 +136,28 @@ export function PortalSidebar() {
   ].join(' · ')
   const storeLabel =
     activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'OptiPackAI Store'
+  const sidebarDisplayName = session
+    ? (profileName ?? (locale === 'vi' ? 'Đang tải…' : 'Loading…'))
+    : locale === 'vi'
+      ? 'Tài khoản'
+      : 'Account'
+  const sidebarInitials =
+    session && profileName ? profileInitials(profileName) : '?'
+
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    void fetchMyProfile()
+      .then((profile) => {
+        if (!cancelled) setProfileName(profile.name)
+      })
+      .catch(() => {
+        if (!cancelled) setProfileName(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session?.accessToken])
 
   async function handleConfirmLogout() {
     setLoggingOut(true)
@@ -318,7 +349,7 @@ export function PortalSidebar() {
             onClick={() => setMobileNavOpen(false)}
             className="mb-3 block rounded-lg border border-hairline bg-surface-2 p-2.5 transition-colors hover:border-primary/40"
           >
-            <p className="text-sm font-medium text-ink">Nguyễn Minh Anh</p>
+            <p className="text-sm font-medium text-ink">{sidebarDisplayName}</p>
             <span className="mt-1 inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
               {roleLabel}
             </span>
@@ -330,7 +361,7 @@ export function PortalSidebar() {
             title="Profile"
             className="mb-2 flex h-8 w-8 items-center justify-center rounded-full border border-primary/30 bg-primary/15 text-[10px] font-bold text-primary-hover"
           >
-            NA
+            {sidebarInitials}
           </Link>
         )}
 

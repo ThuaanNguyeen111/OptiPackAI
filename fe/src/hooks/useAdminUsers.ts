@@ -17,18 +17,18 @@ import type {
 } from '../types/admin'
 import { defaultAiPackagingParams } from '../data/admin-mock'
 
-const USERS_PAGE_LIMIT = 100
+const USERS_PAGE_LIMIT = 20
 
 type UseAdminUsersApi = {
   users: AdminUser[]
   loading: boolean
   usersLoading: boolean
-  page: number
   total: number
+  page: number
   limit: number
   roleFilter: Role | 'all'
-  setRoleFilter: (role: Role | 'all') => void
   setPage: (page: number) => void
+  setRoleFilter: (role: Role | 'all') => void
   updateUser: (id: string, patch: UpdateUserInput) => Promise<void>
   resetPassword: (id: string) => Promise<{ temporaryPassword: string }>
   deactivate: (id: string) => Promise<void>
@@ -44,43 +44,50 @@ type UseAdminUsersApi = {
 export function useAdminUsers(): UseAdminUsersApi {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
-  const [usersLoading, setUsersLoading] = useState(false)
-  const [page, setPageState] = useState(1)
+  const [usersLoading, setUsersLoading] = useState(true)
+  const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [roleFilter, setRoleFilterState] = useState<Role | 'all'>('all')
   const [aiParams, setAiParams] = useState<AiPackagingParams>(
     () => defaultAiPackagingParams,
   )
 
-  const loadUsers = useCallback(async (nextPage: number, nextRole: Role | 'all') => {
-    setUsersLoading(true)
-    try {
-      const result = await fetchUsers({
-        page: nextPage,
-        limit: USERS_PAGE_LIMIT,
-        role: nextRole === 'all' ? undefined : nextRole,
-      })
-      setUsers(result.users)
-      setTotal(result.total)
-    } catch {
-      setUsers([])
-      setTotal(0)
-    } finally {
-      setUsersLoading(false)
-    }
-  }, [])
-
   useEffect(() => {
-    void loadUsers(page, roleFilter)
-  }, [loadUsers, page, roleFilter])
+    let cancelled = false
+    void fetchUsers({
+      page,
+      limit: USERS_PAGE_LIMIT,
+      role: roleFilter === 'all' ? undefined : roleFilter,
+    })
+      .then((result) => {
+        if (cancelled) return
+        setUsers(result.users)
+        setTotal(result.total)
+        setPage(result.page)
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUsers([])
+          setTotal(0)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setUsersLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [page, roleFilter])
+
+  const setPageWithLoading = useCallback((next: number) => {
+    setUsersLoading(true)
+    setPage(next)
+  }, [])
 
   const setRoleFilter = useCallback((role: Role | 'all') => {
+    setUsersLoading(true)
     setRoleFilterState(role)
-    setPageState(1)
-  }, [])
-
-  const setPage = useCallback((nextPage: number) => {
-    setPageState(Math.max(1, nextPage))
+    setPage(1)
   }, [])
 
   const updateUser = useCallback(async (id: string, patch: UpdateUserInput) => {
@@ -183,12 +190,12 @@ export function useAdminUsers(): UseAdminUsersApi {
     users,
     loading,
     usersLoading,
-    page,
     total,
+    page,
     limit: USERS_PAGE_LIMIT,
     roleFilter,
+    setPage: setPageWithLoading,
     setRoleFilter,
-    setPage,
     updateUser,
     resetPassword,
     deactivate,
