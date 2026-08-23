@@ -10,6 +10,7 @@ interface SentMailOptions {
   to: string;
   subject: string;
   html: string;
+  attachments?: Array<{ cid?: string; filename?: string }>;
 }
 
 interface MockConfigService {
@@ -68,12 +69,15 @@ describe('MailService', () => {
       to: 'staff@optipackai.com',
       name: 'Nguyễn Văn A',
       temporaryPassword: 'TempPass123',
+      role: 1,
     });
 
     expect(sendMailMock).toHaveBeenCalledTimes(1);
     const callArg = getFirstCallArg(sendMailMock);
     expect(callArg.to).toBe('staff@optipackai.com');
     expect(callArg.html).toContain('TempPass123');
+    expect(callArg.html).toContain('Warehouse Staff');
+    expect(callArg.html).toContain('72 hours');
     expect(callArg.from).toContain('noreply@optipackai.com');
   });
 
