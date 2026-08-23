@@ -3,6 +3,7 @@ import {
   BarChart3,
   Box,
   Boxes,
+  ClipboardList,
   ChevronDown,
   LayoutDashboard,
   LogOut,
@@ -42,6 +43,14 @@ const navItems = [
     labelVi: 'Đơn đa kênh',
     labelEn: 'Omnichannel Orders',
     icon: Package,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/warehouse',
+    end: false,
+    labelVi: 'Lấy hàng trong kho',
+    labelEn: 'Warehouse picking',
+    icon: ClipboardList,
     section: 'logistics' as NavSection,
   },
   {
@@ -86,10 +95,7 @@ const navItems = [
   },
 ]
 
-const sectionLabels: Record<
-  NavSection,
-  { vi: string; en: string } | null
-> = {
+const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   overview: null,
   logistics: { vi: 'Logistics', en: 'Logistics' },
   analytics: { vi: 'Analytics', en: 'Analytics' },
@@ -128,6 +134,7 @@ export function PortalSidebar() {
   const visibleNav = navItems.filter((item) => canSeeNavItem(role, item.to))
   const roleLabel =
     locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
+  const isStoreOwner = role === UserRole.STORE_OWNER
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
   const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
@@ -216,7 +223,7 @@ export function PortalSidebar() {
         </button>
       </div>
 
-      {!sidebarCollapsed ? (
+      {!sidebarCollapsed && isStoreOwner ? (
         <div className="relative border-b border-hairline p-3">
           <button
             type="button"
@@ -297,6 +304,17 @@ export function PortalSidebar() {
               </div>
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {!sidebarCollapsed && !isStoreOwner ? (
+        <div className="border-b border-hairline p-3">
+          <div className="rounded-lg border border-hairline bg-surface-2 px-3 py-2">
+            <p className="text-xs font-medium text-ink">
+              {locale === 'vi' ? 'Khu A–B · Ca sáng' : 'Zone A–B · Morning'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-subtle">{roleLabel}</p>
+          </div>
         </div>
       ) : null}
 
@@ -438,14 +456,12 @@ export function PortalSidebar() {
         onCancel={() => setLogoutConfirmOpen(false)}
         icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
       />
-      {/* Desktop */}
       <aside
         className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}
       >
         {nav}
       </aside>
 
-      {/* Mobile overlay */}
       {mobileNavOpen ? (
         <div className="fixed inset-0 z-50 lg:hidden">
           <button

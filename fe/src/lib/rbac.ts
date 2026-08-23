@@ -6,7 +6,7 @@ const STAFF_PREFIXES: Record<
   | typeof UserRole.SHIPPING_COORDINATOR,
   string[]
 > = {
-  [UserRole.WAREHOUSE_STAFF]: ['/app/orders'],
+  [UserRole.WAREHOUSE_STAFF]: ['/app/warehouse'],
   [UserRole.PACKAGING_STAFF]: ['/app/packing'],
   [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping'],
 }
@@ -23,7 +23,7 @@ export function homePath(role: Role): string {
     case UserRole.ADMIN:
       return '/app/admin'
     case UserRole.WAREHOUSE_STAFF:
-      return '/app/orders'
+      return '/app/warehouse'
     case UserRole.PACKAGING_STAFF:
       return '/app/packing'
     case UserRole.SHIPPING_COORDINATOR:

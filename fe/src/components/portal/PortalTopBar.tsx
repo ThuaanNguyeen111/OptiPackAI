@@ -1,6 +1,8 @@
-import { Bell, Menu, Plus, ScanLine, Search } from 'lucide-react'
+import { Bell, Menu, Plus, ScanLine } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../../context/use-auth'
 import { usePortal } from '../../context/use-portal'
+import { UserRole } from '../../types/auth'
 import { WarehouseScannerModal } from '../warehouse/WarehouseScannerModal'
 import { Button } from '../ui/Button'
 
@@ -14,7 +16,9 @@ export function PortalTopBar({
   variant = 'ops',
 }: PortalTopBarProps) {
   const { setMobileNavOpen, locale, scannerOpen, setScannerOpen } = usePortal()
+  const { session } = useAuth()
   const isAdmin = variant === 'admin'
+  const isStoreOwner = session?.role === UserRole.STORE_OWNER
 
   return (
     <>
@@ -55,7 +59,7 @@ export function PortalTopBar({
                 : 'Live Sync: TikTok Shop & Shopee active'}
           </span>
 
-          {isAdmin ? null : (
+          {isAdmin || !isStoreOwner ? null : (
             <>
               <Button
                 variant="ghost"
@@ -89,7 +93,7 @@ export function PortalTopBar({
         </div>
       </header>
 
-      {isAdmin ? null : (
+      {isAdmin || !isStoreOwner ? null : (
         <WarehouseScannerModal
           open={scannerOpen}
           onClose={() => setScannerOpen(false)}

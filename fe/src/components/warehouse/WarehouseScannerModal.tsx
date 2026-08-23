@@ -6,6 +6,10 @@ type WarehouseScannerModalProps = {
   open: boolean
   onClose: () => void
   locale?: 'vi' | 'en'
+  hints?: string[]
+  confirmLabel?: string
+  onConfirm?: (code: string) => boolean
+  resultMessage?: string
 }
 
 const SCAN_CATALOG: Record<
@@ -33,11 +37,16 @@ export function WarehouseScannerModal({
   open,
   onClose,
   locale = 'vi',
+  hints,
+  confirmLabel,
+  onConfirm,
+  resultMessage,
 }: WarehouseScannerModalProps) {
   const vi = locale === 'vi'
   const [scanValue, setScanValue] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const [scanning, setScanning] = useState(true)
+  const pickMode = Boolean(onConfirm)
 
   function resetAndClose() {
     setScanValue('')
@@ -49,7 +58,7 @@ export function WarehouseScannerModal({
   if (!open) return null
 
   const key = scanValue.trim().toUpperCase()
-  const match =
+  const catalogHit =
     SCAN_CATALOG[key] ??
     (key.length >= 4
       ? {
@@ -58,8 +67,14 @@ export function WarehouseScannerModal({
           sku: key,
         }
       : null)
+  const canConfirm = pickMode ? key.length >= 4 : Boolean(catalogHit)
 
   function handleConfirm() {
+    if (onConfirm) {
+      const ok = onConfirm(scanValue)
+      if (ok) setConfirmed(true)
+      return
+    }
     setConfirmed(true)
     window.setTimeout(() => {
       resetAndClose()
@@ -78,7 +93,11 @@ export function WarehouseScannerModal({
         <div className="flex h-12 items-center justify-between border-b border-[#222734] px-4">
           <div className="flex items-center gap-2 text-sm font-medium text-[#F3F4F6]">
             <ScanLine className="h-4 w-4 text-[#6366F1]" />
-            {vi ? 'Warehouse Quick Scanner' : 'Warehouse Quick Scanner'}
+            {pickMode
+              ? vi
+                ? 'Quét xác nhận lấy hàng'
+                : 'Scan to confirm pick'
+              : 'Warehouse Quick Scanner'}
           </div>
           <button
             type="button"
@@ -90,7 +109,6 @@ export function WarehouseScannerModal({
         </div>
 
         <div className="space-y-4 overflow-auto p-4">
-          {/* Camera preview mock */}
           <div className="relative aspect-[4/3] overflow-hidden rounded-xl border-2 border-[#6366F1]/50 bg-black">
             <div className="absolute inset-0 bg-[linear-gradient(rgba(99,102,241,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(99,102,241,0.08)_1px,transparent_1px)] bg-[size:24px_24px]" />
             <div className="absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-[#10B981] shadow-[0_0_12px_#10B981]" />
@@ -100,14 +118,16 @@ export function WarehouseScannerModal({
             ) : null}
             <p className="absolute bottom-3 left-0 right-0 text-center font-mono text-[11px] text-[#9CA3AF]">
               {vi
-                ? 'Hướng barcode / QR vào khung'
-                : 'Align barcode / QR in frame'}
+                ? 'Hướng QR/barcode vào khung'
+                : 'Align QR/barcode in frame'}
             </p>
           </div>
 
           <div>
             <label className="mb-1.5 block text-xs font-medium text-ink-subtle">
-              {vi ? 'Quét / nhập SKU · Package ID' : 'Scan / enter SKU · Package ID'}
+              {vi
+                ? 'Quét/Nhập SKU · Package ID · barcode'
+                : 'Scan/Enter SKU · Package ID · barcode'}
             </label>
             <input
               autoFocus
@@ -117,28 +137,41 @@ export function WarehouseScannerModal({
                 setConfirmed(false)
               }}
               onFocus={() => setScanning(true)}
-              placeholder="PKG-8801 · ORD-2042 · SKU-…"
+              placeholder="PKG-8801 · SKU-A01 · 8938501230001"
               className="w-full rounded-lg border border-[#222734] bg-[#151922] px-3 py-3 font-mono text-base text-[#F3F4F6] placeholder:text-[#6B7280] focus:border-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1]/40"
             />
             <p className="mt-1 text-[11px] text-ink-tertiary">
-              Try: <span className="font-mono">PKG-8801</span> or{' '}
-              <span className="font-mono">SKU-F06</span>
+              Try:{' '}
+              {(hints?.slice(0, 3) ?? ['PKG-8801', 'SKU-F06']).map((h, i) => (
+                <span key={h}>
+                  {i > 0 ? ' · ' : null}
+                  <span className="font-mono">{h}</span>
+                </span>
+              ))}
             </p>
           </div>
 
-          {match ? (
+          {pickMode ? (
+            <div className="rounded-xl border border-dashed border-[#222734] bg-[#151922] px-4 py-5 text-center text-sm text-ink-subtle">
+              {resultMessage
+                ? resultMessage
+                : vi
+                  ? 'Quét mã trên bin/SKU để xác nhận đã lấy hàng.'
+                  : 'Scan bin/SKU to confirm the pick.'}
+            </div>
+          ) : catalogHit ? (
             <div className="rounded-xl border border-[#6366F1]/30 bg-[#6366F1]/10 p-4 text-center">
               <p className="text-[11px] font-medium tracking-wide text-[#818CF8] uppercase">
                 Live AI Packing Result
               </p>
               <p className="mt-2 font-mono text-lg font-semibold text-[#F3F4F6] sm:text-xl">
-                Box: {match.box}
+                Box: {catalogHit.box}
               </p>
               <p className="mt-1 font-mono text-sm text-[#10B981]">
-                {match.cushion}
+                {catalogHit.cushion}
               </p>
               <p className="mt-2 font-mono text-[11px] text-ink-subtle">
-                scan_ref={match.sku}
+                scan_ref={catalogHit.sku}
               </p>
             </div>
           ) : (
@@ -154,7 +187,7 @@ export function WarehouseScannerModal({
           <Button
             variant="primary"
             className="h-12 min-h-12 w-full text-base shadow-[0_0_24px_rgba(99,102,241,0.35)]"
-            disabled={!match || confirmed}
+            disabled={!canConfirm || confirmed}
             onClick={handleConfirm}
           >
             {confirmed ? (
@@ -163,7 +196,8 @@ export function WarehouseScannerModal({
                 {vi ? 'Đã xác nhận' : 'Confirmed'}
               </>
             ) : (
-              vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'
+              (confirmLabel ??
+                (vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'))
             )}
           </Button>
         </div>
@@ -171,3 +205,4 @@ export function WarehouseScannerModal({
     </div>
   )
 }
+

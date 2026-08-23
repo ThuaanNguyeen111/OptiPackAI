@@ -1,4 +1,4 @@
-import { Check, Minus, Shield } from 'lucide-react'
+import { Check, Minus } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { ROLE_VALUES, Role, roleLabelsEN, roleLabelsVN } from '../types/admin'

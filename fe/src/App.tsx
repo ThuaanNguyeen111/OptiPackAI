@@ -26,6 +26,7 @@ import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { ShippingPage } from './pages/ShippingPage'
+import { WarehousePage } from './pages/WarehousePage'
 
 function PortalRoot() {
   return (
@@ -59,6 +60,7 @@ function App() {
               <Route element={<AppLayout />}>
                 <Route index element={<DashboardPage />} />
                 <Route path="orders" element={<OrdersPage />} />
+                <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="packing" element={<PackingPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
