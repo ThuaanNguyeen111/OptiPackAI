@@ -75,7 +75,6 @@ export class UsersService {
       to: user.email,
       name: user.name,
       temporaryPassword,
-      role: user.role,
     });
 
     return { user, temporaryPassword };
@@ -124,7 +123,6 @@ export class UsersService {
       must_change_password: false,
       must_change_password_by: null,
     });
-    await this.redisCache.invalidateUserAuthState(userId);
   }
 
   //!=============================================
@@ -189,7 +187,6 @@ export class UsersService {
       to: user.email,
       name: user.name,
       temporaryPassword,
-      role: user.role,
     });
 
     return { temporaryPassword };
@@ -333,7 +330,11 @@ export class UsersService {
     });
   }
 
+  //!=============================================
+  // 4. XÓA MỀM / KÍCH HOẠT LẠI
+  //!=============================================
   async deactivate(userId: string): Promise<void> {
+    // FIX #33: cùng nguyên tắc transaction như adminResetPassword() ở trên
     const session = await this.connection.startSession();
     try {
       await session.withTransaction(async () => {
@@ -353,6 +354,10 @@ export class UsersService {
     await this.redisCache.invalidateUserAuthState(userId);
   }
 
+  //!=============================================
+  // Kích hoạt lại tài khoản đã xóa mềm  (nhân viên nghỉ rồi quay lại làm,
+  // hoặc Admin xóa mềm nhầm).
+  //!=============================================
   async reactivate(userId: string): Promise<void> {
     const user = await this.userModel.findByIdAndUpdate(userId, { is_active: true });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
