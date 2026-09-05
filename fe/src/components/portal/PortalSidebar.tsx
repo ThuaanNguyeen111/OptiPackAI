@@ -360,81 +360,147 @@ export function PortalSidebar() {
         })}
       </nav>
 
-      <div className="border-t border-hairline p-3">
+      <div
+        className={`border-t border-hairline ${
+          sidebarCollapsed ? 'flex flex-col items-center p-2.5 gap-2' : 'p-3'
+        }`}
+      >
         {!sidebarCollapsed ? (
-          <Link
-            to="/app/profile"
-            onClick={() => setMobileNavOpen(false)}
-            className="mb-3 block rounded-lg border border-hairline bg-surface-2 p-2.5 transition-colors hover:border-primary/40"
-          >
-            <p className="text-sm font-medium text-ink">{sidebarDisplayName}</p>
-            <span className="mt-1 inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
-              {roleLabel}
-            </span>
-          </Link>
-        ) : (
-          <Link
-            to="/app/profile"
-            onClick={() => setMobileNavOpen(false)}
-            title="Profile"
-            className="mb-2 flex h-8 w-8 items-center justify-center rounded-full border border-primary/30 bg-primary/15 text-[10px] font-bold text-primary-hover"
-          >
-            {sidebarInitials}
-          </Link>
-        )}
+          <>
+            <Link
+              to="/app/profile"
+              onClick={() => setMobileNavOpen(false)}
+              className="mb-3 block rounded-lg border border-hairline bg-surface-2 p-2.5 transition-colors hover:border-primary/40"
+            >
+              <p className="truncate text-sm font-medium text-ink">{sidebarDisplayName}</p>
+              <span className="mt-1 inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
+                {roleLabel}
+              </span>
+            </Link>
 
-        <div
-          className={`flex gap-1 ${sidebarCollapsed ? 'flex-col items-center' : 'items-center'}`}
-        >
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-surface-2 hover:text-ink"
-            aria-label={
-              theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
-            }
-            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
-            ) : (
-              <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setLogoutConfirmOpen(true)}
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle hover:bg-surface-2 hover:text-red-500"
-            aria-label="Đăng xuất"
-            title="Đăng xuất"
-          >
-            <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
-          </button>
-          <div className="flex rounded-md border border-hairline p-0.5 text-[11px] font-medium">
+            <div className="flex items-center justify-between gap-1">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+                  aria-label={
+                    theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
+                  }
+                  title={
+                    theme === 'dark'
+                      ? locale === 'vi'
+                        ? 'Giao diện sáng'
+                        : 'Light mode'
+                      : locale === 'vi'
+                        ? 'Giao diện tối'
+                        : 'Dark mode'
+                  }
+                >
+                  {theme === 'dark' ? (
+                    <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  ) : (
+                    <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  )}
+                </button>
+
+                <div className="flex rounded-md border border-hairline p-0.5 text-[11px] font-medium">
+                  <button
+                    type="button"
+                    onClick={() => setLocale('vi')}
+                    className={`rounded px-2 py-1 transition-colors ${
+                      locale === 'vi'
+                        ? 'bg-primary/15 font-semibold text-primary-hover'
+                        : 'text-ink-subtle hover:text-ink'
+                    }`}
+                  >
+                    VI
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLocale('en')}
+                    className={`rounded px-2 py-1 transition-colors ${
+                      locale === 'en'
+                        ? 'bg-primary/15 font-semibold text-primary-hover'
+                        : 'text-ink-subtle hover:text-ink'
+                    }`}
+                  >
+                    EN
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(true)}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-red-500"
+                aria-label={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+                title={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+              >
+                <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Link
+              to="/app/profile"
+              onClick={() => setMobileNavOpen(false)}
+              title={sidebarDisplayName}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/15 text-[10px] font-bold text-primary-hover transition-colors hover:border-primary/60"
+            >
+              {sidebarInitials}
+            </Link>
+
             <button
               type="button"
-              onClick={() => setLocale('vi')}
-              className={`rounded px-2 py-1 ${
+              onClick={toggleTheme}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+              aria-label={
+                theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
+              }
+              title={
+                theme === 'dark'
+                  ? locale === 'vi'
+                    ? 'Giao diện sáng'
+                    : 'Light mode'
+                  : locale === 'vi'
+                    ? 'Giao diện tối'
+                    : 'Dark mode'
+              }
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
+              ) : (
+                <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLocale(locale === 'vi' ? 'en' : 'vi')}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-[11px] font-bold text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+              aria-label="Toggle language"
+              title={
                 locale === 'vi'
-                  ? 'bg-primary/15 text-primary-hover'
-                  : 'text-ink-subtle hover:text-ink'
-              }`}
+                  ? 'Ngôn ngữ: Tiếng Việt (Bấm để đổi sang English)'
+                  : 'Language: English (Click to switch to Vietnamese)'
+              }
             >
-              VI
+              {locale.toUpperCase()}
             </button>
+
             <button
               type="button"
-              onClick={() => setLocale('en')}
-              className={`rounded px-2 py-1 ${
-                locale === 'en'
-                  ? 'bg-primary/15 text-primary-hover'
-                  : 'text-ink-subtle hover:text-ink'
-              }`}
+              onClick={() => setLogoutConfirmOpen(true)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-red-500"
+              aria-label={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+              title={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
             >
-              EN
+              <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </>
   )
