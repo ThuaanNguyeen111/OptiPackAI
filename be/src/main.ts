@@ -4,6 +4,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
@@ -23,6 +24,11 @@ async function bootstrap(): Promise<void> {
       transform: true,
     }),
   );
+
+  // Chuẩn hóa MỌI response lỗi (kể cả lỗi ValidationPipe phía trên và
+  // lỗi không lường trước) về đúng 1 hình dạng có error_code — xem
+  // common/filters/global-exception.filter.ts
+  app.useGlobalFilters(new GlobalExceptionFilter());
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('OptiPack AI API')

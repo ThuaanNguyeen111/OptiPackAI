@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { RedisModule } from './common/redis/redis.module';
 import { AppController } from './app.controller';
@@ -11,14 +12,17 @@ import googleConfig from './config/google.config';
 import jwtConfig from './config/jwt.config';
 import mailConfig from './config/mail.config';
 import redisConfig from './config/redis.config';
+import marketplaceConfig from './config/marketplace.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig],
+      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -28,9 +32,19 @@ import { UsersModule } from './modules/users/users.module';
       inject: [ConfigService],
     }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
+    // BẮT BUỘC gọi Ở GỐC APP (không phải trong OrdersModule) — mọi
+    // @Cron()/@Interval() ở BẤT KỲ module con nào (kể cả các module
+    // thêm sau này) chỉ hoạt động khi ScheduleModule được đăng ký ĐÚNG
+    // 1 LẦN DUY NHẤT tại đây. Hiện dùng cho
+    // orders/lazada-order-sync.scheduler.ts (auto-sync Lazada mỗi 10
+    // phút) — khi thêm cron mới ở module khác, KHÔNG import lại
+    // ScheduleModule ở module đó.
+    ScheduleModule.forRoot(),
     RedisModule,
     UsersModule,
     AuthModule,
+    MarketplaceIntegrationModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [
