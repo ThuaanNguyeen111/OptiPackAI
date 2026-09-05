@@ -10,7 +10,7 @@ interface SentMailOptions {
   to: string;
   subject: string;
   html: string;
-  attachments?: Array<{ cid?: string; filename?: string }>;
+  attachments?: { cid?: string; filename?: string }[];
 }
 
 interface MockConfigService {
