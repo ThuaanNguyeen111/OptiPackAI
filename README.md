@@ -27,6 +27,9 @@ _Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắ
 > [!NOTE]
 > Đây là hệ thống quản lý **nội bộ** (internal tool) cho một doanh nghiệp bán hàng đa kênh, không phải sản phẩm SaaS đa khách thuê.
 
+> [!IMPORTANT]
+> **Phạm vi tích hợp sàn đã đổi so với phiếu đề xuất ban đầu.** Bản gốc nhắm Shopee + TikTok Shop. Sau khi khảo sát thực tế điều kiện đăng ký (Shopee yêu cầu shop đã đạt Preferred/Mall Seller mới cấp được Partner Key qua route cá nhân; TikTok Shop Partner Center yêu cầu giấy phép kinh doanh + công ty thành lập >1 năm), **cả 2 sàn đều không khả thi cho route đăng ký cá nhân/sinh viên**. Sàn tích hợp đang code tích cực hiện tại là **Lazada** — đã chạy end-to-end thành công (OAuth connect → đồng bộ đơn hàng thật). TikTok Shop và Tiki vẫn trong roadmap nhưng tạm hoãn.
+
 ---
 
 ## 📋 Mục lục
@@ -77,7 +80,7 @@ _Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắ
 <tr>
 <td>
 
-Đơn hàng rời rạc trên nhiều sàn (Shopee, TikTok Shop...), nhân viên kho phải tự chuyển đổi qua lại giữa các hệ thống
+Đơn hàng rời rạc trên nhiều sàn (Lazada, TikTok Shop, Tiki...), nhân viên kho phải tự chuyển đổi qua lại giữa các hệ thống
 
 </td>
 <td>
@@ -116,18 +119,18 @@ Không có cái nhìn tổng quan về chi phí logistics theo thời gian thự
 
 ## ✨ Tính năng chính
 
-|    #    | Tính năng                 | Mô tả                                                                           |
-| :-----: | ------------------------- | ------------------------------------------------------------------------------- |
-| `FE-01` | 🔄 **Đồng bộ đa kênh**    | Tự động lấy đơn hàng, tồn kho từ Shopee & TikTok Shop                           |
-| `FE-02` | 🧩 **Gộp đơn thông minh** | Phát hiện & gộp đơn trùng lặp theo khách hàng/kho                               |
-| `FE-03` | 🤖 **AI Packaging**       | 3D Bin Packing — gợi ý thùng & vật liệu, có xác nhận thủ công trước khi in nhãn |
-| `FE-04` | 💰 **Ước tính chi phí**   | Tính phí đóng gói + cước vận chuyển trước khi giao                              |
-| `FE-05` | 🏷️ **Sinh nhãn tự động**  | QR/Barcode, PDF phiếu đóng gói & tem vận chuyển                                 |
-| `FE-06` | 📱 **Mobile App**         | Quét mã cập nhật picking/packing real-time                                      |
-| `FE-07` | 📊 **Dashboard**          | Thống kê hiệu suất kho & chi phí logistics                                      |
-| `FE-08` | 🔐 **Quản trị**           | User, phân quyền, cấu hình tham số AI                                           |
+|    #    | Tính năng                 | Mô tả                                                                           | Trạng thái |
+| :-----: | ------------------------- | -------------------------------------------------------------------------------- | :---: |
+| `FE-01` | 🔄 **Đồng bộ đa kênh**    | Tự động lấy đơn hàng từ Lazada (đã chạy); TikTok Shop, Tiki dự kiến sau         | 🟢 Lazada xong |
+| `FE-02` | 🧩 **Gộp đơn thông minh** | Phát hiện & gộp đơn trùng lặp theo khách hàng/địa chỉ (`consolidation_key`)      | 🟡 Đang test |
+| `FE-03` | 🤖 **AI Packaging**       | 3D Bin Packing — gợi ý thùng & vật liệu, có xác nhận thủ công trước khi in nhãn | ⬜ Chưa bắt đầu |
+| `FE-04` | 💰 **Ước tính chi phí**   | Tính phí đóng gói + cước vận chuyển trước khi giao                              | ⬜ Chưa bắt đầu |
+| `FE-05` | 🏷️ **Sinh nhãn tự động**  | QR/Barcode, PDF phiếu đóng gói & tem vận chuyển                                 | ⬜ Chưa bắt đầu |
+| `FE-06` | 📱 **Mobile App**         | Quét mã cập nhật picking/packing real-time                                      | ⬜ Chưa bắt đầu |
+| `FE-07` | 📊 **Dashboard**          | Thống kê hiệu suất kho & chi phí logistics                                      | ⬜ Chưa bắt đầu |
+| `FE-08` | 🔐 **Quản trị**           | User, phân quyền, cấu hình tham số AI                                           | 🟢 Auth/Users xong |
 
-> **Phạm vi tích hợp:** Shopee + TikTok Shop _(Facebook Marketplace, Lazada nằm ngoài phạm vi đồ án)_
+> **Phạm vi tích hợp hiện tại:** Lazada _(code tích cực, đã chạy end-to-end)_ · TikTok Shop + Tiki _(roadmap, tạm hoãn)_ · Shopee, Facebook Marketplace _(loại khỏi phạm vi — xem ghi chú đầu trang)_
 
 ---
 
@@ -136,11 +139,12 @@ Không có cái nhìn tổng quan về chi phí logistics theo thời gian thự
 ```mermaid
 flowchart LR
     subgraph Sources["Nguồn đơn hàng"]
-        A[Shopee API]
-        B[TikTok Shop API]
+        A[Lazada Open API]
+        B[TikTok Shop API<br/>·roadmap·]
+        I[Tiki Open API<br/>·roadmap·]
     end
 
-    subgraph Core["OptiPackAI Backend · NestJS"]
+    subgraph Core["OptiPackAI Backend · NestJS (modular monolith)"]
         C[Order Sync & Consolidation]
         D[AI Packaging Engine]
         E[Shipping & Label Service]
@@ -152,8 +156,9 @@ flowchart LR
         H[Mobile App · Flutter]
     end
 
-    A -- webhook --> C
-    B -- webhook --> C
+    A -- polling --> C
+    B -. webhook .-> C
+    I -. event queue .-> C
     C --> F
     C --> D
     D --> E
@@ -162,6 +167,8 @@ flowchart LR
     E -- QR/Barcode scan --> H
     H --> C
 ```
+
+> Backend là **1 NestJS app duy nhất** (modular monolith), không tách microservice — AI Packaging Engine (Package 3) là 1 module bên trong cùng app, không phải service riêng.
 
 ---
 
@@ -174,7 +181,7 @@ flowchart LR
 **Backend**
 
 - NestJS 11
-- MongoDB 7 + Mongoose
+- MongoDB 7 + Mongoose 8
 - JWT + Passport
 - Swagger/OpenAPI
 - class-validator
@@ -227,7 +234,7 @@ OptiPackAI/
 │   │       ├── packaging/                  🤖 AI packaging recommendation    FE-03
 │   │       ├── shipping/                   💰 Ước tính phí, tạo nhãn         FE-04 FE-05
 │   │       ├── fulfillment/                📦 Picking/packing tracking      FE-06 FE-07
-│   │       ├── marketplace-integration/    🔌 Connector Shopee, TikTok Shop
+│   │       ├── marketplace-integration/    🔌 Connector Lazada (xong), TikTok/Tiki (roadmap)
 │   │       └── admin/                      🔐 User, role, AI config          FE-08
 │   ├── test/
 │   └── Dockerfile
@@ -278,6 +285,8 @@ npm run docker:dev
 npm run dev
 ```
 
+> **Test luồng Lazada cục bộ**: cần tunnel HTTPS public cho OAuth callback (Lazada không nhận `localhost`). Dùng `ngrok http --url=<domain-cố-định-của-bạn> 3000`, và cần Redis chạy sẵn (Docker, hoặc Memurai trên Windows nếu không tiện dùng Docker/WSL).
+
 <div align="center">
 
 🟢 Backend: `http://localhost:3000` &nbsp;·&nbsp; 🔵 Frontend: `http://localhost:5173`
@@ -293,7 +302,7 @@ npm run dev
 <br/>
 
 | Script                | Mô tả                            |
-| --------------------- | -------------------------------- |
+| --------------------- | --------------------------------- |
 | `npm run dev`         | Chạy cả Backend và Frontend      |
 | `npm run dev:be`      | Chạy riêng Backend               |
 | `npm run dev:fe`      | Chạy riêng Frontend              |
@@ -309,11 +318,11 @@ npm run dev
 <br/>
 
 | Script              | Mô tả                           |
-| ------------------- | ------------------------------- |
-| `npm run start:dev` | Development mode với hot-reload |
-| `npm run build`     | Build production                |
-| `npm run test`      | Chạy unit tests                 |
-| `npm run test:cov`  | Test coverage                   |
+| -------------------- | -------------------------------- |
+| `npm run start:dev`  | Development mode với hot-reload |
+| `npm run build`      | Build production                |
+| `npm run test`       | Chạy unit tests                 |
+| `npm run test:cov`   | Test coverage                   |
 
 </details>
 
@@ -325,20 +334,23 @@ npm run dev
 <summary><b>Xem danh sách biến môi trường</b></summary>
 <br/>
 
-| Variable                                   | Mô tả                               |
-| ------------------------------------------ | ----------------------------------- |
-| `MONGODB_URI`                              | MongoDB connection string           |
-| `JWT_SECRET`                               | JWT signing key                     |
-| `CORS_ORIGIN`                              | Allowed CORS origins                |
-| `SHOPEE_PARTNER_ID` / `SHOPEE_PARTNER_KEY` | Shopee Open API credentials         |
-| `TIKTOK_APP_KEY` / `TIKTOK_APP_SECRET`     | TikTok Shop Partner API credentials |
+| Variable                                     | Mô tả                                                                 |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| `MONGODB_URI`                                | MongoDB connection string                                             |
+| `JWT_SECRET`                                 | JWT signing key                                                       |
+| `CORS_ORIGIN`                                | Allowed CORS origins (mặc định `http://localhost:5173`)              |
+| `CLIENT_REDIRECT_CALLBACK`                   | URL public (ngrok) FE dùng để nhận callback OAuth Lazada khi dev local |
+| `LAZADA_APP_KEY` / `LAZADA_APP_SECRET`       | Lazada Open Platform credentials (ISV Console)                        |
+| `REDIS_URL`                                  | Redis / Redis-compatible (vd Memurai) connection string               |
+
+> `SHOPEE_PARTNER_ID`/`SHOPEE_PARTNER_KEY` và `TIKTOK_APP_KEY`/`TIKTOK_APP_SECRET` **đã bị gỡ** khỏi `.env.example` — Shopee ngoài phạm vi, TikTok tạm hoãn (xem ghi chú đầu trang). Thêm lại khi 2 sàn này quay lại roadmap thật sự.
 
 </details>
 
-| Service       | URL                         |
-| ------------- | --------------------------- |
-| MongoDB       | `mongodb://localhost:27017` |
-| Mongo Express | `http://localhost:8081`     |
+| Service       | URL                          |
+| ------------- | ----------------------------- |
+| MongoDB       | `mongodb://localhost:27017`  |
+| Mongo Express | `http://localhost:8081`      |
 
 ---
 
@@ -350,14 +362,23 @@ npm run dev
 
 </div>
 
+> ⚠️ **Không có tiền tố `/api/v1`** — route thật gọn hơn phiếu đề xuất ban đầu, ví dụ `/auth/login` chứ không phải `/api/v1/auth/login`. Danh sách dưới đây phản ánh route **thật đang chạy**:
+
 ```http
-POST   /api/v1/auth/login              # Đăng nhập
-POST   /api/v1/orders/sync             # Đồng bộ đơn hàng từ sàn
-GET    /api/v1/orders                  # Danh sách đơn hàng đã gộp
-POST   /api/v1/packaging/recommend     # AI gợi ý đóng gói
-GET    /api/v1/shipping/estimate       # Ước tính phí ship
-POST   /api/v1/fulfillment/scan        # Cập nhật trạng thái picking/packing
+POST   /auth/login                       # Đăng nhập
+GET    /auth/google                      # Đăng nhập Google (redirect)
+GET    /marketplace/lazada/connect       # Khởi tạo OAuth connect Lazada (chỉ Admin, trả authUrl)
+GET    /marketplace/lazada/callback      # Callback OAuth Lazada (Lazada tự gọi, public, trả JSON thô)
+POST   /orders/lazada/sync               # Đồng bộ đơn hàng từ Lazada (theo shop_id)
+GET    /orders                           # Danh sách đơn hàng đã gộp
+POST   /packaging/recommend              # AI gợi ý đóng gói           (chưa code)
+GET    /shipping/estimate                # Ước tính phí ship          (chưa code)
+POST   /fulfillment/scan                 # Cập nhật trạng thái picking/packing (chưa code)
 ```
+
+> ⚠️ Toàn bộ route `/marketplace/*` và `/orders/*` ở trên hiện **giới hạn role Admin** — user role khác gọi vào sẽ nhận `403`, đây là chủ đích (kết nối shop/đồng bộ đơn coi là hành động nhạy cảm), không phải thiếu sót.
+
+Chi tiết đầy đủ cho FE tích hợp: xem `INTEGRATION_GUIDE.md` (module Auth/Users) và `INTEGRATION_GUIDE_ORDERS.md` (module Orders + Marketplace Integration).
 
 ---
 
@@ -380,9 +401,9 @@ type(AOFP-12): mô tả ngắn gọn
 ```
 
 ```bash
-✅ feat(AOFP-12): add Shopee webhook configuration
+✅ feat(AOFP-12): add Lazada order sync module
 ✅ fix(AOFP-15): resolve duplicate order detection bug
-✅ docs(AOFP-20): update API documentation for packaging module
+✅ docs(AOFP-20): update API documentation for orders module
 ```
 
 <sup>Type hợp lệ: `feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `ci` `chore` `revert`</sup>
@@ -412,7 +433,7 @@ git push origin feature/AOFP-XX_ten-tinh-nang    # 3. Push
 <div align="center">
 
 |         Role          | Name                   | Email                       | Mobile     |
-| :-------------------: | ---------------------- | --------------------------- | ---------- |
+| :-------------------: | ----------------------- | ----------------------------- | ---------- |
 |     🎓 Supervisor     | Thân Thị Ngọc Vân      | vanttn@fpt.edu.vn           | 0912656836 |
 |       👑 Leader       | Nguyễn Phương Mỹ Thuận | ThuanNPMSE171113@fpt.edu.vn | 0377168254 |
 | ⚙️ Backend Developer  | Lê Đức Trung Thi       | thildtde180553@fpt.edu.vn   | 0905749864 |

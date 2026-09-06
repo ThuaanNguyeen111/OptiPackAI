@@ -1,14 +1,21 @@
 # OptiPackAI Backend — Coding Guide cho Claude
 
 **OptiPackAI** (tên dự án theo phiếu đăng ký: AOFP — AI-Assisted Omnichannel Order Fulfillment and Packaging Optimization System).
-Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ đơn hàng từ Shopee + TikTok Shop, gộp đơn trùng, dùng AI gợi ý đóng gói (3D bin packing), ước tính phí ship, sinh nhãn/QR/barcode, theo dõi fulfillment, và xem dashboard.
+Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ đơn hàng từ TikTok Shop + Lazada + Tiki, gộp đơn trùng, dùng AI gợi ý đóng gói (3D bin packing), ước tính phí ship, sinh nhãn/QR/barcode, theo dõi fulfillment, và xem dashboard.
+
+> **Lịch sử đổi phạm vi sàn (cập nhật 2026-09-04, sửa lại lý do ghi sai ngày 2026-08-22)**: Bản gốc nhắm Shopee + TikTok Shop.
+> - **Shopee bị loại khỏi scope** — lý do ĐÚNG (bản ghi cũ nói "mã số thuế bắt buộc" là SAI, đã sửa): đăng ký dev account Shopee route "Shopee Seller" (cá nhân) đòi hỏi shop Shopee liên kết phải **đã đạt trạng thái Preferred Seller hoặc Mall Seller** — một shop cá nhân mới lập không bao giờ đạt được ngay. Đã đọc kỹ toàn bộ doc chính thức Shopee Open Platform (Authorization, API calls, App management, Developer account registration) để xác nhận, xem thêm ở mục "Nghiên cứu Shopee — dừng scope nhưng giữ tài liệu" bên dưới.
+> - **TikTok Shop Partner Center (API/sandbox) cũng bị xác nhận KHÔNG khả thi**: bắt buộc giấy phép kinh doanh + công ty thành lập > 1 năm, không có route cá nhân/self-developed nào. (Đã tạo được TikTok Shop **Seller Center** cá nhân — `seller-vn.tiktok.com` — nhưng đây KHÁC hoàn toàn Partner Center, không có API.)
+> - **Lazada** trở thành sàn tích hợp CHÍNH và DUY NHẤT đang code (đăng ký cá nhân chỉ cần CCCD) — đã OAuth connect + GetOrders + lưu DB thành công END-TO-END với đơn hàng thật (xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới).
+> - **TikTok Shop và Tiki**: cố ý HOÃN lại (không xóa khỏi roadmap, nhưng KHÔNG code adapter tích cực lúc này) cho tới khi 2 sàn này sẵn sàng hơn (TikTok cần chờ hướng giải quyết business license; Tiki cần chờ email xin sandbox từ `partnersupport@tiki.vn` được duyệt).
+> - **Facebook Marketplace** (C2C listing cá nhân) xác nhận KHÔNG có API công khai, Meta không có kế hoạch mở. Nếu sau này cần tích hợp Facebook, mục tiêu đúng là **Facebook Shop** (Meta Commerce/Catalog API, chỉ cần Facebook Business Manager miễn phí) — mới là hướng nghiên cứu, CHƯA quyết định đưa vào scope chính thức.
 
 ## Quyết định kiến trúc đã chốt
 
 - **Database**: MongoDB + Mongoose (không dùng PostgreSQL dù phiếu đề xuất có gợi ý)
-- **Message queue**: CHƯA dùng Kafka/BullMQ ở giai đoạn đầu — đồng bộ đơn hàng qua webhook đơn giản từ Shopee/TikTok. Có thể bổ sung BullMQ+Redis sau nếu cần retry/queue.
+- **Message queue**: CHƯA dùng Kafka/BullMQ ở giai đoạn đầu — TikTok đồng bộ qua webhook (best-effort, cần cron đối soát dự phòng), Lazada qua polling định kỳ (chưa xác nhận có webhook chính thức đáng tin), Tiki qua Event Queue (cơ chế riêng của Tiki, KHÁC webhook truyền thống — đọc kỹ tài liệu `event-queue` trước khi code, không áp thẳng logic webhook TikTok vào đây). Có thể bổ sung BullMQ+Redis sau nếu cần retry/queue.
 - **3D Bin Packing (AI Packaging)**: CHƯA chốt cách triển khai (microservice Python OR-Tools vs thư viện JS thuần) — quyết định sau khi có prototype. Không tự ý chọn khi code — hỏi lại nếu task đụng tới module này.
-- **Phạm vi tích hợp sàn**: chỉ Shopee + TikTok Shop (Facebook/Lazada nằm ngoài phạm vi theo Report 1, mục 6.2 — không code cho các sàn này trừ khi được yêu cầu rõ)
+- **Phạm vi tích hợp sàn — CODE TÍCH CỰC hiện tại: CHỈ Lazada** (đã đổi từ Shopee + TikTok — xem lịch sử đổi phạm vi ở đầu file). TikTok Shop + Tiki vẫn trong roadmap nhưng adapter **cố ý HOÃN**, không code song song lúc này — tránh vừa dang dở nhiều sàn cùng lúc trong khi Lazada mới vừa chạy ổn định. Facebook Shop mới ở mức nghiên cứu, chưa vào scope chính thức. Shopee: KHÔNG code lại trừ khi được yêu cầu rõ (đã gỡ `shopee.adapter.ts` khỏi `marketplace-integration/`; toàn bộ nghiên cứu sandbox Shopee được giữ lại làm tài liệu tham khảo, không phải code).
 
 ## Tech Stack
 
@@ -16,7 +23,7 @@ Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ 
 - class-validator + class-transformer cho DTO
 - @nestjs/swagger cho API docs
 - nodemailer cho gửi email (welcome/quên mật khẩu/khóa tài khoản/MFA) — xem module `mail/`
-- Cần bổ sung so với project cũ: thư viện sinh QR/Barcode (`qrcode`, `bwip-js`), xuất PDF (packing slip/shipping label — `pdfkit` hoặc `@react-pdf/renderer`), HTTP client cho Shopee Open API + TikTok Shop Partner API (dùng `axios`, tự viết wrapper — 2 sàn này không có SDK Node chính thức ổn định)
+- Cần bổ sung so với project cũ: thư viện sinh QR/Barcode (`qrcode`, `bwip-js`), xuất PDF (packing slip/shipping label — `pdfkit` hoặc `@react-pdf/renderer`), HTTP client cho TikTok Shop Partner API + Lazada Open Platform (dùng `axios`, tự viết wrapper HMAC — 2 sàn này không có SDK Node chính thức ổn định) + Tiki Open API (dùng chuẩn OAuth2 thuần túy, KHÔNG cần tự ký — đơn giản hơn hẳn 2 sàn kia, xem `marketplace-integration/adapters/tiki.adapter.ts`)
 - Jest cho unit test (đặc biệt bắt buộc cho module Order Consolidation và AI Packaging theo Report 2, mục 2.2)
 
 ## Module Auth/Users — ĐÃ HOÀN THIỆN (đọc kỹ trước khi sửa, tránh code trùng)
@@ -38,7 +45,129 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 
 **Chưa có, biết trước để không ngạc nhiên**: đổi email tự thân, ép buộc MFA cho Admin, giới hạn số thiết bị tin cậy tối đa/user, lịch sử nhiều lần nghỉ/quay lại việc (mới có field đơn `is_active`, chưa có mảng giai đoạn làm việc).
 
-## Cấu trúc thư mục
+## Module Marketplace Integration — TikTok/Lazada/Tiki (đọc trước khi sửa adapter)
+
+Adapter Pattern (`interfaces/marketplace-adapter.interface.ts`) — service/controller KHÔNG biết bên trong từng sàn code ra sao, chỉ gọi qua hợp đồng chung `MarketplaceAdapter`. Đổi/thêm sàn = thêm 1 file adapter + đăng ký vào `marketplace-integration.module.ts`, KHÔNG sửa service/controller.
+
+**3 điểm khác biệt kỹ thuật CHÍ MẠNG giữa các sàn — nhầm lẫn sẽ gây lỗi tính hạn token sai lệch nghiêm trọng:**
+
+| | TikTok | Lazada | Tiki |
+|---|---|---|---|
+| Cách ký request | Tự HMAC riêng (GET cho 2 API token) | Tự HMAC riêng (path + sorted params, **UPPERCASE hex**) | **KHÔNG cần ký** — OAuth2 chuẩn, Basic Auth header |
+| `expires_in` là gì | **Epoch tuyệt đối** (vd `1660556783`) | **Số giây còn lại** (vd `604800` = 7 ngày) | **Số giây còn lại** (chuẩn OAuth2) |
+| Lấy shop_id/cipher | Phải gọi THÊM API `GetAuthorizedShops` sau khi có access_token | Có sẵn trong response token (`country_user_info_list`) | Xác định qua chính access_token, không cần thêm bước |
+| Cơ chế nhận đơn hàng mới | Webhook (best-effort) + cron đối soát dự phòng | Polling định kỳ (chưa xác nhận có webhook chính thức) | Event Queue (cơ chế RIÊNG của Tiki, KHÁC webhook — đọc tài liệu `event-queue` trước khi code) |
+
+**Độ tin cậy thông tin**: TikTok đã tự trải nghiệm đăng ký thật (cao, nhưng Partner Center/API xác nhận KHÔNG khả thi — xem lịch sử đổi phạm vi ở đầu file). **Lazada: ĐÃ TỰ TRẢI NGHIỆM THẬT VÀ CHẠY THÀNH CÔNG END-TO-END** (không còn "chưa tự trải nghiệm" như ghi cũ) — xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới, độ tin cậy giờ là CAO NHẤT trong 3 sàn. Tiki: phần OAuth2 xác nhận qua tài liệu chính thức (cao), nhưng domain trang authorize + tên field response cụ thể vẫn là suy luận (trung bình, CHƯA test) — xem `SETUP_NOTES.md` trong module để biết chỗ nào cần test lại bằng Postman trước khi tin tưởng, và nhớ Tiki hiện đang HOÃN code (xem lịch sử đổi phạm vi).
+
+## Module Orders — Lazada ĐÃ CHẠY END-TO-END (2026-09-04, đọc trước khi đụng vào `orders/` hoặc `marketplace-integration/lazada`)
+
+Toàn bộ chuỗi **OAuth connect → verified seller → GetOrders → mapper → lưu MongoDB → trả FE** đã test bằng dữ liệu THẬT (không phải mock), xác nhận hoạt động đúng:
+
+- Shop test: `i7Yix2IJ` (seller ID `201171264532`, short code `VN34F9B5F7`) — shop cá nhân thật của leader, đã KYC/verify đủ để gọi `GetOrders` (ban đầu bị lỗi `SellerNotVerified`, đã tự hết sau khi hoàn tất thêm bước xác minh trong Seller Center — không phải bug code).
+- `POST /orders/lazada/sync?shop_id=201171264532` → response `{ fetched, upserted, newlyConsolidated }`. Test với đơn thật: `fetched: 1, upserted: 1` — mapper transform đúng.
+- `GET /orders` → trả đúng field `consolidation_key`-based (`isConsolidated`, `consolidatedGroupId`), `recipientName` bị Lazada tự mask (`"N**n"` — hành vi PDPA của Lazada, không phải bug), `recipientCity` xác nhận ĐÚNG (giá trị dạng "Phường Gia Định" — theo cấu trúc hành chính VN mới bỏ cấp huyện, KHÔNG phải mapper sai field).
+- **Chưa test**: case consolidation thật (2 đơn khác sàn/khác thời điểm cùng 1 khách/địa chỉ để xác nhận `newlyConsolidated` > 0) — làm tiếp trước khi coi module `orders` là "hoàn thành" đầy đủ.
+
+### 2 bug thật đã gặp và fix trong quá trình test thật (rút kinh nghiệm, đừng lặp lại)
+
+1. **`JwtAuthGuard`/`RolesGuard` áp sai ở class-level của controller** — chặn luôn cả OAuth callback endpoint (browser gọi callback KHÔNG kèm Bearer token, nên bị 401 dù logic không có gì sai). **Fix**: chuyển guard xuống method-level, chỉ áp cho endpoint `connect` (kích hoạt OAuth) — endpoint `callback` để public, bảo mật dựa vào state token dùng 1 lần thay vì JWT.
+2. **Field response thật của Lazada token API là `country_user_info`, KHÔNG PHẢI `country_user_info_list`** như code gốc đoán theo tài liệu cộng đồng — xác nhận lại bằng chính response thật, đã sửa trong mapper.
+
+### `LAZADA_SANDBOX` KHÔNG phải environment switch thật
+
+Biến `environment: 'sandbox' | 'production'` lưu trên shop document chỉ là **nhãn (label)** để phân biệt trong DB — Lazada Open Platform **không có domain sandbox API riêng**, MỌI request (kể cả lúc đang "test") đều gọi thẳng vào domain production thật (`api.lazada.vn`). Đừng nhầm với domain sandbox tách biệt kiểu Shopee (`.sandbox.test-stable...`) — 2 sàn khác cơ chế hoàn toàn.
+
+### Setup local dev để test OAuth callback thật (ngrok + Redis-compatible)
+
+Lazada callback redirect cần 1 URL public HTTPS thật (không nhận `localhost`) — dùng **ngrok** làm tunnel:
+```bash
+ngrok http --url=congenial-nectar-siesta.ngrok-free.dev 3000
+```
+Domain free cố định `congenial-nectar-siesta.ngrok-free.dev` đã đăng ký khớp với `redirect_uri` khai trên Lazada ISV Console — nếu domain hết hạn/bị thu hồi, phải đổi lại ĐỒNG THỜI ở cả Lazada Console lẫn `.env` backend (`CLIENT_REDIRECT_CALLBACK`). Máy dev cũng cần Redis chạy (app có dependency Redis) — nếu không có Docker/WSL tiện dùng, **Memurai** (bản Redis-compatible, free Developer edition, chạy native trên Windows) là lựa chọn thay thế đã dùng thành công.
+
+### Testing Tools của Lazada ISV Console — phân biệt rõ, tránh lặp lại nhầm lẫn đã gặp
+
+- **Loan Test Account** (VD short code `VN33WH4M4S`) — CHỈ dùng để test thao tác tay trên UI Seller Center (order lifecycle, returns/refunds bằng mắt), **KHÔNG kết nối được qua OAuth/Open API** — thử OAuth-connect account loan sẽ tự động quay về authorize nhầm seller cá nhân thật, không phải account loan.
+- **Create Test Case (domain=ORDER)** — sinh đơn hàng giả trên account loan, cũng chỉ phục vụ test UI, không liên quan tới luồng API `GetOrders` đang dùng thật cho `orders` module.
+- → Kết luận: muốn test `GetOrders` API thật, PHẢI dùng 1 seller shop thật đã KYC-verify (như `i7Yix2IJ`), không dùng được account loan cho việc này.
+
+## Module Orders — bổ sung 2026-09-05: `GET /orders/:id` + fix hiểu nhầm `quantity` + PHÁT HIỆN LỚN về khoảng cách kiến trúc thật vs diagram Mainflow 1
+
+### 1. `quantity: 1` hard-code trong `lazada-order.mapper.ts` KHÔNG PHẢI bug — đã xác nhận bằng doc thật
+
+Trước đây nghi ngờ đây là workaround tạm vì "chưa tìm thấy field quantity". Đã tra cứu field reference đầy đủ của Lazada `GetOrderItems`/`GetMultipleOrderItems` (đối chiếu open.lazada.com + community docs) — **xác nhận dứt khoát: KHÔNG hề có field `quantity`/`qty` nào trong response**. Lý do: mỗi `order_item_id` Lazada trả về **ĐÃ LÀ ĐÚNG 1 ĐƠN VỊ sản phẩm** — khách đặt 3 cái cùng SKU thì Lazada trả 3 phần tử `order_item_id` RIÊNG BIỆT trong mảng `data`, có thể có `status` khác nhau từng cái (VD 1 cái bị hủy riêng). `quantity: 1` là ĐÚNG BẢN CHẤT dữ liệu, không phải giá trị tạm — đã sửa comment trong code phản ánh đúng mức độ chắc chắn này (trước đó ghi dấu ⚠️ gây hiểu nhầm là chưa chắc).
+
+**Hệ quả thiết kế quan trọng**: vì lưu trữ giữ nguyên dạng unit-level (đúng chủ ý, để Package 4/fulfillment thao tác được theo từng `order_item_id` riêng — 1 đơn vị có thể bị hủy/đổi trạng thái độc lập với các đơn vị khác cùng SKU), việc "gộp số lượng để hiển thị" phải làm ở TẦNG RESPONSE, không phải tầng lưu trữ — xem mục 2 dưới.
+
+### 2. Đã thêm `GET /orders/:id` — trả `items[]` đã gộp theo (sku, variation, status)
+
+File mới: `orders/utils/aggregate-order-items.util.ts` — hàm thuần `aggregateOrderItems()`, gộp các đơn vị CÙNG sku+variation+status thành 1 dòng (cộng `quantity`, giữ mảng `platformOrderItemIds` gốc không mất dữ liệu). CỐ Ý KHÔNG gộp khác status vào cùng 1 dòng (2 cái cùng SKU nhưng 1 cái `canceled` → 2 dòng riêng, không mất thông tin đã hủy 1 cái).
+
+2 mã lỗi mới trong `ORD_ERROR_CODES`: `ORD_INVALID_ORDER_ID` (400, id sai định dạng ObjectId) và `ORD_ORDER_NOT_FOUND` (404, đúng định dạng nhưng không tồn tại) — tách riêng có chủ đích để FE phân biệt lỗi do tự gửi sai vs dữ liệu thật sự không có.
+
+Tra cứu theo `_id` KHÔNG cần thêm index mới (Mongo tự tạo unique index cho `_id` mọi collection) — O(log n) đã là tối ưu nhất cho truy vấn 1 document theo khóa chính.
+
+**Bonus fix cùng lúc**: phát hiện `ListOrdersQueryDto` không có cách nào lọc "các đơn cùng 1 nhóm gộp" dù index `consolidated_group_id` đã có sẵn trong schema — đã thêm param `consolidated_group_id` (validate `@IsMongoId()`), tận dụng đúng partial index (d) đã khai ở `order.schema.ts`.
+
+**Đã verify bằng compiler thật, không chỉ đọc mắt**: cài `typescript@5.7` + `eslint` vào `node_modules` (bản gốc trong zip bị thiếu, chỉ có phần rỗng), chạy `tsc --noEmit -p tsconfig.json` với đầy đủ cờ strict của project (`strict`, `noUncheckedIndexedAccess`, `noImplicitReturns`, `noUnusedLocals`...) → **0 lỗi**. Chạy `eslint src/modules/orders` → **0 lỗi/warning**. Trước khi merge code mới cho module này, luôn chạy lại đúng 2 lệnh này để xác nhận, đừng chỉ tin đọc code bằng mắt.
+
+### 3. 🔴 PHÁT HIỆN LỚN — Kiến trúc thật vs slide "Mainflow 1" (Omnichannel Sync & Order Consolidation) KHÔNG khớp nhau
+
+Slide thuyết trình mô tả flow: `E-commerce platform trigger event → gọi Webhook → AOFP ingest vào Apache Kafka queue → normalize → consolidation check → save MongoDB`.
+
+**Code thật hiện tại KHÔNG có Webhook receiver nào, KHÔNG có Kafka** (đã grep toàn bộ `package.json` — không có bất kỳ Kafka client lib nào; chỉ có 2 dòng comment trong code TỰ GHI RÕ lý do: *"Lazada Open Platform hiện chưa xác nhận cơ chế webhook chính thức"*). Flow thật đang chạy là:
+
+```
+Admin bấm nút (hoặc sau này @Cron() định kỳ — CHƯA LÀM)
+  → POST /orders/lazada/sync
+  → LazadaAdapter.getOrders() + getOrderItems() (polling, gọi trực tiếp Lazada API)
+  → mapLazadaOrder() chuẩn hóa
+  → tryConsolidate() check trùng consolidation_key (ĐÚNG logic decision diamond trong slide)
+  → lưu MongoDB (findOneAndUpdate upsert)
+```
+
+**Phần LÕI nghiệp vụ (chuẩn hóa dữ liệu + check gộp đơn + lưu Mongo) hoàn toàn ĐÚNG với ý đồ trong slide** — chỉ khác ở **cơ chế TRIGGER và INGESTION**: slide vẽ kiến trúc push-based (webhook + message queue), thực tế đang là pull-based (polling thủ công, chưa có cả cron tự động).
+
+**Việc cần làm trước khi demo cho giảng viên** (không phải lỗi cần sửa gấp, mà là rủi ro trình bày sai sự thật cần né):
+- **KHÔNG được nói/ngụ ý "hệ thống đang dùng Kafka"** khi demo — nếu giảng viên hỏi thẳng kiến trúc, trả lời trung thực: hiện dùng polling on-demand (lý do: Lazada không có webhook chính thức đáng tin cậy, xác nhận qua chính doc Lazada), Kafka/webhook là hướng mở rộng dự kiến khi có thêm sàn hỗ trợ webhook thật (TikTok Shop có, Tiki dùng Event Queue riêng — gần giống ý tưởng queue nhưng không phải Kafka).
+- Cân nhắc **cập nhật lại slide Mainflow 1** cho khớp thực tế (thay "Webhook → Kafka" bằng "Manual/Scheduled Polling → In-process processing"), hoặc giữ slide như định hướng kiến trúc MỤC TIÊU dài hạn nhưng nói rõ với giảng viên đây là target chưa implement, còn cái đang chạy live là bản polling.
+- Nếu muốn demo gần đúng slide hơn mà không cần dựng Kafka thật (tốn công, không cần thiết cho quy mô hiện tại): thêm `@Cron()` (package `@nestjs/schedule`, CHƯA cài) bọc quanh `syncLazadaOrders()` để có tối thiểu phần "tự động, không cần bấm tay" — đây là việc nhỏ, đáng làm trước demo nếu còn thời gian, khác hẳn việc dựng Kafka (việc lớn, không đáng làm chỉ để demo).
+
+### 4. Kiểm tra API còn thiếu cho luồng Mainflow 1 (Omnichannel Sync & Consolidation) — báo cáo đầy đủ
+
+**Đã có, hoạt động đúng**: OAuth connect Lazada, `POST /orders/lazada/sync`, `GET /orders` (list + filter + cursor pagination), `GET /orders/:id` (mới thêm, có items đã gộp).
+
+**Còn thiếu, cần cân nhắc trước demo (xếp theo mức ưu tiên)**:
+1. ~~`@Cron()` tự động sync định kỳ~~ — **ĐÃ LÀM (2026-09-05)**: `orders/lazada-order-sync.scheduler.ts`, mỗi 10 phút quét mọi shop Lazada đã connect (`marketplaceIntegrationService.listConnectedShops()`) và gọi `syncLazadaOrders()` tuần tự cho từng shop, có khóa `isRunning` chống chạy chồng lượt, per-shop try/catch không để 1 shop lỗi làm hỏng cả lượt. Cần thêm `@nestjs/schedule` vào `package.json` (**chốt đúng bản `^6.1.3`** — bản `^12.x` mới nhất là ESM-thuần, KHÔNG tương thích project CommonJS này, đã tự cài thử và xác nhận lỗi `TS1479` thật trước khi chốt bản đúng) và bật `ScheduleModule.forRoot()` **Ở GỐC `app.module.ts`** (không phải trong `OrdersModule` — gọi nhầm chỗ sẽ khiến `@Cron()` không chạy dù compile vẫn qua bình thường, không có lỗi báo rõ).
+2. **Endpoint check trạng thái connect của 1 shop** (`GET /marketplace/lazada/status?shop_id=...`) — đã đề xuất ở phiên trước với FE, vẫn CHƯA làm. Không bắt buộc cho demo Mainflow 1 nhưng FE cần để tránh đoán qua lỗi.
+3. **Webhook receiver thật cho ít nhất 1 sàn có hỗ trợ** (TikTok Shop hoặc Tiki Event Queue) — nếu muốn slide "Mainflow 1" có ít nhất 1 nhánh chạy đúng kiến trúc push-based thật, KHÔNG bắt buộc, effort lớn, không nên làm gấp trước demo chỉ để khớp slide.
+4. **Apache Kafka** — KHÔNG nên làm cho demo capstone quy mô hiện tại; polling (giờ đã tự động hoá nhờ mục 1) + in-process xử lý tuần tự là lựa chọn hợp lý và đủ dùng, dựng Kafka chỉ để "khớp slide" là over-engineering thật sự (đúng tinh thần "tối ưu không phải phức tạp hóa" đã thống nhất).
+5. **Test case consolidation thật với ≥2 đơn cùng khách** — logic đã viết đúng (đọc code xác nhận), nhưng CHƯA từng test bằng dữ liệu Lazada thật có 2 đơn khớp `consolidation_key`. Nên làm trước demo để có ảnh chụp `newlyConsolidated > 0` thật, tăng độ tin cậy khi trình bày.
+
+## Chuẩn xử lý lỗi — BẮT BUỘC toàn bộ project (áp dụng từ module `marketplace-integration` trở đi)
+
+Mọi lỗi trả về FE PHẢI đi qua `AppException` (`common/exceptions/app-exception.ts`) — không ném `Error`/`HttpException` trần trụi trong service. Format response lỗi thống nhất qua `GlobalExceptionFilter` (`common/filters/global-exception.filter.ts`):
+
+```json
+{
+  "success": false,
+  "error_code": "MKT_SHOP_NOT_CONNECTED",
+  "message": "Shop chưa được kết nối hoặc đã bị ngắt kết nối.",
+  "details": null,
+  "timestamp": "2026-08-22T10:00:00.000Z",
+  "path": "/marketplace/tiktok/orders"
+}
+```
+
+**Quy tắc đặt `error_code`**: `<PREFIX_MODULE>_<MÔ_TẢ_NGẮN>`, UPPER_SNAKE_CASE, prefix theo module (`AUTH_`, `MKT_` cho marketplace-integration, `ORD_` cho orders...). Đăng ký mã lỗi mới vào đúng file `<module>.errors.ts` của module đó — KHÔNG rải string mã lỗi tự do trong code.
+
+**Validate đủ 3 tầng, không tin tưởng tầng dưới đã validate**:
+1. DTO (`class-validator`) — chặn request sai hình dạng trước khi vào Controller
+2. Mongoose schema (`required`, `enum`, `type`) — chặn dữ liệu sai cấu trúc trước khi ghi DB, kể cả khi có bug ở tầng Service
+3. Service (business rule) — validate logic nghiệp vụ mà DTO/Schema không diễn tả được (vd "token đã hết hạn", "shop đã bị ngắt kết nối") → ném `AppException` với `error_code` cụ thể, KHÔNG dùng message chung chung
+
+
 
 ```
 src/
@@ -49,7 +178,7 @@ src/
     packaging/         # AI packaging recommendation, 3D bin packing (FE-03)
     shipping/           # ước tính phí, tạo nhãn (FE-04, FE-05)
     fulfillment/        # picking/packing tracking (FE-06, FE-07)
-    marketplace-integration/  # connector Shopee, TikTok Shop
+    marketplace-integration/  # connector TikTok Shop, Lazada, Tiki (adapter pattern — xem interfaces/marketplace-adapter.interface.ts)
     admin/              # user, role, AI config (FE-08)
 ```
 
@@ -245,7 +374,7 @@ Format chính thức (đã cập nhật, khác với bản gốc trong Report 2 
 type(AOFP-12): mô tả ngắn gọn
 ```
 
-Ví dụ: `feat(AOFP-12): add Shopee webhook configuration`, `fix(AOFP-15): resolve duplicate order detection bug`.
+Ví dụ: `feat(AOFP-12): add TikTok Shop webhook configuration`, `fix(AOFP-15): resolve duplicate order detection bug`.
 Type hợp lệ: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Enforce tự động qua `commitlint.config.mjs` + husky `commit-msg` hook.
 
 ## Database Design Standards — BẮT BUỘC (rút kinh nghiệm từ lỗi ở project EDUMEE)
@@ -328,10 +457,30 @@ Luôn dùng `HydratedDocument<T>` (Mongoose 8 khuyến nghị), KHÔNG trộn v�
 
 Với các con số tổng hợp tính toán tốn kém (tổng chi phí đóng gói theo tháng, hiệu suất kho...), dùng **scheduled job tính trước** (cron ghi vào collection `dashboard_snapshots`) thay vì chạy `aggregate()` phức tạp mỗi lần user mở dashboard.
 
+### 11. Property Mongoose PHẢI đặt TÊN TRỰC TIẾP bằng snake_case, không map riêng tên khác
+
+**Lỗi thật đã xảy ra** (module `marketplace-integration`, sửa 22/08/2026): code ban đầu viết property theo camelCase (`shopId`, `accessTokenEncrypted`, `isActive`...) rồi định bụng map sang snake_case sau — sai hoàn toàn cách project đang làm. Đối chiếu `user.schema.ts` (đã chạy production): property đặt tên TRỰC TIẾP bằng snake_case ngay trên class, Mongoose dùng đúng tên đó làm field trong Mongo, KHÔNG qua bước map/transform nào khác:
+
+```ts
+// ✅ ĐÚNG — property TRÊN CLASS đã là snake_case, không có bước map riêng
+@Prop({ default: true })
+must_change_password!: boolean;
+
+@Prop({ default: true })
+is_active!: boolean;
+
+// ❌ SAI — đừng viết camelCase trên class rồi định "sẽ map sau"
+@Prop({ default: true })
+mustChangePassword!: boolean; // Mongo sẽ lưu field tên "mustChangePassword", KHÔNG PHẢI "must_change_password"
+```
+
+Áp dụng cho MỌI schema mới, không có ngoại lệ — kể cả khi property đó chỉ dùng nội bộ, không trả ra FE.
+
+
 ## Khi tạo module mới, LUÔN:
 
 0. Trước khi viết schema: liệt kê rõ field nào sẽ dùng để filter/sort ở controller → thiết kế index NGAY lúc đó theo nguyên tắc ESR, không để "sau"
 1. Đăng ký `MongooseModule.forFeature([...])` trong `<name>.module.ts`
 2. Swagger đầy đủ, DTO validate tiếng Việt
 3. Nếu module đụng tới Order Consolidation hoặc AI Packaging → viết `.spec.ts` bắt buộc (yêu cầu QA trong Report 2)
-4. Không tự thêm tích hợp Facebook/Lazada trừ khi được yêu cầu — ngoài phạm vi đồ án
+4. Không tự thêm tích hợp Facebook/Shopee trừ khi được yêu cầu rõ — ngoài phạm vi đồ án (Shopee đã bị GỠ khỏi scope, Lazada đã được THÊM vào scope — đừng làm ngược theo trí nhớ cũ)
