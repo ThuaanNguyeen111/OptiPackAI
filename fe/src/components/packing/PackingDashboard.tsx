@@ -1,622 +1,851 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Box,
+  Bot,
+  Camera,
   Check,
+  CheckCircle2,
   ChevronDown,
-  GitMerge,
-  Leaf,
-  Pause,
-  Play,
+  Edit3,
+  Package,
   Printer,
-  RotateCcw,
-  Search,
-  Sparkles,
-  Truck,
-  Wallet,
+  Scale,
+  ShoppingBag,
   X,
 } from 'lucide-react'
-import {
-  Hero3DCanvas,
-  type PackingCameraView,
-} from '../marketing/Hero3DCanvas'
-import { Button } from '../ui/Button'
 import { usePortal } from '../../context/use-portal'
 import {
+  ORD_2026_9021_ITEMS,
   packingJobs,
-  type PackingJob,
+  type VerificationItem,
 } from '../../data/packing-dashboard-mock'
-import {
-  CARTON_INVENTORY,
-  formatCartonDimensions,
-  getCartonByCode,
-} from '../../data/cartons'
-import { channelColors, channelLabels } from '../../data/portal-mock'
-import { formatCurrency } from '../../utils/format'
+import { CARTON_INVENTORY } from '../../data/cartons'
+import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 
-const glass =
-  'rounded-xl border border-hairline/90 bg-surface-1/75 backdrop-blur-xl shadow-[0_0_40px_rgba(94,106,210,0.07)]'
+// ==========================================
+// SUB-COMPONENTS
+// ==========================================
 
-function formatKg(g: number) {
-  return `${g.toLocaleString('vi-VN')}g`
+/** Crisp realistic Shipping Label Barcode */
+function ShippingBarcodeGraphic({ code }: { code: string }) {
+  const bars = [
+    2, 1, 3, 1, 1, 4, 2, 1, 3, 2, 1, 4, 1, 2, 3, 1, 4, 2, 1, 1, 3, 2, 4, 1, 2,
+    3, 1, 4, 2, 1, 1, 3, 2, 4, 1, 1, 3, 1, 2, 4, 2, 1, 3, 1, 4, 2, 1, 2, 3, 1,
+  ]
+
+  return (
+    <div className="flex flex-col items-center justify-center py-1">
+      <svg
+        className="h-10 w-full max-w-[210px]"
+        viewBox="0 0 210 38"
+        fill="currentColor"
+        aria-hidden="true"
+      >
+        {bars.map((bar, i) => {
+          if (i % 2 !== 0) return null
+          const x = i * 4.1 + 4
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={0}
+              width={bar * 1.05}
+              height={38}
+              className="fill-slate-900"
+            />
+          )
+        })}
+      </svg>
+      <span className="mt-0.5 font-mono text-[10px] font-semibold tracking-[0.2em] text-slate-800">
+        {code}
+      </span>
+    </div>
+  )
 }
 
-const CHANNEL_PILL: Record<string, string> = {
-  shopee: 'border-shopee/30 bg-shopee/10 text-shopee',
-  tiktok: 'border-tiktok/30 bg-tiktok/10 text-tiktok',
-  lazada: 'border-[#0F146D]/30 bg-[#0F146D]/10 text-[#4F6BFF]',
-  facebook: 'border-[#1877F2]/30 bg-[#1877F2]/10 text-[#1877F2]',
-}
+/** Product Thumbnail with reliable fallback */
+function VerificationItemThumb({
+  src,
+  alt,
+}: {
+  src: string
+  alt: string
+}) {
+  const [error, setError] = useState(false)
 
-export function PackingDashboard() {
-  const { locale } = usePortal()
-  const vi = locale === 'vi'
-  const navigate = useNavigate()
-
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const [jobId, setJobId] = useState(packingJobs[0].id)
-  const [jobs, setJobs] = useState(packingJobs)
-  const [activeStep, setActiveStep] = useState<string | null>(null)
-  const [cameraView, setCameraView] = useState<PackingCameraView>('iso')
-  const [paused, setPaused] = useState(false)
-  const [replayToken, setReplayToken] = useState(0)
-  const [cartonOpen, setCartonOpen] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-  const selectorRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(e: MouseEvent) {
-      if (!selectorRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [open])
-
-  useEffect(() => {
-    if (!toast) return
-    const t = window.setTimeout(() => setToast(null), 3200)
-    return () => window.clearTimeout(t)
-  }, [toast])
-
-  const job = jobs.find((j) => j.id === jobId) ?? jobs[0]
-  const recommended = job.couriers.find((c) => c.recommended) ?? job.couriers[0]
-  const fillPct = Math.round(job.fill_ratio * 100)
-  const highlightedItemIds = useMemo(() => {
-    const step = job.sequence.find((s) => s.id === activeStep)
-    return step?.item_ids ?? []
-  }, [activeStep, job.sequence])
-
-  const filtered = jobs.filter((j) => {
-    const q = query.trim().toLowerCase()
-    if (!q) return true
+  if (!src || error) {
     return (
-      j.selector_label.toLowerCase().includes(q) ||
-      j.customer_name.toLowerCase().includes(q) ||
-      j.id.toLowerCase().includes(q)
-    )
-  })
-
-  const canConsolidate =
-    job.classification === 'pending_merge' && job.source_orders.length > 1
-
-  function selectJob(next: PackingJob) {
-    setJobId(next.id)
-    setOpen(false)
-    setQuery('')
-    setActiveStep(null)
-  }
-
-  function confirmPrint() {
-    setToast(
-      vi
-        ? 'Đã sinh nhãn QR/Barcode. Chuyển sang Vận chuyển…'
-        : 'QR/Barcode label generated. Opening Shipping…',
-    )
-    window.setTimeout(() => navigate('/app/shipping'), 700)
-  }
-
-  function selectCarton(code: string) {
-    const carton = getCartonByCode(code)
-    const dims = formatCartonDimensions(carton)
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === job.id
-          ? {
-              ...j,
-              box_code: code,
-              dimensions: dims,
-              dim: {
-                w: carton.width,
-                l: carton.length,
-                h: carton.height,
-              },
-            }
-          : j,
-      ),
-    )
-    setCartonOpen(false)
-    setPaused(false)
-    setReplayToken((n) => n + 1)
-    setToast(vi ? `Đã đổi hộp sang ${code}` : `Box overridden to ${code}`)
-  }
-
-  function consolidate() {
-    setJobs((prev) =>
-      prev.map((j) =>
-        j.id === job.id ? { ...j, classification: 'consolidated' as const } : j,
-      ),
-    )
-    setToast(
-      vi
-        ? `Đã gộp ${job.source_orders.map((s) => s.label).join(' + ')}`
-        : `Consolidated ${job.source_orders.map((s) => s.label).join(' + ')}`,
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-500">
+        <Camera className="h-5 w-5" />
+      </div>
     )
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-canvas">
-      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-4 pb-28 sm:p-6">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4">
-          {/* Header — isolated stacking so dropdown floats above bento grid */}
-          <header className={`${glass} relative z-30 p-4 sm:p-5`}>
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-              <div ref={selectorRef} className="relative min-w-0 flex-1 lg:max-w-xl">
-                <p className="text-[11px] font-medium tracking-[0.14em] text-primary-hover uppercase">
-                  {vi ? 'AI 3D Bin Packing & Fulfillment' : 'AI 3D Bin Packing'}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setOpen((v) => !v)}
-                  aria-expanded={open}
-                  className={`mt-2 flex w-full items-center justify-between gap-2 rounded-lg border bg-canvas px-3 py-2.5 text-left transition-colors ${
-                    open
-                      ? 'border-primary/40 ring-1 ring-primary/30'
-                      : 'border-hairline hover:border-hairline-strong'
-                  }`}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-mono text-[13px] font-medium text-ink">
-                      {job.selector_label}
-                    </span>
-                    <span className="mt-0.5 block truncate text-xs text-ink-subtle">
-                      {job.customer_name} · {job.customer_address}
-                    </span>
-                  </span>
-                  <ChevronDown
-                    className={`h-4 w-4 shrink-0 text-ink-subtle transition-transform ${open ? 'rotate-180' : ''}`}
-                  />
-                </button>
-                {open ? (
-                  <div className="absolute top-full left-0 z-50 mt-1.5 w-full overflow-hidden rounded-lg border border-hairline bg-surface-1 shadow-[0_16px_48px_rgba(0,0,0,0.28)]">
-                    <div className="flex items-center gap-2 border-b border-hairline bg-canvas px-3 py-2">
-                      <Search className="h-3.5 w-3.5 shrink-0 text-ink-tertiary" />
-                      <input
-                        autoFocus
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder={
-                          vi ? 'Tìm SKU / Order ID…' : 'Search order…'
-                        }
-                        className="w-full bg-transparent text-sm text-ink outline-none placeholder:text-ink-tertiary"
-                      />
-                    </div>
-                    <ul className="max-h-64 overflow-auto py-1">
-                      {filtered.length === 0 ? (
-                        <li className="px-3 py-6 text-center text-xs text-ink-subtle">
-                          {vi ? 'Không tìm thấy đơn' : 'No orders found'}
-                        </li>
-                      ) : (
-                        filtered.map((j) => {
-                          const selected = j.id === job.id
-                          const mergeable =
-                            j.classification === 'pending_merge' &&
-                            j.source_orders.length > 1
-                          return (
-                            <li key={j.id}>
-                              <button
-                                type="button"
-                                onClick={() => selectJob(j)}
-                                className={`flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                                  selected
-                                    ? 'bg-primary/10'
-                                    : 'hover:bg-surface-2'
-                                }`}
-                              >
-                                <div className="flex w-[92px] shrink-0 flex-col gap-1">
-                                  {Array.from(new Set(j.channels)).map((ch) => (
-                                    <span
-                                      key={`${j.id}-${ch}`}
-                                      className={`inline-flex w-fit items-center rounded-full border px-1.5 py-px text-[10px] font-medium ${CHANNEL_PILL[ch] ?? 'border-hairline bg-surface-2 text-ink-muted'}`}
-                                    >
-                                      {channelLabels[ch]}
-                                    </span>
-                                  ))}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate font-mono text-[13px] font-medium tracking-tight text-ink">
-                                    #{j.id}
-                                  </p>
-                                  <p className="mt-0.5 truncate text-[11px] text-ink-subtle">
-                                    {j.customer_name} · {j.sku_count} SKUs
-                                    {j.fragile_count > 0
-                                      ? ` (${j.fragile_count} Fragile)`
-                                      : ''}
-                                  </p>
-                                </div>
-                                {mergeable ? (
-                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
-                                    <GitMerge className="h-3 w-3" />
-                                    {vi ? 'Có thể gộp' : 'Can Consolidate'}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-hairline bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-muted">
-                                    <Sparkles className="h-3 w-3 text-primary-hover" />
-                                    AI Ready {Math.round(j.fill_ratio * 100)}%
-                                  </span>
-                                )}
-                              </button>
-                            </li>
-                          )
-                        })
-                      )}
-                    </ul>
-                  </div>
-                ) : null}
-              </div>
+    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-slate-100 bg-slate-50 p-1 dark:border-slate-800 dark:bg-surface-2">
+      <img
+        src={src}
+        alt={alt}
+        onError={() => setError(true)}
+        className="h-full w-full object-contain rounded-md"
+      />
+    </div>
+  )
+}
 
-              <div className="inline-flex shrink-0 items-center gap-2 self-start rounded-full border border-primary/30 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary-hover shadow-[0_0_20px_rgba(94,106,210,0.25)]">
-                <Sparkles className="h-3.5 w-3.5 animate-pulse" />
-                {vi
-                  ? `AI Decision Engine: hoàn tất ${job.ai_ms}s`
-                  : `AI Decision Engine: Completed in ${job.ai_ms}s`}
-              </div>
+// ==========================================
+// MAIN COMPONENT & STATE MACHINE
+// ==========================================
+
+export type PackingStationStatus = 'scanning' | 'verified' | 'approved' | 'printed'
+
+export interface PackingDashboardProps {
+  onNavigateToShipping?: () => void
+}
+
+export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps = {}) {
+  const navigate = useNavigate()
+  const { locale } = usePortal()
+  const vi = locale === 'vi'
+
+  // Selected Packing Job (default to ORD-2026-9021 matching screenshot)
+  const [currentJobId, setCurrentJobId] = useState<string>('ORD-2026-9021')
+  const currentJob = useMemo(() => {
+    return (
+      packingJobs.find((j) => j.id === currentJobId) ?? packingJobs[0]!
+    )
+  }, [currentJobId])
+
+  // Verification items state (allows toggling item 4 between awaiting scan and verified)
+  const [verificationItems, setVerificationItems] = useState<VerificationItem[]>(
+    () => structuredClone(currentJob.verification_items ?? ORD_2026_9021_ITEMS),
+  )
+
+  // Required packaging materials
+  const materials = useMemo(() => {
+    return vi
+      ? [
+          'Hộp Carton S',
+          'Giấy Lụa: 2 tờ',
+          'Túi Chống Ẩm: 1 gói',
+          'Nhãn Dán Thương Hiệu',
+        ]
+      : [
+          'Carton Box S',
+          'Silk Paper: 2 sheets',
+          'Desiccant Pouch: 1 pack',
+          'Brand Label Sticker',
+        ]
+  }, [vi])
+
+  // Active carton size
+  const [boxLabel, setBoxLabel] = useState<string>('Hộp S: 40 x 30 x 12 cm')
+  const [packagingCost, setPackagingCost] = useState<number>(0.45)
+  const [shippingFee, setShippingFee] = useState<number>(2.10)
+  const [optScore, setOptScore] = useState<number>(98)
+
+  // UI & Approval states
+  const [manualOverrideOpen, setManualOverrideOpen] = useState(false)
+  const [planApproved, setPlanApproved] = useState(false)
+  const [isPrinted, setIsPrinted] = useState(false)
+  const [orderDropdownOpen, setOrderDropdownOpen] = useState(false)
+  const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
+
+  const showToast = (msg: string) => {
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current)
+    setToastMessage(msg)
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 3500)
+  }
+
+  // Verification progress calculations
+  const verifiedCount = useMemo(
+    () => verificationItems.filter((i) => i.verified).length,
+    [verificationItems],
+  )
+  const totalItems = verificationItems.length
+  const progressPercent = Math.round((verifiedCount / totalItems) * 100)
+  const allVerified = totalItems > 0 && verifiedCount === totalItems
+
+  // Finite State Machine for Packing Station
+  // States:
+  // - 'scanning': Progress incomplete (e.g. 3/4). Both Approve and Print buttons disabled.
+  // - 'verified': All items verified (4/4). Approve button enabled (Green). Print button still disabled.
+  // - 'approved': User clicked Approve. Print button IMMEDIATELY activated. Subtext updated.
+  // - 'printed': User clicked Print. Label printed and triggers navigation to Carrier Handover.
+  const stationStatus: PackingStationStatus = useMemo(() => {
+    if (isPrinted) return 'printed'
+    if (allVerified && planApproved) return 'approved'
+    if (allVerified) return 'verified'
+    return 'scanning'
+  }, [isPrinted, allVerified, planApproved])
+
+  // Toggle verification for an item (e.g. click item 4 "Dây Chuyền Bạc" to scan and verify)
+  const handleToggleItemVerify = (itemId: string) => {
+    setVerificationItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== itemId) return item
+        const nextState = !item.verified
+        if (nextState) {
+          showToast(
+            vi
+              ? `Đã quét và xác minh thành công: ${item.title} (${item.sku})`
+              : `Scanned and verified: ${item.title} (${item.sku})`,
+          )
+        } else {
+          showToast(
+            vi
+              ? `Đã chuyển về trạng thái chờ quét: ${item.title}`
+              : `Reset to awaiting scan: ${item.title}`,
+          )
+        }
+        return {
+          ...item,
+          verified: nextState,
+          imageUrl:
+            nextState && !item.imageUrl
+              ? 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=300&auto=format&fit=crop&q=80'
+              : item.imageUrl,
+        }
+      }),
+    )
+
+    // Reset approval and printed state if verification changes
+    setPlanApproved(false)
+    setIsPrinted(false)
+  }
+
+  // Handle Approve AI Plan (Requirement 2)
+  const handleApprovePlan = () => {
+    if (!allVerified) {
+      showToast(
+        vi
+          ? 'Chưa thể phê duyệt! Vui lòng quét và xác minh đủ 4/4 sản phẩm.'
+          : 'Cannot approve! Please scan and verify all items first.',
+      )
+      return
+    }
+
+    setPlanApproved(true)
+    showToast(
+      vi
+        ? `Đã phê duyệt kế hoạch đóng gói AI cho đơn #${currentJob.id}! Có thể in nhãn ngay.`
+        : `AI packaging plan approved for order #${currentJob.id}! Ready to print label.`,
+    )
+  }
+
+  // Handle Print Label & Packing Slip + Handover Navigation (Requirement 3)
+  const handlePrintLabel = () => {
+    if (stationStatus !== 'approved' && stationStatus !== 'printed') {
+      if (!allVerified) {
+        showToast(
+          vi
+            ? 'Vui lòng xác minh đủ 4/4 sản phẩm trước khi in nhãn vận chuyển!'
+            : 'Please verify all items before printing shipping label!',
+        )
+      } else {
+        showToast(
+          vi
+            ? 'Vui lòng nhấn "Phê duyệt kế hoạch AI" trước khi in nhãn vận chuyển!'
+            : 'Please approve the AI packaging plan before printing shipping label!',
+        )
+      }
+      return
+    }
+
+    setIsPrinted(true)
+    showToast(
+      vi
+        ? `Đang in nhãn vận chuyển A6 cho đơn #${currentJob.id}... Đang chuyển tới Bàn giao vận chuyển!`
+        : `Printing A6 shipping label for #${currentJob.id}... Transferring to Carrier Handover!`,
+    )
+
+    // Route user to Screen 4 ("Carrier Handover Manifest Management / Vận chuyển")
+    window.setTimeout(() => {
+      if (onNavigateToShipping) {
+        onNavigateToShipping()
+      } else {
+        navigate('/app/shipping')
+      }
+    }, 1000)
+  }
+
+  // Handle Carton Override Selection
+  const handleSelectCarton = (code: string) => {
+    const carton = CARTON_INVENTORY.find((c) => c.code === code)
+    if (carton) {
+      setBoxLabel(`${carton.code}: ${carton.length} x ${carton.width} x ${carton.height} cm`)
+      setPackagingCost(carton.unitCost > 5000 ? 0.65 : 0.45)
+      setShippingFee(carton.length > 30 ? 2.85 : 2.10)
+      setOptScore(carton.code === 'CARTON-S1' || carton.code === 'CARTON-A1' ? 98 : 92)
+      setManualOverrideOpen(false)
+      showToast(
+        vi
+          ? `Đã thay đổi quy cách đóng gói sang ${carton.code}`
+          : `Overridden box size to ${carton.code}`,
+      )
+    }
+  }
+
+  return (
+    <div className="flex-1 overflow-auto bg-[#F8FAFC] p-4 sm:p-6 dark:bg-[#0B0E14]">
+      <div className="mx-auto max-w-7xl space-y-4">
+        {/* Toast Notification */}
+        {toastMessage ? (
+          <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs font-medium text-blue-800 shadow-xs flex items-center justify-between dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-300">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-blue-600 shrink-0" />
+              <span>{toastMessage}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => setToastMessage(null)}
+              className="text-blue-700 hover:text-blue-900 dark:text-blue-400"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : null}
 
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-hairline/60 pt-4">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas/70 px-2.5 py-1 text-[11px] text-ink">
-                <Box className="h-3 w-3 text-primary-hover" />
-                {job.box_code} ({job.dimensions})
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas/70 px-2.5 py-1 text-[11px] text-ink">
-                <Wallet className="h-3 w-3 text-success" />
-                {formatCurrency(job.shipping_saved)} ({vi ? 'tiết kiệm' : 'saved'}{' '}
-                {job.shipping_saved_pct}%)
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-canvas/70 px-2.5 py-1 text-[11px] text-ink">
-                <Leaf className="h-3 w-3 text-success" />
-                Fill {fillPct}%
-              </span>
-            </div>
-          </header>
-
-          <div className="relative z-10 grid grid-cols-1 items-start gap-4 md:grid-cols-[minmax(0,340px)_1fr] xl:grid-cols-[minmax(0,380px)_1fr]">
-            <div className="flex min-w-0 flex-col gap-3">
-              <section className={`${glass} p-4`}>
-                <p className="text-[11px] font-medium tracking-wide text-ink-subtle uppercase">
-                  {vi ? 'Hộp & trọng lượng thể tích' : 'Box & volumetric weight'}
-                </p>
-                <div className="mt-3 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="font-mono text-lg font-semibold text-ink">
-                      {job.box_code}
-                    </p>
-                    <p className="mt-0.5 font-mono text-xs text-ink-muted">
-                      {job.dim.w} × {job.dim.l} × {job.dim.h} cm
-                    </p>
-                  </div>
-                  <p className="text-right text-[11px] text-ink-subtle">
-                    V = (D×R×C)/5000
-                  </p>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border border-hairline bg-canvas/60 px-3 py-2">
-                    <p className="text-[10px] text-ink-subtle">
-                      {vi ? 'Thực tế' : 'Real'}
-                    </p>
-                    <p className="font-mono text-sm text-ink">
-                      {formatKg(job.real_weight_g)}
-                    </p>
-                  </div>
-                  <div className="rounded-lg border border-hairline bg-canvas/60 px-3 py-2">
-                    <p className="text-[10px] text-ink-subtle">Volumetric</p>
-                    <p className="font-mono text-sm text-ink">
-                      {formatKg(job.volumetric_weight_g)}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="mb-1 flex justify-between font-mono text-[11px] text-ink-muted">
-                    <span>
-                      {fillPct}% {vi ? 'đầy' : 'full'}
-                    </span>
-                    <span>
-                      {job.unused_space}% {vi ? 'trống' : 'unused'}
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-surface-3">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-primary to-primary-hover"
-                      style={{ width: `${fillPct}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 border-t border-hairline/60 pt-3">
-                  <p className="text-[10px] font-medium tracking-wide text-ink-subtle uppercase">
-                    {vi ? 'Kho carton' : 'Carton inventory'}
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {CARTON_INVENTORY.map((carton) => {
-                      const selected = job.box_code === carton.code
-                      return (
-                        <li key={carton.code}>
-                          <button
-                            type="button"
-                            onClick={() => selectCarton(carton.code)}
-                            className={`flex w-full items-center justify-between rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                              selected
-                                ? 'border-primary/40 bg-primary/10'
-                                : 'border-hairline bg-canvas/50 hover:border-primary/25 hover:bg-canvas/80'
-                            }`}
-                          >
-                            <span className="min-w-0">
-                              <span className="block font-mono text-[11px] font-medium text-ink">
-                                {carton.code}
-                              </span>
-                              <span className="font-mono text-[10px] text-ink-subtle">
-                                {formatCartonDimensions(carton)} ·{' '}
-                                {carton.maxWeight}
-                              </span>
-                            </span>
-                            <span className="shrink-0 pl-2 text-right">
-                              {selected ? (
-                                <Check className="h-3.5 w-3.5 text-primary-hover" />
-                              ) : (
-                                <span className="font-mono text-[10px] text-ink-muted">
-                                  {formatCurrency(carton.unitCost)}
-                                </span>
-                              )}
-                            </span>
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                </div>
-              </section>
-
-              <section className={`${glass} p-4`}>
-                <p className="text-[11px] font-medium tracking-wide text-ink-subtle uppercase">
-                  {vi ? 'Thứ tự xếp đồ' : 'Packing sequence'}
-                </p>
-                <ol className="mt-3 space-y-1.5">
-                  {job.sequence.map((step) => {
-                    const on = activeStep === step.id
-                    return (
-                      <li key={step.id}>
-                        <button
-                          type="button"
-                          onMouseEnter={() => setActiveStep(step.id)}
-                          onMouseLeave={() => setActiveStep(null)}
-                          onClick={() =>
-                            setActiveStep((cur) =>
-                              cur === step.id ? null : step.id,
-                            )
-                          }
-                          className={`flex w-full items-start gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${
-                            on
-                              ? 'border-primary/40 bg-primary/15'
-                              : 'border-hairline bg-canvas/50 hover:border-primary/25'
-                          }`}
-                        >
-                          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-surface-2 font-mono text-[10px] text-ink-muted">
-                            {step.step}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-sm text-ink">
-                              {step.emoji}{' '}
-                              {vi ? step.title_vi : step.title_en}
-                            </span>
-                            <span className="mt-0.5 block text-[11px] text-ink-subtle">
-                              {vi ? step.position_vi : step.position_en}
-                            </span>
-                          </span>
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ol>
-              </section>
-
-              <section className={`${glass} p-4`}>
-                <p className="text-[11px] font-medium tracking-wide text-ink-subtle uppercase">
-                  {vi ? 'Chèn lót & vận chuyển' : 'Cushioning & courier'}
-                </p>
-                <p className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
-                  {vi ? job.cushioning_vi : job.cushioning_en}
-                </p>
-                <div className="mt-3 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2">
-                  <p className="flex items-center gap-1.5 text-xs font-medium text-primary-hover">
-                    <Truck className="h-3.5 w-3.5" />
-                    {recommended.name}
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-ink-muted">
-                    {recommended.eta} · {formatCurrency(recommended.price)}
-                  </p>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {job.couriers
-                    .filter((c) => !c.recommended)
-                    .map((c) => (
-                      <span
-                        key={c.id}
-                        className="rounded-full border border-hairline bg-canvas/60 px-2 py-0.5 font-mono text-[10px] text-ink-subtle"
+        {/* ========================================================= */}
+        {/* MAIN 3-COLUMN LAYOUT MATCHING USER'S SCREENSHOT EXACTLY   */}
+        {/* ========================================================= */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start">
+          {/* ======================================================= */}
+          {/* COLUMN 1 (LEFT): ORDER INFO & ITEM VERIFICATION         */}
+          {/* ======================================================= */}
+          <div className="lg:col-span-4 xl:col-span-4 space-y-4">
+            {/* 1.1 Order Info Card */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 truncate">
+                      {vi ? 'Đơn hàng' : 'Order'} #{currentJob.id}
+                    </h2>
+                    {/* Order switcher toggle */}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setOrderDropdownOpen((v) => !v)}
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 cursor-pointer"
+                        title={vi ? 'Đổi đơn hàng' : 'Change order'}
                       >
-                        {c.name.split('—')[0].trim()} {formatCurrency(c.price)}
-                      </span>
-                    ))}
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
+
+                      {orderDropdownOpen && (
+                        <div className="absolute left-0 top-full mt-1.5 w-64 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg z-30 dark:border-slate-800 dark:bg-surface-1">
+                          <p className="px-2.5 py-1 text-[11px] font-semibold text-slate-400 uppercase">
+                            {vi ? 'Chọn đơn hàng' : 'Select order'}
+                          </p>
+                          {packingJobs.map((j) => (
+                            <button
+                              key={j.id}
+                              type="button"
+                              onClick={() => {
+                                setCurrentJobId(j.id)
+                                if (j.verification_items) {
+                                  setVerificationItems(structuredClone(j.verification_items))
+                                }
+                                if (j.box_label) setBoxLabel(j.box_label)
+                                if (j.packaging_cost_usd !== undefined) setPackagingCost(j.packaging_cost_usd)
+                                if (j.shipping_fee_usd !== undefined) setShippingFee(j.shipping_fee_usd)
+                                if (j.opt_score !== undefined) setOptScore(j.opt_score)
+                                setPlanApproved(false)
+                                setOrderDropdownOpen(false)
+                              }}
+                              className={`w-full rounded-lg px-2.5 py-2 text-left text-xs transition-colors flex items-center justify-between ${
+                                j.id === currentJobId
+                                  ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300'
+                                  : 'hover:bg-slate-50 text-slate-700 dark:hover:bg-slate-800 dark:text-slate-300'
+                              }`}
+                            >
+                              <span>#{j.id}</span>
+                              <span className="text-[11px] text-slate-400">{j.customer_name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    {currentJob.customer_name} •{' '}
+                    {currentJob.delivery_service === 'Express Delivery'
+                      ? (vi ? 'Giao hàng Hỏa tốc' : 'Express Delivery')
+                      : (currentJob.delivery_service ?? (vi ? 'Giao hàng Hỏa tốc' : 'Express Delivery'))}
+                  </p>
                 </div>
-              </section>
+
+                {/* Channel Badge */}
+                {currentJob.channels.includes('tiktok') ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-[#00E5FF]/40 bg-[#00E5FF]/10 px-2.5 py-1 text-[11px] font-bold text-[#00b4cc] dark:border-cyan-500/40 dark:bg-cyan-950/20 dark:text-cyan-400 shrink-0 select-none">
+                    <ShoppingBag className="h-3.5 w-3.5 fill-current" />
+                    <span>TIKTOK</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-[#f97316]/30 bg-[#fff7ed] px-2.5 py-1 text-[11px] font-bold text-[#ea580c] dark:border-orange-500/40 dark:bg-orange-950/20 dark:text-orange-400 shrink-0 select-none">
+                    <ShoppingBag className="h-3.5 w-3.5 fill-current" />
+                    <span>SHOPEE</span>
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-[10px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+                      {vi ? 'ĐIỂM ĐẾN' : 'DESTINATION'}
+                    </span>
+                    <p className="mt-1 font-semibold text-slate-800 dark:text-slate-200">
+                      {currentJob.destination ?? 'Singapore 138683'}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-semibold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+                      {vi ? 'HẠN SLA' : 'SLA LIMIT'}
+                    </span>
+                    <p className="mt-1 font-mono font-semibold text-[#dc2626] dark:text-rose-400">
+                      {currentJob.sla_limit
+                        ? (vi ? currentJob.sla_limit.replace('2h left', 'còn 2h') : currentJob.sla_limit)
+                        : (vi ? '14:30:00 (còn 2h)' : '14:30:00 (2h left)')}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <section className="relative min-w-0 overflow-hidden rounded-2xl border border-hairline bg-surface-1/80 shadow-[0_0_48px_rgba(94,106,210,0.12)] backdrop-blur-xl">
-              <div className="h-[360px] w-full sm:h-[420px] lg:h-[min(560px,calc(100vh-16rem))]">
-                <Hero3DCanvas
-                  className="h-full w-full"
-                  showLabel={false}
-                  framed={false}
-                  cameraView={cameraView}
-                  highlightedItemIds={highlightedItemIds}
-                  replayToken={replayToken}
-                  paused={paused}
-                  onPausedChange={setPaused}
-                  cartonCode={job.box_code}
+            {/* 1.2 Item Verification Card */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  {vi ? 'Xác minh mặt hàng' : 'Item Verification'}
+                </h3>
+                <span className="font-bold text-sm text-[#2563eb] dark:text-blue-400">
+                  {verifiedCount}/{totalItems}
+                </span>
+              </div>
+
+              {/* Progress bar */}
+              <div className="mt-3 mb-4 h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <div
+                  className="h-full bg-[#2563eb] transition-all duration-300 rounded-full"
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
 
-              <div className="absolute top-3 right-3 z-20 flex flex-wrap justify-end gap-1.5">
-                {(
-                  [
-                    ['iso', vi ? 'Isometric' : 'Isometric'],
-                    ['top', vi ? 'Top' : 'Top'],
-                    ['front', vi ? 'Front' : 'Front'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setCameraView(id)}
-                    className={`rounded-md border px-2 py-1 text-[10px] font-medium backdrop-blur-sm ${
-                      cameraView === id
-                        ? 'border-primary/40 bg-primary/20 text-primary-hover'
-                        : 'border-hairline bg-surface-1/80 text-ink-muted hover:text-ink'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setPaused(false)}
-                  className="rounded-md border border-hairline bg-surface-1/80 p-1.5 text-ink-muted backdrop-blur-sm hover:text-ink"
-                  title="Play"
-                >
-                  <Play className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaused(true)}
-                  className="rounded-md border border-hairline bg-surface-1/80 p-1.5 text-ink-muted backdrop-blur-sm hover:text-ink"
-                  title="Pause"
-                >
-                  <Pause className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPaused(false)
-                    setReplayToken((n) => n + 1)
-                  }}
-                  className="rounded-md border border-hairline bg-surface-1/80 p-1.5 text-ink-muted backdrop-blur-sm hover:text-ink"
-                  title="Replay"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </button>
+              {/* Items List */}
+              <div className="space-y-3">
+                {verificationItems.map((item) => {
+                  const isAwaitingScan = !item.verified
+
+                  if (isAwaitingScan) {
+                    return (
+                      <div
+                        key={item.id}
+                        onClick={() => handleToggleItemVerify(item.id)}
+                        className="rounded-xl border-2 border-dashed border-slate-300 bg-slate-50/60 p-3 flex items-center justify-between gap-3 transition-colors hover:bg-blue-50/50 hover:border-blue-300 cursor-pointer dark:border-slate-700 dark:bg-surface-2/40"
+                        title={vi ? 'Nhấp để quét và xác minh mặt hàng này' : 'Click to scan and verify item'}
+                      >
+                        <div className="flex items-center gap-3 min-w-0 pr-1">
+                          <VerificationItemThumb src={item.imageUrl} alt={item.title} />
+
+                          <div className="min-w-0">
+                            <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                              SKU: {item.sku}
+                            </p>
+                            <p className="font-semibold text-xs text-slate-900 truncate dark:text-slate-100">
+                              {item.title}
+                            </p>
+                            <div className="mt-1 flex items-center gap-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                              <span className="flex items-center gap-1">
+                                <span className="text-slate-400">▱</span>
+                                <span>{item.dimensions}</span>
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <span className="text-slate-400">⚖</span>
+                                <span>{item.weightKg} kg</span>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* AWAITING SCAN badge matching screenshot */}
+                        <span className="rounded bg-slate-100 px-2.5 py-1 font-mono text-[10px] font-bold tracking-wider text-slate-600 dark:bg-slate-800 dark:text-slate-300 border border-slate-200/80 dark:border-slate-700 shrink-0 uppercase select-none">
+                          {vi ? 'CHỜ QUÉT' : 'AWAITING SCAN'}
+                        </span>
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleToggleItemVerify(item.id)}
+                      className="rounded-xl border border-slate-200/90 bg-white p-3 flex items-center justify-between gap-3 shadow-2xs transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-surface-1 cursor-pointer"
+                      title={vi ? 'Nhấp để hoàn tác trạng thái xác minh' : 'Click to toggle verification'}
+                    >
+                      <div className="flex items-center gap-3 min-w-0 pr-1">
+                        <VerificationItemThumb src={item.imageUrl} alt={item.title} />
+
+                        <div className="min-w-0">
+                          <p className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                            SKU: {item.sku}
+                          </p>
+                          <p className="font-semibold text-xs text-slate-900 truncate dark:text-slate-100">
+                            {item.title}
+                          </p>
+                          <div className="mt-1 flex items-center gap-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                            <span className="flex items-center gap-1">
+                              <span className="text-slate-400">▱</span>
+                              <span>{item.dimensions}</span>
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="text-slate-400">⚖</span>
+                              <span>{item.weightKg} kg</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Green circle checkmark matching screenshot */}
+                      <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#16a34a] text-white shadow-xs">
+                        <Check className="h-3 w-3 stroke-[3]" />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* ======================================================= */}
+          {/* COLUMN 2 (CENTER): AI RECOMMENDATION ENGINE & 3D VIEWER */}
+          {/* ======================================================= */}
+          <div className="lg:col-span-5 xl:col-span-5">
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1 space-y-4">
+              {/* Header: AI Recommendation Engine + 98% Optimization Score */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-[#2563eb] dark:bg-blue-950/40 dark:text-blue-400">
+                    <Bot className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Động cơ gợi ý AI' : 'AI Recommendation Engine'}
+                  </h3>
+                </div>
+
+                <div className="text-right">
+                  <span className="block text-[10px] font-bold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+                    {vi ? 'ĐIỂM TỐI ƯU' : 'OPTIMIZATION SCORE'}
+                  </span>
+                  <span className="font-bold text-2xl text-[#16a34a] dark:text-emerald-400 leading-none">
+                    {optScore}%
+                  </span>
+                </div>
               </div>
 
-              <div className="pointer-events-none absolute bottom-4 left-4 z-20">
-                <p className="rounded-full border border-hairline bg-surface-1/80 px-3 py-1.5 font-mono text-[11px] text-ink backdrop-blur-sm">
-                  📦 Volumetric {fillPct}% · Fragile Protection Active
+              {/* 3D Visualizer Box Container matching screenshot */}
+              <Packing3DBoxViewer
+                boxLabel={boxLabel}
+                boxSub={vi ? 'Tối ưu thể tích đóng gói' : 'Volumetric packing optimized'}
+              />
+
+              {/* REQUIRED MATERIALS 2x2 Grid matching screenshot */}
+              <div>
+                <p className="text-[11px] font-bold tracking-wider text-slate-700 dark:text-slate-300 uppercase mb-2.5">
+                  {vi ? 'VẬT TƯ YÊU CẦU' : 'REQUIRED MATERIALS'}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {materials.map((mat) => (
+                    <div
+                      key={mat}
+                      className="rounded-xl border border-blue-100 bg-[#f0f6ff] px-3.5 py-2.5 text-xs font-semibold text-slate-800 dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-slate-200 flex items-center gap-2.5 shadow-2xs select-none"
+                    >
+                      <div className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-md bg-[#2563eb] text-white">
+                        <Check className="h-3 w-3 stroke-[3]" />
+                      </div>
+                      <span className="truncate">{mat}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Cost & Shipping Metrics Row */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="rounded-xl border border-slate-200/90 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-surface-2/60">
+                  <span className="text-[10px] font-bold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+                    {vi ? 'CHI PHÍ ĐÓNG GÓI' : 'PACKAGING COST'}
+                  </span>
+                  <p className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                    ${packagingCost.toFixed(2)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200/90 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-surface-2/60">
+                  <span className="text-[10px] font-bold tracking-wider text-slate-400 dark:text-slate-500 uppercase">
+                    {vi ? 'CƯỚC PHÍ VẬN CHUYỂN' : 'EST. SHIPPING FEE'}
+                  </span>
+                  <div className="mt-1 flex flex-wrap items-baseline gap-1.5">
+                    <span className="text-2xl font-bold text-slate-900 dark:text-slate-100">
+                      ${shippingFee.toFixed(2)}
+                    </span>
+                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                      {vi ? '(T.tích: 1.0kg vs T.tế: 1.3kg)' : '(Vol: 1.0kg vs Act: 1.3kg)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons: Manual Override & Approve AI Plan */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setManualOverrideOpen(true)}
+                  className="h-11 rounded-xl border border-slate-300 bg-white font-semibold text-xs text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors flex items-center justify-center gap-2 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <Edit3 className="h-4 w-4 text-slate-500" />
+                  <span>{vi ? 'Đổi quy cách thủ công' : 'Manual Override'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleApprovePlan}
+                  disabled={stationStatus === 'scanning' || stationStatus === 'approved' || stationStatus === 'printed'}
+                  className={`h-11 rounded-xl font-semibold text-xs shadow-xs transition-all flex items-center justify-center gap-2 select-none ${
+                    stationStatus === 'scanning'
+                      ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 opacity-50 cursor-not-allowed border border-slate-300/60 dark:border-slate-700'
+                      : stationStatus === 'verified'
+                        ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white cursor-pointer shadow-md shadow-emerald-600/25 ring-2 ring-emerald-500/20'
+                        : 'bg-emerald-700 text-white cursor-default shadow-xs'
+                  }`}
+                  title={
+                    stationStatus === 'scanning'
+                      ? vi
+                        ? 'Cần xác minh đủ 4/4 sản phẩm trước khi phê duyệt'
+                        : 'Verify all items before approval'
+                      : stationStatus === 'verified'
+                        ? vi
+                          ? 'Nhấn để phê duyệt kế hoạch AI'
+                          : 'Click to approve AI plan'
+                        : vi
+                          ? 'Kế hoạch đã được phê duyệt'
+                          : 'Plan approved'
+                  }
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  <span>
+                    {stationStatus === 'approved' || stationStatus === 'printed'
+                      ? vi
+                        ? 'Đã phê duyệt'
+                        : 'Plan Approved'
+                      : vi
+                        ? 'Phê duyệt kế hoạch AI'
+                        : 'Approve AI Plan'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* ======================================================= */}
+          {/* COLUMN 3 (RIGHT): HARDWARE STATUS & LABEL PREVIEW       */}
+          {/* ======================================================= */}
+          <div className="lg:col-span-3 xl:col-span-3 space-y-4">
+            {/* 3.1 Hardware Status Card */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <p className="text-[11px] font-bold tracking-wider text-slate-700 dark:text-slate-300 uppercase mb-3.5">
+                {vi ? 'TRẠNG THÁI THIẾT BỊ' : 'HARDWARE STATUS'}
+              </p>
+
+              <div className="space-y-3 text-xs">
+                {/* Printer */}
+                <div className="flex items-center justify-between text-slate-800 dark:text-slate-200">
+                  <div className="flex items-center gap-2.5">
+                    <Printer className="h-4 w-4 text-slate-500" />
+                    <span className="font-medium">{vi ? 'Máy in Zebra ZD421' : 'Zebra Printer ZD421'}</span>
+                  </div>
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#16a34a] shadow-[0_0_8px_rgba(22,163,74,0.6)] shrink-0" />
+                </div>
+
+                {/* Scale */}
+                <div className="flex items-center justify-between text-slate-800 dark:text-slate-200">
+                  <div className="flex items-center gap-2.5">
+                    <Scale className="h-4 w-4 text-slate-500" />
+                    <span className="font-medium">{vi ? 'Cân điện tử Dibal (USB)' : 'Dibal Scale (USB)'}</span>
+                  </div>
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#16a34a] shadow-[0_0_8px_rgba(22,163,74,0.6)] shrink-0" />
+                </div>
+              </div>
+            </div>
+
+            {/* 3.2 Label Preview Card */}
+            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1 space-y-4">
+              <p className="text-[11px] font-bold tracking-wider text-slate-700 dark:text-slate-300 uppercase">
+                {vi ? 'XEM TRƯỚC NHÃN IN' : 'LABEL PREVIEW'}
+              </p>
+
+              {/* Shipping Label Sheet Container matching screenshot */}
+              <div className="relative rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xs select-none">
+                {/* Angled DRAFT Watermark across center or READY Badge */}
+                {stationStatus !== 'approved' && stationStatus !== 'printed' ? (
+                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                    <span className="rotate-[-25deg] font-mono text-4xl font-extrabold tracking-widest text-slate-200/80">
+                      {vi ? 'BẢN NHÁP' : 'DRAFT'}
+                    </span>
+                  </div>
+                ) : (
+                  <div className="pointer-events-none absolute top-2 right-2">
+                    <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[9px] font-bold text-emerald-800 uppercase">
+                      {vi ? 'SẴN SÀNG' : 'READY'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Top line: EXPRESS / SG */}
+                <div className="flex items-center justify-between pb-1.5">
+                  <span className="font-bold text-xs tracking-wider text-slate-900">
+                    {vi ? 'HỎA TỐC' : 'EXPRESS'}
+                  </span>
+                  <span className="font-bold text-sm tracking-wide text-slate-900">
+                    SG
+                  </span>
+                </div>
+
+                <div className="border-t border-slate-900 my-1.5" />
+
+                {/* Address block */}
+                <div className="space-y-0.5 text-[11px] leading-tight text-slate-700 pt-0.5">
+                  <p className="font-semibold text-slate-900">
+                    {vi ? 'NGƯỜI NHẬN:' : 'TO:'} {currentJob.customer_name}
+                  </p>
+                  <p className="line-clamp-2">{currentJob.customer_address}</p>
+                </div>
+
+                {/* Barcode representation */}
+                <div className="mt-4 mb-2">
+                  <ShippingBarcodeGraphic code={currentJob.id} />
+                </div>
+
+                <div className="border-t border-slate-200 my-1.5" />
+
+                {/* Footer specs */}
+                <div className="flex items-center justify-end font-mono text-[9px] text-slate-500 gap-2">
+                  <span>{vi ? `K.lượng: ${(currentJob.real_weight_g / 1000).toFixed(1)}kg` : `Weight: ${(currentJob.real_weight_g / 1000).toFixed(1)}kg`}</span>
+                  <span>•</span>
+                  <span>{vi ? `K.thước: ${currentJob.dim.w}×${currentJob.dim.l}×${currentJob.dim.h}` : `Dims: ${currentJob.dim.w}×${currentJob.dim.l}×${currentJob.dim.h}`}</span>
+                </div>
+              </div>
+
+              {/* Print Button & Hint (Requirement 2 & 3) */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handlePrintLabel}
+                  disabled={stationStatus !== 'approved' && stationStatus !== 'printed'}
+                  className={`w-full h-11 rounded-xl font-semibold text-xs flex items-center justify-center gap-2 transition-all select-none shadow-2xs ${
+                    stationStatus === 'approved' || stationStatus === 'printed'
+                      ? 'bg-[#4338ca] hover:bg-[#3730a3] active:bg-[#312e81] text-white shadow-indigo-500/25 shadow-md cursor-pointer'
+                      : 'bg-[#e0e7ff]/70 text-[#4338ca]/50 cursor-not-allowed opacity-50 dark:bg-indigo-950/20 dark:text-indigo-400/40 border border-indigo-200/40 dark:border-indigo-900/40'
+                  }`}
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>
+                    {stationStatus === 'printed'
+                      ? vi
+                        ? 'Đang chuyển giao vận chuyển...'
+                        : 'Transferring to Handover...'
+                      : vi
+                        ? 'In nhãn & Phiếu đóng gói'
+                        : 'Print Label & Packing Slip'}
+                  </span>
+                </button>
+
+                <p className="text-center text-[11px] text-slate-400 dark:text-slate-500">
+                  {stationStatus === 'approved' || stationStatus === 'printed'
+                    ? vi
+                      ? 'Nhấn để in nhãn A6 và hoàn tất đóng gói'
+                      : 'Click to print A6 label and complete packaging'
+                    : stationStatus === 'verified'
+                      ? vi
+                        ? 'Cần phê duyệt kế hoạch AI trước khi in nhãn'
+                        : 'Approve AI plan to enable printing'
+                      : vi
+                        ? 'Hoàn tất xác minh để kích hoạt in nhãn'
+                        : 'Complete verification to enable printing'}
                 </p>
               </div>
-            </section>
+            </div>
           </div>
         </div>
       </div>
 
-      <footer className="shrink-0 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur-xl sm:px-6">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap gap-2">
-            {job.source_orders.map((src) => (
-              <span
-                key={src.external_id}
-                className={`rounded px-1.5 py-0.5 font-mono text-[10px] ${channelColors[src.channel]}`}
-              >
-                {channelLabels[src.channel]}
-              </span>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {canConsolidate ? (
-              <Button variant="ghost" onClick={consolidate}>
-                <GitMerge className="mr-1.5 h-4 w-4" />
-                {vi ? 'Gộp đơn hàng' : 'Consolidate Order'}
-              </Button>
-            ) : null}
-            <Button variant="ghost" onClick={() => setCartonOpen(true)}>
-              {vi ? 'Đổi cỡ hộp thủ công' : 'Manual Override'}
-            </Button>
-            <Button
-              variant="primary"
-              className="shadow-[0_0_24px_rgba(94,106,210,0.45)]"
-              onClick={confirmPrint}
-            >
-              <Printer className="mr-1.5 h-4 w-4" />
-              {vi ? 'Xác nhận & In nhãn dán' : 'Confirm & Print Label'}
-            </Button>
-          </div>
-        </div>
-      </footer>
-
-      {cartonOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-4">
-          <div className="w-full max-w-md rounded-xl border border-hairline bg-surface-1 p-4 shadow-[0_24px_80px_rgba(0,0,0,0.55)]">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium text-ink">
-                {vi ? 'Chọn carton' : 'Select carton'}
-              </h2>
+      {/* ========================================================= */}
+      {/* MANUAL OVERRIDE MODAL                                     */}
+      {/* ========================================================= */}
+      {manualOverrideOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Package className="h-5 w-5 text-blue-600" />
+                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                  {vi ? 'Thay đổi quy cách đóng gói (Manual Override)' : 'Manual Override Packing Box'}
+                </h3>
+              </div>
               <button
                 type="button"
-                onClick={() => setCartonOpen(false)}
-                className="rounded-md p-1 text-ink-subtle hover:text-ink"
+                onClick={() => setManualOverrideOpen(false)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <ul className="mt-3 max-h-72 space-y-1.5 overflow-auto">
-              {CARTON_INVENTORY.map((carton) => (
-                <li key={carton.code}>
+
+            <div className="mt-4 space-y-3.5 text-xs">
+              <p className="text-slate-600 dark:text-slate-400">
+                {vi
+                  ? 'Chọn kích thước thùng carton hoặc quy cách đóng gói thay thế theo tiêu chuẩn kho:'
+                  : 'Select alternative carton size or packaging configuration:'}
+              </p>
+
+              <div className="space-y-2">
+                {CARTON_INVENTORY.map((carton) => (
                   <button
+                    key={carton.code}
                     type="button"
-                    onClick={() => selectCarton(carton.code)}
-                    className="flex w-full items-center justify-between rounded-lg border border-hairline bg-canvas px-3 py-2 text-left hover:border-primary/35"
+                    onClick={() => handleSelectCarton(carton.code)}
+                    className="w-full rounded-xl border border-slate-200 p-3 text-left hover:border-blue-500 hover:bg-blue-50/50 transition-colors flex items-center justify-between dark:border-slate-800 dark:hover:bg-surface-2 cursor-pointer"
                   >
-                    <span>
-                      <span className="block font-mono text-sm text-ink">
+                    <div>
+                      <p className="font-bold text-slate-900 dark:text-slate-100">
                         {carton.code}
-                      </span>
-                      <span className="font-mono text-[11px] text-ink-subtle">
-                        {formatCartonDimensions(carton)} · {carton.maxWeight}
-                      </span>
+                      </p>
+                      <p className="font-mono text-[11px] text-slate-500">
+                        {carton.length} × {carton.width} × {carton.height} cm ({vi ? `Tải tối đa: ${carton.maxWeight}` : `Max weight: ${carton.maxWeight}`})
+                      </p>
+                    </div>
+                    <span className="font-mono text-xs font-semibold text-blue-600 dark:text-blue-400">
+                      {(carton.unitCost / 23000).toFixed(2)}$
                     </span>
-                    {carton.code === job.box_code ? (
-                      <Check className="h-4 w-4 text-primary-hover" />
-                    ) : null}
                   </button>
-                </li>
-              ))}
-            </ul>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setManualOverrideOpen(false)}
+                className="rounded-lg px-4 py-2 font-medium text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-surface-2"
+              >
+                {vi ? 'Đóng' : 'Close'}
+              </button>
+            </div>
           </div>
         </div>
-      ) : null}
-
-      {toast ? (
-        <div className="fixed right-4 bottom-24 z-50 rounded-lg border border-primary/30 bg-surface-1 px-3 py-2 text-xs text-ink shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-          {toast}
-        </div>
-      ) : null}
+      )}
     </div>
   )
 }

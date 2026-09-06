@@ -215,10 +215,10 @@ export const portalOrders: PortalOrder[] = [
       { channel: 'tiktok', external_id: 'TT-4411987', label: 'TikTok #TT-4411987' },
     ],
     items: [
-      { sku: 'SKU-F06', name: 'Tai nghe BT', qty: 1, fragile: true },
-      { sku: 'SKU-G07', name: 'Ốp điện thoại', qty: 1 },
+      { sku: 'SKU-F06', name: 'Kính mắt gọng kim loại', qty: 1, fragile: true },
+      { sku: 'SKU-G07', name: 'Thắt lưng da nam', qty: 1 },
     ],
-    cushioning: 'Bubble wrap cho tai nghe',
+    cushioning: 'Chèn xốp bảo vệ kính mắt (Fragile)',
   },
   {
     id: 'ORD-2039',
@@ -241,7 +241,7 @@ export const portalOrders: PortalOrder[] = [
       { channel: 'facebook', external_id: 'FB-99102', label: 'Facebook #FB-99102' },
     ],
     items: [
-      { sku: 'SKU-K11', name: 'Sách kỹ năng', qty: 3 },
+      { sku: 'SKU-K11', name: 'Khăn lụa Cashmere', qty: 3 },
     ],
   },
   {
@@ -273,8 +273,8 @@ export const portalOrders: PortalOrder[] = [
     consolidation_hint: 'Gộp 2 đơn cùng địa chỉ · Lazada + Shopee',
     matching_badge: '✨ Matching Customer (Lazada + Shopee)',
     items: [
-      { sku: 'SKU-H08', name: 'Balo laptop', qty: 1 },
-      { sku: 'SKU-I09', name: 'Chuột không dây', qty: 2 },
+      { sku: 'SKU-H08', name: 'Balo laptop thời trang', qty: 1 },
+      { sku: 'SKU-I09', name: 'Ví da mini cao cấp', qty: 2 },
     ],
   },
   {
@@ -307,8 +307,8 @@ export const portalOrders: PortalOrder[] = [
     consolidation_hint: 'Khớp SĐT + địa chỉ · chờ xác nhận gộp',
     matching_badge: '✨ Matching Customer (Shopee + TikTok)',
     items: [
-      { sku: 'SKU-L12', name: 'Áo khoác gió', qty: 1 },
-      { sku: 'SKU-M13', name: 'Khẩu trang KF94', qty: 2 },
+      { sku: 'SKU-L12', name: 'Áo khoác gió unisex', qty: 1 },
+      { sku: 'SKU-M13', name: 'Khăn ống len mùa đông', qty: 2 },
     ],
   },
   {

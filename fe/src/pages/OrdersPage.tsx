@@ -1,549 +1,259 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Box,
-  Check,
-  Database,
-  GitMerge,
-  Link2,
-  Printer,
-  Radio,
-  ScanLine,
-  Sparkles,
-  Split,
-  X,
+  ChevronDown,
+  RotateCcw,
+  Search,
 } from 'lucide-react'
-import { ConsolidationActionDrawer } from '../components/orders/ConsolidationActionDrawer'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
-import { Badge } from '../components/ui/Badge'
-import { Button } from '../components/ui/Button'
+import { BatchDetailDrawer } from '../components/orders/BatchDetailDrawer'
 import { usePortal } from '../context/use-portal'
 import {
-  channelColors,
-  channelLabels,
-  portalOrders as initialOrders,
-  proposePackageId,
-  recentStreamEvents,
-  statusLabelsVi,
-  streamStatus,
-  type Channel,
-  type Classification,
-  type DbSyncStatus,
-  type PortalOrder,
-  type PackStatus,
-} from '../data/portal-mock'
-
-type StatusFilter = 'all' | 'merge_eligible' | 'standalone' | 'synced'
-
-function statusTone(status: PackStatus) {
-  switch (status) {
-    case 'shipped':
-    case 'ready':
-      return 'success' as const
-    case 'processing':
-    case 'consolidated':
-      return 'primary' as const
-    case 'pending':
-      return 'default' as const
-    default:
-      return 'warning' as const
-  }
-}
-
-function ClassificationBadge({
-  classification,
-  locale,
-}: {
-  classification: Classification
-  locale: 'vi' | 'en'
-}) {
-  const vi = locale === 'vi'
-  if (classification === 'consolidated') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
-        <GitMerge className="h-3 w-3" strokeWidth={2} />
-        Consolidated
-      </span>
-    )
-  }
-  if (classification === 'pending_merge') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
-        <Sparkles className="h-3 w-3" strokeWidth={2} />
-        {vi ? 'Chờ gộp' : 'Pending merge'}
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center rounded-full border border-hairline bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink-subtle">
-      Standalone
-    </span>
-  )
-}
-
-function DbStatusBadge({
-  status,
-  locale,
-}: {
-  status: DbSyncStatus
-  locale: 'vi' | 'en'
-}) {
-  const vi = locale === 'vi'
-  if (status === 'synced') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-success/20 bg-success-bg px-1.5 py-0.5 font-mono text-[10px] text-success">
-        <Database className="h-2.5 w-2.5" strokeWidth={2} />
-        {vi ? 'DB: Synced to MongoDB' : 'DB Status: Synced to MongoDB'}
-      </span>
-    )
-  }
-  if (status === 'pending') {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-700 dark:text-amber-300">
-        <Database className="h-2.5 w-2.5" strokeWidth={2} />
-        {vi ? 'DB: Pending write' : 'DB Status: Pending'}
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-error/20 bg-error/10 px-1.5 py-0.5 font-mono text-[10px] text-error">
-      <Database className="h-2.5 w-2.5" strokeWidth={2} />
-      {vi ? 'DB: Sync error' : 'DB Status: Error'}
-    </span>
-  )
-}
-
-function StreamActivityHeader({ locale }: { locale: 'vi' | 'en' }) {
-  const vi = locale === 'vi'
-  const [logsOpen, setLogsOpen] = useState(false)
-
-  return (
-    <section className="rounded-xl border border-hairline bg-surface-1 px-3 py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/10 text-primary-hover">
-            <Radio className="h-3.5 w-3.5" strokeWidth={1.75} />
-          </span>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-ink">
-              Kafka Ingestion Stream
-            </p>
-            <p className="truncate font-mono text-[10px] text-ink-subtle">
-              {streamStatus.topic}
-            </p>
-          </div>
-          <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-success/20 bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
-            Active ({streamStatus.latency_ms}ms)
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => setLogsOpen((v) => !v)}
-          className="rounded-md border border-hairline bg-canvas px-2.5 py-1 text-[11px] font-medium text-ink-muted transition-colors hover:border-primary/40 hover:text-ink"
-        >
-          {logsOpen
-            ? vi
-              ? 'Hide Live Logs'
-              : 'Hide Live Logs'
-            : vi
-              ? 'Show Live Logs'
-              : 'Show Live Logs'}
-        </button>
-      </div>
-
-      {logsOpen ? (
-        <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto border-t border-hairline pt-2">
-          {recentStreamEvents.map((evt) => (
-            <li
-              key={evt.id}
-              className="flex items-start gap-2 text-[11px] text-ink-muted"
-            >
-              <span className="mt-0.5 shrink-0 font-mono text-[10px] text-ink-tertiary">
-                {evt.at}
-              </span>
-              <span
-                className={`mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                  evt.channel === 'shopee'
-                    ? 'bg-shopee'
-                    : evt.channel === 'tiktok'
-                      ? 'bg-tiktok'
-                      : 'bg-primary'
-                }`}
-              />
-              <span className="min-w-0">
-                {vi ? evt.message_vi : evt.message_en}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-    </section>
-  )
-}
-
-function PackingInspectorBody({
-  order,
-  locale,
-}: {
-  order: PortalOrder
-  locale: 'vi' | 'en'
-}) {
-  const vi = locale === 'vi'
-  const isConsolidated = order.classification === 'consolidated'
-  const isPending = order.classification === 'pending_merge'
-
-  return (
-    <div className="space-y-4">
-      <div>
-        <p className="font-mono text-sm font-medium text-ink">{order.id}</p>
-        <p className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
-          {isPending
-            ? (order.proposed_package_id ?? order.package_id)
-            : order.package_id}
-        </p>
-        <p className="mt-0.5 text-xs text-ink-subtle">{order.customer_name}</p>
-      </div>
-
-      <div className="rounded-xl border border-hairline bg-canvas p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm text-ink-muted">
-            <Link2 className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-            Matching Criteria
-          </div>
-          <ClassificationBadge
-            classification={order.classification}
-            locale={locale}
-          />
-        </div>
-
-        {(isConsolidated || isPending) && order.match_criteria ? (
-          <div className="space-y-3">
-            <ul className="space-y-1.5 text-xs text-ink">
-              <li className="rounded-md border border-hairline bg-surface-1 px-2.5 py-1.5 font-mono">
-                {order.match_criteria.phone_display}
-              </li>
-              <li className="rounded-md border border-hairline bg-surface-1 px-2.5 py-1.5 font-mono">
-                {order.match_criteria.address_display}
-              </li>
-            </ul>
-            <div className="rounded-md border border-primary/20 bg-primary/10 px-2.5 py-2 text-xs text-primary-hover">
-              <p className="font-mono leading-relaxed">
-                {order.source_orders.map((s) => s.label).join(' + ')}
-              </p>
-              <p className="mt-1.5 font-mono text-[11px]">
-                → AOFP Package #
-                {isPending
-                  ? (order.proposed_package_id ?? order.package_id)
-                  : order.package_id}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-ink-subtle">
-            {vi
-              ? 'Đơn standalone — không khớp Phone/Address với đơn kênh khác.'
-              : 'Standalone order — no Phone/Address match across channels.'}
-          </p>
-        )}
-
-        <div className="mt-3">
-          <DbStatusBadge status={order.db_status} locale={locale} />
-        </div>
-      </div>
-
-      <div>
-        <p className="mb-2 text-xs font-medium text-ink-subtle uppercase">
-          {vi ? 'Sản phẩm' : 'Items'}
-        </p>
-        <ul className="space-y-2">
-          {order.items.map((item) => (
-            <li
-              key={item.sku}
-              className="flex items-center justify-between rounded-md border border-hairline bg-canvas px-3 py-2"
-            >
-              <div>
-                <p className="text-sm text-ink">{item.name}</p>
-                <p className="font-mono text-[11px] text-ink-tertiary">
-                  {item.sku}
-                  {item.fragile ? ' · Fragile' : ''}
-                </p>
-              </div>
-              <span className="font-mono text-xs text-ink-muted">×{item.qty}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="rounded-xl border border-hairline bg-canvas p-4">
-        <div className="mb-3 flex items-center gap-2 text-sm text-ink-muted">
-          <Box className="h-4 w-4 text-tiktok" strokeWidth={1.75} />
-          {vi ? 'Gợi ý AI' : 'AI Recommendation'}
-        </div>
-        <dl className="space-y-2.5 text-sm">
-          <div className="flex justify-between gap-2">
-            <dt className="text-ink-subtle">{vi ? 'Mã hộp' : 'Box Code'}</dt>
-            <dd className="font-mono font-medium text-ink">{order.ai_box}</dd>
-          </div>
-          <div className="flex justify-between gap-2">
-            <dt className="text-ink-subtle">{vi ? 'Kích thước' : 'Dimensions'}</dt>
-            <dd className="font-mono text-ink">{order.ai_dimensions}</dd>
-          </div>
-          <div className="flex justify-between gap-2">
-            <dt className="text-ink-subtle">
-              {vi ? 'Tỷ lệ lấp đầy' : 'Space Utilization'}
-            </dt>
-            <dd className="font-mono text-success">
-              {Math.round(order.fill_ratio * 100)}%
-            </dd>
-          </div>
-        </dl>
-        <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-3">
-          <div
-            className="h-full rounded-full bg-primary"
-            style={{ width: `${order.fill_ratio * 100}%` }}
-          />
-        </div>
-        {order.cushioning ? (
-          <p className="mt-3 rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-xs text-amber-700 dark:text-amber-300">
-            {order.cushioning}
-          </p>
-        ) : null}
-      </div>
-    </div>
-  )
-}
-
-function SidePanel({
-  order,
-  locale,
-  drawerMode,
-  onClose,
-  onConfirmConsolidate,
-  onUnmerge,
-}: {
-  order: PortalOrder
-  locale: 'vi' | 'en'
-  drawerMode: 'consolidate' | 'inspect'
-  onClose: () => void
-  onConfirmConsolidate: () => void
-  onUnmerge: () => void
-}) {
-  const vi = locale === 'vi'
-  const showConsolidationActions =
-    drawerMode === 'consolidate' ||
-    order.classification === 'pending_merge' ||
-    order.classification === 'consolidated'
-
-  if (showConsolidationActions && drawerMode === 'consolidate') {
-    return (
-      <ConsolidationActionDrawer
-        order={order}
-        locale={locale}
-        mode="consolidate"
-        onClose={onClose}
-        onConfirmConsolidate={onConfirmConsolidate}
-        onUnmerge={onUnmerge}
-      />
-    )
-  }
-
-  return (
-    <aside className="flex w-full flex-col border-l border-hairline bg-surface-1 lg:w-[400px]">
-      <div className="flex h-14 items-center justify-between border-b border-hairline px-4">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-          <h2 className="text-sm font-medium text-ink">
-            Consolidation · AI Packing
-          </h2>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="rounded-md p-1.5 text-ink-subtle hover:bg-surface-2 hover:text-ink"
-          aria-label="Đóng"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-auto p-4">
-        <PackingInspectorBody order={order} locale={locale} />
-      </div>
-
-      <div className="space-y-2 border-t border-hairline p-4">
-        {order.classification === 'pending_merge' ? (
-          <Button
-            variant="primary"
-            className="w-full shadow-[0_0_20px_rgba(99,102,241,0.25)]"
-            onClick={onConfirmConsolidate}
-          >
-            <Check className="mr-1.5 h-4 w-4" />
-            {vi ? 'Xác nhận Gộp đơn' : 'Confirm Consolidation'}
-          </Button>
-        ) : null}
-        {order.classification === 'consolidated' ? (
-          <Button variant="ghost" className="w-full" onClick={onUnmerge}>
-            <Split className="mr-1.5 h-4 w-4" />
-            {vi ? 'Tách đơn / Unmerge' : 'Unmerge / Tách đơn'}
-          </Button>
-        ) : null}
-        <Button variant="primary" className="w-full">
-          <Check className="mr-1.5 h-4 w-4" />
-          {vi ? 'Duyệt AI Packing' : 'Approve AI Packing'}
-        </Button>
-        <Button variant="ghost" className="w-full">
-          <Printer className="mr-1.5 h-4 w-4" />
-          {vi ? 'In nhãn (PDF/QR)' : 'Print Shipping Label (PDF/QR)'}
-        </Button>
-      </div>
-    </aside>
-  )
-}
+  initialPickingBatches,
+  type BatchChannel,
+  type PickingBatch,
+  type PickingPriority,
+  type PickingStatus,
+} from '../data/picking-batches-mock'
 
 export function OrdersPage() {
-  const { locale, setScannerOpen } = usePortal()
+  const navigate = useNavigate()
+  const { locale } = usePortal()
   const vi = locale === 'vi'
-  const [orders, setOrders] = useState<PortalOrder[]>(() =>
-    structuredClone(initialOrders),
-  )
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [drawerMode, setDrawerMode] = useState<'consolidate' | 'inspect'>(
-    'inspect',
-  )
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [platformFilter, setPlatformFilter] = useState<Channel | 'all'>('all')
 
-  const pendingMergeCount = orders.filter(
-    (o) => o.classification === 'pending_merge',
-  ).length
-
-  const filteredOrders = useMemo(() => {
-    return orders.filter((o) => {
-      if (statusFilter === 'merge_eligible' && o.classification !== 'pending_merge')
-        return false
-      if (statusFilter === 'standalone' && o.classification !== 'standalone')
-        return false
-      if (statusFilter === 'synced' && o.db_status !== 'synced') return false
-      if (platformFilter !== 'all' && !o.channels.includes(platformFilter))
-        return false
-      return true
-    })
-  }, [orders, statusFilter, platformFilter])
-
-  const selected = useMemo(
-    () => orders.find((o) => o.id === selectedId) ?? null,
-    [orders, selectedId],
+  // Batches state
+  const [batches, setBatches] = useState<PickingBatch[]>(() =>
+    structuredClone(initialPickingBatches),
   )
 
-  const filterTabs: Array<{ key: StatusFilter; label: string }> = [
-    { key: 'all', label: vi ? 'All Orders' : 'All Orders' },
-    {
-      key: 'merge_eligible',
-      label: vi
-        ? `Merge Eligible (${pendingMergeCount})`
-        : `Merge Eligible (${pendingMergeCount})`,
-    },
-    { key: 'standalone', label: 'Standalone' },
-    { key: 'synced', label: vi ? 'Synced to DB' : 'Synced to DB' },
-  ]
+  // Filter states matching the screenshot controls
+  const [searchTerm, setSearchTerm] = useState('')
+  const [priorityFilter, setPriorityFilter] = useState<string>('all')
+  const [zoneFilter, setZoneFilter] = useState<string>('all')
+  const [staffFilter, setStaffFilter] = useState<string>('all')
+  const [statusFilter, setStatusFilter] = useState<string>('all')
 
-  function openConsolidate(id: string) {
-    setSelectedId(id)
-    setDrawerMode('consolidate')
-  }
+  // Pagination state (Page 1 shows 7, Page 2 shows 8, Page 3 shows 9)
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 7 // matching screenshot page 1: 7 rows
 
-  function openInspect(id: string) {
-    setSelectedId(id)
-    setDrawerMode('inspect')
-  }
+  // Detail drawer
+  const [selectedBatch, setSelectedBatch] = useState<PickingBatch | null>(null)
 
-  function closeDrawer() {
-    setSelectedId(null)
-    setDrawerMode('inspect')
-  }
+  // Unique staff list for dropdown
+  const staffList = useMemo(() => {
+    const names = Array.from(new Set(initialPickingBatches.map((b) => b.picker.name)))
+    return names.sort()
+  }, [])
 
-  function confirmConsolidate(orderId: string) {
-    setOrders((prev) =>
-      prev.map((o) => {
-        if (o.id !== orderId) return o
-        const pkg = o.proposed_package_id ?? proposePackageId()
-        return {
-          ...o,
-          classification: 'consolidated' as const,
-          status: 'consolidated' as const,
-          package_id: pkg,
-          proposed_package_id: undefined,
-          db_status: 'synced' as const,
-          consolidation_hint: vi
-            ? `Đã gộp ${o.source_orders.length} đơn · lưu MongoDB`
-            : `Merged ${o.source_orders.length} orders · synced to MongoDB`,
-        }
-      }),
-    )
-    setDrawerMode('inspect')
-  }
-
-  function unmergeOrder(orderId: string) {
-    setOrders((prev) => {
-      const target = prev.find((o) => o.id === orderId)
-      if (!target || target.source_orders.length < 2) {
-        return prev.map((o) =>
-          o.id === orderId
-            ? {
-                ...o,
-                classification: 'standalone' as const,
-                status: 'pending' as const,
-                package_id: `PKG-${o.id}`,
-                match_criteria: undefined,
-                matching_badge: undefined,
-                consolidation_hint: undefined,
-                channels: o.channels.slice(0, 1),
-                source_orders: o.source_orders.slice(0, 1),
-                db_status: 'synced' as const,
-              }
-            : o,
-        )
+  // Filter logic
+  const filteredBatches = useMemo(() => {
+    return batches.filter((batch) => {
+      // Search by Batch ID
+      if (
+        searchTerm.trim() &&
+        !batch.id.toLowerCase().includes(searchTerm.trim().toLowerCase())
+      ) {
+        return false
       }
 
-      const [first, ...rest] = target.source_orders
-      const splitRows: PortalOrder[] = [
-        {
-          ...target,
-          id: `${target.id}-A`,
-          package_id: `PKG-${first.external_id}`,
-          proposed_package_id: undefined,
-          external_ids: [first.external_id],
-          channels: [first.channel],
-          source_orders: [first],
-          classification: 'standalone',
-          status: 'pending',
-          db_status: 'synced',
-          match_criteria: undefined,
-          matching_badge: undefined,
-          consolidation_hint: undefined,
-          item_count: Math.max(1, Math.ceil(target.item_count / 2)),
-        },
-        ...rest.map((src, i) => ({
-          ...target,
-          id: `${target.id}-B${i || ''}`,
-          package_id: `PKG-${src.external_id}`,
-          proposed_package_id: undefined,
-          external_ids: [src.external_id],
-          channels: [src.channel] as PortalOrder['channels'],
-          source_orders: [src],
-          classification: 'standalone' as const,
-          status: 'pending' as const,
-          db_status: 'synced' as const,
-          match_criteria: undefined,
-          matching_badge: undefined,
-          consolidation_hint: undefined,
-          item_count: Math.max(1, Math.floor(target.item_count / 2)),
-        })),
-      ]
+      // Priority filter
+      if (priorityFilter !== 'all' && batch.priority !== priorityFilter) {
+        return false
+      }
 
-      return prev.flatMap((o) => (o.id === orderId ? splitRows : [o]))
+      // Zone filter
+      if (zoneFilter !== 'all' && batch.zone !== zoneFilter) {
+        return false
+      }
+
+      // Staff filter
+      if (staffFilter !== 'all' && batch.picker.name !== staffFilter) {
+        return false
+      }
+
+      // Status filter
+      if (statusFilter !== 'all' && batch.status !== statusFilter) {
+        return false
+      }
+
+      return true
     })
-    closeDrawer()
+  }, [batches, searchTerm, priorityFilter, zoneFilter, staffFilter, statusFilter])
+
+  // Total pages
+  const totalBatches = filteredBatches.length
+  const totalPages = Math.max(1, Math.ceil(totalBatches / pageSize))
+
+  // Paginated slice
+  const paginatedBatches = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize
+    return filteredBatches.slice(startIndex, startIndex + pageSize)
+  }, [filteredBatches, currentPage, pageSize])
+
+  // Reset filters
+  const handleResetFilters = () => {
+    setSearchTerm('')
+    setPriorityFilter('all')
+    setZoneFilter('all')
+    setStaffFilter('all')
+    setStatusFilter('all')
+    setCurrentPage(1)
+  }
+
+  // Start picking action
+  const handleStartPicking = (batchId: string) => {
+    setBatches((prev) =>
+      prev.map((b) =>
+        b.id === batchId
+          ? {
+              ...b,
+              status: 'Picking',
+              progress: {
+                picked: Math.max(1, Math.floor(b.progress.total * 0.25)),
+                total: b.progress.total,
+              },
+            }
+          : b,
+      ),
+    )
+    if (selectedBatch?.id === batchId) {
+      setSelectedBatch((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'Picking',
+              progress: {
+                picked: Math.max(1, Math.floor(prev.progress.total * 0.25)),
+                total: prev.progress.total,
+              },
+            }
+          : null,
+      )
+    }
+  }
+
+  // Complete batch action
+  const handleCompleteBatch = (batchId: string) => {
+    setBatches((prev) =>
+      prev.map((b) =>
+        b.id === batchId
+          ? {
+              ...b,
+              status: 'Picked',
+              progress: { picked: b.progress.total, total: b.progress.total },
+            }
+          : b,
+      ),
+    )
+    if (selectedBatch?.id === batchId) {
+      setSelectedBatch((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'Picked',
+              progress: { picked: prev.progress.total, total: prev.progress.total },
+            }
+          : null,
+      )
+    }
+  }
+
+  // Channel badge component
+  const renderChannelBadge = (channel: BatchChannel) => {
+    switch (channel) {
+      case 'shopee':
+        return (
+          <span
+            key={channel}
+            className="inline-flex items-center rounded border border-[#f97316]/50 bg-[#fff7ed] px-2 py-0.5 text-xs font-medium text-[#ea580c] dark:border-orange-500/40 dark:bg-orange-950/20 dark:text-orange-400"
+          >
+            Shopee
+          </span>
+        )
+      case 'tiktok':
+        return (
+          <span
+            key={channel}
+            className="inline-flex items-center rounded border border-slate-900 bg-white px-2 py-0.5 text-xs font-semibold text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+          >
+            TikTok
+          </span>
+        )
+      case 'lazada':
+        return (
+          <span
+            key={channel}
+            className="inline-flex items-center rounded border border-[#4f46e5]/50 bg-[#eef2ff] px-2 py-0.5 text-xs font-medium text-[#4f46e5] dark:border-indigo-500/40 dark:bg-indigo-950/20 dark:text-indigo-400"
+          >
+            Lazada
+          </span>
+        )
+      case 'facebook':
+        return (
+          <span
+            key={channel}
+            className="inline-flex items-center rounded border border-[#2563eb]/50 bg-[#eff6ff] px-2 py-0.5 text-xs font-medium text-[#2563eb] dark:border-blue-500/40 dark:bg-blue-950/20 dark:text-blue-400"
+          >
+            Facebook
+          </span>
+        )
+    }
+  }
+
+  // Priority badge component
+  const renderPriorityBadge = (priority: PickingPriority) => {
+    switch (priority) {
+      case 'Urgent':
+        return (
+          <span className="inline-flex items-center rounded bg-[#fee2e2] px-2.5 py-0.5 text-xs font-semibold text-[#ef4444] dark:bg-red-950/30 dark:text-red-400">
+            Urgent
+          </span>
+        )
+      case 'High':
+        return (
+          <span className="inline-flex items-center rounded bg-[#fef3c7] px-2.5 py-0.5 text-xs font-semibold text-[#b45309] dark:bg-amber-950/30 dark:text-amber-400">
+            High
+          </span>
+        )
+      case 'Normal':
+        return (
+          <span className="inline-flex items-center rounded bg-[#f1f5f9] px-2.5 py-0.5 text-xs font-semibold text-[#64748b] dark:bg-slate-800 dark:text-slate-300">
+            Normal
+          </span>
+        )
+    }
+  }
+
+  // Status badge component
+  const renderStatusBadge = (status: PickingStatus) => {
+    switch (status) {
+      case 'Picked':
+        return (
+          <span className="inline-flex items-center rounded-full bg-[#dcfce7] px-3 py-1 text-xs font-medium text-[#15803d] dark:bg-emerald-950/30 dark:text-emerald-400">
+            Picked
+          </span>
+        )
+      case 'Picking':
+        return (
+          <span className="inline-flex items-center rounded-full bg-[#dbeafe] px-3 py-1 text-xs font-medium text-[#1d4ed8] dark:bg-blue-950/30 dark:text-blue-400">
+            Picking
+          </span>
+        )
+      case 'Pending':
+        return (
+          <span className="inline-flex items-center rounded-full bg-[#fef9c3] px-3 py-1 text-xs font-medium text-[#a16207] dark:bg-amber-950/30 dark:text-amber-400">
+            Pending
+          </span>
+        )
+      case 'Delayed':
+        return (
+          <span className="inline-flex items-center rounded-full bg-[#fee2e2] px-3 py-1 text-xs font-medium text-[#b91c1c] dark:bg-rose-950/30 dark:text-rose-400">
+            Delayed
+          </span>
+        )
+    }
   }
 
   return (
@@ -554,276 +264,315 @@ export function OrdersPage() {
           { label: vi ? 'Đơn đa kênh' : 'Omnichannel Orders' },
         ]}
       />
-      <div className="flex min-h-0 flex-1 overflow-hidden bg-canvas">
-        <main className="min-w-0 flex-1 overflow-auto bg-canvas p-4 sm:p-6">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight text-ink">
-                {vi ? 'Đơn hàng đa kênh' : 'Omnichannel Orders'}
-              </h1>
-              <p className="mt-1 text-sm text-ink-muted">
-                {vi
-                  ? 'Webhook → Kafka → Match Phone/Address → Gộp đơn → MongoDB'
-                  : 'Webhook → Kafka → Phone/Address match → Consolidate → MongoDB'}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="ghost"
-                className="h-9 min-h-9 text-xs"
-                onClick={() => setScannerOpen(true)}
-              >
-                <ScanLine className="mr-1.5 h-3.5 w-3.5" />
-                {vi ? 'Quét mã kho' : 'Warehouse scan'}
-              </Button>
-              {pendingMergeCount > 0 ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary-hover">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  {pendingMergeCount}{' '}
-                  {vi ? 'nhóm chờ gộp' : 'pending consolidations'}
-                </span>
-              ) : null}
-            </div>
-          </div>
 
-          <div className="mb-3">
-            <StreamActivityHeader locale={locale} />
-          </div>
-
-          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div className="flex flex-wrap gap-1 rounded-xl border border-hairline bg-surface-1 p-1">
-              {filterTabs.map((tab) => (
-                <button
-                  key={tab.key}
-                  type="button"
-                  onClick={() => setStatusFilter(tab.key)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    statusFilter === tab.key
-                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
-                      : 'text-ink-subtle hover:bg-canvas hover:text-ink'
-                  }`}
-                >
-                  {tab.label}
-                </button>
-              ))}
+      <div className="flex-1 overflow-auto bg-[#F9FAFB] p-4 sm:p-6 dark:bg-[#0B0E14]">
+        <div className="mx-auto max-w-7xl space-y-4">
+          {/* Top Filter Bar */}
+          <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-slate-200/80 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+            {/* Search Input */}
+            <div className="relative min-w-[220px] flex-1 sm:max-w-xs">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder={vi ? 'Tìm theo Batch ID...' : 'Search by Batch ID...'}
+                value={searchTerm}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="h-9.5 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs text-slate-800 placeholder-slate-400 transition-colors focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
+              />
             </div>
-            <label className="flex items-center gap-2 text-xs text-ink-muted">
-              <span className="shrink-0">{vi ? 'Platform' : 'Platform'}</span>
+
+            {/* Dropdown 1: Priority */}
+            <div className="relative">
               <select
-                value={platformFilter}
-                onChange={(e) =>
-                  setPlatformFilter(e.target.value as Channel | 'all')
-                }
-                className="h-9 rounded-lg border border-hairline bg-surface-1 px-2.5 font-mono text-xs text-ink focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                value={priorityFilter}
+                onChange={(e) => {
+                  setPriorityFilter(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="h-9.5 cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-normal text-slate-700 transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
               >
-                <option value="all">{vi ? 'All platforms' : 'All platforms'}</option>
-                <option value="shopee">Shopee</option>
-                <option value="tiktok">TikTok Shop</option>
-                <option value="facebook">Facebook</option>
-                <option value="lazada">Lazada</option>
+                <option value="all">Priority: All Priorities</option>
+                <option value="Urgent">Priority: Urgent</option>
+                <option value="High">Priority: High</option>
+                <option value="Normal">Priority: Normal</option>
               </select>
-            </label>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {/* Dropdown 2: Zone */}
+            <div className="relative">
+              <select
+                value={zoneFilter}
+                onChange={(e) => {
+                  setZoneFilter(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="h-9.5 cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-normal text-slate-700 transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
+              >
+                <option value="all">Zone: All Zones</option>
+                <option value="Zone A">Zone: Zone A</option>
+                <option value="Zone B">Zone: Zone B</option>
+                <option value="Zone C">Zone: Zone C</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {/* Dropdown 3: Staff */}
+            <div className="relative">
+              <select
+                value={staffFilter}
+                onChange={(e) => {
+                  setStaffFilter(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="h-9.5 cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-normal text-slate-700 transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
+              >
+                <option value="all">Staff: All Staff</option>
+                {staffList.map((name) => (
+                  <option key={name} value={name}>
+                    Staff: {name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {/* Dropdown 4: Status */}
+            <div className="relative">
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value)
+                  setCurrentPage(1)
+                }}
+                className="h-9.5 cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white pl-3 pr-8 text-xs font-normal text-slate-700 transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
+              >
+                <option value="all">Status: All Status</option>
+                <option value="Picked">Status: Picked</option>
+                <option value="Picking">Status: Picking</option>
+                <option value="Pending">Status: Pending</option>
+                <option value="Delayed">Status: Delayed</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            </div>
+
+            {/* Reset Action (Right Aligned) */}
+            <button
+              type="button"
+              onClick={handleResetFilters}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 cursor-pointer dark:text-slate-400 dark:hover:bg-surface-2 dark:hover:text-slate-200"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              <span>{vi ? 'Đặt lại bộ lọc' : 'Reset Filters'}</span>
+            </button>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
+          {/* Main Data Table Card */}
+          <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-xs dark:border-slate-800 dark:bg-surface-1">
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1080px] text-left text-sm text-ink">
+              <table className="w-full min-w-[980px] text-left text-xs">
+                {/* Table Header */}
                 <thead>
-                  <tr className="border-b border-hairline text-ink-subtle">
-                    <th className="px-4 py-3 font-medium">Order / Package</th>
-                    <th className="px-4 py-3 font-medium">
-                      {vi ? 'Phân loại' : 'Class'}
-                    </th>
-                    <th className="px-4 py-3 font-medium">
-                      {vi ? 'Kênh' : 'Channel'}
-                    </th>
-                    <th className="px-4 py-3 font-medium">
-                      {vi ? 'Khách' : 'Customer'}
-                    </th>
-                    <th className="px-4 py-3 font-medium">Items</th>
-                    <th className="px-4 py-3 font-medium">Vol. Weight</th>
-                    <th className="px-4 py-3 font-medium">AI Box</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">
-                      {vi ? 'Thao tác' : 'Action'}
-                    </th>
+                  <tr className="border-b border-slate-200 bg-white text-[11px] font-semibold text-slate-500 uppercase tracking-wider dark:border-slate-800 dark:bg-surface-1 dark:text-slate-400">
+                    <th className="px-5 py-3.5">BATCH ID</th>
+                    <th className="px-4 py-3.5">ITEMS / SKUS</th>
+                    <th className="px-4 py-3.5">SOURCE CHANNELS</th>
+                    <th className="px-4 py-3.5">PRIORITY</th>
+                    <th className="px-4 py-3.5">ASSIGNED PICKER</th>
+                    <th className="px-4 py-3.5">PROGRESS</th>
+                    <th className="px-4 py-3.5">STATUS</th>
+                    <th className="px-5 py-3.5 text-right">ACTIONS</th>
                   </tr>
                 </thead>
-                <tbody>
-                  {filteredOrders.map((order) => (
-                    <tr
-                      key={order.id}
-                      className={`border-b border-hairline/70 last:border-0 hover:bg-surface-2/60 ${
-                        selectedId === order.id ? 'bg-indigo-500/5' : ''
-                      } ${
-                        order.classification === 'pending_merge'
-                          ? 'bg-indigo-500/[0.04]'
-                          : ''
-                      }`}
-                    >
-                      <td className="px-4 py-3">
-                        <p className="font-mono font-medium text-ink">
-                          {order.id}
-                        </p>
-                        <p className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
-                          {order.classification === 'pending_merge'
-                            ? (order.proposed_package_id ?? order.package_id)
-                            : order.package_id}
-                        </p>
-                        <div className="mt-1.5">
-                          <DbStatusBadge
-                            status={order.db_status}
-                            locale={locale}
-                          />
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <ClassificationBadge
-                          classification={order.classification}
-                          locale={locale}
-                        />
-                        {order.matching_badge &&
-                        order.classification !== 'standalone' ? (
-                          <p className="mt-1.5 max-w-[180px] text-[11px] text-indigo-300">
-                            {order.matching_badge}
-                          </p>
-                        ) : order.consolidation_hint ? (
-                          <p className="mt-1.5 max-w-[160px] text-[11px] text-ink-subtle">
-                            {order.consolidation_hint}
-                          </p>
-                        ) : null}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex flex-wrap gap-1">
-                            {order.channels.map((ch) => (
-                              <span
-                                key={ch}
-                                className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${channelColors[ch]}`}
+
+                {/* Table Body */}
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {paginatedBatches.length > 0 ? (
+                    paginatedBatches.map((batch) => {
+                      const progressPct = Math.round(
+                        (batch.progress.picked / batch.progress.total) * 100,
+                      )
+
+                      return (
+                        <tr
+                          key={batch.id}
+                          className="transition-colors hover:bg-slate-50/70 dark:hover:bg-slate-800/40"
+                        >
+                          {/* 1. BATCH ID */}
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <Box className="h-4 w-4 text-slate-500 shrink-0" strokeWidth={1.75} />
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/app/warehouse?batchId=${batch.id}&action=detail`)}
+                                className="font-medium text-[#2563eb] hover:text-[#1d4ed8] hover:underline cursor-pointer transition-colors"
                               >
-                                {channelLabels[ch]}
+                                {batch.id}
+                              </button>
+                            </div>
+                          </td>
+
+                          {/* 2. ITEMS / SKUS */}
+                          <td className="px-4 py-4 whitespace-nowrap font-medium text-slate-800 dark:text-slate-200">
+                            {batch.itemsCount} items / {batch.skusCount} SKUs
+                          </td>
+
+                          {/* 3. SOURCE CHANNELS */}
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              {batch.channels.map((ch) => renderChannelBadge(ch))}
+                            </div>
+                          </td>
+
+                          {/* 4. PRIORITY */}
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            {renderPriorityBadge(batch.priority)}
+                          </td>
+
+                          {/* 5. ASSIGNED PICKER */}
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <img
+                                src={batch.picker.avatar}
+                                alt={batch.picker.name}
+                                className="h-6 w-6 rounded-full object-cover border border-slate-200 dark:border-slate-700"
+                                onError={(e) => {
+                                  // Fallback to initials circle if image fails to load
+                                  e.currentTarget.style.display = 'none'
+                                  const fallback = e.currentTarget.nextElementSibling
+                                  if (fallback) fallback.classList.remove('hidden')
+                                }}
+                              />
+                              <span className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                                {batch.picker.initials}
                               </span>
-                            ))}
-                          </div>
-                          {(order.classification === 'pending_merge' ||
-                            order.classification === 'consolidated') &&
-                          order.source_orders.length > 0 ? (
-                            <ul className="space-y-0.5">
-                              {order.source_orders.map((src) => (
-                                <li
-                                  key={src.external_id}
-                                  className="font-mono text-[10px] text-ink-subtle"
-                                >
-                                  {channelLabels[src.channel]}: #
-                                  {src.external_id}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-ink">
-                        {order.customer_name}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {order.item_count}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {order.volumetric_weight_g}g
-                      </td>
-                      <td className="px-4 py-3">
-                        <p className="font-mono text-ink">{order.ai_box}</p>
-                        <p className="font-mono text-[11px] text-ink-tertiary">
-                          {order.ai_dimensions}
-                        </p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge tone={statusTone(order.status)}>
-                          {vi
-                            ? statusLabelsVi[order.status]
-                            : order.status}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col items-start gap-1.5">
-                          {order.classification === 'pending_merge' ? (
-                            <button
-                              type="button"
-                              onClick={() => openConsolidate(order.id)}
-                              className="inline-flex h-8 items-center rounded-md bg-indigo-600 px-2.5 text-xs font-medium text-white shadow-lg shadow-indigo-500/20 transition-colors hover:bg-indigo-500"
-                            >
-                              <GitMerge className="mr-1 h-3.5 w-3.5" />
-                              {vi
-                                ? `Gộp ${order.source_orders.length} đơn`
-                                : 'Consolidate Orders'}
-                            </button>
-                          ) : null}
-                          {order.classification === 'consolidated' ? (
-                            <button
-                              type="button"
-                              onClick={() => openConsolidate(order.id)}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-ink-subtle hover:text-indigo-300"
-                            >
-                              <Split className="h-3 w-3" />
-                              {vi ? 'Tách đơn' : 'Unmerge'}
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => openInspect(order.id)}
-                            className="inline-flex h-8 items-center rounded-md border border-hairline bg-canvas px-2.5 text-xs font-medium text-ink-muted transition-colors hover:border-indigo-500/40 hover:text-ink"
-                          >
-                            Inspect / AI Review
-                          </button>
-                        </div>
+                              <span className="font-medium text-slate-800 dark:text-slate-200">
+                                {batch.picker.name}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 6. PROGRESS */}
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            <div className="w-36 space-y-1.5">
+                              <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400">
+                                <span>
+                                  {batch.progress.picked}/{batch.progress.total} items
+                                </span>
+                                <span className="font-medium">{progressPct}%</span>
+                              </div>
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+                                <div
+                                  className="h-full rounded-full bg-[#2563eb] transition-all duration-300"
+                                  style={{ width: `${progressPct}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 7. STATUS */}
+                          <td className="px-4 py-4 whitespace-nowrap">
+                            {renderStatusBadge(batch.status)}
+                          </td>
+
+                          {/* 8. ACTIONS */}
+                          <td className="px-5 py-4 text-right whitespace-nowrap">
+                            {batch.status === 'Pending' ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleStartPicking(batch.id)
+                                  navigate(`/app/warehouse?batchId=${batch.id}&action=start`)
+                                }}
+                                className="inline-flex items-center justify-center rounded-md bg-[#2563eb] px-3.5 py-1.5 text-xs font-medium text-white shadow-xs transition-colors hover:bg-[#1d4ed8] cursor-pointer"
+                              >
+                                {vi ? 'Bắt đầu lấy hàng' : 'Start Picking'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/app/warehouse?batchId=${batch.id}&action=detail`)}
+                                className="text-xs font-medium text-[#2563eb] hover:text-[#1d4ed8] hover:underline cursor-pointer"
+                              >
+                                {vi ? 'Xem chi tiết' : 'View Details'}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                        {vi ? 'Không có đợt lấy hàng phù hợp bộ lọc' : 'No picking batches match the filters'}
                       </td>
                     </tr>
-                  ))}
+                  )}
                 </tbody>
               </table>
-              {filteredOrders.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-ink-subtle">
-                  {vi ? 'Không có đơn khớp bộ lọc.' : 'No orders match filters.'}
-                </p>
-              ) : null}
+            </div>
+
+            {/* Table Footer with Pagination matching screenshot */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-3 text-xs dark:border-slate-800 dark:bg-surface-1">
+              <span className="text-slate-500 dark:text-slate-400">
+                {vi
+                  ? `Hiển thị ${paginatedBatches.length} trên tổng số ${totalBatches} đợt lấy hàng đang hoạt động`
+                  : `Showing ${paginatedBatches.length} of ${totalBatches} active picking batches`}
+              </span>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Previous
+                </button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                  <button
+                    key={pageNum}
+                    type="button"
+                    onClick={() => setCurrentPage(pageNum)}
+                    className={`h-7 w-7 rounded-md font-medium text-xs transition-colors cursor-pointer ${
+                      currentPage === pageNum
+                        ? 'bg-[#2563eb] text-white shadow-xs'
+                        : 'border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    {pageNum}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  className="rounded-md border border-slate-200 px-3 py-1.5 font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  Next
+                </button>
+              </div>
             </div>
           </div>
-        </main>
-
-        {selected ? (
-          <div className="hidden lg:flex">
-            <SidePanel
-              order={selected}
-              locale={locale}
-              drawerMode={drawerMode}
-              onClose={closeDrawer}
-              onConfirmConsolidate={() => confirmConsolidate(selected.id)}
-              onUnmerge={() => unmergeOrder(selected.id)}
-            />
-          </div>
-        ) : null}
+        </div>
       </div>
 
-      {selected ? (
-        <div className="fixed inset-0 z-40 flex lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            aria-label="Đóng"
-            onClick={closeDrawer}
-          />
-          <div className="relative z-10 ml-auto flex h-full w-full max-w-sm">
-            <SidePanel
-              order={selected}
-              locale={locale}
-              drawerMode={drawerMode}
-              onClose={closeDrawer}
-              onConfirmConsolidate={() => confirmConsolidate(selected.id)}
-              onUnmerge={() => unmergeOrder(selected.id)}
-            />
-          </div>
-        </div>
-      ) : null}
+      {/* Batch detail drawer */}
+      <BatchDetailDrawer
+        batch={selectedBatch}
+        onClose={() => setSelectedBatch(null)}
+        onStartPicking={(batchId) => {
+          handleStartPicking(batchId)
+          navigate(`/app/warehouse?batchId=${batchId}&action=start`)
+        }}
+        onCompleteBatch={handleCompleteBatch}
+        locale={locale}
+      />
     </>
   )
 }

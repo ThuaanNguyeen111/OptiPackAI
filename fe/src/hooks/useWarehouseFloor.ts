@@ -16,13 +16,14 @@ function matchesCode(line: WarehousePickLine, raw: string): boolean {
     line.barcode.toUpperCase() === code ||
     line.sku.toUpperCase() === code ||
     line.packageId.toUpperCase() === code ||
-    line.orderCodes.some((o) => o.toUpperCase() === code)
+    line.orderCodes.some((o) => o.toUpperCase() === code) ||
+    (line.customerName ? line.customerName.toUpperCase().includes(code) : false)
   )
 }
 
-export function useWarehouseFloor() {
+export function useWarehouseFloor(initialLines?: WarehousePickLine[]) {
   const [lines, setLines] = useState<WarehousePickLine[]>(() =>
-    warehousePickLines.map((line) => ({ ...line })),
+    (initialLines && initialLines.length > 0 ? initialLines : warehousePickLines).map((line) => ({ ...line })),
   )
   const [filter, setFilter] = useState<WarehouseFilter>('all')
   const [busyId, setBusyId] = useState<string>()
@@ -55,6 +56,24 @@ export function useWarehouseFloor() {
       ),
     )
     setNotice(undefined)
+    window.setTimeout(() => setBusyId(undefined), 250)
+  }
+
+  function completePick(id: string): void {
+    setBusyId(id)
+    let msg = ''
+    setLines((prev) =>
+      prev.map((line) => {
+        if (line.id !== id) return line
+        msg = `Đã lấy đủ ${line.qty}/${line.qty} ${line.productName} · Kệ ${line.bin}`
+        return {
+          ...line,
+          status: 'picked',
+          qtyPicked: line.qty,
+        }
+      }),
+    )
+    setNotice(msg)
     window.setTimeout(() => setBusyId(undefined), 250)
   }
 
@@ -106,15 +125,24 @@ export function useWarehouseFloor() {
     return { ok: true, message }
   }
 
+  function resetLines(newLines: WarehousePickLine[]): void {
+    setLines(newLines.map((line) => ({ ...line })))
+    setFilter('all')
+    setNotice(undefined)
+  }
+
   return {
     lines: visible,
+    rawLines: lines,
     filter,
     setFilter,
     busyId,
     notice,
     stats,
     startPick,
+    completePick,
     markShort,
     confirmScan,
+    resetLines,
   }
 }
