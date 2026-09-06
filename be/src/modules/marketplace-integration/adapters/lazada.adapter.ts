@@ -13,10 +13,6 @@ import { requireEnv, envOrDefault } from '../../../common/utils/env.util';
  * ===================================================================
  * ADAPTER — LAZADA (Vietnam)
  * ===================================================================
- * ĐÃ SỬA (đối chiếu be.zip thật):
- *   - Đọc config qua ConfigService namespace "marketplace.lazada.*".
- *   - Định nghĩa RÕ interface response Lazada thay vì `any` — bắt buộc
- *     để qua được `npm run lint` (project bật ESLint strictTypeChecked).
  *
  * BỔ SUNG (28/08/2026) — Order API cho module `orders/`:
  *   getOrders() + getOrderItems() dùng ĐÚNG công thức ký `generateSign()`
@@ -48,10 +44,7 @@ interface LazadaTokenResponse {
   expires_in: number; // SỐ GIÂY CÒN LẠI — khác epoch của TikTok
   refresh_expires_in: number;
   account: string;
-  // SỬA (01/09/2026) — tên field ĐÚNG đã xác nhận qua response thật khi
-  // test authorize live: "country_user_info", KHÔNG PHẢI
-  // "country_user_info_list" như đoán ban đầu (gây lỗi "Cannot read
-  // properties of undefined (reading '0')" ở mapTokenResponse bên dưới).
+
   country_user_info: {
     country: string;
     user_id: string;
@@ -129,9 +122,21 @@ interface LazadaGetOrderItemsResponse {
 
 // Tham số lọc cho GetOrders — sync theo cửa sổ thời gian (dùng cho polling
 // định kỳ ở orders.service.ts, tránh kéo lại TOÀN BỘ lịch sử đơn mỗi lần chạy).
+//
+// CỐ Ý dùng `updatedAfter` (map sang param `update_after` của Lazada),
+// KHÔNG dùng `createdAfter`/`created_after` — đã xác nhận qua field
+// reference đầy đủ của Lazada GetOrders (open.lazada.com + đối chiếu
+// cộng đồng): `created_after` chỉ bắt được đơn MỚI TẠO, hoàn toàn bỏ
+// sót đơn ĐÃ TỪNG sync trước đó nhưng vừa ĐỔI TRẠNG THÁI (VD seller/khách
+// hủy đơn sau khi đơn đã nằm trong DB) — Lazada không tự "báo" việc này
+// qua bất kỳ cơ chế push nào (chưa có webhook chính thức, xem ghi chú ở
+// orders.service.ts). `update_after` là superset đúng nghĩa: bắt được
+// CẢ đơn mới (updated_at = thời điểm tạo) LẪN đơn cũ vừa đổi status —
+// dùng 1 param duy nhất giải quyết cả 2 trường hợp, không cần 2 lượt
+// query riêng.
 export interface LazadaGetOrdersFilter {
-  createdAfter: Date;
-  createdBefore?: Date;
+  updatedAfter: Date;
+  updatedBefore?: Date;
   offset?: number;
   limit?: number; // Lazada giới hạn tối đa 100/lần gọi
 }
@@ -247,8 +252,10 @@ export class LazadaAdapter implements MarketplaceAdapter {
   /**
    * GetOrders — lấy danh sách đơn hàng trong 1 khoảng thời gian, CHỈ
    * thông tin cấp đơn (chưa có sản phẩm bên trong). orders.service.ts
-   * gọi hàm này định kỳ (polling), truyền createdAfter = last_polled_at
-   * của shop để chỉ lấy đơn MỚI, không kéo lại toàn bộ lịch sử mỗi lần.
+   * gọi hàm này định kỳ (polling), truyền updatedAfter = last_polled_at
+   * của shop — dùng `update_after` (KHÔNG phải `created_after`) để vừa
+   * bắt được đơn mới VỪA bắt được đơn cũ đổi trạng thái, xem giải thích
+   * đầy đủ tại comment của LazadaGetOrdersFilter phía trên.
    */
   async getOrders(
     accessToken: string,
@@ -257,13 +264,13 @@ export class LazadaAdapter implements MarketplaceAdapter {
     const path = '/orders/get';
     const extraParams: Record<string, string | number> = {
       access_token: accessToken,
-      created_after: filter.createdAfter.toISOString(),
+      update_after: filter.updatedAfter.toISOString(),
       offset: filter.offset ?? 0,
       limit: filter.limit ?? 100,
     };
 
-    if (filter.createdBefore) {
-      extraParams.created_before = filter.createdBefore.toISOString();
+    if (filter.updatedBefore) {
+      extraParams.update_before = filter.updatedBefore.toISOString();
     }
 
     const data = await this.callSignedGet<LazadaGetOrdersResponse>(

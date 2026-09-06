@@ -2,9 +2,15 @@ import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, OrderDocument } from './schemas/order.schema';
-import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
+import {
+  OrderStatus,
+  UNFULFILLED_ORDER_STATUSES,
+} from './enums/order-status.enum';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
-import { MarketplaceIntegrationService, LazadaAdapter } from '../marketplace-integration';
+import {
+  MarketplaceIntegrationService,
+  LazadaAdapter,
+} from '../marketplace-integration';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_ERROR_CODES } from './orders.errors';
@@ -55,19 +61,26 @@ export class OrdersService {
       shopId,
       MarketplacePlatform.LAZADA,
     );
-    const accessToken = await this.marketplaceIntegrationService.getValidAccessToken(
-      shopId,
-      MarketplacePlatform.LAZADA,
-    );
+    const accessToken =
+      await this.marketplaceIntegrationService.getValidAccessToken(
+        shopId,
+        MarketplacePlatform.LAZADA,
+      );
 
-    const createdAfter = shopDoc.last_polled_at ?? new Date(Date.now() - FIRST_SYNC_LOOKBACK_MS);
+    const updatedAfter =
+      shopDoc.last_polled_at ?? new Date(Date.now() - FIRST_SYNC_LOOKBACK_MS);
     const syncStartedAt = new Date();
 
     let rawOrders;
     try {
-      rawOrders = await this.lazadaAdapter.getOrders(accessToken, { createdAfter });
+      rawOrders = await this.lazadaAdapter.getOrders(accessToken, {
+        updatedAfter,
+      });
     } catch (error) {
-      this.logger.error(`Sync đơn Lazada thất bại cho shop ${shopId} (bước GetOrders)`, error);
+      this.logger.error(
+        `Sync đơn Lazada thất bại cho shop ${shopId} (bước GetOrders)`,
+        error,
+      );
       throw new AppException(
         ORD_ERROR_CODES.SYNC_FAILED,
         `Không lấy được danh sách đơn từ Lazada cho shop ${shopId} — vui lòng thử lại.`,
@@ -88,7 +101,10 @@ export class OrdersService {
     // cần tăng thông lượng).
     for (const rawOrder of rawOrders) {
       try {
-        const rawItems = await this.lazadaAdapter.getOrderItems(accessToken, rawOrder.order_id);
+        const rawItems = await this.lazadaAdapter.getOrderItems(
+          accessToken,
+          rawOrder.order_id,
+        );
         const mapped = mapLazadaOrder(rawOrder, rawItems);
 
         const orderDoc = await this.orderModel.findOneAndUpdate(
@@ -129,7 +145,10 @@ export class OrdersService {
       }
     }
 
-    await this.marketplaceIntegrationService.markShopPolled(shopDoc._id, syncStartedAt);
+    await this.marketplaceIntegrationService.markShopPolled(
+      shopDoc._id,
+      syncStartedAt,
+    );
 
     this.logger.log(
       `Sync Lazada shop ${shopId}: lấy ${String(rawOrders.length)} đơn, upsert ${String(upserted)}, gộp mới ${String(newlyConsolidated)}.`,
@@ -188,7 +207,7 @@ export class OrdersService {
 
   /**
    * ===================================================================
-   * DANH SÁCH ĐƠN — PHÂN TRANG KIỂU CURSOR (KHÔNG DÙNG skip/limit)
+   * DANH SÁCH ĐƠN — PHÂN TRANG KIỂU CURSOR
    * ===================================================================
    * skip(N) buộc Mongo phải DUYỆT QUA N document rồi mới bỏ đi — chi
    * phí tăng TUYẾN TÍNH theo N, rất chậm ở các trang xa (vd skip(50000)).
@@ -196,7 +215,9 @@ export class OrdersService {
    * CUỐI CÙNG trang trước) — tận dụng ĐÚNG compound index (b) đã khai ở
    * order.schema.ts, chi phí KHÔNG đổi dù đang ở trang gần hay trang xa.
    */
-  async listOrders(filter: ListOrdersFilter): Promise<{ orders: OrderDocument[]; nextCursor: string | null }> {
+  async listOrders(
+    filter: ListOrdersFilter,
+  ): Promise<{ orders: OrderDocument[]; nextCursor: string | null }> {
     const query: Record<string, unknown> = { is_active: true };
 
     if (filter.shopId) {
@@ -212,7 +233,9 @@ export class OrdersService {
     // validate định dạng ObjectId ở đây — ListOrdersQueryDto đã có
     // @IsMongoId() chặn ở tầng ValidationPipe trước khi vào tới service.
     if (filter.consolidatedGroupId) {
-      query.consolidated_group_id = new Types.ObjectId(filter.consolidatedGroupId);
+      query.consolidated_group_id = new Types.ObjectId(
+        filter.consolidatedGroupId,
+      );
       query.is_consolidated = true;
     }
     if (filter.before) {
@@ -229,7 +252,10 @@ export class OrdersService {
     const hasMore = orders.length > filter.limit;
     const page = hasMore ? orders.slice(0, filter.limit) : orders;
     const lastOrder = page.at(-1);
-    const nextCursor = hasMore && lastOrder?.created_at ? lastOrder.created_at.toISOString() : null;
+    const nextCursor =
+      hasMore && lastOrder?.created_at
+        ? lastOrder.created_at.toISOString()
+        : null;
 
     return { orders: page, nextCursor };
   }
