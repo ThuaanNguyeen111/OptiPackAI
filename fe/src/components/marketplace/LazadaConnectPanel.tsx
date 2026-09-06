@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react'
 import {
-  ExternalLink,
   KeyRound,
   Loader2,
   Plus,

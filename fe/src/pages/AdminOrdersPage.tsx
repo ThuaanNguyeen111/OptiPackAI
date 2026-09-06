@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { ChevronDown, Loader2, RefreshCw, Store } from 'lucide-react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ChevronDown, Loader2, RefreshCw, Store, X } from 'lucide-react'
+import { MarketplaceConsolidationBadge } from '../components/marketplace/MarketplaceConsolidationBadge'
 import { MarketplaceOrderStatusBadge } from '../components/marketplace/MarketplaceOrderStatusBadge'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Button } from '../components/ui/Button'
@@ -20,6 +21,7 @@ const selectClass =
 
 export function AdminOrdersPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { locale } = usePortal()
   const vi = locale === 'vi'
   const connection = useLazadaConnection()
@@ -27,17 +29,27 @@ export function AdminOrdersPage() {
 
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [shopFilter, setShopFilter] = useState<string>('all')
-  const [groupId, setGroupId] = useState('')
+  const [groupId, setGroupId] = useState(
+    () => searchParams.get('group')?.trim() ?? '',
+  )
   const [toast, setToast] = useState<string | null>(null)
+
+  function applyGroupFilter(next: string) {
+    setGroupId(next)
+    if (next) setSearchParams({ group: next }, { replace: true })
+    else setSearchParams({}, { replace: true })
+  }
 
   const listParams = useMemo(() => {
     const status = isMarketplaceOrderStatus(statusFilter)
       ? statusFilter
       : undefined
+    const rawGroup = groupId.trim()
+    const validGroup = /^[a-fA-F0-9]{24}$/.test(rawGroup) ? rawGroup : undefined
     return {
       shop_id: shopFilter === 'all' ? undefined : shopFilter,
       status,
-      consolidated_group_id: groupId.trim() || undefined,
+      consolidated_group_id: validGroup,
     }
   }, [groupId, shopFilter, statusFilter])
 
@@ -98,13 +110,8 @@ export function AdminOrdersPage() {
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-ink">
-                {vi ? 'Đơn hàng Lazada' : 'Lazada orders'}
+                {vi ? 'Đơn hàng' : 'Orders'}
               </h1>
-              <p className="mt-1 text-sm text-ink-subtle">
-                {vi
-                  ? 'Đồng bộ thủ công khi cần dữ liệu ngay. BE cũng tự sync mỗi 10 phút.'
-                  : 'Manual sync when you need data immediately. Backend also auto-syncs every 10 minutes.'}
-              </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Link
@@ -174,17 +181,36 @@ export function AdminOrdersPage() {
               <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
             </div>
 
-            <input
-              className="h-9 min-w-[220px] flex-1 rounded-lg border border-hairline bg-surface-1 px-3 text-xs text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
-              value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
-              placeholder={
-                vi
-                  ? 'Lọc consolidatedGroupId (tùy chọn)'
-                  : 'Filter by consolidatedGroupId (optional)'
-              }
-            />
+            <div className="relative min-w-[220px] flex-1">
+              <input
+                className="h-9 w-full rounded-lg border border-hairline bg-surface-1 px-3 pr-8 text-xs text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40"
+                value={groupId}
+                onChange={(e) => applyGroupFilter(e.target.value)}
+                placeholder={
+                  vi
+                    ? 'Lọc nhóm gộp (bấm badge Đơn gộp trên bảng)'
+                    : 'Filter group (click the Grouped badge)'
+                }
+              />
+              {groupId ? (
+                <button
+                  type="button"
+                  className="absolute top-1/2 right-2 -translate-y-1/2 text-ink-subtle hover:text-ink"
+                  onClick={() => applyGroupFilter('')}
+                  aria-label={vi ? 'Xóa lọc nhóm' : 'Clear group filter'}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           </div>
+          {listParams.consolidated_group_id ? (
+            <p className="text-[11px] text-ink-subtle">
+              {vi
+                ? `Đang xem các đơn cùng nhóm gộp · ${ordersApi.orders.length} đơn`
+                : `Showing orders in this consolidation group · ${ordersApi.orders.length} orders`}
+            </p>
+          ) : null}
 
           {ordersApi.error ? (
             <div className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-xs text-error">
@@ -233,10 +259,17 @@ export function AdminOrdersPage() {
                       </td>
                     </tr>
                   ) : (
-                    ordersApi.orders.map((order) => (
+                    ordersApi.orders.map((order) => {
+                      const grouped =
+                        order.isConsolidated && Boolean(order.consolidatedGroupId)
+                      return (
                       <tr
                         key={order.id}
-                        className="cursor-pointer border-b border-hairline/70 last:border-0 hover:bg-surface-2/60"
+                        className={`cursor-pointer border-b border-hairline/70 last:border-0 hover:bg-surface-2/60 ${
+                          grouped
+                            ? 'border-l-2 border-l-primary/70 bg-primary/5'
+                            : ''
+                        }`}
                         onClick={() => navigate(`/app/admin/orders/${order.id}`)}
                       >
                         <td className="px-4 py-3">
@@ -258,15 +291,16 @@ export function AdminOrdersPage() {
                           {formatCurrency(order.totalAmount, order.currency)}
                         </td>
                         <td className="px-4 py-3">
-                          {order.isConsolidated && order.consolidatedGroupId ? (
-                            <span className="inline-flex rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary-hover">
-                              {vi ? 'Đơn gộp' : 'Grouped'}
-                            </span>
-                          ) : (
-                            <span className="text-[11px] text-ink-tertiary">
-                              {vi ? 'Đơn lẻ' : 'Standalone'}
-                            </span>
-                          )}
+                          <MarketplaceConsolidationBadge
+                            grouped={grouped}
+                            locale={locale}
+                            onClick={
+                              grouped && order.consolidatedGroupId
+                                ? () =>
+                                    applyGroupFilter(order.consolidatedGroupId ?? '')
+                                : undefined
+                            }
+                          />
                         </td>
                         <td className="px-4 py-3">
                           <MarketplaceOrderStatusBadge
@@ -278,7 +312,8 @@ export function AdminOrdersPage() {
                           {formatDateTime(order.createdAt)}
                         </td>
                       </tr>
-                    ))
+                      )
+                    })
                   )}
                 </tbody>
               </table>

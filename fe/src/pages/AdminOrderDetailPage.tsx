@@ -1,16 +1,34 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Layers, Loader2 } from 'lucide-react'
+import { MarketplaceConsolidationBadge } from '../components/marketplace/MarketplaceConsolidationBadge'
 import { MarketplaceOrderStatusBadge } from '../components/marketplace/MarketplaceOrderStatusBadge'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
-import { getOrderById } from '../api/orders.api'
+import { getOrderById, listOrders } from '../api/orders.api'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import {
   displayOrderNumber,
   type MarketplaceOrderDetail,
+  type MarketplaceOrderListItem,
 } from '../types/marketplace-orders'
 import { formatCurrency, formatDateTime } from '../utils/format'
+
+function recipientSummary(order: MarketplaceOrderDetail, vi: boolean): string {
+  const parts = [
+    order.recipientName,
+    order.recipientPhone,
+    order.recipientAddressLine1,
+    order.recipientAddressLine2,
+    order.recipientCity,
+    order.recipientCountry,
+  ].filter(Boolean)
+  return parts.length > 0
+    ? parts.join(' · ')
+    : vi
+      ? 'Không có thông tin người nhận'
+      : 'No recipient info'
+}
 
 export function AdminOrderDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -19,6 +37,8 @@ export function AdminOrderDetailPage() {
   const [loaded, setLoaded] = useState<{
     id: string
     order: MarketplaceOrderDetail | null
+    siblings: MarketplaceOrderListItem[]
+    groupError: string | null
     error: string | null
     errorCode: string | null
   } | null>(null)
@@ -27,9 +47,32 @@ export function AdminOrderDetailPage() {
     if (!id) return
     let cancelled = false
     void getOrderById(id)
-      .then((detail) => {
+      .then(async (detail) => {
+        let siblings: MarketplaceOrderListItem[] = []
+        let groupError: string | null = null
+        if (detail.isConsolidated && detail.consolidatedGroupId) {
+          try {
+            const res = await listOrders({
+              consolidated_group_id: detail.consolidatedGroupId,
+              limit: 100,
+            })
+            siblings = [...res.orders].sort(
+              (a, b) =>
+                new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            )
+          } catch (err: unknown) {
+            groupError = formatApiError(err)
+          }
+        }
         if (!cancelled) {
-          setLoaded({ id, order: detail, error: null, errorCode: null })
+          setLoaded({
+            id,
+            order: detail,
+            siblings,
+            groupError,
+            error: null,
+            errorCode: null,
+          })
         }
       })
       .catch((err: unknown) => {
@@ -37,6 +80,8 @@ export function AdminOrderDetailPage() {
           setLoaded({
             id,
             order: null,
+            siblings: [],
+            groupError: null,
             error: formatApiError(err),
             errorCode: getApiErrorCode(err),
           })
@@ -49,6 +94,8 @@ export function AdminOrderDetailPage() {
 
   const matches = loaded !== null && loaded.id === id
   const order = matches ? loaded.order : null
+  const siblings = matches ? loaded.siblings : []
+  const groupError = matches ? loaded.groupError : null
   const error = matches ? loaded.error : null
   const errorCode = matches ? loaded.errorCode : null
   const loading = Boolean(id) && !matches
@@ -102,11 +149,10 @@ export function AdminOrderDetailPage() {
                       status={order.status}
                       locale={locale}
                     />
-                    {order.isConsolidated ? (
-                      <span className="inline-flex rounded-full bg-primary/15 px-2 py-0.5 text-[11px] font-medium text-primary-hover">
-                        {vi ? 'Đơn gộp' : 'Grouped'}
-                      </span>
-                    ) : null}
+                    <MarketplaceConsolidationBadge
+                      grouped={order.isConsolidated}
+                      locale={locale}
+                    />
                   </div>
                   <p className="mt-1 font-mono text-[11px] text-ink-tertiary">
                     {order.platform} · shop {order.shopId} · id {order.id}
@@ -122,13 +168,17 @@ export function AdminOrderDetailPage() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-ink-subtle">{vi ? 'Điện thoại' : 'Phone'}</dt>
+                      <dt className="text-ink-subtle">
+                        {vi ? 'Điện thoại' : 'Phone'}
+                      </dt>
                       <dd className="mt-0.5 font-mono text-ink-muted">
                         {order.recipientPhone || '—'}
                       </dd>
                     </div>
                     <div className="sm:col-span-2">
-                      <dt className="text-ink-subtle">{vi ? 'Địa chỉ' : 'Address'}</dt>
+                      <dt className="text-ink-subtle">
+                        {vi ? 'Địa chỉ' : 'Address'}
+                      </dt>
                       <dd className="mt-0.5 text-ink">
                         {[
                           order.recipientAddressLine1,
@@ -141,22 +191,98 @@ export function AdminOrderDetailPage() {
                           .join(', ')}
                       </dd>
                     </div>
-                    {order.consolidatedGroupId ? (
-                      <div className="sm:col-span-2">
-                        <dt className="text-ink-subtle">
-                          {vi ? 'Nhóm gộp' : 'Consolidation group'}
-                        </dt>
-                        <dd className="mt-0.5 font-mono text-xs text-ink-muted">
-                          {order.consolidatedGroupId}
-                        </dd>
-                      </div>
-                    ) : null}
                   </dl>
                 </div>
 
+                {order.isConsolidated && order.consolidatedGroupId ? (
+                  <div className="rounded-xl border border-primary/25 bg-primary/5 p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2 text-sm font-medium text-ink">
+                          <Layers
+                            className="h-4 w-4 text-primary-hover"
+                            strokeWidth={1.75}
+                          />
+                          {vi
+                            ? `Gói hàng đã gộp · ${siblings.length || '—'} đơn`
+                            : `Consolidated pack · ${siblings.length || '—'} orders`}
+                        </div>
+                      </div>
+                      <Link
+                        to={`/app/admin/orders?group=${encodeURIComponent(order.consolidatedGroupId)}`}
+                        className="text-xs font-medium text-primary-hover hover:underline"
+                      >
+                        {vi ? 'Lọc nhóm trên danh sách' : 'Filter group in list'}
+                      </Link>
+                    </div>
+
+                    <p className="mt-3 rounded-lg border border-hairline bg-surface-1 px-3 py-2 text-xs text-ink">
+                      {recipientSummary(order, vi)}
+                    </p>
+
+                    {groupError ? (
+                      <p className="mt-3 text-xs text-error">{groupError}</p>
+                    ) : (
+                      <ul className="mt-3 space-y-2">
+                        {siblings.map((sibling, index) => {
+                          const current = sibling.id === order.id
+                          return (
+                            <li key={sibling.id}>
+                              <Link
+                                to={`/app/admin/orders/${sibling.id}`}
+                                className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                                  current
+                                    ? 'border-primary/40 bg-surface-1 ring-1 ring-primary/20'
+                                    : 'border-hairline bg-surface-1 hover:border-primary/30 hover:bg-surface-2/60'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-medium text-ink">
+                                    {vi ? 'Đơn' : 'Order'} {index + 1} ·{' '}
+                                    {displayOrderNumber(sibling)}
+                                    {current
+                                      ? vi
+                                        ? ' (đang xem)'
+                                        : ' (this order)'
+                                      : ''}
+                                  </p>
+                                  <p className="mt-0.5 text-[11px] text-ink-subtle">
+                                    {sibling.itemCount} {vi ? 'SP' : 'items'} ·{' '}
+                                    {formatDateTime(sibling.createdAt)}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <MarketplaceOrderStatusBadge
+                                    status={sibling.status}
+                                    locale={locale}
+                                  />
+                                  <span className="font-mono text-xs text-ink-muted">
+                                    {formatCurrency(
+                                      sibling.totalAmount,
+                                      sibling.currency,
+                                    )}
+                                  </span>
+                                </div>
+                              </Link>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-hairline bg-surface-1 px-4 py-3">
+                    <p className="text-xs text-ink-subtle">
+                      {vi
+                        ? 'Đơn lẻ — chưa có đơn nào khác cùng người nhận / điểm giao để gộp.'
+                        : 'Standalone — no other unfulfilled order shares this recipient/delivery point.'}
+                    </p>
+                  </div>
+                )}
+
                 <div className="rounded-xl border border-hairline bg-surface-1 p-5">
                   <h2 className="text-sm font-medium text-ink">
-                    {vi ? 'Sản phẩm' : 'Items'}
+                    {vi ? 'Sản phẩm của đơn này' : 'Items on this order'}
                   </h2>
                   <div className="mt-3 overflow-x-auto">
                     <table className="w-full text-sm">
@@ -217,8 +343,11 @@ export function AdminOrderDetailPage() {
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={5} className="pt-3 text-right text-ink-subtle">
-                            {vi ? 'Tổng' : 'Total'} · {order.itemCount}{' '}
+                          <td
+                            colSpan={5}
+                            className="pt-3 text-right text-ink-subtle"
+                          >
+                            {vi ? 'Tổng đơn này' : 'This order'} · {order.itemCount}{' '}
                             {vi ? 'dòng' : 'lines'}
                           </td>
                           <td className="pt-3 text-right font-mono font-medium text-ink">
@@ -242,6 +371,14 @@ export function AdminOrderDetailPage() {
                       {order.platformOrderId}
                     </dd>
                   </div>
+                  {order.consolidatedGroupId ? (
+                    <div>
+                      <dt className="text-ink-subtle">consolidatedGroupId</dt>
+                      <dd className="font-mono text-xs text-ink-muted">
+                        {order.consolidatedGroupId}
+                      </dd>
+                    </div>
+                  ) : null}
                   <div>
                     <dt className="text-ink-subtle">createdAt</dt>
                     <dd className="text-ink-muted">
