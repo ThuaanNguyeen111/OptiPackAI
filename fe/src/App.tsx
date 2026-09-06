@@ -9,6 +9,9 @@ import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
 import { AdminAiPage } from './pages/AdminAiPage'
+import { AdminMarketplacePage } from './pages/AdminMarketplacePage'
+import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
+import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
 import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
@@ -18,6 +21,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
+import { MarketplaceOAuthSuccessPage } from './pages/MarketplaceOAuthSuccessPage'
 import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
@@ -43,6 +47,10 @@ function App() {
         <Routes>
           <Route index element={<LandingPage />} />
           <Route path="oauth-success" element={<OAuthSuccessPage />} />
+          <Route
+            path="marketplace-oauth-success"
+            element={<MarketplaceOAuthSuccessPage />}
+          />
           <Route path="reset-password" element={<ResetPasswordPage />} />
 
           <Route element={<GuestRoute />}>
@@ -71,6 +79,9 @@ function App() {
               <Route path="admin" element={<AdminLayout />}>
                 <Route index element={<AdminPage />} />
                 <Route path="roles" element={<AdminRolesPage />} />
+                <Route path="marketplace" element={<AdminMarketplacePage />} />
+                <Route path="orders" element={<AdminOrdersPage />} />
+                <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
                 <Route path="templates" element={<AdminTemplatesPage />} />
               </Route>

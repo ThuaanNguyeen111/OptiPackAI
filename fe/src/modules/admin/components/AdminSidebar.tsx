@@ -5,9 +5,11 @@ import {
   Cpu,
   LogOut,
   Moon,
+  Package,
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
+  Store,
   Sun,
   Users,
   X,
@@ -17,7 +19,7 @@ import { usePortal } from '../../../context/use-portal'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
 
-type NavSection = 'directory' | 'ai'
+type NavSection = 'directory' | 'marketplace' | 'ai'
 
 const navItems = [
   {
@@ -35,6 +37,22 @@ const navItems = [
     labelEn: 'Role access',
     icon: Shield,
     section: 'directory' as NavSection,
+  },
+  {
+    to: '/app/admin/marketplace',
+    end: false,
+    labelVi: 'Kết nối sàn',
+    labelEn: 'Marketplace',
+    icon: Store,
+    section: 'marketplace' as NavSection,
+  },
+  {
+    to: '/app/admin/orders',
+    end: false,
+    labelVi: 'Đơn hàng',
+    labelEn: 'Orders',
+    icon: Package,
+    section: 'marketplace' as NavSection,
   },
   {
     to: '/app/admin/ai',
@@ -56,6 +74,7 @@ const navItems = [
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   directory: { vi: 'Quản trị', en: 'Administration' },
+  marketplace: { vi: 'Sàn & đơn hàng', en: 'Marketplace & orders' },
   ai: { vi: 'AI & đóng gói', en: 'AI & packing' },
 }
 

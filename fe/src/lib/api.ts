@@ -1,4 +1,5 @@
 import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
+import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:3000'
@@ -6,12 +7,18 @@ export const API_BASE_URL =
 export class ApiError extends Error {
   status: number
   messages: string[]
+  errorCode: string | null
 
-  constructor(status: number, messages: string[]) {
+  constructor(
+    status: number,
+    messages: string[],
+    errorCode: string | null = null,
+  ) {
     super(messages[0] ?? 'Có lỗi xảy ra, thử lại sau.')
     this.name = 'ApiError'
     this.status = status
     this.messages = messages
+    this.errorCode = errorCode
   }
 }
 
@@ -25,6 +32,12 @@ function parseMessage(payload: unknown): string[] {
     return message.filter((m): m is string => typeof m === 'string')
   }
   return ['Có lỗi xảy ra, thử lại sau.']
+}
+
+function parseErrorCode(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const code = (payload as { error_code?: unknown }).error_code
+  return typeof code === 'string' && code.length > 0 ? code : null
 }
 
 async function parseJson(res: Response): Promise<unknown> {
@@ -115,14 +128,21 @@ export async function apiRequest<T>(
   const payload = await parseJson(res)
 
   if (!res.ok) {
-    throw new ApiError(res.status, parseMessage(payload))
+    throw new ApiError(res.status, parseMessage(payload), parseErrorCode(payload))
   }
 
   return payload as T
 }
 
+export function getApiErrorCode(err: unknown): string | null {
+  return err instanceof ApiError ? err.errorCode : null
+}
+
 export function formatApiError(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.errorCode && MARKETPLACE_ORDERS_ERROR_MESSAGES[err.errorCode]) {
+      return MARKETPLACE_ORDERS_ERROR_MESSAGES[err.errorCode]
+    }
     if (err.status === 429) {
       return 'Thử đăng nhập quá nhiều lần. Đợi khoảng 1 phút rồi thử lại.'
     }

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import {
   Bell,
   Check,
@@ -30,7 +30,7 @@ import { changePassword, setupMfa, verifyMfaSetup } from '../api/auth.api'
 import { fetchMyProfile, updateMyProfile } from '../api/users.api'
 import { formatApiError } from '../lib/api'
 import { validateNewPassword } from '../lib/password'
-import { USER_ROLE_LABELS } from '../types/auth'
+import { USER_ROLE_LABELS, UserRole } from '../types/auth'
 
 type ProfileTab = 'personal' | 'marketplaces' | 'preferences'
 
@@ -117,8 +117,9 @@ export function ProfilePage() {
     toggleShopActive,
     activateAllShops,
   } = usePortal()
-  const { logout } = useAuth()
+  const { logout, session } = useAuth()
   const vi = locale === 'vi'
+  const isAdmin = session?.role === UserRole.ADMIN
   const [tab, setTab] = useState<ProfileTab>('personal')
   const [loggingOut, setLoggingOut] = useState(false)
 
@@ -822,6 +823,24 @@ export function ProfilePage() {
           {/* Tab 2 */}
           {tab === 'marketplaces' ? (
             <section className="rounded-xl border border-hairline bg-surface-1 p-4">
+              {isAdmin ? (
+                <div className="mb-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
+                  <p className="text-sm font-medium text-ink">
+                    {vi ? 'Kết nối Lazada (API thật)' : 'Lazada connection (live API)'}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-ink-subtle">
+                    {vi
+                      ? 'BE chỉ cho Admin gọi connect/sync/list. Dùng trang Kết nối sàn — không dùng form mock Shopee/TikTok bên dưới.'
+                      : 'Only Admin can call connect/sync/list. Use the Marketplace page — not the mock Shopee/TikTok form below.'}
+                  </p>
+                  <Link
+                    to="/app/admin/marketplace"
+                    className="mt-2 inline-flex text-xs font-medium text-primary-hover hover:underline"
+                  >
+                    {vi ? 'Mở Kết nối sàn →' : 'Open Marketplace →'}
+                  </Link>
+                </div>
+              ) : null}
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2 text-sm font-medium text-ink">
