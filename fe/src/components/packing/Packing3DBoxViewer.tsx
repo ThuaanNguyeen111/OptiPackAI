@@ -6,11 +6,28 @@ import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
 import { usePortal } from '../../context/use-portal'
 
 // Box & Fashion Items Geometry Scene (Quần áo & Phụ kiện đi kèm)
-function Box3DScene({ zoomed }: { zoomed: boolean }) {
-  // Dimensions for Hộp S: 40 x 30 x 12 cm (scaled: 4.0 x 1.2 x 3.0)
-  const boxW = 4.0
-  const boxH = 1.2
-  const boxD = 3.0
+function Box3DScene({ zoomed, boxLabel }: { zoomed: boolean; boxLabel?: string }) {
+  // Compute dynamic dimensions based on selected carton label
+  const { boxW, boxH, boxD } = (() => {
+    const label = boxLabel ?? ''
+    if (label.includes('25 x 18') || label.includes('Hộp A2') || label.includes('CARTON-A2')) {
+      return { boxW: 3.0, boxH: 1.35, boxD: 2.2 }
+    }
+    if (label.includes('30 x 20 x 10') || label.includes('Hộp M1') || label.includes('CARTON-M1')) {
+      return { boxW: 3.3, boxH: 1.1, boxD: 2.3 }
+    }
+    if (label.includes('30 x 20 x 15') || label.includes('Hộp B1') || label.includes('CARTON-B1')) {
+      return { boxW: 3.3, boxH: 1.65, boxD: 2.3 }
+    }
+    if (label.includes('35 x 25') || label.includes('Hộp C3') || label.includes('CARTON-C3')) {
+      return { boxW: 3.8, boxH: 1.95, boxD: 2.7 }
+    }
+    if (label.includes('40 x 30 x 25') || label.includes('Thùng HD') || label.includes('CARTON-HD')) {
+      return { boxW: 4.2, boxH: 2.5, boxD: 3.2 }
+    }
+    // Default to Hộp S: 40 x 30 x 12 cm
+    return { boxW: 4.0, boxH: 1.25, boxD: 3.0 }
+  })()
 
   return (
     <>
@@ -248,7 +265,7 @@ export function Packing3DBoxViewer({
               fov: 42,
             }}
           >
-            <Box3DScene zoomed={zoomed} />
+            <Box3DScene zoomed={zoomed} boxLabel={activeBoxLabel} />
             <OrbitControls
               key={orbitKey}
               ref={controlsRef}

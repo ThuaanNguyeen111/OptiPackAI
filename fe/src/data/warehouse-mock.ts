@@ -164,7 +164,7 @@ export function getPickLinesForBatch(batch: PickingBatch): WarehousePickLine[] {
         channels: [order.channel as WarehouseChannel],
         qty: item.qty,
         qtyPicked: item.picked ? item.qty : 0,
-        slaMinutes: batch.priority === 'Urgent' ? 10 : batch.priority === 'High' ? 15 : 25,
+        slaMinutes: batch.priority === 'Urgent' ? 10 : 25,
         fragile,
         status,
         customerName: order.customerName,

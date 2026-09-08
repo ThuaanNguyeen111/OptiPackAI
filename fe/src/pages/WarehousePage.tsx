@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowLeft,
+  Boxes,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -11,21 +12,184 @@ import {
   Minus,
   Plus,
   RotateCcw,
+  Search,
+  ShoppingBag,
   Sparkles,
   User,
+  UserCheck,
+  Users,
   X,
+  Zap,
 } from 'lucide-react'
 import { BatchDetailDrawer } from '../components/orders/BatchDetailDrawer'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import {
-  initialPickingBatches,
+  getStoredBatches,
+  updateBatchPicker,
+  type BatchZone,
   type PickingBatch,
 } from '../data/picking-batches-mock'
 import {
+  computeStockStatus,
   getPickingItemsForBatch,
+  getStoredWarehouseStock,
+  resetWarehouseStock,
+  saveStoredWarehouseStock,
   type WarehousePickingItem,
+  type WarehouseStockItem,
 } from '../data/warehouse-picking-mock'
+import { getWarehouseStaffItems } from '../data/staff-mock'
+
+// ==========================================
+// CHANNEL BADGE HELPER
+// ==========================================
+
+export function renderChannelBadge(
+  channel: 'shopee' | 'tiktok' | 'lazada' | 'facebook',
+  size: 'sm' | 'md' = 'md',
+) {
+  const isSm = size === 'sm'
+  const padding = isSm ? 'px-1.5 py-0.5' : 'px-2 py-0.5'
+  const textClass = isSm ? 'text-[10px] font-semibold' : 'text-xs font-semibold'
+
+  switch (channel) {
+    case 'shopee':
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded border border-[#f97316]/50 bg-[#fff7ed] ${padding} ${textClass} text-[#ea580c] dark:border-orange-500/40 dark:bg-orange-950/20 dark:text-orange-400`}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-[#ea580c]" />
+          Shopee
+        </span>
+      )
+    case 'tiktok':
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded border border-slate-900 bg-white ${padding} ${textClass} text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100`}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-slate-900 dark:bg-zinc-100" />
+          TikTok Shop
+        </span>
+      )
+    case 'lazada':
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded border border-[#4f46e5]/50 bg-[#eef2ff] ${padding} ${textClass} text-[#4f46e5] dark:border-indigo-500/40 dark:bg-indigo-950/20 dark:text-indigo-400`}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-[#4f46e5]" />
+          Lazada
+        </span>
+      )
+    case 'facebook':
+      return (
+        <span
+          className={`inline-flex items-center gap-1 rounded border border-[#2563eb]/50 bg-[#eff6ff] ${padding} ${textClass} text-[#2563eb] dark:border-blue-500/40 dark:bg-blue-950/20 dark:text-blue-400`}
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
+          Facebook
+        </span>
+      )
+    default:
+      return null
+  }
+}
+
+// ==========================================
+// MOCK WAREHOUSE STAFF LIST FOR ASSIGNMENT
+// ==========================================
+
+export interface WarehouseStaffItem {
+  id: string
+  name: string
+  code: string
+  avatar: string
+  initials: string
+  role: string
+  zone: BatchZone
+  status: 'available' | 'busy'
+  activeBatches: number
+}
+
+export const WAREHOUSE_STAFF_LIST: WarehouseStaffItem[] = [
+  {
+    id: 'staff-1',
+    name: 'Ahmad R.',
+    code: 'NV-KHO-01',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
+    initials: 'AR',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone A',
+    status: 'available',
+    activeBatches: 0,
+  },
+  {
+    id: 'staff-2',
+    name: 'Rian K.',
+    code: 'NV-KHO-02',
+    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
+    initials: 'RK',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone A',
+    status: 'busy',
+    activeBatches: 1,
+  },
+  {
+    id: 'staff-3',
+    name: 'Siti M.',
+    code: 'NV-KHO-03',
+    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&h=100&fit=crop&crop=face',
+    initials: 'SM',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone B',
+    status: 'available',
+    activeBatches: 0,
+  },
+  {
+    id: 'staff-4',
+    name: 'Budi P.',
+    code: 'NV-KHO-04',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
+    initials: 'BP',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone C',
+    status: 'available',
+    activeBatches: 0,
+  },
+  {
+    id: 'staff-5',
+    name: 'Fahmi H.',
+    code: 'NV-KHO-05',
+    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&h=100&fit=crop&crop=face',
+    initials: 'FH',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone A',
+    status: 'available',
+    activeBatches: 0,
+  },
+  {
+    id: 'staff-6',
+    name: 'Dewi A.',
+    code: 'NV-KHO-06',
+    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&crop=face',
+    initials: 'DA',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone B',
+    status: 'busy',
+    activeBatches: 1,
+  },
+  {
+    id: 'staff-7',
+    name: 'Eka S.',
+    code: 'NV-KHO-07',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
+    initials: 'ES',
+    role: 'Nhân viên lấy hàng',
+    zone: 'Zone C',
+    status: 'available',
+    activeBatches: 0,
+  },
+]
 
 // ==========================================
 // SUB-COMPONENTS MATCHING SCREENSHOT EXACTLY
@@ -189,10 +353,11 @@ function WarehouseFloorView({
     structuredClone(initialBatchItems),
   )
 
-  // 2. Default active item: first item in the batch
-  const [activeItemId, setActiveItemId] = useState<string>(
-    () => items[0]?.id ?? '',
-  )
+  // 2. Default active item: first unpicked item in the batch, or first item
+  const [activeItemId, setActiveItemId] = useState<string>(() => {
+    const unpicked = initialBatchItems.find((i) => i.status !== 'picked')
+    return unpicked?.id ?? initialBatchItems[0]?.id ?? ''
+  })
 
   // Find active item
   const activeItem = useMemo(() => {
@@ -239,6 +404,293 @@ function WarehouseFloorView({
   // Completion modal state ("Hoàn tất lấy hàng")
   const [completeBatchModalOpen, setCompleteBatchModalOpen] = useState(false)
 
+  // Danh sách nhân viên lấy hàng động (đồng bộ từ hệ thống Quản lý nhân viên của chủ shop)
+  const [warehouseStaffList, setWarehouseStaffList] = useState<WarehouseStaffItem[]>(() => getWarehouseStaffItems())
+
+  useEffect(() => {
+    const handleStaffUpdate = () => {
+      setWarehouseStaffList(getWarehouseStaffItems())
+    }
+    window.addEventListener('optipack-staff-updated', handleStaffUpdate)
+    return () => {
+      window.removeEventListener('optipack-staff-updated', handleStaffUpdate)
+    }
+  }, [])
+
+  // Staff Assignment State (Phân công nhân viên: Auto vs Manual)
+  const isPreviouslyUnassigned =
+    !batch.picker?.name || batch.picker.name === 'Chưa phân công'
+
+  // Nhân viên tối ưu được AI tự động phân công theo zone
+  const autoAssignedStaff = useMemo(() => {
+    return (
+      warehouseStaffList.find(
+        (s) => s.zone === batch.zone && s.status === 'available',
+      ) ||
+      warehouseStaffList.find((s) => s.zone === batch.zone) ||
+      warehouseStaffList[0] ||
+      WAREHOUSE_STAFF_LIST[0]!
+    )
+  }, [batch.zone, warehouseStaffList])
+
+  const initialPicker = useMemo(() => {
+    if (!isPreviouslyUnassigned && batch.picker?.name && batch.picker.name !== 'Chưa phân công') {
+      const match = warehouseStaffList.find((s) => s.name === batch.picker.name) || WAREHOUSE_STAFF_LIST.find((s) => s.name === batch.picker.name)
+      return {
+        name: batch.picker.name,
+        avatar: batch.picker.avatar || match?.avatar || '',
+        initials: batch.picker.initials || match?.initials || 'NV',
+        code: match?.code || 'NV-KHO-01',
+        role: match?.role || 'Nhân viên lấy hàng',
+        zone: match?.zone || batch.zone,
+      }
+    }
+    // Nếu trước đó chưa phân công, AI tự động phân công ngay khi bắt đầu lấy hàng:
+    return {
+      name: autoAssignedStaff.name,
+      avatar: autoAssignedStaff.avatar,
+      initials: autoAssignedStaff.initials,
+      code: autoAssignedStaff.code,
+      role: autoAssignedStaff.role,
+      zone: autoAssignedStaff.zone,
+    }
+  }, [isPreviouslyUnassigned, batch.picker, autoAssignedStaff, batch.zone, warehouseStaffList])
+
+  const [currentPicker, setCurrentPicker] = useState(initialPicker)
+  const [assignmentMode, setAssignmentMode] = useState<'auto' | 'manual'>('auto')
+  const [assignModalOpen, setAssignModalOpen] = useState(false)
+  const [selectedStaffId, setSelectedStaffId] = useState<string>('staff-1')
+  const [modalAssignMode, setModalAssignMode] = useState<'auto' | 'manual'>('auto')
+  const [staffSearchQuery, setStaffSearchQuery] = useState('')
+
+  // Lọc danh sách nhân viên theo từ khóa tìm kiếm khi chọn thủ công
+  const filteredStaffList = useMemo(() => {
+    if (!staffSearchQuery.trim()) return warehouseStaffList
+    const q = staffSearchQuery.trim().toLowerCase()
+    return warehouseStaffList.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        s.code.toLowerCase().includes(q) ||
+        s.zone.toLowerCase().includes(q) ||
+        s.role.toLowerCase().includes(q),
+    )
+  }, [staffSearchQuery, warehouseStaffList])
+
+  // Tự động phân công và đồng bộ cập nhật nếu đợt hàng trước đó chưa phân công
+  useEffect(() => {
+    if (isPreviouslyUnassigned) {
+      updateBatchPicker(batch.id, {
+        name: autoAssignedStaff.name,
+        avatar: autoAssignedStaff.avatar,
+        initials: autoAssignedStaff.initials,
+      })
+      setToastMessage(
+        vi
+          ? `⚡ Bắt đầu lấy hàng! AI đã tự động phân công nhân viên ${autoAssignedStaff.name} (${autoAssignedStaff.code}) phụ trách đợt hàng.`
+          : `Picking started! AI auto-assigned ${autoAssignedStaff.name} for picking batch.`,
+      )
+      const timer = window.setTimeout(() => setToastMessage(null), 4000)
+      return () => window.clearTimeout(timer)
+    }
+  }, [batch.id, isPreviouslyUnassigned, autoAssignedStaff, vi])
+
+  // Channel filter for picking list on the right
+  const [channelFilter, setChannelFilter] = useState<string>('all')
+
+  // Real-time warehouse inventory state
+  const [warehouseStockMap, setWarehouseStockMap] = useState<Record<string, WarehouseStockItem>>(() =>
+    getStoredWarehouseStock(initialBatchItems),
+  )
+  // View mode: 'buyer_items' (default: only show items purchased by buyers) vs 'all_warehouse'
+  const [inventoryViewMode, setInventoryViewMode] = useState<'buyer_items' | 'all_warehouse'>('buyer_items')
+  const [stockSearchQuery, setStockSearchQuery] = useState('')
+  const [stockFilterTab, setStockFilterTab] = useState<'all' | 'pending' | 'picked' | 'low_stock'>('all')
+  const [lastDeductedSku, setLastDeductedSku] = useState<string | null>(null)
+
+  // Listen for real-time stock sync
+  useEffect(() => {
+    const handleStockSync = () => {
+      setWarehouseStockMap(getStoredWarehouseStock(items))
+    }
+    window.addEventListener('optipack:warehouse_stock_updated', handleStockSync)
+    return () => {
+      window.removeEventListener('optipack:warehouse_stock_updated', handleStockSync)
+    }
+  }, [items])
+
+  // Active item stock info
+  const activeStock = useMemo(() => {
+    if (!activeItem) return null
+    return warehouseStockMap[activeItem.sku] ?? null
+  }, [activeItem, warehouseStockMap])
+
+  // Filtered inventory list: BUYER ITEMS ONLY (mục tiêu chính theo yêu cầu người dùng)
+  const buyerInventoryList = useMemo(() => {
+    return items.filter((item) => {
+      const stock = warehouseStockMap[item.sku]
+      // Tab filter
+      if (stockFilterTab === 'pending' && item.status === 'picked') {
+        return false
+      }
+      if (stockFilterTab === 'picked' && item.status !== 'picked') {
+        return false
+      }
+      if (stockFilterTab === 'low_stock' && stock?.status !== 'low') {
+        return false
+      }
+      // Search query
+      if (stockSearchQuery.trim()) {
+        const q = stockSearchQuery.trim().toLowerCase()
+        return (
+          item.name.toLowerCase().includes(q) ||
+          item.shortName.toLowerCase().includes(q) ||
+          item.sku.toLowerCase().includes(q) ||
+          item.upc.toLowerCase().includes(q) ||
+          item.location.toLowerCase().includes(q) ||
+          item.customerName.toLowerCase().includes(q) ||
+          item.orderId.toLowerCase().includes(q) ||
+          item.channel.toLowerCase().includes(q)
+        )
+      }
+      return true
+    })
+  }, [items, warehouseStockMap, stockFilterTab, stockSearchQuery])
+
+  // Filtered inventory list: ALL WAREHOUSE (chế độ xem phụ)
+  const allWarehouseInventoryList = useMemo(() => {
+    const all = Object.values(warehouseStockMap)
+    return all.filter((item) => {
+      if (stockFilterTab === 'pending' && item.pickedQuantity >= item.initialStock) {
+        return false
+      }
+      if (stockFilterTab === 'picked' && item.pickedQuantity === 0) {
+        return false
+      }
+      if (stockFilterTab === 'low_stock' && item.status !== 'low') {
+        return false
+      }
+      if (stockSearchQuery.trim()) {
+        const q = stockSearchQuery.trim().toLowerCase()
+        return (
+          item.name.toLowerCase().includes(q) ||
+          item.sku.toLowerCase().includes(q) ||
+          item.upc.toLowerCase().includes(q) ||
+          item.location.toLowerCase().includes(q) ||
+          item.zone.toLowerCase().includes(q)
+        )
+      }
+      return true
+    })
+  }, [warehouseStockMap, stockFilterTab, stockSearchQuery])
+
+  // Unique SKUs in current batch
+  const batchSkuSet = useMemo(() => new Set(items.map((it) => it.sku)), [items])
+
+  const lowStockBuyerCount = useMemo(() => {
+    const uniqueSkus = Array.from(batchSkuSet)
+    return uniqueSkus.filter((sku) => warehouseStockMap[sku]?.status === 'low').length
+  }, [batchSkuSet, warehouseStockMap])
+
+  const totalPickedUnits = useMemo(() => {
+    return Object.values(warehouseStockMap).reduce((sum, it) => sum + it.pickedQuantity, 0)
+  }, [warehouseStockMap])
+
+  const lowStockCount = useMemo(() => {
+    return Object.values(warehouseStockMap).filter((it) => it.status === 'low').length
+  }, [warehouseStockMap])
+
+  const handleResetStock = () => {
+    const fresh = resetWarehouseStock(items)
+    setWarehouseStockMap(fresh)
+    setToastMessage(
+      vi
+        ? 'Đã khôi phục số lượng tồn kho ban đầu của toàn bộ sản phẩm!'
+        : 'Warehouse inventory reset to initial stock!',
+    )
+    window.setTimeout(() => setToastMessage(null), 3000)
+  }
+
+  // Channels count in this batch
+  const channelCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    items.forEach((it) => {
+      counts[it.channel] = (counts[it.channel] || 0) + 1
+    })
+    return counts
+  }, [items])
+
+  // Thông tin khách hàng nhận của đợt gom đơn (Mỗi đợt gom từ nhiều sàn cho DUY NHẤT 1 khách hàng)
+  const batchCustomer = useMemo(() => {
+    const firstOrder = batch.orders[0]
+    return {
+      name: batch.customerName || firstOrder?.customerName || 'Trần Văn An',
+      phone: batch.customerPhone || firstOrder?.phone || '0901 882 193',
+      address: batch.customerAddress || firstOrder?.address || '123 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh',
+      ordersCount: batch.orders.length,
+      channelsText: batch.channels.map((c) => c.toUpperCase()).join(' + '),
+    }
+  }, [batch])
+
+  const handleConfirmAssignment = () => {
+    if (modalAssignMode === 'auto') {
+      const bestStaff =
+        warehouseStaffList.find(
+          (s) => s.zone === batch.zone && s.status === 'available',
+        ) ||
+        warehouseStaffList.find((s) => s.zone === batch.zone) ||
+        warehouseStaffList[0] ||
+        WAREHOUSE_STAFF_LIST[0]!
+
+      const newPicker = {
+        name: bestStaff.name,
+        avatar: bestStaff.avatar,
+        initials: bestStaff.initials,
+        code: bestStaff.code,
+        role: bestStaff.role,
+        zone: bestStaff.zone,
+      }
+      setCurrentPicker(newPicker)
+      setAssignmentMode('auto')
+      setAssignModalOpen(false)
+      setStaffSearchQuery('')
+      updateBatchPicker(batch.id, {
+        name: bestStaff.name,
+        avatar: bestStaff.avatar,
+        initials: bestStaff.initials,
+      })
+      setToastMessage(
+        `AI đã tự động phân công nhân viên ${bestStaff.name} (${bestStaff.code}) phụ trách đợt ${batch.id}!`,
+      )
+    } else {
+      const staff =
+        warehouseStaffList.find((s) => s.id === selectedStaffId) ||
+        warehouseStaffList[0] ||
+        WAREHOUSE_STAFF_LIST[0]!
+
+      const newPicker = {
+        name: staff.name,
+        avatar: staff.avatar,
+        initials: staff.initials,
+        code: staff.code,
+        role: staff.role,
+        zone: staff.zone,
+      }
+      setCurrentPicker(newPicker)
+      setAssignmentMode('manual')
+      setAssignModalOpen(false)
+      setStaffSearchQuery('')
+      updateBatchPicker(batch.id, {
+        name: staff.name,
+        avatar: staff.avatar,
+        initials: staff.initials,
+      })
+      setToastMessage(
+        `Đã phân công thủ công nhân viên ${staff.name} (${staff.code}) phụ trách đợt ${batch.id}!`,
+      )
+    }
+    window.setTimeout(() => setToastMessage(null), 4000)
+  }
+
   // Progress metrics
   const pickedCount = useMemo(
     () => items.filter((it) => it.status === 'picked').length,
@@ -265,6 +717,47 @@ function WarehouseFloorView({
 
   // Handle confirm complete batch picking
   const handleConfirmCompleteBatch = () => {
+    // Tự động khấu trừ toàn bộ số lượng còn lại của đợt khỏi kho hàng theo thời gian thực
+    let totalDeductedUnits = 0
+    setWarehouseStockMap((prev) => {
+      const next = { ...prev }
+      items.forEach((it) => {
+        const remainingToPick = Math.max(0, it.qty - it.qtyPicked)
+        if (remainingToPick > 0) {
+          totalDeductedUnits += remainingToPick
+          const itemStock = next[it.sku] || {
+            sku: it.sku,
+            name: it.name,
+            shortName: it.shortName,
+            upc: it.upc,
+            location: it.location,
+            zone: it.zone,
+            rack: it.rack,
+            bin: it.bin,
+            initialStock: 60,
+            pickedQuantity: 0,
+            currentStock: 60,
+            safetyThreshold: 12,
+            imageUrl: it.imageUrl,
+            status: 'optimal' as const,
+            lastUpdatedText: 'Thời gian thực',
+          }
+          const newPicked = itemStock.pickedQuantity + remainingToPick
+          const newStock = Math.max(0, itemStock.initialStock - newPicked)
+          next[it.sku] = {
+            ...itemStock,
+            pickedQuantity: newPicked,
+            currentStock: newStock,
+            status: computeStockStatus(newStock, itemStock.safetyThreshold),
+            lastUpdatedText: 'Vừa hoàn tất đợt',
+            recentDeduction: -remainingToPick,
+          }
+        }
+      })
+      saveStoredWarehouseStock(next)
+      return next
+    })
+
     setItems((prev) =>
       prev.map((it) => ({
         ...it,
@@ -279,10 +772,10 @@ function WarehouseFloorView({
     setCompleteBatchModalOpen(false)
     setToastMessage(
       vi
-        ? `Đã hoàn tất đợt lấy hàng ${batch.id}! Toàn bộ ${items.length} mặt hàng đã sẵn sàng chuyển sang đóng gói.`
-        : `Batch ${batch.id} picking completed! All ${items.length} items ready for packaging.`,
+        ? `Đã hoàn tất đợt lấy hàng ${batch.id}! Kho đã tự động trừ ${totalDeductedUnits} sản phẩm tương ứng, toàn bộ ${items.length} mặt hàng đã sẵn sàng đóng gói.`
+        : `Batch ${batch.id} picking completed! Deducted ${totalDeductedUnits} units from warehouse inventory. All items ready for packaging.`,
     )
-    window.setTimeout(() => setToastMessage(null), 3500)
+    window.setTimeout(() => setToastMessage(null), 4000)
   }
 
   // Handle selecting an item from the right list
@@ -304,11 +797,14 @@ function WarehouseFloorView({
     setCurrentQty((prev) => Math.min(activeItem.qty, prev + 1))
   }
 
-  // Handle confirm picking action
+  // Handle confirm picking action (Quét mã xác nhận lấy hàng -> Trừ kho thực tế)
   const handleConfirmPick = () => {
     if (!activeItem || !canConfirmPick) return
     const isDone = currentQty >= activeItem.qty
     const updatedStatus = isDone ? 'picked' : currentQty > 0 ? 'picking' : 'queued'
+
+    const previouslyPicked = activeItem.qtyPicked
+    const deltaPicked = Math.max(0, currentQty - previouslyPicked)
 
     setItems((prev) =>
       prev.map((it) =>
@@ -322,9 +818,54 @@ function WarehouseFloorView({
       ),
     )
 
-    const notice = `Đã lấy đủ ${currentQty}/${activeItem.qty} ${activeItem.shortName} · ${activeItem.location}`
+    // Khấu trừ số lượng tồn kho theo thời gian thực
+    let remainingStockText = ''
+    if (deltaPicked > 0) {
+      setWarehouseStockMap((prev) => {
+        const next = { ...prev }
+        const existing = next[activeItem.sku] || {
+          sku: activeItem.sku,
+          name: activeItem.name,
+          shortName: activeItem.shortName,
+          upc: activeItem.upc,
+          location: activeItem.location,
+          zone: activeItem.zone,
+          rack: activeItem.rack,
+          bin: activeItem.bin,
+          initialStock: 60,
+          pickedQuantity: 0,
+          currentStock: 60,
+          safetyThreshold: 12,
+          imageUrl: activeItem.imageUrl,
+          status: 'optimal' as const,
+          lastUpdatedText: 'Thời gian thực',
+        }
+
+        const newPicked = existing.pickedQuantity + deltaPicked
+        const newStock = Math.max(0, existing.initialStock - newPicked)
+        next[activeItem.sku] = {
+          ...existing,
+          pickedQuantity: newPicked,
+          currentStock: newStock,
+          status: computeStockStatus(newStock, existing.safetyThreshold),
+          lastUpdatedText: 'Vừa trừ xong',
+          recentDeduction: -deltaPicked,
+        }
+        remainingStockText = `${newStock} chiếc`
+        saveStoredWarehouseStock(next)
+        return next
+      })
+
+      setLastDeductedSku(activeItem.sku)
+      window.setTimeout(() => setLastDeductedSku(null), 4000)
+    }
+
+    const currentRemaining = warehouseStockMap[activeItem.sku]?.currentStock ?? 50
+    const finalStockDisplay = remainingStockText || `${Math.max(0, currentRemaining - deltaPicked)} chiếc`
+
+    const notice = `Đã lấy đủ ${currentQty}/${activeItem.qty} ${activeItem.shortName} · Kho đã tự động trừ -${deltaPicked} chiếc (Tồn thực tế tại ${activeItem.location}: ${finalStockDisplay})`
     setToastMessage(notice)
-    window.setTimeout(() => setToastMessage(null), 3000)
+    window.setTimeout(() => setToastMessage(null), 3500)
 
     // Automatically advance to the next unpicked item if this one is done
     if (isDone) {
@@ -386,6 +927,12 @@ function WarehouseFloorView({
     }
   }, [items, sortMode])
 
+  // Items filtered by channel
+  const displayedItems = useMemo(() => {
+    if (channelFilter === 'all') return sortedItems
+    return sortedItems.filter((it) => it.channel === channelFilter)
+  }, [sortedItems, channelFilter])
+
   // Cycle sort mode
   const handleCycleSort = () => {
     const modes: SortMode[] = ['route', 'bin', 'name', 'status']
@@ -403,73 +950,66 @@ function WarehouseFloorView({
   return (
     <div className="flex-1 overflow-auto bg-[#F9FAFB] p-4 sm:p-6 dark:bg-[#0B0E14]">
       <div className="mx-auto max-w-7xl space-y-4">
-        {/* Subheader with Batch info & Navigation back & Batch selector */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* Top Header Card: Navigation & Batch Selection & Main Actions */}
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between rounded-2xl border border-slate-200/90 bg-white p-3 sm:px-4 sm:py-3 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+          {/* Left: Back Link & Batch Switcher & Customer Info */}
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-xs">
+            {/* Back Button */}
             <Link
               to="/app/orders"
-              className="inline-flex items-center gap-1.5 font-medium text-slate-600 transition-colors hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 hover:text-blue-600 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:text-blue-400 cursor-pointer transition-colors"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span>{vi ? 'Quay lại Đơn đa kênh' : 'Back to Orders'}</span>
             </Link>
-            <span className="text-slate-300 dark:text-slate-700">|</span>
-            <span className="font-semibold text-slate-800 dark:text-slate-200">
-              {batch.id}
-            </span>
-            <span className="rounded bg-blue-100 px-2 py-0.5 font-semibold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-              {batch.zone}
-            </span>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-600 dark:text-slate-300">
-              {vi ? 'NV phụ trách:' : 'Picker:'} <strong>{batch.picker.name}</strong>
-            </span>
-            <span className="text-slate-400">·</span>
-            <span className="text-slate-600 dark:text-slate-300">
-              {vi ? 'Khách đặt:' : 'Customer:'}{' '}
-              <strong className="text-slate-900 dark:text-slate-100">
-                {batch.orders.map((o) => o.customerName).join(', ')}
-              </strong>
-            </span>
-          </div>
 
-          <div className="flex items-center gap-2">
-            {/* Batch Switcher Dropdown */}
+            <span className="hidden sm:inline-block h-4 w-[1px] bg-slate-200 dark:bg-slate-700" />
+
+            {/* Batch Selector Dropdown */}
             <div className="relative">
               <select
                 value={batch.id}
                 onChange={(e) => navigate(`/app/warehouse?batchId=${e.target.value}&action=start`)}
-                className="h-8.5 cursor-pointer appearance-none rounded-lg border border-slate-200 bg-white pl-2.5 pr-7 text-xs font-medium text-slate-700 shadow-xs transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-surface-1 dark:text-slate-300"
+                className="h-8.5 cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white pl-2.5 pr-7 text-xs font-bold text-slate-800 shadow-2xs transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200 font-mono"
               >
-                {initialPickingBatches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.id} · {b.orders[0]?.customerName ?? b.picker.name} ({b.itemsCount} SP)
-                  </option>
-                ))}
+                {getStoredBatches().map((b) => {
+                  const bItems = b.id === batch.id ? items.length : b.skusCount
+                  const bUnits = b.id === batch.id ? totalUnitsTotal : b.itemsCount
+                  return (
+                    <option key={b.id} value={b.id}>
+                      {b.id} ({bItems} mặt hàng · {bUnits} SP)
+                    </option>
+                  )
+                })}
               </select>
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
             </div>
 
-            {/* View Customer Details Button */}
+            {/* Warehouse Tag */}
+            <span className="rounded-lg bg-blue-50 border border-blue-200/80 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300">
+              Kho tổng chung
+            </span>
+
+            {/* Consolidated Customer Button */}
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 font-medium text-blue-700 shadow-xs hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300 cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200/90 bg-purple-50/70 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100 hover:border-purple-300 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 cursor-pointer transition-colors"
+              title={`Khách nhận: ${batchCustomer.name} (${batchCustomer.phone}). Đã gom ${batchCustomer.ordersCount} đơn đa kênh. Bấm xem chi tiết!`}
             >
-              <User className="h-3.5 w-3.5" />
-              <span>{vi ? 'Chi tiết người đặt' : 'Customer Info'}</span>
+              <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+              <span>{vi ? 'Khách nhận:' : 'Customer:'}</span>
+              <strong className="font-bold text-purple-950 dark:text-purple-100 underline decoration-dotted underline-offset-2">
+                {batchCustomer.name}
+              </strong>
+              <span className="rounded-full bg-purple-200/80 px-1.5 py-0.2 text-[10px] font-bold text-purple-800 dark:bg-purple-900/60 dark:text-purple-200">
+                Gộp {batchCustomer.ordersCount} đơn
+              </span>
             </button>
+          </div>
 
-            {/* Single primary action on Top Bar: Hoàn tất lấy hàng */}
-            <button
-              type="button"
-              onClick={handleOpenCompleteModal}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#2563eb] px-3 py-1.5 font-semibold text-xs text-white shadow-xs hover:bg-[#1d4ed8] active:bg-[#1e40af] transition-colors cursor-pointer"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>{vi ? 'Hoàn tất lấy hàng' : 'Complete Batch Picking'}</span>
-            </button>
-
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2 self-end lg:self-auto shrink-0 text-xs">
             {/* Reset Button */}
             <button
               type="button"
@@ -485,13 +1025,168 @@ function WarehouseFloorView({
                   )
                 }
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-600 shadow-xs hover:bg-slate-50 dark:border-slate-800 dark:bg-surface-1 dark:text-slate-300"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-2xs hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+              title="Đặt lại tiến độ nhặt hàng về ban đầu"
             >
-              <RotateCcw className="h-3 w-3" />
+              <RotateCcw className="h-3.5 w-3.5 text-slate-500" />
               <span>{vi ? 'Đặt lại' : 'Reset'}</span>
+            </button>
+
+            {/* Complete Batch Picking Button */}
+            <button
+              type="button"
+              disabled={!isAllPicked}
+              onClick={isAllPicked ? handleOpenCompleteModal : undefined}
+              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-bold text-white shadow-xs transition-colors ${
+                isAllPicked
+                  ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 cursor-pointer'
+                  : 'bg-slate-300 opacity-60 cursor-not-allowed dark:bg-slate-700 dark:text-slate-400'
+              }`}
+              title={
+                !isAllPicked
+                  ? vi
+                    ? `Cần lấy đủ tất cả ${items.length} mặt hàng trước khi hoàn tất (${pickedCount}/${items.length})`
+                    : `Pick all ${items.length} items first (${pickedCount}/${items.length})`
+                  : undefined
+              }
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>{vi ? 'Hoàn tất lấy hàng' : 'Complete Batch Picking'}</span>
             </button>
           </div>
         </div>
+
+        {/* Coordination Card: Staff Assignment & Omnichannel Platform Breakdown */}
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            {/* Left: Batch Info & Omnichannel Breakdown */}
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-base font-bold text-slate-900 dark:text-slate-100">
+                  {batch.id}
+                </span>
+                <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                  Kho tổng chung
+                </span>
+                <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
+                </span>
+                <span className="text-xs text-slate-400">·</span>
+                <span className="inline-flex items-center gap-1 text-xs text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300 font-semibold px-2 py-0.5 rounded">
+                  <Sparkles className="h-3 w-3" />
+                  Gộp {batchCustomer.ordersCount} đơn đa sàn cho khách: <strong className="text-purple-950 dark:text-purple-100">{batchCustomer.name}</strong>
+                </span>
+              </div>
+
+              {/* Omnichannel Platforms Representation */}
+              <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                <span className="text-xs text-slate-500 font-medium">
+                  {vi ? 'Nền tảng trong đợt:' : 'Channels in batch:'}
+                </span>
+                {Object.entries(channelCounts).map(([ch, count]) => (
+                  <div
+                    key={ch}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/60"
+                  >
+                    {renderChannelBadge(
+                      ch as 'shopee' | 'tiktok' | 'lazada' | 'facebook',
+                      'sm',
+                    )}
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">
+                      {count} {vi ? 'vật phẩm' : 'items'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Right: Assigned Staff & Manual Assignment CTA */}
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:px-4 sm:py-3 dark:border-slate-700 dark:bg-surface-2/40">
+              <div className="flex items-center gap-3">
+                {currentPicker.avatar ? (
+                  <img
+                    src={currentPicker.avatar}
+                    alt={currentPicker.name}
+                    className="h-10 w-10 rounded-full object-cover ring-2 ring-blue-500/30"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                    {currentPicker.initials}
+                  </div>
+                )}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
+                      {currentPicker.name}
+                    </p>
+                    {assignmentMode === 'auto' ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                        <Sparkles className="h-3 w-3 text-emerald-600" />
+                        Tự động phân công (AI)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10.5px] font-semibold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                        <UserCheck className="h-3 w-3 text-blue-600" />
+                        Phân công thủ công
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    {currentPicker.code} · {currentPicker.role}
+                  </p>
+                </div>
+              </div>
+
+              {/* Nút Phân công thủ công */}
+              <button
+                type="button"
+                onClick={() => {
+                  setModalAssignMode(assignmentMode)
+                  const matched = warehouseStaffList.find((s) => s.name === currentPicker.name) || WAREHOUSE_STAFF_LIST.find((s) => s.name === currentPicker.name)
+                  if (matched) setSelectedStaffId(matched.id)
+                  setStaffSearchQuery('')
+                  setAssignModalOpen(true)
+                }}
+                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 dark:border-slate-600 dark:bg-surface-1 dark:text-slate-200 cursor-pointer transition-colors"
+                title="Thay đổi nhân viên lấy hàng"
+              >
+                <Users className="h-3.5 w-3.5 text-blue-600" />
+                <span>{vi ? 'Phân công thủ công' : 'Manual Assign'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SLA Alert Banner for Express or Delayed Packing Orders */}
+        {batch.orderType === 'express' ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2.5 text-xs text-amber-950 shadow-xs dark:border-amber-700/80 dark:from-amber-950/40 dark:to-orange-950/20">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white shadow-xs">
+                <Zap className="h-3.5 w-3.5 fill-white" />
+              </span>
+              <span>
+                <strong>⚡ ĐỢT LẤY HÀNG HỎA TỐC:</strong> Bắt buộc nhân viên hoàn thành lấy hàng và đóng gói trong vòng <strong>4 tiếng</strong> (Hạn chót: <strong>{batch.slaDetail?.deadlineText ?? '12:15'}</strong>). Tiếp nhận trong giờ hành chính (08:00 - 17:30).
+              </span>
+            </div>
+            <span className="rounded-md bg-amber-200/90 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+              {batch.slaDetail?.remainingText ?? 'SLA 4h'}
+            </span>
+          </div>
+        ) : batch.orderType === 'delayed_packing' ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-300 bg-gradient-to-r from-rose-50 to-red-50 px-4 py-2.5 text-xs text-rose-950 shadow-xs dark:border-rose-700/80 dark:from-rose-950/40 dark:to-red-950/20">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white shadow-xs">
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </span>
+              <span>
+                <strong>⚠️ CẢNH BÁO QUÁ HẠN:</strong> Đơn hàng bình thường đã trễ thời gian đóng gói quy định (+45 phút). Vui lòng hoàn tất lấy hàng ngay để chuyển sang đóng gói khẩn cấp!
+              </span>
+            </div>
+            <span className="rounded-md bg-rose-200 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 animate-pulse">
+              {batch.slaDetail?.deadlineText ?? 'Quá hạn 45 phút'}
+            </span>
+          </div>
+        ) : null}
 
         {/* Toast Notification */}
         {toastMessage ? (
@@ -537,19 +1232,62 @@ function WarehouseFloorView({
                 <div className="mt-6 flex flex-col sm:flex-row items-center sm:items-start gap-5">
                   <ProductThumb src={activeItem.imageUrl} alt={activeItem.name} />
 
-                  <div className="flex-1 text-center sm:text-left">
+                  <div className="flex-1 text-center sm:text-left space-y-2.5">
                     <h2 className="text-xl font-bold text-slate-900 leading-snug dark:text-slate-100">
                       {activeItem.name}
                     </h2>
-                    <div className="mt-2.5 flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1 font-mono text-xs text-slate-500 dark:text-slate-400">
+                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1 font-mono text-xs text-slate-500 dark:text-slate-400">
                       <span>Mã SKU: {activeItem.sku}</span>
                       <span>Mã UPC: {activeItem.upc}</span>
                     </div>
 
-                    <p className="mt-1.5 text-xs text-slate-400 dark:text-slate-500">
-                      Đơn hàng: <strong className="text-slate-700 dark:text-slate-300">#{activeItem.orderId}</strong> · Khách:{' '}
-                      <strong className="text-slate-800 dark:text-slate-200">{activeItem.customerName}</strong>
-                    </p>
+                    {/* Rõ ràng nền tảng đặt hàng & Đơn hàng của vật phẩm này */}
+                    <div className="inline-flex flex-wrap items-center justify-center sm:justify-start gap-2 rounded-xl bg-slate-50 px-3 py-2 border border-slate-200/80 dark:bg-slate-800/40 dark:border-slate-700/60 text-xs">
+                      <span className="text-slate-500 font-medium">{vi ? 'Nền tảng đặt hàng:' : 'Channel:'}</span>
+                      {renderChannelBadge(activeItem.channel)}
+                      <span className="text-slate-300 dark:text-slate-600">·</span>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        Đơn #{activeItem.orderId}
+                      </span>
+                      <span className="text-slate-300 dark:text-slate-600">·</span>
+                      <span className="text-slate-600 dark:text-slate-300">
+                        Người nhận: <strong>{batchCustomer.name}</strong>
+                      </span>
+                    </div>
+
+                    {/* Tình trạng tồn kho theo thời gian thực của sản phẩm mục tiêu */}
+                    <div className="inline-flex flex-wrap items-center justify-center sm:justify-start gap-2 rounded-xl bg-blue-50/70 px-3 py-2 border border-blue-200/80 dark:bg-blue-950/30 dark:border-blue-800/60 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-blue-900 dark:text-blue-200">
+                        <Boxes className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span>{vi ? 'Tồn kho thực tế:' : 'Live Stock:'}</span>
+                      </div>
+                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-surface-1 px-2 py-0.5 rounded border border-blue-200 dark:border-slate-700 shadow-2xs">
+                        {activeStock?.currentStock ?? 50} chiếc
+                      </span>
+                      <span className="text-slate-500 text-[11px]">
+                        (Sau khi lấy {currentQty || activeItem.qty} còn:{' '}
+                        <strong className="text-slate-900 dark:text-slate-100 font-mono">
+                          {Math.max(0, (activeStock?.currentStock ?? 50) - (currentQty || activeItem.qty))}
+                        </strong>{' '}
+                        chiếc)
+                      </span>
+                      {activeStock?.status === 'low' ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300 animate-pulse">
+                          <AlertTriangle className="h-3 w-3" />
+                          Sắp hết hàng
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Đủ hàng tại kệ
+                        </span>
+                      )}
+                      {activeStock?.recentDeduction && lastDeductedSku === activeItem.sku && (
+                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 animate-bounce">
+                          {activeStock.recentDeduction} vừa trừ
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -575,6 +1313,14 @@ function WarehouseFloorView({
                         type="text"
                         value={barcodeInput}
                         onChange={(e) => setBarcodeInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            if (activeItem && barcodeInput.trim() === activeItem.upc) {
+                              setCurrentQty(activeItem.qty)
+                            }
+                          }
+                        }}
                         placeholder={activeItem.upc}
                         className="w-full bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
                       />
@@ -588,7 +1334,12 @@ function WarehouseFloorView({
                     ) : (
                       <button
                         type="button"
-                        onClick={() => setBarcodeInput(activeItem.upc)}
+                        onClick={() => {
+                          setBarcodeInput(activeItem.upc)
+                          if (currentQty < activeItem.qty) {
+                            setCurrentQty(activeItem.qty)
+                          }
+                        }}
                         className="font-medium text-xs text-slate-400 hover:text-blue-600 dark:text-slate-500 shrink-0 cursor-pointer transition-colors"
                       >
                         — CHƯA XÁC MINH (Click để khớp)
@@ -661,8 +1412,8 @@ function WarehouseFloorView({
                     </span>
                   </p>
                 )}
-              </div>
-            ) : null}
+            </div>
+          ) : null}
 
             {/* Exception Banner below Left Card */}
             <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] p-3.5 sm:p-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/20 shadow-xs">
@@ -690,124 +1441,178 @@ function WarehouseFloorView({
           <div className="lg:col-span-5 xl:col-span-5">
             <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm dark:border-slate-800 dark:bg-surface-1">
               {/* List Header */}
-              <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-baseline gap-2">
-                  <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                    Danh sách lấy hàng
-                  </h3>
-                  <span className="text-xs text-slate-500 font-normal dark:text-slate-400">
-                    {items.length} Mặt hàng
-                  </span>
+              <div className="space-y-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                      Danh sách lấy hàng
+                    </h3>
+                    <p className="text-xs text-slate-500 font-medium dark:text-slate-400 mt-0.5 whitespace-nowrap">
+                      {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleCycleSort}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer dark:text-blue-400 whitespace-nowrap shrink-0 mt-0.5"
+                  >
+                    Sắp xếp: {sortLabel}
+                  </button>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleCycleSort}
-                  className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer dark:text-blue-400"
-                >
-                  Sắp xếp: {sortLabel}
-                </button>
+                {/* Filter Tabs by Channel Platform */}
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setChannelFilter('all')}
+                    className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                      channelFilter === 'all'
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                    }`}
+                  >
+                    Tất cả ({items.length})
+                  </button>
+                  {Object.entries(channelCounts).map(([ch, count]) => (
+                    <button
+                      key={ch}
+                      type="button"
+                      onClick={() => setChannelFilter(ch)}
+                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                        channelFilter === ch
+                          ? 'ring-2 ring-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 font-bold'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                      }`}
+                    >
+                      <span className="capitalize">{ch}</span> ({count})
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Items Stack */}
-              <div className="mt-4 space-y-2.5 max-h-[640px] overflow-y-auto pr-1">
-                {sortedItems.map((item) => {
-                  const isActive = item.id === activeItemId
-                  const isPicked = item.status === 'picked'
+              <div className="mt-3 space-y-2 max-h-[380px] lg:max-h-[420px] overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
+                {displayedItems.length > 0 ? (
+                  displayedItems.map((item) => {
+                    const isActive = item.id === activeItemId
+                    const isPicked = item.status === 'picked'
 
-                  // 1. ACTIVE ITEM (Thick blue border)
-                  if (isActive) {
+                    // 1. ACTIVE ITEM (Thick blue border)
+                    if (isActive) {
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleSelectItem(item)}
+                          className="rounded-xl border-2 border-[#3b82f6] bg-[#f8faff] p-3 sm:p-3.5 flex items-center justify-between cursor-pointer shadow-xs dark:bg-blue-950/20 transition-all"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 pr-2">
+                            <TargetScanIcon />
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="font-semibold text-xs text-slate-900 truncate dark:text-slate-100">
+                                  {item.shortName}
+                                </p>
+                                {renderChannelBadge(item.channel, 'sm')}
+                              </div>
+                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                <span>{item.sku}</span>
+                                <span>·</span>
+                                <span className="font-semibold text-slate-700 dark:text-slate-300">
+                                  #{item.orderId}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className="rounded-full bg-[#3b82f6] text-white px-3 py-1 font-mono font-bold text-xs shadow-xs shrink-0">
+                            {item.qtyPicked} / {item.qty}
+                          </span>
+                        </div>
+                      )
+                    }
+
+                    // 2. COMPLETED ITEM (Soft green card)
+                    if (isPicked) {
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => handleSelectItem(item)}
+                          className="rounded-xl border border-emerald-200 bg-[#ecfdf5] p-3 sm:p-3.5 flex items-center justify-between cursor-pointer transition-colors hover:bg-emerald-100/70 dark:border-emerald-800/80 dark:bg-emerald-950/20"
+                        >
+                          <div className="flex items-center gap-3 min-w-0 pr-2">
+                            <PickedCheckIcon />
+                            <div className="min-w-0 space-y-0.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="font-medium text-xs text-slate-800 truncate dark:text-slate-200">
+                                  {item.shortName}
+                                </p>
+                                {renderChannelBadge(item.channel, 'sm')}
+                              </div>
+                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                <span>{item.sku}</span>
+                                <span>·</span>
+                                <span>#{item.orderId}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className="rounded-full bg-[#16a34a] text-white px-3 py-1 font-mono font-bold text-xs shadow-xs shrink-0">
+                            {item.qtyPicked} / {item.qty}
+                          </span>
+                        </div>
+                      )
+                    }
+
+                    // 3. PENDING ITEM (White/slate card)
                     return (
                       <div
                         key={item.id}
                         onClick={() => handleSelectItem(item)}
-                        className="rounded-xl border-2 border-[#3b82f6] bg-[#f8faff] p-3 sm:p-3.5 flex items-center justify-between cursor-pointer shadow-xs dark:bg-blue-950/20 transition-all"
+                        className="rounded-xl border border-slate-200 bg-white p-3 sm:p-3.5 flex items-center justify-between cursor-pointer transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-surface-1"
                       >
                         <div className="flex items-center gap-3 min-w-0 pr-2">
-                          <TargetScanIcon />
-                          <div className="min-w-0">
-                            <p className="font-semibold text-xs text-slate-900 truncate dark:text-slate-100">
-                              {item.shortName}
-                            </p>
-                            <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                              {item.sku}
-                            </p>
+                          <UnpickedCircleIcon />
+                          <div className="min-w-0 space-y-0.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="font-medium text-xs text-slate-700 truncate dark:text-slate-300">
+                                {item.shortName}
+                              </p>
+                              {renderChannelBadge(item.channel, 'sm')}
+                            </div>
+                            <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                              <span>{item.sku}</span>
+                              <span>·</span>
+                              <span>#{item.orderId}</span>
+                            </div>
                           </div>
                         </div>
 
-                        <span className="rounded-full bg-[#3b82f6] text-white px-3 py-1 font-mono font-bold text-xs shadow-xs shrink-0">
+                        <span className="rounded-full border border-slate-200 bg-[#f8fafc] text-slate-600 px-3 py-1 font-mono font-medium text-xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-400 shrink-0">
                           {item.qtyPicked} / {item.qty}
                         </span>
                       </div>
                     )
-                  }
-
-                  // 2. COMPLETED ITEM (Soft green card)
-                  if (isPicked) {
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => handleSelectItem(item)}
-                        className="rounded-xl border border-emerald-200 bg-[#ecfdf5] p-3 sm:p-3.5 flex items-center justify-between cursor-pointer transition-colors hover:bg-emerald-100/70 dark:border-emerald-800/80 dark:bg-emerald-950/20"
-                      >
-                        <div className="flex items-center gap-3 min-w-0 pr-2">
-                          <PickedCheckIcon />
-                          <div className="min-w-0">
-                            <p className="font-medium text-xs text-slate-800 truncate dark:text-slate-200">
-                              {item.shortName}
-                            </p>
-                            <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                              {item.sku}
-                            </p>
-                          </div>
-                        </div>
-
-                        <span className="rounded-full bg-[#16a34a] text-white px-3 py-1 font-mono font-bold text-xs shadow-xs shrink-0">
-                          {item.qtyPicked} / {item.qty}
-                        </span>
-                      </div>
-                    )
-                  }
-
-                  // 3. PENDING ITEM (White/slate card)
-                  return (
-                    <div
-                      key={item.id}
-                      onClick={() => handleSelectItem(item)}
-                      className="rounded-xl border border-slate-200 bg-white p-3 sm:p-3.5 flex items-center justify-between cursor-pointer transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-surface-1"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 pr-2">
-                        <UnpickedCircleIcon />
-                        <div className="min-w-0">
-                          <p className="font-medium text-xs text-slate-700 truncate dark:text-slate-300">
-                            {item.shortName}
-                          </p>
-                          <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                            {item.sku}
-                          </p>
-                        </div>
-                      </div>
-
-                      <span className="rounded-full border border-slate-200 bg-[#f8fafc] text-slate-600 px-3 py-1 font-mono font-medium text-xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-400 shrink-0">
-                        {item.qtyPicked} / {item.qty}
-                      </span>
-                    </div>
-                  )
-                })}
+                  })
+                ) : (
+                  <div className="py-8 text-center text-xs text-slate-400">
+                    Không có vật phẩm nào cho nền tảng này
+                  </div>
+                )}
               </div>
 
               {/* Footer with Accurate Picking Progress & Single Primary Action */}
               <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between text-xs font-medium">
-                  <span className="text-slate-600 dark:text-slate-300">
+                <div className="flex items-center justify-between text-xs font-medium gap-2">
+                  <span className="text-slate-600 dark:text-slate-300 whitespace-nowrap">
                     Tiến độ:{' '}
                     <strong className="text-slate-900 dark:text-slate-100">
                       {pickedCount}/{items.length}
                     </strong>{' '}
                     mặt hàng ({pickedPercent}%)
                   </span>
-                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                    {totalUnitsPicked}/{totalUnitsTotal} đơn vị
+                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                    {totalUnitsPicked}/{totalUnitsTotal} sản phẩm
                   </span>
                 </div>
                 <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
@@ -820,14 +1625,532 @@ function WarehouseFloorView({
                 {/* Single Primary Action: Hoàn tất lấy hàng */}
                 <button
                   type="button"
-                  onClick={handleOpenCompleteModal}
-                  className="w-full h-11 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] text-white font-semibold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer select-none"
+                  disabled={!isAllPicked}
+                  onClick={isAllPicked ? handleOpenCompleteModal : undefined}
+                  className={`w-full h-11 rounded-xl text-white font-semibold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition-all select-none ${
+                    isAllPicked
+                      ? 'bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] cursor-pointer'
+                      : 'bg-slate-400 opacity-50 cursor-not-allowed dark:bg-slate-600'
+                  }`}
+                  title={
+                    !isAllPicked
+                      ? vi
+                        ? `Cần lấy đủ tất cả ${items.length} mặt hàng trước khi hoàn tất (${pickedCount}/${items.length})`
+                        : `Pick all ${items.length} items first (${pickedCount}/${items.length})`
+                      : undefined
+                  }
                 >
                   <CheckCircle2 className="h-4.5 w-4.5" />
                   <span>{vi ? 'Hoàn tất lấy hàng' : 'Complete Batch Picking'}</span>
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* ==================================================== */}
+        {/* MỤC TÌNH TRẠNG CỦA KHO (REAL-TIME WAREHOUSE INVENTORY) */}
+        {/* ==================================================== */}
+        <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm dark:border-slate-800 dark:bg-surface-1 space-y-4">
+          {/* Header with Title & View Mode Switcher */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3.5 dark:border-slate-800">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 shrink-0">
+                <ShoppingBag className="h-5 w-5" />
+              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  {inventoryViewMode === 'buyer_items'
+                    ? (vi ? 'Tình trạng kho các mặt hàng người mua đặt' : 'Buyer Items Warehouse Stock Status')
+                    : (vi ? 'Tình trạng tồn kho toàn bộ kho hàng' : 'All Warehouse Stock Status')}
+                </h3>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 shrink-0">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                  {vi ? 'Thời gian thực (Live Sync)' : 'Real-time Live Sync'}
+                </span>
+              </div>
+            </div>
+
+            {/* View Mode Toggle: Buyer Items vs All Warehouse */}
+            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100/90 p-0.5 text-xs dark:border-slate-700 dark:bg-surface-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setInventoryViewMode('buyer_items')
+                  setStockFilterTab('all')
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all cursor-pointer ${
+                  inventoryViewMode === 'buyer_items'
+                    ? 'bg-white text-blue-700 shadow-xs dark:bg-surface-1 dark:text-blue-300'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'
+                }`}
+                title="Chỉ hiển thị các vật phẩm mà khách hàng đã đặt trong đợt này"
+              >
+                <ShoppingBag className="h-3.5 w-3.5 text-blue-600" />
+                <span>{vi ? `Vật phẩm người mua (${items.length})` : `Buyer Items (${items.length})`}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInventoryViewMode('all_warehouse')
+                  setStockFilterTab('all')
+                }}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition-all cursor-pointer ${
+                  inventoryViewMode === 'all_warehouse'
+                    ? 'bg-white text-blue-700 shadow-xs dark:bg-surface-1 dark:text-blue-300'
+                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'
+                }`}
+                title="Xem toàn bộ danh mục sản phẩm trong kho"
+              >
+                <Boxes className="h-3.5 w-3.5 text-slate-500" />
+                <span>{vi ? `Toàn bộ kho (${Object.keys(warehouseStockMap).length})` : `All Warehouse (${Object.keys(warehouseStockMap).length})`}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Tabs & Search / Reset Bar */}
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between text-xs">
+            {/* Left: Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setStockFilterTab('all')}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                  stockFilterTab === 'all'
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+              >
+                {inventoryViewMode === 'buyer_items'
+                  ? (vi ? `Tất cả vật phẩm khách mua (${items.length})` : `All Buyer Items (${items.length})`)
+                  : (vi ? `Tất cả sản phẩm kho (${Object.keys(warehouseStockMap).length})` : `All Warehouse Items (${Object.keys(warehouseStockMap).length})`)}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStockFilterTab('pending')}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                  stockFilterTab === 'pending'
+                    ? 'bg-amber-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+              >
+                <span>{vi ? 'Chưa lấy xong' : 'Pending Pick'}</span>
+                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
+                  {inventoryViewMode === 'buyer_items'
+                    ? items.length - pickedCount
+                    : allWarehouseInventoryList.length}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStockFilterTab('picked')}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                  stockFilterTab === 'picked'
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+              >
+                <span>{vi ? 'Đã lấy đủ & Đã trừ kho' : 'Picked & Deducted'}</span>
+                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
+                  {inventoryViewMode === 'buyer_items' ? pickedCount : totalPickedUnits}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setStockFilterTab('low_stock')}
+                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
+                  stockFilterTab === 'low_stock'
+                    ? 'bg-rose-600 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
+                }`}
+              >
+                <span>{vi ? 'Kho sắp hết hàng' : 'Low Stock'}</span>
+                {(inventoryViewMode === 'buyer_items' ? lowStockBuyerCount : lowStockCount) > 0 && (
+                  <span className="rounded-full bg-rose-200 text-rose-900 px-1.5 py-0.2 text-[10px] font-bold">
+                    {inventoryViewMode === 'buyer_items' ? lowStockBuyerCount : lowStockCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Right: Search & Reset */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Search */}
+              <div className="relative min-w-[210px] sm:w-56">
+                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={stockSearchQuery}
+                  onChange={(e) => setStockSearchQuery(e.target.value)}
+                  placeholder={
+                    inventoryViewMode === 'buyer_items'
+                      ? (vi ? 'Tìm tên khách, mã đơn, SKU...' : 'Search buyer, order, SKU...')
+                      : (vi ? 'Tìm SKU, tên sản phẩm, kệ...' : 'Search SKU, name, bin...')
+                  }
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-8.5 pr-7 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
+                />
+                {stockSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setStockSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+
+              {/* Reset Stock */}
+              <button
+                type="button"
+                onClick={handleResetStock}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 cursor-pointer"
+                title="Khôi phục lại số lượng tồn kho ban đầu"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-slate-500" />
+                <span>{vi ? 'Đặt lại kho' : 'Reset Stock'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Real-time Inventory Data Table */}
+          <div className="overflow-x-auto max-h-[300px] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
+            {inventoryViewMode === 'buyer_items' ? (
+              <table className="w-full min-w-[850px] text-left text-xs">
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-surface-2 shadow-2xs">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider dark:border-slate-800 dark:bg-surface-2 dark:text-slate-400">
+                    <th className="px-4 py-3">SẢN PHẨM & SKU</th>
+                    <th className="px-3 py-3">SÀN & ĐƠN HÀNG (CÙNG KHÁCH)</th>
+                    <th className="px-3 py-3">VỊ TRÍ KHO</th>
+                    <th className="px-3 py-3 text-center">SL KHÁCH ĐẶT</th>
+                    <th className="px-3 py-3 text-center">ĐÃ LẤY & TRỪ KHO</th>
+                    <th className="px-3 py-3 text-center">TỒN THỰC TẾ (REAL-TIME)</th>
+                    <th className="px-3 py-3 text-center">TÌNH TRẠNG KHO</th>
+                    <th className="px-3 py-3 text-right">THAO TÁC</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {buyerInventoryList.length > 0 ? (
+                    buyerInventoryList.map((item) => {
+                      const stock = warehouseStockMap[item.sku]
+                      const isJustDeducted = lastDeductedSku === item.sku
+                      const isPickedDone = item.status === 'picked'
+                      const isCurrentlyActive = item.id === activeItemId
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`transition-colors ${
+                            isCurrentlyActive
+                              ? 'bg-blue-50/70 dark:bg-blue-950/30'
+                              : isJustDeducted
+                                ? 'bg-amber-50/80 dark:bg-amber-950/30'
+                                : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+                          }`}
+                        >
+                          {/* 1. PRODUCT */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={item.imageUrl}
+                                alt={item.name}
+                                className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
+                              />
+                              <div className="min-w-0 space-y-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <p className="font-bold text-xs text-slate-900 truncate dark:text-slate-100 max-w-[200px]">
+                                    {item.shortName}
+                                  </p>
+                                  {isCurrentlyActive && (
+                                    <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                      Đang chọn
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                  SKU: {item.sku} · UPC: {item.upc}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 2. BUYER & ORDER */}
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            <div className="space-y-1">
+                              <div className="flex items-center gap-1.5">
+                                {renderChannelBadge(item.channel, 'sm')}
+                                <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
+                                  #{item.orderId}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                Khách: <strong className="text-slate-800 dark:text-slate-200">{item.customerName}</strong>
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* 3. LOCATION */}
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-mono font-semibold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200">
+                              <MapPin className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                              <span>{item.location}</span>
+                            </div>
+                          </td>
+
+                          {/* 4. ORDERED QTY */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
+                            {item.qty} chiếc
+                          </td>
+
+                          {/* 5. PICKED & DEDUCTED */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <div className="inline-flex flex-col items-center gap-0.5">
+                              <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                                {item.qtyPicked}/{item.qty} chiếc
+                              </span>
+                              {isPickedDone ? (
+                                <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                  <Check className="h-3 w-3 stroke-[3]" />
+                                  Đã trừ (-{item.qty})
+                                </span>
+                              ) : item.qtyPicked > 0 ? (
+                                <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                                  Đang lấy (-{item.qtyPicked})
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400">Chờ quét</span>
+                              )}
+                              {isJustDeducted && (
+                                <span className="rounded bg-rose-100 px-1 py-0.2 text-[10px] font-bold text-rose-700 animate-pulse">
+                                  Vừa trừ kho
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 6. CURRENT REAL-TIME STOCK */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <div>
+                              <span className={`font-mono text-sm font-extrabold ${
+                                stock?.status === 'low'
+                                  ? 'text-rose-600 dark:text-rose-400'
+                                  : stock?.status === 'moderate'
+                                    ? 'text-amber-600 dark:text-amber-400'
+                                    : 'text-emerald-700 dark:text-emerald-400'
+                              }`}>
+                                {stock?.currentStock ?? 50} chiếc
+                              </span>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                                Sau xuất: {Math.max(0, (stock?.currentStock ?? 50) - (item.qty - item.qtyPicked))} chiếc
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* 7. STOCK STATUS */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            {stock?.status === 'low' ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 animate-pulse">
+                                <AlertTriangle className="h-3 w-3" />
+                                Sắp hết hàng
+                              </span>
+                            ) : stock?.status === 'moderate' ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                Mức an toàn
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                Đủ hàng tại kệ
+                              </span>
+                            )}
+                          </td>
+
+                          {/* 8. ACTIONS */}
+                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                            {isPickedDone ? (
+                              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
+                                <CheckCircle2 className="h-4 w-4" />
+                                <span>Đã xong</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleSelectItem(item)
+                                  window.scrollTo({ top: 0, behavior: 'smooth' })
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 cursor-pointer transition-colors shadow-2xs"
+                              >
+                                <TargetScanIcon />
+                                <span>Chọn nhặt</span>
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
+                        {vi ? 'Không có vật phẩm người mua nào phù hợp bộ lọc' : 'No buyer items match the filter'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            ) : (
+              /* ALL WAREHOUSE TABLE */
+              <table className="w-full min-w-[800px] text-left text-xs">
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-surface-2 shadow-2xs">
+                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider dark:border-slate-800 dark:bg-surface-2 dark:text-slate-400">
+                    <th className="px-4 py-3">SẢN PHẨM & SKU</th>
+                    <th className="px-3 py-3">VỊ TRÍ KHO</th>
+                    <th className="px-3 py-3 text-center">TỒN BAN ĐẦU</th>
+                    <th className="px-3 py-3 text-center">ĐÃ LẤY (ĐỢT NÀY)</th>
+                    <th className="px-3 py-3 text-center">TỒN THỰC TẾ (REAL-TIME)</th>
+                    <th className="px-3 py-3 text-center">TÌNH TRẠNG</th>
+                    <th className="px-3 py-3 text-right">THAO TÁC</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
+                  {allWarehouseInventoryList.length > 0 ? (
+                    allWarehouseInventoryList.map((item) => {
+                      const isInBatch = batchSkuSet.has(item.sku)
+                      const isJustDeducted = lastDeductedSku === item.sku
+
+                      return (
+                        <tr
+                          key={item.sku}
+                          className={`transition-colors ${
+                            isJustDeducted
+                              ? 'bg-amber-50/80 dark:bg-amber-950/30'
+                              : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
+                          }`}
+                        >
+                          {/* 1. PRODUCT */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <img
+                                src={item.imageUrl}
+                                alt={item.name}
+                                className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
+                              />
+                              <div className="min-w-0 space-y-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <p className="font-bold text-xs text-slate-900 truncate dark:text-slate-100 max-w-[220px]">
+                                    {item.shortName}
+                                  </p>
+                                  {isInBatch && (
+                                    <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                                      Trong đợt
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                  SKU: {item.sku} · UPC: {item.upc}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* 2. LOCATION */}
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-mono font-semibold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200">
+                              <MapPin className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                              <span>{item.location}</span>
+                            </div>
+                          </td>
+
+                          {/* 3. INITIAL STOCK */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap font-mono text-xs text-slate-500 dark:text-slate-400">
+                            {item.initialStock} chiếc
+                          </td>
+
+                          {/* 4. PICKED IN BATCH */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1 font-mono font-bold text-xs">
+                              <span className={item.pickedQuantity > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}>
+                                {item.pickedQuantity > 0 ? `-${item.pickedQuantity}` : '0'}
+                              </span>
+                              {item.recentDeduction && isJustDeducted && (
+                                <span className="rounded bg-rose-100 px-1 py-0.2 text-[10px] font-bold text-rose-700 animate-pulse">
+                                  {item.recentDeduction}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* 5. CURRENT REAL-TIME STOCK */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <span className={`font-mono text-sm font-extrabold ${
+                              item.status === 'low'
+                                ? 'text-rose-600 dark:text-rose-400'
+                                : item.status === 'moderate'
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-emerald-700 dark:text-emerald-400'
+                            }`}>
+                              {item.currentStock} chiếc
+                            </span>
+                          </td>
+
+                          {/* 6. STATUS */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            {item.status === 'optimal' ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                Dồi dào
+                              </span>
+                            ) : item.status === 'moderate' ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                Mức an toàn
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 animate-pulse">
+                                <AlertTriangle className="h-3 w-3" />
+                                Sắp hết hàng
+                              </span>
+                            )}
+                          </td>
+
+                          {/* 7. ACTIONS */}
+                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                            {isInBatch ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const target = items.find((it) => it.sku === item.sku)
+                                  if (target) {
+                                    handleSelectItem(target)
+                                    window.scrollTo({ top: 0, behavior: 'smooth' })
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 cursor-pointer transition-colors"
+                              >
+                                <TargetScanIcon />
+                                <span>Chọn nhặt</span>
+                              </button>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">Khác đợt</span>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
+                        {vi ? 'Không có mặt hàng nào phù hợp bộ lọc' : 'No items match the filter'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       </div>
@@ -892,7 +2215,7 @@ function WarehouseFloorView({
                     </label>
                   ))}
                 </div>
-              </div>
+          </div>
 
               <div>
                 <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
@@ -944,7 +2267,7 @@ function WarehouseFloorView({
                     {vi ? 'Hoàn tất lấy hàng đợt' : 'Complete Batch Picking'}
                   </h3>
                   <p className="text-[11px] text-slate-500 font-mono">
-                    {batch.id} · {batch.zone}
+                    {batch.id} · Kho tổng · {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
                   </p>
                 </div>
               </div>
@@ -961,19 +2284,27 @@ function WarehouseFloorView({
               {/* Order & Customer overview */}
               <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-surface-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <span className="text-slate-400">{vi ? 'Khách đặt:' : 'Customer:'}</span>
-                    <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
-                      {batch.orders.map((o) => o.customerName).join(', ')}
+                  <div className="min-w-0 pr-2 space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500 font-medium">{vi ? 'Khách nhận (Đơn gộp):' : 'Consolidated Customer:'}</span>
+                      <span className="rounded bg-purple-100 px-1.5 py-0.2 text-[10px] font-bold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                        Gộp {batchCustomer.ordersCount} đơn đa kênh
+                      </span>
+                    </div>
+                    <p className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                      {batchCustomer.name} · <span className="font-normal font-mono text-xs text-slate-600 dark:text-slate-300">{batchCustomer.phone}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 font-medium truncate max-w-[320px]">
+                      {batchCustomer.address}
                     </p>
                   </div>
-                  <div className="text-right">
+                  <div className="text-right shrink-0">
                     <span className="text-slate-400">{vi ? 'Tiến độ lấy hàng:' : 'Pick progress:'}</span>
                     <p className="font-mono font-bold text-slate-900 dark:text-slate-100">
                       {pickedCount}/{items.length} mặt hàng ({pickedPercent}%)
                     </p>
                     <p className="font-mono text-[11px] text-slate-500">
-                      {totalUnitsPicked}/{totalUnitsTotal} đơn vị
+                      {totalUnitsPicked}/{totalUnitsTotal} sản phẩm
                     </p>
                   </div>
                 </div>
@@ -1048,6 +2379,245 @@ function WarehouseFloorView({
         </div>
       ) : null}
 
+      {/* ==================================================== */}
+      {/* MANUAL ASSIGN STAFF MODAL                            */}
+      {/* ==================================================== */}
+      {assignModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                  <Users className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
+                    {vi ? 'Phân công nhân viên lấy hàng' : 'Assign Warehouse Picker'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    Đợt {batch.id} · Kho tổng · {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignModalOpen(false)
+                  setStaffSearchQuery('')
+                }}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="mt-4 space-y-4 text-xs">
+              {/* Option 1: AI Auto-assignment */}
+              <label
+                className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all cursor-pointer ${
+                  modalAssignMode === 'auto'
+                    ? 'border-blue-500 bg-blue-50/60 dark:border-blue-500 dark:bg-blue-950/30 ring-1 ring-blue-500/30'
+                    : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 dark:border-slate-700 dark:bg-surface-2'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="assign-mode"
+                  checked={modalAssignMode === 'auto'}
+                  onChange={() => setModalAssignMode('auto')}
+                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                />
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
+                    <Sparkles className="h-4 w-4 text-emerald-600" />
+                    <span>Tự động phân công bởi AI (Khuyến nghị)</span>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                      Tối ưu nhất
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Hệ thống AI tự động phân tích vị trí kệ hàng, tuyến đường nhặt hàng và tải trọng công việc để gán nhân viên rảnh gần nhất, giảm tối đa thời gian di chuyển trong kho.
+                  </p>
+                </div>
+              </label>
+
+              {/* Option 2: Manual Assignment */}
+              <label
+                className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all cursor-pointer ${
+                  modalAssignMode === 'manual'
+                    ? 'border-blue-500 bg-blue-50/60 dark:border-blue-500 dark:bg-blue-950/30 ring-1 ring-blue-500/30'
+                    : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 dark:border-slate-700 dark:bg-surface-2'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="assign-mode"
+                  checked={modalAssignMode === 'manual'}
+                  onChange={() => setModalAssignMode('manual')}
+                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                />
+                <div className="space-y-1 flex-1">
+                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
+                    <Users className="h-4 w-4 text-blue-600" />
+                    <span>Phân công nhân viên thủ công</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Người quản lý điều phối tự chỉ định nhân viên lấy hàng cụ thể theo danh sách kho bên dưới.
+                  </p>
+                </div>
+              </label>
+
+              {/* Staff List (Selectable when manual mode is active or to preview) */}
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                  <span>
+                    DANH SÁCH NHÂN VIÊN KHO ({modalAssignMode === 'manual' && staffSearchQuery.trim() ? `${filteredStaffList.length}/${warehouseStaffList.length}` : warehouseStaffList.length})
+                  </span>
+                  <span>Chọn 1 nhân viên để bàn giao</span>
+                </div>
+
+                {/* Ô tìm kiếm nhân viên khi chọn phân công thủ công */}
+                {modalAssignMode === 'manual' && (
+                  <div className="relative animate-in fade-in slide-in-from-top-1 duration-150">
+                    <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={staffSearchQuery}
+                      onChange={(e) => setStaffSearchQuery(e.target.value)}
+                      placeholder={
+                        vi
+                          ? 'Tìm kiếm nhân viên theo tên hoặc mã NV (NV-KHO-01)...'
+                          : 'Search staff by name or code...'
+                      }
+                      className="w-full rounded-xl border border-slate-200 bg-white pl-8.5 pr-8 py-2 text-xs text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100 transition-colors"
+                      autoFocus
+                    />
+                    {staffSearchQuery ? (
+                      <button
+                        type="button"
+                        onClick={() => setStaffSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                        title={vi ? 'Xóa tìm kiếm' : 'Clear search'}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
+                )}
+
+                <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                  {filteredStaffList.length > 0 ? (
+                    filteredStaffList.map((staff) => {
+                      const isSelected = selectedStaffId === staff.id
+                      return (
+                        <div
+                          key={staff.id}
+                          onClick={() => {
+                            setSelectedStaffId(staff.id)
+                            setModalAssignMode('manual')
+                          }}
+                          className={`flex items-center justify-between rounded-xl border p-2.5 transition-all cursor-pointer ${
+                            isSelected && modalAssignMode === 'manual'
+                              ? 'border-blue-500 bg-blue-50/80 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500/40 shadow-xs'
+                              : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-surface-2'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <img
+                              src={staff.avatar}
+                              alt={staff.name}
+                              className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700"
+                            />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-bold text-xs text-slate-900 truncate dark:text-slate-100">
+                                  {staff.name}
+                                </p>
+                                <span className="font-mono text-[10px] text-slate-400">
+                                  ({staff.code})
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {staff.role}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {staff.status === 'available' ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                Đang rảnh
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                                Đang phụ trách {staff.activeBatches} đợt
+                              </span>
+                            )}
+
+                            <input
+                              type="radio"
+                              name="selected-staff"
+                              checked={isSelected && modalAssignMode === 'manual'}
+                              onChange={() => {
+                                setSelectedStaffId(staff.id)
+                                setModalAssignMode('manual')
+                              }}
+                              className="text-blue-600 focus:ring-blue-500"
+                            />
+                          </div>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400 dark:border-slate-700">
+                      <p>
+                        {vi
+                          ? `Không tìm thấy nhân viên nào phù hợp với "${staffSearchQuery}"`
+                          : `No staff matching "${staffSearchQuery}"`}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setStaffSearchQuery('')}
+                        className="mt-2 text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
+                      >
+                        {vi ? 'Xóa từ khóa tìm kiếm' : 'Clear search filter'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setAssignModalOpen(false)
+                  setStaffSearchQuery('')
+                }}
+                className="rounded-lg px-3.5 py-2 font-medium text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-surface-2 cursor-pointer"
+              >
+                {vi ? 'Hủy bỏ' : 'Cancel'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmAssignment}
+                className="rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] px-4 py-2 font-semibold text-xs text-white shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
+              >
+                <UserCheck className="h-3.5 w-3.5" />
+                <span>{vi ? 'Xác nhận phân công' : 'Confirm Assignment'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Customer Order Details Drawer */}
       <BatchDetailDrawer
         batch={drawerOpen ? batch : null}
@@ -1071,18 +2641,28 @@ export function WarehousePage() {
   const batchId = searchParams.get('batchId')
   const action = searchParams.get('action')
 
+  const [batchesList, setBatchesList] = useState<PickingBatch[]>(() => getStoredBatches())
+
+  useEffect(() => {
+    const syncBatches = () => {
+      setBatchesList(getStoredBatches())
+    }
+    window.addEventListener('optipack:batches_updated', syncBatches)
+    return () => window.removeEventListener('optipack:batches_updated', syncBatches)
+  }, [])
+
   // Find the selected batch or default to the first pending/active batch
   const currentBatch = useMemo(() => {
     if (batchId) {
-      const found = initialPickingBatches.find((b) => b.id === batchId)
+      const found = batchesList.find((b) => b.id === batchId)
       if (found) return found
     }
-    // Default to BTH-20240115-003 or first batch
+    // Default to BTH-20240115-001 or first batch
     return (
-      initialPickingBatches.find((b) => b.id === 'BTH-20240115-003') ??
-      initialPickingBatches[0]!
+      batchesList.find((b) => b.id === 'BTH-20240115-001') ??
+      batchesList[0]!
     )
-  }, [batchId])
+  }, [batchId, batchesList])
 
   return (
     <>

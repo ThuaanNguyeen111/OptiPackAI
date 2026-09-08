@@ -158,13 +158,13 @@ export function AnalyticsReportPage() {
             </div>
             <div className="rounded-xl border border-hairline bg-surface-1 p-4">
               <p className="text-xs text-ink-subtle">
-                {vi ? 'Hiệu suất kho (TB)' : 'Warehouse efficiency (avg)'}
+                Hiệu suất kho (Trung bình)
               </p>
               <p className="mt-1 font-mono text-2xl font-semibold text-ink">
                 {avgOph}
               </p>
               <p className="mt-0.5 text-xs text-ink-tertiary">
-                orders / hour / operator
+                đơn / giờ / nhân sự
               </p>
             </div>
           </div>
@@ -172,9 +172,7 @@ export function AnalyticsReportPage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-xl border border-hairline bg-surface-1 p-4">
               <h2 className="mb-3 text-sm font-medium text-ink">
-                {vi
-                  ? 'Chi phí vs Savings theo sàn'
-                  : 'Cost vs Savings by platform'}
+                Chi phí vs Tiết kiệm theo sàn
               </h2>
               <ul className="space-y-3">
                 {platformCostBreakdown.map((row) => (
@@ -191,18 +189,18 @@ export function AnalyticsReportPage() {
                         {row.platform}
                       </p>
                       <span className="font-mono text-[11px] text-ink-subtle">
-                        {row.orders} orders
+                        {row.orders} đơn
                       </span>
                     </div>
                     <div className="mt-2 flex flex-wrap gap-4 text-xs">
                       <span className="text-ink-muted">
-                        Cost:{' '}
+                        Chi phí:{' '}
                         <span className="font-mono text-ink">
                           {formatVnd(row.material_cost_vnd)}
                         </span>
                       </span>
                       <span className="text-[#10B981]">
-                        Saved:{' '}
+                        Tiết kiệm:{' '}
                         <span className="font-mono">
                           {formatVnd(row.savings_vnd)}
                         </span>{' '}
@@ -216,9 +214,7 @@ export function AnalyticsReportPage() {
 
             <section className="rounded-xl border border-hairline bg-surface-1 p-4">
               <h2 className="mb-3 text-sm font-medium text-ink">
-                {vi
-                  ? 'Hiệu suất nhân viên kho'
-                  : 'Warehouse staff efficiency'}
+                Hiệu suất nhân viên kho
               </h2>
               <ul className="space-y-2">
                 {staffEfficiency.map((op) => (
@@ -235,10 +231,10 @@ export function AnalyticsReportPage() {
                     <div className="text-right font-mono text-xs">
                       <p className="text-ink">
                         {op.orders_per_hour}{' '}
-                        <span className="text-ink-tertiary">oph</span>
+                        <span className="text-ink-tertiary">đơn/giờ</span>
                       </p>
                       <p className="text-ink-muted">
-                        {op.packed_today} today · {op.accuracy_pct}%
+                        {op.packed_today} hôm nay · {op.accuracy_pct}% chính xác
                       </p>
                     </div>
                   </li>
@@ -250,26 +246,24 @@ export function AnalyticsReportPage() {
           <section className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
             <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
               <h2 className="text-sm font-medium text-ink">
-                {vi
-                  ? 'Consolidated Summary'
-                  : 'Consolidated Summary'}
+                Bảng tổng hợp chi tiết
               </h2>
               <span className="inline-flex items-center gap-1 text-[11px] text-ink-subtle">
                 <Download className="h-3 w-3" />
-                print / export ready
+                Sẵn sàng in / xuất file
               </span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[800px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-hairline text-ink-subtle">
-                    <th className="px-4 py-3 font-medium">Date</th>
-                    <th className="px-4 py-3 font-medium">Platform</th>
-                    <th className="px-4 py-3 font-medium">Packages</th>
-                    <th className="px-4 py-3 font-medium">Material Cost</th>
-                    <th className="px-4 py-3 font-medium">AI Savings</th>
-                    <th className="px-4 py-3 font-medium">Avg Fill</th>
-                    <th className="px-4 py-3 font-medium">Courier</th>
+                    <th className="px-4 py-3 font-medium">Ngày</th>
+                    <th className="px-4 py-3 font-medium">Kênh bán lẻ</th>
+                    <th className="px-4 py-3 font-medium">Số kiện</th>
+                    <th className="px-4 py-3 font-medium">Chi phí vật liệu</th>
+                    <th className="px-4 py-3 font-medium">Tiết kiệm AI</th>
+                    <th className="px-4 py-3 font-medium">Lấp đầy TB</th>
+                    <th className="px-4 py-3 font-medium">Hãng vận chuyển</th>
                   </tr>
                 </thead>
                 <tbody>

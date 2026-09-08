@@ -52,8 +52,8 @@ export function PortalProvider({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [locale, setLocale] = useState<Locale>(() => {
-    const stored = localStorage.getItem('optipack-locale')
-    return stored === 'en' ? 'en' : 'vi'
+    localStorage.setItem('optipack-locale', 'vi')
+    return 'vi'
   })
   const [shops, setShops] = useState<ConnectedShop[]>(() => loadShops())
   const [activeShopIds, setActiveShopIdsState] = useState<string[]>(() =>
@@ -76,9 +76,10 @@ export function PortalProvider({ children }: { children: ReactNode }) {
     setSidebarCollapsed((v) => !v)
   }, [])
 
-  const handleSetLocale = useCallback((l: Locale) => {
-    setLocale(l)
-    localStorage.setItem('optipack-locale', l)
+  const handleSetLocale = useCallback((_l: Locale) => {
+    void _l
+    setLocale('vi')
+    localStorage.setItem('optipack-locale', 'vi')
   }, [])
 
   const isShopActive = useCallback(

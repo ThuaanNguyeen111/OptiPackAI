@@ -5,6 +5,7 @@ import {
   Boxes,
   ClipboardList,
   ChevronDown,
+  Database,
   LayoutDashboard,
   LogOut,
   Moon,
@@ -14,6 +15,7 @@ import {
   Settings,
   Sun,
   Truck,
+  Users,
   X,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
@@ -78,6 +80,22 @@ const navItems = [
     section: 'logistics' as NavSection,
   },
   {
+    to: '/app/staff',
+    end: false,
+    labelVi: 'Nhân viên & Vị trí',
+    labelEn: 'Staff & Locations',
+    icon: Users,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/inventory',
+    end: false,
+    labelVi: 'Tình trạng kho',
+    labelEn: 'Warehouse Inventory',
+    icon: Database,
+    section: 'logistics' as NavSection,
+  },
+  {
     to: '/app/analytics',
     end: false,
     labelVi: 'Báo cáo & Xuất file',
@@ -97,9 +115,9 @@ const navItems = [
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   overview: null,
-  logistics: { vi: 'Logistics', en: 'Logistics' },
-  analytics: { vi: 'Analytics', en: 'Analytics' },
-  system: { vi: 'System', en: 'System' },
+  logistics: { vi: 'Vận hành kho', en: 'Logistics' },
+  analytics: { vi: 'Báo cáo & Phân tích', en: 'Analytics' },
+  system: { vi: 'Hệ thống', en: 'System' },
 }
 
 function profileInitials(name: string): string {
@@ -114,7 +132,6 @@ export function PortalSidebar() {
     sidebarCollapsed,
     toggleSidebar,
     locale,
-    setLocale,
     mobileNavOpen,
     setMobileNavOpen,
     shops,
@@ -311,7 +328,7 @@ export function PortalSidebar() {
         <div className="border-b border-hairline p-3">
           <div className="rounded-lg border border-hairline bg-surface-2 px-3 py-2">
             <p className="text-xs font-medium text-ink">
-              {locale === 'vi' ? 'Khu A–B · Ca sáng' : 'Zone A–B · Morning'}
+              {locale === 'vi' ? 'Kho tổng · Ca sáng' : 'Main Warehouse · Morning'}
             </p>
             <p className="mt-0.5 text-[11px] text-ink-subtle">{roleLabel}</p>
           </div>
@@ -379,63 +396,32 @@ export function PortalSidebar() {
             </Link>
 
             <div className="flex items-center justify-between gap-1">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
-                  aria-label={
-                    theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
-                  }
-                  title={
-                    theme === 'dark'
-                      ? locale === 'vi'
-                        ? 'Giao diện sáng'
-                        : 'Light mode'
-                      : locale === 'vi'
-                        ? 'Giao diện tối'
-                        : 'Dark mode'
-                  }
-                >
-                  {theme === 'dark' ? (
-                    <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  ) : (
-                    <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  )}
-                </button>
-
-                <div className="flex rounded-md border border-hairline p-0.5 text-[11px] font-medium">
-                  <button
-                    type="button"
-                    onClick={() => setLocale('vi')}
-                    className={`rounded px-2 py-1 transition-colors ${
-                      locale === 'vi'
-                        ? 'bg-primary/15 font-semibold text-primary-hover'
-                        : 'text-ink-subtle hover:text-ink'
-                    }`}
-                  >
-                    VI
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLocale('en')}
-                    className={`rounded px-2 py-1 transition-colors ${
-                      locale === 'en'
-                        ? 'bg-primary/15 font-semibold text-primary-hover'
-                        : 'text-ink-subtle hover:text-ink'
-                    }`}
-                  >
-                    EN
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+                aria-label={
+                  theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
+                }
+                title={
+                  theme === 'dark'
+                    ? 'Giao diện sáng'
+                    : 'Giao diện tối'
+                }
+              >
+                {theme === 'dark' ? (
+                  <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
+                ) : (
+                  <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                )}
+              </button>
 
               <button
                 type="button"
                 onClick={() => setLogoutConfirmOpen(true)}
                 className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-red-500"
-                aria-label={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
-                title={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+                aria-label="Đăng xuất"
+                title="Đăng xuất"
               >
                 <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>
@@ -461,12 +447,8 @@ export function PortalSidebar() {
               }
               title={
                 theme === 'dark'
-                  ? locale === 'vi'
-                    ? 'Giao diện sáng'
-                    : 'Light mode'
-                  : locale === 'vi'
-                    ? 'Giao diện tối'
-                    : 'Dark mode'
+                  ? 'Giao diện sáng'
+                  : 'Giao diện tối'
               }
             >
               {theme === 'dark' ? (
@@ -478,24 +460,10 @@ export function PortalSidebar() {
 
             <button
               type="button"
-              onClick={() => setLocale(locale === 'vi' ? 'en' : 'vi')}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-[11px] font-bold text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
-              aria-label="Toggle language"
-              title={
-                locale === 'vi'
-                  ? 'Ngôn ngữ: Tiếng Việt (Bấm để đổi sang English)'
-                  : 'Language: English (Click to switch to Vietnamese)'
-              }
-            >
-              {locale.toUpperCase()}
-            </button>
-
-            <button
-              type="button"
               onClick={() => setLogoutConfirmOpen(true)}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-red-500"
-              aria-label={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
-              title={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
+              aria-label="Đăng xuất"
+              title="Đăng xuất"
             >
               <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
             </button>
@@ -509,14 +477,10 @@ export function PortalSidebar() {
     <>
       <ConfirmDialog
         open={logoutConfirmOpen}
-        title={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
-        description={
-          locale === 'vi'
-            ? 'Bạn có chắc muốn đăng xuất khỏi OptiPackAI? Phiên làm việc hiện tại sẽ kết thúc.'
-            : 'Are you sure you want to log out of OptiPackAI? Your current session will end.'
-        }
-        confirmLabel={locale === 'vi' ? 'Đăng xuất' : 'Log out'}
-        cancelLabel={locale === 'vi' ? 'Hủy' : 'Cancel'}
+        title="Đăng xuất"
+        description="Bạn có chắc muốn đăng xuất khỏi OptiPackAI? Phiên làm việc hiện tại sẽ kết thúc."
+        confirmLabel="Đăng xuất"
+        cancelLabel="Hủy"
         loading={loggingOut}
         onConfirm={() => void handleConfirmLogout()}
         onCancel={() => setLogoutConfirmOpen(false)}

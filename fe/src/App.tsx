@@ -30,6 +30,8 @@ import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { ShippingPage } from './pages/ShippingPage'
+import { StaffManagementPage } from './pages/StaffManagementPage'
+import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
 import { WarehousePage } from './pages/WarehousePage'
 
 function PortalRoot() {
@@ -69,9 +71,11 @@ function App() {
                 <Route index element={<DashboardPage />} />
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
+                <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="packing" element={<PackingPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
+                <Route path="staff" element={<StaffManagementPage />} />
                 <Route path="analytics" element={<AnalyticsReportPage />} />
                 <Route path="profile" element={<ProfilePage />} />
                 <Route path="settings" element={<ProfilePage />} />

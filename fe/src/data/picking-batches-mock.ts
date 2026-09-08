@@ -1,7 +1,71 @@
-export type PickingPriority = 'Urgent' | 'High' | 'Normal'
+export type PickingPriority = 'Urgent' | 'Normal'
 export type PickingStatus = 'Picked' | 'Picking' | 'Pending' | 'Delayed'
 export type BatchZone = 'Zone A' | 'Zone B' | 'Zone C'
 export type BatchChannel = 'shopee' | 'tiktok' | 'lazada' | 'facebook'
+
+/**
+ * 3 trường hợp đơn hàng theo nghiệp vụ:
+ * 1. 'express': Đơn hỏa tốc (Bắt buộc hoàn thành trong 4 tiếng, chỉ nhận trong giờ hành chính 08:00 - 17:30)
+ * 2. 'normal': Đơn bình thường (Xử lý tiêu chuẩn 24h)
+ * 3. 'delayed_packing': Đơn bình thường nhưng bị trễ thời gian đóng gói (Vượt quá hạn đóng gói quy định)
+ */
+export type OrderFulfillmentType = 'express' | 'normal' | 'delayed_packing'
+
+export interface OrderSlaDetail {
+  orderType: OrderFulfillmentType
+  title: string
+  slaHours?: number // 4 tiếng cho đơn hỏa tốc
+  deadlineText: string // '12:15' hoặc 'Quá hạn 45 phút'
+  remainingText?: string // 'Còn 1h 45m'
+  receivedAtText?: string // '08:15 (Giờ hành chính: 08:00 - 17:30)'
+  officeHoursOnly?: boolean // true cho đơn hỏa tốc
+  overdueMinutes?: number // Số phút quá hạn đóng gói
+  description: string
+}
+
+export interface StaffNotificationItem {
+  id: string
+  batchId: string
+  type: OrderFulfillmentType
+  title: string
+  message: string
+  deadlineInfo: string
+  timeAgo: string
+  urgent: boolean
+}
+
+export const DEFAULT_STAFF_NOTIFICATIONS: StaffNotificationItem[] = [
+  {
+    id: 'notif-1',
+    batchId: 'BTH-20240115-001',
+    type: 'express',
+    title: '⚡ ĐƠN HỎA TỐC: Bắt buộc hoàn tất trong 4 tiếng',
+    message: 'Đợt BTH-20240115-001 (12 món / 8 SKU) đã tiếp nhận lúc 08:15 trong giờ hành chính. Hạn chót hoàn tất đóng gói: 12:15!',
+    deadlineInfo: 'SLA 4 tiếng · Còn 1h 45m · Nhận trong giờ HC (08:00 - 17:30)',
+    timeAgo: '15 phút trước',
+    urgent: true,
+  },
+  {
+    id: 'notif-2',
+    batchId: 'BTH-20240115-006',
+    type: 'delayed_packing',
+    title: '⚠️ CẢNH BÁO: Đơn trễ thời gian đóng gói',
+    message: 'Đợt BTH-20240115-006 (Đơn bình thường) đã vượt quá thời gian đóng gói quy định (+45 phút). Trạng thái hiện tại: Chậm trễ!',
+    deadlineInfo: 'Đã quá hạn 45 phút đóng gói · Yêu cầu xử lý đóng gói ngay',
+    timeAgo: '5 phút trước',
+    urgent: true,
+  },
+  {
+    id: 'notif-3',
+    batchId: 'BTH-20240115-004',
+    type: 'express',
+    title: '⚡ ĐƠN HỎA TỐC: Đang lấy hàng cần ưu tiên đóng gói',
+    message: 'Đợt BTH-20240115-004 (15 món / 15 SKU) tiếp nhận lúc 09:15 trong giờ hành chính. Bắt buộc hoàn tất trước 13:15.',
+    deadlineInfo: 'SLA 4 tiếng · Còn 2h 20m · Ưu tiên đóng gói trước',
+    timeAgo: '30 phút trước',
+    urgent: true,
+  },
+]
 
 export interface CustomerOrderItem {
   sku: string
@@ -31,6 +95,11 @@ export interface PickingBatch {
   skusCount: number
   channels: BatchChannel[]
   priority: PickingPriority
+  orderType: OrderFulfillmentType
+  slaDetail: OrderSlaDetail
+  customerName?: string
+  customerPhone?: string
+  customerAddress?: string
   picker: {
     name: string
     avatar: string
@@ -64,16 +133,30 @@ export const initialPickingBatches: PickingBatch[] = [
   {
     id: 'BTH-20240115-001',
     itemsCount: 12,
-    skusCount: 8,
+    skusCount: 4,
     channels: ['shopee', 'tiktok'],
     priority: 'Urgent',
+    orderType: 'express',
+    slaDetail: {
+      orderType: 'express',
+      title: 'Đơn hỏa tốc',
+      slaHours: 4,
+      deadlineText: '12:15',
+      remainingText: 'Còn 1h 45m',
+      receivedAtText: '08:15 (Giờ hành chính: 08:00 - 17:30)',
+      officeHoursOnly: true,
+      description: 'Bắt buộc nhân viên hoàn thành trong 4 tiếng. Chỉ tiếp nhận trong khung giờ hành chính (08:00 - 17:30).',
+    },
+    customerName: 'Trần Văn An',
+    customerPhone: '0901 882 193',
+    customerAddress: '123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
     picker: {
       name: 'Ahmad R.',
       avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
       initials: 'AR',
     },
-    progress: { picked: 12, total: 12 },
-    status: 'Picked',
+    progress: { picked: 6, total: 12 },
+    status: 'Picking',
     zone: 'Zone A',
     createdAt: '2026-09-06T08:15:00Z',
     orders: [
@@ -104,14 +187,14 @@ export const initialPickingBatches: PickingBatch[] = [
         notes: 'Đơn gộp cùng khách với Shopee SP-10482',
         items: [
           { sku: 'QS-KAKI-02', name: 'Quần Short Kaki Nam Co Giãn Form Regular', qty: 3, price: 130000, bin: 'A-04-15', picked: true },
-          { sku: 'ML-BASE-03', name: 'Mũ Lưỡi Trai Unisex Thêu Chữ Vintage', qty: 6, price: 90000, bin: 'A-02-08', picked: true },
+          { sku: 'ML-BASE-03', name: 'Mũ Lưỡi Trai Unisex Thêu Chữ Vintage', qty: 6, price: 90000, bin: 'A-02-08', picked: false },
         ],
       },
     ],
     items: [
       { sku: 'AT-POLO-01', name: 'Áo Polo Nam Cotton Pique Thoáng Khí', qty: 2, bin: 'A-04-12', picked: true },
       { sku: 'QS-KAKI-02', name: 'Quần Short Kaki Nam Co Giãn Form Regular', qty: 4, bin: 'A-04-15', picked: true },
-      { sku: 'ML-BASE-03', name: 'Mũ Lưỡi Trai Unisex Thêu Chữ Vintage', qty: 6, bin: 'A-02-08', picked: true },
+      { sku: 'ML-BASE-03', name: 'Mũ Lưỡi Trai Unisex Thêu Chữ Vintage', qty: 6, bin: 'A-02-08', picked: false },
     ],
     aiPackaging: {
       boxCode: 'CARTON-B2',
@@ -125,7 +208,20 @@ export const initialPickingBatches: PickingBatch[] = [
     itemsCount: 24,
     skusCount: 16,
     channels: ['shopee', 'lazada', 'facebook'],
-    priority: 'High',
+    priority: 'Normal',
+    orderType: 'normal',
+    slaDetail: {
+      orderType: 'normal',
+      title: 'Đơn bình thường',
+      deadlineText: '18:00 hôm nay',
+      remainingText: 'Còn 7h 30m',
+      receivedAtText: '08:30',
+      officeHoursOnly: false,
+      description: 'Đơn hàng xử lý tiêu chuẩn trong ngày (SLA 24h).',
+    },
+    customerName: 'Lê Hoàng Yến',
+    customerPhone: '0918 345 678',
+    customerAddress: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
     picker: {
       name: 'Siti M.',
       avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&h=100&fit=crop&crop=face',
@@ -153,9 +249,9 @@ export const initialPickingBatches: PickingBatch[] = [
       {
         orderId: 'LZ-55102',
         channel: 'lazada',
-        customerName: 'Nguyễn Bích Ngọc',
-        phone: '0987 654 321',
-        address: '182 Bạch Đằng, Phường 24, Quận Bình Thạnh, TP. Hồ Chí Minh',
+        customerName: 'Lê Hoàng Yến',
+        phone: '0918 345 678',
+        address: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
         createdAt: '2026-09-06 08:10',
         paymentMethod: 'Lazada Wallet (Đã thanh toán)',
         totalAmount: 780000,
@@ -167,13 +263,13 @@ export const initialPickingBatches: PickingBatch[] = [
       {
         orderId: 'FB-99014',
         channel: 'facebook',
-        customerName: 'Phạm Thu Hương',
-        phone: '0933 112 233',
-        address: '76 Phan Xích Long, Phường 2, Quận Phú Nhuận, TP. Hồ Chí Minh',
+        customerName: 'Lê Hoàng Yến',
+        phone: '0918 345 678',
+        address: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
         createdAt: '2026-09-06 08:15',
         paymentMethod: 'Chuyển khoản ngân hàng MB (Đã thanh toán)',
         totalAmount: 890000,
-        notes: 'Tặng kèm túi giấy giúp em',
+        notes: 'Đơn gộp cùng khách với Shopee & Lazada, tặng kèm túi giấy',
         items: [
           { sku: 'KC-VOAN-03', name: 'Khăn Choàng Cổ Lụa Voan Họa Tiết Hoa Cúc', qty: 6, price: 148000, bin: 'B-01-11', picked: false },
         ],
@@ -197,10 +293,23 @@ export const initialPickingBatches: PickingBatch[] = [
     skusCount: 6,
     channels: ['tiktok'],
     priority: 'Normal',
+    orderType: 'normal',
+    slaDetail: {
+      orderType: 'normal',
+      title: 'Đơn bình thường',
+      deadlineText: '18:00 hôm nay',
+      remainingText: 'Còn 8h',
+      receivedAtText: '09:00',
+      officeHoursOnly: false,
+      description: 'Đơn hàng xử lý tiêu chuẩn trong ngày (SLA 24h).',
+    },
+    customerName: 'Đặng Quốc Huy',
+    customerPhone: '0977 445 566',
+    customerAddress: '54 Quang Trung, Phường 10, Quận Gò Vấp, TP. Hồ Chí Minh',
     picker: {
-      name: 'Budi P.',
-      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-      initials: 'BP',
+      name: 'Chưa phân công',
+      avatar: '',
+      initials: '--',
     },
     progress: { picked: 0, total: 8 },
     status: 'Pending',
@@ -238,10 +347,24 @@ export const initialPickingBatches: PickingBatch[] = [
   },
   {
     id: 'BTH-20240115-004',
-    itemsCount: 15,
-    skusCount: 15,
-    channels: ['shopee', 'lazada', 'tiktok', 'facebook'],
-    priority: 'High',
+    itemsCount: 23,
+    skusCount: 8,
+    channels: ['shopee', 'lazada', 'tiktok'],
+    priority: 'Urgent',
+    orderType: 'express',
+    slaDetail: {
+      orderType: 'express',
+      title: 'Đơn hỏa tốc',
+      slaHours: 4,
+      deadlineText: '13:15',
+      remainingText: 'Còn 2h 20m',
+      receivedAtText: '09:15 (Giờ hành chính: 08:00 - 17:30)',
+      officeHoursOnly: true,
+      description: 'Bắt buộc nhân viên hoàn thành trong 4 tiếng. Chỉ tiếp nhận trong khung giờ hành chính (08:00 - 17:30).',
+    },
+    customerName: 'Hoàng Minh Quân',
+    customerPhone: '0912 345 678',
+    customerAddress: '72 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
     picker: {
       name: 'Rian K.',
       avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
@@ -255,9 +378,9 @@ export const initialPickingBatches: PickingBatch[] = [
       {
         orderId: 'SP-10482',
         channel: 'shopee',
-        customerName: 'Trần Văn An',
-        phone: '0901 882 193',
-        address: '123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
+        customerName: 'Hoàng Minh Quân',
+        phone: '0912 345 678',
+        address: '72 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
         createdAt: '2026-09-06 08:30',
         paymentMethod: 'ShopeePay (Đã thanh toán)',
         totalAmount: 1850000,
@@ -265,175 +388,38 @@ export const initialPickingBatches: PickingBatch[] = [
         items: [
           { sku: 'AK-2041-GL', name: 'Áo Khoác Gió Chống Nước Unisex - Size L', qty: 5, price: 320000, bin: 'A-03-12', picked: false },
           { sku: 'QJ-3052-BK', name: 'Quần Jogger Thun Co Giãn - Đen - Size XL', qty: 2, price: 125000, bin: 'A-02-08', picked: true },
-        ],
-      },
-      {
-        orderId: 'SP-88219',
-        channel: 'shopee',
-        customerName: 'Lê Hoàng Yến',
-        phone: '0918 345 678',
-        address: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 08:35',
-        paymentMethod: 'Ví ShopeePay (Đã thanh toán)',
-        totalAmount: 760000,
-        items: [
           { sku: 'TX-1087-BR', name: 'Túi Đeo Chéo Da Tổng Hợp Cao Cấp - Nâu Vintage', qty: 4, price: 190000, bin: 'B-01-04', picked: true },
-        ],
-      },
-      {
-        orderId: 'LZ-55102',
-        channel: 'lazada',
-        customerName: 'Nguyễn Bích Ngọc',
-        phone: '0987 654 321',
-        address: '182 Bạch Đằng, Phường 24, Quận Bình Thạnh, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 08:40',
-        paymentMethod: 'Lazada Wallet (Đã thanh toán)',
-        totalAmount: 145000,
-        items: [
-          { sku: 'KL-5520-PS', name: 'Khăn Lụa Họa Tiết Paisley Phong Cách Cổ Điển', qty: 1, price: 145000, bin: 'B-04-02', picked: true },
         ],
       },
       {
         orderId: 'TT-33419',
         channel: 'tiktok',
-        customerName: 'Đặng Quốc Huy',
-        phone: '0977 445 566',
-        address: '54 Quang Trung, Phường 10, Quận Gò Vấp, TP. Hồ Chí Minh',
+        customerName: 'Hoàng Minh Quân',
+        phone: '0912 345 678',
+        address: '72 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
         createdAt: '2026-09-06 08:45',
         paymentMethod: 'COD (Thu tiền khi nhận hàng)',
-        totalAmount: 285000,
+        totalAmount: 920000,
+        notes: 'Đơn gộp cùng khách với Shopee SP-10482',
         items: [
-          { sku: 'MB-7731-CV', name: 'Mũ Bucket Hat Vải Canvas (Bộ 3 Màu)', qty: 3, price: 95000, bin: 'A-05-11', picked: false },
-        ],
-      },
-      {
-        orderId: 'SP-99201',
-        channel: 'shopee',
-        customerName: 'Vũ Đức Thắng',
-        phone: '0908 776 655',
-        address: '28 Đường Số 9, Phường Linh Tây, TP. Thủ Đức, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 08:50',
-        paymentMethod: 'ShopeePay (Đã thanh toán)',
-        totalAmount: 180000,
-        items: [
+          { sku: 'KL-5520-PS', name: 'Khăn Lụa Họa Tiết Paisley Phong Cách Cổ Điển', qty: 1, price: 145000, bin: 'B-04-02', picked: true },
+          { sku: 'MB-7731-CV', name: 'Mũ Bucket Hat Vải Canvas (Bộ 3 Màu)', qty: 3, price: 95000, bin: 'A-05-11', picked: true },
           { sku: 'TL-6640-LT', name: 'Thắt Lưng Da Bò Khóa Kim Loại Tự Động', qty: 1, price: 180000, bin: 'C-02-06', picked: false },
-        ],
-      },
-      {
-        orderId: 'FB-99014',
-        channel: 'facebook',
-        customerName: 'Phạm Thu Hương',
-        phone: '0933 112 233',
-        address: '76 Phan Xích Long, Phường 2, Quận Phú Nhuận, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 08:55',
-        paymentMethod: 'Chuyển khoản ngân hàng (Đã thanh toán)',
-        totalAmount: 390000,
-        items: [
           { sku: 'KM-2290-PL', name: 'Kính Mát Polarized Tròng Vuông Chống UV400', qty: 2, price: 195000, bin: 'C-01-09', picked: false },
         ],
       },
       {
-        orderId: 'TT-77123',
-        channel: 'tiktok',
-        customerName: 'Mai Phương Trang',
-        phone: '0922 998 877',
-        address: '42 Tôn Đức Thắng, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:00',
-        paymentMethod: 'Ví Momo (Đã thanh toán)',
+        orderId: 'LZ-55102',
+        channel: 'lazada',
+        customerName: 'Hoàng Minh Quân',
+        phone: '0912 345 678',
+        address: '72 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
+        createdAt: '2026-09-06 08:50',
+        paymentMethod: 'Lazada Wallet (Đã thanh toán)',
         totalAmount: 250000,
+        notes: 'Đơn gộp cùng khách Hoàng Minh Quân, đóng chung 1 kiện',
         items: [
           { sku: 'VT-4410-SP', name: 'Vớ Thể Thao Cao Cổ Dệt Kim Kháng Khuẩn (Set 5 Đôi)', qty: 5, price: 50000, bin: 'B-03-15', picked: false },
-        ],
-      },
-      {
-        orderId: 'SP-33012',
-        channel: 'shopee',
-        customerName: 'Lý Kiến Thành',
-        phone: '0945 123 456',
-        address: '88 An Dương Vương, Phường 9, Quận 5, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:05',
-        paymentMethod: 'ShopeePay (Đã thanh toán)',
-        totalAmount: 580000,
-        items: [
-          { sku: 'BL-8812-BK', name: 'Balo Laptop Đa Năng 15.6 inch Chống Nước Oxford', qty: 2, price: 290000, bin: 'A-01-03', picked: false },
-        ],
-      },
-      {
-        orderId: 'LZ-11849',
-        channel: 'lazada',
-        customerName: 'Hoàng Kim Liên',
-        phone: '0919 223 344',
-        address: '15 Nguyễn Thị Thập, Phường Tân Phú, Quận 7, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:10',
-        paymentMethod: 'COD (Thu tiền khi nhận hàng)',
-        totalAmount: 520000,
-        items: [
-          { sku: 'AP-1120-WT', name: 'Áo Polo Nam Thể Thao Co Giãn Thoáng Khí', qty: 4, price: 130000, bin: 'A-04-07', picked: false },
-        ],
-      },
-      {
-        orderId: 'FB-44120',
-        channel: 'facebook',
-        customerName: 'Trịnh Mai Khanh',
-        phone: '0903 778 899',
-        address: '254 Ba Tháng Hai, Phường 12, Quận 10, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:15',
-        paymentMethod: 'COD (Thu tiền khi nhận hàng)',
-        totalAmount: 360000,
-        items: [
-          { sku: 'QD-9931-DG', name: 'Quần Đùi Thể Thao 2 Lớp Chạy Bộ Có Túi Khóa', qty: 3, price: 120000, bin: 'B-02-10', picked: false },
-        ],
-      },
-      {
-        orderId: 'LZ-77821',
-        channel: 'lazada',
-        customerName: 'Nguyễn Tấn Đạt',
-        phone: '0966 889 900',
-        address: '102 Cộng Hòa, Phường 4, Quận Tân Bình, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:20',
-        paymentMethod: 'Lazada Wallet (Đã thanh toán)',
-        totalAmount: 220000,
-        items: [
-          { sku: 'VN-3321-BR', name: 'Ví Nam Da Bò Thật Nhiều Ngăn Đựng Thẻ Khóa Zip', qty: 1, price: 220000, bin: 'C-03-05', picked: false },
-        ],
-      },
-      {
-        orderId: 'SP-33015',
-        channel: 'shopee',
-        customerName: 'Lý Kiến Thành',
-        phone: '0945 123 456',
-        address: '88 An Dương Vương, Phường 9, Quận 5, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:25',
-        paymentMethod: 'ShopeePay (Đã thanh toán)',
-        totalAmount: 480000,
-        items: [
-          { sku: 'DH-7740-SL', name: 'Đồng Hồ Thể Thao Điện Tử Dây Silicone Chống Nước', qty: 2, price: 240000, bin: 'C-04-14', picked: false },
-        ],
-      },
-      {
-        orderId: 'TT-77124',
-        channel: 'tiktok',
-        customerName: 'Mai Phương Trang',
-        phone: '0922 998 877',
-        address: '42 Tôn Đức Thắng, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:30',
-        paymentMethod: 'Ví Momo (Đã thanh toán)',
-        totalAmount: 210000,
-        items: [
-          { sku: 'GT-5501-GY', name: 'Găng Tay Đi Xe Máy Chống Nắng Tia UV Co Giãn', qty: 3, price: 70000, bin: 'B-05-01', picked: false },
-        ],
-      },
-      {
-        orderId: 'LZ-99120',
-        channel: 'lazada',
-        customerName: 'Bùi Thế Hiển',
-        phone: '0981 334 455',
-        address: '15 Kỳ Đồng, Phường 9, Quận 3, TP. Hồ Chí Minh',
-        createdAt: '2026-09-06 09:35',
-        paymentMethod: 'COD (Thu tiền khi nhận hàng)',
-        totalAmount: 450000,
-        items: [
-          { sku: 'SN-2219-BL', name: 'Giày Sneaker Thể Thao Nam Nữ Đệm Khí Êm Ái', qty: 1, price: 450000, bin: 'A-06-16', picked: false },
         ],
       },
     ],
@@ -442,17 +428,10 @@ export const initialPickingBatches: PickingBatch[] = [
       { sku: 'QJ-3052-BK', name: 'Quần Jogger Thun Co Giãn - Đen - Size XL', qty: 2, bin: 'A-02-08', picked: true },
       { sku: 'TX-1087-BR', name: 'Túi Đeo Chéo Da Tổng Hợp Cao Cấp - Nâu Vintage', qty: 4, bin: 'B-01-04', picked: true },
       { sku: 'KL-5520-PS', name: 'Khăn Lụa Họa Tiết Paisley Phong Cách Cổ Điển', qty: 1, bin: 'B-04-02', picked: true },
-      { sku: 'MB-7731-CV', name: 'Mũ Bucket Hat Vải Canvas (Bộ 3 Màu)', qty: 3, bin: 'A-05-11', picked: false },
+      { sku: 'MB-7731-CV', name: 'Mũ Bucket Hat Vải Canvas (Bộ 3 Màu)', qty: 3, bin: 'A-05-11', picked: true },
       { sku: 'TL-6640-LT', name: 'Thắt Lưng Da Bò Khóa Kim Loại Tự Động', qty: 1, bin: 'C-02-06', picked: false },
       { sku: 'KM-2290-PL', name: 'Kính Mát Polarized Tròng Vuông Chống UV400', qty: 2, bin: 'C-01-09', picked: false },
       { sku: 'VT-4410-SP', name: 'Vớ Thể Thao Cao Cổ Dệt Kim Kháng Khuẩn (Set 5 Đôi)', qty: 5, bin: 'B-03-15', picked: false },
-      { sku: 'BL-8812-BK', name: 'Balo Laptop Đa Năng 15.6 inch Chống Nước Oxford', qty: 2, bin: 'A-01-03', picked: false },
-      { sku: 'AP-1120-WT', name: 'Áo Polo Nam Thể Thao Co Giãn Thoáng Khí', qty: 4, bin: 'A-04-07', picked: false },
-      { sku: 'QD-9931-DG', name: 'Quần Đùi Thể Thao 2 Lớp Chạy Bộ Có Túi Khóa', qty: 3, bin: 'B-02-10', picked: false },
-      { sku: 'VN-3321-BR', name: 'Ví Nam Da Bò Thật Nhiều Ngăn Đựng Thẻ Khóa Zip', qty: 1, bin: 'C-03-05', picked: false },
-      { sku: 'DH-7740-SL', name: 'Đồng Hồ Thể Thao Điện Tử Dây Silicone Chống Nước', qty: 2, bin: 'C-04-14', picked: false },
-      { sku: 'GT-5501-GY', name: 'Găng Tay Đi Xe Máy Chống Nắng Tia UV Co Giãn', qty: 3, bin: 'B-05-01', picked: false },
-      { sku: 'SN-2219-BL', name: 'Giày Sneaker Thể Thao Nam Nữ Đệm Khí Êm Ái', qty: 1, bin: 'A-06-16', picked: false },
     ],
     aiPackaging: {
       boxCode: 'CARTON-D4',
@@ -466,10 +445,23 @@ export const initialPickingBatches: PickingBatch[] = [
     skusCount: 20,
     channels: ['lazada', 'facebook'],
     priority: 'Normal',
+    orderType: 'normal',
+    slaDetail: {
+      orderType: 'normal',
+      title: 'Đơn bình thường',
+      deadlineText: '18:00 hôm nay',
+      remainingText: 'Còn 8h 20m',
+      receivedAtText: '09:40',
+      officeHoursOnly: false,
+      description: 'Đơn hàng xử lý tiêu chuẩn trong ngày (SLA 24h).',
+    },
+    customerName: 'Nguyễn Tấn Đạt',
+    customerPhone: '0966 889 900',
+    customerAddress: '102 Cộng Hòa, Phường 4, Quận Tân Bình, TP. Hồ Chí Minh',
     picker: {
-      name: 'Dewi A.',
-      avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&crop=face',
-      initials: 'DA',
+      name: 'Chưa phân công',
+      avatar: '',
+      initials: '--',
     },
     progress: { picked: 0, total: 30 },
     status: 'Pending',
@@ -493,13 +485,13 @@ export const initialPickingBatches: PickingBatch[] = [
       {
         orderId: 'FB-44120',
         channel: 'facebook',
-        customerName: 'Trịnh Mai Khanh',
-        phone: '0903 778 899',
-        address: '254 Ba Tháng Hai, Phường 12, Quận 10, TP. Hồ Chí Minh',
+        customerName: 'Nguyễn Tấn Đạt',
+        phone: '0966 889 900',
+        address: '102 Cộng Hòa, Phường 4, Quận Tân Bình, TP. Hồ Chí Minh',
         createdAt: '2026-09-06 09:20',
         paymentMethod: 'COD (Thu tiền khi nhận hàng)',
         totalAmount: 1350000,
-        notes: 'Giao buổi sáng',
+        notes: 'Đơn gộp cùng khách Nguyễn Tấn Đạt (Giao buổi sáng)',
         items: [
           { sku: 'KQ-CASH-02', name: 'Khăn Quàng Cổ Cashmere Unisex Màu Be Ấm Áp', qty: 15, price: 90000, bin: 'B-05-08', picked: false },
         ],
@@ -522,6 +514,20 @@ export const initialPickingBatches: PickingBatch[] = [
     skusCount: 12,
     channels: ['shopee'],
     priority: 'Urgent',
+    orderType: 'delayed_packing',
+    slaDetail: {
+      orderType: 'delayed_packing',
+      title: 'Đơn trễ thời gian đóng gói',
+      overdueMinutes: 45,
+      deadlineText: 'Quá hạn 45 phút',
+      remainingText: 'Đã quá hạn đóng gói quy định',
+      receivedAtText: '07:45',
+      officeHoursOnly: false,
+      description: 'Đơn hàng ban đầu là đơn bình thường nhưng bị trễ thời gian đóng gói quy định (+45 phút) nên tự động chuyển thành đơn Trễ đóng gói để ưu tiên xử lý ngay!',
+    },
+    customerName: 'Lý Kiến Thành',
+    customerPhone: '0945 123 456',
+    customerAddress: '88 An Dương Vương, Phường 9, Quận 5, TP. Hồ Chí Minh',
     picker: {
       name: 'Fahmi H.',
       avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&h=100&fit=crop&crop=face',
@@ -556,7 +562,7 @@ export const initialPickingBatches: PickingBatch[] = [
         createdAt: '2026-09-06 07:20',
         paymentMethod: 'ShopeePay (Đã thanh toán)',
         totalAmount: 760000,
-        notes: 'Giao cùng đơn SP-33012',
+        notes: 'Giao cùng đơn SP-33012 cho Lý Kiến Thành',
         items: [
           { sku: 'KO-WOOL-03', name: 'Khăn Ống Len Lót Lông Cừu Dày Siêu Ấm', qty: 8, price: 95000, bin: 'A-06-07', picked: false },
         ],
@@ -580,6 +586,19 @@ export const initialPickingBatches: PickingBatch[] = [
     skusCount: 7,
     channels: ['tiktok', 'lazada'],
     priority: 'Normal',
+    orderType: 'normal',
+    slaDetail: {
+      orderType: 'normal',
+      title: 'Đơn bình thường',
+      deadlineText: '18:00 hôm nay',
+      remainingText: 'Đã hoàn tất',
+      receivedAtText: '08:50',
+      officeHoursOnly: false,
+      description: 'Đơn hàng xử lý tiêu chuẩn trong ngày (SLA 24h).',
+    },
+    customerName: 'Mai Phương Trang',
+    customerPhone: '0922 998 877',
+    customerAddress: '42 Tôn Đức Thắng, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
     picker: {
       name: 'Eka S.',
       avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&h=100&fit=crop&crop=face',
@@ -607,13 +626,13 @@ export const initialPickingBatches: PickingBatch[] = [
       {
         orderId: 'LZ-99120',
         channel: 'lazada',
-        customerName: 'Bùi Thế Hiển',
-        phone: '0981 334 455',
-        address: '15 Kỳ Đồng, Phường 9, Quận 3, TP. Hồ Chí Minh',
+        customerName: 'Mai Phương Trang',
+        phone: '0922 998 877',
+        address: '42 Tôn Đức Thắng, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
         createdAt: '2026-09-06 08:35',
         paymentMethod: 'COD (Thu tiền khi nhận hàng)',
         totalAmount: 1100000,
-        notes: 'Gọi trước 15 phút',
+        notes: 'Đơn gộp cùng khách Mai Phương Trang, gọi trước 15 phút',
         items: [
           { sku: 'BD-SILK-02', name: 'Băng Đô Cài Tóc Nữ Bằng Lụa Satin Phối Nơ', qty: 5, price: 220000, bin: 'C-01-04', picked: true },
         ],
@@ -644,7 +663,6 @@ export const initialPickingBatches: PickingBatch[] = [
     const zone: BatchZone = num % 3 === 0 ? 'Zone A' : num % 3 === 1 ? 'Zone B' : 'Zone C'
     const status: PickingStatus =
       num % 4 === 0 ? 'Picked' : num % 4 === 1 ? 'Picking' : num % 4 === 2 ? 'Pending' : 'Delayed'
-    const priority: PickingPriority = num % 3 === 0 ? 'Urgent' : num % 3 === 1 ? 'High' : 'Normal'
     const total = 10 + (num % 15)
     const picked = status === 'Picked' ? total : status === 'Pending' ? 0 : Math.floor(total * 0.6)
 
@@ -672,52 +690,145 @@ export const initialPickingBatches: PickingBatch[] = [
     ]
     const fashionName = fashionNames[num % fashionNames.length]!
 
+    const orderType: OrderFulfillmentType =
+      num % 5 === 0 ? 'express' : num % 6 === 0 ? 'delayed_packing' : 'normal'
+    const priority: PickingPriority =
+      orderType === 'express' || orderType === 'delayed_packing' ? 'Urgent' : 'Normal'
+
+    const slaDetail: OrderSlaDetail =
+      orderType === 'express'
+        ? {
+            orderType: 'express',
+            title: 'Đơn hỏa tốc',
+            slaHours: 4,
+            deadlineText: 'Trong vòng 4 tiếng',
+            remainingText: 'Còn 2h 45m',
+            receivedAtText: '10:00 (Giờ hành chính: 08:00 - 17:30)',
+            officeHoursOnly: true,
+            description: 'Bắt buộc nhân viên hoàn thành trong 4 tiếng. Chỉ tiếp nhận trong khung giờ hành chính (08:00 - 17:30).',
+          }
+        : orderType === 'delayed_packing'
+          ? {
+              orderType: 'delayed_packing',
+              title: 'Đơn trễ thời gian đóng gói',
+              overdueMinutes: 30 + (num % 35),
+              deadlineText: `Quá hạn ${30 + (num % 35)} phút`,
+              remainingText: 'Quá hạn đóng gói',
+              receivedAtText: '08:00',
+              officeHoursOnly: false,
+              description: 'Đơn bình thường ban đầu nhưng đã quá hạn đóng gói quy định. Cần ưu tiên xử lý ngay!',
+            }
+          : {
+              orderType: 'normal',
+              title: 'Đơn bình thường',
+              deadlineText: '18:00 hôm nay',
+              remainingText: 'Còn 6h 30m',
+              receivedAtText: '10:00',
+              officeHoursOnly: false,
+              description: 'Đơn hàng xử lý tiêu chuẩn trong ngày (SLA 24h).',
+            }
+
+    const cPhone = `09${(num % 9) + 1}1 234 56${num % 10}`
+    const cAddress = `${10 + num} Nguyễn Trãi, Phường 3, Quận 5, TP. Hồ Chí Minh`
+    const isMultiChannel = channels.length > 1
+    const halfQty = Math.max(1, Math.floor(total / 2))
+    const restQty = total - halfQty
+
+    const batchOrders: CustomerOrder[] = [
+      {
+        orderId: `ORD-${num}011`,
+        channel: channels[0]!,
+        customerName: cName,
+        phone: cPhone,
+        address: cAddress,
+        createdAt: '2026-09-06 09:30',
+        paymentMethod: 'Đã thanh toán online',
+        totalAmount: 320000 + num * 15000,
+        notes: 'Đơn hàng đa kênh',
+        items: [
+          {
+            sku: `FSH-${num}01`,
+            name: fashionName,
+            qty: isMultiChannel ? halfQty : total,
+            price: Math.round((450000 + num * 20000) / total),
+            bin: `${zone.slice(-1)}-0${(num % 8) + 1}-0${(num % 9) + 1}`,
+            picked: status === 'Picked',
+          },
+        ],
+      },
+    ]
+
+    if (isMultiChannel && channels[1]) {
+      batchOrders.push({
+        orderId: `ORD-${num}022`,
+        channel: channels[1],
+        customerName: cName,
+        phone: cPhone,
+        address: cAddress,
+        createdAt: '2026-09-06 09:45',
+        paymentMethod: 'COD (Thu tiền khi nhận hàng)',
+        totalAmount: 280000 + num * 12000,
+        notes: `Đơn gộp cùng khách ${cName}`,
+        items: [
+          {
+            sku: `FSH-${num}02`,
+            name: `${fashionName} (Phụ kiện kèm)`,
+            qty: restQty,
+            price: Math.round((280000 + num * 12000) / restQty),
+            bin: `${zone.slice(-1)}-0${(num % 8) + 2}-0${(num % 9) + 1}`,
+            picked: status === 'Picked',
+          },
+        ],
+      })
+    }
+
     return {
       id,
       itemsCount: total,
       skusCount: Math.ceil(total * 0.6),
       channels,
       priority,
-      picker: {
-        name: ['Ahmad R.', 'Siti M.', 'Budi P.', 'Rian K.', 'Dewi A.', 'Fahmi H.', 'Eka S.'][num % 7]!,
-        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
-        initials: 'NV',
-      },
+      orderType,
+      slaDetail,
+      customerName: cName,
+      customerPhone: cPhone,
+      customerAddress: cAddress,
+      picker:
+        status === 'Pending'
+          ? {
+              name: 'Chưa phân công',
+              avatar: '',
+              initials: '--',
+            }
+          : {
+              name: ['Ahmad R.', 'Siti M.', 'Budi P.', 'Rian K.', 'Dewi A.', 'Fahmi H.', 'Eka S.'][num % 7]!,
+              avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
+              initials: 'NV',
+            },
       progress: { picked, total },
       status,
       zone,
       createdAt: '2026-09-06T10:00:00Z',
-      orders: [
-        {
-          orderId: `ORD-${num}011`,
-          channel: channels[0]!,
-          customerName: cName,
-          phone: `09${num}1 234 567`,
-          address: `${10 + num} Nguyễn Trãi, Phường 3, Quận 5, TP. Hồ Chí Minh`,
-          createdAt: '2026-09-06 09:30',
-          paymentMethod: 'Đã thanh toán online',
-          totalAmount: 450000 + num * 20000,
-          notes: 'Giao hàng tiêu chuẩn',
-          items: [
-            {
-              sku: `FSH-${num}01`,
-              name: fashionName,
-              qty: total,
-              price: Math.round((450000 + num * 20000) / total),
-              bin: `${zone.slice(-1)}-0${(num % 8) + 1}-0${(num % 9) + 1}`,
-              picked: status === 'Picked',
-            },
-          ],
-        },
-      ],
+      orders: batchOrders,
       items: [
         {
           sku: `FSH-${num}01`,
           name: fashionName,
-          qty: total,
+          qty: isMultiChannel ? halfQty : total,
           bin: `${zone.slice(-1)}-0${(num % 8) + 1}-0${(num % 9) + 1}`,
           picked: status === 'Picked',
         },
+        ...(isMultiChannel
+          ? [
+              {
+                sku: `FSH-${num}02`,
+                name: `${fashionName} (Phụ kiện kèm)`,
+                qty: restQty,
+                bin: `${zone.slice(-1)}-0${(num % 8) + 2}-0${(num % 9) + 1}`,
+                picked: status === 'Picked',
+              },
+            ]
+          : []),
       ],
       aiPackaging: {
         boxCode: `CARTON-B${(num % 4) + 1}`,
@@ -727,3 +838,58 @@ export const initialPickingBatches: PickingBatch[] = [
     }
   }),
 ]
+
+// ==========================================
+// LOCAL STORAGE & BATCH STATE SYNCHRONIZATION
+// ==========================================
+
+export const PICKING_BATCHES_STORAGE_KEY = 'optipack_picking_batches_v3'
+
+export function getStoredBatches(): PickingBatch[] {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(PICKING_BATCHES_STORAGE_KEY) : null
+    if (raw) {
+      const parsed = JSON.parse(raw) as PickingBatch[]
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed
+      }
+    }
+  } catch {
+    // Ignore storage parse errors
+  }
+  return initialPickingBatches
+}
+
+export function saveStoredBatches(batches: PickingBatch[]): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(PICKING_BATCHES_STORAGE_KEY, JSON.stringify(batches))
+      window.dispatchEvent(new CustomEvent('optipack:batches_updated', { detail: batches }))
+    }
+  } catch {
+    // Ignore storage save errors
+  }
+}
+
+export function updateStoredBatch(
+  batchId: string,
+  updater: (prev: PickingBatch) => PickingBatch,
+): PickingBatch[] {
+  const current = getStoredBatches()
+  const updated = current.map((b) => (b.id === batchId ? updater(b) : b))
+  saveStoredBatches(updated)
+  return updated
+}
+
+export function updateBatchPicker(
+  batchId: string,
+  picker: { name: string; avatar: string; initials: string },
+): PickingBatch[] {
+  return updateStoredBatch(batchId, (b) => ({
+    ...b,
+    picker,
+    // Nếu đơn trước đó đang Pending thì khi đã gán nhân viên bắt đầu lấy hàng có thể chuyển sang Picking
+    status: b.status === 'Pending' ? 'Picking' : b.status,
+  }))
+}
+
