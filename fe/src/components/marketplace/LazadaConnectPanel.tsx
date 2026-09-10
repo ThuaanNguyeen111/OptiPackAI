@@ -163,7 +163,7 @@ export function LazadaConnectPanel({
                 <div className="flex items-center gap-2">
                   {active ? (
                     <span className="rounded-md border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary-hover">
-                      Active
+                      Đang chọn
                     </span>
                   ) : null}
                   <Button

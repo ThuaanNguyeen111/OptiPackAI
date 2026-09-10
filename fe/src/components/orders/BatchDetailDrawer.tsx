@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  AlertTriangle,
   CheckCircle2,
   Clock,
   MapPin,
@@ -11,6 +12,7 @@ import {
   Sparkles,
   User,
   X,
+  Zap,
 } from 'lucide-react'
 import type { BatchChannel, PickingBatch } from '../../data/picking-batches-mock'
 import { Button } from '../ui/Button'
@@ -21,6 +23,7 @@ interface BatchDetailDrawerProps {
   onStartPicking?: (batchId: string) => void
   onCompleteBatch?: (batchId: string) => void
   onOpenScanner?: () => void
+  onToggleDelayedPacking?: (batchId: string) => void
   locale?: 'vi' | 'en'
 }
 
@@ -66,6 +69,7 @@ export function BatchDetailDrawer({
   onStartPicking,
   onCompleteBatch,
   onOpenScanner,
+  onToggleDelayedPacking,
   locale = 'vi',
 }: BatchDetailDrawerProps) {
   if (!batch) return null
@@ -109,7 +113,13 @@ export function BatchDetailDrawer({
                           : 'border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-400'
                   }`}
                 >
-                  {batch.status}
+                  {batch.status === 'Picked'
+                    ? 'Đã lấy hàng'
+                    : batch.status === 'Picking'
+                      ? 'Đang lấy hàng'
+                      : batch.status === 'Pending'
+                        ? 'Chờ xử lý'
+                        : 'Chậm trễ'}
                 </span>
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -161,25 +171,161 @@ export function BatchDetailDrawer({
             </div>
           </div>
 
+          {/* SLA & Fulfillment Case Notice Box */}
+          {batch.orderType === 'express' ? (
+            <div className="rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-xs dark:border-amber-700/80 dark:from-amber-950/40 dark:to-orange-950/20">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white shadow-xs">
+                  <Zap className="h-5 w-5 fill-white" />
+                </span>
+                <div className="space-y-1.5 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <h4 className="font-bold text-amber-950 dark:text-amber-200 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <span>⚡ ĐƠN HỎA TỐC</span>
+                      <span className="rounded-full bg-amber-200/90 px-2 py-0.5 text-[10px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
+                        BẮT BUỘC HOÀN THÀNH TRONG 4 TIẾNG
+                      </span>
+                    </h4>
+                    <span className="font-bold text-xs text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      {batch.slaDetail?.remainingText ?? 'Còn 1h 45m'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-900/90 dark:text-amber-200/90 leading-relaxed">
+                    • <strong>Thời gian hoàn thành:</strong> Bắt buộc nhân viên hoàn tất lấy hàng và đóng gói trong vòng <strong>4 tiếng</strong> kể từ lúc tiếp nhận đơn (Hạn chót: <strong>{batch.slaDetail?.deadlineText ?? '12:15'}</strong>).<br />
+                    • <strong>Khung giờ tiếp nhận:</strong> Đơn hỏa tốc <strong>chỉ tiếp nhận trong giờ hành chính (08:00 - 17:30)</strong>. Đơn này được tiếp nhận hợp lệ lúc <strong>{batch.slaDetail?.receivedAtText ?? '08:15'}</strong>.<br />
+                    • <strong>Ưu tiên:</strong> Nhân viên cần nhặt hàng và đóng gói đơn này trước các đơn tiêu chuẩn.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : batch.orderType === 'delayed_packing' ? (
+            <div className="rounded-xl border border-rose-300 bg-gradient-to-r from-rose-50 to-red-50 p-4 shadow-xs dark:border-rose-700/80 dark:from-rose-950/40 dark:to-red-950/20">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-rose-600 text-white shadow-xs">
+                  <AlertTriangle className="h-5 w-5" />
+                </span>
+                <div className="space-y-1.5 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-1">
+                    <h4 className="font-bold text-rose-950 dark:text-rose-200 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                      <span>⚠️ ĐƠN BÌNH THƯỜNG TRỄ THỜI GIAN ĐÓNG GÓI</span>
+                      <span className="rounded-full bg-rose-200 px-2 py-0.5 text-[10px] font-bold text-rose-800 dark:bg-rose-900/60 dark:text-rose-200">
+                        {batch.slaDetail?.deadlineText ?? 'Quá hạn 45 phút'}
+                      </span>
+                    </h4>
+                    <span className="font-bold text-xs text-rose-700 dark:text-rose-300 flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      Chậm trễ SLA
+                    </span>
+                  </div>
+                  <p className="text-xs text-rose-900/90 dark:text-rose-200/90 leading-relaxed">
+                    Đơn hàng ban đầu thuộc nhóm tiêu chuẩn (đơn bình thường) nhưng đã vượt quá hạn chót thời gian đóng gói quy định. Hệ thống chuyển sang Đơn trễ đóng gói, yêu cầu nhân viên tập trung đóng gói và in phiếu xuất gửi ngay để bàn giao vận chuyển, tránh bị phạt vi phạm cam kết giao hàng!
+                  </p>
+                  {onToggleDelayedPacking ? (
+                    <div className="pt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => onToggleDelayedPacking(batch.id)}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-300 cursor-pointer shadow-2xs"
+                      >
+                        <Clock className="h-3 w-3 text-blue-600" />
+                        Khôi phục lại Đơn bình thường (Đúng hạn)
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 text-xs text-slate-600 dark:border-slate-800 dark:bg-surface-2/40 dark:text-slate-400 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 font-medium text-slate-800 dark:text-slate-200">
+                  <Clock className="h-3.5 w-3.5 text-slate-500" />
+                  Đơn bình thường (Tiêu chuẩn 24h) · Đang trong hạn đóng gói quy định
+                </span>
+                <span className="text-slate-500 font-mono text-[11px]">Hạn: 18:00</span>
+              </div>
+              {onToggleDelayedPacking ? (
+                <div className="flex items-center justify-between pt-1.5 border-t border-slate-200/60 dark:border-slate-700/60">
+                  <span className="text-[11px] text-slate-500">Mô phỏng trễ SLA đóng gói:</span>
+                  <button
+                    type="button"
+                    onClick={() => onToggleDelayedPacking(batch.id)}
+                    className="inline-flex items-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-100 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300 transition-colors cursor-pointer"
+                  >
+                    <AlertTriangle className="h-3 w-3 text-rose-600" />
+                    Chuyển sang Đơn trễ đóng gói
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {/* Section: Customer Orders Details */}
           <div>
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <User className="h-4 w-4 text-blue-600" />
                 <h3 className="font-semibold text-slate-900 uppercase tracking-wider dark:text-slate-100">
-                  {vi ? 'Thông tin người đặt hàng' : 'Customer Orders'} ({batch.orders.length})
+                  {vi ? 'Khách hàng nhận đơn gộp' : 'Consolidated Customer'}
                 </h3>
               </div>
-              {batch.orders.length > 1 ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
-                  <Sparkles className="h-3 w-3" />
-                  {vi ? 'Đơn gộp đa kênh' : 'Consolidated batch'}
-                </span>
-              ) : null}
+              <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-0.5 text-[11px] font-semibold text-purple-700 dark:bg-purple-950/40 dark:text-purple-300">
+                <Sparkles className="h-3 w-3" />
+                {vi ? `Gộp ${batch.orders.length} đơn đa sàn` : `Consolidated ${batch.orders.length} orders`}
+              </span>
             </div>
 
-            <div className="space-y-4">
-              {batch.orders.map((ord) => (
+            {/* Recipient Overview Card */}
+            <div className="mb-4 rounded-xl border border-blue-200/80 bg-blue-50/40 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-blue-100 pb-2.5 dark:border-blue-900/40">
+                <div>
+                  <span className="text-[11px] font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                    {vi ? 'Người nhận duy nhất của kiện này:' : 'Single Recipient:'}
+                  </span>
+                  <h4 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                    {batch.customerName || batch.orders[0]?.customerName}
+                  </h4>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 block">
+                    {vi ? 'Nền tảng đã gộp:' : 'Consolidated Channels:'}
+                  </span>
+                  <div className="flex items-center gap-1 mt-0.5">
+                    {batch.channels.map((ch) => renderChannelBadge(ch))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-2.5 sm:grid-cols-2 text-xs">
+                <div className="flex items-start gap-2">
+                  <Phone className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 block text-[11px]">{vi ? 'Số điện thoại:' : 'Phone:'}</span>
+                    <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                      {batch.customerPhone || batch.orders[0]?.phone}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <MapPin className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <div>
+                    <span className="text-slate-500 dark:text-slate-400 block text-[11px]">{vi ? 'Địa chỉ giao hàng:' : 'Address:'}</span>
+                    <span className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">
+                      {batch.customerAddress || batch.orders[0]?.address}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Breakdown of consolidated sub-orders */}
+            <div className="space-y-3">
+              <p className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                {vi ? `Chi tiết ${batch.orders.length} đơn hàng thành phần được gộp:` : `Breakdown of ${batch.orders.length} consolidated orders:`}
+              </p>
+
+              {batch.orders.map((ord, idx) => (
                 <div
                   key={ord.orderId}
                   className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1"
@@ -188,16 +334,16 @@ export function BatchDetailDrawer({
                   <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-3 dark:border-slate-800">
                     <div>
                       <div className="flex items-center gap-2">
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                          {idx + 1}
+                        </span>
                         <span className="font-mono text-sm font-bold text-blue-600 dark:text-blue-400">
                           #{ord.orderId}
                         </span>
                         {renderChannelBadge(ord.channel)}
                         <span className="text-slate-400">·</span>
-                        <span className="text-slate-500">{ord.createdAt}</span>
+                        <span className="text-slate-500 text-xs">{ord.createdAt}</span>
                       </div>
-                      <p className="mt-1 font-semibold text-slate-900 dark:text-slate-100 text-sm">
-                        {ord.customerName}
-                      </p>
                     </div>
 
                     <div className="text-right">
@@ -210,34 +356,17 @@ export function BatchDetailDrawer({
                     </div>
                   </div>
 
-                  {/* Customer Contact & Address */}
-                  <div className="mt-3 grid gap-2.5 sm:grid-cols-2 bg-slate-50/70 p-3 rounded-lg dark:bg-surface-2/40">
-                    <div className="flex items-start gap-2">
-                      <Phone className="h-3.5 w-3.5 text-slate-400 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">{vi ? 'Số điện thoại:' : 'Phone:'}</span>
-                        <span className="font-mono font-medium text-slate-800 dark:text-slate-200">{ord.phone}</span>
-                      </div>
+                  {ord.notes ? (
+                    <div className="mt-2.5 flex items-center gap-2 text-amber-700 dark:text-amber-300 text-[11px] bg-amber-50/70 dark:bg-amber-950/20 px-2.5 py-1.5 rounded-md border border-amber-200/50">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      <span><strong>{vi ? 'Ghi chú đơn:' : 'Note:'}</strong> {ord.notes}</span>
                     </div>
-                    <div className="flex items-start gap-2">
-                      <MapPin className="h-3.5 w-3.5 text-slate-400 mt-0.5 shrink-0" />
-                      <div>
-                        <span className="text-slate-400 block text-[11px]">{vi ? 'Địa chỉ giao hàng:' : 'Address:'}</span>
-                        <span className="text-slate-800 dark:text-slate-200 font-medium leading-relaxed">{ord.address}</span>
-                      </div>
-                    </div>
-                    {ord.notes ? (
-                      <div className="sm:col-span-2 flex items-center gap-2 text-amber-700 dark:text-amber-300 text-[11px] bg-amber-50/70 dark:bg-amber-950/20 px-2.5 py-1.5 rounded-md border border-amber-200/50">
-                        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                        <span><strong>{vi ? 'Ghi chú:' : 'Note:'}</strong> {ord.notes}</span>
-                      </div>
-                    ) : null}
-                  </div>
+                  ) : null}
 
                   {/* Items in this customer's order */}
                   <div className="mt-3">
                     <p className="mb-2 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                      {vi ? 'Sản phẩm khách đặt' : 'Ordered items'} ({ord.items.length})
+                      {vi ? 'Sản phẩm thuộc đơn này' : 'Items in this order'} ({ord.items.length})
                     </p>
                     <div className="divide-y divide-slate-100 rounded-lg border border-slate-200 overflow-hidden dark:divide-slate-800 dark:border-slate-800">
                       {ord.items.map((item) => (

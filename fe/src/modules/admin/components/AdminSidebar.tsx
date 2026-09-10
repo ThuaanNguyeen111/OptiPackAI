@@ -83,7 +83,6 @@ export function AdminSidebar() {
     sidebarCollapsed,
     toggleSidebar,
     locale,
-    setLocale,
     mobileNavOpen,
     setMobileNavOpen,
   } = usePortal()
@@ -219,48 +218,21 @@ export function AdminSidebar() {
             </div>
 
             <div className="flex items-center justify-between gap-1">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={toggleTheme}
-                  className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
-                  aria-label={
-                    theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
-                  }
-                  title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-                >
-                  {theme === 'dark' ? (
-                    <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  ) : (
-                    <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  )}
-                </button>
-
-                <div className="flex rounded-md border border-hairline p-0.5 text-[11px] font-medium">
-                  <button
-                    type="button"
-                    onClick={() => setLocale('vi')}
-                    className={`rounded px-2 py-1 transition-colors ${
-                      locale === 'vi'
-                        ? 'bg-primary/15 font-semibold text-primary-hover'
-                        : 'text-ink-subtle hover:text-ink'
-                    }`}
-                  >
-                    VI
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLocale('en')}
-                    className={`rounded px-2 py-1 transition-colors ${
-                      locale === 'en'
-                        ? 'bg-primary/15 font-semibold text-primary-hover'
-                        : 'text-ink-subtle hover:text-ink'
-                    }`}
-                  >
-                    EN
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+                aria-label={
+                  theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
+                }
+                title={theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'}
+              >
+                {theme === 'dark' ? (
+                  <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
+                ) : (
+                  <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                )}
+              </button>
 
               <button
                 type="button"
@@ -289,23 +261,13 @@ export function AdminSidebar() {
               aria-label={
                 theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
               }
-              title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              title={theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'}
             >
               {theme === 'dark' ? (
                 <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
               ) : (
                 <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
               )}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setLocale(locale === 'vi' ? 'en' : 'vi')}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-[11px] font-bold text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
-              aria-label="Toggle language"
-              title={locale === 'vi' ? 'Ngôn ngữ: VI (Bấm để đổi EN)' : 'Language: EN (Click to switch VI)'}
-            >
-              {locale.toUpperCase()}
             </button>
 
             <button

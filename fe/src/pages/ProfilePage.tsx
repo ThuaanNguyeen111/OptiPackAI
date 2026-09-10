@@ -5,7 +5,6 @@ import {
   Check,
   CheckCircle2,
   Copy,
-  Globe,
   Key,
   Loader2,
   Lock,
@@ -108,7 +107,6 @@ export function ProfilePage() {
   const navigate = useNavigate()
   const {
     locale,
-    setLocale,
     shops,
     addShop,
     removeShop,
@@ -1087,41 +1085,8 @@ export function ProfilePage() {
             <div className="space-y-3">
               <section className="rounded-xl border border-hairline bg-surface-1 p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
-                  <Globe className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-                  {vi ? 'Ngôn ngữ' : 'Language Selection'}
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {(
-                    [
-                      { id: 'vi' as const, label: 'Tiếng Việt' },
-                      { id: 'en' as const, label: 'English' },
-                    ] as const
-                  ).map((opt) => (
-                    <label
-                      key={opt.id}
-                      className={`flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2.5 text-sm transition-colors ${
-                        locale === opt.id
-                          ? 'border-primary/40 bg-primary/10 text-primary-hover'
-                          : 'border-hairline bg-canvas text-ink-muted hover:border-primary/30'
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="locale"
-                        className="accent-[#6366F1]"
-                        checked={locale === opt.id}
-                        onChange={() => setLocale(opt.id)}
-                      />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-xl border border-hairline bg-surface-1 p-4">
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
                   <Bell className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-                  {vi ? 'Thông báo' : 'Notifications'}
+                  Thông báo
                 </div>
                 <ul className="space-y-2">
                   {(
@@ -1130,20 +1095,19 @@ export function ProfilePage() {
                         key: 'consolidation',
                         checked: notifyConsolidation,
                         set: setNotifyConsolidation,
-                        label:
-                          'Email alert when AI suggests order consolidation',
+                        label: 'Thông báo qua email khi AI gợi ý gộp đơn hàng',
                       },
                       {
                         key: 'webhook',
                         checked: notifyWebhookFail,
                         set: setNotifyWebhookFail,
-                        label: 'Alert on Webhook sync failures',
+                        label: 'Cảnh báo khi đồng bộ Webhook thất bại',
                       },
                       {
                         key: 'daily',
                         checked: notifyDailyReport,
                         set: setNotifyDailyReport,
-                        label: 'Daily fulfillment summary report',
+                        label: 'Báo cáo tổng kết hoàn tất đơn hàng hàng ngày',
                       },
                     ] as const
                   ).map((item) => (

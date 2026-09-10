@@ -6,7 +6,7 @@ const STAFF_PREFIXES: Record<
   | typeof UserRole.SHIPPING_COORDINATOR,
   string[]
 > = {
-  [UserRole.WAREHOUSE_STAFF]: ['/app/warehouse'],
+  [UserRole.WAREHOUSE_STAFF]: ['/app/warehouse', '/app/inventory'],
   [UserRole.PACKAGING_STAFF]: ['/app/packing'],
   [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping'],
 }
@@ -39,7 +39,7 @@ export function canAccessPath(role: Role, pathname: string): boolean {
   if (path === '/app/profile' || path === '/app/settings') return true
 
   if (role === UserRole.ADMIN) {
-    return path === '/app/admin' || path.startsWith('/app/admin/')
+    return true
   }
 
   if (path === '/app/admin' || path.startsWith('/app/admin/')) return false

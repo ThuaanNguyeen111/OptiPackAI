@@ -29,6 +29,43 @@ export type VerificationItem = {
   verified: boolean
 }
 
+/**
+ * Platform Package Order definition for Multi-Platform Split Packaging
+ * Each platform order (Shopee, TikTok Shop, Lazada) within a consolidated batch
+ * is packed into its own separate package with specific AI Box recommendations and Air Waybill.
+ */
+export interface PlatformPackageOrder {
+  id: string
+  batchId: string
+  channel: 'shopee' | 'tiktok' | 'lazada'
+  orderNumber: string
+  tabLabel: string
+  customerName: string
+  customerAddress: string
+  phone: string
+  destination: string
+  slaLimit: string
+  deliveryService: string
+  items: VerificationItem[]
+  boxCode: string
+  boxLabel: string
+  dimensions: string
+  dim: { w: number; l: number; h: number }
+  realWeightKg: number
+  volumetricWeightKg: number
+  fillRatio: number
+  optScore: number
+  materials: string[]
+  packagingCostUsd: number
+  shippingFeeUsd: number
+  trackingNumber: string
+  carrierName: string
+  carrierService: string
+  sortingHub: string
+  routeCode: string
+  paymentInfo: string
+}
+
 export type PackingJob = {
   id: string
   selector_label: string
@@ -415,3 +452,297 @@ export const packingJobs: PackingJob[] = [
     ],
   },
 ]
+
+// ============================================================================
+// MULTI-PLATFORM SPLIT PACKAGING DATASET
+// Each platform order within a consolidated batch is packed into its own package
+// ============================================================================
+
+export const SHOPEE_ORD_9021_ITEMS: VerificationItem[] = [
+  {
+    id: 'sp-item-1',
+    sku: 'BZ-SLIM-401',
+    title: 'Áo Blazer Nam Slim Fit Cao Cấp',
+    dimensions: '60×45×5 cm',
+    weightKg: 0.8,
+    imageUrl: 'https://images.unsplash.com/photo-1507679799987-c73779587ccf?w=300&auto=format&fit=crop&q=80',
+    verified: true,
+  },
+  {
+    id: 'sp-item-2',
+    sku: 'KC-CASH-203',
+    title: 'Khăn Choàng Cashmere Họa Tiết',
+    dimensions: '30×25×3 cm',
+    weightKg: 0.3,
+    imageUrl: 'https://images.unsplash.com/photo-1601924994987-69e26d50dc26?w=300&auto=format&fit=crop&q=80',
+    verified: true,
+  },
+  {
+    id: 'sp-item-3',
+    sku: 'VD-CLUT-NF7',
+    title: 'Ví Cầm Tay Da Nữ Sang Trọng',
+    dimensions: '22×12×4 cm',
+    weightKg: 0.15,
+    imageUrl: 'https://images.unsplash.com/photo-1566150905458-1bf1fc113f0d?w=300&auto=format&fit=crop&q=80',
+    verified: true,
+  },
+  {
+    id: 'sp-item-4',
+    sku: 'DC-SIL-RD9',
+    title: 'Dây Chuyền Bạc Mặt Tròn Tinh Tế',
+    dimensions: '20×15×3 cm',
+    weightKg: 0.05,
+    imageUrl: 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?w=300&auto=format&fit=crop&q=80',
+    verified: false,
+  },
+]
+
+export const TIKTOK_TT_22918_ITEMS: VerificationItem[] = [
+  {
+    id: 'tt-item-1',
+    sku: 'AK-2041-GL',
+    title: 'Áo Khoác Gió Chống Nước Unisex',
+    dimensions: '45×35×4 cm',
+    weightKg: 0.45,
+    imageUrl: 'https://images.unsplash.com/photo-1544441893-675973e31985?w=300&auto=format&fit=crop&q=80',
+    verified: true,
+  },
+  {
+    id: 'tt-item-2',
+    sku: 'QJ-3052-BK',
+    title: 'Quần Jogger Thun Co Giãn Form Rộng',
+    dimensions: '35×25×3 cm',
+    weightKg: 0.35,
+    imageUrl: 'https://images.unsplash.com/photo-1552902865-b72c031ac5ea?w=300&auto=format&fit=crop&q=80',
+    verified: true,
+  },
+  {
+    id: 'tt-item-3',
+    sku: 'KM-2290-UV',
+    title: 'Kính Râm Phân Cực Thời Trang UV400',
+    dimensions: '18×8×4 cm',
+    weightKg: 0.08,
+    imageUrl: 'https://images.unsplash.com/photo-1511499767150-a48a237f0083?w=300&auto=format&fit=crop&q=80',
+    verified: false,
+  },
+]
+
+export const LAZADA_LZ_44120_ITEMS: VerificationItem[] = [
+  {
+    id: 'lz-item-1',
+    sku: 'VD-SUONG-01',
+    title: 'Váy Đầm Nữ Dáng Suông Tay Phồng Lụa Satin',
+    dimensions: '30×20×4 cm',
+    weightKg: 0.35,
+    imageUrl: 'https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=300&auto=format&fit=crop&q=80',
+    verified: true,
+  },
+  {
+    id: 'lz-item-2',
+    sku: 'KC-VOAN-03',
+    title: 'Khăn Choàng Cổ Lụa Voan Họa Tiết Hoa Cúc',
+    dimensions: '20×15×2 cm',
+    weightKg: 0.12,
+    imageUrl: 'https://images.unsplash.com/photo-1601924994987-69e26d50dc26?w=300&auto=format&fit=crop&q=80',
+    verified: false,
+  },
+]
+
+export const DEFAULT_PLATFORM_PACKING_ORDERS: PlatformPackageOrder[] = [
+  {
+    id: 'ord-shopee-9021',
+    batchId: 'BTH-20240115-001',
+    channel: 'shopee',
+    orderNumber: 'ORD-9021',
+    tabLabel: 'Shopee #ORD-9021',
+    customerName: 'Trần Văn An',
+    customerAddress: '123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
+    phone: '0901 882 193',
+    destination: 'Quận 1, TP. Hồ Chí Minh',
+    slaLimit: '12:15 (còn 1h 45m)',
+    deliveryService: 'Shopee Xpress (Hỏa tốc SPX)',
+    items: SHOPEE_ORD_9021_ITEMS,
+    boxCode: 'Hộp S',
+    boxLabel: 'Hộp S: 40 x 30 x 12 cm',
+    dimensions: '40 × 30 × 12 cm',
+    dim: { w: 40, l: 30, h: 12 },
+    realWeightKg: 1.30,
+    volumetricWeightKg: 1.00,
+    fillRatio: 0.98,
+    optScore: 98,
+    materials: [
+      'Hộp Carton S',
+      'Giấy Lụa: 2 tờ',
+      'Túi Chống Ẩm: 1 gói',
+      'Nhãn Dán Shopee Xpress',
+    ],
+    packagingCostUsd: 0.45,
+    shippingFeeUsd: 2.10,
+    trackingNumber: 'SPXVN03928174921',
+    carrierName: 'Shopee Xpress',
+    carrierService: 'SPX EXPRESS',
+    sortingHub: 'SOC-50 / D1-HCM',
+    routeCode: 'HỎA TỐC · SG-HCM',
+    paymentInfo: 'Ví ShopeePay (Đã thanh toán)',
+  },
+  {
+    id: 'ord-tiktok-22918',
+    batchId: 'BTH-20240115-001',
+    channel: 'tiktok',
+    orderNumber: 'TT-22918',
+    tabLabel: 'TikTok Shop #TT-22918',
+    customerName: 'Trần Văn An',
+    customerAddress: '123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
+    phone: '0901 882 193',
+    destination: 'Quận 1, TP. Hồ Chí Minh',
+    slaLimit: '13:30 (còn 3h)',
+    deliveryService: 'TikTok Logistics (J&T Express)',
+    items: TIKTOK_TT_22918_ITEMS,
+    boxCode: 'Hộp A2',
+    boxLabel: 'Hộp A2: 25 x 18 x 12 cm',
+    dimensions: '25 × 18 × 12 cm',
+    dim: { w: 25, l: 18, h: 12 },
+    realWeightKg: 0.88,
+    volumetricWeightKg: 0.90,
+    fillRatio: 0.94,
+    optScore: 94,
+    materials: [
+      'Hộp Carton A2',
+      'Xốp Bóng Khí: 1 mét',
+      'Băng Keo TikTok Shop',
+      'Túi Niêm Phong Chống Rách',
+    ],
+    packagingCostUsd: 0.35,
+    shippingFeeUsd: 1.85,
+    trackingNumber: 'TTSVN884719201',
+    carrierName: 'TikTok Shop Logistics',
+    carrierService: 'J&T STANDARD',
+    sortingHub: 'TTS-HUB-03 / HCM-EAST',
+    routeCode: 'TIÊU CHUẨN · HCM-EAST',
+    paymentInfo: 'Thu tiền khi nhận (COD): 930.000 VNĐ',
+  },
+]
+
+export interface BatchPackagingPlan {
+  batchId: string
+  batchLabel: string
+  customerName: string
+  customerPhone: string
+  customerAddress: string
+  orders: PlatformPackageOrder[]
+}
+
+export const BATCH_PACKAGING_PLANS: Record<string, BatchPackagingPlan> = {
+  'BTH-20240115-001': {
+    batchId: 'BTH-20240115-001',
+    batchLabel: 'BTH-20240115-001 · Khách: Trần Văn An (Shopee + TikTok)',
+    customerName: 'Trần Văn An',
+    customerPhone: '0901 882 193',
+    customerAddress: '123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',
+    orders: DEFAULT_PLATFORM_PACKING_ORDERS,
+  },
+  'BTH-20240115-002': {
+    batchId: 'BTH-20240115-002',
+    batchLabel: 'BTH-20240115-002 · Khách: Lê Hoàng Yến (Shopee + TikTok + Lazada)',
+    customerName: 'Lê Hoàng Yến',
+    customerPhone: '0918 345 678',
+    customerAddress: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
+    orders: [
+      {
+        id: 'ord-shopee-88219',
+        batchId: 'BTH-20240115-002',
+        channel: 'shopee',
+        orderNumber: 'SP-88219',
+        tabLabel: 'Shopee #SP-88219',
+        customerName: 'Lê Hoàng Yến',
+        customerAddress: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
+        phone: '0918 345 678',
+        destination: 'Quận 3, TP. Hồ Chí Minh',
+        slaLimit: '18:00 hôm nay',
+        deliveryService: 'Shopee Xpress Standard',
+        items: SHOPEE_ORD_9021_ITEMS.slice(0, 3),
+        boxCode: 'Hộp S',
+        boxLabel: 'Hộp S: 40 x 30 x 12 cm',
+        dimensions: '40 × 30 × 12 cm',
+        dim: { w: 40, l: 30, h: 12 },
+        realWeightKg: 1.25,
+        volumetricWeightKg: 1.00,
+        fillRatio: 0.96,
+        optScore: 96,
+        materials: ['Hộp Carton S', 'Giấy Lụa: 2 tờ', 'Nhãn Dán Shopee'],
+        packagingCostUsd: 0.45,
+        shippingFeeUsd: 2.10,
+        trackingNumber: 'SPXVN9912048123',
+        carrierName: 'Shopee Xpress',
+        carrierService: 'SPX STANDARD',
+        sortingHub: 'SOC-50 / D3-HCM',
+        routeCode: 'TIÊU CHUẨN · D3-HCM',
+        paymentInfo: 'Ví ShopeePay (Đã thanh toán)',
+      },
+      {
+        id: 'ord-tiktok-44109',
+        batchId: 'BTH-20240115-002',
+        channel: 'tiktok',
+        orderNumber: 'TT-44109',
+        tabLabel: 'TikTok Shop #TT-44109',
+        customerName: 'Lê Hoàng Yến',
+        customerAddress: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
+        phone: '0918 345 678',
+        destination: 'Quận 3, TP. Hồ Chí Minh',
+        slaLimit: '18:00 hôm nay',
+        deliveryService: 'TikTok Logistics (J&T)',
+        items: TIKTOK_TT_22918_ITEMS.slice(0, 2),
+        boxCode: 'Hộp A2',
+        boxLabel: 'Hộp A2: 25 x 18 x 12 cm',
+        dimensions: '25 × 18 × 12 cm',
+        dim: { w: 25, l: 18, h: 12 },
+        realWeightKg: 0.80,
+        volumetricWeightKg: 0.90,
+        fillRatio: 0.93,
+        optScore: 93,
+        materials: ['Hộp Carton A2', 'Băng Keo TikTok Shop', 'Túi Niêm Phong'],
+        packagingCostUsd: 0.35,
+        shippingFeeUsd: 1.85,
+        trackingNumber: 'TTSVN771920381',
+        carrierName: 'TikTok Shop Logistics',
+        carrierService: 'J&T STANDARD',
+        sortingHub: 'TTS-HUB-03 / D3-HCM',
+        routeCode: 'TIÊU CHUẨN · D3-HCM',
+        paymentInfo: 'COD: 780.000 VNĐ',
+      },
+      {
+        id: 'ord-lazada-55102',
+        batchId: 'BTH-20240115-002',
+        channel: 'lazada',
+        orderNumber: 'LZ-55102',
+        tabLabel: 'Lazada #LZ-55102',
+        customerName: 'Lê Hoàng Yến',
+        customerAddress: '45 Lê Quý Đôn, Phường Võ Thị Sáu, Quận 3, TP. Hồ Chí Minh',
+        phone: '0918 345 678',
+        destination: 'Quận 3, TP. Hồ Chí Minh',
+        slaLimit: '18:00 hôm nay',
+        deliveryService: 'Lazada Express (LEX)',
+        items: LAZADA_LZ_44120_ITEMS,
+        boxCode: 'Hộp M1',
+        boxLabel: 'Hộp M1: 30 x 20 x 10 cm',
+        dimensions: '30 × 20 × 10 cm',
+        dim: { w: 30, l: 20, h: 10 },
+        realWeightKg: 0.47,
+        volumetricWeightKg: 0.60,
+        fillRatio: 0.91,
+        optScore: 91,
+        materials: ['Hộp Carton M1', 'Túi Zip Bảo Vệ Sợi Dệt', 'Tem Niêm Phong Lazada'],
+        packagingCostUsd: 0.40,
+        shippingFeeUsd: 1.95,
+        trackingNumber: 'LEXVN902814892',
+        carrierName: 'Lazada Express',
+        carrierService: 'LEX STANDARD',
+        sortingHub: 'LEX-HUB-01 / D3-HCM',
+        routeCode: 'TIÊU CHUẨN · D3-HCM',
+        paymentInfo: 'Lazada Wallet (Đã thanh toán)',
+      },
+    ],
+  },
+}
+
+

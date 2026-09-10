@@ -110,22 +110,20 @@ export function PackagingRulesPage() {
           <section className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
             <div className="border-b border-hairline px-4 py-3">
               <h2 className="text-sm font-medium text-ink">
-                {vi
-                  ? 'Available Carton Inventory'
-                  : 'Available Carton Inventory'}
+                Danh mục thùng carton có sẵn
               </h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-hairline text-ink-subtle">
-                    <th className="px-4 py-3 font-medium">Box Code</th>
-                    <th className="px-4 py-3 font-medium">Dimensions</th>
-                    <th className="px-4 py-3 font-medium">Max Weight</th>
-                    <th className="px-4 py-3 font-medium">Stock</th>
-                    <th className="px-4 py-3 font-medium">Unit Cost</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Action</th>
+                    <th className="px-4 py-3 font-medium">Mã thùng</th>
+                    <th className="px-4 py-3 font-medium">Kích thước</th>
+                    <th className="px-4 py-3 font-medium">Tải trọng tối đa</th>
+                    <th className="px-4 py-3 font-medium">Tồn kho</th>
+                    <th className="px-4 py-3 font-medium">Đơn giá</th>
+                    <th className="px-4 py-3 font-medium">Trạng thái</th>
+                    <th className="px-4 py-3 font-medium">Thao tác</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -155,7 +153,7 @@ export function PackagingRulesPage() {
                             box.status === 'in_stock' ? 'success' : 'warning'
                           }
                         >
-                          {box.status === 'in_stock' ? 'In Stock' : 'Low Stock'}
+                          {box.status === 'in_stock' ? 'Còn hàng' : 'Sắp hết'}
                         </Badge>
                       </td>
                       <td className="px-4 py-3">
@@ -165,7 +163,7 @@ export function PackagingRulesPage() {
                             className="inline-flex h-8 items-center gap-1 rounded-md border border-hairline px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
                           >
                             <Pencil className="h-3 w-3" />
-                            Edit
+                            Sửa
                           </button>
                           <button
                             type="button"
@@ -173,7 +171,7 @@ export function PackagingRulesPage() {
                             className="inline-flex h-8 items-center gap-1 rounded-md border border-[#EF4444]/30 px-2 text-xs text-[#EF4444] hover:bg-[#EF4444]/10"
                           >
                             <Trash2 className="h-3 w-3" />
-                            Delete
+                            Xóa
                           </button>
                         </div>
                       </td>
@@ -186,28 +184,18 @@ export function PackagingRulesPage() {
 
           <section className="rounded-xl border border-hairline bg-surface-1 p-4 sm:p-5">
             <h2 className="mb-3 text-sm font-medium text-ink">
-              {vi
-                ? 'Cushioning & Safety Rules Matrix'
-                : 'Cushioning & Safety Rules Matrix'}
+              Quy tắc đệm lót & An toàn đóng gói
             </h2>
             <div className="space-y-3">
               <ToggleRow
-                label="Fragile Items"
-                description={
-                  vi
-                    ? 'Tự động áp dụng buffer Bubble Wrap 2cm'
-                    : 'Automatically apply 2cm Bubble Wrap padding buffer'
-                }
+                label="Hàng dễ vỡ (Fragile)"
+                description="Tự động áp dụng khoảng đệm màng xốp bóng khí (Bubble Wrap) 2cm"
                 checked={fragilePad}
                 onChange={setFragilePad}
               />
               <ToggleRow
-                label="Heavy Electronics"
-                description={
-                  vi
-                    ? 'Bắt buộc thùng double-wall CARTON-HD'
-                    : 'Require double-wall corrugated carton (CARTON-HD)'
-                }
+                label="Hàng nặng / Điện tử"
+                description="Bắt buộc sử dụng thùng carton 5 lớp gia cố (CARTON-HD)"
                 checked={heavyHd}
                 onChange={setHeavyHd}
               />
@@ -215,12 +203,10 @@ export function PackagingRulesPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="text-sm font-medium text-ink">
-                      Volumetric Weight Safety Margin
+                      Khoảng trống an toàn thể tích (Safety Margin)
                     </p>
                     <p className="mt-0.5 text-xs text-ink-subtle">
-                      {vi
-                        ? 'Ngưỡng khoảng trống an toàn'
-                        : 'Threshold buffer space'}
+                      Ngưỡng khoảng đệm an toàn hạn chế va đập
                     </p>
                   </div>
                   <span className="font-mono text-sm font-semibold text-primary-hover">
@@ -237,7 +223,7 @@ export function PackagingRulesPage() {
                   className="mt-3 w-full accent-[#6366F1]"
                 />
                 <p className="mt-1 font-mono text-[11px] text-ink-tertiary">
-                  Default buffer: 8% · current={marginPct}%
+                  Khoảng đệm mặc định: 8% · hiện tại={marginPct}%
                 </p>
               </div>
             </div>
