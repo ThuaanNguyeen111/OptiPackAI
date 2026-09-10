@@ -120,6 +120,43 @@ interface LazadaGetOrderItemsResponse {
   data: LazadaOrderItemRaw[];
 }
 
+// ===================================================================
+// BỔ SUNG (2026-09-09) — GetProducts, phục vụ module product-master/
+// (Package 3, AI Packaging cần dữ liệu kích thước/cân nặng sản phẩm).
+// Dùng ĐÚNG callSignedGet() đã có sẵn — đúng như comment gốc của hàm
+// đó đã tự ghi trước: "GetProducts... sẽ theo cùng 1 khuôn khi cần".
+//
+// ⚠️ ĐỘ TIN CẬY: đã đối chiếu response mẫu THẬT từ tài liệu chính thức
+// Lazada Open Platform (không phải suy đoán cộng đồng như getOrders lúc
+// đầu) — field package_length/width/height/weight nằm trong skus[],
+// không phải cấp item_id cha (1 item_id có thể có nhiều SKU/biến thể,
+// mỗi SKU kích thước khác nhau — VD áo size S/M/L).
+// ===================================================================
+interface LazadaProductSkuRaw {
+  SellerSku: string;
+  ShopSku?: string;
+  package_length?: string; // Lazada trả STRING, không phải number (giống item_price ở Order)
+  package_width?: string;
+  package_height?: string;
+  package_weight?: string;
+  product_weight?: string;
+  quantity?: number;
+}
+
+interface LazadaProductRaw {
+  item_id: string;
+  skus: LazadaProductSkuRaw[];
+}
+
+interface LazadaGetProductsResponse {
+  code: string;
+  message?: string;
+  data: {
+    total_products: string;
+    products: LazadaProductRaw[];
+  };
+}
+
 // Tham số lọc cho GetOrders — sync theo cửa sổ thời gian (dùng cho polling
 // định kỳ ở orders.service.ts, tránh kéo lại TOÀN BỘ lịch sử đơn mỗi lần chạy).
 //
@@ -322,6 +359,43 @@ export class LazadaAdapter implements MarketplaceAdapter {
   }
 
   /**
+   * GetProducts — MỚI (2026-09-09), phục vụ module product-master/.
+   * Dùng sku_seller_list để tra theo LÔ (batch ≤50 SKU/lần, đúng giới
+   * hạn Lazada công bố) — KHỚP TRỰC TIẾP với SellerSku đã lưu sẵn
+   * trong orders.items[].sku, không cần bước tra ngược item_id nào.
+   *
+   * CỐ Ý KHÔNG dùng GetProductItem (API khác, tra theo item_id) — tham
+   * số seller_sku của API đó đã bị Lazada deprecated (15/11/2023), chỉ
+   * còn nhận item_id, không khớp trực tiếp dữ liệu đơn hàng đang có.
+   */
+  async getProducts(
+    accessToken: string,
+    sellerSkus: string[],
+  ): Promise<LazadaProductRaw[]> {
+    const path = '/products/get';
+    const extraParams: Record<string, string | number> = {
+      access_token: accessToken,
+      filter: 'live',
+      limit: 50,
+      sku_seller_list: JSON.stringify(sellerSkus),
+    };
+
+    const data = await this.callSignedGet<LazadaGetProductsResponse>(
+      path,
+      extraParams,
+    );
+
+    if (data.code !== '0') {
+      this.logger.error(`GetProducts Lazada thất bại: ${JSON.stringify(data)}`);
+      throw new Error(
+        `Lazada trả lỗi khi lấy danh sách sản phẩm: ${data.message ?? 'không rõ lý do'}`,
+      );
+    }
+
+    return data.data.products;
+  }
+
+  /**
    * Helper DÙNG CHUNG cho mọi API nghiệp vụ GET đã ký (khác 2 API token
    * ở exchangeCodeForToken/refreshAccessToken — 2 hàm đó POST + không có
    * access_token trong params). Gom vào 1 chỗ để KHÔNG lặp lại logic
@@ -329,6 +403,32 @@ export class LazadaAdapter implements MarketplaceAdapter {
    * mới thêm sau này (GetProducts, UpdatePriceQuantity... sẽ theo cùng 1
    * khuôn khi cần).
    */
+  /**
+   * BỔ SUNG (2026-09-09) — retry với exponential backoff. Trước đây gọi
+   * axios.get() đúng 1 lần, khớp ĐÚNG những gì Risk R01 (Report 2) đã
+   * cam kết nhưng CHƯA thực sự code ("áp dụng cơ chế retry/circuit
+   * breaker khi gọi API"). Vá NGAY trước khi product-master.service.ts
+   * cộng dồn thêm 1 nguồn gọi API nữa lên cùng quota Lazada, làm tăng
+   * xác suất đụng rate-limit tạm thời.
+   *
+   * CHỈ retry lỗi CÓ THỂ TỰ HẾT (mạng, 5xx, 429 rate-limit) — KHÔNG
+   * retry lỗi 4xx do sai tham số (retry loại này chỉ tốn thời gian,
+   * không bao giờ tự thành công).
+   */
+  private static readonly MAX_RETRIES = 3;
+  private static readonly BASE_DELAY_MS = 500;
+
+  private isRetryableError(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) return false;
+    if (!error.response) return true; // lỗi mạng (timeout, DNS...) — không có response
+    const status = error.response.status;
+    return status === 429 || status >= 500;
+  }
+
+  private async delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private async callSignedGet<T>(
     path: string,
     extraParams: Record<string, string | number>,
@@ -342,11 +442,28 @@ export class LazadaAdapter implements MarketplaceAdapter {
     };
     const sign = this.generateSign(path, params);
 
-    const response = await axios.get<T>(`${this.apiBaseUrl}${path}`, {
-      params: { ...params, sign },
-    });
-
-    return response.data;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= LazadaAdapter.MAX_RETRIES; attempt++) {
+      try {
+        const response = await axios.get<T>(`${this.apiBaseUrl}${path}`, {
+          params: { ...params, sign },
+        });
+        return response.data;
+      } catch (error) {
+        lastError = error;
+        if (attempt === LazadaAdapter.MAX_RETRIES || !this.isRetryableError(error)) {
+          throw error;
+        }
+        const backoffMs = LazadaAdapter.BASE_DELAY_MS * Math.pow(2, attempt);
+        this.logger.warn(
+          `callSignedGet ${path} lỗi tạm thời (lần ${String(attempt + 1)}/${String(LazadaAdapter.MAX_RETRIES + 1)}), thử lại sau ${String(backoffMs)}ms.`,
+        );
+        await this.delay(backoffMs);
+      }
+    }
+    // Không bao giờ tới đây thật sự (throw đã xảy ra ở nhánh trên khi
+    // hết lượt retry) — chỉ để TypeScript control-flow analysis hài lòng.
+    throw lastError;
   }
 
   verifyWebhookSignature(): boolean {

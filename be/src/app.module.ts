@@ -17,6 +17,10 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { ProductMasterModule } from './modules/product-master/product-master.module';
+import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
+import { PackagingModule } from './modules/packaging/packaging.module';
+import { WarehouseModule } from './modules/warehouse/warehouse.module';
 
 @Module({
   imports: [
@@ -45,6 +49,11 @@ import { OrdersModule } from './modules/orders/orders.module';
     AuthModule,
     MarketplaceIntegrationModule,
     OrdersModule,
+    // MỚI (2026-09-09) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
+    ProductMasterModule,
+    OrderGroupsModule,
+    PackagingModule,
+    WarehouseModule,
   ],
   controllers: [AppController],
   providers: [
