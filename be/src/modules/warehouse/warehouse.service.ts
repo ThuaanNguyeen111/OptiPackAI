@@ -181,9 +181,45 @@ export class WarehouseService {
     await this.assertWarehouseExists(warehouseId);
     return this.assignmentModel.findOneAndUpdate(
       { warehouse_id: warehouseId, platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku },
-      { $set: { bin_location_id: dto.bin_location_id } },
+      {
+        $set: { bin_location_id: dto.bin_location_id },
+        // $setOnInsert (không phải $set) — nếu SKU đã có sẵn assignment
+        // từ trước (chỉ đang ĐỔI vị trí kệ), KHÔNG reset quantity_on_hand
+        // đang có về giá trị mới truyền vào — chỉ áp dụng lúc TẠO MỚI.
+        $setOnInsert: { quantity_on_hand: dto.initial_quantity ?? 0 },
+      },
       { upsert: true, returnDocument: 'after' },
     );
+  }
+
+  /**
+   * Nhập thêm hàng (restock) — nghiệp vụ KHÁC gán vị trí (assignSkuToBin):
+   * gán vị trí làm 1 LẦN, nhập hàng lặp lại ĐỊNH KỲ. Cộng dồn bằng $inc
+   * (Rule #7, atomic — không đọc-rồi-ghi).
+   */
+  async restockSku(warehouseId: string, assignmentId: string, quantity: number): Promise<SkuBinAssignmentDocument> {
+    if (!Types.ObjectId.isValid(assignmentId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND, // dùng chung mã lỗi validate id, không cần thêm mã riêng
+        `"${assignmentId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { assignmentId },
+      );
+    }
+    const updated = await this.assignmentModel.findOneAndUpdate(
+      { _id: assignmentId, warehouse_id: warehouseId },
+      { $inc: { quantity_on_hand: quantity } },
+      { returnDocument: 'after' },
+    );
+    if (!updated) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `Không tìm thấy sku_bin_assignment với id "${assignmentId}" trong kho "${warehouseId}".`,
+        HttpStatus.NOT_FOUND,
+        { assignmentId, warehouseId },
+      );
+    }
+    return updated;
   }
 
   /**

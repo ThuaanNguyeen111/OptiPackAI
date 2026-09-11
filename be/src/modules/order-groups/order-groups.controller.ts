@@ -1,10 +1,16 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService } from './order-groups.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
 import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
+import { PickItemDto } from './dto/pick-item.dto';
+import { ReportMissingDto } from './dto/report-missing.dto';
+import { DecidePartialDto } from './dto/decide-partial.dto';
+import { SetPriorityDto } from './dto/set-priority.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
-import { OrderGroupForPackaging } from '../../common/interfaces/packaging.interface';
+import { OrderGroupForPackaging, PackableItem } from '../../common/interfaces/packaging.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -28,6 +34,10 @@ interface OrderGroupResponse {
   orderCount: number;
   fulfillmentStatus: string;
   activePackagingRecommendationId: string | null;
+  assignedStaffId: string | null;
+  orderPriority: string;
+  packagingDeadline: Date | null;
+  isOverdue: boolean;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -43,6 +53,10 @@ function toResponse(group: OrderGroupDocument): OrderGroupResponse {
     activePackagingRecommendationId: group.active_packaging_recommendation
       ? group.active_packaging_recommendation.toString()
       : null,
+    assignedStaffId: group.assigned_staff_id ? group.assigned_staff_id.toString() : null,
+    orderPriority: group.order_priority,
+    packagingDeadline: group.packaging_deadline,
+    isOverdue: group.is_overdue,
     version: group.__v,
     createdAt: group.created_at ?? new Date(0),
     updatedAt: group.updated_at ?? new Date(0),
@@ -116,6 +130,75 @@ export class OrderGroupsController {
     return this.orderGroupsService.getPackableItemsForGroup(id);
   }
 
+  @Get(':id/picking-list/:sku')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Chi tiết 1 món hàng riêng lẻ trong Order Group — dùng cho màn hình Stepper số lượng/confirm từng item trước khi quét.',
+  })
+  async pickingListItemDetail(
+    @Param('id') id: string,
+    @Param('sku') sku: string,
+  ): Promise<PackableItem> {
+    return this.orderGroupsService.getPackableItemDetail(id, sku);
+  }
+
+  @Post(':id/fulfillment/pick-item')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Quét/nhập tay 1 SKU khi lấy hàng — trừ tồn kho ngay (atomic). Gọi NHIỀU LẦN, mỗi lần 1 SKU, TRƯỚC KHI bấm "pick" (xác nhận xong cả nhóm) bên dưới. Dùng client_event_id khi Mobile App offline-sync retry (chống trừ trùng).',
+  })
+  async pickItem(
+    @Param('id') id: string,
+    @Body() body: PickItemDto,
+  ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
+    return this.orderGroupsService.pickItem(
+      id,
+      body.warehouse_id,
+      body.sku,
+      body.scanned_quantity,
+      body.scan_method,
+      body.client_event_id,
+    );
+  }
+
+  @Post(':id/fulfillment/report-missing')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Báo thiếu hàng khi lấy (UC-07 Alt Flow) — group chuyển "partial_needs_review", DỪNG LẠI chờ Packaging Staff/Admin quyết định (Hướng Y), thông báo Store Owner ngay.',
+  })
+  async reportMissing(
+    @Param('id') id: string,
+    @Body() body: ReportMissingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse> {
+    const group = await this.orderGroupsService.reportMissing(
+      id,
+      user.userId,
+      body.sku,
+      body.missing_quantity,
+      body.expected_version,
+      body.note,
+    );
+    return toResponse(group);
+  }
+
+  @Post(':id/fulfillment/decide-partial')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Quyết định group đang "partial_needs_review" — approve=true: tiếp tục với phần có sẵn (picked); approve=false: hủy, quay lại awaiting_packaging.',
+  })
+  async decidePartial(
+    @Param('id') id: string,
+    @Body() body: DecidePartialDto,
+  ): Promise<OrderGroupResponse> {
+    const group = await this.orderGroupsService.decidePartial(id, body.approve, body.expected_version);
+    return toResponse(group);
+  }
+
   @Post(':id/fulfillment/pick')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
@@ -179,6 +262,17 @@ export class OrderGroupsController {
       GroupFulfillmentStatus.RETURNED,
       body.expected_version,
     );
+    return toResponse(group);
+  }
+
+  @Patch(':id/priority')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Đánh dấu đơn Hỏa Tốc/Bình thường — Lazada KHÔNG cung cấp tín hiệu tự động (đã xác minh bằng doc thật), Store Owner/Admin tự tay quyết định. Tự tính packaging_deadline theo giờ hành chính (8h-17h, tính cả Thứ 7).',
+  })
+  async setPriority(@Param('id') id: string, @Body() body: SetPriorityDto): Promise<OrderGroupResponse> {
+    const group = await this.orderGroupsService.setPriority(id, body.order_priority, body.deadline_hours);
     return toResponse(group);
   }
 }

@@ -10,6 +10,7 @@ import { computeFallbackPackaging } from './utils/fallback-packaging.util';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
+import { StaffAssignmentService } from '../order-groups/staff-assignment.service';
 import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-group.schema';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
@@ -44,6 +45,7 @@ export class PackagingService {
     private readonly orderGroupModel: Model<OrderGroupDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly orderGroupsService: OrderGroupsService,
+    private readonly staffAssignmentService: StaffAssignmentService,
   ) {}
 
   async generateFallbackRecommendation(groupId: string): Promise<PackagingRecommendationDocument> {
@@ -182,6 +184,17 @@ export class PackagingService {
       await session.endSession();
     }
 
+    // BỔ SUNG (2026-09-10) — auto-assign Warehouse Staff ngay khi group
+    // sẵn sàng để lấy hàng. Cố ý đặt NGOÀI transaction ở trên (best-effort,
+    // không phải điều kiện bắt buộc để Approve thành công — nếu auto-assign
+    // lỗi vì lý do gì đó, Approve vẫn coi là thành công, chỉ log cảnh báo,
+    // Admin/Warehouse Staff có thể gán tay sau qua POST .../assign).
+    try {
+      await this.staffAssignmentService.autoAssign(groupId);
+    } catch (error) {
+      this.logger.warn(`Auto-assign staff thất bại cho group ${groupId} sau khi Approve — cần gán tay.`, error);
+    }
+
     if (isAbnormal) {
       this.logger.warn(
         `Package BẤT THƯỜNG: group ${groupId} — cân ước tính ${String(estimatedWeightKg)}kg, cân thật ${String(actualMeasuredWeightKg)}kg (lệch >${String(ABNORMAL_WEIGHT_DEVIATION_THRESHOLD * 100)}%).`,
@@ -247,6 +260,13 @@ export class PackagingService {
       });
     } finally {
       await session.endSession();
+    }
+
+    // Cùng lý do đã ghi ở approve() — best-effort, ngoài transaction.
+    try {
+      await this.staffAssignmentService.autoAssign(groupId);
+    } catch (error) {
+      this.logger.warn(`Auto-assign staff thất bại cho group ${groupId} sau khi Adjust — cần gán tay.`, error);
     }
 
     const result = await this.recommendationModel.findById(recommendation._id);

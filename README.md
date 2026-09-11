@@ -27,9 +27,6 @@ _Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắ
 > [!NOTE]
 > Đây là hệ thống quản lý **nội bộ** (internal tool) cho một doanh nghiệp bán hàng đa kênh, không phải sản phẩm SaaS đa khách thuê.
 
-> [!IMPORTANT]
-> **Phạm vi tích hợp sàn đã đổi so với phiếu đề xuất ban đầu.** Bản gốc nhắm Shopee + TikTok Shop. Sau khi khảo sát thực tế điều kiện đăng ký (Shopee yêu cầu shop đã đạt Preferred/Mall Seller mới cấp được Partner Key qua route cá nhân; TikTok Shop Partner Center yêu cầu giấy phép kinh doanh + công ty thành lập >1 năm), **cả 2 sàn đều không khả thi cho route đăng ký cá nhân/sinh viên**. Sàn tích hợp đang code tích cực hiện tại là **Lazada** — đã chạy end-to-end thành công (OAuth connect → đồng bộ đơn hàng thật). TikTok Shop và Tiki vẫn trong roadmap nhưng tạm hoãn.
-
 ---
 
 ## 📋 Mục lục
@@ -80,7 +77,7 @@ _Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắ
 <tr>
 <td>
 
-Đơn hàng rời rạc trên nhiều sàn (Lazada, TikTok Shop, Tiki...), nhân viên kho phải tự chuyển đổi qua lại giữa các hệ thống
+Đơn hàng rời rạc trên nhiều sàn thương mại điện tử, nhân viên kho phải tự chuyển đổi qua lại giữa các hệ thống
 
 </td>
 <td>
@@ -104,6 +101,18 @@ _Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắ
 <tr>
 <td>
 
+Không biết chính xác hàng nằm ở đâu trong kho, nhân viên mất thời gian tìm kiếm
+
+</td>
+<td>
+
+**Hệ thống vị trí kho (WMS)** — mỗi SKU gắn đúng 1 kệ, Picking List tự sắp xếp theo lộ trình di chuyển tối ưu
+
+</td>
+</tr>
+<tr>
+<td>
+
 Không có cái nhìn tổng quan về chi phí logistics theo thời gian thực
 
 </td>
@@ -119,18 +128,18 @@ Không có cái nhìn tổng quan về chi phí logistics theo thời gian thự
 
 ## ✨ Tính năng chính
 
-|    #    | Tính năng                 | Mô tả                                                                           | Trạng thái |
-| :-----: | ------------------------- | -------------------------------------------------------------------------------- | :---: |
-| `FE-01` | 🔄 **Đồng bộ đa kênh**    | Tự động lấy đơn hàng từ Lazada (đã chạy); TikTok Shop, Tiki dự kiến sau         | 🟢 Lazada xong |
-| `FE-02` | 🧩 **Gộp đơn thông minh** | Phát hiện & gộp đơn trùng lặp theo khách hàng/địa chỉ (`consolidation_key`)      | 🟡 Đang test |
-| `FE-03` | 🤖 **AI Packaging**       | 3D Bin Packing — gợi ý thùng & vật liệu, có xác nhận thủ công trước khi in nhãn | ⬜ Chưa bắt đầu |
-| `FE-04` | 💰 **Ước tính chi phí**   | Tính phí đóng gói + cước vận chuyển trước khi giao                              | ⬜ Chưa bắt đầu |
-| `FE-05` | 🏷️ **Sinh nhãn tự động**  | QR/Barcode, PDF phiếu đóng gói & tem vận chuyển                                 | ⬜ Chưa bắt đầu |
-| `FE-06` | 📱 **Mobile App**         | Quét mã cập nhật picking/packing real-time                                      | ⬜ Chưa bắt đầu |
-| `FE-07` | 📊 **Dashboard**          | Thống kê hiệu suất kho & chi phí logistics                                      | ⬜ Chưa bắt đầu |
-| `FE-08` | 🔐 **Quản trị**           | User, phân quyền, cấu hình tham số AI                                           | 🟢 Auth/Users xong |
-
-> **Phạm vi tích hợp hiện tại:** Lazada _(code tích cực, đã chạy end-to-end)_ · TikTok Shop + Tiki _(roadmap, tạm hoãn)_ · Shopee, Facebook Marketplace _(loại khỏi phạm vi — xem ghi chú đầu trang)_
+|    #    | Tính năng                 | Mô tả                                                                                           |                     Trạng thái                     |
+| :-----: | ------------------------- | ----------------------------------------------------------------------------------------------- | :------------------------------------------------: |
+| `FE-01` | 🔄 **Đồng bộ đa kênh**    | Tự động lấy đơn hàng từ marketplace, cron polling định kỳ                                       |                   🟢 Lazada xong                   |
+| `FE-02` | 🧩 **Gộp đơn thông minh** | Phát hiện & gộp đơn trùng lặp theo khách hàng/địa chỉ, quản lý fulfillment theo nhóm            |                      🟢 Xong                       |
+| `FE-03` | 🤖 **AI Packaging**       | 3D Bin Packing — gợi ý thùng & vật liệu, Packaging Staff xác nhận/điều chỉnh trước khi đóng gói | 🟡 Fallback đơn giản xong, AI thật đang phát triển |
+| `FE-04` | 💰 **Ước tính chi phí**   | Tính phí đóng gói + cước vận chuyển trước khi giao                                              |                 🟡 Đang phát triển                 |
+| `FE-05` | 🏷️ **Sinh nhãn tự động**  | QR/Barcode, PDF phiếu đóng gói & tem vận chuyển                                                 |                  ⬜ Chưa bắt đầu                   |
+| `FE-06` | 📦 **Quản lý kho (WMS)**  | Vị trí kệ theo khu/dãy/tầng, theo dõi tồn kho, Picking List tối ưu lộ trình                     |                      🟢 Xong                       |
+| `FE-07` | 📱 **Mobile App**         | Quét mã cập nhật picking/packing real-time, hỗ trợ nhập tay khi không quét được                 |    🟡 API sẵn sàng, Mobile App đang phát triển     |
+| `FE-08` | 📊 **Dashboard**          | Thống kê hiệu suất kho & chi phí logistics                                                      |                  ⬜ Chưa bắt đầu                   |
+| `FE-09` | 🔔 **Thông báo**          | Cảnh báo thiếu hàng, đơn bất thường, đơn trễ hạn qua nhiều kênh                                 |                  ⬜ Chưa bắt đầu                   |
+| `FE-10` | 🔐 **Quản trị**           | User, phân quyền theo 5 vai trò, phân công nhân viên tự động                                    |                      🟢 Xong                       |
 
 ---
 
@@ -139,14 +148,13 @@ Không có cái nhìn tổng quan về chi phí logistics theo thời gian thự
 ```mermaid
 flowchart LR
     subgraph Sources["Nguồn đơn hàng"]
-        A[Lazada Open API]
-        B[TikTok Shop API<br/>·roadmap·]
-        I[Tiki Open API<br/>·roadmap·]
+        A[Marketplace API]
     end
 
     subgraph Core["OptiPackAI Backend · NestJS (modular monolith)"]
         C[Order Sync & Consolidation]
         D[AI Packaging Engine]
+        W[Warehouse & Picking]
         E[Shipping & Label Service]
         F[(MongoDB)]
     end
@@ -157,18 +165,17 @@ flowchart LR
     end
 
     A -- polling --> C
-    B -. webhook .-> C
-    I -. event queue .-> C
     C --> F
     C --> D
-    D --> E
+    D --> W
+    W --> E
     E --> F
     F --> G
-    E -- QR/Barcode scan --> H
-    H --> C
+    W -- QR/Barcode scan --> H
+    H --> W
 ```
 
-> Backend là **1 NestJS app duy nhất** (modular monolith), không tách microservice — AI Packaging Engine (Package 3) là 1 module bên trong cùng app, không phải service riêng.
+> Backend là **1 NestJS app duy nhất** (modular monolith) — mỗi nghiệp vụ là 1 module riêng biệt bên trong cùng app, không tách microservice.
 
 ---
 
@@ -181,7 +188,7 @@ flowchart LR
 **Backend**
 
 - NestJS 11
-- MongoDB 7 + Mongoose 8
+- MongoDB (Atlas) + Mongoose 9
 - JWT + Passport
 - Swagger/OpenAPI
 - class-validator
@@ -230,12 +237,14 @@ OptiPackAI/
 │   │   ├── common/                 Shared utilities, filters, interceptors
 │   │   ├── config/                 Configuration files
 │   │   └── modules/
-│   │       ├── orders/                     🔄 Đồng bộ & gộp đơn hàng          FE-01 FE-02
-│   │       ├── packaging/                  🤖 AI packaging recommendation    FE-03
-│   │       ├── shipping/                   💰 Ước tính phí, tạo nhãn         FE-04 FE-05
-│   │       ├── fulfillment/                📦 Picking/packing tracking      FE-06 FE-07
-│   │       ├── marketplace-integration/    🔌 Connector Lazada (xong), TikTok/Tiki (roadmap)
-│   │       └── admin/                      🔐 User, role, AI config          FE-08
+│   │       ├── auth/                       🔐 Đăng nhập, MFA, phân quyền
+│   │       ├── users/                       👤 Quản lý người dùng
+│   │       ├── marketplace-integration/    🔌 Connector marketplace (OAuth, adapter)
+│   │       ├── orders/                     🔄 Đồng bộ đơn hàng                    FE-01
+│   │       ├── product-master/             📦 Cache kích thước/cân nặng sản phẩm
+│   │       ├── order-groups/               🧩 Gộp đơn, fulfillment, phân công NV FE-02 FE-10
+│   │       ├── packaging/                  🤖 AI packaging recommendation        FE-03
+│   │       └── warehouse/                  📦 Vị trí kho, picking list           FE-06
 │   ├── test/
 │   └── Dockerfile
 │
@@ -285,7 +294,7 @@ npm run docker:dev
 npm run dev
 ```
 
-> **Test luồng Lazada cục bộ**: cần tunnel HTTPS public cho OAuth callback (Lazada không nhận `localhost`). Dùng `ngrok http --url=<domain-cố-định-của-bạn> 3000`, và cần Redis chạy sẵn (Docker, hoặc Memurai trên Windows nếu không tiện dùng Docker/WSL).
+> **Test luồng OAuth marketplace cục bộ**: cần tunnel HTTPS public cho OAuth callback (marketplace không nhận `localhost`). Dùng `ngrok http --url=<domain-cố-định-của-bạn> 3000`, và cần Redis chạy sẵn (Docker, hoặc Memurai trên Windows nếu không tiện dùng Docker/WSL). MongoDB dùng Atlas (cloud) cho cả dev lẫn production, không cần cài MongoDB local.
 
 <div align="center">
 
@@ -302,7 +311,7 @@ npm run dev
 <br/>
 
 | Script                | Mô tả                            |
-| --------------------- | --------------------------------- |
+| --------------------- | -------------------------------- |
 | `npm run dev`         | Chạy cả Backend và Frontend      |
 | `npm run dev:be`      | Chạy riêng Backend               |
 | `npm run dev:fe`      | Chạy riêng Frontend              |
@@ -318,11 +327,11 @@ npm run dev
 <br/>
 
 | Script              | Mô tả                           |
-| -------------------- | -------------------------------- |
-| `npm run start:dev`  | Development mode với hot-reload |
-| `npm run build`      | Build production                |
-| `npm run test`       | Chạy unit tests                 |
-| `npm run test:cov`   | Test coverage                   |
+| ------------------- | ------------------------------- |
+| `npm run start:dev` | Development mode với hot-reload |
+| `npm run build`     | Build production                |
+| `npm run test`      | Chạy unit tests                 |
+| `npm run test:cov`  | Test coverage                   |
 
 </details>
 
@@ -334,23 +343,21 @@ npm run dev
 <summary><b>Xem danh sách biến môi trường</b></summary>
 <br/>
 
-| Variable                                     | Mô tả                                                                 |
-| --------------------------------------------- | ---------------------------------------------------------------------- |
-| `MONGODB_URI`                                | MongoDB connection string                                             |
-| `JWT_SECRET`                                 | JWT signing key                                                       |
-| `CORS_ORIGIN`                                | Allowed CORS origins (mặc định `http://localhost:5173`)              |
-| `CLIENT_REDIRECT_CALLBACK`                   | URL public (ngrok) FE dùng để nhận callback OAuth Lazada khi dev local |
-| `LAZADA_APP_KEY` / `LAZADA_APP_SECRET`       | Lazada Open Platform credentials (ISV Console)                        |
-| `REDIS_URL`                                  | Redis / Redis-compatible (vd Memurai) connection string               |
-
-> `SHOPEE_PARTNER_ID`/`SHOPEE_PARTNER_KEY` và `TIKTOK_APP_KEY`/`TIKTOK_APP_SECRET` **đã bị gỡ** khỏi `.env.example` — Shopee ngoài phạm vi, TikTok tạm hoãn (xem ghi chú đầu trang). Thêm lại khi 2 sàn này quay lại roadmap thật sự.
+| Variable                               | Mô tả                                                           |
+| -------------------------------------- | --------------------------------------------------------------- |
+| `MONGODB_URI`                          | MongoDB Atlas connection string                                 |
+| `JWT_SECRET`                           | JWT signing key                                                 |
+| `CORS_ORIGIN`                          | Allowed CORS origins (mặc định `http://localhost:5173`)         |
+| `CLIENT_REDIRECT_CALLBACK`             | URL public (ngrok) FE dùng để nhận callback OAuth khi dev local |
+| `LAZADA_APP_KEY` / `LAZADA_APP_SECRET` | Lazada Open Platform credentials (ISV Console)                  |
+| `REDIS_URL`                            | Redis / Redis-compatible (vd Memurai) connection string         |
 
 </details>
 
-| Service       | URL                          |
-| ------------- | ----------------------------- |
-| MongoDB       | `mongodb://localhost:27017`  |
-| Mongo Express | `http://localhost:8081`      |
+| Service       | URL                       |
+| ------------- | ------------------------- |
+| MongoDB       | Atlas (cloud, xem `.env`) |
+| Mongo Express | `http://localhost:8081`   |
 
 ---
 
@@ -362,23 +369,15 @@ npm run dev
 
 </div>
 
-> ⚠️ **Không có tiền tố `/api/v1`** — route thật gọn hơn phiếu đề xuất ban đầu, ví dụ `/auth/login` chứ không phải `/api/v1/auth/login`. Danh sách dưới đây phản ánh route **thật đang chạy**:
+> ⚠️ **Không có tiền tố `/api/v1`** — route thật gọn hơn phiếu đề xuất ban đầu, ví dụ `/auth/login` chứ không phải `/api/v1/auth/login`.
 
-```http
-POST   /auth/login                       # Đăng nhập
-GET    /auth/google                      # Đăng nhập Google (redirect)
-GET    /marketplace/lazada/connect       # Khởi tạo OAuth connect Lazada (chỉ Admin, trả authUrl)
-GET    /marketplace/lazada/callback      # Callback OAuth Lazada (Lazada tự gọi, public, trả JSON thô)
-POST   /orders/lazada/sync               # Đồng bộ đơn hàng từ Lazada (theo shop_id)
-GET    /orders                           # Danh sách đơn hàng đã gộp
-POST   /packaging/recommend              # AI gợi ý đóng gói           (chưa code)
-GET    /shipping/estimate                # Ước tính phí ship          (chưa code)
-POST   /fulfillment/scan                 # Cập nhật trạng thái picking/packing (chưa code)
-```
+Chi tiết đầy đủ cho FE tích hợp, kèm ví dụ request/response, bảng mã lỗi, và checklist test bắt buộc:
 
-> ⚠️ Toàn bộ route `/marketplace/*` và `/orders/*` ở trên hiện **giới hạn role Admin** — user role khác gọi vào sẽ nhận `403`, đây là chủ đích (kết nối shop/đồng bộ đơn coi là hành động nhạy cảm), không phải thiếu sót.
-
-Chi tiết đầy đủ cho FE tích hợp: xem `INTEGRATION_GUIDE.md` (module Auth/Users) và `INTEGRATION_GUIDE_ORDERS.md` (module Orders + Marketplace Integration).
+| Tài liệu                           | Phạm vi                              |
+| ---------------------------------- | ------------------------------------ |
+| `INTEGRATION_GUIDE.md`             | Auth / Users                         |
+| `INTEGRATION_GUIDE_ORDERS.md`      | Orders / Marketplace Integration     |
+| `INTEGRATION_GUIDE_FULFILLMENT.md` | Order Groups / Packaging / Warehouse |
 
 ---
 
@@ -397,7 +396,7 @@ main        ← code ổn định, sẵn sàng release
 Conventional Commits + mã ticket Jira đặt trong `scope`:
 
 ```bash
-type(AOFP-12): mô tả ngắn gọn
+type(AOFP-XX): mô tả ngắn gọn
 ```
 
 ```bash
@@ -432,13 +431,13 @@ git push origin feature/AOFP-XX_ten-tinh-nang    # 3. Push
 
 <div align="center">
 
-|         Role          | Name                   | Email                       | Mobile     |
-| :-------------------: | ----------------------- | ----------------------------- | ---------- |
-|     🎓 Supervisor     | Thân Thị Ngọc Vân      | vanttn@fpt.edu.vn           | 0912656836 |
-|       👑 Leader       | Nguyễn Phương Mỹ Thuận | ThuanNPMSE171113@fpt.edu.vn | 0377168254 |
-| ⚙️ Backend Developer  | Lê Đức Trung Thi       | thildtde180553@fpt.edu.vn   | 0905749864 |
-| 🎨 Frontend Developer | Huỳnh Quốc Việt        | viethqse182482@fpt.edu.vn   | 0813076315 |
-| 🎨 Frontend Developer | Phan Huỳnh Hải Phượng  | haifuong2408@gmail.com      | 0708639363 |
+|         Role          | Name                   | Email                       |
+| :-------------------: | ---------------------- | --------------------------- |
+|     🎓 Supervisor     | Thân Thị Ngọc Vân      | vanttn@fpt.edu.vn           |
+|       👑 Leader       | Nguyễn Phương Mỹ Thuận | ThuanNPMSE171113@fpt.edu.vn |
+| ⚙️ Backend Developer  | Lê Đức Trung Thi       | thildtde180553@fpt.edu.vn   |
+| 🎨 Frontend Developer | Huỳnh Quốc Việt        | viethqse182482@fpt.edu.vn   |
+| 🎨 Frontend Developer | Phan Huỳnh Hải Phượng  | haifuong2408@gmail.com      |
 
 </div>
 

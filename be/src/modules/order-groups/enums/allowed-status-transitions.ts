@@ -34,8 +34,23 @@ const ALLOWED_TRANSITIONS: Record<GroupFulfillmentStatus, GroupFulfillmentStatus
     // sau này tách thành 2 thao tác "bắt đầu lấy" / "lấy xong") — chỉ
     // là hiện tại CHƯA có endpoint nào dừng lại ở đúng trạng thái này.
     GroupFulfillmentStatus.PICKED,
+    // BỔ SUNG (2026-09-10) — Điểm yếu #10 mục 2, Hướng Y: thiếu hàng
+    // NGAY LÚC bắt đầu lấy (chưa kịp pick-item món nào) vẫn có thể
+    // report-missing.
+    GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
   ],
-  [GroupFulfillmentStatus.PICKING]: [GroupFulfillmentStatus.PICKED],
+  [GroupFulfillmentStatus.PICKING]: [
+    GroupFulfillmentStatus.PICKED,
+    GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW, // thiếu hàng giữa chừng lúc đang lấy
+  ],
+  // BỔ SUNG (2026-09-10) — Hướng Y: PARTIAL_NEEDS_REVIEW KHÔNG tự
+  // động đi tiếp — chỉ 2 đường: Packaging Staff/Admin DUYỆT (đi tiếp
+  // PICKED, coi như đã lấy xong phần có sẵn) hoặc TỪ CHỐI (quay lại
+  // AWAITING_PACKAGING, làm lại từ đầu khi có đủ hàng).
+  [GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW]: [
+    GroupFulfillmentStatus.PICKED,
+    GroupFulfillmentStatus.AWAITING_PACKAGING,
+  ],
   [GroupFulfillmentStatus.PICKED]: [GroupFulfillmentStatus.PACKED],
   [GroupFulfillmentStatus.PACKED]: [GroupFulfillmentStatus.SHIPPED],
   [GroupFulfillmentStatus.SHIPPED]: [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED],

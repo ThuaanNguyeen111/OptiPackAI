@@ -18,6 +18,11 @@ export enum GroupFulfillmentStatus {
   APPROVED_FOR_PACKING = 'approved_for_packing',
   PICKING = 'picking',
   PICKED = 'picked',
+  // BỔ SUNG (2026-09-10) — Điểm yếu #10 mục 2-3, Hướng Y đã chốt: khi
+  // Warehouse Staff báo thiếu hàng (report-missing), group KHÔNG tự
+  // động chuyển PACKED — dừng lại đây, CHỜ Packaging Staff/Admin duyệt
+  // lại mới cho đi tiếp (khớp pattern UC-04 đã có).
+  PARTIAL_NEEDS_REVIEW = 'partial_needs_review',
   PACKED = 'packed',
   SHIPPED = 'shipped',
   DELIVERED = 'delivered',

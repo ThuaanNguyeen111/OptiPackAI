@@ -25,6 +25,13 @@ export class SkuBinAssignment {
   @Prop({ type: Types.ObjectId, required: true, ref: 'BinLocation' })
   bin_location_id!: Types.ObjectId;
 
+  // BỔ SUNG (2026-09-10) — Điểm yếu #10 mục 1 (CLAUDE.md): CORE, không
+  // phải tính năng WMS nâng cao — biết còn/hết hàng là thông tin cơ
+  // bản nhất của hệ thống kho. Trừ bằng atomic $inc lúc pick-item
+  // (order-groups/order-groups.service.ts), KHÔNG đọc-rồi-ghi.
+  @Prop({ type: Number, required: true, default: 0, min: 0 })
+  quantity_on_hand!: number;
+
   created_at?: Date;
   updated_at?: Date;
 }

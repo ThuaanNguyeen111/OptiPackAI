@@ -58,6 +58,31 @@ export class OrderGroup {
   @Prop({ required: true })
   shop_name_snapshot!: string;
 
+  // Phân công nhân viên (2026-09-10) — xem staff-assignment.service.ts.
+  // Union `X | null` PHẢI khai type: tường minh (Rule #23, bài học từ
+  // bug thật packaging_recommendation.schema.ts).
+  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  assigned_staff_id!: Types.ObjectId | null;
+
+  @Prop({ type: Date, default: null })
+  assigned_at!: Date | null;
+
+  @Prop({ type: String, enum: ['auto', 'manual'], default: null })
+  assignment_type!: 'auto' | 'manual' | null;
+
+  // BỔ SUNG (2026-09-10) — Đơn Hỏa Tốc. Đã XÁC MINH bằng doc Lazada
+  // thật (2 lần độc lập, GetOrder + GetOrders): Lazada KHÔNG cung cấp
+  // field nào phân biệt đơn hỏa tốc — CHỈ CÒN hướng Store Owner/Admin
+  // tự tay đánh dấu (xem CLAUDE.md mục "Nghiên cứu Đơn Hỏa Tốc").
+  @Prop({ type: String, enum: ['normal', 'express'], default: 'normal' })
+  order_priority!: 'normal' | 'express';
+
+  @Prop({ type: Date, default: null })
+  packaging_deadline!: Date | null;
+
+  @Prop({ type: Boolean, default: false })
+  is_overdue!: boolean;
+
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
   // __v MỚI thêm (2026-09-09) — cần TypeScript biết field này tồn tại
@@ -73,6 +98,15 @@ export const OrderGroupSchema = SchemaFactory.createForClass(OrderGroup);
 // Rule #3 (ESR — Equality trước, Sort/Range sau): phục vụ
 // GET /order-groups?platform=xxx&status=yyy, sort theo created_at.
 OrderGroupSchema.index({ platform: 1, fulfillment_status: 1, created_at: -1 });
+
+// BỔ SUNG (2026-09-10) — phục vụ đếm "workload hiện tại" của từng
+// staff (Rule #3 ESR: assigned_staff_id equality trước, fulfillment_status
+// range/set sau) — dùng trong autoAssignStaff() để chọn người ít việc nhất.
+OrderGroupSchema.index({ assigned_staff_id: 1, fulfillment_status: 1 });
+
+// BỔ SUNG (2026-09-10) — phục vụ cron cảnh báo SLA (quét đơn hỏa tốc
+// sắp/đã quá hạn) — Rule #3 ESR, equality (order_priority) trước.
+OrderGroupSchema.index({ order_priority: 1, packaging_deadline: 1, is_overdue: 1 });
 
 // Rule #4: fulfillment_status (cardinality thấp, 9 giá trị cố định)
 // KHÔNG được đứng index riêng lẻ — luôn đứng sau platform trong compound

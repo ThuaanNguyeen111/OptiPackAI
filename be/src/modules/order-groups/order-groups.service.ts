@@ -22,6 +22,18 @@ import {
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import { PackableItem, OrderGroupForPackaging } from '../../common/interfaces/packaging.interface';
+// Đọc TRỰC TIẾP schema SkuBinAssignment (module warehouse/) — cùng
+// pattern cross-module đã áp dụng cho Order/ProductMaster ở trên.
+import {
+  SkuBinAssignment,
+  SkuBinAssignmentDocument,
+} from '../warehouse/schemas/sku-bin-assignment.schema';
+import { PickEvent, PickEventDocument } from './schemas/pick-event.schema';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
+import { User, UserDocument } from '../users/schemas/user.schema';
+import { addBusinessHours } from './utils/add-business-hours.util';
 
 /**
  * ===================================================================
@@ -49,6 +61,13 @@ export class OrderGroupsService {
     private readonly orderModel: Model<OrderDocument>,
     @InjectModel(ProductMaster.name)
     private readonly productMasterModel: Model<ProductMasterDocument>,
+    @InjectModel(SkuBinAssignment.name)
+    private readonly skuBinAssignmentModel: Model<SkuBinAssignmentDocument>,
+    @InjectModel(PickEvent.name)
+    private readonly pickEventModel: Model<PickEventDocument>,
+    @InjectModel(User.name)
+    private readonly userModel: Model<UserDocument>,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -287,5 +306,197 @@ export class OrderGroupsService {
     );
 
     return updated;
+  }
+
+  /**
+   * ===================================================================
+   * MỚI (2026-09-10) — Điểm yếu #10 mục 1+4. Quét/nhập tay 1 SKU khi
+   * lấy hàng — trừ tồn kho ATOMIC (Rule #7), có idempotency chống trừ
+   * trùng khi Mobile App gửi lại do mất mạng.
+   * ===================================================================
+   */
+  async pickItem(
+    groupId: string,
+    warehouseId: string,
+    sku: string,
+    scannedQuantity: number,
+    scanMethod: 'barcode' | 'manual',
+    clientEventId?: string,
+  ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
+    // Idempotency — client_event_id đã xử lý trước đó -> trả lại kết
+    // quả CŨ, KHÔNG trừ lần 2 (Mobile App gửi lại sau khi mất mạng).
+    if (clientEventId) {
+      const already = await this.pickEventModel.findOne({ client_event_id: clientEventId });
+      if (already) {
+        return {
+          sku: already.seller_sku,
+          decrementedBy: already.scanned_quantity,
+          remainingStock: already.remaining_stock_after,
+        };
+      }
+    }
+
+    // Atomic check-and-decrement — filter kèm `quantity_on_hand: {$gte}`
+    // ngay trong CÙNG 1 lệnh, không tách "check rồi ghi" (tránh race
+    // condition 2 nhân viên quét cùng lúc cùng 1 SKU sắp hết hàng).
+    const updated = await this.skuBinAssignmentModel.findOneAndUpdate(
+      { warehouse_id: warehouseId, seller_sku: sku, quantity_on_hand: { $gte: scannedQuantity } },
+      { $inc: { quantity_on_hand: -scannedQuantity } },
+      { returnDocument: 'after' },
+    );
+
+    if (!updated) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.INSUFFICIENT_STOCK,
+        `SKU "${sku}" không đủ tồn kho tại kho "${warehouseId}" (cần ${String(scannedQuantity)}) — dùng POST .../fulfillment/report-missing để báo thiếu hàng.`,
+        HttpStatus.CONFLICT,
+        { sku, warehouseId, requestedQuantity: scannedQuantity },
+      );
+    }
+
+    if (clientEventId) {
+      await this.pickEventModel.create({
+        order_group_id: groupId,
+        seller_sku: sku,
+        scanned_quantity: scannedQuantity,
+        scan_method: scanMethod,
+        client_event_id: clientEventId,
+        remaining_stock_after: updated.quantity_on_hand,
+      });
+    } else {
+      // Vẫn ghi log audit dù không có client_event_id (gọi trực tiếp
+      // Swagger/web, không qua offline-sync) — chỉ khác là không cần
+      // check idempotency cho lần này.
+      await this.pickEventModel.create({
+        order_group_id: groupId,
+        seller_sku: sku,
+        scanned_quantity: scannedQuantity,
+        scan_method: scanMethod,
+        client_event_id: null,
+        remaining_stock_after: updated.quantity_on_hand,
+      });
+    }
+
+    this.logger.log(
+      `Pick item: group ${groupId}, SKU ${sku}, số lượng ${String(scannedQuantity)} (${scanMethod}) — còn lại ${String(updated.quantity_on_hand)}.`,
+    );
+
+    return { sku, decrementedBy: scannedQuantity, remainingStock: updated.quantity_on_hand };
+  }
+
+  /**
+   * ===================================================================
+   * MỚI (2026-09-10) — Report Missing Item, đúng UC-07 Alt Flow gốc.
+   * Hướng Y đã chốt: group DỪNG LẠI ở PARTIAL_NEEDS_REVIEW, KHÔNG tự
+   * động đi tiếp — chờ Packaging Staff/Admin quyết định qua
+   * decidePartial(). Thông báo Store Owner NGAY qua "cổng thông báo
+   * chung" — đúng yêu cầu user: tất cả kênh (in-app + email).
+   * ===================================================================
+   */
+  async reportMissing(
+    groupId: string,
+    reporterId: string,
+    sku: string,
+    missingQuantity: number,
+    expectedVersion: number,
+    note?: string,
+  ): Promise<OrderGroupDocument> {
+    const reporter = await this.userModel.findById(reporterId).select('name').lean();
+    const reporterName = reporter?.name ?? 'Nhân viên kho';
+
+    const group = await this.transitionFulfillmentStatus(
+      groupId,
+      GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+      expectedVersion,
+    );
+
+    const { title, message } = this.notificationsService.buildMissingItemMessage({
+      groupId,
+      sku,
+      requestedQuantity: missingQuantity,
+      reportedBy: reporterName,
+    });
+
+    await this.notificationsService.notify({
+      recipientRole: UserRole.STORE_OWNER,
+      type: NotificationType.MISSING_ITEM,
+      severity: 'critical',
+      title: note ? `${title} — Ghi chú: ${note}` : title,
+      message,
+      relatedEntityType: 'order_group',
+      relatedEntityId: groupId,
+    });
+
+    this.logger.warn(`Report missing: group ${groupId}, SKU ${sku}, thiếu ${String(missingQuantity)} — đã thông báo Store Owner.`);
+    return group;
+  }
+
+  /**
+   * Packaging Staff/Admin quyết định group đang PARTIAL_NEEDS_REVIEW —
+   * approve=true: tiếp tục với phần có sẵn (PICKED). approve=false:
+   * hủy, quay lại AWAITING_PACKAGING làm lại từ đầu.
+   */
+  async decidePartial(
+    groupId: string,
+    approve: boolean,
+    expectedVersion: number,
+  ): Promise<OrderGroupDocument> {
+    const targetStatus = approve
+      ? GroupFulfillmentStatus.PICKED
+      : GroupFulfillmentStatus.AWAITING_PACKAGING;
+    return this.transitionFulfillmentStatus(groupId, targetStatus, expectedVersion);
+  }
+
+  /**
+   * MỚI (2026-09-10) — chi tiết 1 món hàng riêng lẻ trong group (phục
+   * vụ Stepper số lượng/confirm từng item, đã ghi nhận thiếu ở CLAUDE.md
+   * khi review FE). TÁI DÙNG getPackableItemsForGroup() đã có, không
+   * viết lại logic lấy item từ đầu — chỉ lọc đúng 1 SKU.
+   */
+  async getPackableItemDetail(groupId: string, sku: string): Promise<PackableItem> {
+    const { items } = await this.getPackableItemsForGroup(groupId);
+    const item = items.find((i) => i.sku === sku);
+    if (!item) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.ITEM_NOT_IN_GROUP,
+        `SKU "${sku}" không thuộc Order Group "${groupId}".`,
+        HttpStatus.NOT_FOUND,
+        { groupId, sku },
+      );
+    }
+    return item;
+  }
+
+  /**
+   * MỚI (2026-09-10) — Đơn Hỏa Tốc. Store Owner/Admin tự tay đánh dấu
+   * (đã xác minh Lazada KHÔNG cung cấp tín hiệu tự động — xem CLAUDE.md).
+   * KHÔNG áp Rule #18 Optimistic Concurrency ở đây — đặt priority là
+   * hành động độc lập, ít rủi ro xung đột hơn chuyển fulfillment_status.
+   */
+  async setPriority(
+    groupId: string,
+    priority: 'normal' | 'express',
+    deadlineHours = 4,
+  ): Promise<OrderGroupDocument> {
+    const update: Record<string, unknown> = { order_priority: priority };
+    if (priority === 'express') {
+      update.packaging_deadline = addBusinessHours(new Date(), deadlineHours);
+      update.is_overdue = false;
+    } else {
+      update.packaging_deadline = null;
+      update.is_overdue = false;
+    }
+
+    const group = await this.orderGroupModel.findByIdAndUpdate(groupId, { $set: update }, { returnDocument: 'after' });
+    if (!group) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
+        `Không tìm thấy order group với id "${groupId}".`,
+        HttpStatus.NOT_FOUND,
+        { groupId },
+      );
+    }
+    this.logger.log(`Group ${groupId} đặt priority=${priority}${priority === 'express' ? `, hạn ${update.packaging_deadline as string}` : ''}.`);
+    return group;
   }
 }
