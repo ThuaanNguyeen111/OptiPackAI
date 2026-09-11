@@ -12,6 +12,54 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { PackagingRecommendationDocument } from './schemas/packaging-recommendation.schema';
 import { UserRole } from '../../common/enums/user-role.enum';
 
+// BỔ SUNG (2026-09-10) — Điểm yếu #9 (CLAUDE.md): trước đây trả THẲNG
+// Document ra ngoài (snake_case, lộ `_id`/`__v` thô) — KHÁC hẳn
+// `order-groups.controller.ts` đã map cẩn thận. Sửa cho nhất quán,
+// đúng Rule #22 (Canonical schema) — cùng pattern `toResponse()` đã
+// chứng minh đúng ở order-groups.
+interface PackagingRecommendationResponse {
+  id: string;
+  orderGroupId: string;
+  boxSize: { lengthCm: number; widthCm: number; heightCm: number };
+  materialType: string;
+  materialQuantity: number;
+  estimatedShippingCostVnd: number;
+  computationTimeMs: number;
+  fallbackUsed: boolean;
+  approvalStatus: string;
+  approvedBy: string | null;
+  approvedAt: Date | null;
+  actualMeasuredWeightKg: number | null;
+  isAbnormal: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+function toResponse(doc: PackagingRecommendationDocument): PackagingRecommendationResponse {
+  return {
+    id: doc._id.toString(),
+    orderGroupId: doc.order_group_id.toString(),
+    boxSize: {
+      lengthCm: doc.box_size.length_cm,
+      widthCm: doc.box_size.width_cm,
+      heightCm: doc.box_size.height_cm,
+    },
+    materialType: doc.material_type,
+    materialQuantity: doc.material_quantity,
+    estimatedShippingCostVnd: doc.estimated_shipping_cost_vnd,
+    computationTimeMs: doc.computation_time_ms,
+    fallbackUsed: doc.fallback_used,
+    approvalStatus: doc.approval_status,
+    approvedBy: doc.approved_by ? doc.approved_by.toString() : null,
+    approvedAt: doc.approved_at,
+    actualMeasuredWeightKg: doc.actual_measured_weight_kg,
+    isAbnormal: doc.is_abnormal,
+    createdAt: doc.created_at ?? new Date(0),
+    updatedAt: doc.updated_at ?? new Date(0),
+  };
+}
+
+
 /**
  * ===================================================================
  * packaging.controller.ts — MỚI (2026-09-09), UC-04 (Report 1)
@@ -39,8 +87,9 @@ export class PackagingController {
   })
   async getCurrent(
     @Param('groupId') groupId: string,
-  ): Promise<PackagingRecommendationDocument | null> {
-    return this.packagingService.getActiveRecommendationOrNull(groupId);
+  ): Promise<PackagingRecommendationResponse | null> {
+    const doc = await this.packagingService.getActiveRecommendationOrNull(groupId);
+    return doc ? toResponse(doc) : null;
   }
 
   @Post('generate')
@@ -49,8 +98,9 @@ export class PackagingController {
     summary:
       '[TẠM — chỉ Admin] Tạo PackagingRecommendation bằng thuật toán fallback, dùng để test UC-04 khi chưa có AI thật (Package 3).',
   })
-  async generate(@Param('groupId') groupId: string): Promise<PackagingRecommendationDocument> {
-    return this.packagingService.generateFallbackRecommendation(groupId);
+  async generate(@Param('groupId') groupId: string): Promise<PackagingRecommendationResponse> {
+    const doc = await this.packagingService.generateFallbackRecommendation(groupId);
+    return toResponse(doc);
   }
 
   @Post('approve')
@@ -60,13 +110,14 @@ export class PackagingController {
     @Param('groupId') groupId: string,
     @Body() dto: ApprovePackagingDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<PackagingRecommendationDocument> {
-    return this.packagingService.approve(
+  ): Promise<PackagingRecommendationResponse> {
+    const doc = await this.packagingService.approve(
       groupId,
       user.userId,
       dto.actual_measured_weight_kg,
       dto.expected_group_version,
     );
+    return toResponse(doc);
   }
 
   @Post('adjust')
@@ -76,8 +127,9 @@ export class PackagingController {
     @Param('groupId') groupId: string,
     @Body() dto: AdjustPackagingDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<PackagingRecommendationDocument> {
-    return this.packagingService.adjust(groupId, user.userId, dto);
+  ): Promise<PackagingRecommendationResponse> {
+    const doc = await this.packagingService.adjust(groupId, user.userId, dto);
+    return toResponse(doc);
   }
 
   @Post('reject')

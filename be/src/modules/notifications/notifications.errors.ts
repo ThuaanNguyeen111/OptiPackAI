@@ -1,0 +1,4 @@
+export const NOTIFICATION_ERROR_CODES = {
+  INVALID_ID: 'NOTI_INVALID_ID',
+  NOT_FOUND: 'NOTI_NOT_FOUND',
+} as const;

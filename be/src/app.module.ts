@@ -21,6 +21,7 @@ import { ProductMasterModule } from './modules/product-master/product-master.mod
 import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { WarehouseModule } from './modules/warehouse/warehouse.module';
     OrderGroupsModule,
     PackagingModule,
     WarehouseModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [

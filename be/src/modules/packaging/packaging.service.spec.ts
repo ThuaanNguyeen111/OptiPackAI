@@ -5,6 +5,7 @@ import { PackagingService } from './packaging.service';
 import { PackagingRecommendationDoc } from './schemas/packaging-recommendation.schema';
 import { OrderGroup } from '../order-groups/schemas/order-group.schema';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
+import { StaffAssignmentService } from '../order-groups/staff-assignment.service';
 import { PackagingApprovalStatus } from './enums/packaging-approval-status.enum';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -31,6 +32,10 @@ describe('PackagingService', () => {
     getPackableItemsForGroup: jest.Mock;
     transitionFulfillmentStatus: jest.Mock;
   };
+  // BỔ SUNG (2026-09-10) — PackagingService giờ inject thêm
+  // StaffAssignmentService (auto-assign sau Approve/Adjust) — test
+  // trước đó chưa mock, gây lỗi "Nest can't resolve dependencies".
+  let staffAssignmentService: { autoAssign: jest.Mock };
   let mockSession: { withTransaction: jest.Mock; endSession: jest.Mock };
 
   //!=============================================
@@ -83,6 +88,7 @@ describe('PackagingService', () => {
       getPackableItemsForGroup: jest.fn().mockResolvedValue(packableItems),
       transitionFulfillmentStatus: jest.fn(),
     };
+    staffAssignmentService = { autoAssign: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -91,6 +97,7 @@ describe('PackagingService', () => {
         { provide: getModelToken(OrderGroup.name), useValue: orderGroupModel },
         { provide: getConnectionToken(), useValue: connection },
         { provide: OrderGroupsService, useValue: orderGroupsService },
+        { provide: StaffAssignmentService, useValue: staffAssignmentService },
       ],
     }).compile();
 

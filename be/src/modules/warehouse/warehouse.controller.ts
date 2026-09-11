@@ -5,6 +5,7 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
 import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
+import { RestockSkuDto } from './dto/restock-sku.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -12,6 +13,69 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { WarehouseDocument } from './schemas/warehouse.schema';
 import { WarehouseZoneDocument } from './schemas/warehouse-zone.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
+
+// BỔ SUNG (2026-09-10) — Điểm yếu #9: trước đây trả THẲNG Document
+// (snake_case, `_id`/`__v` thô) — sửa cho nhất quán với
+// `order-groups.controller.ts`. Chỉ map 3 entity THẬT SỰ là raw
+// Mongoose document ở controller này (Warehouse/Zone/SkuBinAssignment)
+// — KHÔNG đụng `PickingListItem`/`PackableItem` (interface hợp đồng
+// ĐÃ bàn giao cho thành viên làm AI, đổi field name lúc này sẽ phá vỡ
+// hợp đồng đang dùng, ngoài phạm vi Điểm yếu #9).
+
+interface WarehouseResponse {
+  id: string;
+  warehouseCode: string;
+  warehouseName: string;
+  address: string;
+  isActive: boolean;
+}
+function toWarehouseResponse(doc: WarehouseDocument): WarehouseResponse {
+  return {
+    id: doc._id.toString(),
+    warehouseCode: doc.warehouse_code,
+    warehouseName: doc.warehouse_name,
+    address: doc.address,
+    isActive: doc.is_active,
+  };
+}
+
+interface WarehouseZoneResponse {
+  id: string;
+  warehouseId: string;
+  zoneCode: string;
+  zoneName: string;
+  description: string;
+}
+function toZoneResponse(doc: WarehouseZoneDocument): WarehouseZoneResponse {
+  return {
+    id: doc._id.toString(),
+    warehouseId: doc.warehouse_id.toString(),
+    zoneCode: doc.zone_code,
+    zoneName: doc.zone_name,
+    description: doc.description,
+  };
+}
+
+interface SkuBinAssignmentResponse {
+  id: string;
+  warehouseId: string;
+  platform: string;
+  shopId: string;
+  sellerSku: string;
+  binLocationId: string;
+  quantityOnHand: number;
+}
+function toAssignmentResponse(doc: SkuBinAssignmentDocument): SkuBinAssignmentResponse {
+  return {
+    id: doc._id.toString(),
+    warehouseId: doc.warehouse_id.toString(),
+    platform: doc.platform,
+    shopId: doc.shop_id,
+    sellerSku: doc.seller_sku,
+    binLocationId: doc.bin_location_id.toString(),
+    quantityOnHand: doc.quantity_on_hand,
+  };
+}
 
 /**
  * ===================================================================
@@ -32,15 +96,17 @@ export class WarehouseController {
   @Post('warehouses')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Tạo kho mới (bước 1/4 trong luồng "add kho")' })
-  async createWarehouse(@Body() dto: CreateWarehouseDto): Promise<WarehouseDocument> {
-    return this.warehouseService.createWarehouse(dto);
+  async createWarehouse(@Body() dto: CreateWarehouseDto): Promise<WarehouseResponse> {
+    const doc = await this.warehouseService.createWarehouse(dto);
+    return toWarehouseResponse(doc);
   }
 
   @Get('warehouses')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Danh sách kho' })
-  async listWarehouses(): Promise<WarehouseDocument[]> {
-    return this.warehouseService.listWarehouses();
+  async listWarehouses(): Promise<WarehouseResponse[]> {
+    const docs = await this.warehouseService.listWarehouses();
+    return docs.map(toWarehouseResponse);
   }
 
   @Post('warehouses/:warehouseId/zones')
@@ -49,15 +115,17 @@ export class WarehouseController {
   async createZone(
     @Param('warehouseId') warehouseId: string,
     @Body() dto: CreateZoneDto,
-  ): Promise<WarehouseZoneDocument> {
-    return this.warehouseService.createZone(warehouseId, dto);
+  ): Promise<WarehouseZoneResponse> {
+    const doc = await this.warehouseService.createZone(warehouseId, dto);
+    return toZoneResponse(doc);
   }
 
   @Get('warehouses/:warehouseId/zones')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Danh sách khu trong 1 kho' })
-  async listZones(@Param('warehouseId') warehouseId: string): Promise<WarehouseZoneDocument[]> {
-    return this.warehouseService.listZones(warehouseId);
+  async listZones(@Param('warehouseId') warehouseId: string): Promise<WarehouseZoneResponse[]> {
+    const docs = await this.warehouseService.listZones(warehouseId);
+    return docs.map(toZoneResponse);
   }
 
   @Post('zones/:zoneId/bin-locations/generate')
@@ -79,8 +147,23 @@ export class WarehouseController {
   async assignSkuToBin(
     @Param('warehouseId') warehouseId: string,
     @Body() dto: AssignSkuBinDto,
-  ): Promise<SkuBinAssignmentDocument> {
-    return this.warehouseService.assignSkuToBin(warehouseId, dto);
+  ): Promise<SkuBinAssignmentResponse> {
+    const doc = await this.warehouseService.assignSkuToBin(warehouseId, dto);
+    return toAssignmentResponse(doc);
+  }
+
+  @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Nhập thêm hàng vào 1 vị trí đã gán (cộng dồn quantity_on_hand, không reset về giá trị mới).',
+  })
+  async restockSku(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: RestockSkuDto,
+  ): Promise<SkuBinAssignmentResponse> {
+    const doc = await this.warehouseService.restockSku(warehouseId, assignmentId, dto.quantity);
+    return toAssignmentResponse(doc);
   }
 
   @Get('sku-bin-assignments/unassigned')
