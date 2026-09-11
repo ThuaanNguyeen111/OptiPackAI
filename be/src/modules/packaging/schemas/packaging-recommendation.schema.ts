@@ -34,7 +34,10 @@ export const BoxSizeSchema = SchemaFactory.createForClass(BoxSize);
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class PackagingRecommendationDoc {
-  @Prop({ type: Types.ObjectId, required: true, index: true })
+  // KHÔNG dùng index:true ở đây — index thật đã khai riêng bên dưới
+  // (partialFilterExpression, cần cấu hình chi tiết hơn "index: true"
+  // đơn thuần cho phép) — khai cả 2 chỗ gây warning trùng lặp Mongoose.
+  @Prop({ type: Types.ObjectId, required: true })
   order_group_id!: Types.ObjectId;
 
   @Prop({ type: BoxSizeSchema, required: true })

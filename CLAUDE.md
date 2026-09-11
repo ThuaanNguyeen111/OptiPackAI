@@ -1013,8 +1013,8 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 5. Sửa `packaging.controller.ts`/`warehouse.controller.ts` → map camelCase (Điểm yếu #9) — làm CÙNG LÚC với 1-4
 6. **MỚI (2026-09-10, phát hiện qua review của thành viên FE)** — Endpoint chi tiết 1 item riêng trong picking-list (Stepper số lượng, confirm từng item) — hiện chỉ có `GET :id/picking-list` trả cả mảng, thiếu endpoint/field xác nhận từng dòng riêng lẻ
 7. ✅ Module Phân công nhân viên (Staff Assignment) — XONG (2026-09-10): `POST /order-groups/:id/assign` (auto = Least-Busy real-time, hoặc manual — chọn tay), `GET /order-groups/staff/search?q=` (tìm theo tên/email). Field `assigned_staff_id`/`assigned_at`/`assignment_type` trên `OrderGroup`. Auto-assign tự trigger sau UC-04 Approve/Adjust.
-8. **MỚI** — Module Notification đầy đủ (xem nghiên cứu chi tiết ở mục riêng "Nghiên cứu Notification" bên dưới)
-9. Đơn Hỏa Tốc (`order_priority`, `packaging_deadline`, tính giờ hành chính, cron cảnh báo SLA) — xem mục riêng "Nghiên cứu Đơn Hỏa Tốc" bên dưới. ✅ **ĐÃ XÁC MINH bằng doc thật (2 lần độc lập, `GetOrder` + `GetOrders`)**: Lazada KHÔNG hỗ trợ tự động nhận diện — chỉ còn hướng Admin/Store Owner tự tay đánh dấu. **Vẫn còn chờ**: khung giờ hành chính công ty (VD 8h-18h?), có tính Thứ 7 không?
+8. ✅ Module Notification đầy đủ — XONG (2026-09-10, xem chi tiết bên dưới)
+9. ✅ Đơn Hỏa Tốc (`order_priority`, `packaging_deadline`, `addBusinessHours()`, cron cảnh báo SLA) — XONG (2026-09-10). Đã xác minh bằng doc thật (2 lần độc lập, `GetOrder` + `GetOrders`): Lazada KHÔNG hỗ trợ tự động nhận diện — chỉ hướng Admin/Store Owner tự tay đánh dấu. Giờ hành chính: 8h-17h, tính cả Thứ 7, không tính Chủ Nhật (đã xác nhận với user).
 10. **MỚI (2026-09-10, phát hiện phụ khi verify đơn hỏa tốc)** — Bổ sung `OrderStatus` enum: hiện chỉ 9/19 giá trị thật của Lazada (thiếu `topack`, `toship`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back`, `shipped_back_success`, `shipped_back_failed`, `package_scrapped`) — rủi ro Mongoose từ chối lưu nếu Lazada trả về 1 trong 10 giá trị thiếu. Việc nhỏ, rủi ro thấp, nên làm sớm vì có thể đang âm thầm mất dữ liệu đơn ở trạng thái hiếm gặp (lost/damaged/shipped_back) mà không ai biết.
 
 ## Nghiên cứu Notification (2026-09-10) — khi nào bắn, nội dung gì, bắn ra sao
@@ -1192,6 +1192,50 @@ Thêm `toResponse()` cho `PackagingRecommendationDocument` (4 route: `getCurrent
 ✅ `quantity_on_hand`+`restock`, ✅ `report-missing`, ✅ partial-pick (Hướng Y), ✅ `pick-item` (atomic + idempotent + audit), ✅ chuẩn hóa response camelCase, ✅ item-detail endpoint, ✅ Staff Assignment (auto Least-Busy + manual), ✅ Notification (in-app + email, văn phong chuyên nghiệp), ✅ Đơn Hỏa Tốc (đánh dấu tay + SLA cron), ✅ `OrderStatus` enum đầy đủ 19 giá trị.
 
 **Việc tiếp theo, ngoài phạm vi Tầng 1** (xem mục "🗺️ ROADMAP TỔNG HỢP" ở trên để tra lại Tầng 2-4): tổng quát hóa đa sàn (khung A+B, chờ user xác nhận cuối), xóa route tạm `packaging/generate` khi AI thật xong, Package 5 Dashboard, hoàn tất TikTok Partner Center.
+
+## ĐÃ VÁ (2026-09-11) — 2 warning Mongoose "Duplicate schema index" — phát hiện từ log khởi động server THẬT của user
+
+**Vấn đề**: `packaging-recommendation.schema.ts` (`order_group_id`) và `pick-event.schema.ts` (`client_event_id`) đều khai index **2 lần** — 1 lần qua `@Prop({..., index: true})`, 1 lần qua `Schema.index({...}, {partialFilterExpression: ...})` riêng bên dưới (cần thiết vì unique CÓ ĐIỀU KIỆN không khai được qua `index: true` đơn thuần). Mongoose thấy 2 khai báo cùng field, cảnh báo trùng lặp — không phải lỗi runtime, nhưng là cấu hình dư thừa cần dọn.
+
+**Cách sửa**: bỏ `index: true` trong `@Prop()`, chỉ giữ đúng 1 khai báo `Schema.index()` bên dưới (đã có `partialFilterExpression`, đủ mạnh hơn `index: true` đơn thuần).
+
+**Bài học quy trình mới**: log khởi động server thật (`npm run start:dev`) là 1 nguồn phát hiện lỗi KHÁC với `tsc`/`eslint`/`jest` — cảnh báo runtime kiểu Mongoose duplicate-index chỉ hiện ra khi app THẬT SỰ khởi động kết nối DB, không lộ ra ở 3 lớp verify tĩnh đã có. Nên định kỳ xem qua log khởi động thật của user (không chỉ dựa vào 3 lệnh verify tự động), đặc biệt sau khi thêm schema/index mới.
+
+**Verify**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — không ảnh hưởng gì tới logic đã có, chỉ dọn cấu hình dư thừa.
+
+## ĐỐI CHIẾU CHÉO TOÀN BỘ tài liệu FE vs code thật (2026-09-11) — sau khi hoàn thành Tầng 1
+
+**Đã quét trực tiếp `@Controller`/`@Roles` trên TOÀN BỘ 11 controller thật** (không dựa trí nhớ) để làm nguồn xác nhận cuối cùng — kết quả:
+
+| Tài liệu                           | Trạng thái                                                                                                                                                                                                                                       | Hành động                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `INTEGRATION_GUIDE.md` (Auth)      | ✅ Vẫn đúng — 0 diff code `auth/` từ lần verify trước                                                                                                                                                                                            | Không đổi gì                                                                                                               |
+| `INTEGRATION_GUIDE_ORDERS.md`      | 🟡 Vẫn đúng 99% — 0 diff code `orders/`/`marketplace-integration/` — **NHƯNG lỗi "access_token 4h" (thật ra 24h, `.env.example` xác nhận `JWT_EXPIRES_IN=86400`) đã phát hiện từ lâu VẪN CHƯA thực sự sửa file**                                 | **Việc còn nợ**: tự tay sửa dòng "4h" thành "24h" trong file gốc — CLAUDE.md chỉ ghi phát hiện, chưa từng xuất bản bản sửa |
+| `INTEGRATION_GUIDE_FULFILLMENT.md` | 🔴 ĐÃ LỖI THỜI NẶNG — viết TRƯỚC khi Tầng 1 hoàn thành (thiếu `pick-item`, `report-missing`, `decide-partial`, Staff Assignment, Notifications, Đơn Hỏa Tốc, và còn ghi sai "2 kiểu response khác nhau" — đã thống nhất camelCase từ 2026-09-10) | **Đã viết lại HOÀN TOÀN**, file mới đã giao                                                                                |
+
+### File MỚI — `API_LIST.md`
+
+Bảng đầy đủ TOÀN BỘ route thật (quét trực tiếp code, không phải từ thiết kế) + role cho từng route + ma trận theo role (mỗi role gọi được đúng những gì). Phát hiện đáng chú ý khi tổng hợp: **Shipping Coordinator hiện là role có ít route riêng nhất** (chỉ 3 action fulfillment cơ bản — `ship`/`deliver`/`return`) — xác nhận đúng gap đã ghi ở Tầng 2 (chưa có API chọn carrier/lên lịch pickup/tracking thật).
+
+### `INTEGRATION_GUIDE_FULFILLMENT.md` — viết lại, các điểm chính đã cập nhật
+
+- Luồng chạy đầy đủ 3 nhánh (happy path, nhánh `partial_needs_review`, nhánh Đơn Hỏa Tốc song song)
+- Response mẫu `OrderGroup` đầy đủ field mới (`assignedStaffId`, `orderPriority`, `packagingDeadline`, `isOverdue`)
+- Giải thích rõ `client_event_id` dùng khi nào (offline-sync), phân biệt 2 cách lấy hàng (CÁCH A có audit vs CÁCH B đơn giản)
+- Bảng mã lỗi đầy đủ (thêm 8 mã mới: `ORD_GROUP_INSUFFICIENT_STOCK`, `ORD_GROUP_ITEM_NOT_IN_GROUP`, `ORD_GROUP_NO_STAFF_AVAILABLE`, `ORD_GROUP_STAFF_NOT_FOUND`, `NOTI_INVALID_ID`, `NOTI_NOT_FOUND`)
+- Mục Notifications tích hợp riêng (polling, cấu trúc, 7 loại thông báo)
+- Checklist test bổ sung — cụ thể cho từng nhánh rẽ mới, không chỉ happy path
+
+### ⚠️ Sửa lần 2 (2026-09-11, cùng ngày) — bản v2 vẫn CHƯA đủ, user chỉ ra đúng
+
+User phản hồi: bản v2 (mục trên) vẫn chỉ dừng ở mức "API nào, gọi ra sao" — **thiếu hẳn phần giải thích NGHIỆP VỤ** (bối cảnh xảy ra, vì sao thiết kế vậy, DB có field gì). Đã viết lại **v3 — mở rộng toàn diện**, cấu trúc mới 4 phần:
+
+- **Phần A (Tổng quan)**: 6 câu hỏi nghiệp vụ hệ thống trả lời + bảng Actor/trách nhiệm + 3 nguyên tắc thiết kế xuyên suốt (vì sao 1-người-xác-nhận, vì sao Optimistic Concurrency khắp nơi, vì sao không tự động hóa khi thiếu thông tin)
+- **Phần B (6 nghiệp vụ chi tiết)**: mỗi nghiệp vụ có Bối cảnh → Actor → Luồng chi tiết từng bước → Tình huống đặc biệt (kèm LÝ DO thiết kế, VD "tại sao Warehouse Staff không tự quyết định được khi thiếu hàng") → **Bảng đầy đủ field DB liên quan, lấy trực tiếp từ schema thật** (không suy đoán)
+- **Phần C**: sơ đồ ASCII trạng thái đầy đủ, dễ tra cứu nút nào bấm được ở đâu
+- **Phần D**: tham chiếu kỹ thuật (giữ lại phần tốt của v2 — mã lỗi, checklist)
+
+**File mới ~25KB** (tăng từ ~11KB) — đã giao qua `present_files`.
 
 ## Kiểm nghiệm 2 tài liệu FE cũ (`INTEGRATION_GUIDE.md`, `INTEGRATION_GUIDE_ORDERS.md`) đối chiếu với code thật (2026-09-09)
 
@@ -1430,6 +1474,10 @@ type(AOFP-12): mô tả ngắn gọn
 
 Ví dụ: `feat(AOFP-12): add TikTok Shop webhook configuration`, `fix(AOFP-15): resolve duplicate order detection bug`.
 Type hợp lệ: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Enforce tự động qua `commitlint.config.mjs` + husky `commit-msg` hook.
+
+**Bổ sung (2026-09-11), ĐÃ SỬA LẠI cho đúng sau khi đối chiếu `commitlint.config.mjs` thật** — giải thích lượt trước SAI ở phần lý do (nói "chặn vì liệt kê tên file" — không đúng bản chất luật). **Luật thật (`subject-not-vague`)**: chỉ chặn nếu dòng mô tả **BẮT ĐẦU** bằng đúng 1 trong 6 từ cấm: `update`, `fix stuff`, `wip`, `misc`, `changes`, `stuff` — **không liên quan** tới việc có nhắc tên file hay không. VD `"update CLAUDE.md and README.md"` bị chặn vì mở đầu bằng `"update "`, KHÔNG phải vì liệt kê file — `"sync CLAUDE.md and README.md..."` sẽ KHÔNG bị chặn dù cũng liệt kê y hệt tên file. Cách tránh đơn giản nhất: không mở đầu dòng mô tả bằng 6 từ cấm trên, dùng động từ cụ thể hơn (`add`, `remove`, `fix`, `log`, `record`, `refactor`...).
+
+**Các rule khác đã xác nhận đúng qua config thật, không cần sửa**: `scope-ticket-format` — scope bắt buộc đúng `AOFP-<số>`, không có ngoại lệ; `header-max-length` — 100 ký tự cho dòng đầu tiên; type hợp lệ kế thừa nguyên `@commitlint/config-conventional` (feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert — đúng danh sách đã ghi từ trước).
 
 ## Database Design Standards — BẮT BUỘC (rút kinh nghiệm từ lỗi ở project EDUMEE)
 

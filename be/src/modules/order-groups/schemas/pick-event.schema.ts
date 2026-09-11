@@ -30,7 +30,10 @@ export class PickEvent {
 
   // Nullable — chỉ Mobile App mới gửi (offline-sync retry cần), gọi
   // trực tiếp qua Swagger/web admin không bắt buộc có field này.
-  @Prop({ type: String, default: null, index: true })
+  // KHÔNG dùng index:true ở đây — index thật đã khai riêng bên dưới
+  // (partialFilterExpression, cần cấu hình chi tiết hơn) — khai cả 2
+  // chỗ gây warning trùng lặp Mongoose.
+  @Prop({ type: String, default: null })
   client_event_id!: string | null;
 
   @Prop({ required: true })
