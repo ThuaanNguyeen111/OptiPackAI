@@ -2,6 +2,8 @@
 
 ## 📌 QUY TẮC QUẢN TRỊ TÀI LIỆU NÀY — ĐỌC TRƯỚC TIÊN, ÁP DỤNG CHO MỌI THAO TÁC SAU NÀY
 
+**Mở rộng 2026-09-10 — bắt buộc chủ động hỏi lại trước/sau mỗi chức năng**: mỗi khi CHUẨN BỊ code 1 chức năng/nghiệp vụ mới, HOẶC vừa code xong 1 chức năng — PHẢI chủ động đặt câu hỏi làm rõ lại cho user, để xác nhận đúng hướng TRƯỚC KHI code tiếp/code sai hướng. Không tự đoán ý user rồi làm luôn nếu còn điểm mơ hồ về nghiệp vụ (khác với mơ hồ kỹ thuật thuần túy, việc đó vẫn tự quyết theo đúng judgement bình thường). Câu hỏi nên có VÍ DỤ CỤ THỂ đi kèm (không hỏi chay lý thuyết) — nếu user báo "chưa hiểu câu hỏi", phải giải thích lại bằng ví dụ đời thường/tình huống cụ thể, không lặp lại nguyên câu hỏi cũ.
+
 **Chốt 2026-09-09, áp dụng từ giờ trở đi cho mọi thao tác trong dự án — không cần user nhắc lại mỗi lần:**
 
 Mọi thao tác thuộc các loại sau đều **BẮT BUỘC tự động ghi lại vào cả bộ nhớ (memory) lẫn file CLAUDE.md này**, không đợi user yêu cầu riêng:
@@ -20,6 +22,23 @@ Mọi thao tác thuộc các loại sau đều **BẮT BUỘC tự động ghi l
 - Khi 1 file (`optipack-claude-md-N.md`) gần đầy, việc tách file mới (như `optipack-claude-md-5.md` đã làm) là hợp lệ — nhưng vẫn phải giữ đúng tinh thần trên: file mới nối tiếp mạch nội dung, không lặp lại thứ đã ghi ở file cũ.
 
 **Ghi vào bộ nhớ (memory)**: theo đúng quy tắc `[stated]` đã áp dụng xuyên suốt — tóm tắt đúng những gì đã làm/quyết định thật, không suy diễn thêm.
+
+## 📌 NGUYÊN TẮC THIẾT KẾ HỆ THỐNG — "TINH GỌN" ≠ "THIẾU CORE", đọc trước khi quyết định loại trừ bất kỳ tính năng nào
+
+**Chốt 2026-09-10, sau khi tự phát hiện 1 sai lầm tư duy thật (xem "Bài học tự sửa sai" bên dưới).**
+
+**Sai lầm đã mắc phải**: nhầm lẫn 2 khái niệm khác nhau rồi dùng chung 1 lý do biện minh — _"hệ thống WMS doanh nghiệp đầy đủ (an toàn tồn kho, tự đặt hàng lại, FIFO/FEFO, kiểm kê định kỳ) không cần thiết cho đồ án"_ (ĐÚNG) bị áp nhầm sang _"vậy không cần theo dõi SỐ LƯỢNG TỒN KHO nào cả"_ (SAI — đây là thông tin cơ bản nhất của bất kỳ hệ thống kho nào, không phải tính năng nâng cao).
+
+**Phép thử BẮT BUỘC áp dụng trước khi quyết định 1 tính năng là "core" hay "có thể loại trừ"**:
+
+> _"Nếu bỏ cái này đi, chức năng chính (tên tính năng, VD 'lấy hàng từ kho') còn hoạt động ĐÚNG NGHĨA của nó không, hay chỉ còn là 1 phiên bản rỗng ruột mang tên tương tự?"_
+
+- Nếu bỏ đi khiến chức năng chính **không còn đúng nghĩa** (VD "lấy hàng từ kho" mà không biết còn/hết hàng → chỉ còn là "xem địa chỉ") → **CORE, KHÔNG được loại trừ**, dù có tốn thêm vài field/endpoint.
+- Nếu bỏ đi chỉ làm mất 1 tính năng NÂNG CAO đi kèm (VD tự động đặt hàng lại khi sắp hết) mà chức năng chính vẫn hoạt động đúng nghĩa → **hợp lý để loại trừ**, đúng tinh thần "tinh gọn, không rườm rà".
+
+**Ưu tiên đối chiếu với chính đề bài gốc (`Phieu_FA26SE036.docx`) trước khi tự quyết định loại trừ** — 1 tính năng tưởng "nâng cao tự nghĩ thêm" có thể thực ra **đã được đề bài yêu cầu rõ** (case thật: UC-07 Alt Flow đã ghi "Report Missing Item" — báo thiếu hàng lúc lấy — nhưng bị đánh rơi khi code 5 endpoint fulfillment thật, tưởng nhầm là tính năng ngoài phạm vi).
+
+**Không tự tin dùng lý do "tránh over-engineering" để bào chữa cho việc thiếu core** — 2 việc khác nhau hoàn toàn: over-engineering là làm THỪA (Kafka cho quy mô nhỏ, sharding cho 1 kho...), thiếu core là làm SÓT cái tối thiểu phải có. Nhầm lẫn 2 khái niệm này là lỗi tư duy nghiêm trọng, cần tự kiểm tra lại mỗi khi định "loại trừ" 1 tính năng nào đó — không chỉ riêng module kho, áp dụng cho MỌI module tương lai.
 
 **OptiPackAI** (tên dự án theo phiếu đăng ký: AOFP — AI-Assisted Omnichannel Order Fulfillment and Packaging Optimization System).
 Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ đơn hàng từ TikTok Shop + Lazada + Tiki, gộp đơn trùng, dùng AI gợi ý đóng gói (3D bin packing), ước tính phí ship, sinh nhãn/QR/barcode, theo dõi fulfillment, và xem dashboard.
@@ -717,7 +736,7 @@ GET      /admin/sku-bin-assignments/unassigned    [MỚI — xem mục 3]
 
 **Căn cứ từ đề bài, không phải tự thêm ngoài phạm vi**: mục "Applied Theory" liệt kê rõ _"Warehouse Management Systems (WMS)"_ + _"Inventory Management"_ là kiến thức bắt buộc phải áp dụng; "Group orders by warehouse" (Order Consolidation) xác nhận hệ thống phải hỗ trợ NHIỀU kho; System Administrator có trách nhiệm _"Manage warehouse configuration"_ — đúng tên gọi tính năng này.
 
-**Mô hình 4 tầng, kiểu "fixed-slot location"** (mỗi SKU luôn ở đúng 1 vị trí cố định — chọn kiểu này thay vì "dynamic slotting" của kho lớn thật vì đơn giản hơn, vẫn đúng chuẩn WMS để áp dụng lý thuyết, khớp quy mô capstone — không cần theo dõi tồn kho real-time từng ô, đó là phạm vi 1 đồ án WMS riêng):
+**Mô hình 4 tầng, kiểu "fixed-slot location"** (mỗi SKU luôn ở đúng 1 vị trí cố định — chọn kiểu này thay vì "dynamic slotting"/nhiều vị trí cho 1 SKU của kho lớn thật, vì đơn giản hơn, vẫn đúng chuẩn WMS để áp dụng lý thuyết, khớp quy mô capstone). ⚠️ **SỬA LẠI (2026-09-10)**: mô tả gốc ở dòng này từng viết "không cần theo dõi tồn kho real-time" — **SAI**, đã tự phát hiện đây là gap core thật, không phải quyết định thiết kế hợp lý. Xem "Điểm yếu #10" phía dưới để biết đầy đủ 4 chức năng core còn thiếu (`quantity_on_hand`, Report Missing Item, partial pick, quét từng SKU) và cách khắc phục. Ranh giới ĐÚNG cần loại trừ chỉ là: an toàn tồn kho/reorder tự động/FIFO-FEFO theo lô/kiểm kê định kỳ — đây mới thật sự là phạm vi 1 đồ án WMS riêng, KHÔNG bao gồm việc biết còn/hết hàng cơ bản.
 
 ```
 Warehouse (kho)                          — warehouse.schema.ts (MỚI)
@@ -950,6 +969,273 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 **Tại sao chưa vá ngay trong lượt viết tài liệu FE này**: đây là thay đổi RESPONSE SHAPE của API đã giao FE tích hợp (`INTEGRATION_GUIDE_FULFILLMENT.md` vừa viết dựa theo đúng raw shape hiện tại) — sửa ngay bây giờ sẽ làm tài liệu vừa giao lập tức sai, cần đồng bộ 2 việc cùng lúc (sửa code + sửa tài liệu), nên tách thành việc riêng, không làm vội trong lượt rà soát.
 
 **Lợi ích khi vá**: FE chỉ cần 1 kiểu interface camelCase cho toàn bộ 5 module thay vì 2 kiểu như tài liệu vừa phải ghi chú riêng (mục 0 của `INTEGRATION_GUIDE_FULFILLMENT.md`) — giảm rủi ro FE viết nhầm field, giảm code FE phải maintain 2 pattern song song.
+
+## Điểm yếu #10 (2026-09-10) — 4 chức năng CORE bị thiếu ở Module Warehouse/Fulfillment, KHÔNG PHẢI "chủ đích đơn giản hóa" như đã ghi sai trước đó
+
+**Tự phát hiện + tự sửa sai lầm tư duy** — xem nguyên tắc mới ở đầu file ("TINH GỌN ≠ THIẾU CORE"). Thiết kế `SkuBinAssignment` (mục warehouse ở trên) trước đây được mô tả là _"cố ý không theo dõi tồn kho, đủ dùng cho quy mô capstone"_ — **mô tả đó SAI**, đây là gap core thật, không phải quyết định thiết kế hợp lý.
+
+**4 vấn đề CORE, xếp theo mức phụ thuộc** (vấn đề → cách khắc phục → tại sao → lợi ích, đúng khuôn đã áp dụng xuyên suốt):
+
+**1. Không có `quantity_on_hand` tại `SkuBinAssignment`** — hệ thống không biết kệ còn/hết hàng.
+**Khắc phục**: thêm field `quantity_on_hand: number`, trừ bằng atomic `$inc` (đã có pattern sẵn — Rule #7) khi pick, chặn nếu kết quả âm.
+**Tại sao core**: đây là thông tin cơ bản nhất của bất kỳ hệ thống kho nào, không phải tính năng WMS nâng cao (khác an toàn tồn kho/reorder tự động — những thứ ĐÚNG là nên loại trừ).
+**Lợi ích**: hệ thống mới thật sự là "quản lý kho" thay vì chỉ "sổ địa chỉ SKU".
+
+**2. Không có "Report Missing Item"** — UC-07 Alt Flow (Report 1, đề bài gốc) đã ghi rõ: _"Sản phẩm hết hàng lúc lấy → Warehouse Staff chọn 'Report Missing Item' → hệ thống đánh dấu đơn 'Partial – Needs Review' → thông báo Store Owner"_ — **đã dịch đúng nguyên văn khi làm Report 1 EN trước đây, nhưng bị đánh rơi lúc code 5 endpoint fulfillment thật**.
+**Khắc phục**: thêm endpoint `POST .../fulfillment/report-missing` (body: `{ sku, reason }`), thêm giá trị enum mới `PARTIAL_NEEDS_REVIEW` vào `GroupFulfillmentStatus`.
+**Tại sao core**: đây KHÔNG PHẢI tính năng tự nghĩ thêm — là yêu cầu CÓ SẴN trong đề bài, bị thiếu do lỗi triển khai, không phải do phạm vi.
+**Lợi ích**: đóng đúng khoảng cách giữa spec (Report 1) và code thật — quan trọng khi bảo vệ đồ án, tránh bị hỏi "sao UC-07 ghi vậy mà code không có".
+
+**3. Không pick từng phần được (all-or-nothing)** — liên đới trực tiếp #2: thiếu 1 SKU trong group là chặn đứng cả group, không pick được phần còn lại.
+**Khắc phục**: đổi model 1 nút "pick" chung → theo dõi `pick_status` mỗi item (`pending`/`complete`/`partial`), group chỉ chuyển `picked` khi TẤT CẢ item đã xử lý (đủ hàng hoặc đã report missing), không phải tất cả đều "đủ hàng".
+**Tại sao core**: thực tế vận hành kho luôn có tình huống thiếu 1-2 món — chặn cả đơn vì 1 món là thiết kế không thực tế.
+**Lợi ích**: khớp đúng thực tế vận hành, không phải lý thuyết suông.
+
+**4. Không quét từng SKU (chỉ có 1 nút xác nhận cả nhóm)** — tên chính thức UC-07 (Report 1) là _"quét QR/Barcode"_, không phải "bấm 1 nút xác nhận toàn bộ". `PICKING` (trạng thái trung gian) đã có sẵn trong enum từ đầu nhưng chưa endpoint nào dừng ở đó.
+**Khắc phục**: thêm `POST .../fulfillment/pick-item` (body: `{ sku, scanned_quantity }`), gọi nhiều lần (1 lần/SKU quét được), group tự chuyển `picked` khi tất cả item đã xử lý xong (nối trực tiếp #3).
+**Tại sao core**: đây đúng cơ chế được ĐẶT TÊN trong chính UC-07 gốc, không phải chi tiết kỹ thuật tùy chọn.
+**Lợi ích**: khớp đúng tên use case đã cam kết với hội đồng, đồng thời tự động có luôn dữ liệu để làm #1-#3 (mỗi lần quét = 1 lần biết chính xác đã lấy bao nhiêu, hàng còn bao nhiêu).
+
+**Không core, giữ nguyên loại trừ** (đúng ranh giới, không đổi): an toàn tồn kho (safety stock), tự động đặt hàng lại (reorder), FIFO/FEFO theo lô/hạn dùng, kiểm kê định kỳ (cycle counting), validate 2 SKU trùng 1 kệ, giới hạn sức chứa 1 kệ — đây mới đúng là tính năng WMS doanh nghiệp, không ảnh hưởng việc "lấy đúng hàng ở đúng chỗ" tại mức cơ bản.
+
+**Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
+
+## 🗺️ ROADMAP TỔNG HỢP (2026-09-10) — toàn bộ việc còn lại, 4 tầng ưu tiên
+
+**Nguồn duy nhất tổng hợp mọi việc còn thiếu đã rải rác trong file này** — khi cần biết "làm gì tiếp theo", đọc mục này trước, không cần lục lại từng mục "Việc CÒN LẠI"/"ĐÃ TRIỂN KHAI" rải rác phía trên.
+
+### Tầng 1 — CRITICAL (làm cùng 1 đợt, liên kết chặt với nhau)
+
+1. ✅ `quantity_on_hand` trên `SkuBinAssignment` + trừ atomic khi pick (Điểm yếu #10 mục 1) — XONG (2026-09-10), kèm endpoint `restock` mới phát hiện cần có khi code
+2. Endpoint `report-missing` — đúng UC-07 Alt Flow gốc (Điểm yếu #10 mục 2) — ✅ đã chốt Hướng Y (2026-09-10): bắt buộc Packaging Staff/Admin duyệt lại, group chuyển `partial_needs_review`, KHÔNG tự động `packed`
+3. Pick từng phần (partial pick) — nối trực tiếp mục 2 (Điểm yếu #10 mục 3)
+4. ✅ Endpoint `pick-item` quét từng SKU — XONG (2026-09-10) — nguồn dữ liệu cho mục 1-3 (Điểm yếu #10 mục 4). Field `scan_method: 'barcode'|'manual'` + `client_event_id` (offline-first, tái dùng pattern `processed_webhook_events`/Rule #17) — đã implement đầy đủ, collection `pick_events` mới. **Mã quét = mã KỆ (`bin_code`) + `seller_sku` từ picking list** — Lazada KHÔNG cung cấp barcode/GTIN sản phẩm (đã xác nhận qua rà response thật), không tự in mã vạch riêng cho SKU.
+5. Sửa `packaging.controller.ts`/`warehouse.controller.ts` → map camelCase (Điểm yếu #9) — làm CÙNG LÚC với 1-4
+6. **MỚI (2026-09-10, phát hiện qua review của thành viên FE)** — Endpoint chi tiết 1 item riêng trong picking-list (Stepper số lượng, confirm từng item) — hiện chỉ có `GET :id/picking-list` trả cả mảng, thiếu endpoint/field xác nhận từng dòng riêng lẻ
+7. ✅ Module Phân công nhân viên (Staff Assignment) — XONG (2026-09-10): `POST /order-groups/:id/assign` (auto = Least-Busy real-time, hoặc manual — chọn tay), `GET /order-groups/staff/search?q=` (tìm theo tên/email). Field `assigned_staff_id`/`assigned_at`/`assignment_type` trên `OrderGroup`. Auto-assign tự trigger sau UC-04 Approve/Adjust.
+8. ✅ Module Notification đầy đủ — XONG (2026-09-10, xem chi tiết bên dưới)
+9. ✅ Đơn Hỏa Tốc (`order_priority`, `packaging_deadline`, `addBusinessHours()`, cron cảnh báo SLA) — XONG (2026-09-10). Đã xác minh bằng doc thật (2 lần độc lập, `GetOrder` + `GetOrders`): Lazada KHÔNG hỗ trợ tự động nhận diện — chỉ hướng Admin/Store Owner tự tay đánh dấu. Giờ hành chính: 8h-17h, tính cả Thứ 7, không tính Chủ Nhật (đã xác nhận với user).
+10. **MỚI (2026-09-10, phát hiện phụ khi verify đơn hỏa tốc)** — Bổ sung `OrderStatus` enum: hiện chỉ 9/19 giá trị thật của Lazada (thiếu `topack`, `toship`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back`, `shipped_back_success`, `shipped_back_failed`, `package_scrapped`) — rủi ro Mongoose từ chối lưu nếu Lazada trả về 1 trong 10 giá trị thiếu. Việc nhỏ, rủi ro thấp, nên làm sớm vì có thể đang âm thầm mất dữ liệu đơn ở trạng thái hiếm gặp (lost/damaged/shipped_back) mà không ai biết.
+
+## Nghiên cứu Notification (2026-09-10) — khi nào bắn, nội dung gì, bắn ra sao
+
+**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin).
+
+**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
+
+**Cách bắn**: khuyên dùng **Phương án A — polling** (`GET /notifications/unread-count` mỗi 15-30s từ FE) cho quy mô capstone, đơn giản không cần hạ tầng mới. Phương án B (WebSocket/NestJS Gateway, real-time push) là chuẩn production nhưng tốn công hơn, chỉ làm nếu dư thời gian.
+
+**Route**: `GET /notifications?is_read=false`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`.
+
+## Nghiên cứu Đơn Hỏa Tốc (2026-09-10) — ✅ ĐÃ XÁC MINH BẰNG DOC THẬT, chốt thiết kế cuối
+
+**Quá trình xác minh**: đã tra web tìm được 1 nguồn SDK bên thứ 3 (GitHub) claim Lazada có field `shipping_provider_type`/`order_flag`/`sla_time_stamp` để phân biệt đơn hỏa tốc — **user yêu cầu xác minh lại bằng chính doc thật thay vì tin nguồn thứ 3**, đã cùng user tra trực tiếp `GetOrder` trên `open.lazada.com`, rà **toàn bộ 40+ field** trong Response Parameters đầy đủ (bung cả node `data`) — **XÁC NHẬN DỨT KHOÁT: KHÔNG có field nào trong 3 field trên**. Chỉ có `promised_shipping_times` tồn tại, nhưng field này có ở MỌI đơn (không riêng đơn hỏa tốc), không dùng được làm cờ phân biệt.
+
+**Kết luận, đảo ngược hoàn toàn hướng thiết kế ban đầu**: Lazada KHÔNG cung cấp bất kỳ tín hiệu nào để tự động nhận diện đơn hỏa tốc. Loại bỏ hẳn phương án "tự động từ Lazada trả về" — **chỉ còn 1 hướng khả thi: Store Owner/Admin tự tay đánh dấu**.
+
+**Field `OrderGroup`**: `order_priority: 'normal'|'express'`, `packaging_deadline: Date|null` (chỉ có nếu express), `is_overdue: boolean`.
+
+**Endpoint mới**: `PATCH /order-groups/:id/priority` — body `{ order_priority, packaging_deadline_hours }`, Store Owner/Admin tự đặt tay, hệ thống tự tính `packaging_deadline`.
+
+**Vẫn PHẢI tự viết `addBusinessHours()`** — vì không có `sla_time_stamp` từ Lazada để dùng ké nữa (khác dự tính ban đầu là có thể bỏ qua bước này) — KHÔNG được cộng đơn giản `created_at + Xh`, phải bỏ qua giờ ngoài giờ hành chính/ngày nghỉ, cộng dồn sang ngày làm việc tiếp theo nếu tràn giờ. Test kỹ case biên (tạo đơn cuối giờ, cuối tuần). **⚠️ Vẫn đang chờ user xác nhận**: khung giờ hành chính công ty (VD 8h-18h?), có tính Thứ 7 không?
+
+**Cron cảnh báo**: mỗi 10 phút quét `order_priority='express'` có `packaging_deadline` sắp/đã qua → bắn Notification tương ứng (SLA_WARNING/SLA_BREACH).
+
+**Bài học quy trình**: đây là ví dụ thực tế cho nguyên tắc đã có trong CLAUDE.md — "ưu tiên đối chiếu đề bài/doc gốc trước khi tự quyết định thiết kế" — suýt code sai hướng (dựa vào field không tồn tại) nếu không được yêu cầu xác minh lại bằng doc thật trước khi bắt tay code.
+
+**Xác nhận LẦN 2, độc lập (2026-09-10)**: user tiếp tục cung cấp đúng doc `GetOrders` (số nhiều — chính API `syncLazadaOrders()` đang gọi thật, khác `GetOrder` số ít đã xem ở trên) — rà toàn bộ Response Parameters, **kết quả giống hệt lần 1**: không có `shipping_provider_type`/`order_flag`/`sla_time_stamp`. 2 lần xác nhận độc lập, kết luận chắc chắn tuyệt đối.
+
+**🔴 Phát hiện phụ (2026-09-10) — `OrderStatus` enum hiện tại (9 giá trị) THIẾU so với thực tế Lazada (19 giá trị)**: đối chiếu bảng Error Code của `GetOrders` (mã lỗi `6`, liệt kê đầy đủ status hợp lệ) — Lazada thật có tới **19 giá trị**: `unpaid, pending, packed, canceled, ready_to_ship, delivered, returned, shipped, failed, topack, toship, lost, lost_by_3pl, damaged_by_3pl, failed_delivery, shipped_back, shipped_back_success, shipped_back_failed, package_scrapped` — trong khi `order-status.enum.ts` chỉ định nghĩa 9 (`unpaid/pending/packed/ready_to_ship/shipped/delivered/canceled/returned/failed`), thiếu 10 giá trị (`topack`, `toship`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back`, `shipped_back_success`, `shipped_back_failed`, `package_scrapped`). Nếu Lazada trả về 1 trong 10 giá trị thiếu này, Mongoose sẽ **từ chối lưu** (enum validation fail) hoặc lỗi ngầm — cần bổ sung đầy đủ vào enum, đã thêm vào Tầng 1 roadmap (mục 10 mới).
+
+### Tầng 2 — IMPORTANT
+
+6. Viết `.spec.ts` cho `order-groups.service.ts`, `warehouse.service.ts`, util cũ ở `orders/`
+7. Xóa route tạm `packaging/generate` khi AI thật (Package 3) xong
+8. **MỚI phát hiện 2026-09-10** — cơ chế THÔNG BÁO Store Owner: UC-07 Alt Flow yêu cầu "thông báo Store Owner" khi thiếu hàng, nhưng **toàn bộ dự án hiện KHÔNG có cơ chế notification nào** (không email, không in-app) — cần quyết định hướng trước khi code mục 2 (report-missing) ở Tầng 1, vì report-missing cần gọi notify. **Đã hỏi user chọn hướng** (email/in-app/chỉ log), chờ xác nhận.
+9. Shipping Coordinator: chọn carrier, lên lịch pickup, tracking — đã thiết kế DB field trước đó, chưa có endpoint
+10. Store Owner: cấu hình packaging rules + shipping preferences
+11. Cursor pagination cho `GET /order-groups` (hiện giới hạn cứng 100)
+12. Sửa `INTEGRATION_GUIDE_ORDERS.md` — "access_token 4h" → "24h" (lỗi đã xác nhận)
+13. Tổng quát hóa multi-platform thật (Adapter Registry dùng cho `syncOrders`, scheduler chung) — đã thiết kế, chưa áp dụng. **Đã hỏi user: làm ngay hay đợi TikTok/Tiki có code**, chờ xác nhận.
+
+### Tầng 3 — NICE-TO-HAVE (hoãn được)
+
+14. Package 5 Dashboard — cần dữ liệu thật chạy qua hệ thống trước
+15. Validate 2 SKU trùng 1 kệ (data integrity, tần suất thấp)
+16. Return-to-stock khi hoàn hàng — tự động trở thành việc cần làm SAU KHI mục 1 (Tầng 1) xong
+17. Vá double-query `getConnectedShop`+`getValidAccessToken`
+18. Hoàn tất TikTok Partner Center (App Key/Secret) — đang dở, không chặn phần Lazada
+
+### Tầng 4 — LOẠI TRỪ có chủ đích (đúng nguyên tắc thiết kế mới, KHÔNG làm)
+
+An toàn tồn kho, reorder tự động, FIFO/FEFO theo lô, kiểm kê định kỳ, giới hạn sức chứa kệ — tính năng WMS doanh nghiệp đầy đủ, không ảnh hưởng chức năng lõi ở mức cơ bản.
+
+### Đã có câu trả lời cho 6 câu hỏi (cập nhật 2026-09-10) — cập nhật thiết kế Tầng 1 theo đúng hướng này
+
+1. **Thông báo Store Owner**: TẤT CẢ kênh cùng lúc — in-app notification (module Notification riêng, user đang chuẩn bị làm), hiển thị Dashboard theo role liên quan, và email. → `report-missing` (Tầng 1 mục 2) PHẢI gọi ra 1 "cổng thông báo chung" (generic interface, chưa biết chi tiết module Notification sẽ ra sao) — không hardcode cứng 1 kênh, để module Notification sau này cắm vào không phải sửa lại `report-missing`.
+2. **Quét SKU**: CẢ 2 — camera thật (chính, việc của Mobile App Flutter, chưa thuộc phạm vi backend hiện tại) + nhập tay (dự phòng). **Đã nghiên cứu đầy đủ 6 tình huống quét thất bại + phương án dự phòng cho từng tình huống** — xem bảng "Nghiên cứu dự phòng quét mã" ngay bên dưới.
+3. **Pick từng phần**: ✅ **ĐÃ CHỐT Hướng Y** — bắt buộc Packaging Staff/Admin duyệt lại trước khi group tiếp tục xử lý khi thiếu hàng. Thiết kế cụ thể: `report-missing` → group chuyển trạng thái MỚI `partial_needs_review` → KHÔNG tự động chuyển `packed` → cần thêm 1 hành động duyệt riêng (VD `POST .../packaging/approve-partial`) mới cho đi tiếp, khớp đúng pattern UC-04 đã có (mọi quyết định quan trọng cần người xác nhận, không để hệ thống tự động hoàn toàn).
+4. **Tổng quát hóa đa sàn**: ✅ **ĐÃ LÀM RÕ phạm vi** — user hỏi đúng: không thể viết code đọc dữ liệu TikTok khi chưa có doc/response thật. Đã tách rõ 2 việc KHÁC NHAU: (A) đổi `syncLazadaOrders(shopId)` → `syncOrders(platform, shopId)` + (B) định nghĩa khuôn `MappedOrder` chung — **CẢ 2 làm được NGAY, không cần biết TikTok trả gì**, vì đây chỉ là "chuẩn bị khung/hộp rỗng" theo đúng NHU CẦU CỦA HỆ THỐNG MÌNH, không phải theo dữ liệu TikTok. Khác với (C) viết `TikTokAdapter.getOrders()` + (D) `TikTokOrderMapper` — **2 việc này CẦN doc TikTok thật, chưa làm được**, đúng như user chỉ ra. Lợi ích chuẩn bị (A)+(B) trước: khi có doc TikTok thật, chỉ cần "điền vào hộp có sẵn" (viết `TikTokAdapter` mới), KHÔNG cần sửa lại code Lazada đang chạy — nếu không chuẩn bị trước, tới lúc đó phải sửa lại cả 2 bên cùng lúc, rủi ro cao hơn.
+5. **Dashboard**: hiển thị TOÀN BỘ chỉ số có thể tính được (AI accuracy rate, abnormal rate, thời gian xử lý, lưu lượng đơn...) — không chọn lọc riêng cái nào, làm đầy đủ khi tới lượt Package 5.
+6. **MỚI — Nguồn mã vạch/màu sắc từ Lazada, user hỏi 2026-09-10**: đối chiếu lại response thật `GetProducts`/`GetProductItem` đã xem trước đó — **màu/size đã có sẵn, KHÔNG cần tự làm**: mỗi biến thể (`variation1: color_family`, `variation2: SizeX`...) đã là 1 `SellerSku` RIÊNG BIỆT (áo đỏ size M và áo xanh size M là 2 SellerSku khác nhau) — `product_master` (khóa theo `seller_sku`) đã đúng chuẩn, tận dụng được ngay, không cần đổi gì. **Mã vạch quét được (barcode/GTIN) — KHÔNG có trong response Lazada** (đã rà toàn bộ field: `SellerSku`, `ShopSku`, `SkuId`... không có field `barcode`/`gtin`/`upc`/`ean` nào) — `SellerSku` chỉ là mã CHỮ do seller tự đặt, không phải mã vạch số chuẩn quốc tế quét được bằng máy quét thường. **Quyết định**: KHÔNG cần tự sinh + in mã vạch riêng cho từng sản phẩm (tốn công) — tận dụng ĐÚNG mã vạch đã thiết kế sẵn cho `bin_code` (VD `A-03-02-01`, kệ vật lý) — nhân viên quét mã KỆ (xác nhận đúng vị trí) + hệ thống tự biết `seller_sku` cần lấy ở đó từ picking list → đủ để xác nhận đúng sản phẩm, không bắt buộc phải có mã vạch riêng dán lên từng sản phẩm.
+
+### Nghiên cứu dự phòng quét mã (2026-09-10) — 6 tình huống quét thất bại + phương án cho mỗi tình huống
+
+| #   | Tình huống                           | Phương án dự phòng                                                                                     |
+| --- | ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| 1   | Camera hỏng/lag                      | Nhập tay mã SKU                                                                                        |
+| 2   | Tem mã vạch rách/mờ/bẩn              | Nhập tay + tự động đánh dấu "cần in lại tem" cho Admin                                                 |
+| 3   | Sản phẩm chưa dán tem                | Nhập tay + màn hình tìm theo tên/hình ảnh (cần dự phòng ngoài ô nhập mã)                               |
+| 4   | **Mất mạng lúc quét** (hay gặp nhất) | Xem chi tiết kỹ thuật bên dưới — quan trọng nhất                                                       |
+| 5   | Ánh sáng kho quá tối                 | Nhập tay                                                                                               |
+| 6   | Quét nhầm mã (dán lộn)               | Server-side tự kiểm tra SKU quét được có thuộc đúng Order Group đang xử lý không, sai thì báo lỗi ngay |
+
+**Tình huống #4 — thiết kế kỹ thuật cụ thể**: Mobile App phải lưu kết quả quét NGAY trên máy (offline-first), tự động gửi lên server khi có mạng lại, KHÔNG bắt nhân viên đứng chờ có mạng mới thao tác tiếp. Mỗi lần quét cần 1 `client_event_id` sinh ngay trên điện thoại lúc quét — nếu mạng chập chờn gửi lại nhiều lần, server dùng đúng ID này để biết "cùng 1 lần quét", không cộng trùng. **Tái sử dụng ĐÚNG kỹ thuật đã thiết kế sẵn cho `processed_webhook_events` (Rule #17)** — cùng 1 pattern chống trùng lặp do gửi lại nhiều lần, không cần nghĩ cơ chế mới.
+
+**Ảnh hưởng thiết kế endpoint `pick-item` (Tầng 1 mục 4)**: cần thêm field `scan_method: 'barcode' | 'manual'` (audit — biết lần quét nào là quét thật, lần nào nhập tay, đúng tinh thần BR-07 ghi log mọi hành động) và `client_event_id` (optional, dùng khi Mobile App gửi lại sau khi mất mạng).
+
+## ĐÃ TRIỂN KHAI (2026-09-10, lượt thứ 4) — `quantity_on_hand` + `pick-item` + Staff Assignment hoàn thiện + phát hiện DRIFT giữa sandbox và repo thật
+
+### ⚠️ Phát hiện quan trọng — sandbox và repo thật của user bị lệch (drift)
+
+User upload lại `be.zip` để đối chiếu — phát hiện **repo thật của user THIẾU HẲN 3 file** (`staff-assignment.controller.ts`, `staff-assignment.errors.ts`, `staff-assignment.service.ts`) và **6 file khác lệch nội dung thật** (không phải chỉ CRLF/LF) so với patch đã giao lượt trước — nguyên nhân: **user chưa merge zip `optipackai-staff-assignment-v8.zip` vào repo thật**. Đã xác nhận bằng `diff -B --strip-trailing-cr` (bỏ qua khác biệt xuống dòng) để tách đúng khác biệt NỘI DUNG THẬT khỏi noise CRLF/LF — chỉ đúng 6 file lệch, không có gì bất ngờ khác ngoài dự kiến. Đã merge lại đúng 6 file + 4 file mới lên bản `be.zip` mới của user, verify sạch bằng `tsc`, rồi mới code tiếp — **tránh code chồng lên nền sai** như user yêu cầu.
+
+**Bài học quy trình**: khi user gửi lại `be.zip` sau nhiều lượt code, LUÔN diff với bản patch gần nhất đã giao (dùng `-B --strip-trailing-cr` để bỏ noise CRLF/LF) TRƯỚC KHI code tiếp — không giả định user đã merge đầy đủ.
+
+### Staff Assignment — hoàn thiện nốt phần còn thiếu
+
+- Sửa bug `full_name` → `name` (field thật trên `User` schema) trong `staff-assignment.service.ts`
+- Thêm khả năng **tìm kiếm nhân viên theo tên/email** (`listStaffWithWorkload(role, search?)`) — dùng regex có escape ký tự đặc biệt (tránh lỗi/ReDoS)
+- Tạo `staff-assignment.controller.ts` (route `POST /order-groups/:id/assign`, `GET /order-groups/staff/search`) + wire vào `order-groups.module.ts`
+- Sửa `packaging.service.ts` — hook auto-assign đúng service (`StaffAssignmentService.autoAssign()`, không phải method mình từng viết trùng đã xóa)
+- 2 lỗi ESLint thật tự phát hiện + sửa: `UserRole` (numeric enum) không được đặt trực tiếp trong template literal — phải `String(role)`
+
+### `quantity_on_hand` — Điểm yếu #10 mục 1
+
+Thêm field vào `SkuBinAssignment` (module `warehouse/`). Đồng thời bổ sung 2 việc liên đới phát hiện khi code:
+
+- **`initial_quantity` optional trên `AssignSkuBinDto`** — gán vị trí lần đầu có thể chưa có hàng thật (mặc định 0), dùng `$setOnInsert` (không phải `$set`) để KHÔNG reset số lượng nếu chỉ đang đổi vị trí kệ cho SKU đã có sẵn assignment.
+- **Endpoint `POST .../sku-bin-assignments/:assignmentId/restock`** (mới, chưa có trong thiết kế gốc) — nghiệp vụ NHẬP HÀNG là khác biệt với GÁN VỊ TRÍ (gán 1 lần, nhập hàng lặp lại định kỳ) — cộng dồn bằng `$inc` atomic (Rule #7), không phải set lại toàn bộ.
+
+### `pick-item` — Điểm yếu #10 mục 4, trung tâm của Tầng 1
+
+`POST /order-groups/:id/fulfillment/pick-item` (body: `sku`, `scanned_quantity`, `scan_method`, `warehouse_id`, `client_event_id?`) — `OrderGroupsService.pickItem()`:
+
+- **Atomic check-and-decrement**: `findOneAndUpdate({warehouse_id, seller_sku, quantity_on_hand: {$gte: scannedQuantity}}, {$inc: {quantity_on_hand: -scannedQuantity}})` — filter điều kiện đủ hàng NGAY TRONG CÙNG 1 lệnh, không tách "check rồi ghi" (tránh race condition 2 nhân viên quét cùng SKU sắp hết cùng lúc). Không đủ hàng → `ORD_GROUP_INSUFFICIENT_STOCK` (409), message gợi ý dùng `report-missing` (chưa code, Tầng 1 mục 2-3).
+- **Idempotency**: collection mới `pick_events` (schema `PickEvent`) — unique CÓ ĐIỀU KIỆN trên `client_event_id` (chỉ áp khi field này không null, cho phép nhiều lần quét KHÔNG có `client_event_id` — gọi trực tiếp Swagger/admin — tồn tại song song). `client_event_id` trùng đã xử lý → trả lại kết quả CŨ, không trừ 2 lần — đúng thiết kế offline-first đã nghiên cứu.
+- **Audit**: mọi lần pick (có hay không `client_event_id`) đều ghi vào `pick_events` — biết `scan_method` mỗi lần, phục vụ tra soát sau này.
+- Phân biệt rõ với endpoint `pick` (đã có từ trước): `pick-item` = quét từng SKU (gọi NHIỀU LẦN), `pick` = xác nhận đã lấy xong toàn bộ nhóm (gọi 1 lần cuối, chuyển `fulfillment_status`).
+
+**Verify**: `tsc --noEmit` 0 lỗi, `eslint src` toàn project 0 lỗi — trên đúng nền `be.zip` mới nhất của user (sau khi đã merge lại phần drift).
+
+### README.md — viết lại theo yêu cầu user
+
+- Bỏ cột "Mobile" (SĐT) khỏi bảng Team — chỉ giữ Role/Name/Email
+- Bỏ hẳn khối `[!IMPORTANT]` kể lịch sử đổi phạm vi sàn (Shopee/TikTok bị loại) — đây là lịch sử nội bộ, không phù hợp đặt ở phần giới thiệu dự án cho người ngoài đọc
+- Cập nhật bảng tính năng (FE-01 đến FE-10, thêm FE-09 Notification, FE-10 Quản trị) và cấu trúc thư mục module đúng theo tên module THẬT đang có (`order-groups/`, `packaging/`, `warehouse/`, `product-master/` — trước đó README liệt kê tên module KHÔNG khớp thực tế: `shipping/`, `fulfillment/`, `admin/` chưa từng tồn tại)
+- Sửa `Mongoose 8` → `Mongoose 9` (đồng bộ với CLAUDE.md đã sửa trước đó)
+- Thêm bảng trỏ 3 file `INTEGRATION_GUIDE*.md` thay vì liệt kê route rời rạc lỗi thời
+
+## ĐÃ TRIỂN KHAI (2026-09-10, lượt thứ 5, hoàn thiện phần lớn Tầng 1) — Notification + report-missing + partial-pick
+
+### `GroupFulfillmentStatus` — thêm `PARTIAL_NEEDS_REVIEW`
+
+Trạng thái mới, đúng Hướng Y đã chốt: `APPROVED_FOR_PACKING`/`PICKING` → `PARTIAL_NEEDS_REVIEW` (khi report-missing) → CHỈ 2 đường ra: `PICKED` (Packaging Staff/Admin duyệt tiếp) hoặc `AWAITING_PACKAGING` (hủy, làm lại). KHÔNG tự động đi tiếp — đúng pattern UC-04 đã có.
+
+### Module `notifications/` — MỚI hoàn toàn
+
+- Schema `Notification`: `recipient_user_id` HOẶC `recipient_role` (1 trong 2 — đích danh hoặc broadcast cả role), `type` (7 giá trị đã nghiên cứu trước), `severity`, `channels_sent` (audit đã gửi kênh nào).
+- `NotificationsService.notify()` — "cổng thông báo chung" đã hứa từ trước khi code `report-missing`: ghi in-app NGAY (đồng bộ), gửi email SONG SONG không chờ (fire-and-forget, lỗi SMTP không chặn nghiệp vụ chính — cùng nguyên tắc `MailService.send()` đã có).
+- **Template văn phong CHUYÊN NGHIỆP, dựng sẵn trong Service** (`buildMissingItemMessage()`, `buildAbnormalPackageMessage()`) — KHÔNG để caller tự ghép chuỗi tùy tiện, đảm bảo nhất quán giọng điệu trên toàn hệ thống, đúng yêu cầu user "không đùa cợt, không AI hóa".
+- Route: `GET /notifications` (danh sách), `GET /notifications/unread-count` (polling, Phương án A đã chốt — không cần WebSocket), `PATCH /notifications/:id/read`.
+- `MailService` (module `mail/`, đã hoàn thiện từ trước) — thêm method MỚI `sendNotificationEmail()` (additive, không đụng 4 method cũ) — mẫu email ĐƠN GIẢN có chủ đích (chỉ text, không thiết kế phức tạp), đúng quyết định "tối ưu tốc độ" đã chốt, nhưng văn phong vẫn chuyên nghiệp.
+
+### `report-missing` + `decide-partial` — hoàn thiện UC-07 Alt Flow + Hướng Y
+
+`POST /order-groups/:id/fulfillment/report-missing` (role `WAREHOUSE_STAFF`, `ADMIN`) — `OrderGroupsService.reportMissing()`: chuyển group `partial_needs_review` (dùng lại `transitionFulfillmentStatus()` đã có, không viết logic transition mới), tra tên người báo cáo (`User.name`), build message chuyên nghiệp, gọi `notificationsService.notify()` broadcast cho toàn bộ `STORE_OWNER`.
+
+`POST /order-groups/:id/fulfillment/decide-partial` (role `PACKAGING_STAFF`, `ADMIN`) — `approve: true` → `PICKED` (tiếp tục), `approve: false` → `AWAITING_PACKAGING` (hủy làm lại).
+
+**Verify**: `tsc --noEmit` 0 lỗi, `eslint src` toàn project 0 lỗi. 1 lỗi thật tự phát hiện + sửa lúc code: import path sai độ sâu thư mục (`notification.schema.ts` nằm trong `schemas/`, cần `../../../common/...` chứ không phải `../../common/...`).
+
+### Tổng kết trạng thái Tầng 1 sau lượt này — 7/10 mục đã xong
+
+✅ Xong: `quantity_on_hand`+`restock` (1), `report-missing` (2), partial-pick (3), `pick-item` (4), Staff Assignment (7), Notification (8), `OrderStatus` enum (10).
+✅ TẤT CẢ 10/10 mục Tầng 1 đã hoàn thành (2026-09-10) — chi tiết đầy đủ ở mục "ĐÃ TRIỂN KHAI (lượt thứ 6)" ngay bên dưới.
+
+## ĐÃ TRIỂN KHAI (2026-09-10, lượt thứ 6) — HOÀN THÀNH TẦNG 1 (10/10 mục)
+
+### Việc 1 — Chuẩn hóa response `packaging/`+`warehouse/` sang camelCase (Điểm yếu #9 — ĐÃ VÁ)
+
+Thêm `toResponse()` cho `PackagingRecommendationDocument` (4 route: `getCurrent`/`generate`/`approve`/`adjust`) và 3 entity ở `warehouse/` (`Warehouse`, `WarehouseZone`, `SkuBinAssignment` — 6 route). **Cố ý KHÔNG đụng** `PackableItem`/`OrderGroupForPackaging`/`PickingListItem` — đây là hợp đồng interface ĐÃ bàn giao cho thành viên làm AI Packaging, đổi field name lúc này sẽ phá vỡ hợp đồng đang dùng, ngoài phạm vi Điểm yếu #9 (điểm yếu đó chỉ nói về response bị lộ raw Document, không nói về quy ước đặt tên field trong interface nội bộ).
+
+### Việc 2 — API chi tiết 1 món hàng riêng lẻ
+
+`GET /order-groups/:id/picking-list/:sku` — `getPackableItemDetail()` tái dùng `getPackableItemsForGroup()` đã có, lọc đúng 1 SKU, ném `ORD_GROUP_ITEM_NOT_IN_GROUP` (404) nếu SKU không thuộc group.
+
+### Việc 3 — Đơn Hỏa Tốc (Express Order) — implement thật, đúng thiết kế đã chốt
+
+- Field mới `OrderGroup`: `order_priority` ('normal'|'express'), `packaging_deadline`, `is_overdue` + index ESR phục vụ cron.
+- **`addBusinessHours()`** (module mới `order-groups/utils/`) — 8h-17h, TÍNH CẢ THỨ 7, KHÔNG tính Chủ Nhật (đã xác nhận với user). Xử lý đủ case biên: tạo đơn ngoài giờ hành chính (nhảy tới 8h ngày làm việc tiếp theo), tràn giờ trong ngày (cộng dồn sang hôm sau), tràn qua cuối tuần (bỏ qua Chủ Nhật). **8 test case cover đủ các case biên này.**
+- `PATCH /order-groups/:id/priority` (role `STORE_OWNER`, `ADMIN`) — đánh dấu tay, đúng kết luận đã xác minh 2 lần độc lập (Lazada không hỗ trợ tự động).
+- `ExpressOrderSlaScheduler` (cron 10 phút/lần) — quét đơn hỏa tốc sắp/đã quá hạn, gọi `NotificationsService` đúng "cổng thông báo chung" đã có (Nhóm 1: còn <1h → cảnh báo staff phụ trách; Nhóm 2: đã quá hạn → escalate Store Owner, tự đánh `is_overdue: true`, không cảnh báo lặp lại nhiều lần cho cùng 1 lần quá hạn).
+
+### 2 bug thật tự phát hiện + tự sửa khi verify — đều là bài học đã có sẵn trong CLAUDE.md, áp dụng lại đúng lúc
+
+1. **Rule #23 lặp lại** — `notification.schema.ts` field `related_entity_type: string | null` thiếu `type: String` tường minh trong `@Prop()` → app crash lúc load module, chỉ lộ ra khi chạy `jest` thật (không phải `tsc`/`eslint`) — đúng y hệt lớp lỗi đã ghi nhận trước đó, xác nhận thêm 1 lần nữa giá trị của việc BẮT BUỘC chạy `jest` cho module có schema mới.
+2. **`packaging.service.spec.ts` (viết từ lượt trước) không theo kịp thay đổi constructor** — `PackagingService` được inject thêm `StaffAssignmentService` (hook auto-assign) ở 1 lượt sau đó, nhưng test mock cũ chưa cập nhật theo → lỗi `Nest can't resolve dependencies`. Đã thêm mock `staffAssignmentService` vào test. **Bài học mới rút ra**: khi THÊM dependency mới vào constructor 1 service ĐÃ CÓ test, PHẢI rà lại test file đó ngay lúc thêm dependency, không đợi tới lần chạy `jest` toàn project mới phát hiện.
+
+**Verify cuối cùng, TOÀN BỘ project**: `tsc --noEmit` 0 lỗi, `eslint src` 0 lỗi, **`jest`: 12/12 suite, 116/116 test — 100% pass** (108 cũ + 8 test mới cho `addBusinessHours`).
+
+### 🎉 Tầng 1 — HOÀN THÀNH 10/10 mục
+
+✅ `quantity_on_hand`+`restock`, ✅ `report-missing`, ✅ partial-pick (Hướng Y), ✅ `pick-item` (atomic + idempotent + audit), ✅ chuẩn hóa response camelCase, ✅ item-detail endpoint, ✅ Staff Assignment (auto Least-Busy + manual), ✅ Notification (in-app + email, văn phong chuyên nghiệp), ✅ Đơn Hỏa Tốc (đánh dấu tay + SLA cron), ✅ `OrderStatus` enum đầy đủ 19 giá trị.
+
+**Việc tiếp theo, ngoài phạm vi Tầng 1** (xem mục "🗺️ ROADMAP TỔNG HỢP" ở trên để tra lại Tầng 2-4): tổng quát hóa đa sàn (khung A+B, chờ user xác nhận cuối), xóa route tạm `packaging/generate` khi AI thật xong, Package 5 Dashboard, hoàn tất TikTok Partner Center.
+
+## ĐÃ VÁ (2026-09-11) — 2 warning Mongoose "Duplicate schema index" — phát hiện từ log khởi động server THẬT của user
+
+**Vấn đề**: `packaging-recommendation.schema.ts` (`order_group_id`) và `pick-event.schema.ts` (`client_event_id`) đều khai index **2 lần** — 1 lần qua `@Prop({..., index: true})`, 1 lần qua `Schema.index({...}, {partialFilterExpression: ...})` riêng bên dưới (cần thiết vì unique CÓ ĐIỀU KIỆN không khai được qua `index: true` đơn thuần). Mongoose thấy 2 khai báo cùng field, cảnh báo trùng lặp — không phải lỗi runtime, nhưng là cấu hình dư thừa cần dọn.
+
+**Cách sửa**: bỏ `index: true` trong `@Prop()`, chỉ giữ đúng 1 khai báo `Schema.index()` bên dưới (đã có `partialFilterExpression`, đủ mạnh hơn `index: true` đơn thuần).
+
+**Bài học quy trình mới**: log khởi động server thật (`npm run start:dev`) là 1 nguồn phát hiện lỗi KHÁC với `tsc`/`eslint`/`jest` — cảnh báo runtime kiểu Mongoose duplicate-index chỉ hiện ra khi app THẬT SỰ khởi động kết nối DB, không lộ ra ở 3 lớp verify tĩnh đã có. Nên định kỳ xem qua log khởi động thật của user (không chỉ dựa vào 3 lệnh verify tự động), đặc biệt sau khi thêm schema/index mới.
+
+**Verify**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — không ảnh hưởng gì tới logic đã có, chỉ dọn cấu hình dư thừa.
+
+## ĐỐI CHIẾU CHÉO TOÀN BỘ tài liệu FE vs code thật (2026-09-11) — sau khi hoàn thành Tầng 1
+
+**Đã quét trực tiếp `@Controller`/`@Roles` trên TOÀN BỘ 11 controller thật** (không dựa trí nhớ) để làm nguồn xác nhận cuối cùng — kết quả:
+
+| Tài liệu                           | Trạng thái                                                                                                                                                                                                                                       | Hành động                                                                                                                  |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `INTEGRATION_GUIDE.md` (Auth)      | ✅ Vẫn đúng — 0 diff code `auth/` từ lần verify trước                                                                                                                                                                                            | Không đổi gì                                                                                                               |
+| `INTEGRATION_GUIDE_ORDERS.md`      | 🟡 Vẫn đúng 99% — 0 diff code `orders/`/`marketplace-integration/` — **NHƯNG lỗi "access_token 4h" (thật ra 24h, `.env.example` xác nhận `JWT_EXPIRES_IN=86400`) đã phát hiện từ lâu VẪN CHƯA thực sự sửa file**                                 | **Việc còn nợ**: tự tay sửa dòng "4h" thành "24h" trong file gốc — CLAUDE.md chỉ ghi phát hiện, chưa từng xuất bản bản sửa |
+| `INTEGRATION_GUIDE_FULFILLMENT.md` | 🔴 ĐÃ LỖI THỜI NẶNG — viết TRƯỚC khi Tầng 1 hoàn thành (thiếu `pick-item`, `report-missing`, `decide-partial`, Staff Assignment, Notifications, Đơn Hỏa Tốc, và còn ghi sai "2 kiểu response khác nhau" — đã thống nhất camelCase từ 2026-09-10) | **Đã viết lại HOÀN TOÀN**, file mới đã giao                                                                                |
+
+### File MỚI — `API_LIST.md`
+
+Bảng đầy đủ TOÀN BỘ route thật (quét trực tiếp code, không phải từ thiết kế) + role cho từng route + ma trận theo role (mỗi role gọi được đúng những gì). Phát hiện đáng chú ý khi tổng hợp: **Shipping Coordinator hiện là role có ít route riêng nhất** (chỉ 3 action fulfillment cơ bản — `ship`/`deliver`/`return`) — xác nhận đúng gap đã ghi ở Tầng 2 (chưa có API chọn carrier/lên lịch pickup/tracking thật).
+
+### `INTEGRATION_GUIDE_FULFILLMENT.md` — viết lại, các điểm chính đã cập nhật
+
+- Luồng chạy đầy đủ 3 nhánh (happy path, nhánh `partial_needs_review`, nhánh Đơn Hỏa Tốc song song)
+- Response mẫu `OrderGroup` đầy đủ field mới (`assignedStaffId`, `orderPriority`, `packagingDeadline`, `isOverdue`)
+- Giải thích rõ `client_event_id` dùng khi nào (offline-sync), phân biệt 2 cách lấy hàng (CÁCH A có audit vs CÁCH B đơn giản)
+- Bảng mã lỗi đầy đủ (thêm 8 mã mới: `ORD_GROUP_INSUFFICIENT_STOCK`, `ORD_GROUP_ITEM_NOT_IN_GROUP`, `ORD_GROUP_NO_STAFF_AVAILABLE`, `ORD_GROUP_STAFF_NOT_FOUND`, `NOTI_INVALID_ID`, `NOTI_NOT_FOUND`)
+- Mục Notifications tích hợp riêng (polling, cấu trúc, 7 loại thông báo)
+- Checklist test bổ sung — cụ thể cho từng nhánh rẽ mới, không chỉ happy path
+
+### ⚠️ Sửa lần 2 (2026-09-11, cùng ngày) — bản v2 vẫn CHƯA đủ, user chỉ ra đúng
+
+User phản hồi: bản v2 (mục trên) vẫn chỉ dừng ở mức "API nào, gọi ra sao" — **thiếu hẳn phần giải thích NGHIỆP VỤ** (bối cảnh xảy ra, vì sao thiết kế vậy, DB có field gì). Đã viết lại **v3 — mở rộng toàn diện**, cấu trúc mới 4 phần:
+
+- **Phần A (Tổng quan)**: 6 câu hỏi nghiệp vụ hệ thống trả lời + bảng Actor/trách nhiệm + 3 nguyên tắc thiết kế xuyên suốt (vì sao 1-người-xác-nhận, vì sao Optimistic Concurrency khắp nơi, vì sao không tự động hóa khi thiếu thông tin)
+- **Phần B (6 nghiệp vụ chi tiết)**: mỗi nghiệp vụ có Bối cảnh → Actor → Luồng chi tiết từng bước → Tình huống đặc biệt (kèm LÝ DO thiết kế, VD "tại sao Warehouse Staff không tự quyết định được khi thiếu hàng") → **Bảng đầy đủ field DB liên quan, lấy trực tiếp từ schema thật** (không suy đoán)
+- **Phần C**: sơ đồ ASCII trạng thái đầy đủ, dễ tra cứu nút nào bấm được ở đâu
+- **Phần D**: tham chiếu kỹ thuật (giữ lại phần tốt của v2 — mã lỗi, checklist)
+
+**File mới ~25KB** (tăng từ ~11KB) — đã giao qua `present_files`.
 
 ## Kiểm nghiệm 2 tài liệu FE cũ (`INTEGRATION_GUIDE.md`, `INTEGRATION_GUIDE_ORDERS.md`) đối chiếu với code thật (2026-09-09)
 
@@ -1188,6 +1474,10 @@ type(AOFP-12): mô tả ngắn gọn
 
 Ví dụ: `feat(AOFP-12): add TikTok Shop webhook configuration`, `fix(AOFP-15): resolve duplicate order detection bug`.
 Type hợp lệ: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert. Enforce tự động qua `commitlint.config.mjs` + husky `commit-msg` hook.
+
+**Bổ sung (2026-09-11), ĐÃ SỬA LẠI cho đúng sau khi đối chiếu `commitlint.config.mjs` thật** — giải thích lượt trước SAI ở phần lý do (nói "chặn vì liệt kê tên file" — không đúng bản chất luật). **Luật thật (`subject-not-vague`)**: chỉ chặn nếu dòng mô tả **BẮT ĐẦU** bằng đúng 1 trong 6 từ cấm: `update`, `fix stuff`, `wip`, `misc`, `changes`, `stuff` — **không liên quan** tới việc có nhắc tên file hay không. VD `"update CLAUDE.md and README.md"` bị chặn vì mở đầu bằng `"update "`, KHÔNG phải vì liệt kê file — `"sync CLAUDE.md and README.md..."` sẽ KHÔNG bị chặn dù cũng liệt kê y hệt tên file. Cách tránh đơn giản nhất: không mở đầu dòng mô tả bằng 6 từ cấm trên, dùng động từ cụ thể hơn (`add`, `remove`, `fix`, `log`, `record`, `refactor`...).
+
+**Các rule khác đã xác nhận đúng qua config thật, không cần sửa**: `scope-ticket-format` — scope bắt buộc đúng `AOFP-<số>`, không có ngoại lệ; `header-max-length` — 100 ký tự cho dòng đầu tiên; type hợp lệ kế thừa nguyên `@commitlint/config-conventional` (feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert — đúng danh sách đã ghi từ trước).
 
 ## Database Design Standards — BẮT BUỘC (rút kinh nghiệm từ lỗi ở project EDUMEE)
 

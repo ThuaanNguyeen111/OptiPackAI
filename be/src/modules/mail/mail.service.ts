@@ -125,4 +125,23 @@ export class MailService {
     const { subject, html } = mfaEnabledTemplate({ name: params.name });
     await this.send(params.to, subject, html);
   }
+
+  /**
+   * BỔ SUNG (2026-09-10) — email cho hệ thống Notification (module
+   * notifications/). Mẫu ĐƠN GIẢN có chủ đích (chỉ text, không thiết
+   * kế phức tạp như 4 mẫu trên) — đây là thông báo vận hành nội bộ,
+   * tốc độ và độ rõ ràng quan trọng hơn hình thức. VĂN PHONG PHẢI
+   * CHUYÊN NGHIỆP — không đùa cợt, không giọng điệu máy móc lộ liễu,
+   * đúng chuẩn thông báo hệ thống doanh nghiệp.
+   */
+  async sendNotificationEmail(params: { to: string; title: string; message: string }): Promise<void> {
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <h2 style="color: #1a1a1a; font-size: 18px;">${params.title}</h2>
+        <p style="color: #333; font-size: 14px; line-height: 1.6;">${params.message}</p>
+        <p style="color: #888; font-size: 12px; margin-top: 24px;">Đây là email tự động từ hệ thống OptiPackAI. Vui lòng không phản hồi email này.</p>
+      </div>
+    `;
+    await this.send(params.to, params.title, html);
+  }
 }

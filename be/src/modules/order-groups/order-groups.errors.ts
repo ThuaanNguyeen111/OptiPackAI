@@ -11,4 +11,11 @@ export const ORD_GROUP_ERROR_CODES = {
   GROUP_NOT_FOUND: 'ORD_GROUP_NOT_FOUND',
   STATE_CONFLICT: 'ORD_GROUP_STATE_CONFLICT', // Rule #18 optimistic concurrency — version không khớp
   INVALID_TRANSITION: 'ORD_GROUP_INVALID_TRANSITION', // MỚI — chuyển trạng thái không hợp lệ theo allowed-status-transitions.ts
+  // BỔ SUNG (2026-09-10) — pick-item
+  INSUFFICIENT_STOCK: 'ORD_GROUP_INSUFFICIENT_STOCK', // quantity_on_hand không đủ — FE nên gợi ý report-missing
+  // BỔ SUNG (2026-09-10) — item-detail
+  ITEM_NOT_IN_GROUP: 'ORD_GROUP_ITEM_NOT_IN_GROUP', // SKU truyền vào không thuộc group này
 } as const;
+// Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
+// STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,
+// không lặp lại ở đây.
