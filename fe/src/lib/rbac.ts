@@ -48,6 +48,11 @@ export function canAccessPath(role: Role, pathname: string): boolean {
     return path === '/app' || path.startsWith('/app/')
   }
 
+  // Đơn đa kênh (GET /orders) — chỉ Admin + Store Owner theo BE
+  if (path === '/app/orders' || path.startsWith('/app/orders/')) {
+    return false
+  }
+
   const prefixes = STAFF_PREFIXES[role]
   if (!prefixes) return false
   return prefixes.some((p) => path === p || path.startsWith(`${p}/`))

@@ -1,10 +1,12 @@
 import type { ReactNode } from 'react'
+import { cn } from '../../lib/cn'
 
 type BadgeTone = 'default' | 'success' | 'warning' | 'primary'
 
 type BadgeProps = {
   children: ReactNode
   tone?: BadgeTone
+  className?: string
 }
 
 const toneClasses: Record<BadgeTone, string> = {
@@ -14,10 +16,14 @@ const toneClasses: Record<BadgeTone, string> = {
   primary: 'bg-primary/15 text-primary dark:text-primary-hover',
 }
 
-export function Badge({ children, tone = 'default' }: BadgeProps) {
+export function Badge({ children, tone = 'default', className }: BadgeProps) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-normal ${toneClasses[tone]}`}
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-normal',
+        toneClasses[tone],
+        className,
+      )}
     >
       {children}
     </span>
