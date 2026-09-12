@@ -1,4 +1,8 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
@@ -48,13 +52,18 @@ export class UsersService {
   //!=============================================
   // 1. ADMIN TẠO TÀI KHOẢN NHÂN VIÊN
   //!=============================================
-  async createByAdmin(createDto: CreateUserDto, adminId: string): Promise<CreatedUserResult> {
+  async createByAdmin(
+    createDto: CreateUserDto,
+    adminId: string,
+  ): Promise<CreatedUserResult> {
     const existing = await this.userModel.findOne({
       email: createDto.email,
       is_active: true, //  chỉ chặn trùng với tài khoản CÒN hoạt động
     });
     if (existing) {
-      throw new ConflictException('Email này đã được sử dụng cho tài khoản khác');
+      throw new ConflictException(
+        'Email này đã được sử dụng cho tài khoản khác',
+      );
     }
 
     const temporaryPassword = this.generateTemporaryPassword();
@@ -67,7 +76,9 @@ export class UsersService {
       password: hashedPassword,
       must_change_password: true,
       //bắt đầu đếm 72h ngay từ lúc tạo tài khoản
-      must_change_password_by: new Date(Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS),
+      must_change_password_by: new Date(
+        Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS,
+      ),
       created_by: new Types.ObjectId(adminId),
     });
 
@@ -106,7 +117,9 @@ export class UsersService {
     const [data, total] = await Promise.all([
       this.userModel
         .find(filters)
-        .select('-password -mfa_secret -mfa_backup_codes -reset_password_token_hash')
+        .select(
+          '-password -mfa_secret -mfa_backup_codes -reset_password_token_hash',
+        )
         .skip(skip)
         .limit(limit),
       this.userModel.countDocuments(filters),
@@ -124,6 +137,7 @@ export class UsersService {
       must_change_password: false,
       must_change_password_by: null,
     });
+    // JwtStrategy đọc Redis trước Mongo — không xóa cache thì /users/me vẫn 403
     await this.redisCache.invalidateUserAuthState(userId);
   }
 
@@ -133,7 +147,9 @@ export class UsersService {
   // đã bị khóa cứng do quá hạn 72h — vì hàm này set lại
   // must_change_password_by mới, xóa trạng thái khóa cũ.
   //!=============================================
-  async adminResetPassword(userId: string): Promise<{ temporaryPassword: string }> {
+  async adminResetPassword(
+    userId: string,
+  ): Promise<{ temporaryPassword: string }> {
     const temporaryPassword = this.generateTemporaryPassword();
     const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
@@ -163,7 +179,9 @@ export class UsersService {
           {
             password: hashedPassword,
             must_change_password: true,
-            must_change_password_by: new Date(Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS),
+            must_change_password_by: new Date(
+              Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS,
+            ),
             failed_login_attempts: 0,
             locked_until: null,
           },
@@ -196,10 +214,16 @@ export class UsersService {
   }
 
   async updateLastLogin(userId: string): Promise<void> {
-    await this.userModel.findByIdAndUpdate(userId, { last_login_at: new Date() });
+    await this.userModel.findByIdAndUpdate(userId, {
+      last_login_at: new Date(),
+    });
+    await this.redisCache.invalidateUserAuthState(userId);
   }
 
-  async syncGoogleAvatar(user: UserDocument, googlePicture: string): Promise<void> {
+  async syncGoogleAvatar(
+    user: UserDocument,
+    googlePicture: string,
+  ): Promise<void> {
     if (!user.avatar) {
       user.avatar = googlePicture;
       await user.save();
@@ -253,7 +277,10 @@ export class UsersService {
   // Quản lý MFA secret — dùng bởi AuthService khi setup/verify/login
   //!=============================================
   async setPendingMfaSecret(userId: string, secret: string): Promise<void> {
-    await this.userModel.findByIdAndUpdate(userId, { mfa_secret: secret, mfa_enabled: false });
+    await this.userModel.findByIdAndUpdate(userId, {
+      mfa_secret: secret,
+      mfa_enabled: false,
+    });
   }
 
   async enableMfa(userId: string, hashedBackupCodes: string[]): Promise<void> {
@@ -277,7 +304,7 @@ export class UsersService {
   //!=============================================
   // Admin tắt MFA hộ user bị khóa (mất điện thoại, dùng hết mã dự
   // phòng). Xóa sạch secret + backup codes cũ — nếu user muốn bật lại, phải
-  // setup MFA từ đầu 
+  // setup MFA từ đầu
   //!=============================================
   async adminDisableMfa(userId: string): Promise<void> {
     const user = await this.userModel.findByIdAndUpdate(userId, {
@@ -293,8 +320,13 @@ export class UsersService {
   // User tự sửa hồ sơ (phone/address/avatar) — DÙNG DTO riêng, không
   // cho phép sửa email/role/is_active
   //!=============================================
-  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<UserDocument> {
-    const user = await this.userModel.findByIdAndUpdate(userId, dto, { new: true });
+  async updateProfile(
+    userId: string,
+    dto: UpdateProfileDto,
+  ): Promise<UserDocument> {
+    const user = await this.userModel.findByIdAndUpdate(userId, dto, {
+      new: true,
+    });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
     return user;
   }
@@ -303,19 +335,29 @@ export class UsersService {
   //Admin sửa thông tin user khác (tên, role, phone, address,
   // employee_code, department) — KHÔNG sửa được email/password qua đây.
   //!=============================================
-  async adminUpdateUser(userId: string, dto: AdminUpdateUserDto): Promise<UserDocument> {
-    const user = await this.userModel.findByIdAndUpdate(userId, dto, { new: true });
+  async adminUpdateUser(
+    userId: string,
+    dto: AdminUpdateUserDto,
+  ): Promise<UserDocument> {
+    const user = await this.userModel.findByIdAndUpdate(userId, dto, {
+      new: true,
+    });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
 
     await this.redisCache.invalidateUserAuthState(userId);
     return user;
   }
 
-
-  async setPasswordResetToken(userId: string, tokenHash: string, expiresInMinutes: number): Promise<void> {
+  async setPasswordResetToken(
+    userId: string,
+    tokenHash: string,
+    expiresInMinutes: number,
+  ): Promise<void> {
     await this.userModel.findByIdAndUpdate(userId, {
       reset_password_token_hash: tokenHash,
-      reset_password_expires: new Date(Date.now() + expiresInMinutes * 60 * 1000),
+      reset_password_expires: new Date(
+        Date.now() + expiresInMinutes * 60 * 1000,
+      ),
     });
   }
 
@@ -362,7 +404,9 @@ export class UsersService {
   // hoặc Admin xóa mềm nhầm).
   //!=============================================
   async reactivate(userId: string): Promise<void> {
-    const user = await this.userModel.findByIdAndUpdate(userId, { is_active: true });
+    const user = await this.userModel.findByIdAndUpdate(userId, {
+      is_active: true,
+    });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
     await this.redisCache.invalidateUserAuthState(userId);
   }
