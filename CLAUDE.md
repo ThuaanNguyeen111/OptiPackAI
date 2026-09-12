@@ -1203,6 +1203,40 @@ Thêm `toResponse()` cho `PackagingRecommendationDocument` (4 route: `getCurrent
 
 **Verify**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — không ảnh hưởng gì tới logic đã có, chỉ dọn cấu hình dư thừa.
 
+## ĐÃ TRIỂN KHAI (2026-09-11) — Mở quyền Store Owner xem đơn + filter `order_priority`
+
+### Bối cảnh — phát sinh từ chính bạn FE (Huỳnh Quốc Việt) đang tích hợp thật
+
+Việt báo: dùng tài khoản Store Owner test kết nối shop, không lấy được đơn — vì `GET /orders`/`GET /order-groups` (list + detail) trước đó chỉ gắn `@Roles(ADMIN)`/thiếu hẳn `STORE_OWNER`. Đã trao đổi trực tiếp với team qua chat, **chốt rõ ràng**: `POST /orders/lazada/sync` và `GET /marketplace/:platform/connect` (thao tác kỹ thuật nhạy cảm — kết nối OAuth, đồng bộ tay) **giữ nguyên chỉ Admin**; 4 route ĐỌC (`GET /orders`, `GET /orders/:id`, `GET /order-groups`, `GET /order-groups/:id`) **thêm `STORE_OWNER`** — đúng nghiệp vụ: chủ shop cần xem đơn của chính mình, không hợp lý nếu chỉ Admin xem được.
+
+### Thay đổi code
+
+- `orders.controller.ts`: `@Roles(ADMIN)` → `@Roles(ADMIN, STORE_OWNER)` cho `GET /orders` và `GET /orders/:id`. `POST /lazada/sync` giữ nguyên.
+- `order-groups.controller.ts`: thêm `STORE_OWNER` vào `@Roles()` của `GET /order-groups` và `GET /order-groups/:id` (giữ nguyên toàn bộ role cũ — Warehouse/Packaging/Shipping/Admin — chỉ CỘNG THÊM, không bớt).
+- `picking-list`/`picking-list/:sku` **KHÔNG thêm** Store Owner — đây là màn hình vận hành (Warehouse Staff thao tác lấy hàng), Store Owner không cần xem chi tiết vận hành, chỉ cần xem tổng quan.
+
+### Đồng thời vá gap đã ghi nhận trước đó — filter `order_priority`
+
+`ListOrderGroupsQueryDto` thêm field `order_priority?: 'normal'|'express'`, `listOrderGroups()` (service) áp filter vào query MongoDB (`query.order_priority = filter.orderPriority`) — tận dụng đúng index `{order_priority, packaging_deadline, is_overdue}` đã có sẵn từ khi code Đơn Hỏa Tốc, không cần thêm index mới. Kết hợp được với 2 filter cũ (`fulfillment_status`, `platform`) cùng lúc.
+
+**Verify**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — không ảnh hưởng logic cũ nào, chỉ mở rộng quyền + thêm 1 filter.
+
+### Đã cập nhật đồng bộ 3 tài liệu
+
+`API_LIST.md` (bảng role Orders/Order Groups + ma trận Store Owner), `INTEGRATION_GUIDE_FULFILLMENT.md` (bảng Actor mục A.2, thêm mục filter đơn Hỏa Tốc ở Nghiệp vụ 5), file này.
+
+## ⚠️ Phát hiện quan trọng (2026-09-12) — tài liệu ĐÃ VIẾT ĐÚNG từ trước nhưng CODE chưa từng được merge
+
+**Bối cảnh**: Đội FE (Huỳnh Quốc Việt) báo qua chat thật — `GET /orders`/`GET /order-groups` chỉ Admin gọi được, Store Owner không xem được đơn shop mình. User yêu cầu mở quyền + thêm filter `order_priority`.
+
+**Phát hiện khi verify**: `API_LIST.md`/`INTEGRATION_GUIDE_FULFILLMENT.md` **đã có sẵn nội dung đúng** mô tả y hệt thay đổi này (role Store Owner, filter `order_priority`) — nhưng khi kiểm tra `be.zip` user upload lại, **code thật CHƯA HỀ có** những thay đổi tương ứng (`orders.controller.ts`/`order-groups.controller.ts` vẫn `@Roles(ADMIN)` cứng, `ListOrderGroupsQueryDto` chưa có field `order_priority`). Kết luận: đã có 1 lượt trước viết xong tài liệu NHƯNG patch code chưa từng được user merge vào repo thật — giống đúng dạng lỗi "drift tài liệu-code" đã gặp trước đây, lần này xảy ra ở hướng khác (tài liệu đi trước, code bị bỏ sót — không phải code đi trước, tài liệu lạc hậu như các lần trước).
+
+**Đã sửa xong THẬT trong code** (2026-09-12): thêm `UserRole.STORE_OWNER` vào `@Roles()` của `GET /orders`, `GET /orders/:id`, `GET /order-groups`, `GET /order-groups/:id` (giữ nguyên `POST /lazada/sync`, `GET /marketplace/:platform/connect` chỉ Admin — thao tác kỹ thuật nhạy cảm). Thêm field `order_priority` vào `ListOrderGroupsQueryDto`, áp vào `listOrderGroups()` — tận dụng đúng index `{order_priority, packaging_deadline, is_overdue}` đã có sẵn từ Nghiệp vụ Đơn Hỏa Tốc, không cần thêm index mới.
+
+**Verify thật**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — trên đúng code thật vừa merge, không phải giả định.
+
+**Bài học quy trình MỚI, bổ sung cho nguyên tắc đã có**: KHÔNG được tin bộ nhớ/tài liệu đã ghi "đã làm xong" là bằng chứng đủ — bộ nhớ có thể ghi lại 1 lượt mà patch chưa từng thực sự tới tay user. **Luôn đối chiếu lại đúng `be.zip` mới nhất user upload trước khi báo "đã xong"**, kể cả khi tài liệu/bộ nhớ khẳng định điều ngược lại.
+
 ## ĐỐI CHIẾU CHÉO TOÀN BỘ tài liệu FE vs code thật (2026-09-11) — sau khi hoàn thành Tầng 1
 
 **Đã quét trực tiếp `@Controller`/`@Roles` trên TOÀN BỘ 11 controller thật** (không dựa trí nhớ) để làm nguồn xác nhận cuối cùng — kết quả:

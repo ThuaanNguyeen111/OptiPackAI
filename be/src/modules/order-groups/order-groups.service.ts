@@ -206,10 +206,12 @@ export class OrderGroupsService {
   async listOrderGroups(filter: {
     fulfillmentStatus?: GroupFulfillmentStatus;
     platform?: MarketplacePlatform;
+    orderPriority?: 'normal' | 'express';
   }): Promise<OrderGroupDocument[]> {
     const query: Record<string, unknown> = {};
     if (filter.fulfillmentStatus) query.fulfillment_status = filter.fulfillmentStatus;
     if (filter.platform) query.platform = filter.platform;
+    if (filter.orderPriority) query.order_priority = filter.orderPriority;
 
     // .lean() (Rule #12) — endpoint chỉ đọc để trả JSON, không cần
     // Document đầy đủ. Sort theo created_at mới nhất trước, tận dụng
