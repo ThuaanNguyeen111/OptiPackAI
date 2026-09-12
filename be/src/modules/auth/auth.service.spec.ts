@@ -14,7 +14,6 @@ import { TrustedDevice } from './schemas/trusted-device.schema';
 import { MfaService } from './services/mfa.service';
 import { TokenService } from './services/token.service';
 
-
 jest.mock('bcrypt');
 
 describe('AuthService.login', () => {
@@ -32,13 +31,14 @@ describe('AuthService.login', () => {
     >
   >;
   let tokenService: jest.Mocked<Pick<TokenService, 'generateTokenPair'>>;
-  let mfaService: jest.Mocked<Pick<MfaService, 'verifyToken' | 'verifyBackupCode'>>;
+  let mfaService: jest.Mocked<
+    Pick<MfaService, 'verifyToken' | 'verifyBackupCode'>
+  >;
   let mailService: jest.Mocked<Pick<MailService, 'sendAccountLocked'>>;
   let auditLogModel: { create: jest.Mock };
   let trustedDeviceModel: { findOne: jest.Mock; create: jest.Mock };
 
   const meta = { ip_address: '127.0.0.1', user_agent: 'jest' };
-
 
   const baseUser = {
     id: new Types.ObjectId().toHexString(),
@@ -85,12 +85,18 @@ describe('AuthService.login', () => {
         AuthService,
         { provide: UsersService, useValue: usersService },
         { provide: TokenService, useValue: tokenService },
-        { provide: JwtService, useValue: { sign: jest.fn(), verify: jest.fn() } },
+        {
+          provide: JwtService,
+          useValue: { sign: jest.fn(), verify: jest.fn() },
+        },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: MfaService, useValue: mfaService },
         { provide: MailService, useValue: mailService },
         { provide: getModelToken(LoginAuditLog.name), useValue: auditLogModel },
-        { provide: getModelToken(TrustedDevice.name), useValue: trustedDeviceModel },
+        {
+          provide: getModelToken(TrustedDevice.name),
+          useValue: trustedDeviceModel,
+        },
       ],
     }).compile();
 
@@ -122,7 +128,9 @@ describe('AuthService.login', () => {
       must_change_password: false,
       role: UserRole.WAREHOUSE_STAFF,
     });
-    expect(usersService.resetFailedLoginAttempts).toHaveBeenCalledWith(baseUser.id);
+    expect(usersService.resetFailedLoginAttempts).toHaveBeenCalledWith(
+      baseUser.id,
+    );
     expect(usersService.updateLastLogin).toHaveBeenCalledWith(baseUser.id);
     expect(auditLogModel.create).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, user_id: baseUser.id }),
@@ -147,10 +155,16 @@ describe('AuthService.login', () => {
     (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
     await expect(
-      service.login({ email: baseUser.email, password: 'wrong-password', meta }),
+      service.login({
+        email: baseUser.email,
+        password: 'wrong-password',
+        meta,
+      }),
     ).rejects.toThrow(UnauthorizedException);
 
-    expect(usersService.incrementFailedLoginAttempts).toHaveBeenCalledWith(baseUser.id);
+    expect(usersService.incrementFailedLoginAttempts).toHaveBeenCalledWith(
+      baseUser.id,
+    );
   });
 
   it('tài khoản đang bị khóa (isLocked true) -> 403, dừng trước cả bước check password', async () => {
@@ -165,21 +179,35 @@ describe('AuthService.login', () => {
   });
 
   it('tài khoản is_active=false -> 401', async () => {
-    usersService.findByEmail.mockResolvedValue({ ...baseUser, is_active: false } as never);
+    usersService.findByEmail.mockResolvedValue({
+      ...baseUser,
+      is_active: false,
+    } as never);
     (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
     await expect(
-      service.login({ email: baseUser.email, password: 'correct-password', meta }),
+      service.login({
+        email: baseUser.email,
+        password: 'correct-password',
+        meta,
+      }),
     ).rejects.toThrow(UnauthorizedException);
   });
 
   it('quá hạn 72h chưa đổi mật khẩu -> 403, không cho đăng nhập dù đúng password', async () => {
-    usersService.findByEmail.mockResolvedValue({ ...baseUser, must_change_password: true } as never);
+    usersService.findByEmail.mockResolvedValue({
+      ...baseUser,
+      must_change_password: true,
+    } as never);
     (bcrypt.compare as jest.Mock).mockResolvedValue(true);
     usersService.isPastPasswordDeadline.mockReturnValue(true);
 
     await expect(
-      service.login({ email: baseUser.email, password: 'correct-password', meta }),
+      service.login({
+        email: baseUser.email,
+        password: 'correct-password',
+        meta,
+      }),
     ).rejects.toThrow(ForbiddenException);
 
     expect(mailService.sendAccountLocked).toHaveBeenCalled();
@@ -338,7 +366,13 @@ describe('AuthService.login', () => {
 describe('AuthService.googleLogin', () => {
   let service: AuthService;
   let usersService: jest.Mocked<
-    Pick<UsersService, 'findByEmail' | 'isPastPasswordDeadline' | 'syncGoogleAvatar' | 'updateLastLogin'>
+    Pick<
+      UsersService,
+      | 'findByEmail'
+      | 'isPastPasswordDeadline'
+      | 'syncGoogleAvatar'
+      | 'updateLastLogin'
+    >
   >;
   let tokenService: jest.Mocked<Pick<TokenService, 'generateTokenPair'>>;
   let jwtService: jest.Mocked<Pick<JwtService, 'verify'>>;
@@ -365,16 +399,20 @@ describe('AuthService.googleLogin', () => {
     fetchMock
       .mockResolvedValueOnce({
         ok: tokenOk,
+        status: tokenOk ? 200 : 400,
         json: () => Promise.resolve({ access_token: 'google-access-token' }),
+        text: () => Promise.resolve('{"error":"invalid_grant"}'),
       })
       .mockResolvedValueOnce({
         ok: userInfoOk,
-        json: () => Promise.resolve({
-          email: 'staff@optipackai.com',
-          email_verified: true,
-          name: 'Nguyễn Văn A',
-          picture: 'https://google.com/avatar.png',
-        }),
+        status: userInfoOk ? 200 : 400,
+        json: () =>
+          Promise.resolve({
+            email: 'staff@optipackai.com',
+            email_verified: true,
+            name: 'Nguyễn Văn A',
+            picture: 'https://google.com/avatar.png',
+          }),
       });
   }
 
@@ -405,7 +443,10 @@ describe('AuthService.googleLogin', () => {
         { provide: TokenService, useValue: tokenService },
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configService },
-        { provide: MfaService, useValue: { verifyToken: jest.fn(), verifyBackupCode: jest.fn() } },
+        {
+          provide: MfaService,
+          useValue: { verifyToken: jest.fn(), verifyBackupCode: jest.fn() },
+        },
         { provide: MailService, useValue: { sendAccountLocked: jest.fn() } },
         { provide: getModelToken(LoginAuditLog.name), useValue: auditLogModel },
         {
@@ -419,7 +460,9 @@ describe('AuthService.googleLogin', () => {
   });
 
   it('state rỗng/thiếu -> UnauthorizedException, KHÔNG gọi Google API', async () => {
-    await expect(service.googleLogin('code', '', meta)).rejects.toThrow(UnauthorizedException);
+    await expect(service.googleLogin('code', '', meta)).rejects.toThrow(
+      UnauthorizedException,
+    );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -428,9 +471,9 @@ describe('AuthService.googleLogin', () => {
       throw new Error('jwt expired');
     });
 
-    await expect(service.googleLogin('code', 'bad-state', meta)).rejects.toThrow(
-      UnauthorizedException,
-    );
+    await expect(
+      service.googleLogin('code', 'bad-state', meta),
+    ).rejects.toThrow(UnauthorizedException);
   });
 
   it('Google trả lỗi ở bước đổi code lấy token -> UnauthorizedException', async () => {
@@ -445,15 +488,19 @@ describe('AuthService.googleLogin', () => {
   it('email Google chưa xác thực -> GoogleEmailNotVerifiedException', async () => {
     jwtService.verify.mockReturnValue({});
     fetchMock
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'x' }) })
       .mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({
-          email: 'staff@optipackai.com',
-          email_verified: false,
-          name: 'A',
-          picture: 'x',
-        }),
+        json: () => Promise.resolve({ access_token: 'x' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            email: 'staff@optipackai.com',
+            email_verified: false,
+            name: 'A',
+            picture: 'x',
+          }),
       });
 
     await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
@@ -470,14 +517,20 @@ describe('AuthService.googleLogin', () => {
       UnauthorizedException,
     );
     expect(auditLogModel.create).toHaveBeenCalledWith(
-      expect.objectContaining({ success: false, failure_reason: 'google_account_not_registered' }),
+      expect.objectContaining({
+        success: false,
+        failure_reason: 'google_account_not_registered',
+      }),
     );
   });
 
   it('tài khoản đã bị vô hiệu hóa -> GoogleAccountInactiveException', async () => {
     jwtService.verify.mockReturnValue({});
     mockFetchSequence(true);
-    usersService.findByEmail.mockResolvedValue({ ...activeUser, is_active: false } as never);
+    usersService.findByEmail.mockResolvedValue({
+      ...activeUser,
+      is_active: false,
+    } as never);
 
     await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
       UnauthorizedException,
@@ -490,7 +543,9 @@ describe('AuthService.googleLogin', () => {
     usersService.findByEmail.mockResolvedValue({ ...activeUser } as never);
     usersService.isPastPasswordDeadline.mockReturnValue(true);
 
-    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(ForbiddenException);
+    await expect(service.googleLogin('code', 'state', meta)).rejects.toThrow(
+      ForbiddenException,
+    );
   });
 
   it('mọi điều kiện hợp lệ -> đăng nhập thành công, đồng bộ avatar, sinh token', async () => {
@@ -502,7 +557,10 @@ describe('AuthService.googleLogin', () => {
 
     expect(usersService.syncGoogleAvatar).toHaveBeenCalled();
     expect(result).toEqual(
-      expect.objectContaining({ access_token: 'access-token', refresh_token: 'refresh-token' }),
+      expect.objectContaining({
+        access_token: 'access-token',
+        refresh_token: 'refresh-token',
+      }),
     );
   });
 });

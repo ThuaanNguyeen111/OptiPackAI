@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
@@ -8,7 +13,10 @@ import { Model, Types } from 'mongoose';
 import { hashToken } from '../../common/utils/hash.util';
 import { requireEnv } from '../../common/utils/env.util';
 import { UserRole } from '../../common/enums/user-role.enum';
-import { AUTH_MESSAGES, GOOGLE_OAUTH_MESSAGES } from '../../common/constants/messages.constants';
+import {
+  AUTH_MESSAGES,
+  GOOGLE_OAUTH_MESSAGES,
+} from '../../common/constants/messages.constants';
 import { MailService } from '../mail/mail.service';
 import {
   GoogleAccountInactiveException,
@@ -19,8 +27,14 @@ import {
 } from './exceptions/google-auth.exceptions';
 import { UserDocument } from '../users/schemas/user.schema';
 import { UsersService } from '../users/services/users.service';
-import { LoginAuditLog, LoginAuditLogDocument } from './schemas/login-audit-log.schema';
-import { TrustedDevice, TrustedDeviceDocument } from './schemas/trusted-device.schema';
+import {
+  LoginAuditLog,
+  LoginAuditLogDocument,
+} from './schemas/login-audit-log.schema';
+import {
+  TrustedDevice,
+  TrustedDeviceDocument,
+} from './schemas/trusted-device.schema';
 import { MfaService } from './services/mfa.service';
 import { RequestMeta, TokenPair, TokenService } from './services/token.service';
 
@@ -59,15 +73,27 @@ function isGoogleTokenResponse(value: unknown): value is GoogleTokenResponse {
   return typeof (value as Record<string, unknown>).access_token === 'string';
 }
 
-function isGoogleUserInfo(value: unknown): value is GoogleUserInfo {
-  if (typeof value !== 'object' || value === null) return false;
+/**
+ * Google `/oauth2/v2/userinfo` trả `verified_email`.
+ * OIDC dùng `email_verified`. Chuẩn hóa về 1 shape.
+ */
+function parseGoogleUserInfo(value: unknown): GoogleUserInfo | null {
+  if (typeof value !== 'object' || value === null) return null;
   const c = value as Record<string, unknown>;
-  return (
-    typeof c.email === 'string' &&
-    typeof c.email_verified === 'boolean' &&
-    typeof c.name === 'string' &&
-    typeof c.picture === 'string'
-  );
+  if (typeof c.email !== 'string') return null;
+  const verified =
+    typeof c.email_verified === 'boolean'
+      ? c.email_verified
+      : typeof c.verified_email === 'boolean'
+        ? c.verified_email
+        : null;
+  if (verified === null) return null;
+  return {
+    email: c.email,
+    email_verified: verified,
+    name: typeof c.name === 'string' ? c.name : c.email,
+    picture: typeof c.picture === 'string' ? c.picture : '',
+  };
 }
 
 const DUMMY_PASSWORD_HASH =
@@ -80,6 +106,8 @@ const PASSWORD_RESET_WINDOW_MINUTES = 30;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly usersService: UsersService,
     private readonly tokenService: TokenService,
@@ -102,16 +130,27 @@ export class AuthService {
 
     if (user && this.usersService.isLocked(user)) {
       await this.writeAuditLog(email, false, meta, user.id, 'account_locked');
-      throw new ForbiddenException(AUTH_MESSAGES.ACCOUNT_LOCKED_FAILED_ATTEMPTS);
+      throw new ForbiddenException(
+        AUTH_MESSAGES.ACCOUNT_LOCKED_FAILED_ATTEMPTS,
+      );
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user?.password ?? DUMMY_PASSWORD_HASH);
+    const isPasswordValid = await bcrypt.compare(
+      password,
+      user?.password ?? DUMMY_PASSWORD_HASH,
+    );
 
     if (!user?.password || !isPasswordValid) {
       if (user) {
         await this.usersService.incrementFailedLoginAttempts(user.id);
       }
-      await this.writeAuditLog(email, false, meta, user?.id, 'invalid_credentials');
+      await this.writeAuditLog(
+        email,
+        false,
+        meta,
+        user?.id,
+        'invalid_credentials',
+      );
       throw new UnauthorizedException(AUTH_MESSAGES.INVALID_CREDENTIALS);
     }
 
@@ -126,16 +165,33 @@ export class AuthService {
     // tườn minh hơn: báo lỗi ngay, không cho tưởng nhầm là đăng nhập thành công).
     //!=============================================
     if (this.usersService.isPastPasswordDeadline(user)) {
-      await this.writeAuditLog(email, false, meta, user.id, 'password_deadline_exceeded');
-      void this.mailService.sendAccountLocked({ to: user.email, name: user.name });
-      throw new ForbiddenException(AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE);
+      await this.writeAuditLog(
+        email,
+        false,
+        meta,
+        user.id,
+        'password_deadline_exceeded',
+      );
+      void this.mailService.sendAccountLocked({
+        to: user.email,
+        name: user.name,
+      });
+      throw new ForbiddenException(
+        AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE,
+      );
     }
 
     let newTrustedDeviceToken: string | undefined;
 
     if (user.mfa_enabled) {
       if (!user.mfa_secret) {
-        await this.writeAuditLog(email, false, meta, user.id, 'mfa_misconfigured');
+        await this.writeAuditLog(
+          email,
+          false,
+          meta,
+          user.id,
+          'mfa_misconfigured',
+        );
         throw new UnauthorizedException(AUTH_MESSAGES.MFA_MISCONFIGURED);
       }
 
@@ -159,18 +215,41 @@ export class AuthService {
             user.mfa_backup_codes,
           );
           if (usedIndex === -1) {
-            await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa_backup_code');
-            throw new UnauthorizedException(AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID);
+            await this.writeAuditLog(
+              email,
+              false,
+              meta,
+              user.id,
+              'invalid_mfa_backup_code',
+            );
+            throw new UnauthorizedException(
+              AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID,
+            );
           }
           await this.usersService.consumeBackupCode(user.id, usedIndex);
-          newTrustedDeviceToken = await this.issueTrustedDeviceToken(user.id, meta);
+          newTrustedDeviceToken = await this.issueTrustedDeviceToken(
+            user.id,
+            meta,
+          );
         } else if (mfaToken) {
-          const isMfaValid = this.mfaService.verifyToken(mfaToken, user.mfa_secret);
+          const isMfaValid = this.mfaService.verifyToken(
+            mfaToken,
+            user.mfa_secret,
+          );
           if (!isMfaValid) {
-            await this.writeAuditLog(email, false, meta, user.id, 'invalid_mfa');
+            await this.writeAuditLog(
+              email,
+              false,
+              meta,
+              user.id,
+              'invalid_mfa',
+            );
             throw new UnauthorizedException(AUTH_MESSAGES.MFA_TOKEN_INVALID);
           }
-          newTrustedDeviceToken = await this.issueTrustedDeviceToken(user.id, meta);
+          newTrustedDeviceToken = await this.issueTrustedDeviceToken(
+            user.id,
+            meta,
+          );
         } else {
           return { mfa_required: true };
         }
@@ -189,7 +268,9 @@ export class AuthService {
       ...tokens,
       must_change_password: user.must_change_password,
       role: user.role,
-      ...(newTrustedDeviceToken ? { trusted_device_token: newTrustedDeviceToken } : {}),
+      ...(newTrustedDeviceToken
+        ? { trusted_device_token: newTrustedDeviceToken }
+        : {}),
     };
   }
 
@@ -197,7 +278,10 @@ export class AuthService {
   //Sinh token thiết bị tin cậy mới sau khi verify MFA thật thành
   // công. Trả về bản PLAINTEXT cho client lưu lại — server chỉ giữ HASH.
   //!=============================================
-  private async issueTrustedDeviceToken(userId: string, meta: RequestMeta): Promise<string> {
+  private async issueTrustedDeviceToken(
+    userId: string,
+    meta: RequestMeta,
+  ): Promise<string> {
     const rawToken = randomBytes(32).toString('hex');
     await this.trustedDeviceModel.create({
       user_id: new Types.ObjectId(userId),
@@ -208,7 +292,10 @@ export class AuthService {
     return rawToken;
   }
 
-  private async isDeviceTrusted(userId: string, deviceToken: string): Promise<boolean> {
+  private async isDeviceTrusted(
+    userId: string,
+    deviceToken: string,
+  ): Promise<boolean> {
     const found = await this.trustedDeviceModel.findOne({
       user_id: new Types.ObjectId(userId),
       token_hash: hashToken(deviceToken),
@@ -231,7 +318,9 @@ export class AuthService {
     const googleUserInfo = await this.getGoogleUserInfo(code, codeVerifier);
 
     if (!googleUserInfo.email_verified) {
-      throw new GoogleEmailNotVerifiedException(GOOGLE_OAUTH_MESSAGES.EMAIL_NOT_VERIFIED);
+      throw new GoogleEmailNotVerifiedException(
+        GOOGLE_OAUTH_MESSAGES.EMAIL_NOT_VERIFIED,
+      );
     }
 
     const normalizedEmail = googleUserInfo.email.toLowerCase().trim();
@@ -245,18 +334,34 @@ export class AuthService {
         undefined,
         'google_account_not_registered',
       );
-      throw new GoogleAccountNotRegisteredException(GOOGLE_OAUTH_MESSAGES.ACCOUNT_NOT_REGISTERED);
+      throw new GoogleAccountNotRegisteredException(
+        GOOGLE_OAUTH_MESSAGES.ACCOUNT_NOT_REGISTERED,
+      );
     }
 
     if (!user.is_active) {
-      await this.writeAuditLog(normalizedEmail, false, meta, user.id, 'account_inactive');
+      await this.writeAuditLog(
+        normalizedEmail,
+        false,
+        meta,
+        user.id,
+        'account_inactive',
+      );
       throw new GoogleAccountInactiveException(AUTH_MESSAGES.ACCOUNT_INACTIVE);
     }
 
     //  đồng bộ luôn quy tắc khóa 72h cho cả đường login Google
     if (this.usersService.isPastPasswordDeadline(user)) {
-      await this.writeAuditLog(normalizedEmail, false, meta, user.id, 'password_deadline_exceeded');
-      throw new GoogleAccountLockedException(AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE);
+      await this.writeAuditLog(
+        normalizedEmail,
+        false,
+        meta,
+        user.id,
+        'password_deadline_exceeded',
+      );
+      throw new GoogleAccountLockedException(
+        AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE,
+      );
     }
 
     await this.usersService.syncGoogleAvatar(user, googleUserInfo.picture);
@@ -268,7 +373,11 @@ export class AuthService {
     await this.usersService.updateLastLogin(user.id);
     await this.writeAuditLog(normalizedEmail, true, meta, user.id);
 
-    return { ...tokens, must_change_password: user.must_change_password, role: user.role };
+    return {
+      ...tokens,
+      must_change_password: user.must_change_password,
+      role: user.role,
+    };
   }
 
   generateOAuthState(): string {
@@ -280,17 +389,24 @@ export class AuthService {
 
   private verifyOAuthState(state: string): void {
     if (!state) {
-      throw new GoogleStateInvalidException(GOOGLE_OAUTH_MESSAGES.STATE_MISSING);
+      throw new GoogleStateInvalidException(
+        GOOGLE_OAUTH_MESSAGES.STATE_MISSING,
+      );
     }
     try {
       this.jwtService.verify(state);
     } catch {
-      throw new GoogleStateInvalidException(GOOGLE_OAUTH_MESSAGES.STATE_INVALID);
+      throw new GoogleStateInvalidException(
+        GOOGLE_OAUTH_MESSAGES.STATE_INVALID,
+      );
     }
   }
 
   getGoogleAuthorizationUrl(state: string, codeChallenge?: string): string {
-    const clientId = requireEnv(this.configService.get<string>('google.clientId'), 'GOOGLE_CLIENT_ID');
+    const clientId = requireEnv(
+      this.configService.get<string>('google.clientId'),
+      'GOOGLE_CLIENT_ID',
+    );
     const redirectUri = requireEnv(
       this.configService.get<string>('google.redirectUri'),
       'GOOGLE_REDIRECT_URI',
@@ -301,13 +417,21 @@ export class AuthService {
       response_type: 'code',
       scope: 'email profile',
       state,
-      ...(codeChallenge ? { code_challenge: codeChallenge, code_challenge_method: 'S256' } : {}),
+      ...(codeChallenge
+        ? { code_challenge: codeChallenge, code_challenge_method: 'S256' }
+        : {}),
     });
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   }
 
-  private async getGoogleUserInfo(code: string, codeVerifier?: string): Promise<GoogleUserInfo> {
-    const clientId = requireEnv(this.configService.get<string>('google.clientId'), 'GOOGLE_CLIENT_ID');
+  private async getGoogleUserInfo(
+    code: string,
+    codeVerifier?: string,
+  ): Promise<GoogleUserInfo> {
+    const clientId = requireEnv(
+      this.configService.get<string>('google.clientId'),
+      'GOOGLE_CLIENT_ID',
+    );
     const clientSecret = requireEnv(
       this.configService.get<string>('google.clientSecret'),
       'GOOGLE_CLIENT_SECRET',
@@ -331,24 +455,39 @@ export class AuthService {
     });
 
     if (!tokenResponse.ok) {
+      const errorBody = await tokenResponse.text();
+      this.logger.error(
+        `Google token exchange thất bại (HTTP ${String(tokenResponse.status)}), redirect_uri=${redirectUri}, client_id=${clientId}: ${errorBody}`,
+      );
       throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_AUTH_FAILED);
     }
 
     const tokenData: unknown = await tokenResponse.json();
     if (!isGoogleTokenResponse(tokenData)) {
-      throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID);
+      throw new UnauthorizedException(
+        GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID,
+      );
     }
 
-    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
+    const userInfoResponse = await fetch(
+      'https://www.googleapis.com/oauth2/v2/userinfo',
+      {
+        headers: { Authorization: `Bearer ${tokenData.access_token}` },
+      },
+    );
 
     const userInfoData: unknown = await userInfoResponse.json();
-    if (!isGoogleUserInfo(userInfoData)) {
-      throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID);
+    const userInfo = parseGoogleUserInfo(userInfoData);
+    if (!userInfo) {
+      this.logger.error(
+        `Google userinfo sai định dạng (HTTP ${String(userInfoResponse.status)}): ${JSON.stringify(userInfoData)}`,
+      );
+      throw new UnauthorizedException(
+        GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID,
+      );
     }
 
-    return userInfoData;
+    return userInfo;
   }
 
   //!=============================================
@@ -379,7 +518,8 @@ export class AuthService {
   //!=============================================
   async forgotPassword(email: string): Promise<{ message: string }> {
     const genericMessage = {
-      message: 'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi.',
+      message:
+        'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi.',
     };
 
     const user = await this.usersService.findByEmail(email);
@@ -402,8 +542,13 @@ export class AuthService {
     return genericMessage;
   }
 
-  async resetPassword(token: string, newPassword: string): Promise<{ message: string }> {
-    const user = await this.usersService.findByValidResetToken(hashToken(token));
+  async resetPassword(
+    token: string,
+    newPassword: string,
+  ): Promise<{ message: string }> {
+    const user = await this.usersService.findByValidResetToken(
+      hashToken(token),
+    );
     if (!user) {
       throw new UnauthorizedException(AUTH_MESSAGES.RESET_TOKEN_INVALID);
     }
@@ -421,7 +566,10 @@ export class AuthService {
   //!=============================================
   // MFA
   //!=============================================
-  async setupMfa(userId: string, email: string): Promise<{ otpauthUrl: string }> {
+  async setupMfa(
+    userId: string,
+    email: string,
+  ): Promise<{ otpauthUrl: string }> {
     const { secret, otpauthUrl } = this.mfaService.generateSecret(email);
     await this.usersService.setPendingMfaSecret(userId, secret);
     return { otpauthUrl };
@@ -432,7 +580,10 @@ export class AuthService {
   // về cho client hiển thị ĐÚNG 1 LẦN DUY NHẤT (client có trách nhiệm nhắc
   // user lưu/in ra giấy). Server chỉ giữ lại bản HASH.
   //!=============================================
-  async verifyMfaSetup(userId: string, token: string): Promise<{ message: string; backup_codes: string[] }> {
+  async verifyMfaSetup(
+    userId: string,
+    token: string,
+  ): Promise<{ message: string; backup_codes: string[] }> {
     const user = await this.usersService.findById(userId);
     if (!user.mfa_secret) {
       throw new UnauthorizedException(AUTH_MESSAGES.MFA_SETUP_NOT_STARTED);
@@ -442,7 +593,8 @@ export class AuthService {
       throw new UnauthorizedException(AUTH_MESSAGES.MFA_TOKEN_INVALID);
     }
 
-    const { plainCodes, hashedCodes } = await this.mfaService.generateBackupCodes();
+    const { plainCodes, hashedCodes } =
+      await this.mfaService.generateBackupCodes();
     await this.usersService.enableMfa(userId, hashedCodes);
     void this.mailService.sendMfaEnabled({ to: user.email, name: user.name });
 
@@ -456,11 +608,23 @@ export class AuthService {
   //!=============================================
   // 4. REFRESH TOKEN & LOGOUT
   //!=============================================
-  async refreshAccessToken(refreshToken: string, meta: RequestMeta): Promise<TokenPair> {
-    return this.tokenService.rotateRefreshToken(refreshToken, meta, async (userId) => {
-      const user = await this.usersService.findById(userId);
-      return { id: user.id, email: user.email, role: user.role, isActive: user.is_active };
-    });
+  async refreshAccessToken(
+    refreshToken: string,
+    meta: RequestMeta,
+  ): Promise<TokenPair> {
+    return this.tokenService.rotateRefreshToken(
+      refreshToken,
+      meta,
+      async (userId) => {
+        const user = await this.usersService.findById(userId);
+        return {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          isActive: user.is_active,
+        };
+      },
+    );
   }
 
   async logout(refreshToken: string): Promise<{ message: string }> {

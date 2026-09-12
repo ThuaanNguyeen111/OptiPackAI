@@ -43,6 +43,8 @@ Mọi thao tác thuộc các loại sau đều **BẮT BUỘC tự động ghi l
 **OptiPackAI** (tên dự án theo phiếu đăng ký: AOFP — AI-Assisted Omnichannel Order Fulfillment and Packaging Optimization System).
 Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ đơn hàng từ TikTok Shop + Lazada + Tiki, gộp đơn trùng, dùng AI gợi ý đóng gói (3D bin packing), ước tính phí ship, sinh nhãn/QR/barcode, theo dõi fulfillment, và xem dashboard.
 
+> **Ngành hàng thật của shop demo (xác nhận 2026-09-12)**: cửa hàng Lazada dùng để demo/test dự án bán **giày dép và quần áo** — đây là dữ liệu SKU thật sẽ chạy qua hệ thống, không phải giả định. Ghi chú này quan trọng cho module AI Packaging (xem mục "Đối chiếu 3 tài liệu thuật toán AI Packaging" bên dưới) — hướng thiết kế tập trung ngành hàng thời trang trong 3 tài liệu đó **khớp đúng với dữ liệu thật**, không phải thu hẹp sai phạm vi như đánh giá ban đầu.
+
 > **Lịch sử đổi phạm vi sàn (cập nhật 2026-09-04, sửa lại lý do ghi sai ngày 2026-08-22)**: Bản gốc nhắm Shopee + TikTok Shop.
 >
 > - **Shopee bị loại khỏi scope** — lý do ĐÚNG (bản ghi cũ nói "mã số thuế bắt buộc" là SAI, đã sửa): đăng ký dev account Shopee route "Shopee Seller" (cá nhân) đòi hỏi shop Shopee liên kết phải **đã đạt trạng thái Preferred Seller hoặc Mall Seller** — một shop cá nhân mới lập không bao giờ đạt được ngay. Đã đọc kỹ toàn bộ doc chính thức Shopee Open Platform (Authorization, API calls, App management, Developer account registration) để xác nhận, xem thêm ở mục "Nghiên cứu Shopee — dừng scope nhưng giữ tài liệu" bên dưới.
@@ -76,7 +78,7 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 - **MFA (TOTP) là tính năng OPT-IN, hoàn toàn độc lập với việc đổi mật khẩu** — không tự bật, phải tự gọi `/auth/mfa/setup` + `/auth/mfa/verify`. Kèm 10 mã dự phòng dùng 1 lần (`mfa_backup_codes`, hash bcrypt) — dùng khi mất điện thoại. Hiện KHÔNG ép buộc role nào phải bật MFA (kể cả Admin) — cân nhắc thêm nếu cần siết chặt hơn cho Admin.
 - Trusted Device — verify MFA thật 1 lần, 30 ngày sau không hỏi lại trên đúng thiết bị đó (`device_token` trong `LoginDto`, collection `trusted_devices`)
 - Quên mật khẩu tự động qua email (`/auth/forgot-password`, `/auth/reset-password`) — không cần Admin
-- Google OAuth (chỉ đăng nhập cho tài khoản ĐÃ tồn tại, không tự đăng ký)
+- Google OAuth (chỉ đăng nhập cho tài khoản ĐÃ tồn tại, không tự đăng ký) — **đã fix bug field response Google 2026-09-13, xem mục "3 bug Auth/Users đã gặp và fix" ngay bên dưới trước khi đụng lại `getGoogleUserInfo()`**
 - Refresh token rotation + reuse detection
 - **User tự xem/sửa hồ sơ CHỈ qua `GET/PATCH /users/me`** (phone/address/avatar) — **`employee_code`/`department` CHỈ Admin sửa được, qua `PATCH /users/:id`**, kể cả khi Admin tự sửa hồ sơ chính mình cũng phải đi qua route `:id`, không được lẫn vào `/me` (2 DTO tách riêng có chủ đích, không gộp)
 - Admin: tạo/sửa (`PATCH /users/:id`)/reset-password/deactivate/reactivate/disable-mfa cho user khác
@@ -85,6 +87,14 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 - TTL tự dọn: `login_audit_logs` (180 ngày), `trusted_devices` (30 ngày), `refresh_tokens` (theo hạn token)
 
 **Chưa có, biết trước để không ngạc nhiên**: đổi email tự thân, ép buộc MFA cho Admin, giới hạn số thiết bị tin cậy tối đa/user, lịch sử nhiều lần nghỉ/quay lại việc (mới có field đơn `is_active`, chưa có mảng giai đoạn làm việc).
+
+### 3 bug Auth/Users đã gặp và fix (2026-09-13, rút kinh nghiệm, đừng lặp lại)
+
+1. **Google login luôn fail với `?error=server_error` — root cause: sai tên field response của Google.** `getGoogleUserInfo()` gọi endpoint REST cũ `https://www.googleapis.com/oauth2/v2/userinfo`, endpoint này trả field `verified_email`. Code cũ (`isGoogleUserInfo` type guard) lại kiểm tra field `email_verified` (tên field chuẩn OIDC, dùng ở endpoint `/oauth2/v3/userinfo` khác) — vì sai tên nên type guard luôn trả `false` với response thật, ném `GOOGLE_RESPONSE_FORMAT_INVALID`. **Fix**: thay `isGoogleUserInfo` bằng hàm `parseGoogleUserInfo()` chấp nhận cả 2 tên field (`email_verified` hoặc `verified_email`), chuẩn hóa về 1 shape dùng chung trong app. Không đổi DB/schema — chỉ sửa bước parse response Google.
+2. **Đổi mật khẩu bắt buộc xong, login lại → `GET /users/me` vẫn 403.** Nguyên nhân: `JwtStrategy` đọc trạng thái `must_change_password` từ **cache Redis trước**, chỉ fallback Mongo nếu cache miss. `changePassword()` và `updateLastLogin()` trong `users.service.ts` chỉ update Mongo, không gọi `redisCache.invalidateUserAuthState(userId)` nên cache cũ (`must_change_password: true`) không bị xóa. **Fix**: thêm lời gọi `invalidateUserAuthState(userId)` ngay sau update Mongo ở cả 2 hàm (các hàm khác như `adminResetPassword` đã làm đúng từ trước, chỉ 2 hàm này thiếu).
+3. **Lỗi Google OAuth trước đây không log đủ chi tiết để debug** — token exchange fail hoặc userinfo sai định dạng chỉ ném exception chung, không log HTTP status/`redirect_uri`/`client_id`/response body thật; `googleAuthCallback` catch block cũng không log message cụ thể. **Fix**: thêm `Logger` vào `AuthService` và `AuthController`, log rõ chi tiết lỗi ở cả 2 điểm trên (không đổi hành vi trả về FE, chỉ thêm log phía server).
+
+**Không đổi DB/migration nào cho cả 3 fix trên** — Redis chỉ là cache tạm bị xóa/tự build lại từ Mongo, Mongo schema/dữ liệu user giữ nguyên.
 
 ## Module Marketplace Integration — TikTok/Lazada/Tiki (đọc trước khi sửa adapter)
 
@@ -1755,3 +1765,48 @@ approved_at!: Date | null;
 2. Swagger đầy đủ, DTO validate tiếng Việt
 3. Nếu module đụng tới Order Consolidation hoặc AI Packaging → viết `.spec.ts` bắt buộc (yêu cầu QA trong Report 2). **Mở rộng 2026-09-09 (Rule #23)**: BẤT KỲ module nào có schema mới (dùng `@Prop()`) → PHẢI chạy thử `jest` thật ít nhất 1 lần trước khi coi là xong, không chỉ `tsc`/`eslint` — lý do cụ thể xem Rule #23, có lớp lỗi (runtime reflection) chỉ lộ ra khi thực sự khởi tạo schema qua test, 2 lệnh static analysis kia không bắt được.
 4. Không tự thêm tích hợp Facebook/Shopee trừ khi được yêu cầu rõ — ngoài phạm vi đồ án (Shopee đã bị GỠ khỏi scope, Lazada đã được THÊM vào scope — đừng làm ngược theo trí nhớ cũ)
+
+## Đối chiếu 3 tài liệu thuật toán AI Packaging (2026-09-12) — nghiên cứu chuyên sâu, KHÔNG sửa file gốc
+
+Bạn cùng nhóm giao 3 tài liệu thiết kế thuật toán AI Packaging (`AI_3D_PACKAGING_OPTIMIZATION.md`, `BE_PACKAGING_IMPLEMENTATION_ROADMAP.md`, `GIAI_THICH_THUAT_TOAN_3D_PACKAGING.md`, 1556 dòng tổng). Đã đọc kỹ, đối chiếu trực tiếp code thật (`packaging/`, `product-master/`, interface `PackableItem` đã bàn giao), tra cứu thêm thư viện npm bên ngoài. Đây là bộ tài liệu **chất lượng học thuật rất cao** — tự đặt giới hạn cẩn thận, có tư duy Validator-độc-lập-với-thuật-toán-tìm-kiếm rất chuẩn, trích dẫn nguồn thật (arXiv, OR-Tools, Node.js docs). Không phải tài liệu hời hợt — nhưng có các vấn đề thật khi đặt cạnh dự án.
+
+### Vấn đề 1 — Tài liệu dựa trên ảnh chụp CŨ của repo, không biết module `packaging/` đã tồn tại và chạy thật
+
+Tài liệu 1 (mục 1.1) ghi _"Module packaging... **Không có module tương ứng** trong cây `be/src/modules`"_ — **SAI**, module này đã tồn tại đầy đủ (`packaging.controller.ts` 5 route, `packaging.service.ts` có transaction MongoDB thật, `fallback-packaging.util.ts` đang chạy, đã tích hợp Staff Assignment auto-trigger + Notifications `is_abnormal`). Roadmap M0-M8 đề xuất cấu trúc thư mục và schema `PackagingRecommendation` hoàn toàn mới mà không nói rõ là THAY THẾ hay CHẠY SONG SONG với module hiện tại — nếu code thẳng theo roadmap sẽ tạo 2 schema trùng tên, phá vỡ hook auto-assign đã gắn vào `packaging.service.ts` hiện tại. **Cần 1 buổi đối chiếu trực tiếp với bạn cùng nhóm trước khi bắt đầu bất kỳ mốc M0 nào** — quyết định rõ thay thế toàn bộ hay module riêng.
+
+### Vấn đề 2 — ĐÃ SỬA LẠI kết luận (2026-09-12): tập trung ngành hàng thời trang là ĐÚNG, không phải thu hẹp sai
+
+Đánh giá ban đầu (lượt nghiên cứu trước) cho rằng việc 3 tài liệu đóng khung toàn bộ thiết kế quanh "quần áo, giày và phụ kiện thời trang" (hồ sơ gấp/bọc, quy cách túi mailer, xử lý hộp giày riêng) là lệch với đề bài AOFP tổng quát mọi ngành hàng. **User xác nhận shop demo thật đúng là bán giày dép + quần áo** — kết luận cũ SAI, tài liệu đã đi ĐÚNG hướng theo dữ liệu thật sẽ chạy qua hệ thống. Rút lại toàn bộ khuyến nghị "bỏ lớp hồ sơ thời trang, dùng thẳng ProductMaster tổng quát" ở lượt đánh giá trước — **giữ nguyên hướng thiết kế theo ngành hàng thời trang của 3 tài liệu**, đây mới là phù hợp thật.
+
+**Việc cần làm lại cho đúng**: `ProductMaster` (đã có, lấy kích thước/cân nặng trực tiếp từ Lazada `GetProducts`) vẫn là nguồn dữ liệu NỀN — không bỏ. Bổ sung thêm lớp "hồ sơ gấp/bọc" (`packing_profile`) theo đúng đề xuất tài liệu như 1 catalog RIÊNG, liên kết `(platform, shop_id, sku, variation)` → hồ sơ, đúng thiết kế mục 4.1 tài liệu 1 — vì với ngành giày dép/quần áo, kích thước "trải phẳng" từ `ProductMaster` KHÔNG đủ để tính đóng gói thật (tài liệu đã giải thích đúng: không dùng số đo áo trải phẳng, phải đo sau gấp/bọc).
+
+### Vấn đề 3 — Roadmap quá lớn so với thời gian capstone còn lại (giữ nguyên nhận định)
+
+9 mốc (M0→M8), 12 nhãn PR, worker threads, ML ranker — quy mô 1 sản phẩm WMS thương mại, không phải module con trong đồ án còn Dashboard/Shipping Coordinator API chưa xong. **Khuyến nghị**: chỉ làm M0→M4 cho demo thật (Contract input dùng `ProductMaster`+`packing_profile` mới, Validator hình học độc lập — giữ nguyên, phần thiết kế tốt nhất trong tài liệu, Greedy baseline — dùng thư viện có sẵn thay vì tự viết, xem Vấn đề 5). M5 trở đi để "hướng phát triển tương lai" trong báo cáo đồ án.
+
+### Vấn đề 4 — 1 khẳng định SAI về hạ tầng của chính chúng ta (giữ nguyên nhận định)
+
+Tài liệu 1 (mục 7.3) nêu "Docker Compose chưa khai replica set" như rủi ro transaction — **SAI**, chúng ta dùng MongoDB Atlas (luôn là replica set mặc định), bằng chứng `packaging.service.ts` **đã dùng `session.withTransaction()` thành công thật** trong UC-04 approve/adjust. Không cần chuẩn bị gì thêm cho transaction, chỉ cần dùng đúng pattern đã có sẵn.
+
+### Vấn đề 5 — Bỏ sót thư viện JS có sẵn, không cần tự viết Greedy/Multi-start từ đầu
+
+Tài liệu chỉ nhắc `skjolber/3d-bin-container-packing` (Java, không dùng thẳng được) mà không tìm thư viện TS/JS thuần. Tra cứu thêm (npm 2026): **`binpackingjs`** — TypeScript thuần, immutable, cập nhật trong 1 năm gần đây, dựa trên bài báo học thuật thật (Erick Dube et al., "Optimizing Three-Dimensional Bin Packing Through Simulation"), hỗ trợ xoay 3D đầy đủ, nhiều bin. **Khuyến nghị dùng thư viện này làm lõi sinh vị trí đặt (thay M3+M5), giữ nguyên 100% tư duy Validator độc lập (M2) của chính tài liệu để kiểm tra lại kết quả** — cắt giảm đáng kể effort tự viết thuật toán hình học từ đầu, quan trọng cho capstone còn ít thời gian.
+
+### Vấn đề 6 — Chi tiết nhỏ cần lưu ý khi triển khai
+
+- Interface `PackableItem` hiện tại (`sku`+`quantity` gộp) KHÔNG tương thích trực tiếp với `item_key` cho từng đơn vị vật lý riêng mà tài liệu đòi hỏi (2 áo cùng SKU = 2 `item_key` khác nhau) — đây là thay đổi cấu trúc dữ liệu ảnh hưởng cả `warehouse/picking-list` đang dùng chung interface, cần đánh giá kỹ trước khi đổi, không phải chi tiết nhỏ.
+- Role đề xuất trong tài liệu 1 (mục 8.3) nói "Route Orders hiện giới hạn Admin" — đã lạc hậu, `GET /orders` vừa mở thêm Store Owner.
+- Ranh giới trách nhiệm module (Packing engine hàm thuần, không gọi Mongo/sàn) — thiết kế tốt, nên giữ, khớp tinh thần tách interface hợp đồng đã áp dụng trong dự án.
+
+### Kết luận đối chiếu hệ thống hiện tại
+
+Không phát hiện điểm yếu mới trong chính hệ thống đã xây (schema/code/role guard đã verify nhiều lượt, không có gì cần sửa thêm) — toàn bộ 6 vấn đề trên nằm ở phía 3 tài liệu thuật toán, không phải lỗi trong hệ thống đã có.
+
+## Đã viết 2 tài liệu chính thức phản biện AI Packaging (2026-09-12)
+
+Theo yêu cầu viết feedback chuyên nghiệp cho bạn cùng nhóm (không sửa 3 file gốc) — đã giao 2 file mới:
+
+1. **`FEEDBACK_AI_PACKAGING_REVIEW.md`** — nhận xét phản biện theo văn phong học thuật, cấu trúc mỗi nhận xét gồm 4 phần cố định (Khẳng định gốc / Bằng chứng đối chiếu / Khoảng cách-hệ quả / Khuyến nghị sửa), có trích dẫn code thật kèm số dòng. 7 nhận xét: (1) module `packaging/` đã tồn tại, roadmap chưa biết; (2) `computeFallbackPackaging()` hiện tại là heuristic dung lượng (so tổng thể tích với 3 cỡ thùng cố định), KHÔNG phải 3D bin packing hình học thật — phát hiện quan trọng nhất, ảnh hưởng tính hợp lệ học thuật đồ án; (3) `item_key` theo instance không tương thích ngược với `PackableItem.quantity` (hợp đồng đang dùng chung `warehouse/`); (4) catalog `packing_profile` đề xuất cần làm rõ quan hệ với `ProductMaster` đã có (nền vs lớp phủ); (5) roadmap M0-M8 quá lớn so với capstone còn lại; (6) hiểu sai MongoDB replica set (Atlas đã sẵn sàng); (7) bỏ sót `binpackingjs` (thư viện TS 3D bin packing có sẵn, dựa trên bài báo học thuật thật).
+2. **`AI_PACKAGING_TECHNICAL_DIRECTION.md`** — hướng kỹ thuật cụ thể: sơ đồ luồng dữ liệu thật (4 bước `getPackableItemsForGroup()`), thiết kế schema mới `PackingProfile` (bổ sung, không trùng `ProductMaster`), kiến trúc kết hợp `binpackingjs` (lõi sinh candidate) + `validateCandidate()` tự viết (giữ nguyên nguyên tắc Validator độc lập của tài liệu gốc), lý do KHÔNG cần worker thread cho M0-M4 (chi phí IPC có thể lớn hơn thời gian tính toán thật ở quy mô nhỏ), kế hoạch M0-M4 điều chỉnh với PR cụ thể — **`computeFallbackPackaging()` sửa TẠI CHỖ, giữ nguyên signature, không đụng `packaging.service.ts`/route/DTO**.
+
+**Xác nhận lại (2026-09-12)**: user xác nhận field `platform` trong `GET /orders` **đã có sẵn từ trước** (dòng 81, 110 `orders.controller.ts`, map từ `order.platform`, enum 3 giá trị `lazada/tiktok/tiki` — tự động đúng khi thêm sàn mới, không hardcode) — không cần sửa gì, chỉ cần báo lại bạn cùng nhóm.
