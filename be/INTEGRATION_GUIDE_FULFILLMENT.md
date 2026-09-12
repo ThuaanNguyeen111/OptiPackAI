@@ -23,13 +23,13 @@ Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Or
 
 ## A.2. Actor (vai trò) và trách nhiệm thật trong hệ thống
 
-| Actor | Trách nhiệm CHÍNH trong Fulfillment | Không làm gì |
-|---|---|---|
-| **Store Owner** | Đánh dấu đơn Hỏa Tốc, nhận cảnh báo (thiếu hàng, SLA, mất kết nối sàn) | KHÔNG trực tiếp thao tác lấy/đóng gói/ship |
-| **Warehouse Staff** | Lấy hàng (quét/nhập tay), đóng gói, phát hiện+báo thiếu hàng, tự nhận/đổi việc | KHÔNG duyệt gợi ý AI, KHÔNG quyết định tiếp tục khi thiếu hàng |
-| **Packaging Staff** | Duyệt/điều chỉnh/từ chối gợi ý đóng gói, quyết định đơn thiếu hàng có tiếp tục không | KHÔNG trực tiếp lấy/đóng gói hàng |
-| **Shipping Coordinator** | Xác nhận đã ship, đã giao, ghi nhận hoàn hàng | KHÔNG tham gia khâu lấy/đóng gói |
-| **Admin** | Toàn quyền mọi thao tác trên — dùng để test/vận hành khẩn cấp | — |
+| Actor                    | Trách nhiệm CHÍNH trong Fulfillment                                                                                                                                                | Không làm gì                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Store Owner**          | **MỚI (2026-09-11)**: xem toàn bộ đơn hàng (`GET /orders`) và nhóm đơn (`GET /order-groups`) của shop mình; đánh dấu đơn Hỏa Tốc; nhận cảnh báo (thiếu hàng, SLA, mất kết nối sàn) | KHÔNG trực tiếp thao tác lấy/đóng gói/ship — chỉ XEM và đánh dấu ưu tiên |
+| **Warehouse Staff**      | Lấy hàng (quét/nhập tay), đóng gói, phát hiện+báo thiếu hàng, tự nhận/đổi việc                                                                                                     | KHÔNG duyệt gợi ý AI, KHÔNG quyết định tiếp tục khi thiếu hàng           |
+| **Packaging Staff**      | Duyệt/điều chỉnh/từ chối gợi ý đóng gói, quyết định đơn thiếu hàng có tiếp tục không                                                                                               | KHÔNG trực tiếp lấy/đóng gói hàng                                        |
+| **Shipping Coordinator** | Xác nhận đã ship, đã giao, ghi nhận hoàn hàng                                                                                                                                      | KHÔNG tham gia khâu lấy/đóng gói                                         |
+| **Admin**                | Toàn quyền mọi thao tác trên — dùng để test/vận hành khẩn cấp                                                                                                                      | —                                                                        |
 
 ## A.3. Nguyên tắc thiết kế xuyên suốt (đọc để hiểu TẠI SAO hệ thống làm vậy)
 
@@ -44,9 +44,11 @@ Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Or
 ## Nghiệp vụ 1 — Duyệt gợi ý đóng gói (UC-04)
 
 ### Bối cảnh xảy ra
+
 Sau khi Order Group được tạo (từ nghiệp vụ Gộp đơn), nó ở trạng thái `awaiting_packaging` — hệ thống CHƯA biết đóng gói thế nào. Cần có 1 "gợi ý đóng gói" (thùng cỡ nào, vật liệu gì) trước khi ai đó có thể bắt tay đóng gói thật.
 
 ### Ai làm gì
+
 ```
 [ADMIN, tạm thời]                    [PACKAGING STAFF]
 POST .../packaging/generate    →     GET .../packaging (xem gợi ý)
@@ -57,38 +59,43 @@ POST .../packaging/generate    →     GET .../packaging (xem gợi ý)
 ```
 
 ### Vì sao bước `generate` hiện tại chỉ Admin gọi được
+
 Đây **không phải** hành vi nghiệp vụ chính thức — đội AI Packaging (Package 3) đang code thuật toán thật, khi xong sẽ **TỰ ĐỘNG trigger** ngay sau khi Order Group được tạo (không ai phải bấm nút). Route hiện tại chỉ là "cửa tạm" để có dữ liệu test trong lúc chờ.
 
 ### Tình huống `approve` — con đường chính
+
 Packaging Staff xem gợi ý, đồng ý → **BẮT BUỘC nhập kèm cân nặng THẬT** đo được (không phải số ước tính hệ thống tính sẵn). Hệ thống tự động **so sánh** cân thật vs cân ước tính:
+
 - Lệch **≤20%**: bình thường, `is_abnormal: false`
 - Lệch **>20%**: tự động đánh dấu `is_abnormal: true`, log cảnh báo — **không chặn tiến trình**, chỉ đánh dấu để sau này Dashboard/audit dùng phát hiện gợi ý AI hay sai lệch ở loại sản phẩm nào
 
 → Kết quả: `PackagingRecommendation.approval_status = 'approved'`, `OrderGroup.fulfillment_status = 'approved_for_packing'`, **VÀ tự động kích hoạt Nghiệp vụ 2 (Phân công nhân viên) ngay lập tức**.
 
 ### Tình huống `adjust` — Packaging Staff không đồng ý gợi ý gốc
+
 Giống `approve` nhưng Packaging Staff tự nhập lại `box_size`/`material_type` MỚI, kèm `adjustment_reason` (1 trong 3 lý do cố định: sản phẩm dễ vỡ hơn dự kiến / thùng đề xuất không có sẵn / khác). Cũng bắt buộc cân thật, cũng tính `is_abnormal`, cũng trigger Phân công nhân viên.
 
 ### Tình huống `reject` — từ chối hoàn toàn
+
 G��i ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại lịch sử để sau này tính "tỷ lệ AI bị từ chối"). `OrderGroup` quay lại `awaiting_packaging` — cần gọi lại `generate` từ đầu.
 
 ### DB liên quan — `PackagingRecommendation`
 
-| Field | Kiểu | Ý nghĩa |
-|---|---|---|
-| `order_group_id` | ObjectId | Group nào sở hữu gợi ý này |
-| `box_size.{length_cm,width_cm,height_cm}` | Number | Kích thước thùng — sub-object riêng, không phải object rời rạc |
-| `material_type` | String | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box") |
-| `material_quantity` | Number | Số lượng vật liệu cần |
-| `estimated_shipping_cost_vnd` | Number | AI/fallback ước tính phí ship (VNĐ) |
-| `computation_time_ms` | Number | Thời gian thuật toán tính (audit hiệu năng) |
-| `fallback_used` | Boolean | `true` = dùng thuật toán dự phòng, không phải AI thật |
-| `approval_status` | String | `pending`/`approved`/`adjusted`/`rejected` |
-| `approved_by` | ObjectId\|null | Ai đã duyệt (audit — BR-07) |
-| `approved_at` | Date\|null | Lúc nào duyệt |
-| `actual_measured_weight_kg` | Number\|null | Cân THẬT — chỉ có giá trị sau khi approve/adjust |
-| `is_abnormal` | Boolean | Cờ tự động — cân thật lệch >20% ước tính |
-| `is_active` | Boolean | `false` = đã bị reject/thay thế, giữ lại lịch sử |
+| Field                                     | Kiểu           | Ý nghĩa                                                        |
+| ----------------------------------------- | -------------- | -------------------------------------------------------------- |
+| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                     |
+| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc |
+| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")              |
+| `material_quantity`                       | Number         | Số lượng vật liệu cần                                          |
+| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                            |
+| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                    |
+| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật          |
+| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                     |
+| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                    |
+| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                  |
+| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust               |
+| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                       |
+| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử               |
 
 **Ràng buộc quan trọng**: 1 Order Group tại 1 thời điểm chỉ có ĐÚNG 1 `PackagingRecommendation` với `is_active: true` (index unique có điều kiện) — nhưng có thể có NHIỀU bản `is_active: false` (lịch sử các lần reject trước đó).
 
@@ -97,18 +104,22 @@ G��i ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại l�
 ## Nghiệp vụ 2 — Phân công nhân viên (Staff Assignment)
 
 ### Bối cảnh xảy ra
+
 Ngay khi Order Group chuyển `approved_for_packing` (Nghiệp vụ 1 xong) — cần biết **AI đi lấy hàng**. Không có bước này, đơn "trôi nổi" không ai chịu trách nhiệm xử lý.
 
 ### Cơ chế tự động — thuật toán "Ít việc nhất" (Least-Busy)
+
 ```
 Hệ thống đếm: mỗi Warehouse Staff đang active có bao nhiêu Order Group
               ĐANG XỬ LÝ DỞ (fulfillment_status CHƯA tới delivered/returned)
 → Chọn người có số ít nhất
 → Hòa nhau → chọn theo thứ tự _id (ổn định, giải thích lại được nếu cần tra soát)
 ```
+
 Đây là phép đếm **real-time**, KHÔNG lưu sẵn 1 con số "đang có bao nhiêu việc" cho từng nhân viên — tránh tình trạng số liệu bị lệch (quên cập nhật khi đơn hoàn thành).
 
 ### Tình huống cần đổi tay — bối cảnh thực tế
+
 - Nhân viên đang phụ trách đột xuất nghỉ/bận việc khác
 - Đơn chuyển thành Hỏa Tốc, cần người có kinh nghiệm xử lý nhanh hơn
 - Nhân viên tự thấy mình đang quá tải, muốn nhường bớt việc
@@ -117,22 +128,24 @@ Cả 3 tình huống trên **dùng chung đúng 1 API** (`POST /order-groups/:id
 
 ### DB liên quan — field trên `OrderGroup`
 
-| Field | Kiểu | Ý nghĩa |
-|---|---|---|
-| `assigned_staff_id` | ObjectId\|null | Ai đang phụ trách — `null` nghĩa là chưa gán ai |
-| `assigned_at` | Date\|null | Lúc gán gần nhất |
-| `assignment_type` | `'auto'\|'manual'\|null` | Lần gán gần nhất là tự động hay đổi tay — audit, KHÔNG ảnh hưởng logic nghiệp vụ nào |
+| Field               | Kiểu                     | Ý nghĩa                                                                              |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
+| `assigned_staff_id` | ObjectId\|null           | Ai đang phụ trách — `null` nghĩa là chưa gán ai                                      |
+| `assigned_at`       | Date\|null               | Lúc gán gần nhất                                                                     |
+| `assignment_type`   | `'auto'\|'manual'\|null` | Lần gán gần nhất là tự động hay đổi tay — audit, KHÔNG ảnh hưởng logic nghiệp vụ nào |
 
 ---
 
 ## Nghiệp vụ 3 — Lấy hàng (Picking) — nghiệp vụ có nhiều tình huống nhất
 
 ### Bối cảnh xảy ra
+
 Order Group đã `approved_for_packing`, đã có người phụ trách (`assigned_staff_id`) — Warehouse Staff cần đi lấy đúng sản phẩm, đúng số lượng, từ đúng vị trí kệ.
 
 ### Tình huống chính (happy path) — 2 cách làm, tùy mức độ chi tiết muốn theo dõi
 
 **Cách A — theo dõi từng món (khuyến nghị, có audit đầy đủ)**:
+
 ```
 1. GET /order-groups/:id/picking-list           → xem cần lấy SKU nào, số lượng bao nhiêu
 2. GET /warehouse/:warehouseId/picking-list/:groupId → BẢN CÓ VỊ TRÍ KỆ, đã sắp xếp theo lộ trình đi
@@ -141,25 +154,28 @@ Order Group đã `approved_for_packing`, đã có người phụ trách (`assign
 ```
 
 **Cách B — đơn giản, không theo dõi tồn kho từng món**:
+
 ```
 POST .../fulfillment/pick    → chuyển thẳng "picked", bỏ qua bước quét từng SKU
 ```
+
 → Dùng khi kho nhỏ, chưa cần độ chính xác tồn kho cao, hoặc giai đoạn demo/test nhanh.
 
 ### Tình huống quét thất bại — nhân viên phải làm gì
 
-| Tình huống | Cách xử lý |
-|---|---|
-| Camera hỏng/lag | Nhập tay mã SKU (`scan_method: "manual"`) |
-| Tem mã vạch rách/mờ | Nhập tay, hệ thống ghi nhận `scan_method: "manual"` để sau này Admin biết cần in lại tem |
-| **Mất mạng đúng lúc quét** | App lưu tạm trên máy, tự gửi lại khi có mạng — dùng `client_event_id` (mã tự sinh ngay lúc quét) để server nhận biết "đây là CÙNG 1 lần quét", KHÔNG trừ tồn kho 2 lần dù gửi lại nhiều lần |
-| Quét nhầm mã (SKU không thuộc đơn này) | Hệ thống tự kiểm tra, từ chối ngay (không thuộc phạm vi endpoint hiện tại — cần FE tự validate SKU nằm trong picking-list trước khi gửi) |
+| Tình huống                             | Cách xử lý                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera hỏng/lag                        | Nhập tay mã SKU (`scan_method: "manual"`)                                                                                                                                                   |
+| Tem mã vạch rách/mờ                    | Nhập tay, hệ thống ghi nhận `scan_method: "manual"` để sau này Admin biết cần in lại tem                                                                                                    |
+| **Mất mạng đúng lúc quét**             | App lưu tạm trên máy, tự gửi lại khi có mạng — dùng `client_event_id` (mã tự sinh ngay lúc quét) để server nhận biết "đây là CÙNG 1 lần quét", KHÔNG trừ tồn kho 2 lần dù gửi lại nhiều lần |
+| Quét nhầm mã (SKU không thuộc đơn này) | Hệ thống tự kiểm tra, từ chối ngay (không thuộc phạm vi endpoint hiện tại — cần FE tự validate SKU nằm trong picking-list trước khi gửi)                                                    |
 
 ### Tình huống THIẾU HÀNG — nghiệp vụ quan trọng nhất trong Picking
 
 **Bối cảnh thật**: nhân viên tới đúng kệ nhưng hàng thực tế không đủ (đã bán hết trên hệ thống nhưng chưa cập nhật kho, hoặc hàng lỗi phải loại bỏ).
 
 **KHÔNG được tự ý xử lý** — quy trình bắt buộc:
+
 ```
 1. POST .../fulfillment/report-missing
    { sku, missing_quantity, warehouse_id, note?, expected_version }
@@ -177,14 +193,14 @@ POST .../fulfillment/pick    → chuyển thẳng "picked", bỏ qua bước qu�
 
 ### DB liên quan — `PickEvent` (log mỗi lần quét, KHÔNG phải trạng thái, chỉ để audit + chống trùng)
 
-| Field | Kiểu | Ý nghĩa |
-|---|---|---|
-| `order_group_id` | ObjectId | Nhóm đơn nào |
-| `seller_sku` | String | SKU nào |
-| `scanned_quantity` | Number | Số lượng đã quét/nhập lần này |
-| `scan_method` | `'barcode'\|'manual'` | Quét thật hay nhập tay — audit |
-| `client_event_id` | String\|null | Chỉ có nếu Mobile App gửi (offline-sync) — unique có điều kiện, chống trừ trùng |
-| `remaining_stock_after` | Number | Tồn kho CÒN LẠI sau lần trừ này — snapshot tại thời điểm đó |
+| Field                   | Kiểu                  | Ý nghĩa                                                                         |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| `order_group_id`        | ObjectId              | Nhóm đơn nào                                                                    |
+| `seller_sku`            | String                | SKU nào                                                                         |
+| `scanned_quantity`      | Number                | Số lượng đã quét/nhập lần này                                                   |
+| `scan_method`           | `'barcode'\|'manual'` | Quét thật hay nhập tay — audit                                                  |
+| `client_event_id`       | String\|null          | Chỉ có nếu Mobile App gửi (offline-sync) — unique có điều kiện, chống trừ trùng |
+| `remaining_stock_after` | Number                | Tồn kho CÒN LẠI sau lần trừ này — snapshot tại thời điểm đó                     |
 
 ### DB liên quan — `quantity_on_hand` trên `SkuBinAssignment` (đã có ở Nghiệp vụ Warehouse, nhắc lại vì Picking trực tiếp thay đổi field này)
 
@@ -195,6 +211,7 @@ Trừ bằng lệnh atomic — kiểm tra ĐỦ HÀNG và trừ trong CÙNG 1 l�
 ## Nghiệp vụ 4 — Đóng gói vật lý & Vận chuyển
 
 ### Bối cảnh
+
 Sau `picked`, nhân viên đóng gói vật lý theo đúng gợi ý đã duyệt (Nghiệp vụ 1), rồi bàn giao vận chuyển.
 
 ```
@@ -211,6 +228,7 @@ Sau `picked`, nhân viên đóng gói vật lý theo đúng gợi ý đã duyệ
 Từ "shipped"   → return: khách từ chối nhận / hủy giữa đường
 Từ "delivered" → return: khách trả hàng SAU KHI đã nhận (đổi ý, hàng lỗi phát hiện muộn)
 ```
+
 Cả 2 tình huống dùng chung `POST .../fulfillment/return` — role cho phép CẢ Shipping Coordinator (phát hiện lúc giao) LẪN Warehouse Staff (phát hiện lúc soạn lại hàng hoàn về kho).
 
 ---
@@ -218,9 +236,11 @@ Cả 2 tình huống dùng chung `POST .../fulfillment/return` — role cho phé
 ## Nghiệp vụ 5 — Đơn Hỏa Tốc & Cảnh báo SLA
 
 ### Bối cảnh xảy ra
+
 Có những đơn cần xử lý NHANH HƠN bình thường (khách yêu cầu giao gấp, đơn VIP...). **Đã xác minh 2 lần độc lập bằng doc thật của Lazada**: sàn KHÔNG cung cấp tín hiệu tự động để biết đơn nào gấp — nên đây LUÔN LÀ quyết định do con người đưa ra.
 
 ### Luồng
+
 ```
 [STORE OWNER hoặc ADMIN]
 PATCH /order-groups/:id/priority
@@ -233,6 +253,7 @@ PATCH /order-groups/:id/priority
 ```
 
 ### Cron cảnh báo — chạy ngầm, không cần FE gọi gì
+
 ```
 Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
   - Còn DƯỚI 1 GIỜ tới hạn  → cảnh báo (severity: warning) TỚI ĐÚNG người đang phụ trách
@@ -241,13 +262,23 @@ Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
                                 cho mỗi lần quá hạn, không spam lặp lại mỗi 10 phút)
 ```
 
+### MỚI (2026-09-11) — Xem riêng danh sách đơn Hỏa Tốc
+
+Trước đây phải lấy hết `GET /order-groups` rồi tự lọc `orderPriority` bên client — **đã vá**, giờ lọc thẳng ở server:
+
+```
+GET /order-groups?order_priority=express
+```
+
+Kết hợp được với 2 filter cũ (`fulfillment_status`, `platform`) — VD Store Owner muốn xem "đơn Hỏa Tốc của Lazada đang chờ duyệt": `GET /order-groups?order_priority=express&platform=lazada&fulfillment_status=pending_approval`.
+
 ### DB liên quan — field trên `OrderGroup`
 
-| Field | Kiểu | Ý nghĩa |
-|---|---|---|
-| `order_priority` | `'normal'\|'express'` | Loại đơn |
-| `packaging_deadline` | Date\|null | Hạn chót đóng gói — CHỈ có giá trị nếu `express` |
-| `is_overdue` | Boolean | Đã quá hạn chưa — dùng để tránh cảnh báo lặp lại |
+| Field                | Kiểu                  | Ý nghĩa                                          |
+| -------------------- | --------------------- | ------------------------------------------------ |
+| `order_priority`     | `'normal'\|'express'` | Loại đơn                                         |
+| `packaging_deadline` | Date\|null            | Hạn chót đóng gói — CHỈ có giá trị nếu `express` |
+| `is_overdue`         | Boolean               | Đã quá hạn chưa — dùng để tránh cảnh báo lặp lại |
 
 ---
 
@@ -255,32 +286,34 @@ Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
 
 ### Bối cảnh — khi nào hệ thống chủ động báo
 
-| Sự kiện | Ai nhận | Mức độ |
-|---|---|---|
-| Báo thiếu hàng (Nghiệp vụ 3) | Store Owner (toàn bộ) | critical |
-| Sắp quá hạn Hỏa Tốc (<1h) | Đúng 1 người đang phụ trách | warning |
-| Đã quá hạn Hỏa Tốc | Store Owner (toàn bộ) | critical |
+| Sự kiện                      | Ai nhận                     | Mức độ   |
+| ---------------------------- | --------------------------- | -------- |
+| Báo thiếu hàng (Nghiệp vụ 3) | Store Owner (toàn bộ)       | critical |
+| Sắp quá hạn Hỏa Tốc (<1h)    | Đúng 1 người đang phụ trách | warning  |
+| Đã quá hạn Hỏa Tốc           | Store Owner (toàn bộ)       | critical |
 
 ### Cách FE nhận — Polling (không cần WebSocket)
+
 ```
 GET /notifications/unread-count    (gọi mỗi 15-30 giây) → { "count": 3 }
 GET /notifications?is_read=false   (khi user bấm vào chuông)
 PATCH /notifications/:id/read      (khi user đọc xong)
 ```
+
 Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **điều hướng thẳng** tới đúng Order Group, không chỉ hiện chữ suông.
 
 ### DB liên quan — `Notification`
 
-| Field | Kiểu | Ý nghĩa |
-|---|---|---|
-| `recipient_user_id` | ObjectId\|null | Gửi đích danh 1 người — 1 trong 2 với `recipient_role`, KHÔNG bao giờ cả 2 cùng có giá trị |
-| `recipient_role` | UserRole\|null | HOẶC gửi broadcast cho cả 1 role |
-| `type` | String | 1 trong 7 loại (`missing_item`, `sla_warning`, `sla_breach`...) |
-| `severity` | `'info'\|'warning'\|'critical'` | Mức độ hiển thị (màu sắc/icon) |
-| `title`/`message` | String | Nội dung — văn phong chuyên nghiệp, dựng sẵn từ backend, FE không tự ghép chuỗi |
-| `related_entity_type`/`related_entity_id` | String\|null / ObjectId\|null | Điều hướng khi bấm vào |
-| `is_read` | Boolean | Đã đọc chưa |
-| `channels_sent` | String[] | Đã gửi qua kênh nào (audit — `['in_app']` hoặc `['in_app', 'email']`) |
+| Field                                     | Kiểu                            | Ý nghĩa                                                                                    |
+| ----------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------ |
+| `recipient_user_id`                       | ObjectId\|null                  | Gửi đích danh 1 người — 1 trong 2 với `recipient_role`, KHÔNG bao giờ cả 2 cùng có giá trị |
+| `recipient_role`                          | UserRole\|null                  | HOẶC gửi broadcast cho cả 1 role                                                           |
+| `type`                                    | String                          | 1 trong 7 loại (`missing_item`, `sla_warning`, `sla_breach`...)                            |
+| `severity`                                | `'info'\|'warning'\|'critical'` | Mức độ hiển thị (màu sắc/icon)                                                             |
+| `title`/`message`                         | String                          | Nội dung — văn phong chuyên nghiệp, dựng sẵn từ backend, FE không tự ghép chuỗi            |
+| `related_entity_type`/`related_entity_id` | String\|null / ObjectId\|null   | Điều hướng khi bấm vào                                                                     |
+| `is_read`                                 | Boolean                         | Đã đọc chưa                                                                                |
+| `channels_sent`                           | String[]                        | Đã gửi qua kênh nào (audit — `['in_app']` hoặc `['in_app', 'email']`)                      |
 
 ---
 
@@ -338,20 +371,20 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 
 ## D.3. Bảng mã lỗi
 
-| `error_code` | HTTP | Khi nào |
-|---|---|---|
-| `ORD_GROUP_INVALID_ID` | 400 | `:id` sai định dạng |
-| `ORD_GROUP_NOT_FOUND` | 404 | Group không tồn tại |
-| `ORD_GROUP_STATE_CONFLICT` | 409 | Version không khớp |
-| `ORD_GROUP_INVALID_TRANSITION` | 400 | Sai thứ tự trạng thái |
-| `ORD_GROUP_INSUFFICIENT_STOCK` | 409 | pick-item không đủ hàng — gợi ý report-missing |
-| `ORD_GROUP_ITEM_NOT_IN_GROUP` | 404 | SKU không thuộc group |
-| `ORD_GROUP_NO_STAFF_AVAILABLE` | 409 | Auto-assign không có staff active |
-| `ORD_GROUP_STAFF_NOT_FOUND` | 404 | `staff_id` không hợp lệ |
-| `PKG_NO_ACTIVE_RECOMMENDATION` | 404 | Chưa từng generate |
-| `PKG_ALREADY_DECIDED` | 409 | Recommendation đã được quyết định trước đó |
-| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` | — | Xem chi tiết Swagger |
-| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND` | 400/404 | Module notifications |
+| `error_code`                                                            | HTTP    | Khi nào                                        |
+| ----------------------------------------------------------------------- | ------- | ---------------------------------------------- |
+| `ORD_GROUP_INVALID_ID`                                                  | 400     | `:id` sai định dạng                            |
+| `ORD_GROUP_NOT_FOUND`                                                   | 404     | Group không tồn tại                            |
+| `ORD_GROUP_STATE_CONFLICT`                                              | 409     | Version không khớp                             |
+| `ORD_GROUP_INVALID_TRANSITION`                                          | 400     | Sai thứ tự trạng thái                          |
+| `ORD_GROUP_INSUFFICIENT_STOCK`                                          | 409     | pick-item không đủ hàng — gợi ý report-missing |
+| `ORD_GROUP_ITEM_NOT_IN_GROUP`                                           | 404     | SKU không thuộc group                          |
+| `ORD_GROUP_NO_STAFF_AVAILABLE`                                          | 409     | Auto-assign không có staff active              |
+| `ORD_GROUP_STAFF_NOT_FOUND`                                             | 404     | `staff_id` không hợp lệ                        |
+| `PKG_NO_ACTIVE_RECOMMENDATION`                                          | 404     | Chưa từng generate                             |
+| `PKG_ALREADY_DECIDED`                                                   | 409     | Recommendation đã được quyết định trước đó     |
+| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` | —       | Xem chi tiết Swagger                           |
+| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND`                                    | 400/404 | Module notifications                           |
 
 ## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
 

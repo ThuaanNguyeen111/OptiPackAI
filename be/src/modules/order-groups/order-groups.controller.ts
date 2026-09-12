@@ -96,7 +96,7 @@ export class OrderGroupsController {
   constructor(private readonly orderGroupsService: OrderGroupsService) {}
 
   @Get()
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
   @ApiOperation({
     summary:
       'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc approved_for_packing để biết cần lấy hàng gì)',
@@ -105,12 +105,13 @@ export class OrderGroupsController {
     const groups = await this.orderGroupsService.listOrderGroups({
       fulfillmentStatus: query.fulfillment_status,
       platform: query.platform,
+      orderPriority: query.order_priority,
     });
     return groups.map(toResponse);
   }
 
   @Get(':id')
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Chi tiết 1 Order Group — đọc field "version" để dùng cho 5 API chuyển trạng thái bên dưới' })
   async findOne(@Param('id') id: string): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.findOrderGroupById(id);
