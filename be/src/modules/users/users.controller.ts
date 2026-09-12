@@ -141,7 +141,7 @@ export class UsersController {
     return { message: 'Đã tắt MFA cho tài khoản này. Nhân viên cần setup lại MFA từ đầu nếu muốn bật lại.' };
   }
 
-  @ApiOperation({ summary: 'Admin kích hoạt lại tài khoản đã vô hiệu hóa (xóa mềm)' })
+  @ApiOperation({ summary: 'Admin kích hoạt lại tài khoản đã xóa mềm' })
   @Roles(UserRole.ADMIN)
   @Post(':id/reactivate')
   async reactivate(@Param('id') id: string): Promise<{ message: string }> {

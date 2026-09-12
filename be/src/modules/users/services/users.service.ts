@@ -86,7 +86,6 @@ export class UsersService {
       to: user.email,
       name: user.name,
       temporaryPassword,
-      role: user.role,
     });
 
     return { user, temporaryPassword };
@@ -207,7 +206,6 @@ export class UsersService {
       to: user.email,
       name: user.name,
       temporaryPassword,
-      role: user.role,
     });
 
     return { temporaryPassword };

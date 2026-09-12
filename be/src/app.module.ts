@@ -4,7 +4,6 @@ import { APP_GUARD } from '@nestjs/core';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { join } from 'path';
 import { RedisModule } from './common/redis/redis.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -28,7 +27,6 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [join(process.cwd(), '.env'), join(process.cwd(), 'be', '.env')],
       load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig],
     }),
     MongooseModule.forRootAsync({
@@ -62,6 +60,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
   controllers: [AppController],
   providers: [
     AppService,
+  
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
