@@ -3,12 +3,24 @@ import { cn } from '../../lib/cn'
 
 export function Table({
   className,
+  containerClassName,
   ...props
-}: HTMLAttributes<HTMLTableElement>) {
+}: HTMLAttributes<HTMLTableElement> & {
+  /** Wrapper around <table>. Default adds horizontal scroll. */
+  containerClassName?: string
+}) {
   return (
-    <div className="relative w-full overflow-x-auto">
+    <div
+      className={cn(
+        'relative w-full',
+        containerClassName ?? 'overflow-x-auto',
+      )}
+    >
       <table
-        className={cn('w-full caption-bottom text-sm', className)}
+        className={cn(
+          'w-full border-collapse caption-bottom text-sm',
+          className,
+        )}
         {...props}
       />
     </div>

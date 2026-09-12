@@ -47,6 +47,15 @@ const adminSelectClass =
 const opsSelectClass =
   'h-9 cursor-pointer appearance-none rounded-lg border border-slate-200/60 bg-white pl-3 pr-8 text-xs font-medium text-slate-700 transition-colors hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
 
+/** Cùng template cho header + mọi hàng — tránh lệch cột kiểu table-fixed/colgroup. */
+const OPS_GRID =
+  'grid min-w-[1020px] grid-cols-[minmax(15rem,1.6fr)_5.75rem_minmax(8rem,1.1fr)_2.75rem_6.75rem_5.75rem_6.5rem_7.25rem_6.75rem] items-center'
+
+const OPS_HEAD_CELL =
+  'px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400'
+
+const OPS_BODY_CELL = 'px-4 py-3.5 text-xs'
+
 function platformLabel(platform: string): string {
   if (platform === 'lazada') return 'Lazada'
   if (platform === 'tiktok') return 'TikTok'
@@ -507,69 +516,49 @@ export function MarketplaceOrdersView({
           <Card
             className={
               ops
-                ? 'overflow-hidden py-0 shadow-sm'
+                ? 'overflow-x-auto py-0 shadow-sm'
                 : 'overflow-hidden rounded-xl border-hairline bg-surface-1 py-0 shadow-none'
             }
           >
-            <Table
-              className={
-                ops
-                  ? 'min-w-[980px] text-left text-xs'
-                  : 'min-w-[920px] text-left text-sm'
-              }
-            >
-              <TableHeader>
-                <TableRow
-                  className={
-                    ops
-                      ? 'border-slate-200/60 hover:bg-transparent dark:border-zinc-800'
-                      : 'border-hairline hover:bg-transparent'
-                  }
+            {ops ? (
+              <div className="w-full">
+                <div
+                  className={`${OPS_GRID} border-b border-slate-200/60 dark:border-zinc-800`}
                 >
-                  <TableHead className={ops ? 'px-5' : undefined}>
-                    {vi ? 'Mã đơn' : 'Order'}
-                  </TableHead>
-                  {ops ? (
-                    <TableHead>{vi ? 'Kênh' : 'Channel'}</TableHead>
-                  ) : null}
-                  <TableHead>{vi ? 'Người nhận' : 'Recipient'}</TableHead>
-                  <TableHead>{vi ? 'SP' : 'Items'}</TableHead>
-                  <TableHead>{vi ? 'Tổng' : 'Total'}</TableHead>
-                  <TableHead>{vi ? 'Gộp' : 'Group'}</TableHead>
-                  <TableHead>{vi ? 'Trạng thái' : 'Status'}</TableHead>
-                  <TableHead>{vi ? 'Ghi nhận' : 'Created'}</TableHead>
-                  {ops ? (
-                    <TableHead className="px-5 text-right">
-                      {vi ? 'Thao tác' : 'Action'}
-                    </TableHead>
-                  ) : null}
-                </TableRow>
-              </TableHeader>
-              <TableBody
-                className={
-                  ops
-                    ? '[&_tr]:border-slate-100 dark:[&_tr]:border-zinc-800/80'
-                    : undefined
-                }
-              >
+                  <div className={OPS_HEAD_CELL}>
+                    <div className="flex items-center gap-2.5">
+                      <span className="inline-block h-8 w-8 shrink-0" aria-hidden />
+                      <span>{vi ? 'Mã đơn' : 'Order'}</span>
+                    </div>
+                  </div>
+                  <div className={OPS_HEAD_CELL}>
+                    {vi ? 'Kênh' : 'Channel'}
+                  </div>
+                  <div className={OPS_HEAD_CELL}>
+                    {vi ? 'Người nhận' : 'Recipient'}
+                  </div>
+                  <div className={OPS_HEAD_CELL}>{vi ? 'SP' : 'Items'}</div>
+                  <div className={OPS_HEAD_CELL}>{vi ? 'Tổng' : 'Total'}</div>
+                  <div className={OPS_HEAD_CELL}>{vi ? 'Gộp' : 'Group'}</div>
+                  <div className={OPS_HEAD_CELL}>
+                    {vi ? 'Trạng thái' : 'Status'}
+                  </div>
+                  <div className={OPS_HEAD_CELL}>
+                    {vi ? 'Ghi nhận' : 'Created'}
+                  </div>
+                  <div className={OPS_HEAD_CELL}>
+                    {vi ? 'Thao tác' : 'Action'}
+                  </div>
+                </div>
+
                 {loading ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={colSpan}
-                      className="px-4 py-12 text-center text-slate-400"
-                    >
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-                    </TableCell>
-                  </TableRow>
+                  <div className="flex items-center justify-center px-4 py-12 text-slate-400">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  </div>
                 ) : visibleOrders.length === 0 ? (
-                  <TableRow className="hover:bg-transparent">
-                    <TableCell
-                      colSpan={colSpan}
-                      className="px-4 py-12 text-center text-sm text-slate-500"
-                    >
-                      {emptyMessage}
-                    </TableCell>
-                  </TableRow>
+                  <div className="px-4 py-12 text-center text-sm text-slate-500">
+                    {emptyMessage}
+                  </div>
                 ) : (
                   visibleOrders.map((order) => {
                     const grouped =
@@ -577,97 +566,59 @@ export function MarketplaceOrdersView({
                       Boolean(order.consolidatedGroupId)
                     const pickable = canStartPicking(order.status)
                     return (
-                      <TableRow
+                      <div
                         key={order.id}
-                        className={
-                          ops
-                            ? undefined
-                            : `cursor-pointer border-hairline/70 last:border-0 hover:bg-surface-2/60 ${
-                                grouped
-                                  ? 'border-l-2 border-l-primary/70 bg-primary/5'
-                                  : ''
-                              }`
-                        }
-                        onClick={ops ? undefined : () => onOpenDetail(order)}
+                        className={`${OPS_GRID} border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/80 dark:border-zinc-800/80 dark:hover:bg-zinc-800/40`}
                       >
-                        <TableCell
-                          className={ops ? 'px-5 whitespace-nowrap' : undefined}
-                        >
-                          {ops ? (
-                            <div className="flex items-center gap-2.5">
-                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/60 bg-slate-50 text-slate-500 dark:border-zinc-700 dark:bg-zinc-800">
-                                <Package
-                                  className="h-3.5 w-3.5"
-                                  strokeWidth={1.75}
-                                />
-                              </span>
-                              <div>
-                                <button
-                                  type="button"
-                                  className="block cursor-pointer text-left font-mono text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
-                                  onClick={() => onOpenDetail(order)}
-                                  title={
-                                    vi
-                                      ? 'Xem chi tiết đơn'
-                                      : 'View order detail'
-                                  }
-                                >
-                                  {displayOrderNumber(order)}
-                                </button>
-                                <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-                                  {order.shopId}
-                                </p>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <p className="font-medium text-ink">
+                        <div className={`${OPS_BODY_CELL} whitespace-nowrap`}>
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/60 bg-slate-50 text-slate-500 dark:border-zinc-700 dark:bg-zinc-800">
+                              <Package
+                                className="h-3.5 w-3.5"
+                                strokeWidth={1.75}
+                              />
+                            </span>
+                            <div className="min-w-0">
+                              <button
+                                type="button"
+                                className="block max-w-full cursor-pointer truncate text-left font-mono text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
+                                onClick={() => onOpenDetail(order)}
+                                title={
+                                  vi
+                                    ? 'Xem chi tiết đơn'
+                                    : 'View order detail'
+                                }
+                              >
                                 {displayOrderNumber(order)}
+                              </button>
+                              <p className="mt-0.5 font-mono text-[10px] text-slate-400">
+                                {order.shopId}
                               </p>
-                              <p className="font-mono text-[11px] text-ink-tertiary">
-                                {order.platform} · {order.shopId}
-                              </p>
-                            </>
-                          )}
-                        </TableCell>
-                        {ops ? (
-                          <TableCell>
-                            <PlatformPill platform={order.platform} />
-                          </TableCell>
-                        ) : null}
-                        <TableCell>
-                          <p
-                            className={
-                              ops
-                                ? 'text-sm font-medium text-slate-800 dark:text-slate-100'
-                                : 'text-ink'
-                            }
-                          >
+                            </div>
+                          </div>
+                        </div>
+                        <div className={OPS_BODY_CELL}>
+                          <PlatformPill platform={order.platform} />
+                        </div>
+                        <div className={OPS_BODY_CELL}>
+                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
                             {order.recipientName}
                           </p>
                           <p className="text-[11px] text-slate-500">
                             {order.recipientCity}
                           </p>
-                        </TableCell>
-                        <TableCell
-                          className={
-                            ops
-                              ? 'font-mono text-sm tabular-nums text-slate-700 dark:text-slate-300'
-                              : 'text-ink-muted'
-                          }
+                        </div>
+                        <div
+                          className={`${OPS_BODY_CELL} font-mono text-sm tabular-nums text-slate-700 dark:text-slate-300`}
                         >
                           {order.itemCount}
-                        </TableCell>
-                        <TableCell
-                          className={
-                            ops
-                              ? 'font-mono text-sm tabular-nums text-slate-800 dark:text-slate-200'
-                              : 'font-mono text-ink-muted'
-                          }
+                        </div>
+                        <div
+                          className={`${OPS_BODY_CELL} font-mono text-sm tabular-nums text-slate-800 dark:text-slate-200`}
                         >
                           {formatCurrency(order.totalAmount, order.currency)}
-                        </TableCell>
-                        <TableCell>
+                        </div>
+                        <div className={OPS_BODY_CELL}>
                           <MarketplaceConsolidationBadge
                             grouped={grouped}
                             locale={locale}
@@ -680,50 +631,143 @@ export function MarketplaceOrdersView({
                                 : undefined
                             }
                           />
-                        </TableCell>
-                        <TableCell>
+                        </div>
+                        <div className={OPS_BODY_CELL}>
                           <MarketplaceOrderStatusBadge
                             status={order.status}
                             locale={locale}
                           />
-                        </TableCell>
-                        <TableCell
-                          className={
-                            ops
-                              ? 'font-mono text-[11px] text-slate-500'
-                              : 'text-xs text-ink-subtle'
-                          }
+                        </div>
+                        <div
+                          className={`${OPS_BODY_CELL} font-mono text-[11px] text-slate-500`}
                         >
                           {formatDateTime(order.createdAt)}
-                        </TableCell>
-                        {ops ? (
-                          <TableCell className="px-5 text-right whitespace-nowrap">
-                            <Button
-                              type="button"
-                              variant="primary"
-                              disabled={!pickable}
-                              title={
-                                pickable
-                                  ? vi
-                                    ? 'Chuyển sang M2 · Lấy hàng'
-                                    : 'Go to M2 · Picking'
-                                  : vi
-                                    ? 'Đơn đã hủy / hoàn / giao — không lấy hàng'
-                                    : 'Terminal status — picking unavailable'
-                              }
-                              onClick={() => onPickOrder(order.id)}
-                              className="h-8 min-h-8 bg-indigo-600 px-3.5 text-xs font-semibold shadow-sm hover:bg-indigo-500 active:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:opacity-60 disabled:shadow-none dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
-                            >
-                              {vi ? 'Lấy hàng' : 'Pick'}
-                            </Button>
-                          </TableCell>
-                        ) : null}
-                      </TableRow>
+                        </div>
+                        <div className={`${OPS_BODY_CELL} whitespace-nowrap`}>
+                          <Button
+                            type="button"
+                            variant="primary"
+                            disabled={!pickable}
+                            title={
+                              pickable
+                                ? vi
+                                  ? 'Chuyển sang M2 · Lấy hàng'
+                                  : 'Go to M2 · Picking'
+                                : vi
+                                  ? 'Đơn đã hủy / hoàn / giao — không lấy hàng'
+                                  : 'Terminal status — picking unavailable'
+                            }
+                            onClick={() => onPickOrder(order.id)}
+                            className="h-8 min-h-8 bg-indigo-600 px-3.5 text-xs font-semibold shadow-sm hover:bg-indigo-500 active:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:opacity-60 disabled:shadow-none dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+                          >
+                            {vi ? 'Lấy hàng' : 'Pick'}
+                          </Button>
+                        </div>
+                      </div>
                     )
                   })
                 )}
-              </TableBody>
-            </Table>
+              </div>
+            ) : (
+              <Table className="min-w-[920px] text-left text-sm">
+                <TableHeader>
+                  <TableRow className="border-hairline hover:bg-transparent">
+                    <TableHead>{vi ? 'Mã đơn' : 'Order'}</TableHead>
+                    <TableHead>{vi ? 'Người nhận' : 'Recipient'}</TableHead>
+                    <TableHead>{vi ? 'SP' : 'Items'}</TableHead>
+                    <TableHead>{vi ? 'Tổng' : 'Total'}</TableHead>
+                    <TableHead>{vi ? 'Gộp' : 'Group'}</TableHead>
+                    <TableHead>{vi ? 'Trạng thái' : 'Status'}</TableHead>
+                    <TableHead>{vi ? 'Ghi nhận' : 'Created'}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell
+                        colSpan={colSpan}
+                        className="px-4 py-12 text-center text-slate-400"
+                      >
+                        <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                      </TableCell>
+                    </TableRow>
+                  ) : visibleOrders.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell
+                        colSpan={colSpan}
+                        className="px-4 py-12 text-center text-sm text-slate-500"
+                      >
+                        {emptyMessage}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    visibleOrders.map((order) => {
+                      const grouped =
+                        order.isConsolidated &&
+                        Boolean(order.consolidatedGroupId)
+                      return (
+                        <TableRow
+                          key={order.id}
+                          className={`cursor-pointer border-hairline/70 last:border-0 hover:bg-surface-2/60 ${
+                            grouped
+                              ? 'border-l-2 border-l-primary/70 bg-primary/5'
+                              : ''
+                          }`}
+                          onClick={() => onOpenDetail(order)}
+                        >
+                          <TableCell>
+                            <p className="font-medium text-ink">
+                              {displayOrderNumber(order)}
+                            </p>
+                            <p className="font-mono text-[11px] text-ink-tertiary">
+                              {order.platform} · {order.shopId}
+                            </p>
+                          </TableCell>
+                          <TableCell>
+                            <p className="text-ink">{order.recipientName}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {order.recipientCity}
+                            </p>
+                          </TableCell>
+                          <TableCell className="text-ink-muted">
+                            {order.itemCount}
+                          </TableCell>
+                          <TableCell className="font-mono text-ink-muted">
+                            {formatCurrency(
+                              order.totalAmount,
+                              order.currency,
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <MarketplaceConsolidationBadge
+                              grouped={grouped}
+                              locale={locale}
+                              onClick={
+                                grouped && order.consolidatedGroupId
+                                  ? () =>
+                                      onApplyGroupFilter(
+                                        order.consolidatedGroupId ?? '',
+                                      )
+                                  : undefined
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <MarketplaceOrderStatusBadge
+                              status={order.status}
+                              locale={locale}
+                            />
+                          </TableCell>
+                          <TableCell className="text-xs text-ink-subtle">
+                            {formatDateTime(order.createdAt)}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })
+                  )}
+                </TableBody>
+              </Table>
+            )}
             {nextCursor ? (
               <div
                 className={
