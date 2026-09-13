@@ -1044,8 +1044,8 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                 </button>
               </form>
 
-              {/* Scrollable Items List */}
-              <div className="max-h-[310px] overflow-y-auto space-y-2.5 pr-1">
+              {/* Scrollable Items List — scrollbar hidden, scroll still works */}
+              <div className="max-h-[310px] space-y-2.5 overflow-y-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {currentItems.map((item) => {
                   const isAwaitingScan = !item.verified
 
@@ -1176,15 +1176,17 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                 <button
                   type="button"
                   onClick={() => handleSetPackingMode('ai')}
-                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all cursor-pointer ${
+                  className={`flex min-h-[2.5rem] flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-lg px-1 py-1.5 transition-all cursor-pointer ${
                     activeOrderState.packingMode === 'ai'
                       ? 'bg-white text-blue-700 shadow-xs dark:bg-surface-1 dark:text-blue-300 font-bold ring-1 ring-blue-500/20'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
-                  <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                  <span>{vi ? 'Gợi ý từ AI' : 'AI Recommendation'}</span>
-                  <span className="rounded-full bg-blue-100 px-1.5 py-0.2 text-[9px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+                  <span className="leading-snug text-center">
+                    {vi ? 'Gợi ý từ AI' : 'AI Recommendation'}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-blue-100 px-1.5 py-0.2 text-[9px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
                     {activeOrder.optScore}%
                   </span>
                 </button>
@@ -1192,15 +1194,17 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                 <button
                   type="button"
                   onClick={() => handleSetPackingMode('manual')}
-                  className={`flex items-center justify-center gap-1.5 rounded-lg py-2 transition-all cursor-pointer ${
+                  className={`flex min-h-[2.5rem] flex-wrap items-center justify-center gap-x-1.5 gap-y-0.5 rounded-lg px-1 py-1.5 transition-all cursor-pointer ${
                     activeOrderState.packingMode === 'manual'
                       ? 'bg-white text-purple-700 shadow-xs dark:bg-surface-1 dark:text-purple-300 font-bold ring-1 ring-purple-500/20'
                       : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
                   }`}
                 >
-                  <Edit3 className="h-3.5 w-3.5 text-purple-600" />
-                  <span>{vi ? 'Đóng gói thủ công' : 'Manual Packaging'}</span>
-                  <span className="rounded-full bg-purple-100 px-1.5 py-0.2 text-[9px] font-bold text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
+                  <Edit3 className="h-3.5 w-3.5 shrink-0 text-purple-600" />
+                  <span className="leading-snug text-center">
+                    {vi ? 'Đóng gói thủ công' : 'Manual Packaging'}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-purple-100 px-1.5 py-0.2 text-[9px] font-bold text-purple-800 dark:bg-purple-950/60 dark:text-purple-300">
                     {vi ? 'Tùy chọn' : 'Custom'}
                   </span>
                 </button>
@@ -1404,19 +1408,23 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                   <button
                     type="button"
                     onClick={() => handleSetPackingMode('ai')}
-                    className="h-11 rounded-xl border border-slate-300 bg-white font-semibold text-xs text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className="min-h-11 rounded-xl border border-slate-300 bg-white px-2 py-2 font-semibold text-xs text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors flex items-start justify-center gap-1.5 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    <RotateCcw className="h-4 w-4 text-blue-600" />
-                    <span>{vi ? 'Khôi phục gợi ý AI' : 'Reset to AI'}</span>
+                    <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                    <span className="text-left leading-snug">
+                      {vi ? 'Khôi phục gợi ý AI' : 'Reset to AI'}
+                    </span>
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => handleSetPackingMode('manual')}
-                    className="h-11 rounded-xl border border-slate-300 bg-white font-semibold text-xs text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors flex items-center justify-center gap-1.5 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200 dark:hover:bg-slate-800"
+                    className="min-h-11 rounded-xl border border-slate-300 bg-white px-2 py-2 font-semibold text-xs text-slate-700 shadow-xs hover:bg-slate-50 hover:border-slate-400 active:bg-slate-100 transition-colors flex items-start justify-center gap-1.5 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200 dark:hover:bg-slate-800"
                   >
-                    <Edit3 className="h-4 w-4 text-purple-600" />
-                    <span>{vi ? 'Tùy chỉnh thủ công' : 'Switch to Manual'}</span>
+                    <Edit3 className="mt-0.5 h-4 w-4 shrink-0 text-purple-600" />
+                    <span className="text-left leading-snug">
+                      {vi ? 'Tùy chỉnh thủ công' : 'Switch to Manual'}
+                    </span>
                   </button>
                 )}
 
@@ -1424,7 +1432,7 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                   type="button"
                   onClick={handleApprovePlan}
                   disabled={stationStatus === 'scanning' || stationStatus === 'approved' || stationStatus === 'printed'}
-                  className={`h-11 rounded-xl font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2 select-none ${
+                  className={`min-h-11 rounded-xl px-2 py-2 font-bold text-xs shadow-xs transition-all flex items-start justify-center gap-2 select-none ${
                     stationStatus === 'scanning'
                       ? 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 opacity-50 cursor-not-allowed border border-slate-300/60 dark:border-slate-700'
                       : stationStatus === 'verified'
@@ -1451,8 +1459,8 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                           : 'Plan confirmed'
                   }
                 >
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="text-left leading-snug">
                     {stationStatus === 'approved' || stationStatus === 'printed'
                       ? activeOrderState.packingMode === 'manual'
                         ? (vi ? 'Đã xác nhận thủ công' : 'Manual Plan Confirmed')
@@ -1649,13 +1657,13 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                   <p className="truncate">
                     <strong>Thanh toán:</strong> {activeOrder.paymentInfo}
                   </p>
-                  <div className="flex items-center justify-between pt-0.5 border-t border-slate-200 text-slate-500">
-                    <span className="font-bold text-slate-700 dark:text-slate-300">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 pt-0.5 border-t border-slate-200 text-slate-500">
+                    <span className="min-w-0 truncate font-bold text-slate-700 dark:text-slate-300">
                       {activeOrderState.boxCode}
                       {activeOrderState.packingMode === 'manual' && ' (Thủ công)'}
                     </span>
-                    <span>K.lượng: {activeOrder.realWeightKg}kg</span>
-                    <span>K.thước: {activeOrderState.dimensions}</span>
+                    <span className="shrink-0">K.lượng: {activeOrder.realWeightKg}kg</span>
+                    <span className="shrink-0">K.thước: {activeOrderState.dimensions}</span>
                   </div>
                 </div>
               </div>
@@ -1666,7 +1674,7 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                   type="button"
                   onClick={handlePrintLabel}
                   disabled={stationStatus !== 'approved' && stationStatus !== 'printed'}
-                  className={`w-full h-11 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all select-none shadow-2xs ${
+                  className={`w-full min-h-11 rounded-xl px-3 py-2.5 font-bold text-xs flex items-start justify-center gap-2 transition-all select-none shadow-2xs ${
                     stationStatus === 'printed'
                       ? 'bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-emerald-500/25 shadow-md cursor-pointer'
                       : stationStatus === 'approved'
@@ -1674,8 +1682,8 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                         : 'bg-[#e0e7ff]/70 text-[#4338ca]/50 cursor-not-allowed opacity-50 dark:bg-indigo-950/20 dark:text-indigo-400/40 border border-indigo-200/40 dark:border-indigo-900/40'
                   }`}
                 >
-                  <Printer className="h-4 w-4" />
-                  <span>
+                  <Printer className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span className="text-left leading-snug">
                     {stationStatus === 'printed'
                       ? vi
                         ? `Đã in nhãn ${activeOrder.tabLabel} (In lại)`
@@ -1715,14 +1723,14 @@ export function PackingDashboard({ onNavigateToShipping }: PackingDashboardProps
                     type="button"
                     onClick={handleGoToShipping}
                     disabled={!allBatchOrdersCompleted}
-                    className={`w-full h-11 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all select-none ${
+                    className={`w-full min-h-11 rounded-xl px-3 py-2.5 font-bold text-xs flex items-start justify-center gap-2 transition-all select-none ${
                       allBatchOrdersCompleted
                         ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md shadow-blue-500/25 cursor-pointer ring-2 ring-blue-500/20'
                         : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 cursor-not-allowed opacity-60'
                     }`}
                   >
-                    <Truck className="h-4 w-4" />
-                    <span>
+                    <Truck className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span className="text-left leading-snug">
                       {allBatchOrdersCompleted
                         ? vi
                           ? `Chuyển sang Bàn giao vận chuyển (${platformOrders.length}/${platformOrders.length} kiện đã xong) →`

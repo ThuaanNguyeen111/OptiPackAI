@@ -408,9 +408,9 @@ export function ShippingPage() {
                     <span className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
                       {vi ? 'Trạng thái đăng ký tài xế' : 'Driver registration status'}
                     </span>
-                    <div className="h-[42px] rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3.5 flex items-center gap-2.5 text-xs sm:text-sm font-semibold text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-400 select-none">
-                      <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                      <span className="truncate">
+                    <div className="min-h-[42px] h-auto rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-3.5 py-2 flex items-start gap-2.5 text-xs sm:text-sm font-semibold text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-400 select-none">
+                      <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                      <span className="min-w-0 leading-snug">
                         {vi
                           ? 'Tài xế SPX Express đã xác minh được phân công'
                           : 'Verified SPX Express driver assigned'}
@@ -698,21 +698,23 @@ export function ShippingPage() {
       <footer className="sticky bottom-0 z-20 border-t border-slate-200/90 bg-white/95 backdrop-blur-xs py-3 px-4 sm:px-6 shadow-sm dark:border-slate-800 dark:bg-surface-1/95">
         <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-3">
           {/* Left Action Buttons */}
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Export Manifest */}
             <button
               type="button"
               onClick={handleExportManifest}
-              className="h-10 rounded-xl border border-slate-300 bg-white px-3.5 font-semibold text-xs text-slate-800 shadow-xs hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 active:bg-slate-100 transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 dark:hover:bg-slate-800"
+              className="min-h-10 h-auto rounded-xl border border-slate-300 bg-white px-3.5 py-2 font-semibold text-xs text-slate-800 shadow-xs hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 active:bg-slate-100 transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 dark:hover:bg-slate-800"
               aria-label={
                 vi
                   ? 'Xuất biên bản (PDF/Excel), phím tắt Ctrl+E'
                   : 'Export Manifest (PDF/Excel), shortcut Ctrl+E'
               }
             >
-              <Download className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              <span>{vi ? 'Xuất biên bản (PDF/Excel)' : 'Export Manifest (PDF/Excel)'}</span>
-              <kbd className="hidden sm:inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 border border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 shadow-2xs">
+              <Download className="h-4 w-4 shrink-0 text-slate-700 dark:text-slate-300" />
+              <span className="leading-snug">
+                {vi ? 'Xuất biên bản (PDF/Excel)' : 'Export Manifest (PDF/Excel)'}
+              </span>
+              <kbd className="hidden sm:inline-block shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 border border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 shadow-2xs">
                 Ctrl+E
               </kbd>
             </button>
@@ -721,27 +723,29 @@ export function ShippingPage() {
             <button
               type="button"
               onClick={handlePrintHandover}
-              className="h-10 rounded-xl border border-slate-300 bg-white px-3.5 font-semibold text-xs text-slate-800 shadow-xs hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 active:bg-slate-100 transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 dark:hover:bg-slate-800"
+              className="min-h-10 h-auto rounded-xl border border-slate-300 bg-white px-3.5 py-2 font-semibold text-xs text-slate-800 shadow-xs hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 active:bg-slate-100 transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 dark:hover:bg-slate-800"
               aria-label={
                 vi
                   ? 'In phiếu bàn giao, phím tắt Ctrl+P'
                   : 'Print Handover Slip, shortcut Ctrl+P'
               }
             >
-              <Printer className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-              <span>{vi ? 'In phiếu bàn giao' : 'Print Handover Slip'}</span>
-              <kbd className="hidden sm:inline-block rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 border border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 shadow-2xs">
+              <Printer className="h-4 w-4 shrink-0 text-slate-700 dark:text-slate-300" />
+              <span className="leading-snug">
+                {vi ? 'In phiếu bàn giao' : 'Print Handover Slip'}
+              </span>
+              <kbd className="hidden sm:inline-block shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 border border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 shadow-2xs">
                 Ctrl+P
               </kbd>
             </button>
           </div>
 
           {/* Right Primary Action Button */}
-          <div>
+          <div className="w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setConfirmModalOpen(true)}
-              className={`h-10 rounded-xl px-4 sm:px-5 font-semibold text-xs sm:text-sm text-white shadow-md transition-all flex items-center gap-2.5 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-600 ${
+              className={`min-h-10 h-auto w-full sm:w-auto rounded-xl px-4 py-2 sm:px-5 font-semibold text-xs sm:text-sm text-white shadow-md transition-all flex items-start sm:items-center gap-2.5 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-600 ${
                 batchCompleted
                   ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/25 ring-2 ring-emerald-500/20'
                   : 'bg-[#4338ca] hover:bg-[#3730a3] active:bg-[#312e81] shadow-indigo-600/30'
@@ -756,8 +760,8 @@ export function ShippingPage() {
                     : 'Complete Carrier Handover, shortcut Ctrl+Enter'
               }
             >
-              <CheckCircle2 className="h-4 w-4 shrink-0" />
-              <span>
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
+              <span className="text-left leading-snug">
                 {batchCompleted
                   ? vi
                     ? 'Đã bàn giao thành công'
@@ -766,7 +770,7 @@ export function ShippingPage() {
                     ? 'Hoàn tất bàn giao cho hãng vận chuyển'
                     : 'Complete Carrier Handover'}
               </span>
-              <kbd className="hidden sm:inline-block rounded-md bg-white/25 px-2 py-0.5 text-[11px] font-mono font-bold text-white border border-white/30 tracking-wide">
+              <kbd className="hidden sm:inline-block shrink-0 rounded-md bg-white/25 px-2 py-0.5 text-[11px] font-mono font-bold text-white border border-white/30 tracking-wide">
                 Ctrl+Enter
               </kbd>
             </button>

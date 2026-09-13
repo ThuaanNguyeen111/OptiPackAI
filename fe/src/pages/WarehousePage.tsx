@@ -52,42 +52,43 @@ export function renderChannelBadge(
   const isSm = size === 'sm'
   const padding = isSm ? 'px-1.5 py-0.5' : 'px-2 py-0.5'
   const textClass = isSm ? 'text-[10px] font-semibold' : 'text-xs font-semibold'
+  const compactClass = isSm ? 'shrink-0 whitespace-nowrap' : ''
 
   switch (channel) {
     case 'shopee':
       return (
         <span
-          className={`inline-flex items-center gap-1 rounded border border-[#f97316]/50 bg-[#fff7ed] ${padding} ${textClass} text-[#ea580c] dark:border-orange-500/40 dark:bg-orange-950/20 dark:text-orange-400`}
+          className={`inline-flex items-center gap-1 rounded border border-[#f97316]/50 bg-[#fff7ed] ${padding} ${textClass} ${compactClass} text-[#ea580c] dark:border-orange-500/40 dark:bg-orange-950/20 dark:text-orange-400`}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#ea580c]" />
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ea580c]" />
           Shopee
         </span>
       )
     case 'tiktok':
       return (
         <span
-          className={`inline-flex items-center gap-1 rounded border border-slate-900 bg-white ${padding} ${textClass} text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100`}
+          className={`inline-flex items-center gap-1 rounded border border-slate-900 bg-white ${padding} ${textClass} ${compactClass} text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100`}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-slate-900 dark:bg-zinc-100" />
-          TikTok Shop
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-900 dark:bg-zinc-100" />
+          {isSm ? 'TikTok' : 'TikTok Shop'}
         </span>
       )
     case 'lazada':
       return (
         <span
-          className={`inline-flex items-center gap-1 rounded border border-[#4f46e5]/50 bg-[#eef2ff] ${padding} ${textClass} text-[#4f46e5] dark:border-indigo-500/40 dark:bg-indigo-950/20 dark:text-indigo-400`}
+          className={`inline-flex items-center gap-1 rounded border border-[#4f46e5]/50 bg-[#eef2ff] ${padding} ${textClass} ${compactClass} text-[#4f46e5] dark:border-indigo-500/40 dark:bg-indigo-950/20 dark:text-indigo-400`}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#4f46e5]" />
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4f46e5]" />
           Lazada
         </span>
       )
     case 'facebook':
       return (
         <span
-          className={`inline-flex items-center gap-1 rounded border border-[#2563eb]/50 bg-[#eff6ff] ${padding} ${textClass} text-[#2563eb] dark:border-blue-500/40 dark:bg-blue-950/20 dark:text-blue-400`}
+          className={`inline-flex items-center gap-1 rounded border border-[#2563eb]/50 bg-[#eff6ff] ${padding} ${textClass} ${compactClass} text-[#2563eb] dark:border-blue-500/40 dark:bg-blue-950/20 dark:text-blue-400`}
         >
-          <span className="h-1.5 w-1.5 rounded-full bg-[#2563eb]" />
-          Facebook
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#2563eb]" />
+          {isSm ? 'FB' : 'Facebook'}
         </span>
       )
     default:
@@ -289,6 +290,33 @@ function PickedCheckIcon() {
 function UnpickedCircleIcon() {
   return (
     <div className="h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0" />
+  )
+}
+
+/** Picking list row — title on line 1, platform badge + SKU always on line 2 */
+function PickingListItemInfo({
+  item,
+  titleClassName,
+}: {
+  item: WarehousePickingItem
+  titleClassName: string
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <p className={`truncate text-xs leading-snug ${titleClassName}`}>
+        {item.shortName}
+      </p>
+      <div className="flex min-w-0 items-center gap-1.5">
+        {renderChannelBadge(item.channel, 'sm')}
+        <span className="min-w-0 truncate font-mono text-[11px] leading-snug text-slate-500 dark:text-slate-400">
+          {item.sku}
+          <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
+          <span className="font-semibold text-slate-700 dark:text-slate-300">
+            #{item.orderId}
+          </span>
+        </span>
+      </div>
+    </div>
   )
 }
 
@@ -957,7 +985,7 @@ function WarehouseFloorView({
             {/* Back Button */}
             <Link
               to="/app/orders"
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 hover:text-blue-600 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:text-blue-400 cursor-pointer transition-colors"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 hover:text-blue-600 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:text-blue-400 cursor-pointer transition-colors"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span>{vi ? 'Quay lại Đơn đa kênh' : 'Back to Orders'}</span>
@@ -994,16 +1022,16 @@ function WarehouseFloorView({
             <button
               type="button"
               onClick={() => setDrawerOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-purple-200/90 bg-purple-50/70 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100 hover:border-purple-300 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 cursor-pointer transition-colors"
+              className="inline-flex h-9 max-w-[min(100%,280px)] items-center gap-1.5 rounded-lg border border-purple-200/90 bg-purple-50/70 px-2.5 text-xs font-semibold text-purple-700 hover:bg-purple-100 hover:border-purple-300 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 cursor-pointer transition-colors"
               title={`Khách nhận: ${batchCustomer.name} (${batchCustomer.phone}). Đã gom ${batchCustomer.ordersCount} đơn đa kênh. Bấm xem chi tiết!`}
             >
               <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-              <span>{vi ? 'Khách nhận:' : 'Customer:'}</span>
-              <strong className="font-bold text-purple-950 dark:text-purple-100 underline decoration-dotted underline-offset-2">
+              <span className="shrink-0">{vi ? 'Khách:' : 'Customer:'}</span>
+              <strong className="truncate font-bold text-purple-950 dark:text-purple-100 underline decoration-dotted underline-offset-2">
                 {batchCustomer.name}
               </strong>
-              <span className="rounded-full bg-purple-200/80 px-1.5 py-0.2 text-[10px] font-bold text-purple-800 dark:bg-purple-900/60 dark:text-purple-200">
-                Gộp {batchCustomer.ordersCount} đơn
+              <span className="shrink-0 rounded-full bg-purple-200/80 px-1.5 py-0.5 text-[10px] font-bold text-purple-800 dark:bg-purple-900/60 dark:text-purple-200">
+                {batchCustomer.ordersCount} đơn
               </span>
             </button>
           </div>
@@ -1025,7 +1053,7 @@ function WarehouseFloorView({
                   )
                 }
               }}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-2xs hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 font-semibold text-slate-600 shadow-2xs hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer transition-colors"
               title="Đặt lại tiến độ nhặt hàng về ban đầu"
             >
               <RotateCcw className="h-3.5 w-3.5 text-slate-500" />
@@ -1037,7 +1065,7 @@ function WarehouseFloorView({
               type="button"
               disabled={!isAllPicked}
               onClick={isAllPicked ? handleOpenCompleteModal : undefined}
-              className={`inline-flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 font-bold text-white shadow-xs transition-colors ${
+              className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 font-bold text-white shadow-xs transition-colors ${
                 isAllPicked
                   ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 cursor-pointer'
                   : 'bg-slate-300 opacity-60 cursor-not-allowed dark:bg-slate-700 dark:text-slate-400'
@@ -1147,11 +1175,12 @@ function WarehouseFloorView({
                   setStaffSearchQuery('')
                   setAssignModalOpen(true)
                 }}
-                className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 dark:border-slate-600 dark:bg-surface-1 dark:text-slate-200 cursor-pointer transition-colors"
+                className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 dark:border-slate-600 dark:bg-surface-1 dark:text-slate-200 cursor-pointer transition-colors"
                 title="Thay đổi nhân viên lấy hàng"
               >
-                <Users className="h-3.5 w-3.5 text-blue-600" />
-                <span>{vi ? 'Phân công thủ công' : 'Manual Assign'}</span>
+                <Users className="h-3.5 w-3.5 shrink-0 text-blue-600" />
+                <span className="hidden sm:inline">{vi ? 'Phân công thủ công' : 'Manual Assign'}</span>
+                <span className="sm:hidden">{vi ? 'Phân công' : 'Assign'}</span>
               </button>
             </div>
           </div>
@@ -1212,7 +1241,7 @@ function WarehouseFloorView({
           {/* LEFT COLUMN: ACTIVE TARGET CARD & EXCEPTION BANNER */}
           <div className="lg:col-span-7 xl:col-span-7 space-y-4">
             {activeItem ? (
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-surface-1">
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1">
                 {/* Top Badges */}
                 <div className="flex flex-wrap items-center justify-between gap-2.5">
                   <span className="inline-flex items-center rounded-lg bg-[#eff6ff] px-3 py-1.5 text-xs font-bold tracking-wider text-[#2563eb] dark:bg-blue-950/40 dark:text-blue-400">
@@ -1296,17 +1325,17 @@ function WarehouseFloorView({
                   <BarcodeGraphic code={activeItem.upc} />
                 </div>
 
-                {/* Barcode verification input */}
-                <div className="mt-5">
-                  <label
-                    htmlFor="barcode-input"
-                    className="block text-xs font-medium text-slate-700 dark:text-slate-300"
-                  >
-                    Xác minh mã vạch (Quét hoặc nhập mã)
-                  </label>
+                {/* Pick actions — barcode + quantity in one compact panel */}
+                <div className="mt-5 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 sm:p-4 space-y-3 dark:border-slate-800 dark:bg-surface-2/20">
+                  <div>
+                    <label
+                      htmlFor="barcode-input"
+                      className="block text-xs font-medium text-slate-700 dark:text-slate-300"
+                    >
+                      Xác minh mã vạch (Quét hoặc nhập mã)
+                    </label>
 
-                  <div className="mt-1.5 flex items-center justify-between rounded-xl border-2 border-[#3b82f6] bg-white px-3.5 py-2.5 shadow-xs dark:bg-surface-2 transition-all focus-within:ring-2 focus-within:ring-blue-400/20">
-                    <div className="flex items-center gap-3 flex-1 min-w-0 mr-2">
+                    <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-2.5 py-2 shadow-2xs dark:border-blue-800 dark:bg-surface-2 transition-all focus-within:ring-2 focus-within:ring-blue-400/20">
                       <BarcodeLinesIcon />
                       <input
                         id="barcode-input"
@@ -1322,75 +1351,74 @@ function WarehouseFloorView({
                           }
                         }}
                         placeholder={activeItem.upc}
-                        className="w-full bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
+                        className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
                       />
+                      {isVerified ? (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700 select-none dark:bg-emerald-950/50 dark:text-emerald-300">
+                          <Check className="h-3 w-3 stroke-[3]" />
+                          Đã xác minh
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBarcodeInput(activeItem.upc)
+                            if (currentQty < activeItem.qty) {
+                              setCurrentQty(activeItem.qty)
+                            }
+                          }}
+                          className="inline-flex shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                          title="Click để khớp mã demo"
+                        >
+                          Chưa xác minh
+                        </button>
+                      )}
                     </div>
+                  </div>
 
-                    {isVerified ? (
-                      <span className="font-semibold text-xs text-emerald-600 dark:text-emerald-400 shrink-0 select-none flex items-center gap-1.5">
-                        <Check className="h-3.5 w-3.5 stroke-[3]" />
-                        <span>— ĐÃ XÁC MINH</span>
-                      </span>
-                    ) : (
+                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                    <div className="flex items-center justify-center gap-1 sm:justify-start">
                       <button
                         type="button"
-                        onClick={() => {
-                          setBarcodeInput(activeItem.upc)
-                          if (currentQty < activeItem.qty) {
-                            setCurrentQty(activeItem.qty)
-                          }
-                        }}
-                        className="font-medium text-xs text-slate-400 hover:text-blue-600 dark:text-slate-500 shrink-0 cursor-pointer transition-colors"
+                        onClick={handleDecrement}
+                        disabled={currentQty <= 0}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white font-bold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200"
+                        aria-label="Giảm số lượng"
                       >
-                        — CHƯA XÁC MINH (Click để khớp)
+                        <Minus className="h-3.5 w-3.5" />
                       </button>
-                    )}
-                  </div>
-                </div>
 
-                {/* Quantity counter & Confirm Pick button - Clean single row: [ - ] [ Count / Total ] [ + ]   [ Xác nhận lấy hàng ] */}
-                <div className="mt-5 flex items-center gap-3">
-                  {/* Stepper */}
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      onClick={handleDecrement}
-                      disabled={currentQty <= 0}
-                      className="h-12 w-12 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-700 transition-colors cursor-pointer dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
-                      aria-label="Giảm số lượng"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </button>
+                      <div className="flex h-10 min-w-[76px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold text-slate-900 select-none shadow-2xs dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100">
+                        {currentQty}/{activeItem.qty}
+                      </div>
 
-                    <div className="h-12 px-5 min-w-[88px] rounded-xl border border-slate-200 bg-white flex items-center justify-center font-mono font-bold text-base text-slate-900 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 select-none shadow-2xs">
-                      {currentQty} / {activeItem.qty}
+                      <button
+                        type="button"
+                        onClick={handleIncrement}
+                        disabled={currentQty >= activeItem.qty}
+                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white font-bold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200"
+                        aria-label="Tăng số lượng"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
                     </div>
 
                     <button
                       type="button"
-                      onClick={handleIncrement}
-                      disabled={currentQty >= activeItem.qty}
-                      className="h-12 w-12 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center font-bold text-slate-700 transition-colors cursor-pointer dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
-                      aria-label="Tăng số lượng"
+                      disabled={!canConfirmPick}
+                      onClick={handleConfirmPick}
+                      className={`flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold shadow-sm transition-all select-none sm:min-w-[148px] ${
+                        canConfirmPick
+                          ? 'bg-[#2563eb] text-white shadow-blue-500/20 hover:bg-[#1d4ed8] active:bg-[#1e40af] cursor-pointer'
+                          : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500'
+                      }`}
                     >
-                      <Plus className="h-4 w-4" />
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      <span className="truncate">
+                        {vi ? 'Xác nhận lấy hàng' : 'Confirm Pick'}
+                      </span>
                     </button>
                   </div>
-
-                  {/* Single Confirm Pick Button - Enabled ONLY when currentQty === activeItem.qty and barcode is verified */}
-                  <button
-                    type="button"
-                    disabled={!canConfirmPick}
-                    onClick={handleConfirmPick}
-                    className={`flex-1 h-12 rounded-xl font-semibold text-sm shadow-sm flex items-center justify-center gap-2 transition-all select-none ${
-                      canConfirmPick
-                        ? 'bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] text-white shadow-blue-500/20 cursor-pointer'
-                        : 'bg-slate-100 text-slate-400 border border-slate-200 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-500 opacity-50 cursor-not-allowed'
-                    }`}
-                  >
-                    <CheckCircle2 className="h-5 w-5" />
-                    <span>{vi ? 'Xác nhận lấy hàng' : 'Confirm Pick'}</span>
-                  </button>
                 </div>
 
                 {/* Subtle helper guidance when disabled */}
@@ -1429,7 +1457,7 @@ function WarehouseFloorView({
               <button
                 type="button"
                 onClick={() => setExceptionOpen(true)}
-                className="h-9 px-3.5 rounded-lg border border-amber-300 bg-white font-semibold text-xs text-amber-900 shadow-xs hover:bg-amber-50 active:bg-amber-100 transition-colors flex items-center gap-1.5 shrink-0 cursor-pointer dark:bg-surface-1 dark:border-amber-800 dark:text-amber-300"
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 font-semibold text-xs text-amber-900 shadow-xs transition-colors hover:bg-amber-50 active:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-surface-1 dark:text-amber-300"
               >
                 <Flag className="h-3.5 w-3.5 text-amber-700" />
                 <span>Báo ngoại lệ</span>
@@ -1444,10 +1472,10 @@ function WarehouseFloorView({
               <div className="space-y-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 whitespace-nowrap">
+                    <h3 className="truncate font-bold text-base text-slate-900 dark:text-slate-100">
                       Danh sách lấy hàng
                     </h3>
-                    <p className="text-xs text-slate-500 font-medium dark:text-slate-400 mt-0.5 whitespace-nowrap">
+                    <p className="mt-0.5 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
                       {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
                     </p>
                   </div>
@@ -1455,18 +1483,18 @@ function WarehouseFloorView({
                   <button
                     type="button"
                     onClick={handleCycleSort}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 hover:underline cursor-pointer dark:text-blue-400 whitespace-nowrap shrink-0 mt-0.5"
+                    className="mt-0.5 inline-flex h-8 shrink-0 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
                   >
                     Sắp xếp: {sortLabel}
                   </button>
                 </div>
 
                 {/* Filter Tabs by Channel Platform */}
-                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                <div className="flex flex-wrap items-center gap-1 text-xs">
                   <button
                     type="button"
                     onClick={() => setChannelFilter('all')}
-                    className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                    className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-semibold transition-colors cursor-pointer ${
                       channelFilter === 'all'
                         ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
                         : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
@@ -1479,9 +1507,9 @@ function WarehouseFloorView({
                       key={ch}
                       type="button"
                       onClick={() => setChannelFilter(ch)}
-                      className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors cursor-pointer ${
+                      className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold transition-colors cursor-pointer ${
                         channelFilter === ch
-                          ? 'ring-2 ring-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 font-bold'
+                          ? 'bg-blue-50 font-bold text-blue-700 ring-1 ring-blue-400 dark:bg-blue-950/60 dark:text-blue-300'
                           : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
                       }`}
                     >
@@ -1504,29 +1532,20 @@ function WarehouseFloorView({
                         <div
                           key={item.id}
                           onClick={() => handleSelectItem(item)}
-                          className="rounded-xl border-2 border-[#3b82f6] bg-[#f8faff] p-3 sm:p-3.5 flex items-center justify-between cursor-pointer shadow-xs dark:bg-blue-950/20 transition-all"
+                          className="flex cursor-pointer items-center justify-between rounded-xl border-2 border-[#3b82f6] bg-[#f8faff] p-2.5 sm:p-3 shadow-xs transition-all dark:bg-blue-950/20"
                         >
-                          <div className="flex items-center gap-3 min-w-0 pr-2">
-                            <TargetScanIcon />
-                            <div className="min-w-0 space-y-0.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <p className="font-semibold text-xs text-slate-900 truncate dark:text-slate-100">
-                                  {item.shortName}
-                                </p>
-                                {renderChannelBadge(item.channel, 'sm')}
-                              </div>
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                                <span>{item.sku}</span>
-                                <span>·</span>
-                                <span className="font-semibold text-slate-700 dark:text-slate-300">
-                                  #{item.orderId}
-                                </span>
-                              </div>
+                          <div className="flex min-w-0 items-start gap-2.5 pr-2">
+                            <div className="mt-0.5 shrink-0">
+                              <TargetScanIcon />
                             </div>
+                            <PickingListItemInfo
+                              item={item}
+                              titleClassName="font-semibold text-slate-900 dark:text-slate-100"
+                            />
                           </div>
 
-                          <span className="rounded-full bg-[#3b82f6] text-white px-3 py-1 font-mono font-bold text-xs shadow-xs shrink-0">
-                            {item.qtyPicked} / {item.qty}
+                          <span className="shrink-0 rounded-md bg-[#3b82f6] px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs tabular-nums">
+                            {item.qtyPicked}/{item.qty}
                           </span>
                         </div>
                       )
@@ -1538,27 +1557,20 @@ function WarehouseFloorView({
                         <div
                           key={item.id}
                           onClick={() => handleSelectItem(item)}
-                          className="rounded-xl border border-emerald-200 bg-[#ecfdf5] p-3 sm:p-3.5 flex items-center justify-between cursor-pointer transition-colors hover:bg-emerald-100/70 dark:border-emerald-800/80 dark:bg-emerald-950/20"
+                          className="flex cursor-pointer items-center justify-between rounded-xl border border-emerald-200 bg-[#ecfdf5] p-2.5 sm:p-3 transition-colors hover:bg-emerald-100/70 dark:border-emerald-800/80 dark:bg-emerald-950/20"
                         >
-                          <div className="flex items-center gap-3 min-w-0 pr-2">
-                            <PickedCheckIcon />
-                            <div className="min-w-0 space-y-0.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <p className="font-medium text-xs text-slate-800 truncate dark:text-slate-200">
-                                  {item.shortName}
-                                </p>
-                                {renderChannelBadge(item.channel, 'sm')}
-                              </div>
-                              <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                                <span>{item.sku}</span>
-                                <span>·</span>
-                                <span>#{item.orderId}</span>
-                              </div>
+                          <div className="flex min-w-0 items-start gap-2.5 pr-2">
+                            <div className="mt-0.5 shrink-0">
+                              <PickedCheckIcon />
                             </div>
+                            <PickingListItemInfo
+                              item={item}
+                              titleClassName="font-medium text-slate-800 dark:text-slate-200"
+                            />
                           </div>
 
-                          <span className="rounded-full bg-[#16a34a] text-white px-3 py-1 font-mono font-bold text-xs shadow-xs shrink-0">
-                            {item.qtyPicked} / {item.qty}
+                          <span className="shrink-0 rounded-md bg-[#16a34a] px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs tabular-nums">
+                            {item.qtyPicked}/{item.qty}
                           </span>
                         </div>
                       )
@@ -1569,27 +1581,20 @@ function WarehouseFloorView({
                       <div
                         key={item.id}
                         onClick={() => handleSelectItem(item)}
-                        className="rounded-xl border border-slate-200 bg-white p-3 sm:p-3.5 flex items-center justify-between cursor-pointer transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-surface-1"
+                        className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-surface-1"
                       >
-                        <div className="flex items-center gap-3 min-w-0 pr-2">
-                          <UnpickedCircleIcon />
-                          <div className="min-w-0 space-y-0.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="font-medium text-xs text-slate-700 truncate dark:text-slate-300">
-                                {item.shortName}
-                              </p>
-                              {renderChannelBadge(item.channel, 'sm')}
-                            </div>
-                            <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                              <span>{item.sku}</span>
-                              <span>·</span>
-                              <span>#{item.orderId}</span>
-                            </div>
+                        <div className="flex min-w-0 items-start gap-2.5 pr-2">
+                          <div className="mt-0.5 shrink-0">
+                            <UnpickedCircleIcon />
                           </div>
+                          <PickingListItemInfo
+                            item={item}
+                            titleClassName="font-medium text-slate-700 dark:text-slate-300"
+                          />
                         </div>
 
-                        <span className="rounded-full border border-slate-200 bg-[#f8fafc] text-slate-600 px-3 py-1 font-mono font-medium text-xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-400 shrink-0">
-                          {item.qtyPicked} / {item.qty}
+                        <span className="shrink-0 rounded-md border border-slate-200 bg-[#f8fafc] px-2 py-0.5 font-mono text-[11px] font-medium text-slate-600 tabular-nums dark:border-slate-700 dark:bg-surface-2 dark:text-slate-400">
+                          {item.qtyPicked}/{item.qty}
                         </span>
                       </div>
                     )
@@ -1603,46 +1608,38 @@ function WarehouseFloorView({
 
               {/* Footer with Accurate Picking Progress & Single Primary Action */}
               <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between text-xs font-medium gap-2">
-                  <span className="text-slate-600 dark:text-slate-300 whitespace-nowrap">
+                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs font-medium">
+                  <span className="min-w-0 leading-snug text-slate-600 dark:text-slate-300">
                     Tiến độ:{' '}
                     <strong className="text-slate-900 dark:text-slate-100">
                       {pickedCount}/{items.length}
                     </strong>{' '}
                     mặt hàng ({pickedPercent}%)
                   </span>
-                  <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-400">
                     {totalUnitsPicked}/{totalUnitsTotal} sản phẩm
                   </span>
                 </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                   <div
-                    className="h-full bg-blue-600 transition-all duration-300 rounded-full"
+                    className="h-full rounded-full bg-blue-600 transition-all duration-300"
                     style={{ width: `${pickedPercent}%` }}
                   />
                 </div>
 
-                {/* Single Primary Action: Hoàn tất lấy hàng */}
-                <button
-                  type="button"
-                  disabled={!isAllPicked}
-                  onClick={isAllPicked ? handleOpenCompleteModal : undefined}
-                  className={`w-full h-11 rounded-xl text-white font-semibold text-xs sm:text-sm shadow-sm flex items-center justify-center gap-2 transition-all select-none ${
-                    isAllPicked
-                      ? 'bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] cursor-pointer'
-                      : 'bg-slate-400 opacity-50 cursor-not-allowed dark:bg-slate-600'
-                  }`}
-                  title={
-                    !isAllPicked
-                      ? vi
-                        ? `Cần lấy đủ tất cả ${items.length} mặt hàng trước khi hoàn tất (${pickedCount}/${items.length})`
-                        : `Pick all ${items.length} items first (${pickedCount}/${items.length})`
-                      : undefined
-                  }
-                >
-                  <CheckCircle2 className="h-4.5 w-4.5" />
-                  <span>{vi ? 'Hoàn tất lấy hàng' : 'Complete Batch Picking'}</span>
-                </button>
+                {isAllPicked ? (
+                  <p className="text-center text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+                    {vi
+                      ? 'Đã lấy đủ — bấm "Hoàn tất lấy hàng" ở thanh trên để chuyển bước tiếp theo'
+                      : 'All items picked — use "Complete Batch Picking" in the top bar'}
+                  </p>
+                ) : (
+                  <p className="text-center text-[11px] text-slate-400 dark:text-slate-500">
+                    {vi
+                      ? `Còn ${items.length - pickedCount} mặt hàng chưa lấy xong`
+                      : `${items.length - pickedCount} items remaining`}
+                  </p>
+                )}
               </div>
             </div>
           </div>
