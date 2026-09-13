@@ -1,111 +1,181 @@
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Fallback before bootstrapTheme() runs — overridden by html.dark / html.light */
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --app-primary: #6366f1;
+  --app-primary-hover: #818cf8;
+  --app-primary-focus: #6366f1;
+  --app-on-primary: #ffffff;
+  --app-ink: #f3f4f6;
+  --app-ink-muted: #cbd5e1;
+  --app-ink-subtle: #94a3b8;
+  --app-ink-tertiary: #64748b;
+  --app-canvas: #0b0e14;
+  --app-surface-1: #151922;
+  --app-surface-2: #1a1f2b;
+  --app-surface-3: #222734;
+  --app-hairline: #222734;
+  --app-hairline-strong: #2e3545;
+  --app-success: #10b981;
+  --app-success-bg: rgba(16, 185, 129, 0.12);
+  --app-error: #f87171;
+  --app-error-border: rgba(239, 68, 68, 0.2);
+  --app-shopee: #ff6b00;
+  --app-tiktok: #00e5ff;
+  --app-ghost-border: #222734;
+}
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
+/* Dark — OptiPackAI obsidian · indigo AI accent + marketplace brands */
+html.dark {
+  /* Accent — indigo (AI / primary CTA) */
+  --app-primary: #6366f1;
+  --app-primary-hover: #818cf8;
+  --app-primary-focus: #6366f1;
+  --app-on-primary: #ffffff;
+  /* Text */
+  --app-ink: #f3f4f6;
+  --app-ink-muted: #cbd5e1;
+  --app-ink-subtle: #94a3b8;
+  --app-ink-tertiary: #64748b;
+  /* Surfaces — deep obsidian ladder */
+  --app-canvas: #0b0e14;
+  --app-surface-1: #151922;
+  --app-surface-2: #1a1f2b;
+  --app-surface-3: #222734;
+  --app-hairline: #222734;
+  --app-hairline-strong: #2e3545;
+  /* Semantic + brand */
+  --app-success: #10b981;
+  --app-success-bg: rgba(16, 185, 129, 0.12);
+  --app-error: #f87171;
+  --app-error-border: rgba(239, 68, 68, 0.2);
+  --app-shopee: #ff6b00;
+  --app-tiktok: #00e5ff;
+  --app-ghost-border: #222734;
+}
 
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+html.light {
+  --app-primary: #6366f1;
+  --app-primary-hover: #4f46e5;
+  --app-primary-focus: #6366f1;
+  --app-on-primary: #ffffff;
+  --app-ink: #000000;
+  --app-ink-muted: #3a3a3c;
+  --app-ink-subtle: #6b6b70;
+  --app-ink-tertiary: #8a8a90;
+  --app-canvas: #ffffff;
+  --app-surface-1: #f5f6f6;
+  --app-surface-2: #f6f7f7;
+  --app-surface-3: #eeeeef;
+  --app-hairline: #e5e5e7;
+  --app-hairline-strong: #d0d0d4;
+  --app-success: #059669;
+  --app-success-bg: #d1fae5;
+  --app-error: #ef4444;
+  --app-error-border: rgba(239, 68, 68, 0.25);
+  --app-shopee: #ff6b00;
+  --app-tiktok: #00bcd4;
+  --app-ghost-border: #d1d5db;
+}
 
-  @media (max-width: 1024px) {
-    font-size: 16px;
+/* Landing page — cùng palette obsidian với /app */
+.landing {
+  --lp-bg: var(--app-canvas);
+  --lp-card: var(--app-surface-1);
+  --lp-border: var(--app-hairline);
+  --lp-ink: var(--app-ink);
+  --lp-muted: var(--app-ink-muted);
+  --lp-subtle: var(--app-ink-subtle);
+  --lp-primary: var(--app-primary);
+  --lp-primary-hover: var(--app-primary-hover);
+  --lp-shopee: var(--app-shopee);
+  --lp-tiktok: var(--app-tiktok);
+  color: var(--lp-ink);
+  background: var(--lp-bg);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+}
+
+@theme {
+  --color-primary: var(--app-primary);
+  --color-primary-hover: var(--app-primary-hover);
+  --color-primary-focus: var(--app-primary-focus);
+  --color-on-primary: var(--app-on-primary);
+  --color-ink: var(--app-ink);
+  --color-ink-muted: var(--app-ink-muted);
+  --color-ink-subtle: var(--app-ink-subtle);
+  --color-ink-tertiary: var(--app-ink-tertiary);
+  --color-canvas: var(--app-canvas);
+  --color-surface-1: var(--app-surface-1);
+  --color-surface-2: var(--app-surface-2);
+  --color-surface-3: var(--app-surface-3);
+  --color-hairline: var(--app-hairline);
+  --color-hairline-strong: var(--app-hairline-strong);
+  --color-success: var(--app-success);
+  --color-success-bg: var(--app-success-bg);
+  --color-error: var(--app-error);
+  --color-shopee: var(--app-shopee);
+  --color-tiktok: var(--app-tiktok);
+  --color-ghost-border: var(--app-ghost-border);
+  --color-lp-bg: var(--app-canvas);
+  --color-lp-card: var(--app-surface-1);
+  --color-lp-border: var(--app-hairline);
+  --color-lp-ink: var(--app-ink);
+  --color-lp-muted: var(--app-ink-muted);
+  --color-lp-subtle: var(--app-ink-subtle);
+  --font-sans: 'Inter', -apple-system, system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
   }
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+  html {
+    color-scheme: dark;
   }
 
-  #social .button-icon {
-    filter: invert(1) brightness(2);
+  html.light {
+    color-scheme: light;
   }
-}
 
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-}
-
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
-}
-
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
+  body {
+    margin: 0;
+    min-height: 100svh;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.01em;
+    color: var(--color-ink);
+    background-color: var(--color-canvas);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
+
+  #root {
+    min-height: 100svh;
   }
-}
-p {
-  margin: 0;
-}
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
+  button {
+    font-family: inherit;
+  }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }

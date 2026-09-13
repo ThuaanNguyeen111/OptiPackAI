@@ -1,0 +1,510 @@
+import { NavLink, Link, useNavigate } from 'react-router-dom'
+import {
+  BarChart3,
+  Box,
+  Boxes,
+  ClipboardList,
+  ChevronDown,
+  Database,
+  LayoutDashboard,
+  LogOut,
+  Moon,
+  Package,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  Sun,
+  Truck,
+  Users,
+  X,
+} from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { fetchMyProfile } from '../../api/users.api'
+import { PLATFORM_META } from '../../context/portal-context-value'
+import { usePortal } from '../../context/use-portal'
+import { useAuth } from '../../context/use-auth'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
+import { useTheme } from '../../hooks/useTheme'
+import { canSeeNavItem } from '../../lib/rbac'
+import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
+
+type NavSection = 'overview' | 'logistics' | 'analytics' | 'system'
+
+const navItems = [
+  {
+    to: '/app',
+    end: true,
+    labelVi: 'Tổng quan',
+    labelEn: 'Dashboard Overview',
+    icon: LayoutDashboard,
+    section: 'overview' as NavSection,
+  },
+  {
+    to: '/app/orders',
+    end: false,
+    labelVi: 'Đơn đa kênh',
+    labelEn: 'Omnichannel Orders',
+    icon: Package,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/warehouse',
+    end: false,
+    labelVi: 'Lấy hàng trong kho',
+    labelEn: 'Warehouse picking',
+    icon: ClipboardList,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/packing',
+    end: false,
+    labelVi: 'AI 3D Packing',
+    labelEn: 'AI 3D Packing Engine',
+    icon: Boxes,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/shipping',
+    end: false,
+    labelVi: 'Vận chuyển',
+    labelEn: 'Shipping & Fulfillment',
+    icon: Truck,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/packaging-rules',
+    end: false,
+    labelVi: 'Quy tắc Bao bì',
+    labelEn: 'Packaging Rules',
+    icon: Box,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/staff',
+    end: false,
+    labelVi: 'Nhân viên & Vị trí',
+    labelEn: 'Staff & Locations',
+    icon: Users,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/inventory',
+    end: false,
+    labelVi: 'Tình trạng kho',
+    labelEn: 'Warehouse Inventory',
+    icon: Database,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/analytics',
+    end: false,
+    labelVi: 'Báo cáo & Xuất file',
+    labelEn: 'Analytics & Export',
+    icon: BarChart3,
+    section: 'analytics' as NavSection,
+  },
+  {
+    to: '/app/profile',
+    end: false,
+    labelVi: 'Hồ sơ & Cài đặt',
+    labelEn: 'Profile & Settings',
+    icon: Settings,
+    section: 'system' as NavSection,
+  },
+]
+
+const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
+  overview: null,
+  logistics: { vi: 'Vận hành kho', en: 'Logistics' },
+  analytics: { vi: 'Báo cáo & Phân tích', en: 'Analytics' },
+  system: { vi: 'Hệ thống', en: 'System' },
+}
+
+function profileInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean)
+  if (parts.length === 0) return '?'
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
+  return `${parts[0]![0] ?? ''}${parts[parts.length - 1]![0] ?? ''}`.toUpperCase()
+}
+
+export function PortalSidebar() {
+  const {
+    sidebarCollapsed,
+    toggleSidebar,
+    locale,
+    mobileNavOpen,
+    setMobileNavOpen,
+    shops,
+    activeShopIds,
+    isShopActive,
+    toggleShopActive,
+    activateAllShops,
+  } = usePortal()
+  const { theme, toggleTheme } = useTheme()
+  const navigate = useNavigate()
+  const { logout, session } = useAuth()
+  const [storeMenuOpen, setStoreMenuOpen] = useState(false)
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+  const [profileName, setProfileName] = useState<string | null>(null)
+  const role = session?.role ?? UserRole.STORE_OWNER
+  const visibleNav = navItems.filter((item) => canSeeNavItem(role, item.to))
+  const roleLabel =
+    locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
+  const isStoreOwner = role === UserRole.STORE_OWNER
+
+  const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
+  const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
+  const platformSummary = [
+    ...new Set(activeShops.map((s) => PLATFORM_META[s.platform].label)),
+  ].join(' · ')
+  const storeLabel =
+    activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'OptiPackAI Store'
+  const sidebarDisplayName = session
+    ? (profileName ?? (locale === 'vi' ? 'Đang tải…' : 'Loading…'))
+    : locale === 'vi'
+      ? 'Tài khoản'
+      : 'Account'
+  const sidebarInitials =
+    session && profileName ? profileInitials(profileName) : '?'
+
+  useEffect(() => {
+    if (!session) return
+    let cancelled = false
+    void fetchMyProfile()
+      .then((profile) => {
+        if (!cancelled) setProfileName(profile.name)
+      })
+      .catch(() => {
+        if (!cancelled) setProfileName(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [session?.accessToken])
+
+  async function handleConfirmLogout() {
+    setLoggingOut(true)
+    try {
+      await logout()
+      navigate('/login', { replace: true })
+    } finally {
+      setLoggingOut(false)
+      setLogoutConfirmOpen(false)
+    }
+  }
+
+  const nav = (
+    <>
+      <div
+        className={`flex border-b border-hairline px-2 ${
+          sidebarCollapsed
+            ? 'h-auto flex-col items-center gap-1.5 py-2.5'
+            : 'h-14 items-center justify-between gap-2 px-3'
+        }`}
+      >
+        <Link
+          to="/"
+          className="flex min-w-0 items-center gap-2"
+          title="OptiPackAI"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]">
+            OP
+          </span>
+          {!sidebarCollapsed ? (
+            <span className="truncate text-sm font-semibold tracking-tight text-ink">
+              OptiPackAI
+            </span>
+          ) : null}
+        </Link>
+        <button
+          type="button"
+          className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-subtle hover:bg-surface-2 hover:text-ink lg:flex"
+          onClick={toggleSidebar}
+          aria-label={sidebarCollapsed ? 'Mở rộng sidebar' : 'Thu gọn sidebar'}
+          title={sidebarCollapsed ? 'Mở rộng' : 'Thu gọn'}
+        >
+          {sidebarCollapsed ? (
+            <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
+          ) : (
+            <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
+          )}
+        </button>
+        <button
+          type="button"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-subtle hover:bg-surface-2 lg:hidden"
+          onClick={() => setMobileNavOpen(false)}
+          aria-label="Đóng menu"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {!sidebarCollapsed && isStoreOwner ? (
+        <div className="relative border-b border-hairline p-3">
+          <button
+            type="button"
+            onClick={() => setStoreMenuOpen((v) => !v)}
+            className="flex w-full items-center justify-between rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-left text-xs transition-colors hover:border-primary/40"
+          >
+            <div className="min-w-0">
+              <p className="truncate font-medium text-ink">{storeLabel}</p>
+              <p className="truncate text-ink-subtle">
+                {activeShopIds.length} active
+                {platformSummary ? ` · ${platformSummary}` : ''}
+              </p>
+            </div>
+            <ChevronDown
+              className={`h-3.5 w-3.5 shrink-0 text-ink-subtle transition-transform ${
+                storeMenuOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+          {storeMenuOpen ? (
+            <div className="absolute top-[calc(100%-4px)] right-3 left-3 z-20 overflow-hidden rounded-lg border border-hairline bg-surface-1 shadow-lg">
+              <ul className="max-h-48 overflow-y-auto py-1">
+                {shops.map((shop) => {
+                  const active = isShopActive(shop.id)
+                  return (
+                    <li key={shop.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggleShopActive(shop.id)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${
+                          active ? 'bg-primary/10 text-primary-hover' : 'text-ink'
+                        }`}
+                      >
+                        <span
+                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                            active
+                              ? 'border-primary bg-primary text-white'
+                              : 'border-hairline'
+                          }`}
+                        >
+                          {active ? '✓' : ''}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium">
+                            {shop.account_name}
+                          </span>
+                          <span className="block text-[10px] text-ink-subtle">
+                            {PLATFORM_META[shop.platform].label} ·{' '}
+                            {shop.store_label}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              <div className="flex border-t border-hairline">
+                <button
+                  type="button"
+                  onClick={() => {
+                    activateAllShops()
+                    setStoreMenuOpen(false)
+                  }}
+                  className="flex-1 px-3 py-2 text-[11px] font-medium text-ink-muted hover:bg-surface-2 hover:text-ink"
+                >
+                  {locale === 'vi' ? 'Chọn tất cả' : 'Select all'}
+                </button>
+                <Link
+                  to="/app/profile"
+                  onClick={() => {
+                    setStoreMenuOpen(false)
+                    setMobileNavOpen(false)
+                  }}
+                  className="flex-1 border-l border-hairline px-3 py-2 text-center text-[11px] font-medium text-primary-hover hover:bg-surface-2"
+                >
+                  {locale === 'vi' ? '+ Thêm shop' : '+ Add shop'}
+                </Link>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!sidebarCollapsed && !isStoreOwner ? (
+        <div className="border-b border-hairline p-3">
+          <div className="rounded-lg border border-hairline bg-surface-2 px-3 py-2">
+            <p className="text-xs font-medium text-ink">
+              {locale === 'vi' ? 'Kho tổng · Ca sáng' : 'Main Warehouse · Morning'}
+            </p>
+            <p className="mt-0.5 text-[11px] text-ink-subtle">{roleLabel}</p>
+          </div>
+        </div>
+      ) : null}
+
+      <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+        {visibleNav.map(({ to, end, labelVi, labelEn, icon: Icon, section }, idx) => {
+          const prevSection = idx > 0 ? visibleNav[idx - 1].section : null
+          const showSection =
+            !sidebarCollapsed &&
+            section !== prevSection &&
+            sectionLabels[section]
+
+          return (
+            <div key={to}>
+              {showSection ? (
+                <p className="mt-2 mb-1 px-2.5 text-[10px] font-medium tracking-wide text-ink-tertiary uppercase">
+                  {locale === 'vi'
+                    ? sectionLabels[section]!.vi
+                    : sectionLabels[section]!.en}
+                </p>
+              ) : null}
+              <NavLink
+                to={to}
+                end={end}
+                onClick={() => setMobileNavOpen(false)}
+                title={locale === 'vi' ? labelVi : labelEn}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                    sidebarCollapsed ? 'justify-center' : ''
+                  } ${
+                    isActive
+                      ? 'bg-primary/15 text-primary-hover'
+                      : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
+                  }`
+                }
+              >
+                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                {!sidebarCollapsed ? (
+                  <span>{locale === 'vi' ? labelVi : labelEn}</span>
+                ) : null}
+              </NavLink>
+            </div>
+          )
+        })}
+      </nav>
+
+      <div
+        className={`border-t border-hairline ${
+          sidebarCollapsed ? 'flex flex-col items-center p-2.5 gap-2' : 'p-3'
+        }`}
+      >
+        {!sidebarCollapsed ? (
+          <>
+            <Link
+              to="/app/profile"
+              onClick={() => setMobileNavOpen(false)}
+              className="mb-3 block rounded-lg border border-hairline bg-surface-2 p-2.5 transition-colors hover:border-primary/40"
+            >
+              <p className="truncate text-sm font-medium text-ink">{sidebarDisplayName}</p>
+              <span className="mt-1 inline-flex rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
+                {roleLabel}
+              </span>
+            </Link>
+
+            <div className="flex items-center justify-between gap-1">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+                aria-label={
+                  theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
+                }
+                title={
+                  theme === 'dark'
+                    ? 'Giao diện sáng'
+                    : 'Giao diện tối'
+                }
+              >
+                {theme === 'dark' ? (
+                  <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
+                ) : (
+                  <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLogoutConfirmOpen(true)}
+                className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-red-500"
+                aria-label="Đăng xuất"
+                title="Đăng xuất"
+              >
+                <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Link
+              to="/app/profile"
+              onClick={() => setMobileNavOpen(false)}
+              title={sidebarDisplayName}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/15 text-[10px] font-bold text-primary-hover transition-colors hover:border-primary/60"
+            >
+              {sidebarInitials}
+            </Link>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
+              aria-label={
+                theme === 'dark' ? 'Chuyển sang sáng' : 'Chuyển sang tối'
+              }
+              title={
+                theme === 'dark'
+                  ? 'Giao diện sáng'
+                  : 'Giao diện tối'
+              }
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-3.5 w-3.5" strokeWidth={1.75} />
+              ) : (
+                <Moon className="h-3.5 w-3.5" strokeWidth={1.75} />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setLogoutConfirmOpen(true)}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-hairline text-ink-subtle transition-colors hover:bg-surface-2 hover:text-red-500"
+              aria-label="Đăng xuất"
+              title="Đăng xuất"
+            >
+              <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+            </button>
+          </>
+        )}
+      </div>
+    </>
+  )
+
+  return (
+    <>
+      <ConfirmDialog
+        open={logoutConfirmOpen}
+        title="Đăng xuất"
+        description="Bạn có chắc muốn đăng xuất khỏi OptiPackAI? Phiên làm việc hiện tại sẽ kết thúc."
+        confirmLabel="Đăng xuất"
+        cancelLabel="Hủy"
+        loading={loggingOut}
+        onConfirm={() => void handleConfirmLogout()}
+        onCancel={() => setLogoutConfirmOpen(false)}
+        icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
+      />
+      <aside
+        className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}
+      >
+        {nav}
+      </aside>
+
+      {mobileNavOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Đóng"
+            onClick={() => setMobileNavOpen(false)}
+          />
+          <aside className="relative z-10 flex h-full w-60 flex-col border-r border-hairline bg-canvas">
+            {nav}
+          </aside>
+        </div>
+      ) : null}
+    </>
+  )
+}
