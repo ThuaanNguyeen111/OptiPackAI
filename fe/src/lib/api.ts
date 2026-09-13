@@ -8,17 +8,20 @@ export class ApiError extends Error {
   status: number
   messages: string[]
   errorCode: string | null
+  details: Record<string, unknown> | null
 
   constructor(
     status: number,
     messages: string[],
     errorCode: string | null = null,
+    details: Record<string, unknown> | null = null,
   ) {
     super(messages[0] ?? 'Có lỗi xảy ra, thử lại sau.')
     this.name = 'ApiError'
     this.status = status
     this.messages = messages
     this.errorCode = errorCode
+    this.details = details
   }
 }
 
@@ -38,6 +41,15 @@ function parseErrorCode(payload: unknown): string | null {
   if (typeof payload !== 'object' || payload === null) return null
   const code = (payload as { error_code?: unknown }).error_code
   return typeof code === 'string' && code.length > 0 ? code : null
+}
+
+function parseDetails(payload: unknown): Record<string, unknown> | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const details = (payload as { details?: unknown }).details
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+    return null
+  }
+  return details as Record<string, unknown>
 }
 
 async function parseJson(res: Response): Promise<unknown> {
@@ -128,7 +140,12 @@ export async function apiRequest<T>(
   const payload = await parseJson(res)
 
   if (!res.ok) {
-    throw new ApiError(res.status, parseMessage(payload), parseErrorCode(payload))
+    throw new ApiError(
+      res.status,
+      parseMessage(payload),
+      parseErrorCode(payload),
+      parseDetails(payload),
+    )
   }
 
   return payload as T
@@ -136,6 +153,15 @@ export async function apiRequest<T>(
 
 export function getApiErrorCode(err: unknown): string | null {
   return err instanceof ApiError ? err.errorCode : null
+}
+
+export function getApiErrorDetailString(
+  err: unknown,
+  key: string,
+): string | null {
+  if (!(err instanceof ApiError) || !err.details) return null
+  const value = err.details[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 export function formatApiError(err: unknown): string {

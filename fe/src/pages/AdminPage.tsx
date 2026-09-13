@@ -197,11 +197,7 @@ export default function AdminPage() {
             }}
             onDisableMfa={async (id) => {
               await api.disableMfa(id)
-              showToast(
-                vi
-                  ? 'Đã tắt MFA — user phải setup lại nếu muốn bật'
-                  : 'MFA disabled — user must set up again to re-enable',
-              )
+              showToast( 'Đã tắt MFA cho người dùng' )
             }}
             onCreateUser={async (input) => {
               const { temporaryPassword } = await api.createUser(input)

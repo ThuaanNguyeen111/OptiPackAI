@@ -80,7 +80,9 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 - Refresh token rotation + reuse detection
 - **User tự xem/sửa hồ sơ CHỈ qua `GET/PATCH /users/me`** (phone/address/avatar) — **`employee_code`/`department` CHỈ Admin sửa được, qua `PATCH /users/:id`**, kể cả khi Admin tự sửa hồ sơ chính mình cũng phải đi qua route `:id`, không được lẫn vào `/me` (2 DTO tách riêng có chủ đích, không gộp)
 - Admin: tạo/sửa (`PATCH /users/:id`)/reset-password/deactivate/reactivate/disable-mfa cho user khác
-- Gửi email qua module `mail/` (4 template: welcome, forgot-password, account-locked, mfa-enabled) — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
+- **Tạo user — email trùng bị chặn tuyệt đối (2026-09-14, ĐÃ THAY ĐỔI)**: trước đây `createByAdmin()` chỉ chặn email của tài khoản `is_active: true`, unique index cũng partial theo `is_active` → Admin tạo lại đúng email của nhân viên đã vô hiệu hóa thì hệ thống **tạo thêm 1 user mới** (không ghi đè, nhưng ra 2 tài khoản cùng email). Giờ tìm email **không lọc is_active**; nếu trùng tài khoản đang hoạt động → `USER_EMAIL_IN_USE` (409); nếu trùng tài khoản đã vô hiệu hóa → `USER_EMAIL_INACTIVE` (409) kèm `details.existingUserId`, **không tạo mới, không ghi đè**. Unique `{ email: 1 }` giờ áp mọi trạng thái (bỏ `partialFilterExpression`). FE hiện lỗi trên form tạo user; với `USER_EMAIL_INACTIVE` có nút **Kích hoạt lại ngay** (gọi `POST /users/:id/reactivate`, mở lại tài khoản cũ với dữ liệu đã lưu — không lấy tên/vai trò từ form tạo mới).
+- **Admin tắt MFA hộ → thông báo user (2026-09-14)**: `adminDisableMfa()` gọi cổng `NotificationsService.notify()` (in-app + email `mfaDisabledTemplate`). FE hiện popup `MfaDisabledNotice` khi user đăng nhập / đang trong phiên (poll **10s** — user chốt 2026-09-14, đủ cho capstone, không cần WebSocket). Không báo lại nếu MFA vốn đã tắt. Lỗi gửi thông báo không làm fail thao tác tắt MFA.
+- Gửi email qua module `mail/` (5 template: welcome, forgot-password, account-locked, mfa-enabled, mfa-disabled) + `sendNotificationEmail()` cho thông báo vận hành — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
 - `ThrottlerGuard` đã gắn `APP_GUARD` global trong `app.module.ts` — `@Throttle()` trên route (login, forgot-password) giờ thực sự có tác dụng (trước đây từng bị khai config nhưng chưa gắn guard, không chặn được gì)
 - TTL tự dọn: `login_audit_logs` (180 ngày), `trusted_devices` (30 ngày), `refresh_tokens` (theo hạn token)
 
@@ -1019,9 +1021,9 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 ## Nghiên cứu Notification (2026-09-10) — khi nào bắn, nội dung gì, bắn ra sao
 
-**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin).
+**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin), **Admin tắt MFA hộ user (Warning, 2026-09-14 — đích danh user bị tắt, popup in-app + email)**.
 
-**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
+**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum — 8 giá trị: 7 loại vận hành kho/sàn + `mfa_disabled` thêm 2026-09-14), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
 
 **Cách bắn**: khuyên dùng **Phương án A — polling** (`GET /notifications/unread-count` mỗi 15-30s từ FE) cho quy mô capstone, đơn giản không cần hạ tầng mới. Phương án B (WebSocket/NestJS Gateway, real-time push) là chuẩn production nhưng tốn công hơn, chỉ làm nếu dư thời gian.
 
@@ -1550,6 +1552,8 @@ await this.orderModel.findByIdAndUpdate(id, { $inc: { total_packed: 1 } });
 ### 8. Xóa mềm nhất quán trên MỌI schema có thể bị tham chiếu
 
 Không được để 1 module dùng soft-delete (`is_active`) còn module khác xóa cứng — chọn 1 convention duy nhất (`is_active: boolean` + `deleted_at?: Date`) áp dụng toàn bộ `modules/`, ghi rõ trong PR nếu có ngoại lệ.
+
+**Ngoại lệ email user (2026-09-14, ĐÃ THAY ĐỔI so với unique partial `is_active:true`)**: xóa mềm `users` VẪN giữ unique `email` trên mọi trạng thái — Admin không được tạo tài khoản mới trùng email đã vô hiệu hóa; phải dùng Kích hoạt lại. Đây là unique định danh đăng nhập, khác unique nghiệp vụ cho phép tái sử dụng mã sau khi deactivate (vd `employee_code` vẫn partial).
 
 ### 9. Kiểu Document nhất quán toàn project
 

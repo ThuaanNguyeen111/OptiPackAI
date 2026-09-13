@@ -1,16 +1,24 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Connection, Model, Types } from 'mongoose';
+import { AppException } from '../../../common/exceptions/app-exception';
 import { RedisCacheService } from '../../../common/redis/redis-cache.service';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { MailService } from '../../mail/mail.service';
+import { NotificationType } from '../../notifications/enums/notification-type.enum';
+import { NotificationsService } from '../../notifications/notifications.service';
 import { TokenService } from '../../auth/services/token.service';
 import { AdminUpdateUserDto } from '../dto/admin-update-user.dto';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateProfileDto } from '../dto/update-profile.dto';
 import { User, UserDocument } from '../schemas/user.schema';
+import { USER_ERROR_CODES } from '../users.errors';
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
+}
 
 export interface CreatedUserResult {
   user: UserDocument;
@@ -29,6 +37,7 @@ const MUST_CHANGE_PASSWORD_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
   private readonly MAX_FAILED_ATTEMPTS = 5;
   private readonly LOCK_DURATION_MS = 15 * 60 * 1000; // 15 phút
 
@@ -43,42 +52,70 @@ export class UsersService {
     private readonly tokenService: TokenService,
     private readonly redisCache: RedisCacheService,
     private readonly mailService: MailService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   //!=============================================
   // 1. ADMIN TẠO TÀI KHOẢN NHÂN VIÊN
   //!=============================================
   async createByAdmin(createDto: CreateUserDto, adminId: string): Promise<CreatedUserResult> {
-    const existing = await this.userModel.findOne({
-      email: createDto.email,
-      is_active: true, //  chỉ chặn trùng với tài khoản CÒN hoạt động
-    });
+    const email = createDto.email.toLowerCase().trim();
+    // ĐÃ THAY ĐỔI 2026-09-14: chặn email trùng KỂ CẢ tài khoản đã vô hiệu hóa.
+    // Trước đây chỉ lọc is_active:true → tạo user mới trùng email cũ (không ghi đè,
+    // nhưng vẫn ra 2 tài khoản cùng email). Không tạo mới, không ghi đè.
+    const existing = await this.userModel.findOne({ email });
     if (existing) {
-      throw new ConflictException('Email này đã được sử dụng cho tài khoản khác');
+      const existingUserId = existing.id;
+      if (!existing.is_active) {
+        throw new AppException(
+          USER_ERROR_CODES.EMAIL_INACTIVE,
+          'Email này thuộc tài khoản đã bị vô hiệu hóa.',
+          HttpStatus.CONFLICT,
+          { email, existingUserId, is_active: false },
+        );
+      }
+      throw new AppException(
+        USER_ERROR_CODES.EMAIL_IN_USE,
+        'Email này đã được sử dụng cho tài khoản khác. Không thể tạo mới.',
+        HttpStatus.CONFLICT,
+        { email, existingUserId, is_active: true },
+      );
     }
 
     const temporaryPassword = this.generateTemporaryPassword();
     const hashedPassword = await bcrypt.hash(temporaryPassword, 12);
 
-    const user = await this.userModel.create({
-      name: createDto.name,
-      email: createDto.email,
-      role: createDto.role,
-      password: hashedPassword,
-      must_change_password: true,
-      //bắt đầu đếm 72h ngay từ lúc tạo tài khoản
-      must_change_password_by: new Date(Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS),
-      created_by: new Types.ObjectId(adminId),
-    });
+    try {
+      const user = await this.userModel.create({
+        name: createDto.name,
+        email,
+        role: createDto.role,
+        password: hashedPassword,
+        must_change_password: true,
+        //bắt đầu đếm 72h ngay từ lúc tạo tài khoản
+        must_change_password_by: new Date(Date.now() + MUST_CHANGE_PASSWORD_WINDOW_MS),
+        created_by: new Types.ObjectId(adminId),
+      });
 
-    void this.mailService.sendWelcomeTempPassword({
-      to: user.email,
-      name: user.name,
-      temporaryPassword,
-      role: user.role,
-    });
+      void this.mailService.sendWelcomeTempPassword({
+        to: user.email,
+        name: user.name,
+        temporaryPassword,
+        role: user.role,
+      });
 
-    return { user, temporaryPassword };
+      return { user, temporaryPassword };
+    } catch (error: unknown) {
+      if (isDuplicateKeyError(error)) {
+        throw new AppException(
+          USER_ERROR_CODES.EMAIL_IN_USE,
+          'Email này đã được sử dụng cho tài khoản khác. Không thể tạo mới.',
+          HttpStatus.CONFLICT,
+          { email },
+        );
+      }
+      throw error;
+    }
   }
 
   //!=============================================
@@ -287,6 +324,28 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
     await this.redisCache.invalidateUserAuthState(userId);
+
+    // Chỉ báo khi MFA thực sự đang bật (document trả về là bản TRƯỚC khi update).
+    // Lỗi cổng thông báo không được làm fail thao tác tắt MFA.
+    if (user.mfa_enabled) {
+      try {
+        const { title, message } = this.notificationsService.buildMfaDisabledMessage({
+          name: user.name,
+        });
+        await this.notificationsService.notify({
+          recipientUserId: userId,
+          type: NotificationType.MFA_DISABLED,
+          severity: 'warning',
+          title,
+          message,
+          relatedEntityType: 'user',
+          relatedEntityId: userId,
+        });
+      } catch (error: unknown) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Tắt MFA thành công nhưng gửi thông báo thất bại cho user ${userId}: ${reason}`);
+      }
+    }
   }
 
   //!=============================================
