@@ -8,10 +8,10 @@ import { MarketplacePlatform } from '../../marketplace-integration/enums/platfor
  */
 @Schema({ _id: false })
 export class PackageDimension {
-  @Prop({ required: true }) package_length_cm!: number;
-  @Prop({ required: true }) package_width_cm!: number;
-  @Prop({ required: true }) package_height_cm!: number;
-  @Prop({ required: true }) package_weight_kg!: number;
+  @Prop({ type: Number, min: 0.0001 }) package_length_cm?: number;
+  @Prop({ type: Number, min: 0.0001 }) package_width_cm?: number;
+  @Prop({ type: Number, min: 0.0001 }) package_height_cm?: number;
+  @Prop({ type: Number, min: 0.0001 }) package_weight_kg?: number;
 }
 export const PackageDimensionSchema = SchemaFactory.createForClass(PackageDimension);
 
@@ -36,13 +36,22 @@ export class ProductMaster {
   @Prop({ type: String, required: true })
   seller_sku!: string;
 
-  @Prop({ type: PackageDimensionSchema, required: true })
-  dimension!: PackageDimension;
+  /** Hồ sơ số đo đã chuẩn hóa/đo lại bởi kho và dùng cho engine. */
+  @Prop({ type: PackageDimensionSchema })
+  dimension?: PackageDimension;
 
-  @Prop({ default: false })
-  is_fragile!: boolean; // phục vụ BR-06, PackableItem.is_fragile
+  /** Số đo package khai báo từ sàn; sync chỉ cập nhật field này. */
+  @Prop({ type: PackageDimensionSchema })
+  marketplace_dimension?: PackageDimension;
 
-  @Prop({ required: true })
+  /** Chỉ có giá trị sau khi kho xác nhận quy cách bảo vệ. */
+  @Prop({ type: Boolean })
+  is_fragile?: boolean; // phục vụ BR-06, PackableItem.is_fragile
+
+  @Prop({ type: String, enum: ['needs_measurement', 'ready'], default: 'needs_measurement' })
+  packaging_profile_status!: 'needs_measurement' | 'ready';
+
+  @Prop({ type: Date, required: true })
   last_synced_at!: Date; // mốc cho chiến lược cache 1 lần/ngày
 
   created_at?: Date;

@@ -22,6 +22,7 @@ import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { MaterialsModule } from './modules/materials/materials.module';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     PackagingModule,
     WarehouseModule,
     NotificationsModule,
+    MaterialsModule,
   ],
   controllers: [AppController],
   providers: [

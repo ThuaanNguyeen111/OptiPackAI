@@ -288,16 +288,17 @@ Có 1 hệ quả cần biết: **nếu 1 đơn có 2 cái cùng SKU nhưng 1 cá
 
 ---
 
-## 7. Gộp đơn (Consolidation) — cách FE hiển thị đúng
+## 7. Nhóm đơn hiện tại và phạm vi đóng mục tiêu
 
-Hệ thống tự động phát hiện các đơn hàng **có khả năng cùng 1 khách/cùng điểm giao** (dựa trên `consolidation_key` tính từ thông tin người nhận — logic chi tiết nằm ở BE, FE không cần biết công thức) và gộp nhóm lại để nhân viên đóng gói có thể xử lý chung 1 lần thay vì tách lẻ nhiều gói.
+**Cập nhật 12/09/2026 — BE-1 mới chỉ có safety guard cho packaging.** Hiện tryConsolidate tìm đơn cùng consolidation_key và nhóm trạng thái chưa fulfill, gán consolidated_group_id. Query chưa giới hạn cùng shop/platform hoặc khóa nhóm đang xử lý; không coi kết quả nhóm là quyền đóng chung một kiện.
 
-- `isConsolidated: false, consolidatedGroupId: null` → đơn độc lập, không thuộc nhóm nào.
-- `isConsolidated: true, consolidatedGroupId: "<id>"` → đơn thuộc 1 nhóm gộp — FE nên **hiển thị badge/nhãn riêng** (ví dụ "Đơn gộp") trên các đơn có cùng `consolidatedGroupId`, và có thể cho phép nhóm chúng lại thành 1 khối trực quan trong bảng thay vì hiện rời rạc.
+FE vẫn đọc isConsolidated/consolidatedGroupId theo response hiện tại. Group-of-1 có thể được backfill ngay cả khi isConsolidated=false, nên không suy mọi đơn không gộp đều có group ID null. Backfill hiện chỉ quét ID null, còn thiếu trường hợp ID có giá trị nhưng document group chưa tồn tại; BE-1 sẽ sửa.
 
-**Chỉ đơn CHƯA fulfill xong mới được xét gộp** — cụ thể BE chỉ so khớp `consolidation_key` giữa các đơn có `status` thuộc nhóm `unpaid | pending | packed | ready_to_ship`. Đơn đã `shipped/delivered/canceled/returned/failed` **không bao giờ** được gộp thêm (kể cả nếu trùng khách với 1 đơn mới) — hợp lý về nghiệp vụ (đơn cũ đã xử lý xong, không nên gộp ngược). FE không cần tự lọc lại theo status khi hiển thị gộp — BE đã đảm bảo điều này ở tầng dữ liệu.
+**ĐÃ THAY ĐỔI so với quyết định gộp kiện cũ:** mỗi đơn nguồn có phạm vi đóng riêng. Có thể gom để lấy hàng cùng lượt; không tự gộp kiện/vận đơn kể cả cùng shop/người nhận. Group legacy nhiều đơn đang làm cần rà soát, không tự tách hoặc sửa lịch sử đã hoàn tất.
 
-> ⚠️ Tính năng gộp mới xác nhận đúng logic ở mức "không gộp nhầm đơn lẻ" (test với 1 đơn duy nhất). **Case thực sự có 2 đơn được gộp làm 1 nhóm chưa được test bằng dữ liệu thật** — nếu FE thấy `newlyConsolidated` từ mục 4 luôn = 0 dù đặt nhiều đơn cùng khách, đó có thể là điều đang chờ BE verify tiếp, không mặc định là bug FE.
+Đầu vào packaging mục tiêu giữ từng order item ID, platform/shop, SKU/biến thể, số lượng và trạng thái. Chỉ item PENDING đã xác minh được xét ở bản đầu; canceled loại bỏ, trạng thái khác/lạ cần xem lại, không mặc định về pending. Dòng items đã gộp ở GET /orders/:id phục vụ hiển thị; không dùng nó để làm mất danh tính vật lý.
+
+Product Master đã có số đo package lấy qua GetProducts. Đây là dữ liệu khai báo sàn; hồ sơ gấp/bọc kho là nguồn riêng được kho/Admin xác nhận đã đo/thử. Sync không ghi đè hồ sơ đó và thiếu dữ liệu không điền 20 cm/0,5 kg. Lát cắt BE-1 đã chặn SKU chưa có hồ sơ `ready`; API nhập/xác nhận hồ sơ vẫn nằm trong BE-2.
 
 ---
 

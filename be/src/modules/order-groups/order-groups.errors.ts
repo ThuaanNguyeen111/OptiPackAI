@@ -15,6 +15,7 @@ export const ORD_GROUP_ERROR_CODES = {
   INSUFFICIENT_STOCK: 'ORD_GROUP_INSUFFICIENT_STOCK', // quantity_on_hand không đủ — FE nên gợi ý report-missing
   // BỔ SUNG (2026-09-10) — item-detail
   ITEM_NOT_IN_GROUP: 'ORD_GROUP_ITEM_NOT_IN_GROUP', // SKU truyền vào không thuộc group này
+  PACKAGING_PROFILE_NOT_READY: 'ORD_GROUP_PACKAGING_PROFILE_NOT_READY', // thiếu số đo/quy cách kho xác nhận
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,

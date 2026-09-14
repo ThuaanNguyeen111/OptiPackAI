@@ -1,10 +1,10 @@
 # AI 3D Packaging Optimization — Ý tưởng và hướng triển khai cho OptiPackAI
 
-Biên soạn: **08/09/2026**, cập nhật danh mục **09/09/2026**. Đối tượng đọc: nhóm phát triển, người phụ trách kho và người đánh giá đồ án AOFP.
+Biên soạn: **08/09/2026**, đối chiếu code và cập nhật flow **12/09/2026**. Đối tượng đọc: nhóm phát triển, người phụ trách kho và người đánh giá đồ án AOFP.
 
 **Định hướng đề xuất:** xây dựng hệ thống chọn túi/thùng cho quần áo, giày và phụ kiện, với quy cách gấp/bọc và hướng dẫn đóng có thể kiểm chứng; dùng thuật toán hình học làm nền, bổ sung AI khi có dữ liệu và phép đo chứng minh giá trị. Thành công là nhân viên đóng được đơn đúng, ít tốn kém và có thể truy lại lý do lựa chọn.
 
-Đây là tài liệu ý tưởng và thiết kế đề xuất, **chưa phải tính năng đã triển khai**. Các API, collection, ngưỡng hiệu năng và số liệu demo bên dưới đều là đề xuất hoặc dữ liệu giả lập. Tài liệu không cam kết phần trăm tiết kiệm trước khi đo thực tế.
+Mục 1 mô tả code hiện có và các lỗi đã thấy; các mục thiết kế phía sau là **hành vi mục tiêu chưa triển khai**. Module packaging/fulfillment đã tồn tại, nhưng chưa có engine 3D đáp ứng thiết kế này. API mới, ngưỡng hiệu năng và số liệu demo bên dưới là đề xuất hoặc dữ liệu giả lập. Tài liệu không cam kết phần trăm tiết kiệm trước khi đo thực tế.
 
 ## Mục lục
 
@@ -38,8 +38,8 @@ Biên soạn: **08/09/2026**, cập nhật danh mục **09/09/2026**. Đối tư
 | Đơn hàng Lazada và đồng bộ định kỳ        | [Hướng dẫn Orders](../be/INTEGRATION_GUIDE_ORDERS.md), [scheduler](../be/src/modules/orders/lazada-order-sync.scheduler.ts)         | Có nguồn đơn đầu vào; tài liệu dự án ghi nhận đã thử end-to-end, lần biên soạn này không chạy lại API thật |
 | Lưu từng đơn vị sản phẩm                  | [Order schema](../be/src/modules/orders/schemas/order.schema.ts), [mapper](../be/src/modules/orders/mappers/lazada-order.mapper.ts) | Phải truy được từng item từ vị trí trong thùng về đơn gốc                                                  |
 | Gộp dòng chỉ để hiển thị                  | [aggregateOrderItems](../be/src/modules/orders/utils/aggregate-order-items.util.ts)                                                 | Không dùng dòng SKU đã gộp thay cho danh tính từng đơn vị                                                  |
-| Module packaging, catalog thùng và engine | Không có module tương ứng trong cây `be/src/modules` đã kiểm tra                                                                    | Cần bổ sung; route recommend trong README là dự kiến                                                       |
-| Kích thước, khối lượng, khả năng chồng    | Chưa có trên `OrderItem` hiện tại                                                                                                   | Phải xây dựng hồ sơ đóng gói SKU, không suy ra từ tên sản phẩm                                             |
+| Packaging và fulfillment | [PackagingService](../be/src/modules/packaging/packaging.service.ts), [OrderGroupsService](../be/src/modules/order-groups/order-groups.service.ts) | Đã có fallback, approve/adjust/reject, picking và trạng thái nội bộ; chưa có validator 3D/catalog bao bì động |
+| Số đo khai báo sản phẩm | [ProductMasterService](../be/src/modules/product-master/product-master.service.ts) lấy GetProducts vào `marketplace_dimension` | Đã có số đo sàn; hồ sơ engine dùng `dimension` + `packaging_profile_status=ready` của kho; không dùng mặc định 20 cm/0,5 kg |
 | Frontend                                  | [package frontend](../fe/package.json) khai React `^19.2.8`, Vite `^8.2.0`, TypeScript `~6.0.2`                                     | Đây là phiên bản khai báo, không phải xác nhận phiên bản đã cài; chưa có dependency dựng 3D                |
 | Phân quyền                                | [UserRole](../be/src/common/enums/user-role.enum.ts) có 5 role dạng số                                                              | Dùng role hiện hữu, không tạo thêm role chỉ để phục vụ packaging                                           |
 
@@ -50,9 +50,29 @@ Biên soạn: **08/09/2026**, cập nhật danh mục **09/09/2026**. Đối tư
 - Report 1/Report 2 được nhắc trong hướng dẫn nhưng không tìm thấy file PDF/DOCX tương ứng trong lượt kiểm tra repo. Không coi tài liệu này là xác nhận đầy đủ yêu cầu trong các report đó.
 - Lazada là nguồn tích hợp đang phát triển. Không mở thêm Shopee, TikTok hay Tiki chỉ để làm tính năng packaging.
 
-### 1.3. Nền tảng cần bổ sung trước khi nói đến AI
+### 1.3. Flow mục tiêu thay cho quy trình cũ
 
-Ba phần cần có đầu tiên là **dữ liệu sản phẩm đã đo**, **danh mục thùng đang dùng**, và **bộ kiểm tra phương án xếp**. Một mô hình tốt vẫn đưa ra phương án sai nếu kích thước đầu vào là kích thước ảnh quảng cáo hoặc kích thước kiện vận chuyển cũ.
+**ĐÃ THAY ĐỔI ngày 12/09/2026:** phát triển tiếp trên module hiện hữu; một đơn nguồn là một phạm vi đóng, còn gom đơn chỉ hỗ trợ lấy hàng cùng lượt. Không mặc định group nhiều đơn là một kiện/vận đơn. Nhóm legacy đang xử lý phải rà soát trước chuyển đổi, không tự sửa lịch sử đã hoàn tất.
+
+```text
+Đồng bộ đơn + dữ liệu sản phẩm khai báo từ sàn
+→ Xác định từng item đủ điều kiện của một đơn
+→ Tra hồ sơ đóng gói được kho xác nhận
+   ├─ Thiếu → Chờ bổ sung, không đoán số đo
+   └─ Đủ → Tính túi/carton → Validator
+          ├─ Không hợp lệ/chưa tìm được → Xử lý ngoại lệ
+          └─ Hợp lệ → Tự thông qua phương án → Phân công lấy hàng
+→ Đối chiếu item/số lượng thực lấy
+→ Thay đổi hoặc thiếu hàng → Dừng, xử lý và tính lại
+→ Đóng theo quy cách → Cân/đo kiện hoàn chỉnh, ghi vật tư
+→ Xác nhận đóng xong → Bàn giao vận chuyển nội bộ
+```
+
+Kho hoặc Admin xác nhận đã đo/thử khi nhập hồ sơ SKU, không có bước Admin duyệt riêng. Nháp chưa được dùng, sửa quy cách tạo version mới. Đơn thường được hệ thống xử lý sau kiểm tra đầy đủ; nhân viên xử lý ngoại lệ. Tự thông qua phương án khác với xác nhận đã lấy/đóng hàng thật.
+
+Hiện code vẫn cần Admin generate, Packaging Staff/Admin approve trước picking và yêu cầu cân sau đóng ngay lúc approve. Đây là điểm cần sửa, không phải flow mục tiêu. Trạng thái mục tiêu giữ tên hiện có để chuyển tiếp: awaiting_packaging (chờ dữ liệu/tính, có reason), pending_approval (ngoại lệ), approved_for_packing (phương án hợp lệ, actor system/human), picking → picked (đủ hàng), packed (đã cân/đo sau đóng). Partial không được đi tiếp chỉ nhờ boolean approve.
+
+Fulfillment hiện mô phỏng nội bộ; không thêm lời gọi Pack/ReadyToShip thật lên Lazada trong phạm vi đồ án. [Roadmap BE-1 đến BE-5](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md) là thứ tự sửa hiện hành; chưa bật tự động trước khi đầu vào, validator và picking/xác nhận đạt nghiệm thu.
 
 <a id="bai-toan"></a>
 
@@ -62,11 +82,11 @@ Ba phần cần có đầu tiên là **dữ liệu sản phẩm đã đo**, **da
 
 **Phạm vi: quần áo, giày và phụ kiện thời trang.** Phân nhóm theo cách đóng: đồ mềm gấp được, đồ giữ nếp/phom, phụ kiện mềm, phụ kiện có hộp và phụ kiện cần bảo vệ bề mặt. Áo thun, quần, mũ, túi xách, thắt lưng và trang sức là ví dụ thiết kế; chưa phải dữ liệu SKU thật đã có trong repo.
 
-Quần áo dùng hồ sơ gấp/bọc đã đo theo SKU/size/biến thể. Không suy số đo từ nhãn size, không tự nén một tỷ lệ và không lấy kích thước hàng trải phẳng để xếp. Phụ kiện được đánh giá theo yêu cầu hộp bảo vệ, giữ phom, chồng và tiếp xúc với vải. V1 dùng một hồ sơ đã duyệt cho từng biến thể.
+Quần áo dùng hồ sơ gấp/bọc đã đo theo SKU/size/biến thể. Không suy số đo từ nhãn size, không tự nén một tỷ lệ và không lấy kích thước hàng trải phẳng để xếp. Phụ kiện được đánh giá theo yêu cầu hộp bảo vệ, giữ phom, chồng và tiếp xúc với vải. V1 dùng một hồ sơ đã xác nhận cho từng biến thể.
 
 Nhánh `box` dùng greedy 3D trên khối bao quanh gói sau chuẩn hóa. Nhánh `mailer` dùng quy cách túi đã thử cho đúng tổ hợp profile/version/số lượng, cách gói và đóng kín. Không dùng dài × rộng phẳng để tự suy chiều cao túi hoặc khả năng chứa. Thiếu quy cách túi nghĩa chưa đánh giá nhánh đó, không phải chứng minh túi không vừa.
 
-Prototype nhánh thùng hoàn tất ở M4; chọn túi theo quy cách ở M4A là một phần của MVP API thời trang, trước pilot M6. Mô phỏng biến dạng vải/túi và tối ưu nén vẫn là nghiên cứu P2. Xem [giải thích thuật toán](GIAI_THICH_THUAT_TOAN_3D_PACKAGING.md) và [roadmap backend](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md).
+BE-3 triển khai nhánh thùng trước rồi nhánh túi; BE-4 sửa picking/xác nhận và BE-5 mới bật tự động/pilot. Mô phỏng biến dạng vải/túi và tối ưu nén vẫn là nghiên cứu P2. Xem [giải thích thuật toán](GIAI_THICH_THUAT_TOAN_3D_PACKAGING.md) và [roadmap backend](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md).
 
 ### Giày và hộp sản phẩm
 
@@ -88,24 +108,24 @@ Không mặc định mọi trang sức đều dễ vỡ. Hồ sơ theo SKU/biế
 
 | Yêu cầu | Dữ liệu và tác động đến phương án |
 | --- | --- |
-| Dễ vỡ | Gắn quy cách bảo vệ đã duyệt; cờ dễ vỡ riêng lẻ không đủ để suy ra độ dày đệm |
+| Dễ vỡ | Gắn quy cách bảo vệ đã xác nhận; cờ dễ vỡ riêng lẻ không đủ để suy ra độ dày đệm |
 | Cần chống sốc | Ghi loại, lượng vật liệu, cách cố định và khoảng đệm theo quy cách đã thử |
 | Dễ trầy xước | Bọc riêng, lớp lót hoặc ngăn cách theo quy cách tương thích bề mặt |
 | Không được đè lên | Cấm đặt hàng khác lên item; nếu cho chồng phải có tải cho phép đã xác minh |
 | Đã có hộp bảo vệ | Dùng kích thước ngoài và khối lượng gói hoàn chỉnh; không cộng hộp/lớp đệm hai lần |
 | Giới hạn bao bì ngoài | Chỉ xét túi/thùng được hồ sơ cho phép; lọt túi không chứng minh đủ bảo vệ |
 
-**Ví dụ quy cách trang sức:** món hàng → hộp nhỏ có đệm cố định và lớp lót phù hợp → lớp chống sốc → thùng vận chuyển. Đây là mẫu để kho thử và duyệt, không phải quy cách chung cho mọi loại trang sức. Đo kích thước và khối lượng sau các bước bảo vệ item, rồi dùng khối bao đó làm đầu vào xếp 3D. Phần chèn giữa item và thành thùng hoặc giữa các item phải được mô hình hóa riêng nếu chưa nằm trong kích thước hiệu dụng; không để solver sử dụng khoảng đệm này cho món khác.
+**Ví dụ quy cách trang sức:** món hàng → hộp nhỏ có đệm cố định và lớp lót phù hợp → lớp chống sốc → thùng vận chuyển. Đây là mẫu để kho thử và xác nhận, không phải quy cách chung cho mọi loại trang sức. Đo kích thước và khối lượng sau các bước bảo vệ item, rồi dùng khối bao đó làm đầu vào xếp 3D. Phần chèn giữa item và thành thùng hoặc giữa các item phải được mô hình hóa riêng nếu chưa nằm trong kích thước hiệu dụng; không để solver sử dụng khoảng đệm này cho món khác.
 
 Quy trình đề xuất:
 
-1. Lấy hồ sơ SKU và phiên bản quy cách bảo vệ đã duyệt, kiểm tra đủ dữ liệu và vật tư.
+1. Lấy hồ sơ SKU và phiên bản quy cách bảo vệ đã xác nhận, kiểm tra đủ dữ liệu và vật tư.
 2. Chuẩn hóa item sau bảo vệ, giữ các ràng buộc xoay, chồng, tiếp xúc và khoảng đệm.
 3. Loại phương án vi phạm bảo vệ, sau đó xếp hạng các phương án hợp lệ theo tổng chi phí hộp/túi, vật liệu bổ sung và vận chuyển khi có biểu phí. Khi thiếu biểu phí, áp dụng thứ tự ưu tiên hiện hành và ghi rõ giới hạn ước tính.
 4. Trả hướng dẫn thao tác, danh sách/định lượng vật tư và lý do chọn hoặc loại bao bì; lưu phiên bản quy cách trong snapshot để truy lại.
-5. Nếu thiếu quy cách đã duyệt hoặc không tìm được phương án đáp ứng với vật tư hiện có, trả trạng thái cần xử lý thủ công cùng lý do. Không giảm lớp bảo vệ để ép vừa hộp; không khẳng định bài toán vô nghiệm chỉ vì heuristic chưa tìm thấy cách xếp.
+5. Nếu thiếu quy cách đã xác nhận hoặc không tìm được phương án đáp ứng với vật tư hiện có, trả trạng thái cần xử lý thủ công cùng lý do. Không giảm lớp bảo vệ để ép vừa hộp; không khẳng định bài toán vô nghiệm chỉ vì heuristic chưa tìm thấy cách xếp.
 
-AI có thể gợi ý quy cách để người phụ trách đánh giá; không tự bỏ yêu cầu bảo vệ hoặc coi gợi ý chưa kiểm chứng là hồ sơ đã duyệt. Validator hình học chỉ xác nhận mô hình quy tắc; khả năng chống sốc thực tế cần được xác minh qua thử nghiệm đóng gói.
+AI có thể gợi ý quy cách để người phụ trách đánh giá; không tự bỏ yêu cầu bảo vệ hoặc coi gợi ý chưa kiểm chứng là hồ sơ đã xác nhận. Validator hình học chỉ xác nhận mô hình quy tắc; khả năng chống sốc thực tế cần được xác minh qua thử nghiệm đóng gói.
 
 ### 2.1. Hệ thống cần trả lời câu hỏi gì?
 
@@ -126,22 +146,22 @@ MVP xử lý **offline packing**: biết toàn bộ item của đơn trước kh
 1. Đủ từng item hợp lệ, không trùng, không bỏ sót; đáp ứng ràng buộc hình học và nghiệp vụ.
 2. Chỉ dùng loại thùng và cách đóng gói được kho chấp nhận.
 3. Nếu có biểu phí đủ tin cậy: giảm tổng chi phí vật tư và vận chuyển của **cả đơn**.
-4. Nếu chưa đủ biểu phí: prototype chỉ có thùng ưu tiên ít kiện, thể tích ngoài rồi vật tư. Từ M4A khi so cả túi/thùng, ưu tiên ít kiện rồi chi phí vật tư đầy đủ; không so thể tích thùng với kích thước phẳng túi. Nếu giá vật tư chưa đủ cho mọi candidate, không kết luận lựa chọn rẻ nhất toàn bộ; luôn ghi rõ cước/tổng chưa biết.
+4. Nếu chưa đủ biểu phí: prototype chỉ có thùng ưu tiên ít kiện, thể tích ngoài rồi vật tư. Ở BE-3 khi so cả túi/thùng, ưu tiên ít kiện rồi chi phí vật tư đầy đủ; không so thể tích thùng với kích thước phẳng túi. Nếu giá vật tư chưa đủ cho mọi candidate, không kết luận lựa chọn rẻ nhất toàn bộ; luôn ghi rõ cước/tổng chưa biết.
 5. Khi các phương án bằng nhau: ưu tiên ít thao tác và thứ tự ổn định để dễ tái hiện.
 
 Không cộng điểm an toàn vào điểm chi phí rồi cho phép phương án rẻ “bù” cho vi phạm bắt buộc. Không gọi phương án heuristic là tối ưu toàn cục nếu chưa có chứng minh.
 
 ### 2.3. Phạm vi theo giai đoạn
 
-**MVP:** gói quần áo/giày/phụ kiện sau gấp/bọc được mô hình hóa bằng khối hộp không biến dạng, xoay vuông góc theo hướng được phép, catalog thùng có sẵn, một đơn được xét tại một thời điểm, hướng dẫn 3D/2D, nhân viên xác nhận. Nhánh túi theo quy cách đã thử là mốc M4A của MVP API thời trang; viewer 3D áp dụng cho thùng, còn túi dùng danh sách bước gói. Khi cần nhiều kiện, chỉ xác nhận nếu luồng fulfillment hỗ trợ; nếu chưa hỗ trợ thì kết quả chia kiện là đề xuất cần xử lý thủ công.
+**MVP:** gói quần áo/giày/phụ kiện sau gấp/bọc được mô hình hóa bằng khối hộp không biến dạng, xoay vuông góc theo hướng được phép, catalog thùng có sẵn, một đơn được xét tại một thời điểm, hướng dẫn 3D/2D, nhân viên xác nhận. Nhánh túi theo quy cách đã thử là đợt BE-3 của MVP API thời trang; viewer 3D áp dụng cho thùng, còn túi dùng danh sách bước gói. Khi cần nhiều kiện, chỉ xác nhận nếu luồng fulfillment hỗ trợ; nếu chưa hỗ trợ thì kết quả chia kiện là đề xuất cần xử lý thủ công.
 
-**Mở rộng:** tối ưu nhiều đơn cùng tồn kho vật tư, gộp đơn có điều kiện nghiệp vụ, mô phỏng biến dạng túi/vải, hình dạng bất quy tắc, đo bằng camera, pallet và robot. Gộp theo địa chỉ không tự động có nghĩa sàn cho phép dùng chung vận đơn; không để engine hình học tự quyết định điều đó.
+**Mở rộng sau pilot:** tối ưu nhiều đơn cùng tồn kho vật tư, nghiên cứu gộp kiện có điều kiện nghiệp vụ, mô phỏng biến dạng túi/vải, hình dạng bất quy tắc, đo bằng camera, pallet và robot. Gộp theo địa chỉ không tự động có nghĩa sàn cho phép dùng chung vận đơn; không để engine hình học tự quyết định điều đó.
 
 <a id="y-tuong"></a>
 
 ## 3. Danh mục ý tưởng sản phẩm
 
-Ưu tiên: **P0** cần cho MVP thời trang gồm M4A, **P1** tăng giá trị sau MVP, **P2** nghiên cứu/mở rộng. Độ khó là ước lượng tương đối cho nhóm, chưa phải cam kết thời gian.
+Ưu tiên: **P0** cần cho MVP thời trang gồm hồ sơ SKU, catalog và validator; **P1** tăng giá trị sau MVP, **P2** nghiên cứu/mở rộng. Độ khó là ước lượng tương đối cho nhóm, chưa phải cam kết thời gian.
 
 | Ý tưởng                           | Lợi ích và ví dụ                                 | Dữ liệu/phụ thuộc                                  |   Khó   | Ưu tiên |
 | --------------------------------- | ------------------------------------------------ | -------------------------------------------------- | :-----: | :-----: |
@@ -164,10 +184,10 @@ Không cộng điểm an toàn vào điểm chi phí rồi cho phép phương á
 | Tối ưu theo ca/kho                | Phân bổ thùng khan hiếm cho đơn có lợi nhất      | Batch đơn, hạn giao, tồn kho tổng                  |   Cao   |   P2    |
 | Camera hỗ trợ đo                  | Giảm thao tác nhập số đo                         | Thiết bị hiệu chuẩn, vật chuẩn/depth, quy trình đo |   Cao   |   P2    |
 | Đóng gói vật thể bất quy tắc      | Khai thác khoảng trống của hình dạng thật        | Mesh/scan, va chạm và ổn định                      | Rất cao |   P2    |
-| Chọn túi giao hàng theo quy cách  | Phục vụ đơn thời trang đủ điều kiện, mốc M4A     | Tổ hợp profile/version/số lượng đã thử, tồn và giá |   Vừa   |   P0    |
+| Chọn túi giao hàng theo quy cách  | Phục vụ đơn thời trang đủ điều kiện, đợt BE-3     | Tổ hợp profile/version/số lượng đã thử, tồn và giá |   Vừa   |   P0    |
 | Mô phỏng túi/vải và tối ưu nén    | Xét biến dạng ngoài mô hình gói cố định          | Mức nén cho phép và thử nghiệm hàng                |   Cao   |   P2    |
 | Pallet/robot                      | Mở rộng sang xếp vận chuyển hoặc tự động hóa     | Tải trọng, trọng tâm, đường đi, kẹp gắp            | Rất cao |   P2    |
-| Trợ lý hỏi đáp quy trình          | Giải thích hướng dẫn đã duyệt cho nhân viên      | Tài liệu kho và dữ liệu phương án                  |   Vừa   |   P2    |
+| Trợ lý hỏi đáp quy trình          | Giải thích hướng dẫn đã xác nhận cho nhân viên      | Tài liệu kho và dữ liệu phương án                  |   Vừa   |   P2    |
 | Chỉ số môi trường                 | So sánh khối lượng vật tư giữa phương án         | Vật liệu và hệ số có nguồn, phạm vi tính           |   Cao   |   P2    |
 
 **Nhóm tính năng nên làm đầu tiên:** hồ sơ SKU + catalog thùng + engine kiểm chứng + hướng dẫn xếp + ghi nhận phản hồi. Nhóm này tạo một vòng vận hành hoàn chỉnh và sinh dữ liệu cho AI về sau.
@@ -178,7 +198,9 @@ Không cộng điểm an toàn vào điểm chi phí rồi cho phép phương á
 
 ### 4.1. Hồ sơ đóng gói sản phẩm
 
-Đề xuất catalog riêng, ánh xạ `(platform, shop_id, sku, variation)` tới hồ sơ nội bộ. Không coi cùng chuỗi SKU ở hai shop là cùng sản phẩm nếu chưa có mapping xác minh.
+Phát triển tiếp Product Master hiện hữu thành hai nguồn phân biệt: số đo khai báo từ sàn (kèm nguồn/thời điểm sync) và hồ sơ đóng gói được kho xác nhận. Số đo package từ sàn chỉ điền trước/tham khảo tới khi biết đúng trạng thái đo; không mặc định là gói đã chuẩn bị tại kho. Đồng bộ sàn không ghi đè hồ sơ kho. Không đổi trường thiếu thành 20 cm/0,5 kg hoặc coi độ nhạy chưa biết là không dễ vỡ.
+
+Ánh xạ `(platform, shop_id, sku, variation)` tới hồ sơ nội bộ. Không coi cùng chuỗi SKU ở hai shop là cùng sản phẩm nếu chưa có mapping xác minh.
 
 | Nhóm               | Trường/capability đề xuất                                       | Quy tắc sử dụng                                                              |
 | ------------------ | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
@@ -188,7 +210,7 @@ Không cộng điểm an toàn vào điểm chi phí rồi cho phép phương á
 | Hướng              | Tập hướng được phép, mặt phải hướng lên                         | “Không lật” có thể vẫn cho xoay trên mặt đáy                                 |
 | Độ nhạy            | Giữ nếp/phom, cấm ép/chồng, bảo vệ bề mặt, tương thích đi chung | Quy tắc được kho xác minh cho từng hồ sơ                                     |
 | Bọc và đệm         | Công thức bọc, độ dày theo từng trục, khối lượng vật tư         | Tính đúng một lần, tránh cộng trùng với hộp bán lẻ                           |
-| Độ tin cậy dữ liệu | Nguồn đo, ngày đo, người duyệt, phiên bản                       | Đây là độ tin cậy số đo, khác với điểm xếp hạng mô hình                      |
+| Độ tin cậy dữ liệu | Nguồn đo, ngày đo, người xác nhận, phiên bản                       | Đây là độ tin cậy số đo, khác với điểm xếp hạng mô hình                      |
 
 MVP dùng **mm nguyên** cho hình học và **g nguyên** cho khối lượng. Làm tròn kích thước item lên và không gian dùng được của thùng xuống khi chuyển đổi; giữ số đo gốc để truy vết. Sai số đo và độ hở thao tác là hai thứ cần khai báo riêng.
 
@@ -202,7 +224,7 @@ Mỗi item đưa vào engine có `item_key` duy nhất, trỏ về order và `pl
 - **Khối lượng bì, giá, tồn khả dụng:** giá và tồn có phiên bản/thời điểm. Recommendation không tự giữ chỗ vật tư.
 - **Quy cách vật liệu:** đơn vị tính là tấm, mét, cuộn hoặc gram; có cách chuyển lượng sử dụng sang chi phí và khối lượng.
 
-Túi giao hàng có mã, kích thước phẳng, bì, tồn/giá và quy cách fit đã duyệt. Mỗi fit profile lưu tổ hợp hồ sơ sản phẩm/version/số lượng cùng cách gói và đóng kín. Tổ hợp khác size, chất liệu, số lượng hoặc thêm phụ kiện phải có quy cách phù hợp riêng; không suy rộng tự động.
+Túi zip bọc riêng item khác túi dùng làm bao bì ngoài. Áo → zip → carton dùng kích thước gói áo đã chứa trong zip làm khối xếp, không dùng số đo túi rỗng. Catalog túi lưu mã, kích thước phẳng/phần dùng được, kiểu đáy, vai trò, bì, tồn/giá và quy cách fit đã xác nhận. Mỗi fit profile lưu tổ hợp hồ sơ sản phẩm/version/số lượng cùng cách gói và đóng kín. Tổ hợp khác size, chất liệu, số lượng hoặc thêm phụ kiện phải có quy cách phù hợp riêng; không suy rộng tự động.
 
 Khoảng trống hình học không tự chuyển thành lượng giấy chèn chính xác. Vật liệu bọc riêng, chèn khe và tấm ngăn cần công thức/quy trình riêng do kho thử nghiệm.
 
@@ -210,10 +232,10 @@ Khoảng trống hình học không tự chuyển thành lượng giấy chèn c
 
 1. Nhập catalog thủ công hoặc CSV có template và đơn vị rõ ràng.
 2. Đo hàng ở đúng trạng thái đóng gói; đo lại khi số đo bất thường hoặc biến thể thay đổi.
-3. Người có quyền xác minh số đo và quy cách bọc; lưu phiên bản.
+3. Kho/Admin xác nhận đã đo/thử ngay khi nhập; hệ thống kiểm tra đủ dữ liệu, lưu người/thời điểm và phiên bản. Không có bước Admin duyệt riêng.
 4. Kiểm tra chiều dương, khối lượng dương, giá trị hữu hạn, mapping đủ và hướng hợp lệ.
 5. Đánh dấu `ready` hoặc `needs_measurement`; item thiếu dữ liệu chặn recommendation có thể xác nhận.
-6. Khi đo lại, recommendation chưa xác nhận dùng phiên bản cũ phải được tính lại; lịch sử đã xác nhận vẫn giữ snapshot.
+6. Khi đo lại, recommendation chưa bắt đầu xử lý dùng phiên bản cũ phải được tính lại; đơn đang picking/packing chuyển xem lại, không bị job tự thay phương án; lịch sử đã xác nhận vẫn giữ snapshot.
 
 Có thể cho chạy thử dữ liệu giả ở môi trường demo với nhãn “dữ liệu giả lập”. Không âm thầm dùng số đo mặc định cho đơn thật.
 
@@ -297,7 +319,7 @@ Nghiên cứu [Online 3D Bin Packing with Constrained Deep Reinforcement Learnin
 
 ### 6.4. Vai trò LLM và computer vision
 
-LLM có thể diễn đạt mã lý do thành hướng dẫn dễ đọc hoặc tìm quy trình kho đã duyệt. MVP dùng template cố định cho giải thích quan trọng: “Thùng S bị loại vì cạnh dài hiệu dụng 220 mm vượt chiều trong 200 mm”. Không giao cho LLM quyền tự tạo số đo, tính tọa độ cuối cùng, giá cước hay xác nhận phương án.
+LLM có thể diễn đạt mã lý do thành hướng dẫn dễ đọc hoặc tìm quy trình kho đã xác nhận. MVP dùng template cố định cho giải thích quan trọng: “Thùng S bị loại vì cạnh dài hiệu dụng 220 mm vượt chiều trong 200 mm”. Không giao cho LLM quyền tự tạo số đo, tính tọa độ cuối cùng, giá cước hay xác nhận phương án.
 
 Camera đo kích thước là một bài toán riêng: cần tỷ lệ tham chiếu/hiệu chuẩn, xử lý che khuất và kiểm tra sai số. Một ảnh sản phẩm thông thường không đủ để đảm bảo kích thước tuyệt đối. Chỉ dùng số đo camera sau bước xác minh, và giữ lựa chọn nhập/đo thủ công.
 
@@ -318,7 +340,7 @@ Mỗi câu hỏi cần baseline, dữ liệu giữ lại, tiêu chí đo, giới
 
 | Thành phần                    | Trách nhiệm                                                             |
 | ----------------------------- | ----------------------------------------------------------------------- |
-| Orders                        | Cung cấp đơn và từng item đủ điều kiện, giữ trạng thái nguồn sàn        |
+| Orders / Order Groups | Giữ trạng thái nguồn; cung cấp từng unit của một đơn; nhóm lấy hàng không quyết định giao chung |
 | Packaging catalog             | Hồ sơ SKU, thùng, công thức vật tư và phiên bản                         |
 | Packaging application service | Phân quyền, snapshot đầu vào, gọi engine, lưu recommendation            |
 | Packing engine                | Hàm tính toán từ dữ liệu chuẩn hóa tới candidate; không gọi Mongo/sàn   |
@@ -347,7 +369,7 @@ Nếu Python cho kết quả tốt hơn đáng kể hoặc là điều kiện c�
 
 Trước khi viết schema, xác định query catalog theo mapping SKU và query lịch sử theo `order_id/created_at` để thiết kế index. Khóa duy nhất mapping và khóa chống xác nhận trùng cần enforce ở DB, không chỉ kiểm tra trước ở service.
 
-Khi xác nhận: đọc lại revision đơn, hồ sơ và tồn kho; lưu lựa chọn và trừ vật tư trong transaction nếu cùng nghiệp vụ ghi nhiều collection. [Docker Compose hiện tại](../docker-compose.yml) chưa khai cấu hình replica set; môi trường Mongo phục vụ transaction cần được chuẩn bị trước. Yêu cầu replica set/sharded cluster cho transaction được mô tả trong [tài liệu MongoDB](https://www.mongodb.com/docs/manual/core/transactions-production-consideration/).
+Tách chọn phương án, nhận vật tư lúc bắt đầu đóng và xác nhận đóng xong. Lưu lựa chọn không trừ tồn. Khi cấp vật tư: kiểm tra revision/tồn, ghi attempt + ledger và trừ nguyên tử trong transaction. Sau đóng mới cân/đo và đối soát thực dùng/trả lại; retry không trừ thêm. [Docker Compose hiện tại](../docker-compose.yml) chưa khai cấu hình replica set; môi trường Mongo phục vụ transaction cần được chuẩn bị trước. Yêu cầu replica set/sharded cluster cho transaction được mô tả trong [tài liệu MongoDB](https://www.mongodb.com/docs/manual/core/transactions-production-consideration/).
 
 Lời gọi sàn/in nhãn không nằm trong transaction Mongo. Sau commit, chuyển cho fulfillment xử lý có idempotency và retry; không coi timeout từ sàn là lý do trừ vật tư thêm lần nữa. Việc xác nhận kế hoạch chưa đồng nghĩa đã đóng xong và không tự đổi trạng thái nguồn sàn sang `PACKED`.
 
@@ -359,7 +381,7 @@ Lời gọi sàn/in nhãn không nằm trong transaction Mongo. Sau commit, chuy
 
 | Màn hình             | Nội dung                                          | Hành động chính                  |
 | -------------------- | ------------------------------------------------- | -------------------------------- |
-| Chuẩn bị dữ liệu     | SKU thiếu số đo, mapping chưa duyệt               | Nhập/đo và xác minh              |
+| Chuẩn bị dữ liệu     | SKU thiếu số đo, mapping chưa xác nhận               | Nhập/đo và xác minh              |
 | Chi tiết đóng gói    | Item đủ điều kiện, cảnh báo, thùng khả dụng       | Tạo recommendation               |
 | So sánh phương án    | Số kiện, vật tư, chi phí đã biết/chưa biết, lý do | Chọn một phương án               |
 | Hướng dẫn xếp        | Thùng 3D, danh sách bước và item đang chọn        | Tiến/lùi, xem mặt trên/cạnh      |
@@ -381,15 +403,15 @@ Engine dùng Z hướng lên; viewer có thể cấu hình camera cùng quy ư�
 
 ### 8.3. Chỉnh sửa và quyền thao tác
 
-MVP cho chọn phương án/thùng khác và yêu cầu tính lại; chưa cần kéo-thả tọa độ tự do. P1 có thể thêm chỉnh placement, nhưng backend phải kiểm tra toàn bộ trước khi chấp nhận. Ghi rõ ai đổi, lý do và phiên bản kết quả.
+MVP tự chọn phương án hợp lệ cho luồng thường; ngoại lệ cho nhân viên chọn phương án/thùng khác và yêu cầu tính lại; chưa cần kéo-thả tọa độ tự do. P1 có thể thêm chỉnh placement, nhưng backend phải kiểm tra toàn bộ trước khi chấp nhận. Ghi rõ ai đổi, lý do và phiên bản kết quả.
 
-Đề xuất dùng `PACKAGING_STAFF` cho tạo/chọn/xác nhận trong công việc được giao; `WAREHOUSE_STAFF` cập nhật số đo và vật tư theo quyền được cấp; `SHIPPING_COORDINATOR` xem thông tin kiện; `STORE_OWNER` xem chỉ số; `ADMIN` quản lý cấu hình. Đây là quyền đề xuất, không mô tả quyền route hiện hữu. Các route Orders hiện giới hạn Admin nên cần API đọc tối thiểu cho quy trình đóng gói, không mở toàn bộ quyền đồng bộ sàn cho nhân viên.
+Đề xuất dùng `PACKAGING_STAFF` cho xử lý ngoại lệ/điều chỉnh phương án; hệ thống tự tính và thông qua phương án hợp lệ cho đơn thường; `WAREHOUSE_STAFF` cập nhật số đo và vật tư theo quyền được cấp; `SHIPPING_COORDINATOR` xem thông tin kiện; `STORE_OWNER` xem chỉ số; `ADMIN` quản lý cấu hình. Đây là quyền đề xuất, không mô tả quyền route hiện hữu. Các route Orders hiện giới hạn Admin nên cần API đọc tối thiểu cho quy trình đóng gói, không mở toàn bộ quyền đồng bộ sàn cho nhân viên.
 
 <a id="api"></a>
 
 ## 9. API và hợp đồng dữ liệu đề xuất
 
-Các endpoint dưới đây **chưa tồn tại**. Không thêm prefix `/api/v1` vì repo hiện không dùng. Payload minh họa là phần dữ liệu nghiệp vụ; khi triển khai phải theo envelope và format lỗi chung của backend.
+Các endpoint dưới đây **chưa tồn tại**. Route đang chạy là `/order-groups/:groupId/packaging` với GET và generate/approve/adjust/reject; response camelCase, contract cm/kg và một hộp. Phải có adapter/version khi chuyển sang phạm vi mỗi đơn và lõi mm/g, không thay route cũ ngầm. Không ép kết quả túi thành box để tương thích. Bản legacy thiếu snapshot phải tính lại trước lần xử lý mới, giữ lịch sử cũ. Không thêm prefix `/api/v1` vì repo hiện không dùng. Payload snake_case minh họa là contract lõi đề xuất, không thay response camelCase của API đang chạy; khi triển khai phải theo envelope và format lỗi chung của backend.
 
 ### 9.1. Endpoint tối thiểu
 
@@ -397,7 +419,7 @@ Các endpoint dưới đây **chưa tồn tại**. Không thêm prefix `/api/v1`
 | ---------------------------------------------- | -------------------------------------------------- |
 | `POST /packaging/recommend`                    | Backend đọc đơn/catalog, tạo và lưu recommendation |
 | `GET /packaging/recommendations/:id`           | Lấy snapshot và các phương án để xem lại           |
-| `POST /packaging/recommendations/:id/confirm`  | Chọn phương án sau kiểm tra phiên bản và vật tư    |
+| `POST /packaging/recommendations/:id/confirm` | Nhận vật tư cho attempt sau kiểm tra revision/tồn; không đồng nghĩa đóng xong |
 | `POST /packaging/recommendations/:id/feedback` | Ghi lý do đổi, thời gian và vật tư thực dùng       |
 
 CRUD hồ sơ SKU/biến thể, túi/thùng/vật tư và quy cách fit là hạng mục riêng theo roadmap. Không nhét CRUD vào endpoint recommend.
@@ -412,7 +434,7 @@ Ví dụ request:
 }
 ```
 
-`demo-order-001` là ID dễ đọc cho tài liệu; API thật dùng ID theo schema hiện hữu. Frontend không gửi giá hoặc số đo làm nguồn sự thật khi tối ưu đơn thật. Backend lấy item đủ điều kiện, số đo đã duyệt và giá vật tư từ catalog.
+`demo-order-001` là ID dễ đọc cho tài liệu; API thật dùng ID theo schema hiện hữu. Frontend không gửi giá hoặc số đo làm nguồn sự thật khi tối ưu đơn thật. Backend lấy item đủ điều kiện, số đo đã xác nhận và giá vật tư từ catalog.
 
 ### 9.2. Kết quả phải đủ để dựng lại và kiểm tra
 
@@ -483,7 +505,7 @@ Response rút gọn của nhánh thùng trong ví dụ ở mục 10. Nhánh túi
 
 ### 9.3. Xác nhận và phản hồi
 
-Request xác nhận gồm `candidate_id`, `input_revision` và khóa idempotency cho thao tác. Server đọc lại dữ liệu liên quan; dữ liệu hoặc tồn đã đổi thì trả xung đột để tính lại. Một lần bấm lại cùng khóa và cùng nội dung trả cùng kết quả; cùng khóa nhưng nội dung khác phải bị từ chối.
+Request nhận vật tư gồm `candidate_id`, `input_revision` và khóa idempotency; xác nhận đóng xong còn cần attempt, cân/đo kiện thật và vật tư thực dùng. Chọn phương án trước picking không yêu cầu cân sau đóng. Server đọc lại dữ liệu liên quan; dữ liệu hoặc tồn đã đổi thì trả xung đột để tính lại. Một lần bấm lại cùng khóa và cùng nội dung trả cùng kết quả; cùng khóa nhưng nội dung khác phải bị từ chối.
 
 Không dùng một cờ “AI confidence” chung cho mọi ý nghĩa. Tách chất lượng số đo, kết quả validator, trạng thái tìm kiếm và điểm dự đoán của mô hình nếu có.
 
@@ -542,9 +564,9 @@ Nếu đo lại B thành khối 130 × 130 × 130 mm, item không vừa chiều 
 
 ## 11. Chi phí, vật liệu và tác động môi trường
 
-Với ngành hàng thời trang, policy so túi/thùng sau M4A ưu tiên tổng chi phí nếu mọi candidate có đủ vật tư/cước; nếu chỉ đủ vật tư thì so vật tư và đánh dấu cước/tổng chưa biết. Nếu còn thiếu giá vật tư của một candidate, không khẳng định lựa chọn rẻ nhất toàn bộ. Khi hòa, dùng số bước quy cách rồi mã bao bì/signature. Không so kích thước phẳng của túi với thể tích trong thùng. Policy prototype chỉ-thùng ở ví dụ mục 10 vẫn ưu tiên thể tích ngoài khi chưa có cước.
+Với ngành hàng thời trang, policy so túi/thùng ở BE-3 ưu tiên tổng chi phí nếu mọi candidate có đủ vật tư/cước; nếu chỉ đủ vật tư thì so vật tư và đánh dấu cước/tổng chưa biết. Nếu còn thiếu giá vật tư của một candidate, không khẳng định lựa chọn rẻ nhất toàn bộ. Khi hòa, dùng số bước quy cách rồi mã bao bì/signature. Không so kích thước phẳng của túi với thể tích trong thùng. Policy prototype chỉ-thùng ở ví dụ mục 10 vẫn ưu tiên thể tích ngoài khi chưa có cước.
 
-Đơn chỉ có A1/A2 có thể dùng túi nếu đúng quy cách hai áo đã duyệt; thêm B1 bắt buộc thùng thì nhánh túi bị loại. Ví dụ đầy đủ hai nhánh và chi phí vật tư giả lập nằm trong [giải thích thuật toán](GIAI_THICH_THUAT_TOAN_3D_PACKAGING.md).
+Đơn chỉ có A1/A2 có thể dùng túi nếu đúng quy cách hai áo đã xác nhận; thêm B1 bắt buộc thùng thì nhánh túi bị loại. Ví dụ đầy đủ hai nhánh và chi phí vật tư giả lập nằm trong [giải thích thuật toán](GIAI_THICH_THUAT_TOAN_3D_PACKAGING.md).
 
 ### 11.1. Tính theo cả đơn
 
@@ -660,36 +682,27 @@ Dashboard theo dõi tỷ lệ thiếu dữ liệu, không giải được, ghi �
 
 ## 14. Roadmap và kịch bản demo
 
-### 14.1. Thứ tự triển khai
+### 14.1. Thứ tự sửa trên nền hiện hữu
 
-| Giai đoạn                    | Đầu ra                                                      | Điều kiện hoàn thành                                                                    |
-| ---------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 0 — Chuẩn hóa                | Catalog mẫu, đơn vị, mapping, quy tắc bọc, fixture          | Mọi item demo có số đo và nguồn xác minh/nhãn giả lập                                   |
-| 1 — Prototype                | Heuristic TypeScript, validator độc lập, benchmark          | Ví dụ xuyên suốt đúng; không trả nghiệm sai trong bộ ca; ghi nhận thời gian và giới hạn |
-| 2 — MVP ứng dụng             | Module recommend, lưu snapshot, viewer 3D/2D, xác nhận      | Nhân viên đi hết một đơn; phát hiện dữ liệu cũ; xác nhận không trừ trùng                |
-| 2A — Bao bì thời trang (M4A) | Catalog/fit túi, kết quả box/mailer, hướng dẫn gói          | Phân loại đúng đơn áo và đơn hỗn hợp; không dùng fit sai tổ hợp                         |
-| 3 — Pilot kho                | Giá vật tư, phản hồi, đo thời gian và xử lý thủ công        | Có báo cáo so với cách đóng hiện tại trên nhóm hàng đã chọn                             |
-| 4 — AI có đo lường           | Dataset phiên bản hóa, ranker thử nghiệm, baseline fallback | Có tập giữ lại và kết quả chứng minh cải thiện chỉ số đã chọn                           |
-| 5 — Mở rộng                  | Multi-parcel đầy đủ, tối ưu catalog/batch; nghiên cứu CV/RL | Mỗi hướng có dữ liệu, chủ sở hữu và tiêu chí riêng                                      |
+| Đợt | Công việc | Điều kiện hoàn tất |
+| --- | --- | --- |
+| BE-1 | Đầu vào, trạng thái, unit ID, phạm vi mỗi đơn và backfill | Không nhầm shop, không đóng item hủy, không mất group |
+| BE-2 | Hồ sơ kho/version, catalog túi/carton/vật tư và readiness | Thiếu báo thiếu; kho xác nhận một lần, đơn sau dùng lại |
+| BE-3 | Validator độc lập, greedy/carton, fit túi, snapshot và adapter | Không trả hộp giả; mỗi candidate hợp lệ, đúng đơn và quy cách |
+| BE-4 | Picking, transaction/idempotency, partial, cấp vật tư và cân sau đóng | Không trừ trùng, không lấy đủ giả, không dùng phương án stale |
+| BE-5 | Trigger bền vững, tự thông qua, retry/recovery và pilot | Chỉ bật sau BE-1 đến BE-4, có đường ngoại lệ và giám sát |
 
-Giai đoạn 1 là mốc đánh giá chọn engine dựa trên bằng chứng; giai đoạn 4 là mốc quyết định có đưa mô hình vào vận hành hay chỉ báo cáo nghiên cứu. Không đặt lịch cố định khi chưa biết năng lực nhóm và tình trạng dữ liệu.
+Đây là thứ tự thay thế M0–M8 cũ. Xem [roadmap backend](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md) để triển khai. Multi-start, nhiều kiện, ML, viewer và cước thật là mở rộng sau baseline/pilot phù hợp, không phải điều kiện để nhập hồ sơ ban đầu.
 
-### 14.2. Backlog để bắt đầu ngay
+### 14.2. Backlog bắt đầu
 
-1. Thu thập túi/thùng thực dùng, chọn SKU quần áo/giày/phụ kiện và đo sau gấp/bọc theo biến thể.
-2. Chốt hồ sơ gấp/bọc, giữ phom, chồng, quy cách túi theo tổ hợp item và định danh unit.
-3. Xây fixture mục 10 cùng các ca không vừa và cấm xoay; viết validator trước.
-4. Chạy heuristic một lượt, rồi multi-start trong cùng ngân sách để so sánh.
-5. Tách engine khỏi NestJS I/O, lưu snapshot/version và bổ sung API đề xuất.
-6. Dựng viewer theo placement đã kiểm tra, thêm bảng bước 2D.
-7. Hoàn thiện xác nhận/idempotency và chuẩn bị Mongo hỗ trợ transaction.
-8. Thử đóng thật, ghi lý do đổi và số liệu; dùng kết quả để chọn hướng AI tiếp theo.
+Sửa nguồn item/trạng thái và phân biệt dữ liệu sàn với quy cách kho trước. Giữ các fixture hình học hiện có, thêm ca 100×1×1 cm, quá cỡ, canceled, thiếu hồ sơ và retry cạnh tranh. Chưa bật tự động vì fallback hiện tại vẫn chỉ cộng thể tích +10%; không giữ kỳ vọng quá cỡ vẫn trả Large như test đúng.
 
 ### 14.3. Kịch bản demo 5–7 phút
 
 - Mở một đơn ba item đã có số đo; chỉ ra mapping về từng item gốc.
 - Tạo đề xuất đơn hỗn hợp; giải thích phụ kiện bắt buộc thùng ngoài, S thiếu thể tích và M có placement hợp lệ.
-- Thử đơn chỉ có hai áo với quy cách túi đã duyệt; đổi size để chứng minh quy cách cũ không tự áp dụng.
+- Thử đơn chỉ có hai áo với quy cách túi đã xác nhận; đổi size để chứng minh quy cách cũ không tự áp dụng.
 - Xem ba bước trong 3D và bảng 2D; chỉ ra tỷ lệ 53,03% và vật tư 7.000 VND.
 - Cho xem L để so sánh; giải thích chưa có cước nên tổng vẫn chưa biết.
 - Mô phỏng M hết tồn hoặc B thay kích thước; chứng minh xác nhận cũ bị chặn và tính lại.

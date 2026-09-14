@@ -1,122 +1,58 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import { useMemo, useState } from 'react'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+type StockStatus = 'in_stock' | 'low_stock' | 'out_of_stock'
+type BoardType = '3PLY' | '5PLY' | '7PLY'
+type Carton = { id: number; code: string; name: string; dimensions: string; boardType: BoardType; quantity: number; reorderLevel: number; cost: number; location: string }
+type NewCarton = Omit<Carton, 'id' | 'dimensions'> & { length: string; width: string; height: string }
 
-  return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+const initialCartons: Carton[] = [
+  { id: 1, code: 'CT-M-20-15-10', name: 'Thùng carton M', dimensions: '200 × 150 × 100 mm', boardType: '3PLY', quantity: 126, reorderLevel: 30, cost: 8500, location: 'Kệ A-01' },
+  { id: 2, code: 'CT-L-30-20-15', name: 'Thùng carton L', dimensions: '300 × 200 × 150 mm', boardType: '5PLY', quantity: 18, reorderLevel: 20, cost: 14500, location: 'Kệ A-02' },
+  { id: 3, code: 'CT-S-15-10-08', name: 'Thùng carton S', dimensions: '150 × 100 × 80 mm', boardType: '3PLY', quantity: 264, reorderLevel: 50, cost: 5200, location: 'Kệ A-03' },
+  { id: 4, code: 'CT-XL-40-30-25', name: 'Thùng carton XL', dimensions: '400 × 300 × 250 mm', boardType: '5PLY', quantity: 0, reorderLevel: 10, cost: 24800, location: 'Kệ B-01' },
+  { id: 5, code: 'CT-FLAT-25-18-05', name: 'Thùng carton dẹt', dimensions: '250 × 180 × 50 mm', boardType: '3PLY', quantity: 74, reorderLevel: 20, cost: 7600, location: 'Kệ B-02' },
+  { id: 6, code: 'CT-HEAVY-50-35-30', name: 'Thùng carton chịu lực', dimensions: '500 × 350 × 300 mm', boardType: '7PLY', quantity: 32, reorderLevel: 10, cost: 42000, location: 'Kệ B-03' },
+]
+const emptyForm: NewCarton = { code: '', name: '', length: '', width: '', height: '', boardType: '3PLY', quantity: 0, reorderLevel: 10, cost: 0, location: '' }
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+function Icon({ name, size = 20 }: { name: string; size?: number }) {
+  const paths: Record<string, string> = {
+    grid: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z', box: 'm12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Zm0 0v9m8-4.5-8 4.5m0 0L4 7.5', clipboard: 'M8 5h8m-7-2h6v4H9V3Zm-3 4h12v13H6V7Zm3 4h6m-6 4h6', truck: 'M3 6h11v10H3V6Zm11 4h4l3 3v3h-7v-6Zm-8 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm11 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4Z', chart: 'M4 19V5m0 14h17M8 16v-4m4 4V8m4 8V4m4 12v-7', settings: 'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm0-12v2m0 13v2m9-8h-2M5 12H3m15.36-6.36-1.42 1.42M7.06 16.94l-1.42 1.42m0-12.72 1.42 1.42m9.88 9.88 1.42 1.42', search: 'm20 20-4.6-4.6m2.1-5.2a7.3 7.3 0 1 1-14.6 0 7.3 7.3 0 0 1 14.6 0Z', bell: 'M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 22h4', plus: 'M12 5v14M5 12h14', arrow: 'M5 12h14m-6-6 6 6-6 6', alert: 'M12 3 2.5 20h19L12 3Zm0 6v5m0 3h.01', check: 'm5 12 4 4L19 6', close: 'm6 6 12 12M18 6 6 18', download: 'M12 4v11m0 0 4-4m-4 4-4-4M5 20h14',
+  }
+  return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name] ?? paths.grid} /></svg>
 }
+function getStatus(carton: Carton): StockStatus { if (carton.quantity === 0) return 'out_of_stock'; if (carton.quantity <= carton.reorderLevel) return 'low_stock'; return 'in_stock' }
+const statusLabel: Record<StockStatus, string> = { in_stock: 'Còn hàng', low_stock: 'Sắp hết', out_of_stock: 'Hết hàng' }
 
+function App() {
+  const [cartons, setCartons] = useState(initialCartons)
+  const [search, setSearch] = useState('')
+  const [filter, setFilter] = useState<'all' | StockStatus>('all')
+  const [isAddOpen, setIsAddOpen] = useState(false)
+  const [stockCarton, setStockCarton] = useState<Carton | null>(null)
+  const [stockQuantity, setStockQuantity] = useState('')
+  const [form, setForm] = useState(emptyForm)
+  const [notice, setNotice] = useState('')
+  const stats = useMemo(() => ({ total: cartons.length, units: cartons.reduce((sum, carton) => sum + carton.quantity, 0), low: cartons.filter((carton) => getStatus(carton) === 'low_stock').length, empty: cartons.filter((carton) => getStatus(carton) === 'out_of_stock').length }), [cartons])
+  const visibleCartons = cartons.filter((carton) => { const matchesSearch = `${carton.code} ${carton.name} ${carton.location}`.toLowerCase().includes(search.toLowerCase()); return matchesSearch && (filter === 'all' || getStatus(carton) === filter) })
+  function updateForm(field: keyof NewCarton, value: string | number) { setForm((current) => ({ ...current, [field]: value })) }
+  function showNotice(message: string) { setNotice(message); window.setTimeout(() => setNotice(''), 2800) }
+  function addCarton(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); const carton: Carton = { id: Date.now(), code: form.code.toUpperCase(), name: form.name, dimensions: `${form.length} × ${form.width} × ${form.height} mm`, boardType: form.boardType, quantity: Number(form.quantity), reorderLevel: Number(form.reorderLevel), cost: Number(form.cost), location: form.location }; setCartons((current) => [carton, ...current]); setIsAddOpen(false); setForm(emptyForm); showNotice('Đã thêm quy cách thùng carton mới') }
+  function stockIn(event: React.FormEvent<HTMLFormElement>) { event.preventDefault(); if (!stockCarton || Number(stockQuantity) < 1) return; setCartons((current) => current.map((carton) => carton.id === stockCarton.id ? { ...carton, quantity: carton.quantity + Number(stockQuantity) } : carton)); setStockCarton(null); setStockQuantity(''); showNotice(`Đã nhập thêm ${Number(stockQuantity).toLocaleString('vi-VN')} thùng vào tồn kho`) }
+  const statsCards = [{ icon: 'box', color: 'purple', label: 'Quy cách carton', value: stats.total, note: <><em className="up">+2</em> so với tháng trước</> }, { icon: 'chart', color: 'blue', label: 'Tổng tồn kho', value: <>{stats.units.toLocaleString('vi-VN')} <small className="unit">thùng</small></>, note: <><em className="up">+8.4%</em> trong tháng này</> }, { icon: 'alert', color: 'orange', label: 'Sắp hết hàng', value: stats.low, note: <>Cần nhập thêm vật tư</> }, { icon: 'alert', color: 'red', label: 'Hết hàng', value: stats.empty, note: <span className="danger-text">Ảnh hưởng đến đóng gói</span> }]
+
+  return <div className="app-shell">
+    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Icon name="box" size={21} /></div><span>OptiPack<span className="brand-ai">AI</span></span></div><div className="workspace-label">QUẢN LÝ VẬN HÀNH</div><nav className="main-nav" aria-label="Điều hướng chính"><button><Icon name="grid" /> Tổng quan</button><button><Icon name="clipboard" /> Đơn hàng <span className="nav-count">24</span></button><button className="active"><Icon name="box" /> Nguyên vật liệu <span className="nav-dot" /></button><button><Icon name="truck" /> Kho hàng</button><button><Icon name="chart" /> Báo cáo</button></nav><div className="sidebar-bottom"><button><Icon name="settings" /> Cài đặt</button><div className="profile"><div className="avatar">MA</div><div><strong>Minh Anh</strong><span>Quản trị viên</span></div><span className="profile-more">•••</span></div></div></aside>
+    <main className="main-content"><header className="topbar"><div className="breadcrumbs"><span>Vận hành</span><b>/</b><strong>Nguyên vật liệu</strong></div><div className="top-actions"><button className="icon-button"><Icon name="bell" size={20} /><i /></button><div className="top-avatar">MA</div></div></header><div className="page-content">
+      <section className="page-heading"><div><p className="eyebrow">KHO VẬT TƯ</p><h1>Nguyên vật liệu</h1><p className="subtitle">Quản lý tồn kho và quy cách thùng carton cho đóng gói.</p></div><div className="heading-actions"><button className="secondary-button"><Icon name="download" size={17} /> Xuất báo cáo</button><button className="primary-button" onClick={() => setIsAddOpen(true)}><Icon name="plus" size={18} /> Thêm thùng carton</button></div></section>
+      <section className="stats-grid" aria-label="Tổng quan tồn kho">{statsCards.map((card) => <div className="stat-card" key={card.label}><div className={`stat-icon ${card.color}`}><Icon name={card.icon} /></div><div><span className="stat-label">{card.label}</span><strong>{card.value}</strong><small>{card.note}</small></div></div>)}</section>
+      <section className="inventory-card"><div className="card-heading"><div><h2>Danh sách thùng carton</h2><p>{visibleCartons.length} quy cách đang hiển thị</p></div><button className="more-button">•••</button></div><div className="toolbar"><label className="search-box"><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Tìm theo mã, tên hoặc vị trí..." /></label><div className="filter-tabs">{([['all', 'Tất cả', cartons.length], ['in_stock', 'Còn hàng', cartons.filter((carton) => getStatus(carton) === 'in_stock').length], ['low_stock', 'Sắp hết', stats.low], ['out_of_stock', 'Hết hàng', stats.empty]] as const).map(([key, label, count]) => <button key={key} className={filter === key ? 'selected' : ''} onClick={() => setFilter(key)}>{label} <b>{count}</b></button>)}</div></div><div className="table-wrap"><table><thead><tr><th>MÃ VẬT TƯ</th><th>QUY CÁCH</th><th>KÍCH THƯỚC (D × R × C)</th><th>TỒN KHO</th><th>ĐƠN GIÁ</th><th>VỊ TRÍ</th><th /></tr></thead><tbody>{visibleCartons.map((carton) => { const status = getStatus(carton); return <tr key={carton.id}><td><div className="material-code"><span className={`carton-thumb board-${carton.boardType.toLowerCase()}`}><Icon name="box" size={18} /></span><div><strong>{carton.code}</strong><small>{carton.name}</small></div></div></td><td><span className={`board-badge ${carton.boardType.toLowerCase()}`}>{carton.boardType}</span></td><td className="dimension">{carton.dimensions}</td><td><div className="stock-cell"><strong>{carton.quantity.toLocaleString('vi-VN')} <small>thùng</small></strong><span className={`status ${status}`}><i />{statusLabel[status]}</span></div></td><td className="price">{carton.cost.toLocaleString('vi-VN')} ₫</td><td><span className="location"><Icon name="grid" size={15} />{carton.location}</span></td><td><button className="row-action" onClick={() => { setStockCarton(carton); setStockQuantity('') }}>Nhập kho <Icon name="arrow" size={14} /></button></td></tr> })}</tbody></table>{visibleCartons.length === 0 && <div className="empty-state"><Icon name="search" size={26} /><strong>Không tìm thấy vật tư</strong><span>Thử tìm kiếm với từ khóa khác.</span></div>}</div><div className="table-footer"><span>Đang hiển thị <strong>{visibleCartons.length}</strong> trên <strong>{cartons.length}</strong> quy cách</span><div className="pagination"><button disabled>‹</button><button className="current">1</button><button>›</button></div></div></section>
+      <section className="info-banner"><div className="banner-icon"><Icon name="alert" size={20} /></div><div><strong>Gợi ý nhập hàng</strong><p>{stats.low > 0 ? `Có ${stats.low} quy cách carton đang dưới ngưỡng tồn tối thiểu. Hãy tạo phiếu nhập để đảm bảo hoạt động đóng gói không bị gián đoạn.` : 'Tồn kho các quy cách carton đang ở mức an toàn.'}</p></div><button>Xem chi tiết <Icon name="arrow" size={15} /></button></section>
+    </div></main>
+    {notice && <div className="toast"><span><Icon name="check" size={16} /></span>{notice}</div>}
+    {isAddOpen && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setIsAddOpen(false) }}><form className="modal" onSubmit={addCarton}><div className="modal-header"><div><p className="eyebrow">DANH MỤC VẬT TƯ</p><h2>Thêm thùng carton</h2></div><button type="button" className="modal-close" onClick={() => setIsAddOpen(false)}><Icon name="close" /></button></div><p className="modal-description">Khai báo một quy cách carton mới vào danh mục kho.</p><div className="form-grid"><label>Mã vật tư<input required value={form.code} onChange={(event) => updateForm('code', event.target.value)} placeholder="VD: CT-M-20-15-10" /></label><label>Tên quy cách<input required value={form.name} onChange={(event) => updateForm('name', event.target.value)} placeholder="VD: Thùng carton M" /></label><label>Kích thước dài (mm)<input required type="number" min="1" value={form.length} onChange={(event) => updateForm('length', event.target.value)} /></label><label>Kích thước rộng (mm)<input required type="number" min="1" value={form.width} onChange={(event) => updateForm('width', event.target.value)} /></label><label>Kích thước cao (mm)<input required type="number" min="1" value={form.height} onChange={(event) => updateForm('height', event.target.value)} /></label><label>Loại sóng<select value={form.boardType} onChange={(event) => updateForm('boardType', event.target.value as BoardType)}><option value="3PLY">3 lớp (3PLY)</option><option value="5PLY">5 lớp (5PLY)</option><option value="7PLY">7 lớp (7PLY)</option></select></label><label>Tồn đầu kỳ (thùng)<input type="number" min="0" value={form.quantity} onChange={(event) => updateForm('quantity', Number(event.target.value))} /></label><label>Ngưỡng tối thiểu<input type="number" min="0" value={form.reorderLevel} onChange={(event) => updateForm('reorderLevel', Number(event.target.value))} /></label><label>Đơn giá (VNĐ)<input type="number" min="0" value={form.cost} onChange={(event) => updateForm('cost', Number(event.target.value))} /></label><label>Vị trí lưu kho<input required value={form.location} onChange={(event) => updateForm('location', event.target.value)} placeholder="VD: Kệ A-01" /></label></div><div className="modal-footer"><button type="button" className="secondary-button" onClick={() => setIsAddOpen(false)}>Hủy</button><button type="submit" className="primary-button"><Icon name="plus" size={17} /> Thêm vật tư</button></div></form></div>}
+    {stockCarton && <div className="modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setStockCarton(null) }}><form className="modal small-modal" onSubmit={stockIn}><div className="modal-header"><div><p className="eyebrow">NHẬP KHO</p><h2>Nhập thêm vật tư</h2></div><button type="button" className="modal-close" onClick={() => setStockCarton(null)}><Icon name="close" /></button></div><div className="stock-summary"><span className="carton-thumb board-3ply"><Icon name="box" size={22} /></span><div><strong>{stockCarton.code}</strong><span>{stockCarton.name} · Tồn hiện tại: <b>{stockCarton.quantity} thùng</b></span></div></div><label className="single-field">Số lượng nhập thêm<input autoFocus required type="number" min="1" value={stockQuantity} onChange={(event) => setStockQuantity(event.target.value)} placeholder="Nhập số lượng" /></label><div className="modal-footer"><button type="button" className="secondary-button" onClick={() => setStockCarton(null)}>Hủy</button><button type="submit" className="primary-button"><Icon name="check" size={17} /> Xác nhận nhập kho</button></div></form></div>}
+  </div>
+}
 export default App
