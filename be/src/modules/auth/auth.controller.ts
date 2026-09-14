@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Logger,
   Post,
   Query,
   Redirect,
@@ -11,13 +12,25 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { ApiBearerAuth, ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiBody,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { AuthService, LoginResult, MfaRequiredResult } from './auth.service';
 import { GoogleOAuthErrorCode } from '../../common/constants/messages.constants';
 import { CurrentUser } from './decorators/current-user.decorator';
-import { ChangePasswordDto, ForgotPasswordDto, LoginDto, ResetPasswordDto, VerifyMfaSetupDto } from './dto';
+import {
+  ChangePasswordDto,
+  ForgotPasswordDto,
+  LoginDto,
+  ResetPasswordDto,
+  VerifyMfaSetupDto,
+} from './dto';
 import {
   GoogleAccountInactiveException,
   GoogleAccountLockedException,
@@ -32,15 +45,17 @@ import type { RequestMeta, TokenPair } from './services/token.service';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+
   constructor(
     private readonly authService: AuthService,
     private readonly configService: ConfigService,
   ) {}
 
-
   private extractMeta(req: Request): RequestMeta {
     const rawUserAgent: unknown = req.headers['user-agent'];
-    const userAgent = typeof rawUserAgent === 'string' ? rawUserAgent : undefined;
+    const userAgent =
+      typeof rawUserAgent === 'string' ? rawUserAgent : undefined;
 
     return {
       ip_address: req.ip,
@@ -55,19 +70,25 @@ export class AuthController {
   // tình huống như trước đây.
   //!=============================================
   private mapGoogleErrorToCode(err: unknown): GoogleOAuthErrorCode {
-    if (err instanceof GoogleStateInvalidException) return GoogleOAuthErrorCode.INVALID_STATE;
-    if (err instanceof GoogleEmailNotVerifiedException) return GoogleOAuthErrorCode.EMAIL_NOT_VERIFIED;
+    if (err instanceof GoogleStateInvalidException)
+      return GoogleOAuthErrorCode.INVALID_STATE;
+    if (err instanceof GoogleEmailNotVerifiedException)
+      return GoogleOAuthErrorCode.EMAIL_NOT_VERIFIED;
     if (err instanceof GoogleAccountNotRegisteredException)
       return GoogleOAuthErrorCode.ACCOUNT_NOT_REGISTERED;
-    if (err instanceof GoogleAccountInactiveException) return GoogleOAuthErrorCode.ACCOUNT_INACTIVE;
-    if (err instanceof GoogleAccountLockedException) return GoogleOAuthErrorCode.ACCOUNT_LOCKED;
+    if (err instanceof GoogleAccountInactiveException)
+      return GoogleOAuthErrorCode.ACCOUNT_INACTIVE;
+    if (err instanceof GoogleAccountLockedException)
+      return GoogleOAuthErrorCode.ACCOUNT_LOCKED;
     return GoogleOAuthErrorCode.SERVER_ERROR;
   }
 
   //!=============================================
   // 1. ĐĂNG NHẬP
   //!=============================================
-  @ApiOperation({ summary: 'Đăng nhập vào hệ thống (tài khoản do Admin tạo sẵn)' })
+  @ApiOperation({
+    summary: 'Đăng nhập vào hệ thống (tài khoản do Admin tạo sẵn)',
+  })
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('login')
@@ -92,21 +113,27 @@ export class AuthController {
   @Throttle({ default: { limit: 3, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('forgot-password')
-  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<{ message: string }> {
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+  ): Promise<{ message: string }> {
     return this.authService.forgotPassword(dto.email);
   }
 
   @ApiOperation({ summary: 'Đặt lại mật khẩu bằng token nhận được qua email' })
   @HttpCode(HttpStatus.OK)
   @Post('reset-password')
-  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ message: string }> {
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+  ): Promise<{ message: string }> {
     return this.authService.resetPassword(dto.token, dto.new_password);
   }
 
   //!=============================================
   // 3. ĐỔI MẬT KHẨU
   //!=============================================
-  @ApiOperation({ summary: 'Đổi mật khẩu (bắt buộc nếu must_change_password = true)' })
+  @ApiOperation({
+    summary: 'Đổi mật khẩu (bắt buộc nếu must_change_password = true)',
+  })
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -120,7 +147,10 @@ export class AuthController {
       changePasswordDto.current_password,
       changePasswordDto.new_password,
     );
-    return { message: 'Đổi mật khẩu thành công. Mọi phiên đăng nhập khác đã bị đăng xuất.' };
+    return {
+      message:
+        'Đổi mật khẩu thành công. Mọi phiên đăng nhập khác đã bị đăng xuất.',
+    };
   }
 
   //!=============================================
@@ -130,7 +160,9 @@ export class AuthController {
   @ApiBearerAuth('JWT-auth')
   @UseGuards(JwtAuthGuard)
   @Post('mfa/setup')
-  async setupMfa(@CurrentUser() user: AuthenticatedUser): Promise<{ otpauthUrl: string }> {
+  async setupMfa(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ otpauthUrl: string }> {
     return this.authService.setupMfa(user.userId, user.email);
   }
 
@@ -157,7 +189,10 @@ export class AuthController {
     @Body('refresh_token') refreshToken: string,
     @Req() req: Request,
   ): Promise<TokenPair> {
-    return this.authService.refreshAccessToken(refreshToken, this.extractMeta(req));
+    return this.authService.refreshAccessToken(
+      refreshToken,
+      this.extractMeta(req),
+    );
   }
 
   //!=============================================
@@ -169,7 +204,9 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('logout')
-  async logout(@Body('refresh_token') refreshToken: string): Promise<{ message: string }> {
+  async logout(
+    @Body('refresh_token') refreshToken: string,
+  ): Promise<{ message: string }> {
     return this.authService.logout(refreshToken);
   }
 
@@ -177,12 +214,18 @@ export class AuthController {
   // GOOGLE OAUTH
   //!=============================================
   @ApiOperation({ summary: 'Khởi tạo đăng nhập Google OAuth' })
-  @ApiQuery({ name: 'code_challenge', required: false, description: 'PKCE — bắt buộc với Mobile' })
+  @ApiQuery({
+    name: 'code_challenge',
+    required: false,
+    description: 'PKCE — bắt buộc với Mobile',
+  })
   @Get('google')
   @Redirect()
   googleAuth(@Query('code_challenge') codeChallenge?: string): { url: string } {
     const state = this.authService.generateOAuthState();
-    return { url: this.authService.getGoogleAuthorizationUrl(state, codeChallenge) };
+    return {
+      url: this.authService.getGoogleAuthorizationUrl(state, codeChallenge),
+    };
   }
 
   @ApiOperation({ summary: 'Google OAuth Callback (được Google tự động gọi)' })
@@ -200,7 +243,9 @@ export class AuthController {
     );
 
     if (!code) {
-      return { url: `${frontendUrl}?error=${GoogleOAuthErrorCode.MISSING_CODE}` };
+      return {
+        url: `${frontendUrl}?error=${GoogleOAuthErrorCode.MISSING_CODE}`,
+      };
     }
 
     try {
@@ -223,6 +268,10 @@ export class AuthController {
       // "account_not_found" - giờ phân loại rõ ràng qua mapGoogleErrorToCode().
       //!=============================================
       const errorCode = this.mapGoogleErrorToCode(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Google OAuth callback thất bại → error=${errorCode}: ${message}`,
+      );
       return { url: `${frontendUrl}?error=${errorCode}` };
     }
   }

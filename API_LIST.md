@@ -99,8 +99,8 @@ Public profile: `id`, `name`, `email`, `role`, `avatar`, `phone?`, `address?`, `
 | Method | Route | Role | Request | Response |
 |---|---|---|---|---|
 | POST | `/orders/lazada/sync` | Admin | Query `shop_id` bắt buộc | `{ fetched, upserted, newlyConsolidated }` |
-| GET | `/orders` | Admin | `shop_id?`, `status?`, `consolidated_group_id?`, `before?`, `limit?` | `{ orders[], nextCursor }` |
-| GET | `/orders/:id` | Admin | Path ObjectId `id` | Order detail |
+| GET | `/orders` | Admin, Store Owner | `shop_id?`, `status?`, `consolidated_group_id?`, `before?`, `limit?` | `{ orders[], nextCursor }` |
+| GET | `/orders/:id` | Admin, Store Owner | Path ObjectId `id` | Order detail |
 
 | Query | Type | Validation/meaning |
 |---|---:|---|
@@ -120,8 +120,8 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 
 | Method | Route | Role | Request | Response |
 |---|---|---|---|---|
-| GET | `/order-groups` | Warehouse, Packaging, Shipping, Admin | Query `fulfillment_status?`, `platform?` | `OrderGroupResponse[]` |
-| GET | `/order-groups/:id` | Warehouse, Packaging, Shipping, Admin | Path `id` | `OrderGroupResponse` |
+| GET | `/order-groups` | Store Owner, Warehouse, Packaging, Shipping, Admin | Query `fulfillment_status?`, `platform?`, `order_priority?` | `OrderGroupResponse[]` |
+| GET | `/order-groups/:id` | Store Owner, Warehouse, Packaging, Shipping, Admin | Path `id` | `OrderGroupResponse` |
 | GET | `/order-groups/:id/picking-list` | Warehouse, Admin | Path `id` | Packable items |
 | GET | `/order-groups/:id/picking-list/:sku` | Warehouse, Admin | Path `id`, `sku` | Một packable item |
 | GET | `/order-groups/staff/search` | Admin, Warehouse, Packaging | Query `q?` | Staff + `activeWorkload` |
@@ -158,7 +158,7 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 |  | `deadline_hours` | integer |  | Deadline tùy chọn |
 | `AssignStaffDto` | `staff_id` | ObjectId string |  | Trống = Least-Busy, có = gán tay |
 
-`OrderGroupResponse` gồm `id`, `platform`, `shopId`, `orderCount`, `fulfillmentStatus`, `activePackagingRecommendationId`, `assignedStaffId`, `orderPriority`, `packagingDeadline`, `isOverdue`, `version`, `createdAt`, `updatedAt`. Mọi transition kiểm tra status transition và version.
+`OrderGroupResponse` gồm `id`, `platform`, `shopId`, `orderCount`, `fulfillmentStatus`, `activePackagingRecommendationId`, `assignedStaffId`, `orderPriority`, `packagingDeadline`, `isOverdue`, `version`, `createdAt`, `updatedAt`. `order_priority` nhận `normal|express` để lọc danh sách. Mọi transition kiểm tra status transition và version.
 
 ## 6. Packaging — `/order-groups/:groupId/packaging`
 

@@ -62,7 +62,7 @@ export class OrdersController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
   @ApiOperation({ summary: 'Danh sách đơn đã đồng bộ, phân trang kiểu cursor theo created_at' })
   async list(
     @Query() query: ListOrdersQueryDto,
@@ -97,7 +97,7 @@ export class OrdersController {
   }
 
   @Get(':id')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
   @ApiOperation({
     summary:
       'Chi tiết 1 đơn hàng, bao gồm sản phẩm (đã gộp theo SKU+trạng thái) và địa chỉ đầy đủ — dùng cho màn hình chi tiết đơn của FE',

@@ -27,7 +27,7 @@ Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Or
 
 | Actor | Trách nhiệm CHÍNH trong Fulfillment | Không làm gì |
 |---|---|---|
-| **Store Owner** | Đánh dấu đơn Hỏa Tốc, nhận cảnh báo (thiếu hàng, SLA, mất kết nối sàn) | KHÔNG trực tiếp thao tác lấy/đóng gói/ship |
+| **Store Owner** | Xem đơn/group, lọc đơn Hỏa Tốc, đánh dấu ưu tiên, nhận cảnh báo (thiếu hàng, SLA, mất kết nối sàn) | KHÔNG trực tiếp thao tác lấy/đóng gói/ship |
 | **Warehouse Staff** | Lấy hàng (quét/nhập tay), đóng gói, phát hiện+báo thiếu hàng, tự nhận/đổi việc | KHÔNG duyệt gợi ý AI, KHÔNG quyết định tiếp tục khi thiếu hàng |
 | **Packaging Staff** | Duyệt/điều chỉnh/từ chối gợi ý đóng gói, quyết định đơn thiếu hàng có tiếp tục không | KHÔNG trực tiếp lấy/đóng gói hàng |
 | **Shipping Coordinator** | Xác nhận đã ship, đã giao, ghi nhận hoàn hàng | KHÔNG tham gia khâu lấy/đóng gói |
