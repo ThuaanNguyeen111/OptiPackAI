@@ -1,7 +1,6 @@
 import { Types } from 'mongoose';
 import { OrderGroupsService } from './order-groups.service';
 import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
-import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 
 //!=============================================
@@ -93,7 +92,7 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
       service.getPackableItemsForGroup(groupId),
     ).rejects.toMatchObject({
       errorCode: ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
-    } as Partial<AppException>);
+    });
 
     expect(productMasterModel.find).not.toHaveBeenCalled();
   });

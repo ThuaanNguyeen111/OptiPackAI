@@ -2097,3 +2097,21 @@ Còn lại: **A3** (`GetMultipleOrderItems` batch, `notify(SYNC_FAILED)` cho l�
 **Đã làm**: thêm `NOT_PACKABLE_ORDER_STATUSES` (`order-status.enum.ts`, cùng chỗ với `UNFULFILLED_ORDER_STATUSES` đã có, theo đúng convention cũ) = CANCELED + FAILED + LOST + LOST_BY_3PL + DAMAGED_BY_3PL + FAILED_DELIVERY + SHIPPED_BACK_FAILED + PACKAGE_SCRAPPED. Đổi query `getPackableItemsForGroup()` từ `$ne: CANCELED` sang `$nin: NOT_PACKABLE_ORDER_STATUSES`. **Cố ý CHƯA gộp** `RETURNED`/`SHIPPED_BACK`/`SHIPPED_BACK_SUCCESS` vào danh sách này — case hoàn hàng cần xem xét riêng, tránh mở rộng phạm vi fix ngoài yêu cầu, đã báo user biết. Cập nhật lại spec test cho khớp query mới.
 
 **Sửa lỗi ESLint** trong `scripts/migrate-consolidation-key.ts` — `order.recipient?.phone` bị báo "Unnecessary optional chain on a non-nullish value" vì `recipient` là field `required: true` trên schema (TypeScript biết chắc không null) — bỏ `?.` thành `order.recipient.phone`.
+
+## Batch 4 (16/09/2026) — hoàn thành A3, TOÀN BỘ A1-A3 đã xong
+
+1. **`GetMultipleOrderItems` batch**: thêm method vào `lazada.adapter.ts` (trả `Map<order_id, items[]>` để tra O(1)), `orders.service.ts` đổi sang chia lô ≤50 đơn/lần gọi. **Có fallback**: nếu 1 lô batch lỗi, fallback về gọi tuần tự từng đơn CHO RIÊNG lô đó (giữ nguyên độ an toàn cũ — 1 đơn lỗi không hỏng đơn khác — không đánh đổi robustness lấy tốc độ).
+2. **`notify(SYNC_FAILED)` cho lỗi sync cron**: thêm vào `LazadaOrderSyncScheduler` (không phải `orders.service.ts` — vì controller gọi tay đã tự thấy lỗi ngay trong response, không cần thêm Notification; chỉ cron tự động chạy nền mới cần báo chủ động). Cơ chế chống spam: `Map<shop_id, lastNotifiedAt>` trong bộ nhớ, cooldown **20 phút** (user điều chỉnh từ đề xuất ban đầu 1 giờ). Mức `warning` (khác `critical` của cancel-confirm — không có hạn chót cứng).
+
+Viết `lazada-order-sync.scheduler.spec.ts` mới (dùng `jest.useFakeTimers()` test đúng 3 case: lần đầu bắn ngay, lặp lại trong cooldown không bắn, qua cooldown bắn lại).
+
+**TOÀN BỘ A1, A2, A3 trong `00_TONG_HOP...md` đã hoàn thành.** Còn lại: A5 (sửa 2 câu trong Integration Guide, không đụng code) + rà 4 file Integration Guide xem có cần cập nhật gì thêm theo các fix đã làm không.
+
+## 2 lỗi ESLint thật gặp phải + cách sửa — ghi lại để tránh lặp lại (16/09/2026)
+
+Sau khi thêm các file test mới (batch 4), `npm run lint` báo 2 lỗi thật (không phải nghi ngờ, có log đầy đủ từ user):
+
+1. **`notifications.service.spec.ts`** — import `NotificationType` nhưng không dùng tới (import thừa từ lúc soạn test, quên xóa). **Cách sửa**: xóa dòng import không dùng.
+2. **`order-groups.service.getPackableItemsForGroup.spec.ts`** — import `AppException` chỉ để ép kiểu (`as Partial<AppException>`), không có chỗ nào dùng làm giá trị runtime thật trong file này. **Thử `import type { AppException }` KHÔNG giải quyết được** — ESLint config của dự án này không công nhận cách dùng "chỉ trong vị trí generic" (`Partial<AppException>`) là "đã dùng", dù đó đúng là type-only usage hợp lệ về mặt TypeScript. **Cách sửa chắc ăn**: bỏ hẳn phần ép kiểu `as Partial<AppException>` lẫn import — `toMatchObject` của Jest không cần ép kiểu này để chạy đúng.
+
+**Quy tắc rút ra cho các file test sau này trong dự án này**: chỉ import `AppException` (hay bất kỳ type nào tương tự) nếu có **ít nhất 1 chỗ dùng làm giá trị runtime thật** trong file đó (VD `toBeInstanceOf(AppException)`, `expect(error).toBeInstanceOf(X)`) — nếu chỉ cần ép kiểu cho TypeScript đọc hiểu, bỏ hẳn phần ép kiểu đó thay vì cố giữ lại bằng `import type`.

@@ -1,6 +1,5 @@
 import { Types } from 'mongoose';
 import { NotificationsService } from './notifications.service';
-import { NotificationType } from './enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { NOTIFICATION_ERROR_CODES } from './notifications.errors';
@@ -43,7 +42,7 @@ describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', 
       ),
     ).rejects.toMatchObject({
       errorCode: NOTIFICATION_ERROR_CODES.INVALID_ID,
-    } as Partial<AppException>);
+    });
 
     expect(notificationModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
@@ -86,7 +85,7 @@ describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', 
       ),
     ).rejects.toMatchObject({
       errorCode: NOTIFICATION_ERROR_CODES.NOT_FOUND,
-    } as Partial<AppException>);
+    });
   });
 
   it('id không tồn tại trong DB -> CÙNG throw NOTI_NOT_FOUND y hệt case "không thuộc về mình" — không để lộ khác biệt', async () => {
