@@ -11,6 +11,7 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 // đọc dữ liệu của module kia mà không muốn import chéo Service (tránh
 // circular dependency giữa orders/ và order-groups/).
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
+import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
 import {
   aggregateOrderItems,
   RawOrderItemForAggregation,
@@ -21,7 +22,10 @@ import {
 } from '../product-master/schemas/product-master.schema';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
-import { PackableItem, OrderGroupForPackaging } from '../../common/interfaces/packaging.interface';
+import {
+  PackableItem,
+  OrderGroupForPackaging,
+} from '../../common/interfaces/packaging.interface';
 // Đọc TRỰC TIẾP schema SkuBinAssignment (module warehouse/) — cùng
 // pattern cross-module đã áp dụng cho Order/ProductMaster ở trên.
 import {
@@ -76,9 +80,13 @@ export class OrderGroupsService {
    * `tryConsolidate()` (orders.service.ts, không đụng) đã gán trước đó.
    * Idempotent — gọi nhiều lần cho cùng 1 order không tạo trùng group.
    */
-  async getOrCreateGroupForOrder(order: OrderDocument): Promise<OrderGroupDocument> {
+  async getOrCreateGroupForOrder(
+    order: OrderDocument,
+  ): Promise<OrderGroupDocument> {
     if (order.consolidated_group_id) {
-      const existing = await this.orderGroupModel.findById(order.consolidated_group_id);
+      const existing = await this.orderGroupModel.findById(
+        order.consolidated_group_id,
+      );
       if (existing) {
         // TỰ CHỮA order_count — quan trọng vì tryConsolidate()
         // (orders.service.ts, KHÔNG đụng) có thể gán THÊM 1 đơn vào
@@ -136,7 +144,9 @@ export class OrderGroupsService {
    * (CLAUDE.md, Database Design Standards) — 1 query `$in` DUY NHẤT
    * cho product_master, KHÔNG loop query riêng từng SKU (N+1).
    */
-  async getPackableItemsForGroup(groupId: string): Promise<OrderGroupForPackaging> {
+  async getPackableItemsForGroup(
+    groupId: string,
+  ): Promise<OrderGroupForPackaging> {
     if (!Types.ObjectId.isValid(groupId)) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.INVALID_GROUP_ID,
@@ -157,18 +167,48 @@ export class OrderGroupsService {
     }
 
     // .lean() (Rule #12) — chỉ đọc để tính toán, không cần Document đầy đủ.
+    // Lọc bỏ đơn KHÔNG THỂ ĐÓNG GÓI (AOFP-XX, fix 15/09/2026, mở rộng
+    // 15/09/2026 thêm nhóm sự cố logistics) — trước đây chỉ lọc
+    // CANCELED, giờ lọc thêm LOST/DAMAGED_BY_3PL/PACKAGE_SCRAPPED...
+    // (xem NOT_PACKABLE_ORDER_STATUSES) — hàng đã báo sự cố thì không
+    // còn gì để đóng gói/đi lấy, y hệt lý do lọc CANCELED. Ảnh hưởng
+    // CẢ Packaging lẫn Picking List (warehouse.service.ts tái dùng
+    // đúng hàm này).
     const orders = await this.orderModel
-      .find({ consolidated_group_id: group._id })
+      .find({
+        consolidated_group_id: group._id,
+        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+      })
       .select('items platform shop_id') // Rule #13 — chỉ lấy field cần
       .lean();
 
-    const allRawItems: RawOrderItemForAggregation[] = orders.flatMap((o) => o.items);
+    // Case biên: TOÀN BỘ đơn trong group đã bị hủy (group từng có nhiều
+    // đơn, tất cả lần lượt bị hủy sau khi đã gộp) — không được âm thầm
+    // trả về items rỗng (dễ bị hiểu nhầm là "group hợp lệ nhưng 0 SKU"),
+    // phải báo lỗi nghiệp vụ rõ ràng để FE/nhân viên biết group này không
+    // còn gì để xử lý.
+    if (orders.length === 0) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
+        `Toàn bộ đơn hàng trong group "${groupId}" đã bị hủy — không còn sản phẩm nào để đóng gói/lấy hàng.`,
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+
+    const allRawItems: RawOrderItemForAggregation[] = orders.flatMap(
+      (o) => o.items,
+    );
     const aggregated = aggregateOrderItems(allRawItems);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1
     const skus = aggregated.map((i) => i.sku);
     const products = await this.productMasterModel
-      .find({ platform: group.platform, shop_id: group.shop_id, seller_sku: { $in: skus } })
+      .find({
+        platform: group.platform,
+        shop_id: group.shop_id,
+        seller_sku: { $in: skus },
+      })
       .lean();
     const productMap = new Map(products.map((p) => [p.seller_sku, p]));
 
@@ -209,7 +249,8 @@ export class OrderGroupsService {
     orderPriority?: 'normal' | 'express';
   }): Promise<OrderGroupDocument[]> {
     const query: Record<string, unknown> = {};
-    if (filter.fulfillmentStatus) query.fulfillment_status = filter.fulfillmentStatus;
+    if (filter.fulfillmentStatus)
+      query.fulfillment_status = filter.fulfillmentStatus;
     if (filter.platform) query.platform = filter.platform;
     if (filter.orderPriority) query.order_priority = filter.orderPriority;
 
@@ -328,7 +369,9 @@ export class OrderGroupsService {
     // Idempotency — client_event_id đã xử lý trước đó -> trả lại kết
     // quả CŨ, KHÔNG trừ lần 2 (Mobile App gửi lại sau khi mất mạng).
     if (clientEventId) {
-      const already = await this.pickEventModel.findOne({ client_event_id: clientEventId });
+      const already = await this.pickEventModel.findOne({
+        client_event_id: clientEventId,
+      });
       if (already) {
         return {
           sku: already.seller_sku,
@@ -342,7 +385,11 @@ export class OrderGroupsService {
     // ngay trong CÙNG 1 lệnh, không tách "check rồi ghi" (tránh race
     // condition 2 nhân viên quét cùng lúc cùng 1 SKU sắp hết hàng).
     const updated = await this.skuBinAssignmentModel.findOneAndUpdate(
-      { warehouse_id: warehouseId, seller_sku: sku, quantity_on_hand: { $gte: scannedQuantity } },
+      {
+        warehouse_id: warehouseId,
+        seller_sku: sku,
+        quantity_on_hand: { $gte: scannedQuantity },
+      },
       { $inc: { quantity_on_hand: -scannedQuantity } },
       { returnDocument: 'after' },
     );
@@ -383,7 +430,11 @@ export class OrderGroupsService {
       `Pick item: group ${groupId}, SKU ${sku}, số lượng ${String(scannedQuantity)} (${scanMethod}) — còn lại ${String(updated.quantity_on_hand)}.`,
     );
 
-    return { sku, decrementedBy: scannedQuantity, remainingStock: updated.quantity_on_hand };
+    return {
+      sku,
+      decrementedBy: scannedQuantity,
+      remainingStock: updated.quantity_on_hand,
+    };
   }
 
   /**
@@ -403,7 +454,10 @@ export class OrderGroupsService {
     expectedVersion: number,
     note?: string,
   ): Promise<OrderGroupDocument> {
-    const reporter = await this.userModel.findById(reporterId).select('name').lean();
+    const reporter = await this.userModel
+      .findById(reporterId)
+      .select('name')
+      .lean();
     const reporterName = reporter?.name ?? 'Nhân viên kho';
 
     const group = await this.transitionFulfillmentStatus(
@@ -412,12 +466,13 @@ export class OrderGroupsService {
       expectedVersion,
     );
 
-    const { title, message } = this.notificationsService.buildMissingItemMessage({
-      groupId,
-      sku,
-      requestedQuantity: missingQuantity,
-      reportedBy: reporterName,
-    });
+    const { title, message } =
+      this.notificationsService.buildMissingItemMessage({
+        groupId,
+        sku,
+        requestedQuantity: missingQuantity,
+        reportedBy: reporterName,
+      });
 
     await this.notificationsService.notify({
       recipientRole: UserRole.STORE_OWNER,
@@ -429,7 +484,9 @@ export class OrderGroupsService {
       relatedEntityId: groupId,
     });
 
-    this.logger.warn(`Report missing: group ${groupId}, SKU ${sku}, thiếu ${String(missingQuantity)} — đã thông báo Store Owner.`);
+    this.logger.warn(
+      `Report missing: group ${groupId}, SKU ${sku}, thiếu ${String(missingQuantity)} — đã thông báo Store Owner.`,
+    );
     return group;
   }
 
@@ -446,7 +503,11 @@ export class OrderGroupsService {
     const targetStatus = approve
       ? GroupFulfillmentStatus.PICKED
       : GroupFulfillmentStatus.AWAITING_PACKAGING;
-    return this.transitionFulfillmentStatus(groupId, targetStatus, expectedVersion);
+    return this.transitionFulfillmentStatus(
+      groupId,
+      targetStatus,
+      expectedVersion,
+    );
   }
 
   /**
@@ -455,7 +516,10 @@ export class OrderGroupsService {
    * khi review FE). TÁI DÙNG getPackableItemsForGroup() đã có, không
    * viết lại logic lấy item từ đầu — chỉ lọc đúng 1 SKU.
    */
-  async getPackableItemDetail(groupId: string, sku: string): Promise<PackableItem> {
+  async getPackableItemDetail(
+    groupId: string,
+    sku: string,
+  ): Promise<PackableItem> {
     const { items } = await this.getPackableItemsForGroup(groupId);
     const item = items.find((i) => i.sku === sku);
     if (!item) {
@@ -489,7 +553,11 @@ export class OrderGroupsService {
       update.is_overdue = false;
     }
 
-    const group = await this.orderGroupModel.findByIdAndUpdate(groupId, { $set: update }, { returnDocument: 'after' });
+    const group = await this.orderGroupModel.findByIdAndUpdate(
+      groupId,
+      { $set: update },
+      { returnDocument: 'after' },
+    );
     if (!group) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
@@ -498,7 +566,9 @@ export class OrderGroupsService {
         { groupId },
       );
     }
-    this.logger.log(`Group ${groupId} đặt priority=${priority}${priority === 'express' ? `, hạn ${update.packaging_deadline as string}` : ''}.`);
+    this.logger.log(
+      `Group ${groupId} đặt priority=${priority}${priority === 'express' ? `, hạn ${update.packaging_deadline as string}` : ''}.`,
+    );
     return group;
   }
 }

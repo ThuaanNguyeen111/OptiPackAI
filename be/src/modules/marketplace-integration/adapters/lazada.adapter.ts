@@ -87,6 +87,16 @@ export interface LazadaOrderRaw {
   payment_method?: string;
   remarks?: string;
   national_registration_number?: string; // dữ liệu NHẠY CẢM — Advanced Tasks: Request sensitive data access
+  // BỔ SUNG (AOFP-XX, 2026-09-15) — luồng "chờ seller xác nhận hủy đơn"
+  // (O6): field ĐÃ CÓ SẴN trong response GetOrders/GetOrder thật, trước
+  // đây chưa từng đọc/lưu. Lazada trả dạng STRING "true"/"false" cho 2
+  // field boolean này (giống is_cancel_pending trong tài liệu mẫu), số
+  // giây epoch cho cancel_trigger_time — giữ nguyên kiểu string ở tầng
+  // Raw, convert đúng kiểu khi map sang MappedOrderFields.
+  need_cancel_confirm?: string;
+  is_cancel_pending?: string;
+  cancel_trigger_time?: number;
+  reverse_order_id?: string;
 }
 
 interface LazadaGetOrdersResponse {
@@ -451,7 +461,10 @@ export class LazadaAdapter implements MarketplaceAdapter {
         return response.data;
       } catch (error) {
         lastError = error;
-        if (attempt === LazadaAdapter.MAX_RETRIES || !this.isRetryableError(error)) {
+        if (
+          attempt === LazadaAdapter.MAX_RETRIES ||
+          !this.isRetryableError(error)
+        ) {
           throw error;
         }
         const backoffMs = LazadaAdapter.BASE_DELAY_MS * Math.pow(2, attempt);

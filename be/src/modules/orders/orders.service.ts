@@ -14,6 +14,9 @@ import {
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_ERROR_CODES } from './orders.errors';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 
 // Lần sync ĐẦU TIÊN của 1 shop (last_polled_at = null) — kéo lịch sử tối
 // đa 30 ngày trước, KHÔNG kéo toàn bộ lịch sử vô hạn (tránh 1 lần gọi
@@ -43,6 +46,7 @@ export class OrdersService {
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     private readonly lazadaAdapter: LazadaAdapter,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /**
@@ -107,6 +111,20 @@ export class OrdersService {
         );
         const mapped = mapLazadaOrder(rawOrder, rawItems);
 
+        // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
+        // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không
+        // spam lại mỗi 10 phút trong lúc đơn vẫn đang chờ seller phản hồi
+        // (cron chạy liên tục, nếu không check sẽ tạo Notification mới
+        // mỗi lần sync trong khi bản chất là CÙNG 1 sự kiện chưa xử lý).
+        const previous = await this.orderModel
+          .findOne({
+            platform: MarketplacePlatform.LAZADA,
+            shop_id: shopId,
+            platform_order_id: mapped.platform_order_id,
+          })
+          .select('need_cancel_confirm')
+          .lean();
+
         const orderDoc = await this.orderModel.findOneAndUpdate(
           {
             platform: MarketplacePlatform.LAZADA,
@@ -130,6 +148,37 @@ export class OrdersService {
         );
 
         upserted += 1;
+
+        // Chỉ bắn khi CHUYỂN từ chưa cần xác nhận -> cần xác nhận (xem
+        // giải thích đọc `previous` ở trên) — báo cả Store Owner lẫn
+        // Admin, mức `critical` vì có hạn chót cứng (cancel_trigger_time),
+        // bỏ lỡ sẽ bị Lazada TỰ ĐỘNG hủy đơn, hậu quả không đảo ngược được.
+        if (mapped.need_cancel_confirm && !previous?.need_cancel_confirm) {
+          const deadlineText = mapped.cancel_trigger_time
+            ? mapped.cancel_trigger_time.toLocaleString('vi-VN')
+            : 'không xác định';
+          const title = `Đơn hàng #${mapped.platform_order_number ?? mapped.platform_order_id} cần xác nhận hủy`;
+          const message = `Khách hàng yêu cầu hủy đơn #${mapped.platform_order_number ?? mapped.platform_order_id}. Vui lòng phản hồi trên Lazada Seller Center trước ${deadlineText} — nếu không, đơn sẽ TỰ ĐỘNG bị hủy.`;
+
+          await this.notificationsService.notify({
+            recipientRole: UserRole.STORE_OWNER,
+            type: NotificationType.CANCEL_CONFIRMATION_REQUIRED,
+            severity: 'critical',
+            title,
+            message,
+            relatedEntityType: 'order',
+            relatedEntityId: String(orderDoc._id),
+          });
+          await this.notificationsService.notify({
+            recipientRole: UserRole.ADMIN,
+            type: NotificationType.CANCEL_CONFIRMATION_REQUIRED,
+            severity: 'critical',
+            title,
+            message,
+            relatedEntityType: 'order',
+            relatedEntityId: String(orderDoc._id),
+          });
+        }
 
         const wasConsolidated = await this.tryConsolidate(orderDoc);
         if (wasConsolidated) {

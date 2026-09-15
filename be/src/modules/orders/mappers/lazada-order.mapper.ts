@@ -1,5 +1,9 @@
 import { Logger } from '@nestjs/common';
-import { LazadaOrderRaw, LazadaOrderItemRaw } from '../../marketplace-integration/adapters/lazada.adapter';
+import {
+  LazadaOrderRaw,
+  LazadaOrderItemRaw,
+} from '../../marketplace-integration/adapters/lazada.adapter';
+import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { computeConsolidationKey } from '../utils/consolidation-key.util';
 
@@ -19,13 +23,63 @@ import { computeConsolidationKey } from '../utils/consolidation-key.util';
 const logger = new Logger('LazadaOrderMapper');
 
 /**
+ * Thứ tự ưu tiên khi 1 đơn có NHIỀU trạng thái khác nhau trong mảng
+ * `statuses[]` (đơn nhiều item, mỗi item có thể ở 1 trạng thái riêng —
+ * tài liệu Lazada mô tả field này là "mảng trạng thái DUY NHẤT của các
+ * item trong đơn"). Trước đây lấy mù `statuses[0]` — không có gì đảm
+ * bảo phần tử đầu là trạng thái ĐÁNG CHÚ Ý NHẤT (VD đơn có 2 item,
+ * 1 "delivered" + 1 "shipped_back" — statuses[0] có thể ra "delivered",
+ * che mất việc 1 phần đơn đang gặp vấn đề hoàn hàng).
+ *
+ * Số CÀNG NHỎ = ưu tiên hiển thị CÀNG CAO (sự cố/cần chú ý > đang xử lý
+ * bình thường > đã xong xuôi).
+ */
+const STATUS_PRIORITY: Record<OrderStatus, number> = {
+  [OrderStatus.LOST]: 0,
+  [OrderStatus.LOST_BY_3PL]: 0,
+  [OrderStatus.DAMAGED_BY_3PL]: 0,
+  [OrderStatus.PACKAGE_SCRAPPED]: 0,
+  [OrderStatus.FAILED_DELIVERY]: 1,
+  [OrderStatus.SHIPPED_BACK_FAILED]: 1,
+  [OrderStatus.FAILED]: 2,
+  [OrderStatus.SHIPPED_BACK]: 3,
+  [OrderStatus.CANCELED]: 4,
+  [OrderStatus.RETURNED]: 5,
+  [OrderStatus.SHIPPED_BACK_SUCCESS]: 5,
+  [OrderStatus.DELIVERED]: 6,
+  [OrderStatus.SHIPPED]: 7,
+  [OrderStatus.READY_TO_SHIP]: 8,
+  [OrderStatus.PACKED]: 9,
+  [OrderStatus.TO_SHIP]: 10,
+  [OrderStatus.TO_PACK]: 11,
+  [OrderStatus.PENDING]: 12,
+  [OrderStatus.UNPAID]: 13,
+};
+
+/**
+ * Chọn status ĐẠI DIỆN cho cả Order từ mảng `statuses[]` thô của Lazada
+ * — ưu tiên trạng thái "xấu nhất"/cần chú ý nhất nếu có nhiều giá trị
+ * khác nhau, thay vì lấy mù phần tử đầu (xem giải thích STATUS_PRIORITY
+ * ở trên). Mảng rỗng (đơn chưa có item nào gắn status) -> PENDING, an
+ * toàn giống hệt fallback của mapLazadaStatus() cho giá trị lạ.
+ */
+export function pickRepresentativeStatus(rawStatuses: string[]): OrderStatus {
+  if (rawStatuses.length === 0) return OrderStatus.PENDING;
+
+  const mapped = rawStatuses.map((s) => mapLazadaStatus(s));
+  return mapped.reduce((best, current) =>
+    STATUS_PRIORITY[current] < STATUS_PRIORITY[best] ? current : best,
+  );
+}
+
+/**
  * Map 1 trạng thái RAW của Lazada → OrderStatus nội bộ. KHÔNG throw khi
  * gặp giá trị lạ — 1 status Lazada thêm mới không báo trước không được
  * phép làm ĐỔ cả job polling đang xử lý hàng chục đơn khác; thay vào đó
  * log cảnh báo + rơi về PENDING (trạng thái AN TOÀN NHẤT: buộc nhân
  * viên phải xem lại tay, không tự động coi là đã xử lý xong).
  */
-function mapLazadaStatus(rawStatus: string): OrderStatus {
+export function mapLazadaStatus(rawStatus: string): OrderStatus {
   switch (rawStatus) {
     case 'unpaid':
       return OrderStatus.UNPAID;
@@ -46,6 +100,30 @@ function mapLazadaStatus(rawStatus: string): OrderStatus {
       return OrderStatus.RETURNED;
     case 'failed':
       return OrderStatus.FAILED;
+    // BỔ SUNG (AOFP-XX, 2026-09-15) — enum đã có sẵn 10 giá trị này từ
+    // trước (2026-09-10) nhưng hàm map chưa được nối vào, nên vẫn rơi
+    // `default` -> PENDING, che giấu sự cố logistics thật (mất hàng, hư
+    // hỏng, giao thất bại...) thành "đang xử lý bình thường".
+    case 'topack':
+      return OrderStatus.TO_PACK;
+    case 'toship':
+      return OrderStatus.TO_SHIP;
+    case 'lost':
+      return OrderStatus.LOST;
+    case 'lost_by_3pl':
+      return OrderStatus.LOST_BY_3PL;
+    case 'damaged_by_3pl':
+      return OrderStatus.DAMAGED_BY_3PL;
+    case 'failed_delivery':
+      return OrderStatus.FAILED_DELIVERY;
+    case 'shipped_back':
+      return OrderStatus.SHIPPED_BACK;
+    case 'shipped_back_success':
+      return OrderStatus.SHIPPED_BACK_SUCCESS;
+    case 'shipped_back_failed':
+      return OrderStatus.SHIPPED_BACK_FAILED;
+    case 'package_scrapped':
+      return OrderStatus.PACKAGE_SCRAPPED;
     default:
       logger.warn(
         `Gặp raw status Lazada chưa từng biết: "${rawStatus}" — tạm map về PENDING, cần bổ sung case này vào mapLazadaStatus() sau khi xác nhận ý nghĩa thật.`,
@@ -63,7 +141,9 @@ function parseMoneyString(value: string, fieldName: string): number {
   const parsed = parseFloat(value);
 
   if (Number.isNaN(parsed)) {
-    throw new Error(`Không parse được giá trị tiền tệ "${fieldName}": "${value}" không phải số hợp lệ.`);
+    throw new Error(
+      `Không parse được giá trị tiền tệ "${fieldName}": "${value}" không phải số hợp lệ.`,
+    );
   }
 
   return parsed;
@@ -77,6 +157,10 @@ export interface MappedOrderFields {
   platform_order_number?: string;
   status: OrderStatus;
   raw_statuses: string[];
+  need_cancel_confirm: boolean;
+  is_cancel_pending: boolean;
+  cancel_trigger_time: Date | null;
+  reverse_order_id: string | null;
   recipient: {
     full_name: string;
     phone: string;
@@ -101,7 +185,10 @@ export interface MappedOrderFields {
   synced_at: Date;
 }
 
-export function mapLazadaOrder(raw: LazadaOrderRaw, rawItems: LazadaOrderItemRaw[]): MappedOrderFields {
+export function mapLazadaOrder(
+  raw: LazadaOrderRaw,
+  rawItems: LazadaOrderItemRaw[],
+): MappedOrderFields {
   // Lazada address_shipping không có field "country" dạng tên đầy đủ ở
   // mọi trường hợp quan sát được (thường là mã 2 ký tự "VN") — fallback
   // 'VN' nếu rỗng, vì scope hiện tại 100% seller Việt Nam.
@@ -110,10 +197,20 @@ export function mapLazadaOrder(raw: LazadaOrderRaw, rawItems: LazadaOrderItemRaw
   return {
     platform_order_id: String(raw.order_id),
     platform_order_number: raw.order_number,
-    status: mapLazadaStatus(raw.statuses[0] ?? 'pending'),
+    status: pickRepresentativeStatus(raw.statuses),
     raw_statuses: raw.statuses,
+    // Lazada trả "true"/"false" dạng STRING cho 2 field boolean này (xem
+    // ví dụ mẫu response GetOrder/GetOrders) — so sánh chuỗi tường minh,
+    // KHÔNG dùng Boolean(raw.x) (Boolean("false") === true, bug kinh điển).
+    need_cancel_confirm: raw.need_cancel_confirm === 'true',
+    is_cancel_pending: raw.is_cancel_pending === 'true',
+    cancel_trigger_time: raw.cancel_trigger_time
+      ? new Date(raw.cancel_trigger_time * 1000)
+      : null,
+    reverse_order_id: raw.reverse_order_id ?? null,
     recipient: {
-      full_name: `${raw.address_shipping.first_name} ${raw.address_shipping.last_name}`.trim(),
+      full_name:
+        `${raw.address_shipping.first_name} ${raw.address_shipping.last_name}`.trim(),
       phone: raw.address_shipping.phone,
       address_line1: raw.address_shipping.address1,
       address_line2: raw.address_shipping.address2,
@@ -122,6 +219,7 @@ export function mapLazadaOrder(raw: LazadaOrderRaw, rawItems: LazadaOrderItemRaw
       country,
     },
     consolidation_key: computeConsolidationKey(
+      MarketplacePlatform.LAZADA,
       raw.address_shipping.phone,
       raw.address_shipping.address1,
       raw.address_shipping.city,
@@ -146,7 +244,10 @@ export function mapLazadaOrder(raw: LazadaOrderRaw, rawItems: LazadaOrderItemRaw
       // TỪNG ĐƠN VỊ riêng lẻ, vì Package 4 (fulfillment) sẽ cần thao tác
       // theo đúng order_item_id gốc của Lazada, không phải theo dòng đã gộp).
       quantity: 1,
-      unit_price: parseMoneyString(item.item_price, `items[${item.sku}].item_price`),
+      unit_price: parseMoneyString(
+        item.item_price,
+        `items[${item.sku}].item_price`,
+      ),
       status: mapLazadaStatus(item.status),
     })),
     total_amount: parseMoneyString(raw.price, 'price'),

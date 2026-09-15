@@ -17,4 +17,9 @@ export const MKT_ERROR_CODES = {
   TOKEN_DECRYPT_FAILED: 'MKT_TOKEN_DECRYPT_FAILED',
   WEBHOOK_SIGNATURE_INVALID: 'MKT_WEBHOOK_SIGNATURE_INVALID',
   SHOP_LOOKUP_FAILED: 'MKT_SHOP_LOOKUP_FAILED',
+  // Fallback khi callback() bắt lỗi không thuộc các mã cụ thể ở trên
+  // (VD lỗi mạng/timeout gọi sàn) — đúng tinh thần "server_error" đã
+  // có sẵn cho Google OAuth, để FE luôn nhận được 1 mã hợp lệ, không
+  // bao giờ rơi vào undefined.
+  SERVER_ERROR: 'MKT_SERVER_ERROR',
 } as const;
