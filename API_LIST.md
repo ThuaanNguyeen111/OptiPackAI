@@ -170,4 +170,4 @@ GET   /notifications*
 
 ## Bảng mã lỗi
 
-Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` mục 7 — không lặp lại ở đây tránh 2 nguồn dễ lệch nhau.
+Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (đã đổi cấu trúc từ "mục 1-10" sang "PHẦN A-D" từ bản v3) — không lặp lại ở đây tránh 2 nguồn dễ lệch nhau.

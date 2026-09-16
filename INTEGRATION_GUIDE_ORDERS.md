@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Orders & Marketplace Integration (FE-01, FE-02)
 
+**Cập nhật 16/09/2026** — callback OAuth Lazada đổi từ trả JSON thô sang redirect thật về FE; xác nhận gộp nhiều đơn hoạt động đúng bằng dữ liệu thật; bổ sung đầy đủ 19 giá trị `status` (trước đây tài liệu ngầm hiểu ít hơn); thêm mã lỗi `MKT_SERVER_ERROR`.
+
 Tài liệu này dành cho FE tích hợp 2 module **Marketplace Integration** (kết nối sàn qua OAuth) và **Orders** (đồng bộ + gộp đơn hàng). Đọc tài liệu này **trước khi** đọc Swagger — Swagger cho biết "API nhận/trả gì", tài liệu này giải thích "vì sao nó hoạt động vậy, và FE cần xử lý gì thêm". Cùng cấp với `INTEGRATION_GUIDE.md` (Auth/Users) — đọc file đó trước nếu FE chưa quen cách BE trả lỗi và cách gắn Bearer token.
 
 **Swagger UI (nguồn API chính thức, luôn cập nhật)**: `http://localhost:3000/api/docs`
@@ -94,12 +96,14 @@ Admin bấm "Kết nối shop Lazada" → gọi (có Bearer token):
    không phải FE gọi. Bảo mật dựa trên state token dùng 1 lần, không phải JWT.)
 ```
 
-**Callback xử lý xong, BE lưu access_token/refresh_token của shop đó (mã hoá) vào MongoDB** và **trả thẳng JSON này ra ngay trình duyệt** (đã xác nhận đúng theo code, không phải suy đoán):
-```json
-{ "platform": "lazada", "shopId": "201171264532", "shopName": "i7Yix2IJ", "connected": true }
+**Callback xử lý xong, BE lưu access_token/refresh_token của shop đó (mã hoá) vào MongoDB**, sau đó **redirect thẳng trình duyệt về FE** (đã sửa 15/09/2026 — trước đây trả JSON thô, nay dùng `@Redirect()` giống hệt cơ chế Google OAuth ở `INTEGRATION_GUIDE.md` mục 7):
+
+```
+Thành công: http://localhost:5173/marketplace-oauth-success?shopId=201171264532&shopName=i7Yix2IJ&connected=true
+Thất bại:   http://localhost:5173/marketplace-oauth-success?error=<error_code>
 ```
 
-> 🔴 **Vấn đề UX thật cần FE/BE thống nhất trước khi demo**: vì `callback` do chính trình duyệt của Admin bị Lazada điều hướng tới (không phải FE gọi bằng `fetch`), và BE hiện **trả JSON thô** chứ không redirect tiếp về 1 trang FE đẹp — nghĩa là sau khi bấm "Cho phép" trên Lazada, Admin sẽ thấy **1 trang JSON trần trụi** trên trình duyệt (giống hệt việc mở thẳng 1 API bằng URL), không quay lại được giao diện OptiPackAI một cách mượt. Đây khác với luồng Google OAuth (module Auth) — Google OAuth có bước BE tự redirect tiếp về `http://localhost:5173/oauth-success?...`, còn Lazada callback ở module này **hiện CHƯA có bước redirect về FE tương tự**. FE nên bàn với BE 1 trong 2 hướng trước khi code UI: (a) BE thêm redirect về 1 route FE cố định sau khi xử lý xong callback (giống Google), hoặc (b) FE chấp nhận mở luồng connect ở tab/cửa sổ riêng và tự poll 1 API khác (chưa có) để biết đã connect xong chưa. **Đừng tự dựng UI theo giả định (a) nếu BE chưa thực sự làm redirect** — kiểm tra lại bằng Swagger/test thật trước.
+FE cần có sẵn 1 route `/marketplace-oauth-success`, đọc `URLSearchParams` từ URL để lấy `shopId`/`shopName` (hoặc `error`) — **không** gọi API nào thêm ở bước này, đúng pattern đã quen với `/oauth-success` của Google. `error_code` trả về là 1 trong các mã `MKT_*` liệt kê đầy đủ ở mục 8 (VD `MKT_OAUTH_STATE_INVALID`, hoặc `MKT_SERVER_ERROR` nếu lỗi không rơi vào mã cụ thể nào khác).
 
 Sau khi connect xong 1 lần, **`shopId` (chính là Lazada `seller_id`, ví dụ `201171264532`) là định danh dùng lại cho mọi lần gọi sync/list phía dưới** — FE nên lưu lại giá trị này (theo shop, không phải theo user) để không phải hỏi lại backend mỗi lần.
 
@@ -120,9 +124,9 @@ POST /orders/lazada/sync?shop_id=201171264532
 Authorization: Bearer <access_token>
 ```
 
-| Param | Type | Bắt buộc | Mô tả |
-|---|---|---|---|
-| `shop_id` | string (query) | Có | `shop_id` trên Lazada — chính là `seller_id` trả về lúc connect OAuth (mục 3) |
+| Param     | Type           | Bắt buộc | Mô tả                                                                         |
+| --------- | -------------- | -------- | ----------------------------------------------------------------------------- |
+| `shop_id` | string (query) | Có       | `shop_id` trên Lazada — chính là `seller_id` trả về lúc connect OAuth (mục 3) |
 
 ### Response — `201 Created`
 
@@ -134,11 +138,11 @@ Authorization: Bearer <access_token>
 }
 ```
 
-| Field | Mô tả |
-|---|---|
-| `fetched` | Số đơn hàng BE lấy được từ Lazada API trong lần gọi này |
-| `upserted` | Số đơn được ghi mới/cập nhật vào MongoDB (đơn đã tồn tại từ lần sync trước sẽ được update, không tạo trùng) |
-| `newlyConsolidated` | Số đơn **mới được gộp** vào 1 nhóm consolidation trong lần sync này (xem mục 7) |
+| Field               | Mô tả                                                                                                       |
+| ------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `fetched`           | Số đơn hàng BE lấy được từ Lazada API trong lần gọi này                                                     |
+| `upserted`          | Số đơn được ghi mới/cập nhật vào MongoDB (đơn đã tồn tại từ lần sync trước sẽ được update, không tạo trùng) |
+| `newlyConsolidated` | Số đơn **mới được gộp** vào 1 nhóm consolidation trong lần sync này (xem mục 7)                             |
 
 **FE nên làm gì với response này**: hiện toast/snackbar ngắn kiểu "Đã đồng bộ {fetched} đơn, {newlyConsolidated} đơn được gộp" — không cần hiện chi tiết từng đơn ở đây, gọi tiếp `GET /orders` (mục 5) để lấy danh sách đầy đủ hiển thị bảng.
 
@@ -154,6 +158,7 @@ Authorization: Bearer <access_token>
   "path": "/orders/lazada/sync"
 }
 ```
+
 HTTP status: **502 Bad Gateway** (đúng chuẩn — lỗi từ hệ thống bên ngoài, không phải lỗi của chính OptiPackAI).
 
 → **FE KHÔNG thể phân biệt** "shop chưa verify" với các nguyên nhân khác chỉ từ response này — `message` luôn là câu chung chung như trên, không có field nào chỉ ra lý do cụ thể phía Lazada. FE nên hiện UI dạng "Đồng bộ thất bại, vui lòng thử lại sau hoặc kiểm tra trạng thái xác minh shop trên Lazada Seller Center" (gộp chung mọi khả năng), **không** cố tách case theo `message` hay đoán thêm error_code chưa tồn tại. Nếu sau này BE cần phân biệt rõ nguyên nhân cho FE, đó là việc cần yêu cầu BE bổ sung riêng, không phải điều đang có sẵn.
@@ -169,13 +174,13 @@ GET /orders?limit=20
 Authorization: Bearer <access_token>
 ```
 
-| Param | Type | Bắt buộc | Mô tả |
-|---|---|---|---|
-| `shop_id` | string (query) | Không | Lọc theo shop trên sàn |
-| `status` | string (query) | Không | Lọc theo trạng thái đơn (giá trị cụ thể: xem Swagger — enum đang mở rộng dần) |
-| `consolidated_group_id` | string, MongoDB ObjectId (query) | Không | **Mới bổ sung** — lọc lấy TẤT CẢ đơn thuộc CÙNG 1 gói hàng đã gộp. Lấy giá trị này từ field `consolidatedGroupId` trả về ở `GET /orders` hoặc `GET /orders/:id` của bất kỳ đơn nào trong nhóm đó. Chỉ trả đơn có `isConsolidated: true` |
-| `before` | string, **ISO 8601 datetime** (query) | Không | Cursor phân trang — truyền lại nguyên văn `nextCursor` của trang trước (BE validate bằng `@IsDateString()`, không nhận chuỗi tuỳ ý) |
-| `limit` | number (query) | Không | Số lượng đơn/trang — mặc định **20**, tối thiểu **1**, tối đa **100** (BE reject nếu FE truyền >100) |
+| Param                   | Type                                  | Bắt buộc | Mô tả                                                                                                                                                                                                                                   |
+| ----------------------- | ------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shop_id`               | string (query)                        | Không    | Lọc theo shop trên sàn                                                                                                                                                                                                                  |
+| `status`                | string (query)                        | Không    | Lọc theo trạng thái đơn (giá trị cụ thể: xem Swagger — enum đang mở rộng dần)                                                                                                                                                           |
+| `consolidated_group_id` | string, MongoDB ObjectId (query)      | Không    | **Mới bổ sung** — lọc lấy TẤT CẢ đơn thuộc CÙNG 1 gói hàng đã gộp. Lấy giá trị này từ field `consolidatedGroupId` trả về ở `GET /orders` hoặc `GET /orders/:id` của bất kỳ đơn nào trong nhóm đó. Chỉ trả đơn có `isConsolidated: true` |
+| `before`                | string, **ISO 8601 datetime** (query) | Không    | Cursor phân trang — truyền lại nguyên văn `nextCursor` của trang trước (BE validate bằng `@IsDateString()`, không nhận chuỗi tuỳ ý)                                                                                                     |
+| `limit`                 | number (query)                        | Không    | Số lượng đơn/trang — mặc định **20**, tối thiểu **1**, tối đa **100** (BE reject nếu FE truyền >100)                                                                                                                                    |
 
 **Phân trang là cursor-based dựa trên thời gian (`created_at`), KHÔNG phải page number và KHÔNG phải token mờ (opaque token)** — `nextCursor` thực chất chính là giá trị `created_at` (dạng ISO string) của đơn CUỐI CÙNG trong trang hiện tại. FE không tự tính `page=2,3,...`, mà luôn lấy nguyên `nextCursor` từ response trước truyền thẳng vào `before` của lần gọi kế tiếp — không tự chỉnh sửa/parse lại giá trị này. Khi `nextCursor: null` → đã hết dữ liệu, ẩn nút "Xem thêm"/tắt infinite scroll.
 
@@ -212,18 +217,18 @@ Authorization: Bearer <access_token>
 
 ### Field liên quan
 
-| Field | Type | Mô tả |
-|---|---|---|
-| `id` | string | ObjectId MongoDB của đơn (dùng làm key khi render list/table, và là giá trị truyền vào `GET /orders/:id`) |
-| `platform` | string | Sàn nguồn — hiện tại chỉ có `"lazada"` |
-| `shopId` | string | shop_id/seller_id trên sàn |
-| `platformOrderId` | string | Mã đơn hàng gốc trên sàn — LUÔN có |
-| `platformOrderNumber` | string \| **undefined** | Mã đơn hiển thị (order_number) trên sàn — **field optional, có thể VẮNG MẶT** trong response (không phải luôn `null`, mà có thể thiếu hẳn key này). FE phải kiểm tra tồn tại trước khi hiển thị (`order.platformOrderNumber ?? order.platformOrderId` là fallback hợp lý), không được giả định luôn có như `platformOrderId`. Trong lần test thực tế 2 giá trị này trùng nhau, nhưng đó là trùng hợp của đơn cụ thể đó, không phải quy tắc đảm bảo |
-| `status` | string | Trạng thái đơn — **đã xác nhận đủ 9 giá trị enum** (chuẩn hoá nội bộ, không phải string thô của Lazada): `unpaid`, `pending`, `packed`, `ready_to_ship`, `shipped`, `delivered`, `canceled`, `returned`, `failed` |
-| `isConsolidated` / `consolidatedGroupId` | boolean / string\|null | Xem mục 7 |
-| `totalAmount` / `currency` | number / string | Tổng tiền đơn, đơn vị tiền tệ |
-| `itemCount` | number | Số lượng **dòng sản phẩm** trong đơn (đếm theo unit — xem lưu ý quan trọng ở mục 6 về cách Lazada đếm số lượng) |
-| `createdAt` | string (ISO 8601) | Thời điểm đơn được ghi vào hệ thống OptiPackAI (không phải thời điểm đặt hàng trên sàn) |
+| Field                                    | Type                    | Mô tả                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                                     | string                  | ObjectId MongoDB của đơn (dùng làm key khi render list/table, và là giá trị truyền vào `GET /orders/:id`)                                                                                                                                                                                                                                                                                                                                          |
+| `platform`                               | string                  | Sàn nguồn — hiện tại chỉ có `"lazada"`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `shopId`                                 | string                  | shop_id/seller_id trên sàn                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `platformOrderId`                        | string                  | Mã đơn hàng gốc trên sàn — LUÔN có                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `platformOrderNumber`                    | string \| **undefined** | Mã đơn hiển thị (order_number) trên sàn — **field optional, có thể VẮNG MẶT** trong response (không phải luôn `null`, mà có thể thiếu hẳn key này). FE phải kiểm tra tồn tại trước khi hiển thị (`order.platformOrderNumber ?? order.platformOrderId` là fallback hợp lý), không được giả định luôn có như `platformOrderId`. Trong lần test thực tế 2 giá trị này trùng nhau, nhưng đó là trùng hợp của đơn cụ thể đó, không phải quy tắc đảm bảo |
+| `status`                                 | string                  | Trạng thái đơn — **đã xác nhận đủ 9 giá trị enum** (chuẩn hoá nội bộ, không phải string thô của Lazada): `unpaid`, `pending`, `packed`, `ready_to_ship`, `shipped`, `delivered`, `canceled`, `returned`, `failed`                                                                                                                                                                                                                                  |
+| `isConsolidated` / `consolidatedGroupId` | boolean / string\|null  | Xem mục 7                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `totalAmount` / `currency`               | number / string         | Tổng tiền đơn, đơn vị tiền tệ                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `itemCount`                              | number                  | Số lượng **dòng sản phẩm** trong đơn (đếm theo unit — xem lưu ý quan trọng ở mục 6 về cách Lazada đếm số lượng)                                                                                                                                                                                                                                                                                                                                    |
+| `createdAt`                              | string (ISO 8601)       | Thời điểm đơn được ghi vào hệ thống OptiPackAI (không phải thời điểm đặt hàng trên sàn)                                                                                                                                                                                                                                                                                                                                                            |
 
 ---
 
@@ -286,6 +291,8 @@ Có 1 hệ quả cần biết: **nếu 1 đơn có 2 cái cùng SKU nhưng 1 cá
 
 `platformOrderItemIds` (mảng, không phải 1 giá trị) — giữ lại toàn bộ mã đơn vị gốc của Lazada trong dòng đã gộp, dùng khi cần thao tác chi tiết theo từng đơn vị sau này (Package 4 — Fulfillment), FE hiện tại chưa cần dùng tới field này.
 
+> ⚠️ **Gap đang chờ quyết định (15/09/2026)** — BE có lưu thêm 4 field liên quan tới luồng "buyer yêu cầu hủy đơn, seller có hạn phản hồi trước khi Lazada tự động hủy" (`need_cancel_confirm`, `is_cancel_pending`, `cancel_trigger_time`, `reverse_order_id`) và dùng để bắn Notification (xem `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6) — nhưng **hiện KHÔNG trả ra qua `GET /orders`/`GET /orders/:id`**. FE hiện chỉ biết đơn nào đang chờ xác nhận hủy thông qua Notification, KHÔNG thấy trực tiếp trên màn hình chi tiết đơn. Nếu FE cần hiển thị badge "Chờ xác nhận hủy" ngay trên trang chi tiết đơn (không chỉ qua chuông thông báo), cần yêu cầu BE bổ sung field này vào response — hiện tại đây là quyết định CHƯA CHỐT, không phải bug.
+
 ---
 
 ## 7. Gộp đơn (Consolidation) — cách FE hiển thị đúng
@@ -295,9 +302,23 @@ Hệ thống tự động phát hiện các đơn hàng **có khả năng cùng 
 - `isConsolidated: false, consolidatedGroupId: null` → đơn độc lập, không thuộc nhóm nào.
 - `isConsolidated: true, consolidatedGroupId: "<id>"` → đơn thuộc 1 nhóm gộp — FE nên **hiển thị badge/nhãn riêng** (ví dụ "Đơn gộp") trên các đơn có cùng `consolidatedGroupId`, và có thể cho phép nhóm chúng lại thành 1 khối trực quan trong bảng thay vì hiện rời rạc.
 
-**Chỉ đơn CHƯA fulfill xong mới được xét gộp** — cụ thể BE chỉ so khớp `consolidation_key` giữa các đơn có `status` thuộc nhóm `unpaid | pending | packed | ready_to_ship`. Đơn đã `shipped/delivered/canceled/returned/failed` **không bao giờ** được gộp thêm (kể cả nếu trùng khách với 1 đơn mới) — hợp lý về nghiệp vụ (đơn cũ đã xử lý xong, không nên gộp ngược). FE không cần tự lọc lại theo status khi hiển thị gộp — BE đã đảm bảo điều này ở tầng dữ liệu.
+**Chỉ đơn CHƯA fulfill xong mới được xét gộp** — cụ thể BE chỉ so khớp `consolidation_key` giữa các đơn có `status` thuộc nhóm `unpaid | pending | to_pack | packed | to_ship | ready_to_ship` (nhóm "đang xử lý dở" — xem danh sách đầy đủ ở mục "Danh sách trạng thái đơn" bên dưới). Đơn đã `shipped/delivered/canceled/returned/failed` (và các trạng thái sự cố logistics) **không bao giờ** được gộp thêm (kể cả nếu trùng khách với 1 đơn mới) — hợp lý về nghiệp vụ (đơn cũ đã xử lý xong hoặc gặp sự cố, không nên gộp ngược). FE không cần tự lọc lại theo status khi hiển thị gộp — BE đã đảm bảo điều này ở tầng dữ liệu.
 
-> ⚠️ Tính năng gộp mới xác nhận đúng logic ở mức "không gộp nhầm đơn lẻ" (test với 1 đơn duy nhất). **Case thực sự có 2 đơn được gộp làm 1 nhóm chưa được test bằng dữ liệu thật** — nếu FE thấy `newlyConsolidated` từ mục 4 luôn = 0 dù đặt nhiều đơn cùng khách, đó có thể là điều đang chờ BE verify tiếp, không mặc định là bug FE.
+✅ **Đã xác nhận hoạt động đúng bằng dữ liệu thật (15/09/2026)** — tính năng gộp nhiều đơn cùng khách đã test thành công với dữ liệu Lazada thật (2 và 3 đơn cùng 1 group), không còn là tính năng "chưa verify".
+
+---
+
+## 7b. Danh sách đầy đủ giá trị `status` — quan trọng khi FE hiển thị badge
+
+Order/item `status` có **19 giá trị thật** (đã xác nhận qua tài liệu chính thức Lazada 15/09/2026, trước đây BE chỉ xử lý 9 giá trị, 10 giá trị còn lại bị âm thầm gộp về `pending`) — chia làm 3 nhóm FE nên hiển thị khác nhau:
+
+| Nhóm                                                     | Giá trị                                                                                                         | Gợi ý hiển thị                                                                                                                                                                                 |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Luồng bình thường**                                    | `unpaid`, `pending`, `to_pack`, `packed`, `to_ship`, `ready_to_ship`, `shipped`, `delivered`                    | Badge trung tính (xanh dương/xám), theo tiến độ                                                                                                                                                |
+| **Hủy/hoàn bình thường**                                 | `canceled`, `returned`, `shipped_back`, `shipped_back_success`                                                  | Badge xám/vàng nhạt — không phải lỗi hệ thống                                                                                                                                                  |
+| **⚠️ Sự cố logistics thật — NÊN có icon cảnh báo riêng** | `failed`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back_failed`, `package_scrapped` | Badge đỏ/cam nổi bật — đây là các trường hợp hàng thật gặp vấn đề (thất lạc/hư hỏng/giao thất bại), FE nên làm nổi bật để Store Owner/Admin chú ý ngay, khác hẳn nhóm "hủy bình thường" ở trên |
+
+**Lưu ý về `status` cấp Order (không phải cấp item)**: nếu 1 đơn có nhiều item ở nhiều trạng thái khác nhau, BE tự chọn trạng thái "đáng chú ý nhất" làm đại diện (ưu tiên nhóm sự cố > hủy/hoàn > luồng bình thường) — KHÔNG phải trạng thái của item đầu tiên trong mảng. FE hiển thị field `status` cấp Order là đã đúng ưu tiên, không cần tự tính lại.
 
 ---
 
@@ -320,32 +341,33 @@ Prefix `error_code` theo module: `MKT_` (marketplace-integration — lỗi liên
 
 **Toàn bộ mã lỗi hiện có (lấy trực tiếp từ code, đầy đủ — không có mã nào khác ngoài danh sách này)**:
 
-| `error_code` | Module | Khi nào xảy ra |
-|---|---|---|
-| `MKT_OAUTH_STATE_INVALID` | marketplace-integration | State token ở callback sai/hết hạn/dùng lại lần 2 — nghi CSRF hoặc user bấm back rồi authorize lại |
-| `MKT_ADAPTER_NOT_REGISTERED` | marketplace-integration | Gọi `:platform` không tồn tại adapter (hiện chỉ có lazada, tiktok/tiki có enum nhưng chưa chắc có adapter thật — xem mục "Phạm vi hiện tại" đầu file) |
-| `MKT_SHOP_NOT_CONNECTED` | marketplace-integration | Gọi sync/list cho `shop_id` chưa từng connect OAuth thành công |
-| `MKT_TOKEN_EXCHANGE_FAILED` | marketplace-integration | Đổi `code` lấy access_token thất bại ở bước callback |
-| `MKT_TOKEN_REFRESH_FAILED` | marketplace-integration | Refresh token hết hạn/không hợp lệ — cần Admin connect lại từ đầu |
-| `MKT_TOKEN_DECRYPT_FAILED` | marketplace-integration | Lỗi giải mã token đã lưu trong DB (sự cố hạ tầng, hiếm) |
-| `MKT_WEBHOOK_SIGNATURE_INVALID` | marketplace-integration | Chưa dùng tới ở luồng Lazada hiện tại (Lazada polling, không webhook) |
-| `MKT_SHOP_LOOKUP_FAILED` | marketplace-integration | Không tìm/đọc được shop trong DB |
-| `ORD_SYNC_FAILED` | orders | **Bất kỳ** lỗi nào khi gọi Lazada GetOrders thất bại (gộp chung mọi nguyên nhân phía Lazada — xem mục 4) |
-| `ORD_UNSUPPORTED_PLATFORM` | orders | Gọi sync cho 1 platform chưa hỗ trợ (hiện chỉ `lazada` có route sync thật) |
-| `ORD_INVALID_ORDER_ID` | orders | **Mới** — `:id` ở `GET /orders/:id` (hoặc `consolidated_group_id` ở `GET /orders`) sai định dạng ObjectId, HTTP 400 |
-| `ORD_ORDER_NOT_FOUND` | orders | **Mới** — `:id` đúng định dạng nhưng không có đơn nào khớp (hoặc đơn đã bị vô hiệu hóa), HTTP 404 |
+| `error_code`                    | Module                  | Khi nào xảy ra                                                                                                                                                                          |
+| ------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MKT_OAUTH_STATE_INVALID`       | marketplace-integration | State token ở callback sai/hết hạn/dùng lại lần 2 — nghi CSRF hoặc user bấm back rồi authorize lại                                                                                      |
+| `MKT_ADAPTER_NOT_REGISTERED`    | marketplace-integration | Gọi `:platform` không tồn tại adapter (hiện chỉ có lazada, tiktok/tiki có enum nhưng chưa chắc có adapter thật — xem mục "Phạm vi hiện tại" đầu file)                                   |
+| `MKT_SHOP_NOT_CONNECTED`        | marketplace-integration | Gọi sync/list cho `shop_id` chưa từng connect OAuth thành công                                                                                                                          |
+| `MKT_TOKEN_EXCHANGE_FAILED`     | marketplace-integration | Đổi `code` lấy access_token thất bại ở bước callback                                                                                                                                    |
+| `MKT_TOKEN_REFRESH_FAILED`      | marketplace-integration | Refresh token hết hạn/không hợp lệ — cần Admin connect lại từ đầu                                                                                                                       |
+| `MKT_TOKEN_DECRYPT_FAILED`      | marketplace-integration | Lỗi giải mã token đã lưu trong DB (sự cố hạ tầng, hiếm)                                                                                                                                 |
+| `MKT_WEBHOOK_SIGNATURE_INVALID` | marketplace-integration | Chưa dùng tới ở luồng Lazada hiện tại (Lazada polling, không webhook)                                                                                                                   |
+| `MKT_SHOP_LOOKUP_FAILED`        | marketplace-integration | Không tìm/đọc được shop trong DB                                                                                                                                                        |
+| `MKT_SERVER_ERROR`              | marketplace-integration | **Mới (15/09/2026)** — mã dự phòng khi callback gặp lỗi không rơi vào mã cụ thể nào ở trên (VD lỗi mạng/timeout gọi Lazada) — đảm bảo `error=` trên URL redirect luôn có giá trị hợp lệ |
+| `ORD_SYNC_FAILED`               | orders                  | **Bất kỳ** lỗi nào khi gọi Lazada GetOrders thất bại (gộp chung mọi nguyên nhân phía Lazada — xem mục 4)                                                                                |
+| `ORD_UNSUPPORTED_PLATFORM`      | orders                  | Gọi sync cho 1 platform chưa hỗ trợ (hiện chỉ `lazada` có route sync thật)                                                                                                              |
+| `ORD_INVALID_ORDER_ID`          | orders                  | **Mới** — `:id` ở `GET /orders/:id` (hoặc `consolidated_group_id` ở `GET /orders`) sai định dạng ObjectId, HTTP 400                                                                     |
+| `ORD_ORDER_NOT_FOUND`           | orders                  | **Mới** — `:id` đúng định dạng nhưng không có đơn nào khớp (hoặc đơn đã bị vô hiệu hóa), HTTP 404                                                                                       |
 
 ---
 
 ## 9. Bảng route đầy đủ (2 module)
 
-| Method | Route | Cần đăng nhập? | Role | Ghi chú |
-|---|---|---|---|---|
-| GET | `/marketplace/:platform/connect` | Có | **Admin** | `:platform` = `lazada` (tiktok/tiki: enum có nhưng chưa xác nhận hoạt động — xem đầu file). Trả `{ authUrl }` |
-| GET | `/marketplace/:platform/callback` | **Không** (sàn tự điều hướng trình duyệt tới) | — | Public — bảo mật bằng state token 1 lần. Trả JSON thô, KHÔNG redirect về FE (xem cảnh báo UX ở mục 3) |
-| POST | `/orders/lazada/sync` | Có | **Admin** | Query `shop_id` bắt buộc |
-| GET | `/orders` | Có | **Admin** | Cursor pagination (`before`/`nextCursor` là ISO datetime), filter `shop_id`/`status`/`consolidated_group_id` |
-| GET | `/orders/:id` | Có | **Admin** | **Mới** — chi tiết 1 đơn, có `items[]` đã gộp theo SKU (xem mục 6) |
+| Method | Route                             | Cần đăng nhập?                                | Role      | Ghi chú                                                                                                                     |
+| ------ | --------------------------------- | --------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/marketplace/:platform/connect`  | Có                                            | **Admin** | `:platform` = `lazada` (tiktok/tiki: enum có nhưng chưa xác nhận hoạt động — xem đầu file). Trả `{ authUrl }`               |
+| GET    | `/marketplace/:platform/callback` | **Không** (sàn tự điều hướng trình duyệt tới) | —         | Public — bảo mật bằng state token 1 lần. **Redirect về FE** `/marketplace-oauth-success?...` (đã sửa 15/09/2026, xem mục 3) |
+| POST   | `/orders/lazada/sync`             | Có                                            | **Admin** | Query `shop_id` bắt buộc                                                                                                    |
+| GET    | `/orders`                         | Có                                            | **Admin** | Cursor pagination (`before`/`nextCursor` là ISO datetime), filter `shop_id`/`status`/`consolidated_group_id`                |
+| GET    | `/orders/:id`                     | Có                                            | **Admin** | **Mới** — chi tiết 1 đơn, có `items[]` đã gộp theo SKU (xem mục 6)                                                          |
 
 ---
 
@@ -353,11 +375,12 @@ Prefix `error_code` theo module: `MKT_` (marketplace-integration — lỗi liên
 
 - [ ] Đã chỉ hiện nút Connect/Sync/menu Orders cho user role **Admin (4)** — role khác gọi vào sẽ bị 403
 - [ ] Đã dùng đúng method **GET** cho `/marketplace/:platform/connect` (không phải POST)
-- [ ] Đã bàn với BE về vấn đề UX callback trả JSON thô (mục 3) trước khi thiết kế màn hình connect — chưa tự giả định có redirect về FE
+- [ ] Đã có sẵn route FE `/marketplace-oauth-success` đọc query string (`shopId`/`shopName`/`connected` khi thành công, `error` khi thất bại) — callback giờ **redirect thật**, không còn trả JSON thô (mục 3)
 - [ ] Đã dùng cursor `nextCursor`/`before` (ISO datetime string) cho phân trang `GET /orders`, không tự tính page number, không tự sửa giá trị cursor
 - [ ] Đã xử lý đúng field `platformOrderNumber` có thể VẮNG MẶT (optional), không giả định luôn tồn tại như `platformOrderId`
 - [ ] Đã xử lý đúng 2 field dễ hiểu nhầm: `recipientName` bị mask sẵn, `recipientCity` là cấp Phường/Xã
 - [ ] Đã hiểu `items[]` ở `GET /orders/:id` là ĐÃ GỘP theo SKU+status sẵn từ BE — không tự gộp lại lần nữa, và hiểu vì sao 1 SKU có thể xuất hiện 2 dòng nếu khác status (mục 6)
+- [ ] Đã xem đủ **19 giá trị status** (mục 7b) và làm badge riêng cho nhóm "sự cố logistics" (khác nhóm "hủy bình thường")
 - [ ] Đã hiểu rằng lỗi sync Lazada CHỈ có 1 mã chung `ORD_SYNC_FAILED` (502) — không cố phân biệt "chưa verify" khỏi các lỗi khác qua response
 - [ ] Đã switch theo `error_code` (không parse `message`) cho mọi lỗi từ 2 module này — dùng đúng bảng mã lỗi đầy đủ ở mục 8
 - [ ] Chỉ tích hợp route Lazada — chưa đụng route TikTok/Tiki nếu thấy xuất hiện trên Swagger (roadmap, chưa xong)

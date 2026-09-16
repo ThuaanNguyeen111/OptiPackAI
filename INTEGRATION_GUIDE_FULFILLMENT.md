@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật thêm 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -113,7 +113,11 @@ Ngay khi Order Group chuyển `approved_for_packing` (Nghiệp vụ 1 xong) — 
 Hệ thống đếm: mỗi Warehouse Staff đang active có bao nhiêu Order Group
               ĐANG XỬ LÝ DỞ (fulfillment_status CHƯA tới delivered/returned)
 → Chọn người có số ít nhất
-→ Hòa nhau → chọn theo thứ tự _id (ổn định, giải thích lại được nếu cần tra soát)
+→ Hòa nhau → chọn người được gán việc lần GẦN NHẤT LÂU HƠN (ai "nghỉ tay"
+  lâu nhất trong số đang hòa điểm được ưu tiên) — round-robin theo thời
+  gian, KHÔNG phải theo `_id` (đã sửa mô tả 16/09/2026 cho khớp code
+  thật — cách này công bằng hơn `_id` cố định, tránh việc hòa điểm luôn
+  ưu tiên đúng 1 người)
 ```
 
 Đây là phép đếm **real-time**, KHÔNG lưu sẵn 1 con số "đang có bao nhiêu việc" cho từng nhân viên — tránh tình trạng số liệu bị lệch (quên cập nhật khi đơn hoàn thành).
@@ -286,11 +290,15 @@ Kết hợp được với 2 filter cũ (`fulfillment_status`, `platform`) — V
 
 ### Bối cảnh — khi nào hệ thống chủ động báo
 
-| Sự kiện                      | Ai nhận                     | Mức độ   |
-| ---------------------------- | --------------------------- | -------- |
-| Báo thiếu hàng (Nghiệp vụ 3) | Store Owner (toàn bộ)       | critical |
-| Sắp quá hạn Hỏa Tốc (<1h)    | Đúng 1 người đang phụ trách | warning  |
-| Đã quá hạn Hỏa Tốc           | Store Owner (toàn bộ)       | critical |
+| Sự kiện                                                                                                                          | Ai nhận                     | Mức độ   |
+| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------- |
+| Báo thiếu hàng (Nghiệp vụ 3)                                                                                                     | Store Owner (toàn bộ)       | critical |
+| Sắp quá hạn Hỏa Tốc (<1h)                                                                                                        | Đúng 1 người đang phụ trách | warning  |
+| Đã quá hạn Hỏa Tốc                                                                                                               | Store Owner (toàn bộ)       | critical |
+| **MỚI (15/09/2026)** — Buyer yêu cầu hủy đơn, seller có hạn phản hồi (`cancel_trigger_time`) trước khi Lazada tự động hủy        | Store Owner + Admin (cả 2)  | critical |
+| **MỚI (16/09/2026)** — Đồng bộ Lazada thất bại liên tục (VD token hết hạn) — có cơ chế chống spam, tối đa 1 lần/20 phút mỗi shop | Store Owner                 | warning  |
+
+> ⚠️ **Hành vi đổi (15/09/2026)** — `PATCH /notifications/:id/read` giờ kiểm tra quyền sở hữu: chỉ đánh dấu đọc được thông báo gửi ĐÍCH DANH mình hoặc gửi BROADCAST cho đúng role của mình. Gọi với ID của thông báo KHÔNG thuộc về mình (dù ID hợp lệ) → trả **404 `NOTI_NOT_FOUND`**, y hệt trường hợp ID sai — FE không nên coi đây là bug nếu test chéo giữa 2 tài khoản khác role.
 
 ### Cách FE nhận — Polling (không cần WebSocket)
 
@@ -304,16 +312,16 @@ Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **đi
 
 ### DB liên quan — `Notification`
 
-| Field                                     | Kiểu                            | Ý nghĩa                                                                                    |
-| ----------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------ |
-| `recipient_user_id`                       | ObjectId\|null                  | Gửi đích danh 1 người — 1 trong 2 với `recipient_role`, KHÔNG bao giờ cả 2 cùng có giá trị |
-| `recipient_role`                          | UserRole\|null                  | HOẶC gửi broadcast cho cả 1 role                                                           |
-| `type`                                    | String                          | 1 trong 7 loại (`missing_item`, `sla_warning`, `sla_breach`...)                            |
-| `severity`                                | `'info'\|'warning'\|'critical'` | Mức độ hiển thị (màu sắc/icon)                                                             |
-| `title`/`message`                         | String                          | Nội dung — văn phong chuyên nghiệp, dựng sẵn từ backend, FE không tự ghép chuỗi            |
-| `related_entity_type`/`related_entity_id` | String\|null / ObjectId\|null   | Điều hướng khi bấm vào                                                                     |
-| `is_read`                                 | Boolean                         | Đã đọc chưa                                                                                |
-| `channels_sent`                           | String[]                        | Đã gửi qua kênh nào (audit — `['in_app']` hoặc `['in_app', 'email']`)                      |
+| Field                                     | Kiểu                            | Ý nghĩa                                                                                                                                                               |
+| ----------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recipient_user_id`                       | ObjectId\|null                  | Gửi đích danh 1 người — 1 trong 2 với `recipient_role`, KHÔNG bao giờ cả 2 cùng có giá trị                                                                            |
+| `recipient_role`                          | UserRole\|null                  | HOẶC gửi broadcast cho cả 1 role                                                                                                                                      |
+| `type`                                    | String                          | 1 trong 8 loại (`missing_item`, `sla_warning`, `sla_breach`, `sync_failed`, `cancel_confirmation_required`...) — **MỚI (15/09/2026)**: `cancel_confirmation_required` |
+| `severity`                                | `'info'\|'warning'\|'critical'` | Mức độ hiển thị (màu sắc/icon)                                                                                                                                        |
+| `title`/`message`                         | String                          | Nội dung — văn phong chuyên nghiệp, dựng sẵn từ backend, FE không tự ghép chuỗi                                                                                       |
+| `related_entity_type`/`related_entity_id` | String\|null / ObjectId\|null   | Điều hướng khi bấm vào                                                                                                                                                |
+| `is_read`                                 | Boolean                         | Đã đọc chưa                                                                                                                                                           |
+| `channels_sent`                           | String[]                        | Đã gửi qua kênh nào (audit — `['in_app']` hoặc `['in_app', 'email']`)                                                                                                 |
 
 ---
 
@@ -371,20 +379,21 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 
 ## D.3. Bảng mã lỗi
 
-| `error_code`                                                            | HTTP    | Khi nào                                        |
-| ----------------------------------------------------------------------- | ------- | ---------------------------------------------- |
-| `ORD_GROUP_INVALID_ID`                                                  | 400     | `:id` sai định dạng                            |
-| `ORD_GROUP_NOT_FOUND`                                                   | 404     | Group không tồn tại                            |
-| `ORD_GROUP_STATE_CONFLICT`                                              | 409     | Version không khớp                             |
-| `ORD_GROUP_INVALID_TRANSITION`                                          | 400     | Sai thứ tự trạng thái                          |
-| `ORD_GROUP_INSUFFICIENT_STOCK`                                          | 409     | pick-item không đủ hàng — gợi ý report-missing |
-| `ORD_GROUP_ITEM_NOT_IN_GROUP`                                           | 404     | SKU không thuộc group                          |
-| `ORD_GROUP_NO_STAFF_AVAILABLE`                                          | 409     | Auto-assign không có staff active              |
-| `ORD_GROUP_STAFF_NOT_FOUND`                                             | 404     | `staff_id` không hợp lệ                        |
-| `PKG_NO_ACTIVE_RECOMMENDATION`                                          | 404     | Chưa từng generate                             |
-| `PKG_ALREADY_DECIDED`                                                   | 409     | Recommendation đã được quyết định trước đó     |
-| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` | —       | Xem chi tiết Swagger                           |
-| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND`                                    | 400/404 | Module notifications                           |
+| `error_code`                                                            | HTTP    | Khi nào                                                                                                                                                                                                      |
+| ----------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ORD_GROUP_INVALID_ID`                                                  | 400     | `:id` sai định dạng                                                                                                                                                                                          |
+| `ORD_GROUP_NOT_FOUND`                                                   | 404     | Group không tồn tại                                                                                                                                                                                          |
+| `ORD_GROUP_STATE_CONFLICT`                                              | 409     | Version không khớp                                                                                                                                                                                           |
+| `ORD_GROUP_INVALID_TRANSITION`                                          | 400     | Sai thứ tự trạng thái                                                                                                                                                                                        |
+| `ORD_GROUP_INSUFFICIENT_STOCK`                                          | 409     | pick-item không đủ hàng — gợi ý report-missing                                                                                                                                                               |
+| `ORD_GROUP_ITEM_NOT_IN_GROUP`                                           | 404     | SKU không thuộc group                                                                                                                                                                                        |
+| `ORD_GROUP_ALL_ORDERS_CANCELED`                                         | 409     | **Mới (15/09/2026)** — toàn bộ đơn trong group đã bị hủy/gặp sự cố logistics (xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) — không còn gì để đóng gói/lấy hàng. Xảy ra ở `packaging/generate` và `picking-list` |
+| `ORD_GROUP_NO_STAFF_AVAILABLE`                                          | 409     | Auto-assign không có staff active                                                                                                                                                                            |
+| `ORD_GROUP_STAFF_NOT_FOUND`                                             | 404     | `staff_id` không hợp lệ                                                                                                                                                                                      |
+| `PKG_NO_ACTIVE_RECOMMENDATION`                                          | 404     | Chưa từng generate                                                                                                                                                                                           |
+| `PKG_ALREADY_DECIDED`                                                   | 409     | Recommendation đã được quyết định trước đó                                                                                                                                                                   |
+| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` | —       | Xem chi tiết Swagger                                                                                                                                                                                         |
+| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND`                                    | 400/404 | Module notifications                                                                                                                                                                                         |
 
 ## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
 
