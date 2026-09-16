@@ -3,6 +3,11 @@ import type { AdminUser, CreateUserInput, Role, UpdateUserInput } from '../types
 import { LoginType } from '../types/admin'
 import { isUserRole, type UserRole } from '../types/auth'
 
+export const USER_ERROR_CODES = {
+  EMAIL_IN_USE: 'USER_EMAIL_IN_USE',
+  EMAIL_INACTIVE: 'USER_EMAIL_INACTIVE',
+} as const
+
 export type UserProfile = {
   id: string
   name: string

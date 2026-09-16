@@ -4,6 +4,7 @@ import {
   GuestRoute,
   ProtectedRoute,
 } from './components/auth/ProtectedRoute'
+import { MfaDisabledNotice } from './components/auth/MfaDisabledNotice'
 import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
@@ -38,6 +39,7 @@ import { WarehousePage } from './pages/WarehousePage'
 function PortalRoot() {
   return (
     <PortalProvider>
+      <MfaDisabledNotice />
       <Outlet />
     </PortalProvider>
   )

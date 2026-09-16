@@ -394,6 +394,7 @@ export function UserManagementTable({
       </div>
 
       <UserFormModal
+        key={creating ? 'create' : (editing?.id ?? 'closed')}
         open={creating || editing !== null}
         onClose={() => {
           setEditing(null)
@@ -402,6 +403,7 @@ export function UserManagementTable({
         user={creating ? null : editing}
         onSave={onUpdateUser}
         onCreate={onCreateUser}
+        onReactivate={onReactivate}
       />
     </div>
   )
