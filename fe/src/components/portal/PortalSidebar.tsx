@@ -28,7 +28,7 @@ import { useTheme } from '../../hooks/useTheme'
 import { canSeeNavItem } from '../../lib/rbac'
 import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
 
-type NavSection = 'overview' | 'logistics' | 'analytics' | 'system'
+type NavSection = 'overview' | 'store' | 'logistics' | 'analytics' | 'system'
 
 const navItems = [
   {
@@ -45,7 +45,23 @@ const navItems = [
     labelVi: 'Đơn đa kênh',
     labelEn: 'Omnichannel Orders',
     icon: Package,
-    section: 'logistics' as NavSection,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/packaging-rules',
+    end: false,
+    labelVi: 'Quy tắc Bao bì',
+    labelEn: 'Packaging Rules',
+    icon: Box,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/staff',
+    end: false,
+    labelVi: 'Nhân viên & Vị trí',
+    labelEn: 'Staff & Locations',
+    icon: Users,
+    section: 'store' as NavSection,
   },
   {
     to: '/app/warehouse',
@@ -69,22 +85,6 @@ const navItems = [
     labelVi: 'Vận chuyển',
     labelEn: 'Shipping & Fulfillment',
     icon: Truck,
-    section: 'logistics' as NavSection,
-  },
-  {
-    to: '/app/packaging-rules',
-    end: false,
-    labelVi: 'Quy tắc Bao bì',
-    labelEn: 'Packaging Rules',
-    icon: Box,
-    section: 'logistics' as NavSection,
-  },
-  {
-    to: '/app/staff',
-    end: false,
-    labelVi: 'Nhân viên & Vị trí',
-    labelEn: 'Staff & Locations',
-    icon: Users,
     section: 'logistics' as NavSection,
   },
   {
@@ -115,6 +115,7 @@ const navItems = [
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   overview: null,
+  store: { vi: 'Cửa hàng', en: 'Store' },
   logistics: { vi: 'Vận hành kho', en: 'Logistics' },
   analytics: { vi: 'Báo cáo & Phân tích', en: 'Analytics' },
   system: { vi: 'Hệ thống', en: 'System' },

@@ -12,9 +12,18 @@ const TONE_BY_STATUS: Record<
   ready_to_ship: 'primary',
   shipped: 'success',
   delivered: 'success',
-  canceled: 'warning',
-  returned: 'warning',
-  failed: 'warning',
+  canceled: 'default',
+  returned: 'default',
+  failed: 'default',
+}
+
+const EXTRA_CLASS_BY_STATUS: Partial<Record<MarketplaceOrderStatus, string>> = {
+  canceled:
+    'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300',
+  returned:
+    'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-slate-400',
+  failed:
+    'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-slate-400',
 }
 
 export function MarketplaceOrderStatusBadge({
@@ -25,7 +34,7 @@ export function MarketplaceOrderStatusBadge({
   locale?: 'vi' | 'en'
 }) {
   return (
-    <Badge tone={TONE_BY_STATUS[status]}>
+    <Badge tone={TONE_BY_STATUS[status]} className={EXTRA_CLASS_BY_STATUS[status]}>
       {ORDER_STATUS_LABELS[status][locale]}
     </Badge>
   )

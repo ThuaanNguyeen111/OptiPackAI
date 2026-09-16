@@ -23,11 +23,20 @@ import {
 } from 'lucide-react'
 import { BatchDetailDrawer } from '../components/orders/BatchDetailDrawer'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
 import { usePortal } from '../context/use-portal'
 import {
   getStoredBatches,
   updateBatchPicker,
   type BatchZone,
+  type CustomerOrder,
   type PickingBatch,
 } from '../data/picking-batches-mock'
 import {
@@ -416,6 +425,12 @@ function WarehouseFloorView({
   type SortMode = 'route' | 'bin' | 'name' | 'status'
   const [sortMode, setSortMode] = useState<SortMode>('route')
 
+  // Platform orders in this consolidated batch (FE-local, supports detach Hướng B)
+  const [batchOrders, setBatchOrders] = useState<CustomerOrder[]>(() =>
+    structuredClone(batch.orders),
+  )
+  const [detachOrder, setDetachOrder] = useState<CustomerOrder | null>(null)
+
   // Exception reporting modal
   const [exceptionOpen, setExceptionOpen] = useState(false)
   const [exceptionReason, setExceptionReason] = useState(
@@ -434,6 +449,12 @@ function WarehouseFloorView({
 
   // Danh sách nhân viên lấy hàng động (đồng bộ từ hệ thống Quản lý nhân viên của chủ shop)
   const [warehouseStaffList, setWarehouseStaffList] = useState<WarehouseStaffItem[]>(() => getWarehouseStaffItems())
+
+  useEffect(() => {
+    setBatchOrders(structuredClone(batch.orders))
+    setChannelFilter('all')
+    setDetachOrder(null)
+  }, [batch.id]) // eslint-disable-line react-hooks/exhaustive-deps -- reset when switching batch only
 
   useEffect(() => {
     const handleStaffUpdate = () => {
@@ -647,17 +668,66 @@ function WarehouseFloorView({
     return counts
   }, [items])
 
+  const isMultiPlatformBatch = batchOrders.length >= 2 &&
+    new Set(batchOrders.map((o) => o.channel)).size >= 2
+
+  const selectedPlatformOrder = useMemo(() => {
+    if (channelFilter === 'all') return null
+    return (
+      batchOrders.find((o) => o.channel === channelFilter) ?? null
+    )
+  }, [batchOrders, channelFilter])
+
+  const platformOrderIdsText = useMemo(
+    () =>
+      batchOrders
+        .map((o) => `${o.channel.toUpperCase()} #${o.orderId}`)
+        .join(' · '),
+    [batchOrders],
+  )
+
+  const handleConfirmDetachPlatformOrder = () => {
+    if (!detachOrder) return
+    const channel = detachOrder.channel
+    setBatchOrders((prev) => prev.filter((o) => o.orderId !== detachOrder.orderId))
+    setItems((prev) => {
+      const next = prev.filter((it) => it.channel !== channel)
+      const nextActive =
+        next.find((it) => it.id === activeItemId) ??
+        next.find((it) => it.status !== 'picked') ??
+        next[0]
+      if (nextActive) {
+        setActiveItemId(nextActive.id)
+        setCurrentQty(nextActive.qtyPicked)
+        setBarcodeInput(
+          nextActive.status === 'picked' ? nextActive.upc : '',
+        )
+      }
+      return next
+    })
+    setChannelFilter('all')
+    setDetachOrder(null)
+    setToastMessage(
+      vi
+        ? `Đã gỡ đơn ${detachOrder.channel.toUpperCase()} #${detachOrder.orderId} khỏi nhóm. Phần còn lại tiếp tục lấy hàng.`
+        : `Detached ${detachOrder.channel} #${detachOrder.orderId}. Remaining items continue picking.`,
+    )
+    window.setTimeout(() => setToastMessage(null), 4000)
+  }
+
   // Thông tin khách hàng nhận của đợt gom đơn (Mỗi đợt gom từ nhiều sàn cho DUY NHẤT 1 khách hàng)
   const batchCustomer = useMemo(() => {
-    const firstOrder = batch.orders[0]
+    const firstOrder = batchOrders[0]
     return {
       name: batch.customerName || firstOrder?.customerName || 'Trần Văn An',
       phone: batch.customerPhone || firstOrder?.phone || '0901 882 193',
       address: batch.customerAddress || firstOrder?.address || '123 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh',
-      ordersCount: batch.orders.length,
-      channelsText: batch.channels.map((c) => c.toUpperCase()).join(' + '),
+      ordersCount: batchOrders.length,
+      channelsText: [...new Set(batchOrders.map((o) => o.channel))]
+        .map((c) => c.toUpperCase())
+        .join(' + '),
     }
-  }, [batch])
+  }, [batch, batchOrders])
 
   const handleConfirmAssignment = () => {
     if (modalAssignMode === 'auto') {
@@ -1102,9 +1172,23 @@ function WarehouseFloorView({
                 <span className="text-xs text-slate-400">·</span>
                 <span className="inline-flex items-center gap-1 text-xs text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300 font-semibold px-2 py-0.5 rounded">
                   <Sparkles className="h-3 w-3" />
-                  Gộp {batchCustomer.ordersCount} đơn đa sàn cho khách: <strong className="text-purple-950 dark:text-purple-100">{batchCustomer.name}</strong>
+                  {isMultiPlatformBatch
+                    ? (vi
+                        ? `Gộp đa sàn · ${batchCustomer.ordersCount} đơn · ${batchCustomer.name}`
+                        : `Multi-platform · ${batchCustomer.ordersCount} · ${batchCustomer.name}`)
+                    : (vi
+                        ? `Đơn lẻ · ${batchCustomer.name}`
+                        : `Standalone · ${batchCustomer.name}`)}
                 </span>
               </div>
+              {isMultiPlatformBatch ? (
+                <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                  {vi ? 'Mã đơn từng sàn: ' : 'Order IDs: '}
+                  <strong className="text-slate-800 dark:text-slate-200">
+                    {platformOrderIdsText}
+                  </strong>
+                </p>
+              ) : null}
 
               {/* Omnichannel Platforms Representation */}
               <div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -1518,6 +1602,63 @@ function WarehouseFloorView({
                   ))}
                 </div>
               </div>
+
+              {/* Platform order detail — hiện khi chọn tab 1 nền tảng trên danh sách lấy hàng */}
+              {selectedPlatformOrder ? (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3.5 text-xs dark:border-indigo-800 dark:bg-indigo-950/30">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {renderChannelBadge(selectedPlatformOrder.channel, 'sm')}
+                        <span className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
+                          #{selectedPlatformOrder.orderId}
+                        </span>
+                        {selectedPlatformOrder.status === 'canceled' ? (
+                          <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
+                            {vi ? 'ĐÃ HỦY' : 'CANCELED'}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300">
+                        {vi ? 'Khách:' : 'Customer:'}{' '}
+                        <strong>{selectedPlatformOrder.customerName}</strong>
+                        {' · '}
+                        {selectedPlatformOrder.phone}
+                      </p>
+                      <p className="text-slate-500 dark:text-slate-400">
+                        {selectedPlatformOrder.address}
+                      </p>
+                      <p className="font-mono text-[11px] text-slate-500">
+                        {selectedPlatformOrder.paymentMethod} ·{' '}
+                        {selectedPlatformOrder.totalAmount.toLocaleString('vi-VN')}₫
+                      </p>
+                      {selectedPlatformOrder.notes ? (
+                        <p className="italic text-slate-500">{selectedPlatformOrder.notes}</p>
+                      ) : null}
+                      <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+                        {selectedPlatformOrder.items.map((it) => (
+                          <li key={`${selectedPlatformOrder.orderId}-${it.sku}`}>
+                            <span className="font-mono">{it.sku}</span> · {it.name} ×{it.qty}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDetachOrder(selectedPlatformOrder)}
+                      className="inline-flex h-8 shrink-0 items-center rounded-lg border border-amber-300 bg-white px-2.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-50 cursor-pointer dark:border-amber-800 dark:bg-surface-1 dark:text-amber-200"
+                    >
+                      {vi ? 'Giả lập hủy & gỡ khỏi nhóm' : 'Simulate cancel & detach'}
+                    </button>
+                  </div>
+                </div>
+              ) : isMultiPlatformBatch ? (
+                <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                  {vi
+                    ? 'Chọn tab Shopee / TikTok / … phía trên để xem chi tiết đơn khách trên từng nền tảng.'
+                    : 'Select a platform tab above to view that marketplace order detail.'}
+                </p>
+              ) : null}
 
               {/* Items Stack */}
               <div className="mt-3 space-y-2 max-h-[380px] lg:max-h-[420px] overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
@@ -2617,11 +2758,57 @@ function WarehouseFloorView({
 
       {/* Customer Order Details Drawer */}
       <BatchDetailDrawer
-        batch={drawerOpen ? batch : null}
+        batch={drawerOpen ? { ...batch, orders: batchOrders } : null}
         onClose={() => setDrawerOpen(false)}
         onStartPicking={() => setDrawerOpen(false)}
         locale={locale}
       />
+
+      <Dialog
+        open={Boolean(detachOrder)}
+        onOpenChange={(open) => {
+          if (!open) setDetachOrder(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {vi ? 'Xác nhận gỡ đơn khỏi nhóm gộp' : 'Confirm detach from group'}
+            </DialogTitle>
+            <DialogDescription>
+              {vi
+                ? 'Hướng B: giả lập đơn sàn này bị hủy và gỡ khỏi nhóm. Các mặt hàng của sàn còn lại tiếp tục lấy hàng — không hủy cả đợt.'
+                : 'Option B: simulate cancel on this platform order and detach it. Remaining platforms continue picking.'}
+            </DialogDescription>
+          </DialogHeader>
+          {detachOrder ? (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-surface-2">
+              <p className="font-medium capitalize text-slate-900 dark:text-slate-100">
+                {detachOrder.channel} · #{detachOrder.orderId}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {detachOrder.items.length} {vi ? 'mặt hàng sẽ bị loại khỏi danh sách lấy' : 'items will leave the picking list'}
+              </p>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setDetachOrder(null)}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:text-slate-200"
+            >
+              {vi ? 'Hủy' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmDetachPlatformOrder}
+              className="inline-flex h-9 items-center justify-center rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white hover:bg-amber-700 cursor-pointer"
+            >
+              {vi ? 'Gỡ khỏi nhóm' : 'Detach'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

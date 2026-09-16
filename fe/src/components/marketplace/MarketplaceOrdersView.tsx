@@ -1,10 +1,8 @@
-/**
- * Presentational UI only — no API / hooks / business state.
- * Wired by MarketplaceOrdersScreen (logic container).
- */
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronDown,
+  ChevronRight,
   Layers,
   Loader2,
   Package,
@@ -32,6 +30,7 @@ import {
 } from '../ui/table'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { cn } from '../../lib/cn'
+import { getDemoOrderDetail } from '../../data/demo-multi-platform-orders'
 import {
   ORDER_STATUSES,
   ORDER_STATUS_LABELS,
@@ -47,19 +46,35 @@ const adminSelectClass =
 const opsSelectClass =
   'h-9 cursor-pointer appearance-none rounded-lg border border-slate-200/60 bg-white pl-3 pr-8 text-xs font-medium text-slate-700 transition-colors hover:border-slate-300 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
 
-/** Cùng template cho header + mọi hàng — tránh lệch cột kiểu table-fixed/colgroup. */
+/**
+ * Ops list = CSS grid (không dùng <table>).
+ * Width cố định theo cột để không crop nút/mã đơn; scroll ngang khi viewport hẹp.
+ */
 const OPS_GRID =
-  'grid min-w-[1020px] grid-cols-[minmax(15rem,1.6fr)_5.75rem_minmax(8rem,1.1fr)_2.75rem_6.75rem_5.75rem_6.5rem_7.25rem_6.75rem] items-center'
+  'grid min-w-[1100px] grid-cols-[minmax(210px,1.15fr)_130px_minmax(160px,1.2fr)_60px_minmax(110px,0.9fr)_100px_110px_130px_140px] items-center'
 
 const OPS_HEAD_CELL =
-  'px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400'
+  'px-3 py-3.5 text-left text-[10px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400'
 
-const OPS_BODY_CELL = 'px-4 py-3.5 text-xs'
+const OPS_BODY_CELL = 'flex items-center px-3 py-3.5 text-xs'
+
+const OPS_COL = {
+  order: 'min-w-[210px]',
+  channel: 'w-[130px]',
+  recipient: 'min-w-[160px]',
+  items: 'w-[60px] justify-center text-center',
+  total: 'min-w-[110px] justify-end text-right whitespace-nowrap',
+  group: 'w-[100px] justify-center text-center',
+  status: 'w-[110px] justify-center text-center',
+  created: 'w-[130px] font-mono whitespace-nowrap',
+  action: 'w-[140px] justify-end text-right whitespace-nowrap pr-4',
+} as const
 
 function platformLabel(platform: string): string {
   if (platform === 'lazada') return 'Lazada'
   if (platform === 'tiktok') return 'TikTok'
   if (platform === 'tiki') return 'Tiki'
+  if (platform === 'shopee') return 'Shopee'
   return platform
 }
 
@@ -80,17 +95,207 @@ function PlatformPill({ platform }: { platform: string }) {
       ? 'border-indigo-200/80 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300'
       : platform === 'tiktok'
         ? 'border-zinc-300 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
-        : 'border-slate-200/80 bg-slate-50 text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
+        : platform === 'shopee'
+          ? 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
+          : 'border-slate-200/80 bg-slate-50 text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
   return (
-    <Badge
-      tone="default"
-      className={cn(
-        'rounded-md border px-2 py-0.5 text-[10px] font-semibold tracking-wide',
-        tone,
-      )}
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none ${tone}`}
     >
       {label}
-    </Badge>
+    </span>
+  )
+}
+
+/** ≥2 nền tảng → pill nằm ngang cạnh nhau trong cùng 1 ô */
+function PlatformPillsCell({
+  platforms,
+}: {
+  platforms: string[]
+}) {
+  const unique = [...new Set(platforms.map((p) => p.toLowerCase()))]
+  if (unique.length <= 1) {
+    return <PlatformPill platform={unique[0] ?? platforms[0] ?? ''} />
+  }
+  return (
+    <div className="flex flex-row flex-nowrap items-center gap-1">
+      {unique.map((p) => (
+        <PlatformPill key={p} platform={p} />
+      ))}
+    </div>
+  )
+}
+
+function memberItemSummary(member: MarketplaceOrderListItem): string {
+  const detail = getDemoOrderDetail(member.id)
+  if (!detail?.items.length) {
+    return `${member.itemCount} SP`
+  }
+  const names = detail.items.map((i) => i.name).join(' + ')
+  return `${member.itemCount} SP (${names})`
+}
+
+/** Cột Mã đơn thống nhất: chevron + nhãn chính (GRP hoặc #mã). Chi tiết sàn nằm ở panel mở rộng. */
+function OrderIdCell({
+  members,
+  groupCode,
+  multiPlatform,
+  expanded,
+  onToggle,
+  onOpen,
+  vi,
+}: {
+  members: MarketplaceOrderListItem[]
+  groupCode?: string
+  multiPlatform: boolean
+  expanded: boolean
+  onToggle: () => void
+  onOpen: (order: MarketplaceOrderListItem) => void
+  vi: boolean
+}) {
+  const primary = members[0]
+  if (!primary) return null
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggle()
+        }}
+        className={cn(
+          'inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md border bg-white transition-colors',
+          multiPlatform
+            ? 'border-purple-200/70 text-purple-600 hover:bg-purple-50 dark:border-purple-800 dark:bg-zinc-900 dark:text-purple-300 dark:hover:bg-purple-950/40'
+            : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-slate-300 dark:hover:bg-zinc-800',
+        )}
+        aria-expanded={expanded}
+        aria-label={
+          expanded
+            ? vi
+              ? 'Thu gọn'
+              : 'Collapse'
+            : vi
+              ? 'Xem sàn & mã đơn'
+              : 'Show channel & order ID'
+        }
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5" />
+        )}
+      </button>
+      <div className="min-w-0">
+        {multiPlatform && groupCode ? (
+          <span className="inline-flex items-center rounded border border-purple-200/60 bg-purple-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-purple-700 dark:border-purple-800/60 dark:bg-purple-950/40 dark:text-purple-300">
+            {groupCode}
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="block max-w-full cursor-pointer truncate text-left font-mono text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
+            onClick={() => onOpen(primary)}
+            title={vi ? 'Xem chi tiết đơn' : 'View order detail'}
+          >
+            #{displayOrderNumber(primary)}
+          </button>
+        )}
+        {multiPlatform && members.length > 1 ? (
+          <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+            {vi
+              ? `${members.length} mã đơn`
+              : `${members.length} order IDs`}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function OrderExpandPanel({
+  members,
+  onOpen,
+  vi,
+  accent = 'indigo',
+}: {
+  members: MarketplaceOrderListItem[]
+  onOpen: (order: MarketplaceOrderListItem) => void
+  vi: boolean
+  accent?: 'indigo' | 'slate'
+}) {
+  const isIndigo = accent === 'indigo'
+  return (
+    <div
+      className={cn(
+        'border-b px-3 py-2.5',
+        isIndigo
+          ? 'border-indigo-100 border-l-[3px] border-l-indigo-400/90 bg-indigo-50/40 dark:border-indigo-900/50 dark:border-l-indigo-500 dark:bg-indigo-950/30'
+          : 'border-slate-100 border-l-[3px] border-l-slate-300 bg-slate-50/60 dark:border-zinc-800 dark:border-l-zinc-600 dark:bg-zinc-900/40',
+      )}
+    >
+      <p
+        className={cn(
+          'mb-2 pl-8 text-[10px] font-semibold uppercase tracking-wider',
+          isIndigo
+            ? 'text-indigo-500/80 dark:text-indigo-400/80'
+            : 'text-slate-400 dark:text-slate-500',
+        )}
+      >
+        {vi ? 'Sàn · mã đơn' : 'Channel · order ID'}
+      </p>
+      <div
+        className={cn(
+          'ml-8 overflow-hidden rounded-lg border bg-white dark:bg-zinc-900',
+          isIndigo
+            ? 'border-indigo-100/90 dark:border-indigo-900/60'
+            : 'border-slate-200/80 dark:border-zinc-700',
+        )}
+      >
+        <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_3.5rem_7rem] gap-2 border-b border-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:border-zinc-800 dark:text-slate-500">
+          <span>{vi ? 'Sàn' : 'Channel'}</span>
+          <span>{vi ? 'Mã đơn / SP' : 'Order / Items'}</span>
+          <span className="text-center">{vi ? 'SL' : 'Qty'}</span>
+          <span className="text-right">{vi ? 'Tổng' : 'Total'}</span>
+        </div>
+        {members.map((m, idx) => {
+          const isLast = idx === members.length - 1
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onOpen(m)}
+              className="grid w-full cursor-pointer grid-cols-[6.5rem_minmax(0,1fr)_3.5rem_7rem] gap-2 border-b border-slate-50 px-3 py-2 text-left last:border-0 hover:bg-slate-50/80 dark:border-zinc-800/60 dark:hover:bg-zinc-800/40"
+            >
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="w-3 shrink-0 select-none font-mono text-[11px] text-slate-300 dark:text-zinc-600"
+                  aria-hidden
+                >
+                  {members.length > 1 ? (isLast ? '└' : '├') : '·'}
+                </span>
+                <PlatformPill platform={m.platform} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-mono text-[12px] font-semibold text-indigo-600 dark:text-indigo-400">
+                  #{displayOrderNumber(m)}
+                </span>
+                <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
+                  {memberItemSummary(m)}
+                </span>
+              </span>
+              <span className="text-center font-mono text-sm tabular-nums text-slate-700 dark:text-slate-300">
+                {m.itemCount}
+              </span>
+              <span className="text-right font-mono text-[12px] tabular-nums text-slate-800 dark:text-slate-200">
+                {formatCurrency(m.totalAmount, m.currency)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -126,6 +331,17 @@ export type MarketplaceOrdersViewProps = {
   error: string | null
   needsConnect: boolean
   visibleOrders: MarketplaceOrderListItem[]
+  groupMetaById?: Map<
+    string,
+    {
+      multiPlatform: boolean
+      orderIdsText: string
+      count: number
+      groupCode?: string
+      members?: MarketplaceOrderListItem[]
+    }
+  >
+  showDemoBanner?: boolean
   loading: boolean
   loadingMore: boolean
   nextCursor: string | null
@@ -171,6 +387,8 @@ export function MarketplaceOrdersView({
   error,
   needsConnect,
   visibleOrders,
+  groupMetaById,
+  showDemoBanner = false,
   loading,
   loadingMore,
   nextCursor,
@@ -185,6 +403,19 @@ export function MarketplaceOrdersView({
 }: MarketplaceOrdersViewProps) {
   const vi = locale === 'vi'
   const selectClass = ops ? opsSelectClass : adminSelectClass
+  /** UI-only: accordion mở/đóng cho hàng gộp đa sàn */
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(
+    () => new Set(),
+  )
+
+  function toggleGroupExpanded(groupId: string): void {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      return next
+    })
+  }
 
   return (
     <>
@@ -266,8 +497,8 @@ export function MarketplaceOrdersView({
                     <TabsTrigger value="grouped" className="gap-1.5 font-semibold">
                       <Layers className="h-3.5 w-3.5" />
                       {vi
-                        ? `Đơn gộp (${groupedCount})`
-                        : `Grouped (${groupedCount})`}
+                        ? `Gộp đa sàn (${groupedCount})`
+                        : `Multi-platform (${groupedCount})`}
                     </TabsTrigger>
                     <TabsTrigger
                       value="standalone"
@@ -491,62 +722,72 @@ export function MarketplaceOrdersView({
 
           {ops ? (
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  <span>
-                    {vi ? 'Hàng đợi đơn đa kênh' : 'Omnichannel order queue'}
-                  </span>
-                  <Badge
-                    tone="primary"
-                    className="rounded-md font-mono text-xs font-semibold"
-                  >
-                    {visibleOrders.length}
-                  </Badge>
-                </h2>
-                <span className="text-slate-300 dark:text-zinc-700">|</span>
-                <span className="text-xs text-slate-500 dark:text-slate-400">
-                  {vi
-                    ? 'Lazada live · bấm mã đơn để xem chi tiết'
-                    : 'Lazada live · click order id for detail'}
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <span>
+                  {vi ? 'Hàng đợi đơn đa kênh' : 'Omnichannel order queue'}
                 </span>
-              </div>
+                <Badge
+                  tone="primary"
+                  className="rounded-md font-mono text-xs font-semibold"
+                >
+                  {visibleOrders.length}
+                </Badge>
+              </h2>
+            </div>
+          ) : null}
+
+          {ops && showDemoBanner ? (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 px-3.5 py-2.5 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+              <strong className="font-semibold">
+                {vi ? 'Demo gộp đa sàn (FE): ' : 'Multi-platform demo (FE): '}
+              </strong>
+              {vi
+                ? 'Live sync hiện chủ yếu Lazada. Dòng đầu (Lazada + TikTok, cùng khách Trần Văn An) là dữ liệu demo — mở chi tiết / lọc tab 「Gộp đa sàn」 để thuyết trình.'
+                : 'Live sync is mostly Lazada. The first row (Lazada + TikTok for the same customer) is FE demo data for presentations.'}
             </div>
           ) : null}
 
           <Card
             className={
               ops
-                ? 'overflow-x-auto py-0 shadow-sm'
+                ? 'overflow-hidden py-0 shadow-sm'
                 : 'overflow-hidden rounded-xl border-hairline bg-surface-1 py-0 shadow-none'
             }
           >
             {ops ? (
-              <div className="w-full">
+              <div className="w-full overflow-x-auto rounded-lg border border-slate-200 dark:border-zinc-800">
+                <div className="min-w-[1100px]">
                 <div
                   className={`${OPS_GRID} border-b border-slate-200/60 dark:border-zinc-800`}
                 >
-                  <div className={OPS_HEAD_CELL}>
-                    <div className="flex items-center gap-2.5">
-                      <span className="inline-block h-8 w-8 shrink-0" aria-hidden />
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.order)}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block h-6 w-6 shrink-0" aria-hidden />
                       <span>{vi ? 'Mã đơn' : 'Order'}</span>
                     </div>
                   </div>
-                  <div className={OPS_HEAD_CELL}>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.channel)}>
                     {vi ? 'Kênh' : 'Channel'}
                   </div>
-                  <div className={OPS_HEAD_CELL}>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.recipient)}>
                     {vi ? 'Người nhận' : 'Recipient'}
                   </div>
-                  <div className={OPS_HEAD_CELL}>{vi ? 'SP' : 'Items'}</div>
-                  <div className={OPS_HEAD_CELL}>{vi ? 'Tổng' : 'Total'}</div>
-                  <div className={OPS_HEAD_CELL}>{vi ? 'Gộp' : 'Group'}</div>
-                  <div className={OPS_HEAD_CELL}>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.items)}>
+                    {vi ? 'SP' : 'Items'}
+                  </div>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.total)}>
+                    {vi ? 'Tổng' : 'Total'}
+                  </div>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.group)}>
+                    {vi ? 'Gộp' : 'Group'}
+                  </div>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.status)}>
                     {vi ? 'Trạng thái' : 'Status'}
                   </div>
-                  <div className={OPS_HEAD_CELL}>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.created)}>
                     {vi ? 'Ghi nhận' : 'Created'}
                   </div>
-                  <div className={OPS_HEAD_CELL}>
+                  <div className={cn(OPS_HEAD_CELL, OPS_COL.action)}>
                     {vi ? 'Thao tác' : 'Action'}
                   </div>
                 </div>
@@ -564,109 +805,192 @@ export function MarketplaceOrdersView({
                     const grouped =
                       order.isConsolidated &&
                       Boolean(order.consolidatedGroupId)
-                    const pickable = canStartPicking(order.status)
+                    const meta = order.consolidatedGroupId
+                      ? groupMetaById?.get(order.consolidatedGroupId)
+                      : undefined
+                    const multiPlatformGroup =
+                      Boolean(grouped && meta?.multiPlatform && meta.members)
+                    const members =
+                      multiPlatformGroup && meta?.members
+                        ? meta.members
+                        : [order]
+                    const platformCount = new Set(
+                      members.map((m) => m.platform.toLowerCase()),
+                    ).size
+                    const itemCount = members.reduce(
+                      (sum, m) => sum + m.itemCount,
+                      0,
+                    )
+                    const totalAmount = members.reduce(
+                      (sum, m) => sum + m.totalAmount,
+                      0,
+                    )
+                    const pickableMember =
+                      members.find((m) => canStartPicking(m.status)) ?? order
+                    const pickable = canStartPicking(pickableMember.status)
+                    const isTerminal = !pickable
+                    const statusOrder =
+                      members.find((m) => m.status === 'pending') ??
+                      pickableMember
+                    const rowKey = multiPlatformGroup
+                      ? `group-${order.consolidatedGroupId}`
+                      : order.id
+                    const expandKey = rowKey
+                    const expanded = expandedGroupIds.has(expandKey)
+
                     return (
-                      <div
-                        key={order.id}
-                        className={`${OPS_GRID} border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50/80 dark:border-zinc-800/80 dark:hover:bg-zinc-800/40`}
-                      >
-                        <div className={`${OPS_BODY_CELL} whitespace-nowrap`}>
-                          <div className="flex items-center gap-2.5">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200/60 bg-slate-50 text-slate-500 dark:border-zinc-700 dark:bg-zinc-800">
-                              <Package
-                                className="h-3.5 w-3.5"
-                                strokeWidth={1.75}
-                              />
-                            </span>
+                      <div key={rowKey}>
+                        <div
+                          className={cn(
+                            OPS_GRID,
+                            'border-b border-slate-100/90 transition-colors hover:bg-slate-50/70 dark:border-zinc-800/70 dark:hover:bg-zinc-800/30',
+                            isTerminal && 'opacity-90',
+                            multiPlatformGroup &&
+                              'border-l-[3px] border-l-indigo-400/90 bg-indigo-50/25 dark:border-l-indigo-500 dark:bg-indigo-950/20',
+                            grouped &&
+                              !multiPlatformGroup &&
+                              'border-l-2 border-l-slate-200 dark:border-l-zinc-700',
+                            expanded && 'border-b-0',
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              OPS_BODY_CELL,
+                              OPS_COL.order,
+                              'min-w-0',
+                            )}
+                          >
+                            <OrderIdCell
+                              members={members}
+                              groupCode={meta?.groupCode}
+                              multiPlatform={multiPlatformGroup}
+                              expanded={expanded}
+                              onToggle={() => toggleGroupExpanded(expandKey)}
+                              onOpen={onOpenDetail}
+                              vi={vi}
+                            />
+                          </div>
+                          <div className={cn(OPS_BODY_CELL, OPS_COL.channel)}>
+                            <PlatformPillsCell
+                              platforms={members.map((m) => m.platform)}
+                            />
+                          </div>
+                          <div
+                            className={cn(
+                              OPS_BODY_CELL,
+                              OPS_COL.recipient,
+                              'min-w-0',
+                            )}
+                          >
                             <div className="min-w-0">
-                              <button
-                                type="button"
-                                className="block max-w-full cursor-pointer truncate text-left font-mono text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
-                                onClick={() => onOpenDetail(order)}
-                                title={
-                                  vi
-                                    ? 'Xem chi tiết đơn'
-                                    : 'View order detail'
-                                }
-                              >
-                                {displayOrderNumber(order)}
-                              </button>
-                              <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-                                {order.shopId}
+                              <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
+                                {order.recipientName}
+                              </p>
+                              <p className="truncate text-[11px] text-slate-500">
+                                {order.recipientCity}
                               </p>
                             </div>
                           </div>
-                        </div>
-                        <div className={OPS_BODY_CELL}>
-                          <PlatformPill platform={order.platform} />
-                        </div>
-                        <div className={OPS_BODY_CELL}>
-                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
-                            {order.recipientName}
-                          </p>
-                          <p className="text-[11px] text-slate-500">
-                            {order.recipientCity}
-                          </p>
-                        </div>
-                        <div
-                          className={`${OPS_BODY_CELL} font-mono text-sm tabular-nums text-slate-700 dark:text-slate-300`}
-                        >
-                          {order.itemCount}
-                        </div>
-                        <div
-                          className={`${OPS_BODY_CELL} font-mono text-sm tabular-nums text-slate-800 dark:text-slate-200`}
-                        >
-                          {formatCurrency(order.totalAmount, order.currency)}
-                        </div>
-                        <div className={OPS_BODY_CELL}>
-                          <MarketplaceConsolidationBadge
-                            grouped={grouped}
-                            locale={locale}
-                            onClick={
-                              grouped && order.consolidatedGroupId
-                                ? () =>
-                                    onApplyGroupFilter(
-                                      order.consolidatedGroupId ?? '',
-                                    )
-                                : undefined
-                            }
-                          />
-                        </div>
-                        <div className={OPS_BODY_CELL}>
-                          <MarketplaceOrderStatusBadge
-                            status={order.status}
-                            locale={locale}
-                          />
-                        </div>
-                        <div
-                          className={`${OPS_BODY_CELL} font-mono text-[11px] text-slate-500`}
-                        >
-                          {formatDateTime(order.createdAt)}
-                        </div>
-                        <div className={`${OPS_BODY_CELL} whitespace-nowrap`}>
-                          <Button
-                            type="button"
-                            variant="primary"
-                            disabled={!pickable}
-                            title={
-                              pickable
-                                ? vi
-                                  ? 'Chuyển sang M2 · Lấy hàng'
-                                  : 'Go to M2 · Picking'
-                                : vi
-                                  ? 'Đơn đã hủy / hoàn / giao — không lấy hàng'
-                                  : 'Terminal status — picking unavailable'
-                            }
-                            onClick={() => onPickOrder(order.id)}
-                            className="h-8 min-h-8 bg-indigo-600 px-3.5 text-xs font-semibold shadow-sm hover:bg-indigo-500 active:bg-indigo-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:opacity-60 disabled:shadow-none dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+                          <div
+                            className={cn(
+                              OPS_BODY_CELL,
+                              OPS_COL.items,
+                              'font-mono text-sm tabular-nums text-slate-700 dark:text-slate-300',
+                            )}
                           >
-                            {vi ? 'Lấy hàng' : 'Pick'}
-                          </Button>
+                            {itemCount}
+                          </div>
+                          <div
+                            className={cn(
+                              OPS_BODY_CELL,
+                              OPS_COL.total,
+                              'font-mono text-sm tabular-nums text-slate-800 dark:text-slate-200',
+                            )}
+                          >
+                            {formatCurrency(totalAmount, order.currency)}
+                          </div>
+                          <div className={cn(OPS_BODY_CELL, OPS_COL.group)}>
+                            <MarketplaceConsolidationBadge
+                              grouped={grouped}
+                              multiPlatform={
+                                grouped
+                                  ? (meta?.multiPlatform ?? false)
+                                  : false
+                              }
+                              orderCount={meta?.count ?? (grouped ? 2 : 1)}
+                              platformCount={
+                                multiPlatformGroup ? platformCount : undefined
+                              }
+                              platformOrderIdsText={meta?.orderIdsText}
+                              compact
+                              showOrderIds={false}
+                              locale={locale}
+                              onClick={
+                                grouped && order.consolidatedGroupId
+                                  ? () =>
+                                      onApplyGroupFilter(
+                                        order.consolidatedGroupId ?? '',
+                                      )
+                                  : undefined
+                              }
+                            />
+                          </div>
+                          <div className={cn(OPS_BODY_CELL, OPS_COL.status)}>
+                            <MarketplaceOrderStatusBadge
+                              status={statusOrder.status}
+                              locale={locale}
+                            />
+                          </div>
+                          <div
+                            className={cn(
+                              OPS_BODY_CELL,
+                              OPS_COL.created,
+                              'text-[11px] leading-tight tabular-nums text-slate-500',
+                            )}
+                          >
+                            {formatDateTime(order.createdAt)}
+                          </div>
+                          <div className={cn(OPS_BODY_CELL, OPS_COL.action)}>
+                            {pickable ? (
+                              <Button
+                                type="button"
+                                variant="primary"
+                                title={
+                                  vi
+                                    ? 'Chuyển sang M2 · Lấy hàng'
+                                    : 'Go to M2 · Picking'
+                                }
+                                onClick={() => onPickOrder(pickableMember.id)}
+                                className="h-8 min-h-8 bg-indigo-600 px-3 text-xs font-semibold shadow-sm hover:bg-indigo-500 active:bg-indigo-700"
+                              >
+                                {vi ? 'Lấy hàng' : 'Pick'}
+                              </Button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onOpenDetail(order)}
+                                className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 cursor-pointer dark:border-zinc-700 dark:bg-zinc-900 dark:text-slate-300 dark:hover:bg-zinc-800"
+                              >
+                                {vi ? 'Chi tiết' : 'Detail'}
+                              </button>
+                            )}
+                          </div>
                         </div>
+                        {expanded ? (
+                          <OrderExpandPanel
+                            members={members}
+                            onOpen={onOpenDetail}
+                            vi={vi}
+                            accent={
+                              multiPlatformGroup ? 'indigo' : 'slate'
+                            }
+                          />
+                        ) : null}
                       </div>
                     )
                   })
                 )}
+                </div>
               </div>
             ) : (
               <Table className="min-w-[920px] text-left text-sm">
@@ -705,6 +1029,9 @@ export function MarketplaceOrdersView({
                       const grouped =
                         order.isConsolidated &&
                         Boolean(order.consolidatedGroupId)
+                      const meta = order.consolidatedGroupId
+                        ? groupMetaById?.get(order.consolidatedGroupId)
+                        : undefined
                       return (
                         <TableRow
                           key={order.id}
@@ -741,6 +1068,15 @@ export function MarketplaceOrdersView({
                           <TableCell>
                             <MarketplaceConsolidationBadge
                               grouped={grouped}
+                              multiPlatform={
+                                grouped
+                                  ? (meta?.multiPlatform ?? false)
+                                  : false
+                              }
+                              orderCount={meta?.count ?? (grouped ? 2 : 1)}
+                              platformOrderIdsText={meta?.orderIdsText}
+                              compact
+                              showOrderIds={false}
                               locale={locale}
                               onClick={
                                 grouped && order.consolidatedGroupId

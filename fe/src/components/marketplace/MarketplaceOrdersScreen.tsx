@@ -5,10 +5,28 @@ import { usePortal } from '../../context/use-portal'
 import { useLazadaConnection } from '../../hooks/useLazadaConnection'
 import { useMarketplaceOrders } from '../../hooks/useMarketplaceOrders'
 import {
+  demoMultiPlatformListOrders,
+  isDemoOrderId,
+} from '../../data/demo-multi-platform-orders'
+import {
+  filterActiveGroupMembers,
+  formatPlatformOrderIds,
+  isMultiPlatformGroup,
+  shortGroupCode,
+} from '../../lib/consolidation-display'
+import {
   displayOrderNumber,
   isMarketplaceOrderStatus,
   type MarketplaceOrderListItem,
 } from '../../types/marketplace-orders'
+
+export type GroupMeta = {
+  multiPlatform: boolean
+  orderIdsText: string
+  count: number
+  groupCode: string
+  members: MarketplaceOrderListItem[]
+}
 
 export type MarketplaceOrdersScreenProps = {
   detailPath: (orderId: string) => string
@@ -120,43 +138,137 @@ export function MarketplaceOrdersScreen({
     ordersApi.errorCode === 'MKT_SHOP_NOT_CONNECTED' ||
     ordersApi.errorCode === 'MKT_TOKEN_REFRESH_FAILED'
 
+  /** Live Lazada + FE demo gộp đa sàn (giày+áo Lazada · quần TikTok) */
+  const allOrders = useMemo(() => {
+    const live = ordersApi.orders
+    const demoIds = new Set(demoMultiPlatformListOrders.map((o) => o.id))
+    const withoutDup = live.filter((o) => !demoIds.has(o.id))
+    return [...demoMultiPlatformListOrders, ...withoutDup]
+  }, [ordersApi.orders])
+
+  const groupMembersById = useMemo(() => {
+    const map = new Map<string, MarketplaceOrderListItem[]>()
+    for (const order of allOrders) {
+      if (!order.isConsolidated || !order.consolidatedGroupId) continue
+      const key = order.consolidatedGroupId
+      const list = map.get(key) ?? []
+      list.push(order)
+      map.set(key, list)
+    }
+    const cleaned = new Map<string, MarketplaceOrderListItem[]>()
+    for (const [key, list] of map) {
+      cleaned.set(key, filterActiveGroupMembers(key, list))
+    }
+    return cleaned
+  }, [allOrders])
+
+  const groupMetaById = useMemo(() => {
+    const meta = new Map<string, GroupMeta>()
+    for (const [key, members] of groupMembersById) {
+      meta.set(key, {
+        multiPlatform: isMultiPlatformGroup(members),
+        count: members.length,
+        groupCode: shortGroupCode(key),
+        members,
+        orderIdsText: formatPlatformOrderIds(
+          members.map((m) => ({
+            id: m.id,
+            platform: m.platform,
+            platformOrderId: m.platformOrderId,
+            platformOrderNumber: m.platformOrderNumber,
+            status: m.status,
+          })),
+          locale,
+        ),
+      })
+    }
+    return meta
+  }, [groupMembersById, locale])
+
   const visibleOrders = useMemo(() => {
     const q = searchTerm.trim().toLowerCase()
-    return ordersApi.orders.filter((order) => {
+    const seenMultiGroups = new Set<string>()
+    const rows: MarketplaceOrderListItem[] = []
+
+    for (const order of allOrders) {
       const grouped =
         order.isConsolidated && Boolean(order.consolidatedGroupId)
-      if (consolidateView === 'grouped' && !grouped) return false
-      if (consolidateView === 'standalone' && grouped) return false
-      if (!q) return true
-      const hay = [
-        displayOrderNumber(order),
-        order.platformOrderId,
-        order.recipientName,
-        order.recipientCity,
-        order.shopId,
-        order.platform,
-      ]
-        .join(' ')
-        .toLowerCase()
-      return hay.includes(q)
-    })
-  }, [consolidateView, ordersApi.orders, searchTerm])
+      const meta = order.consolidatedGroupId
+        ? groupMetaById.get(order.consolidatedGroupId)
+        : undefined
 
-  const groupedCount = useMemo(
-    () =>
-      ordersApi.orders.filter(
-        (o) => o.isConsolidated && Boolean(o.consolidatedGroupId),
-      ).length,
-    [ordersApi.orders],
-  )
-  const standaloneCount = ordersApi.orders.length - groupedCount
+      // Đa sàn (≥2 nền tảng) → chỉ 1 dòng / nhóm, hiện đủ sàn trong cùng ô
+      if (grouped && meta?.multiPlatform && order.consolidatedGroupId) {
+        if (seenMultiGroups.has(order.consolidatedGroupId)) continue
+        seenMultiGroups.add(order.consolidatedGroupId)
+      }
+
+      if (consolidateView === 'grouped') {
+        if (!grouped || !meta?.multiPlatform) continue
+      }
+      if (consolidateView === 'standalone') {
+        if (grouped && meta?.multiPlatform) continue
+      }
+      if (groupId.trim() && order.consolidatedGroupId !== groupId.trim()) {
+        continue
+      }
+
+      if (q) {
+        const memberHay =
+          meta?.members
+            ?.map((m) =>
+              [
+                displayOrderNumber(m),
+                m.platformOrderId,
+                m.platform,
+                m.recipientName,
+              ].join(' '),
+            )
+            .join(' ') ?? ''
+        const hay = [
+          displayOrderNumber(order),
+          order.platformOrderId,
+          order.recipientName,
+          order.recipientCity,
+          order.shopId,
+          order.platform,
+          meta?.orderIdsText ?? '',
+          meta?.groupCode ?? '',
+          memberHay,
+        ]
+          .join(' ')
+          .toLowerCase()
+        if (!hay.includes(q)) continue
+      }
+
+      rows.push(order)
+    }
+    return rows
+  }, [allOrders, consolidateView, groupId, groupMetaById, searchTerm])
+
+  /** Đếm theo số nhóm đa sàn (không đếm từng đơn thành viên). */
+  const groupedCount = useMemo(() => {
+    let n = 0
+    for (const meta of groupMetaById.values()) {
+      if (meta.multiPlatform) n += 1
+    }
+    return n
+  }, [groupMetaById])
+  const standaloneCount = useMemo(() => {
+    let multiMemberCount = 0
+    for (const meta of groupMetaById.values()) {
+      if (meta.multiPlatform) multiMemberCount += meta.count
+    }
+    return allOrders.length - multiMemberCount
+  }, [allOrders.length, groupMetaById])
 
   function openDetail(order: MarketplaceOrderListItem) {
-    if (ops) {
-      setSelectedOrderId(order.id)
+    // Demo đa sàn → trang chi tiết đầy đủ (drawer API không có bản ghi demo)
+    if (isDemoOrderId(order.id) || !ops) {
+      navigate(detailPath(order.id))
       return
     }
-    navigate(detailPath(order.id))
+    setSelectedOrderId(order.id)
   }
 
   const emptyMessage = vi
@@ -198,10 +310,12 @@ export function MarketplaceOrdersScreen({
       syncing={ordersApi.syncing}
       onSync={() => void handleSync()}
       listParams={listParams}
-      ordersCount={ordersApi.orders.length}
+      ordersCount={allOrders.length}
       error={ordersApi.error}
       needsConnect={needsConnect}
       visibleOrders={visibleOrders}
+      groupMetaById={groupMetaById}
+      showDemoBanner
       loading={ordersApi.loading}
       loadingMore={ordersApi.loadingMore}
       nextCursor={ordersApi.nextCursor}

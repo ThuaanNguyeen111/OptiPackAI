@@ -1000,6 +1000,34 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 **Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
 
+## FE — Rule gộp đa sàn + hủy Hướng B + Owner dashboard (2026-09-15, CHỈ FE — BE chưa đổi)
+
+**Góp ý GV + chốt user (Hướng B):**
+
+1. **Gộp đơn** = cùng khách đặt từ **≥2 nền tảng khác nhau** (không phải nhiều SKU trên 1 sàn). UI hiện đủ **mã đơn từng sàn**.
+2. **Hủy 1 đơn trong nhóm** → **gỡ đơn đó khỏi group**, đơn sàn còn lại **tiếp tục fulfillment** (không hủy cả nhóm). Có **màn xác nhận**.
+3. **Warehouse**: tab theo nền tảng → xem chi tiết đơn khách trên sàn đó.
+4. **Owner**: màn thống kê (doanh thu / tài chính / nhân viên) để demo giám sát.
+
+**ĐÃ LÀM (FE):**
+
+- `fe/src/lib/consolidation-display.ts` — `isMultiPlatformGroup`, format mã đơn từng sàn, `detachOrderFromGroup` (localStorage demo), `shortGroupCode`.
+- Orders list/detail: tab **"Gộp đa sàn"**; badge ngắn; **chips mã từng sàn** dưới cột Mã đơn; mã nhóm `GRP-…`.
+- **Demo FE** `demo-multi-platform-orders.ts`: Lazada (giày+áo) + TikTok (quần) cùng khách — hiện đầu list + banner giải thích (live chủ yếu Lazada).
+- Detail: chip link mã từng sàn; bảng **「Toàn bộ sản phẩm trong nhóm gộp」** (cột Sàn / Mã đơn / SKU…).
+- `WarehousePage`: panel chi tiết tab sàn; gỡ khỏi nhóm + dialog.
+- `DashboardPage`: khối thống kê Owner (mock).
+
+**ĐÃ LÀM (2026-09-16) — RBAC FE tách role Store Owner (không sửa BE):**
+
+- `fe/src/lib/rbac.ts`: Store Owner **whitelist** `/app`, `/orders`, `/packaging-rules`, `/staff`, `/analytics`, `/profile|/settings` — **chặn** warehouse/packing/shipping/inventory.
+- `PortalSidebar`: nhóm menu **Cửa hàng** (đơn / quy tắc bao bì / nhân viên); staff vẫn chỉ thấy logistics của mình.
+- `DashboardPage`: KPI Owner lên trước; kanban pipeline click → `/app/orders` (không nhảy màn kho).
+
+**CHƯA LÀM (BE — khi được phép):** `tryConsolidate` bắt buộc khác `platform`; sync `canceled` → gỡ group Hướng B; Admin master nguyên liệu.
+
+---
+
 ## 🗺️ ROADMAP TỔNG HỢP (2026-09-10) — toàn bộ việc còn lại, 4 tầng ưu tiên
 
 **Nguồn duy nhất tổng hợp mọi việc còn thiếu đã rải rác trong file này** — khi cần biết "làm gì tiếp theo", đọc mục này trước, không cần lục lại từng mục "Việc CÒN LẠI"/"ĐÃ TRIỂN KHAI" rải rác phía trên.
