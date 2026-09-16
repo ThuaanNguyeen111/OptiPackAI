@@ -1,0 +1,31 @@
+import type { ReactNode } from 'react'
+import { cn } from '../../lib/cn'
+
+type BadgeTone = 'default' | 'success' | 'warning' | 'primary'
+
+type BadgeProps = {
+  children: ReactNode
+  tone?: BadgeTone
+  className?: string
+}
+
+const toneClasses: Record<BadgeTone, string> = {
+  default: 'bg-surface-2 text-ink-muted',
+  success: 'bg-success-bg text-success font-medium',
+  warning: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  primary: 'bg-primary/15 text-primary dark:text-primary-hover',
+}
+
+export function Badge({ children, tone = 'default', className }: BadgeProps) {
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-normal',
+        toneClasses[tone],
+        className,
+      )}
+    >
+      {children}
+    </span>
+  )
+}
