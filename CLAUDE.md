@@ -2026,3 +2026,63 @@ Sau khi thêm các file test mới (batch 4), `npm run lint` báo 2 lỗi thật
 2. **`order-groups.service.getPackableItemsForGroup.spec.ts`** — import `AppException` chỉ để ép kiểu (`as Partial<AppException>`), không có chỗ nào dùng làm giá trị runtime thật trong file này. **Thử `import type { AppException }` KHÔNG giải quyết được** — ESLint config của dự án này không công nhận cách dùng "chỉ trong vị trí generic" (`Partial<AppException>`) là "đã dùng", dù đó đúng là type-only usage hợp lệ về mặt TypeScript. **Cách sửa chắc ăn**: bỏ hẳn phần ép kiểu `as Partial<AppException>` lẫn import — `toMatchObject` của Jest không cần ép kiểu này để chạy đúng.
 
 **Quy tắc rút ra cho các file test sau này trong dự án này**: chỉ import `AppException` (hay bất kỳ type nào tương tự) nếu có **ít nhất 1 chỗ dùng làm giá trị runtime thật** trong file đó (VD `toBeInstanceOf(AppException)`, `expect(error).toBeInstanceOf(X)`) — nếu chỉ cần ép kiểu cho TypeScript đọc hiểu, bỏ hẳn phần ép kiểu đó thay vì cố giữ lại bằng `import type`.
+
+## Hạ tầng triển khai — Docker, Kubernetes, CI/CD (16/09/2026)
+
+Trước đợt này hạ tầng chỉ có 3 file rời rạc và **có lỗi thật chặn deploy**, không phải chỉ thiếu tiện nghi. Đã sửa/bổ sung, chi tiết vận hành nằm ở [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) + [`k8s/README.md`](k8s/README.md) (không copy nguyên văn vào đây, tránh phình file).
+
+### 1. `be/Dockerfile` cũ KHÔNG build được — lỗi thật, không phải chỉnh cho đẹp
+
+Bản cũ `COPY package*.json ./` rồi `npm ci` với build context là `be/` — nhưng repo là **npm workspaces**, `be/package-lock.json` **không tồn tại** (chỉ có lockfile ở gốc), nên `npm ci` luôn fail. Nghĩa là image backend chưa từng build được kể từ khi chuyển sang workspaces.
+
+**Cách sửa đã chốt, áp dụng cho CẢ 3 Dockerfile**: build context là **THƯ MỤC GỐC repo**, cài bằng `npm ci --workspace <ws> --include-workspace-root --ignore-scripts`. 2 chi tiết bắt buộc, đã kiểm chứng bằng cách chạy thật:
+
+- `--ignore-scripts` + `HUSKY=0`: script `"prepare": "husky"` ở root package.json sẽ fail trong image (husky là devDependency của môi trường dev). Không có cờ này thì `npm ci --omit=dev` chết ngay.
+- npm hoist **toàn bộ** package lên `/repo/node_modules`, KHÔNG sinh `be/node_modules` riêng (đã verify) → image runtime phải `WORKDIR /repo/be` để Node resolve ngược lên gốc. Entry đúng là `dist/src/main.js` (không phải `dist/main.js`) vì tsconfig gồm cả `scripts/` ngoài `src/`.
+- Thiếu workspace nào trong `package.json` mà thư mục chưa tồn tại (`storefront/` hiện chưa commit) thì `npm ci` **vẫn chạy bình thường**, chỉ bỏ qua — đã test, nên CI không đỏ vì lý do này.
+
+Thêm mới: `fe/Dockerfile` (Vite build → `nginxinc/nginx-unprivileged`, có SPA fallback + `/healthz` cho probe) và `storefront/Dockerfile` (Next `output: 'standalone'` + `outputFileTracingRoot` trỏ về gốc repo vì node_modules bị hoist). `.dockerignore` chuyển từ `be/` lên **gốc repo** (cùng lý do build context).
+
+**`VITE_API_URL`/`NEXT_PUBLIC_API_URL` bị nhúng vào bundle LÚC BUILD** — đổi địa chỉ backend là phải build lại image, không restart được. Đây là ràng buộc cần nhớ khi deploy, không phải bug.
+
+### 2. `docker-compose.yml` — nay chạy đủ redis + be + fe + storefront
+
+Bản cũ chỉ có hạ tầng (mongo/mongo-express/redis), không đóng gói app. Bản mới theo đúng phạm vi đã chốt với user: **MongoDB vẫn dùng Atlas**, compose không chạy Mongo mặc định.
+
+MongoDB local chuyển vào profile `local-db` (`docker compose --profile local-db up -d`) và **bắt buộc chạy `mongod --replSet rs0` + tự `rs.initiate()` trong healthcheck** — vì `packaging.service.ts` dùng `session.withTransaction()`, Mongo standalone sẽ lỗi ngay lúc approve packaging. Điều này KHÔNG mâu thuẫn với kết luận cũ ở mục "Đối chiếu 3 tài liệu thuật toán AI Packaging → Vấn đề 4" (Atlas đã là replica set, không cần làm gì): nhận định đó áp dụng cho Atlas, còn đây là vá cho đúng nhánh chạy Mongo local.
+
+### 3. Kubernetes — `k8s/` (mới, user muốn chạy thử)
+
+`k8s/base` (namespace, configmap, redis, be, fe, storefront, ingress) + 2 overlay kustomize: `local` (image `:local` build ở máy) và `ghcr` (image do CI đẩy lên). Quyết định thiết kế:
+
+- **Secret KHÔNG commit** — nạp từ chính `be/.env` bằng `kubectl create secret generic optipackai-be-env --from-env-file=be/.env`. ConfigMap đứng SAU secret trong `envFrom` để ghi đè được `REDIS_HOST=localhost` trong `.env`.
+- **Ingress 3 host riêng** (`app/api/shop.optipackai.local`) thay vì 1 host + path `/api`: backend đặt route ở gốc (`/auth`, `/orders`...), gom vào `/api` sẽ phải rewrite path, dễ sai.
+- Redis dùng `emptyDir` (cache trạng thái auth, mất thì tự dựng lại từ Mongo), không cần PVC.
+
+### 4. CI/CD — 2 workflow
+
+`ci.yml`: thêm job `fe` (build = `tsc -b` + vite), `storefront` (tự bỏ qua nếu chưa commit), `docker` (build cả 3 image, không push), `k8s` (`kustomize` + `kubeconform -strict`). **Sửa 1 lỗi thật**: job backend gọi `npm run lint` mà script đó có `--fix` → trong CI nó tự sửa file rồi báo xanh, che mất lỗi. Đã thêm script `lint:ci` (eslint không `--fix`) và dùng nó trong CI.
+
+`release.yml` (mới): build & push 3 image lên GHCR khi push `main`/tag `v*`/bấm tay. **Cố ý KHÔNG tự `kubectl apply`** lên cụm nào — CI chỉ tạo image, deploy do người chạy.
+
+Lint FE hiện để `continue-on-error: true` vì bản UI vừa merge từ `feature/viet_ui` còn 9 lỗi + 3 cảnh báo có sẵn (`set-state-in-effect`, `react-refresh`) — đây là nợ đã biết, bỏ cờ đó ngay khi dọn xong, không để lâu thành lint FE vô hiệu vĩnh viễn.
+
+### 4b. ✅ ĐÃ CHẠY THẬT TRÊN KUBERNETES (16/09/2026) — không còn là kế hoạch trên giấy
+
+Toàn bộ chuỗi đã chạy thành công trên máy user: `docker compose build` (3 image build sạch, xác nhận Dockerfile mới đúng) → `scripts/k8s-create-secret.sh` (29 biến) → `kubectl apply -k k8s/overlays/local` → **4 pod `Running`**, BE trả `Hello World!` + `/api/docs` 200, FE trả `index.html` + `/healthz`, storefront 200.
+
+3 điều học được từ lần chạy thật, đã cập nhật vào `k8s/README.md`:
+
+1. **Rào cản thật trên Windows 11 Home là WSL2, không phải Docker/k8s**: bản Home không có Hyper-V, thiếu WSL thì Docker Desktop báo `hasNoVirtualization: true`, engine không bao giờ start. Phải `wsl --install --no-distribution` bằng quyền Admin **rồi reboot** (2 thành phần Windows chỉ có hiệu lực sau khởi động lại). BIOS không liên quan — `systeminfo` báo "A hypervisor has been detected" là đủ.
+2. **Docker Desktop bản hiện tại dựng k8s bằng `kind` bên trong** (log: `kubernetes starting: {"mode":"kind"}`, node `desktop-control-plane`) — **nhưng image build ở máy VẪN dùng được ngay**, pod chạy với `imagePullPolicy: IfNotPresent`, không cần registry/`kind load`. Đã kiểm chứng, không phải suy đoán.
+3. **`ioredis ECONNREFUSED` lúc mới deploy là bình thường** — pod `be` lên trước pod `redis` vài giây, ioredis tự kết nối lại, log tự dứt. Chỉ đáng lo nếu lỗi còn tiếp diễn SAU khi `redis` đã `Running`.
+
+Cần tạo Secret bằng `scripts/k8s-create-secret.sh` (mới), KHÔNG gọi thẳng `kubectl create secret --from-env-file=be/.env`: file `.env` thật của dự án có 6 dòng key thụt đầu dòng (kubectl từ chối: "not a valid key name") và 3 dòng value bọc nháy (`JWT_SECRET="..."` — dotenv bỏ nháy, kubectl giữ nguyên → token trong cụm ký bằng chuỗi khác local, lỗi rất khó truy). Script chuẩn hoá đúng 2 điểm đó.
+
+### 5. 🔴 Bí mật thật bị commit vào git — cần ĐỔI MẬT KHẨU, không chỉ xóa file
+
+Khi sửa `.env.example` ở gốc phát hiện file này (tracked, có từ commit `faaea86`) chứa **chuỗi kết nối Atlas thật kèm mật khẩu** (user `nhoxmymap74_db_user`, cluster `capstoneproject.o62tptf`) và một `JWT_SECRET`. Nội dung mới đã thay bằng biến cho docker compose, **nhưng mật khẩu vẫn nằm vĩnh viễn trong lịch sử git** (kể cả sau khi sửa file) và repo đang ở GitHub.
+
+**Việc phải làm, theo thứ tự**: (1) đổi mật khẩu user đó trong Atlas → (2) đổi `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (mọi token cũ sẽ mất hiệu lực, user phải đăng nhập lại) → (3) chỉ khi cần mới tính tới việc xoá lịch sử (`git filter-repo`) vì thao tác đó viết lại toàn bộ hash, cả nhóm phải clone lại. Xoá file mà không đổi mật khẩu là **không có tác dụng bảo mật**.
+
+Quy tắc từ nay: `.env.example` chỉ chứa **placeholder** (`<user>`, `<password>`), không bao giờ chứa giá trị thật — kể cả "tạm để cho tiện".

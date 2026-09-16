@@ -1,0 +1,19 @@
+# Cấu hình KHÔNG bí mật. Phần bí mật (MONGODB_URI Atlas, JWT secret, SMTP,
+# key sàn...) nằm ở Secret "optipackai-be-env", tạo bằng lệnh:
+#
+#   kubectl -n optipackai create secret generic optipackai-be-env \
+#     --from-env-file=be/.env
+#
+# Cố ý KHÔNG commit Secret vào repo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: optipackai-be-config
+data:
+  NODE_ENV: 'production'
+  PORT: '3000'
+  # Tên Service của Redis trong cùng namespace — ghi đè REDIS_HOST=localhost
+  # trong be/.env.
+  REDIS_HOST: 'redis'
+  REDIS_PORT: '6379'
+  CORS_ORIGIN: 'http://app.optipackai.local,http://shop.optipackai.local'

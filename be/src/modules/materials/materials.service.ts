@@ -27,8 +27,13 @@ export class MaterialsService {
     }
 
     return this.cartonModel.create({
-      ...dto,
       material_code: code,
+      material_name: dto.material_name,
+      length_mm: dto.length_mm,
+      width_mm: dto.width_mm,
+      height_mm: dto.height_mm,
+      board_type: dto.board_type,
+      storage_location: dto.storage_location,
       quantity_on_hand: dto.quantity_on_hand ?? 0,
       reorder_level: dto.reorder_level ?? 10,
       unit_cost_vnd: dto.unit_cost_vnd ?? 0,
