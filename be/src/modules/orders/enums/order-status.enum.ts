@@ -1,4 +1,3 @@
-
 export enum OrderStatus {
   UNPAID = 'unpaid',
   PENDING = 'pending', // đã thanh toán, seller chưa xử lý
@@ -41,6 +40,26 @@ export const UNFULFILLED_ORDER_STATUSES: OrderStatus[] = [
   // lý dở", hợp lý để tiếp tục xét consolidation giống PACKED/PENDING.
   OrderStatus.TO_PACK,
   OrderStatus.TO_SHIP,
+];
+
+// BỔ SUNG (AOFP-XX, 2026-09-15) — dùng ở getPackableItemsForGroup()
+// (order-groups.service.ts): trạng thái nào KHÔNG nên còn xuất hiện
+// trong gợi ý đóng gói (Packaging) hay Picking List (Warehouse) — ban
+// đầu chỉ lọc CANCELED, giờ mở rộng thêm nhóm "sự cố logistics thật"
+// (hàng thất lạc/hư hỏng/giao thất bại) — hàng đã báo mất/hỏng thì
+// không còn gì để "đi lấy" hay "đóng gói" cả, y hệt lý do lọc CANCELED.
+// Cố ý KHÔNG gộp RETURNED/SHIPPED_BACK* vào đây — case đó cần xem xét
+// riêng (đơn đang hoàn về có thể cần xử lý khác, chưa nằm trong phạm
+// vi bug ban đầu), để tránh mở rộng phạm vi fix ngoài yêu cầu.
+export const NOT_PACKABLE_ORDER_STATUSES: OrderStatus[] = [
+  OrderStatus.CANCELED,
+  OrderStatus.FAILED,
+  OrderStatus.LOST,
+  OrderStatus.LOST_BY_3PL,
+  OrderStatus.DAMAGED_BY_3PL,
+  OrderStatus.FAILED_DELIVERY,
+  OrderStatus.SHIPPED_BACK_FAILED,
+  OrderStatus.PACKAGE_SCRAPPED,
 ];
 
 // Lưu ý: OrderStatus là STRING enum, KHÔNG cần mảng lọc kiểu Rule #11

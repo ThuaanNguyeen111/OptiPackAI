@@ -1,5 +1,5 @@
 import { PortalTopBar } from '../components/portal/PortalTopBar'
-import { PackingDashboard } from '../components/packing/PackingDashboard'
+import { PackagingWorkbench } from '../components/packing/PackagingWorkbench'
 import { usePortal } from '../context/use-portal'
 
 export function PackingPage() {
@@ -11,10 +11,10 @@ export function PackingPage() {
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
-          { label: vi ? 'AI 3D Packing' : 'AI 3D Packing Engine' },
+          { label: vi ? 'Duyệt đóng gói' : 'Packaging approval' },
         ]}
       />
-      <PackingDashboard />
+      <PackagingWorkbench />
     </div>
   )
 }

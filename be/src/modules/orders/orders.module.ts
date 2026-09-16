@@ -5,6 +5,7 @@ import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { LazadaOrderSyncScheduler } from './lazada-order-sync.scheduler';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 /**
  * ===================================================================
@@ -26,6 +27,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
   imports: [
     MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }]),
     MarketplaceIntegrationModule,
+    NotificationsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, LazadaOrderSyncScheduler],

@@ -1,7 +1,10 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Notification, NotificationDocument } from './schemas/notification.schema';
+import {
+  Notification,
+  NotificationDocument,
+} from './schemas/notification.schema';
 import { NotificationType } from './enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
@@ -41,7 +44,8 @@ export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
   constructor(
-    @InjectModel(Notification.name) private readonly notificationModel: Model<NotificationDocument>,
+    @InjectModel(Notification.name)
+    private readonly notificationModel: Model<NotificationDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     private readonly mailService: MailService,
   ) {}
@@ -79,8 +83,14 @@ export class NotificationsService {
   ): Promise<void> {
     try {
       const recipients = input.recipientUserId
-        ? await this.userModel.find({ _id: input.recipientUserId }).select('email name').lean()
-        : await this.userModel.find({ role: input.recipientRole, is_active: true }).select('email name').lean();
+        ? await this.userModel
+            .find({ _id: input.recipientUserId })
+            .select('email name')
+            .lean()
+        : await this.userModel
+            .find({ role: input.recipientRole, is_active: true })
+            .select('email name')
+            .lean();
 
       for (const recipient of recipients) {
         if (input.type === NotificationType.MFA_DISABLED) {
@@ -104,17 +114,28 @@ export class NotificationsService {
         );
       }
     } catch (error) {
-      this.logger.warn(`Gửi email thông báo thất bại cho notification ${String(notification._id)}.`, error);
+      this.logger.warn(
+        `Gửi email thông báo thất bại cho notification ${String(notification._id)}.`,
+        error,
+      );
     }
   }
 
-  async listForUser(userId: string, role: UserRole, isRead?: boolean): Promise<NotificationDocument[]> {
+  async listForUser(
+    userId: string,
+    role: UserRole,
+    isRead?: boolean,
+  ): Promise<NotificationDocument[]> {
     const filter: Record<string, unknown> = {
       $or: [{ recipient_user_id: userId }, { recipient_role: role }],
     };
     if (isRead !== undefined) filter.is_read = isRead;
 
-    return this.notificationModel.find(filter).sort({ created_at: -1 }).limit(50).lean();
+    return this.notificationModel
+      .find(filter)
+      .sort({ created_at: -1 })
+      .limit(50)
+      .lean();
   }
 
   async unreadCount(userId: string, role: UserRole): Promise<number> {
@@ -124,7 +145,11 @@ export class NotificationsService {
     });
   }
 
-  async markAsRead(notificationId: string): Promise<NotificationDocument> {
+  async markAsRead(
+    notificationId: string,
+    userId: string,
+    role: UserRole,
+  ): Promise<NotificationDocument> {
     if (!Types.ObjectId.isValid(notificationId)) {
       throw new AppException(
         NOTIFICATION_ERROR_CODES.INVALID_ID,
@@ -133,8 +158,18 @@ export class NotificationsService {
         { notificationId },
       );
     }
-    const updated = await this.notificationModel.findByIdAndUpdate(
-      notificationId,
+    // Chỉ cho phép đánh dấu đã đọc thông báo thuộc về CHÍNH người gọi
+    // (đích danh HOẶC broadcast theo đúng role của họ) — trước đây
+    // thiếu điều kiện này, bất kỳ user nào cũng đánh dấu đã đọc được
+    // thông báo của người khác (AOFP-XX). Không tìm thấy do sai id
+    // HAY do không thuộc về mình đều trả cùng 404 NOT_FOUND — không
+    // để lộ việc thông báo đó có tồn tại hay không nếu không phải của
+    // người gọi.
+    const updated = await this.notificationModel.findOneAndUpdate(
+      {
+        _id: notificationId,
+        $or: [{ recipient_user_id: userId }, { recipient_role: role }],
+      },
       { $set: { is_read: true } },
       { returnDocument: 'after' },
     );

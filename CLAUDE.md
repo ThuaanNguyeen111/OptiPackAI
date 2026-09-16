@@ -1002,6 +1002,30 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 **Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
 
+## FE — Rule gộp + Owner dashboard — ĐÃ CẬP NHẬT 2026-09-16 theo BE sync
+
+**ĐÃ THAY ĐỔI so với 2026-09-15:** BE `main` (AOFP-19) đưa `platform` vào `consolidation_key` → **live chỉ gộp cùng sàn**. FE (trừ Admin OAuth) đã căn lại UI/copy; demo đa sàn giữ để thuyết trình.
+
+**ĐÃ LÀM (2026-09-16) — FE khớp BE notifications/status (không sửa BE):**
+
+- Chuông `PortalTopBar` → API thật (`GET /notifications`, unread-count, mark read, poll 20s) — Owner/staff.
+- Deep-link: `cancel_confirmation_required` → `/app/orders/:id`; SLA/missing/pending theo role (Owner → `/app/order-groups`, Packaging → `/app/packing`).
+- Chi tiết đơn: banner hủy từ `needCancelConfirm`/`isCancelPending` trên `GET /orders/:id` (+ fallback noti).
+- Tab **"Đơn gộp"** (= mọi `isConsolidated`); badge live "Đơn gộp (cùng sàn)"; ≥2 sàn = "Demo đa sàn".
+- `ORDER_STATUSES` FE đủ 19 giá trị Lazada + badge/filter.
+- RBAC Store Owner whitelist (đã có) giữ nguyên + `/app/order-groups`.
+
+**ĐÃ LÀM (2026-09-16, lượt nối API Owner + Packaging) — không sửa BE:**
+
+- API client: `order-groups.api.ts`, `packaging.api.ts` + types camelCase khớp BE.
+- Store Owner: `/app/order-groups` (list + `PATCH .../priority` Hỏa tốc); `/app/staff` → `GET /users` chỉ đọc (bỏ CRUD mock); orders detail cancel fields.
+- Packaging: `/app/packing` → `PackagingWorkbench` (queue `pending_approval` / `partial_needs_review`, approve/adjust/reject/decide-partial). Mock 3D `PackingDashboard` không còn gắn route chính.
+- Notifications: đã nối từ trước; deep-link cập nhật cho order-groups.
+
+**CHƯA LÀM (BE / ngoài phạm vi FE Owner+Packaging):** sync `canceled` → gỡ group; dọn Admin OAuth dán JSON; Packaging Rules / Analytics vẫn mock (BE chưa có API settings/dashboard).
+
+---
+
 ## 🗺️ ROADMAP TỔNG HỢP (2026-09-10) — toàn bộ việc còn lại, 4 tầng ưu tiên
 
 **Nguồn duy nhất tổng hợp mọi việc còn thiếu đã rải rác trong file này** — khi cần biết "làm gì tiếp theo", đọc mục này trước, không cần lục lại từng mục "Việc CÒN LẠI"/"ĐÃ TRIỂN KHAI" rải rác phía trên.
@@ -1204,6 +1228,40 @@ Thêm `toResponse()` cho `PackagingRecommendationDocument` (4 route: `getCurrent
 **Bài học quy trình mới**: log khởi động server thật (`npm run start:dev`) là 1 nguồn phát hiện lỗi KHÁC với `tsc`/`eslint`/`jest` — cảnh báo runtime kiểu Mongoose duplicate-index chỉ hiện ra khi app THẬT SỰ khởi động kết nối DB, không lộ ra ở 3 lớp verify tĩnh đã có. Nên định kỳ xem qua log khởi động thật của user (không chỉ dựa vào 3 lệnh verify tự động), đặc biệt sau khi thêm schema/index mới.
 
 **Verify**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — không ảnh hưởng gì tới logic đã có, chỉ dọn cấu hình dư thừa.
+
+## ĐÃ TRIỂN KHAI (2026-09-11) — Mở quyền Store Owner xem đơn + filter `order_priority`
+
+### Bối cảnh — phát sinh từ chính bạn FE (Huỳnh Quốc Việt) đang tích hợp thật
+
+Việt báo: dùng tài khoản Store Owner test kết nối shop, không lấy được đơn — vì `GET /orders`/`GET /order-groups` (list + detail) trước đó chỉ gắn `@Roles(ADMIN)`/thiếu hẳn `STORE_OWNER`. Đã trao đổi trực tiếp với team qua chat, **chốt rõ ràng**: `POST /orders/lazada/sync` và `GET /marketplace/:platform/connect` (thao tác kỹ thuật nhạy cảm — kết nối OAuth, đồng bộ tay) **giữ nguyên chỉ Admin**; 4 route ĐỌC (`GET /orders`, `GET /orders/:id`, `GET /order-groups`, `GET /order-groups/:id`) **thêm `STORE_OWNER`** — đúng nghiệp vụ: chủ shop cần xem đơn của chính mình, không hợp lý nếu chỉ Admin xem được.
+
+### Thay đổi code
+
+- `orders.controller.ts`: `@Roles(ADMIN)` → `@Roles(ADMIN, STORE_OWNER)` cho `GET /orders` và `GET /orders/:id`. `POST /lazada/sync` giữ nguyên.
+- `order-groups.controller.ts`: thêm `STORE_OWNER` vào `@Roles()` của `GET /order-groups` và `GET /order-groups/:id` (giữ nguyên toàn bộ role cũ — Warehouse/Packaging/Shipping/Admin — chỉ CỘNG THÊM, không bớt).
+- `picking-list`/`picking-list/:sku` **KHÔNG thêm** Store Owner — đây là màn hình vận hành (Warehouse Staff thao tác lấy hàng), Store Owner không cần xem chi tiết vận hành, chỉ cần xem tổng quan.
+
+### Đồng thời vá gap đã ghi nhận trước đó — filter `order_priority`
+
+`ListOrderGroupsQueryDto` thêm field `order_priority?: 'normal'|'express'`, `listOrderGroups()` (service) áp filter vào query MongoDB (`query.order_priority = filter.orderPriority`) — tận dụng đúng index `{order_priority, packaging_deadline, is_overdue}` đã có sẵn từ khi code Đơn Hỏa Tốc, không cần thêm index mới. Kết hợp được với 2 filter cũ (`fulfillment_status`, `platform`) cùng lúc.
+
+**Verify**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — không ảnh hưởng logic cũ nào, chỉ mở rộng quyền + thêm 1 filter.
+
+### Đã cập nhật đồng bộ 3 tài liệu
+
+`API_LIST.md` (bảng role Orders/Order Groups + ma trận Store Owner), `INTEGRATION_GUIDE_FULFILLMENT.md` (bảng Actor mục A.2, thêm mục filter đơn Hỏa Tốc ở Nghiệp vụ 5), file này.
+
+## ⚠️ Phát hiện quan trọng (2026-09-12) — tài liệu ĐÃ VIẾT ĐÚNG từ trước nhưng CODE chưa từng được merge
+
+**Bối cảnh**: Đội FE (Huỳnh Quốc Việt) báo qua chat thật — `GET /orders`/`GET /order-groups` chỉ Admin gọi được, Store Owner không xem được đơn shop mình. User yêu cầu mở quyền + thêm filter `order_priority`.
+
+**Phát hiện khi verify**: `API_LIST.md`/`INTEGRATION_GUIDE_FULFILLMENT.md` **đã có sẵn nội dung đúng** mô tả y hệt thay đổi này (role Store Owner, filter `order_priority`) — nhưng khi kiểm tra `be.zip` user upload lại, **code thật CHƯA HỀ có** những thay đổi tương ứng (`orders.controller.ts`/`order-groups.controller.ts` vẫn `@Roles(ADMIN)` cứng, `ListOrderGroupsQueryDto` chưa có field `order_priority`). Kết luận: đã có 1 lượt trước viết xong tài liệu NHƯNG patch code chưa từng được user merge vào repo thật — giống đúng dạng lỗi "drift tài liệu-code" đã gặp trước đây, lần này xảy ra ở hướng khác (tài liệu đi trước, code bị bỏ sót — không phải code đi trước, tài liệu lạc hậu như các lần trước).
+
+**Đã sửa xong THẬT trong code** (2026-09-12): thêm `UserRole.STORE_OWNER` vào `@Roles()` của `GET /orders`, `GET /orders/:id`, `GET /order-groups`, `GET /order-groups/:id` (giữ nguyên `POST /lazada/sync`, `GET /marketplace/:platform/connect` chỉ Admin — thao tác kỹ thuật nhạy cảm). Thêm field `order_priority` vào `ListOrderGroupsQueryDto`, áp vào `listOrderGroups()` — tận dụng đúng index `{order_priority, packaging_deadline, is_overdue}` đã có sẵn từ Nghiệp vụ Đơn Hỏa Tốc, không cần thêm index mới.
+
+**Verify thật**: `tsc` 0 lỗi, `eslint` 0 lỗi, `jest` 12/12 suite 116/116 test — trên đúng code thật vừa merge, không phải giả định.
+
+**Bài học quy trình MỚI, bổ sung cho nguyên tắc đã có**: KHÔNG được tin bộ nhớ/tài liệu đã ghi "đã làm xong" là bằng chứng đủ — bộ nhớ có thể ghi lại 1 lượt mà patch chưa từng thực sự tới tay user. **Luôn đối chiếu lại đúng `be.zip` mới nhất user upload trước khi báo "đã xong"**, kể cả khi tài liệu/bộ nhớ khẳng định điều ngược lại.
 
 ## ĐỐI CHIẾU CHÉO TOÀN BỘ tài liệu FE vs code thật (2026-09-11) — sau khi hoàn thành Tầng 1
 

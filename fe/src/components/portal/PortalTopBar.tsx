@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
@@ -6,44 +6,97 @@ import {
   CheckCheck,
   Clock,
   Menu,
+  Package,
   Zap,
 } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '../../context/use-auth'
 import { usePortal } from '../../context/use-portal'
+import { useNotifications } from '../../hooks/useNotifications'
+import { resolveNotificationPath } from '../../lib/notification-nav'
+import { UserRole } from '../../types/auth'
 import {
-  DEFAULT_STAFF_NOTIFICATIONS,
-  type StaffNotificationItem,
-} from '../../data/picking-batches-mock'
+  formatNotificationTimeAgo,
+  NOTIFICATION_TYPE_LABELS,
+  type AppNotification,
+  type NotificationType,
+} from '../../types/notifications'
 
 type PortalTopBarProps = {
   breadcrumbs: Array<{ label: string; to?: string }>
   variant?: 'ops' | 'admin'
 }
 
+type NotifTab = 'all' | 'critical' | 'ops'
+
+function typeLabel(type: string, vi: boolean): string {
+  const known = NOTIFICATION_TYPE_LABELS[type as NotificationType]
+  if (known) return vi ? known.vi : known.en
+  return type
+}
+
+function isCriticalTab(n: AppNotification): boolean {
+  return (
+    n.severity === 'critical' ||
+    n.type === 'cancel_confirmation_required' ||
+    n.type === 'sla_breach' ||
+    n.type === 'missing_item'
+  )
+}
+
+function isOpsTab(n: AppNotification): boolean {
+  return (
+    n.type === 'sla_warning' ||
+    n.type === 'pending_approval' ||
+    n.type === 'abnormal_package' ||
+    n.type === 'sync_failed' ||
+    n.type === 'connection_lost'
+  )
+}
+
+function NotifIcon({ type }: { type: string }) {
+  if (type === 'cancel_confirmation_required') {
+    return <AlertTriangle className="h-3.5 w-3.5" />
+  }
+  if (type === 'sla_warning' || type === 'sla_breach') {
+    return <Zap className="h-3.5 w-3.5 fill-amber-500" />
+  }
+  if (type === 'pending_approval' || type === 'abnormal_package') {
+    return <Package className="h-3.5 w-3.5" />
+  }
+  return <Bell className="h-3.5 w-3.5" />
+}
+
 export function PortalTopBar({
   breadcrumbs,
   variant = 'ops',
 }: PortalTopBarProps) {
-  const { setMobileNavOpen } = usePortal()
-  const isAdmin = variant === 'admin'
+  const { setMobileNavOpen, locale } = usePortal()
+  const { session } = useAuth()
+  const isAdminVariant = variant === 'admin'
   const navigate = useNavigate()
+  const vi = locale === 'vi'
 
-  // Notification state for express and delayed packing orders
+  // Chuông API cho mọi role đã login (Owner/staff nhận BE mới).
+  // Không đụng luồng Admin OAuth / marketplace connect.
+  const notifEnabled = Boolean(session)
+  const {
+    items,
+    unreadCount,
+    loading,
+    error,
+    refreshList,
+    markRead,
+    markAllRead,
+  } = useNotifications(notifEnabled)
+
   const [notifOpen, setNotifOpen] = useState(false)
-  const [notifications] = useState<StaffNotificationItem[]>(
-    DEFAULT_STAFF_NOTIFICATIONS,
-  )
-  const [readIds, setReadIds] = useState<Set<string>>(new Set())
-  const [activeTab, setActiveTab] = useState<
-    'all' | 'express' | 'delayed_packing'
-  >('all')
+  const [activeTab, setActiveTab] = useState<NotifTab>('all')
   const notifRef = useRef<HTMLDivElement>(null)
 
-  const unreadCount = notifications.filter((n) => !readIds.has(n.id)).length
-
-  // Close dropdown when clicking outside
   useEffect(() => {
     if (!notifOpen) return
+    void refreshList()
     const handleClickOutside = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setNotifOpen(false)
@@ -51,22 +104,31 @@ export function PortalTopBar({
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [notifOpen])
+  }, [notifOpen, refreshList])
 
-  const handleMarkAllRead = () => {
-    setReadIds(new Set(notifications.map((n) => n.id)))
-  }
+  const filteredNotifs = useMemo(() => {
+    if (activeTab === 'critical') return items.filter(isCriticalTab)
+    if (activeTab === 'ops') return items.filter(isOpsTab)
+    return items
+  }, [activeTab, items])
 
-  const handleOpenNotification = (notif: StaffNotificationItem) => {
-    setReadIds((prev) => new Set([...prev, notif.id]))
+  const criticalCount = items.filter(isCriticalTab).length
+  const opsCount = items.filter(isOpsTab).length
+
+  const handleOpenNotification = (notif: AppNotification) => {
+    void markRead(notif.id)
     setNotifOpen(false)
-    navigate(`/app/warehouse?batchId=${notif.batchId}&action=start`)
+    navigate(resolveNotificationPath(notif, session?.role))
   }
 
-  const filteredNotifs = notifications.filter((n) => {
-    if (activeTab === 'all') return true
-    return n.type === activeTab
-  })
+  const subtitle =
+    session?.role === UserRole.STORE_OWNER
+      ? vi
+        ? 'Hủy cần xác nhận · đồng bộ sàn · thiếu hàng'
+        : 'Cancel confirm · sync · missing stock'
+      : vi
+        ? 'SLA · duyệt đóng gói · cảnh báo kho'
+        : 'SLA · packing approval · warehouse alerts'
 
   return (
     <header className="relative flex h-14 shrink-0 items-center gap-3 border-b border-hairline bg-canvas px-4 sm:px-6">
@@ -95,14 +157,13 @@ export function PortalTopBar({
       </nav>
 
       <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-        {isAdmin ? (
+        {isAdminVariant ? (
           <span className="hidden items-center gap-1.5 rounded-full border border-success/20 bg-success-bg px-2.5 py-1 text-[11px] font-medium text-success md:inline-flex">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-success" />
             Hệ thống ổn định
           </span>
         ) : null}
 
-        {/* Staff Notification Center (Noti cho đơn hỏa tốc và trễ đóng gói) */}
         <div className="relative" ref={notifRef}>
           <button
             type="button"
@@ -113,20 +174,18 @@ export function PortalTopBar({
                 : 'border-hairline bg-surface-1 text-ink-subtle hover:bg-surface-2 hover:text-ink'
             }`}
             aria-label="Thông báo"
-            title="Thông báo đơn hỏa tốc & trễ đóng gói"
+            title={vi ? 'Thông báo' : 'Notifications'}
           >
             <Bell className="h-4 w-4" strokeWidth={1.75} />
             {unreadCount > 0 ? (
               <span className="absolute -top-1 -right-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-bold text-white shadow-xs ring-2 ring-white dark:ring-surface-1 animate-pulse">
-                {unreadCount}
+                {unreadCount > 99 ? '99+' : unreadCount}
               </span>
             ) : null}
           </button>
 
-          {/* Dropdown panel */}
-          {notifOpen && (
-            <div className="absolute right-0 mt-2 w-80 sm:w-96 rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl z-50 dark:border-slate-800 dark:bg-surface-1 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-              {/* Header */}
+          {notifOpen ? (
+            <div className="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl border border-slate-200 bg-white p-0 shadow-2xl animate-in fade-in zoom-in-95 duration-150 sm:w-96 dark:border-slate-800 dark:bg-surface-1">
               <div className="border-b border-slate-100 bg-slate-50/80 p-3.5 dark:border-slate-800 dark:bg-surface-2/40">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -134,133 +193,124 @@ export function PortalTopBar({
                       <Bell className="h-4 w-4" />
                     </span>
                     <div>
-                      <h3 className="font-semibold text-slate-900 text-xs dark:text-slate-100">
-                        Thông báo điều phối nhân viên
+                      <h3 className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                        {vi ? 'Thông báo' : 'Notifications'}
                       </h3>
                       <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                        Ưu tiên đơn hỏa tốc (SLA 4h) & đơn trễ đóng gói
+                        {subtitle}
                       </p>
                     </div>
                   </div>
                   {unreadCount > 0 ? (
                     <button
                       type="button"
-                      onClick={handleMarkAllRead}
-                      className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer"
+                      onClick={() => {
+                        void markAllRead()
+                      }}
+                      className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
                     >
                       <CheckCheck className="h-3 w-3" />
-                      Đọc tất cả
+                      {vi ? 'Đọc tất cả' : 'Mark all'}
                     </button>
                   ) : null}
                 </div>
 
-                {/* Filter Tabs */}
                 <div className="mt-2.5 flex items-center gap-1.5 rounded-lg bg-slate-200/60 p-1 text-[11px] font-medium dark:bg-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('all')}
-                    className={`flex-1 rounded-md py-1 text-center transition-colors cursor-pointer ${
-                      activeTab === 'all'
-                        ? 'bg-white text-slate-900 font-semibold shadow-xs dark:bg-surface-1 dark:text-slate-100'
-                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    Tất cả ({notifications.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('express')}
-                    className={`flex-1 rounded-md py-1 text-center transition-colors cursor-pointer ${
-                      activeTab === 'express'
-                        ? 'bg-white text-amber-700 font-semibold shadow-xs dark:bg-surface-1 dark:text-amber-400'
-                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    ⚡ Hỏa tốc (2)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('delayed_packing')}
-                    className={`flex-1 rounded-md py-1 text-center transition-colors cursor-pointer ${
-                      activeTab === 'delayed_packing'
-                        ? 'bg-white text-rose-700 font-semibold shadow-xs dark:bg-surface-1 dark:text-rose-400'
-                        : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    ⚠️ Trễ đóng gói (1)
-                  </button>
+                  {(
+                    [
+                      ['all', vi ? `Tất cả (${items.length})` : `All (${items.length})`],
+                      [
+                        'critical',
+                        vi
+                          ? `Khẩn (${criticalCount})`
+                          : `Urgent (${criticalCount})`,
+                      ],
+                      [
+                        'ops',
+                        vi ? `Vận hành (${opsCount})` : `Ops (${opsCount})`,
+                      ],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setActiveTab(key)}
+                      className={`flex-1 cursor-pointer rounded-md py-1 text-center transition-colors ${
+                        activeTab === key
+                          ? 'bg-white font-semibold text-slate-900 shadow-xs dark:bg-surface-1 dark:text-slate-100'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {/* List */}
               <div className="max-h-[340px] divide-y divide-slate-100 overflow-y-auto dark:divide-slate-800">
-                {filteredNotifs.length > 0 ? (
+                {loading && items.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    {vi ? 'Đang tải…' : 'Loading…'}
+                  </div>
+                ) : error && items.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-rose-500">
+                    {error}
+                  </div>
+                ) : filteredNotifs.length > 0 ? (
                   filteredNotifs.map((n) => {
-                    const isRead = readIds.has(n.id)
-                    const isExpress = n.type === 'express'
-
+                    const urgent = isCriticalTab(n)
                     return (
                       <div
                         key={n.id}
                         onClick={() => handleOpenNotification(n)}
-                        className={`p-3.5 transition-colors cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
-                          !isRead
-                            ? isExpress
-                              ? 'bg-amber-50/40 dark:bg-amber-950/10'
-                              : 'bg-rose-50/40 dark:bg-rose-950/10'
+                        className={`cursor-pointer p-3.5 transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/40 ${
+                          !n.isRead
+                            ? urgent
+                              ? 'bg-rose-50/40 dark:bg-rose-950/10'
+                              : 'bg-amber-50/40 dark:bg-amber-950/10'
                             : ''
                         }`}
                       >
                         <div className="flex items-start gap-2.5">
                           <span
-                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg mt-0.5 ${
-                              isExpress
-                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
-                                : 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                            className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                              urgent
+                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300'
+                                : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300'
                             }`}
                           >
-                            {isExpress ? (
-                              <Zap className="h-3.5 w-3.5 fill-amber-500" />
-                            ) : (
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                            )}
+                            <NotifIcon type={n.type} />
                           </span>
-
-                          <div className="flex-1 min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-1">
                               <span
                                 className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ${
-                                  isExpress
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200'
-                                    : 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200'
+                                  urgent
+                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200'
+                                    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200'
                                 }`}
                               >
-                                {isExpress
-                                  ? '⚡ ĐƠN HỎA TỐC'
-                                  : '⚠️ TRỄ ĐÓNG GÓI'}
+                                {typeLabel(n.type, vi).toUpperCase()}
                               </span>
                               <span className="text-[10px] text-slate-400">
-                                {n.timeAgo}
+                                {formatNotificationTimeAgo(n.createdAt, locale)}
                               </span>
                             </div>
-
-                            <p className="mt-1 text-xs font-medium text-slate-800 dark:text-slate-200 line-clamp-2 leading-snug">
-                              {n.message}
+                            <p className="mt-1 line-clamp-2 text-xs font-medium leading-snug text-slate-800 dark:text-slate-200">
+                              {n.title || n.message}
                             </p>
-
+                            {n.message && n.title ? (
+                              <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500 dark:text-slate-400">
+                                {n.message}
+                              </p>
+                            ) : null}
                             <div className="mt-1.5 flex items-center justify-between text-[10.5px]">
-                              <span
-                                className={`font-semibold flex items-center gap-1 ${
-                                  isExpress
-                                    ? 'text-amber-700 dark:text-amber-300'
-                                    : 'text-rose-600 dark:text-rose-400'
-                                }`}
-                              >
+                              <span className="flex items-center gap-1 font-semibold text-slate-500">
                                 <Clock className="h-3 w-3" />
-                                {n.deadlineInfo}
+                                {n.severity}
                               </span>
-                              <span className="inline-flex items-center gap-0.5 text-blue-600 font-semibold hover:underline dark:text-blue-400">
-                                Xử lý ngay
+                              <span className="inline-flex items-center gap-0.5 font-semibold text-blue-600 hover:underline dark:text-blue-400">
+                                {vi ? 'Xem' : 'Open'}
                                 <ArrowRight className="h-2.5 w-2.5" />
                               </span>
                             </div>
@@ -271,21 +321,20 @@ export function PortalTopBar({
                   })
                 ) : (
                   <div className="p-8 text-center text-xs text-slate-400">
-                    Không có thông báo nào trong mục này.
+                    {vi
+                      ? 'Không có thông báo nào trong mục này.'
+                      : 'No notifications in this tab.'}
                   </div>
                 )}
               </div>
 
-              {/* Policy Footer */}
-              <div className="border-t border-slate-100 bg-slate-50 p-2.5 text-[10px] text-slate-500 dark:border-slate-800 dark:bg-surface-2/30 dark:text-slate-400">
-                <p className="leading-tight text-center">
-                  💡 <strong>Quy định kho:</strong> Đơn hỏa tốc hoàn thành trong{' '}
-                  <strong>4 tiếng</strong> (tiếp nhận trong giờ hành chính 08:00
-                  - 17:30). Đơn trễ đóng gói cần xử lý khẩn cấp.
-                </p>
+              <div className="border-t border-slate-100 bg-slate-50 p-2.5 text-center text-[10px] text-slate-500 dark:border-slate-800 dark:bg-surface-2/30 dark:text-slate-400">
+                {vi
+                  ? 'Tự làm mới mỗi 20 giây · đánh dấu đã đọc khi mở.'
+                  : 'Refreshes every 20s · marks read on open.'}
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </header>

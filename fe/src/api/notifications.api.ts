@@ -1,34 +1,40 @@
 import { apiRequest } from '../lib/api'
+import {
+  mapNotificationRaw,
+  type AppNotification,
+  type NotificationApiRaw,
+} from '../types/notifications'
 
-export const NotificationType = {
-  MFA_DISABLED: 'mfa_disabled',
-} as const
-
-export type AppNotification = {
-  _id?: string
-  id?: string
-  type: string
-  title: string
-  message: string
+export async function listNotifications(params?: {
   is_read?: boolean
-  severity?: string
-}
-
-export function notificationId(record: AppNotification): string {
-  if (typeof record.id === 'string' && record.id.length > 0) return record.id
-  if (typeof record._id === 'string' && record._id.length > 0) return record._id
-  return ''
-}
-
-export async function fetchUnreadNotifications(): Promise<AppNotification[]> {
-  return apiRequest<AppNotification[]>('/notifications?is_read=false', {
+}): Promise<AppNotification[]> {
+  const qs = new URLSearchParams()
+  if (params?.is_read !== undefined) {
+    qs.set('is_read', String(params.is_read))
+  }
+  const query = qs.toString() ? `?${qs.toString()}` : ''
+  const raw = await apiRequest<NotificationApiRaw[]>(`/notifications${query}`, {
     auth: true,
   })
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(mapNotificationRaw)
+    .filter((n): n is AppNotification => n !== null)
 }
 
-export async function markNotificationReadApi(id: string): Promise<void> {
-  await apiRequest<unknown>(`/notifications/${id}/read`, {
+export async function fetchUnreadNotificationCount(): Promise<number> {
+  const res = await apiRequest<{ count: number }>('/notifications/unread-count', {
+    auth: true,
+  })
+  return typeof res.count === 'number' ? res.count : 0
+}
+
+export async function markNotificationRead(
+  id: string,
+): Promise<AppNotification | null> {
+  const raw = await apiRequest<NotificationApiRaw>(`/notifications/${id}/read`, {
     method: 'PATCH',
     auth: true,
   })
+  return mapNotificationRaw(raw)
 }

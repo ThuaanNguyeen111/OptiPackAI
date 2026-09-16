@@ -24,6 +24,8 @@ import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { MarketplaceOAuthSuccessPage } from './pages/MarketplaceOAuthSuccessPage'
 import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
+import { OrderDetailPage } from './pages/OrderDetailPage'
+import { OrderGroupsPage } from './pages/OrderGroupsPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
 import { PackingPage } from './pages/PackingPage'
@@ -72,6 +74,8 @@ function App() {
               <Route element={<AppLayout />}>
                 <Route index element={<DashboardPage />} />
                 <Route path="orders" element={<OrdersPage />} />
+                <Route path="orders/:id" element={<OrderDetailPage />} />
+                <Route path="order-groups" element={<OrderGroupsPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="packing" element={<PackingPage />} />

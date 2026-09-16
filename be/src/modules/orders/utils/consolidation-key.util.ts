@@ -63,11 +63,19 @@ function normalizeAddressFragment(text: string): string {
 }
 
 /**
- * Tính consolidation_key từ SĐT + dòng địa chỉ đầu tiên + thành phố.
- * Cùng 1 bộ 3 giá trị (sau chuẩn hóa) LUÔN cho ra CÙNG 1 key — thuộc
+ * Tính consolidation_key từ platform + SĐT + dòng địa chỉ đầu tiên + thành
+ * phố. Cùng 1 bộ 4 giá trị (sau chuẩn hóa) LUÔN cho ra CÙNG 1 key — thuộc
  * tính bắt buộc để dùng làm điều kiện match qua index.
+ *
+ * `platform` BẮT BUỘC có mặt trong key — thiếu nó, 2 đơn CÙNG khách hàng
+ * nhưng đặt trên 2 SÀN KHÁC NHAU (VD Lazada + TikTok Shop) sẽ băm ra
+ * CÙNG 1 key, bị gộp nhầm chung 1 OrderGroup dù có thể 2 mã vận đơn/2 đơn
+ * vị vận chuyển hoàn toàn khác nhau (AOFP-XX, phát hiện 14/09/2026 —
+ * "ngủ yên" tới giờ chỉ vì hệ thống mới có Lazada, sẽ phát tác ngay khi
+ * thêm TikTok/Tiki nếu không sửa trước).
  */
 export function computeConsolidationKey(
+  platform: string,
   phoneRaw: string,
   addressLine1Raw: string,
   cityRaw: string,
@@ -76,7 +84,7 @@ export function computeConsolidationKey(
   const normalizedAddress = normalizeAddressFragment(addressLine1Raw);
   const normalizedCity = normalizeAddressFragment(cityRaw);
 
-  const input = `${normalizedPhone}|${normalizedAddress}|${normalizedCity}`;
+  const input = `${platform}|${normalizedPhone}|${normalizedAddress}|${normalizedCity}`;
 
   return createHash('sha256').update(input).digest('hex');
 }

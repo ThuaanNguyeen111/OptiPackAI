@@ -1,32 +1,36 @@
-import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
-import { Header } from '../components/layout/Header'
-import {
-  ConsolidationTypeBadge,
-  OrderStatusBadge,
-  PipelineBadge,
-} from '../components/orders/OrderBadges'
-import { SyncTimeline } from '../components/orders/SyncTimeline'
-import { Badge } from '../components/ui/Badge'
-import { mockOrders } from '../data/mock-orders'
-import {
-  marketplaceLabels,
-  paymentLabels,
-  shippingLabels,
-} from '../types/orders'
-import { formatCurrency, formatDate } from '../utils/format'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { ArrowLeft, Loader2 } from 'lucide-react'
+import { OrderDetailDrawer } from '../components/orders/OrderDetailDrawer'
+import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { usePortal } from '../context/use-portal'
 
+/**
+ * Deep-link /app/orders/:id — mở danh sách + drawer chi tiết (UI gần bản cũ).
+ */
 export function OrderDetailPage() {
   const { id } = useParams<{ id: string }>()
-  const order = mockOrders.find((o) => o.id === id)
+  const navigate = useNavigate()
+  const { locale } = usePortal()
+  const vi = locale === 'vi'
+  const [selectedId, setSelectedId] = useState<string | null>(id ?? null)
 
-  if (!order) {
+  useEffect(() => {
+    setSelectedId(id ?? null)
+  }, [id])
+
+  if (!id) {
     return (
       <>
-        <Header title="Không tìm thấy đơn" />
-        <main className="flex flex-1 items-center justify-center p-6">
-          <Link to="/app/orders" className="text-sm text-primary-hover hover:underline">
-            ← Quay lại danh sách
+        <PortalTopBar
+          breadcrumbs={[
+            { label: 'OptiPackAI', to: '/app' },
+            { label: vi ? 'Đơn đa kênh' : 'Omnichannel Orders', to: '/app/orders' },
+          ]}
+        />
+        <main className="flex flex-1 items-center justify-center bg-[#F9FAFB] p-6 dark:bg-[#0B0E14]">
+          <Link to="/app/orders" className="text-sm text-[#2563eb] hover:underline">
+            {vi ? '← Quay lại danh sách' : '← Back to list'}
           </Link>
         </main>
       </>
@@ -35,141 +39,44 @@ export function OrderDetailPage() {
 
   return (
     <>
-      <Header
-        title={order.id}
-        description={`${marketplaceLabels[order.marketplace]} · ${order.external_id}`}
+      <PortalTopBar
+        breadcrumbs={[
+          { label: 'OptiPackAI', to: '/app' },
+          {
+            label: vi ? 'Đơn đa kênh' : 'Omnichannel Orders',
+            to: '/app/orders',
+          },
+          { label: id },
+        ]}
       />
-      <main className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-6xl">
+      <main className="relative flex flex-1 flex-col bg-[#F9FAFB] dark:bg-[#0B0E14]">
+        <div className="mx-auto w-full max-w-7xl p-4 sm:p-6">
           <Link
             to="/app/orders"
-            className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-subtle hover:text-ink"
+            className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"
           >
             <ArrowLeft className="h-4 w-4" />
-            Danh sách đơn hàng
+            {vi ? 'Danh sách đơn đa kênh' : 'Omnichannel order list'}
           </Link>
-
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="space-y-4 lg:col-span-2">
-              <section className="rounded-lg border border-hairline bg-surface-1 p-6">
-                <div className="flex flex-wrap items-center gap-2">
-                  <OrderStatusBadge status={order.status} />
-                  <PipelineBadge status={order.pipeline_status} />
-                  <ConsolidationTypeBadge type={order.consolidation_type} />
-                  {order.priority === 'urgent' ? (
-                    <Badge tone="warning">Ưu tiên</Badge>
-                  ) : null}
-                  {order.is_duplicate ? (
-                    <Badge tone="warning">Trùng lặp</Badge>
-                  ) : null}
-                </div>
-
-                <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-                  <div>
-                    <dt className="text-ink-subtle">Khách hàng</dt>
-                    <dd className="mt-0.5 font-medium text-ink">
-                      {order.customer.name}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-subtle">Số điện thoại</dt>
-                    <dd className="mt-0.5 font-mono text-ink-muted">
-                      {order.customer.phone}
-                    </dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-ink-subtle">Địa chỉ giao</dt>
-                    <dd className="mt-0.5 text-ink">{order.customer.address}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-subtle">Thanh toán</dt>
-                    <dd className="mt-0.5 text-ink">
-                      {paymentLabels[order.payment_status]}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-ink-subtle">Vận chuyển</dt>
-                    <dd className="mt-0.5 text-ink">
-                      {shippingLabels[order.shipping_status]}
-                    </dd>
-                  </div>
-                  {order.consolidation_group_id ? (
-                    <div>
-                      <dt className="text-ink-subtle">Nhóm gộp</dt>
-                      <dd className="mt-0.5 font-mono text-ink-muted">
-                        {order.consolidation_group_id}
-                      </dd>
-                    </div>
-                  ) : null}
-                  {order.matched_by ? (
-                    <div>
-                      <dt className="text-ink-subtle">Khớp theo</dt>
-                      <dd className="mt-0.5 text-ink capitalize">
-                        {order.matched_by}
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </section>
-
-              <section className="rounded-lg border border-hairline bg-surface-1 p-6">
-                <h2 className="text-sm font-medium text-ink">Sản phẩm</h2>
-                <table className="mt-4 w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-hairline text-ink-subtle">
-                      <th className="pb-2 text-left font-medium">SKU</th>
-                      <th className="pb-2 text-left font-medium">Tên</th>
-                      <th className="pb-2 text-right font-medium">SL</th>
-                      <th className="pb-2 text-right font-medium">Giá</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.items.map((item) => (
-                      <tr
-                        key={item.sku}
-                        className="border-b border-hairline/50 last:border-0"
-                      >
-                        <td className="py-2 font-mono text-xs text-ink-tertiary">
-                          {item.sku}
-                        </td>
-                        <td className="py-2 text-ink">{item.name}</td>
-                        <td className="py-2 text-right text-ink-muted">
-                          {item.qty}
-                        </td>
-                        <td className="py-2 text-right font-mono text-ink-muted">
-                          {formatCurrency(item.price)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colSpan={3} className="pt-3 text-right text-ink-subtle">
-                        Tổng
-                      </td>
-                      <td className="pt-3 text-right font-mono font-medium text-ink">
-                        {formatCurrency(order.total_amount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </section>
-            </div>
-
-            <section className="rounded-lg border border-hairline bg-surface-1 p-6">
-              <h2 className="text-sm font-medium text-ink">Timeline xử lý</h2>
-              <p className="mt-1 text-xs text-ink-subtle">
-                Flow 1 · Webhook → Queue → Normalize → Gộp/Lẻ → MongoDB
-              </p>
-              <div className="mt-4">
-                <SyncTimeline events={order.sync_events} />
-              </div>
-              <p className="mt-2 text-xs text-ink-tertiary">
-                Tạo lúc {formatDate(order.created_at)}
-              </p>
-            </section>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-8 text-sm text-slate-500 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {vi
+              ? 'Đang mở chi tiết đơn hàng…'
+              : 'Opening order detail…'}
           </div>
         </div>
+        <OrderDetailDrawer
+          orderId={selectedId}
+          locale={locale}
+          onClose={() => navigate('/app/orders')}
+          onOpenOrder={(nextId) => {
+            setSelectedId(nextId)
+            navigate(`/app/orders/${nextId}`, { replace: true })
+          }}
+          onFilterGroup={(groupId) =>
+            navigate(`/app/orders?group=${encodeURIComponent(groupId)}`)
+          }
+        />
       </main>
     </>
   )
