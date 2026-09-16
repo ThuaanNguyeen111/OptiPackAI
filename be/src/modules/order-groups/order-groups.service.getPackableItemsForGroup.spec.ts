@@ -81,8 +81,10 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
     const result = await service.getPackableItemsForGroup(groupId);
 
     expect(result.items).toHaveLength(1);
-    expect(result.items[0].sku).toBe('SKU-A');
-    expect(result.items[0].quantity).toBe(2);
+    const [first] = result.items;
+    expect(first).toBeDefined();
+    expect(first?.sku).toBe('SKU-A');
+    expect(first?.quantity).toBe(2);
   });
 
   it('TOÀN BỘ đơn trong group đã bị hủy/gặp sự cố (query trả rỗng) -> throw ORD_GROUP_ALL_ORDERS_CANCELED, KHÔNG trả items rỗng âm thầm', async () => {
