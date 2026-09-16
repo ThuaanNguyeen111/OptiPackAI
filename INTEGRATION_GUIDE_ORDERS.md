@@ -279,6 +279,10 @@ Authorization: Bearer <access_token>
       "platformOrderItemIds": ["987654321"]
     }
   ],
+  "needCancelConfirm": false,
+  "isCancelPending": false,
+  "cancelTriggerTime": null,
+  "reverseOrderId": null,
   "createdAt": "2026-09-04T16:53:24.904Z"
 }
 ```
@@ -291,7 +295,16 @@ Có 1 hệ quả cần biết: **nếu 1 đơn có 2 cái cùng SKU nhưng 1 cá
 
 `platformOrderItemIds` (mảng, không phải 1 giá trị) — giữ lại toàn bộ mã đơn vị gốc của Lazada trong dòng đã gộp, dùng khi cần thao tác chi tiết theo từng đơn vị sau này (Package 4 — Fulfillment), FE hiện tại chưa cần dùng tới field này.
 
-> ⚠️ **Gap đang chờ quyết định (15/09/2026)** — BE có lưu thêm 4 field liên quan tới luồng "buyer yêu cầu hủy đơn, seller có hạn phản hồi trước khi Lazada tự động hủy" (`need_cancel_confirm`, `is_cancel_pending`, `cancel_trigger_time`, `reverse_order_id`) và dùng để bắn Notification (xem `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6) — nhưng **hiện KHÔNG trả ra qua `GET /orders`/`GET /orders/:id`**. FE hiện chỉ biết đơn nào đang chờ xác nhận hủy thông qua Notification, KHÔNG thấy trực tiếp trên màn hình chi tiết đơn. Nếu FE cần hiển thị badge "Chờ xác nhận hủy" ngay trên trang chi tiết đơn (không chỉ qua chuông thông báo), cần yêu cầu BE bổ sung field này vào response — hiện tại đây là quyết định CHƯA CHỐT, không phải bug.
+> ✅ **Đã bổ sung (16/09/2026)** — `GET /orders/:id` giờ trả thêm 4 field liên quan tới luồng "buyer yêu cầu hủy đơn, seller có hạn phản hồi trước khi Lazada tự động hủy" (xem `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6 để hiểu luồng Notification tương ứng):
+>
+> | Field               | Kiểu         | Ý nghĩa                                                                                                                         |
+> | ------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+> | `needCancelConfirm` | Boolean      | `true` = buyer đang chờ seller xác nhận hủy — FE nên hiện badge cảnh báo ngay trên trang chi tiết                               |
+> | `isCancelPending`   | Boolean      | `true` = seller đã đồng ý hủy, đang chờ Lazada xử lý xong                                                                       |
+> | `cancelTriggerTime` | Date\|null   | Hạn chót phản hồi — quá giờ này mà seller chưa phản hồi, Lazada TỰ ĐỘNG hủy đơn. FE nên hiển thị đếm ngược hoặc ngày giờ cụ thể |
+> | `reverseOrderId`    | String\|null | Mã đơn hoàn/hủy phía Lazada, dùng khi cần đối chiếu thủ công                                                                    |
+>
+> FE giờ có **2 cách** để biết đơn nào đang chờ xác nhận hủy — (1) qua chuông thông báo (`INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6, biết ngay khi vừa xảy ra), (2) qua field `needCancelConfirm` ngay trên trang chi tiết đơn (biết được dù mở trang bằng cách nào, không phụ thuộc đã bấm chuông hay chưa) — khuyến nghị dùng cả 2, không chỉ 1.
 
 ---
 
