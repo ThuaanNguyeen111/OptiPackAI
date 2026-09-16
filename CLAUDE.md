@@ -2186,3 +2186,13 @@ User hỏi: các file guide viết lại có đánh dấu rõ chỗ nào MỚI/�
 User hỏi file 00 đã phản ánh đúng/đủ mọi việc đã làm chưa — kiểm tra phát hiện 2 việc mới nhất CHƯA được ghi vào file 00: (1) follow-up bổ sung `needCancelConfirm`/`cancelTriggerTime`... vào `GET /orders/:id` (mục A2, dưới dòng O6 gốc), (2) follow-up phủ tag `🆕 MỚI`/`🔄 ĐÃ ĐỔI` đầy đủ trong 2 file guide (mục A5). Đã bổ sung cả 2 + sửa lại dòng cũ trong A5 (không còn ghi "flag gap chưa expose" — gap đã hết).
 
 **Bài học quy trình**: mỗi khi làm xong 1 việc phát sinh (không nằm sẵn trong A1-A6 ban đầu), phải NGAY LẬP TỨC thêm dòng vào file 00, không đợi user hỏi lại mới cập nhật — đúng tinh thần standing rule đã đặt từ 09/09 (tự động ghi, không cần hỏi mỗi lần).
+
+## Rà lại LẦN NỮA toàn bộ marker "mới/đã đổi" xuyên suốt cả phiên — 2 chỗ sót thêm (16/09/2026)
+
+User hỏi lại rộng hơn: đã note hết mọi thay đổi so với doc cũ CHƯA (không chỉ 2 lượt gần nhất). Rà lại toàn bộ danh sách FE-facing changes cả phiên, tìm thêm 2 chỗ sót: (1) đoạn giải thích logic chọn `status` đại diện cho Order (O5 — ưu tiên trạng thái xấu nhất thay vì lấy phần tử đầu mảng) nằm trong mục 7b nhưng thiếu tag riêng của chính đoạn đó; (2) danh sách trạng thái đủ điều kiện gộp đơn (mục 7) thêm `to_pack`/`to_ship` so với doc cũ (chỉ có 4 giá trị) nhưng chưa đánh dấu. Đã bổ sung `🔄 ĐÃ ĐỔI (ngày)` cho cả 2. `INTEGRATION_GUIDE_ORDERS.md` giờ có 10 chỗ đánh dấu ngày 15-16/09, `INTEGRATION_GUIDE_FULFILLMENT.md` có 7 chỗ — đã rà đủ 2 lượt liên tiếp, tự tin khẳng định phủ kín.
+
+## User hỏi "warehouse có đổi gì không" — xác nhận không đụng code trực tiếp, phát hiện thêm 1 chỗ doc sót (16/09/2026)
+
+`diff -rq` xác nhận: **chưa từng sửa trực tiếp file nào trong `src/modules/warehouse/`** suốt cả phiên. Nhưng **Warehouse Picking List bị ảnh hưởng gián tiếp** — `warehouse.service.ts` tái dùng `getPackableItemsForGroup()` (đã fix ở `order-groups.service.ts`), nên tự động ăn theo fix lọc canceled/sự cố logistics mà không cần đụng code Warehouse.
+
+Phát hiện thêm khi trả lời: điều này trước đó chỉ được nhắc ở bảng mã lỗi D.3 (`INTEGRATION_GUIDE_FULFILLMENT.md`), **chưa được nói rõ ngay trong Nghiệp vụ 3 (Lấy hàng/Picking)** — nơi FE dễ tìm thấy hơn khi build màn hình Picking/Warehouse. Đã bổ sung đoạn `🔄 ĐÃ ĐỔI (15/09/2026)` ngay sau sơ đồ 4 bước picking, giải thích rõ: cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId` đều lọc, và case group rỗng hoàn toàn trả `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì mảng rỗng.
