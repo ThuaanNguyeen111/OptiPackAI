@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, Layers, Loader2 } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Layers, Loader2 } from 'lucide-react'
 import { MarketplaceConsolidationBadge } from './MarketplaceConsolidationBadge'
 import { MarketplaceOrderStatusBadge } from './MarketplaceOrderStatusBadge'
 import { PortalTopBar } from '../portal/PortalTopBar'
@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from '../ui/dialog'
 import { usePortal } from '../../context/use-portal'
+import { listNotifications } from '../../api/notifications.api'
 import { getOrderById, listOrders } from '../../api/orders.api'
 import { formatApiError, getApiErrorCode } from '../../lib/api'
 import {
@@ -33,6 +34,7 @@ import {
   type MarketplaceOrderItem,
   type MarketplaceOrderListItem,
 } from '../../types/marketplace-orders'
+import type { AppNotification } from '../../types/notifications'
 import { formatCurrency, formatDateTime } from '../../utils/format'
 
 function recipientSummary(order: MarketplaceOrderDetail, vi: boolean): string {
@@ -85,6 +87,9 @@ export function MarketplaceOrderDetailScreen({
     errorCode: string | null
     isDemo: boolean
   } | null>(null)
+  /** Fallback chuông nếu field đơn thiếu (bản BE cũ) hoặc bổ sung nội dung message. */
+  const [cancelConfirmNotif, setCancelConfirmNotif] =
+    useState<AppNotification | null>(null)
 
   useEffect(() => {
     if (!id) return
@@ -264,6 +269,45 @@ export function MarketplaceOrderDetailScreen({
     }
   }, [id, vi])
 
+  useEffect(() => {
+    if (!id || isDemoOrderId(id)) {
+      const clearId = window.setTimeout(() => {
+        setCancelConfirmNotif(null)
+      }, 0)
+      return () => window.clearTimeout(clearId)
+    }
+    if (!loaded || loaded.id !== id || !loaded.order) return
+
+    const detail = loaded.order
+    // Field AOFP-23 đủ dùng — bỏ gọi /notifications khi đã biết cần hủy.
+    if (detail.needCancelConfirm || detail.isCancelPending) {
+      const clearId = window.setTimeout(() => setCancelConfirmNotif(null), 0)
+      return () => window.clearTimeout(clearId)
+    }
+
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      void listNotifications()
+        .then((list) => {
+          if (cancelled) return
+          const match =
+            list.find(
+              (n) =>
+                n.type === 'cancel_confirmation_required' &&
+                n.relatedEntityId === id,
+            ) ?? null
+          setCancelConfirmNotif(match)
+        })
+        .catch(() => {
+          if (!cancelled) setCancelConfirmNotif(null)
+        })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [id, loaded])
+
   const [detachTarget, setDetachTarget] =
     useState<MarketplaceOrderListItem | null>(null)
   const [detachTick, setDetachTick] = useState(0)
@@ -271,7 +315,6 @@ export function MarketplaceOrderDetailScreen({
 
   const matches = loaded !== null && loaded.id === id
   const order = matches ? loaded.order : null
-  const rawSiblings = matches ? loaded.siblings : []
   const groupItems = matches ? loaded.groupItems : []
   const groupError = matches ? loaded.groupError : null
   const error = matches ? loaded.error : null
@@ -283,9 +326,10 @@ export function MarketplaceOrderDetailScreen({
   const groupKey = order?.consolidatedGroupId ?? ''
   const siblings = useMemo(() => {
     void detachTick
-    if (!groupKey) return rawSiblings
-    return filterActiveGroupMembers(groupKey, rawSiblings)
-  }, [detachTick, groupKey, rawSiblings])
+    const raw = matches ? loaded.siblings : []
+    if (!groupKey) return raw
+    return filterActiveGroupMembers(groupKey, raw)
+  }, [detachTick, groupKey, loaded, matches])
 
   const multiPlatform = isMultiPlatformGroup(siblings)
   const groupCode = groupKey ? shortGroupCode(groupKey) : null
@@ -427,11 +471,52 @@ export function MarketplaceOrderDetailScreen({
                     </div>
                   ) : null}
 
+                  {order.needCancelConfirm ||
+                  order.isCancelPending ||
+                  cancelConfirmNotif ? (
+                    <div className="mt-3 flex gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-[12px] text-rose-950 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                      <div className="min-w-0 space-y-1">
+                        <p className="font-semibold">
+                          {cancelConfirmNotif?.title ||
+                            (vi
+                              ? 'Cần xác nhận hủy trên Lazada'
+                              : 'Cancel confirmation required on Lazada')}
+                        </p>
+                        {cancelConfirmNotif?.message ? (
+                          <p className="leading-snug text-rose-900/90 dark:text-rose-100/90">
+                            {cancelConfirmNotif.message}
+                          </p>
+                        ) : null}
+                        {order.cancelTriggerTime ? (
+                          <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80">
+                            {vi ? 'Thời điểm kích hoạt: ' : 'Triggered at: '}
+                            {formatDateTime(
+                              typeof order.cancelTriggerTime === 'string'
+                                ? order.cancelTriggerTime
+                                : new Date(order.cancelTriggerTime).toISOString(),
+                            )}
+                          </p>
+                        ) : null}
+                        {order.reverseOrderId ? (
+                          <p className="font-mono text-[11px] text-rose-800/80 dark:text-rose-200/80">
+                            Reverse ID: {order.reverseOrderId}
+                          </p>
+                        ) : null}
+                        <p className="text-[11px] text-rose-800/80 dark:text-rose-200/80">
+                          {vi
+                            ? 'Phản hồi trên Lazada Seller Center trước hạn — hệ thống nội bộ không duyệt hủy thay sàn.'
+                            : 'Respond in Lazada Seller Center before the deadline — this app does not approve cancels on the marketplace.'}
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+
                   {isDemo ? (
-                    <p className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-[11px] text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
                       {vi
-                        ? 'Đây là đơn demo FE: Lazada (giày + áo) gộp với TikTok (quần) cùng khách — không phải dữ liệu sync Lazada live.'
-                        : 'FE demo order: Lazada (shoes + shirt) consolidated with TikTok (pants) for the same customer — not live Lazada sync data.'}
+                        ? 'DEMO FE: Lazada + TikTok cùng khách. BE live chỉ gộp đơn cùng sàn — không phải dữ liệu sync thật.'
+                        : 'FE DEMO: Lazada + TikTok same customer. Live BE consolidates same-platform only — not live sync data.'}
                     </p>
                   ) : null}
 
@@ -482,11 +567,11 @@ export function MarketplaceOrderDetailScreen({
                           />
                           {multiPlatform
                             ? vi
-                              ? `Gộp đa sàn · ${siblings.length} đơn`
-                              : `Multi-platform · ${siblings.length} orders`
+                              ? `Demo đa sàn · ${siblings.length} đơn`
+                              : `Demo multi-platform · ${siblings.length} orders`
                             : vi
-                              ? `Cùng địa chỉ · ${siblings.length || '—'} đơn (chưa đủ đa sàn)`
-                              : `Same address · ${siblings.length || '—'} (not multi-platform yet)`}
+                              ? `Đơn gộp · ${siblings.length || '—'} đơn (cùng sàn)`
+                              : `Grouped · ${siblings.length || '—'} (same platform)`}
                           {groupCode ? (
                             <span className="rounded bg-white/80 px-1.5 py-0.5 font-mono text-[10px] text-ink-muted dark:bg-surface-1">
                               {groupCode}
@@ -621,16 +706,16 @@ export function MarketplaceOrderDetailScreen({
 
                     <p className="mt-3 text-[11px] leading-snug text-ink-subtle">
                       {vi
-                        ? 'Rule: chỉ gộp khi ≥2 nền tảng khác nhau · Hủy 1 đơn → gỡ khỏi nhóm, đơn sàn còn lại tiếp tục fulfillment (không hủy cả nhóm).'
-                        : 'Rule: consolidate only across ≥2 platforms · Cancel one → detach it; remaining platform orders continue.'}
+                        ? 'BE live: gộp khi cùng sàn + cùng khách/địa chỉ. Demo đa sàn chỉ để thuyết trình. Hủy 1 đơn (demo) → gỡ khỏi nhóm local, không gọi BE.'
+                        : 'Live BE: same platform + same customer/address. Multi-platform is FE demo only. Detach on cancel is local demo — no BE call.'}
                     </p>
                   </div>
                 ) : (
                   <div className="rounded-xl border border-hairline bg-surface-1 px-4 py-3">
                     <p className="text-xs text-ink-subtle">
                       {vi
-                        ? 'Đơn lẻ — gộp chuẩn chỉ khi cùng khách đặt từ ≥2 nền tảng TMĐT khác nhau (không phải nhiều SKU trên 1 sàn).'
-                        : 'Standalone — true consolidation needs the same customer on ≥2 marketplaces (not multiple SKUs on one platform).'}
+                        ? 'Đơn lẻ — BE gộp khi có đơn khác cùng sàn, cùng khách/địa chỉ (không gộp cross-platform).'
+                        : 'Standalone — BE consolidates only with same-platform siblings sharing customer/address.'}
                     </p>
                   </div>
                 )}

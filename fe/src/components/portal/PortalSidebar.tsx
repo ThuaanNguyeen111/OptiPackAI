@@ -48,6 +48,14 @@ const navItems = [
     section: 'store' as NavSection,
   },
   {
+    to: '/app/order-groups',
+    end: false,
+    labelVi: 'Nhóm đơn & Hỏa tốc',
+    labelEn: 'Groups & Express',
+    icon: ClipboardList,
+    section: 'store' as NavSection,
+  },
+  {
     to: '/app/packaging-rules',
     end: false,
     labelVi: 'Quy tắc Bao bì',
@@ -74,8 +82,8 @@ const navItems = [
   {
     to: '/app/packing',
     end: false,
-    labelVi: 'AI 3D Packing',
-    labelEn: 'AI 3D Packing Engine',
+    labelVi: 'Duyệt đóng gói',
+    labelEn: 'Packaging approval',
     icon: Boxes,
     section: 'logistics' as NavSection,
   },

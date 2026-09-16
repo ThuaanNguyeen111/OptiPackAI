@@ -274,7 +274,7 @@ export function DashboardPage() {
               <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Gộp đa sàn hôm nay' : 'Multi-platform groups'}
+                    {vi ? 'Gộp đơn hôm nay' : 'Consolidated groups'}
                   </span>
                   <TrendingUp className="h-4 w-4 text-indigo-600" />
                 </div>

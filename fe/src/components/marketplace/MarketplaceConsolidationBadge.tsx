@@ -60,7 +60,7 @@ export function MarketplaceConsolidationBadge({
 
   const badgeClass =
     multiPlatform && grouped
-      ? 'whitespace-nowrap rounded-full border border-indigo-200/50 bg-indigo-50 font-medium text-indigo-700 dark:border-indigo-800/50 dark:bg-indigo-950/40 dark:text-indigo-300'
+      ? 'whitespace-nowrap rounded-full border border-amber-200/60 bg-amber-50 font-medium text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200'
       : 'whitespace-nowrap'
 
   const body = (

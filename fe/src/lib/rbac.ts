@@ -17,6 +17,7 @@ const STAFF_PREFIXES: Record<
  */
 const STORE_OWNER_PREFIXES = [
   '/app/orders',
+  '/app/order-groups',
   '/app/packaging-rules',
   '/app/staff',
   '/app/analytics',

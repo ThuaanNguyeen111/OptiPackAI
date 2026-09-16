@@ -197,17 +197,18 @@ export function MarketplaceOrdersScreen({
         ? groupMetaById.get(order.consolidatedGroupId)
         : undefined
 
-      // Đa sàn (≥2 nền tảng) → chỉ 1 dòng / nhóm, hiện đủ sàn trong cùng ô
+      // Demo đa sàn (≥2 nền tảng) → 1 dòng / nhóm. Live cùng sàn: mỗi đơn 1 dòng.
       if (grouped && meta?.multiPlatform && order.consolidatedGroupId) {
         if (seenMultiGroups.has(order.consolidatedGroupId)) continue
         seenMultiGroups.add(order.consolidatedGroupId)
       }
 
+      // Tab Đơn gộp = mọi isConsolidated (khớp BE cùng sàn); demo đa sàn cũng nằm đây.
       if (consolidateView === 'grouped') {
-        if (!grouped || !meta?.multiPlatform) continue
+        if (!grouped) continue
       }
       if (consolidateView === 'standalone') {
-        if (grouped && meta?.multiPlatform) continue
+        if (grouped) continue
       }
       if (groupId.trim() && order.consolidatedGroupId !== groupId.trim()) {
         continue
@@ -246,20 +247,14 @@ export function MarketplaceOrdersScreen({
     return rows
   }, [allOrders, consolidateView, groupId, groupMetaById, searchTerm])
 
-  /** Đếm theo số nhóm đa sàn (không đếm từng đơn thành viên). */
-  const groupedCount = useMemo(() => {
-    let n = 0
-    for (const meta of groupMetaById.values()) {
-      if (meta.multiPlatform) n += 1
-    }
-    return n
-  }, [groupMetaById])
+  /** Số nhóm gộp (live cùng sàn + demo đa sàn). */
+  const groupedCount = useMemo(() => groupMetaById.size, [groupMetaById])
   const standaloneCount = useMemo(() => {
-    let multiMemberCount = 0
+    let inGroups = 0
     for (const meta of groupMetaById.values()) {
-      if (meta.multiPlatform) multiMemberCount += meta.count
+      inGroups += meta.count
     }
-    return allOrders.length - multiMemberCount
+    return Math.max(0, allOrders.length - inGroups)
   }, [allOrders.length, groupMetaById])
 
   function openDetail(order: MarketplaceOrderListItem) {

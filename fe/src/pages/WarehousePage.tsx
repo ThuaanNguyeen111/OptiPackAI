@@ -1174,11 +1174,11 @@ function WarehouseFloorView({
                   <Sparkles className="h-3 w-3" />
                   {isMultiPlatformBatch
                     ? (vi
-                        ? `Gộp đa sàn · ${batchCustomer.ordersCount} đơn · ${batchCustomer.name}`
-                        : `Multi-platform · ${batchCustomer.ordersCount} · ${batchCustomer.name}`)
+                        ? `Demo đa sàn · ${batchCustomer.ordersCount} đơn · ${batchCustomer.name}`
+                        : `Demo multi-platform · ${batchCustomer.ordersCount} · ${batchCustomer.name}`)
                     : (vi
-                        ? `Đơn lẻ · ${batchCustomer.name}`
-                        : `Standalone · ${batchCustomer.name}`)}
+                        ? `Đơn · ${batchCustomer.name}`
+                        : `Order · ${batchCustomer.name}`)}
                 </span>
               </div>
               {isMultiPlatformBatch ? (

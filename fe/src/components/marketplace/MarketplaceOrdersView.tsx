@@ -497,8 +497,8 @@ export function MarketplaceOrdersView({
                     <TabsTrigger value="grouped" className="gap-1.5 font-semibold">
                       <Layers className="h-3.5 w-3.5" />
                       {vi
-                        ? `Gộp đa sàn (${groupedCount})`
-                        : `Multi-platform (${groupedCount})`}
+                        ? `Đơn gộp (${groupedCount})`
+                        : `Grouped (${groupedCount})`}
                     </TabsTrigger>
                     <TabsTrigger
                       value="standalone"
@@ -742,8 +742,8 @@ export function MarketplaceOrdersView({
                 {vi ? 'Demo gộp đa sàn (FE): ' : 'Multi-platform demo (FE): '}
               </strong>
               {vi
-                ? 'Live sync hiện chủ yếu Lazada. Dòng đầu (Lazada + TikTok, cùng khách Trần Văn An) là dữ liệu demo — mở chi tiết / lọc tab 「Gộp đa sàn」 để thuyết trình.'
-                : 'Live sync is mostly Lazada. The first row (Lazada + TikTok for the same customer) is FE demo data for presentations.'}
+                ? 'BE live chỉ gộp cùng sàn. Dòng Lazada + TikTok (Trần Văn An) là DEMO FE — mở chi tiết hoặc tab 「Đơn gộp」. Không phải dữ liệu sync thật.'
+                : 'Live BE consolidates same-platform only. The Lazada + TikTok row is FE DEMO — open detail or the Grouped tab. Not from live sync.'}
             </div>
           ) : null}
 

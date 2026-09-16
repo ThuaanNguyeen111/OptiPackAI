@@ -1,6 +1,7 @@
 export const MARKETPLACE_PLATFORMS = ['lazada'] as const
 export type MarketplacePlatform = (typeof MARKETPLACE_PLATFORMS)[number]
 
+/** Khớp đủ 19 giá trị Lazada trên BE `OrderStatus` — không đổi logic BE. */
 export const ORDER_STATUSES = [
   'unpaid',
   'pending',
@@ -11,6 +12,16 @@ export const ORDER_STATUSES = [
   'canceled',
   'returned',
   'failed',
+  'topack',
+  'toship',
+  'lost',
+  'lost_by_3pl',
+  'damaged_by_3pl',
+  'failed_delivery',
+  'shipped_back',
+  'shipped_back_success',
+  'shipped_back_failed',
+  'package_scrapped',
 ] as const
 
 export type MarketplaceOrderStatus = (typeof ORDER_STATUSES)[number]
@@ -67,6 +78,11 @@ export type MarketplaceOrderDetail = MarketplaceOrderListItem & {
   recipientPostalCode: string | null
   recipientCountry: string
   items: MarketplaceOrderItem[]
+  /** AOFP-23 — chỉ có trên GET /orders/:id, không có trên list. */
+  needCancelConfirm?: boolean
+  isCancelPending?: boolean
+  cancelTriggerTime?: string | null
+  reverseOrderId?: string | null
 }
 
 export type ListOrdersResponse = {
@@ -101,6 +117,16 @@ export const ORDER_STATUS_LABELS: Record<
   canceled: { vi: 'Đã hủy', en: 'Canceled' },
   returned: { vi: 'Hoàn hàng', en: 'Returned' },
   failed: { vi: 'Thất bại', en: 'Failed' },
+  topack: { vi: 'Chờ đóng gói', en: 'To pack' },
+  toship: { vi: 'Chờ giao vận', en: 'To ship' },
+  lost: { vi: 'Thất lạc', en: 'Lost' },
+  lost_by_3pl: { vi: 'Mất bởi 3PL', en: 'Lost by 3PL' },
+  damaged_by_3pl: { vi: 'Hư bởi 3PL', en: 'Damaged by 3PL' },
+  failed_delivery: { vi: 'Giao thất bại', en: 'Failed delivery' },
+  shipped_back: { vi: 'Đang hoàn về', en: 'Shipped back' },
+  shipped_back_success: { vi: 'Hoàn về OK', en: 'Shipped back OK' },
+  shipped_back_failed: { vi: 'Hoàn về lỗi', en: 'Shipped back failed' },
+  package_scrapped: { vi: 'Hủy kiện', en: 'Package scrapped' },
 }
 
 export const LAZADA_OAUTH_MESSAGE_TYPE = 'optipack-lazada-connected'

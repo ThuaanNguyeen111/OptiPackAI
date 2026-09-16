@@ -1,7 +1,10 @@
 /**
- * FE-only helpers for omnichannel consolidation display rules
- * (teacher feedback 2026-09): gộp chỉ khi ≥2 nền tảng khác nhau;
- * hủy 1 đơn → gỡ khỏi group, phần còn lại tiếp tục (Hướng B).
+ * FE-only helpers for consolidation display.
+ *
+ * ĐÃ ĐỔI (2026-09-16, khớp BE sync từ main): `consolidation_key` BE
+ * gồm `platform` → live chỉ gộp cùng sàn. Tab/badge "đa sàn" chỉ còn
+ * cho dữ liệu DEMO FE; nhóm live `isConsolidated` = "Đơn gộp".
+ * Hướng B detach (localStorage) giữ nguyên — không gọi BE.
  */
 
 const DETACH_STORAGE_KEY = 'optipack.detached-from-group.v1'
@@ -26,7 +29,7 @@ export function distinctPlatforms(
   ]
 }
 
-/** Rule nghiệp vụ: chỉ coi là "đơn gộp đa sàn" khi ≥ 2 platform khác nhau. */
+/** True khi nhóm có ≥2 sàn — hiện chỉ xuất hiện ở DEMO FE, không phải live BE. */
 export function isMultiPlatformGroup(
   members: Array<{ platform: string }>,
 ): boolean {
@@ -114,29 +117,31 @@ export function consolidationBadgeLabel(
   compact = false,
   platformCount?: number,
 ): { label: string; tone: 'primary' | 'default' | 'warning' } {
+  // Demo FE only — live BE không tạo nhóm đa sàn.
   if (multiPlatform) {
     const platforms = platformCount ?? orderCount
     return {
       label: compact
         ? locale === 'vi'
-          ? `Gộp ${platforms} sàn`
-          : `${platforms} channels`
+          ? `Demo ${platforms} sàn`
+          : `Demo ${platforms}ch`
         : locale === 'vi'
-          ? `Gộp đa sàn (${orderCount} đơn)`
-          : `Multi-platform (${orderCount})`,
-      tone: 'primary',
+          ? `Demo đa sàn (${orderCount} đơn)`
+          : `Demo multi-platform (${orderCount})`,
+      tone: 'warning',
     }
   }
+  // Live BE: cùng sàn + cùng khách/địa chỉ → Đơn gộp
   if (orderCount > 1) {
     return {
       label: compact
         ? locale === 'vi'
-          ? 'Cùng ĐC'
-          : 'Same addr'
+          ? 'Đơn gộp'
+          : 'Grouped'
         : locale === 'vi'
-          ? 'Cùng địa chỉ (chưa đủ đa sàn)'
-          : 'Same address (not multi-platform)',
-      tone: 'default',
+          ? `Đơn gộp (${orderCount} đơn · cùng sàn)`
+          : `Grouped (${orderCount} · same platform)`,
+      tone: 'primary',
     }
   }
   return {
