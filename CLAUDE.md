@@ -2115,3 +2115,17 @@ Sau khi thêm các file test mới (batch 4), `npm run lint` báo 2 lỗi thật
 2. **`order-groups.service.getPackableItemsForGroup.spec.ts`** — import `AppException` chỉ để ép kiểu (`as Partial<AppException>`), không có chỗ nào dùng làm giá trị runtime thật trong file này. **Thử `import type { AppException }` KHÔNG giải quyết được** — ESLint config của dự án này không công nhận cách dùng "chỉ trong vị trí generic" (`Partial<AppException>`) là "đã dùng", dù đó đúng là type-only usage hợp lệ về mặt TypeScript. **Cách sửa chắc ăn**: bỏ hẳn phần ép kiểu `as Partial<AppException>` lẫn import — `toMatchObject` của Jest không cần ép kiểu này để chạy đúng.
 
 **Quy tắc rút ra cho các file test sau này trong dự án này**: chỉ import `AppException` (hay bất kỳ type nào tương tự) nếu có **ít nhất 1 chỗ dùng làm giá trị runtime thật** trong file đó (VD `toBeInstanceOf(AppException)`, `expect(error).toBeInstanceOf(X)`) — nếu chỉ cần ép kiểu cho TypeScript đọc hiểu, bỏ hẳn phần ép kiểu đó thay vì cố giữ lại bằng `import type`.
+
+## Rút kinh nghiệm debug thật — "đã gửi file đúng" không có nghĩa là "đã chạy đúng" (16/09/2026)
+
+Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần dù code/test đã đúng (đã tự xác nhận bằng cách chạy thật trong sandbox: `npm install` + `npx jest` + `npx eslint` trên chính `be.zip` user upload — 2 giả thuyết đầu sai (tương tác `jest.useFakeTimers()`, rồi `git diff` không phát hiện khác biệt) trước khi tìm ra nguyên nhân thật.
+
+**Nguyên nhân thật**: file nguồn `lazada-order-sync.scheduler.ts` trên máy user vẫn là **bản CŨ** (constructor 2 tham số, không có `notify()`) — chỉ file test mới được thay, file nguồn thì không. `git diff` (không kèm cờ) chỉ so sánh working-tree với staging/HEAD — **không** chứng minh được file có khớp với file Claude gửi hay không, vì cả 2 phía đều là bản cũ.
+
+**Quy tắc rút ra — áp dụng cho mọi lần sau khi user báo "vẫn lỗi" dù đã làm theo hướng dẫn**:
+
+1. KHÔNG chỉ đọc log/đoán nguyên nhân qua suy luận — **tự trích xuất `be.zip` mới nhất user gửi, chạy thật** `npm install` + `npx jest <file>` + `npx eslint` trong sandbox để có bằng chứng chắc chắn.
+2. KHÔNG dùng `git diff` làm bằng chứng "file đã đúng" — chỉ chứng minh được "không có gì đang sửa dở", không chứng minh nội dung khớp với bản đã gửi.
+3. Nếu 1 file cần thay, kiểm tra kỹ cả file NGUỒN lẫn file TEST đi kèm đều đã update — dễ sót 1 trong 2 nếu chỉ đưa lại đúng file vừa sửa lỗi lint mà quên các file khác thuộc cùng tính năng.
+
+**Lỗi lặp lại khác (3 lần trong phiên này)**: file có dấu gạch ngang trong tên (VD `lazada-order-sync.scheduler.spec.ts`) liên tục bị lưu thành tên có dấu cách + viết hoa chữ đầu khi user tự gõ/tạo file mới thay vì mở file cũ có sẵn rồi ghi đè nội dung — nhắc lại cách làm đúng: mở file cũ, Ctrl+A xóa, dán nội dung mới, giữ nguyên tên file gốc.
