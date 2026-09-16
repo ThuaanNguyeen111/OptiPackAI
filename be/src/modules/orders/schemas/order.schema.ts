@@ -1,7 +1,10 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
-import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from '../enums/order-status.enum';
+import {
+  OrderStatus,
+  UNFULFILLED_ORDER_STATUSES,
+} from '../enums/order-status.enum';
 
 export type OrderDocument = Order & Document;
 
@@ -138,6 +141,24 @@ export class Order {
   // báo trước) — KHÔNG dùng trường này cho business logic, chỉ để audit.
   @Prop({ type: [String], default: [] })
   raw_statuses!: string[];
+
+  // BỔ SUNG (AOFP-XX, 2026-09-15) — luồng "chờ seller xác nhận hủy đơn"
+  // (O6): buyer yêu cầu hủy, seller có hạn `cancel_trigger_time` để phản
+  // hồi trước khi Lazada TỰ ĐỘNG hủy đơn. Field đã có sẵn trong response
+  // GetOrders/GetOrder đang gọi mỗi 10 phút — chỉ là trước đây chưa đọc/
+  // lưu. Dùng để bắn Notification cho Store Owner + Admin (xem
+  // orders.service.ts, chỗ gọi notificationsService.notify()).
+  @Prop({ type: Boolean, default: false })
+  need_cancel_confirm!: boolean;
+
+  @Prop({ type: Boolean, default: false })
+  is_cancel_pending!: boolean;
+
+  @Prop({ type: Date, default: null })
+  cancel_trigger_time!: Date | null;
+
+  @Prop({ type: String, default: null })
+  reverse_order_id!: string | null;
 
   @Prop({ type: RecipientAddress, required: true })
   recipient!: RecipientAddress;

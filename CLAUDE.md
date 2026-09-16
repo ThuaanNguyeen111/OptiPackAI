@@ -1717,3 +1717,308 @@ Theo yêu cầu viết feedback chuyên nghiệp cho bạn cùng nhóm (không s
 2. **`AI_PACKAGING_TECHNICAL_DIRECTION.md`** — hướng kỹ thuật cụ thể: sơ đồ luồng dữ liệu thật (4 bước `getPackableItemsForGroup()`), thiết kế schema mới `PackingProfile` (bổ sung, không trùng `ProductMaster`), kiến trúc kết hợp `binpackingjs` (lõi sinh candidate) + `validateCandidate()` tự viết (giữ nguyên nguyên tắc Validator độc lập của tài liệu gốc), lý do KHÔNG cần worker thread cho M0-M4 (chi phí IPC có thể lớn hơn thời gian tính toán thật ở quy mô nhỏ), kế hoạch M0-M4 điều chỉnh với PR cụ thể — **`computeFallbackPackaging()` sửa TẠI CHỖ, giữ nguyên signature, không đụng `packaging.service.ts`/route/DTO**.
 
 **Xác nhận lại (2026-09-12)**: user xác nhận field `platform` trong `GET /orders` **đã có sẵn từ trước** (dòng 81, 110 `orders.controller.ts`, map từ `order.platform`, enum 3 giá trị `lazada/tiktok/tiki` — tự động đúng khi thêm sàn mới, không hardcode) — không cần sửa gì, chỉ cần báo lại bạn cùng nhóm.
+
+## Rút gọn mô hình vật liệu đóng gói + xác định category sản phẩm qua Lazada API (13/09/2026)
+
+Tiếp nối mục "Đối chiếu 3 tài liệu thuật toán AI Packaging" ở trên — đã giao bộ 6 file audit riêng (`AI_Packaging_Audit/00_INDEX...md` đến `05_DANH_SACH_NGHIEP_VU_DAY_DU.md`, đối chiếu từng biến/dòng code với 3 tài liệu, liệt kê business case, đề xuất công nghệ). Không copy nguyên văn 6 file vào đây (674 dòng, tài liệu riêng) — chỉ ghi lại 2 quyết định quan trọng phát sinh sau khi bàn thêm với user, CẦN áp dụng khi code thật:
+
+### 1. Mô hình vật liệu bảo vệ RÚT GỌN — không dùng bảng 8 cờ rủi ro như bản đề xuất đầu
+
+Bản đầu của `03_KHO_VAT_TU_DONG_GOI...md` copy nguyên khung "thời trang" rộng của 3 tài liệu gốc (8 field rủi ro: impact/crush/scratch/moisture/static sensitivity, sharp edges, no-stack, kèm 13 loại vật liệu gồm cả trang sức/điện tử). **User chỉ ra đúng: catalog thật chỉ có giày dép + quần áo** (đã xác nhận ở mục trên, dòng 46) — dư thừa không cần thiết. Đã rút gọn còn:
+
+- **2 field thay `is_fragile: boolean`**: `product_category` (`CLOTHING | SHOES`) + `has_rigid_box` (boolean, chỉ có nghĩa khi `product_category=SHOES` — true cho giày đóng hộp cứng, false cho dép/sandal túi mềm nếu catalog có loại này) + giữ `max_stack_load_g` (number|null, đúng ví dụ SH1/T1 đã có sẵn trong `GIAI_THICH_THUAT_TOAN...md`).
+- **4 loại vật liệu thay 13 loại**: `FOAM_CORNER` (góc xốp — quan trọng nhất, bảo vệ hộp giày khỏi móp), `CORRUGATED_DIVIDER` (ngăn cách khi ≥2 hộp giày chung 1 thùng), `AIR_PILLOW`/giấy chèn (lấp khoảng trống chống xê dịch — áp dụng cả đơn chỉ có quần áo), `FRAGILE_TAPE` (tem cảnh báo ngoài thùng khi có hộp giày).
+- Bảng công thức chọn vật liệu còn đúng **3 dòng điều kiện** (hộp giày đơn lẻ / ≥2 hộp giày chung thùng / chỉ quần áo) thay vì 10 dòng.
+- Giữ nguyên nguyên tắc: bảng công thức là dữ liệu tra cứu trong DB (có version, nhân viên kho xác nhận), KHÔNG hard-code if/else như `fallback-packaging.util.ts` đang làm.
+- Nếu sau này shop mở thêm ngành hàng (phụ kiện/trang sức) — không cần thiết kế lại, chỉ thêm field/document mới vào đúng 2 bảng trên, xem `03_KHO_VAT_TU...md` mục 5b.
+
+### 2. Nguồn xác định `product_category` — qua Lazada API thật, đã tra cứu tài liệu chính thức (không suy từ tên sản phẩm)
+
+Đã tra cứu trực tiếp doc Lazada Open Platform (`GetProducts`, `GetCategoryTree`) — xác nhận:
+
+- **`GetProducts`** (`GET /products/get`, API **đã dùng sẵn** trong `lazada.adapter.ts` dòng 371) — response thật trả field **`primary_category`** dạng **string** (ví dụ `"10000211"`), nằm ở **cấp `item_id` cha**, KHÔNG lặp lại trong từng phần tử `skus[]`. **Hiện tại interface `LazadaProductRaw` (dòng 146-149, chỉ có `item_id` + `skus`) CHƯA khai field này — bị bỏ rơi ngay từ bước parse, dù response thật của Lazada có trả về.**
+- **`GetCategoryTree`** (`GET /category/tree/get`, KHÔNG cần `access_token` — chỉ cần `app_key`/`sign` như mọi request khác, khác `GetProducts` cần `access_token`) — trả cây category phân cấp `{category_id, name, children[], leaf}` (category_id dạng number ở API này, VD `6588`, `7436` — LƯU Ý khác kiểu string ở `primary_category` của `GetProducts`, cần ép kiểu khi so sánh/map). Tham số `language_code` optional, mặc định `en_US` — **nên truyền `"vi_VN"`** để tên category trả về tiếng Việt, dễ cho Admin map thủ công.
+
+**Việc cần làm theo thứ tự** (chưa code, ghi lại kế hoạch):
+
+1. Gọi thử `GetProducts` thật 1 lần (sandbox hoặc shop đã kết nối), xác nhận `primary_category` xuất hiện đúng vị trí/kiểu như tài liệu trước khi sửa code (đúng tinh thần Rule đã có: không tin suông tài liệu, Lazada từng có tiền lệ ghi 1 kiểu nhưng trả thực tế khác — xem comment `package_length` dòng 138 `lazada.adapter.ts`).
+2. Thêm `primary_category?: string` vào `LazadaProductRaw`.
+3. Gọi `GetCategoryTree` 1 lần (param `language_code=vi_VN`), lưu cây category vào 1 collection nhỏ.
+4. Admin map `category_id → CLOTHING | SHOES` **1 lần cho mỗi category_id** qua UI đơn giản (không phải set từng SKU — Lazada chỉ có vài chục category_id cho 2 ngành hàng này).
+5. Sửa `product-master.service.ts` (`syncProductsForShop()`, chỗ build `bulkOps`) — lưu `product_category` vào `ProductMaster` bằng cách tra bảng mapping ở bước 4.
+6. Nếu bước 1 phát hiện `primary_category` KHÔNG tồn tại/không đáng tin trong response thật — fallback: Admin/Warehouse Staff tự gắn cờ category thủ công khi duyệt SKU mới lần đầu, không phụ thuộc Lazada.
+
+### Đối chiếu với phát hiện cũ về `binpackingjs` (giữ nguyên, không mâu thuẫn)
+
+Mục "Vấn đề 5" ở trên (2026-09-12) đã tìm ra `binpackingjs` (npm, MIT, ~1.068 lượt tải/tuần, port từ `bp3d` Go dựa trên paper thật) làm lõi sinh candidate. Tra cứu lại lần này (13/09) không phủ định phát hiện đó — chỉ bổ sung: các package cùng họ `bp3d` (`bp3d` gốc, các fork `3d-bin-packing`) đều tồn tại thật nhưng lượt dùng thấp hơn `binpackingjs` nhiều — **giữ nguyên khuyến nghị dùng `binpackingjs` làm baseline benchmark**, không đổi.
+
+## Bug xác nhận bằng data thật: đơn `canceled` vẫn được tính vào packaging (13/09/2026)
+
+User gửi trực tiếp JSON thật từ `GET /orders` (7 đơn, shop Lazada `201171264532`) — phát hiện bug thật, không còn là nghi vấn:
+
+**Bằng chứng cụ thể**: group `consolidatedGroupId = "6a9c18292fced4f442f6e1b1"` gồm 3 đơn (`6a9c1ca16b6e447eff8270a4`, `6a9c18296b6e447eff82709d`, `6a9af7843c22e98f3a6105c7`) — **cả 3 đều `status: "canceled"`**, nhưng vẫn giữ nguyên `consolidatedGroupId`, tức vẫn thuộc group đó.
+
+**Root cause**: `order-groups.service.ts`, hàm `getPackableItemsForGroup()` — dòng 160-163:
+
+```ts
+const orders = await this.orderModel
+  .find({ consolidated_group_id: group._id }) // KHÔNG lọc status
+  .select('items platform shop_id')
+  .lean();
+```
+
+Không lọc bỏ đơn `status: canceled` trước khi lấy `items` đưa vào thuật toán packaging. Nếu 1 group có đơn bị hủy SAU KHI đã gộp (tình huống rất thường gặp — khách/sàn hủy đơn bất kỳ lúc nào), hàng đã hủy vẫn bị tính vào recommendation đóng gói. Đúng điều `AI_3D_PACKAGING_OPTIMIZATION.md` mục 4.1 đã cảnh báo: _"Item bị hủy không được đi vào phương án giao."_
+
+**Cách sửa (nhỏ, độc lập, không đụng thiết kế lớn)**:
+
+```ts
+const orders = await this.orderModel
+  .find({ consolidated_group_id: group._id, status: { $ne: 'canceled' } })
+  .select('items platform shop_id')
+  .lean();
+```
+
+Cần xử lý thêm case biên: sau khi lọc, nếu group KHÔNG còn đơn nào (toàn bộ đơn trong group đều `canceled` — đúng case group `6a9c18292fced4f442f6e1b1` ở trên, 3/3 đơn hủy hết) → phải trả lỗi nghiệp vụ rõ ràng ("group không còn hàng để đóng"), KHÔNG được tạo ra 1 recommendation rỗng hoặc lỗi ngầm.
+
+**Ghi chú phụ**: đã xác nhận `isConsolidated: false` kèm `consolidatedGroupId` không phải bug — xảy ra đúng khi group chỉ có 1 đơn duy nhất (không có gì để "gộp" cùng), logic hiện tại đánh `true` chỉ khi group có ≥2 đơn — thiết kế đúng, không cần sửa.
+
+Cập nhật trạng thái case 1.6 trong `AI_Packaging_Audit/05_DANH_SACH_NGHIEP_VU_DAY_DU.md` từ "⚠️ cần kiểm tra" sang "❌ xác nhận có bug thật".
+
+## Feedback chi tiết cho bạn cùng nhóm (Package 3) — 2 file mới (13/09/2026)
+
+Đọc lại lần 2 toàn bộ 3 tài liệu thiết kế + soi lại chính xác `packaging.controller.ts`/`packaging.service.ts` thật (bao gồm cả `toResponse()` mapper, DTO, thứ tự transaction/auto-assign) — đã giao 2 file feedback mới cho bạn phụ trách AI Packaging, KHÔNG trùng nội dung với `FEEDBACK_AI_PACKAGING_REVIEW.md`/`AI_PACKAGING_TECHNICAL_DIRECTION.md` đã giao ngày 12/09 (2 file đó vẫn giữ nguyên giá trị tham khảo, không bị thay thế):
+
+1. **`FEEDBACK_GUI_BAN_CUNG_NHOM.md`** — feedback tổng quan: trạng thái hiện tại (`computeFallbackPackaging` là lưới an toàn tạm, không phải lỗi), việc cần làm đúng thứ tự M2→M3→M4, 3 điểm bắt buộc 2 bên bàn trước khi code (đơn vị đo cm/kg vs mm/g, thay thế hay giữ song song module hiện tại, `item_key` cho `PackableItem` — interface dùng chung), và danh sách việc bên mình đang tự làm để tránh trùng.
+
+2. **`HUONG_DI_KY_THUAT_CHI_TIET_AI_PACKAGING.md`** — đào sâu hơn, bám sát TỪNG DÒNG code thật, có 3 phát hiện mới khi soi lại lần 2:
+   - **Response API hiện tại là camelCase** (`toResponse()` trong controller, từ 2026-09-10) — **ngược với đề xuất snake_case của roadmap §6.2**, roadmap đã lỗi thời so với code thật ở điểm này; field mới phải map sang camelCase khi thêm vào response, giữ snake_case trong Mongo schema (đúng Rule #11).
+   - **`is_abnormal` hiện chỉ log warning, KHÔNG bắn Notification thật** dù module `notifications/` đã có sẵn — gap nhỏ, không bắt buộc sửa cùng đợt M2-M4.
+   - **`autoAssign()` chạy NGOÀI transaction, best-effort, SAU khi ghi DB** — thứ tự này phải giữ nguyên khi engine thật khiến `approve()` chạy lâu hơn.
+   - Đối chiếu cấu trúc thư mục roadmap đề xuất (`domain/`, `engine/`, `workers/`) với chính Rule "Cấu trúc BÊN TRONG 1 module" của dự án — xác nhận khớp đúng, nhưng phải chuyển `packaging/` từ cấu trúc phẳng (hợp lệ khi module nhỏ) sang cấu trúc subfolder đầy đủ NGAY khi thêm các thư mục này, không phải tùy chọn.
+   - Kèm checklist "KHÔNG được đổi" (route, DTO, thứ tự transaction/auto-assign, partial unique index) và timeline M2→M4 có tiêu chí xong đối chiếu code thật, không chỉ tài liệu.
+
+Cả 2 file đều nhấn mạnh: chỉ cần thay **1 dòng gọi hàm duy nhất** trong `packaging.service.ts` (`computeFallbackPackaging(items)` → engine thật) — phần transaction/audit/auto-assign/is_active partial index xung quanh **không cần đụng vào**, đã đúng từ trước.
+
+## Đọc lại kỹ 3 tài liệu thuật toán lần 2 + viết luồng kỹ thuật chi tiết cho bạn cùng nhóm (13/09/2026, cùng ngày)
+
+Đọc lại đầy đủ cả 3 file (không chỉ đối chiếu tổng quan như lượt trước) — phát hiện 1 điểm quan trọng làm **giảm rủi ro** so với feedback đã gửi trước đó, đã sửa lại:
+
+### Sửa lại đề xuất cũ: KHÔNG cần đổi interface `PackableItem` dùng chung
+
+Feedback trước (gửi bạn cùng nhóm) đề xuất thêm `item_key` vào `common/interfaces/packaging.interface.ts` — **rà lại, đây là phương án rủi ro hơn cần thiết**. Lý do: `PackableItem` đang dùng chung cho 2 mục đích khác nhau — `packaging/` cần instance-level, nhưng `warehouse.service.ts` dòng 18 (`PickingListItem extends PackableItem`) TÁI DÙNG đúng `getPackableItemsForGroup()` cho **Picking List** (nhân viên lấy hàng theo SKU+số lượng, không cần biết đơn vị nào ở tọa độ nào). Đổi `PackableItem` sang instance-level sẽ bắt `warehouse/` phải viết lại logic gộp hiển thị — không cần thiết.
+
+**Phương án đúng hơn**: giữ nguyên `PackableItem` dùng chung, thêm 1 hàm `expandToPackingUnits()` MỚI HOÀN TOÀN, chỉ nằm nội bộ trong `packaging/domain/` — "nở" `PackableItem[]` (aggregate) thành `PackingUnit[]` (instance-level, có `item_key = "${sku}#${ordinal}"`) NGAY TRONG packaging, không đụng interface chung, không đụng `warehouse/`. Nhờ vậy bạn cùng nhóm có thể tự làm phần này, **không cần đợi buổi họp thống nhất interface** như đã nói trước — giảm từ 3 việc cần bàn trực tiếp xuống còn 2 (đơn vị đo + có cần route readiness riêng hay không).
+
+### Đã giao thêm 2 file mới cho bạn cùng nhóm
+
+1. **`FEEDBACK_GUI_BAN_CUNG_NHOM.md`** — feedback tổng quan: trạng thái hiện tại, việc cần làm theo M2→M3→M4, 2 công nghệ đề xuất (`piscina`, `binpackingjs` để benchmark), việc mình tự làm bên phần mình để tránh trùng.
+2. **`HUONG_DI_KY_THUAT_CHI_TIET.md`** — sơ đồ luồng chính xác map 1-1 vào file/hàm/route THẬT đang chạy (không phải sơ đồ chung chung): (a) luồng as-is hiện tại từng bước có số dòng code, (b) luồng đích chỉ chèn engine vào ĐÚNG 1 điểm trong `packaging.service.ts`, giữ nguyên `computeFallbackPackaging()` làm lưới an toàn thật (không xóa), (c) bảng map tên route roadmap đề xuất → route thật đang chạy (tránh tạo route `/confirm` trùng với `approve()` đã có sẵn đúng ý nghĩa đó), (d) cách mở rộng schema `PackagingRecommendationDoc` bằng field optional, không phá dữ liệu cũ.
+
+**Phát hiện phụ khi đọc lại roadmap §8.1**: `approve()` hiện tại (dòng 139) đã đúng ý nghĩa "confirm" mà roadmap mô tả (_"confirm là thời điểm nhận vật tư cho một lần đóng gói"_) — không cần code thêm endpoint `/confirm` riêng như roadmap đề xuất tên, chỉ cần thêm kiểm tra `input_revision` vào đúng hàm `approve()`/`adjust()` đã có.
+
+## Hợp nhất feedback gửi bạn cùng nhóm thành 1 file duy nhất (13/09/2026, rà soát cuối)
+
+2 file nháp gửi trước (`FEEDBACK_GUI_BAN_CUNG_NHOM.md`, `HUONG_DI_KY_THUAT_CHI_TIET.md`) có nội dung **mâu thuẫn nhau** (bản đầu đề xuất đổi interface `PackableItem`, bản sau tự sửa lại bỏ yêu cầu này) — gửi rời rạc 2 file kiểu vậy dễ gây hiểu lầm cho người nhận. Đã rà soát lại toàn bộ, hợp nhất thành **1 file duy nhất, tự đầy đủ**: `FEEDBACK_KY_THUAT_AI_PACKAGING_FINAL.md` — thay thế hẳn 2 file cũ (đã xóa khỏi outputs). File mới có 12 mục: bối cảnh, sơ đồ luồng hiện tại (trích dẫn đúng dòng code), đối chiếu tài liệu thiết kế, sơ đồ luồng đích, kế hoạch M2→M4, bộ ca nghiệp vụ lọc đúng phạm vi (bỏ phần thuộc về mình), bảng ánh xạ route, schema mở rộng, công nghệ đề xuất, việc cần thống nhất (còn 2, không phải 3), việc mình tự làm, tiêu chí hoàn thành MVP.
+
+Từ nay khi cần gửi feedback/tài liệu kỹ thuật cho người khác đọc độc lập (không phải ghi chú nội bộ), làm đúng 1 file tổng hợp hoàn chỉnh ngay từ đầu, tránh chia nhỏ rồi phải hợp nhất lại sau.
+
+## Rà soát toàn hệ thống BE (không chỉ Packaging) — 5 phát hiện mới (14/09/2026)
+
+Rà lại toàn bộ `be.zip` đối chiếu `API_LIST.md`, `INTEGRATION_GUIDE.md`, `INTEGRATION_GUIDE_ORDERS.md`, `INTEGRATION_GUIDE_FULFILLMENT.md` — giao 3 file mới trong `BE_System_Audit/` (khác thư mục `AI_Packaging_Audit/` đã giao trước, không trùng phạm vi):
+
+1. **`01_DIEM_YEU_TOAN_HE_THONG_THEO_MUC_DO.md`** — 8 điểm yếu toàn hệ thống, xếp mức độ 🔴🟠🟡🟢.
+2. **`02_LO_HONG_NGHIEP_VU_LAZADA_CHI_TIET.md`** — rà riêng luồng Lazada theo từng khâu/role/API.
+3. **`03_VIEC_CAN_GUI_DOC_LAZADA_DE_CUNG_CO.md`** — 6 mục cần tài liệu/gọi thử API Lazada thật để kiểm chứng.
+
+### Phát hiện quan trọng nhất — 🔴 lỗ hổng bảo mật thật
+
+`PATCH /notifications/:id/read` (`notifications.controller.ts:36`, `notifications.service.ts:120`) — **không có `@CurrentUser()`, không kiểm tra quyền sở hữu** — bất kỳ user nào cũng đánh dấu "đã đọc" được thông báo của người/role khác (kể cả thông báo `critical` gửi Store Owner). Cách sửa: thêm điều kiện `recipient_user_id`/`recipient_role` vào query `findOneAndUpdate`.
+
+### Phát hiện quan trọng nhì — hệ thống hiện chỉ ĐỌC Lazada, không bao giờ GHI NGƯỢC
+
+`lazada.adapter.ts` chỉ có `exchangeCodeForToken`/`refreshAccessToken`/`getOrders`/`getOrderItems`/`getProducts` — **0 method ghi** (`SetStatusToReadyToShip`/`SetInvoiceNumber`/`GetDocument` đều chưa có, kể cả hạ tầng `callSignedPost` cũng chưa tồn tại, chỉ có `callSignedGet`). Khi Shipping Coordinator bấm `ship` trong OptiPackAI, Lazada Seller Center thật **không hề biết** — rủi ro vi phạm SLA "Ready to Ship" thật của sàn, ảnh hưởng account health score thật ngoài đời. Đây là gap nghiệp vụ lớn nhất tìm được trong đợt rà này, đã ghi chi tiết route đề xuất trong file `02`.
+
+### Các phát hiện khác (tóm tắt, xem file để có đầy đủ bằng chứng dòng code)
+
+- `consolidation_key` (SHA-256 của phone+address+city) thiếu `platform` — đã tìm ra tận công thức hash, xác nhận đầy đủ chuỗi nguyên nhân của Điểm yếu #11 đã ghi trước đó.
+- Bug đơn `canceled` vẫn bị tính (đã ghi trước) **lan sang cả Warehouse Picking List**, không chỉ Packaging — vì `warehouse.service.ts` tái dùng chung `getPackableItemsForGroup()`.
+- Lazada OAuth callback (`marketplace-integration.controller.ts`) thiếu `@Redirect()` — đối chiếu trực tiếp với Google OAuth callback (`auth.controller.ts`, CÓ `@Redirect()` đúng) trong cùng codebase để chứng minh đây là thiếu sót thật, không phải thiết kế có chủ đích.
+- `NotificationType.CONNECTION_LOST`/`SYNC_FAILED` đã định nghĩa trong enum nhưng **0 chỗ gọi `notify()`** với 2 loại này — Store Owner không thực sự nhận được cảnh báo "mất kết nối sàn" dù `API_LIST.md` hứa có.
+- 2 chỗ tài liệu (`INTEGRATION_GUIDE_FULFILLMENT.md`, `INTEGRATION_GUIDE_ORDERS.md`) có nội dung lỗi thời/sai so với code thật (quy tắc tie-break auto-assign; cảnh báo "chưa test gộp 2 đơn" — đã có bằng chứng thật từ phiên trước xác nhận hoạt động đúng) — chỉ cần sửa doc, không cần sửa code.
+
+## Sửa lại đánh giá "hệ thống không ghi ngược Lazada" — KHÔNG phải gap (14/09/2026, cùng ngày)
+
+User xác nhận: shop demo là mô hình **seller tự lo khâu giao hàng** (không dùng dịch vụ logistics/fulfillment riêng của Lazada) — phạm vi OptiPackAI với Lazada chỉ cần **kéo đơn về (read-only)**, việc cập nhật "Ready to Ship"/mã vận đơn lên chính Lazada là seller tự thao tác tay bên ngoài hệ thống, không thuộc trách nhiệm BE.
+
+Đã sửa lại `BE_System_Audit/02_LO_HONG_NGHIEP_VU_LAZADA_CHI_TIET.md` và `03_VIEC_CAN_GUI_DOC_LAZADA_DE_CUNG_CO.md` — bỏ "không ghi ngược Lazada" khỏi danh sách gap, đánh dấu rõ đây là phạm vi có chủ đích, không phải thiếu sót. 3 route từng đề xuất (`ready-to-ship`/`invoice`/`shipping-label`) và mục tài liệu Lazada Order API ghi (`SetStatusToReadyToShip`/`SetInvoiceNumber`/`GetDocument`) **không còn cần thiết** cho phạm vi dự án — giữ lại trong file kèm ghi chú "đã cân nhắc và loại bỏ có chủ đích" để không ai hiểu nhầm là bị bỏ sót.
+
+**Các phát hiện khác trong đợt rà soát 14/09 vẫn giữ nguyên, không đổi**: lỗ hổng `markAsRead` không kiểm tra quyền sở hữu (🔴), `consolidation_key` thiếu `platform`, bug đơn `canceled` lan sang Picking List, Lazada callback thiếu `@Redirect()`, Notification `CONNECTION_LOST`/`SYNC_FAILED` chưa kích hoạt — không liên quan gì tới mô hình giao hàng seller-tự-lo, không bị ảnh hưởng bởi lần sửa này.
+
+## Đối chiếu file 03 với sidebar API Lazada thật (15/09/2026) — 1 phát hiện mới quan trọng
+
+User chụp toàn bộ sidebar Lazada Open Platform thật (~30 nhóm API). Đối chiếu với `BE_System_Audit/03_VIEC_CAN_GUI_DOC_LAZADA_DE_CUNG_CO.md`:
+
+- **Sửa tên API sai ở mục 1 (đã crossed-out, không còn cần dùng)**: tên đúng là `ReadyToShip`/`Pack` (không phải `SetStatusToReadyToShip`), nhóm đúng là **"Fulfillment API"** (không phải "Order API"). Xác nhận "DBS" trong tên 4 method `...ForDBS` khớp đúng mô hình đã hỏi lại — shop demo KHÔNG thuộc diện DBS.
+- **`GetFailureReasons` không xuất hiện trong "Order API" thật** (8 method thật: `GetDocument, GetMultipleOrderItems, GetOrder, GetOrderItems, GetOrders, GetQVOOrders, OrderCancelValidate, SetInvoiceNumber`) — cần user mở thêm dropdown "Return and Refund API" để xác minh có nằm ở đó không.
+- **Không thấy nhóm "Webhook" nào trong toàn bộ sidebar** — củng cố thêm cho khẳng định cũ trong `INTEGRATION_GUIDE_ORDERS.md` (Lazada không có webhook đáng tin cậy), dù chưa dứt điểm 100%.
+- **Phát hiện mới, giá trị cao nhất**: `GetMultipleOrderItems` — API batch lấy items nhiều đơn 1 lần gọi. Đối chiếu `orders.service.ts` dòng 95-101: code hiện tại **tuần tự gọi `getOrderItems()` từng đơn một** (N request cho N đơn), có comment tự ghi "chuyển sang xử lý theo lô... khi đã xác nhận cần tăng thông lượng" — `GetMultipleOrderItems` chính là giải pháp cho đúng việc đó, giảm thẳng SỐ REQUEST (không chỉ tăng song song), trực tiếp phục vụ mục tiêu tối ưu tốc độ. Đã thêm thành mục 7 trong file `03`, đề xuất làm luôn không cần chờ "đo tải thật" như comment cũ dự tính.
+
+Đã cập nhật file `03` với 3 sửa đổi trên.
+
+## User gửi tài liệu chính thức Lazada (GetOrder/GetOrders/GetMultipleOrderItems) — giải quyết dứt điểm 2 mục treo + 2 phát hiện mới (15/09/2026)
+
+Đối chiếu với `BE_System_Audit/03_VIEC_CAN_GUI_DOC_LAZADA_DE_CUNG_CO.md` — đã đánh dấu ✅ GIẢI QUYẾT mục 3 và mục 7, thêm 2 phát hiện mới vào `01_DIEM_YEU_TOAN_HE_THONG_THEO_MUC_DO.md` (O4, O5, O6):
+
+### O4 — Xác nhận 19 giá trị status thật của Lazada (chỉ có 9 giá trị trong code hiện tại)
+
+Nguồn: bảng mã lỗi chính thức `GetOrders` ("Invalid status filter") liệt kê nguyên văn 19 giá trị: `unpaid, pending, packed, canceled, ready_to_ship, delivered, returned, shipped, failed, topack, toship, lost, lost_by_3pl, damaged_by_3pl, failed_delivery, shipped_back, shipped_back_success, shipped_back_failed, package_scrapped`. **10 giá trị hoàn toàn chưa xử lý** trong `order-status.enum.ts`/`mapLazadaStatus()` — đặc biệt nhóm `lost*`/`damaged_by_3pl`/`shipped_back*`/`package_scrapped` (sự cố logistics thật) hiện bị âm thầm map về `PENDING`, che giấu vấn đề thật thay vì báo động.
+
+### O5 — `mapLazadaStatus(raw.statuses[0] ?? 'pending')` lấy phần tử đầu mảng `statuses[]` làm đại diện cho cả đơn
+
+`statuses[]` (theo tài liệu chính thức) là _"mảng các trạng thái DUY NHẤT của các item trong đơn"_ — không đảm bảo phần tử đầu là trạng thái quan trọng nhất. Đơn có 2 item (1 `delivered` + 1 `shipped_back`) có thể bị hiển thị sai thành `delivered` toàn bộ.
+
+### O6 — Phát hiện mới: Lazada có luồng "chờ seller xác nhận hủy đơn" chưa được đọc/dùng
+
+Response `GetOrder`/`GetOrders` có sẵn `need_cancel_confirm`/`is_cancel_pending`/`cancel_trigger_time`/`reverse_order_id` — dữ liệu ĐÃ CÓ SẴN trong response đang đọc (không cần API mới, không phải việc ghi ngược đã loại khỏi phạm vi) nhưng chưa được lưu/dùng. Khi buyer yêu cầu hủy, seller có 1 cửa sổ thời gian (`cancel_trigger_time`) phải phản hồi trước khi tự động hủy — nên lưu field + bắn Notification cho Store Owner, tái dùng cơ chế Notification đã có.
+
+### File `03` — mục 3, 7 đã ✅ giải quyết; chỉ còn mục 2 (`GetFailureReasons`, cần mở "Return and Refund API") và mục 4 (rate limit, không nằm trong trang API cụ thể) là thật sự cần thêm tài liệu.
+
+## PHÁT HIỆN LỚN NHẤT TOÀN BỘ ĐỢT AUDIT: Lazada CÓ webhook thật — đảo ngược giả định nền tảng của hệ thống (15/09/2026)
+
+User tìm và gửi tài liệu "Webhook API" chính thức của Lazada — **6 loại webhook thật tồn tại** (Trade Order Notification, Product Update/Edited/Deleted, Category Update, Fulfillment Order Update, **Authorization Token Expiration Alert**), `Auth Required: true` (trừ Category Update), retry 12 lần/30 phút.
+
+**Điều này đảo ngược giả định nền tảng mà toàn bộ module `orders/`/`marketplace-integration/` đang dựa vào**: `lazada.adapter.ts` dòng 469-479 (`verifyWebhookSignature()`) cố tình để trống, comment nguyên văn _"Lazada chưa xác nhận cơ chế webhook chính thức"_ — **SAI**, đã xác nhận. `orders.service.ts` dòng 51-52 và `lazada-order-sync.scheduler.ts` cũng dựa trên cùng giả định này để chọn polling 10 phút.
+
+**Điểm mấu chốt — hạ tầng ĐÃ CÓ SẴN, không cần xây từ đầu**: `processed_webhook_events` schema (`common/schemas/`) + interface `verifyWebhookSignature()` trên `MarketplaceAdapter` đã tồn tại, đã dùng thật cho `tiktok-shop.adapter.ts`/`tiki.adapter.ts` — chỉ riêng Lazada bị tắt vì niềm tin sai. Chỉ cần: (1) tìm cách Lazada ký request webhook (chưa có trong tài liệu đã gửi), (2) tạo `LazadaWebhookController` (chưa có route nhận webhook cho platform nào), (3) xác nhận cách đăng ký subscribe, (4) ưu tiên xử lý `msg_type: 0` (đơn đổi trạng thái — có thể giảm độ trễ từ tối đa 10 phút xuống gần tức thời) và `msg_type: 8` (token sắp hết hạn — báo trước 48h, giải quyết tốt hơn hẳn gap O3 đã ghi trước đó). Giữ nguyên cron 10 phút làm lưới an toàn, không tắt hẳn — cùng tinh thần giữ `computeFallbackPackaging()` làm lưới an toàn cho AI Packaging.
+
+Đã cập nhật cả 3 file: `03` mục 6 (đảo ngược kết luận), `02` (thêm mục "Phát hiện MỚI quan trọng nhất" ở đầu file), `01` mục O3 (đổi "Cách sửa" ưu tiên webhook thay vì chỉ nối `notify()` phản ứng).
+
+**Việc còn thiếu để implement được**: cách Lazada ký webhook payload (HMAC? header nào?) và cách đăng ký subscribe — chưa có trong tài liệu đã gửi, cần tìm thêm phần "Security"/"Getting Started" của mục Webhook API.
+
+## Tự rà lại toàn bộ, phát hiện 1 chỗ mình kết luận sai — đối chiếu thiếu với ghi chú có sẵn (15/09/2026)
+
+User hỏi đã cập nhật hết mọi thứ vào `CLAUDE.md` chưa — nhân dịp rà lại, phát hiện: mục "Package 4 khung sườn" **đã có sẵn trong `CLAUDE.md` từ trước** (quyết định từ giảng viên hướng dẫn: Lazada không có sandbox, mọi lệnh ghi chạm production thật, nên các method `readyToShip`/`packOrders`/`printAWB`/nhóm DBS **vẫn nên code đủ trong `LazadaAdapter` theo spec, chỉ không invoke trong luồng demo**) — nhưng ở 2 lượt cập nhật `BE_System_Audit/02` và `03` trước đó (14/09, 15/09), mình lại kết luận theo hướng khác: "seller tự giao hàng nên các API này KHÔNG CẦN" — không sai hoàn toàn nhưng lệch trọng tâm (lý do thật là rủi ro không-sandbox, không phải chọn mô hình vận hành; và kế hoạch là "code nhưng không gọi", không phải "không cần code").
+
+**Đã sửa lại cả 2 file** (`02` mục đầu + Khâu 5 + bảng route đề xuất, `03` mục 1) — đổi đúng theo tinh thần: vẫn implement đủ method trong Adapter, chỉ không tạo route/không invoke trong luồng demo.
+
+**Bài học rút ra**: trước khi kết luận 1 quyết định phạm vi là "đúng"/"đủ", cần chủ động grep/đọc lại `CLAUDE.md` xem đã có ghi chú liên quan từ trước chưa, không chỉ dựa vào lời user xác nhận trong chat (lời user xác nhận "seller tự giao hàng" là đúng sự thật nghiệp vụ, nhưng không đồng nghĩa đó là toàn bộ lý do kỹ thuật/kế hoạch đã chốt — 2 việc khác nhau, cần đối chiếu cả 2 nguồn).
+
+## Xác nhận: đã rà soát toàn bộ nội dung trao đổi, không còn phát hiện nào bị bỏ sót ngoài Lazada docs
+
+Toàn bộ tài liệu/ảnh Lazada đã gửi trong phiên (GetOrder, GetOrders, GetMultipleOrderItems, GetCategoryTree, Webhook API, sidebar đầy đủ ~30 nhóm API) đều đã có mục tương ứng trong `CLAUDE.md` (các mục từ "Rút gọn mô hình vật liệu..." tới "PHÁT HIỆN LỚN NHẤT... webhook"), đồng thời phản ánh đầy đủ trong 2 file `BE_System_Audit/02` và `03` (không copy nguyên văn field-list vào `CLAUDE.md` — bảng chi tiết đầy đủ nằm trong 2 file đó, `CLAUDE.md` chỉ giữ phần tóm tắt + số dòng code liên quan, đúng nguyên tắc đã áp dụng xuyên suốt để tránh phình file).
+
+## Giải thích chi tiết + file kế hoạch riêng cho việc implement Fulfillment API an toàn (15/09/2026)
+
+User chưa hiểu tại sao vẫn nên code đủ các method Fulfillment API dù có rủi ro khi gọi thật (thay vì tự làm API giả demo) — đã giải thích: **viết code ≠ gọi API thật**. Rủi ro chỉ xảy ra khi có 1 route/cron/handler THẬT SỰ gọi tới hàm đó lúc app đang chạy — chỉ cần không có đường dẫn thực thi nào như vậy, việc code đầy đủ hoàn toàn an toàn (test bằng mock HTTP client, không chạm mạng thật). Không nên làm "API giả" vì sẽ phải viết lại từ đầu khi lên production thật, và không thể hiện đúng năng lực code theo spec thật.
+
+Đã tạo file mới **`BE_System_Audit/04_KE_HOACH_FULFILLMENT_API_AN_TOAN.md`** — bảng xếp hạng rủi ro thấp→cao nếu lỡ bị gọi thật (🟢 `GetShipmentProvider`/`PrintAWB` chỉ đọc → 🟡 `SetInvoiceNumber`/`RecreatePackage` ghi dữ liệu chưa kích hoạt vật lý → 🔴 `Pack`/`ReadyToShip` kích hoạt điều phối shipper thật, Return/Refund API kích hoạt hoàn tiền thật — cao nhất), kèm 4 bước cụ thể: (1) code đủ method + JSDoc cảnh báo, (2) thêm "cầu dao" kỹ thuật `LAZADA_WRITE_APIS_ENABLED` chặn mặc định (không chỉ dựa vào "không viết code gọi nó"), (3) grep xác nhận không route nào wire vào luồng thật, (4) test bằng mock HTTP client. Kèm checklist an toàn cuối file.
+
+## Tạo file tổng hợp duy nhất cho toàn bộ BE_System_Audit (15/09/2026)
+
+Theo yêu cầu — gộp 4 file (`01`-`04`) thành **1 file tổng hợp**: `BE_System_Audit/00_TONG_HOP_VIEC_CAN_LAM_VA_NGHIEP_VU_CON_YEU.md`. Cấu trúc: Phần A — checklist việc cần làm xếp theo mức độ (A1 bảo mật → A2 dữ liệu/nghiệp vụ → A3 tốc độ/webhook → A4 Fulfillment API an toàn → A5 chỉ sửa doc → A6 cần tìm thêm tài liệu Lazada); Phần B — nghiệp vụ còn yếu/thiếu theo từng khâu (connect/sync/consolidation/packaging/ship) + theo role; Phần C — trỏ về 4 file gốc để xem bằng chứng chi tiết.
+
+Dùng đúng bản MỚI NHẤT của cả 4 file (có O4/O5/O6, webhook, đã sửa lại phần Fulfillment API "code đủ không invoke demo") — không dùng bản user re-upload (là bản cũ hơn, trước khi sửa Fulfillment API và thêm webhook). File này là điểm vào (entry point) mới cho `BE_System_Audit/`, nên đọc trước, chỉ mở 4 file con khi cần bằng chứng chi tiết cho 1 mục cụ thể.
+
+## Giải thích lại kỹ càng + cập nhật đầy đủ 3 file với phát hiện SOF (15/09/2026, cùng ngày)
+
+Đã giải thích lại chi tiết trong chat (không lặp ở đây): mô phỏng từng bước "shipper tới lấy hàng không có thì sao" (kết thúc bằng trạng thái `INFO_ST_DOMESTIC_PICKUP_SIGN_IN_FAILURE`, ảnh hưởng thật lên tài khoản Lazada KYC thật); làm rõ "code đủ (A) vs chỉ TODO (B)" là **lựa chọn của nhóm, không phải quy tắc bắt buộc** — quyết định A trước đó là ý giảng viên hướng dẫn, không phải best-practice tuyệt đối; giải thích ví dụ đời thường cho "ký webhook" (con dấu trên thư) và "subscribe webhook" (đăng ký nhận bản tin, làm ở Console quản lý app, không phải trang tài liệu API).
+
+**2 phát hiện mới quan trọng, đã cập nhật vào cả 3 file (`00`, `03`, `04`)**:
+
+1. **`GetFailureReasons` xác nhận DỨT ĐIỂM không tồn tại** — ảnh "Return and Refund API" đủ 8 method thật, không có method này. Đề xuất thay thế: đọc trực tiếp response lỗi của `GetOrders`/`GetOrder` thay vì gọi API riêng.
+2. **Phát hiện SOF (Seller Own Fleet)** — bảng lỗi `GetDocument` xác nhận nguyên văn: _"Printing AWB is not supported for... SOF/DBS orders"_, _"SOF/DBS type orders do not support the call of this API... Lazada does not provide Shipping Label"_. Đây khớp đúng mô hình shop demo — và là **Lazada tự xác nhận không hỗ trợ**, không phải mình chủ động né. Đã bỏ hẳn `printAWB()`/`getDocument()` khỏi kế hoạch code (khác các method khác vẫn "code đủ không invoke", 2 method này không cần code luôn). Đồng thời xác nhận thêm tên thật 3 method rủi ro cao nhất trong Return/Refund API: `InitReverseOrderCancelDecide`, `ReverseOrderOnlyRefundDecide`, `ReverseOrderReturnUpdate`.
+
+Cả 3 file audit đã cập nhật đầy đủ, đồng bộ ra `outputs/BE_System_Audit/`.
+
+## Quyết định: bỏ hẳn kế hoạch implement Fulfillment API (không làm cả phương án A) — 15/09/2026
+
+User quyết định: **không cần code các method Fulfillment API** (`Pack`/`ReadyToShip`/`SetInvoiceNumber`/`RecreatePackage`/`GetShipmentProvider`) nữa, kể cả theo phương án A ("code đủ, không invoke") đã đề xuất trong `04_KE_HOACH_FULFILLMENT_API_AN_TOAN.md` — để dành làm sau, không nằm trong phạm vi hiện tại. File `04` **vẫn giữ nguyên** trong `BE_System_Audit/` làm tài liệu tham khảo nếu sau này cần quay lại (không xóa), nhưng không còn là việc cần làm ngay — mục A4 trong `00_TONG_HOP...md` cần hiểu là "đã hoãn", không phải "đang làm".
+
+`GetDocument`/`PrintAWB` càng không cần bàn tới nữa — đã xác nhận Lazada tự chặn API này cho đơn SOF (Seller Own Fleet), đúng mô hình shop demo.
+
+**Việc tiếp theo đã xác nhận**: đọc tài liệu Lazada mục **Security Center → "Reverse API System Signature"** (không phải "Security Measures"/"Lazada Partner Application Security Guidelines"/"Security Review Process" — 3 mục đó không đúng trọng tâm) để biết cách Lazada ký request gửi webhook về server, phục vụ code `verifyWebhookSignature()` thật cho Lazada.
+
+## Xác nhận thuật toán ký webhook Lazada (15/09/2026, cùng ngày)
+
+Đã đọc trang "Reverse API System Signature" — xác nhận đầy đủ thuật toán `http_sign`: nằm trong **query string** (không phải header), thuật toán = sort tham số theo alphabet → ghép chuỗi `uri + key1value1 + key2value2 + ... + body` → HMAC-SHA256 bằng `app_secret` → hex hóa viết HOA. **Cùng cấu trúc với thuật toán ký outbound đã có sẵn** (`callSignedGet` trong `lazada.adapter.ts`) — `verifyWebhookSignature()` cho Lazada có thể tái dùng phần lớn code, chỉ đổi chiều (tính lại rồi so sánh, thay vì tính rồi gắn vào request gửi đi).
+
+Còn thiếu đúng 1 việc để code webhook đầy đủ: cách đăng ký subscribe — nằm ở mục "Push Mechanism(WebHook) Application" trong sidebar tài liệu Lazada (khác "Security Center" vừa đọc xong).
+
+Đã cập nhật `BE_System_Audit/00` và `03`.
+
+## Đọc "Lazada Push Mechanism" (tài liệu chuyên biệt, chính xác nhất) — 3 phát hiện lớn, 1 có thể chặn cả kế hoạch webhook (15/09/2026)
+
+### 🔴 Rào cản CA certificate — cần quyết định TRƯỚC KHI code webhook
+
+Tài liệu chính thức: callback URL phải HTTPS với chứng chỉ **OV hoặc EV — DV KHÔNG được chấp nhận** (self-signed càng không). Domain ngrok hiện dùng cho OAuth callback nhiều khả năng chỉ có chứng chỉ DV (miễn phí) — **cần kiểm tra lại trước khi đầu tư code webhook**, vì nếu không đạt, bước "Verify URL" đầu tiên trong App Console sẽ fail ngay. Đây là rào cản thực tế, không phải lý thuyết — đưa lên đầu file `03` mục 6 và thành "Bước 0 bắt buộc" trong `00`.
+
+### Thuật toán ký ĐÚNG — khác hẳn bản đã ghi trước đó (từ "Reverse API System Signature")
+
+Tài liệu "Lazada Push Mechanism" (chuyên biệt cho webhook order, có ví dụ khớp payload thật) mô tả thuật toán khác: chữ ký nằm trong **header `Authorization`** (không phải query string), công thức `HEX_LOWERCASE(HMAC_SHA256(app_key + message_body_thô, app_secret))` — đơn giản hơn nhiều (không sort param, không cần uri) nhưng **không tái dùng trực tiếp được code `callSignedGet` outbound** (khác cấu trúc) — cần viết hàm `verifyWebhookSignature()` riêng cho Lazada.
+
+### Xác nhận cách đăng ký subscribe — xong
+
+Qua tab **"Message Service"** trong App Console (`open.lazada.com`) — điền URL → Verify → chọn loại message → Save. Không qua API riêng.
+
+### Lưu ý phụ quan trọng
+
+FAQ tài liệu (07/2024) ghi _"Only order message is online now... under developing"_ cho các loại khác — cần tự verify trong màn hình Message Service xem `msg_type: 8` (Token Expiration, giá trị cao nhất) có chọn được thật không, đừng giả định. Xác nhận thêm: ack 200 trong 500ms, retry 12 lần/30 phút, message có thể trùng ("at least once" — khớp đúng thiết kế `processed_webhook_events` đã có), và Lazada CHÍNH THỨC khuyến nghị chiến lược "giữ polling, thêm dần push, giảm dần polling sau" — đúng đề xuất đã đưa ra trước đó, nay có nguồn chính thức xác nhận.
+
+Đã cập nhật đầy đủ `BE_System_Audit/00` và `03`.
+
+## Quyết định: hoãn webhook tới lúc deploy có domain thật (15/09/2026, cùng ngày)
+
+User quyết định để dành kế hoạch webhook Lazada tới giai đoạn chuẩn bị deploy (có domain/URL riêng) — hợp lý vì rào cản chính (cần chứng chỉ OV/EV) tự động hết vấn đề khi đó có domain production thật, không cần xử lý riêng cho giai đoạn demo/dev hiện tại. Đã cập nhật `00_TONG_HOP...md` — tách webhook ra khỏi A3 (việc nên làm sớm), tạo mục mới A4b "ĐÃ HOÃN" đặt cạnh A4 (Fulfillment API cũng đang hoãn) cho nhất quán. Toàn bộ nghiên cứu đã làm (thuật toán ký, cách subscribe, cơ chế ack/retry) giữ nguyên trong `03` mục 6, đọc lại khi tới lúc deploy, không mất công nghiên cứu lại. 3 việc còn lại trong A3 (Redirect callback, GetMultipleOrderItems, notify SYNC_FAILED) không bị ảnh hưởng, vẫn làm được ngay.
+
+## Bắt đầu code thật các fix đã audit — Batch 1 (15/09/2026)
+
+Theo yêu cầu, bắt đầu code thật (không chỉ audit) các mục A1-A3 trong `00_TONG_HOP...md`, làm từng phần, dừng hỏi ý kiến giữa chừng. **Batch 1 đã xong 4 mục, đánh dấu ✅ trong `00`:**
+
+1. **A1 — `notifications markAsRead` thiếu kiểm tra sở hữu**: `notifications.controller.ts` thêm `@CurrentUser()`, `notifications.service.ts` đổi `findByIdAndUpdate` → `findOneAndUpdate` kèm điều kiện `$or:[{recipient_user_id},{recipient_role}]`, không khớp → 404 `NOTI_NOT_FOUND` (giữ nguyên mã lỗi cũ, không tạo mã mới — không khớp do sai ID hay do không phải chủ sở hữu đều trả về y hệt nhau, không lộ thông tin). Đã viết `notifications.service.spec.ts` mới (trước đây module này chưa có spec nào).
+2. **T1 — Lazada OAuth callback thiếu `@Redirect()`**: đã sửa theo ĐÚNG spec bạn cùng nhóm chốt (ảnh chụp) — redirect về `http://localhost:5173/marketplace-oauth-success`, thành công kèm `shopId`/`shopName`/`connected=true`, thất bại kèm `error=<mã lỗi MKT_*>`. Thêm `SERVER_ERROR: 'MKT_SERVER_ERROR'` vào `marketplace-integration.errors.ts` làm fallback (trước đây không có mã fallback nào, khác Google OAuth đã có `server_error`). Config key mới: `CLIENT_MARKETPLACE_REDIRECT_CALLBACK` (mặc định đúng URL trên nếu chưa set env).
+3. **A2#1 — `consolidation_key` thiếu `platform`**: `computeConsolidationKey()` thêm tham số `platform` (bắt buộc, đứng đầu), `lazada-order.mapper.ts` truyền `MarketplacePlatform.LAZADA`. **Lưu ý quan trọng chưa xử lý**: đây là thay đổi công thức hash — các `Order` ĐÃ CÓ trong DB (đơn Lazada thật đã sync trước đó) vẫn giữ `consolidation_key` theo công thức CŨ (không có platform), nên đơn MỚI sync sau khi deploy fix này sẽ KHÔNG match được với các group cũ của cùng khách hàng (băm ra key khác nhau) — cần quyết định có viết migration script tính lại `consolidation_key` cho dữ liệu cũ hay chấp nhận (dữ liệu demo, ảnh hưởng thấp).
+4. **A2#2 — bug đơn `canceled` vẫn bị tính**: `getPackableItemsForGroup()` thêm `status: {$ne: OrderStatus.CANCELED}` vào query, thêm case biên (toàn bộ đơn trong group đã hủy → throw `ORD_GROUP_ALL_ORDERS_CANCELED` thay vì trả `items` rỗng âm thầm). Thêm mã lỗi mới vào `order-groups.errors.ts`. Viết spec test riêng (`order-groups.service.getPackableItemsForGroup.spec.ts`, module này trước đây chưa có spec nào dù đụng Order Consolidation — đúng yêu cầu bắt buộc trong CLAUDE.md).
+
+**Còn lại trong A2 (chưa làm, có câu hỏi thiết kế thật cần bạn xác nhận trước khi code tiếp)**: 10 giá trị status thiếu (O4), cách tính status đại diện Order thay `statuses[0]` (O5), luồng lưu+báo "chờ xác nhận hủy đơn" (O6). Còn A3: `GetMultipleOrderItems` batch, `notify(SYNC_FAILED)`.
+
+**Việc còn nợ**: kiểm tra 4 file Integration Guide (`INTEGRATION_GUIDE.md`, `INTEGRATION_GUIDE_ORDERS.md`, `INTEGRATION_GUIDE_FULFILLMENT.md`, `API_LIST.md`) xem có cần cập nhật theo các fix này không — chưa làm, sẽ làm sau khi xong toàn bộ code.
+
+## Batch 2 (15/09/2026, cùng ngày) — hoàn thành nốt A2 (O4, O5, O6)
+
+**Phát hiện quan trọng trước khi code**: enum `OrderStatus` **đã có sẵn đủ 19 giá trị** từ trước (comment "2026-09-10") — chỉ riêng `mapLazadaStatus()` chưa nối vào, vẫn rơi `default→PENDING`. Đảo ngược đề xuất "gộp về 1 giá trị EXCEPTION" đã đưa trước đó — hoàn thiện theo hướng TÁCH RIÊNG (khớp đúng phần đã có sẵn, ít việc hơn gộp).
+
+1. **O4 — 10 case còn thiếu**: thêm đủ vào `mapLazadaStatus()` (`lazada-order.mapper.ts`), map 1:1 vào đúng enum values đã có sẵn.
+2. **O5 — `statuses[0]` không đáng tin**: thêm `pickRepresentativeStatus()` — ưu tiên trạng thái "xấu nhất" theo bảng `STATUS_PRIORITY` (sự cố > hủy/hoàn > luồng bình thường tính theo tiến độ) thay vì lấy mù phần tử đầu mảng.
+3. **O6 — luồng chờ xác nhận hủy đơn**: thêm 4 field vào `LazadaOrderRaw` (adapter) + `Order` schema + `MappedOrderFields` (`need_cancel_confirm`, `is_cancel_pending`, `cancel_trigger_time`, `reverse_order_id`). Thêm `NotificationType.CANCEL_CONFIRMATION_REQUIRED` mới (ban đầu định dùng nhầm `SYNC_FAILED`, đã tự sửa lại đúng ý nghĩa). `orders.service.ts` inject thêm `NotificationsService`, đọc trạng thái TRƯỚC khi update để chỉ bắn đúng 1 lần lúc chuyển false→true (tránh spam mỗi 10 phút cron chạy lại), báo cả Store Owner lẫn Admin, mức `critical`.
+
+Viết thêm `lazada-order.mapper.spec.ts` (module này trước đây chưa có spec nào dù đụng Order Consolidation, đúng yêu cầu bắt buộc CLAUDE.md) — test đủ 19 giá trị status + test đúng ví dụ "delivered + shipped_back → phải ra shipped_back" đã nêu trong audit.
+
+**Viết thêm `scripts/migrate-consolidation-key.ts`** — tính lại `consolidation_key` cho `Order` đã có trong DB (đọc field `recipient` đã lưu sẵn, không cần gọi lại Lazada), chạy 1 lần sau khi deploy, trước lần cron sync kế tiếp.
+
+Còn lại: **A3** (`GetMultipleOrderItems` batch, `notify(SYNC_FAILED)` cho lỗi sync thường), sau đó rà 4 file Integration Guide.
+
+## Batch 3 (15/09/2026, cùng ngày) — mở rộng filter + sửa lint script migration
+
+**Phát sinh khi giải thích lại luồng status cho user**: bug `canceled` đã fix trước đó chỉ lọc đúng `CANCELED`, chưa lọc nhóm "sự cố logistics thật" (`LOST`/`DAMAGED_BY_3PL`/`PACKAGE_SCRAPPED`...) — hàng báo mất/hỏng vẫn xuất hiện trong Picking List. User xác nhận: nhóm sự cố này khó xảy ra trong demo nhưng vẫn muốn lọc luôn cho đúng.
+
+**Đã làm**: thêm `NOT_PACKABLE_ORDER_STATUSES` (`order-status.enum.ts`, cùng chỗ với `UNFULFILLED_ORDER_STATUSES` đã có, theo đúng convention cũ) = CANCELED + FAILED + LOST + LOST_BY_3PL + DAMAGED_BY_3PL + FAILED_DELIVERY + SHIPPED_BACK_FAILED + PACKAGE_SCRAPPED. Đổi query `getPackableItemsForGroup()` từ `$ne: CANCELED` sang `$nin: NOT_PACKABLE_ORDER_STATUSES`. **Cố ý CHƯA gộp** `RETURNED`/`SHIPPED_BACK`/`SHIPPED_BACK_SUCCESS` vào danh sách này — case hoàn hàng cần xem xét riêng, tránh mở rộng phạm vi fix ngoài yêu cầu, đã báo user biết. Cập nhật lại spec test cho khớp query mới.
+
+**Sửa lỗi ESLint** trong `scripts/migrate-consolidation-key.ts` — `order.recipient?.phone` bị báo "Unnecessary optional chain on a non-nullish value" vì `recipient` là field `required: true` trên schema (TypeScript biết chắc không null) — bỏ `?.` thành `order.recipient.phone`.
+
+## Batch 4 (16/09/2026) — hoàn thành A3, TOÀN BỘ A1-A3 đã xong
+
+1. **`GetMultipleOrderItems` batch**: thêm method vào `lazada.adapter.ts` (trả `Map<order_id, items[]>` để tra O(1)), `orders.service.ts` đổi sang chia lô ≤50 đơn/lần gọi. **Có fallback**: nếu 1 lô batch lỗi, fallback về gọi tuần tự từng đơn CHO RIÊNG lô đó (giữ nguyên độ an toàn cũ — 1 đơn lỗi không hỏng đơn khác — không đánh đổi robustness lấy tốc độ).
+2. **`notify(SYNC_FAILED)` cho lỗi sync cron**: thêm vào `LazadaOrderSyncScheduler` (không phải `orders.service.ts` — vì controller gọi tay đã tự thấy lỗi ngay trong response, không cần thêm Notification; chỉ cron tự động chạy nền mới cần báo chủ động). Cơ chế chống spam: `Map<shop_id, lastNotifiedAt>` trong bộ nhớ, cooldown **20 phút** (user điều chỉnh từ đề xuất ban đầu 1 giờ). Mức `warning` (khác `critical` của cancel-confirm — không có hạn chót cứng).
+
+Viết `lazada-order-sync.scheduler.spec.ts` mới (dùng `jest.useFakeTimers()` test đúng 3 case: lần đầu bắn ngay, lặp lại trong cooldown không bắn, qua cooldown bắn lại).
+
+**TOÀN BỘ A1, A2, A3 trong `00_TONG_HOP...md` đã hoàn thành.** Còn lại: A5 (sửa 2 câu trong Integration Guide, không đụng code) + rà 4 file Integration Guide xem có cần cập nhật gì thêm theo các fix đã làm không.
+
+## 2 lỗi ESLint thật gặp phải + cách sửa — ghi lại để tránh lặp lại (16/09/2026)
+
+Sau khi thêm các file test mới (batch 4), `npm run lint` báo 2 lỗi thật (không phải nghi ngờ, có log đầy đủ từ user):
+
+1. **`notifications.service.spec.ts`** — import `NotificationType` nhưng không dùng tới (import thừa từ lúc soạn test, quên xóa). **Cách sửa**: xóa dòng import không dùng.
+2. **`order-groups.service.getPackableItemsForGroup.spec.ts`** — import `AppException` chỉ để ép kiểu (`as Partial<AppException>`), không có chỗ nào dùng làm giá trị runtime thật trong file này. **Thử `import type { AppException }` KHÔNG giải quyết được** — ESLint config của dự án này không công nhận cách dùng "chỉ trong vị trí generic" (`Partial<AppException>`) là "đã dùng", dù đó đúng là type-only usage hợp lệ về mặt TypeScript. **Cách sửa chắc ăn**: bỏ hẳn phần ép kiểu `as Partial<AppException>` lẫn import — `toMatchObject` của Jest không cần ép kiểu này để chạy đúng.
+
+**Quy tắc rút ra cho các file test sau này trong dự án này**: chỉ import `AppException` (hay bất kỳ type nào tương tự) nếu có **ít nhất 1 chỗ dùng làm giá trị runtime thật** trong file đó (VD `toBeInstanceOf(AppException)`, `expect(error).toBeInstanceOf(X)`) — nếu chỉ cần ép kiểu cho TypeScript đọc hiểu, bỏ hẳn phần ép kiểu đó thay vì cố giữ lại bằng `import type`.
