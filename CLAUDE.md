@@ -1833,6 +1833,7 @@ Bản đầu của `03_KHO_VAT_TU_DONG_GOI...md` copy nguyên khung "thời tran
 - **`GetCategoryTree`** (`GET /category/tree/get`, KHÔNG cần `access_token` — chỉ cần `app_key`/`sign` như mọi request khác, khác `GetProducts` cần `access_token`) — trả cây category phân cấp `{category_id, name, children[], leaf}` (category_id dạng number ở API này, VD `6588`, `7436` — LƯU Ý khác kiểu string ở `primary_category` của `GetProducts`, cần ép kiểu khi so sánh/map). Tham số `language_code` optional, mặc định `en_US` — **nên truyền `"vi_VN"`** để tên category trả về tiếng Việt, dễ cho Admin map thủ công.
 
 **Việc cần làm theo thứ tự** (chưa code, ghi lại kế hoạch):
+
 1. Gọi thử `GetProducts` thật 1 lần (sandbox hoặc shop đã kết nối), xác nhận `primary_category` xuất hiện đúng vị trí/kiểu như tài liệu trước khi sửa code (đúng tinh thần Rule đã có: không tin suông tài liệu, Lazada từng có tiền lệ ghi 1 kiểu nhưng trả thực tế khác — xem comment `package_length` dòng 138 `lazada.adapter.ts`).
 2. Thêm `primary_category?: string` vào `LazadaProductRaw`.
 3. Gọi `GetCategoryTree` 1 lần (param `language_code=vi_VN`), lưu cây category vào 1 collection nhỏ.
@@ -1851,21 +1852,25 @@ User gửi trực tiếp JSON thật từ `GET /orders` (7 đơn, shop Lazada `2
 **Bằng chứng cụ thể**: group `consolidatedGroupId = "6a9c18292fced4f442f6e1b1"` gồm 3 đơn (`6a9c1ca16b6e447eff8270a4`, `6a9c18296b6e447eff82709d`, `6a9af7843c22e98f3a6105c7`) — **cả 3 đều `status: "canceled"`**, nhưng vẫn giữ nguyên `consolidatedGroupId`, tức vẫn thuộc group đó.
 
 **Root cause**: `order-groups.service.ts`, hàm `getPackableItemsForGroup()` — dòng 160-163:
+
 ```ts
 const orders = await this.orderModel
-  .find({ consolidated_group_id: group._id })   // KHÔNG lọc status
+  .find({ consolidated_group_id: group._id }) // KHÔNG lọc status
   .select('items platform shop_id')
   .lean();
 ```
-Không lọc bỏ đơn `status: canceled` trước khi lấy `items` đưa vào thuật toán packaging. Nếu 1 group có đơn bị hủy SAU KHI đã gộp (tình huống rất thường gặp — khách/sàn hủy đơn bất kỳ lúc nào), hàng đã hủy vẫn bị tính vào recommendation đóng gói. Đúng điều `AI_3D_PACKAGING_OPTIMIZATION.md` mục 4.1 đã cảnh báo: *"Item bị hủy không được đi vào phương án giao."*
+
+Không lọc bỏ đơn `status: canceled` trước khi lấy `items` đưa vào thuật toán packaging. Nếu 1 group có đơn bị hủy SAU KHI đã gộp (tình huống rất thường gặp — khách/sàn hủy đơn bất kỳ lúc nào), hàng đã hủy vẫn bị tính vào recommendation đóng gói. Đúng điều `AI_3D_PACKAGING_OPTIMIZATION.md` mục 4.1 đã cảnh báo: _"Item bị hủy không được đi vào phương án giao."_
 
 **Cách sửa (nhỏ, độc lập, không đụng thiết kế lớn)**:
+
 ```ts
 const orders = await this.orderModel
   .find({ consolidated_group_id: group._id, status: { $ne: 'canceled' } })
   .select('items platform shop_id')
   .lean();
 ```
+
 Cần xử lý thêm case biên: sau khi lọc, nếu group KHÔNG còn đơn nào (toàn bộ đơn trong group đều `canceled` — đúng case group `6a9c18292fced4f442f6e1b1` ở trên, 3/3 đơn hủy hết) → phải trả lỗi nghiệp vụ rõ ràng ("group không còn hàng để đóng"), KHÔNG được tạo ra 1 recommendation rỗng hoặc lỗi ngầm.
 
 **Ghi chú phụ**: đã xác nhận `isConsolidated: false` kèm `consolidatedGroupId` không phải bug — xảy ra đúng khi group chỉ có 1 đơn duy nhất (không có gì để "gộp" cùng), logic hiện tại đánh `true` chỉ khi group có ≥2 đơn — thiết kế đúng, không cần sửa.
@@ -1902,7 +1907,7 @@ Feedback trước (gửi bạn cùng nhóm) đề xuất thêm `item_key` vào `
 1. **`FEEDBACK_GUI_BAN_CUNG_NHOM.md`** — feedback tổng quan: trạng thái hiện tại, việc cần làm theo M2→M3→M4, 2 công nghệ đề xuất (`piscina`, `binpackingjs` để benchmark), việc mình tự làm bên phần mình để tránh trùng.
 2. **`HUONG_DI_KY_THUAT_CHI_TIET.md`** — sơ đồ luồng chính xác map 1-1 vào file/hàm/route THẬT đang chạy (không phải sơ đồ chung chung): (a) luồng as-is hiện tại từng bước có số dòng code, (b) luồng đích chỉ chèn engine vào ĐÚNG 1 điểm trong `packaging.service.ts`, giữ nguyên `computeFallbackPackaging()` làm lưới an toàn thật (không xóa), (c) bảng map tên route roadmap đề xuất → route thật đang chạy (tránh tạo route `/confirm` trùng với `approve()` đã có sẵn đúng ý nghĩa đó), (d) cách mở rộng schema `PackagingRecommendationDoc` bằng field optional, không phá dữ liệu cũ.
 
-**Phát hiện phụ khi đọc lại roadmap §8.1**: `approve()` hiện tại (dòng 139) đã đúng ý nghĩa "confirm" mà roadmap mô tả (*"confirm là thời điểm nhận vật tư cho một lần đóng gói"*) — không cần code thêm endpoint `/confirm` riêng như roadmap đề xuất tên, chỉ cần thêm kiểm tra `input_revision` vào đúng hàm `approve()`/`adjust()` đã có.
+**Phát hiện phụ khi đọc lại roadmap §8.1**: `approve()` hiện tại (dòng 139) đã đúng ý nghĩa "confirm" mà roadmap mô tả (_"confirm là thời điểm nhận vật tư cho một lần đóng gói"_) — không cần code thêm endpoint `/confirm` riêng như roadmap đề xuất tên, chỉ cần thêm kiểm tra `input_revision` vào đúng hàm `approve()`/`adjust()` đã có.
 
 ## Hợp nhất feedback gửi bạn cùng nhóm thành 1 file duy nhất (13/09/2026, rà soát cuối)
 
@@ -1963,7 +1968,7 @@ Nguồn: bảng mã lỗi chính thức `GetOrders` ("Invalid status filter") li
 
 ### O5 — `mapLazadaStatus(raw.statuses[0] ?? 'pending')` lấy phần tử đầu mảng `statuses[]` làm đại diện cho cả đơn
 
-`statuses[]` (theo tài liệu chính thức) là *"mảng các trạng thái DUY NHẤT của các item trong đơn"* — không đảm bảo phần tử đầu là trạng thái quan trọng nhất. Đơn có 2 item (1 `delivered` + 1 `shipped_back`) có thể bị hiển thị sai thành `delivered` toàn bộ.
+`statuses[]` (theo tài liệu chính thức) là _"mảng các trạng thái DUY NHẤT của các item trong đơn"_ — không đảm bảo phần tử đầu là trạng thái quan trọng nhất. Đơn có 2 item (1 `delivered` + 1 `shipped_back`) có thể bị hiển thị sai thành `delivered` toàn bộ.
 
 ### O6 — Phát hiện mới: Lazada có luồng "chờ seller xác nhận hủy đơn" chưa được đọc/dùng
 
@@ -1975,7 +1980,7 @@ Response `GetOrder`/`GetOrders` có sẵn `need_cancel_confirm`/`is_cancel_pendi
 
 User tìm và gửi tài liệu "Webhook API" chính thức của Lazada — **6 loại webhook thật tồn tại** (Trade Order Notification, Product Update/Edited/Deleted, Category Update, Fulfillment Order Update, **Authorization Token Expiration Alert**), `Auth Required: true` (trừ Category Update), retry 12 lần/30 phút.
 
-**Điều này đảo ngược giả định nền tảng mà toàn bộ module `orders/`/`marketplace-integration/` đang dựa vào**: `lazada.adapter.ts` dòng 469-479 (`verifyWebhookSignature()`) cố tình để trống, comment nguyên văn *"Lazada chưa xác nhận cơ chế webhook chính thức"* — **SAI**, đã xác nhận. `orders.service.ts` dòng 51-52 và `lazada-order-sync.scheduler.ts` cũng dựa trên cùng giả định này để chọn polling 10 phút.
+**Điều này đảo ngược giả định nền tảng mà toàn bộ module `orders/`/`marketplace-integration/` đang dựa vào**: `lazada.adapter.ts` dòng 469-479 (`verifyWebhookSignature()`) cố tình để trống, comment nguyên văn _"Lazada chưa xác nhận cơ chế webhook chính thức"_ — **SAI**, đã xác nhận. `orders.service.ts` dòng 51-52 và `lazada-order-sync.scheduler.ts` cũng dựa trên cùng giả định này để chọn polling 10 phút.
 
 **Điểm mấu chốt — hạ tầng ĐÃ CÓ SẴN, không cần xây từ đầu**: `processed_webhook_events` schema (`common/schemas/`) + interface `verifyWebhookSignature()` trên `MarketplaceAdapter` đã tồn tại, đã dùng thật cho `tiktok-shop.adapter.ts`/`tiki.adapter.ts` — chỉ riêng Lazada bị tắt vì niềm tin sai. Chỉ cần: (1) tìm cách Lazada ký request webhook (chưa có trong tài liệu đã gửi), (2) tạo `LazadaWebhookController` (chưa có route nhận webhook cho platform nào), (3) xác nhận cách đăng ký subscribe, (4) ưu tiên xử lý `msg_type: 0` (đơn đổi trạng thái — có thể giảm độ trễ từ tối đa 10 phút xuống gần tức thời) và `msg_type: 8` (token sắp hết hạn — báo trước 48h, giải quyết tốt hơn hẳn gap O3 đã ghi trước đó). Giữ nguyên cron 10 phút làm lưới an toàn, không tắt hẳn — cùng tinh thần giữ `computeFallbackPackaging()` làm lưới an toàn cho AI Packaging.
 
@@ -2012,8 +2017,9 @@ Dùng đúng bản MỚI NHẤT của cả 4 file (có O4/O5/O6, webhook, đã s
 Đã giải thích lại chi tiết trong chat (không lặp ở đây): mô phỏng từng bước "shipper tới lấy hàng không có thì sao" (kết thúc bằng trạng thái `INFO_ST_DOMESTIC_PICKUP_SIGN_IN_FAILURE`, ảnh hưởng thật lên tài khoản Lazada KYC thật); làm rõ "code đủ (A) vs chỉ TODO (B)" là **lựa chọn của nhóm, không phải quy tắc bắt buộc** — quyết định A trước đó là ý giảng viên hướng dẫn, không phải best-practice tuyệt đối; giải thích ví dụ đời thường cho "ký webhook" (con dấu trên thư) và "subscribe webhook" (đăng ký nhận bản tin, làm ở Console quản lý app, không phải trang tài liệu API).
 
 **2 phát hiện mới quan trọng, đã cập nhật vào cả 3 file (`00`, `03`, `04`)**:
+
 1. **`GetFailureReasons` xác nhận DỨT ĐIỂM không tồn tại** — ảnh "Return and Refund API" đủ 8 method thật, không có method này. Đề xuất thay thế: đọc trực tiếp response lỗi của `GetOrders`/`GetOrder` thay vì gọi API riêng.
-2. **Phát hiện SOF (Seller Own Fleet)** — bảng lỗi `GetDocument` xác nhận nguyên văn: *"Printing AWB is not supported for... SOF/DBS orders"*, *"SOF/DBS type orders do not support the call of this API... Lazada does not provide Shipping Label"*. Đây khớp đúng mô hình shop demo — và là **Lazada tự xác nhận không hỗ trợ**, không phải mình chủ động né. Đã bỏ hẳn `printAWB()`/`getDocument()` khỏi kế hoạch code (khác các method khác vẫn "code đủ không invoke", 2 method này không cần code luôn). Đồng thời xác nhận thêm tên thật 3 method rủi ro cao nhất trong Return/Refund API: `InitReverseOrderCancelDecide`, `ReverseOrderOnlyRefundDecide`, `ReverseOrderReturnUpdate`.
+2. **Phát hiện SOF (Seller Own Fleet)** — bảng lỗi `GetDocument` xác nhận nguyên văn: _"Printing AWB is not supported for... SOF/DBS orders"_, _"SOF/DBS type orders do not support the call of this API... Lazada does not provide Shipping Label"_. Đây khớp đúng mô hình shop demo — và là **Lazada tự xác nhận không hỗ trợ**, không phải mình chủ động né. Đã bỏ hẳn `printAWB()`/`getDocument()` khỏi kế hoạch code (khác các method khác vẫn "code đủ không invoke", 2 method này không cần code luôn). Đồng thời xác nhận thêm tên thật 3 method rủi ro cao nhất trong Return/Refund API: `InitReverseOrderCancelDecide`, `ReverseOrderOnlyRefundDecide`, `ReverseOrderReturnUpdate`.
 
 Cả 3 file audit đã cập nhật đầy đủ, đồng bộ ra `outputs/BE_System_Audit/`.
 
@@ -2049,7 +2055,7 @@ Qua tab **"Message Service"** trong App Console (`open.lazada.com`) — điền 
 
 ### Lưu ý phụ quan trọng
 
-FAQ tài liệu (07/2024) ghi *"Only order message is online now... under developing"* cho các loại khác — cần tự verify trong màn hình Message Service xem `msg_type: 8` (Token Expiration, giá trị cao nhất) có chọn được thật không, đừng giả định. Xác nhận thêm: ack 200 trong 500ms, retry 12 lần/30 phút, message có thể trùng ("at least once" — khớp đúng thiết kế `processed_webhook_events` đã có), và Lazada CHÍNH THỨC khuyến nghị chiến lược "giữ polling, thêm dần push, giảm dần polling sau" — đúng đề xuất đã đưa ra trước đó, nay có nguồn chính thức xác nhận.
+FAQ tài liệu (07/2024) ghi _"Only order message is online now... under developing"_ cho các loại khác — cần tự verify trong màn hình Message Service xem `msg_type: 8` (Token Expiration, giá trị cao nhất) có chọn được thật không, đừng giả định. Xác nhận thêm: ack 200 trong 500ms, retry 12 lần/30 phút, message có thể trùng ("at least once" — khớp đúng thiết kế `processed_webhook_events` đã có), và Lazada CHÍNH THỨC khuyến nghị chiến lược "giữ polling, thêm dần push, giảm dần polling sau" — đúng đề xuất đã đưa ra trước đó, nay có nguồn chính thức xác nhận.
 
 Đã cập nhật đầy đủ `BE_System_Audit/00` và `03`.
 
@@ -2117,6 +2123,7 @@ Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần d
 **Nguyên nhân thật**: file nguồn `lazada-order-sync.scheduler.ts` trên máy user vẫn là **bản CŨ** (constructor 2 tham số, không có `notify()`) — chỉ file test mới được thay, file nguồn thì không. `git diff` (không kèm cờ) chỉ so sánh working-tree với staging/HEAD — **không** chứng minh được file có khớp với file Claude gửi hay không, vì cả 2 phía đều là bản cũ.
 
 **Quy tắc rút ra — áp dụng cho mọi lần sau khi user báo "vẫn lỗi" dù đã làm theo hướng dẫn**:
+
 1. KHÔNG chỉ đọc log/đoán nguyên nhân qua suy luận — **tự trích xuất `be.zip` mới nhất user gửi, chạy thật** `npm install` + `npx jest <file>` + `npx eslint` trong sandbox để có bằng chứng chắc chắn.
 2. KHÔNG dùng `git diff` làm bằng chứng "file đã đúng" — chỉ chứng minh được "không có gì đang sửa dở", không chứng minh nội dung khớp với bản đã gửi.
 3. Nếu 1 file cần thay, kiểm tra kỹ cả file NGUỒN lẫn file TEST đi kèm đều đã update — dễ sót 1 trong 2 nếu chỉ đưa lại đúng file vừa sửa lỗi lint mà quên các file khác thuộc cùng tính năng.
@@ -2132,20 +2139,24 @@ Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần d
 **Lỗi cụ thể gặp phải**: `TS2532: Object is possibly 'undefined'` ở `result.items[0].sku` — đúng vì tsconfig dự án đã bật `noUncheckedIndexedAccess: true` (quy tắc đã ghi từ trước) — truy cập mảng theo index (`arr[0]`) LUÔN được TypeScript coi là `T | undefined`, không tự suy luận từ `expect(...).toHaveLength(1)` lúc runtime.
 
 **Cách sửa chuẩn cho pattern này trong test** (áp dụng mọi lần sau viết test đụng `arr[0]`):
+
 ```ts
 const [first] = result.items;
 expect(first).toBeDefined();
-expect(first?.sku).toBe('SKU-A');   // optional chaining, không lỗi TS2532
+expect(first?.sku).toBe('SKU-A'); // optional chaining, không lỗi TS2532
 ```
+
 Không dùng `result.items[0].sku` trực tiếp, cũng không dùng `!` non-null assertion (dự án không khuyến khích unsafe assertion, kể cả trong file test).
 
 **Quy tắc rút ra — áp dụng từ giờ cho MỌI lần sửa code trong dự án này**: trước khi coi 1 file đã "xong", chạy đủ 3 lệnh theo đúng thứ tự CI chạy, không chỉ chạy `test`:
+
 ```bash
 cd be
 npx tsc --noEmit   # bước hay bị bỏ sót nhất — không nằm trong npm run lint
 npm run lint
 npm run test
 ```
+
 Đã tự xác nhận bằng cách chạy thật cả 3 lệnh trong sandbox trước khi gửi lại file cho user — không chỉ đọc log đoán nữa (đúng bài học đã ghi ở mục trước).
 
 ## Rà + viết lại 4 file Integration Guide theo đúng code thật (16/09/2026)
@@ -2161,3 +2172,17 @@ npm run test
 **`API_LIST.md`** — sửa 1 link tham chiếu chết ("mục 7" → "PHẦN D.3", do file Fulfillment đã đổi cấu trúc từ bản v3 nhưng link chưa cập nhật theo).
 
 Cả 4 file đã cập nhật `00_TONG_HOP...md` đánh dấu hoàn thành A5.
+
+## Cách 2 đã chọn: bổ sung field cancel-confirm vào GET /orders/:id (16/09/2026)
+
+User quyết định làm "cách 2" thay vì chỉ dựa vào Notification — `orders.controller.ts` (`OrderDetailResponse` + `findOne()`) giờ trả thêm 4 field: `needCancelConfirm`, `isCancelPending`, `cancelTriggerTime`, `reverseOrderId`. Chỉ thêm vào **`GET /orders/:id`** (trang chi tiết), KHÔNG thêm vào `GET /orders` (danh sách) — đúng phạm vi yêu cầu ("badge ngay trên trang chi tiết"), không mở rộng thêm. Đã cập nhật `INTEGRATION_GUIDE_ORDERS.md` — đổi mục "gap đang chờ quyết định" thành bảng field đầy đủ + khuyến nghị FE dùng cả 2 cách (Notification + field trực tiếp) thay vì chỉ 1.
+
+## Phủ kín tag "đã đổi/mới" trong 2 file guide — trả lời câu hỏi FE có dễ đối chiếu bản cũ không (16/09/2026)
+
+User hỏi: các file guide viết lại có đánh dấu rõ chỗ nào MỚI/ĐÃ ĐỔI để FE cầm bản cũ dễ đối chiếu không, hay chỉ viết lại im lặng? Kiểm tra lại: **đa số** đã có tag (`MỚI (ngày)`/`✅ Đã...`/`⚠️ Hành vi đổi` + đoạn "Cập nhật ngày..." đầu file) nhưng **sót vài chỗ**: tiêu đề mục 7b (section hoàn toàn mới) chưa gắn tag, 2 dòng checklist đã đổi nội dung nhưng không có prefix báo hiệu, checklist D.5 (Fulfillment) chưa có dòng nào nhắc riêng 2 việc mới (Notification 2 loại mới, `markAsRead` 404). Đã bổ sung đủ — quy ước dùng thống nhất: `🆕 MỚI` (hoàn toàn mới) và `🔄 ĐÃ ĐỔI` (thay đổi nội dung cũ) làm prefix, ngoài các tag ngày tháng đã có.
+
+## File 00 đã cập nhật đủ — user hỏi "đúng chưa" phát hiện 2 việc chưa ghi (16/09/2026)
+
+User hỏi file 00 đã phản ánh đúng/đủ mọi việc đã làm chưa — kiểm tra phát hiện 2 việc mới nhất CHƯA được ghi vào file 00: (1) follow-up bổ sung `needCancelConfirm`/`cancelTriggerTime`... vào `GET /orders/:id` (mục A2, dưới dòng O6 gốc), (2) follow-up phủ tag `🆕 MỚI`/`🔄 ĐÃ ĐỔI` đầy đủ trong 2 file guide (mục A5). Đã bổ sung cả 2 + sửa lại dòng cũ trong A5 (không còn ghi "flag gap chưa expose" — gap đã hết).
+
+**Bài học quy trình**: mỗi khi làm xong 1 việc phát sinh (không nằm sẵn trong A1-A6 ban đầu), phải NGAY LẬP TỨC thêm dòng vào file 00, không đợi user hỏi lại mới cập nhật — đúng tinh thần standing rule đã đặt từ 09/09 (tự động ghi, không cần hỏi mỗi lần).

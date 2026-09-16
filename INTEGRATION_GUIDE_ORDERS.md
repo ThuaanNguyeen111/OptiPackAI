@@ -315,13 +315,13 @@ Hệ thống tự động phát hiện các đơn hàng **có khả năng cùng 
 - `isConsolidated: false, consolidatedGroupId: null` → đơn độc lập, không thuộc nhóm nào.
 - `isConsolidated: true, consolidatedGroupId: "<id>"` → đơn thuộc 1 nhóm gộp — FE nên **hiển thị badge/nhãn riêng** (ví dụ "Đơn gộp") trên các đơn có cùng `consolidatedGroupId`, và có thể cho phép nhóm chúng lại thành 1 khối trực quan trong bảng thay vì hiện rời rạc.
 
-**Chỉ đơn CHƯA fulfill xong mới được xét gộp** — cụ thể BE chỉ so khớp `consolidation_key` giữa các đơn có `status` thuộc nhóm `unpaid | pending | to_pack | packed | to_ship | ready_to_ship` (nhóm "đang xử lý dở" — xem danh sách đầy đủ ở mục "Danh sách trạng thái đơn" bên dưới). Đơn đã `shipped/delivered/canceled/returned/failed` (và các trạng thái sự cố logistics) **không bao giờ** được gộp thêm (kể cả nếu trùng khách với 1 đơn mới) — hợp lý về nghiệp vụ (đơn cũ đã xử lý xong hoặc gặp sự cố, không nên gộp ngược). FE không cần tự lọc lại theo status khi hiển thị gộp — BE đã đảm bảo điều này ở tầng dữ liệu.
+**Chỉ đơn CHƯA fulfill xong mới được xét gộp** — cụ thể BE chỉ so khớp `consolidation_key` giữa các đơn có `status` thuộc nhóm `unpaid | pending | to_pack | packed | to_ship | ready_to_ship` (🔄 **ĐÃ ĐỔI 16/09/2026** — doc cũ chỉ liệt kê 4 giá trị `unpaid | pending | packed | ready_to_ship`, nay bổ sung đủ `to_pack`/`to_ship` khớp code thật; nhóm "đang xử lý dở" — xem danh sách đầy đủ ở mục "Danh sách trạng thái đơn" bên dưới). Đơn đã `shipped/delivered/canceled/returned/failed` (và các trạng thái sự cố logistics) **không bao giờ** được gộp thêm (kể cả nếu trùng khách với 1 đơn mới) — hợp lý về nghiệp vụ (đơn cũ đã xử lý xong hoặc gặp sự cố, không nên gộp ngược). FE không cần tự lọc lại theo status khi hiển thị gộp — BE đã đảm bảo điều này ở tầng dữ liệu.
 
 ✅ **Đã xác nhận hoạt động đúng bằng dữ liệu thật (15/09/2026)** — tính năng gộp nhiều đơn cùng khách đã test thành công với dữ liệu Lazada thật (2 và 3 đơn cùng 1 group), không còn là tính năng "chưa verify".
 
 ---
 
-## 7b. Danh sách đầy đủ giá trị `status` — quan trọng khi FE hiển thị badge
+## 7b. 🆕 MỚI (16/09/2026) — Danh sách đầy đủ giá trị `status` — quan trọng khi FE hiển thị badge
 
 Order/item `status` có **19 giá trị thật** (đã xác nhận qua tài liệu chính thức Lazada 15/09/2026, trước đây BE chỉ xử lý 9 giá trị, 10 giá trị còn lại bị âm thầm gộp về `pending`) — chia làm 3 nhóm FE nên hiển thị khác nhau:
 
@@ -331,7 +331,7 @@ Order/item `status` có **19 giá trị thật** (đã xác nhận qua tài li�
 | **Hủy/hoàn bình thường**                                 | `canceled`, `returned`, `shipped_back`, `shipped_back_success`                                                  | Badge xám/vàng nhạt — không phải lỗi hệ thống                                                                                                                                                  |
 | **⚠️ Sự cố logistics thật — NÊN có icon cảnh báo riêng** | `failed`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back_failed`, `package_scrapped` | Badge đỏ/cam nổi bật — đây là các trường hợp hàng thật gặp vấn đề (thất lạc/hư hỏng/giao thất bại), FE nên làm nổi bật để Store Owner/Admin chú ý ngay, khác hẳn nhóm "hủy bình thường" ở trên |
 
-**Lưu ý về `status` cấp Order (không phải cấp item)**: nếu 1 đơn có nhiều item ở nhiều trạng thái khác nhau, BE tự chọn trạng thái "đáng chú ý nhất" làm đại diện (ưu tiên nhóm sự cố > hủy/hoàn > luồng bình thường) — KHÔNG phải trạng thái của item đầu tiên trong mảng. FE hiển thị field `status` cấp Order là đã đúng ưu tiên, không cần tự tính lại.
+🔄 **ĐÃ ĐỔI (15/09/2026) — lưu ý về `status` cấp Order (không phải cấp item)**: nếu 1 đơn có nhiều item ở nhiều trạng thái khác nhau, BE tự chọn trạng thái "đáng chú ý nhất" làm đại diện (ưu tiên nhóm sự cố > hủy/hoàn > luồng bình thường) — KHÔNG phải trạng thái của item đầu tiên trong mảng như trước đây. FE hiển thị field `status` cấp Order là đã đúng ưu tiên, không cần tự tính lại.
 
 ---
 
@@ -388,12 +388,12 @@ Prefix `error_code` theo module: `MKT_` (marketplace-integration — lỗi liên
 
 - [ ] Đã chỉ hiện nút Connect/Sync/menu Orders cho user role **Admin (4)** — role khác gọi vào sẽ bị 403
 - [ ] Đã dùng đúng method **GET** cho `/marketplace/:platform/connect` (không phải POST)
-- [ ] Đã có sẵn route FE `/marketplace-oauth-success` đọc query string (`shopId`/`shopName`/`connected` khi thành công, `error` khi thất bại) — callback giờ **redirect thật**, không còn trả JSON thô (mục 3)
+- [ ] 🔄 **ĐÃ ĐỔI** — Đã có sẵn route FE `/marketplace-oauth-success` đọc query string (`shopId`/`shopName`/`connected` khi thành công, `error` khi thất bại) — callback giờ **redirect thật**, không còn trả JSON thô (mục 3)
 - [ ] Đã dùng cursor `nextCursor`/`before` (ISO datetime string) cho phân trang `GET /orders`, không tự tính page number, không tự sửa giá trị cursor
 - [ ] Đã xử lý đúng field `platformOrderNumber` có thể VẮNG MẶT (optional), không giả định luôn tồn tại như `platformOrderId`
 - [ ] Đã xử lý đúng 2 field dễ hiểu nhầm: `recipientName` bị mask sẵn, `recipientCity` là cấp Phường/Xã
 - [ ] Đã hiểu `items[]` ở `GET /orders/:id` là ĐÃ GỘP theo SKU+status sẵn từ BE — không tự gộp lại lần nữa, và hiểu vì sao 1 SKU có thể xuất hiện 2 dòng nếu khác status (mục 6)
-- [ ] Đã xem đủ **19 giá trị status** (mục 7b) và làm badge riêng cho nhóm "sự cố logistics" (khác nhóm "hủy bình thường")
+- [ ] 🆕 **MỚI** — Đã xem đủ **19 giá trị status** (mục 7b) và làm badge riêng cho nhóm "sự cố logistics" (khác nhóm "hủy bình thường")
 - [ ] Đã hiểu rằng lỗi sync Lazada CHỈ có 1 mã chung `ORD_SYNC_FAILED` (502) — không cố phân biệt "chưa verify" khỏi các lỗi khác qua response
 - [ ] Đã switch theo `error_code` (không parse `message`) cho mọi lỗi từ 2 module này — dùng đúng bảng mã lỗi đầy đủ ở mục 8
 - [ ] Chỉ tích hợp route Lazada — chưa đụng route TikTok/Tiki nếu thấy xuất hiện trên Swagger (roadmap, chưa xong)

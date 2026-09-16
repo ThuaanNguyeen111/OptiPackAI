@@ -413,3 +413,5 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 - [ ] Đã implement đầy đủ nhánh `partial_needs_review`, không chỉ happy path
 - [ ] Đã tích hợp polling `unread-count`
 - [ ] Đã đối chiếu `API_LIST.md` đúng role cho từng màn hình đang build
+- [ ] 🆕 **MỚI (16/09)** — Đã xử lý 2 loại Notification mới (`cancel_confirmation_required`, `sync_failed`) trong UI chuông thông báo (Nghiệp vụ 6)
+- [ ] 🔄 **ĐÃ ĐỔI (16/09)** — Đã biết `PATCH /notifications/:id/read` trả 404 nếu gọi nhầm ID không thuộc về mình (không phải bug khi test chéo role)
