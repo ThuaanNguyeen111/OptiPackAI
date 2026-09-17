@@ -128,6 +128,7 @@ describe('StorefrontCanonicalOrderService', () => {
     const orderModel = {
       findById: jest.fn().mockResolvedValue(existingCanonicalOrder),
       updateOne: jest.fn().mockResolvedValue(undefined),
+      findOneAndUpdate: jest.fn(),
     };
     const orderGroupModel = {
       findOneAndUpdate: jest.fn().mockResolvedValue({}),
@@ -144,6 +145,6 @@ describe('StorefrontCanonicalOrderService', () => {
     );
 
     await expect(service.syncOrder(storefrontOrderId.toString())).resolves.toBe(existingCanonicalOrder);
-    expect(orderModel.findOneAndUpdate).toBeUndefined();
+    expect(orderModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 });
