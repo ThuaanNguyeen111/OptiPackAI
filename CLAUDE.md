@@ -1010,6 +1010,45 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 **Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
 
+## FE — Rule gộp + Owner dashboard — ĐÃ CẬP NHẬT 2026-09-16 theo BE sync
+
+**ĐÃ THAY ĐỔI so với 2026-09-15:** BE `main` (AOFP-19) đưa `platform` vào `consolidation_key` → **live chỉ gộp cùng sàn**. FE (trừ Admin OAuth) đã căn lại UI/copy; demo đa sàn giữ để thuyết trình.
+
+**ĐÃ LÀM (2026-09-16) — FE khớp BE notifications/status (không sửa BE):**
+
+- Chuông `PortalTopBar` → API thật (`GET /notifications`, unread-count, mark read, poll 20s) — Owner/staff.
+- Deep-link: `cancel_confirmation_required` → `/app/orders/:id`; SLA/missing/pending theo role (Owner → `/app/order-groups`, Packaging → `/app/packing`).
+- Chi tiết đơn: banner hủy từ `needCancelConfirm`/`isCancelPending` trên `GET /orders/:id` (+ fallback noti).
+- Tab **"Đơn gộp"** (= mọi `isConsolidated`); badge live "Đơn gộp (cùng sàn)"; ≥2 sàn = "Demo đa sàn".
+- `ORDER_STATUSES` FE đủ 19 giá trị Lazada + badge/filter.
+- RBAC Store Owner whitelist (đã có) giữ nguyên + `/app/order-groups`.
+
+**ĐÃ LÀM (2026-09-16, lượt nối API Owner + Packaging) — không sửa BE:**
+
+- API client: `order-groups.api.ts`, `packaging.api.ts` + types camelCase khớp BE.
+- Store Owner: `/app/order-groups` (list + `PATCH .../priority` Hỏa tốc); `/app/staff` → `GET /users` chỉ đọc (bỏ CRUD mock); orders detail cancel fields.
+- Packaging: `/app/packing` → **UI mock** `PackingDashboard` (user yêu cầu quay lại 2026-09-17). `PackagingWorkbench` (API) giữ trong repo, chưa gắn route.
+- Notifications: đã nối từ trước; deep-link cập nhật cho order-groups.
+
+**ĐÃ LÀM (2026-09-17) — UI khớp 100% whitelist Owner (không đổi logic/API):**
+
+- Ẩn CTA **Lấy hàng** với `STORE_OWNER` (`canPick=false`) — tránh dẫn tới `/app/warehouse` ngoài whitelist.
+- Nav: `Nhân viên` (bỏ “& Vị trí”); `Quy tắc Bao bì (demo)` / `Báo cáo (demo)`.
+- Dashboard: shortcut tới order-groups; copy rõ số liệu tài chính/KPI là minh họa UI.
+- Packaging Rules + Analytics: badge **Demo** + chú thích chưa có API BE.
+
+**ĐÃ LÀM (2026-09-17) — Packaging Staff workbench khớp trạng thái BE (không đổi API duyệt):**
+
+- Trang `/app/packing` trước chỉ lọc `pending_approval` → nhìn “trắng” dù BE có `awaiting_packaging`.
+- UI: 1 lần `GET /order-groups`, 3 tab (Chờ duyệt / Thiếu hàng / Chờ gợi ý chỉ-xem) + empty state giải thích luồng BE; approve/adjust/reject vẫn chỉ khi `pending_approval` + có recommendation.
+- Sidebar staff: bỏ mock “Kho tổng · Ca sáng”, hiện đúng tên role.
+
+**ĐÃ THAY ĐỔI so với đoạn trên (2026-09-17, theo yêu cầu user):** `/app/packing` **quay lại UI mock** `PackingDashboard` (chưa nối API). File `PackagingWorkbench` (đã nối BE) **giữ trong repo** để gắn lại sau — không xóa.
+
+**CHƯA LÀM (BE / ngoài phạm vi FE Owner+Packaging):** sync `canceled` → gỡ group; dọn Admin OAuth dán JSON; Packaging Rules / Analytics vẫn mock (BE chưa có API settings/dashboard).
+
+---
+
 ## 🗺️ ROADMAP TỔNG HỢP (2026-09-10) — toàn bộ việc còn lại, 4 tầng ưu tiên
 
 **Nguồn duy nhất tổng hợp mọi việc còn thiếu đã rải rác trong file này** — khi cần biết "làm gì tiếp theo", đọc mục này trước, không cần lục lại từng mục "Việc CÒN LẠI"/"ĐÃ TRIỂN KHAI" rải rác phía trên.
