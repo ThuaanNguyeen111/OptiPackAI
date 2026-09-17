@@ -1,11 +1,20 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import { IsEnum, IsInt, IsMongoId, IsOptional, IsString, Min } from 'class-validator';
-import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
+import { MarketplacePlatform, parseMarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 export class AssignSkuBinDto {
-  @ApiProperty({ enum: MarketplacePlatform })
-  @IsEnum(MarketplacePlatform)
-  platform!: MarketplacePlatform;
+  // Không bắt Admin chọn sàn trên UI — shop demo chỉ Lazada.
+  // Field thiếu / rỗng / undefined → parse thành lazada (Transform + service).
+  @ApiPropertyOptional({ enum: MarketplacePlatform })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }): MarketplacePlatform =>
+    parseMarketplacePlatform(value),
+  )
+  @IsEnum(MarketplacePlatform, {
+    message: 'platform phải là tiktok, lazada hoặc tiki',
+  })
+  platform?: MarketplacePlatform;
 
   @ApiProperty()
   @IsString()

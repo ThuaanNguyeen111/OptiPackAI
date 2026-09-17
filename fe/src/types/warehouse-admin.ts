@@ -89,4 +89,6 @@ export const WAREHOUSE_ERROR_MESSAGES: Record<string, string> = {
   WH_WAREHOUSE_NOT_FOUND: 'Không tìm thấy kho.',
   WH_ZONE_NOT_FOUND: 'Không tìm thấy khu trong kho.',
   WH_INVALID_BIN_RANGE: 'Khoảng kệ/tầng không hợp lệ (from phải ≤ to).',
+  WH_WAREHOUSE_CODE_IN_USE: 'Mã kho đã tồn tại. Kho cũ vẫn còn trong hệ thống — tải lại trang nếu không thấy.',
+  WH_ZONE_CODE_IN_USE: 'Mã khu đã tồn tại trong kho này.',
 }

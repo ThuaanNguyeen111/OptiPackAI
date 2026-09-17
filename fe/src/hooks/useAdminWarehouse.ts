@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   assignSkuToBin,
   createWarehouse,
   createWarehouseZone,
   generateBinLocations,
-  listBinLocations,
   listSkuBinAssignments,
   listUnassignedSkus,
+  listWarehouseBinLocations,
   listWarehouseZones,
   listWarehouses,
   restockSkuAssignment,
@@ -38,6 +38,7 @@ export function useAdminWarehouse() {
   const [loading, setLoading] = useState(true)
   const [mutating, setMutating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const warehouseLoadGen = useRef(0)
 
   const selectedWarehouse = useMemo(
     () => warehouses.find((row) => row.id === selectedWarehouseId) ?? null,
@@ -47,46 +48,48 @@ export function useAdminWarehouse() {
     () => zones.find((row) => row.id === selectedZoneId) ?? null,
     [zones, selectedZoneId],
   )
-  const bins = useMemo(
-    () =>
-      selectedZoneId
-        ? allBins.filter((row) => row.zoneId === selectedZoneId)
-        : [],
-    [allBins, selectedZoneId],
-  )
+  const bins = useMemo(() => {
+    if (!selectedZoneId) return allBins
+    return allBins.filter(
+      (row) => row.zoneId === selectedZoneId || row.zoneId.length === 0,
+    )
+  }, [allBins, selectedZoneId])
 
   const reloadBins = useCallback(
-    async (zoneRows: WarehouseZoneRecord[]): Promise<BinLocationRecord[]> => {
-      if (zoneRows.length === 0) return []
-      const lists = await Promise.all(
-        zoneRows.map((zone) => listBinLocations(zone.id)),
-      )
-      return lists.flat()
+    async (warehouseId: string): Promise<BinLocationRecord[]> => {
+      return listWarehouseBinLocations(warehouseId)
     },
     [],
   )
 
   useEffect(() => {
+    const gen = ++warehouseLoadGen.current
     let cancelled = false
-    void Promise.all([listWarehouses(), listUnassignedSkus()])
-      .then(([rows, skuRows]) => {
-        if (cancelled) return
+    void (async () => {
+      try {
+        const rows = await listWarehouses()
+        if (cancelled || gen !== warehouseLoadGen.current) return
         setWarehouses(rows)
-        setUnassigned(skuRows)
         setSelectedWarehouseId((current) => {
           if (current && rows.some((row) => row.id === current)) return current
           return rows[0]?.id ?? null
         })
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) {
-          setError(formatApiError(err))
-          setWarehouses([])
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      } catch (err: unknown) {
+        if (cancelled || gen !== warehouseLoadGen.current) return
+        setError(formatApiError(err))
+      } finally {
+        if (!cancelled && gen === warehouseLoadGen.current) setLoading(false)
+      }
+
+      try {
+        const skuRows = await listUnassignedSkus()
+        if (cancelled || gen !== warehouseLoadGen.current) return
+        setUnassigned(skuRows)
+      } catch (err: unknown) {
+        if (cancelled || gen !== warehouseLoadGen.current) return
+        setError(formatApiError(err))
+      }
+    })()
     return () => {
       cancelled = true
     }
@@ -96,48 +99,61 @@ export function useAdminWarehouse() {
     if (!selectedWarehouseId) return
     const warehouseId = selectedWarehouseId
     let cancelled = false
-    void Promise.all([
-      listWarehouseZones(warehouseId),
-      listSkuBinAssignments(warehouseId),
-    ])
-      .then(async ([zoneRows, assignmentRows]) => {
-        const binRows = await reloadBins(zoneRows)
+    void (async () => {
+      try {
+        const zoneRows = await listWarehouseZones(warehouseId)
         if (cancelled) return
         setZones(zoneRows)
-        setAssignments(assignmentRows)
-        setAllBins(binRows)
         setSelectedZoneId((current) => {
           if (current && zoneRows.some((row) => row.id === current)) return current
           return zoneRows[0]?.id ?? null
         })
-      })
-      .catch((err: unknown) => {
+      } catch (err: unknown) {
         if (cancelled) return
         setError(formatApiError(err))
-      })
+      }
+
+      try {
+        const binRows = await reloadBins(warehouseId)
+        if (!cancelled) setAllBins(binRows)
+      } catch (err: unknown) {
+        if (!cancelled) setError(formatApiError(err))
+      }
+
+      try {
+        const assignmentRows = await listSkuBinAssignments(warehouseId)
+        if (!cancelled) setAssignments(assignmentRows)
+      } catch (err: unknown) {
+        if (!cancelled) setError(formatApiError(err))
+      }
+    })()
     return () => {
       cancelled = true
     }
   }, [selectedWarehouseId, reloadBins])
 
   async function reload(): Promise<void> {
+    const gen = ++warehouseLoadGen.current
     setLoading(true)
     setError(null)
     try {
-      const [rows, skuRows] = await Promise.all([
-        listWarehouses(),
-        listUnassignedSkus(),
-      ])
+      const rows = await listWarehouses()
+      if (gen !== warehouseLoadGen.current) return
       setWarehouses(rows)
-      setUnassigned(skuRows)
       setSelectedWarehouseId((current) => {
         if (current && rows.some((row) => row.id === current)) return current
         return rows[0]?.id ?? null
       })
+      try {
+        setUnassigned(await listUnassignedSkus())
+      } catch (err: unknown) {
+        setError(formatApiError(err))
+      }
     } catch (err: unknown) {
+      if (gen !== warehouseLoadGen.current) return
       setError(formatApiError(err))
     } finally {
-      setLoading(false)
+      if (gen === warehouseLoadGen.current) setLoading(false)
     }
   }
 
@@ -156,7 +172,10 @@ export function useAdminWarehouse() {
     setError(null)
     try {
       const created = await createWarehouse(input)
-      setWarehouses((prev) => [created, ...prev])
+      warehouseLoadGen.current += 1
+      setWarehouses((prev) =>
+        prev.some((row) => row.id === created.id) ? prev : [created, ...prev],
+      )
       setSelectedWarehouseId(created.id)
       return created
     } catch (err: unknown) {
@@ -168,12 +187,17 @@ export function useAdminWarehouse() {
   }
 
   async function handleCreateZone(input: CreateZoneInput): Promise<void> {
-    if (!selectedWarehouseId) return
+    if (!selectedWarehouseId) {
+      setError('Chưa chọn kho.')
+      return
+    }
     setMutating(true)
     setError(null)
     try {
       const created = await createWarehouseZone(selectedWarehouseId, input)
-      setZones((prev) => [...prev, created])
+      setZones((prev) =>
+        prev.some((row) => row.id === created.id) ? prev : [...prev, created],
+      )
       setSelectedZoneId(created.id)
     } catch (err: unknown) {
       setError(formatApiError(err))
@@ -193,7 +217,9 @@ export function useAdminWarehouse() {
     setError(null)
     try {
       const result = await generateBinLocations(selectedZoneId, input)
-      setAllBins(await reloadBins(zones))
+      if (selectedWarehouseId) {
+        setAllBins(await reloadBins(selectedWarehouseId))
+      }
       return result
     } catch (err: unknown) {
       setError(formatApiError(err))

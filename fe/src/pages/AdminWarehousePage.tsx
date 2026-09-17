@@ -10,7 +10,6 @@ import {
   Plus,
   RefreshCw,
   ScanLine,
-  Warehouse,
 } from 'lucide-react'
 import { getWarehousePickingList } from '../api/warehouse.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
@@ -50,6 +49,7 @@ export function AdminWarehousePage() {
   const api = useAdminWarehouse()
   const [tab, setTab] = useState<TabId>('zones')
   const [toast, setToast] = useState<string | null>(null)
+  const [pickedBinId, setPickedBinId] = useState('')
 
   function showToast(message: string) {
     setToast(message)
@@ -57,11 +57,11 @@ export function AdminWarehousePage() {
   }
 
   const tabs: Array<{ id: TabId; labelVi: string; labelEn: string }> = [
-    { id: 'zones', labelVi: '2. Khu', labelEn: '2. Zones' },
-    { id: 'bins', labelVi: '3. Kệ', labelEn: '3. Bins' },
-    { id: 'assign', labelVi: '4. Gán SKU', labelEn: '4. Assign SKU' },
+    { id: 'zones', labelVi: 'Khu', labelEn: '2. Zones' },
+    { id: 'bins', labelVi: 'Kệ', labelEn: '3. Bins' },
+    { id: 'assign', labelVi: 'SKU', labelEn: '4. Assign SKU' },
     { id: 'stock', labelVi: 'Nhập tồn', labelEn: 'Restock' },
-    { id: 'picking', labelVi: 'Picking list', labelEn: 'Picking list' },
+    { id: 'picking', labelVi: 'Danh sách lấy hàng', labelEn: 'Picking list' },
   ]
 
   return (
@@ -81,11 +81,6 @@ export function AdminWarehousePage() {
               <h1 className="text-xl font-semibold tracking-tight text-ink">
                 {vi ? 'Cấu hình kho' : 'Warehouse configuration'}
               </h1>
-              <p className="mt-1 text-sm text-ink-muted">
-                {vi
-                  ? 'Bốn bước: tạo kho → khu → sinh kệ hàng loạt → gán SKU. Nhập tồn là bước lặp lại sau khi đã gán vị trí.'
-                  : 'Four steps: warehouse → zone → bulk bins → assign SKU. Restock is a repeatable step after assignment.'}
-              </p>
             </div>
             <Button
               variant="secondary"
@@ -128,14 +123,9 @@ export function AdminWarehousePage() {
             <section className="min-w-0 rounded-xl border border-hairline bg-surface-1">
               {!api.selectedWarehouse ? (
                 <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-                  <Warehouse className="h-8 w-8 text-ink-tertiary" />
+                  <Boxes className="h-8 w-8 text-ink-tertiary" />
                   <p className="text-sm font-medium text-ink">
                     {vi ? 'Chưa có kho nào' : 'No warehouse yet'}
-                  </p>
-                  <p className="max-w-sm text-xs text-ink-muted">
-                    {vi
-                      ? 'Tạo kho ở cột trái (bước 1/4) rồi mới thêm khu, kệ và gán SKU.'
-                      : 'Create a warehouse on the left (step 1/4) before adding zones, bins, and SKUs.'}
                   </p>
                 </div>
               ) : (
@@ -188,12 +178,18 @@ export function AdminWarehousePage() {
                               : `Created ${created} new bins.`,
                           )
                         }
+                        onPickBin={(binId) => {
+                          setPickedBinId(binId)
+                          setTab('assign')
+                        }}
                       />
                     ) : null}
                     {tab === 'assign' ? (
                       <AssignTab
                         vi={vi}
                         api={api}
+                        binId={pickedBinId}
+                        onBinIdChange={setPickedBinId}
                         onAssigned={() =>
                           showToast(
                             vi
@@ -263,7 +259,7 @@ function WarehouseListPanel({
     <aside className="rounded-xl border border-hairline bg-surface-1">
       <div className="flex items-center justify-between border-b border-hairline px-3 py-2.5">
         <p className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
-          {vi ? '1. Kho' : '1. Warehouses'}
+          {vi ? 'Kho' : '1. Warehouses'}
         </p>
         <button
           type="button"
@@ -312,14 +308,14 @@ function WarehouseListPanel({
         </form>
       ) : null}
 
-      {api.loading ? (
+      {api.loading && api.warehouses.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-6 text-xs text-ink-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           {vi ? 'Đang tải…' : 'Loading…'}
         </div>
       ) : api.warehouses.length === 0 ? (
         <p className="px-3 py-6 text-xs text-ink-muted">
-          {vi ? 'Chưa có kho. Bấm Tạo để bắt đầu.' : 'No warehouses. Click New to start.'}
+          {vi ? 'Chưa có kho. Bấm tạo để bắt đầu.' : 'No warehouses. Click New to start.'}
         </p>
       ) : (
         <ul className="max-h-[70vh] overflow-y-auto p-2">
@@ -421,7 +417,7 @@ function ZonesTab({
           title={vi ? 'Chưa có khu' : 'No zones'}
           body={
             vi
-              ? 'Mỗi kho chia thành khu (A, B…). Tạo khu trước khi sinh kệ.'
+              ? 'Mỗi kho chia thành khu A, khu B,…'
               : 'Split the warehouse into zones (A, B…). Create a zone before generating bins.'
           }
         />
@@ -462,10 +458,12 @@ function BinsTab({
   vi,
   api,
   onGenerated,
+  onPickBin,
 }: {
   vi: boolean
   api: Api
   onGenerated: (created: number) => void
+  onPickBin: (binId: string) => void
 }) {
   const [aisle, setAisle] = useState('01')
   const [rackFrom, setRackFrom] = useState(1)
@@ -493,14 +491,14 @@ function BinsTab({
     onGenerated(result.created)
   }
 
-  if (api.zones.length === 0) {
+  if (api.zones.length === 0 && api.allBins.length === 0) {
     return (
       <EmptyHint
         icon={<Boxes className="h-5 w-5" />}
         title={vi ? 'Cần tạo khu trước' : 'Create a zone first'}
         body={
           vi
-            ? 'Sinh kệ theo dãy/rack/tầng phải gắn vào 1 khu cụ thể.'
+            ? 'Sinh kệ theo dãy phải gắn vào 1 khu cụ thể'
             : 'Bulk bin generation is always scoped to one zone.'
         }
       />
@@ -535,52 +533,67 @@ function BinsTab({
           void submit()
         }}
       >
-        <Input
-          className={fieldClass}
-          placeholder="Aisle (01)"
-          value={aisle}
-          onChange={(e) => setAisle(e.target.value)}
-        />
-        <Input
-          className={fieldClass}
-          type="number"
-          min={1}
-          value={rackFrom}
-          onChange={(e) => setRackFrom(Number(e.target.value))}
-        />
-        <Input
-          className={fieldClass}
-          type="number"
-          min={1}
-          value={rackTo}
-          onChange={(e) => setRackTo(Number(e.target.value))}
-        />
-        <Input
-          className={fieldClass}
-          type="number"
-          min={1}
-          value={levelFrom}
-          onChange={(e) => setLevelFrom(Number(e.target.value))}
-        />
-        <Input
-          className={fieldClass}
-          type="number"
-          min={1}
-          value={levelTo}
-          onChange={(e) => setLevelTo(Number(e.target.value))}
-        />
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Dãy (aisle)' : 'Aisle'}</span>
+          <Input
+            className={fieldClass}
+            placeholder="03"
+            value={aisle}
+            onChange={(e) => setAisle(e.target.value)}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Giá từ' : 'Rack from'}</span>
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
+            value={rackFrom}
+            onChange={(e) => setRackFrom(Number(e.target.value))}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Giá đến' : 'Rack to'}</span>
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
+            value={rackTo}
+            onChange={(e) => setRackTo(Number(e.target.value))}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Tầng từ' : 'Level from'}</span>
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
+            value={levelFrom}
+            onChange={(e) => setLevelFrom(Number(e.target.value))}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Tầng đến' : 'Level to'}</span>
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
+            value={levelTo}
+            onChange={(e) => setLevelTo(Number(e.target.value))}
+          />
+        </label>
         <Button
           type="submit"
-          className="h-9 text-xs"
+          className="h-9 self-end text-xs"
           disabled={api.mutating || !aisle.trim() || previewCount <= 0}
         >
           {vi ? 'Sinh kệ' : 'Generate'}
         </Button>
       </form>
-      <p className="text-[11px] text-ink-muted">
+      <p className="text-[11px] leading-relaxed text-ink-muted">
         {vi
-          ? `Thứ tự: dãy · rack từ · rack đến · tầng từ · tầng đến. Sẽ tạo ${previewCount} kệ, ví dụ ${exampleCode}. Gọi lại cùng dãy không tạo trùng.`
-          : `Order: aisle · rack from · rack to · level from · level to. Will create ${previewCount} bins, e.g. ${exampleCode}. Re-running the same range is idempotent.`}
+          ? `Giống siêu thị: 1 dãy (aisle) + khoảng giá đỡ × khoảng tầng. Ví dụ khu ${api.selectedZone?.zoneCode ?? 'A'}, dãy 03, giá 1→2, tầng 1→2 sẽ tạo 4 kệ: ${api.selectedZone?.zoneCode ?? 'A'}-03-01-01 … ${api.selectedZone?.zoneCode ?? 'A'}-03-02-02. Lần này sẽ tạo ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
+          : `Like a supermarket aisle: one aisle × rack range × level range. Example zone ${api.selectedZone?.zoneCode ?? 'A'}, aisle 03, racks 1–2, levels 1–2 → 4 bins. This run creates ${previewCount} bins, first code ${exampleCode}. Same range is idempotent.`}
       </p>
 
       {api.bins.length === 0 ? (
@@ -589,7 +602,7 @@ function BinsTab({
           title={vi ? 'Khu này chưa có kệ' : 'This zone has no bins'}
           body={
             vi
-              ? 'Nhập dãy + khoảng rack/tầng rồi bấm Sinh kệ.'
+              ? 'Nhập dãy + khoảng tầng rồi bấm sinh kệ.'
               : 'Enter aisle + rack/level range, then generate.'
           }
         />
@@ -605,7 +618,11 @@ function BinsTab({
           </TableHeader>
           <TableBody>
             {api.bins.map((bin) => (
-              <TableRow key={bin.id}>
+              <TableRow
+                key={bin.id}
+                className="cursor-pointer"
+                onClick={() => onPickBin(bin.id)}
+              >
                 <TableCell className="font-medium text-ink">{bin.binCode}</TableCell>
                 <TableCell>{bin.aisle}</TableCell>
                 <TableCell>{bin.rack}</TableCell>
@@ -622,14 +639,17 @@ function BinsTab({
 function AssignTab({
   vi,
   api,
+  binId,
+  onBinIdChange,
   onAssigned,
 }: {
   vi: boolean
   api: Api
+  binId: string
+  onBinIdChange: (id: string) => void
   onAssigned: () => void
 }) {
   const [sku, setSku] = useState<UnassignedSku | null>(null)
-  const [binId, setBinId] = useState('')
   const [qty, setQty] = useState(0)
 
   const binsByZone = useMemo(() => {
@@ -723,10 +743,11 @@ function AssignTab({
                 ? 'Chọn 1 SKU bên trái'
                 : 'Select a SKU on the left'}
           </p>
+          
           <select
             className={fieldClass}
             value={binId}
-            onChange={(e) => setBinId(e.target.value)}
+            onChange={(e) => onBinIdChange(e.target.value)}
           >
             <option value="">
               {vi ? 'Chọn kệ…' : 'Choose bin…'}
@@ -789,7 +810,7 @@ function StockTab({
         title={vi ? 'Chưa gán SKU nào' : 'No SKU assignments'}
         body={
           vi
-            ? 'Gán SKU vào kệ ở tab 4 trước, rồi mới nhập tồn (cộng dồn, không ghi đè).'
+            ? 'Gán SKU vào kệ trước, rồi mới nhập tồn'
             : 'Assign SKUs in step 4 first, then restock (adds quantity, never overwrites).'
         }
       />
@@ -881,7 +902,7 @@ function PickingTab({
     <div className="space-y-4">
       <p className="text-xs text-ink-muted">
         {vi
-          ? 'Xem picking list đã sắp theo lộ trình kệ (zone → bin_code). Dùng để kiểm tra SKU chưa gán hiện “CHƯA GÁN VỊ TRÍ”.'
+          ? 'Dùng để kiểm tra SKU, nếu chưa gán sẽ hiện “Chưa gán vị trí”.'
           : 'Preview the bin-sorted picking list (zone → bin_code). Unassigned SKUs show as “CHƯA GÁN VỊ TRÍ”.'}
       </p>
       <form
@@ -931,7 +952,7 @@ function PickingTab({
                 <TableCell>{item.quantity}</TableCell>
                 <TableCell>{item.zone_code}</TableCell>
                 <TableCell>
-                  {item.bin_code === 'CHƯA GÁN VỊ TRÍ' ? (
+                  {item.bin_code === 'Chưa gán vị trí' ? (
                     <Badge tone="warning">{item.bin_code}</Badge>
                   ) : (
                     item.bin_code
