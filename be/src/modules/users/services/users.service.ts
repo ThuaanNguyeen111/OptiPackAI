@@ -7,22 +7,14 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Connection, Model, Types } from 'mongoose';
-import { AppException } from '../../../common/exceptions/app-exception';
 import { RedisCacheService } from '../../../common/redis/redis-cache.service';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { MailService } from '../../mail/mail.service';
-import { NotificationType } from '../../notifications/enums/notification-type.enum';
-import { NotificationsService } from '../../notifications/notifications.service';
 import { TokenService } from '../../auth/services/token.service';
 import { AdminUpdateUserDto } from '../dto/admin-update-user.dto';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateProfileDto } from '../dto/update-profile.dto';
 import { User, UserDocument } from '../schemas/user.schema';
-import { USER_ERROR_CODES } from '../users.errors';
-
-function isDuplicateKeyError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
-}
 
 export interface CreatedUserResult {
   user: UserDocument;
@@ -41,7 +33,6 @@ const MUST_CHANGE_PASSWORD_WINDOW_MS = 72 * 60 * 60 * 1000;
 
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
   private readonly MAX_FAILED_ATTEMPTS = 5;
   private readonly LOCK_DURATION_MS = 15 * 60 * 1000; // 15 phút
 
@@ -56,7 +47,6 @@ export class UsersService {
     private readonly tokenService: TokenService,
     private readonly redisCache: RedisCacheService,
     private readonly mailService: MailService,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   //!=============================================
@@ -98,18 +88,7 @@ export class UsersService {
       temporaryPassword,
     });
 
-      return { user, temporaryPassword };
-    } catch (error: unknown) {
-      if (isDuplicateKeyError(error)) {
-        throw new AppException(
-          USER_ERROR_CODES.EMAIL_IN_USE,
-          'Email này đã được sử dụng cho tài khoản khác. Không thể tạo mới.',
-          HttpStatus.CONFLICT,
-          { email },
-        );
-      }
-      throw error;
-    }
+    return { user, temporaryPassword };
   }
 
   //!=============================================
@@ -333,28 +312,6 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException('Không tìm thấy người dùng');
     await this.redisCache.invalidateUserAuthState(userId);
-
-    // Chỉ báo khi MFA thực sự đang bật (document trả về là bản TRƯỚC khi update).
-    // Lỗi cổng thông báo không được làm fail thao tác tắt MFA.
-    if (user.mfa_enabled) {
-      try {
-        const { title, message } = this.notificationsService.buildMfaDisabledMessage({
-          name: user.name,
-        });
-        await this.notificationsService.notify({
-          recipientUserId: userId,
-          type: NotificationType.MFA_DISABLED,
-          severity: 'warning',
-          title,
-          message,
-          relatedEntityType: 'user',
-          relatedEntityId: userId,
-        });
-      } catch (error: unknown) {
-        const reason = error instanceof Error ? error.message : String(error);
-        this.logger.warn(`Tắt MFA thành công nhưng gửi thông báo thất bại cho user ${userId}: ${reason}`);
-      }
-    }
   }
 
   //!=============================================

@@ -37,6 +37,8 @@ export type MarketplaceOrdersScreenProps = {
   breadcrumbs: { label: string; to?: string }[]
   title: string
   canSync: boolean
+  /** false = ẩn CTA Lấy hàng (Owner whitelist không có /app/warehouse) */
+  canPick?: boolean
 }
 
 export function MarketplaceOrdersScreen({
@@ -47,6 +49,7 @@ export function MarketplaceOrdersScreen({
   breadcrumbs,
   title,
   canSync,
+  canPick = true,
 }: MarketplaceOrdersScreenProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -317,6 +320,7 @@ export function MarketplaceOrdersScreen({
       emptyMessage={emptyMessage}
       colSpan={colSpan}
       onOpenDetail={openDetail}
+      canPick={canPick}
       onPickOrder={(orderId) =>
         navigate(
           `/app/warehouse?orderId=${encodeURIComponent(orderId)}&action=start`,

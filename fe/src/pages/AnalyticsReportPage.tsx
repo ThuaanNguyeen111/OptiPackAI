@@ -80,15 +80,20 @@ export function AnalyticsReportPage() {
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-ink">
-                {vi
-                  ? 'Báo cáo Vận hành & Chi phí AI'
-                  : 'Operational Analytics & AI Cost Reports'}
-              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold tracking-tight text-ink">
+                  {vi
+                    ? 'Báo cáo Vận hành & Chi phí AI'
+                    : 'Operational Analytics & AI Cost Reports'}
+                </h1>
+                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                  Demo
+                </span>
+              </div>
               <p className="mt-1 text-sm text-ink-muted">
                 {vi
-                  ? 'Chi phí bao bì · tiết kiệm AI · hiệu suất kho'
-                  : 'Material cost · AI savings · warehouse efficiency'}
+                  ? 'Minh họa UI — chưa có API báo cáo/dashboard trên BE. Số liệu không lấy từ đơn thật.'
+                  : 'UI mock — no analytics/dashboard API on BE yet. Figures are not from live orders.'}
               </p>
             </div>
             <div className="flex flex-wrap gap-1 rounded-xl border border-hairline bg-surface-1 p-1">

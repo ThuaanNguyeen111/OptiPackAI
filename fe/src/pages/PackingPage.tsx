@@ -1,9 +1,12 @@
+import { useNavigate } from 'react-router-dom'
+import { PackingDashboard } from '../components/packing/PackingDashboard'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
-import { PackagingWorkbench } from '../components/packing/PackagingWorkbench'
 import { usePortal } from '../context/use-portal'
 
+/** Trang đóng gói — UI mock (`PackingDashboard`), chưa nối API BE. */
 export function PackingPage() {
   const { locale } = usePortal()
+  const navigate = useNavigate()
   const vi = locale === 'vi'
 
   return (
@@ -14,7 +17,11 @@ export function PackingPage() {
           { label: vi ? 'Duyệt đóng gói' : 'Packaging approval' },
         ]}
       />
-      <PackagingWorkbench />
+      <div className="min-h-0 flex-1 overflow-hidden">
+        <PackingDashboard
+          onNavigateToShipping={() => navigate('/app/shipping')}
+        />
+      </div>
     </div>
   )
 }

@@ -54,20 +54,20 @@ const OPS_GRID =
   'grid min-w-[1100px] grid-cols-[minmax(210px,1.15fr)_130px_minmax(160px,1.2fr)_60px_minmax(110px,0.9fr)_100px_110px_130px_140px] items-center'
 
 const OPS_HEAD_CELL =
-  'px-3 py-3.5 text-left text-[10px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400'
+  'px-3 py-3.5 text-center text-[10px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400'
 
-const OPS_BODY_CELL = 'flex items-center px-3 py-3.5 text-xs'
+const OPS_BODY_CELL = 'flex items-center justify-center px-3 py-3.5 text-xs'
 
 const OPS_COL = {
-  order: 'min-w-[210px]',
-  channel: 'w-[130px]',
-  recipient: 'min-w-[160px]',
+  order: 'min-w-[210px] justify-center text-center',
+  channel: 'w-[130px] justify-center text-center',
+  recipient: 'min-w-[160px] justify-center text-center',
   items: 'w-[60px] justify-center text-center',
-  total: 'min-w-[110px] justify-end text-right whitespace-nowrap',
-  group: 'w-[100px] justify-center text-center',
+  total: 'min-w-[110px] justify-center text-center whitespace-nowrap',
+  group: 'w-[120px] justify-center text-center',
   status: 'w-[110px] justify-center text-center',
-  created: 'w-[130px] font-mono whitespace-nowrap',
-  action: 'w-[140px] justify-end text-right whitespace-nowrap pr-4',
+  created: 'w-[130px] justify-center text-center font-mono whitespace-nowrap',
+  action: 'w-[140px] justify-center text-center whitespace-nowrap pr-4',
 } as const
 
 function platformLabel(platform: string): string {
@@ -107,7 +107,7 @@ function PlatformPill({ platform }: { platform: string }) {
   )
 }
 
-/** ≥2 nền tảng → pill nằm ngang cạnh nhau trong cùng 1 ô */
+/** ≥2 nền tảng → xếp dọc trong cột Kênh (dễ đọc hơn xếp ngang). */
 function PlatformPillsCell({
   platforms,
 }: {
@@ -118,7 +118,7 @@ function PlatformPillsCell({
     return <PlatformPill platform={unique[0] ?? platforms[0] ?? ''} />
   }
   return (
-    <div className="flex flex-row flex-nowrap items-center gap-1">
+    <div className="flex flex-col items-center gap-1">
       {unique.map((p) => (
         <PlatformPill key={p} platform={p} />
       ))}
@@ -157,7 +157,7 @@ function OrderIdCell({
   if (!primary) return null
 
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex min-w-0 items-center justify-center gap-1.5">
       <button
         type="button"
         onClick={(e) => {
@@ -187,7 +187,7 @@ function OrderIdCell({
           <ChevronRight className="h-3.5 w-3.5" />
         )}
       </button>
-      <div className="min-w-0">
+      <div className="min-w-0 text-center">
         {multiPlatform && groupCode ? (
           <span className="inline-flex items-center rounded border border-purple-200/60 bg-purple-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-purple-700 dark:border-purple-800/60 dark:bg-purple-950/40 dark:text-purple-300">
             {groupCode}
@@ -195,7 +195,7 @@ function OrderIdCell({
         ) : (
           <button
             type="button"
-            className="block max-w-full cursor-pointer truncate text-left font-mono text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
+            className="mx-auto block max-w-full cursor-pointer truncate text-center font-mono text-[13px] font-semibold text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
             onClick={() => onOpen(primary)}
             title={vi ? 'Xem chi tiết đơn' : 'View order detail'}
           >
@@ -348,6 +348,8 @@ export type MarketplaceOrdersViewProps = {
   emptyMessage: string
   colSpan: number
   onOpenDetail: (order: MarketplaceOrderListItem) => void
+  /** Owner whitelist không có warehouse — ẩn CTA Lấy hàng */
+  canPick?: boolean
   onPickOrder: (orderId: string) => void
   onLoadMore: () => void
   selectedOrderId: string | null
@@ -395,6 +397,7 @@ export function MarketplaceOrdersView({
   emptyMessage,
   colSpan,
   onOpenDetail,
+  canPick = true,
   onPickOrder,
   onLoadMore,
   selectedOrderId,
@@ -761,7 +764,7 @@ export function MarketplaceOrdersView({
                   className={`${OPS_GRID} border-b border-slate-200/60 dark:border-zinc-800`}
                 >
                   <div className={cn(OPS_HEAD_CELL, OPS_COL.order)}>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5">
                       <span className="inline-block h-6 w-6 shrink-0" aria-hidden />
                       <span>{vi ? 'Mã đơn' : 'Order'}</span>
                     </div>
@@ -779,7 +782,7 @@ export function MarketplaceOrdersView({
                     {vi ? 'Tổng' : 'Total'}
                   </div>
                   <div className={cn(OPS_HEAD_CELL, OPS_COL.group)}>
-                    {vi ? 'Gộp' : 'Group'}
+                    {vi ? 'Loại đơn' : 'Order type'}
                   </div>
                   <div className={cn(OPS_HEAD_CELL, OPS_COL.status)}>
                     {vi ? 'Trạng thái' : 'Status'}
@@ -882,7 +885,7 @@ export function MarketplaceOrdersView({
                               'min-w-0',
                             )}
                           >
-                            <div className="min-w-0">
+                            <div className="min-w-0 text-center">
                               <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-100">
                                 {order.recipientName}
                               </p>
@@ -951,7 +954,7 @@ export function MarketplaceOrdersView({
                             {formatDateTime(order.createdAt)}
                           </div>
                           <div className={cn(OPS_BODY_CELL, OPS_COL.action)}>
-                            {pickable ? (
+                            {pickable && canPick ? (
                               <Button
                                 type="button"
                                 variant="primary"
@@ -993,16 +996,16 @@ export function MarketplaceOrdersView({
                 </div>
               </div>
             ) : (
-              <Table className="min-w-[920px] text-left text-sm">
+              <Table className="min-w-[920px] text-center text-sm">
                 <TableHeader>
                   <TableRow className="border-hairline hover:bg-transparent">
-                    <TableHead>{vi ? 'Mã đơn' : 'Order'}</TableHead>
-                    <TableHead>{vi ? 'Người nhận' : 'Recipient'}</TableHead>
-                    <TableHead>{vi ? 'SP' : 'Items'}</TableHead>
-                    <TableHead>{vi ? 'Tổng' : 'Total'}</TableHead>
-                    <TableHead>{vi ? 'Gộp' : 'Group'}</TableHead>
-                    <TableHead>{vi ? 'Trạng thái' : 'Status'}</TableHead>
-                    <TableHead>{vi ? 'Ghi nhận' : 'Created'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'Mã đơn' : 'Order'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'Người nhận' : 'Recipient'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'SP' : 'Items'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'Tổng' : 'Total'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'Loại đơn' : 'Order type'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'Trạng thái' : 'Status'}</TableHead>
+                    <TableHead className="text-center">{vi ? 'Ghi nhận' : 'Created'}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1042,7 +1045,7 @@ export function MarketplaceOrdersView({
                           }`}
                           onClick={() => onOpenDetail(order)}
                         >
-                          <TableCell>
+                          <TableCell className="text-center">
                             <p className="font-medium text-ink">
                               {displayOrderNumber(order)}
                             </p>
@@ -1050,22 +1053,23 @@ export function MarketplaceOrdersView({
                               {order.platform} · {order.shopId}
                             </p>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-center">
                             <p className="text-ink">{order.recipientName}</p>
                             <p className="text-[11px] text-slate-500">
                               {order.recipientCity}
                             </p>
                           </TableCell>
-                          <TableCell className="text-ink-muted">
+                          <TableCell className="text-center text-ink-muted">
                             {order.itemCount}
                           </TableCell>
-                          <TableCell className="font-mono text-ink-muted">
+                          <TableCell className="text-center font-mono text-ink-muted">
                             {formatCurrency(
                               order.totalAmount,
                               order.currency,
                             )}
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex justify-center">
                             <MarketplaceConsolidationBadge
                               grouped={grouped}
                               multiPlatform={
@@ -1087,14 +1091,17 @@ export function MarketplaceOrdersView({
                                   : undefined
                               }
                             />
+                            </div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="text-center">
+                            <div className="flex justify-center">
                             <MarketplaceOrderStatusBadge
                               status={order.status}
                               locale={locale}
                             />
+                            </div>
                           </TableCell>
-                          <TableCell className="text-xs text-ink-subtle">
+                          <TableCell className="text-center text-xs text-ink-subtle">
                             {formatDateTime(order.createdAt)}
                           </TableCell>
                         </TableRow>
