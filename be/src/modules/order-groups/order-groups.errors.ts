@@ -15,6 +15,7 @@ export const ORD_GROUP_ERROR_CODES = {
   INSUFFICIENT_STOCK: 'ORD_GROUP_INSUFFICIENT_STOCK', // quantity_on_hand không đủ — FE nên gợi ý report-missing
   // BỔ SUNG (2026-09-10) — item-detail
   ITEM_NOT_IN_GROUP: 'ORD_GROUP_ITEM_NOT_IN_GROUP', // SKU truyền vào không thuộc group này
+  PACKAGING_PROFILE_NOT_READY: 'ORD_GROUP_PACKAGING_PROFILE_NOT_READY', // thiếu số đo/quy cách kho xác nhận
   // BỔ SUNG (2026-09-15) — fix bug đơn canceled vẫn bị tính vào Packaging/Picking List
   ALL_ORDERS_CANCELED: 'ORD_GROUP_ALL_ORDERS_CANCELED', // toàn bộ đơn trong group đã bị hủy, không còn gì để đóng gói/lấy hàng
 } as const;

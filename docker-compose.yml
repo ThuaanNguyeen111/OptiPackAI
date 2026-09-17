@@ -1,41 +1,144 @@
+# ============================================================
+# OptiPackAI — chạy toàn bộ hệ thống bằng Docker Compose
+#
+#   docker compose up -d --build            # redis + be + fe + storefront
+#   docker compose --profile local-db up -d # thêm MongoDB + mongo-express local
+#   docker compose down
+#
+# MongoDB: dùng MongoDB Atlas (khai trong be/.env qua MONGODB_URI) — đúng
+# hiện trạng dự án. Profile "local-db" bên dưới CHỈ dành cho khi cần chạy
+# offline, và đã bật replica set vì code có session.withTransaction()
+# (packaging.service.ts) — Mongo standalone sẽ ném lỗi ngay khi approve
+# một packaging recommendation.
+# ============================================================
+
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: optipackai-redis
+    restart: unless-stopped
+    # Có REDIS_PASSWORD thì bật auth, không có thì chạy trần (chỉ hợp dev).
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ];
+             then exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly yes;
+             else exec redis-server --appendonly yes; fi'
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - optipackai-network
+
+  be:
+    build:
+      # Context là thư mục gốc vì npm workspaces dùng chung package-lock.json
+      context: .
+      dockerfile: be/Dockerfile
+    image: optipackai-be:local
+    container_name: optipackai-be
+    restart: unless-stopped
+    # Toàn bộ biến môi trường thật (MONGODB_URI Atlas, JWT secret, SMTP,
+    # key sàn...) đọc từ be/.env — file này KHÔNG được commit.
+    env_file:
+      - be/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Ghi đè 2 biến trong be/.env: trong mạng compose, Redis là tên service.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:3001}
+    ports:
+      - '${BE_PORT:-3000}:3000'
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - optipackai-network
+
+  fe:
+    build:
+      context: .
+      dockerfile: fe/Dockerfile
+      args:
+        # Trình duyệt gọi backend qua cổng publish trên máy host, KHÔNG phải
+        # tên service "be" (tên service chỉ resolve được bên trong mạng docker).
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+    image: optipackai-fe:local
+    container_name: optipackai-fe
+    restart: unless-stopped
+    ports:
+      - '${FE_PORT:-5173}:8080'
+    depends_on:
+      - be
+    networks:
+      - optipackai-network
+
+  storefront:
+    build:
+      context: .
+      dockerfile: storefront/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    image: optipackai-storefront:local
+    container_name: optipackai-storefront
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+    ports:
+      - '${STOREFRONT_PORT:-3001}:3001'
+    depends_on:
+      - be
+    networks:
+      - optipackai-network
+
+  # ---- Chỉ chạy khi cần DB local: docker compose --profile local-db up -d ----
   mongodb:
+    profiles: ['local-db']
     image: mongo:7
     container_name: optipackai-mongodb
     restart: unless-stopped
+    # replSet BẮT BUỘC: không có nó thì mọi transaction trong code sẽ fail.
+    command: ['mongod', '--replSet', 'rs0', '--bind_ip_all']
     ports:
-      - '27017:27017'
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-admin123}
+      - '${MONGO_PORT:-27017}:27017'
     volumes:
       - mongodb_data:/data/db
+    healthcheck:
+      # Tự khởi tạo replica set 1 node ngay trong healthcheck — lần đầu
+      # initiate, các lần sau status() trả về ok nên không làm gì thêm.
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
     networks:
       - optipackai-network
 
   mongo-express:
-    image: mongo-express:latest
+    profiles: ['local-db']
+    image: mongo-express:1.0.2
     container_name: optipackai-mongo-express
     restart: unless-stopped
     ports:
       - '${MONGO_EXPRESS_PORT:-8081}:8081'
     environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: ${MONGO_INITDB_ROOT_USERNAME:-admin}
-      ME_CONFIG_MONGODB_ADMINPASSWORD: ${MONGO_INITDB_ROOT_PASSWORD:-admin123}
-      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_URL: mongodb://mongodb:27017/?replicaSet=rs0
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:-admin}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD:-admin123}
     depends_on:
-      - mongodb
-    networks:
-      - optipackai-network
-
-  redis:
-    image: redis:7
-    container_name: optipackai-redis
-    restart: unless-stopped
-    ports:
-      - '${REDIS_PORT:-6379}:6379'
-    volumes:
-      - redis_data:/data
+      mongodb:
+        condition: service_healthy
     networks:
       - optipackai-network
 

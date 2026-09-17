@@ -1,0 +1,29 @@
+# Build context của MỌI Dockerfile trong repo này là THƯ MỤC GỐC (vì npm
+# workspaces dùng chung 1 package-lock.json ở gốc) — nên file ignore phải
+# nằm ở gốc, không phải trong từng workspace.
+node_modules
+**/node_modules
+
+# Output build — luôn build lại trong image, không copy từ máy dev
+be/dist
+fe/dist
+storefront/.next
+storefront/out
+**/*.tsbuildinfo
+
+# Bí mật — TUYỆT ĐỐI không để lọt vào image
+.env
+**/.env
+**/.env.*
+!**/.env.example
+
+.git
+.github
+.husky
+coverage
+be/test
+**/*.log
+docs
+*.md
+!README.md
+k8s

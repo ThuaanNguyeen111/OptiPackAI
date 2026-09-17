@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fe
+  labels: { app: fe }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: fe }
+  template:
+    metadata:
+      labels: { app: fe }
+    spec:
+      containers:
+        - name: fe
+          # VITE_API_URL đã bị nhúng vào bundle lúc build image — đổi URL API
+          # thì phải build lại image, không sửa được bằng env ở đây.
+          image: optipackai-fe:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fe
+spec:
+  selector: { app: fe }
+  ports:
+    - port: 80
+      targetPort: 8080

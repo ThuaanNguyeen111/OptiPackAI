@@ -93,11 +93,18 @@ export class NotificationsService {
             .lean();
 
       for (const recipient of recipients) {
-        await this.mailService.sendNotificationEmail({
-          to: recipient.email,
-          title: input.title,
-          message: input.message,
-        });
+        if (input.type === NotificationType.MFA_DISABLED) {
+          await this.mailService.sendMfaDisabled({
+            to: recipient.email,
+            name: recipient.name,
+          });
+        } else {
+          await this.mailService.sendNotificationEmail({
+            to: recipient.email,
+            title: input.title,
+            message: input.message,
+          });
+        }
       }
 
       if (recipients.length > 0) {
@@ -202,6 +209,13 @@ export class NotificationsService {
     return {
       title: `Cảnh báo sai lệch cân nặng — Đơn hàng #${params.groupId}`,
       message: `Cân nặng thực tế của đơn hàng #${params.groupId} (${String(params.actualWeightKg)} kg) chênh lệch đáng kể so với ước tính hệ thống (${String(params.estimatedWeightKg)} kg). Đề nghị kiểm tra lại nội dung đóng gói trước khi bàn giao vận chuyển.`,
+    };
+  }
+
+  buildMfaDisabledMessage(params: { name: string }): { title: string; message: string } {
+    return {
+      title: 'Xác thực 2 lớp (MFA) đã được tắt',
+      message: `Chào ${params.name}, Quản trị viên vừa tắt xác thực 2 lớp trên tài khoản của bạn. Lần đăng nhập tiếp theo sẽ không yêu cầu mã xác thực. Nếu bạn vẫn dùng được ứng dụng Authenticator, hãy vào Hồ sơ để thiết lập lại. Nếu không phải bạn yêu cầu, liên hệ Quản trị viên ngay.`,
     };
   }
 }

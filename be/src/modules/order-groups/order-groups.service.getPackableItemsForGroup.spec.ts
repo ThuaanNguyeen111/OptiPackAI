@@ -24,6 +24,12 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
   let orderModel: { find: jest.Mock };
   let productMasterModel: { find: jest.Mock };
 
+  function mockProductMasterFind(returnedProducts: unknown[]): void {
+    productMasterModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue(returnedProducts),
+    });
+  }
+
   function mockOrderFind(returnedOrders: unknown[]): void {
     orderModel.find.mockReturnValue({
       select: jest
@@ -77,6 +83,22 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
         shop_id: 'shop-1',
       },
     ]);
+    // BE-1: SKU phải có hồ sơ đóng gói đã được kho xác nhận (ready +
+    // đủ số đo + độ nhạy), nếu không getPackableItemsForGroup() ném
+    // ORD_GROUP_PACKAGING_PROFILE_NOT_READY — mock đúng hồ sơ hợp lệ.
+    mockProductMasterFind([
+      {
+        seller_sku: 'SKU-A',
+        is_fragile: false,
+        packaging_profile_status: 'ready',
+        dimension: {
+          package_length_cm: 10,
+          package_width_cm: 8,
+          package_height_cm: 5,
+          package_weight_kg: 0.3,
+        },
+      },
+    ]);
 
     const result = await service.getPackableItemsForGroup(groupId);
 
@@ -85,6 +107,23 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
     expect(first).toBeDefined();
     expect(first?.sku).toBe('SKU-A');
     expect(first?.quantity).toBe(2);
+  });
+
+  it('SKU chưa có hồ sơ đóng gói được kho xác nhận -> throw ORD_GROUP_PACKAGING_PROFILE_NOT_READY (BE-1)', async () => {
+    mockOrderFind([
+      {
+        items: [{ sku: 'SKU-A', quantity: 1 }],
+        platform: 'lazada',
+        shop_id: 'shop-1',
+      },
+    ]);
+    mockProductMasterFind([]);
+
+    await expect(
+      service.getPackableItemsForGroup(groupId),
+    ).rejects.toMatchObject({
+      errorCode: ORD_GROUP_ERROR_CODES.PACKAGING_PROFILE_NOT_READY,
+    });
   });
 
   it('TOÀN BỘ đơn trong group đã bị hủy/gặp sự cố (query trả rỗng) -> throw ORD_GROUP_ALL_ORDERS_CANCELED, KHÔNG trả items rỗng âm thầm', async () => {

@@ -1,0 +1,4 @@
+export const USER_ERROR_CODES = {
+  EMAIL_IN_USE: 'USER_EMAIL_IN_USE',
+  EMAIL_INACTIVE: 'USER_EMAIL_INACTIVE',
+} as const;

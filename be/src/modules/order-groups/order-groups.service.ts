@@ -5,6 +5,7 @@ import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { isValidStatusTransition } from './enums/allowed-status-transitions';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
+import { OrderStatus } from '../orders/enums/order-status.enum';
 // Đọc TRỰC TIẾP schema Order đã có sẵn (KHÔNG sửa file gốc) — Mongoose/
 // Nest cho phép nhiều module cùng đăng ký MongooseModule.forFeature() cho
 // CÙNG 1 schema/collection, đây là pattern chuẩn khi 1 module khác cần
@@ -196,9 +197,12 @@ export class OrderGroupsService {
       );
     }
 
-    const allRawItems: RawOrderItemForAggregation[] = orders.flatMap(
-      (o) => o.items,
-    );
+    // Lọc thêm ở TẦNG ITEM (BE-1): đơn vẫn còn hiệu lực nhưng từng
+    // order_item_id có thể bị hủy riêng lẻ (Lazada trả status theo từng
+    // đơn vị) — bộ lọc status ở query trên chỉ loại được cả đơn.
+    const allRawItems: RawOrderItemForAggregation[] = orders
+      .flatMap((o) => o.items)
+      .filter((item) => item.status !== OrderStatus.CANCELED);
     const aggregated = aggregateOrderItems(allRawItems);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1
@@ -214,22 +218,30 @@ export class OrderGroupsService {
 
     const items: PackableItem[] = aggregated.map((item) => {
       const product = productMap.get(item.sku);
-      if (!product) {
-        // Thiếu dữ liệu Product Master cho SKU này — log cảnh báo thay vì
-        // throw cứng, để AI vẫn tính được cho các SKU CÓ dữ liệu, không
-        // chặn đứng toàn bộ group chỉ vì 1 SKU thiếu cache.
-        this.logger.warn(
-          `Thiếu Product Master cho SKU ${item.sku} (group ${groupId}) — dùng giá trị mặc định an toàn (giả định cồng kềnh nhẹ).`,
+      const dimension = product?.dimension;
+      if (
+        product?.packaging_profile_status !== 'ready' ||
+        product.is_fragile === undefined ||
+        dimension?.package_length_cm === undefined ||
+        dimension.package_width_cm === undefined ||
+        dimension.package_height_cm === undefined ||
+        dimension.package_weight_kg === undefined
+      ) {
+        throw new AppException(
+          ORD_GROUP_ERROR_CODES.PACKAGING_PROFILE_NOT_READY,
+          `SKU ${item.sku} chưa có hồ sơ đóng gói được kho xác nhận (đủ số đo và độ nhạy).`,
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          { groupId, sku: item.sku, reason: product ? 'needs_measurement' : 'missing_product_master' },
         );
       }
       return {
         sku: item.sku,
         quantity: item.quantity,
-        length_cm: product?.dimension.package_length_cm ?? 20,
-        width_cm: product?.dimension.package_width_cm ?? 20,
-        height_cm: product?.dimension.package_height_cm ?? 20,
-        weight_kg: product?.dimension.package_weight_kg ?? 0.5,
-        is_fragile: product?.is_fragile ?? false,
+        length_cm: dimension.package_length_cm,
+        width_cm: dimension.package_width_cm,
+        height_cm: dimension.package_height_cm,
+        weight_kg: dimension.package_weight_kg,
+        is_fragile: product.is_fragile,
       };
     });
 

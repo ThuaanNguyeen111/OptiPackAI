@@ -5,23 +5,30 @@
   "private": true,
   "workspaces": [
     "fe",
-    "be"
+    "be",
+    "storefront"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:be\" \"npm run dev:fe\"",
+    "dev": "concurrently \"npm run dev:be\" \"npm run dev:fe\" \"npm run dev:storefront\"",
+    "dev:storefront": "cd storefront && npm run dev",
     "dev:be": "cd be && npm run start:dev",
     "dev:fe": "cd fe && npm run dev",
-    "build": "npm run build:be && npm run build:fe",
+    "build": "npm run build:be && npm run build:fe && npm run build:storefront",
+    "build:storefront": "cd storefront && npm run build",
     "build:be": "cd be && npm run build",
     "build:fe": "cd fe && npm run build",
     "lint": "npm run lint:be && npm run lint:fe",
     "lint:be": "cd be && npm run lint",
+    "lint:ci": "npm run lint:ci:be && npm run lint:fe",
+    "lint:ci:be": "cd be && npm run lint:ci",
     "lint:fe": "cd fe && npm run lint",
     "test": "npm run test:be",
     "test:be": "cd be && npm run test",
-    "docker:dev": "docker-compose up -d mongodb mongo-express redis",
-    "docker:down": "docker-compose down",
-    "docker:logs": "docker-compose logs -f",
+    "docker:up": "docker compose up -d --build",
+    "docker:infra": "docker compose up -d redis",
+    "docker:dev": "docker compose --profile local-db up -d mongodb mongo-express redis",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
     "prepare": "husky"
   },
   "devDependencies": {

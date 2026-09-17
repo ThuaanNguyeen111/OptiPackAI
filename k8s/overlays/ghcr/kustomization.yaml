@@ -1,0 +1,35 @@
+# Overlay deploy thật: dùng image do workflow .github/workflows/release.yml
+# đẩy lên GitHub Container Registry.
+#
+#   kubectl apply -k k8s/overlays/ghcr
+#
+# Nếu package trên ghcr để private, cụm cần imagePullSecret:
+#   kubectl -n optipackai create secret docker-registry ghcr-creds \
+#     --docker-server=ghcr.io --docker-username=<github-user> \
+#     --docker-password=<personal-access-token có quyền read:packages>
+# rồi gắn secret đó vào ServiceAccount default của namespace:
+#   kubectl -n optipackai patch serviceaccount default \
+#     -p '{"imagePullSecrets":[{"name":"ghcr-creds"}]}'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: optipackai
+resources:
+  - ../../base
+images:
+  # ĐỔI "thuaannguyeen111" thành owner thật của repo trên GitHub.
+  - name: optipackai-be
+    newName: ghcr.io/thuaannguyeen111/optipackai-be
+    newTag: latest
+  - name: optipackai-fe
+    newName: ghcr.io/thuaannguyeen111/optipackai-fe
+    newTag: latest
+  - name: optipackai-storefront
+    newName: ghcr.io/thuaannguyeen111/optipackai-storefront
+    newTag: latest
+patches:
+  # Trên cụm thật thì kéo image mới nhất theo tag, không dùng bản cache ở node.
+  - target: { kind: Deployment, name: 'be|fe|storefront' }
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Always

@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Coding Guide cho Claude
 
+**Đối chiếu 12/09/2026:** đã triển khai lát cắt BE-1 để không mặc định số đo/độ nhạy và chặn hồ sơ packaging chưa `ready`; các phần tự động hóa/validator/picking nhất quán vẫn chưa hoàn tất. Quyết định flow hiện hành nằm ở mục [Roadmap điều chỉnh](#flow-20260912) và [BE-1 → BE-5](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md). Các mục ghi ngày 09–11/09 bên dưới là nhật ký code/lựa chọn cũ, không phải bằng chứng mọi bảo đảm nghiệp vụ đã đạt. Khi khác flow mới, giữ chúng làm lịch sử và theo quyết định 12/09; không tự bật tính năng chưa triển khai.
+
 ## 📌 QUY TẮC QUẢN TRỊ TÀI LIỆU NÀY — ĐỌC TRƯỚC TIÊN, ÁP DỤNG CHO MỌI THAO TÁC SAU NÀY
 
 **Mở rộng 2026-09-10 — bắt buộc chủ động hỏi lại trước/sau mỗi chức năng**: mỗi khi CHUẨN BỊ code 1 chức năng/nghiệp vụ mới, HOẶC vừa code xong 1 chức năng — PHẢI chủ động đặt câu hỏi làm rõ lại cho user, để xác nhận đúng hướng TRƯỚC KHI code tiếp/code sai hướng. Không tự đoán ý user rồi làm luôn nếu còn điểm mơ hồ về nghiệp vụ (khác với mơ hồ kỹ thuật thuần túy, việc đó vẫn tự quyết theo đúng judgement bình thường). Câu hỏi nên có VÍ DỤ CỤ THỂ đi kèm (không hỏi chay lý thuyết) — nếu user báo "chưa hiểu câu hỏi", phải giải thích lại bằng ví dụ đời thường/tình huống cụ thể, không lặp lại nguyên câu hỏi cũ.
@@ -82,7 +84,9 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 - Refresh token rotation + reuse detection
 - **User tự xem/sửa hồ sơ CHỈ qua `GET/PATCH /users/me`** (phone/address/avatar) — **`employee_code`/`department` CHỈ Admin sửa được, qua `PATCH /users/:id`**, kể cả khi Admin tự sửa hồ sơ chính mình cũng phải đi qua route `:id`, không được lẫn vào `/me` (2 DTO tách riêng có chủ đích, không gộp)
 - Admin: tạo/sửa (`PATCH /users/:id`)/reset-password/deactivate/reactivate/disable-mfa cho user khác
-- Gửi email qua module `mail/` (4 template: welcome, forgot-password, account-locked, mfa-enabled) — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
+- **Tạo user — email trùng bị chặn tuyệt đối (2026-09-14, ĐÃ THAY ĐỔI)**: trước đây `createByAdmin()` chỉ chặn email của tài khoản `is_active: true`, unique index cũng partial theo `is_active` → Admin tạo lại đúng email của nhân viên đã vô hiệu hóa thì hệ thống **tạo thêm 1 user mới** (không ghi đè, nhưng ra 2 tài khoản cùng email). Giờ tìm email **không lọc is_active**; nếu trùng tài khoản đang hoạt động → `USER_EMAIL_IN_USE` (409); nếu trùng tài khoản đã vô hiệu hóa → `USER_EMAIL_INACTIVE` (409) kèm `details.existingUserId`, **không tạo mới, không ghi đè**. Unique `{ email: 1 }` giờ áp mọi trạng thái (bỏ `partialFilterExpression`). FE hiện lỗi trên form tạo user; với `USER_EMAIL_INACTIVE` có nút **Kích hoạt lại ngay** (gọi `POST /users/:id/reactivate`, mở lại tài khoản cũ với dữ liệu đã lưu — không lấy tên/vai trò từ form tạo mới).
+- **Admin tắt MFA hộ → thông báo user (2026-09-14)**: `adminDisableMfa()` gọi cổng `NotificationsService.notify()` (in-app + email `mfaDisabledTemplate`). FE hiện popup `MfaDisabledNotice` khi user đăng nhập / đang trong phiên (poll **10s** — user chốt 2026-09-14, đủ cho capstone, không cần WebSocket). Không báo lại nếu MFA vốn đã tắt. Lỗi gửi thông báo không làm fail thao tác tắt MFA.
+- Gửi email qua module `mail/` (5 template: welcome, forgot-password, account-locked, mfa-enabled, mfa-disabled) + `sendNotificationEmail()` cho thông báo vận hành — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
 - `ThrottlerGuard` đã gắn `APP_GUARD` global trong `app.module.ts` — `@Throttle()` trên route (login, forgot-password) giờ thực sự có tác dụng (trước đây từng bị khai config nhưng chưa gắn guard, không chặn được gì)
 - TTL tự dọn: `login_audit_logs` (180 ngày), `trusted_devices` (30 ngày), `refresh_tokens` (theo hạn token)
 
@@ -230,132 +234,52 @@ lazada.adapter.ts:260     getOrders() — path = '/orders/get' (API GetOrders TH
 
 **🔴 Gap thật, chưa xử lý** (phát hiện khi trace lại chuỗi trên): lỗi từ `lazadaAdapter.getOrders()` — bất kể nguyên nhân gốc là gì (token hết hạn, Lazada rate-limit, downtime tạm thời, lỗi mạng...) — đều bị `orders.service.ts` bắt chung và ném ra đúng 1 mã `ORD_ERROR_CODES.SYNC_FAILED` (502) duy nhất. Hệ quả: hệ thống hiện **không phân biệt được** "shop mất kết nối cần Store Owner bấm reconnect lại" với "lỗi tạm thời, tự thử lại lượt cron sau là được" — cả 2 tình huống đều chỉ log ra 1 dòng lỗi generic giống nhau, Store Owner không được chủ động báo cần hành động gì. Muốn vá: cần đọc `data.code`/message cụ thể của Lazada để phân loại lỗi "token/auth" (nên set 1 field kiểu `connection_status: 'disconnected'` trên shop document + tách mã lỗi riêng, VD `ORD_SHOP_DISCONNECTED`) khỏi lỗi tạm thời khác (giữ nguyên generic `SYNC_FAILED`, cron tự retry lượt sau là đủ) — CHƯA làm, cần cân nhắc trước khi coi module `orders` là hoàn thiện đầy đủ cho production thật (không bắt buộc cho demo capstone).
 
-## Roadmap tiếp theo (chốt 2026-09-07) — Product Master Data → Package 4 khung → giao Package 3 cho thành viên khác
+<a id="flow-20260912"></a>
 
-### 0. Tổng quan — vì sao chia việc và thứ tự như dưới đây
+## Roadmap điều chỉnh — chốt 12/09/2026, thay thứ tự 07/09
 
-Package 3 (AI Packaging — thuật toán 3D Bin Packing) là phần nặng nhất theo Report 2 (33 man-days, risk R02 High Impact) — **đã quyết định giao cho 1 thành viên khác trong nhóm đảm nhận riêng**, không phải người đang maintain `orders`/`marketplace-integration`. Để 2 người code song song không giẫm chân nhau, đã chốt 1 **HỢP ĐỒNG INTERFACE** cố định giữa 2 phần (xem mục 3) — miễn đúng interface, ai đổi implementation bên trong phần của mình cũng không ảnh hưởng người kia.
+**[stated] Phạm vi được chốt:** phát triển trên module hiện có, đã triển khai lát cắt BE-1 và tiếp tục theo kế hoạch BE-1 → BE-5, không tạo packaging song song. Một đơn nguồn là một phạm vi đóng; grouping chỉ phục vụ lấy hàng cùng lượt, không tự gom kiện/vận đơn. Kho/Admin xác nhận đã đo/thử khi nhập hồ sơ, không có bước Admin duyệt riêng. Đơn thường tự tính/thông qua chỉ khi đủ dữ liệu và candidate qua validator; nhân viên xử lý ngoại lệ.
 
-Thứ tự làm (không tùy ý — Package 4 phải có field `fulfillment_status` tồn tại trước thì UC-04 mới có chỗ để ghi kết quả duyệt của AI vào):
+### 1. Dữ liệu đầu vào và thuật toán
 
-```
-1. Product Master Data (LazadaAdapter.getProducts() + product_master schema)  ← làm trước, AI cần dữ liệu này
-2. Package 4 khung sườn (fulfillment_status + 5 endpoint giả lập nội bộ)      ← độc lập, không phụ thuộc AI
-3. [THÀNH VIÊN KHÁC] Thuật toán bin-packing thật, dùng input từ bước 1
-4. UC-04 (Packaging Staff Approve/Adjust/Reject) — NỐI bước 2 và bước 3 lại thành 1 luồng
-```
+Product Master đã lấy package dimensions qua GetProducts. Đây là số đo khai báo từ sàn, chưa thay cho hồ sơ gấp/bọc thực tế. Lưu hồ sơ kho/version/người-thời điểm xác nhận riêng; sync không ghi đè. Thiếu dữ liệu không được thay bằng 20 cm/0,5 kg hoặc false cho độ nhạy. Giữ unit ID, shop/platform, SKU/biến thể và trạng thái; chỉ PENDING đã xác minh ở bản đầu, canceled loại bỏ, trạng thái lạ chờ xem lại.
 
-### 1. Product Master Data — nền tảng bắt buộc trước khi AI Packaging chạy được
+Túi zip bọc item khác bao bì ngoài. Hàng sau chuẩn bị là khối đưa vào engine; carton có số đo trong/ngoài riêng, túi có quy cách fit đã thử. Vật tư đã trong gói khác cấp thêm, không cộng hai lần. Giữ greedy 3D + validator độc lập; fallback hiện tại chỉ cộng thể tích +10%, không phải FFD 3D và chưa an toàn cho hàng thật.
 
-**Vấn đề cần giải**: UC-03 (AI Packaging) Precondition ghi rõ _"Order Group đã có đầy đủ kích thước/khối lượng từng sản phẩm"_ — nhưng hiện tại **không có nguồn dữ liệu nào** cung cấp kích thước sản phẩm cả (Store Owner không tự nhập, hệ thống cũng chưa lấy từ đâu).
+### 2. Flow mục tiêu và phạm vi demo
 
-**Đã xác nhận qua doc Lazada thật**: API `GetProducts` (`/products/get`, hỗ trợ `sku_seller_list` tra theo lô tối đa 50 SKU/lần — khớp trực tiếp với `SellerSku` đã lưu sẵn trong `orders`) trả về đủ field cần thiết, nằm ở cấp **SKU** (trong mảng `skus[]`, không phải cấp `item_id`):
-
-```json
-{
-  "package_length": "10.00",
-  "package_width": "10.00",
-  "package_height": "4.00",
-  "package_weight": "0.04",
-  "product_weight": "0.03"
-}
+```text
+Sync → Unit đủ điều kiện của mỗi đơn → Hồ sơ kho đã xác nhận
+→ Thiếu: chờ bổ sung / Đủ: tính và validate túi-carton
+→ Phương án hợp lệ: tự thông qua, ghi system/human → Phân công → Lấy/đối chiếu
+→ Thay đổi/thiếu: dừng, xử lý và tính lại
+→ Cấp vật tư theo attempt → Đóng → Cân/đo kiện thật + đối soát vật tư
+→ Xác nhận packed → Bàn giao vận chuyển nội bộ
 ```
 
-Ưu tiên dùng `package_weight` (đã tính cả bao bì gốc seller, sát thực tế vận chuyển hơn) thay vì `product_weight` (chỉ cân nặng tịnh).
+Approve/adjust kế hoạch không bắt cân sau đóng; dời cân/đo thật sang pack. Chọn kế hoạch không trừ vật tư; cấp phát lúc bắt đầu đóng có transaction/ledger. Cân dự kiến gồm hàng + bì + vật tư; lệch policy thì chờ xem lại trước packed. Partial không chuyển picked bằng boolean nếu chưa đối soát tập giao và tính lại; bản đầu chờ bổ sung hoặc hủy/xử lý lại, chưa giao thiếu tự động.
 
-**Đã cân nhắc và LOẠI `GetProductItem`** (`/product/item/get`) — API này giờ **chỉ tra được theo `item_id`** (tham số `seller_sku` đã bị Lazada deprecated từ 15/11/2023), trong khi dữ liệu đơn hàng của hệ thống có sẵn là `SellerSku` cấp SKU — dùng `GetProductItem` sẽ phải thêm 1 bước tra ngược `item_id`, không cần thiết khi `GetProducts` đã tra thẳng được.
+Giữ status nguồn sàn tách fulfillment nội bộ. Trong phạm vi đồ án, không gọi Pack/ReadyToShip/giao hàng thật lên Lazada. Đây là phạm vi mô phỏng có chủ đích; không tuyên bố đã tích hợp shipping production.
 
-**Việc cần code**:
+### 3. Contract và tương thích
 
-1. `LazadaAdapter.getProducts(sellerSkus[])` — method mới, gọi `GetProducts` với `sku_seller_list`
-2. `product-master.schema.ts` — collection mới, xem chuẩn thiết kế ở mục 4 bên dưới
-3. Hàm giao diện cho AI: `OrdersService.getPackableItemsForGroup(groupId): Promise<OrderGroupForPackaging>` — xem interface đầy đủ ở mục 3
+Interface đang chạy ở common/interfaces/packaging.interface.ts dùng group ID, SKU/quantity, cm/kg và một box; HTTP packaging/warehouse đã camelCase. Đây là contract legacy cần adapter/version sang unit một đơn, mm/g, candidate box/mailer, snapshot và branch status; không đổi tên ngầm hoặc ép túi thành box giả.
 
-**Chiến lược cache — KHÔNG gọi Lazada mỗi lần AI tính toán**: lần đầu gặp 1 `sellerSku` chưa có trong `product_master` → gọi API lấy về, cache lại; đồng bộ lại định kỳ 1 lần/ngày (không cần dày như order sync 10 phút — kích thước sản phẩm hiếm khi đổi). Bin-packing đọc thẳng từ cache local, đảm bảo NFR "≤5 giây/đơn" đã cam kết ở Report 2 không phụ thuộc độ trễ mạng ra ngoài.
+Nhóm legacy chứa nhiều đơn đang xử lý phải được rà soát trước chuyển; không tự tách/viết lại lịch sử đã hoàn tất. Recommendation cũ thiếu snapshot không được tự hợp thức hóa. Chỉ sửa các module Orders liên quan theo BE-1 có regression; yêu cầu cũ “không đụng Orders” là phạm vi của lượt code trước, không cấm sửa lỗi đã xác định.
 
-### 2. Package 4 khung sườn — `fulfillment_status`, KHÔNG gọi API Lazada thật để đổi trạng thái
+### 4. Các đợt sửa và bảo đảm cần kiểm chứng
 
-**Quyết định quan trọng, đến từ chính giảng viên hướng dẫn**: vì tài khoản Lazada dùng để demo là seller thật (đã KYC) nhưng **không có hàng thật, không có shipper Lazada thật tới lấy** — nên **chỉ luồng `sync` (đọc đơn về) là gọi Lazada thật**; mọi hành động sau đó (đã lấy hàng, đã đóng gói, đã giao, hoàn hàng) đều **giả lập bằng cách tự đổi trạng thái trong DB nội bộ**, không gọi `Pack`/`ReadyToShip`/`Return and Refund API` thật lên Lazada.
+| Đợt | Nội dung | Nghiệm thu chính |
+| --- | --- | --- |
+| BE-1 | Mapper, unit đủ điều kiện, mỗi đơn riêng, backfill group | Không canceled/nhầm shop, không thiếu document group |
+| BE-2 | Hồ sơ kho, version, catalog và readiness | Nháp không dùng, thiếu báo thiếu, sync không ghi đè |
+| BE-3 | Validator, greedy/carton, fit túi, snapshot/adapter | Không hộp giả/quá cỡ, giữ fixture hình học đúng |
+| BE-4 | Picking, idempotency/transaction, partial, vật tư/cân sau đóng | Không trừ trùng/đủ giả/stale; ledger và đối soát |
+| BE-5 | Job bền vững, retry/recovery, tự thông qua và pilot | Chỉ bật khi BE-1 đến BE-4 đạt, không mất/lặp quyết định |
 
-**Lý do kỹ thuật, không chỉ là "cho đơn giản"**: Lazada Open Platform **không có sandbox riêng** — mọi API gọi ra đều chạm production thật. Gọi `Pack`/`ReadyToShip` thật trên 1 đơn không có hàng thật **có thể khiến Lazada thật sự điều phối 1 shipper thật** tới lấy 1 kiện hàng không tồn tại; gọi `Return and Refund API` thật có thể kích hoạt hoàn tiền thật qua cổng thanh toán thật. Rủi ro thật, không phải lý thuyết — có thể khiến shop test bị đánh dấu hoạt động bất thường.
+Nguồn chi tiết: [roadmap backend](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md). Multi-start/ML/nhiều kiện/viewer/cước thật là các bước sau; không giữ lịch triển khai M0–M8 cũ như một kế hoạch song song.
 
-**Hệ quả cho code đã có sẵn**: các method Fulfillment API đã research trước đó (`readyToShip`, `packOrders`, `printAWB`, nhóm DBS) — **vẫn giữ nguyên kế hoạch implement đủ trong `LazadaAdapter`** theo đúng spec (sẵn sàng dùng thật khi lên production thật ngoài phạm vi đồ án), nhưng **không invoke trong luồng demo** — cùng 1 pattern đã áp dụng với DBS trước đó ("implemented nhưng unverifiable trong môi trường hiện tại").
-
-**Thiết kế**: tách 2 field trạng thái, KHÔNG gộp chung:
-
-| Field                            | Nguồn                                                                                             | Ai cập nhật                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `status` (đã có)                 | Lấy nguyên từ Lazada                                                                              | Cron `syncLazadaOrders` — giữ nguyên                 |
-| `fulfillment_status` (field MỚI) | Tự định nghĩa: `new → picking → picked → packed → ready_to_ship → shipped → delivered → returned` | 5 endpoint nội bộ, nhân viên bấm tay/quét QR giả lập |
-
-Cron sync (đọc `status`) và luồng fulfillment nội bộ (ghi `fulfillment_status`) là 2 field độc lập hoàn toàn — cron chạy lại mỗi 10 phút sẽ không bao giờ ghi đè lên `fulfillment_status`, an toàn tuyệt đối.
-
-**5 endpoint nội bộ cần thêm** (đúng UC-07 đã viết ở Report 1 — Warehouse Staff quét QR cập nhật trạng thái, không cần Lazada xác nhận gì):
-
-```
-POST /orders/:groupId/fulfillment/pick
-POST /orders/:groupId/fulfillment/pack
-POST /orders/:groupId/fulfillment/ship
-POST /orders/:groupId/fulfillment/deliver
-POST /orders/:groupId/fulfillment/return
-```
-
-### 3. HỢP ĐỒNG INTERFACE với thành viên làm Package 3 (AI Packaging) — cố định trước khi tách việc
-
-**Input — người làm `orders`/Product Master cung cấp cho AI**:
-
-```ts
-interface PackableItem {
-  sku: string;
-  quantity: number;
-  length_cm: number;
-  width_cm: number;
-  height_cm: number;
-  weight_kg: number;
-  is_fragile: boolean; // phục vụ BR-06 (bubble wrap bắt buộc)
-}
-interface OrderGroupForPackaging {
-  order_group_id: string;
-  items: PackableItem[];
-}
-```
-
-**Output — người làm AI Packaging trả về**:
-
-```ts
-interface PackagingRecommendation {
-  order_group_id: string;
-  box_size: { length_cm: number; width_cm: number; height_cm: number };
-  material_type: string;
-  material_quantity: number;
-  computation_time_ms: number;
-  fallback_used: boolean; // đúng UC-03 alt flow: timeout >5s → fallback First Fit Decreasing đơn giản
-}
-```
-
-Miễn đúng 2 shape này, người làm AI có thể tự viết unit test bằng dữ liệu giả (mock `PackableItem[]`) mà không cần chờ Product Master code xong; ngược lại người làm `orders` cũng test được UC-04 (Approve/Adjust) bằng recommendation giả mà không cần chờ thuật toán AI thật.
-
-### 4. Chuẩn thiết kế DB cho các collection MỚI (áp đúng 11 quy tắc "Database Design Standards" đã có ở mục dưới, cụ thể hoá cho lần này)
-
-**`product_master`**:
-
-- Sub-schema riêng `PackageDimension` (`@Schema({ _id: false })`) cho `package_length/width/height/weight` — không dùng `type: Object`
-- Index bắt buộc: `{ shop_id: 1, seller_sku: 1 }` **unique** (tra cứu chính luôn theo cặp này)
-- Không nhét lịch sử đổi kích thước vào mảng lồng trong document chính — nếu cần track lịch sử, tách collection `product_master_history` riêng
-
-**`packaging_recommendations`** (chi tiết bên trong do người làm AI tự thiết kế, nhưng các ràng buộc sau BẮT BUỘC):
-
-- Index: `{ order_group_id: 1 }` unique (1 group chỉ có 1 recommendation `is_active: true` tại 1 thời điểm) + `{ approval_status: 1, created_at: -1 }` (phục vụ UI Packaging Staff xem danh sách đang chờ duyệt)
-- Khi bị Reject và tính lại (UC-03 alt flow): **không xóa cứng bản cũ** — đánh `is_active: false`, tạo bản ghi mới `is_active: true`, giữ lịch sử phục vụ audit "AI Recommendation Accuracy Rate" (BR-08)
-
-**`orders.fulfillment_status`** (field thêm vào schema có sẵn):
-
-- Index bổ sung: `{ fulfillment_status: 1, consolidated_group_id: 1 }` — phục vụ query "danh sách đơn theo trạng thái" cho UI kho
-- Theo nguyên tắc ESR: nếu sau này thêm filter theo `created_at` kèm `fulfillment_status`, đặt `fulfillment_status` (equality) trước, `created_at` (range) sau trong compound index
-
-**Transaction bắt buộc khi Approve (UC-04)**: hành động Approve ghi ĐỒNG THỜI `packaging_recommendations.approval_status` VÀ `orders.fulfillment_status` (2 collection khác nhau, cùng 1 nghiệp vụ) → bắt buộc bọc `session.withTransaction()`, không ghi rời rạc.
-
-**Counter cho Dashboard (Package 5, làm sau)**: nếu track kiểu "số đơn đã đóng gói hôm nay", dùng atomic `$inc` (`findByIdAndUpdate(id, { $inc: { total_packed: 1 } }, { upsert: true })`), **không** đọc-document-rồi-cộng-rồi-save.
+**Kết quả rà code trước đợt docs:** 16/16 test packaging cũ đạt nhưng có test chấp nhận quá cỡ vẫn trả Large. Chạy trực tiếp fallback tái hiện món 100×1×1 cm được Small, món cạnh 200 cm được Large, đơn rỗng cũng có hộp. Các vấn đề còn phải sửa: mất ID/lọc trạng thái ở getPackableItemsForGroup; grouping thiếu shop/phạm vi; backfill chỉ ID null; pick trừ tồn và ghi event không nguyên tử; partial chỉ đổi trạng thái; generate không transaction; adjust chưa validate/tính lại/ghi đủ lý do. Không coi log “đã xong” cũ là bằng chứng các lỗi này đã được vá.
 
 ## Kiến trúc mở rộng đa sàn (Multi-Platform Scalability) — chốt 2026-09-09, nghiên cứu sâu để thêm TikTok/Tiki KHÔNG phải sửa lại code Lazada đang chạy sống
 
@@ -515,42 +439,19 @@ src/
       product-master.module.ts
 ```
 
-### Luồng chạy — từ lúc có đơn hàng tới lúc AI Packaging lấy được dữ liệu
+### Luồng đang có — đối chiếu lại 12/09/2026
 
-```
-[ĐÃ CÓ, không đổi] Cron 10' → syncLazadaOrders() → Order lưu vào MongoDB (consolidated_group_id vẫn null nếu chưa gộp)
-        ↓
-[MỚI] Lần đầu 1 group được cần tới (VD Packaging Staff mở màn hình, hoặc gọi getPackableItemsForGroup):
-  OrderGroupsService.getOrCreateGroupForOrder(order)
-    → nếu order.consolidated_group_id đã có giá trị (tryConsolidate() cũ đã gán) → tìm/tạo OrderGroup dùng ĐÚNG id đó
-    → nếu null (đơn chưa từng gộp) → tạo OrderGroup mới, ghi NGƯỢC id vào field consolidated_group_id
-      (field này vốn LUÔN null trong code cũ, không ai đọc — ghi vào đây là AN TOÀN, không ảnh hưởng
-      logic sync/tryConsolidate() đang chạy, vì họ chưa từng dùng giá trị này để quyết định gì)
-        ↓
-[MỚI] OrderGroupsService.getPackableItemsForGroup(groupId)
-    → query orders theo consolidated_group_id (Rule #12 .lean(), #13 .select())
-    → aggregateOrderItems() (TÁI DÙNG util đã có, không viết lại)
-    → query product_master theo $in (Rule #16, chống N+1)
-    → trả về OrderGroupForPackaging — ĐÚNG shape đã chốt cho thành viên làm AI
-        ↓
-[Riêng, độc lập] ProductMasterService.syncProductsForShop(shopId, skus)
-    → gọi LazadaAdapter.getProducts() (method mới) theo batch 50
-    → bulkWrite() cache vào product_master (Rule #14)
-    → chạy 1 lần/ngày (cron riêng, CHƯA code — xem "Việc còn thiếu" bên dưới), KHÔNG phải mỗi lần AI tính
-```
+Orders sync mỗi 10 phút. Group backfill mỗi 15 phút chỉ tìm consolidated_group_id=null, còn thiếu trường hợp ID có giá trị mà document group không tồn tại. Product Master có cron riêng lúc 3h mỗi ngày; chưa có cache-miss fetch trong getPackableItemsForGroup, nơi đang dùng số đo mặc định khi thiếu.
+
+Packaging hiện đọc group, aggregate item rồi tra Product Master; Admin gọi generate bằng fallback, Packaging Staff/Admin approve rồi mới phân công và picking. Các lỗi dữ liệu/thứ tự cân được xử lý theo [roadmap mới](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md); không phải code đã tự theo flow mới.
 
 ### Verify — đã chạy compiler thật, không chỉ đọc mắt (đúng chuẩn Type Safety đã đặt ra)
 
 Merge patch vào bản đầy đủ, `npm install`, chạy `npx tsc --noEmit -p tsconfig.json` → **0 lỗi** (1 lỗi unused-import nhỏ phát hiện lúc đầu, đã tự sửa). Chạy `npx eslint` trên toàn bộ file mới + 2 file bị chạm → **0 lỗi/warning**. Không có lỗi nào lan sang phần code cũ.
 
-### Việc CÒN THIẾU, chưa code trong lượt này (liệt kê rõ để không hiểu nhầm đã xong hết)
+### Trạng thái các phần từng thiếu — cập nhật 12/09/2026
 
-1. `getOrCreateGroupForOrder()` mới chỉ được gọi khi cần (on-demand) — CHƯA có cron/job tự động chạy nó cho MỌI order mới sync xong. Cần quyết định: gọi ngay sau mỗi lần sync (thêm hook), hay để lazy tới khi Packaging Staff/API nào đó cần mới tạo group.
-2. `ProductMasterService.syncProductsForShop()` viết xong nhưng **chưa có nơi nào gọi nó** — cần 1 cron riêng (khác cron Lazada order sync, tần suất 1 lần/ngày) hoặc 1 endpoint admin gọi tay.
-3. `order-groups.controller.ts` — CHƯA có, hiện `OrderGroupsService` chỉ dùng nội bộ (service-to-service), chưa có route HTTP nào cho FE gọi.
-4. 5 endpoint fulfillment nội bộ (pick/pack/ship/deliver/return) — CHƯA code, đây là việc tiếp theo sau khi có `order_groups` (vừa xong).
-5. `PackagingRecommendation` schema — CHƯA code, thuộc phần bàn giao cho thành viên làm AI Packaging.
-6. UC-04 (Approve/Adjust/Reject, transaction Rule #6) — CHƯA code, phụ thuộc mục 5 xong trước.
+Cron Product Master, group backfill, controller Order Groups, schema recommendation và approve/adjust/reject đã có. Không triển khai lại từ đầu. Những việc còn thiếu hiện hành là hồ sơ kho/readiness, validator/engine, sửa picking/nhất quán dữ liệu và tự động hóa theo BE-1 đến BE-5.
 
 ## Điểm yếu đã phát hiện khi rà toàn bộ Backend (2026-09-09) — vấn đề, cách khắc phục, tại sao, lợi ích sau khi vá
 
@@ -850,7 +751,9 @@ POST /order-groups/:id/fulfillment/return   @Roles(SHIPPING_COORDINATOR, WAREHOU
 1. `isValidStatusTransition()` (đã có từ trước) — chặn nhảy trạng thái sai thứ tự nghiệp vụ
 2. Rule #18 Optimistic Concurrency — `findOneAndUpdate({_id, __v: expectedVersion}, {$set, $inc: {__v:1}}, {returnDocument:'after'})`; không match được document (do version lệch) → ném `ORD_GROUP_STATE_CONFLICT` (409), báo FE tải lại dữ liệu mới nhất thay vì âm thầm ghi đè lost-update
 
-### Quyết định thiết kế cần biết — `pick` nhảy thẳng qua `PICKING`
+### Hành vi legacy — `pick` nhảy thẳng qua `PICKING`
+
+**ĐÃ THAY ĐỔI 12/09:** BE-4 phải đối soát unit/số lượng ở server trước picked. Đường tắt bên dưới chỉ mô tả code/demo cũ, không phải lựa chọn vận hành mục tiêu.
 
 `allowed-status-transitions.ts` trước đó chỉ cho `APPROVED_FOR_PACKING → PICKING` (1 bước) — đã thêm `APPROVED_FOR_PACKING → PICKED` (nhảy thẳng), vì endpoint `pick` hiện tại là **"1 lần bấm = xác nhận đã lấy xong toàn bộ hàng"**, chưa có màn hình quét QR từng SKU riêng lẻ (đó là việc tương lai). `PICKING` **vẫn giữ nguyên** trong enum + transition map — không xóa, chỉ tạm thời không có endpoint nào dừng lại đúng trạng thái đó. Khi sau này tách thành 2 thao tác thật ("bắt đầu lấy" / "lấy xong"), transition 1-bước cũ vẫn dùng được ngay, không cần sửa gì thêm.
 
@@ -881,13 +784,13 @@ Muốn `pick` chạy được, group phải đang ở đúng trạng thái ngu�
 
 ## ĐÃ TRIỂN KHAI — Module `packaging/` + Module `warehouse/` (2026-09-09, lượt code thứ 3 trong ngày)
 
-### Bối cảnh — vì sao 2 module này làm CÙNG lúc
+### Bối cảnh và giới hạn fallback — đính chính 12/09/2026
 
-Trước đó có 1 nghịch lý bị chỉ ra đúng: 5 endpoint fulfillment (đã code) không tự chạy được vì phụ thuộc UC-04 (chuyển group sang `approved_for_packing`), mà UC-04 lại phụ thuộc UC-03 (AI thật, thành viên khác đang làm) — không việc nào tự làm xong để có demo thật. Giải pháp: **code thuật toán fallback đơn giản NGAY**, không phải "code test rồi vứt" mà là **implement sớm 1 phần production thật** (chính UC-03 Alt Flow, Report 1, đã note từ trước: _"Thuật toán vượt quá 5 giây (timeout) -> dùng fallback đơn giản (First Fit Decreasing)"_). Khi AI thật xong, code fallback này **không bị thay thế, vẫn giữ nguyên vai trò lưới an toàn** như thiết kế ban đầu.
+Fallback được tạo để mở khóa demo UC-04/fulfillment khi chưa có engine thật. Code thực tế chỉ chọn theo tổng thể tích +10%, vẫn trả Large khi quá cỡ; không có bước xếp giảm dần hay validator. Vì vậy nhận định cũ “production/lưới an toàn giữ nguyên” bị thay thế: chỉ dùng làm dữ liệu demo cho tới khi BE-3 có fallback hợp lệ. Không gọi implementation hiện tại là FFD 3D.
 
-### Module `packaging/` — UC-04 hoàn chỉnh
+### Module `packaging/` — API UC-04 hiện hữu, còn lỗi flow cần sửa
 
-**File mới (12 file)**: schema (`PackagingRecommendationDoc` + sub-schema `BoxSize`), enum `PackagingApprovalStatus`, `fallback-packaging.util.ts` (First Fit Decreasing đơn giản, 3 size thùng cố định, BR-05 padding 10%, BR-06 fragile→Bubble Wrap), 3 DTO (Approve/Adjust/Reject), Service, Controller, Module, errors.
+**File mới (12 file)**: schema (`PackagingRecommendationDoc` + sub-schema `BoxSize`), enum `PackagingApprovalStatus`, `fallback-packaging.util.ts` (chọn theo thể tích, 3 hộp cố định, +10%, fragile→Bubble Wrap; chưa chứng minh xếp vừa/bảo vệ), 3 DTO (Approve/Adjust/Reject), Service, Controller, Module, errors.
 
 **Route + role:**
 
@@ -900,7 +803,7 @@ POST /order-groups/:groupId/packaging/reject     @Roles(PACKAGING_STAFF, ADMIN)
 
 **Điểm kỹ thuật quan trọng nhất — transaction thật, dùng đúng Rule #6**: `approve()`/`adjust()`/`reject()` đều `connection.startSession()` + `session.withTransaction()`, ghi ĐỒNG THỜI `packaging_recommendations` + `order_groups` trong cùng 1 session — nếu 1 trong 2 lệnh ghi fail, CẢ 2 tự rollback, không có tình trạng "nửa vời". Đã xác nhận an toàn từ trước (project dùng Atlas, luôn là replica set).
 
-**"Detect abnormal packages" (đề bài, actor AI Engine) — đã implement, kết nối trực tiếp với "Measure package weight" (Packaging Staff)**: `approve()`/`adjust()` đều nhận `actual_measured_weight_kg` (cân THẬT), so sánh với cân lý thuyết từ `product_master` — lệch >20% tự đánh `is_abnormal: true`, log cảnh báo. Đúng phát hiện đã ghi ở mục "Nghiên cứu Actor" — 1 field dữ liệu phục vụ đồng thời 2 trách nhiệm của 2 actor khác nhau trong đề bài.
+**Cân bất thường — hành vi cũ còn phải sửa:** `approve()`/`adjust()` đều nhận `actual_measured_weight_kg` (cân THẬT), so sánh với cân lý thuyết từ `product_master` — lệch >20% tự đánh `is_abnormal: true`, log cảnh báo. BE-4 dời cân về sau đóng; so với cả kiện gồm bì/vật tư, không chỉ khối lượng item. Hiện trạng này chưa đáp ứng thứ tự thao tác thực tế.
 
 **Reject KHÔNG xóa cứng** — đánh `is_active: false`, group quay lại `awaiting_packaging` (dùng transition đã vá bug từ trước), giữ lịch sử phục vụ audit BR-08.
 
@@ -1010,7 +913,9 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 **Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
 
-## 🗺️ ROADMAP TỔNG HỢP (2026-09-10) — toàn bộ việc còn lại, 4 tầng ưu tiên
+## 🗺️ Backlog lịch sử 10/09/2026 — không thay thứ tự BE-1 → BE-5
+
+Các nhãn hoàn tất dưới đây ghi nhận API đã được thêm ở lượt cũ; không chứng minh các bảo đảm nghiệp vụ đã đạt. Phần packaging/fulfillment thực hiện theo roadmap 12/09 ở trên.
 
 **Nguồn duy nhất tổng hợp mọi việc còn thiếu đã rải rác trong file này** — khi cần biết "làm gì tiếp theo", đọc mục này trước, không cần lục lại từng mục "Việc CÒN LẠI"/"ĐÃ TRIỂN KHAI" rải rác phía trên.
 
@@ -1029,9 +934,9 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 ## Nghiên cứu Notification (2026-09-10) — khi nào bắn, nội dung gì, bắn ra sao
 
-**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin).
+**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin), **Admin tắt MFA hộ user (Warning, 2026-09-14 — đích danh user bị tắt, popup in-app + email)**.
 
-**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
+**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum — 8 giá trị: 7 loại vận hành kho/sàn + `mfa_disabled` thêm 2026-09-14), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
 
 **Cách bắn**: khuyên dùng **Phương án A — polling** (`GET /notifications/unread-count` mỗi 15-30s từ FE) cho quy mô capstone, đơn giản không cần hạ tầng mới. Phương án B (WebSocket/NestJS Gateway, real-time push) là chuẩn production nhưng tốn công hơn, chỉ làm nếu dư thời gian.
 
@@ -1127,7 +1032,9 @@ Thêm field vào `SkuBinAssignment` (module `warehouse/`). Đồng thời bổ s
 - **`initial_quantity` optional trên `AssignSkuBinDto`** — gán vị trí lần đầu có thể chưa có hàng thật (mặc định 0), dùng `$setOnInsert` (không phải `$set`) để KHÔNG reset số lượng nếu chỉ đang đổi vị trí kệ cho SKU đã có sẵn assignment.
 - **Endpoint `POST .../sku-bin-assignments/:assignmentId/restock`** (mới, chưa có trong thiết kế gốc) — nghiệp vụ NHẬP HÀNG là khác biệt với GÁN VỊ TRÍ (gán 1 lần, nhập hàng lặp lại định kỳ) — cộng dồn bằng `$inc` atomic (Rule #7), không phải set lại toàn bộ.
 
-### `pick-item` — Điểm yếu #10 mục 4, trung tâm của Tầng 1
+### `pick-item` — API đã thêm, chưa bảo đảm retry đồng thời
+
+**Đính chính 12/09:** decrement và create event hiện chưa trong cùng transaction; unique event không ngăn lần trừ trước đó. BE-4 cần transaction, kiểm tra unit/số lượng và idempotency theo cả nội dung.
 
 `POST /order-groups/:id/fulfillment/pick-item` (body: `sku`, `scanned_quantity`, `scan_method`, `warehouse_id`, `client_event_id?`) — `OrderGroupsService.pickItem()`:
 
@@ -1160,7 +1067,9 @@ Trạng thái mới, đúng Hướng Y đã chốt: `APPROVED_FOR_PACKING`/`PICK
 - Route: `GET /notifications` (danh sách), `GET /notifications/unread-count` (polling, Phương án A đã chốt — không cần WebSocket), `PATCH /notifications/:id/read`.
 - `MailService` (module `mail/`, đã hoàn thiện từ trước) — thêm method MỚI `sendNotificationEmail()` (additive, không đụng 4 method cũ) — mẫu email ĐƠN GIẢN có chủ đích (chỉ text, không thiết kế phức tạp), đúng quyết định "tối ưu tốc độ" đã chốt, nhưng văn phong vẫn chuyên nghiệp.
 
-### `report-missing` + `decide-partial` — hoàn thiện UC-07 Alt Flow + Hướng Y
+### `report-missing` + `decide-partial` — API legacy cần hoàn thiện đối soát
+
+**ĐÃ THAY ĐỔI 12/09:** code hiện chỉ đổi trạng thái khi decide-partial. Mục tiêu không cho picked trước khi xử lý tập hàng, phần thiếu và tính lại recommendation; xem BE-4.
 
 `POST /order-groups/:id/fulfillment/report-missing` (role `WAREHOUSE_STAFF`, `ADMIN`) — `OrderGroupsService.reportMissing()`: chuyển group `partial_needs_review` (dùng lại `transitionFulfillmentStatus()` đã có, không viết logic transition mới), tra tên người báo cáo (`User.name`), build message chuyên nghiệp, gọi `notificationsService.notify()` broadcast cho toàn bộ `STORE_OWNER`.
 
@@ -1594,6 +1503,8 @@ await this.orderModel.findByIdAndUpdate(id, { $inc: { total_packed: 1 } });
 ### 8. Xóa mềm nhất quán trên MỌI schema có thể bị tham chiếu
 
 Không được để 1 module dùng soft-delete (`is_active`) còn module khác xóa cứng — chọn 1 convention duy nhất (`is_active: boolean` + `deleted_at?: Date`) áp dụng toàn bộ `modules/`, ghi rõ trong PR nếu có ngoại lệ.
+
+**Ngoại lệ email user (2026-09-14, ĐÃ THAY ĐỔI so với unique partial `is_active:true`)**: xóa mềm `users` VẪN giữ unique `email` trên mọi trạng thái — Admin không được tạo tài khoản mới trùng email đã vô hiệu hóa; phải dùng Kích hoạt lại. Đây là unique định danh đăng nhập, khác unique nghiệp vụ cho phép tái sử dụng mã sau khi deactivate (vd `employee_code` vẫn partial).
 
 ### 9. Kiểu Document nhất quán toàn project
 
@@ -2115,6 +2026,66 @@ Sau khi thêm các file test mới (batch 4), `npm run lint` báo 2 lỗi thật
 2. **`order-groups.service.getPackableItemsForGroup.spec.ts`** — import `AppException` chỉ để ép kiểu (`as Partial<AppException>`), không có chỗ nào dùng làm giá trị runtime thật trong file này. **Thử `import type { AppException }` KHÔNG giải quyết được** — ESLint config của dự án này không công nhận cách dùng "chỉ trong vị trí generic" (`Partial<AppException>`) là "đã dùng", dù đó đúng là type-only usage hợp lệ về mặt TypeScript. **Cách sửa chắc ăn**: bỏ hẳn phần ép kiểu `as Partial<AppException>` lẫn import — `toMatchObject` của Jest không cần ép kiểu này để chạy đúng.
 
 **Quy tắc rút ra cho các file test sau này trong dự án này**: chỉ import `AppException` (hay bất kỳ type nào tương tự) nếu có **ít nhất 1 chỗ dùng làm giá trị runtime thật** trong file đó (VD `toBeInstanceOf(AppException)`, `expect(error).toBeInstanceOf(X)`) — nếu chỉ cần ép kiểu cho TypeScript đọc hiểu, bỏ hẳn phần ép kiểu đó thay vì cố giữ lại bằng `import type`.
+
+## Hạ tầng triển khai — Docker, Kubernetes, CI/CD (16/09/2026)
+
+Trước đợt này hạ tầng chỉ có 3 file rời rạc và **có lỗi thật chặn deploy**, không phải chỉ thiếu tiện nghi. Đã sửa/bổ sung, chi tiết vận hành nằm ở [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) + [`k8s/README.md`](k8s/README.md) (không copy nguyên văn vào đây, tránh phình file).
+
+### 1. `be/Dockerfile` cũ KHÔNG build được — lỗi thật, không phải chỉnh cho đẹp
+
+Bản cũ `COPY package*.json ./` rồi `npm ci` với build context là `be/` — nhưng repo là **npm workspaces**, `be/package-lock.json` **không tồn tại** (chỉ có lockfile ở gốc), nên `npm ci` luôn fail. Nghĩa là image backend chưa từng build được kể từ khi chuyển sang workspaces.
+
+**Cách sửa đã chốt, áp dụng cho CẢ 3 Dockerfile**: build context là **THƯ MỤC GỐC repo**, cài bằng `npm ci --workspace <ws> --include-workspace-root --ignore-scripts`. 2 chi tiết bắt buộc, đã kiểm chứng bằng cách chạy thật:
+
+- `--ignore-scripts` + `HUSKY=0`: script `"prepare": "husky"` ở root package.json sẽ fail trong image (husky là devDependency của môi trường dev). Không có cờ này thì `npm ci --omit=dev` chết ngay.
+- npm hoist **toàn bộ** package lên `/repo/node_modules`, KHÔNG sinh `be/node_modules` riêng (đã verify) → image runtime phải `WORKDIR /repo/be` để Node resolve ngược lên gốc. Entry đúng là `dist/src/main.js` (không phải `dist/main.js`) vì tsconfig gồm cả `scripts/` ngoài `src/`.
+- Thiếu workspace nào trong `package.json` mà thư mục chưa tồn tại (`storefront/` hiện chưa commit) thì `npm ci` **vẫn chạy bình thường**, chỉ bỏ qua — đã test, nên CI không đỏ vì lý do này.
+
+Thêm mới: `fe/Dockerfile` (Vite build → `nginxinc/nginx-unprivileged`, có SPA fallback + `/healthz` cho probe) và `storefront/Dockerfile` (Next `output: 'standalone'` + `outputFileTracingRoot` trỏ về gốc repo vì node_modules bị hoist). `.dockerignore` chuyển từ `be/` lên **gốc repo** (cùng lý do build context).
+
+**`VITE_API_URL`/`NEXT_PUBLIC_API_URL` bị nhúng vào bundle LÚC BUILD** — đổi địa chỉ backend là phải build lại image, không restart được. Đây là ràng buộc cần nhớ khi deploy, không phải bug.
+
+### 2. `docker-compose.yml` — nay chạy đủ redis + be + fe + storefront
+
+Bản cũ chỉ có hạ tầng (mongo/mongo-express/redis), không đóng gói app. Bản mới theo đúng phạm vi đã chốt với user: **MongoDB vẫn dùng Atlas**, compose không chạy Mongo mặc định.
+
+MongoDB local chuyển vào profile `local-db` (`docker compose --profile local-db up -d`) và **bắt buộc chạy `mongod --replSet rs0` + tự `rs.initiate()` trong healthcheck** — vì `packaging.service.ts` dùng `session.withTransaction()`, Mongo standalone sẽ lỗi ngay lúc approve packaging. Điều này KHÔNG mâu thuẫn với kết luận cũ ở mục "Đối chiếu 3 tài liệu thuật toán AI Packaging → Vấn đề 4" (Atlas đã là replica set, không cần làm gì): nhận định đó áp dụng cho Atlas, còn đây là vá cho đúng nhánh chạy Mongo local.
+
+### 3. Kubernetes — `k8s/` (mới, user muốn chạy thử)
+
+`k8s/base` (namespace, configmap, redis, be, fe, storefront, ingress) + 2 overlay kustomize: `local` (image `:local` build ở máy) và `ghcr` (image do CI đẩy lên). Quyết định thiết kế:
+
+- **Secret KHÔNG commit** — nạp từ chính `be/.env` bằng `kubectl create secret generic optipackai-be-env --from-env-file=be/.env`. ConfigMap đứng SAU secret trong `envFrom` để ghi đè được `REDIS_HOST=localhost` trong `.env`.
+- **Ingress 3 host riêng** (`app/api/shop.optipackai.local`) thay vì 1 host + path `/api`: backend đặt route ở gốc (`/auth`, `/orders`...), gom vào `/api` sẽ phải rewrite path, dễ sai.
+- Redis dùng `emptyDir` (cache trạng thái auth, mất thì tự dựng lại từ Mongo), không cần PVC.
+
+### 4. CI/CD — 2 workflow
+
+`ci.yml`: thêm job `fe` (build = `tsc -b` + vite), `storefront` (tự bỏ qua nếu chưa commit), `docker` (build cả 3 image, không push), `k8s` (`kustomize` + `kubeconform -strict`). **Sửa 1 lỗi thật**: job backend gọi `npm run lint` mà script đó có `--fix` → trong CI nó tự sửa file rồi báo xanh, che mất lỗi. Đã thêm script `lint:ci` (eslint không `--fix`) và dùng nó trong CI.
+
+`release.yml` (mới): build & push 3 image lên GHCR khi push `main`/tag `v*`/bấm tay. **Cố ý KHÔNG tự `kubectl apply`** lên cụm nào — CI chỉ tạo image, deploy do người chạy.
+
+Lint FE hiện để `continue-on-error: true` vì bản UI vừa merge từ `feature/viet_ui` còn 9 lỗi + 3 cảnh báo có sẵn (`set-state-in-effect`, `react-refresh`) — đây là nợ đã biết, bỏ cờ đó ngay khi dọn xong, không để lâu thành lint FE vô hiệu vĩnh viễn.
+
+### 4b. ✅ ĐÃ CHẠY THẬT TRÊN KUBERNETES (16/09/2026) — không còn là kế hoạch trên giấy
+
+Toàn bộ chuỗi đã chạy thành công trên máy user: `docker compose build` (3 image build sạch, xác nhận Dockerfile mới đúng) → `scripts/k8s-create-secret.sh` (29 biến) → `kubectl apply -k k8s/overlays/local` → **4 pod `Running`**, BE trả `Hello World!` + `/api/docs` 200, FE trả `index.html` + `/healthz`, storefront 200.
+
+3 điều học được từ lần chạy thật, đã cập nhật vào `k8s/README.md`:
+
+1. **Rào cản thật trên Windows 11 Home là WSL2, không phải Docker/k8s**: bản Home không có Hyper-V, thiếu WSL thì Docker Desktop báo `hasNoVirtualization: true`, engine không bao giờ start. Phải `wsl --install --no-distribution` bằng quyền Admin **rồi reboot** (2 thành phần Windows chỉ có hiệu lực sau khởi động lại). BIOS không liên quan — `systeminfo` báo "A hypervisor has been detected" là đủ.
+2. **Docker Desktop bản hiện tại dựng k8s bằng `kind` bên trong** (log: `kubernetes starting: {"mode":"kind"}`, node `desktop-control-plane`) — **nhưng image build ở máy VẪN dùng được ngay**, pod chạy với `imagePullPolicy: IfNotPresent`, không cần registry/`kind load`. Đã kiểm chứng, không phải suy đoán.
+3. **`ioredis ECONNREFUSED` lúc mới deploy là bình thường** — pod `be` lên trước pod `redis` vài giây, ioredis tự kết nối lại, log tự dứt. Chỉ đáng lo nếu lỗi còn tiếp diễn SAU khi `redis` đã `Running`.
+
+Cần tạo Secret bằng `scripts/k8s-create-secret.sh` (mới), KHÔNG gọi thẳng `kubectl create secret --from-env-file=be/.env`: file `.env` thật của dự án có 6 dòng key thụt đầu dòng (kubectl từ chối: "not a valid key name") và 3 dòng value bọc nháy (`JWT_SECRET="..."` — dotenv bỏ nháy, kubectl giữ nguyên → token trong cụm ký bằng chuỗi khác local, lỗi rất khó truy). Script chuẩn hoá đúng 2 điểm đó.
+
+### 5. 🔴 Bí mật thật bị commit vào git — cần ĐỔI MẬT KHẨU, không chỉ xóa file
+
+Khi sửa `.env.example` ở gốc phát hiện file này (tracked, có từ commit `faaea86`) chứa **chuỗi kết nối Atlas thật kèm mật khẩu** (user `nhoxmymap74_db_user`, cluster `capstoneproject.o62tptf`) và một `JWT_SECRET`. Nội dung mới đã thay bằng biến cho docker compose, **nhưng mật khẩu vẫn nằm vĩnh viễn trong lịch sử git** (kể cả sau khi sửa file) và repo đang ở GitHub.
+
+**Việc phải làm, theo thứ tự**: (1) đổi mật khẩu user đó trong Atlas → (2) đổi `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (mọi token cũ sẽ mất hiệu lực, user phải đăng nhập lại) → (3) chỉ khi cần mới tính tới việc xoá lịch sử (`git filter-repo`) vì thao tác đó viết lại toàn bộ hash, cả nhóm phải clone lại. Xoá file mà không đổi mật khẩu là **không có tác dụng bảo mật**.
+
+Quy tắc từ nay: `.env.example` chỉ chứa **placeholder** (`<user>`, `<password>`), không bao giờ chứa giá trị thật — kể cả "tạm để cho tiện".
 
 ## Rút kinh nghiệm debug thật — "đã gửi file đúng" không có nghĩa là "đã chạy đúng" (16/09/2026)
 

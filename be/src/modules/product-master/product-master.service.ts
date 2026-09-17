@@ -83,15 +83,16 @@ export class ProductMasterService {
             },
             update: {
               $set: {
-                dimension: {
-                  // Lazada trả STRING — parse về number, mặc định an
-                  // toàn (20cm/0.5kg) nếu field thiếu/parse lỗi, KHÔNG
-                  // để NaN lọt vào DB làm hỏng tính toán bin-packing.
+                marketplace_dimension: {
+                  // Lazada trả STRING — parse về number. Khi sàn thiếu
+                  // hoặc trả dữ liệu lỗi, giữ undefined để hồ sơ chuyển
+                  // sang needs_measurement thay vì bịa kích thước.
                   package_length_cm: this.parseDimension(sku.package_length),
                   package_width_cm: this.parseDimension(sku.package_width),
                   package_height_cm: this.parseDimension(sku.package_height),
                   package_weight_kg: this.parseWeight(sku.package_weight ?? sku.product_weight),
                 },
+                packaging_profile_status: 'needs_measurement' as const,
                 last_synced_at: now,
               },
             },
@@ -110,13 +111,13 @@ export class ProductMasterService {
     return { synced };
   }
 
-  private parseDimension(raw?: string): number {
+  private parseDimension(raw?: string): number | undefined {
     const parsed = raw ? parseFloat(raw) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 20; // mặc định 20cm — cồng kềnh nhẹ, an toàn hơn ước lượng quá nhỏ
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 
-  private parseWeight(raw?: string): number {
+  private parseWeight(raw?: string): number | undefined {
     const parsed = raw ? parseFloat(raw) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0.5; // mặc định 0.5kg
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
   }
 }
