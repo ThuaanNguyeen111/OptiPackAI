@@ -60,6 +60,7 @@ function platformLabel(platform: string): string {
   if (platform === 'lazada') return 'Lazada'
   if (platform === 'tiktok') return 'TikTok'
   if (platform === 'tiki') return 'Tiki'
+  if (platform === 'storefront') return 'Storefront'
   return platform
 }
 
@@ -80,6 +81,8 @@ function PlatformPill({ platform }: { platform: string }) {
       ? 'border-indigo-200/80 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300'
       : platform === 'tiktok'
         ? 'border-zinc-300 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
+        : platform === 'storefront'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
         : 'border-slate-200/80 bg-slate-50 text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
   return (
     <Badge

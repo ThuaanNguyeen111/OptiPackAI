@@ -4,7 +4,10 @@ import { OrdersService, SyncResult } from './orders.service';
 import { SyncLazadaOrdersQueryDto } from './dto/sync-lazada-orders-query.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { OrderStatus } from './enums/order-status.enum';
-import { aggregateOrderItems, AggregatedOrderItemView } from './utils/aggregate-order-items.util';
+import {
+  aggregateOrderItems,
+  AggregatedOrderItemView,
+} from './utils/aggregate-order-items.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -25,6 +28,9 @@ interface OrderResponse {
   isConsolidated: boolean;
   consolidatedGroupId: string | null;
   totalAmount: number;
+  subtotalAmount: number | null;
+  discountAmount: number | null;
+  shippingFee: number | null;
   currency: string;
   itemCount: number;
   createdAt: Date;
@@ -42,6 +48,17 @@ interface OrderDetailResponse extends OrderResponse {
   recipientPostalCode: string | null;
   recipientCountry: string;
   items: AggregatedOrderItemView[];
+  // BỔ SUNG (AOFP-XX, 16/09/2026) — luồng "chờ seller xác nhận hủy đơn"
+  // (O6): trước đây 4 field này chỉ dùng nội bộ để bắn Notification,
+  // KHÔNG trả ra API — FE chỉ biết qua chuông thông báo, không thấy
+  // trực tiếp trên trang chi tiết đơn nếu mở bằng đường khác (VD từ
+  // danh sách, hoặc dán link thẳng). Giờ trả thêm ra đây để FE hiển thị
+  // badge cảnh báo ngay trên trang chi tiết, không phụ thuộc duy nhất
+  // vào việc user có bấm đúng vào chuông hay không.
+  needCancelConfirm: boolean;
+  isCancelPending: boolean;
+  cancelTriggerTime: Date | null;
+  reverseOrderId: string | null;
 }
 
 @ApiTags('Orders')
@@ -57,13 +74,17 @@ export class OrdersController {
     summary:
       'Kích hoạt tay 1 lần đồng bộ đơn từ Lazada cho 1 shop đã kết nối — dùng để demo Mainflow 1 (GetOrders → GetOrderItems → chuẩn hóa → check gộp đơn → lưu Mongo)',
   })
-  async syncLazada(@Query() query: SyncLazadaOrdersQueryDto): Promise<SyncResult> {
+  async syncLazada(
+    @Query() query: SyncLazadaOrdersQueryDto,
+  ): Promise<SyncResult> {
     return this.ordersService.syncLazadaOrders(query.shop_id);
   }
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
-  @ApiOperation({ summary: 'Danh sách đơn đã đồng bộ, phân trang kiểu cursor theo created_at' })
+  @ApiOperation({
+    summary: 'Danh sách đơn đã đồng bộ, phân trang kiểu cursor theo created_at',
+  })
   async list(
     @Query() query: ListOrdersQueryDto,
   ): Promise<{ orders: OrderResponse[]; nextCursor: string | null }> {
@@ -86,8 +107,13 @@ export class OrdersController {
         recipientName: order.recipient.full_name,
         recipientCity: order.recipient.city,
         isConsolidated: order.is_consolidated,
-        consolidatedGroupId: order.consolidated_group_id ? order.consolidated_group_id.toString() : null,
+        consolidatedGroupId: order.consolidated_group_id
+          ? order.consolidated_group_id.toString()
+          : null,
         totalAmount: order.total_amount,
+        subtotalAmount: order.subtotal_amount ?? null,
+        discountAmount: order.discount_amount ?? null,
+        shippingFee: order.shipping_fee ?? null,
         currency: order.currency,
         itemCount: order.items.length,
         createdAt: order.created_at ?? new Date(0),
@@ -120,11 +146,20 @@ export class OrdersController {
       recipientPostalCode: order.recipient.postal_code ?? null,
       recipientCountry: order.recipient.country,
       isConsolidated: order.is_consolidated,
-      consolidatedGroupId: order.consolidated_group_id ? order.consolidated_group_id.toString() : null,
+      consolidatedGroupId: order.consolidated_group_id
+        ? order.consolidated_group_id.toString()
+        : null,
       totalAmount: order.total_amount,
+      subtotalAmount: order.subtotal_amount ?? null,
+      discountAmount: order.discount_amount ?? null,
+      shippingFee: order.shipping_fee ?? null,
       currency: order.currency,
       itemCount: order.items.length,
       items: aggregateOrderItems(order.items),
+      needCancelConfirm: order.need_cancel_confirm,
+      isCancelPending: order.is_cancel_pending,
+      cancelTriggerTime: order.cancel_trigger_time,
+      reverseOrderId: order.reverse_order_id,
       createdAt: order.created_at ?? new Date(0),
     };
   }

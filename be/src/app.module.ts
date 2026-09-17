@@ -13,6 +13,7 @@ import jwtConfig from './config/jwt.config';
 import mailConfig from './config/mail.config';
 import redisConfig from './config/redis.config';
 import marketplaceConfig from './config/marketplace.config';
+import storefrontConfig from './config/storefront.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
@@ -23,12 +24,13 @@ import { PackagingModule } from './modules/packaging/packaging.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { MaterialsModule } from './modules/materials/materials.module';
+import { StorefrontModule } from './modules/storefront/storefront.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig],
+      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, storefrontConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -58,6 +60,7 @@ import { MaterialsModule } from './modules/materials/materials.module';
     WarehouseModule,
     NotificationsModule,
     MaterialsModule,
+    StorefrontModule,
   ],
   controllers: [AppController],
   providers: [

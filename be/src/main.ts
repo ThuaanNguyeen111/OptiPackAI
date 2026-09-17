@@ -12,10 +12,17 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   app.use(compression());
 
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? true,
-    credentials: true,
-  });
+  const configuredCorsOrigins = process.env.CORS_ORIGIN
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const corsOrigins = configuredCorsOrigins?.length
+    ? configuredCorsOrigins
+    : ['http://localhost:5173'];
+  if (process.env.NODE_ENV !== 'production' && !corsOrigins.includes('http://localhost:3001')) {
+    corsOrigins.push('http://localhost:3001');
+  }
+  app.enableCors({ origin: corsOrigins, credentials: true });
 
   app.useGlobalPipes(
     new ValidationPipe({

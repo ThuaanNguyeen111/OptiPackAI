@@ -360,12 +360,19 @@ export function MarketplaceOrderDetailScreen({
                             colSpan={5}
                             className="pt-3 text-right text-ink-subtle"
                           >
-                            {vi ? 'Tổng đơn này' : 'This order'} ·{' '}
+                            {order.subtotalAmount !== null
+                              ? vi
+                                ? 'Tạm tính'
+                                : 'Subtotal'
+                              : vi
+                                ? 'Tổng đơn này'
+                                : 'This order'}{' '}
+                            ·{' '}
                             {order.itemCount} {vi ? 'dòng' : 'lines'}
                           </td>
                           <td className="pt-3 text-right font-mono font-medium text-ink">
                             {formatCurrency(
-                              order.totalAmount,
+                              order.subtotalAmount ?? order.totalAmount,
                               order.currency,
                             )}
                           </td>
@@ -375,6 +382,56 @@ export function MarketplaceOrderDetailScreen({
                   </div>
                 </div>
               </section>
+
+              {order.subtotalAmount !== null ||
+              order.discountAmount !== null ||
+              order.shippingFee !== null ? (
+                <div className="rounded-xl border border-hairline bg-surface-1 p-5">
+                  <h2 className="text-sm font-medium text-ink">
+                    {vi ? 'Chi phí đơn hàng' : 'Order costs'}
+                  </h2>
+                  <dl className="mt-3 ml-auto max-w-sm space-y-2 text-sm">
+                    {order.subtotalAmount !== null ? (
+                      <div className="flex items-center justify-between gap-4">
+                        <dt className="text-ink-subtle">
+                          {vi ? 'Tạm tính' : 'Subtotal'}
+                        </dt>
+                        <dd className="font-mono text-ink-muted">
+                          {formatCurrency(order.subtotalAmount, order.currency)}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {order.discountAmount !== null ? (
+                      <div className="flex items-center justify-between gap-4">
+                        <dt className="text-ink-subtle">
+                          {vi ? 'Giảm giá' : 'Discount'}
+                        </dt>
+                        <dd className="font-mono text-success">
+                          -{formatCurrency(order.discountAmount, order.currency)}
+                        </dd>
+                      </div>
+                    ) : null}
+                    {order.shippingFee !== null ? (
+                      <div className="flex items-center justify-between gap-4">
+                        <dt className="text-ink-subtle">
+                          {vi ? 'Phí vận chuyển' : 'Shipping'}
+                        </dt>
+                        <dd className="font-mono text-ink-muted">
+                          {formatCurrency(order.shippingFee, order.currency)}
+                        </dd>
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between gap-4 border-t border-hairline pt-2">
+                      <dt className="font-medium text-ink">
+                        {vi ? 'Tổng thanh toán' : 'Total'}
+                      </dt>
+                      <dd className="font-mono font-semibold text-ink">
+                        {formatCurrency(order.totalAmount, order.currency)}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              ) : null}
 
               <section className="rounded-xl border border-hairline bg-surface-1 p-5">
                 <h2 className="text-sm font-medium text-ink">

@@ -2086,3 +2086,84 @@ Khi sửa `.env.example` ở gốc phát hiện file này (tracked, có từ com
 **Việc phải làm, theo thứ tự**: (1) đổi mật khẩu user đó trong Atlas → (2) đổi `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (mọi token cũ sẽ mất hiệu lực, user phải đăng nhập lại) → (3) chỉ khi cần mới tính tới việc xoá lịch sử (`git filter-repo`) vì thao tác đó viết lại toàn bộ hash, cả nhóm phải clone lại. Xoá file mà không đổi mật khẩu là **không có tác dụng bảo mật**.
 
 Quy tắc từ nay: `.env.example` chỉ chứa **placeholder** (`<user>`, `<password>`), không bao giờ chứa giá trị thật — kể cả "tạm để cho tiện".
+
+## Rút kinh nghiệm debug thật — "đã gửi file đúng" không có nghĩa là "đã chạy đúng" (16/09/2026)
+
+Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần dù code/test đã đúng (đã tự xác nhận bằng cách chạy thật trong sandbox: `npm install` + `npx jest` + `npx eslint` trên chính `be.zip` user upload — 2 giả thuyết đầu sai (tương tác `jest.useFakeTimers()`, rồi `git diff` không phát hiện khác biệt) trước khi tìm ra nguyên nhân thật.
+
+**Nguyên nhân thật**: file nguồn `lazada-order-sync.scheduler.ts` trên máy user vẫn là **bản CŨ** (constructor 2 tham số, không có `notify()`) — chỉ file test mới được thay, file nguồn thì không. `git diff` (không kèm cờ) chỉ so sánh working-tree với staging/HEAD — **không** chứng minh được file có khớp với file Claude gửi hay không, vì cả 2 phía đều là bản cũ.
+
+**Quy tắc rút ra — áp dụng cho mọi lần sau khi user báo "vẫn lỗi" dù đã làm theo hướng dẫn**:
+
+1. KHÔNG chỉ đọc log/đoán nguyên nhân qua suy luận — **tự trích xuất `be.zip` mới nhất user gửi, chạy thật** `npm install` + `npx jest <file>` + `npx eslint` trong sandbox để có bằng chứng chắc chắn.
+2. KHÔNG dùng `git diff` làm bằng chứng "file đã đúng" — chỉ chứng minh được "không có gì đang sửa dở", không chứng minh nội dung khớp với bản đã gửi.
+3. Nếu 1 file cần thay, kiểm tra kỹ cả file NGUỒN lẫn file TEST đi kèm đều đã update — dễ sót 1 trong 2 nếu chỉ đưa lại đúng file vừa sửa lỗi lint mà quên các file khác thuộc cùng tính năng.
+
+**Lỗi lặp lại khác (3 lần trong phiên này)**: file có dấu gạch ngang trong tên (VD `lazada-order-sync.scheduler.spec.ts`) liên tục bị lưu thành tên có dấu cách + viết hoa chữ đầu khi user tự gõ/tạo file mới thay vì mở file cũ có sẵn rồi ghi đè nội dung — nhắc lại cách làm đúng: mở file cũ, Ctrl+A xóa, dán nội dung mới, giữ nguyên tên file gốc.
+
+## CI fail dù local lint pass — `tsc --noEmit` là bước RIÊNG, không nằm trong `npm run lint` (16/09/2026)
+
+**Hiện tượng**: local chạy `npm run lint` sạch, test pass 153/153, push lên GitHub xong CI vẫn báo lỗi đỏ ở bước **"Type check (tsc --noEmit)"** — khác hẳn bước "Lint" (2 bước riêng biệt trong workflow CI, xem ảnh Actions: `Type check → Lint → Unit tests`).
+
+**Lý do lỗi trốn được ở máy local**: `npm run lint` (ESLint) chỉ kiểm tra style/quy tắc code (unused vars, format...) — **không kiểm tra type**. `tsc --noEmit` là **công cụ khác hẳn** (TypeScript compiler, chỉ kiểm tra kiểu dữ liệu, không build ra file). Husky pre-commit ở máy hiện chỉ chạy `test`, không chạy `tsc --noEmit` lẫn `lint` trước khi cho phép commit — nên lỗi type chỉ lộ ra khi CI trên GitHub chạy đủ cả 3 bước.
+
+**Lỗi cụ thể gặp phải**: `TS2532: Object is possibly 'undefined'` ở `result.items[0].sku` — đúng vì tsconfig dự án đã bật `noUncheckedIndexedAccess: true` (quy tắc đã ghi từ trước) — truy cập mảng theo index (`arr[0]`) LUÔN được TypeScript coi là `T | undefined`, không tự suy luận từ `expect(...).toHaveLength(1)` lúc runtime.
+
+**Cách sửa chuẩn cho pattern này trong test** (áp dụng mọi lần sau viết test đụng `arr[0]`):
+
+```ts
+const [first] = result.items;
+expect(first).toBeDefined();
+expect(first?.sku).toBe('SKU-A'); // optional chaining, không lỗi TS2532
+```
+
+Không dùng `result.items[0].sku` trực tiếp, cũng không dùng `!` non-null assertion (dự án không khuyến khích unsafe assertion, kể cả trong file test).
+
+**Quy tắc rút ra — áp dụng từ giờ cho MỌI lần sửa code trong dự án này**: trước khi coi 1 file đã "xong", chạy đủ 3 lệnh theo đúng thứ tự CI chạy, không chỉ chạy `test`:
+
+```bash
+cd be
+npx tsc --noEmit   # bước hay bị bỏ sót nhất — không nằm trong npm run lint
+npm run lint
+npm run test
+```
+
+Đã tự xác nhận bằng cách chạy thật cả 3 lệnh trong sandbox trước khi gửi lại file cho user — không chỉ đọc log đoán nữa (đúng bài học đã ghi ở mục trước).
+
+## Rà + viết lại 4 file Integration Guide theo đúng code thật (16/09/2026)
+
+**Đánh giá chất lượng trước khi sửa**: cấu trúc/văn phong cả 4 file **đã chuyên nghiệp từ trước** (đặc biệt `INTEGRATION_GUIDE_FULFILLMENT.md` — có bối cảnh nghiệp vụ, bảng actor, sơ đồ trạng thái, checklist test) — KHÔNG viết lại từ đầu, chỉ sửa đúng các đoạn nội dung đã lỗi thời so với code sau các batch fix.
+
+**`INTEGRATION_GUIDE.md` (Auth)** — không đụng gì trong các batch, đối chiếu lại vẫn đúng, không sửa.
+
+**`INTEGRATION_GUIDE_ORDERS.md`** — viết lại mục callback OAuth (JSON thô → redirect thật `/marketplace-oauth-success?shopId&shopName&connected` hoặc `?error=`), xóa cảnh báo "chưa test gộp 2 đơn" đã lỗi thời, thêm mục 7b (19 giá trị status, chia 3 nhóm: luồng bình thường/hủy bình thường/sự cố logistics cần badge đỏ riêng), thêm mã lỗi `MKT_SERVER_ERROR`. **Flag 1 gap mới phát hiện, chưa quyết định**: field `need_cancel_confirm`/`cancel_trigger_time` có lưu DB, dùng bắn Notification, nhưng KHÔNG trả qua `GET /orders`/`GET /orders/:id` — FE chỉ biết qua Notification, không thấy trực tiếp trên trang chi tiết đơn. Chưa quyết định có cần bổ sung vào response hay không.
+
+**`INTEGRATION_GUIDE_FULFILLMENT.md`** — sửa 1 bug tài liệu CŨ phát hiện thêm lần này (Nghiệp vụ 2 vẫn ghi sai tie-break "theo `_id`", chưa từng được sửa từ lần audit trước dù đã ghi nhận): sửa đúng thành "ai được gán lần gần nhất lâu hơn". Thêm 2 sự kiện Notification mới vào bảng Nghiệp vụ 6 (chờ xác nhận hủy đơn — critical, cả Store Owner+Admin; sync thất bại liên tục — warning, chống spam 20 phút). Thêm ghi chú hành vi đổi của `markAsRead` (404 nếu không phải chủ sở hữu). Thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` vào bảng D.3.
+
+**`API_LIST.md`** — sửa 1 link tham chiếu chết ("mục 7" → "PHẦN D.3", do file Fulfillment đã đổi cấu trúc từ bản v3 nhưng link chưa cập nhật theo).
+
+Cả 4 file đã cập nhật `00_TONG_HOP...md` đánh dấu hoàn thành A5.
+
+## Cách 2 đã chọn: bổ sung field cancel-confirm vào GET /orders/:id (16/09/2026)
+
+User quyết định làm "cách 2" thay vì chỉ dựa vào Notification — `orders.controller.ts` (`OrderDetailResponse` + `findOne()`) giờ trả thêm 4 field: `needCancelConfirm`, `isCancelPending`, `cancelTriggerTime`, `reverseOrderId`. Chỉ thêm vào **`GET /orders/:id`** (trang chi tiết), KHÔNG thêm vào `GET /orders` (danh sách) — đúng phạm vi yêu cầu ("badge ngay trên trang chi tiết"), không mở rộng thêm. Đã cập nhật `INTEGRATION_GUIDE_ORDERS.md` — đổi mục "gap đang chờ quyết định" thành bảng field đầy đủ + khuyến nghị FE dùng cả 2 cách (Notification + field trực tiếp) thay vì chỉ 1.
+
+## Phủ kín tag "đã đổi/mới" trong 2 file guide — trả lời câu hỏi FE có dễ đối chiếu bản cũ không (16/09/2026)
+
+User hỏi: các file guide viết lại có đánh dấu rõ chỗ nào MỚI/ĐÃ ĐỔI để FE cầm bản cũ dễ đối chiếu không, hay chỉ viết lại im lặng? Kiểm tra lại: **đa số** đã có tag (`MỚI (ngày)`/`✅ Đã...`/`⚠️ Hành vi đổi` + đoạn "Cập nhật ngày..." đầu file) nhưng **sót vài chỗ**: tiêu đề mục 7b (section hoàn toàn mới) chưa gắn tag, 2 dòng checklist đã đổi nội dung nhưng không có prefix báo hiệu, checklist D.5 (Fulfillment) chưa có dòng nào nhắc riêng 2 việc mới (Notification 2 loại mới, `markAsRead` 404). Đã bổ sung đủ — quy ước dùng thống nhất: `🆕 MỚI` (hoàn toàn mới) và `🔄 ĐÃ ĐỔI` (thay đổi nội dung cũ) làm prefix, ngoài các tag ngày tháng đã có.
+
+## File 00 đã cập nhật đủ — user hỏi "đúng chưa" phát hiện 2 việc chưa ghi (16/09/2026)
+
+User hỏi file 00 đã phản ánh đúng/đủ mọi việc đã làm chưa — kiểm tra phát hiện 2 việc mới nhất CHƯA được ghi vào file 00: (1) follow-up bổ sung `needCancelConfirm`/`cancelTriggerTime`... vào `GET /orders/:id` (mục A2, dưới dòng O6 gốc), (2) follow-up phủ tag `🆕 MỚI`/`🔄 ĐÃ ĐỔI` đầy đủ trong 2 file guide (mục A5). Đã bổ sung cả 2 + sửa lại dòng cũ trong A5 (không còn ghi "flag gap chưa expose" — gap đã hết).
+
+**Bài học quy trình**: mỗi khi làm xong 1 việc phát sinh (không nằm sẵn trong A1-A6 ban đầu), phải NGAY LẬP TỨC thêm dòng vào file 00, không đợi user hỏi lại mới cập nhật — đúng tinh thần standing rule đã đặt từ 09/09 (tự động ghi, không cần hỏi mỗi lần).
+
+## Rà lại LẦN NỮA toàn bộ marker "mới/đã đổi" xuyên suốt cả phiên — 2 chỗ sót thêm (16/09/2026)
+
+User hỏi lại rộng hơn: đã note hết mọi thay đổi so với doc cũ CHƯA (không chỉ 2 lượt gần nhất). Rà lại toàn bộ danh sách FE-facing changes cả phiên, tìm thêm 2 chỗ sót: (1) đoạn giải thích logic chọn `status` đại diện cho Order (O5 — ưu tiên trạng thái xấu nhất thay vì lấy phần tử đầu mảng) nằm trong mục 7b nhưng thiếu tag riêng của chính đoạn đó; (2) danh sách trạng thái đủ điều kiện gộp đơn (mục 7) thêm `to_pack`/`to_ship` so với doc cũ (chỉ có 4 giá trị) nhưng chưa đánh dấu. Đã bổ sung `🔄 ĐÃ ĐỔI (ngày)` cho cả 2. `INTEGRATION_GUIDE_ORDERS.md` giờ có 10 chỗ đánh dấu ngày 15-16/09, `INTEGRATION_GUIDE_FULFILLMENT.md` có 7 chỗ — đã rà đủ 2 lượt liên tiếp, tự tin khẳng định phủ kín.
+
+## User hỏi "warehouse có đổi gì không" — xác nhận không đụng code trực tiếp, phát hiện thêm 1 chỗ doc sót (16/09/2026)
+
+`diff -rq` xác nhận: **chưa từng sửa trực tiếp file nào trong `src/modules/warehouse/`** suốt cả phiên. Nhưng **Warehouse Picking List bị ảnh hưởng gián tiếp** — `warehouse.service.ts` tái dùng `getPackableItemsForGroup()` (đã fix ở `order-groups.service.ts`), nên tự động ăn theo fix lọc canceled/sự cố logistics mà không cần đụng code Warehouse.
+
+Phát hiện thêm khi trả lời: điều này trước đó chỉ được nhắc ở bảng mã lỗi D.3 (`INTEGRATION_GUIDE_FULFILLMENT.md`), **chưa được nói rõ ngay trong Nghiệp vụ 3 (Lấy hàng/Picking)** — nơi FE dễ tìm thấy hơn khi build màn hình Picking/Warehouse. Đã bổ sung đoạn `🔄 ĐÃ ĐỔI (15/09/2026)` ngay sau sơ đồ 4 bước picking, giải thích rõ: cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId` đều lọc, và case group rỗng hoàn toàn trả `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì mảng rỗng.

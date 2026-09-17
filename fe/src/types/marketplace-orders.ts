@@ -44,6 +44,9 @@ export type MarketplaceOrderListItem = {
   isConsolidated: boolean
   consolidatedGroupId: string | null
   totalAmount: number
+  subtotalAmount: number | null
+  discountAmount: number | null
+  shippingFee: number | null
   currency: string
   itemCount: number
   createdAt: string

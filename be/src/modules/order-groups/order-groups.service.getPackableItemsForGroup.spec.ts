@@ -103,8 +103,10 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
     const result = await service.getPackableItemsForGroup(groupId);
 
     expect(result.items).toHaveLength(1);
-    expect(result.items[0]?.sku).toBe('SKU-A');
-    expect(result.items[0]?.quantity).toBe(2);
+    const [first] = result.items;
+    expect(first).toBeDefined();
+    expect(first?.sku).toBe('SKU-A');
+    expect(first?.quantity).toBe(2);
   });
 
   it('SKU chưa có hồ sơ đóng gói được kho xác nhận -> throw ORD_GROUP_PACKAGING_PROFILE_NOT_READY (BE-1)', async () => {
