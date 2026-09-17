@@ -9,6 +9,7 @@ export const NOTIFICATION_TYPES = [
   'pending_approval',
   'sync_failed',
   'cancel_confirmation_required',
+  'mfa_disabled',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -56,6 +57,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<
     vi: 'Cần xác nhận hủy',
     en: 'Cancel confirmation',
   },
+  mfa_disabled: { vi: 'MFA đã tắt', en: 'MFA disabled' },
 }
 
 export function mapNotificationRaw(raw: NotificationApiRaw): AppNotification | null {

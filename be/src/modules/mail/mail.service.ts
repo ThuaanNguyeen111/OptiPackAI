@@ -5,6 +5,7 @@ import type { Transporter } from 'nodemailer';
 import { requireEnv } from '../../common/utils/env.util';
 import {
   accountLockedTemplate,
+  mfaDisabledTemplate,
   mfaEnabledTemplate,
   passwordResetTemplate,
   welcomeTempPasswordTemplate,

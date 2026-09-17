@@ -16,6 +16,7 @@ import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
 import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
+import { AdminWarehousePage } from './pages/AdminWarehousePage'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -94,6 +95,7 @@ function App() {
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
                 <Route path="templates" element={<AdminTemplatesPage />} />
+                <Route path="warehouse" element={<AdminWarehousePage />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Route>

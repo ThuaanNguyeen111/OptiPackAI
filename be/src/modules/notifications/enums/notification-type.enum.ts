@@ -12,6 +12,7 @@ export enum NotificationType {
   CONNECTION_LOST = 'connection_lost',
   PENDING_APPROVAL = 'pending_approval',
   SYNC_FAILED = 'sync_failed',
+  MFA_DISABLED = 'mfa_disabled',
   // BỔ SUNG (AOFP-XX, 2026-09-15) — O6: buyer yêu cầu hủy đơn, seller có
   // hạn (cancel_trigger_time) để phản hồi trước khi Lazada tự động hủy.
   CANCEL_CONFIRMATION_REQUIRED = 'cancel_confirmation_required',

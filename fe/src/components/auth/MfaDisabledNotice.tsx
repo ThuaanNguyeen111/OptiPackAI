@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react'
 import { ShieldOff } from 'lucide-react'
 import { Button } from '../ui/Button'
 import {
-  fetchUnreadNotifications,
-  markNotificationReadApi,
-  NotificationType,
-  notificationId,
-  type AppNotification,
+  listNotifications,
+  markNotificationRead,
 } from '../../api/notifications.api'
 import { usePortal } from '../../context/use-portal'
+import type { AppNotification } from '../../types/notifications'
 
 const POLL_MS = 10_000
 
@@ -22,12 +20,10 @@ export function MfaDisabledNotice() {
     let cancelled = false
 
     const refresh = (): void => {
-      void fetchUnreadNotifications()
+      void listNotifications({ is_read: false })
         .then((list) => {
           if (cancelled) return
-          const mfaNotice = list.find(
-            (item) => item.type === NotificationType.MFA_DISABLED,
-          )
+          const mfaNotice = list.find((item) => item.type === 'mfa_disabled')
           setNotice(mfaNotice ?? null)
         })
         .catch(() => {
@@ -47,9 +43,8 @@ export function MfaDisabledNotice() {
   async function handleAck() {
     if (!notice) return
     setAckLoading(true)
-    const id = notificationId(notice)
     try {
-      if (id) await markNotificationReadApi(id)
+      await markNotificationRead(notice.id)
     } catch {
       // Vẫn đóng popup để không kẹt user nếu đánh dấu đã đọc thất bại.
     } finally {

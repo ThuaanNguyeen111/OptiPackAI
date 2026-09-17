@@ -172,9 +172,9 @@ export function mfaDisabledTemplate(params: { name: string }): { subject: string
   const html = renderLayout({
     previewText: 'Xác thực 2 lớp đã được tắt',
     bodyHtml: `
-      <p style="margin:0 0 8px;font-size:16px;font-weight:600;color:${C.ink};letter-spacing:-0.2px;">Chào ${params.name},</p>
-      <p style="margin:0 0 12px;color:${C.inkMuted};">quản trị viên vừa tắt xác thực 2 lớp (MFA) trên tài khoản của bạn. Lần đăng nhập tiếp theo sẽ không yêu cầu mã xác thực.</p>
-      <p style="margin:0 0 12px;color:${C.inkMuted};">Nếu bạn vẫn dùng được ứng dụng Authenticator, hãy vào hồ sơ để thiết lập MFA lại. Nếu không phải bạn yêu cầu, liên hệ quản trị viên ngay.</p>
+      <p style="margin:0 0 16px;font-size:15px;color:#18181b;">Chào ${params.name},</p>
+      <p style="margin:0 0 8px;">Quản trị viên vừa tắt xác thực 2 lớp (MFA) trên tài khoản của bạn. Lần đăng nhập tiếp theo sẽ không yêu cầu mã xác thực.</p>
+      <p style="margin:0;">Nếu bạn vẫn dùng được ứng dụng Authenticator, hãy vào Hồ sơ để thiết lập MFA lại. Nếu không phải bạn yêu cầu, liên hệ Quản trị viên ngay.</p>
     `,
   });
   return { subject: `MFA đã được tắt — ${BRAND_NAME}`, html };

@@ -1,6 +1,7 @@
 import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
 import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
+import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:3000'
@@ -172,6 +173,9 @@ export function formatApiError(err: unknown): string {
     }
     if (err.errorCode && ORDER_GROUPS_ERROR_MESSAGES[err.errorCode]) {
       return ORDER_GROUPS_ERROR_MESSAGES[err.errorCode]
+    }
+    if (err.errorCode && WAREHOUSE_ERROR_MESSAGES[err.errorCode]) {
+      return WAREHOUSE_ERROR_MESSAGES[err.errorCode]
     }
     if (err.status === 429) {
       return 'Thử đăng nhập quá nhiều lần. Đợi khoảng 1 phút rồi thử lại.'
