@@ -45,7 +45,7 @@ import { getWarehouseStaffItems } from '../data/staff-mock'
 // CHANNEL BADGE HELPER
 // ==========================================
 
-export function renderChannelBadge(
+function renderChannelBadge(
   channel: 'shopee' | 'tiktok' | 'lazada' | 'facebook',
   size: 'sm' | 'md' = 'md',
 ) {
@@ -100,7 +100,7 @@ export function renderChannelBadge(
 // MOCK WAREHOUSE STAFF LIST FOR ASSIGNMENT
 // ==========================================
 
-export interface WarehouseStaffItem {
+interface WarehouseStaffItem {
   id: string
   name: string
   code: string
@@ -112,7 +112,7 @@ export interface WarehouseStaffItem {
   activeBatches: number
 }
 
-export const WAREHOUSE_STAFF_LIST: WarehouseStaffItem[] = [
+const WAREHOUSE_STAFF_LIST: WarehouseStaffItem[] = [
   {
     id: 'staff-1',
     name: 'Ahmad R.',
@@ -512,6 +512,8 @@ function WarehouseFloorView({
         avatar: autoAssignedStaff.avatar,
         initials: autoAssignedStaff.initials,
       })
+      // The toast is part of the persisted-batch synchronization feedback.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setToastMessage(
         vi
           ? `⚡ Bắt đầu lấy hàng! AI đã tự động phân công nhân viên ${autoAssignedStaff.name} (${autoAssignedStaff.code}) phụ trách đợt hàng.`

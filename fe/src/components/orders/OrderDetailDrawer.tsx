@@ -80,13 +80,10 @@ export function OrderDetailDrawer({
   const [siblings, setSiblings] = useState<MarketplaceOrderListItem[]>([])
 
   useEffect(() => {
-    if (!orderId) {
-      setOrder(null)
-      setSiblings([])
-      setError(null)
-      return
-    }
+    if (!orderId) return
     let cancelled = false
+    // This effect owns the request lifecycle for the currently selected order.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     setError(null)
     void getOrderById(orderId)

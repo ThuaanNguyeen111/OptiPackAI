@@ -63,7 +63,7 @@ export class StorefrontSeedService implements OnModuleInit {
       {
         slug: 'minimal-cotton-shirt',
         name: 'Minimal Cotton Shirt',
-        category_id: categories[0]?._id,
+        category_id: categories[0]._id,
         description: 'Áo sơ mi cotton mềm nhẹ, phom dáng tối giản cho ngày thường.',
         thumbnail_url: '/kaira-assets/images/product-item-1.jpg',
         gallery_images: [
@@ -87,7 +87,7 @@ export class StorefrontSeedService implements OnModuleInit {
       {
         slug: 'linen-midi-dress',
         name: 'Linen Midi Dress',
-        category_id: categories[1]?._id,
+        category_id: categories[1]._id,
         description: 'Đầm linen thanh lịch, chất liệu thoáng mát và dễ phối đồ.',
         thumbnail_url: '/kaira-assets/images/product-item-2.jpg',
         gallery_images: [
@@ -110,7 +110,7 @@ export class StorefrontSeedService implements OnModuleInit {
       {
         slug: 'everyday-leather-bag',
         name: 'Everyday Leather Bag',
-        category_id: categories[2]?._id,
+        category_id: categories[2]._id,
         description: 'Túi da gọn nhẹ cho công việc và những chuyến đi cuối tuần.',
         thumbnail_url: '/kaira-assets/images/product-item-3.jpg',
         gallery_images: [
@@ -129,7 +129,7 @@ export class StorefrontSeedService implements OnModuleInit {
       {
         slug: 'silk-signature-scarf',
         name: 'Silk Signature Scarf',
-        category_id: categories[3]?._id,
+        category_id: categories[3]._id,
         description: 'Khăn lụa mềm nhẹ, điểm nhấn thanh lịch cho mọi outfit.',
         thumbnail_url: '/kaira-assets/images/product-item-8.jpg',
         gallery_images: [
@@ -148,7 +148,7 @@ export class StorefrontSeedService implements OnModuleInit {
       {
         slug: 'pearl-drop-earrings',
         name: 'Pearl Drop Earrings',
-        category_id: categories[4]?._id,
+        category_id: categories[4]._id,
         description: 'Đôi bông tai ngọc trai tối giản, tạo điểm sáng tinh tế.',
         thumbnail_url: '/kaira-assets/images/product-item-9.jpg',
         gallery_images: [
@@ -167,7 +167,7 @@ export class StorefrontSeedService implements OnModuleInit {
       {
         slug: 'soft-leather-loafers',
         name: 'Soft Leather Loafers',
-        category_id: categories[5]?._id,
+        category_id: categories[5]._id,
         description: 'Loafer da mềm với phom thanh lịch, đồng hành từ văn phòng đến cuối tuần.',
         thumbnail_url: '/kaira-assets/images/product-item-10.jpg',
         gallery_images: [
@@ -220,10 +220,10 @@ export class StorefrontSeedService implements OnModuleInit {
           { sku: item.sku },
           {
             $setOnInsert: {
-              product_id: product!._id,
+              product_id: product._id,
               sku: item.sku,
               variant_name: item.variant_name,
-              color: item.color ?? null,
+              color: item.color,
               size: item.size ?? null,
               price: item.price,
               compare_at_price: item.compare_at_price ?? null,
@@ -235,10 +235,10 @@ export class StorefrontSeedService implements OnModuleInit {
         );
 
         await this.stockModel.updateOne(
-          { variant_id: variant!._id, warehouse_id: null },
+          { variant_id: variant._id, warehouse_id: null },
           {
             $setOnInsert: {
-              variant_id: variant!._id,
+              variant_id: variant._id,
               warehouse_id: null,
               quantity_on_hand: item.stock,
               reserved_quantity: 0,

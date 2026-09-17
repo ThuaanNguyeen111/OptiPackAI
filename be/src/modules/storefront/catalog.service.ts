@@ -43,9 +43,9 @@ export class CatalogService {
       categoryName: categoryName ?? null,
       thumbnailUrl: product.thumbnail_url,
       galleryImages: product.gallery_images,
-      sizeChart: product.size_chart ?? [],
-      sizeChartType: product.size_chart_type ?? 'apparel',
-      sizeGuideNote: product.size_guide_note ?? '',
+      sizeChart: product.size_chart,
+      sizeChartType: product.size_chart_type,
+      sizeGuideNote: product.size_guide_note,
       status: product.status,
       isFeatured: product.is_featured,
       variants: variants.map((variant) => ({

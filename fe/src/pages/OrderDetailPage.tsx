@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { OrderDetailDrawer } from '../components/orders/OrderDetailDrawer'
@@ -13,12 +12,6 @@ export function OrderDetailPage() {
   const navigate = useNavigate()
   const { locale } = usePortal()
   const vi = locale === 'vi'
-  const [selectedId, setSelectedId] = useState<string | null>(id ?? null)
-
-  useEffect(() => {
-    setSelectedId(id ?? null)
-  }, [id])
-
   if (!id) {
     return (
       <>
@@ -66,11 +59,10 @@ export function OrderDetailPage() {
           </div>
         </div>
         <OrderDetailDrawer
-          orderId={selectedId}
+          orderId={id}
           locale={locale}
           onClose={() => navigate('/app/orders')}
           onOpenOrder={(nextId) => {
-            setSelectedId(nextId)
             navigate(`/app/orders/${nextId}`, { replace: true })
           }}
           onFilterGroup={(groupId) =>

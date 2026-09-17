@@ -35,7 +35,7 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 // MANUAL PACKAGING OPTIONS & SPECS
 // ==========================================
 
-export interface ManualCartonOption {
+interface ManualCartonOption {
   code: string
   label: string
   dimensions: string
@@ -46,7 +46,7 @@ export interface ManualCartonOption {
   desc: string
 }
 
-export const MANUAL_CARTON_OPTIONS: ManualCartonOption[] = [
+const MANUAL_CARTON_OPTIONS: ManualCartonOption[] = [
   {
     code: 'Hộp S',
     label: 'Hộp S: 40 × 30 × 12 cm',
@@ -109,7 +109,7 @@ export const MANUAL_CARTON_OPTIONS: ManualCartonOption[] = [
   },
 ]
 
-export const MANUAL_MATERIAL_OPTIONS = [
+const MANUAL_MATERIAL_OPTIONS = [
   { id: 'bubble', name: 'Xốp bóng khí (Bubble wrap)', cost: 0.10 },
   { id: 'silk', name: 'Giấy lụa bọc sản phẩm', cost: 0.08 },
   { id: 'desiccant', name: 'Túi chống ẩm (Silica gel)', cost: 0.05 },

@@ -177,7 +177,6 @@ export function ProfilePage() {
 
   useEffect(() => {
     let cancelled = false
-    setLoadingProfile(true)
     void fetchMyProfile()
       .then((profile) => {
         if (cancelled) return

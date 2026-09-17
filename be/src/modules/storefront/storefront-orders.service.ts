@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
-  CustomerAddressSnapshot,
   StorefrontInventoryStock,
   StorefrontInventoryStockDocument,
   StorefrontOrder,
@@ -97,7 +96,7 @@ export class StorefrontOrdersService {
         shipping_fee: shippingFee,
         total_amount: total,
         currency: 'VND',
-        shipping_address_snapshot: dto.shipping_address as CustomerAddressSnapshot,
+        shipping_address_snapshot: dto.shipping_address,
         customer_note: dto.customer_note ?? '',
         placed_at: new Date(),
       });
@@ -177,7 +176,7 @@ export class StorefrontOrdersService {
       currency: order.currency,
       createdAt: order.created_at ?? new Date(0),
       canonicalOrderId: order.canonical_order_id?.toString() ?? null,
-      canonicalSyncStatus: order.canonical_sync_status ?? 'pending',
+      canonicalSyncStatus: order.canonical_sync_status,
     };
   }
 

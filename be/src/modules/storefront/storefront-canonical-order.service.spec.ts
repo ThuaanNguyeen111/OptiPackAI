@@ -5,6 +5,9 @@ import { OrderStatus } from '../orders/enums/order-status.enum';
 import { StorefrontCanonicalOrderService } from './storefront-canonical-order.service';
 
 describe('StorefrontCanonicalOrderService', () => {
+  const objectContaining = (value: Record<string, unknown>): Record<string, unknown> =>
+    expect.objectContaining(value) as Record<string, unknown>;
+
   it('projects a storefront order into orders, product_master and a deterministic order group', async () => {
     const storefrontOrderId = new Types.ObjectId();
     const itemId = new Types.ObjectId();
@@ -87,7 +90,7 @@ describe('StorefrontCanonicalOrderService', () => {
         platform_order_id: storefrontOrderId.toString(),
       }),
       expect.objectContaining({
-        $set: expect.objectContaining({
+        $set: objectContaining({
           status: OrderStatus.UNPAID,
           platform_order_number: 'KA-ABC123',
           items: [expect.objectContaining({ sku: 'SKU-1', quantity: 2 })],
@@ -98,7 +101,7 @@ describe('StorefrontCanonicalOrderService', () => {
     expect(orderGroupModel.findOneAndUpdate).toHaveBeenCalledWith(
       { _id: canonicalOrder._id },
       expect.objectContaining({
-        $setOnInsert: expect.objectContaining({
+        $setOnInsert: objectContaining({
           platform: MarketplacePlatform.STOREFRONT,
           shop_id: 'storefront-main',
         }),
@@ -108,7 +111,7 @@ describe('StorefrontCanonicalOrderService', () => {
     expect(productMasterModel.bulkWrite).toHaveBeenCalledTimes(1);
     expect(storefrontOrderModel.updateOne).toHaveBeenCalledWith(
       { _id: storefrontOrderId },
-      { $set: expect.objectContaining({ canonical_sync_status: 'synced' }) },
+      { $set: objectContaining({ canonical_sync_status: 'synced' }) },
     );
   });
 

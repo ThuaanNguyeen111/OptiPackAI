@@ -152,8 +152,6 @@ export class StorefrontCanonicalOrderService {
         { upsert: true, returnDocument: 'after', setDefaultsOnInsert: true },
       );
 
-      if (!canonicalOrder) throw new Error('Không thể tạo canonical order');
-
       await this.syncProductMaster(items, variantMap);
       await this.ensureOrderGroup(canonicalOrder);
 

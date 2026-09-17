@@ -93,6 +93,8 @@ export function StaffManagementPage() {
             ? 'NV-VC'
             : 'NV-QL'
     const count = staffList.filter((s) => s.role === newStaffRole).length + 1
+    // The generated code is deliberately synchronized with the modal inputs.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setNewStaffCode(`${prefix}-${String(count).padStart(2, '0')}`)
   }, [newStaffRole, isAddModalOpen, staffList])
 

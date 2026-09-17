@@ -64,7 +64,7 @@ export class StorefrontCartService {
 
   async get(customerId: string) {
     const cart = await this.getOrCreate(customerId);
-    const items = await this.itemModel.find({ cart_id: cart!._id }).lean();
+    const items = await this.itemModel.find({ cart_id: cart._id }).lean();
     const variantIds = items.map((item) => item.variant_id);
     const variants = await this.variantModel
       .find({ _id: { $in: variantIds }, is_active: true })
@@ -82,7 +82,7 @@ export class StorefrontCartService {
     const stockMap = new Map(stocks.map((stock) => [stock.variant_id.toString(), stock]));
 
     return {
-      id: cart!.id,
+      id: cart.id,
       items: items.flatMap((item) => {
         const variant = variantMap.get(item.variant_id.toString());
         const product = variant ? productMap.get(variant.product_id.toString()) : undefined;
@@ -132,7 +132,7 @@ export class StorefrontCartService {
     const availableQuantity = await this.getAvailableQuantity(variantId);
     const cart = await this.getOrCreate(customerId);
     const existing = await this.itemModel.findOne({
-      cart_id: cart!._id,
+      cart_id: cart._id,
       variant_id: variantId,
     });
     const quantity = Math.min(
@@ -143,7 +143,7 @@ export class StorefrontCartService {
     if (quantity < 1) throw new BadRequestException('Sản phẩm đã hết hàng');
 
     await this.itemModel.findOneAndUpdate(
-      { cart_id: cart!._id, variant_id: variantId },
+      { cart_id: cart._id, variant_id: variantId },
       {
         $set: {
           product_id: variant.product_id,
@@ -171,7 +171,7 @@ export class StorefrontCartService {
 
     const cart = await this.getOrCreate(customerId);
     const item = await this.itemModel.findOneAndUpdate(
-      { cart_id: cart!._id, variant_id: variantObjectId },
+      { cart_id: cart._id, variant_id: variantObjectId },
       { $set: { quantity } },
       { returnDocument: 'after' },
     );
@@ -184,7 +184,7 @@ export class StorefrontCartService {
   async remove(customerId: string, variantId: string) {
     const cart = await this.getOrCreate(customerId);
     await this.itemModel.deleteOne({
-      cart_id: cart!._id,
+      cart_id: cart._id,
       variant_id: this.objectId(variantId),
     });
 
@@ -193,7 +193,7 @@ export class StorefrontCartService {
 
   async clear(customerId: string) {
     const cart = await this.getOrCreate(customerId);
-    await this.itemModel.deleteMany({ cart_id: cart!._id });
+    await this.itemModel.deleteMany({ cart_id: cart._id });
 
     return this.get(customerId);
   }
