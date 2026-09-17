@@ -211,8 +211,8 @@ export function DashboardPage() {
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   {vi
-                    ? 'Giám sát doanh thu, đơn đa sàn và nhân viên — không thao tác lấy/đóng/giao hàng.'
-                    : 'Oversee revenue, multi-platform orders and staff — no floor pick/pack/ship actions.'}
+                    ? 'Giám sát đơn & nhân viên trong phạm vi Owner — không thao tác lấy/đóng/giao hàng. Số liệu tài chính bên dưới là minh họa UI.'
+                    : 'Oversee orders & staff within Owner scope — no floor pick/pack/ship. Finance figures below are UI mock.'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -225,6 +225,13 @@ export function DashboardPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => navigate('/app/order-groups')}
+                  className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                >
+                  {vi ? 'Nhóm đơn & Hỏa tốc' : 'Groups & Express'}
+                </button>
+                <button
+                  type="button"
                   onClick={() => navigate('/app/staff')}
                   className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer dark:border-zinc-700 dark:bg-zinc-900 dark:text-slate-300"
                 >
@@ -234,8 +241,9 @@ export function DashboardPage() {
                   type="button"
                   onClick={() => navigate('/app/analytics')}
                   className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer dark:text-blue-400"
+                  title={vi ? 'Minh họa UI — chưa có API báo cáo' : 'UI mock — no analytics API yet'}
                 >
-                  {vi ? 'Báo cáo chi tiết →' : 'Full analytics →'}
+                  {vi ? 'Báo cáo (demo) →' : 'Analytics (demo) →'}
                 </button>
               </div>
             </div>
@@ -414,9 +422,16 @@ export function DashboardPage() {
           {/* 3. CHỈ SỐ XỬ LÝ (LIVE METRICS)                              */}
           {/* ========================================================= */}
           <section className="space-y-3 pt-2">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-              {vi ? 'Chỉ số xử lý trực tiếp' : 'Live Processing Metrics'}
-            </h2>
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                {vi ? 'Chỉ số xử lý (minh họa)' : 'Processing metrics (mock)'}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {vi
+                  ? 'Số liệu demo để bố cục dashboard — không gọi API KPI.'
+                  : 'Demo figures for layout only — no KPI API yet.'}
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
               {/* Card 1: Thời gian lấy hàng trung bình */}

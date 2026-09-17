@@ -330,8 +330,8 @@ export function PortalTopBar({
 
               <div className="border-t border-slate-100 bg-slate-50 p-2.5 text-center text-[10px] text-slate-500 dark:border-slate-800 dark:bg-surface-2/30 dark:text-slate-400">
                 {vi
-                  ? 'Tự làm mới mỗi 20 giây · đánh dấu đã đọc khi mở.'
-                  : 'Refreshes every 20s · marks read on open.'}
+                  ? 'Tự làm mới mỗi 45 giây · đánh dấu đã đọc khi mở.'
+                  : 'Refreshes every 45s · marks read on open.'}
               </div>
             </div>
           ) : null}

@@ -1017,8 +1017,23 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 - API client: `order-groups.api.ts`, `packaging.api.ts` + types camelCase khớp BE.
 - Store Owner: `/app/order-groups` (list + `PATCH .../priority` Hỏa tốc); `/app/staff` → `GET /users` chỉ đọc (bỏ CRUD mock); orders detail cancel fields.
-- Packaging: `/app/packing` → `PackagingWorkbench` (queue `pending_approval` / `partial_needs_review`, approve/adjust/reject/decide-partial). Mock 3D `PackingDashboard` không còn gắn route chính.
+- Packaging: `/app/packing` → **UI mock** `PackingDashboard` (user yêu cầu quay lại 2026-09-17). `PackagingWorkbench` (API) giữ trong repo, chưa gắn route.
 - Notifications: đã nối từ trước; deep-link cập nhật cho order-groups.
+
+**ĐÃ LÀM (2026-09-17) — UI khớp 100% whitelist Owner (không đổi logic/API):**
+
+- Ẩn CTA **Lấy hàng** với `STORE_OWNER` (`canPick=false`) — tránh dẫn tới `/app/warehouse` ngoài whitelist.
+- Nav: `Nhân viên` (bỏ “& Vị trí”); `Quy tắc Bao bì (demo)` / `Báo cáo (demo)`.
+- Dashboard: shortcut tới order-groups; copy rõ số liệu tài chính/KPI là minh họa UI.
+- Packaging Rules + Analytics: badge **Demo** + chú thích chưa có API BE.
+
+**ĐÃ LÀM (2026-09-17) — Packaging Staff workbench khớp trạng thái BE (không đổi API duyệt):**
+
+- Trang `/app/packing` trước chỉ lọc `pending_approval` → nhìn “trắng” dù BE có `awaiting_packaging`.
+- UI: 1 lần `GET /order-groups`, 3 tab (Chờ duyệt / Thiếu hàng / Chờ gợi ý chỉ-xem) + empty state giải thích luồng BE; approve/adjust/reject vẫn chỉ khi `pending_approval` + có recommendation.
+- Sidebar staff: bỏ mock “Kho tổng · Ca sáng”, hiện đúng tên role.
+
+**ĐÃ THAY ĐỔI so với đoạn trên (2026-09-17, theo yêu cầu user):** `/app/packing` **quay lại UI mock** `PackingDashboard` (chưa nối API). File `PackagingWorkbench` (đã nối BE) **giữ trong repo** để gắn lại sau — không xóa.
 
 **CHƯA LÀM (BE / ngoài phạm vi FE Owner+Packaging):** sync `canceled` → gỡ group; dọn Admin OAuth dán JSON; Packaging Rules / Analytics vẫn mock (BE chưa có API settings/dashboard).
 

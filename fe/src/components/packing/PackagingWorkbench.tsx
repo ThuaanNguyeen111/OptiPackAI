@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Info,
   Loader2,
   Package,
   RefreshCw,
@@ -31,7 +32,11 @@ import {
 } from '../../types/packaging'
 import { formatCurrency, formatDateTime } from '../../utils/format'
 
-type QueueTab = 'pending_approval' | 'partial_needs_review'
+/** Hàng đợi UC-04 + trạng thái BE trước khi có gợi ý (chỉ xem). */
+type QueueTab =
+  | 'pending_approval'
+  | 'partial_needs_review'
+  | 'awaiting_packaging'
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
@@ -39,12 +44,47 @@ function statusLabel(status: string, vi: boolean): string {
   return vi ? known.vi : known.en
 }
 
+function emptyCopy(tab: QueueTab, vi: boolean): { title: string; body: string } {
+  if (tab === 'pending_approval') {
+    return vi
+      ? {
+          title: 'Chưa có nhóm chờ duyệt',
+          body: 'BE chỉ đưa nhóm vào pending_approval sau khi có PackagingRecommendation (Admin gọi POST …/packaging/generate tạm, hoặc AI Package 3). Nhóm mới thường nằm tab «Chờ gợi ý».',
+        }
+      : {
+          title: 'No groups pending approval',
+          body: 'BE moves a group to pending_approval only after a PackagingRecommendation exists (Admin POST …/packaging/generate, or AI later). New groups are usually under «Awaiting plan».',
+        }
+  }
+  if (tab === 'partial_needs_review') {
+    return vi
+      ? {
+          title: 'Không có đơn thiếu hàng',
+          body: 'Tab này chỉ hiện nhóm Warehouse đã báo thiếu (report-missing) — trạng thái partial_needs_review trên BE.',
+        }
+      : {
+          title: 'No partial-review groups',
+          body: 'Only groups where Warehouse reported missing items (partial_needs_review) appear here.',
+        }
+  }
+  return vi
+    ? {
+        title: 'Không có nhóm chờ gợi ý',
+        body: 'Không có order_group ở awaiting_packaging (hoặc chưa sync/backfill nhóm đơn từ BE).',
+      }
+    : {
+        title: 'No awaiting-packaging groups',
+        body: 'No order_groups in awaiting_packaging (or groups not synced/backfilled yet).',
+      }
+}
+
 export function PackagingWorkbench() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
 
   const [tab, setTab] = useState<QueueTab>('pending_approval')
-  const [groups, setGroups] = useState<OrderGroup[]>([])
+  const [tabBootstrapped, setTabBootstrapped] = useState(false)
+  const [allGroups, setAllGroups] = useState<OrderGroup[]>([])
   const [listLoading, setListLoading] = useState(true)
   const [listError, setListError] = useState<string | null>(null)
 
@@ -73,20 +113,16 @@ export function PackagingWorkbench() {
     setListLoading(true)
     setListError(null)
     try {
-      const rows = await listOrderGroups({ fulfillment_status: tab })
-      setGroups(rows)
-      setSelectedId((prev) => {
-        if (prev && rows.some((g) => g.id === prev)) return prev
-        return rows[0]?.id ?? null
-      })
+      // Một lần GET /order-groups (Packaging Staff được BE cho đọc) — lọc tab phía FE.
+      const rows = await listOrderGroups()
+      setAllGroups(rows)
     } catch (err: unknown) {
       setListError(formatApiError(err))
-      setGroups([])
-      setSelectedId(null)
+      setAllGroups([])
     } finally {
       setListLoading(false)
     }
-  }, [tab])
+  }, [])
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -95,9 +131,46 @@ export function PackagingWorkbench() {
     return () => window.clearTimeout(timer)
   }, [loadList])
 
+  const counts = useMemo(() => {
+    let pending = 0
+    let partial = 0
+    let awaiting = 0
+    for (const g of allGroups) {
+      if (g.fulfillmentStatus === 'pending_approval') pending += 1
+      else if (g.fulfillmentStatus === 'partial_needs_review') partial += 1
+      else if (g.fulfillmentStatus === 'awaiting_packaging') awaiting += 1
+    }
+    return { pending, partial, awaiting }
+  }, [allGroups])
+
+  const groups = useMemo(
+    () => allGroups.filter((g) => g.fulfillmentStatus === tab),
+    [allGroups, tab],
+  )
+
+  // Lần tải đầu: nếu chưa có pending nhưng có awaiting/partial → mở đúng tab có dữ liệu BE.
+  useEffect(() => {
+    if (listLoading || tabBootstrapped) return
+    const id = window.setTimeout(() => {
+      if (counts.pending === 0 && counts.awaiting > 0) {
+        setTab('awaiting_packaging')
+      } else if (counts.pending === 0 && counts.partial > 0) {
+        setTab('partial_needs_review')
+      }
+      setTabBootstrapped(true)
+    }, 0)
+    return () => window.clearTimeout(id)
+  }, [listLoading, tabBootstrapped, counts.pending, counts.awaiting, counts.partial])
+
+  useEffect(() => {
+    setSelectedId((prev) => {
+      if (prev && groups.some((g) => g.id === prev)) return prev
+      return groups[0]?.id ?? null
+    })
+  }, [groups])
+
   const lastPackagingKeyRef = useRef<string | null>(null)
 
-  // Group lấy từ list (đã có version). Chỉ gọi thêm GET packaging khi cần duyệt.
   useEffect(() => {
     if (!selectedId) {
       lastPackagingKeyRef.current = null
@@ -115,7 +188,12 @@ export function PackagingWorkbench() {
       setActionError(null)
     }, 0)
 
-    if (!fromList || tab === 'partial_needs_review') {
+    // Partial / awaiting: không cần (hoặc chưa có) recommendation để thao tác UC-04.
+    if (
+      !fromList ||
+      tab === 'partial_needs_review' ||
+      tab === 'awaiting_packaging'
+    ) {
       lastPackagingKeyRef.current = null
       const clearRec = window.setTimeout(() => setRec(null), 0)
       return () => {
@@ -124,7 +202,7 @@ export function PackagingWorkbench() {
       }
     }
 
-    const fetchKey = `${selectedId}:${String(fromList.version)}`
+    const fetchKey = `${selectedId}:${String(fromList.version)}:${tab}`
     if (lastPackagingKeyRef.current === fetchKey) {
       return () => window.clearTimeout(syncId)
     }
@@ -203,7 +281,12 @@ export function PackagingWorkbench() {
     const l = Number(boxL)
     const w = Number(boxW)
     const h = Number(boxH)
-    if (![weight, l, w, h].every((n) => Number.isFinite(n) && n >= 0) || l < 1 || w < 1 || h < 1) {
+    if (
+      ![weight, l, w, h].every((n) => Number.isFinite(n) && n >= 0) ||
+      l < 1 ||
+      w < 1 ||
+      h < 1
+    ) {
       setActionError(
         vi
           ? 'Kiểm tra kích thước thùng (≥1) và cân nặng (≥0).'
@@ -292,10 +375,11 @@ export function PackagingWorkbench() {
     }
   }
 
-  const pendingCount = useMemo(
-    () => (tab === 'pending_approval' ? groups.length : null),
-    [tab, groups.length],
-  )
+  const empty = emptyCopy(tab, vi)
+  const canApprove =
+    tab === 'pending_approval' &&
+    Boolean(rec) &&
+    group?.fulfillmentStatus === 'pending_approval'
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4 md:p-6">
@@ -306,8 +390,8 @@ export function PackagingWorkbench() {
           </h1>
           <p className="mt-0.5 text-sm text-ink-subtle">
             {vi
-              ? 'Hàng đợi pending_approval và đơn thiếu hàng cần quyết định.'
-              : 'Queue: pending_approval and partial_needs_review decisions.'}
+              ? 'Khớp BE: chờ duyệt AI · thiếu hàng · chờ gợi ý (chỉ xem). Duyệt/điều chỉnh chỉ khi pending_approval + đã có recommendation.'
+              : 'Matches BE: pending approval · partial review · awaiting plan (read-only). Approve/adjust only with pending_approval + recommendation.'}
           </p>
         </div>
         <button
@@ -320,16 +404,35 @@ export function PackagingWorkbench() {
         </button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-xs text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <p>
+          {vi
+            ? `Luồng BE: awaiting_packaging (${String(counts.awaiting)}) → Admin generate / AI → pending_approval (${String(counts.pending)}) → bạn Duyệt / Điều chỉnh / Từ chối. Thiếu hàng: partial_needs_review (${String(counts.partial)}).`
+            : `BE flow: awaiting_packaging (${String(counts.awaiting)}) → Admin generate / AI → pending_approval (${String(counts.pending)}) → Approve / Adjust / Reject. Missing stock: partial_needs_review (${String(counts.partial)}).`}
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
         {(
           [
-            ['pending_approval', vi ? 'Chờ duyệt AI' : 'Pending approval'],
+            [
+              'pending_approval',
+              vi ? 'Chờ duyệt AI' : 'Pending approval',
+              counts.pending,
+            ],
             [
               'partial_needs_review',
               vi ? 'Thiếu hàng — duyệt' : 'Partial review',
+              counts.partial,
+            ],
+            [
+              'awaiting_packaging',
+              vi ? 'Chờ gợi ý (xem)' : 'Awaiting plan (view)',
+              counts.awaiting,
             ],
           ] as const
-        ).map(([key, label]) => (
+        ).map(([key, label, count]) => (
           <button
             key={key}
             type="button"
@@ -340,12 +443,7 @@ export function PackagingWorkbench() {
                 : 'border border-hairline bg-surface text-ink-muted hover:bg-surface-2'
             }`}
           >
-            {label}
-            {key === 'pending_approval' && pendingCount !== null
-              ? ` (${String(groups.length)})`
-              : key === tab
-                ? ` (${String(groups.length)})`
-                : ''}
+            {label} ({String(count)})
           </button>
         ))}
       </div>
@@ -364,9 +462,12 @@ export function PackagingWorkbench() {
             ) : listError ? (
               <p className="p-4 text-sm text-rose-600">{listError}</p>
             ) : groups.length === 0 ? (
-              <p className="p-4 text-sm text-ink-subtle">
-                {vi ? 'Không có nhóm đơn trong hàng đợi này.' : 'Queue is empty.'}
-              </p>
+              <div className="space-y-1 p-4">
+                <p className="text-sm font-medium text-ink">{empty.title}</p>
+                <p className="text-xs leading-relaxed text-ink-subtle">
+                  {empty.body}
+                </p>
+              </div>
             ) : (
               <ul className="divide-y divide-hairline">
                 {groups.map((g) => (
@@ -408,7 +509,11 @@ export function PackagingWorkbench() {
         <section className="min-h-0 overflow-y-auto rounded-xl border border-hairline bg-surface p-4 md:p-5">
           {!selectedId ? (
             <p className="text-sm text-ink-subtle">
-              {vi ? 'Chọn một nhóm đơn bên trái.' : 'Select a group on the left.'}
+              {groups.length === 0
+                ? empty.body
+                : vi
+                  ? 'Chọn một nhóm đơn bên trái.'
+                  : 'Select a group on the left.'}
             </p>
           ) : detailLoading ? (
             <div className="flex items-center gap-2 text-sm text-ink-muted">
@@ -434,7 +539,9 @@ export function PackagingWorkbench() {
                 </div>
                 <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                   <div>
-                    <dt className="text-ink-subtle">{vi ? 'Trạng thái' : 'Status'}</dt>
+                    <dt className="text-ink-subtle">
+                      {vi ? 'Trạng thái' : 'Status'}
+                    </dt>
                     <dd className="font-medium text-ink">
                       {statusLabel(group.fulfillmentStatus, vi)}
                     </dd>
@@ -444,11 +551,15 @@ export function PackagingWorkbench() {
                     <dd className="font-mono text-ink">{group.version}</dd>
                   </div>
                   <div>
-                    <dt className="text-ink-subtle">{vi ? 'Ưu tiên' : 'Priority'}</dt>
+                    <dt className="text-ink-subtle">
+                      {vi ? 'Ưu tiên' : 'Priority'}
+                    </dt>
                     <dd className="capitalize text-ink">{group.orderPriority}</dd>
                   </div>
                   <div>
-                    <dt className="text-ink-subtle">{vi ? 'Hạn đóng gói' : 'Deadline'}</dt>
+                    <dt className="text-ink-subtle">
+                      {vi ? 'Hạn đóng gói' : 'Deadline'}
+                    </dt>
                     <dd className="text-ink">
                       {group.packagingDeadline
                         ? formatDateTime(
@@ -461,6 +572,21 @@ export function PackagingWorkbench() {
                   </div>
                 </dl>
               </div>
+
+              {tab === 'awaiting_packaging' ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                  <p className="font-medium">
+                    {vi
+                      ? 'Chỉ xem — chưa tới bước duyệt (UC-04)'
+                      : 'View only — not ready for UC-04 yet'}
+                  </p>
+                  <p className="mt-1.5 text-xs leading-relaxed opacity-90">
+                    {vi
+                      ? 'BE: group đang awaiting_packaging. Packaging Staff không gọi generate (chỉ Admin). Sau khi có recommendation, group chuyển pending_approval — lúc đó tab «Chờ duyệt AI» mới cho Duyệt / Điều chỉnh / Từ chối.'
+                      : 'BE: group is awaiting_packaging. Packaging Staff cannot call generate (Admin only). After a recommendation exists, status becomes pending_approval — then Approve / Adjust / Reject unlock.'}
+                  </p>
+                </div>
+              ) : null}
 
               {tab === 'partial_needs_review' ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
@@ -490,7 +616,7 @@ export function PackagingWorkbench() {
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : tab !== 'awaiting_packaging' ? (
                 <>
                   <div className="rounded-lg border border-hairline bg-canvas p-4">
                     <h3 className="text-sm font-semibold text-ink">
@@ -505,14 +631,18 @@ export function PackagingWorkbench() {
                     ) : (
                       <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                         <div>
-                          <dt className="text-ink-subtle">{vi ? 'Thùng (cm)' : 'Box (cm)'}</dt>
+                          <dt className="text-ink-subtle">
+                            {vi ? 'Thùng (cm)' : 'Box (cm)'}
+                          </dt>
                           <dd className="font-mono text-ink">
                             {rec.boxSize.lengthCm} × {rec.boxSize.widthCm} ×{' '}
                             {rec.boxSize.heightCm}
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-ink-subtle">{vi ? 'Vật liệu' : 'Material'}</dt>
+                          <dt className="text-ink-subtle">
+                            {vi ? 'Vật liệu' : 'Material'}
+                          </dt>
                           <dd className="text-ink">
                             {rec.materialType} × {rec.materialQuantity}
                           </dd>
@@ -526,8 +656,12 @@ export function PackagingWorkbench() {
                           </dd>
                         </div>
                         <div>
-                          <dt className="text-ink-subtle">{vi ? 'Trạng thái duyệt' : 'Approval'}</dt>
-                          <dd className="capitalize text-ink">{rec.approvalStatus}</dd>
+                          <dt className="text-ink-subtle">
+                            {vi ? 'Trạng thái duyệt' : 'Approval'}
+                          </dt>
+                          <dd className="capitalize text-ink">
+                            {rec.approvalStatus}
+                          </dd>
                         </div>
                         {rec.fallbackUsed ? (
                           <div className="sm:col-span-2 text-xs text-amber-700 dark:text-amber-300">
@@ -540,7 +674,7 @@ export function PackagingWorkbench() {
                     )}
                   </div>
 
-                  {rec && group.fulfillmentStatus === 'pending_approval' ? (
+                  {canApprove ? (
                     <div className="space-y-4 rounded-lg border border-hairline p-4">
                       <div className="flex gap-2">
                         <button
@@ -701,7 +835,7 @@ export function PackagingWorkbench() {
                     </div>
                   ) : null}
                 </>
-              )}
+              ) : null}
 
               {actionError ? (
                 <p className="text-sm text-rose-600">{actionError}</p>

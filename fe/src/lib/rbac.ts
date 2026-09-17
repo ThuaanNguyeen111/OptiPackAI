@@ -12,8 +12,10 @@ const STAFF_PREFIXES: Record<
 }
 
 /**
- * Store Owner — giám sát / cấu hình, không thao tác sàn kho.
- * Khớp whitelist đã chốt với user (2026-09-16).
+ * Store Owner — giám sát / cấu hình trong whitelist, không thao tác sàn kho.
+ * Whitelist chốt (2026-09-16): orders, order-groups, packaging-rules (demo UI),
+ * staff, analytics (demo UI), profile, settings + `/app` dashboard.
+ * CTA Lấy hàng / warehouse / packing / shipping KHÔNG thuộc Owner — ẩn ở UI.
  */
 const STORE_OWNER_PREFIXES = [
   '/app/orders',

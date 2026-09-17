@@ -58,16 +58,16 @@ const navItems = [
   {
     to: '/app/packaging-rules',
     end: false,
-    labelVi: 'Quy tắc Bao bì',
-    labelEn: 'Packaging Rules',
+    labelVi: 'Quy tắc Bao bì (demo)',
+    labelEn: 'Packaging Rules (demo)',
     icon: Box,
     section: 'store' as NavSection,
   },
   {
     to: '/app/staff',
     end: false,
-    labelVi: 'Nhân viên & Vị trí',
-    labelEn: 'Staff & Locations',
+    labelVi: 'Nhân viên',
+    labelEn: 'Staff directory',
     icon: Users,
     section: 'store' as NavSection,
   },
@@ -106,8 +106,8 @@ const navItems = [
   {
     to: '/app/analytics',
     end: false,
-    labelVi: 'Báo cáo & Xuất file',
-    labelEn: 'Analytics & Export',
+    labelVi: 'Báo cáo (demo)',
+    labelEn: 'Analytics (demo)',
     icon: BarChart3,
     section: 'analytics' as NavSection,
   },
@@ -336,10 +336,12 @@ export function PortalSidebar() {
       {!sidebarCollapsed && !isStoreOwner ? (
         <div className="border-b border-hairline p-3">
           <div className="rounded-lg border border-hairline bg-surface-2 px-3 py-2">
-            <p className="text-xs font-medium text-ink">
-              {locale === 'vi' ? 'Kho tổng · Ca sáng' : 'Main Warehouse · Morning'}
+            <p className="text-xs font-medium text-ink">{roleLabel}</p>
+            <p className="mt-0.5 text-[11px] text-ink-subtle">
+              {locale === 'vi'
+                ? 'Theo quyền BE — không thao tác ngoài phạm vi role'
+                : 'Scoped to BE role permissions'}
             </p>
-            <p className="mt-0.5 text-[11px] text-ink-subtle">{roleLabel}</p>
           </div>
         </div>
       ) : null}
