@@ -592,7 +592,7 @@ function BinsTab({
       </form>
       <p className="text-[11px] leading-relaxed text-ink-muted">
         {vi
-          ? `Giống siêu thị: 1 dãy (aisle) + khoảng giá đỡ × khoảng tầng. Ví dụ khu ${api.selectedZone?.zoneCode ?? 'A'}, dãy 03, giá 1→2, tầng 1→2 sẽ tạo 4 kệ: ${api.selectedZone?.zoneCode ?? 'A'}-03-01-01 … ${api.selectedZone?.zoneCode ?? 'A'}-03-02-02. Lần này sẽ tạo ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
+          ? `1 dãy + khoảng giá đỡ + khoảng tầng. Ví dụ khu ${api.selectedZone?.zoneCode ?? 'A'}, dãy 03, giá 1→2, tầng 1→2 sẽ tạo 4 kệ: ${api.selectedZone?.zoneCode ?? 'A'}-03-01-01 … ${api.selectedZone?.zoneCode ?? 'A'}-03-02-02. Lần này sẽ tạo ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
           : `Like a supermarket aisle: one aisle × rack range × level range. Example zone ${api.selectedZone?.zoneCode ?? 'A'}, aisle 03, racks 1–2, levels 1–2 → 4 bins. This run creates ${previewCount} bins, first code ${exampleCode}. Same range is idempotent.`}
       </p>
 
@@ -602,7 +602,7 @@ function BinsTab({
           title={vi ? 'Khu này chưa có kệ' : 'This zone has no bins'}
           body={
             vi
-              ? 'Sinh kệ bằng form phía trên. Nếu sau khi sinh bảng vẫn trống: BE main chưa có API GET danh sách kệ — sang tab Gán SKU và dán ObjectId kệ từ Mongo.'
+              ? 'Sinh kệ bằng form phía trên.'
               : 'Generate bins with the form above. If the table stays empty, main BE has no list-bins GET — use Assign SKU and paste the bin ObjectId.'
           }
         />
@@ -746,7 +746,7 @@ function AssignTab({
           {sku ? (
             <p className="text-xs text-ink-muted">
               {vi
-                ? `Sàn: ${sku.platform} (lấy từ catalog, không chọn tay)`
+                ? `Sàn: ${sku.platform}`
                 : `Marketplace: ${sku.platform} (from catalog, not a picker)`}
             </p>
           ) : null}
@@ -771,16 +771,11 @@ function AssignTab({
             </select>
           ) : (
             <>
-              <p className="text-[11px] leading-snug text-ink-muted">
-                {vi
-                  ? 'BE hiện không trả danh sách kệ. Dán ObjectId kệ (Mongo) để gán — hoặc nhờ backend thêm GET /warehouse/zones/:zoneId/bin-locations.'
-                  : 'Backend does not list bins yet. Paste a bin ObjectId, or ask backend for GET /warehouse/zones/:zoneId/bin-locations.'}
-              </p>
               <Input
                 className={fieldClass}
                 value={binId}
                 onChange={(e) => onBinIdChange(e.target.value.trim())}
-                placeholder={vi ? 'ObjectId kệ' : 'Bin ObjectId'}
+                placeholder={vi ? 'ObjectId của kệ' : 'Bin ObjectId'}
               />
             </>
           )}
@@ -790,7 +785,7 @@ function AssignTab({
             min={0}
             value={qty}
             onChange={(e) => setQty(Number(e.target.value))}
-            placeholder={vi ? 'Tồn ban đầu (0 = nhập sau)' : 'Initial qty (0 = restock later)'}
+            placeholder={vi ? 'Tồn ban đầu' : 'Initial qty (0 = restock later)'}
           />
           <Button
             type="submit"

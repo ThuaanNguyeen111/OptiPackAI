@@ -2,8 +2,17 @@ import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AuthLayout } from '../components/auth/AuthLayout'
 import { Button } from '../components/ui/Button'
-import { upsertLazadaShop } from '../lib/lazada-shop'
-import { LAZADA_OAUTH_MESSAGE_TYPE } from '../types/marketplace-orders'
+import {
+  publishLazadaOAuthNotice,
+  upsertLazadaShop,
+} from '../lib/lazada-shop'
+import {
+  formatMarketplaceOAuthError,
+  LAZADA_OAUTH_ERROR_TYPE,
+  LAZADA_OAUTH_MESSAGE_TYPE,
+} from '../types/marketplace-orders'
+
+const ADMIN_MARKETPLACE_PATH = '/app/admin/marketplace'
 
 export function MarketplaceOAuthSuccessPage() {
   const [params] = useSearchParams()
@@ -15,11 +24,34 @@ export function MarketplaceOAuthSuccessPage() {
     shopNameRaw && shopNameRaw.trim() && shopNameRaw !== 'null'
       ? shopNameRaw.trim()
       : null
-  const connected = params.get('connected') !== 'false'
+  const connected = params.get('connected') === 'true'
   const error = params.get('error')
+  const failed = Boolean(error) || !shopId || !connected
 
   useEffect(() => {
-    if (error || !shopId || !connected) return
+    if (error) {
+      publishLazadaOAuthNotice({
+        type: LAZADA_OAUTH_ERROR_TYPE,
+        error,
+      })
+      if (
+        window.name === 'optipack-lazada-connect' ||
+        Boolean(window.opener && !window.opener.closed)
+      ) {
+        window.close()
+      }
+      return
+    }
+
+    if (!shopId || !connected) {
+      if (window.opener && !window.opener.closed) {
+        publishLazadaOAuthNotice({
+          type: LAZADA_OAUTH_ERROR_TYPE,
+          error: 'MKT_SERVER_ERROR',
+        })
+      }
+      return
+    }
 
     upsertLazadaShop({
       shopId,
@@ -27,20 +59,27 @@ export function MarketplaceOAuthSuccessPage() {
       connectedAt: new Date().toISOString(),
     })
 
-    const payload = {
+    publishLazadaOAuthNotice({
       type: LAZADA_OAUTH_MESSAGE_TYPE,
       shopId,
       shopName,
-    }
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage(payload, window.location.origin)
+    })
+
+    const openedAsConnectTab =
+      window.name === 'optipack-lazada-connect' ||
+      Boolean(window.opener && !window.opener.closed)
+
+    if (openedAsConnectTab) {
       window.close()
-      return
     }
-    navigate('/app/admin/marketplace', { replace: true })
+
+    const closeFallback = window.setTimeout(() => {
+      navigate(ADMIN_MARKETPLACE_PATH, { replace: true })
+    }, 250)
+    return () => window.clearTimeout(closeFallback)
   }, [connected, error, navigate, shopId, shopName])
 
-  if (error || !shopId) {
+  if (failed) {
     return (
       <AuthLayout mode="login">
         <div>
@@ -48,15 +87,13 @@ export function MarketplaceOAuthSuccessPage() {
             Kết nối Lazada không thành công
           </h1>
           <p className="mt-3 text-sm text-ink-muted">
-            {error
-              ? `Mã lỗi: ${error}`
-              : 'Thiếu shopId trên URL callback. Nếu BE vẫn trả JSON thô, hãy dán JSON ở màn Kết nối sàn.'}
+            {formatMarketplaceOAuthError(error)}
           </p>
           <Button
             type="button"
             variant="primary"
             className="mt-8 w-full"
-            onClick={() => navigate('/app/admin/marketplace')}
+            onClick={() => navigate(ADMIN_MARKETPLACE_PATH)}
           >
             Quay lại kết nối sàn
           </Button>
