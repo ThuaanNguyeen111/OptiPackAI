@@ -592,7 +592,7 @@ function BinsTab({
       </form>
       <p className="text-[11px] leading-relaxed text-ink-muted">
         {vi
-          ? `1 dãy + khoảng giá đỡ + khoảng tầng. Ví dụ khu ${api.selectedZone?.zoneCode ?? 'A'}, dãy 03, giá 1→2, tầng 1→2 sẽ tạo 4 kệ: ${api.selectedZone?.zoneCode ?? 'A'}-03-01-01 … ${api.selectedZone?.zoneCode ?? 'A'}-03-02-02. Lần này sẽ tạo ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
+          ? `Giống siêu thị: 1 dãy (aisle) + khoảng giá đỡ × khoảng tầng. Ví dụ khu ${api.selectedZone?.zoneCode ?? 'A'}, dãy 03, giá 1→2, tầng 1→2 sẽ tạo 4 kệ: ${api.selectedZone?.zoneCode ?? 'A'}-03-01-01 … ${api.selectedZone?.zoneCode ?? 'A'}-03-02-02. Lần này sẽ tạo ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
           : `Like a supermarket aisle: one aisle × rack range × level range. Example zone ${api.selectedZone?.zoneCode ?? 'A'}, aisle 03, racks 1–2, levels 1–2 → 4 bins. This run creates ${previewCount} bins, first code ${exampleCode}. Same range is idempotent.`}
       </p>
 
@@ -602,7 +602,7 @@ function BinsTab({
           title={vi ? 'Khu này chưa có kệ' : 'This zone has no bins'}
           body={
             vi
-              ? 'Sinh kệ bằng form phía trên.'
+              ? 'Sinh kệ bằng form phía trên. Nếu sau khi sinh bảng vẫn trống: BE main chưa có API GET danh sách kệ — sang tab Gán SKU và dán ObjectId kệ từ Mongo.'
               : 'Generate bins with the form above. If the table stays empty, main BE has no list-bins GET — use Assign SKU and paste the bin ObjectId.'
           }
         />

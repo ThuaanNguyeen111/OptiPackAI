@@ -59,8 +59,9 @@ function toIso(value: string | Date | null | undefined): string | null {
   return typeof value === 'string' ? value : new Date(value).toISOString()
 }
 
+/** Hiển thị đuôi ObjectId dạng mono, không dùng dấu … (dễ đọc hơn). */
 function shortId(id: string): string {
-  return id.length > 8 ? `…${id.slice(-8)}` : id
+  return id.length > 10 ? id.slice(-10) : id
 }
 
 function platformLabel(platform: string): string {
@@ -134,6 +135,17 @@ export function OrderGroupsPage() {
     const overdue = groups.filter((g) => g.isOverdue).length
     const normal = groups.length - express
     return { total: groups.length, express, normal, overdue }
+  }, [groups])
+
+  /** Chỉ sắp xếp hiển thị: quá hạn / hỏa tốc lên đầu — không đổi state `groups`. */
+  const displayGroups = useMemo(() => {
+    return [...groups].sort((a, b) => {
+      if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1
+      const aExpress = a.orderPriority === 'express' ? 1 : 0
+      const bExpress = b.orderPriority === 'express' ? 1 : 0
+      if (aExpress !== bExpress) return bExpress - aExpress
+      return 0
+    })
   }, [groups])
 
   async function applyPriority(priority: OrderPriority): Promise<void> {
@@ -312,7 +324,9 @@ export function OrderGroupsPage() {
                 <table className="w-full min-w-[640px] text-center text-sm">
                   <thead className="sticky top-0 z-10 border-b border-hairline bg-surface-2/95 backdrop-blur">
                     <tr className="text-[10px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400">
-                      <th className="px-4 py-3">{vi ? 'Nhóm' : 'Group'}</th>
+                      <th className="min-w-[140px] px-4 py-3">
+                        {vi ? 'Nhóm' : 'Group'}
+                      </th>
                       <th className="px-3 py-3">{vi ? 'Kênh' : 'Channel'}</th>
                       <th className="px-3 py-3">{vi ? 'Trạng thái' : 'Status'}</th>
                       <th className="px-3 py-3">{vi ? 'Ưu tiên' : 'Priority'}</th>
@@ -321,7 +335,7 @@ export function OrderGroupsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-hairline">
-                    {groups.map((g) => {
+                    {displayGroups.map((g) => {
                       const selected = selectedId === g.id
                       const updated = toIso(g.updatedAt)
                       return (
@@ -330,26 +344,21 @@ export function OrderGroupsPage() {
                           onClick={() => setSelectedId(g.id)}
                           className={cn(
                             'cursor-pointer transition-colors',
+                            g.isOverdue && 'border-l-4 border-l-rose-600',
                             selected
                               ? 'bg-indigo-50/80 dark:bg-indigo-950/30'
-                              : 'hover:bg-surface-2/80',
+                              : g.isOverdue
+                                ? 'bg-rose-50/70 hover:bg-rose-100/70'
+                                : 'hover:bg-surface-2/80',
                           )}
                         >
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-2">
-                              <span className="font-mono text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                                {shortId(g.id)}
-                              </span>
-                              {g.isOverdue ? (
-                                <span
-                                  className="inline-flex items-center gap-0.5 rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-950 dark:text-rose-200"
-                                  title={vi ? 'Quá hạn SLA' : 'SLA overdue'}
-                                >
-                                  <AlertTriangle className="h-2.5 w-2.5" />
-                                  {vi ? 'Quá hạn' : 'Overdue'}
-                                </span>
-                              ) : null}
-                            </div>
+                          <td className="min-w-[140px] px-4 py-3 whitespace-nowrap">
+                            <span
+                              className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300"
+                              title={g.id}
+                            >
+                              {shortId(g.id)}
+                            </span>
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-center">
@@ -367,7 +376,17 @@ export function OrderGroupsPage() {
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-center">
-                              {g.orderPriority === 'express' ? (
+                              {g.isOverdue ? (
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:border-rose-700 dark:bg-rose-950/50 dark:text-rose-200"
+                                  title={vi ? 'Hỏa tốc quá hạn SLA' : 'Express SLA overdue'}
+                                >
+                                  <Zap className="h-3 w-3 fill-rose-600" />
+                                  {vi
+                                    ? 'Hỏa tốc (Quá hạn)'
+                                    : 'Express (Overdue)'}
+                                </span>
+                              ) : g.orderPriority === 'express' ? (
                                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-200/70 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
                                   <Zap className="h-3 w-3 fill-amber-500" />
                                   {vi ? 'Hỏa tốc' : 'Express'}
@@ -430,10 +449,24 @@ export function OrderGroupsPage() {
                     <p className="text-[10px] font-semibold tracking-wider text-ink-subtle uppercase">
                       {vi ? 'Mã nhóm' : 'Group ID'}
                     </p>
-                    <p className="mt-1 break-all font-mono text-xs text-ink">
+                    <p className="mt-1 select-all rounded border border-slate-200 bg-slate-100 p-1.5 font-mono text-xs break-all text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                       {detail.id}
                     </p>
                   </div>
+
+                  {detail.isOverdue ? (
+                    <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0 text-sm font-semibold">
+                        {vi ? 'Đã quá hạn SLA' : 'SLA breached'}
+                        {toIso(detail.packagingDeadline) ? (
+                          <p className="mt-0.5 text-xs font-medium opacity-90">
+                            {formatDateTime(toIso(detail.packagingDeadline)!)}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <dl className="grid gap-3 rounded-lg border border-hairline bg-canvas/60 p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
@@ -480,22 +513,10 @@ export function OrderGroupsPage() {
                         <Clock3 className="h-3.5 w-3.5" />
                         {vi ? 'Hạn đóng gói' : 'Deadline'}
                       </dt>
-                      <dd
-                        className={cn(
-                          'text-right text-xs',
-                          detail.isOverdue
-                            ? 'font-semibold text-rose-600'
-                            : 'text-ink',
-                        )}
-                      >
+                      <dd className="text-right text-xs text-ink">
                         {toIso(detail.packagingDeadline)
                           ? formatDateTime(toIso(detail.packagingDeadline)!)
                           : '—'}
-                        {detail.isOverdue ? (
-                          <span className="mt-0.5 block text-[10px]">
-                            {vi ? 'Đã quá hạn SLA' : 'SLA breached'}
-                          </span>
-                        ) : null}
                       </dd>
                     </div>
                   </dl>
@@ -522,7 +543,7 @@ export function OrderGroupsPage() {
                     <div className="mt-3 flex flex-col gap-2">
                       <Button
                         type="button"
-                        className="h-9 w-full gap-1.5 bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                        className="w-full gap-1.5 bg-amber-600 py-2.5 text-white shadow-sm hover:bg-amber-700 active:bg-amber-800 disabled:opacity-50"
                         disabled={busy || detail.orderPriority === 'express'}
                         onClick={() => void applyPriority('express')}
                       >
