@@ -21,7 +21,7 @@ export const AUTH_MESSAGES = {
   LOGOUT_SUCCESS: 'Đăng xuất thành công.',
   MFA_SETUP_NOT_STARTED: 'Chưa thiết lập xác thực 2 lớp. Vui lòng gọi bước thiết lập trước.',
   MFA_ENABLED_SUCCESS:
-    'Xác thực 2 lớp đã được kích hoạt. Vui lòng lưu lại 10 mã dự phòng bên dưới ở nơi an toàn: mỗi mã chỉ hiển thị một lần và chỉ dùng được một lần.',
+    'Xác thực 2 lớp đã được kích hoạt. Vui lòng lưu lại 10 mã dự phòng bên dưới ở nơi an toàn — mỗi mã chỉ hiển thị một lần và chỉ dùng được một lần.',
   MFA_DISABLED_BY_ADMIN:
     'Xác thực 2 lớp đã được tắt. Vui lòng thiết lập lại từ đầu nếu muốn bật lại.',
   USER_REACTIVATED: 'Tài khoản đã được kích hoạt lại.',

@@ -164,18 +164,3 @@ export function mfaEnabledTemplate(params: { name: string }): { subject: string;
   });
   return { subject: `MFA đã được kích hoạt — ${BRAND_NAME}`, html };
 }
-
-//!=============================================
-// 5. MFA DISABLED (Admin tắt hộ)
-//!=============================================
-export function mfaDisabledTemplate(params: { name: string }): { subject: string; html: string } {
-  const html = renderLayout({
-    previewText: 'Xác thực 2 lớp đã được tắt',
-    bodyHtml: `
-      <p style="margin:0 0 16px;font-size:15px;color:#18181b;">Chào ${params.name},</p>
-      <p style="margin:0 0 8px;">Quản trị viên vừa tắt xác thực 2 lớp (MFA) trên tài khoản của bạn. Lần đăng nhập tiếp theo sẽ không yêu cầu mã xác thực.</p>
-      <p style="margin:0;">Nếu bạn vẫn dùng được ứng dụng Authenticator, hãy vào Hồ sơ để thiết lập MFA lại. Nếu không phải bạn yêu cầu, liên hệ Quản trị viên ngay.</p>
-    `,
-  });
-  return { subject: `MFA đã được tắt — ${BRAND_NAME}`, html };
-}

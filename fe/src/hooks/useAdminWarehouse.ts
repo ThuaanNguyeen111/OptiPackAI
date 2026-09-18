@@ -234,13 +234,15 @@ export function useAdminWarehouse() {
     setMutating(true)
     setError(null)
     try {
-      await assignSkuToBin(selectedWarehouseId, input)
-      const [nextAssignments, nextUnassigned] = await Promise.all([
-        listSkuBinAssignments(selectedWarehouseId),
-        listUnassignedSkus(),
-      ])
-      setAssignments(nextAssignments)
-      setUnassigned(nextUnassigned)
+      const created = await assignSkuToBin(selectedWarehouseId, input)
+      const listed = await listSkuBinAssignments(selectedWarehouseId)
+      setAssignments(
+        listed.length > 0
+          ? listed
+          : (prev) =>
+              prev.some((row) => row.id === created.id) ? prev : [...prev, created],
+      )
+      setUnassigned(await listUnassignedSkus())
     } catch (err: unknown) {
       setError(formatApiError(err))
       throw err

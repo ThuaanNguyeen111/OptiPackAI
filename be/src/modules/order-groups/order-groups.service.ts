@@ -190,7 +190,7 @@ export class OrderGroupsService {
     if (orders.length === 0) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
-        `Toàn bộ đơn hàng trong group "${groupId}" đã bị hủy, không còn sản phẩm nào để đóng gói/lấy hàng.`,
+        `Toàn bộ đơn hàng trong group "${groupId}" đã bị hủy — không còn sản phẩm nào để đóng gói/lấy hàng.`,
         HttpStatus.CONFLICT,
         { groupId },
       );

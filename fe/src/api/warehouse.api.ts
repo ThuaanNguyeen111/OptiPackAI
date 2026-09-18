@@ -1,4 +1,4 @@
-import { apiRequest } from '../lib/api'
+import { ApiError, apiRequest } from '../lib/api'
 import type {
   AssignSkuInput,
   BinLocationRecord,
@@ -46,6 +46,16 @@ function mapUnassignedSku(raw: unknown): UnassignedSku | null {
     platform: parseMarketplacePlatform(pickString(row.platform)),
     shop_id,
     seller_sku,
+  }
+}
+
+async function getJsonOrEmpty(path: string): Promise<unknown> {
+  try {
+    return await apiRequest<unknown>(path, { auth: true })
+  } catch (err: unknown) {
+    // BE main chưa có GET list kệ / list assignment — 404 không được làm trắng cả trang Admin.
+    if (err instanceof ApiError && err.status === 404) return []
+    throw err
   }
 }
 
@@ -181,10 +191,7 @@ export async function generateBinLocations(
 export async function listBinLocations(
   zoneId: string,
 ): Promise<BinLocationRecord[]> {
-  const res = await apiRequest<unknown>(
-    `/warehouse/zones/${zoneId}/bin-locations`,
-    { auth: true },
-  )
+  const res = await getJsonOrEmpty(`/warehouse/zones/${zoneId}/bin-locations`)
   if (!Array.isArray(res)) return []
   return res.map(mapBin).filter((row): row is BinLocationRecord => row !== null)
 }
@@ -192,9 +199,8 @@ export async function listBinLocations(
 export async function listWarehouseBinLocations(
   warehouseId: string,
 ): Promise<BinLocationRecord[]> {
-  const res = await apiRequest<unknown>(
+  const res = await getJsonOrEmpty(
     `/warehouse/warehouses/${warehouseId}/bin-locations`,
-    { auth: true },
   )
   if (!Array.isArray(res)) return []
   return res.map(mapBin).filter((row): row is BinLocationRecord => row !== null)
@@ -226,9 +232,8 @@ export async function assignSkuToBin(
 export async function listSkuBinAssignments(
   warehouseId: string,
 ): Promise<SkuBinAssignmentRecord[]> {
-  const res = await apiRequest<unknown>(
+  const res = await getJsonOrEmpty(
     `/warehouse/warehouses/${warehouseId}/sku-bin-assignments`,
-    { auth: true },
   )
   if (!Array.isArray(res)) return []
   return res

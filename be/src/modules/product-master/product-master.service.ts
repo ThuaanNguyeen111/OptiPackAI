@@ -83,9 +83,6 @@ export class ProductMasterService {
             },
             update: {
               $set: {
-                platform: MarketplacePlatform.LAZADA,
-                shop_id: shopId,
-                seller_sku: sku.SellerSku,
                 dimension: {
                   // Lazada trả STRING — parse về number, mặc định an
                   // toàn (20cm/0.5kg) nếu field thiếu/parse lỗi, KHÔNG

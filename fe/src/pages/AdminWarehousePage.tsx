@@ -602,8 +602,8 @@ function BinsTab({
           title={vi ? 'Khu này chưa có kệ' : 'This zone has no bins'}
           body={
             vi
-              ? 'Nhập dãy + khoảng tầng rồi bấm sinh kệ.'
-              : 'Enter aisle + rack/level range, then generate.'
+              ? 'Sinh kệ bằng form phía trên. Nếu sau khi sinh bảng vẫn trống: BE main chưa có API GET danh sách kệ — sang tab Gán SKU và dán ObjectId kệ từ Mongo.'
+              : 'Generate bins with the form above. If the table stays empty, main BE has no list-bins GET — use Assign SKU and paste the bin ObjectId.'
           }
         />
       ) : (
@@ -743,25 +743,47 @@ function AssignTab({
                 ? 'Chọn 1 SKU bên trái'
                 : 'Select a SKU on the left'}
           </p>
-          
-          <select
-            className={fieldClass}
-            value={binId}
-            onChange={(e) => onBinIdChange(e.target.value)}
-          >
-            <option value="">
-              {vi ? 'Chọn kệ…' : 'Choose bin…'}
-            </option>
-            {binsByZone.map(({ zone, bins }) => (
-              <optgroup key={zone.id} label={`${zone.zoneCode} · ${zone.zoneName}`}>
-                {bins.map((bin) => (
-                  <option key={bin.id} value={bin.id}>
-                    {bin.binCode}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          {sku ? (
+            <p className="text-xs text-ink-muted">
+              {vi
+                ? `Sàn: ${sku.platform} (lấy từ catalog, không chọn tay)`
+                : `Marketplace: ${sku.platform} (from catalog, not a picker)`}
+            </p>
+          ) : null}
+          {api.allBins.length > 0 ? (
+            <select
+              className={fieldClass}
+              value={binId}
+              onChange={(e) => onBinIdChange(e.target.value)}
+            >
+              <option value="">
+                {vi ? 'Chọn kệ…' : 'Choose bin…'}
+              </option>
+              {binsByZone.map(({ zone, bins }) => (
+                <optgroup key={zone.id} label={`${zone.zoneCode} · ${zone.zoneName}`}>
+                  {bins.map((bin) => (
+                    <option key={bin.id} value={bin.id}>
+                      {bin.binCode}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          ) : (
+            <>
+              <p className="text-[11px] leading-snug text-ink-muted">
+                {vi
+                  ? 'BE hiện không trả danh sách kệ. Dán ObjectId kệ (Mongo) để gán — hoặc nhờ backend thêm GET /warehouse/zones/:zoneId/bin-locations.'
+                  : 'Backend does not list bins yet. Paste a bin ObjectId, or ask backend for GET /warehouse/zones/:zoneId/bin-locations.'}
+              </p>
+              <Input
+                className={fieldClass}
+                value={binId}
+                onChange={(e) => onBinIdChange(e.target.value.trim())}
+                placeholder={vi ? 'ObjectId kệ' : 'Bin ObjectId'}
+              />
+            </>
+          )}
           <Input
             className={fieldClass}
             type="number"

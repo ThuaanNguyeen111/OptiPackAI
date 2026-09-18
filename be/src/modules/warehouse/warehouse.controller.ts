@@ -12,14 +12,12 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { WarehouseDocument } from './schemas/warehouse.schema';
 import { WarehouseZoneDocument } from './schemas/warehouse-zone.schema';
-import { BinLocationDocument } from './schemas/bin-location.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
-import { oidString } from './utils/oid-string.util';
 
 // BỔ SUNG (2026-09-10) — Điểm yếu #9: trước đây trả THẲNG Document
 // (snake_case, `_id`/`__v` thô) — sửa cho nhất quán với
 // `order-groups.controller.ts`. Chỉ map 3 entity THẬT SỰ là raw
-// Mongoose document ở controller này (Warehouse/Zone/BinLocation/SkuBinAssignment)
+// Mongoose document ở controller này (Warehouse/Zone/SkuBinAssignment)
 // — KHÔNG đụng `PickingListItem`/`PackableItem` (interface hợp đồng
 // ĐÃ bàn giao cho thành viên làm AI, đổi field name lúc này sẽ phá vỡ
 // hợp đồng đang dùng, ngoài phạm vi Điểm yếu #9).
@@ -33,11 +31,11 @@ interface WarehouseResponse {
 }
 function toWarehouseResponse(doc: WarehouseDocument): WarehouseResponse {
   return {
-    id: oidString(doc._id),
+    id: doc._id.toString(),
     warehouseCode: doc.warehouse_code,
     warehouseName: doc.warehouse_name,
     address: doc.address,
-    isActive: typeof doc.is_active === 'boolean' ? doc.is_active : true,
+    isActive: doc.is_active,
   };
 }
 
@@ -50,32 +48,11 @@ interface WarehouseZoneResponse {
 }
 function toZoneResponse(doc: WarehouseZoneDocument): WarehouseZoneResponse {
   return {
-    id: oidString(doc._id),
-    warehouseId: oidString(doc.warehouse_id),
+    id: doc._id.toString(),
+    warehouseId: doc.warehouse_id.toString(),
     zoneCode: doc.zone_code,
     zoneName: doc.zone_name,
     description: doc.description,
-  };
-}
-
-interface BinLocationResponse {
-  id: string;
-  warehouseId: string;
-  zoneId: string;
-  binCode: string;
-  aisle: string;
-  rack: number;
-  level: number;
-}
-function toBinResponse(doc: BinLocationDocument): BinLocationResponse {
-  return {
-    id: oidString(doc._id),
-    warehouseId: oidString(doc.warehouse_id),
-    zoneId: oidString(doc.zone_id),
-    binCode: doc.bin_code,
-    aisle: doc.aisle,
-    rack: doc.rack,
-    level: doc.level,
   };
 }
 
@@ -87,21 +64,16 @@ interface SkuBinAssignmentResponse {
   sellerSku: string;
   binLocationId: string;
   quantityOnHand: number;
-  binCode?: string;
 }
-function toAssignmentResponse(
-  doc: SkuBinAssignmentDocument,
-  binCode?: string,
-): SkuBinAssignmentResponse {
+function toAssignmentResponse(doc: SkuBinAssignmentDocument): SkuBinAssignmentResponse {
   return {
-    id: oidString(doc._id),
-    warehouseId: oidString(doc.warehouse_id),
+    id: doc._id.toString(),
+    warehouseId: doc.warehouse_id.toString(),
     platform: doc.platform,
     shopId: doc.shop_id,
     sellerSku: doc.seller_sku,
-    binLocationId: oidString(doc.bin_location_id),
+    binLocationId: doc.bin_location_id.toString(),
     quantityOnHand: doc.quantity_on_hand,
-    ...(binCode !== undefined && binCode.length > 0 ? { binCode } : {}),
   };
 }
 
@@ -110,8 +82,8 @@ function toAssignmentResponse(
  * warehouse.controller.ts — MỚI (2026-09-09)
  * ===================================================================
  * Đúng "Manage warehouse configuration" (Phieu_FA26SE036.docx, System
- * Administrator) — TOÀN BỘ route cấu hình @Roles(ADMIN). Chỉ picking-list
- * chia sẻ WAREHOUSE_STAFF. Unassigned vẫn chỉ Admin (đúng API_LIST).
+ * Administrator) — TOÀN BỘ route ở đây @Roles(ADMIN), TRỪ 2 route đọc
+ * cuối cùng (picking-list, unassigned) cần Warehouse Staff xem được.
  * ===================================================================
  */
 @ApiTags('Warehouse')
@@ -156,19 +128,6 @@ export class WarehouseController {
     return docs.map(toZoneResponse);
   }
 
-  @Get('warehouses/:warehouseId/bin-locations')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      'Mọi kệ trong 1 kho (kể cả kệ thiếu zone). FE Admin load 1 lần theo kho, không phụ thuộc list zone thành công.',
-  })
-  async listBinLocationsForWarehouse(
-    @Param('warehouseId') warehouseId: string,
-  ): Promise<BinLocationResponse[]> {
-    const docs = await this.warehouseService.listBinLocationsForWarehouse(warehouseId);
-    return docs.map(toBinResponse);
-  }
-
   @Post('zones/:zoneId/bin-locations/generate')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -182,17 +141,6 @@ export class WarehouseController {
     return this.warehouseService.generateBinLocations(zoneId, dto);
   }
 
-  @Get('zones/:zoneId/bin-locations')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      'Danh sách kệ trong 1 khu — FE Admin cần `id` (bin_location_id) để gán SKU. Sắp xếp theo aisle/rack/level.',
-  })
-  async listBinLocations(@Param('zoneId') zoneId: string): Promise<BinLocationResponse[]> {
-    const docs = await this.warehouseService.listBinLocations(zoneId);
-    return docs.map(toBinResponse);
-  }
-
   @Post('warehouses/:warehouseId/sku-bin-assignments')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Gán 1 SKU vào 1 kệ cụ thể (bước 4/4)' })
@@ -202,28 +150,6 @@ export class WarehouseController {
   ): Promise<SkuBinAssignmentResponse> {
     const doc = await this.warehouseService.assignSkuToBin(warehouseId, dto);
     return toAssignmentResponse(doc);
-  }
-
-  @Get('warehouses/:warehouseId/sku-bin-assignments')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      'Danh sách SKU đã gán kệ trong 1 kho — dùng màn hình nhập hàng (restock). Kèm binCode để hiển thị mã kệ.',
-  })
-  async listSkuBinAssignments(
-    @Param('warehouseId') warehouseId: string,
-  ): Promise<SkuBinAssignmentResponse[]> {
-    const rows = await this.warehouseService.listSkuBinAssignments(warehouseId);
-    return rows.map((row) => ({
-      id: oidString(row._id),
-      warehouseId: oidString(row.warehouse_id),
-      platform: row.platform,
-      shopId: row.shop_id,
-      sellerSku: row.seller_sku,
-      binLocationId: oidString(row.bin_location_id),
-      quantityOnHand: row.quantity_on_hand,
-      binCode: row.bin_code,
-    }));
   }
 
   @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock')
