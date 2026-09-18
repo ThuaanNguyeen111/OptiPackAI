@@ -1,25 +1,64 @@
 import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
 import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
+import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL || 'http://localhost:3000'
+
+/** JwtStrategy đọc Redis trước Mongo — Redis chậm/treo thì fetch không bao giờ settle. */
+const REQUEST_TIMEOUT_MS = 12_000
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      err instanceof DOMException &&
+      err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+  )
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = globalThis.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS,
+  )
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (err: unknown) {
+    if (isAbortError(err)) {
+      throw new ApiError(0, [
+        'Máy chủ không phản hồi kịp. Kiểm tra backend và Redis đang chạy, rồi tải lại trang.',
+      ])
+    }
+    throw err
+  } finally {
+    globalThis.clearTimeout(timeoutId)
+  }
+}
 
 export class ApiError extends Error {
   status: number
   messages: string[]
   errorCode: string | null
+  details: Record<string, unknown> | null
 
   constructor(
     status: number,
     messages: string[],
     errorCode: string | null = null,
+    details: Record<string, unknown> | null = null,
   ) {
     super(messages[0] ?? 'Có lỗi xảy ra, thử lại sau.')
     this.name = 'ApiError'
     this.status = status
     this.messages = messages
     this.errorCode = errorCode
+    this.details = details
   }
 }
 
@@ -41,6 +80,15 @@ function parseErrorCode(payload: unknown): string | null {
   return typeof code === 'string' && code.length > 0 ? code : null
 }
 
+function parseDetails(payload: unknown): Record<string, unknown> | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const details = (payload as { details?: unknown }).details
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+    return null
+  }
+  return details as Record<string, unknown>
+}
+
 async function parseJson(res: Response): Promise<unknown> {
   const text = await res.text()
   if (!text) return null
@@ -57,7 +105,7 @@ async function rotateRefreshToken(): Promise<boolean> {
   const refreshToken = getRefreshToken()
   if (!refreshToken) return false
 
-  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+  const res = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh_token: refreshToken }),
@@ -113,7 +161,7 @@ export async function apiRequest<T>(
     if (token) headers.Authorization = `Bearer ${token}`
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -129,7 +177,12 @@ export async function apiRequest<T>(
   const payload = await parseJson(res)
 
   if (!res.ok) {
-    throw new ApiError(res.status, parseMessage(payload), parseErrorCode(payload))
+    throw new ApiError(
+      res.status,
+      parseMessage(payload),
+      parseErrorCode(payload),
+      parseDetails(payload),
+    )
   }
 
   return payload as T
@@ -137,6 +190,15 @@ export async function apiRequest<T>(
 
 export function getApiErrorCode(err: unknown): string | null {
   return err instanceof ApiError ? err.errorCode : null
+}
+
+export function getApiErrorDetailString(
+  err: unknown,
+  key: string,
+): string | null {
+  if (!(err instanceof ApiError) || !err.details) return null
+  const value = err.details[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
 }
 
 export function formatApiError(err: unknown): string {
@@ -147,10 +209,16 @@ export function formatApiError(err: unknown): string {
     if (err.errorCode && ORDER_GROUPS_ERROR_MESSAGES[err.errorCode]) {
       return ORDER_GROUPS_ERROR_MESSAGES[err.errorCode]
     }
+    if (err.errorCode && WAREHOUSE_ERROR_MESSAGES[err.errorCode]) {
+      return WAREHOUSE_ERROR_MESSAGES[err.errorCode]
+    }
     if (err.status === 429) {
-      return 'Thử đăng nhập quá nhiều lần. Đợi khoảng 1 phút rồi thử lại.'
+      return 'Quá nhiều yêu cầu trong 1 phút. Đợi rồi tải lại trang.'
     }
     return err.messages.join(' ')
+  }
+  if (isAbortError(err)) {
+    return 'Máy chủ không phản hồi kịp. Kiểm tra backend và Redis đang chạy, rồi tải lại trang.'
   }
   if (err instanceof TypeError) {
     return 'Không kết nối được máy chủ. Hãy chạy backend (cổng 3000) rồi thử lại.'

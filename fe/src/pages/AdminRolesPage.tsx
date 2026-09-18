@@ -120,6 +120,18 @@ const modules: Array<{
     },
   },
   {
+    key: 'warehouse-config',
+    labelVi: 'Cấu hình kho (kệ/SKU)',
+    labelEn: 'Warehouse configuration',
+    access: {
+      [Role.STORE_OWNER]: 'none',
+      [Role.WAREHOUSE_STAFF]: 'none',
+      [Role.PACKAGING_STAFF]: 'none',
+      [Role.SHIPPING_COORDINATOR]: 'none',
+      [Role.ADMIN]: 'full',
+    },
+  },
+  {
     key: 'ai-config',
     labelVi: 'Cấu hình tham số AI',
     labelEn: 'AI parameter config',

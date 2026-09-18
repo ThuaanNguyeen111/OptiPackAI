@@ -145,6 +145,12 @@ export default function AdminPage() {
             ))}
           </div>
 
+          {api.usersError ? (
+            <p className="rounded-lg border border-error/20 bg-error/10 px-3 py-2 text-xs text-error">
+              {api.usersError}
+            </p>
+          ) : null}
+
           <div className="relative max-w-sm">
             <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
             <input
@@ -197,11 +203,7 @@ export default function AdminPage() {
             }}
             onDisableMfa={async (id) => {
               await api.disableMfa(id)
-              showToast(
-                vi
-                  ? 'Đã tắt MFA — user phải setup lại nếu muốn bật'
-                  : 'MFA disabled — user must set up again to re-enable',
-              )
+              showToast( 'Đã tắt MFA cho người dùng' )
             }}
             onCreateUser={async (input) => {
               const { temporaryPassword } = await api.createUser(input)

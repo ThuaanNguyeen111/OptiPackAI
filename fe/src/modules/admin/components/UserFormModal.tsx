@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Loader2, X } from 'lucide-react'
+import { useState } from 'react'
+import { Loader2, UserCheck, X } from 'lucide-react'
 import type {
   AdminUser,
   CreateUserInput,
@@ -8,6 +8,12 @@ import type {
 import { ROLE_VALUES, roleLabelsEN, roleLabelsVN, Role } from '../../../types/admin'
 import { Button } from '../../../components/ui/Button'
 import { usePortal } from '../../../context/use-portal'
+import { USER_ERROR_CODES } from '../../../api/users.api'
+import {
+  formatApiError,
+  getApiErrorCode,
+  getApiErrorDetailString,
+} from '../../../lib/api'
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 caret-slate-900 placeholder:text-slate-400 transition-shadow focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-700 dark:bg-[#1C212D] dark:text-[#F3F4F6] dark:caret-[#F3F4F6] dark:placeholder:text-[#9CA3AF] dark:[color-scheme:dark]'
@@ -22,6 +28,7 @@ type Props = {
   onCreate?: (
     user: CreateUserInput,
   ) => Promise<{ temporaryPassword: string } | void>
+  onReactivate?: (id: string) => Promise<void>
 }
 
 export function UserFormModal({
@@ -30,68 +37,78 @@ export function UserFormModal({
   user,
   onSave,
   onCreate,
+  onReactivate,
 }: Props) {
   const { locale } = usePortal()
   const vi = locale === 'vi'
   const isCreate = user === null
 
-  const [email, setEmail] = useState('')
-  const [name, setName] = useState('')
-  const [role, setRole] = useState<Role>(Role.WAREHOUSE_STAFF)
-  const [phone, setPhone] = useState('')
-  const [address, setAddress] = useState('')
-  const [employeeCode, setEmployeeCode] = useState('')
-  const [department, setDepartment] = useState('')
+  const [email, setEmail] = useState(user?.email ?? '')
+  const [name, setName] = useState(user?.name ?? '')
+  const [role, setRole] = useState<Role>(user?.role ?? Role.WAREHOUSE_STAFF)
+  const [phone, setPhone] = useState(user?.phone ?? '')
+  const [address, setAddress] = useState(user?.address ?? '')
+  const [employeeCode, setEmployeeCode] = useState(user?.employeeCode ?? '')
+  const [department, setDepartment] = useState(user?.department ?? '')
   const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    if (user) {
-      setEmail(user.email)
-      setName(user.name)
-      setRole(user.role)
-      setPhone(user.phone ?? '')
-      setAddress(user.address ?? '')
-      setEmployeeCode(user.employeeCode ?? '')
-      setDepartment(user.department ?? '')
-    } else {
-      setEmail('')
-      setName('')
-      setRole(Role.WAREHOUSE_STAFF)
-      setPhone('')
-      setAddress('')
-      setEmployeeCode('')
-      setDepartment('')
-    }
-  }, [open, user])
+  const [formError, setFormError] = useState<string | null>(null)
+  const [inactiveUserId, setInactiveUserId] = useState<string | null>(null)
 
   if (!open) return null
+
+  function handleClose() {
+    setFormError(null)
+    setInactiveUserId(null)
+    onClose()
+  }
 
   async function handleSubmit() {
     if (isCreate && (!name.trim() || !email.trim())) return
     setSaving(true)
-    if (isCreate) {
-      if (!onCreate) {
-        setSaving(false)
-        return
+    setFormError(null)
+    setInactiveUserId(null)
+    try {
+      if (isCreate) {
+        if (!onCreate) {
+          return
+        }
+        await onCreate({
+          name: name.trim(),
+          email: email.trim(),
+          role,
+        })
+      } else if (user) {
+        await onSave(user.id, {
+          name: name.trim(),
+          role,
+          phone: phone.trim() || undefined,
+          address: address.trim() || undefined,
+          employeeCode: employeeCode.trim() || undefined,
+          department: department.trim() || undefined,
+        })
       }
-      await onCreate({
-        name: name.trim(),
-        email: email.trim(),
-        role,
-      })
-    } else if (user) {
-      await onSave(user.id, {
-        name: name.trim(),
-        role,
-        phone: phone.trim() || undefined,
-        address: address.trim() || undefined,
-        employeeCode: employeeCode.trim() || undefined,
-        department: department.trim() || undefined,
-      })
+      onClose()
+    } catch (err: unknown) {
+      setFormError(formatApiError(err))
+      if (getApiErrorCode(err) === USER_ERROR_CODES.EMAIL_INACTIVE) {
+        setInactiveUserId(getApiErrorDetailString(err, 'existingUserId'))
+      }
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    onClose()
+  }
+
+  async function handleReactivateNow() {
+    if (!inactiveUserId || !onReactivate) return
+    setSaving(true)
+    try {
+      await onReactivate(inactiveUserId)
+      handleClose()
+    } catch (err: unknown) {
+      setFormError(formatApiError(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const labels = vi ? roleLabelsVN : roleLabelsEN
@@ -102,7 +119,7 @@ export function UserFormModal({
         type="button"
         className="absolute inset-0 bg-black/50"
         aria-label={vi ? 'Đóng' : 'Close'}
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       <div className="relative z-10 w-full max-w-md overflow-hidden rounded-t-2xl border border-hairline bg-surface-1 sm:rounded-2xl">
@@ -118,7 +135,7 @@ export function UserFormModal({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-md p-1.5 text-ink-subtle hover:bg-surface-2 hover:text-ink"
             aria-label={vi ? 'Đóng' : 'Close'}
           >
@@ -127,6 +144,31 @@ export function UserFormModal({
         </div>
 
         <div className="max-h-[70vh] space-y-4 overflow-y-auto p-4">
+          {formError ? (
+            <div className="space-y-2 rounded-lg border border-error/30 bg-error/10 px-3 py-2">
+              <p className="text-xs leading-relaxed text-error">{formError}</p>
+              {inactiveUserId && onReactivate ? (
+                <>
+                  <p className="text-[11px] leading-relaxed text-ink-muted">
+                    {'Tài khoản cũ sẽ được mở lại với thông tin đã lưu trước đó.'}
+                  </p>
+                  <Button
+                    variant="primary"
+                    className="h-8 min-h-8 w-full text-xs"
+                    onClick={() => void handleReactivateNow()}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <UserCheck className="mr-1.5 h-3.5 w-3.5" />
+                    )}
+                    {vi ? 'Kích hoạt lại ngay' : 'Reactivate now'}
+                  </Button>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           <div>
             <label className="mb-1 block text-xs font-medium text-ink-subtle">
               Email
@@ -136,7 +178,10 @@ export function UserFormModal({
                 type="email"
                 className={inputClass}
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  if (inactiveUserId) setInactiveUserId(null)
+                }}
                 placeholder="staff@optipackai.com"
               />
             ) : (
@@ -225,7 +270,7 @@ export function UserFormModal({
         </div>
 
         <div className="flex gap-2 border-t border-hairline p-4">
-          <Button variant="ghost" className="flex-1" onClick={onClose}>
+          <Button variant="ghost" className="flex-1" onClick={handleClose}>
             {vi ? 'Hủy' : 'Cancel'}
           </Button>
           <Button

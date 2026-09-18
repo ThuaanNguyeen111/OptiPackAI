@@ -4,6 +4,7 @@ import {
   GuestRoute,
   ProtectedRoute,
 } from './components/auth/ProtectedRoute'
+import { MfaDisabledNotice } from './components/auth/MfaDisabledNotice'
 import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
@@ -15,6 +16,7 @@ import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
 import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
+import { AdminWarehousePage } from './pages/AdminWarehousePage'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -39,6 +41,7 @@ import { WarehousePage } from './pages/WarehousePage'
 function PortalRoot() {
   return (
     <PortalProvider>
+      <MfaDisabledNotice />
       <Outlet />
     </PortalProvider>
   )
@@ -92,6 +95,7 @@ function App() {
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
                 <Route path="templates" element={<AdminTemplatesPage />} />
+                <Route path="warehouse" element={<AdminWarehousePage />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Route>

@@ -2,6 +2,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
   Box,
+  Boxes,
   Cpu,
   LogOut,
   Moon,
@@ -19,7 +20,7 @@ import { usePortal } from '../../../context/use-portal'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
 
-type NavSection = 'directory' | 'marketplace' | 'ai'
+type NavSection = 'directory' | 'marketplace' | 'warehouse' | 'ai'
 
 const navItems = [
   {
@@ -55,6 +56,14 @@ const navItems = [
     section: 'marketplace' as NavSection,
   },
   {
+    to: '/app/admin/warehouse',
+    end: false,
+    labelVi: 'Cấu hình kho',
+    labelEn: 'Warehouse',
+    icon: Boxes,
+    section: 'warehouse' as NavSection,
+  },
+  {
     to: '/app/admin/ai',
     end: false,
     labelVi: 'Tham số AI',
@@ -75,6 +84,7 @@ const navItems = [
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   directory: { vi: 'Quản trị', en: 'Administration' },
   marketplace: { vi: 'Sàn & đơn hàng', en: 'Marketplace & orders' },
+  warehouse: { vi: 'Kho', en: 'Warehouse' },
   ai: { vi: 'AI & đóng gói', en: 'AI & packing' },
 }
 

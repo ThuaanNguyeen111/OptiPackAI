@@ -2196,3 +2196,12 @@ User hỏi lại rộng hơn: đã note hết mọi thay đổi so với doc cũ
 `diff -rq` xác nhận: **chưa từng sửa trực tiếp file nào trong `src/modules/warehouse/`** suốt cả phiên. Nhưng **Warehouse Picking List bị ảnh hưởng gián tiếp** — `warehouse.service.ts` tái dùng `getPackableItemsForGroup()` (đã fix ở `order-groups.service.ts`), nên tự động ăn theo fix lọc canceled/sự cố logistics mà không cần đụng code Warehouse.
 
 Phát hiện thêm khi trả lời: điều này trước đó chỉ được nhắc ở bảng mã lỗi D.3 (`INTEGRATION_GUIDE_FULFILLMENT.md`), **chưa được nói rõ ngay trong Nghiệp vụ 3 (Lấy hàng/Picking)** — nơi FE dễ tìm thấy hơn khi build màn hình Picking/Warehouse. Đã bổ sung đoạn `🔄 ĐÃ ĐỔI (15/09/2026)` ngay sau sơ đồ 4 bước picking, giải thích rõ: cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId` đều lọc, và case group rỗng hoàn toàn trả `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì mảng rỗng.
+## FE Warehouse Staff � n?i API (2026-09-18)
+
+`WarehousePage` / `WarehouseInventoryPage`: thay UI mock `PickingBatch` + localStorage b?ng workbench g?i BE th?t (0 s?a BE):
+
+- H�ng d?i: `GET /order-groups` l?c tab `approved_for_packing` / `picking` / `picked` / `partial_needs_review`
+- Picking list: `GET /warehouse/:warehouseId/picking-list/:groupId` (fallback `GET /order-groups/:id/picking-list` n?u chua c� warehouse_id)
+- Thao t�c: `pick-item`, `report-missing`, `pick`, `pack`, `assign` + `staff/search`
+- `warehouse_id`: `VITE_DEFAULT_WAREHOUSE_ID` ho?c localStorage `optipack.warehouse_id` (GET list kho ch? Admin � kh�ng s?a BE)
+- Inventory: trang gi?i th�ch (Warehouse kh�ng c� API list/restock t?n) + link sang picking
