@@ -6,9 +6,11 @@ import {
   markNotificationRead,
 } from '../../api/notifications.api'
 import { usePortal } from '../../context/use-portal'
+import { getAccessToken } from '../../lib/auth-storage'
 import type { AppNotification } from '../../types/notifications'
 
-const POLL_MS = 10_000
+/** Khớp chuông unread-count — poll 10s đụng Throttler 20 req/phút, trang sau login không load được. */
+const POLL_MS = 45_000
 
 export function MfaDisabledNotice() {
   const { locale } = usePortal()
@@ -18,8 +20,11 @@ export function MfaDisabledNotice() {
 
   useEffect(() => {
     let cancelled = false
+    let inFlight = false
 
     const refresh = (): void => {
+      if (inFlight || !getAccessToken()) return
+      inFlight = true
       void listNotifications({ is_read: false })
         .then((list) => {
           if (cancelled) return
@@ -29,9 +34,12 @@ export function MfaDisabledNotice() {
         .catch(() => {
           // Chuông thông báo không được làm gián đoạn màn hình chính.
         })
+        .finally(() => {
+          inFlight = false
+        })
     }
 
-    const startId = window.setTimeout(refresh, 0)
+    const startId = window.setTimeout(refresh, 1500)
     const intervalId = window.setInterval(refresh, POLL_MS)
     return () => {
       cancelled = true
