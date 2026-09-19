@@ -2244,3 +2244,24 @@ User phản biện đúng: đánh giá trước ("chỉ API_LIST.md liên quan")
 3. **Nếu là LUỒNG HOÀN TOÀN MỚI** (không phải mở rộng luồng đã có tài liệu) — **tạo file guide MỚI riêng**, viết đúng văn phong/cấu trúc đã dùng nhất quán trong 3 file hiện có: có "Bối cảnh xảy ra", có ví dụ request/response THẬT (lấy đúng field từ DTO, không bịa), có bảng mã lỗi riêng, có ghi chú 🆕/🔄 kèm ngày khi sửa sau này. KHÔNG nhét luồng hoàn toàn khác biệt vào file đang có nếu không cùng nhóm nghiệp vụ (sẽ làm file đó phình to, lạc chủ đề).
 
 **Việc luôn làm sau khi sửa bất kỳ file guide nào**: đồng bộ file `HE_THONG_OPTIPACKAI_GIANG_GIAI.md` (tài liệu giảng giải nội bộ) nếu thay đổi đủ lớn — 2 tài liệu phục vụ 2 đối tượng khác nhau (guide = cho FE tích hợp, giảng giải = cho leader hiểu sâu kỹ thuật) nhưng cùng phải phản ánh đúng code thật, không để 1 trong 2 bị lạc hậu.
+
+## QUY TẮC CHUẨN — nhịp độ commit (16/09/2026, theo yêu cầu cải thiện contribution graph)
+
+**Từ giờ áp dụng cho MỌI phiên làm việc**: chia công việc thành các **checkpoint tự nhiên** trong lúc làm, mỗi checkpoint đưa 1 lần commit — KHÔNG dồn hết tới cuối phiên mới đưa 1 cục để commit 1 lần. Nhưng cũng KHÔNG tách vụn tới mức mỗi sửa nhỏ là 1 commit riêng (tránh "commit rác").
+
+**Cách xác định 1 checkpoint hợp lý** (đã áp dụng đúng tinh thần này qua các Batch 1-5 trong đợt audit vừa rồi — tiếp tục làm y hệt vậy):
+
+- Xong 1 nhóm việc LIÊN QUAN NHAU (VD: 1 bug + test đi kèm, hoặc 2-3 fix cùng chủ đề) → 1 commit.
+- Đừng gộp 2 việc KHÔNG liên quan vào 1 commit (VD: sửa bug Orders + thêm tính năng Warehouse → tách 2 commit).
+- Đừng tách 1 việc DUY NHẤT (VD: 1 fix + test của chính fix đó) thành 2 commit riêng.
+- Mỗi khi đưa xong 1 checkpoint, LUÔN kèm lệnh git đầy đủ (`add` + `commit -m "type(AOFP-XX): mô tả"` + `push`) để user chạy ngay, không đợi gom nhiều checkpoint rồi mới đưa lệnh 1 lần.
+
+## Lỗi cron múi giờ — báo cáo thật từ đồng đội (Thuận chuyển lại, 16/09/2026)
+
+Đồng đội (qua AI assistant khác) phát hiện đúng 2 việc: (1) "SKU chưa gán kệ" chỉ hiện SKU ĐÃ TỪNG có đơn — đúng thiết kế có chủ đích của `product_master` (chỉ cache SKU thật sự cần, không đồng bộ cả catalog), không phải bug. (2) **Lỗi thật**: `@Cron('0 3 * * *', {...})` ở `product-master-sync.scheduler.ts` KHÔNG khai `timeZone` — mặc định chạy theo múi giờ SERVER (biến `TZ`), không phải giờ VN cố định. Trên máy dev Windows hiện tại "đúng giờ" chỉ do trùng hợp; deploy lên cloud thật (thường mặc định UTC) sẽ chạy sai lệch 7 tiếng (3h sáng VN dự định → thực chạy 10h sáng VN).
+
+Đã sửa: thêm `timeZone: 'Asia/Ho_Chi_Minh'` vào đúng cron đó. Đã rà toàn bộ 4 cron khác trong hệ thống (`lazada-order-auto-sync`, `order-group-backfill`, `express-order-sla-check`) — cả 3 đều chạy theo KHOẢNG CÁCH (mỗi N phút), không phụ thuộc múi giờ, không cần sửa — chỉ cron chạy giờ CỐ ĐỊNH (`0 3 * * *`) mới bị ảnh hưởng.
+
+## Cập nhật doc theo 2 mã lỗi mới thêm (WH_WAREHOUSE_CODE_IN_USE, WH_ZONE_CODE_IN_USE) — 16/09/2026
+
+Đúng quy tắc chuẩn đã đặt trước đó — sau khi thêm 2 mã lỗi vào code (`warehouse.errors.ts`), cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md` ở CẢ 2 chỗ: bảng mã lỗi cục bộ trong "Nghiệp vụ 2b" và dòng tổng hợp ở D.3. `API_LIST.md` không cần sửa (chỉ trỏ sang FULFILLMENT guide, không tự liệt kê mã lỗi).

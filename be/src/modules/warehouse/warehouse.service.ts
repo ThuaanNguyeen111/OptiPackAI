@@ -2,10 +2,22 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Warehouse, WarehouseDocument } from './schemas/warehouse.schema';
-import { WarehouseZone, WarehouseZoneDocument } from './schemas/warehouse-zone.schema';
-import { BinLocation, BinLocationDocument } from './schemas/bin-location.schema';
-import { SkuBinAssignment, SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
-import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
+import {
+  WarehouseZone,
+  WarehouseZoneDocument,
+} from './schemas/warehouse-zone.schema';
+import {
+  BinLocation,
+  BinLocationDocument,
+} from './schemas/bin-location.schema';
+import {
+  SkuBinAssignment,
+  SkuBinAssignmentDocument,
+} from './schemas/sku-bin-assignment.schema';
+import {
+  ProductMaster,
+  ProductMasterDocument,
+} from '../product-master/schemas/product-master.schema';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
@@ -33,17 +45,38 @@ export interface PickingListItem extends PackableItem {
 @Injectable()
 export class WarehouseService {
   constructor(
-    @InjectModel(Warehouse.name) private readonly warehouseModel: Model<WarehouseDocument>,
-    @InjectModel(WarehouseZone.name) private readonly zoneModel: Model<WarehouseZoneDocument>,
-    @InjectModel(BinLocation.name) private readonly binModel: Model<BinLocationDocument>,
+    @InjectModel(Warehouse.name)
+    private readonly warehouseModel: Model<WarehouseDocument>,
+    @InjectModel(WarehouseZone.name)
+    private readonly zoneModel: Model<WarehouseZoneDocument>,
+    @InjectModel(BinLocation.name)
+    private readonly binModel: Model<BinLocationDocument>,
     @InjectModel(SkuBinAssignment.name)
     private readonly assignmentModel: Model<SkuBinAssignmentDocument>,
-    @InjectModel(ProductMaster.name) private readonly productMasterModel: Model<ProductMasterDocument>,
+    @InjectModel(ProductMaster.name)
+    private readonly productMasterModel: Model<ProductMasterDocument>,
     private readonly orderGroupsService: OrderGroupsService,
   ) {}
 
   async createWarehouse(dto: CreateWarehouseDto): Promise<WarehouseDocument> {
-    return this.warehouseModel.create(dto);
+    try {
+      return await this.warehouseModel.create(dto);
+    } catch (error: unknown) {
+      // BỔ SUNG (16/09/2026) — báo cáo thật: trước đây lỗi trùng
+      // warehouse_code rơi thẳng ra MongoServerError thô (E11000,
+      // 500 Internal Server Error) — FE không bắt được rõ ràng. Bắt
+      // đúng mã lỗi MongoDB (code 11000 = duplicate key) và dịch
+      // sang AppException nghiệp vụ.
+      if (this.isDuplicateKeyError(error)) {
+        throw new AppException(
+          WAREHOUSE_ERROR_CODES.WAREHOUSE_CODE_IN_USE,
+          `Mã kho "${dto.warehouse_code}" đã được dùng — chọn mã khác.`,
+          HttpStatus.CONFLICT,
+          { warehouseCode: dto.warehouse_code },
+        );
+      }
+      throw error;
+    }
   }
 
   async listWarehouses(): Promise<WarehouseDocument[]> {
@@ -70,14 +103,43 @@ export class WarehouseService {
     }
   }
 
-  async createZone(warehouseId: string, dto: CreateZoneDto): Promise<WarehouseZoneDocument> {
+  async createZone(
+    warehouseId: string,
+    dto: CreateZoneDto,
+  ): Promise<WarehouseZoneDocument> {
     await this.assertWarehouseExists(warehouseId);
-    return this.zoneModel.create({
-      warehouse_id: new Types.ObjectId(warehouseId),
-      zone_code: dto.zone_code,
-      zone_name: dto.zone_name,
-      description: dto.description,
-    });
+    try {
+      return await this.zoneModel.create({
+        warehouse_id: new Types.ObjectId(warehouseId),
+        zone_code: dto.zone_code,
+        zone_name: dto.zone_name,
+        description: dto.description,
+      });
+    } catch (error: unknown) {
+      if (this.isDuplicateKeyError(error)) {
+        throw new AppException(
+          WAREHOUSE_ERROR_CODES.ZONE_CODE_IN_USE,
+          `Mã khu "${dto.zone_code}" đã tồn tại trong kho này — chọn mã khác.`,
+          HttpStatus.CONFLICT,
+          { warehouseId, zoneCode: dto.zone_code },
+        );
+      }
+      throw error;
+    }
+  }
+
+  // BỔ SUNG (16/09/2026) — kiểm tra 1 error object có phải lỗi trùng
+  // khóa MongoDB (E11000) hay không, KHÔNG dùng `instanceof MongoServerError`
+  // (tránh phải import thêm driver `mongodb` chỉ để check type) — driver
+  // Mongo LUÔN gắn field `.code === 11000` cho lỗi loại này, kiểm tra
+  // trực tiếp field đó đơn giản, đủ tin cậy.
+  private isDuplicateKeyError(error: unknown): boolean {
+    return (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 11000
+    );
   }
 
   async listZones(warehouseId: string): Promise<WarehouseZoneDocument[]> {
@@ -96,7 +158,9 @@ export class WarehouseService {
         { warehouseId },
       );
     }
-    return this.zoneModel.find({ warehouse_id: new Types.ObjectId(warehouseId) }).lean();
+    return this.zoneModel
+      .find({ warehouse_id: new Types.ObjectId(warehouseId) })
+      .lean();
   }
 
   /**
@@ -116,7 +180,9 @@ export class WarehouseService {
     return this.binModel.find({ zone_id: new Types.ObjectId(zoneId) }).lean();
   }
 
-  async listBinLocationsByWarehouse(warehouseId: string): Promise<BinLocationDocument[]> {
+  async listBinLocationsByWarehouse(
+    warehouseId: string,
+  ): Promise<BinLocationDocument[]> {
     if (!Types.ObjectId.isValid(warehouseId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
@@ -125,10 +191,14 @@ export class WarehouseService {
         { warehouseId },
       );
     }
-    return this.binModel.find({ warehouse_id: new Types.ObjectId(warehouseId) }).lean();
+    return this.binModel
+      .find({ warehouse_id: new Types.ObjectId(warehouseId) })
+      .lean();
   }
 
-  async listSkuBinAssignmentsByWarehouse(warehouseId: string): Promise<SkuBinAssignmentDocument[]> {
+  async listSkuBinAssignmentsByWarehouse(
+    warehouseId: string,
+  ): Promise<SkuBinAssignmentDocument[]> {
     if (!Types.ObjectId.isValid(warehouseId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
@@ -137,10 +207,14 @@ export class WarehouseService {
         { warehouseId },
       );
     }
-    return this.assignmentModel.find({ warehouse_id: new Types.ObjectId(warehouseId) }).lean();
+    return this.assignmentModel
+      .find({ warehouse_id: new Types.ObjectId(warehouseId) })
+      .lean();
   }
 
-  private async assertZoneExists(zoneId: string): Promise<WarehouseZoneDocument> {
+  private async assertZoneExists(
+    zoneId: string,
+  ): Promise<WarehouseZoneDocument> {
     if (!Types.ObjectId.isValid(zoneId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.ZONE_NOT_FOUND,
@@ -215,13 +289,20 @@ export class WarehouseService {
     return { created: result.upsertedCount };
   }
 
-  async findUnassignedSkus(): Promise<{ platform: string; shop_id: string; seller_sku: string }[]> {
+  async findUnassignedSkus(): Promise<
+    { platform: string; shop_id: string; seller_sku: string }[]
+  > {
     // Product Master ĐÃ CÓ (không sửa) — join thủ công qua $nin danh
     // sách đã gán, KHÔNG dùng $lookup (Rule #21 — hạn chế $lookup ở
     // đường tần suất cao; đây là màn hình Admin, tần suất thấp, nhưng
     // vẫn tránh $lookup cho nhất quán, dùng 2 query + Set trong bộ nhớ).
-    const assigned = await this.assignmentModel.find().select('platform shop_id seller_sku').lean();
-    const assignedKeys = new Set(assigned.map((a) => `${a.platform}|${a.shop_id}|${a.seller_sku}`));
+    const assigned = await this.assignmentModel
+      .find()
+      .select('platform shop_id seller_sku')
+      .lean();
+    const assignedKeys = new Set(
+      assigned.map((a) => `${a.platform}|${a.shop_id}|${a.seller_sku}`),
+    );
 
     const allProducts = await this.productMasterModel
       .find()
@@ -229,14 +310,28 @@ export class WarehouseService {
       .lean();
 
     return allProducts
-      .filter((p) => !assignedKeys.has(`${p.platform}|${p.shop_id}|${p.seller_sku}`))
-      .map((p) => ({ platform: p.platform, shop_id: p.shop_id, seller_sku: p.seller_sku }));
+      .filter(
+        (p) => !assignedKeys.has(`${p.platform}|${p.shop_id}|${p.seller_sku}`),
+      )
+      .map((p) => ({
+        platform: p.platform,
+        shop_id: p.shop_id,
+        seller_sku: p.seller_sku,
+      }));
   }
 
-  async assignSkuToBin(warehouseId: string, dto: AssignSkuBinDto): Promise<SkuBinAssignmentDocument> {
+  async assignSkuToBin(
+    warehouseId: string,
+    dto: AssignSkuBinDto,
+  ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseExists(warehouseId);
     return this.assignmentModel.findOneAndUpdate(
-      { warehouse_id: warehouseId, platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku },
+      {
+        warehouse_id: warehouseId,
+        platform: dto.platform,
+        shop_id: dto.shop_id,
+        seller_sku: dto.seller_sku,
+      },
       {
         $set: { bin_location_id: dto.bin_location_id },
         // $setOnInsert (không phải $set) — nếu SKU đã có sẵn assignment
@@ -253,7 +348,11 @@ export class WarehouseService {
    * gán vị trí làm 1 LẦN, nhập hàng lặp lại ĐỊNH KỲ. Cộng dồn bằng $inc
    * (Rule #7, atomic — không đọc-rồi-ghi).
    */
-  async restockSku(warehouseId: string, assignmentId: string, quantity: number): Promise<SkuBinAssignmentDocument> {
+  async restockSku(
+    warehouseId: string,
+    assignmentId: string,
+    quantity: number,
+  ): Promise<SkuBinAssignmentDocument> {
     if (!Types.ObjectId.isValid(assignmentId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND, // dùng chung mã lỗi validate id, không cần thêm mã riêng
@@ -284,8 +383,12 @@ export class WarehouseService {
    * xếp theo (zone_code, aisle, rack, level) — route optimization/wave
    * picking, đúng thiết kế đã chốt trong CLAUDE.md.
    */
-  async getEnrichedPickingList(warehouseId: string, groupId: string): Promise<PickingListItem[]> {
-    const { items } = await this.orderGroupsService.getPackableItemsForGroup(groupId);
+  async getEnrichedPickingList(
+    warehouseId: string,
+    groupId: string,
+  ): Promise<PickingListItem[]> {
+    const { items } =
+      await this.orderGroupsService.getPackableItemsForGroup(groupId);
     const skus = items.map((i) => i.sku);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1.
@@ -302,7 +405,9 @@ export class WarehouseService {
 
     const enriched: PickingListItem[] = items.map((item) => {
       const assignment = assignmentBySku.get(item.sku);
-      const bin = assignment ? binMap.get(assignment.bin_location_id.toString()) : undefined;
+      const bin = assignment
+        ? binMap.get(assignment.bin_location_id.toString())
+        : undefined;
       const zone = bin ? zoneMap.get(bin.zone_id.toString()) : undefined;
       return {
         ...item,
@@ -315,7 +420,8 @@ export class WarehouseService {
     // string vì đã zero-pad sẵn lúc generate) — đúng kỹ thuật WMS wave
     // picking đã note trong CLAUDE.md.
     enriched.sort((a, b) => {
-      if (a.zone_code !== b.zone_code) return a.zone_code.localeCompare(b.zone_code);
+      if (a.zone_code !== b.zone_code)
+        return a.zone_code.localeCompare(b.zone_code);
       return a.bin_code.localeCompare(b.bin_code);
     });
 
