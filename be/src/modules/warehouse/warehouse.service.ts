@@ -81,7 +81,63 @@ export class WarehouseService {
   }
 
   async listZones(warehouseId: string): Promise<WarehouseZoneDocument[]> {
-    return this.zoneModel.find({ warehouse_id: warehouseId }).lean();
+    // Ép kiểu tường minh sang ObjectId (thay vì để Mongoose tự cast
+    // string trong filter) — theo báo cáo thật từ Hải Phượng (16/09):
+    // GET không trả ra dữ liệu dù đã tạo thành công (xác nhận qua lỗi
+    // "trùng" khi tạo lại) — về lý thuyết Mongoose tự cast string hợp
+    // lệ sang ObjectId trong query filter, nhưng ép kiểu tường minh ở
+    // đây loại bỏ HOÀN TOÀN nghi ngờ, không có hại gì nếu không phải
+    // nguyên nhân thật (Types.ObjectId(x) idempotent nếu x đã đúng).
+    if (!Types.ObjectId.isValid(warehouseId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `"${warehouseId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { warehouseId },
+      );
+    }
+    return this.zoneModel.find({ warehouse_id: new Types.ObjectId(warehouseId) }).lean();
+  }
+
+  /**
+   * BỔ SUNG (16/09/2026) — báo cáo thật từ Hải Phượng: thiếu GET để
+   * liệt kê lại bin-locations đã tạo (trước đây chỉ có POST .../generate
+   * để TẠO, không có cách nào XEM LẠI danh sách qua API).
+   */
+  async listBinLocationsByZone(zoneId: string): Promise<BinLocationDocument[]> {
+    if (!Types.ObjectId.isValid(zoneId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.ZONE_NOT_FOUND,
+        `"${zoneId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { zoneId },
+      );
+    }
+    return this.binModel.find({ zone_id: new Types.ObjectId(zoneId) }).lean();
+  }
+
+  async listBinLocationsByWarehouse(warehouseId: string): Promise<BinLocationDocument[]> {
+    if (!Types.ObjectId.isValid(warehouseId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `"${warehouseId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { warehouseId },
+      );
+    }
+    return this.binModel.find({ warehouse_id: new Types.ObjectId(warehouseId) }).lean();
+  }
+
+  async listSkuBinAssignmentsByWarehouse(warehouseId: string): Promise<SkuBinAssignmentDocument[]> {
+    if (!Types.ObjectId.isValid(warehouseId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `"${warehouseId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { warehouseId },
+      );
+    }
+    return this.assignmentModel.find({ warehouse_id: new Types.ObjectId(warehouseId) }).lean();
   }
 
   private async assertZoneExists(zoneId: string): Promise<WarehouseZoneDocument> {

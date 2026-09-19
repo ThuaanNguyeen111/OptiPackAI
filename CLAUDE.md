@@ -2075,7 +2075,7 @@ User quyết định để dành kế hoạch webhook Lazada tới giai đoạn 
 Theo yêu cầu, bắt đầu code thật (không chỉ audit) các mục A1-A3 trong `00_TONG_HOP...md`, làm từng phần, dừng hỏi ý kiến giữa chừng. **Batch 1 đã xong 4 mục, đánh dấu ✅ trong `00`:**
 
 1. **A1 — `notifications markAsRead` thiếu kiểm tra sở hữu**: `notifications.controller.ts` thêm `@CurrentUser()`, `notifications.service.ts` đổi `findByIdAndUpdate` → `findOneAndUpdate` kèm điều kiện `$or:[{recipient_user_id},{recipient_role}]`, không khớp → 404 `NOTI_NOT_FOUND` (giữ nguyên mã lỗi cũ, không tạo mã mới — không khớp do sai ID hay do không phải chủ sở hữu đều trả về y hệt nhau, không lộ thông tin). Đã viết `notifications.service.spec.ts` mới (trước đây module này chưa có spec nào).
-2. **T1 — Lazada OAuth callback thiếu `@Redirect()`**: đã sửa theo ĐÚNG spec bạn cùng nhóm chốt (ảnh chụp) — redirect về `http://localhost:5173/marketplace-oauth-success`, thành công kèm `shopId`/`shopName`/`connected=true`, thất bại kèm `error=<mã lỗi MKT_*>`. Thêm `SERVER_ERROR: 'MKT_SERVER_ERROR'` vào `marketplace-integration.errors.ts` làm fallback (trước đây không có mã fallback nào, khác Google OAuth đã có `server_error`). Config key mới: `CLIENT_MARKETPLACE_REDIRECT_CALLBACK` (mặc định đúng URL trên nếu chưa set env). **ĐÃ NỐI FE (2026-09-19)**: gỡ bước dán JSON trên `LazadaConnectPanel` (Admin → Kết nối sàn); trang `/marketplace-oauth-success` lưu shop rồi báo tab Admin qua `postMessage` + `BroadcastChannel`; popup bị chặn thì `location.assign` cùng tab. `be/.env.example` thêm `CLIENT_MARKETPLACE_REDIRECT_CALLBACK`. `INTEGRATION_GUIDE_ORDERS.md` mục 3 đồng bộ theo redirect thật (bản ghi cũ "JSON thô" đã lỗi thời).
+2. **T1 — Lazada OAuth callback thiếu `@Redirect()`**: đã sửa theo ĐÚNG spec bạn cùng nhóm chốt (ảnh chụp) — redirect về `http://localhost:5173/marketplace-oauth-success`, thành công kèm `shopId`/`shopName`/`connected=true`, thất bại kèm `error=<mã lỗi MKT_*>`. Thêm `SERVER_ERROR: 'MKT_SERVER_ERROR'` vào `marketplace-integration.errors.ts` làm fallback (trước đây không có mã fallback nào, khác Google OAuth đã có `server_error`). Config key mới: `CLIENT_MARKETPLACE_REDIRECT_CALLBACK` (mặc định đúng URL trên nếu chưa set env).
 3. **A2#1 — `consolidation_key` thiếu `platform`**: `computeConsolidationKey()` thêm tham số `platform` (bắt buộc, đứng đầu), `lazada-order.mapper.ts` truyền `MarketplacePlatform.LAZADA`. **Lưu ý quan trọng chưa xử lý**: đây là thay đổi công thức hash — các `Order` ĐÃ CÓ trong DB (đơn Lazada thật đã sync trước đó) vẫn giữ `consolidation_key` theo công thức CŨ (không có platform), nên đơn MỚI sync sau khi deploy fix này sẽ KHÔNG match được với các group cũ của cùng khách hàng (băm ra key khác nhau) — cần quyết định có viết migration script tính lại `consolidation_key` cho dữ liệu cũ hay chấp nhận (dữ liệu demo, ảnh hưởng thấp).
 4. **A2#2 — bug đơn `canceled` vẫn bị tính**: `getPackableItemsForGroup()` thêm `status: {$ne: OrderStatus.CANCELED}` vào query, thêm case biên (toàn bộ đơn trong group đã hủy → throw `ORD_GROUP_ALL_ORDERS_CANCELED` thay vì trả `items` rỗng âm thầm). Thêm mã lỗi mới vào `order-groups.errors.ts`. Viết spec test riêng (`order-groups.service.getPackableItemsForGroup.spec.ts`, module này trước đây chưa có spec nào dù đụng Order Consolidation — đúng yêu cầu bắt buộc trong CLAUDE.md).
 
@@ -2203,3 +2203,51 @@ User hỏi lại rộng hơn: đã note hết mọi thay đổi so với doc cũ
 `diff -rq` xác nhận: **chưa từng sửa trực tiếp file nào trong `src/modules/warehouse/`** suốt cả phiên. Nhưng **Warehouse Picking List bị ảnh hưởng gián tiếp** — `warehouse.service.ts` tái dùng `getPackableItemsForGroup()` (đã fix ở `order-groups.service.ts`), nên tự động ăn theo fix lọc canceled/sự cố logistics mà không cần đụng code Warehouse.
 
 Phát hiện thêm khi trả lời: điều này trước đó chỉ được nhắc ở bảng mã lỗi D.3 (`INTEGRATION_GUIDE_FULFILLMENT.md`), **chưa được nói rõ ngay trong Nghiệp vụ 3 (Lấy hàng/Picking)** — nơi FE dễ tìm thấy hơn khi build màn hình Picking/Warehouse. Đã bổ sung đoạn `🔄 ĐÃ ĐỔI (15/09/2026)` ngay sau sơ đồ 4 bước picking, giải thích rõ: cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId` đều lọc, và case group rỗng hoàn toàn trả `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì mảng rỗng.
+
+## Tạo tài liệu giảng giải toàn bộ hệ thống — HE_THONG_OPTIPACKAI_GIANG_GIAI.md (16/09/2026)
+
+Theo yêu cầu "giảng như giảng viên" — đã đọc lại TOÀN BỘ code thật (17 schema, 9 module, 53 API endpoint, các thuật toán cốt lõi: consolidation, pick-item atomic, staff auto-assign, Wave Picking, HMAC signing Lazada, refresh token rotation, packaging transaction...) rồi viết 1 file duy nhất ~10.900 từ, 5 phần:
+
+- Phần I: kiến trúc tổng thể (vì sao Modular Monolith, không Microservices)
+- Phần II: 17 bảng DB đầy đủ — mục đích, field, index, LÝ DO tối ưu (6 nguyên tắc: Embed/Reference, Denormalization, ESR, Partial Index, TTL Index, Optimistic Concurrency)
+- Phần III: 9 module — nghiệp vụ, API, kỹ thuật code cụ thể (kèm đoạn code thật + giải thích)
+- Phần IV: demo theo 5 role, có nói rõ "role khác thấy gì" sau mỗi hành động
+- Phần V: 1 ví dụ xuyên suốt A-Z (dùng đúng group thật `6a9de19a3acf2dd473960e7a`) + tổng kết trung thực việc đã xong/chưa xong (fallback packaging chưa phải AI thật, không ghi ngược Lazada, webhook hoãn, đa sàn chưa xong)
+
+File này là tài liệu TĨNH (chụp đúng trạng thái code 16/09/2026), không tự động cập nhật — nếu code đổi thêm, cần đối chiếu lại trước khi coi là còn chính xác.
+
+## Báo cáo lỗi thật từ Hải Phượng (teammate) — warehouse module thiếu GET + nghi ngờ ObjectId cast (16/09/2026)
+
+Đối chiếu code thật: (1) xác nhận đúng — thiếu 3 API GET để xem lại bin-locations/sku-bin-assignments đã tạo (trước đây chỉ có POST tạo, không có GET liệt kê) — đã thêm đủ 3 route + service method + response DTO (`toBinLocationResponse`). (2) Về nghi ngờ `warehouse_id` cần ép ObjectId tường minh trong `listZones()` — đã thêm ép kiểu (an toàn dù đúng hay không phải nguyên nhân thật), nhưng lưu ý: Mongoose chuẩn tự cast string→ObjectId trong query filter, nên nhiều khả năng nguyên nhân thật là code server đang chạy chưa phải bản mới nhất (đã lặp lại nhiều lần trong dự án này).
+
+**Sự cố phụ trong lúc verify**: lần đầu chạy `tsc --noEmit` báo lỗi giả (do tự mình copy `node_modules` bị thiếu sót vì hạn chế dung lượng sandbox, không phải lỗi code thật) — đã tự phát hiện bằng cách so sánh với bản gốc chưa sửa (cũng lỗi y hệt dù code không đổi = môi trường, không phải code), cài lại `node_modules` sạch bằng `npm install` trực tiếp thay vì `cp -r`, xác nhận lại đúng: `tsc`/`eslint`/`jest` (153/153) đều sạch. Bài học: khi cần xác minh code bằng cách chạy thật, ưu tiên `npm install` sạch trong đúng thư mục thay vì copy `node_modules` giữa các bản sao — tránh copy thiếu sót gây báo lỗi giả.
+
+## Cập nhật tài liệu giảng giải (HE_THONG_OPTIPACKAI_GIANG_GIAI.md) — thêm phần warehouse mới (16/09/2026)
+
+Theo yêu cầu, cập nhật mục III.6 (`warehouse/`) trong tài liệu giảng giải: bảng API từ 8 → 11 route (đánh dấu 🆕 3 route mới), thêm 2 đoạn giải thích mới — "vì sao cần 3 GET này" (bài học CRUD không đối xứng — hay quên luồng Read khi code nhanh theo happy-path Create) và "sửa ObjectId cast" (kèm bài học thứ tự ưu tiên nghi ngờ khi debug: code-chưa-cập-nhật-trên-server > môi trường/config > logic code). Số đếm API tổng ở đầu file cập nhật 53→56.
+
+## Cập nhật API_LIST.md với 3 GET + fix warehouse (16/09/2026)
+
+Rà cả 4 file guide, xác định CHỈ `API_LIST.md` liên quan (mục 9 — Warehouse) — 3 file còn lại (`INTEGRATION_GUIDE.md`, `INTEGRATION_GUIDE_ORDERS.md`, `INTEGRATION_GUIDE_FULFILLMENT.md`) không đụng gì tới các route Admin CRUD kho này (chỉ nhắc tên role "Warehouse Staff" ngẫu nhiên hoặc bàn về luồng Picking — không phải luồng setup kho), giữ nguyên theo đúng yêu cầu "không liên quan thì không đụng". Đã thêm 3 route mới vào bảng mục 9, đánh dấu 🆕, kèm 1 dòng 🔄 sửa lỗi cho `GET .../zones`. Cập nhật dòng "Cập nhật lần cuối" ở đầu file (2026-09-11 → 2026-09-16).
+
+## Sửa lại đánh giá trước đó — INTEGRATION_GUIDE_FULFILLMENT.md THỰC RA cần sửa (16/09/2026)
+
+User phản biện đúng: đánh giá trước ("chỉ API_LIST.md liên quan") CHƯA ĐỦ — phát hiện thêm: toàn bộ luồng "thiết lập kho" (Admin tạo kho→khu→kệ→gán SKU, 4 bước) **chưa từng có hướng dẫn narrative** trong `INTEGRATION_GUIDE_FULFILLMENT.md` dù tên file có "Warehouse" — trước giờ file chỉ nói tới việc DÙNG dữ liệu kho (Picking đọc dữ liệu có sẵn), không nói tới việc TẠO RA dữ liệu đó. Đây là gap có từ trước, không phải riêng 3 API mới.
+
+Đã thêm hẳn mục mới **"Nghiệp vụ 2b — Thiết lập kho"** (chèn giữa Nghiệp vụ 2 và 3, không đánh số lại toàn bộ để tránh phá vỡ tham chiếu chỗ khác) — đủ cả 4 bước với request/response mẫu thật (lấy đúng field từ DTO), giải thích thứ tự bắt buộc, phân biệt rõ `unassigned` (SKU CHƯA gán) vs route MỚI (SKU ĐÃ gán, dễ nhầm), bảng mã lỗi riêng.
+
+**Bài học quy trình**: khi rà "file nào liên quan" cho 1 thay đổi code, không chỉ tìm theo TÊN ROUTE cụ thể vừa đổi — phải tự hỏi thêm "toàn bộ LUỒNG NGHIỆP VỤ chứa route đó đã có tài liệu đầy đủ chưa", vì có thể phát hiện gap RỘNG hơn phạm vi thay đổi vừa làm.
+
+## QUY TẮC CHUẨN — cập nhật tài liệu hướng dẫn FE khi có luồng/code mới (đọc kỹ, áp dụng MỌI lần sau này)
+
+**Lỗi đã mắc phải (16/09/2026)**: khi thêm 3 API GET mới cho `warehouse/`, chỉ nghĩ tới việc cập nhật `API_LIST.md` (bảng tra cứu route) — bỏ sót hoàn toàn việc **TOÀN BỘ luồng nghiệp vụ "thiết lập kho"** (Admin tạo kho→khu→kệ→gán SKU, 4 bước) **chưa từng có tài liệu narrative nào** hướng dẫn FE cách nối luồng — dù `INTEGRATION_GUIDE_FULFILLMENT.md` có chữ "Warehouse" ngay trên tên file. User phải hỏi lại ("các file còn lại không chỗ nào có hướng dẫn à") mới phát hiện ra — đáng lẽ phải tự nhận ra ngay từ đầu.
+
+**Nguyên nhân gốc của lỗi**: khi rà "file nào cần cập nhật", chỉ tìm theo **TÊN ROUTE/FIELD vừa đổi** (tìm chữ "zones", "bin-locations" trong các file guide) — không tự hỏi thêm câu hỏi rộng hơn: "cả LUỒNG NGHIỆP VỤ chứa route này đã có tài liệu đầy đủ (narrative, không chỉ liệt kê route) chưa?".
+
+### Quy tắc bắt buộc từ nay — checklist 3 bước mỗi khi code BE có gì mới
+
+1. **Cập nhật `API_LIST.md`** — MỌI route mới/đổi đều phải xuất hiện ở đây, không có ngoại lệ. Đây là bước cơ giới, dễ nhớ, ít khi bỏ sót.
+2. **Tự hỏi: route này thuộc LUỒNG NGHIỆP VỤ nào** (không phải "route này liên quan file nào theo tên") — rồi kiểm tra ĐÚNG file guide narrative phụ trách luồng đó (`INTEGRATION_GUIDE.md`=Auth/Users, `INTEGRATION_GUIDE_ORDERS.md`=Orders+Marketplace, `INTEGRATION_GUIDE_FULFILLMENT.md`=Order Groups+Packaging+Warehouse+Notifications) đã có phần giải thích luồng đó CHƯA — không chỉ kiểm tra "đã nhắc tên route chưa", mà kiểm tra "FE đọc xong có biết cách GỌI ĐÚNG THỨ TỰ, XỬ LÝ ĐÚNG RESPONSE, và HIỂU VÌ SAO thiết kế vậy không".
+3. **Nếu là LUỒNG HOÀN TOÀN MỚI** (không phải mở rộng luồng đã có tài liệu) — **tạo file guide MỚI riêng**, viết đúng văn phong/cấu trúc đã dùng nhất quán trong 3 file hiện có: có "Bối cảnh xảy ra", có ví dụ request/response THẬT (lấy đúng field từ DTO, không bịa), có bảng mã lỗi riêng, có ghi chú 🆕/🔄 kèm ngày khi sửa sau này. KHÔNG nhét luồng hoàn toàn khác biệt vào file đang có nếu không cùng nhóm nghiệp vụ (sẽ làm file đó phình to, lạc chủ đề).
+
+**Việc luôn làm sau khi sửa bất kỳ file guide nào**: đồng bộ file `HE_THONG_OPTIPACKAI_GIANG_GIAI.md` (tài liệu giảng giải nội bộ) nếu thay đổi đủ lớn — 2 tài liệu phục vụ 2 đối tượng khác nhau (guide = cho FE tích hợp, giảng giải = cho leader hiểu sâu kỹ thuật) nhưng cùng phải phản ánh đúng code thật, không để 1 trong 2 bị lạc hậu.
