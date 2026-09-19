@@ -4,14 +4,14 @@ import {
   createWarehouse,
   createWarehouseZone,
   generateBinLocations,
+  listAllWarehouseBins,
   listSkuBinAssignments,
   listUnassignedSkus,
-  listWarehouseBinLocations,
   listWarehouseZones,
   listWarehouses,
   restockSkuAssignment,
 } from '../api/warehouse.api'
-import { formatApiError } from '../lib/api'
+import { formatApiError, getApiErrorCode } from '../lib/api'
 import type {
   AssignSkuInput,
   BinLocationRecord,
@@ -23,6 +23,23 @@ import type {
   WarehouseRecord,
   WarehouseZoneRecord,
 } from '../types/warehouse-admin'
+
+function formatWarehouseWriteError(
+  err: unknown,
+  duplicateHint: string,
+): string {
+  const code = getApiErrorCode(err)
+  if (
+    code === 'WH_ZONE_CODE_IN_USE' ||
+    code === 'WH_WAREHOUSE_CODE_IN_USE'
+  ) {
+    return formatApiError(err)
+  }
+  if (code === 'INTERNAL_ERROR') {
+    return `${duplicateHint} ${formatApiError(err)}`
+  }
+  return formatApiError(err)
+}
 
 export function useAdminWarehouse() {
   const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([])
@@ -55,9 +72,20 @@ export function useAdminWarehouse() {
     )
   }, [allBins, selectedZoneId])
 
+  const assignmentsWithBinCode = useMemo(() => {
+    const codes = new Map(allBins.map((row) => [row.id, row.binCode]))
+    return assignments.map((row) => ({
+      ...row,
+      binCode: row.binCode || codes.get(row.binLocationId) || row.binCode,
+    }))
+  }, [assignments, allBins])
+
   const reloadBins = useCallback(
-    async (warehouseId: string): Promise<BinLocationRecord[]> => {
-      return listWarehouseBinLocations(warehouseId)
+    async (
+      warehouseId: string,
+      zoneIds: string[],
+    ): Promise<BinLocationRecord[]> => {
+      return listAllWarehouseBins(warehouseId, zoneIds)
     },
     [],
   )
@@ -100,8 +128,9 @@ export function useAdminWarehouse() {
     const warehouseId = selectedWarehouseId
     let cancelled = false
     void (async () => {
+      let zoneRows: WarehouseZoneRecord[] = []
       try {
-        const zoneRows = await listWarehouseZones(warehouseId)
+        zoneRows = await listWarehouseZones(warehouseId)
         if (cancelled) return
         setZones(zoneRows)
         setSelectedZoneId((current) => {
@@ -114,7 +143,10 @@ export function useAdminWarehouse() {
       }
 
       try {
-        const binRows = await reloadBins(warehouseId)
+        const binRows = await reloadBins(
+          warehouseId,
+          zoneRows.map((row) => row.id),
+        )
         if (!cancelled) setAllBins(binRows)
       } catch (err: unknown) {
         if (!cancelled) setError(formatApiError(err))
@@ -179,7 +211,12 @@ export function useAdminWarehouse() {
       setSelectedWarehouseId(created.id)
       return created
     } catch (err: unknown) {
-      setError(formatApiError(err))
+      setError(
+        formatWarehouseWriteError(
+          err,
+          'Mã kho có thể đã tồn tại. Bấm Tải lại để thấy kho đã lưu.',
+        ),
+      )
       throw err
     } finally {
       setMutating(false)
@@ -195,12 +232,29 @@ export function useAdminWarehouse() {
     setError(null)
     try {
       const created = await createWarehouseZone(selectedWarehouseId, input)
-      setZones((prev) =>
-        prev.some((row) => row.id === created.id) ? prev : [...prev, created],
-      )
+      try {
+        const listed = await listWarehouseZones(selectedWarehouseId)
+        setZones(
+          listed.length > 0
+            ? listed
+            : (prev) =>
+                prev.some((row) => row.id === created.id)
+                  ? prev
+                  : [...prev, created],
+        )
+      } catch {
+        setZones((prev) =>
+          prev.some((row) => row.id === created.id) ? prev : [...prev, created],
+        )
+      }
       setSelectedZoneId(created.id)
     } catch (err: unknown) {
-      setError(formatApiError(err))
+      setError(
+        formatWarehouseWriteError(
+          err,
+          'Mã khu có thể đã tồn tại trong kho này. Bấm Tải lại — khu đã lưu sẽ hiện trong danh sách.',
+        ),
+      )
       throw err
     } finally {
       setMutating(false)
@@ -218,7 +272,18 @@ export function useAdminWarehouse() {
     try {
       const result = await generateBinLocations(selectedZoneId, input)
       if (selectedWarehouseId) {
-        setAllBins(await reloadBins(selectedWarehouseId))
+        const zoneIds = Array.from(
+          new Set(
+            [...zones.map((row) => row.id), selectedZoneId].filter(
+              (id): id is string => Boolean(id),
+            ),
+          ),
+        )
+        try {
+          setAllBins(await reloadBins(selectedWarehouseId, zoneIds))
+        } catch (err: unknown) {
+          setError(formatApiError(err))
+        }
       }
       return result
     } catch (err: unknown) {
@@ -235,14 +300,23 @@ export function useAdminWarehouse() {
     setError(null)
     try {
       const created = await assignSkuToBin(selectedWarehouseId, input)
-      const listed = await listSkuBinAssignments(selectedWarehouseId)
-      setAssignments(
-        listed.length > 0
-          ? listed
-          : (prev) =>
-              prev.some((row) => row.id === created.id) ? prev : [...prev, created],
-      )
-      setUnassigned(await listUnassignedSkus())
+      try {
+        const listed = await listSkuBinAssignments(selectedWarehouseId)
+        setAssignments(() => {
+          const byId = new Map(listed.map((row) => [row.id, row]))
+          byId.set(created.id, created)
+          return [...byId.values()]
+        })
+      } catch {
+        setAssignments((prev) =>
+          prev.some((row) => row.id === created.id) ? prev : [...prev, created],
+        )
+      }
+      try {
+        setUnassigned(await listUnassignedSkus())
+      } catch (err: unknown) {
+        setError(formatApiError(err))
+      }
     } catch (err: unknown) {
       setError(formatApiError(err))
       throw err
@@ -290,7 +364,7 @@ export function useAdminWarehouse() {
     selectZone: setSelectedZoneId,
     bins,
     allBins,
-    assignments,
+    assignments: assignmentsWithBinCode,
     unassigned,
     loading,
     mutating,

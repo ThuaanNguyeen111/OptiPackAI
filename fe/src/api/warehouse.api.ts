@@ -1,4 +1,4 @@
-import { ApiError, apiRequest } from '../lib/api'
+import { apiRequest } from '../lib/api'
 import type {
   AssignSkuInput,
   BinLocationRecord,
@@ -46,16 +46,6 @@ function mapUnassignedSku(raw: unknown): UnassignedSku | null {
     platform: parseMarketplacePlatform(pickString(row.platform)),
     shop_id,
     seller_sku,
-  }
-}
-
-async function getJsonOrEmpty(path: string): Promise<unknown> {
-  try {
-    return await apiRequest<unknown>(path, { auth: true })
-  } catch (err: unknown) {
-    // BE main chưa có GET list kệ / list assignment — 404 không được làm trắng cả trang Admin.
-    if (err instanceof ApiError && err.status === 404) return []
-    throw err
   }
 }
 
@@ -191,7 +181,10 @@ export async function generateBinLocations(
 export async function listBinLocations(
   zoneId: string,
 ): Promise<BinLocationRecord[]> {
-  const res = await getJsonOrEmpty(`/warehouse/zones/${zoneId}/bin-locations`)
+  const res = await apiRequest<unknown>(
+    `/warehouse/zones/${zoneId}/bin-locations`,
+    { auth: true },
+  )
   if (!Array.isArray(res)) return []
   return res.map(mapBin).filter((row): row is BinLocationRecord => row !== null)
 }
@@ -199,11 +192,52 @@ export async function listBinLocations(
 export async function listWarehouseBinLocations(
   warehouseId: string,
 ): Promise<BinLocationRecord[]> {
-  const res = await getJsonOrEmpty(
+  const res = await apiRequest<unknown>(
     `/warehouse/warehouses/${warehouseId}/bin-locations`,
+    { auth: true },
   )
   if (!Array.isArray(res)) return []
   return res.map(mapBin).filter((row): row is BinLocationRecord => row !== null)
+}
+
+function mergeBinLocations(
+  ...lists: BinLocationRecord[][]
+): BinLocationRecord[] {
+  const byId = new Map<string, BinLocationRecord>()
+  for (const list of lists) {
+    for (const row of list) {
+      if (row.id) byId.set(row.id, row)
+    }
+  }
+  return [...byId.values()].sort((a, b) =>
+    a.binCode.localeCompare(b.binCode, 'en'),
+  )
+}
+
+/**
+ * GET kệ theo kho + theo từng khu, rồi gộp theo id.
+ * `generate` có thể không ghi `warehouse_id` nên GET theo kho trống,
+ * trong khi GET theo khu (lọc `zone_id`) vẫn trả được.
+ */
+export async function listAllWarehouseBins(
+  warehouseId: string,
+  zoneIds: string[],
+): Promise<BinLocationRecord[]> {
+  const results = await Promise.allSettled([
+    listWarehouseBinLocations(warehouseId),
+    ...zoneIds.map((zoneId) => listBinLocations(zoneId)),
+  ])
+  const lists: BinLocationRecord[][] = []
+  const errors: unknown[] = []
+  for (const result of results) {
+    if (result.status === 'fulfilled') lists.push(result.value)
+    else errors.push(result.reason)
+  }
+  const merged = mergeBinLocations(...lists)
+  if (merged.length === 0 && errors.length > 0) {
+    throw errors[0]
+  }
+  return merged
 }
 
 export async function assignSkuToBin(
@@ -232,8 +266,9 @@ export async function assignSkuToBin(
 export async function listSkuBinAssignments(
   warehouseId: string,
 ): Promise<SkuBinAssignmentRecord[]> {
-  const res = await getJsonOrEmpty(
+  const res = await apiRequest<unknown>(
     `/warehouse/warehouses/${warehouseId}/sku-bin-assignments`,
+    { auth: true },
   )
   if (!Array.isArray(res)) return []
   return res
