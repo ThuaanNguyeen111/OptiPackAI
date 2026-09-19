@@ -130,6 +130,8 @@ export const ORDER_STATUS_LABELS: Record<
 }
 
 export const LAZADA_OAUTH_MESSAGE_TYPE = 'optipack-lazada-connected'
+export const LAZADA_OAUTH_ERROR_TYPE = 'optipack-lazada-connect-error'
+export const LAZADA_OAUTH_CHANNEL = 'optipack-lazada-oauth'
 
 export function isMarketplaceOrderStatus(
   value: unknown,
@@ -154,11 +156,23 @@ export const MARKETPLACE_ORDERS_ERROR_MESSAGES: Record<string, string> = {
     'Không đọc được token shop đã lưu. Liên hệ phụ trách backend.',
   MKT_WEBHOOK_SIGNATURE_INVALID: 'Chữ ký webhook không hợp lệ.',
   MKT_SHOP_LOOKUP_FAILED: 'Không tìm được shop trong hệ thống.',
+  MKT_SERVER_ERROR:
+    'Máy chủ không hoàn tất kết nối shop. Hãy bấm Kết nối lại.',
   ORD_SYNC_FAILED:
     'Đồng bộ thất bại, vui lòng thử lại sau hoặc kiểm tra trạng thái xác minh shop trên Lazada Seller Center.',
   ORD_UNSUPPORTED_PLATFORM: 'Sàn này chưa hỗ trợ đồng bộ đơn.',
   ORD_INVALID_ORDER_ID: 'Mã đơn không đúng định dạng.',
   ORD_ORDER_NOT_FOUND: 'Không tìm thấy đơn hàng.',
+}
+
+export function formatMarketplaceOAuthError(code: string | null): string {
+  if (!code) {
+    return 'Kết nối shop Lazada không thành công. Hãy thử lại.'
+  }
+  return (
+    MARKETPLACE_ORDERS_ERROR_MESSAGES[code] ??
+    `Kết nối shop Lazada không thành công (${code}).`
+  )
 }
 
 export function displayOrderNumber(order: {

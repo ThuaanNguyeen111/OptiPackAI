@@ -746,7 +746,7 @@ function AssignTab({
           {sku ? (
             <p className="text-xs text-ink-muted">
               {vi
-                ? `Sàn: ${sku.platform} (lấy từ catalog, không chọn tay)`
+                ? `Sàn: ${sku.platform}`
                 : `Marketplace: ${sku.platform} (from catalog, not a picker)`}
             </p>
           ) : null}
@@ -771,16 +771,11 @@ function AssignTab({
             </select>
           ) : (
             <>
-              <p className="text-[11px] leading-snug text-ink-muted">
-                {vi
-                  ? 'BE hiện không trả danh sách kệ. Dán ObjectId kệ (Mongo) để gán — hoặc nhờ backend thêm GET /warehouse/zones/:zoneId/bin-locations.'
-                  : 'Backend does not list bins yet. Paste a bin ObjectId, or ask backend for GET /warehouse/zones/:zoneId/bin-locations.'}
-              </p>
               <Input
                 className={fieldClass}
                 value={binId}
                 onChange={(e) => onBinIdChange(e.target.value.trim())}
-                placeholder={vi ? 'ObjectId kệ' : 'Bin ObjectId'}
+                placeholder={vi ? 'ObjectId của kệ' : 'Bin ObjectId'}
               />
             </>
           )}
@@ -790,7 +785,7 @@ function AssignTab({
             min={0}
             value={qty}
             onChange={(e) => setQty(Number(e.target.value))}
-            placeholder={vi ? 'Tồn ban đầu (0 = nhập sau)' : 'Initial qty (0 = restock later)'}
+            placeholder={vi ? 'Tồn ban đầu' : 'Initial qty (0 = restock later)'}
           />
           <Button
             type="submit"
