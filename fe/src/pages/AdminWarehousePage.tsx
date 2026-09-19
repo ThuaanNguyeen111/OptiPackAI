@@ -417,7 +417,7 @@ function ZonesTab({
           title={vi ? 'Chưa có khu' : 'No zones'}
           body={
             vi
-              ? 'Mỗi kho chia thành khu A, khu B,…'
+              ? 'Mỗi kho chia thành khu A, khu B,… Tạo khu trước khi sinh kệ. Bấm Tải lại nếu khu vừa tạo chưa hiện.'
               : 'Split the warehouse into zones (A, B…). Create a zone before generating bins.'
           }
         />
@@ -534,7 +534,7 @@ function BinsTab({
         }}
       >
         <label className="space-y-1">
-          <span className="text-[11px] text-ink-muted">{vi ? 'Dãy (aisle)' : 'Aisle'}</span>
+          <span className="text-[11px] text-ink-muted">{vi ? 'Dãy' : 'Aisle'}</span>
           <Input
             className={fieldClass}
             placeholder="03"
@@ -592,7 +592,7 @@ function BinsTab({
       </form>
       <p className="text-[11px] leading-relaxed text-ink-muted">
         {vi
-          ? `Giống siêu thị: 1 dãy (aisle) + khoảng giá đỡ × khoảng tầng. Ví dụ khu ${api.selectedZone?.zoneCode ?? 'A'}, dãy 03, giá 1→2, tầng 1→2 sẽ tạo 4 kệ: ${api.selectedZone?.zoneCode ?? 'A'}-03-01-01 … ${api.selectedZone?.zoneCode ?? 'A'}-03-02-02. Lần này sẽ tạo ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
+          ? `Cách tính: dãy + khoảng giá đỡ + khoảng tầng. Ví dụ: ${previewCount} kệ, mã đầu ${exampleCode}. Bấm lại cùng khoảng không tạo trùng.`
           : `Like a supermarket aisle: one aisle × rack range × level range. Example zone ${api.selectedZone?.zoneCode ?? 'A'}, aisle 03, racks 1–2, levels 1–2 → 4 bins. This run creates ${previewCount} bins, first code ${exampleCode}. Same range is idempotent.`}
       </p>
 
@@ -602,18 +602,18 @@ function BinsTab({
           title={vi ? 'Khu này chưa có kệ' : 'This zone has no bins'}
           body={
             vi
-              ? 'Sinh kệ bằng form phía trên. Nếu sau khi sinh bảng vẫn trống: BE main chưa có API GET danh sách kệ — sang tab Gán SKU và dán ObjectId kệ từ Mongo.'
-              : 'Generate bins with the form above. If the table stays empty, main BE has no list-bins GET — use Assign SKU and paste the bin ObjectId.'
+              ? 'Chọn khu rồi điền số dãy/giá đỡ/tầng và bấm Sinh kệ'
+              : 'Select a zone, fill aisle / rack / level, then Generate. The list stays after reload.'
           }
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>bin_code</TableHead>
-              <TableHead>Aisle</TableHead>
-              <TableHead>Rack</TableHead>
-              <TableHead>Level</TableHead>
+              <TableHead>Mã kệ</TableHead>
+              <TableHead>Dãy</TableHead>
+              <TableHead>Giá đỡ</TableHead>
+              <TableHead>Tầng</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -653,10 +653,13 @@ function AssignTab({
   const [qty, setQty] = useState(0)
 
   const binsByZone = useMemo(() => {
-    return api.zones.map((zone) => ({
+    const grouped = api.zones.map((zone) => ({
       zone,
       bins: api.allBins.filter((bin) => bin.zoneId === zone.id),
     }))
+    const knownZoneIds = new Set(api.zones.map((zone) => zone.id))
+    const leftover = api.allBins.filter((bin) => !knownZoneIds.has(bin.zoneId))
+    return { grouped, leftover }
   }, [api.zones, api.allBins])
 
   async function submit() {
@@ -759,25 +762,33 @@ function AssignTab({
               <option value="">
                 {vi ? 'Chọn kệ…' : 'Choose bin…'}
               </option>
-              {binsByZone.map(({ zone, bins }) => (
-                <optgroup key={zone.id} label={`${zone.zoneCode} · ${zone.zoneName}`}>
-                  {bins.map((bin) => (
+              {binsByZone.grouped.map(({ zone, bins }) =>
+                bins.length === 0 ? null : (
+                  <optgroup key={zone.id} label={`${zone.zoneCode} · ${zone.zoneName}`}>
+                    {bins.map((bin) => (
+                      <option key={bin.id} value={bin.id}>
+                        {bin.binCode}
+                      </option>
+                    ))}
+                  </optgroup>
+                ),
+              )}
+              {binsByZone.leftover.length > 0 ? (
+                <optgroup label={vi ? 'Kệ khác' : 'Other bins'}>
+                  {binsByZone.leftover.map((bin) => (
                     <option key={bin.id} value={bin.id}>
-                      {bin.binCode}
+                      {bin.binCode || bin.id}
                     </option>
                   ))}
                 </optgroup>
-              ))}
+              ) : null}
             </select>
           ) : (
-            <>
-              <Input
-                className={fieldClass}
-                value={binId}
-                onChange={(e) => onBinIdChange(e.target.value.trim())}
-                placeholder={vi ? 'ObjectId của kệ' : 'Bin ObjectId'}
-              />
-            </>
+            <p className="rounded-md border border-dashed border-hairline px-3 py-2 text-xs text-ink-muted">
+              {vi
+                ? 'Chưa có kệ. Mở tab Kệ, chọn khu, bấm Sinh kệ — rồi chọn mã kệ trong danh sách này.'
+                : 'No bins yet. Open the Bins tab, pick a zone, generate bins, then choose a bin_code here.'}
+            </p>
           )}
           <Input
             className={fieldClass}
