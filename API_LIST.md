@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-11.
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-16 (thêm 3 route GET + sửa 1 lỗi ở mục 9 — Warehouse).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -96,17 +96,22 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 ## 9. Warehouse (`/warehouse`)
 
-| Method | Route                                                                          | Role             | Mô tả                                                       |
-| ------ | ------------------------------------------------------------------------------ | ---------------- | ----------------------------------------------------------- |
-| POST   | `/warehouse/warehouses`                                                        | Admin            | Tạo kho mới (bước 1/4)                                      |
-| GET    | `/warehouse/warehouses`                                                        | Admin            | Danh sách kho                                               |
-| POST   | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin            | Tạo khu trong kho (bước 2/4)                                |
-| GET    | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin            | Danh sách khu trong 1 kho                                   |
-| POST   | `/warehouse/zones/:zoneId/bin-locations/generate`                              | Admin            | Tạo HÀNG LOẠT kệ theo dãy/rack/tầng (bước 3/4)              |
-| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin            | Gán 1 SKU vào 1 kệ, kèm số lượng ban đầu (bước 4/4)         |
-| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin            | Nhập thêm hàng (cộng dồn, không ghi đè)                     |
-| GET    | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin            | SKU đã có trong hệ thống nhưng CHƯA gán kệ                  |
-| GET    | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi |
+🔄 **ĐÃ ĐỔI (16/09/2026)** — thêm 3 route GET còn thiếu (trước đây chỉ tạo được, không xem lại được); sửa `GET .../zones` không trả dữ liệu dù đã tạo thành công (ép kiểu `ObjectId` tường minh).
+
+| Method | Route                                                                          | Role             | Mô tả                                                                                                                                       |
+| ------ | ------------------------------------------------------------------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/warehouse/warehouses`                                                        | Admin            | Tạo kho mới (bước 1/4)                                                                                                                      |
+| GET    | `/warehouse/warehouses`                                                        | Admin            | Danh sách kho                                                                                                                               |
+| POST   | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin            | Tạo khu trong kho (bước 2/4)                                                                                                                |
+| GET    | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin            | 🔄 Danh sách khu trong 1 kho — **sửa lỗi 16/09/2026**: trước đây có thể không trả ra dữ liệu dù tạo thành công                              |
+| POST   | `/warehouse/zones/:zoneId/bin-locations/generate`                              | Admin            | Tạo HÀNG LOẠT kệ theo dãy/rack/tầng (bước 3/4)                                                                                              |
+| 🆕 GET | `/warehouse/zones/:zoneId/bin-locations`                                       | Admin            | **MỚI (16/09/2026)** — Danh sách kệ đã tạo trong 1 khu (trước đây chỉ tạo được, không xem lại được)                                         |
+| 🆕 GET | `/warehouse/warehouses/:warehouseId/bin-locations`                             | Admin            | **MỚI (16/09/2026)** — Danh sách TOÀN BỘ kệ trong 1 kho (gộp mọi khu)                                                                       |
+| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin            | Gán 1 SKU vào 1 kệ, kèm số lượng ban đầu (bước 4/4)                                                                                         |
+| 🆕 GET | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin            | **MỚI (16/09/2026)** — Danh sách SKU đã gán vị trí trong 1 kho (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán) |
+| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin            | Nhập thêm hàng (cộng dồn, không ghi đè)                                                                                                     |
+| GET    | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin            | SKU đã có trong hệ thống nhưng CHƯA gán kệ                                                                                                  |
+| GET    | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi                                                                                 |
 
 ## 10. Notifications (`/notifications`)
 
