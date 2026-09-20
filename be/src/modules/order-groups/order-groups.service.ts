@@ -378,6 +378,18 @@ export class OrderGroupsService {
     scanMethod: 'barcode' | 'manual',
     clientEventId?: string,
   ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
+    // BỔ SUNG (19/09/2026, báo cáo thật Hải Phượng) — TRƯỚC KHI trừ tồn,
+    // xác nhận SKU quét THẬT SỰ thuộc group này — trước đây hàm nhận
+    // `groupId` nhưng CHỈ dùng để ghi log audit (pick_events), không hề
+    // dùng để kiểm tra SKU có liên quan gì tới đơn đang lấy hay không.
+    // Hậu quả nếu không kiểm tra: quét NHẦM 1 mã vạch bất kỳ (miễn còn
+    // tồn trong kho) vẫn trừ tồn THẬT, dù SKU đó không nằm trong đơn nào
+    // của group — làm sai lệch tồn kho cho sản phẩm hoàn toàn không liên
+    // quan. Tái dùng ĐÚNG getPackableItemDetail() đã có sẵn (viết cho
+    // API item-detail 2026-09-10) — không viết lại logic kiểm tra từ đầu,
+    // tự động throw ORD_GROUP_ITEM_NOT_IN_GROUP (404) nếu SKU sai.
+    await this.getPackableItemDetail(groupId, sku);
+
     // Idempotency — client_event_id đã xử lý trước đó -> trả lại kết
     // quả CŨ, KHÔNG trừ lần 2 (Mobile App gửi lại sau khi mất mạng).
     if (clientEventId) {

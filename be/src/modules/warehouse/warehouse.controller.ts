@@ -12,6 +12,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { WarehouseDocument } from './schemas/warehouse.schema';
 import { WarehouseZoneDocument } from './schemas/warehouse-zone.schema';
+import { BinLocationDocument } from './schemas/bin-location.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
 
 // BỔ SUNG (2026-09-10) — Điểm yếu #9: trước đây trả THẲNG Document
@@ -56,6 +57,27 @@ function toZoneResponse(doc: WarehouseZoneDocument): WarehouseZoneResponse {
   };
 }
 
+interface BinLocationResponse {
+  id: string;
+  warehouseId: string;
+  zoneId: string;
+  binCode: string;
+  aisle: string;
+  rack: number;
+  level: number;
+}
+function toBinLocationResponse(doc: BinLocationDocument): BinLocationResponse {
+  return {
+    id: doc._id.toString(),
+    warehouseId: doc.warehouse_id.toString(),
+    zoneId: doc.zone_id.toString(),
+    binCode: doc.bin_code,
+    aisle: doc.aisle,
+    rack: doc.rack,
+    level: doc.level,
+  };
+}
+
 interface SkuBinAssignmentResponse {
   id: string;
   warehouseId: string;
@@ -65,7 +87,9 @@ interface SkuBinAssignmentResponse {
   binLocationId: string;
   quantityOnHand: number;
 }
-function toAssignmentResponse(doc: SkuBinAssignmentDocument): SkuBinAssignmentResponse {
+function toAssignmentResponse(
+  doc: SkuBinAssignmentDocument,
+): SkuBinAssignmentResponse {
   return {
     id: doc._id.toString(),
     warehouseId: doc.warehouse_id.toString(),
@@ -96,14 +120,19 @@ export class WarehouseController {
   @Post('warehouses')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Tạo kho mới (bước 1/4 trong luồng "add kho")' })
-  async createWarehouse(@Body() dto: CreateWarehouseDto): Promise<WarehouseResponse> {
+  async createWarehouse(
+    @Body() dto: CreateWarehouseDto,
+  ): Promise<WarehouseResponse> {
     const doc = await this.warehouseService.createWarehouse(dto);
     return toWarehouseResponse(doc);
   }
 
   @Get('warehouses')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Danh sách kho' })
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({
+    summary:
+      'Danh sách kho. 🔄 SỬA (19/09/2026, báo cáo Hải Phượng) — mở thêm cho Warehouse Staff: trước đây CHỈ Admin xem được, nhưng picking-list/pick-item/report-missing đều BẮT BUỘC warehouse_id — Warehouse Staff không có cách nào (qua API) biết warehouse_id nào để dùng nếu route này vẫn khóa Admin-only.',
+  })
   async listWarehouses(): Promise<WarehouseResponse[]> {
     const docs = await this.warehouseService.listWarehouses();
     return docs.map(toWarehouseResponse);
@@ -123,9 +152,52 @@ export class WarehouseController {
   @Get('warehouses/:warehouseId/zones')
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Danh sách khu trong 1 kho' })
-  async listZones(@Param('warehouseId') warehouseId: string): Promise<WarehouseZoneResponse[]> {
+  async listZones(
+    @Param('warehouseId') warehouseId: string,
+  ): Promise<WarehouseZoneResponse[]> {
     const docs = await this.warehouseService.listZones(warehouseId);
     return docs.map(toZoneResponse);
+  }
+
+  @Get('zones/:zoneId/bin-locations')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'BỔ SUNG (16/09/2026, báo cáo Hải Phượng) — Danh sách kệ đã tạo trong 1 khu. Trước đây chỉ có POST .../generate để TẠO, không có cách XEM LẠI.',
+  })
+  async listBinLocationsByZone(
+    @Param('zoneId') zoneId: string,
+  ): Promise<BinLocationResponse[]> {
+    const docs = await this.warehouseService.listBinLocationsByZone(zoneId);
+    return docs.map(toBinLocationResponse);
+  }
+
+  @Get('warehouses/:warehouseId/bin-locations')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'BỔ SUNG (16/09/2026) — Danh sách TOÀN BỘ kệ trong 1 kho (mọi khu gộp lại).',
+  })
+  async listBinLocationsByWarehouse(
+    @Param('warehouseId') warehouseId: string,
+  ): Promise<BinLocationResponse[]> {
+    const docs =
+      await this.warehouseService.listBinLocationsByWarehouse(warehouseId);
+    return docs.map(toBinLocationResponse);
+  }
+
+  @Get('warehouses/:warehouseId/sku-bin-assignments')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'BỔ SUNG (16/09/2026, báo cáo Hải Phượng) — Danh sách SKU đã gán vị trí trong 1 kho, để Admin xem lại/đối chiếu sau khi gán (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán).',
+  })
+  async listSkuBinAssignmentsByWarehouse(
+    @Param('warehouseId') warehouseId: string,
+  ): Promise<SkuBinAssignmentResponse[]> {
+    const docs =
+      await this.warehouseService.listSkuBinAssignmentsByWarehouse(warehouseId);
+    return docs.map(toAssignmentResponse);
   }
 
   @Post('zones/:zoneId/bin-locations/generate')
@@ -155,14 +227,19 @@ export class WarehouseController {
   @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Nhập thêm hàng vào 1 vị trí đã gán (cộng dồn quantity_on_hand, không reset về giá trị mới).',
+    summary:
+      'Nhập thêm hàng vào 1 vị trí đã gán (cộng dồn quantity_on_hand, không reset về giá trị mới).',
   })
   async restockSku(
     @Param('warehouseId') warehouseId: string,
     @Param('assignmentId') assignmentId: string,
     @Body() dto: RestockSkuDto,
   ): Promise<SkuBinAssignmentResponse> {
-    const doc = await this.warehouseService.restockSku(warehouseId, assignmentId, dto.quantity);
+    const doc = await this.warehouseService.restockSku(
+      warehouseId,
+      assignmentId,
+      dto.quantity,
+    );
     return toAssignmentResponse(doc);
   }
 
@@ -172,7 +249,9 @@ export class WarehouseController {
     summary:
       'Danh sách SKU đã có trong Product Master nhưng CHƯA được gán vị trí kệ — Admin chỉ cần mở đúng màn hình này mỗi khi có sản phẩm mới, không phải dò tay.',
   })
-  async findUnassignedSkus(): Promise<{ platform: string; shop_id: string; seller_sku: string }[]> {
+  async findUnassignedSkus(): Promise<
+    { platform: string; shop_id: string; seller_sku: string }[]
+  > {
     return this.warehouseService.findUnassignedSkus();
   }
 

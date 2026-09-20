@@ -2167,3 +2167,100 @@ User hỏi lại rộng hơn: đã note hết mọi thay đổi so với doc cũ
 `diff -rq` xác nhận: **chưa từng sửa trực tiếp file nào trong `src/modules/warehouse/`** suốt cả phiên. Nhưng **Warehouse Picking List bị ảnh hưởng gián tiếp** — `warehouse.service.ts` tái dùng `getPackableItemsForGroup()` (đã fix ở `order-groups.service.ts`), nên tự động ăn theo fix lọc canceled/sự cố logistics mà không cần đụng code Warehouse.
 
 Phát hiện thêm khi trả lời: điều này trước đó chỉ được nhắc ở bảng mã lỗi D.3 (`INTEGRATION_GUIDE_FULFILLMENT.md`), **chưa được nói rõ ngay trong Nghiệp vụ 3 (Lấy hàng/Picking)** — nơi FE dễ tìm thấy hơn khi build màn hình Picking/Warehouse. Đã bổ sung đoạn `🔄 ĐÃ ĐỔI (15/09/2026)` ngay sau sơ đồ 4 bước picking, giải thích rõ: cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId` đều lọc, và case group rỗng hoàn toàn trả `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì mảng rỗng.
+
+## Tạo tài liệu giảng giải toàn bộ hệ thống — HE_THONG_OPTIPACKAI_GIANG_GIAI.md (16/09/2026)
+
+Theo yêu cầu "giảng như giảng viên" — đã đọc lại TOÀN BỘ code thật (17 schema, 9 module, 53 API endpoint, các thuật toán cốt lõi: consolidation, pick-item atomic, staff auto-assign, Wave Picking, HMAC signing Lazada, refresh token rotation, packaging transaction...) rồi viết 1 file duy nhất ~10.900 từ, 5 phần:
+
+- Phần I: kiến trúc tổng thể (vì sao Modular Monolith, không Microservices)
+- Phần II: 17 bảng DB đầy đủ — mục đích, field, index, LÝ DO tối ưu (6 nguyên tắc: Embed/Reference, Denormalization, ESR, Partial Index, TTL Index, Optimistic Concurrency)
+- Phần III: 9 module — nghiệp vụ, API, kỹ thuật code cụ thể (kèm đoạn code thật + giải thích)
+- Phần IV: demo theo 5 role, có nói rõ "role khác thấy gì" sau mỗi hành động
+- Phần V: 1 ví dụ xuyên suốt A-Z (dùng đúng group thật `6a9de19a3acf2dd473960e7a`) + tổng kết trung thực việc đã xong/chưa xong (fallback packaging chưa phải AI thật, không ghi ngược Lazada, webhook hoãn, đa sàn chưa xong)
+
+File này là tài liệu TĨNH (chụp đúng trạng thái code 16/09/2026), không tự động cập nhật — nếu code đổi thêm, cần đối chiếu lại trước khi coi là còn chính xác.
+
+## Báo cáo lỗi thật từ Hải Phượng (teammate) — warehouse module thiếu GET + nghi ngờ ObjectId cast (16/09/2026)
+
+Đối chiếu code thật: (1) xác nhận đúng — thiếu 3 API GET để xem lại bin-locations/sku-bin-assignments đã tạo (trước đây chỉ có POST tạo, không có GET liệt kê) — đã thêm đủ 3 route + service method + response DTO (`toBinLocationResponse`). (2) Về nghi ngờ `warehouse_id` cần ép ObjectId tường minh trong `listZones()` — đã thêm ép kiểu (an toàn dù đúng hay không phải nguyên nhân thật), nhưng lưu ý: Mongoose chuẩn tự cast string→ObjectId trong query filter, nên nhiều khả năng nguyên nhân thật là code server đang chạy chưa phải bản mới nhất (đã lặp lại nhiều lần trong dự án này).
+
+**Sự cố phụ trong lúc verify**: lần đầu chạy `tsc --noEmit` báo lỗi giả (do tự mình copy `node_modules` bị thiếu sót vì hạn chế dung lượng sandbox, không phải lỗi code thật) — đã tự phát hiện bằng cách so sánh với bản gốc chưa sửa (cũng lỗi y hệt dù code không đổi = môi trường, không phải code), cài lại `node_modules` sạch bằng `npm install` trực tiếp thay vì `cp -r`, xác nhận lại đúng: `tsc`/`eslint`/`jest` (153/153) đều sạch. Bài học: khi cần xác minh code bằng cách chạy thật, ưu tiên `npm install` sạch trong đúng thư mục thay vì copy `node_modules` giữa các bản sao — tránh copy thiếu sót gây báo lỗi giả.
+
+## Cập nhật tài liệu giảng giải (HE_THONG_OPTIPACKAI_GIANG_GIAI.md) — thêm phần warehouse mới (16/09/2026)
+
+Theo yêu cầu, cập nhật mục III.6 (`warehouse/`) trong tài liệu giảng giải: bảng API từ 8 → 11 route (đánh dấu 🆕 3 route mới), thêm 2 đoạn giải thích mới — "vì sao cần 3 GET này" (bài học CRUD không đối xứng — hay quên luồng Read khi code nhanh theo happy-path Create) và "sửa ObjectId cast" (kèm bài học thứ tự ưu tiên nghi ngờ khi debug: code-chưa-cập-nhật-trên-server > môi trường/config > logic code). Số đếm API tổng ở đầu file cập nhật 53→56.
+
+## Cập nhật API_LIST.md với 3 GET + fix warehouse (16/09/2026)
+
+Rà cả 4 file guide, xác định CHỈ `API_LIST.md` liên quan (mục 9 — Warehouse) — 3 file còn lại (`INTEGRATION_GUIDE.md`, `INTEGRATION_GUIDE_ORDERS.md`, `INTEGRATION_GUIDE_FULFILLMENT.md`) không đụng gì tới các route Admin CRUD kho này (chỉ nhắc tên role "Warehouse Staff" ngẫu nhiên hoặc bàn về luồng Picking — không phải luồng setup kho), giữ nguyên theo đúng yêu cầu "không liên quan thì không đụng". Đã thêm 3 route mới vào bảng mục 9, đánh dấu 🆕, kèm 1 dòng 🔄 sửa lỗi cho `GET .../zones`. Cập nhật dòng "Cập nhật lần cuối" ở đầu file (2026-09-11 → 2026-09-16).
+
+## Sửa lại đánh giá trước đó — INTEGRATION_GUIDE_FULFILLMENT.md THỰC RA cần sửa (16/09/2026)
+
+User phản biện đúng: đánh giá trước ("chỉ API_LIST.md liên quan") CHƯA ĐỦ — phát hiện thêm: toàn bộ luồng "thiết lập kho" (Admin tạo kho→khu→kệ→gán SKU, 4 bước) **chưa từng có hướng dẫn narrative** trong `INTEGRATION_GUIDE_FULFILLMENT.md` dù tên file có "Warehouse" — trước giờ file chỉ nói tới việc DÙNG dữ liệu kho (Picking đọc dữ liệu có sẵn), không nói tới việc TẠO RA dữ liệu đó. Đây là gap có từ trước, không phải riêng 3 API mới.
+
+Đã thêm hẳn mục mới **"Nghiệp vụ 2b — Thiết lập kho"** (chèn giữa Nghiệp vụ 2 và 3, không đánh số lại toàn bộ để tránh phá vỡ tham chiếu chỗ khác) — đủ cả 4 bước với request/response mẫu thật (lấy đúng field từ DTO), giải thích thứ tự bắt buộc, phân biệt rõ `unassigned` (SKU CHƯA gán) vs route MỚI (SKU ĐÃ gán, dễ nhầm), bảng mã lỗi riêng.
+
+**Bài học quy trình**: khi rà "file nào liên quan" cho 1 thay đổi code, không chỉ tìm theo TÊN ROUTE cụ thể vừa đổi — phải tự hỏi thêm "toàn bộ LUỒNG NGHIỆP VỤ chứa route đó đã có tài liệu đầy đủ chưa", vì có thể phát hiện gap RỘNG hơn phạm vi thay đổi vừa làm.
+
+## QUY TẮC CHUẨN — cập nhật tài liệu hướng dẫn FE khi có luồng/code mới (đọc kỹ, áp dụng MỌI lần sau này)
+
+**Lỗi đã mắc phải (16/09/2026)**: khi thêm 3 API GET mới cho `warehouse/`, chỉ nghĩ tới việc cập nhật `API_LIST.md` (bảng tra cứu route) — bỏ sót hoàn toàn việc **TOÀN BỘ luồng nghiệp vụ "thiết lập kho"** (Admin tạo kho→khu→kệ→gán SKU, 4 bước) **chưa từng có tài liệu narrative nào** hướng dẫn FE cách nối luồng — dù `INTEGRATION_GUIDE_FULFILLMENT.md` có chữ "Warehouse" ngay trên tên file. User phải hỏi lại ("các file còn lại không chỗ nào có hướng dẫn à") mới phát hiện ra — đáng lẽ phải tự nhận ra ngay từ đầu.
+
+**Nguyên nhân gốc của lỗi**: khi rà "file nào cần cập nhật", chỉ tìm theo **TÊN ROUTE/FIELD vừa đổi** (tìm chữ "zones", "bin-locations" trong các file guide) — không tự hỏi thêm câu hỏi rộng hơn: "cả LUỒNG NGHIỆP VỤ chứa route này đã có tài liệu đầy đủ (narrative, không chỉ liệt kê route) chưa?".
+
+### Quy tắc bắt buộc từ nay — checklist 3 bước mỗi khi code BE có gì mới
+
+1. **Cập nhật `API_LIST.md`** — MỌI route mới/đổi đều phải xuất hiện ở đây, không có ngoại lệ. Đây là bước cơ giới, dễ nhớ, ít khi bỏ sót.
+2. **Tự hỏi: route này thuộc LUỒNG NGHIỆP VỤ nào** (không phải "route này liên quan file nào theo tên") — rồi kiểm tra ĐÚNG file guide narrative phụ trách luồng đó (`INTEGRATION_GUIDE.md`=Auth/Users, `INTEGRATION_GUIDE_ORDERS.md`=Orders+Marketplace, `INTEGRATION_GUIDE_FULFILLMENT.md`=Order Groups+Packaging+Warehouse+Notifications) đã có phần giải thích luồng đó CHƯA — không chỉ kiểm tra "đã nhắc tên route chưa", mà kiểm tra "FE đọc xong có biết cách GỌI ĐÚNG THỨ TỰ, XỬ LÝ ĐÚNG RESPONSE, và HIỂU VÌ SAO thiết kế vậy không".
+3. **Nếu là LUỒNG HOÀN TOÀN MỚI** (không phải mở rộng luồng đã có tài liệu) — **tạo file guide MỚI riêng**, viết đúng văn phong/cấu trúc đã dùng nhất quán trong 3 file hiện có: có "Bối cảnh xảy ra", có ví dụ request/response THẬT (lấy đúng field từ DTO, không bịa), có bảng mã lỗi riêng, có ghi chú 🆕/🔄 kèm ngày khi sửa sau này. KHÔNG nhét luồng hoàn toàn khác biệt vào file đang có nếu không cùng nhóm nghiệp vụ (sẽ làm file đó phình to, lạc chủ đề).
+
+**Việc luôn làm sau khi sửa bất kỳ file guide nào**: đồng bộ file `HE_THONG_OPTIPACKAI_GIANG_GIAI.md` (tài liệu giảng giải nội bộ) nếu thay đổi đủ lớn — 2 tài liệu phục vụ 2 đối tượng khác nhau (guide = cho FE tích hợp, giảng giải = cho leader hiểu sâu kỹ thuật) nhưng cùng phải phản ánh đúng code thật, không để 1 trong 2 bị lạc hậu.
+
+## QUY TẮC CHUẨN — nhịp độ commit (16/09/2026, theo yêu cầu cải thiện contribution graph)
+
+**Từ giờ áp dụng cho MỌI phiên làm việc**: chia công việc thành các **checkpoint tự nhiên** trong lúc làm, mỗi checkpoint đưa 1 lần commit — KHÔNG dồn hết tới cuối phiên mới đưa 1 cục để commit 1 lần. Nhưng cũng KHÔNG tách vụn tới mức mỗi sửa nhỏ là 1 commit riêng (tránh "commit rác").
+
+**Cách xác định 1 checkpoint hợp lý** (đã áp dụng đúng tinh thần này qua các Batch 1-5 trong đợt audit vừa rồi — tiếp tục làm y hệt vậy):
+
+- Xong 1 nhóm việc LIÊN QUAN NHAU (VD: 1 bug + test đi kèm, hoặc 2-3 fix cùng chủ đề) → 1 commit.
+- Đừng gộp 2 việc KHÔNG liên quan vào 1 commit (VD: sửa bug Orders + thêm tính năng Warehouse → tách 2 commit).
+- Đừng tách 1 việc DUY NHẤT (VD: 1 fix + test của chính fix đó) thành 2 commit riêng.
+- Mỗi khi đưa xong 1 checkpoint, LUÔN kèm lệnh git đầy đủ (`add` + `commit -m "type(AOFP-XX): mô tả"` + `push`) để user chạy ngay, không đợi gom nhiều checkpoint rồi mới đưa lệnh 1 lần.
+
+## Lỗi cron múi giờ — báo cáo thật từ đồng đội (Thuận chuyển lại, 16/09/2026)
+
+Đồng đội (qua AI assistant khác) phát hiện đúng 2 việc: (1) "SKU chưa gán kệ" chỉ hiện SKU ĐÃ TỪNG có đơn — đúng thiết kế có chủ đích của `product_master` (chỉ cache SKU thật sự cần, không đồng bộ cả catalog), không phải bug. (2) **Lỗi thật**: `@Cron('0 3 * * *', {...})` ở `product-master-sync.scheduler.ts` KHÔNG khai `timeZone` — mặc định chạy theo múi giờ SERVER (biến `TZ`), không phải giờ VN cố định. Trên máy dev Windows hiện tại "đúng giờ" chỉ do trùng hợp; deploy lên cloud thật (thường mặc định UTC) sẽ chạy sai lệch 7 tiếng (3h sáng VN dự định → thực chạy 10h sáng VN).
+
+Đã sửa: thêm `timeZone: 'Asia/Ho_Chi_Minh'` vào đúng cron đó. Đã rà toàn bộ 4 cron khác trong hệ thống (`lazada-order-auto-sync`, `order-group-backfill`, `express-order-sla-check`) — cả 3 đều chạy theo KHOẢNG CÁCH (mỗi N phút), không phụ thuộc múi giờ, không cần sửa — chỉ cron chạy giờ CỐ ĐỊNH (`0 3 * * *`) mới bị ảnh hưởng.
+
+## Cập nhật doc theo 2 mã lỗi mới thêm (WH_WAREHOUSE_CODE_IN_USE, WH_ZONE_CODE_IN_USE) — 16/09/2026
+
+Đúng quy tắc chuẩn đã đặt trước đó — sau khi thêm 2 mã lỗi vào code (`warehouse.errors.ts`), cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md` ở CẢ 2 chỗ: bảng mã lỗi cục bộ trong "Nghiệp vụ 2b" và dòng tổng hợp ở D.3. `API_LIST.md` không cần sửa (chỉ trỏ sang FULFILLMENT guide, không tự liệt kê mã lỗi).
+
+## Cập nhật tài liệu giảng giải — lần 3 (16/09/2026)
+
+Đã bổ sung vào `HE_THONG_OPTIPACKAI_GIANG_GIAI.md`: (1) mục III.6 thêm kỹ thuật "dịch E11000 sang lỗi nghiệp vụ" + bài học tổng quát (rà lại các unique index khác chưa chắc đã xử lý tương tự); (2) mục III.7 viết lại hoàn toàn — thêm lỗi múi giờ cron đã sửa, thêm lưu ý giới hạn thực tế môi trường dev (cron cần app sống đúng 3h sáng), thêm bảng 2 script hỗ trợ vận hành mới. Đúng quy tắc chuẩn: mỗi khi sửa file guide FE, đồng bộ luôn cả tài liệu giảng giải nếu đủ lớn.
+
+## LỖI GHI NGÀY SAI — 16/09 thay vì 19/09 (phát hiện 19/09/2026)
+
+User chỉ ra: nhiều nội dung ghi ngày "16/09/2026" thực ra làm vào **19/09/2026** (cron timezone fix, E11000 fix, 2 script mới, các đoạn doc/tài liệu giảng giải liên quan) — do lặp lại "quán tính" ngày đã dùng từ đầu phiên làm việc dài, không kiểm tra lại ngày thật mỗi lần ghi. Đã sửa lại toàn bộ trước khi user kịp commit (kiểm tra `git status` thấy các file này còn ở "Changes not staged" — chưa lên git, sửa tại gốc không để lại vết sai trong lịch sử).
+
+**Quy tắc rút ra — áp dụng mọi lần ghi ngày vào comment code/doc/CLAUDE.md từ giờ**: trong phiên làm việc kéo dài NHIỀU NGÀY THẬT (không phải 1 buổi), **không mặc định dùng lại ngày đã ghi trước đó trong cùng phiên chat** — luôn đối chiếu bằng chứng thật gần nhất (timestamp trong log terminal user vừa dán, ngày hệ thống hiện tại) trước khi ghi ngày vào bất kỳ đâu.
+
+## Sửa lỗi tự nhắc nhở: câu chốt trước đó viết sai ("Đã cập nhật... sau" — mâu thuẫn), chưa thực làm (19/09/2026)
+
+Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md`/`API_LIST.md`/tài liệu giảng giải cho 2 fix (mở role Warehouse Staff cho GET warehouses, validate SKU trước khi trừ tồn ở pick-item) — thực ra CHƯA làm. User hỏi lại mới phát hiện, đã làm bù đủ cả 3 file ngay. **Bài học**: không viết câu tổng kết kiểu "đã X" nếu chưa thực sự gọi tool chỉnh sửa file đó trong lượt trả lời — dễ gây hiểu nhầm đã xong việc.
+
+## Gộp `main` vào `thi_dev` — 2 conflict tài liệu + 1 xung đột NGỮ NGHĨA chỉ jest bắt được (20/09/2026)
+
+`git pull origin main` báo conflict ở `API_LIST.md` và `INTEGRATION_GUIDE_FULFILLMENT.md`. Cả 2 bên đều mô tả ĐÚNG code (đã grep xác nhận từng claim), chỉ là 2 nhánh sửa song song:
+
+- **`INTEGRATION_GUIDE_FULFILLMENT.md`**: git tự gộp được phần lớn, còn 3 chỗ — đã gộp UNION (giữ cả "Nghiệp vụ 2b — Thiết lập kho" + 19/09 pick-item validate từ `main`, lẫn A.3/A.4/C.2/D.6 "flow mục tiêu" + dòng `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` từ `thi_dev`). Sắp lại changelog đầu file theo đúng thứ tự thời gian.
+- **`API_LIST.md`**: xung đột thật — `thi_dev` (commit `223ae75`, 14/09) đã VIẾT LẠI thành kiểu "API contract hiện trạng" (có bảng DTO/field), trong khi `main` vẫn là bản "Danh sách API theo Role" và được Thuận cập nhật tiếp tới 20/09. **User chốt: lấy bản `main` làm khung** (bản cả team đang cập nhật, chứa fact mới nhất 19-20/09), bổ sung phần chỉ `thi_dev` có: mục **Quy ước** + error response mẫu, mục **0. System**, bảng **DTO/field chi tiết** cho từng module, mục **11. Collection nội bộ và planned**, bảng **mã lỗi theo module** (đã tự thêm 2 mã `WH_WAREHOUSE_CODE_IN_USE`/`WH_ZONE_CODE_IN_USE` mà bản `thi_dev` viết trước khi 2 mã này ra đời). Không bên nào bị mất nội dung.
+
+**Xung đột NGỮ NGHĨA `tsc`/`eslint` KHÔNG bắt được, chỉ `jest` bắt** — bài học chính của lượt này: `order-groups.service.ts` git auto-merge SẠCH (không conflict marker), nhưng 2 thay đổi của 2 nhánh tương tác với nhau: `pickItem()` (từ `main`) gọi `getPackableItemDetail()` → `getPackableItemsForGroup()`, mà hàm này vừa bị BE-1 (từ `thi_dev`) siết lại — ném `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` nếu SKU chưa có hồ sơ kho `ready`. Hệ quả: `order-groups.service.pickItem.spec.ts` (mock `productMasterModel.find` trả `[]`, viết TRƯỚC khi có BE-1) fail 2/2 — readiness chặn trước, không bao giờ tới bước kiểm tra SKU thuộc group.
+
+- **Cách sửa đã chọn**: sửa MOCK trong spec (trả hồ sơ `ready` đủ số đo + `is_fragile`), KHÔNG đổi thứ tự kiểm tra trong `pickItem()` — mục đích test là bước validate SKU thuộc group, readiness chặn sớm chỉ là nhiễu do mock cũ; đổi code production để test xanh sẽ là sửa sai chỗ.
+- **Quy tắc rút ra**: sau MỌI lần merge/rebase có auto-merge file service (kể cả khi git báo sạch, kể cả khi `tsc` + `eslint` 0 lỗi), BẮT BUỘC chạy `jest` toàn bộ — 2 nhánh sửa 2 hàm gọi nhau là lớp lỗi duy nhất chỉ test runtime mới lộ ra.
+
+**Verify sau khi gộp**: `tsc --noEmit` 0 lỗi, `npm run lint:ci` 0 lỗi (43 warning `explicit-function-return-type` đều nằm trong `src/modules/storefront/` — nợ có sẵn từ commit storefront `3c0291c` trên `thi_dev`, không phải phát sinh từ lượt gộp này), `jest` **19/19 suite, 164/164 test pass**.

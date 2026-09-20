@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 12/09/2026 — phân biệt API đang chạy với flow mục tiêu.** **Cập nhật thêm 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 12/09/2026 — phân biệt API đang chạy với flow mục tiêu.** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -152,6 +152,96 @@ Cả 3 tình huống trên **dùng chung đúng 1 API** (`POST /order-groups/:id
 
 ---
 
+## 🆕 Nghiệp vụ 2b — Thiết lập kho (Warehouse Setup) — MỚI, bổ sung 16/09/2026
+
+**Vì sao mục này mới xuất hiện dù `warehouse/` đã có từ trước**: các mục khác trong file chỉ nói tới việc **DÙNG** dữ liệu kho (Picking đọc `bin_location`/`sku_bin_assignment` đã có sẵn) — nhưng chưa từng có hướng dẫn cho bước **TẠO RA** dữ liệu đó (Admin phải làm TRƯỚC KHI bất kỳ đơn nào có thể Picking). Đây là khoảng trống tài liệu thật, không phải do API mới — chỉ là tới giờ mới rà thấy.
+
+### Bối cảnh — ai làm, khi nào
+
+**Admin làm 1 LẦN lúc setup ban đầu** (hoặc mỗi khi mở kho mới/thêm SKU mới) — **PHẢI làm ĐÚNG THỨ TỰ 4 bước**, bước sau phụ thuộc bước trước (không thể tạo khu khi chưa có kho, không thể gán SKU khi chưa có kệ):
+
+```
+Bước 1: Tạo KHO ──► Bước 2: Tạo KHU (trong kho đó)
+                              │
+                              ▼
+Bước 4: Gán SKU vào 1 kệ ◄── Bước 3: Sinh HÀNG LOẠT kệ (trong khu đó)
+```
+
+### Bước 1 — Tạo kho
+
+```
+POST /warehouse/warehouses
+Body: { "warehouse_code": "WH-HCM-01", "warehouse_name": "Kho TP.HCM - Quận 7", "address": "123 Đường ABC, Quận 7, TP.HCM" }
+→ 201: { "id": "...", "warehouseCode": "WH-HCM-01", "warehouseName": "...", "address": "...", "isActive": true }
+```
+
+Xem lại: `GET /warehouse/warehouses` — danh sách toàn bộ kho. 🔄 **ĐÃ ĐỔI (19/09/2026)** — route này giờ mở thêm cho **Warehouse Staff** (trước chỉ Admin) — vì `picking-list`/`pick-item`/`report-missing` (Warehouse Staff phải gọi hàng ngày) đều bắt buộc `warehouse_id`, cần có cách để họ tự biết ID kho mình đang làm việc, không hardcode tay.
+
+### Bước 2 — Tạo khu TRONG 1 kho
+
+```
+POST /warehouse/warehouses/:warehouseId/zones
+Body: { "zone_code": "A", "zone_name": "Phụ kiện điện tử", "description": "Khu chứa cáp sạc, tai nghe, phụ kiện nhỏ" }  // description optional
+→ 201: { "id": "...", "warehouseId": "...", "zoneCode": "A", "zoneName": "...", "description": "..." }
+```
+
+`zone_code` chỉ cần **duy nhất TRONG 1 kho** — 2 kho khác nhau vẫn đặt trùng "A" được bình thường (xem lý do thiết kế ở tài liệu giảng giải hệ thống, mục II.7).
+
+Xem lại: 🔄 `GET /warehouse/warehouses/:warehouseId/zones` (đã sửa lỗi 16/09/2026 — trước đây có thể không trả ra dữ liệu dù tạo thành công).
+
+### Bước 3 — Sinh HÀNG LOẠT kệ (không tạo tay từng cái)
+
+```
+POST /warehouse/zones/:zoneId/bin-locations/generate
+Body: { "aisle": "03", "rack_from": 1, "rack_to": 10, "level_from": 1, "level_to": 4 }
+→ 201: { "created": 40 }   // 10 rack × 4 level = 40 kệ, sinh trong 1 lần gọi (bulkWrite, xem tài liệu giảng giải mục III.6)
+```
+
+`bin_code` tự sinh dạng `"{zone_code}-{aisle}-{rack:02}-{level:02}"` (VD `"A-03-01-01"`) — FE **không cần tự đặt tên kệ**, chỉ cần khai đúng khoảng (range).
+
+⚠️ Gọi lại ĐÚNG khoảng đã tạo trước đó **không báo lỗi, không tạo trùng** (idempotent — `upsert`) — an toàn nếu Admin lỡ bấm 2 lần, nhưng KHÔNG dùng tính chất này để "sinh thêm" — nếu cần mở rộng khoảng, gọi API MỚI với range khác (VD `rack_from: 11, rack_to: 15`), không gọi lại range cũ.
+
+Xem lại (🆕 MỚI 16/09/2026 — trước đây KHÔNG có cách nào xem lại):
+
+```
+GET /warehouse/zones/:zoneId/bin-locations              → kệ trong 1 khu
+GET /warehouse/warehouses/:warehouseId/bin-locations    → TOÀN BỘ kệ trong 1 kho (mọi khu gộp)
+→ 200: [{ "id": "...", "warehouseId": "...", "zoneId": "...", "binCode": "A-03-01-01", "aisle": "03", "rack": 1, "level": 1 }, ...]
+```
+
+### Bước 4 — Gán 1 SKU vào 1 kệ cụ thể
+
+```
+POST /warehouse/warehouses/:warehouseId/sku-bin-assignments
+Body: {
+  "platform": "lazada", "shop_id": "201171264532", "seller_sku": "ABC-123",
+  "bin_location_id": "<id lấy từ bước 3>",
+  "initial_quantity": 0   // OPTIONAL, mặc định 0 — có thể gán vị trí TRƯỚC, nhập hàng SAU qua bước Restock
+}
+→ 201: { "id": "...", "warehouseId": "...", "platform": "lazada", "shopId": "...", "sellerSku": "ABC-123", "binLocationId": "...", "quantityOnHand": 0 }
+```
+
+**Nhập thêm hàng sau đó** (nghiệp vụ RIÊNG, không phải gán lại):
+
+```
+POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock
+Body: { "quantity": 50 }   // CỘNG DỒN vào quantityOnHand hiện có, KHÔNG ghi đè
+```
+
+Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-bin-assignments` — toàn bộ SKU đã gán trong 1 kho. Phân biệt với route đã có từ trước `GET /warehouse/sku-bin-assignments/unassigned` — route ĐÓ trả **SKU nào TRONG hệ thống nhưng CHƯA gán vị trí nào** (để Admin biết cần làm Bước 4 cho SKU nào); route MỚI trả **SKU ĐÃ gán rồi** (để Admin xem lại/đối chiếu) — 2 route trả tập dữ liệu **ĐỐI LẬP nhau**, đừng nhầm.
+
+### Mã lỗi riêng mục này
+
+| Mã                            | HTTP    | Khi nào                                                                                                |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `WH_WAREHOUSE_NOT_FOUND`      | 404/400 | `warehouseId` không tồn tại hoặc sai định dạng ObjectId                                                |
+| `WH_ZONE_NOT_FOUND`           | 404/400 | `zoneId` không tồn tại hoặc sai định dạng ObjectId                                                     |
+| `WH_INVALID_BIN_RANGE`        | 400     | `rack_from > rack_to` hoặc `level_from > level_to` ở Bước 3                                            |
+| 🆕 `WH_WAREHOUSE_CODE_IN_USE` | 409     | **MỚI (19/09/2026)** — `warehouse_code` đã tồn tại (trước đây rơi 500 thô, xem báo cáo thật đồng đội)  |
+| 🆕 `WH_ZONE_CODE_IN_USE`      | 409     | **MỚI (19/09/2026)** — `zone_code` đã tồn tại TRONG CÙNG 1 kho (2 kho khác nhau vẫn đặt trùng mã được) |
+
+---
+
 ## Nghiệp vụ 3 — Lấy hàng (Picking) — nghiệp vụ có nhiều tình huống nhất
 
 ### Bối cảnh xảy ra
@@ -168,6 +258,8 @@ Order Group đã `approved_for_packing`, đã có người phụ trách (`assign
 ```
 
 🔄 **ĐÃ ĐỔI (15/09/2026)** — cả 2 API lấy danh sách ở trên đều tự động **loại bỏ SKU thuộc đơn đã `canceled` hoặc gặp sự cố logistics** (`lost`, `damaged_by_3pl`... xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) khỏi danh sách cần lấy — trước đây KHÔNG lọc, nhân viên có thể bị yêu cầu đi lấy hàng cho đơn đã hủy/mất. Trường hợp TOÀN BỘ đơn trong group đều rơi vào 2 nhóm này (group rỗng sau khi lọc) → API trả lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì trả về danh sách rỗng — FE nên bắt riêng mã lỗi này, hiện thông báo rõ ràng ("Nhóm đơn này không còn gì cần lấy") thay vì hiểu nhầm là màn hình trắng/lỗi tải dữ liệu.
+
+🔄 **ĐÃ ĐỔI (19/09/2026, báo cáo thật Hải Phượng)** — bước 3 (`POST .../fulfillment/pick-item`) giờ **kiểm tra SKU quét THẬT SỰ thuộc group này** TRƯỚC KHI trừ tồn kho — trước đây trừ tồn thẳng theo mã vạch quét được, không hỏi lại SKU đó có nằm trong đơn nào của group không (quét nhầm mã vạch SKU bất kỳ, miễn còn tồn kho, vẫn trừ tồn thật, sai lệch dữ liệu). Nếu SKU không thuộc group → trả lỗi `ORD_GROUP_ITEM_NOT_IN_GROUP` (404), **KHÔNG đụng tới tồn kho**. FE nên bắt riêng mã lỗi này khi quét (VD hiện "Mã vạch này không thuộc đơn đang lấy, kiểm tra lại") — khác hẳn lỗi `ORD_GROUP_INSUFFICIENT_STOCK` (409, SKU đúng nhưng không đủ hàng).
 
 **Cách B — đường tắt hiện có cho demo, cần chặn trong flow mục tiêu**:
 
@@ -391,22 +483,22 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 
 ## D.3. Bảng mã lỗi
 
-| `error_code`                                                            | HTTP    | Khi nào                                                                                                                                                                                                      |
-| ----------------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ORD_GROUP_INVALID_ID`                                                  | 400     | `:id` sai định dạng                                                                                                                                                                                          |
-| `ORD_GROUP_NOT_FOUND`                                                   | 404     | Group không tồn tại                                                                                                                                                                                          |
-| `ORD_GROUP_STATE_CONFLICT`                                              | 409     | Version không khớp                                                                                                                                                                                           |
-| `ORD_GROUP_INVALID_TRANSITION`                                          | 400     | Sai thứ tự trạng thái                                                                                                                                                                                        |
-| `ORD_GROUP_INSUFFICIENT_STOCK`                                          | 409     | pick-item không đủ hàng — gợi ý report-missing                                                                                                                                                               |
-| `ORD_GROUP_ITEM_NOT_IN_GROUP`                                           | 404     | SKU không thuộc group                                                                                                                                                                                        |
+| `error_code`                                                                                                                                           | HTTP    | Khi nào                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ORD_GROUP_INVALID_ID`                                                                                                                                 | 400     | `:id` sai định dạng                                                                                                                                                                                          |
+| `ORD_GROUP_NOT_FOUND`                                                                                                                                  | 404     | Group không tồn tại                                                                                                                                                                                          |
+| `ORD_GROUP_STATE_CONFLICT`                                                                                                                             | 409     | Version không khớp                                                                                                                                                                                           |
+| `ORD_GROUP_INVALID_TRANSITION`                                                                                                                         | 400     | Sai thứ tự trạng thái                                                                                                                                                                                        |
+| `ORD_GROUP_INSUFFICIENT_STOCK`                                                                                                                         | 409     | pick-item không đủ hàng — gợi ý report-missing                                                                                                                                                               |
+| `ORD_GROUP_ITEM_NOT_IN_GROUP`                                                                                                                          | 404     | SKU không thuộc group — 🔄 từ 19/09/2026 áp dụng thêm cho `pick-item` (trước chỉ dùng ở API item-detail)                                                                                                     |
 | `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` | 422 | SKU thiếu hồ sơ kho `ready`, số đo hoặc độ nhạy đã xác nhận |
-| `ORD_GROUP_ALL_ORDERS_CANCELED`                                         | 409     | **Mới (15/09/2026)** — toàn bộ đơn trong group đã bị hủy/gặp sự cố logistics (xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) — không còn gì để đóng gói/lấy hàng. Xảy ra ở `packaging/generate` và `picking-list` |
-| `ORD_GROUP_NO_STAFF_AVAILABLE`                                          | 409     | Auto-assign không có staff active                                                                                                                                                                            |
-| `ORD_GROUP_STAFF_NOT_FOUND`                                             | 404     | `staff_id` không hợp lệ                                                                                                                                                                                      |
-| `PKG_NO_ACTIVE_RECOMMENDATION`                                          | 404     | Chưa từng generate                                                                                                                                                                                           |
-| `PKG_ALREADY_DECIDED`                                                   | 409     | Recommendation đã được quyết định trước đó                                                                                                                                                                   |
-| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` | —       | Xem chi tiết Swagger                                                                                                                                                                                         |
-| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND`                                    | 400/404 | Module notifications                                                                                                                                                                                         |
+| `ORD_GROUP_ALL_ORDERS_CANCELED`                                                                                                                        | 409     | **Mới (15/09/2026)** — toàn bộ đơn trong group đã bị hủy/gặp sự cố logistics (xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) — không còn gì để đóng gói/lấy hàng. Xảy ra ở `packaging/generate` và `picking-list` |
+| `ORD_GROUP_NO_STAFF_AVAILABLE`                                                                                                                         | 409     | Auto-assign không có staff active                                                                                                                                                                            |
+| `ORD_GROUP_STAFF_NOT_FOUND`                                                                                                                            | 404     | `staff_id` không hợp lệ                                                                                                                                                                                      |
+| `PKG_NO_ACTIVE_RECOMMENDATION`                                                                                                                         | 404     | Chưa từng generate                                                                                                                                                                                           |
+| `PKG_ALREADY_DECIDED`                                                                                                                                  | 409     | Recommendation đã được quyết định trước đó                                                                                                                                                                   |
+| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` / `WH_WAREHOUSE_CODE_IN_USE` / `WH_ZONE_CODE_IN_USE` (2 mã cuối 🆕 19/09/2026) | —       | Xem chi tiết Nghiệp vụ 2b (Warehouse Setup)                                                                                                                                                                  |
+| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND`                                                                                                                   | 400/404 | Module notifications                                                                                                                                                                                         |
 
 ## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
 
@@ -428,6 +520,8 @@ Các mục dưới đây kiểm tra route/flow legacy đang có trong code. Chec
 - [ ] Đã implement đầy đủ nhánh `partial_needs_review`, không chỉ happy path
 - [ ] Đã tích hợp polling `unread-count`
 - [ ] Đã đối chiếu `API_LIST.md` đúng role cho từng màn hình đang build
+- [ ] 🔄 **ĐÃ ĐỔI (19/09)** — Warehouse Staff giờ gọi được `GET /warehouse/warehouses` (trước chỉ Admin) — màn hình Warehouse Staff nên tự lấy `warehouse_id` từ đây, không hardcode tay
+- [ ] 🔄 **ĐÃ ĐỔI (19/09)** — `pick-item` có thể trả `ORD_GROUP_ITEM_NOT_IN_GROUP` (404) khi quét nhầm SKU — FE cần bắt riêng, khác với lỗi hết hàng (`ORD_GROUP_INSUFFICIENT_STOCK`)
 - [ ] 🆕 **MỚI (16/09)** — Đã xử lý 2 loại Notification mới (`cancel_confirmation_required`, `sync_failed`) trong UI chuông thông báo (Nghiệp vụ 6)
 - [ ] 🔄 **ĐÃ ĐỔI (16/09)** — Đã biết `PATCH /notifications/:id/read` trả 404 nếu gọi nhầm ID không thuộc về mình (không phải bug khi test chéo role)
 
