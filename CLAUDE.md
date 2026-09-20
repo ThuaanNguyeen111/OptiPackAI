@@ -2293,8 +2293,24 @@ Không đụng `be/`. Trang `/app/warehouse` (role Warehouse Staff) nối đúng
 
 - Hàng đợi: `GET /order-groups?fulfillment_status=` gọi **song song** theo từng trạng thái thao tác được (BE chỉ lọc 1 status + limit 100).
 - Picking: ưu tiên `GET /warehouse/:warehouseId/picking-list/:groupId` (có mã kệ, wave picking); fallback `GET /order-groups/:id/picking-list`.
-- Ghi: `pick-item` (kèm `client_event_id`, bắt riêng `ORD_GROUP_INSUFFICIENT_STOCK` / `ORD_GROUP_ITEM_NOT_IN_GROUP`) → `report-missing` → `pick` (Cách B) → `pack` → `return`. Mọi transition gửi `expected_version`.
+- Ghi: `pick-item` → `report-missing` → `pick` (Cách B) → `return`. **ĐÃ THAY ĐỔI (2026-09-20, hướng A):** kho không còn nút `pack`; đóng gói là việc Packaging Staff trên `/app/packing`.
 - Phân công: `POST /order-groups/:id/assign` + `GET /order-groups/staff/search` (map raw snake_case vì assign hiện trả Document Mongoose).
 - Chọn kho: `GET /warehouse/warehouses` (role Warehouse Staff đã mở 19/09).
+- Hàng đợi FE **ĐÃ THAY ĐỔI (2026-09-20, hướng A)**: tab «Cần lấy» gồm `awaiting_packaging` + `pending_approval` + `approved_for_packing` + `picking` — đơn mới hiện ngay, không đợi duyệt thùng.
 
 Gap BE ghi nhận để FE báo lại (không tự sửa backend): `POST .../assign` trả raw document; `GET /order-groups` không lọc nhiều status/`$in`; `pick-item` không chuyển `picking` và không giới hạn số lượng còn lại của group; `GET .../sku-bin-assignments` vẫn Admin-only nên trang `/app/inventory` chưa nối API được.
+
+## Hướng A — kho lấy trước, bàn gói sau (2026-09-20) — FE đã làm, BE còn cổng cũ
+
+**Đã chốt A.** FE không đụng `be/`.
+
+**FE đã đổi:**
+- `/app/warehouse` hiện group `awaiting_packaging` / `pending_approval` trong «Cần lấy»; `pick-item` gọi được (BE không check status). Ẩn xác nhận đóng gói ở kho.
+- `/app/packing` gắn `PackagingWorkbench` (bỏ mock dashboard). Tab chính «Cần gói» = `picked`, nút `POST .../fulfillment/pack`.
+
+**Nhờ BE sửa (không làm được ở FE):**
+1. `allowed-status-transitions`: `awaiting_packaging` và `pending_approval` → `picking` / `picked` / `partial_needs_review`. Hiện `POST .../pick` và `report-missing` từ đơn mới → `ORD_GROUP_INVALID_TRANSITION`.
+2. `POST .../fulfillment/pack` thêm `@Roles(PACKAGING_STAFF)` — hiện chỉ Warehouse Staff + Admin → Packaging Staff 403.
+3. (Nên) `actual_measured_weight_kg` lúc pack sau pick, không bắt trên `approve` kế hoạch thùng trước khi có hàng.
+
+**Test tay:** Admin sync → Warehouse thấy đơn mới, quét trừ tồn được → Hoàn tất lấy / Báo thiếu có thể fail cho đến khi (1) xong → Packaging Staff «Cần gói» fail 403 cho đến khi (2) xong.

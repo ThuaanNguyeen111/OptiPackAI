@@ -9,7 +9,6 @@ import {
   Loader2,
   MapPin,
   Minus,
-  Package,
   Plus,
   RefreshCw,
   UserCheck,
@@ -33,7 +32,6 @@ import {
   getOrderGroupById,
   getOrderGroupPickingList,
   listWarehouseStaffQueue,
-  packOrderGroup,
   pickOrderGroupItem,
   reportMissingOrderGroupItem,
   returnOrderGroup,
@@ -51,6 +49,7 @@ import { ApiError, formatApiError, getApiErrorCode } from '../lib/api'
 import { cn } from '../lib/cn'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
+  isWarehousePickableStatus,
   type OrderGroup,
   type PackableItem,
   type ScanMethod,
@@ -85,14 +84,14 @@ const UNASSIGNED_BIN = 'CHƯA GÁN VỊ TRÍ'
 const QUEUE_TABS: Array<{ id: QueueTab; labelVi: string; labelEn: string }> = [
   { id: 'to_pick', labelVi: 'Cần lấy', labelEn: 'To pick' },
   { id: 'review', labelVi: 'Thiếu hàng', labelEn: 'Missing' },
-  { id: 'picked', labelVi: 'Đã lấy', labelEn: 'Picked' },
+  { id: 'picked', labelVi: 'Đã lấy — giao gói', labelEn: 'Picked — to pack' },
   { id: 'packed', labelVi: 'Đã đóng', labelEn: 'Packed' },
   { id: 'returns', labelVi: 'Hoàn hàng', labelEn: 'Returns' },
 ]
 
 function matchesTab(status: string, tab: QueueTab): boolean {
   if (tab === 'to_pick') {
-    return status === 'approved_for_packing' || status === 'picking'
+    return isWarehousePickableStatus(status)
   }
   if (tab === 'review') return status === 'partial_needs_review'
   if (tab === 'picked') return status === 'picked'
@@ -253,19 +252,26 @@ function SkuThumb({ sku }: { sku: string }) {
 }
 
 function canPickItems(status: string): boolean {
-  return status === 'approved_for_packing' || status === 'picking'
+  return isWarehousePickableStatus(status)
 }
 
 function canCompletePick(status: string): boolean {
-  return status === 'approved_for_packing' || status === 'picking'
-}
-
-function canPack(status: string): boolean {
-  return status === 'picked'
+  return isWarehousePickableStatus(status)
 }
 
 function canReturn(status: string): boolean {
   return status === 'shipped' || status === 'delivered'
+}
+
+function bePickGateMessage(vi: boolean, action: 'complete' | 'missing'): string {
+  if (action === 'missing') {
+    return vi
+      ? 'BE chưa cho báo thiếu từ đơn mới. Cần mở transition awaiting_packaging / pending_approval → partial_needs_review (hiện chỉ từ approved_for_packing / picking).'
+      : 'BE still blocks report-missing on new groups. Allow awaiting_packaging / pending_approval → partial_needs_review (today only approved_for_packing / picking).'
+  }
+  return vi
+    ? 'BE chưa cho «Hoàn tất lấy hàng» từ đơn mới. pick-item (trừ tồn) đã chạy được. Cần mở awaiting_packaging / pending_approval / picking → picked.'
+    : 'BE still blocks Complete pick on new groups. pick-item (stock decrement) already works. Allow awaiting_packaging / pending_approval / picking → picked.'
 }
 
 export function WarehousePage() {
@@ -306,7 +312,6 @@ export function WarehousePage() {
   const [missingNote, setMissingNote] = useState('')
 
   const [completeOpen, setCompleteOpen] = useState(false)
-  const [packOpen, setPackOpen] = useState(false)
   const [returnOpen, setReturnOpen] = useState(false)
 
   const [assignOpen, setAssignOpen] = useState(false)
@@ -668,7 +673,12 @@ export function WarehousePage() {
       if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
         await refreshGroupAfterWrite(group.id)
       }
-      setActionError(formatApiError(err))
+      if (getApiErrorCode(err) === 'ORD_GROUP_INVALID_TRANSITION') {
+        setMissingOpen(false)
+        setActionError(bePickGateMessage(vi, 'missing'))
+      } else {
+        setActionError(formatApiError(err))
+      }
     } finally {
       setBusy(false)
     }
@@ -686,38 +696,19 @@ export function WarehousePage() {
       setGroup(latest)
       setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
       setCompleteOpen(false)
-      showToast(vi ? 'Đã xác nhận lấy xong cả nhóm.' : 'Group marked as picked.')
+      showToast(vi ? 'Đã xác nhận lấy xong cả nhóm. Đưa khay sang bàn đóng gói.' : 'Group marked as picked. Hand off to packing.')
       navigate(`/app/warehouse?groupId=${latest.id}`)
       await loadGroups()
     } catch (err: unknown) {
       if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
         await refreshGroupAfterWrite(group.id)
       }
-      setActionError(formatApiError(err))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  async function handlePack() {
-    if (!group) return
-    setBusy(true)
-    setActionError(null)
-    try {
-      const latest = await packOrderGroup(group.id, {
-        expected_version: group.version,
-      })
-      setGroup(latest)
-      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
-      setPackOpen(false)
-      showToast(vi ? 'Đã xác nhận đóng gói xong.' : 'Group marked as packed.')
-      navigate(`/app/warehouse?groupId=${latest.id}`)
-      await loadGroups()
-    } catch (err: unknown) {
-      if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
-        await refreshGroupAfterWrite(group.id)
+      if (getApiErrorCode(err) === 'ORD_GROUP_INVALID_TRANSITION') {
+        setCompleteOpen(false)
+        setActionError(bePickGateMessage(vi, 'complete'))
+      } else {
+        setActionError(formatApiError(err))
       }
-      setActionError(formatApiError(err))
     } finally {
       setBusy(false)
     }
@@ -920,17 +911,6 @@ export function WarehousePage() {
                   {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
                 </button>
               ) : null}
-              {group && canPack(status) ? (
-                <button
-                  type="button"
-                  onClick={() => setPackOpen(true)}
-                  disabled={busy}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 font-bold text-white shadow-xs cursor-pointer hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  <Package className="h-3.5 w-3.5" />
-                  {vi ? 'Xác nhận đóng gói' : 'Confirm pack'}
-                </button>
-              ) : null}
               {group && canReturn(status) ? (
                 <button
                   type="button"
@@ -1017,8 +997,8 @@ export function WarehousePage() {
               </p>
               <p className="mt-1 text-sm text-slate-500">
                 {vi
-                  ? 'Đơn cần lấy chỉ hiện khi đã duyệt gợi ý đóng gói.'
-                  : 'Pickable groups appear after packaging approval (approved_for_packing).'}
+                  ? 'Đơn mới hiện ngay khi có nhóm (không đợi duyệt thùng). Nếu trống: Admin sync Lazada và chờ cron backfill order_groups.'
+                  : 'New groups show as soon as they exist (no packing-plan gate). Empty? Admin syncs Lazada and wait for order-group backfill.'}
               </p>
             </div>
           ) : (
@@ -1095,6 +1075,29 @@ export function WarehousePage() {
                   </div>
                 </div>
               </div>
+
+              {status === 'picked' ? (
+                <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    {vi
+                      ? 'Đã lấy xong. Đưa khay sang bàn đóng gói — Packaging Staff xác nhận gói trên /app/packing. Kho không bấm đóng gói.'
+                      : 'Picking finished. Hand the tote to packing — Packaging Staff confirms pack on /app/packing. Warehouse does not pack.'}
+                  </p>
+                </div>
+              ) : null}
+
+              {canPickItems(status) &&
+              (status === 'awaiting_packaging' || status === 'pending_approval') ? (
+                <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
+                  <Flag className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    {vi
+                      ? 'Đơn mới: quét SKU/mã kệ để trừ tồn ngay.'
+                      : 'New group: scan SKU/bin to decrement stock now. Complete pick and Report missing may still be blocked by the old BE packing-plan gate — that is a backend change, not this screen.'}
+                  </p>
+                </div>
+              ) : null}
 
               {status === 'partial_needs_review' ? (
                 <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
@@ -1284,7 +1287,7 @@ export function WarehousePage() {
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-surface-1">
-                        {vi ? 'Nhóm này không còn SKU cần lấy.' : 'No SKUs left to pick in this group.'}
+                        {vi ? 'Nhóm đơn này không còn SKU cần lấy.' : 'No SKUs left to pick in this group.'}
                       </div>
                     )}
 
@@ -1457,36 +1460,6 @@ export function WarehousePage() {
               className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-blue-700 disabled:opacity-50"
             >
               {vi ? 'Xác nhận đã lấy xong' : 'Mark picked'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={packOpen} onOpenChange={setPackOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>{vi ? 'Xác nhận đóng gói' : 'Confirm packing'}</DialogTitle>
-            <DialogDescription>
-              {vi
-                ? 'Chỉ bấm khi đã đóng xong theo gợi ý đã duyệt. Nhóm chuyển sang packed — bước giao vận thuộc Shipping Coordinator.'
-                : 'Use this after physical packing. Shipping is handled by the shipping coordinator.'}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setPackOpen(false)}
-              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
-            >
-              {vi ? 'Hủy' : 'Cancel'}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handlePack()}
-              disabled={busy}
-              className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {vi ? 'Đã đóng gói' : 'Mark packed'}
             </button>
           </DialogFooter>
         </DialogContent>

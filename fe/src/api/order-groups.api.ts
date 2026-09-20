@@ -153,28 +153,14 @@ export async function listOrderGroups(
 }
 
 /**
- * Hàng đợi Warehouse Staff: BE chỉ lọc được 1 `fulfillment_status` / lần
- * và limit 100, nên gọi song song theo từng trạng thái thao tác được.
+ * Hàng đợi Warehouse Staff: **1 request** `GET /order-groups` rồi lọc
+ * status phía FE (đơn mới awaiting_packaging cũng vào hàng lấy hàng —
+ * không đợi duyệt kế hoạch thùng). Không gọi song song theo từng status.
  */
 export async function listWarehouseStaffQueue(): Promise<OrderGroup[]> {
-  const results = await Promise.allSettled(
-    WAREHOUSE_STAFF_QUEUE_STATUSES.map((status) =>
-      listOrderGroups({ fulfillment_status: status }),
-    ),
-  )
-  const byId = new Map<string, OrderGroup>()
-  const errors: unknown[] = []
-  for (const result of results) {
-    if (result.status === 'fulfilled') {
-      for (const row of result.value) byId.set(row.id, row)
-    } else {
-      errors.push(result.reason)
-    }
-  }
-  if (byId.size === 0 && errors.length > 0) {
-    throw errors[0]
-  }
-  return [...byId.values()]
+  const rows = await listOrderGroups()
+  const allowed = new Set<string>(WAREHOUSE_STAFF_QUEUE_STATUSES)
+  return rows.filter((row) => allowed.has(row.fulfillmentStatus))
 }
 
 export async function getOrderGroupById(id: string): Promise<OrderGroup> {

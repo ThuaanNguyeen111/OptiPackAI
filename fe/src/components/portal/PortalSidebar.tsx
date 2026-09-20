@@ -82,8 +82,8 @@ const navItems = [
   {
     to: '/app/packing',
     end: false,
-    labelVi: 'Duyệt đóng gói',
-    labelEn: 'Packaging approval',
+    labelVi: 'Đóng gói',
+    labelEn: 'Packing station',
     icon: Boxes,
     section: 'logistics' as NavSection,
   },

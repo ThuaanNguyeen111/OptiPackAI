@@ -12,6 +12,7 @@ import {
 import {
   decidePartialOrderGroup,
   listOrderGroups,
+  packOrderGroup,
 } from '../../api/order-groups.api'
 import {
   adjustPackaging,
@@ -20,7 +21,7 @@ import {
   rejectPackaging,
 } from '../../api/packaging.api'
 import { usePortal } from '../../context/use-portal'
-import { formatApiError } from '../../lib/api'
+import { ApiError, formatApiError } from '../../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   type OrderGroup,
@@ -32,10 +33,11 @@ import {
 } from '../../types/packaging'
 import { formatCurrency, formatDateTime } from '../../utils/format'
 
-/** Hàng đợi UC-04 + trạng thái BE trước khi có gợi ý (chỉ xem). */
+/** Hàng đợi bàn gói: nhận hàng kho đã lấy trước; kế hoạch thùng song song. */
 type QueueTab =
-  | 'pending_approval'
+  | 'picked'
   | 'partial_needs_review'
+  | 'pending_approval'
   | 'awaiting_packaging'
 
 function statusLabel(status: string, vi: boolean): string {
@@ -45,36 +47,47 @@ function statusLabel(status: string, vi: boolean): string {
 }
 
 function emptyCopy(tab: QueueTab, vi: boolean): { title: string; body: string } {
+  if (tab === 'picked') {
+    return vi
+      ? {
+          title: 'Chưa có khay chờ gói',
+          body: 'Tab này hiện nhóm Warehouse đã lấy xong (picked). Khi kho bấm «Hoàn tất lấy hàng» được (cần BE mở transition từ đơn mới), nhóm sẽ vào đây.',
+        }
+      : {
+          title: 'No totes waiting to pack',
+          body: 'Groups appear here after warehouse marks them picked. Completing pick on new groups still needs a BE status transition.',
+        }
+  }
   if (tab === 'pending_approval') {
     return vi
       ? {
-          title: 'Chưa có nhóm chờ duyệt',
-          body: 'BE chỉ đưa nhóm vào pending_approval sau khi có PackagingRecommendation (Admin gọi POST …/packaging/generate tạm, hoặc AI Package 3). Nhóm mới thường nằm tab «Chờ gợi ý».',
+          title: 'Chưa có kế hoạch thùng chờ duyệt',
+          body: 'Tab phụ: gợi ý thùng (Admin generate / AI) — không chặn kho lấy hàng. Duyệt kế hoạch ở đây không thay bước gói thật trên tab «Cần gói».',
         }
       : {
-          title: 'No groups pending approval',
-          body: 'BE moves a group to pending_approval only after a PackagingRecommendation exists (Admin POST …/packaging/generate, or AI later). New groups are usually under «Awaiting plan».',
+          title: 'No packing plans pending',
+          body: 'Optional: carton plan (Admin generate / AI). Approving a plan does not replace physical pack on the To-pack tab.',
         }
   }
   if (tab === 'partial_needs_review') {
     return vi
       ? {
           title: 'Không có đơn thiếu hàng',
-          body: 'Tab này chỉ hiện nhóm Warehouse đã báo thiếu (report-missing) — trạng thái partial_needs_review trên BE.',
+          body: 'Warehouse đã báo thiếu (report-missing) — quyết định tiếp tục với phần còn lại hoặc hủy làm lại.',
         }
       : {
           title: 'No partial-review groups',
-          body: 'Only groups where Warehouse reported missing items (partial_needs_review) appear here.',
+          body: 'Only groups where warehouse reported missing items.',
         }
   }
   return vi
     ? {
-        title: 'Không có nhóm chờ gợi ý',
-        body: 'Không có order_group ở awaiting_packaging (hoặc chưa sync/backfill nhóm đơn từ BE).',
+        title: 'Kho chưa có đơn đang lấy',
+        body: 'Nhóm awaiting_packaging: kho đang (hoặc sắp) lấy. Bàn gói chỉ xem, không chặn.',
       }
     : {
-        title: 'No awaiting-packaging groups',
-        body: 'No order_groups in awaiting_packaging (or groups not synced/backfilled yet).',
+        title: 'No groups still in the warehouse',
+        body: 'awaiting_packaging means warehouse is picking or about to. Packing only watches — it does not gate pick.',
       }
 }
 
@@ -82,7 +95,7 @@ export function PackagingWorkbench() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
 
-  const [tab, setTab] = useState<QueueTab>('pending_approval')
+  const [tab, setTab] = useState<QueueTab>('picked')
   const [tabBootstrapped, setTabBootstrapped] = useState(false)
   const [allGroups, setAllGroups] = useState<OrderGroup[]>([])
   const [listLoading, setListLoading] = useState(true)
@@ -135,12 +148,14 @@ export function PackagingWorkbench() {
     let pending = 0
     let partial = 0
     let awaiting = 0
+    let picked = 0
     for (const g of allGroups) {
       if (g.fulfillmentStatus === 'pending_approval') pending += 1
       else if (g.fulfillmentStatus === 'partial_needs_review') partial += 1
       else if (g.fulfillmentStatus === 'awaiting_packaging') awaiting += 1
+      else if (g.fulfillmentStatus === 'picked') picked += 1
     }
-    return { pending, partial, awaiting }
+    return { pending, partial, awaiting, picked }
   }, [allGroups])
 
   const groups = useMemo(
@@ -148,19 +163,30 @@ export function PackagingWorkbench() {
     [allGroups, tab],
   )
 
-  // Lần tải đầu: nếu chưa có pending nhưng có awaiting/partial → mở đúng tab có dữ liệu BE.
+  // Lần tải đầu: ưu tiên khay chờ gói (picked), rồi thiếu hàng, rồi kế hoạch thùng.
   useEffect(() => {
     if (listLoading || tabBootstrapped) return
     const id = window.setTimeout(() => {
-      if (counts.pending === 0 && counts.awaiting > 0) {
-        setTab('awaiting_packaging')
-      } else if (counts.pending === 0 && counts.partial > 0) {
+      if (counts.picked > 0) {
+        setTab('picked')
+      } else if (counts.partial > 0) {
         setTab('partial_needs_review')
+      } else if (counts.pending > 0) {
+        setTab('pending_approval')
+      } else if (counts.awaiting > 0) {
+        setTab('awaiting_packaging')
       }
       setTabBootstrapped(true)
     }, 0)
     return () => window.clearTimeout(id)
-  }, [listLoading, tabBootstrapped, counts.pending, counts.awaiting, counts.partial])
+  }, [
+    listLoading,
+    tabBootstrapped,
+    counts.picked,
+    counts.pending,
+    counts.awaiting,
+    counts.partial,
+  ])
 
   useEffect(() => {
     setSelectedId((prev) => {
@@ -349,6 +375,31 @@ export function PackagingWorkbench() {
     }
   }
 
+  async function onPack(): Promise<void> {
+    if (!group) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      await packOrderGroup(group.id, {
+        expected_version: group.version,
+      })
+      showToast(vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.')
+      await refreshAfterAction()
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 403) {
+        setActionError(
+          vi
+            ? 'BE chưa mở POST /order-groups/:id/fulfillment/pack cho Packaging Staff (hiện chỉ Warehouse Staff + Admin). Nhờ BE thêm role PACKAGING_STAFF.'
+            : 'BE does not allow Packaging Staff to POST .../fulfillment/pack (Warehouse Staff + Admin only). Ask BE to add PACKAGING_STAFF.',
+        )
+      } else {
+        setActionError(formatApiError(err))
+      }
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   async function onDecidePartial(approve: boolean): Promise<void> {
     if (!group) return
     setActionBusy(true)
@@ -386,12 +437,12 @@ export function PackagingWorkbench() {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-lg font-semibold text-ink">
-            {vi ? 'Duyệt đóng gói (UC-04)' : 'Packaging approval (UC-04)'}
+            {vi ? 'Bàn đóng gói' : 'Packing station'}
           </h1>
           <p className="mt-0.5 text-sm text-ink-subtle">
             {vi
-              ? 'Khớp BE: chờ duyệt AI · thiếu hàng · chờ gợi ý (chỉ xem). Duyệt/điều chỉnh chỉ khi pending_approval + đã có recommendation.'
-              : 'Matches BE: pending approval · partial review · awaiting plan (read-only). Approve/adjust only with pending_approval + recommendation.'}
+              ? 'Kho lấy hàng trước. Tab «Cần gói» nhận khay picked. Kế hoạch thùng / thiếu hàng là tab phụ — không chặn kho.'
+              : 'Warehouse picks first. To-pack receives picked totes. Carton plan / shortage tabs are secondary — they do not gate picking.'}
           </p>
         </div>
         <button
@@ -408,27 +459,28 @@ export function PackagingWorkbench() {
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <p>
           {vi
-            ? `Luồng BE: awaiting_packaging (${String(counts.awaiting)}) → Admin generate / AI → pending_approval (${String(counts.pending)}) → bạn Duyệt / Điều chỉnh / Từ chối. Thiếu hàng: partial_needs_review (${String(counts.partial)}).`
-            : `BE flow: awaiting_packaging (${String(counts.awaiting)}) → Admin generate / AI → pending_approval (${String(counts.pending)}) → Approve / Adjust / Reject. Missing stock: partial_needs_review (${String(counts.partial)}).`}
+            ? `Kho lấy trước. Cần gói / picked (${String(counts.picked)}). Thiếu hàng (${String(counts.partial)}). Kế hoạch thùng / pending_approval (${String(counts.pending)}) — tùy chọn. Đơn kho đang lấy / awaiting (${String(counts.awaiting)}).`
+            : `Pick first. To-pack / picked (${String(counts.picked)}). Shortage (${String(counts.partial)}). Optional carton plan / pending_approval (${String(counts.pending)}). Still in warehouse / awaiting (${String(counts.awaiting)}).`}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
         {(
           [
-            [
-              'pending_approval',
-              vi ? 'Chờ duyệt AI' : 'Pending approval',
-              counts.pending,
-            ],
+            ['picked', vi ? 'Cần gói' : 'To pack', counts.picked],
             [
               'partial_needs_review',
-              vi ? 'Thiếu hàng — duyệt' : 'Partial review',
+              vi ? 'Thiếu hàng' : 'Shortage',
               counts.partial,
             ],
             [
+              'pending_approval',
+              vi ? 'Kế hoạch thùng' : 'Carton plan',
+              counts.pending,
+            ],
+            [
               'awaiting_packaging',
-              vi ? 'Chờ gợi ý (xem)' : 'Awaiting plan (view)',
+              vi ? 'Kho đang lấy' : 'In warehouse',
               counts.awaiting,
             ],
           ] as const
@@ -577,13 +629,13 @@ export function PackagingWorkbench() {
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
                   <p className="font-medium">
                     {vi
-                      ? 'Chỉ xem — chưa tới bước duyệt (UC-04)'
-                      : 'View only — not ready for UC-04 yet'}
+                      ? 'Kho đang lấy đơn này. Bàn gói không chặn — chờ khay sang tab «Cần gói» khi đã picked.'
+                      : 'Warehouse is picking this group. Packing does not block — the tote appears under To-pack once picked.'}
                   </p>
                   <p className="mt-1.5 text-xs leading-relaxed opacity-90">
                     {vi
-                      ? 'BE: group đang awaiting_packaging. Packaging Staff không gọi generate (chỉ Admin). Sau khi có recommendation, group chuyển pending_approval — lúc đó tab «Chờ duyệt AI» mới cho Duyệt / Điều chỉnh / Từ chối.'
-                      : 'BE: group is awaiting_packaging. Packaging Staff cannot call generate (Admin only). After a recommendation exists, status becomes pending_approval — then Approve / Adjust / Reject unlock.'}
+                      ? 'BE: group awaiting_packaging. Packaging Staff không gọi generate. Không đợi duyệt thùng mới lấy hàng.'
+                      : 'BE: awaiting_packaging. Packaging Staff cannot generate. Picking is not waiting on a carton plan.'}
                   </p>
                 </div>
               ) : null}
@@ -673,6 +725,26 @@ export function PackagingWorkbench() {
                       </dl>
                     )}
                   </div>
+
+                  {tab === 'picked' &&
+                  group.fulfillmentStatus === 'picked' ? (
+                    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+                      <p className="text-sm font-medium text-emerald-950 dark:text-emerald-100">
+                        {vi
+                          ? 'Kho đã lấy xong. Gói kiện rồi xác nhận. Cân thật hiện nằm trên API duyệt kế hoạch (approve), không gửi kèm pack — nhờ BE nếu cần cân lúc gói.'
+                          : 'Warehouse finished picking. Pack the tote then confirm. Measured weight lives on the approve-plan API, not pack — ask BE if weight should be recorded at pack time.'}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => void onPack()}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
+                      </button>
+                    </div>
+                  ) : null}
 
                   {canApprove ? (
                     <div className="space-y-4 rounded-lg border border-hairline p-4">

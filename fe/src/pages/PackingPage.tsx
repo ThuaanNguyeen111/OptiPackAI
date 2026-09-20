@@ -1,12 +1,10 @@
-import { useNavigate } from 'react-router-dom'
-import { PackingDashboard } from '../components/packing/PackingDashboard'
+import { PackagingWorkbench } from '../components/packing/PackagingWorkbench'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 
-/** Trang đóng gói — UI mock (`PackingDashboard`), chưa nối API BE. */
+/** Bàn đóng gói — nhận hàng kho đã lấy (picked), không phải mock dashboard. */
 export function PackingPage() {
   const { locale } = usePortal()
-  const navigate = useNavigate()
   const vi = locale === 'vi'
 
   return (
@@ -14,13 +12,11 @@ export function PackingPage() {
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
-          { label: vi ? 'Duyệt đóng gói' : 'Packaging approval' },
+          { label: vi ? 'Đóng gói' : 'Packing' },
         ]}
       />
       <div className="min-h-0 flex-1 overflow-hidden">
-        <PackingDashboard
-          onNavigateToShipping={() => navigate('/app/shipping')}
-        />
+        <PackagingWorkbench />
       </div>
     </div>
   )

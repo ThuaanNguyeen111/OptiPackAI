@@ -89,10 +89,17 @@ export type TransitionOrderGroupInput = {
   expected_version: number
 }
 
-/** Trạng thái hàng đợi Warehouse Staff — mục 5–6 API_LIST. */
-export const WAREHOUSE_STAFF_QUEUE_STATUSES = [
+/** Kho lấy hàng trước — không đợi duyệt gợi ý thùng. */
+export const WAREHOUSE_PICKABLE_STATUSES = [
+  'awaiting_packaging',
+  'pending_approval',
   'approved_for_packing',
   'picking',
+] as const
+
+/** Hàng đợi Warehouse Staff (lọc FE sau GET /order-groups). */
+export const WAREHOUSE_STAFF_QUEUE_STATUSES = [
+  ...WAREHOUSE_PICKABLE_STATUSES,
   'partial_needs_review',
   'picked',
   'packed',
@@ -101,13 +108,17 @@ export const WAREHOUSE_STAFF_QUEUE_STATUSES = [
   'returned',
 ] as const
 
+export function isWarehousePickableStatus(status: string): boolean {
+  return (WAREHOUSE_PICKABLE_STATUSES as readonly string[]).includes(status)
+}
+
 export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
   string,
   { vi: string; en: string }
 > = {
-  awaiting_packaging: { vi: 'Chờ đóng gói', en: 'Awaiting packaging' },
-  pending_approval: { vi: 'Chờ duyệt AI', en: 'Pending approval' },
-  approved_for_packing: { vi: 'Đã duyệt — chờ lấy', en: 'Approved for packing' },
+  awaiting_packaging: { vi: 'Đơn mới — cần lấy', en: 'New — to pick' },
+  pending_approval: { vi: 'Kho đang lấy / chờ kế hoạch thùng', en: 'Picking / packing plan pending' },
+  approved_for_packing: { vi: 'Đã duyệt kế hoạch — đang lấy', en: 'Plan approved — picking' },
   picking: { vi: 'Đang lấy hàng', en: 'Picking' },
   picked: { vi: 'Đã lấy xong', en: 'Picked' },
   partial_needs_review: {
@@ -123,7 +134,8 @@ export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
 export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_INVALID_ID: 'Mã nhóm đơn không hợp lệ.',
   ORD_GROUP_NOT_FOUND: 'Không tìm thấy nhóm đơn.',
-  ORD_GROUP_INVALID_TRANSITION: 'Không thể chuyển trạng thái nhóm đơn này.',
+  ORD_GROUP_INVALID_TRANSITION:
+    'BE chưa cho phép bước này từ trạng thái hiện tại. Kho lấy hàng trước (awaiting_packaging → picked / báo thiếu); đóng gói thuộc Packaging Staff (picked → packed).',
   ORD_GROUP_STATE_CONFLICT:
     'Dữ liệu nhóm đơn đã đổi. Tải lại rồi thao tác tiếp.',
   ORD_GROUP_INSUFFICIENT_STOCK: 'Không đủ tồn kho cho SKU này.',
