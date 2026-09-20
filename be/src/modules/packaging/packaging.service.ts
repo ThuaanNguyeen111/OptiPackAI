@@ -10,8 +10,10 @@ import { computeFallbackPackaging } from './utils/fallback-packaging.util';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
-import { StaffAssignmentService } from '../order-groups/staff-assignment.service';
-import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-group.schema';
+import {
+  OrderGroup,
+  OrderGroupDocument,
+} from '../order-groups/schemas/order-group.schema';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
 import { AdjustPackagingDto } from './dto/adjust-packaging.dto';
@@ -45,12 +47,24 @@ export class PackagingService {
     private readonly orderGroupModel: Model<OrderGroupDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly orderGroupsService: OrderGroupsService,
-    private readonly staffAssignmentService: StaffAssignmentService,
+    // BỎ (20/09/2026) — staffAssignmentService KHÔNG còn cần ở đây,
+    // auto-assign đã dời sang order-groups.service.ts (startPickingPhase()),
+    // chạy ngay lúc tạo group thay vì lúc Approve/Adjust.
   ) {}
 
-  async generateFallbackRecommendation(groupId: string): Promise<PackagingRecommendationDocument> {
+  async generateFallbackRecommendation(
+    groupId: string,
+  ): Promise<PackagingRecommendationDocument> {
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
-    const { items } = await this.orderGroupsService.getPackableItemsForGroup(groupId);
+    // ĐỔI NGUỒN (20/09/2026, đảo luồng theo yêu cầu Thuận) — trước đây
+    // dùng getPackableItemsForGroup() (theo số lượng ĐẶT). Giờ dùng
+    // getActuallyPickedItemsForGroup() (theo số lượng THẬT đã quét,
+    // pick_events) — vì generate() giờ CHỈ gọi được sau khi group đã
+    // PICKED (đã lấy hàng xong), phải tính đúng theo hàng THẬT đang có
+    // trong tay, không phải số lượng đặt ban đầu (nếu thiếu hàng, tính
+    // theo số đặt sẽ ra thùng to hơn thực tế cần — sai logic).
+    const { items } =
+      await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
 
     const result = computeFallbackPackaging(items);
 
@@ -77,7 +91,9 @@ export class PackagingService {
       group.__v,
     );
 
-    this.logger.log(`Đã tạo PackagingRecommendation (fallback) cho group ${groupId}.`);
+    this.logger.log(
+      `Đã tạo PackagingRecommendation (fallback) cho group ${groupId}.`,
+    );
     return recommendation;
   }
 
@@ -130,9 +146,13 @@ export class PackagingService {
     });
   }
 
-  private detectAbnormal(estimatedWeightKg: number, actualWeightKg: number): boolean {
+  private detectAbnormal(
+    estimatedWeightKg: number,
+    actualWeightKg: number,
+  ): boolean {
     if (estimatedWeightKg <= 0) return false;
-    const deviation = Math.abs(actualWeightKg - estimatedWeightKg) / estimatedWeightKg;
+    const deviation =
+      Math.abs(actualWeightKg - estimatedWeightKg) / estimatedWeightKg;
     return deviation > ABNORMAL_WEIGHT_DEVIATION_THRESHOLD;
   }
 
@@ -144,9 +164,20 @@ export class PackagingService {
   ): Promise<PackagingRecommendationDocument> {
     const recommendation = await this.findActiveRecommendationForGroup(groupId);
 
-    const { items } = await this.orderGroupsService.getPackableItemsForGroup(groupId);
-    const estimatedWeightKg = items.reduce((sum, i) => sum + i.weight_kg * i.quantity, 0);
-    const isAbnormal = this.detectAbnormal(estimatedWeightKg, actualMeasuredWeightKg);
+    // ĐỔI NGUỒN (20/09/2026) — cùng lý do đã ghi ở generateFallbackRecommendation():
+    // so sánh cân THẬT với ước tính theo số lượng ĐÃ QUÉT, không phải
+    // số lượng đặt ban đầu — nếu không, phát hiện "bất thường" (is_abnormal)
+    // sẽ sai lệch giả tạo khi group là partial-pick (thiếu hàng, duyệt tiếp).
+    const { items } =
+      await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
+    const estimatedWeightKg = items.reduce(
+      (sum, i) => sum + i.weight_kg * i.quantity,
+      0,
+    );
+    const isAbnormal = this.detectAbnormal(
+      estimatedWeightKg,
+      actualMeasuredWeightKg,
+    );
 
     const session = await this.connection.startSession();
     try {
@@ -167,7 +198,12 @@ export class PackagingService {
 
         const updatedGroup = await this.orderGroupModel.findOneAndUpdate(
           { _id: groupId, __v: expectedGroupVersion },
-          { $set: { fulfillment_status: GroupFulfillmentStatus.APPROVED_FOR_PACKING }, $inc: { __v: 1 } },
+          {
+            $set: {
+              fulfillment_status: GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+            },
+            $inc: { __v: 1 },
+          },
           { session, returnDocument: 'after' },
         );
 
@@ -184,16 +220,11 @@ export class PackagingService {
       await session.endSession();
     }
 
-    // BỔ SUNG (2026-09-10) — auto-assign Warehouse Staff ngay khi group
-    // sẵn sàng để lấy hàng. Cố ý đặt NGOÀI transaction ở trên (best-effort,
-    // không phải điều kiện bắt buộc để Approve thành công — nếu auto-assign
-    // lỗi vì lý do gì đó, Approve vẫn coi là thành công, chỉ log cảnh báo,
-    // Admin/Warehouse Staff có thể gán tay sau qua POST .../assign).
-    try {
-      await this.staffAssignmentService.autoAssign(groupId);
-    } catch (error) {
-      this.logger.warn(`Auto-assign staff thất bại cho group ${groupId} sau khi Approve — cần gán tay.`, error);
-    }
+    // ĐÃ CHUYỂN (20/09/2026, đảo luồng) — auto-assign Warehouse Staff
+    // giờ chạy NGAY LÚC TẠO GROUP (order-groups.service.ts, hàm
+    // startPickingPhase()), KHÔNG còn ở đây nữa — Approve xảy ra SAU
+    // khi đã lấy hàng xong, gán ở bước này là quá muộn (Warehouse Staff
+    // đã lấy hàng xong từ trước rồi).
 
     if (isAbnormal) {
       this.logger.warn(
@@ -220,9 +251,17 @@ export class PackagingService {
   ): Promise<PackagingRecommendationDocument> {
     const recommendation = await this.findActiveRecommendationForGroup(groupId);
 
-    const { items } = await this.orderGroupsService.getPackableItemsForGroup(groupId);
-    const estimatedWeightKg = items.reduce((sum, i) => sum + i.weight_kg * i.quantity, 0);
-    const isAbnormal = this.detectAbnormal(estimatedWeightKg, dto.actual_measured_weight_kg);
+    // ĐỔI NGUỒN (20/09/2026) — cùng lý do đã ghi ở approve()/generateFallbackRecommendation().
+    const { items } =
+      await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
+    const estimatedWeightKg = items.reduce(
+      (sum, i) => sum + i.weight_kg * i.quantity,
+      0,
+    );
+    const isAbnormal = this.detectAbnormal(
+      estimatedWeightKg,
+      dto.actual_measured_weight_kg,
+    );
 
     const session = await this.connection.startSession();
     try {
@@ -245,7 +284,12 @@ export class PackagingService {
 
         const updatedGroup = await this.orderGroupModel.findOneAndUpdate(
           { _id: groupId, __v: dto.expected_group_version },
-          { $set: { fulfillment_status: GroupFulfillmentStatus.APPROVED_FOR_PACKING }, $inc: { __v: 1 } },
+          {
+            $set: {
+              fulfillment_status: GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+            },
+            $inc: { __v: 1 },
+          },
           { session, returnDocument: 'after' },
         );
 
@@ -262,12 +306,7 @@ export class PackagingService {
       await session.endSession();
     }
 
-    // Cùng lý do đã ghi ở approve() — best-effort, ngoài transaction.
-    try {
-      await this.staffAssignmentService.autoAssign(groupId);
-    } catch (error) {
-      this.logger.warn(`Auto-assign staff thất bại cho group ${groupId} sau khi Adjust — cần gán tay.`, error);
-    }
+    // ĐÃ CHUYỂN (20/09/2026, đảo luồng) — xem giải thích đầy đủ ở approve().
 
     const result = await this.recommendationModel.findById(recommendation._id);
     if (!result) {
@@ -281,7 +320,10 @@ export class PackagingService {
     return result;
   }
 
-  async reject(groupId: string, expectedGroupVersion: number): Promise<{ message: string }> {
+  async reject(
+    groupId: string,
+    expectedGroupVersion: number,
+  ): Promise<{ message: string }> {
     const recommendation = await this.findActiveRecommendationForGroup(groupId);
 
     const session = await this.connection.startSession();
@@ -289,13 +331,26 @@ export class PackagingService {
       await session.withTransaction(async () => {
         await this.recommendationModel.updateOne(
           { _id: recommendation._id },
-          { $set: { approval_status: PackagingApprovalStatus.REJECTED, is_active: false } },
+          {
+            $set: {
+              approval_status: PackagingApprovalStatus.REJECTED,
+              is_active: false,
+            },
+          },
           { session },
         );
 
         const updatedGroup = await this.orderGroupModel.findOneAndUpdate(
           { _id: groupId, __v: expectedGroupVersion },
-          { $set: { fulfillment_status: GroupFulfillmentStatus.AWAITING_PACKAGING }, $inc: { __v: 1 } },
+          // ĐỔI ĐÍCH (20/09/2026, đảo luồng) — quay về PICKED, KHÔNG
+          // phải AWAITING_PACKAGING như bản cũ. Hàng ĐÃ lấy xong rồi —
+          // Reject chỉ có nghĩa "gợi ý đóng gói tính sai/chưa phù hợp",
+          // KHÔNG có nghĩa "lấy sai hàng". Không cần lấy lại, chỉ cần
+          // tính lại gợi ý (generate() gọi lại được ngay từ PICKED).
+          {
+            $set: { fulfillment_status: GroupFulfillmentStatus.PICKED },
+            $inc: { __v: 1 },
+          },
           { session, returnDocument: 'after' },
         );
 
@@ -312,7 +367,12 @@ export class PackagingService {
       await session.endSession();
     }
 
-    this.logger.log(`Reject recommendation cho group ${groupId} — group quay lại awaiting_packaging chờ tính lại.`);
-    return { message: 'Đã từ chối gợi ý đóng gói — Order Group quay lại hàng đợi chờ tính toán lại.' };
+    this.logger.log(
+      `Reject recommendation cho group ${groupId} — group quay lại PICKED, chờ tính lại gợi ý (không cần lấy lại hàng).`,
+    );
+    return {
+      message:
+        'Đã từ chối gợi ý đóng gói — hàng vẫn giữ nguyên đã lấy, chờ tính lại gợi ý mới.',
+    };
   }
 }

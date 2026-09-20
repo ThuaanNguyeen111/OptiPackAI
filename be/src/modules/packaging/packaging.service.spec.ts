@@ -5,12 +5,25 @@ import { PackagingService } from './packaging.service';
 import { PackagingRecommendationDoc } from './schemas/packaging-recommendation.schema';
 import { OrderGroup } from '../order-groups/schemas/order-group.schema';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
-import { StaffAssignmentService } from '../order-groups/staff-assignment.service';
 import { PackagingApprovalStatus } from './enums/packaging-approval-status.enum';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
 
+//!=============================================
+// SỬA LẠI (20/09/2026, đảo luồng theo yêu cầu Thuận) — Lấy hàng làm
+// TRƯỚC, Đóng gói (tính gợi ý + duyệt) làm SAU. Thay đổi chính so với
+// bản cũ:
+// 1. orderGroupsService.getPackableItemsForGroup() -> ĐỔI TÊN MOCK
+//    thành getActuallyPickedItemsForGroup() (packaging.service.ts giờ
+//    gọi hàm này, tính theo số lượng THẬT đã quét, không phải số
+//    lượng đặt).
+// 2. Bỏ HẲN mock StaffAssignmentService — PackagingService không còn
+//    inject dependency này nữa (auto-assign dời sang
+//    order-groups.service.ts, chạy lúc TẠO group, xem
+//    order-groups.service.ts test riêng cho phần đó nếu cần).
+// 3. reject() giờ trả group về PICKED (không phải AWAITING_PACKAGING).
+//!=============================================
 describe('PackagingService', () => {
   let service: PackagingService;
 
@@ -29,20 +42,16 @@ describe('PackagingService', () => {
   let connection: { startSession: jest.Mock };
   let orderGroupsService: {
     findOrderGroupById: jest.Mock;
-    getPackableItemsForGroup: jest.Mock;
+    getActuallyPickedItemsForGroup: jest.Mock;
     transitionFulfillmentStatus: jest.Mock;
   };
-  // BỔ SUNG (2026-09-10) — PackagingService giờ inject thêm
-  // StaffAssignmentService (auto-assign sau Approve/Adjust) — test
-  // trước đó chưa mock, gây lỗi "Nest can't resolve dependencies".
-  let staffAssignmentService: { autoAssign: jest.Mock };
   let mockSession: { withTransaction: jest.Mock; endSession: jest.Mock };
 
   //!=============================================
   // 1kg tổng ước tính (1 item, weight_kg=1, quantity=1) — dùng chung
   // cho các test approve/adjust, để dễ tính deviation cho case abnormal.
   //!=============================================
-  const packableItems = {
+  const pickedItems = {
     order_group_id: groupId,
     items: [
       {
@@ -59,11 +68,16 @@ describe('PackagingService', () => {
 
   function makePendingRecommendation(
     overrides: Partial<{ approval_status: PackagingApprovalStatus }> = {},
-  ): { _id: Types.ObjectId; order_group_id: Types.ObjectId; approval_status: PackagingApprovalStatus } {
+  ): {
+    _id: Types.ObjectId;
+    order_group_id: Types.ObjectId;
+    approval_status: PackagingApprovalStatus;
+  } {
     return {
       _id: recommendationId,
       order_group_id: new Types.ObjectId(groupId),
-      approval_status: overrides.approval_status ?? PackagingApprovalStatus.PENDING,
+      approval_status:
+        overrides.approval_status ?? PackagingApprovalStatus.PENDING,
     };
   }
 
@@ -85,19 +99,20 @@ describe('PackagingService', () => {
 
     orderGroupsService = {
       findOrderGroupById: jest.fn(),
-      getPackableItemsForGroup: jest.fn().mockResolvedValue(packableItems),
+      getActuallyPickedItemsForGroup: jest.fn().mockResolvedValue(pickedItems),
       transitionFulfillmentStatus: jest.fn(),
     };
-    staffAssignmentService = { autoAssign: jest.fn().mockResolvedValue(undefined) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PackagingService,
-        { provide: getModelToken(PackagingRecommendationDoc.name), useValue: recommendationModel },
+        {
+          provide: getModelToken(PackagingRecommendationDoc.name),
+          useValue: recommendationModel,
+        },
         { provide: getModelToken(OrderGroup.name), useValue: orderGroupModel },
         { provide: getConnectionToken(), useValue: connection },
         { provide: OrderGroupsService, useValue: orderGroupsService },
-        { provide: StaffAssignmentService, useValue: staffAssignmentService },
       ],
     }).compile();
 
@@ -109,26 +124,30 @@ describe('PackagingService', () => {
       const pending = makePendingRecommendation();
       recommendationModel.findOne.mockResolvedValue(pending);
       orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId }); // version khớp -> update thành công
-      recommendationModel.findById.mockResolvedValue({ ...pending, approval_status: PackagingApprovalStatus.APPROVED });
+      recommendationModel.findById.mockResolvedValue({
+        ...pending,
+        approval_status: PackagingApprovalStatus.APPROVED,
+      });
 
       await service.approve(groupId, userId, 1.0, 0); // cân thật 1.0kg, ước tính cũng 1kg -> lệch 0%
 
       expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
+      expect(
+        orderGroupsService.getActuallyPickedItemsForGroup,
+      ).toHaveBeenCalledWith(groupId);
       expect(recommendationModel.updateOne).toHaveBeenCalledWith(
         { _id: recommendationId },
         expect.anything(),
         { session: mockSession },
       );
-      // Đọc trực tiếp mock.calls thay vì expect.objectContaining() lồng
-      // nhau — tránh friction đã biết giữa @types/jest và
-      // no-unsafe-assignment (objectContaining() trả về `any` trong 1
-      // số version @types/jest, lồng nhau càng dễ dính lỗi strict).
       const updateCall = recommendationModel.updateOne.mock.calls[0] as [
         unknown,
         { $set: Record<string, unknown> },
         unknown,
       ];
-      expect(updateCall[1].$set.approval_status).toBe(PackagingApprovalStatus.APPROVED);
+      expect(updateCall[1].$set.approval_status).toBe(
+        PackagingApprovalStatus.APPROVED,
+      );
       expect(updateCall[1].$set.is_abnormal).toBe(false);
       expect(mockSession.endSession).toHaveBeenCalledTimes(1);
     });
@@ -155,7 +174,9 @@ describe('PackagingService', () => {
       // findOneAndUpdate trả null = filter {_id, __v} không match được document nào
       orderGroupModel.findOneAndUpdate.mockResolvedValue(null);
 
-      await expect(service.approve(groupId, userId, 1.0, 999)).rejects.toMatchObject({
+      await expect(
+        service.approve(groupId, userId, 1.0, 999),
+      ).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
       });
       // endSession vẫn PHẢI được gọi dù transaction fail — không rò rỉ session
@@ -165,20 +186,26 @@ describe('PackagingService', () => {
     it('ném lỗi khi group chưa có recommendation active nào (chưa generate)', async () => {
       recommendationModel.findOne.mockResolvedValue(null);
 
-      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(AppException);
+      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(
+        AppException,
+      );
     });
 
     it('ném lỗi ALREADY_DECIDED khi recommendation đã được quyết định trước đó (không phải PENDING)', async () => {
       recommendationModel.findOne.mockResolvedValue(
-        makePendingRecommendation({ approval_status: PackagingApprovalStatus.APPROVED }),
+        makePendingRecommendation({
+          approval_status: PackagingApprovalStatus.APPROVED,
+        }),
       );
 
-      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(AppException);
+      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(
+        AppException,
+      );
     });
   });
 
   describe('reject', () => {
-    it('KHÔNG xóa cứng — đánh is_active:false, giữ lịch sử; group quay lại AWAITING_PACKAGING', async () => {
+    it('KHÔNG xóa cứng — đánh is_active:false, giữ lịch sử; group quay lại PICKED (hàng ĐÃ lấy, không cần lấy lại)', async () => {
       const pending = makePendingRecommendation();
       recommendationModel.findOne.mockResolvedValue(pending);
       orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId });
@@ -187,21 +214,28 @@ describe('PackagingService', () => {
 
       expect(recommendationModel.updateOne).toHaveBeenCalledWith(
         { _id: recommendationId },
-        { $set: { approval_status: PackagingApprovalStatus.REJECTED, is_active: false } },
+        {
+          $set: {
+            approval_status: PackagingApprovalStatus.REJECTED,
+            is_active: false,
+          },
+        },
         { session: mockSession },
       );
       expect(orderGroupModel.findOneAndUpdate).toHaveBeenCalledWith(
         { _id: groupId, __v: 0 },
         expect.objectContaining({
-          $set: { fulfillment_status: GroupFulfillmentStatus.AWAITING_PACKAGING },
+          $set: { fulfillment_status: GroupFulfillmentStatus.PICKED },
         }),
         expect.anything(),
       );
-      expect(result.message).toContain('quay lại hàng đợi');
+      expect(result.message).toContain('tính lại gợi ý');
     });
 
     it('ném STATE_CONFLICT khi version lệch, giống approve', async () => {
-      recommendationModel.findOne.mockResolvedValue(makePendingRecommendation());
+      recommendationModel.findOne.mockResolvedValue(
+        makePendingRecommendation(),
+      );
       orderGroupModel.findOneAndUpdate.mockResolvedValue(null);
 
       await expect(service.reject(groupId, 999)).rejects.toMatchObject({
@@ -211,7 +245,7 @@ describe('PackagingService', () => {
   });
 
   describe('generateFallbackRecommendation', () => {
-    it('vô hiệu hóa bản active cũ (nếu có) trước khi tạo bản mới, rồi chuyển group sang PENDING_APPROVAL', async () => {
+    it('vô hiệu hóa bản active cũ (nếu có) trước khi tạo bản mới, rồi chuyển group sang PENDING_APPROVAL — tính theo số lượng THẬT đã quét', async () => {
       orderGroupsService.findOrderGroupById.mockResolvedValue({
         _id: new Types.ObjectId(groupId),
         __v: 0,
@@ -220,11 +254,16 @@ describe('PackagingService', () => {
 
       await service.generateFallbackRecommendation(groupId);
 
+      expect(
+        orderGroupsService.getActuallyPickedItemsForGroup,
+      ).toHaveBeenCalledWith(groupId);
       expect(recommendationModel.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ is_active: true }),
         { $set: { is_active: false } },
       );
-      expect(orderGroupsService.transitionFulfillmentStatus).toHaveBeenCalledWith(
+      expect(
+        orderGroupsService.transitionFulfillmentStatus,
+      ).toHaveBeenCalledWith(
         groupId,
         GroupFulfillmentStatus.PENDING_APPROVAL,
         0,
