@@ -1,27 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
-  ArrowLeft,
-  Boxes,
   Check,
   CheckCircle2,
   ChevronDown,
   Flag,
+  Loader2,
   MapPin,
   Minus,
+  Package,
   Plus,
-  RotateCcw,
-  Search,
-  ShoppingBag,
-  Sparkles,
-  User,
+  RefreshCw,
   UserCheck,
   Users,
   X,
   Zap,
 } from 'lucide-react'
-import { BatchDetailDrawer } from '../components/orders/BatchDetailDrawer'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import {
   Dialog,
@@ -33,187 +28,190 @@ import {
 } from '../components/ui/dialog'
 import { usePortal } from '../context/use-portal'
 import {
-  getStoredBatches,
-  updateBatchPicker,
-  type BatchZone,
-  type CustomerOrder,
-  type PickingBatch,
-} from '../data/picking-batches-mock'
+  assignOrderGroup,
+  completeOrderGroupPick,
+  getOrderGroupById,
+  getOrderGroupPickingList,
+  listWarehouseStaffQueue,
+  packOrderGroup,
+  pickOrderGroupItem,
+  reportMissingOrderGroupItem,
+  returnOrderGroup,
+  searchOrderGroupStaff,
+  type StaffSearchItem,
+} from '../api/order-groups.api'
 import {
-  computeStockStatus,
-  getPickingItemsForBatch,
-  getStoredWarehouseStock,
-  resetWarehouseStock,
-  saveStoredWarehouseStock,
-  type WarehousePickingItem,
-  type WarehouseStockItem,
-} from '../data/warehouse-picking-mock'
-import { getWarehouseStaffItems } from '../data/staff-mock'
+  getWarehousePickingList,
+  listWarehouses,
+  readStoredWarehouseId,
+  writeStoredWarehouseId,
+} from '../api/warehouse.api'
+import { fetchMyProfile } from '../api/users.api'
+import { ApiError, formatApiError, getApiErrorCode } from '../lib/api'
+import { cn } from '../lib/cn'
+import {
+  GROUP_FULFILLMENT_STATUS_LABELS,
+  type OrderGroup,
+  type PackableItem,
+  type ScanMethod,
+} from '../types/order-groups'
+import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
+import { formatDateTime } from '../utils/format'
 
-// ==========================================
-// CHANNEL BADGE HELPER
-// ==========================================
+type QueueTab = 'to_pick' | 'review' | 'picked' | 'packed' | 'returns'
 
-export function renderChannelBadge(
-  channel: 'shopee' | 'tiktok' | 'lazada' | 'facebook',
-  size: 'sm' | 'md' = 'md',
-) {
-  const isSm = size === 'sm'
-  const padding = isSm ? 'px-1.5 py-0.5' : 'px-2 py-0.5'
-  const textClass = isSm ? 'text-[10px] font-semibold' : 'text-xs font-semibold'
-  const compactClass = isSm ? 'shrink-0 whitespace-nowrap' : ''
+type PickLine = {
+  sku: string
+  quantity: number
+  length_cm: number
+  width_cm: number
+  height_cm: number
+  weight_kg: number
+  is_fragile: boolean
+  zone_code: string
+  bin_code: string
+  qtyPicked: number
+  remainingStock: number | null
+}
 
-  switch (channel) {
-    case 'shopee':
-      return (
-        <span
-          className={`inline-flex items-center gap-1 rounded border border-[#f97316]/50 bg-[#fff7ed] ${padding} ${textClass} ${compactClass} text-[#ea580c] dark:border-orange-500/40 dark:bg-orange-950/20 dark:text-orange-400`}
-        >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ea580c]" />
-          Shopee
-        </span>
-      )
-    case 'tiktok':
-      return (
-        <span
-          className={`inline-flex items-center gap-1 rounded border border-slate-900 bg-white ${padding} ${textClass} ${compactClass} text-slate-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100`}
-        >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-900 dark:bg-zinc-100" />
-          {isSm ? 'TikTok' : 'TikTok Shop'}
-        </span>
-      )
-    case 'lazada':
-      return (
-        <span
-          className={`inline-flex items-center gap-1 rounded border border-[#4f46e5]/50 bg-[#eef2ff] ${padding} ${textClass} ${compactClass} text-[#4f46e5] dark:border-indigo-500/40 dark:bg-indigo-950/20 dark:text-indigo-400`}
-        >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4f46e5]" />
-          Lazada
-        </span>
-      )
-    case 'facebook':
-      return (
-        <span
-          className={`inline-flex items-center gap-1 rounded border border-[#2563eb]/50 bg-[#eff6ff] ${padding} ${textClass} ${compactClass} text-[#2563eb] dark:border-blue-500/40 dark:bg-blue-950/20 dark:text-blue-400`}
-        >
-          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#2563eb]" />
-          {isSm ? 'FB' : 'Facebook'}
-        </span>
-      )
-    default:
-      return null
+type PickProgress = Record<
+  string,
+  { qtyPicked: number; remainingStock: number | null }
+>
+
+const PICK_PROGRESS_PREFIX = 'optipack.pickProgress.'
+const UNASSIGNED_BIN = 'CHƯA GÁN VỊ TRÍ'
+
+const QUEUE_TABS: Array<{ id: QueueTab; labelVi: string; labelEn: string }> = [
+  { id: 'to_pick', labelVi: 'Cần lấy', labelEn: 'To pick' },
+  { id: 'review', labelVi: 'Thiếu hàng', labelEn: 'Missing' },
+  { id: 'picked', labelVi: 'Đã lấy', labelEn: 'Picked' },
+  { id: 'packed', labelVi: 'Đã đóng', labelEn: 'Packed' },
+  { id: 'returns', labelVi: 'Hoàn hàng', labelEn: 'Returns' },
+]
+
+function matchesTab(status: string, tab: QueueTab): boolean {
+  if (tab === 'to_pick') {
+    return status === 'approved_for_packing' || status === 'picking'
+  }
+  if (tab === 'review') return status === 'partial_needs_review'
+  if (tab === 'picked') return status === 'picked'
+  if (tab === 'packed') return status === 'packed'
+  return status === 'shipped' || status === 'delivered' || status === 'returned'
+}
+
+function statusLabel(status: string, vi: boolean): string {
+  const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
+  if (!known) return status
+  return vi ? known.vi : known.en
+}
+
+function shortId(id: string): string {
+  return id.length > 10 ? id.slice(-10) : id
+}
+
+function platformLabel(platform: string): string {
+  const p = platform.toLowerCase()
+  if (p === 'lazada') return 'Lazada'
+  if (p === 'tiktok') return 'TikTok'
+  if (p === 'tiki') return 'Tiki'
+  return platform
+}
+
+function newClientEventId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `pick-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function readProgress(groupId: string): PickProgress {
+  try {
+    const raw = sessionStorage.getItem(PICK_PROGRESS_PREFIX + groupId)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return {}
+    }
+    const out: PickProgress = {}
+    for (const [sku, value] of Object.entries(parsed)) {
+      if (typeof value !== 'object' || value === null) continue
+      const row = value as { qtyPicked?: unknown; remainingStock?: unknown }
+      const qtyPicked =
+        typeof row.qtyPicked === 'number' && Number.isFinite(row.qtyPicked)
+          ? row.qtyPicked
+          : 0
+      const remainingStock =
+        typeof row.remainingStock === 'number' && Number.isFinite(row.remainingStock)
+          ? row.remainingStock
+          : null
+      out[sku] = { qtyPicked, remainingStock }
+    }
+    return out
+  } catch {
+    return {}
   }
 }
 
-// ==========================================
-// MOCK WAREHOUSE STAFF LIST FOR ASSIGNMENT
-// ==========================================
-
-export interface WarehouseStaffItem {
-  id: string
-  name: string
-  code: string
-  avatar: string
-  initials: string
-  role: string
-  zone: BatchZone
-  status: 'available' | 'busy'
-  activeBatches: number
+function writeProgress(groupId: string, progress: PickProgress): void {
+  try {
+    sessionStorage.setItem(PICK_PROGRESS_PREFIX + groupId, JSON.stringify(progress))
+  } catch {
+    // ignore
+  }
 }
 
-export const WAREHOUSE_STAFF_LIST: WarehouseStaffItem[] = [
-  {
-    id: 'staff-1',
-    name: 'Ahmad R.',
-    code: 'NV-KHO-01',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&h=100&fit=crop&crop=face',
-    initials: 'AR',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone A',
-    status: 'available',
-    activeBatches: 0,
-  },
-  {
-    id: 'staff-2',
-    name: 'Rian K.',
-    code: 'NV-KHO-02',
-    avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop&crop=face',
-    initials: 'RK',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone A',
-    status: 'busy',
-    activeBatches: 1,
-  },
-  {
-    id: 'staff-3',
-    name: 'Siti M.',
-    code: 'NV-KHO-03',
-    avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=100&h=100&fit=crop&crop=face',
-    initials: 'SM',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone B',
-    status: 'available',
-    activeBatches: 0,
-  },
-  {
-    id: 'staff-4',
-    name: 'Budi P.',
-    code: 'NV-KHO-04',
-    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&h=100&fit=crop&crop=face',
-    initials: 'BP',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone C',
-    status: 'available',
-    activeBatches: 0,
-  },
-  {
-    id: 'staff-5',
-    name: 'Fahmi H.',
-    code: 'NV-KHO-05',
-    avatar: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=100&h=100&fit=crop&crop=face',
-    initials: 'FH',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone A',
-    status: 'available',
-    activeBatches: 0,
-  },
-  {
-    id: 'staff-6',
-    name: 'Dewi A.',
-    code: 'NV-KHO-06',
-    avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=100&h=100&fit=crop&crop=face',
-    initials: 'DA',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone B',
-    status: 'busy',
-    activeBatches: 1,
-  },
-  {
-    id: 'staff-7',
-    name: 'Eka S.',
-    code: 'NV-KHO-07',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&h=100&fit=crop&crop=face',
-    initials: 'ES',
-    role: 'Nhân viên lấy hàng',
-    zone: 'Zone C',
-    status: 'available',
-    activeBatches: 0,
-  },
-]
+function clearProgress(groupId: string): void {
+  try {
+    sessionStorage.removeItem(PICK_PROGRESS_PREFIX + groupId)
+  } catch {
+    // ignore
+  }
+}
 
-// ==========================================
-// SUB-COMPONENTS MATCHING SCREENSHOT EXACTLY
-// ==========================================
+function mergeLines(
+  items: Array<PackableItem | WarehousePickingListItem>,
+  progress: PickProgress,
+): PickLine[] {
+  return items.map((item) => {
+    const enriched = item as WarehousePickingListItem
+    const saved = progress[item.sku]
+    return {
+      sku: item.sku,
+      quantity: item.quantity,
+      length_cm: item.length_cm,
+      width_cm: item.width_cm,
+      height_cm: item.height_cm,
+      weight_kg: item.weight_kg,
+      is_fragile: item.is_fragile,
+      zone_code: typeof enriched.zone_code === 'string' ? enriched.zone_code : '',
+      bin_code: typeof enriched.bin_code === 'string' ? enriched.bin_code : '',
+      qtyPicked: saved?.qtyPicked ?? 0,
+      remainingStock: saved?.remainingStock ?? null,
+    }
+  })
+}
 
-/** Crisp realistic SVG Barcode Graphic */
+function normalizeScan(value: string): string {
+  return value.trim().toLowerCase()
+}
+
+function lineMatchesScan(line: PickLine, scanned: string): boolean {
+  const needle = normalizeScan(scanned)
+  if (!needle) return false
+  if (normalizeScan(line.sku) === needle) return true
+  if (line.bin_code && normalizeScan(line.bin_code) === needle) return true
+  const combined = `${normalizeScan(line.bin_code)} ${normalizeScan(line.sku)}`
+  return combined === needle
+}
+
 function BarcodeGraphic({ code }: { code: string }) {
-  // Deterministic bar widths matching screenshot density
   const bars = [
     3, 1, 2, 1, 4, 1, 2, 3, 1, 4, 2, 1, 1, 3, 2, 4, 1, 1, 3, 1, 2, 4, 2, 1, 3,
     1, 4, 2, 1, 2, 3, 1, 1, 4, 2, 1, 3, 2, 1, 4, 1, 2, 3, 1, 4, 2, 1, 1, 3, 2,
     4, 1,
   ]
-
+  const label = code.length > 0 ? code : '—'
   return (
     <div className="flex flex-col items-center justify-center rounded-xl border border-slate-100 bg-[#f8fafc] px-4 py-3 dark:border-slate-800 dark:bg-slate-900/40">
       <svg
@@ -224,8 +222,7 @@ function BarcodeGraphic({ code }: { code: string }) {
       >
         {bars.map((bar, i) => {
           const x = i * 5.2 + 8
-          const isBlack = i % 2 === 0
-          if (!isBlack) return null
+          if (i % 2 !== 0) return null
           return (
             <rect
               key={i}
@@ -239,2614 +236,566 @@ function BarcodeGraphic({ code }: { code: string }) {
           )
         })}
       </svg>
-      <p className="mt-1 font-mono text-xs font-semibold tracking-[0.25em] text-slate-700 dark:text-slate-300">
-        * {code.split('').join(' ')} *
+      <p className="mt-1 font-mono text-xs font-semibold tracking-[0.18em] text-slate-700 dark:text-slate-300">
+        * {label} *
       </p>
     </div>
   )
 }
 
-/** 5-bars Barcode icon matching input icon `|||||` */
-function BarcodeLinesIcon() {
+function SkuThumb({ sku }: { sku: string }) {
+  const letters = sku.slice(0, 2).toUpperCase() || '?'
   return (
-    <span
-      className="inline-flex items-center gap-[2px] text-slate-700 dark:text-slate-300 shrink-0"
-      aria-hidden="true"
-    >
-      <span className="h-4.5 w-[2.5px] rounded-xs bg-current" />
-      <span className="h-4.5 w-[1.5px] rounded-xs bg-current" />
-      <span className="h-4.5 w-[3.5px] rounded-xs bg-current" />
-      <span className="h-4.5 w-[1px] rounded-xs bg-current" />
-      <span className="h-4.5 w-[2.5px] rounded-xs bg-current" />
-      <span className="h-4.5 w-[1.5px] rounded-xs bg-current" />
-    </span>
-  )
-}
-
-/** Target crosshair scan icon inside blue circle */
-function TargetScanIcon() {
-  return (
-    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#3b82f6] text-white shrink-0 shadow-xs">
-      <svg
-        className="h-4 w-4"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M3 7V5a2 2 0 0 1 2-2h2" />
-        <path d="M17 3h2a2 2 0 0 1 2 2v2" />
-        <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
-        <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
-        <circle cx="12" cy="12" r="2.5" fill="currentColor" />
-      </svg>
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 font-mono text-sm font-bold text-slate-600 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300">
+      {letters}
     </div>
   )
 }
 
-/** Solid green check circle icon */
-function PickedCheckIcon() {
-  return (
-    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16a34a] text-white shrink-0 shadow-xs">
-      <Check className="h-3.5 w-3.5 stroke-[3]" />
-    </div>
-  )
+function canPickItems(status: string): boolean {
+  return status === 'approved_for_packing' || status === 'picking'
 }
 
-/** Gray circle outline icon */
-function UnpickedCircleIcon() {
-  return (
-    <div className="h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600 shrink-0" />
-  )
+function canCompletePick(status: string): boolean {
+  return status === 'approved_for_packing' || status === 'picking'
 }
 
-/** Picking list row — title on line 1, platform badge + SKU always on line 2 */
-function PickingListItemInfo({
-  item,
-  titleClassName,
-}: {
-  item: WarehousePickingItem
-  titleClassName: string
-}) {
-  return (
-    <div className="min-w-0 space-y-1">
-      <p className={`truncate text-xs leading-snug ${titleClassName}`}>
-        {item.shortName}
-      </p>
-      <div className="flex min-w-0 items-center gap-1.5">
-        {renderChannelBadge(item.channel, 'sm')}
-        <span className="min-w-0 truncate font-mono text-[11px] leading-snug text-slate-500 dark:text-slate-400">
-          {item.sku}
-          <span className="mx-1 text-slate-300 dark:text-slate-600">·</span>
-          <span className="font-semibold text-slate-700 dark:text-slate-300">
-            #{item.orderId}
-          </span>
-        </span>
-      </div>
-    </div>
-  )
+function canPack(status: string): boolean {
+  return status === 'picked'
 }
 
-/** Styled product image with crisp fallback */
-function ProductThumb({
-  src,
-  alt,
-}: {
-  src: string
-  alt: string
-}) {
-  const [hasError, setHasError] = useState(false)
-
-  return (
-    <div className="relative h-32 w-32 sm:h-36 sm:w-36 shrink-0 overflow-hidden rounded-xl border border-slate-100 bg-[#f8fafc] p-2 dark:border-slate-800 dark:bg-slate-900/60 flex items-center justify-center">
-      {!hasError ? (
-        <img
-          src={src}
-          alt={alt}
-          onError={() => setHasError(true)}
-          className="h-full w-full object-contain rounded-lg transition-transform hover:scale-105 duration-200"
-        />
-      ) : (
-        <div className="flex flex-col items-center justify-center text-slate-400">
-          <svg
-            className="h-16 w-16 text-slate-400"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          >
-            <path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.47a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.47a2 2 0 0 0-1.34-2.23z" />
-          </svg>
-        </div>
-      )}
-    </div>
-  )
+function canReturn(status: string): boolean {
+  return status === 'shipped' || status === 'delivered'
 }
-
-// ==========================================
-// WAREHOUSE FLOOR VIEW FOR A SPECIFIC BATCH
-// ==========================================
-
-function WarehouseFloorView({
-  batch,
-  initialAction,
-}: {
-  batch: PickingBatch
-  initialAction?: string | null
-}) {
-  const { locale } = usePortal()
-  const vi = locale === 'vi'
-  const navigate = useNavigate()
-
-  // 1. Items derived from the batch's customer orders
-  const initialBatchItems = useMemo(
-    () => getPickingItemsForBatch(batch),
-    [batch],
-  )
-
-  const [items, setItems] = useState<WarehousePickingItem[]>(() =>
-    structuredClone(initialBatchItems),
-  )
-
-  // 2. Default active item: first unpicked item in the batch, or first item
-  const [activeItemId, setActiveItemId] = useState<string>(() => {
-    const unpicked = initialBatchItems.find((i) => i.status !== 'picked')
-    return unpicked?.id ?? initialBatchItems[0]?.id ?? ''
-  })
-
-  // Find active item
-  const activeItem = useMemo(() => {
-    return items.find((i) => i.id === activeItemId) ?? items[0]!
-  }, [items, activeItemId])
-
-  // Stepper quantity for the active item
-  const [currentQty, setCurrentQty] = useState<number>(() => activeItem?.qtyPicked ?? 0)
-
-  // Barcode input & verification state:
-  // Starts empty unless the item was already fully picked, ensuring "-- ĐÃ XÁC MINH" ONLY appears after verification!
-  const [barcodeInput, setBarcodeInput] = useState<string>(() =>
-    activeItem?.status === 'picked' ? activeItem.upc : '',
-  )
-  const isVerified = Boolean(activeItem && barcodeInput.trim() === activeItem.upc)
-
-  // Button enabled state:
-  // ONLY enabled when:
-  // 1. currentQty > 0
-  // 2. currentQty === activeItem.qty (maxQuantity met)
-  // 3. barcode is verified
-  const isTargetQuantityMet = Boolean(
-    activeItem && currentQty > 0 && currentQty === activeItem.qty,
-  )
-  const canConfirmPick = Boolean(isTargetQuantityMet && isVerified)
-
-  // Sort option state
-  type SortMode = 'route' | 'bin' | 'name' | 'status'
-  const [sortMode, setSortMode] = useState<SortMode>('route')
-
-  // Platform orders in this consolidated batch (FE-local, supports detach Hướng B)
-  const [batchOrders, setBatchOrders] = useState<CustomerOrder[]>(() =>
-    structuredClone(batch.orders),
-  )
-  const [detachOrder, setDetachOrder] = useState<CustomerOrder | null>(null)
-
-  // Exception reporting modal
-  const [exceptionOpen, setExceptionOpen] = useState(false)
-  const [exceptionReason, setExceptionReason] = useState(
-    'Hàng bị hỏng, rách hoặc lỗi sản phẩm',
-  )
-  const [exceptionNote, setExceptionNote] = useState('')
-
-  // Toast notice
-  const [toastMessage, setToastMessage] = useState<string | null>(null)
-
-  // Drawer state for viewing customer order details
-  const [drawerOpen, setDrawerOpen] = useState(initialAction === 'detail')
-
-  // Completion modal state ("Hoàn tất lấy hàng")
-  const [completeBatchModalOpen, setCompleteBatchModalOpen] = useState(false)
-
-  // Danh sách nhân viên lấy hàng động (đồng bộ từ hệ thống Quản lý nhân viên của chủ shop)
-  const [warehouseStaffList, setWarehouseStaffList] = useState<WarehouseStaffItem[]>(() => getWarehouseStaffItems())
-
-  useEffect(() => {
-    setBatchOrders(structuredClone(batch.orders))
-    setChannelFilter('all')
-    setDetachOrder(null)
-  }, [batch.id]) // eslint-disable-line react-hooks/exhaustive-deps -- reset when switching batch only
-
-  useEffect(() => {
-    const handleStaffUpdate = () => {
-      setWarehouseStaffList(getWarehouseStaffItems())
-    }
-    window.addEventListener('optipack-staff-updated', handleStaffUpdate)
-    return () => {
-      window.removeEventListener('optipack-staff-updated', handleStaffUpdate)
-    }
-  }, [])
-
-  // Staff Assignment State (Phân công nhân viên: Auto vs Manual)
-  const isPreviouslyUnassigned =
-    !batch.picker?.name || batch.picker.name === 'Chưa phân công'
-
-  // Nhân viên tối ưu được AI tự động phân công theo zone
-  const autoAssignedStaff = useMemo(() => {
-    return (
-      warehouseStaffList.find(
-        (s) => s.zone === batch.zone && s.status === 'available',
-      ) ||
-      warehouseStaffList.find((s) => s.zone === batch.zone) ||
-      warehouseStaffList[0] ||
-      WAREHOUSE_STAFF_LIST[0]!
-    )
-  }, [batch.zone, warehouseStaffList])
-
-  const initialPicker = useMemo(() => {
-    if (!isPreviouslyUnassigned && batch.picker?.name && batch.picker.name !== 'Chưa phân công') {
-      const match = warehouseStaffList.find((s) => s.name === batch.picker.name) || WAREHOUSE_STAFF_LIST.find((s) => s.name === batch.picker.name)
-      return {
-        name: batch.picker.name,
-        avatar: batch.picker.avatar || match?.avatar || '',
-        initials: batch.picker.initials || match?.initials || 'NV',
-        code: match?.code || 'NV-KHO-01',
-        role: match?.role || 'Nhân viên lấy hàng',
-        zone: match?.zone || batch.zone,
-      }
-    }
-    // Nếu trước đó chưa phân công, AI tự động phân công ngay khi bắt đầu lấy hàng:
-    return {
-      name: autoAssignedStaff.name,
-      avatar: autoAssignedStaff.avatar,
-      initials: autoAssignedStaff.initials,
-      code: autoAssignedStaff.code,
-      role: autoAssignedStaff.role,
-      zone: autoAssignedStaff.zone,
-    }
-  }, [isPreviouslyUnassigned, batch.picker, autoAssignedStaff, batch.zone, warehouseStaffList])
-
-  const [currentPicker, setCurrentPicker] = useState(initialPicker)
-  const [assignmentMode, setAssignmentMode] = useState<'auto' | 'manual'>('auto')
-  const [assignModalOpen, setAssignModalOpen] = useState(false)
-  const [selectedStaffId, setSelectedStaffId] = useState<string>('staff-1')
-  const [modalAssignMode, setModalAssignMode] = useState<'auto' | 'manual'>('auto')
-  const [staffSearchQuery, setStaffSearchQuery] = useState('')
-
-  // Lọc danh sách nhân viên theo từ khóa tìm kiếm khi chọn thủ công
-  const filteredStaffList = useMemo(() => {
-    if (!staffSearchQuery.trim()) return warehouseStaffList
-    const q = staffSearchQuery.trim().toLowerCase()
-    return warehouseStaffList.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.code.toLowerCase().includes(q) ||
-        s.zone.toLowerCase().includes(q) ||
-        s.role.toLowerCase().includes(q),
-    )
-  }, [staffSearchQuery, warehouseStaffList])
-
-  // Tự động phân công và đồng bộ cập nhật nếu đợt hàng trước đó chưa phân công
-  useEffect(() => {
-    if (isPreviouslyUnassigned) {
-      updateBatchPicker(batch.id, {
-        name: autoAssignedStaff.name,
-        avatar: autoAssignedStaff.avatar,
-        initials: autoAssignedStaff.initials,
-      })
-      setToastMessage(
-        vi
-          ? `⚡ Bắt đầu lấy hàng! AI đã tự động phân công nhân viên ${autoAssignedStaff.name} (${autoAssignedStaff.code}) phụ trách đợt hàng.`
-          : `Picking started! AI auto-assigned ${autoAssignedStaff.name} for picking batch.`,
-      )
-      const timer = window.setTimeout(() => setToastMessage(null), 4000)
-      return () => window.clearTimeout(timer)
-    }
-  }, [batch.id, isPreviouslyUnassigned, autoAssignedStaff, vi])
-
-  // Channel filter for picking list on the right
-  const [channelFilter, setChannelFilter] = useState<string>('all')
-
-  // Real-time warehouse inventory state
-  const [warehouseStockMap, setWarehouseStockMap] = useState<Record<string, WarehouseStockItem>>(() =>
-    getStoredWarehouseStock(initialBatchItems),
-  )
-  // View mode: 'buyer_items' (default: only show items purchased by buyers) vs 'all_warehouse'
-  const [inventoryViewMode, setInventoryViewMode] = useState<'buyer_items' | 'all_warehouse'>('buyer_items')
-  const [stockSearchQuery, setStockSearchQuery] = useState('')
-  const [stockFilterTab, setStockFilterTab] = useState<'all' | 'pending' | 'picked' | 'low_stock'>('all')
-  const [lastDeductedSku, setLastDeductedSku] = useState<string | null>(null)
-
-  // Listen for real-time stock sync
-  useEffect(() => {
-    const handleStockSync = () => {
-      setWarehouseStockMap(getStoredWarehouseStock(items))
-    }
-    window.addEventListener('optipack:warehouse_stock_updated', handleStockSync)
-    return () => {
-      window.removeEventListener('optipack:warehouse_stock_updated', handleStockSync)
-    }
-  }, [items])
-
-  // Active item stock info
-  const activeStock = useMemo(() => {
-    if (!activeItem) return null
-    return warehouseStockMap[activeItem.sku] ?? null
-  }, [activeItem, warehouseStockMap])
-
-  // Filtered inventory list: BUYER ITEMS ONLY (mục tiêu chính theo yêu cầu người dùng)
-  const buyerInventoryList = useMemo(() => {
-    return items.filter((item) => {
-      const stock = warehouseStockMap[item.sku]
-      // Tab filter
-      if (stockFilterTab === 'pending' && item.status === 'picked') {
-        return false
-      }
-      if (stockFilterTab === 'picked' && item.status !== 'picked') {
-        return false
-      }
-      if (stockFilterTab === 'low_stock' && stock?.status !== 'low') {
-        return false
-      }
-      // Search query
-      if (stockSearchQuery.trim()) {
-        const q = stockSearchQuery.trim().toLowerCase()
-        return (
-          item.name.toLowerCase().includes(q) ||
-          item.shortName.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q) ||
-          item.upc.toLowerCase().includes(q) ||
-          item.location.toLowerCase().includes(q) ||
-          item.customerName.toLowerCase().includes(q) ||
-          item.orderId.toLowerCase().includes(q) ||
-          item.channel.toLowerCase().includes(q)
-        )
-      }
-      return true
-    })
-  }, [items, warehouseStockMap, stockFilterTab, stockSearchQuery])
-
-  // Filtered inventory list: ALL WAREHOUSE (chế độ xem phụ)
-  const allWarehouseInventoryList = useMemo(() => {
-    const all = Object.values(warehouseStockMap)
-    return all.filter((item) => {
-      if (stockFilterTab === 'pending' && item.pickedQuantity >= item.initialStock) {
-        return false
-      }
-      if (stockFilterTab === 'picked' && item.pickedQuantity === 0) {
-        return false
-      }
-      if (stockFilterTab === 'low_stock' && item.status !== 'low') {
-        return false
-      }
-      if (stockSearchQuery.trim()) {
-        const q = stockSearchQuery.trim().toLowerCase()
-        return (
-          item.name.toLowerCase().includes(q) ||
-          item.sku.toLowerCase().includes(q) ||
-          item.upc.toLowerCase().includes(q) ||
-          item.location.toLowerCase().includes(q) ||
-          item.zone.toLowerCase().includes(q)
-        )
-      }
-      return true
-    })
-  }, [warehouseStockMap, stockFilterTab, stockSearchQuery])
-
-  // Unique SKUs in current batch
-  const batchSkuSet = useMemo(() => new Set(items.map((it) => it.sku)), [items])
-
-  const lowStockBuyerCount = useMemo(() => {
-    const uniqueSkus = Array.from(batchSkuSet)
-    return uniqueSkus.filter((sku) => warehouseStockMap[sku]?.status === 'low').length
-  }, [batchSkuSet, warehouseStockMap])
-
-  const totalPickedUnits = useMemo(() => {
-    return Object.values(warehouseStockMap).reduce((sum, it) => sum + it.pickedQuantity, 0)
-  }, [warehouseStockMap])
-
-  const lowStockCount = useMemo(() => {
-    return Object.values(warehouseStockMap).filter((it) => it.status === 'low').length
-  }, [warehouseStockMap])
-
-  const handleResetStock = () => {
-    const fresh = resetWarehouseStock(items)
-    setWarehouseStockMap(fresh)
-    setToastMessage(
-      vi
-        ? 'Đã khôi phục số lượng tồn kho ban đầu của toàn bộ sản phẩm!'
-        : 'Warehouse inventory reset to initial stock!',
-    )
-    window.setTimeout(() => setToastMessage(null), 3000)
-  }
-
-  // Channels count in this batch
-  const channelCounts = useMemo(() => {
-    const counts: Record<string, number> = {}
-    items.forEach((it) => {
-      counts[it.channel] = (counts[it.channel] || 0) + 1
-    })
-    return counts
-  }, [items])
-
-  const isMultiPlatformBatch = batchOrders.length >= 2 &&
-    new Set(batchOrders.map((o) => o.channel)).size >= 2
-
-  const selectedPlatformOrder = useMemo(() => {
-    if (channelFilter === 'all') return null
-    return (
-      batchOrders.find((o) => o.channel === channelFilter) ?? null
-    )
-  }, [batchOrders, channelFilter])
-
-  const platformOrderIdsText = useMemo(
-    () =>
-      batchOrders
-        .map((o) => `${o.channel.toUpperCase()} #${o.orderId}`)
-        .join(' · '),
-    [batchOrders],
-  )
-
-  const handleConfirmDetachPlatformOrder = () => {
-    if (!detachOrder) return
-    const channel = detachOrder.channel
-    setBatchOrders((prev) => prev.filter((o) => o.orderId !== detachOrder.orderId))
-    setItems((prev) => {
-      const next = prev.filter((it) => it.channel !== channel)
-      const nextActive =
-        next.find((it) => it.id === activeItemId) ??
-        next.find((it) => it.status !== 'picked') ??
-        next[0]
-      if (nextActive) {
-        setActiveItemId(nextActive.id)
-        setCurrentQty(nextActive.qtyPicked)
-        setBarcodeInput(
-          nextActive.status === 'picked' ? nextActive.upc : '',
-        )
-      }
-      return next
-    })
-    setChannelFilter('all')
-    setDetachOrder(null)
-    setToastMessage(
-      vi
-        ? `Đã gỡ đơn ${detachOrder.channel.toUpperCase()} #${detachOrder.orderId} khỏi nhóm. Phần còn lại tiếp tục lấy hàng.`
-        : `Detached ${detachOrder.channel} #${detachOrder.orderId}. Remaining items continue picking.`,
-    )
-    window.setTimeout(() => setToastMessage(null), 4000)
-  }
-
-  // Thông tin khách hàng nhận của đợt gom đơn (Mỗi đợt gom từ nhiều sàn cho DUY NHẤT 1 khách hàng)
-  const batchCustomer = useMemo(() => {
-    const firstOrder = batchOrders[0]
-    return {
-      name: batch.customerName || firstOrder?.customerName || 'Trần Văn An',
-      phone: batch.customerPhone || firstOrder?.phone || '0901 882 193',
-      address: batch.customerAddress || firstOrder?.address || '123 Nguyễn Huệ, Quận 1, TP. Hồ Chí Minh',
-      ordersCount: batchOrders.length,
-      channelsText: [...new Set(batchOrders.map((o) => o.channel))]
-        .map((c) => c.toUpperCase())
-        .join(' + '),
-    }
-  }, [batch, batchOrders])
-
-  const handleConfirmAssignment = () => {
-    if (modalAssignMode === 'auto') {
-      const bestStaff =
-        warehouseStaffList.find(
-          (s) => s.zone === batch.zone && s.status === 'available',
-        ) ||
-        warehouseStaffList.find((s) => s.zone === batch.zone) ||
-        warehouseStaffList[0] ||
-        WAREHOUSE_STAFF_LIST[0]!
-
-      const newPicker = {
-        name: bestStaff.name,
-        avatar: bestStaff.avatar,
-        initials: bestStaff.initials,
-        code: bestStaff.code,
-        role: bestStaff.role,
-        zone: bestStaff.zone,
-      }
-      setCurrentPicker(newPicker)
-      setAssignmentMode('auto')
-      setAssignModalOpen(false)
-      setStaffSearchQuery('')
-      updateBatchPicker(batch.id, {
-        name: bestStaff.name,
-        avatar: bestStaff.avatar,
-        initials: bestStaff.initials,
-      })
-      setToastMessage(
-        `AI đã tự động phân công nhân viên ${bestStaff.name} (${bestStaff.code}) phụ trách đợt ${batch.id}!`,
-      )
-    } else {
-      const staff =
-        warehouseStaffList.find((s) => s.id === selectedStaffId) ||
-        warehouseStaffList[0] ||
-        WAREHOUSE_STAFF_LIST[0]!
-
-      const newPicker = {
-        name: staff.name,
-        avatar: staff.avatar,
-        initials: staff.initials,
-        code: staff.code,
-        role: staff.role,
-        zone: staff.zone,
-      }
-      setCurrentPicker(newPicker)
-      setAssignmentMode('manual')
-      setAssignModalOpen(false)
-      setStaffSearchQuery('')
-      updateBatchPicker(batch.id, {
-        name: staff.name,
-        avatar: staff.avatar,
-        initials: staff.initials,
-      })
-      setToastMessage(
-        `Đã phân công thủ công nhân viên ${staff.name} (${staff.code}) phụ trách đợt ${batch.id}!`,
-      )
-    }
-    window.setTimeout(() => setToastMessage(null), 4000)
-  }
-
-  // Progress metrics
-  const pickedCount = useMemo(
-    () => items.filter((it) => it.status === 'picked').length,
-    [items],
-  )
-  const totalUnitsPicked = useMemo(
-    () => items.reduce((sum, it) => sum + it.qtyPicked, 0),
-    [items],
-  )
-  const totalUnitsTotal = useMemo(
-    () => items.reduce((sum, it) => sum + it.qty, 0),
-    [items],
-  )
-  const pickedPercent = useMemo(
-    () => (items.length > 0 ? Math.round((pickedCount / items.length) * 100) : 0),
-    [items.length, pickedCount],
-  )
-  const isAllPicked = pickedCount === items.length && items.length > 0
-
-  // Handle open complete batch modal
-  const handleOpenCompleteModal = () => {
-    setCompleteBatchModalOpen(true)
-  }
-
-  // Handle confirm complete batch picking
-  const handleConfirmCompleteBatch = () => {
-    // Tự động khấu trừ toàn bộ số lượng còn lại của đợt khỏi kho hàng theo thời gian thực
-    let totalDeductedUnits = 0
-    setWarehouseStockMap((prev) => {
-      const next = { ...prev }
-      items.forEach((it) => {
-        const remainingToPick = Math.max(0, it.qty - it.qtyPicked)
-        if (remainingToPick > 0) {
-          totalDeductedUnits += remainingToPick
-          const itemStock = next[it.sku] || {
-            sku: it.sku,
-            name: it.name,
-            shortName: it.shortName,
-            upc: it.upc,
-            location: it.location,
-            zone: it.zone,
-            rack: it.rack,
-            bin: it.bin,
-            initialStock: 60,
-            pickedQuantity: 0,
-            currentStock: 60,
-            safetyThreshold: 12,
-            imageUrl: it.imageUrl,
-            status: 'optimal' as const,
-            lastUpdatedText: 'Thời gian thực',
-          }
-          const newPicked = itemStock.pickedQuantity + remainingToPick
-          const newStock = Math.max(0, itemStock.initialStock - newPicked)
-          next[it.sku] = {
-            ...itemStock,
-            pickedQuantity: newPicked,
-            currentStock: newStock,
-            status: computeStockStatus(newStock, itemStock.safetyThreshold),
-            lastUpdatedText: 'Vừa hoàn tất đợt',
-            recentDeduction: -remainingToPick,
-          }
-        }
-      })
-      saveStoredWarehouseStock(next)
-      return next
-    })
-
-    setItems((prev) =>
-      prev.map((it) => ({
-        ...it,
-        status: 'picked',
-        qtyPicked: it.qty,
-      })),
-    )
-    if (activeItem) {
-      setCurrentQty(activeItem.qty)
-      setBarcodeInput(activeItem.upc)
-    }
-    setCompleteBatchModalOpen(false)
-    setToastMessage(
-      vi
-        ? `Đã hoàn tất đợt lấy hàng ${batch.id}! Kho đã tự động trừ ${totalDeductedUnits} sản phẩm tương ứng, toàn bộ ${items.length} mặt hàng đã sẵn sàng đóng gói.`
-        : `Batch ${batch.id} picking completed! Deducted ${totalDeductedUnits} units from warehouse inventory. All items ready for packaging.`,
-    )
-    window.setTimeout(() => setToastMessage(null), 4000)
-  }
-
-  // Handle selecting an item from the right list
-  const handleSelectItem = (item: WarehousePickingItem) => {
-    setActiveItemId(item.id)
-    setCurrentQty(item.qtyPicked)
-    // Only pre-fill barcode if already picked; otherwise keep empty for new scan verification
-    setBarcodeInput(item.status === 'picked' ? item.upc : '')
-  }
-
-  // Handle quantity decrement
-  const handleDecrement = () => {
-    setCurrentQty((prev) => Math.max(0, prev - 1))
-  }
-
-  // Handle quantity increment
-  const handleIncrement = () => {
-    if (!activeItem) return
-    setCurrentQty((prev) => Math.min(activeItem.qty, prev + 1))
-  }
-
-  // Handle confirm picking action (Quét mã xác nhận lấy hàng -> Trừ kho thực tế)
-  const handleConfirmPick = () => {
-    if (!activeItem || !canConfirmPick) return
-    const isDone = currentQty >= activeItem.qty
-    const updatedStatus = isDone ? 'picked' : currentQty > 0 ? 'picking' : 'queued'
-
-    const previouslyPicked = activeItem.qtyPicked
-    const deltaPicked = Math.max(0, currentQty - previouslyPicked)
-
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === activeItem.id
-          ? {
-              ...it,
-              qtyPicked: currentQty,
-              status: updatedStatus,
-            }
-          : it,
-      ),
-    )
-
-    // Khấu trừ số lượng tồn kho theo thời gian thực
-    let remainingStockText = ''
-    if (deltaPicked > 0) {
-      setWarehouseStockMap((prev) => {
-        const next = { ...prev }
-        const existing = next[activeItem.sku] || {
-          sku: activeItem.sku,
-          name: activeItem.name,
-          shortName: activeItem.shortName,
-          upc: activeItem.upc,
-          location: activeItem.location,
-          zone: activeItem.zone,
-          rack: activeItem.rack,
-          bin: activeItem.bin,
-          initialStock: 60,
-          pickedQuantity: 0,
-          currentStock: 60,
-          safetyThreshold: 12,
-          imageUrl: activeItem.imageUrl,
-          status: 'optimal' as const,
-          lastUpdatedText: 'Thời gian thực',
-        }
-
-        const newPicked = existing.pickedQuantity + deltaPicked
-        const newStock = Math.max(0, existing.initialStock - newPicked)
-        next[activeItem.sku] = {
-          ...existing,
-          pickedQuantity: newPicked,
-          currentStock: newStock,
-          status: computeStockStatus(newStock, existing.safetyThreshold),
-          lastUpdatedText: 'Vừa trừ xong',
-          recentDeduction: -deltaPicked,
-        }
-        remainingStockText = `${newStock} chiếc`
-        saveStoredWarehouseStock(next)
-        return next
-      })
-
-      setLastDeductedSku(activeItem.sku)
-      window.setTimeout(() => setLastDeductedSku(null), 4000)
-    }
-
-    const currentRemaining = warehouseStockMap[activeItem.sku]?.currentStock ?? 50
-    const finalStockDisplay = remainingStockText || `${Math.max(0, currentRemaining - deltaPicked)} chiếc`
-
-    const notice = `Đã lấy đủ ${currentQty}/${activeItem.qty} ${activeItem.shortName} · Kho đã tự động trừ -${deltaPicked} chiếc (Tồn thực tế tại ${activeItem.location}: ${finalStockDisplay})`
-    setToastMessage(notice)
-    window.setTimeout(() => setToastMessage(null), 3500)
-
-    // Automatically advance to the next unpicked item if this one is done
-    if (isDone) {
-      const nextPending = items.find(
-        (it) => it.id !== activeItem.id && it.status !== 'picked',
-      )
-      if (nextPending) {
-        setActiveItemId(nextPending.id)
-        setCurrentQty(nextPending.qtyPicked)
-        setBarcodeInput(nextPending.status === 'picked' ? nextPending.upc : '')
-      }
-    }
-  }
-
-  // Handle exception report submission
-  const handleSubmitException = () => {
-    if (!activeItem) return
-    setItems((prev) =>
-      prev.map((it) =>
-        it.id === activeItem.id
-          ? {
-              ...it,
-              status: 'short',
-            }
-          : it,
-      ),
-    )
-    setExceptionOpen(false)
-    setToastMessage(`Đã ghi nhận báo cáo ngoại lệ: ${exceptionReason}`)
-    window.setTimeout(() => setToastMessage(null), 3500)
-
-    // Move to next item
-    const nextPending = items.find(
-      (it) => it.id !== activeItem.id && it.status !== 'picked',
-    )
-    if (nextPending) {
-      setActiveItemId(nextPending.id)
-      setCurrentQty(nextPending.qtyPicked)
-      setBarcodeInput(nextPending.status === 'picked' ? nextPending.upc : '')
-    }
-  }
-
-  // Sorted items list
-  const sortedItems = useMemo(() => {
-    const list = [...items]
-    switch (sortMode) {
-      case 'bin':
-        return list.sort((a, b) => a.location.localeCompare(b.location))
-      case 'name':
-        return list.sort((a, b) => a.name.localeCompare(b.name))
-      case 'status':
-        return list.sort((a, b) => {
-          const rank = { picking: 0, queued: 1, short: 2, picked: 3 }
-          return rank[a.status] - rank[b.status]
-        })
-      case 'route':
-      default:
-        return list
-    }
-  }, [items, sortMode])
-
-  // Items filtered by channel
-  const displayedItems = useMemo(() => {
-    if (channelFilter === 'all') return sortedItems
-    return sortedItems.filter((it) => it.channel === channelFilter)
-  }, [sortedItems, channelFilter])
-
-  // Cycle sort mode
-  const handleCycleSort = () => {
-    const modes: SortMode[] = ['route', 'bin', 'name', 'status']
-    const nextIdx = (modes.indexOf(sortMode) + 1) % modes.length
-    setSortMode(modes[nextIdx]!)
-  }
-
-  const sortLabel = {
-    route: vi ? 'Theo tuyến' : 'By route',
-    bin: vi ? 'Theo vị trí kệ' : 'By bin',
-    name: vi ? 'Theo tên SP' : 'By name',
-    status: vi ? 'Theo tiến độ' : 'By status',
-  }[sortMode]
-
-  return (
-    <div className="flex-1 overflow-auto bg-[#F9FAFB] p-4 sm:p-6 dark:bg-[#0B0E14]">
-      <div className="mx-auto max-w-7xl space-y-4">
-        {/* Top Header Card: Navigation & Batch Selection & Main Actions */}
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between rounded-2xl border border-slate-200/90 bg-white p-3 sm:px-4 sm:py-3 shadow-xs dark:border-slate-800 dark:bg-surface-1">
-          {/* Left: Back Link & Batch Switcher & Customer Info */}
-          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 text-xs">
-            {/* Back Button */}
-            <Link
-              to="/app/orders"
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 hover:text-blue-600 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:text-blue-400 cursor-pointer transition-colors"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>{vi ? 'Quay lại Đơn đa kênh' : 'Back to Orders'}</span>
-            </Link>
-
-            <span className="hidden sm:inline-block h-4 w-[1px] bg-slate-200 dark:bg-slate-700" />
-
-            {/* Batch Selector Dropdown */}
-            <div className="relative">
-              <select
-                value={batch.id}
-                onChange={(e) => navigate(`/app/warehouse?batchId=${e.target.value}&action=start`)}
-                className="h-8.5 cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white pl-2.5 pr-7 text-xs font-bold text-slate-800 shadow-2xs transition-colors hover:border-slate-300 focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200 font-mono"
-              >
-                {getStoredBatches().map((b) => {
-                  const bItems = b.id === batch.id ? items.length : b.skusCount
-                  const bUnits = b.id === batch.id ? totalUnitsTotal : b.itemsCount
-                  return (
-                    <option key={b.id} value={b.id}>
-                      {b.id} ({bItems} mặt hàng · {bUnits} SP)
-                    </option>
-                  )
-                })}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-            </div>
-
-            {/* Warehouse Tag */}
-            <span className="rounded-lg bg-blue-50 border border-blue-200/80 px-2.5 py-1 text-xs font-bold text-blue-700 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300">
-              Kho tổng chung
-            </span>
-
-            {/* Consolidated Customer Button */}
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(true)}
-              className="inline-flex h-9 max-w-[min(100%,280px)] items-center gap-1.5 rounded-lg border border-purple-200/90 bg-purple-50/70 px-2.5 text-xs font-semibold text-purple-700 hover:bg-purple-100 hover:border-purple-300 dark:border-purple-800 dark:bg-purple-950/40 dark:text-purple-300 cursor-pointer transition-colors"
-              title={`Khách nhận: ${batchCustomer.name} (${batchCustomer.phone}). Đã gom ${batchCustomer.ordersCount} đơn đa kênh. Bấm xem chi tiết!`}
-            >
-              <User className="h-3.5 w-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-              <span className="shrink-0">{vi ? 'Khách:' : 'Customer:'}</span>
-              <strong className="truncate font-bold text-purple-950 dark:text-purple-100 underline decoration-dotted underline-offset-2">
-                {batchCustomer.name}
-              </strong>
-              <span className="shrink-0 rounded-full bg-purple-200/80 px-1.5 py-0.5 text-[10px] font-bold text-purple-800 dark:bg-purple-900/60 dark:text-purple-200">
-                {batchCustomer.ordersCount} đơn
-              </span>
-            </button>
-          </div>
-
-          {/* Right: Actions */}
-          <div className="flex items-center gap-2 self-end lg:self-auto shrink-0 text-xs">
-            {/* Reset Button */}
-            <button
-              type="button"
-              onClick={() => {
-                setItems(structuredClone(initialBatchItems))
-                if (initialBatchItems[0]) {
-                  setActiveItemId(initialBatchItems[0].id)
-                  setCurrentQty(initialBatchItems[0].qtyPicked)
-                  setBarcodeInput(
-                    initialBatchItems[0].status === 'picked'
-                      ? initialBatchItems[0].upc
-                      : '',
-                  )
-                }
-              }}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 font-semibold text-slate-600 shadow-2xs hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:bg-slate-800 cursor-pointer transition-colors"
-              title="Đặt lại tiến độ nhặt hàng về ban đầu"
-            >
-              <RotateCcw className="h-3.5 w-3.5 text-slate-500" />
-              <span>{vi ? 'Đặt lại' : 'Reset'}</span>
-            </button>
-
-            {/* Complete Batch Picking Button */}
-            <button
-              type="button"
-              disabled={!isAllPicked}
-              onClick={isAllPicked ? handleOpenCompleteModal : undefined}
-              className={`inline-flex h-9 items-center gap-1.5 rounded-lg px-3 font-bold text-white shadow-xs transition-colors ${
-                isAllPicked
-                  ? 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 cursor-pointer'
-                  : 'bg-slate-300 opacity-60 cursor-not-allowed dark:bg-slate-700 dark:text-slate-400'
-              }`}
-              title={
-                !isAllPicked
-                  ? vi
-                    ? `Cần lấy đủ tất cả ${items.length} mặt hàng trước khi hoàn tất (${pickedCount}/${items.length})`
-                    : `Pick all ${items.length} items first (${pickedCount}/${items.length})`
-                  : undefined
-              }
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>{vi ? 'Hoàn tất lấy hàng' : 'Complete Batch Picking'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Coordination Card: Staff Assignment & Omnichannel Platform Breakdown */}
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            {/* Left: Batch Info & Omnichannel Breakdown */}
-            <div className="space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-base font-bold text-slate-900 dark:text-slate-100">
-                  {batch.id}
-                </span>
-                <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                  Kho tổng chung
-                </span>
-                <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                  {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
-                </span>
-                <span className="text-xs text-slate-400">·</span>
-                <span className="inline-flex items-center gap-1 text-xs text-purple-700 bg-purple-50 dark:bg-purple-950/40 dark:text-purple-300 font-semibold px-2 py-0.5 rounded">
-                  <Sparkles className="h-3 w-3" />
-                  {isMultiPlatformBatch
-                    ? (vi
-                        ? `Demo đa sàn · ${batchCustomer.ordersCount} đơn · ${batchCustomer.name}`
-                        : `Demo multi-platform · ${batchCustomer.ordersCount} · ${batchCustomer.name}`)
-                    : (vi
-                        ? `Đơn · ${batchCustomer.name}`
-                        : `Order · ${batchCustomer.name}`)}
-                </span>
-              </div>
-              {isMultiPlatformBatch ? (
-                <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                  {vi ? 'Mã đơn từng sàn: ' : 'Order IDs: '}
-                  <strong className="text-slate-800 dark:text-slate-200">
-                    {platformOrderIdsText}
-                  </strong>
-                </p>
-              ) : null}
-
-              {/* Omnichannel Platforms Representation */}
-              <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                <span className="text-xs text-slate-500 font-medium">
-                  {vi ? 'Nền tảng trong đợt:' : 'Channels in batch:'}
-                </span>
-                {Object.entries(channelCounts).map(([ch, count]) => (
-                  <div
-                    key={ch}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200/80 bg-slate-50/80 px-2.5 py-1 text-xs dark:border-slate-700 dark:bg-slate-800/60"
-                  >
-                    {renderChannelBadge(
-                      ch as 'shopee' | 'tiktok' | 'lazada' | 'facebook',
-                      'sm',
-                    )}
-                    <span className="font-semibold text-slate-700 dark:text-slate-300">
-                      {count} {vi ? 'vật phẩm' : 'items'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Right: Assigned Staff & Manual Assignment CTA */}
-            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 sm:px-4 sm:py-3 dark:border-slate-700 dark:bg-surface-2/40">
-              <div className="flex items-center gap-3">
-                {currentPicker.avatar ? (
-                  <img
-                    src={currentPicker.avatar}
-                    alt={currentPicker.name}
-                    className="h-10 w-10 rounded-full object-cover ring-2 ring-blue-500/30"
-                  />
-                ) : (
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                    {currentPicker.initials}
-                  </div>
-                )}
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100">
-                      {currentPicker.name}
-                    </p>
-                    {assignmentMode === 'auto' ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                        <Sparkles className="h-3 w-3 text-emerald-600" />
-                        Tự động phân công (AI)
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-[10.5px] font-semibold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                        <UserCheck className="h-3 w-3 text-blue-600" />
-                        Phân công thủ công
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    {currentPicker.code} · {currentPicker.role}
-                  </p>
-                </div>
-              </div>
-
-              {/* Nút Phân công thủ công */}
-              <button
-                type="button"
-                onClick={() => {
-                  setModalAssignMode(assignmentMode)
-                  const matched = warehouseStaffList.find((s) => s.name === currentPicker.name) || WAREHOUSE_STAFF_LIST.find((s) => s.name === currentPicker.name)
-                  if (matched) setSelectedStaffId(matched.id)
-                  setStaffSearchQuery('')
-                  setAssignModalOpen(true)
-                }}
-                className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-100 dark:border-slate-600 dark:bg-surface-1 dark:text-slate-200 cursor-pointer transition-colors"
-                title="Thay đổi nhân viên lấy hàng"
-              >
-                <Users className="h-3.5 w-3.5 shrink-0 text-blue-600" />
-                <span className="hidden sm:inline">{vi ? 'Phân công thủ công' : 'Manual Assign'}</span>
-                <span className="sm:hidden">{vi ? 'Phân công' : 'Assign'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* SLA Alert Banner for Express or Delayed Packing Orders */}
-        {batch.orderType === 'express' ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2.5 text-xs text-amber-950 shadow-xs dark:border-amber-700/80 dark:from-amber-950/40 dark:to-orange-950/20">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-amber-500 text-white shadow-xs">
-                <Zap className="h-3.5 w-3.5 fill-white" />
-              </span>
-              <span>
-                <strong>⚡ ĐỢT LẤY HÀNG HỎA TỐC:</strong> Bắt buộc nhân viên hoàn thành lấy hàng và đóng gói trong vòng <strong>4 tiếng</strong> (Hạn chót: <strong>{batch.slaDetail?.deadlineText ?? '12:15'}</strong>). Tiếp nhận trong giờ hành chính (08:00 - 17:30).
-              </span>
-            </div>
-            <span className="rounded-md bg-amber-200/90 px-2.5 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-900/60 dark:text-amber-200">
-              {batch.slaDetail?.remainingText ?? 'SLA 4h'}
-            </span>
-          </div>
-        ) : batch.orderType === 'delayed_packing' ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-300 bg-gradient-to-r from-rose-50 to-red-50 px-4 py-2.5 text-xs text-rose-950 shadow-xs dark:border-rose-700/80 dark:from-rose-950/40 dark:to-red-950/20">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-rose-600 text-white shadow-xs">
-                <AlertTriangle className="h-3.5 w-3.5" />
-              </span>
-              <span>
-                <strong>⚠️ CẢNH BÁO QUÁ HẠN:</strong> Đơn hàng bình thường đã trễ thời gian đóng gói quy định (+45 phút). Vui lòng hoàn tất lấy hàng ngay để chuyển sang đóng gói khẩn cấp!
-              </span>
-            </div>
-            <span className="rounded-md bg-rose-200 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 animate-pulse">
-              {batch.slaDetail?.deadlineText ?? 'Quá hạn 45 phút'}
-            </span>
-          </div>
-        ) : null}
-
-        {/* Toast Notification */}
-        {toastMessage ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 shadow-xs flex items-center justify-between dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-300">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
-              <span>{toastMessage}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setToastMessage(null)}
-              className="text-emerald-700 hover:text-emerald-900 dark:text-emerald-400"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ) : null}
-
-        {/* ==================================================== */}
-        {/* MAIN TWO-COLUMN LAYOUT MATCHING SCREENSHOT EXACTLY   */}
-        {/* ==================================================== */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start">
-          {/* LEFT COLUMN: ACTIVE TARGET CARD & EXCEPTION BANNER */}
-          <div className="lg:col-span-7 xl:col-span-7 space-y-4">
-            {activeItem ? (
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 sm:p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1">
-                {/* Top Badges */}
-                <div className="flex flex-wrap items-center justify-between gap-2.5">
-                  <span className="inline-flex items-center rounded-lg bg-[#eff6ff] px-3 py-1.5 text-xs font-bold tracking-wider text-[#2563eb] dark:bg-blue-950/40 dark:text-blue-400">
-                    MỤC TIÊU HIỆN TẠI
-                  </span>
-
-                  {/* High-contrast prominent Location Badge */}
-                  <div className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 px-4 py-2 text-white shadow-md border border-indigo-500/30 dark:border-indigo-400/30">
-                    <MapPin className="h-4.5 w-4.5 text-amber-400 shrink-0 fill-amber-400/20" />
-                    <span className="font-mono text-xs sm:text-sm font-bold tracking-wider text-slate-100">
-                      {activeItem.location}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Product Presentation */}
-                <div className="mt-6 flex flex-col sm:flex-row items-center sm:items-start gap-5">
-                  <ProductThumb src={activeItem.imageUrl} alt={activeItem.name} />
-
-                  <div className="flex-1 text-center sm:text-left space-y-2.5">
-                    <h2 className="text-xl font-bold text-slate-900 leading-snug dark:text-slate-100">
-                      {activeItem.name}
-                    </h2>
-                    <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1 font-mono text-xs text-slate-500 dark:text-slate-400">
-                      <span>Mã SKU: {activeItem.sku}</span>
-                      <span>Mã UPC: {activeItem.upc}</span>
-                    </div>
-
-                    {/* Rõ ràng nền tảng đặt hàng & Đơn hàng của vật phẩm này */}
-                    <div className="inline-flex flex-wrap items-center justify-center sm:justify-start gap-2 rounded-xl bg-slate-50 px-3 py-2 border border-slate-200/80 dark:bg-slate-800/40 dark:border-slate-700/60 text-xs">
-                      <span className="text-slate-500 font-medium">{vi ? 'Nền tảng đặt hàng:' : 'Channel:'}</span>
-                      {renderChannelBadge(activeItem.channel)}
-                      <span className="text-slate-300 dark:text-slate-600">·</span>
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                        Đơn #{activeItem.orderId}
-                      </span>
-                      <span className="text-slate-300 dark:text-slate-600">·</span>
-                      <span className="text-slate-600 dark:text-slate-300">
-                        Người nhận: <strong>{batchCustomer.name}</strong>
-                      </span>
-                    </div>
-
-                    {/* Tình trạng tồn kho theo thời gian thực của sản phẩm mục tiêu */}
-                    <div className="inline-flex flex-wrap items-center justify-center sm:justify-start gap-2 rounded-xl bg-blue-50/70 px-3 py-2 border border-blue-200/80 dark:bg-blue-950/30 dark:border-blue-800/60 text-xs">
-                      <div className="flex items-center gap-1.5 font-bold text-blue-900 dark:text-blue-200">
-                        <Boxes className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                        <span>{vi ? 'Tồn kho thực tế:' : 'Live Stock:'}</span>
-                      </div>
-                      <span className="font-mono font-bold text-slate-800 dark:text-slate-100 bg-white dark:bg-surface-1 px-2 py-0.5 rounded border border-blue-200 dark:border-slate-700 shadow-2xs">
-                        {activeStock?.currentStock ?? 50} chiếc
-                      </span>
-                      <span className="text-slate-500 text-[11px]">
-                        (Sau khi lấy {currentQty || activeItem.qty} còn:{' '}
-                        <strong className="text-slate-900 dark:text-slate-100 font-mono">
-                          {Math.max(0, (activeStock?.currentStock ?? 50) - (currentQty || activeItem.qty))}
-                        </strong>{' '}
-                        chiếc)
-                      </span>
-                      {activeStock?.status === 'low' ? (
-                        <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300 animate-pulse">
-                          <AlertTriangle className="h-3 w-3" />
-                          Sắp hết hàng
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                          Đủ hàng tại kệ
-                        </span>
-                      )}
-                      {activeStock?.recentDeduction && lastDeductedSku === activeItem.sku && (
-                        <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 animate-bounce">
-                          {activeStock.recentDeduction} vừa trừ
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Barcode graphic box */}
-                <div className="mt-6">
-                  <BarcodeGraphic code={activeItem.upc} />
-                </div>
-
-                {/* Pick actions — barcode + quantity in one compact panel */}
-                <div className="mt-5 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 sm:p-4 space-y-3 dark:border-slate-800 dark:bg-surface-2/20">
-                  <div>
-                    <label
-                      htmlFor="barcode-input"
-                      className="block text-xs font-medium text-slate-700 dark:text-slate-300"
-                    >
-                      Xác minh mã vạch (Quét hoặc nhập mã)
-                    </label>
-
-                    <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-2.5 py-2 shadow-2xs dark:border-blue-800 dark:bg-surface-2 transition-all focus-within:ring-2 focus-within:ring-blue-400/20">
-                      <BarcodeLinesIcon />
-                      <input
-                        id="barcode-input"
-                        type="text"
-                        value={barcodeInput}
-                        onChange={(e) => setBarcodeInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            if (activeItem && barcodeInput.trim() === activeItem.upc) {
-                              setCurrentQty(activeItem.qty)
-                            }
-                          }
-                        }}
-                        placeholder={activeItem.upc}
-                        className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
-                      />
-                      {isVerified ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700 select-none dark:bg-emerald-950/50 dark:text-emerald-300">
-                          <Check className="h-3 w-3 stroke-[3]" />
-                          Đã xác minh
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setBarcodeInput(activeItem.upc)
-                            if (currentQty < activeItem.qty) {
-                              setCurrentQty(activeItem.qty)
-                            }
-                          }}
-                          className="inline-flex shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 transition-colors hover:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-                          title="Click để khớp mã demo"
-                        >
-                          Chưa xác minh
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-                    <div className="flex items-center justify-center gap-1 sm:justify-start">
-                      <button
-                        type="button"
-                        onClick={handleDecrement}
-                        disabled={currentQty <= 0}
-                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white font-bold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200"
-                        aria-label="Giảm số lượng"
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-
-                      <div className="flex h-10 min-w-[76px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold text-slate-900 select-none shadow-2xs dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100">
-                        {currentQty}/{activeItem.qty}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={handleIncrement}
-                        disabled={currentQty >= activeItem.qty}
-                        className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white font-bold text-slate-700 transition-colors hover:bg-slate-50 active:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer dark:border-slate-700 dark:bg-surface-1 dark:text-slate-200"
-                        aria-label="Tăng số lượng"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={!canConfirmPick}
-                      onClick={handleConfirmPick}
-                      className={`flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold shadow-sm transition-all select-none sm:min-w-[148px] ${
-                        canConfirmPick
-                          ? 'bg-[#2563eb] text-white shadow-blue-500/20 hover:bg-[#1d4ed8] active:bg-[#1e40af] cursor-pointer'
-                          : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500'
-                      }`}
-                    >
-                      <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      <span className="truncate">
-                        {vi ? 'Xác nhận lấy hàng' : 'Confirm Pick'}
-                      </span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Subtle helper guidance when disabled */}
-                {!canConfirmPick && (
-                  <p className="mt-2 text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5">
-                    <span>💡</span>
-                    <span>
-                      {!isVerified
-                        ? (vi
-                            ? 'Cần quét/xác minh mã vạch đúng trước khi lấy hàng'
-                            : 'Scan and verify barcode first')
-                        : currentQty === 0
-                          ? (vi
-                              ? 'Vui lòng chọn/quét số lượng hàng cần lấy (0/3 hiện bị vô hiệu)'
-                              : 'Please select quantity to pick (0 count is disabled)')
-                          : (vi
-                              ? `Cần nhặt đủ số lượng (${currentQty}/${activeItem.qty}) để kích hoạt xác nhận lấy hàng`
-                              : `Pick full target quantity (${currentQty}/${activeItem.qty}) to confirm`)}
-                    </span>
-                  </p>
-                )}
-            </div>
-          ) : null}
-
-            {/* Exception Banner below Left Card */}
-            <div className="rounded-xl border border-[#fde68a] bg-[#fffbeb] p-3.5 sm:p-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 text-xs dark:border-amber-900/40 dark:bg-amber-950/20 shadow-xs">
-              <div className="flex items-center gap-2 text-amber-900 dark:text-amber-300 font-medium">
-                <span className="text-base" aria-hidden="true">
-                  ⚠️
-                </span>
-                <span>
-                  Hàng bị hỏng, mô tả không khớp, hoặc không có trong thùng?
-                </span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setExceptionOpen(true)}
-                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 font-semibold text-xs text-amber-900 shadow-xs transition-colors hover:bg-amber-50 active:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-surface-1 dark:text-amber-300"
-              >
-                <Flag className="h-3.5 w-3.5 text-amber-700" />
-                <span>Báo ngoại lệ</span>
-              </button>
-            </div>
-          </div>
-
-          {/* RIGHT COLUMN: PICKING LIST CARD ("Danh sách lấy hàng") */}
-          <div className="lg:col-span-5 xl:col-span-5">
-            <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm dark:border-slate-800 dark:bg-surface-1">
-              {/* List Header */}
-              <div className="space-y-2.5 pb-3 border-b border-slate-100 dark:border-slate-800">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="truncate font-bold text-base text-slate-900 dark:text-slate-100">
-                      Danh sách lấy hàng
-                    </h3>
-                    <p className="mt-0.5 text-xs font-medium leading-snug text-slate-500 dark:text-slate-400">
-                      {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleCycleSort}
-                    className="mt-0.5 inline-flex h-8 shrink-0 items-center rounded-lg border border-slate-200 bg-white px-2.5 text-[11px] font-semibold text-slate-600 shadow-2xs transition-colors hover:border-slate-300 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
-                  >
-                    Sắp xếp: {sortLabel}
-                  </button>
-                </div>
-
-                {/* Filter Tabs by Channel Platform */}
-                <div className="flex flex-wrap items-center gap-1 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => setChannelFilter('all')}
-                    className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-semibold transition-colors cursor-pointer ${
-                      channelFilter === 'all'
-                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
-                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-                    }`}
-                  >
-                    Tất cả ({items.length})
-                  </button>
-                  {Object.entries(channelCounts).map(([ch, count]) => (
-                    <button
-                      key={ch}
-                      type="button"
-                      onClick={() => setChannelFilter(ch)}
-                      className={`inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[11px] font-semibold transition-colors cursor-pointer ${
-                        channelFilter === ch
-                          ? 'bg-blue-50 font-bold text-blue-700 ring-1 ring-blue-400 dark:bg-blue-950/60 dark:text-blue-300'
-                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-                      }`}
-                    >
-                      <span className="capitalize">{ch}</span> ({count})
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Platform order detail — hiện khi chọn tab 1 nền tảng trên danh sách lấy hàng */}
-              {selectedPlatformOrder ? (
-                <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-3.5 text-xs dark:border-indigo-800 dark:bg-indigo-950/30">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        {renderChannelBadge(selectedPlatformOrder.channel, 'sm')}
-                        <span className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
-                          #{selectedPlatformOrder.orderId}
-                        </span>
-                        {selectedPlatformOrder.status === 'canceled' ? (
-                          <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:bg-rose-950 dark:text-rose-300">
-                            {vi ? 'ĐÃ HỦY' : 'CANCELED'}
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="text-slate-600 dark:text-slate-300">
-                        {vi ? 'Khách:' : 'Customer:'}{' '}
-                        <strong>{selectedPlatformOrder.customerName}</strong>
-                        {' · '}
-                        {selectedPlatformOrder.phone}
-                      </p>
-                      <p className="text-slate-500 dark:text-slate-400">
-                        {selectedPlatformOrder.address}
-                      </p>
-                      <p className="font-mono text-[11px] text-slate-500">
-                        {selectedPlatformOrder.paymentMethod} ·{' '}
-                        {selectedPlatformOrder.totalAmount.toLocaleString('vi-VN')}₫
-                      </p>
-                      {selectedPlatformOrder.notes ? (
-                        <p className="italic text-slate-500">{selectedPlatformOrder.notes}</p>
-                      ) : null}
-                      <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
-                        {selectedPlatformOrder.items.map((it) => (
-                          <li key={`${selectedPlatformOrder.orderId}-${it.sku}`}>
-                            <span className="font-mono">{it.sku}</span> · {it.name} ×{it.qty}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setDetachOrder(selectedPlatformOrder)}
-                      className="inline-flex h-8 shrink-0 items-center rounded-lg border border-amber-300 bg-white px-2.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-50 cursor-pointer dark:border-amber-800 dark:bg-surface-1 dark:text-amber-200"
-                    >
-                      {vi ? 'Giả lập hủy & gỡ khỏi nhóm' : 'Simulate cancel & detach'}
-                    </button>
-                  </div>
-                </div>
-              ) : isMultiPlatformBatch ? (
-                <p className="text-[11px] text-slate-400 dark:text-slate-500">
-                  {vi
-                    ? 'Chọn tab Shopee / TikTok / … phía trên để xem chi tiết đơn khách trên từng nền tảng.'
-                    : 'Select a platform tab above to view that marketplace order detail.'}
-                </p>
-              ) : null}
-
-              {/* Items Stack */}
-              <div className="mt-3 space-y-2 max-h-[380px] lg:max-h-[420px] overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
-                {displayedItems.length > 0 ? (
-                  displayedItems.map((item) => {
-                    const isActive = item.id === activeItemId
-                    const isPicked = item.status === 'picked'
-
-                    // 1. ACTIVE ITEM (Thick blue border)
-                    if (isActive) {
-                      return (
-                        <div
-                          key={item.id}
-                          onClick={() => handleSelectItem(item)}
-                          className="flex cursor-pointer items-center justify-between rounded-xl border-2 border-[#3b82f6] bg-[#f8faff] p-2.5 sm:p-3 shadow-xs transition-all dark:bg-blue-950/20"
-                        >
-                          <div className="flex min-w-0 items-start gap-2.5 pr-2">
-                            <div className="mt-0.5 shrink-0">
-                              <TargetScanIcon />
-                            </div>
-                            <PickingListItemInfo
-                              item={item}
-                              titleClassName="font-semibold text-slate-900 dark:text-slate-100"
-                            />
-                          </div>
-
-                          <span className="shrink-0 rounded-md bg-[#3b82f6] px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs tabular-nums">
-                            {item.qtyPicked}/{item.qty}
-                          </span>
-                        </div>
-                      )
-                    }
-
-                    // 2. COMPLETED ITEM (Soft green card)
-                    if (isPicked) {
-                      return (
-                        <div
-                          key={item.id}
-                          onClick={() => handleSelectItem(item)}
-                          className="flex cursor-pointer items-center justify-between rounded-xl border border-emerald-200 bg-[#ecfdf5] p-2.5 sm:p-3 transition-colors hover:bg-emerald-100/70 dark:border-emerald-800/80 dark:bg-emerald-950/20"
-                        >
-                          <div className="flex min-w-0 items-start gap-2.5 pr-2">
-                            <div className="mt-0.5 shrink-0">
-                              <PickedCheckIcon />
-                            </div>
-                            <PickingListItemInfo
-                              item={item}
-                              titleClassName="font-medium text-slate-800 dark:text-slate-200"
-                            />
-                          </div>
-
-                          <span className="shrink-0 rounded-md bg-[#16a34a] px-2 py-0.5 font-mono text-[11px] font-bold text-white shadow-2xs tabular-nums">
-                            {item.qtyPicked}/{item.qty}
-                          </span>
-                        </div>
-                      )
-                    }
-
-                    // 3. PENDING ITEM (White/slate card)
-                    return (
-                      <div
-                        key={item.id}
-                        onClick={() => handleSelectItem(item)}
-                        className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-white p-2.5 sm:p-3 transition-colors hover:border-slate-300 dark:border-slate-800 dark:bg-surface-1"
-                      >
-                        <div className="flex min-w-0 items-start gap-2.5 pr-2">
-                          <div className="mt-0.5 shrink-0">
-                            <UnpickedCircleIcon />
-                          </div>
-                          <PickingListItemInfo
-                            item={item}
-                            titleClassName="font-medium text-slate-700 dark:text-slate-300"
-                          />
-                        </div>
-
-                        <span className="shrink-0 rounded-md border border-slate-200 bg-[#f8fafc] px-2 py-0.5 font-mono text-[11px] font-medium text-slate-600 tabular-nums dark:border-slate-700 dark:bg-surface-2 dark:text-slate-400">
-                          {item.qtyPicked}/{item.qty}
-                        </span>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <div className="py-8 text-center text-xs text-slate-400">
-                    Không có vật phẩm nào cho nền tảng này
-                  </div>
-                )}
-              </div>
-
-              {/* Footer with Accurate Picking Progress & Single Primary Action */}
-              <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 text-xs font-medium">
-                  <span className="min-w-0 leading-snug text-slate-600 dark:text-slate-300">
-                    Tiến độ:{' '}
-                    <strong className="text-slate-900 dark:text-slate-100">
-                      {pickedCount}/{items.length}
-                    </strong>{' '}
-                    mặt hàng ({pickedPercent}%)
-                  </span>
-                  <span className="shrink-0 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                    {totalUnitsPicked}/{totalUnitsTotal} sản phẩm
-                  </span>
-                </div>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                  <div
-                    className="h-full rounded-full bg-blue-600 transition-all duration-300"
-                    style={{ width: `${pickedPercent}%` }}
-                  />
-                </div>
-
-                {isAllPicked ? (
-                  <p className="text-center text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
-                    {vi
-                      ? 'Đã lấy đủ — bấm "Hoàn tất lấy hàng" ở thanh trên để chuyển bước tiếp theo'
-                      : 'All items picked — use "Complete Batch Picking" in the top bar'}
-                  </p>
-                ) : (
-                  <p className="text-center text-[11px] text-slate-400 dark:text-slate-500">
-                    {vi
-                      ? `Còn ${items.length - pickedCount} mặt hàng chưa lấy xong`
-                      : `${items.length - pickedCount} items remaining`}
-                  </p>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ==================================================== */}
-        {/* MỤC TÌNH TRẠNG CỦA KHO (REAL-TIME WAREHOUSE INVENTORY) */}
-        {/* ==================================================== */}
-        <div className="rounded-2xl border border-slate-200/90 bg-white p-5 sm:p-6 shadow-sm dark:border-slate-800 dark:bg-surface-1 space-y-4">
-          {/* Header with Title & View Mode Switcher */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-slate-100 pb-3.5 dark:border-slate-800">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400 shrink-0">
-                <ShoppingBag className="h-5 w-5" />
-              </span>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  {inventoryViewMode === 'buyer_items'
-                    ? (vi ? 'Tình trạng kho các mặt hàng người mua đặt' : 'Buyer Items Warehouse Stock Status')
-                    : (vi ? 'Tình trạng tồn kho toàn bộ kho hàng' : 'All Warehouse Stock Status')}
-                </h3>
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 shrink-0">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  {vi ? 'Thời gian thực (Live Sync)' : 'Real-time Live Sync'}
-                </span>
-              </div>
-            </div>
-
-            {/* View Mode Toggle: Buyer Items vs All Warehouse */}
-            <div className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-100/90 p-0.5 text-xs dark:border-slate-700 dark:bg-surface-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setInventoryViewMode('buyer_items')
-                  setStockFilterTab('all')
-                }}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-bold transition-all cursor-pointer ${
-                  inventoryViewMode === 'buyer_items'
-                    ? 'bg-white text-blue-700 shadow-xs dark:bg-surface-1 dark:text-blue-300'
-                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'
-                }`}
-                title="Chỉ hiển thị các vật phẩm mà khách hàng đã đặt trong đợt này"
-              >
-                <ShoppingBag className="h-3.5 w-3.5 text-blue-600" />
-                <span>{vi ? `Vật phẩm người mua (${items.length})` : `Buyer Items (${items.length})`}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setInventoryViewMode('all_warehouse')
-                  setStockFilterTab('all')
-                }}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-semibold transition-all cursor-pointer ${
-                  inventoryViewMode === 'all_warehouse'
-                    ? 'bg-white text-blue-700 shadow-xs dark:bg-surface-1 dark:text-blue-300'
-                    : 'text-slate-600 hover:text-slate-900 dark:text-slate-400'
-                }`}
-                title="Xem toàn bộ danh mục sản phẩm trong kho"
-              >
-                <Boxes className="h-3.5 w-3.5 text-slate-500" />
-                <span>{vi ? `Toàn bộ kho (${Object.keys(warehouseStockMap).length})` : `All Warehouse (${Object.keys(warehouseStockMap).length})`}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Filter Tabs & Search / Reset Bar */}
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between text-xs">
-            {/* Left: Filter Tabs */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setStockFilterTab('all')}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                  stockFilterTab === 'all'
-                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-                }`}
-              >
-                {inventoryViewMode === 'buyer_items'
-                  ? (vi ? `Tất cả vật phẩm khách mua (${items.length})` : `All Buyer Items (${items.length})`)
-                  : (vi ? `Tất cả sản phẩm kho (${Object.keys(warehouseStockMap).length})` : `All Warehouse Items (${Object.keys(warehouseStockMap).length})`)}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockFilterTab('pending')}
-                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                  stockFilterTab === 'pending'
-                    ? 'bg-amber-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-                }`}
-              >
-                <span>{vi ? 'Chưa lấy xong' : 'Pending Pick'}</span>
-                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
-                  {inventoryViewMode === 'buyer_items'
-                    ? items.length - pickedCount
-                    : allWarehouseInventoryList.length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockFilterTab('picked')}
-                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                  stockFilterTab === 'picked'
-                    ? 'bg-emerald-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-                }`}
-              >
-                <span>{vi ? 'Đã lấy đủ & Đã trừ kho' : 'Picked & Deducted'}</span>
-                <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
-                  {inventoryViewMode === 'buyer_items' ? pickedCount : totalPickedUnits}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setStockFilterTab('low_stock')}
-                className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors cursor-pointer ${
-                  stockFilterTab === 'low_stock'
-                    ? 'bg-rose-600 text-white shadow-2xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400'
-                }`}
-              >
-                <span>{vi ? 'Kho sắp hết hàng' : 'Low Stock'}</span>
-                {(inventoryViewMode === 'buyer_items' ? lowStockBuyerCount : lowStockCount) > 0 && (
-                  <span className="rounded-full bg-rose-200 text-rose-900 px-1.5 py-0.2 text-[10px] font-bold">
-                    {inventoryViewMode === 'buyer_items' ? lowStockBuyerCount : lowStockCount}
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {/* Right: Search & Reset */}
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Search */}
-              <div className="relative min-w-[210px] sm:w-56">
-                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  value={stockSearchQuery}
-                  onChange={(e) => setStockSearchQuery(e.target.value)}
-                  placeholder={
-                    inventoryViewMode === 'buyer_items'
-                      ? (vi ? 'Tìm tên khách, mã đơn, SKU...' : 'Search buyer, order, SKU...')
-                      : (vi ? 'Tìm SKU, tên sản phẩm, kệ...' : 'Search SKU, name, bin...')
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 pl-8.5 pr-7 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
-                />
-                {stockSearchQuery && (
-                  <button
-                    type="button"
-                    onClick={() => setStockSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-
-              {/* Reset Stock */}
-              <button
-                type="button"
-                onClick={handleResetStock}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 cursor-pointer"
-                title="Khôi phục lại số lượng tồn kho ban đầu"
-              >
-                <RotateCcw className="h-3.5 w-3.5 text-slate-500" />
-                <span>{vi ? 'Đặt lại kho' : 'Reset Stock'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Real-time Inventory Data Table */}
-          <div className="overflow-x-auto max-h-[300px] overflow-y-auto rounded-xl border border-slate-200/80 dark:border-slate-800 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300 dark:[&::-webkit-scrollbar-thumb]:bg-slate-700">
-            {inventoryViewMode === 'buyer_items' ? (
-              <table className="w-full min-w-[850px] text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-surface-2 shadow-2xs">
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider dark:border-slate-800 dark:bg-surface-2 dark:text-slate-400">
-                    <th className="px-4 py-3">SẢN PHẨM & SKU</th>
-                    <th className="px-3 py-3">SÀN & ĐƠN HÀNG (CÙNG KHÁCH)</th>
-                    <th className="px-3 py-3">VỊ TRÍ KHO</th>
-                    <th className="px-3 py-3 text-center">SL KHÁCH ĐẶT</th>
-                    <th className="px-3 py-3 text-center">ĐÃ LẤY & TRỪ KHO</th>
-                    <th className="px-3 py-3 text-center">TỒN THỰC TẾ (REAL-TIME)</th>
-                    <th className="px-3 py-3 text-center">TÌNH TRẠNG KHO</th>
-                    <th className="px-3 py-3 text-right">THAO TÁC</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                  {buyerInventoryList.length > 0 ? (
-                    buyerInventoryList.map((item) => {
-                      const stock = warehouseStockMap[item.sku]
-                      const isJustDeducted = lastDeductedSku === item.sku
-                      const isPickedDone = item.status === 'picked'
-                      const isCurrentlyActive = item.id === activeItemId
-
-                      return (
-                        <tr
-                          key={item.id}
-                          className={`transition-colors ${
-                            isCurrentlyActive
-                              ? 'bg-blue-50/70 dark:bg-blue-950/30'
-                              : isJustDeducted
-                                ? 'bg-amber-50/80 dark:bg-amber-950/30'
-                                : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
-                          }`}
-                        >
-                          {/* 1. PRODUCT */}
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={item.imageUrl}
-                                alt={item.name}
-                                className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                              />
-                              <div className="min-w-0 space-y-0.5">
-                                <div className="flex items-center gap-1.5">
-                                  <p className="font-bold text-xs text-slate-900 truncate dark:text-slate-100 max-w-[200px]">
-                                    {item.shortName}
-                                  </p>
-                                  {isCurrentlyActive && (
-                                    <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                      Đang chọn
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                                  SKU: {item.sku} · UPC: {item.upc}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* 2. BUYER & ORDER */}
-                          <td className="px-3 py-3 whitespace-nowrap">
-                            <div className="space-y-1">
-                              <div className="flex items-center gap-1.5">
-                                {renderChannelBadge(item.channel, 'sm')}
-                                <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
-                                  #{item.orderId}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                Khách: <strong className="text-slate-800 dark:text-slate-200">{item.customerName}</strong>
-                              </p>
-                            </div>
-                          </td>
-
-                          {/* 3. LOCATION */}
-                          <td className="px-3 py-3 whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-mono font-semibold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200">
-                              <MapPin className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                              <span>{item.location}</span>
-                            </div>
-                          </td>
-
-                          {/* 4. ORDERED QTY */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
-                            {item.qty} chiếc
-                          </td>
-
-                          {/* 5. PICKED & DEDUCTED */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            <div className="inline-flex flex-col items-center gap-0.5">
-                              <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
-                                {item.qtyPicked}/{item.qty} chiếc
-                              </span>
-                              {isPickedDone ? (
-                                <span className="inline-flex items-center gap-1 rounded bg-emerald-100 px-1.5 py-0.2 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                  <Check className="h-3 w-3 stroke-[3]" />
-                                  Đã trừ (-{item.qty})
-                                </span>
-                              ) : item.qtyPicked > 0 ? (
-                                <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                                  Đang lấy (-{item.qtyPicked})
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-slate-400">Chờ quét</span>
-                              )}
-                              {isJustDeducted && (
-                                <span className="rounded bg-rose-100 px-1 py-0.2 text-[10px] font-bold text-rose-700 animate-pulse">
-                                  Vừa trừ kho
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* 6. CURRENT REAL-TIME STOCK */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            <div>
-                              <span className={`font-mono text-sm font-extrabold ${
-                                stock?.status === 'low'
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : stock?.status === 'moderate'
-                                    ? 'text-amber-600 dark:text-amber-400'
-                                    : 'text-emerald-700 dark:text-emerald-400'
-                              }`}>
-                                {stock?.currentStock ?? 50} chiếc
-                              </span>
-                              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-                                Sau xuất: {Math.max(0, (stock?.currentStock ?? 50) - (item.qty - item.qtyPicked))} chiếc
-                              </p>
-                            </div>
-                          </td>
-
-                          {/* 7. STOCK STATUS */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            {stock?.status === 'low' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 animate-pulse">
-                                <AlertTriangle className="h-3 w-3" />
-                                Sắp hết hàng
-                              </span>
-                            ) : stock?.status === 'moderate' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                                Mức an toàn
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                Đủ hàng tại kệ
-                              </span>
-                            )}
-                          </td>
-
-                          {/* 8. ACTIONS */}
-                          <td className="px-3 py-3 text-right whitespace-nowrap">
-                            {isPickedDone ? (
-                              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold text-xs">
-                                <CheckCircle2 className="h-4 w-4" />
-                                <span>Đã xong</span>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  handleSelectItem(item)
-                                  window.scrollTo({ top: 0, behavior: 'smooth' })
-                                }}
-                                className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 cursor-pointer transition-colors shadow-2xs"
-                              >
-                                <TargetScanIcon />
-                                <span>Chọn nhặt</span>
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-xs text-slate-400">
-                        {vi ? 'Không có vật phẩm người mua nào phù hợp bộ lọc' : 'No buyer items match the filter'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            ) : (
-              /* ALL WAREHOUSE TABLE */
-              <table className="w-full min-w-[800px] text-left text-xs">
-                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-surface-2 shadow-2xs">
-                  <tr className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-500 uppercase tracking-wider dark:border-slate-800 dark:bg-surface-2 dark:text-slate-400">
-                    <th className="px-4 py-3">SẢN PHẨM & SKU</th>
-                    <th className="px-3 py-3">VỊ TRÍ KHO</th>
-                    <th className="px-3 py-3 text-center">TỒN BAN ĐẦU</th>
-                    <th className="px-3 py-3 text-center">ĐÃ LẤY (ĐỢT NÀY)</th>
-                    <th className="px-3 py-3 text-center">TỒN THỰC TẾ (REAL-TIME)</th>
-                    <th className="px-3 py-3 text-center">TÌNH TRẠNG</th>
-                    <th className="px-3 py-3 text-right">THAO TÁC</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
-                  {allWarehouseInventoryList.length > 0 ? (
-                    allWarehouseInventoryList.map((item) => {
-                      const isInBatch = batchSkuSet.has(item.sku)
-                      const isJustDeducted = lastDeductedSku === item.sku
-
-                      return (
-                        <tr
-                          key={item.sku}
-                          className={`transition-colors ${
-                            isJustDeducted
-                              ? 'bg-amber-50/80 dark:bg-amber-950/30'
-                              : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/40'
-                          }`}
-                        >
-                          {/* 1. PRODUCT */}
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              <img
-                                src={item.imageUrl}
-                                alt={item.name}
-                                className="h-10 w-10 rounded-lg object-cover ring-1 ring-slate-200 dark:ring-slate-700 shrink-0"
-                              />
-                              <div className="min-w-0 space-y-0.5">
-                                <div className="flex items-center gap-1.5">
-                                  <p className="font-bold text-xs text-slate-900 truncate dark:text-slate-100 max-w-[220px]">
-                                    {item.shortName}
-                                  </p>
-                                  {isInBatch && (
-                                    <span className="rounded bg-blue-100 px-1.5 py-0.2 text-[10px] font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                      Trong đợt
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                                  SKU: {item.sku} · UPC: {item.upc}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-
-                          {/* 2. LOCATION */}
-                          <td className="px-3 py-3 whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-mono font-semibold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200">
-                              <MapPin className="h-3.5 w-3.5 text-blue-600 shrink-0" />
-                              <span>{item.location}</span>
-                            </div>
-                          </td>
-
-                          {/* 3. INITIAL STOCK */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap font-mono text-xs text-slate-500 dark:text-slate-400">
-                            {item.initialStock} chiếc
-                          </td>
-
-                          {/* 4. PICKED IN BATCH */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1 font-mono font-bold text-xs">
-                              <span className={item.pickedQuantity > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400'}>
-                                {item.pickedQuantity > 0 ? `-${item.pickedQuantity}` : '0'}
-                              </span>
-                              {item.recentDeduction && isJustDeducted && (
-                                <span className="rounded bg-rose-100 px-1 py-0.2 text-[10px] font-bold text-rose-700 animate-pulse">
-                                  {item.recentDeduction}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* 5. CURRENT REAL-TIME STOCK */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            <span className={`font-mono text-sm font-extrabold ${
-                              item.status === 'low'
-                                ? 'text-rose-600 dark:text-rose-400'
-                                : item.status === 'moderate'
-                                  ? 'text-amber-600 dark:text-amber-400'
-                                  : 'text-emerald-700 dark:text-emerald-400'
-                            }`}>
-                              {item.currentStock} chiếc
-                            </span>
-                          </td>
-
-                          {/* 6. STATUS */}
-                          <td className="px-3 py-3 text-center whitespace-nowrap">
-                            {item.status === 'optimal' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                Dồi dào
-                              </span>
-                            ) : item.status === 'moderate' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                                <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                                Mức an toàn
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-[11px] font-bold text-rose-800 dark:bg-rose-950/60 dark:text-rose-300 animate-pulse">
-                                <AlertTriangle className="h-3 w-3" />
-                                Sắp hết hàng
-                              </span>
-                            )}
-                          </td>
-
-                          {/* 7. ACTIONS */}
-                          <td className="px-3 py-3 text-right whitespace-nowrap">
-                            {isInBatch ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const target = items.find((it) => it.sku === item.sku)
-                                  if (target) {
-                                    handleSelectItem(target)
-                                    window.scrollTo({ top: 0, behavior: 'smooth' })
-                                  }
-                                }}
-                                className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-300 cursor-pointer transition-colors"
-                              >
-                                <TargetScanIcon />
-                                <span>Chọn nhặt</span>
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-400">Khác đợt</span>
-                            )}
-                          </td>
-                        </tr>
-                      )
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-xs text-slate-400">
-                        {vi ? 'Không có mặt hàng nào phù hợp bộ lọc' : 'No items match the filter'}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ==================================================== */}
-      {/* EXCEPTION REPORT MODAL                               */}
-      {/* ==================================================== */}
-      {exceptionOpen && activeItem ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                  <AlertTriangle className="h-4 w-4" />
-                </span>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                  Báo cáo ngoại lệ sản phẩm
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setExceptionOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3.5 text-xs">
-              <div className="rounded-lg bg-slate-50 p-3 dark:bg-surface-2">
-                <p className="font-semibold text-slate-900 dark:text-slate-100">
-                  {activeItem.name}
-                </p>
-                <p className="mt-0.5 font-mono text-slate-500">
-                  SKU: {activeItem.sku} · {activeItem.location}
-                </p>
-              </div>
-
-              <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                  Lý do báo ngoại lệ:
-                </label>
-                <div className="space-y-2">
-                  {[
-                    'Hàng bị hỏng, rách hoặc lỗi sản phẩm',
-                    'Mô tả sản phẩm không khớp với thực tế',
-                    'Không có hàng trong thùng / trên kệ (Thiếu hàng)',
-                    'Mã vạch mờ, rách không quét được',
-                  ].map((reason) => (
-                    <label
-                      key={reason}
-                      className="flex items-center gap-2.5 rounded-lg border border-slate-200 p-2.5 cursor-pointer hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-surface-2"
-                    >
-                      <input
-                        type="radio"
-                        name="exception-reason"
-                        checked={exceptionReason === reason}
-                        onChange={() => setExceptionReason(reason)}
-                        className="text-blue-600 focus:ring-blue-500"
-                      />
-                      <span className="text-slate-800 dark:text-slate-200">{reason}</span>
-                    </label>
-                  ))}
-                </div>
-          </div>
-
-              <div>
-                <label className="block font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Ghi chú chi tiết:
-                </label>
-                <textarea
-                  value={exceptionNote}
-                  onChange={(e) => setExceptionNote(e.target.value)}
-                  placeholder="Mô tả cụ thể tình trạng hàng để tổ trưởng kho kiểm tra..."
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setExceptionOpen(false)}
-                className="rounded-lg px-3.5 py-2 font-medium text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-surface-2"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSubmitException}
-                className="rounded-lg bg-amber-600 px-4 py-2 font-semibold text-xs text-white shadow-xs hover:bg-amber-700 transition-colors cursor-pointer"
-              >
-                Gửi báo cáo ngoại lệ
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ==================================================== */}
-      {/* COMPLETE BATCH PICKING MODAL                         */}
-      {/* ==================================================== */}
-      {completeBatchModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                  <CheckCircle2 className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                    {vi ? 'Hoàn tất lấy hàng đợt' : 'Complete Batch Picking'}
-                  </h3>
-                  <p className="text-[11px] text-slate-500 font-mono">
-                    {batch.id} · Kho tổng · {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCompleteBatchModalOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-4 text-xs">
-              {/* Order & Customer overview */}
-              <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 dark:border-slate-800 dark:bg-surface-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0 pr-2 space-y-0.5">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-slate-500 font-medium">{vi ? 'Khách nhận (Đơn gộp):' : 'Consolidated Customer:'}</span>
-                      <span className="rounded bg-purple-100 px-1.5 py-0.2 text-[10px] font-bold text-purple-700 dark:bg-purple-950 dark:text-purple-300">
-                        Gộp {batchCustomer.ordersCount} đơn đa kênh
-                      </span>
-                    </div>
-                    <p className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-                      {batchCustomer.name} · <span className="font-normal font-mono text-xs text-slate-600 dark:text-slate-300">{batchCustomer.phone}</span>
-                    </p>
-                    <p className="text-[11px] text-slate-500 font-medium truncate max-w-[320px]">
-                      {batchCustomer.address}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="text-slate-400">{vi ? 'Tiến độ lấy hàng:' : 'Pick progress:'}</span>
-                    <p className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                      {pickedCount}/{items.length} mặt hàng ({pickedPercent}%)
-                    </p>
-                    <p className="font-mono text-[11px] text-slate-500">
-                      {totalUnitsPicked}/{totalUnitsTotal} sản phẩm
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Notice if not all items picked */}
-              {!isAllPicked ? (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-300 flex items-start gap-2.5">
-                  <AlertTriangle className="h-4.5 w-4.5 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <p className="font-semibold text-amber-900 dark:text-amber-200">
-                      {vi ? 'Chưa hoàn thành nhặt toàn bộ mặt hàng' : 'Not all items picked yet'}
-                    </p>
-                    <p className="mt-0.5 text-amber-800 dark:text-amber-300">
-                      {vi
-                        ? `Vẫn còn ${items.length - pickedCount} mặt hàng chưa lấy đủ số lượng. Khi bấm Xác nhận, hệ thống sẽ tự động hoàn tất lấy đủ toàn bộ số lượng cho đợt này.`
-                        : `${items.length - pickedCount} items remaining. Confirming will mark all items as fully picked.`}
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300 flex items-center gap-2.5">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-                  <div>
-                    <p className="font-semibold text-emerald-900 dark:text-emerald-200">
-                      {vi ? 'Tất cả mặt hàng đã lấy đủ tại kệ' : 'All items successfully picked from racks'}
-                    </p>
-                    <p className="mt-0.5 text-emerald-800 dark:text-emerald-300">
-                      {vi
-                        ? 'Đợt lấy hàng đã hoàn thành, sẵn sàng chuyển xe đẩy hàng sang khu vực Đóng gói (Packing).'
-                        : 'Batch picking complete, ready to transfer items to packing area.'}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer action buttons */}
-            <div className="mt-5 flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => setCompleteBatchModalOpen(false)}
-                className="rounded-lg px-3.5 py-2 font-medium text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-surface-2"
-              >
-                {vi ? 'Đóng' : 'Close'}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setCompleteBatchModalOpen(false)
-                  navigate('/app/packing')
-                }}
-                className="rounded-lg border border-blue-200 bg-blue-50 px-3.5 py-2 font-semibold text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300 transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-                <span>{vi ? 'Chuyển sang Đóng gói' : 'Proceed to Packing'}</span>
-              </button>
-
-              {!isAllPicked && (
-                <button
-                  type="button"
-                  onClick={handleConfirmCompleteBatch}
-                  className="rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] px-4 py-2 font-semibold text-xs text-white shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-                >
-                  <Check className="h-3.5 w-3.5 stroke-[3]" />
-                  <span>{vi ? 'Xác nhận hoàn tất lấy hàng' : 'Mark All Picked & Complete'}</span>
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* ==================================================== */}
-      {/* MANUAL ASSIGN STAFF MODAL                            */}
-      {/* ==================================================== */}
-      {assignModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                  <Users className="h-5 w-5" />
-                </span>
-                <div>
-                  <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
-                    {vi ? 'Phân công nhân viên lấy hàng' : 'Assign Warehouse Picker'}
-                  </h3>
-                  <p className="text-[11px] text-slate-500 font-mono">
-                    Đợt {batch.id} · Kho tổng · {items.length} mặt hàng ({totalUnitsTotal} sản phẩm)
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setAssignModalOpen(false)
-                  setStaffSearchQuery('')
-                }}
-                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="mt-4 space-y-4 text-xs">
-              {/* Option 1: AI Auto-assignment */}
-              <label
-                className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all cursor-pointer ${
-                  modalAssignMode === 'auto'
-                    ? 'border-blue-500 bg-blue-50/60 dark:border-blue-500 dark:bg-blue-950/30 ring-1 ring-blue-500/30'
-                    : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 dark:border-slate-700 dark:bg-surface-2'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="assign-mode"
-                  checked={modalAssignMode === 'auto'}
-                  onChange={() => setModalAssignMode('auto')}
-                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                />
-                <div className="space-y-1 flex-1">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
-                    <Sparkles className="h-4 w-4 text-emerald-600" />
-                    <span>Tự động phân công bởi AI (Khuyến nghị)</span>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                      Tối ưu nhất
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-                    Hệ thống AI tự động phân tích vị trí kệ hàng, tuyến đường nhặt hàng và tải trọng công việc để gán nhân viên rảnh gần nhất, giảm tối đa thời gian di chuyển trong kho.
-                  </p>
-                </div>
-              </label>
-
-              {/* Option 2: Manual Assignment */}
-              <label
-                className={`flex items-start gap-3 rounded-xl border p-3.5 transition-all cursor-pointer ${
-                  modalAssignMode === 'manual'
-                    ? 'border-blue-500 bg-blue-50/60 dark:border-blue-500 dark:bg-blue-950/30 ring-1 ring-blue-500/30'
-                    : 'border-slate-200 bg-slate-50/50 hover:bg-slate-100/50 dark:border-slate-700 dark:bg-surface-2'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="assign-mode"
-                  checked={modalAssignMode === 'manual'}
-                  onChange={() => setModalAssignMode('manual')}
-                  className="mt-0.5 text-blue-600 focus:ring-blue-500"
-                />
-                <div className="space-y-1 flex-1">
-                  <div className="flex items-center gap-1.5 font-bold text-slate-900 dark:text-slate-100">
-                    <Users className="h-4 w-4 text-blue-600" />
-                    <span>Phân công nhân viên thủ công</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Người quản lý điều phối tự chỉ định nhân viên lấy hàng cụ thể theo danh sách kho bên dưới.
-                  </p>
-                </div>
-              </label>
-
-              {/* Staff List (Selectable when manual mode is active or to preview) */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-                  <span>
-                    DANH SÁCH NHÂN VIÊN KHO ({modalAssignMode === 'manual' && staffSearchQuery.trim() ? `${filteredStaffList.length}/${warehouseStaffList.length}` : warehouseStaffList.length})
-                  </span>
-                  <span>Chọn 1 nhân viên để bàn giao</span>
-                </div>
-
-                {/* Ô tìm kiếm nhân viên khi chọn phân công thủ công */}
-                {modalAssignMode === 'manual' && (
-                  <div className="relative animate-in fade-in slide-in-from-top-1 duration-150">
-                    <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                    <input
-                      type="text"
-                      value={staffSearchQuery}
-                      onChange={(e) => setStaffSearchQuery(e.target.value)}
-                      placeholder={
-                        vi
-                          ? 'Tìm kiếm nhân viên theo tên hoặc mã NV (NV-KHO-01)...'
-                          : 'Search staff by name or code...'
-                      }
-                      className="w-full rounded-xl border border-slate-200 bg-white pl-8.5 pr-8 py-2 text-xs text-slate-900 placeholder:text-slate-400 shadow-2xs focus:border-blue-500 focus:outline-none dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100 transition-colors"
-                      autoFocus
-                    />
-                    {staffSearchQuery ? (
-                      <button
-                        type="button"
-                        onClick={() => setStaffSearchQuery('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-700 dark:hover:text-slate-200 cursor-pointer"
-                        title={vi ? 'Xóa tìm kiếm' : 'Clear search'}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    ) : null}
-                  </div>
-                )}
-
-                <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
-                  {filteredStaffList.length > 0 ? (
-                    filteredStaffList.map((staff) => {
-                      const isSelected = selectedStaffId === staff.id
-                      return (
-                        <div
-                          key={staff.id}
-                          onClick={() => {
-                            setSelectedStaffId(staff.id)
-                            setModalAssignMode('manual')
-                          }}
-                          className={`flex items-center justify-between rounded-xl border p-2.5 transition-all cursor-pointer ${
-                            isSelected && modalAssignMode === 'manual'
-                              ? 'border-blue-500 bg-blue-50/80 dark:border-blue-500 dark:bg-blue-950/40 ring-1 ring-blue-500/40 shadow-xs'
-                              : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-surface-2'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <img
-                              src={staff.avatar}
-                              alt={staff.name}
-                              className="h-9 w-9 rounded-full object-cover ring-1 ring-slate-200 dark:ring-slate-700"
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <p className="font-bold text-xs text-slate-900 truncate dark:text-slate-100">
-                                  {staff.name}
-                                </p>
-                                <span className="font-mono text-[10px] text-slate-400">
-                                  ({staff.code})
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                                {staff.role}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 shrink-0">
-                            {staff.status === 'available' ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
-                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                                Đang rảnh
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                Đang phụ trách {staff.activeBatches} đợt
-                              </span>
-                            )}
-
-                            <input
-                              type="radio"
-                              name="selected-staff"
-                              checked={isSelected && modalAssignMode === 'manual'}
-                              onChange={() => {
-                                setSelectedStaffId(staff.id)
-                                setModalAssignMode('manual')
-                              }}
-                              className="text-blue-600 focus:ring-blue-500"
-                            />
-                          </div>
-                        </div>
-                      )
-                    })
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-400 dark:border-slate-700">
-                      <p>
-                        {vi
-                          ? `Không tìm thấy nhân viên nào phù hợp với "${staffSearchQuery}"`
-                          : `No staff matching "${staffSearchQuery}"`}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setStaffSearchQuery('')}
-                        className="mt-2 text-xs font-semibold text-blue-600 hover:underline cursor-pointer"
-                      >
-                        {vi ? 'Xóa từ khóa tìm kiếm' : 'Clear search filter'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Footer Buttons */}
-            <div className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 pt-3 dark:border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setAssignModalOpen(false)
-                  setStaffSearchQuery('')
-                }}
-                className="rounded-lg px-3.5 py-2 font-medium text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-surface-2 cursor-pointer"
-              >
-                {vi ? 'Hủy bỏ' : 'Cancel'}
-              </button>
-
-              <button
-                type="button"
-                onClick={handleConfirmAssignment}
-                className="rounded-lg bg-[#2563eb] hover:bg-[#1d4ed8] active:bg-[#1e40af] px-4 py-2 font-semibold text-xs text-white shadow-xs transition-colors cursor-pointer flex items-center gap-1.5"
-              >
-                <UserCheck className="h-3.5 w-3.5" />
-                <span>{vi ? 'Xác nhận phân công' : 'Confirm Assignment'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Customer Order Details Drawer */}
-      <BatchDetailDrawer
-        batch={drawerOpen ? { ...batch, orders: batchOrders } : null}
-        onClose={() => setDrawerOpen(false)}
-        onStartPicking={() => setDrawerOpen(false)}
-        locale={locale}
-      />
-
-      <Dialog
-        open={Boolean(detachOrder)}
-        onOpenChange={(open) => {
-          if (!open) setDetachOrder(null)
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {vi ? 'Xác nhận gỡ đơn khỏi nhóm gộp' : 'Confirm detach from group'}
-            </DialogTitle>
-            <DialogDescription>
-              {vi
-                ? 'Hướng B: giả lập đơn sàn này bị hủy và gỡ khỏi nhóm. Các mặt hàng của sàn còn lại tiếp tục lấy hàng — không hủy cả đợt.'
-                : 'Option B: simulate cancel on this platform order and detach it. Remaining platforms continue picking.'}
-            </DialogDescription>
-          </DialogHeader>
-          {detachOrder ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-surface-2">
-              <p className="font-medium capitalize text-slate-900 dark:text-slate-100">
-                {detachOrder.channel} · #{detachOrder.orderId}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {detachOrder.items.length} {vi ? 'mặt hàng sẽ bị loại khỏi danh sách lấy' : 'items will leave the picking list'}
-              </p>
-            </div>
-          ) : null}
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setDetachOrder(null)}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:text-slate-200"
-            >
-              {vi ? 'Hủy' : 'Cancel'}
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmDetachPlatformOrder}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white hover:bg-amber-700 cursor-pointer"
-            >
-              {vi ? 'Gỡ khỏi nhóm' : 'Detach'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-// ==========================================
-// MAIN WAREHOUSE PAGE EXPORT
-// ==========================================
 
 export function WarehousePage() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const groupIdParam = searchParams.get('groupId') ?? ''
 
-  const batchId = searchParams.get('batchId')
-  const action = searchParams.get('action')
+  const [meId, setMeId] = useState('')
+  const [tab, setTab] = useState<QueueTab>('to_pick')
+  const [groups, setGroups] = useState<OrderGroup[]>([])
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState<string | null>(null)
 
-  const [batchesList, setBatchesList] = useState<PickingBatch[]>(() => getStoredBatches())
+  const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([])
+  const [warehouseId, setWarehouseId] = useState(() => readStoredWarehouseId())
+  const [warehouseDraft, setWarehouseDraft] = useState(() => readStoredWarehouseId())
+  const [warehouseListBlocked, setWarehouseListBlocked] = useState(false)
 
-  useEffect(() => {
-    const syncBatches = () => {
-      setBatchesList(getStoredBatches())
-    }
-    window.addEventListener('optipack:batches_updated', syncBatches)
-    return () => window.removeEventListener('optipack:batches_updated', syncBatches)
+  const [group, setGroup] = useState<OrderGroup | null>(null)
+  const [lines, setLines] = useState<PickLine[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState<string | null>(null)
+  const [hasBinRoute, setHasBinRoute] = useState(false)
+
+  const [activeSku, setActiveSku] = useState('')
+  const [scanInput, setScanInput] = useState('')
+  const [scanMethod, setScanMethod] = useState<ScanMethod>('barcode')
+  const [currentQty, setCurrentQty] = useState(1)
+
+  const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const [missingOpen, setMissingOpen] = useState(false)
+  const [missingQty, setMissingQty] = useState(1)
+  const [missingNote, setMissingNote] = useState('')
+
+  const [completeOpen, setCompleteOpen] = useState(false)
+  const [packOpen, setPackOpen] = useState(false)
+  const [returnOpen, setReturnOpen] = useState(false)
+
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [assignMode, setAssignMode] = useState<'auto' | 'manual'>('auto')
+  const [staffQuery, setStaffQuery] = useState('')
+  const [staffList, setStaffList] = useState<StaffSearchItem[]>([])
+  const [staffLoading, setStaffLoading] = useState(false)
+  const [selectedStaffId, setSelectedStaffId] = useState('')
+  const [queueFilter, setQueueFilter] = useState<'all' | 'mine' | 'express'>('all')
+
+  const showToast = useCallback((message: string) => {
+    setToast(message)
+    window.setTimeout(() => setToast(null), 3600)
   }, [])
 
-  // Find the selected batch or default to the first pending/active batch
-  const currentBatch = useMemo(() => {
-    if (batchId) {
-      const found = batchesList.find((b) => b.id === batchId)
-      if (found) return found
+  const loadGroups = useCallback(async () => {
+    setListLoading(true)
+    setListError(null)
+    try {
+      const rows = await listWarehouseStaffQueue()
+      setGroups(rows)
+    } catch (err: unknown) {
+      setListError(formatApiError(err))
+      setGroups([])
+    } finally {
+      setListLoading(false)
     }
-    // Default to BTH-20240115-001 or first batch
-    return (
-      batchesList.find((b) => b.id === 'BTH-20240115-001') ??
-      batchesList[0]!
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadGroups()
+      void fetchMyProfile()
+        .then((profile) => setMeId(profile.id))
+        .catch(() => setMeId(''))
+          void listWarehouses()
+        .then((rows) => {
+          setWarehouses(rows)
+          setWarehouseListBlocked(false)
+          setWarehouseId((current) => {
+            if (current && rows.some((row) => row.id === current)) return current
+            const next = rows[0]?.id ?? current
+            if (next) writeStoredWarehouseId(next)
+            return next
+          })
+        })
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.status === 403) {
+            setWarehouseListBlocked(true)
+          }
+        })
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [loadGroups])
+
+  const counts = useMemo(() => {
+    const next = { to_pick: 0, review: 0, picked: 0, packed: 0, returns: 0 }
+    for (const row of groups) {
+      const status = row.fulfillmentStatus
+      if (matchesTab(status, 'to_pick')) next.to_pick += 1
+      else if (matchesTab(status, 'review')) next.review += 1
+      else if (matchesTab(status, 'picked')) next.picked += 1
+      else if (matchesTab(status, 'packed')) next.packed += 1
+      else if (matchesTab(status, 'returns')) next.returns += 1
+    }
+    return next
+  }, [groups])
+
+  const tabGroups = useMemo(() => {
+    return groups
+      .filter((row) => matchesTab(row.fulfillmentStatus, tab))
+      .filter((row) => {
+        if (queueFilter === 'mine') {
+          return Boolean(meId && row.assignedStaffId === meId)
+        }
+        if (queueFilter === 'express') return row.orderPriority === 'express'
+        return true
+      })
+      .sort((a, b) => {
+        if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1
+        const aExpress = a.orderPriority === 'express' ? 1 : 0
+        const bExpress = b.orderPriority === 'express' ? 1 : 0
+        if (aExpress !== bExpress) return bExpress - aExpress
+        const aMine = meId && a.assignedStaffId === meId ? 1 : 0
+        const bMine = meId && b.assignedStaffId === meId ? 1 : 0
+        if (aMine !== bMine) return bMine - aMine
+        return 0
+      })
+  }, [groups, tab, meId, queueFilter])
+
+  const selectedId = useMemo(() => {
+    if (groupIdParam && tabGroups.some((row) => row.id === groupIdParam)) {
+      return groupIdParam
+    }
+    return tabGroups[0]?.id ?? ''
+  }, [groupIdParam, tabGroups])
+
+  useEffect(() => {
+    if (listLoading) return
+    if (!groupIdParam) return
+    const found = groups.find((row) => row.id === groupIdParam)
+    if (!found) return
+    const nextTab = QUEUE_TABS.find((item) =>
+      matchesTab(found.fulfillmentStatus, item.id),
     )
-  }, [batchId, batchesList])
+    if (nextTab && nextTab.id !== tab) {
+      const id = window.setTimeout(() => setTab(nextTab.id), 0)
+      return () => window.clearTimeout(id)
+    }
+    return undefined
+  }, [listLoading, groupIdParam, groups, tab])
+
+  const loadDetail = useCallback(
+    async (id: string, currentWarehouseId: string) => {
+      setDetailLoading(true)
+      setDetailError(null)
+      setActionError(null)
+      try {
+        const latest = await getOrderGroupById(id)
+        setGroup(latest)
+        setGroups((prev) =>
+          prev.map((row) => (row.id === latest.id ? latest : row)),
+        )
+        const progress = readProgress(id)
+        if (currentWarehouseId) {
+          try {
+            const enriched = await getWarehousePickingList(currentWarehouseId, id)
+            setLines(mergeLines(enriched, progress))
+            setHasBinRoute(true)
+            return
+          } catch (err: unknown) {
+            const code = getApiErrorCode(err)
+            if (code === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
+              setLines([])
+              setHasBinRoute(false)
+              setDetailError(formatApiError(err))
+              return
+            }
+          }
+        }
+        const packable = await getOrderGroupPickingList(id)
+        setLines(mergeLines(packable, progress))
+        setHasBinRoute(false)
+      } catch (err: unknown) {
+        setGroup(null)
+        setLines([])
+        setHasBinRoute(false)
+        setDetailError(formatApiError(err))
+      } finally {
+        setDetailLoading(false)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!selectedId) {
+      const clearId = window.setTimeout(() => {
+        setGroup(null)
+        setLines([])
+        setActiveSku('')
+      }, 0)
+      return () => window.clearTimeout(clearId)
+    }
+    const timer = window.setTimeout(() => {
+      void loadDetail(selectedId, warehouseId)
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [selectedId, warehouseId, loadDetail])
+
+  const activeLine = useMemo(() => {
+    return lines.find((line) => line.sku === activeSku) ?? lines[0] ?? null
+  }, [lines, activeSku])
+
+  const skuKey = useMemo(() => lines.map((line) => line.sku).join('|'), [lines])
+
+  useEffect(() => {
+    if (!skuKey) {
+      const clearId = window.setTimeout(() => {
+        setActiveSku('')
+        setScanInput('')
+        setCurrentQty(1)
+      }, 0)
+      return () => window.clearTimeout(clearId)
+    }
+    const preferred =
+      lines.find((line) => line.qtyPicked < line.quantity) ?? lines[0]
+    const nextSku = preferred?.sku ?? ''
+    const remaining = preferred
+      ? Math.max(1, preferred.quantity - preferred.qtyPicked)
+      : 1
+    const syncId = window.setTimeout(() => {
+      setActiveSku(nextSku)
+      setScanInput('')
+      setScanMethod('barcode')
+      setCurrentQty(remaining)
+    }, 0)
+    return () => window.clearTimeout(syncId)
+    // skuKey đổi = nhóm/SKU mới. Không phụ thuộc `lines` để tránh reset sau mỗi lần pick.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, skuKey])
+
+  const isVerified = Boolean(activeLine && lineMatchesScan(activeLine, scanInput))
+  const remainingForActive = activeLine
+    ? Math.max(0, activeLine.quantity - activeLine.qtyPicked)
+    : 0
+  const canConfirmItem = Boolean(
+    group &&
+      canPickItems(group.fulfillmentStatus) &&
+      warehouseId &&
+      activeLine &&
+      isVerified &&
+      currentQty > 0 &&
+      currentQty <= remainingForActive &&
+      remainingForActive > 0 &&
+      !busy,
+  )
+
+  const pickedCount = lines.filter((line) => line.qtyPicked >= line.quantity).length
+  const totalUnits = lines.reduce((sum, line) => sum + line.quantity, 0)
+  const pickedUnits = lines.reduce((sum, line) => sum + line.qtyPicked, 0)
+  const allScanned = lines.length > 0 && pickedCount === lines.length
+  const assignedName = useMemo(() => {
+    if (!group?.assignedStaffId) return vi ? 'Chưa phân công' : 'Unassigned'
+    if (meId && group.assignedStaffId === meId) return vi ? 'Bạn' : 'You'
+    const hit = staffList.find((row) => row.staffId === group.assignedStaffId)
+    return hit?.fullName ?? shortId(group.assignedStaffId)
+  }, [group, meId, staffList, vi])
+
+  function selectLine(line: PickLine) {
+    setActiveSku(line.sku)
+    setScanInput('')
+    setScanMethod('barcode')
+    setCurrentQty(Math.max(1, line.quantity - line.qtyPicked))
+    setActionError(null)
+  }
+
+  function applyWarehouseId() {
+    const next = warehouseDraft.trim()
+    setWarehouseId(next)
+    writeStoredWarehouseId(next)
+    showToast(vi ? 'Đã gắn mã kho cho phiên lấy hàng.' : 'Warehouse id saved for picking.')
+  }
+
+  async function handlePickItem() {
+    if (!group || !activeLine || !warehouseId) return
+    if (!lineMatchesScan(activeLine, scanInput)) {
+      setActionError(
+        vi
+          ? 'Mã quét phải khớp SKU hoặc mã kệ của dòng đang chọn.'
+          : 'Scan must match the selected SKU or bin code.',
+      )
+      return
+    }
+    setBusy(true)
+    setActionError(null)
+    try {
+      const result = await pickOrderGroupItem(group.id, {
+        sku: activeLine.sku,
+        scanned_quantity: currentQty,
+        scan_method: scanMethod,
+        warehouse_id: warehouseId,
+        client_event_id: newClientEventId(),
+      })
+      const nextLines = lines.map((line) =>
+        line.sku === result.sku
+          ? {
+              ...line,
+              qtyPicked: line.qtyPicked + result.decrementedBy,
+              remainingStock: result.remainingStock,
+            }
+          : line,
+      )
+      setLines(nextLines)
+      const progress: PickProgress = {}
+      for (const line of nextLines) {
+        if (line.qtyPicked > 0 || line.remainingStock != null) {
+          progress[line.sku] = {
+            qtyPicked: line.qtyPicked,
+            remainingStock: line.remainingStock,
+          }
+        }
+      }
+      writeProgress(group.id, progress)
+      const updated = nextLines.find((line) => line.sku === result.sku)
+      const nextPending = nextLines.find(
+        (line) => line.sku !== result.sku && line.qtyPicked < line.quantity,
+      )
+      if (updated && updated.qtyPicked >= updated.quantity && nextPending) {
+        selectLine(nextPending)
+      } else if (updated) {
+        setCurrentQty(Math.max(1, updated.quantity - updated.qtyPicked))
+        setScanInput('')
+      }
+      showToast(
+        vi
+          ? `Đã trừ ${result.decrementedBy} × ${result.sku}. Tồn kệ còn ${result.remainingStock}.`
+          : `Picked ${result.decrementedBy} × ${result.sku}. Bin stock now ${result.remainingStock}.`,
+      )
+    } catch (err: unknown) {
+      const code = getApiErrorCode(err)
+      if (code === 'ORD_GROUP_INSUFFICIENT_STOCK') {
+        setActionError(
+          vi
+            ? 'Không đủ tồn kho. Dùng «Báo thiếu hàng» để dừng đơn và báo chủ shop.'
+            : 'Insufficient stock. Use Report missing to stop this group.',
+        )
+        setMissingQty(Math.max(1, remainingForActive))
+        setMissingOpen(true)
+      } else if (code === 'ORD_GROUP_ITEM_NOT_IN_GROUP') {
+        setActionError(
+          vi
+            ? 'Mã này không thuộc nhóm đơn đang lấy. Kiểm tra lại kệ/SKU.'
+            : 'This code is not in the current order group. Check the bin or SKU.',
+        )
+      } else {
+        setActionError(formatApiError(err))
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refreshGroupAfterWrite(id: string): Promise<OrderGroup | null> {
+    try {
+      const latest = await getOrderGroupById(id)
+      setGroup(latest)
+      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      return latest
+    } catch {
+      return null
+    }
+  }
+
+  async function handleReportMissing() {
+    if (!group || !activeLine || !warehouseId) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const latest = await reportMissingOrderGroupItem(group.id, {
+        sku: activeLine.sku,
+        missing_quantity: missingQty,
+        warehouse_id: warehouseId,
+        note: missingNote.trim() || undefined,
+        expected_version: group.version,
+      })
+      setGroup(latest)
+      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      setMissingOpen(false)
+      setMissingNote('')
+      showToast(
+        vi
+          ? 'Đã báo thiếu hàng. Đơn dừng lại, chờ Packaging Staff duyệt.'
+          : 'Missing item reported. Group paused for packaging review.',
+      )
+      navigate(`/app/warehouse?groupId=${latest.id}`)
+      await loadGroups()
+    } catch (err: unknown) {
+      if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
+        await refreshGroupAfterWrite(group.id)
+      }
+      setActionError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleCompletePick() {
+    if (!group) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const latest = await completeOrderGroupPick(group.id, {
+        expected_version: group.version,
+      })
+      clearProgress(group.id)
+      setGroup(latest)
+      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      setCompleteOpen(false)
+      showToast(vi ? 'Đã xác nhận lấy xong cả nhóm.' : 'Group marked as picked.')
+      navigate(`/app/warehouse?groupId=${latest.id}`)
+      await loadGroups()
+    } catch (err: unknown) {
+      if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
+        await refreshGroupAfterWrite(group.id)
+      }
+      setActionError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handlePack() {
+    if (!group) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const latest = await packOrderGroup(group.id, {
+        expected_version: group.version,
+      })
+      setGroup(latest)
+      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      setPackOpen(false)
+      showToast(vi ? 'Đã xác nhận đóng gói xong.' : 'Group marked as packed.')
+      navigate(`/app/warehouse?groupId=${latest.id}`)
+      await loadGroups()
+    } catch (err: unknown) {
+      if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
+        await refreshGroupAfterWrite(group.id)
+      }
+      setActionError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleReturn() {
+    if (!group) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const latest = await returnOrderGroup(group.id, {
+        expected_version: group.version,
+      })
+      setGroup(latest)
+      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      setReturnOpen(false)
+      showToast(vi ? 'Đã ghi nhận hoàn hàng.' : 'Return recorded.')
+      navigate(`/app/warehouse?groupId=${latest.id}`)
+      await loadGroups()
+    } catch (err: unknown) {
+      if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
+        await refreshGroupAfterWrite(group.id)
+      }
+      setActionError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!assignOpen) return
+    const timer = window.setTimeout(() => {
+      setStaffLoading(true)
+      void searchOrderGroupStaff(staffQuery)
+        .then((rows) => {
+          setStaffList(rows)
+          setSelectedStaffId((current) => {
+            if (current && rows.some((row) => row.staffId === current)) return current
+            return rows[0]?.staffId ?? ''
+          })
+        })
+        .catch((err: unknown) => setActionError(formatApiError(err)))
+        .finally(() => setStaffLoading(false))
+    }, 220)
+    return () => window.clearTimeout(timer)
+  }, [assignOpen, staffQuery])
+
+  async function handleAssign() {
+    if (!group) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const assigned = await assignOrderGroup(
+        group.id,
+        assignMode === 'manual' ? selectedStaffId : undefined,
+      )
+      const latest = (await refreshGroupAfterWrite(assigned.id)) ?? assigned
+      setGroup(latest)
+      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      setAssignOpen(false)
+      setStaffQuery('')
+      showToast(
+        assignMode === 'auto'
+          ? vi
+            ? 'Đã gán tự động người đang ít việc nhất.'
+            : 'Auto-assigned the least-busy staff.'
+          : vi
+            ? 'Đã đổi người phụ trách.'
+            : 'Assignee updated.',
+      )
+    } catch (err: unknown) {
+      setActionError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const status = group?.fulfillmentStatus ?? ''
 
   return (
     <>
@@ -2857,11 +806,837 @@ export function WarehousePage() {
         ]}
       />
 
-      <WarehouseFloorView
-        key={currentBatch.id}
-        batch={currentBatch}
-        initialAction={action}
-      />
+      <div className="flex-1 overflow-auto bg-[#F9FAFB] p-4 sm:p-6 dark:bg-[#0B0E14]">
+        <div className="mx-auto max-w-7xl space-y-4">
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs sm:px-4 sm:py-3 dark:border-slate-800 dark:bg-surface-1 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
+                {QUEUE_TABS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setTab(item.id)
+                      const first = groups.find((row) => {
+                        if (!matchesTab(row.fulfillmentStatus, item.id)) return false
+                        if (queueFilter === 'mine') {
+                          return Boolean(meId && row.assignedStaffId === meId)
+                        }
+                        if (queueFilter === 'express') {
+                          return row.orderPriority === 'express'
+                        }
+                        return true
+                      })
+                      if (first) {
+                        navigate(`/app/warehouse?groupId=${first.id}`)
+                      } else {
+                        navigate('/app/warehouse')
+                      }
+                    }}
+                    className={cn(
+                      'inline-flex h-8 items-center rounded-lg px-2.5 text-[11px] font-semibold cursor-pointer',
+                      tab === item.id
+                        ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                        : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800',
+                    )}
+                  >
+                    {vi ? item.labelVi : item.labelEn}
+                    <span className="ml-1 opacity-70">{counts[item.id]}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
+                {(
+                  [
+                    { id: 'all', vi: 'Tất cả', en: 'All' },
+                    { id: 'mine', vi: 'Của tôi', en: 'Mine' },
+                    { id: 'express', vi: 'Hỏa tốc', en: 'Express' },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setQueueFilter(item.id)}
+                    className={cn(
+                      'inline-flex h-8 items-center rounded-lg px-2.5 text-[11px] font-semibold cursor-pointer',
+                      queueFilter === item.id
+                        ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-800 dark:text-white'
+                        : 'text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800',
+                    )}
+                  >
+                    {vi ? item.vi : item.en}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative">
+                <select
+                  value={selectedId}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      navigate(`/app/warehouse?groupId=${e.target.value}`)
+                    }
+                  }}
+                  disabled={tabGroups.length === 0}
+                  className="h-9 cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white pl-2.5 pr-7 font-mono text-xs font-bold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
+                >
+                  {tabGroups.length === 0 ? (
+                    <option value="">
+                      {vi ? 'Không có nhóm trong tab này' : 'No groups in this tab'}
+                    </option>
+                  ) : (
+                    tabGroups.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.orderPriority === 'express' ? '⚡ ' : ''}
+                        {meId && row.assignedStaffId === meId ? '● ' : ''}
+                        …{shortId(row.id)} · {platformLabel(row.platform)} · {row.orderCount}{' '}
+                        {vi ? 'đơn' : 'orders'}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 self-end text-xs lg:self-auto">
+              <button
+                type="button"
+                onClick={() => void loadGroups()}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 font-semibold text-slate-600 cursor-pointer hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                {vi ? 'Tải lại' : 'Reload'}
+              </button>
+              {group && canCompletePick(status) ? (
+                <button
+                  type="button"
+                  onClick={() => setCompleteOpen(true)}
+                  disabled={busy || lines.length === 0}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 font-bold text-white shadow-xs cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
+                </button>
+              ) : null}
+              {group && canPack(status) ? (
+                <button
+                  type="button"
+                  onClick={() => setPackOpen(true)}
+                  disabled={busy}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 font-bold text-white shadow-xs cursor-pointer hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <Package className="h-3.5 w-3.5" />
+                  {vi ? 'Xác nhận đóng gói' : 'Confirm pack'}
+                </button>
+              ) : null}
+              {group && canReturn(status) ? (
+                <button
+                  type="button"
+                  onClick={() => setReturnOpen(true)}
+                  disabled={busy}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 font-bold text-amber-900 cursor-pointer hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                >
+                  {vi ? 'Ghi nhận hoàn hàng' : 'Record return'}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="min-w-0 flex-1 text-xs font-medium text-slate-600 dark:text-slate-300">
+                {vi ? 'Kho đang lấy hàng' : 'Active warehouse'}
+                {warehouses.length > 0 ? (
+                  <select
+                    value={warehouseId}
+                    onChange={(e) => {
+                      setWarehouseId(e.target.value)
+                      setWarehouseDraft(e.target.value)
+                      writeStoredWarehouseId(e.target.value)
+                    }}
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold dark:border-slate-700 dark:bg-surface-2"
+                  >
+                    {warehouses.map((row) => (
+                      <option key={row.id} value={row.id}>
+                        {row.warehouseName} ({row.warehouseCode})
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={warehouseDraft}
+                    onChange={(e) => setWarehouseDraft(e.target.value)}
+                    placeholder={vi ? 'Dán ObjectId kho từ trang Admin' : 'Paste warehouse ObjectId from Admin'}
+                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 font-mono text-xs dark:border-slate-700 dark:bg-surface-2"
+                  />
+                )}
+              </label>
+              {warehouses.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={applyWarehouseId}
+                  className="h-9 shrink-0 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white cursor-pointer dark:bg-white dark:text-slate-900"
+                >
+                  {vi ? 'Dùng mã này' : 'Use this id'}
+                </button>
+              ) : null}
+            </div>
+            {warehouseListBlocked ? (
+              <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
+                {vi
+                  ? 'Không lấy được danh sách kho (403). Dán ObjectId kho, hoặc kiểm tra BE đã mở GET /warehouse/warehouses cho Warehouse Staff.'
+                  : 'Could not list warehouses (403). Paste a warehouse ObjectId, or confirm BE allows GET /warehouse/warehouses for warehouse staff.'}
+              </p>
+            ) : null}
+            {!warehouseId ? (
+              <p className="mt-2 text-[11px] text-slate-500">
+                {vi
+                  ? 'Chưa có mã kho: vẫn xem được danh sách SKU, nhưng quét trừ tồn / báo thiếu hàng cần warehouse_id.'
+                  : 'Without a warehouse id you can view SKUs, but pick-item and report-missing require warehouse_id.'}
+              </p>
+            ) : null}
+          </div>
+
+          {listError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+              {listError}
+            </div>
+          ) : null}
+
+          {listLoading ? (
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-surface-1">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {vi ? 'Đang tải hàng đợi lấy hàng…' : 'Loading pick queue…'}
+            </div>
+          ) : !selectedId ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center dark:border-slate-700 dark:bg-surface-1">
+              <p className="font-semibold text-slate-800 dark:text-slate-100">
+                {vi ? 'Chưa có nhóm đơn' : 'No groups in this step'}
+              </p>
+              <p className="mt-1 text-sm text-slate-500">
+                {vi
+                  ? 'Đơn cần lấy chỉ hiện khi đã duyệt gợi ý đóng gói.'
+                  : 'Pickable groups appear after packaging approval (approved_for_packing).'}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1 sm:p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-base font-bold text-slate-900 dark:text-slate-100">
+                        …{shortId(group?.id ?? selectedId)}
+                      </span>
+                      <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                        {platformLabel(group?.platform ?? '')}
+                      </span>
+                      <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        {statusLabel(status, vi)}
+                      </span>
+                      {group?.orderPriority === 'express' ? (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                          <Zap className="h-3 w-3" />
+                          {vi ? 'Hỏa tốc' : 'Express'}
+                        </span>
+                      ) : null}
+                      {group?.isOverdue ? (
+                        <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                          {vi ? 'Quá hạn' : 'Overdue'}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      {group?.orderCount ?? 0} {vi ? 'đơn trong nhóm' : 'orders in group'}
+                      {group?.packagingDeadline
+                        ? ` · ${vi ? 'Hạn đóng' : 'Deadline'} ${formatDateTime(group.packagingDeadline)}`
+                        : ''}
+                      {hasBinRoute
+                        ? vi
+                          ? ' · Đã sắp theo lộ trình kệ'
+                          : ' · Sorted by bin route'
+                        : vi
+                          ? ' · Chưa có vị trí kệ'
+                          : ' · No bin route yet'}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-surface-2/40">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                      <Users className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                        {assignedName}
+                      </p>
+                      <p className="text-[11px] text-slate-500">
+                        {vi ? 'Nhân viên lấy hàng' : 'Assigned picker'}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAssignMode(group?.assignedStaffId ? 'manual' : 'auto')
+                        setAssignOpen(true)
+                      }}
+                      className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold cursor-pointer hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1"
+                    >
+                      <UserCheck className="h-3.5 w-3.5" />
+                      {group?.assignedStaffId
+                        ? vi
+                          ? 'Đổi người'
+                          : 'Reassign'
+                        : vi
+                          ? 'Nhận việc'
+                          : 'Claim'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {status === 'partial_needs_review' ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    {vi
+                      ? 'Đơn đang chờ được duyệt phần thiếu...'
+                      : 'This group is waiting for packaging staff to decide the shortage. Warehouse staff cannot continue it.'}
+                  </p>
+                </div>
+              ) : null}
+
+              {actionError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                  {actionError}
+                </div>
+              ) : null}
+
+              {detailError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
+                  {detailError}
+                </div>
+              ) : null}
+
+              {detailLoading ? (
+                <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-surface-1">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  {vi ? 'Đang tải danh sách lấy hàng…' : 'Loading picking list…'}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                  <div className="space-y-3 lg:col-span-7">
+                    {activeLine ? (
+                      <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1 sm:p-6">
+                        <div className="flex items-start gap-3">
+                          <SkuThumb sku={activeLine.sku} />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h2 className="font-mono text-lg font-bold text-slate-900 dark:text-slate-100">
+                                {activeLine.sku}
+                              </h2>
+                              {activeLine.is_fragile ? (
+                                <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                                  Fragile
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                              <MapPin className="h-3.5 w-3.5 text-blue-600" />
+                              {activeLine.bin_code || UNASSIGNED_BIN}
+                              {activeLine.zone_code ? ` · ${activeLine.zone_code}` : ''}
+                            </p>
+                            <p className="mt-1 text-[11px] text-slate-500">
+                              {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
+                              {' · '}
+                              {activeLine.weight_kg} kg
+                              {activeLine.remainingStock != null
+                                ? ` · ${vi ? 'Tồn kệ còn' : 'Bin left'} ${activeLine.remainingStock}`
+                                : ''}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="mt-5">
+                          <BarcodeGraphic code={activeLine.bin_code || activeLine.sku} />
+                        </div>
+
+                        <div className="mt-5 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-surface-2/20 sm:p-4">
+                          <div>
+                            <label
+                              htmlFor="barcode-input"
+                              className="block text-xs font-medium text-slate-700 dark:text-slate-300"
+                            >
+                              {vi
+                                ? 'Quét mã kệ/SKU'
+                                : 'Scan bin code or SKU (type if the label is unreadable)'}
+                            </label>
+                            <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-blue-300 bg-white px-2.5 py-2 shadow-2xs dark:border-blue-800 dark:bg-surface-2">
+                              <input
+                                id="barcode-input"
+                                type="text"
+                                value={scanInput}
+                                onChange={(e) => {
+                                  const value = e.target.value
+                                  setScanInput(value)
+                                  const match = lines.find((line) => lineMatchesScan(line, value))
+                                  if (match && match.sku !== activeSku) {
+                                    selectLine(match)
+                                    setScanInput(value)
+                                  }
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    if (canConfirmItem) void handlePickItem()
+                                  }
+                                }}
+                                placeholder={activeLine.bin_code || activeLine.sku}
+                                disabled={!canPickItems(status)}
+                                className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
+                              />
+                              {isVerified ? (
+                                <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                                  <Check className="h-3 w-3 stroke-[3]" />
+                                  {vi ? 'Đã khớp' : 'Matched'}
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setScanInput(activeLine.sku)
+                                    setScanMethod('manual')
+                                  }}
+                                  disabled={!canPickItems(status)}
+                                  className="inline-flex shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 cursor-pointer hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                                >
+                                  {vi ? 'Nhập SKU' : 'Type SKU'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
+                            <div className="flex items-center justify-center gap-1 sm:justify-start">
+                              <button
+                                type="button"
+                                onClick={() => setCurrentQty((prev) => Math.max(1, prev - 1))}
+                                disabled={currentQty <= 1 || !canPickItems(status)}
+                                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
+                              >
+                                <Minus className="h-3.5 w-3.5" />
+                              </button>
+                              <div className="flex h-10 min-w-[84px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold dark:border-slate-700 dark:bg-surface-1">
+                                {currentQty}/{remainingForActive}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCurrentQty((prev) => Math.min(remainingForActive, prev + 1))
+                                }
+                                disabled={
+                                  currentQty >= remainingForActive || !canPickItems(status)
+                                }
+                                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!canConfirmItem}
+                              onClick={() => void handlePickItem()}
+                              className={cn(
+                                'flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold',
+                                canConfirmItem
+                                  ? 'bg-[#2563eb] text-white cursor-pointer hover:bg-[#1d4ed8]'
+                                  : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800',
+                              )}
+                            >
+                              {busy ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="h-4 w-4" />
+                              )}
+                              {vi ? 'Xác nhận lấy' : 'Confirm SKU pick'}
+                            </button>
+                          </div>
+                        </div>
+
+                        {!canConfirmItem && canPickItems(status) ? (
+                          <p className="mt-2 text-[11px] text-slate-400">
+                            {!warehouseId
+                              ? vi
+                                ? 'Cần mã kho trước khi trừ tồn.'
+                                : 'A warehouse id is required before decrementing stock.'
+                              : !isVerified
+                                ? vi
+                                  ? 'Quét đúng mã kệ hoặc SKU.'
+                                  : 'Scan the bin code or seller SKU — Lazada does not provide product barcodes.'
+                                : remainingForActive <= 0
+                                  ? vi
+                                    ? 'SKU này đã lấy đủ số lượng trên phiên hiện tại.'
+                                    : 'This SKU is already fully picked in this session.'
+                                  : null}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-surface-1">
+                        {vi ? 'Nhóm này không còn SKU cần lấy.' : 'No SKUs left to pick in this group.'}
+                      </div>
+                    )}
+
+                    {canPickItems(status) ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] p-3.5 text-xs dark:border-amber-900/40 dark:bg-amber-950/20">
+                        <span className="font-medium text-amber-900 dark:text-amber-300">
+                          {vi
+                            ? 'Không đủ hàng/Hàng lỗi?'
+                            : 'Bin empty or item damaged?'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMissingQty(Math.max(1, remainingForActive))
+                            setMissingOpen(true)
+                          }}
+                          disabled={!activeLine || !warehouseId || busy}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 font-semibold text-amber-900 cursor-pointer hover:bg-amber-50 disabled:opacity-50 dark:border-amber-800 dark:bg-surface-1 dark:text-amber-300"
+                        >
+                          <Flag className="h-3.5 w-3.5" />
+                          {vi ? 'Báo thiếu hàng' : 'Report missing'}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="lg:col-span-5">
+                    <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-surface-1 sm:p-6">
+                      <div className="border-b border-slate-100 pb-3 dark:border-slate-800">
+                        <h3 className="font-bold text-slate-900 dark:text-slate-100">
+                          {vi ? 'Danh sách lấy hàng' : 'Picking list'}
+                        </h3>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {pickedCount}/{lines.length} SKU · {pickedUnits}/{totalUnits}{' '}
+                          {vi ? 'sản phẩm' : 'units'}
+                        </p>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {lines.map((line) => {
+                          const done = line.qtyPicked >= line.quantity
+                          const selected = line.sku === activeLine?.sku
+                          return (
+                            <button
+                              key={line.sku}
+                              type="button"
+                              onClick={() => selectLine(line)}
+                              className={cn(
+                                'flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left cursor-pointer',
+                                selected
+                                  ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30'
+                                  : 'border-slate-200 bg-white hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2',
+                              )}
+                            >
+                              {done ? (
+                                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#16a34a] text-white">
+                                  <Check className="h-3.5 w-3.5 stroke-[3]" />
+                                </div>
+                              ) : (
+                                <div className="h-6 w-6 rounded-full border-2 border-slate-300 dark:border-slate-600" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
+                                  {line.sku}
+                                </p>
+                                <p className="truncate text-[11px] text-slate-500">
+                                  {line.bin_code || UNASSIGNED_BIN}
+                                  {line.zone_code ? ` · ${line.zone_code}` : ''}
+                                </p>
+                              </div>
+                              <span className="shrink-0 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">
+                                {line.qtyPicked}/{line.quantity}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {toast ? (
+        <div className="fixed bottom-5 right-5 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg dark:bg-white dark:text-slate-900">
+          {toast}
+        </div>
+      ) : null}
+
+      <Dialog open={missingOpen} onOpenChange={setMissingOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{vi ? 'Báo thiếu hàng' : 'Report missing item'}</DialogTitle>
+            <DialogDescription>
+              {vi
+                ? 'Đơn sẽ chuyển sang «Thiếu hàng — cần duyệt». Chủ shop nhận thông báo ngay. Bạn không tự quyết định giao thiếu.'
+                : 'The group moves to partial review. Store Owner is notified. You cannot ship short on your own.'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p className="font-mono font-semibold">{activeLine?.sku}</p>
+            <label className="block text-xs font-medium">
+              {vi ? 'Số lượng còn thiếu' : 'Missing quantity'}
+              <input
+                type="number"
+                min={1}
+                value={missingQty}
+                onChange={(e) => setMissingQty(Math.max(1, Number(e.target.value) || 1))}
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-2.5 dark:border-slate-700 dark:bg-surface-2"
+              />
+            </label>
+            <label className="block text-xs font-medium">
+              {vi ? 'Ghi chú (không bắt buộc)' : 'Note (optional)'}
+              <textarea
+                value={missingNote}
+                onChange={(e) => setMissingNote(e.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-slate-200 px-2.5 py-2 dark:border-slate-700 dark:bg-surface-2"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setMissingOpen(false)}
+              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
+            >
+              {vi ? 'Hủy' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleReportMissing()}
+              disabled={busy || !warehouseId}
+              className="h-9 rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-amber-700 disabled:opacity-50"
+            >
+              {vi ? 'Gửi báo cáo' : 'Submit'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}</DialogTitle>
+            <DialogDescription>
+              {allScanned
+                ? vi
+                  ? 'Đã quét đủ mọi SKU trên phiên này. Xác nhận chuyển nhóm sang «Đã lấy xong».'
+                  : 'Every SKU is scanned in this session. Confirm moving the group to picked.'
+                : vi
+                  ? `Mới quét ${pickedCount}/${lines.length} SKU. Vẫn có thể xác nhận cả nhóm (Cách B — không theo dõi từng món).`
+                  : `${pickedCount}/${lines.length} SKUs scanned. You can still complete the whole group (simple path).`}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setCompleteOpen(false)}
+              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
+            >
+              {vi ? 'Hủy' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCompletePick()}
+              disabled={busy}
+              className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-blue-700 disabled:opacity-50"
+            >
+              {vi ? 'Xác nhận đã lấy xong' : 'Mark picked'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={packOpen} onOpenChange={setPackOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{vi ? 'Xác nhận đóng gói' : 'Confirm packing'}</DialogTitle>
+            <DialogDescription>
+              {vi
+                ? 'Chỉ bấm khi đã đóng xong theo gợi ý đã duyệt. Nhóm chuyển sang packed — bước giao vận thuộc Shipping Coordinator.'
+                : 'Use this after physical packing. Shipping is handled by the shipping coordinator.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setPackOpen(false)}
+              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
+            >
+              {vi ? 'Hủy' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handlePack()}
+              disabled={busy}
+              className="h-9 rounded-lg bg-emerald-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {vi ? 'Đã đóng gói' : 'Mark packed'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={returnOpen} onOpenChange={setReturnOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{vi ? 'Ghi nhận hoàn hàng' : 'Record return'}</DialogTitle>
+            <DialogDescription>
+              {vi
+                ? 'Dùng khi hàng hoàn về kho (sau shipped/delivered). Không dùng lúc đang lấy hàng — lúc đó hãy báo thiếu hàng.'
+                : 'For goods returning after ship/deliver. During picking, report missing instead.'}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setReturnOpen(false)}
+              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
+            >
+              {vi ? 'Hủy' : 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleReturn()}
+              disabled={busy}
+              className="h-9 rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-amber-700 disabled:opacity-50"
+            >
+              {vi ? 'Xác nhận hoàn' : 'Confirm return'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {assignOpen ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/40 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-700 dark:bg-surface-1">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold">
+                {vi ? 'Phân công nhân viên kho' : 'Assign warehouse staff'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setAssignOpen(false)}
+                className="rounded-md p-1 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAssignMode('auto')}
+                className={cn(
+                  'h-8 rounded-lg px-3 text-xs font-semibold cursor-pointer',
+                  assignMode === 'auto'
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-800',
+                )}
+              >
+                {vi ? 'Tự động (ít việc nhất)' : 'Auto (least busy)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAssignMode('manual')}
+                className={cn(
+                  'h-8 rounded-lg px-3 text-xs font-semibold cursor-pointer',
+                  assignMode === 'manual'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 dark:bg-slate-800',
+                )}
+              >
+                {vi ? 'Chọn tay' : 'Manual'}
+              </button>
+            </div>
+            {assignMode === 'manual' ? (
+              <div className="mt-3 space-y-2">
+                <input
+                  value={staffQuery}
+                  onChange={(e) => setStaffQuery(e.target.value)}
+                  placeholder={vi ? 'Tìm tên hoặc email' : 'Search name or email'}
+                  className="h-9 w-full rounded-lg border border-slate-200 px-2.5 text-sm dark:border-slate-700 dark:bg-surface-2"
+                />
+                <div className="max-h-56 space-y-1 overflow-auto">
+                  {staffLoading ? (
+                    <p className="p-3 text-xs text-slate-500">{vi ? 'Đang tìm…' : 'Searching…'}</p>
+                  ) : staffList.length === 0 ? (
+                    <p className="p-3 text-xs text-slate-400">
+                      {vi ? 'Không tìm thấy nhân viên kho.' : 'No warehouse staff found.'}
+                    </p>
+                  ) : (
+                    staffList.map((staff) => (
+                      <label
+                        key={staff.staffId}
+                        className={cn(
+                          'flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-xs',
+                          selectedStaffId === staff.staffId
+                            ? 'border-blue-400 bg-blue-50 dark:border-blue-700 dark:bg-blue-950/30'
+                            : 'border-slate-200 dark:border-slate-700',
+                        )}
+                      >
+                        <span>
+                          <span className="font-semibold">{staff.fullName}</span>
+                          <span className="ml-2 text-slate-500">{staff.email}</span>
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <span className="text-slate-500">
+                            {staff.activeWorkload} {vi ? 'việc' : 'jobs'}
+                          </span>
+                          <input
+                            type="radio"
+                            name="staff"
+                            checked={selectedStaffId === staff.staffId}
+                            onChange={() => setSelectedStaffId(staff.staffId)}
+                          />
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                {vi
+                  ? 'Hệ thống chọn Warehouse Staff đang ít việc nhất (hòa điểm thì ưu tiên người được gán lâu nhất).'
+                  : 'The backend picks the least-busy warehouse staff (oldest assignment as tie-break).'}
+              </p>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAssignOpen(false)}
+                className="h-9 rounded-lg px-3 text-xs font-semibold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                {vi ? 'Hủy' : 'Cancel'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleAssign()}
+                disabled={busy || (assignMode === 'manual' && !selectedStaffId)}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#2563eb] px-4 text-xs font-semibold text-white cursor-pointer hover:bg-[#1d4ed8] disabled:opacity-50"
+              >
+                <UserCheck className="h-3.5 w-3.5" />
+                {vi ? 'Xác nhận phân công' : 'Confirm assignment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   )
 }

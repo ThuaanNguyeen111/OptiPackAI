@@ -2286,3 +2286,15 @@ User chỉ ra: nhiều nội dung ghi ngày "16/09/2026" thực ra làm vào **1
 ## Sửa lỗi tự nhắc nhở: câu chốt trước đó viết sai ("Đã cập nhật... sau" — mâu thuẫn), chưa thực làm (19/09/2026)
 
 Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md`/`API_LIST.md`/tài liệu giảng giải cho 2 fix (mở role Warehouse Staff cho GET warehouses, validate SKU trước khi trừ tồn ở pick-item) — thực ra CHƯA làm. User hỏi lại mới phát hiện, đã làm bù đủ cả 3 file ngay. **Bài học**: không viết câu tổng kết kiểu "đã X" nếu chưa thực sự gọi tool chỉnh sửa file đó trong lượt trả lời — dễ gây hiểu nhầm đã xong việc.
+
+## ĐÃ TRIỂN KHAI FE — trang Warehouse Staff nối Order Groups + Fulfillment (2026-09-20)
+
+Không đụng `be/`. Trang `/app/warehouse` (role Warehouse Staff) nối đúng mục 5–6 `API_LIST.md` + Nghiệp vụ 3–4 `INTEGRATION_GUIDE_FULFILLMENT.md`:
+
+- Hàng đợi: `GET /order-groups?fulfillment_status=` gọi **song song** theo từng trạng thái thao tác được (BE chỉ lọc 1 status + limit 100).
+- Picking: ưu tiên `GET /warehouse/:warehouseId/picking-list/:groupId` (có mã kệ, wave picking); fallback `GET /order-groups/:id/picking-list`.
+- Ghi: `pick-item` (kèm `client_event_id`, bắt riêng `ORD_GROUP_INSUFFICIENT_STOCK` / `ORD_GROUP_ITEM_NOT_IN_GROUP`) → `report-missing` → `pick` (Cách B) → `pack` → `return`. Mọi transition gửi `expected_version`.
+- Phân công: `POST /order-groups/:id/assign` + `GET /order-groups/staff/search` (map raw snake_case vì assign hiện trả Document Mongoose).
+- Chọn kho: `GET /warehouse/warehouses` (role Warehouse Staff đã mở 19/09).
+
+Gap BE ghi nhận để FE báo lại (không tự sửa backend): `POST .../assign` trả raw document; `GET /order-groups` không lọc nhiều status/`$in`; `pick-item` không chuyển `picking` và không giới hạn số lượng còn lại của group; `GET .../sku-bin-assignments` vẫn Admin-only nên trang `/app/inventory` chưa nối API được.
