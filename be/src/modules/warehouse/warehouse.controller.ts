@@ -128,8 +128,11 @@ export class WarehouseController {
   }
 
   @Get('warehouses')
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Danh sách kho' })
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({
+    summary:
+      'Danh sách kho. 🔄 SỬA (19/09/2026, báo cáo Hải Phượng) — mở thêm cho Warehouse Staff: trước đây CHỈ Admin xem được, nhưng picking-list/pick-item/report-missing đều BẮT BUỘC warehouse_id — Warehouse Staff không có cách nào (qua API) biết warehouse_id nào để dùng nếu route này vẫn khóa Admin-only.',
+  })
   async listWarehouses(): Promise<WarehouseResponse[]> {
     const docs = await this.warehouseService.listWarehouses();
     return docs.map(toWarehouseResponse);
