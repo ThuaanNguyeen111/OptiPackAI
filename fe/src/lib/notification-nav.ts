@@ -25,19 +25,26 @@ export function resolveNotificationPath(
     return '/app/packing'
   }
   if (type === 'missing_item') {
-    if (role === UserRole.WAREHOUSE_STAFF) return '/app/warehouse'
+    if (role === UserRole.WAREHOUSE_STAFF) {
+      return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'
+    }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.STORE_OWNER) return '/app/order-groups'
     return '/app'
   }
   if (type === 'sla_warning' || type === 'sla_breach') {
-    if (role === UserRole.WAREHOUSE_STAFF) return '/app/warehouse'
+    if (role === UserRole.WAREHOUSE_STAFF) {
+      return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'
+    }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.SHIPPING_COORDINATOR) return '/app/shipping'
     if (role === UserRole.STORE_OWNER) return '/app/order-groups'
     return '/app'
   }
   if (notif.relatedEntityType === 'order_group' && entityId) {
+    if (role === UserRole.WAREHOUSE_STAFF) {
+      return `/app/warehouse?groupId=${entityId}`
+    }
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.STORE_OWNER) return '/app/order-groups'
   }

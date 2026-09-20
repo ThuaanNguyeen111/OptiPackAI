@@ -50,6 +50,57 @@ export type DecidePartialInput = {
   expected_version: number
 }
 
+export type ScanMethod = 'barcode' | 'manual'
+
+/** Khớp `PackableItem` — hợp đồng snake_case, không camelCase. */
+export type PackableItem = {
+  sku: string
+  quantity: number
+  length_cm: number
+  width_cm: number
+  height_cm: number
+  weight_kg: number
+  is_fragile: boolean
+}
+
+export type PickItemInput = {
+  sku: string
+  scanned_quantity: number
+  scan_method: ScanMethod
+  warehouse_id: string
+  client_event_id?: string
+}
+
+export type PickItemResult = {
+  sku: string
+  decrementedBy: number
+  remainingStock: number
+}
+
+export type ReportMissingInput = {
+  sku: string
+  missing_quantity: number
+  warehouse_id: string
+  note?: string
+  expected_version: number
+}
+
+export type TransitionOrderGroupInput = {
+  expected_version: number
+}
+
+/** Trạng thái hàng đợi Warehouse Staff — mục 5–6 API_LIST. */
+export const WAREHOUSE_STAFF_QUEUE_STATUSES = [
+  'approved_for_packing',
+  'picking',
+  'partial_needs_review',
+  'picked',
+  'packed',
+  'shipped',
+  'delivered',
+  'returned',
+] as const
+
 export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
   string,
   { vi: string; en: string }
@@ -79,4 +130,7 @@ export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_ITEM_NOT_IN_GROUP: 'SKU không thuộc nhóm đơn này.',
   ORD_GROUP_NO_STAFF_AVAILABLE: 'Không còn nhân viên trống để gán.',
   ORD_GROUP_STAFF_NOT_FOUND: 'Không tìm thấy nhân viên.',
+  ORD_GROUP_STAFF_INACTIVE: 'Nhân viên này đang bị vô hiệu hóa, không gán được việc.',
+  ORD_GROUP_ALL_ORDERS_CANCELED:
+    'Nhóm đơn này không còn hàng cần lấy (đơn đã hủy hoặc gặp sự cố logistics).',
 }

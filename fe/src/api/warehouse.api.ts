@@ -302,13 +302,52 @@ export async function listUnassignedSkus(): Promise<UnassignedSku[]> {
   return res.map(mapUnassignedSku).filter((row): row is UnassignedSku => row !== null)
 }
 
+function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
+  const row = asRecord(raw)
+  const sku = pickString(row?.sku)
+  if (!row || !sku) return null
+  return {
+    sku,
+    quantity: pickNumber(row.quantity),
+    length_cm: pickNumber(row.length_cm),
+    width_cm: pickNumber(row.width_cm),
+    height_cm: pickNumber(row.height_cm),
+    weight_kg: pickNumber(row.weight_kg),
+    is_fragile: row.is_fragile === true,
+    zone_code: pickString(row.zone_code),
+    bin_code: pickString(row.bin_code),
+  }
+}
+
 export async function getWarehousePickingList(
   warehouseId: string,
   groupId: string,
 ): Promise<WarehousePickingListItem[]> {
-  const res = await apiRequest<WarehousePickingListItem[]>(
-    `/warehouse/${warehouseId}/picking-list/${groupId}`,
+  const res = await apiRequest<unknown>(
+    `/warehouse/${encodeURIComponent(warehouseId)}/picking-list/${encodeURIComponent(groupId)}`,
     { auth: true },
   )
-  return Array.isArray(res) ? res : []
+  if (!Array.isArray(res)) return []
+  return res
+    .map(mapPickingListItem)
+    .filter((row): row is WarehousePickingListItem => row !== null)
+}
+
+const WAREHOUSE_ID_STORAGE_KEY = 'optipack.warehouseId'
+
+export function readStoredWarehouseId(): string {
+  try {
+    return localStorage.getItem(WAREHOUSE_ID_STORAGE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function writeStoredWarehouseId(id: string): void {
+  try {
+    if (id) localStorage.setItem(WAREHOUSE_ID_STORAGE_KEY, id)
+    else localStorage.removeItem(WAREHOUSE_ID_STORAGE_KEY)
+  } catch {
+    // ignore quota / private mode
+  }
 }
