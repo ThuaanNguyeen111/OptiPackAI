@@ -2265,3 +2265,17 @@ User phản biện đúng: đánh giá trước ("chỉ API_LIST.md liên quan")
 ## Cập nhật doc theo 2 mã lỗi mới thêm (WH_WAREHOUSE_CODE_IN_USE, WH_ZONE_CODE_IN_USE) — 16/09/2026
 
 Đúng quy tắc chuẩn đã đặt trước đó — sau khi thêm 2 mã lỗi vào code (`warehouse.errors.ts`), cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md` ở CẢ 2 chỗ: bảng mã lỗi cục bộ trong "Nghiệp vụ 2b" và dòng tổng hợp ở D.3. `API_LIST.md` không cần sửa (chỉ trỏ sang FULFILLMENT guide, không tự liệt kê mã lỗi).
+
+## Cập nhật tài liệu giảng giải — lần 3 (16/09/2026)
+
+Đã bổ sung vào `HE_THONG_OPTIPACKAI_GIANG_GIAI.md`: (1) mục III.6 thêm kỹ thuật "dịch E11000 sang lỗi nghiệp vụ" + bài học tổng quát (rà lại các unique index khác chưa chắc đã xử lý tương tự); (2) mục III.7 viết lại hoàn toàn — thêm lỗi múi giờ cron đã sửa, thêm lưu ý giới hạn thực tế môi trường dev (cron cần app sống đúng 3h sáng), thêm bảng 2 script hỗ trợ vận hành mới. Đúng quy tắc chuẩn: mỗi khi sửa file guide FE, đồng bộ luôn cả tài liệu giảng giải nếu đủ lớn.
+
+## LỖI GHI NGÀY SAI — 16/09 thay vì 19/09 (phát hiện 19/09/2026)
+
+User chỉ ra: nhiều nội dung ghi ngày "16/09/2026" thực ra làm vào **19/09/2026** (cron timezone fix, E11000 fix, 2 script mới, các đoạn doc/tài liệu giảng giải liên quan) — do lặp lại "quán tính" ngày đã dùng từ đầu phiên làm việc dài, không kiểm tra lại ngày thật mỗi lần ghi. Đã sửa lại toàn bộ trước khi user kịp commit (kiểm tra `git status` thấy các file này còn ở "Changes not staged" — chưa lên git, sửa tại gốc không để lại vết sai trong lịch sử).
+
+**Quy tắc rút ra — áp dụng mọi lần ghi ngày vào comment code/doc/CLAUDE.md từ giờ**: trong phiên làm việc kéo dài NHIỀU NGÀY THẬT (không phải 1 buổi), **không mặc định dùng lại ngày đã ghi trước đó trong cùng phiên chat** — luôn đối chiếu bằng chứng thật gần nhất (timestamp trong log terminal user vừa dán, ngày hệ thống hiện tại) trước khi ghi ngày vào bất kỳ đâu.
+
+## Sửa lỗi tự nhắc nhở: câu chốt trước đó viết sai ("Đã cập nhật... sau" — mâu thuẫn), chưa thực làm (19/09/2026)
+
+Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md`/`API_LIST.md`/tài liệu giảng giải cho 2 fix (mở role Warehouse Staff cho GET warehouses, validate SKU trước khi trừ tồn ở pick-item) — thực ra CHƯA làm. User hỏi lại mới phát hiện, đã làm bù đủ cả 3 file ngay. **Bài học**: không viết câu tổng kết kiểu "đã X" nếu chưa thực sự gọi tool chỉnh sửa file đó trong lượt trả lời — dễ gây hiểu nhầm đã xong việc.
