@@ -54,23 +54,24 @@ Mục 1 mô tả code hiện có và các lỗi đã thấy; các mục thiết 
 
 **ĐÃ THAY ĐỔI ngày 12/09/2026:** phát triển tiếp trên module hiện hữu; một đơn nguồn là một phạm vi đóng, còn gom đơn chỉ hỗ trợ lấy hàng cùng lượt. Không mặc định group nhiều đơn là một kiện/vận đơn. Nhóm legacy đang xử lý phải rà soát trước chuyển đổi, không tự sửa lịch sử đã hoàn tất.
 
+🔄 **ĐÃ ĐỔI (21/09/2026):** flow chính thức là lấy hàng trước, tính/duyệt phương án sau (code AOFP-35). Phạm vi kiện vẫn theo đơn như quyết định 12/09.
+
 ```text
 Đồng bộ đơn + dữ liệu sản phẩm khai báo từ sàn
-→ Xác định từng item đủ điều kiện của một đơn
-→ Tra hồ sơ đóng gói được kho xác nhận
+→ Gộp nhóm lấy hàng → Tự phân công → Lấy và đối chiếu item/số lượng
+→ Thiếu hàng → Dừng, người quyết định tiếp tục với phần có hoặc lấy lại
+→ picked → Chia hàng đã lấy về từng đơn → Tra hồ sơ kho đã xác nhận
    ├─ Thiếu → Chờ bổ sung, không đoán số đo
-   └─ Đủ → Tính túi/carton → Validator
+   └─ Đủ → Tính túi/carton cho từng đơn → Validator
           ├─ Không hợp lệ/chưa tìm được → Xử lý ngoại lệ
-          └─ Hợp lệ → Tự thông qua phương án → Phân công lấy hàng
-→ Đối chiếu item/số lượng thực lấy
-→ Thay đổi hoặc thiếu hàng → Dừng, xử lý và tính lại
-→ Đóng theo quy cách → Cân/đo kiện hoàn chỉnh, ghi vật tư
+          └─ Hợp lệ → Duyệt (hoặc tự thông qua ở BE-5) phương án
+→ Đóng theo quy cách → Cân/đo kiện hoàn chỉnh từng đơn, ghi vật tư
 → Xác nhận đóng xong → Bàn giao vận chuyển nội bộ
 ```
 
 Kho hoặc Admin xác nhận đã đo/thử khi nhập hồ sơ SKU, không có bước Admin duyệt riêng. Nháp chưa được dùng, sửa quy cách tạo version mới. Đơn thường được hệ thống xử lý sau kiểm tra đầy đủ; nhân viên xử lý ngoại lệ. Tự thông qua phương án khác với xác nhận đã lấy/đóng hàng thật.
 
-Hiện code vẫn cần Admin generate, Packaging Staff/Admin approve trước picking và yêu cầu cân sau đóng ngay lúc approve. Đây là điểm cần sửa, không phải flow mục tiêu. Trạng thái mục tiêu giữ tên hiện có để chuyển tiếp: awaiting_packaging (chờ dữ liệu/tính, có reason), pending_approval (ngoại lệ), approved_for_packing (phương án hợp lệ, actor system/human), picking → picked (đủ hàng), packed (đã cân/đo sau đóng). Partial không được đi tiếp chỉ nhờ boolean approve.
+Hiện code (21/09): group tạo xong được tự phân công và chuyển picking; sau picked Admin gọi generate (fallback thể tích, tính cho cả group thành một thùng); Packaging Staff/Admin approve/adjust và vẫn phải nhập cân thật dù chưa đóng. Các điểm cần sửa: tính theo từng đơn qua validator, dời cân sang pack, đối soát đủ hàng trước picked. Trạng thái giữ tên hiện có: picking → picked (đủ hàng), pending_approval (phương án chờ duyệt/ngoại lệ), approved_for_packing (phương án đã chốt, actor system/human), packed (đã cân/đo sau đóng). Partial không được đi tiếp chỉ nhờ boolean approve.
 
 Fulfillment hiện mô phỏng nội bộ; không thêm lời gọi Pack/ReadyToShip thật lên Lazada trong phạm vi đồ án. [Roadmap BE-1 đến BE-5](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md) là thứ tự sửa hiện hành; chưa bật tự động trước khi đầu vào, validator và picking/xác nhận đạt nghiệm thu.
 
@@ -505,7 +506,7 @@ Response rút gọn của nhánh thùng trong ví dụ ở mục 10. Nhánh túi
 
 ### 9.3. Xác nhận và phản hồi
 
-Request nhận vật tư gồm `candidate_id`, `input_revision` và khóa idempotency; xác nhận đóng xong còn cần attempt, cân/đo kiện thật và vật tư thực dùng. Chọn phương án trước picking không yêu cầu cân sau đóng. Server đọc lại dữ liệu liên quan; dữ liệu hoặc tồn đã đổi thì trả xung đột để tính lại. Một lần bấm lại cùng khóa và cùng nội dung trả cùng kết quả; cùng khóa nhưng nội dung khác phải bị từ chối.
+Request nhận vật tư gồm `candidate_id`, `input_revision` và khóa idempotency; xác nhận đóng xong còn cần attempt, cân/đo kiện thật và vật tư thực dùng. Chọn phương án (sau picked) không yêu cầu cân sau đóng. Server đọc lại dữ liệu liên quan; dữ liệu hoặc tồn đã đổi thì trả xung đột để tính lại. Một lần bấm lại cùng khóa và cùng nội dung trả cùng kết quả; cùng khóa nhưng nội dung khác phải bị từ chối.
 
 Không dùng một cờ “AI confidence” chung cho mọi ý nghĩa. Tách chất lượng số đo, kết quả validator, trạng thái tìm kiếm và điểm dự đoán của mô hình nếu có.
 

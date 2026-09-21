@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-20 (gộp bản contract từ nhánh `thi_dev`: thêm mục Quy ước, mục 0 System, bảng DTO/field cho từng module, mục 11 collection nội bộ/planned và bảng mã lỗi theo module).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-21 (🔄 đồng bộ luồng lấy hàng trước, đóng gói sau — mục 6 và 8); trước đó 2026-09-20 (gộp bản contract từ nhánh `thi_dev`: thêm mục Quy ước, mục 0 System, bảng DTO/field cho từng module, mục 11 collection nội bộ/planned và bảng mã lỗi theo module).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -140,8 +140,8 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | POST   | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin           | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng |
 | POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin           | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
 | POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin           | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại                         |
-| POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | Xác nhận đã lấy xong TOÀN BỘ nhóm đơn                                |
-| POST   | `/order-groups/:id/fulfillment/pack`           | Warehouse, Admin           | Xác nhận đã đóng gói xong                                            |
+| POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | `picking → picked`: xác nhận đã lấy xong (hiện chưa đối soát số lượng đã quét) |
+| POST   | `/order-groups/:id/fulfillment/pack`           | Warehouse, Admin           | `approved_for_packing → packed`: xác nhận đã đóng gói xong           |
 | POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin            | Xác nhận đã bàn giao vận chuyển                                      |
 | POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin            | Xác nhận đã giao thành công tới khách                                |
 | POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |
@@ -179,13 +179,15 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 
 ## 8. Packaging — UC-04 (`/order-groups/:groupId/packaging`)
 
+🔄 **ĐÃ ĐỔI (21/09/2026)** — đóng gói diễn ra SAU lấy hàng: `generate` chỉ gọi được khi group ở `picked` và tính trên số lượng đã quét; approve/adjust đưa group sang `approved_for_packing`; `reject` quay về `picked` (không lấy lại hàng). Phân công Warehouse Staff đã diễn ra lúc tạo group, không còn do approve kích hoạt.
+
 | Method | Route                                       | Role                                  | Mô tả                                                     |
 | ------ | ------------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
 | GET    | `/order-groups/:groupId/packaging`          | Packaging, Warehouse, Shipping, Admin | Xem gợi ý đóng gói hiện tại (dù đã duyệt hay chưa)        |
-| POST   | `/order-groups/:groupId/packaging/generate` | **Chỉ Admin** (route TẠM)             | Tạo gợi ý đóng gói bằng thuật toán fallback (chờ AI thật) |
-| POST   | `/order-groups/:groupId/packaging/approve`  | Packaging, Admin                      | Duyệt gợi ý, kèm cân nặng THẬT đo được                    |
+| POST   | `/order-groups/:groupId/packaging/generate` | **Chỉ Admin** (route TẠM)             | `picked → pending_approval`: tạo gợi ý bằng fallback theo tổng thể tích (chưa xếp hình học, chờ engine thật) |
+| POST   | `/order-groups/:groupId/packaging/approve`  | Packaging, Admin                      | `pending_approval → approved_for_packing`: duyệt gợi ý, hiện vẫn bắt nhập cân (sẽ dời sang `pack`) |
 | POST   | `/order-groups/:groupId/packaging/adjust`   | Packaging, Admin                      | Đổi thùng/vật liệu rồi mới duyệt                          |
-| POST   | `/order-groups/:groupId/packaging/reject`   | Packaging, Admin                      | Từ chối, quay lại chờ tính toán lại                       |
+| POST   | `/order-groups/:groupId/packaging/reject`   | Packaging, Admin                      | `pending_approval → picked`: từ chối, gọi lại generate      |
 
 > ⚠️ `packaging/generate` không phải hành vi nghiệp vụ chính thức lâu dài — sẽ bị thay bằng cơ chế tự động khi AI Packaging thật (Package 3) xong.
 
@@ -198,7 +200,7 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | Adjust | `box_size.length_cm`, `.width_cm`, `.height_cm` | number | ✓ | Mỗi chiều min 1 |
 |  | `material_type` | string | ✓ | Vật liệu |
 |  | `adjustment_reason` | enum | ✓ | Fragile / out of stock / OTHER |
-|  | `adjustment_note` | string |  | Bắt buộc theo nghiệp vụ khi OTHER |
+|  | `adjustment_note` | string |  | Bắt buộc theo nghiệp vụ khi OTHER (hiện reason/note được validate nhưng chưa lưu) |
 |  | `actual_measured_weight_kg` | number | ✓ | Cân thật, min 0 |
 |  | `expected_group_version` | integer | ✓ | Version group |
 | Reject | `expected_group_version` | integer | ✓ | Version group |

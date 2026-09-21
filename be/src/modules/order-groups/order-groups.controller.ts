@@ -99,7 +99,7 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc approved_for_packing để biết cần lấy hàng gì)',
+      'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc picking để biết cần lấy hàng gì, Packaging Staff lọc pending_approval để duyệt gợi ý)',
   })
   async list(@Query() query: ListOrderGroupsQueryDto): Promise<OrderGroupResponse[]> {
     const groups = await this.orderGroupsService.listOrderGroups({
@@ -204,7 +204,7 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (approved_for_packing -> picked). Warehouse Staff bấm sau khi soạn xong theo picking-list.',
+      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (picking -> picked). Warehouse Staff bấm sau khi soạn xong theo picking-list; sau bước này mới tính gợi ý đóng gói.',
   })
   async pick(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
@@ -217,7 +217,7 @@ export class OrderGroupsController {
 
   @Post(':id/fulfillment/pack')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (picked -> packed).' })
+  @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed).' })
   async pack(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,

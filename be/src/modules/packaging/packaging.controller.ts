@@ -96,7 +96,7 @@ export class PackagingController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary:
-      '[TẠM — chỉ Admin] Tạo PackagingRecommendation bằng thuật toán fallback, dùng để test UC-04 khi chưa có AI thật (Package 3).',
+      '[TẠM — chỉ Admin] Tạo PackagingRecommendation bằng fallback theo tổng thể tích (picked -> pending_approval), tính trên số lượng đã quét. Chưa xếp hình học, chờ engine thật.',
   })
   async generate(@Param('groupId') groupId: string): Promise<PackagingRecommendationResponse> {
     const doc = await this.packagingService.generateFallbackRecommendation(groupId);
@@ -105,7 +105,7 @@ export class PackagingController {
 
   @Post('approve')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Duyệt gợi ý đóng gói đang chờ, kèm cân nặng THẬT đo được (UC-04 Approve).' })
+  @ApiOperation({ summary: 'Duyệt gợi ý đóng gói đang chờ (pending_approval -> approved_for_packing), hiện vẫn kèm cân nặng THẬT (UC-04 Approve).' })
   async approve(
     @Param('groupId') groupId: string,
     @Body() dto: ApprovePackagingDto,
@@ -134,7 +134,7 @@ export class PackagingController {
 
   @Post('reject')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Từ chối hoàn toàn gợi ý — Order Group quay lại chờ tính toán lại (UC-04 Reject).' })
+  @ApiOperation({ summary: 'Từ chối hoàn toàn gợi ý — Order Group quay lại picked để tính lại, không cần lấy lại hàng (UC-04 Reject).' })
   async reject(@Param('groupId') groupId: string, @Body() dto: RejectPackagingDto): Promise<{ message: string }> {
     return this.packagingService.reject(groupId, dto.expected_group_version);
   }

@@ -1,6 +1,6 @@
 # Backend roadmap — Điều chỉnh flow và thuật toán đóng gói
 
-Cập nhật **12/09/2026**. Đây là kế hoạch sửa backend trên code hiện hữu. Lát cắt BE-1 đầu tiên đã được triển khai: không còn mặc định số đo/độ nhạy và hồ sơ chưa được kho xác nhận bị chặn khỏi input packaging; các phần còn lại chưa triển khai. Thứ tự BE-1 → BE-5 thay thế M0–M8/BE-Pxx cũ; đây là nhãn công việc nội bộ, không phải mã Jira.
+Cập nhật **12/09/2026**; 🔄 **ĐÃ ĐỔI (21/09/2026):** flow chính thức là **lấy hàng trước, tính/duyệt phương án đóng gói sau** (theo code AOFP-35 đã merge 20/09). Phạm vi kiện vẫn là **mỗi đơn nguồn một kiện**. Các mục 1, 2, 6 đã sửa tại chỗ; BE-3a/BE-4a ở mục 5–6 là lát cắt thu gọn sẽ làm trước. Đây là kế hoạch sửa backend trên code hiện hữu. Lát cắt BE-1 đầu tiên đã được triển khai: không còn mặc định số đo/độ nhạy và hồ sơ chưa được kho xác nhận bị chặn khỏi input packaging; các phần còn lại chưa triển khai. Thứ tự BE-1 → BE-5 thay thế M0–M8/BE-Pxx cũ; đây là nhãn công việc nội bộ, không phải mã Jira.
 
 ## 1. Hiện trạng và đích triển khai
 
@@ -10,9 +10,10 @@ Cập nhật **12/09/2026**. Đây là kế hoạch sửa backend trên code hi�
 | --- | --- |
 | Product Master lấy số đo GetProducts, thiếu thì mặc định 20 cm/0,5 kg | Tách khai báo từ sàn với hồ sơ kho; thiếu dữ liệu phải báo thiếu |
 | Đầu vào packaging dùng dòng gộp, bỏ định danh/trạng thái item | Giữ từng unit đủ điều kiện của một đơn |
-| Fallback chọn ba hộp theo tổng thể tích +10% | Candidate phải qua validator; không trả hộp khi quá cỡ |
-| Admin generate, approve/adjust bắt cân thật trước picking | Tự tính sau khi đủ điều kiện; cân kiện tại bước đóng xong |
-| Pick trừ tồn trước ghi event, partial chỉ đổi trạng thái | Transaction, kiểm tra item/số lượng, xử lý phần thiếu rõ ràng |
+| Fallback chọn ba hộp theo tổng thể tích +10% (không phải FFD, không xếp hình học), quá cỡ vẫn trả Large | Candidate phải qua validator; không trả hộp khi quá cỡ |
+| Group tạo xong được auto-assign và chuyển `picking`; sau `picked` Admin gọi generate; approve/adjust bắt nhập cân thật dù chưa đóng, so với cân hàng thuần (không cộng bì) | Tự tính sau `picked`; approve chỉ chọn phương án; cân kiện tại bước `pack`, so với hàng + bì + vật tư |
+| Gợi ý tính cho cả group (nhiều đơn) thành một thùng | Tách hàng đã lấy theo từng đơn, mỗi đơn một recommendation/kiện |
+| Pick trừ tồn trước ghi event (không transaction); pick_events cộng dồn mọi lượt lấy; không chặn quét vượt số đặt; `pick` không kiểm tra đủ hàng; partial chỉ đổi trạng thái | Transaction, lượt lấy (round), chặn vượt số đặt, `pick` đối soát đủ, xử lý phần thiếu rõ ràng |
 | Contract group ID, cm/kg, một hộp; HTTP camelCase | Adapter có phiên bản sang lõi mm/g; không đổi hợp đồng ngầm |
 
 **Phạm vi đóng:** một đơn nguồn, một tập item được phép giao. Group nhiều đơn chỉ là nhóm lấy hàng, không đồng nghĩa một kiện/vận đơn. Bản đầu tính một bao bì ngoài cho mỗi đơn; không tìm được thì xử lý ngoại lệ, chưa tự chia kiện.
@@ -21,28 +22,34 @@ Cập nhật **12/09/2026**. Đây là kế hoạch sửa backend trên code hi�
 
 ## 2. Flow và trạng thái mục tiêu
 
+🔄 **ĐÃ ĐỔI (21/09/2026):** thay flow "tính phương án → duyệt → phân công → lấy hàng" của bản 12/09. Lý do nghiệp vụ: Packaging Staff cần thấy tập hàng thật đã lấy (kể cả khi thiếu) rồi mới chốt đóng gói; tính trước trên số lượng đặt dễ ra thùng sai khi thiếu hàng. Hệ quả chấp nhận: nhân viên kho không biết trước cần mang túi/thùng nào khi đi lấy hàng.
+
 ```text
 Đồng bộ đơn + dữ liệu khai báo từ sàn
-→ Xác định item đủ điều kiện của từng đơn
-→ Tra hồ sơ kho đã xác nhận
-   ├─ Thiếu → Chờ bổ sung, không đoán số đo
-   └─ Đủ → Tính túi/carton → Validator
-          ├─ Không có candidate hợp lệ → Xử lý ngoại lệ
-          └─ Hợp lệ → Phân công → Lấy và đối chiếu item/số lượng
-→ Có thay đổi/thiếu hàng → Dừng, xử lý tập hàng thực giao, tính lại
-→ Đóng theo quy cách → Cân/đo kiện thật, ghi vật tư → Xác nhận đóng xong
-→ Bàn giao vận chuyển nội bộ
+→ Gộp nhóm lấy hàng (Order Group) → Tự phân công Warehouse Staff → picking
+→ Quét từng SKU, đối chiếu item/số lượng theo đơn (không vượt số đặt)
+   ├─ Thiếu → partial_needs_review → Packaging Staff/Admin quyết định
+   │          (tiếp tục với phần có / lấy lại lượt mới)
+   └─ Đủ → picked
+→ Chia hàng đã lấy về từng đơn nguồn → Tra hồ sơ kho đã xác nhận
+   ├─ Thiếu hồ sơ → Chặn, chờ bổ sung, không đoán số đo
+   └─ Đủ → Tính thùng/túi cho TỪNG ĐƠN → Validator
+          ├─ Không có phương án hợp lệ → Ngoại lệ (adjust/xử lý tay)
+          └─ Hợp lệ → pending_approval → approve/adjust → approved_for_packing
+→ Đóng theo phương án từng đơn → Cân kiện thật từng đơn tại bước pack
+→ packed → Bàn giao vận chuyển nội bộ
 ```
 
-| Trạng thái đang có | Nghĩa mục tiêu sau khi sửa BE |
-| --- | --- |
-| `awaiting_packaging` | Chờ dữ liệu hoặc tính phương án; có reason |
-| `pending_approval` | Ngoại lệ cần người xử lý, không bắt buộc mọi đơn |
-| `approved_for_packing` | Có phương án hợp lệ; ghi nguồn system/human |
-| `picking → picked` | Lấy và xác nhận đủ item/số lượng thực tế |
-| `partial_needs_review` | Dừng khi thiếu; không chuyển picked chỉ bằng boolean approve |
-| `packed` | Đã đóng và ghi cân/đo kiện thật |
-| `shipped/delivered/returned` | Mô phỏng nội bộ, không đổi trạng thái Lazada thật |
+| Trạng thái | Nghĩa hiện tại (code 21/09) | Nghĩa mục tiêu sau BE-3a/BE-4a |
+| --- | --- | --- |
+| `awaiting_packaging` | Giá trị khởi tạo, chuyển ngay sang `picking` sau auto-assign; đích của decide-partial(false) | Như cũ; decide-partial(false) mở lượt lấy mới (round) |
+| `picking` | Đang lấy hàng | Như cũ, quét bị chặn khi vượt số đặt |
+| `partial_needs_review` | Báo thiếu, chờ quyết định | Không chuyển picked chỉ bằng boolean nếu chưa xác định tập giao |
+| `picked` | Đã bấm pick (chưa đối soát); điểm gọi generate; đích của reject | Đã đối soát đủ (hoặc partial đã duyệt); điểm tính phương án |
+| `pending_approval` | Có recommendation (fallback, cả group) chờ duyệt | Có recommendation theo từng đơn, đã qua validator |
+| `approved_for_packing` | Đã duyệt (kèm cân nhập trước khi đóng) | Đã chốt phương án; chưa cân |
+| `packed` | Chỉ đổi trạng thái | Nhận cân kiện thật từng đơn, so hàng + bì + vật tư |
+| `shipped/delivered/returned` | Mô phỏng nội bộ | Như cũ, không đổi trạng thái Lazada thật |
 
 ## 3. BE-1 — Đầu vào và phạm vi đơn
 
@@ -95,6 +102,10 @@ Túi khớp toàn bộ profile/version/quantity theo quy cách đã thử, có t
 
 Prototype chỉ-thùng chưa có cước: thể tích ngoài → vật tư đã biết → mã/signature. Khi so túi/thùng: tổng chi phí nếu đủ, nếu chỉ đủ vật tư thì so vật tư và ghi cước/tổng chưa biết. Không so thể tích hộp với diện tích túi; không dùng 15.000 VND/kg như cước thực.
 
+### BE-3a — lát cắt thu gọn làm trước (21/09/2026)
+
+Engine thuần TS trong `packaging/engine/`: đổi cm/kg → mm/g (item làm tròn lên, lòng thùng làm tròn xuống), mở số lượng thành unit có `item_key`, catalog thùng có kích thước trong/ngoài/bì/tải, validator (đủ unit, biên, AABB, vật đỡ, tải), greedy như trên với tối đa 30 unit; không có thùng hợp lệ → `no_fit`, không trả Large. Fallback thể tích giữ làm lưới an toàn nhưng kết quả cũng phải qua validator. Recommendation tính theo từng đơn (`order_id`), adjust phải qua validator và lưu lý do. Chưa làm: hồ sơ kho có version, nhánh túi, worker, snapshot đầy đủ.
+
 ### Thực thi và tương thích
 
 - Prototype TS, quyết định engine sau benchmark trước tích hợp. Worker pool khởi đầu 1 worker/instance, queue 8, chờ 1 giây, solver 2 giây, watchdog 3 giây; cần đo lại.
@@ -111,6 +122,7 @@ Prototype chỉ-thùng chưa có cước: thể tích ngoài → vật tư đã 
 - Trừ tồn, ghi pick event và cập nhật tiến độ trong một transaction. Idempotency key bắt buộc khi trừ tồn: cùng key/nội dung trả kết quả cũ, khác nội dung trả 409. Unique index + transaction bảo vệ request đồng thời.
 - Thiếu hàng lưu unit/số lượng và dừng. Bản đầu chờ bổ sung hoặc hủy/xử lý lại, chưa giao thiếu tự động. Partial không chuyển picked khi chưa xác định tập giao, xử lý phần còn lại và tính lại. Đối soát hàng đã lấy/vật tư đã dùng, không tự cộng tồn khi quay lại.
 - Tách chọn phương án khỏi nhận vật tư và đóng xong. Cấp vật tư lúc bắt đầu đóng theo attempt riêng, ledger + trừ nguyên tử; kết thúc đối soát thực dùng/trả lại. Đổi bao bì phải tính lại, không ghi đè lịch sử/trừ lần hai khi retry.
+- 🔄 ĐÃ ĐỔI (21/09/2026): picking diễn ra trước khi có phương án; `picked` chỉ được đặt khi đã đối soát đủ theo lượt lấy hiện tại (round). **BE-4a (làm trước):** lượt lấy, chặn quét vượt số đặt, transaction trừ tồn + ghi event, `pick` kiểm tra đủ hàng, cân kiện từng đơn tại `pack`.
 - Approve/adjust kế hoạch bỏ yêu cầu cân sau đóng. Pack nhận cân/đo kiện thật, attempt/revision, vật tư thực dùng; so với hàng + bao bì + vật tư đúng một lần. Lệch policy thì chờ xem lại, chưa tự packed. Ngưỡng 20% hiện có chỉ là khởi đầu cần thử, không chứng minh đủ hàng.
 - Recheck item/profile/recommendation trước cấp vật tư và đóng xong. Writer cập nhật revision nghiệp vụ và conditional write trong transaction để phát hiện sync hủy hàng cạnh tranh; chỉ đọc/so ngoài transaction chưa đủ.
 
@@ -120,7 +132,7 @@ Prototype chỉ-thùng chưa có cước: thể tích ngoài → vật tư đã 
 
 Chỉ bật khi BE-1 đến BE-4 đạt nghiệm thu. Sau lưu đơn, upsert yêu cầu đánh giá bền vững theo order + revision; worker khóa job, retry có giới hạn, có job đối soát phục hồi. Không chỉ dùng event trong bộ nhớ dễ mất khi restart. Lỗi packaging không rollback sync; API kiểm tra lại dùng cùng service.
 
-Đủ dữ liệu và candidate hợp lệ thì tự approved_for_packing, ghi actor system và phân công. Thiếu/không có phương án giữ chờ có reason; catalog liên quan đổi tạo lượt đánh giá mới. Revision đã xử lý không tạo/trừ trùng. Đơn đã picking trở đi không bị job mới tự thay phương án.
+Sau `picked`, đủ dữ liệu và candidate hợp lệ thì tự tạo phương án theo từng đơn và có thể tự approved_for_packing, ghi actor system (phân công đã diễn ra lúc tạo group, không lặp lại ở đây). Thiếu/không có phương án giữ chờ có reason; catalog liên quan đổi tạo lượt đánh giá mới. Revision đã xử lý không tạo/trừ trùng. Group đã approved_for_packing trở đi không bị job mới tự thay phương án.
 
 Pilot theo SKU đã đo, có cờ tắt tự thông qua và đường ngoại lệ qua validator; không quay về số đo bịa/thuật toán thể tích cũ. Theo dõi thiếu dữ liệu, bao phủ fit túi, lỗi/timeout, stale revision, sai lệch cân và thời gian đóng; log không chứa PII không cần thiết.
 

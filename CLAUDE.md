@@ -248,12 +248,15 @@ Túi zip bọc item khác bao bì ngoài. Hàng sau chuẩn bị là khối đư
 
 ### 2. Flow mục tiêu và phạm vi demo
 
+**ĐÃ THAY ĐỔI 21/09/2026** (so với flow 12/09 "tính phương án → phân công → lấy hàng"): flow chính thức là **lấy hàng trước, đóng gói sau** — theo code AOFP-35 (Thuận, merge 20/09), user chốt 21/09. Phạm vi kiện **vẫn là mỗi đơn nguồn một kiện** (code hiện còn tính cả group thành một thùng — cần sửa, xem BE-3a).
+
 ```text
-Sync → Unit đủ điều kiện của mỗi đơn → Hồ sơ kho đã xác nhận
-→ Thiếu: chờ bổ sung / Đủ: tính và validate túi-carton
-→ Phương án hợp lệ: tự thông qua, ghi system/human → Phân công → Lấy/đối chiếu
-→ Thay đổi/thiếu: dừng, xử lý và tính lại
-→ Cấp vật tư theo attempt → Đóng → Cân/đo kiện thật + đối soát vật tư
+Sync → Gộp nhóm lấy hàng → Tự phân công (lúc tạo group) → picking
+→ Quét từng SKU, không vượt số đặt; đủ → picked / thiếu → partial_needs_review
+→ Chia hàng đã lấy về từng đơn → Hồ sơ kho đã xác nhận
+→ Thiếu: chờ bổ sung / Đủ: tính và validate túi-carton cho từng đơn
+→ pending_approval → approve/adjust (không cân) → approved_for_packing
+→ Đóng → Cân/đo kiện thật từng đơn tại pack + đối soát vật tư
 → Xác nhận packed → Bàn giao vận chuyển nội bộ
 ```
 
@@ -443,7 +446,7 @@ src/
 
 Orders sync mỗi 10 phút. Group backfill mỗi 15 phút chỉ tìm consolidated_group_id=null, còn thiếu trường hợp ID có giá trị mà document group không tồn tại. Product Master có cron riêng lúc 3h mỗi ngày; chưa có cache-miss fetch trong getPackableItemsForGroup, nơi đang dùng số đo mặc định khi thiếu.
 
-Packaging hiện đọc group, aggregate item rồi tra Product Master; Admin gọi generate bằng fallback, Packaging Staff/Admin approve rồi mới phân công và picking. Các lỗi dữ liệu/thứ tự cân được xử lý theo [roadmap mới](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md); không phải code đã tự theo flow mới.
+Packaging hiện (21/09) đọc số lượng đã quét (`pick_events`) của cả group rồi tra Product Master; group được phân công và chuyển picking ngay lúc tạo, sau picked Admin mới gọi generate bằng fallback, rồi Packaging Staff/Admin approve/adjust (ĐÃ THAY ĐỔI so với thứ tự "approve rồi mới phân công và picking" ghi 12/09). Các lỗi dữ liệu/thứ tự cân được xử lý theo [roadmap mới](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md); không phải code đã tự theo flow mới.
 
 ### Verify — đã chạy compiler thật, không chỉ đọc mắt (đúng chuẩn Type Safety đã đặt ra)
 
@@ -2266,3 +2269,20 @@ Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `IN
 **Verify sau khi gộp**: `tsc --noEmit` 0 lỗi, `npm run lint:ci` 0 lỗi (43 warning `explicit-function-return-type` đều nằm trong `src/modules/storefront/` — nợ có sẵn từ commit storefront `3c0291c` trên `thi_dev`, không phải phát sinh từ lượt gộp này), `jest` **19/19 suite, 164/164 test pass**.
 
 **Lần gộp thứ 2 (21/09/2026, commit `5b6c15d` AOFP-35 — đảo luồng: lấy hàng trước, quyết định đóng gói sau)**: `main` tách logic tra Product Master thành `mapSkuQuantitiesToPackableItems()` (dùng chung cho `getPackableItemsForGroup()` và `getActuallyPickedItemsForGroup()`), nhưng lại đưa số đo mặc định 20 cm / 0,5 kg / `is_fragile=false` trở lại. Cách gộp: giữ cấu trúc hàm mới của `main`, áp lại kiểm tra hồ sơ `ready` của BE-1 bên trong hàm dùng chung (nên cả 2 nguồn gọi đều bị chặn), sửa test `dimension bị thiếu` của `main` sang kỳ vọng `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` (vẫn là 422 rõ ràng, không phải 500). Verify: `tsc` 0 lỗi, eslint `order-groups`/`packaging` 0 lỗi, `jest` 19/19 suite, 170/170 test.
+
+## Rà logic AI Packaging + đồng bộ docs theo luồng lấy hàng trước (21/09/2026)
+
+Rà toàn bộ code packaging/order-groups + 3 docs thuật toán. User chốt: (1) luồng **lấy hàng trước** là chính thức; (2) phạm vi kiện **mỗi đơn một kiện**; (3) đợt code tới gồm sửa lỗi logic + validator hình học + greedy 3D cơ bản (BE-3a/BE-4a, ghi trong roadmap mục 5–6).
+
+**Điểm yếu xác nhận bằng code (chưa sửa code, đợt này chỉ sửa docs):**
+
+- `fallback-packaging.util.ts` chỉ so tổng thể tích +10% với 3 thùng cố định, comment cũ gọi sai là FFD; món 100×1×1 cm vẫn vào thùng 20 cm; quá cỡ vẫn trả Large, không tầng nào xử lý "multi-package".
+- `approve()/adjust()` bắt nhập cân thật trước khi đóng, so với cân hàng thuần (không cộng bì/vật tư) → đơn quần áo nhẹ gần như luôn `is_abnormal`; `is_abnormal` chỉ log, không notify.
+- `getActuallyPickedItemsForGroup()` cộng mọi `pick_events` của group (không theo lượt) → sau `decidePartial(false)` lấy lại sẽ đếm gấp đôi; không lọc lại đơn bị hủy sau khi đã quét; `pickItem()` không chặn quét vượt số đặt; trừ tồn và ghi event không cùng transaction.
+- Endpoint `pick` chỉ đổi trạng thái, không đối soát đủ hàng; group `picked` không có event → lỗi `ALL_ORDERS_CANCELED` (sai nghĩa).
+- `generate` không transaction (deactivate → create → transition); `approve/adjust/reject` cập nhật thẳng theo `__v`, không qua `isValidStatusTransition()`.
+- `adjust` không kiểm tra thùng nhập tay có chứa vừa hàng, không tính lại phí/vật tư, không lưu `adjustment_reason`.
+- Phí ship = cân hàng × 15.000 đ/kg, bỏ khối lượng quy đổi và bì.
+- Tính gợi ý cho cả group thành một thùng — mâu thuẫn quyết định mỗi đơn một kiện.
+
+**Docs đã sửa (21/09):** roadmap (mục 1, 2, 5 BE-3a, 6 BE-4a, 7), `AI_3D_PACKAGING_OPTIMIZATION.md` (flow + hiện trạng), `INTEGRATION_GUIDE_FULFILLMENT.md` (v3.4: thứ tự A.1, A.4, Nghiệp vụ 1/2/3, sơ đồ C.1/C.2), `API_LIST.md` (mục 6, 8; `be/API_LIST.md` chỉ là file trỏ, không cần sửa), Swagger summary của `pick`/`pack`/`generate`/`approve`/`reject`/list, comment đầu `fallback-packaging.util.ts`. Kế hoạch implement tiếp theo (mỗi bước 1 commit): A — sửa luồng lấy hàng (round, chặn vượt số đặt, transaction, `pick` đối soát đủ); B — `packaging/engine/` validator + greedy 3D mm/g, không trả Large khi quá cỡ; C — recommendation theo từng đơn (`order_id`), adjust qua validator, cân kiện tại `pack`; D — cập nhật docs theo code mới.

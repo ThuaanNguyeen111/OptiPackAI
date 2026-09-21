@@ -2,10 +2,13 @@ import { PackableItem, PackagingRecommendation } from '../../../common/interface
 
 /**
  * ===================================================================
- * Thuật toán fallback ĐƠN GIẢN — First Fit Decreasing cơ bản, đúng
- * theo UC-03 Alt Flow (Report 1) đã note từ trước: "Thuật toán vượt
- * quá 5 giây (timeout) -> hệ thống dùng thuật toán fallback đơn giản
- * (First Fit Decreasing) và đánh dấu 'Fallback Used'".
+ * Thuật toán fallback ĐƠN GIẢN — chọn thùng NHỎ NHẤT có dung tích
+ * >= tổng thể tích hàng +10%. ĐÍNH CHÍNH (21/09/2026): đây KHÔNG phải
+ * First Fit Decreasing — không sắp giảm dần, không đặt từng món vào
+ * vị trí nào, không kiểm tra hình học (món dài 100 cm vẫn "vừa" thùng
+ * 20 cm nếu tổng thể tích nhỏ). Quá cỡ vẫn trả thùng Large. UC-03 Alt
+ * Flow (Report 1) chỉ yêu cầu có fallback khi timeout; kết quả của
+ * hàm này chưa đủ để coi là "xếp vừa" — xem roadmap BE-3a (validator).
  * ===================================================================
  * KHÔNG PHẢI code test bỏ đi — đây là phần LƯỚI AN TOÀN thật sự cần
  * có trong hệ thống production, chỉ là được code SỚM hơn dự kiến để
@@ -50,7 +53,7 @@ export function computeFallbackPackaging(
     throw new Error('STANDARD_BOX_SIZES không được để rỗng.'); // không thể xảy ra thực tế (literal cố định 3 phần tử), chỉ để thỏa strict null check
   }
 
-  // First Fit — chọn thùng NHỎ NHẤT đủ chứa, duyệt theo thứ tự tăng dần.
+  // Chọn thùng NHỎ NHẤT có dung tích đủ (chỉ so thể tích), duyệt theo thứ tự tăng dần.
   const chosenBox =
     STANDARD_BOX_SIZES.find((box) => box.max_volume_cm3 >= volumeWithPadding) ?? largestBox; // vượt cả thùng lớn nhất -> vẫn trả thùng lớn nhất, KHÔNG throw (để UC-04 Alt Flow "Multi-package required" xử lý ở tầng trên, không phải việc của thuật toán này)
 
