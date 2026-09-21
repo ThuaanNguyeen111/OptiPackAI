@@ -26,6 +26,8 @@ import { MarketplaceOAuthSuccessPage } from './pages/MarketplaceOAuthSuccessPage
 import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { OrdersPage } from './pages/OrdersPage'
+import { PackagingGroupsPage } from './pages/PackagingGroupsPage'
+import { PackagingPlanPage } from './pages/PackagingPlanPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
 import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -77,6 +79,8 @@ function App() {
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="packing" element={<PackingPage />} />
+                <Route path="packing/groups" element={<PackagingGroupsPage />} />
+                <Route path="packing/groups/:groupId" element={<PackagingPlanPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
                 <Route path="staff" element={<StaffManagementPage />} />

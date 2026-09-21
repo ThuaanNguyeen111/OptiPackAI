@@ -6,7 +6,8 @@ const STAFF_PREFIXES: Record<
   | typeof UserRole.SHIPPING_COORDINATOR,
   string[]
 > = {
-  [UserRole.WAREHOUSE_STAFF]: ['/app/warehouse', '/app/inventory'],
+  // /app/packing/groups: Warehouse Staff nhập cân kiện + xem animation 3D khi đóng gói.
+  [UserRole.WAREHOUSE_STAFF]: ['/app/warehouse', '/app/inventory', '/app/packing/groups'],
   [UserRole.PACKAGING_STAFF]: ['/app/packing'],
   [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping'],
 }

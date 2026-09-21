@@ -17,6 +17,7 @@ import {
   Truck,
   Users,
   X,
+  PackageCheck,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { fetchMyProfile } from '../../api/users.api'
@@ -57,10 +58,18 @@ const navItems = [
   },
   {
     to: '/app/packing',
-    end: false,
+    end: true,
     labelVi: 'AI 3D Packing',
     labelEn: 'AI 3D Packing Engine',
     icon: Boxes,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/packing/groups',
+    end: false,
+    labelVi: 'Kế hoạch đóng gói 3D',
+    labelEn: '3D packaging plans',
+    icon: PackageCheck,
     section: 'logistics' as NavSection,
   },
   {
