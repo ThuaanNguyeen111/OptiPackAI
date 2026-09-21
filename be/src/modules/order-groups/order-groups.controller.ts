@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService } from './order-groups.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
@@ -10,7 +19,10 @@ import { SetPriorityDto } from './dto/set-priority.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
-import { OrderGroupForPackaging, PackableItem } from '../../common/interfaces/packaging.interface';
+import {
+  OrderGroupForPackaging,
+  PackableItem,
+} from '../../common/interfaces/packaging.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -53,7 +65,9 @@ function toResponse(group: OrderGroupDocument): OrderGroupResponse {
     activePackagingRecommendationId: group.active_packaging_recommendation
       ? group.active_packaging_recommendation.toString()
       : null,
-    assignedStaffId: group.assigned_staff_id ? group.assigned_staff_id.toString() : null,
+    assignedStaffId: group.assigned_staff_id
+      ? group.assigned_staff_id.toString()
+      : null,
     orderPriority: group.order_priority,
     packagingDeadline: group.packaging_deadline,
     isOverdue: group.is_overdue,
@@ -96,12 +110,20 @@ export class OrderGroupsController {
   constructor(private readonly orderGroupsService: OrderGroupsService) {}
 
   @Get()
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @Roles(
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.PACKAGING_STAFF,
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.STORE_OWNER,
+    UserRole.ADMIN,
+  )
   @ApiOperation({
     summary:
       'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc approved_for_packing để biết cần lấy hàng gì)',
   })
-  async list(@Query() query: ListOrderGroupsQueryDto): Promise<OrderGroupResponse[]> {
+  async list(
+    @Query() query: ListOrderGroupsQueryDto,
+  ): Promise<OrderGroupResponse[]> {
     const groups = await this.orderGroupsService.listOrderGroups({
       fulfillmentStatus: query.fulfillment_status,
       platform: query.platform,
@@ -111,8 +133,17 @@ export class OrderGroupsController {
   }
 
   @Get(':id')
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Chi tiết 1 Order Group — đọc field "version" để dùng cho 5 API chuyển trạng thái bên dưới' })
+  @Roles(
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.PACKAGING_STAFF,
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.STORE_OWNER,
+    UserRole.ADMIN,
+  )
+  @ApiOperation({
+    summary:
+      'Chi tiết 1 Order Group — đọc field "version" để dùng cho 5 API chuyển trạng thái bên dưới',
+  })
   async findOne(@Param('id') id: string): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.findOrderGroupById(id);
     return toResponse(group);
@@ -196,7 +227,11 @@ export class OrderGroupsController {
     @Param('id') id: string,
     @Body() body: DecidePartialDto,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.decidePartial(id, body.approve, body.expected_version);
+    const group = await this.orderGroupsService.decidePartial(
+      id,
+      body.approve,
+      body.expected_version,
+    );
     return toResponse(group);
   }
 
@@ -206,7 +241,10 @@ export class OrderGroupsController {
     summary:
       'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (approved_for_packing -> picked). Warehouse Staff bấm sau khi soạn xong theo picking-list.',
   })
-  async pick(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  async pick(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+  ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.PICKED,
@@ -216,9 +254,15 @@ export class OrderGroupsController {
   }
 
   @Post(':id/fulfillment/pack')
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (picked -> packed).' })
-  async pack(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). 🔄 (21/09/2026) mở thêm PACKAGING_STAFF — trước đây chỉ Warehouse+Admin, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý.',
+  })
+  async pack(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+  ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.PACKED,
@@ -229,8 +273,13 @@ export class OrderGroupsController {
 
   @Post(':id/fulfillment/ship')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ GIAO cho đơn vị vận chuyển (packed -> shipped).' })
-  async ship(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  @ApiOperation({
+    summary: 'Xác nhận ĐÃ GIAO cho đơn vị vận chuyển (packed -> shipped).',
+  })
+  async ship(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+  ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.SHIPPED,
@@ -241,8 +290,13 @@ export class OrderGroupsController {
 
   @Post(':id/fulfillment/deliver')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ GIAO THÀNH CÔNG tới khách (shipped -> delivered).' })
-  async deliver(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  @ApiOperation({
+    summary: 'Xác nhận ĐÃ GIAO THÀNH CÔNG tới khách (shipped -> delivered).',
+  })
+  async deliver(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+  ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.DELIVERED,
@@ -252,12 +306,19 @@ export class OrderGroupsController {
   }
 
   @Post(':id/fulfillment/return')
-  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @Roles(
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.ADMIN,
+  )
   @ApiOperation({
     summary:
       'Xác nhận HOÀN HÀNG (shipped hoặc delivered -> returned) — dùng chung cho cả Shipping Coordinator (khách trả hàng sau khi giao) và Warehouse Staff (phát hiện lỗi lúc soạn hàng, hủy giữa chừng).',
   })
-  async returnGroup(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  async returnGroup(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+  ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.RETURNED,
@@ -272,8 +333,15 @@ export class OrderGroupsController {
     summary:
       'Đánh dấu đơn Hỏa Tốc/Bình thường — Lazada KHÔNG cung cấp tín hiệu tự động (đã xác minh bằng doc thật), Store Owner/Admin tự tay quyết định. Tự tính packaging_deadline theo giờ hành chính (8h-17h, tính cả Thứ 7).',
   })
-  async setPriority(@Param('id') id: string, @Body() body: SetPriorityDto): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.setPriority(id, body.order_priority, body.deadline_hours);
+  async setPriority(
+    @Param('id') id: string,
+    @Body() body: SetPriorityDto,
+  ): Promise<OrderGroupResponse> {
+    const group = await this.orderGroupsService.setPriority(
+      id,
+      body.order_priority,
+      body.deadline_hours,
+    );
     return toResponse(group);
   }
 }

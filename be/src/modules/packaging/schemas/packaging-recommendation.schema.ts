@@ -1,6 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { PackagingApprovalStatus, PACKAGING_APPROVAL_STATUS_VALUES } from '../enums/packaging-approval-status.enum';
+import {
+  PackagingApprovalStatus,
+  PACKAGING_APPROVAL_STATUS_VALUES,
+} from '../enums/packaging-approval-status.enum';
 
 /**
  * Rule #1 (Database Design Standards) — sub-schema riêng, KHÔNG dùng
@@ -88,6 +91,14 @@ export class PackagingRecommendationDoc {
   @Prop({ default: false })
   is_abnormal!: boolean;
 
+  // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — lý do Reject, BẮT BUỘC
+  // nhập khi Packaging Staff từ chối gợi ý (xem RejectPackagingDto).
+  // Lưu lại trên chính bản ghi bị reject (is_active chuyển false ngay
+  // sau đó) — giữ đúng lịch sử audit, không mất lý do khi bản mới được
+  // tạo ra ở lần generate() kế tiếp.
+  @Prop({ type: String, default: null })
+  rejection_reason!: string | null;
+
   // Rule #5 (unique constraint ở tầng DB, không chỉ ở service) — nhưng
   // KHÔNG unique tuyệt đối trên order_group_id (vì Reject tạo bản MỚI,
   // giữ bản cũ is_active:false) — unique CÓ ĐIỀU KIỆN qua partial index
@@ -99,8 +110,11 @@ export class PackagingRecommendationDoc {
   updated_at?: Date;
 }
 
-export type PackagingRecommendationDocument = HydratedDocument<PackagingRecommendationDoc>;
-export const PackagingRecommendationSchema = SchemaFactory.createForClass(PackagingRecommendationDoc);
+export type PackagingRecommendationDocument =
+  HydratedDocument<PackagingRecommendationDoc>;
+export const PackagingRecommendationSchema = SchemaFactory.createForClass(
+  PackagingRecommendationDoc,
+);
 
 // Partial unique index — CHỈ áp ràng buộc "1 group = 1 bản active" cho
 // document có is_active:true, cho phép nhiều bản is_active:false (lịch

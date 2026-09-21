@@ -5,6 +5,9 @@ import { PackagingService } from './packaging.service';
 import { PackagingRecommendationDoc } from './schemas/packaging-recommendation.schema';
 import { OrderGroup } from '../order-groups/schemas/order-group.schema';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { PackagingApprovalStatus } from './enums/packaging-approval-status.enum';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -43,7 +46,13 @@ describe('PackagingService', () => {
   let orderGroupsService: {
     findOrderGroupById: jest.Mock;
     getActuallyPickedItemsForGroup: jest.Mock;
+    getPackableItemsForGroup: jest.Mock;
     transitionFulfillmentStatus: jest.Mock;
+  };
+  let notificationsService: {
+    notify: jest.Mock;
+    buildPendingPackagingPlanMessage: jest.Mock;
+    buildPackagingRejectedMessage: jest.Mock;
   };
   let mockSession: { withTransaction: jest.Mock; endSession: jest.Mock };
 
@@ -100,7 +109,18 @@ describe('PackagingService', () => {
     orderGroupsService = {
       findOrderGroupById: jest.fn(),
       getActuallyPickedItemsForGroup: jest.fn().mockResolvedValue(pickedItems),
+      getPackableItemsForGroup: jest.fn().mockResolvedValue(pickedItems),
       transitionFulfillmentStatus: jest.fn(),
+    };
+
+    notificationsService = {
+      notify: jest.fn().mockResolvedValue({}),
+      buildPendingPackagingPlanMessage: jest
+        .fn()
+        .mockReturnValue({ title: 't', message: 'm' }),
+      buildPackagingRejectedMessage: jest
+        .fn()
+        .mockReturnValue({ title: 't', message: 'm' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -113,6 +133,7 @@ describe('PackagingService', () => {
         { provide: getModelToken(OrderGroup.name), useValue: orderGroupModel },
         { provide: getConnectionToken(), useValue: connection },
         { provide: OrderGroupsService, useValue: orderGroupsService },
+        { provide: NotificationsService, useValue: notificationsService },
       ],
     }).compile();
 
@@ -210,7 +231,11 @@ describe('PackagingService', () => {
       recommendationModel.findOne.mockResolvedValue(pending);
       orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId });
 
-      const result = await service.reject(groupId, 0);
+      const result = await service.reject(
+        groupId,
+        0,
+        'Kích thước thùng không phù hợp với hàng thật.',
+      );
 
       expect(recommendationModel.updateOne).toHaveBeenCalledWith(
         { _id: recommendationId },
@@ -218,6 +243,7 @@ describe('PackagingService', () => {
           $set: {
             approval_status: PackagingApprovalStatus.REJECTED,
             is_active: false,
+            rejection_reason: 'Kích thước thùng không phù hợp với hàng thật.',
           },
         },
         { session: mockSession },
@@ -230,6 +256,22 @@ describe('PackagingService', () => {
         expect.anything(),
       );
       expect(result.message).toContain('tính lại gợi ý');
+
+      // BỔ SUNG (21/09/2026, item 13/checklist FE) — xác nhận Admin
+      // được notify đúng loại, đúng role, kèm lý do từ chối.
+      expect(
+        notificationsService.buildPackagingRejectedMessage,
+      ).toHaveBeenCalledWith({
+        groupId,
+        reason: 'Kích thước thùng không phù hợp với hàng thật.',
+      });
+      expect(notificationsService.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientRole: UserRole.ADMIN,
+          type: NotificationType.PACKAGING_REJECTED,
+          severity: 'warning',
+        }),
+      );
     });
 
     it('ném STATE_CONFLICT khi version lệch, giống approve', async () => {
@@ -238,7 +280,9 @@ describe('PackagingService', () => {
       );
       orderGroupModel.findOneAndUpdate.mockResolvedValue(null);
 
-      await expect(service.reject(groupId, 999)).rejects.toMatchObject({
+      await expect(
+        service.reject(groupId, 999, 'Lý do bất kỳ.'),
+      ).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
       });
     });
@@ -268,6 +312,72 @@ describe('PackagingService', () => {
         GroupFulfillmentStatus.PENDING_APPROVAL,
         0,
       );
+
+      // BỔ SUNG (21/09/2026, item 13/checklist FE) — xác nhận Packaging
+      // Staff được notify đúng loại sau khi có gợi ý mới chờ duyệt.
+      expect(
+        notificationsService.buildPendingPackagingPlanMessage,
+      ).toHaveBeenCalledWith(expect.objectContaining({ groupId }));
+      expect(notificationsService.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientRole: UserRole.PACKAGING_STAFF,
+          type: NotificationType.PENDING_APPROVAL,
+          severity: 'info',
+        }),
+      );
+    });
+
+    //!=============================================
+    // FIX GẤP (21/09/2026, báo cáo thật từ FE, xác nhận đúng bug do CHÍNH
+    // đợt đảo luồng 20/09 gây ra): pick() (xác nhận hàng loạt) KHÔNG bắt
+    // buộc quét từng SKU qua pick-item trước — pick_events có thể RỖNG
+    // hoàn toàn dù group đã ở PICKED hợp lệ. generate() PHẢI fallback về
+    // getPackableItemsForGroup(), KHÔNG được throw/chặn đứng.
+    //!=============================================
+    it('KHÔNG có pick_events nào (Warehouse xác nhận hàng loạt, không quét từng SKU) -> fallback về số lượng ĐẶT, KHÔNG throw', async () => {
+      orderGroupsService.findOrderGroupById.mockResolvedValue({
+        _id: new Types.ObjectId(groupId),
+        __v: 0,
+      });
+      recommendationModel.create.mockResolvedValue(makePendingRecommendation());
+      orderGroupsService.getActuallyPickedItemsForGroup.mockRejectedValue(
+        new AppException(
+          ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
+          'Group chưa có pick_events nào.',
+          409,
+        ),
+      );
+
+      await expect(
+        service.generateFallbackRecommendation(groupId),
+      ).resolves.toBeDefined();
+
+      expect(orderGroupsService.getPackableItemsForGroup).toHaveBeenCalledWith(
+        groupId,
+      );
+    });
+
+    it('lỗi KHÁC (không phải thiếu pick_events, VD group không tồn tại) -> ném lại nguyên vẹn, KHÔNG âm thầm fallback', async () => {
+      orderGroupsService.findOrderGroupById.mockResolvedValue({
+        _id: new Types.ObjectId(groupId),
+        __v: 0,
+      });
+      orderGroupsService.getActuallyPickedItemsForGroup.mockRejectedValue(
+        new AppException(
+          ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
+          'Không tìm thấy group.',
+          404,
+        ),
+      );
+
+      await expect(
+        service.generateFallbackRecommendation(groupId),
+      ).rejects.toMatchObject({
+        errorCode: ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
+      });
+      expect(
+        orderGroupsService.getPackableItemsForGroup,
+      ).not.toHaveBeenCalled();
     });
   });
 });

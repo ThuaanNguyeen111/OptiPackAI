@@ -69,7 +69,7 @@ export class LazadaOrderSyncScheduler {
    * vì tự gõ chuỗi cron để tránh gõ sai cú pháp không ai phát hiện ra
    * tới khi job không chạy đúng lịch.
    */
-  @Cron(CronExpression.EVERY_10_MINUTES, { name: 'lazada-order-auto-sync' })
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'lazada-order-auto-sync' }) // 🔄 (21/09/2026, báo cáo thật FE) — đổi từ 10' xuống 5', giảm độ trễ Warehouse/Packaging "không thấy đơn"
   async autoSyncAllConnectedShops(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn(
