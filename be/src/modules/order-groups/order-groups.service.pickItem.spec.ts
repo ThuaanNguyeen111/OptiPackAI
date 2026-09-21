@@ -31,22 +31,20 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
     });
     orderModel.find.mockReturnValue({
       select: jest.fn().mockReturnValue({
-        lean: jest
-          .fn()
-          .mockResolvedValue([
-            {
-              items: [
-                {
-                  sku: realSku,
-                  quantity: 1,
-                  name: 'Sản phẩm thật',
-                  unit_price: 100000,
-                },
-              ],
-              platform: 'lazada',
-              shop_id: 'shop-1',
-            },
-          ]),
+        lean: jest.fn().mockResolvedValue([
+          {
+            items: [
+              {
+                sku: realSku,
+                quantity: 1,
+                name: 'Sản phẩm thật',
+                unit_price: 100000,
+              },
+            ],
+            platform: 'lazada',
+            shop_id: 'shop-1',
+          },
+        ]),
       }),
     });
     // BE-1 (nhánh thi_dev, gộp 20/09/2026): pickItem() đi qua
@@ -87,6 +85,7 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
       pickEventModel as never,
       {} as never, // userModel — không dùng trong đường code này
       {} as never, // notificationsService
+      {} as never, // staffAssignmentService — không dùng trong đường code này
     );
   });
 
