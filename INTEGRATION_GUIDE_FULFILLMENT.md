@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -43,24 +43,40 @@ Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Or
 
 ## Nghiệp vụ 1 — Duyệt gợi ý đóng gói (UC-04)
 
-### Bối cảnh xảy ra
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh xảy ra
 
-Sau khi Order Group được tạo (từ nghiệp vụ Gộp đơn), nó ở trạng thái `awaiting_packaging` — hệ thống CHƯA biết đóng gói thế nào. Cần có 1 "gợi ý đóng gói" (thùng cỡ nào, vật liệu gì) trước khi ai đó có thể bắt tay đóng gói thật.
+**Đảo luồng so với thiết kế ban đầu**: trước đây bước này xảy ra NGAY khi Order Group vừa tạo (trước cả khi lấy hàng). Giờ xảy ra **SAU KHI Warehouse Staff đã lấy hàng xong** (`picked`) — lý do nghiệp vụ: Packaging Staff cần nhìn hàng THẬT đã lấy về mới quyết định đóng gói thế nào, không quyết định trước khi biết chắc có đủ hàng hay không (xem đầy đủ ở Nghiệp vụ 3 và PHẦN C).
+
+Sơ đồ đúng hiện tại:
+
+```
+Group tạo xong → auto-assign Warehouse Staff NGAY (xem Nghiệp vụ 2 — không còn
+chờ bước này kích hoạt nữa) → Lấy hàng (Nghiệp vụ 3) → PICKED
+        │
+        ▼  (ĐÚNG lúc này Nghiệp vụ 1 mới bắt đầu)
+Cần 1 "gợi ý đóng gói" (thùng cỡ nào, vật liệu gì) trước khi đóng gói vật lý thật.
+```
 
 ### Ai làm gì
 
 ```
 [ADMIN, tạm thời]                    [PACKAGING STAFF]
 POST .../packaging/generate    →     GET .../packaging (xem gợi ý)
-(tạo gợi ý bằng thuật toán           → quyết định 1 trong 3:
- fallback, chờ AI thật)                 - approve  (đồng ý)
-                                         - adjust   (đổi rồi mới đồng ý)
-                                         - reject   (không đồng ý)
+(CHỈ gọi được khi group đang          → quyết định 1 trong 3:
+ PICKED)                                 - approve  (đồng ý)
+                                          - adjust   (đổi rồi mới đồng ý)
+                                          - reject   (không đồng ý)
 ```
+
+🔄 **ĐÃ ĐỔI (21/09/2026)** — nguồn số lượng tính gợi ý: ưu tiên số lượng **THẬT đã quét** (`pick_events`), nhưng **KHÔNG BAO GIỜ chặn cứng** nếu Warehouse Staff dùng nút "Đã lấy xong" xác nhận HÀNG LOẠT (không quét từng SKU qua `pick-item`) — trường hợp này `pick_events` rỗng, hệ thống tự động **fallback về số lượng ĐẶT** (đã lọc sẵn đơn hủy/sự cố). FE **không cần lo** `generate` trả 409 chỉ vì Warehouse xác nhận hàng loạt — cả 2 cách lấy hàng đều cho ra gợi ý bình thường, chỉ khác độ chính xác (số lượng thật > số lượng đặt khi có thiếu hàng partial).
+
+🆕 **MỚI (21/09/2026)** — `generate` thành công giờ **tự động notify Packaging Staff** (loại `pending_approval`, broadcast toàn bộ role) — không cần F5/polling mù để biết có kế hoạch mới chờ duyệt.
+
+🔄 **Lưu ý field trả về mới**: `GET .../packaging` luôn trả **object hoặc `null`** — `null` nếu group CHƯA từng `generate` lần nào (KHÔNG trả 404), object bình thường dù recommendation đã Approve/Adjust hay còn Pending. FE nên coi `null` là trạng thái hợp lệ ("chưa có gợi ý"), không phải lỗi tải dữ liệu.
 
 ### Vì sao bước `generate` hiện tại chỉ Admin gọi được
 
-Đây **không phải** hành vi nghiệp vụ chính thức — đội AI Packaging (Package 3) đang code thuật toán thật, khi xong sẽ **TỰ ĐỘNG trigger** ngay sau khi Order Group được tạo (không ai phải bấm nút). Route hiện tại chỉ là "cửa tạm" để có dữ liệu test trong lúc chờ.
+Đây **không phải** hành vi nghiệp vụ chính thức — đội AI Packaging (Package 3) đang code thuật toán thật, khi xong sẽ **TỰ ĐỘNG trigger** ngay sau khi group vào `picked` (không ai phải bấm nút). Route hiện tại chỉ là "cửa tạm" để có dữ liệu test trong lúc chờ.
 
 ### Tình huống `approve` — con đường chính
 
@@ -69,33 +85,43 @@ Packaging Staff xem gợi ý, đồng ý → **BẮT BUỘC nhập kèm cân n�
 - Lệch **≤20%**: bình thường, `is_abnormal: false`
 - Lệch **>20%**: tự động đánh dấu `is_abnormal: true`, log cảnh báo — **không chặn tiến trình**, chỉ đánh dấu để sau này Dashboard/audit dùng phát hiện gợi ý AI hay sai lệch ở loại sản phẩm nào
 
-→ Kết quả: `PackagingRecommendation.approval_status = 'approved'`, `OrderGroup.fulfillment_status = 'approved_for_packing'`, **VÀ tự động kích hoạt Nghiệp vụ 2 (Phân công nhân viên) ngay lập tức**.
+→ Kết quả: `PackagingRecommendation.approval_status = 'approved'`, `OrderGroup.fulfillment_status = 'approved_for_packing'`. 🔄 **ĐÃ ĐỔI** — bước này **KHÔNG còn** tự động kích hoạt Phân công nhân viên nữa (việc đó đã xảy ra từ lúc group vừa tạo, xem Nghiệp vụ 2) — `approved_for_packing` giờ đi thẳng tới đóng gói vật lý (Nghiệp vụ 4), không quay lại Picking.
 
 ### Tình huống `adjust` — Packaging Staff không đồng ý gợi ý gốc
 
-Giống `approve` nhưng Packaging Staff tự nhập lại `box_size`/`material_type` MỚI, kèm `adjustment_reason` (1 trong 3 lý do cố định: sản phẩm dễ vỡ hơn dự kiến / thùng đề xuất không có sẵn / khác). Cũng bắt buộc cân thật, cũng tính `is_abnormal`, cũng trigger Phân công nhân viên.
+Giống `approve` nhưng Packaging Staff tự nhập lại `box_size`/`material_type` MỚI, kèm `adjustment_reason` (1 trong 3 lý do cố định: sản phẩm dễ vỡ hơn dự kiến / thùng đề xuất không có sẵn / khác). Cũng bắt buộc cân thật, cũng tính `is_abnormal`.
 
 ### Tình huống `reject` — từ chối hoàn toàn
 
-G��i ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại lịch sử để sau này tính "tỷ lệ AI bị từ chối"). `OrderGroup` quay lại `awaiting_packaging` — cần gọi lại `generate` từ đầu.
+```
+POST .../packaging/reject
+Body: { "expected_group_version": 0, "rejection_reason": "Kích thước thùng quá nhỏ so với hàng thật." }
+```
+
+🆕 **MỚI (21/09/2026)** — `rejection_reason` giờ **BẮT BUỘC** (3-500 ký tự), trước đây không có field này. Admin cần biết TẠI SAO gợi ý bị từ chối để cải thiện thuật toán/dữ liệu, không chỉ biết "đã bị từ chối". Thiếu field này → `400 Bad Request` từ validation.
+
+Gợi ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại lịch sử, kèm `rejection_reason` đã lưu, phục vụ audit "tỷ lệ AI bị từ chối và vì sao"). `OrderGroup` quay lại **`picked`** (KHÔNG phải `awaiting_packaging`) — hàng ĐÃ lấy xong rồi, Reject chỉ có nghĩa "gợi ý tính sai", không cần lấy lại hàng, chỉ cần gọi lại `generate` từ `picked`.
+
+🆕 **MỚI (21/09/2026)** — `reject` thành công giờ **tự động notify Admin** (loại `packaging_rejected`, broadcast toàn bộ role Admin), kèm nguyên văn lý do từ chối trong nội dung thông báo.
 
 ### DB liên quan — `PackagingRecommendation`
 
-| Field                                     | Kiểu           | Ý nghĩa                                                        |
-| ----------------------------------------- | -------------- | -------------------------------------------------------------- |
-| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                     |
-| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc |
-| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")              |
-| `material_quantity`                       | Number         | Số lượng vật liệu cần                                          |
-| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                            |
-| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                    |
-| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật          |
-| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                     |
-| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                    |
-| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                  |
-| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust               |
-| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                       |
-| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử               |
+| Field                                     | Kiểu           | Ý nghĩa                                                                                               |
+| ----------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
+| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                                                            |
+| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc                                        |
+| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")                                                     |
+| `material_quantity`                       | Number         | Số lượng vật liệu cần                                                                                 |
+| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                                                                   |
+| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                                                           |
+| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật                                                 |
+| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                                                            |
+| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                                                           |
+| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                                                         |
+| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust                                                      |
+| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                                                              |
+| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử                                                      |
+| 🆕 `rejection_reason` (MỚI 21/09/2026)    | String\|null   | Lý do từ chối — chỉ có giá trị khi `approval_status: 'rejected'`, lưu trên chính bản ghi đã bị reject |
 
 **Ràng buộc quan trọng**: 1 Order Group tại 1 thời điểm chỉ có ĐÚNG 1 `PackagingRecommendation` với `is_active: true` (index unique có điều kiện) — nhưng có thể có NHIỀU bản `is_active: false` (lịch sử các lần reject trước đó).
 
@@ -103,9 +129,9 @@ G��i ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại l�
 
 ## Nghiệp vụ 2 — Phân công nhân viên (Staff Assignment)
 
-### Bối cảnh xảy ra
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh xảy ra
 
-Ngay khi Order Group chuyển `approved_for_packing` (Nghiệp vụ 1 xong) — cần biết **AI đi lấy hàng**. Không có bước này, đơn "trôi nổi" không ai chịu trách nhiệm xử lý.
+**Đảo luồng**: trước đây bước này chạy SAU KHI Nghiệp vụ 1 (duyệt đóng gói) xong. Giờ chạy **NGAY LẬP TỨC khi Order Group vừa được tạo** (không chờ gì cả) — cần biết **AI đi lấy hàng** càng sớm càng tốt, vì Lấy hàng (Nghiệp vụ 3) giờ là bước ĐẦU TIÊN, không phải bước giữa luồng nữa. Không có bước này, đơn "trôi nổi" không ai chịu trách nhiệm xử lý.
 
 ### Cơ chế tự động — thuật toán "Ít việc nhất" (Least-Busy)
 
@@ -140,13 +166,26 @@ Cả 3 tình huống trên **dùng chung đúng 1 API** (`POST /order-groups/:id
 
 ---
 
-## 🆕 Nghiệp vụ 2b — Thiết lập kho (Warehouse Setup) — MỚI, bổ sung 16/09/2026
+## 🆕 Nghiệp vụ 2b — Thiết lập kho (Warehouse Setup) — MỚI, bổ sung 16/09/2026, viết lại dễ hiểu hơn 20/09/2026
 
 **Vì sao mục này mới xuất hiện dù `warehouse/` đã có từ trước**: các mục khác trong file chỉ nói tới việc **DÙNG** dữ liệu kho (Picking đọc `bin_location`/`sku_bin_assignment` đã có sẵn) — nhưng chưa từng có hướng dẫn cho bước **TẠO RA** dữ liệu đó (Admin phải làm TRƯỚC KHI bất kỳ đơn nào có thể Picking). Đây là khoảng trống tài liệu thật, không phải do API mới — chỉ là tới giờ mới rà thấy.
 
+### Hình dung bằng đời thực trước khi đọc kỹ thuật
+
+4 bước dưới đây tương ứng đúng 4 việc bạn làm khi **mở 1 kho hàng thật ngoài đời**, theo đúng thứ tự không thể đảo:
+
+```
+1. THUÊ 1 CĂN NHÀ           → Bước 1: Tạo KHO
+2. DÁN BẢNG CHIA KHU        → Bước 2: Tạo KHU (trong kho đó)
+3. ĐÓNG KỆ SẮT, ĐÁNH SỐ     → Bước 3: Sinh KỆ (trong khu đó)
+4. DÁN TEM SẢN PHẨM LÊN KỆ  → Bước 4: Gán SKU vào 1 kệ
+```
+
+Không thể dán tem sản phẩm lên 1 cái kệ **chưa từng được đóng** — đó là lý do 4 bước này **bắt buộc đúng thứ tự**, bước sau luôn cần "địa chỉ" do bước trước tạo ra.
+
 ### Bối cảnh — ai làm, khi nào
 
-**Admin làm 1 LẦN lúc setup ban đầu** (hoặc mỗi khi mở kho mới/thêm SKU mới) — **PHẢI làm ĐÚNG THỨ TỰ 4 bước**, bước sau phụ thuộc bước trước (không thể tạo khu khi chưa có kho, không thể gán SKU khi chưa có kệ):
+**Admin làm 1 LẦN lúc setup ban đầu** (hoặc mỗi khi mở kho mới/thêm SKU mới):
 
 ```
 Bước 1: Tạo KHO ──► Bước 2: Tạo KHU (trong kho đó)
@@ -155,7 +194,9 @@ Bước 1: Tạo KHO ──► Bước 2: Tạo KHU (trong kho đó)
 Bước 4: Gán SKU vào 1 kệ ◄── Bước 3: Sinh HÀNG LOẠT kệ (trong khu đó)
 ```
 
-### Bước 1 — Tạo kho
+**Ví dụ xuyên suốt dùng cho cả 4 bước bên dưới**: bạn mở 1 kho ở Quận 7 để chứa ốp lưng điện thoại đang bán trên Lazada.
+
+### Bước 1 — Tạo kho (= thuê 1 căn nhà)
 
 ```
 POST /warehouse/warehouses
@@ -163,9 +204,11 @@ Body: { "warehouse_code": "WH-HCM-01", "warehouse_name": "Kho TP.HCM - Quận 7"
 → 201: { "id": "...", "warehouseCode": "WH-HCM-01", "warehouseName": "...", "address": "...", "isActive": true }
 ```
 
+Chỉ vậy — hệ thống giờ biết "có 1 kho tên WH-HCM-01", nhưng kho còn **trống trơn**, chưa chia khu, chưa có kệ nào.
+
 Xem lại: `GET /warehouse/warehouses` — danh sách toàn bộ kho. 🔄 **ĐÃ ĐỔI (19/09/2026)** — route này giờ mở thêm cho **Warehouse Staff** (trước chỉ Admin) — vì `picking-list`/`pick-item`/`report-missing` (Warehouse Staff phải gọi hàng ngày) đều bắt buộc `warehouse_id`, cần có cách để họ tự biết ID kho mình đang làm việc, không hardcode tay.
 
-### Bước 2 — Tạo khu TRONG 1 kho
+### Bước 2 — Tạo khu TRONG kho đó (= dán bảng chia khu trong nhà kho)
 
 ```
 POST /warehouse/warehouses/:warehouseId/zones
@@ -173,11 +216,13 @@ Body: { "zone_code": "A", "zone_name": "Phụ kiện điện tử", "description
 → 201: { "id": "...", "warehouseId": "...", "zoneCode": "A", "zoneName": "...", "description": "..." }
 ```
 
-`zone_code` chỉ cần **duy nhất TRONG 1 kho** — 2 kho khác nhau vẫn đặt trùng "A" được bình thường (xem lý do thiết kế ở tài liệu giảng giải hệ thống, mục II.7).
+Với ví dụ đang dùng: `zone_code: "A"`, `zone_name: "Phụ kiện điện thoại"` — giờ trong kho WH-HCM-01 có 1 khu tên "A" chuyên chứa ốp lưng/phụ kiện.
+
+**Lưu ý dễ nhầm**: `zone_code` chỉ cần **duy nhất TRONG 1 kho**, không phải duy nhất toàn hệ thống — mở thêm 1 kho ở Hà Nội, khu ở đó cũng đặt tên "A" được bình thường, 2 kho là 2 "thế giới" tách biệt hoàn toàn (xem lý do thiết kế kỹ hơn ở tài liệu giảng giải hệ thống, mục II.7).
 
 Xem lại: 🔄 `GET /warehouse/warehouses/:warehouseId/zones` (đã sửa lỗi 16/09/2026 — trước đây có thể không trả ra dữ liệu dù tạo thành công).
 
-### Bước 3 — Sinh HÀNG LOẠT kệ (không tạo tay từng cái)
+### Bước 3 — Sinh HÀNG LOẠT kệ trong khu đó (= đóng kệ sắt, đánh số từng ngăn — không đóng tay từng cái)
 
 ```
 POST /warehouse/zones/:zoneId/bin-locations/generate
@@ -185,9 +230,9 @@ Body: { "aisle": "03", "rack_from": 1, "rack_to": 10, "level_from": 1, "level_to
 → 201: { "created": 40 }   // 10 rack × 4 level = 40 kệ, sinh trong 1 lần gọi (bulkWrite, xem tài liệu giảng giải mục III.6)
 ```
 
-`bin_code` tự sinh dạng `"{zone_code}-{aisle}-{rack:02}-{level:02}"` (VD `"A-03-01-01"`) — FE **không cần tự đặt tên kệ**, chỉ cần khai đúng khoảng (range).
+Thay vì gọi API 40 lần để tạo tay từng ngăn kệ, chỉ cần khai "tôi muốn dãy 03, kệ số 1 tới 10, mỗi kệ 4 tầng" — hệ thống **tự sinh ra đủ 40 vị trí trong 1 lần gọi**, tự đặt tên dạng `"{zone_code}-{aisle}-{rack:02}-{level:02}"` (VD `"A-03-01-01"` = khu A, dãy 03, kệ 01, tầng 01). FE **không cần tự nghĩ tên kệ**, chỉ cần khai đúng khoảng (range).
 
-⚠️ Gọi lại ĐÚNG khoảng đã tạo trước đó **không báo lỗi, không tạo trùng** (idempotent — `upsert`) — an toàn nếu Admin lỡ bấm 2 lần, nhưng KHÔNG dùng tính chất này để "sinh thêm" — nếu cần mở rộng khoảng, gọi API MỚI với range khác (VD `rack_from: 11, rack_to: 15`), không gọi lại range cũ.
+⚠️ Gọi lại ĐÚNG khoảng đã tạo trước đó **không báo lỗi, không tạo trùng** (idempotent — `upsert`) — an toàn nếu Admin lỡ bấm 2 lần. Nhưng KHÔNG dùng tính chất này để "sinh thêm" — muốn mở rộng khoảng, gọi API MỚI với range khác (VD `rack_from: 11, rack_to: 15`), đừng gọi lại range cũ với ý định "cộng thêm".
 
 Xem lại (🆕 MỚI 16/09/2026 — trước đây KHÔNG có cách nào xem lại):
 
@@ -197,17 +242,19 @@ GET /warehouse/warehouses/:warehouseId/bin-locations    → TOÀN BỘ kệ tron
 → 200: [{ "id": "...", "warehouseId": "...", "zoneId": "...", "binCode": "A-03-01-01", "aisle": "03", "rack": 1, "level": 1 }, ...]
 ```
 
-### Bước 4 — Gán 1 SKU vào 1 kệ cụ thể
+### Bước 4 — Gán 1 sản phẩm CỤ THỂ vào 1 kệ CỤ THỂ (= dán tem sản phẩm lên đúng 1 ngăn kệ)
 
 ```
 POST /warehouse/warehouses/:warehouseId/sku-bin-assignments
 Body: {
-  "platform": "lazada", "shop_id": "201171264532", "seller_sku": "ABC-123",
-  "bin_location_id": "<id lấy từ bước 3>",
+  "platform": "lazada", "shop_id": "201171264532", "seller_sku": "OPLUNG-IP15",
+  "bin_location_id": "<id của A-03-01-01, lấy từ response Bước 3 hoặc từ GET xem lại>",
   "initial_quantity": 0   // OPTIONAL, mặc định 0 — có thể gán vị trí TRƯỚC, nhập hàng SAU qua bước Restock
 }
-→ 201: { "id": "...", "warehouseId": "...", "platform": "lazada", "shopId": "...", "sellerSku": "ABC-123", "binLocationId": "...", "quantityOnHand": 0 }
+→ 201: { "id": "...", "warehouseId": "...", "platform": "lazada", "shopId": "...", "sellerSku": "OPLUNG-IP15", "binLocationId": "...", "quantityOnHand": 0 }
 ```
+
+Giờ hệ thống biết chính xác: "ốp lưng iPhone 15 nằm ở đúng kệ A-03-01-01" — đây là mảnh ghép CUỐI CÙNG, sau bước này SKU đã sẵn sàng để tính vào Picking List khi có đơn.
 
 **Nhập thêm hàng sau đó** (nghiệp vụ RIÊNG, không phải gán lại):
 
@@ -216,7 +263,7 @@ POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restoc
 Body: { "quantity": 50 }   // CỘNG DỒN vào quantityOnHand hiện có, KHÔNG ghi đè
 ```
 
-Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-bin-assignments` — toàn bộ SKU đã gán trong 1 kho. Phân biệt với route đã có từ trước `GET /warehouse/sku-bin-assignments/unassigned` — route ĐÓ trả **SKU nào TRONG hệ thống nhưng CHƯA gán vị trí nào** (để Admin biết cần làm Bước 4 cho SKU nào); route MỚI trả **SKU ĐÃ gán rồi** (để Admin xem lại/đối chiếu) — 2 route trả tập dữ liệu **ĐỐI LẬP nhau**, đừng nhầm.
+Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-bin-assignments` — toàn bộ SKU **ĐÃ** gán trong 1 kho. **Dễ nhầm với route đã có từ trước** `GET /warehouse/sku-bin-assignments/unassigned` — route ĐÓ trả chiều NGƯỢC LẠI: SKU nào TRONG hệ thống nhưng **CHƯA** gán vị trí nào (để Admin biết còn SKU nào cần làm Bước 4). Tóm gọn: `unassigned` = "còn việc phải làm", route mới = "đã làm xong" — 2 route trả 2 tập dữ liệu ĐỐI LẬP nhau.
 
 ### Mã lỗi riêng mục này
 
@@ -232,9 +279,9 @@ Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-b
 
 ## Nghiệp vụ 3 — Lấy hàng (Picking) — nghiệp vụ có nhiều tình huống nhất
 
-### Bối cảnh xảy ra
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh xảy ra
 
-Order Group đã `approved_for_packing`, đã có người phụ trách (`assigned_staff_id`) — Warehouse Staff cần đi lấy đúng sản phẩm, đúng số lượng, từ đúng vị trí kệ.
+Order Group **vừa tạo xong** (`picking`), đã **TỰ ĐỘNG có người phụ trách** (`assigned_staff_id`, xem Nghiệp vụ 2 — không cần ai duyệt trước) — Warehouse Staff cần đi lấy đúng sản phẩm, đúng số lượng, từ đúng vị trí kệ. Đây giờ là bước **ĐẦU TIÊN** sau khi đơn được gộp xong, KHÔNG còn chờ Packaging Staff duyệt gì trước như thiết kế ban đầu.
 
 ### Tình huống chính (happy path) — 2 cách làm, tùy mức độ chi tiết muốn theo dõi
 
@@ -308,15 +355,17 @@ Trừ bằng lệnh atomic — kiểm tra ĐỦ HÀNG và trừ trong CÙNG 1 l�
 
 ## Nghiệp vụ 4 — Đóng gói vật lý & Vận chuyển
 
-### Bối cảnh
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh
 
-Sau `picked`, nhân viên đóng gói vật lý theo đúng gợi ý đã duyệt (Nghiệp vụ 1), rồi bàn giao vận chuyển.
+Sau `approved_for_packing` (Nghiệp vụ 1 duyệt xong — KHÔNG phải ngay sau `picked` như trước), nhân viên đóng gói vật lý theo đúng gợi ý đã duyệt, rồi bàn giao vận chuyển.
 
 ```
-[WAREHOUSE STAFF] POST .../fulfillment/pack    → "packed"
+[PACKAGING STAFF, WAREHOUSE STAFF, ADMIN] POST .../fulfillment/pack    → "packed"
 [SHIPPING COORDINATOR] POST .../fulfillment/ship     → "shipped"
 [SHIPPING COORDINATOR] POST .../fulfillment/deliver  → "delivered"
 ```
+
+🆕 **MỚI (21/09/2026)** — `pack` giờ mở thêm role `PACKAGING_STAFF` (trước chỉ `WAREHOUSE_STAFF, ADMIN`, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý trong luồng mới). Cả 3 role đều gọi được route này.
 
 Đây là 3 bước tuyến tính đơn giản, không có tình huống rẽ nhánh đặc biệt — mỗi bước chỉ cần đúng `version` hiện tại (Optimistic Concurrency).
 
@@ -391,6 +440,10 @@ Kết hợp được với 2 filter cũ (`fulfillment_status`, `platform`) — V
 | Đã quá hạn Hỏa Tốc                                                                                                               | Store Owner (toàn bộ)       | critical |
 | **MỚI (15/09/2026)** — Buyer yêu cầu hủy đơn, seller có hạn phản hồi (`cancel_trigger_time`) trước khi Lazada tự động hủy        | Store Owner + Admin (cả 2)  | critical |
 | **MỚI (16/09/2026)** — Đồng bộ Lazada thất bại liên tục (VD token hết hạn) — có cơ chế chống spam, tối đa 1 lần/20 phút mỗi shop | Store Owner                 | warning  |
+| 🆕 **MỚI (21/09/2026)** — Có gợi ý đóng gói mới chờ duyệt (sau `generate`)                                                       | Packaging Staff (toàn bộ)   | info     |
+| 🆕 **MỚI (21/09/2026)** — Gợi ý đóng gói bị từ chối, kèm lý do (sau `reject`)                                                    | Admin (toàn bộ)             | warning  |
+
+> 🔄 **Bug đã sửa (21/09/2026)** — thông báo gửi theo ROLE (broadcast, không đích danh) trước đây có thể "biến mất" ở phía nhận do lệch kiểu dữ liệu (`recipient_role` lưu dạng chuỗi thay vì số) — đã sửa cả schema lẫn logic so khớp, dữ liệu cũ đã chạy migration cập nhật lại. FE không cần đổi gì, chỉ cần biết chuông thông báo giờ đáng tin cậy hơn cho các loại broadcast-theo-role.
 
 > ⚠️ **Hành vi đổi (15/09/2026)** — `PATCH /notifications/:id/read` giờ kiểm tra quyền sở hữu: chỉ đánh dấu đọc được thông báo gửi ĐÍCH DANH mình hoặc gửi BROADCAST cho đúng role của mình. Gọi với ID của thông báo KHÔNG thuộc về mình (dù ID hợp lệ) → trả **404 `NOTI_NOT_FOUND`**, y hệt trường hợp ID sai — FE không nên coi đây là bug nếu test chéo giữa 2 tài khoản khác role.
 
@@ -421,33 +474,39 @@ Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **đi
 
 # PHẦN C — SƠ ĐỒ TỔNG THỂ
 
+🔄 **ĐÃ VẼ LẠI (20/09/2026) — đảo luồng: Lấy hàng làm TRƯỚC, Đóng gói (tính gợi ý + duyệt) làm SAU.**
+
 ```
                     ┌─────────────────────────┐
-                    │  awaiting_packaging      │◄──────────────┐
-                    └────────────┬─────────────┘                │ reject /
-                                 │ generate                      │ decide-partial(false)
-                                 ▼                                │
-                    ┌─────────────────────────┐                 │
-                    │  pending_approval        │─────────────────┘
-                    └────────────┬─────────────┘
-                                 │ approve / adjust
-                                 │ (TỰ ĐỘNG gán Staff)
-                                 ▼
+                    │  awaiting_packaging      │  (tồn tại RẤT NGẮN — chỉ ngay
+                    └────────────┬─────────────┘   lúc group vừa tạo)
+                                 │ TỰ ĐỘNG: auto-assign Warehouse Staff
+                                 ▼            NGAY LẬP TỨC, không chờ ai duyệt gì
                     ┌─────────────────────────┐
-                    │  approved_for_packing    │
-                    └────────────┬─────────────┘
-                    pick ─┬─ pick-item×N ─ pick        report-missing
-                          │                              │
-                          ▼                              ▼
-                    ┌───────────┐              ┌──────────────────────┐
-                    │  picked   │◄─────────────│ partial_needs_review  │
-                    └─────┬─────┘  decide(true) └──────────────────────┘
-                          │ pack
+                    │  picking                 │◄──────────────┐
+                    └────────────┬─────────────┘                │ decide-partial(false)
+                    pick-item×N ─┤ pick                          │
+                                 │              report-missing   │
+                                 ▼                    │           │
+                    ┌───────────┐          ┌──────────────────────┐
+                    │  picked   │◄─────────│ partial_needs_review  │
+                    └─────┬─────┘decide(true)└──────────────────────┘
+                          │ generate (Packaging Staff/Admin)
                           ▼
-                    ┌───────────┐
-                    │  packed   │
-                    └─────┬─────┘
-                          │ ship
+                    ┌─────────────────────────┐
+                    │  pending_approval         │─────────────────┐
+                    └────────────┬─────────────┘                  │ reject
+                                 │ approve / adjust                │ (hàng ĐÃ lấy,
+                                 ▼                                 │  không lấy lại)
+                    ┌─────────────────────────┐                   │
+                    │  approved_for_packing    │                  │
+                    └────────────┬─────────────┘                  │
+                                 │ pack                            │
+                                 ▼                                 │
+                    ┌───────────┐                                  │
+                    │  packed   │◄─────── (quay lại PICKED, không phải
+                    └─────┬─────┘          awaiting_packaging — xem mũi
+                          │ ship            tên reject phía trên)
                           ▼
                     ┌───────────┐  return   ┌───────────┐
                     │  shipped  │──────────►│ returned  │ (trạng thái cuối)
@@ -458,6 +517,12 @@ Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **đi
                     │ delivered │
                     └───────────┘
 ```
+
+**3 khác biệt cốt lõi so với thiết kế ban đầu** (đọc kỹ nếu đã quen sơ đồ cũ):
+
+1. `awaiting_packaging` giờ chỉ là trạng thái THOÁNG QUA lúc mới tạo group — auto-assign Warehouse Staff xảy ra NGAY, không cần ai Approve gì trước.
+2. Khối "Đóng gói" (generate/approve/adjust/reject) giờ nằm SAU khối "Lấy hàng" — trước đây ngược lại.
+3. Reject giờ quay về `picked` (không phải `awaiting_packaging`) — hàng đã lấy xong rồi, không cần lấy lại.
 
 ---
 
@@ -491,14 +556,18 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 
 ## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
 
-- [ ] **Nghiệp vụ 1**: `reject` xong, kiểm tra `GET .../packaging` vẫn thấy được bản REJECTED cũ (không bị xóa)
+- [ ] **Nghiệp vụ 1**: `reject` xong, kiểm tra `GET .../packaging` vẫn thấy được bản REJECTED cũ (không bị xóa), có `rejectionReason` đúng như đã gửi
 - [ ] **Nghiệp vụ 1**: `approve` với cân lệch >20% → xác nhận `isAbnormal: true`
-- [ ] **Nghiệp vụ 2**: `approve` xong → `GET /order-groups/:id` → `assignedStaffId` ĐÃ tự có giá trị, không cần gọi `/assign`
+- [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026, dòng cũ SAI): `reject` KHÔNG kèm `rejection_reason` → 400 Bad Request, không cho qua
+- [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026): `generate` khi group được lấy hàng qua nút "xác nhận hàng loạt" (không quét từng SKU) → PHẢI vẫn trả 200, KHÔNG được 409
+- [ ] 🔄 **Nghiệp vụ 2** (sửa 21/09/2026, dòng cũ SAI — auto-assign đã dời lên lúc TẠO group, không còn ở `approve`): NGAY sau khi group được tạo (F5 lại `GET /order-groups/:id` vài giây sau sync) → `assignedStaffId` ĐÃ tự có giá trị, không cần đợi tới lúc `approve`
 - [ ] **Nghiệp vụ 3**: `pick-item` vượt tồn kho → 409, UI gợi ý report-missing
 - [ ] **Nghiệp vụ 3**: `report-missing` → thử gọi `pick`/`pack` trực tiếp → phải bị chặn `ORD_GROUP_INVALID_TRANSITION`
 - [ ] **Nghiệp vụ 3**: `decide-partial(false)` → xác nhận quay đúng về `awaiting_packaging`
+- [ ] 🔄 **Nghiệp vụ 4** (sửa 21/09/2026): `pack` gọi bằng tài khoản Packaging Staff → PHẢI thành công (200), không còn 403
 - [ ] **Nghiệp vụ 5**: `PATCH .../priority` express → `packagingDeadline` hợp lý (không null, đúng khoảng giờ làm việc)
 - [ ] **Nghiệp vụ 6**: sau `report-missing` → `unread-count` của Store Owner tăng lên
+- [ ] 🆕 **Nghiệp vụ 6** (mới 21/09/2026): sau `generate` → `unread-count` của tài khoản Packaging Staff tăng lên; sau `reject` → `unread-count` của tài khoản Admin tăng lên
 
 ## D.5. Checklist FE trước khi bắt đầu code
 
