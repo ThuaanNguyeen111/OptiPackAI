@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 import { PackagingApprovalStatus, PACKAGING_APPROVAL_STATUS_VALUES } from '../enums/packaging-approval-status.enum';
+import { BoxDimensionsMm, BoxDimensionsMmSchema } from './packaging-box.schema';
 
 /**
  * Rule #1 (Database Design Standards) — sub-schema riêng, KHÔNG dùng
@@ -14,19 +15,47 @@ export class BoxSize {
 }
 export const BoxSizeSchema = SchemaFactory.createForClass(BoxSize);
 
+/** Vị trí 1 món trong thùng (mm, trục z hướng lên) — dữ liệu cho animation 3D. */
+@Schema({ _id: false })
+export class PlacementEntry {
+  @Prop({ type: String, required: true }) item_key!: string;
+  @Prop({ type: String, required: true }) sku!: string;
+  @Prop({ type: Number, required: true }) step!: number;
+  @Prop({ type: Number, required: true }) x!: number;
+  @Prop({ type: Number, required: true }) y!: number;
+  @Prop({ type: Number, required: true }) z!: number;
+  @Prop({ type: Number, required: true }) dx!: number;
+  @Prop({ type: Number, required: true }) dy!: number;
+  @Prop({ type: Number, required: true }) dz!: number;
+  @Prop({ type: String, required: true }) orientation!: string;
+}
+export const PlacementEntrySchema = SchemaFactory.createForClass(PlacementEntry);
+
+@Schema({ _id: false })
+export class MaterialEntry {
+  @Prop({ type: String, required: true }) type!: string;
+  @Prop({ type: Number, required: true, min: 0 }) quantity!: number;
+}
+export const MaterialEntrySchema = SchemaFactory.createForClass(MaterialEntry);
+
+@Schema({ _id: false })
+export class NoFitReason {
+  @Prop({ type: String, required: true }) box_code!: string;
+  @Prop({ type: String, required: true }) reason!: string;
+}
+export const NoFitReasonSchema = SchemaFactory.createForClass(NoFitReason);
+
 /**
  * ===================================================================
  * packaging_recommendations — MỚI (2026-09-09), UC-03/UC-04 (Report 1)
  * ===================================================================
- * Chuẩn DB đã CHỐT SẴN từ trước (CLAUDE.md, mục "ĐÃ TRIỂN KHAI" phần
- * order_groups/product_master) — implement ĐÚNG như đã thiết kế, không
- * đổi ý giữa chừng:
- *  - Index { order_group_id: 1 } unique — 1 group chỉ có 1 recommendation
- *    is_active:true tại 1 thời điểm.
- *  - Reject (UC-04 Alt Flow) KHÔNG xóa cứng bản cũ — đánh is_active:false,
- *    tạo bản mới is_active:true — giữ lịch sử phục vụ audit BR-08.
- *  - Rule #22 (Canonical schema) — CHỈ chứa field chuẩn hóa chung, không
- *    field đặc thù sàn nào.
+ * 🔄 ĐÃ ĐỔI (21/09/2026, BE-3a): MỖI ĐƠN MỘT KIỆN — mỗi đơn nguồn trong
+ * group có 1 recommendation active riêng (`order_id`), kèm tọa độ xếp
+ * (`placements`) do engine greedy 3D tính và đã qua validator. Bản cũ
+ * (trước 21/09) có `order_id: null`, 1 bản/group, không có placements.
+ *  - Reject (UC-04 Alt Flow) KHÔNG xóa cứng — is_active:false, giữ lịch
+ *    sử phục vụ audit BR-08.
+ *  - Rule #22 (Canonical schema) — không field đặc thù sàn nào.
  * ===================================================================
  */
 @Schema({
@@ -34,28 +63,76 @@ export const BoxSizeSchema = SchemaFactory.createForClass(BoxSize);
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class PackagingRecommendationDoc {
-  // KHÔNG dùng index:true ở đây — index thật đã khai riêng bên dưới
-  // (partialFilterExpression, cần cấu hình chi tiết hơn "index: true"
-  // đơn thuần cho phép) — khai cả 2 chỗ gây warning trùng lặp Mongoose.
   @Prop({ type: Types.ObjectId, required: true })
   order_group_id!: Types.ObjectId;
 
-  @Prop({ type: BoxSizeSchema, required: true })
-  box_size!: BoxSize;
+  /** Đơn nguồn của kiện này; null = bản legacy cấp group (trước 21/09). */
+  @Prop({ type: Types.ObjectId, default: null })
+  order_id!: Types.ObjectId | null;
 
-  @Prop({ required: true })
+  @Prop({ type: String, default: null })
+  platform_order_id!: string | null;
+
+  /** 'no_fit' = không thùng nào trong danh mục xếp hợp lệ → cần xử lý tay. */
+  @Prop({ type: String, enum: ['ok', 'no_fit'], default: 'ok' })
+  solution_status!: 'ok' | 'no_fit';
+
+  @Prop({ type: [NoFitReasonSchema], default: [] })
+  no_fit_reasons!: NoFitReason[];
+
+  @Prop({ type: String, default: null })
+  box_code!: string | null;
+
+  @Prop({ type: String, default: null })
+  box_name!: string | null;
+
+  /** Legacy (cm) — vẫn điền để client cũ đọc được; null khi no_fit. */
+  @Prop({ type: BoxSizeSchema, default: null })
+  box_size!: BoxSize | null;
+
+  @Prop({ type: BoxDimensionsMmSchema, default: null })
+  box_inner_mm!: BoxDimensionsMm | null;
+
+  @Prop({ type: BoxDimensionsMmSchema, default: null })
+  box_outer_mm!: BoxDimensionsMm | null;
+
+  @Prop({ type: [PlacementEntrySchema], default: [] })
+  placements!: PlacementEntry[];
+
+  @Prop({ type: [MaterialEntrySchema], default: [] })
+  materials!: MaterialEntry[];
+
+  // Legacy — giữ cho client cũ; bản mới suy ra từ `materials`.
+  @Prop({ type: String, required: true })
   material_type!: string;
 
-  @Prop({ required: true })
+  @Prop({ type: Number, required: true })
   material_quantity!: number;
 
-  @Prop({ required: true })
-  estimated_shipping_cost_vnd!: number;
+  /** null = chưa có bảng cước thật (không bịa 15.000 đ/kg như fallback cũ). */
+  @Prop({ type: Number, default: null })
+  estimated_shipping_cost_vnd!: number | null;
 
-  @Prop({ required: true })
+  @Prop({ type: Number, default: null })
+  items_weight_g!: number | null;
+
+  /** Hàng + bì thùng (+ vật tư khi có danh mục) — so với cân thật lúc pack. */
+  @Prop({ type: Number, default: null })
+  estimated_package_weight_g!: number | null;
+
+  @Prop({ type: Number, default: null })
+  volumetric_weight_g!: number | null;
+
+  @Prop({ type: Number, default: null })
+  fill_ratio!: number | null;
+
+  @Prop({ type: Number, required: true })
   computation_time_ms!: number;
 
-  @Prop({ default: false })
+  @Prop({ type: String, default: null })
+  engine_version!: string | null;
+
+  @Prop({ type: Boolean, default: false })
   fallback_used!: boolean;
 
   @Prop({
@@ -70,29 +147,39 @@ export class PackagingRecommendationDoc {
   @Prop({ type: Types.ObjectId, default: null })
   approved_by!: Types.ObjectId | null;
 
-  // BUG ĐÃ VÁ (2026-09-09, phát hiện lúc chạy Jest thật, KHÔNG lộ ra
-  // qua tsc/eslint): @Prop() không khai `type:` tường minh khi field
-  // là union `X | null` khiến @nestjs/mongoose không tự suy luận được
-  // qua reflect-metadata lúc runtime — throw ngay lúc load module
-  // ("Cannot determine a type for ... field"). PHẢI khai type tường
-  // minh cho MỌI field union `| null`, không chỉ trường hợp Date.
+  // Rule #23 — field union `| null` PHẢI khai `type:` tường minh.
   @Prop({ type: Date, default: null })
   approved_at!: Date | null;
 
-  // Packaging Staff "Measure package weight" (đề bài) — cân THẬT, khác
-  // estimated (AI/fallback tính lý thuyết). Dùng để tự phát hiện
-  // "abnormal package" — xem mục is_abnormal bên dưới.
+  // Adjust (đổi thùng) — lưu lý do + người/thời điểm, để sau này học
+  // từ lịch sử điều chỉnh.
+  @Prop({ type: String, default: null })
+  adjustment_reason!: string | null;
+
+  @Prop({ type: String, default: null })
+  adjustment_note!: string | null;
+
+  @Prop({ type: String, default: null })
+  adjusted_from_box_code!: string | null;
+
+  @Prop({ type: Types.ObjectId, default: null })
+  adjusted_by!: Types.ObjectId | null;
+
+  // 🔄 ĐÃ ĐỔI (21/09/2026): cân THẬT của kiện, nhập lúc `pack` (sau khi
+  // đóng xong), không còn nhập lúc approve.
   @Prop({ type: Number, default: null })
   actual_measured_weight_kg!: number | null;
 
-  @Prop({ default: false })
+  @Prop({ type: Date, default: null })
+  packed_at!: Date | null;
+
+  @Prop({ type: Types.ObjectId, default: null })
+  packed_by!: Types.ObjectId | null;
+
+  @Prop({ type: Boolean, default: false })
   is_abnormal!: boolean;
 
-  // Rule #5 (unique constraint ở tầng DB, không chỉ ở service) — nhưng
-  // KHÔNG unique tuyệt đối trên order_group_id (vì Reject tạo bản MỚI,
-  // giữ bản cũ is_active:false) — unique CÓ ĐIỀU KIỆN qua partial index
-  // bên dưới, chỉ áp cho bản đang active.
-  @Prop({ default: true })
+  @Prop({ type: Boolean, default: true })
   is_active!: boolean;
 
   created_at?: Date;
@@ -102,12 +189,19 @@ export class PackagingRecommendationDoc {
 export type PackagingRecommendationDocument = HydratedDocument<PackagingRecommendationDoc>;
 export const PackagingRecommendationSchema = SchemaFactory.createForClass(PackagingRecommendationDoc);
 
-// Partial unique index — CHỈ áp ràng buộc "1 group = 1 bản active" cho
-// document có is_active:true, cho phép nhiều bản is_active:false (lịch
-// sử Reject) tồn tại song song mà không vi phạm unique.
+// 🔄 ĐÃ ĐỔI (21/09/2026): 1 ĐƠN = 1 bản active (trước là 1 group = 1 bản).
+// Index cũ `order_group_id_1` (unique) PHẢI được drop bằng
+// scripts/migrate-packaging-recommendation-index.ts — nếu còn, group
+// nhiều đơn sẽ bị E11000 khi generate.
 PackagingRecommendationSchema.index(
-  { order_group_id: 1 },
-  { unique: true, partialFilterExpression: { is_active: true } },
+  { order_id: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { is_active: true, order_id: { $type: 'objectId' } },
+    name: 'uniq_active_per_order',
+  },
 );
+// Phục vụ: đọc/đổi toàn bộ bản active của 1 group (GET/approve/reject/pack).
+PackagingRecommendationSchema.index({ order_group_id: 1, is_active: 1 });
 // Rule #3 (ESR) — phục vụ màn hình Packaging Staff xem hàng đợi chờ duyệt.
 PackagingRecommendationSchema.index({ approval_status: 1, created_at: -1 });

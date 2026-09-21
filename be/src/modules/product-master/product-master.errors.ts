@@ -1,0 +1,4 @@
+export const PRODUCT_MASTER_ERROR_CODES = {
+  INVALID_ID: 'PM_INVALID_ID',
+  NOT_FOUND: 'PM_NOT_FOUND',
+} as const;

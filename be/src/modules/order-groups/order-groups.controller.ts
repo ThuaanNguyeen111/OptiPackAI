@@ -204,28 +204,17 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (picking -> picked). Warehouse Staff bấm sau khi soạn xong theo picking-list; sau bước này mới tính gợi ý đóng gói.',
+      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (picking -> picked). Server đối soát mọi SKU đã quét đủ số đặt trong lượt hiện tại; thiếu → 409 ORD_GROUP_PICK_INCOMPLETE (dùng report-missing). Sau bước này mới tính gợi ý đóng gói.',
   })
   async pick(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.PICKED,
-      body.expected_version,
-    );
+    const group = await this.orderGroupsService.confirmPicked(id, body.expected_version);
     return toResponse(group);
   }
 
-  @Post(':id/fulfillment/pack')
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed).' })
-  async pack(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.PACKED,
-      body.expected_version,
-    );
-    return toResponse(group);
-  }
+  // 🔄 ĐÃ CHUYỂN (21/09/2026): `POST :id/fulfillment/pack` giờ nằm ở
+  // packaging/packaging.controller.ts (PackagingPackController) — cùng URL
+  // nhưng nhận cân thật từng kiện; đổi trạng thái thẳng ở đây sẽ bỏ qua
+  // bước cân/đối chiếu nên đã gỡ.
 
   @Post(':id/fulfillment/ship')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)

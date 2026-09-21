@@ -12,6 +12,12 @@ export interface PackableItem {
   height_cm: number;
   weight_kg: number;
   is_fragile: boolean;
+  // BỔ SUNG (21/09/2026, engine 3D) — CHỈ thêm field optional, không đổi
+  // field cũ (warehouse/picking-list vẫn dùng interface này).
+  /** 'upright_only' = chỉ xoay quanh trục đứng; thiếu = 'any'. */
+  orientation_rule?: 'any' | 'upright_only';
+  /** Tải tối đa được đặt lên trên (kg); null/thiếu = không cho đặt gì lên. */
+  max_stack_load_kg?: number | null;
 }
 
 export interface OrderGroupForPackaging {

@@ -4,6 +4,7 @@ import { ProductMaster, ProductMasterSchema } from './schemas/product-master.sch
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { ProductMasterService } from './product-master.service';
 import { ProductMasterSyncScheduler } from './product-master-sync.scheduler';
+import { ProductMasterController } from './product-master.controller';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 
 @Module({
@@ -14,6 +15,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
     ]),
     MarketplaceIntegrationModule,
   ],
+  controllers: [ProductMasterController],
   providers: [ProductMasterService, ProductMasterSyncScheduler],
   exports: [ProductMasterService],
 })

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
+import { HydratedDocument, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 /**
@@ -51,6 +51,23 @@ export class ProductMaster {
   @Prop({ type: String, enum: ['needs_measurement', 'ready'], default: 'needs_measurement' })
   packaging_profile_status!: 'needs_measurement' | 'ready';
 
+  /**
+   * BỔ SUNG (21/09/2026, Bước 0 engine 3D) — quy cách xếp do kho xác nhận.
+   * `upright_only`: chỉ xoay quanh trục đứng (VD hộp giày giữ mặt trên).
+   * `max_stack_load_kg`: null = KHÔNG cho đặt vật nào lên trên món này.
+   */
+  @Prop({ type: String, enum: ['any', 'upright_only'] })
+  orientation_rule?: 'any' | 'upright_only';
+
+  @Prop({ type: Number, min: 0, default: null })
+  max_stack_load_kg?: number | null;
+
+  @Prop({ type: Types.ObjectId, default: null })
+  profile_confirmed_by?: Types.ObjectId | null;
+
+  @Prop({ type: Date, default: null })
+  profile_confirmed_at?: Date | null;
+
   @Prop({ type: Date, required: true })
   last_synced_at!: Date; // mốc cho chiến lược cache 1 lần/ngày
 
@@ -69,3 +86,7 @@ export const ProductMasterSchema = SchemaFactory.createForClass(ProductMaster);
  * hoàn toàn có thể xảy ra).
  */
 ProductMasterSchema.index({ platform: 1, shop_id: 1, seller_sku: 1 }, { unique: true });
+
+// Phục vụ: GET /product-master?status=needs_measurement (ProductMasterController.list)
+// — ESR: lọc bằng status trước, rồi sắp theo seller_sku.
+ProductMasterSchema.index({ packaging_profile_status: 1, seller_sku: 1 });

@@ -1,6 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
+import { AppException } from '../../common/exceptions/app-exception';
+import { PRODUCT_MASTER_ERROR_CODES } from './product-master.errors';
+import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
 import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 // Inject TRỰC TIẾP LazadaAdapter (class cụ thể, đã export sẵn từ
@@ -92,9 +95,12 @@ export class ProductMasterService {
                   package_height_cm: this.parseDimension(sku.package_height),
                   package_weight_kg: this.parseWeight(sku.package_weight ?? sku.product_weight),
                 },
-                packaging_profile_status: 'needs_measurement' as const,
                 last_synced_at: now,
               },
+              // SỬA (21/09/2026): trước đây `$set` status ở MỌI lượt sync
+              // → hồ sơ kho đã xác nhận `ready` bị reset về
+              // needs_measurement mỗi ngày. Chỉ đặt lúc tạo mới.
+              $setOnInsert: { packaging_profile_status: 'needs_measurement' as const },
             },
             upsert: true,
           },
@@ -109,6 +115,72 @@ export class ProductMasterService {
 
     this.logger.log(`Đồng bộ Product Master cho shop ${shopId}: ${String(synced)} SKU.`);
     return { synced };
+  }
+
+  /**
+   * BỔ SUNG (21/09/2026, Bước 0) — danh sách hồ sơ SKU theo trạng thái,
+   * cho màn "SKU cần đo" của kho. `.lean()` (Rule #12), giới hạn 200.
+   */
+  async listProfiles(filter: {
+    status?: 'needs_measurement' | 'ready';
+    shopId?: string;
+  }): Promise<ProductMaster[]> {
+    const query: Record<string, unknown> = {};
+    if (filter.status) query.packaging_profile_status = filter.status;
+    if (filter.shopId) query.shop_id = filter.shopId;
+    return this.productMasterModel.find(query).sort({ seller_sku: 1 }).limit(200).lean();
+  }
+
+  /**
+   * BỔ SUNG (21/09/2026, Bước 0) — kho/Admin xác nhận đã đo SKU sau
+   * gấp/bọc (giày đo nguyên hộp). Đây là writer DUY NHẤT của `dimension`
+   * và trạng thái `ready`; sync sàn chỉ ghi `marketplace_dimension`.
+   */
+  async confirmPackagingProfile(
+    id: string,
+    userId: string,
+    dto: ConfirmPackagingProfileDto,
+  ): Promise<ProductMasterDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.INVALID_ID,
+        `"${id}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { id },
+      );
+    }
+
+    const updated = await this.productMasterModel.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          dimension: {
+            package_length_cm: dto.length_cm,
+            package_width_cm: dto.width_cm,
+            package_height_cm: dto.height_cm,
+            package_weight_kg: dto.weight_kg,
+          },
+          is_fragile: dto.is_fragile,
+          orientation_rule: dto.orientation_rule,
+          max_stack_load_kg: dto.max_stack_load_kg ?? null,
+          packaging_profile_status: 'ready',
+          profile_confirmed_by: new Types.ObjectId(userId),
+          profile_confirmed_at: new Date(),
+        },
+      },
+      { returnDocument: 'after', runValidators: true },
+    );
+
+    if (!updated) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.NOT_FOUND,
+        `Không tìm thấy hồ sơ sản phẩm "${id}".`,
+        HttpStatus.NOT_FOUND,
+        { id },
+      );
+    }
+    this.logger.log(`Xác nhận hồ sơ đóng gói SKU ${updated.seller_sku} (shop ${updated.shop_id}).`);
+    return updated;
   }
 
   private parseDimension(raw?: string): number | undefined {

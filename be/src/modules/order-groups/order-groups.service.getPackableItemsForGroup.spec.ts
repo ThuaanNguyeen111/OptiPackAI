@@ -64,6 +64,7 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
       {} as never, // userModel
       {} as never, // notificationsService
       {} as never, // staffAssignmentService — không dùng trong đường code này
+      {} as never, // connection — không dùng trong đường code này
     );
   });
 
