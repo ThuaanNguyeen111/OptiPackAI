@@ -104,4 +104,12 @@ describe('MailService', () => {
     const callArg = getFirstCallArg(sendMailMock);
     expect(callArg.subject.toLowerCase()).toContain('mfa');
   });
+
+  it('sendMfaDisabled gọi đúng transporter với subject nhắc MFA đã tắt', async () => {
+    await service.sendMfaDisabled({ to: 'staff@optipackai.com', name: 'Nguyễn Văn A' });
+
+    const callArg = getFirstCallArg(sendMailMock);
+    expect(callArg.subject.toLowerCase()).toContain('mfa');
+    expect(callArg.subject.toLowerCase()).toContain('tắt');
+  });
 });

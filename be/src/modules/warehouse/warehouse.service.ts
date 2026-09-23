@@ -25,9 +25,10 @@ import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
-import { PackableItem } from '../../common/interfaces/packaging.interface';
+import { PickableItem } from '../../common/interfaces/packaging.interface';
 
-export interface PickingListItem extends PackableItem {
+// 🔄 21/09/2026: dựa trên PickableItem (không bắt hồ sơ đóng gói).
+export interface PickingListItem extends PickableItem {
   zone_code: string;
   bin_code: string;
 }
@@ -388,7 +389,7 @@ export class WarehouseService {
     groupId: string,
   ): Promise<PickingListItem[]> {
     const { items } =
-      await this.orderGroupsService.getPackableItemsForGroup(groupId);
+      await this.orderGroupsService.getPickableItemsForGroup(groupId);
     const skus = items.map((i) => i.sku);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1.

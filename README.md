@@ -89,12 +89,12 @@ _Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắ
 <tr>
 <td>
 
-Đóng gói dựa cảm tính → ~15-20% đơn dùng thùng quá khổ, tốn thêm 10-15% phí ship
+Cần đo baseline tại kho để biết tỷ lệ dùng bao bì quá khổ và chi phí thực tế; chưa có số liệu xác minh cho dự án
 
 </td>
 <td>
 
-**AI 3D Bin Packing** gợi ý chính xác kích thước thùng & vật liệu đệm lót
+**Mục tiêu:** chọn túi/carton theo hồ sơ đã xác nhận và validator; code hiện chỉ có fallback theo thể tích phục vụ demo
 
 </td>
 </tr>
@@ -106,7 +106,7 @@ Không biết chính xác hàng nằm ở đâu trong kho, nhân viên mất th�
 </td>
 <td>
 
-**Hệ thống vị trí kho (WMS)** — mỗi SKU gắn đúng 1 kệ, Picking List tự sắp xếp theo lộ trình di chuyển tối ưu
+**Hệ thống vị trí kho** — có vị trí SKU và Picking List sắp theo mã khu/kệ; chưa chứng minh lộ trình tối ưu
 
 </td>
 </tr>
@@ -131,19 +131,39 @@ Không có cái nhìn tổng quan về chi phí logistics theo thời gian thự
 |    #    | Tính năng                 | Mô tả                                                                                           |                     Trạng thái                     |
 | :-----: | ------------------------- | ----------------------------------------------------------------------------------------------- | :------------------------------------------------: |
 | `FE-01` | 🔄 **Đồng bộ đa kênh**    | Tự động lấy đơn hàng từ marketplace, cron polling định kỳ                                       |                   🟢 Lazada xong                   |
-| `FE-02` | 🧩 **Gộp đơn thông minh** | Phát hiện & gộp đơn trùng lặp theo khách hàng/địa chỉ, quản lý fulfillment theo nhóm            |                      🟢 Xong                       |
-| `FE-03` | 🤖 **AI Packaging**       | 3D Bin Packing — gợi ý thùng & vật liệu, Packaging Staff xác nhận/điều chỉnh trước khi đóng gói | 🟡 Fallback đơn giản xong, AI thật đang phát triển |
+| `FE-02` | 🧩 **Nhóm lấy hàng** | Mục tiêu gom để lấy cùng lượt, mỗi đơn giữ phạm vi đóng riêng | 🟡 Đã có grouping, cần sửa ràng buộc và backfill |
+| `FE-03` | 🤖 **Packaging** | Đích: hồ sơ kho → túi/carton → validator; tự thông qua đơn thường | 🟡 Fallback demo có; engine 3D và tự động hóa chưa có |
 | `FE-04` | 💰 **Ước tính chi phí**   | Tính phí đóng gói + cước vận chuyển trước khi giao                                              |                 🟡 Đang phát triển                 |
 | `FE-05` | 🏷️ **Sinh nhãn tự động**  | QR/Barcode, PDF phiếu đóng gói & tem vận chuyển                                                 |                  ⬜ Chưa bắt đầu                   |
-| `FE-06` | 📦 **Quản lý kho (WMS)**  | Vị trí kệ theo khu/dãy/tầng, theo dõi tồn kho, Picking List tối ưu lộ trình                     |                      🟢 Xong                       |
+| `FE-06` | 📦 **Kho và Picking** | Có kệ, tồn và pick event; cần sửa kiểm tra item/transaction/idempotency | 🟡 Có API, chưa đủ điều kiện vận hành tự động |
 | `FE-07` | 📱 **Mobile App**         | Quét mã cập nhật picking/packing real-time, hỗ trợ nhập tay khi không quét được                 |    🟡 API sẵn sàng, Mobile App đang phát triển     |
 | `FE-08` | 📊 **Dashboard**          | Thống kê hiệu suất kho & chi phí logistics                                                      |                  ⬜ Chưa bắt đầu                   |
-| `FE-09` | 🔔 **Thông báo**          | Cảnh báo thiếu hàng, đơn bất thường, đơn trễ hạn qua nhiều kênh                                 |                  ⬜ Chưa bắt đầu                   |
+| `FE-09` | 🔔 **Thông báo** | Đã có module và cảnh báo thiếu hàng/SLA; chưa bao phủ toàn bộ sự kiện mục tiêu | 🟡 Đã triển khai một phần |
 | `FE-10` | 🔐 **Quản trị**           | User, phân quyền theo 5 vai trò, phân công nhân viên tự động                                    |                      🟢 Xong                       |
 
 ---
 
+## Flow đóng gói mục tiêu — cập nhật 12/09/2026
+
+**Đợt này chỉ sửa tài liệu.** Phát triển tiếp Product Master, Order Groups, Packaging và Warehouse đang có. Một đơn nguồn là một phạm vi đóng riêng; gom nhiều đơn chỉ hỗ trợ lấy hàng, không tự gom kiện/vận đơn.
+
+```text
+Sync đơn + catalog sàn → Item đủ điều kiện của mỗi đơn → Hồ sơ kho xác nhận
+→ Thiếu dữ liệu: chờ bổ sung / Đủ: tính túi-carton và validator
+→ Phương án hợp lệ: tự thông qua → Phân công → Lấy và đối chiếu hàng
+→ Thiếu/thay đổi: dừng và tính lại → Đóng → Cân/đo kiện thật, đối soát vật tư
+→ Xác nhận đóng xong → Bàn giao vận chuyển nội bộ
+```
+
+Kho/Admin xác nhận đã đo/thử khi nhập hồ sơ, không cần Admin duyệt riêng hoặc duyệt tay từng đơn thường. Dữ liệu sàn không ghi đè hồ sơ kho; thiếu số đo không dùng 20 cm/0,5 kg. Túi zip bọc item khác túi ngoài; carton dùng số đo trong để xếp, ngoài để đánh giá kiện.
+
+Hiện generate vẫn do Admin gọi và approve/adjust còn bắt cân trước picking; đó là hành vi cần sửa. Fallback thể tích +10% chưa chứng minh vừa hộp, không được dùng tự động cho hàng thật. Fulfillment hiện chỉ đổi trạng thái nội bộ, không gọi API giao hàng thật trên Lazada.
+
+Thứ tự sửa: **BE-1 đầu vào/phạm vi đơn → BE-2 hồ sơ/readiness → BE-3 validator/engine → BE-4 picking/xác nhận → BE-5 tự động hóa**. Xem [roadmap chi tiết](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md), [thiết kế](docs/AI_3D_PACKAGING_OPTIMIZATION.md) và [API đang chạy](API_LIST.md). Chỉ bật tự động sau BE-1 đến BE-4 đạt nghiệm thu.
+
 ## 🏗 Kiến trúc hệ thống
+
+Sơ đồ dưới là định hướng liên kết module, không xác nhận engine 3D, UI hay Shipping/Label đã triển khai. Hiện FE vẫn là starter và fulfillment là mô phỏng nội bộ.
 
 ```mermaid
 flowchart LR

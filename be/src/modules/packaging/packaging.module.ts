@@ -9,7 +9,18 @@ import {
   OrderGroupSchema,
 } from '../order-groups/schemas/order-group.schema';
 import { PackagingService } from './packaging.service';
-import { PackagingController } from './packaging.controller';
+import { PackagingController, PackagingPackController } from './packaging.controller';
+import { PackagingBox, PackagingBoxSchema } from './schemas/packaging-box.schema';
+import {
+  PackagingStockMovement,
+  PackagingStockMovementSchema,
+} from './schemas/packaging-stock-movement.schema';
+import { PackagingBoxService } from './packaging-box.service';
+import { PackagingBoxController } from './packaging-box.controller';
+import { PackingGuideAiService } from './packing-guide-ai.service';
+import { PackagingBag, PackagingBagSchema } from './schemas/packaging-bag.schema';
+import { PackagingBagService } from './packaging-bag.service';
+import { PackagingBagController } from './packaging-bag.controller';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -21,16 +32,18 @@ import { NotificationsModule } from '../notifications/notifications.module';
         schema: PackagingRecommendationSchema,
       },
       { name: OrderGroup.name, schema: OrderGroupSchema },
+      { name: PackagingBox.name, schema: PackagingBoxSchema },
+      { name: PackagingBag.name, schema: PackagingBagSchema },
+      { name: PackagingStockMovement.name, schema: PackagingStockMovementSchema },
     ]),
-    OrderGroupsModule, // export OrderGroupsService — dùng findOrderGroupById/getPackableItemsForGroup/transitionFulfillmentStatus
-    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — generate()/reject() giờ
-    // gọi NotificationsService (thông báo Packaging Staff/Admin) — thiếu
-    // import này thì Nest KHÔNG inject được, app CRASH ngay lúc khởi
-    // động (DI error), không phải lỗi runtime âm thầm.
     NotificationsModule,
+    // generate()/reject()/pack() gọi NotificationsService (Packaging Staff /
+    // Admin / Store Owner) — thiếu import này thì Nest không inject được,
+    // app CRASH ngay lúc khởi động (tsc/eslint/jest đều không bắt).
+    OrderGroupsModule, // export OrderGroupsService — findOrderGroupById/allocatePickedItemsToOrders/transitionFulfillmentStatus
   ],
-  controllers: [PackagingController],
-  providers: [PackagingService],
-  exports: [PackagingService],
+  controllers: [PackagingController, PackagingPackController, PackagingBoxController, PackagingBagController],
+  providers: [PackagingService, PackagingBoxService, PackagingBagService, PackingGuideAiService],
+  exports: [PackagingService, PackagingBoxService, PackagingBagService],
 })
 export class PackagingModule {}

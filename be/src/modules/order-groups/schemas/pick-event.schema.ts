@@ -39,6 +39,11 @@ export class PickEvent {
   @Prop({ required: true })
   remaining_stock_after!: number;
 
+  // BỔ SUNG (21/09/2026, BE-4a) — lượt lấy hàng của group lúc quét.
+  // Event cũ không có field → mặc định 0, khớp group cũ (pick_round 0).
+  @Prop({ type: Number, default: 0, min: 0 })
+  pick_round!: number;
+
   created_at?: Date;
 }
 
@@ -52,3 +57,6 @@ PickEventSchema.index(
   { client_event_id: 1 },
   { unique: true, partialFilterExpression: { client_event_id: { $type: 'string' } } },
 );
+
+// Phục vụ: cộng số đã lấy theo (group, lượt, SKU) — getActuallyPickedItemsForGroup/confirmPicked/pickItem.
+PickEventSchema.index({ order_group_id: 1, pick_round: 1, seller_sku: 1 });

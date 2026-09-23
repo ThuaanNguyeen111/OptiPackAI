@@ -19,10 +19,7 @@ import { SetPriorityDto } from './dto/set-priority.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
-import {
-  OrderGroupForPackaging,
-  PackableItem,
-} from '../../common/interfaces/packaging.interface';
+import { OrderGroupForPicking, PickableItem } from '../../common/interfaces/packaging.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -119,7 +116,7 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc approved_for_packing để biết cần lấy hàng gì)',
+      'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc picking để biết cần lấy hàng gì, Packaging Staff lọc pending_approval để duyệt gợi ý)',
   })
   async list(
     @Query() query: ListOrderGroupsQueryDto,
@@ -153,13 +150,10 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Danh sách sản phẩm cần lấy cho 1 Order Group, kèm kích thước (đã cache từ Product Master) — dùng cho màn hình Warehouse Picking (Mobile App). CHƯA có vị trí kệ thật (module warehouse/ chưa code, xem CLAUDE.md).',
+      'Danh sách sản phẩm cần lấy: số đặt + đã quét trong lượt hiện tại (picked_quantity). Số đo chỉ có khi hồ sơ đóng gói đã ready — KHÔNG bắt buộc để lấy hàng (21/09/2026). Bản có vị trí kệ: GET /warehouse/:warehouseId/picking-list/:groupId.',
   })
-  async pickingList(@Param('id') id: string): Promise<OrderGroupForPackaging> {
-    // TÁI DÙNG ĐÚNG hàm đã có, viết cho mục đích bàn giao AI Packaging
-    // — giờ dùng lại cho mục đích khác (Warehouse Staff xem) mà không
-    // cần viết logic mới, đúng tinh thần "không thừa thãi".
-    return this.orderGroupsService.getPackableItemsForGroup(id);
+  async pickingList(@Param('id') id: string): Promise<OrderGroupForPicking> {
+    return this.orderGroupsService.getPickableItemsForGroup(id);
   }
 
   @Get(':id/picking-list/:sku')
@@ -171,8 +165,8 @@ export class OrderGroupsController {
   async pickingListItemDetail(
     @Param('id') id: string,
     @Param('sku') sku: string,
-  ): Promise<PackableItem> {
-    return this.orderGroupsService.getPackableItemDetail(id, sku);
+  ): Promise<PickableItem> {
+    return this.orderGroupsService.getPickableItemDetail(id, sku);
   }
 
   @Post(':id/fulfillment/pick-item')
@@ -239,37 +233,17 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (approved_for_packing -> picked). Warehouse Staff bấm sau khi soạn xong theo picking-list.',
+      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (picking -> picked). Server đối soát mọi SKU đã quét đủ số đặt trong lượt hiện tại; thiếu → 409 ORD_GROUP_PICK_INCOMPLETE (dùng report-missing). Sau bước này mới tính gợi ý đóng gói.',
   })
-  async pick(
-    @Param('id') id: string,
-    @Body() body: TransitionOrderGroupDto,
-  ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.PICKED,
-      body.expected_version,
-    );
+  async pick(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+    const group = await this.orderGroupsService.confirmPicked(id, body.expected_version);
     return toResponse(group);
   }
 
-  @Post(':id/fulfillment/pack')
-  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). 🔄 (21/09/2026) mở thêm PACKAGING_STAFF — trước đây chỉ Warehouse+Admin, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý.',
-  })
-  async pack(
-    @Param('id') id: string,
-    @Body() body: TransitionOrderGroupDto,
-  ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.PACKED,
-      body.expected_version,
-    );
-    return toResponse(group);
-  }
+  // 🔄 ĐÃ CHUYỂN (21/09/2026): `POST :id/fulfillment/pack` giờ nằm ở
+  // packaging/packaging.controller.ts (PackagingPackController) — cùng URL
+  // nhưng nhận cân thật từng kiện; đổi trạng thái thẳng ở đây sẽ bỏ qua
+  // bước cân/đối chiếu nên đã gỡ.
 
   @Post(':id/fulfillment/ship')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)

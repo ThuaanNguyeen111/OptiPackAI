@@ -1,0 +1,45 @@
+# Dùng 3 host khác nhau thay vì 1 host + path prefix, vì backend đặt route ở
+# gốc (/auth, /orders, /order-groups...) — nếu gom vào /api sẽ phải rewrite
+# path, dễ sai và khó debug hơn.
+#
+# Cần 1 ingress controller (ingress-nginx). Nếu chưa cài, bỏ qua file này và
+# dùng `kubectl port-forward` — xem k8s/README.md.
+#
+# Thêm vào C:\Windows\System32\drivers\etc\hosts:
+#   127.0.0.1 app.optipackai.local api.optipackai.local shop.optipackai.local
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: optipackai
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: '10m'
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: app.optipackai.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fe
+                port: { number: 80 }
+    - host: api.optipackai.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: be
+                port: { number: 3000 }
+    - host: shop.optipackai.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: storefront
+                port: { number: 3001 }

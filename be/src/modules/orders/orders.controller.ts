@@ -28,6 +28,9 @@ interface OrderResponse {
   isConsolidated: boolean;
   consolidatedGroupId: string | null;
   totalAmount: number;
+  subtotalAmount: number | null;
+  discountAmount: number | null;
+  shippingFee: number | null;
   currency: string;
   itemCount: number;
   createdAt: Date;
@@ -108,6 +111,9 @@ export class OrdersController {
           ? order.consolidated_group_id.toString()
           : null,
         totalAmount: order.total_amount,
+        subtotalAmount: order.subtotal_amount ?? null,
+        discountAmount: order.discount_amount ?? null,
+        shippingFee: order.shipping_fee ?? null,
         currency: order.currency,
         itemCount: order.items.length,
         createdAt: order.created_at ?? new Date(0),
@@ -144,6 +150,9 @@ export class OrdersController {
         ? order.consolidated_group_id.toString()
         : null,
       totalAmount: order.total_amount,
+      subtotalAmount: order.subtotal_amount ?? null,
+      discountAmount: order.discount_amount ?? null,
+      shippingFee: order.shipping_fee ?? null,
       currency: order.currency,
       itemCount: order.items.length,
       items: aggregateOrderItems(order.items),

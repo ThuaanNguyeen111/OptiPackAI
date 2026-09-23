@@ -115,8 +115,11 @@ class OrderItem {
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class Order {
-  @Prop({ type: Types.ObjectId, ref: 'MarketplaceShop', required: true })
-  marketplace_shop!: Types.ObjectId;
+  // Marketplace orders point to a MarketplaceShop. Storefront orders do
+  // not have an OAuth-connected marketplace shop, so this reference is
+  // intentionally nullable for the canonical storefront source.
+  @Prop({ type: Types.ObjectId, ref: 'MarketplaceShop', default: null })
+  marketplace_shop!: Types.ObjectId | null;
 
   // Denormalized — xem giải thích ở JSDoc class phía trên.
   @Prop({ type: String, enum: MarketplacePlatform, required: true })
@@ -172,6 +175,17 @@ export class Order {
 
   @Prop({ type: Number, required: true, min: 0 })
   total_amount!: number;
+
+  // Financial breakdown is populated by sources that expose it (currently
+  // Storefront). Marketplace orders may leave these fields null.
+  @Prop({ type: Number, default: null, min: 0 })
+  subtotal_amount!: number | null;
+
+  @Prop({ type: Number, default: null, min: 0 })
+  discount_amount!: number | null;
+
+  @Prop({ type: Number, default: null, min: 0 })
+  shipping_fee!: number | null;
 
   @Prop({ type: String, required: true, default: 'VND' })
   currency!: string;

@@ -1,17 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNumber, Min } from 'class-validator';
+import { IsNumber, IsOptional, Min } from 'class-validator';
 
 /**
- * "Measure package weight" (Phieu_FA26SE036.docx, Packaging Staff) —
- * cân THẬT sau khi đóng gói xong, khác estimated_weight lý thuyết của
- * AI/fallback. Bắt buộc nhập lúc Approve — không có bước Approve nào
- * bỏ qua việc cân thật.
+ * 🔄 ĐÃ ĐỔI (21/09/2026): approve chỉ CHỐT PHƯƠNG ÁN cho mọi đơn trong
+ * group. Cân thật chuyển sang bước `fulfillment/pack` (sau khi đóng xong).
  */
 export class ApprovePackagingDto {
-  @ApiProperty({ description: 'Cân nặng THẬT đo được sau khi đóng gói (kg)', example: 0.45 })
+  @ApiProperty({
+    required: false,
+    deprecated: true,
+    description: 'KHÔNG còn dùng — cân kiện thật nhập ở POST .../fulfillment/pack. Giữ để client cũ không lỗi.',
+  })
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  actual_measured_weight_kg!: number;
+  actual_measured_weight_kg?: number;
 
   @ApiProperty({ description: 'Version hiện tại của Order Group (Rule #18, Optimistic Concurrency)', example: 0 })
   @IsNumber()

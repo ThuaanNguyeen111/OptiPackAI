@@ -380,11 +380,17 @@ Cả 2 tình huống dùng chung `POST .../fulfillment/return` — role cho phé
 
 ---
 
-## Nghiệp vụ 5 — Đơn Hỏa Tốc & Cảnh báo SLA
+## 7. Nhóm đơn hiện tại và phạm vi đóng mục tiêu
 
-### Bối cảnh xảy ra
+**Cập nhật 12/09/2026 — BE-1 mới chỉ có safety guard cho packaging.** Hiện tryConsolidate tìm đơn cùng consolidation_key và nhóm trạng thái chưa fulfill, gán consolidated_group_id. Query chưa giới hạn cùng shop/platform hoặc khóa nhóm đang xử lý; không coi kết quả nhóm là quyền đóng chung một kiện.
 
-Có những đơn cần xử lý NHANH HƠN bình thường (khách yêu cầu giao gấp, đơn VIP...). **Đã xác minh 2 lần độc lập bằng doc thật của Lazada**: sàn KHÔNG cung cấp tín hiệu tự động để biết đơn nào gấp — nên đây LUÔN LÀ quyết định do con người đưa ra.
+FE vẫn đọc isConsolidated/consolidatedGroupId theo response hiện tại. Group-of-1 có thể được backfill ngay cả khi isConsolidated=false, nên không suy mọi đơn không gộp đều có group ID null. Backfill hiện chỉ quét ID null, còn thiếu trường hợp ID có giá trị nhưng document group chưa tồn tại; BE-1 sẽ sửa.
+
+**ĐÃ THAY ĐỔI so với quyết định gộp kiện cũ:** mỗi đơn nguồn có phạm vi đóng riêng. Có thể gom để lấy hàng cùng lượt; không tự gộp kiện/vận đơn kể cả cùng shop/người nhận. Group legacy nhiều đơn đang làm cần rà soát, không tự tách hoặc sửa lịch sử đã hoàn tất.
+
+Đầu vào packaging mục tiêu giữ từng order item ID, platform/shop, SKU/biến thể, số lượng và trạng thái. Chỉ item PENDING đã xác minh được xét ở bản đầu; canceled loại bỏ, trạng thái khác/lạ cần xem lại, không mặc định về pending. Dòng items đã gộp ở GET /orders/:id phục vụ hiển thị; không dùng nó để làm mất danh tính vật lý.
+
+Product Master đã có số đo package lấy qua GetProducts. Đây là dữ liệu khai báo sàn; hồ sơ gấp/bọc kho là nguồn riêng được kho/Admin xác nhận đã đo/thử. Sync không ghi đè hồ sơ đó và thiếu dữ liệu không điền 20 cm/0,5 kg. Lát cắt BE-1 đã chặn SKU chưa có hồ sơ `ready`; API nhập/xác nhận hồ sơ vẫn nằm trong BE-2.
 
 ### Luồng
 

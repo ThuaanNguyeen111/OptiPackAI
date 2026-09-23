@@ -83,6 +83,22 @@ export class OrderGroup {
   @Prop({ type: Boolean, default: false })
   is_overdue!: boolean;
 
+  /**
+   * BỔ SUNG (21/09/2026, BE-4a) — lượt lấy hàng hiện tại. Chỉ pick_events
+   * cùng lượt mới được cộng vào "đã lấy"; decide-partial(false) mở lượt
+   * mới để lấy lại mà không đếm gấp đôi lượt cũ.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  pick_round!: number;
+
+  /**
+   * Mốc lần quét gần nhất — ghi trong CÙNG transaction với pick_event để
+   * 2 lần quét đồng thời chạm cùng document group → Mongo báo xung đột
+   * ghi, withTransaction chạy lại và kiểm tra lại "không vượt số đặt".
+   */
+  @Prop({ type: Date, default: null })
+  last_picked_at!: Date | null;
+
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
   // __v MỚI thêm (2026-09-09) — cần TypeScript biết field này tồn tại

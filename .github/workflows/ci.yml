@@ -5,6 +5,16 @@ on:
     branches: ['**']
   pull_request:
     branches: [main]
+
+# Push liên tiếp lên cùng 1 nhánh: huỷ lượt chạy cũ, chỉ giữ lượt mới nhất.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # husky là devDependency phục vụ git hook ở máy dev, chạy trong CI vô nghĩa.
+  HUSKY: 0
+
 jobs:
   be:
     name: Backend (typecheck, lint, test)
@@ -17,18 +27,154 @@ jobs:
           node-version: 22
           cache: npm
 
-      # Cai o root vi day la npm workspaces (be + fe dung chung 1 package-lock.json)
+      # Cài ở gốc vì đây là npm workspaces (fe + be + storefront dùng chung
+      # 1 package-lock.json).
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Type check (tsc --noEmit)
         working-directory: be
         run: npx tsc --noEmit
 
-      - name: Lint
+      # KHÔNG dùng "npm run lint" vì script đó có --fix: trong CI nó sẽ tự
+      # sửa file rồi báo xanh, che mất lỗi thật lẽ ra phải chặn PR.
+      - name: Lint (không tự fix)
         working-directory: be
-        run: npm run lint
+        run: npm run lint:ci
 
       - name: Unit tests
         working-directory: be
         run: npm run test
+
+  fe:
+    name: Frontend (typecheck, build, lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      # "npm run build" của fe = tsc -b && vite build, nên bước này bao luôn
+      # phần type check.
+      - name: Type check + build
+        working-directory: fe
+        run: npm run build
+
+      # TẠM continue-on-error: bản UI vừa merge từ feature/viet_ui còn 9 lỗi
+      # + 3 cảnh báo ESLint có sẵn (set-state-in-effect, react-refresh...).
+      # Bỏ cờ này ngay khi dọn xong để lint FE thật sự chặn được PR.
+      - name: Lint
+        working-directory: fe
+        continue-on-error: true
+        run: npm run lint
+
+  storefront:
+    name: Storefront (typecheck, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # storefront/ có thể chưa được commit — bỏ qua job thay vì báo đỏ.
+      - name: Kiểm tra storefront đã có trong repo chưa
+        id: check
+        run: |
+          if [ -f storefront/package.json ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Chưa có storefront/package.json trong repo — bỏ qua job này."
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.check.outputs.exists == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'true'
+        run: npm ci --ignore-scripts
+
+      - name: Type check
+        if: steps.check.outputs.exists == 'true'
+        working-directory: storefront
+        run: npm run lint
+
+      - name: Build
+        if: steps.check.outputs.exists == 'true'
+        working-directory: storefront
+        run: npm run build
+
+  docker:
+    name: Docker build (không push)
+    runs-on: ubuntu-latest
+    # Chỉ chạy khi code đã qua được test/build — tránh tốn ~5 phút build image
+    # cho commit chắc chắn hỏng.
+    needs: [be, fe]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Build context là THƯ MỤC GỐC cho cả 3 image (npm workspaces).
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: be/Dockerfile
+          push: false
+          cache-from: type=gha,scope=be
+          cache-to: type=gha,mode=max,scope=be
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: fe/Dockerfile
+          push: false
+          build-args: VITE_API_URL=http://localhost:3000
+          cache-from: type=gha,scope=fe
+          cache-to: type=gha,mode=max,scope=fe
+
+      - name: Kiểm tra storefront đã có trong repo chưa
+        id: check
+        run: |
+          if [ -f storefront/Dockerfile ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build storefront image
+        if: steps.check.outputs.exists == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: storefront/Dockerfile
+          push: false
+          build-args: NEXT_PUBLIC_API_URL=http://localhost:3000
+          cache-from: type=gha,scope=storefront
+          cache-to: type=gha,mode=max,scope=storefront
+
+  k8s:
+    name: Kubernetes manifests (kustomize + kubeconform)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Render kustomize
+        run: kubectl kustomize k8s/overlays/local > /tmp/rendered.yaml
+
+      # Bắt lỗi sai schema (gõ nhầm tên field, sai apiVersion...) trước khi
+      # apply lên cụm thật.
+      - name: Validate schema
+        run: |
+          curl -sSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar xf kubeconform.tar.gz kubeconform
+          ./kubeconform -strict -summary /tmp/rendered.yaml

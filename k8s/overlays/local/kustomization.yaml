@@ -1,0 +1,15 @@
+# Overlay chạy thử trên máy (Docker Desktop Kubernetes / kind / minikube):
+# dùng đúng image :local vừa build bằng `docker compose build`, không kéo
+# từ registry nào cả.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: optipackai
+resources:
+  - ../../base
+images:
+  - name: optipackai-be
+    newTag: local
+  - name: optipackai-fe
+    newTag: local
+  - name: optipackai-storefront
+    newTag: local
