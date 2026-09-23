@@ -8,6 +8,7 @@ import {
   listPackagingBoxes,
   packOrderGroup,
   rejectPackagingPlan,
+  requestPackingGuide,
 } from '../api/packaging.api'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import type {
@@ -29,6 +30,8 @@ export function usePackagingPlan(groupId: string) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [errorCode, setErrorCode] = useState<string | null>(null)
+  const [guideLoadingId, setGuideLoadingId] = useState<string | null>(null)
+  const [guideError, setGuideError] = useState<string | null>(null)
 
   const fetchAll = useCallback(
     () => Promise.all([getOrderGroup(groupId), getPackagingPlan(groupId), listPackagingBoxes()]),
@@ -86,6 +89,26 @@ export function usePackagingPlan(groupId: string) {
     [group, reload],
   )
 
+  /**
+   * Lấy/tạo hướng dẫn đóng gói cho 1 đơn — chỉ thay đúng phần tử đó,
+   * không tải lại cả trang và không cần version (không đổi trạng thái group).
+   */
+  const loadGuide = useCallback(
+    async (recommendationId: string, regenerate = false): Promise<void> => {
+      setGuideLoadingId(recommendationId)
+      setGuideError(null)
+      try {
+        const updated = await requestPackingGuide(groupId, recommendationId, regenerate)
+        setRecommendations((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+      } catch (err: unknown) {
+        setGuideError(formatApiError(err))
+      } finally {
+        setGuideLoadingId(null)
+      }
+    },
+    [groupId],
+  )
+
   return {
     group,
     recommendations,
@@ -94,6 +117,9 @@ export function usePackagingPlan(groupId: string) {
     busy,
     error,
     errorCode,
+    guideLoadingId,
+    guideError,
+    loadGuide,
     generate: () => run(() => generatePackagingPlan(groupId)),
     approve: () => run((version) => approvePackagingPlan(groupId, version)),
     reject: () => run((version) => rejectPackagingPlan(groupId, version)),

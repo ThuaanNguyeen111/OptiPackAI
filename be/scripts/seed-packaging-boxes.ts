@@ -7,13 +7,16 @@ import {
   PackagingBox,
   PackagingBoxDocument,
 } from '../src/modules/packaging/schemas/packaging-box.schema';
+import { PackagingBoxService } from '../src/modules/packaging/packaging-box.service';
 
 /**
  * ===================================================================
  * Seed / import danh mục thùng carton (21/09/2026, Bước 0 engine 3D)
  * ===================================================================
  * 1) Không tham số — seed 3 thùng MẪU S/M/L (is_sample: true, số giả
- *    lập). Chỉ tạo nếu mã chưa tồn tại, không ghi đè thùng thật.
+ *    lập), mỗi thùng mới nhập 50 qua stock-in (có dòng sổ). Chỉ tạo nếu mã
+ *    chưa tồn tại, không ghi đè thùng thật. CSV không nhập tồn — dùng
+ *    POST /packaging/boxes/:id/stock-in (22/09/2026).
  *      npx ts-node scripts/seed-packaging-boxes.ts
  *
  * 2) Có file CSV — nhập/cập nhật thùng THẬT (is_sample: false). Đơn vị
@@ -30,6 +33,9 @@ const SAMPLE_BOXES = [
   { code: 'SAMPLE-M', name: 'Thùng mẫu M (số giả lập)', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
   { code: 'SAMPLE-L', name: 'Thùng mẫu L (số giả lập)', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
 ] as const;
+
+/** Tồn nhập cho mỗi thùng mẫu mới tạo. */
+const SAMPLE_STOCK = 50;
 
 const CSV_HEADER =
   'code,name,inner_l_cm,inner_w_cm,inner_h_cm,outer_l_cm,outer_w_cm,outer_h_cm,tare_g,max_load_g,price_vnd';
@@ -82,6 +88,17 @@ async function run(): Promise<void> {
   const csvPath = process.argv[2];
   const app = await NestFactory.createApplicationContext(AppModule);
   const boxModel = app.get<Model<PackagingBoxDocument>>(getModelToken(PackagingBox.name));
+  const boxService = app.get(PackagingBoxService);
+
+  // (22/09/2026) Thùng tạo trước khi có tồn kho: bổ sung field, tồn = 0
+  // (phải nhập qua POST /packaging/boxes/:id/stock-in thì engine mới chọn).
+  const backfilled = await boxModel.updateMany(
+    { quantity_on_hand: { $exists: false } },
+    { $set: { quantity_on_hand: 0, reorder_level: 10, storage_location: null } },
+  );
+  if (backfilled.modifiedCount > 0) {
+    console.log(`Bổ sung field tồn kho cho ${String(backfilled.modifiedCount)} thùng cũ (tồn = 0).`);
+  }
 
   if (!csvPath) {
     let created = 0;
@@ -103,9 +120,14 @@ async function run(): Promise<void> {
         },
         { upsert: true },
       );
+      if (result.upsertedCount > 0) {
+        // Thùng mẫu mới: nhập 50 thùng qua stock-in để có dòng sổ xuất/nhập.
+        const doc = await boxModel.findOne({ code: box.code }).select('_id').lean();
+        if (doc) await boxService.stockIn(doc._id.toString(), SAMPLE_STOCK, null, 'Seed thùng mẫu');
+      }
       created += result.upsertedCount;
     }
-    console.log(`Seed thùng mẫu: tạo mới ${String(created)}/${String(SAMPLE_BOXES.length)}.`);
+    console.log(`Seed thùng mẫu: tạo mới ${String(created)}/${String(SAMPLE_BOXES.length)} (mỗi thùng mới nhập ${String(SAMPLE_STOCK)}).`);
   } else {
     const boxes = parseCsv(csvPath);
     const result = await boxModel.bulkWrite(

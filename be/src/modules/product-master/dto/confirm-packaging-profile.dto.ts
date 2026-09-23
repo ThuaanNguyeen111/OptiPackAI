@@ -1,8 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsNumber, IsOptional, Max, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { PRODUCT_CATEGORY_VALUES, ProductCategory } from '../../../common/enums/product-category.enum';
 
 /**
- * Kho/Admin nhập số đo THẬT sau khi gấp/bọc (giày đo nguyên hộp).
+ * Kho/Admin nhập số đo THẬT sau khi gấp/bọc (giày đo nguyên hộp). Nếu
+ * dùng túi zip: đo gói SAU KHI đã cho vào túi (và gập đôi nếu có).
  * Giữ đơn vị cm/kg như `dimension` đang lưu; engine tự đổi sang mm/g.
  */
 export class ConfirmPackagingProfileDto {
@@ -52,4 +54,37 @@ export class ConfirmPackagingProfileDto {
   @IsNumber({}, { message: 'max_stack_load_kg phải là số' })
   @Min(0, { message: 'max_stack_load_kg không được âm' })
   max_stack_load_kg?: number | null;
+
+  @ApiProperty({
+    enum: PRODUCT_CATEGORY_VALUES,
+    example: ProductCategory.T_SHIRT,
+    description: 'Loại sản phẩm — dùng cho hình 3D và lời hướng dẫn đóng gói',
+  })
+  @IsIn(PRODUCT_CATEGORY_VALUES, { message: 'product_category không hợp lệ' })
+  product_category!: ProductCategory;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    example: 'ZIP-M',
+    description: 'Mã túi zip trong danh mục /packaging/bags. Bỏ trống/null = không dùng túi.',
+  })
+  @IsOptional()
+  @IsString({ message: 'zip_bag_code phải là chuỗi' })
+  @MinLength(1, { message: 'zip_bag_code không được rỗng' })
+  zip_bag_code?: string | null;
+
+  @ApiProperty({ required: false, example: true, description: 'Gập đôi túi sau khi cho hàng vào (chỉ có ý nghĩa khi có túi)' })
+  @IsOptional()
+  @IsBoolean({ message: 'zip_bag_folded phải là true/false' })
+  zip_bag_folded?: boolean;
+
+  @ApiProperty({
+    required: false,
+    example: true,
+    description: 'Hàng mềm được gập đôi thêm khi cần để vừa thùng nhỏ hơn (engine tự tính số đo gập). Không áp cho giày.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'can_fold_in_half phải là true/false' })
+  can_fold_in_half?: boolean;
 }

@@ -10,7 +10,7 @@ import { SetPriorityDto } from './dto/set-priority.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
-import { OrderGroupForPackaging, PackableItem } from '../../common/interfaces/packaging.interface';
+import { OrderGroupForPicking, PickableItem } from '../../common/interfaces/packaging.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -122,13 +122,10 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Danh sách sản phẩm cần lấy cho 1 Order Group, kèm kích thước (đã cache từ Product Master) — dùng cho màn hình Warehouse Picking (Mobile App). CHƯA có vị trí kệ thật (module warehouse/ chưa code, xem CLAUDE.md).',
+      'Danh sách sản phẩm cần lấy: số đặt + đã quét trong lượt hiện tại (picked_quantity). Số đo chỉ có khi hồ sơ đóng gói đã ready — KHÔNG bắt buộc để lấy hàng (21/09/2026). Bản có vị trí kệ: GET /warehouse/:warehouseId/picking-list/:groupId.',
   })
-  async pickingList(@Param('id') id: string): Promise<OrderGroupForPackaging> {
-    // TÁI DÙNG ĐÚNG hàm đã có, viết cho mục đích bàn giao AI Packaging
-    // — giờ dùng lại cho mục đích khác (Warehouse Staff xem) mà không
-    // cần viết logic mới, đúng tinh thần "không thừa thãi".
-    return this.orderGroupsService.getPackableItemsForGroup(id);
+  async pickingList(@Param('id') id: string): Promise<OrderGroupForPicking> {
+    return this.orderGroupsService.getPickableItemsForGroup(id);
   }
 
   @Get(':id/picking-list/:sku')
@@ -140,8 +137,8 @@ export class OrderGroupsController {
   async pickingListItemDetail(
     @Param('id') id: string,
     @Param('sku') sku: string,
-  ): Promise<PackableItem> {
-    return this.orderGroupsService.getPackableItemDetail(id, sku);
+  ): Promise<PickableItem> {
+    return this.orderGroupsService.getPickableItemDetail(id, sku);
   }
 
   @Post(':id/fulfillment/pick-item')

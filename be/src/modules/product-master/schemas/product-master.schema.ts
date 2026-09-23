@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { PRODUCT_CATEGORY_VALUES, ProductCategory } from '../../../common/enums/product-category.enum';
 import { HydratedDocument, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
@@ -61,6 +62,28 @@ export class ProductMaster {
 
   @Prop({ type: Number, min: 0, default: null })
   max_stack_load_kg?: number | null;
+
+  /**
+   * BỔ SUNG (21/09/2026) — loại sản phẩm (hình 3D + lời hướng dẫn) và túi
+   * zip bọc từng món. Khi có túi, `dimension` là số đo gói SAU KHI đã cho
+   * vào túi (và gập đôi nếu `zip_bag_folded`) — kho tự đo, không suy ra.
+   */
+  @Prop({ type: String, enum: PRODUCT_CATEGORY_VALUES })
+  product_category?: ProductCategory;
+
+  @Prop({ type: String, default: null })
+  zip_bag_code?: string | null;
+
+  @Prop({ type: Boolean, default: false })
+  zip_bag_folded?: boolean;
+
+  /**
+   * (22/09/2026) Hàng mềm (trong túi zip hoặc không có hộp cứng) được gập
+   * đôi THÊM khi cần để vừa thùng nhỏ hơn — engine tự tính số đo gập. Không
+   * áp cho giày (hộp cứng).
+   */
+  @Prop({ type: Boolean, default: false })
+  can_fold_in_half?: boolean;
 
   @Prop({ type: Types.ObjectId, default: null })
   profile_confirmed_by?: Types.ObjectId | null;

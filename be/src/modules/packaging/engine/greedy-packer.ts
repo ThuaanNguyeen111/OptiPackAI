@@ -1,4 +1,4 @@
-import { orientedDims } from './units';
+import { foldUnit, orientedDims } from './units';
 import { computeLoadsOnTop, isFullySupported, overlaps, validateCandidate } from './validator';
 import type { BoxSpec, PackNoFit, PackOk, PackResult, PackingUnit, Placement } from './types';
 
@@ -12,6 +12,12 @@ export interface PackOptions {
   volumetricDivisor?: number;
   /** Cho test: đồng hồ giả. */
   now?: () => number;
+  /**
+   * (22/09/2026) Số thùng CÒN TRỐNG theo mã (tồn − đang giữ chỗ). Có map
+   * thì thùng không có trong map hoặc ≤ 0 coi là hết hàng; bỏ qua = không
+   * xét tồn (test hình học thuần).
+   */
+  availability?: Map<string, number>;
 }
 
 class DeadlineExceeded extends Error {}
@@ -31,6 +37,29 @@ export function sortUnitsForPacking(units: PackingUnit[]): PackingUnit[] {
     return a.item_key.localeCompare(b.item_key);
   });
 }
+
+function longestEdge(u: PackingUnit): number {
+  return Math.max(u.length_mm, u.width_mm, u.height_mm);
+}
+
+/**
+ * Multi-start (22/09/2026): các thứ tự xếp thử lần lượt cho MỖI thùng.
+ * Thứ tự đầu là greedy cũ (thể tích giảm dần); các thứ tự sau cứu những
+ * ca greedy một thứ tự bị hụt ở thùng nhỏ, để chọn được thùng nhỏ hơn.
+ * Mỗi thứ tự đều tie-break theo item_key → kết quả luôn xác định.
+ */
+const UNIT_ORDERINGS: ((units: PackingUnit[]) => PackingUnit[])[] = [
+  sortUnitsForPacking,
+  (units) =>
+    [...units].sort(
+      (a, b) =>
+        b.length_mm * b.width_mm - a.length_mm * a.width_mm || volume(b) - volume(a) || a.item_key.localeCompare(b.item_key),
+    ),
+  (units) =>
+    [...units].sort((a, b) => longestEdge(b) - longestEdge(a) || volume(b) - volume(a) || a.item_key.localeCompare(b.item_key)),
+  (units) =>
+    [...units].sort((a, b) => b.height_mm - a.height_mm || volume(b) - volume(a) || a.item_key.localeCompare(b.item_key)),
+];
 
 /** Thứ tự thử thùng: thể tích NGOÀI nhỏ nhất → giá → mã. */
 export function sortBoxesByPreference(boxes: BoxSpec[]): BoxSpec[] {
@@ -71,6 +100,8 @@ export function packIntoBox(
   units: PackingUnit[],
   box: BoxSpec,
   checkDeadline: () => void = () => undefined,
+  /** Thứ tự đặt món (multi-start); mặc định greedy thể tích giảm dần. */
+  ordered: PackingUnit[] = sortUnitsForPacking(units),
 ): Placement[] | null {
   const { length_mm: L, width_mm: W, height_mm: H } = box.inner;
   const placed: Placement[] = [];
@@ -79,7 +110,7 @@ export function packIntoBox(
   const ys = new Set<number>([0]);
   const zs = new Set<number>([0]);
 
-  for (const unit of sortUnitsForPacking(units)) {
+  for (const unit of ordered) {
     let chosen: Placement | null = null;
     const sortedZ = [...zs].sort((a, b) => a - b);
     const sortedY = [...ys].sort((a, b) => a - b);
@@ -103,6 +134,7 @@ export function packIntoBox(
               dy,
               dz,
               orientation,
+              ...(unit.folded === true && { folded: true }),
             };
             if (placed.some((p) => overlaps(p, candidate))) continue;
             if (!isFullySupported(candidate, placed)) continue;
@@ -170,15 +202,37 @@ export function packOrder(
     if (elapsed() > budget) throw new DeadlineExceeded();
   };
 
+  // Thùng nhỏ nhất xếp vừa nhưng kho đã hết — để báo nhân viên nhập thêm.
+  let preferredOutOfStock: string | null = null;
+
+  const variants = foldVariants(units);
+
   for (const box of sortBoxesByPreference(boxes)) {
-    const rejected = quickReject(units, box);
-    if (rejected) {
-      reasons.push({ box_code: box.code, reason: rejected });
-      continue;
-    }
-    let placements: Placement[] | null;
+    // (22/09/2026) Thử nguyên trạng trước; hụt mới gập dần các món mềm —
+    // gập chỉ xảy ra khi nhờ đó thùng NÀY (nhỏ hơn) mới vừa.
+    let found: { placements: Placement[]; units: PackingUnit[] } | null = null;
+    let lastViolation: string | null = null;
+    let lastReject: string | null = null;
     try {
-      placements = packIntoBox(units, box, checkDeadline);
+      for (const variant of variants) {
+        const rejected = quickReject(variant, box);
+        if (rejected) {
+          lastReject = rejected;
+          continue;
+        }
+        for (const ordering of UNIT_ORDERINGS) {
+          const placements = packIntoBox(variant, box, checkDeadline, ordering(variant));
+          if (!placements) continue;
+          const violations = validateCandidate(variant, box, placements);
+          if (violations.length > 0) {
+            lastViolation = violations[0]?.message ?? '';
+            continue;
+          }
+          found = { placements, units: variant };
+          break;
+        }
+        if (found) break;
+      }
     } catch (error: unknown) {
       if (error instanceof DeadlineExceeded) {
         reasons.push({ box_code: box.code, reason: `Hết thời gian tính (${String(budget)} ms).` });
@@ -186,18 +240,42 @@ export function packOrder(
       }
       throw error;
     }
-    if (!placements) {
-      reasons.push({ box_code: box.code, reason: 'Greedy không tìm được cách xếp đủ mọi món.' });
+    if (!found) {
+      reasons.push({
+        box_code: box.code,
+        reason: lastViolation
+          ? `Validator loại: ${lastViolation}`
+          : (lastReject ?? 'Không tìm được cách xếp đủ mọi món (đã thử nhiều thứ tự xếp).'),
+      });
       continue;
     }
-    const violations = validateCandidate(units, box, placements);
-    if (violations.length > 0) {
-      reasons.push({ box_code: box.code, reason: `Validator loại: ${violations[0]?.message ?? ''}` });
+    if (options.availability && (options.availability.get(box.code) ?? 0) <= 0) {
+      preferredOutOfStock ??= box.code;
+      reasons.push({ box_code: box.code, reason: 'Xếp vừa nhưng kho đã hết thùng này (tồn − đang giữ chỗ = 0).' });
       continue;
     }
-    return buildOk(units, box, placements, elapsed(), options.volumetricDivisor);
+    return buildOk(found.units, box, found.placements, elapsed(), options.volumetricDivisor, preferredOutOfStock);
   }
   return noFit(reasons);
+}
+
+/**
+ * (22/09/2026) Các phương án thử cho 1 đơn: [nguyên trạng, gập món mềm lớn
+ * nhất, gập thêm món kế tiếp, ...]. Gập theo thể tích giảm dần — món to
+ * nhất gập trước vì hay là thứ làm hụt thùng nhỏ.
+ */
+export function foldVariants(units: PackingUnit[]): PackingUnit[][] {
+  const foldOrder = units
+    .filter((u) => u.foldable === true && u.folded !== true)
+    .sort((a, b) => volume(b) - volume(a) || a.item_key.localeCompare(b.item_key))
+    .map((u) => u.item_key);
+  const variants: PackingUnit[][] = [units];
+  const folded = new Set<string>();
+  for (const key of foldOrder) {
+    folded.add(key);
+    variants.push(units.map((u) => (folded.has(u.item_key) ? foldUnit(u) : u)));
+  }
+  return variants;
 }
 
 /** Dựng kết quả hợp lệ kèm ước tính cân/vật tư cho một thùng đã xếp. */
@@ -207,6 +285,7 @@ export function buildOk(
   placements: Placement[],
   computationTimeMs: number,
   volumetricDivisor = DEFAULT_VOLUMETRIC_DIVISOR,
+  preferredOutOfStock: string | null = null,
 ): PackOk {
   const itemsWeight = units.reduce((sum, u) => sum + u.weight_g, 0);
   const itemsVolume = units.reduce((sum, u) => sum + volume(u), 0);
@@ -225,5 +304,6 @@ export function buildOk(
     estimated_package_weight_g: itemsWeight + box.tare_g,
     volumetric_weight_g: Math.ceil((outerCm3 / volumetricDivisor) * 1000),
     computation_time_ms: computationTimeMs,
+    preferred_box_out_of_stock: preferredOutOfStock,
   };
 }

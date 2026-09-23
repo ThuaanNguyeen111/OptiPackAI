@@ -1,8 +1,8 @@
-import { packOrder, packIntoBox } from './greedy-packer';
+import { packOrder, packIntoBox, sortUnitsForPacking } from './greedy-packer';
 import { validateCandidate } from './validator';
-import { expandToUnits, cmToMmCeil } from './units';
+import { expandToUnits, cmToMmCeil, foldUnit } from './units';
 import type { BoxSpec, Orientation, PackingUnit, Placement } from './types';
-import { ALL_ORIENTATIONS } from './types';
+import { ALL_ORIENTATIONS, UPRIGHT_ORIENTATIONS } from './types';
 
 function unit(
   key: string,
@@ -205,5 +205,126 @@ describe('Engine đóng gói 3D — đổi đơn vị', () => {
     expect(units[0]?.orientations).toEqual(['LWH', 'WLH']);
     expect(units[0]?.max_stack_load_g).toBe(300);
     expect(units[0]?.weight_g).toBe(1000);
+  });
+});
+
+describe('tồn kho thùng + multi-start (22/09/2026)', () => {
+  const small = box('S', [300, 200, 100], [306, 206, 106]);
+  const medium = box('M', [400, 300, 200], [406, 306, 206]);
+  const large = box('L', [600, 400, 300], [606, 406, 306]);
+  const stackable = { maxStack: 5000 };
+  const items = [unit('AO#1', [280, 180, 40], 200, stackable), unit('AO#2', [280, 180, 40], 200, stackable)];
+
+  it('không truyền tồn -> chọn thùng nhỏ nhất xếp vừa, không ghi chú hết hàng', () => {
+    const result = packOrder(items, [large, medium, small]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.box.code).toBe('S');
+    expect(result.preferred_box_out_of_stock).toBeNull();
+  });
+
+  it('thùng nhỏ nhất hết hàng -> tự chọn thùng còn hàng kế tiếp và ghi lại thùng đã hết', () => {
+    const availability = new Map([
+      ['S', 0],
+      ['M', 3],
+      ['L', 5],
+    ]);
+    const result = packOrder(items, [small, medium, large], { availability });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.box.code).toBe('M');
+    expect(result.preferred_box_out_of_stock).toBe('S');
+  });
+
+  it('mọi thùng xếp vừa đều hết -> no_fit, lý do nói rõ hết hàng', () => {
+    const result = packOrder(items, [small, medium], { availability: new Map([['S', 0]]) });
+    expect(result.status).toBe('no_fit');
+    if (result.status !== 'no_fit') return;
+    expect(result.reasons.map((r) => r.reason).join(' ')).toContain('kho đã hết');
+  });
+
+  it('multi-start: thứ tự thể tích giảm dần không xếp vừa, nhưng engine vẫn tìm được cách xếp khác', () => {
+    // Ca dò thật: thùng 40×40×50 mm, 4 món chỉ được đặt đứng.
+    const tight = box('T', [40, 40, 50], [40, 40, 50]);
+    const upright = { orientations: UPRIGHT_ORIENTATIONS, maxStack: 100000 };
+    const units = [
+      unit('U0#1', [20, 20, 40], 100, upright),
+      unit('U1#1', [20, 20, 20], 100, upright),
+      unit('U2#1', [20, 30, 10], 100, upright),
+      unit('U3#1', [20, 20, 30], 100, upright),
+    ];
+    const singleOrder = packIntoBox(units, tight, undefined, sortUnitsForPacking(units));
+    expect(singleOrder === null || validateCandidate(units, tight, singleOrder).length > 0).toBe(true);
+
+    const result = packOrder(units, [tight]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(validateCandidate(units, tight, result.placements)).toEqual([]);
+  });
+});
+
+describe('quần áo nằm phẳng + gập đôi khi cần (22/09/2026)', () => {
+  const shirtItem = {
+    sku: 'AO',
+    quantity: 1,
+    length_cm: 36,
+    width_cm: 24,
+    height_cm: 4,
+    weight_kg: 0.2,
+    is_fragile: false,
+    orientation_rule: 'any' as const,
+    max_stack_load_kg: 2,
+  };
+
+  it('quần áo luôn chỉ xoay ngang dù hồ sơ ghi "any"; hàng khác vẫn xoay tự do', () => {
+    const [shirt] = expandToUnits([{ ...shirtItem, product_category: 't_shirt' }]);
+    const [other] = expandToUnits([{ ...shirtItem, product_category: 'accessory' }]);
+    expect(shirt?.orientations).toEqual(['LWH', 'WLH']);
+    expect(other?.orientations).toEqual(ALL_ORIENTATIONS);
+  });
+
+  it('áo không bao giờ bị dựng đứng: mọi vị trí đặt giữ độ dày 40 mm theo trục đứng', () => {
+    const units = expandToUnits([{ ...shirtItem, quantity: 3, product_category: 't_shirt' }]);
+    const tall = box('T', [400, 300, 300], [410, 310, 310]);
+    const result = packOrder(units, [tall]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.placements.every((p) => p.dz === 40)).toBe(true);
+  });
+
+  it('foldUnit: chia đôi cạnh dài, gấp đôi độ dày, cân giữ nguyên', () => {
+    const [u] = expandToUnits([{ ...shirtItem, can_fold_in_half: true }]);
+    if (!u) throw new Error('thiếu unit');
+    expect(foldUnit(u)).toMatchObject({ length_mm: 180, width_mm: 240, height_mm: 80, weight_g: 200, folded: true });
+  });
+
+  it('không gập vẫn vừa thùng nhỏ nhất → KHÔNG gập', () => {
+    const units = expandToUnits([{ ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' }]);
+    const result = packOrder(units, [box('M', [400, 300, 100])]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.placements[0]?.folded).toBeUndefined();
+  });
+
+  it('chỉ vừa thùng nhỏ khi gập → chọn thùng nhỏ và đánh dấu gập', () => {
+    const units = expandToUnits([{ ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' }]);
+    const small = box('S', [250, 250, 100], [260, 260, 110]);
+    const large = box('L', [400, 300, 100], [410, 310, 110]);
+    const result = packOrder(units, [small, large]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.box.code).toBe('S');
+    expect(result.placements[0]?.folded).toBe(true);
+    expect(result.placements[0]?.dz).toBe(80);
+  });
+
+  it('món không được gập (giày) thì không bao giờ gập, dù thùng nhỏ hụt', () => {
+    const units = expandToUnits([{ ...shirtItem, product_category: 'shoes' }]);
+    const small = box('S', [250, 250, 100], [260, 260, 110]);
+    const large = box('L', [400, 300, 100], [410, 310, 110]);
+    const result = packOrder(units, [small, large]);
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.box.code).toBe('L');
   });
 });

@@ -33,6 +33,10 @@ export interface PackingUnit {
   orientations: readonly Orientation[];
   /** Tải tối đa được đặt lên trên (g); null = không cho đặt gì lên. */
   max_stack_load_g: number | null;
+  /** (22/09/2026) Hàng mềm được phép gập đôi thêm khi cần để vừa thùng nhỏ hơn. */
+  foldable?: boolean;
+  /** true = số đo đang là số đo SAU KHI gập đôi (xem foldUnit). */
+  folded?: boolean;
 }
 
 export interface BoxSpec {
@@ -59,6 +63,8 @@ export interface Placement {
   dy: number;
   dz: number;
   orientation: Orientation;
+  /** (22/09/2026) Món này phải gập đôi trước khi đặt. */
+  folded?: boolean;
 }
 
 export type ViolationCode =
@@ -97,6 +103,11 @@ export interface PackOk {
   /** Khối lượng quy đổi theo thể tích ngoài (g), theo hệ số chia. */
   volumetric_weight_g: number;
   computation_time_ms: number;
+  /**
+   * (22/09/2026) Thùng NHỎ HƠN xếp vừa nhưng kho đã hết (còn trống = 0)
+   * nên phải dùng thùng này — null nếu đã chọn được thùng vừa nhất.
+   */
+  preferred_box_out_of_stock: string | null;
 }
 
 export interface PackNoFit {

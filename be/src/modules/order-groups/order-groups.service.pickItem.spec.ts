@@ -166,6 +166,33 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     });
   });
 
+  it('picking-list KHÔNG chặn SKU chưa đo: trả số đặt + đã quét, số đo null, ready=false', async () => {
+    mockGroup();
+    mockOrderedItems([
+      { sku: 'AO', quantity: 2 },
+      { sku: 'GIAY', quantity: 1 },
+    ]);
+    mockPickedEvents([{ seller_sku: 'AO', scanned_quantity: 1 }]);
+    productMasterModel.find.mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          seller_sku: 'AO',
+          packaging_profile_status: 'ready',
+          is_fragile: false,
+          dimension: { package_length_cm: 28, package_width_cm: 20, package_height_cm: 4, package_weight_kg: 0.25 },
+        },
+        { seller_sku: 'GIAY', packaging_profile_status: 'needs_measurement' },
+      ]),
+    });
+
+    const { items } = await service.getPickableItemsForGroup(groupId);
+
+    expect(items).toEqual([
+      expect.objectContaining({ sku: 'AO', quantity: 2, picked_quantity: 1, packaging_profile_ready: true, length_cm: 28 }),
+      expect.objectContaining({ sku: 'GIAY', quantity: 1, picked_quantity: 0, packaging_profile_ready: false, length_cm: null }),
+    ]);
+  });
+
   it('decidePartial(false) -> quay awaiting_packaging VÀ mở lượt mới (pick_round + 1)', async () => {
     mockGroup({ fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW });
     orderGroupModel.findOneAndUpdate.mockResolvedValue({ pick_round: 1 });

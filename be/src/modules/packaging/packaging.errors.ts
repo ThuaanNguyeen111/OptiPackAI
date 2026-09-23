@@ -15,4 +15,10 @@ export const PACKAGING_ERROR_CODES = {
   ORDER_NOT_IN_PLAN: 'PKG_ORDER_NOT_IN_PLAN', // order_id không có phương án active trong group
   PACK_PACKAGES_MISMATCH: 'PKG_PACK_PACKAGES_MISMATCH', // danh sách cân không khớp đúng các kiện của group
   ADJUSTMENT_NOTE_REQUIRED: 'PKG_ADJUSTMENT_NOTE_REQUIRED', // reason = OTHER mà không ghi chú
+  GUIDE_NOT_AVAILABLE: 'PKG_GUIDE_NOT_AVAILABLE', // (21/09/2026) phương án no_fit — chưa có cách xếp để hướng dẫn
+  BOX_OUT_OF_STOCK: 'PKG_BOX_OUT_OF_STOCK', // (22/09/2026) thùng không còn trống (tồn − đang giữ chỗ) khi adjust/pack
+  // Danh mục túi zip (21/09/2026)
+  INVALID_BAG_ID: 'PKG_INVALID_BAG_ID',
+  BAG_NOT_FOUND: 'PKG_BAG_NOT_FOUND',
+  BAG_CODE_IN_USE: 'PKG_BAG_CODE_IN_USE',
 } as const;

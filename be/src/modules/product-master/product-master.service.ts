@@ -3,9 +3,11 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { PRODUCT_MASTER_ERROR_CODES } from './product-master.errors';
+import { ProductCategory } from '../../common/enums/product-category.enum';
 import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
 import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
+import { PackagingBag, PackagingBagDocument } from '../packaging/schemas/packaging-bag.schema';
 // Inject TRỰC TIẾP LazadaAdapter (class cụ thể, đã export sẵn từ
 // MarketplaceIntegrationModule) — ĐÚNG THEO PATTERN đã có sẵn trong
 // chính orders.service.ts (cũng inject thẳng LazadaAdapter, không qua
@@ -30,6 +32,8 @@ export class ProductMasterService {
     private readonly productMasterModel: Model<ProductMasterDocument>,
     @InjectModel(Order.name)
     private readonly orderModel: Model<OrderDocument>,
+    @InjectModel(PackagingBag.name)
+    private readonly bagModel: Model<PackagingBagDocument>,
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     private readonly lazadaAdapter: LazadaAdapter,
   ) {}
@@ -150,6 +154,27 @@ export class ProductMasterService {
       );
     }
 
+    if (dto.can_fold_in_half === true && dto.product_category === ProductCategory.SHOES) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.FOLD_NOT_ALLOWED,
+        'Giày đựng trong hộp cứng không gập được — bỏ chọn "có thể gập đôi".',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { productCategory: dto.product_category },
+      );
+    }
+    const zipBagCode = dto.zip_bag_code ?? null;
+    if (zipBagCode !== null) {
+      const bagExists = await this.bagModel.exists({ code: zipBagCode, is_active: true });
+      if (!bagExists) {
+        throw new AppException(
+          PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_NOT_FOUND,
+          `Không có túi zip "${zipBagCode}" đang dùng trong danh mục.`,
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          { zipBagCode },
+        );
+      }
+    }
+
     const updated = await this.productMasterModel.findByIdAndUpdate(
       id,
       {
@@ -163,6 +188,10 @@ export class ProductMasterService {
           is_fragile: dto.is_fragile,
           orientation_rule: dto.orientation_rule,
           max_stack_load_kg: dto.max_stack_load_kg ?? null,
+          product_category: dto.product_category,
+          zip_bag_code: zipBagCode,
+          zip_bag_folded: zipBagCode !== null && dto.zip_bag_folded === true,
+          can_fold_in_half: dto.can_fold_in_half === true,
           packaging_profile_status: 'ready',
           profile_confirmed_by: new Types.ObjectId(userId),
           profile_confirmed_at: new Date(),

@@ -21,6 +21,8 @@ export type Placement = {
   dy: number
   dz: number
   orientation: string
+  /** (22/09/2026) Gập đôi món này trước khi đặt. */
+  folded?: boolean
 }
 
 export type PackagingApprovalStatus = 'pending' | 'approved' | 'adjusted' | 'rejected'
@@ -37,6 +39,7 @@ export type PackagingRecommendation = {
   boxInnerMm: DimensionsMm | null
   boxOuterMm: DimensionsMm | null
   placements: Placement[]
+  itemProfiles: ItemProfile[]
   materials: { type: string; quantity: number }[]
   estimatedShippingCostVnd: number | null
   itemsWeightG: number | null
@@ -53,6 +56,25 @@ export type PackagingRecommendation = {
   actualMeasuredWeightKg: number | null
   packedAt: string | null
   isAbnormal: boolean
+  packingGuide: PackingGuide | null
+  /** Thùng vừa hơn nhưng kho đã hết lúc tính phương án (22/09/2026). */
+  preferredBoxOutOfStock: string | null
+}
+
+export type PackingGuideStep = {
+  step: number
+  instruction: string
+  tip: string | null
+}
+
+/** Lời hướng dẫn đóng gói từng bước: 'ai' = AI (Groq) viết, 'template' = câu mẫu. */
+export type PackingGuide = {
+  source: 'ai' | 'template'
+  model: string | null
+  fallbackReason: 'no_api_key' | 'ai_error' | 'ai_invalid_output' | null
+  summary: string
+  steps: PackingGuideStep[]
+  generatedAt: string
 }
 
 export type PackagingPlan = {
@@ -71,6 +93,97 @@ export type PackagingBox = {
   priceVnd: number | null
   isSample: boolean
   isActive: boolean
+  /** Tồn kho (22/09/2026): thực có, đang được phương án chưa đóng giữ chỗ, còn trống. */
+  quantityOnHand: number
+  reserved: number
+  available: number
+  reorderLevel: number
+  storageLocation: string | null
+  stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock'
+}
+
+/** 1 dòng sổ xuất/nhập thùng. */
+export type BoxStockMovement = {
+  delta: number
+  reason: 'stock_in' | 'pack'
+  balanceAfter: number
+  orderGroupId: string | null
+  note: string | null
+  createdAt: string | null
+}
+
+/** Túi zip bọc từng món (kích thước trải phẳng, mm). */
+export type PackagingBag = {
+  id: string
+  code: string
+  name: string
+  widthMm: number
+  lengthMm: number
+  priceVnd: number | null
+  isSample: boolean
+  isActive: boolean
+}
+
+/** Loại sản phẩm — khớp enum ProductCategory ở backend. */
+export const PRODUCT_CATEGORIES = [
+  't_shirt',
+  'shirt',
+  'jacket',
+  'shorts',
+  'trousers',
+  'dress',
+  'shoes',
+  'sandals',
+  'accessory',
+  'other',
+] as const
+export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number]
+
+export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, { vi: string; en: string }> = {
+  t_shirt: { vi: 'Áo thun', en: 'T-shirt' },
+  shirt: { vi: 'Áo sơ mi', en: 'Shirt' },
+  jacket: { vi: 'Áo khoác', en: 'Jacket' },
+  shorts: { vi: 'Quần đùi/short', en: 'Shorts' },
+  trousers: { vi: 'Quần dài/jean', en: 'Trousers/jeans' },
+  dress: { vi: 'Váy/đầm', en: 'Dress' },
+  shoes: { vi: 'Giày (hộp)', en: 'Shoes (boxed)' },
+  sandals: { vi: 'Dép/sandal', en: 'Sandals' },
+  accessory: { vi: 'Phụ kiện', en: 'Accessory' },
+  other: { vi: 'Khác', en: 'Other' },
+}
+
+export type ItemProfile = {
+  sku: string
+  productCategory: ProductCategory | null
+  zipBagCode: string | null
+  zipBagFolded: boolean
+}
+
+export type ProfileDimension = {
+  lengthCm?: number
+  widthCm?: number
+  heightCm?: number
+  weightKg?: number
+}
+
+/** Hồ sơ đóng gói SKU — GET /product-master. */
+export type ProductProfile = {
+  id: string
+  platform: string
+  shopId: string
+  sellerSku: string
+  packagingProfileStatus: 'needs_measurement' | 'ready'
+  dimension: ProfileDimension | null
+  marketplaceDimension: ProfileDimension | null
+  isFragile: boolean | null
+  orientationRule: 'any' | 'upright_only' | null
+  maxStackLoadKg: number | null
+  productCategory: ProductCategory | null
+  zipBagCode: string | null
+  zipBagFolded: boolean
+  canFoldInHalf: boolean
+  profileConfirmedAt: string | null
+  lastSyncedAt: string
 }
 
 export type OrderGroupSummary = {

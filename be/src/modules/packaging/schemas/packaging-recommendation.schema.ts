@@ -28,6 +28,8 @@ export class PlacementEntry {
   @Prop({ type: Number, required: true }) dy!: number;
   @Prop({ type: Number, required: true }) dz!: number;
   @Prop({ type: String, required: true }) orientation!: string;
+  /** (22/09/2026) Món phải gập đôi trước khi đặt (engine gập để vừa thùng nhỏ hơn). */
+  @Prop({ type: Boolean, default: false }) folded!: boolean;
 }
 export const PlacementEntrySchema = SchemaFactory.createForClass(PlacementEntry);
 
@@ -44,6 +46,44 @@ export class NoFitReason {
   @Prop({ type: String, required: true }) reason!: string;
 }
 export const NoFitReasonSchema = SchemaFactory.createForClass(NoFitReason);
+
+/**
+ * MỚI (21/09/2026) — loại sản phẩm + túi zip của từng SKU trong đơn, chụp
+ * từ hồ sơ SKU lúc tính phương án. FE dùng để chọn hình 3D đại diện và vẽ
+ * túi zip; hướng dẫn dùng để thêm bước cho hàng vào túi. Engine bỏ qua.
+ */
+@Schema({ _id: false })
+export class ItemProfileEntry {
+  @Prop({ type: String, required: true }) sku!: string;
+  @Prop({ type: String, default: null }) product_category!: string | null;
+  @Prop({ type: String, default: null }) zip_bag_code!: string | null;
+  @Prop({ type: Boolean, default: false }) zip_bag_folded!: boolean;
+}
+export const ItemProfileEntrySchema = SchemaFactory.createForClass(ItemProfileEntry);
+
+@Schema({ _id: false })
+export class PackingGuideStep {
+  @Prop({ type: Number, required: true }) step!: number;
+  @Prop({ type: String, required: true }) instruction!: string;
+  @Prop({ type: String, default: null }) tip!: string | null;
+}
+export const PackingGuideStepSchema = SchemaFactory.createForClass(PackingGuideStep);
+
+/**
+ * MỚI (21/09/2026) — lời hướng dẫn đóng gói từng bước cho animation 3D.
+ * `source`: 'ai' (OpenAI viết) hoặc 'template' (câu mẫu khi thiếu key/AI
+ * trả sai). Bị xóa (null) mỗi khi phương án xếp đổi (generate/adjust).
+ */
+@Schema({ _id: false })
+export class PackingGuide {
+  @Prop({ type: String, enum: ['ai', 'template'], required: true }) source!: 'ai' | 'template';
+  @Prop({ type: String, default: null }) model!: string | null;
+  @Prop({ type: String, default: null }) fallback_reason!: string | null;
+  @Prop({ type: String, required: true }) summary!: string;
+  @Prop({ type: [PackingGuideStepSchema], default: [] }) steps!: PackingGuideStep[];
+  @Prop({ type: Date, required: true }) generated_at!: Date;
+}
+export const PackingGuideSchema = SchemaFactory.createForClass(PackingGuide);
 
 /**
  * ===================================================================
@@ -98,6 +138,9 @@ export class PackagingRecommendationDoc {
 
   @Prop({ type: [PlacementEntrySchema], default: [] })
   placements!: PlacementEntry[];
+
+  @Prop({ type: [ItemProfileEntrySchema], default: [] })
+  item_profiles!: ItemProfileEntry[];
 
   @Prop({ type: [MaterialEntrySchema], default: [] })
   materials!: MaterialEntry[];
@@ -178,6 +221,13 @@ export class PackagingRecommendationDoc {
 
   @Prop({ type: Boolean, default: false })
   is_abnormal!: boolean;
+
+  @Prop({ type: PackingGuideSchema, default: null })
+  packing_guide!: PackingGuide | null;
+
+  /** (22/09/2026) Thùng nhỏ hơn xếp vừa nhưng hết hàng lúc tính — nhắc nhập thêm. */
+  @Prop({ type: String, default: null })
+  preferred_box_out_of_stock!: string | null;
 
   @Prop({ type: Boolean, default: true })
   is_active!: boolean;

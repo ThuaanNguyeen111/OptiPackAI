@@ -7,6 +7,8 @@ import { OrderGroup } from '../order-groups/schemas/order-group.schema';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { PackagingBoxService } from './packaging-box.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { PackingGuideAiService } from './packing-guide-ai.service';
+import { PackagingBagService } from './packaging-bag.service';
 import { PackagingApprovalStatus } from './enums/packaging-approval-status.enum';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
@@ -61,7 +63,17 @@ describe('PackagingService', () => {
   };
   let orderGroupModel: { findById: jest.Mock; findOneAndUpdate: jest.Mock };
   let orderGroupsService: { findOrderGroupById: jest.Mock; allocatePickedItemsToOrders: jest.Mock };
-  let boxService: { listActiveSpecs: jest.Mock; findActiveSpecByCode: jest.Mock };
+  let boxService: {
+    listActiveSpecs: jest.Mock;
+    findActiveSpecByCode: jest.Mock;
+    listAvailability: jest.Mock;
+    consumeForPack: jest.Mock;
+  };
+
+  /** Tồn thùng giả: mặc định mọi thùng còn nhiều. */
+  function stock(entries: [string, number][]): Map<string, { onHand: number; reserved: number; available: number; reorderLevel: number }> {
+    return new Map(entries.map(([code, available]) => [code, { onHand: available, reserved: 0, available, reorderLevel: 2 }]));
+  }
   let notificationsService: { buildAbnormalPackageMessage: jest.Mock; notify: jest.Mock };
 
   function mockGroup(status: GroupFulfillmentStatus, version = 4): void {
@@ -98,7 +110,12 @@ describe('PackagingService', () => {
     };
     orderGroupModel = { findById: jest.fn(), findOneAndUpdate: jest.fn() };
     orderGroupsService = { findOrderGroupById: jest.fn(), allocatePickedItemsToOrders: jest.fn() };
-    boxService = { listActiveSpecs: jest.fn().mockResolvedValue([boxM]), findActiveSpecByCode: jest.fn() };
+    boxService = {
+      listActiveSpecs: jest.fn().mockResolvedValue([boxM]),
+      findActiveSpecByCode: jest.fn(),
+      listAvailability: jest.fn().mockResolvedValue(stock([['M', 50], ['L', 50], ['TINY', 50]])),
+      consumeForPack: jest.fn().mockResolvedValue([]),
+    };
     notificationsService = {
       buildAbnormalPackageMessage: jest.fn().mockReturnValue({ title: 't', message: 'm' }),
       notify: jest.fn().mockResolvedValue({}),
@@ -117,6 +134,8 @@ describe('PackagingService', () => {
         { provide: OrderGroupsService, useValue: orderGroupsService },
         { provide: PackagingBoxService, useValue: boxService },
         { provide: NotificationsService, useValue: notificationsService },
+        { provide: PackingGuideAiService, useValue: { writeGuide: jest.fn() } },
+        { provide: PackagingBagService, useValue: { namesByCode: jest.fn().mockResolvedValue(new Map()) } },
       ],
     }).compile();
     service = module.get(PackagingService);
@@ -141,8 +160,39 @@ describe('PackagingService', () => {
       expect(docs[0]?.estimated_shipping_cost_vnd).toBeNull();
       // Cân ước tính = hàng + bì thùng (2 áo 250 g + bì 200 g)
       expect(docs[0]?.estimated_package_weight_g).toBe(700);
+      // Hồ sơ SKU (loại + túi zip) được chụp vào phương án cho hình 3D/hướng dẫn
+      expect(docs[0]?.item_profiles).toEqual([
+        { sku: 'AO-M', product_category: null, zip_bag_code: null, zip_bag_folded: false },
+      ]);
       const [, update] = orderGroupModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { fulfillment_status: string } }];
       expect(update.$set.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
+    });
+
+    it('chỉ còn 1 thùng M trống cho 2 đơn → đơn đầu nhận M, đơn sau sang L và ghi lại M đã hết', async () => {
+      mockGroup(GroupFulfillmentStatus.PICKED);
+      const boxL: BoxSpec = {
+        ...boxM,
+        code: 'L',
+        name: 'Thùng L',
+        inner: { length_mm: 500, width_mm: 400, height_mm: 350 },
+        outer: { length_mm: 506, width_mm: 406, height_mm: 356 },
+      };
+      boxService.listActiveSpecs.mockResolvedValue([boxM, boxL]);
+      boxService.listAvailability.mockResolvedValue(stock([['M', 1], ['L', 5]]));
+      orderGroupsService.allocatePickedItemsToOrders.mockResolvedValue([
+        { order_id: orderA, platform_order_id: 'LZ-1', items: [shirt(1)] },
+        { order_id: orderB, platform_order_id: 'LZ-2', items: [shirt(1)] },
+      ]);
+      mockActive([]);
+
+      await service.generateRecommendations(groupId);
+
+      const [docs] = recommendationModel.insertMany.mock.calls[0] as [Record<string, unknown>[]];
+      expect(docs.map((d) => d.box_code)).toEqual(['M', 'L']);
+      expect(docs.map((d) => d.preferred_box_out_of_stock)).toEqual([null, 'M']);
+      // Không tính chỗ giữ của chính group đang tính lại.
+      const [excludeArg] = boxService.listAvailability.mock.calls[0] as [unknown];
+      expect(excludeArg).toEqual({ groupId });
     });
 
     it('không thùng nào vừa → solution_status no_fit, KHÔNG gán thùng lớn nhất', async () => {
@@ -231,6 +281,22 @@ describe('PackagingService', () => {
       expect(recommendationModel.updateOne).not.toHaveBeenCalled();
     });
 
+    it('đổi sang thùng kho đã hết (còn trống = 0) → PKG_BOX_OUT_OF_STOCK, không ghi gì', async () => {
+      mockGroup(GroupFulfillmentStatus.PENDING_APPROVAL);
+      const current = rec({ box_code: 'L' });
+      recommendationModel.findOne.mockResolvedValue(current);
+      boxService.findActiveSpecByCode.mockResolvedValue(boxM);
+      boxService.listAvailability.mockResolvedValue(stock([['M', 0]]));
+
+      await expect(service.adjust(groupId, userId, { ...baseDto, box_code: 'M' })).rejects.toMatchObject({
+        errorCode: PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
+      });
+      expect(recommendationModel.updateOne).not.toHaveBeenCalled();
+      // Không tính chỗ mà chính phương án này đang giữ.
+      const [excludeArg] = boxService.listAvailability.mock.calls[0] as [unknown];
+      expect(excludeArg).toEqual({ recommendationId: current._id });
+    });
+
     it('thùng vừa → xếp lại + lưu lý do, group vẫn chờ approve', async () => {
       mockGroup(GroupFulfillmentStatus.PENDING_APPROVAL);
       recommendationModel.findOne.mockResolvedValue(rec({ box_code: 'S' }));
@@ -287,6 +353,50 @@ describe('PackagingService', () => {
       const [, update] = recommendationModel.updateOne.mock.calls[0] as [unknown, { $set: { is_abnormal: boolean } }];
       expect(update.$set.is_abnormal).toBe(true);
       expect(notificationsService.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('trừ tồn thùng của mọi kiện trong transaction (1 thùng / kiện)', async () => {
+      mockGroup(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      mockActive([rec({ approval_status: PackagingApprovalStatus.APPROVED })]);
+
+      await service.pack(groupId, userId, { packages: [{ order_id: orderA, actual_weight_kg: 0.45 }], expected_version: 4 });
+
+      const [, packages] = boxService.consumeForPack.mock.calls[0] as [unknown, { boxCode: string }[]];
+      expect(packages.map((p) => p.boxCode)).toEqual(['M']);
+    });
+
+    it('kho hết thùng lúc pack → lỗi, group KHÔNG sang packed', async () => {
+      mockGroup(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      mockActive([rec({ approval_status: PackagingApprovalStatus.APPROVED })]);
+      boxService.consumeForPack.mockRejectedValue(
+        Object.assign(new Error('hết thùng'), { errorCode: PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK }),
+      );
+
+      await expect(
+        service.pack(groupId, userId, { packages: [{ order_id: orderA, actual_weight_kg: 0.45 }], expected_version: 4 }),
+      ).rejects.toMatchObject({ errorCode: PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK });
+      expect(orderGroupModel.findOneAndUpdate.mock.calls).toHaveLength(0);
+    });
+
+    it('tồn vừa rơi xuống ≤ mức cảnh báo → báo Admin + Store Owner đúng 1 lần mỗi role', async () => {
+      mockGroup(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      mockActive([rec({ approval_status: PackagingApprovalStatus.APPROVED })]);
+      boxService.consumeForPack.mockResolvedValue([{ code: 'M', before: 3, after: 2, reorderLevel: 2 }]);
+
+      await service.pack(groupId, userId, { packages: [{ order_id: orderA, actual_weight_kg: 0.45 }], expected_version: 4 });
+
+      const types = (notificationsService.notify.mock.calls as [{ type: string }][]).map(([input]) => input.type);
+      expect(types).toEqual(['low_box_stock', 'low_box_stock']);
+    });
+
+    it('tồn đã dưới ngưỡng từ trước → KHÔNG báo lặp lại', async () => {
+      mockGroup(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      mockActive([rec({ approval_status: PackagingApprovalStatus.APPROVED })]);
+      boxService.consumeForPack.mockResolvedValue([{ code: 'M', before: 2, after: 1, reorderLevel: 2 }]);
+
+      await service.pack(groupId, userId, { packages: [{ order_id: orderA, actual_weight_kg: 0.45 }], expected_version: 4 });
+
+      expect(notificationsService.notify.mock.calls).toHaveLength(0);
     });
 
     it('thiếu cân của 1 kiện → PKG_PACK_PACKAGES_MISMATCH', async () => {

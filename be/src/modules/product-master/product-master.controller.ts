@@ -22,6 +22,10 @@ export interface ProductMasterResponse {
   isFragile: boolean | null;
   orientationRule: 'any' | 'upright_only' | null;
   maxStackLoadKg: number | null;
+  productCategory: string | null;
+  zipBagCode: string | null;
+  zipBagFolded: boolean;
+  canFoldInHalf: boolean;
   profileConfirmedBy: string | null;
   profileConfirmedAt: Date | null;
   lastSyncedAt: Date;
@@ -53,6 +57,10 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
     isFragile: doc.is_fragile ?? null,
     orientationRule: doc.orientation_rule ?? null,
     maxStackLoadKg: doc.max_stack_load_kg ?? null,
+    productCategory: doc.product_category ?? null,
+    zipBagCode: doc.zip_bag_code ?? null,
+    zipBagFolded: doc.zip_bag_folded ?? false,
+    canFoldInHalf: doc.can_fold_in_half ?? false,
     profileConfirmedBy: doc.profile_confirmed_by ? doc.profile_confirmed_by.toString() : null,
     profileConfirmedAt: doc.profile_confirmed_at ?? null,
     lastSyncedAt: doc.last_synced_at,

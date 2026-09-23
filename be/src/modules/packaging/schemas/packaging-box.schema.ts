@@ -45,6 +45,20 @@ export class PackagingBox {
   @Prop({ type: Number, default: null, min: 0 })
   price_vnd!: number | null;
 
+  /**
+   * BỔ SUNG (22/09/2026) — tồn kho thùng (gộp từ module materials cũ).
+   * CHỈ đổi qua stock-in hoặc pack (luôn kèm 1 dòng packaging_stock_movements),
+   * PATCH không sửa trực tiếp. Engine chỉ chọn thùng còn trống > 0.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  quantity_on_hand!: number;
+
+  @Prop({ type: Number, default: 10, min: 0 })
+  reorder_level!: number;
+
+  @Prop({ type: String, default: null })
+  storage_location!: string | null;
+
   @Prop({ type: Boolean, default: false })
   is_sample!: boolean;
 

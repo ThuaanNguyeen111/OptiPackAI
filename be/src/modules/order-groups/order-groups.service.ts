@@ -25,7 +25,9 @@ import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 import {
   PackableItem,
+  PickableItem,
   OrderGroupForPackaging,
+  OrderGroupForPicking,
 } from '../../common/interfaces/packaging.interface';
 // Đọc TRỰC TIẾP schema SkuBinAssignment (module warehouse/) — cùng
 // pattern cross-module đã áp dụng cho Order/ProductMaster ở trên.
@@ -480,6 +482,10 @@ export class OrderGroupsService {
         is_fragile: product.is_fragile,
         orientation_rule: product.orientation_rule ?? 'any',
         max_stack_load_kg: product.max_stack_load_kg ?? null,
+        product_category: product.product_category ?? null,
+        zip_bag_code: product.zip_bag_code ?? null,
+        zip_bag_folded: product.zip_bag_folded ?? false,
+        can_fold_in_half: product.can_fold_in_half ?? false,
       };
     });
   }
@@ -911,16 +917,47 @@ export class OrderGroupsService {
   }
 
   /**
-   * MỚI (2026-09-10) — chi tiết 1 món hàng riêng lẻ trong group (phục
-   * vụ Stepper số lượng/confirm từng item, đã ghi nhận thiếu ở CLAUDE.md
-   * khi review FE). TÁI DÙNG getPackableItemsForGroup() đã có, không
-   * viết lại logic lấy item từ đầu — chỉ lọc đúng 1 SKU.
+   * MỚI (21/09/2026) — danh sách LẤY HÀNG: số đặt + đã quét trong lượt
+   * hiện tại, kèm số đo NẾU hồ sơ đã `ready`. KHÔNG chặn khi SKU chưa đo
+   * (trước đây picking-list dùng getPackableItemsForGroup() nên SKU chưa
+   * đo làm kho không xem được việc cần lấy — sai với luồng lấy hàng trước).
    */
-  async getPackableItemDetail(
-    groupId: string,
-    sku: string,
-  ): Promise<PackableItem> {
-    const { items } = await this.getPackableItemsForGroup(groupId);
+  async getPickableItemsForGroup(groupId: string): Promise<OrderGroupForPicking> {
+    const group = await this.loadGroupOrThrow(groupId);
+    const ordered = await this.getOrderedSkuQuantities(group);
+    const picked = await this.getPickedSkuQuantities(group);
+    const skus = Array.from(ordered.keys());
+    const products = await this.productMasterModel
+      .find({ platform: group.platform, shop_id: group.shop_id, seller_sku: { $in: skus } })
+      .lean();
+    const productMap = new Map(products.map((p) => [p.seller_sku, p]));
+
+    const items: PickableItem[] = skus.map((sku) => {
+      const product = productMap.get(sku);
+      const ready = product?.packaging_profile_status === 'ready';
+      const d = ready ? product.dimension : undefined;
+      return {
+        sku,
+        quantity: ordered.get(sku) ?? 0,
+        picked_quantity: picked.get(sku) ?? 0,
+        packaging_profile_ready: ready,
+        length_cm: d?.package_length_cm ?? null,
+        width_cm: d?.package_width_cm ?? null,
+        height_cm: d?.package_height_cm ?? null,
+        weight_kg: d?.package_weight_kg ?? null,
+        is_fragile: ready ? (product.is_fragile ?? null) : null,
+      };
+    });
+    return { order_group_id: groupId, items };
+  }
+
+  /**
+   * MỚI (2026-09-10) — chi tiết 1 món hàng riêng lẻ trong group (phục
+   * vụ Stepper số lượng/confirm từng item). 🔄 21/09/2026: dùng danh sách
+   * LẤY HÀNG (không bắt hồ sơ đóng gói).
+   */
+  async getPickableItemDetail(groupId: string, sku: string): Promise<PickableItem> {
+    const { items } = await this.getPickableItemsForGroup(groupId);
     const item = items.find((i) => i.sku === sku);
     if (!item) {
       throw new AppException(

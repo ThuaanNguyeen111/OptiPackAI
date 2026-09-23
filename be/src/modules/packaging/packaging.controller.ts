@@ -1,10 +1,12 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PackagingService } from './packaging.service';
 import { ApprovePackagingDto } from './dto/approve-packaging.dto';
 import { AdjustPackagingDto } from './dto/adjust-packaging.dto';
 import { RejectPackagingDto } from './dto/reject-packaging.dto';
 import { PackGroupDto } from './dto/pack-group.dto';
+import { PackingGuideDto } from './dto/packing-guide.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -30,6 +32,18 @@ export interface PlacementResponse {
   dy: number;
   dz: number;
   orientation: string;
+  /** (22/09/2026) Gập đôi món này trước khi đặt. */
+  folded: boolean;
+}
+
+/** MỚI (21/09/2026) — lời hướng dẫn từng bước cho animation 3D. */
+export interface PackingGuideResponse {
+  source: 'ai' | 'template';
+  model: string | null;
+  fallbackReason: string | null;
+  summary: string;
+  steps: { step: number; instruction: string; tip: string | null }[];
+  generatedAt: Date;
 }
 
 /**
@@ -50,6 +64,8 @@ export interface PackagingRecommendationResponse {
   boxInnerMm: DimensionsMmResponse | null;
   boxOuterMm: DimensionsMmResponse | null;
   placements: PlacementResponse[];
+  /** (21/09/2026) Loại sản phẩm + túi zip theo SKU — FE chọn hình 3D. */
+  itemProfiles: { sku: string; productCategory: string | null; zipBagCode: string | null; zipBagFolded: boolean }[];
   materials: { type: string; quantity: number }[];
   materialType: string;
   materialQuantity: number;
@@ -70,6 +86,9 @@ export interface PackagingRecommendationResponse {
   actualMeasuredWeightKg: number | null;
   packedAt: Date | null;
   isAbnormal: boolean;
+  packingGuide: PackingGuideResponse | null;
+  /** (22/09/2026) Thùng vừa hơn nhưng kho đã hết lúc tính phương án. */
+  preferredBoxOutOfStock: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -104,6 +123,13 @@ export function toRecommendationResponse(doc: PackagingRecommendationDocument): 
       dy: p.dy,
       dz: p.dz,
       orientation: p.orientation,
+      folded: p.folded,
+    })),
+    itemProfiles: doc.item_profiles.map((p) => ({
+      sku: p.sku,
+      productCategory: p.product_category,
+      zipBagCode: p.zip_bag_code,
+      zipBagFolded: p.zip_bag_folded,
     })),
     materials: doc.materials.map((m) => ({ type: m.type, quantity: m.quantity })),
     materialType: doc.material_type,
@@ -125,6 +151,17 @@ export function toRecommendationResponse(doc: PackagingRecommendationDocument): 
     actualMeasuredWeightKg: doc.actual_measured_weight_kg,
     packedAt: doc.packed_at,
     isAbnormal: doc.is_abnormal,
+    packingGuide: doc.packing_guide
+      ? {
+          source: doc.packing_guide.source,
+          model: doc.packing_guide.model,
+          fallbackReason: doc.packing_guide.fallback_reason,
+          summary: doc.packing_guide.summary,
+          steps: doc.packing_guide.steps.map((st) => ({ step: st.step, instruction: st.instruction, tip: st.tip })),
+          generatedAt: doc.packing_guide.generated_at,
+        }
+      : null,
+    preferredBoxOutOfStock: doc.preferred_box_out_of_stock,
     createdAt: doc.created_at ?? new Date(0),
     updatedAt: doc.updated_at ?? new Date(0),
   };
@@ -210,6 +247,23 @@ export class PackagingController {
   ): Promise<PackagingPlanResponse> {
     await this.packagingService.adjust(groupId, user.userId, dto);
     return this.plan(groupId);
+  }
+
+  @Post(':recommendationId/guide')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  // Mỗi lần regenerate là 1 lần gọi OpenAI có tính phí — giới hạn tần suất.
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @ApiOperation({
+    summary:
+      'Hướng dẫn đóng gói từng bước cho 1 đơn (đi kèm animation 3D). Engine quyết định vị trí/thứ tự; OpenAI viết lời. Thiếu OPENAI_API_KEY hoặc AI trả sai → câu mẫu (source = template). Đã có thì trả bản lưu, trừ khi regenerate = true.',
+  })
+  async guide(
+    @Param('groupId') groupId: string,
+    @Param('recommendationId') recommendationId: string,
+    @Body() dto: PackingGuideDto,
+  ): Promise<PackagingRecommendationResponse> {
+    const doc = await this.packagingService.getOrCreatePackingGuide(groupId, recommendationId, dto.regenerate ?? false);
+    return toRecommendationResponse(doc);
   }
 
   @Post('reject')

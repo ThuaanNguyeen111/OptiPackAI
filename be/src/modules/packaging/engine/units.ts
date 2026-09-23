@@ -1,4 +1,5 @@
 import type { PackableItem } from '../../../common/interfaces/packaging.interface';
+import { ProductCategory } from '../../../common/enums/product-category.enum';
 import {
   ALL_ORIENTATIONS,
   UPRIGHT_ORIENTATIONS,
@@ -42,14 +43,45 @@ export function orientedDims(
 }
 
 /**
+ * (22/09/2026) Quần áo LUÔN nằm phẳng: chỉ xoay quanh trục đứng, không dựng
+ * gói vải trên cạnh mỏng — áp theo loại sản phẩm, bỏ qua `orientation_rule`
+ * đã lưu (kể cả hồ sơ cũ để "xoay tự do"). User chốt 22/09/2026.
+ */
+const FLAT_CATEGORIES: ReadonlySet<string> = new Set([
+  ProductCategory.T_SHIRT,
+  ProductCategory.SHIRT,
+  ProductCategory.JACKET,
+  ProductCategory.SHORTS,
+  ProductCategory.TROUSERS,
+  ProductCategory.DRESS,
+]);
+
+/**
+ * (22/09/2026) Gập đôi 1 món mềm: chia đôi (làm tròn lên) cạnh lớn hơn trong
+ * dài/rộng, gấp đôi độ dày, cân giữ nguyên. Số đo do hệ thống tự tính (user
+ * chốt), chỉ dùng khi nhờ gập mới vừa thùng nhỏ hơn.
+ */
+export function foldUnit(unit: PackingUnit): PackingUnit {
+  const lengthIsLonger = unit.length_mm >= unit.width_mm;
+  return {
+    ...unit,
+    length_mm: lengthIsLonger ? Math.ceil(unit.length_mm / 2) : unit.length_mm,
+    width_mm: lengthIsLonger ? unit.width_mm : Math.ceil(unit.width_mm / 2),
+    height_mm: unit.height_mm * 2,
+    folded: true,
+  };
+}
+
+/**
  * Mở `PackableItem` (số lượng gộp theo SKU) thành từng đơn vị vật lý có
  * `item_key` riêng. KHÔNG đổi interface dùng chung — chỉ nở ra trong engine.
  */
 export function expandToUnits(items: PackableItem[]): PackingUnit[] {
   const units: PackingUnit[] = [];
   for (const item of [...items].sort((a, b) => a.sku.localeCompare(b.sku))) {
+    const lieFlat = FLAT_CATEGORIES.has(item.product_category ?? '');
     const orientations =
-      item.orientation_rule === 'upright_only' ? UPRIGHT_ORIENTATIONS : ALL_ORIENTATIONS;
+      lieFlat || item.orientation_rule === 'upright_only' ? UPRIGHT_ORIENTATIONS : ALL_ORIENTATIONS;
     const maxStack =
       item.max_stack_load_kg === null || item.max_stack_load_kg === undefined
         ? null
@@ -65,6 +97,7 @@ export function expandToUnits(items: PackableItem[]): PackingUnit[] {
         is_fragile: item.is_fragile,
         orientations,
         max_stack_load_g: maxStack,
+        foldable: item.can_fold_in_half === true,
       });
     }
   }

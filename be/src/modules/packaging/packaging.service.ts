@@ -15,21 +15,42 @@ import { isValidStatusTransition } from '../order-groups/enums/allowed-status-tr
 import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
 import { AdjustPackagingDto } from './dto/adjust-packaging.dto';
 import { PackGroupDto } from './dto/pack-group.dto';
-import { PackagingBoxService } from './packaging-box.service';
+import { PackagingBoxService, type ConsumedBox } from './packaging-box.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import {
-  buildOk,
   expandToUnits,
-  packIntoBox,
   packOrder,
-  validateCandidate,
+  describePackingSteps,
+  ALL_ORIENTATIONS,
+  type BoxSpec,
+  type Orientation,
+  type PackingUnit,
   type PackResult,
+  type Placement,
 } from './engine';
+import { PackingGuideAiService } from './packing-guide-ai.service';
+import { PackagingBagService } from './packaging-bag.service';
+import type { PackableItem } from '../../common/interfaces/packaging.interface';
 
 const ABNORMAL_WEIGHT_DEVIATION_THRESHOLD = 0.2; // 20% — ngưỡng khởi đầu, cần hiệu chỉnh bằng dữ liệu thật
 const ENGINE_VERSION = 'greedy-3d-v1';
+
+/** Chụp loại sản phẩm + túi zip theo SKU từ hồ sơ lúc tính phương án. */
+function toItemProfiles(items: PackableItem[]): {
+  sku: string;
+  product_category: string | null;
+  zip_bag_code: string | null;
+  zip_bag_folded: boolean;
+}[] {
+  return items.map((i) => ({
+    sku: i.sku,
+    product_category: i.product_category ?? null,
+    zip_bag_code: i.zip_bag_code ?? null,
+    zip_bag_folded: i.zip_bag_folded ?? false,
+  }));
+}
 
 /**
  * ===================================================================
@@ -58,6 +79,8 @@ export class PackagingService {
     private readonly orderGroupsService: OrderGroupsService,
     private readonly boxService: PackagingBoxService,
     private readonly notificationsService: NotificationsService,
+    private readonly packingGuideAi: PackingGuideAiService,
+    private readonly bagService: PackagingBagService,
   ) {}
 
   /**
@@ -69,17 +92,28 @@ export class PackagingService {
     this.assertTransition(group, GroupFulfillmentStatus.PENDING_APPROVAL);
 
     const allocations = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
-    const boxes = await this.boxService.listActiveSpecs();
+    const [boxes, availability] = await Promise.all([
+      this.boxService.listActiveSpecs(),
+      // Không tính chỗ giữ của chính group này — phương án cũ sắp bị thay.
+      this.boxService.listAvailability({ groupId }),
+    ]);
 
-    const planned = allocations.map((allocation) => ({
-      allocation,
-      result: packOrder(expandToUnits(allocation.items), boxes),
-    }));
+    // (22/09/2026) Xếp TUẦN TỰ từng đơn, trừ dần số thùng còn trống: 2 đơn
+    // trong cùng group không cùng giành 1 thùng cuối cùng.
+    const remaining = new Map([...availability].map(([code, a]) => [code, a.available]));
+    const planned = allocations.map((allocation) => {
+      const result = packOrder(expandToUnits(allocation.items), boxes, { availability: remaining });
+      if (result.status === 'ok') {
+        remaining.set(result.box.code, (remaining.get(result.box.code) ?? 0) - 1);
+      }
+      return { allocation, result };
+    });
     const docs = planned.map(({ allocation, result }) => ({
       order_group_id: group._id,
       order_id: new Types.ObjectId(allocation.order_id),
       platform_order_id: allocation.platform_order_id,
       ...this.resultToFields(result),
+      item_profiles: toItemProfiles(allocation.items),
       approval_status: PackagingApprovalStatus.PENDING,
       is_active: true,
     }));
@@ -104,6 +138,146 @@ export class PackagingService {
       `Tạo ${String(docs.length)} phương án đóng gói (engine ${ENGINE_VERSION}) cho group ${groupId}; ${String(noFit)} đơn no_fit.`,
     );
     return this.listActiveRecommendations(groupId);
+  }
+
+  /**
+   * ===================================================================
+   * MỚI (21/09/2026) — hướng dẫn đóng gói từng bước cho animation 3D.
+   * ===================================================================
+   * Dữ kiện (vị trí, cách xoay, món bên dưới) lấy từ placements engine
+   * đã tính; AI (Groq) chỉ viết lại lời (xem PackingGuideAiService). Kết
+   * quả được lưu vào recommendation để không gọi AI lặp lại mỗi lần mở
+   * trang; `regenerate=true` để viết lại. Không đổi trạng thái group.
+   */
+  async getOrCreatePackingGuide(
+    groupId: string,
+    recommendationId: string,
+    regenerate = false,
+  ): Promise<PackagingRecommendationDocument> {
+    this.assertObjectId(groupId);
+    if (!Types.ObjectId.isValid(recommendationId)) {
+      throw new AppException(
+        PACKAGING_ERROR_CODES.INVALID_RECOMMENDATION_ID,
+        `recommendationId "${recommendationId}" không đúng định dạng.`,
+        HttpStatus.BAD_REQUEST,
+        { recommendationId },
+      );
+    }
+    const recommendation = await this.recommendationModel.findOne({
+      _id: new Types.ObjectId(recommendationId),
+      order_group_id: new Types.ObjectId(groupId),
+      is_active: true,
+    });
+    if (!recommendation) {
+      throw new AppException(
+        PACKAGING_ERROR_CODES.RECOMMENDATION_NOT_FOUND,
+        'Không tìm thấy phương án đóng gói đang dùng của group này.',
+        HttpStatus.NOT_FOUND,
+        { groupId, recommendationId },
+      );
+    }
+    if (recommendation.packing_guide && !regenerate) return recommendation;
+
+    const { box_code: code, box_name: name, box_inner_mm: inner, box_outer_mm: outer } = recommendation;
+    if (recommendation.solution_status !== 'ok' || !code || !inner || recommendation.placements.length === 0) {
+      throw new AppException(
+        PACKAGING_ERROR_CODES.GUIDE_NOT_AVAILABLE,
+        'Đơn này chưa có thùng xếp vừa (no_fit) — chọn thùng khác bằng adjust trước khi xem hướng dẫn.',
+        HttpStatus.CONFLICT,
+        { groupId, recommendationId },
+      );
+    }
+    const box: BoxSpec = {
+      code,
+      name: name ?? code,
+      inner,
+      outer: outer ?? inner,
+      tare_g: 0,
+      max_load_g: 0,
+      price_vnd: null,
+    };
+    const placements: Placement[] = recommendation.placements.map((p) => ({
+      item_key: p.item_key,
+      sku: p.sku,
+      step: p.step,
+      x: p.x,
+      y: p.y,
+      z: p.z,
+      dx: p.dx,
+      dy: p.dy,
+      dz: p.dz,
+      orientation: ALL_ORIENTATIONS.includes(p.orientation as Orientation) ? (p.orientation as Orientation) : 'LWH',
+      folded: p.folded,
+    }));
+    const units = await this.loadUnitsForGuide(groupId, recommendation.order_id?.toString() ?? null);
+    const bagCodes = [
+      ...new Set(recommendation.item_profiles.map((p) => p.zip_bag_code).filter((c): c is string => c !== null)),
+    ];
+    const bagNames = await this.bagService.namesByCode(bagCodes);
+    const profiles = new Map(
+      recommendation.item_profiles.map((p) => [
+        p.sku,
+        {
+          product_category: p.product_category,
+          zip_bag:
+            p.zip_bag_code === null
+              ? null
+              : { code: p.zip_bag_code, name: bagNames.get(p.zip_bag_code) ?? p.zip_bag_code, folded: p.zip_bag_folded },
+        },
+      ]),
+    );
+    const facts = describePackingSteps(placements, box, units, profiles);
+    const guide = await this.packingGuideAi.writeGuide({
+      box,
+      facts,
+      fill_ratio: recommendation.fill_ratio,
+      bubble_wrap_count: recommendation.material_quantity,
+    });
+
+    const updated = await this.recommendationModel.findOneAndUpdate(
+      { _id: recommendation._id, is_active: true },
+      {
+        $set: {
+          packing_guide: {
+            source: guide.source,
+            model: guide.model,
+            fallback_reason: guide.fallback_reason,
+            summary: guide.summary,
+            steps: guide.steps,
+            generated_at: new Date(),
+          },
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
+        'Phương án vừa bị thay đổi trong lúc tạo hướng dẫn — tải lại dữ liệu.',
+        HttpStatus.CONFLICT,
+        { groupId, recommendationId },
+      );
+    }
+    return updated;
+  }
+
+  /**
+   * Lấy độ nhạy/giới hạn chồng của từng món để hướng dẫn nhắc đúng lưu ý.
+   * Không lấy được (VD đơn cũ, không còn lượt quét) → mảng rỗng, hướng
+   * dẫn vẫn tạo được nhưng thiếu lưu ý dễ vỡ.
+   */
+  private async loadUnitsForGuide(groupId: string, orderId: string | null): Promise<PackingUnit[]> {
+    if (!orderId) return [];
+    try {
+      const allocation = (await this.orderGroupsService.allocatePickedItemsToOrders(groupId)).find(
+        (a) => a.order_id === orderId,
+      );
+      return allocation ? expandToUnits(allocation.items) : [];
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Không lấy được hồ sơ món cho hướng dẫn đóng gói (group ${groupId}): ${message}`);
+      return [];
+    }
   }
 
   async listActiveRecommendations(groupId: string): Promise<PackagingRecommendationDocument[]> {
@@ -200,6 +374,17 @@ export class PackagingService {
     this.assertPending(recommendation);
 
     const box = await this.boxService.findActiveSpecByCode(dto.box_code);
+    // (22/09/2026) Thùng mới phải còn trống — không tính chỗ mà chính
+    // phương án này đang giữ (đổi sang cùng loại thùng vẫn hợp lệ).
+    const stock = (await this.boxService.listAvailability({ recommendationId: recommendation._id })).get(box.code);
+    if (!stock || stock.available <= 0) {
+      throw new AppException(
+        PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
+        `Kho không còn thùng "${box.code}" trống (tồn ${String(stock?.onHand ?? 0)}, đang giữ chỗ ${String(stock?.reserved ?? 0)}).`,
+        HttpStatus.CONFLICT,
+        { boxCode: box.code, onHand: stock?.onHand ?? 0, reserved: stock?.reserved ?? 0 },
+      );
+    }
     const allocation = (await this.orderGroupsService.allocatePickedItemsToOrders(groupId)).find(
       (a) => a.order_id === dto.order_id,
     );
@@ -212,25 +397,24 @@ export class PackagingService {
       );
     }
 
-    const startedAt = Date.now();
-    const units = expandToUnits(allocation.items);
-    const placements = packIntoBox(units, box);
-    const violations = placements ? validateCandidate(units, box, placements) : [];
-    if (!placements || violations.length > 0) {
+    // (22/09/2026) Dùng chung packOrder với đúng 1 thùng → có multi-start và
+    // gập đôi hàng mềm khi cần, giống lúc generate. Tồn đã kiểm ở trên.
+    const result = packOrder(expandToUnits(allocation.items), [box]);
+    if (result.status !== 'ok') {
       throw new AppException(
         PACKAGING_ERROR_CODES.BOX_DOES_NOT_FIT,
         `Thùng "${box.code}" không xếp vừa hàng của đơn này.`,
         HttpStatus.UNPROCESSABLE_ENTITY,
-        { boxCode: box.code, violations: violations.map((v) => v.message) },
+        { boxCode: box.code, violations: result.reasons.map((r) => r.reason) },
       );
     }
-    const result = buildOk(units, box, placements, Date.now() - startedAt);
 
     const updated = await this.recommendationModel.updateOne(
       { _id: recommendation._id, is_active: true, approval_status: PackagingApprovalStatus.PENDING },
       {
         $set: {
           ...this.resultToFields(result),
+          item_profiles: toItemProfiles(allocation.items),
           adjustment_reason: dto.adjustment_reason,
           adjustment_note: dto.adjustment_note?.trim() ?? null,
           adjusted_from_box_code: recommendation.box_code,
@@ -296,7 +480,18 @@ export class PackagingService {
       .filter(({ rec, actualKg }) => this.isAbnormal(rec.estimated_package_weight_g, actualKg));
     const abnormalIds = new Set(abnormal.map(({ rec }) => rec._id.toString()));
 
+    let consumed: ConsumedBox[] = [];
     const updatedGroup = await this.runInTransaction(async (session) => {
+      // (22/09/2026) Trừ tồn thùng thật + ghi sổ; thiếu thùng → rollback
+      // toàn bộ, group KHÔNG sang packed.
+      consumed = await this.boxService.consumeForPack(
+        session,
+        decided
+          .filter((rec) => rec.solution_status === 'ok' && rec.box_code !== null)
+          .map((rec) => ({ boxCode: rec.box_code ?? '', recommendationId: rec._id })),
+        group._id,
+        userId,
+      );
       for (const rec of decided) {
         const actualKg = weights.get(rec._id.toString()) ?? 0;
         const isAbnormal = abnormalIds.has(rec._id.toString());
@@ -318,6 +513,10 @@ export class PackagingService {
 
     for (const { rec, actualKg } of abnormal) {
       await this.notifyAbnormal(groupId, rec, actualKg);
+    }
+    // Chỉ báo đúng lần tồn vượt xuống ngưỡng (trước > mức, sau ≤ mức), không spam.
+    for (const box of consumed.filter((c) => c.before > c.reorderLevel && c.after <= c.reorderLevel)) {
+      await this.notifyLowBoxStock(box);
     }
 
     return {
@@ -351,6 +550,8 @@ export class PackagingService {
         computation_time_ms: result.computation_time_ms,
         engine_version: ENGINE_VERSION,
         fallback_used: false,
+        packing_guide: null,
+        preferred_box_out_of_stock: null,
       };
     }
     const bubble = result.materials.reduce((sum, m) => sum + m.quantity, 0);
@@ -380,6 +581,9 @@ export class PackagingService {
       computation_time_ms: result.computation_time_ms,
       engine_version: ENGINE_VERSION,
       fallback_used: false,
+      // Phương án xếp đổi → hướng dẫn cũ không còn đúng.
+      packing_guide: null,
+      preferred_box_out_of_stock: result.preferred_box_out_of_stock,
     };
   }
 
@@ -458,6 +662,33 @@ export class PackagingService {
     if (estimatedPackageWeightG === null || estimatedPackageWeightG <= 0) return false;
     const estimatedKg = estimatedPackageWeightG / 1000;
     return Math.abs(actualKg - estimatedKg) / estimatedKg > ABNORMAL_WEIGHT_DEVIATION_THRESHOLD;
+  }
+
+  /** (22/09/2026) Thùng carton xuống ≤ mức cảnh báo sau khi đóng gói. */
+  private async notifyLowBoxStock(box: ConsumedBox): Promise<void> {
+    const title = box.after === 0 ? `Đã hết thùng ${box.code}` : `Thùng ${box.code} sắp hết`;
+    const message =
+      box.after === 0
+        ? `Kho vừa dùng thùng ${box.code} cuối cùng. Engine đóng gói sẽ chuyển sang thùng lớn hơn cho tới khi nhập thêm.`
+        : `Kho còn ${String(box.after)} thùng ${box.code} (mức cảnh báo ${String(box.reorderLevel)}). Vui lòng nhập thêm.`;
+    for (const recipientRole of [UserRole.ADMIN, UserRole.STORE_OWNER]) {
+      try {
+        await this.notificationsService.notify({
+          recipientRole,
+          type: NotificationType.LOW_BOX_STOCK,
+          severity: 'warning',
+          title,
+          message,
+          relatedEntityType: 'packaging_box',
+          relatedEntityId: box.code,
+        });
+      } catch (error: unknown) {
+        // Thông báo lỗi không được làm hỏng việc đã đóng gói xong.
+        this.logger.error(
+          `Gửi cảnh báo sắp hết thùng ${box.code} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
   }
 
   private async notifyAbnormal(

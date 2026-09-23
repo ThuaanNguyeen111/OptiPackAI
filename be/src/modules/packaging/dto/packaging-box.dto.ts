@@ -67,6 +67,17 @@ export class CreatePackagingBoxDto {
   @IsInt({ message: 'price_vnd phải là số nguyên' })
   @Min(0, { message: 'price_vnd không được âm' })
   price_vnd?: number | null;
+
+  @ApiPropertyOptional({ example: 10, description: 'Còn ≤ mức này thì báo sắp hết (mặc định 10)' })
+  @IsOptional()
+  @IsInt({ message: 'reorder_level phải là số nguyên' })
+  @Min(0, { message: 'reorder_level không được âm' })
+  reorder_level?: number;
+
+  @ApiPropertyOptional({ example: 'Kệ A-01', nullable: true, description: 'Vị trí để thùng trong kho' })
+  @IsOptional()
+  @IsString({ message: 'storage_location phải là chuỗi' })
+  storage_location?: string | null;
 }
 
 export class UpdatePackagingBoxDto {
@@ -110,4 +121,32 @@ export class UpdatePackagingBoxDto {
   @IsOptional()
   @IsBoolean({ message: 'is_active phải là true/false' })
   is_active?: boolean;
+
+  @ApiPropertyOptional({ example: 10, description: 'Còn ≤ mức này thì báo sắp hết' })
+  @IsOptional()
+  @IsInt({ message: 'reorder_level phải là số nguyên' })
+  @Min(0, { message: 'reorder_level không được âm' })
+  reorder_level?: number;
+
+  @ApiPropertyOptional({ example: 'Kệ A-01', nullable: true, description: 'Vị trí để thùng trong kho' })
+  @IsOptional()
+  @IsString({ message: 'storage_location phải là chuỗi' })
+  storage_location?: string | null;
+}
+
+/**
+ * MỚI (22/09/2026) — nhập thêm thùng. Tồn CHỈ đổi qua route này hoặc
+ * lúc pack (mỗi lần 1 dòng sổ), PATCH không sửa trực tiếp.
+ */
+export class StockInPackagingBoxDto {
+  @ApiProperty({ example: 50, description: 'Số thùng nhập thêm' })
+  @IsInt({ message: 'quantity phải là số nguyên' })
+  @Min(1, { message: 'quantity phải lớn hơn 0' })
+  @Max(100000, { message: 'quantity quá lớn' })
+  quantity!: number;
+
+  @ApiPropertyOptional({ example: 'PO-2026-0922', description: 'Ghi chú (mã phiếu nhập...)' })
+  @IsOptional()
+  @IsString({ message: 'note phải là chuỗi' })
+  note?: string;
 }

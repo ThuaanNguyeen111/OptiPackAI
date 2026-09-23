@@ -17,4 +17,6 @@ export enum NotificationType {
   CANCEL_CONFIRMATION_REQUIRED = 'cancel_confirmation_required',
   // BỔ SUNG (AOFP-16) — Admin tắt MFA của user, báo cho chính user đó.
   MFA_DISABLED = 'mfa_disabled',
+  // BỔ SUNG (22/09/2026) — tồn thùng carton xuống ≤ mức cảnh báo sau khi đóng gói.
+  LOW_BOX_STOCK = 'low_box_stock',
 }
