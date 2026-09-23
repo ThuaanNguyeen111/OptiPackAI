@@ -18,6 +18,7 @@ import {
   Users,
   X,
   PackageCheck,
+  Ruler,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { fetchMyProfile } from '../../api/users.api'
@@ -98,10 +99,18 @@ const navItems = [
   },
   {
     to: '/app/inventory',
-    end: false,
+    end: true,
     labelVi: 'Tình trạng kho',
     labelEn: 'Warehouse Inventory',
     icon: Database,
+    section: 'logistics' as NavSection,
+  },
+  {
+    to: '/app/inventory/packaging-profiles',
+    end: false,
+    labelVi: 'Đo hồ sơ SKU',
+    labelEn: 'SKU measurements',
+    icon: Ruler,
     section: 'logistics' as NavSection,
   },
   {

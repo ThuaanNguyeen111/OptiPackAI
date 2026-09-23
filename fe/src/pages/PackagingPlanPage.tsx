@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Box, CheckCircle2, Cpu, Loader2, PackageCheck, XCircle } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Box, CheckCircle2, Cpu, Loader2, PackageCheck, RefreshCw, Sparkles, XCircle } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { PackingAnimation3D } from '../components/packing/PackingAnimation3D'
 import { usePortal } from '../context/use-portal'
@@ -14,6 +14,7 @@ import {
   type AdjustmentReason,
   type PackagingBox,
   type PackagingRecommendation,
+  type PackingGuide,
 } from '../types/packaging'
 
 const primaryBtn =
@@ -48,6 +49,8 @@ export function PackagingPlanPage() {
   const isAdmin = role === UserRole.ADMIN
   const canDecide = isAdmin || role === UserRole.PACKAGING_STAFF
   const canPack = isAdmin || role === UserRole.WAREHOUSE_STAFF
+  // Trùng @Roles của POST .../packaging/:recommendationId/guide
+  const canUseGuide = canDecide || role === UserRole.WAREHOUSE_STAFF
   const status = plan.group?.fulfillmentStatus ?? ''
   const active =
     plan.recommendations.find((r) => r.id === activeId) ?? plan.recommendations[0] ?? null
@@ -179,6 +182,10 @@ export function PackagingPlanPage() {
                       canAdjust={status === 'pending_approval' && canDecide && active.approvalStatus === 'pending'}
                       busy={plan.busy}
                       onAdjust={(input) => plan.adjust(input)}
+                      canUseGuide={canUseGuide}
+                      guideLoading={plan.guideLoadingId === active.id}
+                      guideError={plan.guideError}
+                      onLoadGuide={(regenerate) => plan.loadGuide(active.id, regenerate)}
                     />
                   )}
 
@@ -246,6 +253,74 @@ export function PackagingPlanPage() {
   )
 }
 
+const FALLBACK_LABELS: Record<NonNullable<PackingGuide['fallbackReason']>, { vi: string; en: string }> = {
+  no_api_key: { vi: 'Chưa cấu hình AI (AI_API_KEY) — đang dùng câu mẫu.', en: 'AI not configured (AI_API_KEY) — using template text.' },
+  ai_error: { vi: 'Groq tạm thời không phản hồi — đang dùng câu mẫu.', en: 'Groq did not respond — using template text.' },
+  ai_invalid_output: {
+    vi: 'AI trả hướng dẫn không khớp phương án — đang dùng câu mẫu.',
+    en: 'AI output did not match the plan — using template text.',
+  },
+}
+
+/** Tóm tắt + nguồn của lời hướng dẫn (AI hay câu mẫu), nút viết lại. */
+function GuideHeader({
+  guide,
+  vi,
+  loading,
+  error,
+  canRegenerate,
+  onRegenerate,
+}: {
+  guide: PackingGuide | null
+  vi: boolean
+  loading: boolean
+  error: string | null
+  canRegenerate: boolean
+  onRegenerate: () => void
+}) {
+  const fallback = guide?.fallbackReason ? FALLBACK_LABELS[guide.fallbackReason] : null
+  return (
+    <div className="mb-3 rounded-lg border border-violet-200 bg-violet-50/60 p-3 text-sm dark:border-violet-900 dark:bg-violet-950/30">
+      <div className="flex flex-wrap items-center gap-2">
+        <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
+        <span className="font-semibold text-slate-800 dark:text-slate-100">
+          {vi ? 'Hướng dẫn đóng gói từng bước' : 'Step-by-step packing guide'}
+        </span>
+        {guide && (
+          <span
+            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+              guide.source === 'ai'
+                ? 'bg-violet-600 text-white'
+                : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
+            }`}
+          >
+            {guide.source === 'ai' ? `AI · ${guide.model ?? ''}` : vi ? 'Câu mẫu' : 'Template'}
+          </span>
+        )}
+        {canRegenerate && (
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={loading}
+            className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-900/40"
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {guide ? (vi ? 'Viết lại bằng AI' : 'Rewrite with AI') : vi ? 'Tạo hướng dẫn' : 'Create guide'}
+          </button>
+        )}
+      </div>
+      {loading && !guide && (
+        <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+          {vi ? 'AI đang viết hướng dẫn cho từng bước…' : 'AI is writing the step instructions…'}
+        </p>
+      )}
+      {guide && <p className="mt-2 text-slate-700 dark:text-slate-200">{guide.summary}</p>}
+      {fallback && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{vi ? fallback.vi : fallback.en}</p>}
+      {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  )
+}
+
 function RecommendationPanel({
   rec,
   vi,
@@ -253,6 +328,10 @@ function RecommendationPanel({
   canAdjust,
   busy,
   onAdjust,
+  canUseGuide,
+  guideLoading,
+  guideError,
+  onLoadGuide,
 }: {
   rec: PackagingRecommendation
   vi: boolean
@@ -260,7 +339,20 @@ function RecommendationPanel({
   canAdjust: boolean
   busy: boolean
   onAdjust: (input: { orderId: string; boxCode: string; reason: AdjustmentReason; note?: string }) => Promise<boolean>
+  canUseGuide: boolean
+  guideLoading: boolean
+  guideError: string | null
+  onLoadGuide: (regenerate: boolean) => Promise<void>
 }) {
+  // Tự tạo hướng dẫn 1 lần khi mở đơn chưa có (panel remount theo đơn/thùng).
+  const guideRequested = useRef(false)
+  const needsGuide = canUseGuide && rec.solutionStatus === 'ok' && rec.packingGuide === null
+  useEffect(() => {
+    if (!needsGuide || guideRequested.current) return
+    guideRequested.current = true
+    void onLoadGuide(false)
+  }, [needsGuide, onLoadGuide])
+
   const [boxCode, setBoxCode] = useState(rec.boxCode ?? boxes[0]?.code ?? '')
   const [reason, setReason] = useState<AdjustmentReason>('RECOMMENDED_BOX_NOT_IN_STOCK')
   const [note, setNote] = useState('')
@@ -271,7 +363,42 @@ function RecommendationPanel({
     <section className="grid gap-4 xl:grid-cols-[1fr_300px]">
       <div className={card}>
         {rec.solutionStatus === 'ok' && rec.boxInnerMm ? (
-          <PackingAnimation3D box={rec.boxInnerMm} placements={rec.placements} vi={vi} />
+          <>
+            <Link
+              to={`/app/packing/groups/${rec.orderGroupId}/orders/${rec.id}`}
+              className="mb-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <PackageCheck className="h-4 w-4" />
+              {vi ? 'Bắt đầu đóng gói từng bước' : 'Start step-by-step packing'}
+            </Link>
+            <GuideHeader
+              guide={rec.packingGuide}
+              vi={vi}
+              loading={guideLoading}
+              error={guideError}
+              canRegenerate={canUseGuide}
+              onRegenerate={() => void onLoadGuide(rec.packingGuide !== null)}
+            />
+            <PackingAnimation3D
+              box={rec.boxInnerMm}
+              placements={rec.placements}
+              vi={vi}
+              guideSteps={rec.packingGuide?.steps ?? null}
+              itemProfiles={rec.itemProfiles}
+            />
+            <p className="mt-2 text-[11px] text-slate-400">
+              {vi ? 'Mô hình 3D minh hoạ từ ' : '3D models from '}
+              <a
+                href="/models/CREDITS.md"
+                target="_blank"
+                rel="noreferrer"
+                className="underline hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                Poly Pizza (CC-BY 3.0 / CC0)
+              </a>
+              {vi ? ' — kích thước thật theo khối engine tính.' : ' — true size follows the engine block.'}
+            </p>
+          </>
         ) : (
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             <p className="mb-2 flex items-center gap-2 font-semibold">
@@ -295,6 +422,19 @@ function RecommendationPanel({
             {rec.boxName ?? (vi ? 'Chưa có thùng' : 'No box')}
             {rec.boxCode && <span className="ml-1 font-mono text-xs font-normal text-slate-400">{rec.boxCode}</span>}
           </p>
+          {box && (
+            <p className={box.available === 0 ? 'text-red-600 dark:text-red-400' : ''}>
+              {vi ? 'Kho' : 'Stock'}: {box.quantityOnHand} {vi ? 'thùng' : 'boxes'} · {vi ? 'đang giữ chỗ' : 'reserved'}{' '}
+              {box.reserved} · {vi ? 'còn trống' : 'available'} {box.available}
+            </p>
+          )}
+          {rec.preferredBoxOutOfStock && (
+            <p className="rounded bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              {vi
+                ? `Thùng ${rec.preferredBoxOutOfStock} vừa hơn nhưng kho đã hết — đang dùng ${rec.boxCode ?? ''}. Nhập thêm ${rec.preferredBoxOutOfStock} để tiết kiệm thùng.`
+                : `${rec.preferredBoxOutOfStock} would fit better but is out of stock — using ${rec.boxCode ?? ''}.`}
+            </p>
+          )}
           {box?.isSample && (
             <p className="rounded bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
               {vi ? 'Thùng mẫu (số giả lập) — cần nhập số đo thật.' : 'Sample box (placeholder numbers).'}
@@ -362,11 +502,16 @@ function RecommendationPanel({
               }}
               className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900"
             >
-              {boxes.map((b) => (
-                <option key={b.id} value={b.code}>
-                  {b.code} — {cm(b.inner.lengthMm)}×{cm(b.inner.widthMm)}×{cm(b.inner.heightMm)} cm
-                </option>
-              ))}
+              {boxes.map((b) => {
+                // Thùng đang dùng: chỗ nó giữ sẽ được trả lại nên vẫn chọn được.
+                const outOfStock = b.available <= 0 && b.code !== rec.boxCode
+                return (
+                  <option key={b.id} value={b.code} disabled={outOfStock}>
+                    {b.code} — {cm(b.inner.lengthMm)}×{cm(b.inner.widthMm)}×{cm(b.inner.heightMm)} cm ·{' '}
+                    {outOfStock ? (vi ? 'hết hàng' : 'out of stock') : `${vi ? 'còn' : 'avail.'} ${String(b.available)}`}
+                  </option>
+                )
+              })}
             </select>
             <select
               value={reason}

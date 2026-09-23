@@ -2,6 +2,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
   Box,
+  Boxes,
   Cpu,
   LogOut,
   Moon,
@@ -68,6 +69,14 @@ const navItems = [
     labelVi: 'Templates đóng gói',
     labelEn: 'Packaging templates',
     icon: Box,
+    section: 'ai' as NavSection,
+  },
+  {
+    to: '/app/admin/boxes',
+    end: false,
+    labelVi: 'Danh mục thùng',
+    labelEn: 'Box catalog',
+    icon: Boxes,
     section: 'ai' as NavSection,
   },
 ]

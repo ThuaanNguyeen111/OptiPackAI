@@ -10,6 +10,7 @@ import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
 import { AdminAiPage } from './pages/AdminAiPage'
+import { AdminBoxesPage } from './pages/AdminBoxesPage'
 import { AdminMarketplacePage } from './pages/AdminMarketplacePage'
 import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
 import { AdminOrdersPage } from './pages/AdminOrdersPage'
@@ -28,6 +29,8 @@ import { OrderDetailPage } from './pages/OrderDetailPage'
 import { OrdersPage } from './pages/OrdersPage'
 import { PackagingGroupsPage } from './pages/PackagingGroupsPage'
 import { PackagingPlanPage } from './pages/PackagingPlanPage'
+import { PackingWizardPage } from './pages/PackingWizardPage'
+import { PackagingProfilesPage } from './pages/PackagingProfilesPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
 import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -78,9 +81,11 @@ function App() {
                 <Route path="orders/:id" element={<OrderDetailPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
+                <Route path="inventory/packaging-profiles" element={<PackagingProfilesPage />} />
                 <Route path="packing" element={<PackingPage />} />
                 <Route path="packing/groups" element={<PackagingGroupsPage />} />
                 <Route path="packing/groups/:groupId" element={<PackagingPlanPage />} />
+                <Route path="packing/groups/:groupId/orders/:recommendationId" element={<PackingWizardPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
                 <Route path="staff" element={<StaffManagementPage />} />
@@ -96,6 +101,7 @@ function App() {
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
                 <Route path="templates" element={<AdminTemplatesPage />} />
+                <Route path="boxes" element={<AdminBoxesPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Route>
