@@ -141,7 +141,7 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin           | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
 | POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin           | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại (🔄 21/09: hủy = mở lượt lấy mới `pick_round + 1`, không đếm lại lượt cũ; tồn kho không tự cộng lại) |
 | POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | `picking → picked`: 🔄 21/09 server đối soát mọi SKU đã quét đủ số đặt trong lượt; thiếu → 409 `ORD_GROUP_PICK_INCOMPLETE` kèm danh sách |
-| POST   | `/order-groups/:id/fulfillment/pack`           | Warehouse, Admin           | `approved_for_packing → packed`: 🔄 21/09 body `packages[]` = cân THẬT từng kiện (mỗi đơn 1 kiện); lệch > 20% so với ước tính (hàng + bì) → `isAbnormal` + thông báo Store Owner. Xử lý ở module packaging |
+| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | `approved_for_packing → packed`: 🔄 21/09 body `packages[]` = cân THẬT từng kiện (mỗi đơn 1 kiện); lệch > 20% so với ước tính (hàng + bì) → `isAbnormal` + thông báo Store Owner. Xử lý ở module packaging |
 | POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin            | Xác nhận đã bàn giao vận chuyển                                      |
 | POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin            | Xác nhận đã giao thành công tới khách                                |
 | POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |

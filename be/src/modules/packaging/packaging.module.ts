@@ -4,7 +4,10 @@ import {
   PackagingRecommendationDoc,
   PackagingRecommendationSchema,
 } from './schemas/packaging-recommendation.schema';
-import { OrderGroup, OrderGroupSchema } from '../order-groups/schemas/order-group.schema';
+import {
+  OrderGroup,
+  OrderGroupSchema,
+} from '../order-groups/schemas/order-group.schema';
 import { PackagingService } from './packaging.service';
 import { PackagingController, PackagingPackController } from './packaging.controller';
 import { PackagingBox, PackagingBoxSchema } from './schemas/packaging-box.schema';
@@ -24,14 +27,20 @@ import { NotificationsModule } from '../notifications/notifications.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
-      { name: PackagingRecommendationDoc.name, schema: PackagingRecommendationSchema },
+      {
+        name: PackagingRecommendationDoc.name,
+        schema: PackagingRecommendationSchema,
+      },
       { name: OrderGroup.name, schema: OrderGroupSchema },
       { name: PackagingBox.name, schema: PackagingBoxSchema },
       { name: PackagingBag.name, schema: PackagingBagSchema },
       { name: PackagingStockMovement.name, schema: PackagingStockMovementSchema },
     ]),
     NotificationsModule,
-    OrderGroupsModule, // export OrderGroupsService — dùng findOrderGroupById/getPackableItemsForGroup/transitionFulfillmentStatus
+    // generate()/reject()/pack() gọi NotificationsService (Packaging Staff /
+    // Admin / Store Owner) — thiếu import này thì Nest không inject được,
+    // app CRASH ngay lúc khởi động (tsc/eslint/jest đều không bắt).
+    OrderGroupsModule, // export OrderGroupsService — findOrderGroupById/allocatePickedItemsToOrders/transitionFulfillmentStatus
   ],
   controllers: [PackagingController, PackagingPackController, PackagingBoxController, PackagingBagController],
   providers: [PackagingService, PackagingBoxService, PackagingBagService, PackingGuideAiService],

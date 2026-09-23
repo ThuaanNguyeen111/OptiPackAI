@@ -2270,6 +2270,25 @@ Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `IN
 
 **Lần gộp thứ 2 (21/09/2026, commit `5b6c15d` AOFP-35 — đảo luồng: lấy hàng trước, quyết định đóng gói sau)**: `main` tách logic tra Product Master thành `mapSkuQuantitiesToPackableItems()` (dùng chung cho `getPackableItemsForGroup()` và `getActuallyPickedItemsForGroup()`), nhưng lại đưa số đo mặc định 20 cm / 0,5 kg / `is_fragile=false` trở lại. Cách gộp: giữ cấu trúc hàm mới của `main`, áp lại kiểm tra hồ sơ `ready` của BE-1 bên trong hàm dùng chung (nên cả 2 nguồn gọi đều bị chặn), sửa test `dimension bị thiếu` của `main` sang kỳ vọng `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` (vẫn là 422 rõ ràng, không phải 500). Verify: `tsc` 0 lỗi, eslint `order-groups`/`packaging` 0 lỗi, `jest` 19/19 suite, 170/170 test.
 
+### Lần gộp thứ 3 (23/09/2026, `main` commit `68c1e4b` + `021c6a3` — sửa 18 mục FE báo)
+
+11 file conflict. Cách giải quyết: **giữ luồng mới của `thi_dev`** (engine 3D, mỗi đơn một kiện, lấy hàng đối soát theo lượt), **ghép thêm tính năng thật của `main`**:
+
+- `rejection_reason` bắt buộc khi `reject` → lưu trên bản bị từ chối, trả ra `rejectionReason`, thông báo Admin (`packaging_rejected`).
+- `generate` thông báo Packaging Staff (`pending_approval`) — viết lại cho nhiều đơn (`notifyPendingPlan`), không dùng `box_size` của bản cũ.
+- `pack` mở thêm role `PACKAGING_STAFF` (route nằm ở `PackagingPackController` của nhánh mình, không phải `order-groups.controller.ts` như `main`).
+- Enum notification: giữ cả `MFA_DISABLED`, `LOW_BOX_STOCK` (của mình) lẫn `PACKAGING_REJECTED` (của `main`); `recipient_role` đổi sang `type: Number` + script `migrate-notification-role-types.ts` của `main` giữ nguyên.
+
+**KHÔNG lấy `resolveItemsForPackaging()` (fallback khi group không có `pick_events`)** — BE-4a đã đổi `pick` thành `confirmPicked()` đối soát đủ số đã quét, nên group **không thể** vào `picked` mà không có event; fallback đó giờ chỉ che lỗi dữ liệu. Nếu sau này mở lại nút "xác nhận hàng loạt", phải thêm lại đường này cùng một quyết định rõ ràng.
+
+**Lỗi thật trên `main` phát hiện khi gộp**: commit `021c6a3` **ghi đè `INTEGRATION_GUIDE_ORDERS.md` bằng nội dung của `INTEGRATION_GUIDE_FULFILLMENT.md`** (2 file giống hệt nhau, 582 dòng, cùng tiêu đề "Fulfillment & Warehouse"). Bản gộp giữ lại file Orders đúng của `thi_dev` — cần báo team để không ghi đè lại lần nữa.
+
+**2 lỗi tự gây ra khi gộp, tự phát hiện + sửa** (ghi lại để không lặp):
+1. Regex `<<<<<<< HEAD(.*?)=======` không neo đầu dòng → khớp nhầm vào **dòng kẻ banner comment** `* ====...====` trong chính file service, nuốt mất phần khai báo `async getOrCreatePackingGuide(...)`, `tsc` mới báo "Property does not exist". **Quy tắc**: khi giải conflict bằng script, luôn neo `^<<<<<<< HEAD$` / `^=======$` / `^>>>>>>>` theo chế độ multiline, và chạy `tsc` ngay sau đó.
+2. Auto-merge để lại **2 dòng `NotificationsModule` trùng nhau** trong `packaging.module.ts` và **2 khối gán `notificationsService`** trong spec — cả hai đều hợp lệ về cú pháp, chỉ `tsc`/đọc lại mới thấy.
+
+**Verify sau gộp**: `tsc --noEmit` 0 lỗi, `lint:ci` 0 lỗi (43 warning storefront có sẵn), `jest` **23/23 suite, 250/250 test**.
+
 ## Rà logic AI Packaging + đồng bộ docs theo luồng lấy hàng trước (21/09/2026)
 
 Rà toàn bộ code packaging/order-groups + 3 docs thuật toán. User chốt: (1) luồng **lấy hàng trước** là chính thức; (2) phạm vi kiện **mỗi đơn một kiện**; (3) đợt code tới gồm sửa lỗi logic + validator hình học + greedy 3D cơ bản (BE-3a/BE-4a, ghi trong roadmap mục 5–6).
@@ -2352,3 +2371,42 @@ Verify: BE `tsc` 0 lỗi, eslint `packaging`/`config` 0 lỗi, `jest` 23/23 suit
 **Dữ liệu demo** (`scripts/seed-ai-guide-demo.ts`, shop `DEMO-AI-GUIDE`, 4 group): group 1 = 1 quần jean → gập đôi vừa thùng M (tồn M = 1, group này giữ chỗ nên các group sau thấy M hết → "thùng vừa hơn đã hết").
 
 Verify (22/09/2026, sau đợt nằm phẳng/gập đôi/trang từng bước): BE `tsc` 0 lỗi, `lint:ci` 0 lỗi, `jest` 23/23 suite, 245/245 test; FE `tsc -b` + eslint 0 lỗi. Đã kiểm tra DB: mọi placement quần áo có `dz` = độ dày, đơn jean `SAMPLE-M` 300×190×120 `folded: true`. Lượt 21/09: `jest` 23/23 suite, 221/221 test đạt (thêm test hồ sơ túi zip, dữ kiện/câu mẫu túi zip, `item_profiles`). FE `tsc -b` + eslint 0 lỗi. Đã gọi Groq thật với group toàn quần áo đóng túi: `source: 'ai'`, câu nhắc đúng túi + gập đôi. **Chưa xem animation bằng mắt** (không có trình duyệt trong phiên) — user cần kiểm tra hình hiển thị.
+## 📋 TỔNG KẾT — Toàn bộ lỗ hổng phát hiện khi đảo luồng Picking/Packaging (20-21/09/2026) + QUY TRÌNH TỐT HƠN cho lần sau
+
+### Danh sách đầy đủ — lỗi gì, ai/khi nào phát hiện, đã sửa chưa
+
+| #   | Lỗi                                                                                                                                          | Nguồn gốc                                                                                                  | Ai phát hiện                       | Trạng thái                                            |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------- |
+| 1   | `recipient_role` schema `type: String`, giá trị luôn là số → Packaging Staff không thấy chuông                                               | **Có TỪ TRƯỚC**, không phải do đảo luồng gây ra                                                            | FE test thật, không phải unit test | ⏸️ Chưa sửa                                           |
+| 2   | `generate()` không `notify()` Packaging Staff                                                                                                | Chưa từng làm                                                                                              | FE đối chiếu                       | ⏸️ Chưa sửa                                           |
+| 3   | `getActuallyPickedItemsForGroup()` throw cứng nếu không có `pick_events` → `generate()` luôn 409 nếu Warehouse dùng nút "xác nhận hàng loạt" | **Tự mình gây ra** khi đảo luồng 20/09                                                                     | FE test thật                       | ✅ **Đã sửa** (`resolveItemsForPackaging()` fallback) |
+| 4   | `RejectPackagingDto` thiếu `rejection_reason` bắt buộc + không notify Admin                                                                  | Chưa từng làm                                                                                              | FE đối chiếu                       | ⏸️ Chưa sửa                                           |
+| 5   | `pack()` chưa cho `PACKAGING_STAFF` (chỉ Warehouse+Admin)                                                                                    | **Sót khi đảo luồng** — luồng mới có ý Packaging Staff tự đóng gói sau khi duyệt, nhưng quên cập nhật role | FE test thật                       | ⏸️ Chưa sửa                                           |
+| 6   | `OrdersModule` chưa import `OrderGroupsModule` → group tạo trễ tới 15 phút (chờ cron backfill)                                               | Thiết kế cũ (đã tự dự đoán trước trong comment, nhưng chưa làm)                                            | FE test thật                       | ⏸️ Chưa sửa                                           |
+| 7   | `PackagingModule` chưa import `NotificationsModule`                                                                                          | Sẽ crash DI ngay khi thêm `notify()` vào `packaging.service.ts` nếu quên dòng này                          | FE tự soát trước khi báo (rất tốt) | ⏸️ Chưa sửa                                           |
+| 8   | Schema `packaging-recommendation` thiếu field `rejection_reason`                                                                             | Chưa từng làm                                                                                              | FE đối chiếu                       | ⏸️ Chưa sửa                                           |
+
+**Điểm đáng chú ý**: KHÔNG phải mọi báo cáo của FE đều là lỗi — mục "GET packaging trả null (không 404) khi chưa generate, role xem đủ 4" **ĐÃ ĐÚNG SẴN 100%** khi đối chiếu code thật — FE chỉ đang XÁC NHẬN LẠI, không phải báo lỗi. Bài học: **luôn đối chiếu TỪNG claim với code thật trước khi tin/sửa** — báo cáo dài, chi tiết, có vẻ đúng vẫn có thể lẫn 1 vài điểm đã đúng sẵn.
+
+### 🎯 QUY TRÌNH TỐT HƠN — áp dụng bắt buộc từ giờ mỗi khi đổi STATE MACHINE hoặc thêm phụ thuộc CROSS-MODULE
+
+Nhìn lại, cả 8 lỗi trên rơi vào ĐÚNG 3 nhóm nguyên nhân gốc — quy trình dưới đây map trực tiếp từng nhóm với 1 bước kiểm tra cụ thể, không phải lời khuyên chung chung:
+
+**Nhóm A — Thêm ĐIỀU KIỆN BẮT BUỘC mới (như "phải có pick_events") mà quên liệt kê HẾT các đường dẫn hợp lệ tới điều kiện đó (lỗi #3)**
+→ Quy tắc: mỗi khi thêm 1 precondition mới cho 1 hàm, viết ra GIẤY (hoặc comment code) **TẤT CẢ các đường** hệ thống cho phép đi tới trạng thái đó — không chỉ đường "happy path" đang nghĩ tới. VD "group ở PICKED" có 2 đường: quét từng SKU (`pick-item` nhiều lần) HOẶC xác nhận hàng loạt (`pick` 1 lần) — đường thứ 2 dễ bị quên vì không "trực quan" bằng đường 1.
+
+**Nhóm B — Đổi Ý NGHIÊM NGHIỆP VỤ của 1 trạng thái mà quên rà lại TOÀN BỘ nơi đang check role/quyền dựa trên trạng thái đó (lỗi #5)**
+→ Quy tắc: mỗi khi sửa `allowed-status-transitions.ts`, **grep lại TOÀN BỘ** `@Roles(...)` của MỌI endpoint liên quan tới trạng thái vừa đổi ý nghĩa — không chỉ sửa đúng bảng transition rồi coi là xong. Luồng mới coi "đóng gói vật lý" là việc CỦA Packaging Staff (trước là Warehouse) — nhưng route `pack()` vẫn giữ nguyên role cũ vì không ai đi rà lại.
+
+**Nhóm C — Thêm cross-module/cross-service call mới mà quên wiring (lỗi #7, và suýt xảy ra với #6)**
+→ Quy tắc: mỗi khi thêm `private readonly xService: XService` vào constructor 1 service, **NGAY LẬP TỨC** kiểm tra `<module>.module.ts` của service ĐANG SỬA có `imports: [XModule]` chưa — đừng đợi tới lúc chạy `npm run start` mới phát hiện crash DI (mà `tsc`/`eslint`/`jest` unit test **KHÔNG hề bắt được lỗi này** — chỉ app thật khởi động mới lộ).
+
+**Checklist tổng hợp — chạy qua đủ 3 mục này TRƯỚC KHI báo "xong" cho bất kỳ thay đổi nào đụng tới state machine hoặc thêm dependency mới:**
+
+- [ ] Đã liệt kê hết MỌI đường hợp lệ dẫn tới trạng thái tiền đề mới thêm chưa (không chỉ đường đang nghĩ tới)?
+- [ ] Đã grep lại toàn bộ `@Roles()` của các endpoint liên quan tới trạng thái vừa đổi ý nghĩa chưa?
+- [ ] Mọi service mới inject vào constructor đã kiểm tra `module.ts` có import đúng module chưa?
+- [ ] Có transition/hành động nào MỚI cần `notify()` không — hỏi "ai cần biết chuyện này vừa xảy ra" cho MỌI trạng thái mới/đổi, không chỉ trạng thái "chính".
+- [ ] Đã tự chạy thử (không chỉ đọc code) ít nhất 1 lần theo ĐÚNG luồng FE sẽ dùng thật (VD nút "xác nhận hàng loạt", không chỉ luồng quét từng cái) trước khi coi là xong?
+
+**Cập nhật (21-22/09/2026) — TOÀN BỘ 18 mục trong "bản chốt" của FE đã code xong, xác nhận `tsc`/`eslint`/`jest` sạch (17/17 suite, 167/167 test), đã chạy migration DB thật (13 bản ghi `recipient_role` string→number đã sửa), đã commit/push.** Chi tiết đầy đủ từng mục xem `git log` các commit `AOFP-36`/`AOFP-37` — không lặp lại ở đây, chỉ giữ bảng lỗi + quy trình bên trên làm tài liệu tham khảo cho lần sau.

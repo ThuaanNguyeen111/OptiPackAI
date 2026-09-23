@@ -134,6 +134,7 @@ export class PackagingService {
     });
 
     const noFit = planned.filter((p) => p.result.status === 'no_fit').length;
+    await this.notifyPendingPlan(groupId, docs.length, noFit);
     this.logger.log(
       `Tạo ${String(docs.length)} phương án đóng gói (engine ${ENGINE_VERSION}) cho group ${groupId}; ${String(noFit)} đơn no_fit.`,
     );
@@ -433,13 +434,25 @@ export class PackagingService {
     return this.listActiveRecommendations(groupId);
   }
 
-  async reject(groupId: string, expectedGroupVersion: number): Promise<{ message: string }> {
+  async reject(
+    groupId: string,
+    expectedGroupVersion: number,
+    rejectionReason: string,
+  ): Promise<{ message: string }> {
     const recommendations = await this.getPendingRecommendations(groupId);
 
     await this.runInTransaction(async (session) => {
       await this.recommendationModel.updateMany(
         { _id: { $in: recommendations.map((r) => r._id) } },
-        { $set: { approval_status: PackagingApprovalStatus.REJECTED, is_active: false } },
+        {
+          $set: {
+            approval_status: PackagingApprovalStatus.REJECTED,
+            is_active: false,
+            // (21/09/2026) Lưu lý do ngay trên bản bị từ chối, trước khi
+            // is_active tắt — giữ đúng lịch sử, không mất khi generate lại.
+            rejection_reason: rejectionReason,
+          },
+        },
         { session },
       );
       // Hàng ĐÃ lấy xong — reject chỉ nghĩa là phương án chưa phù hợp;
@@ -447,6 +460,7 @@ export class PackagingService {
       await this.transitionGroup(groupId, expectedGroupVersion, GroupFulfillmentStatus.PICKED, session);
     });
 
+    await this.notifyPackagingRejected(groupId, rejectionReason);
     this.logger.log(`Reject phương án đóng gói group ${groupId} — quay lại picked, chờ tính lại.`);
     return {
       message: 'Đã từ chối gợi ý đóng gói — hàng vẫn giữ nguyên đã lấy, chờ tính lại gợi ý mới.',
@@ -662,6 +676,59 @@ export class PackagingService {
     if (estimatedPackageWeightG === null || estimatedPackageWeightG <= 0) return false;
     const estimatedKg = estimatedPackageWeightG / 1000;
     return Math.abs(actualKg - estimatedKg) / estimatedKg > ABNORMAL_WEIGHT_DEVIATION_THRESHOLD;
+  }
+
+  /**
+   * (21/09/2026, từ `main`) Báo Packaging Staff có kế hoạch mới chờ duyệt.
+   * Best-effort: lỗi gửi thông báo không được làm generate() thất bại.
+   */
+  private async notifyPendingPlan(groupId: string, orderCount: number, noFitCount: number): Promise<void> {
+    const boxSummary =
+      noFitCount === 0
+        ? `${String(orderCount)} đơn, mỗi đơn một kiện`
+        : `${String(orderCount)} đơn, trong đó ${String(noFitCount)} đơn chưa có thùng vừa`;
+    try {
+      const { title, message } = this.notificationsService.buildPendingPackagingPlanMessage({
+        groupId,
+        boxSummary,
+      });
+      await this.notificationsService.notify({
+        recipientRole: UserRole.PACKAGING_STAFF,
+        type: NotificationType.PENDING_APPROVAL,
+        severity: 'info',
+        title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `Gửi thông báo có kế hoạch chờ duyệt (group ${groupId}) thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** (21/09/2026, từ `main`) Báo Admin lý do phương án bị từ chối. */
+  private async notifyPackagingRejected(groupId: string, reason: string): Promise<void> {
+    try {
+      const { title, message } = this.notificationsService.buildPackagingRejectedMessage({
+        groupId,
+        reason,
+      });
+      await this.notificationsService.notify({
+        recipientRole: UserRole.ADMIN,
+        type: NotificationType.PACKAGING_REJECTED,
+        severity: 'warning',
+        title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    } catch (error: unknown) {
+      this.logger.error(
+        `Gửi thông báo từ chối phương án (group ${groupId}) thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /** (22/09/2026) Thùng carton xuống ≤ mức cảnh báo sau khi đóng gói. */

@@ -1,310 +1,382 @@
-# OptiPackAI Backend — Integration Guide: Orders & Marketplace Integration (FE-01, FE-02)
+# OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 16/09/2026** — callback OAuth Lazada đổi từ trả JSON thô sang redirect thật về FE; xác nhận gộp nhiều đơn hoạt động đúng bằng dữ liệu thật; bổ sung đầy đủ 19 giá trị `status` (trước đây tài liệu ngầm hiểu ít hơn); thêm mã lỗi `MKT_SERVER_ERROR`.
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
-Tài liệu này dành cho FE tích hợp 2 module **Marketplace Integration** (kết nối sàn qua OAuth) và **Orders** (đồng bộ + gộp đơn hàng). Đọc tài liệu này **trước khi** đọc Swagger — Swagger cho biết "API nhận/trả gì", tài liệu này giải thích "vì sao nó hoạt động vậy, và FE cần xử lý gì thêm". Cùng cấp với `INTEGRATION_GUIDE.md` (Auth/Users) — đọc file đó trước nếu FE chưa quen cách BE trả lỗi và cách gắn Bearer token.
-
-**Swagger UI (nguồn API chính thức, luôn cập nhật)**: `http://localhost:3000/api/docs`
-
-> ⚠️ **Phạm vi hiện tại**: chỉ **Lazada** đã code và test xong end-to-end với dữ liệu thật. TikTok Shop và Tiki nằm trong roadmap nhưng **chưa có endpoint nào chạy được** — nếu Swagger có route `/marketplace/tiktok/*` hoặc `/marketplace/tiki/*` xuất hiện, đó là scaffold chưa hoàn thiện, đừng tích hợp FE vào đó cho tới khi có thông báo riêng.
+**Swagger UI**: `http://localhost:3000/api/docs`
 
 ---
 
-## 1. Base URL & Header chung
+# PHẦN A — TỔNG QUAN HỆ THỐNG
 
-```
-Base URL: http://localhost:3000
-Content-Type: application/json
-Authorization: Bearer <access_token>   (bắt buộc cho mọi route bên dưới, TRỪ Lazada callback)
-```
+## A.1. Bài toán hệ thống giải quyết
 
-Không có tiền tố `/api/v1` — route thật là `/orders`, không phải `/api/v1/orders`.
+Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Order Group** (xem `INTEGRATION_GUIDE_ORDERS.md`), hệ thống phải trả lời 6 câu hỏi nghiệp vụ liên tiếp:
 
-Token lấy từ luồng đăng nhập ở `INTEGRATION_GUIDE.md`. Nếu request trả `401`, kiểm tra token còn hạn chưa trước khi báo lỗi (access_token sống 4h theo BE — refresh qua `/auth/refresh` như đã mô tả trong guide Auth).
+1. **Đóng gói thế nào** — thùng cỡ nào, vật liệu gì? (Nghiệp vụ Packaging)
+2. **Ai lấy hàng** — nhân viên kho nào phụ trách? (Nghiệp vụ Staff Assignment)
+3. **Hàng ở đâu trong kho** — kệ nào, đi theo lộ trình nào? (Nghiệp vụ Warehouse)
+4. **Lấy đủ chưa** — quét từng món, nếu thiếu thì sao? (Nghiệp vụ Picking)
+5. **Đơn có gấp không** — cần ưu tiên xử lý trong bao lâu? (Nghiệp vụ Đơn Hỏa Tốc)
+6. **Ai cần biết chuyện gì đang xảy ra** — báo cho đúng người, đúng lúc (Nghiệp vụ Notifications)
 
----
+**5 Order Group entity chạy xuyên suốt toàn bộ tài liệu này** — tất cả nghiệp vụ bên dưới đều xoay quanh 1 document `OrderGroup` duy nhất, đi qua các trạng thái khác nhau theo thời gian.
 
-## 2. Luồng chạy đầy đủ (end-to-end) — đọc mục này TRƯỚC khi code UI
+## A.2. Actor (vai trò) và trách nhiệm thật trong hệ thống
 
-Đây là toàn bộ hành trình từ lúc mở app tới lúc thấy đơn hàng — mọi mục sau đây chỉ là ĐI SÂU vào từng bước trong luồng này. Đọc qua 1 lượt trước để có bức tranh tổng thể, tránh code từng API riêng lẻ mà không hiểu chúng khớp nhau ở đâu.
+| Actor                    | Trách nhiệm CHÍNH trong Fulfillment                                                                                                                                                | Không làm gì                                                             |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| **Store Owner**          | **MỚI (2026-09-11)**: xem toàn bộ đơn hàng (`GET /orders`) và nhóm đơn (`GET /order-groups`) của shop mình; đánh dấu đơn Hỏa Tốc; nhận cảnh báo (thiếu hàng, SLA, mất kết nối sàn) | KHÔNG trực tiếp thao tác lấy/đóng gói/ship — chỉ XEM và đánh dấu ưu tiên |
+| **Warehouse Staff**      | Lấy hàng (quét/nhập tay), đóng gói, phát hiện+báo thiếu hàng, tự nhận/đổi việc                                                                                                     | KHÔNG duyệt gợi ý AI, KHÔNG quyết định tiếp tục khi thiếu hàng           |
+| **Packaging Staff**      | Duyệt/điều chỉnh/từ chối gợi ý đóng gói, quyết định đơn thiếu hàng có tiếp tục không                                                                                               | KHÔNG trực tiếp lấy/đóng gói hàng                                        |
+| **Shipping Coordinator** | Xác nhận đã ship, đã giao, ghi nhận hoàn hàng                                                                                                                                      | KHÔNG tham gia khâu lấy/đóng gói                                         |
+| **Admin**                | Toàn quyền mọi thao tác trên — dùng để test/vận hành khẩn cấp                                                                                                                      | —                                                                        |
 
-```
-1. User đăng nhập vào OptiPackAI (POST /auth/login — xem INTEGRATION_GUIDE.md)
-   → có access_token, mọi bước sau đều gắn kèm header
-     Authorization: Bearer <access_token>
+## A.3. Nguyên tắc thiết kế xuyên suốt (đọc để hiểu TẠI SAO hệ thống làm vậy)
 
-2. Shop Lazada ĐÃ connect chưa?
-   ├─ CHƯA (lần đầu, hoặc thêm shop mới)
-   │    → làm mục 3 (Luồng kết nối OAuth) — CHỈ làm 1 LẦN/shop
-   │
-   └─ RỒI (shop cũ, mở lại app bình thường)
-        → BỎ QUA mục 3, đi thẳng bước 3 dưới đây
-        → FE không cần hỏi lại BE "đã connect chưa" bằng cách nào cả — cứ
-          coi như đã connect, chỉ khi gọi sync/list mà nhận lỗi
-          MKT_SHOP_NOT_CONNECTED (mục 8) mới cần quay lại mục 3
-
-3. User bấm nút "Đồng bộ ngay" trên giao diện
-   → FE gọi POST /orders/lazada/sync?shop_id=... (mục 4)
-   → BE tự đi hỏi Lazada, lưu đơn mới vào MongoDB
-   → BE trả về { fetched, upserted, newlyConsolidated }
-   → FE hiện toast ngắn báo kết quả
-
-4. FE TỰ ĐỘNG gọi tiếp GET /orders (mục 5) để load lại bảng
-   → KHÔNG bắt user bấm thêm nút "tải lại" riêng — sync xong là load luôn
-
-5. User bấm vào 1 dòng đơn trong bảng
-   → FE gọi GET /orders/:id (mục 6) bằng field `id` của dòng đó
-   → hiện màn hình chi tiết: sản phẩm, số lượng, giá, địa chỉ đầy đủ
-
-6. Muốn có đơn MỚI HƠN nữa?
-   → quay lại bước 3, bấm "Đồng bộ ngay" lần nữa để có ngay lập tức
-   → HOẶC không cần làm gì cả — hệ thống giờ đã có lịch chạy nền TỰ ĐỘNG
-     đồng bộ mọi shop đã connect mỗi 10 phút 1 lần (không cần ai bấm nút).
-     Nút "Đồng bộ ngay" vẫn hữu ích khi cần thấy dữ liệu NGAY LẬP TỨC
-     (VD đang demo, không muốn chờ tới đợt tự động kế tiếp) — 2 cơ chế
-     tồn tại song song, không loại trừ nhau.
-```
-
-### Cách FE tự test luồng này (không cần chờ BE dev ngồi cạnh)
-
-1. Mở `http://localhost:3000/api/docs` (Swagger) — đăng nhập bằng tài khoản test có role Admin qua `POST /auth/login`, copy `access_token`, bấm nút "Authorize" ở góc trên Swagger, dán token vào (không cần gõ chữ `Bearer`, Swagger tự thêm).
-2. Thử gọi `GET /orders` trước — nếu trả về mảng có sẵn dữ liệu (thường sẽ có, vì shop demo đã connect + sync trước đó), nghĩa là mục 2/3 có thể bỏ qua, đi thẳng test UI hiển thị danh sách.
-3. Muốn thấy hiệu ứng "có đơn mới" mà không cần đặt đơn thật trên Lazada: gọi `POST /orders/lazada/sync` trước — nếu shop thật đó vừa có đơn mới, `fetched`/`upserted` sẽ > 0, gọi lại `GET /orders` sẽ thấy dòng mới.
-4. Copy field `id` của 1 dòng bất kỳ trong response `GET /orders`, dán vào `GET /orders/:id` để xem chi tiết — đây là cách nhanh nhất để FE tự lấy dữ liệu mẫu dựng UI màn chi tiết mà không cần hỏi BE mẫu response.
-5. Nếu cần test lỗi (403 do sai role, 404 do id không tồn tại...), đổi tạm token sang tài khoản role khác hoặc sửa tay 1 ký tự trong `:id` — Swagger cho phép thử nhanh không cần code.
+1. **1 hành động quan trọng = 1 người xác nhận, không tự động hóa quá tay.** Mọi quyết định ảnh hưởng tới việc giao hàng thật (duyệt đóng gói, quyết định đơn thiếu hàng) đều BẮT BUỘC có 1 con người thật bấm nút — hệ thống không bao giờ tự ý "đoán" rồi tiến hành luôn.
+2. **Optimistic Concurrency ở khắp nơi.** Vì nhiều người có thể cùng thao tác 1 Order Group (Warehouse Staff đang lấy, Admin đang xem), MỌI hành động ghi đều yêu cầu gửi kèm `version` hiện tại — sai version = bị từ chối, không âm thầm ghi đè lên thao tác của người khác.
+3. **Không tự động hóa nếu thiếu thông tin.** VD: thiếu hàng → hệ thống KHÔNG tự quyết "cứ giao thiếu cho xong" — luôn dừng lại, chờ người có thẩm quyền (Packaging Staff) quyết định.
 
 ---
 
-## 3. Luồng kết nối shop Lazada (OAuth) — làm 1 LẦN mỗi shop, CHỈ Admin được làm
+# PHẦN B — TOÀN BỘ NGHIỆP VỤ, CHI TIẾT TỪNG TÌNH HUỐNG
 
-⚠️ **`connect` và mọi endpoint ở mục 4, 5 bên dưới đều giới hạn `@Roles(UserRole.ADMIN)`** — user role khác (Store Owner, Warehouse Staff...) gọi vào sẽ nhận `403 Forbidden`, không phải bug. FE chỉ hiện nút "Kết nối shop"/"Đồng bộ đơn"/menu Orders cho user có `role === 4` (Admin — xem bảng mapping role ở `INTEGRATION_GUIDE.md` mục 3).
+## Nghiệp vụ 1 — Duyệt gợi ý đóng gói (UC-04)
 
-Đây là bước bắt buộc trước khi gọi được bất kỳ API đơn hàng nào của shop đó. Khác với luồng Google OAuth ở module Auth (dùng `GET`, cùng cách gọi), bước khởi tạo ở đây **cũng là `GET`, không phải `POST`**:
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh xảy ra
 
-```
-Admin bấm "Kết nối shop Lazada" → gọi (có Bearer token):
-  GET /marketplace/:platform/connect      (vd: GET /marketplace/lazada/connect)
+**Đảo luồng so với thiết kế ban đầu**: trước đây bước này xảy ra NGAY khi Order Group vừa tạo (trước cả khi lấy hàng). Giờ xảy ra **SAU KHI Warehouse Staff đã lấy hàng xong** (`picked`) — lý do nghiệp vụ: Packaging Staff cần nhìn hàng THẬT đã lấy về mới quyết định đóng gói thế nào, không quyết định trước khi biết chắc có đủ hàng hay không (xem đầy đủ ở Nghiệp vụ 3 và PHẦN C).
 
-→ Response 200: { "authUrl": "https://..." }   ← JSON bình thường, KHÔNG redirect ở bước này
-→ FE tự điều hướng trình duyệt sang authUrl đó (window.location.href = res.authUrl),
-  KHÔNG mở popup, KHÔNG fetch nội dung của authUrl
-
-→ Seller đăng nhập & xác nhận cấp quyền trên Lazada
-→ Lazada tự động điều hướng TRÌNH DUYỆT NGƯỢC LẠI thẳng vào BACKEND (không phải FE):
-  GET /marketplace/:platform/callback?code=...&state=...
-  (route này CÔNG KHAI — không cần Bearer token, vì trình duyệt của seller gọi trực tiếp,
-   không phải FE gọi. Bảo mật dựa trên state token dùng 1 lần, không phải JWT.)
-```
-
-**Callback xử lý xong, BE lưu access_token/refresh_token của shop đó (mã hoá) vào MongoDB**, sau đó **redirect thẳng trình duyệt về FE** (đã sửa 15/09/2026 — trước đây trả JSON thô, nay dùng `@Redirect()` giống hệt cơ chế Google OAuth ở `INTEGRATION_GUIDE.md` mục 7):
+Sơ đồ đúng hiện tại:
 
 ```
-Thành công: http://localhost:5173/marketplace-oauth-success?shopId=201171264532&shopName=i7Yix2IJ&connected=true
-Thất bại:   http://localhost:5173/marketplace-oauth-success?error=<error_code>
+Group tạo xong → auto-assign Warehouse Staff NGAY (xem Nghiệp vụ 2 — không còn
+chờ bước này kích hoạt nữa) → Lấy hàng (Nghiệp vụ 3) → PICKED
+        │
+        ▼  (ĐÚNG lúc này Nghiệp vụ 1 mới bắt đầu)
+Cần 1 "gợi ý đóng gói" (thùng cỡ nào, vật liệu gì) trước khi đóng gói vật lý thật.
 ```
 
-FE cần có sẵn 1 route `/marketplace-oauth-success`, đọc `URLSearchParams` từ URL để lấy `shopId`/`shopName` (hoặc `error`) — **không** gọi API nào thêm ở bước này, đúng pattern đã quen với `/oauth-success` của Google. `error_code` trả về là 1 trong các mã `MKT_*` liệt kê đầy đủ ở mục 8 (VD `MKT_OAUTH_STATE_INVALID`, hoặc `MKT_SERVER_ERROR` nếu lỗi không rơi vào mã cụ thể nào khác).
+### Ai làm gì
 
-Sau khi connect xong 1 lần, **`shopId` (chính là Lazada `seller_id`, ví dụ `201171264532`) là định danh dùng lại cho mọi lần gọi sync/list phía dưới** — FE nên lưu lại giá trị này (theo shop, không phải theo user) để không phải hỏi lại backend mỗi lần.
+```
+[ADMIN, tạm thời]                    [PACKAGING STAFF]
+POST .../packaging/generate    →     GET .../packaging (xem gợi ý)
+(CHỈ gọi được khi group đang          → quyết định 1 trong 3:
+ PICKED)                                 - approve  (đồng ý)
+                                          - adjust   (đổi rồi mới đồng ý)
+                                          - reject   (không đồng ý)
+```
 
-> ℹ️ **Restart server có cần connect lại không? Không.** Token Lazada lưu trong MongoDB (persistent), server tắt/bật lại không mất — shop đã connect vẫn dùng được ngay, Admin không cần bấm connect lại.
->
-> ⚠️ **Nhưng nếu FE tự chạy BE ở máy local để test luồng connect (mục này, không phải sync/list)**: BE cần 1 tunnel **ngrok** để nhận callback OAuth từ Lazada (Lazada không redirect được về `localhost`). Tunnel này là 1 **process riêng, độc lập với server BE** — tắt terminal chạy ngrok (hoặc tắt máy) thì tunnel chết ngay, domain callback bị lỗi kiểu `ERR_NGROK_3200 — endpoint offline`, **dù server BE vẫn chạy bình thường**. Việc này **CHỈ ảnh hưởng khi đang connect 1 shop MỚI** — các shop đã connect từ trước vẫn sync/list `GET /orders` bình thường dù ngrok đang tắt, vì 2 luồng này không đụng gì tới ngrok cả. Nếu FE thấy nút "Kết nối shop" bị lỗi lúc test local nhưng các API khác vẫn chạy tốt, hỏi người phụ trách BE xem ngrok có đang chạy không trước khi báo bug.
+🔄 **ĐÃ ĐỔI (21/09/2026)** — nguồn số lượng tính gợi ý: ưu tiên số lượng **THẬT đã quét** (`pick_events`), nhưng **KHÔNG BAO GIỜ chặn cứng** nếu Warehouse Staff dùng nút "Đã lấy xong" xác nhận HÀNG LOẠT (không quét từng SKU qua `pick-item`) — trường hợp này `pick_events` rỗng, hệ thống tự động **fallback về số lượng ĐẶT** (đã lọc sẵn đơn hủy/sự cố). FE **không cần lo** `generate` trả 409 chỉ vì Warehouse xác nhận hàng loạt — cả 2 cách lấy hàng đều cho ra gợi ý bình thường, chỉ khác độ chính xác (số lượng thật > số lượng đặt khi có thiếu hàng partial).
+
+🆕 **MỚI (21/09/2026)** — `generate` thành công giờ **tự động notify Packaging Staff** (loại `pending_approval`, broadcast toàn bộ role) — không cần F5/polling mù để biết có kế hoạch mới chờ duyệt.
+
+🔄 **Lưu ý field trả về mới**: `GET .../packaging` luôn trả **object hoặc `null`** — `null` nếu group CHƯA từng `generate` lần nào (KHÔNG trả 404), object bình thường dù recommendation đã Approve/Adjust hay còn Pending. FE nên coi `null` là trạng thái hợp lệ ("chưa có gợi ý"), không phải lỗi tải dữ liệu.
+
+### Vì sao bước `generate` hiện tại chỉ Admin gọi được
+
+Đây **không phải** hành vi nghiệp vụ chính thức — đội AI Packaging (Package 3) đang code thuật toán thật, khi xong sẽ **TỰ ĐỘNG trigger** ngay sau khi group vào `picked` (không ai phải bấm nút). Route hiện tại chỉ là "cửa tạm" để có dữ liệu test trong lúc chờ.
+
+### Tình huống `approve` — con đường chính
+
+Packaging Staff xem gợi ý, đồng ý → **BẮT BUỘC nhập kèm cân nặng THẬT** đo được (không phải số ước tính hệ thống tính sẵn). Hệ thống tự động **so sánh** cân thật vs cân ước tính:
+
+- Lệch **≤20%**: bình thường, `is_abnormal: false`
+- Lệch **>20%**: tự động đánh dấu `is_abnormal: true`, log cảnh báo — **không chặn tiến trình**, chỉ đánh dấu để sau này Dashboard/audit dùng phát hiện gợi ý AI hay sai lệch ở loại sản phẩm nào
+
+→ Kết quả: `PackagingRecommendation.approval_status = 'approved'`, `OrderGroup.fulfillment_status = 'approved_for_packing'`. 🔄 **ĐÃ ĐỔI** — bước này **KHÔNG còn** tự động kích hoạt Phân công nhân viên nữa (việc đó đã xảy ra từ lúc group vừa tạo, xem Nghiệp vụ 2) — `approved_for_packing` giờ đi thẳng tới đóng gói vật lý (Nghiệp vụ 4), không quay lại Picking.
+
+### Tình huống `adjust` — Packaging Staff không đồng ý gợi ý gốc
+
+Giống `approve` nhưng Packaging Staff tự nhập lại `box_size`/`material_type` MỚI, kèm `adjustment_reason` (1 trong 3 lý do cố định: sản phẩm dễ vỡ hơn dự kiến / thùng đề xuất không có sẵn / khác). Cũng bắt buộc cân thật, cũng tính `is_abnormal`.
+
+### Tình huống `reject` — từ chối hoàn toàn
+
+```
+POST .../packaging/reject
+Body: { "expected_group_version": 0, "rejection_reason": "Kích thước thùng quá nhỏ so với hàng thật." }
+```
+
+🆕 **MỚI (21/09/2026)** — `rejection_reason` giờ **BẮT BUỘC** (3-500 ký tự), trước đây không có field này. Admin cần biết TẠI SAO gợi ý bị từ chối để cải thiện thuật toán/dữ liệu, không chỉ biết "đã bị từ chối". Thiếu field này → `400 Bad Request` từ validation.
+
+Gợi ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại lịch sử, kèm `rejection_reason` đã lưu, phục vụ audit "tỷ lệ AI bị từ chối và vì sao"). `OrderGroup` quay lại **`picked`** (KHÔNG phải `awaiting_packaging`) — hàng ĐÃ lấy xong rồi, Reject chỉ có nghĩa "gợi ý tính sai", không cần lấy lại hàng, chỉ cần gọi lại `generate` từ `picked`.
+
+🆕 **MỚI (21/09/2026)** — `reject` thành công giờ **tự động notify Admin** (loại `packaging_rejected`, broadcast toàn bộ role Admin), kèm nguyên văn lý do từ chối trong nội dung thông báo.
+
+### DB liên quan — `PackagingRecommendation`
+
+| Field                                     | Kiểu           | Ý nghĩa                                                                                               |
+| ----------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
+| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                                                            |
+| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc                                        |
+| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")                                                     |
+| `material_quantity`                       | Number         | Số lượng vật liệu cần                                                                                 |
+| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                                                                   |
+| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                                                           |
+| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật                                                 |
+| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                                                            |
+| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                                                           |
+| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                                                         |
+| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust                                                      |
+| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                                                              |
+| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử                                                      |
+| 🆕 `rejection_reason` (MỚI 21/09/2026)    | String\|null   | Lý do từ chối — chỉ có giá trị khi `approval_status: 'rejected'`, lưu trên chính bản ghi đã bị reject |
+
+**Ràng buộc quan trọng**: 1 Order Group tại 1 thời điểm chỉ có ĐÚNG 1 `PackagingRecommendation` với `is_active: true` (index unique có điều kiện) — nhưng có thể có NHIỀU bản `is_active: false` (lịch sử các lần reject trước đó).
 
 ---
 
-## 4. Đồng bộ đơn hàng — `POST /orders/lazada/sync`
+## Nghiệp vụ 2 — Phân công nhân viên (Staff Assignment)
 
-Gọi API này để kéo đơn hàng mới nhất từ Lazada về hệ thống. Đây **không phải** real-time webhook — Lazada Open Platform không có cơ chế webhook chính thức đáng tin cậy, nên việc đồng bộ là **polling chủ động**: FE có thể gọi nút "Đồng bộ ngay", hoặc lên lịch gọi định kỳ (khuyến nghị: mỗi 5–15 phút nếu làm auto-refresh, tuỳ mức độ khẩn của nghiệp vụ kho).
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh xảy ra
 
-### Request
+**Đảo luồng**: trước đây bước này chạy SAU KHI Nghiệp vụ 1 (duyệt đóng gói) xong. Giờ chạy **NGAY LẬP TỨC khi Order Group vừa được tạo** (không chờ gì cả) — cần biết **AI đi lấy hàng** càng sớm càng tốt, vì Lấy hàng (Nghiệp vụ 3) giờ là bước ĐẦU TIÊN, không phải bước giữa luồng nữa. Không có bước này, đơn "trôi nổi" không ai chịu trách nhiệm xử lý.
+
+### Cơ chế tự động — thuật toán "Ít việc nhất" (Least-Busy)
 
 ```
-POST /orders/lazada/sync?shop_id=201171264532
-Authorization: Bearer <access_token>
+Hệ thống đếm: mỗi Warehouse Staff đang active có bao nhiêu Order Group
+              ĐANG XỬ LÝ DỞ (fulfillment_status CHƯA tới delivered/returned)
+→ Chọn người có số ít nhất
+→ Hòa nhau → chọn người được gán việc lần GẦN NHẤT LÂU HƠN (ai "nghỉ tay"
+  lâu nhất trong số đang hòa điểm được ưu tiên) — round-robin theo thời
+  gian, KHÔNG phải theo `_id` (đã sửa mô tả 16/09/2026 cho khớp code
+  thật — cách này công bằng hơn `_id` cố định, tránh việc hòa điểm luôn
+  ưu tiên đúng 1 người)
 ```
 
-| Param     | Type           | Bắt buộc | Mô tả                                                                         |
-| --------- | -------------- | -------- | ----------------------------------------------------------------------------- |
-| `shop_id` | string (query) | Có       | `shop_id` trên Lazada — chính là `seller_id` trả về lúc connect OAuth (mục 3) |
+Đây là phép đếm **real-time**, KHÔNG lưu sẵn 1 con số "đang có bao nhiêu việc" cho từng nhân viên — tránh tình trạng số liệu bị lệch (quên cập nhật khi đơn hoàn thành).
 
-### Response — `201 Created`
+### Tình huống cần đổi tay — bối cảnh thực tế
 
-```json
-{
-  "fetched": 1,
-  "upserted": 1,
-  "newlyConsolidated": 0
+- Nhân viên đang phụ trách đột xuất nghỉ/bận việc khác
+- Đơn chuyển thành Hỏa Tốc, cần người có kinh nghiệm xử lý nhanh hơn
+- Nhân viên tự thấy mình đang quá tải, muốn nhường bớt việc
+
+Cả 3 tình huống trên **dùng chung đúng 1 API** (`POST /order-groups/:id/assign`, có `staff_id`) — hệ thống KHÔNG phân biệt lý do đổi tay là gì, không cần route riêng cho từng tình huống.
+
+### DB liên quan — field trên `OrderGroup`
+
+| Field               | Kiểu                     | Ý nghĩa                                                                              |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
+| `assigned_staff_id` | ObjectId\|null           | Ai đang phụ trách — `null` nghĩa là chưa gán ai                                      |
+| `assigned_at`       | Date\|null               | Lúc gán gần nhất                                                                     |
+| `assignment_type`   | `'auto'\|'manual'\|null` | Lần gán gần nhất là tự động hay đổi tay — audit, KHÔNG ảnh hưởng logic nghiệp vụ nào |
+
+---
+
+## 🆕 Nghiệp vụ 2b — Thiết lập kho (Warehouse Setup) — MỚI, bổ sung 16/09/2026, viết lại dễ hiểu hơn 20/09/2026
+
+**Vì sao mục này mới xuất hiện dù `warehouse/` đã có từ trước**: các mục khác trong file chỉ nói tới việc **DÙNG** dữ liệu kho (Picking đọc `bin_location`/`sku_bin_assignment` đã có sẵn) — nhưng chưa từng có hướng dẫn cho bước **TẠO RA** dữ liệu đó (Admin phải làm TRƯỚC KHI bất kỳ đơn nào có thể Picking). Đây là khoảng trống tài liệu thật, không phải do API mới — chỉ là tới giờ mới rà thấy.
+
+### Hình dung bằng đời thực trước khi đọc kỹ thuật
+
+4 bước dưới đây tương ứng đúng 4 việc bạn làm khi **mở 1 kho hàng thật ngoài đời**, theo đúng thứ tự không thể đảo:
+
+```
+1. THUÊ 1 CĂN NHÀ           → Bước 1: Tạo KHO
+2. DÁN BẢNG CHIA KHU        → Bước 2: Tạo KHU (trong kho đó)
+3. ĐÓNG KỆ SẮT, ĐÁNH SỐ     → Bước 3: Sinh KỆ (trong khu đó)
+4. DÁN TEM SẢN PHẨM LÊN KỆ  → Bước 4: Gán SKU vào 1 kệ
+```
+
+Không thể dán tem sản phẩm lên 1 cái kệ **chưa từng được đóng** — đó là lý do 4 bước này **bắt buộc đúng thứ tự**, bước sau luôn cần "địa chỉ" do bước trước tạo ra.
+
+### Bối cảnh — ai làm, khi nào
+
+**Admin làm 1 LẦN lúc setup ban đầu** (hoặc mỗi khi mở kho mới/thêm SKU mới):
+
+```
+Bước 1: Tạo KHO ──► Bước 2: Tạo KHU (trong kho đó)
+                              │
+                              ▼
+Bước 4: Gán SKU vào 1 kệ ◄── Bước 3: Sinh HÀNG LOẠT kệ (trong khu đó)
+```
+
+**Ví dụ xuyên suốt dùng cho cả 4 bước bên dưới**: bạn mở 1 kho ở Quận 7 để chứa ốp lưng điện thoại đang bán trên Lazada.
+
+### Bước 1 — Tạo kho (= thuê 1 căn nhà)
+
+```
+POST /warehouse/warehouses
+Body: { "warehouse_code": "WH-HCM-01", "warehouse_name": "Kho TP.HCM - Quận 7", "address": "123 Đường ABC, Quận 7, TP.HCM" }
+→ 201: { "id": "...", "warehouseCode": "WH-HCM-01", "warehouseName": "...", "address": "...", "isActive": true }
+```
+
+Chỉ vậy — hệ thống giờ biết "có 1 kho tên WH-HCM-01", nhưng kho còn **trống trơn**, chưa chia khu, chưa có kệ nào.
+
+Xem lại: `GET /warehouse/warehouses` — danh sách toàn bộ kho. 🔄 **ĐÃ ĐỔI (19/09/2026)** — route này giờ mở thêm cho **Warehouse Staff** (trước chỉ Admin) — vì `picking-list`/`pick-item`/`report-missing` (Warehouse Staff phải gọi hàng ngày) đều bắt buộc `warehouse_id`, cần có cách để họ tự biết ID kho mình đang làm việc, không hardcode tay.
+
+### Bước 2 — Tạo khu TRONG kho đó (= dán bảng chia khu trong nhà kho)
+
+```
+POST /warehouse/warehouses/:warehouseId/zones
+Body: { "zone_code": "A", "zone_name": "Phụ kiện điện tử", "description": "Khu chứa cáp sạc, tai nghe, phụ kiện nhỏ" }  // description optional
+→ 201: { "id": "...", "warehouseId": "...", "zoneCode": "A", "zoneName": "...", "description": "..." }
+```
+
+Với ví dụ đang dùng: `zone_code: "A"`, `zone_name: "Phụ kiện điện thoại"` — giờ trong kho WH-HCM-01 có 1 khu tên "A" chuyên chứa ốp lưng/phụ kiện.
+
+**Lưu ý dễ nhầm**: `zone_code` chỉ cần **duy nhất TRONG 1 kho**, không phải duy nhất toàn hệ thống — mở thêm 1 kho ở Hà Nội, khu ở đó cũng đặt tên "A" được bình thường, 2 kho là 2 "thế giới" tách biệt hoàn toàn (xem lý do thiết kế kỹ hơn ở tài liệu giảng giải hệ thống, mục II.7).
+
+Xem lại: 🔄 `GET /warehouse/warehouses/:warehouseId/zones` (đã sửa lỗi 16/09/2026 — trước đây có thể không trả ra dữ liệu dù tạo thành công).
+
+### Bước 3 — Sinh HÀNG LOẠT kệ trong khu đó (= đóng kệ sắt, đánh số từng ngăn — không đóng tay từng cái)
+
+```
+POST /warehouse/zones/:zoneId/bin-locations/generate
+Body: { "aisle": "03", "rack_from": 1, "rack_to": 10, "level_from": 1, "level_to": 4 }
+→ 201: { "created": 40 }   // 10 rack × 4 level = 40 kệ, sinh trong 1 lần gọi (bulkWrite, xem tài liệu giảng giải mục III.6)
+```
+
+Thay vì gọi API 40 lần để tạo tay từng ngăn kệ, chỉ cần khai "tôi muốn dãy 03, kệ số 1 tới 10, mỗi kệ 4 tầng" — hệ thống **tự sinh ra đủ 40 vị trí trong 1 lần gọi**, tự đặt tên dạng `"{zone_code}-{aisle}-{rack:02}-{level:02}"` (VD `"A-03-01-01"` = khu A, dãy 03, kệ 01, tầng 01). FE **không cần tự nghĩ tên kệ**, chỉ cần khai đúng khoảng (range).
+
+⚠️ Gọi lại ĐÚNG khoảng đã tạo trước đó **không báo lỗi, không tạo trùng** (idempotent — `upsert`) — an toàn nếu Admin lỡ bấm 2 lần. Nhưng KHÔNG dùng tính chất này để "sinh thêm" — muốn mở rộng khoảng, gọi API MỚI với range khác (VD `rack_from: 11, rack_to: 15`), đừng gọi lại range cũ với ý định "cộng thêm".
+
+Xem lại (🆕 MỚI 16/09/2026 — trước đây KHÔNG có cách nào xem lại):
+
+```
+GET /warehouse/zones/:zoneId/bin-locations              → kệ trong 1 khu
+GET /warehouse/warehouses/:warehouseId/bin-locations    → TOÀN BỘ kệ trong 1 kho (mọi khu gộp)
+→ 200: [{ "id": "...", "warehouseId": "...", "zoneId": "...", "binCode": "A-03-01-01", "aisle": "03", "rack": 1, "level": 1 }, ...]
+```
+
+### Bước 4 — Gán 1 sản phẩm CỤ THỂ vào 1 kệ CỤ THỂ (= dán tem sản phẩm lên đúng 1 ngăn kệ)
+
+```
+POST /warehouse/warehouses/:warehouseId/sku-bin-assignments
+Body: {
+  "platform": "lazada", "shop_id": "201171264532", "seller_sku": "OPLUNG-IP15",
+  "bin_location_id": "<id của A-03-01-01, lấy từ response Bước 3 hoặc từ GET xem lại>",
+  "initial_quantity": 0   // OPTIONAL, mặc định 0 — có thể gán vị trí TRƯỚC, nhập hàng SAU qua bước Restock
 }
+→ 201: { "id": "...", "warehouseId": "...", "platform": "lazada", "shopId": "...", "sellerSku": "OPLUNG-IP15", "binLocationId": "...", "quantityOnHand": 0 }
 ```
 
-| Field               | Mô tả                                                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `fetched`           | Số đơn hàng BE lấy được từ Lazada API trong lần gọi này                                                     |
-| `upserted`          | Số đơn được ghi mới/cập nhật vào MongoDB (đơn đã tồn tại từ lần sync trước sẽ được update, không tạo trùng) |
-| `newlyConsolidated` | Số đơn **mới được gộp** vào 1 nhóm consolidation trong lần sync này (xem mục 7)                             |
+Giờ hệ thống biết chính xác: "ốp lưng iPhone 15 nằm ở đúng kệ A-03-01-01" — đây là mảnh ghép CUỐI CÙNG, sau bước này SKU đã sẵn sàng để tính vào Picking List khi có đơn.
 
-**FE nên làm gì với response này**: hiện toast/snackbar ngắn kiểu "Đã đồng bộ {fetched} đơn, {newlyConsolidated} đơn được gộp" — không cần hiện chi tiết từng đơn ở đây, gọi tiếp `GET /orders` (mục 5) để lấy danh sách đầy đủ hiển thị bảng.
+**Nhập thêm hàng sau đó** (nghiệp vụ RIÊNG, không phải gán lại):
 
-**Lỗi thường gặp — ĐÃ KIỂM TRA CODE THẬT, khác với suy đoán ban đầu**: nếu Lazada từ chối trả đơn (vd shop chưa verify đủ điều kiện bán hàng, token hết hạn, Lazada API tạm lỗi...), BE **KHÔNG có mã lỗi riêng cho từng nguyên nhân** — mọi lỗi ở bước gọi Lazada `GetOrders` đều rơi về **CÙNG 1 mã lỗi chung**:
-
-```json
-{
-  "success": false,
-  "error_code": "ORD_SYNC_FAILED",
-  "message": "Không lấy được danh sách đơn từ Lazada cho shop 201171264532 — vui lòng thử lại.",
-  "details": { "shopId": "201171264532" },
-  "timestamp": "...",
-  "path": "/orders/lazada/sync"
-}
+```
+POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock
+Body: { "quantity": 50 }   // CỘNG DỒN vào quantityOnHand hiện có, KHÔNG ghi đè
 ```
 
-HTTP status: **502 Bad Gateway** (đúng chuẩn — lỗi từ hệ thống bên ngoài, không phải lỗi của chính OptiPackAI).
+Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-bin-assignments` — toàn bộ SKU **ĐÃ** gán trong 1 kho. **Dễ nhầm với route đã có từ trước** `GET /warehouse/sku-bin-assignments/unassigned` — route ĐÓ trả chiều NGƯỢC LẠI: SKU nào TRONG hệ thống nhưng **CHƯA** gán vị trí nào (để Admin biết còn SKU nào cần làm Bước 4). Tóm gọn: `unassigned` = "còn việc phải làm", route mới = "đã làm xong" — 2 route trả 2 tập dữ liệu ĐỐI LẬP nhau.
 
-→ **FE KHÔNG thể phân biệt** "shop chưa verify" với các nguyên nhân khác chỉ từ response này — `message` luôn là câu chung chung như trên, không có field nào chỉ ra lý do cụ thể phía Lazada. FE nên hiện UI dạng "Đồng bộ thất bại, vui lòng thử lại sau hoặc kiểm tra trạng thái xác minh shop trên Lazada Seller Center" (gộp chung mọi khả năng), **không** cố tách case theo `message` hay đoán thêm error_code chưa tồn tại. Nếu sau này BE cần phân biệt rõ nguyên nhân cho FE, đó là việc cần yêu cầu BE bổ sung riêng, không phải điều đang có sẵn.
+### Mã lỗi riêng mục này
+
+| Mã                            | HTTP    | Khi nào                                                                                                |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| `WH_WAREHOUSE_NOT_FOUND`      | 404/400 | `warehouseId` không tồn tại hoặc sai định dạng ObjectId                                                |
+| `WH_ZONE_NOT_FOUND`           | 404/400 | `zoneId` không tồn tại hoặc sai định dạng ObjectId                                                     |
+| `WH_INVALID_BIN_RANGE`        | 400     | `rack_from > rack_to` hoặc `level_from > level_to` ở Bước 3                                            |
+| 🆕 `WH_WAREHOUSE_CODE_IN_USE` | 409     | **MỚI (19/09/2026)** — `warehouse_code` đã tồn tại (trước đây rơi 500 thô, xem báo cáo thật đồng đội)  |
+| 🆕 `WH_ZONE_CODE_IN_USE`      | 409     | **MỚI (19/09/2026)** — `zone_code` đã tồn tại TRONG CÙNG 1 kho (2 kho khác nhau vẫn đặt trùng mã được) |
 
 ---
 
-## 5. Danh sách đơn hàng — `GET /orders`
+## Nghiệp vụ 3 — Lấy hàng (Picking) — nghiệp vụ có nhiều tình huống nhất
 
-### Request
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh xảy ra
+
+Order Group **vừa tạo xong** (`picking`), đã **TỰ ĐỘNG có người phụ trách** (`assigned_staff_id`, xem Nghiệp vụ 2 — không cần ai duyệt trước) — Warehouse Staff cần đi lấy đúng sản phẩm, đúng số lượng, từ đúng vị trí kệ. Đây giờ là bước **ĐẦU TIÊN** sau khi đơn được gộp xong, KHÔNG còn chờ Packaging Staff duyệt gì trước như thiết kế ban đầu.
+
+### Tình huống chính (happy path) — 2 cách làm, tùy mức độ chi tiết muốn theo dõi
+
+**Cách A — theo dõi từng món (khuyến nghị, có audit đầy đủ)**:
 
 ```
-GET /orders?limit=20
-Authorization: Bearer <access_token>
+1. GET /order-groups/:id/picking-list           → xem cần lấy SKU nào, số lượng bao nhiêu
+2. GET /warehouse/:warehouseId/picking-list/:groupId → BẢN CÓ VỊ TRÍ KỆ, đã sắp xếp theo lộ trình đi
+3. Với MỖI SKU: POST .../fulfillment/pick-item   → quét/nhập tay, trừ tồn kho NGAY
+4. Sau khi lấy hết: POST .../fulfillment/pick    → xác nhận xong, group chuyển "picked"
 ```
 
-| Param                   | Type                                  | Bắt buộc | Mô tả                                                                                                                                                                                                                                   |
-| ----------------------- | ------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `shop_id`               | string (query)                        | Không    | Lọc theo shop trên sàn                                                                                                                                                                                                                  |
-| `status`                | string (query)                        | Không    | Lọc theo trạng thái đơn (giá trị cụ thể: xem Swagger — enum đang mở rộng dần)                                                                                                                                                           |
-| `consolidated_group_id` | string, MongoDB ObjectId (query)      | Không    | **Mới bổ sung** — lọc lấy TẤT CẢ đơn thuộc CÙNG 1 gói hàng đã gộp. Lấy giá trị này từ field `consolidatedGroupId` trả về ở `GET /orders` hoặc `GET /orders/:id` của bất kỳ đơn nào trong nhóm đó. Chỉ trả đơn có `isConsolidated: true` |
-| `before`                | string, **ISO 8601 datetime** (query) | Không    | Cursor phân trang — truyền lại nguyên văn `nextCursor` của trang trước (BE validate bằng `@IsDateString()`, không nhận chuỗi tuỳ ý)                                                                                                     |
-| `limit`                 | number (query)                        | Không    | Số lượng đơn/trang — mặc định **20**, tối thiểu **1**, tối đa **100** (BE reject nếu FE truyền >100)                                                                                                                                    |
+🔄 **ĐÃ ĐỔI (15/09/2026)** — cả 2 API lấy danh sách ở trên đều tự động **loại bỏ SKU thuộc đơn đã `canceled` hoặc gặp sự cố logistics** (`lost`, `damaged_by_3pl`... xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) khỏi danh sách cần lấy — trước đây KHÔNG lọc, nhân viên có thể bị yêu cầu đi lấy hàng cho đơn đã hủy/mất. Trường hợp TOÀN BỘ đơn trong group đều rơi vào 2 nhóm này (group rỗng sau khi lọc) → API trả lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì trả về danh sách rỗng — FE nên bắt riêng mã lỗi này, hiện thông báo rõ ràng ("Nhóm đơn này không còn gì cần lấy") thay vì hiểu nhầm là màn hình trắng/lỗi tải dữ liệu.
 
-**Phân trang là cursor-based dựa trên thời gian (`created_at`), KHÔNG phải page number và KHÔNG phải token mờ (opaque token)** — `nextCursor` thực chất chính là giá trị `created_at` (dạng ISO string) của đơn CUỐI CÙNG trong trang hiện tại. FE không tự tính `page=2,3,...`, mà luôn lấy nguyên `nextCursor` từ response trước truyền thẳng vào `before` của lần gọi kế tiếp — không tự chỉnh sửa/parse lại giá trị này. Khi `nextCursor: null` → đã hết dữ liệu, ẩn nút "Xem thêm"/tắt infinite scroll.
+🔄 **ĐÃ ĐỔI (19/09/2026, báo cáo thật Hải Phượng)** — bước 3 (`POST .../fulfillment/pick-item`) giờ **kiểm tra SKU quét THẬT SỰ thuộc group này** TRƯỚC KHI trừ tồn kho — trước đây trừ tồn thẳng theo mã vạch quét được, không hỏi lại SKU đó có nằm trong đơn nào của group không (quét nhầm mã vạch SKU bất kỳ, miễn còn tồn kho, vẫn trừ tồn thật, sai lệch dữ liệu). Nếu SKU không thuộc group → trả lỗi `ORD_GROUP_ITEM_NOT_IN_GROUP` (404), **KHÔNG đụng tới tồn kho**. FE nên bắt riêng mã lỗi này khi quét (VD hiện "Mã vạch này không thuộc đơn đang lấy, kiểm tra lại") — khác hẳn lỗi `ORD_GROUP_INSUFFICIENT_STOCK` (409, SKU đúng nhưng không đủ hàng).
 
-### Response — `200 OK`
+**Cách B — đơn giản, không theo dõi tồn kho từng món**:
 
-```json
-{
-  "orders": [
-    {
-      "id": "6a9af7843c22e98f3a6105c7",
-      "platform": "lazada",
-      "shopId": "201171264532",
-      "platformOrderId": "528609688549763",
-      "platformOrderNumber": "528609688549763",
-      "status": "pending",
-      "recipientName": "N**n",
-      "recipientCity": "Phường Gia Định",
-      "isConsolidated": false,
-      "consolidatedGroupId": null,
-      "totalAmount": 125000,
-      "currency": "VND",
-      "itemCount": 1,
-      "createdAt": "2026-09-04T16:53:24.904Z"
-    }
-  ],
-  "nextCursor": null
-}
+```
+POST .../fulfillment/pick    → chuyển thẳng "picked", bỏ qua bước quét từng SKU
 ```
 
-### Giải thích field — 2 điểm FE hay hiểu nhầm
+→ Dùng khi kho nhỏ, chưa cần độ chính xác tồn kho cao, hoặc giai đoạn demo/test nhanh.
 
-1. **`recipientName` bị Lazada TỰ MASK** (ví dụ `"N**n"`) — đây là hành vi bảo mật/PDPA phía Lazada trả về sẵn như vậy, **không phải bug BE, không phải lỗi hiển thị FE**. Đừng cố "giải mã" hay báo lỗi khi thấy tên bị che — hiển thị nguyên văn.
-2. **`recipientCity` là cấp Phường/Xã** (ví dụ `"Phường Gia Định"`), không phải cấp Tỉnh/Thành như tên field gợi ý — do cấu trúc hành chính Việt Nam hiện tại (sau đợt sáp nhập, bỏ cấp Quận/Huyện) chỉ còn Tỉnh/Thành phố + Phường/Xã, và Lazada trả giá trị này đúng như vậy. `GET /orders/:id` (mục 6) trả đầy đủ hơn (`recipientAddressLine1/2`, `recipientPostalCode`) nếu FE cần hiển thị địa chỉ chi tiết.
+### Tình huống quét thất bại — nhân viên phải làm gì
 
-### Field liên quan
+| Tình huống                             | Cách xử lý                                                                                                                                                                                  |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Camera hỏng/lag                        | Nhập tay mã SKU (`scan_method: "manual"`)                                                                                                                                                   |
+| Tem mã vạch rách/mờ                    | Nhập tay, hệ thống ghi nhận `scan_method: "manual"` để sau này Admin biết cần in lại tem                                                                                                    |
+| **Mất mạng đúng lúc quét**             | App lưu tạm trên máy, tự gửi lại khi có mạng — dùng `client_event_id` (mã tự sinh ngay lúc quét) để server nhận biết "đây là CÙNG 1 lần quét", KHÔNG trừ tồn kho 2 lần dù gửi lại nhiều lần |
+| Quét nhầm mã (SKU không thuộc đơn này) | Hệ thống tự kiểm tra, từ chối ngay (không thuộc phạm vi endpoint hiện tại — cần FE tự validate SKU nằm trong picking-list trước khi gửi)                                                    |
 
-| Field                                    | Type                    | Mô tả                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ---------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                                     | string                  | ObjectId MongoDB của đơn (dùng làm key khi render list/table, và là giá trị truyền vào `GET /orders/:id`)                                                                                                                                                                                                                                                                                                                                          |
-| `platform`                               | string                  | Sàn nguồn — hiện tại chỉ có `"lazada"`                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `shopId`                                 | string                  | shop_id/seller_id trên sàn                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `platformOrderId`                        | string                  | Mã đơn hàng gốc trên sàn — LUÔN có                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `platformOrderNumber`                    | string \| **undefined** | Mã đơn hiển thị (order_number) trên sàn — **field optional, có thể VẮNG MẶT** trong response (không phải luôn `null`, mà có thể thiếu hẳn key này). FE phải kiểm tra tồn tại trước khi hiển thị (`order.platformOrderNumber ?? order.platformOrderId` là fallback hợp lý), không được giả định luôn có như `platformOrderId`. Trong lần test thực tế 2 giá trị này trùng nhau, nhưng đó là trùng hợp của đơn cụ thể đó, không phải quy tắc đảm bảo |
-| `status`                                 | string                  | Trạng thái đơn — **đã xác nhận đủ 9 giá trị enum** (chuẩn hoá nội bộ, không phải string thô của Lazada): `unpaid`, `pending`, `packed`, `ready_to_ship`, `shipped`, `delivered`, `canceled`, `returned`, `failed`                                                                                                                                                                                                                                  |
-| `isConsolidated` / `consolidatedGroupId` | boolean / string\|null  | Xem mục 7                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `totalAmount` / `currency`               | number / string         | Tổng tiền đơn, đơn vị tiền tệ                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `itemCount`                              | number                  | Số lượng **dòng sản phẩm** trong đơn (đếm theo unit — xem lưu ý quan trọng ở mục 6 về cách Lazada đếm số lượng)                                                                                                                                                                                                                                                                                                                                    |
-| `createdAt`                              | string (ISO 8601)       | Thời điểm đơn được ghi vào hệ thống OptiPackAI (không phải thời điểm đặt hàng trên sàn)                                                                                                                                                                                                                                                                                                                                                            |
+### Tình huống THIẾU HÀNG — nghiệp vụ quan trọng nhất trong Picking
+
+**Bối cảnh thật**: nhân viên tới đúng kệ nhưng hàng thực tế không đủ (đã bán hết trên hệ thống nhưng chưa cập nhật kho, hoặc hàng lỗi phải loại bỏ).
+
+**KHÔNG được tự ý xử lý** — quy trình bắt buộc:
+
+```
+1. POST .../fulfillment/report-missing
+   { sku, missing_quantity, warehouse_id, note?, expected_version }
+   → OrderGroup.fulfillment_status = "partial_needs_review"
+   → Store Owner NHẬN THÔNG BÁO NGAY (in-app + email, mức "critical")
+   → ĐƠN DỪNG LẠI HOÀN TOÀN — không endpoint fulfillment nào khác gọi được
+
+2. [PACKAGING STAFF, không phải Warehouse Staff] xem lại, quyết định:
+   POST .../fulfillment/decide-partial
+   { approve: true }   → tiếp tục với phần CÓ SẴN, chuyển "picked"
+   { approve: false }  → hủy, quay lại "awaiting_packaging" — làm lại từ Nghiệp vụ 1
+```
+
+**Tại sao Warehouse Staff không tự quyết định được** (thiết kế có chủ đích, không phải giới hạn kỹ thuật): quyết định "giao thiếu hàng cho khách" là quyết định kinh doanh (ảnh hưởng trải nghiệm khách hàng, có thể cần bồi thường/giải thích) — không nên để 1 nhân viên kho tự ý quyết ngay tại chỗ.
+
+### DB liên quan — `PickEvent` (log mỗi lần quét, KHÔNG phải trạng thái, chỉ để audit + chống trùng)
+
+| Field                   | Kiểu                  | Ý nghĩa                                                                         |
+| ----------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| `order_group_id`        | ObjectId              | Nhóm đơn nào                                                                    |
+| `seller_sku`            | String                | SKU nào                                                                         |
+| `scanned_quantity`      | Number                | Số lượng đã quét/nhập lần này                                                   |
+| `scan_method`           | `'barcode'\|'manual'` | Quét thật hay nhập tay — audit                                                  |
+| `client_event_id`       | String\|null          | Chỉ có nếu Mobile App gửi (offline-sync) — unique có điều kiện, chống trừ trùng |
+| `remaining_stock_after` | Number                | Tồn kho CÒN LẠI sau lần trừ này — snapshot tại thời điểm đó                     |
+
+### DB liên quan — `quantity_on_hand` trên `SkuBinAssignment` (đã có ở Nghiệp vụ Warehouse, nhắc lại vì Picking trực tiếp thay đổi field này)
+
+Trừ bằng lệnh atomic — kiểm tra ĐỦ HÀNG và trừ trong CÙNG 1 lệnh MongoDB (`findOneAndUpdate` kèm điều kiện `quantity_on_hand: {$gte: số_lượng}`) — tránh tình huống 2 nhân viên quét cùng lúc 1 SKU sắp hết mà cả 2 đều "trừ được" (race condition).
 
 ---
 
-## 6. Chi tiết 1 đơn hàng — `GET /orders/:id` (MỚI)
+## Nghiệp vụ 4 — Đóng gói vật lý & Vận chuyển
 
-Dùng cho màn hình chi tiết đơn — trả đầy đủ địa chỉ người nhận và **danh sách sản phẩm đã đặt**, thứ mà `GET /orders` (mục 5) KHÔNG có (chỉ có `itemCount` là con số).
+### 🔄 ĐÃ ĐỔI (20/09/2026) — Bối cảnh
 
-### Request
+Sau `approved_for_packing` (Nghiệp vụ 1 duyệt xong — KHÔNG phải ngay sau `picked` như trước), nhân viên đóng gói vật lý theo đúng gợi ý đã duyệt, rồi bàn giao vận chuyển.
 
 ```
-GET /orders/6a9af7843c22e98f3a6105c7
-Authorization: Bearer <access_token>
+[PACKAGING STAFF, WAREHOUSE STAFF, ADMIN] POST .../fulfillment/pack    → "packed"
+[SHIPPING COORDINATOR] POST .../fulfillment/ship     → "shipped"
+[SHIPPING COORDINATOR] POST .../fulfillment/deliver  → "delivered"
 ```
 
-`:id` là giá trị field `id` lấy từ `GET /orders`. Nếu gửi id sai định dạng ObjectId (VD gõ tay nhầm), nhận `400` với `error_code: "ORD_INVALID_ORDER_ID"`; nếu đúng định dạng nhưng không tồn tại, nhận `404` với `error_code: "ORD_ORDER_NOT_FOUND"` — 2 mã lỗi **tách riêng có chủ đích**, giúp FE phân biệt "tự gửi sai" và "dữ liệu thật sự không có".
+🆕 **MỚI (21/09/2026)** — `pack` giờ mở thêm role `PACKAGING_STAFF` (trước chỉ `WAREHOUSE_STAFF, ADMIN`, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý trong luồng mới). Cả 3 role đều gọi được route này.
 
-### Response — `200 OK`
+Đây là 3 bước tuyến tính đơn giản, không có tình huống rẽ nhánh đặc biệt — mỗi bước chỉ cần đúng `version` hiện tại (Optimistic Concurrency).
 
-```json
-{
-  "id": "6a9af7843c22e98f3a6105c7",
-  "platform": "lazada",
-  "shopId": "201171264532",
-  "platformOrderId": "528609688549763",
-  "platformOrderNumber": "528609688549763",
-  "status": "pending",
-  "recipientName": "N**n",
-  "recipientPhone": "84xxxxxxxx",
-  "recipientAddressLine1": "123 Đường ABC",
-  "recipientAddressLine2": null,
-  "recipientCity": "Phường Gia Định",
-  "recipientPostalCode": null,
-  "recipientCountry": "VN",
-  "isConsolidated": false,
-  "consolidatedGroupId": null,
-  "totalAmount": 125000,
-  "currency": "VND",
-  "itemCount": 1,
-  "items": [
-    {
-      "sku": "ABC-123",
-      "name": "Tên sản phẩm",
-      "variation": null,
-      "status": "pending",
-      "quantity": 1,
-      "unitPrice": 125000,
-      "lineTotal": 125000,
-      "platformOrderItemIds": ["987654321"]
-    }
-  ],
-  "needCancelConfirm": false,
-  "isCancelPending": false,
-  "cancelTriggerTime": null,
-  "reverseOrderId": null,
-  "createdAt": "2026-09-04T16:53:24.904Z"
-}
+### Hoàn hàng — có thể xảy ra ở 2 thời điểm khác nhau
+
+```
+Từ "shipped"   → return: khách từ chối nhận / hủy giữa đường
+Từ "delivered" → return: khách trả hàng SAU KHI đã nhận (đổi ý, hàng lỗi phát hiện muộn)
 ```
 
-### 🔴 Điểm QUAN TRỌNG NHẤT khi hiển thị `items[]` — cách Lazada đếm số lượng khác trực giác
-
-Lazada **không có khái niệm "1 dòng sản phẩm với quantity=3"**. Nếu khách đặt 3 cái cùng SKU, Lazada trả về trong `GetOrderItems` **3 phần tử RIÊNG BIỆT** (3 `order_item_id` khác nhau) — mỗi phần tử luôn là ĐÚNG 1 đơn vị. BE đã **gộp sẵn** các đơn vị cùng SKU + cùng `status` thành 1 dòng `items[]` duy nhất với `quantity` đã cộng dồn đúng — **FE không cần tự gộp gì thêm**, chỉ hiển thị nguyên `items[]` trả về là đúng.
-
-Có 1 hệ quả cần biết: **nếu 1 đơn có 2 cái cùng SKU nhưng 1 cái bị hủy riêng lẻ (1 cái `pending`, 1 cái `canceled`)**, `items[]` sẽ trả về **2 dòng riêng biệt cho cùng 1 SKU đó** (khác `status`) — đây **không phải trùng lặp/bug**, mà là thể hiện đúng thực tế 2 đơn vị đang ở 2 trạng thái khác nhau. FE nên hiển thị badge status riêng cho từng dòng thay vì giả định 1 SKU = 1 dòng duy nhất.
-
-`platformOrderItemIds` (mảng, không phải 1 giá trị) — giữ lại toàn bộ mã đơn vị gốc của Lazada trong dòng đã gộp, dùng khi cần thao tác chi tiết theo từng đơn vị sau này (Package 4 — Fulfillment), FE hiện tại chưa cần dùng tới field này.
-
-> ✅ **Đã bổ sung (16/09/2026)** — `GET /orders/:id` giờ trả thêm 4 field liên quan tới luồng "buyer yêu cầu hủy đơn, seller có hạn phản hồi trước khi Lazada tự động hủy" (xem `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6 để hiểu luồng Notification tương ứng):
->
-> | Field               | Kiểu         | Ý nghĩa                                                                                                                         |
-> | ------------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------- |
-> | `needCancelConfirm` | Boolean      | `true` = buyer đang chờ seller xác nhận hủy — FE nên hiện badge cảnh báo ngay trên trang chi tiết                               |
-> | `isCancelPending`   | Boolean      | `true` = seller đã đồng ý hủy, đang chờ Lazada xử lý xong                                                                       |
-> | `cancelTriggerTime` | Date\|null   | Hạn chót phản hồi — quá giờ này mà seller chưa phản hồi, Lazada TỰ ĐỘNG hủy đơn. FE nên hiển thị đếm ngược hoặc ngày giờ cụ thể |
-> | `reverseOrderId`    | String\|null | Mã đơn hoàn/hủy phía Lazada, dùng khi cần đối chiếu thủ công                                                                    |
->
-> FE giờ có **2 cách** để biết đơn nào đang chờ xác nhận hủy — (1) qua chuông thông báo (`INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6, biết ngay khi vừa xảy ra), (2) qua field `needCancelConfirm` ngay trên trang chi tiết đơn (biết được dù mở trang bằng cách nào, không phụ thuộc đã bấm chuông hay chưa) — khuyến nghị dùng cả 2, không chỉ 1.
+Cả 2 tình huống dùng chung `POST .../fulfillment/return` — role cho phép CẢ Shipping Coordinator (phát hiện lúc giao) LẪN Warehouse Staff (phát hiện lúc soạn lại hàng hoàn về kho).
 
 ---
 
@@ -320,85 +392,197 @@ FE vẫn đọc isConsolidated/consolidatedGroupId theo response hiện tại. G
 
 Product Master đã có số đo package lấy qua GetProducts. Đây là dữ liệu khai báo sàn; hồ sơ gấp/bọc kho là nguồn riêng được kho/Admin xác nhận đã đo/thử. Sync không ghi đè hồ sơ đó và thiếu dữ liệu không điền 20 cm/0,5 kg. Lát cắt BE-1 đã chặn SKU chưa có hồ sơ `ready`; API nhập/xác nhận hồ sơ vẫn nằm trong BE-2.
 
-**Chỉ đơn CHƯA fulfill xong mới được xét gộp** — cụ thể BE chỉ so khớp `consolidation_key` giữa các đơn có `status` thuộc nhóm `unpaid | pending | to_pack | packed | to_ship | ready_to_ship` (🔄 **ĐÃ ĐỔI 16/09/2026** — doc cũ chỉ liệt kê 4 giá trị `unpaid | pending | packed | ready_to_ship`, nay bổ sung đủ `to_pack`/`to_ship` khớp code thật; nhóm "đang xử lý dở" — xem danh sách đầy đủ ở mục "Danh sách trạng thái đơn" bên dưới). Đơn đã `shipped/delivered/canceled/returned/failed` (và các trạng thái sự cố logistics) **không bao giờ** được gộp thêm (kể cả nếu trùng khách với 1 đơn mới) — hợp lý về nghiệp vụ (đơn cũ đã xử lý xong hoặc gặp sự cố, không nên gộp ngược). FE không cần tự lọc lại theo status khi hiển thị gộp — BE đã đảm bảo điều này ở tầng dữ liệu.
+### Luồng
 
-✅ **Đã xác nhận hoạt động đúng bằng dữ liệu thật (15/09/2026)** — tính năng gộp nhiều đơn cùng khách đã test thành công với dữ liệu Lazada thật (2 và 3 đơn cùng 1 group), không còn là tính năng "chưa verify".
+```
+[STORE OWNER hoặc ADMIN]
+PATCH /order-groups/:id/priority
+{ order_priority: "express", deadline_hours: 4 }   // deadline_hours mặc định 4 nếu bỏ trống
 
----
-
-## 7b. 🆕 MỚI (16/09/2026) — Danh sách đầy đủ giá trị `status` — quan trọng khi FE hiển thị badge
-
-Order/item `status` có **19 giá trị thật** (đã xác nhận qua tài liệu chính thức Lazada 15/09/2026, trước đây BE chỉ xử lý 9 giá trị, 10 giá trị còn lại bị âm thầm gộp về `pending`) — chia làm 3 nhóm FE nên hiển thị khác nhau:
-
-| Nhóm                                                     | Giá trị                                                                                                         | Gợi ý hiển thị                                                                                                                                                                                 |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Luồng bình thường**                                    | `unpaid`, `pending`, `to_pack`, `packed`, `to_ship`, `ready_to_ship`, `shipped`, `delivered`                    | Badge trung tính (xanh dương/xám), theo tiến độ                                                                                                                                                |
-| **Hủy/hoàn bình thường**                                 | `canceled`, `returned`, `shipped_back`, `shipped_back_success`                                                  | Badge xám/vàng nhạt — không phải lỗi hệ thống                                                                                                                                                  |
-| **⚠️ Sự cố logistics thật — NÊN có icon cảnh báo riêng** | `failed`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back_failed`, `package_scrapped` | Badge đỏ/cam nổi bật — đây là các trường hợp hàng thật gặp vấn đề (thất lạc/hư hỏng/giao thất bại), FE nên làm nổi bật để Store Owner/Admin chú ý ngay, khác hẳn nhóm "hủy bình thường" ở trên |
-
-🔄 **ĐÃ ĐỔI (15/09/2026) — lưu ý về `status` cấp Order (không phải cấp item)**: nếu 1 đơn có nhiều item ở nhiều trạng thái khác nhau, BE tự chọn trạng thái "đáng chú ý nhất" làm đại diện (ưu tiên nhóm sự cố > hủy/hoàn > luồng bình thường) — KHÔNG phải trạng thái của item đầu tiên trong mảng như trước đây. FE hiển thị field `status` cấp Order là đã đúng ưu tiên, không cần tự tính lại.
-
----
-
-## 8. Format lỗi chung
-
-Giống hệt module Auth (xem `INTEGRATION_GUIDE.md` mục 9) — mọi lỗi đều theo format `AppException` thống nhất qua `GlobalExceptionFilter`:
-
-```json
-{
-  "success": false,
-  "error_code": "MKT_SHOP_NOT_CONNECTED",
-  "message": "Shop chưa được kết nối hoặc đã bị ngắt kết nối.",
-  "details": null,
-  "timestamp": "2026-09-04T10:00:00.000Z",
-  "path": "/orders/lazada/sync"
-}
+→ Hệ thống tự tính packaging_deadline = NGAY BÂY GIỜ + 4 GIỜ LÀM VIỆC
+  (8h-17h, TÍNH CẢ THỨ 7, KHÔNG tính Chủ Nhật — nếu tạo lúc 16h, phần dư giờ
+   tự động cộng dồn sang 8h sáng ngày làm việc kế tiếp, KHÔNG được cộng
+   đơn giản kiểu "16h + 4h = 20h")
 ```
 
-Prefix `error_code` theo module: `MKT_` (marketplace-integration — lỗi liên quan kết nối/token sàn), `ORD_` (orders — lỗi liên quan logic đơn hàng/gộp đơn). FE nên switch theo `error_code` để hiện đúng UI, **không parse `message`** (message có thể đổi câu chữ, `error_code` mới là hợp đồng ổn định).
+### Cron cảnh báo — chạy ngầm, không cần FE gọi gì
 
-**Toàn bộ mã lỗi hiện có (lấy trực tiếp từ code, đầy đủ — không có mã nào khác ngoài danh sách này)**:
+```
+Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
+  - Còn DƯỚI 1 GIỜ tới hạn  → cảnh báo (severity: warning) TỚI ĐÚNG người đang phụ trách
+  - ĐÃ QUÁ HẠN               → escalate (severity: critical) TỚI Store Owner,
+                                tự đánh dấu is_overdue: true (chỉ báo 1 LẦN DUY NHẤT
+                                cho mỗi lần quá hạn, không spam lặp lại mỗi 10 phút)
+```
 
-| `error_code`                    | Module                  | Khi nào xảy ra                                                                                                                                                                          |
-| ------------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MKT_OAUTH_STATE_INVALID`       | marketplace-integration | State token ở callback sai/hết hạn/dùng lại lần 2 — nghi CSRF hoặc user bấm back rồi authorize lại                                                                                      |
-| `MKT_ADAPTER_NOT_REGISTERED`    | marketplace-integration | Gọi `:platform` không tồn tại adapter (hiện chỉ có lazada, tiktok/tiki có enum nhưng chưa chắc có adapter thật — xem mục "Phạm vi hiện tại" đầu file)                                   |
-| `MKT_SHOP_NOT_CONNECTED`        | marketplace-integration | Gọi sync/list cho `shop_id` chưa từng connect OAuth thành công                                                                                                                          |
-| `MKT_TOKEN_EXCHANGE_FAILED`     | marketplace-integration | Đổi `code` lấy access_token thất bại ở bước callback                                                                                                                                    |
-| `MKT_TOKEN_REFRESH_FAILED`      | marketplace-integration | Refresh token hết hạn/không hợp lệ — cần Admin connect lại từ đầu                                                                                                                       |
-| `MKT_TOKEN_DECRYPT_FAILED`      | marketplace-integration | Lỗi giải mã token đã lưu trong DB (sự cố hạ tầng, hiếm)                                                                                                                                 |
-| `MKT_WEBHOOK_SIGNATURE_INVALID` | marketplace-integration | Chưa dùng tới ở luồng Lazada hiện tại (Lazada polling, không webhook)                                                                                                                   |
-| `MKT_SHOP_LOOKUP_FAILED`        | marketplace-integration | Không tìm/đọc được shop trong DB                                                                                                                                                        |
-| `MKT_SERVER_ERROR`              | marketplace-integration | **Mới (15/09/2026)** — mã dự phòng khi callback gặp lỗi không rơi vào mã cụ thể nào ở trên (VD lỗi mạng/timeout gọi Lazada) — đảm bảo `error=` trên URL redirect luôn có giá trị hợp lệ |
-| `ORD_SYNC_FAILED`               | orders                  | **Bất kỳ** lỗi nào khi gọi Lazada GetOrders thất bại (gộp chung mọi nguyên nhân phía Lazada — xem mục 4)                                                                                |
-| `ORD_UNSUPPORTED_PLATFORM`      | orders                  | Gọi sync cho 1 platform chưa hỗ trợ (hiện chỉ `lazada` có route sync thật)                                                                                                              |
-| `ORD_INVALID_ORDER_ID`          | orders                  | **Mới** — `:id` ở `GET /orders/:id` (hoặc `consolidated_group_id` ở `GET /orders`) sai định dạng ObjectId, HTTP 400                                                                     |
-| `ORD_ORDER_NOT_FOUND`           | orders                  | **Mới** — `:id` đúng định dạng nhưng không có đơn nào khớp (hoặc đơn đã bị vô hiệu hóa), HTTP 404                                                                                       |
+### MỚI (2026-09-11) — Xem riêng danh sách đơn Hỏa Tốc
 
----
+Trước đây phải lấy hết `GET /order-groups` rồi tự lọc `orderPriority` bên client — **đã vá**, giờ lọc thẳng ở server:
 
-## 9. Bảng route đầy đủ (2 module)
+```
+GET /order-groups?order_priority=express
+```
 
-| Method | Route                             | Cần đăng nhập?                                | Role      | Ghi chú                                                                                                                     |
-| ------ | --------------------------------- | --------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/marketplace/:platform/connect`  | Có                                            | **Admin** | `:platform` = `lazada` (tiktok/tiki: enum có nhưng chưa xác nhận hoạt động — xem đầu file). Trả `{ authUrl }`               |
-| GET    | `/marketplace/:platform/callback` | **Không** (sàn tự điều hướng trình duyệt tới) | —         | Public — bảo mật bằng state token 1 lần. **Redirect về FE** `/marketplace-oauth-success?...` (đã sửa 15/09/2026, xem mục 3) |
-| POST   | `/orders/lazada/sync`             | Có                                            | **Admin** | Query `shop_id` bắt buộc                                                                                                    |
-| GET    | `/orders`                         | Có                                            | **Admin** | Cursor pagination (`before`/`nextCursor` là ISO datetime), filter `shop_id`/`status`/`consolidated_group_id`                |
-| GET    | `/orders/:id`                     | Có                                            | **Admin** | **Mới** — chi tiết 1 đơn, có `items[]` đã gộp theo SKU (xem mục 6)                                                          |
+Kết hợp được với 2 filter cũ (`fulfillment_status`, `platform`) — VD Store Owner muốn xem "đơn Hỏa Tốc của Lazada đang chờ duyệt": `GET /order-groups?order_priority=express&platform=lazada&fulfillment_status=pending_approval`.
+
+### DB liên quan — field trên `OrderGroup`
+
+| Field                | Kiểu                  | Ý nghĩa                                          |
+| -------------------- | --------------------- | ------------------------------------------------ |
+| `order_priority`     | `'normal'\|'express'` | Loại đơn                                         |
+| `packaging_deadline` | Date\|null            | Hạn chót đóng gói — CHỈ có giá trị nếu `express` |
+| `is_overdue`         | Boolean               | Đã quá hạn chưa — dùng để tránh cảnh báo lặp lại |
 
 ---
 
-## 10. Checklist nhanh trước khi FE bắt đầu code
+## Nghiệp vụ 6 — Thông báo (Notifications)
 
-- [ ] Đã chỉ hiện nút Connect/Sync/menu Orders cho user role **Admin (4)** — role khác gọi vào sẽ bị 403
-- [ ] Đã dùng đúng method **GET** cho `/marketplace/:platform/connect` (không phải POST)
-- [ ] 🔄 **ĐÃ ĐỔI** — Đã có sẵn route FE `/marketplace-oauth-success` đọc query string (`shopId`/`shopName`/`connected` khi thành công, `error` khi thất bại) — callback giờ **redirect thật**, không còn trả JSON thô (mục 3)
-- [ ] Đã dùng cursor `nextCursor`/`before` (ISO datetime string) cho phân trang `GET /orders`, không tự tính page number, không tự sửa giá trị cursor
-- [ ] Đã xử lý đúng field `platformOrderNumber` có thể VẮNG MẶT (optional), không giả định luôn tồn tại như `platformOrderId`
-- [ ] Đã xử lý đúng 2 field dễ hiểu nhầm: `recipientName` bị mask sẵn, `recipientCity` là cấp Phường/Xã
-- [ ] Đã hiểu `items[]` ở `GET /orders/:id` là ĐÃ GỘP theo SKU+status sẵn từ BE — không tự gộp lại lần nữa, và hiểu vì sao 1 SKU có thể xuất hiện 2 dòng nếu khác status (mục 6)
-- [ ] 🆕 **MỚI** — Đã xem đủ **19 giá trị status** (mục 7b) và làm badge riêng cho nhóm "sự cố logistics" (khác nhóm "hủy bình thường")
-- [ ] Đã hiểu rằng lỗi sync Lazada CHỈ có 1 mã chung `ORD_SYNC_FAILED` (502) — không cố phân biệt "chưa verify" khỏi các lỗi khác qua response
-- [ ] Đã switch theo `error_code` (không parse `message`) cho mọi lỗi từ 2 module này — dùng đúng bảng mã lỗi đầy đủ ở mục 8
-- [ ] Chỉ tích hợp route Lazada — chưa đụng route TikTok/Tiki nếu thấy xuất hiện trên Swagger (roadmap, chưa xong)
+### Bối cảnh — khi nào hệ thống chủ động báo
+
+| Sự kiện                                                                                                                          | Ai nhận                     | Mức độ   |
+| -------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------- |
+| Báo thiếu hàng (Nghiệp vụ 3)                                                                                                     | Store Owner (toàn bộ)       | critical |
+| Sắp quá hạn Hỏa Tốc (<1h)                                                                                                        | Đúng 1 người đang phụ trách | warning  |
+| Đã quá hạn Hỏa Tốc                                                                                                               | Store Owner (toàn bộ)       | critical |
+| **MỚI (15/09/2026)** — Buyer yêu cầu hủy đơn, seller có hạn phản hồi (`cancel_trigger_time`) trước khi Lazada tự động hủy        | Store Owner + Admin (cả 2)  | critical |
+| **MỚI (16/09/2026)** — Đồng bộ Lazada thất bại liên tục (VD token hết hạn) — có cơ chế chống spam, tối đa 1 lần/20 phút mỗi shop | Store Owner                 | warning  |
+| 🆕 **MỚI (21/09/2026)** — Có gợi ý đóng gói mới chờ duyệt (sau `generate`)                                                       | Packaging Staff (toàn bộ)   | info     |
+| 🆕 **MỚI (21/09/2026)** — Gợi ý đóng gói bị từ chối, kèm lý do (sau `reject`)                                                    | Admin (toàn bộ)             | warning  |
+
+> 🔄 **Bug đã sửa (21/09/2026)** — thông báo gửi theo ROLE (broadcast, không đích danh) trước đây có thể "biến mất" ở phía nhận do lệch kiểu dữ liệu (`recipient_role` lưu dạng chuỗi thay vì số) — đã sửa cả schema lẫn logic so khớp, dữ liệu cũ đã chạy migration cập nhật lại. FE không cần đổi gì, chỉ cần biết chuông thông báo giờ đáng tin cậy hơn cho các loại broadcast-theo-role.
+
+> ⚠️ **Hành vi đổi (15/09/2026)** — `PATCH /notifications/:id/read` giờ kiểm tra quyền sở hữu: chỉ đánh dấu đọc được thông báo gửi ĐÍCH DANH mình hoặc gửi BROADCAST cho đúng role của mình. Gọi với ID của thông báo KHÔNG thuộc về mình (dù ID hợp lệ) → trả **404 `NOTI_NOT_FOUND`**, y hệt trường hợp ID sai — FE không nên coi đây là bug nếu test chéo giữa 2 tài khoản khác role.
+
+### Cách FE nhận — Polling (không cần WebSocket)
+
+```
+GET /notifications/unread-count    (gọi mỗi 15-30 giây) → { "count": 3 }
+GET /notifications?is_read=false   (khi user bấm vào chuông)
+PATCH /notifications/:id/read      (khi user đọc xong)
+```
+
+Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **điều hướng thẳng** tới đúng Order Group, không chỉ hiện chữ suông.
+
+### DB liên quan — `Notification`
+
+| Field                                     | Kiểu                            | Ý nghĩa                                                                                                                                                               |
+| ----------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `recipient_user_id`                       | ObjectId\|null                  | Gửi đích danh 1 người — 1 trong 2 với `recipient_role`, KHÔNG bao giờ cả 2 cùng có giá trị                                                                            |
+| `recipient_role`                          | UserRole\|null                  | HOẶC gửi broadcast cho cả 1 role                                                                                                                                      |
+| `type`                                    | String                          | 1 trong 8 loại (`missing_item`, `sla_warning`, `sla_breach`, `sync_failed`, `cancel_confirmation_required`...) — **MỚI (15/09/2026)**: `cancel_confirmation_required` |
+| `severity`                                | `'info'\|'warning'\|'critical'` | Mức độ hiển thị (màu sắc/icon)                                                                                                                                        |
+| `title`/`message`                         | String                          | Nội dung — văn phong chuyên nghiệp, dựng sẵn từ backend, FE không tự ghép chuỗi                                                                                       |
+| `related_entity_type`/`related_entity_id` | String\|null / ObjectId\|null   | Điều hướng khi bấm vào                                                                                                                                                |
+| `is_read`                                 | Boolean                         | Đã đọc chưa                                                                                                                                                           |
+| `channels_sent`                           | String[]                        | Đã gửi qua kênh nào (audit — `['in_app']` hoặc `['in_app', 'email']`)                                                                                                 |
+
+---
+
+# PHẦN C — SƠ ĐỒ TỔNG THỂ
+
+🔄 **ĐÃ VẼ LẠI (20/09/2026) — đảo luồng: Lấy hàng làm TRƯỚC, Đóng gói (tính gợi ý + duyệt) làm SAU.**
+
+```
+                    ┌─────────────────────────┐
+                    │  awaiting_packaging      │  (tồn tại RẤT NGẮN — chỉ ngay
+                    └────────────┬─────────────┘   lúc group vừa tạo)
+                                 │ TỰ ĐỘNG: auto-assign Warehouse Staff
+                                 ▼            NGAY LẬP TỨC, không chờ ai duyệt gì
+                    ┌─────────────────────────┐
+                    │  picking                 │◄──────────────┐
+                    └────────────┬─────────────┘                │ decide-partial(false)
+                    pick-item×N ─┤ pick                          │
+                                 │              report-missing   │
+                                 ▼                    │           │
+                    ┌───────────┐          ┌──────────────────────┐
+                    │  picked   │◄─────────│ partial_needs_review  │
+                    └─────┬─────┘decide(true)└──────────────────────┘
+                          │ generate (Packaging Staff/Admin)
+                          ▼
+                    ┌─────────────────────────┐
+                    │  pending_approval         │─────────────────┐
+                    └────────────┬─────────────┘                  │ reject
+                                 │ approve / adjust                │ (hàng ĐÃ lấy,
+                                 ▼                                 │  không lấy lại)
+                    ┌─────────────────────────┐                   │
+                    │  approved_for_packing    │                  │
+                    └────────────┬─────────────┘                  │
+                                 │ pack                            │
+                                 ▼                                 │
+                    ┌───────────┐                                  │
+                    │  packed   │◄─────── (quay lại PICKED, không phải
+                    └─────┬─────┘          awaiting_packaging — xem mũi
+                          │ ship            tên reject phía trên)
+                          ▼
+                    ┌───────────┐  return   ┌───────────┐
+                    │  shipped  │──────────►│ returned  │ (trạng thái cuối)
+                    └─────┬─────┘           └───────────┘
+                          │ deliver               ▲
+                          ▼                        │ return
+                    ┌───────────┐──────────────────┘
+                    │ delivered │
+                    └───────────┘
+```
+
+**3 khác biệt cốt lõi so với thiết kế ban đầu** (đọc kỹ nếu đã quen sơ đồ cũ):
+
+1. `awaiting_packaging` giờ chỉ là trạng thái THOÁNG QUA lúc mới tạo group — auto-assign Warehouse Staff xảy ra NGAY, không cần ai Approve gì trước.
+2. Khối "Đóng gói" (generate/approve/adjust/reject) giờ nằm SAU khối "Lấy hàng" — trước đây ngược lại.
+3. Reject giờ quay về `picked` (không phải `awaiting_packaging`) — hàng đã lấy xong rồi, không cần lấy lại.
+
+---
+
+# PHẦN D — THAM CHIẾU KỸ THUẬT (API, lỗi, test)
+
+## D.1. Response format — đã thống nhất camelCase (2026-09-10)
+
+Cả 5 module (`order-groups`/`packaging`/`warehouse`/`staff-assignment`/`notifications`) đều trả camelCase sạch, không lộ `_id`/`__v`. **Ngoại lệ duy nhất**: `PackableItem` (trong `picking-list`) giữ nguyên snake_case (`length_cm`...) — đây là hợp đồng interface đã bàn giao cho AI Packaging, cố ý không đổi.
+
+## D.2. Optimistic Concurrency — bắt buộc cho MỌI endpoint ghi
+
+Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi gọi bất kỳ action ghi nào. Sai `version` → 409 `ORD_GROUP_STATE_CONFLICT` → gọi lại GET lấy version mới, KHÔNG tự động retry.
+
+## D.3. Bảng mã lỗi
+
+| `error_code`                                                                                                                                           | HTTP    | Khi nào                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ORD_GROUP_INVALID_ID`                                                                                                                                 | 400     | `:id` sai định dạng                                                                                                                                                                                          |
+| `ORD_GROUP_NOT_FOUND`                                                                                                                                  | 404     | Group không tồn tại                                                                                                                                                                                          |
+| `ORD_GROUP_STATE_CONFLICT`                                                                                                                             | 409     | Version không khớp                                                                                                                                                                                           |
+| `ORD_GROUP_INVALID_TRANSITION`                                                                                                                         | 400     | Sai thứ tự trạng thái                                                                                                                                                                                        |
+| `ORD_GROUP_INSUFFICIENT_STOCK`                                                                                                                         | 409     | pick-item không đủ hàng — gợi ý report-missing                                                                                                                                                               |
+| `ORD_GROUP_ITEM_NOT_IN_GROUP`                                                                                                                          | 404     | SKU không thuộc group — 🔄 từ 19/09/2026 áp dụng thêm cho `pick-item` (trước chỉ dùng ở API item-detail)                                                                                                     |
+| `ORD_GROUP_ALL_ORDERS_CANCELED`                                                                                                                        | 409     | **Mới (15/09/2026)** — toàn bộ đơn trong group đã bị hủy/gặp sự cố logistics (xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) — không còn gì để đóng gói/lấy hàng. Xảy ra ở `packaging/generate` và `picking-list` |
+| `ORD_GROUP_NO_STAFF_AVAILABLE`                                                                                                                         | 409     | Auto-assign không có staff active                                                                                                                                                                            |
+| `ORD_GROUP_STAFF_NOT_FOUND`                                                                                                                            | 404     | `staff_id` không hợp lệ                                                                                                                                                                                      |
+| `PKG_NO_ACTIVE_RECOMMENDATION`                                                                                                                         | 404     | Chưa từng generate                                                                                                                                                                                           |
+| `PKG_ALREADY_DECIDED`                                                                                                                                  | 409     | Recommendation đã được quyết định trước đó                                                                                                                                                                   |
+| `WH_WAREHOUSE_NOT_FOUND` / `WH_ZONE_NOT_FOUND` / `WH_INVALID_BIN_RANGE` / `WH_WAREHOUSE_CODE_IN_USE` / `WH_ZONE_CODE_IN_USE` (2 mã cuối 🆕 19/09/2026) | —       | Xem chi tiết Nghiệp vụ 2b (Warehouse Setup)                                                                                                                                                                  |
+| `NOTI_INVALID_ID` / `NOTI_NOT_FOUND`                                                                                                                   | 400/404 | Module notifications                                                                                                                                                                                         |
+
+## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
+
+- [ ] **Nghiệp vụ 1**: `reject` xong, kiểm tra `GET .../packaging` vẫn thấy được bản REJECTED cũ (không bị xóa), có `rejectionReason` đúng như đã gửi
+- [ ] **Nghiệp vụ 1**: `approve` với cân lệch >20% → xác nhận `isAbnormal: true`
+- [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026, dòng cũ SAI): `reject` KHÔNG kèm `rejection_reason` → 400 Bad Request, không cho qua
+- [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026): `generate` khi group được lấy hàng qua nút "xác nhận hàng loạt" (không quét từng SKU) → PHẢI vẫn trả 200, KHÔNG được 409
+- [ ] 🔄 **Nghiệp vụ 2** (sửa 21/09/2026, dòng cũ SAI — auto-assign đã dời lên lúc TẠO group, không còn ở `approve`): NGAY sau khi group được tạo (F5 lại `GET /order-groups/:id` vài giây sau sync) → `assignedStaffId` ĐÃ tự có giá trị, không cần đợi tới lúc `approve`
+- [ ] **Nghiệp vụ 3**: `pick-item` vượt tồn kho → 409, UI gợi ý report-missing
+- [ ] **Nghiệp vụ 3**: `report-missing` → thử gọi `pick`/`pack` trực tiếp → phải bị chặn `ORD_GROUP_INVALID_TRANSITION`
+- [ ] **Nghiệp vụ 3**: `decide-partial(false)` → xác nhận quay đúng về `awaiting_packaging`
+- [ ] 🔄 **Nghiệp vụ 4** (sửa 21/09/2026): `pack` gọi bằng tài khoản Packaging Staff → PHẢI thành công (200), không còn 403
+- [ ] **Nghiệp vụ 5**: `PATCH .../priority` express → `packagingDeadline` hợp lý (không null, đúng khoảng giờ làm việc)
+- [ ] **Nghiệp vụ 6**: sau `report-missing` → `unread-count` của Store Owner tăng lên
+- [ ] 🆕 **Nghiệp vụ 6** (mới 21/09/2026): sau `generate` → `unread-count` của tài khoản Packaging Staff tăng lên; sau `reject` → `unread-count` của tài khoản Admin tăng lên
+
+## D.5. Checklist FE trước khi bắt đầu code
+
+- [ ] Đã đọc PHẦN A — hiểu 6 câu hỏi nghiệp vụ hệ thống trả lời, không chỉ học thuộc endpoint
+- [ ] Đã hiểu rõ SƠ ĐỒ TỔNG THỂ (Phần C) — biết chính xác nút nào bấm được ở trạng thái nào
+- [ ] Đã implement đầy đủ nhánh `partial_needs_review`, không chỉ happy path
+- [ ] Đã tích hợp polling `unread-count`
+- [ ] Đã đối chiếu `API_LIST.md` đúng role cho từng màn hình đang build
+- [ ] 🔄 **ĐÃ ĐỔI (19/09)** — Warehouse Staff giờ gọi được `GET /warehouse/warehouses` (trước chỉ Admin) — màn hình Warehouse Staff nên tự lấy `warehouse_id` từ đây, không hardcode tay
+- [ ] 🔄 **ĐÃ ĐỔI (19/09)** — `pick-item` có thể trả `ORD_GROUP_ITEM_NOT_IN_GROUP` (404) khi quét nhầm SKU — FE cần bắt riêng, khác với lỗi hết hàng (`ORD_GROUP_INSUFFICIENT_STOCK`)
+- [ ] 🆕 **MỚI (16/09)** — Đã xử lý 2 loại Notification mới (`cancel_confirmation_required`, `sync_failed`) trong UI chuông thông báo (Nghiệp vụ 6)
+- [ ] 🔄 **ĐÃ ĐỔI (16/09)** — Đã biết `PATCH /notifications/:id/read` trả 404 nếu gọi nhầm ID không thuộc về mình (không phải bug khi test chéo role)

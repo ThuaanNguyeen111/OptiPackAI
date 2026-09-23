@@ -6,6 +6,7 @@ import { OrdersController } from './orders.controller';
 import { LazadaOrderSyncScheduler } from './lazada-order-sync.scheduler';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { OrderGroupsModule } from '../order-groups/order-groups.module';
 
 /**
  * ===================================================================
@@ -28,6 +29,11 @@ import { NotificationsModule } from '../notifications/notifications.module';
     MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }]),
     MarketplaceIntegrationModule,
     NotificationsModule,
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo OrderGroup ngay
+    // sau sync (xem hook trong orders.service.ts). AN TOÀN, không
+    // circular — OrderGroupsModule chủ động KHÔNG import OrdersModule
+    // ngược lại (đã dự đoán trước, xem comment trong order-groups.module.ts).
+    OrderGroupsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, LazadaOrderSyncScheduler],

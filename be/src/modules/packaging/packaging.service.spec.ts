@@ -74,7 +74,12 @@ describe('PackagingService', () => {
   function stock(entries: [string, number][]): Map<string, { onHand: number; reserved: number; available: number; reorderLevel: number }> {
     return new Map(entries.map(([code, available]) => [code, { onHand: available, reserved: 0, available, reorderLevel: 2 }]));
   }
-  let notificationsService: { buildAbnormalPackageMessage: jest.Mock; notify: jest.Mock };
+  let notificationsService: {
+    buildAbnormalPackageMessage: jest.Mock;
+    buildPendingPackagingPlanMessage: jest.Mock;
+    buildPackagingRejectedMessage: jest.Mock;
+    notify: jest.Mock;
+  };
 
   function mockGroup(status: GroupFulfillmentStatus, version = 4): void {
     const group = { _id: new Types.ObjectId(groupId), fulfillment_status: status, __v: version };
@@ -118,6 +123,8 @@ describe('PackagingService', () => {
     };
     notificationsService = {
       buildAbnormalPackageMessage: jest.fn().mockReturnValue({ title: 't', message: 'm' }),
+      buildPendingPackagingPlanMessage: jest.fn().mockReturnValue({ title: 't', message: 'm' }),
+      buildPackagingRejectedMessage: jest.fn().mockReturnValue({ title: 't', message: 'm' }),
       notify: jest.fn().mockResolvedValue({}),
     };
     const session = {
@@ -326,9 +333,21 @@ describe('PackagingService', () => {
     it('vô hiệu hóa mọi phương án, group quay lại picked', async () => {
       mockGroup(GroupFulfillmentStatus.PENDING_APPROVAL);
       mockActive([rec()]);
-      await service.reject(groupId, 4);
+      await service.reject(groupId, 4, 'Thùng quá rộng so với hàng');
       const [, update] = orderGroupModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { fulfillment_status: string } }];
       expect(update.$set.fulfillment_status).toBe(GroupFulfillmentStatus.PICKED);
+    });
+
+    it('lưu lý do từ chối và báo Admin', async () => {
+      mockGroup(GroupFulfillmentStatus.PENDING_APPROVAL);
+      mockActive([rec()]);
+      await service.reject(groupId, 4, 'Thùng quá rộng so với hàng');
+      const [, update] = recommendationModel.updateMany.mock.calls[0] as [
+        unknown,
+        { $set: { rejection_reason: string } },
+      ];
+      expect(update.$set.rejection_reason).toBe('Thùng quá rộng so với hàng');
+      expect(notificationsService.notify).toHaveBeenCalled();
     });
   });
 

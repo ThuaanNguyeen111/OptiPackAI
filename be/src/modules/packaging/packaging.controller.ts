@@ -89,6 +89,8 @@ export interface PackagingRecommendationResponse {
   packingGuide: PackingGuideResponse | null;
   /** (22/09/2026) Thùng vừa hơn nhưng kho đã hết lúc tính phương án. */
   preferredBoxOutOfStock: string | null;
+  /** (21/09/2026) Lý do Packaging Staff từ chối phương án, null nếu chưa bị từ chối. */
+  rejectionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -162,6 +164,7 @@ export function toRecommendationResponse(doc: PackagingRecommendationDocument): 
         }
       : null,
     preferredBoxOutOfStock: doc.preferred_box_out_of_stock,
+    rejectionReason: doc.rejection_reason ?? null,
     createdAt: doc.created_at ?? new Date(0),
     updatedAt: doc.updated_at ?? new Date(0),
   };
@@ -272,7 +275,7 @@ export class PackagingController {
     summary: 'Từ chối toàn bộ phương án — group quay lại picked để tính lại, không cần lấy lại hàng (UC-04 Reject).',
   })
   async reject(@Param('groupId') groupId: string, @Body() dto: RejectPackagingDto): Promise<{ message: string }> {
-    return this.packagingService.reject(groupId, dto.expected_group_version);
+    return this.packagingService.reject(groupId, dto.expected_group_version, dto.rejection_reason);
   }
 }
 
@@ -288,7 +291,9 @@ export class PackagingPackController {
   constructor(private readonly packagingService: PackagingService) {}
 
   @Post(':groupId/fulfillment/pack')
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  // 🔄 (21/09/2026, từ `main`) Mở thêm PACKAGING_STAFF — chính người đóng
+  // gói vật lý, trước đây bị 403 dù đúng vai trò.
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
       'Đã đóng gói xong (approved_for_packing -> packed): nhập cân THẬT từng kiện (mỗi đơn 1 kiện). Lệch > 20% so với ước tính (hàng + bì) → isAbnormal + thông báo Store Owner.',

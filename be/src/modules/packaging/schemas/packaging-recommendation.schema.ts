@@ -229,6 +229,14 @@ export class PackagingRecommendationDoc {
   @Prop({ type: String, default: null })
   preferred_box_out_of_stock!: string | null;
 
+  /**
+   * (21/09/2026) Lý do Packaging Staff từ chối phương án — BẮT BUỘC nhập
+   * (RejectPackagingDto). Lưu trên chính bản bị từ chối (is_active tắt ngay
+   * sau đó) để giữ lịch sử, không mất khi generate() tạo bản mới.
+   */
+  @Prop({ type: String, default: null })
+  rejection_reason!: string | null;
+
   @Prop({ type: Boolean, default: true })
   is_active!: boolean;
 
@@ -236,8 +244,11 @@ export class PackagingRecommendationDoc {
   updated_at?: Date;
 }
 
-export type PackagingRecommendationDocument = HydratedDocument<PackagingRecommendationDoc>;
-export const PackagingRecommendationSchema = SchemaFactory.createForClass(PackagingRecommendationDoc);
+export type PackagingRecommendationDocument =
+  HydratedDocument<PackagingRecommendationDoc>;
+export const PackagingRecommendationSchema = SchemaFactory.createForClass(
+  PackagingRecommendationDoc,
+);
 
 // 🔄 ĐÃ ĐỔI (21/09/2026): 1 ĐƠN = 1 bản active (trước là 1 group = 1 bản).
 // Index cũ `order_group_id_1` (unique) PHẢI được drop bằng

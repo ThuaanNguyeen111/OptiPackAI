@@ -1,6 +1,9 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import { UserRole } from '../../../common/enums/user-role.enum';
+import {
+  UserRole,
+  USER_ROLE_VALUES,
+} from '../../../common/enums/user-role.enum';
 import { NotificationType } from '../enums/notification-type.enum';
 
 /**
@@ -12,12 +15,25 @@ import { NotificationType } from '../enums/notification-type.enum';
  * Packaging Staff đều thấy thông báo group nào đang chờ duyệt).
  * ===================================================================
  */
-@Schema({ collection: 'notifications', timestamps: { createdAt: 'created_at', updatedAt: false } })
+@Schema({
+  collection: 'notifications',
+  timestamps: { createdAt: 'created_at', updatedAt: false },
+})
 export class Notification {
   @Prop({ type: Types.ObjectId, default: null, index: true })
   recipient_user_id!: Types.ObjectId | null;
 
-  @Prop({ type: String, enum: UserRole, default: null })
+  // SỬA (21/09/2026, báo cáo thật từ FE) — trước đây khai `type: String`
+  // dù giá trị runtime luôn là SỐ (UserRole là enum số, VD PACKAGING_STAFF=2)
+  // — Mongoose CAST số thành CHUỖI khi lưu ("2" thay vì 2), trong khi mọi
+  // nơi khác (JWT payload, code so sánh role) đều dùng SỐ — lệch kiểu dữ
+  // liệu khiến query "$or recipient_role: role" không khớp, Packaging
+  // Staff không thấy chuông dù notify() đã chạy đúng. Đổi type: Number
+  // cho khớp thực tế. Dữ liệu CŨ đã lưu dạng string cần chạy migration
+  // riêng (scripts/migrate-notification-role-types.ts) — service query
+  // vẫn phải dual-match cả 2 kiểu cho tới khi migration chạy xong trên
+  // mọi môi trường (xem notifications.service.ts).
+  @Prop({ type: Number, enum: USER_ROLE_VALUES, default: null })
   recipient_role!: UserRole | null;
 
   @Prop({ type: String, enum: NotificationType, required: true })
