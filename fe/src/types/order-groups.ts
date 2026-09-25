@@ -117,10 +117,16 @@ export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
   { vi: string; en: string }
 > = {
   awaiting_packaging: { vi: 'Đơn mới — cần lấy', en: 'New — to pick' },
-  pending_approval: { vi: 'Kho đang lấy / chờ kế hoạch thùng', en: 'Picking / packing plan pending' },
-  approved_for_packing: { vi: 'Đã duyệt kế hoạch — đang lấy', en: 'Plan approved — picking' },
+  pending_approval: {
+    vi: 'Chờ duyệt kế hoạch thùng',
+    en: 'Pending packaging plan approval',
+  },
+  approved_for_packing: {
+    vi: 'Đã duyệt — chờ kho đóng gói',
+    en: 'Plan approved — await warehouse pack',
+  },
   picking: { vi: 'Đang lấy hàng', en: 'Picking' },
-  picked: { vi: 'Đã lấy xong', en: 'Picked' },
+  picked: { vi: 'Đã lấy xong — chờ gợi ý/duyệt', en: 'Picked — await plan' },
   partial_needs_review: {
     vi: 'Thiếu hàng — cần duyệt',
     en: 'Partial — needs review',
@@ -135,7 +141,7 @@ export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_INVALID_ID: 'Mã nhóm đơn không hợp lệ.',
   ORD_GROUP_NOT_FOUND: 'Không tìm thấy nhóm đơn.',
   ORD_GROUP_INVALID_TRANSITION:
-    'BE chưa cho phép bước này từ trạng thái hiện tại. Kho lấy hàng trước (awaiting_packaging → picked / báo thiếu); đóng gói thuộc Packaging Staff (picked → packed).',
+    'BE không cho phép bước này từ trạng thái hiện tại. Luồng: kho lấy (→ picked) → duyệt kế hoạch Packaging (→ approved_for_packing) → Warehouse pack (→ packed).',
   ORD_GROUP_STATE_CONFLICT:
     'Dữ liệu nhóm đơn đã đổi. Tải lại rồi thao tác tiếp.',
   ORD_GROUP_INSUFFICIENT_STOCK: 'Không đủ tồn kho cho SKU này.',

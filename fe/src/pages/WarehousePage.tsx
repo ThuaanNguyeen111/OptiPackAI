@@ -81,6 +81,46 @@ type PickProgress = Record<
 const PICK_PROGRESS_PREFIX = 'optipack.pickProgress.'
 const UNASSIGNED_BIN = 'CHƯA GÁN VỊ TRÍ'
 
+/** True when bin_code is a real shelf location (not empty / unassigned placeholder). */
+function isBinAssigned(binCode: string): boolean {
+  const code = binCode.trim()
+  if (!code) return false
+  const normalized = code.toLocaleLowerCase('vi')
+  if (normalized.includes('chưa gán') || normalized.includes('chua gan')) return false
+  return true
+}
+
+function formatLocationLabel(binCode: string, zoneCode: string): string {
+  const bin = isBinAssigned(binCode) ? binCode.trim() : UNASSIGNED_BIN
+  if (zoneCode.trim()) return `${bin} · ${zoneCode.trim()}`
+  return bin
+}
+
+function LocationBadge({
+  binCode,
+  zoneCode,
+}: {
+  binCode: string
+  zoneCode: string
+}) {
+  const assigned = isBinAssigned(binCode)
+  const label = formatLocationLabel(binCode, zoneCode)
+  if (assigned) {
+  return (
+      <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-sm px-3 py-1 rounded-md shadow-sm">
+        <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        {label}
+        </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 border border-amber-200 font-medium text-xs px-2.5 py-1 rounded-md">
+      <MapPin className="h-3 w-3 shrink-0" aria-hidden />
+      {label}
+    </span>
+  )
+}
+
 const QUEUE_TABS: Array<{ id: QueueTab; labelVi: string; labelEn: string }> = [
   { id: 'to_pick', labelVi: 'Cần lấy', labelEn: 'To pick' },
   { id: 'review', labelVi: 'Thiếu hàng', labelEn: 'Missing' },
@@ -238,7 +278,7 @@ function BarcodeGraphic({ code }: { code: string }) {
       <p className="mt-1 font-mono text-xs font-semibold tracking-[0.18em] text-slate-700 dark:text-slate-300">
         * {label} *
       </p>
-    </div>
+        </div>
   )
 }
 
@@ -806,7 +846,7 @@ export function WarehousePage() {
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => {
+              onClick={() => {
                       setTab(item.id)
                       const first = groups.find((row) => {
                         if (!matchesTab(row.fulfillmentStatus, item.id)) return false
@@ -835,7 +875,7 @@ export function WarehousePage() {
                     <span className="ml-1 opacity-70">{counts[item.id]}</span>
                   </button>
                 ))}
-              </div>
+          </div>
 
               <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
                 {(
@@ -859,7 +899,7 @@ export function WarehousePage() {
                     {vi ? item.vi : item.en}
                   </button>
                 ))}
-              </div>
+            </div>
 
               <div className="relative">
                 <select
@@ -881,7 +921,7 @@ export function WarehousePage() {
                       <option key={row.id} value={row.id}>
                         {row.orderPriority === 'express' ? '⚡ ' : ''}
                         {meId && row.assignedStaffId === meId ? '● ' : ''}
-                        …{shortId(row.id)} · {platformLabel(row.platform)} · {row.orderCount}{' '}
+                        {shortId(row.id)} · {platformLabel(row.platform)} · {row.orderCount}{' '}
                         {vi ? 'đơn' : 'orders'}
                       </option>
                     ))
@@ -904,13 +944,25 @@ export function WarehousePage() {
                 <button
                   type="button"
                   onClick={() => setCompleteOpen(true)}
-                  disabled={busy || lines.length === 0}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-3 font-bold text-white shadow-xs cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={busy || lines.length === 0 || !group.assignedStaffId}
+                  title={
+                    !group.assignedStaffId
+                      ? vi
+                        ? 'Nhận việc trước khi hoàn tất lấy hàng'
+                        : 'Claim the batch before completing pick'
+                      : undefined
+                  }
+                  className={cn(
+                    'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 font-bold shadow-xs',
+                    group.assignedStaffId
+                      ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
+                      : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
+                  )}
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
                 </button>
-              ) : null}
+          ) : null}
               {group && canReturn(status) ? (
                 <button
                   type="button"
@@ -977,12 +1029,12 @@ export function WarehousePage() {
                   : 'Without a warehouse id you can view SKUs, but pick-item and report-missing require warehouse_id.'}
               </p>
             ) : null}
-          </div>
+              </div>
 
           {listError ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
               {listError}
-            </div>
+          </div>
           ) : null}
 
           {listLoading ? (
@@ -1007,8 +1059,8 @@ export function WarehousePage() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-base font-bold text-slate-900 dark:text-slate-100">
-                        …{shortId(group?.id ?? selectedId)}
+                      <span className="font-mono text-xs font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600">
+                        {shortId(group?.id ?? selectedId)}
                       </span>
                       <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
                         {platformLabel(group?.platform ?? '')}
@@ -1055,13 +1107,18 @@ export function WarehousePage() {
                         {vi ? 'Nhân viên lấy hàng' : 'Assigned picker'}
                       </p>
                     </div>
-                    <button
-                      type="button"
+              <button
+                type="button"
                       onClick={() => {
                         setAssignMode(group?.assignedStaffId ? 'manual' : 'auto')
                         setAssignOpen(true)
                       }}
-                      className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold cursor-pointer hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1"
+                      className={cn(
+                        'ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs cursor-pointer',
+                        group?.assignedStaffId
+                          ? 'border border-slate-200 bg-white font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1'
+                          : 'bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700',
+                      )}
                     >
                       <UserCheck className="h-3.5 w-3.5" />
                       {group?.assignedStaffId
@@ -1071,10 +1128,10 @@ export function WarehousePage() {
                         : vi
                           ? 'Nhận việc'
                           : 'Claim'}
-                    </button>
+              </button>
                   </div>
                 </div>
-              </div>
+          </div>
 
               {status === 'picked' ? (
                 <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
@@ -1145,12 +1202,13 @@ export function WarehousePage() {
                                 </span>
                               ) : null}
                             </div>
-                            <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                              <MapPin className="h-3.5 w-3.5 text-blue-600" />
-                              {activeLine.bin_code || UNASSIGNED_BIN}
-                              {activeLine.zone_code ? ` · ${activeLine.zone_code}` : ''}
-                            </p>
-                            <p className="mt-1 text-[11px] text-slate-500">
+                            <div className="mt-2">
+                              <LocationBadge
+                                binCode={activeLine.bin_code}
+                                zoneCode={activeLine.zone_code}
+                              />
+                            </div>
+                            <p className="mt-1.5 text-[11px] text-slate-500">
                               {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
                               {' · '}
                               {activeLine.weight_kg} kg
@@ -1161,9 +1219,17 @@ export function WarehousePage() {
                           </div>
                         </div>
 
-                        <div className="mt-5">
-                          <BarcodeGraphic code={activeLine.bin_code || activeLine.sku} />
-                        </div>
+                        {isBinAssigned(activeLine.bin_code) ? (
+                          <div className="mt-5">
+                            <BarcodeGraphic code={activeLine.bin_code} />
+                          </div>
+                        ) : (
+                          <div className="mt-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2.5 text-center text-[11px] font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
+                            {vi
+                              ? 'Chưa có mã kệ — quét hoặc nhập tay Seller SKU bên dưới.'
+                              : 'No bin barcode — scan or type the seller SKU below.'}
+                          </div>
+                        )}
 
                         <div className="mt-5 space-y-3 rounded-xl border border-slate-200/80 bg-slate-50/50 p-3.5 dark:border-slate-800 dark:bg-surface-2/20 sm:p-4">
                           <div>
@@ -1217,8 +1283,8 @@ export function WarehousePage() {
                                   {vi ? 'Nhập SKU' : 'Type SKU'}
                                 </button>
                               )}
-                            </div>
-                          </div>
+          </div>
+        </div>
 
                           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
                             <div className="flex items-center justify-center gap-1 sm:justify-start">
@@ -1352,10 +1418,12 @@ export function WarehousePage() {
                                 <p className="truncate font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
                                   {line.sku}
                                 </p>
-                                <p className="truncate text-[11px] text-slate-500">
-                                  {line.bin_code || UNASSIGNED_BIN}
-                                  {line.zone_code ? ` · ${line.zone_code}` : ''}
-                                </p>
+                                <div className="mt-1 truncate">
+                                  <LocationBadge
+                                    binCode={line.bin_code}
+                                    zoneCode={line.zone_code}
+                                  />
+                                </div>
                               </div>
                               <span className="shrink-0 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">
                                 {line.qtyPicked}/{line.quantity}

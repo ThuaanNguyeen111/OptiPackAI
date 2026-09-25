@@ -15,6 +15,7 @@ import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
 import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
+import { AdminPackingPlansPage } from './pages/AdminPackingPlansPage'
 import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
 import { AdminWarehousePage } from './pages/AdminWarehousePage'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
@@ -94,6 +95,7 @@ function App() {
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
+                <Route path="packing-plans" element={<AdminPackingPlansPage />} />
                 <Route path="templates" element={<AdminTemplatesPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />
               </Route>

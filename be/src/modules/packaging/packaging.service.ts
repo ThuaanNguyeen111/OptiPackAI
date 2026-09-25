@@ -17,6 +17,10 @@ import {
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
 import { AdjustPackagingDto } from './dto/adjust-packaging.dto';
+import { PackableItem } from '../../common/interfaces/packaging.interface';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 
 const ABNORMAL_WEIGHT_DEVIATION_THRESHOLD = 0.2; // 20% — đúng ngưỡng đã thống nhất khi nghiên cứu Actor (mục "Detect abnormal packages")
 
@@ -47,6 +51,7 @@ export class PackagingService {
     private readonly orderGroupModel: Model<OrderGroupDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly orderGroupsService: OrderGroupsService,
+    private readonly notificationsService: NotificationsService,
     // BỎ (20/09/2026) — staffAssignmentService KHÔNG còn cần ở đây,
     // auto-assign đã dời sang order-groups.service.ts (startPickingPhase()),
     // chạy ngay lúc tạo group thay vì lúc Approve/Adjust.
@@ -56,15 +61,16 @@ export class PackagingService {
     groupId: string,
   ): Promise<PackagingRecommendationDocument> {
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
-    // ĐỔI NGUỒN (20/09/2026, đảo luồng theo yêu cầu Thuận) — trước đây
-    // dùng getPackableItemsForGroup() (theo số lượng ĐẶT). Giờ dùng
-    // getActuallyPickedItemsForGroup() (theo số lượng THẬT đã quét,
-    // pick_events) — vì generate() giờ CHỈ gọi được sau khi group đã
-    // PICKED (đã lấy hàng xong), phải tính đúng theo hàng THẬT đang có
-    // trong tay, không phải số lượng đặt ban đầu (nếu thiếu hàng, tính
-    // theo số đặt sẽ ra thùng to hơn thực tế cần — sai logic).
-    const { items } =
-      await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
+    // SỬA GẤP (21/09/2026, báo cáo thật từ FE — bug do CHÍNH mình tạo ra
+    // ở đợt đảo luồng 20/09) — getActuallyPickedItemsForGroup() throw lỗi
+    // nếu KHÔNG có pick_events nào — nhưng pick() (xác nhận hàng loạt)
+    // KHÔNG bắt buộc phải quét từng SKU qua pick-item trước! Warehouse
+    // Staff hoàn toàn có thể bấm "Đã lấy xong" hàng loạt mà chưa từng
+    // quét gì — lúc đó generate() sẽ LUÔN LUÔN lỗi 409, chặn đứng cả
+    // luồng đóng gói. Fix: fallback về getPackableItemsForGroup() (theo
+    // đơn ĐẶT — vẫn đúng hướng "packable", chỉ kém chính xác hơn số
+    // lượng THẬT đã quét) khi không có pick_events, thay vì throw cứng.
+    const items = await this.resolveItemsForPackaging(groupId);
 
     const result = computeFallbackPackaging(items);
 
@@ -91,10 +97,72 @@ export class PackagingService {
       group.__v,
     );
 
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — notify Packaging Staff
+    // biết có kế hoạch mới chờ duyệt. try/catch RIÊNG (best-effort) —
+    // lỗi gửi thông báo KHÔNG được làm generate() thất bại.
+    try {
+      const boxSummary = `thùng ${String(result.box_size.length_cm)}x${String(result.box_size.width_cm)}x${String(result.box_size.height_cm)}cm, vật liệu ${result.material_type}`;
+      const { title, message } =
+        this.notificationsService.buildPendingPackagingPlanMessage({
+          groupId,
+          boxSummary,
+        });
+      await this.notificationsService.notify({
+        recipientRole: UserRole.PACKAGING_STAFF,
+        type: NotificationType.PENDING_APPROVAL,
+        severity: 'info',
+        title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Gửi thông báo generate() thất bại cho group ${groupId} — generate() vẫn thành công.`,
+        error,
+      );
+    }
+
     this.logger.log(
       `Đã tạo PackagingRecommendation (fallback) cho group ${groupId}.`,
     );
     return recommendation;
+  }
+
+  /**
+   * BỔ SUNG (21/09/2026, sửa gấp — báo cáo thật từ FE, xác nhận đúng bug
+   * do chính mình tạo ra ở đợt đảo luồng 20/09/2026) — dùng CHUNG cho cả
+   * generate/approve/adjust: ưu tiên tính theo số lượng THẬT đã quét
+   * (pick_events, chính xác hơn — quan trọng khi có partial-pick), nhưng
+   * KHÔNG BAO GIỜ chặn cứng nếu không có pick_events nào (Warehouse Staff
+   * có quyền xác nhận "đã lấy xong" HÀNG LOẠT qua pick(), không bắt buộc
+   * phải quét từng SKU qua pick-item trước — pick_events rỗng là tình
+   * huống HỢP LỆ, không phải lỗi dữ liệu). Fallback về số lượng ĐẶT
+   * (getPackableItemsForGroup — đã lọc sẵn đơn canceled/sự cố logistics)
+   * khi thiếu pick_events — kém chính xác hơn 1 chút trong case
+   * partial-pick, nhưng KHÔNG BAO GIỜ chặn đứng luồng đóng gói.
+   */
+  private async resolveItemsForPackaging(
+    groupId: string,
+  ): Promise<PackableItem[]> {
+    try {
+      const { items } =
+        await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
+      return items;
+    } catch (error: unknown) {
+      const isNoPickEvents =
+        error instanceof AppException &&
+        error.errorCode === ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED;
+      if (!isNoPickEvents) {
+        throw error; // lỗi KHÁC (VD group không tồn tại) — ném lại nguyên vẹn, không nuốt lỗi thật
+      }
+      this.logger.warn(
+        `Group ${groupId} chưa có pick_events nào (Warehouse xác nhận hàng loạt, không quét từng SKU) — fallback tính theo số lượng ĐẶT.`,
+      );
+      const { items } =
+        await this.orderGroupsService.getPackableItemsForGroup(groupId);
+      return items;
+    }
   }
 
   private async findActiveRecommendationForGroup(
@@ -164,12 +232,8 @@ export class PackagingService {
   ): Promise<PackagingRecommendationDocument> {
     const recommendation = await this.findActiveRecommendationForGroup(groupId);
 
-    // ĐỔI NGUỒN (20/09/2026) — cùng lý do đã ghi ở generateFallbackRecommendation():
-    // so sánh cân THẬT với ước tính theo số lượng ĐÃ QUÉT, không phải
-    // số lượng đặt ban đầu — nếu không, phát hiện "bất thường" (is_abnormal)
-    // sẽ sai lệch giả tạo khi group là partial-pick (thiếu hàng, duyệt tiếp).
-    const { items } =
-      await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
+    // SỬA GẤP (21/09/2026) — cùng lý do đã ghi ở generateFallbackRecommendation() (fallback khi thiếu pick_events).
+    const items = await this.resolveItemsForPackaging(groupId);
     const estimatedWeightKg = items.reduce(
       (sum, i) => sum + i.weight_kg * i.quantity,
       0,
@@ -251,9 +315,8 @@ export class PackagingService {
   ): Promise<PackagingRecommendationDocument> {
     const recommendation = await this.findActiveRecommendationForGroup(groupId);
 
-    // ĐỔI NGUỒN (20/09/2026) — cùng lý do đã ghi ở approve()/generateFallbackRecommendation().
-    const { items } =
-      await this.orderGroupsService.getActuallyPickedItemsForGroup(groupId);
+    // SỬA GẤP (21/09/2026) — cùng lý do đã ghi ở approve()/generateFallbackRecommendation().
+    const items = await this.resolveItemsForPackaging(groupId);
     const estimatedWeightKg = items.reduce(
       (sum, i) => sum + i.weight_kg * i.quantity,
       0,
@@ -323,6 +386,7 @@ export class PackagingService {
   async reject(
     groupId: string,
     expectedGroupVersion: number,
+    rejectionReason: string,
   ): Promise<{ message: string }> {
     const recommendation = await this.findActiveRecommendationForGroup(groupId);
 
@@ -335,6 +399,9 @@ export class PackagingService {
             $set: {
               approval_status: PackagingApprovalStatus.REJECTED,
               is_active: false,
+              // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — lưu lý do
+              // ngay trên bản ghi bị reject, trước khi is_active tắt.
+              rejection_reason: rejectionReason,
             },
           },
           { session },
@@ -365,6 +432,31 @@ export class PackagingService {
       });
     } finally {
       await session.endSession();
+    }
+
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — notify Admin biết lý
+    // do bị từ chối. try/catch RIÊNG (best-effort) — lỗi gửi thông báo
+    // KHÔNG được làm Reject thất bại, transaction chính đã xong.
+    try {
+      const { title, message } =
+        this.notificationsService.buildPackagingRejectedMessage({
+          groupId,
+          reason: rejectionReason,
+        });
+      await this.notificationsService.notify({
+        recipientRole: UserRole.ADMIN,
+        type: NotificationType.PACKAGING_REJECTED,
+        severity: 'warning',
+        title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Gửi thông báo Reject thất bại cho group ${groupId} — Reject vẫn thành công.`,
+        error,
+      );
     }
 
     this.logger.log(

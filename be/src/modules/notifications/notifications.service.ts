@@ -58,7 +58,21 @@ export class NotificationsService {
   async notify(input: CreateNotificationInput): Promise<NotificationDocument> {
     const notification = await this.notificationModel.create({
       recipient_user_id: input.recipientUserId ?? null,
-      recipient_role: input.recipientRole ?? null,
+      // SỬA (21/09/2026) — Number() tường minh, không phụ thuộc schema
+      // tự cast đúng — phòng thủ rõ ràng, khớp đúng kiểu Number đã sửa
+      // ở schema (notification.schema.ts). TS tin `recipientRole` chắc
+      // chắn là UserRole (số) theo type khai báo, nên coi 2 dòng dưới
+      // là "thừa" — nhưng đây là phòng thủ RUNTIME có chủ đích: type
+      // khai báo không đảm bảo giá trị THẬT lúc chạy luôn đúng kiểu
+      // (VD dữ liệu đi qua JSON/JWT có thể ép kiểu sai mà TS không bắt
+      // được) — đúng bài học đã rút ra từ bug recipient_role String
+      // vs Number chính là ở tệp này.
+      recipient_role:
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- phòng thủ runtime có chủ đích, xem comment trên
+        input.recipientRole === undefined || input.recipientRole === null
+          ? null
+          : // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion -- phòng thủ runtime có chủ đích, xem comment trên
+            Number(input.recipientRole),
       type: input.type,
       severity: input.severity,
       title: input.title,
@@ -114,14 +128,34 @@ export class NotificationsService {
     }
   }
 
+  /**
+   * BỔ SUNG (21/09/2026, báo cáo thật từ FE) — dùng CHUNG cho list/
+   * unread/markAsRead. Match CẢ 2 kiểu dữ liệu (`role` số THẬT, và
+   * `String(role)` — dữ liệu CŨ trước khi sửa schema/migration) — cần
+   * thiết cho tới khi `scripts/migrate-notification-role-types.ts`
+   * chạy xong TRÊN MỌI MÔI TRƯỜNG (không chỉ máy dev) — xóa nhánh
+   * String(role) khỏi $in sau khi chắc chắn không còn document nào
+   * dạng cũ (xem CLAUDE.md mục lịch sử fix này để biết khi nào an
+   * toàn dọn dẹp).
+   */
+  private recipientFilter(
+    userId: string,
+    role: UserRole,
+  ): Record<string, unknown> {
+    return {
+      $or: [
+        { recipient_user_id: userId },
+        { recipient_role: { $in: [role, String(role)] } },
+      ],
+    };
+  }
+
   async listForUser(
     userId: string,
     role: UserRole,
     isRead?: boolean,
   ): Promise<NotificationDocument[]> {
-    const filter: Record<string, unknown> = {
-      $or: [{ recipient_user_id: userId }, { recipient_role: role }],
-    };
+    const filter: Record<string, unknown> = this.recipientFilter(userId, role);
     if (isRead !== undefined) filter.is_read = isRead;
 
     return this.notificationModel
@@ -133,7 +167,7 @@ export class NotificationsService {
 
   async unreadCount(userId: string, role: UserRole): Promise<number> {
     return this.notificationModel.countDocuments({
-      $or: [{ recipient_user_id: userId }, { recipient_role: role }],
+      ...this.recipientFilter(userId, role),
       is_read: false,
     });
   }
@@ -161,7 +195,7 @@ export class NotificationsService {
     const updated = await this.notificationModel.findOneAndUpdate(
       {
         _id: notificationId,
-        $or: [{ recipient_user_id: userId }, { recipient_role: role }],
+        ...this.recipientFilter(userId, role),
       },
       { $set: { is_read: true } },
       { returnDocument: 'after' },
@@ -202,6 +236,28 @@ export class NotificationsService {
     return {
       title: `Cảnh báo sai lệch cân nặng — Đơn hàng #${params.groupId}`,
       message: `Cân nặng thực tế của đơn hàng #${params.groupId} (${String(params.actualWeightKg)} kg) chênh lệch đáng kể so với ước tính hệ thống (${String(params.estimatedWeightKg)} kg). Đề nghị kiểm tra lại nội dung đóng gói trước khi bàn giao vận chuyển.`,
+    };
+  }
+
+  // BỔ SUNG (21/09/2026, báo cáo thật từ FE — mục 2/3 checklist) —
+  // 2 template mới cho notify sau generate()/reject() (packaging.service.ts).
+  buildPendingPackagingPlanMessage(params: {
+    groupId: string;
+    boxSummary: string;
+  }): { title: string; message: string } {
+    return {
+      title: `Có kế hoạch đóng gói mới chờ duyệt — Đơn hàng #${params.groupId}`,
+      message: `Hệ thống vừa tính xong gợi ý đóng gói cho đơn hàng #${params.groupId} (${params.boxSummary}). Đề nghị kiểm tra lại hàng thật rồi duyệt hoặc điều chỉnh trước khi bàn giao đóng gói.`,
+    };
+  }
+
+  buildPackagingRejectedMessage(params: { groupId: string; reason: string }): {
+    title: string;
+    message: string;
+  } {
+    return {
+      title: `Gợi ý đóng gói bị từ chối — Đơn hàng #${params.groupId}`,
+      message: `Packaging Staff đã từ chối gợi ý đóng gói hiện tại của đơn hàng #${params.groupId}. Lý do: "${params.reason}". Hàng vẫn giữ nguyên đã lấy — chờ tính lại gợi ý mới.`,
     };
   }
 }

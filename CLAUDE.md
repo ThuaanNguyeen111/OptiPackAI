@@ -2196,12 +2196,97 @@ User hỏi lại rộng hơn: đã note hết mọi thay đổi so với doc cũ
 `diff -rq` xác nhận: **chưa từng sửa trực tiếp file nào trong `src/modules/warehouse/`** suốt cả phiên. Nhưng **Warehouse Picking List bị ảnh hưởng gián tiếp** — `warehouse.service.ts` tái dùng `getPackableItemsForGroup()` (đã fix ở `order-groups.service.ts`), nên tự động ăn theo fix lọc canceled/sự cố logistics mà không cần đụng code Warehouse.
 
 Phát hiện thêm khi trả lời: điều này trước đó chỉ được nhắc ở bảng mã lỗi D.3 (`INTEGRATION_GUIDE_FULFILLMENT.md`), **chưa được nói rõ ngay trong Nghiệp vụ 3 (Lấy hàng/Picking)** — nơi FE dễ tìm thấy hơn khi build màn hình Picking/Warehouse. Đã bổ sung đoạn `🔄 ĐÃ ĐỔI (15/09/2026)` ngay sau sơ đồ 4 bước picking, giải thích rõ: cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId` đều lọc, và case group rỗng hoàn toàn trả `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì mảng rỗng.
-## FE Warehouse Staff � n?i API (2026-09-18)
+## FE Warehouse Staff � n?i API (2026-09-18)
 
 `WarehousePage` / `WarehouseInventoryPage`: thay UI mock `PickingBatch` + localStorage b?ng workbench g?i BE th?t (0 s?a BE):
 
-- H�ng d?i: `GET /order-groups` l?c tab `approved_for_packing` / `picking` / `picked` / `partial_needs_review`
-- Picking list: `GET /warehouse/:warehouseId/picking-list/:groupId` (fallback `GET /order-groups/:id/picking-list` n?u chua c� warehouse_id)
-- Thao t�c: `pick-item`, `report-missing`, `pick`, `pack`, `assign` + `staff/search`
-- `warehouse_id`: `VITE_DEFAULT_WAREHOUSE_ID` ho?c localStorage `optipack.warehouse_id` (GET list kho ch? Admin � kh�ng s?a BE)
-- Inventory: trang gi?i th�ch (Warehouse kh�ng c� API list/restock t?n) + link sang picking
+- H�ng d?i: `GET /order-groups` l?c tab `approved_for_packing` / `picking` / `picked` / `partial_needs_review`
+- Picking list: `GET /warehouse/:warehouseId/picking-list/:groupId` (fallback `GET /order-groups/:id/picking-list` n?u chua c� warehouse_id)
+- Thao t�c: `pick-item`, `report-missing`, `pick`, `pack`, `assign` + `staff/search`
+- `warehouse_id`: `VITE_DEFAULT_WAREHOUSE_ID` ho?c localStorage `optipack.warehouse_id` (GET list kho ch? Admin � kh�ng s?a BE)
+- Inventory: trang gi?i th�ch (Warehouse kh�ng c� API list/restock t?n) + link sang picking
+
+## FE Packaging Staff ? b�m BE + demo 3D (2026-09-21) + handoff pick?generate (c�ng ng�y)
+
+`PackingPage` ? `PackagingWorkbench`. Lu?ng UI kh?p AOFP-35:
+
+- Tab ch�nh: `pending_approval` (approve / adjust / reject) + `partial_needs_review` (decide-partial) + **`picked` (Packaging Generate)**
+- Tab xem: `approved_for_packing` (ch? Warehouse pack), `awaiting_packaging`
+- ?� b? n�t `POST .../fulfillment/pack` (role Packaging ? 403 tr�n BE)
+- Panel ph?i: `Packing3DBoxViewer` demo h??ng d?n (map `boxSize` t? recommendation n?u c�) ? kh�ng ghi fulfillment status
+
+**?� THAY ??I so v?i b?n �0 s?a BE� c�ng ng�y** ? kho?ng tr?ng handoff (kho pick xong ? Packaging kh�ng bi?t):
+
+1. BE `transitionFulfillmentStatus(?picked)` ? notify `PICK_COMPLETED` (`pick_completed`) broadcast `PACKAGING_STAFF`
+2. BE `POST .../packaging/generate` m? `@Roles(PACKAGING_STAFF, ADMIN)` + sau generate notify `PENDING_APPROVAL`
+3. FE: n�t Generate tr�n tab picked, highlight tab khi c� ??n m?i, click notification `pick_completed` ? `/packing`
+
+**?� THAY ??I (2026-09-21) ? cu?n trang**: `PackingPage` b? `overflow-hidden` tr�n v�ng n?i dung ? `overflow-y-auto` (gi?ng Warehouse). `PackagingWorkbench` b? layout kh�a viewport 3 c?t (`lg:overflow-hidden` + `flex-1 min-h-0`); ??i sang document flow + `lg:items-start`, h�ng ??i/3D `sticky`, chi ti?t cao t? nhi�n ? cu?n ???c c? trang.
+
+
+## FE Warehouse — tach don huy vs con lay duoc (2026-09-21)
+
+Vi sao Warehouse khong thay don moi: (1) doc Order Group khong doc thang /orders; (2) sync Lazada ~10p + backfill group (rut 15p->5p); (3) don canceled/lost -> ORD_GROUP_ALL_ORDERS_CANCELED.
+
+Da lam: BE GET /order-groups + hasPackableOrders; FE tab «Da huy / khong lay»; backfill */5.
+
+## REVERT (2026-09-21) — bo handoff Packaging generate + pick_completed
+
+Da quay lai truoc ban: notify PICK_COMPLETED khi -> picked; POST packaging/generate chi ADMIN; FE Packaging khong tab Generate / pick_completed nav. Packaging Staff chi approve/adjust/reject. Admin van goi generate de test.
+
+## DA THAY DOI (2026-09-21) — bo cho 10-15 phut sync/backfill group
+
+**DA THAY DOI so voi** thiet ke cu (cron sync 10' + backfill group 15', khong hook sau sync):
+
+1. `OrdersService.syncLazadaOrders()` — sau moi don upsert + `tryConsolidate()`, reload document roi goi `OrderGroupsService.getOrCreateGroupForOrder()` (best-effort: loi tao group chi log, khong fail sync).
+2. `OrdersModule` import `OrderGroupsModule` (OrderGroupsModule khong import OrdersModule — khong circular).
+3. Cron Lazada sync: EVERY_10_MINUTES -> EVERY_5_MINUTES.
+4. Cron backfill group: 15 phut -> 5 phut — chi con luoi an toan cho orphan/loi hook.
+
+**He qua**: Admin `POST /orders/lazada/sync` -> order_groups co ngay; auto-sync toi da ~5 phut phat hien don moi tren san (khong cong them 15 phut cho group).
+
+## FE Admin Generate tren /app/packing (2026-09-21) — khong doi BE
+
+- PackagingWorkbench: Admin thay tab «Da lay — Generate» + nut goi `generatePackaging` (API da co).
+- Packaging Staff khong thay tab do (BE generate chi ADMIN).
+- Admin van dung tab «Cho duyet» de approve/adjust/reject (BE da cho ADMIN).
+
+## DA THAY DOI (2026-09-21) � luong Admin chot ke hoach AI ? notify Packaging Staff
+
+**DA THAY DOI so voi** ban Admin Generate khong notify / reject khong ly do:
+
+1. BE generateFallbackRecommendation (Admin �Xac nhan thuc hien�): fallback AI tam, SKU/so luong that tu pick; ? pending_approval + notify PENDING_APPROVAL ? PACKAGING_STAFF.
+2. BE reject: bat buoc rejection_reason; group ve picked; notify PACKAGING_REJECTED ? ADMIN.
+3. FE AdminSidebar: link �Chot ke hoach dong goi� ? /app/packing (khac Templates catalog).
+4. FE PackagingWorkbench: nut Xac nhan thuc hien; Chap nhan ? 3D autoRotate; Tu choi + ly do gui Admin.
+5. Notification type moi packaging_rejected; deep-link /app/packing.
+
+## DA THAY DOI (2026-09-21) — trang Admin rieng chot ke hoach (khong dung /app/packing)
+
+**DA THAY DOI so voi** ban link sidebar «Chot ke hoach dong goi» → `/app/packing` (ban Packaging Staff):
+
+1. FE trang moi `AdminPackingPlansPage` tai `/app/admin/packing-plans` (layout Admin): danh sach nhom `picked` + nut «Xac nhan thuc hien» → `generatePackaging`; tab «Da gui NV» (`pending_approval`).
+2. AdminSidebar tro den `/app/admin/packing-plans` (icon Sparkles) — tach ro khoi Templates va ban NV `/app/packing`.
+3. PackagingWorkbench chi con viec Packaging Staff (duyet/tu choi/3D) — bo tab Generate Admin.
+4. Notification `packaging_rejected` (Admin) deep-link → `/app/admin/packing-plans`.
+
+## DA THAY DOI (2026-09-21) � generate khong bat buoc pick_events
+
+**DA THAY DOI so voi** generate chi dung getActuallyPickedItemsForGroup (bat pick_events):
+
+Khi kho bam POST .../fulfillment/pick hang loat (khong quet tung SKU) ? khong co pick_events ? truoc day 409 ORD_GROUP_ALL_ORDERS_CANCELED (message �chua co pick_events�).
+
+PackagingService.resolveItemsForGenerate(): thu pick_events; neu ALL_ORDERS_CANCELED ? fallback getPackableItemsForGroup (SKU tu don con hieu luc) ? van tao recommendation + pending_approval + notify PACKAGING_STAFF. Khong can AI that.
+
+## DA THAY DOI (2026-09-21) � approve/adjust khong bat pick_events + Packaging xac nhan pack
+
+**DA THAY DOI so voi** approve/adjust chi getActuallyPickedItemsForGroup; pack chi WAREHOUSE:
+
+1. resolveItemsForPackaging() dung chung generate/approve/adjust � khong pick_events ? fallback don packable.
+2. POST .../fulfillment/pack them PACKAGING_STAFF; FE PackagingWorkbench tab �Da duyet � dong goi� co nut �Xac nhan da dong goi�.
+
+## DA THAY DOI (2026-09-21) � fix notification recipient_role string vs number
+
+**Bug:** schema notifications.recipient_role khai type:String + numeric UserRole ? Mongo luu "2"; JWT/query dung 2 ? Packaging Staff khong thay pending_approval (API da noi, list khong khop).
+
+**Fix:** schema Number + USER_ROLE_VALUES; notify() luon Number; list/unread/markAsRead $in: [role, String(role)]; migrate 157 ban string?number. Generate/reject notify van dung.

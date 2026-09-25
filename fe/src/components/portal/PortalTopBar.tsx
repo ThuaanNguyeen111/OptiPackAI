@@ -49,6 +49,7 @@ function isOpsTab(n: AppNotification): boolean {
     n.type === 'sla_warning' ||
     n.type === 'pending_approval' ||
     n.type === 'abnormal_package' ||
+    n.type === 'packaging_rejected' ||
     n.type === 'sync_failed' ||
     n.type === 'connection_lost'
   )
@@ -61,7 +62,11 @@ function NotifIcon({ type }: { type: string }) {
   if (type === 'sla_warning' || type === 'sla_breach') {
     return <Zap className="h-3.5 w-3.5 fill-amber-500" />
   }
-  if (type === 'pending_approval' || type === 'abnormal_package') {
+  if (
+    type === 'pending_approval' ||
+    type === 'abnormal_package' ||
+    type === 'packaging_rejected'
+  ) {
     return <Package className="h-3.5 w-3.5" />
   }
   return <Bell className="h-3.5 w-3.5" />

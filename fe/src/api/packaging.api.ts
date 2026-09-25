@@ -55,7 +55,23 @@ export async function rejectPackaging(
     `/order-groups/${groupId}/packaging/reject`,
     {
       method: 'POST',
-      body: { expected_group_version: input.expected_group_version },
+      body: {
+        expected_group_version: input.expected_group_version,
+        rejection_reason: input.rejection_reason,
+      },
+      auth: true,
+    },
+  )
+}
+
+/** Admin — chốt kế hoạch đóng gói (fallback/AI tạm) khi group `picked`. */
+export async function generatePackaging(
+  groupId: string,
+): Promise<PackagingRecommendation> {
+  return apiRequest<PackagingRecommendation>(
+    `/order-groups/${groupId}/packaging/generate`,
+    {
+      method: 'POST',
       auth: true,
     },
   )
