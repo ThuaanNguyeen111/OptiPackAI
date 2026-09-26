@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-26 (K1 + K2 — xem `INTEGRATION_GUIDE_WAREHOUSE.md`).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K3 kho, G1 giao hàng, G3 trả hàng; chi tiết `INTEGRATION_GUIDE_WAREHOUSE.md`, `INTEGRATION_GUIDE_SHIPPING.md`).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -213,3 +213,40 @@ GET   /notifications*
 ## Bảng mã lỗi
 
 Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (đã đổi cấu trúc từ "mục 1-10" sang "PHẦN A-D" từ bản v3) — không lặp lại ở đây tránh 2 nguồn dễ lệch nhau.
+
+## 9d. 🆕 K3 — Sổ cái kho, kiểm kê, chuyển ô (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/adjust`    | Admin, Warehouse | Kiểm kê: số đếm thực tế + lý do, ghi sổ cái |
+| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/transfer`  | Admin, Warehouse | Chuyển hàng sang ô khác (1 transaction, 2 dòng sổ cái) |
+| DELETE | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId`           | Admin | Bỏ gán SKU khỏi ô (tồn phải = 0) |
+| GET    | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/movements` | Admin, Warehouse, Store Owner | Sổ cái của SKU trên ô |
+
+> 🔄 K3: gán SKU vào ô khác nay là THÊM ô (không còn dời); Picking List có `bin_location_id` + `other_bins`; `pick-item` nhận thêm `bin_location_id`. **Phải chạy `scripts/migrate-sku-bin-assignment-multibin.ts` trên mỗi môi trường.**
+
+## 10. 🆕 Giao hàng (`/shipments`) — G1 (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET    | `/shipments/reason-codes`          | Admin, Coordinator, Store Owner, Warehouse | Lý do giao thất bại |
+| GET    | `/shipments` · `/shipments/:id`    | Admin, Coordinator, Store Owner, Warehouse | Danh sách / chi tiết vận đơn |
+| GET    | `/shipments/:id/events`            | Admin, Coordinator, Store Owner, Warehouse | Tracking dạng dòng thời gian |
+| POST   | `/shipments`                        | Coordinator, Admin | Bắt đầu giao (nhóm đơn packed) |
+| POST   | `/shipments/:id/deliver`            | Coordinator, Admin | Giao thành công |
+| POST   | `/shipments/:id/fail`               | Coordinator, Admin | Giao thất bại (lần 2 / khách từ chối -> tự hoàn) |
+| POST   | `/shipments/:id/retry`              | Coordinator, Admin | Giao lại |
+| POST   | `/shipments/:id/receive-return`     | Warehouse, Admin | Kho nhận kiện hoàn (tự tạo phiếu hoàn) |
+
+> 🔄 G1: `POST /order-groups/:id/fulfillment/ship|deliver|return` giữ nguyên URL/body/response nhưng nay đi qua vận đơn (deprecated). Chi tiết: **`INTEGRATION_GUIDE_SHIPPING.md`**.
+
+## 11. 🆕 Trả hàng (`/returns`) — G3 (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET    | `/returns/reason-codes` · `/returns` · `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator | |
+| POST   | `/returns`              | Admin (đóng vai khách) | Yêu cầu trả hàng / hoàn tiền (nhóm đơn delivered, ≤15 ngày) |
+| POST   | `/returns/:id/approve`  | Store Owner, Admin | Duyệt (người tạo không tự duyệt) |
+| POST   | `/returns/:id/reject`   | Store Owner, Admin | Từ chối (bắt buộc lý do) |
+| POST   | `/returns/:id/receive`  | Warehouse, Admin | Hàng trả về kho |
+| POST   | `/returns/:id/inspect`  | Warehouse, Admin | Kiểm hàng: restock (nhập lại, sổ cái) / quarantine / discard |

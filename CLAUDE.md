@@ -2719,3 +2719,41 @@ Chưa có nhật ký ai tắt/bật; khe thời gian hẹp giữa kiểm tồn v
 5. Lỗi có sẵn còn treo: pick-item/Picking List không lọc platform/shop (K4); gán SKU sang kệ khác = chuyển hàng không sổ cái (K3).
 
 **Điểm yếu còn lại sau K2** (ghi trong guide Phần E): không mở rộng được kệ (thêm tầng/ô); không tắt cả kệ 1 lần; mã màu gõ tự do (cần danh mục màu — K4); gợi ý ô chưa biết SKU (K3/K4); lộ trình giả định mặt bằng cố định; kiểm sức chứa không nguyên tử (K3); tối đa 26 khu/kho; kho đang chuyển đổi đi đường chưa tối ưu.
+
+---
+
+## 📦 Nhật ký G1 + K3 + G3 (27/09/2026)
+
+### ⚠️ Sự cố môi trường — sandbox bị xóa sạch giữa 2 lượt
+Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằng: `be.zip` (upload 20/09) + chồng các đợt đã xuất ra `/mnt/user-data/outputs` theo đúng thứ tự thời gian (flow-reversal → urgent-fix-fe → checklist-fe-full → K1 → K2), đợt dạng phẳng thì dò đúng vị trí theo tên file. **Kiểm chứng khôi phục bằng số test**: phải ra đúng 23 suite / 204 test như sau K2 — khớp tuyệt đối.
+**Quy tắc mới:** sau MỖI bước xong, xuất ngay bản đầy đủ source (không node_modules) ra outputs: `be_full_after_<bước>.zip`. Lần sau khôi phục chỉ cần giải nén 1 file + `npm ci`.
+
+### G1 — Giao hàng bản gọn (bấm nút)
+- Module mới `shipments/`: `shipments` + `shipment_events` (append-only = tracking dòng thời gian). Trạng thái: out_for_delivery → delivered | delivery_failed → (retry) | returning_to_warehouse → returned_to_warehouse.
+- Quy tắc: tối đa 2 lần giao, lần 2 thất bại HOẶC `customer_refused` → hệ thống TỰ chuyển hoàn về (không có nút hoàn sớm); `other` bắt ghi chú; 1 nhóm đơn 1 vận đơn chiều đi (unique index).
+- Mọi nút đi qua `applyTransition()`: kiểm luật → cập nhật vận đơn có khóa `__v` → ghi event → đổi trạng thái nhóm đơn, **1 transaction**. `OrderGroupsService.transitionFulfillmentStatus` thêm tham số `session?` (tương thích ngược).
+- Tạm thời Shipping Coordinator bấm toàn bộ nút giao (chưa có role shipper) — gỡ được 2 quyết định treo (role shipper, lưu ảnh).
+
+### K3 — Sổ cái kho
+- `inventory_movements` (append-only): assign_initial, receive, pick, adjust, transfer_out/in, return_restock. Ghi cùng transaction với thay đổi tồn (trừ `pick` — xem điểm yếu).
+- 1 SKU nhiều ô: unique index `sku_bin_assignments` thêm `bin_location_id`. **Script bắt buộc** `scripts/migrate-sku-bin-assignment-multibin.ts` (Mongoose không tự xóa index cũ).
+- Kiểm kê (số đếm thực tế, chống ghi đè bằng điều kiện `quantity_on_hand == số đã đọc`), chuyển ô (trừ có điều kiện + upsert đích), bỏ gán (tồn = 0), xem sổ cái.
+- Picking List: ô chính + `other_bins`; `pick-item` nhận `bin_location_id` để trừ đúng ô; `pick_events` thêm `bin_location_id`.
+
+### G3 — Trả / hoàn hàng bản gọn
+- `return_requests` (trong module shipments). 3 loại: `failed_delivery` (HỆ THỐNG tự tạo khi kho nhận kiện hoàn — cả qua route cũ `fulfillment/return`), `return_refund`, `refund_only` (Admin đóng vai khách).
+- Quy tắc: chỉ khi nhóm đơn `delivered`, ≤15 ngày, không vượt số đã mua, 1 phiếu mở/nhóm đơn; người tạo không tự duyệt; từ chối bắt lý do; kiểm hàng: tổng mỗi SKU phải khớp số trả; `restock` nhập lại ô qua `WarehouseService.restockReturnedItem` (sổ cái `return_restock`) cùng transaction.
+- Phụ thuộc 1 chiều: shipments → order-groups, warehouse. Không vòng.
+
+### Tác động & xử lý xung đột (5 câu)
+1. **Dữ liệu cũ**: nhóm đơn `shipped` trước G1 → vận đơn tạo bù tự động (`legacy_backfill`) khi bấm nút; `pick_events` cũ không có `bin_location_id` (null). Index kho: PHẢI chạy script multibin.
+2. **Route đổi hành vi**: 3 route `fulfillment/ship|deliver|return` CHUYỂN sang `shipments/legacy-fulfillment.controller.ts` — giữ nguyên URL/body/response/role nhưng đi qua vận đơn; `deliver` khi vận đơn `delivery_failed` → 409. Gán SKU ô khác = THÊM ô (không còn dời). Picking List thêm field. `pick-item` thêm field tùy chọn.
+3. **Xung đột ghi chồng**: 2 nơi cùng đổi trạng thái giao hàng → gỡ bằng cách chỉ còn 1 đường (vận đơn). Kiểm kê vs lấy hàng cùng lúc → điều kiện `quantity_on_hand == before` → 409 `WH_STOCK_CHANGED`. Chuyển ô vs lấy hàng → trừ nguồn có điều kiện `$gte`.
+4. **Không ảnh hưởng**: sync, gộp đơn, packaging, `pack`, notifications.
+5. **Lỗi có sẵn phát hiện**: route cũ `return` cho nhóm đơn đã giao chuyển thẳng `returned` không kiểm hàng — GIỮ để không gãy FE, ghi rõ trong guide khuyên chuyển sang `/returns`.
+
+### Điểm yếu còn lại (ghi đủ trong 2 guide, Phần E)
+- Kho: sổ cái `pick` ghi SAU khi trừ tồn, không transaction (cùng mức với `pick_events` có sẵn) — nếu ghi sổ lỗi sau khi đã trừ thì tồn đổi mà không có dòng sổ; `pick-item` không gửi `bin_location_id` thì vẫn trừ ô bất kỳ; tồn đủ tổng nhiều ô nhưng không ô nào đủ 1 lần quét → INSUFFICIENT_STOCK (nhân viên phải quét tách theo ô); pick-item/Picking List vẫn chưa lọc platform/shop (K4).
+- Giao hàng: không có khoảng cách tối thiểu giữa 2 lần giao; chưa thông báo; chưa hạn giao/cảnh báo trễ; chưa đổi hàng; chưa đi lấy hàng trả; hàng cách ly chưa có màn hình xử lý; phiếu `failed_delivery` lấy theo số lượng đặt thay vì số đã quét thật.
+
+**Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn ở seed-admin), jest 26/26 suite — 239/239 test (G1 +13, K3 +9, G3 +13).

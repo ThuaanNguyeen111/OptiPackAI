@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Quản lý Kho (Warehouse Management)
 
-**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng.
+**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.**
 
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
 
@@ -355,6 +355,82 @@ Số hiện tại **giữ nguyên** cho tới lần đồng bộ kế tiếp (cr
 
 ---
 
+
+# PHẦN B3 — BƯỚC K3: SỔ CÁI KHO, KIỂM KÊ, CHUYỂN Ô 🆕 (27/09/2026)
+
+## B3.1. Sổ cái — mọi thay đổi tồn kho đều để lại dấu vết
+
+Từ K3, **mọi lần số tồn thay đổi** đều ghi 1 dòng vào sổ cái, trong cùng 1 transaction với chính thay đổi đó:
+
+| `type` | Khi nào |
+|---|---|
+| `assign_initial` | Gán SKU vào ô kèm tồn ban đầu |
+| `receive` | Nhập thêm hàng (restock) |
+| `pick` | Nhân viên quét lấy hàng cho đơn (`refType: order_group`) |
+| `adjust` | Kiểm kê (kể cả khớp — chênh 0) |
+| `transfer_out` / `transfer_in` | Chuyển ô (2 dòng cùng `refId`) |
+| `return_restock` | Hàng trả/hoàn đạt kiểm tra, nhập lại (`refType: return_request`) — xem `INTEGRATION_GUIDE_SHIPPING.md` |
+
+```
+GET /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/movements?limit=100
+→ [ { "type": "adjust", "delta": -1, "quantityBefore": 12, "quantityAfter": 11, "reasonCode": "damaged",
+      "note": "1 cái rách bao bì", "actorId": "u1", "createdAt": "..." }, ... ]   (mới → cũ)
+```
+Quyền: Admin, Warehouse Staff, Store Owner. Sổ cái **không có nút sửa/xóa**.
+
+## B3.2. Kiểm kê
+
+```
+POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/adjust     (Admin, Warehouse)
+Body: { "counted_quantity": 11, "reason_code": "damaged", "note": "1 cái rách bao bì" }
+```
+- Nhập **số đếm được thực tế**, hệ thống tự tính chênh lệch — không bắt nhân viên tự trừ.
+- `reason_code`: `count_correction` · `damaged` · `lost` · `found` · `other` (bắt buộc `note`, thiếu → `400 WH_NOTE_REQUIRED`).
+- **Kiểm kê khớp (chênh 0) vẫn ghi sổ** — làm bằng chứng đã kiểm, ai kiểm, lúc nào.
+- Trong lúc đang đếm mà có người lấy/nhập hàng ở ô đó → `409 WH_STOCK_CHANGED` → tải lại, đếm lại. Hệ thống không bao giờ ghi đè con số người khác vừa thay đổi.
+
+## B3.3. Chuyển hàng sang ô khác
+
+```
+POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/transfer   (Admin, Warehouse)
+Body: { "to_bin_location_id": "66e9...", "quantity": 5, "force": false, "note": "Dọn ô cho size mới" }
+→ 200: { "from": { ...ô nguồn, quantityOnHand: 7 }, "to": { ...ô đích, quantityOnHand: 5 } }
+```
+Trừ nguồn + cộng đích + 2 dòng sổ cái trong **1 transaction** — không bao giờ có lúc hàng "biến mất" giữa 2 ô.
+
+| Tình huống | Lỗi |
+|---|---|
+| Ô nguồn không đủ (kể cả vừa bị lấy mất giữa chừng) | `409 WH_INSUFFICIENT_STOCK` |
+| Ô đích = ô nguồn | `400 WH_SAME_BIN` |
+| Ô đích thuộc kho khác / đã tắt | `WH_BIN_NOT_IN_WAREHOUSE` / `WH_BIN_INACTIVE` |
+| Ô đích vượt sức chứa | `409 WH_BIN_OVER_CAPACITY` — gửi `force: true` để vẫn chuyển |
+
+## B3.4. 1 SKU nằm nhiều ô 🔄
+
+Trước K3, 1 SKU chỉ nằm được 1 ô/kho. Nay 1 SKU có thể nằm nhiều ô (hàng về 200 cái, mỗi ô chứa 50). Hệ quả cho các route cũ:
+
+| Route | Trước K3 | Sau K3 |
+|---|---|---|
+| `POST .../sku-bin-assignments` (gán) | Gọi lại với ô khác = **DỜI** SKU + toàn bộ tồn sang ô mới, không ghi lịch sử | Gọi với ô khác = **THÊM** SKU vào ô đó (tồn riêng). Gọi lại đúng ô đã có = trả bản ghi cũ, không đổi gì. **Muốn dời hàng → dùng chuyển ô (B3.3)** |
+| Picking List | 1 dòng 1 ô | Mỗi dòng có `bin_location_id` (ô CHÍNH — ô còn hàng đứng trước theo lộ trình) + `other_bins: [{ bin_location_id, bin_code, quantity_on_hand }]` |
+| `POST /order-groups/:id/fulfillment/pick-item` | Trừ ở ô bất kỳ đủ hàng | Nhận thêm `bin_location_id` (tùy chọn) → **trừ đúng ô nhân viên lấy**. FE nên gửi `bin_location_id` lấy từ Picking List. Không gửi thì vẫn chạy như cũ |
+
+Bỏ gán SKU khỏi ô (chỉ khi tồn = 0, sổ cái cũ giữ nguyên):
+```
+DELETE /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId     (Admin)
+→ còn hàng: 409 WH_ASSIGNMENT_HAS_STOCK
+```
+
+## B3.5. ⚠️ Việc BẮT BUỘC làm trên mỗi môi trường sau khi deploy K3
+
+Mongoose tự tạo index mới nhưng **không tự xóa index cũ** (1 SKU 1 ô). Nếu không chạy script, gán SKU vào ô thứ 2 / chuyển ô sẽ lỗi trùng khóa:
+```
+npx ts-node -r dotenv/config scripts/migrate-sku-bin-assignment-multibin.ts
+```
+Chạy lại nhiều lần an toàn, không đụng dữ liệu.
+
+---
+
 # PHẦN C — TÁC ĐỘNG TỚI DỮ LIỆU VÀ LUỒNG ĐÃ CÓ
 
 ## C.1. Dữ liệu cũ trong DB — không cần chạy script gì
@@ -560,3 +636,7 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] 🆕 Rà soát K2: đổi size của ô đang có hàng → `WH_BIN_HAS_STOCK_DESIGNATION`; ô trống → đổi được
 - [ ] 🆕 Rà soát K2: gọi sinh kệ kiểu cũ trong khu `KA` → `WH_ZONE_V2_USE_RACKS`; trong khu mã cũ `A` → vẫn chạy
 - [ ] 🆕 Rà soát K2: "Bỏ sửa tay" Product Master → `manualOverride: false`, kích thước chưa đổi ngay
+- [ ] 🆕 K3: kiểm kê 1 ô đếm lệch → tồn cập nhật, sổ cái có dòng `adjust` đúng chênh lệch + người kiểm
+- [ ] 🆕 K3: chuyển 5 cái sang ô khác → 2 ô cập nhật đúng, sổ cái 2 dòng cùng `refId`
+- [ ] 🆕 K3: Picking List của SKU nằm 2 ô → có `bin_location_id` + `other_bins`; quét pick-item gửi `bin_location_id` → trừ đúng ô
+- [ ] 🆕 K3: bỏ gán ô còn hàng → `WH_ASSIGNMENT_HAS_STOCK`
