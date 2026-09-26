@@ -25,7 +25,12 @@ export class BinLocation {
   rack!: number; // kệ số
 
   @Prop({ required: true })
-  level!: number; // tầng/ngăn
+  level!: number;
+
+  // BỔ SUNG (26/09/2026, K1) — xóa mềm; document cũ không có field này được
+  // coi là đang hoạt động (lọc bằng `is_active: { $ne: false }`).
+  @Prop({ default: true })
+  is_active?: boolean; // optional ở tầng TYPE: document cũ thật sự không có field // tầng/ngăn
 
   created_at?: Date;
   updated_at?: Date;

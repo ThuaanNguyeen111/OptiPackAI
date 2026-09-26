@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { WarehouseService, PickingListItem } from './warehouse.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
@@ -6,6 +6,10 @@ import { CreateZoneDto } from './dto/create-zone.dto';
 import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
 import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { RestockSkuDto } from './dto/restock-sku.dto';
+import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
+import { UpdateZoneDto } from './dto/update-zone.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -46,6 +50,7 @@ interface WarehouseZoneResponse {
   zoneCode: string;
   zoneName: string;
   description: string;
+  isActive: boolean;
 }
 function toZoneResponse(doc: WarehouseZoneDocument): WarehouseZoneResponse {
   return {
@@ -54,6 +59,7 @@ function toZoneResponse(doc: WarehouseZoneDocument): WarehouseZoneResponse {
     zoneCode: doc.zone_code,
     zoneName: doc.zone_name,
     description: doc.description,
+    isActive: doc.is_active !== false, // document cũ (trước K1) không có field -> coi là hoạt động
   };
 }
 
@@ -65,6 +71,7 @@ interface BinLocationResponse {
   aisle: string;
   rack: number;
   level: number;
+  isActive: boolean;
 }
 function toBinLocationResponse(doc: BinLocationDocument): BinLocationResponse {
   return {
@@ -75,6 +82,7 @@ function toBinLocationResponse(doc: BinLocationDocument): BinLocationResponse {
     aisle: doc.aisle,
     rack: doc.rack,
     level: doc.level,
+    isActive: doc.is_active !== false,
   };
 }
 
@@ -133,8 +141,13 @@ export class WarehouseController {
     summary:
       'Danh sách kho. 🔄 SỬA (19/09/2026, báo cáo Hải Phượng) — mở thêm cho Warehouse Staff: trước đây CHỈ Admin xem được, nhưng picking-list/pick-item/report-missing đều BẮT BUỘC warehouse_id — Warehouse Staff không có cách nào (qua API) biết warehouse_id nào để dùng nếu route này vẫn khóa Admin-only.',
   })
-  async listWarehouses(): Promise<WarehouseResponse[]> {
-    const docs = await this.warehouseService.listWarehouses();
+  async listWarehouses(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('include_inactive') includeInactive?: string,
+  ): Promise<WarehouseResponse[]> {
+    // K1 — chỉ Admin được xem kho đã vô hiệu hóa; Warehouse Staff luôn chỉ thấy kho đang hoạt động.
+    const showInactive = includeInactive === 'true' && user.role === UserRole.ADMIN;
+    const docs = await this.warehouseService.listWarehouses(showInactive);
     return docs.map(toWarehouseResponse);
   }
 
@@ -153,9 +166,10 @@ export class WarehouseController {
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Danh sách khu trong 1 kho' })
   async listZones(
+    @Query('include_inactive') includeInactive: string | undefined,
     @Param('warehouseId') warehouseId: string,
   ): Promise<WarehouseZoneResponse[]> {
-    const docs = await this.warehouseService.listZones(warehouseId);
+    const docs = await this.warehouseService.listZones(warehouseId, includeInactive === 'true');
     return docs.map(toZoneResponse);
   }
 
@@ -166,9 +180,10 @@ export class WarehouseController {
       'BỔ SUNG (16/09/2026, báo cáo Hải Phượng) — Danh sách kệ đã tạo trong 1 khu. Trước đây chỉ có POST .../generate để TẠO, không có cách XEM LẠI.',
   })
   async listBinLocationsByZone(
+    @Query('include_inactive') includeInactive: string | undefined,
     @Param('zoneId') zoneId: string,
   ): Promise<BinLocationResponse[]> {
-    const docs = await this.warehouseService.listBinLocationsByZone(zoneId);
+    const docs = await this.warehouseService.listBinLocationsByZone(zoneId, includeInactive === 'true');
     return docs.map(toBinLocationResponse);
   }
 
@@ -179,10 +194,11 @@ export class WarehouseController {
       'BỔ SUNG (16/09/2026) — Danh sách TOÀN BỘ kệ trong 1 kho (mọi khu gộp lại).',
   })
   async listBinLocationsByWarehouse(
+    @Query('include_inactive') includeInactive: string | undefined,
     @Param('warehouseId') warehouseId: string,
   ): Promise<BinLocationResponse[]> {
     const docs =
-      await this.warehouseService.listBinLocationsByWarehouse(warehouseId);
+      await this.warehouseService.listBinLocationsByWarehouse(warehouseId, includeInactive === 'true');
     return docs.map(toBinLocationResponse);
   }
 
@@ -266,5 +282,78 @@ export class WarehouseController {
     @Param('groupId') groupId: string,
   ): Promise<PickingListItem[]> {
     return this.warehouseService.getEnrichedPickingList(warehouseId, groupId);
+  }
+  // ===================================================================
+  // K1 (26/09/2026) — VÒNG ĐỜI KHO / KHU / KỆ. Toàn bộ chỉ Admin.
+  // DELETE = VÔ HIỆU HÓA (xóa mềm), không xóa hẳn. Mã (warehouse_code,
+  // zone_code, bin_code) KHÔNG sửa được — gửi lên sẽ bị 400.
+  // ===================================================================
+
+  @Get('warehouses/:warehouseId')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: '🆕 K1 — Chi tiết 1 kho (kể cả đã vô hiệu hóa).' })
+  async getWarehouse(@Param('warehouseId') warehouseId: string): Promise<WarehouseResponse> {
+    return toWarehouseResponse(await this.warehouseService.getWarehouse(warehouseId));
+  }
+
+  @Patch('warehouses/:warehouseId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Sửa tên/địa chỉ kho. KHÔNG sửa được warehouse_code.' })
+  async updateWarehouse(
+    @Param('warehouseId') warehouseId: string,
+    @Body() dto: UpdateWarehouseDto,
+  ): Promise<WarehouseResponse> {
+    return toWarehouseResponse(await this.warehouseService.updateWarehouse(warehouseId, dto));
+  }
+
+  @Delete('warehouses/:warehouseId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '🆕 K1 — Vô hiệu hóa kho (xóa mềm). Chặn 409 WH_HAS_STOCK nếu còn hàng. Tự vô hiệu hóa toàn bộ khu + kệ bên trong.',
+  })
+  async deactivateWarehouse(@Param('warehouseId') warehouseId: string): Promise<WarehouseResponse> {
+    return toWarehouseResponse(await this.warehouseService.deactivateWarehouse(warehouseId));
+  }
+
+  @Post('warehouses/:warehouseId/reactivate')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại kho. CHỈ kho — các khu vẫn tắt, Admin bật lại từng khu.' })
+  async reactivateWarehouse(@Param('warehouseId') warehouseId: string): Promise<WarehouseResponse> {
+    return toWarehouseResponse(await this.warehouseService.reactivateWarehouse(warehouseId));
+  }
+
+  @Patch('zones/:zoneId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Sửa tên/mô tả khu. KHÔNG sửa được zone_code (đã nằm trong mã kệ in trên nhãn).' })
+  async updateZone(@Param('zoneId') zoneId: string, @Body() dto: UpdateZoneDto): Promise<WarehouseZoneResponse> {
+    return toZoneResponse(await this.warehouseService.updateZone(zoneId, dto));
+  }
+
+  @Delete('zones/:zoneId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Vô hiệu hóa khu + toàn bộ kệ trong khu. Chặn 409 nếu còn hàng.' })
+  async deactivateZone(@Param('zoneId') zoneId: string): Promise<WarehouseZoneResponse> {
+    return toZoneResponse(await this.warehouseService.deactivateZone(zoneId));
+  }
+
+  @Post('zones/:zoneId/reactivate')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại khu + toàn bộ kệ trong khu. Kho phải đang hoạt động.' })
+  async reactivateZone(@Param('zoneId') zoneId: string): Promise<WarehouseZoneResponse> {
+    return toZoneResponse(await this.warehouseService.reactivateZone(zoneId));
+  }
+
+  @Delete('bin-locations/:binId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Vô hiệu hóa 1 kệ. Chặn 409 nếu kệ còn hàng.' })
+  async deactivateBin(@Param('binId') binId: string): Promise<BinLocationResponse> {
+    return toBinLocationResponse(await this.warehouseService.deactivateBin(binId));
+  }
+
+  @Post('bin-locations/:binId/reactivate')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại 1 kệ. Khu chứa kệ phải đang hoạt động.' })
+  async reactivateBin(@Param('binId') binId: string): Promise<BinLocationResponse> {
+    return toBinLocationResponse(await this.warehouseService.reactivateBin(binId));
   }
 }

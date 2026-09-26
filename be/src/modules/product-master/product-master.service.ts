@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 // Inject TRỰC TIẾP LazadaAdapter (class cụ thể, đã export sẵn từ
@@ -14,6 +14,9 @@ import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { LazadaAdapter } from '../marketplace-integration';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
+import { AppException } from '../../common/exceptions/app-exception';
+import { PRODUCT_MASTER_ERROR_CODES } from './product-master.errors';
+import { UpdateProductMasterDto } from './dto/update-product-master.dto';
 
 // Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi.
 const LAZADA_PRODUCT_BATCH_SIZE = 50;
@@ -73,6 +76,23 @@ export class ProductMasterService {
       const batch = sellerSkus.slice(i, i + LAZADA_PRODUCT_BATCH_SIZE);
       const rawProducts = await this.lazadaAdapter.getProducts(accessToken, batch);
 
+      // K1 (26/09/2026) — xung đột với luồng cũ: trước đây cron ghi đè
+      // dimension mỗi lần chạy. Nay Admin có thể sửa tay (manual_override)
+      // -> với các SKU đó CHỈ cập nhật last_synced_at, giữ nguyên số Admin nhập.
+      const manualSkus = new Set(
+        (
+          await this.productMasterModel
+            .find({
+              platform: MarketplacePlatform.LAZADA,
+              shop_id: shopId,
+              seller_sku: { $in: batch },
+              manual_override: true,
+            })
+            .select('seller_sku')
+            .lean()
+        ).map((d) => d.seller_sku),
+      );
+
       const bulkOps = rawProducts.flatMap((product) =>
         product.skus.map((sku) => ({
           updateOne: {
@@ -81,7 +101,9 @@ export class ProductMasterService {
               shop_id: shopId,
               seller_sku: sku.SellerSku,
             },
-            update: {
+            update: manualSkus.has(sku.SellerSku)
+              ? { $set: { last_synced_at: now } }
+              : {
               $set: {
                 dimension: {
                   // Lazada trả STRING — parse về number, mặc định an
@@ -118,5 +140,92 @@ export class ProductMasterService {
   private parseWeight(raw?: string): number {
     const parsed = raw ? parseFloat(raw) : NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0.5; // mặc định 0.5kg
+  }
+  // ===================================================================
+  // K1 (26/09/2026) — API xem/sửa tay Product Master. Trước K1 module này
+  // KHÔNG có controller: dữ liệu kích thước sai/thiếu chỉ sửa được bằng
+  // cách vào thẳng MongoDB (đúng lỗi thiếu `dimension` gây 500 ngày 19/09).
+  // ===================================================================
+
+  async listProducts(params: {
+    shopId?: string;
+    search?: string;
+    manualOnly?: boolean;
+    page: number;
+    limit: number;
+  }): Promise<{ items: ProductMasterDocument[]; total: number }> {
+    const filter: Record<string, unknown> = {};
+    if (params.shopId) filter.shop_id = params.shopId;
+    if (params.manualOnly) filter.manual_override = true;
+    if (params.search) {
+      // escape ký tự đặc biệt regex — tránh lỗi/ReDoS khi user gõ "(" hay "*"
+      const escaped = params.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.seller_sku = { $regex: escaped, $options: 'i' };
+    }
+    const [items, total] = await Promise.all([
+      this.productMasterModel
+        .find(filter)
+        .sort({ seller_sku: 1 })
+        .skip((params.page - 1) * params.limit)
+        .limit(params.limit)
+        .lean(),
+      this.productMasterModel.countDocuments(filter),
+    ]);
+    return { items, total };
+  }
+
+  async getProduct(id: string): Promise<ProductMasterDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.INVALID_ID,
+        `"${id}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { id },
+      );
+    }
+    const doc = await this.productMasterModel.findById(id);
+    if (!doc) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.NOT_FOUND,
+        `Không tìm thấy sản phẩm với id "${id}".`,
+        HttpStatus.NOT_FOUND,
+        { id },
+      );
+    }
+    return doc;
+  }
+
+  async updateProduct(
+    id: string,
+    dto: UpdateProductMasterDto,
+    actorUserId: string,
+  ): Promise<ProductMasterDocument> {
+    const set: Record<string, unknown> = {};
+    if (dto.package_length_cm !== undefined) set['dimension.package_length_cm'] = dto.package_length_cm;
+    if (dto.package_width_cm !== undefined) set['dimension.package_width_cm'] = dto.package_width_cm;
+    if (dto.package_height_cm !== undefined) set['dimension.package_height_cm'] = dto.package_height_cm;
+    if (dto.package_weight_kg !== undefined) set['dimension.package_weight_kg'] = dto.package_weight_kg;
+    if (dto.is_fragile !== undefined) set.is_fragile = dto.is_fragile;
+    if (Object.keys(set).length === 0) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.NOTHING_TO_UPDATE,
+        'Không có trường nào để cập nhật.',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.getProduct(id);
+    const updated = await this.productMasterModel.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          ...set,
+          manual_override: true,
+          manual_override_at: new Date(),
+          manual_override_by: actorUserId,
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    return updated ?? this.getProduct(id);
   }
 }

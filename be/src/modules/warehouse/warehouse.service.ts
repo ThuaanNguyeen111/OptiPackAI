@@ -1,6 +1,6 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { Warehouse, WarehouseDocument } from './schemas/warehouse.schema';
 import {
   WarehouseZone,
@@ -22,6 +22,13 @@ import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
 import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
+import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
+import { UpdateZoneDto } from './dto/update-zone.dto';
+
+// K1 (26/09/2026) — document khu/kệ tạo TRƯỚC K1 không có field is_active.
+// Lọc bằng `$ne: false` (không phải `is_active: true`) để document cũ vẫn
+// được coi là đang hoạt động — tương thích ngược, không cần migration.
+const ACTIVE_ONLY = { is_active: { $ne: false } } as const;
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
@@ -56,6 +63,8 @@ export class WarehouseService {
     @InjectModel(ProductMaster.name)
     private readonly productMasterModel: Model<ProductMasterDocument>,
     private readonly orderGroupsService: OrderGroupsService,
+    // K1 — transaction cho vô hiệu hóa dây chuyền kho -> khu -> kệ
+    @InjectConnection() private readonly connection: Connection,
   ) {}
 
   async createWarehouse(dto: CreateWarehouseDto): Promise<WarehouseDocument> {
@@ -79,35 +88,17 @@ export class WarehouseService {
     }
   }
 
-  async listWarehouses(): Promise<WarehouseDocument[]> {
-    return this.warehouseModel.find({ is_active: true }).lean();
-  }
-
-  private async assertWarehouseExists(warehouseId: string): Promise<void> {
-    if (!Types.ObjectId.isValid(warehouseId)) {
-      throw new AppException(
-        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
-        `"${warehouseId}" không đúng định dạng ObjectId hợp lệ.`,
-        HttpStatus.BAD_REQUEST,
-        { warehouseId },
-      );
-    }
-    const exists = await this.warehouseModel.exists({ _id: warehouseId });
-    if (!exists) {
-      throw new AppException(
-        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
-        `Không tìm thấy kho với id "${warehouseId}".`,
-        HttpStatus.NOT_FOUND,
-        { warehouseId },
-      );
-    }
+  async listWarehouses(includeInactive = false): Promise<WarehouseDocument[]> {
+    // K1 — Admin xem được cả kho đã vô hiệu hóa (để kích hoạt lại).
+    return this.warehouseModel.find(includeInactive ? {} : { is_active: true }).lean();
   }
 
   async createZone(
     warehouseId: string,
     dto: CreateZoneDto,
   ): Promise<WarehouseZoneDocument> {
-    await this.assertWarehouseExists(warehouseId);
+    // K1 — không cho thêm khu vào kho đã vô hiệu hóa.
+    await this.assertWarehouseActive(warehouseId);
     try {
       return await this.zoneModel.create({
         warehouse_id: new Types.ObjectId(warehouseId),
@@ -142,7 +133,10 @@ export class WarehouseService {
     );
   }
 
-  async listZones(warehouseId: string): Promise<WarehouseZoneDocument[]> {
+  async listZones(
+    warehouseId: string,
+    includeInactive = false,
+  ): Promise<WarehouseZoneDocument[]> {
     // Ép kiểu tường minh sang ObjectId (thay vì để Mongoose tự cast
     // string trong filter) — theo báo cáo thật từ Hải Phượng (16/09):
     // GET không trả ra dữ liệu dù đã tạo thành công (xác nhận qua lỗi
@@ -159,7 +153,10 @@ export class WarehouseService {
       );
     }
     return this.zoneModel
-      .find({ warehouse_id: new Types.ObjectId(warehouseId) })
+      .find({
+        warehouse_id: new Types.ObjectId(warehouseId),
+        ...(includeInactive ? {} : ACTIVE_ONLY),
+      })
       .lean();
   }
 
@@ -168,7 +165,10 @@ export class WarehouseService {
    * liệt kê lại bin-locations đã tạo (trước đây chỉ có POST .../generate
    * để TẠO, không có cách nào XEM LẠI danh sách qua API).
    */
-  async listBinLocationsByZone(zoneId: string): Promise<BinLocationDocument[]> {
+  async listBinLocationsByZone(
+    zoneId: string,
+    includeInactive = false,
+  ): Promise<BinLocationDocument[]> {
     if (!Types.ObjectId.isValid(zoneId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.ZONE_NOT_FOUND,
@@ -177,11 +177,17 @@ export class WarehouseService {
         { zoneId },
       );
     }
-    return this.binModel.find({ zone_id: new Types.ObjectId(zoneId) }).lean();
+    return this.binModel
+      .find({
+        zone_id: new Types.ObjectId(zoneId),
+        ...(includeInactive ? {} : ACTIVE_ONLY),
+      })
+      .lean();
   }
 
   async listBinLocationsByWarehouse(
     warehouseId: string,
+    includeInactive = false,
   ): Promise<BinLocationDocument[]> {
     if (!Types.ObjectId.isValid(warehouseId)) {
       throw new AppException(
@@ -192,7 +198,10 @@ export class WarehouseService {
       );
     }
     return this.binModel
-      .find({ warehouse_id: new Types.ObjectId(warehouseId) })
+      .find({
+        warehouse_id: new Types.ObjectId(warehouseId),
+        ...(includeInactive ? {} : ACTIVE_ONLY),
+      })
       .lean();
   }
 
@@ -244,6 +253,18 @@ export class WarehouseService {
     dto: GenerateBinLocationsDto,
   ): Promise<{ created: number }> {
     const zone = await this.assertZoneExists(zoneId);
+    // K1 — không sinh kệ trong khu/kho đã vô hiệu hóa. Lưu ý: kệ đã tồn tại
+    // mà bị vô hiệu hóa thì generate lại KHÔNG kích hoạt lại ($setOnInsert chỉ
+    // chạy khi tạo mới) — muốn dùng lại phải gọi POST .../reactivate.
+    if (zone.is_active === false) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.ZONE_INACTIVE,
+        `Khu "${zone.zone_code}" đã bị vô hiệu hóa — kích hoạt lại trước khi sinh kệ.`,
+        HttpStatus.CONFLICT,
+        { zoneId },
+      );
+    }
+    await this.assertWarehouseActive(zone.warehouse_id.toString());
 
     if (dto.rack_from > dto.rack_to || dto.level_from > dto.level_to) {
       throw new AppException(
@@ -324,7 +345,27 @@ export class WarehouseService {
     warehouseId: string,
     dto: AssignSkuBinDto,
   ): Promise<SkuBinAssignmentDocument> {
-    await this.assertWarehouseExists(warehouseId);
+    await this.assertWarehouseActive(warehouseId);
+    // SỬA LỖI (26/09/2026, K1) — trước đây KHÔNG kiểm tra bin_location_id:
+    // gán được SKU vào kệ không tồn tại, kệ của KHO KHÁC, hoặc kệ đã tắt —
+    // Picking List sau đó hiện vị trí sai/rỗng mà không ai biết vì sao.
+    const bin = await this.assertBinExists(dto.bin_location_id);
+    if (bin.warehouse_id.toString() !== warehouseId) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_NOT_IN_WAREHOUSE,
+        `Kệ "${bin.bin_code}" không thuộc kho này.`,
+        HttpStatus.BAD_REQUEST,
+        { binId: bin._id.toString(), warehouseId },
+      );
+    }
+    if (bin.is_active === false) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_INACTIVE,
+        `Kệ "${bin.bin_code}" đã bị vô hiệu hóa.`,
+        HttpStatus.CONFLICT,
+        { binId: bin._id.toString() },
+      );
+    }
     return this.assignmentModel.findOneAndUpdate(
       {
         warehouse_id: warehouseId,
@@ -353,6 +394,7 @@ export class WarehouseService {
     assignmentId: string,
     quantity: number,
   ): Promise<SkuBinAssignmentDocument> {
+    await this.assertWarehouseActive(warehouseId); // K1
     if (!Types.ObjectId.isValid(assignmentId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND, // dùng chung mã lỗi validate id, không cần thêm mã riêng
@@ -387,6 +429,7 @@ export class WarehouseService {
     warehouseId: string,
     groupId: string,
   ): Promise<PickingListItem[]> {
+    await this.assertWarehouseActive(warehouseId); // K1 — kho đã tắt thì không lấy hàng
     const { items } =
       await this.orderGroupsService.getPackableItemsForGroup(groupId);
     const skus = items.map((i) => i.sku);
@@ -426,5 +469,218 @@ export class WarehouseService {
     });
 
     return enriched;
+  }
+// ===================================================================
+  // K1 (26/09/2026) — VÒNG ĐỜI KHO / KHU / KỆ
+  // Quy tắc (xem CLAUDE.md "Bảng vòng đời"):
+  // - Xóa = VÔ HIỆU HÓA (is_active=false), không xóa hẳn khỏi DB — giữ
+  //   lịch sử (pick_events, đơn đã lấy từ kho đó vẫn tra ra được).
+  // - CHẶN vô hiệu hóa khi còn hàng tồn (tổng quantity_on_hand > 0) —
+  //   phải chuyển hàng đi trước, nếu không hàng "biến mất" khỏi mọi màn hình.
+  // - Vô hiệu hóa KHO -> dây chuyền khu + kệ (1 transaction).
+  //   Vô hiệu hóa KHU -> dây chuyền kệ. Kích hoạt lại KHU -> kích hoạt lại
+  //   toàn bộ kệ của khu. Kích hoạt lại KHO -> CHỈ kho (Admin tự bật từng khu).
+  // - Thao tác lặp lại (tắt cái đã tắt) trả về trạng thái hiện tại, không lỗi.
+  // ===================================================================
+
+  async getWarehouse(warehouseId: string): Promise<WarehouseDocument> {
+    if (!Types.ObjectId.isValid(warehouseId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `"${warehouseId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { warehouseId },
+      );
+    }
+    const warehouse = await this.warehouseModel.findById(warehouseId);
+    if (!warehouse) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
+        `Không tìm thấy kho với id "${warehouseId}".`,
+        HttpStatus.NOT_FOUND,
+        { warehouseId },
+      );
+    }
+    return warehouse;
+  }
+
+  private async assertWarehouseActive(warehouseId: string): Promise<WarehouseDocument> {
+    const warehouse = await this.getWarehouse(warehouseId);
+    if (!warehouse.is_active) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.WAREHOUSE_INACTIVE,
+        `Kho "${warehouse.warehouse_code}" đã bị vô hiệu hóa.`,
+        HttpStatus.CONFLICT,
+        { warehouseId },
+      );
+    }
+    return warehouse;
+  }
+
+  private async assertBinExists(binId: string): Promise<BinLocationDocument> {
+    if (!Types.ObjectId.isValid(binId)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_NOT_FOUND,
+        `"${binId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { binId },
+      );
+    }
+    const bin = await this.binModel.findById(binId);
+    if (!bin) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_NOT_FOUND,
+        `Không tìm thấy kệ với id "${binId}".`,
+        HttpStatus.NOT_FOUND,
+        { binId },
+      );
+    }
+    return bin;
+  }
+
+  /** Tổng số đơn vị hàng đang nằm trong phạm vi lọc (chỉ tính ô có hàng). */
+  private async countStockUnits(match: Record<string, unknown>): Promise<number> {
+    const [row] = await this.assignmentModel.aggregate<{ total: number }>([
+      { $match: { ...match, quantity_on_hand: { $gt: 0 } } },
+      { $group: { _id: null, total: { $sum: '$quantity_on_hand' } } },
+    ]);
+    return row?.total ?? 0;
+  }
+
+  private throwHasStock(scope: string, units: number, details: Record<string, unknown>): never {
+    throw new AppException(
+      WAREHOUSE_ERROR_CODES.HAS_STOCK,
+      `${scope} còn ${String(units)} đơn vị hàng tồn — chuyển hết hàng đi trước khi vô hiệu hóa.`,
+      HttpStatus.CONFLICT,
+      { ...details, unitsInStock: units },
+    );
+  }
+
+  private async runInTransaction(work: (session: ClientSession) => Promise<void>): Promise<void> {
+    const session = await this.connection.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await work(session);
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  async updateWarehouse(warehouseId: string, dto: UpdateWarehouseDto): Promise<WarehouseDocument> {
+    if (dto.warehouse_name === undefined && dto.address === undefined) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.NOTHING_TO_UPDATE,
+        'Không có trường nào để cập nhật (chỉ sửa được warehouse_name, address).',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.getWarehouse(warehouseId);
+    const updated = await this.warehouseModel.findByIdAndUpdate(
+      warehouseId,
+      {
+        $set: {
+          ...(dto.warehouse_name !== undefined && { warehouse_name: dto.warehouse_name }),
+          ...(dto.address !== undefined && { address: dto.address }),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    return updated ?? this.getWarehouse(warehouseId);
+  }
+
+  async deactivateWarehouse(warehouseId: string): Promise<WarehouseDocument> {
+    const warehouse = await this.getWarehouse(warehouseId);
+    if (!warehouse.is_active) return warehouse;
+
+    const whId = new Types.ObjectId(warehouseId);
+    const units = await this.countStockUnits({ warehouse_id: whId });
+    if (units > 0) this.throwHasStock(`Kho "${warehouse.warehouse_code}"`, units, { warehouseId });
+
+    await this.runInTransaction(async (session) => {
+      await this.warehouseModel.updateOne({ _id: whId }, { $set: { is_active: false } }, { session });
+      await this.zoneModel.updateMany({ warehouse_id: whId }, { $set: { is_active: false } }, { session });
+      await this.binModel.updateMany({ warehouse_id: whId }, { $set: { is_active: false } }, { session });
+    });
+    return this.getWarehouse(warehouseId);
+  }
+
+  async reactivateWarehouse(warehouseId: string): Promise<WarehouseDocument> {
+    await this.getWarehouse(warehouseId);
+    await this.warehouseModel.updateOne({ _id: warehouseId }, { $set: { is_active: true } });
+    return this.getWarehouse(warehouseId);
+  }
+
+  async updateZone(zoneId: string, dto: UpdateZoneDto): Promise<WarehouseZoneDocument> {
+    if (dto.zone_name === undefined && dto.description === undefined) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.NOTHING_TO_UPDATE,
+        'Không có trường nào để cập nhật (chỉ sửa được zone_name, description).',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+    await this.assertZoneExists(zoneId);
+    const updated = await this.zoneModel.findByIdAndUpdate(
+      zoneId,
+      {
+        $set: {
+          ...(dto.zone_name !== undefined && { zone_name: dto.zone_name }),
+          ...(dto.description !== undefined && { description: dto.description }),
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    return updated ?? this.assertZoneExists(zoneId);
+  }
+
+  async deactivateZone(zoneId: string): Promise<WarehouseZoneDocument> {
+    const zone = await this.assertZoneExists(zoneId);
+    if (zone.is_active === false) return zone;
+
+    const zId = new Types.ObjectId(zoneId);
+    const binIds = (await this.binModel.find({ zone_id: zId }).select('_id').lean()).map((b) => b._id);
+    const units = binIds.length > 0 ? await this.countStockUnits({ bin_location_id: { $in: binIds } }) : 0;
+    if (units > 0) this.throwHasStock(`Khu "${zone.zone_code}"`, units, { zoneId });
+
+    await this.runInTransaction(async (session) => {
+      await this.zoneModel.updateOne({ _id: zId }, { $set: { is_active: false } }, { session });
+      await this.binModel.updateMany({ zone_id: zId }, { $set: { is_active: false } }, { session });
+    });
+    return this.assertZoneExists(zoneId);
+  }
+
+  async reactivateZone(zoneId: string): Promise<WarehouseZoneDocument> {
+    const zone = await this.assertZoneExists(zoneId);
+    await this.assertWarehouseActive(zone.warehouse_id.toString()); // kho đang tắt thì không bật khu
+    const zId = new Types.ObjectId(zoneId);
+    await this.runInTransaction(async (session) => {
+      await this.zoneModel.updateOne({ _id: zId }, { $set: { is_active: true } }, { session });
+      await this.binModel.updateMany({ zone_id: zId }, { $set: { is_active: true } }, { session });
+    });
+    return this.assertZoneExists(zoneId);
+  }
+
+  async deactivateBin(binId: string): Promise<BinLocationDocument> {
+    const bin = await this.assertBinExists(binId);
+    if (bin.is_active === false) return bin;
+    const units = await this.countStockUnits({ bin_location_id: bin._id });
+    if (units > 0) this.throwHasStock(`Kệ "${bin.bin_code}"`, units, { binId });
+    await this.binModel.updateOne({ _id: bin._id }, { $set: { is_active: false } });
+    return this.assertBinExists(binId);
+  }
+
+  async reactivateBin(binId: string): Promise<BinLocationDocument> {
+    const bin = await this.assertBinExists(binId);
+    const zone = await this.zoneModel.findById(bin.zone_id).lean();
+    if (zone?.is_active === false) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.ZONE_INACTIVE,
+        `Khu "${zone.zone_code}" đang bị vô hiệu hóa — kích hoạt lại khu trước.`,
+        HttpStatus.CONFLICT,
+        { binId, zoneId: bin.zone_id.toString() },
+      );
+    }
+    await this.binModel.updateOne({ _id: bin._id }, { $set: { is_active: true } });
+    return this.assertBinExists(binId);
   }
 }
