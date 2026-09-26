@@ -48,7 +48,6 @@ Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Or
 **Đảo luồng so với thiết kế ban đầu**: trước đây bước này xảy ra NGAY khi Order Group vừa tạo (trước cả khi lấy hàng). Giờ xảy ra **SAU KHI Warehouse Staff đã lấy hàng xong** (`picked`) — lý do nghiệp vụ: Packaging Staff cần nhìn hàng THẬT đã lấy về mới quyết định đóng gói thế nào, không quyết định trước khi biết chắc có đủ hàng hay không (xem đầy đủ ở Nghiệp vụ 3 và PHẦN C).
 
 Sơ đồ đúng hiện tại:
-
 ```
 Group tạo xong → auto-assign Warehouse Staff NGAY (xem Nghiệp vụ 2 — không còn
 chờ bước này kích hoạt nữa) → Lấy hàng (Nghiệp vụ 3) → PICKED
@@ -106,22 +105,22 @@ Gợi ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại lịc
 
 ### DB liên quan — `PackagingRecommendation`
 
-| Field                                     | Kiểu           | Ý nghĩa                                                                                               |
-| ----------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
-| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                                                            |
-| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc                                        |
-| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")                                                     |
-| `material_quantity`                       | Number         | Số lượng vật liệu cần                                                                                 |
-| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                                                                   |
-| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                                                           |
-| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật                                                 |
-| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                                                            |
-| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                                                           |
-| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                                                         |
-| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust                                                      |
-| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                                                              |
-| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử                                                      |
-| 🆕 `rejection_reason` (MỚI 21/09/2026)    | String\|null   | Lý do từ chối — chỉ có giá trị khi `approval_status: 'rejected'`, lưu trên chính bản ghi đã bị reject |
+| Field                                     | Kiểu           | Ý nghĩa                                                        |
+| ----------------------------------------- | -------------- | -------------------------------------------------------------- |
+| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                     |
+| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc |
+| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")              |
+| `material_quantity`                       | Number         | Số lượng vật liệu cần                                          |
+| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                            |
+| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                    |
+| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật          |
+| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                     |
+| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                    |
+| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                  |
+| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust               |
+| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                       |
+| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử               |
+| 🆕 `rejection_reason` (MỚI 21/09/2026)     | String\|null   | Lý do từ chối — chỉ có giá trị khi `approval_status: 'rejected'`, lưu trên chính bản ghi đã bị reject |
 
 **Ràng buộc quan trọng**: 1 Order Group tại 1 thời điểm chỉ có ĐÚNG 1 `PackagingRecommendation` với `is_active: true` (index unique có điều kiện) — nhưng có thể có NHIỀU bản `is_active: false` (lịch sử các lần reject trước đó).
 
@@ -168,6 +167,8 @@ Cả 3 tình huống trên **dùng chung đúng 1 API** (`POST /order-groups/:id
 
 ## 🆕 Nghiệp vụ 2b — Thiết lập kho (Warehouse Setup) — MỚI, bổ sung 16/09/2026, viết lại dễ hiểu hơn 20/09/2026
 
+> 🔄 **ĐÃ ĐỔI (26/09/2026)** — phần quản lý kho đã tách thành file riêng **`INTEGRATION_GUIDE_WAREHOUSE.md`** (thêm sửa/vô hiệu hóa kho-khu-kệ, Product Master, các lỗi mới khi thao tác trên kho đã tắt, và lộ trình làm lại kho K2-K5). Mục 2b dưới đây giữ nguyên để tham chiếu 4 bước tạo kho; mọi thay đổi mới chỉ cập nhật ở file kho.
+
 **Vì sao mục này mới xuất hiện dù `warehouse/` đã có từ trước**: các mục khác trong file chỉ nói tới việc **DÙNG** dữ liệu kho (Picking đọc `bin_location`/`sku_bin_assignment` đã có sẵn) — nhưng chưa từng có hướng dẫn cho bước **TẠO RA** dữ liệu đó (Admin phải làm TRƯỚC KHI bất kỳ đơn nào có thể Picking). Đây là khoảng trống tài liệu thật, không phải do API mới — chỉ là tới giờ mới rà thấy.
 
 ### Hình dung bằng đời thực trước khi đọc kỹ thuật
@@ -203,7 +204,6 @@ POST /warehouse/warehouses
 Body: { "warehouse_code": "WH-HCM-01", "warehouse_name": "Kho TP.HCM - Quận 7", "address": "123 Đường ABC, Quận 7, TP.HCM" }
 → 201: { "id": "...", "warehouseCode": "WH-HCM-01", "warehouseName": "...", "address": "...", "isActive": true }
 ```
-
 Chỉ vậy — hệ thống giờ biết "có 1 kho tên WH-HCM-01", nhưng kho còn **trống trơn**, chưa chia khu, chưa có kệ nào.
 
 Xem lại: `GET /warehouse/warehouses` — danh sách toàn bộ kho. 🔄 **ĐÃ ĐỔI (19/09/2026)** — route này giờ mở thêm cho **Warehouse Staff** (trước chỉ Admin) — vì `picking-list`/`pick-item`/`report-missing` (Warehouse Staff phải gọi hàng ngày) đều bắt buộc `warehouse_id`, cần có cách để họ tự biết ID kho mình đang làm việc, không hardcode tay.
@@ -215,7 +215,6 @@ POST /warehouse/warehouses/:warehouseId/zones
 Body: { "zone_code": "A", "zone_name": "Phụ kiện điện tử", "description": "Khu chứa cáp sạc, tai nghe, phụ kiện nhỏ" }  // description optional
 → 201: { "id": "...", "warehouseId": "...", "zoneCode": "A", "zoneName": "...", "description": "..." }
 ```
-
 Với ví dụ đang dùng: `zone_code: "A"`, `zone_name: "Phụ kiện điện thoại"` — giờ trong kho WH-HCM-01 có 1 khu tên "A" chuyên chứa ốp lưng/phụ kiện.
 
 **Lưu ý dễ nhầm**: `zone_code` chỉ cần **duy nhất TRONG 1 kho**, không phải duy nhất toàn hệ thống — mở thêm 1 kho ở Hà Nội, khu ở đó cũng đặt tên "A" được bình thường, 2 kho là 2 "thế giới" tách biệt hoàn toàn (xem lý do thiết kế kỹ hơn ở tài liệu giảng giải hệ thống, mục II.7).
@@ -229,13 +228,11 @@ POST /warehouse/zones/:zoneId/bin-locations/generate
 Body: { "aisle": "03", "rack_from": 1, "rack_to": 10, "level_from": 1, "level_to": 4 }
 → 201: { "created": 40 }   // 10 rack × 4 level = 40 kệ, sinh trong 1 lần gọi (bulkWrite, xem tài liệu giảng giải mục III.6)
 ```
-
 Thay vì gọi API 40 lần để tạo tay từng ngăn kệ, chỉ cần khai "tôi muốn dãy 03, kệ số 1 tới 10, mỗi kệ 4 tầng" — hệ thống **tự sinh ra đủ 40 vị trí trong 1 lần gọi**, tự đặt tên dạng `"{zone_code}-{aisle}-{rack:02}-{level:02}"` (VD `"A-03-01-01"` = khu A, dãy 03, kệ 01, tầng 01). FE **không cần tự nghĩ tên kệ**, chỉ cần khai đúng khoảng (range).
 
 ⚠️ Gọi lại ĐÚNG khoảng đã tạo trước đó **không báo lỗi, không tạo trùng** (idempotent — `upsert`) — an toàn nếu Admin lỡ bấm 2 lần. Nhưng KHÔNG dùng tính chất này để "sinh thêm" — muốn mở rộng khoảng, gọi API MỚI với range khác (VD `rack_from: 11, rack_to: 15`), đừng gọi lại range cũ với ý định "cộng thêm".
 
 Xem lại (🆕 MỚI 16/09/2026 — trước đây KHÔNG có cách nào xem lại):
-
 ```
 GET /warehouse/zones/:zoneId/bin-locations              → kệ trong 1 khu
 GET /warehouse/warehouses/:warehouseId/bin-locations    → TOÀN BỘ kệ trong 1 kho (mọi khu gộp)
@@ -253,11 +250,9 @@ Body: {
 }
 → 201: { "id": "...", "warehouseId": "...", "platform": "lazada", "shopId": "...", "sellerSku": "OPLUNG-IP15", "binLocationId": "...", "quantityOnHand": 0 }
 ```
-
 Giờ hệ thống biết chính xác: "ốp lưng iPhone 15 nằm ở đúng kệ A-03-01-01" — đây là mảnh ghép CUỐI CÙNG, sau bước này SKU đã sẵn sàng để tính vào Picking List khi có đơn.
 
 **Nhập thêm hàng sau đó** (nghiệp vụ RIÊNG, không phải gán lại):
-
 ```
 POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock
 Body: { "quantity": 50 }   // CỘNG DỒN vào quantityOnHand hiện có, KHÔNG ghi đè
@@ -268,7 +263,7 @@ Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-b
 ### Mã lỗi riêng mục này
 
 | Mã                            | HTTP    | Khi nào                                                                                                |
-| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
+| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------------ |
 | `WH_WAREHOUSE_NOT_FOUND`      | 404/400 | `warehouseId` không tồn tại hoặc sai định dạng ObjectId                                                |
 | `WH_ZONE_NOT_FOUND`           | 404/400 | `zoneId` không tồn tại hoặc sai định dạng ObjectId                                                     |
 | `WH_INVALID_BIN_RANGE`        | 400     | `rack_from > rack_to` hoặc `level_from > level_to` ở Bước 3                                            |
@@ -519,7 +514,6 @@ Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **đi
 ```
 
 **3 khác biệt cốt lõi so với thiết kế ban đầu** (đọc kỹ nếu đã quen sơ đồ cũ):
-
 1. `awaiting_packaging` giờ chỉ là trạng thái THOÁNG QUA lúc mới tạo group — auto-assign Warehouse Staff xảy ra NGAY, không cần ai Approve gì trước.
 2. Khối "Đóng gói" (generate/approve/adjust/reject) giờ nằm SAU khối "Lấy hàng" — trước đây ngược lại.
 3. Reject giờ quay về `picked` (không phải `awaiting_packaging`) — hàng đã lấy xong rồi, không cần lấy lại.

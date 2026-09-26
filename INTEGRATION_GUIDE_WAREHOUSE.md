@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Quản lý Kho (Warehouse Management)
 
-**Phiên bản v1.0 — 26/09/2026 (bước K1 của đợt làm lại kho).** Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng.
+**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng.
 
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
 
@@ -197,6 +197,164 @@ Body: { "package_weight_kg": 0.08, "is_fragile": true }      // gửi field nào
 
 ---
 
+# PHẦN B2 — BỐ CỤC KHO CHUẨN MỚI (bước K2) 🆕
+
+## B2.1. Mã ô chuẩn mới — đọc mã là biết hàng gì
+
+```
+KA - D1 - P02 - T03 - 1
+│    │    │     │     └ Ô số 1 (1 thùng trên tầng)      → 1 MÀU      (VD đen)
+│    │    │     └────── Tầng 3                          → 1 SIZE     (VD M)
+│    │    └──────────── Bên Phải, kệ số 02              → 1 LOẠI     (VD Áo thun)
+│    └───────────────── Dãy 1                           → nhóm hàng  (VD dãy Áo)
+└────────────────────── Khu A (chuẩn mới: KA..KZ)
+```
+
+- Bên kệ: `T` = trái, `P` = phải (theo lối đi, nhìn từ đầu dãy).
+- Kệ và tầng luôn 2 chữ số (`P02`, `T03`) để mã dài đều nhau, dễ đọc trên nhãn.
+- **Kệ chuẩn cũ** (`A-03-01-01`) **vẫn chạy bình thường** — không bị xóa, không phải đổi. Response có `layoutVersion: 1` để FE phân biệt.
+
+## B2.2. Danh mục sản phẩm 2 cấp — tạo TRƯỚC khi tạo kệ
+
+```
+Cấp 1 (chỉ để nhóm, KHÔNG có size)    Cấp 2 (loại thật, BẮT BUỘC có thang size)
+AO   Áo                          →    ATHUN  Áo thun      [S, M, L, XL]
+                                      ASOMI  Áo sơ mi     [S, M, L, XL, XXL]
+GIAY Giày                        →    GUOC   Guốc         [35, 36, 37, 38, 39, 40]
+```
+
+```
+POST /categories                 Body cấp 1: { "code": "AO", "name": "Áo" }
+                                 Body cấp 2: { "code": "ATHUN", "name": "Áo thun", "parent_code": "AO", "size_scale": ["S","M","L","XL"] }
+GET  /categories                 → cây: [{ "code":"AO", ..., "children":[{ "code":"ATHUN", "sizeScale":[...] }] }]
+GET  /categories/:code
+PATCH /categories/:code          Body: { "name"?: "...", "size_scale"?: [...] }   (không sửa code, parent_code)
+DELETE /categories/:code         → vô hiệu hóa
+POST /categories/:code/reactivate
+```
+
+| Tình huống | Kết quả |
+|---|---|
+| Cấp 2 không có `size_scale` | `400 CAT_SIZE_SCALE_REQUIRED` |
+| Cấp 1 có `size_scale` | `400 CAT_SIZE_SCALE_NOT_ALLOWED` |
+| Tạo cấp 3 (cha là cấp 2) | `400 CAT_PARENT_NOT_LEVEL_1` — chỉ hỗ trợ 2 cấp |
+| Mã trùng | `409 CAT_CODE_IN_USE` |
+| Bỏ 1 size khỏi thang mà đang có ô kệ đăng ký size đó | `409 CAT_SIZE_IN_USE` + số ô đang dùng — đổi đăng ký các ô trước |
+| Tắt cấp 1 còn con đang bật | `409 CAT_HAS_ACTIVE_CHILDREN` |
+| Tắt cấp 2 đang có ô kệ đăng ký | `409 CAT_IN_USE` |
+| Bật lại cấp 2 khi cha đang tắt | `409 CAT_PARENT_INACTIVE` |
+
+**Vì sao giới tính (nam/nữ) KHÔNG phải cấp danh mục:** áo thun có cả nam, nữ, unisex — làm thành danh mục thì cây nhân ba và báo cáo "bán bao nhiêu áo thun" phải cộng 3 nhánh. Giới tính sẽ là thuộc tính của mẫu sản phẩm (bước K4).
+
+## B2.3. Tạo kệ chuẩn mới — 1 lần gọi tạo cả kệ
+
+```
+POST /warehouse/zones/:zoneId/racks
+Body: {
+  "aisle": "D1",
+  "side": "P",
+  "bay": 2,
+  "category_code": "ATHUN",
+  "tiers": [ { "tier": 1, "size": "XL" }, { "tier": 2, "size": "L" }, { "tier": 3, "size": "M" },
+             { "tier": 4, "size": "S" } ],
+  "cells_per_tier": 3,
+  "cell_colors": ["DEN", "TRANG", "VANG"],     // tùy chọn, độ dài = cells_per_tier
+  "capacity_per_cell": 30                       // tùy chọn, bỏ trống = không giới hạn
+}
+→ 201: [ 12 ô, đã sắp theo lộ trình ]
+  { "binCode": "KA-D1-P02-T01-1", "layoutVersion": 2, "side": "P", "cell": 1, "capacity": 30,
+    "designated": { "categoryCode": "ATHUN", "size": "XL", "colorCode": "DEN" }, "pickSequence": 1010203011, "isActive": true, ... }
+```
+
+Ví dụ trên tạo kệ số 2 bên phải dãy D1: 4 tầng × 3 ô = **12 ô**, ô 1 mọi tầng là màu đen, ô 2 trắng, ô 3 vàng.
+
+**Khuyến nghị xếp size theo tầng:** vùng lấy hàng dễ nhất là khoảng giữa đùi tới giữa ngực (tầng 2-3). Đặt **size bán chạy nhất** (thường M, L) ở tầng 2-3; tầng 1 sát sàn và tầng trên cùng cho size bán chậm. Hệ thống không ép thứ tự — Admin tự khai tầng nào size gì.
+
+| Tình huống | Kết quả |
+|---|---|
+| Khu dùng mã cũ (VD `A`) | `409 WH_ZONE_LEGACY_FORMAT` — kệ chuẩn mới chỉ tạo trong khu `KA..KZ` |
+| Danh mục là cấp 1 / đã tắt / không tồn tại | `400 CAT_NOT_LEVEL_2` / `409 CAT_INACTIVE` / `404 CAT_NOT_FOUND` |
+| Size tầng không thuộc thang size | `400 WH_SIZE_NOT_IN_SCALE` (kèm thang size đúng) |
+| Khai trùng tầng / số màu khác số ô | `400 WH_INVALID_RACK_LAYOUT` |
+| Kệ (dãy + bên + số kệ) đã có | `409 WH_RACK_EXISTS` — không trộn đăng ký cũ/mới |
+| Khu/kho đã tắt | `409 WH_ZONE_INACTIVE` / `WH_WAREHOUSE_INACTIVE` |
+| Giới hạn | Tầng 1-9, ô 1-9 (tối đa 81 ô/lần), kệ 1-99, dãy D1-D99 |
+
+Tạo ô là **tất cả hoặc không** — lỗi giữa chừng thì không ô nào được tạo.
+
+🔄 `POST .../bin-locations/generate` (chuẩn cũ) được đánh dấu **deprecated** trên Swagger — vẫn gọi được nhưng không nên dùng cho kệ mới (không giới hạn khoảng, không có danh mục/size/màu).
+
+## B2.4. Sửa 1 ô — sức chứa và thuộc tính đăng ký
+
+```
+PATCH /warehouse/bin-locations/:binId
+Body: { "capacity": 40, "designated_size": "M", "designated_color_code": "XANH" }   // gửi field nào sửa field đó
+      { "capacity": null }                                                         // bỏ giới hạn sức chứa
+```
+
+| Tình huống | Kết quả |
+|---|---|
+| Hạ sức chứa xuống dưới số hàng đang có | `409 WH_BIN_OVER_CAPACITY` |
+| Size không thuộc thang size danh mục | `400 WH_SIZE_NOT_IN_SCALE` |
+| Đăng ký size mà ô chưa có danh mục | `400 WH_INVALID_RACK_LAYOUT` |
+| Mã ô, vị trí vật lý | Không sửa được (đã in nhãn) |
+
+
+> 🔄 **Rà soát K2 (26/09/2026) — ĐỔI ĐĂNG KÝ Ô ĐANG CÓ HÀNG BỊ CHẶN:** đổi danh mục/size/màu của ô còn hàng → `409 WH_BIN_HAS_STOCK_DESIGNATION` (kèm `details.unitsInStock`). Lý do: nhãn hệ thống ghi "size M" mà thùng thật vẫn chứa size L thì nhân viên lấy nhầm. Chuyển hết hàng ra trước. **Đổi sức chứa khi ô còn hàng vẫn được** (miễn không thấp hơn số đang có).
+
+## B2.5. Sức chứa ô khi xếp/nhập hàng 🔄
+
+Sức chứa tính trên **tổng hàng của mọi SKU đang nằm trong ô** (đơn vị sản phẩm). Áp dụng cho:
+- Gán SKU vào kệ (`POST .../sku-bin-assignments`)
+- Nhập thêm hàng (`POST .../restock`)
+
+Vượt sức chứa → `409 WH_BIN_OVER_CAPACITY` với `details: { capacity, current, incoming }`. **FE:** hiện hộp thoại "Ô này chứa tối đa 30, đang có 25, thêm 10 sẽ vượt — vẫn xếp?" → nếu người dùng xác nhận, gửi lại cùng body kèm `"force": true`. Ô không khai sức chứa (kệ cũ, hoặc `capacity: null`) thì không kiểm tra.
+
+## B2.6. Gợi ý ô để xếp hàng
+
+```
+GET /warehouse/warehouses/:warehouseId/bin-suggestions?category_code=ATHUN&size=M&color_code=DEN
+→ 200: [
+  { "bin": { "binCode": "KA-D1-P02-T03-1", ... }, "matchLevel": 3, "usedUnits": 5, "freeCapacity": 25 },
+  { "bin": { "binCode": "KA-D1-P02-T03-2", ... }, "matchLevel": 2, "usedUnits": 0, "freeCapacity": 30 },
+  ...
+]
+```
+
+- `matchLevel`: **3** = đúng danh mục + size + màu; **2** = đúng danh mục + size; **1** = cùng danh mục.
+- Chỉ gợi ý ô **còn chỗ**; tối đa 20 ô; cùng mức thì ô trống nhiều hơn đứng trước.
+- Đây là **gợi ý**, không bắt buộc — Admin vẫn chọn ô khác được (VD hết chỗ, xếp tạm).
+- Ai gọi: Admin, Warehouse Staff.
+
+## B2.7. Picking List theo lộ trình hình rắn 🔄
+
+Trước K2, Picking List sắp theo chữ cái của mã kệ → nhân viên đi hết 1 dãy rồi phải **quay về đầu** dãy sau, và đi hết bên phải rồi mới quay lại bên trái. Từ K2, mỗi ô chuẩn mới có `pickSequence` tính sẵn:
+
+```
+        D1 (đi xuôi ↓)        D2 (đi ngược ↑)
+Kệ 1   [T][P]  ──┐           ┌──  [T][P]   ← kết thúc
+Kệ 2   [T][P]    │           │    [T][P]
+Kệ 3   [T][P]    ↓           ↑    [T][P]
+       cuối D1 ──┴───────────┘  đầu D2
+```
+
+- Dãy lẻ đi xuôi, dãy chẵn đi ngược → hết dãy này là đang đứng ở đầu dãy kế.
+- Đứng ở 1 vị trí thì lấy cả 2 bên (T trước, P sau).
+- **Kho đang chuyển đổi** (có cả kệ cũ lẫn kệ mới): dòng ở kệ mới đi trước theo lộ trình, dòng ở kệ cũ và dòng "CHƯA GÁN VỊ TRÍ" đi sau theo cách sắp cũ. Mỗi dòng Picking List có thêm `pick_sequence` (`null` = kệ cũ/chưa gán).
+
+---
+
+## B2.8. Product Master — bỏ sửa tay 🆕
+
+```
+DELETE /product-master/:id/manual-override   (Admin, Store Owner)
+→ 200: { ..., "manualOverride": false, "manualOverrideAt": null }
+```
+
+Số hiện tại **giữ nguyên** cho tới lần đồng bộ kế tiếp (cron 3h sáng hoặc chạy script đồng bộ tay) — lúc đó mới lấy lại số liệu Lazada. Dùng khi Admin sửa tay nhầm, hoặc Lazada đã cập nhật số đúng.
+
+---
+
 # PHẦN C — TÁC ĐỘNG TỚI DỮ LIỆU VÀ LUỒNG ĐÃ CÓ
 
 ## C.1. Dữ liệu cũ trong DB — không cần chạy script gì
@@ -230,13 +388,41 @@ Product Master cũ không có `manual_override` → coi là chưa sửa tay → 
 | Gán SKU không kiểm tra kệ (mục B.5) | ✅ Đã sửa trong K1 |
 | Trừ tồn khi quét và Picking List chỉ lọc theo `kho + seller_sku`, **không lọc sàn/shop**. Nếu 2 sàn (hoặc 2 shop) có SKU trùng chuỗi trong cùng kho → có thể trừ nhầm tồn của sàn kia | ⚠️ Chưa sửa — hiện chưa xảy ra vì dữ liệu chỉ có 1 shop Lazada. Bước K4 (SKU nội bộ, 1 tồn chung cho mọi sàn) xử lý tận gốc |
 
+## C.5. Tác động của K2 🔄
+
+**Dữ liệu cũ:** kệ tạo trước K2 không có các trường mới → response trả `layoutVersion: 1`, `side/cell/capacity/designated/pickSequence = null`. **Không cần migration, không bị xóa.** Kệ chuẩn mới vẫn ghi `rack` (= số kệ) và `level` (= số tầng) nên màn hình cũ đọc 2 trường này không vỡ.
+
+**Route cũ đổi hành vi:**
+
+| Route | Thay đổi | FE phải làm |
+|---|---|---|
+| `POST .../warehouses/:id/zones` | `zone_code` bắt buộc dạng `KA..KZ` | Validate ô nhập mã khu; khu cũ đã tạo không bị ảnh hưởng |
+| `POST .../sku-bin-assignments`, `POST .../restock` | Có thể trả `409 WH_BIN_OVER_CAPACITY`; nhận thêm `force` | Hộp thoại xác nhận + gửi lại kèm `force: true` |
+| `GET .../picking-list/:groupId` | Thứ tự mới; mỗi dòng có `pick_sequence` | Hiển thị đúng thứ tự API trả, KHÔNG tự sắp lại theo mã kệ |
+| Mọi GET kệ | Response có thêm 6 trường | Hiển thị mã kệ mới + danh mục/size/màu của ô |
+| `POST .../bin-locations/generate` | Deprecated | Chuyển form tạo kệ sang `POST .../racks` |
+
+**Không bị ảnh hưởng:** đồng bộ đơn, gộp đơn, quét lấy hàng, báo thiếu, đóng gói, thông báo, Product Master.
+
+**Kế hoạch bỏ chuẩn cũ:** khi mọi ô kệ cũ đã hết hàng → vô hiệu hóa các khu mã cũ (`DELETE /warehouse/zones/:id`). Không cần xóa dữ liệu.
+
+### C.5b. Rà soát lại code K2 (26/09/2026) — 2 lỗ hổng đã sửa
+
+| Lỗ hổng | Hậu quả nếu không sửa | Đã xử lý |
+|---|---|---|
+| Ô đang có hàng vẫn đổi được danh mục/size/màu đăng ký | Nhãn hệ thống và hàng thật lệch nhau → lấy nhầm hàng | Chặn `409 WH_BIN_HAS_STOCK_DESIGNATION` |
+| Route sinh kệ **kiểu cũ** (`.../bin-locations/generate`, đã lỗi thời) vẫn chạy trong khu chuẩn mới `KA..KZ` | 1 khu lẫn 2 kiểu mã (`KA-03-01-01` và `KA-D1-P02-T03-1`), lộ trình lấy hàng lẫn lộn | Ở khu `KA..KZ` trả `409 WH_ZONE_V2_USE_RACKS`; khu mã cũ vẫn dùng route cũ được (tương thích ngược) |
+
+**FE cần làm thêm:** bắt 2 mã lỗi trên; ẩn nút "Sinh kệ kiểu cũ" ở khu có mã `KA..KZ`; thêm nút "Bỏ sửa tay" ở Product Master (B2.8).
+
+
 ---
 
 # PHẦN D — ĐỢT LÀM LẠI KHO: CÁC BƯỚC TIẾP THEO ⏳ (CHƯA CÓ, chỉ để FE chuẩn bị)
 
 | Bước | Nội dung | FE sẽ phải làm gì |
 |---|---|---|
-| **K2** | Mã kệ 5 phần `KA-D1-PH02-T03-1` (Khu-Dãy-Bên+Kệ-Tầng-Ô); sức chứa từng ô; thứ tự lộ trình hình rắn; danh mục 2 cấp (Áo → Áo thun...) + thang size; mỗi ô đăng ký danh mục/size/màu | Form sinh kệ đổi hoàn toàn; hiển thị mã kệ mới. **Dữ liệu kệ thử nghiệm hiện tại sẽ bị xóa làm lại** |
+| ~~K2~~ | ✅ **ĐÃ XONG 26/09/2026** — xem PHẦN B2, C.5, C.5b. Ký hiệu bên `T`/`P` theo quy ước nhóm (đổi 1 dòng trong `warehouse-layout.ts` nếu cần). Kệ cũ không phải xóa, chạy song song | — |
 | **K3** | Sổ cái biến động kho; điều chỉnh kiểm kê (bắt lý do); chuyển hàng giữa các ô; 1 SKU nằm nhiều ô | Màn hình kiểm kê, chuyển ô; Picking List có thể chỉ 1 SKU lấy từ nhiều ô |
 | **K4** | SKU nội bộ (`GUOC-005-DEN-37`) + bảng nối SKU Lazada/Tiki; 1 tồn chung mọi sàn; thao tác "Thay thế SKU" | Màn hình nối SKU sàn; gán kệ theo SKU nội bộ thay vì SKU sàn |
 | **K5** | Tồn khả dụng + giữ chỗ chống bán lố giữa các sàn | Hiển thị 2 con số: tồn thực và tồn khả dụng |
@@ -245,7 +431,7 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 
 ---
 
-# PHẦN E — ĐIỂM CÒN YẾU CỦA PHẦN KHO SAU K1 (nói thẳng để FE/nhóm biết)
+# PHẦN E — ĐIỂM CÒN YẾU CỦA PHẦN KHO SAU K1 + K2 (nói thẳng để FE/nhóm biết)
 
 1. **Chưa ghi ai tắt/bật, lúc nào.** Có trạng thái nhưng không có nhật ký thao tác quản trị. → Làm cùng sổ cái ở K3.
 2. **Khe thời gian hẹp khi tắt kho:** hệ thống kiểm tồn = 0 rồi mới tắt; nếu đúng giữa 2 bước đó có người nhập hàng thì kho bị tắt khi vẫn còn hàng. Rất hiếm (Admin tắt kho và nhân viên nhập hàng cùng lúc). → Xử lý triệt để ở K3 khi mọi thay đổi tồn đi qua sổ cái.
@@ -253,6 +439,31 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 4. **Nhập hàng chỉ là 1 con số** — không có phiếu nhập, nhà cung cấp, người nhận hàng. → K3.
 5. **Chưa có cảnh báo tồn kho thấp.** → Đề xuất thêm sau K3 (dùng lại hệ thống thông báo sẵn có).
 6. **Product Master chỉ có SKU đã từng có đơn** (thiết kế cũ để tiết kiệm lượt gọi Lazada) — sản phẩm mới chưa ai mua thì không có kích thước. → Bước K4 cho phép tạo SKU nội bộ kèm kích thước ngay từ đầu, không phụ thuộc đơn hàng.
+
+**Phát hiện thêm khi làm K2 (rà lại cách vận hành):**
+
+7. **Nhân viên và nhóm đơn không gắn với kho nào.** Tự động gán việc chọn trong TOÀN BỘ Warehouse Staff của hệ thống; kho để lấy hàng do FE chọn lúc mở Picking List. 1 kho thì không sao; 2 kho trở lên thì nhân viên kho A có thể bị giao đơn phải lấy ở kho B, và không có quy tắc nào quyết định đơn nào do kho nào xử lý. → Cần thêm "kho phục vụ" cho nhóm đơn + "kho làm việc" cho nhân viên (đề xuất làm cùng K5).
+8. **Kiểm tra sức chứa khi nhập hàng chưa tuyệt đối an toàn** khi 2 người nhập cùng 1 ô cùng lúc (cả 2 có thể cùng lọt). → K3 (mọi thay đổi tồn đi qua sổ cái).
+9. **Sức chứa tính theo số cái, không theo thể tích** — 30 đôi tất và 30 áo khoác chiếm chỗ khác hẳn nhau. → Có thể tính theo thể tích khi có kích thước sản phẩm chuẩn (K4).
+10. **Màu là mã chữ tự do** (`DEN`, `TRANG`) — gõ nhầm `DENN` là thành 1 màu khác. → Danh mục màu chuẩn làm cùng SKU nội bộ (K4).
+11. **Gán SKU vào ô chưa đối chiếu được danh mục/size/màu** vì SKU sàn chưa có các thuộc tính này — quy tắc "lệch thì bắt lý do" chưa áp được. → K4.
+12. **Gợi ý ô chưa ưu tiên ô SKU đang nằm sẵn** (để gom hàng về 1 chỗ). → K3 (1 SKU nhiều ô).
+13. **Danh sách "SKU chưa gán kệ" không phân biệt kho** và tải toàn bộ dữ liệu vào bộ nhớ — SKU đã gán ở kho 1 bị coi là đã gán ở mọi kho. → Sửa cùng K4.
+14. **Lộ trình hình rắn giả định mỗi dãy chỉ có 1 lối đi, vào từ đầu dãy.** Kho có lối cắt ngang giữa dãy thì thứ tự chưa tối ưu. Chấp nhận được cho quy mô hiện tại.
+
+**Sau K2 (rà soát 26/09/2026):**
+
+- **Không mở rộng được kệ đã tạo** (thêm tầng/ô) — gọi lại trả `WH_RACK_EXISTS`; phải tạo kệ số khác. → Bổ sung thao tác "mở rộng kệ".
+- **Không tắt được cả kệ trong 1 lần** — phải tắt từng ô (kệ 5×3 = 15 lần gọi). → Bổ sung "tắt kệ".
+- **Mã màu gõ tự do** — `DEN` và `DENN` bị coi là 2 màu khác (cùng loại lỗi gõ tay SKU). → Danh mục màu chuẩn, làm cùng K4 (SKU nội bộ cũng cần màu chuẩn).
+- **Gợi ý ô chưa biết SKU cụ thể** (chưa có SKU nội bộ) → chưa ưu tiên ô đang chứa đúng SKU đó, có thể rải 1 SKU ra nhiều ô. → K3/K4.
+- **Lộ trình hình rắn giả định mặt bằng**: dãy lẻ vào từ kệ 01, dãy chẵn vào từ cuối, mỗi khu đánh số dãy lại từ D1. Kho có mặt bằng khác thì thứ tự chưa tối ưu. → Cấu hình mặt bằng theo kho (sau K5).
+- **Kiểm sức chứa khi nhập hàng không nguyên tử** — 2 lần nhập cùng lúc vào cùng ô có thể cùng lọt. → K3 (sổ cái).
+- **Gán SKU sang kệ khác = chuyển hàng không ghi lịch sử** (hành vi có từ trước K1). → K3 thay bằng thao tác "chuyển ô" có sổ cái.
+- **Không xóa được đăng ký của 1 ô** (đặt về "không danh mục") — nhỏ.
+- **Tối đa 26 khu/kho** (`KA..KZ`) — đủ cho quy mô shop, ghi nhận để biết.
+- **Kho đang chuyển đổi** (kệ cũ + mới): Picking List đi hết kệ mới rồi mới tới kệ cũ — đúng, nhưng quãng đường chưa tối ưu trong thời gian chuyển đổi.
+
 
 ---
 
@@ -283,9 +494,19 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 | POST | `.../sku-bin-assignments/:assignmentId/restock` | Admin | 🔄 chặn khi kho tắt |
 | GET | `/warehouse/sku-bin-assignments/unassigned` | Admin | |
 | GET | `/warehouse/:warehouseId/picking-list/:groupId` | Warehouse, Admin | 🔄 chặn khi kho tắt |
+| POST | `/warehouse/zones/:zoneId/racks` | Admin | 🆕 K2 tạo kệ chuẩn mới |
+| PATCH | `/warehouse/bin-locations/:binId` | Admin | 🆕 K2 sức chứa + đăng ký ô |
+| GET | `/warehouse/warehouses/:warehouseId/bin-suggestions` | Admin, Warehouse | 🆕 K2 gợi ý ô |
+| GET | `/categories` | Admin, Store Owner, Warehouse, Packaging | 🆕 K2 cây danh mục |
+| GET | `/categories/:code` | (như trên) | 🆕 K2 |
+| POST | `/categories` | Admin | 🆕 K2 |
+| PATCH | `/categories/:code` | Admin | 🆕 K2 tên + thang size |
+| DELETE | `/categories/:code` | Admin | 🆕 K2 vô hiệu hóa |
+| POST | `/categories/:code/reactivate` | Admin | 🆕 K2 |
 | GET | `/product-master` | Admin, Store Owner, Packaging | 🆕 |
 | GET | `/product-master/:id` | Admin, Store Owner, Packaging | 🆕 |
 | PATCH | `/product-master/:id` | Admin, Store Owner | 🆕 bật `manualOverride` |
+| DELETE | `/product-master/:id/manual-override` | Admin, Store Owner | 🆕 K2 bỏ sửa tay |
 
 ## F.2. Mã lỗi
 
@@ -302,8 +523,16 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 | 🆕 `WH_NOTHING_TO_UPDATE` | 400 | PATCH body rỗng |
 | `WH_INVALID_BIN_RANGE` | 400 | Khoảng sinh kệ sai |
 | `WH_WAREHOUSE_CODE_IN_USE` / `WH_ZONE_CODE_IN_USE` | 409 | Trùng mã khi tạo |
+| 🆕 `WH_ZONE_LEGACY_FORMAT` | 409 | Tạo kệ chuẩn mới trong khu mã cũ |
+| 🆕 `WH_RACK_EXISTS` | 409 | Kệ đã tồn tại |
+| 🆕 `WH_INVALID_RACK_LAYOUT` | 400 | Tầng trùng, số màu ≠ số ô, size không có danh mục |
+| 🆕 `WH_SIZE_NOT_IN_SCALE` | 400 | Size không thuộc thang size danh mục |
+| 🆕 `WH_BIN_OVER_CAPACITY` | 409 | Vượt sức chứa ô — gửi lại kèm `force: true` nếu chấp nhận |
+| 🆕 `CAT_*` | 400/404/409 | Xem bảng mục B2.2 |
 | 🆕 `PM_INVALID_ID` / `PM_NOT_FOUND` | 400/404 | Id Product Master sai / không tồn tại |
 | 🆕 `PM_NOTHING_TO_UPDATE` | 400 | PATCH body rỗng |
+| 🆕 `WH_ZONE_V2_USE_RACKS` | 409 | Gọi sinh kệ kiểu cũ trong khu `KA..KZ` — dùng `POST .../racks` |
+| 🆕 `WH_BIN_HAS_STOCK_DESIGNATION` | 409 | Đổi danh mục/size/màu của ô còn hàng |
 
 ## F.3. Checklist test cho FE
 
@@ -316,3 +545,18 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] Warehouse Staff gọi danh sách kho với `include_inactive=true` → vẫn chỉ thấy kho đang hoạt động
 - [ ] Sửa cân nặng 1 SKU Product Master → `manualOverride: true`, 3 cạnh kích thước không đổi
 - [ ] Product Master có kích thước `null` → UI hiện "Chưa có kích thước", không báo lỗi
+
+## F.4. Checklist test cho FE — K2
+
+- [ ] Tạo danh mục cấp 2 thiếu thang size → 400; tạo cấp 3 → 400
+- [ ] Tạo khu mã `A` → 400 (sai định dạng); tạo khu `KA` → OK
+- [ ] Tạo kệ 4 tầng × 3 ô → nhận 12 ô, mã đúng `KA-D1-P02-T01-1`..., đã sắp theo lộ trình
+- [ ] Tạo lại đúng kệ đó → `WH_RACK_EXISTS`
+- [ ] Tạo kệ trong khu mã cũ → `WH_ZONE_LEGACY_FORMAT`
+- [ ] Nhập hàng vượt sức chứa → hộp thoại xác nhận → gửi `force: true` → thành công
+- [ ] Bỏ size `L` khỏi thang size khi đang có ô đăng ký `L` → `CAT_SIZE_IN_USE`
+- [ ] Gợi ý ô: ô khớp đủ 3 thuộc tính đứng đầu, ô đã đầy không xuất hiện
+- [ ] Picking List kho có cả kệ cũ và mới → dòng kệ mới đứng trước theo lộ trình
+- [ ] 🆕 Rà soát K2: đổi size của ô đang có hàng → `WH_BIN_HAS_STOCK_DESIGNATION`; ô trống → đổi được
+- [ ] 🆕 Rà soát K2: gọi sinh kệ kiểu cũ trong khu `KA` → `WH_ZONE_V2_USE_RACKS`; trong khu mã cũ `A` → vẫn chạy
+- [ ] 🆕 Rà soát K2: "Bỏ sửa tay" Product Master → `manualOverride: false`, kích thước chưa đổi ngay

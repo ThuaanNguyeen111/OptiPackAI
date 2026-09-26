@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-16 (thêm 3 route GET + sửa 1 lỗi ở mục 9 — Warehouse).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-26 (K1 + K2 — xem `INTEGRATION_GUIDE_WAREHOUSE.md`).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -61,17 +61,17 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 ## 6. Order Groups — Fulfillment (ghi trạng thái)
 
-| Method | Route                                          | Role                           | Mô tả                                                                |
-| ------ | ---------------------------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| POST   | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin               | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng |
-| POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin               | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
-| POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin               | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại                         |
-| POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin               | Xác nhận đã lấy xong TOÀN BỘ nhóm đơn                                |
-| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | Xác nhận đã đóng gói xong — mở thêm Packaging Staff (21/09/2026)     |
-| POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin                | Xác nhận đã bàn giao vận chuyển                                      |
-| POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin                | Xác nhận đã giao thành công tới khách                                |
-| POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin     | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |
-| PATCH  | `/order-groups/:id/priority`                   | **Store Owner**, Admin         | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói               |
+| Method | Route                                          | Role                       | Mô tả                                                                |
+| ------ | ---------------------------------------------- | -------------------------- | -------------------------------------------------------------------- |
+| POST   | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin           | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng |
+| POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin           | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
+| POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin           | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại                         |
+| POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | Xác nhận đã lấy xong TOÀN BỘ nhóm đơn                                |
+| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | Xác nhận đã đóng gói xong — mở thêm Packaging Staff (21/09/2026)  |
+| POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin            | Xác nhận đã bàn giao vận chuyển                                      |
+| POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin            | Xác nhận đã giao thành công tới khách                                |
+| POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |
+| PATCH  | `/order-groups/:id/priority`                   | **Store Owner**, Admin     | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói               |
 
 ## 7. Staff Assignment — Phân công / Đổi nhân viên phụ trách
 
@@ -98,20 +98,57 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 🔄 **ĐÃ ĐỔI (16/09/2026)** — thêm 3 route GET còn thiếu (trước đây chỉ tạo được, không xem lại được); sửa `GET .../zones` không trả dữ liệu dù đã tạo thành công (ép kiểu `ObjectId` tường minh).
 
-| Method | Route                                                                          | Role                   | Mô tả                                                                                                                                                                                                                 |
-| ------ | ------------------------------------------------------------------------------ | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/warehouse/warehouses`                                                        | Admin                  | Tạo kho mới (bước 1/4)                                                                                                                                                                                                |
+| Method | Route                                                                          | Role             | Mô tả                                                       |
+| ------ | ------------------------------------------------------------------------------ | ---------------- | ----------------------------------------------------------- |
+| POST   | `/warehouse/warehouses`                                                        | Admin            | Tạo kho mới (bước 1/4)                                      |
 | GET    | `/warehouse/warehouses`                                                        | Admin, Warehouse Staff | 🔄 Danh sách kho — **mở thêm Warehouse Staff (19/09/2026)**: trước đây chỉ Admin xem được, nhưng picking-list/pick-item/report-missing đều bắt buộc `warehouse_id`, Warehouse Staff không có cách nào biết ID kho nào |
-| POST   | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin                  | Tạo khu trong kho (bước 2/4)                                                                                                                                                                                          |
-| GET    | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin                  | 🔄 Danh sách khu trong 1 kho — **sửa lỗi 16/09/2026**: trước đây có thể không trả ra dữ liệu dù tạo thành công                                                                                                        |
-| POST   | `/warehouse/zones/:zoneId/bin-locations/generate`                              | Admin                  | Tạo HÀNG LOẠT kệ theo dãy/rack/tầng (bước 3/4)                                                                                                                                                                        |
-| 🆕 GET | `/warehouse/zones/:zoneId/bin-locations`                                       | Admin                  | **MỚI (16/09/2026)** — Danh sách kệ đã tạo trong 1 khu (trước đây chỉ tạo được, không xem lại được)                                                                                                                   |
-| 🆕 GET | `/warehouse/warehouses/:warehouseId/bin-locations`                             | Admin                  | **MỚI (16/09/2026)** — Danh sách TOÀN BỘ kệ trong 1 kho (gộp mọi khu)                                                                                                                                                 |
-| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin                  | Gán 1 SKU vào 1 kệ, kèm số lượng ban đầu (bước 4/4)                                                                                                                                                                   |
-| 🆕 GET | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin                  | **MỚI (16/09/2026)** — Danh sách SKU đã gán vị trí trong 1 kho (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán)                                                                           |
-| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin                  | Nhập thêm hàng (cộng dồn, không ghi đè)                                                                                                                                                                               |
-| GET    | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin                  | SKU đã có trong hệ thống nhưng CHƯA gán kệ                                                                                                                                                                            |
-| GET    | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi                                                                                                                                                           |
+| POST   | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin            | Tạo khu trong kho (bước 2/4)                                |
+| GET    | `/warehouse/warehouses/:warehouseId/zones`                                     | Admin            | 🔄 Danh sách khu trong 1 kho — **sửa lỗi 16/09/2026**: trước đây có thể không trả ra dữ liệu dù tạo thành công |
+| POST   | `/warehouse/zones/:zoneId/bin-locations/generate`                              | Admin            | Tạo HÀNG LOẠT kệ theo dãy/rack/tầng (bước 3/4)              |
+| 🆕 GET | `/warehouse/zones/:zoneId/bin-locations`                                       | Admin            | **MỚI (16/09/2026)** — Danh sách kệ đã tạo trong 1 khu (trước đây chỉ tạo được, không xem lại được) |
+| 🆕 GET | `/warehouse/warehouses/:warehouseId/bin-locations`                             | Admin            | **MỚI (16/09/2026)** — Danh sách TOÀN BỘ kệ trong 1 kho (gộp mọi khu) |
+| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin            | Gán 1 SKU vào 1 kệ, kèm số lượng ban đầu (bước 4/4)         |
+| 🆕 GET | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin            | **MỚI (16/09/2026)** — Danh sách SKU đã gán vị trí trong 1 kho (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán) |
+| POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin            | Nhập thêm hàng (cộng dồn, không ghi đè)                     |
+| GET    | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin            | SKU đã có trong hệ thống nhưng CHƯA gán kệ                  |
+| GET    | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi |
+| 🆕 GET    | `/warehouse/warehouses/:warehouseId`                                            | Admin, Warehouse | **K1 (26/09/2026)** — chi tiết 1 kho (kể cả đã tắt) |
+| 🆕 PATCH  | `/warehouse/warehouses/:warehouseId`                                            | Admin            | K1 — sửa tên/địa chỉ, KHÔNG sửa mã |
+| 🆕 DELETE | `/warehouse/warehouses/:warehouseId`                                            | Admin            | K1 — vô hiệu hóa (xóa mềm) + dây chuyền khu/kệ; 409 nếu còn hàng |
+| 🆕 POST   | `/warehouse/warehouses/:warehouseId/reactivate`                                 | Admin            | K1 — bật lại CHỈ kho |
+| 🆕 PATCH  | `/warehouse/zones/:zoneId`                                                      | Admin            | K1 — sửa tên/mô tả khu |
+| 🆕 DELETE | `/warehouse/zones/:zoneId`                                                      | Admin            | K1 — vô hiệu hóa khu + kệ; 409 nếu còn hàng |
+| 🆕 POST   | `/warehouse/zones/:zoneId/reactivate`                                           | Admin            | K1 — bật lại khu + kệ (kho phải đang bật) |
+| 🆕 DELETE | `/warehouse/bin-locations/:binId`                                               | Admin            | K1 — vô hiệu hóa 1 kệ; 409 nếu còn hàng |
+| 🆕 POST   | `/warehouse/bin-locations/:binId/reactivate`                                    | Admin            | K1 — bật lại 1 kệ (khu phải đang bật) |
+
+> 🔄 **ĐÃ ĐỔI (26/09/2026, K1)**: các GET danh sách kho/khu/kệ nhận thêm `?include_inactive=true` (mặc định chỉ trả mục đang hoạt động); response khu/kệ có thêm `isActive`; tạo khu, sinh kệ, gán SKU, nhập hàng, Picking List bị chặn `409` khi kho/khu/kệ đã tắt; gán SKU giờ kiểm tra kệ tồn tại + thuộc đúng kho. Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md`**.
+
+| 🆕 POST   | `/warehouse/zones/:zoneId/racks`                                                | Admin            | **K2 (26/09/2026)** — tạo kệ chuẩn mới `KA-D1-P02-T03-1` + toàn bộ ô |
+| 🆕 PATCH  | `/warehouse/bin-locations/:binId`                                               | Admin            | K2 — sức chứa + danh mục/size/màu đăng ký của ô |
+| 🆕 GET    | `/warehouse/warehouses/:warehouseId/bin-suggestions`                            | Admin, Warehouse | K2 — gợi ý ô theo danh mục/size/màu |
+
+> 🔄 **ĐÃ ĐỔI (K2)**: `zone_code` mới bắt buộc `KA..KZ`; gán SKU/nhập hàng có thể trả `409 WH_BIN_OVER_CAPACITY` (gửi lại kèm `force: true`); Picking List sắp theo lộ trình hình rắn; `POST .../bin-locations/generate` deprecated. Route cũ `POST .../bin-locations/generate` bị chặn `409 WH_ZONE_V2_USE_RACKS` ở khu `KA..KZ`; đổi đăng ký ô đang có hàng bị chặn `409 WH_BIN_HAS_STOCK_DESIGNATION`.
+
+## 9c. 🆕 Categories (`/categories`) — K2 (26/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET    | `/categories` | Admin, Store Owner, Warehouse, Packaging | Cây danh mục 2 cấp |
+| GET    | `/categories/:code` | (như trên) | Chi tiết |
+| POST   | `/categories` | Admin | Tạo (cấp 2 bắt buộc `size_scale`) |
+| PATCH  | `/categories/:code` | Admin | Tên + thang size |
+| DELETE | `/categories/:code` | Admin | Vô hiệu hóa |
+| POST   | `/categories/:code/reactivate` | Admin | Kích hoạt lại |
+
+## 9b. 🆕 Product Master (`/product-master`) — K1 (26/09/2026)
+
+| Method | Route               | Role                          | Mô tả |
+| ------ | ------------------- | ----------------------------- | ----- |
+| GET    | `/product-master`     | Admin, Store Owner, Packaging | Danh sách kích thước/cân nặng SKU; `?shop_id&search&manual_only&page&limit` |
+| GET    | `/product-master/:id` | Admin, Store Owner, Packaging | Chi tiết |
+| PATCH  | `/product-master/:id` | Admin, Store Owner            | Sửa tay kích thước/cân nặng/dễ vỡ -> `manualOverride: true`, cron không ghi đè nữa |
+| 🆕 DELETE | `/product-master/:id/manual-override` | Admin, Store Owner | **K2 (rà soát 26/09)** — bỏ sửa tay, lần đồng bộ sau lấy lại số Lazada |
 
 ## 10. Notifications (`/notifications`)
 
