@@ -2788,3 +2788,32 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 - Giao hàng (chưa làm, gom 1 đợt riêng): khoảng cách tối thiểu giữa 2 lần giao, thông báo, hạn giao/cảnh báo trễ, đổi hàng, màn hình hàng cách ly.
 
 **Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn seed-admin), jest 28/28 suite — 263/263 test (G4 +12, K4a +12 kể cả test sửa lọc sàn/shop).
+
+---
+
+## 📦 Nhật ký K4b + K5 (27/09/2026)
+
+### K4b — Tồn chung theo SKU nội bộ, có "đường lùi"
+- `sku_bin_assignments.master_sku` (null = chưa nối). Partial unique `{warehouse_id, master_sku, bin_location_id}` chỉ áp khi master_sku là string.
+- `master-skus/stock-key.util.ts`: `resolveMasterSkus()` + `stockFilterFor()` + `stockKeyOf()` — HÀM THUẦN nhận model, dùng chung ở warehouse và order-groups mà không import module của nhau (tránh vòng). Mọi chỗ đụng tồn đi qua đây: pick-item, Picking List, assign, transfer, restockReturnedItem, findUnassignedSkus.
+- Nối SKU sàn (createMapping) → cùng transaction: gắn nhãn dòng tồn của SKU sàn đó; ô đã có dòng của SKU nội bộ → GỘP (2 dòng sổ cái `sku_merge`, xóa dòng cũ). Bỏ nối: chặn khi tồn gộp > 0 (`MAP_HAS_POOLED_STOCK`); bỏ liên kết cuối cùng → gỡ nhãn. Thay thế SKU → chuyển nhãn tồn. `POST /master-skus/sync-stock` cho liên kết tạo trước K4b; `GET /master-skus/unpooled-stock` báo còn sót.
+- Kiểm chứng đường lùi: TOÀN BỘ 263 test cũ xanh ngay sau khi gắn K4b (chưa nối = chạy như cũ).
+
+### K5 — Chống bán lố
+- `stock_reservations` (1 doc/nhóm đơn/khóa tồn: needed, picked, reserved, status) + `stock_reservation_totals` (_id = khóa tồn, reserved).
+- **Chống write skew**: mọi giao dịch giữ chỗ GHI vào document tổng của khóa (`$set touched_at`) → 2 giao dịch đồng thời cùng khóa bị MongoDB báo WriteConflict, withTransaction tự chạy lại bên thua → đọc tổng mới → không giữ lố. (Chỉ đọc tổng thì 2 bên cùng thấy "còn 1" — đó là lỗi kinh điển.)
+- Hook: tạo nhóm đơn (startPickingPhase) + đơn gộp đến muộn (order_count đổi) → reconcile; pick-item → consume trong CÙNG transaction; transition → PICKED (không session) → release. Tất cả best-effort, không chặn đồng bộ đơn.
+- `StockReservationService` KHÔNG phụ thuộc `OrderGroupsService` (OrderGroupsService truyền items vào) → không vòng provider.
+- Thiếu hàng là TRẠNG THÁI (`stock_shortage`, `stock_shortage_items` trên nhóm đơn), không phải lỗi.
+
+### Tác động & xử lý xung đột (5 câu)
+1. Dữ liệu cũ: dòng tồn cũ `master_sku` không có = null = đường lùi. Nhóm đơn trước K5 không có giữ chỗ → `recheck` tạo; pick-item của chúng không consume (bỏ qua an toàn). Không migration mới (vẫn cần script multibin K3).
+2. Route đổi: response dòng tồn/sổ cái thêm `masterSku`; nhóm đơn thêm `stockShortage*`; Picking List thêm `master_sku`; bỏ nối có lỗi mới. Request không đổi.
+3. Xung đột: gộp tồn trong cùng transaction với tạo liên kết; giữ chỗ đồng thời chống bằng document tổng; pick consume cùng transaction trừ tồn.
+4. Không ảnh hưởng: đồng bộ đơn (hook best-effort), gộp đơn, đóng gói, giao hàng, trả hàng (restock hàng hoàn đã theo K4b).
+5. Lỗi phát hiện khi làm: response dòng tồn chưa có `masterSku` → FE không thấy kết quả gộp → đã bổ sung trước khi viết guide (bài học: viết guide demo = cách kiểm tra "FE có nhìn thấy kết quả không").
+
+### Điểm yếu còn lại (guide SKU_STOCK Phần 8.3)
+Nhập hàng không tự tính lại nhóm đơn thiếu; đơn hủy trên Lazada không tự nhả giữ chỗ; giữ chỗ tính tổng mọi kho; không đẩy tồn khả dụng lên Lazada; chưa có thao tác tách tồn đã gộp; màu kệ K2 chưa ép danh mục màu; thiếu hàng chưa có thông báo chuông.
+
+**Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn seed-admin), jest 30/30 suite — 276/276 test (K4b +6, K5 +7).

@@ -483,7 +483,11 @@ DELETE /master-skus/mappings/:id
 
 FE **không phải sửa gì** — request/response `pick-item` và Picking List giữ nguyên.
 
-## B4.6. K4b — sắp làm ⏳
+## B4.6. K4b + K5 — ✅ ĐÃ XONG (27/09/2026)
+
+> Chi tiết từng bước, từng trường hợp và kịch bản demo: **`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md`**.
+
+~~K4b — sắp làm~~
 Chuyển tồn kho, gán kệ, Picking List, trừ tồn sang tính theo **SKU nội bộ** (Lazada + Tiki bán chung 1 tồn). Cần mọi SKU sàn đang có hàng phải được nối trước → sẽ có script kiểm tra "SKU sàn còn tồn nhưng chưa nối" trước khi bật.
 
 ---
@@ -557,8 +561,8 @@ Product Master cũ không có `manual_override` → coi là chưa sửa tay → 
 |---|---|---|
 | ~~K2~~ | ✅ **ĐÃ XONG 26/09/2026** — xem PHẦN B2, C.5, C.5b. Ký hiệu bên `T`/`P` theo quy ước nhóm (đổi 1 dòng trong `warehouse-layout.ts` nếu cần). Kệ cũ không phải xóa, chạy song song | — |
 | **K3** | Sổ cái biến động kho; điều chỉnh kiểm kê (bắt lý do); chuyển hàng giữa các ô; 1 SKU nằm nhiều ô | Màn hình kiểm kê, chuyển ô; Picking List có thể chỉ 1 SKU lấy từ nhiều ô |
-| **K4** (K4a ✅ xong 27/09 — B4; K4b chưa) | SKU nội bộ (`GUOC-005-DEN-37`) + bảng nối SKU Lazada/Tiki; 1 tồn chung mọi sàn; thao tác "Thay thế SKU" | Màn hình nối SKU sàn; gán kệ theo SKU nội bộ thay vì SKU sàn |
-| **K5** | Tồn khả dụng + giữ chỗ chống bán lố giữa các sàn | Hiển thị 2 con số: tồn thực và tồn khả dụng |
+| **K4** (K4a + K4b ✅ xong 27/09 — B4 + guide SKU_STOCK) | SKU nội bộ (`GUOC-005-DEN-37`) + bảng nối SKU Lazada/Tiki; 1 tồn chung mọi sàn; thao tác "Thay thế SKU" | Màn hình nối SKU sàn; gán kệ theo SKU nội bộ thay vì SKU sàn |
+| ~~K5~~ | ✅ **ĐÃ XONG 27/09/2026** — giữ chỗ + tồn khả dụng + cờ thiếu hàng, xem `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` | — |
 
 Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "Tác động tới luồng đã có" như Phần C.
 

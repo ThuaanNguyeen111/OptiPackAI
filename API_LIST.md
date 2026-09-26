@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K4a kho/SKU, G1 giao hàng, G3 trả hàng, G4 vật liệu đóng gói).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K5 kho/SKU/chống bán lố, G1 giao hàng, G3 trả hàng, G4 vật liệu).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -279,3 +279,16 @@ Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (�
 | DELETE | `/master-skus/mappings/:id` | Admin | Bỏ nối |
 
 > 🔄 K4a: `pick-item` + Picking List lọc thêm platform/shop_id; pick-item chạy trong 1 transaction. Request/response không đổi.
+
+## 14. 🆕 K4b + K5 — Tồn chung theo SKU nội bộ & chống bán lố (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET    | `/master-skus/unpooled-stock` | Admin, Store Owner | Dòng tồn > 0 chưa tính theo SKU nội bộ (chưa nối / chưa đồng bộ) |
+| POST   | `/master-skus/sync-stock` | Admin | Gắn nhãn/gộp tồn cho mọi liên kết (idempotent) |
+| GET    | `/stock-availability?platform&shop_id&seller_sku` | Admin, Store Owner, Warehouse | Tồn thực / đã giữ / khả dụng |
+| GET    | `/order-groups/:id/stock-reservation` | Admin, Store Owner, Warehouse | Giữ chỗ theo SKU |
+| POST   | `/order-groups/:id/stock-reservation/recheck` | Admin, Store Owner | Tính lại giữ chỗ |
+| POST   | `/order-groups/:id/stock-reservation/release` | Admin | Nhả giữ chỗ |
+
+> 🔄 K4b: nối SKU sàn tự gắn nhãn/gộp tồn; bỏ nối chặn khi tồn gộp > 0 (`MAP_HAS_POOLED_STOCK`); dòng tồn + sổ cái có `masterSku`; Picking List có `master_sku`; pick-item tự trừ vào tồn chung (request/response không đổi). 🔄 K5: nhóm đơn có `stockShortage`, `stockShortageItems`. Chi tiết + demo: **`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md`**.
