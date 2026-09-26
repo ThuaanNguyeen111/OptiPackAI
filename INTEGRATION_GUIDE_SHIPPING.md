@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Giao hàng & Trả hàng (Shipping & Returns)
 
-**Phiên bản v1.0 — 27/09/2026 (bước G1 + G3).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
+**Phiên bản v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
 
 **Phạm vi bản gọn (đã chốt):** mọi bước là **bấm nút đổi trạng thái**. Tracking = lịch sử các lần bấm (ai, lúc nào, lý do). **Chưa có:** bản đồ/GPS, ảnh bằng chứng giao hàng, chuyến giao nhiều điểm, role shipper riêng, đổi hàng — xem Phần E.
 
@@ -229,6 +229,8 @@ Body:
 
 Tất cả dòng + đóng phiếu chạy trong **1 transaction**: lỗi 1 dòng thì không dòng nào được nhập kho.
 
+🆕 **G4 — kiểm luôn thùng/xốp đi kèm:** body `inspect` nhận thêm mảng tùy chọn `packaging` (hạng A/B/C, số lần đã dùng, đã gỡ nhãn cũ chưa). Hạng A hợp lệ → vào kho vật liệu tái sử dụng, cùng transaction với phiếu. Kết quả trả trong `packagingInspection`. Chi tiết: `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md` Phần D.
+
 **Gợi ý FE:** form kiểm hàng cho mỗi SKU hiện ô "số lượng còn phải kiểm", chỉ bật nút Lưu khi tất cả về 0; dòng "Nhập lại" có dropdown ô — lấy từ `GET /warehouse/warehouses/:id/bin-suggestions` (K2).
 
 ---
@@ -271,10 +273,10 @@ Swagger đánh dấu 3 route này `deprecated`. FE mới nên dùng `/shipments/
 | 6 | **Chưa có đổi hàng** | Chỉ trả hàng/hoàn tiền | Sau: phiếu đổi = thu hồi + sinh nhóm đơn thay thế đi lại luồng lấy hàng |
 | 7 | Chưa có đi lấy hàng trả tại nhà khách (vận đơn chiều ngược) | Coi như khách tự gửi về | Mở rộng cùng phần 1 |
 | 8 | Hàng `quarantine` chỉ ghi trên phiếu | Chưa có màn hình "hàng cách ly chờ xử lý", chưa có nút xử lý tiếp | Khu `RETURN-QC` + thao tác xử lý hàng cách ly |
-| 9 | Phiếu `failed_delivery` lấy hàng theo **số lượng đặt** | Nếu lúc lấy hàng bị thiếu, phiếu có thể ghi nhiều hơn số thật về kho → kho kiểm sẽ không khớp | Lấy theo số lượng thực đã quét (sổ cái `pick` của K3) |
+| 9 | ~~Phiếu `failed_delivery` lấy hàng theo số lượng đặt~~ ✅ **Đã sửa ở G4**: lấy theo số đã quét thật (sổ cái K3); nhóm đơn lấy hàng trước K3 mới dùng số đặt | Nếu lúc lấy hàng bị thiếu, phiếu có thể ghi nhiều hơn số thật về kho → kho kiểm sẽ không khớp | Lấy theo số lượng thực đã quét (sổ cái `pick` của K3) |
 | 10 | Route cũ `return` cho nhóm đơn đã giao không tạo phiếu | Hàng về kho mà không kiểm, không nhập lại | FE chuyển sang `/returns`; có thể chặn route cũ trường hợp này sau |
 | 11 | Hạn 15 ngày tính từ `deliveredAt` của vận đơn; nhóm đơn giao trước G1 dùng thời điểm cập nhật cuối của nhóm đơn | Có thể lệch với ngày giao thật của đơn cũ | Chấp nhận cho dữ liệu cũ |
-| 12 | Chưa tái sử dụng vật liệu đóng gói từ hàng hoàn | — | Bước G4 |
+| 12 | ~~Chưa tái sử dụng vật liệu đóng gói~~ ✅ **Đã có ở G4** | — | Xem guide vật liệu |
 
 ---
 

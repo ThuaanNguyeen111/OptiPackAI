@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K3 kho, G1 giao hàng, G3 trả hàng; chi tiết `INTEGRATION_GUIDE_WAREHOUSE.md`, `INTEGRATION_GUIDE_SHIPPING.md`).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K4a kho/SKU, G1 giao hàng, G3 trả hàng, G4 vật liệu đóng gói).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -250,3 +250,32 @@ Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (�
 | POST   | `/returns/:id/reject`   | Store Owner, Admin | Từ chối (bắt buộc lý do) |
 | POST   | `/returns/:id/receive`  | Warehouse, Admin | Hàng trả về kho |
 | POST   | `/returns/:id/inspect`  | Warehouse, Admin | Kiểm hàng: restock (nhập lại, sổ cái) / quarantine / discard |
+
+## 12. 🆕 Vật liệu đóng gói (`/packaging-materials`) — G4 (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET    | `/packaging-materials` · `/:code` · `/movements` | Admin, Store Owner, Warehouse, Packaging | Danh mục + tồn mới/tái sử dụng, sổ cái |
+| GET    | `/packaging-materials/savings` | Admin, Store Owner | Tổng tiết kiệm, tỷ lệ dùng lại |
+| POST   | `/packaging-materials` | Admin | Khai vật liệu (thùng: 3 kích thước; đệm: match_material_type) |
+| PATCH · DELETE | `/packaging-materials/:code` | Admin | Sửa tên/đơn giá · vô hiệu hóa (chặn nếu còn tồn) |
+| POST   | `/packaging-materials/:code/reactivate` | Admin | |
+| POST   | `/packaging-materials/:code/purchase` | Admin, Warehouse | Nhập vật liệu mới |
+
+> 🔄 G4: `POST /order-groups/:id/fulfillment/pack` response THÊM `packagingConsumption` (trừ vật liệu tự động, không chặn pack). `POST /returns/:id/inspect` nhận thêm `packaging[]`. Chi tiết: **`INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`**.
+
+## 13. 🆕 Màu & SKU nội bộ (`/colors`, `/master-skus`) — K4a (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET    | `/colors` | Admin, Store Owner, Warehouse, Packaging | Danh mục màu chuẩn |
+| POST · PATCH · DELETE | `/colors` · `/colors/:code` | Admin | |
+| POST   | `/colors/:code/reactivate` | Admin | |
+| GET    | `/master-skus` · `/master-skus/:code` · `/:code/mappings` | Admin, Store Owner, Warehouse, Packaging | |
+| GET    | `/master-skus/unmapped-seller-skus` | Admin, Store Owner | SKU sàn chưa nối |
+| POST   | `/master-skus` | Admin | Tạo — hệ thống tự ghép mã |
+| PATCH · DELETE | `/master-skus/:code` | Admin | Sửa thuộc tính mô tả · vô hiệu hóa |
+| POST   | `/master-skus/:code/reactivate` · `/:code/replace` · `/:code/mappings` | Admin | Kích hoạt lại · Thay thế SKU · Nối SKU sàn |
+| DELETE | `/master-skus/mappings/:id` | Admin | Bỏ nối |
+
+> 🔄 K4a: `pick-item` + Picking List lọc thêm platform/shop_id; pick-item chạy trong 1 transaction. Request/response không đổi.

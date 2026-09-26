@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Quản lý Kho (Warehouse Management)
 
-**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.**
+**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.**
 
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
 
@@ -431,6 +431,63 @@ Chạy lại nhiều lần an toàn, không đụng dữ liệu.
 
 ---
 
+
+# PHẦN B4 — BƯỚC K4a: SKU NỘI BỘ, DANH MỤC MÀU, NỐI SKU SÀN 🆕 (27/09/2026)
+
+> K4 chia 2 phần vì rủi ro: **K4a (đã xong)** dựng danh mục SKU nội bộ + sửa lỗi; **K4b (chưa làm)** mới chuyển TỒN KHO sang tính theo SKU nội bộ. Ở K4a, tồn kho, gán kệ, lấy hàng **vẫn dùng SKU sàn như trước**.
+
+## B4.1. Danh mục màu
+```
+POST /colors   { "code": "DEN", "name": "Đen", "hex": "#000000" }      (Admin; mã 2-10 CHỮ HOA, khóa sau khi tạo)
+GET  /colors                                                            dropdown màu cho mọi form
+PATCH /colors/:code · DELETE /colors/:code (chặn nếu còn SKU dùng: COLOR_IN_USE) · POST /colors/:code/reactivate
+```
+FE dùng dropdown từ `/colors` cho **mọi** chỗ chọn màu (kể cả `cell_colors` khi tạo kệ K2) — hết lỗi `DEN`/`DENN`.
+
+## B4.2. SKU nội bộ — hệ thống tự ghép mã
+```
+POST /master-skus      (Admin)
+{ "category_code": "ATHUN", "model_no": 5, "color_code": "DEN", "size": "M",
+  "name": "Áo thun basic đen M", "gender": "unisex", "weight_kg": 0.2, "is_fragile": false }
+→ { "masterSku": "ATHUN-005-DEN-M", ... }
+```
+- Mã = `{danh mục cấp 2}-{mẫu 3 số}-{màu}-{size}` — **FE không gửi mã**, hệ thống ghép.
+- Danh mục phải cấp 2 đang hoạt động; size thuộc thang size danh mục (`MSKU_SIZE_NOT_IN_SCALE`); màu có trong danh mục màu (`COLOR_NOT_FOUND`/`COLOR_INACTIVE`).
+- **Sửa được:** tên, giới tính, kích thước, cân nặng, dễ vỡ (`PATCH /master-skus/:code`). **Không sửa được:** mã và 4 thành phần tạo mã.
+- Giới tính là **thuộc tính**, không phải cấp danh mục (đúng quyết định đã chốt).
+
+## B4.3. Thay thế SKU (khi đặt sai)
+```
+POST /master-skus/ATHUN-005-DEN-M/replace   { "color_code": "TRANG", "reason": "Đặt nhầm màu" }
+→ { "oldSku": {..., "isActive": false, "replacedBy": "ATHUN-005-TRANG-M"}, "newSku": {...}, "movedMappings": 2 }
+```
+1 transaction: tạo SKU mới (chép tên/kích thước) → chuyển **mọi** liên kết SKU sàn sang SKU mới → khóa SKU cũ + `replacedBy`. Tra SKU cũ vẫn biết đã thay bằng gì. Không đổi thành phần nào → `MSKU_REPLACE_SAME`.
+
+## B4.4. Nối SKU sàn → SKU nội bộ
+```
+GET  /master-skus/unmapped-seller-skus        SKU sàn đã đồng bộ về nhưng chưa nối (danh sách việc cần làm)
+POST /master-skus/ATHUN-005-DEN-M/mappings    { "platform": "lazada", "shop_id": "201171264532", "seller_sku": "ATD-M-01" }
+GET  /master-skus/ATHUN-005-DEN-M/mappings
+DELETE /master-skus/mappings/:id
+```
+- **Chỉ nối được SKU sàn đã đồng bộ về** (`MAP_SELLER_SKU_UNKNOWN` nếu gõ mã chưa từng thấy) — FE nên cho chọn từ danh sách unmapped, không cho gõ tay.
+- So khớp **không phân biệt hoa/thường, bỏ dấu cách 2 đầu** (`atd-m-01 ` = `ATD-M-01`); lưu cả bản gốc.
+- 1 SKU sàn chỉ nối 1 SKU nội bộ (`MAP_ALREADY_MAPPED` kèm SKU đang nối); nhiều SKU sàn (Lazada, Tiki, shop khác) có thể nối chung 1 SKU nội bộ.
+- Vô hiệu hóa SKU nội bộ còn liên kết → `MSKU_HAS_MAPPINGS`.
+
+## B4.5. 🔄 Sửa lỗi có sẵn — trừ tồn khi quét hàng
+| Trước K4a | Sau K4a |
+|---|---|
+| `pick-item` và Picking List chỉ lọc `kho + seller_sku` → 2 sàn/shop trùng chuỗi SKU có thể **trừ nhầm tồn** của nhau | Lọc thêm `platform + shop_id` của nhóm đơn |
+| Trừ tồn rồi mới ghi sổ cái + nhật ký quét, **không transaction** → lỗi giữa chừng thì tồn đã trừ mà không có dòng sổ | Trừ tồn + sổ cái + nhật ký quét trong **1 transaction** |
+
+FE **không phải sửa gì** — request/response `pick-item` và Picking List giữ nguyên.
+
+## B4.6. K4b — sắp làm ⏳
+Chuyển tồn kho, gán kệ, Picking List, trừ tồn sang tính theo **SKU nội bộ** (Lazada + Tiki bán chung 1 tồn). Cần mọi SKU sàn đang có hàng phải được nối trước → sẽ có script kiểm tra "SKU sàn còn tồn nhưng chưa nối" trước khi bật.
+
+---
+
 # PHẦN C — TÁC ĐỘNG TỚI DỮ LIỆU VÀ LUỒNG ĐÃ CÓ
 
 ## C.1. Dữ liệu cũ trong DB — không cần chạy script gì
@@ -500,7 +557,7 @@ Product Master cũ không có `manual_override` → coi là chưa sửa tay → 
 |---|---|---|
 | ~~K2~~ | ✅ **ĐÃ XONG 26/09/2026** — xem PHẦN B2, C.5, C.5b. Ký hiệu bên `T`/`P` theo quy ước nhóm (đổi 1 dòng trong `warehouse-layout.ts` nếu cần). Kệ cũ không phải xóa, chạy song song | — |
 | **K3** | Sổ cái biến động kho; điều chỉnh kiểm kê (bắt lý do); chuyển hàng giữa các ô; 1 SKU nằm nhiều ô | Màn hình kiểm kê, chuyển ô; Picking List có thể chỉ 1 SKU lấy từ nhiều ô |
-| **K4** | SKU nội bộ (`GUOC-005-DEN-37`) + bảng nối SKU Lazada/Tiki; 1 tồn chung mọi sàn; thao tác "Thay thế SKU" | Màn hình nối SKU sàn; gán kệ theo SKU nội bộ thay vì SKU sàn |
+| **K4** (K4a ✅ xong 27/09 — B4; K4b chưa) | SKU nội bộ (`GUOC-005-DEN-37`) + bảng nối SKU Lazada/Tiki; 1 tồn chung mọi sàn; thao tác "Thay thế SKU" | Màn hình nối SKU sàn; gán kệ theo SKU nội bộ thay vì SKU sàn |
 | **K5** | Tồn khả dụng + giữ chỗ chống bán lố giữa các sàn | Hiển thị 2 con số: tồn thực và tồn khả dụng |
 
 Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "Tác động tới luồng đã có" như Phần C.
@@ -640,3 +697,7 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] 🆕 K3: chuyển 5 cái sang ô khác → 2 ô cập nhật đúng, sổ cái 2 dòng cùng `refId`
 - [ ] 🆕 K3: Picking List của SKU nằm 2 ô → có `bin_location_id` + `other_bins`; quét pick-item gửi `bin_location_id` → trừ đúng ô
 - [ ] 🆕 K3: bỏ gán ô còn hàng → `WH_ASSIGNMENT_HAS_STOCK`
+- [ ] 🆕 K4a: tạo màu DEN → tạo SKU nội bộ ATHUN/5/DEN/M → mã trả về đúng `ATHUN-005-DEN-M`
+- [ ] 🆕 K4a: tạo SKU với màu chưa khai → `COLOR_NOT_FOUND`; size ngoài thang → `MSKU_SIZE_NOT_IN_SCALE`
+- [ ] 🆕 K4a: nối 1 SKU Lazada từ danh sách unmapped → biến mất khỏi unmapped; nối lại lần 2 → `MAP_ALREADY_MAPPED`
+- [ ] 🆕 K4a: Thay thế SKU đổi màu → SKU cũ `isActive:false, replacedBy`, liên kết chuyển sang SKU mới

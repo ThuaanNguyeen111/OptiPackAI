@@ -2757,3 +2757,34 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 - Giao hàng: không có khoảng cách tối thiểu giữa 2 lần giao; chưa thông báo; chưa hạn giao/cảnh báo trễ; chưa đổi hàng; chưa đi lấy hàng trả; hàng cách ly chưa có màn hình xử lý; phiếu `failed_delivery` lấy theo số lượng đặt thay vì số đã quét thật.
 
 **Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn ở seed-admin), jest 26/26 suite — 239/239 test (G1 +13, K3 +9, G3 +13).
+
+---
+
+## 📦 Nhật ký G4 + K4a (27/09/2026)
+
+### G4 — Vật liệu đóng gói + tái sử dụng
+- Module mới `packaging-materials/` (không import module nào → order-groups, shipments import được, không vòng): `packaging_materials` (danh mục + qty_new/qty_reused, đơn giá, max_reuse_cycles), `packaging_movements` (append-only: purchase/consume/recover, saving_vnd).
+- `pack` tự trừ theo gợi ý đóng gói đang hiệu lực: thùng khớp 3 kích thước, đệm khớp `match_material_type`; ưu tiên reused (ghi tiết kiệm), hàng dễ vỡ thùng chỉ dùng mới; idempotent; KHÔNG chặn pack khi thiếu (trả `warnings`). Response pack THÊM `packagingConsumption`.
+- Kiểm hàng hoàn nhận `packaging[]`: A + gỡ nhãn + chưa quá số lần → qty_reused (cùng transaction phiếu); A chưa gỡ nhãn → 400; quá số lần → tự hạ C.
+- **Sửa điểm yếu G3**: phiếu `failed_delivery` lấy số lượng ĐÃ QUÉT THẬT từ sổ cái K3 (type pick), fallback số đặt cho nhóm đơn trước K3.
+- Lưu ý: tên lớp schema gợi ý đóng gói là `PackagingRecommendationDoc` (không phải `PackagingRecommendation`) — forFeature phải dùng đúng `.name` để trỏ cùng collection.
+
+### K4a — SKU nội bộ (chia K4 thành K4a/K4b do rủi ro)
+- Module mới `master-skus/`: `colors`, `master_skus` (mã do hệ thống ghép `{cat}-{model 3 số}-{màu}-{size}`, khóa mã + 4 thành phần), `marketplace_sku_mappings` (unique platform+shop+seller_sku_normalized; chỉ nối SKU có trong product_master).
+- Thay thế SKU: tạo mới + chuyển mọi mapping + khóa cũ `replaced_by`, 1 transaction.
+- **Sửa 2 điểm yếu có sẵn**: pick-item + Picking List lọc thêm platform/shop_id; pick-item gói trừ tồn + sổ cái + pick_event trong 1 transaction (session lấy từ `skuBinAssignmentModel.db.startSession()` để KHÔNG phải đổi constructor).
+- Tồn kho VẪN theo SKU sàn — K4b mới chuyển.
+
+### Tác động & xử lý xung đột (5 câu)
+1. Dữ liệu cũ: không migration. Vật liệu phải khai danh mục trước khi có số liệu; trước đó pack vẫn chạy (chỉ cảnh báo). SKU sàn cũ chưa nối vẫn lấy hàng bình thường (K4a không đụng tồn).
+2. Route đổi hành vi: `pack` response thêm field; `returns/:id/inspect` thêm field tùy chọn; `pick-item`/Picking List lọc thêm sàn/shop (không đổi request/response).
+3. Xung đột: pick-item giờ trong transaction → 2 lần quét cùng lúc vẫn an toàn nhờ điều kiện `$gte`; pack bấm lại không trừ vật liệu 2 lần (kiểm movement consume theo ref).
+4. Không ảnh hưởng: sync, gộp đơn, gợi ý/duyệt đóng gói, giao hàng.
+5. Lỗi có sẵn phát hiện: spread DTO class (`{...dto}`) lặp lại lần 2 — đã có quy tắc nhưng vẫn quên → lint bắt được, sửa liệt kê field.
+
+### Điểm yếu còn lại
+- G4: 1 tồn vật liệu chung cả shop; chưa kiểm kê vật liệu; trừ vật liệu sau `packed` không chung transaction; nhân viên dùng thùng khác gợi ý thì hệ thống không biết; hạng B chỉ ghi nhận; gợi ý chưa báo trước có thùng tái sử dụng.
+- K4a: màu trên kệ (K2 `cell_colors`, đăng ký ô) CHƯA bị kiểm theo danh mục màu (chỉ SKU nội bộ bị kiểm) — FE phải dùng dropdown `/colors`; K4b sẽ ép kiểm. Tồn chưa chung giữa các sàn (K4b). Chống bán lố (K5).
+- Giao hàng (chưa làm, gom 1 đợt riêng): khoảng cách tối thiểu giữa 2 lần giao, thông báo, hạn giao/cảnh báo trễ, đổi hàng, màn hình hàng cách ly.
+
+**Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn seed-admin), jest 28/28 suite — 263/263 test (G4 +12, K4a +12 kể cả test sửa lọc sàn/shop).
