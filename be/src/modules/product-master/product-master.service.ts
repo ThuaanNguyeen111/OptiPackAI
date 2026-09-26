@@ -228,4 +228,18 @@ export class ProductMasterService {
     );
     return updated ?? this.getProduct(id);
   }
+
+  /**
+   * K2 (26/09/2026) — bỏ cờ sửa tay: lần đồng bộ kế tiếp (cron 3h hoặc script
+   * chạy tay) sẽ ghi lại số liệu từ Lazada. Số hiện tại GIỮ NGUYÊN cho tới lúc đó.
+   */
+  async clearManualOverride(id: string): Promise<ProductMasterDocument> {
+    await this.getProduct(id);
+    const updated = await this.productMasterModel.findByIdAndUpdate(
+      id,
+      { $set: { manual_override: false, manual_override_at: null, manual_override_by: null } },
+      { returnDocument: 'after' },
+    );
+    return updated ?? this.getProduct(id);
+  }
 }

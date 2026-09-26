@@ -8,6 +8,7 @@ import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/pr
 import { WarehouseService } from './warehouse.service';
 import { WarehouseController } from './warehouse.controller';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
+import { CategoriesModule } from '../categories/categories.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { OrderGroupsModule } from '../order-groups/order-groups.module';
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
       { name: ProductMaster.name, schema: ProductMasterSchema },
     ]),
+    CategoriesModule, // K2 — kiểm tra danh mục/size khi tạo kệ, đăng ký ô
     OrderGroupsModule, // export OrderGroupsService — dùng getPackableItemsForGroup() cho picking-list
   ],
   controllers: [WarehouseController],

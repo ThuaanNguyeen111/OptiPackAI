@@ -60,4 +60,14 @@ describe('ProductMasterService — K1', () => {
       errorCode: PRODUCT_MASTER_ERROR_CODES.NOTHING_TO_UPDATE,
     });
   });
+  it('clearManualOverride (K2): tắt cờ + xóa người/giờ sửa, KHÔNG đụng kích thước hiện tại', async () => {
+    const id = new Types.ObjectId().toString();
+    productMasterModel.findById.mockResolvedValue({ _id: id });
+    productMasterModel.findByIdAndUpdate.mockResolvedValue({ _id: id });
+
+    await service.clearManualOverride(id);
+
+    const [, update] = productMasterModel.findByIdAndUpdate.mock.calls[0] as [unknown, { $set: Record<string, unknown> }];
+    expect(update.$set).toEqual({ manual_override: false, manual_override_at: null, manual_override_by: null });
+  });
 });

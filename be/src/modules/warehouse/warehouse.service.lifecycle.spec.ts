@@ -41,6 +41,7 @@ describe('WarehouseService — vòng đời K1', () => {
       {} as never, // productMasterModel
       {} as never, // orderGroupsService
       connection as never,
+      {} as never, // categoriesService (K2) — không dùng trong các test vòng đời
     );
   });
 

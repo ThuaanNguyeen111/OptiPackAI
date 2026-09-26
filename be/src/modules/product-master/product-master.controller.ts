@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ProductMasterService } from './product-master.service';
 import { UpdateProductMasterDto } from './dto/update-product-master.dto';
@@ -103,5 +103,14 @@ export class ProductMasterController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ProductMasterResponse> {
     return toResponse(await this.productMasterService.updateProduct(id, dto, user.userId));
+  }
+
+  @Delete(':id/manual-override')
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
+  @ApiOperation({
+    summary: '🆕 K2 — Bỏ sửa tay: lần đồng bộ kế tiếp sẽ lấy lại số liệu Lazada. Số hiện tại giữ nguyên tới lúc đó.',
+  })
+  async clearManualOverride(@Param('id') id: string): Promise<ProductMasterResponse> {
+    return toResponse(await this.productMasterService.clearManualOverride(id));
   }
 }

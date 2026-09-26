@@ -8,6 +8,8 @@ import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { RestockSkuDto } from './dto/restock-sku.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
+import { CreateRackDto } from './dto/create-rack.dto';
+import { UpdateBinDto } from './dto/update-bin.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -72,6 +74,13 @@ interface BinLocationResponse {
   rack: number;
   level: number;
   isActive: boolean;
+  // K2 — layout v2 (kệ cũ: layoutVersion 1, các field dưới = null)
+  layoutVersion: 1 | 2;
+  side: 'T' | 'P' | null;
+  cell: number | null;
+  capacity: number | null;
+  designated: { categoryCode: string | null; size: string | null; colorCode: string | null } | null;
+  pickSequence: number | null;
 }
 function toBinLocationResponse(doc: BinLocationDocument): BinLocationResponse {
   return {
@@ -83,6 +92,18 @@ function toBinLocationResponse(doc: BinLocationDocument): BinLocationResponse {
     rack: doc.rack,
     level: doc.level,
     isActive: doc.is_active !== false,
+    layoutVersion: doc.layout_version === 2 ? 2 : 1,
+    side: doc.side ?? null,
+    cell: doc.cell ?? null,
+    capacity: doc.capacity ?? null,
+    designated: doc.designated
+      ? {
+          categoryCode: doc.designated.category_code ?? null,
+          size: doc.designated.size ?? null,
+          colorCode: doc.designated.color_code ?? null,
+        }
+      : null,
+    pickSequence: doc.pick_sequence ?? null,
   };
 }
 
@@ -219,6 +240,7 @@ export class WarehouseController {
   @Post('zones/:zoneId/bin-locations/generate')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
+    deprecated: true, // K2 — dùng POST zones/:zoneId/racks thay thế
     summary:
       'Tạo HÀNG LOẠT kệ trong 1 khu theo dãy (bước 3/4) — VD aisle=03, rack 1-10, level 1-4 -> tự sinh 40 kệ, không cần tạo tay từng cái.',
   })
@@ -255,6 +277,7 @@ export class WarehouseController {
       warehouseId,
       assignmentId,
       dto.quantity,
+      dto.force === true, // K2 — vượt sức chứa chỉ cho qua khi FE xác nhận force
     );
     return toAssignmentResponse(doc);
   }
@@ -355,5 +378,38 @@ export class WarehouseController {
   @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại 1 kệ. Khu chứa kệ phải đang hoạt động.' })
   async reactivateBin(@Param('binId') binId: string): Promise<BinLocationResponse> {
     return toBinLocationResponse(await this.warehouseService.reactivateBin(binId));
+  }
+  // ===================================================================
+  // K2 (26/09/2026) — BỐ CỤC KHO MỚI. Toàn bộ chỉ Admin (trừ gợi ý ô).
+  // ===================================================================
+
+  @Post('zones/:zoneId/racks')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: '🆕 K2 — Tạo 1 kệ chuẩn mới (mã KA-D1-P02-T03-1) + toàn bộ ô, mỗi tầng 1 size, mỗi ô 1 màu. Thay thế dần endpoint generate cũ.',
+  })
+  async createRack(@Param('zoneId') zoneId: string, @Body() dto: CreateRackDto): Promise<BinLocationResponse[]> {
+    const docs = await this.warehouseService.createRack(zoneId, dto);
+    return docs.map(toBinLocationResponse);
+  }
+
+  @Patch('bin-locations/:binId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K2 — Sửa sức chứa + danh mục/size/màu đăng ký của 1 ô. KHÔNG sửa được mã ô.' })
+  async updateBin(@Param('binId') binId: string, @Body() dto: UpdateBinDto): Promise<BinLocationResponse> {
+    return toBinLocationResponse(await this.warehouseService.updateBin(binId, dto));
+  }
+
+  @Get('warehouses/:warehouseId/bin-suggestions')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: '🆕 K2 — Gợi ý ô xếp hàng theo danh mục (bắt buộc), size, màu. Chỉ gợi ý ô còn chỗ.' })
+  async suggestBins(
+    @Param('warehouseId') warehouseId: string,
+    @Query('category_code') categoryCode: string,
+    @Query('size') size?: string,
+    @Query('color_code') colorCode?: string,
+  ): Promise<{ bin: BinLocationResponse; matchLevel: 1 | 2 | 3; usedUnits: number; freeCapacity: number | null }[]> {
+    const rows = await this.warehouseService.suggestBins(warehouseId, { category_code: categoryCode, size, color_code: colorCode });
+    return rows.map((r) => ({ ...r, bin: toBinLocationResponse(r.bin) }));
   }
 }

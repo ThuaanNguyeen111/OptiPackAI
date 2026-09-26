@@ -15,4 +15,13 @@ export const WAREHOUSE_ERROR_CODES = {
   BIN_NOT_IN_WAREHOUSE: 'WH_BIN_NOT_IN_WAREHOUSE', // gán SKU vào kệ của kho KHÁC
   HAS_STOCK: 'WH_HAS_STOCK', // chặn vô hiệu hóa khi còn hàng tồn
   NOTHING_TO_UPDATE: 'WH_NOTHING_TO_UPDATE',
+  // K2 (26/09/2026) — bố cục kho mới
+  ZONE_LEGACY_FORMAT: 'WH_ZONE_LEGACY_FORMAT', // tạo kệ chuẩn mới trong khu mã cũ (VD "A")
+  RACK_EXISTS: 'WH_RACK_EXISTS', // kệ (dãy+bên+số kệ) đã tồn tại
+  INVALID_RACK_LAYOUT: 'WH_INVALID_RACK_LAYOUT', // tầng trùng, số màu != số ô...
+  SIZE_NOT_IN_SCALE: 'WH_SIZE_NOT_IN_SCALE', // size không thuộc thang size của danh mục
+  BIN_OVER_CAPACITY: 'WH_BIN_OVER_CAPACITY', // vượt sức chứa ô (gửi force=true để bỏ qua)
+  // K2 rà soát (26/09/2026)
+  ZONE_V2_USE_RACKS: 'WH_ZONE_V2_USE_RACKS', // gọi generate kiểu cũ trong khu chuẩn mới
+  BIN_HAS_STOCK_DESIGNATION: 'WH_BIN_HAS_STOCK_DESIGNATION', // đổi danh mục/size/màu của ô đang có hàng
 } as const;

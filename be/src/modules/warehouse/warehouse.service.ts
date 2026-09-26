@@ -24,6 +24,10 @@ import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
 import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
+import { CreateRackDto } from './dto/create-rack.dto';
+import { UpdateBinDto } from './dto/update-bin.dto';
+import { CategoriesService } from '../categories/categories.service';
+import { ZONE_CODE_V2_REGEX, buildBinCodeV2, computePickSequence } from './warehouse-layout';
 
 // K1 (26/09/2026) — document khu/kệ tạo TRƯỚC K1 không có field is_active.
 // Lọc bằng `$ne: false` (không phải `is_active: true`) để document cũ vẫn
@@ -37,6 +41,7 @@ import { PackableItem } from '../../common/interfaces/packaging.interface';
 export interface PickingListItem extends PackableItem {
   zone_code: string;
   bin_code: string;
+  pick_sequence: number | null; // K2 — null = kệ chuẩn cũ (v1) hoặc chưa gán vị trí
 }
 
 /**
@@ -65,6 +70,8 @@ export class WarehouseService {
     private readonly orderGroupsService: OrderGroupsService,
     // K1 — transaction cho vô hiệu hóa dây chuyền kho -> khu -> kệ
     @InjectConnection() private readonly connection: Connection,
+    // K2 — kiểm tra danh mục cấp 2 + thang size khi tạo kệ/đăng ký ô
+    private readonly categoriesService: CategoriesService,
   ) {}
 
   async createWarehouse(dto: CreateWarehouseDto): Promise<WarehouseDocument> {
@@ -265,6 +272,17 @@ export class WarehouseService {
       );
     }
     await this.assertWarehouseActive(zone.warehouse_id.toString());
+    // SỬA (26/09/2026, rà K2) — route cũ (deprecated) vẫn sinh được kệ mã cũ
+    // "KA-03-01-01" TRONG khu chuẩn mới -> 1 khu lẫn 2 kiểu mã, lộ trình lấy
+    // hàng lẫn lộn. Chỉ cho dùng route cũ ở khu mã cũ (tương thích ngược).
+    if (ZONE_CODE_V2_REGEX.test(zone.zone_code)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.ZONE_V2_USE_RACKS,
+        `Khu "${zone.zone_code}" theo chuẩn mới — dùng POST /warehouse/zones/:zoneId/racks để tạo kệ.`,
+        HttpStatus.CONFLICT,
+        { zoneId },
+      );
+    }
 
     if (dto.rack_from > dto.rack_to || dto.level_from > dto.level_to) {
       throw new AppException(
@@ -366,6 +384,17 @@ export class WarehouseService {
         { binId: bin._id.toString() },
       );
     }
+    // K2 — sức chứa ô tính trên TỔNG hàng của mọi SKU đang nằm trong ô.
+    if (typeof bin.capacity === 'number' && dto.force !== true) {
+      const existing = await this.assignmentModel
+        .findOne({ warehouse_id: warehouseId, platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku })
+        .lean();
+      const binTotal = await this.countStockUnits({ bin_location_id: bin._id });
+      const alreadyHere = existing?.bin_location_id.toString() === bin._id.toString();
+      const incoming = existing ? existing.quantity_on_hand : (dto.initial_quantity ?? 0);
+      const after = binTotal - (alreadyHere ? incoming : 0) + incoming;
+      if (after > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, incoming);
+    }
     return this.assignmentModel.findOneAndUpdate(
       {
         warehouse_id: warehouseId,
@@ -393,8 +422,21 @@ export class WarehouseService {
     warehouseId: string,
     assignmentId: string,
     quantity: number,
+    force = false,
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
+    // K2 — kiểm tra sức chứa ô trước khi cộng (không atomic tuyệt đối: 2 lần
+    // nhập cùng lúc có thể cùng lọt — ghi nhận ở điểm yếu, xử lý ở K3 bằng sổ cái).
+    if (Types.ObjectId.isValid(assignmentId) && !force) {
+      const current = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: warehouseId }).lean();
+      if (current) {
+        const bin = await this.binModel.findById(current.bin_location_id).lean();
+        if (bin && typeof bin.capacity === 'number') {
+          const binTotal = await this.countStockUnits({ bin_location_id: bin._id });
+          if (binTotal + quantity > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, quantity);
+        }
+      }
+    }
     if (!Types.ObjectId.isValid(assignmentId)) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND, // dùng chung mã lỗi validate id, không cần thêm mã riêng
@@ -456,15 +498,22 @@ export class WarehouseService {
         ...item,
         zone_code: zone?.zone_code ?? 'ZZZ', // xếp cuối nếu chưa gán — 'ZZZ' sort sau mọi zone_code thật (thường 1-2 ký tự)
         bin_code: bin?.bin_code ?? 'CHƯA GÁN VỊ TRÍ',
+        pick_sequence: bin?.pick_sequence ?? null,
       };
     });
 
     // SẮP XẾP theo lộ trình vật lý (zone -> aisle/rack/level qua bin_code
     // string vì đã zero-pad sẵn lúc generate) — đúng kỹ thuật WMS wave
     // picking đã note trong CLAUDE.md.
+    // 🔄 K2 (26/09/2026) — kệ chuẩn mới (v2) sắp theo pick_sequence (lộ trình
+    // hình rắn, tính sẵn lúc tạo kệ), đi TRƯỚC; kệ chuẩn cũ (v1) và dòng chưa
+    // gán vị trí giữ cách sắp chuỗi như trước, đi SAU. Kho đang chuyển đổi
+    // (có cả 2 loại) vẫn cho ra thứ tự ổn định, không vỡ luồng cũ.
     enriched.sort((a, b) => {
-      if (a.zone_code !== b.zone_code)
-        return a.zone_code.localeCompare(b.zone_code);
+      if (a.pick_sequence !== null && b.pick_sequence !== null) return a.pick_sequence - b.pick_sequence;
+      if (a.pick_sequence !== null) return -1;
+      if (b.pick_sequence !== null) return 1;
+      if (a.zone_code !== b.zone_code) return a.zone_code.localeCompare(b.zone_code);
       return a.bin_code.localeCompare(b.bin_code);
     });
 
@@ -682,5 +731,178 @@ export class WarehouseService {
     }
     await this.binModel.updateOne({ _id: bin._id }, { $set: { is_active: true } });
     return this.assertBinExists(binId);
+  }
+  // ===================================================================
+  // K2 (26/09/2026) — BỐ CỤC KHO MỚI: tạo kệ, sửa ô, gợi ý ô, sức chứa
+  // ===================================================================
+
+  private throwOverCapacity(binCode: string, capacity: number, current: number, incoming: number): never {
+    throw new AppException(
+      WAREHOUSE_ERROR_CODES.BIN_OVER_CAPACITY,
+      `Ô "${binCode}" chứa tối đa ${String(capacity)}, đang có ${String(current)} — thêm ${String(incoming)} sẽ vượt. Gửi force=true nếu vẫn muốn xếp.`,
+      HttpStatus.CONFLICT,
+      { binCode, capacity, current, incoming },
+    );
+  }
+
+  private layoutFail(code: string, message: string, details?: Record<string, unknown>): never {
+    throw new AppException(code, message, HttpStatus.BAD_REQUEST, details);
+  }
+
+  /** Tạo 1 kệ + toàn bộ ô bên trong (tất cả hoặc không ô nào — transaction). */
+  async createRack(zoneId: string, dto: CreateRackDto): Promise<BinLocationDocument[]> {
+    const zone = await this.assertZoneExists(zoneId);
+    if (zone.is_active === false) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.ZONE_INACTIVE, `Khu "${zone.zone_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { zoneId });
+    }
+    await this.assertWarehouseActive(zone.warehouse_id.toString());
+    if (!ZONE_CODE_V2_REGEX.test(zone.zone_code)) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.ZONE_LEGACY_FORMAT,
+        `Khu "${zone.zone_code}" dùng mã chuẩn cũ — kệ chuẩn mới chỉ tạo trong khu mã KA..KZ. Tạo khu mới theo chuẩn.`,
+        HttpStatus.CONFLICT,
+        { zoneId, zoneCode: zone.zone_code },
+      );
+    }
+    const category = await this.categoriesService.getActiveLevel2(dto.category_code);
+
+    const tierNumbers = dto.tiers.map((t) => t.tier);
+    if (new Set(tierNumbers).size !== tierNumbers.length) {
+      this.layoutFail(WAREHOUSE_ERROR_CODES.INVALID_RACK_LAYOUT, 'Có tầng bị khai trùng.', { tiers: tierNumbers });
+    }
+    const badSizes = dto.tiers.filter((t) => !category.size_scale.includes(t.size)).map((t) => t.size);
+    if (badSizes.length > 0) {
+      this.layoutFail(WAREHOUSE_ERROR_CODES.SIZE_NOT_IN_SCALE, `Size ${badSizes.join(', ')} không thuộc thang size của "${category.code}" (${category.size_scale.join(', ')}).`, { badSizes, sizeScale: category.size_scale });
+    }
+    if (dto.cell_colors && dto.cell_colors.length !== dto.cells_per_tier) {
+      this.layoutFail(WAREHOUSE_ERROR_CODES.INVALID_RACK_LAYOUT, `Khai ${String(dto.cell_colors.length)} màu cho ${String(dto.cells_per_tier)} ô — phải bằng nhau (mỗi ô 1 màu).`);
+    }
+    const existing = await this.binModel.countDocuments({ zone_id: zone._id, aisle: dto.aisle, side: dto.side, rack: dto.bay, layout_version: 2 });
+    if (existing > 0) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.RACK_EXISTS, `Kệ ${dto.aisle}-${dto.side}${String(dto.bay).padStart(2, '0')} đã tồn tại trong khu "${zone.zone_code}".`, HttpStatus.CONFLICT, { zoneId });
+    }
+
+    const docs = dto.tiers.flatMap((t) =>
+      Array.from({ length: dto.cells_per_tier }, (_v, i) => {
+        const pos = { zoneCode: zone.zone_code, aisle: dto.aisle, side: dto.side, bay: dto.bay, tier: t.tier, cell: i + 1 };
+        return {
+          warehouse_id: zone.warehouse_id,
+          zone_id: zone._id,
+          bin_code: buildBinCodeV2(pos),
+          aisle: dto.aisle,
+          rack: dto.bay, // giữ tương thích code cũ đọc rack/level
+          level: t.tier,
+          layout_version: 2 as const,
+          side: dto.side,
+          cell: i + 1,
+          capacity: dto.capacity_per_cell ?? null,
+          designated: { category_code: category.code, size: t.size, color_code: dto.cell_colors?.[i] ?? null },
+          pick_sequence: computePickSequence(pos),
+          is_active: true,
+        };
+      }),
+    );
+    try {
+      await this.runInTransaction(async (session) => {
+        await this.binModel.insertMany(docs, { session });
+      });
+    } catch (error: unknown) {
+      if (this.isDuplicateKeyError(error)) {
+        throw new AppException(WAREHOUSE_ERROR_CODES.RACK_EXISTS, 'Mã ô bị trùng (có thể vừa có người tạo cùng kệ).', HttpStatus.CONFLICT, { zoneId });
+      }
+      throw error;
+    }
+    return this.binModel.find({ zone_id: zone._id, aisle: dto.aisle, side: dto.side, rack: dto.bay, layout_version: 2 }).sort({ pick_sequence: 1 });
+  }
+
+  /** Sửa sức chứa + thuộc tính đăng ký của 1 ô (thiếu chức năng Sửa kệ từ K1). */
+  async updateBin(binId: string, dto: UpdateBinDto): Promise<BinLocationDocument> {
+    const bin = await this.assertBinExists(binId);
+    const set: Record<string, unknown> = {};
+
+    if (dto.capacity !== undefined) {
+      if (dto.capacity !== null) {
+        const current = await this.countStockUnits({ bin_location_id: bin._id });
+        if (current > dto.capacity) this.throwOverCapacity(bin.bin_code, dto.capacity, current, 0);
+      }
+      set.capacity = dto.capacity;
+    }
+
+    const touchesDesignation =
+      dto.designated_category_code !== undefined || dto.designated_size !== undefined || dto.designated_color_code !== undefined;
+    if (touchesDesignation) {
+      // SỬA (26/09/2026, rà K2) — ô đang có hàng mà đổi danh mục/size/màu thì
+      // nhãn trên hệ thống nói 1 đằng, thùng thật chứa 1 nẻo (VD đăng ký "size M"
+      // nhưng trong thùng vẫn là size L) -> nhân viên lấy nhầm. Bắt dọn ô trước.
+      const unitsHere = await this.countStockUnits({ bin_location_id: bin._id });
+      if (unitsHere > 0) {
+        throw new AppException(
+          WAREHOUSE_ERROR_CODES.BIN_HAS_STOCK_DESIGNATION,
+          `Ô "${bin.bin_code}" đang chứa ${String(unitsHere)} đơn vị hàng — chuyển hết hàng ra trước khi đổi danh mục/size/màu đăng ký.`,
+          HttpStatus.CONFLICT,
+          { binId, unitsInStock: unitsHere },
+        );
+      }
+      const categoryCode = dto.designated_category_code ?? bin.designated?.category_code;
+      const size = dto.designated_size ?? bin.designated?.size;
+      if (categoryCode) {
+        const category = await this.categoriesService.getActiveLevel2(categoryCode);
+        if (size && !category.size_scale.includes(size)) {
+          this.layoutFail(WAREHOUSE_ERROR_CODES.SIZE_NOT_IN_SCALE, `Size "${size}" không thuộc thang size của "${category.code}" (${category.size_scale.join(', ')}).`, { size, sizeScale: category.size_scale });
+        }
+      } else if (size) {
+        this.layoutFail(WAREHOUSE_ERROR_CODES.INVALID_RACK_LAYOUT, 'Muốn đăng ký size phải có danh mục.');
+      }
+      if (dto.designated_category_code !== undefined) set['designated.category_code'] = dto.designated_category_code;
+      if (dto.designated_size !== undefined) set['designated.size'] = dto.designated_size;
+      if (dto.designated_color_code !== undefined) set['designated.color_code'] = dto.designated_color_code;
+    }
+
+    if (Object.keys(set).length === 0) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.NOTHING_TO_UPDATE, 'Không có trường nào để cập nhật.', HttpStatus.BAD_REQUEST);
+    }
+    await this.binModel.updateOne({ _id: bin._id }, { $set: set });
+    return this.assertBinExists(binId);
+  }
+
+  /**
+   * Gợi ý ô để xếp hàng theo thuộc tính (danh mục bắt buộc; size, màu tùy chọn).
+   * Mức khớp: 3 = đủ danh mục+size+màu; 2 = danh mục+size; 1 = cùng danh mục.
+   * Trong cùng mức: ô còn trống nhiều hơn đứng trước, rồi theo lộ trình.
+   * Quy tắc xếp kệ là GỢI Ý, không phải ràng buộc — Admin vẫn chọn ô khác được.
+   */
+  async suggestBins(
+    warehouseId: string,
+    query: { category_code: string; size?: string; color_code?: string },
+  ): Promise<{ bin: BinLocationDocument; matchLevel: 1 | 2 | 3; usedUnits: number; freeCapacity: number | null }[]> {
+    await this.assertWarehouseActive(warehouseId);
+    await this.categoriesService.getActiveLevel2(query.category_code);
+    const bins = await this.binModel.find({
+      warehouse_id: new Types.ObjectId(warehouseId),
+      'designated.category_code': query.category_code,
+      ...ACTIVE_ONLY,
+    });
+    if (bins.length === 0) return [];
+    const usage = await this.assignmentModel.aggregate<{ _id: Types.ObjectId; used: number }>([
+      { $match: { bin_location_id: { $in: bins.map((b) => b._id) } } },
+      { $group: { _id: '$bin_location_id', used: { $sum: '$quantity_on_hand' } } },
+    ]);
+    const usedMap = new Map(usage.map((u) => [u._id.toString(), u.used]));
+    return bins
+      .map((bin) => {
+        const sizeOk = query.size !== undefined && bin.designated?.size === query.size;
+        const colorOk = query.color_code !== undefined && bin.designated?.color_code === query.color_code;
+        const matchLevel: 1 | 2 | 3 = sizeOk && colorOk ? 3 : sizeOk ? 2 : 1;
+        const usedUnits = usedMap.get(bin._id.toString()) ?? 0;
+        const freeCapacity = typeof bin.capacity === 'number' ? Math.max(0, bin.capacity - usedUnits) : null;
+        return { bin, matchLevel, usedUnits, freeCapacity };
+      })
+      .filter((r) => r.freeCapacity === null || r.freeCapacity > 0) // ô đã đầy thì không gợi ý
+      .sort((a, b) =>
+        b.matchLevel - a.matchLevel ||
+        (b.freeCapacity ?? Number.MAX_SAFE_INTEGER) - (a.freeCapacity ?? Number.MAX_SAFE_INTEGER) ||
+        (a.bin.pick_sequence ?? Number.MAX_SAFE_INTEGER) - (b.bin.pick_sequence ?? Number.MAX_SAFE_INTEGER),
+      )
+      .slice(0, 20);
   }
 }
