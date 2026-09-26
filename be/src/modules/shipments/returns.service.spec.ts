@@ -20,6 +20,8 @@ describe('ReturnsService — G3', () => {
   let shipmentModel: { findOne: jest.Mock };
   let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock };
   let warehouseService: { restockReturnedItem: jest.Mock };
+  let packagingMaterialsService: { recoverFromReturn: jest.Mock };
+  let movementModel: { aggregate: jest.Mock };
   let service: ReturnsService;
 
   const rma = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -36,8 +38,10 @@ describe('ReturnsService — G3', () => {
       transitionFulfillmentStatus: jest.fn().mockResolvedValue({}),
     };
     warehouseService = { restockReturnedItem: jest.fn().mockResolvedValue(undefined) };
+    packagingMaterialsService = { recoverFromReturn: jest.fn().mockResolvedValue([]) };
+    movementModel = { aggregate: jest.fn().mockResolvedValue([]) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
-    service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never);
+    service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, packagingMaterialsService as never, movementModel as never);
   });
 
   const createDto = (items: { seller_sku: string; quantity: number }[]): never =>
@@ -137,6 +141,28 @@ describe('ReturnsService — G3', () => {
       expect(warehouseService.restockReturnedItem).toHaveBeenCalledTimes(1);
       expect(warehouseService.restockReturnedItem).toHaveBeenCalledWith(expect.objectContaining({ sellerSku: 'A', quantity: 1, binLocationId: binId, returnRequestId: rmaId.toString() }), expect.anything());
       expect((returnModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { status: string } }])[1].$set.status).toBe(ReturnStatus.CLOSED);
+    });
+  });
+  describe('G4 — sửa điểm yếu + thu hồi vật liệu', () => {
+    it('phiếu hoàn giao thất bại lấy SỐ LƯỢNG ĐÃ QUÉT THẬT (sổ cái), không phải số đặt', async () => {
+      movementModel.aggregate.mockResolvedValue([{ _id: 'A', qty: 1 }]); // đặt 2 nhưng chỉ lấy được 1
+      await service.createFromFailedDelivery(groupId.toString(), new Types.ObjectId().toString(), 'wh-1', {} as never);
+      const created = (returnModel.create.mock.calls[0] as [[{ items: { seller_sku: string; quantity: number }[] }]])[0][0];
+      expect(created.items).toEqual([expect.objectContaining({ seller_sku: 'A', quantity: 1 })]);
+      expect(orderGroupsService.getPackableItemsForGroup).not.toHaveBeenCalled();
+    });
+
+    it('kiểm hàng kèm vật liệu -> gọi thu hồi vật liệu TRONG cùng transaction, lưu kết quả vào phiếu', async () => {
+      returnModel.findById.mockResolvedValue(rma({ status: ReturnStatus.RECEIVED }));
+      returnModel.findOneAndUpdate.mockResolvedValue(rma({ status: ReturnStatus.CLOSED }));
+      const pkgLine = { material_code: 'BOX-M', quantity: 1, grade: 'A' as const, old_label_removed: true };
+      packagingMaterialsService.recoverFromReturn.mockResolvedValue([{ line: pkgLine, recoveredToReuse: true, outcome: 'Hạng A' }]);
+
+      await service.inspect(rmaId.toString(), { expected_version: 0, lines: [{ seller_sku: 'A', quantity: 2, result: InspectionResult.DISCARD }], packaging: [pkgLine] }, 'wh-1');
+
+      expect(packagingMaterialsService.recoverFromReturn).toHaveBeenCalledWith([pkgLine], rmaId.toString(), 'wh-1', expect.anything());
+      const set = (returnModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { packaging_inspection: { recovered_to_reuse: boolean }[] } }])[1].$set;
+      expect(set.packaging_inspection[0]?.recovered_to_reuse).toBe(true);
     });
   });
 });

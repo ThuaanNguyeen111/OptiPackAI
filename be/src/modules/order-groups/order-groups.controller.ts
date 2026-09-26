@@ -1,3 +1,4 @@
+import { PackagingMaterialsService, ConsumptionResult } from '../packaging-materials/packaging-materials.service';
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService } from './order-groups.service';
@@ -93,7 +94,10 @@ export function toResponse(group: OrderGroupDocument): OrderGroupResponse {
 @Controller('order-groups')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrderGroupsController {
-  constructor(private readonly orderGroupsService: OrderGroupsService) {}
+  constructor(
+    private readonly orderGroupsService: OrderGroupsService,
+    private readonly packagingMaterialsService: PackagingMaterialsService, // G4
+  ) {}
 
   @Get()
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
@@ -221,13 +225,21 @@ export class OrderGroupsController {
   @Post(':id/fulfillment/pack')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). 🔄 (21/09/2026) mở thêm PACKAGING_STAFF — trước đây chỉ Warehouse+Admin, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý.' })
-  async pack(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  async pack(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse & { packagingConsumption: ConsumptionResult }> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.PACKED,
       body.expected_version,
     );
-    return toResponse(group);
+    // G4 (27/09/2026) — trừ vật liệu theo gợi ý đóng gói (ưu tiên hàng tái sử dụng).
+    // KHÔNG chặn pack nếu thiếu vật liệu/chưa khai danh mục — chỉ trả cảnh báo.
+    // Response chỉ THÊM field packagingConsumption, không đổi field cũ.
+    const packagingConsumption = await this.packagingMaterialsService.consumeForPackedGroup(id, user.userId);
+    return { ...toResponse(group), packagingConsumption };
   }
 
 

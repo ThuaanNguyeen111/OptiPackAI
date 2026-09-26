@@ -22,6 +22,18 @@ export class InspectionLine {
 }
 const InspectionLineSchema = SchemaFactory.createForClass(InspectionLine);
 
+@Schema({ _id: false })
+export class PackagingInspectionRecord {
+  @Prop({ required: true }) material_code!: string;
+  @Prop({ required: true }) quantity!: number;
+  @Prop({ type: String, enum: ['A', 'B', 'C'], required: true }) grade!: 'A' | 'B' | 'C';
+  @Prop({ type: Number, default: 0 }) reuse_cycle_seen!: number;
+  @Prop({ type: Boolean, default: false }) old_label_removed!: boolean;
+  @Prop({ type: Boolean, required: true }) recovered_to_reuse!: boolean;
+  @Prop({ required: true }) outcome!: string;
+}
+const PackagingInspectionRecordSchema = SchemaFactory.createForClass(PackagingInspectionRecord);
+
 /**
  * G3 (27/09/2026) — phiếu trả/hoàn hàng (RMA). Bản gọn: tạo bằng nút bấm
  * (giả lập khách) hoặc tự động khi kiện giao thất bại về kho. Không gọi API
@@ -39,6 +51,7 @@ export class ReturnRequest {
   @Prop({ required: true }) shop_id!: string;
   @Prop({ type: [ReturnItemSchema], default: [] }) items!: ReturnItem[];
   @Prop({ type: [InspectionLineSchema], default: [] }) inspection!: InspectionLine[];
+  @Prop({ type: [PackagingInspectionRecordSchema], default: [] }) packaging_inspection!: PackagingInspectionRecord[]; // G4
   @Prop({ type: String, default: null }) customer_note!: string | null;
   @Prop({ type: String, default: null }) decision_note!: string | null;
   @Prop({ required: true }) created_by!: string;

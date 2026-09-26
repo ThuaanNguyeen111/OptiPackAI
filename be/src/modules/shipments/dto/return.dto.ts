@@ -1,3 +1,4 @@
+import { PackagingInspectionLineDto } from '../../packaging-materials/dto/packaging-material.dto';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -47,4 +48,8 @@ export class InspectReturnDto {
   @ApiProperty({ type: [InspectionLineDto], description: 'Tổng số lượng các dòng của mỗi SKU PHẢI bằng số lượng trả của SKU đó' })
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(100) @ValidateNested({ each: true }) @Type(() => InspectionLineDto)
   lines!: InspectionLineDto[];
+
+  @ApiPropertyOptional({ type: [PackagingInspectionLineDto], description: 'G4 — kiểm luôn thùng/xốp đi kèm hàng hoàn' })
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => PackagingInspectionLineDto)
+  packaging?: PackagingInspectionLineDto[];
 }

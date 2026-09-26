@@ -1,3 +1,4 @@
+import { PackagingMaterialsModule } from '../packaging-materials/packaging-materials.module';
 import { InventoryMovement, InventoryMovementSchema } from '../warehouse/schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -31,6 +32,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3 — pick-item ghi sổ cái
     ]),
     NotificationsModule,
+    PackagingMaterialsModule, // G4 — pack trừ vật liệu đóng gói
   ],
   controllers: [OrderGroupsController, StaffAssignmentController],
   providers: [OrderGroupsService, OrderGroupBackfillScheduler, StaffAssignmentService, ExpressOrderSlaScheduler],

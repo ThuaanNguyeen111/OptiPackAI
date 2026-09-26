@@ -560,76 +560,70 @@ export class OrderGroupsService {
     // Atomic check-and-decrement — filter kèm `quantity_on_hand: {$gte}`
     // ngay trong CÙNG 1 lệnh, không tách "check rồi ghi" (tránh race
     // condition 2 nhân viên quét cùng lúc cùng 1 SKU sắp hết hàng).
-    const updated = await this.skuBinAssignmentModel.findOneAndUpdate(
-      {
-        warehouse_id: warehouseId,
-        seller_sku: sku,
-        ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}), // K3 — trừ đúng ô
-        quantity_on_hand: { $gte: scannedQuantity },
-      },
-      { $inc: { quantity_on_hand: -scannedQuantity } },
-      { returnDocument: 'after' },
-    );
-
-    if (!updated) {
-      throw new AppException(
-        ORD_GROUP_ERROR_CODES.INSUFFICIENT_STOCK,
-        `SKU "${sku}" không đủ tồn kho tại kho "${warehouseId}" (cần ${String(scannedQuantity)}) — dùng POST .../fulfillment/report-missing để báo thiếu hàng.`,
-        HttpStatus.CONFLICT,
-        { sku, warehouseId, requestedQuantity: scannedQuantity },
-      );
-    }
-
-    // K3 (27/09/2026) — ghi sổ cái biến động kho (cùng mức nguyên tử với
-    // pick_events hiện có: ghi SAU khi trừ tồn thành công, không transaction —
-    // ghi nhận ở điểm yếu, xem CLAUDE.md).
-    await this.inventoryMovementModel.create({
-      warehouse_id: updated.warehouse_id,
-      assignment_id: updated._id,
-      bin_location_id: updated.bin_location_id,
-      platform: updated.platform,
-      shop_id: updated.shop_id,
-      seller_sku: updated.seller_sku,
-      type: 'pick',
-      delta: -scannedQuantity,
-      quantity_before: updated.quantity_on_hand + scannedQuantity,
-      quantity_after: updated.quantity_on_hand,
-      reason_code: null,
-      note: null,
-      ref_type: 'order_group',
-      ref_id: groupId,
-      actor_id: actorId,
-      created_at: new Date(),
-    });
-
-    if (clientEventId) {
-      await this.pickEventModel.create({
-        order_group_id: groupId,
-        seller_sku: sku,
-        scanned_quantity: scannedQuantity,
-        scan_method: scanMethod,
-        client_event_id: clientEventId,
-        remaining_stock_after: updated.quantity_on_hand,
-        bin_location_id: updated.bin_location_id, // K3
+    // 🔄 K4a (27/09/2026) — 2 sửa đổi:
+    // (1) Lọc thêm platform + shop_id của nhóm đơn. Trước đây chỉ lọc kho + seller_sku:
+    //     2 sàn/2 shop có SKU trùng chuỗi trong cùng kho -> có thể trừ nhầm tồn bên kia.
+    // (2) Trừ tồn + sổ cái + pick_event trong 1 TRANSACTION. Trước đây ghi sổ SAU khi
+    //     trừ, không transaction -> lỗi giữa chừng thì tồn đã trừ mà không có dòng sổ.
+    const group = await this.findOrderGroupById(groupId);
+    const holder: { doc: SkuBinAssignmentDocument | null } = { doc: null };
+    const session = await this.skuBinAssignmentModel.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
+          {
+            warehouse_id: warehouseId,
+            seller_sku: sku,
+            platform: group.platform,
+            shop_id: group.shop_id,
+            ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}), // K3 — trừ đúng ô
+            quantity_on_hand: { $gte: scannedQuantity },
+          },
+          { $inc: { quantity_on_hand: -scannedQuantity } },
+          { returnDocument: 'after', session },
+        );
+        if (!doc) {
+          throw new AppException(
+            ORD_GROUP_ERROR_CODES.INSUFFICIENT_STOCK,
+            `SKU "${sku}" không đủ tồn kho tại kho "${warehouseId}" (cần ${String(scannedQuantity)}) — dùng POST .../fulfillment/report-missing để báo thiếu hàng.`,
+            HttpStatus.CONFLICT,
+            { sku, warehouseId, requestedQuantity: scannedQuantity },
+          );
+        }
+        await this.inventoryMovementModel.create([{
+          warehouse_id: doc.warehouse_id,
+          assignment_id: doc._id,
+          bin_location_id: doc.bin_location_id,
+          platform: doc.platform,
+          shop_id: doc.shop_id,
+          seller_sku: doc.seller_sku,
+          type: 'pick',
+          delta: -scannedQuantity,
+          quantity_before: doc.quantity_on_hand + scannedQuantity,
+          quantity_after: doc.quantity_on_hand,
+          reason_code: null,
+          note: null,
+          ref_type: 'order_group',
+          ref_id: groupId,
+          actor_id: actorId,
+          created_at: new Date(),
+        }], { session });
+        await this.pickEventModel.create([{
+          order_group_id: groupId,
+          seller_sku: sku,
+          scanned_quantity: scannedQuantity,
+          scan_method: scanMethod,
+          client_event_id: clientEventId ?? null,
+          remaining_stock_after: doc.quantity_on_hand,
+          bin_location_id: doc.bin_location_id,
+        }], { session });
+        holder.doc = doc;
       });
-    } else {
-      // Vẫn ghi log audit dù không có client_event_id (gọi trực tiếp
-      // Swagger/web, không qua offline-sync) — chỉ khác là không cần
-      // check idempotency cho lần này.
-      await this.pickEventModel.create({
-        order_group_id: groupId,
-        seller_sku: sku,
-        scanned_quantity: scannedQuantity,
-        scan_method: scanMethod,
-        client_event_id: null,
-        remaining_stock_after: updated.quantity_on_hand,
-        bin_location_id: updated.bin_location_id, // K3
-      });
+    } finally {
+      await session.endSession();
     }
-
-    this.logger.log(
-      `Pick item: group ${groupId}, SKU ${sku}, số lượng ${String(scannedQuantity)} (${scanMethod}) — còn lại ${String(updated.quantity_on_hand)}.`,
-    );
+    const updated = holder.doc;
+    if (!updated) throw new Error('Transaction trừ tồn kết thúc mà không có kết quả');
 
     return {
       sku,

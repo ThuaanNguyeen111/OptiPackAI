@@ -1,3 +1,5 @@
+import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
+import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -35,6 +37,8 @@ export class ReturnsService {
     private readonly orderGroupsService: OrderGroupsService,
     private readonly warehouseService: WarehouseService,
     @InjectConnection() private readonly connection: Connection,
+    private readonly packagingMaterialsService: PackagingMaterialsService, // G4
+    @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>, // G4
   ) {}
 
   async get(id: string): Promise<ReturnRequestDocument> {
@@ -59,9 +63,20 @@ export class ReturnsService {
   async createFromFailedDelivery(orderGroupId: string, shipmentId: string, actorId: string, session: ClientSession): Promise<void> {
     const group = await this.orderGroupsService.findOrderGroupById(orderGroupId);
     let items: { seller_sku: string; quantity: number; reason_code: ReturnReason }[] = [];
+    // 🔄 G4 (27/09/2026) — SỬA ĐIỂM YẾU G3: lấy số lượng ĐÃ QUÉT THẬT (sổ cái K3,
+    // type "pick") thay vì số lượng đặt — lúc lấy hàng bị thiếu thì kiện về kho cũng
+    // chỉ có đúng số đã lấy. Nhóm đơn lấy hàng trước K3 (chưa có sổ cái) -> dùng số đặt.
+    const picked = await this.movementModel.aggregate<{ _id: string; qty: number }>([
+      { $match: { type: 'pick', ref_type: 'order_group', ref_id: orderGroupId } },
+      { $group: { _id: '$seller_sku', qty: { $sum: { $multiply: ['$delta', -1] } } } },
+    ]);
     try {
-      const packable = await this.orderGroupsService.getPackableItemsForGroup(orderGroupId);
-      items = packable.items.map((i) => ({ seller_sku: i.sku, quantity: i.quantity, reason_code: ReturnReason.FAILED_DELIVERY }));
+      if (picked.length > 0) {
+        items = picked.filter((p) => p.qty > 0).map((p) => ({ seller_sku: p._id, quantity: p.qty, reason_code: ReturnReason.FAILED_DELIVERY }));
+      } else {
+        const packable = await this.orderGroupsService.getPackableItemsForGroup(orderGroupId);
+        items = packable.items.map((i) => ({ seller_sku: i.sku, quantity: i.quantity, reason_code: ReturnReason.FAILED_DELIVERY }));
+      }
     } catch (error: unknown) {
       // VD toàn bộ đơn trong nhóm đã hủy -> không đọc được danh sách hàng. Vẫn tạo phiếu
       // (rỗng) để kho biết có kiện về, ghi log để kiểm tra tay.
@@ -181,6 +196,10 @@ export class ReturnsService {
     }
 
     return this.runTx(async (session) => {
+      // G4 — thu hồi vật liệu đóng gói (hạng A đã gỡ nhãn -> kho tái sử dụng), cùng transaction.
+      const packagingOutcomes = dto.packaging?.length
+        ? await this.packagingMaterialsService.recoverFromReturn(dto.packaging, rma._id.toString(), actorId, session)
+        : [];
       for (const line of dto.lines) {
         if (line.result === InspectionResult.RESTOCK && line.warehouse_id && line.bin_location_id) {
           await this.warehouseService.restockReturnedItem({
@@ -206,6 +225,15 @@ export class ReturnsService {
         })),
         inspected_by: actorId,
         closed_at: new Date(),
+        packaging_inspection: packagingOutcomes.map((o) => ({
+          material_code: o.line.material_code,
+          quantity: o.line.quantity,
+          grade: o.line.grade,
+          reuse_cycle_seen: o.line.reuse_cycle_seen ?? 0,
+          old_label_removed: o.line.old_label_removed === true,
+          recovered_to_reuse: o.recoveredToReuse,
+          outcome: o.outcome,
+        })),
       }, session);
     });
   }

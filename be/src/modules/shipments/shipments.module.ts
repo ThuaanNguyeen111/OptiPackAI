@@ -1,3 +1,5 @@
+import { PackagingMaterialsModule } from '../packaging-materials/packaging-materials.module';
+import { InventoryMovement, InventoryMovementSchema } from '../warehouse/schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Shipment, ShipmentSchema } from './schemas/shipment.schema';
@@ -19,9 +21,11 @@ import { ReturnsController } from './returns.controller';
       { name: Shipment.name, schema: ShipmentSchema },
       { name: ShipmentEvent.name, schema: ShipmentEventSchema },
       { name: ReturnRequest.name, schema: ReturnRequestSchema }, // G3
+      { name: InventoryMovement.name, schema: InventoryMovementSchema }, // G4 — số lượng đã quét thật
     ]),
     OrderGroupsModule,
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)
+    PackagingMaterialsModule, // G4 — thu hồi vật liệu khi kiểm hàng hoàn
   ],
   controllers: [ShipmentsController, LegacyFulfillmentController, ReturnsController],
   providers: [ShipmentsService, ReturnsService],

@@ -20,7 +20,7 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
   let orderGroupModel: { findById: jest.Mock };
   let orderModel: { find: jest.Mock };
   let productMasterModel: { find: jest.Mock };
-  let skuBinAssignmentModel: { findOneAndUpdate: jest.Mock };
+  let skuBinAssignmentModel: { findOneAndUpdate: jest.Mock; db: { startSession: jest.Mock } };
   let pickEventModel: { findOne: jest.Mock; create: jest.Mock };
 
   function mockGroupHasOnlySku(realSku: string): void {
@@ -58,7 +58,9 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
     orderGroupModel = { findById: jest.fn() };
     orderModel = { find: jest.fn() };
     productMasterModel = { find: jest.fn() };
-    skuBinAssignmentModel = { findOneAndUpdate: jest.fn() };
+    // K4a — pickItem chạy trong transaction (session lấy từ model.db)
+    const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
+    skuBinAssignmentModel = { findOneAndUpdate: jest.fn(), db: { startSession: jest.fn().mockResolvedValue(session) } };
     pickEventModel = { findOne: jest.fn(), create: jest.fn() };
 
     service = new OrderGroupsService(
@@ -110,5 +112,15 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
       remainingStock: 9,
     });
     expect(skuBinAssignmentModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('K4a — trừ tồn LỌC ĐÚNG sàn + shop của nhóm đơn (không trừ nhầm SKU trùng chuỗi của sàn/shop khác)', async () => {
+    mockGroupHasOnlySku('ABC-123');
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 4, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'lazada', shop_id: 'shop-1', seller_sku: 'ABC-123' });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
+
+    expect((skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0]).toMatchObject({ platform: 'lazada', shop_id: 'shop-1' });
   });
 });

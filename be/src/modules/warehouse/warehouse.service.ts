@@ -501,8 +501,10 @@ export class WarehouseService {
     const skus = items.map((i) => i.sku);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1.
+    // 🔄 K4a — lọc đúng sàn/shop của nhóm đơn (trước đây chỉ kho + seller_sku).
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
     const assignments = await this.assignmentModel
-      .find({ warehouse_id: warehouseId, seller_sku: { $in: skus } })
+      .find({ warehouse_id: warehouseId, seller_sku: { $in: skus }, platform: group.platform, shop_id: group.shop_id })
       .lean();
     const binIds = assignments.map((a) => a.bin_location_id);
     const bins = await this.binModel.find({ _id: { $in: binIds } }).lean();

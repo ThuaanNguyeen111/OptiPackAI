@@ -25,6 +25,10 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
       sellerSku: l.seller_sku, quantity: l.quantity, result: l.result,
       warehouseId: l.warehouse_id?.toString() ?? null, binLocationId: l.bin_location_id?.toString() ?? null, note: l.note,
     })),
+    packagingInspection: d.packaging_inspection.map((p) => ({
+      materialCode: p.material_code, quantity: p.quantity, grade: p.grade, reuseCycleSeen: p.reuse_cycle_seen,
+      oldLabelRemoved: p.old_label_removed, recoveredToReuse: p.recovered_to_reuse, outcome: p.outcome,
+    })),
     customerNote: d.customer_note,
     decisionNote: d.decision_note,
     createdBy: d.created_by,
