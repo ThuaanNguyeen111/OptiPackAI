@@ -1,3 +1,7 @@
+import { StockReservationService } from './stock-reservation.service';
+import { stockKeyOf } from '../master-skus/stock-key.util';
+import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import { resolveMasterSkus, stockFilterFor } from '../master-skus/stock-key.util';
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
@@ -83,6 +87,11 @@ export class OrderGroupsService {
     // K3 (27/09/2026) — pick-item ghi sổ cái biến động kho
     @InjectModel(InventoryMovement.name)
     private readonly inventoryMovementModel: Model<InventoryMovementDocument>,
+    // K4b — tra SKU sàn -> SKU nội bộ khi trừ tồn
+    @InjectModel(MarketplaceSkuMapping.name)
+    private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
+    // K5 — giữ chỗ tồn kho chống bán lố
+    private readonly stockReservationService: StockReservationService,
   ) {}
 
   /**
@@ -113,6 +122,8 @@ export class OrderGroupsService {
         if (actualCount !== existing.order_count) {
           existing.order_count = actualCount;
           await existing.save();
+          // K5 — có đơn gộp đến muộn -> nhu cầu hàng tăng -> giữ chỗ lại.
+          await this.reconcileReservation(existing._id.toString());
         }
         return existing;
       }
@@ -174,6 +185,10 @@ export class OrderGroupsService {
         error,
       );
     }
+
+    // K5 — giữ chỗ tồn NGAY khi tạo nhóm đơn; thiếu thì gắn cờ từ đầu. Best-effort:
+    // lỗi giữ chỗ KHÔNG được chặn luồng đồng bộ đơn hàng.
+    await this.reconcileReservation(group._id.toString());
 
     try {
       return await this.transitionFulfillmentStatus(
@@ -509,6 +524,8 @@ export class OrderGroupsService {
     this.logger.log(
       `Order Group ${groupId}: ${group.fulfillment_status} -> ${targetStatus} (version ${String(expectedVersion)} -> ${String(expectedVersion + 1)}).`,
     );
+    // K5 — lấy hàng xong: phần giữ chỗ chưa quét tới (thiếu hàng/bỏ bớt) được nhả cho đơn khác.
+    if (targetStatus === GroupFulfillmentStatus.PICKED && !session) await this.releaseReservation(groupId);
 
     return updated;
   }
@@ -566,6 +583,8 @@ export class OrderGroupsService {
     // (2) Trừ tồn + sổ cái + pick_event trong 1 TRANSACTION. Trước đây ghi sổ SAU khi
     //     trừ, không transaction -> lỗi giữa chừng thì tồn đã trừ mà không có dòng sổ.
     const group = await this.findOrderGroupById(groupId);
+    // 🔄 K4b — SKU đã nối: trừ vào tồn CHUNG của SKU nội bộ; chưa nối: như cũ.
+    const masterSku = (await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, [sku])).get(sku);
     const holder: { doc: SkuBinAssignmentDocument | null } = { doc: null };
     const session = await this.skuBinAssignmentModel.db.startSession();
     try {
@@ -573,9 +592,7 @@ export class OrderGroupsService {
         const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
           {
             warehouse_id: warehouseId,
-            seller_sku: sku,
-            platform: group.platform,
-            shop_id: group.shop_id,
+            ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
             ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}), // K3 — trừ đúng ô
             quantity_on_hand: { $gte: scannedQuantity },
           },
@@ -597,6 +614,7 @@ export class OrderGroupsService {
           platform: doc.platform,
           shop_id: doc.shop_id,
           seller_sku: doc.seller_sku,
+          master_sku: doc.master_sku ?? null, // K4b
           type: 'pick',
           delta: -scannedQuantity,
           quantity_before: doc.quantity_on_hand + scannedQuantity,
@@ -617,6 +635,8 @@ export class OrderGroupsService {
           remaining_stock_after: doc.quantity_on_hand,
           bin_location_id: doc.bin_location_id,
         }], { session });
+        // K5 — tiêu phần đã giữ chỗ tương ứng số vừa quét, CÙNG transaction.
+        await this.stockReservationService.consume(groupId, stockKeyOf(masterSku, group.platform, group.shop_id, sku), scannedQuantity, session);
         holder.doc = doc;
       });
     } finally {
@@ -765,5 +785,30 @@ export class OrderGroupsService {
       `Group ${groupId} đặt priority=${priority}${priority === 'express' ? `, hạn ${update.packaging_deadline as string}` : ''}.`,
     );
     return group;
+  }
+
+  // ===================================================================
+  // K5 (27/09/2026) — GIỮ CHỖ TỒN KHO
+  // ===================================================================
+
+  /** Tính lại giữ chỗ theo hàng HIỆN TẠI của nhóm đơn. Best-effort, không throw. */
+  async reconcileReservation(groupId: string): Promise<void> {
+    try {
+      const group = await this.findOrderGroupById(groupId);
+      const { items } = await this.getPackableItemsForGroup(groupId);
+      await this.stockReservationService.reconcile(group, items);
+    } catch (error) {
+      this.logger.warn(`Giữ chỗ tồn kho cho nhóm đơn ${groupId} thất bại (không chặn luồng chính).`, error);
+    }
+  }
+
+  /** Nhả phần giữ chỗ còn dư. Best-effort, không throw. */
+  async releaseReservation(groupId: string): Promise<number> {
+    try {
+      return await this.stockReservationService.releaseGroup(groupId);
+    } catch (error) {
+      this.logger.warn(`Nhả giữ chỗ nhóm đơn ${groupId} thất bại.`, error);
+      return 0;
+    }
   }
 }

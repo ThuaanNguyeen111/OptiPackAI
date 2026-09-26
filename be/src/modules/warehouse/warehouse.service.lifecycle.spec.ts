@@ -43,6 +43,7 @@ describe('WarehouseService — vòng đời K1', () => {
       connection as never,
       {} as never, // categoriesService (K2) — không dùng trong các test vòng đời
       { create: jest.fn().mockResolvedValue([{}]), find: jest.fn() } as never, // K3 movementModel
+      { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
     );
   });
 

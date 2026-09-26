@@ -31,6 +31,7 @@ describe('WarehouseService — K3 sổ cái', () => {
     service = new WarehouseService(
       warehouseModel as never, {} as never, binModel as never, assignmentModel as never, {} as never, {} as never,
       { startSession: jest.fn().mockResolvedValue(session) } as never, {} as never, movementModel as never,
+      { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
     );
   });
 

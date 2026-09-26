@@ -31,6 +31,7 @@ describe('WarehouseService — bố cục kho mới K2', () => {
       warehouseModel as never, zoneModel as never, binModel as never, assignmentModel as never,
       {} as never, orderGroupsService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, categoriesService as never,
       { create: jest.fn().mockResolvedValue([{}]), find: jest.fn() } as never, // K3 movementModel
+      { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
     );
   });
 

@@ -13,4 +13,5 @@ export const MASTER_SKU_ERROR_CODES = {
   SELLER_SKU_UNKNOWN: 'MAP_SELLER_SKU_UNKNOWN', // SKU sàn chưa từng đồng bộ về (gõ sai?)
   ALREADY_MAPPED: 'MAP_ALREADY_MAPPED', // SKU sàn đã nối SKU nội bộ khác
   MAPPING_NOT_FOUND: 'MAP_NOT_FOUND',
+  HAS_POOLED_STOCK: 'MAP_HAS_POOLED_STOCK', // K4b — bỏ nối khi tồn đang gộp chung
 } as const;

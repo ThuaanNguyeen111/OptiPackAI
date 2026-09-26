@@ -40,6 +40,7 @@ export class InventoryMovement {
   @Prop({ required: true }) platform!: string;
   @Prop({ required: true }) shop_id!: string;
   @Prop({ required: true }) seller_sku!: string;
+  @Prop({ type: String, default: null }) master_sku!: string | null; // K4b
 
   @Prop({ type: String, enum: MOVEMENT_TYPES, required: true })
   type!: MovementType;

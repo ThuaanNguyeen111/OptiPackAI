@@ -5,6 +5,8 @@ import { MasterSku, MasterSkuSchema } from './schemas/master-sku.schema';
 import { MarketplaceSkuMapping, MarketplaceSkuMappingSchema } from './schemas/marketplace-sku-mapping.schema';
 import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/product-master.schema';
 import { CategoriesModule } from '../categories/categories.module';
+import { SkuBinAssignment, SkuBinAssignmentSchema } from '../warehouse/schemas/sku-bin-assignment.schema';
+import { InventoryMovement, InventoryMovementSchema } from '../warehouse/schemas/inventory-movement.schema';
 import { MasterSkusService } from './master-skus.service';
 import { ColorsController, MasterSkusController } from './master-skus.controller';
 
@@ -16,6 +18,8 @@ import { ColorsController, MasterSkusController } from './master-skus.controller
       { name: MasterSku.name, schema: MasterSkuSchema },
       { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema },
       { name: ProductMaster.name, schema: ProductMasterSchema },
+      { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema }, // K4b
+      { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K4b
     ]),
     CategoriesModule,
   ],

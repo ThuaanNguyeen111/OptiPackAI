@@ -29,6 +29,8 @@ import { OrderGroupDocument } from './schemas/order-group.schema';
 // body của 5 endpoint fulfillment (Rule #18, Optimistic Concurrency)
 // — không phải rò rỉ Mongoose internal, mà là hợp đồng API có chủ đích.
 export interface OrderGroupResponse {
+  stockShortage: boolean; // K5
+  stockShortageItems: { sku: string; needed: number; reserved: number; shortage: number }[]; // K5
   id: string;
   platform: string;
   shopId: string;
@@ -46,6 +48,8 @@ export interface OrderGroupResponse {
 
 export function toResponse(group: OrderGroupDocument): OrderGroupResponse {
   return {
+    stockShortage: group.stock_shortage === true, // K5
+    stockShortageItems: group.stock_shortage_items ?? [], // K5
     id: group._id.toString(),
     platform: group.platform,
     shopId: group.shop_id,

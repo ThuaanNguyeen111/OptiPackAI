@@ -83,6 +83,13 @@ export class OrderGroup {
   @Prop({ type: Boolean, default: false })
   is_overdue!: boolean;
 
+  // K5 (27/09/2026) — thiếu hàng NGAY lúc tạo nhóm đơn (tồn khả dụng không đủ giữ chỗ).
+  @Prop({ type: Boolean, default: false })
+  stock_shortage?: boolean;
+
+  @Prop({ type: [{ sku: String, needed: Number, reserved: Number, shortage: Number, _id: false }], default: [] })
+  stock_shortage_items?: { sku: string; needed: number; reserved: number; shortage: number }[];
+
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
   // __v MỚI thêm (2026-09-09) — cần TypeScript biết field này tồn tại

@@ -13,6 +13,8 @@ describe('MasterSkusService — K4a', () => {
   let mappingModel: { findOne: jest.Mock; create: jest.Mock; updateMany: jest.Mock; countDocuments: jest.Mock };
   let productMasterModel: { findOne: jest.Mock };
   let categoriesService: { getActiveLevel2: jest.Mock };
+  let assignmentModel: { find: jest.Mock; findOne: jest.Mock; updateOne: jest.Mock; updateMany: jest.Mock; deleteOne: jest.Mock; aggregate: jest.Mock };
+  let movementModel: { create: jest.Mock };
   let service: MasterSkusService;
 
   const dto = { category_code: 'ATHUN', model_no: 5, color_code: 'DEN', size: 'M', name: 'Áo thun basic đen M' };
@@ -24,11 +26,18 @@ describe('MasterSkusService — K4a', () => {
   beforeEach(() => {
     colorModel = { findOne: jest.fn().mockResolvedValue({ code: 'DEN', is_active: true }), findOneAndUpdate: jest.fn() };
     skuModel = { create: jest.fn().mockImplementation((docs: Record<string, unknown>[]) => Promise.resolve(docs)), findOne: jest.fn(), findOneAndUpdate: jest.fn(), countDocuments: jest.fn(), updateOne: jest.fn() };
-    mappingModel = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({ modifiedCount: 2 }), countDocuments: jest.fn() };
+    mappingModel = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([{}]), updateMany: jest.fn().mockResolvedValue({ modifiedCount: 2 }), countDocuments: jest.fn() };
     productMasterModel = { findOne: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue({ _id: 'pm' }) }) }) };
+    assignmentModel = {
+      find: jest.fn().mockReturnValue({ session: jest.fn().mockResolvedValue([]) }),
+      findOne: jest.fn().mockReturnValue({ session: jest.fn().mockResolvedValue(null) }),
+      updateOne: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({}), deleteOne: jest.fn().mockResolvedValue({}),
+      aggregate: jest.fn().mockResolvedValue([]),
+    };
+    movementModel = { create: jest.fn().mockResolvedValue([]) };
     categoriesService = { getActiveLevel2: jest.fn().mockResolvedValue({ code: 'ATHUN', size_scale: ['S', 'M', 'L'] }) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
-    service = new MasterSkusService(colorModel as never, skuModel as never, mappingModel as never, productMasterModel as never, categoriesService as never, { startSession: jest.fn().mockResolvedValue(session) } as never);
+    service = new MasterSkusService(colorModel as never, skuModel as never, mappingModel as never, productMasterModel as never, categoriesService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, assignmentModel as never, movementModel as never);
   });
 
   it('ghép mã đúng quy ước: danh mục-mẫu 3 số-màu-size', () => {
@@ -69,7 +78,7 @@ describe('MasterSkusService — K4a', () => {
 
     it('hợp lệ -> lưu cả bản gốc và bản chuẩn hóa', async () => {
       await service.createMapping('ATHUN-005-DEN-M', { ...map, seller_sku: 'atd-m-01' }, 'admin-1');
-      expect(mappingModel.create).toHaveBeenCalledWith(expect.objectContaining({ seller_sku: 'atd-m-01', seller_sku_normalized: 'ATD-M-01' }));
+      expect((mappingModel.create.mock.calls[0] as [[Record<string, unknown>]])[0][0]).toMatchObject({ seller_sku: 'atd-m-01', seller_sku_normalized: 'ATD-M-01' });
     });
   });
 
@@ -100,5 +109,37 @@ describe('MasterSkusService — K4a', () => {
   it('tắt màu đang có SKU dùng -> 409 COLOR_IN_USE', async () => {
     skuModel.countDocuments.mockResolvedValue(3);
     await expect(service.setColorActive('DEN', false)).rejects.toMatchObject({ errorCode: E.COLOR_IN_USE });
+  });
+
+  describe('K4b — gắn nhãn / gộp tồn', () => {
+    const map = { platform: MarketplacePlatform.LAZADA, shop_id: 's1', seller_sku: 'ATD-M-01' };
+    beforeEach(() => skuModel.findOne.mockResolvedValue(skuDoc()));
+
+    it('nối SKU có tồn ở 1 ô CHƯA có dòng SKU nội bộ -> gắn nhãn master_sku (không đổi số lượng)', async () => {
+      const row = { _id: 'r1', warehouse_id: 'w', bin_location_id: 'b', platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01', quantity_on_hand: 10 };
+      assignmentModel.find.mockReturnValue({ session: jest.fn().mockResolvedValue([row]) });
+      await service.createMapping('ATHUN-005-DEN-M', map, 'admin-1');
+      expect(assignmentModel.updateOne).toHaveBeenCalledWith({ _id: 'r1' }, { $set: { master_sku: 'ATHUN-005-DEN-M' } }, expect.anything());
+    });
+
+    it('ô ĐÃ có dòng SKU nội bộ (từ sàn khác) -> GỘP số lượng, 2 dòng sổ cái, xóa dòng cũ', async () => {
+      const row = { _id: 'r1', warehouse_id: 'w', bin_location_id: 'b', platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01', quantity_on_hand: 4 };
+      const pooled = { _id: 'p1', platform: 'tiki', shop_id: 't1', seller_sku: 'AO-THUN-DEN-M', quantity_on_hand: 6 };
+      assignmentModel.find.mockReturnValue({ session: jest.fn().mockResolvedValue([row]) });
+      assignmentModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(pooled) });
+
+      await service.createMapping('ATHUN-005-DEN-M', map, 'admin-1');
+
+      expect(assignmentModel.updateOne).toHaveBeenCalledWith({ _id: 'p1' }, { $inc: { quantity_on_hand: 4 } }, expect.anything());
+      const moves = (movementModel.create.mock.calls[0] as [Record<string, unknown>[]])[0];
+      expect(moves.map((m) => [m.type, m.delta])).toEqual([['transfer_out', -4], ['transfer_in', 4]]);
+      expect(assignmentModel.deleteOne).toHaveBeenCalledWith({ _id: 'r1' }, expect.anything());
+    });
+
+    it('bỏ nối khi SKU nội bộ còn tồn gộp chung -> 409 MAP_HAS_POOLED_STOCK', async () => {
+      (mappingModel as unknown as { findById: jest.Mock }).findById = jest.fn().mockResolvedValue({ _id: 'm1', master_sku: 'ATHUN-005-DEN-M' });
+      assignmentModel.aggregate.mockResolvedValue([{ total: 10 }]);
+      await expect(service.deleteMapping('66f000000000000000000001')).rejects.toMatchObject({ errorCode: E.HAS_POOLED_STOCK });
+    });
   });
 });

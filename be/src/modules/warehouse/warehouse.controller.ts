@@ -116,6 +116,7 @@ interface SkuBinAssignmentResponse {
   sellerSku: string;
   binLocationId: string;
   quantityOnHand: number;
+  masterSku: string | null; // K4b — có giá trị = dòng tồn gộp chung theo SKU nội bộ
 }
 function toAssignmentResponse(
   doc: SkuBinAssignmentDocument,
@@ -128,6 +129,7 @@ function toAssignmentResponse(
     sellerSku: doc.seller_sku,
     binLocationId: doc.bin_location_id.toString(),
     quantityOnHand: doc.quantity_on_hand,
+    masterSku: doc.master_sku ?? null, // K4b
   };
 }
 
@@ -465,6 +467,7 @@ export class WarehouseController {
     return docs.map((m) => ({
       id: m._id.toString(),
       type: m.type,
+      masterSku: m.master_sku, // K4b
       delta: m.delta,
       quantityBefore: m.quantity_before,
       quantityAfter: m.quantity_after,

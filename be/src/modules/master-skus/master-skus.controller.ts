@@ -62,7 +62,15 @@ export class MasterSkusController {
   @ApiOperation({ summary: '🆕 K4a — SKU sàn đã đồng bộ về nhưng chưa nối SKU nội bộ (việc cần làm).' })
   unmapped(): ReturnType<MasterSkusService['listUnmappedSellerSkus']> { return this.service.listUnmappedSellerSkus(); }
 
-  @Delete('mappings/:id') @Roles(UserRole.ADMIN) @ApiOperation({ summary: '🆕 K4a — Bỏ nối 1 SKU sàn.' })
+  @Get('unpooled-stock') @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '🆕 K4b — Dòng tồn > 0 CHƯA tính theo SKU nội bộ: notMapped (cần nối) + mappedNotSynced (cần bấm đồng bộ).' })
+  unpooled(): ReturnType<MasterSkusService['listUnpooledStock']> { return this.service.listUnpooledStock(); }
+
+  @Post('sync-stock') @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K4b — Gắn nhãn/gộp tồn cho MỌI liên kết (liên kết tạo trước K4b). Chạy lại nhiều lần an toàn.' })
+  syncStock(@CurrentUser() user: AuthenticatedUser): ReturnType<MasterSkusService['syncStockForAllMappings']> { return this.service.syncStockForAllMappings(user.userId); }
+
+  @Delete('mappings/:id') @Roles(UserRole.ADMIN) @ApiOperation({ summary: 'Bỏ nối 1 SKU sàn. 🔄 K4b: chặn nếu SKU nội bộ còn tồn gộp chung (MAP_HAS_POOLED_STOCK).' })
   async deleteMapping(@Param('id') id: string): Promise<{ success: true }> { await this.service.deleteMapping(id); return { success: true }; }
 
   @Get() @Roles(...READERS)
