@@ -31,20 +31,22 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
     });
     orderModel.find.mockReturnValue({
       select: jest.fn().mockReturnValue({
-        lean: jest.fn().mockResolvedValue([
-          {
-            items: [
-              {
-                sku: realSku,
-                quantity: 1,
-                name: 'Sản phẩm thật',
-                unit_price: 100000,
-              },
-            ],
-            platform: 'lazada',
-            shop_id: 'shop-1',
-          },
-        ]),
+        lean: jest
+          .fn()
+          .mockResolvedValue([
+            {
+              items: [
+                {
+                  sku: realSku,
+                  quantity: 1,
+                  name: 'Sản phẩm thật',
+                  unit_price: 100000,
+                },
+              ],
+              platform: 'lazada',
+              shop_id: 'shop-1',
+            },
+          ]),
       }),
     });
     productMasterModel.find.mockReturnValue({
@@ -68,6 +70,7 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
       {} as never, // userModel — không dùng trong đường code này
       {} as never, // notificationsService
       {} as never, // staffAssignmentService — không dùng trong đường code này
+      { create: jest.fn().mockResolvedValue({}) } as never, // K3 inventoryMovementModel
     );
   });
 

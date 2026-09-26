@@ -58,6 +58,7 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
       {} as never, // userModel
       {} as never, // notificationsService
       {} as never, // staffAssignmentService — không dùng trong đường code này
+      { create: jest.fn().mockResolvedValue({}) } as never, // K3 inventoryMovementModel
     );
   });
 

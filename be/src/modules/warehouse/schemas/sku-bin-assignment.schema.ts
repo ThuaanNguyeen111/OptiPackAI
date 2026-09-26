@@ -39,7 +39,11 @@ export class SkuBinAssignment {
 export type SkuBinAssignmentDocument = HydratedDocument<SkuBinAssignment>;
 export const SkuBinAssignmentSchema = SchemaFactory.createForClass(SkuBinAssignment);
 
+// 🔄 K3 (27/09/2026) — ĐỔI KHÓA: thêm bin_location_id -> 1 SKU nằm được NHIỀU Ô
+// (hàng về 200 cái mà 1 ô chỉ chứa 50). Index cũ trên DB phải xóa bằng
+// scripts/migrate-sku-bin-assignment-multibin.ts (Mongoose không tự xóa).
 SkuBinAssignmentSchema.index(
-  { warehouse_id: 1, platform: 1, shop_id: 1, seller_sku: 1 },
+  { warehouse_id: 1, platform: 1, shop_id: 1, seller_sku: 1, bin_location_id: 1 },
   { unique: true },
 );
+SkuBinAssignmentSchema.index({ warehouse_id: 1, seller_sku: 1 }); // pick-item / Picking List tra theo SKU

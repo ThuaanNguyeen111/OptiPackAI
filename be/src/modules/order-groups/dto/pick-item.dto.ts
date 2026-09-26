@@ -31,4 +31,12 @@ export class PickItemDto {
   @IsOptional()
   @IsString()
   client_event_id?: string;
+
+  // K3 (27/09/2026) — 1 SKU có thể nằm nhiều ô: gửi ô THẬT nhân viên lấy (lấy từ
+  // Picking List: bin_location_id / other_bins) để trừ đúng ô. Không gửi = hệ
+  // thống trừ ở ô bất kỳ đủ hàng (hành vi cũ) — sổ cái vẫn ghi đúng ô đã trừ.
+  @ApiPropertyOptional({ description: 'K3 — ObjectId ô thực tế lấy hàng' })
+  @IsOptional()
+  @IsMongoId()
+  bin_location_id?: string;
 }

@@ -26,6 +26,7 @@ describe('WarehouseService — rà soát K2', () => {
     service = new WarehouseService(
       warehouseModel as never, zoneModel as never, binModel as never, assignmentModel as never,
       {} as never, {} as never, {} as never, categoriesService as never,
+      { create: jest.fn().mockResolvedValue([{}]), find: jest.fn() } as never, // K3 movementModel
     );
   });
 

@@ -42,6 +42,7 @@ describe('WarehouseService — vòng đời K1', () => {
       {} as never, // orderGroupsService
       connection as never,
       {} as never, // categoriesService (K2) — không dùng trong các test vòng đời
+      { create: jest.fn().mockResolvedValue([{}]), find: jest.fn() } as never, // K3 movementModel
     );
   });
 
@@ -114,7 +115,9 @@ describe('WarehouseService — vòng đời K1', () => {
     it('kệ CŨ (tạo trước K1, không có field is_active) thuộc đúng kho -> vẫn gán được', async () => {
       warehouseModel.findById.mockResolvedValue(activeWarehouse);
       binModel.findById.mockResolvedValue({ _id: new Types.ObjectId(binId), warehouse_id: new Types.ObjectId(warehouseId), bin_code: 'A-01-01-01' });
-      assignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId() });
+      // K3 — gán = tạo bản ghi (SKU, ô) mới nếu chưa có, không còn upsert "dời chỗ"
+      (assignmentModel as unknown as { findOne: jest.Mock }).findOne = jest.fn().mockResolvedValue(null);
+      (assignmentModel as unknown as { create: jest.Mock }).create = jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]);
 
       await expect(service.assignSkuToBin(warehouseId, dto as never)).resolves.toBeDefined();
     });

@@ -1,3 +1,4 @@
+import { InventoryMovement, InventoryMovementSchema } from '../warehouse/schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrderGroup, OrderGroupSchema } from './schemas/order-group.schema';
@@ -27,6 +28,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: User.name, schema: UserSchema },
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
       { name: PickEvent.name, schema: PickEventSchema },
+      { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3 — pick-item ghi sổ cái
     ]),
     NotificationsModule,
   ],

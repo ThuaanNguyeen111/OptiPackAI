@@ -24,4 +24,11 @@ export const WAREHOUSE_ERROR_CODES = {
   // K2 rà soát (26/09/2026)
   ZONE_V2_USE_RACKS: 'WH_ZONE_V2_USE_RACKS', // gọi generate kiểu cũ trong khu chuẩn mới
   BIN_HAS_STOCK_DESIGNATION: 'WH_BIN_HAS_STOCK_DESIGNATION', // đổi danh mục/size/màu của ô đang có hàng
+  // K3 (27/09/2026) — sổ cái, kiểm kê, chuyển ô
+  ASSIGNMENT_NOT_FOUND: 'WH_ASSIGNMENT_NOT_FOUND',
+  ASSIGNMENT_HAS_STOCK: 'WH_ASSIGNMENT_HAS_STOCK', // bỏ gán khi ô còn hàng
+  STOCK_CHANGED: 'WH_STOCK_CHANGED', // tồn vừa bị người khác đổi trong lúc kiểm kê
+  INSUFFICIENT_STOCK: 'WH_INSUFFICIENT_STOCK', // chuyển nhiều hơn số đang có
+  SAME_BIN: 'WH_SAME_BIN', // chuyển sang chính ô đang đứng
+  NOTE_REQUIRED: 'WH_NOTE_REQUIRED', // lý do "other" phải có ghi chú
 } as const;

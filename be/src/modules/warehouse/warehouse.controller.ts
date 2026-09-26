@@ -1,3 +1,4 @@
+import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { WarehouseService, PickingListItem } from './warehouse.service';
@@ -257,8 +258,9 @@ export class WarehouseController {
   async assignSkuToBin(
     @Param('warehouseId') warehouseId: string,
     @Body() dto: AssignSkuBinDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<SkuBinAssignmentResponse> {
-    const doc = await this.warehouseService.assignSkuToBin(warehouseId, dto);
+    const doc = await this.warehouseService.assignSkuToBin(warehouseId, dto, user.userId);
     return toAssignmentResponse(doc);
   }
 
@@ -272,12 +274,14 @@ export class WarehouseController {
     @Param('warehouseId') warehouseId: string,
     @Param('assignmentId') assignmentId: string,
     @Body() dto: RestockSkuDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<SkuBinAssignmentResponse> {
     const doc = await this.warehouseService.restockSku(
       warehouseId,
       assignmentId,
       dto.quantity,
       dto.force === true, // K2 — vượt sức chứa chỉ cho qua khi FE xác nhận force
+      user.userId, // K3 — sổ cái
     );
     return toAssignmentResponse(doc);
   }
@@ -411,5 +415,65 @@ export class WarehouseController {
   ): Promise<{ bin: BinLocationResponse; matchLevel: 1 | 2 | 3; usedUnits: number; freeCapacity: number | null }[]> {
     const rows = await this.warehouseService.suggestBins(warehouseId, { category_code: categoryCode, size, color_code: colorCode });
     return rows.map((r) => ({ ...r, bin: toBinLocationResponse(r.bin) }));
+  }
+  // ===================================================================
+  // K3 (27/09/2026) — SỔ CÁI, KIỂM KÊ, CHUYỂN Ô, BỎ GÁN
+  // ===================================================================
+
+  @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/adjust')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: '🆕 K3 — Kiểm kê: nhập số đếm thực tế, hệ thống tự tính chênh lệch + ghi sổ cái (bắt buộc lý do).' })
+  async adjustStock(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: AdjustStockDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SkuBinAssignmentResponse> {
+    return toAssignmentResponse(await this.warehouseService.adjustStock(warehouseId, assignmentId, dto, user.userId));
+  }
+
+  @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/transfer')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: '🆕 K3 — Chuyển hàng sang ô khác cùng kho (trừ nguồn + cộng đích + 2 dòng sổ cái, 1 transaction).' })
+  async transferStock(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: TransferStockDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ from: SkuBinAssignmentResponse; to: SkuBinAssignmentResponse }> {
+    const { from, to } = await this.warehouseService.transferStock(warehouseId, assignmentId, dto, user.userId);
+    return { from: toAssignmentResponse(from), to: toAssignmentResponse(to) };
+  }
+
+  @Delete('warehouses/:warehouseId/sku-bin-assignments/:assignmentId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 K3 — Bỏ gán SKU khỏi ô (chỉ khi tồn = 0). Sổ cái cũ giữ nguyên.' })
+  async unassign(@Param('warehouseId') warehouseId: string, @Param('assignmentId') assignmentId: string): Promise<{ success: true }> {
+    await this.warehouseService.unassign(warehouseId, assignmentId);
+    return { success: true };
+  }
+
+  @Get('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/movements')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '🆕 K3 — Sổ cái của 1 SKU trên 1 ô (mới -> cũ): nhập, lấy, kiểm kê, chuyển, hoàn.' })
+  async listMovements(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Query('limit') limit?: string,
+  ): Promise<Record<string, unknown>[]> {
+    const docs = await this.warehouseService.listMovements(warehouseId, assignmentId, Number(limit) || 100);
+    return docs.map((m) => ({
+      id: m._id.toString(),
+      type: m.type,
+      delta: m.delta,
+      quantityBefore: m.quantity_before,
+      quantityAfter: m.quantity_after,
+      reasonCode: m.reason_code,
+      note: m.note,
+      refType: m.ref_type,
+      refId: m.ref_id,
+      actorId: m.actor_id,
+      createdAt: m.created_at,
+    }));
   }
 }

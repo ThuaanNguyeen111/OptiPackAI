@@ -1,3 +1,4 @@
+import { InventoryMovement, InventoryMovementSchema } from './schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Warehouse, WarehouseSchema } from './schemas/warehouse.schema';
@@ -13,6 +14,7 @@ import { CategoriesModule } from '../categories/categories.module';
 @Module({
   imports: [
     MongooseModule.forFeature([
+      { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3
       { name: Warehouse.name, schema: WarehouseSchema },
       { name: WarehouseZone.name, schema: WarehouseZoneSchema },
       { name: BinLocation.name, schema: BinLocationSchema },

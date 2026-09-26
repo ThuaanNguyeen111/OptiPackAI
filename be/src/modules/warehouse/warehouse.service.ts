@@ -1,3 +1,4 @@
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -24,6 +25,8 @@ import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
 import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
+import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
+import { InventoryMovement, InventoryMovementDocument, MovementType, StockAdjustReason } from './schemas/inventory-movement.schema';
 import { CreateRackDto } from './dto/create-rack.dto';
 import { UpdateBinDto } from './dto/update-bin.dto';
 import { CategoriesService } from '../categories/categories.service';
@@ -42,6 +45,8 @@ export interface PickingListItem extends PackableItem {
   zone_code: string;
   bin_code: string;
   pick_sequence: number | null; // K2 — null = kệ chuẩn cũ (v1) hoặc chưa gán vị trí
+  bin_location_id: string | null; // K3 — ô CHÍNH nên lấy (gửi kèm khi quét pick-item)
+  other_bins: { bin_location_id: string; bin_code: string; quantity_on_hand: number }[]; // K3 — 1 SKU nhiều ô
 }
 
 /**
@@ -72,6 +77,9 @@ export class WarehouseService {
     @InjectConnection() private readonly connection: Connection,
     // K2 — kiểm tra danh mục cấp 2 + thang size khi tạo kệ/đăng ký ô
     private readonly categoriesService: CategoriesService,
+    // K3 — sổ cái biến động kho
+    @InjectModel(InventoryMovement.name)
+    private readonly movementModel: Model<InventoryMovementDocument>,
   ) {}
 
   async createWarehouse(dto: CreateWarehouseDto): Promise<WarehouseDocument> {
@@ -362,6 +370,7 @@ export class WarehouseService {
   async assignSkuToBin(
     warehouseId: string,
     dto: AssignSkuBinDto,
+    actorId = 'system',
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId);
     // SỬA LỖI (26/09/2026, K1) — trước đây KHÔNG kiểm tra bin_location_id:
@@ -384,33 +393,42 @@ export class WarehouseService {
         { binId: bin._id.toString() },
       );
     }
+    // 🔄 K3 (27/09/2026) — 1 SKU nhiều ô: "gán" nghĩa là ĐƯA SKU VÀO THÊM 1 Ô.
+    // Trước K3, gọi lại với ô khác = DỜI SKU sang ô mới (kèm toàn bộ tồn) mà
+    // không ghi lịch sử. Nay: đã có (SKU, ô) -> trả về như cũ, không đổi gì
+    // (idempotent); muốn dời hàng thì dùng thao tác CHUYỂN Ô (có sổ cái).
+    const filter = {
+      warehouse_id: new Types.ObjectId(warehouseId),
+      platform: dto.platform,
+      shop_id: dto.shop_id,
+      seller_sku: dto.seller_sku,
+      bin_location_id: bin._id,
+    };
+    const existing = await this.assignmentModel.findOne(filter);
+    if (existing) return existing;
+
+    const initial = dto.initial_quantity ?? 0;
     // K2 — sức chứa ô tính trên TỔNG hàng của mọi SKU đang nằm trong ô.
-    if (typeof bin.capacity === 'number' && dto.force !== true) {
-      const existing = await this.assignmentModel
-        .findOne({ warehouse_id: warehouseId, platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku })
-        .lean();
+    if (typeof bin.capacity === 'number' && dto.force !== true && initial > 0) {
       const binTotal = await this.countStockUnits({ bin_location_id: bin._id });
-      const alreadyHere = existing?.bin_location_id.toString() === bin._id.toString();
-      const incoming = existing ? existing.quantity_on_hand : (dto.initial_quantity ?? 0);
-      const after = binTotal - (alreadyHere ? incoming : 0) + incoming;
-      if (after > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, incoming);
+      if (binTotal + initial > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, initial);
     }
-    return this.assignmentModel.findOneAndUpdate(
-      {
-        warehouse_id: warehouseId,
-        platform: dto.platform,
-        shop_id: dto.shop_id,
-        seller_sku: dto.seller_sku,
-      },
-      {
-        $set: { bin_location_id: dto.bin_location_id },
-        // $setOnInsert (không phải $set) — nếu SKU đã có sẵn assignment
-        // từ trước (chỉ đang ĐỔI vị trí kệ), KHÔNG reset quantity_on_hand
-        // đang có về giá trị mới truyền vào — chỉ áp dụng lúc TẠO MỚI.
-        $setOnInsert: { quantity_on_hand: dto.initial_quantity ?? 0 },
-      },
-      { upsert: true, returnDocument: 'after' },
-    );
+    try {
+      return await this.runTx(async (session) => {
+        const [created] = await this.assignmentModel.create([{ ...filter, quantity_on_hand: initial }], { session });
+        if (!created) throw new Error('Tạo assignment không trả về document');
+        if (initial > 0) {
+          await this.recordMovement(created, 'assign_initial', initial, 0, actorId, session, { note: 'Tồn ban đầu khi gán SKU vào ô' });
+        }
+        return created;
+      });
+    } catch (error: unknown) {
+      if (this.isDuplicateKeyError(error)) {
+        const raced = await this.assignmentModel.findOne(filter);
+        if (raced) return raced; // 2 người gán cùng lúc -> trả bản đã có
+      }
+      throw error;
+    }
   }
 
   /**
@@ -423,6 +441,7 @@ export class WarehouseService {
     assignmentId: string,
     quantity: number,
     force = false,
+    actorId = 'system',
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
     // K2 — kiểm tra sức chứa ô trước khi cộng (không atomic tuyệt đối: 2 lần
@@ -445,11 +464,16 @@ export class WarehouseService {
         { assignmentId },
       );
     }
-    const updated = await this.assignmentModel.findOneAndUpdate(
-      { _id: assignmentId, warehouse_id: warehouseId },
-      { $inc: { quantity_on_hand: quantity } },
-      { returnDocument: 'after' },
-    );
+    // 🔄 K3 — cộng tồn + ghi sổ cái trong CÙNG transaction.
+    const updated = await this.runTx(async (session) => {
+      const doc = await this.assignmentModel.findOneAndUpdate(
+        { _id: assignmentId, warehouse_id: warehouseId },
+        { $inc: { quantity_on_hand: quantity } },
+        { returnDocument: 'after', session },
+      );
+      if (doc) await this.recordMovement(doc, 'receive', quantity, doc.quantity_on_hand - quantity, actorId, session);
+      return doc;
+    });
     if (!updated) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
@@ -486,10 +510,23 @@ export class WarehouseService {
     const zoneIds = bins.map((b) => b.zone_id);
     const zones = await this.zoneModel.find({ _id: { $in: zoneIds } }).lean();
     const zoneMap = new Map(zones.map((z) => [z._id.toString(), z]));
-    const assignmentBySku = new Map(assignments.map((a) => [a.seller_sku, a]));
+    // 🔄 K3 — 1 SKU có thể nằm nhiều ô: gom theo SKU, ô CHÍNH = ô còn hàng
+    // đứng trước theo lộ trình; các ô còn hàng khác trả kèm để nhân viên biết.
+    const seqOf = (a: (typeof assignments)[number]): number =>
+      binMap.get(a.bin_location_id.toString())?.pick_sequence ?? Number.MAX_SAFE_INTEGER;
+    const assignmentsBySku = new Map<string, typeof assignments>();
+    for (const a of assignments) {
+      const list = assignmentsBySku.get(a.seller_sku) ?? [];
+      list.push(a);
+      assignmentsBySku.set(a.seller_sku, list);
+    }
+    for (const list of assignmentsBySku.values()) {
+      list.sort((x, y) => Number(y.quantity_on_hand > 0) - Number(x.quantity_on_hand > 0) || seqOf(x) - seqOf(y));
+    }
 
     const enriched: PickingListItem[] = items.map((item) => {
-      const assignment = assignmentBySku.get(item.sku);
+      const candidates = assignmentsBySku.get(item.sku) ?? [];
+      const assignment = candidates[0];
       const bin = assignment
         ? binMap.get(assignment.bin_location_id.toString())
         : undefined;
@@ -499,6 +536,15 @@ export class WarehouseService {
         zone_code: zone?.zone_code ?? 'ZZZ', // xếp cuối nếu chưa gán — 'ZZZ' sort sau mọi zone_code thật (thường 1-2 ký tự)
         bin_code: bin?.bin_code ?? 'CHƯA GÁN VỊ TRÍ',
         pick_sequence: bin?.pick_sequence ?? null,
+        bin_location_id: bin ? bin._id.toString() : null,
+        other_bins: candidates
+          .slice(1)
+          .filter((c) => c.quantity_on_hand > 0)
+          .map((c) => ({
+            bin_location_id: c.bin_location_id.toString(),
+            bin_code: binMap.get(c.bin_location_id.toString())?.bin_code ?? '?',
+            quantity_on_hand: c.quantity_on_hand,
+          })),
       };
     });
 
@@ -904,5 +950,189 @@ export class WarehouseService {
         (a.bin.pick_sequence ?? Number.MAX_SAFE_INTEGER) - (b.bin.pick_sequence ?? Number.MAX_SAFE_INTEGER),
       )
       .slice(0, 20);
+  }
+  // ===================================================================
+  // K3 (27/09/2026) — SỔ CÁI, KIỂM KÊ, CHUYỂN Ô, BỎ GÁN
+  // Mọi thay đổi quantity_on_hand đi kèm 1 dòng inventory_movements trong
+  // CÙNG transaction. Không còn đường nào đổi tồn kho mà không để lại dấu vết.
+  // ===================================================================
+
+  private async runTx<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+    const session = await this.connection.startSession();
+    try {
+      let result: T | undefined;
+      await session.withTransaction(async () => {
+        result = await work(session);
+      });
+      return result as T;
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  private async recordMovement(
+    a: SkuBinAssignmentDocument,
+    type: MovementType,
+    delta: number,
+    quantityBefore: number,
+    actorId: string,
+    session: ClientSession,
+    extra: { reasonCode?: string | null; note?: string | null; refType?: string | null; refId?: string | null } = {},
+  ): Promise<void> {
+    await this.movementModel.create([{
+      warehouse_id: a.warehouse_id,
+      assignment_id: a._id,
+      bin_location_id: a.bin_location_id,
+      platform: a.platform,
+      shop_id: a.shop_id,
+      seller_sku: a.seller_sku,
+      type,
+      delta,
+      quantity_before: quantityBefore,
+      quantity_after: quantityBefore + delta,
+      reason_code: extra.reasonCode ?? null,
+      note: extra.note ?? null,
+      ref_type: extra.refType ?? null,
+      ref_id: extra.refId ?? null,
+      actor_id: actorId,
+      created_at: new Date(),
+    }], { session });
+  }
+
+  private async getAssignmentInWarehouse(warehouseId: string, assignmentId: string): Promise<SkuBinAssignmentDocument> {
+    if (!Types.ObjectId.isValid(assignmentId)) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, `"${assignmentId}" không đúng định dạng ObjectId.`, HttpStatus.BAD_REQUEST, { assignmentId });
+    }
+    const a = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: new Types.ObjectId(warehouseId) });
+    if (!a) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, 'Không tìm thấy SKU trên ô này trong kho.', HttpStatus.NOT_FOUND, { assignmentId, warehouseId });
+    }
+    return a;
+  }
+
+  /**
+   * Kiểm kê: nhập SỐ ĐẾM THỰC TẾ -> hệ thống tự tính chênh lệch và ghi sổ.
+   * Kiểm kê khớp (chênh 0) VẪN ghi 1 dòng — bằng chứng đã kiểm, ai kiểm, lúc nào.
+   * Chống ghi đè: chỉ ghi nếu tồn KHÔNG đổi kể từ lúc đọc (nếu vừa có người
+   * lấy hàng giữa chừng -> 409, đếm lại).
+   */
+  async adjustStock(warehouseId: string, assignmentId: string, dto: AdjustStockDto, actorId: string): Promise<SkuBinAssignmentDocument> {
+    await this.assertWarehouseActive(warehouseId);
+    if (dto.reason_code === StockAdjustReason.OTHER && !dto.note?.trim()) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.NOTE_REQUIRED, 'Chọn "Lý do khác" thì bắt buộc ghi chú.', HttpStatus.BAD_REQUEST);
+    }
+    const current = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
+    const before = current.quantity_on_hand;
+    return this.runTx(async (session) => {
+      const updated = await this.assignmentModel.findOneAndUpdate(
+        { _id: current._id, quantity_on_hand: before },
+        { $set: { quantity_on_hand: dto.counted_quantity } },
+        { returnDocument: 'after', session },
+      );
+      if (!updated) {
+        throw new AppException(
+          WAREHOUSE_ERROR_CODES.STOCK_CHANGED,
+          'Tồn kho của ô vừa thay đổi (có người lấy/nhập hàng) trong lúc kiểm kê — tải lại và đếm lại.',
+          HttpStatus.CONFLICT,
+          { assignmentId },
+        );
+      }
+      await this.recordMovement(updated, 'adjust', dto.counted_quantity - before, before, actorId, session, { reasonCode: dto.reason_code, note: dto.note ?? null });
+      return updated;
+    });
+  }
+
+  /** Chuyển hàng sang ô khác cùng kho: trừ nguồn + cộng đích + 2 dòng sổ cái, 1 transaction. */
+  async transferStock(
+    warehouseId: string,
+    assignmentId: string,
+    dto: TransferStockDto,
+    actorId: string,
+  ): Promise<{ from: SkuBinAssignmentDocument; to: SkuBinAssignmentDocument }> {
+    await this.assertWarehouseActive(warehouseId);
+    const source = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
+    const dest = await this.assertBinExists(dto.to_bin_location_id);
+    if (dest.warehouse_id.toString() !== warehouseId) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_NOT_IN_WAREHOUSE, `Ô "${dest.bin_code}" không thuộc kho này.`, HttpStatus.BAD_REQUEST, { binId: dto.to_bin_location_id });
+    }
+    if (dest._id.equals(source.bin_location_id)) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.SAME_BIN, 'Ô đích trùng ô đang chứa hàng.', HttpStatus.BAD_REQUEST);
+    }
+    if (dest.is_active === false) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_INACTIVE, `Ô "${dest.bin_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { binId: dto.to_bin_location_id });
+    }
+    if (typeof dest.capacity === 'number' && dto.force !== true) {
+      const destTotal = await this.countStockUnits({ bin_location_id: dest._id });
+      if (destTotal + dto.quantity > dest.capacity) this.throwOverCapacity(dest.bin_code, dest.capacity, destTotal, dto.quantity);
+    }
+    const transferId = new Types.ObjectId().toString();
+    return this.runTx(async (session) => {
+      const from = await this.assignmentModel.findOneAndUpdate(
+        { _id: source._id, quantity_on_hand: { $gte: dto.quantity } },
+        { $inc: { quantity_on_hand: -dto.quantity } },
+        { returnDocument: 'after', session },
+      );
+      if (!from) {
+        throw new AppException(
+          WAREHOUSE_ERROR_CODES.INSUFFICIENT_STOCK,
+          `Ô nguồn chỉ còn ${String(source.quantity_on_hand)} — không chuyển được ${String(dto.quantity)}.`,
+          HttpStatus.CONFLICT,
+          { available: source.quantity_on_hand, requested: dto.quantity },
+        );
+      }
+      const to = await this.assignmentModel.findOneAndUpdate(
+        { warehouse_id: source.warehouse_id, platform: source.platform, shop_id: source.shop_id, seller_sku: source.seller_sku, bin_location_id: dest._id },
+        { $inc: { quantity_on_hand: dto.quantity } },
+        { upsert: true, returnDocument: 'after', session },
+      );
+      const extra = { refType: 'transfer', refId: transferId, note: dto.note ?? null };
+      await this.recordMovement(from, 'transfer_out', -dto.quantity, from.quantity_on_hand + dto.quantity, actorId, session, extra);
+      await this.recordMovement(to, 'transfer_in', dto.quantity, to.quantity_on_hand - dto.quantity, actorId, session, extra);
+      return { from, to };
+    });
+  }
+
+  /** Bỏ gán SKU khỏi ô — chỉ khi ô hết hàng của SKU đó. Sổ cái cũ vẫn giữ nguyên. */
+  async unassign(warehouseId: string, assignmentId: string): Promise<void> {
+    const a = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
+    if (a.quantity_on_hand > 0) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.ASSIGNMENT_HAS_STOCK,
+        `SKU "${a.seller_sku}" còn ${String(a.quantity_on_hand)} trên ô này — chuyển/điều chỉnh về 0 trước khi bỏ gán.`,
+        HttpStatus.CONFLICT,
+        { assignmentId, quantityOnHand: a.quantity_on_hand },
+      );
+    }
+    await this.assignmentModel.deleteOne({ _id: a._id, quantity_on_hand: 0 });
+  }
+
+  async listMovements(warehouseId: string, assignmentId: string, limit = 100): Promise<InventoryMovementDocument[]> {
+    const a = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
+    return this.movementModel.find({ assignment_id: a._id }).sort({ created_at: -1 }).limit(Math.min(500, Math.max(1, limit)));
+  }
+
+  /**
+   * G3 (dùng chung) — nhập lại hàng trả/hoàn đạt kiểm tra vào 1 ô, có sổ cái.
+   * Chạy trong session của bên gọi để cùng transaction với phiếu trả hàng.
+   */
+  async restockReturnedItem(
+    params: { warehouseId: string; binLocationId: string; platform: MarketplacePlatform; shopId: string; sellerSku: string; quantity: number; returnRequestId: string; actorId: string },
+    session: ClientSession,
+  ): Promise<void> {
+    const bin = await this.assertBinExists(params.binLocationId);
+    if (bin.warehouse_id.toString() !== params.warehouseId) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_NOT_IN_WAREHOUSE, `Ô "${bin.bin_code}" không thuộc kho này.`, HttpStatus.BAD_REQUEST, { binId: params.binLocationId });
+    }
+    if (bin.is_active === false) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_INACTIVE, `Ô "${bin.bin_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { binId: params.binLocationId });
+    }
+    const doc = await this.assignmentModel.findOneAndUpdate(
+      { warehouse_id: bin.warehouse_id, platform: params.platform, shop_id: params.shopId, seller_sku: params.sellerSku, bin_location_id: bin._id },
+      { $inc: { quantity_on_hand: params.quantity } },
+      { upsert: true, returnDocument: 'after', session },
+    );
+    await this.recordMovement(doc, 'return_restock', params.quantity, doc.quantity_on_hand - params.quantity, params.actorId, session, {
+      refType: 'return_request', refId: params.returnRequestId,
+    });
   }
 }

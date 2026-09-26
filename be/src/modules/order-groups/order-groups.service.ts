@@ -1,6 +1,7 @@
+import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, Types, ClientSession } from 'mongoose';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { isValidStatusTransition } from './enums/allowed-status-transitions';
@@ -79,6 +80,9 @@ export class OrderGroupsService {
     // phụ thuộc trực tiếp 2 Mongoose model, KHÔNG phụ thuộc ngược lại
     // OrderGroupsService — đã kiểm tra trước khi thêm dòng này.
     private readonly staffAssignmentService: StaffAssignmentService,
+    // K3 (27/09/2026) — pick-item ghi sổ cái biến động kho
+    @InjectModel(InventoryMovement.name)
+    private readonly inventoryMovementModel: Model<InventoryMovementDocument>,
   ) {}
 
   /**
@@ -467,6 +471,7 @@ export class OrderGroupsService {
     groupId: string,
     targetStatus: GroupFulfillmentStatus,
     expectedVersion: number,
+    session?: ClientSession, // G1 (27/09/2026) — chạy chung transaction với vận đơn
   ): Promise<OrderGroupDocument> {
     const group = await this.findOrderGroupById(groupId); // đã tự validate id + tồn tại
 
@@ -489,7 +494,7 @@ export class OrderGroupsService {
     const updated = await this.orderGroupModel.findOneAndUpdate(
       { _id: groupId, __v: expectedVersion },
       { $set: { fulfillment_status: targetStatus }, $inc: { __v: 1 } },
-      { returnDocument: 'after' },
+      { returnDocument: 'after', session },
     );
 
     if (!updated) {
@@ -522,6 +527,8 @@ export class OrderGroupsService {
     scannedQuantity: number,
     scanMethod: 'barcode' | 'manual',
     clientEventId?: string,
+    binLocationId?: string, // K3
+    actorId = 'system', // K3 — ghi sổ cái
   ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
     // BỔ SUNG (19/09/2026, báo cáo thật Hải Phượng) — TRƯỚC KHI trừ tồn,
     // xác nhận SKU quét THẬT SỰ thuộc group này — trước đây hàm nhận
@@ -557,6 +564,7 @@ export class OrderGroupsService {
       {
         warehouse_id: warehouseId,
         seller_sku: sku,
+        ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}), // K3 — trừ đúng ô
         quantity_on_hand: { $gte: scannedQuantity },
       },
       { $inc: { quantity_on_hand: -scannedQuantity } },
@@ -572,6 +580,28 @@ export class OrderGroupsService {
       );
     }
 
+    // K3 (27/09/2026) — ghi sổ cái biến động kho (cùng mức nguyên tử với
+    // pick_events hiện có: ghi SAU khi trừ tồn thành công, không transaction —
+    // ghi nhận ở điểm yếu, xem CLAUDE.md).
+    await this.inventoryMovementModel.create({
+      warehouse_id: updated.warehouse_id,
+      assignment_id: updated._id,
+      bin_location_id: updated.bin_location_id,
+      platform: updated.platform,
+      shop_id: updated.shop_id,
+      seller_sku: updated.seller_sku,
+      type: 'pick',
+      delta: -scannedQuantity,
+      quantity_before: updated.quantity_on_hand + scannedQuantity,
+      quantity_after: updated.quantity_on_hand,
+      reason_code: null,
+      note: null,
+      ref_type: 'order_group',
+      ref_id: groupId,
+      actor_id: actorId,
+      created_at: new Date(),
+    });
+
     if (clientEventId) {
       await this.pickEventModel.create({
         order_group_id: groupId,
@@ -580,6 +610,7 @@ export class OrderGroupsService {
         scan_method: scanMethod,
         client_event_id: clientEventId,
         remaining_stock_after: updated.quantity_on_hand,
+        bin_location_id: updated.bin_location_id, // K3
       });
     } else {
       // Vẫn ghi log audit dù không có client_event_id (gọi trực tiếp
@@ -592,6 +623,7 @@ export class OrderGroupsService {
         scan_method: scanMethod,
         client_event_id: null,
         remaining_stock_after: updated.quantity_on_hand,
+        bin_location_id: updated.bin_location_id, // K3
       });
     }
 
