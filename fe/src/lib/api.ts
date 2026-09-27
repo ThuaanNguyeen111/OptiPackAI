@@ -1,6 +1,7 @@
 import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
 import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
 import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
+import { SHIPMENT_ERROR_MESSAGES } from '../types/shipments'
 import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
 
 export const API_BASE_URL =
@@ -211,6 +212,9 @@ export function formatApiError(err: unknown): string {
     }
     if (err.errorCode && WAREHOUSE_ERROR_MESSAGES[err.errorCode]) {
       return WAREHOUSE_ERROR_MESSAGES[err.errorCode]
+    }
+    if (err.errorCode && SHIPMENT_ERROR_MESSAGES[err.errorCode]) {
+      return SHIPMENT_ERROR_MESSAGES[err.errorCode]
     }
     if (err.status === 429) {
       return 'Quá nhiều yêu cầu trong 1 phút. Đợi rồi tải lại trang.'

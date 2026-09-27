@@ -43,7 +43,20 @@ export class ProductMaster {
   is_fragile!: boolean; // phục vụ BR-06, PackableItem.is_fragile
 
   @Prop({ required: true })
-  last_synced_at!: Date; // mốc cho chiến lược cache 1 lần/ngày
+  last_synced_at!: Date;
+
+  // BỔ SUNG (26/09/2026, K1) — Admin sửa tay kích thước/cân nặng/dễ vỡ qua
+  // PATCH /product-master/:id -> bật cờ này; cron đồng bộ 3h sáng KHÔNG
+  // được ghi đè dimension/is_fragile của document có cờ, chỉ cập nhật
+  // last_synced_at. Document cũ không có field = false (default).
+  @Prop({ default: false })
+  manual_override?: boolean; // optional ở tầng TYPE: document cũ không có field
+
+  @Prop({ type: Date, default: null })
+  manual_override_at!: Date | null;
+
+  @Prop({ type: String, default: null })
+  manual_override_by!: string | null; // mốc cho chiến lược cache 1 lần/ngày
 
   created_at?: Date;
   updated_at?: Date;

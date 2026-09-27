@@ -39,6 +39,10 @@ export class PickEvent {
   @Prop({ required: true })
   remaining_stock_after!: number;
 
+  // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
+  @Prop({ type: Types.ObjectId, default: null })
+  bin_location_id?: Types.ObjectId | null;
+
   created_at?: Date;
 }
 

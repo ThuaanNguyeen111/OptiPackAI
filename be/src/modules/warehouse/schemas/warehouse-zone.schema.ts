@@ -18,6 +18,12 @@ export class WarehouseZone {
   @Prop({ default: '' })
   description!: string;
 
+  // BỔ SUNG (26/09/2026, K1) — xóa mềm. Document CŨ (tạo trước K1) KHÔNG có
+  // field này: mọi truy vấn lọc bằng `is_active: { $ne: false }` để coi
+  // document cũ là đang hoạt động — KHÔNG cần script migration.
+  @Prop({ default: true })
+  is_active?: boolean; // optional ở tầng TYPE: document cũ thật sự không có field
+
   created_at?: Date;
   updated_at?: Date;
 }

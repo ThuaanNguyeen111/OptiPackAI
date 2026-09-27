@@ -1,3 +1,9 @@
+import { StockReservation, StockReservationSchema, StockReservationTotal, StockReservationTotalSchema } from './schemas/stock-reservation.schema';
+import { StockReservationService } from './stock-reservation.service';
+import { StockAvailabilityController } from './stock-availability.controller';
+import { MarketplaceSkuMapping, MarketplaceSkuMappingSchema } from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import { PackagingMaterialsModule } from '../packaging-materials/packaging-materials.module';
+import { InventoryMovement, InventoryMovementSchema } from '../warehouse/schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrderGroup, OrderGroupSchema } from './schemas/order-group.schema';
@@ -27,11 +33,16 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: User.name, schema: UserSchema },
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
       { name: PickEvent.name, schema: PickEventSchema },
+      { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3 — pick-item ghi sổ cái
+      { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema }, // K4b
+      { name: StockReservation.name, schema: StockReservationSchema }, // K5
+      { name: StockReservationTotal.name, schema: StockReservationTotalSchema }, // K5
     ]),
     NotificationsModule,
+    PackagingMaterialsModule, // G4 — pack trừ vật liệu đóng gói
   ],
-  controllers: [OrderGroupsController, StaffAssignmentController],
-  providers: [OrderGroupsService, OrderGroupBackfillScheduler, StaffAssignmentService, ExpressOrderSlaScheduler],
+  controllers: [OrderGroupsController, StaffAssignmentController, StockAvailabilityController],
+  providers: [OrderGroupsService, OrderGroupBackfillScheduler, StaffAssignmentService, ExpressOrderSlaScheduler, StockReservationService],
   exports: [OrderGroupsService, StaffAssignmentService],
 })
 export class OrderGroupsModule {}
