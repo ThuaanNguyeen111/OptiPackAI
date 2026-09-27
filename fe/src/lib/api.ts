@@ -1,0 +1,232 @@
+import { clearSession, getAccessToken, getRefreshToken, updateTokens } from './auth-storage'
+import { MARKETPLACE_ORDERS_ERROR_MESSAGES } from '../types/marketplace-orders'
+import { ORDER_GROUPS_ERROR_MESSAGES } from '../types/order-groups'
+import { SHIPMENT_ERROR_MESSAGES } from '../types/shipments'
+import { WAREHOUSE_ERROR_MESSAGES } from '../types/warehouse-admin'
+
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'http://localhost:3000'
+
+/** JwtStrategy đọc Redis trước Mongo — Redis chậm/treo thì fetch không bao giờ settle. */
+const REQUEST_TIMEOUT_MS = 12_000
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (typeof DOMException !== 'undefined' &&
+      err instanceof DOMException &&
+      err.name === 'AbortError') ||
+    (err instanceof Error && err.name === 'AbortError')
+  )
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = globalThis.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS,
+  )
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (err: unknown) {
+    if (isAbortError(err)) {
+      throw new ApiError(0, [
+        'Máy chủ không phản hồi kịp. Kiểm tra backend và Redis đang chạy, rồi tải lại trang.',
+      ])
+    }
+    throw err
+  } finally {
+    globalThis.clearTimeout(timeoutId)
+  }
+}
+
+export class ApiError extends Error {
+  status: number
+  messages: string[]
+  errorCode: string | null
+  details: Record<string, unknown> | null
+
+  constructor(
+    status: number,
+    messages: string[],
+    errorCode: string | null = null,
+    details: Record<string, unknown> | null = null,
+  ) {
+    super(messages[0] ?? 'Có lỗi xảy ra, thử lại sau.')
+    this.name = 'ApiError'
+    this.status = status
+    this.messages = messages
+    this.errorCode = errorCode
+    this.details = details
+  }
+}
+
+function parseMessage(payload: unknown): string[] {
+  if (typeof payload !== 'object' || payload === null) {
+    return ['Có lỗi xảy ra, thử lại sau.']
+  }
+  const message = (payload as { message?: unknown }).message
+  if (typeof message === 'string') return [message]
+  if (Array.isArray(message)) {
+    return message.filter((m): m is string => typeof m === 'string')
+  }
+  return ['Có lỗi xảy ra, thử lại sau.']
+}
+
+function parseErrorCode(payload: unknown): string | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const code = (payload as { error_code?: unknown }).error_code
+  return typeof code === 'string' && code.length > 0 ? code : null
+}
+
+function parseDetails(payload: unknown): Record<string, unknown> | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const details = (payload as { details?: unknown }).details
+  if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+    return null
+  }
+  return details as Record<string, unknown>
+}
+
+async function parseJson(res: Response): Promise<unknown> {
+  const text = await res.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return null
+  }
+}
+
+let refreshInFlight: Promise<boolean> | null = null
+
+async function rotateRefreshToken(): Promise<boolean> {
+  const refreshToken = getRefreshToken()
+  if (!refreshToken) return false
+
+  const res = await fetchWithTimeout(`${API_BASE_URL}/auth/refresh`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  })
+
+  if (!res.ok) {
+    clearSession()
+    return false
+  }
+
+  const data = (await parseJson(res)) as {
+    access_token?: string
+    refresh_token?: string
+  } | null
+
+  if (!data?.access_token || !data?.refresh_token) {
+    clearSession()
+    return false
+  }
+
+  updateTokens(data.access_token, data.refresh_token)
+  return true
+}
+
+async function ensureRefreshed(): Promise<boolean> {
+  if (!refreshInFlight) {
+    refreshInFlight = rotateRefreshToken().finally(() => {
+      refreshInFlight = null
+    })
+  }
+  return refreshInFlight
+}
+
+type RequestOptions = {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  body?: unknown
+  auth?: boolean
+  skipRefresh?: boolean
+}
+
+export async function apiRequest<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const { method = 'GET', body, auth = false, skipRefresh = false } = options
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+
+  if (auth) {
+    const token = getAccessToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+
+  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+
+  if (res.status === 401 && auth && !skipRefresh) {
+    const ok = await ensureRefreshed()
+    if (ok) {
+      return apiRequest<T>(path, { ...options, skipRefresh: true })
+    }
+  }
+
+  const payload = await parseJson(res)
+
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      parseMessage(payload),
+      parseErrorCode(payload),
+      parseDetails(payload),
+    )
+  }
+
+  return payload as T
+}
+
+export function getApiErrorCode(err: unknown): string | null {
+  return err instanceof ApiError ? err.errorCode : null
+}
+
+export function getApiErrorDetailString(
+  err: unknown,
+  key: string,
+): string | null {
+  if (!(err instanceof ApiError) || !err.details) return null
+  const value = err.details[key]
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+export function formatApiError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.errorCode && MARKETPLACE_ORDERS_ERROR_MESSAGES[err.errorCode]) {
+      return MARKETPLACE_ORDERS_ERROR_MESSAGES[err.errorCode]
+    }
+    if (err.errorCode && ORDER_GROUPS_ERROR_MESSAGES[err.errorCode]) {
+      return ORDER_GROUPS_ERROR_MESSAGES[err.errorCode]
+    }
+    if (err.errorCode && WAREHOUSE_ERROR_MESSAGES[err.errorCode]) {
+      return WAREHOUSE_ERROR_MESSAGES[err.errorCode]
+    }
+    if (err.errorCode && SHIPMENT_ERROR_MESSAGES[err.errorCode]) {
+      return SHIPMENT_ERROR_MESSAGES[err.errorCode]
+    }
+    if (err.status === 429) {
+      return 'Quá nhiều yêu cầu trong 1 phút. Đợi rồi tải lại trang.'
+    }
+    return err.messages.join(' ')
+  }
+  if (isAbortError(err)) {
+    return 'Máy chủ không phản hồi kịp. Kiểm tra backend và Redis đang chạy, rồi tải lại trang.'
+  }
+  if (err instanceof TypeError) {
+    return 'Không kết nối được máy chủ. Hãy chạy backend (cổng 3000) rồi thử lại.'
+  }
+  if (err instanceof Error) return err.message
+  return 'Không kết nối được máy chủ. Kiểm tra backend đang chạy.'
+}
