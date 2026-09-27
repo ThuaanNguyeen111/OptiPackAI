@@ -29,9 +29,18 @@ export type OrderGroup = {
   orderPriority: OrderPriority | string
   packagingDeadline: string | null
   isOverdue: boolean
+  stockShortage: boolean
+  stockShortageItems: StockShortageItem[]
   version: number
   createdAt: string
   updatedAt: string
+}
+
+export type StockShortageItem = {
+  sku: string
+  needed: number
+  reserved: number
+  shortage: number
 }
 
 export type ListOrderGroupsParams = {
@@ -68,6 +77,7 @@ export type PickItemInput = {
   scanned_quantity: number
   scan_method: ScanMethod
   warehouse_id: string
+  bin_location_id?: string
   client_event_id?: string
 }
 

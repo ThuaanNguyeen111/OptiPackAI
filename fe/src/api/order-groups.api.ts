@@ -89,10 +89,33 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     packagingDeadline:
       toIso(row.packagingDeadline) ?? toIso(row.packaging_deadline),
     isOverdue: pickBool(row.isOverdue) || pickBool(row.is_overdue),
+    stockShortage:
+      row.stockShortage === true || row.stock_shortage === true,
+    stockShortageItems: mapShortageItems(
+      row.stockShortageItems ?? row.stock_shortage_items,
+    ),
     version: pickNumber(row.version, row.__v),
     createdAt,
     updatedAt,
   }
+}
+
+function mapShortageItems(raw: unknown): OrderGroup['stockShortageItems'] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const sku = pickString(row.sku)
+    if (!sku) return []
+    return [
+      {
+        sku,
+        needed: pickNumber(row.needed),
+        reserved: pickNumber(row.reserved),
+        shortage: pickNumber(row.shortage),
+      },
+    ]
+  })
 }
 
 function requireOrderGroup(raw: unknown): OrderGroup {
@@ -213,6 +236,9 @@ export async function pickOrderGroupItem(
         scanned_quantity: input.scanned_quantity,
         scan_method: input.scan_method,
         warehouse_id: input.warehouse_id,
+        ...(input.bin_location_id
+          ? { bin_location_id: input.bin_location_id }
+          : {}),
         ...(input.client_event_id
           ? { client_event_id: input.client_event_id }
           : {}),
