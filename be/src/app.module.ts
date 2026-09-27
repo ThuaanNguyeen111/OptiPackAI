@@ -23,6 +23,8 @@ import { PackagingModule } from './modules/packaging/packaging.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
+import { PackagingMaterialsModule } from './modules/packaging-materials/packaging-materials.module';
+import { MasterSkusModule } from './modules/master-skus/master-skus.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
@@ -59,6 +61,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     WarehouseModule,
     CategoriesModule, // K2 (26/09/2026)
     ShipmentsModule, // G1 (27/09/2026)
+    PackagingMaterialsModule, // G4 (27/09/2026)
+    MasterSkusModule, // K4a (27/09/2026)
     NotificationsModule,
   ],
   controllers: [AppController],

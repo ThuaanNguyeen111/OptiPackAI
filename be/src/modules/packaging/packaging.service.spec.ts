@@ -77,16 +77,11 @@ describe('PackagingService', () => {
 
   function makePendingRecommendation(
     overrides: Partial<{ approval_status: PackagingApprovalStatus }> = {},
-  ): {
-    _id: Types.ObjectId;
-    order_group_id: Types.ObjectId;
-    approval_status: PackagingApprovalStatus;
-  } {
+  ): { _id: Types.ObjectId; order_group_id: Types.ObjectId; approval_status: PackagingApprovalStatus } {
     return {
       _id: recommendationId,
       order_group_id: new Types.ObjectId(groupId),
-      approval_status:
-        overrides.approval_status ?? PackagingApprovalStatus.PENDING,
+      approval_status: overrides.approval_status ?? PackagingApprovalStatus.PENDING,
     };
   }
 
@@ -115,21 +110,14 @@ describe('PackagingService', () => {
 
     notificationsService = {
       notify: jest.fn().mockResolvedValue({}),
-      buildPendingPackagingPlanMessage: jest
-        .fn()
-        .mockReturnValue({ title: 't', message: 'm' }),
-      buildPackagingRejectedMessage: jest
-        .fn()
-        .mockReturnValue({ title: 't', message: 'm' }),
+      buildPendingPackagingPlanMessage: jest.fn().mockReturnValue({ title: 't', message: 'm' }),
+      buildPackagingRejectedMessage: jest.fn().mockReturnValue({ title: 't', message: 'm' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PackagingService,
-        {
-          provide: getModelToken(PackagingRecommendationDoc.name),
-          useValue: recommendationModel,
-        },
+        { provide: getModelToken(PackagingRecommendationDoc.name), useValue: recommendationModel },
         { provide: getModelToken(OrderGroup.name), useValue: orderGroupModel },
         { provide: getConnectionToken(), useValue: connection },
         { provide: OrderGroupsService, useValue: orderGroupsService },
@@ -145,17 +133,12 @@ describe('PackagingService', () => {
       const pending = makePendingRecommendation();
       recommendationModel.findOne.mockResolvedValue(pending);
       orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId }); // version khớp -> update thành công
-      recommendationModel.findById.mockResolvedValue({
-        ...pending,
-        approval_status: PackagingApprovalStatus.APPROVED,
-      });
+      recommendationModel.findById.mockResolvedValue({ ...pending, approval_status: PackagingApprovalStatus.APPROVED });
 
       await service.approve(groupId, userId, 1.0, 0); // cân thật 1.0kg, ước tính cũng 1kg -> lệch 0%
 
       expect(mockSession.withTransaction).toHaveBeenCalledTimes(1);
-      expect(
-        orderGroupsService.getActuallyPickedItemsForGroup,
-      ).toHaveBeenCalledWith(groupId);
+      expect(orderGroupsService.getActuallyPickedItemsForGroup).toHaveBeenCalledWith(groupId);
       expect(recommendationModel.updateOne).toHaveBeenCalledWith(
         { _id: recommendationId },
         expect.anything(),
@@ -166,9 +149,7 @@ describe('PackagingService', () => {
         { $set: Record<string, unknown> },
         unknown,
       ];
-      expect(updateCall[1].$set.approval_status).toBe(
-        PackagingApprovalStatus.APPROVED,
-      );
+      expect(updateCall[1].$set.approval_status).toBe(PackagingApprovalStatus.APPROVED);
       expect(updateCall[1].$set.is_abnormal).toBe(false);
       expect(mockSession.endSession).toHaveBeenCalledTimes(1);
     });
@@ -195,9 +176,7 @@ describe('PackagingService', () => {
       // findOneAndUpdate trả null = filter {_id, __v} không match được document nào
       orderGroupModel.findOneAndUpdate.mockResolvedValue(null);
 
-      await expect(
-        service.approve(groupId, userId, 1.0, 999),
-      ).rejects.toMatchObject({
+      await expect(service.approve(groupId, userId, 1.0, 999)).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
       });
       // endSession vẫn PHẢI được gọi dù transaction fail — không rò rỉ session
@@ -207,21 +186,15 @@ describe('PackagingService', () => {
     it('ném lỗi khi group chưa có recommendation active nào (chưa generate)', async () => {
       recommendationModel.findOne.mockResolvedValue(null);
 
-      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(
-        AppException,
-      );
+      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(AppException);
     });
 
     it('ném lỗi ALREADY_DECIDED khi recommendation đã được quyết định trước đó (không phải PENDING)', async () => {
       recommendationModel.findOne.mockResolvedValue(
-        makePendingRecommendation({
-          approval_status: PackagingApprovalStatus.APPROVED,
-        }),
+        makePendingRecommendation({ approval_status: PackagingApprovalStatus.APPROVED }),
       );
 
-      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(
-        AppException,
-      );
+      await expect(service.approve(groupId, userId, 1.0, 0)).rejects.toThrow(AppException);
     });
   });
 
@@ -231,11 +204,7 @@ describe('PackagingService', () => {
       recommendationModel.findOne.mockResolvedValue(pending);
       orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId });
 
-      const result = await service.reject(
-        groupId,
-        0,
-        'Kích thước thùng không phù hợp với hàng thật.',
-      );
+      const result = await service.reject(groupId, 0, 'Kích thước thùng không phù hợp với hàng thật.');
 
       expect(recommendationModel.updateOne).toHaveBeenCalledWith(
         { _id: recommendationId },
@@ -259,9 +228,7 @@ describe('PackagingService', () => {
 
       // BỔ SUNG (21/09/2026, item 13/checklist FE) — xác nhận Admin
       // được notify đúng loại, đúng role, kèm lý do từ chối.
-      expect(
-        notificationsService.buildPackagingRejectedMessage,
-      ).toHaveBeenCalledWith({
+      expect(notificationsService.buildPackagingRejectedMessage).toHaveBeenCalledWith({
         groupId,
         reason: 'Kích thước thùng không phù hợp với hàng thật.',
       });
@@ -275,14 +242,10 @@ describe('PackagingService', () => {
     });
 
     it('ném STATE_CONFLICT khi version lệch, giống approve', async () => {
-      recommendationModel.findOne.mockResolvedValue(
-        makePendingRecommendation(),
-      );
+      recommendationModel.findOne.mockResolvedValue(makePendingRecommendation());
       orderGroupModel.findOneAndUpdate.mockResolvedValue(null);
 
-      await expect(
-        service.reject(groupId, 999, 'Lý do bất kỳ.'),
-      ).rejects.toMatchObject({
+      await expect(service.reject(groupId, 999, 'Lý do bất kỳ.')).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
       });
     });
@@ -298,16 +261,12 @@ describe('PackagingService', () => {
 
       await service.generateFallbackRecommendation(groupId);
 
-      expect(
-        orderGroupsService.getActuallyPickedItemsForGroup,
-      ).toHaveBeenCalledWith(groupId);
+      expect(orderGroupsService.getActuallyPickedItemsForGroup).toHaveBeenCalledWith(groupId);
       expect(recommendationModel.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({ is_active: true }),
         { $set: { is_active: false } },
       );
-      expect(
-        orderGroupsService.transitionFulfillmentStatus,
-      ).toHaveBeenCalledWith(
+      expect(orderGroupsService.transitionFulfillmentStatus).toHaveBeenCalledWith(
         groupId,
         GroupFulfillmentStatus.PENDING_APPROVAL,
         0,
@@ -315,9 +274,9 @@ describe('PackagingService', () => {
 
       // BỔ SUNG (21/09/2026, item 13/checklist FE) — xác nhận Packaging
       // Staff được notify đúng loại sau khi có gợi ý mới chờ duyệt.
-      expect(
-        notificationsService.buildPendingPackagingPlanMessage,
-      ).toHaveBeenCalledWith(expect.objectContaining({ groupId }));
+      expect(notificationsService.buildPendingPackagingPlanMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ groupId }),
+      );
       expect(notificationsService.notify).toHaveBeenCalledWith(
         expect.objectContaining({
           recipientRole: UserRole.PACKAGING_STAFF,
@@ -348,13 +307,9 @@ describe('PackagingService', () => {
         ),
       );
 
-      await expect(
-        service.generateFallbackRecommendation(groupId),
-      ).resolves.toBeDefined();
+      await expect(service.generateFallbackRecommendation(groupId)).resolves.toBeDefined();
 
-      expect(orderGroupsService.getPackableItemsForGroup).toHaveBeenCalledWith(
-        groupId,
-      );
+      expect(orderGroupsService.getPackableItemsForGroup).toHaveBeenCalledWith(groupId);
     });
 
     it('lỗi KHÁC (không phải thiếu pick_events, VD group không tồn tại) -> ném lại nguyên vẹn, KHÔNG âm thầm fallback', async () => {
@@ -363,21 +318,13 @@ describe('PackagingService', () => {
         __v: 0,
       });
       orderGroupsService.getActuallyPickedItemsForGroup.mockRejectedValue(
-        new AppException(
-          ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
-          'Không tìm thấy group.',
-          404,
-        ),
+        new AppException(ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND, 'Không tìm thấy group.', 404),
       );
 
-      await expect(
-        service.generateFallbackRecommendation(groupId),
-      ).rejects.toMatchObject({
+      await expect(service.generateFallbackRecommendation(groupId)).rejects.toMatchObject({
         errorCode: ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
       });
-      expect(
-        orderGroupsService.getPackableItemsForGroup,
-      ).not.toHaveBeenCalled();
+      expect(orderGroupsService.getPackableItemsForGroup).not.toHaveBeenCalled();
     });
   });
 });

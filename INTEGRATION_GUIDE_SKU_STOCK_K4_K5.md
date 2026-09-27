@@ -16,7 +16,7 @@
 - **Phần 5** — K5: chống bán lố — 6 trường hợp
 - **Phần 6** — FE cần làm gì ở từng màn hình
 - **Phần 7** — Kịch bản demo trước hội đồng (~10 phút)
-- **Phần 8** — Mã lỗi, điểm còn yếu, checklist
+- **Phần 8** — Mã lỗi, hạn chế hiện tại, checklist
 
 ---
 
@@ -199,7 +199,7 @@ GET /warehouse/warehouses/WAREHOUSE_ID/sku-bin-assignments/ASSIGNMENT_A/movement
 → [ { "type": "transfer_in", "delta": 4, "quantityBefore": 6, "quantityAfter": 10, "masterSku": "ATHUN-005-DEN-M",
       "refType": "sku_merge", "note": "Gộp từ lazada/201171264532/AOTHUN-DEN-M" }, ... ]
 ```
-**Điểm để nói khi demo:** trước đó hệ thống thấy 2 sản phẩm (6 và 4), giờ thấy đúng 1 sản phẩm 10 cái — khớp kệ thật. Mọi thay đổi có dấu vết trong sổ cái.
+**Thông điệp trình bày:** trước đó hệ thống thấy 2 sản phẩm (6 và 4), giờ thấy đúng 1 sản phẩm 10 cái — khớp kệ thật. Mọi thay đổi có dấu vết trong sổ cái.
 
 ### Trường hợp 4.4 — Đơn từ listing nào cũng trừ vào tồn chung
 
@@ -315,7 +315,7 @@ POST /order-groups/GROUP_B/stock-reservation/recheck
 GET /order-groups/GROUP_B
 → { ..., "stockShortage": true, "stockShortageItems": [ ... ] }
 ```
-**Điểm để nói khi demo:** trước K5, cả A và B đều vào lấy hàng, nhân viên đi tới kệ mới phát hiện hết. Giờ B bị đánh dấu thiếu hàng **ngay lúc đơn về** — Store Owner xử lý sớm (nhập hàng, liên hệ khách, hủy).
+**Thông điệp trình bày:** trước K5, cả A và B đều vào lấy hàng, nhân viên đi tới kệ mới phát hiện hết. Giờ B bị đánh dấu thiếu hàng **ngay lúc đơn về** — Store Owner xử lý sớm (nhập hàng, liên hệ khách, hủy).
 
 **Nếu 2 nhóm đơn giữ chỗ cùng 1 thời điểm (2 đơn về cùng giây)?** Mỗi khóa tồn có 1 bản ghi "tổng đã giữ" được ghi trong transaction — 2 giao dịch đụng nhau thì MongoDB bắt 1 bên chạy lại, bên chạy lại thấy đã hết. **Không bao giờ giữ lố.** (Đã có test tự động; demo tay khó tạo đúng cùng giây nên chỉ cần nói.)
 
@@ -371,7 +371,7 @@ POST /order-groups/GROUP_ID/stock-reservation/release      (Admin)
 
 Chuẩn bị sẵn Phần 1 + Phần 2 trước buổi demo. Mở sẵn 2 tab trình duyệt: tài khoản Admin và Store Owner.
 
-| Phút | Thao tác | Câu nói gợi ý |
+| Phút | Thao tác | Thông điệp trình bày |
 |---|---|---|
 | 0:00 | Mở màn tồn kho: 2 dòng `ATD-M-01` (6) và `AOTHUN-DEN-M` (4), cùng 1 ô | "Shop đăng 2 listing cho cùng 1 chiếc áo. Hệ thống đang tưởng là 2 sản phẩm." |
 | 1:00 | Tạo SKU nội bộ → mã tự ra `ATHUN-005-DEN-M`. Thử size XXL → bị từ chối | "Mã do hệ thống ghép theo quy tắc, không ai gõ tay được sai." |
@@ -384,14 +384,14 @@ Chuẩn bị sẵn Phần 1 + Phần 2 trước buổi demo. Mở sẵn 2 tab tr
 | 9:00 | Quét 1 cái cho A → xem giữ chỗ giảm; xác nhận lấy xong → giữ chỗ `released` | "Giữ chỗ tiêu dần theo từng lần quét, lấy xong thì trả phần dư cho đơn khác." |
 | 9:30 | Chốt | "Nếu 2 đơn về đúng cùng 1 giây, transaction đảm bảo chỉ 1 đơn giữ được — đã kiểm bằng test tự động." |
 
-**Câu hỏi hội đồng hay hỏi — trả lời sẵn:**
+**Câu hỏi thường gặp:**
 - *"Chỉ có Lazada thì gộp tồn có ý nghĩa gì?"* → Chính là trường hợp 2 listing cho 1 sản phẩm (rất phổ biến); và khi thêm Tiki/shop thứ 2 thì không phải đổi gì.
 - *"Chưa nối hết thì sao?"* → Đường lùi: SKU chưa nối vẫn chạy như cũ; báo cáo `unpooled-stock` cho biết còn bao nhiêu việc.
 - *"Sao không đẩy tồn khả dụng lên Lazada?"* → Ngoài phạm vi (không ghi ngược lên sàn); K5 bảo vệ ở phía kho.
 
 ---
 
-# PHẦN 8 — MÃ LỖI, ĐIỂM CÒN YẾU, CHECKLIST
+# PHẦN 8 — MÃ LỖI, HẠN CHẾ HIỆN TẠI, CHECKLIST
 
 ## 8.1. Mã lỗi mới
 
@@ -417,7 +417,7 @@ Chuẩn bị sẵn Phần 1 + Phần 2 trước buổi demo. Mở sẵn 2 tab tr
 
 Field mới trong response: nhóm đơn `stockShortage`, `stockShortageItems`; dòng tồn `masterSku`; sổ cái `masterSku`; Picking List `master_sku`.
 
-## 8.3. Điểm còn yếu (nói thẳng)
+## 8.3. Hạn chế hiện tại và hướng khắc phục
 
 1. **Nhập hàng không tự tính lại** nhóm đơn đang thiếu — phải bấm "Tính lại". → Nên tự quét các nhóm đơn `stockShortage` của khóa tồn đó sau mỗi lần nhập.
 2. **Đơn hủy trên Lazada không tự nhả giữ chỗ** — phải nhả tay (5.6). → Nối vào luồng đồng bộ trạng thái hủy.

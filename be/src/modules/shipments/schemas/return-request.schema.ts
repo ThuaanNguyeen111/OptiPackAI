@@ -19,6 +19,11 @@ export class InspectionLine {
   @Prop({ type: Types.ObjectId, default: null }) warehouse_id!: Types.ObjectId | null;
   @Prop({ type: Types.ObjectId, default: null }) bin_location_id!: Types.ObjectId | null;
   @Prop({ type: String, default: null }) note!: string | null;
+  // Chỉ dòng "quarantine": pending -> restocked / discarded. Dòng cũ không có field = pending.
+  @Prop({ type: String, enum: ['pending', 'restocked', 'discarded', null], default: null }) disposition?: 'pending' | 'restocked' | 'discarded' | null;
+  @Prop({ type: Date, default: null }) disposed_at?: Date | null;
+  @Prop({ type: String, default: null }) disposed_by?: string | null;
+  @Prop({ type: String, default: null }) disposition_note?: string | null;
 }
 const InspectionLineSchema = SchemaFactory.createForClass(InspectionLine);
 
@@ -50,6 +55,12 @@ export class ReturnRequest {
   @Prop({ type: String, enum: MarketplacePlatform, required: true }) platform!: MarketplacePlatform;
   @Prop({ required: true }) shop_id!: string;
   @Prop({ type: [ReturnItemSchema], default: [] }) items!: ReturnItem[];
+  // Đổi hàng: hàng khách muốn đổi SANG (giao bằng đơn thay thế).
+  @Prop({ type: [{ seller_sku: String, quantity: Number, _id: false }], default: [] }) exchange_items!: { seller_sku: string; quantity: number }[];
+  @Prop({ type: String, enum: ['none', 'created', 'failed'], default: 'none' }) replacement_status!: 'none' | 'created' | 'failed';
+  @Prop({ type: Types.ObjectId, default: null }) replacement_order_id!: Types.ObjectId | null;
+  @Prop({ type: Types.ObjectId, default: null }) replacement_group_id!: Types.ObjectId | null;
+  @Prop({ type: String, default: null }) replacement_error!: string | null;
   @Prop({ type: [InspectionLineSchema], default: [] }) inspection!: InspectionLine[];
   @Prop({ type: [PackagingInspectionRecordSchema], default: [] }) packaging_inspection!: PackagingInspectionRecord[]; // G4
   @Prop({ type: String, default: null }) customer_note!: string | null;

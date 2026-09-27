@@ -568,7 +568,7 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 
 ---
 
-# PHẦN E — ĐIỂM CÒN YẾU CỦA PHẦN KHO SAU K1 + K2 (nói thẳng để FE/nhóm biết)
+# PHẦN E — HẠN CHẾ HIỆN TẠI VÀ HƯỚNG KHẮC PHỤC
 
 1. **Chưa ghi ai tắt/bật, lúc nào.** Có trạng thái nhưng không có nhật ký thao tác quản trị. → Làm cùng sổ cái ở K3.
 2. **Khe thời gian hẹp khi tắt kho:** hệ thống kiểm tồn = 0 rồi mới tắt; nếu đúng giữa 2 bước đó có người nhập hàng thì kho bị tắt khi vẫn còn hàng. Rất hiếm (Admin tắt kho và nhân viên nhập hàng cùng lúc). → Xử lý triệt để ở K3 khi mọi thay đổi tồn đi qua sổ cái.

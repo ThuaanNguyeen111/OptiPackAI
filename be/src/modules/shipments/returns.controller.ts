@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ReturnsService } from './returns.service';
 import { ReturnRequestDocument } from './schemas/return-request.schema';
-import { RETURN_REASON_LABELS, ReturnReason, ReturnStatus } from './enums/return.enums';
-import { CreateReturnDto, InspectReturnDto, ReturnActionDto } from './dto/return.dto';
+import { InspectionResult, RETURN_REASON_LABELS, ReturnReason, ReturnStatus } from './enums/return.enums';
+import { CreateReturnDto, InspectReturnDto, ResolveQuarantineDto, ReturnActionDto } from './dto/return.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -24,7 +24,14 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
     inspection: d.inspection.map((l) => ({
       sellerSku: l.seller_sku, quantity: l.quantity, result: l.result,
       warehouseId: l.warehouse_id?.toString() ?? null, binLocationId: l.bin_location_id?.toString() ?? null, note: l.note,
+      disposition: l.result === InspectionResult.QUARANTINE ? (l.disposition ?? 'pending') : null,
+      disposedAt: l.disposed_at ?? null, disposedBy: l.disposed_by ?? null, dispositionNote: l.disposition_note ?? null,
     })),
+    exchangeItems: d.exchange_items.map((i) => ({ sellerSku: i.seller_sku, quantity: i.quantity })),
+    replacementStatus: d.replacement_status,
+    replacementOrderId: d.replacement_order_id?.toString() ?? null,
+    replacementGroupId: d.replacement_group_id?.toString() ?? null,
+    replacementError: d.replacement_error,
     packagingInspection: d.packaging_inspection.map((p) => ({
       materialCode: p.material_code, quantity: p.quantity, grade: p.grade, reuseCycleSeen: p.reuse_cycle_seen,
       oldLabelRemoved: p.old_label_removed, recoveredToReuse: p.recovered_to_reuse, outcome: p.outcome,
@@ -78,6 +85,32 @@ export class ReturnsController {
     const l = Math.min(100, Math.max(1, Number(limit) || 20));
     const { items, total } = await this.returnsService.list({ status, orderGroupId, page: p, limit: l });
     return { items: items.map(toReturnResponse), total, page: p, limit: l };
+  }
+
+  @Get('quarantine')
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: 'Hàng đang cách ly chờ xử lý (mọi phiếu), cũ nhất trước.' })
+  quarantine(): ReturnType<ReturnsService['listQuarantine']> {
+    return this.returnsService.listQuarantine();
+  }
+
+  @Post(':id/quarantine/:lineIndex/resolve')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Xử lý 1 dòng cách ly: restock (nhập lại ô bán, ghi sổ cái) hoặc discard (loại bỏ).' })
+  async resolveQuarantine(
+    @Param('id') id: string,
+    @Param('lineIndex', ParseIntPipe) lineIndex: number,
+    @Body() dto: ResolveQuarantineDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<Record<string, unknown>> {
+    return toReturnResponse(await this.returnsService.resolveQuarantine(id, lineIndex, dto, user.userId));
+  }
+
+  @Post(':id/create-replacement')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Tạo lại đơn thay thế cho phiếu đổi hàng (khi lần tạo tự động bị lỗi).' })
+  async createReplacement(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
+    return toReturnResponse(await this.returnsService.createReplacement(id, user.userId));
   }
 
   @Get(':id')

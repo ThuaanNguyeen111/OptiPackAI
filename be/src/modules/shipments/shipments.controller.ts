@@ -5,7 +5,7 @@ import { ShipmentDocument } from './schemas/shipment.schema';
 import { ShipmentEventDocument } from './schemas/shipment-event.schema';
 import { ShipmentStatus } from './enums/shipment-status.enum';
 import { DELIVERY_FAILURE_REASON_LABELS, DeliveryFailureReason } from './enums/delivery-failure-reason.enum';
-import { FailShipmentDto, ShipmentActionDto, StartShipmentDto } from './dto/shipment-action.dto';
+import { FailShipmentDto, RetryShipmentDto, ShipmentActionDto, StartShipmentDto } from './dto/shipment-action.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -23,6 +23,9 @@ export interface ShipmentResponse {
   lastFailureReason: string | null;
   deliveredAt: Date | null;
   returnedAt: Date | null;
+  nextAttemptNotBefore: Date | null;
+  dueAt: Date | null;
+  isOverdue: boolean;
   version: number;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -39,6 +42,9 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     lastFailureReason: doc.last_failure_reason,
     deliveredAt: doc.delivered_at,
     returnedAt: doc.returned_at,
+    nextAttemptNotBefore: doc.next_attempt_not_before ?? null,
+    dueAt: doc.due_at ?? null,
+    isOverdue: doc.is_overdue === true,
     version: doc.__v,
     createdAt: doc.created_at ?? null,
     updatedAt: doc.updated_at ?? null,
@@ -88,19 +94,28 @@ export class ShipmentsController {
   @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiQuery({ name: 'status', required: false, enum: ShipmentStatus })
   @ApiQuery({ name: 'order_group_id', required: false })
+  @ApiQuery({ name: 'overdue', required: false, description: 'true = chỉ vận đơn quá hạn giao' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiOperation({ summary: 'Danh sách vận đơn (lọc theo trạng thái / nhóm đơn).' })
   async list(
     @Query('status') status?: ShipmentStatus,
     @Query('order_group_id') orderGroupId?: string,
+    @Query('overdue') overdue?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ): Promise<{ items: ShipmentResponse[]; total: number; page: number; limit: number }> {
     const p = Math.max(1, Number(page) || 1);
     const l = Math.min(100, Math.max(1, Number(limit) || 20));
-    const { items, total } = await this.shipmentsService.listShipments({ status, orderGroupId, page: p, limit: l });
+    const { items, total } = await this.shipmentsService.listShipments({ status, orderGroupId, overdueOnly: overdue === 'true', page: p, limit: l });
     return { items: items.map(toShipmentResponse), total, page: p, limit: l };
+  }
+
+  @Post('overdue-scan')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Quét vận đơn quá hạn giao NGAY (cùng logic cron 15 phút/lần) — dùng khi vận hành/demo.' })
+  async overdueScan(): Promise<{ flagged: number }> {
+    return { flagged: await this.shipmentsService.flagOverdueShipments() };
   }
 
   @Get(':id')
@@ -135,14 +150,14 @@ export class ShipmentsController {
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
   @ApiOperation({ summary: '[Giao thất bại] Chọn lý do. Lần 2 hoặc "khách từ chối" -> hệ thống TỰ chuyển hoàn về kho.' })
   async fail(@Param('id') id: string, @Body() dto: FailShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.markFailed(id, dto.expected_version, dto.reason_code, actorOf(user), dto.note));
+    return toShipmentResponse(await this.shipmentsService.markFailed(id, dto.expected_version, dto.reason_code, actorOf(user), dto.note, dto.reschedule_at));
   }
 
   @Post(':id/retry')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Giao lại] delivery_failed -> out_for_delivery (lần giao +1).' })
-  async retry(@Param('id') id: string, @Body() dto: ShipmentActionDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.retryDelivery(id, dto.expected_version, actorOf(user), dto.note));
+  @ApiOperation({ summary: '[Giao lại] delivery_failed -> out_for_delivery. Trước giờ cho phép (nextAttemptNotBefore) phải gửi override_reason.' })
+  async retry(@Param('id') id: string, @Body() dto: RetryShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.retryDelivery(id, dto.expected_version, actorOf(user), dto.note, dto.override_reason));
   }
 
   @Post(':id/receive-return')

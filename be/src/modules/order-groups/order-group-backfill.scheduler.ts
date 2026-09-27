@@ -29,9 +29,7 @@ export class OrderGroupBackfillScheduler {
   @Cron(CronExpression.EVERY_5_MINUTES, { name: 'order-group-backfill' }) // 🔄 (21/09/2026) đổi từ 15' xuống 5' — giờ chỉ là lưới an toàn (đường chính đã có hook trực tiếp), 5' đủ nhanh để bắt các trường hợp hook lỗi thoáng qua
   async backfillMissingGroups(): Promise<void> {
     if (this.isRunning) {
-      this.logger.warn(
-        'Lượt backfill order_groups trước chưa xong, bỏ qua lượt này.',
-      );
+      this.logger.warn('Lượt backfill order_groups trước chưa xong, bỏ qua lượt này.');
       return;
     }
 
@@ -59,10 +57,7 @@ export class OrderGroupBackfillScheduler {
           succeeded += 1;
         } catch (error) {
           failed += 1;
-          this.logger.error(
-            `Backfill group cho đơn ${String(order._id)} thất bại, bỏ qua, tiếp tục đơn khác.`,
-            error,
-          );
+          this.logger.error(`Backfill group cho đơn ${String(order._id)} thất bại, bỏ qua, tiếp tục đơn khác.`, error);
         }
       }
 

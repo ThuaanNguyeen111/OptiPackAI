@@ -9,10 +9,7 @@ import { IsNumber, IsString, Min, MinLength, MaxLength } from 'class-validator';
  * chối để cải thiện, không chỉ biết "đã bị từ chối".
  */
 export class RejectPackagingDto {
-  @ApiProperty({
-    description: 'Version hiện tại của Order Group (Rule #18)',
-    example: 0,
-  })
+  @ApiProperty({ description: 'Version hiện tại của Order Group (Rule #18)', example: 0 })
   @IsNumber()
   @Min(0)
   expected_group_version!: number;

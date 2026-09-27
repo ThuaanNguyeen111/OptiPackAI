@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K5 kho/SKU/chống bán lố, G1 giao hàng, G3 trả hàng, G4 vật liệu).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -292,3 +292,16 @@ Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (�
 | POST   | `/order-groups/:id/stock-reservation/release` | Admin | Nhả giữ chỗ |
 
 > 🔄 K4b: nối SKU sàn tự gắn nhãn/gộp tồn; bỏ nối chặn khi tồn gộp > 0 (`MAP_HAS_POOLED_STOCK`); dòng tồn + sổ cái có `masterSku`; Picking List có `master_sku`; pick-item tự trừ vào tồn chung (request/response không đổi). 🔄 K5: nhóm đơn có `stockShortage`, `stockShortageItems`. Chi tiết + demo: **`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md`**.
+
+## 15. 🆕 Tiện ích vận hành (27/09/2026)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| POST   | `/shipments/overdue-scan` | Admin | Quét vận đơn quá hạn ngay |
+| GET    | `/shipments?overdue=true` | Admin, Coordinator, Store Owner, Warehouse | Lọc vận đơn quá hạn |
+| GET    | `/returns/quarantine` | Admin, Store Owner, Warehouse, Coordinator | Danh sách hàng cách ly chờ xử lý |
+| POST   | `/returns/:id/quarantine/:lineIndex/resolve` | Warehouse, Admin | Nhập lại kho / loại bỏ hàng cách ly |
+| POST   | `/returns/:id/create-replacement` | Admin | Tạo lại đơn thay thế khi tạo tự động lỗi |
+| POST   | `/packaging-materials/:code/internal-use` | Admin, Warehouse | Xuất vật liệu hạng B dùng nội bộ |
+
+> 🔄 Trường tùy chọn mới: `fail` nhận `reschedule_at`; `retry` nhận `override_reason`; `pack` nhận `materials_used`; `POST /returns` nhận `type: exchange` + `exchange_items`. Response bổ sung: vận đơn `nextAttemptNotBefore`, `dueAt`, `isOverdue`; phiếu trả `exchangeItems`, `replacementStatus`, `replacementGroupId`, `replacementError`; nhóm đơn `origin`, `sourceReturnId`; vật liệu `qtyInternal`. Chi tiết: **`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`**.
