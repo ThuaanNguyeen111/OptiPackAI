@@ -31,11 +31,14 @@ interface PackagingRecommendationResponse {
   approvedAt: Date | null;
   actualMeasuredWeightKg: number | null;
   isAbnormal: boolean;
+  rejectionReason: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-function toResponse(doc: PackagingRecommendationDocument): PackagingRecommendationResponse {
+function toResponse(
+  doc: PackagingRecommendationDocument,
+): PackagingRecommendationResponse {
   return {
     id: doc._id.toString(),
     orderGroupId: doc.order_group_id.toString(),
@@ -54,11 +57,13 @@ function toResponse(doc: PackagingRecommendationDocument): PackagingRecommendati
     approvedAt: doc.approved_at,
     actualMeasuredWeightKg: doc.actual_measured_weight_kg,
     isAbnormal: doc.is_abnormal,
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — Admin cần đọc lý do
+    // từ chối qua API (GET recommendation / sau khi approve/adjust/reject).
+    rejectionReason: doc.rejection_reason ?? null,
     createdAt: doc.created_at ?? new Date(0),
     updatedAt: doc.updated_at ?? new Date(0),
   };
 }
-
 
 /**
  * ===================================================================
@@ -80,7 +85,12 @@ export class PackagingController {
   constructor(private readonly packagingService: PackagingService) {}
 
   @Get()
-  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @Roles(
+    UserRole.PACKAGING_STAFF,
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.ADMIN,
+  )
   @ApiOperation({
     summary:
       'Chi tiết PackagingRecommendation hiện tại của group (dù đã Approve/Adjust hay còn Pending) — trả null nếu chưa từng generate.',
@@ -88,7 +98,8 @@ export class PackagingController {
   async getCurrent(
     @Param('groupId') groupId: string,
   ): Promise<PackagingRecommendationResponse | null> {
-    const doc = await this.packagingService.getActiveRecommendationOrNull(groupId);
+    const doc =
+      await this.packagingService.getActiveRecommendationOrNull(groupId);
     return doc ? toResponse(doc) : null;
   }
 
@@ -98,14 +109,20 @@ export class PackagingController {
     summary:
       '[TẠM — chỉ Admin] Tạo PackagingRecommendation bằng thuật toán fallback, dùng để test UC-04 khi chưa có AI thật (Package 3).',
   })
-  async generate(@Param('groupId') groupId: string): Promise<PackagingRecommendationResponse> {
-    const doc = await this.packagingService.generateFallbackRecommendation(groupId);
+  async generate(
+    @Param('groupId') groupId: string,
+  ): Promise<PackagingRecommendationResponse> {
+    const doc =
+      await this.packagingService.generateFallbackRecommendation(groupId);
     return toResponse(doc);
   }
 
   @Post('approve')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Duyệt gợi ý đóng gói đang chờ, kèm cân nặng THẬT đo được (UC-04 Approve).' })
+  @ApiOperation({
+    summary:
+      'Duyệt gợi ý đóng gói đang chờ, kèm cân nặng THẬT đo được (UC-04 Approve).',
+  })
   async approve(
     @Param('groupId') groupId: string,
     @Body() dto: ApprovePackagingDto,
@@ -122,7 +139,10 @@ export class PackagingController {
 
   @Post('adjust')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Điều chỉnh gợi ý đóng gói (đổi box_size/material_type) rồi duyệt (UC-04 Adjust).' })
+  @ApiOperation({
+    summary:
+      'Điều chỉnh gợi ý đóng gói (đổi box_size/material_type) rồi duyệt (UC-04 Adjust).',
+  })
   async adjust(
     @Param('groupId') groupId: string,
     @Body() dto: AdjustPackagingDto,
@@ -134,8 +154,18 @@ export class PackagingController {
 
   @Post('reject')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Từ chối hoàn toàn gợi ý — Order Group quay lại chờ tính toán lại (UC-04 Reject).' })
-  async reject(@Param('groupId') groupId: string, @Body() dto: RejectPackagingDto): Promise<{ message: string }> {
-    return this.packagingService.reject(groupId, dto.expected_group_version);
+  @ApiOperation({
+    summary:
+      'Từ chối hoàn toàn gợi ý — Order Group quay lại chờ tính toán lại (UC-04 Reject).',
+  })
+  async reject(
+    @Param('groupId') groupId: string,
+    @Body() dto: RejectPackagingDto,
+  ): Promise<{ message: string }> {
+    return this.packagingService.reject(
+      groupId,
+      dto.expected_group_version,
+      dto.rejection_reason,
+    );
   }
 }

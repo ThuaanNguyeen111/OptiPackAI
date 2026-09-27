@@ -17,6 +17,7 @@ import { ORD_ERROR_CODES } from './orders.errors';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { OrderGroupsService } from '../order-groups/order-groups.service';
 
 // Lần sync ĐẦU TIÊN của 1 shop (last_polled_at = null) — kéo lịch sử tối
 // đa 30 ngày trước, KHÔNG kéo toàn bộ lịch sử vô hạn (tránh 1 lần gọi
@@ -47,6 +48,11 @@ export class OrdersService {
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     private readonly lazadaAdapter: LazadaAdapter,
     private readonly notificationsService: NotificationsService,
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo group NGAY sau sync,
+    // xem tryConsolidate() call site bên dưới. Không circular: đã kiểm
+    // tra trước — OrderGroupsModule chủ động KHÔNG import OrdersModule
+    // (comment sẵn trong order-groups.module.ts dự đoán đúng việc này).
+    private readonly orderGroupsService: OrderGroupsService,
   ) {}
 
   /**
@@ -183,6 +189,28 @@ export class OrdersService {
         const wasConsolidated = await this.tryConsolidate(orderDoc);
         if (wasConsolidated) {
           newlyConsolidated += 1;
+        }
+
+        // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo OrderGroup THẬT
+        // NGAY trong vòng sync, không đợi cron backfill (tối đa 15 phút
+        // sau) — Warehouse/Packaging "không thấy đơn" ngay sau khi sync
+        // xong, phải đợi tới lần backfill kế tiếp mới có group để làm
+        // việc. Reload document TRƯỚC KHI gọi — tryConsolidate() ở trên
+        // dùng updateOne() (không phải orderDoc.save()), nên biến
+        // `orderDoc` trong bộ nhớ CHƯA có consolidated_group_id mới nhất.
+        try {
+          const freshOrder = await this.orderModel.findById(orderDoc._id);
+          if (freshOrder) {
+            await this.orderGroupsService.getOrCreateGroupForOrder(freshOrder);
+          }
+        } catch (groupError) {
+          // KHÔNG fail cả lượt sync chỉ vì 1 đơn tạo group lỗi — cron
+          // backfill (order-group-backfill.scheduler.ts) là lưới an
+          // toàn, sẽ tự thử lại cho đơn này ở lượt kế tiếp.
+          this.logger.warn(
+            `Tạo OrderGroup ngay sau sync thất bại cho đơn ${orderDoc.platform_order_id} — cron backfill sẽ thử lại.`,
+            groupError,
+          );
         }
       } catch (error) {
         // 1 đơn lỗi (vd field lạ chưa map được) KHÔNG được làm hỏng cả

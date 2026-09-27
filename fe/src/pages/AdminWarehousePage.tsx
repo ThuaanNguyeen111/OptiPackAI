@@ -480,6 +480,22 @@ function BinsTab({
     ? `${api.selectedZone.zoneCode}-${aisle || '01'}-${pad2(rackFrom)}-${pad2(levelFrom)}`
     : '—'
 
+  /** Gộp assignment đã tải (tab SKU / Nhập tồn) theo bin — không gọi API mới. */
+  const assignmentByBinId = useMemo(() => {
+    const map = new Map<
+      string,
+      { sellerSku: string; quantityOnHand: number }
+    >()
+    for (const row of api.assignments) {
+      if (!row.binLocationId) continue
+      map.set(row.binLocationId, {
+        sellerSku: row.sellerSku,
+        quantityOnHand: row.quantityOnHand,
+      })
+    }
+    return map
+  }, [api.assignments])
+
   async function submit() {
     const result = await api.generateBins({
       aisle: aisle.trim(),
@@ -610,25 +626,48 @@ function BinsTab({
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Mã kệ</TableHead>
-              <TableHead>Dãy</TableHead>
-              <TableHead>Giá đỡ</TableHead>
-              <TableHead>Tầng</TableHead>
+              <TableHead>{vi ? 'Mã kệ' : 'Bin code'}</TableHead>
+              <TableHead>{vi ? 'Dãy' : 'Aisle'}</TableHead>
+              <TableHead>{vi ? 'Giá đỡ' : 'Rack'}</TableHead>
+              <TableHead>{vi ? 'Tầng' : 'Level'}</TableHead>
+              <TableHead>SKU</TableHead>
+              <TableHead>{vi ? 'Số lượng' : 'Qty'}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {api.bins.map((bin) => (
-              <TableRow
-                key={bin.id}
-                className="cursor-pointer"
-                onClick={() => onPickBin(bin.id)}
-              >
-                <TableCell className="font-medium text-ink">{bin.binCode}</TableCell>
-                <TableCell>{bin.aisle}</TableCell>
-                <TableCell>{bin.rack}</TableCell>
-                <TableCell>{bin.level}</TableCell>
-              </TableRow>
-            ))}
+            {api.bins.map((bin) => {
+              const stock = assignmentByBinId.get(bin.id)
+              return (
+                <TableRow
+                  key={bin.id}
+                  className="cursor-pointer"
+                  onClick={() => onPickBin(bin.id)}
+                >
+                  <TableCell className="font-medium text-ink">{bin.binCode}</TableCell>
+                  <TableCell>{bin.aisle}</TableCell>
+                  <TableCell>{bin.rack}</TableCell>
+                  <TableCell>{bin.level}</TableCell>
+                  <TableCell>
+                    {stock ? (
+                      <span className="font-medium text-ink">{stock.sellerSku}</span>
+                    ) : (
+                      <span className="text-ink-muted">
+                        {vi ? 'Chưa gán' : 'Unassigned'}
+                      </span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {stock ? (
+                      <Badge tone={stock.quantityOnHand > 0 ? 'success' : 'warning'}>
+                        {stock.quantityOnHand}
+                      </Badge>
+                    ) : (
+                      <span className="text-ink-muted">—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       )}
@@ -765,21 +804,39 @@ function AssignTab({
               {binsByZone.grouped.map(({ zone, bins }) =>
                 bins.length === 0 ? null : (
                   <optgroup key={zone.id} label={`${zone.zoneCode} · ${zone.zoneName}`}>
-                    {bins.map((bin) => (
-                      <option key={bin.id} value={bin.id}>
-                        {bin.binCode}
-                      </option>
-                    ))}
+                    {bins.map((bin) => {
+                      const stock = api.assignments.find(
+                        (row) => row.binLocationId === bin.id,
+                      )
+                      const stockLabel = stock
+                        ? ` · ${stock.sellerSku} × ${stock.quantityOnHand}`
+                        : ''
+                      return (
+                        <option key={bin.id} value={bin.id}>
+                          {bin.binCode}
+                          {stockLabel}
+                        </option>
+                      )
+                    })}
                   </optgroup>
                 ),
               )}
               {binsByZone.leftover.length > 0 ? (
                 <optgroup label={vi ? 'Kệ khác' : 'Other bins'}>
-                  {binsByZone.leftover.map((bin) => (
-                    <option key={bin.id} value={bin.id}>
-                      {bin.binCode || bin.id}
-                    </option>
-                  ))}
+                  {binsByZone.leftover.map((bin) => {
+                    const stock = api.assignments.find(
+                      (row) => row.binLocationId === bin.id,
+                    )
+                    const stockLabel = stock
+                      ? ` · ${stock.sellerSku} × ${stock.quantityOnHand}`
+                      : ''
+                    return (
+                      <option key={bin.id} value={bin.id}>
+                        {bin.binCode || bin.id}
+                        {stockLabel}
+                      </option>
+                    )
+                  })}
                 </optgroup>
               ) : null}
             </select>

@@ -2,7 +2,7 @@ import { PackagingWorkbench } from '../components/packing/PackagingWorkbench'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 
-/** Bàn đóng gói — nhận hàng kho đã lấy (picked), không phải mock dashboard. */
+/** Admin chốt kế hoạch / Packaging Staff chấp nhận hoặc từ chối — `/app/packing`. */
 export function PackingPage() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
@@ -15,7 +15,8 @@ export function PackingPage() {
           { label: vi ? 'Đóng gói' : 'Packing' },
         ]}
       />
-      <div className="min-h-0 flex-1 overflow-hidden">
+      {/* Cuộn theo trang (giống Warehouse) — không khóa overflow-hidden toàn viewport */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         <PackagingWorkbench />
       </div>
     </div>

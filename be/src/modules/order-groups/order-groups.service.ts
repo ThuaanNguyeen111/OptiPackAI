@@ -1,6 +1,11 @@
+import { StockReservationService } from './stock-reservation.service';
+import { stockKeyOf } from '../master-skus/stock-key.util';
+import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import { resolveMasterSkus, stockFilterFor } from '../master-skus/stock-key.util';
+import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model, Types, ClientSession } from 'mongoose';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { isValidStatusTransition } from './enums/allowed-status-transitions';
@@ -38,6 +43,7 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { addBusinessHours } from './utils/add-business-hours.util';
+import { StaffAssignmentService } from './staff-assignment.service';
 
 /**
  * ===================================================================
@@ -72,6 +78,20 @@ export class OrderGroupsService {
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
     private readonly notificationsService: NotificationsService,
+    // BỔ SUNG (20/09/2026, đảo luồng theo yêu cầu Thuận) — cần gọi
+    // autoAssign() NGAY LÚC TẠO GROUP (xem startPickingPhase() bên
+    // dưới). Không có circular dependency: StaffAssignmentService chỉ
+    // phụ thuộc trực tiếp 2 Mongoose model, KHÔNG phụ thuộc ngược lại
+    // OrderGroupsService — đã kiểm tra trước khi thêm dòng này.
+    private readonly staffAssignmentService: StaffAssignmentService,
+    // K3 (27/09/2026) — pick-item ghi sổ cái biến động kho
+    @InjectModel(InventoryMovement.name)
+    private readonly inventoryMovementModel: Model<InventoryMovementDocument>,
+    // K4b — tra SKU sàn -> SKU nội bộ khi trừ tồn
+    @InjectModel(MarketplaceSkuMapping.name)
+    private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
+    // K5 — giữ chỗ tồn kho chống bán lố
+    private readonly stockReservationService: StockReservationService,
   ) {}
 
   /**
@@ -102,6 +122,8 @@ export class OrderGroupsService {
         if (actualCount !== existing.order_count) {
           existing.order_count = actualCount;
           await existing.save();
+          // K5 — có đơn gộp đến muộn -> nhu cầu hàng tăng -> giữ chỗ lại.
+          await this.reconcileReservation(existing._id.toString());
         }
         return existing;
       }
@@ -109,18 +131,20 @@ export class OrderGroupsService {
       // tương ứng (trường hợp đơn được sync TRƯỚC KHI module này tồn
       // tại) — tạo group mới nhưng TÁI SỬ DỤNG đúng _id đã có sẵn trên
       // order, không sinh id mới, không cần ghi lại field trên Order.
-      return this.orderGroupModel.create({
-        _id: order.consolidated_group_id,
-        platform: order.platform,
-        shop_id: order.shop_id,
-        order_count: 1,
-        // Order schema hiện KHÔNG có field shop_name (chỉ có shop_id
-        // dạng string) — dùng tạm shop_id làm snapshot. Khi module
-        // marketplace-integration bổ sung tên shop hiển thị được (việc
-        // của tương lai, không thuộc phạm vi lượt này), cập nhật lại
-        // dòng này để lấy tên thật thay vì id.
-        shop_name_snapshot: order.shop_id,
-      });
+      return this.startPickingPhase(
+        await this.orderGroupModel.create({
+          _id: order.consolidated_group_id,
+          platform: order.platform,
+          shop_id: order.shop_id,
+          order_count: 1,
+          // Order schema hiện KHÔNG có field shop_name (chỉ có shop_id
+          // dạng string) — dùng tạm shop_id làm snapshot. Khi module
+          // marketplace-integration bổ sung tên shop hiển thị được (việc
+          // của tương lai, không thuộc phạm vi lượt này), cập nhật lại
+          // dòng này để lấy tên thật thay vì id.
+          shop_name_snapshot: order.shop_id,
+        }),
+      );
     }
 
     // Đơn chưa từng có group (chưa gộp với ai) — tạo group-of-1 mới,
@@ -135,7 +159,54 @@ export class OrderGroupsService {
       { _id: order._id },
       { $set: { consolidated_group_id: newGroup._id } },
     );
-    return newGroup;
+    return this.startPickingPhase(newGroup);
+  }
+
+  /**
+   * BỔ SUNG (20/09/2026, đảo luồng theo yêu cầu Thuận) — NGAY SAU KHI
+   * group vừa được tạo (còn ở AWAITING_PACKAGING, giá trị default của
+   * schema), gán NGAY 1 Warehouse Staft rảnh nhất + chuyển sang PICKING
+   * — không còn chờ Packaging Staff Approve mới gán như thiết kế cũ.
+   *
+   * best-effort NGOÀI mọi transaction (giống tinh thần auto-assign cũ
+   * ở packaging.service.ts trước khi dời sang đây) — nếu auto-assign
+   * lỗi (VD chưa có Warehouse Staff nào active), group VẪN được tạo
+   * thành công, chỉ log cảnh báo — Admin gán tay sau qua POST .../assign.
+   * KHÔNG để lỗi auto-assign chặn đứng cả luồng đồng bộ đơn hàng.
+   */
+  private async startPickingPhase(
+    group: OrderGroupDocument,
+  ): Promise<OrderGroupDocument> {
+    try {
+      await this.staffAssignmentService.autoAssign(group._id.toString());
+    } catch (error) {
+      this.logger.warn(
+        `Auto-assign Warehouse Staff thất bại ngay lúc tạo group ${group._id.toString()} — cần gán tay qua POST .../assign.`,
+        error,
+      );
+    }
+
+    // K5 — giữ chỗ tồn NGAY khi tạo nhóm đơn; thiếu thì gắn cờ từ đầu. Best-effort:
+    // lỗi giữ chỗ KHÔNG được chặn luồng đồng bộ đơn hàng.
+    await this.reconcileReservation(group._id.toString());
+
+    try {
+      return await this.transitionFulfillmentStatus(
+        group._id.toString(),
+        GroupFulfillmentStatus.PICKING,
+        group.__v,
+      );
+    } catch (error) {
+      // Cực hiếm khi xảy ra (group vừa tạo, __v chắc chắn đúng) — vẫn
+      // phòng thủ, không để lỗi transition làm mất group vừa tạo, trả
+      // lại đúng bản group hiện có (dù còn AWAITING_PACKAGING) thay vì
+      // throw làm hỏng cả luồng sync đơn hàng đang gọi hàm này.
+      this.logger.error(
+        `Chuyển group ${group._id.toString()} sang PICKING thất bại ngay sau khi tạo — group vẫn ở AWAITING_PACKAGING, cần xử lý tay.`,
+        error,
+      );
+      return group;
+    }
   }
 
   /**
@@ -202,38 +273,143 @@ export class OrderGroupsService {
     const aggregated = aggregateOrderItems(allRawItems);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1
-    const skus = aggregated.map((i) => i.sku);
+    const skuQuantities = new Map(aggregated.map((i) => [i.sku, i.quantity]));
+    const items = await this.mapSkuQuantitiesToPackableItems(
+      group.platform,
+      group.shop_id,
+      groupId,
+      skuQuantities,
+    );
+
+    return { order_group_id: groupId, items };
+  }
+
+  /**
+   * BỔ SUNG (20/09/2026, đảo luồng theo yêu cầu Thuận) — gợi ý đóng
+   * gói giờ PHẢI tính theo số lượng THẬT ĐÃ QUÉT (`pick_events`), KHÔNG
+   * phải số lượng ĐẶT ban đầu (`getPackableItemsForGroup()` ở trên,
+   * vẫn giữ nguyên — dùng cho Picking, KHÔNG đổi). Lý do nghiệp vụ
+   * (đã thống nhất khi thiết kế): nếu Warehouse Staff báo thiếu hàng và
+   * Packaging Staff/Admin duyệt tiếp với phần có sẵn (partial), gợi ý
+   * đóng gói tính theo số lượng ĐẶT sẽ ra thùng TO HƠN THỰC TẾ CẦN —
+   * sai logic, lãng phí vật liệu. SKU nào có 0 lần quét (report-missing
+   * toàn bộ, không lấy được chút nào) → LOẠI HẲN khỏi gợi ý, không có
+   * gì để đóng gói cho SKU đó.
+   *
+   * Chỉ dùng cho mục đích TÍNH GỢI Ý ĐÓNG GÓI (packaging.service.ts) —
+   * KHÔNG dùng cho Picking (picking-list vẫn phải hiển thị theo đơn
+   * ĐẶT, không phải đã lấy — nếu không sẽ không biết cần lấy gì).
+   */
+  async getActuallyPickedItemsForGroup(
+    groupId: string,
+  ): Promise<OrderGroupForPackaging> {
+    if (!Types.ObjectId.isValid(groupId)) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.INVALID_GROUP_ID,
+        `"${groupId}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { groupId },
+      );
+    }
+
+    const group = await this.orderGroupModel.findById(groupId);
+    if (!group) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
+        `Không tìm thấy order group với id "${groupId}".`,
+        HttpStatus.NOT_FOUND,
+        { groupId },
+      );
+    }
+
+    // Cộng dồn TOÀN BỘ pick_events của group này theo SKU — 1 SKU có
+    // thể được quét NHIỀU LẦN riêng lẻ (VD quét từng cái 1), phải cộng
+    // dồn đúng tổng số lượng THẬT đã lấy, không chỉ lấy lần quét cuối.
+    const events = await this.pickEventModel
+      .find({ order_group_id: group._id })
+      .select('seller_sku scanned_quantity')
+      .lean();
+
+    const skuQuantities = new Map<string, number>();
+    for (const event of events) {
+      const current = skuQuantities.get(event.seller_sku) ?? 0;
+      skuQuantities.set(event.seller_sku, current + event.scanned_quantity);
+    }
+
+    if (skuQuantities.size === 0) {
+      // Group đang ở PICKED nhưng KHÔNG có pick_event nào — về lý
+      // thuyết không nên xảy ra (phải quét ít nhất 1 SKU mới hợp lệ đi
+      // tới PICKED qua luồng thật), nhưng phòng thủ rõ ràng thay vì để
+      // hàm dưới trả mảng rỗng âm thầm (dễ hiểu nhầm là group hợp lệ
+      // nhưng 0 SKU).
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
+        `Group "${groupId}" chưa có bản ghi lấy hàng (pick_events) nào — không thể tính gợi ý đóng gói.`,
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+
+    const items = await this.mapSkuQuantitiesToPackableItems(
+      group.platform,
+      group.shop_id,
+      groupId,
+      skuQuantities,
+    );
+
+    return { order_group_id: groupId, items };
+  }
+
+  /**
+   * Dùng CHUNG cho cả getPackableItemsForGroup() (theo đơn ĐẶT) và
+   * getActuallyPickedItemsForGroup() (theo số lượng THẬT đã quét) —
+   * tránh viết trùng logic tra Product Master + xử lý thiếu dimension
+   * an toàn (xem lý do ?. kép ở comment gốc bên trong hàm).
+   */
+  private async mapSkuQuantitiesToPackableItems(
+    platform: MarketplacePlatform,
+    shopId: string,
+    groupId: string,
+    skuQuantities: Map<string, number>,
+  ): Promise<PackableItem[]> {
+    const skus = Array.from(skuQuantities.keys());
     const products = await this.productMasterModel
-      .find({
-        platform: group.platform,
-        shop_id: group.shop_id,
-        seller_sku: { $in: skus },
-      })
+      .find({ platform, shop_id: shopId, seller_sku: { $in: skus } })
       .lean();
     const productMap = new Map(products.map((p) => [p.seller_sku, p]));
 
-    const items: PackableItem[] = aggregated.map((item) => {
-      const product = productMap.get(item.sku);
+    return skus.map((sku) => {
+      const product = productMap.get(sku);
       if (!product) {
-        // Thiếu dữ liệu Product Master cho SKU này — log cảnh báo thay vì
-        // throw cứng, để AI vẫn tính được cho các SKU CÓ dữ liệu, không
-        // chặn đứng toàn bộ group chỉ vì 1 SKU thiếu cache.
         this.logger.warn(
-          `Thiếu Product Master cho SKU ${item.sku} (group ${groupId}) — dùng giá trị mặc định an toàn (giả định cồng kềnh nhẹ).`,
+          `Thiếu Product Master cho SKU ${sku} (group ${groupId}) — dùng giá trị mặc định an toàn (giả định cồng kềnh nhẹ).`,
         );
       }
       return {
-        sku: item.sku,
-        quantity: item.quantity,
-        length_cm: product?.dimension.package_length_cm ?? 20,
-        width_cm: product?.dimension.package_width_cm ?? 20,
-        height_cm: product?.dimension.package_height_cm ?? 20,
-        weight_kg: product?.dimension.package_weight_kg ?? 0.5,
+        sku,
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- sku LUÔN có trong Map vì lấy trực tiếp từ skuQuantities.keys() ngay phía trên, không thể undefined.
+        quantity: skuQuantities.get(sku)!,
+        // BỔ SUNG (19/09/2026, báo cáo thật) — thêm `?.` cho CHÍNH
+        // `dimension`, không chỉ cho `product`. Trước đây `product?.` chỉ
+        // bảo vệ trường hợp KHÔNG tìm thấy document (product=undefined),
+        // nhưng nếu document CÓ tồn tại mà `dimension` lại thiếu/undefined
+        // (dữ liệu chèn tay bỏ qua validation Mongoose — schema khai
+        // `dimension` required:true nên code ứng dụng KHÔNG BAO GIỜ tạo
+        // ra tình huống này, chỉ xảy ra khi dữ liệu bị can thiệp trực
+        // tiếp ngoài luồng) — truy cập `.package_length_cm` trên
+        // `undefined` ném TypeError → 500 Internal Server Error, sập cả
+        // API picking-list.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- CỐ Ý: schema khai dimension required:true nên TS tin chắc không undefined, nhưng dữ liệu CHÈN TAY bỏ qua Mongoose validation (đã xác nhận gặp thật) vẫn có thể thiếu field này — giữ ?. để không sập 500 khi gặp đúng tình huống đó.
+        length_cm: product?.dimension?.package_length_cm ?? 20,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- xem lý do dòng trên
+        width_cm: product?.dimension?.package_width_cm ?? 20,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- xem lý do dòng trên
+        height_cm: product?.dimension?.package_height_cm ?? 20,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- xem lý do dòng trên
+        weight_kg: product?.dimension?.package_weight_kg ?? 0.5,
         is_fragile: product?.is_fragile ?? false,
       };
     });
-
-    return { order_group_id: groupId, items };
   }
 
   /**
@@ -310,6 +486,7 @@ export class OrderGroupsService {
     groupId: string,
     targetStatus: GroupFulfillmentStatus,
     expectedVersion: number,
+    session?: ClientSession, // G1 (27/09/2026) — chạy chung transaction với vận đơn
   ): Promise<OrderGroupDocument> {
     const group = await this.findOrderGroupById(groupId); // đã tự validate id + tồn tại
 
@@ -332,7 +509,7 @@ export class OrderGroupsService {
     const updated = await this.orderGroupModel.findOneAndUpdate(
       { _id: groupId, __v: expectedVersion },
       { $set: { fulfillment_status: targetStatus }, $inc: { __v: 1 } },
-      { returnDocument: 'after' },
+      { returnDocument: 'after', session },
     );
 
     if (!updated) {
@@ -347,6 +524,8 @@ export class OrderGroupsService {
     this.logger.log(
       `Order Group ${groupId}: ${group.fulfillment_status} -> ${targetStatus} (version ${String(expectedVersion)} -> ${String(expectedVersion + 1)}).`,
     );
+    // K5 — lấy hàng xong: phần giữ chỗ chưa quét tới (thiếu hàng/bỏ bớt) được nhả cho đơn khác.
+    if (targetStatus === GroupFulfillmentStatus.PICKED && !session) await this.releaseReservation(groupId);
 
     return updated;
   }
@@ -365,6 +544,8 @@ export class OrderGroupsService {
     scannedQuantity: number,
     scanMethod: 'barcode' | 'manual',
     clientEventId?: string,
+    binLocationId?: string, // K3
+    actorId = 'system', // K3 — ghi sổ cái
   ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
     // BỔ SUNG (19/09/2026, báo cáo thật Hải Phượng) — TRƯỚC KHI trừ tồn,
     // xác nhận SKU quét THẬT SỰ thuộc group này — trước đây hàm nhận
@@ -396,51 +577,73 @@ export class OrderGroupsService {
     // Atomic check-and-decrement — filter kèm `quantity_on_hand: {$gte}`
     // ngay trong CÙNG 1 lệnh, không tách "check rồi ghi" (tránh race
     // condition 2 nhân viên quét cùng lúc cùng 1 SKU sắp hết hàng).
-    const updated = await this.skuBinAssignmentModel.findOneAndUpdate(
-      {
-        warehouse_id: warehouseId,
-        seller_sku: sku,
-        quantity_on_hand: { $gte: scannedQuantity },
-      },
-      { $inc: { quantity_on_hand: -scannedQuantity } },
-      { returnDocument: 'after' },
-    );
-
-    if (!updated) {
-      throw new AppException(
-        ORD_GROUP_ERROR_CODES.INSUFFICIENT_STOCK,
-        `SKU "${sku}" không đủ tồn kho tại kho "${warehouseId}" (cần ${String(scannedQuantity)}) — dùng POST .../fulfillment/report-missing để báo thiếu hàng.`,
-        HttpStatus.CONFLICT,
-        { sku, warehouseId, requestedQuantity: scannedQuantity },
-      );
-    }
-
-    if (clientEventId) {
-      await this.pickEventModel.create({
-        order_group_id: groupId,
-        seller_sku: sku,
-        scanned_quantity: scannedQuantity,
-        scan_method: scanMethod,
-        client_event_id: clientEventId,
-        remaining_stock_after: updated.quantity_on_hand,
+    // 🔄 K4a (27/09/2026) — 2 sửa đổi:
+    // (1) Lọc thêm platform + shop_id của nhóm đơn. Trước đây chỉ lọc kho + seller_sku:
+    //     2 sàn/2 shop có SKU trùng chuỗi trong cùng kho -> có thể trừ nhầm tồn bên kia.
+    // (2) Trừ tồn + sổ cái + pick_event trong 1 TRANSACTION. Trước đây ghi sổ SAU khi
+    //     trừ, không transaction -> lỗi giữa chừng thì tồn đã trừ mà không có dòng sổ.
+    const group = await this.findOrderGroupById(groupId);
+    // 🔄 K4b — SKU đã nối: trừ vào tồn CHUNG của SKU nội bộ; chưa nối: như cũ.
+    const masterSku = (await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, [sku])).get(sku);
+    const holder: { doc: SkuBinAssignmentDocument | null } = { doc: null };
+    const session = await this.skuBinAssignmentModel.db.startSession();
+    try {
+      await session.withTransaction(async () => {
+        const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
+          {
+            warehouse_id: warehouseId,
+            ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
+            ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}), // K3 — trừ đúng ô
+            quantity_on_hand: { $gte: scannedQuantity },
+          },
+          { $inc: { quantity_on_hand: -scannedQuantity } },
+          { returnDocument: 'after', session },
+        );
+        if (!doc) {
+          throw new AppException(
+            ORD_GROUP_ERROR_CODES.INSUFFICIENT_STOCK,
+            `SKU "${sku}" không đủ tồn kho tại kho "${warehouseId}" (cần ${String(scannedQuantity)}) — dùng POST .../fulfillment/report-missing để báo thiếu hàng.`,
+            HttpStatus.CONFLICT,
+            { sku, warehouseId, requestedQuantity: scannedQuantity },
+          );
+        }
+        await this.inventoryMovementModel.create([{
+          warehouse_id: doc.warehouse_id,
+          assignment_id: doc._id,
+          bin_location_id: doc.bin_location_id,
+          platform: doc.platform,
+          shop_id: doc.shop_id,
+          seller_sku: doc.seller_sku,
+          master_sku: doc.master_sku ?? null, // K4b
+          type: 'pick',
+          delta: -scannedQuantity,
+          quantity_before: doc.quantity_on_hand + scannedQuantity,
+          quantity_after: doc.quantity_on_hand,
+          reason_code: null,
+          note: null,
+          ref_type: 'order_group',
+          ref_id: groupId,
+          actor_id: actorId,
+          created_at: new Date(),
+        }], { session });
+        await this.pickEventModel.create([{
+          order_group_id: groupId,
+          seller_sku: sku,
+          scanned_quantity: scannedQuantity,
+          scan_method: scanMethod,
+          client_event_id: clientEventId ?? null,
+          remaining_stock_after: doc.quantity_on_hand,
+          bin_location_id: doc.bin_location_id,
+        }], { session });
+        // K5 — tiêu phần đã giữ chỗ tương ứng số vừa quét, CÙNG transaction.
+        await this.stockReservationService.consume(groupId, stockKeyOf(masterSku, group.platform, group.shop_id, sku), scannedQuantity, session);
+        holder.doc = doc;
       });
-    } else {
-      // Vẫn ghi log audit dù không có client_event_id (gọi trực tiếp
-      // Swagger/web, không qua offline-sync) — chỉ khác là không cần
-      // check idempotency cho lần này.
-      await this.pickEventModel.create({
-        order_group_id: groupId,
-        seller_sku: sku,
-        scanned_quantity: scannedQuantity,
-        scan_method: scanMethod,
-        client_event_id: null,
-        remaining_stock_after: updated.quantity_on_hand,
-      });
+    } finally {
+      await session.endSession();
     }
-
-    this.logger.log(
-      `Pick item: group ${groupId}, SKU ${sku}, số lượng ${String(scannedQuantity)} (${scanMethod}) — còn lại ${String(updated.quantity_on_hand)}.`,
-    );
+    const updated = holder.doc;
+    if (!updated) throw new Error('Transaction trừ tồn kết thúc mà không có kết quả');
 
     return {
       sku,
@@ -582,5 +785,30 @@ export class OrderGroupsService {
       `Group ${groupId} đặt priority=${priority}${priority === 'express' ? `, hạn ${update.packaging_deadline as string}` : ''}.`,
     );
     return group;
+  }
+
+  // ===================================================================
+  // K5 (27/09/2026) — GIỮ CHỖ TỒN KHO
+  // ===================================================================
+
+  /** Tính lại giữ chỗ theo hàng HIỆN TẠI của nhóm đơn. Best-effort, không throw. */
+  async reconcileReservation(groupId: string): Promise<void> {
+    try {
+      const group = await this.findOrderGroupById(groupId);
+      const { items } = await this.getPackableItemsForGroup(groupId);
+      await this.stockReservationService.reconcile(group, items);
+    } catch (error) {
+      this.logger.warn(`Giữ chỗ tồn kho cho nhóm đơn ${groupId} thất bại (không chặn luồng chính).`, error);
+    }
+  }
+
+  /** Nhả phần giữ chỗ còn dư. Best-effort, không throw. */
+  async releaseReservation(groupId: string): Promise<number> {
+    try {
+      return await this.stockReservationService.releaseGroup(groupId);
+    } catch (error) {
+      this.logger.warn(`Nhả giữ chỗ nhóm đơn ${groupId} thất bại.`, error);
+      return 0;
+    }
   }
 }

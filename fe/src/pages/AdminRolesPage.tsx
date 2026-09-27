@@ -73,8 +73,8 @@ const modules: Array<{
   },
   {
     key: 'shipping',
-    labelVi: 'Nhãn vận đơn/Ước phí',
-    labelEn: 'Shipping labels/Fee estimate',
+    labelVi: 'Điều phối giao hàng / vận đơn',
+    labelEn: 'Delivery queue / shipments',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',

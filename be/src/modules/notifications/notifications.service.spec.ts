@@ -47,7 +47,7 @@ describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', 
     expect(notificationModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it('query gửi lên DB PHẢI kèm điều kiện sở hữu (đích danh HOẶC theo role) — đây là dòng fix chính', async () => {
+  it('query gửi lên DB PHẢI kèm điều kiện sở hữu (đích danh HOẶC theo role, dual-match số+chuỗi) — đây là dòng fix chính', async () => {
     notificationModel.findOneAndUpdate.mockResolvedValue({
       _id: notificationId,
       is_read: true,
@@ -59,12 +59,19 @@ describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', 
       UserRole.STORE_OWNER,
     );
 
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — recipient_role giờ
+    // dual-match CẢ 2 kiểu (số THẬT + String(role) — dữ liệu CŨ trước
+    // migration) qua $in, không còn so khớp trực tiếp 1 giá trị.
     expect(notificationModel.findOneAndUpdate).toHaveBeenCalledWith(
       {
         _id: notificationId,
         $or: [
           { recipient_user_id: callerUserId },
-          { recipient_role: UserRole.STORE_OWNER },
+          {
+            recipient_role: {
+              $in: [UserRole.STORE_OWNER, String(UserRole.STORE_OWNER)],
+            },
+          },
         ],
       },
       { $set: { is_read: true } },
@@ -121,5 +128,91 @@ describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', 
     );
 
     expect(result).toBe(updated);
+  });
+});
+
+//!=============================================
+// BỔ SUNG (21/09/2026, báo cáo thật từ FE) — 2 hành vi mới: notify()
+// ghi recipient_role dạng SỐ tường minh (không phụ thuộc schema tự
+// cast), và 2 template message mới cho generate()/reject() (packaging).
+//!=============================================
+describe('NotificationsService — notify() ghi Number + 2 template mới', () => {
+  let service: NotificationsService;
+  let notificationModel: { create: jest.Mock };
+  let userModel: { find: jest.Mock };
+  let mailService: { sendNotificationEmail: jest.Mock };
+
+  beforeEach(() => {
+    notificationModel = {
+      create: jest
+        .fn()
+        .mockResolvedValue({ _id: new Types.ObjectId().toString() }),
+    };
+    userModel = {
+      find: jest
+        .fn()
+        .mockReturnValue({
+          select: jest
+            .fn()
+            .mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
+        }),
+    };
+    mailService = { sendNotificationEmail: jest.fn() };
+
+    service = new NotificationsService(
+      notificationModel as never,
+      userModel as never,
+      mailService as never,
+    );
+  });
+
+  it('notify() ghi recipient_role dạng SỐ tường minh (Number()), không giữ nguyên kiểu input', async () => {
+    await service.notify({
+      recipientRole: UserRole.PACKAGING_STAFF,
+      type: 'pending_approval' as never,
+      severity: 'info',
+      title: 't',
+      message: 'm',
+    });
+
+    expect(notificationModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient_role: UserRole.PACKAGING_STAFF }),
+    );
+    const createCall = notificationModel.create.mock.calls[0] as [
+      { recipient_role: unknown },
+    ];
+    expect(typeof createCall[0].recipient_role).toBe('number');
+  });
+
+  it('recipientRole không truyền -> ghi null, KHÔNG ghi undefined/NaN', async () => {
+    await service.notify({
+      type: 'pending_approval' as never,
+      severity: 'info',
+      title: 't',
+      message: 'm',
+    });
+
+    expect(notificationModel.create).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient_role: null }),
+    );
+  });
+
+  it('buildPendingPackagingPlanMessage trả đúng cấu trúc title/message, có nhắc groupId', () => {
+    const result = service.buildPendingPackagingPlanMessage({
+      groupId: 'GRP-1',
+      boxSummary: 'thùng 20x20x20cm',
+    });
+    expect(result.title).toContain('GRP-1');
+    expect(result.message).toContain('GRP-1');
+    expect(result.message).toContain('thùng 20x20x20cm');
+  });
+
+  it('buildPackagingRejectedMessage trả đúng cấu trúc, có nhắc lý do từ chối', () => {
+    const result = service.buildPackagingRejectedMessage({
+      groupId: 'GRP-1',
+      reason: 'Sai kích thước',
+    });
+    expect(result.title).toContain('GRP-1');
+    expect(result.message).toContain('Sai kích thước');
   });
 });

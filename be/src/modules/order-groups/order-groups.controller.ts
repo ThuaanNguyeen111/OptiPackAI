@@ -1,3 +1,4 @@
+import { PackagingMaterialsService, ConsumptionResult } from '../packaging-materials/packaging-materials.service';
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService } from './order-groups.service';
@@ -27,7 +28,9 @@ import { OrderGroupDocument } from './schemas/order-group.schema';
 // dưới tên rõ nghĩa hơn, để FE đọc rồi gửi lại đúng giá trị này vào
 // body của 5 endpoint fulfillment (Rule #18, Optimistic Concurrency)
 // — không phải rò rỉ Mongoose internal, mà là hợp đồng API có chủ đích.
-interface OrderGroupResponse {
+export interface OrderGroupResponse {
+  stockShortage: boolean; // K5
+  stockShortageItems: { sku: string; needed: number; reserved: number; shortage: number }[]; // K5
   id: string;
   platform: string;
   shopId: string;
@@ -43,8 +46,10 @@ interface OrderGroupResponse {
   updatedAt: Date;
 }
 
-function toResponse(group: OrderGroupDocument): OrderGroupResponse {
+export function toResponse(group: OrderGroupDocument): OrderGroupResponse {
   return {
+    stockShortage: group.stock_shortage === true, // K5
+    stockShortageItems: group.stock_shortage_items ?? [], // K5
     id: group._id.toString(),
     platform: group.platform,
     shopId: group.shop_id,
@@ -93,7 +98,10 @@ function toResponse(group: OrderGroupDocument): OrderGroupResponse {
 @Controller('order-groups')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrderGroupsController {
-  constructor(private readonly orderGroupsService: OrderGroupsService) {}
+  constructor(
+    private readonly orderGroupsService: OrderGroupsService,
+    private readonly packagingMaterialsService: PackagingMaterialsService, // G4
+  ) {}
 
   @Get()
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
@@ -153,6 +161,7 @@ export class OrderGroupsController {
   async pickItem(
     @Param('id') id: string,
     @Body() body: PickItemDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ sku: string; decrementedBy: number; remainingStock: number }> {
     return this.orderGroupsService.pickItem(
       id,
@@ -161,6 +170,8 @@ export class OrderGroupsController {
       body.scanned_quantity,
       body.scan_method,
       body.client_event_id,
+      body.bin_location_id, // K3
+      user.userId, // K3 — sổ cái
     );
   }
 
@@ -216,55 +227,27 @@ export class OrderGroupsController {
   }
 
   @Post(':id/fulfillment/pack')
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (picked -> packed).' })
-  async pack(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). 🔄 (21/09/2026) mở thêm PACKAGING_STAFF — trước đây chỉ Warehouse+Admin, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý.' })
+  async pack(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse & { packagingConsumption: ConsumptionResult }> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.PACKED,
       body.expected_version,
     );
-    return toResponse(group);
+    // G4 (27/09/2026) — trừ vật liệu theo gợi ý đóng gói (ưu tiên hàng tái sử dụng).
+    // KHÔNG chặn pack nếu thiếu vật liệu/chưa khai danh mục — chỉ trả cảnh báo.
+    // Response chỉ THÊM field packagingConsumption, không đổi field cũ.
+    const packagingConsumption = await this.packagingMaterialsService.consumeForPackedGroup(id, user.userId);
+    return { ...toResponse(group), packagingConsumption };
   }
 
-  @Post(':id/fulfillment/ship')
-  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ GIAO cho đơn vị vận chuyển (packed -> shipped).' })
-  async ship(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.SHIPPED,
-      body.expected_version,
-    );
-    return toResponse(group);
-  }
 
-  @Post(':id/fulfillment/deliver')
-  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Xác nhận ĐÃ GIAO THÀNH CÔNG tới khách (shipped -> delivered).' })
-  async deliver(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.DELIVERED,
-      body.expected_version,
-    );
-    return toResponse(group);
-  }
 
-  @Post(':id/fulfillment/return')
-  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      'Xác nhận HOÀN HÀNG (shipped hoặc delivered -> returned) — dùng chung cho cả Shipping Coordinator (khách trả hàng sau khi giao) và Warehouse Staff (phát hiện lỗi lúc soạn hàng, hủy giữa chừng).',
-  })
-  async returnGroup(@Param('id') id: string, @Body() body: TransitionOrderGroupDto): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.RETURNED,
-      body.expected_version,
-    );
-    return toResponse(group);
-  }
 
   @Patch(':id/priority')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
@@ -277,3 +260,7 @@ export class OrderGroupsController {
     return toResponse(group);
   }
 }
+
+// G1 (27/09/2026) — tên rõ nghĩa khi dùng ngoài file (legacy-fulfillment.controller.ts).
+export const toOrderGroupResponse = toResponse;
+// G1 — 3 route POST :id/fulfillment/{ship,deliver,return} đã CHUYỂN sang shipments/legacy-fulfillment.controller.ts (giữ nguyên URL/body/response).

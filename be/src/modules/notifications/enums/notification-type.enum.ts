@@ -14,4 +14,7 @@ export enum NotificationType {
   // BỔ SUNG (AOFP-XX, 2026-09-15) — O6: buyer yêu cầu hủy đơn, seller có
   // hạn (cancel_trigger_time) để phản hồi trước khi Lazada tự động hủy.
   CANCEL_CONFIRMATION_REQUIRED = 'cancel_confirmation_required',
+  // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — notify Admin khi
+  // Packaging Staff Reject gợi ý đóng gói (packaging.service.ts reject()).
+  PACKAGING_REJECTED = 'packaging_rejected',
 }

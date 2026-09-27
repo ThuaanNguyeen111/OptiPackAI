@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
+  Sparkles,
   Store,
   Sun,
   Users,
@@ -69,6 +70,14 @@ const navItems = [
     labelVi: 'Tham số AI',
     labelEn: 'AI parameters',
     icon: Cpu,
+    section: 'ai' as NavSection,
+  },
+  {
+    to: '/app/admin/packing-plans',
+    end: false,
+    labelVi: 'Chốt kế hoạch đóng gói',
+    labelEn: 'Confirm packing plan',
+    icon: Sparkles,
     section: 'ai' as NavSection,
   },
   {

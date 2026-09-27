@@ -20,7 +20,7 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
   let orderGroupModel: { findById: jest.Mock };
   let orderModel: { find: jest.Mock };
   let productMasterModel: { find: jest.Mock };
-  let skuBinAssignmentModel: { findOneAndUpdate: jest.Mock };
+  let skuBinAssignmentModel: { findOneAndUpdate: jest.Mock; db: { startSession: jest.Mock } };
   let pickEventModel: { findOne: jest.Mock; create: jest.Mock };
 
   function mockGroupHasOnlySku(realSku: string): void {
@@ -58,7 +58,9 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
     orderGroupModel = { findById: jest.fn() };
     orderModel = { find: jest.fn() };
     productMasterModel = { find: jest.fn() };
-    skuBinAssignmentModel = { findOneAndUpdate: jest.fn() };
+    // K4a — pickItem chạy trong transaction (session lấy từ model.db)
+    const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
+    skuBinAssignmentModel = { findOneAndUpdate: jest.fn(), db: { startSession: jest.fn().mockResolvedValue(session) } };
     pickEventModel = { findOne: jest.fn(), create: jest.fn() };
 
     service = new OrderGroupsService(
@@ -69,6 +71,10 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
       pickEventModel as never,
       {} as never, // userModel — không dùng trong đường code này
       {} as never, // notificationsService
+      {} as never, // staffAssignmentService — không dùng trong đường code này
+      { create: jest.fn().mockResolvedValue({}) } as never, // K3 inventoryMovementModel
+      { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
+      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0) } as never, // K5
     );
   });
 
@@ -108,5 +114,30 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
       remainingStock: 9,
     });
     expect(skuBinAssignmentModel.findOneAndUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('K4a — trừ tồn LỌC ĐÚNG sàn + shop của nhóm đơn (không trừ nhầm SKU trùng chuỗi của sàn/shop khác)', async () => {
+    mockGroupHasOnlySku('ABC-123');
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 4, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'lazada', shop_id: 'shop-1', seller_sku: 'ABC-123' });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
+
+    expect((skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0]).toMatchObject({ platform: 'lazada', shop_id: 'shop-1' });
+  });
+
+  it('K4b — SKU đã nối: trừ vào tồn CHUNG theo SKU nội bộ (không lọc theo sàn/shop nữa)', async () => {
+    mockGroupHasOnlySku('ABC-123');
+    (service as unknown as { mappingModel: unknown }).mappingModel = {
+      find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ seller_sku_normalized: 'ABC-123', master_sku: 'ATHUN-005-DEN-M' }]) }) }),
+    };
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 9, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'tiki', shop_id: 't1', seller_sku: 'X', master_sku: 'ATHUN-005-DEN-M' });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
+
+    const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
+    expect(filter).toMatchObject({ master_sku: 'ATHUN-005-DEN-M' });
+    expect(filter).not.toHaveProperty('platform');
   });
 });

@@ -20,6 +20,7 @@ export type PackagingRecommendation = {
   approvedAt: string | null
   actualMeasuredWeightKg: number | null
   isAbnormal: boolean
+  rejectionReason?: string | null
   createdAt: string
   updatedAt: string
 }
@@ -47,6 +48,7 @@ export type AdjustPackagingInput = {
 
 export type RejectPackagingInput = {
   expected_group_version: number
+  rejection_reason: string
 }
 
 export const ADJUSTMENT_REASON_LABELS: Record<

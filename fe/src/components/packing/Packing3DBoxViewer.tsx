@@ -218,9 +218,15 @@ function BlueprintSvgFallback() {
 export function Packing3DBoxViewer({
   boxLabel,
   boxSub,
+  className,
+  autoRotate = false,
 }: {
   boxLabel?: string
   boxSub?: string
+  /** Override chiều cao mặc định — dùng `h-full` khi đồng bộ với ô Hàng đợi */
+  className?: string
+  /** Xoay tự động sau khi Packaging Staff chấp nhận kế hoạch */
+  autoRotate?: boolean
 }) {
   const { locale } = usePortal()
   const vi = locale === 'vi'
@@ -245,7 +251,12 @@ export function Packing3DBoxViewer({
   }
 
   return (
-    <div className="relative w-full h-[340px] sm:h-[380px] rounded-2xl overflow-hidden border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40 select-none">
+    <div
+      className={
+        className ??
+        'relative h-[340px] w-full select-none overflow-hidden rounded-2xl border border-slate-100 bg-[#f8faff] sm:h-[380px] dark:border-slate-800 dark:bg-slate-900/40'
+      }
+    >
       {/* Floating Tag (Top-left) matching screenshot */}
       <div className="absolute top-4 left-4 z-20 pointer-events-none rounded-xl border border-slate-200/90 bg-white/95 px-3.5 py-2.5 shadow-sm dark:border-slate-800 dark:bg-surface-1/95 backdrop-blur-xs">
         <p className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100 tracking-tight">
@@ -269,8 +280,10 @@ export function Packing3DBoxViewer({
             <OrbitControls
               key={orbitKey}
               ref={controlsRef}
-              enableZoom={true}
+              enableZoom={false}
               enablePan={false}
+              autoRotate={autoRotate}
+              autoRotateSpeed={1.2}
               minDistance={3.0}
               maxDistance={8.5}
               minPolarAngle={Math.PI / 6}

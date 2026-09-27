@@ -21,6 +21,8 @@ import { ProductMasterModule } from './modules/product-master/product-master.mod
 import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
@@ -55,6 +57,8 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     OrderGroupsModule,
     PackagingModule,
     WarehouseModule,
+    CategoriesModule, // K2 (26/09/2026)
+    ShipmentsModule, // G1 (27/09/2026)
     NotificationsModule,
   ],
   controllers: [AppController],

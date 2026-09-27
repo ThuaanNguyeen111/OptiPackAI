@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
@@ -7,15 +7,13 @@ import { OrderGroupsService } from './order-groups.service';
 
 /**
  * ===================================================================
- * BACKFILL order_groups CHO ĐƠN CHƯA CÓ GROUP — chạy mỗi 15 phút,
- * SAU cron order-sync Lazada (10 phút) để luôn có đơn mới nhất kịp xử lý.
+ * BACKFILL order_groups CHO ĐƠN CHƯA CÓ GROUP — LƯỚI AN TOÀN
  * ===================================================================
- * KHÔNG hook trực tiếp vào cuối syncLazadaOrders() (orders.service.ts,
- * KHÔNG được sửa) — tách thành cron RIÊNG, độc lập hoàn toàn, quét
- * đơn có consolidated_group_id = null rồi gọi getOrCreateGroupForOrder()
- * cho từng đơn. Độ trễ tối đa ~15 phút giữa lúc đơn về và lúc có group
- * là CHẤP NHẬN ĐƯỢC cho quy mô demo/capstone hiện tại — Packaging Staff
- * không thao tác tức thời ngay giây đơn vừa sync xong.
+ * 🔄 (21/09/2026, báo cáo thật từ FE) — orders.service.ts giờ ĐÃ CÓ
+ * hook TRỰC TIẾP tạo group NGAY trong vòng sync (không cần đợi cron
+ * này nữa cho đường chính) — cron này giờ chỉ còn là LƯỚI AN TOÀN cho
+ * trường hợp hook lỗi (VD lỗi mạng/DB thoáng qua ngay lúc sync), chạy
+ * mỗi 5 phút quét lại các đơn còn sót `consolidated_group_id: null`.
  * ===================================================================
  */
 @Injectable()
@@ -28,10 +26,12 @@ export class OrderGroupBackfillScheduler {
     private readonly orderGroupsService: OrderGroupsService,
   ) {}
 
-  @Cron('*/15 * * * *', { name: 'order-group-backfill' }) // mỗi 15 phút — package @nestjs/schedule pin bản ^6.1.3 (lý do đã ghi ở LazadaOrderSyncScheduler) không có hằng số CronExpression.EVERY_15_MINUTES, dùng raw cron string
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'order-group-backfill' }) // 🔄 (21/09/2026) đổi từ 15' xuống 5' — giờ chỉ là lưới an toàn (đường chính đã có hook trực tiếp), 5' đủ nhanh để bắt các trường hợp hook lỗi thoáng qua
   async backfillMissingGroups(): Promise<void> {
     if (this.isRunning) {
-      this.logger.warn('Lượt backfill order_groups trước chưa xong, bỏ qua lượt này.');
+      this.logger.warn(
+        'Lượt backfill order_groups trước chưa xong, bỏ qua lượt này.',
+      );
       return;
     }
 
@@ -59,7 +59,10 @@ export class OrderGroupBackfillScheduler {
           succeeded += 1;
         } catch (error) {
           failed += 1;
-          this.logger.error(`Backfill group cho đơn ${String(order._id)} thất bại, bỏ qua, tiếp tục đơn khác.`, error);
+          this.logger.error(
+            `Backfill group cho đơn ${String(order._id)} thất bại, bỏ qua, tiếp tục đơn khác.`,
+            error,
+          );
         }
       }
 

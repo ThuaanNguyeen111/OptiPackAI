@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsMongoId, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsMongoId, IsOptional, IsString, Min } from 'class-validator';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 export class AssignSkuBinDto {
@@ -28,4 +28,11 @@ export class AssignSkuBinDto {
   @IsInt()
   @Min(0)
   initial_quantity?: number;
+
+  // K2 — vượt sức chứa ô thì bị chặn 409 WH_BIN_OVER_CAPACITY; gửi force=true
+  // để xác nhận vẫn nhập (VD hàng về gấp, xếp tạm chồng lên).
+  @ApiPropertyOptional({ example: false })
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
 }
