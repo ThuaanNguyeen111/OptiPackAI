@@ -1,3 +1,4 @@
+import { PackOrderGroupDto } from './dto/pack-order-group.dto';
 import { PackagingMaterialsService, ConsumptionResult } from '../packaging-materials/packaging-materials.service';
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -30,6 +31,8 @@ import { OrderGroupDocument } from './schemas/order-group.schema';
 // — không phải rò rỉ Mongoose internal, mà là hợp đồng API có chủ đích.
 export interface OrderGroupResponse {
   stockShortage: boolean; // K5
+  origin: 'marketplace' | 'replacement'; // đơn thay thế do đổi hàng
+  sourceReturnId: string | null;
   stockShortageItems: { sku: string; needed: number; reserved: number; shortage: number }[]; // K5
   id: string;
   platform: string;
@@ -49,6 +52,8 @@ export interface OrderGroupResponse {
 export function toResponse(group: OrderGroupDocument): OrderGroupResponse {
   return {
     stockShortage: group.stock_shortage === true, // K5
+    origin: group.origin ?? 'marketplace',
+    sourceReturnId: group.source_return_id?.toString() ?? null,
     stockShortageItems: group.stock_shortage_items ?? [], // K5
     id: group._id.toString(),
     platform: group.platform,
@@ -231,18 +236,17 @@ export class OrderGroupsController {
   @ApiOperation({ summary: 'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). 🔄 (21/09/2026) mở thêm PACKAGING_STAFF — trước đây chỉ Warehouse+Admin, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý.' })
   async pack(
     @Param('id') id: string,
-    @Body() body: TransitionOrderGroupDto,
+    @Body() body: PackOrderGroupDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse & { packagingConsumption: ConsumptionResult }> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.PACKED,
-      body.expected_version,
-    );
-    // G4 (27/09/2026) — trừ vật liệu theo gợi ý đóng gói (ưu tiên hàng tái sử dụng).
-    // KHÔNG chặn pack nếu thiếu vật liệu/chưa khai danh mục — chỉ trả cảnh báo.
-    // Response chỉ THÊM field packagingConsumption, không đổi field cũ.
-    const packagingConsumption = await this.packagingMaterialsService.consumeForPackedGroup(id, user.userId);
+    // Đổi trạng thái "packed" + trừ vật liệu trong CÙNG 1 transaction: hoặc cả 2 xong,
+    // hoặc không gì thay đổi. Thiếu vật liệu vẫn KHÔNG chặn pack (chỉ trả cảnh báo).
+    // `materials_used` (tùy chọn): vật liệu nhân viên thực tế đã dùng — không gửi thì
+    // trừ theo gợi ý đóng gói như trước.
+    const { group, packagingConsumption } = await this.packagingMaterialsService.withTransaction(async (session) => ({
+      group: await this.orderGroupsService.transitionFulfillmentStatus(id, GroupFulfillmentStatus.PACKED, body.expected_version, session),
+      packagingConsumption: await this.packagingMaterialsService.consumeForPackedGroup(id, user.userId, session, body.materials_used),
+    }));
     return { ...toResponse(group), packagingConsumption };
   }
 

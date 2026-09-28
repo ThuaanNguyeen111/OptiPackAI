@@ -10,7 +10,7 @@ describe('StockReservationService — K5', () => {
   const g1 = { _id: new Types.ObjectId(), platform: MarketplacePlatform.LAZADA, shop_id: 's1' };
   let totalModel: { findOneAndUpdate: jest.Mock; updateOne: jest.Mock; findById: jest.Mock };
   let reservationModel: { findOne: jest.Mock; updateOne: jest.Mock; find: jest.Mock; findOneAndUpdate: jest.Mock };
-  let groupModel: { updateOne: jest.Mock };
+  let groupModel: { updateOne: jest.Mock; findOneAndUpdate: jest.Mock };
   let assignmentModel: { aggregate: jest.Mock };
   let mappingModel: { find: jest.Mock };
   let service: StockReservationService;
@@ -22,11 +22,11 @@ describe('StockReservationService — K5', () => {
   beforeEach(() => {
     totalModel = { findOneAndUpdate: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), findById: jest.fn() };
     reservationModel = { findOne: jest.fn().mockReturnValue(existing(null)), updateOne: jest.fn().mockResolvedValue({}), find: jest.fn(), findOneAndUpdate: jest.fn() };
-    groupModel = { updateOne: jest.fn().mockResolvedValue({}) };
+    groupModel = { updateOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({ stock_shortage: false }) };
     assignmentModel = { aggregate: jest.fn() };
     mappingModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
-    service = new StockReservationService(reservationModel as never, totalModel as never, groupModel as never, assignmentModel as never, mappingModel as never, { startSession: jest.fn().mockResolvedValue(session) } as never);
+    service = new StockReservationService(reservationModel as never, totalModel as never, groupModel as never, assignmentModel as never, mappingModel as never, { startSession: jest.fn().mockResolvedValue(session) } as never, { notify: jest.fn().mockResolvedValue({}) } as never);
   });
 
   it('nhóm đơn 1: kệ còn 1, chưa ai giữ -> giữ được 1, KHÔNG thiếu hàng', async () => {
@@ -37,7 +37,7 @@ describe('StockReservationService — K5', () => {
 
     expect(shortages).toEqual([]);
     expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
-    expect(groupModel.updateOne).toHaveBeenCalledWith({ _id: g1._id }, { $set: { stock_shortage: false, stock_shortage_items: [] } });
+    expect(groupModel.findOneAndUpdate).toHaveBeenCalledWith({ _id: g1._id }, { $set: { stock_shortage: false, stock_shortage_items: [] } });
   });
 
   it('nhóm đơn 2: kệ còn 1 nhưng nhóm 1 đã giữ 1 -> giữ 0, GẮN CỜ THIẾU HÀNG ngay từ đầu', async () => {
@@ -48,7 +48,7 @@ describe('StockReservationService — K5', () => {
     const shortages = await service.reconcile(g2, [{ sku: 'ATD-M-01', quantity: 1 }]);
 
     expect(shortages).toEqual([{ sku: 'ATD-M-01', needed: 1, reserved: 0, shortage: 1 }]);
-    expect(groupModel.updateOne).toHaveBeenCalledWith({ _id: g2._id }, { $set: { stock_shortage: true, stock_shortage_items: shortages } });
+    expect(groupModel.findOneAndUpdate).toHaveBeenCalledWith({ _id: g2._id }, { $set: { stock_shortage: true, stock_shortage_items: shortages } });
   });
 
   it('tính lại cho CHÍNH nhóm đã giữ (VD đơn gộp đến muộn) -> phần của mình không bị tính là "người khác giữ"', async () => {

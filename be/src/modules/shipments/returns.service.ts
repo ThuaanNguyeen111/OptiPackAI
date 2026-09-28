@@ -1,3 +1,6 @@
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
@@ -12,7 +15,11 @@ import { Shipment, ShipmentDocument } from './schemas/shipment.schema';
 import {
   InspectionResult, OPEN_RETURN_STATUSES, RETURN_WINDOW_DAYS, ReturnReason, ReturnStatus, ReturnType,
 } from './enums/return.enums';
-import { CreateReturnDto, InspectReturnDto } from './dto/return.dto';
+import { CreateReturnDto, InspectReturnDto, ResolveQuarantineDto } from './dto/return.dto';
+import { Order, OrderDocument } from '../orders/schemas/order.schema';
+import { OrderStatus } from '../orders/enums/order-status.enum';
+import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-group.schema';
+import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { RETURN_ERROR_CODES } from './returns.errors';
 
 /**
@@ -39,6 +46,11 @@ export class ReturnsService {
     @InjectConnection() private readonly connection: Connection,
     private readonly packagingMaterialsService: PackagingMaterialsService, // G4
     @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>, // G4
+    private readonly notificationsService: NotificationsService,
+    // Đổi hàng: tạo đơn + nhóm đơn thay thế; kiểm hàng đổi sang có trong danh mục shop
+    @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
+    @InjectModel(OrderGroup.name) private readonly orderGroupModel: Model<OrderGroupDocument>,
+    @InjectModel(ProductMaster.name) private readonly productMasterModel: Model<ProductMasterDocument>,
   ) {}
 
   async get(id: string): Promise<ReturnRequestDocument> {
@@ -123,10 +135,24 @@ export class ReturnsService {
       seen.add(item.seller_sku);
     }
 
+    const exchangeItems = dto.exchange_items ?? [];
+    if (dto.type === ReturnType.EXCHANGE) {
+      if (exchangeItems.length === 0) {
+        this.fail(RETURN_ERROR_CODES.EXCHANGE_ITEMS_REQUIRED, 'Phiếu đổi hàng phải khai hàng khách muốn đổi sang (exchange_items).', HttpStatus.BAD_REQUEST);
+      }
+      const known = await this.productMasterModel.find({ platform: group.platform, shop_id: group.shop_id, seller_sku: { $in: exchangeItems.map((i) => i.seller_sku) } }).select('seller_sku').lean();
+      const knownSet = new Set(known.map((k) => k.seller_sku));
+      const unknown = exchangeItems.filter((i) => !knownSet.has(i.seller_sku)).map((i) => i.seller_sku);
+      if (unknown.length > 0) {
+        this.fail(RETURN_ERROR_CODES.INVALID_EXCHANGE_ITEMS, `Hàng đổi sang không có trong danh mục sản phẩm của shop: ${unknown.join(', ')}.`, HttpStatus.BAD_REQUEST, { unknown });
+      }
+    }
+
     const [doc] = await this.returnModel.create([{
       rma_code: this.newCode(),
       order_group_id: group._id,
       type: dto.type,
+      exchange_items: dto.type === ReturnType.EXCHANGE ? exchangeItems : [],
       source: 'simulated',
       status: ReturnStatus.REQUESTED,
       platform: group.platform,
@@ -136,6 +162,16 @@ export class ReturnsService {
       created_by: actorId,
     }]);
     if (!doc) throw new Error('Tạo phiếu trả hàng không trả về document');
+    try {
+      await this.notificationsService.notify({
+        recipientRole: UserRole.STORE_OWNER, type: NotificationType.RETURN_REQUESTED, severity: 'warning',
+        title: `Yêu cầu ${dto.type === ReturnType.REFUND_ONLY ? 'hoàn tiền' : dto.type === ReturnType.EXCHANGE ? 'đổi hàng' : 'trả hàng'} mới — ${doc.rma_code}`,
+        message: `${String(dto.items.length)} dòng hàng, chờ duyệt.${dto.customer_note ? ` Khách ghi: ${dto.customer_note}` : ''}`,
+        relatedEntityType: 'return_request', relatedEntityId: doc._id.toString(),
+      });
+    } catch (error) {
+      this.logger.warn('Gửi thông báo yêu cầu trả hàng thất bại (không ảnh hưởng phiếu).', error);
+    }
     return doc;
   }
 
@@ -195,7 +231,7 @@ export class ReturnsService {
       }
     }
 
-    return this.runTx(async (session) => {
+    const closed = await this.runTx(async (session) => {
       // G4 — thu hồi vật liệu đóng gói (hạng A đã gỡ nhãn -> kho tái sử dụng), cùng transaction.
       const packagingOutcomes = dto.packaging?.length
         ? await this.packagingMaterialsService.recoverFromReturn(dto.packaging, rma._id.toString(), actorId, session)
@@ -222,6 +258,7 @@ export class ReturnsService {
           warehouse_id: l.warehouse_id ? new Types.ObjectId(l.warehouse_id) : null,
           bin_location_id: l.bin_location_id ? new Types.ObjectId(l.bin_location_id) : null,
           note: l.note ?? null,
+          disposition: l.result === InspectionResult.QUARANTINE ? 'pending' : null,
         })),
         inspected_by: actorId,
         closed_at: new Date(),
@@ -235,6 +272,118 @@ export class ReturnsService {
           outcome: o.outcome,
         })),
       }, session);
+    });
+    // Đổi hàng: kiểm hàng xong -> tạo đơn thay thế. Lỗi ở bước này KHÔNG hủy kết quả
+    // kiểm hàng (đã lưu) — phiếu ghi replacement_status "failed", bấm tạo lại được.
+    if (closed.type === ReturnType.EXCHANGE) {
+      try {
+        return await this.createReplacement(closed._id.toString(), actorId);
+      } catch (error) {
+        this.logger.error(`Tạo đơn thay thế cho ${closed.rma_code} thất bại — tạo lại qua POST /returns/:id/create-replacement.`, error);
+        const failed = await this.returnModel.findByIdAndUpdate(closed._id, { $set: { replacement_status: 'failed', replacement_error: String(error) } }, { returnDocument: 'after' });
+        return failed ?? closed;
+      }
+    }
+    return closed;
+  }
+
+  /**
+   * Đổi hàng — tạo ĐƠN THAY THẾ (mã EXC-<RMA>, giá 0, khóa gộp đơn riêng nên không bao
+   * giờ bị gộp với đơn sàn) rồi sinh nhóm đơn mới đi lại đúng luồng lấy hàng -> đóng gói
+   * -> giao như đơn thường (có giữ chỗ tồn K5). Đã tạo rồi thì báo lỗi, không tạo trùng.
+   */
+  async createReplacement(id: string, actorId: string): Promise<ReturnRequestDocument> {
+    const rma = await this.get(id);
+    if (rma.type !== ReturnType.EXCHANGE || rma.status !== ReturnStatus.CLOSED) {
+      this.fail(RETURN_ERROR_CODES.NOT_EXCHANGE, 'Chỉ tạo đơn thay thế cho phiếu ĐỔI HÀNG đã kiểm hàng xong.', HttpStatus.CONFLICT);
+    }
+    if (rma.replacement_status === 'created') {
+      this.fail(RETURN_ERROR_CODES.REPLACEMENT_EXISTS, 'Phiếu này đã có đơn thay thế.', HttpStatus.CONFLICT, { replacementGroupId: rma.replacement_group_id?.toString() });
+    }
+    const original = await this.orderModel.findOne({ consolidated_group_id: rma.order_group_id });
+    if (!original) throw new Error('Không tìm thấy đơn gốc của nhóm đơn để chép thông tin người nhận');
+
+    const platformOrderId = `EXC-${rma.rma_code}`;
+    const order = (await this.orderModel.findOne({ platform: original.platform, shop_id: original.shop_id, platform_order_id: platformOrderId }))
+      ?? (await this.orderModel.create({
+        marketplace_shop: original.marketplace_shop,
+        platform: original.platform,
+        shop_id: original.shop_id,
+        platform_order_id: platformOrderId,
+        platform_order_number: platformOrderId,
+        status: OrderStatus.PENDING,
+        raw_statuses: ['replacement'],
+        recipient: original.recipient,
+        consolidation_key: `replacement:${rma._id.toString()}`, // duy nhất -> không gộp với đơn nào
+        items: rma.exchange_items.map((it, i) => ({
+          platform_order_item_id: `${platformOrderId}-${String(i + 1)}`,
+          sku: it.seller_sku,
+          name: `Hàng đổi (${rma.rma_code})`,
+          quantity: it.quantity,
+          unit_price: 0,
+          status: OrderStatus.PENDING,
+        })),
+        total_amount: 0,
+        currency: original.currency,
+        synced_at: new Date(),
+        origin: 'replacement',
+        source_return_id: rma._id,
+      }));
+    const group = await this.orderGroupsService.getOrCreateGroupForOrder(order);
+    await this.orderGroupModel.updateOne({ _id: group._id }, { $set: { origin: 'replacement', source_return_id: rma._id } });
+    const updated = await this.returnModel.findByIdAndUpdate(
+      rma._id,
+      { $set: { replacement_status: 'created', replacement_order_id: order._id, replacement_group_id: group._id, replacement_error: null } },
+      { returnDocument: 'after' },
+    );
+    this.logger.log(`Đổi hàng ${rma.rma_code}: tạo đơn thay thế ${platformOrderId} -> nhóm đơn ${group._id.toString()} (người thao tác ${actorId}).`);
+    return updated ?? rma;
+  }
+
+  // ------------------------------------------------------ hàng cách ly
+
+  /** Danh sách dòng hàng đang cách ly chờ xử lý (mọi phiếu), cũ nhất trước. */
+  async listQuarantine(): Promise<{ returnId: string; rmaCode: string; lineIndex: number; sellerSku: string; quantity: number; note: string | null; since: Date | null }[]> {
+    const rmas = await this.returnModel.find({ inspection: { $elemMatch: { result: InspectionResult.QUARANTINE, disposition: { $in: ['pending', null] } } } }).sort({ closed_at: 1 });
+    const out: { returnId: string; rmaCode: string; lineIndex: number; sellerSku: string; quantity: number; note: string | null; since: Date | null }[] = [];
+    for (const r of rmas) {
+      r.inspection.forEach((l, i) => {
+        if (l.result === InspectionResult.QUARANTINE && (l.disposition ?? 'pending') === 'pending') {
+          out.push({ returnId: r._id.toString(), rmaCode: r.rma_code, lineIndex: i, sellerSku: l.seller_sku, quantity: l.quantity, note: l.note, since: r.closed_at });
+        }
+      });
+    }
+    return out;
+  }
+
+  /** Xử lý 1 dòng cách ly: nhập lại ô bán (qua sổ cái) hoặc loại bỏ. */
+  async resolveQuarantine(id: string, lineIndex: number, dto: ResolveQuarantineDto, actorId: string): Promise<ReturnRequestDocument> {
+    const rma = await this.get(id);
+    const line = rma.inspection.at(lineIndex);
+    if (line?.result !== InspectionResult.QUARANTINE) {
+      this.fail(RETURN_ERROR_CODES.QUARANTINE_LINE_NOT_FOUND, `Phiếu không có dòng cách ly số ${String(lineIndex)}.`, HttpStatus.NOT_FOUND);
+    }
+    if ((line.disposition ?? 'pending') !== 'pending') {
+      this.fail(RETURN_ERROR_CODES.QUARANTINE_ALREADY_RESOLVED, 'Dòng cách ly này đã được xử lý.', HttpStatus.CONFLICT);
+    }
+    if (dto.action === 'restock' && (!dto.warehouse_id || !dto.bin_location_id)) {
+      this.fail(RETURN_ERROR_CODES.BIN_REQUIRED, 'Nhập lại kho phải chọn kho và ô.', HttpStatus.BAD_REQUEST);
+    }
+    const key = `inspection.${String(lineIndex)}`;
+    return this.runTx(async (session) => {
+      if (dto.action === 'restock' && dto.warehouse_id && dto.bin_location_id) {
+        await this.warehouseService.restockReturnedItem({
+          warehouseId: dto.warehouse_id, binLocationId: dto.bin_location_id, platform: rma.platform, shopId: rma.shop_id,
+          sellerSku: line.seller_sku, quantity: line.quantity, returnRequestId: rma._id.toString(), actorId,
+        }, session);
+      }
+      const updated = await this.returnModel.findOneAndUpdate(
+        { _id: rma._id, [`${key}.disposition`]: { $in: ['pending', null] } },
+        { $set: { [`${key}.disposition`]: dto.action === 'restock' ? 'restocked' : 'discarded', [`${key}.disposed_at`]: new Date(), [`${key}.disposed_by`]: actorId, [`${key}.disposition_note`]: dto.note ?? null } },
+        { returnDocument: 'after', session },
+      );
+      if (!updated) this.fail(RETURN_ERROR_CODES.QUARANTINE_ALREADY_RESOLVED, 'Dòng cách ly vừa được người khác xử lý.', HttpStatus.CONFLICT);
+      return updated;
     });
   }
 

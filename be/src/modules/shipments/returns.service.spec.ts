@@ -16,12 +16,15 @@ describe('ReturnsService — G3', () => {
   const whId = new Types.ObjectId().toString();
   const binId = new Types.ObjectId().toString();
 
-  let returnModel: { findById: jest.Mock; exists: jest.Mock; create: jest.Mock; findOneAndUpdate: jest.Mock };
+  let returnModel: { findById: jest.Mock; exists: jest.Mock; create: jest.Mock; findOneAndUpdate: jest.Mock; findByIdAndUpdate: jest.Mock; find: jest.Mock };
   let shipmentModel: { findOne: jest.Mock };
-  let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock };
+  let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock; getOrCreateGroupForOrder: jest.Mock };
   let warehouseService: { restockReturnedItem: jest.Mock };
   let packagingMaterialsService: { recoverFromReturn: jest.Mock };
   let movementModel: { aggregate: jest.Mock };
+  let orderModel: { findOne: jest.Mock; create: jest.Mock };
+  let orderGroupModel: { updateOne: jest.Mock };
+  let productMasterModel: { find: jest.Mock };
   let service: ReturnsService;
 
   const rma = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
@@ -30,18 +33,22 @@ describe('ReturnsService — G3', () => {
   });
 
   beforeEach(() => {
-    returnModel = { findById: jest.fn(), exists: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([rma()]), findOneAndUpdate: jest.fn() };
+    returnModel = { findById: jest.fn(), exists: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([rma()]), findOneAndUpdate: jest.fn(), findByIdAndUpdate: jest.fn(), find: jest.fn() };
     shipmentModel = { findOne: jest.fn().mockResolvedValue({ delivered_at: new Date() }) };
     orderGroupsService = {
       findOrderGroupById: jest.fn().mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.DELIVERED, platform: 'lazada', shop_id: 's1', __v: 4, updated_at: new Date() }),
       getPackableItemsForGroup: jest.fn().mockResolvedValue({ items: [{ sku: 'A', quantity: 2 }, { sku: 'B', quantity: 1 }] }),
       transitionFulfillmentStatus: jest.fn().mockResolvedValue({}),
+      getOrCreateGroupForOrder: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
     };
     warehouseService = { restockReturnedItem: jest.fn().mockResolvedValue(undefined) };
     packagingMaterialsService = { recoverFromReturn: jest.fn().mockResolvedValue([]) };
     movementModel = { aggregate: jest.fn().mockResolvedValue([]) };
+    orderModel = { findOne: jest.fn(), create: jest.fn() };
+    orderGroupModel = { updateOne: jest.fn().mockResolvedValue({}) };
+    productMasterModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
-    service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, packagingMaterialsService as never, movementModel as never);
+    service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, packagingMaterialsService as never, movementModel as never, { notify: jest.fn().mockResolvedValue({}) } as never, orderModel as never, orderGroupModel as never, productMasterModel as never);
   });
 
   const createDto = (items: { seller_sku: string; quantity: number }[]): never =>
@@ -163,6 +170,68 @@ describe('ReturnsService — G3', () => {
       expect(packagingMaterialsService.recoverFromReturn).toHaveBeenCalledWith([pkgLine], rmaId.toString(), 'wh-1', expect.anything());
       const set = (returnModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { packaging_inspection: { recovered_to_reuse: boolean }[] } }])[1].$set;
       expect(set.packaging_inspection[0]?.recovered_to_reuse).toBe(true);
+    });
+  });
+
+  describe('Đổi hàng', () => {
+    const exDto = (exchange: { seller_sku: string; quantity: number }[] | undefined): never =>
+      ({ order_group_id: groupId.toString(), type: ReturnType.EXCHANGE, items: [{ seller_sku: 'A', quantity: 1, reason_code: ReturnReason.SIZE_NOT_FIT }], exchange_items: exchange }) as never;
+
+    it('phiếu đổi hàng không khai hàng đổi sang -> 400 RMA_EXCHANGE_ITEMS_REQUIRED', async () => {
+      await expect(service.createSimulated(exDto([]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.EXCHANGE_ITEMS_REQUIRED });
+    });
+
+    it('hàng đổi sang không có trong danh mục shop -> 400 RMA_INVALID_EXCHANGE_ITEMS', async () => {
+      await expect(service.createSimulated(exDto([{ seller_sku: 'KHONG-CO', quantity: 1 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.INVALID_EXCHANGE_ITEMS });
+    });
+
+    it('kiểm hàng xong phiếu đổi hàng -> tạo đơn thay thế EXC-<RMA> giá 0 + nhóm đơn mới gắn nhãn "replacement"', async () => {
+      const closedEx = rma({ type: ReturnType.EXCHANGE, status: ReturnStatus.CLOSED, rma_code: 'RMA-1', exchange_items: [{ seller_sku: 'A-L', quantity: 1 }], replacement_status: 'none' });
+      returnModel.findById.mockResolvedValueOnce(rma({ type: ReturnType.EXCHANGE, status: ReturnStatus.RECEIVED })).mockResolvedValueOnce(closedEx);
+      returnModel.findOneAndUpdate.mockResolvedValue(closedEx);
+      returnModel.findByIdAndUpdate.mockResolvedValue({ ...closedEx, replacement_status: 'created' });
+      orderModel.findOne.mockResolvedValueOnce({ _id: 'o1', platform: 'lazada', shop_id: 's1', marketplace_shop: 'm1', recipient: {}, currency: 'VND' }).mockResolvedValueOnce(null);
+      orderModel.create.mockResolvedValue({ _id: 'o2' });
+
+      const r = await service.inspect(rmaId.toString(), { expected_version: 0, lines: [{ seller_sku: 'A', quantity: 2, result: InspectionResult.RESTOCK, warehouse_id: whId, bin_location_id: binId }] }, 'wh-1');
+
+      const [created] = orderModel.create.mock.calls[0] as [Record<string, unknown>];
+      expect(created).toMatchObject({ platform_order_id: 'EXC-RMA-1', total_amount: 0, origin: 'replacement', consolidation_key: `replacement:${rmaId.toString()}` });
+      expect(orderGroupsService.getOrCreateGroupForOrder).toHaveBeenCalledTimes(1);
+      expect(orderGroupModel.updateOne).toHaveBeenCalledWith(expect.anything(), { $set: { origin: 'replacement', source_return_id: rmaId } });
+      expect(r).toMatchObject({ replacement_status: 'created' });
+    });
+
+    it('tạo đơn thay thế lần 2 -> 409 RMA_REPLACEMENT_EXISTS', async () => {
+      returnModel.findById.mockResolvedValue(rma({ type: ReturnType.EXCHANGE, status: ReturnStatus.CLOSED, replacement_status: 'created' }));
+      await expect(service.createReplacement(rmaId.toString(), 'owner-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.REPLACEMENT_EXISTS });
+    });
+  });
+
+  describe('Hàng cách ly', () => {
+    const withQuarantine = (disposition: string | undefined): Record<string, unknown> =>
+      rma({ status: ReturnStatus.CLOSED, closed_at: new Date(), inspection: [{ seller_sku: 'A', quantity: 1, result: InspectionResult.RESTOCK }, { seller_sku: 'A', quantity: 1, result: InspectionResult.QUARANTINE, note: 'Nghi lỗi', disposition }] });
+
+    it('danh sách chỉ gồm dòng cách ly CHỜ XỬ LÝ (kể cả dữ liệu cũ không có trạng thái)', async () => {
+      returnModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([withQuarantine(undefined), withQuarantine('discarded')]) });
+      const list = await service.listQuarantine();
+      expect(list).toHaveLength(1);
+      expect(list[0]).toMatchObject({ lineIndex: 1, sellerSku: 'A', quantity: 1 });
+    });
+
+    it('xử lý "nhập lại" -> cộng tồn qua sổ cái + đánh dấu restocked; xử lý lần 2 -> 409', async () => {
+      returnModel.findById.mockResolvedValue(withQuarantine('pending'));
+      returnModel.findOneAndUpdate.mockResolvedValue(withQuarantine('restocked'));
+      await service.resolveQuarantine(rmaId.toString(), 1, { action: 'restock', warehouse_id: whId, bin_location_id: binId }, 'wh-1');
+      expect(warehouseService.restockReturnedItem).toHaveBeenCalledWith(expect.objectContaining({ sellerSku: 'A', quantity: 1 }), expect.anything());
+
+      returnModel.findById.mockResolvedValue(withQuarantine('restocked'));
+      await expect(service.resolveQuarantine(rmaId.toString(), 1, { action: 'discard' }, 'wh-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.QUARANTINE_ALREADY_RESOLVED });
+    });
+
+    it('dòng không phải cách ly -> 404 RMA_QUARANTINE_LINE_NOT_FOUND', async () => {
+      returnModel.findById.mockResolvedValue(withQuarantine('pending'));
+      await expect(service.resolveQuarantine(rmaId.toString(), 0, { action: 'discard' }, 'wh-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.QUARANTINE_LINE_NOT_FOUND });
     });
   });
 });

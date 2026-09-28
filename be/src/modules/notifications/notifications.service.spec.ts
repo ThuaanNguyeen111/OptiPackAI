@@ -67,11 +67,7 @@ describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', 
         _id: notificationId,
         $or: [
           { recipient_user_id: callerUserId },
-          {
-            recipient_role: {
-              $in: [UserRole.STORE_OWNER, String(UserRole.STORE_OWNER)],
-            },
-          },
+          { recipient_role: { $in: [UserRole.STORE_OWNER, String(UserRole.STORE_OWNER)] } },
         ],
       },
       { $set: { is_read: true } },
@@ -144,19 +140,9 @@ describe('NotificationsService — notify() ghi Number + 2 template mới', () =
 
   beforeEach(() => {
     notificationModel = {
-      create: jest
-        .fn()
-        .mockResolvedValue({ _id: new Types.ObjectId().toString() }),
+      create: jest.fn().mockResolvedValue({ _id: new Types.ObjectId().toString() }),
     };
-    userModel = {
-      find: jest
-        .fn()
-        .mockReturnValue({
-          select: jest
-            .fn()
-            .mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
-        }),
-    };
+    userModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
     mailService = { sendNotificationEmail: jest.fn() };
 
     service = new NotificationsService(
@@ -178,9 +164,7 @@ describe('NotificationsService — notify() ghi Number + 2 template mới', () =
     expect(notificationModel.create).toHaveBeenCalledWith(
       expect.objectContaining({ recipient_role: UserRole.PACKAGING_STAFF }),
     );
-    const createCall = notificationModel.create.mock.calls[0] as [
-      { recipient_role: unknown },
-    ];
+    const createCall = notificationModel.create.mock.calls[0] as [{ recipient_role: unknown }];
     expect(typeof createCall[0].recipient_role).toBe('number');
   });
 

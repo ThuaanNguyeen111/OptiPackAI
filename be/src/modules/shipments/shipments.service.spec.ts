@@ -37,7 +37,7 @@ describe('ShipmentsService — G1', () => {
     };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     returnsService = { createFromFailedDelivery: jest.fn().mockResolvedValue(undefined) };
-    service = new ShipmentsService(shipmentModel as never, eventModel as never, orderGroupsService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, returnsService as never);
+    service = new ShipmentsService(shipmentModel as never, eventModel as never, orderGroupsService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, returnsService as never, { notify: jest.fn().mockResolvedValue({}) } as never);
   });
 
   const eventTypes = (): string[] => eventModel.create.mock.calls.map((c) => (c as [[{ event_type: string }]])[0][0].event_type);

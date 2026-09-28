@@ -3,6 +3,7 @@ export enum ReturnType {
   FAILED_DELIVERY = 'failed_delivery', // hệ thống tự tạo khi kho nhận lại kiện giao thất bại
   RETURN_REFUND = 'return_refund', // khách trả hàng + hoàn tiền (có hàng về kho)
   REFUND_ONLY = 'refund_only', // hoàn tiền không cần trả hàng (không có hàng về)
+  EXCHANGE = 'exchange', // đổi hàng: thu hồi hàng cũ + giao hàng thay thế (đơn EXC-...)
 }
 
 export enum ReturnStatus {

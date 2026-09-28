@@ -37,6 +37,17 @@ export class Shipment {
   @Prop({ type: Date, default: null })
   returned_at!: Date | null;
 
+  // Không cho "Giao lại" trước thời điểm này (khoảng cách tối thiểu / giờ khách hẹn).
+  @Prop({ type: Date, default: null })
+  next_attempt_not_before?: Date | null; // tùy chọn ở tầng TYPE: vận đơn cũ không có field
+
+  // Hạn giao (tính theo giờ làm việc từ lúc bắt đầu giao) + cờ trễ hạn do tác vụ định kỳ gắn.
+  @Prop({ type: Date, default: null })
+  due_at?: Date | null; // vận đơn cũ không có -> không bị quét quá hạn
+
+  @Prop({ type: Boolean, default: false, index: true })
+  is_overdue?: boolean;
+
   @Prop({ type: String, required: true })
   created_by!: string;
 

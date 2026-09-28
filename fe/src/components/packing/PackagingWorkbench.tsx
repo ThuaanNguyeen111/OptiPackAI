@@ -17,7 +17,7 @@ import {
   rejectPackaging,
 } from '../../api/packaging.api'
 import { usePortal } from '../../context/use-portal'
-import { formatApiError } from '../../lib/api'
+import { ApiError, formatApiError } from '../../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   type OrderGroup,
@@ -36,7 +36,7 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
  * Demo 3D chỉ hướng dẫn, không ghi trạng thái lên BE.
  */
 type QueueTab =
-  | 'pending_approval'
+  | 'picked'
   | 'partial_needs_review'
   | 'approved_for_packing'
   | 'awaiting_packaging'
@@ -138,7 +138,7 @@ export function PackagingWorkbench() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
 
-  const [tab, setTab] = useState<QueueTab>('pending_approval')
+  const [tab, setTab] = useState<QueueTab>('picked')
   const [tabBootstrapped, setTabBootstrapped] = useState(false)
   const [allGroups, setAllGroups] = useState<OrderGroup[]>([])
   const [listLoading, setListLoading] = useState(true)
@@ -471,6 +471,31 @@ export function PackagingWorkbench() {
     }
   }
 
+  async function onPack(): Promise<void> {
+    if (!group) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      await packOrderGroup(group.id, {
+        expected_version: group.version,
+      })
+      showToast(vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.')
+      await refreshAfterAction()
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 403) {
+        setActionError(
+          vi
+            ? 'BE chưa mở POST /order-groups/:id/fulfillment/pack cho Packaging Staff (hiện chỉ Warehouse Staff + Admin). Nhờ BE thêm role PACKAGING_STAFF.'
+            : 'BE does not allow Packaging Staff to POST .../fulfillment/pack (Warehouse Staff + Admin only). Ask BE to add PACKAGING_STAFF.',
+        )
+      } else {
+        setActionError(formatApiError(err))
+      }
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   async function onDecidePartial(approve: boolean): Promise<void> {
     if (!group) return
     setActionBusy(true)
@@ -575,6 +600,11 @@ export function PackagingWorkbench() {
               vi ? 'Đã duyệt — đóng gói' : 'Approved — pack',
               counts.approved,
               false,
+            ],
+            [
+              'pending_approval',
+              vi ? 'Kế hoạch thùng' : 'Carton plan',
+              counts.pending,
             ],
             [
               'awaiting_packaging',
@@ -900,6 +930,26 @@ export function PackagingWorkbench() {
                       </dl>
                     )}
                   </div>
+
+                  {tab === 'picked' &&
+                  group.fulfillmentStatus === 'picked' ? (
+                    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+                      <p className="text-sm font-medium text-emerald-950 dark:text-emerald-100">
+                        {vi
+                          ? 'Kho đã lấy xong. Gói kiện rồi xác nhận. Cân thật hiện nằm trên API duyệt kế hoạch (approve), không gửi kèm pack — nhờ BE nếu cần cân lúc gói.'
+                          : 'Warehouse finished picking. Pack the tote then confirm. Measured weight lives on the approve-plan API, not pack — ask BE if weight should be recorded at pack time.'}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => void onPack()}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
+                      </button>
+                    </div>
+                  ) : null}
 
                   {canApprove ? (
                     <div className="space-y-4 rounded-lg border border-hairline p-4">

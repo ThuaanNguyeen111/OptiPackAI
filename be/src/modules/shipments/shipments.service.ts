@@ -13,6 +13,11 @@ import { DeliveryFailureReason } from './enums/delivery-failure-reason.enum';
 import { MAX_DELIVERY_ATTEMPTS, isValidShipmentTransition } from './shipment-transitions';
 import { SHIPMENT_ERROR_CODES } from './shipments.errors';
 import { ReturnsService } from './returns.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
+import { addBusinessHours } from '../order-groups/utils/add-business-hours.util';
+import { deliveryDueBusinessHours, minRetryGapMinutes } from './shipment-config';
 
 export interface ShipmentActor {
   userId: string;
@@ -52,6 +57,7 @@ export class ShipmentsService {
     @InjectConnection() private readonly connection: Connection,
     // G3 — kho nhận lại kiện giao thất bại -> tự tạo phiếu hoàn trong CÙNG transaction
     private readonly returnsService: ReturnsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ------------------------------------------------------------------ đọc
@@ -70,11 +76,13 @@ export class ShipmentsService {
   async listShipments(params: {
     status?: ShipmentStatus;
     orderGroupId?: string;
+    overdueOnly?: boolean; // lọc vận đơn đã bị cron gắn cờ quá hạn giao
     page: number;
     limit: number;
   }): Promise<{ items: ShipmentDocument[]; total: number }> {
     const filter: Record<string, unknown> = {};
     if (params.status) filter.status = params.status;
+    if (params.overdueOnly) filter.is_overdue = true;
     if (params.orderGroupId && Types.ObjectId.isValid(params.orderGroupId)) {
       filter.order_group_id = new Types.ObjectId(params.orderGroupId);
     }
@@ -141,7 +149,7 @@ export class ShipmentsService {
    * - khách từ chối nhận, hoặc đã hết số lần giao -> TỰ chuyển hoàn về kho;
    * - ngược lại -> chờ giao lại.
    */
-  async markFailed(shipmentId: string, expectedVersion: number, reason: DeliveryFailureReason, actor: ShipmentActor, note?: string): Promise<ShipmentDocument> {
+  async markFailed(shipmentId: string, expectedVersion: number, reason: DeliveryFailureReason, actor: ShipmentActor, note?: string, rescheduleAt?: string): Promise<ShipmentDocument> {
     if (reason === DeliveryFailureReason.OTHER && !note?.trim()) {
       throw new AppException(SHIPMENT_ERROR_CODES.NOTE_REQUIRED, 'Chọn "Lý do khác" thì bắt buộc ghi chú cụ thể.', HttpStatus.BAD_REQUEST);
     }
@@ -162,15 +170,79 @@ export class ShipmentsService {
           : `Đã giao ${String(shipment.attempt_count)}/${String(shipment.max_attempts)} lần không thành công — tự động hoàn về kho`,
       });
     }
-    return this.applyTransition(shipment, expectedVersion, steps, { last_failure_reason: reason });
+    // Khoảng cách tối thiểu trước lần giao lại: giờ khách hẹn (nếu có) hoặc bây giờ + N phút.
+    let nextAttempt: Date | null = null;
+    if (!autoReturn) {
+      if (rescheduleAt) {
+        nextAttempt = new Date(rescheduleAt);
+        if (nextAttempt.getTime() <= Date.now()) {
+          throw new AppException(SHIPMENT_ERROR_CODES.INVALID_RESCHEDULE, 'Giờ hẹn giao lại phải ở tương lai.', HttpStatus.BAD_REQUEST, { rescheduleAt });
+        }
+      } else {
+        nextAttempt = new Date(Date.now() + minRetryGapMinutes() * 60_000);
+      }
+    }
+    const updated = await this.applyTransition(shipment, expectedVersion, steps, { last_failure_reason: reason, next_attempt_not_before: nextAttempt });
+    await this.notifySafe(autoReturn
+      ? { type: NotificationType.DELIVERY_RETURNING, severity: 'critical', title: `Vận đơn ${updated.shipment_code} đang hoàn về kho`, message: steps[steps.length - 1]?.note ?? 'Hoàn về kho' }
+      : { type: NotificationType.DELIVERY_FAILED, severity: 'warning', title: `Giao thất bại lần ${String(updated.attempt_count)} — ${updated.shipment_code}`, message: `Lý do: ${reason}${note ? ` — ${note}` : ''}. Giao lại được từ ${nextAttempt?.toISOString() ?? ''}.` },
+      updated);
+    return updated;
   }
 
   /** [Coordinator] Giao lại (chỉ khi đang "giao thất bại"). */
-  async retryDelivery(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string): Promise<ShipmentDocument> {
+  async retryDelivery(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, overrideReason?: string): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
+    const notBefore = shipment.next_attempt_not_before ?? null;
+    const tooEarly = notBefore !== null && notBefore.getTime() > Date.now();
+    if (tooEarly && !overrideReason?.trim()) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.RETRY_TOO_EARLY,
+        `Chưa tới giờ được giao lại (từ ${notBefore.toISOString()}). Muốn giao sớm hơn phải nêu lý do (override_reason).`,
+        HttpStatus.CONFLICT,
+        { shipmentId, nextAttemptNotBefore: notBefore },
+      );
+    }
+    const eventNote = tooEarly ? `Giao lại SỚM hơn quy định — lý do: ${String(overrideReason)}${note ? ` | ${note}` : ''}` : note;
     return this.applyTransition(shipment, expectedVersion, [
-      { to: ShipmentStatus.OUT_FOR_DELIVERY, eventType: ShipmentEventType.RETRY, actor, note },
-    ], {}, undefined, true);
+      { to: ShipmentStatus.OUT_FOR_DELIVERY, eventType: ShipmentEventType.RETRY, actor, note: eventNote },
+    ], { next_attempt_not_before: null }, undefined, true);
+  }
+
+  /** Tác vụ định kỳ: gắn cờ + báo các vận đơn quá hạn giao. Trả số vận đơn vừa gắn cờ. */
+  async flagOverdueShipments(now = new Date()): Promise<number> {
+    const overdue = await this.shipmentModel.find({
+      status: { $in: [ShipmentStatus.OUT_FOR_DELIVERY, ShipmentStatus.DELIVERY_FAILED] },
+      is_overdue: { $ne: true },
+      due_at: { $ne: null, $lt: now },
+    });
+    let flagged = 0;
+    for (const s of overdue) {
+      const r = await this.shipmentModel.updateOne({ _id: s._id, is_overdue: { $ne: true } }, { $set: { is_overdue: true } });
+      if (r.modifiedCount !== 1) continue;
+      flagged++;
+      await this.notifySafe({
+        type: NotificationType.DELIVERY_OVERDUE, severity: 'critical',
+        title: `Vận đơn ${s.shipment_code} đã quá hạn giao`,
+        message: `Hạn giao ${s.due_at?.toISOString() ?? ''}, hiện đang "${s.status}" (lần giao ${String(s.attempt_count)}).`,
+      }, s, [UserRole.STORE_OWNER, UserRole.SHIPPING_COORDINATOR]);
+    }
+    return flagged;
+  }
+
+  /** Gửi thông báo — lỗi thông báo KHÔNG được làm hỏng thao tác chính. */
+  private async notifySafe(
+    n: { type: NotificationType; severity: 'info' | 'warning' | 'critical'; title: string; message: string },
+    shipment: ShipmentDocument,
+    roles: UserRole[] = [UserRole.STORE_OWNER],
+  ): Promise<void> {
+    for (const role of roles) {
+      try {
+        await this.notificationsService.notify({ ...n, recipientRole: role, relatedEntityType: 'shipment', relatedEntityId: shipment._id.toString() });
+      } catch (error) {
+        this.logger.warn(`Gửi thông báo ${n.type} thất bại (không ảnh hưởng thao tác chính).`, error);
+      }
+    }
   }
 
   /** [Warehouse] Xác nhận đã nhận lại kiện hoàn về kho. */
@@ -256,6 +328,7 @@ export class ShipmentsService {
         status: ShipmentStatus.OUT_FOR_DELIVERY,
         attempt_count: 1,
         max_attempts: MAX_DELIVERY_ATTEMPTS,
+        due_at: addBusinessHours(d, deliveryDueBusinessHours()),
         created_by: actor.userId,
       }], { session });
       if (!doc) throw new Error('Tạo vận đơn không trả về document');

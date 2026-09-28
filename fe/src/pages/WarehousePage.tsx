@@ -69,6 +69,9 @@ type PickLine = {
   is_fragile: boolean
   zone_code: string
   bin_code: string
+  bin_location_id: string | null
+  master_sku: string | null
+  other_bins: WarehousePickingListItem['other_bins']
   qtyPicked: number
   remainingStock: number | null
 }
@@ -225,6 +228,10 @@ function mergeLines(
       is_fragile: item.is_fragile,
       zone_code: typeof enriched.zone_code === 'string' ? enriched.zone_code : '',
       bin_code: typeof enriched.bin_code === 'string' ? enriched.bin_code : '',
+      bin_location_id:
+        typeof enriched.bin_location_id === 'string' ? enriched.bin_location_id : null,
+      master_sku: typeof enriched.master_sku === 'string' ? enriched.master_sku : null,
+      other_bins: Array.isArray(enriched.other_bins) ? enriched.other_bins : [],
       qtyPicked: saved?.qtyPicked ?? 0,
       remainingStock: saved?.remainingStock ?? null,
     }
@@ -239,7 +246,9 @@ function lineMatchesScan(line: PickLine, scanned: string): boolean {
   const needle = normalizeScan(scanned)
   if (!needle) return false
   if (normalizeScan(line.sku) === needle) return true
+  if (line.master_sku && normalizeScan(line.master_sku) === needle) return true
   if (line.bin_code && normalizeScan(line.bin_code) === needle) return true
+  if (line.other_bins.some((bin) => normalizeScan(bin.bin_code) === needle)) return true
   const combined = `${normalizeScan(line.bin_code)} ${normalizeScan(line.sku)}`
   return combined === needle
 }
@@ -614,6 +623,9 @@ export function WarehousePage() {
         scanned_quantity: currentQty,
         scan_method: scanMethod,
         warehouse_id: warehouseId,
+        ...(activeLine.bin_location_id
+          ? { bin_location_id: activeLine.bin_location_id }
+          : {}),
         client_event_id: newClientEventId(),
       })
       const nextLines = lines.map((line) =>
@@ -919,6 +931,7 @@ export function WarehousePage() {
                   ) : (
                     tabGroups.map((row) => (
                       <option key={row.id} value={row.id}>
+                        {row.stockShortage ? '⚠ ' : ''}
                         {row.orderPriority === 'express' ? '⚡ ' : ''}
                         {meId && row.assignedStaffId === meId ? '● ' : ''}
                         {shortId(row.id)} · {platformLabel(row.platform)} · {row.orderCount}{' '}
@@ -1077,6 +1090,19 @@ export function WarehousePage() {
                       {group?.isOverdue ? (
                         <span className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300">
                           {vi ? 'Quá hạn' : 'Overdue'}
+                        </span>
+                      ) : null}
+                      {group?.stockShortage ? (
+                        <span
+                          className="rounded-md bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                          title={group.stockShortageItems
+                            .map(
+                              (item) =>
+                                `${item.sku}: thiếu ${item.shortage} (cần ${item.needed}, giữ ${item.reserved})`,
+                            )
+                            .join('\n')}
+                        >
+                          {vi ? 'Thiếu hàng' : 'Short stock'}
                         </span>
                       ) : null}
                     </div>
@@ -1418,12 +1444,25 @@ export function WarehousePage() {
                                 <p className="truncate font-mono text-xs font-bold text-slate-900 dark:text-slate-100">
                                   {line.sku}
                                 </p>
+                                {line.master_sku ? (
+                                  <p className="truncate text-[10px] font-medium text-blue-700 dark:text-blue-300">
+                                    {vi ? 'Tồn chung' : 'Pooled'} {line.master_sku}
+                                  </p>
+                                ) : null}
                                 <div className="mt-1 truncate">
                                   <LocationBadge
                                     binCode={line.bin_code}
                                     zoneCode={line.zone_code}
                                   />
                                 </div>
+                                {line.other_bins.length > 0 ? (
+                                  <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                                    {vi ? 'Ô khác' : 'Also at'}{' '}
+                                    {line.other_bins
+                                      .map((bin) => `${bin.bin_code} (${bin.quantity_on_hand})`)
+                                      .join(', ')}
+                                  </p>
+                                ) : null}
                               </div>
                               <span className="shrink-0 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">
                                 {line.qtyPicked}/{line.quantity}

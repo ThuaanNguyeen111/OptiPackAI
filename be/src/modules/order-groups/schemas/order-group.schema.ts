@@ -90,6 +90,13 @@ export class OrderGroup {
   @Prop({ type: [{ sku: String, needed: Number, reserved: Number, shortage: Number, _id: false }], default: [] })
   stock_shortage_items?: { sku: string; needed: number; reserved: number; shortage: number }[];
 
+  // Nhóm đơn THAY THẾ sinh ra từ phiếu đổi hàng.
+  @Prop({ type: String, enum: ['marketplace', 'replacement'], default: 'marketplace' })
+  origin?: 'marketplace' | 'replacement';
+
+  @Prop({ type: Types.ObjectId, default: null })
+  source_return_id?: Types.ObjectId | null;
+
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
   // __v MỚI thêm (2026-09-09) — cần TypeScript biết field này tồn tại

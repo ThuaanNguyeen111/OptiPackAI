@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, ValidateNested, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreatePackagingMaterialDto {
   @ApiProperty({ example: 'BOX-M' }) @Matches(/^[A-Z0-9-]{2,20}$/, { message: 'code 2-20 ký tự CHỮ HOA/số/gạch ngang' }) code!: string;
@@ -37,4 +38,22 @@ export class PackagingInspectionLineDto {
   @IsOptional() @IsInt() @Min(0) @Max(50) reuse_cycle_seen?: number;
   @ApiPropertyOptional({ example: true, description: 'BẮT BUỘC true để nhận hạng A — nhãn cũ chứa tên/SĐT/địa chỉ khách trước' })
   @IsOptional() @IsBoolean() old_label_removed?: boolean;
+}
+
+/** Vật liệu nhân viên THỰC TẾ đã dùng khi đóng gói (khai ở bước pack). */
+export class MaterialUsedDto {
+  @ApiProperty({ example: 'BOX-L' }) @IsString() @MaxLength(20) material_code!: string;
+  @ApiProperty({ example: 1 }) @IsInt() @Min(1) @Max(100) quantity!: number;
+  @ApiProperty({ enum: ['new', 'reused'], description: 'Lấy từ kệ vật liệu mới hay kệ tái sử dụng' }) @IsIn(['new', 'reused']) condition!: 'new' | 'reused';
+}
+
+export class InternalUseDto {
+  @ApiProperty({ example: 5 }) @IsInt() @Min(1) @Max(100000) quantity!: number;
+  @ApiProperty({ example: 'Làm thùng chia hàng khu KA' }) @IsString() @MinLength(3) @MaxLength(300) purpose!: string;
+}
+
+export class MaterialsUsedListDto {
+  @ApiPropertyOptional({ type: [MaterialUsedDto] })
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @ValidateNested({ each: true }) @Type(() => MaterialUsedDto)
+  materials_used?: MaterialUsedDto[];
 }

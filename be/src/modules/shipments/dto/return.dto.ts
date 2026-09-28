@@ -12,13 +12,29 @@ export class ReturnItemDto {
   @ApiProperty({ enum: ReturnReason }) @IsEnum(ReturnReason) reason_code!: ReturnReason;
 }
 
-/** [Admin — đóng vai khách] Giả lập khách yêu cầu trả hàng. */
+export class ExchangeItemDto {
+  @ApiProperty({ example: 'ATD-L-01' }) @IsString() @MaxLength(100) seller_sku!: string;
+  @ApiProperty({ example: 1 }) @IsInt() @Min(1) quantity!: number;
+}
+
+export class ResolveQuarantineDto {
+  @ApiProperty({ enum: ['restock', 'discard'] }) @IsIn(['restock', 'discard']) action!: 'restock' | 'discard';
+  @ApiPropertyOptional({ description: 'Bắt buộc khi action = restock' }) @IsOptional() @IsMongoId() warehouse_id?: string;
+  @ApiPropertyOptional({ description: 'Bắt buộc khi action = restock' }) @IsOptional() @IsMongoId() bin_location_id?: string;
+  @ApiPropertyOptional({ example: 'Đã kiểm lại, đường may không lỗi' }) @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+/** [Admin — đóng vai khách] Giả lập khách yêu cầu trả hàng / hoàn tiền / đổi hàng. */
 export class CreateReturnDto {
   @ApiProperty() @IsMongoId() order_group_id!: string;
 
-  @ApiProperty({ enum: [ReturnType.RETURN_REFUND, ReturnType.REFUND_ONLY] })
-  @IsIn([ReturnType.RETURN_REFUND, ReturnType.REFUND_ONLY])
-  type!: ReturnType.RETURN_REFUND | ReturnType.REFUND_ONLY;
+  @ApiProperty({ enum: [ReturnType.RETURN_REFUND, ReturnType.REFUND_ONLY, ReturnType.EXCHANGE] })
+  @IsIn([ReturnType.RETURN_REFUND, ReturnType.REFUND_ONLY, ReturnType.EXCHANGE])
+  type!: ReturnType.RETURN_REFUND | ReturnType.REFUND_ONLY | ReturnType.EXCHANGE;
+
+  @ApiPropertyOptional({ type: [ExchangeItemDto], description: 'BẮT BUỘC khi type = exchange: hàng khách muốn đổi sang' })
+  @IsOptional() @IsArray() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => ExchangeItemDto)
+  exchange_items?: ExchangeItemDto[];
 
   @ApiProperty({ type: [ReturnItemDto] })
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => ReturnItemDto)

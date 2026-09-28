@@ -6,4 +6,6 @@ export const SHIPMENT_ERROR_CODES = {
   INVALID_TRANSITION: 'SHP_INVALID_TRANSITION',
   STATE_CONFLICT: 'SHP_STATE_CONFLICT', // version không khớp
   NOTE_REQUIRED: 'SHP_NOTE_REQUIRED', // lý do "other" phải có ghi chú
+  RETRY_TOO_EARLY: 'SHP_RETRY_TOO_EARLY', // giao lại trước giờ cho phép mà không nêu lý do
+  INVALID_RESCHEDULE: 'SHP_INVALID_RESCHEDULE', // giờ hẹn giao lại ở quá khứ
 } as const;
