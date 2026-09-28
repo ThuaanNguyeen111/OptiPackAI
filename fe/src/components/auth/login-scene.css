@@ -54,8 +54,12 @@
 .login-scene-mountains {
   pointer-events: none;
   position: absolute;
-  inset: auto 0 -8%;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
   z-index: 0;
+  width: auto;
+  min-width: 100%;
   height: 42%;
   opacity: 0.55;
   transition: opacity var(--ls-duration) ease, filter var(--ls-duration) ease;
@@ -334,6 +338,22 @@
   z-index: 2;
   padding-right: 46px;
   background: transparent;
+}
+
+/* Edge/IE + Chrome native reveal — tránh 2 icon mắt cạnh nút đèn pin tùy chỉnh */
+.login-pass-input::-ms-reveal,
+.login-pass-input::-ms-clear {
+  display: none;
+}
+
+.login-pass-input::-webkit-credentials-auto-fill-button,
+.login-pass-input::-webkit-strong-password-auto-fill-button {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  margin: 0;
+  width: 0;
+  height: 0;
 }
 
 .login-pass-track {

@@ -24,6 +24,8 @@ import {
   type OrderPriority,
 } from '../types/order-groups'
 import { formatDateTime } from '../utils/format'
+import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
@@ -147,6 +149,8 @@ export function OrderGroupsPage() {
       return 0
     })
   }, [groups])
+
+  const queuePaging = useLocalQueuePagination(displayGroups)
 
   async function applyPriority(priority: OrderPriority): Promise<void> {
     if (!detail) return
@@ -335,7 +339,7 @@ export function OrderGroupsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-hairline">
-                    {displayGroups.map((g) => {
+                    {queuePaging.pagedItems.map((g) => {
                       const selected = selectedId === g.id
                       const updated = toIso(g.updatedAt)
                       return (
@@ -411,6 +415,23 @@ export function OrderGroupsPage() {
                 </table>
               )}
             </div>
+            {!loading && !error && displayGroups.length > 0 ? (
+              <QueuePaginationBar
+                vi={vi}
+                variant="plain"
+                rangeStart={queuePaging.rangeStart}
+                rangeEnd={queuePaging.rangeEnd}
+                total={queuePaging.total}
+                page={queuePaging.page}
+                totalPages={queuePaging.totalPages}
+                onPrev={() => queuePaging.setPage((p) => Math.max(1, p - 1))}
+                onNext={() =>
+                  queuePaging.setPage((p) =>
+                    Math.min(queuePaging.totalPages, p + 1),
+                  )
+                }
+              />
+            ) : null}
           </section>
 
           {/* Detail panel */}

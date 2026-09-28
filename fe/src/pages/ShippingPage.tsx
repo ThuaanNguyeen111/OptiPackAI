@@ -29,6 +29,8 @@ import {
 } from '../api/shipments.api'
 import { OWN_FLEET_ACCOUNT } from '../data/shipping-mock'
 import { formatApiError } from '../lib/api'
+import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import type { OrderGroup } from '../types/order-groups'
 import type { PackagingRecommendation } from '../types/packaging'
 import type {
@@ -223,6 +225,8 @@ export function ShippingPage() {
       )
     })
   }, [rows, filterQuery])
+
+  const queuePaging = useLocalQueuePagination(visibleRows)
 
   const selected = useMemo(
     () => visibleRows.find((row) => row.key === selectedKey) ?? visibleRows[0] ?? null,
@@ -675,7 +679,7 @@ export function ShippingPage() {
                           </td>
                         </tr>
                       ) : (
-                        visibleRows.map((row) => {
+                        queuePaging.pagedItems.map((row) => {
                           const active = selected?.key === row.key
                           const waybill =
                             row.kind === 'shipment' ? row.shipment.shipmentCode.trim() : ''
@@ -748,6 +752,26 @@ export function ShippingPage() {
                     </tbody>
                   </table>
                 </div>
+                {!loading && visibleRows.length > 0 ? (
+                  <QueuePaginationBar
+                    vi={vi}
+                    variant="ops"
+                    className="border-0 px-0 pt-3"
+                    rangeStart={queuePaging.rangeStart}
+                    rangeEnd={queuePaging.rangeEnd}
+                    total={queuePaging.total}
+                    page={queuePaging.page}
+                    totalPages={queuePaging.totalPages}
+                    onPrev={() =>
+                      queuePaging.setPage((p) => Math.max(1, p - 1))
+                    }
+                    onNext={() =>
+                      queuePaging.setPage((p) =>
+                        Math.min(queuePaging.totalPages, p + 1),
+                      )
+                    }
+                  />
+                ) : null}
             </div>
 
             <aside className="ship-bench-side select-none">

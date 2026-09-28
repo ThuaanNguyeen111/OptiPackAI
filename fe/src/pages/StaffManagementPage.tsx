@@ -59,7 +59,7 @@ export function StaffManagementPage() {
     try {
       const res = await fetchUsers({
         page,
-        limit: 50,
+        limit: 10,
         ...(roleFilter === 'all' ? {} : { role: roleFilter }),
       })
       setUsers(res.users)
@@ -244,7 +244,7 @@ export function StaffManagementPage() {
             </span>
             <button
               type="button"
-              disabled={loading || page * 50 >= total}
+              disabled={loading || page * 10 >= total}
               onClick={() => setPage((p) => p + 1)}
               className="rounded border border-hairline px-2 py-1 disabled:opacity-40"
             >

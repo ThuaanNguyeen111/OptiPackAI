@@ -28,6 +28,8 @@ import {
   type PackagingRecommendation,
 } from '../../types/packaging'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import { useLocalQueuePagination } from '../../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../ui/QueuePaginationBar'
 import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 
 /**
@@ -566,6 +568,8 @@ export function PackagingWorkbench() {
     queueTabs.find((row) => row[0] === tab)?.[1] ??
     (vi ? 'Hàng đợi' : 'Queue')
 
+  const queuePaging = useLocalQueuePagination(groups)
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
       <section className="owner-hero">
@@ -667,7 +671,7 @@ export function PackagingWorkbench() {
               </div>
             ) : (
               <ul className="divide-y divide-hairline">
-                {groups.map((g) => (
+                {queuePaging.pagedItems.map((g) => (
                   <li key={g.id}>
                     <button
                       type="button"
@@ -699,6 +703,23 @@ export function PackagingWorkbench() {
               </ul>
             )}
           </div>
+          {!listLoading && !listError && groups.length > 0 ? (
+            <QueuePaginationBar
+              vi={vi}
+              variant="pack"
+              rangeStart={queuePaging.rangeStart}
+              rangeEnd={queuePaging.rangeEnd}
+              total={queuePaging.total}
+              page={queuePaging.page}
+              totalPages={queuePaging.totalPages}
+              onPrev={() => queuePaging.setPage((p) => Math.max(1, p - 1))}
+              onNext={() =>
+                queuePaging.setPage((p) =>
+                  Math.min(queuePaging.totalPages, p + 1),
+                )
+              }
+            />
+          ) : null}
         </section>
 
         <section className="pack-bench-col pack-bench-detail">

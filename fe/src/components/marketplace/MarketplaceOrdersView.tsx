@@ -39,6 +39,8 @@ import {
   type MarketplaceOrderListItem,
 } from '../../types/marketplace-orders'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import { useLocalQueuePagination } from '../../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../ui/QueuePaginationBar'
 
 const adminSelectClass =
   'h-9 cursor-pointer appearance-none rounded-lg border border-hairline bg-surface-1 pl-3 pr-8 text-xs text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40'
@@ -426,6 +428,8 @@ export function MarketplaceOrdersView({
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(
     () => new Set(),
   )
+  const queuePaging = useLocalQueuePagination(visibleOrders)
+  const pagedOrders = queuePaging.pagedItems
 
   function toggleGroupExpanded(groupId: string): void {
     setExpandedGroupIds((prev) => {
@@ -831,12 +835,12 @@ export function MarketplaceOrdersView({
                   <div className="flex items-center justify-center px-4 py-12 text-slate-400">
                     <Loader2 className="h-5 w-5 animate-spin" />
                   </div>
-                ) : visibleOrders.length === 0 ? (
+                ) : pagedOrders.length === 0 ? (
                   <div className="px-4 py-12 text-center text-sm text-slate-500">
                     {emptyMessage}
                   </div>
                 ) : (
-                  visibleOrders.map((order) => {
+                  pagedOrders.map((order) => {
                     const grouped =
                       order.isConsolidated &&
                       Boolean(order.consolidatedGroupId)
@@ -1079,7 +1083,7 @@ export function MarketplaceOrdersView({
                         <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                       </TableCell>
                     </TableRow>
-                  ) : visibleOrders.length === 0 ? (
+                  ) : pagedOrders.length === 0 ? (
                     <TableRow className="hover:bg-transparent">
                       <TableCell
                         colSpan={colSpan}
@@ -1089,7 +1093,7 @@ export function MarketplaceOrdersView({
                       </TableCell>
                     </TableRow>
                   ) : (
-                    visibleOrders.map((order) => {
+                    pagedOrders.map((order) => {
                       const grouped =
                         order.isConsolidated &&
                         Boolean(order.consolidatedGroupId)
@@ -1172,6 +1176,23 @@ export function MarketplaceOrdersView({
                 </TableBody>
               </Table>
             )}
+            {visibleOrders.length > 0 && !loading ? (
+              <QueuePaginationBar
+                vi={vi}
+                variant={ops ? 'ops' : 'plain'}
+                rangeStart={queuePaging.rangeStart}
+                rangeEnd={queuePaging.rangeEnd}
+                total={queuePaging.total}
+                page={queuePaging.page}
+                totalPages={queuePaging.totalPages}
+                onPrev={() => queuePaging.setPage((p) => Math.max(1, p - 1))}
+                onNext={() =>
+                  queuePaging.setPage((p) =>
+                    Math.min(queuePaging.totalPages, p + 1),
+                  )
+                }
+              />
+            ) : null}
             {nextCursor ? (
               <div
                 className={

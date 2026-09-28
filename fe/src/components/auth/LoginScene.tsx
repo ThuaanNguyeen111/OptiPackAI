@@ -121,6 +121,8 @@ export function LoginScene({
       <svg
         className="login-scene-mountains"
         viewBox="0 0 1440 320"
+        width="100%"
+        height="100%"
         preserveAspectRatio="none"
         aria-hidden
       >
