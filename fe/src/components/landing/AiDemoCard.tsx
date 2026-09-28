@@ -2,35 +2,35 @@ import { Box, Package } from 'lucide-react'
 
 export function AiDemoCard() {
   return (
-    <section id="ai-engine" className="scroll-mt-20 px-4 pb-20 sm:px-6">
+    <section id="ai-engine" className="lp-section scroll-mt-20">
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 text-center">
-          <p className="text-xs font-medium tracking-wider text-primary-hover uppercase">
+          <p className="text-xs font-medium tracking-wider text-[var(--ls-cta)] uppercase">
             Demo AI trực tiếp
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
             Từ đơn gộp đến đóng gói tối ưu
           </h2>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-hairline bg-surface-1 shadow-[0_24px_80px_rgba(0,0,0,0.35)]">
-          <div className="flex items-center gap-2 border-b border-hairline px-4 py-3">
+        <div className="lp-card overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-[var(--ls-card-border)] px-4 py-3">
             <span className="h-2.5 w-2.5 rounded-full bg-[#FF5F57]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#FEBC2E]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#28C840]" />
-            <span className="ml-3 font-mono text-xs text-ink-subtle">
+            <span className="ml-3 font-mono text-xs text-[var(--ls-muted)]">
               optipack-ai · packing-engine
             </span>
           </div>
 
           <div className="grid md:grid-cols-2">
-            <div className="border-b border-hairline p-5 md:border-r md:border-b-0">
-              <div className="mb-4 flex items-center gap-2 text-sm text-ink-muted">
-                <Package className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
+            <div className="border-b border-[var(--ls-card-border)] p-5 md:border-r md:border-b-0">
+              <div className="mb-4 flex items-center gap-2 text-sm text-[var(--ls-muted)]">
+                <Package className="h-4 w-4 text-[var(--ls-cta)]" strokeWidth={1.75} />
                 Đầu vào đơn · Đã gộp
               </div>
-              <p className="text-sm font-medium text-ink">Nguyễn Minh Anh</p>
-              <p className="mt-0.5 font-mono text-xs text-ink-subtle">
+              <p className="text-sm font-medium">Nguyễn Minh Anh</p>
+              <p className="mt-0.5 font-mono text-xs text-[var(--ls-muted)]">
                 0901234567 · Q.5, TP.HCM
               </p>
 
@@ -51,23 +51,23 @@ export function AiDemoCard() {
                 ].map((item) => (
                   <li
                     key={item.sku}
-                    className="flex items-center justify-between rounded-md border border-hairline bg-canvas/60 px-3 py-2"
+                    className="flex items-center justify-between rounded-md border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3 py-2"
                   >
                     <div>
-                      <p className="text-sm text-ink">{item.name}</p>
-                      <p className="font-mono text-[11px] text-ink-subtle">{item.sku}</p>
+                      <p className="text-sm">{item.name}</p>
+                      <p className="font-mono text-[11px] text-[var(--ls-muted)]">{item.sku}</p>
                     </div>
-                    <span className="font-mono text-xs text-ink-muted">×{item.qty}</span>
+                    <span className="font-mono text-xs text-[var(--ls-muted)]">×{item.qty}</span>
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 font-mono text-xs text-ink-subtle">
+              <p className="mt-4 font-mono text-xs text-[var(--ls-muted)]">
                 3 sản phẩm · đã gộp 2 kênh
               </p>
             </div>
 
-            <div className="bg-surface-2 p-5">
-              <div className="mb-4 flex items-center gap-2 text-sm text-ink-muted">
+            <div className="bg-[color-mix(in_srgb,var(--ls-cta)_6%,transparent)] p-5">
+              <div className="mb-4 flex items-center gap-2 text-sm text-[var(--ls-muted)]">
                 <Box className="h-4 w-4 text-tiktok" strokeWidth={1.75} />
                 Kết quả gợi ý AI
               </div>
@@ -82,12 +82,12 @@ export function AiDemoCard() {
                 ].map((row) => (
                   <div
                     key={row.label}
-                    className="flex items-center justify-between border-b border-hairline/60 pb-2.5 last:border-0"
+                    className="flex items-center justify-between border-b border-[var(--ls-card-border)] pb-2.5 last:border-0"
                   >
-                    <dt className="text-xs text-ink-subtle">{row.label}</dt>
+                    <dt className="text-xs text-[var(--ls-muted)]">{row.label}</dt>
                     <dd
                       className={`font-mono text-sm font-medium ${
-                        row.accent ? 'text-success' : 'text-ink'
+                        row.accent ? 'text-success' : ''
                       }`}
                     >
                       {row.value}
@@ -96,8 +96,8 @@ export function AiDemoCard() {
                 ))}
               </dl>
 
-              <div className="mt-5 rounded-md border border-primary/30 bg-primary/10 px-3 py-2.5">
-                <p className="font-mono text-[11px] leading-relaxed text-primary-hover">
+              <div className="mt-5 rounded-md border border-[color-mix(in_srgb,var(--ls-cta)_30%,transparent)] bg-[color-mix(in_srgb,var(--ls-cta)_10%,transparent)] px-3 py-2.5">
+                <p className="font-mono text-[11px] leading-relaxed text-[var(--ls-cta)]">
                   {'>'} 3D bin packing · OR-Tools · fill_ratio=0.92 · fragile_safe=true
                 </p>
               </div>

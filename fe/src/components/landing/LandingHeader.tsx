@@ -1,7 +1,9 @@
-import { Link } from 'react-router-dom'
 import { Mail, Menu, Moon, Sun, X } from 'lucide-react'
 import { useState } from 'react'
 import { useTheme } from '../../hooks/useTheme'
+import { handleLandingHashClick } from './scroll-landing'
+import { LandingAuthCta } from './LandingAuthCta'
+import { LandingUserAvatar } from './LandingUserAvatar'
 
 const navLinks = [
   { href: '#ai-engine', label: 'AI Engine' },
@@ -15,120 +17,100 @@ export function LandingHeader() {
   const { theme, toggleTheme } = useTheme()
 
   return (
-    <header className="sticky top-0 z-50 border-b border-hairline/80 bg-canvas/80 backdrop-blur-xl">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
-        <a href="#top" className="flex items-center gap-2.5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-xs font-bold text-on-primary shadow-[0_0_20px_rgba(99,102,241,0.45)]">
-            OP
-          </span>
-          <span className="text-base font-semibold tracking-tight text-ink">
-            OptiPackAI
-          </span>
-          <span className="hidden rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover shadow-[0_0_12px_rgba(99,102,241,0.25)] sm:inline">
-            AOFP
-          </span>
+    <header className="landing-top">
+      <a
+        href="#top"
+        className="landing-pill landing-brand"
+        onClick={(event) => handleLandingHashClick(event, '#top')}
+      >
+        <span className="lp-mark">OP</span>
+        <span className="text-sm font-semibold tracking-tight">OptiPackAI</span>
+        <span className="hidden rounded-full bg-[color-mix(in_srgb,var(--ls-cta)_14%,transparent)] px-2 py-0.5 text-[10px] font-medium text-[var(--ls-cta)] sm:inline">
+          AOFP
+        </span>
+      </a>
+
+      <nav className="landing-pill landing-nav-pill">
+        {navLinks.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            onClick={(event) => handleLandingHashClick(event, link.href)}
+          >
+            {link.label}
+          </a>
+        ))}
+      </nav>
+
+      <div className="landing-pill landing-actions">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex h-9 w-9 items-center justify-center text-[var(--ls-muted)] transition-colors hover:text-[var(--ls-ink)]"
+          aria-label={
+            theme === 'dark' ? 'Chuyển sang light mode' : 'Chuyển sang dark mode'
+          }
+          title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+        >
+          {theme === 'dark' ? (
+            <Sun className="h-4 w-4" strokeWidth={1.75} />
+          ) : (
+            <Moon className="h-4 w-4" strokeWidth={1.75} />
+          )}
+        </button>
+
+        <a
+          href="#contact"
+          className="hidden h-9 items-center gap-1.5 px-3 text-sm text-[var(--ls-muted)] hover:text-[var(--ls-ink)] sm:inline-flex"
+          onClick={(event) => handleLandingHashClick(event, '#contact')}
+        >
+          <Mail className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Liên hệ
         </a>
+        <LandingUserAvatar />
+        <LandingAuthCta variant="header" />
 
-        <nav className="hidden items-center gap-7 md:flex">
-          {navLinks.map((link) => (
-            <a
-              key={link.href}
-              href={link.href}
-              className="text-sm text-ink-muted transition-colors hover:text-ink"
-            >
-              {link.label}
-            </a>
-          ))}
-        </nav>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-hairline bg-surface-1 text-ink-subtle transition-colors hover:bg-surface-2 hover:text-ink"
-            aria-label={
-              theme === 'dark' ? 'Chuyển sang light mode' : 'Chuyển sang dark mode'
-            }
-            title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
-          >
-            {theme === 'dark' ? (
-              <Sun className="h-4 w-4" strokeWidth={1.75} />
-            ) : (
-              <Moon className="h-4 w-4" strokeWidth={1.75} />
-            )}
-          </button>
-
-          <div className="hidden items-center gap-2 sm:flex">
-            <a
-              href="#contact"
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-hairline px-3 text-sm text-ink-muted transition-colors hover:border-hairline-strong hover:text-ink"
-            >
-              <Mail className="h-3.5 w-3.5" strokeWidth={1.75} />
-              Liên hệ
-            </a>
-            <Link
-              to="/login"
-              className="inline-flex h-9 items-center rounded-md bg-primary px-3.5 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover"
-            >
-              Mở Dashboard
-            </Link>
-          </div>
-
-          <button
-            type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-hairline text-ink-muted md:hidden"
-            onClick={() => setOpen((v) => !v)}
-            aria-label="Mở menu"
-          >
-            {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="flex h-9 w-9 items-center justify-center text-[var(--ls-muted)] md:hidden"
+          onClick={() => setOpen((v) => !v)}
+          aria-label="Mở menu"
+        >
+          {open ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        </button>
       </div>
 
       {open ? (
-        <div className="border-t border-hairline bg-canvas px-4 py-4 md:hidden">
-          <nav className="flex flex-col gap-3">
+        <div className="absolute top-[68px] right-4 left-4 z-50 rounded-2xl border border-[var(--ls-card-border)] bg-[var(--ls-card-solid)] p-4 shadow-[var(--ls-shadow)] backdrop-blur-xl md:hidden">
+          <nav className="flex flex-col gap-2">
             {navLinks.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                className="text-sm text-ink-muted"
-                onClick={() => setOpen(false)}
+                className="rounded-lg px-2 py-2 text-sm text-[var(--ls-muted)]"
+                onClick={(event) => {
+                  handleLandingHashClick(event, link.href)
+                  setOpen(false)
+                }}
               >
                 {link.label}
               </a>
             ))}
             <a
               href="#contact"
-              className="text-sm text-ink-muted"
-              onClick={() => setOpen(false)}
+              className="rounded-lg px-2 py-2 text-sm text-[var(--ls-muted)]"
+              onClick={(event) => {
+                handleLandingHashClick(event, '#contact')
+                setOpen(false)
+              }}
             >
               Liên hệ
             </a>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-hairline bg-surface-1 text-sm text-ink"
-            >
-              {theme === 'dark' ? (
-                <>
-                  <Sun className="h-4 w-4" strokeWidth={1.75} />
-                  Light mode
-                </>
-              ) : (
-                <>
-                  <Moon className="h-4 w-4" strokeWidth={1.75} />
-                  Dark mode
-                </>
-              )}
-            </button>
-            <Link
-              to="/login"
-              className="inline-flex h-10 items-center justify-center rounded-md bg-primary text-sm font-medium text-on-primary"
-              onClick={() => setOpen(false)}
-            >
-              Mở Dashboard
-            </Link>
+            <LandingUserAvatar
+              showName
+              onNavigate={() => setOpen(false)}
+            />
+            <LandingAuthCta variant="mobile" onNavigate={() => setOpen(false)} />
           </nav>
         </div>
       ) : null}

@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   X,
   Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
@@ -82,7 +83,7 @@ function StylusSignatureGraphic() {
         viewBox="0 0 150 48"
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
-        className="text-[#3b82f6] drop-shadow-[0_0_8px_rgba(59,130,246,0.6)]"
+        className="text-[var(--ls-cta)] drop-shadow-[0_0_8px_color-mix(in_srgb,var(--ls-cta)_45%,transparent)]"
       >
         <path
           d="M12 28L42 12L105 18L138 24L105 30L42 36L12 28Z"
@@ -450,7 +451,7 @@ export function ShippingPage() {
   const progressPct = selected ? 100 : 0
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-50 dark:bg-slate-950">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
@@ -458,18 +459,59 @@ export function ShippingPage() {
         ]}
       />
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-        <div className="mx-auto max-w-7xl space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <section className="owner-hero">
+            <div>
+              <p className="owner-hero-kicker">
+                {vi ? 'Điều phối vận chuyển' : 'Shipping Coordinator'}
+              </p>
+              <h1>{vi ? 'Vận chuyển & bàn giao' : 'Shipping & handover'}</h1>
+              <p className="owner-hero-lead">
+                {vi
+                  ? 'Shop tự giao: tạo vận đơn, ghi nhận giao / thất bại, hoàn về kho. Tối đa 2 lượt giao.'
+                  : 'Own fleet: create shipments, mark delivered or failed, return to warehouse. Max 2 attempts.'}
+              </p>
+              <div className="owner-hero-ctas">
+                <button
+                  type="button"
+                  onClick={() => void reload()}
+                  className="owner-btn-primary inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {vi ? 'Tải lại' : 'Refresh'}
+                </button>
+              </div>
+            </div>
+            <ol className="owner-steps">
+              {TABS.map((item, index) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTab(item.id)
+                      setSelectedKey(null)
+                    }}
+                    aria-current={tab === item.id ? 'true' : undefined}
+                  >
+                    <span>{String(index + 1).padStart(2, '0')}</span>
+                    {vi ? item.vi : item.en} ({String(counts[item.id] ?? 0)})
+                  </button>
+                </li>
+              ))}
+            </ol>
+          </section>
+
           {toastMessage && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs sm:text-sm font-semibold text-blue-800 shadow-sm transition-all dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-200 flex items-center justify-between gap-3">
+            <div className="owner-panel flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-xs font-semibold text-[var(--ls-ink)] sm:text-sm">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-blue-600 dark:text-blue-400" />
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-[var(--ls-cta)]" />
                 <span>{toastMessage}</span>
               </div>
               <button
                 type="button"
                 onClick={() => setToastMessage(null)}
-                className="rounded p-1 text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900 cursor-pointer"
+                className="rounded p-1 text-[var(--ls-muted)] hover:text-[var(--ls-ink)] cursor-pointer"
                 aria-label="Dismiss toast"
               >
                 <X className="h-3.5 w-3.5" />
@@ -478,47 +520,13 @@ export function ShippingPage() {
           )}
 
           {loadError && (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-xs font-semibold text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
               {loadError}
             </div>
           )}
 
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
-            {TABS.map((item) => {
-              const isSelected = tab === item.id
-              const count = counts[item.id] ?? 0
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setTab(item.id)
-                    setSelectedKey(null)
-                  }}
-                  className={`inline-flex items-center gap-2 shrink-0 rounded-xl px-4 py-2 text-xs sm:text-sm font-medium transition-colors cursor-pointer select-none ${
-                    isSelected
-                      ? 'bg-[#2563eb] text-white shadow-xs'
-                      : 'border border-slate-200/90 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:bg-surface-1 dark:text-slate-200 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span>{vi ? item.vi : item.en}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                      isSelected
-                        ? 'bg-[#1d4ed8] text-white'
-                        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-12 items-start">
-            <div className="lg:col-span-8 space-y-4">
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1 space-y-4">
+          <div className="ship-bench">
+            <div className="ship-bench-main space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch">
                   <div className="flex min-w-0 flex-col">
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
@@ -528,7 +536,7 @@ export function ShippingPage() {
                       <button
                         type="button"
                         onClick={() => setCarrierDropdownOpen((o) => !o)}
-                        className="flex h-12 w-full items-center justify-between rounded-xl border border-slate-200/90 bg-white px-3.5 text-left text-sm font-semibold text-slate-800 shadow-2xs hover:border-slate-300 transition-colors dark:border-slate-800 dark:bg-surface-1 dark:text-slate-100 cursor-pointer"
+                        className="flex h-12 w-full cursor-pointer items-center justify-between rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3.5 text-left text-sm font-semibold text-[var(--ls-ink)] shadow-2xs transition-colors hover:border-[var(--ls-cta)]"
                       >
                         <div className="flex min-w-0 items-center gap-2.5 pr-2">
                           <Truck className="h-4 w-4 shrink-0 text-slate-600 dark:text-slate-300" />
@@ -545,12 +553,12 @@ export function ShippingPage() {
                           <button
                             type="button"
                             onClick={() => setCarrierDropdownOpen(false)}
-                            className="w-full rounded-lg px-3 py-2 text-left text-xs transition-colors flex items-center justify-between bg-blue-50 font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
+                            className="flex w-full items-center justify-between rounded-lg bg-[color-mix(in_srgb,var(--ls-cta)_12%,transparent)] px-3 py-2 text-left text-xs font-bold text-[var(--ls-cta)] transition-colors"
                           >
                             <span>
                               {OWN_FLEET_ACCOUNT.name} ({OWN_FLEET_ACCOUNT.hub})
                             </span>
-                            <Check className="h-3.5 w-3.5 text-blue-600" />
+                            <Check className="h-3.5 w-3.5 text-[var(--ls-cta)]" />
                           </button>
                         </div>
                       )}
@@ -581,7 +589,7 @@ export function ShippingPage() {
                     {vi ? 'Tìm mã vận đơn / mã nhóm kiện' : 'Find waybill / group code'}
                   </label>
                   <form onSubmit={handleScanSubmit} className="relative">
-                    <div className="flex items-center rounded-xl border-2 border-indigo-500 bg-white px-3.5 py-2 shadow-sm transition-all focus-within:ring-2 focus-within:ring-indigo-300 dark:border-indigo-500 dark:bg-white dark:focus-within:ring-indigo-400">
+                    <div className="flex items-center rounded-xl border-2 border-[var(--ls-cta)] bg-[var(--ls-panel)] px-3.5 py-2 shadow-sm transition-all focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--ls-cta)_35%,transparent)]">
                       <BarcodeLineIcon className="text-slate-700 dark:text-slate-300" />
                       <input
                         type="text"
@@ -592,7 +600,7 @@ export function ShippingPage() {
                             ? 'Quét hoặc nhập SHP-… / mã nhóm kiện …'
                             : 'Scan or enter SHP-… / group id …'
                         }
-                        className="ml-3 flex-1 bg-transparent text-xs sm:text-sm font-mono tabular-nums text-slate-900 placeholder:text-slate-400 focus:outline-hidden dark:text-slate-900"
+                        className="ml-3 flex-1 bg-transparent font-mono text-xs tabular-nums text-[var(--ls-ink)] placeholder:text-[var(--ls-muted)] focus:outline-hidden sm:text-sm"
                       />
                       <button
                         type="button"
@@ -608,10 +616,10 @@ export function ShippingPage() {
                                 : 'Quick filter hint off.',
                           )
                         }}
-                        className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded transition-colors cursor-pointer select-none ${
+                        className={`inline-flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold select-none transition-colors ${
                           autoScanActive
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-indigo-100 text-indigo-700'
+                            ? 'bg-[var(--ls-cta)] text-white'
+                            : 'bg-[color-mix(in_srgb,var(--ls-cta)_16%,transparent)] text-[var(--ls-cta)]'
                         }`}
                       >
                         <span>AUTO</span>
@@ -680,8 +688,10 @@ export function ShippingPage() {
                             <tr
                               key={row.key}
                               onClick={() => setSelectedKey(row.key)}
-                              className={`hover:bg-slate-50/80 transition-colors cursor-pointer dark:hover:bg-surface-2/40 ${
-                                active ? 'bg-indigo-50/70 dark:bg-indigo-950/30' : ''
+                              className={`cursor-pointer transition-colors hover:bg-[color-mix(in_srgb,var(--ls-cta)_7%,transparent)] ${
+                                active
+                                  ? 'bg-[color-mix(in_srgb,var(--ls-cta)_12%,transparent)] shadow-[inset_3px_0_0_var(--ls-cta)]'
+                                  : ''
                               }`}
                               title={vi ? 'Nhấp để chọn kiện này' : 'Click to select this package'}
                             >
@@ -726,7 +736,7 @@ export function ShippingPage() {
                                     <span>{statusLabel(rowStatus, vi)}</span>
                                   </span>
                                 ) : (
-                                  <span className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-[11px] font-bold text-white tracking-wider uppercase shadow-2xs select-none">
+                                  <span className="inline-flex select-none items-center gap-1 rounded-md bg-[var(--ls-cta)] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-2xs">
                                     <span>{statusLabel(rowStatus, vi)}</span>
                                   </span>
                                 )}
@@ -738,36 +748,35 @@ export function ShippingPage() {
                     </tbody>
                   </table>
                 </div>
-              </div>
             </div>
 
-            <div className="lg:col-span-4">
-              <div className="rounded-2xl bg-[#0b1329] text-white p-4 sm:p-5 shadow-xl border border-slate-800 space-y-3.5 select-none">
+            <aside className="ship-bench-side select-none">
+              <div className="pack-bench-head">
                 <div>
-                  <span className="block text-[10px] sm:text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                    {vi ? 'TỔNG HỢP KIỆN ĐANG CHỌN' : 'SELECTED PACKAGE'}
-                  </span>
-                  <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white mt-0.5 font-mono tabular-nums">
-                    {panelCode}
-                  </h2>
+                  <p className="pack-bench-kicker">
+                    {vi ? 'Tổng hợp kiện đang chọn' : 'Selected package'}
+                  </p>
+                  <h2 className="font-mono tabular-nums">{panelCode}</h2>
                 </div>
+              </div>
 
+              <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-4">
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs sm:text-sm">
-                    <span className="text-slate-300">
+                    <span className="text-[var(--ls-muted)]">
                       {vi ? 'Lượt giao' : 'Delivery attempts'}
                     </span>
-                    <span className="font-bold text-white font-mono tabular-nums">
+                    <span className="font-mono text-sm font-bold tabular-nums text-[var(--ls-ink)]">
                       {attemptText} {vi ? 'lần' : 'tries'}
                     </span>
                   </div>
-                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--ls-cta)_14%,transparent)]">
                     <div
-                      className="h-full bg-[#22c55e] rounded-full transition-all duration-300"
+                      className="h-full rounded-full bg-[var(--ls-cta)] transition-all duration-300"
                       style={{ width: `${progressPct}%` }}
                     />
                   </div>
-                  <p className="text-[11px] text-slate-400 leading-tight">
+                  <p className="text-[11px] leading-tight text-[var(--ls-muted)]">
                     {lastReason
                       ? `${vi ? 'Lý do gần nhất: ' : 'Last reason: '}${lastReason}`
                       : vi
@@ -777,31 +786,31 @@ export function ShippingPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5 pt-0.5">
-                  <div className="rounded-xl bg-[#131d38] border border-slate-800/80 p-2.5 sm:p-3">
-                    <span className="text-[11px] text-slate-400 font-medium">
+                  <div className="rounded-xl border border-[var(--ls-card-border)] bg-[color-mix(in_srgb,var(--ls-cta)_8%,transparent)] p-2.5 sm:p-3">
+                    <span className="text-[11px] font-medium text-[var(--ls-muted)]">
                       {vi ? 'Tổng trọng lượng' : 'Total weight'}
                     </span>
-                    <p className="mt-1 text-2xl font-mono font-bold text-white tabular-nums tracking-tight">
+                    <p className="mt-1 font-mono text-2xl font-bold tracking-tight tabular-nums text-[var(--ls-ink)]">
                       {sessionTotalWeight} kg
                     </p>
                   </div>
-                  <div className="rounded-xl bg-[#131d38] border border-slate-800/80 p-2.5 sm:p-3">
-                    <span className="text-[11px] text-slate-400 font-medium">
+                  <div className="rounded-xl border border-[var(--ls-card-border)] bg-[color-mix(in_srgb,var(--ls-cta)_8%,transparent)] p-2.5 sm:p-3">
+                    <span className="text-[11px] font-medium text-[var(--ls-muted)]">
                       {vi ? 'Thể tích ước tính' : 'Estimated volume'}
                     </span>
-                    <p className="mt-1 text-2xl font-mono font-bold text-white tabular-nums tracking-tight">
+                    <p className="mt-1 font-mono text-2xl font-bold tracking-tight tabular-nums text-[var(--ls-ink)]">
                       {sessionVolume.toFixed(2)} CBM
                     </p>
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
-                  <span className="block text-[10px] sm:text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                    {vi ? 'DÒNG THỜI GIAN VẬN ĐƠN' : 'SHIPMENT TIMELINE'}
+                <div className="space-y-1.5 border-t border-[var(--ls-card-border)] pt-2">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--ls-cta)] sm:text-[11px]">
+                    {vi ? 'Dòng thời gian vận đơn' : 'Shipment timeline'}
                   </span>
-                  <div className="space-y-1.5 text-xs max-h-36 overflow-y-auto pr-1">
+                  <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1 text-xs">
                     {events.length === 0 ? (
-                      <p className="text-slate-400">
+                      <p className="text-[var(--ls-muted)]">
                         {selected?.kind === 'packed'
                           ? vi
                             ? 'Chưa có vận đơn — bấm bắt đầu giao.'
@@ -813,7 +822,7 @@ export function ShippingPage() {
                     ) : (
                       events.map((event) => (
                         <div key={event.id} className="flex items-start justify-between gap-2">
-                          <span className="text-slate-300 min-w-0">
+                          <span className="min-w-0 text-[var(--ls-ink)]">
                             {event.actorId === 'system'
                               ? vi
                                 ? 'Hệ thống'
@@ -821,7 +830,7 @@ export function ShippingPage() {
                               : event.eventType}
                             {event.reasonLabel ? ` · ${event.reasonLabel}` : ''}
                           </span>
-                          <span className="font-mono text-slate-400 shrink-0">
+                          <span className="shrink-0 font-mono text-[var(--ls-muted)]">
                             {event.occurredAt ? formatDateTime(event.occurredAt) : ''}
                           </span>
                         </div>
@@ -830,13 +839,13 @@ export function ShippingPage() {
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                  <span className="block text-[10px] sm:text-[11px] font-bold tracking-wider text-slate-400 uppercase">
-                    {vi ? 'XÁC NHẬN TRÊN HỆ THỐNG' : 'SYSTEM CONFIRMATION'}
+                <div className="space-y-2 border-t border-[var(--ls-card-border)] pt-2">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--ls-cta)] sm:text-[11px]">
+                    {vi ? 'Xác nhận trên hệ thống' : 'System confirmation'}
                   </span>
-                  <div className="rounded-xl bg-[#131d38]/70 border border-slate-800 px-3 py-2.5 flex flex-col items-center justify-center text-center">
+                  <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3 py-2.5 text-center">
                     <StylusSignatureGraphic />
-                    <p className="text-[10.5px] text-slate-400 mt-1">
+                    <p className="mt-1 text-[10.5px] text-[var(--ls-muted)]">
                       {vi
                         ? 'Shop tự giao — không có chữ ký tài xế 3PL'
                         : 'Own fleet — no 3PL driver signature'}
@@ -844,18 +853,18 @@ export function ShippingPage() {
                   </div>
                 </div>
               </div>
-            </div>
+            </aside>
           </div>
         </div>
       </div>
 
-      <footer className="sticky bottom-0 z-20 border-t border-slate-200/90 bg-white/95 backdrop-blur-xs py-3 px-4 sm:px-6 shadow-sm dark:border-slate-800 dark:bg-surface-1/95">
+      <footer className="ship-foot sticky bottom-0 z-20 px-4 py-3 sm:px-6">
         <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               onClick={handleExportManifest}
-              className="min-h-10 h-auto rounded-xl border border-slate-300 bg-white px-3.5 py-2 font-semibold text-xs text-slate-800 shadow-xs hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 active:bg-slate-100 transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 dark:hover:bg-slate-800"
+              className="flex h-auto min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3.5 py-2 text-xs font-semibold text-[var(--ls-ink)] shadow-xs transition-colors hover:border-[var(--ls-cta)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--ls-cta)]"
             >
               <Download className="h-4 w-4 shrink-0 text-slate-700 dark:text-slate-300" />
               <span className="leading-snug">
@@ -869,7 +878,7 @@ export function ShippingPage() {
             <button
               type="button"
               onClick={handlePrintHandover}
-              className="min-h-10 h-auto rounded-xl border border-slate-300 bg-white px-3.5 py-2 font-semibold text-xs text-slate-800 shadow-xs hover:bg-slate-50 hover:border-slate-400 hover:text-slate-900 active:bg-slate-100 transition-colors flex items-center gap-2 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-indigo-500 dark:border-slate-700 dark:bg-surface-1 dark:text-slate-100 dark:hover:bg-slate-800"
+              className="flex h-auto min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3.5 py-2 text-xs font-semibold text-[var(--ls-ink)] shadow-xs transition-colors hover:border-[var(--ls-cta)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--ls-cta)]"
             >
               <Printer className="h-4 w-4 shrink-0 text-slate-700 dark:text-slate-300" />
               <span className="leading-snug">
@@ -899,10 +908,10 @@ export function ShippingPage() {
               type="button"
               disabled={!primaryAction || actionBusy}
               onClick={() => primaryAction && setModalMode(primaryAction)}
-              className={`min-h-10 h-auto w-full sm:w-auto rounded-xl px-4 py-2 sm:px-5 text-xs sm:text-sm transition-all flex items-start sm:items-center gap-2.5 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-indigo-600 ${
+              className={`flex h-auto min-h-10 w-full items-start gap-2.5 rounded-xl px-4 py-2 text-xs transition-all sm:w-auto sm:items-center sm:px-5 sm:text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 ${
                 !selected || boxWeightKg(packRec) <= 0 || !primaryAction
-                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none font-semibold'
-                  : 'bg-emerald-600 hover:bg-emerald-700 text-white font-bold shadow-md cursor-pointer'
+                  ? 'cursor-not-allowed bg-slate-200 font-semibold text-slate-400 shadow-none'
+                  : 'owner-btn-primary cursor-pointer font-bold shadow-md'
               }`}
             >
               {actionBusy ? (
@@ -942,7 +951,7 @@ export function ShippingPage() {
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-surface-1">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <Truck className="h-5 w-5 text-indigo-600" />
+                <Truck className="h-5 w-5 text-[var(--ls-cta)]" />
                 <h3 className="font-bold text-sm text-slate-900 dark:text-slate-100">
                   {modalMode === 'start'
                     ? vi
@@ -1046,7 +1055,7 @@ export function ShippingPage() {
                 type="button"
                 disabled={actionBusy}
                 onClick={() => void runAction()}
-                className="rounded-xl bg-[#4338ca] hover:bg-[#3730a3] px-4 py-2 text-xs font-semibold text-white shadow-sm transition-colors cursor-pointer disabled:opacity-60"
+                className="owner-btn-primary cursor-pointer rounded-xl px-4 py-2 text-xs font-semibold disabled:opacity-60"
               >
                 {actionBusy
                   ? vi
