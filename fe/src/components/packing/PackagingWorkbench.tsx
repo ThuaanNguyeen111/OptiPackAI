@@ -17,7 +17,7 @@ import {
   rejectPackaging,
 } from '../../api/packaging.api'
 import { usePortal } from '../../context/use-portal'
-import { formatApiError } from '../../lib/api'
+import { ApiError, formatApiError } from '../../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   type OrderGroup,
@@ -36,7 +36,7 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
  * Demo 3D chỉ hướng dẫn, không ghi trạng thái lên BE.
  */
 type QueueTab =
-  | 'pending_approval'
+  | 'picked'
   | 'partial_needs_review'
   | 'approved_for_packing'
   | 'awaiting_packaging'
@@ -138,7 +138,7 @@ export function PackagingWorkbench() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
 
-  const [tab, setTab] = useState<QueueTab>('pending_approval')
+  const [tab, setTab] = useState<QueueTab>('picked')
   const [tabBootstrapped, setTabBootstrapped] = useState(false)
   const [allGroups, setAllGroups] = useState<OrderGroup[]>([])
   const [listLoading, setListLoading] = useState(true)
@@ -471,6 +471,31 @@ export function PackagingWorkbench() {
     }
   }
 
+  async function onPack(): Promise<void> {
+    if (!group) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      await packOrderGroup(group.id, {
+        expected_version: group.version,
+      })
+      showToast(vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.')
+      await refreshAfterAction()
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 403) {
+        setActionError(
+          vi
+            ? 'BE chưa mở POST /order-groups/:id/fulfillment/pack cho Packaging Staff (hiện chỉ Warehouse Staff + Admin). Nhờ BE thêm role PACKAGING_STAFF.'
+            : 'BE does not allow Packaging Staff to POST .../fulfillment/pack (Warehouse Staff + Admin only). Ask BE to add PACKAGING_STAFF.',
+        )
+      } else {
+        setActionError(formatApiError(err))
+      }
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   async function onDecidePartial(approve: boolean): Promise<void> {
     if (!group) return
     setActionBusy(true)
@@ -507,36 +532,90 @@ export function PackagingWorkbench() {
     group?.fulfillmentStatus === 'pending_approval'
   const actionableCount = counts.pending + counts.partial
   const isViewOnlyTab = tab === 'awaiting_packaging'
+  const queueTabs = useMemo(
+    () =>
+      [
+        [
+          'pending_approval',
+          vi ? 'Chờ duyệt kế hoạch' : 'Pending plan',
+          counts.pending,
+          false,
+        ],
+        [
+          'partial_needs_review',
+          vi ? 'Thiếu hàng' : 'Shortage',
+          counts.partial,
+          false,
+        ],
+        [
+          'approved_for_packing',
+          vi ? 'Đã duyệt — đóng gói' : 'Approved — pack',
+          counts.approved,
+          false,
+        ],
+        [
+          'awaiting_packaging',
+          vi ? 'Kho đang lấy' : 'In warehouse',
+          counts.awaiting,
+          true,
+        ],
+      ] as const,
+    [vi, counts.pending, counts.partial, counts.approved, counts.awaiting],
+  )
+  const currentTabLabel =
+    queueTabs.find((row) => row[0] === tab)?.[1] ??
+    (vi ? 'Hàng đợi' : 'Queue')
 
   return (
-    <div className="mx-auto w-full max-w-[1400px] space-y-4 p-4 pb-10 md:p-6 md:pb-12">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="mx-auto w-full max-w-7xl space-y-6">
+      <section className="owner-hero">
         <div>
-          <h1 className="text-lg font-semibold text-ink">
-            {vi ? 'Bàn đóng gói' : 'Packing station'}
-          </h1>
-          <p className="mt-0.5 text-sm text-ink-subtle">
+          <p className="owner-hero-kicker">
+            {vi ? 'Nhân viên đóng gói' : 'Packaging Staff'}
+          </p>
+          <h1>{vi ? 'Bàn đóng gói' : 'Packing station'}</h1>
+          <p className="owner-hero-lead">
             {vi
               ? 'Chấp nhận kế hoạch → xem hướng dẫn 3D. Từ chối kèm lý do → gửi Admin.'
               : 'Accept plan → 3D guide. Reject with reason → Admin notified.'}
           </p>
+          <div className="owner-hero-ctas">
+            <button
+              type="button"
+              onClick={() => void loadList()}
+              className="owner-btn-primary inline-flex items-center gap-1.5"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              {vi ? 'Tải lại' : 'Refresh'}
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void loadList()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-hairline bg-surface px-3 py-2 text-sm text-ink hover:bg-surface-2"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          {vi ? 'Tải lại' : 'Refresh'}
-        </button>
-      </div>
+        <ol className="owner-steps">
+          {queueTabs.map(([key, label, count, viewOnly], index) => (
+            <li key={key}>
+              <button
+                type="button"
+                onClick={() => setTab(key)}
+                aria-current={tab === key ? 'true' : undefined}
+              >
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                {label} ({String(count)})
+                {viewOnly ? (
+                  <em className="not-italic text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                    {vi ? 'Chỉ xem' : 'View'}
+                  </em>
+                ) : null}
+              </button>
+            </li>
+          ))}
+        </ol>
+      </section>
 
-      {/* Một banner ngữ cảnh — không lặp lại toàn bộ số đếm của tab */}
       <div
-        className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs ${
+        className={`owner-panel flex items-start gap-2 rounded-2xl px-4 py-3 text-xs ${
           actionableCount > 0
-            ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100'
-            : 'border-sky-200 bg-sky-50 text-sky-950 dark:border-sky-900 dark:bg-sky-950/40 dark:text-sky-100'
+            ? 'text-[var(--ls-ink)]'
+            : 'text-[var(--ls-muted)]'
         }`}
       >
         <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -555,86 +634,23 @@ export function PackagingWorkbench() {
         </p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {(
-          [
-            [
-              'pending_approval',
-              vi ? 'Chờ duyệt kế hoạch' : 'Pending plan',
-              counts.pending,
-              false,
-            ],
-            [
-              'partial_needs_review',
-              vi ? 'Thiếu hàng' : 'Shortage',
-              counts.partial,
-              false,
-            ],
-            [
-              'approved_for_packing',
-              vi ? 'Đã duyệt — đóng gói' : 'Approved — pack',
-              counts.approved,
-              false,
-            ],
-            [
-              'awaiting_packaging',
-              vi ? 'Kho đang lấy' : 'In warehouse',
-              counts.awaiting,
-              true,
-            ],
-          ] as const
-        ).map(([key, label, count, viewOnly]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              tab === key
-                ? viewOnly
-                  ? 'bg-ink-muted text-white'
-                  : 'bg-primary text-white'
-                : viewOnly
-                  ? 'border border-dashed border-hairline bg-surface/80 text-ink-subtle hover:bg-surface-2'
-                  : 'border border-hairline bg-surface text-ink-muted hover:bg-surface-2'
-            }`}
-          >
-            <span>
-              {label} ({String(count)})
-            </span>
-            {viewOnly ? (
-              <span
-                className={`rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                  tab === key
-                    ? 'bg-white/20 text-white'
-                    : 'bg-surface-2 text-ink-subtle'
-                }`}
-              >
-                {vi ? 'Chỉ xem' : 'View'}
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-
-      {/* Hai cột biên đồng bộ chiều cao cố định (khớp ô demo thùng) */}
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,260px)_minmax(0,1fr)_minmax(0,340px)] lg:items-start">
-        <section className="flex h-[28rem] min-w-0 flex-col overflow-hidden rounded-xl border border-hairline bg-surface lg:sticky lg:top-4">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-hairline px-2.5 py-1.5">
-            <span className="text-[11px] font-medium uppercase tracking-wide text-ink-subtle">
-              {vi ? 'Hàng đợi' : 'Queue'}
-              {groups.length > 0 ? (
-                <span className="ml-1 font-normal normal-case text-ink-muted">
-                  ({String(groups.length)})
-                </span>
+      <div className="pack-bench">
+        <section className="pack-bench-col">
+          <div className="pack-bench-head">
+            <div className="min-w-0">
+              <p className="pack-bench-kicker">
+                {vi ? 'Hàng đợi' : 'Queue'}
+              </p>
+              <h2>{currentTabLabel}</h2>
+              {isViewOnlyTab ? (
+                <p className="pack-bench-viewonly">
+                  {vi ? 'Chỉ xem' : 'View only'}
+                </p>
               ) : null}
-            </span>
-            {isViewOnlyTab ? (
-              <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-ink-subtle">
-                {vi ? 'Chỉ xem' : 'View only'}
-              </span>
-            ) : null}
+            </div>
+            <span className="pack-bench-count">{String(groups.length)}</span>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="pack-bench-scroll">
             {listLoading ? (
               <div className="flex items-center gap-2 p-3 text-sm text-ink-muted">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -656,11 +672,8 @@ export function PackagingWorkbench() {
                     <button
                       type="button"
                       onClick={() => setSelectedId(g.id)}
-                      className={`w-full px-2.5 py-1.5 text-left transition-colors ${
-                        selectedId === g.id
-                          ? 'bg-primary/10'
-                          : 'hover:bg-surface-2'
-                      }`}
+                      className="pack-queue-item"
+                      aria-current={selectedId === g.id ? 'true' : undefined}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="font-mono text-[11px] font-medium text-ink">
@@ -688,8 +701,22 @@ export function PackagingWorkbench() {
           </div>
         </section>
 
-        <section className="min-w-0 rounded-xl border border-hairline bg-surface">
-          <div className="p-4 md:p-5">
+        <section className="pack-bench-col pack-bench-detail">
+          <div className="pack-bench-head">
+            <div className="min-w-0">
+              <p className="pack-bench-kicker">
+                {vi ? 'Chi tiết nhóm' : 'Group detail'}
+              </p>
+              <h2>
+                {selectedId
+                  ? selectedId.slice(-8)
+                  : vi
+                    ? 'Chưa chọn nhóm'
+                    : 'No group selected'}
+              </h2>
+            </div>
+          </div>
+          <div className="pack-bench-scroll">
           {!selectedId ? (
             <div className="space-y-2">
               {isViewOnlyTab ? (
@@ -901,6 +928,26 @@ export function PackagingWorkbench() {
                     )}
                   </div>
 
+                  {tab === 'picked' &&
+                  group.fulfillmentStatus === 'picked' ? (
+                    <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
+                      <p className="text-sm font-medium text-emerald-950 dark:text-emerald-100">
+                        {vi
+                          ? 'Kho đã lấy xong. Gói kiện rồi xác nhận. Cân thật hiện nằm trên API duyệt kế hoạch (approve), không gửi kèm pack — nhờ BE nếu cần cân lúc gói.'
+                          : 'Warehouse finished picking. Pack the tote then confirm. Measured weight lives on the approve-plan API, not pack — ask BE if weight should be recorded at pack time.'}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => void onPack()}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
+                      </button>
+                    </div>
+                  ) : null}
+
                   {canApprove ? (
                     <div className="space-y-4 rounded-lg border border-hairline p-4">
                       <div className="flex gap-2">
@@ -1110,29 +1157,30 @@ export function PackagingWorkbench() {
           </div>
         </section>
 
-        {/* Desktop 3D — cùng chiều cao h-[28rem] với Hàng đợi */}
-        <aside className="hidden h-[28rem] min-w-0 flex-col overflow-hidden rounded-xl border border-hairline bg-surface lg:sticky lg:top-4 lg:flex">
-          <div className="shrink-0 border-b border-hairline px-2.5 py-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-ink-subtle">
-              {guide3dActive || tab === 'approved_for_packing'
-                ? vi
-                  ? 'Hướng dẫn 3D'
-                  : '3D packing guide'
-                : vi
-                  ? 'Xem trước 3D'
-                  : '3D preview'}
-            </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-ink-muted">
-              {guide3dActive || tab === 'approved_for_packing'
-                ? vi
-                  ? 'Đã chấp nhận — thùng xoay tự động. Kéo để chỉnh góc nhìn.'
-                  : 'Accepted — box auto-rotates. Drag to adjust view.'
-                : vi
-                  ? 'Kéo để xoay thùng. Chấp nhận kế hoạch để bật animation hướng dẫn.'
-                  : 'Drag to orbit. Accept the plan to enable guide animation.'}
-            </p>
+        <aside className="pack-bench-col pack-bench-guide hidden lg:flex">
+          <div className="pack-bench-head">
+            <div className="min-w-0">
+              <p className="pack-bench-kicker">
+                {guide3dActive || tab === 'approved_for_packing'
+                  ? vi
+                    ? 'Hướng dẫn 3D'
+                    : '3D packing guide'
+                  : vi
+                    ? 'Xem trước 3D'
+                    : '3D preview'}
+              </p>
+              <h2>
+                {guide3dActive || tab === 'approved_for_packing'
+                  ? vi
+                    ? 'Thùng xoay tự động'
+                    : 'Box auto-rotates'
+                  : vi
+                    ? 'Kéo để xoay thùng'
+                    : 'Drag to orbit'}
+              </h2>
+            </div>
           </div>
-          <div className="min-h-0 flex-1 p-2">
+          <div className="pack-bench-scroll p-3">
             <Packing3DBoxViewer
               boxLabel={boxViewerLabel(rec, vi)}
               boxSub={boxViewerSub(rec, vi)}

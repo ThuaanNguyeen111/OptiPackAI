@@ -8,17 +8,16 @@ export function PackingPage() {
   const vi = locale === 'vi'
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
           { label: vi ? 'Đóng gói' : 'Packing' },
         ]}
       />
-      {/* Cuộn theo trang (giống Warehouse) — không khóa overflow-hidden toàn viewport */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <PackagingWorkbench />
-      </div>
+      </main>
     </div>
   )
 }

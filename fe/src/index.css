@@ -4,6 +4,7 @@
 @import '@fontsource/jetbrains-mono/400.css';
 @import '@fontsource/jetbrains-mono/500.css';
 @import 'tailwindcss';
+@import './styles/teal-shell.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
 

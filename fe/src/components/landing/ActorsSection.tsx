@@ -72,28 +72,28 @@ export function ActorsSection() {
   const Icon = current.icon
 
   return (
-    <section className="px-4 pb-20 sm:px-6">
+    <section id="actors" className="lp-section scroll-mt-20">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8 text-center">
-          <p className="text-xs font-medium tracking-wider text-primary-hover uppercase">
+          <p className="text-xs font-medium tracking-wider text-[var(--ls-cta)] uppercase">
             Dành cho mọi vai trò
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
             Actors & giá trị sử dụng
           </h2>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
-          <div className="flex flex-wrap gap-1 border-b border-hairline p-2">
+        <div className="lp-card overflow-hidden">
+          <div className="flex flex-wrap gap-1 border-b border-[var(--ls-card-border)] p-2">
             {actors.map((actor) => (
               <button
                 key={actor.id}
                 type="button"
                 onClick={() => setActive(actor.id)}
-                className={`rounded-md px-3 py-2 text-sm transition-colors ${
+                className={`rounded-full px-3 py-2 text-sm transition-colors ${
                   active === actor.id
-                    ? 'bg-primary/15 text-primary-hover'
-                    : 'text-ink-muted hover:bg-canvas hover:text-ink'
+                    ? 'bg-[color-mix(in_srgb,var(--ls-cta)_16%,transparent)] text-[var(--ls-cta)]'
+                    : 'text-[var(--ls-muted)] hover:text-[var(--ls-ink)]'
                 }`}
               >
                 {actor.label}
@@ -103,22 +103,22 @@ export function ActorsSection() {
 
           <div className="grid gap-6 p-6 md:grid-cols-[200px_1fr] md:items-start">
             <div className="flex flex-col items-start gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-hairline bg-canvas text-primary-hover">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] text-[var(--ls-cta)]">
                 <Icon className="h-5 w-5" strokeWidth={1.75} />
               </div>
-              <p className="text-sm font-medium text-ink">{current.label}</p>
+              <p className="text-sm font-medium">{current.label}</p>
             </div>
             <div>
-              <h3 className="text-lg font-semibold tracking-tight text-ink">
+              <h3 className="text-lg font-semibold tracking-tight">
                 {current.headline}
               </h3>
               <ul className="mt-4 space-y-2.5">
                 {current.points.map((point) => (
                   <li
                     key={point}
-                    className="flex gap-2 text-sm text-ink-muted"
+                    className="flex gap-2 text-sm text-[var(--ls-muted)]"
                   >
-                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                    <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--ls-cta)]" />
                     {point}
                   </li>
                 ))}
