@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { ProductMasterService } from '../src/modules/product-master/product-master.service';
+import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
 
 /**
  * ===================================================================
@@ -15,15 +16,24 @@ import { ProductMasterService } from '../src/modules/product-master/product-mast
  * trống/thiếu SKU, và không muốn đợi tới lần cron kế tiếp (VD app
  * chưa từng chạy liên tục qua đúng 3h sáng giờ VN từ lúc có đơn).
  *
- *   npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts <shop_id>
+ *   npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts <shop_id> [platform]
  *   VD: npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts 201171264532
+ *       npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts 200000000101 aurelle
+ *   platform mặc định 'lazada' (giữ nguyên hành vi cũ khi không truyền).
  * ===================================================================
  */
 async function syncProductMasterNow(): Promise<void> {
   const shopId = process.argv[2];
+  const platformArg = (process.argv[3] ?? MarketplacePlatform.LAZADA) as MarketplacePlatform;
   if (!shopId) {
     console.error(
-      '❌ Thiếu shop_id. Cách dùng: npx ts-node ... scripts/sync-product-master-now.ts <shop_id>',
+      '❌ Thiếu shop_id. Cách dùng: npx ts-node ... scripts/sync-product-master-now.ts <shop_id> [platform]',
+    );
+    process.exit(1);
+  }
+  if (!Object.values(MarketplacePlatform).includes(platformArg)) {
+    console.error(
+      `❌ platform "${platformArg}" không hợp lệ — phải là 1 trong: ${Object.values(MarketplacePlatform).join(', ')}.`,
     );
     process.exit(1);
   }
@@ -32,12 +42,12 @@ async function syncProductMasterNow(): Promise<void> {
   const productMasterService = app.get(ProductMasterService);
 
   console.log(
-    `Đang đồng bộ Product Master cho shop ${shopId} — lấy SKU từ đơn hàng đã sync, gọi Lazada GetProducts...`,
+    `Đang đồng bộ Product Master cho shop ${shopId} (${platformArg}) — lấy SKU từ đơn hàng đã sync, gọi GetProducts...`,
   );
 
   try {
     const result =
-      await productMasterService.syncProductsForShopFromOrders(shopId);
+      await productMasterService.syncProductsForShopFromOrders(platformArg, shopId);
     console.log(
       `✅ Xong — đã đồng bộ ${String(result.synced)} SKU vào product_master.`,
     );

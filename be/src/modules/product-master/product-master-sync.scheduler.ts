@@ -4,10 +4,19 @@ import { ProductMasterService } from './product-master.service';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
+// 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #7) —
+// quét MỌI sàn tương thích thay vì chỉ Lazada. Sàn chưa implement
+// getProducts tự loại ở ProductMasterService.syncProductsForShop() (ném
+// PM_UNSUPPORTED_PLATFORM) — không cần lọc trước ở đây.
+const PRODUCT_SYNC_PLATFORMS: readonly MarketplacePlatform[] = [
+  MarketplacePlatform.LAZADA,
+  MarketplacePlatform.AURELLE,
+];
+
 /**
  * ===================================================================
  * TỰ ĐỘNG ĐỒNG BỘ PRODUCT MASTER — 1 LẦN/NGÀY, TÁCH BIỆT HOÀN TOÀN
- * với LazadaOrderSyncScheduler (10 phút/lần)
+ * với LazadaOrderSyncScheduler (5 phút/lần)
  * ===================================================================
  * Kích thước/cân nặng sản phẩm hiếm khi đổi — không cần tần suất dày
  * như order sync. Chạy vào 3h sáng (giờ thấp điểm) để không cạnh
@@ -28,7 +37,9 @@ export class ProductMasterSyncScheduler {
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
   ) {}
 
-  @Cron('0 3 * * *', { name: 'product-master-daily-sync' }) // 3:00 sáng mỗi ngày
+  // 3:00 sáng mỗi ngày, GIỜ VIỆT NAM — thiếu `timeZone` từng gây lệch 7
+  // tiếng khi deploy lên cloud mặc định UTC (đã sửa 19/09/2026, giữ lại).
+  @Cron('0 3 * * *', { name: 'product-master-daily-sync', timeZone: 'Asia/Ho_Chi_Minh' })
   async dailySyncAllShops(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn('Lượt đồng bộ Product Master trước chưa xong, bỏ qua lượt này.');
@@ -39,33 +50,39 @@ export class ProductMasterSyncScheduler {
     const startedAt = Date.now();
 
     try {
-      const shops = await this.marketplaceIntegrationService.listConnectedShops(
-        MarketplacePlatform.LAZADA,
-      );
+      let totalShops = 0;
+      let succeeded = 0;
+      let failed = 0;
 
-      if (shops.length === 0) {
+      for (const platform of PRODUCT_SYNC_PLATFORMS) {
+        const shops = await this.marketplaceIntegrationService.listConnectedShops(
+          platform,
+        );
+        if (shops.length === 0) continue;
+        totalShops += shops.length;
+
+        for (const shop of shops) {
+          try {
+            const result = await this.productMasterService.syncProductsForShopFromOrders(
+              platform,
+              shop.shop_id,
+            );
+            succeeded += 1;
+            this.logger.log(`Đồng bộ Product Master ${platform} shop ${shop.shop_id}: ${String(result.synced)} SKU.`);
+          } catch (error) {
+            failed += 1;
+            this.logger.error(`Đồng bộ Product Master ${platform} shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`, error);
+          }
+        }
+      }
+
+      if (totalShops === 0) {
         this.logger.log('Đồng bộ Product Master: chưa có shop nào kết nối, bỏ qua.');
         return;
       }
 
-      let succeeded = 0;
-      let failed = 0;
-
-      for (const shop of shops) {
-        try {
-          const result = await this.productMasterService.syncProductsForShopFromOrders(
-            shop.shop_id,
-          );
-          succeeded += 1;
-          this.logger.log(`Đồng bộ Product Master shop ${shop.shop_id}: ${String(result.synced)} SKU.`);
-        } catch (error) {
-          failed += 1;
-          this.logger.error(`Đồng bộ Product Master shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`, error);
-        }
-      }
-
       this.logger.log(
-        `Đồng bộ Product Master hoàn tất: ${String(shops.length)} shop (${String(succeeded)} thành công, ${String(failed)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
+        `Đồng bộ Product Master hoàn tất: ${String(totalShops)} shop (${String(succeeded)} thành công, ${String(failed)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
       );
     } finally {
       this.isRunning = false;

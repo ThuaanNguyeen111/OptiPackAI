@@ -330,6 +330,10 @@ export class MarketplaceIntegrationService {
         return (
           this.configService.get<boolean>('marketplace.tiki.sandbox') === true
         );
+      case MarketplacePlatform.AURELLE:
+        return (
+          this.configService.get<boolean>('marketplace.aurelle.sandbox') === true
+        );
       default:
         return true;
     }

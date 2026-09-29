@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -8,20 +8,21 @@ import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto'
 import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { PackagingBag, PackagingBagDocument } from '../packaging/schemas/packaging-bag.schema';
-// Inject TRỰC TIẾP LazadaAdapter (class cụ thể, đã export sẵn từ
-// MarketplaceIntegrationModule) — ĐÚNG THEO PATTERN đã có sẵn trong
-// chính orders.service.ts (cũng inject thẳng LazadaAdapter, không qua
-// MARKETPLACE_ADAPTERS registry), vì getProducts()/getOrders() KHÔNG
-// nằm trong MarketplaceAdapter interface dùng chung (interface đó chỉ
-// khai các method OAuth/webhook — buildAuthorizationUrl/
-// exchangeCodeForToken/refreshAccessToken/verifyWebhookSignature).
-// Nhất quán với code đã hoàn thành, KHÔNG tự sáng tạo pattern khác.
-import { LazadaAdapter } from '../marketplace-integration';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
+// 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #7) —
+// trước đây inject thẳng LazadaAdapter (class cụ thể) vì getProducts()
+// chưa nằm trong MarketplaceAdapter interface dùng chung. Giờ interface
+// ĐÃ CÓ method này (tùy chọn) — tra qua registry giống orders.service.ts,
+// thêm sàn mới không cần sửa gì trong service này nữa.
+import {
+  MARKETPLACE_ADAPTERS,
+  MarketplaceAdapter,
+} from '../marketplace-integration/interfaces/marketplace-adapter.interface';
 
-// Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi.
-const LAZADA_PRODUCT_BATCH_SIZE = 50;
+// Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi (AURELLE
+// dùng cùng giới hạn, xem AURELLE_MARKETPLACE_DESIGN.md Mục 7.5).
+const PRODUCT_BATCH_SIZE = 50;
 
 @Injectable()
 export class ProductMasterService {
@@ -35,7 +36,8 @@ export class ProductMasterService {
     @InjectModel(PackagingBag.name)
     private readonly bagModel: Model<PackagingBagDocument>,
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
-    private readonly lazadaAdapter: LazadaAdapter,
+    @Inject(MARKETPLACE_ADAPTERS)
+    private readonly adapters: Partial<Record<MarketplacePlatform, MarketplaceAdapter>>,
   ) {}
 
   /**
@@ -45,46 +47,63 @@ export class ProductMasterService {
    * qua hệ thống này — không cần tốn quota API cho SKU không liên
    * quan tới bài toán đóng gói thực tế).
    */
-  async syncProductsForShopFromOrders(shopId: string): Promise<{ synced: number }> {
-    const skus = await this.orderModel.distinct('items.sku', { shop_id: shopId });
+  async syncProductsForShopFromOrders(
+    platform: MarketplacePlatform,
+    shopId: string,
+  ): Promise<{ synced: number }> {
+    const skus = await this.orderModel.distinct('items.sku', { platform, shop_id: shopId });
     if (skus.length === 0) {
-      this.logger.log(`Shop ${shopId} chưa có SKU nào trong đơn hàng — bỏ qua lượt đồng bộ.`);
+      this.logger.log(`Shop ${shopId} (${platform}) chưa có SKU nào trong đơn hàng — bỏ qua lượt đồng bộ.`);
       return { synced: 0 };
     }
-    return this.syncProductsForShop(shopId, skus);
+    return this.syncProductsForShop(platform, shopId, skus);
   }
 
   /**
-   * Đồng bộ kích thước/cân nặng sản phẩm cho 1 shop Lazada — gọi định
-   * kỳ 1 lần/ngày (KHÔNG mỗi lần AI tính, xem CLAUDE.md mục Product
-   * Master Data), hoặc gọi tay qua endpoint admin khi cần refresh sớm.
+   * Đồng bộ kích thước/cân nặng sản phẩm cho 1 shop — gọi định kỳ 1
+   * lần/ngày (KHÔNG mỗi lần AI tính, xem CLAUDE.md mục Product Master
+   * Data), hoặc gọi tay qua endpoint admin khi cần refresh sớm.
    *
    * Chia batch 50 SKU/lần (Rule tối ưu tương tự vòng lặp sync đơn) và
    * ghi bằng bulkWrite() — Rule #14 (CLAUDE.md), KHÔNG lặp N lần
    * updateOne riêng lẻ cho từng SKU.
    */
-  async syncProductsForShop(shopId: string, sellerSkus: string[]): Promise<{ synced: number }> {
+  async syncProductsForShop(
+    platform: MarketplacePlatform,
+    shopId: string,
+    sellerSkus: string[],
+  ): Promise<{ synced: number }> {
+    const adapter = this.adapters[platform];
+    if (!adapter?.getProducts) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.UNSUPPORTED_PLATFORM,
+        `Sàn "${platform}" chưa hỗ trợ đồng bộ sản phẩm (adapter chưa implement getProducts).`,
+        HttpStatus.NOT_IMPLEMENTED,
+        { platform },
+      );
+    }
+
     // getValidAccessToken tự tra shop + tự refresh nếu token sắp hết
     // hạn — ĐÚNG signature thật (shopId, platform), không cần gọi
     // getConnectedShop() trước như bản nháp đầu (đã verify lại theo
     // đúng code thật của marketplace-integration.service.ts).
     const accessToken = await this.marketplaceIntegrationService.getValidAccessToken(
       shopId,
-      MarketplacePlatform.LAZADA,
+      platform,
     );
 
     let synced = 0;
     const now = new Date();
 
-    for (let i = 0; i < sellerSkus.length; i += LAZADA_PRODUCT_BATCH_SIZE) {
-      const batch = sellerSkus.slice(i, i + LAZADA_PRODUCT_BATCH_SIZE);
-      const rawProducts = await this.lazadaAdapter.getProducts(accessToken, batch);
+    for (let i = 0; i < sellerSkus.length; i += PRODUCT_BATCH_SIZE) {
+      const batch = sellerSkus.slice(i, i + PRODUCT_BATCH_SIZE);
+      const rawProducts = await adapter.getProducts(accessToken, batch);
 
       const bulkOps = rawProducts.flatMap((product) =>
         product.skus.map((sku) => ({
           updateOne: {
             filter: {
-              platform: MarketplacePlatform.LAZADA,
+              platform,
               shop_id: shopId,
               seller_sku: sku.SellerSku,
             },
@@ -117,7 +136,7 @@ export class ProductMasterService {
       }
     }
 
-    this.logger.log(`Đồng bộ Product Master cho shop ${shopId}: ${String(synced)} SKU.`);
+    this.logger.log(`Đồng bộ Product Master (${platform}) cho shop ${shopId}: ${String(synced)} SKU.`);
     return { synced };
   }
 

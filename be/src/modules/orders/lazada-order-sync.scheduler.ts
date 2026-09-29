@@ -7,32 +7,41 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 
-// BỔ SUNG (AOFP-XX, 2026-09-16) — chống spam Notification khi Lazada
-// sync lỗi LIÊN TỤC (VD token hết hạn, không ai xử lý ngay) — cron chạy
-// mỗi 10 phút, không giới hạn sẽ bắn hàng chục Notification trùng lặp
-// mỗi giờ cho CÙNG 1 sự cố chưa được giải quyết. 20 phút = đủ ngắn để
-// Store Owner biết sớm, đủ dài để không spam (tương đương bỏ qua ~1
-// lượt cron giữa 2 lần bắn).
+// BỔ SUNG (AOFP-XX, 2026-09-16) — chống spam Notification khi sync lỗi
+// LIÊN TỤC (VD token hết hạn, không ai xử lý ngay) — cron chạy mỗi 5
+// phút, không giới hạn sẽ bắn hàng chục Notification trùng lặp mỗi giờ
+// cho CÙNG 1 sự cố chưa được giải quyết. 20 phút = đủ ngắn để Store
+// Owner biết sớm, đủ dài để không spam.
 const SYNC_FAILURE_NOTIFY_COOLDOWN_MS = 20 * 60 * 1000;
+
+// 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #6) —
+// quét MỌI sàn polling-based đã bật (Lazada + AURELLE). Sàn nào KHÔNG
+// implement getOrders (TikTok/Tiki hiện tại) sẽ tự loại ở
+// OrdersService.syncShopOrders() (ném ORD_UNSUPPORTED_PLATFORM) — không
+// cần lọc trước ở đây, catch per-shop bên dưới xử lý đều.
+const POLLING_PLATFORMS: readonly MarketplacePlatform[] = [
+  MarketplacePlatform.LAZADA,
+  MarketplacePlatform.AURELLE,
+];
 
 /**
  * ===================================================================
- * TỰ ĐỘNG ĐỒNG BỘ ĐƠN LAZADA THEO LỊCH — "Mainflow 1" bản KHÔNG cần bấm tay
+ * TỰ ĐỘNG ĐỒNG BỘ ĐƠN THEO LỊCH — "Mainflow 1" bản KHÔNG cần bấm tay
  * ===================================================================
  * TÁCH RIÊNG khỏi OrdersService (không thêm @Cron() thẳng vào 1 method
  * của OrdersService) — 2 lý do:
- *   (a) OrdersService.syncLazadaOrders() vẫn phải giữ NGUYÊN là 1 method
+ *   (a) OrdersService.syncShopOrders() vẫn phải giữ NGUYÊN là 1 method
  *       "sync 1 shop cụ thể", gọi được độc lập từ controller (nút bấm
- *       tay demo) LẪN từ scheduler này — 1 method dùng cho CẢ 2 mục
- *       đích thì không nên tự nó biết "mình đang được gọi bởi lịch hay
- *       bởi HTTP request".
+ *       tay demo) LẪN từ scheduler này.
  *   (b) Vòng lặp "quét TẤT CẢ shop rồi gọi sync từng shop" là 1 TRÁCH
- *       NHIỆM RIÊNG (orchestration), tách file giúp test/đọc độc lập,
- *       không làm phình to orders.service.ts vốn đã đủ dài.
+ *       NHIỆM RIÊNG (orchestration), tách file giúp test/đọc độc lập.
  *
- * VẪN LÀ POLLING (xem giải thích đã note trong CLAUDE.md) — @Cron() chỉ
- * tự động hoá VIỆC BẤM NÚT, không biến hệ thống thành webhook/event-driven
- * thật. Bản chất "chủ động đi hỏi Lazada" không đổi.
+ * VẪN LÀ POLLING cho Lazada (chưa xác nhận webhook chính thức) — AURELLE
+ * CÓ webhook thật (Mục 8 AURELLE_MARKETPLACE_DESIGN.md) nên với AURELLE,
+ * cron này chỉ còn vai trò LƯỚI AN TOÀN (bù đơn webhook lỡ mất), không
+ * phải kênh chính. Tên file/class giữ nguyên `LazadaOrderSyncScheduler`
+ * (đổi tên sẽ phải sửa lại DI ở orders.module.ts + mọi import — không
+ * đáng, tên chỉ còn ý nghĩa lịch sử).
  * ===================================================================
  */
 @Injectable()
@@ -45,10 +54,10 @@ export class LazadaOrderSyncScheduler {
   // dù lượt trước chưa kết thúc, dễ gây 2 job cùng ghi đè 1 shop.
   private isRunning = false;
 
-  // shop_id -> thời điểm (epoch ms) đã bắn Notification lỗi sync gần
-  // nhất — KHÔNG persist xuống DB (chỉ cần tồn tại trong 1 vòng đời
-  // process là đủ để chống spam; restart app coi như "quên", chấp nhận
-  // được vì restart cũng đồng nghĩa 1 khởi đầu mới đáng để báo lại).
+  // "platform:shop_id" -> thời điểm (epoch ms) đã bắn Notification lỗi
+  // sync gần nhất — KHÔNG persist xuống DB (chỉ cần tồn tại trong 1 vòng
+  // đời process là đủ để chống spam; restart app coi như "quên", chấp
+  // nhận được vì restart cũng đồng nghĩa 1 khởi đầu mới đáng để báo lại).
   private readonly lastSyncFailureNotifiedAt = new Map<string, number>();
 
   constructor(
@@ -58,18 +67,11 @@ export class LazadaOrderSyncScheduler {
   ) {}
 
   /**
-   * Cứ mỗi 10 phút — đủ nhanh để demo/vận hành thực tế thấy đơn "gần
-   * như tức thời", vẫn đủ thưa để không phí quota API Lazada (10.000
-   * request/ngày/app — mỗi lượt sync 1 shop tốn 1 (GetOrders) + N
-   * (GetOrderItems, N = số đơn mới) request; 10 phút/lần = 144
-   * lượt/ngày, dư sức cho quy mô hiện tại).
-   *
-   * CronExpression.EVERY_10_MINUTES là hằng số có sẵn của @nestjs/schedule
-   * (tương đương biểu thức cron "mỗi 10 phút 1 lần") — dùng hằng số thay
-   * vì tự gõ chuỗi cron để tránh gõ sai cú pháp không ai phát hiện ra
-   * tới khi job không chạy đúng lịch.
+   * Cứ mỗi 5 phút — đủ nhanh để demo/vận hành thực tế thấy đơn "gần như
+   * tức thời", vẫn đủ thưa để không phí quota API (Lazada 10.000
+   * request/ngày/app).
    */
-  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'lazada-order-auto-sync' }) // 🔄 (21/09/2026, báo cáo thật FE) — đổi từ 10' xuống 5', giảm độ trễ Warehouse/Packaging "không thấy đơn"
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'lazada-order-auto-sync' })
   async autoSyncAllConnectedShops(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn(
@@ -82,65 +84,69 @@ export class LazadaOrderSyncScheduler {
     const startedAt = Date.now();
 
     try {
-      const shops = await this.marketplaceIntegrationService.listConnectedShops(
-        MarketplacePlatform.LAZADA,
-      );
-
-      if (shops.length === 0) {
-        this.logger.log(
-          'Auto-sync Lazada: chưa có shop nào được kết nối, bỏ qua lượt này.',
-        );
-        return;
-      }
-
+      let totalShops = 0;
       let succeeded = 0;
       let failed = 0;
 
-      // Tuần tự (không Promise.all) — cùng lý do đã giải thích trong
-      // OrdersService.syncLazadaOrders(): tránh dồn dập request lên
-      // Lazada khi có nhiều shop cùng lúc.
-      for (const shop of shops) {
-        try {
-          const result = await this.ordersService.syncLazadaOrders(
-            shop.shop_id,
-          );
-          succeeded += 1;
-          this.logger.log(
-            `Auto-sync shop ${shop.shop_id}: fetched=${String(result.fetched)}, upserted=${String(result.upserted)}, newlyConsolidated=${String(result.newlyConsolidated)}.`,
-          );
-        } catch (error) {
-          // 1 shop lỗi (vd token hết hạn, Lazada tạm downtime) KHÔNG
-          // được làm hỏng lượt sync của các shop khác — cùng nguyên
-          // tắc resilience đã áp dụng ở vòng lặp xử lý từng đơn trong
-          // OrdersService.syncLazadaOrders().
-          failed += 1;
-          this.logger.error(
-            `Auto-sync shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`,
-            error,
-          );
+      // Tuần tự CẢ theo sàn LẪN theo shop — cùng lý do đã giải thích ở
+      // OrdersService.syncShopOrders(): tránh dồn dập request.
+      for (const platform of POLLING_PLATFORMS) {
+        const shops = await this.marketplaceIntegrationService.listConnectedShops(
+          platform,
+        );
+        if (shops.length === 0) continue;
+        totalShops += shops.length;
 
-          const lastNotified =
-            this.lastSyncFailureNotifiedAt.get(shop.shop_id) ?? 0;
-          const now = Date.now();
-          if (now - lastNotified >= SYNC_FAILURE_NOTIFY_COOLDOWN_MS) {
-            this.lastSyncFailureNotifiedAt.set(shop.shop_id, now);
-            const message =
-              error instanceof Error ? error.message : String(error);
-            await this.notificationsService.notify({
-              recipientRole: UserRole.STORE_OWNER,
-              type: NotificationType.SYNC_FAILED,
-              severity: 'warning',
-              title: `Đồng bộ đơn Lazada (shop ${shop.shop_id}) đang thất bại`,
-              message: `Tự động đồng bộ đơn hàng từ Lazada đang gặp lỗi liên tục: ${message}. Vui lòng kiểm tra kết nối shop (token có thể đã hết hạn).`,
-              relatedEntityType: 'marketplace_shop',
-              relatedEntityId: shop.shop_id,
-            });
+        for (const shop of shops) {
+          try {
+            const result = await this.ordersService.syncShopOrders(
+              platform,
+              shop.shop_id,
+            );
+            succeeded += 1;
+            this.logger.log(
+              `Auto-sync ${platform} shop ${shop.shop_id}: fetched=${String(result.fetched)}, upserted=${String(result.upserted)}, newlyConsolidated=${String(result.newlyConsolidated)}.`,
+            );
+          } catch (error) {
+            // 1 shop lỗi (vd token hết hạn, sàn tạm downtime) KHÔNG được
+            // làm hỏng lượt sync của các shop khác.
+            failed += 1;
+            this.logger.error(
+              `Auto-sync ${platform} shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`,
+              error,
+            );
+
+            const cooldownKey = `${platform}:${shop.shop_id}`;
+            const lastNotified =
+              this.lastSyncFailureNotifiedAt.get(cooldownKey) ?? 0;
+            const now = Date.now();
+            if (now - lastNotified >= SYNC_FAILURE_NOTIFY_COOLDOWN_MS) {
+              this.lastSyncFailureNotifiedAt.set(cooldownKey, now);
+              const message =
+                error instanceof Error ? error.message : String(error);
+              await this.notificationsService.notify({
+                recipientRole: UserRole.STORE_OWNER,
+                type: NotificationType.SYNC_FAILED,
+                severity: 'warning',
+                title: `Đồng bộ đơn ${platform} (shop ${shop.shop_id}) đang thất bại`,
+                message: `Tự động đồng bộ đơn hàng từ ${platform} đang gặp lỗi liên tục: ${message}. Vui lòng kiểm tra kết nối shop (token có thể đã hết hạn).`,
+                relatedEntityType: 'marketplace_shop',
+                relatedEntityId: shop.shop_id,
+              });
+            }
           }
         }
       }
 
+      if (totalShops === 0) {
+        this.logger.log(
+          'Auto-sync: chưa có shop nào được kết nối, bỏ qua lượt này.',
+        );
+        return;
+      }
+
       this.logger.log(
-        `Auto-sync Lazada hoàn tất: ${String(shops.length)} shop (${String(succeeded)} thành công, ${String(failed)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
+        `Auto-sync hoàn tất: ${String(totalShops)} shop (${String(succeeded)} thành công, ${String(failed)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
       );
     } finally {
       this.isRunning = false;

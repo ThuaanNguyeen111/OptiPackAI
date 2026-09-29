@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, OrderDocument } from './schemas/order.schema';
@@ -7,10 +7,11 @@ import {
   UNFULFILLED_ORDER_STATUSES,
 } from './enums/order-status.enum';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
+import { MarketplaceIntegrationService } from '../marketplace-integration';
 import {
-  MarketplaceIntegrationService,
-  LazadaAdapter,
-} from '../marketplace-integration';
+  MARKETPLACE_ADAPTERS,
+  MarketplaceAdapter,
+} from '../marketplace-integration/interfaces/marketplace-adapter.interface';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_ERROR_CODES } from './orders.errors';
@@ -46,7 +47,13 @@ export class OrdersService {
   constructor(
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
-    private readonly lazadaAdapter: LazadaAdapter,
+    // 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #5) —
+    // trước đây inject thẳng LazadaAdapter (class cụ thể). Giờ tra qua
+    // registry theo `platform` — thêm sàn mới (đã tương thích Lazada,
+    // implement getOrders/getOrderItems trên MarketplaceAdapter) KHÔNG
+    // cần sửa gì trong service này nữa.
+    @Inject(MARKETPLACE_ADAPTERS)
+    private readonly adapters: Partial<Record<MarketplacePlatform, MarketplaceAdapter>>,
     private readonly notificationsService: NotificationsService,
     // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo group NGAY sau sync,
     // xem tryConsolidate() call site bên dưới. Không circular: đã kiểm
@@ -57,24 +64,47 @@ export class OrdersService {
 
   /**
    * ===================================================================
-   * ĐỒNG BỘ ĐƠN TỪ LAZADA — TƯƠNG ỨNG "Mainflow 1" (bản polling, không
-   * webhook — Lazada Open Platform hiện chưa xác nhận cơ chế webhook
-   * chính thức, xem ghi chú trong lazada.adapter.ts#verifyWebhookSignature).
+   * ĐỒNG BỘ ĐƠN — TƯƠNG ỨNG "Mainflow 1" (bản polling). Dùng CHUNG cho
+   * mọi sàn tương thích Lazada (Lazada thật + AURELLE — xem
+   * AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #5).
    * ===================================================================
-   * Gọi tay qua orders.controller.ts (demo) — khi cần chạy TỰ ĐỘNG định
-   * kỳ, bọc hàm này trong 1 @Cron() (module @nestjs/schedule) lặp qua
-   * marketplaceIntegrationService.listConnectedShops(LAZADA), KHÔNG cần
-   * sửa gì bên trong hàm này.
+   * 🔄 ĐÃ ĐỔI (29/09/2026): trước đây tên `syncLazadaOrders(shopId)`,
+   * gắn cứng Lazada. Giờ nhận thêm `platform` — tra adapter qua registry
+   * (MARKETPLACE_ADAPTERS), sàn nào CHƯA implement getOrders/getOrderItems
+   * (VD TikTok/Tiki hiện tại) sẽ nhận lỗi rõ ràng ORD_UNSUPPORTED_PLATFORM
+   * thay vì lỗi runtime khó hiểu.
+   *
+   * Gọi tay qua orders.controller.ts (demo) — hoặc từ @Cron() (xem
+   * lazada-order-sync.scheduler.ts, quét mọi platform tương thích), KHÔNG
+   * cần sửa gì bên trong hàm này khi thêm sàn mới.
    */
-  async syncLazadaOrders(shopId: string): Promise<SyncResult> {
+  async syncShopOrders(
+    platform: MarketplacePlatform,
+    shopId: string,
+  ): Promise<SyncResult> {
+    const adapter = this.adapters[platform];
+    // Gọi qua `adapter.getOrders(...)`/`adapter.getOrderItems(...)` TRỰC
+    // TIẾP ở dưới (không tách riêng thành biến cục bộ) — tách method khỏi
+    // object gốc bị ESLint `unbound-method` cảnh báo (rủi ro mất đúng
+    // `this` khi tách rời). `adapter` là `const` nên TypeScript vẫn thu
+    // hẹp kiểu đúng cho các field optional sau guard bên dưới.
+    if (!adapter?.getOrders || !adapter.getOrderItems) {
+      throw new AppException(
+        ORD_ERROR_CODES.UNSUPPORTED_PLATFORM,
+        `Sàn "${platform}" chưa hỗ trợ đồng bộ đơn hàng (adapter chưa implement getOrders/getOrderItems).`,
+        HttpStatus.NOT_IMPLEMENTED,
+        { platform },
+      );
+    }
+
     const shopDoc = await this.marketplaceIntegrationService.getConnectedShop(
       shopId,
-      MarketplacePlatform.LAZADA,
+      platform,
     );
     const accessToken =
       await this.marketplaceIntegrationService.getValidAccessToken(
         shopId,
-        MarketplacePlatform.LAZADA,
+        platform,
       );
 
     const updatedAfter =
@@ -83,19 +113,17 @@ export class OrdersService {
 
     let rawOrders;
     try {
-      rawOrders = await this.lazadaAdapter.getOrders(accessToken, {
-        updatedAfter,
-      });
+      rawOrders = await adapter.getOrders(accessToken, { updatedAfter });
     } catch (error) {
       this.logger.error(
-        `Sync đơn Lazada thất bại cho shop ${shopId} (bước GetOrders)`,
+        `Sync đơn ${platform} thất bại cho shop ${shopId} (bước GetOrders)`,
         error,
       );
       throw new AppException(
         ORD_ERROR_CODES.SYNC_FAILED,
-        `Không lấy được danh sách đơn từ Lazada cho shop ${shopId} — vui lòng thử lại.`,
+        `Không lấy được danh sách đơn từ ${platform} cho shop ${shopId} — vui lòng thử lại.`,
         HttpStatus.BAD_GATEWAY,
-        { shopId },
+        { shopId, platform },
       );
     }
 
@@ -104,18 +132,14 @@ export class OrdersService {
 
     // Tuần tự (KHÔNG Promise.all) — mỗi đơn cần thêm 1 lần gọi
     // GetOrderItems riêng, chạy tuần tự để không dồn dập request lên
-    // Lazada trong 1 khoảnh khắc (API Call Limit của app đang là
-    // 10.000/ngày — đủ dư cho quy mô hiện tại, nhưng tuần tự vẫn là
-    // lựa chọn AN TOÀN mặc định khi chưa đo tải thật; chuyển sang xử
-    // lý theo lô nhỏ [vd Promise.all từng nhóm 5] chỉ khi đã xác nhận
-    // cần tăng thông lượng).
+    // sàn trong 1 khoảnh khắc (API Call Limit của Lazada là 10.000/ngày —
+    // đủ dư cho quy mô hiện tại, nhưng tuần tự vẫn là lựa chọn AN TOÀN
+    // mặc định khi chưa đo tải thật; chuyển sang xử lý theo lô nhỏ [vd
+    // Promise.all từng nhóm 5] chỉ khi đã xác nhận cần tăng thông lượng).
     for (const rawOrder of rawOrders) {
       try {
-        const rawItems = await this.lazadaAdapter.getOrderItems(
-          accessToken,
-          rawOrder.order_id,
-        );
-        const mapped = mapLazadaOrder(rawOrder, rawItems);
+        const rawItems = await adapter.getOrderItems(accessToken, rawOrder.order_id);
+        const mapped = mapLazadaOrder(rawOrder, rawItems, platform);
 
         // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
         // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không
@@ -124,7 +148,7 @@ export class OrdersService {
         // mỗi lần sync trong khi bản chất là CÙNG 1 sự kiện chưa xử lý).
         const previous = await this.orderModel
           .findOne({
-            platform: MarketplacePlatform.LAZADA,
+            platform,
             shop_id: shopId,
             platform_order_id: mapped.platform_order_id,
           })
@@ -133,14 +157,14 @@ export class OrdersService {
 
         const orderDoc = await this.orderModel.findOneAndUpdate(
           {
-            platform: MarketplacePlatform.LAZADA,
+            platform,
             shop_id: shopId,
             platform_order_id: mapped.platform_order_id,
           },
           {
             $set: {
               ...mapped,
-              platform: MarketplacePlatform.LAZADA,
+              platform,
               shop_id: shopId,
               marketplace_shop: shopDoc._id,
             },
@@ -155,6 +179,24 @@ export class OrdersService {
 
         upserted += 1;
 
+        // Mục 7.6 AURELLE_MARKETPLACE_DESIGN.md — báo sàn đã lưu đơn
+        // thành công, sàn chuyển occupied_quantity sang cho OptiPack.
+        // Lazada không implement acknowledgeOrder (seller tự giao hàng,
+        // không ghi ngược Lazada — quyết định đã chốt) → `?.()` no-op.
+        // Best-effort — lỗi ghi ngược KHÔNG được làm hỏng cả lượt sync.
+        try {
+          await adapter.acknowledgeOrder?.(
+            accessToken,
+            mapped.platform_order_id,
+            orderDoc._id.toString(),
+          );
+        } catch (ackError) {
+          this.logger.warn(
+            `Acknowledge đơn ${mapped.platform_order_id} (${platform}) thất bại — không chặn sync.`,
+            ackError,
+          );
+        }
+
         // Chỉ bắn khi CHUYỂN từ chưa cần xác nhận -> cần xác nhận (xem
         // giải thích đọc `previous` ở trên) — báo cả Store Owner lẫn
         // Admin, mức `critical` vì có hạn chót cứng (cancel_trigger_time),
@@ -164,7 +206,15 @@ export class OrdersService {
             ? mapped.cancel_trigger_time.toLocaleString('vi-VN')
             : 'không xác định';
           const title = `Đơn hàng #${mapped.platform_order_number ?? mapped.platform_order_id} cần xác nhận hủy`;
-          const message = `Khách hàng yêu cầu hủy đơn #${mapped.platform_order_number ?? mapped.platform_order_id}. Vui lòng phản hồi trên Lazada Seller Center trước ${deadlineText} — nếu không, đơn sẽ TỰ ĐỘNG bị hủy.`;
+          // Chỉ Lazada thật ghi nhận field này (AURELLE giữ field để đúng
+          // hình dạng API — Mục 5.2 AURELLE_MARKETPLACE_DESIGN.md — nhưng
+          // không có luồng hủy nào bật need_cancel_confirm=true) — nhắc
+          // đúng nơi seller cần vào theo từng sàn.
+          const sellerCenterHint =
+            platform === MarketplacePlatform.LAZADA
+              ? 'trên Lazada Seller Center'
+              : `trên ${platform}`;
+          const message = `Khách hàng yêu cầu hủy đơn #${mapped.platform_order_number ?? mapped.platform_order_id}. Vui lòng phản hồi ${sellerCenterHint} trước ${deadlineText} — nếu không, đơn sẽ TỰ ĐỘNG bị hủy.`;
 
           await this.notificationsService.notify({
             recipientRole: UserRole.STORE_OWNER,
@@ -216,7 +266,7 @@ export class OrdersService {
         // 1 đơn lỗi (vd field lạ chưa map được) KHÔNG được làm hỏng cả
         // batch — log lại order_id cụ thể, tiếp tục xử lý đơn tiếp theo.
         this.logger.error(
-          `Xử lý đơn Lazada order_id=${String(rawOrder.order_id)} thất bại, bỏ qua đơn này, tiếp tục các đơn còn lại.`,
+          `Xử lý đơn ${platform} order_id=${String(rawOrder.order_id)} thất bại, bỏ qua đơn này, tiếp tục các đơn còn lại.`,
           error,
         );
       }
@@ -228,10 +278,46 @@ export class OrdersService {
     );
 
     this.logger.log(
-      `Sync Lazada shop ${shopId}: lấy ${String(rawOrders.length)} đơn, upsert ${String(upserted)}, gộp mới ${String(newlyConsolidated)}.`,
+      `Sync ${platform} shop ${shopId}: lấy ${String(rawOrders.length)} đơn, upsert ${String(upserted)}, gộp mới ${String(newlyConsolidated)}.`,
     );
 
     return { fetched: rawOrders.length, upserted, newlyConsolidated };
+  }
+
+  /**
+   * 🔄 GIỮ TƯƠNG THÍCH NGƯỢC (29/09/2026) — `POST /orders/lazada/sync`
+   * (orders.controller.ts) và FE đã tích hợp theo đúng tên method/route
+   * này (xem INTEGRATION_GUIDE_ORDERS.md) — KHÔNG đổi route, chỉ ủy
+   * quyền sang `syncShopOrders()` đã tổng quát hóa.
+   */
+  async syncLazadaOrders(shopId: string): Promise<SyncResult> {
+    return this.syncShopOrders(MarketplacePlatform.LAZADA, shopId);
+  }
+
+  /**
+   * ===================================================================
+   * MỚI (29/09/2026) — sync 1 shop khi có TÍN HIỆU (webhook) thay vì chờ
+   * cron. Theo AURELLE_MARKETPLACE_DESIGN.md Mục 8.1: "Payload chỉ có mã
+   * đơn; OptiPack gọi /orders/get + /order/items/get để lấy chi tiết —
+   * MỘT LUỒNG XỬ LÝ CHUNG với kéo định kỳ".
+   * ===================================================================
+   * KHÔNG có API "lấy 1 đơn theo order_id" ở tầng nghiệp vụ (Mục 7.3 chỉ
+   * lọc theo cửa sổ thời gian) — nên "sync 1 đơn" ở đây nghĩa là chạy lại
+   * `syncShopOrders()` NGAY (thay vì đợi cron), tận dụng đúng
+   * `last_polled_at` để chỉ kéo đúng phần thay đổi gần nhất (luôn bao
+   * gồm đơn vừa đổi trạng thái vì webhook luôn bắn SAU khi sàn đã cập
+   * nhật `updated_at`). `orderId` chỉ dùng để LOG — không lọc được ở
+   * tầng gọi API, nhưng vẫn hữu ích khi tra soát log webhook.
+   */
+  async syncSingleOrder(
+    platform: MarketplacePlatform,
+    shopId: string,
+    orderId: string,
+  ): Promise<SyncResult> {
+    this.logger.log(
+      `Webhook báo đơn ${orderId} (${platform}, shop ${shopId}) đổi trạng thái — chạy sync ngay.`,
+    );
+    return this.syncShopOrders(platform, shopId);
   }
 
   /**

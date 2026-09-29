@@ -4,7 +4,9 @@ import { Types } from 'mongoose';
 import { ProductMasterService } from './product-master.service';
 import { ProductMaster, ProductMasterSchema } from './schemas/product-master.schema';
 import { Order } from '../orders/schemas/order.schema';
-import { LazadaAdapter, MarketplaceIntegrationService } from '../marketplace-integration';
+import { MarketplaceIntegrationService } from '../marketplace-integration';
+import { MARKETPLACE_ADAPTERS } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { PRODUCT_MASTER_ERROR_CODES } from './product-master.errors';
 import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
 import { PackagingBag } from '../packaging/schemas/packaging-bag.schema';
@@ -13,6 +15,8 @@ import { ProductCategory } from '../../common/enums/product-category.enum';
 describe('ProductMasterService', () => {
   let service: ProductMasterService;
   let productMasterModel: { findByIdAndUpdate: jest.Mock; bulkWrite: jest.Mock };
+  // 🔄 (29/09/2026) — service giờ tra adapter qua registry MARKETPLACE_ADAPTERS
+  // thay vì inject thẳng LazadaAdapter (xem product-master.service.ts).
   let lazadaAdapter: { getProducts: jest.Mock };
   let bagModel: { exists: jest.Mock };
 
@@ -47,7 +51,10 @@ describe('ProductMasterService', () => {
           provide: MarketplaceIntegrationService,
           useValue: { getValidAccessToken: jest.fn().mockResolvedValue('token') },
         },
-        { provide: LazadaAdapter, useValue: lazadaAdapter },
+        {
+          provide: MARKETPLACE_ADAPTERS,
+          useValue: { [MarketplacePlatform.LAZADA]: lazadaAdapter },
+        },
       ],
     }).compile();
     service = module.get(ProductMasterService);
@@ -147,7 +154,7 @@ describe('ProductMasterService', () => {
     ]);
     productMasterModel.bulkWrite.mockResolvedValue({ upsertedCount: 0, modifiedCount: 1 });
 
-    await service.syncProductsForShop('s1', ['AO-M']);
+    await service.syncProductsForShop(MarketplacePlatform.LAZADA, 's1', ['AO-M']);
 
     const [ops] = productMasterModel.bulkWrite.mock.calls[0] as [
       { updateOne: { update: { $set: Record<string, unknown>; $setOnInsert: Record<string, unknown> } } }[],
