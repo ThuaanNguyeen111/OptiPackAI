@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom'
 import { Mail } from 'lucide-react'
+import { LandingAuthCta } from './LandingAuthCta'
 
 const techStack = [
   'Spring Boot',
@@ -12,46 +12,39 @@ const techStack = [
 
 export function LandingFooter() {
   return (
-    <footer id="contact" className="scroll-mt-20 border-t border-hairline px-4 py-12 sm:px-6">
+    <footer id="contact" className="lp-section scroll-mt-20 border-t border-[var(--ls-card-border)] pt-10">
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary">
-                OP
-              </span>
-              <span className="text-sm font-semibold text-ink">OptiPackAI</span>
+              <span className="lp-mark">OP</span>
+              <span className="text-sm font-semibold">OptiPackAI</span>
             </div>
-            <p className="mt-3 max-w-sm text-sm text-ink-subtle">
+            <p className="mt-3 max-w-sm text-sm text-[var(--ls-muted)]">
               Hệ thống hỗ trợ xử lý đơn hàng đa kênh và tối ưu hóa đóng gói thông
               minh bằng AI (AOFP).
             </p>
             <div className="mt-3 flex flex-col items-start gap-3">
               <a
                 href="mailto:contact@optipackai.local"
-                className="inline-flex items-center gap-1.5 text-sm text-ink-muted hover:text-primary-hover"
+                className="inline-flex items-center gap-1.5 text-sm text-[var(--ls-muted)] hover:text-[var(--ls-cta)]"
               >
                 <Mail className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                 Liên hệ: contact@optipackai.local
               </a>
-              <Link
-                to="/login"
-                className="inline-flex items-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-on-primary transition-colors hover:bg-primary-hover"
-              >
-                Mở Dashboard →
-              </Link>
+              <LandingAuthCta variant="footer" />
             </div>
           </div>
 
           <div>
-            <p className="text-xs font-medium tracking-wider text-ink-subtle uppercase">
+            <p className="text-xs font-medium tracking-wider text-[var(--ls-muted)] uppercase">
               Công nghệ
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {techStack.map((tech) => (
                 <span
                   key={tech}
-                  className="rounded-md border border-hairline bg-surface-1 px-2.5 py-1 font-mono text-[11px] text-ink-muted"
+                  className="rounded-full border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-2.5 py-1 font-mono text-[11px] text-[var(--ls-muted)]"
                 >
                   {tech}
                 </span>
@@ -60,7 +53,7 @@ export function LandingFooter() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col gap-2 border-t border-hairline pt-6 text-xs text-ink-subtle sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-10 flex flex-col gap-2 border-t border-[var(--ls-card-border)] pt-6 text-xs text-[var(--ls-muted)] sm:flex-row sm:items-center sm:justify-between">
           <p>Đại học FPT · Đồ án tốt nghiệp OptiPackAI · 2026–2027</p>
           <p className="font-mono">FA26SE036 · Nhóm AOFP</p>
         </div>

@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AuthLayout } from '../components/auth/AuthLayout'
-import { Button } from '../components/ui/Button'
+import { Loader2 } from 'lucide-react'
+import { LoginScene } from '../components/auth/LoginScene'
 import { useAuth } from '../context/use-auth'
 import { homePath } from '../lib/rbac'
 import {
@@ -50,32 +50,34 @@ export function OAuthSuccessPage() {
       !isUserRole(Number(params.get('role'))))
 
   return (
-    <AuthLayout mode="login">
+    <LoginScene
+      closeTo="/login"
+      artTitle="Đăng nhập Google"
+      artDescription="Hoàn tất phiên đăng nhập để quản lý công việc và phối hợp cùng đội ngũ."
+    >
       {errorMessage || missingTokens ? (
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Đăng nhập Google không thành công
-          </h1>
-          <p className="mt-3 text-sm text-ink-muted">
+        <>
+          <h1 className="login-title">Không thành công</h1>
+          <p className="login-lead">
             {errorMessage ?? 'Thiếu thông tin đăng nhập từ máy chủ.'}
           </p>
-          <Button
+          <button
             type="button"
-            variant="primary"
-            className="mt-8 w-full"
+            className="login-cta"
             onClick={() => navigate('/login')}
           >
             Quay lại đăng nhập
-          </Button>
-        </div>
+          </button>
+        </>
       ) : (
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Đang hoàn tất đăng nhập…
-          </h1>
-          <p className="mt-2 text-sm text-ink-muted">Vui lòng chờ trong giây lát.</p>
-        </div>
+        <>
+          <h1 className="login-title">Đang hoàn tất…</h1>
+          <p className="login-lead">Vui lòng chờ trong giây lát.</p>
+          <div className="login-status-icon">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        </>
       )}
-    </AuthLayout>
+    </LoginScene>
   )
 }

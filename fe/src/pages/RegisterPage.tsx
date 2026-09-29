@@ -1,39 +1,36 @@
 import { useNavigate } from 'react-router-dom'
 import { Shield } from 'lucide-react'
-import { AuthLayout } from '../components/auth/AuthLayout'
-import { Button } from '../components/ui/Button'
+import { LoginScene } from '../components/auth/LoginScene'
 
 export function RegisterPage() {
   const navigate = useNavigate()
 
   return (
-    <AuthLayout mode="register">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">
-          Tài khoản do Admin cấp
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-ink-muted">
-          OptiPackAI là hệ thống nội bộ. Không tự đăng ký — Admin tạo tài khoản
-          và gửi mật khẩu tạm qua email. Đăng nhập Google cũng chỉ hoạt động
-          với email đã được cấp sẵn.
-        </p>
-      </div>
+    <LoginScene
+      closeTo="/login"
+      artTitle="Tài khoản nội bộ"
+      artDescription="OptiPackAI không tự đăng ký. Admin tạo tài khoản và gửi mật khẩu tạm qua email."
+    >
+      <h1 className="login-title">Đăng ký</h1>
+      <p className="login-lead">
+        Hệ thống nội bộ — tài khoản do Admin cấp. Đăng nhập Google cũng chỉ hoạt
+        động với email đã được cấp sẵn.
+      </p>
 
-      <div className="mt-6 rounded-xl border border-hairline bg-surface-1 p-4">
-        <p className="flex items-start gap-2 text-sm text-ink">
-          <Shield className="mt-0.5 h-4 w-4 shrink-0 text-primary-hover" />
+      <div className="login-note">
+        <Shield size={16} strokeWidth={1.75} />
+        <span>
           Sau khi nhận email, đăng nhập rồi đổi mật khẩu trong 72 giờ.
-        </p>
+        </span>
       </div>
 
-      <Button
+      <button
         type="button"
-        variant="primary"
-        className="mt-6 w-full"
+        className="login-cta"
         onClick={() => navigate('/login')}
       >
         Đến trang đăng nhập
-      </Button>
-    </AuthLayout>
+      </button>
+    </LoginScene>
   )
 }

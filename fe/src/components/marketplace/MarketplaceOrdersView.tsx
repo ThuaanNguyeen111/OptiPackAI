@@ -98,7 +98,7 @@ const opsFilterInputClass =
   'border-slate-300 rounded-md shadow-sm text-xs font-medium bg-white focus-visible:border-indigo-500'
 
 const opsTabTriggerClass =
-  'gap-1.5 font-semibold data-[state=active]:bg-indigo-600 data-[state=active]:text-white data-[state=active]:shadow-sm data-[state=active]:hover:text-white dark:data-[state=active]:bg-indigo-600 dark:data-[state=active]:text-white'
+  'ops-tab-trigger gap-1.5 font-semibold text-slate-600 data-[state=active]:bg-indigo-600 data-[state=active]:!text-white data-[state=active]:shadow-sm data-[state=active]:hover:!text-white dark:text-slate-300 dark:data-[state=active]:bg-indigo-600 dark:data-[state=active]:!text-white'
 
 function PlatformPill({ platform }: { platform: string }) {
   const label = platformLabel(platform)

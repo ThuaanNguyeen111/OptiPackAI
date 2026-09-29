@@ -13,6 +13,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
 import { usePortal } from '../../context/use-portal'
 import { useNotifications } from '../../hooks/useNotifications'
+import { usesTealAppChrome } from '../../lib/app-chrome'
 import { resolveNotificationPath } from '../../lib/notification-nav'
 import { UserRole } from '../../types/auth'
 import {
@@ -135,8 +136,16 @@ export function PortalTopBar({
         ? 'SLA · duyệt đóng gói · cảnh báo kho'
         : 'SLA · packing approval · warehouse alerts'
 
+  const ownerChrome = usesTealAppChrome(session?.role)
+
   return (
-    <header className="relative flex h-14 shrink-0 items-center gap-3 border-b border-hairline bg-canvas px-4 sm:px-6">
+    <header
+      className={
+        ownerChrome
+          ? 'owner-topbar'
+          : 'relative flex h-14 shrink-0 items-center gap-3 border-b border-hairline bg-canvas px-4 sm:px-6'
+      }
+    >
       <button
         type="button"
         className="flex h-9 w-9 items-center justify-center rounded-md border border-hairline text-ink-subtle lg:hidden"

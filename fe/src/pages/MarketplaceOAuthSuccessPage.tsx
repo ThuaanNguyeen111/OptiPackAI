@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AuthLayout } from '../components/auth/AuthLayout'
-import { Button } from '../components/ui/Button'
+import { Loader2 } from 'lucide-react'
+import { LoginScene } from '../components/auth/LoginScene'
 import {
   publishLazadaOAuthNotice,
   upsertLazadaShop,
@@ -81,37 +81,37 @@ export function MarketplaceOAuthSuccessPage() {
 
   if (failed) {
     return (
-      <AuthLayout mode="login">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Kết nối Lazada không thành công
-          </h1>
-          <p className="mt-3 text-sm text-ink-muted">
-            {formatMarketplaceOAuthError(error)}
-          </p>
-          <Button
-            type="button"
-            variant="primary"
-            className="mt-8 w-full"
-            onClick={() => navigate(ADMIN_MARKETPLACE_PATH)}
-          >
-            Quay lại kết nối sàn
-          </Button>
-        </div>
-      </AuthLayout>
+      <LoginScene
+        closeTo={ADMIN_MARKETPLACE_PATH}
+        artTitle="Kết nối sàn"
+        artDescription="Hoàn tất ủy quyền shop để đồng bộ đơn hàng vào hệ thống."
+      >
+        <h1 className="login-title">Không thành công</h1>
+        <p className="login-lead">{formatMarketplaceOAuthError(error)}</p>
+        <button
+          type="button"
+          className="login-cta"
+          onClick={() => navigate(ADMIN_MARKETPLACE_PATH)}
+        >
+          Quay lại kết nối sàn
+        </button>
+      </LoginScene>
     )
   }
 
   return (
-    <AuthLayout mode="login">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          Đang hoàn tất kết nối shop…
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Shop {shopName ?? shopId} đã được ghi nhận. Bạn có thể đóng tab này.
-        </p>
+    <LoginScene
+      closeTo={ADMIN_MARKETPLACE_PATH}
+      artTitle="Kết nối sàn"
+      artDescription="Hoàn tất ủy quyền shop để đồng bộ đơn hàng vào hệ thống."
+    >
+      <h1 className="login-title">Đang hoàn tất…</h1>
+      <p className="login-lead">
+        Shop {shopName ?? shopId} đã được ghi nhận. Bạn có thể đóng tab này.
+      </p>
+      <div className="login-status-icon">
+        <Loader2 className="h-6 w-6 animate-spin" />
       </div>
-    </AuthLayout>
+    </LoginScene>
   )
 }
