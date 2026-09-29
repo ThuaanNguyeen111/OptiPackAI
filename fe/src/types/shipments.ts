@@ -29,11 +29,26 @@ export type Shipment = {
   attemptCount: number
   maxAttempts: number
   lastFailureReason: string | null
+  /** Hạn giao (giờ hành chính) — BE set lúc tạo vận đơn; null = vận đơn cũ. */
+  dueAt: string | null
   deliveredAt: string | null
   returnedAt: string | null
   version: number
   createdAt: string | null
   updatedAt: string | null
+}
+
+/** Quá hạn giao khi còn đang xử lý và dueAt đã qua. */
+export function isShipmentDeliveryOverdue(shipment: Shipment): boolean {
+  if (!shipment.dueAt) return false
+  if (
+    shipment.status === 'delivered' ||
+    shipment.status === 'returned_to_warehouse'
+  ) {
+    return false
+  }
+  const due = Date.parse(shipment.dueAt)
+  return Number.isFinite(due) && due < Date.now()
 }
 
 export type ShipmentEvent = {

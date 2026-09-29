@@ -1,6 +1,4 @@
 import { Link } from 'react-router-dom'
-import { useAuth } from '../../context/use-auth'
-import { homePath } from '../../lib/rbac'
 
 type LandingAuthCtaVariant = 'header' | 'hero' | 'footer' | 'mobile'
 
@@ -13,15 +11,9 @@ const CLASS_BY_VARIANT: Record<LandingAuthCtaVariant, string> = {
     'landing-cta inline-flex items-center rounded-full px-3 py-1.5 text-sm font-medium',
 }
 
-function labelFor(
-  signedIn: boolean,
-  variant: LandingAuthCtaVariant,
-): string {
-  if (signedIn) {
-    return variant === 'footer' ? 'Mở Dashboard →' : 'Vào hệ thống'
-  }
+function labelFor(variant: LandingAuthCtaVariant): string {
   if (variant === 'hero') return 'Đăng nhập hệ thống'
-  if (variant === 'footer') return 'Mở Dashboard →'
+  if (variant === 'footer') return 'Đăng nhập →'
   return 'Đăng nhập'
 }
 
@@ -32,14 +24,9 @@ export function LandingAuthCta({
   variant: LandingAuthCtaVariant
   onNavigate?: () => void
 }) {
-  const { session, ready } = useAuth()
-  if (!ready) return null
-
-  const to = session ? homePath(session.role) : '/login'
-
   return (
-    <Link to={to} className={CLASS_BY_VARIANT[variant]} onClick={onNavigate}>
-      {labelFor(Boolean(session), variant)}
+    <Link to="/login" className={CLASS_BY_VARIANT[variant]} onClick={onNavigate}>
+      {labelFor(variant)}
     </Link>
   )
 }

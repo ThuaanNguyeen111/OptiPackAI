@@ -709,6 +709,12 @@ html.dark .landing-nav-pill a:hover {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.pack-bench-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .pack-bench-detail .pack-bench-scroll {
