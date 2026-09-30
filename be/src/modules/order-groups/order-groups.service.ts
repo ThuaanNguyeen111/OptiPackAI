@@ -1,8 +1,17 @@
 import { StockReservationService } from './stock-reservation.service';
 import { stockKeyOf } from '../master-skus/stock-key.util';
-import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
-import { resolveMasterSkus, stockFilterFor } from '../master-skus/stock-key.util';
-import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
+import {
+  MarketplaceSkuMapping,
+  MarketplaceSkuMappingDocument,
+} from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import {
+  resolveMasterSkus,
+  stockFilterFor,
+} from '../master-skus/stock-key.util';
+import {
+  InventoryMovement,
+  InventoryMovementDocument,
+} from '../warehouse/schemas/inventory-movement.schema';
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types, ClientSession } from 'mongoose';
@@ -16,7 +25,10 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 // đọc dữ liệu của module kia mà không muốn import chéo Service (tránh
 // circular dependency giữa orders/ và order-groups/).
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
-import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
+import {
+  NOT_PACKABLE_ORDER_STATUSES,
+  OrderStatus,
+} from '../orders/enums/order-status.enum';
 import {
   aggregateOrderItems,
   RawOrderItemForAggregation,
@@ -60,6 +72,20 @@ import { StaffAssignmentService } from './staff-assignment.service';
  * behavior của syncLazadaOrders()/tryConsolidate() đang chạy.
  * ===================================================================
  */
+/**
+ * 01/10/2026 — số đơn trong 1 nhóm đơn theo trạng thái, trả kèm danh sách/chi tiết
+ * nhóm đơn để FE phân biệt nhóm bình thường / hủy một phần / hủy hết.
+ * - activeOrderCount: đơn còn phải xử lý — dùng ĐÚNG quy tắc của Picking List và gợi ý
+ *   đóng gói (status KHÔNG thuộc NOT_PACKABLE_ORDER_STATUSES).
+ * - canceledOrderCount: đơn có status `canceled`.
+ * Đơn sự cố vận chuyển (lost, damaged_by_3pl, failed...) không thuộc 2 nhóm trên:
+ * orderCount − activeOrderCount − canceledOrderCount = số đơn sự cố.
+ */
+export interface GroupOrderCounts {
+  activeOrderCount: number;
+  canceledOrderCount: number;
+}
+
 @Injectable()
 export class OrderGroupsService {
   private readonly logger = new Logger(OrderGroupsService.name);
@@ -441,6 +467,50 @@ export class OrderGroupsService {
       .lean();
   }
 
+  /**
+   * 01/10/2026 — đếm đơn còn hiệu lực / đã hủy cho NHIỀU nhóm đơn trong 1 truy vấn
+   * (Rule #16 — tránh N+1: danh sách 100 nhóm = 1 aggregation, không phải 100 lần đếm).
+   * Tính trực tiếp từ collection `orders` (nguồn sự thật) lúc đọc — không lưu sẵn trên
+   * order_groups, nên không cần migration và không bao giờ lệch với trạng thái đơn.
+   * Nhóm không có đơn nào trong kết quả -> { 0, 0 }.
+   */
+  async getOrderCountsForGroups(
+    groupIds: Types.ObjectId[],
+  ): Promise<Map<string, GroupOrderCounts>> {
+    const result = new Map<string, GroupOrderCounts>();
+    if (groupIds.length === 0) return result;
+    // KHÔNG thêm `is_consolidated: true` vào $match dù index consolidated_group_id là
+    // partial theo field đó: nhóm 1 đơn có consolidated_group_id nhưng is_consolidated
+    // vẫn false (xem getOrCreateGroupForOrder) — thêm điều kiện sẽ đếm thiếu.
+    const rows = await this.orderModel.aggregate<{
+      _id: Types.ObjectId;
+      active: number;
+      canceled: number;
+    }>([
+      { $match: { consolidated_group_id: { $in: groupIds } } },
+      {
+        $group: {
+          _id: '$consolidated_group_id',
+          active: {
+            $sum: {
+              $cond: [{ $in: ['$status', NOT_PACKABLE_ORDER_STATUSES] }, 0, 1],
+            },
+          },
+          canceled: {
+            $sum: { $cond: [{ $eq: ['$status', OrderStatus.CANCELED] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+    for (const row of rows) {
+      result.set(row._id.toString(), {
+        activeOrderCount: row.active,
+        canceledOrderCount: row.canceled,
+      });
+    }
+    return result;
+  }
+
   async findOrderGroupById(groupId: string): Promise<OrderGroupDocument> {
     if (!Types.ObjectId.isValid(groupId)) {
       throw new AppException(
@@ -525,7 +595,8 @@ export class OrderGroupsService {
       `Order Group ${groupId}: ${group.fulfillment_status} -> ${targetStatus} (version ${String(expectedVersion)} -> ${String(expectedVersion + 1)}).`,
     );
     // K5 — lấy hàng xong: phần giữ chỗ chưa quét tới (thiếu hàng/bỏ bớt) được nhả cho đơn khác.
-    if (targetStatus === GroupFulfillmentStatus.PICKED && !session) await this.releaseReservation(groupId);
+    if (targetStatus === GroupFulfillmentStatus.PICKED && !session)
+      await this.releaseReservation(groupId);
 
     return updated;
   }
@@ -584,7 +655,14 @@ export class OrderGroupsService {
     //     trừ, không transaction -> lỗi giữa chừng thì tồn đã trừ mà không có dòng sổ.
     const group = await this.findOrderGroupById(groupId);
     // 🔄 K4b — SKU đã nối: trừ vào tồn CHUNG của SKU nội bộ; chưa nối: như cũ.
-    const masterSku = (await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, [sku])).get(sku);
+    const masterSku = (
+      await resolveMasterSkus(
+        this.mappingModel,
+        group.platform,
+        group.shop_id,
+        [sku],
+      )
+    ).get(sku);
     const holder: { doc: SkuBinAssignmentDocument | null } = { doc: null };
     const session = await this.skuBinAssignmentModel.db.startSession();
     try {
@@ -593,7 +671,9 @@ export class OrderGroupsService {
           {
             warehouse_id: warehouseId,
             ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
-            ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}), // K3 — trừ đúng ô
+            ...(binLocationId
+              ? { bin_location_id: new Types.ObjectId(binLocationId) }
+              : {}), // K3 — trừ đúng ô
             quantity_on_hand: { $gte: scannedQuantity },
           },
           { $inc: { quantity_on_hand: -scannedQuantity } },
@@ -607,43 +687,59 @@ export class OrderGroupsService {
             { sku, warehouseId, requestedQuantity: scannedQuantity },
           );
         }
-        await this.inventoryMovementModel.create([{
-          warehouse_id: doc.warehouse_id,
-          assignment_id: doc._id,
-          bin_location_id: doc.bin_location_id,
-          platform: doc.platform,
-          shop_id: doc.shop_id,
-          seller_sku: doc.seller_sku,
-          master_sku: doc.master_sku ?? null, // K4b
-          type: 'pick',
-          delta: -scannedQuantity,
-          quantity_before: doc.quantity_on_hand + scannedQuantity,
-          quantity_after: doc.quantity_on_hand,
-          reason_code: null,
-          note: null,
-          ref_type: 'order_group',
-          ref_id: groupId,
-          actor_id: actorId,
-          created_at: new Date(),
-        }], { session });
-        await this.pickEventModel.create([{
-          order_group_id: groupId,
-          seller_sku: sku,
-          scanned_quantity: scannedQuantity,
-          scan_method: scanMethod,
-          client_event_id: clientEventId ?? null,
-          remaining_stock_after: doc.quantity_on_hand,
-          bin_location_id: doc.bin_location_id,
-        }], { session });
+        await this.inventoryMovementModel.create(
+          [
+            {
+              warehouse_id: doc.warehouse_id,
+              assignment_id: doc._id,
+              bin_location_id: doc.bin_location_id,
+              platform: doc.platform,
+              shop_id: doc.shop_id,
+              seller_sku: doc.seller_sku,
+              master_sku: doc.master_sku ?? null, // K4b
+              type: 'pick',
+              delta: -scannedQuantity,
+              quantity_before: doc.quantity_on_hand + scannedQuantity,
+              quantity_after: doc.quantity_on_hand,
+              reason_code: null,
+              note: null,
+              ref_type: 'order_group',
+              ref_id: groupId,
+              actor_id: actorId,
+              created_at: new Date(),
+            },
+          ],
+          { session },
+        );
+        await this.pickEventModel.create(
+          [
+            {
+              order_group_id: groupId,
+              seller_sku: sku,
+              scanned_quantity: scannedQuantity,
+              scan_method: scanMethod,
+              client_event_id: clientEventId ?? null,
+              remaining_stock_after: doc.quantity_on_hand,
+              bin_location_id: doc.bin_location_id,
+            },
+          ],
+          { session },
+        );
         // K5 — tiêu phần đã giữ chỗ tương ứng số vừa quét, CÙNG transaction.
-        await this.stockReservationService.consume(groupId, stockKeyOf(masterSku, group.platform, group.shop_id, sku), scannedQuantity, session);
+        await this.stockReservationService.consume(
+          groupId,
+          stockKeyOf(masterSku, group.platform, group.shop_id, sku),
+          scannedQuantity,
+          session,
+        );
         holder.doc = doc;
       });
     } finally {
       await session.endSession();
     }
     const updated = holder.doc;
-    if (!updated) throw new Error('Transaction trừ tồn kết thúc mà không có kết quả');
+    if (!updated)
+      throw new Error('Transaction trừ tồn kết thúc mà không có kết quả');
 
     return {
       sku,
@@ -798,7 +894,10 @@ export class OrderGroupsService {
       const { items } = await this.getPackableItemsForGroup(groupId);
       await this.stockReservationService.reconcile(group, items);
     } catch (error) {
-      this.logger.warn(`Giữ chỗ tồn kho cho nhóm đơn ${groupId} thất bại (không chặn luồng chính).`, error);
+      this.logger.warn(
+        `Giữ chỗ tồn kho cho nhóm đơn ${groupId} thất bại (không chặn luồng chính).`,
+        error,
+      );
     }
   }
 
