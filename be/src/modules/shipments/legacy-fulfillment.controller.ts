@@ -3,7 +3,10 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ShipmentsService } from './shipments.service';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { TransitionOrderGroupDto } from '../order-groups/dto/transition-order-group.dto';
-import { OrderGroupResponse, toOrderGroupResponse } from '../order-groups/order-groups.controller';
+import {
+  OrderGroupResponse,
+  toOrderGroupResponse,
+} from '../order-groups/order-groups.controller';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -31,25 +34,73 @@ export class LegacyFulfillmentController {
 
   @Post(':id/fulfillment/ship')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ deprecated: true, summary: '(Cũ) packed -> shipped. Nay tạo vận đơn out_for_delivery. Dùng POST /shipments.' })
-  async ship(@Param('id') id: string, @Body() body: TransitionOrderGroupDto, @CurrentUser() user: AuthenticatedUser): Promise<OrderGroupResponse> {
-    await this.shipmentsService.startDelivery(id, { userId: user.userId, role: user.role }, 'Qua route cũ fulfillment/ship', body.expected_version);
-    return toOrderGroupResponse(await this.orderGroupsService.findOrderGroupById(id));
+  @ApiOperation({
+    deprecated: true,
+    summary:
+      '(Cũ) packed -> shipped. Nay tạo vận đơn out_for_delivery. Dùng POST /shipments.',
+  })
+  async ship(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse> {
+    await this.shipmentsService.startDelivery(
+      id,
+      { userId: user.userId, role: user.role },
+      'Qua route cũ fulfillment/ship',
+      body.expected_version,
+    );
+    return toOrderGroupResponse(
+      this.orderGroupsService,
+      await this.orderGroupsService.findOrderGroupById(id),
+    );
   }
 
   @Post(':id/fulfillment/deliver')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ deprecated: true, summary: '(Cũ) shipped -> delivered. Nay đi qua vận đơn. Dùng POST /shipments/:id/deliver.' })
-  async deliver(@Param('id') id: string, @Body() body: TransitionOrderGroupDto, @CurrentUser() user: AuthenticatedUser): Promise<OrderGroupResponse> {
-    await this.shipmentsService.legacyDeliver(id, body.expected_version, { userId: user.userId, role: user.role });
-    return toOrderGroupResponse(await this.orderGroupsService.findOrderGroupById(id));
+  @ApiOperation({
+    deprecated: true,
+    summary:
+      '(Cũ) shipped -> delivered. Nay đi qua vận đơn. Dùng POST /shipments/:id/deliver.',
+  })
+  async deliver(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse> {
+    await this.shipmentsService.legacyDeliver(id, body.expected_version, {
+      userId: user.userId,
+      role: user.role,
+    });
+    return toOrderGroupResponse(
+      this.orderGroupsService,
+      await this.orderGroupsService.findOrderGroupById(id),
+    );
   }
 
   @Post(':id/fulfillment/return')
-  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ deprecated: true, summary: '(Cũ) shipped/delivered -> returned. Nay ghi lịch sử vận đơn. Dùng luồng /shipments.' })
-  async returnGroup(@Param('id') id: string, @Body() body: TransitionOrderGroupDto, @CurrentUser() user: AuthenticatedUser): Promise<OrderGroupResponse> {
-    await this.shipmentsService.legacyReturn(id, body.expected_version, { userId: user.userId, role: user.role });
-    return toOrderGroupResponse(await this.orderGroupsService.findOrderGroupById(id));
+  @Roles(
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.ADMIN,
+  )
+  @ApiOperation({
+    deprecated: true,
+    summary:
+      '(Cũ) shipped/delivered -> returned. Nay ghi lịch sử vận đơn. Dùng luồng /shipments.',
+  })
+  async returnGroup(
+    @Param('id') id: string,
+    @Body() body: TransitionOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse> {
+    await this.shipmentsService.legacyReturn(id, body.expected_version, {
+      userId: user.userId,
+      role: user.role,
+    });
+    return toOrderGroupResponse(
+      this.orderGroupsService,
+      await this.orderGroupsService.findOrderGroupById(id),
+    );
   }
 }
