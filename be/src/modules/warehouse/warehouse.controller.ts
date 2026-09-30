@@ -1,5 +1,15 @@
 import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { WarehouseService, PickingListItem } from './warehouse.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
@@ -80,7 +90,11 @@ interface BinLocationResponse {
   side: 'T' | 'P' | null;
   cell: number | null;
   capacity: number | null;
-  designated: { categoryCode: string | null; size: string | null; colorCode: string | null } | null;
+  designated: {
+    categoryCode: string | null;
+    size: string | null;
+    colorCode: string | null;
+  } | null;
   pickSequence: number | null;
 }
 function toBinLocationResponse(doc: BinLocationDocument): BinLocationResponse {
@@ -138,8 +152,12 @@ function toAssignmentResponse(
  * warehouse.controller.ts — MỚI (2026-09-09)
  * ===================================================================
  * Đúng "Manage warehouse configuration" (Phieu_FA26SE036.docx, System
- * Administrator) — TOÀN BỘ route ở đây @Roles(ADMIN), TRỪ 2 route đọc
- * cuối cùng (picking-list, unassigned) cần Warehouse Staff xem được.
+ * Administrator) — route CẤU HÌNH kho (tạo/sửa/xóa kho, khu, kệ, gán SKU)
+ * chỉ ADMIN. Route VẬN HÀNH kho mở thêm WAREHOUSE_STAFF: xem kho/khu/kệ,
+ * xem tồn theo ô, nhập hàng (restock), kiểm kê (adjust), chuyển ô
+ * (transfer), gợi ý ô, lịch sử, picking-list.
+ * ĐÃ THAY ĐỔI (01/10/2026): bin-locations, sku-bin-assignments (GET),
+ * restock, zones (GET) trước đây chỉ ADMIN.
  * ===================================================================
  */
 @ApiTags('Warehouse')
@@ -170,7 +188,8 @@ export class WarehouseController {
     @Query('include_inactive') includeInactive?: string,
   ): Promise<WarehouseResponse[]> {
     // K1 — chỉ Admin được xem kho đã vô hiệu hóa; Warehouse Staff luôn chỉ thấy kho đang hoạt động.
-    const showInactive = includeInactive === 'true' && user.role === UserRole.ADMIN;
+    const showInactive =
+      includeInactive === 'true' && user.role === UserRole.ADMIN;
     const docs = await this.warehouseService.listWarehouses(showInactive);
     return docs.map(toWarehouseResponse);
   }
@@ -187,13 +206,16 @@ export class WarehouseController {
   }
 
   @Get('warehouses/:warehouseId/zones')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Danh sách khu trong 1 kho' })
   async listZones(
     @Query('include_inactive') includeInactive: string | undefined,
     @Param('warehouseId') warehouseId: string,
   ): Promise<WarehouseZoneResponse[]> {
-    const docs = await this.warehouseService.listZones(warehouseId, includeInactive === 'true');
+    const docs = await this.warehouseService.listZones(
+      warehouseId,
+      includeInactive === 'true',
+    );
     return docs.map(toZoneResponse);
   }
 
@@ -207,12 +229,15 @@ export class WarehouseController {
     @Query('include_inactive') includeInactive: string | undefined,
     @Param('zoneId') zoneId: string,
   ): Promise<BinLocationResponse[]> {
-    const docs = await this.warehouseService.listBinLocationsByZone(zoneId, includeInactive === 'true');
+    const docs = await this.warehouseService.listBinLocationsByZone(
+      zoneId,
+      includeInactive === 'true',
+    );
     return docs.map(toBinLocationResponse);
   }
 
   @Get('warehouses/:warehouseId/bin-locations')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
     summary:
       'BỔ SUNG (16/09/2026) — Danh sách TOÀN BỘ kệ trong 1 kho (mọi khu gộp lại).',
@@ -221,13 +246,15 @@ export class WarehouseController {
     @Query('include_inactive') includeInactive: string | undefined,
     @Param('warehouseId') warehouseId: string,
   ): Promise<BinLocationResponse[]> {
-    const docs =
-      await this.warehouseService.listBinLocationsByWarehouse(warehouseId, includeInactive === 'true');
+    const docs = await this.warehouseService.listBinLocationsByWarehouse(
+      warehouseId,
+      includeInactive === 'true',
+    );
     return docs.map(toBinLocationResponse);
   }
 
   @Get('warehouses/:warehouseId/sku-bin-assignments')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
     summary:
       'BỔ SUNG (16/09/2026, báo cáo Hải Phượng) — Danh sách SKU đã gán vị trí trong 1 kho, để Admin xem lại/đối chiếu sau khi gán (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán).',
@@ -262,12 +289,16 @@ export class WarehouseController {
     @Body() dto: AssignSkuBinDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<SkuBinAssignmentResponse> {
-    const doc = await this.warehouseService.assignSkuToBin(warehouseId, dto, user.userId);
+    const doc = await this.warehouseService.assignSkuToBin(
+      warehouseId,
+      dto,
+      user.userId,
+    );
     return toAssignmentResponse(doc);
   }
 
   @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({
     summary:
       'Nhập thêm hàng vào 1 vị trí đã gán (cộng dồn quantity_on_hand, không reset về giá trị mới).',
@@ -321,69 +352,117 @@ export class WarehouseController {
   @Get('warehouses/:warehouseId')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: '🆕 K1 — Chi tiết 1 kho (kể cả đã vô hiệu hóa).' })
-  async getWarehouse(@Param('warehouseId') warehouseId: string): Promise<WarehouseResponse> {
-    return toWarehouseResponse(await this.warehouseService.getWarehouse(warehouseId));
+  async getWarehouse(
+    @Param('warehouseId') warehouseId: string,
+  ): Promise<WarehouseResponse> {
+    return toWarehouseResponse(
+      await this.warehouseService.getWarehouse(warehouseId),
+    );
   }
 
   @Patch('warehouses/:warehouseId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Sửa tên/địa chỉ kho. KHÔNG sửa được warehouse_code.' })
+  @ApiOperation({
+    summary: '🆕 K1 — Sửa tên/địa chỉ kho. KHÔNG sửa được warehouse_code.',
+  })
   async updateWarehouse(
     @Param('warehouseId') warehouseId: string,
     @Body() dto: UpdateWarehouseDto,
   ): Promise<WarehouseResponse> {
-    return toWarehouseResponse(await this.warehouseService.updateWarehouse(warehouseId, dto));
+    return toWarehouseResponse(
+      await this.warehouseService.updateWarehouse(warehouseId, dto),
+    );
   }
 
   @Delete('warehouses/:warehouseId')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: '🆕 K1 — Vô hiệu hóa kho (xóa mềm). Chặn 409 WH_HAS_STOCK nếu còn hàng. Tự vô hiệu hóa toàn bộ khu + kệ bên trong.',
+    summary:
+      '🆕 K1 — Vô hiệu hóa kho (xóa mềm). Chặn 409 WH_HAS_STOCK nếu còn hàng. Tự vô hiệu hóa toàn bộ khu + kệ bên trong.',
   })
-  async deactivateWarehouse(@Param('warehouseId') warehouseId: string): Promise<WarehouseResponse> {
-    return toWarehouseResponse(await this.warehouseService.deactivateWarehouse(warehouseId));
+  async deactivateWarehouse(
+    @Param('warehouseId') warehouseId: string,
+  ): Promise<WarehouseResponse> {
+    return toWarehouseResponse(
+      await this.warehouseService.deactivateWarehouse(warehouseId),
+    );
   }
 
   @Post('warehouses/:warehouseId/reactivate')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại kho. CHỈ kho — các khu vẫn tắt, Admin bật lại từng khu.' })
-  async reactivateWarehouse(@Param('warehouseId') warehouseId: string): Promise<WarehouseResponse> {
-    return toWarehouseResponse(await this.warehouseService.reactivateWarehouse(warehouseId));
+  @ApiOperation({
+    summary:
+      '🆕 K1 — Kích hoạt lại kho. CHỈ kho — các khu vẫn tắt, Admin bật lại từng khu.',
+  })
+  async reactivateWarehouse(
+    @Param('warehouseId') warehouseId: string,
+  ): Promise<WarehouseResponse> {
+    return toWarehouseResponse(
+      await this.warehouseService.reactivateWarehouse(warehouseId),
+    );
   }
 
   @Patch('zones/:zoneId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Sửa tên/mô tả khu. KHÔNG sửa được zone_code (đã nằm trong mã kệ in trên nhãn).' })
-  async updateZone(@Param('zoneId') zoneId: string, @Body() dto: UpdateZoneDto): Promise<WarehouseZoneResponse> {
+  @ApiOperation({
+    summary:
+      '🆕 K1 — Sửa tên/mô tả khu. KHÔNG sửa được zone_code (đã nằm trong mã kệ in trên nhãn).',
+  })
+  async updateZone(
+    @Param('zoneId') zoneId: string,
+    @Body() dto: UpdateZoneDto,
+  ): Promise<WarehouseZoneResponse> {
     return toZoneResponse(await this.warehouseService.updateZone(zoneId, dto));
   }
 
   @Delete('zones/:zoneId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Vô hiệu hóa khu + toàn bộ kệ trong khu. Chặn 409 nếu còn hàng.' })
-  async deactivateZone(@Param('zoneId') zoneId: string): Promise<WarehouseZoneResponse> {
+  @ApiOperation({
+    summary:
+      '🆕 K1 — Vô hiệu hóa khu + toàn bộ kệ trong khu. Chặn 409 nếu còn hàng.',
+  })
+  async deactivateZone(
+    @Param('zoneId') zoneId: string,
+  ): Promise<WarehouseZoneResponse> {
     return toZoneResponse(await this.warehouseService.deactivateZone(zoneId));
   }
 
   @Post('zones/:zoneId/reactivate')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại khu + toàn bộ kệ trong khu. Kho phải đang hoạt động.' })
-  async reactivateZone(@Param('zoneId') zoneId: string): Promise<WarehouseZoneResponse> {
+  @ApiOperation({
+    summary:
+      '🆕 K1 — Kích hoạt lại khu + toàn bộ kệ trong khu. Kho phải đang hoạt động.',
+  })
+  async reactivateZone(
+    @Param('zoneId') zoneId: string,
+  ): Promise<WarehouseZoneResponse> {
     return toZoneResponse(await this.warehouseService.reactivateZone(zoneId));
   }
 
   @Delete('bin-locations/:binId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Vô hiệu hóa 1 kệ. Chặn 409 nếu kệ còn hàng.' })
-  async deactivateBin(@Param('binId') binId: string): Promise<BinLocationResponse> {
-    return toBinLocationResponse(await this.warehouseService.deactivateBin(binId));
+  @ApiOperation({
+    summary: '🆕 K1 — Vô hiệu hóa 1 kệ. Chặn 409 nếu kệ còn hàng.',
+  })
+  async deactivateBin(
+    @Param('binId') binId: string,
+  ): Promise<BinLocationResponse> {
+    return toBinLocationResponse(
+      await this.warehouseService.deactivateBin(binId),
+    );
   }
 
   @Post('bin-locations/:binId/reactivate')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K1 — Kích hoạt lại 1 kệ. Khu chứa kệ phải đang hoạt động.' })
-  async reactivateBin(@Param('binId') binId: string): Promise<BinLocationResponse> {
-    return toBinLocationResponse(await this.warehouseService.reactivateBin(binId));
+  @ApiOperation({
+    summary: '🆕 K1 — Kích hoạt lại 1 kệ. Khu chứa kệ phải đang hoạt động.',
+  })
+  async reactivateBin(
+    @Param('binId') binId: string,
+  ): Promise<BinLocationResponse> {
+    return toBinLocationResponse(
+      await this.warehouseService.reactivateBin(binId),
+    );
   }
   // ===================================================================
   // K2 (26/09/2026) — BỐ CỤC KHO MỚI. Toàn bộ chỉ Admin (trừ gợi ý ô).
@@ -392,30 +471,56 @@ export class WarehouseController {
   @Post('zones/:zoneId/racks')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
-    summary: '🆕 K2 — Tạo 1 kệ chuẩn mới (mã KA-D1-P02-T03-1) + toàn bộ ô, mỗi tầng 1 size, mỗi ô 1 màu. Thay thế dần endpoint generate cũ.',
+    summary:
+      '🆕 K2 — Tạo 1 kệ chuẩn mới (mã KA-D1-P02-T03-1) + toàn bộ ô, mỗi tầng 1 size, mỗi ô 1 màu. Thay thế dần endpoint generate cũ.',
   })
-  async createRack(@Param('zoneId') zoneId: string, @Body() dto: CreateRackDto): Promise<BinLocationResponse[]> {
+  async createRack(
+    @Param('zoneId') zoneId: string,
+    @Body() dto: CreateRackDto,
+  ): Promise<BinLocationResponse[]> {
     const docs = await this.warehouseService.createRack(zoneId, dto);
     return docs.map(toBinLocationResponse);
   }
 
   @Patch('bin-locations/:binId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K2 — Sửa sức chứa + danh mục/size/màu đăng ký của 1 ô. KHÔNG sửa được mã ô.' })
-  async updateBin(@Param('binId') binId: string, @Body() dto: UpdateBinDto): Promise<BinLocationResponse> {
-    return toBinLocationResponse(await this.warehouseService.updateBin(binId, dto));
+  @ApiOperation({
+    summary:
+      '🆕 K2 — Sửa sức chứa + danh mục/size/màu đăng ký của 1 ô. KHÔNG sửa được mã ô.',
+  })
+  async updateBin(
+    @Param('binId') binId: string,
+    @Body() dto: UpdateBinDto,
+  ): Promise<BinLocationResponse> {
+    return toBinLocationResponse(
+      await this.warehouseService.updateBin(binId, dto),
+    );
   }
 
   @Get('warehouses/:warehouseId/bin-suggestions')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: '🆕 K2 — Gợi ý ô xếp hàng theo danh mục (bắt buộc), size, màu. Chỉ gợi ý ô còn chỗ.' })
+  @ApiOperation({
+    summary:
+      '🆕 K2 — Gợi ý ô xếp hàng theo danh mục (bắt buộc), size, màu. Chỉ gợi ý ô còn chỗ.',
+  })
   async suggestBins(
     @Param('warehouseId') warehouseId: string,
     @Query('category_code') categoryCode: string,
     @Query('size') size?: string,
     @Query('color_code') colorCode?: string,
-  ): Promise<{ bin: BinLocationResponse; matchLevel: 1 | 2 | 3; usedUnits: number; freeCapacity: number | null }[]> {
-    const rows = await this.warehouseService.suggestBins(warehouseId, { category_code: categoryCode, size, color_code: colorCode });
+  ): Promise<
+    {
+      bin: BinLocationResponse;
+      matchLevel: 1 | 2 | 3;
+      usedUnits: number;
+      freeCapacity: number | null;
+    }[]
+  > {
+    const rows = await this.warehouseService.suggestBins(warehouseId, {
+      category_code: categoryCode,
+      size,
+      color_code: colorCode,
+    });
     return rows.map((r) => ({ ...r, bin: toBinLocationResponse(r.bin) }));
   }
   // ===================================================================
@@ -424,46 +529,77 @@ export class WarehouseController {
 
   @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/adjust')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: '🆕 K3 — Kiểm kê: nhập số đếm thực tế, hệ thống tự tính chênh lệch + ghi sổ cái (bắt buộc lý do).' })
+  @ApiOperation({
+    summary:
+      '🆕 K3 — Kiểm kê: nhập số đếm thực tế, hệ thống tự tính chênh lệch + ghi sổ cái (bắt buộc lý do).',
+  })
   async adjustStock(
     @Param('warehouseId') warehouseId: string,
     @Param('assignmentId') assignmentId: string,
     @Body() dto: AdjustStockDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<SkuBinAssignmentResponse> {
-    return toAssignmentResponse(await this.warehouseService.adjustStock(warehouseId, assignmentId, dto, user.userId));
+    return toAssignmentResponse(
+      await this.warehouseService.adjustStock(
+        warehouseId,
+        assignmentId,
+        dto,
+        user.userId,
+      ),
+    );
   }
 
   @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/transfer')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
-  @ApiOperation({ summary: '🆕 K3 — Chuyển hàng sang ô khác cùng kho (trừ nguồn + cộng đích + 2 dòng sổ cái, 1 transaction).' })
+  @ApiOperation({
+    summary:
+      '🆕 K3 — Chuyển hàng sang ô khác cùng kho (trừ nguồn + cộng đích + 2 dòng sổ cái, 1 transaction).',
+  })
   async transferStock(
     @Param('warehouseId') warehouseId: string,
     @Param('assignmentId') assignmentId: string,
     @Body() dto: TransferStockDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ from: SkuBinAssignmentResponse; to: SkuBinAssignmentResponse }> {
-    const { from, to } = await this.warehouseService.transferStock(warehouseId, assignmentId, dto, user.userId);
+    const { from, to } = await this.warehouseService.transferStock(
+      warehouseId,
+      assignmentId,
+      dto,
+      user.userId,
+    );
     return { from: toAssignmentResponse(from), to: toAssignmentResponse(to) };
   }
 
   @Delete('warehouses/:warehouseId/sku-bin-assignments/:assignmentId')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K3 — Bỏ gán SKU khỏi ô (chỉ khi tồn = 0). Sổ cái cũ giữ nguyên.' })
-  async unassign(@Param('warehouseId') warehouseId: string, @Param('assignmentId') assignmentId: string): Promise<{ success: true }> {
+  @ApiOperation({
+    summary:
+      '🆕 K3 — Bỏ gán SKU khỏi ô (chỉ khi tồn = 0). Sổ cái cũ giữ nguyên.',
+  })
+  async unassign(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+  ): Promise<{ success: true }> {
     await this.warehouseService.unassign(warehouseId, assignmentId);
     return { success: true };
   }
 
   @Get('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/movements')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
-  @ApiOperation({ summary: '🆕 K3 — Sổ cái của 1 SKU trên 1 ô (mới -> cũ): nhập, lấy, kiểm kê, chuyển, hoàn.' })
+  @ApiOperation({
+    summary:
+      '🆕 K3 — Sổ cái của 1 SKU trên 1 ô (mới -> cũ): nhập, lấy, kiểm kê, chuyển, hoàn.',
+  })
   async listMovements(
     @Param('warehouseId') warehouseId: string,
     @Param('assignmentId') assignmentId: string,
     @Query('limit') limit?: string,
   ): Promise<Record<string, unknown>[]> {
-    const docs = await this.warehouseService.listMovements(warehouseId, assignmentId, Number(limit) || 100);
+    const docs = await this.warehouseService.listMovements(
+      warehouseId,
+      assignmentId,
+      Number(limit) || 100,
+    );
     return docs.map((m) => ({
       id: m._id.toString(),
       type: m.type,
