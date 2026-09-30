@@ -708,6 +708,8 @@ GET  /order-groups/:id/packing-slip              (in phiếu, UC-06)
 POST /order-groups/:id/fulfillment/return         (phát hiện hàng lỗi lúc soạn — shared với Shipping Coordinator)
 ```
 
+> 🔄 **ĐÃ THAY ĐỔI so với ma trận gốc (cập nhật 01/10/2026)** — ma trận trên là bản thiết kế 09/09. Route kho thực tế của Warehouse Staff hiện nay (đọc từ `@Roles` trong `warehouse.controller.ts`): `GET warehouses`, `GET warehouses/:id`, `GET warehouses/:id/zones`, `GET warehouses/:id/bin-locations`, `GET warehouses/:id/sku-bin-assignments`, `POST .../restock`, `POST .../adjust`, `POST .../transfer`, `GET .../movements`, `GET bin-suggestions`, `GET picking-list`. **Nguyên tắc phân quyền kho (chốt 01/10/2026): route CẤU HÌNH kho (tạo/sửa/tắt kho-khu-kệ, gán/bỏ gán SKU, danh sách SKU chưa gán, danh sách ô theo khu) chỉ ADMIN; route VẬN HÀNH kho (xem vị trí và tồn, nhập hàng, kiểm kê, chuyển ô, lấy hàng) mở ADMIN + WAREHOUSE_STAFF.** Mục "ADMIN — ... POST/GET /admin/..." bên dưới là tên route thiết kế cũ, route thật không có tiền tố `/admin` — tra `API_LIST.md` mục 9.
+
 **PACKAGING_STAFF** — 4 API (0 hiện có):
 
 ```
@@ -1521,6 +1523,8 @@ Type hợp lệ: feat, fix, docs, style, refactor, perf, test, build, ci, chore,
 
 **Bổ sung (2026-09-11), ĐÃ SỬA LẠI cho đúng sau khi đối chiếu `commitlint.config.mjs` thật** — giải thích lượt trước SAI ở phần lý do (nói "chặn vì liệt kê tên file" — không đúng bản chất luật). **Luật thật (`subject-not-vague`)**: chỉ chặn nếu dòng mô tả **BẮT ĐẦU** bằng đúng 1 trong 6 từ cấm: `update`, `fix stuff`, `wip`, `misc`, `changes`, `stuff` — **không liên quan** tới việc có nhắc tên file hay không. VD `"update CLAUDE.md and README.md"` bị chặn vì mở đầu bằng `"update "`, KHÔNG phải vì liệt kê file — `"sync CLAUDE.md and README.md..."` sẽ KHÔNG bị chặn dù cũng liệt kê y hệt tên file. Cách tránh đơn giản nhất: không mở đầu dòng mô tả bằng 6 từ cấm trên, dùng động từ cụ thể hơn (`add`, `remove`, `fix`, `log`, `record`, `refactor`...).
 
+**Nhắc lại (01/10/2026):** Claude từng đề xuất nhầm `feat(warehouse): ...` — scope là tên module thay vì mã ticket, bị `scope-ticket-format` chặn. Mọi commit đề xuất cho user PHẢI dạng `type(AOFP-<số>): ...`, subject viết thường, không dấu chấm cuối, ≤ 100 ký tự; không biết số ticket thì ghi rõ để user thay theo Jira.
+
 **Các rule khác đã xác nhận đúng qua config thật, không cần sửa**: `scope-ticket-format` — scope bắt buộc đúng `AOFP-<số>`, không có ngoại lệ; `header-max-length` — 100 ký tự cho dòng đầu tiên; type hợp lệ kế thừa nguyên `@commitlint/config-conventional` (feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert — đúng danh sách đã ghi từ trước).
 
 ## Database Design Standards — BẮT BUỘC (rút kinh nghiệm từ lỗi ở project EDUMEE)
@@ -1944,6 +1948,8 @@ Rà lại toàn bộ `be.zip` đối chiếu `API_LIST.md`, `INTEGRATION_GUIDE.m
 User xác nhận: shop demo là mô hình **seller tự lo khâu giao hàng** (không dùng dịch vụ logistics/fulfillment riêng của Lazada) — phạm vi OptiPackAI với Lazada chỉ cần **kéo đơn về (read-only)**, việc cập nhật "Ready to Ship"/mã vận đơn lên chính Lazada là seller tự thao tác tay bên ngoài hệ thống, không thuộc trách nhiệm BE.
 
 Đã sửa lại `BE_System_Audit/02_LO_HONG_NGHIEP_VU_LAZADA_CHI_TIET.md` và `03_VIEC_CAN_GUI_DOC_LAZADA_DE_CUNG_CO.md` — bỏ "không ghi ngược Lazada" khỏi danh sách gap, đánh dấu rõ đây là phạm vi có chủ đích, không phải thiếu sót. 3 route từng đề xuất (`ready-to-ship`/`invoice`/`shipping-label`) và mục tài liệu Lazada Order API ghi (`SetStatusToReadyToShip`/`SetInvoiceNumber`/`GetDocument`) **không còn cần thiết** cho phạm vi dự án — giữ lại trong file kèm ghi chú "đã cân nhắc và loại bỏ có chủ đích" để không ai hiểu nhầm là bị bỏ sót.
+
+> 🔄 **Phạm vi của quyết định "không ghi ngược Lazada" (làm rõ 30/09/2026):** quyết định này chỉ áp dụng cho **trạng thái đơn / vận đơn** (Ready to Ship, mã vận đơn, nhãn) — vẫn giữ nguyên. **Tồn kho khả dụng** là chủ đề khác: đang nghiên cứu ghi ngược lên Lazada, xem mục "🔬 Nghiên cứu đồng bộ tồn kho khả dụng lên Lazada" ở cuối file. Chưa code.
 
 **Các phát hiện khác trong đợt rà soát 14/09 vẫn giữ nguyên, không đổi**: lỗ hổng `markAsRead` không kiểm tra quyền sở hữu (🔴), `consolidation_key` thiếu `platform`, bug đơn `canceled` lan sang Picking List, Lazada callback thiếu `@Redirect()`, Notification `CONNECTION_LOST`/`SYNC_FAILED` chưa kích hoạt — không liên quan gì tới mô hình giao hàng seller-tự-lo, không bị ảnh hưởng bởi lần sửa này.
 
@@ -2893,3 +2899,77 @@ Nhập hàng không tự tính lại nhóm đơn thiếu; đơn hủy trên Laza
 **Tài liệu:** `INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md` (mới), `DEMO_PLAYBOOK.md` (mới — sổ tay trình diễn toàn hệ thống), cập nhật `API_LIST.md` mục 15, dẫn chiếu trong guide giao hàng và vật liệu; chuẩn hóa văn phong các guide.
 
 **Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn seed-admin), jest 31/31 suite — 292/292 test.
+
+---
+
+## 🔬 Nghiên cứu đồng bộ tồn kho khả dụng lên Lazada (29–30/09/2026) — CHƯA CODE, chờ test trên shop thật
+
+**Mục tiêu:** chỉnh tồn trong kho OptiPack thì tồn trên shop Lazada cập nhật theo. Nguồn: tài liệu chính thức Lazada Open Platform do Thuận chụp gửi — AdjustSellableQuantity, UpdateSellableQuantity, UpdatePriceQuantity, UpdateProduct, GetProducts, GetProductItem, RemoveProduct, RemoveSku, ProductCheck, trang **Inventory Management API (cập nhật 07/07/2025)** và **Inventory calculation logic** (cây tài liệu: API Best Practice → Product operation → Product Inventory Management; bản sao: `developer.alibaba.com/docs/doc.htm?treeId=499&articleId=121233&docType=1`).
+
+**1. Mô hình tồn của Lazada (5 loại, theo từng SKU/kho):**
+
+| Loại                 | Ý nghĩa                                                                        | Ai sửa                                  |
+| -------------------- | ------------------------------------------------------------------------------ | --------------------------------------- |
+| `withholdQuantity`   | Đơn **unpaid**; quá 30 phút không trả tiền → trả về sellable                   | Không sửa được                          |
+| `occupyQuantity`     | Đơn **pending → packed**; **rời occupy khi đơn sang RTS**, hủy thì về sellable | Không sửa được                          |
+| `sellableQuantity`   | Số khách mua được, Seller Center hiển thị; **đã gồm** phần khóa chiến dịch     | Adjust / UpdateSellable / UpdateProduct |
+| `totalQuantity`      | Tổng các loại trên; phải ≥ withhold + occupy + campaign                        | UpdatePriceQuantity                     |
+| `channelInventories` | Phần khóa cho chiến dịch; hết chiến dịch → về sellable                         | Không sửa được                          |
+
+Sơ đồ luồng: khi RTS thì `total` giảm hẳn. Hủy do **khách hủy / seller không giao được** → trả về sellable. Hủy do **seller hết hàng / sai giá** → sơ đồ cho thấy `total` và `sellable` về **0** (chưa rõ cả SKU hay chỉ phần của đơn — cần test).
+
+**2. Chọn API (ĐÃ THAY ĐỔI so với ghi chú 27/09 "ưu tiên UpdateSellableQuantity hơn Adjust"):**
+
+| API                                                                                                                                                   | Dùng  | Vai trò                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /product/stock/sellable/adjust` (Adjust)                                                                                                        | Có    | Đẩy **chênh lệch** (+N/−N, được gửi số âm) cho biến động phát sinh trong kho OptiPack — không đè phần Lazada vừa tự trừ khi có đơn |
+| `/product/stock/sellable/update` (UpdateSellable)                                                                                                     | Có    | **Ghi đè** sellable: đối soát định kỳ, lần đầu nối SKU, khôi phục sau khi Lazada đưa về 0                                          |
+| GetProducts (`options=1`, `sku_seller_list`, cuộn `update_after`, limit ≤ 50) / GetProductItem (`item_id` bắt buộc; `seller_sku` ngừng từ 15/11/2023) | Có    | Lấy `item_id`/`SkuId`; đọc sellable/occupy/withhold/`channelInventories`                                                           |
+| GetMultiWarehouseBySeller (`/seller/warehouse/get`, `addressTypes=["warehouse"]`)                                                                     | 1 lần | Xác định shop 1 kho (`dropshipping`) để dùng payload 1 kho                                                                         |
+| UpdatePriceQuantity                                                                                                                                   | Không | Ghi **total** → trừ trùng occupy (kho mình trừ ở pick, Lazada giữ occupy tới RTS), có thể bị từ chối; payload kèm giá              |
+| UpdateProduct                                                                                                                                         | Không | Lazada ghi rõ không khuyến nghị dùng để sửa tồn; ghi đè thuộc tính sản phẩm                                                        |
+| RemoveProduct / RemoveSku / ProductCheck                                                                                                              | Không | Phá hủy dữ liệu / chỉ cho seller xuyên biên giới                                                                                   |
+
+**3. Quy tắc đẩy — câu hỏi quyết định: "Lazada đã tự biết thay đổi này chưa?"** Chỉ đẩy biến động **không** bắt nguồn từ vòng đời đơn Lazada.
+
+| Sự kiện OptiPack                                                                                                                             | Hành động                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Nhập hàng (`restock`), kiểm kê, loại bỏ/cách ly, restock hàng trả (RMA giả lập, giao thất bại), giữ hàng cho đơn kênh khác (AURELLE, `EXC-`) | Adjust ±N                                                                                 |
+| Chuyển ô                                                                                                                                     | Không đẩy (tổng không đổi)                                                                |
+| Đơn Lazada: giữ chỗ → pick → pack → giao                                                                                                     | Không đẩy (Lazada đã trừ)                                                                 |
+| Đơn Lazada khách hủy / seller không giao được                                                                                                | Không đẩy; chỉ giải phóng giữ chỗ nội bộ; nếu đã pick thì restock nội bộ **không** Adjust |
+| Seller hủy vì hết hàng                                                                                                                       | UpdateSellable khôi phục                                                                  |
+| Seller hủy vì sai giá                                                                                                                        | Không đẩy; cảnh báo Store Owner                                                           |
+| Nối SKU mới / đối soát đêm                                                                                                                   | UpdateSellable                                                                            |
+
+Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_sync`, với `chưa_sync = max(0, (withhold + occupy) − (đơn Lazada đã giữ chưa pick + đã pick chưa RTS))`; không thấp hơn `channelInventories` (thấp hơn → không đẩy, cảnh báo).
+
+**4. Ràng buộc kỹ thuật:** ≤ 50 SKU/request (khuyến nghị 20; vượt → 4171/timeout, 513 gợi ý giảm về ≤ 20); 50 lần/giây/seller; kết quả không âm; ≥ campaign lock; seller 1 kho không dùng payload nhiều kho; không gửi khối pre-inventory (`BizType=2`). Lỗi: 901/6 → retry backoff; 4170 → hoãn tới hết chiến dịch; 212 → đọc lại rồi tính lại; 4137/207/`EDIT_ITEM_NOT_BELONG_SELLER` → làm mới mapping; 4155/4218 → sản phẩm bị khóa, ngừng đẩy, báo Store Owner; 501 → đọc `detail` theo từng SKU; `SellerNotActive` → dừng cả shop.
+
+**5. Thiết kế đề xuất:** bảng mapping `lazada_item_id`/`lazada_sku_id` (gắn K4) → outbox ghi trong cùng transaction với `inventory_movements` → worker 1–2 phút gộp theo SKU, batch ≤ 20 → cron đối soát sau sync đơn → công tắc theo shop, mặc định tắt. Webhook "Shallow Stock" / "Product Update" có sẵn nhưng hoãn tới khi deploy (cùng lý do webhook đơn).
+
+**6. Điều kiện trước khi code:** (1) kiểm tra quyền Product API trong App Console và test trên 1 sản phẩm thật (Adjust +1/−1, UpdateSellable, đọc lại); (2) làm trạng thái hủy cho order group (audit P1) — thiếu thì giữ chỗ của đơn hủy không giải phóng, số đẩy sai; (3) kiểm tra cron sync có lấy đơn `unpaid` không. Khi code xong: quyết định "chỉ đọc Lazada" đổi thành "đọc đơn, ghi tồn khả dụng" — sửa tại mục 14/09 ở trên.
+
+**Cần xác nhận khi test:** hủy vì hết hàng làm cả SKU hay 1 đơn vị về 0; định dạng `detail` khi batch lỗi một phần; các trường `options=1` trên shop VN; 4155/4218 có xuất hiện ở API tồn không.
+
+---
+
+## 📦 Nhật ký 01/10/2026 — Mở quyền vận hành kho cho Warehouse Staff
+
+**Bối cảnh:** FE (Việt) báo 3 route `GET .../bin-locations`, `GET .../sku-bin-assignments`, `POST .../restock` đã có nhưng chỉ `@Roles(ADMIN)` → Warehouse Staff bị 403, không có màn hình xem hàng nằm ở ô nào và không tự nhập hàng. Kiểm tra `be.zip`: đúng, cả 3 chỉ ADMIN, trong khi `adjust`/`transfer`/`bin-suggestions`/`movements` đã mở Warehouse Staff từ K2/K3 — không nhất quán. `DEMO_PLAYBOOK.md` bước B6 và guide SKU_STOCK 5.4 còn hướng dẫn Warehouse bấm nhập hàng → sẽ 403.
+
+**Thay đổi code:** `warehouse.controller.ts` — thêm `UserRole.WAREHOUSE_STAFF` vào `@Roles` của 4 method: `listZones` (`GET warehouses/:id/zones` — mở thêm vì bin-locations chỉ trả `zoneId`, staff cần mã khu để hiển thị/lọc), `listBinLocationsByWarehouse`, `listSkuBinAssignmentsByWarehouse`, `restockSku`. Sửa comment đầu controller (ghi sai "toàn bộ route ADMIN trừ 2 route đọc"). Không đổi service/DTO/schema. `restock` đã lấy người thực hiện từ JWT (`user.userId`) → sổ cái `receive` ghi đúng nhân viên.
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: không đổi schema, không migration.
+2. Route đổi hành vi: không đổi request/response; chỉ thêm vai trò được gọi.
+3. Luồng bị ảnh hưởng: nhập hàng có thể do Warehouse Staff làm → tồn khả dụng K5 tăng như Admin nhập; sổ cái ghi đúng người.
+4. Không ảnh hưởng: cấu hình kho, gán SKU, K4a/K4b, giữ chỗ K5, Picking List, pick-item, trả/hoàn hàng.
+5. Lỗi có sẵn phát hiện: (a) playbook/guide hướng dẫn Warehouse nhập hàng khi route chưa mở — khớp sau thay đổi; (b) restock không tự recheck nhóm đơn thiếu hàng (audit P1) — để commit riêng; (c) `include_inactive=true` ở zones/bin-locations có tác dụng với cả Warehouse Staff (danh sách kho thì không) — chỉ xem, ghi vào hạn chế; (d) "không tìm thấy dòng tồn" dùng chung mã `WH_WAREHOUSE_NOT_FOUND` — ghi vào hạn chế; (e) nhân viên chưa gắn kho làm việc (đã có ở guide PHẦN E mục 7).
+
+**Tài liệu:** `INTEGRATION_GUIDE_WAREHOUSE.md` v1.4 (PHẦN B5 mới: bảng quyền, màn "Tồn kho theo vị trí" từng bước, request/response, mã lỗi, cách demo, tác động, hạn chế; B.3; F.1; F.5), `API_LIST.md` mục 9 + tóm tắt Warehouse Staff, `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 2b, `DEMO_PLAYBOOK.md` (1.3, B6), `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` 5.4, ma trận role trong file này.
+
+**Commit:** `feat(AOFP-50): allow warehouse staff to view bins, stock by bin, zones and restock` (code) và `docs(AOFP-50): document warehouse staff access to bin stock and restock` (tài liệu). Số ticket thay theo Jira nếu task có mã riêng.
+
+**Kiểm chứng:** thay đổi chỉ ở decorator; trước khi push chạy `npx tsc --noEmit`, `npm run lint`, `npm run test`, và test tay bằng tài khoản Warehouse Staff (4 route → 200; `POST warehouses/:id/zones` → vẫn 403).
