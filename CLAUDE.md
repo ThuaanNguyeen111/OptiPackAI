@@ -2973,3 +2973,31 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Commit:** `feat(AOFP-50): allow warehouse staff to view bins, stock by bin, zones and restock` (code) và `docs(AOFP-50): document warehouse staff access to bin stock and restock` (tài liệu). Số ticket thay theo Jira nếu task có mã riêng.
 
 **Kiểm chứng:** thay đổi chỉ ở decorator; trước khi push chạy `npx tsc --noEmit`, `npm run lint`, `npm run test`, và test tay bằng tài khoản Warehouse Staff (4 route → 200; `POST warehouses/:id/zones` → vẫn 403).
+
+---
+
+## 📦 Nhật ký 01/10/2026 — Nhóm đơn trả thêm số đơn còn hiệu lực / đã hủy (bước 1 xử lý hủy đơn)
+
+**Bối cảnh:** FE (Việt) báo màn kho không phân biệt được nhóm đơn có đơn hủy: đơn có `status: canceled` ở collection `orders`, BE đã lọc đơn hủy ở tầng hàng cần lấy (`getPackableItemsForGroup`, dùng chung cho Picking List + gợi ý đóng gói), nhưng `OrderGroupResponse` chỉ có `orderCount` → trên danh sách nhóm bình thường / hủy một phần / hủy hết giống hệt nhau. Yêu cầu: thêm trường cho danh sách. User chốt: làm đúng yêu cầu này trước, phần xử lý nghiệp vụ hủy làm sau.
+
+**Thay đổi code:**
+
+- `order-groups.service.ts`: `interface GroupOrderCounts` + `getOrderCountsForGroups(groupIds)` — 1 aggregation trên `orders` cho cả danh sách (Rule #16). `activeOrderCount` = status KHÔNG thuộc `NOT_PACKABLE_ORDER_STATUSES` (đúng quy tắc Picking List); `canceledOrderCount` = status `canceled`. **Không** thêm `is_consolidated: true` vào `$match` dù index `consolidated_group_id` là partial theo field đó — nhóm 1 đơn có `consolidated_group_id` nhưng `is_consolidated` vẫn false (`getOrCreateGroupForOrder` chỉ `$set consolidated_group_id`), thêm vào sẽ đếm thiếu.
+- `order-groups.controller.ts`: `OrderGroupResponse` thêm `activeOrderCount`, `canceledOrderCount`; `toResponse(group, counts)` bắt buộc tham số đếm (tránh âm thầm trả 0); thêm `buildOrderGroupResponse` / `buildOrderGroupResponses`; mọi route trả nhóm đơn (list, detail, report-missing, decide-partial, pick, pack, priority) đều có số đếm. `toOrderGroupResponse` (dùng ở `shipments/legacy-fulfillment.controller.ts`) đổi thành bản async nhận service — 3 route legacy cập nhật theo.
+- Test mới `order-groups.service.getOrderCountsForGroups.spec.ts` (6 test).
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: không đổi schema, không migration — đếm lúc đọc từ trạng thái đơn, nhóm cũ có số đúng ngay.
+2. Route đổi hành vi: không đổi request; response chỉ THÊM 2 trường. Mỗi response nhóm đơn tốn thêm 1 truy vấn đếm (danh sách: 1 truy vấn cho cả trang).
+3. Luồng bị ảnh hưởng: không luồng nào đổi hành vi — chỉ đọc.
+4. Không ảnh hưởng: đồng bộ đơn, gộp đơn, Picking List, K5, giao hàng, trả hàng.
+5. Phát hiện khi làm: (a) truy vấn theo `consolidated_group_id` không dùng được partial index (cả `getOrderCountsForGroups` lẫn `countDocuments` có sẵn trong `getOrCreateGroupForOrder` và `getPackableItemsForGroup`) → quét collection `orders`; ổn ở quy mô demo, nên thêm index thường `{ consolidated_group_id: 1 }` khi dữ liệu lớn; (b) nhóm hủy hết vẫn giữ chỗ K5 — `reconcileReservation` gọi `getPackableItemsForGroup` → ném `ALL_ORDERS_CANCELED` → bị nuốt trong try/catch, giữ chỗ không nhả; (c) hủy một phần không tự tính lại giữ chỗ. (b)(c) thuộc bước 2 bên dưới.
+
+**Bước 2 (CHƯA LÀM, hướng đã thống nhất 01/10/2026 — xem phân tích trong chat):** tách "hủy nghiệp vụ" (tự động, 1 transaction lúc sync, idempotent) khỏi "xử lý hàng vật lý" (phiếu cất hàng `putaway_tasks`, nhân viên xác nhận mới cộng tồn, sổ cái `cancel_putaway`). Dùng `need_cancel_confirm`/`is_cancel_pending` (đã lưu từ 16/09) để TẠM GIỮ nhóm (chặn pack/ship) khi khách mới yêu cầu hủy; `status: canceled` thì hủy tự động — không cần Store Owner duyệt trong OptiPack. Nhóm hủy hết → `fulfillment_status: cancelled` (từ picking/picked/packed; không từ shipped trở đi), nhả giữ chỗ, gỡ phân công, chặn thao tác 409, tự tính lại nhóm thiếu cùng SKU; hủy một phần sau khi đóng gói → `needs_repack`. Khi làm: chuyển số đếm sang lưu sẵn trên nhóm để lọc được ở BE. Không đẩy gì lên Lazada (Lazada tự trả tồn khi đơn hủy).
+
+**Tài liệu:** `INTEGRATION_GUIDE_FULFILLMENT.md` v4.2 (Nghiệp vụ 3 mục mới + checklist D.4), `API_LIST.md` mục 5.
+
+**Kết quả kiểm chứng (sandbox, `npm install` mới trong `be/`):** tsc 0 lỗi; eslint 0 lỗi trên các file đã sửa; jest 32/32 suite — 298/298 test (trước: 31/292). Eslint toàn repo báo 3 lỗi `no-unsafe-enum-assignment` ở `notifications.service.ts` và `packaging.service.spec.ts` — file không đụng tới, xuất hiện do sandbox cài phiên bản `typescript-eslint` mới hơn lockfile của repo; kiểm tra lại bằng `npm run lint` trên máy.
+
+**Commit:** `feat(AOFP-50): add active and canceled order counts to order group responses`.

@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. **Cập nhật 01/10/2026 (v4.2)**: mở quyền vận hành kho cho Warehouse Staff (Nghiệp vụ 2b); response nhóm đơn thêm `activeOrderCount`/`canceledOrderCount` để phân biệt nhóm hủy một phần/hủy hết trên danh sách (Nghiệp vụ 3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -300,6 +300,45 @@ Order Group **vừa tạo xong** (`picking`), đã **TỰ ĐỘNG có người p
 
 🔄 **ĐÃ ĐỔI (15/09/2026)** — cả 2 API lấy danh sách ở trên đều tự động **loại bỏ SKU thuộc đơn đã `canceled` hoặc gặp sự cố logistics** (`lost`, `damaged_by_3pl`... xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) khỏi danh sách cần lấy — trước đây KHÔNG lọc, nhân viên có thể bị yêu cầu đi lấy hàng cho đơn đã hủy/mất. Trường hợp TOÀN BỘ đơn trong group đều rơi vào 2 nhóm này (group rỗng sau khi lọc) → API trả lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì trả về danh sách rỗng — FE nên bắt riêng mã lỗi này, hiện thông báo rõ ràng ("Nhóm đơn này không còn gì cần lấy") thay vì hiểu nhầm là màn hình trắng/lỗi tải dữ liệu.
 
+### 🆕 Phân biệt nhóm đơn có đơn đã hủy ngay trên danh sách (01/10/2026)
+
+**Vấn đề trước đây:** danh sách nhóm đơn chỉ có `orderCount`. Hệ thống đã lọc đơn hủy ở tầng hàng cần lấy (Picking List, gợi ý đóng gói), nhưng trên **danh sách** thì nhóm bình thường, nhóm hủy một phần và nhóm hủy hết trông giống nhau — nhân viên phải mở từng nhóm mới biết.
+
+**Từ 01/10/2026**, mọi response nhóm đơn (`GET /order-groups`, `GET /order-groups/:id` và các route thao tác trả về nhóm đơn) có thêm 2 trường:
+
+| Trường               | Ý nghĩa                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `activeOrderCount`   | Số đơn **còn phải xử lý** — cùng quy tắc với Picking List: đơn không bị hủy và không gặp sự cố vận chuyển |
+| `canceledOrderCount` | Số đơn có trạng thái `canceled`                                                                           |
+
+Ví dụ nhóm 2 đơn, khách hủy 1 đơn:
+
+```json
+{ "id": "6a9c18292fced4f442f6e1b1", "orderCount": 2, "activeOrderCount": 1, "canceledOrderCount": 1, "fulfillmentStatus": "picking", ... }
+```
+
+**Quy tắc hiển thị trên FE:**
+
+| Điều kiện                                        | Hiển thị                                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `canceledOrderCount === 0`                       | Bình thường                                                                                                                                                  |
+| `activeOrderCount > 0 && canceledOrderCount > 0` | Nhãn **"Một phần đã hủy"** (ví dụ "1/2 đơn đã hủy"). Nhóm vẫn lấy hàng bình thường; Picking List đã tự bỏ hàng của đơn hủy                                   |
+| `activeOrderCount === 0`                         | **"Không còn hàng cần xử lý"** — ẩn khỏi hàng đợi "Cần lấy", đưa sang tab "Đã hủy". Mở Picking List của nhóm này sẽ nhận `409 ORD_GROUP_ALL_ORDERS_CANCELED` |
+
+`orderCount − activeOrderCount − canceledOrderCount` = số đơn gặp sự cố vận chuyển (`lost`, `damaged_by_3pl`...). Thường bằng 0.
+
+**Cách demo:** chọn 1 nhóm có 2 đơn Lazada → hủy 1 đơn trên Lazada (hoặc dùng dữ liệu có sẵn đơn `canceled`) → chờ đồng bộ (tối đa 10 phút, hoặc Admin bấm đồng bộ tay) → tải lại danh sách: nhóm hiện nhãn "Một phần đã hủy", `activeOrderCount: 1`, `canceledOrderCount: 1`. Mở Picking List: chỉ còn hàng của đơn chưa hủy.
+
+**Dữ liệu cũ:** không cần chạy script. Số đếm được tính trực tiếp từ trạng thái đơn tại thời điểm gọi API, nên nhóm đơn tạo từ trước cũng có số đúng ngay.
+
+**Hạn chế hiện tại và hướng khắc phục:**
+
+| Hạn chế                                                                                                                     | Ảnh hưởng                                                                                                                                                                                                                                       | Hướng khắc phục                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Nhóm hủy hết **chưa có trạng thái riêng**: vẫn giữ `fulfillmentStatus` cũ, vẫn giữ chỗ tồn kho (K5), vẫn giao cho nhân viên | Ẩn khỏi màn hình nhưng tồn khả dụng vẫn bị trừ                                                                                                                                                                                                  | Bước sau: trạng thái `cancelled`, giải phóng giữ chỗ, gỡ phân công, phiếu cất hàng đã lấy về kệ |
+| Chưa lọc được ở BE (ví dụ `?exclude_fully_canceled=true`)                                                                   | FE ẩn nhóm hủy hết sau khi nhận danh sách → số dòng hiển thị có thể ít hơn giới hạn 100                                                                                                                                                         | Lưu sẵn số đếm trên nhóm đơn khi làm trạng thái `cancelled`, thêm bộ lọc                        |
+| Hủy **một phần** không giải phóng phần giữ chỗ của đơn đã hủy                                                               | Tồn khả dụng thấp hơn thực tế cho tới khi Admin/Store Owner bấm "Tính lại giữ chỗ" (`POST /order-groups/:id/stock-reservation/recheck`) hoặc nhóm được lấy hàng xong. Với nhóm hủy hết, tính lại cũng không nhả được (không còn hàng cần xử lý) | Làm cùng bước trạng thái `cancelled`                                                            |
+
 🔄 **ĐÃ ĐỔI (19/09/2026, báo cáo thật Hải Phượng)** — bước 3 (`POST .../fulfillment/pick-item`) giờ **kiểm tra SKU quét THẬT SỰ thuộc group này** TRƯỚC KHI trừ tồn kho — trước đây trừ tồn thẳng theo mã vạch quét được, không hỏi lại SKU đó có nằm trong đơn nào của group không (quét nhầm mã vạch SKU bất kỳ, miễn còn tồn kho, vẫn trừ tồn thật, sai lệch dữ liệu). Nếu SKU không thuộc group → trả lỗi `ORD_GROUP_ITEM_NOT_IN_GROUP` (404), **KHÔNG đụng tới tồn kho**. FE nên bắt riêng mã lỗi này khi quét (VD hiện "Mã vạch này không thuộc đơn đang lấy, kiểm tra lại") — khác hẳn lỗi `ORD_GROUP_INSUFFICIENT_STOCK` (409, SKU đúng nhưng không đủ hàng).
 
 **Cách B — đơn giản, không theo dõi tồn kho từng món**:
@@ -565,6 +604,7 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 - [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026, dòng cũ SAI): `reject` KHÔNG kèm `rejection_reason` → 400 Bad Request, không cho qua
 - [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026): `generate` khi group được lấy hàng qua nút "xác nhận hàng loạt" (không quét từng SKU) → PHẢI vẫn trả 200, KHÔNG được 409
 - [ ] 🔄 **Nghiệp vụ 2** (sửa 21/09/2026, dòng cũ SAI — auto-assign đã dời lên lúc TẠO group, không còn ở `approve`): NGAY sau khi group được tạo (F5 lại `GET /order-groups/:id` vài giây sau sync) → `assignedStaffId` ĐÃ tự có giá trị, không cần đợi tới lúc `approve`
+- [ ] 🆕 **Nghiệp vụ 3** (01/10/2026): nhóm 2 đơn có 1 đơn `canceled` → `GET /order-groups` trả `activeOrderCount: 1`, `canceledOrderCount: 1`, nhãn "Một phần đã hủy"; nhóm hủy hết → `activeOrderCount: 0`, không hiện trong "Cần lấy"
 - [ ] **Nghiệp vụ 3**: `pick-item` vượt tồn kho → 409, UI gợi ý report-missing
 - [ ] **Nghiệp vụ 3**: `report-missing` → thử gọi `pick`/`pack` trực tiếp → phải bị chặn `ORD_GROUP_INVALID_TRANSITION`
 - [ ] **Nghiệp vụ 3**: `decide-partial(false)` → xác nhận quay đúng về `awaiting_packaging`
