@@ -13,16 +13,16 @@ const CLASS_BY_VARIANT: Record<LandingAuthCtaVariant, string> = {
     'landing-cta inline-flex items-center rounded-full px-3 py-1.5 text-sm font-medium',
 }
 
-function labelFor(
-  signedIn: boolean,
-  variant: LandingAuthCtaVariant,
-): string {
-  if (signedIn) {
-    return variant === 'footer' ? 'Mở Dashboard →' : 'Vào hệ thống'
-  }
+function guestLabel(variant: LandingAuthCtaVariant): string {
   if (variant === 'hero') return 'Đăng nhập hệ thống'
-  if (variant === 'footer') return 'Mở Dashboard →'
+  if (variant === 'footer') return 'Đăng nhập →'
   return 'Đăng nhập'
+}
+
+function signedInLabel(variant: LandingAuthCtaVariant): string {
+  if (variant === 'hero') return 'Vào trang làm việc'
+  if (variant === 'footer') return 'Vào làm việc →'
+  return 'Vào làm việc'
 }
 
 export function LandingAuthCta({
@@ -33,13 +33,33 @@ export function LandingAuthCta({
   onNavigate?: () => void
 }) {
   const { session, ready } = useAuth()
-  if (!ready) return null
 
-  const to = session ? homePath(session.role) : '/login'
+  if (!ready) {
+    return (
+      <span
+        className={`${CLASS_BY_VARIANT[variant]} pointer-events-none opacity-50`}
+        aria-hidden
+      >
+        …
+      </span>
+    )
+  }
+
+  if (session) {
+    return (
+      <Link
+        to={homePath(session.role)}
+        className={CLASS_BY_VARIANT[variant]}
+        onClick={onNavigate}
+      >
+        {signedInLabel(variant)}
+      </Link>
+    )
+  }
 
   return (
-    <Link to={to} className={CLASS_BY_VARIANT[variant]} onClick={onNavigate}>
-      {labelFor(Boolean(session), variant)}
+    <Link to="/login" className={CLASS_BY_VARIANT[variant]} onClick={onNavigate}>
+      {guestLabel(variant)}
     </Link>
   )
 }

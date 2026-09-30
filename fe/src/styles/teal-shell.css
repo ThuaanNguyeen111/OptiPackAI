@@ -1,48 +1,59 @@
-/* Landing + Store Owner chrome — cùng palette login (cyan/teal glass). */
+/* Landing + Owner/Pack/Ship/Warehouse/Admin chrome — Deep Teal #152D35 + Soft Sage #D4ECDD. */
 
 :where(.landing-shell, .owner-shell) {
-  --ls-sky-a: #cfe6f3;
-  --ls-sky-b: #9ec9e0;
-  --ls-card: rgba(236, 247, 252, 0.5);
-  --ls-card-solid: rgba(246, 252, 255, 0.72);
-  --ls-card-border: rgba(255, 255, 255, 0.62);
-  --ls-ink: #163246;
-  --ls-muted: #4d6d80;
-  --ls-cta: #1b8a8e;
-  --ls-cta-hover: #157579;
-  --ls-link: #1a6f74;
-  --ls-panel: rgba(255, 255, 255, 0.48);
-  --ls-shadow: 0 24px 80px rgba(20, 50, 70, 0.16);
+  --ls-sky-a: #d4ecdd;
+  --ls-sky-b: #c5e3d0;
+  --ls-card: rgba(244, 250, 246, 0.58);
+  --ls-card-solid: rgba(250, 253, 251, 0.8);
+  --ls-card-border: rgba(255, 255, 255, 0.72);
+  --ls-ink: #152d35;
+  --ls-muted: #4a6b6f;
+  --ls-cta: #152d35;
+  --ls-cta-hover: #0f2228;
+  --ls-cta-fg: #d4ecdd;
+  --ls-link: #152d35;
+  --ls-panel: rgba(255, 255, 255, 0.55);
+  --ls-shadow: 0 24px 80px rgba(21, 45, 53, 0.16);
+  /* Button/Badge `primary` — Deep Teal trong chrome Owner/Pack/Ship */
+  --app-primary: #152d35;
+  --app-primary-hover: #0f2228;
+  --app-primary-focus: #152d35;
+  --app-on-primary: #d4ecdd;
 }
 
 html.dark :where(.landing-shell, .owner-shell) {
-  --ls-sky-a: #071018;
-  --ls-sky-b: #101c2c;
-  --ls-card: rgba(10, 18, 32, 0.62);
-  --ls-card-solid: rgba(12, 22, 36, 0.78);
-  --ls-card-border: rgba(160, 190, 220, 0.16);
-  --ls-ink: #e7f1f7;
-  --ls-muted: #8aa3b6;
-  --ls-cta: #1b8a8e;
-  --ls-cta-hover: #21a0a4;
-  --ls-link: #7ad0d4;
-  --ls-panel: rgba(16, 28, 44, 0.55);
+  --ls-sky-a: #152d35;
+  --ls-sky-b: #0f2228;
+  --ls-card: rgba(15, 34, 40, 0.72);
+  --ls-card-solid: rgba(12, 28, 33, 0.85);
+  --ls-card-border: rgba(212, 236, 221, 0.18);
+  --ls-ink: #d4ecdd;
+  --ls-muted: #a8c4b8;
+  --ls-cta: #d4ecdd;
+  --ls-cta-hover: #e8f6ee;
+  --ls-cta-fg: #152d35;
+  --ls-link: #d4ecdd;
+  --ls-panel: rgba(18, 40, 48, 0.58);
   --ls-shadow: 0 28px 90px rgba(0, 0, 0, 0.45);
+  --app-primary: #d4ecdd;
+  --app-primary-hover: #e8f6ee;
+  --app-primary-focus: #d4ecdd;
+  --app-on-primary: #152d35;
 }
 
 .landing-shell,
 .owner-shell {
   color: var(--ls-ink);
   background:
-    radial-gradient(120% 80% at 50% 110%, #8fb8ce 0%, transparent 55%),
+    radial-gradient(120% 80% at 50% 110%, #b8dcc8 0%, transparent 55%),
     linear-gradient(180deg, var(--ls-sky-a) 0%, var(--ls-sky-b) 100%);
 }
 
 html.dark .landing-shell,
 html.dark .owner-shell {
   background:
-    radial-gradient(90% 60% at 50% 120%, #15263a 0%, transparent 50%),
-    linear-gradient(180deg, #071018 0%, #122033 100%);
+    radial-gradient(90% 60% at 50% 120%, #1e3d47 0%, transparent 50%),
+    linear-gradient(180deg, #152d35 0%, #0c1c22 100%);
 }
 
 .landing-shell {
@@ -160,7 +171,7 @@ html.dark .landing-nav-pill a:hover {
 .landing-cta {
   border-radius: 999px !important;
   background: var(--ls-cta) !important;
-  color: #fff !important;
+  color: var(--ls-cta-fg) !important;
   border: 0 !important;
 }
 
@@ -228,7 +239,7 @@ html.dark .landing-nav-pill a:hover {
 }
 
 .landing-aside nav a:hover {
-  background: rgba(27, 138, 142, 0.12);
+  background: color-mix(in srgb, var(--ls-cta) 12%, transparent);
   color: var(--ls-ink);
 }
 
@@ -396,10 +407,10 @@ html.dark .landing-nav-pill a:hover {
   background: var(--ls-cta);
   font-size: 11px;
   font-weight: 700;
-  color: #fff;
+  color: var(--ls-cta-fg);
 }
 
-/* ——— Store Owner app chrome ——— */
+/* ——— App chrome (Owner / Pack / Ship / Warehouse / Admin) ——— */
 
 .owner-shell {
   display: flex;
@@ -479,8 +490,37 @@ html.dark .landing-nav-pill a:hover {
 }
 
 .owner-shell .owner-nav-active {
-  background: color-mix(in srgb, var(--ls-cta) 16%, transparent) !important;
+  background: color-mix(in srgb, #d4ecdd 70%, transparent) !important;
   color: var(--ls-cta) !important;
+  border-color: color-mix(in srgb, var(--ls-cta) 45%, transparent) !important;
+}
+
+html.dark .owner-shell .owner-nav-active {
+  background: color-mix(in srgb, var(--ls-cta) 16%, transparent) !important;
+}
+
+.owner-shell .owner-sidebar nav a {
+  border: 2px solid transparent;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.owner-shell .owner-sidebar nav a:hover {
+  background: color-mix(in srgb, var(--ls-cta) 10%, transparent) !important;
+  border-color: color-mix(in srgb, var(--ls-cta) 72%, #0f2228);
+  color: var(--ls-ink) !important;
+}
+
+.owner-shell .owner-sidebar nav a.owner-nav-active:hover {
+  background: color-mix(in srgb, #d4ecdd 80%, transparent) !important;
+  border-color: var(--ls-cta);
+  color: var(--ls-cta) !important;
+}
+
+html.dark .owner-shell .owner-sidebar nav a.owner-nav-active:hover {
+  background: color-mix(in srgb, var(--ls-cta) 20%, transparent) !important;
 }
 
 .owner-hero {
@@ -540,7 +580,7 @@ html.dark .landing-nav-pill a:hover {
 .owner-btn-primary {
   border: 0;
   background: var(--ls-cta);
-  color: #fff;
+  color: var(--ls-cta-fg);
 }
 
 .owner-btn-primary:hover {
@@ -689,6 +729,12 @@ html.dark .landing-nav-pill a:hover {
   min-height: 0;
   flex: 1;
   overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.pack-bench-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .pack-bench-detail .pack-bench-scroll {
@@ -782,6 +828,7 @@ html.dark .landing-nav-pill a:hover {
 
 .owner-shell .bg-primary {
   background-color: var(--ls-cta) !important;
+  color: var(--ls-cta-fg) !important;
 }
 
 .owner-shell .text-primary,
@@ -792,6 +839,23 @@ html.dark .landing-nav-pill a:hover {
 .owner-shell .bg-primary\/10,
 .owner-shell .bg-primary\/15 {
   background-color: color-mix(in srgb, var(--ls-cta) 14%, transparent) !important;
+}
+
+.owner-shell .border-primary\/20,
+.owner-shell .border-primary\/30 {
+  border-color: color-mix(in srgb, var(--ls-cta) 28%, transparent) !important;
+}
+
+/* Warehouse / Admin CTAs hard-coded as slate-900 → Deep Teal */
+.owner-shell .bg-slate-900 {
+  background-color: var(--ls-cta) !important;
+  color: var(--ls-cta-fg) !important;
+}
+
+.owner-shell .text-slate-600,
+.owner-shell .text-slate-700,
+.owner-shell .dark\:text-slate-300 {
+  color: var(--ls-ink-soft, var(--ls-muted));
 }
 
 .owner-shell .text-slate-500,

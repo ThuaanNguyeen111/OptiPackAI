@@ -306,7 +306,7 @@ export function DashboardPage() {
                   <span className="text-[11px] font-semibold text-slate-500">
                     {vi ? 'Gộp đơn hôm nay' : 'Consolidated groups'}
                   </span>
-                  <TrendingUp className="h-4 w-4 text-indigo-600" />
+                  <TrendingUp className="h-4 w-4 text-[var(--ls-cta,#152D35)]" />
                 </div>
                 <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
                   {OWNER_FINANCE_SUMMARY.multiPlatformGroupsToday}

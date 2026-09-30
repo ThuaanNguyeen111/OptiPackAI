@@ -10,13 +10,11 @@ import type { AuthSession, LoginSuccess } from '../types/auth'
 import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  // Mỗi lần mở / reload app bắt đầu ở trạng thái khách (Home → Đăng nhập),
+  // không khôi phục phiên cũ từ localStorage — tránh vào sẵn một tài khoản.
   const [session, setSession] = useState<AuthSession | null>(() => {
-    const stored = readSession()
-    if (stored?.accessToken.startsWith('mock-access')) {
-      clearSession()
-      return null
-    }
-    return stored
+    clearSession()
+    return null
   })
   const [ready] = useState(true)
 

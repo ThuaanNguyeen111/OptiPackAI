@@ -99,6 +99,26 @@ export type TransitionOrderGroupInput = {
   expected_version: number
 }
 
+/** Khớp `ConsumptionResult` từ BE khi POST .../fulfillment/pack. */
+export type PackagingConsumptionLine = {
+  materialCode: string
+  condition: 'new' | 'reused' | string
+  quantity: number
+  savingVnd: number
+}
+
+export type PackagingConsumption = {
+  consumed: PackagingConsumptionLine[]
+  warnings: string[]
+  recommendedBoxCode: string | null
+  followedRecommendation: boolean | null
+}
+
+export type PackOrderGroupResult = {
+  group: OrderGroup
+  packagingConsumption: PackagingConsumption | null
+}
+
 /** Kho lấy hàng trước — không đợi duyệt gợi ý thùng. */
 export const WAREHOUSE_PICKABLE_STATUSES = [
   'awaiting_packaging',

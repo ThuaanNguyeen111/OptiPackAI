@@ -29,6 +29,8 @@ import {
 } from '../api/shipments.api'
 import { OWN_FLEET_ACCOUNT } from '../data/shipping-mock'
 import { formatApiError } from '../lib/api'
+import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import type { OrderGroup } from '../types/order-groups'
 import type { PackagingRecommendation } from '../types/packaging'
 import type {
@@ -38,7 +40,7 @@ import type {
   ShipmentEvent,
   ShipmentStatus,
 } from '../types/shipments'
-import { SHIPMENT_STATUS_LABELS } from '../types/shipments'
+import { isShipmentDeliveryOverdue, SHIPMENT_STATUS_LABELS } from '../types/shipments'
 import { formatDateTime } from '../utils/format'
 
 type QueueTab = 'packed' | ShipmentStatus
@@ -223,6 +225,8 @@ export function ShippingPage() {
       )
     })
   }, [rows, filterQuery])
+
+  const queuePaging = useLocalQueuePagination(visibleRows)
 
   const selected = useMemo(
     () => visibleRows.find((row) => row.key === selectedKey) ?? visibleRows[0] ?? null,
@@ -440,6 +444,13 @@ export function ShippingPage() {
       ? reasonCodes.find((r) => r.code === selected.shipment.lastFailureReason)?.label ??
         selected.shipment.lastFailureReason
       : null
+
+  const selectedDueOverdue =
+    selected?.kind === 'shipment'
+      ? isShipmentDeliveryOverdue(selected.shipment)
+      : false
+  const selectedDueAt =
+    selected?.kind === 'shipment' ? selected.shipment.dueAt : null
 
   const panelCode =
     selected?.kind === 'shipment'
@@ -675,7 +686,7 @@ export function ShippingPage() {
                           </td>
                         </tr>
                       ) : (
-                        visibleRows.map((row) => {
+                        queuePaging.pagedItems.map((row) => {
                           const active = selected?.key === row.key
                           const waybill =
                             row.kind === 'shipment' ? row.shipment.shipmentCode.trim() : ''
@@ -726,6 +737,7 @@ export function ShippingPage() {
                                 </div>
                               </td>
                               <td className="py-3 px-3.5 text-right sm:text-left">
+                                <div className="flex flex-col items-end gap-1 sm:items-start">
                                 {isDone && rowStatus === 'delivered' ? (
                                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white tracking-wider uppercase shadow-2xs select-none">
                                     <Check className="h-3 w-3 stroke-[3]" />
@@ -740,6 +752,13 @@ export function ShippingPage() {
                                     <span>{statusLabel(rowStatus, vi)}</span>
                                   </span>
                                 )}
+                                {row.kind === 'shipment' &&
+                                isShipmentDeliveryOverdue(row.shipment) ? (
+                                  <span className="inline-flex rounded border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
+                                    {vi ? 'Quá hạn' : 'Overdue'}
+                                  </span>
+                                ) : null}
+                                </div>
                               </td>
                             </tr>
                           )
@@ -748,6 +767,26 @@ export function ShippingPage() {
                     </tbody>
                   </table>
                 </div>
+                {!loading && visibleRows.length > 0 ? (
+                  <QueuePaginationBar
+                    vi={vi}
+                    variant="ops"
+                    className="border-0 px-0 pt-3"
+                    rangeStart={queuePaging.rangeStart}
+                    rangeEnd={queuePaging.rangeEnd}
+                    total={queuePaging.total}
+                    page={queuePaging.page}
+                    totalPages={queuePaging.totalPages}
+                    onPrev={() =>
+                      queuePaging.setPage((p) => Math.max(1, p - 1))
+                    }
+                    onNext={() =>
+                      queuePaging.setPage((p) =>
+                        Math.min(queuePaging.totalPages, p + 1),
+                      )
+                    }
+                  />
+                ) : null}
             </div>
 
             <aside className="ship-bench-side select-none">
@@ -783,6 +822,23 @@ export function ShippingPage() {
                         ? 'Chưa có lần thất bại. Coordinator bấm nút dưới để đổi trạng thái.'
                         : 'No failure yet. Use the footer actions to update status.'}
                   </p>
+                  {selectedDueAt ? (
+                    <p
+                      className={
+                        selectedDueOverdue
+                          ? 'rounded-lg border border-rose-300/80 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200'
+                          : 'text-[11px] font-medium text-[var(--ls-ink)]'
+                      }
+                    >
+                      {selectedDueOverdue
+                        ? vi
+                          ? `Quá hạn giao · ${formatDateTime(selectedDueAt)}`
+                          : `Delivery overdue · ${formatDateTime(selectedDueAt)}`
+                        : vi
+                          ? `Hạn giao: ${formatDateTime(selectedDueAt)}`
+                          : `Due: ${formatDateTime(selectedDueAt)}`}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5 pt-0.5">

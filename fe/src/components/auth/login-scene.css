@@ -1,18 +1,19 @@
 .login-scene {
-  --ls-sky-a: #cfe6f3;
-  --ls-sky-b: #9ec9e0;
-  --ls-card: rgba(236, 247, 252, 0.42);
-  --ls-card-border: rgba(255, 255, 255, 0.62);
-  --ls-ink: #163246;
-  --ls-muted: #4d6d80;
-  --ls-field-bg: rgba(255, 255, 255, 0.78);
-  --ls-field-border: rgba(255, 255, 255, 0.9);
-  --ls-field-ink: #1a3a4d;
-  --ls-cta: #1b8a8e;
-  --ls-cta-hover: #157579;
-  --ls-link: #1a6f74;
-  --ls-panel: rgba(232, 246, 252, 0.28);
-  --ls-close: #3d5a6c;
+  --ls-sky-a: #d4ecdd;
+  --ls-sky-b: #c5e3d0;
+  --ls-card: rgba(244, 250, 246, 0.5);
+  --ls-card-border: rgba(255, 255, 255, 0.72);
+  --ls-ink: #152d35;
+  --ls-muted: #4a6b6f;
+  --ls-field-bg: rgba(255, 255, 255, 0.85);
+  --ls-field-border: rgba(255, 255, 255, 0.94);
+  --ls-field-ink: #152d35;
+  --ls-cta: #152d35;
+  --ls-cta-hover: #0f2228;
+  --ls-cta-fg: #d4ecdd;
+  --ls-link: #152d35;
+  --ls-panel: rgba(244, 250, 246, 0.35);
+  --ls-close: #4a6b6f;
   --ls-duration: 0.65s;
 
   position: relative;
@@ -24,7 +25,7 @@
   padding: 24px 16px;
   color: var(--ls-ink);
   background:
-    radial-gradient(120% 80% at 50% 110%, #8fb8ce 0%, transparent 55%),
+    radial-gradient(120% 80% at 50% 110%, #b8dcc8 0%, transparent 55%),
     linear-gradient(180deg, var(--ls-sky-a) 0%, var(--ls-sky-b) 100%);
   transition:
     background var(--ls-duration) ease,
@@ -32,30 +33,35 @@
 }
 
 .login-scene.is-night {
-  --ls-sky-a: #071018;
-  --ls-sky-b: #101c2c;
-  --ls-card: rgba(10, 18, 32, 0.62);
-  --ls-card-border: rgba(160, 190, 220, 0.16);
-  --ls-ink: #e7f1f7;
-  --ls-muted: #8aa3b6;
-  --ls-field-bg: rgba(16, 28, 44, 0.72);
-  --ls-field-border: rgba(180, 210, 230, 0.14);
-  --ls-field-ink: #f2f6f8;
-  --ls-cta: #1b8a8e;
-  --ls-cta-hover: #21a0a4;
-  --ls-link: #7ad0d4;
-  --ls-panel: rgba(8, 16, 28, 0.35);
-  --ls-close: #c5d4e0;
+  --ls-sky-a: #152d35;
+  --ls-sky-b: #0f2228;
+  --ls-card: rgba(15, 34, 40, 0.72);
+  --ls-card-border: rgba(212, 236, 221, 0.18);
+  --ls-ink: #d4ecdd;
+  --ls-muted: #a8c4b8;
+  --ls-field-bg: rgba(12, 28, 33, 0.8);
+  --ls-field-border: rgba(212, 236, 221, 0.16);
+  --ls-field-ink: #eef8f2;
+  --ls-cta: #d4ecdd;
+  --ls-cta-hover: #e8f6ee;
+  --ls-cta-fg: #152d35;
+  --ls-link: #d4ecdd;
+  --ls-panel: rgba(18, 40, 48, 0.42);
+  --ls-close: #d4ecdd;
   background:
-    radial-gradient(90% 60% at 50% 120%, #15263a 0%, transparent 50%),
-    linear-gradient(180deg, #071018 0%, #122033 100%);
+    radial-gradient(90% 60% at 50% 120%, #1e3d47 0%, transparent 50%),
+    linear-gradient(180deg, #152d35 0%, #0c1c22 100%);
 }
 
 .login-scene-mountains {
   pointer-events: none;
   position: absolute;
-  inset: auto 0 -8%;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
   z-index: 0;
+  width: auto;
+  min-width: 100%;
   height: 42%;
   opacity: 0.55;
   transition: opacity var(--ls-duration) ease, filter var(--ls-duration) ease;
@@ -118,8 +124,8 @@
   bottom: 32px;
   left: 28px;
   z-index: 2;
-  color: #f7fbff;
-  text-shadow: 0 1px 8px rgba(10, 30, 50, 0.35);
+  color: #d4ecdd;
+  text-shadow: 0 1px 8px rgba(21, 45, 53, 0.45);
 }
 
 .login-art-copy h2 {
@@ -144,9 +150,17 @@
   justify-content: center;
   min-height: 0;
   overflow-y: auto;
-  padding: 40px 36px 32px;
+  /* pt lớn hơn để né nút X + cân khối form giữa panel */
+  padding: 56px 36px 36px;
   background: var(--ls-panel);
   transition: background var(--ls-duration) ease;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
 }
 
 .login-close {
@@ -284,7 +298,7 @@
 .login-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .login-field,
@@ -334,6 +348,22 @@
   z-index: 2;
   padding-right: 46px;
   background: transparent;
+}
+
+/* Edge/IE + Chrome native reveal — tránh 2 icon mắt cạnh nút đèn pin tùy chỉnh */
+.login-pass-input::-ms-reveal,
+.login-pass-input::-ms-clear {
+  display: none;
+}
+
+.login-pass-input::-webkit-credentials-auto-fill-button,
+.login-pass-input::-webkit-strong-password-auto-fill-button {
+  display: none !important;
+  visibility: hidden;
+  pointer-events: none;
+  margin: 0;
+  width: 0;
+  height: 0;
 }
 
 .login-pass-track {
@@ -438,7 +468,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 10px;
+  margin-top: 0;
   font-size: 0.8rem;
 }
 
@@ -470,10 +500,10 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: 18px;
+  margin-top: 2px;
   border: 0;
   border-radius: 14px;
-  color: #fff;
+  color: var(--ls-cta-fg);
   background: var(--ls-cta);
   font: inherit;
   font-size: 0.95rem;
@@ -518,7 +548,7 @@
 
 .login-divider {
   position: relative;
-  margin: 16px 0 12px;
+  margin: 2px 0;
   text-align: center;
   font-size: 0.72rem;
   color: var(--ls-muted);
@@ -558,7 +588,7 @@
 }
 
 .login-cta + .login-google {
-  margin-top: 10px;
+  margin-top: 0;
 }
 
 .login-google:hover:not(:disabled) {
@@ -575,7 +605,7 @@
 }
 
 .login-foot {
-  margin: 18px 0 0;
+  margin: 14px 0 0;
   text-align: center;
   font-size: 0.82rem;
   color: var(--ls-muted);
@@ -651,40 +681,40 @@
 }
 
 .login-art .ls-ridge-1 {
-  fill: #7eabc4;
+  fill: #3d6a72;
   transition: fill var(--ls-duration) ease;
 }
 .login-art .ls-ridge-2 {
-  fill: #5d8eaa;
+  fill: #2c525a;
   transition: fill var(--ls-duration) ease;
 }
 .login-art .ls-ridge-3 {
-  fill: #3d6a88;
+  fill: #1f3f47;
   transition: fill var(--ls-duration) ease;
 }
 .login-art .ls-water {
-  fill: #2f5d78;
+  fill: #183640;
   transition: fill var(--ls-duration) ease;
 }
 .login-art .ls-tree {
-  fill: #24485c;
+  fill: #152d35;
   transition: fill var(--ls-duration) ease;
 }
 
 .login-scene.is-night .login-art .ls-ridge-1 {
-  fill: #24364c;
+  fill: #1e3d47;
 }
 .login-scene.is-night .login-art .ls-ridge-2 {
-  fill: #1b2c40;
+  fill: #183640;
 }
 .login-scene.is-night .login-art .ls-ridge-3 {
-  fill: #121f30;
+  fill: #122c34;
 }
 .login-scene.is-night .login-art .ls-water {
-  fill: #0c1724;
+  fill: #0f2228;
 }
 .login-scene.is-night .login-art .ls-tree {
-  fill: #0a141e;
+  fill: #0c1c22;
 }
 
 @keyframes login-twinkle {
@@ -699,6 +729,229 @@
 
 .login-scene.is-night .login-art .ls-star {
   animation: login-twinkle 2.8s ease-in-out infinite;
+}
+
+/* —— Login owl (perch + speech bubble) —— */
+
+.login-owl-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  margin: 0;
+  padding-top: 4px;
+}
+
+/* Bubble → cú → email (không chồng layer) */
+.login-owl-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.login-owl-bubble {
+  position: relative;
+  z-index: 5;
+  display: inline-block;
+  width: fit-content;
+  max-width: min(100%, 300px);
+  align-self: flex-start;
+  /* mb chừa chỗ đuôi bubble phía trên đầu cú */
+  margin: 0 0 10px 10px;
+  border: 1px solid color-mix(in srgb, #a7d4b8 80%, transparent);
+  border-radius: 12px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, #ecf8f0 90%, white);
+  box-shadow: 0 1px 2px rgba(21, 45, 53, 0.06), 0 4px 12px rgba(21, 45, 53, 0.05);
+  animation: login-owl-pop 0.45s ease;
+}
+
+.login-scene.is-night .login-owl-bubble {
+  background: color-mix(in srgb, var(--ls-cta) 16%, transparent);
+  border-color: color-mix(in srgb, #a7d4b8 35%, transparent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+.login-owl-bubble.is-error {
+  border-color: color-mix(in srgb, #e57373 55%, transparent);
+  background: color-mix(in srgb, #fde8e8 85%, white);
+}
+
+.login-scene.is-night .login-owl-bubble.is-error {
+  background: rgba(180, 60, 60, 0.22);
+  border-color: rgba(245, 160, 160, 0.35);
+}
+
+.login-owl-bubble.is-ok,
+.login-owl-bubble.is-welcome {
+  border-color: color-mix(in srgb, #86c5a0 80%, transparent);
+  background: color-mix(in srgb, #ecf8f0 92%, white);
+}
+
+.login-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+  animation: login-owl-pop 0.45s ease both;
+}
+
+.login-welcome .login-cta {
+  margin-top: 0.5rem;
+}
+
+.login-welcome .login-owl-cluster {
+  min-height: 0;
+}
+
+.login-welcome-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: color-mix(in srgb, #152d35 62%, transparent);
+  letter-spacing: 0.01em;
+}
+
+.login-owl-bubble-text {
+  margin: 0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 500;
+  color: #14532d;
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: none;
+}
+
+.login-owl-bubble.is-error .login-owl-bubble-text {
+  color: #9b2c2c;
+}
+
+.login-scene.is-night .login-owl-bubble-text {
+  color: color-mix(in srgb, #d4ecdd 88%, white);
+}
+
+.login-scene.is-night .login-owl-bubble.is-error .login-owl-bubble-text {
+  color: #fca5a5;
+}
+
+.login-owl-bubble-tail {
+  position: absolute;
+  /* Mũi chỉ xuống đỉnh đầu cú (shelf pad-left 18 + nửa cú ~24) */
+  left: 30px;
+  bottom: -5px;
+  width: 9px;
+  height: 9px;
+  border-right: 1px solid color-mix(in srgb, #a7d4b8 80%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, #a7d4b8 80%, transparent);
+  background: inherit;
+  transform: rotate(45deg);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.login-owl-bubble.is-error .login-owl-bubble-tail {
+  border-color: color-mix(in srgb, #e57373 55%, transparent);
+}
+
+/* Kệ cú — flow bình thường, cách ô email bằng margin-bottom */
+.login-owl-shelf {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: flex-start;
+  padding-left: 18px;
+  margin-bottom: 8px;
+  min-height: 54px;
+  pointer-events: none;
+}
+
+.login-owl {
+  position: relative;
+  z-index: 2;
+  width: 48px;
+  height: 54px;
+  transform-origin: 50% 100%;
+  transition: transform 0.35s ease;
+}
+
+.login-title--with-owl {
+  margin: 0;
+  padding-top: 0;
+}
+
+.login-owl.is-greet {
+  animation: login-owl-bob 1.8s ease-in-out 2;
+}
+
+.login-owl.is-watch {
+  transform: rotate(-6deg);
+}
+
+.login-owl.is-shy {
+  transform: translateY(2px) scale(0.97);
+}
+
+.login-owl.is-error {
+  animation: login-owl-shake 0.45s ease;
+}
+
+.login-owl.is-ok {
+  transform: rotate(3deg);
+}
+
+.login-owl.is-welcome {
+  animation: login-owl-bob 1.2s ease-in-out 2;
+  transform: rotate(3deg) scale(1.06);
+}
+
+.login-owl-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  filter: drop-shadow(0 3px 6px rgba(21, 45, 53, 0.2));
+}
+
+.login-owl-cluster > .login-field {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes login-owl-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes login-owl-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes login-owl-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px) rotate(-3deg);
+  }
+  75% {
+    transform: translateX(3px) rotate(3deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -733,6 +986,6 @@
   }
 
   .login-panel {
-    padding: 28px 20px 24px;
+    padding: 44px 20px 28px;
   }
 }

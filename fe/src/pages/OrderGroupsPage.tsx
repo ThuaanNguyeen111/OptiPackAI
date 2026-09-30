@@ -12,6 +12,10 @@ import {
   listOrderGroups,
   setOrderGroupPriority,
 } from '../api/order-groups.api'
+import {
+  getPackagingMaterialsSavings,
+  type PackagingMaterialsSavings,
+} from '../api/packaging-materials.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -24,6 +28,8 @@ import {
   type OrderPriority,
 } from '../types/order-groups'
 import { formatDateTime } from '../utils/format'
+import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
@@ -88,6 +94,7 @@ export function OrderGroupsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [deadlineHours, setDeadlineHours] = useState('4')
+  const [savings, setSavings] = useState<PackagingMaterialsSavings | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -112,6 +119,20 @@ export function OrderGroupsPage() {
   }, [priorityFilter])
 
   useEffect(() => {
+    let cancelled = false
+    void getPackagingMaterialsSavings()
+      .then((data) => {
+        if (!cancelled) setSavings(data)
+      })
+      .catch(() => {
+        if (!cancelled) setSavings(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       void load()
     }, 150)
@@ -133,20 +154,24 @@ export function OrderGroupsPage() {
   const stats = useMemo(() => {
     const express = groups.filter((g) => g.orderPriority === 'express').length
     const overdue = groups.filter((g) => g.isOverdue).length
+    const shortage = groups.filter((g) => g.stockShortage).length
     const normal = groups.length - express
-    return { total: groups.length, express, normal, overdue }
+    return { total: groups.length, express, normal, overdue, shortage }
   }, [groups])
 
-  /** Chỉ sắp xếp hiển thị: quá hạn / hỏa tốc lên đầu — không đổi state `groups`. */
+  /** Chỉ sắp xếp hiển thị: quá hạn / thiếu hàng / hỏa tốc lên đầu — không đổi state `groups`. */
   const displayGroups = useMemo(() => {
     return [...groups].sort((a, b) => {
       if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1
+      if (a.stockShortage !== b.stockShortage) return a.stockShortage ? -1 : 1
       const aExpress = a.orderPriority === 'express' ? 1 : 0
       const bExpress = b.orderPriority === 'express' ? 1 : 0
       if (aExpress !== bExpress) return bExpress - aExpress
       return 0
     })
   }, [groups])
+
+  const queuePaging = useLocalQueuePagination(displayGroups)
 
   async function applyPriority(priority: OrderPriority): Promise<void> {
     if (!detail) return
@@ -258,6 +283,28 @@ export function OrderGroupsPage() {
                 {vi ? `${stats.overdue} quá hạn` : `${stats.overdue} overdue`}
               </span>
             ) : null}
+            {stats.shortage > 0 ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200/70 bg-orange-50 px-2.5 py-1 text-[11px] font-medium text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200">
+                <AlertTriangle className="h-3 w-3" />
+                {vi
+                  ? `${stats.shortage} thiếu hàng`
+                  : `${stats.shortage} stock short`}
+              </span>
+            ) : null}
+            {savings ? (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-200"
+                title={
+                  vi
+                    ? `Tái sử dụng ${String(savings.reuseRate)}% · theo gợi ý ${String(savings.recommendationFollowRate)}%`
+                    : `Reuse ${String(savings.reuseRate)}% · followed rec ${String(savings.recommendationFollowRate)}%`
+                }
+              >
+                {vi
+                  ? `Tiết kiệm bao bì ${savings.totalSavingVnd.toLocaleString('vi-VN')}₫`
+                  : `Pack savings ${savings.totalSavingVnd.toLocaleString('en-US')}₫`}
+              </span>
+            ) : null}
           </div>
 
           <div className="ml-auto flex flex-wrap gap-1.5 rounded-lg border border-hairline bg-surface-2/80 p-1">
@@ -296,7 +343,7 @@ export function OrderGroupsPage() {
               </p>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {loading ? (
                 <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-muted">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -335,7 +382,7 @@ export function OrderGroupsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-hairline">
-                    {displayGroups.map((g) => {
+                    {queuePaging.pagedItems.map((g) => {
                       const selected = selectedId === g.id
                       const updated = toIso(g.updatedAt)
                       return (
@@ -346,23 +393,44 @@ export function OrderGroupsPage() {
                             'cursor-pointer transition-colors',
                             g.isOverdue && 'border-l-4 border-l-rose-600',
                             selected
-                              ? 'bg-indigo-50/80 dark:bg-indigo-950/30'
+                              ? 'bg-[color-mix(in_srgb,#D4ECDD_55%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)]'
                               : g.isOverdue
                                 ? 'bg-rose-50/70 hover:bg-rose-100/70'
                                 : 'hover:bg-surface-2/80',
                           )}
                         >
                           <td className="min-w-[140px] px-4 py-3 whitespace-nowrap">
-                            <span
-                              className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300"
-                              title={g.id}
-                            >
-                              {shortId(g.id)}
-                            </span>
+                            <div className="flex flex-col items-start gap-1">
+                              <span
+                                className="font-mono text-xs font-medium text-slate-700 dark:text-slate-300"
+                                title={g.id}
+                              >
+                                {shortId(g.id)}
+                              </span>
+                              {g.stockShortage ? (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded border border-orange-300 bg-orange-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-orange-800 dark:border-orange-800 dark:bg-orange-950/50 dark:text-orange-200"
+                                  title={
+                                    g.stockShortageItems.length
+                                      ? g.stockShortageItems
+                                          .map(
+                                            (i) =>
+                                              `${i.sku}: thiếu ${String(i.shortage)}`,
+                                          )
+                                          .join(', ')
+                                      : vi
+                                        ? 'Thiếu tồn khả dụng'
+                                        : 'Stock shortage'
+                                  }
+                                >
+                                  {vi ? 'Thiếu hàng' : 'Shortage'}
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-center">
-                              <span className="inline-flex rounded-full border border-indigo-200/80 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
+                              <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_70%,white)] px-2 py-0.5 text-[11px] font-medium text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]">
                                 {platformLabel(g.platform)}
                               </span>
                             </div>
@@ -411,6 +479,23 @@ export function OrderGroupsPage() {
                 </table>
               )}
             </div>
+            {!loading && !error && displayGroups.length > 0 ? (
+              <QueuePaginationBar
+                vi={vi}
+                variant="plain"
+                rangeStart={queuePaging.rangeStart}
+                rangeEnd={queuePaging.rangeEnd}
+                total={queuePaging.total}
+                page={queuePaging.page}
+                totalPages={queuePaging.totalPages}
+                onPrev={() => queuePaging.setPage((p) => Math.max(1, p - 1))}
+                onNext={() =>
+                  queuePaging.setPage((p) =>
+                    Math.min(queuePaging.totalPages, p + 1),
+                  )
+                }
+              />
+            ) : null}
           </section>
 
           {/* Detail panel */}
@@ -433,7 +518,7 @@ export function OrderGroupsPage() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {!detail ? (
                 <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                   <Layers className="h-8 w-8 text-ink-subtle/50" />
@@ -508,6 +593,24 @@ export function OrderGroupsPage() {
                         {detail.orderCount}
                       </dd>
                     </div>
+                    {detail.stockShortage ? (
+                      <div className="col-span-full rounded-md border border-orange-200 bg-orange-50/80 px-2.5 py-2 text-xs text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100">
+                        <p className="font-semibold">
+                          {vi ? 'Thiếu tồn khả dụng (K5)' : 'Stock shortage (K5)'}
+                        </p>
+                        {detail.stockShortageItems.length > 0 ? (
+                          <ul className="mt-1 space-y-0.5 font-mono">
+                            {detail.stockShortageItems.map((item) => (
+                              <li key={item.sku}>
+                                {item.sku}: {vi ? 'cần' : 'need'} {item.needed},{' '}
+                                {vi ? 'giữ' : 'reserved'} {item.reserved},{' '}
+                                {vi ? 'thiếu' : 'short'} {item.shortage}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="flex items-start justify-between gap-2">
                       <dt className="inline-flex items-center gap-1 text-ink-subtle">
                         <Clock3 className="h-3.5 w-3.5" />

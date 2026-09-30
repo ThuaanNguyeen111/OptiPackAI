@@ -28,6 +28,8 @@ import {
   type PackagingRecommendation,
 } from '../../types/packaging'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import { useLocalQueuePagination } from '../../hooks/useLocalQueuePagination'
+import { QueuePaginationBar } from '../ui/QueuePaginationBar'
 import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 
 /**
@@ -456,11 +458,30 @@ export function PackagingWorkbench() {
     setActionBusy(true)
     setActionError(null)
     try {
-      await packOrderGroup(group.id, { expected_version: group.version })
+      const result = await packOrderGroup(group.id, {
+        expected_version: group.version,
+      })
+      const consumption = result.packagingConsumption
+      const warn = consumption?.warnings?.length
+        ? vi
+          ? ` Cảnh báo vật liệu: ${consumption.warnings.join('; ')}`
+          : ` Material warnings: ${consumption.warnings.join('; ')}`
+        : ''
+      const saved =
+        consumption?.consumed?.reduce((sum, line) => sum + line.savingVnd, 0) ??
+        0
+      const saveHint =
+        saved > 0
+          ? vi
+            ? ` Tiết kiệm ~${saved.toLocaleString('vi-VN')}₫ (thùng tái sử dụng).`
+            : ` Saved ~${saved.toLocaleString('en-US')} VND (reused packing).`
+          : ''
       showToast(
-        vi
+        (vi
           ? 'Đã xác nhận đóng gói xong — nhóm chuyển sang packed.'
-          : 'Confirmed packed — group is now packed.',
+          : 'Confirmed packed — group is now packed.') +
+          saveHint +
+          warn,
       )
       setGuide3dActive(false)
       await refreshAfterAction()
@@ -476,17 +497,25 @@ export function PackagingWorkbench() {
     setActionBusy(true)
     setActionError(null)
     try {
-      await packOrderGroup(group.id, {
+      const result = await packOrderGroup(group.id, {
         expected_version: group.version,
       })
-      showToast(vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.')
+      const consumption = result.packagingConsumption
+      const warn = consumption?.warnings?.length
+        ? vi
+          ? ` Cảnh báo: ${consumption.warnings.join('; ')}`
+          : ` Warnings: ${consumption.warnings.join('; ')}`
+        : ''
+      showToast(
+        (vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.') + warn,
+      )
       await refreshAfterAction()
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 403) {
         setActionError(
           vi
-            ? 'BE chưa mở POST /order-groups/:id/fulfillment/pack cho Packaging Staff (hiện chỉ Warehouse Staff + Admin). Nhờ BE thêm role PACKAGING_STAFF.'
-            : 'BE does not allow Packaging Staff to POST .../fulfillment/pack (Warehouse Staff + Admin only). Ask BE to add PACKAGING_STAFF.',
+            ? 'Không có quyền pack. Kiểm tra role PACKAGING_STAFF trên BE.'
+            : 'No pack permission. Check PACKAGING_STAFF role on BE.',
         )
       } else {
         setActionError(formatApiError(err))
@@ -565,6 +594,8 @@ export function PackagingWorkbench() {
   const currentTabLabel =
     queueTabs.find((row) => row[0] === tab)?.[1] ??
     (vi ? 'Hàng đợi' : 'Queue')
+
+  const queuePaging = useLocalQueuePagination(groups)
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -667,7 +698,7 @@ export function PackagingWorkbench() {
               </div>
             ) : (
               <ul className="divide-y divide-hairline">
-                {groups.map((g) => (
+                {queuePaging.pagedItems.map((g) => (
                   <li key={g.id}>
                     <button
                       type="button"
@@ -699,6 +730,23 @@ export function PackagingWorkbench() {
               </ul>
             )}
           </div>
+          {!listLoading && !listError && groups.length > 0 ? (
+            <QueuePaginationBar
+              vi={vi}
+              variant="pack"
+              rangeStart={queuePaging.rangeStart}
+              rangeEnd={queuePaging.rangeEnd}
+              total={queuePaging.total}
+              page={queuePaging.page}
+              totalPages={queuePaging.totalPages}
+              onPrev={() => queuePaging.setPage((p) => Math.max(1, p - 1))}
+              onNext={() =>
+                queuePaging.setPage((p) =>
+                  Math.min(queuePaging.totalPages, p + 1),
+                )
+              }
+            />
+          ) : null}
         </section>
 
         <section className="pack-bench-col pack-bench-detail">

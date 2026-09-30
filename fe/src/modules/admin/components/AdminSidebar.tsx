@@ -139,9 +139,7 @@ export function AdminSidebar() {
           className="flex min-w-0 items-center gap-2"
           title="OptiPackAI Admin"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]">
-            OP
-          </span>
+          <span className="lp-mark h-8 w-8 shrink-0">OP</span>
           {!sidebarCollapsed ? (
             <span className="truncate text-sm font-semibold tracking-tight text-ink">
               OptiPackAI
@@ -206,7 +204,7 @@ export function AdminSidebar() {
                     sidebarCollapsed ? 'justify-center' : ''
                   } ${
                     isActive
-                      ? 'bg-primary/15 text-primary-hover'
+                      ? 'owner-nav-active'
                       : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
                   }`
                 }
@@ -322,7 +320,7 @@ export function AdminSidebar() {
         icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
       />
       <aside
-        className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}
+        className={`owner-sidebar hidden shrink-0 flex-col transition-[width] lg:flex ${width}`}
       >
         {nav}
       </aside>
@@ -335,7 +333,7 @@ export function AdminSidebar() {
             aria-label="Đóng"
             onClick={() => setMobileNavOpen(false)}
           />
-          <aside className="relative z-10 flex h-full w-60 flex-col border-r border-hairline bg-canvas">
+          <aside className="owner-sidebar relative z-10 m-3 flex h-[calc(100%-24px)] w-60 flex-col">
             {nav}
           </aside>
         </div>

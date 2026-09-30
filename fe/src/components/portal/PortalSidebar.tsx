@@ -57,6 +57,14 @@ const navItems = [
     section: 'store' as NavSection,
   },
   {
+    to: '/app/returns',
+    end: false,
+    labelVi: 'Trả hàng',
+    labelEn: 'Returns',
+    icon: Package,
+    section: 'store' as NavSection,
+  },
+  {
     to: '/app/packaging-rules',
     end: false,
     labelVi: 'Quy tắc Bao bì (demo)',
