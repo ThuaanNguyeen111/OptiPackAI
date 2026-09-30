@@ -458,7 +458,7 @@ export function MarketplaceOrderDetailScreen({
                               to={detailPath(s.id)}
                               className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 font-mono text-[11px] transition-colors ${
                                 s.id === order.id
-                                  ? 'border-indigo-400 bg-indigo-50 font-semibold text-indigo-900 dark:border-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-100'
+                                  ? 'border-[var(--ls-cta,#152D35)] bg-[color-mix(in_srgb,#D4ECDD_60%,white)] font-semibold text-[var(--ls-cta,#152D35)] dark:border-[var(--ls-cta,#D4ECDD)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_14%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]'
                                   : 'border-hairline bg-surface-2 text-ink-muted hover:border-primary/40'
                               }`}
                             >
@@ -621,7 +621,7 @@ export function MarketplaceOrderDetailScreen({
                               onClick={() => setPlatformTab(ch)}
                               className={`inline-flex h-8 items-center rounded-md px-2.5 text-[11px] font-semibold capitalize transition-colors cursor-pointer ${
                                 platformTab === ch
-                                  ? 'bg-blue-50 font-bold text-blue-700 ring-1 ring-blue-400 dark:bg-blue-950/60 dark:text-blue-300'
+                                  ? 'bg-[color-mix(in_srgb,#D4ECDD_55%,white)] font-bold text-[var(--ls-cta,#152D35)] ring-1 ring-[var(--ls-cta,#152D35)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_14%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)] dark:ring-[var(--ls-cta,#D4ECDD)]'
                                   : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50 dark:bg-surface-1 dark:text-slate-300 dark:ring-slate-700'
                               }`}
                             >
@@ -806,7 +806,7 @@ export function MarketplaceOrderDetailScreen({
                 </div>
 
                 {siblings.length > 1 ? (
-                  <div className="rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-5 dark:border-indigo-900/50 dark:bg-indigo-950/20">
+                  <div className="rounded-xl border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_40%,white)] p-5 dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_28%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_10%,transparent)]">
                     <h2 className="text-sm font-medium text-ink">
                       {vi
                         ? 'Toàn bộ sản phẩm trong nhóm gộp'
@@ -856,7 +856,7 @@ export function MarketplaceOrderDetailScreen({
                               <td className="py-2">
                                 <Link
                                   to={detailPath(row.orderId)}
-                                  className="font-mono text-xs font-semibold text-indigo-600 hover:underline dark:text-indigo-400"
+                                  className="font-mono text-xs font-semibold text-[var(--ls-cta,#152D35)] hover:underline dark:text-[var(--ls-cta,#D4ECDD)]"
                                 >
                                   #{row.orderNumber}
                                 </Link>

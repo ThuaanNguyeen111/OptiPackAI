@@ -393,7 +393,7 @@ export function OrderGroupsPage() {
                             'cursor-pointer transition-colors',
                             g.isOverdue && 'border-l-4 border-l-rose-600',
                             selected
-                              ? 'bg-indigo-50/80 dark:bg-indigo-950/30'
+                              ? 'bg-[color-mix(in_srgb,#D4ECDD_55%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)]'
                               : g.isOverdue
                                 ? 'bg-rose-50/70 hover:bg-rose-100/70'
                                 : 'hover:bg-surface-2/80',
@@ -430,7 +430,7 @@ export function OrderGroupsPage() {
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex justify-center">
-                              <span className="inline-flex rounded-full border border-indigo-200/80 bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
+                              <span className="inline-flex rounded-full border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_70%,white)] px-2 py-0.5 text-[11px] font-medium text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]">
                                 {platformLabel(g.platform)}
                               </span>
                             </div>

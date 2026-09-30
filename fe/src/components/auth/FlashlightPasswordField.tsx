@@ -7,6 +7,10 @@ type FlashlightPasswordFieldProps = {
   value: string
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
   error?: string
+  /** false = giữ viền lỗi, ẩn chữ dưới ô (dùng khi lỗi đã hiện ở bubble cú) */
+  showErrorMessage?: boolean
+  /** Gắn aria-describedby khi ẩn chữ lỗi (vd id bubble cú) */
+  errorDescribedBy?: string
   revealed: boolean
   onToggle: () => void
   autoComplete?: string
@@ -40,12 +44,19 @@ export function FlashlightPasswordField({
   value,
   onChange,
   error,
+  showErrorMessage = true,
+  errorDescribedBy,
   revealed,
   onToggle,
   autoComplete = 'current-password',
   placeholder = '••••••••••••',
 }: FlashlightPasswordFieldProps): ReactNode {
   const inputId = id ?? name
+  const describedBy = error
+    ? showErrorMessage
+      ? `${inputId}-error`
+      : errorDescribedBy
+    : undefined
 
   return (
     <div>
@@ -64,7 +75,7 @@ export function FlashlightPasswordField({
           className="login-pass-input"
           spellCheck={false}
           aria-invalid={Boolean(error)}
-          aria-describedby={error ? `${inputId}-error` : undefined}
+          aria-describedby={describedBy}
         />
         <button
           type="button"
@@ -76,7 +87,7 @@ export function FlashlightPasswordField({
           {revealed ? <FlashlightIcon /> : <Eye size={18} strokeWidth={1.75} />}
         </button>
       </div>
-      {error ? (
+      {error && showErrorMessage ? (
         <p id={`${inputId}-error`} className="login-error">
           {error}
         </p>

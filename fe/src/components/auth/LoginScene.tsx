@@ -30,29 +30,29 @@ function LandscapeArt(): ReactNode {
     >
       <defs>
         <linearGradient id="lsSkyDay" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#d7eef8" />
-          <stop offset="42%" stopColor="#b7d8ea" />
-          <stop offset="100%" stopColor="#6a9db8" />
+          <stop offset="0%" stopColor="#d4ecdd" />
+          <stop offset="42%" stopColor="#c5e3d0" />
+          <stop offset="100%" stopColor="#b8dcc8" />
         </linearGradient>
         <linearGradient id="lsSkyNight" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#081322" />
-          <stop offset="55%" stopColor="#12243a" />
-          <stop offset="100%" stopColor="#0a1624" />
+          <stop offset="0%" stopColor="#152d35" />
+          <stop offset="55%" stopColor="#0f2228" />
+          <stop offset="100%" stopColor="#0c1c22" />
         </linearGradient>
         <radialGradient id="lsSunGlow" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0%" stopColor="#ffe9a8" stopOpacity="0.95" />
-          <stop offset="50%" stopColor="#f4c86a" stopOpacity="0.32" />
-          <stop offset="100%" stopColor="#f4c86a" stopOpacity="0" />
+          <stop offset="0%" stopColor="#eef8f2" stopOpacity="0.95" />
+          <stop offset="50%" stopColor="#d4ecdd" stopOpacity="0.36" />
+          <stop offset="100%" stopColor="#d4ecdd" stopOpacity="0" />
         </radialGradient>
         <radialGradient id="lsMoonGlow" cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0%" stopColor="#eef4ff" stopOpacity="0.95" />
-          <stop offset="55%" stopColor="#c9d7f0" stopOpacity="0.38" />
-          <stop offset="100%" stopColor="#c9d7f0" stopOpacity="0" />
+          <stop offset="0%" stopColor="#d4ecdd" stopOpacity="0.9" />
+          <stop offset="55%" stopColor="#c5e3d0" stopOpacity="0.32" />
+          <stop offset="100%" stopColor="#c5e3d0" stopOpacity="0" />
         </radialGradient>
         <linearGradient id="lsMist" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#d5eaf4" stopOpacity="0" />
-          <stop offset="45%" stopColor="#1d4258" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="#0d2433" stopOpacity="0.72" />
+          <stop offset="0%" stopColor="#d4ecdd" stopOpacity="0" />
+          <stop offset="45%" stopColor="#152d35" stopOpacity="0.2" />
+          <stop offset="100%" stopColor="#0c1c22" stopOpacity="0.72" />
         </linearGradient>
       </defs>
 
@@ -81,9 +81,9 @@ function LandscapeArt(): ReactNode {
 
       <g className="ls-moon">
         <circle cx="118" cy="108" r="58" fill="url(#lsMoonGlow)" />
-        <circle cx="118" cy="108" r="28" fill="#e8eef8" />
-        <circle cx="108" cy="100" r="5" fill="#d0dae8" opacity="0.5" />
-        <circle cx="128" cy="116" r="3.5" fill="#d0dae8" opacity="0.4" />
+        <circle cx="118" cy="108" r="28" fill="#d4ecdd" />
+        <circle cx="108" cy="100" r="5" fill="#c5e3d0" opacity="0.5" />
+        <circle cx="128" cy="116" r="3.5" fill="#c5e3d0" opacity="0.4" />
       </g>
 
       <path

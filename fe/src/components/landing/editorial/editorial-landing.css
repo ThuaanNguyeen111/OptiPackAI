@@ -1,0 +1,115 @@
+/* Editorial home — OptiPackAI (Deep Teal #152D35 · Soft Sage #D4ECDD)
+   Fonts loaded in index.html (Lora + Be Vietnam Pro + DM Sans) — avoid @import race. */
+
+.editorial-landing {
+  --ed-ink: #152d35;
+  --ed-ink-soft: #3d555e;
+  --ed-muted: #6b828a;
+  --ed-sage: #d4ecdd;
+  --ed-sage-deep: #b8dcc8;
+  --ed-paper: #f4f7f5;
+  --ed-line: color-mix(in srgb, #152d35 12%, transparent);
+  --ed-cta: #152d35;
+  --ed-cta-fg: #d4ecdd;
+  --font-ed-sans: 'DM Sans', 'Be Vietnam Pro', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
+  /* Lora (VN glyphs) → Be Vietnam Pro (designed for Vietnamese diacritics) */
+  --font-ed-display: 'Lora', 'Be Vietnam Pro', 'Segoe UI', Georgia, serif;
+  min-height: 100svh;
+  color: var(--ed-ink);
+  background:
+    radial-gradient(120% 80% at 100% -10%, color-mix(in srgb, var(--ed-sage) 55%, transparent), transparent 55%),
+    radial-gradient(90% 60% at -10% 20%, color-mix(in srgb, var(--ed-sage-deep) 40%, transparent), transparent 50%),
+    var(--ed-paper);
+  font-family: var(--font-ed-sans);
+}
+
+.editorial-landing h1,
+.editorial-landing h2.ed-title,
+.editorial-landing .ed-title,
+.editorial-landing .ed-display {
+  font-family: var(--font-ed-display);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.28;
+  font-feature-settings: 'kern' 1, 'liga' 1;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.editorial-landing .landing-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.5rem;
+  border-radius: 999px;
+  padding: 0 1.15rem;
+  background: var(--ed-cta);
+  color: var(--ed-cta-fg);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.editorial-landing .landing-cta:hover {
+  background: #0f2228;
+  transform: translateY(-1px);
+}
+
+/* Sticky pill nav */
+.editorial-landing .ed-nav-shell {
+  position: fixed;
+  z-index: 50;
+  isolation: isolate;
+}
+
+.editorial-landing .ed-nav-pill {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--ed-paper) 90%, white);
+  border: 1px solid color-mix(in srgb, #152d35 12%, transparent);
+  box-shadow: 0 10px 36px rgba(21, 45, 53, 0.08);
+}
+
+.editorial-landing .ed-nav-pill.is-scrolled {
+  background: color-mix(in srgb, var(--ed-paper) 96%, white);
+  border-color: color-mix(in srgb, #152d35 18%, transparent);
+  box-shadow: 0 14px 44px rgba(21, 45, 53, 0.14);
+}
+
+.ed-section {
+  width: min(1120px, calc(100% - 2rem));
+  margin-inline: auto;
+  padding-block: clamp(4rem, 8vw, 7rem);
+}
+
+.ed-kicker {
+  margin: 0 0 0.75rem;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ed-ink) 55%, #7a9098);
+}
+
+.ed-title {
+  margin: 0;
+  max-width: 18ch;
+  font-size: clamp(2.1rem, 4.6vw, 3.4rem);
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.28;
+  color: var(--ed-ink);
+}
+
+.ed-lead {
+  margin: 1rem 0 0;
+  max-width: 40rem;
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--ed-ink-soft);
+}

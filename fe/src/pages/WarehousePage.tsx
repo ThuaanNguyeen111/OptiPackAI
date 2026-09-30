@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -9,10 +9,13 @@ import {
   Loader2,
   MapPin,
   Minus,
+  PackageOpen,
   Plus,
   RefreshCw,
+  Search,
   UserCheck,
   Users,
+  Warehouse,
   X,
   Zap,
 } from 'lucide-react'
@@ -286,7 +289,7 @@ function BarcodeGraphic({ code }: { code: string }) {
       </svg>
       <p className="mt-1 font-mono text-xs font-semibold tracking-[0.18em] text-slate-700 dark:text-slate-300">
         * {label} *
-      </p>
+          </p>
         </div>
   )
 }
@@ -370,6 +373,9 @@ export function WarehousePage() {
   const [staffLoading, setStaffLoading] = useState(false)
   const [selectedStaffId, setSelectedStaffId] = useState('')
   const [queueFilter, setQueueFilter] = useState<'all' | 'mine' | 'express'>('all')
+  const [groupPickerOpen, setGroupPickerOpen] = useState(false)
+  const [groupSearch, setGroupSearch] = useState('')
+  const groupPickerRef = useRef<HTMLDivElement>(null)
 
   const showToast = useCallback((message: string) => {
     setToast(message)
@@ -457,6 +463,60 @@ export function WarehousePage() {
     }
     return tabGroups[0]?.id ?? ''
   }, [groupIdParam, tabGroups])
+
+  const filteredTabGroups = useMemo(() => {
+    const q = groupSearch.trim().toLowerCase()
+    if (!q) return tabGroups
+    return tabGroups.filter((row) => {
+      const hay = [
+        row.id,
+        shortId(row.id),
+        platformLabel(row.platform),
+        row.platform,
+        String(row.orderCount),
+        row.orderPriority,
+        row.fulfillmentStatus,
+      ]
+        .join(' ')
+        .toLowerCase()
+      return hay.includes(q)
+    })
+  }, [tabGroups, groupSearch])
+
+  const selectedGroupLabel = useMemo(() => {
+    const row = tabGroups.find((g) => g.id === selectedId)
+    if (!row) {
+      return vi ? 'Chọn nhóm đơn…' : 'Select order group…'
+    }
+    return `${row.stockShortage ? '⚠ ' : ''}${row.orderPriority === 'express' ? '⚡ ' : ''}${
+      meId && row.assignedStaffId === meId ? '● ' : ''
+    }${shortId(row.id)} · ${platformLabel(row.platform)} · ${row.orderCount} ${
+      vi ? 'đơn' : 'orders'
+    }`
+  }, [tabGroups, selectedId, meId, vi])
+
+  useEffect(() => {
+    if (!groupPickerOpen) return
+    function onPointerDown(event: MouseEvent): void {
+      if (!groupPickerRef.current?.contains(event.target as Node)) {
+        setGroupPickerOpen(false)
+      }
+    }
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.key === 'Escape') setGroupPickerOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [groupPickerOpen])
+
+  useEffect(() => {
+    setGroupSearch('')
+    setGroupPickerOpen(false)
+  }, [tab, queueFilter])
 
   useEffect(() => {
     if (listLoading) return
@@ -597,6 +657,25 @@ export function WarehousePage() {
     setCurrentQty(Math.max(1, line.quantity - line.qtyPicked))
     setActionError(null)
   }
+
+  const goToNextGroup = useCallback(() => {
+    if (tabGroups.length === 0) return
+    const idx = tabGroups.findIndex((row) => row.id === selectedId)
+    const next =
+      idx >= 0
+        ? tabGroups[(idx + 1) % tabGroups.length]
+        : tabGroups[0]
+    if (!next) return
+    if (next.id === selectedId && tabGroups.length === 1) {
+      showToast(
+        vi
+          ? 'Đây là nhóm duy nhất trong tab hiện tại.'
+          : 'This is the only group in the current tab.',
+      )
+      return
+    }
+    navigate(`/app/warehouse?groupId=${next.id}`)
+  }, [tabGroups, selectedId, navigate, showToast, vi])
 
   function applyWarehouseId() {
     const next = warehouseDraft.trim()
@@ -887,7 +966,7 @@ export function WarehousePage() {
                     <span className="ml-1 opacity-70">{counts[item.id]}</span>
                   </button>
                 ))}
-          </div>
+      </div>
 
               <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
                 {(
@@ -913,86 +992,118 @@ export function WarehousePage() {
                 ))}
             </div>
 
-              <div className="relative">
-                <select
-                  value={selectedId}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      navigate(`/app/warehouse?groupId=${e.target.value}`)
-                    }
-                  }}
+              <div className="relative min-w-[14rem] max-w-[22rem] flex-1 sm:flex-none" ref={groupPickerRef}>
+                <button
+                  type="button"
                   disabled={tabGroups.length === 0}
-                  className="h-9 cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white pl-2.5 pr-7 font-mono text-xs font-bold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
+                  onClick={() => setGroupPickerOpen((open) => !open)}
+                  className="flex h-9 w-full cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-2.5 text-left shadow-2xs disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-surface-2"
                 >
-                  {tabGroups.length === 0 ? (
-                    <option value="">
-                      {vi ? 'Không có nhóm trong tab này' : 'No groups in this tab'}
-                    </option>
-                  ) : (
-                    tabGroups.map((row) => (
-                      <option key={row.id} value={row.id}>
-                        {row.stockShortage ? '⚠ ' : ''}
-                        {row.orderPriority === 'express' ? '⚡ ' : ''}
-                        {meId && row.assignedStaffId === meId ? '● ' : ''}
-                        {shortId(row.id)} · {platformLabel(row.platform)} · {row.orderCount}{' '}
-                        {vi ? 'đơn' : 'orders'}
-                      </option>
-                    ))
-                  )}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 self-end text-xs lg:self-auto">
-              <button
-                type="button"
-                onClick={() => void loadGroups()}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 font-semibold text-slate-600 cursor-pointer hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                {vi ? 'Tải lại' : 'Reload'}
-              </button>
-              {group && canCompletePick(status) ? (
-                <button
-                  type="button"
-                  onClick={() => setCompleteOpen(true)}
-                  disabled={busy || lines.length === 0 || !group.assignedStaffId}
-                  title={
-                    !group.assignedStaffId
+                  <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
+                    {tabGroups.length === 0
                       ? vi
-                        ? 'Nhận việc trước khi hoàn tất lấy hàng'
-                        : 'Claim the batch before completing pick'
-                      : undefined
-                  }
-                  className={cn(
-                    'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 font-bold shadow-xs',
-                    group.assignedStaffId
-                      ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
-                      : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
-                  )}
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
+                        ? 'Không có nhóm trong tab này'
+                        : 'No groups in this tab'
+                      : selectedGroupLabel}
+        </span>
+                  <span className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                    {tabGroups.length}
+        </span>
+                  <ChevronDown
+                    className={cn(
+                      'h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform',
+                      groupPickerOpen && 'rotate-180',
+                    )}
+                  />
                 </button>
-          ) : null}
-              {group && canReturn(status) ? (
-                <button
-                  type="button"
-                  onClick={() => setReturnOpen(true)}
-                  disabled={busy}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 font-bold text-amber-900 cursor-pointer hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-                >
-                  {vi ? 'Ghi nhận hoàn hàng' : 'Record return'}
-                </button>
-              ) : null}
-            </div>
-          </div>
 
-          <div className="rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs dark:border-slate-800 dark:bg-surface-1">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <label className="min-w-0 flex-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-                {vi ? 'Kho đang lấy hàng' : 'Active warehouse'}
+                {groupPickerOpen && tabGroups.length > 0 ? (
+                  <div className="absolute top-[calc(100%+6px)] left-0 z-40 w-[min(100vw-2rem,22rem)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-surface-1">
+                    <div className="border-b border-slate-100 p-2 dark:border-slate-800">
+                      <label className="relative block">
+                        <Search className="pointer-events-none absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                        <input
+                          autoFocus
+                          value={groupSearch}
+                          onChange={(e) => setGroupSearch(e.target.value)}
+                          placeholder={
+                            vi
+                              ? 'Tìm mã nhóm, sàn, số đơn…'
+                              : 'Search group id, platform…'
+                          }
+                          className="h-9 w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pr-3 pl-8 font-mono text-xs text-slate-800 outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
+                        />
+                      </label>
+                      <p className="mt-1.5 px-0.5 text-[10px] text-slate-500">
+                        {vi
+                          ? `${filteredTabGroups.length}/${tabGroups.length} nhóm`
+                          : `${filteredTabGroups.length}/${tabGroups.length} groups`}
+                      </p>
+                    </div>
+                    <ul className="max-h-64 overflow-y-auto p-1">
+                      {filteredTabGroups.length === 0 ? (
+                        <li className="px-3 py-4 text-center text-xs text-slate-500">
+                          {vi ? 'Không khớp từ khóa' : 'No matches'}
+                        </li>
+                      ) : (
+                        filteredTabGroups.map((row) => {
+                          const active = row.id === selectedId
+                          return (
+                            <li key={row.id}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigate(`/app/warehouse?groupId=${row.id}`)
+                                  setGroupPickerOpen(false)
+                                  setGroupSearch('')
+                                }}
+                                className={cn(
+                                  'flex w-full cursor-pointer items-start gap-2 rounded-lg px-2.5 py-2 text-left transition-colors',
+                                  active
+                                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                                )}
+                              >
+                                <span className="min-w-0 flex-1">
+                                  <span
+                                    className={cn(
+                                      'block truncate font-mono text-xs font-bold',
+                                      !active && 'text-slate-800 dark:text-slate-100',
+                                    )}
+                                  >
+                                    {row.stockShortage ? '⚠ ' : ''}
+                                    {row.orderPriority === 'express' ? '⚡ ' : ''}
+                                    {meId && row.assignedStaffId === meId ? '● ' : ''}
+                                    {shortId(row.id)}
+          </span>
+                                  <span
+                                    className={cn(
+                                      'mt-0.5 block text-[10px]',
+                                      active
+                                        ? 'opacity-80'
+                                        : 'text-slate-500 dark:text-slate-400',
+                                    )}
+                                  >
+                                    {platformLabel(row.platform)} · {row.orderCount}{' '}
+                                    {vi ? 'đơn' : 'orders'}
+                                  </span>
+                                </span>
+                                {active ? (
+                                  <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                ) : null}
+                              </button>
+                            </li>
+                          )
+                        })
+                      )}
+                    </ul>
+                  </div>
+        ) : null}
+      </div>
+
+              <div className="relative flex min-w-[10.5rem] max-w-[16rem] items-center gap-1.5">
+                <Warehouse className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-slate-400" />
                 {warehouses.length > 0 ? (
                   <select
                     value={warehouseId}
@@ -1001,11 +1112,12 @@ export function WarehousePage() {
                       setWarehouseDraft(e.target.value)
                       writeStoredWarehouseId(e.target.value)
                     }}
-                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold dark:border-slate-700 dark:bg-surface-2"
+                    title={vi ? 'Kho đang lấy hàng' : 'Active warehouse'}
+                    className="h-9 w-full cursor-pointer appearance-none rounded-xl border border-slate-200 bg-white py-1 pr-7 pl-8 text-xs font-semibold text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
                   >
                     {warehouses.map((row) => (
                       <option key={row.id} value={row.id}>
-                        {row.warehouseName} ({row.warehouseCode})
+                        {row.warehouseCode} · {row.warehouseName}
                       </option>
                     ))}
                   </select>
@@ -1013,36 +1125,88 @@ export function WarehousePage() {
                   <input
                     value={warehouseDraft}
                     onChange={(e) => setWarehouseDraft(e.target.value)}
-                    placeholder={vi ? 'Dán ObjectId kho từ trang Admin' : 'Paste warehouse ObjectId from Admin'}
-                    className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 font-mono text-xs dark:border-slate-700 dark:bg-surface-2"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') applyWarehouseId()
+                    }}
+                    placeholder={vi ? 'ObjectId kho…' : 'Warehouse id…'}
+                    title={vi ? 'Kho đang lấy hàng' : 'Active warehouse'}
+                    className="h-9 w-full rounded-xl border border-slate-200 bg-white py-1 pr-2 pl-8 font-mono text-xs text-slate-800 shadow-2xs dark:border-slate-700 dark:bg-surface-2 dark:text-slate-200"
                   />
                 )}
-              </label>
-              {warehouses.length === 0 ? (
-                <button
-                  type="button"
-                  onClick={applyWarehouseId}
-                  className="h-9 shrink-0 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white cursor-pointer dark:bg-white dark:text-slate-900"
-                >
-                  {vi ? 'Dùng mã này' : 'Use this id'}
-                </button>
-              ) : null}
-            </div>
-            {warehouseListBlocked ? (
-              <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
-                {vi
-                  ? 'Không lấy được danh sách kho (403). Dán ObjectId kho, hoặc kiểm tra BE đã mở GET /warehouse/warehouses cho Warehouse Staff.'
-                  : 'Could not list warehouses (403). Paste a warehouse ObjectId, or confirm BE allows GET /warehouse/warehouses for warehouse staff.'}
-              </p>
-            ) : null}
-            {!warehouseId ? (
-              <p className="mt-2 text-[11px] text-slate-500">
-                {vi
-                  ? 'Chưa có mã kho: vẫn xem được danh sách SKU, nhưng quét trừ tồn / báo thiếu hàng cần warehouse_id.'
-                  : 'Without a warehouse id you can view SKUs, but pick-item and report-missing require warehouse_id.'}
-              </p>
-            ) : null}
+                {warehouses.length === 0 ? (
+                  <button
+                    type="button"
+                    onClick={applyWarehouseId}
+                    className="h-9 shrink-0 rounded-lg bg-slate-900 px-2.5 text-[11px] font-semibold text-white cursor-pointer dark:bg-white dark:text-slate-900"
+                  >
+                    {vi ? 'Dùng' : 'Use'}
+                  </button>
+                ) : (
+                  <ChevronDown className="pointer-events-none absolute right-2 h-3.5 w-3.5 text-slate-400" />
+                )}
               </div>
+
+              <button
+                type="button"
+                onClick={() => void loadGroups()}
+                title={vi ? 'Tải lại hàng đợi' : 'Reload queue'}
+                aria-label={vi ? 'Tải lại' : 'Reload'}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 cursor-pointer hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:text-white"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+        </div>
+
+            {(group && canCompletePick(status)) || (group && canReturn(status)) ? (
+              <div className="flex flex-row flex-wrap items-center gap-2 text-xs">
+                {group && canCompletePick(status) ? (
+                  <button
+                    type="button"
+                    onClick={() => setCompleteOpen(true)}
+                    disabled={busy || lines.length === 0 || !group.assignedStaffId}
+                    title={
+                      !group.assignedStaffId
+                        ? vi
+                          ? 'Nhận việc trước khi hoàn tất lấy hàng'
+                          : 'Claim the batch before completing pick'
+                        : undefined
+                    }
+                    className={cn(
+                      'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 font-bold shadow-xs',
+                      group.assignedStaffId
+                        ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
+                        : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
+                    )}
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
+                  </button>
+                ) : null}
+                {group && canReturn(status) ? (
+                  <button
+                    type="button"
+                    onClick={() => setReturnOpen(true)}
+                    disabled={busy}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 font-bold text-amber-900 cursor-pointer hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                  >
+                    {vi ? 'Ghi nhận hoàn hàng' : 'Record return'}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          {warehouseListBlocked || !warehouseId ? (
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              {warehouseListBlocked
+                ? vi
+                  ? 'Không lấy danh sách kho (403). Dán ObjectId kho, hoặc mở GET /warehouse/warehouses cho Warehouse Staff.'
+                  : 'Could not list warehouses (403). Paste a warehouse ObjectId, or allow GET /warehouse/warehouses for staff.'
+                : vi
+                  ? 'Chưa chọn kho: vẫn xem SKU, nhưng quét trừ tồn / báo thiếu cần warehouse_id.'
+                  : 'No warehouse selected: you can view SKUs, but pick/report-missing need warehouse_id.'}
+            </p>
+          ) : null}
 
           {listError ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
@@ -1069,10 +1233,10 @@ export function WarehousePage() {
           ) : (
             <>
               <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1 sm:p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-2">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600">
+                      <span className="rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                         {shortId(group?.id ?? selectedId)}
                       </span>
                       <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
@@ -1119,31 +1283,58 @@ export function WarehousePage() {
                           ? ' · Chưa có vị trí kệ'
                           : ' · No bin route yet'}
                     </p>
-                  </div>
+                    {status === 'picked' ? (
+                      <p className="flex items-start gap-1.5 text-xs text-emerald-700 dark:text-emerald-300">
+                        <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {vi
+                          ? 'Đã lấy xong — đưa khay sang bàn đóng gói (/app/packing).'
+                          : 'Picking done — hand tote to packing (/app/packing).'}
+                      </p>
+                    ) : null}
+                    {canPickItems(status) &&
+                    (status === 'awaiting_packaging' || status === 'pending_approval') ? (
+                      <p className="flex items-start gap-1.5 text-xs text-sky-800 dark:text-sky-200">
+                        <Flag className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {vi
+                          ? 'Đơn mới: quét SKU/mã kệ để trừ tồn ngay.'
+                          : 'New group: scan SKU/bin to decrement stock now.'}
+                      </p>
+                    ) : null}
+                    {status === 'partial_needs_review' ? (
+                      <p className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {vi
+                          ? 'Đang chờ duyệt phần thiếu — kho không tiếp tục được.'
+                          : 'Waiting on shortage review — warehouse cannot continue.'}
+                      </p>
+                    ) : null}
+            </div>
 
-                  <div className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-700 dark:bg-surface-2/40">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
-                      <Users className="h-4 w-4" />
+                  <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                    <div className="flex min-w-[12rem] flex-1 items-center gap-2.5 rounded-xl bg-slate-50/80 px-3 py-2 dark:bg-surface-2/50 sm:flex-none">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300">
+                        <Users className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-900 dark:text-slate-100">
+                          {assignedName}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {vi ? 'Nhân viên lấy hàng' : 'Assigned picker'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                        {assignedName}
-                      </p>
-                      <p className="text-[11px] text-slate-500">
-                        {vi ? 'Nhân viên lấy hàng' : 'Assigned picker'}
-                      </p>
-                    </div>
-              <button
-                type="button"
-                      onClick={() => {
+                    <button
+                      type="button"
+              onClick={() => {
                         setAssignMode(group?.assignedStaffId ? 'manual' : 'auto')
                         setAssignOpen(true)
                       }}
                       className={cn(
-                        'ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs cursor-pointer',
+                        'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs cursor-pointer',
                         group?.assignedStaffId
                           ? 'border border-slate-200 bg-white font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1'
-                          : 'bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700',
+                          : 'bg-indigo-600 font-semibold text-white shadow-sm hover:bg-indigo-700',
                       )}
                     >
                       <UserCheck className="h-3.5 w-3.5" />
@@ -1154,50 +1345,30 @@ export function WarehousePage() {
                         : vi
                           ? 'Nhận việc'
                           : 'Claim'}
-              </button>
+                    </button>
+                    {canPickItems(status) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMissingQty(Math.max(1, remainingForActive || 1))
+                          setMissingOpen(true)
+                        }}
+                        disabled={!activeLine || !warehouseId || busy}
+                        className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 cursor-pointer hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                      >
+                        <Flag className="h-3.5 w-3.5" />
+                        {vi ? 'Báo thiếu hàng' : 'Report missing'}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
           </div>
 
-              {status === 'picked' ? (
-                <div className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p>
-                    {vi
-                      ? 'Đã lấy xong. Đưa khay sang bàn đóng gói — Packaging Staff xác nhận gói trên /app/packing. Kho không bấm đóng gói.'
-                      : 'Picking finished. Hand the tote to packing — Packaging Staff confirms pack on /app/packing. Warehouse does not pack.'}
-                  </p>
-                </div>
-              ) : null}
-
-              {canPickItems(status) &&
-              (status === 'awaiting_packaging' || status === 'pending_approval') ? (
-                <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-sm text-sky-950 dark:border-sky-900/50 dark:bg-sky-950/30 dark:text-sky-100">
-                  <Flag className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p>
-                    {vi
-                      ? 'Đơn mới: quét SKU/mã kệ để trừ tồn ngay.'
-                      : 'New group: scan SKU/bin to decrement stock now. Complete pick and Report missing may still be blocked by the old BE packing-plan gate — that is a backend change, not this screen.'}
-                  </p>
-                </div>
-              ) : null}
-
-              {status === 'partial_needs_review' ? (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <p>
-                    {vi
-                      ? 'Đơn đang chờ được duyệt phần thiếu...'
-                      : 'This group is waiting for packaging staff to decide the shortage. Warehouse staff cannot continue it.'}
-                  </p>
-                </div>
-              ) : null}
-
               {actionError ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
                   {actionError}
-                </div>
-              ) : null}
+            </div>
+          ) : null}
 
               {detailError ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
@@ -1209,6 +1380,29 @@ export function WarehousePage() {
                 <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-surface-1">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   {vi ? 'Đang tải danh sách lấy hàng…' : 'Loading picking list…'}
+                </div>
+              ) : lines.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-white px-6 py-14 text-center dark:border-slate-700 dark:bg-surface-1">
+                  <div className="mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                    <PackageOpen className="h-7 w-7" strokeWidth={1.75} />
+                  </div>
+                  <p className="text-base font-semibold text-slate-900 dark:text-slate-100">
+                    {vi
+                      ? 'Nhóm đơn này không còn SKU cần lấy'
+                      : 'No SKUs left to pick in this group'}
+                  </p>
+                  <p className="mt-1.5 max-w-md text-sm text-slate-500">
+                    {vi
+                      ? 'Đơn có thể đã hủy / sự cố logistics, hoặc đã lấy xong. Chuyển sang nhóm tiếp theo trong hàng đợi.'
+                      : 'Orders may be canceled / logistics-blocked, or already picked. Move to the next group in the queue.'}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={goToNextGroup}
+                    className="mt-6 inline-flex h-11 items-center rounded-xl bg-slate-900 px-5 text-sm font-bold text-white cursor-pointer hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
+                  >
+                    {vi ? 'Chuyển đơn tiếp theo' : 'Next order'}
+                  </button>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -1241,9 +1435,9 @@ export function WarehousePage() {
                               {activeLine.remainingStock != null
                                 ? ` · ${vi ? 'Tồn kệ còn' : 'Bin left'} ${activeLine.remainingStock}`
                                 : ''}
-                            </p>
-                          </div>
-                        </div>
+                </p>
+              </div>
+          </div>
 
                         {isBinAssigned(activeLine.bin_code) ? (
                           <div className="mt-5">
@@ -1297,8 +1491,8 @@ export function WarehousePage() {
                                   {vi ? 'Đã khớp' : 'Matched'}
                                 </span>
                               ) : (
-                                <button
-                                  type="button"
+              <button
+                type="button"
                                   onClick={() => {
                                     setScanInput(activeLine.sku)
                                     setScanMethod('manual')
@@ -1307,10 +1501,10 @@ export function WarehousePage() {
                                   className="inline-flex shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 cursor-pointer hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
                                 >
                                   {vi ? 'Nhập SKU' : 'Type SKU'}
-                                </button>
+              </button>
                               )}
           </div>
-        </div>
+          </div>
 
                           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
                             <div className="flex items-center justify-center gap-1 sm:justify-start">
@@ -1379,31 +1573,11 @@ export function WarehousePage() {
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-surface-1">
-                        {vi ? 'Nhóm đơn này không còn SKU cần lấy.' : 'No SKUs left to pick in this group.'}
+                        {vi
+                          ? 'Chọn một SKU trong danh sách bên phải để bắt đầu quét.'
+                          : 'Select a SKU from the list to start scanning.'}
                       </div>
                     )}
-
-                    {canPickItems(status) ? (
-                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] p-3.5 text-xs dark:border-amber-900/40 dark:bg-amber-950/20">
-                        <span className="font-medium text-amber-900 dark:text-amber-300">
-                          {vi
-                            ? 'Không đủ hàng/Hàng lỗi?'
-                            : 'Bin empty or item damaged?'}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setMissingQty(Math.max(1, remainingForActive))
-                            setMissingOpen(true)
-                          }}
-                          disabled={!activeLine || !warehouseId || busy}
-                          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 font-semibold text-amber-900 cursor-pointer hover:bg-amber-50 disabled:opacity-50 dark:border-amber-800 dark:bg-surface-1 dark:text-amber-300"
-                        >
-                          <Flag className="h-3.5 w-3.5" />
-                          {vi ? 'Báo thiếu hàng' : 'Report missing'}
-                        </button>
-                      </div>
-                    ) : null}
                   </div>
 
                   <div className="lg:col-span-5">
@@ -1454,7 +1628,7 @@ export function WarehousePage() {
                                     binCode={line.bin_code}
                                     zoneCode={line.zone_code}
                                   />
-                                </div>
+          </div>
                                 {line.other_bins.length > 0 ? (
                                   <p className="mt-0.5 truncate text-[10px] text-slate-500">
                                     {vi ? 'Ô khác' : 'Also at'}{' '}
@@ -1463,7 +1637,7 @@ export function WarehousePage() {
                                       .join(', ')}
                                   </p>
                                 ) : null}
-                              </div>
+        </div>
                               <span className="shrink-0 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">
                                 {line.qtyPicked}/{line.quantity}
                               </span>

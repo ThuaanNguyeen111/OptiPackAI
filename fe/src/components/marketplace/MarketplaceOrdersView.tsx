@@ -46,7 +46,7 @@ const adminSelectClass =
   'h-9 cursor-pointer appearance-none rounded-lg border border-hairline bg-surface-1 pl-3 pr-8 text-xs text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/40'
 
 const opsSelectClass =
-  'h-9 cursor-pointer appearance-none rounded-md border border-slate-300 bg-white pl-3 pr-8 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/30 dark:border-zinc-600 dark:bg-zinc-900 dark:text-slate-300'
+  'h-9 cursor-pointer appearance-none rounded-md border border-slate-300 bg-white pl-3 pr-8 text-xs font-medium text-slate-700 shadow-sm transition-colors hover:border-slate-400 focus:border-[var(--ls-cta,#152D35)] focus:outline-none focus:ring-1 focus:ring-[color-mix(in_srgb,var(--ls-cta,#152D35)_30%,transparent)] dark:border-zinc-600 dark:bg-zinc-900 dark:text-slate-300'
 
 /**
  * Ops list = CSS grid (không dùng <table>).
@@ -55,10 +55,12 @@ const opsSelectClass =
 const OPS_GRID =
   'grid w-full min-w-[1100px] grid-cols-[32px_minmax(190px,1.4fr)_130px_minmax(160px,1.4fr)_60px_minmax(110px,1fr)_100px_110px_minmax(120px,0.9fr)_max-content] items-stretch'
 
+/** Header cột — cùng cỡ/đậm cho mọi cột (không gắn font-mono vào đây) */
 const OPS_HEAD_CELL =
-  'px-3 py-3.5 text-center text-[10px] font-semibold tracking-wider text-slate-500 uppercase dark:text-slate-400'
+  'px-3 py-3.5 text-center text-[11px] font-medium tracking-wide text-slate-500 uppercase dark:text-slate-400'
 
-const OPS_BODY_CELL = 'flex w-full items-center justify-center px-3 py-3.5 text-xs'
+const OPS_BODY_CELL =
+  'flex w-full items-center justify-center px-3 py-3.5 text-xs font-normal text-slate-700 dark:text-slate-200'
 
 const OPS_COL = {
   expand: 'w-8 shrink-0 justify-start self-start pl-1.5 pr-0',
@@ -69,8 +71,7 @@ const OPS_COL = {
   total: 'min-w-[110px] justify-center text-center whitespace-nowrap',
   group: 'w-[120px] justify-center text-center',
   status: 'w-[110px] justify-center text-center',
-  created:
-    'min-w-[120px] justify-center text-center font-mono text-[11px] tabular-nums whitespace-nowrap',
+  created: 'min-w-[120px] justify-center text-center whitespace-nowrap',
   action: 'justify-end text-right whitespace-nowrap pl-3 pr-6',
 } as const
 
@@ -97,21 +98,21 @@ function isCanceledStatus(status: string): boolean {
 }
 
 const opsFilterInputClass =
-  'border-slate-300 rounded-md shadow-sm text-xs font-medium bg-white focus-visible:border-indigo-500'
+  'border-slate-300 rounded-md shadow-sm text-xs font-medium bg-white focus-visible:border-[var(--ls-cta,#152D35)]'
 
 const opsTabTriggerClass =
-  'ops-tab-trigger gap-1.5 font-semibold text-slate-600 data-[state=active]:bg-indigo-600 data-[state=active]:!text-white data-[state=active]:shadow-sm data-[state=active]:hover:!text-white dark:text-slate-300 dark:data-[state=active]:bg-indigo-600 dark:data-[state=active]:!text-white'
+  'ops-tab-trigger gap-1.5 font-semibold text-slate-600 data-[state=active]:bg-[var(--ls-cta,#152D35)] data-[state=active]:!text-[var(--ls-cta-fg,#D4ECDD)] data-[state=active]:shadow-sm data-[state=active]:hover:!text-[var(--ls-cta-fg,#D4ECDD)] dark:text-slate-300 dark:data-[state=active]:bg-[var(--ls-cta,#D4ECDD)] dark:data-[state=active]:!text-[var(--ls-cta-fg,#152D35)]'
 
 function PlatformPill({ platform }: { platform: string }) {
   const label = platformLabel(platform)
   const tone =
     platform === 'lazada'
-      ? 'border-indigo-200/80 bg-indigo-50 text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300'
+      ? 'border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,var(--ls-cta,#152D35)_10%,#D4ECDD)] text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]'
       : platform === 'tiktok'
         ? 'border-zinc-300 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
         : platform === 'shopee'
           ? 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
-          : 'border-slate-200/80 bg-slate-50 text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
+        : 'border-slate-200/80 bg-slate-50 text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium leading-none ${tone}`}
@@ -169,13 +170,13 @@ function OrderIdCell({
   return (
     <div className="flex min-w-0 flex-col items-center justify-center text-center">
       {multiPlatform && groupCode ? (
-        <span className="inline-flex items-center rounded border border-purple-200/60 bg-purple-50 px-1.5 py-0.5 font-mono text-xs font-semibold text-purple-700 dark:border-purple-800/60 dark:bg-purple-950/40 dark:text-purple-300">
+        <span className="inline-flex items-center rounded border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_30%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_70%,white)] px-1.5 py-0.5 font-mono text-xs font-semibold text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_14%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]">
           {groupCode}
         </span>
       ) : (
         <button
           type="button"
-          className="mx-auto block max-w-full cursor-pointer truncate text-center font-mono text-[13px] font-semibold tabular-nums text-indigo-600 transition-colors hover:text-indigo-500 hover:underline dark:text-indigo-400"
+          className="mx-auto block max-w-full cursor-pointer truncate text-center font-mono text-[13px] font-semibold tabular-nums text-[var(--ls-cta,#152D35)] transition-colors hover:opacity-80 hover:underline dark:text-[var(--ls-cta,#D4ECDD)]"
           onClick={() => onOpen(primary)}
           title={vi ? 'Xem chi tiết đơn' : 'View order detail'}
         >
@@ -223,7 +224,7 @@ function RowExpandToggle({
       }
     >
       <ChevronRight
-        className={cn(
+      className={cn(
           'h-4 w-4 text-slate-400 transition-transform duration-200 hover:text-slate-600',
           expanded && 'rotate-90 text-slate-600',
         )}
@@ -236,28 +237,28 @@ function OrderExpandPanel({
   members,
   onOpen,
   vi,
-  accent = 'indigo',
+  accent = 'brand',
 }: {
   members: MarketplaceOrderListItem[]
   onOpen: (order: MarketplaceOrderListItem) => void
   vi: boolean
-  accent?: 'indigo' | 'slate'
+  accent?: 'brand' | 'slate'
 }) {
-  const isIndigo = accent === 'indigo'
+  const isBrand = accent === 'brand'
   return (
     <div
       className={cn(
         'border-b px-3 py-2.5',
-        isIndigo
-          ? 'border-indigo-100 border-l-[3px] border-l-indigo-400/90 bg-indigo-50/40 dark:border-indigo-900/50 dark:border-l-indigo-500 dark:bg-indigo-950/30'
+        isBrand
+          ? 'border-[color-mix(in_srgb,var(--ls-cta,#152D35)_18%,transparent)] border-l-[3px] border-l-[var(--ls-cta,#152D35)] bg-[color-mix(in_srgb,#D4ECDD_45%,transparent)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_22%,transparent)] dark:border-l-[var(--ls-cta,#D4ECDD)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_10%,transparent)]'
           : 'border-slate-100 border-l-[3px] border-l-slate-300 bg-slate-50/60 dark:border-zinc-800 dark:border-l-zinc-600 dark:bg-zinc-900/40',
       )}
     >
       <p
         className={cn(
           'mb-2 pl-8 text-[10px] font-semibold uppercase tracking-wider',
-          isIndigo
-            ? 'text-indigo-500/80 dark:text-indigo-400/80'
+          isBrand
+            ? 'text-[color-mix(in_srgb,var(--ls-cta,#152D35)_75%,transparent)] dark:text-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_80%,transparent)]'
             : 'text-slate-400 dark:text-slate-500',
         )}
       >
@@ -266,8 +267,8 @@ function OrderExpandPanel({
       <div
         className={cn(
           'ml-8 overflow-hidden rounded-lg border bg-white dark:bg-zinc-900',
-          isIndigo
-            ? 'border-indigo-100/90 dark:border-indigo-900/60'
+          isBrand
+            ? 'border-[color-mix(in_srgb,var(--ls-cta,#152D35)_22%,transparent)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_28%,transparent)]'
             : 'border-slate-200/80 dark:border-zinc-700',
         )}
       >
@@ -296,7 +297,7 @@ function OrderExpandPanel({
                 <PlatformPill platform={m.platform} />
               </span>
               <span className="min-w-0">
-                <span className="block truncate font-mono text-[12px] font-semibold text-indigo-600 dark:text-indigo-400">
+                <span className="block truncate font-mono text-[12px] font-semibold text-[var(--ls-cta,#152D35)] dark:text-[var(--ls-cta,#D4ECDD)]">
                   #{displayOrderNumber(m)}
                 </span>
                 <span className="block truncate text-[11px] text-slate-500 dark:text-slate-400">
@@ -468,7 +469,7 @@ export function MarketplaceOrdersView({
             <Card className="p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-start gap-3">
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--ls-cta,#152D35)] text-[var(--ls-cta-fg,#D4ECDD)] shadow-sm">
                     <Layers className="h-5 w-5" strokeWidth={1.75} />
                   </span>
                   <div className="space-y-1">
@@ -481,7 +482,7 @@ export function MarketplaceOrdersView({
                       {vi ? (
                         <>
                           Đơn đã đồng bộ từ sàn.{' '}
-                          <span className="font-mono text-indigo-700 dark:text-indigo-300">
+                          <span className="font-mono text-[var(--ls-cta,#152D35)] dark:text-[var(--ls-cta,#D4ECDD)]">
                             {groupedCount}
                           </span>{' '}
                           đơn gộp ·{' '}
@@ -493,7 +494,7 @@ export function MarketplaceOrdersView({
                       ) : (
                         <>
                           Synced marketplace orders.{' '}
-                          <span className="font-mono text-indigo-700">
+                          <span className="font-mono text-[var(--ls-cta,#152D35)]">
                             {groupedCount}
                           </span>{' '}
                           grouped ·{' '}
@@ -711,7 +712,7 @@ export function MarketplaceOrdersView({
                   variant="primary"
                   disabled={syncing}
                   onClick={onSync}
-                  className="h-9 min-h-9 bg-indigo-600 px-3 text-xs hover:bg-indigo-500"
+                  className="h-9 min-h-9 bg-[var(--ls-cta,#152D35)] px-3 text-xs text-[var(--ls-cta-fg,#D4ECDD)] hover:bg-[var(--ls-cta-hover,#0F2228)]"
                 >
                   {syncing ? (
                     <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
@@ -754,28 +755,25 @@ export function MarketplaceOrdersView({
 
           {ops ? (
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                <span>
-                  {vi ? 'Hàng đợi đơn đa kênh' : 'Omnichannel order queue'}
-                </span>
-                <Badge
-                  tone="primary"
-                  className="rounded-md font-mono text-xs font-semibold"
-                >
-                  {visibleOrders.length}
-                </Badge>
-              </h2>
+              <h2 className="flex items-center gap-2 text-base font-semibold leading-snug text-slate-900 dark:text-slate-100">
+                  <span>
+                    {vi ? 'Hàng đợi đơn đa kênh' : 'Omnichannel order queue'}
+                  </span>
+                  <Badge
+                    tone="primary"
+                  className="rounded-md text-[11px] font-medium tabular-nums"
+                  >
+                    {visibleOrders.length}
+                  </Badge>
+                </h2>
             </div>
           ) : null}
 
           {ops && showDemoBanner ? (
-            <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 px-3.5 py-2.5 text-xs text-indigo-950 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
-              <strong className="font-semibold">
-                {vi ? 'Demo gộp đa sàn (FE): ' : 'Multi-platform demo (FE): '}
-              </strong>
+            <div className="rounded-xl border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_55%,white)] px-3.5 py-2.5 text-[13px] font-normal leading-relaxed text-[var(--ls-ink,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_30%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-ink,#D4ECDD)]">
               {vi
-                ? 'BE live chỉ gộp cùng sàn. Dòng Lazada + TikTok (Trần Văn An) là DEMO FE — mở chi tiết hoặc tab 「Đơn gộp」. Không phải dữ liệu sync thật.'
-                : 'Live BE consolidates same-platform only. The Lazada + TikTok row is FE DEMO — open detail or the Grouped tab. Not from live sync.'}
+                ? 'Demo gộp đa sàn (FE): BE live chỉ gộp cùng sàn. Dòng Lazada + TikTok (Trần Văn An) là DEMO FE — mở chi tiết hoặc tab 「Đơn gộp」. Không phải dữ liệu sync thật.'
+                : 'Multi-platform demo (FE): Live BE consolidates same-platform only. The Lazada + TikTok row is FE DEMO — open detail or the Grouped tab. Not from live sync.'}
             </div>
           ) : null}
 
@@ -889,7 +887,7 @@ export function MarketplaceOrdersView({
                               'bg-slate-50/50 text-slate-400 hover:bg-slate-50/80 dark:bg-zinc-900/40 dark:text-slate-500',
                             multiPlatformGroup &&
                               !canceled &&
-                              'border-l-[3px] border-l-indigo-400/90 bg-indigo-50/25 dark:border-l-indigo-500 dark:bg-indigo-950/20',
+                              'border-l-[3px] border-l-[var(--ls-cta,#152D35)] bg-[color-mix(in_srgb,#D4ECDD_40%,transparent)] dark:border-l-[var(--ls-cta,#D4ECDD)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_10%,transparent)]',
                             grouped &&
                               !multiPlatformGroup &&
                               !canceled &&
@@ -1001,7 +999,7 @@ export function MarketplaceOrdersView({
                             className={cn(
                               OPS_BODY_CELL,
                               OPS_COL.created,
-                              'leading-tight text-slate-500',
+                              'font-mono text-[11px] leading-tight tabular-nums text-slate-500',
                               canceled && 'text-slate-400',
                             )}
                           >
@@ -1024,7 +1022,7 @@ export function MarketplaceOrdersView({
                                     : 'Go to M2 · Picking'
                                 }
                                 onClick={() => onPickOrder(pickableMember.id)}
-                                className="bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700"
+                                className="bg-[var(--ls-cta,#152D35)] px-3 py-1.5 text-xs font-semibold text-[var(--ls-cta-fg,#D4ECDD)] hover:bg-[var(--ls-cta-hover,#0F2228)]"
                               >
                                 {vi ? 'Lấy hàng' : 'Pick'}
                               </Button>
@@ -1050,10 +1048,10 @@ export function MarketplaceOrdersView({
                             onOpen={onOpenDetail}
                             vi={vi}
                             accent={
-                              multiPlatformGroup ? 'indigo' : 'slate'
+                              multiPlatformGroup ? 'brand' : 'slate'
                             }
                           />
-                        ) : null}
+                  ) : null}
                       </div>
                     )
                   })
@@ -1071,72 +1069,72 @@ export function MarketplaceOrdersView({
                     <TableHead className="text-center">{vi ? 'Loại đơn' : 'Order type'}</TableHead>
                     <TableHead className="text-center">{vi ? 'Trạng thái' : 'Status'}</TableHead>
                     <TableHead className="text-center">{vi ? 'Ghi nhận' : 'Created'}</TableHead>
-                  </TableRow>
-                </TableHeader>
+                </TableRow>
+              </TableHeader>
                 <TableBody>
-                  {loading ? (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell
-                        colSpan={colSpan}
-                        className="px-4 py-12 text-center text-slate-400"
-                      >
-                        <Loader2 className="mx-auto h-5 w-5 animate-spin" />
-                      </TableCell>
-                    </TableRow>
+                {loading ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={colSpan}
+                      className="px-4 py-12 text-center text-slate-400"
+                    >
+                      <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                    </TableCell>
+                  </TableRow>
                   ) : pagedOrders.length === 0 ? (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell
-                        colSpan={colSpan}
-                        className="px-4 py-12 text-center text-sm text-slate-500"
-                      >
-                        {emptyMessage}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={colSpan}
+                      className="px-4 py-12 text-center text-sm text-slate-500"
+                    >
+                      {emptyMessage}
+                    </TableCell>
+                  </TableRow>
+                ) : (
                     pagedOrders.map((order) => {
-                      const grouped =
-                        order.isConsolidated &&
-                        Boolean(order.consolidatedGroupId)
+                    const grouped =
+                      order.isConsolidated &&
+                      Boolean(order.consolidatedGroupId)
                       const meta = order.consolidatedGroupId
                         ? groupMetaById?.get(order.consolidatedGroupId)
                         : undefined
-                      return (
-                        <TableRow
-                          key={order.id}
+                    return (
+                      <TableRow
+                        key={order.id}
                           className={`cursor-pointer border-hairline/70 last:border-0 hover:bg-surface-2/60 ${
-                            grouped
-                              ? 'border-l-2 border-l-primary/70 bg-primary/5'
-                              : ''
+                                grouped
+                                  ? 'border-l-2 border-l-primary/70 bg-primary/5'
+                                  : ''
                           }`}
-                          onClick={() => onOpenDetail(order)}
+                                  onClick={() => onOpenDetail(order)}
                         >
                           <TableCell className="text-center">
-                            <p className="font-medium text-ink">
-                              {displayOrderNumber(order)}
-                            </p>
-                            <p className="font-mono text-[11px] text-ink-tertiary">
-                              {order.platform} · {order.shopId}
-                            </p>
-                          </TableCell>
+                              <p className="font-medium text-ink">
+                                {displayOrderNumber(order)}
+                              </p>
+                              <p className="font-mono text-[11px] text-ink-tertiary">
+                                {order.platform} · {order.shopId}
+                              </p>
+                        </TableCell>
                           <TableCell className="text-center">
                             <p className="text-ink">{order.recipientName}</p>
-                            <p className="text-[11px] text-slate-500">
-                              {order.recipientCity}
-                            </p>
-                          </TableCell>
+                          <p className="text-[11px] text-slate-500">
+                            {order.recipientCity}
+                          </p>
+                        </TableCell>
                           <TableCell className="text-center text-ink-muted">
-                            {order.itemCount}
-                          </TableCell>
+                          {order.itemCount}
+                        </TableCell>
                           <TableCell className="text-center font-mono text-ink-muted">
                             {formatCurrency(
                               order.totalAmount,
                               order.currency,
                             )}
-                          </TableCell>
+                        </TableCell>
                           <TableCell className="text-center">
                             <div className="flex justify-center">
-                            <MarketplaceConsolidationBadge
-                              grouped={grouped}
+                          <MarketplaceConsolidationBadge
+                            grouped={grouped}
                               multiPlatform={
                                 grouped
                                   ? (meta?.multiPlatform ?? false)
@@ -1146,35 +1144,35 @@ export function MarketplaceOrdersView({
                               platformOrderIdsText={meta?.orderIdsText}
                               compact
                               showOrderIds={false}
-                              locale={locale}
-                              onClick={
-                                grouped && order.consolidatedGroupId
-                                  ? () =>
-                                      onApplyGroupFilter(
-                                        order.consolidatedGroupId ?? '',
-                                      )
-                                  : undefined
-                              }
-                            />
+                            locale={locale}
+                            onClick={
+                              grouped && order.consolidatedGroupId
+                                ? () =>
+                                    onApplyGroupFilter(
+                                      order.consolidatedGroupId ?? '',
+                                    )
+                                : undefined
+                            }
+                          />
                             </div>
-                          </TableCell>
+                        </TableCell>
                           <TableCell className="text-center">
                             <div className="flex justify-center">
-                            <MarketplaceOrderStatusBadge
-                              status={order.status}
-                              locale={locale}
-                            />
+                          <MarketplaceOrderStatusBadge
+                            status={order.status}
+                            locale={locale}
+                          />
                             </div>
-                          </TableCell>
+                        </TableCell>
                           <TableCell className="text-center text-xs text-ink-subtle">
-                            {formatDateTime(order.createdAt)}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
+                          {formatDateTime(order.createdAt)}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
             )}
             {visibleOrders.length > 0 && !loading ? (
               <QueuePaginationBar

@@ -41,7 +41,7 @@ function ChannelBadge({ platform }: { platform: string }) {
   const label = platformLabel(platform)
   if (platform === 'lazada') {
     return (
-      <span className="inline-flex items-center rounded-md border border-indigo-200/80 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300">
+      <span className="inline-flex items-center rounded-md border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_70%,white)] px-2 py-0.5 text-[10px] font-semibold text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]">
         {label}
       </span>
     )
@@ -63,7 +63,7 @@ function statusToneClass(status: MarketplaceOrderStatus): string {
   if (status === 'pending' || status === 'unpaid') {
     return 'border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400'
   }
-  return 'border border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400'
+  return 'border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_55%,white)] text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]'
 }
 
 export function OrderDetailDrawer({
@@ -141,7 +141,7 @@ export function OrderDetailDrawer({
       <aside className="relative z-10 flex h-full w-full max-w-2xl flex-col border-l border-slate-200/60 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950">
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200/60 px-5 dark:border-zinc-800">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,#D4ECDD_55%,white)] text-[var(--ls-cta,#152D35)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_14%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]">
               <Package className="h-4 w-4" strokeWidth={1.75} />
             </span>
             <div className="min-w-0">
@@ -189,7 +189,7 @@ export function OrderDetailDrawer({
                   <span className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
                     {vi ? 'Tóm tắt' : 'Summary'}
                   </span>
-                  <span className="font-mono text-sm font-semibold tabular-nums text-indigo-700 dark:text-indigo-300">
+                  <span className="font-mono text-sm font-semibold tabular-nums text-[var(--ls-cta,#152D35)] dark:text-[var(--ls-cta,#D4ECDD)]">
                     {order.itemCount} {vi ? 'SP' : 'items'} ·{' '}
                     {formatCurrency(order.totalAmount, order.currency)}
                   </span>
@@ -210,7 +210,7 @@ export function OrderDetailDrawer({
               <div>
                 <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-indigo-600" />
+                    <User className="h-4 w-4 text-[var(--ls-cta,#152D35)]" />
                     <h3 className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
                       {vi ? 'Người nhận' : 'Recipient'}
                     </h3>
@@ -225,10 +225,10 @@ export function OrderDetailDrawer({
                   ) : null}
                 </div>
 
-                <div className="mb-4 rounded-xl border border-indigo-200/60 bg-indigo-50/40 p-4 dark:border-indigo-900/40 dark:bg-indigo-950/20">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-100/80 pb-2.5 dark:border-indigo-900/40">
+                <div className="mb-4 rounded-xl border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_40%,white)] p-4 dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_28%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_10%,transparent)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[color-mix(in_srgb,var(--ls-cta,#152D35)_18%,transparent)] pb-2.5 dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_22%,transparent)]">
                     <div>
-                      <span className="text-[10px] font-medium tracking-wide text-indigo-600 uppercase dark:text-indigo-400">
+                      <span className="text-[10px] font-medium tracking-wide text-[var(--ls-cta,#152D35)] uppercase dark:text-[var(--ls-cta,#D4ECDD)]">
                         {vi ? 'Người nhận' : 'Recipient'}
                       </span>
                       <h4 className="text-base font-semibold text-slate-900 dark:text-slate-100">
@@ -239,7 +239,7 @@ export function OrderDetailDrawer({
                   </div>
                   <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2">
                     <div className="flex items-start gap-2">
-                      <Phone className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                      <Phone className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ls-cta,#152D35)] dark:text-[var(--ls-cta,#D4ECDD)]" />
                       <div>
                         <span className="block text-[10px] text-slate-500">
                           {vi ? 'SĐT' : 'Phone'}
@@ -250,7 +250,7 @@ export function OrderDetailDrawer({
                       </div>
                     </div>
                     <div className="flex items-start gap-2">
-                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                      <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[var(--ls-cta,#152D35)] dark:text-[var(--ls-cta,#D4ECDD)]" />
                       <div>
                         <span className="block text-[10px] text-slate-500">
                           {vi ? 'Địa chỉ' : 'Address'}
@@ -284,7 +284,7 @@ export function OrderDetailDrawer({
                       {onFilterGroup && order.consolidatedGroupId ? (
                         <button
                           type="button"
-                          className="cursor-pointer text-[11px] font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+                          className="cursor-pointer text-[11px] font-medium text-[var(--ls-cta,#152D35)] hover:underline dark:text-[var(--ls-cta,#D4ECDD)]"
                           onClick={() => {
                             const gid = order.consolidatedGroupId
                             if (!gid) return
@@ -306,8 +306,8 @@ export function OrderDetailDrawer({
                           onClick={() => onOpenOrder?.(sibling.id)}
                           className={`w-full rounded-xl border p-4 text-left shadow-xs transition-colors ${
                             current
-                              ? 'border-blue-300 bg-blue-50/60 dark:border-blue-800 dark:bg-blue-950/30'
-                              : 'cursor-pointer border-slate-200 bg-white hover:border-blue-200 hover:bg-slate-50 dark:border-slate-800 dark:bg-surface-1 dark:hover:bg-slate-800/40'
+                              ? 'border-[var(--ls-cta,#152D35)] bg-[color-mix(in_srgb,#D4ECDD_45%,white)] dark:border-[var(--ls-cta,#D4ECDD)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)]'
+                              : 'cursor-pointer border-slate-200 bg-white hover:border-[color-mix(in_srgb,var(--ls-cta,#152D35)_35%,transparent)] hover:bg-slate-50 dark:border-slate-800 dark:bg-surface-1 dark:hover:bg-slate-800/40'
                           }`}
                         >
                           <div className="flex flex-wrap items-start justify-between gap-2">
