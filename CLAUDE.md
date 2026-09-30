@@ -2988,7 +2988,7 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 
 **Tác động & xử lý xung đột (5 câu):**
 
-1. Dữ liệu cũ: không đổi schema, không migration — đếm lúc đọc từ trạng thái đơn, nhóm cũ có số đúng ngay.
+1. Dữ liệu cũ: API đếm lúc đọc nên nhóm cũ có số đúng ngay. 🔄 Sau phần bổ sung bên dưới: schema có thêm 3 trường lưu sẵn (default null) — document cũ không có trường cho tới khi chạy `scripts/backfill-order-group-counts.ts` hoặc được đồng bộ lại; không ảnh hưởng API.
 2. Route đổi hành vi: không đổi request; response chỉ THÊM 2 trường. Mỗi response nhóm đơn tốn thêm 1 truy vấn đếm (danh sách: 1 truy vấn cho cả trang).
 3. Luồng bị ảnh hưởng: không luồng nào đổi hành vi — chỉ đọc.
 4. Không ảnh hưởng: đồng bộ đơn, gộp đơn, Picking List, K5, giao hàng, trả hàng.
@@ -3000,4 +3000,12 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 
 **Kết quả kiểm chứng (sandbox, `npm install` mới trong `be/`):** tsc 0 lỗi; eslint 0 lỗi trên các file đã sửa; jest 32/32 suite — 298/298 test (trước: 31/292). Eslint toàn repo báo 3 lỗi `no-unsafe-enum-assignment` ở `notifications.service.ts` và `packaging.service.spec.ts` — file không đụng tới, xuất hiện do sandbox cài phiên bản `typescript-eslint` mới hơn lockfile của repo; kiểm tra lại bằng `npm run lint` trên máy.
 
-**Commit:** `feat(AOFP-50): add active and canceled order counts to order group responses`.
+**Bổ sung cùng ngày — bản lưu sẵn trong DB (theo yêu cầu Thuận: xem được số đếm trực tiếp trong Compass):**
+
+- `order-group.schema.ts`: thêm `active_order_count`, `canceled_order_count` (`Number | null`, default null — Rule #23), `order_counts_refreshed_at`.
+- `order-groups.service.ts`: `getOrCreateGroupForOrder` tách thân hàm thành `resolveGroupForOrder` (private, giữ nguyên logic) + gọi `refreshOrderCounts(group._id)` sau đó — mọi lần đồng bộ chạm tới nhóm (đơn mới, đổi trạng thái, gộp muộn, đơn `EXC-`) đều tính lại. `refreshOrderCounts` dùng `updateOne` (không `save`) để KHÔNG tăng `__v` (Rule #18), best-effort (lỗi chỉ log).
+- Script `scripts/backfill-order-group-counts.ts`: điền cho mọi nhóm cũ, theo lô 200 (`_id` tăng dần) + `bulkWrite` (Rule #14), chạy lại an toàn. Đã thêm vào `DEMO_PLAYBOOK.md` mục 1.2.
+- **Nguyên tắc:** API VẪN đếm lúc đọc từ `orders` (nguồn sự thật); bản lưu sẵn chỉ để xem trong DB và làm nền cho bộ lọc BE ở bước 2. Khi bước 2 chuyển API/bộ lọc sang đọc bản lưu sẵn, phải đảm bảo mọi đường đổi trạng thái đơn đều gọi `refreshOrderCounts` (hiện chỉ có đường đồng bộ + tạo đơn thay thế).
+- Test: thêm 4 test (ghi đúng bằng `updateOne`; nhóm rỗng -> 0/0; lỗi DB không ném; `getOrCreateGroupForOrder` gọi tính lại). Kết quả: tsc 0, eslint sạch trên file đã sửa + script, jest 32 suite / 302 test.
+
+**Commit (quy ước mới: code theo tính năng, tài liệu gộp 1 commit, số ticket tăng dần):** `feat(AOFP-51): add active and canceled order counts to order group responses`, `feat(AOFP-52): store order group cancel counts on sync and add backfill script`, tài liệu gộp `docs(AOFP-53)`.
