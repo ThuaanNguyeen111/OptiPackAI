@@ -87,15 +87,49 @@ export class OrderGroup {
   @Prop({ type: Boolean, default: false })
   stock_shortage?: boolean;
 
-  @Prop({ type: [{ sku: String, needed: Number, reserved: Number, shortage: Number, _id: false }], default: [] })
-  stock_shortage_items?: { sku: string; needed: number; reserved: number; shortage: number }[];
+  @Prop({
+    type: [
+      {
+        sku: String,
+        needed: Number,
+        reserved: Number,
+        shortage: Number,
+        _id: false,
+      },
+    ],
+    default: [],
+  })
+  stock_shortage_items?: {
+    sku: string;
+    needed: number;
+    reserved: number;
+    shortage: number;
+  }[];
 
   // Nhóm đơn THAY THẾ sinh ra từ phiếu đổi hàng.
-  @Prop({ type: String, enum: ['marketplace', 'replacement'], default: 'marketplace' })
+  @Prop({
+    type: String,
+    enum: ['marketplace', 'replacement'],
+    default: 'marketplace',
+  })
   origin?: 'marketplace' | 'replacement';
 
   @Prop({ type: Types.ObjectId, default: null })
   source_return_id?: Types.ObjectId | null;
+
+  // 01/10/2026 — BẢN LƯU SẴN số đơn còn hiệu lực / đã hủy (để xem trực tiếp trong DB và
+  // làm nền cho bộ lọc phía BE ở bước xử lý hủy đơn). Cập nhật mỗi lần đồng bộ chạm tới
+  // nhóm (getOrCreateGroupForOrder) + script backfill cho dữ liệu cũ. API KHÔNG đọc 2
+  // field này — vẫn đếm trực tiếp từ `orders` lúc trả response (nguồn sự thật).
+  // null = chưa được tính (document cũ trước khi chạy backfill).
+  @Prop({ type: Number, default: null })
+  active_order_count?: number | null;
+
+  @Prop({ type: Number, default: null })
+  canceled_order_count?: number | null;
+
+  @Prop({ type: Date, default: null })
+  order_counts_refreshed_at?: Date | null;
 
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
@@ -120,7 +154,11 @@ OrderGroupSchema.index({ assigned_staff_id: 1, fulfillment_status: 1 });
 
 // BỔ SUNG (2026-09-10) — phục vụ cron cảnh báo SLA (quét đơn hỏa tốc
 // sắp/đã quá hạn) — Rule #3 ESR, equality (order_priority) trước.
-OrderGroupSchema.index({ order_priority: 1, packaging_deadline: 1, is_overdue: 1 });
+OrderGroupSchema.index({
+  order_priority: 1,
+  packaging_deadline: 1,
+  is_overdue: 1,
+});
 
 // Rule #4: fulfillment_status (cardinality thấp, 9 giá trị cố định)
 // KHÔNG được đứng index riêng lẻ — luôn đứng sau platform trong compound
