@@ -42,7 +42,7 @@ export function EditorialWorks(): ReactNode {
         Không portfolio agency — đây là các mặt cắt của hệ thống OptiPackAI trên dữ liệu demo.
       </p>
 
-      <div className="mt-12 grid gap-5 sm:grid-cols-2">
+      <div className="mt-8 grid gap-5 sm:grid-cols-2">
         {WORKS.map((work, i) => (
           <motion.article
             key={work.title}

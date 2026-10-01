@@ -10,12 +10,9 @@ import type { AuthSession, LoginSuccess } from '../types/auth'
 import { AuthContext } from './auth-context'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // Mỗi lần mở / reload app bắt đầu ở trạng thái khách (Home → Đăng nhập),
-  // không khôi phục phiên cũ từ localStorage — tránh vào sẵn một tài khoản.
-  const [session, setSession] = useState<AuthSession | null>(() => {
-    clearSession()
-    return null
-  })
+  // Khôi phục phiên từ localStorage khi reload — đừng clearSession() ở đây
+  // (trước đó xóa token mỗi lần mount → F5 luôn bị đẩy về /login).
+  const [session, setSession] = useState<AuthSession | null>(() => readSession())
   const [ready] = useState(true)
 
   const applyLoginSuccess = useCallback((result: LoginSuccess) => {

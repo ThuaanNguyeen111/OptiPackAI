@@ -20,6 +20,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { AnimatedPickConfirmButton } from '../components/warehouse/AnimatedPickConfirmButton'
 import {
   Dialog,
   DialogContent,
@@ -370,6 +371,7 @@ export function WarehousePage() {
   const [currentQty, setCurrentQty] = useState(1)
 
   const [busy, setBusy] = useState(false)
+  const [pickSuccessToken, setPickSuccessToken] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -767,6 +769,7 @@ export function WarehousePage() {
         setCurrentQty(Math.max(1, updated.quantity - updated.qtyPicked))
         setScanInput('')
       }
+      setPickSuccessToken((token) => token + 1)
       showToast(
         vi
           ? `Đã trừ ${result.decrementedBy} × ${result.sku}. Tồn kệ còn ${result.remainingStock}.`
@@ -1575,17 +1578,17 @@ export function WarehousePage() {
           </div>
           </div>
 
-                          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-center">
-                            <div className="flex items-center justify-center gap-1 sm:justify-start">
+                          <div className="flex w-full items-center gap-3">
+                            <div className="flex shrink-0 items-center gap-1">
                               <button
                                 type="button"
                                 onClick={() => setCurrentQty((prev) => Math.max(1, prev - 1))}
                                 disabled={currentQty <= 1 || !canPickItems(status)}
-                                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
+                                className="flex h-12 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
                               >
                                 <Minus className="h-3.5 w-3.5" />
                               </button>
-                              <div className="flex h-10 min-w-[84px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold dark:border-slate-700 dark:bg-surface-1">
+                              <div className="flex h-12 min-w-[84px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold dark:border-slate-700 dark:bg-surface-1">
                                 {currentQty}/{remainingForActive}
                               </div>
                               <button
@@ -1596,29 +1599,19 @@ export function WarehousePage() {
                                 disabled={
                                   currentQty >= remainingForActive || !canPickItems(status)
                                 }
-                                className="flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
+                                className="flex h-12 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white cursor-pointer disabled:opacity-40 dark:border-slate-700 dark:bg-surface-1"
                               >
                                 <Plus className="h-3.5 w-3.5" />
                               </button>
                             </div>
-                            <button
-                              type="button"
-                              disabled={!canConfirmItem}
+                            <AnimatedPickConfirmButton
+                              disabled={!canConfirmItem && !busy}
+                              busy={busy}
+                              successToken={pickSuccessToken}
+                              idleLabel={vi ? 'Xác nhận lấy' : 'Confirm SKU pick'}
+                              successLabel={vi ? 'Đã lấy' : 'Confirmed'}
                               onClick={() => void handlePickItem()}
-                              className={cn(
-                                'flex h-10 w-full items-center justify-center gap-1.5 rounded-lg px-3 text-sm font-semibold',
-                                canConfirmItem
-                                  ? 'bg-[#2563eb] text-white cursor-pointer hover:bg-[#1d4ed8]'
-                                  : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800',
-                              )}
-                            >
-                              {busy ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-4 w-4" />
-                              )}
-                              {vi ? 'Xác nhận lấy' : 'Confirm SKU pick'}
-                            </button>
+                            />
                           </div>
                         </div>
 
