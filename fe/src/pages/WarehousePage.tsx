@@ -52,6 +52,9 @@ import { ApiError, formatApiError, getApiErrorCode } from '../lib/api'
 import { cn } from '../lib/cn'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
+  hasPackableOrders,
+  isFullyInactiveGroup,
+  isPartiallyCanceledGroup,
   isWarehousePickableStatus,
   type OrderGroup,
   type PackableItem,
@@ -60,7 +63,13 @@ import {
 import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
 import { formatDateTime } from '../utils/format'
 
-type QueueTab = 'to_pick' | 'review' | 'picked' | 'packed' | 'returns'
+type QueueTab =
+  | 'to_pick'
+  | 'review'
+  | 'picked'
+  | 'packed'
+  | 'returns'
+  | 'canceled'
 
 type PickLine = {
   sku: string
@@ -133,11 +142,16 @@ const QUEUE_TABS: Array<{ id: QueueTab; labelVi: string; labelEn: string }> = [
   { id: 'picked', labelVi: 'Đã lấy — giao gói', labelEn: 'Picked — to pack' },
   { id: 'packed', labelVi: 'Đã đóng', labelEn: 'Packed' },
   { id: 'returns', labelVi: 'Hoàn hàng', labelEn: 'Returns' },
+  { id: 'canceled', labelVi: 'Đã hủy', labelEn: 'Canceled' },
 ]
 
-function matchesTab(status: string, tab: QueueTab): boolean {
+function matchesTab(row: OrderGroup, tab: QueueTab): boolean {
+  const status = row.fulfillmentStatus
+  if (tab === 'canceled') {
+    return isWarehousePickableStatus(status) && isFullyInactiveGroup(row)
+  }
   if (tab === 'to_pick') {
-    return isWarehousePickableStatus(status)
+    return isWarehousePickableStatus(status) && hasPackableOrders(row)
   }
   if (tab === 'review') return status === 'partial_needs_review'
   if (tab === 'picked') return status === 'picked'
@@ -423,21 +437,28 @@ export function WarehousePage() {
   }, [loadGroups])
 
   const counts = useMemo(() => {
-    const next = { to_pick: 0, review: 0, picked: 0, packed: 0, returns: 0 }
+    const next = {
+      to_pick: 0,
+      review: 0,
+      picked: 0,
+      packed: 0,
+      returns: 0,
+      canceled: 0,
+    }
     for (const row of groups) {
-      const status = row.fulfillmentStatus
-      if (matchesTab(status, 'to_pick')) next.to_pick += 1
-      else if (matchesTab(status, 'review')) next.review += 1
-      else if (matchesTab(status, 'picked')) next.picked += 1
-      else if (matchesTab(status, 'packed')) next.packed += 1
-      else if (matchesTab(status, 'returns')) next.returns += 1
+      if (matchesTab(row, 'to_pick')) next.to_pick += 1
+      else if (matchesTab(row, 'canceled')) next.canceled += 1
+      else if (matchesTab(row, 'review')) next.review += 1
+      else if (matchesTab(row, 'picked')) next.picked += 1
+      else if (matchesTab(row, 'packed')) next.packed += 1
+      else if (matchesTab(row, 'returns')) next.returns += 1
     }
     return next
   }, [groups])
 
   const tabGroups = useMemo(() => {
     return groups
-      .filter((row) => matchesTab(row.fulfillmentStatus, tab))
+      .filter((row) => matchesTab(row, tab))
       .filter((row) => {
         if (queueFilter === 'mine') {
           return Boolean(meId && row.assignedStaffId === meId)
@@ -474,6 +495,8 @@ export function WarehousePage() {
         platformLabel(row.platform),
         row.platform,
         String(row.orderCount),
+        String(row.activeOrderCount),
+        String(row.canceledOrderCount),
         row.orderPriority,
         row.fulfillmentStatus,
       ]
@@ -488,11 +511,20 @@ export function WarehousePage() {
     if (!row) {
       return vi ? 'Chọn nhóm đơn…' : 'Select order group…'
     }
+    const cancelHint = isPartiallyCanceledGroup(row)
+      ? vi
+        ? ' · một phần hủy'
+        : ' · partial cancel'
+      : isFullyInactiveGroup(row)
+        ? vi
+          ? ' · đã hủy'
+          : ' · canceled'
+        : ''
     return `${row.stockShortage ? '⚠ ' : ''}${row.orderPriority === 'express' ? '⚡ ' : ''}${
       meId && row.assignedStaffId === meId ? '● ' : ''
-    }${shortId(row.id)} · ${platformLabel(row.platform)} · ${row.orderCount} ${
-      vi ? 'đơn' : 'orders'
-    }`
+    }${shortId(row.id)} · ${platformLabel(row.platform)} · ${row.activeOrderCount}/${row.orderCount} ${
+      vi ? 'còn/tổng' : 'active/total'
+    }${cancelHint}`
   }, [tabGroups, selectedId, meId, vi])
 
   useEffect(() => {
@@ -523,9 +555,7 @@ export function WarehousePage() {
     if (!groupIdParam) return
     const found = groups.find((row) => row.id === groupIdParam)
     if (!found) return
-    const nextTab = QUEUE_TABS.find((item) =>
-      matchesTab(found.fulfillmentStatus, item.id),
-    )
+    const nextTab = QUEUE_TABS.find((item) => matchesTab(found, item.id))
     if (nextTab && nextTab.id !== tab) {
       const id = window.setTimeout(() => setTab(nextTab.id), 0)
       return () => window.clearTimeout(id)
@@ -940,7 +970,7 @@ export function WarehousePage() {
               onClick={() => {
                       setTab(item.id)
                       const first = groups.find((row) => {
-                        if (!matchesTab(row.fulfillmentStatus, item.id)) return false
+                        if (!matchesTab(row, item.id)) return false
                         if (queueFilter === 'mine') {
                           return Boolean(meId && row.assignedStaffId === meId)
                         }
@@ -1085,8 +1115,33 @@ export function WarehousePage() {
                                         : 'text-slate-500 dark:text-slate-400',
                                     )}
                                   >
-                                    {platformLabel(row.platform)} · {row.orderCount}{' '}
-                                    {vi ? 'đơn' : 'orders'}
+                                    {platformLabel(row.platform)} ·{' '}
+                                    {row.activeOrderCount}/{row.orderCount}{' '}
+                                    {vi ? 'còn/tổng' : 'active/total'}
+                                    {isPartiallyCanceledGroup(row) ? (
+                                      <span
+                                        className={cn(
+                                          'ml-1 font-semibold',
+                                          active
+                                            ? 'text-amber-100'
+                                            : 'text-amber-700 dark:text-amber-300',
+                                        )}
+                                      >
+                                        {vi ? '· một phần hủy' : '· partial cancel'}
+                                      </span>
+                                    ) : null}
+                                    {isFullyInactiveGroup(row) ? (
+                                      <span
+                                        className={cn(
+                                          'ml-1 font-semibold',
+                                          active
+                                            ? 'text-rose-100'
+                                            : 'text-rose-600 dark:text-rose-300',
+                                        )}
+                                      >
+                                        {vi ? '· đã hủy' : '· canceled'}
+                                      </span>
+                                    ) : null}
                                   </span>
                                 </span>
                                 {active ? (
@@ -1245,6 +1300,20 @@ export function WarehousePage() {
                       <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         {statusLabel(status, vi)}
                       </span>
+                      {group && isPartiallyCanceledGroup(group) ? (
+                        <span className="rounded-md bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
+                          {vi
+                            ? `Một phần đã hủy (${group.canceledOrderCount}/${group.orderCount})`
+                            : `Partially canceled (${group.canceledOrderCount}/${group.orderCount})`}
+                        </span>
+                      ) : null}
+                      {group && isFullyInactiveGroup(group) ? (
+                        <span className="rounded-md bg-rose-100 px-2.5 py-0.5 text-xs font-bold text-rose-700 dark:bg-rose-950/40 dark:text-rose-300">
+                          {vi
+                            ? 'Không còn đơn để lấy'
+                            : 'No packable orders left'}
+                        </span>
+                      ) : null}
                       {group?.orderPriority === 'express' ? (
                         <span className="inline-flex items-center gap-1 rounded-md bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
                           <Zap className="h-3 w-3" />

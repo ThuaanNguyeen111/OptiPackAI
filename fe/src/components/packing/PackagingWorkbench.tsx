@@ -20,6 +20,8 @@ import { usePortal } from '../../context/use-portal'
 import { ApiError, formatApiError } from '../../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
+  hasPackableOrders,
+  isPartiallyCanceledGroup,
   type OrderGroup,
 } from '../../types/order-groups'
 import {
@@ -197,6 +199,8 @@ export function PackagingWorkbench() {
     let picked = 0
     let approved = 0
     for (const g of allGroups) {
+      // Nhóm không còn đơn packable không vào hàng đợi đóng gói.
+      if (!hasPackableOrders(g)) continue
       if (g.fulfillmentStatus === 'pending_approval') pending += 1
       else if (g.fulfillmentStatus === 'partial_needs_review') partial += 1
       else if (g.fulfillmentStatus === 'awaiting_packaging') awaiting += 1
@@ -207,7 +211,10 @@ export function PackagingWorkbench() {
   }, [allGroups])
 
   const groups = useMemo(
-    () => allGroups.filter((g) => g.fulfillmentStatus === tab),
+    () =>
+      allGroups.filter(
+        (g) => g.fulfillmentStatus === tab && hasPackableOrders(g),
+      ),
     [allGroups, tab],
   )
 
@@ -717,8 +724,13 @@ export function PackagingWorkbench() {
                         ) : null}
                       </div>
                       <p className="mt-0.5 truncate text-[11px] text-ink-muted capitalize">
-                        {g.platform} · {g.orderCount}{' '}
-                        {vi ? 'đơn' : 'orders'}
+                        {g.platform} · {g.activeOrderCount}/{g.orderCount}{' '}
+                        {vi ? 'còn/tổng' : 'active/total'}
+                        {isPartiallyCanceledGroup(g) ? (
+                          <span className="font-semibold text-amber-700 dark:text-amber-300">
+                            {vi ? ' · một phần hủy' : ' · partial cancel'}
+                          </span>
+                        ) : null}
                         <span className="text-ink-subtle">
                           {' · '}
                           {statusLabel(g.fulfillmentStatus, vi)}
