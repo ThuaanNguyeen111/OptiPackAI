@@ -23,6 +23,10 @@ export type OrderGroup = {
   platform: string
   shopId: string
   orderCount: number
+  /** Đơn còn xử lý (cùng quy tắc Picking List) — từ BE AOFP-52. */
+  activeOrderCount: number
+  /** Đơn status canceled — từ BE AOFP-52. */
+  canceledOrderCount: number
   fulfillmentStatus: GroupFulfillmentStatus | string
   activePackagingRecommendationId: string | null
   assignedStaffId: string | null
@@ -34,6 +38,27 @@ export type OrderGroup = {
   version: number
   createdAt: string
   updatedAt: string
+}
+
+/** Còn ít nhất 1 đơn lấy/đóng được. */
+export function hasPackableOrders(
+  group: Pick<OrderGroup, 'activeOrderCount'>,
+): boolean {
+  return group.activeOrderCount > 0
+}
+
+/** Có đơn hủy nhưng vẫn còn đơn cần xử lý → badge “Một phần đã hủy”. */
+export function isPartiallyCanceledGroup(
+  group: Pick<OrderGroup, 'activeOrderCount' | 'canceledOrderCount'>,
+): boolean {
+  return group.canceledOrderCount > 0 && group.activeOrderCount > 0
+}
+
+/** Không còn đơn packable (hủy hết / sự cố) — ẩn khỏi “Cần lấy”. */
+export function isFullyInactiveGroup(
+  group: Pick<OrderGroup, 'activeOrderCount'>,
+): boolean {
+  return group.activeOrderCount === 0
 }
 
 export type StockShortageItem = {

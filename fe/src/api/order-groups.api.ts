@@ -80,6 +80,16 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     platform: pickString(row.platform) || 'lazada',
     shopId: pickString(row.shopId, row.shop_id),
     orderCount: pickNumber(row.orderCount, row.order_count),
+    // BE AOFP-52 luôn gửi 2 field này; thiếu (client cũ) → coi toàn bộ orderCount là còn xử lý.
+    activeOrderCount:
+      typeof row.activeOrderCount === 'number' ||
+      typeof row.active_order_count === 'number'
+        ? pickNumber(row.activeOrderCount, row.active_order_count)
+        : pickNumber(row.orderCount, row.order_count),
+    canceledOrderCount: pickNumber(
+      row.canceledOrderCount,
+      row.canceled_order_count,
+    ),
     fulfillmentStatus: pickString(row.fulfillmentStatus, row.fulfillment_status),
     activePackagingRecommendationId:
       pickString(

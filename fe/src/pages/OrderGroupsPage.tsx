@@ -24,6 +24,8 @@ import { cn } from '../lib/cn'
 import { formatApiError } from '../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
+  isFullyInactiveGroup,
+  isPartiallyCanceledGroup,
   type OrderGroup,
   type OrderPriority,
 } from '../types/order-groups'
@@ -436,10 +438,20 @@ export function OrderGroupsPage() {
                             </div>
                           </td>
                           <td className="px-3 py-3">
-                            <div className="flex justify-center">
+                            <div className="flex flex-wrap items-center justify-center gap-1">
                               <Badge tone={statusTone(g.fulfillmentStatus)}>
                                 {statusLabel(g.fulfillmentStatus, vi)}
                               </Badge>
+                              {isPartiallyCanceledGroup(g) ? (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
+                                  {vi ? 'Một phần đã hủy' : 'Partial cancel'}
+                                </span>
+                              ) : null}
+                              {isFullyInactiveGroup(g) ? (
+                                <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:border-rose-800/50 dark:bg-rose-950/40 dark:text-rose-200">
+                                  {vi ? 'Đã hủy hết' : 'All canceled'}
+                                </span>
+                              ) : null}
                             </div>
                           </td>
                           <td className="px-3 py-3">
@@ -467,7 +479,12 @@ export function OrderGroupsPage() {
                             </div>
                           </td>
                           <td className="px-3 py-3 font-mono text-xs tabular-nums text-ink">
-                            {g.orderCount}
+                            <span title={vi ? 'Còn xử lý / Tổng / Đã hủy' : 'Active / Total / Canceled'}>
+                              {g.activeOrderCount}/{g.orderCount}
+                              {g.canceledOrderCount > 0
+                                ? ` (−${g.canceledOrderCount})`
+                                : ''}
+                            </span>
                           </td>
                           <td className="px-4 py-3 font-mono text-[11px] whitespace-nowrap text-ink-muted">
                             {updated ? formatDateTime(updated) : '—'}
@@ -564,10 +581,20 @@ export function OrderGroupsPage() {
                       <dt className="text-ink-subtle">
                         {vi ? 'Trạng thái' : 'Status'}
                       </dt>
-                      <dd>
+                      <dd className="flex flex-wrap items-center justify-end gap-1">
                         <Badge tone={statusTone(detail.fulfillmentStatus)}>
                           {statusLabel(detail.fulfillmentStatus, vi)}
                         </Badge>
+                        {isPartiallyCanceledGroup(detail) ? (
+                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/40 dark:text-amber-200">
+                            {vi ? 'Một phần đã hủy' : 'Partial cancel'}
+                          </span>
+                        ) : null}
+                        {isFullyInactiveGroup(detail) ? (
+                          <span className="rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-semibold text-rose-700 dark:border-rose-800/50 dark:bg-rose-950/40 dark:text-rose-200">
+                            {vi ? 'Đã hủy hết' : 'All canceled'}
+                          </span>
+                        ) : null}
                       </dd>
                     </div>
                     <div className="flex items-start justify-between gap-2">
@@ -589,8 +616,16 @@ export function OrderGroupsPage() {
                       <dt className="text-ink-subtle">
                         {vi ? 'Số đơn trong nhóm' : 'Orders in group'}
                       </dt>
-                      <dd className="font-mono tabular-nums text-ink">
-                        {detail.orderCount}
+                      <dd className="text-right font-mono text-xs tabular-nums text-ink">
+                        <div>
+                          {vi ? 'Tổng' : 'Total'}: {detail.orderCount}
+                        </div>
+                        <div className="text-ink-muted">
+                          {vi ? 'Còn xử lý' : 'Active'}: {detail.activeOrderCount}
+                        </div>
+                        <div className="text-ink-muted">
+                          {vi ? 'Đã hủy' : 'Canceled'}: {detail.canceledOrderCount}
+                        </div>
                       </dd>
                     </div>
                     {detail.stockShortage ? (
