@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. **Cập nhật 01/10/2026 (v4.2)**: mở quyền vận hành kho cho Warehouse Staff (Nghiệp vụ 2b); response nhóm đơn thêm `activeOrderCount`/`canceledOrderCount` để phân biệt nhóm hủy một phần/hủy hết trên danh sách (Nghiệp vụ 3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. **Cập nhật 02/10/2026 (v4.3)**: nút `pack` tự báo "đã đóng gói" lên Lazada, chặn đóng gói nhóm hủy hết, thêm route gửi lại (Nghiệp vụ 4). **Cập nhật 01/10/2026 (v4.2)**: mở quyền vận hành kho cho Warehouse Staff (Nghiệp vụ 2b); response nhóm đơn thêm `activeOrderCount`/`canceledOrderCount` để phân biệt nhóm hủy một phần/hủy hết trên danh sách (Nghiệp vụ 3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -423,6 +423,92 @@ Sau `approved_for_packing` (Nghiệp vụ 1 duyệt xong — KHÔNG phải ngay 
 
 Đây là 3 bước tuyến tính đơn giản, không có tình huống rẽ nhánh đặc biệt — mỗi bước chỉ cần đúng `version` hiện tại (Optimistic Concurrency).
 
+### 🆕 Báo "đã đóng gói" lên Lazada (02/10/2026)
+
+**Mục đích:** nhân viên đóng gói chỉ bấm **đúng nút "pack" hiện có**, không cần mở Seller Center. Sau khi OptiPack chuyển nhóm sang `packed`, BE tự gọi API **Pack** của Lazada để đơn trên shop cũng chuyển "Đã đóng gói". FE không cần gọi Lazada (FE không giữ token của shop).
+
+**Không có nút mới, không đổi request.** Thứ tự xử lý khi bấm `POST /order-groups/:id/fulfillment/pack`:
+
+```
+1. Kiểm tra nhóm còn đơn cần xử lý — hủy hết → 409 ORD_GROUP_ALL_ORDERS_CANCELED (MỚI)
+2. OptiPack: chuyển "packed" + trừ vật liệu (như cũ, 1 transaction)
+3. Gửi Pack lên Lazada cho các món của đơn Lazada còn hiệu lực (MỚI)
+4. Trả response kèm kết quả gửi Lazada
+```
+
+Bước 3 **không bao giờ làm hỏng bước 2**: Lazada lỗi, mất mạng hay token hết hạn thì nhóm vẫn `packed` (thùng đã đóng thật, luồng giao hàng chạy tiếp), kết quả lỗi được ghi lại để gửi lại sau.
+
+**Món nào được gửi lên Lazada:**
+
+| Trường hợp                                                            | Gửi Pack?                           |
+| --------------------------------------------------------------------- | ----------------------------------- |
+| Đơn Lazada còn hiệu lực, món đang `pending` / `topack`                | Có                                  |
+| Đơn đã hủy / gặp sự cố vận chuyển                                     | Không                               |
+| Đơn đổi hàng `EXC-...` (OptiPack tự tạo, không tồn tại trên Lazada)   | Không                               |
+| Món đã `packed` trở đi trên Lazada (seller tự bấm trên Seller Center) | Không gửi lại — ghi nhận là đã xong |
+| Nhóm không thuộc Lazada                                               | Không                               |
+
+**Response `pack` có thêm `lazadaPackSync`**, và **mọi response nhóm đơn có thêm `lazadaPack`** (cùng nội dung, lưu trên nhóm đơn):
+
+```json
+"lazadaPack": {
+  "status": "success",
+  "attemptedAt": "2026-10-02T09:15:00.000Z",
+  "error": null,
+  "items": [
+    { "orderId": "560694402192001", "orderItemId": "560694402292001", "ok": true, "errorCode": "0",
+      "message": "success", "packageId": "FP022511752246001", "trackingNumber": "TH340231JV0W0A", "shipmentProvider": "Flash Express" }
+  ]
+}
+```
+
+| `status`   | Ý nghĩa                                                                        | FE hiển thị                                         |
+| ---------- | ------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `null`     | Nhóm chưa từng qua bước này (dữ liệu cũ, hoặc chưa đóng gói)                   | Không hiển thị                                      |
+| `disabled` | Cầu dao `LAZADA_WRITE_APIS_ENABLED` đang tắt — **chưa gửi**                    | Nhãn xám "Chưa gửi Lazada" + nút **Gửi lên Lazada** |
+| `skipped`  | Không có gì cần gửi (nhóm không thuộc Lazada, chỉ có đơn đổi hàng, đơn đã hủy) | Không hiển thị hoặc ghi chú nhỏ                     |
+| `success`  | Lazada đã nhận mọi món                                                         | Nhãn xanh "Đã báo Lazada"                           |
+| `partial`  | Một số món lỗi (xem `items[].ok = false`, `message`)                           | Nhãn vàng + danh sách món lỗi + nút **Gửi lại**     |
+| `failed`   | Không món nào thành công (`error` ghi lý do)                                   | Nhãn đỏ + `error` + nút **Gửi lại**                 |
+
+**Gửi lại:** `POST /order-groups/:id/lazada-pack/retry` (Packaging Staff, Warehouse Staff, Admin), không cần body. Chỉ dùng khi nhóm đang `packed` và `status` khác `success`; không đổi trạng thái OptiPack. Response: nhóm đơn + `lazadaPackSync`.
+
+| Mã lỗi                                         | HTTP      | Nguyên nhân                                                   |
+| ---------------------------------------------- | --------- | ------------------------------------------------------------- |
+| `ORD_GROUP_ALL_ORDERS_CANCELED`                | 409       | (route `pack`) Mọi đơn trong nhóm đã hủy — không cho đóng gói |
+| `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`            | 409       | (route `retry`) Nhóm chưa `packed`, hoặc đã gửi thành công    |
+| `ORD_GROUP_NOT_FOUND` / `ORD_GROUP_INVALID_ID` | 404 / 400 | Sai id nhóm                                                   |
+
+Lỗi trả về **trong từng món** (`items[].errorCode`) là mã của Lazada. Hay gặp: `700026` / `700000` / `700031` — trạng thái món trên Lazada không cho đóng gói (đã đóng gói hoặc đã hủy trên Seller Center); `700004` — sai tham số (thường do `LAZADA_SHIPPING_ALLOCATE_TYPE` sai); `6` / `40011` / `700024` — Lazada đang bận, bấm gửi lại sau.
+
+**Cấu hình (`be/.env`):**
+
+| Biến                            | Mặc định | Ý nghĩa                                                                                                   |
+| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `LAZADA_WRITE_APIS_ENABLED`     | `false`  | Cầu dao. Chỉ đúng `true` mới gọi Lazada. Lazada không có môi trường thử — mọi lệnh đi thẳng vào shop thật |
+| `LAZADA_SHIPPING_ALLOCATE_TYPE` | `TFS`    | Tham số bắt buộc của Pack. Shop nội địa: `TFS`                                                            |
+
+**Cách test lần đầu (bắt buộc trước khi demo):**
+
+1. Đặt 1 đơn nhỏ trên shop Lazada để làm đơn test; chờ đồng bộ về OptiPack.
+2. Để cầu dao **tắt**, đi hết luồng tới bấm "pack" → `lazadaPack.status = "disabled"`; Seller Center **không** thay đổi.
+3. Trên **đúng 1 máy**: đặt `LAZADA_WRITE_APIS_ENABLED=true`, khởi động lại BE, bấm **Gửi lên Lazada** (`retry`) cho nhóm đó.
+4. Kết quả `success` + có `packageId` → mở Seller Center, đơn đã chuyển "Đã đóng gói". Kết quả lỗi → chụp `lazadaPack` gửi BE để xử lý.
+
+**Cách demo:** bật cầu dao trên máy demo → Packaging Staff bấm "Đã đóng gói" → màn hình hiện nhãn "Đã báo Lazada" → mở Seller Center cho thấy đơn đã chuyển trạng thái → lần đồng bộ sau, đơn trong OptiPack cũng mang trạng thái `packed`.
+
+**Dữ liệu cũ:** không cần script. Nhóm đơn cũ có `lazadaPack.status = null`; nhóm đã đóng gói trước 02/10/2026 không tự gửi lên Lazada (có thể bấm **Gửi lên Lazada** nếu muốn).
+
+**Hạn chế hiện tại và hướng khắc phục:**
+
+| Hạn chế                                                                                            | Ảnh hưởng                                                       | Hướng khắc phục                                       |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| Chưa test trên đơn thật của shop tự giao (SOF)                                                     | Lazada có thể xử lý Pack khác với tài liệu chung                | Làm đúng mục "Cách test lần đầu" trước khi demo       |
+| Chỉ báo "đã đóng gói"; giao hàng, giao thất bại, hoàn hàng trong OptiPack **không** báo lên Lazada | Đơn trên Lazada dừng ở "Đã đóng gói" tới khi seller tự cập nhật | Bổ sung ReadyToShip và nhóm API giao hàng khi mở rộng |
+| 1 thùng OptiPack gồm nhiều đơn Lazada → nhiều `packageId`                                          | Không ảnh hưởng shop tự giao (không có nhãn Lazada)             | Cần xử lý nếu chuyển sang vận chuyển của Lazada       |
+| Gửi lại phải bấm tay                                                                               | Lỗi tạm thời không tự khắc phục                                 | Thêm tác vụ định kỳ gửi lại cho nhóm `failed`         |
+| Không có thông báo khi gửi lỗi                                                                     | Chỉ thấy khi mở nhóm đơn                                        | Gửi thông báo cho Store Owner khi `failed`/`partial`  |
+
 ### Hoàn hàng — có thể xảy ra ở 2 thời điểm khác nhau
 
 ```
@@ -620,6 +706,7 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 - [ ] **Nghiệp vụ 3**: `report-missing` → thử gọi `pick`/`pack` trực tiếp → phải bị chặn `ORD_GROUP_INVALID_TRANSITION`
 - [ ] **Nghiệp vụ 3**: `decide-partial(false)` → xác nhận quay đúng về `awaiting_packaging`
 - [ ] 🔄 **Nghiệp vụ 4** (sửa 21/09/2026): `pack` gọi bằng tài khoản Packaging Staff → PHẢI thành công (200), không còn 403
+- [ ] 🆕 **Nghiệp vụ 4** (02/10/2026): cầu dao tắt → `pack` trả `lazadaPackSync.status = "disabled"`, Seller Center không đổi; nhóm hủy hết → `pack` trả 409 `ORD_GROUP_ALL_ORDERS_CANCELED`; `lazada-pack/retry` khi nhóm chưa `packed` → 409 `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`
 - [ ] **Nghiệp vụ 5**: `PATCH .../priority` express → `packagingDeadline` hợp lý (không null, đúng khoảng giờ làm việc)
 - [ ] **Nghiệp vụ 6**: sau `report-missing` → `unread-count` của Store Owner tăng lên
 - [ ] 🆕 **Nghiệp vụ 6** (mới 21/09/2026): sau `generate` → `unread-count` của tài khoản Packaging Staff tăng lên; sau `reject` → `unread-count` của tài khoản Admin tăng lên

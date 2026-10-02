@@ -2031,6 +2031,8 @@ Cả 3 file audit đã cập nhật đầy đủ, đồng bộ ra `outputs/BE_Sy
 
 ## Quyết định: bỏ hẳn kế hoạch implement Fulfillment API (không làm cả phương án A) — 15/09/2026
 
+> 🔄 **ĐÃ THAY ĐỔI so với quyết định này (02/10/2026):** trong buổi meet, cô yêu cầu thêm nút cho Packaging Staff **xác nhận "đã đóng gói" lên Lazada**. FE không giữ `access_token` của shop nên BE phải gọi. Ánh xạ sang Fulfillment API **`Pack`** (có thể kèm `ReadyToShip`). Quyết định hoãn ngày 15/09 không còn hiệu lực với `Pack`/`GetShipmentProvider`/`ReadyToShip`; `PrintAWB` vẫn không dùng cho shop SOF. Tài liệu đầy đủ 4 API: mục "🔬 Nghiên cứu Lazada Fulfillment API — Pack / ReadyToShip / GetShipmentProvider / PrintAWB (02/10/2026)" ở cuối file. **Pack đã code ngày 02/10/2026** (nhật ký "📦 Nút pack báo đã đóng gói lên Lazada").
+
 User quyết định: **không cần code các method Fulfillment API** (`Pack`/`ReadyToShip`/`SetInvoiceNumber`/`RecreatePackage`/`GetShipmentProvider`) nữa, kể cả theo phương án A ("code đủ, không invoke") đã đề xuất trong `04_KE_HOACH_FULFILLMENT_API_AN_TOAN.md` — để dành làm sau, không nằm trong phạm vi hiện tại. File `04` **vẫn giữ nguyên** trong `BE_System_Audit/` làm tài liệu tham khảo nếu sau này cần quay lại (không xóa), nhưng không còn là việc cần làm ngay — mục A4 trong `00_TONG_HOP...md` cần hiểu là "đã hoãn", không phải "đang làm".
 
 `GetDocument`/`PrintAWB` càng không cần bàn tới nữa — đã xác nhận Lazada tự chặn API này cho đơn SOF (Seller Own Fleet), đúng mô hình shop demo.
@@ -3009,3 +3011,98 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 - Test: thêm 4 test (ghi đúng bằng `updateOne`; nhóm rỗng -> 0/0; lỗi DB không ném; `getOrCreateGroupForOrder` gọi tính lại). Kết quả: tsc 0, eslint sạch trên file đã sửa + script, jest 32 suite / 302 test.
 
 **Commit (quy ước mới: code theo tính năng, tài liệu gộp 1 commit, số ticket tăng dần):** `feat(AOFP-51): add active and canceled order counts to order group responses`, `feat(AOFP-52): store order group cancel counts on sync and add backfill script`, tài liệu gộp `docs(AOFP-53)`.
+
+---
+
+## 🔬 Nghiên cứu Lazada Fulfillment API — Pack / ReadyToShip / GetShipmentProvider / PrintAWB (02/10/2026) — Pack ĐÃ CODE (xem nhật ký cuối file); ReadyToShip / GetShipmentProvider / PrintAWB chưa dùng
+
+**Bối cảnh:** cô yêu cầu nút cho Packaging Staff xác nhận "đã đóng gói" trên Lazada ngay từ OptiPack; quay lại hệ thống thấy trạng thái đã đóng gói. Nguồn: ảnh chụp tài liệu chính thức Lazada Open Platform (bản cập nhật 09/08/2022) do Thuận gửi, kèm ghi chú trang Order Status Flow. Tất cả endpoint VN: `https://api.lazada.vn/rest`, ký như các API đọc đang dùng (app_key, timestamp, access_token, sign_method, sign). **Cả 4 API đều nhận tham số là 1 object JSON** (`packReq`, `readyToShipReq`, `getShipmentProvidersReq`, `getDocumentReq`) → adapter cần thêm hàm ký POST (`callSignedPost`), hiện chỉ có `callSignedGet`.
+
+**Điều kiện trạng thái (trang Order Status Flow):** gọi `GetOrderItems` trước; chỉ order item `pending` hoặc `repacked` mới được `Pack`; chỉ item `packed` mới được `ReadyToShip`.
+
+### 1. GetShipmentProvider — `GET/POST /order/shipment/providers/get`
+
+- Tham số `getShipmentProvidersReq.orders[]` (tối đa 20 đơn): `order_id` (Number), `order_item_ids` (Number[]).
+- Response `result.data`:
+  - `platform_default`: **1** = seller không cần/không được chọn kho trung chuyển; **0** = seller **phải** chọn 1 mục trong `shipment_providers` và truyền vào Pack.
+  - `shipment_providers[]`: `name`, `provider_code` (là danh sách **kho trung chuyển** — transferring warehouses).
+  - `shipping_allocate_type`: `TFS` / `NTFS` — **truyền thẳng** vào Pack.
+- `result.success`, `error_code`, `error_msg` (khi success = false). Bảng mã lỗi: trống.
+- Vai trò: **luôn gọi trước Pack** để lấy `shipping_allocate_type` (bắt buộc ở Pack) và biết có phải chọn `shipment_provider_code` không.
+
+### 2. Pack — `POST /order/fulfill/pack`
+
+- Tham số `packReq`:
+  - `pack_order_list[]` (bắt buộc, **tối đa 20 đơn**; các đơn con của cùng 1 đơn được xử lý cùng nhau): `order_id` (Number), `order_item_list` (Number[] — order_item_id cần đóng gói).
+  - `delivery_type` (bắt buộc): `dropship`.
+  - `shipping_allocate_type` (bắt buộc): lấy từ GetShipmentProvider.
+  - `shipment_provider_code` (không bắt buộc): shop nội địa (TFS) **không được truyền**; shop xuyên biên giới (NTFS) **phải truyền**; **không được truyền cho đơn DBS**. Giá trị lấy từ GetShipmentProvider.
+- Response `result.data.pack_order_list[]` → `order_id`, `order_item_list[]`: `order_item_id`, `msg`, **`item_err_code` ("0" = thành công)**, `tracking_number`, `shipment_provider`, **`package_id`**, `retry`. `result.success = true` **không có nghĩa** mọi item thành công — phải xét `item_err_code` từng item; `success = false` thì cả lô thất bại (`error_code`, `error_msg`). Mẫu response của Lazada có `error_msg: "order not found"` đi kèm item thành công → không dựa vào `error_msg` cấp lô khi `success = true`.
+- Mã lỗi (gom nhóm để xử lý):
+
+| Nhóm                                 | Mã                                                                                                                                                                 | Xử lý đề xuất                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Hệ thống bận, thử lại                | 6 `SYSTEM_ERROR`, 40011 `RPC_ERROR`, 700024 `GET_LOCK_FAILED`, 1003 `E1003_3PL_ALLOCATION_FAIL`                                                                    | Retry có backoff (xét thêm cờ `retry` của item)                                                                               |
+| Trạng thái không cho đóng gói        | 700000 `PACKAGE_STATUS_NOT_ALLOW_TO_OP`, 700026 `FO_ITEM_NOT_ALLOW_TO_PACK`, 700031 `ITEM_NOT_READY_TO_FULFILL`                                                    | Đọc lại `GetOrderItems`: nếu item đã `packed` và có `package_id` → coi như đã đóng gói (idempotent); nếu đã hủy → bỏ qua item |
+| Không tìm thấy                       | 700020, 700021 `ORDER_NOT_FOUND`, 700025 `ORDER_ITEM_NOT_FOUND`, 700032 `SELLER_NOT_FOUND`                                                                         | Lỗi dữ liệu/token, không retry, báo Admin                                                                                     |
+| Sai tham số                          | 700004 `PARAM_ILLEGAL`, 700017 `PARAM_IS_NULL`, 700018 `PARAM_SIZE_ERROR`, 700019 `PARAM_MIN_ERROR`, 700022 `BATCH_SIZE_OUT_OF_LIMIT`                              | Lỗi code phía mình, không retry                                                                                               |
+| Đơn vị vận chuyển / kho trung chuyển | 700001 `DBS_SHIPMENT_PROVIDER_CODE_NOT_EXITS`, 700016 `NOT_AVAILABLE_NTFS_3PL`, 700033 `TRANSFERRING_WAREHOUSE_PROVIDER`, 700029 `ITEM_MUST_BELONG_SAME_WAREHOUSE` | Kiểm tra lại kết quả GetShipmentProvider / tách lô theo kho                                                                   |
+| Loại đơn không hỗ trợ                | 700013 `OP_NOT_SUPPORT`, 700023/700028 (nhận tại cửa hàng), 700027 (FBL), 700030 (hàng số/dịch vụ)                                                                 | Bỏ qua, đánh dấu "không đóng gói qua API"                                                                                     |
+
+### 3. ReadyToShip — `POST /order/package/rts`
+
+- Tham số `readyToShipReq.packages[]` (tối đa 20): `package_id` (String — lấy từ kết quả Pack).
+- Response `result.data.packages[]`: `msg`, `item_err_code` ("0" = thành công), `package_id`, `retry`; quy tắc `success` giống Pack. Bảng mã lỗi: trống; mẫu có `600002 "package already cancelled"`.
+- Theo trang Inventory calculation logic (29/09): **khi đơn sang RTS, Lazada mới trừ hẳn tổng tồn** (rời occupy). Gọi RTS là cam kết sẵn sàng bàn giao.
+
+### 4. PrintAWB — `GET/POST /order/package/document/get`
+
+- Tham số `getDocumentReq`: `doc_type` (`HTML`/`PDF`), `packages[]` (tối đa 20, `package_id`), `print_item_list` (Boolean, tùy chọn — in kèm danh sách hàng).
+- Response `result.data`: `file` (nội dung PDF/HTML), `doc_type`, `pdf_url` (chỉ khi PDF). Chỉ dùng cho nhãn vận chuyển.
+- **Không áp dụng cho shop demo:** đã xác nhận 15/09 qua bảng lỗi `GetDocument` — Lazada không cấp nhãn cho đơn SOF/DBS. Giữ nguyên quyết định không dùng.
+
+### 5. Ánh xạ vào OptiPack (thiết kế đề xuất, chờ chốt)
+
+- Dữ liệu cần có: `order_id` = `orders.platform_order_id`; `order_item_id` = `orders.items[].platform_order_item_id` (đã lưu khi sync). Cần lưu thêm kết quả Pack theo từng item: `package_id`, `tracking_number`, `shipment_provider`, trạng thái đồng bộ Lazada.
+- Luồng nút "Đóng gói xong": lấy các đơn **còn hiệu lực** của nhóm (cùng quy tắc `activeOrderCount`) → `GetOrderItems` kiểm tra item `pending`/`repacked` → `GetShipmentProvider` → `Pack` (1 request cho cả nhóm, ≤ 20 đơn) → lưu `package_id` → nhóm OptiPack sang `packed`.
+- **Một nhóm OptiPack (1 thùng) có thể gồm nhiều đơn Lazada → Lazada sinh nhiều package.** Cần chốt cách dán/quản lý nhiều mã package cho 1 thùng thật.
+- `ReadyToShip`: gắn vào bước bàn giao/bắt đầu giao (Shipping Coordinator), không gắn vào nút đóng gói.
+- Nguyên tắc an toàn (giữ từ kế hoạch 15/09): cầu dao `LAZADA_WRITE_APIS_ENABLED` (mặc định tắt); Pack/RTS là API ghi có hậu quả thật trên shop.
+
+### 6. Việc cần chốt / cần test trước khi code
+
+1. Lazada lỗi thì sao: chặn chuyển `packed` trong OptiPack, hay vẫn `packed` + trạng thái "chưa đồng bộ Lazada" + nút thử lại (đề xuất: cách sau — thùng đã đóng thật).
+2. Shop demo là **SOF**: test thật 1 đơn — `GetShipmentProvider` trả `platform_default` / `shipping_allocate_type` gì; `Pack` có thành công với `delivery_type: dropship` không, có trả `tracking_number` không.
+3. Ai gọi `ReadyToShip`, lúc nào; có cần không với SOF.
+4. Nhiều package cho 1 thùng (mục 5).
+5. Quan hệ với đồng bộ tồn kho (29/09): Pack/RTS là vòng đời đơn Lazada → **không** đẩy Adjust tồn.
+
+---
+
+## 📦 Nhật ký 02/10/2026 — Nút "pack" báo "đã đóng gói" lên Lazada (Fulfillment API Pack)
+
+**Bối cảnh:** cô yêu cầu (buổi meet) nhân viên đóng gói bấm xác nhận đóng gói trên OptiPack thì đơn trên Lazada cũng chuyển "Đã đóng gói". FE không giữ token shop → BE làm. Chốt với Thuận: **không thêm nút mới**, nối vào nút `pack` hiện có; **giữ nguyên** bước OptiPack chuyển `packed` (G1 giao hàng và G4 trừ vật liệu dựa vào nó); **bỏ GetShipmentProvider** — `shipping_allocate_type` lấy từ env (`TFS`), đổi nếu Pack báo `700004`.
+
+**Thay đổi code:**
+
+- `config/marketplace.config.ts`: `lazada.writeApisEnabled` (env `LAZADA_WRITE_APIS_ENABLED`, chỉ `"true"` mới bật — cầu dao cho mọi API ghi), `lazada.shippingAllocateType` (env `LAZADA_SHIPPING_ALLOCATE_TYPE`, mặc định `TFS`). `.env.example` thêm 2 biến.
+- `lazada.adapter.ts`: `callSignedPost()` (form-urlencoded, cùng cách 2 API token đang chạy thật; **không tự retry** vì là API ghi) + `packOrders()` + kiểu `LazadaPackRequest/Response` + `parseLazadaBoolean()` (Lazada trả `success` lúc boolean lúc chuỗi).
+- `order-group.schema.ts`: `lazada_pack_status` (`disabled|skipped|success|partial|failed`, null = chưa từng), `lazada_pack_attempted_at`, `lazada_pack_error`, `lazada_pack_items[]` (order_id, order_item_id, ok, item_err_code, msg, package_id, tracking_number, shipment_provider). **Lưu trên nhóm đơn, KHÔNG lưu trong `orders.items[]`** — `orders.service` ghi đè toàn bộ `items` mỗi lần sync, trường thêm vào sẽ mất.
+- `lazada-pack-sync.service.ts` (mới): `syncGroup()` không bao giờ ném lỗi; chỉ nhóm Lazada; bỏ đơn `NOT_PACKABLE_ORDER_STATUSES`, bỏ đơn đổi hàng (`origin: replacement` / `EXC-`); chỉ gửi món `pending`/`topack` (Lazada chỉ nhận pending/repacked; enum OptiPack không có `repacked`); món đã `packed` trở đi → ghi nhận xong, không gửi lại; lô ≤ 20 đơn; xét `item_err_code` từng món; ghi kết quả bằng `updateOne` (không tăng `__v`). `retryGroup()`: chỉ khi nhóm `packed` và status ≠ `success` (409 `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`).
+- `order-groups.service.ts`: `assertHasActiveOrders()` — `pack` chặn nhóm hủy hết (409 `ORD_GROUP_ALL_ORDERS_CANCELED`) — vá một phần lỗ hổng "bước 2" xử lý hủy đơn.
+- `order-groups.controller.ts`: `pack` gọi guard → transaction cũ → `syncGroup()` → trả thêm `lazadaPackSync`; route mới `POST /order-groups/:id/lazada-pack/retry`; `OrderGroupResponse` thêm `lazadaPack`. `order-groups.module.ts` import `MarketplaceIntegrationModule` (không vòng — module đó không import ngược).
+- Test mới: `lazada.adapter.pack.spec.ts` (3 — endpoint, form body, **chữ ký tính lại độc lập**, không retry), `lazada-pack-sync.service.spec.ts` (12), thêm 2 test guard trong `order-groups.service.getOrderCountsForGroups.spec.ts`. Đây là test đầu tiên của module marketplace-integration (audit 27/09 ghi "0 test").
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: chỉ thêm trường (mặc định null/rỗng), không migration; nhóm cũ `lazadaPack.status = null`; nhóm đã đóng gói trước đó không tự gửi.
+2. Route đổi hành vi: `pack` — request giữ nguyên; response thêm `lazadaPackSync` + `lazadaPack`; **mới chặn 409 khi nhóm hủy hết** (trước đây cho qua). Mọi response nhóm đơn thêm `lazadaPack`.
+3. Luồng bị ảnh hưởng: khi cầu dao bật, đơn trên shop Lazada thật chuyển "Đã đóng gói" — không hoàn tác bằng API. Sau đó sync kéo về `packed` (không thuộc NOT_PACKABLE → không ảnh hưởng số đếm hủy, Picking List, K5).
+4. Không ảnh hưởng: trừ vật liệu (vẫn cùng transaction), G1 giao hàng, trả hàng, tồn kho Lazada (Pack không đổi tồn — hàng ở occupy tới RTS; đúng quy tắc "không đẩy Adjust cho vòng đời đơn Lazada").
+5. Phát hiện khi làm: (a) `orders.items[]` bị ghi đè mỗi lần sync → không lưu kết quả sàn trong items; (b) `pack` trước đây không kiểm tra hủy — đã chặn; (c) id đơn/món Lazada gửi dạng Number (tài liệu ghi Number) — id 15 chữ số hiện nay nằm trong giới hạn số nguyên an toàn của JS; nếu Lazada dùng id > 2^53 cần đổi sang chuỗi; (d) chưa có thông báo khi gửi lỗi, gửi lại phải bấm tay.
+
+**Việc phải làm trước demo:** test 1 đơn thật theo `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 4 mục "Cách test lần đầu" (cầu dao bật trên đúng 1 máy). Ghi kết quả thật (status, `package_id`, có `tracking_number` không với shop SOF) vào đây.
+
+**Tài liệu:** `INTEGRATION_GUIDE_FULFILLMENT.md` v4.3 (Nghiệp vụ 4 mục mới + checklist D.4), `API_LIST.md` mục fulfillment.
+
+**Kiểm chứng (sandbox, trên `be.zip` 02/10):** tsc 0 lỗi; eslint sạch trên các file đã sửa/mới; jest 34 suite / 319 test (trước: 32 / 302).

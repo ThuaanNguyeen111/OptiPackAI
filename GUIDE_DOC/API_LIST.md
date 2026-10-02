@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -61,17 +61,18 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 ## 6. Order Groups — Fulfillment (ghi trạng thái)
 
-| Method | Route                                          | Role                           | Mô tả                                                                |
-| ------ | ---------------------------------------------- | ------------------------------ | -------------------------------------------------------------------- |
-| POST   | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin               | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng |
-| POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin               | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
-| POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin               | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại                         |
-| POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin               | Xác nhận đã lấy xong TOÀN BỘ nhóm đơn                                |
-| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | Xác nhận đã đóng gói xong — mở thêm Packaging Staff (21/09/2026)     |
-| POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin                | Xác nhận đã bàn giao vận chuyển                                      |
-| POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin                | Xác nhận đã giao thành công tới khách                                |
-| POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin     | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |
-| PATCH  | `/order-groups/:id/priority`                   | **Store Owner**, Admin         | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói               |
+| Method  | Route                                          | Role                           | Mô tả                                                                                                                                                                                                     |
+| ------- | ---------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST    | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin               | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng                                                                                                                                      |
+| POST    | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin               | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt                                                                                                                                             |
+| POST    | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin               | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại                                                                                                                                                              |
+| POST    | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin               | Xác nhận đã lấy xong TOÀN BỘ nhóm đơn                                                                                                                                                                     |
+| POST    | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | Xác nhận đã đóng gói xong — mở thêm Packaging Staff (21/09/2026). 🔄 **02/10/2026**: tự báo "đã đóng gói" lên Lazada (response thêm `lazadaPackSync`); nhóm hủy hết → 409 `ORD_GROUP_ALL_ORDERS_CANCELED` |
+| 🆕 POST | `/order-groups/:id/lazada-pack/retry`          | Packaging, Warehouse, Admin    | **MỚI (02/10/2026)** — gửi lại "đã đóng gói" lên Lazada cho nhóm `packed` chưa gửi thành công                                                                                                             |
+| POST    | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin                | Xác nhận đã bàn giao vận chuyển                                                                                                                                                                           |
+| POST    | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin                | Xác nhận đã giao thành công tới khách                                                                                                                                                                     |
+| POST    | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin     | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                                                                                                                                                            |
+| PATCH   | `/order-groups/:id/priority`                   | **Store Owner**, Admin         | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói                                                                                                                                                    |
 
 ## 7. Staff Assignment — Phân công / Đổi nhân viên phụ trách
 
