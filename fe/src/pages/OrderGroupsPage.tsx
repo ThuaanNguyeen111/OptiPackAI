@@ -26,6 +26,7 @@ import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   isFullyInactiveGroup,
   isPartiallyCanceledGroup,
+  LAZADA_PACK_STATUS_LABELS,
   type OrderGroup,
   type OrderPriority,
 } from '../types/order-groups'
@@ -628,6 +629,33 @@ export function OrderGroupsPage() {
                         </div>
                       </dd>
                     </div>
+                    {detail.platform === 'lazada' ? (
+                      <div className="flex items-start justify-between gap-2">
+                        <dt className="text-ink-subtle">
+                          {vi ? 'Báo Lazada (pack)' : 'Lazada pack report'}
+                        </dt>
+                        <dd className="max-w-[16rem] text-right text-xs text-ink">
+                          <div className="font-medium">
+                            {detail.lazadaPack.status
+                              ? vi
+                                ? LAZADA_PACK_STATUS_LABELS[
+                                    detail.lazadaPack.status
+                                  ].vi
+                                : LAZADA_PACK_STATUS_LABELS[
+                                    detail.lazadaPack.status
+                                  ].en
+                              : vi
+                                ? 'Chưa gửi'
+                                : 'Not sent'}
+                          </div>
+                          {detail.lazadaPack.error ? (
+                            <p className="mt-0.5 text-[11px] text-rose-700 dark:text-rose-300">
+                              {detail.lazadaPack.error}
+                            </p>
+                          ) : null}
+                        </dd>
+                      </div>
+                    ) : null}
                     {detail.stockShortage ? (
                       <div className="col-span-full rounded-md border border-orange-200 bg-orange-50/80 px-2.5 py-2 text-xs text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100">
                         <p className="font-semibold">

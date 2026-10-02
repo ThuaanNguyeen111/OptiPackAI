@@ -99,7 +99,7 @@ export function EditorialProcess(): ReactNode {
         Bên trái sticky theo bước đang trong viewport — bên phải cuộn từng card.
       </p>
 
-      <div className="mt-14 grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] lg:gap-14">
+      <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] lg:gap-10">
         <aside className="lg:sticky lg:top-28 lg:self-start">
           <ol className="m-0 flex list-none flex-row gap-2 p-0 lg:flex-col lg:gap-1">
             {STEPS.map((step, i) => {
