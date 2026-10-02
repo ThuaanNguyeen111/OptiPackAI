@@ -11,14 +11,8 @@ import { GroupFulfillmentStatus } from './group-fulfillment-status.enum';
  * thái kế tiếp hợp lý về nghiệp vụ.
  * ===================================================================
  */
-const ALLOWED_TRANSITIONS: Record<
-  GroupFulfillmentStatus,
-  GroupFulfillmentStatus[]
-> = {
-  [GroupFulfillmentStatus.AWAITING_PACKAGING]: [
-    GroupFulfillmentStatus.PICKING,
-    GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
-  ],
+const ALLOWED_TRANSITIONS: Record<GroupFulfillmentStatus, GroupFulfillmentStatus[]> = {
+  [GroupFulfillmentStatus.AWAITING_PACKAGING]: [GroupFulfillmentStatus.PICKING, GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW],
   [GroupFulfillmentStatus.PICKING]: [
     GroupFulfillmentStatus.PICKED,
     GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
@@ -52,14 +46,9 @@ const ALLOWED_TRANSITIONS: Record<
   // Đóng gói vật lý (pack) giờ diễn ra NGAY SAU khi duyệt xong gợi ý —
   // không còn đường vòng qua PICKING/PICKED nữa (2 trạng thái đó đã
   // xảy ra TRƯỚC, ở đầu luồng).
-  [GroupFulfillmentStatus.APPROVED_FOR_PACKING]: [
-    GroupFulfillmentStatus.PACKED,
-  ],
+  [GroupFulfillmentStatus.APPROVED_FOR_PACKING]: [GroupFulfillmentStatus.PACKED],
   [GroupFulfillmentStatus.PACKED]: [GroupFulfillmentStatus.SHIPPED],
-  [GroupFulfillmentStatus.SHIPPED]: [
-    GroupFulfillmentStatus.DELIVERED,
-    GroupFulfillmentStatus.RETURNED,
-  ],
+  [GroupFulfillmentStatus.SHIPPED]: [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED],
   [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNED], // hoàn hàng SAU khi đã giao vẫn hợp lệ (khách trả hàng)
   [GroupFulfillmentStatus.RETURNED]: [], // trạng thái cuối, không đi tiếp đâu nữa
 };

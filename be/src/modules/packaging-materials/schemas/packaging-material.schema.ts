@@ -27,6 +27,9 @@ export class PackagingMaterial {
 
   @Prop({ type: Number, default: 0, min: 0 }) qty_new!: number;
   @Prop({ type: Number, default: 0, min: 0 }) qty_reused!: number;
+  // Hạng B: không đủ chắc để giao hàng, chỉ dùng nội bộ (đựng hàng trong kho, chia khu).
+  // Thuật toán đóng gói KHÔNG BAO GIỜ lấy từ ngăn này.
+  @Prop({ type: Number, default: 0, min: 0 }) qty_internal!: number;
 
   @Prop({ type: Boolean, default: true }) is_active!: boolean;
   created_at?: Date;

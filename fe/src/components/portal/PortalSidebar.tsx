@@ -25,6 +25,7 @@ import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useTheme } from '../../hooks/useTheme'
+import { usesTealAppChrome } from '../../lib/app-chrome'
 import { canSeeNavItem } from '../../lib/rbac'
 import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
 
@@ -53,6 +54,14 @@ const navItems = [
     labelVi: 'Nhóm đơn & Hỏa tốc',
     labelEn: 'Groups & Express',
     icon: ClipboardList,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/returns',
+    end: false,
+    labelVi: 'Trả hàng',
+    labelEn: 'Returns',
+    icon: Package,
     section: 'store' as NavSection,
   },
   {
@@ -161,6 +170,7 @@ export function PortalSidebar() {
   const roleLabel =
     locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
   const isStoreOwner = role === UserRole.STORE_OWNER
+  const tealChrome = usesTealAppChrome(role)
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
   const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
@@ -217,7 +227,13 @@ export function PortalSidebar() {
           className="flex min-w-0 items-center gap-2"
           title="OptiPackAI"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]">
+          <span
+            className={
+              tealChrome
+                ? 'lp-mark h-8 w-8 shrink-0'
+                : 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]'
+            }
+          >
             OP
           </span>
           {!sidebarCollapsed ? (
@@ -373,7 +389,9 @@ export function PortalSidebar() {
                     sidebarCollapsed ? 'justify-center' : ''
                   } ${
                     isActive
-                      ? 'bg-primary/15 text-primary-hover'
+                      ? tealChrome
+                        ? 'owner-nav-active'
+                        : 'bg-primary/15 text-primary-hover'
                       : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
                   }`
                 }
@@ -498,7 +516,11 @@ export function PortalSidebar() {
         icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
       />
       <aside
-        className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}
+        className={`hidden shrink-0 flex-col transition-[width] lg:flex ${width} ${
+          tealChrome
+            ? 'owner-sidebar'
+            : 'border-r border-hairline bg-canvas'
+        }`}
       >
         {nav}
       </aside>
@@ -511,7 +533,13 @@ export function PortalSidebar() {
             aria-label="Đóng"
             onClick={() => setMobileNavOpen(false)}
           />
-          <aside className="relative z-10 flex h-full w-60 flex-col border-r border-hairline bg-canvas">
+          <aside
+            className={`relative z-10 flex h-full w-60 flex-col ${
+              tealChrome
+                ? 'owner-sidebar m-3 h-[calc(100%-24px)]'
+                : 'border-r border-hairline bg-canvas'
+            }`}
+          >
             {nav}
           </aside>
         </div>

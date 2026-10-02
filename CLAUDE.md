@@ -711,6 +711,8 @@ GET  /order-groups/:id/packing-slip              (in phiếu, UC-06)
 POST /order-groups/:id/fulfillment/return         (phát hiện hàng lỗi lúc soạn — shared với Shipping Coordinator)
 ```
 
+> 🔄 **ĐÃ THAY ĐỔI so với ma trận gốc (cập nhật 01/10/2026)** — ma trận trên là bản thiết kế 09/09. Route kho thực tế của Warehouse Staff hiện nay (đọc từ `@Roles` trong `warehouse.controller.ts`): `GET warehouses`, `GET warehouses/:id`, `GET warehouses/:id/zones`, `GET warehouses/:id/bin-locations`, `GET warehouses/:id/sku-bin-assignments`, `POST .../restock`, `POST .../adjust`, `POST .../transfer`, `GET .../movements`, `GET bin-suggestions`, `GET picking-list`. **Nguyên tắc phân quyền kho (chốt 01/10/2026): route CẤU HÌNH kho (tạo/sửa/tắt kho-khu-kệ, gán/bỏ gán SKU, danh sách SKU chưa gán, danh sách ô theo khu) chỉ ADMIN; route VẬN HÀNH kho (xem vị trí và tồn, nhập hàng, kiểm kê, chuyển ô, lấy hàng) mở ADMIN + WAREHOUSE_STAFF.** Mục "ADMIN — ... POST/GET /admin/..." bên dưới là tên route thiết kế cũ, route thật không có tiền tố `/admin` — tra `API_LIST.md` mục 9.
+
 **PACKAGING_STAFF** — 4 API (0 hiện có):
 
 ```
@@ -1526,6 +1528,8 @@ Type hợp lệ: feat, fix, docs, style, refactor, perf, test, build, ci, chore,
 
 **Bổ sung (2026-09-11), ĐÃ SỬA LẠI cho đúng sau khi đối chiếu `commitlint.config.mjs` thật** — giải thích lượt trước SAI ở phần lý do (nói "chặn vì liệt kê tên file" — không đúng bản chất luật). **Luật thật (`subject-not-vague`)**: chỉ chặn nếu dòng mô tả **BẮT ĐẦU** bằng đúng 1 trong 6 từ cấm: `update`, `fix stuff`, `wip`, `misc`, `changes`, `stuff` — **không liên quan** tới việc có nhắc tên file hay không. VD `"update CLAUDE.md and README.md"` bị chặn vì mở đầu bằng `"update "`, KHÔNG phải vì liệt kê file — `"sync CLAUDE.md and README.md..."` sẽ KHÔNG bị chặn dù cũng liệt kê y hệt tên file. Cách tránh đơn giản nhất: không mở đầu dòng mô tả bằng 6 từ cấm trên, dùng động từ cụ thể hơn (`add`, `remove`, `fix`, `log`, `record`, `refactor`...).
 
+**Nhắc lại (01/10/2026):** Claude từng đề xuất nhầm `feat(warehouse): ...` — scope là tên module thay vì mã ticket, bị `scope-ticket-format` chặn. Mọi commit đề xuất cho user PHẢI dạng `type(AOFP-<số>): ...`, subject viết thường, không dấu chấm cuối, ≤ 100 ký tự; không biết số ticket thì ghi rõ để user thay theo Jira.
+
 **Các rule khác đã xác nhận đúng qua config thật, không cần sửa**: `scope-ticket-format` — scope bắt buộc đúng `AOFP-<số>`, không có ngoại lệ; `header-max-length` — 100 ký tự cho dòng đầu tiên; type hợp lệ kế thừa nguyên `@commitlint/config-conventional` (feat/fix/docs/style/refactor/perf/test/build/ci/chore/revert — đúng danh sách đã ghi từ trước).
 
 ## Database Design Standards — BẮT BUỘC (rút kinh nghiệm từ lỗi ở project EDUMEE)
@@ -1840,6 +1844,7 @@ Bản đầu của `03_KHO_VAT_TU_DONG_GOI...md` copy nguyên khung "thời tran
 - **`GetCategoryTree`** (`GET /category/tree/get`, KHÔNG cần `access_token` — chỉ cần `app_key`/`sign` như mọi request khác, khác `GetProducts` cần `access_token`) — trả cây category phân cấp `{category_id, name, children[], leaf}` (category_id dạng number ở API này, VD `6588`, `7436` — LƯU Ý khác kiểu string ở `primary_category` của `GetProducts`, cần ép kiểu khi so sánh/map). Tham số `language_code` optional, mặc định `en_US` — **nên truyền `"vi_VN"`** để tên category trả về tiếng Việt, dễ cho Admin map thủ công.
 
 **Việc cần làm theo thứ tự** (chưa code, ghi lại kế hoạch):
+
 1. Gọi thử `GetProducts` thật 1 lần (sandbox hoặc shop đã kết nối), xác nhận `primary_category` xuất hiện đúng vị trí/kiểu như tài liệu trước khi sửa code (đúng tinh thần Rule đã có: không tin suông tài liệu, Lazada từng có tiền lệ ghi 1 kiểu nhưng trả thực tế khác — xem comment `package_length` dòng 138 `lazada.adapter.ts`).
 2. Thêm `primary_category?: string` vào `LazadaProductRaw`.
 3. Gọi `GetCategoryTree` 1 lần (param `language_code=vi_VN`), lưu cây category vào 1 collection nhỏ.
@@ -1858,21 +1863,25 @@ User gửi trực tiếp JSON thật từ `GET /orders` (7 đơn, shop Lazada `2
 **Bằng chứng cụ thể**: group `consolidatedGroupId = "6a9c18292fced4f442f6e1b1"` gồm 3 đơn (`6a9c1ca16b6e447eff8270a4`, `6a9c18296b6e447eff82709d`, `6a9af7843c22e98f3a6105c7`) — **cả 3 đều `status: "canceled"`**, nhưng vẫn giữ nguyên `consolidatedGroupId`, tức vẫn thuộc group đó.
 
 **Root cause**: `order-groups.service.ts`, hàm `getPackableItemsForGroup()` — dòng 160-163:
+
 ```ts
 const orders = await this.orderModel
-  .find({ consolidated_group_id: group._id })   // KHÔNG lọc status
+  .find({ consolidated_group_id: group._id }) // KHÔNG lọc status
   .select('items platform shop_id')
   .lean();
 ```
-Không lọc bỏ đơn `status: canceled` trước khi lấy `items` đưa vào thuật toán packaging. Nếu 1 group có đơn bị hủy SAU KHI đã gộp (tình huống rất thường gặp — khách/sàn hủy đơn bất kỳ lúc nào), hàng đã hủy vẫn bị tính vào recommendation đóng gói. Đúng điều `AI_3D_PACKAGING_OPTIMIZATION.md` mục 4.1 đã cảnh báo: *"Item bị hủy không được đi vào phương án giao."*
+
+Không lọc bỏ đơn `status: canceled` trước khi lấy `items` đưa vào thuật toán packaging. Nếu 1 group có đơn bị hủy SAU KHI đã gộp (tình huống rất thường gặp — khách/sàn hủy đơn bất kỳ lúc nào), hàng đã hủy vẫn bị tính vào recommendation đóng gói. Đúng điều `AI_3D_PACKAGING_OPTIMIZATION.md` mục 4.1 đã cảnh báo: _"Item bị hủy không được đi vào phương án giao."_
 
 **Cách sửa (nhỏ, độc lập, không đụng thiết kế lớn)**:
+
 ```ts
 const orders = await this.orderModel
   .find({ consolidated_group_id: group._id, status: { $ne: 'canceled' } })
   .select('items platform shop_id')
   .lean();
 ```
+
 Cần xử lý thêm case biên: sau khi lọc, nếu group KHÔNG còn đơn nào (toàn bộ đơn trong group đều `canceled` — đúng case group `6a9c18292fced4f442f6e1b1` ở trên, 3/3 đơn hủy hết) → phải trả lỗi nghiệp vụ rõ ràng ("group không còn hàng để đóng"), KHÔNG được tạo ra 1 recommendation rỗng hoặc lỗi ngầm.
 
 **Ghi chú phụ**: đã xác nhận `isConsolidated: false` kèm `consolidatedGroupId` không phải bug — xảy ra đúng khi group chỉ có 1 đơn duy nhất (không có gì để "gộp" cùng), logic hiện tại đánh `true` chỉ khi group có ≥2 đơn — thiết kế đúng, không cần sửa.
@@ -1909,7 +1918,7 @@ Feedback trước (gửi bạn cùng nhóm) đề xuất thêm `item_key` vào `
 1. **`FEEDBACK_GUI_BAN_CUNG_NHOM.md`** — feedback tổng quan: trạng thái hiện tại, việc cần làm theo M2→M3→M4, 2 công nghệ đề xuất (`piscina`, `binpackingjs` để benchmark), việc mình tự làm bên phần mình để tránh trùng.
 2. **`HUONG_DI_KY_THUAT_CHI_TIET.md`** — sơ đồ luồng chính xác map 1-1 vào file/hàm/route THẬT đang chạy (không phải sơ đồ chung chung): (a) luồng as-is hiện tại từng bước có số dòng code, (b) luồng đích chỉ chèn engine vào ĐÚNG 1 điểm trong `packaging.service.ts`, giữ nguyên `computeFallbackPackaging()` làm lưới an toàn thật (không xóa), (c) bảng map tên route roadmap đề xuất → route thật đang chạy (tránh tạo route `/confirm` trùng với `approve()` đã có sẵn đúng ý nghĩa đó), (d) cách mở rộng schema `PackagingRecommendationDoc` bằng field optional, không phá dữ liệu cũ.
 
-**Phát hiện phụ khi đọc lại roadmap §8.1**: `approve()` hiện tại (dòng 139) đã đúng ý nghĩa "confirm" mà roadmap mô tả (*"confirm là thời điểm nhận vật tư cho một lần đóng gói"*) — không cần code thêm endpoint `/confirm` riêng như roadmap đề xuất tên, chỉ cần thêm kiểm tra `input_revision` vào đúng hàm `approve()`/`adjust()` đã có.
+**Phát hiện phụ khi đọc lại roadmap §8.1**: `approve()` hiện tại (dòng 139) đã đúng ý nghĩa "confirm" mà roadmap mô tả (_"confirm là thời điểm nhận vật tư cho một lần đóng gói"_) — không cần code thêm endpoint `/confirm` riêng như roadmap đề xuất tên, chỉ cần thêm kiểm tra `input_revision` vào đúng hàm `approve()`/`adjust()` đã có.
 
 ## Hợp nhất feedback gửi bạn cùng nhóm thành 1 file duy nhất (13/09/2026, rà soát cuối)
 
@@ -1947,6 +1956,8 @@ User xác nhận: shop demo là mô hình **seller tự lo khâu giao hàng** (k
 
 Đã sửa lại `BE_System_Audit/02_LO_HONG_NGHIEP_VU_LAZADA_CHI_TIET.md` và `03_VIEC_CAN_GUI_DOC_LAZADA_DE_CUNG_CO.md` — bỏ "không ghi ngược Lazada" khỏi danh sách gap, đánh dấu rõ đây là phạm vi có chủ đích, không phải thiếu sót. 3 route từng đề xuất (`ready-to-ship`/`invoice`/`shipping-label`) và mục tài liệu Lazada Order API ghi (`SetStatusToReadyToShip`/`SetInvoiceNumber`/`GetDocument`) **không còn cần thiết** cho phạm vi dự án — giữ lại trong file kèm ghi chú "đã cân nhắc và loại bỏ có chủ đích" để không ai hiểu nhầm là bị bỏ sót.
 
+> 🔄 **Phạm vi của quyết định "không ghi ngược Lazada" (làm rõ 30/09/2026):** quyết định này chỉ áp dụng cho **trạng thái đơn / vận đơn** (Ready to Ship, mã vận đơn, nhãn) — vẫn giữ nguyên. **Tồn kho khả dụng** là chủ đề khác: đang nghiên cứu ghi ngược lên Lazada, xem mục "🔬 Nghiên cứu đồng bộ tồn kho khả dụng lên Lazada" ở cuối file. Chưa code.
+
 **Các phát hiện khác trong đợt rà soát 14/09 vẫn giữ nguyên, không đổi**: lỗ hổng `markAsRead` không kiểm tra quyền sở hữu (🔴), `consolidation_key` thiếu `platform`, bug đơn `canceled` lan sang Picking List, Lazada callback thiếu `@Redirect()`, Notification `CONNECTION_LOST`/`SYNC_FAILED` chưa kích hoạt — không liên quan gì tới mô hình giao hàng seller-tự-lo, không bị ảnh hưởng bởi lần sửa này.
 
 ## Đối chiếu file 03 với sidebar API Lazada thật (15/09/2026) — 1 phát hiện mới quan trọng
@@ -1970,7 +1981,7 @@ Nguồn: bảng mã lỗi chính thức `GetOrders` ("Invalid status filter") li
 
 ### O5 — `mapLazadaStatus(raw.statuses[0] ?? 'pending')` lấy phần tử đầu mảng `statuses[]` làm đại diện cho cả đơn
 
-`statuses[]` (theo tài liệu chính thức) là *"mảng các trạng thái DUY NHẤT của các item trong đơn"* — không đảm bảo phần tử đầu là trạng thái quan trọng nhất. Đơn có 2 item (1 `delivered` + 1 `shipped_back`) có thể bị hiển thị sai thành `delivered` toàn bộ.
+`statuses[]` (theo tài liệu chính thức) là _"mảng các trạng thái DUY NHẤT của các item trong đơn"_ — không đảm bảo phần tử đầu là trạng thái quan trọng nhất. Đơn có 2 item (1 `delivered` + 1 `shipped_back`) có thể bị hiển thị sai thành `delivered` toàn bộ.
 
 ### O6 — Phát hiện mới: Lazada có luồng "chờ seller xác nhận hủy đơn" chưa được đọc/dùng
 
@@ -1982,7 +1993,7 @@ Response `GetOrder`/`GetOrders` có sẵn `need_cancel_confirm`/`is_cancel_pendi
 
 User tìm và gửi tài liệu "Webhook API" chính thức của Lazada — **6 loại webhook thật tồn tại** (Trade Order Notification, Product Update/Edited/Deleted, Category Update, Fulfillment Order Update, **Authorization Token Expiration Alert**), `Auth Required: true` (trừ Category Update), retry 12 lần/30 phút.
 
-**Điều này đảo ngược giả định nền tảng mà toàn bộ module `orders/`/`marketplace-integration/` đang dựa vào**: `lazada.adapter.ts` dòng 469-479 (`verifyWebhookSignature()`) cố tình để trống, comment nguyên văn *"Lazada chưa xác nhận cơ chế webhook chính thức"* — **SAI**, đã xác nhận. `orders.service.ts` dòng 51-52 và `lazada-order-sync.scheduler.ts` cũng dựa trên cùng giả định này để chọn polling 10 phút.
+**Điều này đảo ngược giả định nền tảng mà toàn bộ module `orders/`/`marketplace-integration/` đang dựa vào**: `lazada.adapter.ts` dòng 469-479 (`verifyWebhookSignature()`) cố tình để trống, comment nguyên văn _"Lazada chưa xác nhận cơ chế webhook chính thức"_ — **SAI**, đã xác nhận. `orders.service.ts` dòng 51-52 và `lazada-order-sync.scheduler.ts` cũng dựa trên cùng giả định này để chọn polling 10 phút.
 
 **Điểm mấu chốt — hạ tầng ĐÃ CÓ SẴN, không cần xây từ đầu**: `processed_webhook_events` schema (`common/schemas/`) + interface `verifyWebhookSignature()` trên `MarketplaceAdapter` đã tồn tại, đã dùng thật cho `tiktok-shop.adapter.ts`/`tiki.adapter.ts` — chỉ riêng Lazada bị tắt vì niềm tin sai. Chỉ cần: (1) tìm cách Lazada ký request webhook (chưa có trong tài liệu đã gửi), (2) tạo `LazadaWebhookController` (chưa có route nhận webhook cho platform nào), (3) xác nhận cách đăng ký subscribe, (4) ưu tiên xử lý `msg_type: 0` (đơn đổi trạng thái — có thể giảm độ trễ từ tối đa 10 phút xuống gần tức thời) và `msg_type: 8` (token sắp hết hạn — báo trước 48h, giải quyết tốt hơn hẳn gap O3 đã ghi trước đó). Giữ nguyên cron 10 phút làm lưới an toàn, không tắt hẳn — cùng tinh thần giữ `computeFallbackPackaging()` làm lưới an toàn cho AI Packaging.
 
@@ -2019,12 +2030,15 @@ Dùng đúng bản MỚI NHẤT của cả 4 file (có O4/O5/O6, webhook, đã s
 Đã giải thích lại chi tiết trong chat (không lặp ở đây): mô phỏng từng bước "shipper tới lấy hàng không có thì sao" (kết thúc bằng trạng thái `INFO_ST_DOMESTIC_PICKUP_SIGN_IN_FAILURE`, ảnh hưởng thật lên tài khoản Lazada KYC thật); làm rõ "code đủ (A) vs chỉ TODO (B)" là **lựa chọn của nhóm, không phải quy tắc bắt buộc** — quyết định A trước đó là ý giảng viên hướng dẫn, không phải best-practice tuyệt đối; giải thích ví dụ đời thường cho "ký webhook" (con dấu trên thư) và "subscribe webhook" (đăng ký nhận bản tin, làm ở Console quản lý app, không phải trang tài liệu API).
 
 **2 phát hiện mới quan trọng, đã cập nhật vào cả 3 file (`00`, `03`, `04`)**:
+
 1. **`GetFailureReasons` xác nhận DỨT ĐIỂM không tồn tại** — ảnh "Return and Refund API" đủ 8 method thật, không có method này. Đề xuất thay thế: đọc trực tiếp response lỗi của `GetOrders`/`GetOrder` thay vì gọi API riêng.
-2. **Phát hiện SOF (Seller Own Fleet)** — bảng lỗi `GetDocument` xác nhận nguyên văn: *"Printing AWB is not supported for... SOF/DBS orders"*, *"SOF/DBS type orders do not support the call of this API... Lazada does not provide Shipping Label"*. Đây khớp đúng mô hình shop demo — và là **Lazada tự xác nhận không hỗ trợ**, không phải mình chủ động né. Đã bỏ hẳn `printAWB()`/`getDocument()` khỏi kế hoạch code (khác các method khác vẫn "code đủ không invoke", 2 method này không cần code luôn). Đồng thời xác nhận thêm tên thật 3 method rủi ro cao nhất trong Return/Refund API: `InitReverseOrderCancelDecide`, `ReverseOrderOnlyRefundDecide`, `ReverseOrderReturnUpdate`.
+2. **Phát hiện SOF (Seller Own Fleet)** — bảng lỗi `GetDocument` xác nhận nguyên văn: _"Printing AWB is not supported for... SOF/DBS orders"_, _"SOF/DBS type orders do not support the call of this API... Lazada does not provide Shipping Label"_. Đây khớp đúng mô hình shop demo — và là **Lazada tự xác nhận không hỗ trợ**, không phải mình chủ động né. Đã bỏ hẳn `printAWB()`/`getDocument()` khỏi kế hoạch code (khác các method khác vẫn "code đủ không invoke", 2 method này không cần code luôn). Đồng thời xác nhận thêm tên thật 3 method rủi ro cao nhất trong Return/Refund API: `InitReverseOrderCancelDecide`, `ReverseOrderOnlyRefundDecide`, `ReverseOrderReturnUpdate`.
 
 Cả 3 file audit đã cập nhật đầy đủ, đồng bộ ra `outputs/BE_System_Audit/`.
 
 ## Quyết định: bỏ hẳn kế hoạch implement Fulfillment API (không làm cả phương án A) — 15/09/2026
+
+> 🔄 **ĐÃ THAY ĐỔI so với quyết định này (02/10/2026):** trong buổi meet, cô yêu cầu thêm nút cho Packaging Staff **xác nhận "đã đóng gói" lên Lazada**. FE không giữ `access_token` của shop nên BE phải gọi. Ánh xạ sang Fulfillment API **`Pack`** (có thể kèm `ReadyToShip`). Quyết định hoãn ngày 15/09 không còn hiệu lực với `Pack`/`GetShipmentProvider`/`ReadyToShip`; `PrintAWB` vẫn không dùng cho shop SOF. Tài liệu đầy đủ 4 API: mục "🔬 Nghiên cứu Lazada Fulfillment API — Pack / ReadyToShip / GetShipmentProvider / PrintAWB (02/10/2026)" ở cuối file. **Pack đã code ngày 02/10/2026** (nhật ký "📦 Nút pack báo đã đóng gói lên Lazada").
 
 User quyết định: **không cần code các method Fulfillment API** (`Pack`/`ReadyToShip`/`SetInvoiceNumber`/`RecreatePackage`/`GetShipmentProvider`) nữa, kể cả theo phương án A ("code đủ, không invoke") đã đề xuất trong `04_KE_HOACH_FULFILLMENT_API_AN_TOAN.md` — để dành làm sau, không nằm trong phạm vi hiện tại. File `04` **vẫn giữ nguyên** trong `BE_System_Audit/` làm tài liệu tham khảo nếu sau này cần quay lại (không xóa), nhưng không còn là việc cần làm ngay — mục A4 trong `00_TONG_HOP...md` cần hiểu là "đã hoãn", không phải "đang làm".
 
@@ -2056,7 +2070,7 @@ Qua tab **"Message Service"** trong App Console (`open.lazada.com`) — điền 
 
 ### Lưu ý phụ quan trọng
 
-FAQ tài liệu (07/2024) ghi *"Only order message is online now... under developing"* cho các loại khác — cần tự verify trong màn hình Message Service xem `msg_type: 8` (Token Expiration, giá trị cao nhất) có chọn được thật không, đừng giả định. Xác nhận thêm: ack 200 trong 500ms, retry 12 lần/30 phút, message có thể trùng ("at least once" — khớp đúng thiết kế `processed_webhook_events` đã có), và Lazada CHÍNH THỨC khuyến nghị chiến lược "giữ polling, thêm dần push, giảm dần polling sau" — đúng đề xuất đã đưa ra trước đó, nay có nguồn chính thức xác nhận.
+FAQ tài liệu (07/2024) ghi _"Only order message is online now... under developing"_ cho các loại khác — cần tự verify trong màn hình Message Service xem `msg_type: 8` (Token Expiration, giá trị cao nhất) có chọn được thật không, đừng giả định. Xác nhận thêm: ack 200 trong 500ms, retry 12 lần/30 phút, message có thể trùng ("at least once" — khớp đúng thiết kế `processed_webhook_events` đã có), và Lazada CHÍNH THỨC khuyến nghị chiến lược "giữ polling, thêm dần push, giảm dần polling sau" — đúng đề xuất đã đưa ra trước đó, nay có nguồn chính thức xác nhận.
 
 Đã cập nhật đầy đủ `BE_System_Audit/00` và `03`.
 
@@ -2124,6 +2138,7 @@ Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần d
 **Nguyên nhân thật**: file nguồn `lazada-order-sync.scheduler.ts` trên máy user vẫn là **bản CŨ** (constructor 2 tham số, không có `notify()`) — chỉ file test mới được thay, file nguồn thì không. `git diff` (không kèm cờ) chỉ so sánh working-tree với staging/HEAD — **không** chứng minh được file có khớp với file Claude gửi hay không, vì cả 2 phía đều là bản cũ.
 
 **Quy tắc rút ra — áp dụng cho mọi lần sau khi user báo "vẫn lỗi" dù đã làm theo hướng dẫn**:
+
 1. KHÔNG chỉ đọc log/đoán nguyên nhân qua suy luận — **tự trích xuất `be.zip` mới nhất user gửi, chạy thật** `npm install` + `npx jest <file>` + `npx eslint` trong sandbox để có bằng chứng chắc chắn.
 2. KHÔNG dùng `git diff` làm bằng chứng "file đã đúng" — chỉ chứng minh được "không có gì đang sửa dở", không chứng minh nội dung khớp với bản đã gửi.
 3. Nếu 1 file cần thay, kiểm tra kỹ cả file NGUỒN lẫn file TEST đi kèm đều đã update — dễ sót 1 trong 2 nếu chỉ đưa lại đúng file vừa sửa lỗi lint mà quên các file khác thuộc cùng tính năng.
@@ -2139,20 +2154,24 @@ Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần d
 **Lỗi cụ thể gặp phải**: `TS2532: Object is possibly 'undefined'` ở `result.items[0].sku` — đúng vì tsconfig dự án đã bật `noUncheckedIndexedAccess: true` (quy tắc đã ghi từ trước) — truy cập mảng theo index (`arr[0]`) LUÔN được TypeScript coi là `T | undefined`, không tự suy luận từ `expect(...).toHaveLength(1)` lúc runtime.
 
 **Cách sửa chuẩn cho pattern này trong test** (áp dụng mọi lần sau viết test đụng `arr[0]`):
+
 ```ts
 const [first] = result.items;
 expect(first).toBeDefined();
-expect(first?.sku).toBe('SKU-A');   // optional chaining, không lỗi TS2532
+expect(first?.sku).toBe('SKU-A'); // optional chaining, không lỗi TS2532
 ```
+
 Không dùng `result.items[0].sku` trực tiếp, cũng không dùng `!` non-null assertion (dự án không khuyến khích unsafe assertion, kể cả trong file test).
 
 **Quy tắc rút ra — áp dụng từ giờ cho MỌI lần sửa code trong dự án này**: trước khi coi 1 file đã "xong", chạy đủ 3 lệnh theo đúng thứ tự CI chạy, không chỉ chạy `test`:
+
 ```bash
 cd be
 npx tsc --noEmit   # bước hay bị bỏ sót nhất — không nằm trong npm run lint
 npm run lint
 npm run test
 ```
+
 Đã tự xác nhận bằng cách chạy thật cả 3 lệnh trong sandbox trước khi gửi lại file cho user — không chỉ đọc log đoán nữa (đúng bài học đã ghi ở mục trước).
 
 ## Rà + viết lại 4 file Integration Guide theo đúng code thật (16/09/2026)
@@ -2196,6 +2215,7 @@ Phát hiện thêm khi trả lời: điều này trước đó chỉ được nh
 ## Tạo tài liệu giảng giải toàn bộ hệ thống — HE_THONG_OPTIPACKAI_GIANG_GIAI.md (16/09/2026)
 
 Theo yêu cầu "giảng như giảng viên" — đã đọc lại TOÀN BỘ code thật (17 schema, 9 module, 53 API endpoint, các thuật toán cốt lõi: consolidation, pick-item atomic, staff auto-assign, Wave Picking, HMAC signing Lazada, refresh token rotation, packaging transaction...) rồi viết 1 file duy nhất ~10.900 từ, 5 phần:
+
 - Phần I: kiến trúc tổng thể (vì sao Modular Monolith, không Microservices)
 - Phần II: 17 bảng DB đầy đủ — mục đích, field, index, LÝ DO tối ưu (6 nguyên tắc: Embed/Reference, Denormalization, ESR, Partial Index, TTL Index, Optimistic Concurrency)
 - Phần III: 9 module — nghiệp vụ, API, kỹ thuật code cụ thể (kèm đoạn code thật + giải thích)
@@ -2245,6 +2265,7 @@ User phản biện đúng: đánh giá trước ("chỉ API_LIST.md liên quan")
 **Từ giờ áp dụng cho MỌI phiên làm việc**: chia công việc thành các **checkpoint tự nhiên** trong lúc làm, mỗi checkpoint đưa 1 lần commit — KHÔNG dồn hết tới cuối phiên mới đưa 1 cục để commit 1 lần. Nhưng cũng KHÔNG tách vụn tới mức mỗi sửa nhỏ là 1 commit riêng (tránh "commit rác").
 
 **Cách xác định 1 checkpoint hợp lý** (đã áp dụng đúng tinh thần này qua các Batch 1-5 trong đợt audit vừa rồi — tiếp tục làm y hệt vậy):
+
 - Xong 1 nhóm việc LIÊN QUAN NHAU (VD: 1 bug + test đi kèm, hoặc 2-3 fix cùng chủ đề) → 1 commit.
 - Đừng gộp 2 việc KHÔNG liên quan vào 1 commit (VD: sửa bug Orders + thêm tính năng Warehouse → tách 2 commit).
 - Đừng tách 1 việc DUY NHẤT (VD: 1 fix + test của chính fix đó) thành 2 commit riêng.
@@ -2278,16 +2299,16 @@ Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `IN
 
 ### Danh sách đầy đủ — lỗi gì, ai/khi nào phát hiện, đã sửa chưa
 
-| # | Lỗi | Nguồn gốc | Ai phát hiện | Trạng thái |
-|---|---|---|---|---|
-| 1 | `recipient_role` schema `type: String`, giá trị luôn là số → Packaging Staff không thấy chuông | **Có TỪ TRƯỚC**, không phải do đảo luồng gây ra | FE test thật, không phải unit test | ⏸️ Chưa sửa |
-| 2 | `generate()` không `notify()` Packaging Staff | Chưa từng làm | FE đối chiếu | ⏸️ Chưa sửa |
-| 3 | `getActuallyPickedItemsForGroup()` throw cứng nếu không có `pick_events` → `generate()` luôn 409 nếu Warehouse dùng nút "xác nhận hàng loạt" | **Tự mình gây ra** khi đảo luồng 20/09 | FE test thật | ✅ **Đã sửa** (`resolveItemsForPackaging()` fallback) |
-| 4 | `RejectPackagingDto` thiếu `rejection_reason` bắt buộc + không notify Admin | Chưa từng làm | FE đối chiếu | ⏸️ Chưa sửa |
-| 5 | `pack()` chưa cho `PACKAGING_STAFF` (chỉ Warehouse+Admin) | **Sót khi đảo luồng** — luồng mới có ý Packaging Staff tự đóng gói sau khi duyệt, nhưng quên cập nhật role | FE test thật | ⏸️ Chưa sửa |
-| 6 | `OrdersModule` chưa import `OrderGroupsModule` → group tạo trễ tới 15 phút (chờ cron backfill) | Thiết kế cũ (đã tự dự đoán trước trong comment, nhưng chưa làm) | FE test thật | ⏸️ Chưa sửa |
-| 7 | `PackagingModule` chưa import `NotificationsModule` | Sẽ crash DI ngay khi thêm `notify()` vào `packaging.service.ts` nếu quên dòng này | FE tự soát trước khi báo (rất tốt) | ⏸️ Chưa sửa |
-| 8 | Schema `packaging-recommendation` thiếu field `rejection_reason` | Chưa từng làm | FE đối chiếu | ⏸️ Chưa sửa |
+| #   | Lỗi                                                                                                                                          | Nguồn gốc                                                                                                  | Ai phát hiện                       | Trạng thái                                            |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ---------------------------------- | ----------------------------------------------------- |
+| 1   | `recipient_role` schema `type: String`, giá trị luôn là số → Packaging Staff không thấy chuông                                               | **Có TỪ TRƯỚC**, không phải do đảo luồng gây ra                                                            | FE test thật, không phải unit test | ⏸️ Chưa sửa                                           |
+| 2   | `generate()` không `notify()` Packaging Staff                                                                                                | Chưa từng làm                                                                                              | FE đối chiếu                       | ⏸️ Chưa sửa                                           |
+| 3   | `getActuallyPickedItemsForGroup()` throw cứng nếu không có `pick_events` → `generate()` luôn 409 nếu Warehouse dùng nút "xác nhận hàng loạt" | **Tự mình gây ra** khi đảo luồng 20/09                                                                     | FE test thật                       | ✅ **Đã sửa** (`resolveItemsForPackaging()` fallback) |
+| 4   | `RejectPackagingDto` thiếu `rejection_reason` bắt buộc + không notify Admin                                                                  | Chưa từng làm                                                                                              | FE đối chiếu                       | ⏸️ Chưa sửa                                           |
+| 5   | `pack()` chưa cho `PACKAGING_STAFF` (chỉ Warehouse+Admin)                                                                                    | **Sót khi đảo luồng** — luồng mới có ý Packaging Staff tự đóng gói sau khi duyệt, nhưng quên cập nhật role | FE test thật                       | ⏸️ Chưa sửa                                           |
+| 6   | `OrdersModule` chưa import `OrderGroupsModule` → group tạo trễ tới 15 phút (chờ cron backfill)                                               | Thiết kế cũ (đã tự dự đoán trước trong comment, nhưng chưa làm)                                            | FE test thật                       | ⏸️ Chưa sửa                                           |
+| 7   | `PackagingModule` chưa import `NotificationsModule`                                                                                          | Sẽ crash DI ngay khi thêm `notify()` vào `packaging.service.ts` nếu quên dòng này                          | FE tự soát trước khi báo (rất tốt) | ⏸️ Chưa sửa                                           |
+| 8   | Schema `packaging-recommendation` thiếu field `rejection_reason`                                                                             | Chưa từng làm                                                                                              | FE đối chiếu                       | ⏸️ Chưa sửa                                           |
 
 **Điểm đáng chú ý**: KHÔNG phải mọi báo cáo của FE đều là lỗi — mục "GET packaging trả null (không 404) khi chưa generate, role xem đủ 4" **ĐÃ ĐÚNG SẴN 100%** khi đối chiếu code thật — FE chỉ đang XÁC NHẬN LẠI, không phải báo lỗi. Bài học: **luôn đối chiếu TỪNG claim với code thật trước khi tin/sửa** — báo cáo dài, chi tiết, có vẻ đúng vẫn có thể lẫn 1 vài điểm đã đúng sẵn.
 
@@ -2305,6 +2326,7 @@ Nhìn lại, cả 8 lỗi trên rơi vào ĐÚNG 3 nhóm nguyên nhân gốc —
 → Quy tắc: mỗi khi thêm `private readonly xService: XService` vào constructor 1 service, **NGAY LẬP TỨC** kiểm tra `<module>.module.ts` của service ĐANG SỬA có `imports: [XModule]` chưa — đừng đợi tới lúc chạy `npm run start` mới phát hiện crash DI (mà `tsc`/`eslint`/`jest` unit test **KHÔNG hề bắt được lỗi này** — chỉ app thật khởi động mới lộ).
 
 **Checklist tổng hợp — chạy qua đủ 3 mục này TRƯỚC KHI báo "xong" cho bất kỳ thay đổi nào đụng tới state machine hoặc thêm dependency mới:**
+
 - [ ] Đã liệt kê hết MỌI đường hợp lệ dẫn tới trạng thái tiền đề mới thêm chưa (không chỉ đường đang nghĩ tới)?
 - [ ] Đã grep lại toàn bộ `@Roles()` của các endpoint liên quan tới trạng thái vừa đổi ý nghĩa chưa?
 - [ ] Mọi service mới inject vào constructor đã kiểm tra `module.ts` có import đúng module chưa?
@@ -2319,16 +2341,16 @@ Nhìn lại, cả 8 lỗi trên rơi vào ĐÚNG 3 nhóm nguyên nhân gốc —
 
 ### Kết quả rà soát
 
-| Module | Thiếu | Mức độ |
-|---|---|---|
-| `warehouse/` — Kho | Xem chi tiết, Sửa, Vô hiệu hóa | Cao |
-| `warehouse/` — Khu | Sửa, Vô hiệu hóa | Cao |
-| `warehouse/` — Kệ | Sửa (từng kệ), Vô hiệu hóa | Cao |
-| `warehouse/` — Gán SKU vào kệ | Chuyển SKU sang kệ khác, Điều chỉnh giảm tồn (kiểm kê), Bỏ gán | Cao — hiện chỉ cộng được tồn (restock), không trừ tay được khi kiểm kê lệch |
-| `product-master/` | **KHÔNG CÓ CONTROLLER NÀO** — không xem, không sửa tay được kích thước/cân nặng/dễ vỡ | Cao — dữ liệu sai thì chỉ sửa được bằng cách vào thẳng MongoDB (đúng lỗi thiếu `dimension` gây 500 trước đây) |
-| `marketplace-integration/` | Danh sách shop đã kết nối, Ngắt kết nối | Trung bình (bản code đang có trong sandbox; FE hiện màn hình có nút "Ẩn" → cần kiểm tra nhánh đồng đội có thêm chưa) |
-| `notifications/` | Đánh dấu tất cả đã đọc | Thấp |
-| `packaging/` | Lịch sử các lần gợi ý (kể cả bản bị reject) | Thấp |
+| Module                        | Thiếu                                                                                 | Mức độ                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `warehouse/` — Kho            | Xem chi tiết, Sửa, Vô hiệu hóa                                                        | Cao                                                                                                                  |
+| `warehouse/` — Khu            | Sửa, Vô hiệu hóa                                                                      | Cao                                                                                                                  |
+| `warehouse/` — Kệ             | Sửa (từng kệ), Vô hiệu hóa                                                            | Cao                                                                                                                  |
+| `warehouse/` — Gán SKU vào kệ | Chuyển SKU sang kệ khác, Điều chỉnh giảm tồn (kiểm kê), Bỏ gán                        | Cao — hiện chỉ cộng được tồn (restock), không trừ tay được khi kiểm kê lệch                                          |
+| `product-master/`             | **KHÔNG CÓ CONTROLLER NÀO** — không xem, không sửa tay được kích thước/cân nặng/dễ vỡ | Cao — dữ liệu sai thì chỉ sửa được bằng cách vào thẳng MongoDB (đúng lỗi thiếu `dimension` gây 500 trước đây)        |
+| `marketplace-integration/`    | Danh sách shop đã kết nối, Ngắt kết nối                                               | Trung bình (bản code đang có trong sandbox; FE hiện màn hình có nút "Ẩn" → cần kiểm tra nhánh đồng đội có thêm chưa) |
+| `notifications/`              | Đánh dấu tất cả đã đọc                                                                | Thấp                                                                                                                 |
+| `packaging/`                  | Lịch sử các lần gợi ý (kể cả bản bị reject)                                           | Thấp                                                                                                                 |
 
 **KHÔNG thiếu — cố ý không có Sửa/Xóa, đúng thiết kế**: `orders/` (bản sao dữ liệu từ sàn, sàn là nguồn sự thật), `order_groups` (hệ thống tự sinh), `pick_events` (nhật ký kiểm toán, chỉ được thêm), `users/` (đã đủ).
 
@@ -2345,6 +2367,7 @@ Mỗi khi thêm 1 collection, phải điền bảng sau NGAY LÚC THIẾT KẾ (
 | Tạo | Xem danh sách | Xem chi tiết | Sửa | Vô hiệu hóa (xóa mềm) | Xóa cứng |
 
 Phân loại trước khi điền:
+
 - **Dữ liệu nền** (kho, khu, kệ, danh mục, vật liệu đóng gói, SKU nội bộ): mặc định cần ĐỦ vòng đời. Xóa luôn là xóa mềm (`is_active: false`), chặn nếu còn tồn kho/đang được tham chiếu.
 - **Dữ liệu giao dịch/nhật ký** (pick_events, shipment_events, movements): chỉ Tạo + Xem — cố ý, ghi rõ lý do.
 - **Dữ liệu sao chép từ sàn** (orders): chỉ Xem — cố ý.
@@ -2397,16 +2420,19 @@ KA - D1 - PH02 - T03 - 1
 ### I.4. Danh mục sản phẩm — cây 2 cấp + thuộc tính **[ĐỀ XUẤT]**
 
 User hỏi có nên phân loại tiếp (giày nữ → guốc, đế bằng; áo → sơ mi nam, áo thun, áo nữ). Kết luận: CÓ, nhưng TÁCH 2 thứ đang bị trộn:
+
 - **Loại sản phẩm** (guốc, đế bằng, áo thun, sơ mi) → **cây danh mục**, tối đa 2 cấp (3 là giới hạn cứng). Cây sâu khó duy trì, kho vật lý chỉ có khu/dãy/kệ.
 - **Giới tính** (nam/nữ/unisex) → **THUỘC TÍNH của mẫu**, KHÔNG phải cấp danh mục. Lý do: áo thun có cả nam/nữ/unisex → làm danh mục thì cây nhân ba, báo cáo "bán bao nhiêu áo thun" phải cộng 3 nhánh.
 
 Cây mẫu:
+
 ```
 Áo    → Áo thun · Áo sơ mi · Áo kiểu · Áo khoác
 Quần  → Quần jean · Quần tây · Quần short · Chân váy
 Giày  → Guốc · Đế bằng · Cao gót · Sneaker
 Dép   → Sandal · Dép lê · Dép quai hậu
 ```
+
 - **Thang size gắn ở cấp 2** (áo thun S/M/L..., quần jean 28/29/30..., guốc 35-40). Cùng danh mục mà nam/nữ khác dải size (sneaker) → thang size lấy dải gộp, mỗi mẫu dùng phần của nó.
 - **KHÔNG sao chép cây danh mục của Lazada** (quá sâu, chỉ phục vụ hiển thị trên sàn, Tiki khác hẳn). Cây nội bộ phục vụ vận hành kho.
 
@@ -2429,13 +2455,13 @@ SKU Tiki   "XYZ-9"  ─┘         (1 số tồn chung cho mọi sàn)
 
 ### I.6. Quy tắc KHÓA / SỬA SKU nội bộ **[ĐÃ THỐNG NHẤT]**
 
-| Thông tin | Sửa được? | Lý do |
-|---|---|---|
-| Mã SKU | ❌ Khóa | Nằm ở tồn kho, sổ cái, lịch sử quét, bảng nối sàn, báo cáo, NHÃN IN DÁN TRÊN THÙNG THẬT |
-| Mẫu, màu, size | ❌ Khóa | Chính 3 thứ này tạo nên mã — đổi màu mà mã vẫn ghi `DEN` là sai lệch |
-| Tên, mô tả | ✅ | Chỉ để đọc |
-| Kích thước, cân nặng, dễ vỡ | ✅ | Đo lại chính xác hơn là bình thường |
-| Trạng thái | ✅ | Vô hiệu hóa thay cho xóa |
+| Thông tin                   | Sửa được? | Lý do                                                                                   |
+| --------------------------- | --------- | --------------------------------------------------------------------------------------- |
+| Mã SKU                      | ❌ Khóa   | Nằm ở tồn kho, sổ cái, lịch sử quét, bảng nối sàn, báo cáo, NHÃN IN DÁN TRÊN THÙNG THẬT |
+| Mẫu, màu, size              | ❌ Khóa   | Chính 3 thứ này tạo nên mã — đổi màu mà mã vẫn ghi `DEN` là sai lệch                    |
+| Tên, mô tả                  | ✅        | Chỉ để đọc                                                                              |
+| Kích thước, cân nặng, dễ vỡ | ✅        | Đo lại chính xác hơn là bình thường                                                     |
+| Trạng thái                  | ✅        | Vô hiệu hóa thay cho xóa                                                                |
 
 - **Ngoại lệ**: SKU vừa tạo, CHƯA phát sinh gì (chưa tồn kho, chưa nối sàn, chưa lịch sử) → cho sửa tự do.
 - **Lỡ đặt sai → thao tác "Thay thế SKU"** (1 transaction): (1) tạo SKU mới; (2) chuyển toàn bộ tồn sang SKU mới, ghi sổ cái lý do "thay thế SKU"; (3) chuyển các liên kết SKU sàn sang SKU mới; (4) vô hiệu hóa SKU cũ, lưu `replaced_by`. Lịch sử cũ nguyên vẹn, truy vết được. Kho in lại nhãn.
@@ -2444,6 +2470,7 @@ SKU Tiki   "XYZ-9"  ─┘         (1 số tồn chung cho mọi sàn)
 ### I.7. Khắc phục các điểm yếu kho — tổng hợp theo 4 mục tiêu **[ĐỀ XUẤT]**
 
 **Linh hoạt**
+
 - Số ô/tầng khai báo khi tạo kệ (không hardcode).
 - Danh mục có thang size riêng.
 - Quy tắc slotting là gợi ý + bắt lý do khi lệch.
@@ -2451,6 +2478,7 @@ SKU Tiki   "XYZ-9"  ─┘         (1 số tồn chung cho mọi sàn)
 - Mỗi ô có `capacity` (sửa được) → vượt sức chứa thì cảnh báo + gợi ý ô tiếp theo.
 
 **Logic**
+
 - SKU nội bộ + bảng nối sàn (I.5).
 - Mã khóa, xóa = vô hiệu hóa, chặn vô hiệu hóa khi còn hàng; vô hiệu hóa khu → tự vô hiệu hóa kệ/ô bên dưới (chỉ khi tất cả trống).
 - **Sổ cái biến động kho** (`inventory_movements`, append-only) — MỌI thay đổi tồn phải đi qua: nhập, lấy hàng, điều chỉnh kiểm kê, chuyển ô, hoàn về, thay thế SKU. Kể cả Admin không có đường nào đổi số tồn mà không ghi sổ.
@@ -2458,6 +2486,7 @@ SKU Tiki   "XYZ-9"  ─┘         (1 số tồn chung cho mọi sàn)
 - **Chuyển ô**: trừ nguồn + cộng đích trong 1 transaction.
 
 **Nhanh**
+
 - `pick_sequence` (số nguyên) tính sẵn lúc tạo kệ theo **lộ trình hình rắn** (xuống dãy 1, lên dãy 2...) thay cho sắp chuỗi `bin_code` — sắp chuỗi hiện tại đi hết bên phải rồi mới quay lại bên trái, đi hết dãy rồi vòng về đầu dãy sau.
 - Index đúng truy vấn:
   - `{warehouse_id, bin_code}` unique — quét tìm ô
@@ -2468,6 +2497,7 @@ SKU Tiki   "XYZ-9"  ─┘         (1 số tồn chung cho mọi sàn)
 - Sinh ô hàng loạt giữ `bulkWrite`.
 
 **Vững nghiệp vụ**
+
 - **Chống bán lố giữa các sàn**: tách **tồn thực** (hàng trên kệ) và **tồn khả dụng** (= tồn thực − đã giữ chỗ). Giữ chỗ lúc tạo nhóm đơn; không đủ tồn khả dụng → gắn cờ thiếu hàng NGAY từ đầu, không để nhân viên đi tới kệ mới phát hiện. Hiện tại tồn chỉ bị trừ LÚC QUÉT → 2 đơn 2 sàn tranh nhau món cuối. Đây là thay đổi giá trị nhất nhưng rủi ro cao nhất (động vào tạo nhóm đơn) → làm cuối, test kỹ.
 - Hàng hoàn luôn vào khu `RETURN-QC` trước, kiểm đạt mới chuyển ô sang ô bán.
 
@@ -2497,13 +2527,13 @@ inventory_movements    master_sku, bin_location_id, delta (+/-), type (receive|p
 
 ### I.10. Thứ tự triển khai kho **[ĐỀ XUẤT]** — mỗi bước 1 commit, đủ tsc/eslint/jest
 
-| Bước | Nội dung | Rủi ro |
-|---|---|---|
-| K1 | Sửa/vô hiệu hóa Kho-Khu-Kệ + API Product Master (xem/sửa tay kích thước, cờ `manual_override` để cron không ghi đè) | Thấp |
-| K2 | Mã vị trí 5 phần, capacity, `pick_sequence` hình rắn, danh mục 2 cấp + thang size, `designated` của ô | Trung bình |
-| K3 | Sổ cái kho, điều chỉnh kiểm kê, chuyển ô, 1 SKU nhiều ô | Trung bình |
-| K4 | SKU nội bộ + mẫu + bảng nối sàn, đổi khóa tồn kho, thao tác Thay thế SKU | Cao |
-| K5 | Tồn khả dụng + giữ chỗ chống bán lố | Cao |
+| Bước | Nội dung                                                                                                            | Rủi ro     |
+| ---- | ------------------------------------------------------------------------------------------------------------------- | ---------- |
+| K1   | Sửa/vô hiệu hóa Kho-Khu-Kệ + API Product Master (xem/sửa tay kích thước, cờ `manual_override` để cron không ghi đè) | Thấp       |
+| K2   | Mã vị trí 5 phần, capacity, `pick_sequence` hình rắn, danh mục 2 cấp + thang size, `designated` của ô               | Trung bình |
+| K3   | Sổ cái kho, điều chỉnh kiểm kê, chuyển ô, 1 SKU nhiều ô                                                             | Trung bình |
+| K4   | SKU nội bộ + mẫu + bảng nối sàn, đổi khóa tồn kho, thao tác Thay thế SKU                                            | Cao        |
+| K5   | Tồn khả dụng + giữ chỗ chống bán lố                                                                                 | Cao        |
 
 ---
 
@@ -2528,29 +2558,29 @@ Giao hàng hiện chỉ là 3 nút đổi trạng thái trên `order_groups` (`s
 
 ### II.4. Tự đánh giá bản thiết kế giao hàng đầu tiên — điểm yếu đã phát hiện và cách sửa
 
-| # | Điểm yếu | Cách sửa |
-|---|---|---|
-| 1 | **Thiếu "chuyến giao"** — gắn GPS theo từng vận đơn, trong khi 1 shipper chở 10-20 kiện/chuyến → 20 chấm chồng nhau, không tính được ETA theo thứ tự điểm | Thêm `delivery_trips` (stops có thứ tự, route_polyline, vị trí XE). GPS thuộc chuyến, không thuộc kiện |
-| 2 | Không có tọa độ điểm đích (đơn chỉ có địa chỉ chữ) | Coordinator **ghim vị trí trên bản đồ** (`source: pinned`); dữ liệu demo có tọa độ sẵn (`seeded`). KHÔNG dùng Nominatim công khai — chính sách ghi rõ ứng dụng theo dõi kiện hàng/phương tiện phải tự dựng máy chủ riêng |
-| 3 | Quy tắc "2 lần giao" có kẽ hở (bấm thất bại 2 lần trong 1 phút) | Lần 2 cách lần 1 tối thiểu 2 giờ (cấu hình) hoặc theo giờ khách hẹn; Coordinator được ghi đè nhưng BẮT BUỘC lý do |
-| 4 | COD làm nửa vời (có field, không đối soát) | **Đưa ra khỏi phạm vi**, ghi rõ trong báo cáo (chính sách COD đơn tự giao của Lazada VN chưa xác minh) |
-| 5 | Nhóm đơn thay thế (đổi hàng) không có đơn Lazada → có thể bị gộp nhầm/bị cron chạm | `origin: marketplace|replacement` + `source_rma_id`; loại khỏi logic gộp đơn và cron đồng bộ |
-| 6 | Dùng "xe tải" — sai thực tế giao chặng cuối VN (xe máy) | Biểu tượng xe máy, lưu `vehicle_type` |
-| 7 | Không kiểm tra vị trí khi bấm giao → gian lận | Cách điểm đích > 300m → VẪN LƯU (GPS có sai số) nhưng gắn cờ "nghi vấn" cho Coordinator |
-| 8 | Giờ điện thoại không có quy tắc | `occurred_at` ở tương lai → từ chối; lệch > 30 phút → chấp nhận + gắn cờ |
-| 9 | Polling làm xe "nhảy cóc" | FE nội suy mượt giữa 2 điểm + xoay theo hướng; luôn hiện "cập nhật cách đây X giây", > 60s đổi màu |
-| 10 | Chưa có hạ tầng lưu ảnh bằng chứng | **CHỜ CHỐT**: dịch vụ lưu file ngoài (gói miễn phí) hoặc tạm lưu ổ đĩa + ghi rõ giới hạn |
-| 11 | Giả định 1 nhóm đơn = 1 kiện | `packages[]`, shipper quét đủ kiện mới được "Nhận hàng rời kho" |
-| 12 | Giả lập chạy tọa độ cố định không khớp địa chỉ trên màn hình | Tọa độ ghim/seed khớp đúng khách; tuyến OSRM tính 1 lần lúc bắt đầu chuyến, lưu DB (OSRM demo cấm dùng quá mức, bắt ghi nguồn) |
-| 13 | Người thuyết trình đổi tài khoản liên tục | Màn hình demo 3 khung, đổi vai 1 cú bấm (vẫn gọi API thật đúng quyền) |
-| 14 | Chuyến thật 20-40 phút | Nút "Tua nhanh ×20" có nhãn rõ |
-| 15 | Mất mạng lúc bảo vệ | Tuyến đường tính sẵn trong dữ liệu demo + video dự phòng + nút "Đặt lại dữ liệu demo" |
+| #   | Điểm yếu                                                                                                                                                  | Cách sửa                                                                                                                                                                                                                 |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **Thiếu "chuyến giao"** — gắn GPS theo từng vận đơn, trong khi 1 shipper chở 10-20 kiện/chuyến → 20 chấm chồng nhau, không tính được ETA theo thứ tự điểm | Thêm `delivery_trips` (stops có thứ tự, route_polyline, vị trí XE). GPS thuộc chuyến, không thuộc kiện                                                                                                                   |
+| 2   | Không có tọa độ điểm đích (đơn chỉ có địa chỉ chữ)                                                                                                        | Coordinator **ghim vị trí trên bản đồ** (`source: pinned`); dữ liệu demo có tọa độ sẵn (`seeded`). KHÔNG dùng Nominatim công khai — chính sách ghi rõ ứng dụng theo dõi kiện hàng/phương tiện phải tự dựng máy chủ riêng |
+| 3   | Quy tắc "2 lần giao" có kẽ hở (bấm thất bại 2 lần trong 1 phút)                                                                                           | Lần 2 cách lần 1 tối thiểu 2 giờ (cấu hình) hoặc theo giờ khách hẹn; Coordinator được ghi đè nhưng BẮT BUỘC lý do                                                                                                        |
+| 4   | COD làm nửa vời (có field, không đối soát)                                                                                                                | **Đưa ra khỏi phạm vi**, ghi rõ trong báo cáo (chính sách COD đơn tự giao của Lazada VN chưa xác minh)                                                                                                                   |
+| 5   | Nhóm đơn thay thế (đổi hàng) không có đơn Lazada → có thể bị gộp nhầm/bị cron chạm                                                                        | `origin: marketplace                                                                                                                                                                                                     | replacement`+`source_rma_id`; loại khỏi logic gộp đơn và cron đồng bộ |
+| 6   | Dùng "xe tải" — sai thực tế giao chặng cuối VN (xe máy)                                                                                                   | Biểu tượng xe máy, lưu `vehicle_type`                                                                                                                                                                                    |
+| 7   | Không kiểm tra vị trí khi bấm giao → gian lận                                                                                                             | Cách điểm đích > 300m → VẪN LƯU (GPS có sai số) nhưng gắn cờ "nghi vấn" cho Coordinator                                                                                                                                  |
+| 8   | Giờ điện thoại không có quy tắc                                                                                                                           | `occurred_at` ở tương lai → từ chối; lệch > 30 phút → chấp nhận + gắn cờ                                                                                                                                                 |
+| 9   | Polling làm xe "nhảy cóc"                                                                                                                                 | FE nội suy mượt giữa 2 điểm + xoay theo hướng; luôn hiện "cập nhật cách đây X giây", > 60s đổi màu                                                                                                                       |
+| 10  | Chưa có hạ tầng lưu ảnh bằng chứng                                                                                                                        | **CHỜ CHỐT**: dịch vụ lưu file ngoài (gói miễn phí) hoặc tạm lưu ổ đĩa + ghi rõ giới hạn                                                                                                                                 |
+| 11  | Giả định 1 nhóm đơn = 1 kiện                                                                                                                              | `packages[]`, shipper quét đủ kiện mới được "Nhận hàng rời kho"                                                                                                                                                          |
+| 12  | Giả lập chạy tọa độ cố định không khớp địa chỉ trên màn hình                                                                                              | Tọa độ ghim/seed khớp đúng khách; tuyến OSRM tính 1 lần lúc bắt đầu chuyến, lưu DB (OSRM demo cấm dùng quá mức, bắt ghi nguồn)                                                                                           |
+| 13  | Người thuyết trình đổi tài khoản liên tục                                                                                                                 | Màn hình demo 3 khung, đổi vai 1 cú bấm (vẫn gọi API thật đúng quyền)                                                                                                                                                    |
+| 14  | Chuyến thật 20-40 phút                                                                                                                                    | Nút "Tua nhanh ×20" có nhãn rõ                                                                                                                                                                                           |
+| 15  | Mất mạng lúc bảo vệ                                                                                                                                       | Tuyến đường tính sẵn trong dữ liệu demo + video dự phòng + nút "Đặt lại dữ liệu demo"                                                                                                                                    |
 
 ### II.5. Ai bấm nút gì **[ĐÃ THỐNG NHẤT]**
 
-Giao xuôi: Packaging Staff *Đóng gói xong* → **hệ thống tự tạo vận đơn** → **Shipping Coordinator** *Gán shipper / tạo chuyến* (mở màn khâu giao) → **Shipper** *Nhận hàng rời kho* → *Giao thành công* (ảnh) hoặc *Giao thất bại* (lý do + ảnh) → *Giao lại* → thất bại lần 2 **hệ thống tự chuyển hoàn về** (shipper KHÔNG có nút hoàn) → **Warehouse Staff** *Quét nhận hàng hoàn* → *Lưu kết quả kiểm hàng*.
+Giao xuôi: Packaging Staff _Đóng gói xong_ → **hệ thống tự tạo vận đơn** → **Shipping Coordinator** _Gán shipper / tạo chuyến_ (mở màn khâu giao) → **Shipper** _Nhận hàng rời kho_ → _Giao thành công_ (ảnh) hoặc _Giao thất bại_ (lý do + ảnh) → _Giao lại_ → thất bại lần 2 **hệ thống tự chuyển hoàn về** (shipper KHÔNG có nút hoàn) → **Warehouse Staff** _Quét nhận hàng hoàn_ → _Lưu kết quả kiểm hàng_.
 
-Trả/đổi: **Admin** đóng vai khách (chỉ khi `DEMO_MODE=true`) *Giả lập khách yêu cầu trả/đổi* → **Store Owner** *Duyệt/Từ chối* (tách người tạo và người duyệt) → hệ thống tự tạo vận đơn chiều ngược → Coordinator gán → Shipper lấy hàng từ khách → Warehouse nhận + kiểm → đổi hàng thì hệ thống tự sinh nhóm đơn thay thế đi lại Mainflow 2. Nếu storefront được làm tiếp, nút yêu cầu trả/đổi chuyển cho chính khách hàng.
+Trả/đổi: **Admin** đóng vai khách (chỉ khi `DEMO_MODE=true`) _Giả lập khách yêu cầu trả/đổi_ → **Store Owner** _Duyệt/Từ chối_ (tách người tạo và người duyệt) → hệ thống tự tạo vận đơn chiều ngược → Coordinator gán → Shipper lấy hàng từ khách → Warehouse nhận + kiểm → đổi hàng thì hệ thống tự sinh nhóm đơn thay thế đi lại Mainflow 2. Nếu storefront được làm tiếp, nút yêu cầu trả/đổi chuyển cho chính khách hàng.
 
 Hệ thống tự làm (không có nút): tạo vận đơn, hoàn về sau lần thất bại 2, tạo phiếu hoàn khi kiện thất bại về kho, tạo vận đơn chiều ngược khi duyệt, sinh nhóm đơn thay thế, cập nhật trạng thái nhóm đơn.
 
@@ -2577,6 +2607,7 @@ ready_to_dispatch → assigned → out_for_delivery → delivered (KẾT THÚC)
 **Nghiên cứu**: thùng sóng đơn dùng lại 2-4 lần (hàng nhẹ); có đơn vị giới hạn tối đa 3 lần + đánh mã lô mỗi lần; túi khí/bubble wrap dùng lại được nếu nguyên vẹn; giấy vụn thường 1 lần.
 
 **Quy trình** (gắn vào bước QC hàng hoàn):
+
 - Checklist thùng: góc không móp/nứt, vách không rách, không ẩm/mốc/mùi, nắp đóng khít, băng keo cũ gỡ được.
 - Hạng **A** (giao được) / **B** (dùng nội bộ) / **C** (tái chế/bán giấy vụn).
 - Đánh dấu R1/R2/R3 lên nắp mỗi lần dùng lại; nhân viên nhập số thấy trên thùng; **đạt R3 → hệ thống tự hạ hạng C**.
@@ -2625,18 +2656,18 @@ return_requests     rma_code, type (return_refund|refund_only|exchange|failed_de
 
 - Leaflet + ô bản đồ OSM (bắt buộc ghi công bản quyền) + OSRM (1 lần/chuyến, lưu lại) + vị trí từ `driver_locations`. Hiện: xe máy chạy mượt dọc tuyến, các điểm giao đánh số, ETA "ước tính", "cập nhật cách đây X giây", dòng thời gian bên dưới.
 - Màn hình demo 3 khung: **Vai trò** (đổi vai 1 cú bấm) | **Bản đồ** | **Hệ thống đang nghĩ gì** (timeline, trạng thái vận đơn + nhóm đơn, tồn kho, kho vật liệu).
-- Kịch bản ~8-10 phút: mở đầu chiếu sơ đồ trạng thái (30s) → **Màn 1**: 1 chuyến 3 điểm (giao thành công; thất bại "khách hẹn 17h" rồi thử *Giao lại* ngay → hệ thống TỪ CHỐI; cố bấm giao khi xe còn xa → cờ nghi vấn) → **Màn 2**: thất bại 2 lần → tự hoàn về → QC → nhập lại kho + thùng hạng A → đơn mới dùng thùng tái sử dụng, hiện tiền tiết kiệm → **Màn 3** (tùy giờ): đổi hàng → nhóm đơn thay thế có nhãn → **Kết**: dashboard tỷ lệ giao thành công lần đầu, số vận đơn nghi vấn, tổng tiết kiệm bao bì.
+- Kịch bản ~8-10 phút: mở đầu chiếu sơ đồ trạng thái (30s) → **Màn 1**: 1 chuyến 3 điểm (giao thành công; thất bại "khách hẹn 17h" rồi thử _Giao lại_ ngay → hệ thống TỪ CHỐI; cố bấm giao khi xe còn xa → cờ nghi vấn) → **Màn 2**: thất bại 2 lần → tự hoàn về → QC → nhập lại kho + thùng hạng A → đơn mới dùng thùng tái sử dụng, hiện tiền tiết kiệm → **Màn 3** (tùy giờ): đổi hàng → nhóm đơn thay thế có nhãn → **Kết**: dashboard tỷ lệ giao thành công lần đầu, số vận đơn nghi vấn, tổng tiết kiệm bao bì.
 - Câu hỏi hội đồng cần chuẩn bị: vì sao ghim tay điểm đích (chính sách Nominatim + địa chỉ VN không chuẩn); vì sao gắn cờ mà không chặn khi sai vị trí (sai số GPS); vì sao không làm COD.
 
 ### II.12. Lộ trình giao hàng **[ĐỀ XUẤT]**
 
-| Giai đoạn | Nội dung |
-|---|---|
-| G1 | Chuyến giao + vận đơn + events + giao xuôi + bằng chứng + geofence/clock-skew flags |
-| G2 | Giao thất bại, giao lại có khoảng cách tối thiểu, hoàn về, cron cảnh báo trễ hạn (dùng `addBusinessHours`) |
-| G3 | Phiếu trả/đổi bằng nút bấm + QC + khu cách ly + sổ cái + đổi hàng (tái dùng Mainflow 2) |
-| G4 | Vật liệu đóng gói: danh mục + tồn + QC vật liệu + ưu tiên thùng tái sử dụng + trừ khi `pack` |
-| G5 | Script giả lập + bản đồ + màn hình demo 3 khung + reset |
+| Giai đoạn | Nội dung                                                                                                   |
+| --------- | ---------------------------------------------------------------------------------------------------------- |
+| G1        | Chuyến giao + vận đơn + events + giao xuôi + bằng chứng + geofence/clock-skew flags                        |
+| G2        | Giao thất bại, giao lại có khoảng cách tối thiểu, hoàn về, cron cảnh báo trễ hạn (dùng `addBusinessHours`) |
+| G3        | Phiếu trả/đổi bằng nút bấm + QC + khu cách ly + sổ cái + đổi hàng (tái dùng Mainflow 2)                    |
+| G4        | Vật liệu đóng gói: danh mục + tồn + QC vật liệu + ưu tiên thùng tái sử dụng + trừ khi `pack`               |
+| G5        | Script giả lập + bản đồ + màn hình demo 3 khung + reset                                                    |
 
 Phụ thuộc: G3 dùng sổ cái kho (K3); G4 độc lập, có thể làm sớm.
 
@@ -2669,6 +2700,7 @@ Mỗi lần sửa cấu trúc dữ liệu hoặc hành vi của module đã có 
 **Code**: `warehouse-zone.schema.ts`, `bin-location.schema.ts` (+`is_active?`), `product-master.schema.ts` (+`manual_override?`, `_at`, `_by`), `warehouse.errors.ts` (+7 mã), DTO mới `update-warehouse`, `update-zone`, `update-product-master`, `warehouse.service.ts` (getWarehouse, update/deactivate/reactivate kho-khu-kệ, `assertWarehouseActive` thay `assertWarehouseExists`, `countStockUnits` aggregate, transaction dây chuyền, vá `assignSkuToBin`), `warehouse.controller.ts` (+9 route, `include_inactive`, `isActive` trong response), `product-master.service.ts` (list/get/update + cron tôn trọng `manual_override`), `product-master.controller.ts` + `product-master.errors.ts` (MỚI), `product-master.module.ts` (đăng ký controller). Test mới: `warehouse.service.lifecycle.spec.ts` (9 test), `product-master.service.spec.ts` (3 test). Kết quả: tsc 0 lỗi, eslint 0 lỗi, jest 19/19 suite — 179/179 test.
 
 **Tác động & xử lý xung đột:**
+
 1. Dữ liệu cũ: khu/kệ cũ không có `is_active` → lọc `$ne: false`, response `isActive: doc.is_active !== false`; Product Master cũ không có `manual_override` → coi là chưa sửa tay. KHÔNG cần migration.
 2. Route đổi hành vi: tạo khu, sinh kệ, gán SKU, restock, Picking List → 409 khi kho/khu/kệ tắt; gán SKU kiểm tra kệ (404/400/409); GET danh sách mặc định ẩn mục đã tắt.
 3. Xung đột ghi đè: cron Product Master 3h sáng vs Admin sửa tay → SKU có `manual_override` chỉ cập nhật `last_synced_at`.
@@ -2680,9 +2712,11 @@ Mỗi lần sửa cấu trúc dữ liệu hoặc hành vi của module đã có 
 **Bài học kỹ thuật K1**: eslint `no-unnecessary-condition` báo `=== false` là thừa vì type khai `is_active!: boolean` — đó là DẤU HIỆU type đang nói dối (document cũ thật sự thiếu field). Sửa đúng là khai type optional, KHÔNG tắt lint. Cũng không spread DTO class instance (`{...dto}` — rule `no-misused-spread`), liệt kê field tường minh.
 
 ### Điểm yếu còn lại sau K1 (đã ghi trong guide Phần E)
+
 Chưa có nhật ký ai tắt/bật; khe thời gian hẹp giữa kiểm tồn và tắt kho (xử lý ở K3); chưa có nút bỏ sửa tay Product Master; nhập hàng chỉ là 1 con số (không phiếu nhập/nhà cung cấp); chưa cảnh báo tồn thấp; Product Master chỉ có SKU đã từng có đơn.
 
 ### Nghiệp vụ còn mỏng ở mức toàn hệ thống (rà thêm trong lúc làm K1)
+
 - **Không có nhật ký thao tác quản trị** (ai sửa cấu hình gì, lúc nào) ở mọi module dữ liệu nền — chỉ các luồng giao dịch (pick_events) có lịch sử.
 - **Nhập kho không có chứng từ**: không lô hàng, không nhà cung cấp, không người nhận — không đối chiếu được khi lệch tồn.
 - **Không có kiểm kê định kỳ** (cycle count) — tồn trên hệ thống lệch tồn thật dần theo thời gian mà không có quy trình phát hiện.
@@ -2696,6 +2730,7 @@ Chưa có nhật ký ai tắt/bật; khe thời gian hẹp giữa kiểm tồn v
 **Code**: module MỚI `categories/` (schema, 2 DTO, errors, service, controller, module — đủ vòng đời ngay từ đầu; đăng ký lại schema BinLocation thay vì import WarehouseModule để tránh vòng phụ thuộc). `warehouse/warehouse-layout.ts` MỚI (hằng số + `buildBinCodeV2` + `computePickSequence`). `bin-location.schema.ts` (+6 field optional v2, +2 index; sửa lại chú thích `// tầng/ngăn` bị K1 đẩy lệch dòng). DTO mới `create-rack`, `update-bin`; `create-zone` bắt `^K[A-Z]$`; `assign-sku-bin` + `restock-sku` thêm `force`. `warehouse.errors.ts` +5 mã. `warehouse.service.ts`: `createRack` (transaction, tất cả hoặc không), `updateBin`, `suggestBins`, kiểm tra sức chứa trong assign/restock, Picking List sắp theo `pick_sequence` với kệ cũ đi sau, inject `CategoriesService`. Controller +3 route, response kệ +6 trường, đánh dấu `generate` deprecated. `app.module.ts`, `warehouse.module.ts` đăng ký CategoriesModule. Test mới: `warehouse-layout.spec.ts` (4), `categories.service.spec.ts` (7), `warehouse.service.k2.spec.ts` (8). Kết quả: tsc 0, eslint 0, jest 22/22 suite — 198/198.
 
 **Tác động & xử lý xung đột (5 câu):**
+
 1. Dữ liệu cũ: kệ v1 không có field v2 → `layoutVersion: 1`, field v2 = null; kệ v2 vẫn ghi `rack`/`level` để code cũ không vỡ. Không migration.
 2. Route đổi: tạo khu (định dạng mã), gán SKU/restock (409 sức chứa + `force`), Picking List (thứ tự + `pick_sequence`), GET kệ (+6 trường), generate (deprecated).
 3. Xung đột: danh mục bị kệ tham chiếu → chặn bỏ size/tắt danh mục khi còn ô đăng ký (409 CAT_SIZE_IN_USE / CAT_IN_USE). Kho có cả kệ v1 + v2 → Picking List v2 trước theo lộ trình, v1 sau theo chuỗi.
@@ -2711,6 +2746,7 @@ Chưa có nhật ký ai tắt/bật; khe thời gian hẹp giữa kiểm tồn v
 **Bối cảnh quan trọng:** khi bắt đầu lượt này, sandbox ĐÃ CÓ phần lớn code + tài liệu K2 (module `categories/`, `warehouse-layout.ts`, `POST zones/:zoneId/racks`, sửa ô, gợi ý ô, sức chứa, Picking List theo `pick_sequence`, 3 file test, mục B2 trong guide) — từ 1 phiên làm việc bị ngắt, CHƯA từng được báo cáo/kiểm chứng với user. Bài học: **thấy code "có sẵn" không được coi là đúng** — chạy lại đủ tsc/eslint/jest rồi đọc từng hàm như review code người khác. Có 1 thư mục rác `categories/{schemas,dto}` (sh không hiểu brace expansion — lệnh `mkdir -p a/{b,c}` phải chạy bằng `bash -c`) → đã xóa.
 
 **2 lỗ hổng tìm ra khi review — ĐÃ SỬA:**
+
 1. `updateBin` cho đổi danh mục/size/màu đăng ký của ô ĐANG CÓ HÀNG → nhãn và hàng thật lệch → chặn `409 WH_BIN_HAS_STOCK_DESIGNATION`. Đổi sức chứa vẫn cho.
 2. `generateBinLocations` (route cũ, deprecated) vẫn sinh kệ mã cũ trong khu chuẩn mới `KA..KZ` → 1 khu lẫn 2 kiểu mã → chặn `409 WH_ZONE_V2_USE_RACKS`; khu mã cũ vẫn dùng được.
 
@@ -2719,6 +2755,7 @@ Chưa có nhật ký ai tắt/bật; khe thời gian hẹp giữa kiểm tồn v
 **Kết quả:** tsc 0 lỗi, eslint 0 lỗi, jest 23/23 suite — 204/204 test (+6: `warehouse.service.k2-review.spec.ts` 5 test, product-master 1 test).
 
 **Tác động & xử lý xung đột (5 câu):**
+
 1. Dữ liệu cũ: kệ cũ (layout 1) không có trường mới → response `layoutVersion: 1`, trường mới `null`; vẫn gán/nhập/lấy hàng bình thường. Không migration.
 2. Route đổi hành vi: tạo khu bắt `KA..KZ`; generate cũ bị chặn ở khu mới; gán/nhập hàng có thể `409 WH_BIN_OVER_CAPACITY` (bỏ qua bằng `force`); PATCH ô chặn đổi đăng ký khi còn hàng; Picking List sắp theo lộ trình, thêm `pick_sequence`.
 3. Luồng đọc/ghi chồng: Picking List trong kho đang chuyển đổi — kệ mới đi trước theo lộ trình, kệ cũ đi sau theo chuỗi mã (ổn định, không vỡ luồng cũ). Danh mục bị tham chiếu bởi ô kệ → chặn bỏ size/tắt danh mục đang dùng.
@@ -2732,27 +2769,32 @@ Chưa có nhật ký ai tắt/bật; khe thời gian hẹp giữa kiểm tồn v
 ## 📦 Nhật ký G1 + K3 + G3 (27/09/2026)
 
 ### ⚠️ Sự cố môi trường — sandbox bị xóa sạch giữa 2 lượt
+
 Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằng: `be.zip` (upload 20/09) + chồng các đợt đã xuất ra `/mnt/user-data/outputs` theo đúng thứ tự thời gian (flow-reversal → urgent-fix-fe → checklist-fe-full → K1 → K2), đợt dạng phẳng thì dò đúng vị trí theo tên file. **Kiểm chứng khôi phục bằng số test**: phải ra đúng 23 suite / 204 test như sau K2 — khớp tuyệt đối.
 **Quy tắc mới:** sau MỖI bước xong, xuất ngay bản đầy đủ source (không node_modules) ra outputs: `be_full_after_<bước>.zip`. Lần sau khôi phục chỉ cần giải nén 1 file + `npm ci`.
 
 ### G1 — Giao hàng bản gọn (bấm nút)
+
 - Module mới `shipments/`: `shipments` + `shipment_events` (append-only = tracking dòng thời gian). Trạng thái: out_for_delivery → delivered | delivery_failed → (retry) | returning_to_warehouse → returned_to_warehouse.
 - Quy tắc: tối đa 2 lần giao, lần 2 thất bại HOẶC `customer_refused` → hệ thống TỰ chuyển hoàn về (không có nút hoàn sớm); `other` bắt ghi chú; 1 nhóm đơn 1 vận đơn chiều đi (unique index).
 - Mọi nút đi qua `applyTransition()`: kiểm luật → cập nhật vận đơn có khóa `__v` → ghi event → đổi trạng thái nhóm đơn, **1 transaction**. `OrderGroupsService.transitionFulfillmentStatus` thêm tham số `session?` (tương thích ngược).
 - Tạm thời Shipping Coordinator bấm toàn bộ nút giao (chưa có role shipper) — gỡ được 2 quyết định treo (role shipper, lưu ảnh).
 
 ### K3 — Sổ cái kho
+
 - `inventory_movements` (append-only): assign_initial, receive, pick, adjust, transfer_out/in, return_restock. Ghi cùng transaction với thay đổi tồn (trừ `pick` — xem điểm yếu).
 - 1 SKU nhiều ô: unique index `sku_bin_assignments` thêm `bin_location_id`. **Script bắt buộc** `scripts/migrate-sku-bin-assignment-multibin.ts` (Mongoose không tự xóa index cũ).
 - Kiểm kê (số đếm thực tế, chống ghi đè bằng điều kiện `quantity_on_hand == số đã đọc`), chuyển ô (trừ có điều kiện + upsert đích), bỏ gán (tồn = 0), xem sổ cái.
 - Picking List: ô chính + `other_bins`; `pick-item` nhận `bin_location_id` để trừ đúng ô; `pick_events` thêm `bin_location_id`.
 
 ### G3 — Trả / hoàn hàng bản gọn
+
 - `return_requests` (trong module shipments). 3 loại: `failed_delivery` (HỆ THỐNG tự tạo khi kho nhận kiện hoàn — cả qua route cũ `fulfillment/return`), `return_refund`, `refund_only` (Admin đóng vai khách).
 - Quy tắc: chỉ khi nhóm đơn `delivered`, ≤15 ngày, không vượt số đã mua, 1 phiếu mở/nhóm đơn; người tạo không tự duyệt; từ chối bắt lý do; kiểm hàng: tổng mỗi SKU phải khớp số trả; `restock` nhập lại ô qua `WarehouseService.restockReturnedItem` (sổ cái `return_restock`) cùng transaction.
 - Phụ thuộc 1 chiều: shipments → order-groups, warehouse. Không vòng.
 
 ### Tác động & xử lý xung đột (5 câu)
+
 1. **Dữ liệu cũ**: nhóm đơn `shipped` trước G1 → vận đơn tạo bù tự động (`legacy_backfill`) khi bấm nút; `pick_events` cũ không có `bin_location_id` (null). Index kho: PHẢI chạy script multibin.
 2. **Route đổi hành vi**: 3 route `fulfillment/ship|deliver|return` CHUYỂN sang `shipments/legacy-fulfillment.controller.ts` — giữ nguyên URL/body/response/role nhưng đi qua vận đơn; `deliver` khi vận đơn `delivery_failed` → 409. Gán SKU ô khác = THÊM ô (không còn dời). Picking List thêm field. `pick-item` thêm field tùy chọn.
 3. **Xung đột ghi chồng**: 2 nơi cùng đổi trạng thái giao hàng → gỡ bằng cách chỉ còn 1 đường (vận đơn). Kiểm kê vs lấy hàng cùng lúc → điều kiện `quantity_on_hand == before` → 409 `WH_STOCK_CHANGED`. Chuyển ô vs lấy hàng → trừ nguồn có điều kiện `$gte`.
@@ -2760,6 +2802,7 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 5. **Lỗi có sẵn phát hiện**: route cũ `return` cho nhóm đơn đã giao chuyển thẳng `returned` không kiểm hàng — GIỮ để không gãy FE, ghi rõ trong guide khuyên chuyển sang `/returns`.
 
 ### Điểm yếu còn lại (ghi đủ trong 2 guide, Phần E)
+
 - Kho: sổ cái `pick` ghi SAU khi trừ tồn, không transaction (cùng mức với `pick_events` có sẵn) — nếu ghi sổ lỗi sau khi đã trừ thì tồn đổi mà không có dòng sổ; `pick-item` không gửi `bin_location_id` thì vẫn trừ ô bất kỳ; tồn đủ tổng nhiều ô nhưng không ô nào đủ 1 lần quét → INSUFFICIENT_STOCK (nhân viên phải quét tách theo ô); pick-item/Picking List vẫn chưa lọc platform/shop (K4).
 - Giao hàng: không có khoảng cách tối thiểu giữa 2 lần giao; chưa thông báo; chưa hạn giao/cảnh báo trễ; chưa đổi hàng; chưa đi lấy hàng trả; hàng cách ly chưa có màn hình xử lý; phiếu `failed_delivery` lấy theo số lượng đặt thay vì số đã quét thật.
 
@@ -2770,6 +2813,7 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 ## 📦 Nhật ký G4 + K4a (27/09/2026)
 
 ### G4 — Vật liệu đóng gói + tái sử dụng
+
 - Module mới `packaging-materials/` (không import module nào → order-groups, shipments import được, không vòng): `packaging_materials` (danh mục + qty_new/qty_reused, đơn giá, max_reuse_cycles), `packaging_movements` (append-only: purchase/consume/recover, saving_vnd).
 - `pack` tự trừ theo gợi ý đóng gói đang hiệu lực: thùng khớp 3 kích thước, đệm khớp `match_material_type`; ưu tiên reused (ghi tiết kiệm), hàng dễ vỡ thùng chỉ dùng mới; idempotent; KHÔNG chặn pack khi thiếu (trả `warnings`). Response pack THÊM `packagingConsumption`.
 - Kiểm hàng hoàn nhận `packaging[]`: A + gỡ nhãn + chưa quá số lần → qty_reused (cùng transaction phiếu); A chưa gỡ nhãn → 400; quá số lần → tự hạ C.
@@ -2777,12 +2821,14 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 - Lưu ý: tên lớp schema gợi ý đóng gói là `PackagingRecommendationDoc` (không phải `PackagingRecommendation`) — forFeature phải dùng đúng `.name` để trỏ cùng collection.
 
 ### K4a — SKU nội bộ (chia K4 thành K4a/K4b do rủi ro)
+
 - Module mới `master-skus/`: `colors`, `master_skus` (mã do hệ thống ghép `{cat}-{model 3 số}-{màu}-{size}`, khóa mã + 4 thành phần), `marketplace_sku_mappings` (unique platform+shop+seller_sku_normalized; chỉ nối SKU có trong product_master).
 - Thay thế SKU: tạo mới + chuyển mọi mapping + khóa cũ `replaced_by`, 1 transaction.
 - **Sửa 2 điểm yếu có sẵn**: pick-item + Picking List lọc thêm platform/shop_id; pick-item gói trừ tồn + sổ cái + pick_event trong 1 transaction (session lấy từ `skuBinAssignmentModel.db.startSession()` để KHÔNG phải đổi constructor).
 - Tồn kho VẪN theo SKU sàn — K4b mới chuyển.
 
 ### Tác động & xử lý xung đột (5 câu)
+
 1. Dữ liệu cũ: không migration. Vật liệu phải khai danh mục trước khi có số liệu; trước đó pack vẫn chạy (chỉ cảnh báo). SKU sàn cũ chưa nối vẫn lấy hàng bình thường (K4a không đụng tồn).
 2. Route đổi hành vi: `pack` response thêm field; `returns/:id/inspect` thêm field tùy chọn; `pick-item`/Picking List lọc thêm sàn/shop (không đổi request/response).
 3. Xung đột: pick-item giờ trong transaction → 2 lần quét cùng lúc vẫn an toàn nhờ điều kiện `$gte`; pack bấm lại không trừ vật liệu 2 lần (kiểm movement consume theo ref).
@@ -2790,6 +2836,7 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 5. Lỗi có sẵn phát hiện: spread DTO class (`{...dto}`) lặp lại lần 2 — đã có quy tắc nhưng vẫn quên → lint bắt được, sửa liệt kê field.
 
 ### Điểm yếu còn lại
+
 - G4: 1 tồn vật liệu chung cả shop; chưa kiểm kê vật liệu; trừ vật liệu sau `packed` không chung transaction; nhân viên dùng thùng khác gợi ý thì hệ thống không biết; hạng B chỉ ghi nhận; gợi ý chưa báo trước có thùng tái sử dụng.
 - K4a: màu trên kệ (K2 `cell_colors`, đăng ký ô) CHƯA bị kiểm theo danh mục màu (chỉ SKU nội bộ bị kiểm) — FE phải dùng dropdown `/colors`; K4b sẽ ép kiểm. Tồn chưa chung giữa các sàn (K4b). Chống bán lố (K5).
 - Giao hàng (chưa làm, gom 1 đợt riêng): khoảng cách tối thiểu giữa 2 lần giao, thông báo, hạn giao/cảnh báo trễ, đổi hàng, màn hình hàng cách ly.
@@ -2801,12 +2848,14 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 ## 📦 Nhật ký K4b + K5 (27/09/2026)
 
 ### K4b — Tồn chung theo SKU nội bộ, có "đường lùi"
+
 - `sku_bin_assignments.master_sku` (null = chưa nối). Partial unique `{warehouse_id, master_sku, bin_location_id}` chỉ áp khi master_sku là string.
 - `master-skus/stock-key.util.ts`: `resolveMasterSkus()` + `stockFilterFor()` + `stockKeyOf()` — HÀM THUẦN nhận model, dùng chung ở warehouse và order-groups mà không import module của nhau (tránh vòng). Mọi chỗ đụng tồn đi qua đây: pick-item, Picking List, assign, transfer, restockReturnedItem, findUnassignedSkus.
 - Nối SKU sàn (createMapping) → cùng transaction: gắn nhãn dòng tồn của SKU sàn đó; ô đã có dòng của SKU nội bộ → GỘP (2 dòng sổ cái `sku_merge`, xóa dòng cũ). Bỏ nối: chặn khi tồn gộp > 0 (`MAP_HAS_POOLED_STOCK`); bỏ liên kết cuối cùng → gỡ nhãn. Thay thế SKU → chuyển nhãn tồn. `POST /master-skus/sync-stock` cho liên kết tạo trước K4b; `GET /master-skus/unpooled-stock` báo còn sót.
 - Kiểm chứng đường lùi: TOÀN BỘ 263 test cũ xanh ngay sau khi gắn K4b (chưa nối = chạy như cũ).
 
 ### K5 — Chống bán lố
+
 - `stock_reservations` (1 doc/nhóm đơn/khóa tồn: needed, picked, reserved, status) + `stock_reservation_totals` (_id = khóa tồn, reserved).
 - **Chống write skew**: mọi giao dịch giữ chỗ GHI vào document tổng của khóa (`$set touched_at`) → 2 giao dịch đồng thời cùng khóa bị MongoDB báo WriteConflict, withTransaction tự chạy lại bên thua → đọc tổng mới → không giữ lố. (Chỉ đọc tổng thì 2 bên cùng thấy "còn 1" — đó là lỗi kinh điển.)
 - Hook: tạo nhóm đơn (startPickingPhase) + đơn gộp đến muộn (order_count đổi) → reconcile; pick-item → consume trong CÙNG transaction; transition → PICKED (không session) → release. Tất cả best-effort, không chặn đồng bộ đơn.
@@ -2814,6 +2863,7 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 - Thiếu hàng là TRẠNG THÁI (`stock_shortage`, `stock_shortage_items` trên nhóm đơn), không phải lỗi.
 
 ### Tác động & xử lý xung đột (5 câu)
+
 1. Dữ liệu cũ: dòng tồn cũ `master_sku` không có = null = đường lùi. Nhóm đơn trước K5 không có giữ chỗ → `recheck` tạo; pick-item của chúng không consume (bỏ qua an toàn). Không migration mới (vẫn cần script multibin K3).
 2. Route đổi: response dòng tồn/sổ cái thêm `masterSku`; nhóm đơn thêm `stockShortage*`; Picking List thêm `master_sku`; bỏ nối có lỗi mới. Request không đổi.
 3. Xung đột: gộp tồn trong cùng transaction với tạo liên kết; giữ chỗ đồng thời chống bằng document tổng; pick consume cùng transaction trừ tồn.
@@ -2821,6 +2871,245 @@ Thư mục làm việc (`/home/claude/...`) mất hoàn toàn. Khôi phục bằ
 5. Lỗi phát hiện khi làm: response dòng tồn chưa có `masterSku` → FE không thấy kết quả gộp → đã bổ sung trước khi viết guide (bài học: viết guide demo = cách kiểm tra "FE có nhìn thấy kết quả không").
 
 ### Điểm yếu còn lại (guide SKU_STOCK Phần 8.3)
+
 Nhập hàng không tự tính lại nhóm đơn thiếu; đơn hủy trên Lazada không tự nhả giữ chỗ; giữ chỗ tính tổng mọi kho; không đẩy tồn khả dụng lên Lazada; chưa có thao tác tách tồn đã gộp; màu kệ K2 chưa ép danh mục màu; thiếu hàng chưa có thông báo chuông.
 
 **Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn seed-admin), jest 30/30 suite — 276/276 test (K4b +6, K5 +7).
+
+---
+
+## ✍️ Quy ước văn phong tài liệu FE (27/09/2026)
+
+- KHÔNG dùng văn nói trong tiêu đề/nội dung guide: "nói thẳng", "thẳng thắn", "nói trước"...
+- Mục hạn chế đặt tên thống nhất: **"HẠN CHẾ HIỆN TẠI VÀ HƯỚNG KHẮC PHỤC"** (không dùng "Điểm còn yếu").
+- Mỗi hạn chế viết theo cấu trúc: hạn chế là gì → ảnh hưởng thế nào → hướng khắc phục.
+
+---
+
+## 📦 Nhật ký đợt tiện ích vận hành (27/09/2026)
+
+**Bối cảnh:** khi bắt đầu lượt, sandbox đã có phần lớn code của đợt này từ một phiên làm việc bị ngắt (lần thứ 2 sau K2). Đã đối chiếu với bản `be_full_after_K5.zip` bằng `diff -rq` để liệt kê chính xác phần chưa được kiểm chứng, chạy đủ tsc/eslint/jest rồi review từng phần trước khi xác nhận.
+
+**Nội dung:**
+
+- Giao hàng: `next_attempt_not_before` (mặc định +120 phút, `SHIPMENT_MIN_RETRY_GAP_MINUTES`; hoặc `reschedule_at`); giao sớm bắt buộc `override_reason`, ghi vào lịch sử. `due_at` = bắt đầu giao + `SHIPMENT_DUE_BUSINESS_HOURS` giờ làm việc; `shipment-sla.scheduler.ts` 15 phút/lần gắn `is_overdue` + thông báo 1 lần. Bổ sung trong lượt review: bộ lọc `GET /shipments?overdue=true` và `POST /shipments/overdue-scan` (Admin) phục vụ vận hành/demo.
+- Thông báo Store Owner: `delivery_failed`, `delivery_returning`, `delivery_overdue`, `return_requested`, `stock_shortage` — best-effort, không chặn thao tác chính.
+- Trả hàng: hàng cách ly (`GET /returns/quarantine`, resolve restock/discard qua sổ cái); đổi hàng (`type: exchange`, `exchange_items`; kiểm hàng xong tự tạo đơn `EXC-<rma>` + nhóm đơn `origin: replacement`, khóa gộp riêng `replacement:<id>` — không gộp nhầm, không bị đồng bộ Lazada ghi đè; lỗi tạo -> `replacement_status: failed`, tạo lại bằng route riêng).
+- Vật liệu: `pack` + trừ vật liệu cùng transaction (`PackagingMaterialsService.withTransaction`); `materials_used` trừ đúng vật liệu/ngăn thực tế; `qty_internal` cho hạng B + `internal-use`; hạng C ghi `discard`.
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: vận đơn không có `due_at`/`next_attempt_not_before` -> không giới hạn; vật liệu `qty_internal` mặc định 0; đơn/nhóm đơn `origin` mặc định `marketplace`. Không migration.
+2. Route đổi hành vi: không có — chỉ thêm trường tùy chọn và route mới.
+3. Xung đột: đơn thay thế tách khỏi gộp đơn/đồng bộ bằng khóa gộp riêng + mã `EXC-`; pack và trừ vật liệu cùng transaction.
+4. Không ảnh hưởng: đồng bộ đơn, gộp đơn, gợi ý đóng gói, K4b/K5 (đơn thay thế tự được giữ chỗ vì đi qua `getOrCreateGroupForOrder`).
+5. Phát hiện khi review: thiếu cách lọc vận đơn quá hạn và cách chạy quét tức thời -> đã bổ sung; tài liệu ghi sai tên trường thông báo (`related_entity_type`) -> đã sửa trước khi xuất.
+
+**Tài liệu:** `INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md` (mới), `DEMO_PLAYBOOK.md` (mới — sổ tay trình diễn toàn hệ thống), cập nhật `API_LIST.md` mục 15, dẫn chiếu trong guide giao hàng và vật liệu; chuẩn hóa văn phong các guide.
+
+**Kết quả:** tsc 0, eslint 0 (1 cảnh báo có sẵn seed-admin), jest 31/31 suite — 292/292 test.
+
+---
+
+## 🔬 Nghiên cứu đồng bộ tồn kho khả dụng lên Lazada (29–30/09/2026) — CHƯA CODE, chờ test trên shop thật
+
+**Mục tiêu:** chỉnh tồn trong kho OptiPack thì tồn trên shop Lazada cập nhật theo. Nguồn: tài liệu chính thức Lazada Open Platform do Thuận chụp gửi — AdjustSellableQuantity, UpdateSellableQuantity, UpdatePriceQuantity, UpdateProduct, GetProducts, GetProductItem, RemoveProduct, RemoveSku, ProductCheck, trang **Inventory Management API (cập nhật 07/07/2025)** và **Inventory calculation logic** (cây tài liệu: API Best Practice → Product operation → Product Inventory Management; bản sao: `developer.alibaba.com/docs/doc.htm?treeId=499&articleId=121233&docType=1`).
+
+**1. Mô hình tồn của Lazada (5 loại, theo từng SKU/kho):**
+
+| Loại                 | Ý nghĩa                                                                        | Ai sửa                                  |
+| -------------------- | ------------------------------------------------------------------------------ | --------------------------------------- |
+| `withholdQuantity`   | Đơn **unpaid**; quá 30 phút không trả tiền → trả về sellable                   | Không sửa được                          |
+| `occupyQuantity`     | Đơn **pending → packed**; **rời occupy khi đơn sang RTS**, hủy thì về sellable | Không sửa được                          |
+| `sellableQuantity`   | Số khách mua được, Seller Center hiển thị; **đã gồm** phần khóa chiến dịch     | Adjust / UpdateSellable / UpdateProduct |
+| `totalQuantity`      | Tổng các loại trên; phải ≥ withhold + occupy + campaign                        | UpdatePriceQuantity                     |
+| `channelInventories` | Phần khóa cho chiến dịch; hết chiến dịch → về sellable                         | Không sửa được                          |
+
+Sơ đồ luồng: khi RTS thì `total` giảm hẳn. Hủy do **khách hủy / seller không giao được** → trả về sellable. Hủy do **seller hết hàng / sai giá** → sơ đồ cho thấy `total` và `sellable` về **0** (chưa rõ cả SKU hay chỉ phần của đơn — cần test).
+
+**2. Chọn API (ĐÃ THAY ĐỔI so với ghi chú 27/09 "ưu tiên UpdateSellableQuantity hơn Adjust"):**
+
+| API                                                                                                                                                   | Dùng  | Vai trò                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /product/stock/sellable/adjust` (Adjust)                                                                                                        | Có    | Đẩy **chênh lệch** (+N/−N, được gửi số âm) cho biến động phát sinh trong kho OptiPack — không đè phần Lazada vừa tự trừ khi có đơn |
+| `/product/stock/sellable/update` (UpdateSellable)                                                                                                     | Có    | **Ghi đè** sellable: đối soát định kỳ, lần đầu nối SKU, khôi phục sau khi Lazada đưa về 0                                          |
+| GetProducts (`options=1`, `sku_seller_list`, cuộn `update_after`, limit ≤ 50) / GetProductItem (`item_id` bắt buộc; `seller_sku` ngừng từ 15/11/2023) | Có    | Lấy `item_id`/`SkuId`; đọc sellable/occupy/withhold/`channelInventories`                                                           |
+| GetMultiWarehouseBySeller (`/seller/warehouse/get`, `addressTypes=["warehouse"]`)                                                                     | 1 lần | Xác định shop 1 kho (`dropshipping`) để dùng payload 1 kho                                                                         |
+| UpdatePriceQuantity                                                                                                                                   | Không | Ghi **total** → trừ trùng occupy (kho mình trừ ở pick, Lazada giữ occupy tới RTS), có thể bị từ chối; payload kèm giá              |
+| UpdateProduct                                                                                                                                         | Không | Lazada ghi rõ không khuyến nghị dùng để sửa tồn; ghi đè thuộc tính sản phẩm                                                        |
+| RemoveProduct / RemoveSku / ProductCheck                                                                                                              | Không | Phá hủy dữ liệu / chỉ cho seller xuyên biên giới                                                                                   |
+
+**3. Quy tắc đẩy — câu hỏi quyết định: "Lazada đã tự biết thay đổi này chưa?"** Chỉ đẩy biến động **không** bắt nguồn từ vòng đời đơn Lazada.
+
+| Sự kiện OptiPack                                                                                                                             | Hành động                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Nhập hàng (`restock`), kiểm kê, loại bỏ/cách ly, restock hàng trả (RMA giả lập, giao thất bại), giữ hàng cho đơn kênh khác (AURELLE, `EXC-`) | Adjust ±N                                                                                 |
+| Chuyển ô                                                                                                                                     | Không đẩy (tổng không đổi)                                                                |
+| Đơn Lazada: giữ chỗ → pick → pack → giao                                                                                                     | Không đẩy (Lazada đã trừ)                                                                 |
+| Đơn Lazada khách hủy / seller không giao được                                                                                                | Không đẩy; chỉ giải phóng giữ chỗ nội bộ; nếu đã pick thì restock nội bộ **không** Adjust |
+| Seller hủy vì hết hàng                                                                                                                       | UpdateSellable khôi phục                                                                  |
+| Seller hủy vì sai giá                                                                                                                        | Không đẩy; cảnh báo Store Owner                                                           |
+| Nối SKU mới / đối soát đêm                                                                                                                   | UpdateSellable                                                                            |
+
+Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_sync`, với `chưa_sync = max(0, (withhold + occupy) − (đơn Lazada đã giữ chưa pick + đã pick chưa RTS))`; không thấp hơn `channelInventories` (thấp hơn → không đẩy, cảnh báo).
+
+**4. Ràng buộc kỹ thuật:** ≤ 50 SKU/request (khuyến nghị 20; vượt → 4171/timeout, 513 gợi ý giảm về ≤ 20); 50 lần/giây/seller; kết quả không âm; ≥ campaign lock; seller 1 kho không dùng payload nhiều kho; không gửi khối pre-inventory (`BizType=2`). Lỗi: 901/6 → retry backoff; 4170 → hoãn tới hết chiến dịch; 212 → đọc lại rồi tính lại; 4137/207/`EDIT_ITEM_NOT_BELONG_SELLER` → làm mới mapping; 4155/4218 → sản phẩm bị khóa, ngừng đẩy, báo Store Owner; 501 → đọc `detail` theo từng SKU; `SellerNotActive` → dừng cả shop.
+
+**5. Thiết kế đề xuất:** bảng mapping `lazada_item_id`/`lazada_sku_id` (gắn K4) → outbox ghi trong cùng transaction với `inventory_movements` → worker 1–2 phút gộp theo SKU, batch ≤ 20 → cron đối soát sau sync đơn → công tắc theo shop, mặc định tắt. Webhook "Shallow Stock" / "Product Update" có sẵn nhưng hoãn tới khi deploy (cùng lý do webhook đơn).
+
+**6. Điều kiện trước khi code:** (1) kiểm tra quyền Product API trong App Console và test trên 1 sản phẩm thật (Adjust +1/−1, UpdateSellable, đọc lại); (2) làm trạng thái hủy cho order group (audit P1) — thiếu thì giữ chỗ của đơn hủy không giải phóng, số đẩy sai; (3) kiểm tra cron sync có lấy đơn `unpaid` không. Khi code xong: quyết định "chỉ đọc Lazada" đổi thành "đọc đơn, ghi tồn khả dụng" — sửa tại mục 14/09 ở trên.
+
+**Cần xác nhận khi test:** hủy vì hết hàng làm cả SKU hay 1 đơn vị về 0; định dạng `detail` khi batch lỗi một phần; các trường `options=1` trên shop VN; 4155/4218 có xuất hiện ở API tồn không.
+
+---
+
+## 📦 Nhật ký 01/10/2026 — Mở quyền vận hành kho cho Warehouse Staff
+
+**Bối cảnh:** FE (Việt) báo 3 route `GET .../bin-locations`, `GET .../sku-bin-assignments`, `POST .../restock` đã có nhưng chỉ `@Roles(ADMIN)` → Warehouse Staff bị 403, không có màn hình xem hàng nằm ở ô nào và không tự nhập hàng. Kiểm tra `be.zip`: đúng, cả 3 chỉ ADMIN, trong khi `adjust`/`transfer`/`bin-suggestions`/`movements` đã mở Warehouse Staff từ K2/K3 — không nhất quán. `DEMO_PLAYBOOK.md` bước B6 và guide SKU_STOCK 5.4 còn hướng dẫn Warehouse bấm nhập hàng → sẽ 403.
+
+**Thay đổi code:** `warehouse.controller.ts` — thêm `UserRole.WAREHOUSE_STAFF` vào `@Roles` của 4 method: `listZones` (`GET warehouses/:id/zones` — mở thêm vì bin-locations chỉ trả `zoneId`, staff cần mã khu để hiển thị/lọc), `listBinLocationsByWarehouse`, `listSkuBinAssignmentsByWarehouse`, `restockSku`. Sửa comment đầu controller (ghi sai "toàn bộ route ADMIN trừ 2 route đọc"). Không đổi service/DTO/schema. `restock` đã lấy người thực hiện từ JWT (`user.userId`) → sổ cái `receive` ghi đúng nhân viên.
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: không đổi schema, không migration.
+2. Route đổi hành vi: không đổi request/response; chỉ thêm vai trò được gọi.
+3. Luồng bị ảnh hưởng: nhập hàng có thể do Warehouse Staff làm → tồn khả dụng K5 tăng như Admin nhập; sổ cái ghi đúng người.
+4. Không ảnh hưởng: cấu hình kho, gán SKU, K4a/K4b, giữ chỗ K5, Picking List, pick-item, trả/hoàn hàng.
+5. Lỗi có sẵn phát hiện: (a) playbook/guide hướng dẫn Warehouse nhập hàng khi route chưa mở — khớp sau thay đổi; (b) restock không tự recheck nhóm đơn thiếu hàng (audit P1) — để commit riêng; (c) `include_inactive=true` ở zones/bin-locations có tác dụng với cả Warehouse Staff (danh sách kho thì không) — chỉ xem, ghi vào hạn chế; (d) "không tìm thấy dòng tồn" dùng chung mã `WH_WAREHOUSE_NOT_FOUND` — ghi vào hạn chế; (e) nhân viên chưa gắn kho làm việc (đã có ở guide PHẦN E mục 7).
+
+**Tài liệu:** `INTEGRATION_GUIDE_WAREHOUSE.md` v1.4 (PHẦN B5 mới: bảng quyền, màn "Tồn kho theo vị trí" từng bước, request/response, mã lỗi, cách demo, tác động, hạn chế; B.3; F.1; F.5), `API_LIST.md` mục 9 + tóm tắt Warehouse Staff, `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 2b, `DEMO_PLAYBOOK.md` (1.3, B6), `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` 5.4, ma trận role trong file này.
+
+**Commit:** `feat(AOFP-50): allow warehouse staff to view bins, stock by bin, zones and restock` (code) và `docs(AOFP-50): document warehouse staff access to bin stock and restock` (tài liệu). Số ticket thay theo Jira nếu task có mã riêng.
+
+**Kiểm chứng:** thay đổi chỉ ở decorator; trước khi push chạy `npx tsc --noEmit`, `npm run lint`, `npm run test`, và test tay bằng tài khoản Warehouse Staff (4 route → 200; `POST warehouses/:id/zones` → vẫn 403).
+
+---
+
+## 📦 Nhật ký 01/10/2026 — Nhóm đơn trả thêm số đơn còn hiệu lực / đã hủy (bước 1 xử lý hủy đơn)
+
+**Bối cảnh:** FE (Việt) báo màn kho không phân biệt được nhóm đơn có đơn hủy: đơn có `status: canceled` ở collection `orders`, BE đã lọc đơn hủy ở tầng hàng cần lấy (`getPackableItemsForGroup`, dùng chung cho Picking List + gợi ý đóng gói), nhưng `OrderGroupResponse` chỉ có `orderCount` → trên danh sách nhóm bình thường / hủy một phần / hủy hết giống hệt nhau. Yêu cầu: thêm trường cho danh sách. User chốt: làm đúng yêu cầu này trước, phần xử lý nghiệp vụ hủy làm sau.
+
+**Thay đổi code:**
+
+- `order-groups.service.ts`: `interface GroupOrderCounts` + `getOrderCountsForGroups(groupIds)` — 1 aggregation trên `orders` cho cả danh sách (Rule #16). `activeOrderCount` = status KHÔNG thuộc `NOT_PACKABLE_ORDER_STATUSES` (đúng quy tắc Picking List); `canceledOrderCount` = status `canceled`. **Không** thêm `is_consolidated: true` vào `$match` dù index `consolidated_group_id` là partial theo field đó — nhóm 1 đơn có `consolidated_group_id` nhưng `is_consolidated` vẫn false (`getOrCreateGroupForOrder` chỉ `$set consolidated_group_id`), thêm vào sẽ đếm thiếu.
+- `order-groups.controller.ts`: `OrderGroupResponse` thêm `activeOrderCount`, `canceledOrderCount`; `toResponse(group, counts)` bắt buộc tham số đếm (tránh âm thầm trả 0); thêm `buildOrderGroupResponse` / `buildOrderGroupResponses`; mọi route trả nhóm đơn (list, detail, report-missing, decide-partial, pick, pack, priority) đều có số đếm. `toOrderGroupResponse` (dùng ở `shipments/legacy-fulfillment.controller.ts`) đổi thành bản async nhận service — 3 route legacy cập nhật theo.
+- Test mới `order-groups.service.getOrderCountsForGroups.spec.ts` (6 test).
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: API đếm lúc đọc nên nhóm cũ có số đúng ngay. 🔄 Sau phần bổ sung bên dưới: schema có thêm 3 trường lưu sẵn (default null) — document cũ không có trường cho tới khi chạy `scripts/backfill-order-group-counts.ts` hoặc được đồng bộ lại; không ảnh hưởng API.
+2. Route đổi hành vi: không đổi request; response chỉ THÊM 2 trường. Mỗi response nhóm đơn tốn thêm 1 truy vấn đếm (danh sách: 1 truy vấn cho cả trang).
+3. Luồng bị ảnh hưởng: không luồng nào đổi hành vi — chỉ đọc.
+4. Không ảnh hưởng: đồng bộ đơn, gộp đơn, Picking List, K5, giao hàng, trả hàng.
+5. Phát hiện khi làm: (a) truy vấn theo `consolidated_group_id` không dùng được partial index (cả `getOrderCountsForGroups` lẫn `countDocuments` có sẵn trong `getOrCreateGroupForOrder` và `getPackableItemsForGroup`) → quét collection `orders`; ổn ở quy mô demo, nên thêm index thường `{ consolidated_group_id: 1 }` khi dữ liệu lớn; (b) nhóm hủy hết vẫn giữ chỗ K5 — `reconcileReservation` gọi `getPackableItemsForGroup` → ném `ALL_ORDERS_CANCELED` → bị nuốt trong try/catch, giữ chỗ không nhả; (c) hủy một phần không tự tính lại giữ chỗ. (b)(c) thuộc bước 2 bên dưới.
+
+**Bước 2 (CHƯA LÀM, hướng đã thống nhất 01/10/2026 — xem phân tích trong chat):** tách "hủy nghiệp vụ" (tự động, 1 transaction lúc sync, idempotent) khỏi "xử lý hàng vật lý" (phiếu cất hàng `putaway_tasks`, nhân viên xác nhận mới cộng tồn, sổ cái `cancel_putaway`). Dùng `need_cancel_confirm`/`is_cancel_pending` (đã lưu từ 16/09) để TẠM GIỮ nhóm (chặn pack/ship) khi khách mới yêu cầu hủy; `status: canceled` thì hủy tự động — không cần Store Owner duyệt trong OptiPack. Nhóm hủy hết → `fulfillment_status: cancelled` (từ picking/picked/packed; không từ shipped trở đi), nhả giữ chỗ, gỡ phân công, chặn thao tác 409, tự tính lại nhóm thiếu cùng SKU; hủy một phần sau khi đóng gói → `needs_repack`. Khi làm: chuyển số đếm sang lưu sẵn trên nhóm để lọc được ở BE. Không đẩy gì lên Lazada (Lazada tự trả tồn khi đơn hủy).
+
+**Tài liệu:** `INTEGRATION_GUIDE_FULFILLMENT.md` v4.2 (Nghiệp vụ 3 mục mới + checklist D.4), `API_LIST.md` mục 5.
+
+**Kết quả kiểm chứng (sandbox, `npm install` mới trong `be/`):** tsc 0 lỗi; eslint 0 lỗi trên các file đã sửa; jest 32/32 suite — 298/298 test (trước: 31/292). Eslint toàn repo báo 3 lỗi `no-unsafe-enum-assignment` ở `notifications.service.ts` và `packaging.service.spec.ts` — file không đụng tới, xuất hiện do sandbox cài phiên bản `typescript-eslint` mới hơn lockfile của repo; kiểm tra lại bằng `npm run lint` trên máy.
+
+**Bổ sung cùng ngày — bản lưu sẵn trong DB (theo yêu cầu Thuận: xem được số đếm trực tiếp trong Compass):**
+
+- `order-group.schema.ts`: thêm `active_order_count`, `canceled_order_count` (`Number | null`, default null — Rule #23), `order_counts_refreshed_at`.
+- `order-groups.service.ts`: `getOrCreateGroupForOrder` tách thân hàm thành `resolveGroupForOrder` (private, giữ nguyên logic) + gọi `refreshOrderCounts(group._id)` sau đó — mọi lần đồng bộ chạm tới nhóm (đơn mới, đổi trạng thái, gộp muộn, đơn `EXC-`) đều tính lại. `refreshOrderCounts` dùng `updateOne` (không `save`) để KHÔNG tăng `__v` (Rule #18), best-effort (lỗi chỉ log).
+- Script `scripts/backfill-order-group-counts.ts`: điền cho mọi nhóm cũ, theo lô 200 (`_id` tăng dần) + `bulkWrite` (Rule #14), chạy lại an toàn. Đã thêm vào `DEMO_PLAYBOOK.md` mục 1.2.
+- **Nguyên tắc:** API VẪN đếm lúc đọc từ `orders` (nguồn sự thật); bản lưu sẵn chỉ để xem trong DB và làm nền cho bộ lọc BE ở bước 2. Khi bước 2 chuyển API/bộ lọc sang đọc bản lưu sẵn, phải đảm bảo mọi đường đổi trạng thái đơn đều gọi `refreshOrderCounts` (hiện chỉ có đường đồng bộ + tạo đơn thay thế).
+- Test: thêm 4 test (ghi đúng bằng `updateOne`; nhóm rỗng -> 0/0; lỗi DB không ném; `getOrCreateGroupForOrder` gọi tính lại). Kết quả: tsc 0, eslint sạch trên file đã sửa + script, jest 32 suite / 302 test.
+
+**Commit (quy ước mới: code theo tính năng, tài liệu gộp 1 commit, số ticket tăng dần):** `feat(AOFP-51): add active and canceled order counts to order group responses`, `feat(AOFP-52): store order group cancel counts on sync and add backfill script`, tài liệu gộp `docs(AOFP-53)`.
+
+---
+
+## 🔬 Nghiên cứu Lazada Fulfillment API — Pack / ReadyToShip / GetShipmentProvider / PrintAWB (02/10/2026) — Pack ĐÃ CODE (xem nhật ký cuối file); ReadyToShip / GetShipmentProvider / PrintAWB chưa dùng
+
+**Bối cảnh:** cô yêu cầu nút cho Packaging Staff xác nhận "đã đóng gói" trên Lazada ngay từ OptiPack; quay lại hệ thống thấy trạng thái đã đóng gói. Nguồn: ảnh chụp tài liệu chính thức Lazada Open Platform (bản cập nhật 09/08/2022) do Thuận gửi, kèm ghi chú trang Order Status Flow. Tất cả endpoint VN: `https://api.lazada.vn/rest`, ký như các API đọc đang dùng (app_key, timestamp, access_token, sign_method, sign). **Cả 4 API đều nhận tham số là 1 object JSON** (`packReq`, `readyToShipReq`, `getShipmentProvidersReq`, `getDocumentReq`) → adapter cần thêm hàm ký POST (`callSignedPost`), hiện chỉ có `callSignedGet`.
+
+**Điều kiện trạng thái (trang Order Status Flow):** gọi `GetOrderItems` trước; chỉ order item `pending` hoặc `repacked` mới được `Pack`; chỉ item `packed` mới được `ReadyToShip`.
+
+### 1. GetShipmentProvider — `GET/POST /order/shipment/providers/get`
+
+- Tham số `getShipmentProvidersReq.orders[]` (tối đa 20 đơn): `order_id` (Number), `order_item_ids` (Number[]).
+- Response `result.data`:
+  - `platform_default`: **1** = seller không cần/không được chọn kho trung chuyển; **0** = seller **phải** chọn 1 mục trong `shipment_providers` và truyền vào Pack.
+  - `shipment_providers[]`: `name`, `provider_code` (là danh sách **kho trung chuyển** — transferring warehouses).
+  - `shipping_allocate_type`: `TFS` / `NTFS` — **truyền thẳng** vào Pack.
+- `result.success`, `error_code`, `error_msg` (khi success = false). Bảng mã lỗi: trống.
+- Vai trò: **luôn gọi trước Pack** để lấy `shipping_allocate_type` (bắt buộc ở Pack) và biết có phải chọn `shipment_provider_code` không.
+
+### 2. Pack — `POST /order/fulfill/pack`
+
+- Tham số `packReq`:
+  - `pack_order_list[]` (bắt buộc, **tối đa 20 đơn**; các đơn con của cùng 1 đơn được xử lý cùng nhau): `order_id` (Number), `order_item_list` (Number[] — order_item_id cần đóng gói).
+  - `delivery_type` (bắt buộc): `dropship`.
+  - `shipping_allocate_type` (bắt buộc): lấy từ GetShipmentProvider.
+  - `shipment_provider_code` (không bắt buộc): shop nội địa (TFS) **không được truyền**; shop xuyên biên giới (NTFS) **phải truyền**; **không được truyền cho đơn DBS**. Giá trị lấy từ GetShipmentProvider.
+- Response `result.data.pack_order_list[]` → `order_id`, `order_item_list[]`: `order_item_id`, `msg`, **`item_err_code` ("0" = thành công)**, `tracking_number`, `shipment_provider`, **`package_id`**, `retry`. `result.success = true` **không có nghĩa** mọi item thành công — phải xét `item_err_code` từng item; `success = false` thì cả lô thất bại (`error_code`, `error_msg`). Mẫu response của Lazada có `error_msg: "order not found"` đi kèm item thành công → không dựa vào `error_msg` cấp lô khi `success = true`.
+- Mã lỗi (gom nhóm để xử lý):
+
+| Nhóm                                 | Mã                                                                                                                                                                 | Xử lý đề xuất                                                                                                                 |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| Hệ thống bận, thử lại                | 6 `SYSTEM_ERROR`, 40011 `RPC_ERROR`, 700024 `GET_LOCK_FAILED`, 1003 `E1003_3PL_ALLOCATION_FAIL`                                                                    | Retry có backoff (xét thêm cờ `retry` của item)                                                                               |
+| Trạng thái không cho đóng gói        | 700000 `PACKAGE_STATUS_NOT_ALLOW_TO_OP`, 700026 `FO_ITEM_NOT_ALLOW_TO_PACK`, 700031 `ITEM_NOT_READY_TO_FULFILL`                                                    | Đọc lại `GetOrderItems`: nếu item đã `packed` và có `package_id` → coi như đã đóng gói (idempotent); nếu đã hủy → bỏ qua item |
+| Không tìm thấy                       | 700020, 700021 `ORDER_NOT_FOUND`, 700025 `ORDER_ITEM_NOT_FOUND`, 700032 `SELLER_NOT_FOUND`                                                                         | Lỗi dữ liệu/token, không retry, báo Admin                                                                                     |
+| Sai tham số                          | 700004 `PARAM_ILLEGAL`, 700017 `PARAM_IS_NULL`, 700018 `PARAM_SIZE_ERROR`, 700019 `PARAM_MIN_ERROR`, 700022 `BATCH_SIZE_OUT_OF_LIMIT`                              | Lỗi code phía mình, không retry                                                                                               |
+| Đơn vị vận chuyển / kho trung chuyển | 700001 `DBS_SHIPMENT_PROVIDER_CODE_NOT_EXITS`, 700016 `NOT_AVAILABLE_NTFS_3PL`, 700033 `TRANSFERRING_WAREHOUSE_PROVIDER`, 700029 `ITEM_MUST_BELONG_SAME_WAREHOUSE` | Kiểm tra lại kết quả GetShipmentProvider / tách lô theo kho                                                                   |
+| Loại đơn không hỗ trợ                | 700013 `OP_NOT_SUPPORT`, 700023/700028 (nhận tại cửa hàng), 700027 (FBL), 700030 (hàng số/dịch vụ)                                                                 | Bỏ qua, đánh dấu "không đóng gói qua API"                                                                                     |
+
+### 3. ReadyToShip — `POST /order/package/rts`
+
+- Tham số `readyToShipReq.packages[]` (tối đa 20): `package_id` (String — lấy từ kết quả Pack).
+- Response `result.data.packages[]`: `msg`, `item_err_code` ("0" = thành công), `package_id`, `retry`; quy tắc `success` giống Pack. Bảng mã lỗi: trống; mẫu có `600002 "package already cancelled"`.
+- Theo trang Inventory calculation logic (29/09): **khi đơn sang RTS, Lazada mới trừ hẳn tổng tồn** (rời occupy). Gọi RTS là cam kết sẵn sàng bàn giao.
+
+### 4. PrintAWB — `GET/POST /order/package/document/get`
+
+- Tham số `getDocumentReq`: `doc_type` (`HTML`/`PDF`), `packages[]` (tối đa 20, `package_id`), `print_item_list` (Boolean, tùy chọn — in kèm danh sách hàng).
+- Response `result.data`: `file` (nội dung PDF/HTML), `doc_type`, `pdf_url` (chỉ khi PDF). Chỉ dùng cho nhãn vận chuyển.
+- **Không áp dụng cho shop demo:** đã xác nhận 15/09 qua bảng lỗi `GetDocument` — Lazada không cấp nhãn cho đơn SOF/DBS. Giữ nguyên quyết định không dùng.
+
+### 5. Ánh xạ vào OptiPack (thiết kế đề xuất, chờ chốt)
+
+- Dữ liệu cần có: `order_id` = `orders.platform_order_id`; `order_item_id` = `orders.items[].platform_order_item_id` (đã lưu khi sync). Cần lưu thêm kết quả Pack theo từng item: `package_id`, `tracking_number`, `shipment_provider`, trạng thái đồng bộ Lazada.
+- Luồng nút "Đóng gói xong": lấy các đơn **còn hiệu lực** của nhóm (cùng quy tắc `activeOrderCount`) → `GetOrderItems` kiểm tra item `pending`/`repacked` → `GetShipmentProvider` → `Pack` (1 request cho cả nhóm, ≤ 20 đơn) → lưu `package_id` → nhóm OptiPack sang `packed`.
+- **Một nhóm OptiPack (1 thùng) có thể gồm nhiều đơn Lazada → Lazada sinh nhiều package.** Cần chốt cách dán/quản lý nhiều mã package cho 1 thùng thật.
+- `ReadyToShip`: gắn vào bước bàn giao/bắt đầu giao (Shipping Coordinator), không gắn vào nút đóng gói.
+- Nguyên tắc an toàn (giữ từ kế hoạch 15/09): cầu dao `LAZADA_WRITE_APIS_ENABLED` (mặc định tắt); Pack/RTS là API ghi có hậu quả thật trên shop.
+
+### 6. Việc cần chốt / cần test trước khi code
+
+1. Lazada lỗi thì sao: chặn chuyển `packed` trong OptiPack, hay vẫn `packed` + trạng thái "chưa đồng bộ Lazada" + nút thử lại (đề xuất: cách sau — thùng đã đóng thật).
+2. Shop demo là **SOF**: test thật 1 đơn — `GetShipmentProvider` trả `platform_default` / `shipping_allocate_type` gì; `Pack` có thành công với `delivery_type: dropship` không, có trả `tracking_number` không.
+3. Ai gọi `ReadyToShip`, lúc nào; có cần không với SOF.
+4. Nhiều package cho 1 thùng (mục 5).
+5. Quan hệ với đồng bộ tồn kho (29/09): Pack/RTS là vòng đời đơn Lazada → **không** đẩy Adjust tồn.
+
+---
+
+## 📦 Nhật ký 02/10/2026 — Nút "pack" báo "đã đóng gói" lên Lazada (Fulfillment API Pack)
+
+**Bối cảnh:** cô yêu cầu (buổi meet) nhân viên đóng gói bấm xác nhận đóng gói trên OptiPack thì đơn trên Lazada cũng chuyển "Đã đóng gói". FE không giữ token shop → BE làm. Chốt với Thuận: **không thêm nút mới**, nối vào nút `pack` hiện có; **giữ nguyên** bước OptiPack chuyển `packed` (G1 giao hàng và G4 trừ vật liệu dựa vào nó); **bỏ GetShipmentProvider** — `shipping_allocate_type` lấy từ env (`TFS`), đổi nếu Pack báo `700004`.
+
+**Thay đổi code:**
+
+- `config/marketplace.config.ts`: `lazada.writeApisEnabled` (env `LAZADA_WRITE_APIS_ENABLED`, chỉ `"true"` mới bật — cầu dao cho mọi API ghi), `lazada.shippingAllocateType` (env `LAZADA_SHIPPING_ALLOCATE_TYPE`, mặc định `TFS`). `.env.example` thêm 2 biến.
+- `lazada.adapter.ts`: `callSignedPost()` (form-urlencoded, cùng cách 2 API token đang chạy thật; **không tự retry** vì là API ghi) + `packOrders()` + kiểu `LazadaPackRequest/Response` + `parseLazadaBoolean()` (Lazada trả `success` lúc boolean lúc chuỗi).
+- `order-group.schema.ts`: `lazada_pack_status` (`disabled|skipped|success|partial|failed`, null = chưa từng), `lazada_pack_attempted_at`, `lazada_pack_error`, `lazada_pack_items[]` (order_id, order_item_id, ok, item_err_code, msg, package_id, tracking_number, shipment_provider). **Lưu trên nhóm đơn, KHÔNG lưu trong `orders.items[]`** — `orders.service` ghi đè toàn bộ `items` mỗi lần sync, trường thêm vào sẽ mất.
+- `lazada-pack-sync.service.ts` (mới): `syncGroup()` không bao giờ ném lỗi; chỉ nhóm Lazada; bỏ đơn `NOT_PACKABLE_ORDER_STATUSES`, bỏ đơn đổi hàng (`origin: replacement` / `EXC-`); chỉ gửi món `pending`/`topack` (Lazada chỉ nhận pending/repacked; enum OptiPack không có `repacked`); món đã `packed` trở đi → ghi nhận xong, không gửi lại; lô ≤ 20 đơn; xét `item_err_code` từng món; ghi kết quả bằng `updateOne` (không tăng `__v`). `retryGroup()`: chỉ khi nhóm `packed` và status ≠ `success` (409 `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`).
+- `order-groups.service.ts`: `assertHasActiveOrders()` — `pack` chặn nhóm hủy hết (409 `ORD_GROUP_ALL_ORDERS_CANCELED`) — vá một phần lỗ hổng "bước 2" xử lý hủy đơn.
+- `order-groups.controller.ts`: `pack` gọi guard → transaction cũ → `syncGroup()` → trả thêm `lazadaPackSync`; route mới `POST /order-groups/:id/lazada-pack/retry`; `OrderGroupResponse` thêm `lazadaPack`. `order-groups.module.ts` import `MarketplaceIntegrationModule` (không vòng — module đó không import ngược).
+- Test mới: `lazada.adapter.pack.spec.ts` (3 — endpoint, form body, **chữ ký tính lại độc lập**, không retry), `lazada-pack-sync.service.spec.ts` (12), thêm 2 test guard trong `order-groups.service.getOrderCountsForGroups.spec.ts`. Đây là test đầu tiên của module marketplace-integration (audit 27/09 ghi "0 test").
+
+**Tác động & xử lý xung đột (5 câu):**
+
+1. Dữ liệu cũ: chỉ thêm trường (mặc định null/rỗng), không migration; nhóm cũ `lazadaPack.status = null`; nhóm đã đóng gói trước đó không tự gửi.
+2. Route đổi hành vi: `pack` — request giữ nguyên; response thêm `lazadaPackSync` + `lazadaPack`; **mới chặn 409 khi nhóm hủy hết** (trước đây cho qua). Mọi response nhóm đơn thêm `lazadaPack`.
+3. Luồng bị ảnh hưởng: khi cầu dao bật, đơn trên shop Lazada thật chuyển "Đã đóng gói" — không hoàn tác bằng API. Sau đó sync kéo về `packed` (không thuộc NOT_PACKABLE → không ảnh hưởng số đếm hủy, Picking List, K5).
+4. Không ảnh hưởng: trừ vật liệu (vẫn cùng transaction), G1 giao hàng, trả hàng, tồn kho Lazada (Pack không đổi tồn — hàng ở occupy tới RTS; đúng quy tắc "không đẩy Adjust cho vòng đời đơn Lazada").
+5. Phát hiện khi làm: (a) `orders.items[]` bị ghi đè mỗi lần sync → không lưu kết quả sàn trong items; (b) `pack` trước đây không kiểm tra hủy — đã chặn; (c) id đơn/món Lazada gửi dạng Number (tài liệu ghi Number) — id 15 chữ số hiện nay nằm trong giới hạn số nguyên an toàn của JS; nếu Lazada dùng id > 2^53 cần đổi sang chuỗi; (d) chưa có thông báo khi gửi lỗi, gửi lại phải bấm tay.
+
+**Việc phải làm trước demo:** test 1 đơn thật theo `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 4 mục "Cách test lần đầu" (cầu dao bật trên đúng 1 máy). Ghi kết quả thật (status, `package_id`, có `tracking_number` không với shop SOF) vào đây.
+
+**Tài liệu:** `INTEGRATION_GUIDE_FULFILLMENT.md` v4.3 (Nghiệp vụ 4 mục mới + checklist D.4), `API_LIST.md` mục fulfillment.
+
+**Kiểm chứng (sandbox, trên `be.zip` 02/10):** tsc 0 lỗi; eslint sạch trên các file đã sửa/mới; jest 34 suite / 319 test (trước: 32 / 302).

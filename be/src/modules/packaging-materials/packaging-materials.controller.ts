@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PackagingMaterialsService } from './packaging-materials.service';
 import { PackagingMaterialDocument } from './schemas/packaging-material.schema';
-import { CreatePackagingMaterialDto, PurchasePackagingDto, UpdatePackagingMaterialDto } from './dto/packaging-material.dto';
+import { CreatePackagingMaterialDto, InternalUseDto, PurchasePackagingDto, UpdatePackagingMaterialDto } from './dto/packaging-material.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -15,7 +15,7 @@ function toResponse(m: PackagingMaterialDocument): Record<string, unknown> {
     code: m.code, name: m.name, kind: m.kind,
     lengthCm: m.length_cm, widthCm: m.width_cm, heightCm: m.height_cm, matchMaterialType: m.match_material_type,
     unitCostVnd: m.unit_cost_vnd, reusable: m.reusable, maxReuseCycles: m.max_reuse_cycles,
-    qtyNew: m.qty_new, qtyReused: m.qty_reused, isActive: m.is_active,
+    qtyNew: m.qty_new, qtyReused: m.qty_reused, qtyInternal: m.qty_internal, isActive: m.is_active,
   };
 }
 
@@ -48,7 +48,7 @@ export class PackagingMaterialsController {
   @ApiOperation({ summary: 'Sổ cái vật liệu (mới -> cũ). ?material_code=BOX-M&limit=100' })
   async movements(@Query('material_code') code?: string, @Query('limit') limit?: string): Promise<Record<string, unknown>[]> {
     return (await this.service.listMovements(code, Number(limit) || 100)).map((m) => ({
-      materialCode: m.material_code, condition: m.condition, type: m.type, delta: m.delta, savingVnd: m.saving_vnd,
+      materialCode: m.material_code, condition: m.condition, type: m.type, delta: m.delta, savingVnd: m.saving_vnd, followedRecommendation: m.followed_recommendation,
       refType: m.ref_type, refId: m.ref_id, note: m.note, actorId: m.actor_id, createdAt: m.created_at,
     }));
   }
@@ -91,5 +91,12 @@ export class PackagingMaterialsController {
   @ApiOperation({ summary: 'Nhập vật liệu MỚI (ghi sổ cái).' })
   async purchase(@Param('code') code: string, @Body() dto: PurchasePackagingDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toResponse(await this.service.purchase(code, dto, user.userId));
+  }
+
+  @Post(':code/internal-use')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: 'Xuất vật liệu hạng B để dùng nội bộ (ghi sổ cái kèm mục đích).' })
+  async internalUse(@Param('code') code: string, @Body() dto: InternalUseDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
+    return toResponse(await this.service.internalUse(code, dto, user.userId));
   }
 }

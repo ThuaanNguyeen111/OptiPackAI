@@ -71,8 +71,8 @@ export class NotificationsService {
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- phòng thủ runtime có chủ đích, xem comment trên
         input.recipientRole === undefined || input.recipientRole === null
           ? null
-          : // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion -- phòng thủ runtime có chủ đích, xem comment trên
-            Number(input.recipientRole),
+          // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-conversion -- phòng thủ runtime có chủ đích, xem comment trên
+          : Number(input.recipientRole),
       type: input.type,
       severity: input.severity,
       title: input.title,
@@ -138,10 +138,7 @@ export class NotificationsService {
    * dạng cũ (xem CLAUDE.md mục lịch sử fix này để biết khi nào an
    * toàn dọn dẹp).
    */
-  private recipientFilter(
-    userId: string,
-    role: UserRole,
-  ): Record<string, unknown> {
+  private recipientFilter(userId: string, role: UserRole): Record<string, unknown> {
     return {
       $or: [
         { recipient_user_id: userId },
@@ -251,10 +248,10 @@ export class NotificationsService {
     };
   }
 
-  buildPackagingRejectedMessage(params: { groupId: string; reason: string }): {
-    title: string;
-    message: string;
-  } {
+  buildPackagingRejectedMessage(params: {
+    groupId: string;
+    reason: string;
+  }): { title: string; message: string } {
     return {
       title: `Gợi ý đóng gói bị từ chối — Đơn hàng #${params.groupId}`,
       message: `Packaging Staff đã từ chối gợi ý đóng gói hiện tại của đơn hàng #${params.groupId}. Lý do: "${params.reason}". Hàng vẫn giữ nguyên đã lấy — chờ tính lại gợi ý mới.`,

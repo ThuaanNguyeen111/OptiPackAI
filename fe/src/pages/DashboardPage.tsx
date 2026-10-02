@@ -66,7 +66,7 @@ function KanbanOrderCard({
   return (
     <div
       onClick={onClick}
-      className="group rounded-xl border border-slate-200/80 bg-white p-3 shadow-2xs transition-all hover:border-blue-300 hover:shadow-xs dark:border-slate-800 dark:bg-surface-1 dark:hover:border-slate-700 cursor-pointer"
+      className="owner-panel group rounded-xl p-3 transition-all cursor-pointer"
       title={vi ? `Xem chi tiết đơn #${item.id}` : `View details for #${item.id}`}
     >
       {/* Top row: Drag Grip + Order Code + Channel Pill */}
@@ -134,7 +134,7 @@ function KanbanColumn({
           : 'bg-slate-700 dark:bg-slate-300'
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200/90 bg-[#f8fafc]/90 p-3 sm:p-3.5 shadow-2xs dark:border-slate-800 dark:bg-surface-1/60">
+    <div className="owner-panel flex flex-col rounded-2xl p-3 sm:p-3.5">
       {/* Column Header */}
       <div className="flex items-center justify-between gap-2 pb-2.5">
         <div className="flex items-center gap-2 min-w-0">
@@ -188,8 +188,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-50/50 dark:bg-slate-950">
-      {/* Top Breadcrumb Navigation */}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
@@ -197,59 +196,82 @@ export function DashboardPage() {
         ]}
       />
 
-      {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          {/* ========================================================= */}
-          {/* 1. OWNER STATS — ưu tiên giám sát (Store Owner home)      */}
-          {/* ========================================================= */}
-          <section className="space-y-3">
-            <div className="flex flex-wrap items-end justify-between gap-2">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  {vi ? 'Thống kê chủ cửa hàng' : 'Store Owner overview'}
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                  {vi
-                    ? 'Giám sát đơn & nhân viên trong phạm vi Owner — không thao tác lấy/đóng/giao hàng. Số liệu tài chính bên dưới là minh họa UI.'
-                    : 'Oversee orders & staff within Owner scope — no floor pick/pack/ship. Finance figures below are UI mock.'}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
+          <section className="owner-hero">
+            <div>
+              <p className="owner-hero-kicker">Store Owner</p>
+              <h1>
+                {vi ? 'Giám sát đơn hàng đa kênh' : 'Omnichannel order oversight'}
+              </h1>
+              <p className="owner-hero-lead">
+                {vi
+                  ? 'Giám sát đơn & nhân viên trong phạm vi Owner — không thao tác lấy/đóng/giao hàng. Số liệu tài chính bên dưới là minh họa UI.'
+                  : 'Oversee orders & staff within Owner scope — no floor pick/pack/ship. Finance figures below are UI mock.'}
+              </p>
+              <div className="owner-hero-ctas">
                 <button
                   type="button"
                   onClick={() => navigate('/app/orders')}
-                  className="rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 cursor-pointer dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
+                  className="owner-btn-primary"
                 >
                   {vi ? 'Đơn đa kênh' : 'Orders'}
                 </button>
                 <button
                   type="button"
                   onClick={() => navigate('/app/order-groups')}
-                  className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                  className="owner-btn-ghost"
                 >
                   {vi ? 'Nhóm đơn & Hỏa tốc' : 'Groups & Express'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => navigate('/app/staff')}
-                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer dark:border-zinc-700 dark:bg-zinc-900 dark:text-slate-300"
-                >
-                  {vi ? 'Nhân viên' : 'Staff'}
-                </button>
-                <button
-                  type="button"
                   onClick={() => navigate('/app/analytics')}
-                  className="text-xs font-semibold text-blue-600 hover:underline cursor-pointer dark:text-blue-400"
-                  title={vi ? 'Minh họa UI — chưa có API báo cáo' : 'UI mock — no analytics API yet'}
+                  className="owner-btn-link"
+                  title={
+                    vi
+                      ? 'Minh họa UI — chưa có API báo cáo'
+                      : 'UI mock — no analytics API yet'
+                  }
                 >
                   {vi ? 'Báo cáo (demo) →' : 'Analytics (demo) →'}
                 </button>
               </div>
             </div>
+            <ol className="owner-steps">
+              <li>
+                <button type="button" onClick={() => navigate('/app/orders')}>
+                  <span>01</span>
+                  {vi ? 'Đồng bộ đơn' : 'Sync orders'}
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => navigate('/app/order-groups')}
+                >
+                  <span>02</span>
+                  {vi ? 'Gộp & hỏa tốc' : 'Groups & express'}
+                </button>
+              </li>
+              <li>
+                <button type="button" onClick={() => navigate('/app/staff')}>
+                  <span>03</span>
+                  {vi ? 'Nhân viên' : 'Staff'}
+                </button>
+              </li>
+            </ol>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                {vi ? 'Thống kê chủ cửa hàng' : 'Store Owner overview'}
+              </h2>
+            </div>
 
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
                     {vi ? 'Doanh thu hôm nay' : 'Revenue today'}
@@ -264,7 +286,7 @@ export function DashboardPage() {
                   {formatVndShort(OWNER_FINANCE_SUMMARY.revenueWeekVnd)}₫
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
                     {vi ? 'Chi phí đóng gói / tuần' : 'Pack cost / week'}
@@ -279,12 +301,12 @@ export function DashboardPage() {
                   AI tiết kiệm {formatVndShort(OWNER_FINANCE_SUMMARY.aiSavingsWeekVnd)}₫
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
                     {vi ? 'Gộp đơn hôm nay' : 'Consolidated groups'}
                   </span>
-                  <TrendingUp className="h-4 w-4 text-indigo-600" />
+                  <TrendingUp className="h-4 w-4 text-[var(--ls-cta,#152D35)]" />
                 </div>
                 <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
                   {OWNER_FINANCE_SUMMARY.multiPlatformGroupsToday}
@@ -295,7 +317,7 @@ export function DashboardPage() {
                     : `${OWNER_FINANCE_SUMMARY.cancelDetachToday} detached after single-platform cancel`}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
                     {vi ? 'Nhân viên đang hoạt động' : 'Active staff'}
@@ -312,7 +334,7 @@ export function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-4">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                   {vi ? 'Doanh thu theo nền tảng (7 ngày)' : 'Revenue by channel (7d)'}
                 </h3>
@@ -320,7 +342,7 @@ export function DashboardPage() {
                   {OWNER_REVENUE_BY_CHANNEL.map((row) => (
                     <li
                       key={row.channel}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 dark:border-slate-800 dark:bg-surface-2/40"
+                      className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3 py-2.5"
                     >
                       <div className="min-w-0">
                         <ChannelBadge channel={row.channel} />
@@ -342,7 +364,7 @@ export function DashboardPage() {
                 </ul>
               </div>
 
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
                     {vi ? 'Hiệu suất nhân viên hôm nay' : 'Staff performance today'}
@@ -350,7 +372,7 @@ export function DashboardPage() {
                   <button
                     type="button"
                     onClick={() => navigate('/app/staff')}
-                    className="text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer"
+                    className="owner-btn-link text-[11px] font-semibold cursor-pointer"
                   >
                     {vi ? 'Quản lý →' : 'Manage →'}
                   </button>
@@ -435,7 +457,7 @@ export function DashboardPage() {
 
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
               {/* Card 1: Thời gian lấy hàng trung bình */}
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {vi ? 'Thời gian lấy hàng trung bình' : 'Avg. Picking Time'}
@@ -457,7 +479,7 @@ export function DashboardPage() {
               </div>
 
               {/* Card 2: Chi phí đóng gói tiết kiệm nhờ AI */}
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {vi ? 'Chi phí đóng gói tiết kiệm nhờ AI' : 'AI Packaging Cost Savings'}
@@ -496,7 +518,7 @@ export function DashboardPage() {
               </div>
 
               {/* Card 3: Tỷ lệ hoàn thành xử lý hàng ngày */}
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {vi ? 'Tỷ lệ hoàn thành xử lý hàng ngày' : 'Daily Completion Rate'}

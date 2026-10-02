@@ -4,6 +4,8 @@
 
 Đọc kèm: `INTEGRATION_GUIDE_SHIPPING.md` (form kiểm hàng hoàn — mục C.5).
 
+> 📌 **Cập nhật 27/09/2026:** các tiện ích vận hành (khoảng cách giao lại, quá hạn giao, thông báo, hàng cách ly, đổi hàng, vật liệu thực tế, kho vật liệu nội bộ) được mô tả tại **`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`**. Kịch bản trình diễn toàn hệ thống: **`DEMO_PLAYBOOK.md`**.
+
 ---
 
 ## PHẦN A — LUỒNG TỔNG
@@ -105,7 +107,7 @@ GET /packaging-materials/savings               (Admin, Store Owner)
 ```
 `reuseRate` = % số lần đóng gói dùng vật liệu tái sử dụng.
 
-## PHẦN F — ĐIỂM CÒN YẾU
+## PHẦN F — HẠN CHẾ HIỆN TẠI VÀ HƯỚNG KHẮC PHỤC
 
 1. **1 tồn chung cho cả shop**, chưa tách theo kho (đủ cho demo 1 kho).
 2. **Chưa có kiểm kê vật liệu** (điều chỉnh khi đếm lệch) — chỉ có nhập mới, tiêu hao, thu hồi.

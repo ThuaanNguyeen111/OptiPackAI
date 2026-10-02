@@ -1,9 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import {
-  PackagingApprovalStatus,
-  PACKAGING_APPROVAL_STATUS_VALUES,
-} from '../enums/packaging-approval-status.enum';
+import { PackagingApprovalStatus, PACKAGING_APPROVAL_STATUS_VALUES } from '../enums/packaging-approval-status.enum';
 
 /**
  * Rule #1 (Database Design Standards) — sub-schema riêng, KHÔNG dùng
@@ -110,11 +107,8 @@ export class PackagingRecommendationDoc {
   updated_at?: Date;
 }
 
-export type PackagingRecommendationDocument =
-  HydratedDocument<PackagingRecommendationDoc>;
-export const PackagingRecommendationSchema = SchemaFactory.createForClass(
-  PackagingRecommendationDoc,
-);
+export type PackagingRecommendationDocument = HydratedDocument<PackagingRecommendationDoc>;
+export const PackagingRecommendationSchema = SchemaFactory.createForClass(PackagingRecommendationDoc);
 
 // Partial unique index — CHỈ áp ràng buộc "1 group = 1 bản active" cho
 // document có is_active:true, cho phép nhiều bản is_active:false (lịch

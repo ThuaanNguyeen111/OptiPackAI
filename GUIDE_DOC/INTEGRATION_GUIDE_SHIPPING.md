@@ -6,6 +6,8 @@
 
 Quy ước: 🆕 mới · 🔄 route cũ đổi hành vi · ⏳ chưa có.
 
+> 📌 **Cập nhật 27/09/2026:** các tiện ích vận hành (khoảng cách giao lại, quá hạn giao, thông báo, hàng cách ly, đổi hàng, vật liệu thực tế, kho vật liệu nội bộ) được mô tả tại **`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`**. Kịch bản trình diễn toàn hệ thống: **`DEMO_PLAYBOOK.md`**.
+
 ---
 
 # PHẦN A — BỨC TRANH TỔNG
@@ -261,7 +263,7 @@ Swagger đánh dấu 3 route này `deprecated`. FE mới nên dùng `/shipments/
 
 ---
 
-# PHẦN E — ĐIỂM CÒN YẾU / CHƯA LÀM (nói thẳng)
+# PHẦN E — HẠN CHẾ HIỆN TẠI VÀ HƯỚNG KHẮC PHỤC
 
 | # | Điểm | Hệ quả | Kế hoạch |
 |---|---|---|---|

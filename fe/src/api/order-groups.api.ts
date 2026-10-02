@@ -4,6 +4,9 @@ import type {
   ListOrderGroupsParams,
   OrderGroup,
   PackableItem,
+  PackagingConsumption,
+  PackagingConsumptionLine,
+  PackOrderGroupResult,
   PickItemInput,
   PickItemResult,
   ReportMissingInput,
@@ -77,6 +80,16 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     platform: pickString(row.platform) || 'lazada',
     shopId: pickString(row.shopId, row.shop_id),
     orderCount: pickNumber(row.orderCount, row.order_count),
+    // BE AOFP-52 luôn gửi 2 field này; thiếu (client cũ) → coi toàn bộ orderCount là còn xử lý.
+    activeOrderCount:
+      typeof row.activeOrderCount === 'number' ||
+      typeof row.active_order_count === 'number'
+        ? pickNumber(row.activeOrderCount, row.active_order_count)
+        : pickNumber(row.orderCount, row.order_count),
+    canceledOrderCount: pickNumber(
+      row.canceledOrderCount,
+      row.canceled_order_count,
+    ),
     fulfillmentStatus: pickString(row.fulfillmentStatus, row.fulfillment_status),
     activePackagingRecommendationId:
       pickString(
@@ -301,11 +314,57 @@ export async function completeOrderGroupPick(
   return postFulfillmentTransition(id, 'pick', input)
 }
 
+function mapPackagingConsumption(raw: unknown): PackagingConsumption | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const rawConsumed = Array.isArray(row.consumed) ? row.consumed : []
+  const consumed: PackagingConsumptionLine[] = []
+  for (const item of rawConsumed) {
+    const line = asRecord(item)
+    if (!line) continue
+    const materialCode = pickString(line.materialCode, line.material_code)
+    if (!materialCode) continue
+    consumed.push({
+      materialCode,
+      condition: pickString(line.condition) || 'new',
+      quantity: pickNumber(line.quantity) || 1,
+      savingVnd: pickNumber(line.savingVnd, line.saving_vnd),
+    })
+  }
+  const rawWarnings = Array.isArray(row.warnings) ? row.warnings : []
+  const warnings = rawWarnings.filter(
+    (w): w is string => typeof w === 'string' && w.length > 0,
+  )
+  const followed = row.followedRecommendation ?? row.followed_recommendation
+  return {
+    consumed,
+    warnings,
+    recommendedBoxCode:
+      pickString(row.recommendedBoxCode, row.recommended_box_code) || null,
+    followedRecommendation:
+      typeof followed === 'boolean' ? followed : null,
+  }
+}
+
 export async function packOrderGroup(
   id: string,
   input: TransitionOrderGroupInput,
-): Promise<OrderGroup> {
-  return postFulfillmentTransition(id, 'pack', input)
+): Promise<PackOrderGroupResult> {
+  const raw = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(id)}/fulfillment/pack`,
+    {
+      method: 'POST',
+      body: { expected_version: input.expected_version },
+      auth: true,
+    },
+  )
+  const row = asRecord(raw)
+  return {
+    group: requireOrderGroup(raw),
+    packagingConsumption: mapPackagingConsumption(
+      row?.packagingConsumption ?? row?.packaging_consumption,
+    ),
+  }
 }
 
 export async function returnOrderGroup(

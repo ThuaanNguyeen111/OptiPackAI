@@ -3,9 +3,9 @@ import { AdminSidebar } from '../../modules/admin/components/AdminSidebar'
 
 export function AdminLayout() {
   return (
-    <div className="flex h-svh overflow-hidden bg-canvas">
+    <div className="owner-shell">
       <AdminSidebar />
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="owner-stage">
         <Outlet />
       </div>
     </div>

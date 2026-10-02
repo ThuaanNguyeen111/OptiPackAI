@@ -1,12 +1,11 @@
 import type { FormEvent } from 'react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Loader2, Lock } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { resetPassword } from '../api/auth.api'
-import { AuthInput } from '../components/auth/AuthInput'
-import { AuthLayout } from '../components/auth/AuthLayout'
+import { FlashlightPasswordField } from '../components/auth/FlashlightPasswordField'
+import { LoginScene } from '../components/auth/LoginScene'
 import { PasswordStrength } from '../components/auth/PasswordStrength'
-import { Button } from '../components/ui/Button'
 import { formatApiError } from '../lib/api'
 import { validateNewPassword } from '../lib/password'
 
@@ -16,6 +15,8 @@ export function ResetPasswordPage() {
   const token = useMemo(() => params.get('token')?.trim() ?? '', [params])
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
@@ -49,93 +50,96 @@ export function ResetPasswordPage() {
     }
   }
 
+  const night = !done && (showPassword || showConfirm)
+
   return (
-    <AuthLayout mode="forgot">
+    <LoginScene
+      night={night}
+      closeTo="/login"
+      artTitle="Mật khẩu mới"
+      artDescription="Tạo mật khẩu mạnh để tiếp tục quản lý công việc cùng đội ngũ."
+    >
       {done ? (
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Đặt lại mật khẩu thành công
-          </h1>
-          <p className="mt-3 text-sm text-ink-muted">
+        <>
+          <h1 className="login-title">Đặt lại thành công</h1>
+          <p className="login-lead">
             {message || 'Vui lòng đăng nhập lại bằng mật khẩu mới.'}
           </p>
-          <Button
+          <button
             type="button"
-            variant="primary"
-            className="mt-8 w-full"
+            className="login-cta"
             onClick={() => navigate('/login')}
           >
             Đăng nhập
-          </Button>
-        </div>
+          </button>
+        </>
       ) : (
         <>
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-ink">
-              Đặt lại mật khẩu
-            </h1>
-            <p className="mt-2 text-sm text-ink-muted">
-              Mật khẩu mới cần chữ hoa, chữ thường, số và ký tự đặc biệt.
-            </p>
-          </div>
+          <h1 className="login-title">Đặt lại mật khẩu</h1>
+          <p className="login-lead">
+            Mật khẩu mới cần chữ hoa, chữ thường, số và ký tự đặc biệt.
+          </p>
 
           {!token ? (
-            <p className="mt-6 text-sm text-error">
+            <p className="login-error">
               Thiếu token trên URL. Mở đúng liên kết trong email.
             </p>
           ) : (
-            <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate>
+            <form onSubmit={handleSubmit} noValidate>
               {error ? (
-                <div className="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
-                  {error}
-                </div>
+                <div className="login-alert login-alert-err">{error}</div>
               ) : null}
-              <div>
-                <AuthInput
-                  label="Mật khẩu mới"
-                  name="new_password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  passwordToggle
-                  icon={<Lock className="h-4 w-4" strokeWidth={1.75} />}
-                />
-                <PasswordStrength password={password} />
+
+              <div className="login-stack">
+                <div>
+                  <label className="login-label" htmlFor="new_password">
+                    Mật khẩu mới
+                  </label>
+                  <FlashlightPasswordField
+                    id="new_password"
+                    name="new_password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    revealed={showPassword}
+                    onToggle={() => setShowPassword((v) => !v)}
+                  />
+                  <PasswordStrength password={password} />
+                </div>
+                <div>
+                  <label className="login-label" htmlFor="confirm_password">
+                    Xác nhận mật khẩu
+                  </label>
+                  <FlashlightPasswordField
+                    id="confirm_password"
+                    name="confirm_password"
+                    autoComplete="new-password"
+                    value={confirm}
+                    onChange={(e) => setConfirm(e.target.value)}
+                    revealed={showConfirm}
+                    onToggle={() => setShowConfirm((v) => !v)}
+                  />
+                </div>
               </div>
-              <AuthInput
-                label="Xác nhận mật khẩu"
-                name="confirm_password"
-                autoComplete="new-password"
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                passwordToggle
-                icon={<Lock className="h-4 w-4" strokeWidth={1.75} />}
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                className="w-full"
-                disabled={loading}
-              >
+
+              <button type="submit" className="login-cta" disabled={loading}>
                 {loading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 animate-spin" />
                     Đang lưu…
                   </>
                 ) : (
                   'Cập nhật mật khẩu'
                 )}
-              </Button>
+              </button>
             </form>
           )}
 
-          <p className="mt-8 text-center text-sm">
-            <Link to="/login" className="font-medium text-primary-hover hover:underline">
-              Quay lại đăng nhập
-            </Link>
+          <p className="login-foot">
+            <Link to="/login">← Quay lại đăng nhập</Link>
           </p>
         </>
       )}
-    </AuthLayout>
+    </LoginScene>
   )
 }

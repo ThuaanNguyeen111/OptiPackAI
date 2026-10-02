@@ -61,6 +61,7 @@ export function mapShipment(raw: unknown): Shipment | null {
     attemptCount: pickNumber(row.attemptCount, row.attempt_count),
     maxAttempts: pickNumber(row.maxAttempts, row.max_attempts) || 2,
     lastFailureReason: pickString(row.lastFailureReason, row.last_failure_reason) || null,
+    dueAt: toIso(row.dueAt) ?? toIso(row.due_at),
     deliveredAt: toIso(row.deliveredAt) ?? toIso(row.delivered_at),
     returnedAt: toIso(row.returnedAt) ?? toIso(row.returned_at),
     version: pickNumber(row.version, row.__v),

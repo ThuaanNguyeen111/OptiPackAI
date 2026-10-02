@@ -1,3 +1,6 @@
+import { NotificationsService } from '../notifications/notifications.service';
+import { NotificationType } from '../notifications/enums/notification-type.enum';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -34,6 +37,7 @@ export class StockReservationService {
     @InjectModel(SkuBinAssignment.name) private readonly assignmentModel: Model<SkuBinAssignmentDocument>,
     @InjectModel(MarketplaceSkuMapping.name) private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
     @InjectConnection() private readonly connection: Connection,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   /** Giữ chỗ / tính lại cho 1 nhóm đơn theo danh sách hàng HIỆN TẠI của nó. */
@@ -68,7 +72,20 @@ export class StockReservationService {
       });
       if (r.reserved < r.needed) shortages.push({ sku: item.sku, needed: r.needed, reserved: r.reserved, shortage: r.needed - r.reserved });
     }
-    await this.groupModel.updateOne({ _id: group._id }, { $set: { stock_shortage: shortages.length > 0, stock_shortage_items: shortages } });
+    const before = await this.groupModel.findOneAndUpdate({ _id: group._id }, { $set: { stock_shortage: shortages.length > 0, stock_shortage_items: shortages } });
+    // Chỉ báo khi CHUYỂN từ "đủ hàng" sang "thiếu hàng" — bấm Tính lại nhiều lần không spam chuông.
+    if (shortages.length > 0 && before?.stock_shortage !== true) {
+      try {
+        await this.notificationsService.notify({
+          recipientRole: UserRole.STORE_OWNER, type: NotificationType.STOCK_SHORTAGE, severity: 'critical',
+          title: 'Nhóm đơn thiếu hàng ngay khi tạo',
+          message: shortages.map((x) => `${x.sku}: cần ${String(x.needed)}, giữ được ${String(x.reserved)}`).join('; '),
+          relatedEntityType: 'order_group', relatedEntityId: group._id.toString(),
+        });
+      } catch (error) {
+        this.logger.warn('Gửi thông báo thiếu hàng thất bại.', error);
+      }
+    }
     if (shortages.length > 0) this.logger.warn(`Nhóm đơn ${group._id.toString()} THIẾU HÀNG ngay khi tạo: ${shortages.map((s) => `${s.sku} thiếu ${String(s.shortage)}`).join(', ')}`);
     return shortages;
   }

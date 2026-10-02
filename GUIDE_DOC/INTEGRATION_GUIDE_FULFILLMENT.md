@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. **Cập nhật 02/10/2026 (v4.3)**: nút `pack` tự báo "đã đóng gói" lên Lazada, chặn đóng gói nhóm hủy hết, thêm route gửi lại (Nghiệp vụ 4). **Cập nhật 01/10/2026 (v4.2)**: mở quyền vận hành kho cho Warehouse Staff (Nghiệp vụ 2b); response nhóm đơn thêm `activeOrderCount`/`canceledOrderCount` để phân biệt nhóm hủy một phần/hủy hết trên danh sách (Nghiệp vụ 3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -48,6 +48,7 @@ Sau khi đơn hàng từ Lazada được đồng bộ về và gộp thành **Or
 **Đảo luồng so với thiết kế ban đầu**: trước đây bước này xảy ra NGAY khi Order Group vừa tạo (trước cả khi lấy hàng). Giờ xảy ra **SAU KHI Warehouse Staff đã lấy hàng xong** (`picked`) — lý do nghiệp vụ: Packaging Staff cần nhìn hàng THẬT đã lấy về mới quyết định đóng gói thế nào, không quyết định trước khi biết chắc có đủ hàng hay không (xem đầy đủ ở Nghiệp vụ 3 và PHẦN C).
 
 Sơ đồ đúng hiện tại:
+
 ```
 Group tạo xong → auto-assign Warehouse Staff NGAY (xem Nghiệp vụ 2 — không còn
 chờ bước này kích hoạt nữa) → Lấy hàng (Nghiệp vụ 3) → PICKED
@@ -105,22 +106,22 @@ Gợi ý bị đánh dấu `is_active: false` (KHÔNG xóa — giữ lại lịc
 
 ### DB liên quan — `PackagingRecommendation`
 
-| Field                                     | Kiểu           | Ý nghĩa                                                        |
-| ----------------------------------------- | -------------- | -------------------------------------------------------------- |
-| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                     |
-| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc |
-| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")              |
-| `material_quantity`                       | Number         | Số lượng vật liệu cần                                          |
-| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                            |
-| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                    |
-| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật          |
-| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                     |
-| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                    |
-| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                  |
-| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust               |
-| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                       |
-| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử               |
-| 🆕 `rejection_reason` (MỚI 21/09/2026)     | String\|null   | Lý do từ chối — chỉ có giá trị khi `approval_status: 'rejected'`, lưu trên chính bản ghi đã bị reject |
+| Field                                     | Kiểu           | Ý nghĩa                                                                                               |
+| ----------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------- |
+| `order_group_id`                          | ObjectId       | Group nào sở hữu gợi ý này                                                                            |
+| `box_size.{length_cm,width_cm,height_cm}` | Number         | Kích thước thùng — sub-object riêng, không phải object rời rạc                                        |
+| `material_type`                           | String         | Loại vật liệu đệm (VD "Bubble Wrap", "Small Box")                                                     |
+| `material_quantity`                       | Number         | Số lượng vật liệu cần                                                                                 |
+| `estimated_shipping_cost_vnd`             | Number         | AI/fallback ước tính phí ship (VNĐ)                                                                   |
+| `computation_time_ms`                     | Number         | Thời gian thuật toán tính (audit hiệu năng)                                                           |
+| `fallback_used`                           | Boolean        | `true` = dùng thuật toán dự phòng, không phải AI thật                                                 |
+| `approval_status`                         | String         | `pending`/`approved`/`adjusted`/`rejected`                                                            |
+| `approved_by`                             | ObjectId\|null | Ai đã duyệt (audit — BR-07)                                                                           |
+| `approved_at`                             | Date\|null     | Lúc nào duyệt                                                                                         |
+| `actual_measured_weight_kg`               | Number\|null   | Cân THẬT — chỉ có giá trị sau khi approve/adjust                                                      |
+| `is_abnormal`                             | Boolean        | Cờ tự động — cân thật lệch >20% ước tính                                                              |
+| `is_active`                               | Boolean        | `false` = đã bị reject/thay thế, giữ lại lịch sử                                                      |
+| 🆕 `rejection_reason` (MỚI 21/09/2026)    | String\|null   | Lý do từ chối — chỉ có giá trị khi `approval_status: 'rejected'`, lưu trên chính bản ghi đã bị reject |
 
 **Ràng buộc quan trọng**: 1 Order Group tại 1 thời điểm chỉ có ĐÚNG 1 `PackagingRecommendation` với `is_active: true` (index unique có điều kiện) — nhưng có thể có NHIỀU bản `is_active: false` (lịch sử các lần reject trước đó).
 
@@ -204,6 +205,7 @@ POST /warehouse/warehouses
 Body: { "warehouse_code": "WH-HCM-01", "warehouse_name": "Kho TP.HCM - Quận 7", "address": "123 Đường ABC, Quận 7, TP.HCM" }
 → 201: { "id": "...", "warehouseCode": "WH-HCM-01", "warehouseName": "...", "address": "...", "isActive": true }
 ```
+
 Chỉ vậy — hệ thống giờ biết "có 1 kho tên WH-HCM-01", nhưng kho còn **trống trơn**, chưa chia khu, chưa có kệ nào.
 
 Xem lại: `GET /warehouse/warehouses` — danh sách toàn bộ kho. 🔄 **ĐÃ ĐỔI (19/09/2026)** — route này giờ mở thêm cho **Warehouse Staff** (trước chỉ Admin) — vì `picking-list`/`pick-item`/`report-missing` (Warehouse Staff phải gọi hàng ngày) đều bắt buộc `warehouse_id`, cần có cách để họ tự biết ID kho mình đang làm việc, không hardcode tay.
@@ -215,6 +217,7 @@ POST /warehouse/warehouses/:warehouseId/zones
 Body: { "zone_code": "A", "zone_name": "Phụ kiện điện tử", "description": "Khu chứa cáp sạc, tai nghe, phụ kiện nhỏ" }  // description optional
 → 201: { "id": "...", "warehouseId": "...", "zoneCode": "A", "zoneName": "...", "description": "..." }
 ```
+
 Với ví dụ đang dùng: `zone_code: "A"`, `zone_name: "Phụ kiện điện thoại"` — giờ trong kho WH-HCM-01 có 1 khu tên "A" chuyên chứa ốp lưng/phụ kiện.
 
 **Lưu ý dễ nhầm**: `zone_code` chỉ cần **duy nhất TRONG 1 kho**, không phải duy nhất toàn hệ thống — mở thêm 1 kho ở Hà Nội, khu ở đó cũng đặt tên "A" được bình thường, 2 kho là 2 "thế giới" tách biệt hoàn toàn (xem lý do thiết kế kỹ hơn ở tài liệu giảng giải hệ thống, mục II.7).
@@ -228,11 +231,13 @@ POST /warehouse/zones/:zoneId/bin-locations/generate
 Body: { "aisle": "03", "rack_from": 1, "rack_to": 10, "level_from": 1, "level_to": 4 }
 → 201: { "created": 40 }   // 10 rack × 4 level = 40 kệ, sinh trong 1 lần gọi (bulkWrite, xem tài liệu giảng giải mục III.6)
 ```
+
 Thay vì gọi API 40 lần để tạo tay từng ngăn kệ, chỉ cần khai "tôi muốn dãy 03, kệ số 1 tới 10, mỗi kệ 4 tầng" — hệ thống **tự sinh ra đủ 40 vị trí trong 1 lần gọi**, tự đặt tên dạng `"{zone_code}-{aisle}-{rack:02}-{level:02}"` (VD `"A-03-01-01"` = khu A, dãy 03, kệ 01, tầng 01). FE **không cần tự nghĩ tên kệ**, chỉ cần khai đúng khoảng (range).
 
 ⚠️ Gọi lại ĐÚNG khoảng đã tạo trước đó **không báo lỗi, không tạo trùng** (idempotent — `upsert`) — an toàn nếu Admin lỡ bấm 2 lần. Nhưng KHÔNG dùng tính chất này để "sinh thêm" — muốn mở rộng khoảng, gọi API MỚI với range khác (VD `rack_from: 11, rack_to: 15`), đừng gọi lại range cũ với ý định "cộng thêm".
 
 Xem lại (🆕 MỚI 16/09/2026 — trước đây KHÔNG có cách nào xem lại):
+
 ```
 GET /warehouse/zones/:zoneId/bin-locations              → kệ trong 1 khu
 GET /warehouse/warehouses/:warehouseId/bin-locations    → TOÀN BỘ kệ trong 1 kho (mọi khu gộp)
@@ -250,20 +255,24 @@ Body: {
 }
 → 201: { "id": "...", "warehouseId": "...", "platform": "lazada", "shopId": "...", "sellerSku": "OPLUNG-IP15", "binLocationId": "...", "quantityOnHand": 0 }
 ```
+
 Giờ hệ thống biết chính xác: "ốp lưng iPhone 15 nằm ở đúng kệ A-03-01-01" — đây là mảnh ghép CUỐI CÙNG, sau bước này SKU đã sẵn sàng để tính vào Picking List khi có đơn.
 
 **Nhập thêm hàng sau đó** (nghiệp vụ RIÊNG, không phải gán lại):
+
 ```
 POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock
 Body: { "quantity": 50 }   // CỘNG DỒN vào quantityOnHand hiện có, KHÔNG ghi đè
 ```
+
+🔄 **ĐÃ ĐỔI (01/10/2026)** — nhập thêm hàng, danh sách khu, danh sách ô của kho và danh sách SKU đã gán mở thêm cho **Warehouse Staff** (trước đây chỉ Admin, nhân viên kho bị `403`). Bốn bước tạo kho → khu → kệ → gán SKU ở trên vẫn chỉ Admin. Màn hình "Tồn kho theo vị trí" cho nhân viên kho: `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B5.
 
 Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-bin-assignments` — toàn bộ SKU **ĐÃ** gán trong 1 kho. **Dễ nhầm với route đã có từ trước** `GET /warehouse/sku-bin-assignments/unassigned` — route ĐÓ trả chiều NGƯỢC LẠI: SKU nào TRONG hệ thống nhưng **CHƯA** gán vị trí nào (để Admin biết còn SKU nào cần làm Bước 4). Tóm gọn: `unassigned` = "còn việc phải làm", route mới = "đã làm xong" — 2 route trả 2 tập dữ liệu ĐỐI LẬP nhau.
 
 ### Mã lỗi riêng mục này
 
 | Mã                            | HTTP    | Khi nào                                                                                                |
-| ------------------------------ | ------- | ------------------------------------------------------------------------------------------------------ |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
 | `WH_WAREHOUSE_NOT_FOUND`      | 404/400 | `warehouseId` không tồn tại hoặc sai định dạng ObjectId                                                |
 | `WH_ZONE_NOT_FOUND`           | 404/400 | `zoneId` không tồn tại hoặc sai định dạng ObjectId                                                     |
 | `WH_INVALID_BIN_RANGE`        | 400     | `rack_from > rack_to` hoặc `level_from > level_to` ở Bước 3                                            |
@@ -290,6 +299,56 @@ Order Group **vừa tạo xong** (`picking`), đã **TỰ ĐỘNG có người p
 ```
 
 🔄 **ĐÃ ĐỔI (15/09/2026)** — cả 2 API lấy danh sách ở trên đều tự động **loại bỏ SKU thuộc đơn đã `canceled` hoặc gặp sự cố logistics** (`lost`, `damaged_by_3pl`... xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) khỏi danh sách cần lấy — trước đây KHÔNG lọc, nhân viên có thể bị yêu cầu đi lấy hàng cho đơn đã hủy/mất. Trường hợp TOÀN BỘ đơn trong group đều rơi vào 2 nhóm này (group rỗng sau khi lọc) → API trả lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì trả về danh sách rỗng — FE nên bắt riêng mã lỗi này, hiện thông báo rõ ràng ("Nhóm đơn này không còn gì cần lấy") thay vì hiểu nhầm là màn hình trắng/lỗi tải dữ liệu.
+
+### 🆕 Phân biệt nhóm đơn có đơn đã hủy ngay trên danh sách (01/10/2026)
+
+**Vấn đề trước đây:** danh sách nhóm đơn chỉ có `orderCount`. Hệ thống đã lọc đơn hủy ở tầng hàng cần lấy (Picking List, gợi ý đóng gói), nhưng trên **danh sách** thì nhóm bình thường, nhóm hủy một phần và nhóm hủy hết trông giống nhau — nhân viên phải mở từng nhóm mới biết.
+
+**Từ 01/10/2026**, mọi response nhóm đơn (`GET /order-groups`, `GET /order-groups/:id` và các route thao tác trả về nhóm đơn) có thêm 2 trường:
+
+| Trường               | Ý nghĩa                                                                                                   |
+| -------------------- | --------------------------------------------------------------------------------------------------------- |
+| `activeOrderCount`   | Số đơn **còn phải xử lý** — cùng quy tắc với Picking List: đơn không bị hủy và không gặp sự cố vận chuyển |
+| `canceledOrderCount` | Số đơn có trạng thái `canceled`                                                                           |
+
+Ví dụ nhóm 2 đơn, khách hủy 1 đơn:
+
+```json
+{ "id": "6a9c18292fced4f442f6e1b1", "orderCount": 2, "activeOrderCount": 1, "canceledOrderCount": 1, "fulfillmentStatus": "picking", ... }
+```
+
+**Quy tắc hiển thị trên FE:**
+
+| Điều kiện                                        | Hiển thị                                                                                                                                                     |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `canceledOrderCount === 0`                       | Bình thường                                                                                                                                                  |
+| `activeOrderCount > 0 && canceledOrderCount > 0` | Nhãn **"Một phần đã hủy"** (ví dụ "1/2 đơn đã hủy"). Nhóm vẫn lấy hàng bình thường; Picking List đã tự bỏ hàng của đơn hủy                                   |
+| `activeOrderCount === 0`                         | **"Không còn hàng cần xử lý"** — ẩn khỏi hàng đợi "Cần lấy", đưa sang tab "Đã hủy". Mở Picking List của nhóm này sẽ nhận `409 ORD_GROUP_ALL_ORDERS_CANCELED` |
+
+`orderCount − activeOrderCount − canceledOrderCount` = số đơn gặp sự cố vận chuyển (`lost`, `damaged_by_3pl`...). Thường bằng 0.
+
+**Cách demo:** chọn 1 nhóm có 2 đơn Lazada → hủy 1 đơn trên Lazada (hoặc dùng dữ liệu có sẵn đơn `canceled`) → chờ đồng bộ (tối đa 10 phút, hoặc Admin bấm đồng bộ tay) → tải lại danh sách: nhóm hiện nhãn "Một phần đã hủy", `activeOrderCount: 1`, `canceledOrderCount: 1`. Mở Picking List: chỉ còn hàng của đơn chưa hủy.
+
+**Nguồn số liệu:** API luôn đếm trực tiếp từ trạng thái đơn trong collection `orders` tại thời điểm gọi, nên số trả cho FE luôn đúng, kể cả nhóm đơn tạo từ trước.
+
+**Bản lưu sẵn trong DB:** mỗi document `order_groups` có thêm `active_order_count`, `canceled_order_count` và `order_counts_refreshed_at`. Các trường này được cập nhật mỗi lần đồng bộ chạm tới nhóm (đơn mới, đơn đổi trạng thái, đơn gộp đến muộn, đơn đổi hàng `EXC-`), dùng để xem trực tiếp trong Compass và làm nền cho bộ lọc phía BE sau này. FE **không** đọc các trường này; FE dùng `activeOrderCount` / `canceledOrderCount` trong response.
+
+**Dữ liệu cũ:** nhóm đơn tạo trước ngày 01/10/2026 chưa có bản lưu sẵn (giá trị `null` hoặc không có trường) cho tới khi được đồng bộ lại. Chạy script một lần cho mỗi môi trường để điền đủ:
+
+```bash
+cd be
+npx ts-node -r dotenv/config scripts/backfill-order-group-counts.ts
+```
+
+Script chạy lại nhiều lần vẫn an toàn (tính lại từ đầu, ghi đè cùng giá trị), không đổi trường nào khác và không tăng `__v` của nhóm đơn, nên không ảnh hưởng `expected_version` FE đang giữ. API vẫn trả số đúng dù chưa chạy script.
+
+**Hạn chế hiện tại và hướng khắc phục:**
+
+| Hạn chế                                                                                                                     | Ảnh hưởng                                                                                                                                                                                                                                       | Hướng khắc phục                                                                                            |
+| --------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Nhóm hủy hết **chưa có trạng thái riêng**: vẫn giữ `fulfillmentStatus` cũ, vẫn giữ chỗ tồn kho (K5), vẫn giao cho nhân viên | Ẩn khỏi màn hình nhưng tồn khả dụng vẫn bị trừ                                                                                                                                                                                                  | Bước sau: trạng thái `cancelled`, giải phóng giữ chỗ, gỡ phân công, phiếu cất hàng đã lấy về kệ            |
+| Chưa lọc được ở BE (ví dụ `?exclude_fully_canceled=true`)                                                                   | FE ẩn nhóm hủy hết sau khi nhận danh sách → số dòng hiển thị có thể ít hơn giới hạn 100                                                                                                                                                         | Số đếm đã được lưu sẵn trên nhóm đơn (01/10/2026). Bộ lọc phía BE sẽ thêm cùng bước trạng thái `cancelled` |
+| Hủy **một phần** không giải phóng phần giữ chỗ của đơn đã hủy                                                               | Tồn khả dụng thấp hơn thực tế cho tới khi Admin/Store Owner bấm "Tính lại giữ chỗ" (`POST /order-groups/:id/stock-reservation/recheck`) hoặc nhóm được lấy hàng xong. Với nhóm hủy hết, tính lại cũng không nhả được (không còn hàng cần xử lý) | Làm cùng bước trạng thái `cancelled`                                                                       |
 
 🔄 **ĐÃ ĐỔI (19/09/2026, báo cáo thật Hải Phượng)** — bước 3 (`POST .../fulfillment/pick-item`) giờ **kiểm tra SKU quét THẬT SỰ thuộc group này** TRƯỚC KHI trừ tồn kho — trước đây trừ tồn thẳng theo mã vạch quét được, không hỏi lại SKU đó có nằm trong đơn nào của group không (quét nhầm mã vạch SKU bất kỳ, miễn còn tồn kho, vẫn trừ tồn thật, sai lệch dữ liệu). Nếu SKU không thuộc group → trả lỗi `ORD_GROUP_ITEM_NOT_IN_GROUP` (404), **KHÔNG đụng tới tồn kho**. FE nên bắt riêng mã lỗi này khi quét (VD hiện "Mã vạch này không thuộc đơn đang lấy, kiểm tra lại") — khác hẳn lỗi `ORD_GROUP_INSUFFICIENT_STOCK` (409, SKU đúng nhưng không đủ hàng).
 
@@ -363,6 +422,92 @@ Sau `approved_for_packing` (Nghiệp vụ 1 duyệt xong — KHÔNG phải ngay 
 🆕 **MỚI (21/09/2026)** — `pack` giờ mở thêm role `PACKAGING_STAFF` (trước chỉ `WAREHOUSE_STAFF, ADMIN`, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý trong luồng mới). Cả 3 role đều gọi được route này.
 
 Đây là 3 bước tuyến tính đơn giản, không có tình huống rẽ nhánh đặc biệt — mỗi bước chỉ cần đúng `version` hiện tại (Optimistic Concurrency).
+
+### 🆕 Báo "đã đóng gói" lên Lazada (02/10/2026)
+
+**Mục đích:** nhân viên đóng gói chỉ bấm **đúng nút "pack" hiện có**, không cần mở Seller Center. Sau khi OptiPack chuyển nhóm sang `packed`, BE tự gọi API **Pack** của Lazada để đơn trên shop cũng chuyển "Đã đóng gói". FE không cần gọi Lazada (FE không giữ token của shop).
+
+**Không có nút mới, không đổi request.** Thứ tự xử lý khi bấm `POST /order-groups/:id/fulfillment/pack`:
+
+```
+1. Kiểm tra nhóm còn đơn cần xử lý — hủy hết → 409 ORD_GROUP_ALL_ORDERS_CANCELED (MỚI)
+2. OptiPack: chuyển "packed" + trừ vật liệu (như cũ, 1 transaction)
+3. Gửi Pack lên Lazada cho các món của đơn Lazada còn hiệu lực (MỚI)
+4. Trả response kèm kết quả gửi Lazada
+```
+
+Bước 3 **không bao giờ làm hỏng bước 2**: Lazada lỗi, mất mạng hay token hết hạn thì nhóm vẫn `packed` (thùng đã đóng thật, luồng giao hàng chạy tiếp), kết quả lỗi được ghi lại để gửi lại sau.
+
+**Món nào được gửi lên Lazada:**
+
+| Trường hợp                                                            | Gửi Pack?                           |
+| --------------------------------------------------------------------- | ----------------------------------- |
+| Đơn Lazada còn hiệu lực, món đang `pending` / `topack`                | Có                                  |
+| Đơn đã hủy / gặp sự cố vận chuyển                                     | Không                               |
+| Đơn đổi hàng `EXC-...` (OptiPack tự tạo, không tồn tại trên Lazada)   | Không                               |
+| Món đã `packed` trở đi trên Lazada (seller tự bấm trên Seller Center) | Không gửi lại — ghi nhận là đã xong |
+| Nhóm không thuộc Lazada                                               | Không                               |
+
+**Response `pack` có thêm `lazadaPackSync`**, và **mọi response nhóm đơn có thêm `lazadaPack`** (cùng nội dung, lưu trên nhóm đơn):
+
+```json
+"lazadaPack": {
+  "status": "success",
+  "attemptedAt": "2026-10-02T09:15:00.000Z",
+  "error": null,
+  "items": [
+    { "orderId": "560694402192001", "orderItemId": "560694402292001", "ok": true, "errorCode": "0",
+      "message": "success", "packageId": "FP022511752246001", "trackingNumber": "TH340231JV0W0A", "shipmentProvider": "Flash Express" }
+  ]
+}
+```
+
+| `status`   | Ý nghĩa                                                                        | FE hiển thị                                         |
+| ---------- | ------------------------------------------------------------------------------ | --------------------------------------------------- |
+| `null`     | Nhóm chưa từng qua bước này (dữ liệu cũ, hoặc chưa đóng gói)                   | Không hiển thị                                      |
+| `disabled` | Cầu dao `LAZADA_WRITE_APIS_ENABLED` đang tắt — **chưa gửi**                    | Nhãn xám "Chưa gửi Lazada" + nút **Gửi lên Lazada** |
+| `skipped`  | Không có gì cần gửi (nhóm không thuộc Lazada, chỉ có đơn đổi hàng, đơn đã hủy) | Không hiển thị hoặc ghi chú nhỏ                     |
+| `success`  | Lazada đã nhận mọi món                                                         | Nhãn xanh "Đã báo Lazada"                           |
+| `partial`  | Một số món lỗi (xem `items[].ok = false`, `message`)                           | Nhãn vàng + danh sách món lỗi + nút **Gửi lại**     |
+| `failed`   | Không món nào thành công (`error` ghi lý do)                                   | Nhãn đỏ + `error` + nút **Gửi lại**                 |
+
+**Gửi lại:** `POST /order-groups/:id/lazada-pack/retry` (Packaging Staff, Warehouse Staff, Admin), không cần body. Chỉ dùng khi nhóm đang `packed` và `status` khác `success`; không đổi trạng thái OptiPack. Response: nhóm đơn + `lazadaPackSync`.
+
+| Mã lỗi                                         | HTTP      | Nguyên nhân                                                   |
+| ---------------------------------------------- | --------- | ------------------------------------------------------------- |
+| `ORD_GROUP_ALL_ORDERS_CANCELED`                | 409       | (route `pack`) Mọi đơn trong nhóm đã hủy — không cho đóng gói |
+| `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`            | 409       | (route `retry`) Nhóm chưa `packed`, hoặc đã gửi thành công    |
+| `ORD_GROUP_NOT_FOUND` / `ORD_GROUP_INVALID_ID` | 404 / 400 | Sai id nhóm                                                   |
+
+Lỗi trả về **trong từng món** (`items[].errorCode`) là mã của Lazada. Hay gặp: `700026` / `700000` / `700031` — trạng thái món trên Lazada không cho đóng gói (đã đóng gói hoặc đã hủy trên Seller Center); `700004` — sai tham số (thường do `LAZADA_SHIPPING_ALLOCATE_TYPE` sai); `6` / `40011` / `700024` — Lazada đang bận, bấm gửi lại sau.
+
+**Cấu hình (`be/.env`):**
+
+| Biến                            | Mặc định | Ý nghĩa                                                                                                   |
+| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
+| `LAZADA_WRITE_APIS_ENABLED`     | `false`  | Cầu dao. Chỉ đúng `true` mới gọi Lazada. Lazada không có môi trường thử — mọi lệnh đi thẳng vào shop thật |
+| `LAZADA_SHIPPING_ALLOCATE_TYPE` | `TFS`    | Tham số bắt buộc của Pack. Shop nội địa: `TFS`                                                            |
+
+**Cách test lần đầu (bắt buộc trước khi demo):**
+
+1. Đặt 1 đơn nhỏ trên shop Lazada để làm đơn test; chờ đồng bộ về OptiPack.
+2. Để cầu dao **tắt**, đi hết luồng tới bấm "pack" → `lazadaPack.status = "disabled"`; Seller Center **không** thay đổi.
+3. Trên **đúng 1 máy**: đặt `LAZADA_WRITE_APIS_ENABLED=true`, khởi động lại BE, bấm **Gửi lên Lazada** (`retry`) cho nhóm đó.
+4. Kết quả `success` + có `packageId` → mở Seller Center, đơn đã chuyển "Đã đóng gói". Kết quả lỗi → chụp `lazadaPack` gửi BE để xử lý.
+
+**Cách demo:** bật cầu dao trên máy demo → Packaging Staff bấm "Đã đóng gói" → màn hình hiện nhãn "Đã báo Lazada" → mở Seller Center cho thấy đơn đã chuyển trạng thái → lần đồng bộ sau, đơn trong OptiPack cũng mang trạng thái `packed`.
+
+**Dữ liệu cũ:** không cần script. Nhóm đơn cũ có `lazadaPack.status = null`; nhóm đã đóng gói trước 02/10/2026 không tự gửi lên Lazada (có thể bấm **Gửi lên Lazada** nếu muốn).
+
+**Hạn chế hiện tại và hướng khắc phục:**
+
+| Hạn chế                                                                                            | Ảnh hưởng                                                       | Hướng khắc phục                                       |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
+| Chưa test trên đơn thật của shop tự giao (SOF)                                                     | Lazada có thể xử lý Pack khác với tài liệu chung                | Làm đúng mục "Cách test lần đầu" trước khi demo       |
+| Chỉ báo "đã đóng gói"; giao hàng, giao thất bại, hoàn hàng trong OptiPack **không** báo lên Lazada | Đơn trên Lazada dừng ở "Đã đóng gói" tới khi seller tự cập nhật | Bổ sung ReadyToShip và nhóm API giao hàng khi mở rộng |
+| 1 thùng OptiPack gồm nhiều đơn Lazada → nhiều `packageId`                                          | Không ảnh hưởng shop tự giao (không có nhãn Lazada)             | Cần xử lý nếu chuyển sang vận chuyển của Lazada       |
+| Gửi lại phải bấm tay                                                                               | Lỗi tạm thời không tự khắc phục                                 | Thêm tác vụ định kỳ gửi lại cho nhóm `failed`         |
+| Không có thông báo khi gửi lỗi                                                                     | Chỉ thấy khi mở nhóm đơn                                        | Gửi thông báo cho Store Owner khi `failed`/`partial`  |
 
 ### Hoàn hàng — có thể xảy ra ở 2 thời điểm khác nhau
 
@@ -514,6 +659,7 @@ Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **đi
 ```
 
 **3 khác biệt cốt lõi so với thiết kế ban đầu** (đọc kỹ nếu đã quen sơ đồ cũ):
+
 1. `awaiting_packaging` giờ chỉ là trạng thái THOÁNG QUA lúc mới tạo group — auto-assign Warehouse Staff xảy ra NGAY, không cần ai Approve gì trước.
 2. Khối "Đóng gói" (generate/approve/adjust/reject) giờ nằm SAU khối "Lấy hàng" — trước đây ngược lại.
 3. Reject giờ quay về `picked` (không phải `awaiting_packaging`) — hàng đã lấy xong rồi, không cần lấy lại.
@@ -555,10 +701,12 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 - [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026, dòng cũ SAI): `reject` KHÔNG kèm `rejection_reason` → 400 Bad Request, không cho qua
 - [ ] 🔄 **Nghiệp vụ 1** (sửa 21/09/2026): `generate` khi group được lấy hàng qua nút "xác nhận hàng loạt" (không quét từng SKU) → PHẢI vẫn trả 200, KHÔNG được 409
 - [ ] 🔄 **Nghiệp vụ 2** (sửa 21/09/2026, dòng cũ SAI — auto-assign đã dời lên lúc TẠO group, không còn ở `approve`): NGAY sau khi group được tạo (F5 lại `GET /order-groups/:id` vài giây sau sync) → `assignedStaffId` ĐÃ tự có giá trị, không cần đợi tới lúc `approve`
+- [ ] 🆕 **Nghiệp vụ 3** (01/10/2026): nhóm 2 đơn có 1 đơn `canceled` → `GET /order-groups` trả `activeOrderCount: 1`, `canceledOrderCount: 1`, nhãn "Một phần đã hủy"; nhóm hủy hết → `activeOrderCount: 0`, không hiện trong "Cần lấy"
 - [ ] **Nghiệp vụ 3**: `pick-item` vượt tồn kho → 409, UI gợi ý report-missing
 - [ ] **Nghiệp vụ 3**: `report-missing` → thử gọi `pick`/`pack` trực tiếp → phải bị chặn `ORD_GROUP_INVALID_TRANSITION`
 - [ ] **Nghiệp vụ 3**: `decide-partial(false)` → xác nhận quay đúng về `awaiting_packaging`
 - [ ] 🔄 **Nghiệp vụ 4** (sửa 21/09/2026): `pack` gọi bằng tài khoản Packaging Staff → PHẢI thành công (200), không còn 403
+- [ ] 🆕 **Nghiệp vụ 4** (02/10/2026): cầu dao tắt → `pack` trả `lazadaPackSync.status = "disabled"`, Seller Center không đổi; nhóm hủy hết → `pack` trả 409 `ORD_GROUP_ALL_ORDERS_CANCELED`; `lazada-pack/retry` khi nhóm chưa `packed` → 409 `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`
 - [ ] **Nghiệp vụ 5**: `PATCH .../priority` express → `packagingDeadline` hợp lý (không null, đúng khoảng giờ làm việc)
 - [ ] **Nghiệp vụ 6**: sau `report-missing` → `unread-count` của Store Owner tăng lên
 - [ ] 🆕 **Nghiệp vụ 6** (mới 21/09/2026): sau `generate` → `unread-count` của tài khoản Packaging Staff tăng lên; sau `reject` → `unread-count` của tài khoản Admin tăng lên

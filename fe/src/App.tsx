@@ -34,6 +34,7 @@ import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
+import { ReturnsPage } from './pages/ReturnsPage'
 import { ShippingPage } from './pages/ShippingPage'
 import { StaffManagementPage } from './pages/StaffManagementPage'
 import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
@@ -78,6 +79,7 @@ function App() {
                 <Route path="orders" element={<OrdersPage />} />
                 <Route path="orders/:id" element={<OrderDetailPage />} />
                 <Route path="order-groups" element={<OrderGroupsPage />} />
+                <Route path="returns" element={<ReturnsPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="packing" element={<PackingPage />} />
