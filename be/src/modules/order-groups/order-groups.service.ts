@@ -129,6 +129,16 @@ export class OrderGroupsService {
   async getOrCreateGroupForOrder(
     order: OrderDocument,
   ): Promise<OrderGroupDocument> {
+    const group = await this.resolveGroupForOrder(order);
+    // 01/10/2026 — mỗi lần đồng bộ chạm tới nhóm (đơn mới, đơn đổi trạng thái như
+    // canceled, đơn gộp đến muộn, đơn thay thế EXC-) -> tính lại bản lưu sẵn số đơn.
+    await this.refreshOrderCounts(group._id);
+    return group;
+  }
+
+  private async resolveGroupForOrder(
+    order: OrderDocument,
+  ): Promise<OrderGroupDocument> {
     if (order.consolidated_group_id) {
       const existing = await this.orderGroupModel.findById(
         order.consolidated_group_id,
@@ -509,6 +519,56 @@ export class OrderGroupsService {
       });
     }
     return result;
+  }
+
+  /**
+   * 01/10/2026 — tính lại và LƯU bản sao số đơn còn hiệu lực / đã hủy lên nhóm đơn.
+   * Dùng `updateOne` (không `save`) để KHÔNG tăng `__v` — tránh làm hỏng
+   * `expected_version` FE đang giữ (Rule #18). Best-effort: lỗi chỉ ghi log,
+   * không chặn luồng đồng bộ.
+   */
+  /**
+   * 02/10/2026 — chặn đóng gói nhóm đơn KHÔNG còn đơn nào cần xử lý (mọi đơn đã hủy /
+   * gặp sự cố). Trước đây nút "pack" không kiểm tra -> đóng gói được cả nhóm hủy hết.
+   */
+  async assertHasActiveOrders(groupId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(groupId)) return; // để transitionFulfillmentStatus báo lỗi id như cũ
+    const id = new Types.ObjectId(groupId);
+    const counts = await this.getOrderCountsForGroups([id]);
+    const active = counts.get(id.toString())?.activeOrderCount ?? 0;
+    if (active === 0) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
+        `Toàn bộ đơn hàng trong group "${groupId}" đã bị hủy — không còn gì để đóng gói.`,
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+  }
+
+  async refreshOrderCounts(groupId: Types.ObjectId): Promise<void> {
+    try {
+      const counts = await this.getOrderCountsForGroups([groupId]);
+      const c = counts.get(groupId.toString()) ?? {
+        activeOrderCount: 0,
+        canceledOrderCount: 0,
+      };
+      await this.orderGroupModel.updateOne(
+        { _id: groupId },
+        {
+          $set: {
+            active_order_count: c.activeOrderCount,
+            canceled_order_count: c.canceledOrderCount,
+            order_counts_refreshed_at: new Date(),
+          },
+        },
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Cập nhật số đơn còn hiệu lực/đã hủy cho nhóm ${groupId.toString()} thất bại (không chặn luồng chính).`,
+        error,
+      );
+    }
   }
 
   async findOrderGroupById(groupId: string): Promise<OrderGroupDocument> {

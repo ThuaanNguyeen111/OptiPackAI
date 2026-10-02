@@ -33,6 +33,10 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { OrderGroupDocument } from './schemas/order-group.schema';
+import {
+  LazadaPackSyncService,
+  LazadaPackSyncResult,
+} from './lazada-pack-sync.service';
 
 // Response tối thiểu — cùng nguyên tắc "không trả thẳng Document ra
 // ngoài" đã áp dụng ở orders.controller.ts (tránh lộ __v raw của
@@ -60,6 +64,22 @@ export interface OrderGroupResponse {
   orderCount: number;
   activeOrderCount: number; // 01/10/2026 — đơn còn phải xử lý (cùng quy tắc Picking List)
   canceledOrderCount: number; // 01/10/2026 — đơn đã hủy (status canceled)
+  // 02/10/2026 — kết quả báo "đã đóng gói" lên Lazada; status null = chưa từng gửi
+  lazadaPack: {
+    status: string | null;
+    attemptedAt: Date | null;
+    error: string | null;
+    items: {
+      orderId: string;
+      orderItemId: string;
+      ok: boolean;
+      errorCode: string | null;
+      message: string | null;
+      packageId: string | null;
+      trackingNumber: string | null;
+      shipmentProvider: string | null;
+    }[];
+  };
   fulfillmentStatus: string;
   activePackagingRecommendationId: string | null;
   assignedStaffId: string | null;
@@ -86,6 +106,21 @@ export function toResponse(
     orderCount: group.order_count,
     activeOrderCount: counts.activeOrderCount,
     canceledOrderCount: counts.canceledOrderCount,
+    lazadaPack: {
+      status: group.lazada_pack_status ?? null,
+      attemptedAt: group.lazada_pack_attempted_at ?? null,
+      error: group.lazada_pack_error ?? null,
+      items: (group.lazada_pack_items ?? []).map((i) => ({
+        orderId: i.order_id,
+        orderItemId: i.order_item_id,
+        ok: i.ok,
+        errorCode: i.item_err_code ?? null,
+        message: i.msg ?? null,
+        packageId: i.package_id ?? null,
+        trackingNumber: i.tracking_number ?? null,
+        shipmentProvider: i.shipment_provider ?? null,
+      })),
+    },
     fulfillmentStatus: group.fulfillment_status,
     activePackagingRecommendationId: group.active_packaging_recommendation
       ? group.active_packaging_recommendation.toString()
@@ -162,6 +197,7 @@ export class OrderGroupsController {
   constructor(
     private readonly orderGroupsService: OrderGroupsService,
     private readonly packagingMaterialsService: PackagingMaterialsService, // G4
+    private readonly lazadaPackSyncService: LazadaPackSyncService, // 02/10/2026
   ) {}
 
   @Get()
@@ -321,7 +357,14 @@ export class OrderGroupsController {
     @Param('id') id: string,
     @Body() body: PackOrderGroupDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<OrderGroupResponse & { packagingConsumption: ConsumptionResult }> {
+  ): Promise<
+    OrderGroupResponse & {
+      packagingConsumption: ConsumptionResult;
+      lazadaPackSync: LazadaPackSyncResult;
+    }
+  > {
+    // 02/10/2026 — nhóm không còn đơn cần xử lý (hủy hết) thì không cho đóng gói.
+    await this.orderGroupsService.assertHasActiveOrders(id);
     // Đổi trạng thái "packed" + trừ vật liệu trong CÙNG 1 transaction: hoặc cả 2 xong,
     // hoặc không gì thay đổi. Thiếu vật liệu vẫn KHÔNG chặn pack (chỉ trả cảnh báo).
     // `materials_used` (tùy chọn): vật liệu nhân viên thực tế đã dùng — không gửi thì
@@ -342,9 +385,34 @@ export class OrderGroupsController {
             body.materials_used,
           ),
       }));
+    // 02/10/2026 — SAU khi OptiPack đã `packed` (transaction đã commit): báo "đã đóng
+    // gói" lên Lazada. Không bao giờ ném lỗi — Lazada lỗi vẫn giữ `packed`, kết quả
+    // ghi vào nhóm đơn (lazadaPack) và có route gửi lại bên dưới.
+    const lazadaPackSync = await this.lazadaPackSyncService.syncGroup(id);
+    const fresh = await this.orderGroupsService
+      .findOrderGroupById(id)
+      .catch(() => group);
+    return {
+      ...(await buildOrderGroupResponse(this.orderGroupsService, fresh)),
+      packagingConsumption,
+      lazadaPackSync,
+    };
+  }
+
+  @Post(':id/lazada-pack/retry')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '02/10/2026 — Gửi lại "đã đóng gói" lên Lazada cho nhóm đơn đang "packed" mà lần trước chưa thành công (failed / partial / disabled / chưa gửi). Không đổi trạng thái OptiPack.',
+  })
+  async retryLazadaPack(
+    @Param('id') id: string,
+  ): Promise<OrderGroupResponse & { lazadaPackSync: LazadaPackSyncResult }> {
+    const lazadaPackSync = await this.lazadaPackSyncService.retryGroup(id);
+    const group = await this.orderGroupsService.findOrderGroupById(id);
     return {
       ...(await buildOrderGroupResponse(this.orderGroupsService, group)),
-      packagingConsumption,
+      lazadaPackSync,
     };
   }
 

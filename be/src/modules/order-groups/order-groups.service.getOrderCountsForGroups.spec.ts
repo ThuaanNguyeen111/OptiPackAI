@@ -145,4 +145,119 @@ describe('OrderGroupsService — getOrderCountsForGroups + response nhóm đơn'
     expect(res.canceledOrderCount).toBe(0);
     expect(res.id).toBe(g1.toString());
   });
+
+  describe('bản lưu sẵn trên order_groups (refreshOrderCounts)', () => {
+    let groupModel: { updateOne: jest.Mock; findById: jest.Mock };
+    let countDocuments: jest.Mock;
+
+    beforeEach(() => {
+      groupModel = {
+        updateOne: jest.fn().mockResolvedValue({}),
+        findById: jest.fn(),
+      };
+      countDocuments = jest.fn();
+      service = new OrderGroupsService(
+        groupModel as never,
+        { aggregate: orderModel.aggregate, countDocuments } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+    });
+
+    it('ghi active/canceled + thời điểm bằng updateOne (không save -> không tăng __v)', async () => {
+      orderModel.aggregate.mockResolvedValue([
+        { _id: g1, active: 1, canceled: 1 },
+      ]);
+
+      await service.refreshOrderCounts(g1);
+
+      expect(groupModel.updateOne).toHaveBeenCalledWith(
+        { _id: g1 },
+        {
+          $set: expect.objectContaining({
+            active_order_count: 1,
+            canceled_order_count: 1,
+          }) as unknown,
+        },
+      );
+    });
+
+    it('nhóm không còn đơn nào -> ghi 0/0', async () => {
+      orderModel.aggregate.mockResolvedValue([]);
+
+      await service.refreshOrderCounts(g1);
+
+      expect(groupModel.updateOne).toHaveBeenCalledWith(
+        { _id: g1 },
+        {
+          $set: expect.objectContaining({
+            active_order_count: 0,
+            canceled_order_count: 0,
+          }) as unknown,
+        },
+      );
+    });
+
+    it('lỗi DB khi đếm -> không ném lỗi (không chặn đồng bộ)', async () => {
+      orderModel.aggregate.mockRejectedValue(new Error('db down'));
+
+      await expect(service.refreshOrderCounts(g1)).resolves.toBeUndefined();
+      expect(groupModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('getOrCreateGroupForOrder (đồng bộ chạm tới nhóm đã có) -> tính lại bản lưu sẵn', async () => {
+      const existing = { _id: g2, order_count: 2 };
+      groupModel.findById.mockResolvedValue(existing);
+      countDocuments.mockResolvedValue(2); // số đơn không đổi -> không giữ chỗ lại
+      orderModel.aggregate.mockResolvedValue([
+        { _id: g2, active: 1, canceled: 1 },
+      ]);
+
+      const result = await service.getOrCreateGroupForOrder({
+        consolidated_group_id: g2,
+      } as never);
+
+      expect(result).toBe(existing);
+      expect(groupModel.updateOne).toHaveBeenCalledWith(
+        { _id: g2 },
+        {
+          $set: expect.objectContaining({
+            active_order_count: 1,
+            canceled_order_count: 1,
+          }) as unknown,
+        },
+      );
+    });
+  });
+
+  describe('assertHasActiveOrders (02/10/2026 — chặn đóng gói nhóm hủy hết)', () => {
+    it('nhóm còn đơn hiệu lực -> cho qua', async () => {
+      orderModel.aggregate.mockResolvedValue([
+        { _id: g1, active: 1, canceled: 1 },
+      ]);
+
+      await expect(
+        service.assertHasActiveOrders(g1.toString()),
+      ).resolves.toBeUndefined();
+    });
+
+    it('nhóm hủy hết -> 409 ORD_GROUP_ALL_ORDERS_CANCELED', async () => {
+      orderModel.aggregate.mockResolvedValue([
+        { _id: g1, active: 0, canceled: 2 },
+      ]);
+
+      await expect(
+        service.assertHasActiveOrders(g1.toString()),
+      ).rejects.toMatchObject({
+        errorCode: 'ORD_GROUP_ALL_ORDERS_CANCELED',
+      });
+    });
+  });
 });
