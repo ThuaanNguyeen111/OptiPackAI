@@ -236,4 +236,28 @@ describe('OrderGroupsService — getOrderCountsForGroups + response nhóm đơn'
       );
     });
   });
+
+  describe('assertHasActiveOrders (02/10/2026 — chặn đóng gói nhóm hủy hết)', () => {
+    it('nhóm còn đơn hiệu lực -> cho qua', async () => {
+      orderModel.aggregate.mockResolvedValue([
+        { _id: g1, active: 1, canceled: 1 },
+      ]);
+
+      await expect(
+        service.assertHasActiveOrders(g1.toString()),
+      ).resolves.toBeUndefined();
+    });
+
+    it('nhóm hủy hết -> 409 ORD_GROUP_ALL_ORDERS_CANCELED', async () => {
+      orderModel.aggregate.mockResolvedValue([
+        { _id: g1, active: 0, canceled: 2 },
+      ]);
+
+      await expect(
+        service.assertHasActiveOrders(g1.toString()),
+      ).rejects.toMatchObject({
+        errorCode: 'ORD_GROUP_ALL_ORDERS_CANCELED',
+      });
+    });
+  });
 });

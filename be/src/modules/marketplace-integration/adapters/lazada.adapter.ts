@@ -188,6 +188,49 @@ export interface LazadaGetOrdersFilter {
   limit?: number; // Lazada giới hạn tối đa 100/lần gọi
 }
 
+/**
+ * 02/10/2026 — Fulfillment API `Pack` (POST /order/fulfill/pack). Hình dạng theo
+ * tài liệu chính thức Lazada (cập nhật 09/08/2022) — xem CLAUDE.md mục
+ * "Nghiên cứu Lazada Fulfillment API". Lazada trả `success` là boolean hoặc chuỗi
+ * "true"/"false" tùy ví dụ — đọc bằng parseLazadaBoolean().
+ */
+export interface LazadaPackRequest {
+  pack_order_list: { order_id: number; order_item_list: number[] }[];
+  delivery_type: 'dropship';
+  shipping_allocate_type: string;
+  shipment_provider_code?: string;
+}
+
+export interface LazadaPackItemResultRaw {
+  order_item_id?: string | number;
+  msg?: string;
+  item_err_code?: string | number;
+  tracking_number?: string;
+  shipment_provider?: string;
+  package_id?: string;
+  retry?: string | boolean;
+}
+
+export interface LazadaPackResponse {
+  code: string;
+  message?: string;
+  result?: {
+    success?: boolean | string;
+    error_code?: string;
+    error_msg?: string;
+    data?: {
+      pack_order_list?: {
+        order_id?: string | number;
+        order_item_list?: LazadaPackItemResultRaw[];
+      }[];
+    };
+  };
+}
+
+export function parseLazadaBoolean(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
 @Injectable()
 export class LazadaAdapter implements MarketplaceAdapter {
   readonly platform = MarketplacePlatform.LAZADA;
@@ -403,6 +446,56 @@ export class LazadaAdapter implements MarketplaceAdapter {
     }
 
     return data.data.products;
+  }
+
+  /**
+   * Pack — 02/10/2026. ĐÁNH DẤU "ĐÃ ĐÓNG GÓI" TRÊN SHOP LAZADA THẬT (API GHI).
+   * Chỉ được gọi qua LazadaPackSyncService — service đó kiểm tra cầu dao
+   * LAZADA_WRITE_APIS_ENABLED trước. Tối đa 20 đơn / request (giới hạn Lazada).
+   * Trả nguyên response để service xét `item_err_code` từng món: `success = true`
+   * KHÔNG có nghĩa mọi món đều thành công.
+   */
+  async packOrders(
+    accessToken: string,
+    request: LazadaPackRequest,
+  ): Promise<LazadaPackResponse> {
+    const data = await this.callSignedPost<LazadaPackResponse>(
+      '/order/fulfill/pack',
+      { access_token: accessToken, packReq: JSON.stringify(request) },
+    );
+    if (data.code !== '0') {
+      this.logger.error(`Pack Lazada thất bại: ${JSON.stringify(data)}`);
+      throw new Error(
+        `Lazada trả lỗi khi đóng gói: ${data.message ?? 'không rõ lý do'}`,
+      );
+    }
+    return data;
+  }
+
+  /**
+   * 02/10/2026 — Helper cho API nghiệp vụ POST đã ký. Gửi toàn bộ tham số (kể cả
+   * sign) dạng application/x-www-form-urlencoded — cùng cách 2 API token đang chạy
+   * thật. CỐ Ý KHÔNG tự retry: đây là API GHI, gửi lại khi chưa biết lần trước có
+   * tới Lazada hay chưa có thể gây thao tác trùng — việc thử lại do người dùng
+   * chủ động bấm (route retry).
+   */
+  private async callSignedPost<T>(
+    path: string,
+    extraParams: Record<string, string | number>,
+  ): Promise<T> {
+    const params: Record<string, string | number> = {
+      app_key: this.appKey,
+      sign_method: 'sha256',
+      timestamp: Date.now(),
+      ...extraParams,
+    };
+    const sign = this.generateSign(path, params);
+    const response = await axios.post<T>(
+      `${this.apiBaseUrl}${path}`,
+      new URLSearchParams({ ...toStringRecord(params), sign }).toString(),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    return response.data;
   }
 
   /**

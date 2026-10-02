@@ -527,6 +527,25 @@ export class OrderGroupsService {
    * `expected_version` FE đang giữ (Rule #18). Best-effort: lỗi chỉ ghi log,
    * không chặn luồng đồng bộ.
    */
+  /**
+   * 02/10/2026 — chặn đóng gói nhóm đơn KHÔNG còn đơn nào cần xử lý (mọi đơn đã hủy /
+   * gặp sự cố). Trước đây nút "pack" không kiểm tra -> đóng gói được cả nhóm hủy hết.
+   */
+  async assertHasActiveOrders(groupId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(groupId)) return; // để transitionFulfillmentStatus báo lỗi id như cũ
+    const id = new Types.ObjectId(groupId);
+    const counts = await this.getOrderCountsForGroups([id]);
+    const active = counts.get(id.toString())?.activeOrderCount ?? 0;
+    if (active === 0) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED,
+        `Toàn bộ đơn hàng trong group "${groupId}" đã bị hủy — không còn gì để đóng gói.`,
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+  }
+
   async refreshOrderCounts(groupId: Types.ObjectId): Promise<void> {
     try {
       const counts = await this.getOrderCountsForGroups([groupId]);
