@@ -767,9 +767,16 @@ html.dark .owner-shell .owner-sidebar nav a.owner-nav-active:hover {
   display: grid;
   grid-template-columns: 1fr;
   overflow: hidden;
-  border: 1px solid var(--ls-card-border);
+  border: 1px solid rgb(0 0 0 / 0.08);
   border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+}
+
+html.dark .ship-bench {
+  border-color: var(--ls-card-border);
   background: var(--ls-panel);
+  box-shadow: none;
 }
 
 @media (min-width: 1024px) {
@@ -790,21 +797,67 @@ html.dark .owner-shell .owner-sidebar nav a.owner-nav-active:hover {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border-top: 1px solid var(--ls-card-border);
+  border-top: 1px solid rgb(0 0 0 / 0.08);
+  background: #fff;
+}
+
+html.dark .ship-bench-side {
+  border-top-color: var(--ls-card-border);
+  background: transparent;
 }
 
 @media (min-width: 1024px) {
   .ship-bench-side {
     border-top: 0;
-    border-left: 1px solid var(--ls-card-border);
+    border-left: 1px solid rgb(0 0 0 / 0.08);
   }
+
+  html.dark .ship-bench-side {
+    border-left-color: var(--ls-card-border);
+  }
+}
+
+/* Header cột phải: Deep Teal đặc — nổi khỏi thân trắng, không còn xám nhạt. */
+.ship-bench-side .pack-bench-head {
+  border-bottom: 1px solid rgb(15 34 40 / 0.45);
+  background: linear-gradient(165deg, #1a3a44 0%, #152d35 55%, #0f2228 100%);
+  box-shadow: inset 0 -1px 0 rgb(212 236 221 / 0.14);
+}
+
+.ship-bench-side .pack-bench-kicker {
+  color: #b8dcc8;
+  letter-spacing: 0.1em;
+}
+
+.ship-bench-side .pack-bench-head h2 {
+  color: #f4faf6;
+}
+
+.ship-bench-side .pack-bench-head .text-\[var\(--ls-muted\)\] {
+  color: #a8c4b8 !important;
+}
+
+.ship-bench-side .pack-bench-head .text-\[var\(--ls-ink\)\] {
+  color: #d4ecdd !important;
+}
+
+html.dark .ship-bench-side .pack-bench-head {
+  border-bottom-color: rgb(212 236 221 / 0.16);
+  background: linear-gradient(165deg, #1e3d47 0%, #152d35 60%, #0c1c22 100%);
 }
 
 .ship-foot {
   flex-shrink: 0;
-  border-top: 1px solid var(--ls-card-border);
-  background: color-mix(in srgb, var(--ls-panel) 88%, transparent);
+  border-top: 1px solid rgb(0 0 0 / 0.08);
+  background: #fff;
   padding: 12px 16px;
+  box-shadow: 0 -1px 2px rgb(0 0 0 / 0.04);
+}
+
+html.dark .ship-foot {
+  border-top-color: var(--ls-card-border);
+  background: color-mix(in srgb, var(--ls-panel) 88%, transparent);
+  box-shadow: none;
   backdrop-filter: blur(16px);
 }
 

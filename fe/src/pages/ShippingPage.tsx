@@ -13,6 +13,8 @@ import {
   X,
   Loader2,
   RefreshCw,
+  Clock3,
+  AlertTriangle,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
@@ -113,6 +115,60 @@ function StylusSignatureGraphic() {
 
 function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id
+}
+
+/** Nhãn SLA còn lại / quá hạn cạnh mã kiện (chỉ khi có dueAt). */
+function deliverySlaBadge(
+  dueAt: string | null,
+  overdue: boolean,
+  vi: boolean,
+): { label: string; tone: 'ok' | 'soon' | 'overdue' } | null {
+  if (!dueAt) return null
+  if (overdue) {
+    return { label: vi ? 'Quá hạn giao' : 'Overdue', tone: 'overdue' }
+  }
+  const ms = Date.parse(dueAt) - Date.now()
+  if (!Number.isFinite(ms) || ms < 0) {
+    return { label: vi ? 'Quá hạn giao' : 'Overdue', tone: 'overdue' }
+  }
+  const hours = Math.ceil(ms / 3_600_000)
+  if (hours <= 4) {
+    return {
+      label: vi ? `Còn ~${String(hours)}h` : `~${String(hours)}h left`,
+      tone: 'soon',
+    }
+  }
+  const days = Math.ceil(hours / 24)
+  if (hours >= 24) {
+    return {
+      label: vi ? `Còn ~${String(days)} ngày` : `~${String(days)}d left`,
+      tone: 'ok',
+    }
+  }
+  return {
+    label: vi ? `Còn ~${String(hours)}h` : `~${String(hours)}h left`,
+    tone: 'ok',
+  }
+}
+
+function KbdHint({
+  children,
+  onPrimary = false,
+}: {
+  children: string
+  onPrimary?: boolean
+}) {
+  return (
+    <kbd
+      className={
+        onPrimary
+          ? 'hidden sm:inline-flex shrink-0 items-center rounded-md border border-white/35 bg-white/20 px-2 py-0.5 font-mono text-[11px] font-bold tracking-wide text-white shadow-2xs'
+          : 'hidden sm:inline-flex shrink-0 items-center rounded-md border border-slate-300 bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-700 shadow-2xs dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200'
+      }
+    >
+      {children}
+    </kbd>
+  )
 }
 
 function boxVolumeCbm(rec: PackagingRecommendation | null): number {
@@ -451,6 +507,7 @@ export function ShippingPage() {
       : false
   const selectedDueAt =
     selected?.kind === 'shipment' ? selected.shipment.dueAt : null
+  const slaBadge = deliverySlaBadge(selectedDueAt, selectedDueOverdue, vi)
 
   const panelCode =
     selected?.kind === 'shipment'
@@ -462,7 +519,7 @@ export function ShippingPage() {
   const progressPct = selected ? 100 : 0
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-[#EAEEEC] dark:bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
@@ -470,7 +527,7 @@ export function ShippingPage() {
         ]}
       />
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="flex-1 overflow-y-auto bg-[#EAEEEC] p-4 sm:p-6 dark:bg-transparent">
         <div className="mx-auto max-w-7xl space-y-6">
           <section className="owner-hero">
             <div>
@@ -547,7 +604,7 @@ export function ShippingPage() {
                       <button
                         type="button"
                         onClick={() => setCarrierDropdownOpen((o) => !o)}
-                        className="flex h-12 w-full cursor-pointer items-center justify-between rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3.5 text-left text-sm font-semibold text-[var(--ls-ink)] shadow-2xs transition-colors hover:border-[var(--ls-cta)]"
+                        className="flex h-12 w-full cursor-pointer items-center justify-between rounded-xl border border-black/[0.08] bg-white px-3.5 text-left text-sm font-semibold text-[var(--ls-ink)] shadow-sm shadow-black/5 transition-colors hover:border-slate-400 dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)] dark:shadow-none dark:hover:border-[var(--ls-cta)]"
                       >
                         <div className="flex min-w-0 items-center gap-2.5 pr-2">
                           <Truck className="h-4 w-4 shrink-0 text-slate-600 dark:text-slate-300" />
@@ -600,7 +657,7 @@ export function ShippingPage() {
                     {vi ? 'Tìm mã vận đơn / mã nhóm kiện' : 'Find waybill / group code'}
                   </label>
                   <form onSubmit={handleScanSubmit} className="relative">
-                    <div className="flex items-center rounded-xl border-2 border-[var(--ls-cta)] bg-[var(--ls-panel)] px-3.5 py-2 shadow-sm transition-all focus-within:ring-2 focus-within:ring-[color-mix(in_srgb,var(--ls-cta)_35%,transparent)]">
+                    <div className="flex items-center rounded-xl border-2 border-slate-300 bg-white px-3.5 py-2.5 shadow-sm shadow-black/5 transition-all focus-within:border-black focus-within:ring-2 focus-within:ring-black/10 dark:border-[var(--ls-cta)] dark:bg-[var(--ls-panel)] dark:shadow-none dark:focus-within:border-primary dark:focus-within:ring-primary/20">
                       <BarcodeLineIcon className="text-slate-700 dark:text-slate-300" />
                       <input
                         type="text"
@@ -611,7 +668,9 @@ export function ShippingPage() {
                             ? 'Quét hoặc nhập SHP-… / mã nhóm kiện …'
                             : 'Scan or enter SHP-… / group id …'
                         }
-                        className="ml-3 flex-1 bg-transparent font-mono text-xs tabular-nums text-[var(--ls-ink)] placeholder:text-[var(--ls-muted)] focus:outline-hidden sm:text-sm"
+                        className="ml-3 flex-1 bg-transparent font-mono text-xs tabular-nums text-slate-900 placeholder:text-slate-400 focus:outline-hidden sm:text-sm dark:text-[var(--ls-ink)] dark:placeholder:text-[var(--ls-muted)]"
+                        autoComplete="off"
+                        spellCheck={false}
                       />
                       <button
                         type="button"
@@ -652,24 +711,24 @@ export function ShippingPage() {
                   </p>
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-slate-100 dark:border-slate-800">
-                  <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto rounded-xl border border-black/[0.08] bg-white shadow-sm shadow-black/5 dark:border-slate-800 dark:bg-transparent dark:shadow-none">
+                  <table className="w-full border-collapse text-left">
                     <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50/70 text-[11px] font-bold text-slate-500 uppercase tracking-wider dark:border-slate-800 dark:bg-surface-2/50 dark:text-slate-400">
-                        <th className="py-3 px-3.5">{vi ? 'MÃ VẬN ĐƠN' : 'WAYBILL'}</th>
-                        <th className="py-3 px-3.5">{vi ? 'MÃ NHÓM KIỆN' : 'GROUP ID'}</th>
-                        <th className="py-3 px-3.5">{vi ? 'TRỌNG LƯỢNG' : 'WEIGHT'}</th>
-                        <th className="py-3 px-3.5">{vi ? 'ĐIỂM ĐẾN' : 'DESTINATION'}</th>
-                        <th className="py-3 px-3.5 text-right sm:text-left">
+                      <tr className="border-b border-slate-200/80 bg-slate-50 text-[11px] font-bold tracking-wider text-slate-500 uppercase dark:border-slate-800 dark:bg-surface-2/50 dark:text-slate-400">
+                        <th className="px-3.5 py-3">{vi ? 'MÃ VẬN ĐƠN' : 'WAYBILL'}</th>
+                        <th className="px-3.5 py-3">{vi ? 'MÃ NHÓM KIỆN' : 'GROUP ID'}</th>
+                        <th className="px-3.5 py-3">{vi ? 'TRỌNG LƯỢNG' : 'WEIGHT'}</th>
+                        <th className="px-3.5 py-3">{vi ? 'ĐIỂM ĐẾN' : 'DESTINATION'}</th>
+                        <th className="px-3.5 py-3 text-right sm:text-left">
                           {vi ? 'TRẠNG THÁI' : 'STATUS'}
                         </th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                    <tbody className="divide-y divide-slate-100 text-xs dark:divide-slate-800">
                       {loading ? (
                         <tr>
                           <td colSpan={5} className="py-8 text-center text-slate-500">
-                            <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
+                            <Loader2 className="mr-2 inline h-4 w-4 animate-spin" />
                             {vi ? 'Đang tải hàng đợi…' : 'Loading queue…'}
                           </td>
                         </tr>
@@ -699,10 +758,10 @@ export function ShippingPage() {
                             <tr
                               key={row.key}
                               onClick={() => setSelectedKey(row.key)}
-                              className={`cursor-pointer transition-colors hover:bg-[color-mix(in_srgb,var(--ls-cta)_7%,transparent)] ${
+                              className={`cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-[color-mix(in_srgb,var(--ls-cta)_7%,transparent)] ${
                                 active
-                                  ? 'bg-[color-mix(in_srgb,var(--ls-cta)_12%,transparent)] shadow-[inset_3px_0_0_var(--ls-cta)]'
-                                  : ''
+                                  ? 'border-l-4 border-emerald-600 bg-emerald-50/60 dark:border-[var(--ls-cta)] dark:bg-[color-mix(in_srgb,var(--ls-cta)_12%,transparent)]'
+                                  : 'border-l-4 border-transparent'
                               }`}
                               title={vi ? 'Nhấp để chọn kiện này' : 'Click to select this package'}
                             >
@@ -791,77 +850,96 @@ export function ShippingPage() {
 
             <aside className="ship-bench-side select-none">
               <div className="pack-bench-head">
-                <div>
+                <div className="min-w-0 flex-1">
                   <p className="pack-bench-kicker">
                     {vi ? 'Tổng hợp kiện đang chọn' : 'Selected package'}
                   </p>
-                  <h2 className="font-mono tabular-nums">{panelCode}</h2>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <h2 className="font-mono text-base font-bold tabular-nums tracking-tight text-[#f4faf6] sm:text-lg">
+                      {panelCode}
+                    </h2>
+                    {slaBadge ? (
+                      <span
+                        className={
+                          slaBadge.tone === 'overdue'
+                            ? 'inline-flex items-center gap-1 rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200'
+                            : slaBadge.tone === 'soon'
+                              ? 'inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200'
+                              : 'inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200'
+                        }
+                      >
+                        {slaBadge.tone === 'overdue' ? (
+                          <AlertTriangle className="h-3 w-3" />
+                        ) : (
+                          <Clock3 className="h-3 w-3" />
+                        )}
+                        {slaBadge.label}
+                      </span>
+                    ) : null}
+                  </div>
+                  {selectedDueAt ? (
+                    <p className="mt-1 text-[11px] text-[var(--ls-muted)]">
+                      {vi ? 'Hạn giao' : 'Deadline'}:{' '}
+                      <span className="font-medium text-[var(--ls-ink)]">
+                        {formatDateTime(selectedDueAt)}
+                      </span>
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
               <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-4">
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 dark:border-[var(--ls-card-border)] dark:bg-transparent dark:p-0">
                   <div className="flex items-center justify-between text-xs sm:text-sm">
-                    <span className="text-[var(--ls-muted)]">
+                    <span className="text-slate-500 dark:text-[var(--ls-muted)]">
                       {vi ? 'Lượt giao' : 'Delivery attempts'}
                     </span>
-                    <span className="font-mono text-sm font-bold tabular-nums text-[var(--ls-ink)]">
+                    <span className="font-mono text-sm font-bold tabular-nums text-slate-900 dark:text-[var(--ls-ink)]">
                       {attemptText} {vi ? 'lần' : 'tries'}
                     </span>
                   </div>
-                  <div className="h-2 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--ls-cta)_14%,transparent)]">
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200/80 dark:bg-[color-mix(in_srgb,var(--ls-cta)_14%,transparent)]">
                     <div
-                      className="h-full rounded-full bg-[var(--ls-cta)] transition-all duration-300"
+                      className="h-full rounded-full bg-emerald-600 transition-all duration-300 dark:bg-[var(--ls-cta)]"
                       style={{ width: `${progressPct}%` }}
                     />
                   </div>
-                  <p className="text-[11px] leading-tight text-[var(--ls-muted)]">
+                  <p className="text-[11px] leading-tight text-slate-500 dark:text-[var(--ls-muted)]">
                     {lastReason
                       ? `${vi ? 'Lý do gần nhất: ' : 'Last reason: '}${lastReason}`
                       : vi
                         ? 'Chưa có lần thất bại. Coordinator bấm nút dưới để đổi trạng thái.'
                         : 'No failure yet. Use the footer actions to update status.'}
                   </p>
-                  {selectedDueAt ? (
-                    <p
-                      className={
-                        selectedDueOverdue
-                          ? 'rounded-lg border border-rose-300/80 bg-rose-50 px-2.5 py-1.5 text-[11px] font-semibold text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200'
-                          : 'text-[11px] font-medium text-[var(--ls-ink)]'
-                      }
-                    >
-                      {selectedDueOverdue
-                        ? vi
-                          ? `Quá hạn giao · ${formatDateTime(selectedDueAt)}`
-                          : `Delivery overdue · ${formatDateTime(selectedDueAt)}`
-                        : vi
-                          ? `Hạn giao: ${formatDateTime(selectedDueAt)}`
-                          : `Due: ${formatDateTime(selectedDueAt)}`}
-                    </p>
-                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5 pt-0.5">
-                  <div className="rounded-xl border border-[var(--ls-card-border)] bg-[color-mix(in_srgb,var(--ls-cta)_8%,transparent)] p-2.5 sm:p-3">
-                    <span className="text-[11px] font-medium text-[var(--ls-muted)]">
+                  <div className="rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 sm:p-3.5 dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]">
+                    <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase dark:text-[var(--ls-muted)]">
                       {vi ? 'Tổng trọng lượng' : 'Total weight'}
                     </span>
-                    <p className="mt-1 font-mono text-2xl font-bold tracking-tight tabular-nums text-[var(--ls-ink)]">
-                      {sessionTotalWeight} kg
+                    <p className="mt-1.5 font-mono text-3xl font-extrabold leading-none tracking-tight tabular-nums text-slate-900 dark:text-[var(--ls-ink)]">
+                      {sessionTotalWeight}
+                      <span className="ml-1 text-sm font-bold text-slate-500 dark:text-[var(--ls-muted)]">
+                        kg
+                      </span>
                     </p>
                   </div>
-                  <div className="rounded-xl border border-[var(--ls-card-border)] bg-[color-mix(in_srgb,var(--ls-cta)_8%,transparent)] p-2.5 sm:p-3">
-                    <span className="text-[11px] font-medium text-[var(--ls-muted)]">
+                  <div className="rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 sm:p-3.5 dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]">
+                    <span className="text-[10px] font-bold tracking-wider text-slate-500 uppercase dark:text-[var(--ls-muted)]">
                       {vi ? 'Thể tích ước tính' : 'Estimated volume'}
                     </span>
-                    <p className="mt-1 font-mono text-2xl font-bold tracking-tight tabular-nums text-[var(--ls-ink)]">
-                      {sessionVolume.toFixed(2)} CBM
+                    <p className="mt-1.5 font-mono text-3xl font-extrabold leading-none tracking-tight tabular-nums text-slate-900 dark:text-[var(--ls-ink)]">
+                      {sessionVolume.toFixed(2)}
+                      <span className="ml-1 text-sm font-bold text-slate-500 dark:text-[var(--ls-muted)]">
+                        CBM
+                      </span>
                     </p>
                   </div>
                 </div>
 
-                <div className="space-y-1.5 border-t border-[var(--ls-card-border)] pt-2">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--ls-cta)] sm:text-[11px]">
+                <div className="space-y-1.5 rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 dark:border-[var(--ls-card-border)] dark:bg-transparent dark:p-0">
+                  <span className="block text-[10px] font-bold tracking-wider text-[var(--ls-cta)] uppercase sm:text-[11px]">
                     {vi ? 'Dòng thời gian vận đơn' : 'Shipment timeline'}
                   </span>
                   <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1 text-xs">
@@ -895,13 +973,13 @@ export function ShippingPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2 border-t border-[var(--ls-card-border)] pt-2">
-                  <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--ls-cta)] sm:text-[11px]">
+                <div className="space-y-2 rounded-xl border border-slate-200/60 bg-slate-50/80 p-3 dark:border-[var(--ls-card-border)] dark:bg-transparent dark:p-0">
+                  <span className="block text-[10px] font-bold tracking-wider text-[var(--ls-cta)] uppercase sm:text-[11px]">
                     {vi ? 'Xác nhận trên hệ thống' : 'System confirmation'}
                   </span>
-                  <div className="flex flex-col items-center justify-center rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3 py-2.5 text-center">
+                  <div className="flex flex-col items-center justify-center rounded-xl border border-slate-200/60 bg-white px-3 py-2.5 text-center dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]">
                     <StylusSignatureGraphic />
-                    <p className="mt-1 text-[10.5px] text-[var(--ls-muted)]">
+                    <p className="mt-1 text-[10.5px] text-slate-500 dark:text-[var(--ls-muted)]">
                       {vi
                         ? 'Shop tự giao — không có chữ ký tài xế 3PL'
                         : 'Own fleet — no 3PL driver signature'}
@@ -915,34 +993,30 @@ export function ShippingPage() {
       </div>
 
       <footer className="ship-foot sticky bottom-0 z-20 px-4 py-3 sm:px-6">
-        <div className="mx-auto max-w-7xl flex flex-wrap items-center justify-between gap-3">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
               onClick={handleExportManifest}
-              className="flex h-auto min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3.5 py-2 text-xs font-semibold text-[var(--ls-ink)] shadow-xs transition-colors hover:border-[var(--ls-cta)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--ls-cta)]"
+              className="flex h-auto min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-black/[0.08] bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 shadow-sm shadow-black/5 transition-colors hover:border-slate-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-black/10 dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)] dark:text-[var(--ls-ink)] dark:shadow-none dark:hover:border-[var(--ls-cta)]"
             >
               <Download className="h-4 w-4 shrink-0 text-slate-700 dark:text-slate-300" />
               <span className="leading-snug">
                 {vi ? 'Xuất biên bản (CSV)' : 'Export queue (CSV)'}
               </span>
-              <kbd className="hidden sm:inline-block shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 border border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 shadow-2xs">
-                Ctrl+E
-              </kbd>
+              <KbdHint>Ctrl+E</KbdHint>
             </button>
 
             <button
               type="button"
               onClick={handlePrintHandover}
-              className="flex h-auto min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3.5 py-2 text-xs font-semibold text-[var(--ls-ink)] shadow-xs transition-colors hover:border-[var(--ls-cta)] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-[var(--ls-cta)]"
+              className="flex h-auto min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-black/[0.08] bg-white px-3.5 py-2 text-xs font-semibold text-slate-800 shadow-sm shadow-black/5 transition-colors hover:border-slate-400 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-black/10 dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)] dark:text-[var(--ls-ink)] dark:shadow-none dark:hover:border-[var(--ls-cta)]"
             >
               <Printer className="h-4 w-4 shrink-0 text-slate-700 dark:text-slate-300" />
               <span className="leading-snug">
                 {vi ? 'In phiếu bàn giao' : 'Print handover slip'}
               </span>
-              <kbd className="hidden sm:inline-block shrink-0 rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-mono font-semibold text-slate-700 border border-slate-300 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-200 shadow-2xs">
-                Ctrl+P
-              </kbd>
+              <KbdHint>Ctrl+P</KbdHint>
             </button>
 
             {selected?.kind === 'shipment' && selected.shipment.status === 'out_for_delivery' ? (
@@ -952,8 +1026,9 @@ export function ShippingPage() {
                   setFailReason(reasonCodes[0]?.code ?? 'customer_unreachable')
                   setModalMode('fail')
                 }}
-                className="min-h-10 h-auto rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2 font-semibold text-xs text-amber-900 shadow-xs hover:bg-amber-100 transition-colors cursor-pointer dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                className="inline-flex h-auto min-h-10 cursor-pointer items-center gap-1.5 rounded-xl border border-red-300 bg-transparent px-3.5 py-2 text-xs font-semibold text-red-600 shadow-xs transition-colors hover:bg-red-50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-red-300/50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/40"
               >
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                 {vi ? 'Giao thất bại' : 'Mark failed'}
               </button>
             ) : null}
@@ -964,18 +1039,20 @@ export function ShippingPage() {
               type="button"
               disabled={!primaryAction || actionBusy}
               onClick={() => primaryAction && setModalMode(primaryAction)}
-              className={`flex h-auto min-h-10 w-full items-start gap-2.5 rounded-xl px-4 py-2 text-xs transition-all sm:w-auto sm:items-center sm:px-5 sm:text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 ${
+              className={`flex h-auto min-h-11 w-full items-center justify-center gap-2.5 rounded-xl px-5 py-2.5 text-sm font-bold transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 sm:w-auto ${
                 !selected || boxWeightKg(packRec) <= 0 || !primaryAction
-                  ? 'cursor-not-allowed bg-slate-200 font-semibold text-slate-400 shadow-none'
-                  : 'owner-btn-primary cursor-pointer font-bold shadow-md'
+                  ? 'cursor-not-allowed bg-slate-200 text-slate-400 shadow-none dark:bg-slate-800 dark:text-slate-500'
+                  : primaryAction === 'deliver'
+                    ? 'cursor-pointer bg-emerald-600 text-white shadow-md hover:bg-emerald-700 active:scale-[0.98] focus-visible:ring-emerald-500'
+                    : 'owner-btn-primary cursor-pointer shadow-md active:scale-[0.98] focus-visible:ring-primary/40'
               }`}
             >
               {actionBusy ? (
-                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin sm:mt-0" />
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
               ) : (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
               )}
-              <span className="text-left leading-snug">
+              <span className="leading-snug">
                 {primaryAction === 'start'
                   ? vi
                     ? 'Bắt đầu giao'
@@ -992,11 +1069,7 @@ export function ShippingPage() {
                         ? 'Không có thao tác ở trạng thái này'
                         : 'No action for this status'}
               </span>
-              {primaryAction ? (
-                <kbd className="hidden sm:inline-block shrink-0 rounded-md bg-white/25 px-2 py-0.5 text-[11px] font-mono font-bold text-white border border-white/30 tracking-wide">
-                  Ctrl+Enter
-                </kbd>
-              ) : null}
+              {primaryAction ? <KbdHint onPrimary>Ctrl+Enter</KbdHint> : null}
             </button>
           </div>
         </div>
