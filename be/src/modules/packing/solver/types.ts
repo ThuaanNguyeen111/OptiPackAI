@@ -102,5 +102,10 @@ export interface SolveResult {
   objective: Objective;
   /** Lời giải thích máy sinh (vì sao chọn phương án này / vì sao không rẻ hơn được). */
   explanation: string[];
+  /**
+   * Tổ hợp thùng tốt hơn (ít kiện hơn / rẻ hơn) chưa loại được bằng kiểm tra
+   * nhanh — đầu vào cho CP-SAT. Rỗng khi đã có nhãn tối ưu.
+   */
+  open_candidates: BoxSpec[][];
   stats: { evaluations: number; generations: number; computation_ms: number };
 }

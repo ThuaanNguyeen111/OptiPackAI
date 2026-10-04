@@ -1,7 +1,7 @@
 # ============================================================
 # OptiPackAI — chạy toàn bộ hệ thống bằng Docker Compose
 #
-#   docker compose up -d --build            # redis + be + fe + storefront
+#   docker compose up -d --build            # redis + packer + be + fe + storefront
 #   docker compose --profile local-db up -d # thêm MongoDB + mongo-express local
 #   docker compose down
 #
@@ -37,6 +37,30 @@ services:
     networks:
       - optipackai-network
 
+  # CP-SAT (Python): chứng minh tổ hợp thùng không xếp được. Chỉ backend gọi,
+  # không publish cổng ra máy host. Sập thì backend vẫn chạy (nhãn heuristic).
+  packer:
+    build:
+      context: .
+      dockerfile: packer/Dockerfile
+    image: optipackai-packer:local
+    container_name: optipackai-packer
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - optipackai-network
+
   be:
     build:
       # Context là thư mục gốc vì npm workspaces dùng chung package-lock.json
@@ -55,11 +79,14 @@ services:
       # Ghi đè 2 biến trong be/.env: trong mạng compose, Redis là tên service.
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PACKER_URL: http://packer:8000
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173,http://localhost:3001}
     ports:
       - '${BE_PORT:-3000}:3000'
     depends_on:
       redis:
+        condition: service_healthy
+      packer:
         condition: service_healthy
     networks:
       - optipackai-network

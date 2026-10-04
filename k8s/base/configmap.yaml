@@ -16,4 +16,6 @@ data:
   # trong be/.env.
   REDIS_HOST: 'redis'
   REDIS_PORT: '6379'
+  # Service CP-SAT nội bộ (k8s/base/packer.yaml).
+  PACKER_URL: 'http://packer:8000'
   CORS_ORIGIN: 'http://app.optipackai.local,http://shop.optipackai.local'

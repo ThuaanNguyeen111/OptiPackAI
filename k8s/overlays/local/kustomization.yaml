@@ -13,3 +13,5 @@ images:
     newTag: local
   - name: optipackai-storefront
     newTag: local
+  - name: optipackai-packer
+    newTag: local

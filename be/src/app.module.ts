@@ -15,6 +15,7 @@ import redisConfig from './config/redis.config';
 import marketplaceConfig from './config/marketplace.config';
 import storefrontConfig from './config/storefront.config';
 import aiConfig from './config/ai.config';
+import packerConfig from './config/packer.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
@@ -34,7 +35,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, storefrontConfig, aiConfig],
+      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, storefrontConfig, aiConfig, packerConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],

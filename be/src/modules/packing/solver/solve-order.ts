@@ -52,7 +52,8 @@ export function defaultEvaluations(n: number): number {
   return 600;
 }
 
-function variantsOf(unit: PackingUnit): Variant[] {
+/** Mọi cách đặt món: dạng gốc (+ dạng gập nếu gập được) × các hướng cho phép. */
+export function variantsOf(unit: PackingUnit): Variant[] {
   const shapes = [unit];
   if (unit.foldable === true && unit.folded !== true) shapes.push(foldUnit(unit));
   const out: Variant[] = [];
@@ -181,6 +182,7 @@ export function solveOrder(
       strategy: 'exhaustive',
       objective: emptyObjective(unplaced.length),
       explanation: [],
+      open_candidates: [],
       stats: { evaluations: 0, generations: 0, computation_ms: Date.now() - started },
     };
   }
@@ -289,10 +291,18 @@ export function solveOrder(
   }
 
   // 4. Chứng minh (chỉ khi xếp đủ mọi món).
+  // Chứng minh chỉ áp cho mục tiêu "ít kiện trước" và khi đã xếp đủ mọi món.
   const proof =
-    unplaced.length === 0
+    unplaced.length === 0 && prefer === 'fewest_parcels'
       ? proveOptimality(units, variants, boxes, stock, best.parcels, lowerBound)
-      : { label: 'heuristic' as const, explanation: [], openCandidates: [] };
+      : {
+          label: 'heuristic' as const,
+          explanation:
+            prefer === 'cheapest'
+              ? ['Chế độ ưu tiên rẻ nhất: không chạy phần chứng minh tối ưu.']
+              : [],
+          openCandidates: [] as BoxSpec[][],
+        };
 
   const placedCount = best.parcels.reduce((s, p) => s + p.placements.length, 0);
   return {
@@ -305,6 +315,7 @@ export function solveOrder(
     strategy,
     objective: { ...best.objective, unplaced: unplaced.length },
     explanation: proof.explanation,
+    open_candidates: proof.openCandidates,
     stats: {
       evaluations,
       generations,

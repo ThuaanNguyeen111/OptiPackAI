@@ -122,6 +122,36 @@ function cheaperMultisets(
   return state.overflow ? null : out;
 }
 
+/** Số dòng "tổ hợp X bị loại" tối đa đưa vào lời giải thích (còn lại gộp thành 1 dòng đếm). */
+const MAX_REJECT_LINES = 6;
+
+/**
+ * Tổ hợp CẦN loại bỏ để khẳng định phương án k kiện là tốt nhất (ít kiện trước,
+ * rồi rẻ): mọi tổ hợp ít kiện hơn (từ cận dưới tới k−1, bất kể giá) và mọi tổ
+ * hợp k kiện rẻ hơn. Sắp theo (số kiện, giá) tăng dần — đúng thứ tự CP-SAT trả lời.
+ */
+function betterCombos(
+  boxes: BoxSpec[],
+  k: number,
+  lowerBound: number,
+  chosenCost: number,
+  stock: Map<string, number> | undefined,
+): BoxSpec[][] | null {
+  const out: BoxSpec[][] = [];
+  for (let size = Math.max(1, lowerBound); size <= k; size += 1) {
+    const limit = size < k ? Number.POSITIVE_INFINITY : chosenCost;
+    const combos = cheaperMultisets(boxes, size, limit, stock);
+    if (combos === null) return null;
+    combos.sort(
+      (a, b) =>
+        a.reduce((s, x) => s + cost(x), 0) - b.reduce((s, x) => s + cost(x), 0),
+    );
+    out.push(...combos);
+    if (out.length > MAX_MULTISETS) return null;
+  }
+  return out;
+}
+
 export function proveOptimality(
   units: PackingUnit[],
   variants: Variant[][],
@@ -133,34 +163,39 @@ export function proveOptimality(
   const k = chosen.length;
   const explanation: string[] = [];
   if (k === 0) return { label: 'heuristic', explanation, openCandidates: [] };
-  if (k > lowerBound) {
-    explanation.push(
-      `Cận dưới là ${String(lowerBound)} kiện; phương án dùng ${String(k)} kiện — chưa chứng minh được là ít nhất.`,
-    );
+  const chosenCost = chosen.reduce((s, p) => s + cost(p.box), 0);
+  const combos = betterCombos(boxes, k, lowerBound, chosenCost, stock);
+  if (combos === null) {
+    explanation.push('Quá nhiều tổ hợp thùng tốt hơn cần kiểm tra — không chứng minh.');
     return { label: 'heuristic', explanation, openCandidates: [] };
   }
-  explanation.push(
-    `Không thể dùng ít hơn ${String(k)} kiện (cận dưới theo thể tích, cân và diện tích sàn).`,
-  );
-  const chosenCost = chosen.reduce((s, p) => s + cost(p.box), 0);
-  const combos = cheaperMultisets(boxes, k, chosenCost, stock);
-  if (combos === null) {
-    explanation.push('Quá nhiều tổ hợp thùng rẻ hơn để kiểm tra nhanh.');
-    return { label: 'heuristic', explanation, openCandidates: [] };
+  if (lowerBound >= k) {
+    explanation.push(
+      `Không thể dùng ít hơn ${String(k)} kiện (cận dưới theo thể tích, cân và diện tích sàn).`,
+    );
   }
   const open: BoxSpec[][] = [];
+  let rejected = 0;
   for (const combo of combos) {
     const reason = cheapReject(units, variants, combo);
-    const name = combo.map((b) => b.code).join(' + ');
-    if (reason) explanation.push(`${name}: không thể — ${reason}.`);
-    else open.push(combo);
+    if (!reason) {
+      open.push(combo);
+      continue;
+    }
+    rejected += 1;
+    if (rejected <= MAX_REJECT_LINES)
+      explanation.push(`${combo.map((b) => b.code).join(' + ')}: không thể — ${reason}.`);
   }
+  if (rejected > MAX_REJECT_LINES)
+    explanation.push(`… và ${String(rejected - MAX_REJECT_LINES)} tổ hợp khác cũng bị loại.`);
   if (open.length > 0) {
     explanation.push(
-      `${String(open.length)} tổ hợp rẻ hơn chưa loại được bằng kiểm tra nhanh (vd ${open[0]?.map((b) => b.code).join(' + ') ?? ''}).`,
+      `${String(open.length)} tổ hợp tốt hơn chưa loại được bằng kiểm tra nhanh (vd ${open[0]?.map((b) => b.code).join(' + ') ?? ''}).`,
     );
     return { label: 'heuristic', explanation, openCandidates: open };
   }
-  explanation.push('Mọi tổ hợp thùng rẻ hơn đều không thể chứa đơn → tối ưu về số kiện và giá thùng.');
+  explanation.push(
+    'Mọi tổ hợp ít kiện hơn hoặc rẻ hơn đều không thể chứa đơn → tối ưu về số kiện và giá thùng.',
+  );
   return { label: 'optimal_global', explanation, openCandidates: [] };
 }

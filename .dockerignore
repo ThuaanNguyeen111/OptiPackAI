@@ -27,3 +27,12 @@ docs
 *.md
 !README.md
 k8s
+
+# Python (packer/) — venv và cache cài lại trong image
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+packer/tests

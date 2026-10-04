@@ -18,20 +18,23 @@ Kubernetes chi tiết nằm ở [`k8s/README.md`](../k8s/README.md).
                     ┌──────▼───────┐        ┌─────────┐
   trình duyệt ────► │  be (NestJS) │ ─────► │  redis  │  cache trạng thái auth
                     └──────┬───────┘        └─────────┘
-                           │
+                           │   └──────────► ┌──────────────────┐
+                           │                │ packer (CP-SAT)  │  nội bộ, cổng 8000
+                           │                └──────────────────┘
                     ┌──────▼─────────────┐
                     │ MongoDB Atlas      │  KHÔNG chạy trong cụm — xem mục 4
                     └────────────────────┘
 ```
 
-3 image, **tất cả đều build với build context là THƯ MỤC GỐC repo** vì đây là npm
-workspaces dùng chung một `package-lock.json`:
+4 image, **tất cả đều build với build context là THƯ MỤC GỐC repo** (npm workspaces dùng
+chung một `package-lock.json`; `packer` dùng chung `.dockerignore` ở gốc):
 
 | Image | Dockerfile | Cổng | Ghi chú |
 |---|---|---|---|
 | `optipackai-be` | `be/Dockerfile` | 3000 | multi-stage, chạy bằng user `nestjs` (uid 1001), entry `dist/src/main.js` |
 | `optipackai-fe` | `fe/Dockerfile` | 8080 | build Vite → nginx-unprivileged, có SPA fallback + `/healthz` |
 | `optipackai-storefront` | `storefront/Dockerfile` | 3001 | Next.js `output: 'standalone'` |
+| `optipackai-packer` | `packer/Dockerfile` | 8000 | Python 3.12 + FastAPI + OR-Tools CP-SAT, user `app` (uid 1001), healthcheck `/healthz`; **chỉ backend gọi**, không có Ingress. Sập thì backend vẫn chạy (bộ giải BRKGA, nhãn `heuristic`). (04/10/2026) |
 
 ---
 
@@ -39,13 +42,13 @@ workspaces dùng chung một `package-lock.json`:
 
 ```bash
 cp .env.example .env          # chỉ khi cần đổi cổng / URL mặc định
-docker compose up -d --build  # redis + be + fe + storefront
+docker compose up -d --build  # redis + packer + be + fe + storefront
 docker compose logs -f be
 docker compose down
 ```
 
 - Backend đọc biến thật từ `be/.env` (`env_file`), compose chỉ ghi đè `REDIS_HOST=redis`,
-  `PORT`, `NODE_ENV`, `CORS_ORIGIN`.
+  `PACKER_URL=http://packer:8000`, `PORT`, `NODE_ENV`, `CORS_ORIGIN`.
 - Cần MongoDB chạy local (offline, không dùng Atlas):
   `docker compose --profile local-db up -d mongodb mongo-express` — profile này đã bật
   **replica set** sẵn, xem mục 4.

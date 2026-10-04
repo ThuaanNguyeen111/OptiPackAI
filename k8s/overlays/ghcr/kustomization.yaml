@@ -26,9 +26,12 @@ images:
   - name: optipackai-storefront
     newName: ghcr.io/thuaannguyeen111/optipackai-storefront
     newTag: latest
+  - name: optipackai-packer
+    newName: ghcr.io/thuaannguyeen111/optipackai-packer
+    newTag: latest
 patches:
   # Trên cụm thật thì kéo image mới nhất theo tag, không dùng bản cache ở node.
-  - target: { kind: Deployment, name: 'be|fe|storefront' }
+  - target: { kind: Deployment, name: 'be|fe|storefront|packer' }
     patch: |-
       - op: replace
         path: /spec/template/spec/containers/0/imagePullPolicy

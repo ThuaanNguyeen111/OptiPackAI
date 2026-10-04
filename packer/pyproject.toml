@@ -1,0 +1,41 @@
+[project]
+name = "optipack-packer"
+version = "0.1.0"
+description = "CP-SAT feasibility service for OptiPackAI 3D packing (proves which box combinations cannot hold an order)"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.142.2",
+  "uvicorn==0.54.0",
+  "pydantic==2.13.5",
+  "ortools==9.15.6755",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest==9.1.1",
+  "httpx2==2.13.1",
+  "ruff==0.16.10",
+  "mypy==2.4.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["packer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

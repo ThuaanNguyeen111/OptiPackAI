@@ -2,6 +2,8 @@ import { selectMaterials } from '../../packaging/engine/material-selector';
 import type {
   BoxSpec,
   MaterialPlanning,
+  PackingUnit,
+  Placement,
 } from '../../packaging/engine/types';
 import type { ParcelState } from './parcel-state';
 import type { Objective, SolvePreference, SolvedParcel } from './types';
@@ -11,28 +13,41 @@ export const DEFAULT_VOLUMETRIC_DIVISOR = 6000;
 const innerVolume = (b: BoxSpec): number =>
   b.inner.length_mm * b.inner.width_mm * b.inner.height_mm;
 
-/** Dựng kết quả 1 kiện: cân, độ đầy, vật tư theo luật, cân quy đổi. */
+/** Dựng kết quả 1 kiện từ trạng thái giải mã. */
 export function summarizeParcel(
   state: ParcelState,
   materials: MaterialPlanning | undefined,
   volumetricDivisor = DEFAULT_VOLUMETRIC_DIVISOR,
 ): SolvedParcel {
-  const box = state.box;
-  const itemsWeight = state.units.reduce((s, u) => s + u.weight_g, 0);
-  const itemsVolume = state.placements.reduce(
-    (s, p) => s + p.dx * p.dy * p.dz,
-    0,
+  return summarizePlacements(
+    state.box,
+    state.units,
+    state.placements,
+    materials,
+    volumetricDivisor,
   );
+}
+
+/** Dựng kết quả 1 kiện từ thùng + món (đúng dạng) + tọa độ: cân, độ đầy, vật tư, cân quy đổi. */
+export function summarizePlacements(
+  box: BoxSpec,
+  units: PackingUnit[],
+  placements: Placement[],
+  materials: MaterialPlanning | undefined,
+  volumetricDivisor = DEFAULT_VOLUMETRIC_DIVISOR,
+): SolvedParcel {
+  const itemsWeight = units.reduce((s, u) => s + u.weight_g, 0);
+  const itemsVolume = placements.reduce((s, p) => s + p.dx * p.dy * p.dz, 0);
   const fill = itemsVolume / innerVolume(box);
-  const lines = materials ? selectMaterials(state.units, fill, materials) : [];
+  const lines = materials ? selectMaterials(units, fill, materials) : [];
   const materialsWeight = lines.reduce((s, m) => s + m.weight_g, 0);
   const materialsCost = lines.reduce((s, m) => s + m.cost_vnd, 0);
   const outerCm3 =
     (box.outer.length_mm * box.outer.width_mm * box.outer.height_mm) / 1000;
   return {
     box,
-    units: [...state.units],
-    placements: state.placements.map((p) => ({ ...p })),
+    units: [...units],
+    placements: placements.map((p) => ({ ...p })),
     fill_ratio: fill,
     items_weight_g: itemsWeight,
     materials: lines,

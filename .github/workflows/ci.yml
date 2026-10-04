@@ -111,12 +111,41 @@ jobs:
         working-directory: storefront
         run: npm run build
 
+  packer:
+    name: Packer CP-SAT (ruff, mypy, pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: packer/pyproject.toml
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Type check
+        run: mypy packer tests
+
+      - name: Test
+        run: pytest -q
+
   docker:
     name: Docker build (không push)
     runs-on: ubuntu-latest
     # Chỉ chạy khi code đã qua được test/build — tránh tốn ~5 phút build image
     # cho commit chắc chắn hỏng.
-    needs: [be, fe]
+    needs: [be, fe, packer]
     steps:
       - uses: actions/checkout@v4
 
@@ -131,6 +160,15 @@ jobs:
           push: false
           cache-from: type=gha,scope=be
           cache-to: type=gha,mode=max,scope=be
+
+      - name: Build packer image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packer/Dockerfile
+          push: false
+          cache-from: type=gha,scope=packer
+          cache-to: type=gha,mode=max,scope=packer
 
       - name: Build frontend image
         uses: docker/build-push-action@v6

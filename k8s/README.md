@@ -48,12 +48,12 @@ Với cluster kind tự dựng (khác cluster của Docker Desktop ở trên), i
 sau khi build phải nạp thủ công:
 
 ```bash
-kind load docker-image optipackai-be:local optipackai-fe:local optipackai-storefront:local --name optipackai
+kind load docker-image optipackai-be:local optipackai-fe:local optipackai-storefront:local optipackai-packer:local --name optipackai
 ```
 
 ---
 
-## Bước 1 — Build 3 image ở máy
+## Bước 1 — Build 4 image ở máy
 
 ```bash
 # Chạy ở thư mục gốc repo. Build context là gốc vì đây là npm workspaces.
@@ -66,6 +66,7 @@ Hoặc build thẳng từng cái:
 docker build -f be/Dockerfile         -t optipackai-be:local .
 docker build -f fe/Dockerfile         -t optipackai-fe:local         --build-arg VITE_API_URL=http://api.optipackai.local .
 docker build -f storefront/Dockerfile -t optipackai-storefront:local --build-arg NEXT_PUBLIC_API_URL=http://api.optipackai.local .
+docker build -f packer/Dockerfile     -t optipackai-packer:local .   # CP-SAT, service nội bộ (04/10/2026)
 ```
 
 > ⚠️ `VITE_API_URL` / `NEXT_PUBLIC_API_URL` bị **nhúng vào bundle lúc build**. Nếu định vào

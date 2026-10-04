@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - redis.yaml
+  - packer.yaml
   - be.yaml
   - fe.yaml
   - storefront.yaml
