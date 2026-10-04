@@ -3136,3 +3136,15 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Lỗi thật khi chạy (04/10, tối):** lượt tăng dần báo `E017 Invalid Date Format` — GetProducts **không nhận** `update_after` dạng `toISOString()` (`2026-10-04T15:26:51.619Z`), khác GetOrders (vẫn nhận). Sửa: `toLazadaProductDate()` trong `lazada.adapter.ts` định dạng `YYYY-MM-DDTHH:mm:ss+0000` (đúng mẫu tài liệu `2018-01-01T00:00:00+0800`). Lượt toàn bộ không gửi ngày nên không bị. Lượt lỗi không ghi mốc → chạy lại không mất dữ liệu. Thêm 1 test → 36 suite / 331 test. **Bài học:** cùng một sàn, mỗi API có thể đòi định dạng ngày khác nhau — đối chiếu mẫu request của từng API, không suy từ API khác.
 
 **Commit:** `feat(AOFP-61)` code + `docs(AOFP-62)` tài liệu.
+
+---
+
+## 📦 Nhật ký 04/10/2026 (tối) — Lỗi "CHƯA GÁN VỊ TRÍ" do đặt SKU Lazada trùng mã ô; bổ sung quy trình cấu hình chuẩn vào tài liệu
+
+**Bối cảnh:** FE (Việt) báo `pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK` với `sku: "KA-D1-P03-T01-3"`. Picking List: `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null`. Nguyên nhân: nhóm đặt **SKU sản phẩm trên Lazada trùng mã ô** (và nghĩ trùng cả SKU nội bộ), tin rằng hệ thống tự nối theo tên — nên bỏ sót bước gán SKU vào ô / nối SKU nội bộ. BE báo đúng; không phải lỗi code. `pick-item` tìm dòng tồn theo kho + (`master_sku` hoặc platform/shop/seller_sku) + ô (nếu gửi) + đủ số lượng; thiếu `bin_location_id` trong body không phải nguyên nhân (trường tùy chọn).
+
+**Quy tắc chốt (ghi vào tài liệu FE):** mã ô (hệ thống sinh khi tạo kệ), SKU nội bộ (hệ thống sinh `<DANHMỤC>-<MẪU 3 số>-<MÀU>-<SIZE>`), SKU sàn (người bán đặt) là 3 thứ khác nhau; **chỉ liên kết qua gán SKU vào ô hoặc nối SKU sàn → SKU nội bộ — không bao giờ tự nối theo tên** (cố ý, tránh nối nhầm). Khuyến nghị: SKU trên Lazada = SKU nội bộ, không đặt trùng mã ô.
+
+**Tài liệu:** `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` v1.1 — thêm **Phần 0b** (3 loại mã, đặt SKU trên Seller Center, 8 bước cấu hình kèm ví dụ, bảng xử lý sự cố "CHƯA GÁN VỊ TRÍ" / `INSUFFICIENT_STOCK` / `MAP_SELLER_SKU_UNKNOWN` / đổi mã / trùng mã ô, việc FE: khóa nút quét khi `bin_location_id = null`); sửa bước 1.3 theo đồng bộ catalog (`POST /product-master/sync`, cron mỗi giờ). `INTEGRATION_GUIDE_WAREHOUSE.md` — A.3 thêm nguyên tắc 5 và liên kết sang Phần 0b.
+
+**Điểm yếu ghi nhận:** chưa có cảnh báo khi SKU sàn trùng định dạng mã ô; FE chưa khóa quét khi dòng chưa có ô (đã ghi vào tài liệu).

@@ -1,6 +1,6 @@
 # OptiPackAI — Hướng dẫn FE & Demo: SKU nội bộ, Tồn kho chung, Chống bán lố (K4a · K4b · K5)
 
-**Phiên bản v1.0 — 27/09/2026.** Tài liệu này dành cho FE ghép giao diện **và** cho người thuyết trình chạy demo. Đi đúng thứ tự từ trên xuống: mỗi bước đều có _làm gì → gọi API nào → body mẫu → kết quả phải thấy → nếu sai thì lỗi gì_.
+**Phiên bản v1.1 — 04/10/2026** (thêm Phần 0b: quy trình cấu hình chuẩn, cách đặt SKU trên Lazada, xử lý sự cố "CHƯA GÁN VỊ TRÍ"; sửa bước 1.3 theo cơ chế đồng bộ sản phẩm mới). **v1.0 — 27/09/2026.** Tài liệu này dành cho FE ghép giao diện **và** cho người thuyết trình chạy demo. Đi đúng thứ tự từ trên xuống: mỗi bước đều có _làm gì → gọi API nào → body mẫu → kết quả phải thấy → nếu sai thì lỗi gì_.
 
 Đọc kèm (đã có trước): `INTEGRATION_GUIDE_WAREHOUSE.md` (kho, kệ, sổ cái K3), `INTEGRATION_GUIDE_SHIPPING.md`, `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`.
 
@@ -9,6 +9,7 @@
 ## MỤC LỤC
 
 - **Phần 0** — Hiểu nhanh 3 bước K4a / K4b / K5 (đọc trước, 3 phút)
+- **Phần 0b** — 🆕 Quy trình cấu hình chuẩn từ đầu: 3 loại mã, đặt SKU trên Lazada, 8 bước, xử lý sự cố
 - **Phần 1** — Chuẩn bị môi trường (bắt buộc làm 1 lần)
 - **Phần 2** — Dựng dữ liệu nền từ đầu (kho → khu → danh mục → màu → kệ)
 - **Phần 3** — K4a: tạo SKU nội bộ, nối SKU Lazada
@@ -41,6 +42,109 @@ Nghĩa là: deploy xong mà chưa nối SKU nào thì hệ thống chạy **đú
 
 ---
 
+# PHẦN 0b — QUY TRÌNH CẤU HÌNH CHUẨN TỪ ĐẦU 🆕 (04/10/2026)
+
+> Đọc phần này trước khi cấu hình kho cho một shop mới, hoặc khi Picking List hiện **"CHƯA GÁN VỊ TRÍ"** và quét hàng báo **thiếu tồn**.
+
+## 0b.1. Ba loại mã — không được nhầm
+
+| Loại mã                      | Ví dụ                     | Là gì                                                         | Ai tạo                                        |
+| ---------------------------- | ------------------------- | ------------------------------------------------------------- | --------------------------------------------- |
+| **Mã ô** (`binCode`)         | `KA-D1-P03-T01-3`         | **Vị trí** trên kệ: khu KA, dãy D1, mặt P kệ 03, tầng 01, ô 3 | Hệ thống **tự sinh** khi Admin tạo kệ         |
+| **SKU nội bộ** (`masterSku`) | `ATHUN-005-DEN-M`         | **Sản phẩm thật**: danh mục – mẫu – màu – size                | Hệ thống **tự sinh** khi Admin tạo SKU nội bộ |
+| **SKU sàn** (`sellerSku`)    | Mã đặt trên Seller Center | Mã sản phẩm **trên Lazada**, đi theo từng đơn hàng            | **Người bán** đặt trên Lazada                 |
+
+**Quy tắc quan trọng nhất: hệ thống KHÔNG tự nối các mã vì chúng viết giống nhau.** Ba mã chỉ liên kết với nhau qua 2 thao tác do Admin thực hiện:
+
+```
+SKU sàn ──(A) Gán SKU vào ô ─────────────────►  Mã ô         POST /warehouse/warehouses/:id/sku-bin-assignments
+   │
+   └────(B) Nối SKU sàn vào SKU nội bộ ───────►  SKU nội bộ   POST /master-skus/:code/mappings
+```
+
+Thiếu cả (A) lẫn (B) thì SKU sàn bị coi là **sản phẩm mới, chưa có ô, chưa có tồn** — kể cả khi chuỗi ký tự trùng hệt mã ô hoặc SKU nội bộ. Thiết kế cố ý như vậy: nối tự động theo tên dễ nối nhầm (một lỗi gõ là tồn của sản phẩm này bị trừ cho sản phẩm khác).
+
+## 0b.2. Đặt SKU trên Seller Center
+
+| Nên                                                                                                      | Không nên                                                                                      |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Đặt SKU trên Lazada **trùng SKU nội bộ** (ví dụ `ATHUN-005-DEN-M`) — dễ đối chiếu, nhìn mã biết sản phẩm | Đặt SKU trên Lazada **trùng mã ô** (ví dụ `KA-D1-P03-T01-3`)                                   |
+| Giữ một kiểu viết thống nhất (chữ hoa, không khoảng trắng)                                               | Viết lẫn hoa/thường hoặc có khoảng trắng — ô kho, giữ chỗ tồn so khớp **chính xác từng ký tự** |
+
+Vì sao không đặt trùng mã ô: nhân viên quét mã dán trên kệ hay mã trên sản phẩm đều ra cùng chuỗi nên không phát hiện được quét nhầm; chuyển hàng sang ô khác thì mã trên Lazada mang tên ô cũ; một ô chứa nhiều sản phẩm hoặc một sản phẩm nằm nhiều ô thì không thể đặt "mã sản phẩm = mã ô".
+
+Dù đặt SKU Lazada trùng SKU nội bộ, **vẫn phải nối (B) một lần** — trùng tên không tự nối.
+
+## 0b.3. Tám bước cấu hình (Admin)
+
+```
+1. Danh mục + màu ──► 2. Kho → khu → kệ (sinh mã ô) ──► 3. SKU nội bộ (sinh mã sản phẩm)
+                                                               │
+4. Đặt SKU trên Lazada (= SKU nội bộ) ──► 5. Đồng bộ sản phẩm ◄┘
+        │
+        ▼
+6. Nối SKU Lazada → SKU nội bộ ──► 7. Gán vào ô + số lượng thật ──► 8. Gộp tồn ──► sẵn sàng lấy hàng
+```
+
+| Bước | Việc                                                | API                                                                                     | Chi tiết               |
+| ---- | --------------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------- |
+| 1    | Danh mục 2 cấp (kèm thang size) và màu chuẩn        | `POST /categories`, `POST /colors`                                                      | Phần 2 (2.3, 2.4)      |
+| 2    | Kho → khu → cả dãy kệ; hệ thống sinh mã ô           | `POST /warehouse/warehouses` → `POST .../zones` → `POST /warehouse/zones/:zoneId/racks` | Phần 2 (2.1, 2.2, 2.5) |
+| 3    | SKU nội bộ cho từng sản phẩm thật; hệ thống sinh mã | `POST /master-skus`                                                                     | Phần 3 (3.1)           |
+| 4    | Trên Seller Center, đặt SKU sản phẩm = SKU nội bộ   | (làm trên Lazada)                                                                       | Mục 0b.2               |
+| 5    | Kéo danh sách sản phẩm Lazada về                    | `POST /product-master/sync` (hoặc chờ cron mỗi giờ)                                     | Phần 1 (1.3)           |
+| 6    | Nối SKU Lazada vào SKU nội bộ                       | `POST /master-skus/:code/mappings`                                                      | Phần 3 (3.3), Phần 4   |
+| 7    | Gán sản phẩm vào ô kèm số lượng thật                | `POST /warehouse/warehouses/:id/sku-bin-assignments` (`initial_quantity`)               | Phần 2 (2.6)           |
+| 8    | Gộp tồn theo SKU nội bộ                             | `POST /master-skus/sync-stock`                                                          | Phần 4 (4.7)           |
+
+Ví dụ đầy đủ cho 1 sản phẩm, shop `201171264532`:
+
+```
+POST /master-skus
+{ "category_code": "ATHUN", "model_no": 5, "color_code": "DEN", "size": "M", "name": "Áo thun basic đen size M" }
+→ { "masterSku": "ATHUN-005-DEN-M", ... }
+
+(Seller Center: đặt SKU sản phẩm = ATHUN-005-DEN-M)
+
+POST /product-master/sync?shop_id=201171264532
+
+POST /master-skus/ATHUN-005-DEN-M/mappings
+{ "platform": "lazada", "shop_id": "201171264532", "seller_sku": "ATHUN-005-DEN-M" }
+
+POST /warehouse/warehouses/WAREHOUSE_ID/sku-bin-assignments
+{ "platform": "lazada", "shop_id": "201171264532", "seller_sku": "ATHUN-005-DEN-M",
+  "bin_location_id": "<id ô KA-D1-P02-T03-1>", "initial_quantity": 10 }
+
+POST /master-skus/sync-stock
+```
+
+Kết quả đúng: đơn Lazada chứa `ATHUN-005-DEN-M` → Picking List chỉ ô `KA-D1-P02-T03-1`, `master_sku` = `ATHUN-005-DEN-M`, quét lấy hàng trừ tồn bình thường.
+
+Ghi chú:
+
+- Bước 4–5 có thể làm trước bước 2–3; chỉ cần đủ 8 bước **trước khi** bắt đầu lấy hàng.
+- Một sản phẩm nằm nhiều ô → lặp bước 7 cho từng ô. Một sản phẩm bán ở nhiều shop/listing → lặp bước 6 cho từng SKU sàn, tồn được tính chung.
+
+## 0b.4. Xử lý sự cố thường gặp
+
+| Hiện tượng                                                                                   | Nguyên nhân                                                                                                               | Cách xử lý                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Picking List hiện `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null` | SKU sàn của đơn **chưa gán ô (A)** và **chưa nối SKU nội bộ (B)**                                                         | Làm bước 6–8 (nếu hàng đang nằm dưới SKU nội bộ / mã khác) hoặc bước 7 (nếu chưa có hàng gán cho sản phẩm này); sau đó `POST /order-groups/:id/stock-reservation/recheck`                                   |
+| `POST .../fulfillment/pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK`                      | Không có dòng tồn nào khớp: cùng kho + cùng SKU (hoặc cùng SKU nội bộ) + đúng ô (nếu gửi `bin_location_id`) + đủ số lượng | Kiểm tra theo thứ tự: dòng Picking List có ô chưa → `GET .../sku-bin-assignments` dòng đó còn tồn không → FE gửi đúng `sku` (mã **sản phẩm**, không phải mã ô), đúng `warehouse_id`, đúng `bin_location_id` |
+| Nối SKU báo `400 MAP_SELLER_SKU_UNKNOWN`                                                     | Hệ thống chưa biết SKU sàn đó                                                                                             | `POST /product-master/sync` rồi nối lại                                                                                                                                                                     |
+| Đã đổi mã SKU trên Lazada, trang kho vẫn hiện mã cũ                                          | Ô kho lưu mã lúc gán, không tự đổi; đơn cũ giữ mã cũ                                                                      | `POST /product-master/sync` → nối **cả mã cũ và mã mới** vào cùng SKU nội bộ → `POST /master-skus/sync-stock`. Không xóa dòng tồn mã cũ (đơn cũ đang chờ lấy sẽ thiếu hàng)                                 |
+| Mã trên Lazada đang trùng mã ô                                                               | Đặt sai quy ước (mục 0b.2)                                                                                                | Tạm thời: nối mã đó vào SKU nội bộ đúng để đơn đang chờ lấy được. Lâu dài: đổi SKU trên Lazada thành SKU nội bộ, rồi nối mã mới                                                                             |
+
+## 0b.5. FE cần làm
+
+| Màn hình                 | Việc                                                                                                                                                                                                                            |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Picking List / quét hàng | Dòng có `bin_location_id = null` → **khóa nút quét**, hiện "SKU chưa được gán ô — liên hệ Admin" thay vì để quét rồi nhận 409. Khi quét, gửi `sku` = **`item.sku`** (mã sản phẩm) và `bin_location_id` = `item.bin_location_id` |
+| Cấu hình kho (Admin)     | Nút **"Đồng bộ sản phẩm từ Lazada"** → `POST /product-master/sync`; khối cảnh báo **"SKU chưa nối SKU nội bộ"** từ `GET /master-skus/unmapped-seller-skus`                                                                      |
+| Tạo SKU nội bộ           | Hiện mã do hệ thống sinh để Admin dùng đặt SKU trên Seller Center                                                                                                                                                               |
+
+---
+
 # PHẦN 1 — CHUẨN BỊ MÔI TRƯỜNG (1 lần mỗi môi trường)
 
 **Bước 1.1 — Chạy migration của K3** (nếu chưa chạy). Không chạy thì gán SKU vào ô thứ 2 / chuyển ô / gộp tồn sẽ lỗi trùng khóa:
@@ -60,7 +164,14 @@ Kết quả đúng: `✅ Đã xóa index cũ ...` hoặc `Không còn index cũ 
 GET /product-master?shop_id=201171264532
 ```
 
-Phải thấy danh sách SKU. Nếu rỗng → chạy đồng bộ sản phẩm trước (cron 3h sáng hoặc script đồng bộ tay đang có).
+Phải thấy danh sách SKU. Nếu rỗng hoặc thiếu SKU vừa tạo/vừa đổi trên Lazada → Admin gọi:
+
+```
+POST /product-master/sync?shop_id=201171264532          (chỉ sản phẩm thay đổi)
+POST /product-master/sync?shop_id=201171264532&full=true (toàn bộ danh sách sản phẩm)
+```
+
+🔄 **Từ 04/10/2026** hệ thống đồng bộ theo **danh sách sản phẩm của shop** (không còn chỉ theo SKU đã có trong đơn): tự chạy **mỗi giờ** (sản phẩm thay đổi) và **3h sáng** (toàn bộ). Script tay vẫn dùng được: `npx ts-node -r dotenv/config scripts/sync-product-master-now.ts 201171264532`.
 
 **Bước 1.4 — Chuẩn bị 3 tài khoản** để demo đúng quyền: **Admin**, **Store Owner**, **Warehouse Staff**.
 
