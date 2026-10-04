@@ -57,16 +57,5 @@ export interface OrderGroupForPackaging {
   items: PackableItem[];
 }
 
-export interface PackagingRecommendation {
-  order_group_id: string;
-  box_size: { length_cm: number; width_cm: number; height_cm: number };
-  material_type: string;
-  material_quantity: number;
-  // BỔ SUNG (2026-09-09) — đề bài (Phieu_FA26SE036.docx) giao "Estimate
-  // shipping costs" cho ĐÚNG actor AI Recommendation Engine — bản đầu
-  // của interface này THIẾU field, phát hiện khi đối chiếu lại đề bài
-  // gốc. Đơn vị: VND, số nguyên (không dùng số thập phân cho tiền VND).
-  estimated_shipping_cost_vnd: number;
-  computation_time_ms: number;
-  fallback_used: boolean;
-}
+// `PackagingRecommendation` (hợp đồng phương án cũ, cm + 1 hộp) đã gỡ 04/10/2026 —
+// kế hoạch đóng gói hiện là `packing_plans` (modules/packing).

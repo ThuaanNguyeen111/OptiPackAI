@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-30 — 🆕 **đa kiện thật** (mỗi đơn có N kiện: `cartons[]`, `carton_index` ở `adjust`/`pack`/`guide`, lý do no_fit có mã), engine 3D mới (extreme-point, bỏ trần 30 món); 2026-09-30 (rà business rule) — 🔄 `fulfillment/pick` chỉ từ `picking`; `decide-partial` từ chối → `picking` (lượt mới); `packaging/adjust` tăng version nhóm; thông báo `packaging_plan_invalidated`; 2026-09-29 — 🆕 webhook nhận sự kiện AURELLE (`POST /marketplace/webhooks/:platform`, mục 3b), `POST /orders/:platform/sync` tổng quát (mục 4), trạng thái `canceled` cho Order Group (N1 — tự động hủy khi mọi đơn trong nhóm không còn fulfill được, nhả giữ chỗ đóng gói), liên kết cùng người nhận `GET /order-groups/:id/linked` + `linkedGroupCount`/`linkedPending` (Mục 9.5, mục 5-6), module `shipments/` mới — giao chung chuyến (mục 6b), picking list gộp nhiều nhóm `GET /warehouse/:warehouseId/picking-list?group_ids=` (mục 9); trước đó 2026-09-28 — 🆕 vật tư chèn `/packaging/materials` (danh mục + tồn kho + bộ luật chọn vật tư, mục 8e), phương án đóng gói trả `materials[]` đầy đủ + `materialsWeightG/CostVnd/Shortfall`; 2026-09-22 — 🆕 tồn kho thùng trong `/packaging/boxes` (stock-in, sổ xuất/nhập, engine chỉ chọn thùng còn trống), gỡ `/materials`; 2026-09-21 lần 3: 🆕 danh mục túi zip `/packaging/bags` (mục 8d), hồ sơ SKU thêm loại sản phẩm + túi zip (mục 8c), hướng dẫn đóng gói bằng AI; lần 2: 🆕 engine đóng gói 3D (mỗi đơn 1 kiện, tọa độ xếp cho animation), danh mục thùng `/packaging/boxes`, hồ sơ SKU `/product-master`, `pick`/`pick-item` đối soát số lượng, `pack` nhận cân từng kiện (mục 6, 8, 8b, 8c); lần 1: đồng bộ luồng lấy hàng trước, đóng gói sau; trước đó 2026-09-20 (gộp bản contract từ nhánh `thi_dev`: thêm mục Quy ước, mục 0 System, bảng DTO/field cho từng module, mục 11 collection nội bộ/planned và bảng mã lỗi theo module).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-04 — 🔄 **làm lại kế hoạch đóng gói**: gỡ toàn bộ `/order-groups/:groupId/packaging/*` và `fulfillment/pack`, thay bằng `/order-groups/:groupId/packing-plan` (1 kế hoạch/nhóm, tự tính khi lấy xong, nhãn chứng minh tối ưu, chỉnh tay đổi thùng/chuyển món) + `GET /packing-plans/summary` (mục 8); 2026-09-30 — 🆕 **đa kiện thật** (mỗi đơn có N kiện: `cartons[]`, `carton_index` ở `adjust`/`pack`/`guide`, lý do no_fit có mã), engine 3D mới (extreme-point, bỏ trần 30 món); 2026-09-30 (rà business rule) — 🔄 `fulfillment/pick` chỉ từ `picking`; `decide-partial` từ chối → `picking` (lượt mới); `packaging/adjust` tăng version nhóm; thông báo `packaging_plan_invalidated`; 2026-09-29 — 🆕 webhook nhận sự kiện AURELLE (`POST /marketplace/webhooks/:platform`, mục 3b), `POST /orders/:platform/sync` tổng quát (mục 4), trạng thái `canceled` cho Order Group (N1 — tự động hủy khi mọi đơn trong nhóm không còn fulfill được, nhả giữ chỗ đóng gói), liên kết cùng người nhận `GET /order-groups/:id/linked` + `linkedGroupCount`/`linkedPending` (Mục 9.5, mục 5-6), module `shipments/` mới — giao chung chuyến (mục 6b), picking list gộp nhiều nhóm `GET /warehouse/:warehouseId/picking-list?group_ids=` (mục 9); trước đó 2026-09-28 — 🆕 vật tư chèn `/packaging/materials` (danh mục + tồn kho + bộ luật chọn vật tư, mục 8e), phương án đóng gói trả `materials[]` đầy đủ + `materialsWeightG/CostVnd/Shortfall`; 2026-09-22 — 🆕 tồn kho thùng trong `/packaging/boxes` (stock-in, sổ xuất/nhập, engine chỉ chọn thùng còn trống), gỡ `/materials`; 2026-09-21 lần 3: 🆕 danh mục túi zip `/packaging/bags` (mục 8d), hồ sơ SKU thêm loại sản phẩm + túi zip (mục 8c), hướng dẫn đóng gói bằng AI; lần 2: 🆕 engine đóng gói 3D (mỗi đơn 1 kiện, tọa độ xếp cho animation), danh mục thùng `/packaging/boxes`, hồ sơ SKU `/product-master`, `pick`/`pick-item` đối soát số lượng, `pack` nhận cân từng kiện (mục 6, 8, 8b, 8c); lần 1: đồng bộ luồng lấy hàng trước, đóng gói sau; trước đó 2026-09-20 (gộp bản contract từ nhánh `thi_dev`: thêm mục Quy ước, mục 0 System, bảng DTO/field cho từng module, mục 11 collection nội bộ/planned và bảng mã lỗi theo module).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -153,14 +153,14 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin           | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
 | POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin           | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại (🔄 21/09: hủy = mở lượt lấy mới `pick_round + 1`, không đếm lại lượt cũ; tồn kho không tự cộng lại) |
 | POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | `picking → picked`: 🔄 21/09 server đối soát mọi SKU đã quét đủ số đặt trong lượt; thiếu → 409 `ORD_GROUP_PICK_INCOMPLETE` kèm danh sách |
-| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | `approved_for_packing → packed`: 🔄 21/09 body `packages[]` = cân THẬT từng kiện; lệch > 20% so với ước tính (hàng + bì + vật tư) → `isAbnormal` + thông báo Store Owner. 🆕 30/09: **đơn nhiều kiện phải cân đủ MỌI kiện**, mỗi phần tử có `carton_index`; đơn 1 kiện có thể bỏ `carton_index`. Mỗi kiện trừ 1 thùng. Xử lý ở module packaging |
+| ~~POST~~ | ~~`/order-groups/:id/fulfillment/pack`~~ | — | 🔄 **ĐÃ GỠ 04/10/2026** — đóng gói + cân từng kiện chuyển sang `POST /order-groups/:groupId/packing-plan/pack` (mục 8) |
 | POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin            | Xác nhận đã bàn giao vận chuyển. 🆕 29/09: response thêm `linkedPending[]` (`{id, fulfillmentStatus}`) — CẢNH BÁO các nhóm khác cùng người nhận CHƯA đóng gói xong (Mục 9.5), KHÔNG chặn hành động ship |
 | POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin            | Xác nhận đã giao thành công tới khách                                |
 | POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |
 | POST   | `/order-groups/:id/fulfillment/return-receive` | 🆕 Warehouse, Admin | Kho NHẬN hàng hoàn của nhóm đã `returned`: body `{ warehouse_id, lines:[{ sku, good_quantity, damaged_quantity, note? }], note? }`. Đạt → nhập lại `quantity_on_hand` (cùng transaction); hỏng → chỉ ghi nhận. Mỗi nhóm nhận hoàn **1 lần**, không nhận quá số đã giao. Lỗi `ORD_GROUP_RETURN_*` |
 | PATCH  | `/order-groups/:id/priority`                   | **Store Owner**, Admin     | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói               |
 
-**🆕 Trạng thái mới `canceled` (29/09/2026, N1 — Mục 9.6)**: KHÔNG có endpoint ghi riêng — hệ thống **tự động** chuyển 1 Order Group sang `canceled` khi MỌI đơn bên trong không còn fulfill được (đơn bị khách/sàn hủy, hoặc sự cố logistics `lost`/`damaged_by_3pl`/`package_scrapped`...), miễn nhóm đó **chưa** tới `packed`/`shipped`/`delivered` (hàng đã đóng/giao vật lý thì không tự hủy ngầm, cần luồng `return` thủ công). Trigger: mỗi lần `syncShopOrders()`/webhook cập nhật 1 đơn sang trạng thái không-fulfill-được, hệ thống tự kiểm tra và hủy nhóm nếu đủ điều kiện — không cần Warehouse/Packaging Staff xác nhận riêng (ngoại lệ có chủ đích so với nguyên tắc "người xác nhận thay đổi quan trọng" thường dùng, vì rủi ro thấp khi nhóm chưa đóng gói). Khi hủy: tự nhả giữ chỗ đóng gói (`packaging_recommendations.is_active = false` nếu có phương án đang chờ) + bắn Notification `group_auto_canceled` cho Store Owner, Admin và người phụ trách (nếu có).
+**🆕 Trạng thái mới `canceled` (29/09/2026, N1 — Mục 9.6)**: KHÔNG có endpoint ghi riêng — hệ thống **tự động** chuyển 1 Order Group sang `canceled` khi MỌI đơn bên trong không còn fulfill được (đơn bị khách/sàn hủy, hoặc sự cố logistics `lost`/`damaged_by_3pl`/`package_scrapped`...), miễn nhóm đó **chưa** tới `packed`/`shipped`/`delivered` (hàng đã đóng/giao vật lý thì không tự hủy ngầm, cần luồng `return` thủ công). Trigger: mỗi lần `syncShopOrders()`/webhook cập nhật 1 đơn sang trạng thái không-fulfill-được, hệ thống tự kiểm tra và hủy nhóm nếu đủ điều kiện — không cần Warehouse/Packaging Staff xác nhận riêng (ngoại lệ có chủ đích so với nguyên tắc "người xác nhận thay đổi quan trọng" thường dùng, vì rủi ro thấp khi nhóm chưa đóng gói). Khi hủy: tự nhả giữ chỗ đóng gói (🔄 04/10: kế hoạch `packing_plans` đang hoạt động chuyển `superseded`) + bắn Notification `group_auto_canceled` cho Store Owner, Admin và người phụ trách (nếu có).
 
 ## 6b. 🆕 Shipments — Giao chung chuyến (`/shipments`) — 29/09/2026
 
@@ -235,47 +235,38 @@ Lỗi: `SHIP_INVALID_CARRIER_ID`, `SHIP_CARRIER_NOT_FOUND`, `SHIP_CARRIER_CODE_I
 | `DecidePartialDto` | `approve` | boolean | ✓ | Tiếp tục/hủy làm lại |
 |  | `expected_version` | integer | ✓ | Version hiện tại |
 | `TransitionOrderGroupDto` | `expected_version` | integer | ✓ | Version hiện tại (pick/ship/deliver/return) |
-| `PackGroupDto` (🆕 21/09, route `pack`) | `packages[].order_id` | ObjectId string | ✓ | Đơn của kiện — phải đủ mọi kiện đã duyệt |
-|  | `packages[].carton_index` | integer |  | 🆕 30/09 — thứ tự kiện trong đơn (từ 0); **bắt buộc khi đơn có nhiều kiện** |
-|  | `packages[].actual_weight_kg` | number | ✓ | Cân thật cả kiện, > 0 |
-|  | `expected_version` | integer | ✓ | Version group |
 | `SetPriorityDto` | `order_priority` | `normal\|express` | ✓ | Ưu tiên |
 |  | `deadline_hours` | integer |  | Deadline tùy chọn |
 | `AssignStaffDto` | `staff_id` | ObjectId string |  | Trống = Least-Busy, có = gán tay |
 
-`OrderGroupResponse` gồm `id`, `platform`, `shopId`, `orderCount`, `fulfillmentStatus`, `activePackagingRecommendationId`, `assignedStaffId`, `orderPriority`, `packagingDeadline`, `isOverdue`, `version`, `createdAt`, `updatedAt`. `order_priority` nhận `normal|express` để lọc danh sách. Mọi transition kiểm tra status transition và version.
+`OrderGroupResponse` gồm `id`, `platform`, `shopId`, `orderCount`, `fulfillmentStatus`, `assignedStaffId`, `orderPriority`, `packagingDeadline`, `isOverdue`, `version`, `createdAt`, `updatedAt`. `order_priority` nhận `normal|express` để lọc danh sách. Mọi transition kiểm tra status transition và version.
 
-## 8. Packaging — UC-04 (`/order-groups/:groupId/packaging`)
+## 8. Kế hoạch đóng gói (`/order-groups/:groupId/packing-plan`) — 🔄 ĐÃ LÀM LẠI 04/10/2026
 
-🆕 **ĐA KIỆN (30/09/2026)** — quyết định "mỗi đơn một kiện" (12/09, 21/09) được thay bằng **mỗi đơn N kiện**: đơn vừa 1 thùng vẫn ra đúng 1 kiện (không đổi gì cho client cũ); đơn quá lớn/quá nặng/hơn 30 món được **chia nhiều kiện**, mỗi kiện có thùng, tọa độ 3D, cân ước tính, vật tư, hướng dẫn và cân thật riêng. Field cấp phương án (`boxCode`, `placements`, `estimatedPackageWeightG`...) **phản chiếu kiện 0**; đọc `cartons[]` để có đủ mọi kiện (bản ghi cũ tự suy ra 1 kiện). Mỗi kiện giữ và trừ **1 thùng** trong kho. Engine mới (`ep-3d-v2`): chọn vị trí theo điểm, thử nhiều thứ tự/chính sách xếp, gập đôi theo nhóm ít món nhất, bỏ trần 30 món/thùng (trần 200), dễ vỡ luôn nằm trên cùng. Không đóng hết được → `solutionStatus: no_fit` kèm lý do **có mã** (`noFitReasons[].code`: `ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `OUT_OF_STOCK`, `NO_ARRANGEMENT`, `TIMEOUT`...) và món liên quan (`itemKey`); không lưu kiện dở dang.
+🔄 **ĐÃ THAY ĐỔI 04/10/2026** — toàn bộ route `/order-groups/:groupId/packaging/*` (generate, approve, adjust, reject, guide, cartonization-preview) và `POST /order-groups/:id/fulfillment/pack` **đã gỡ**. Thay bằng **1 kế hoạch cho cả nhóm** (collection `packing_plans`), gồm mọi đơn và mọi kiện của nhóm:
 
-🔄 **ĐÃ ĐỔI (21/09/2026)** — đóng gói diễn ra SAU lấy hàng. **Lần 2 cùng ngày:** `generate` chia hàng đã quét về **từng đơn** (mỗi đơn 1 kiện) rồi chạy **engine greedy 3D + validator** trên danh mục thùng thật (`/packaging/boxes`). Không thùng nào hợp lệ → `solutionStatus: "no_fit"` (không còn trả thùng Large). Approve **không nhận cân** nữa; cân chuyển sang `fulfillment/pack`.
+- **Tự tính**: khi nhóm vào `picked`, job nền (quét mỗi 10 giây) tính kế hoạch rồi chuyển nhóm sang `pending_approval` và báo Packaging Staff — **không còn nút "generate"**. Kế hoạch có trạng thái riêng: `computing` → `ready` (chờ duyệt) → `approved` (chờ đóng) → `packed`; nhánh phụ `failed` (lỗi dữ liệu, kèm `failureReason`), `rejected` (chuyển xử lý ngoài hệ thống), `superseded` (bị thay bởi lần tính mới — không hiện ra API).
+- **Bộ giải**: BRKGA (TypeScript, xác định — cùng đầu vào cùng kết quả) cho mọi đơn; đơn ≤ 12 món được service CP-SAT (`packer/`) kiểm tra thêm ở nền. Mỗi đơn có **nhãn chứng minh**: `optimal_global` (không thể ít kiện hơn và mọi tổ hợp thùng rẻ hơn đều không chứa được, đúng với mọi cách xếp), `optimal_in_model` (CP-SAT chứng minh mọi tổ hợp tốt hơn không xếp được theo luật chồng hàng chặt hơn thực tế), `heuristic` (phương án tốt nhất tìm được, chưa chứng minh). `proof` cấp kế hoạch = nhãn yếu nhất các đơn. `cpSatPending: true` = CP-SAT đang chạy, nhãn có thể còn nâng.
+- **Không còn "Từ chối, tính lại"**: sai thì **chỉnh tay** (đổi thùng 1 kiện, chuyển món sang kiện khác cùng đơn hoặc tách kiện mới) hoặc **tính lại có điều kiện** (loại thùng, ưu tiên rẻ). `reject` giờ chỉ dùng khi nhóm phải xử lý **ngoài hệ thống** (vd cần thùng gỗ).
+- **Khoá lạc quan bằng `version` của kế hoạch** (không phải version nhóm): mọi thao tác ghi gửi `expected_version`; lệch → 409 `PACKING_VERSION_CONFLICT`, tải lại kế hoạch.
 
-| Method | Route                                       | Role                                  | Mô tả                                                     |
-| ------ | ------------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
-| GET    | `/order-groups/:groupId/packaging`          | Packaging, Warehouse, Shipping, **Store Owner**, Admin | 🔄 Trả `{ orderGroupId, recommendations[] }` — mỗi đơn 1 phần tử, kèm `placements[]` (tọa độ mm) cho animation 3D. Mảng rỗng nếu chưa generate |
-| GET    | `/order-groups/:groupId/packaging/cartonization-preview` | Packaging, Warehouse, Admin | Preview read-only số carton/thùng cho từng đơn; không lưu recommendation, giữ tồn kho hoặc đổi fulfillment status. 🆕 30/09: dùng CHUNG packer đa kiện với `generate` (cùng kết quả); `status` thêm `partial`, `unplacedItemKeys` kèm lý do khi generate |
-| POST   | `/order-groups/:groupId/packaging/generate` | **Chỉ Admin** (trigger tự động là BE-5) | `picked → pending_approval`: engine 3D tính phương án cho từng đơn; 🆕 30/09 đơn lớn/nặng được chia N kiện |
-| POST   | `/order-groups/:groupId/packaging/approve`  | Packaging, Admin                      | `pending_approval → approved_for_packing`: chốt mọi đơn. Bị chặn nếu còn đơn `no_fit` (`PKG_HAS_NO_FIT`) |
-| POST   | `/order-groups/:groupId/packaging/adjust`   | Packaging, Admin                      | 🔄 Đổi thùng cho **1 đơn** (`order_id` + `box_code` trong danh mục): engine xếp lại, validator phải chấp nhận (không vừa → 422 `PKG_BOX_DOES_NOT_FIT`). Lưu lý do. Group vẫn chờ approve. 🆕 30/09: đơn nhiều kiện gửi thêm `carton_index` (mặc định 0) để đổi thùng đúng 1 kiện — chỉ đóng lại **các món của kiện đó**; `carton_index` không có → 404 `PKG_CARTON_NOT_FOUND`. 🆕 30/09: adjust **tăng version của nhóm** — phải tải lại nhóm trước khi `approve` |
-| POST   | `/order-groups/:groupId/packaging/reject`   | Packaging, Admin                      | `pending_approval → picked`: vô hiệu hóa mọi phương án, gọi lại generate |
-| POST   | `/order-groups/:groupId/packaging/:recommendationId/guide` | Packaging, Warehouse, Admin | 🆕 21/09: hướng dẫn đóng gói từng bước cho 1 đơn (animation 3D). Engine quyết định vị trí/thứ tự, AI viết lời (Groq); chưa cấu hình/AI trả sai → câu mẫu (`packingGuide.source = template`). Body `{ regenerate?: boolean, carton_index?: number }` (🆕 30/09: hướng dẫn **theo từng kiện**, mặc định kiện 0; lưu ở `cartons[i].packingGuide`, kiện 0 còn phản chiếu ra `packingGuide` cấp trên). Đơn `no_fit` hoặc `carton_index` không tồn tại → 409 `PKG_GUIDE_NOT_AVAILABLE`. Giới hạn 10 lần/phút |
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ plan }` — kế hoạch đang hoạt động, `null` nếu chưa có (nhóm chưa lấy xong hoặc job chưa chạy tới) |
+| GET | `/packing-plans/summary?group_ids=a,b,c` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ summaries[] }` tóm tắt tối đa 200 nhóm (trạng thái, version, nhãn, `cpSatPending`, số kiện, chi phí đóng gói, `failureReason`) — dùng cho bảng hàng chờ |
+| POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | Tính lại, thay kế hoạch `ready`/`failed`/`rejected` hiện tại (nhóm `pending_approval` tạm về `picked` rồi tính ngay). Body `{ expected_version?, exclude_box_codes?: string[], prefer?: 'fewest_parcels' \| 'cheapest' }` — `expected_version` bắt buộc khi đã có kế hoạch |
+| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ready → approved`, nhóm `pending_approval → approved_for_packing`. Còn đơn chưa xếp hết món → 409 `PACKING_HAS_UNPLACED` |
+| POST | `/order-groups/:groupId/packing-plan/reject` | Packaging, Admin | Chuyển xử lý ngoài hệ thống: kế hoạch `rejected` (vẫn hoạt động để job không tự tính lại), nhóm về `picked`, báo Admin. Body `{ expected_version, reason }` (3–500 ký tự) |
+| POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/change-box` | Packaging, Admin | Đổi thùng 1 kiện: xếp lại đúng các món của kiện vào thùng mới, phải qua validator (không vừa → 422 `PACKING_BOX_DOES_NOT_FIT`, hết thùng → 409 `PKG_BOX_OUT_OF_STOCK`). Body `{ expected_version, box_code, reason, note? }` |
+| POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/move-item` | Packaging, Admin | Chuyển 1 món sang kiện khác **cùng đơn** (`to_parcel_no`) hoặc tách kiện mới (`to_parcel_no` bỏ trống/null — hệ thống chọn thùng). Cả 2 kiện bị ảnh hưởng xếp lại và validate. Sang kiện của đơn khác → 400 `PACKING_MOVE_ACROSS_ORDERS`. Body `{ expected_version, item_key, to_parcel_no?, reason, note? }` |
+| POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/guide` | Packaging, Warehouse, Admin | Hướng dẫn đóng gói từng bước cho 1 kiện (engine quyết định vị trí/thứ tự, AI Groq viết lời; chưa cấu hình/AI trả sai → câu mẫu). Body `{ regenerate? }`. Không cần `expected_version`, không đổi `version`. Giới hạn 10 lần/phút |
+| POST | `/order-groups/:groupId/packing-plan/pack` | Packaging, Warehouse, Admin | `approved → packed`, nhóm `approved_for_packing → packed`. Body `{ expected_version, parcels: [{ parcel_no, weight_kg }] }` — **cân đủ mọi kiện, mỗi kiện đúng 1 lần** (sai → 400 `PACKING_PACK_WEIGHTS_MISMATCH`). Trừ 1 thùng/kiện + vật tư (thiếu vật tư không chặn, ghi `materialsShortfall`); lệch > 20% so với cân ước tính → `isAbnormal` + thông báo Store Owner |
 
-**Chi tiết DTO**
+`reason` của chỉnh tay: `PRODUCT_MORE_FRAGILE_THAN_EXPECTED` / `RECOMMENDED_BOX_NOT_IN_STOCK` / `OTHER` (`OTHER` bắt buộc `note`, thiếu → 400 `PACKING_NOTE_REQUIRED`). Mọi chỉnh tay ghi vào `adjustments[]`.
 
-| DTO | Field | Type | Req. | Meaning |
-|---|---|---:|:---:|---|
-| Approve | `expected_group_version` | integer | ✓ | Version group |
-|  | `actual_measured_weight_kg` | number |  | ⚠️ Deprecated từ 21/09 — bỏ qua; cân nhập ở `fulfillment/pack` |
-| Adjust | `order_id` | ObjectId string | ✓ | Đơn cần đổi thùng |
-|  | `carton_index` | integer |  | 🆕 30/09 — kiện cần đổi (từ 0); bỏ trống = kiện 0 |
-|  | `box_code` | string | ✓ | Mã thùng trong `/packaging/boxes` (không còn nhập `box_size` tùy ý) |
-|  | `adjustment_reason` | enum | ✓ | `PRODUCT_MORE_FRAGILE_THAN_EXPECTED` / `RECOMMENDED_BOX_NOT_IN_STOCK` / `OTHER` |
-|  | `adjustment_note` | string |  | Bắt buộc khi `OTHER` (`PKG_ADJUSTMENT_NOTE_REQUIRED`) |
-|  | `expected_group_version` | integer | ✓ | Version group |
-| Reject | `expected_group_version` | integer | ✓ | Version group |
+**Response `plan`** (camelCase, đơn vị mm và gram, trục z hướng lên): `id`, `orderGroupId`, `revision` (lần tính thứ mấy), `version`, `status`, `failureReason`, `proof`, `cpSatPending`, `orders[]` (`orderId`, `platformOrderId`, `status` `ok|partial|no_fit`, `unplaced[]` `{itemKey, code, reason}`, `proof`, `lowerBoundParcels`, `explanation[]`, `strategy`, `cpSat` `pending|done|skipped|unavailable`), `parcels[]` (`parcelNo` 1..N trong cả nhóm, `orderId`, `platformOrderId`, `box` `{code, name, innerMm, outerMm, tareG, maxLoadG, priceVnd}`, `placements[]` `{itemKey, sku, step, x, y, z, dx, dy, dz, orientation, folded}`, `fillRatio`, `itemsWeightG`, `estimatedWeightG`, `volumetricWeightG`, `materials[]`, `materialsWeightG`, `materialsCostVnd`, `shippingCostVnd`, `guide`, `actualWeightKg`, `isAbnormal`, `materialsShortfall[]`), `itemProfiles[]`, `adjustments[]`, `solver` `{engineVersion, computationMs, options}`, `totals` `{parcels, packagingCostVnd, estimatedWeightG}`, `approvedAt`, `rejectedAt`, `rejectionReason`, `packedAt`, `createdAt`, `updatedAt`.
 
-**Response phương án (camelCase, 1 phần tử/đơn)**: `id`, `orderId`, `platformOrderId`, `solutionStatus` (`ok`/`no_fit`), `noFitReasons[]` (🆕 30/09: `{ boxCode, reason, code, itemKey }`), 🆕 `cartons[]` + `cartonCount` (mỗi kiện: `index`, `boxCode`, `boxName`, `boxInnerMm`/`boxOuterMm`, `placements[]`, `fillRatio`, `itemsWeightG`, `estimatedPackageWeightG`, `volumetricWeightG`, `materials[]`, `materialsWeightG`, `materialsCostVnd`, `actualMeasuredWeightKg`, `isAbnormal`, `packingGuide`; các field cùng tên ở cấp phương án phản chiếu kiện 0), `boxCode`, `boxName`, `boxInnerMm`/`boxOuterMm` (`lengthMm`, `widthMm`, `heightMm`), `boxSize` (cm, cho client cũ), `placements[]` (`itemKey`, `sku`, `step`, `x`, `y`, `z`, `dx`, `dy`, `dz`, `orientation` — mm, trục z hướng lên, `step` là thứ tự đặt; 🆕 22/09 `folded` = món đã được gập đôi, `dx/dy/dz` là số đo sau gập), `materials[]`, `itemsWeightG`, `estimatedPackageWeightG` (hàng + bì), `volumetricWeightG` (hệ số 6000), `fillRatio`, `estimatedShippingCostVnd` (**null** tới khi có bảng cước thật), `engineVersion`, `approvalStatus`, `adjustmentReason`/`adjustmentNote`/`adjustedFromBoxCode`, `actualMeasuredWeightKg`, `packedAt`, `isAbnormal`.
+Dữ liệu cũ: `packaging_recommendations` giữ nguyên làm lịch sử. Nhóm đang `pending_approval`/`approved_for_packing` chỉ có phương án cũ cần chạy `npx ts-node -r tsconfig-paths/register scripts/migrate-to-packing-plans.ts` (mặc định chỉ in, `--apply` mới ghi; nhãn luôn `heuristic`).
 
 ## 8b. 🆕 Danh mục thùng (`/packaging/boxes`) — 21/09/2026
 
@@ -322,13 +313,13 @@ Góc xốp, tấm ngăn carton, gối hơi, xốp hơi, tem cảnh báo dễ v�
 | POST | `/packaging/materials/:id/stock-in` | Admin, Warehouse | Nhập thêm `{ quantity, note? }`, ghi 1 dòng sổ |
 | GET | `/packaging/materials/:id/movements` | Admin, Warehouse, Packaging | Sổ xuất/nhập 20 dòng gần nhất (`reason`: `stock_in` \| `pack`) |
 | GET | `/packaging/materials/rules` | Packaging, Warehouse, Store Owner, Admin | Bộ luật chọn vật tư hiện hành. `version: null` + `isDefault: true` = luật mặc định trong code |
-| PUT | `/packaging/materials/rules` | Admin | Lưu bộ luật mới `{ rules[] }` (tạo version kế tiếp, bản cũ tắt — giữ lịch sử). Áp dụng từ lần `generate` sau |
+| PUT | `/packaging/materials/rules` | Admin | Lưu bộ luật mới `{ rules[] }` (tạo version kế tiếp, bản cũ tắt — giữ lịch sử). Áp dụng từ lần tính kế hoạch sau |
 
 Luật (`rules[]`): `material_type`, `applies_to` (`fragile` \| `shoes` \| `fragile_or_shoes` \| `any`), `min_units?`, `basis` (`per_unit` \| `per_extra_unit` \| `per_carton` \| `void_band`), `quantity?`, `void_bands?` (`[{ min_void_ratio, quantity }]`, chỉ dùng cho `void_band`).
 
 Response vật tư: `id, code, name, type, unit, weightGPerUnit, priceVndPerUnit, quantityOnHand, reorderLevel, storageLocation, isSample, isActive, stockStatus` (`in_stock` \| `low_stock` \| `out_of_stock`). **Khác thùng:** không có `reserved/available` — vật tư không giữ chỗ mềm.
 
-**Trừ tồn + thiếu vật tư:** vật tư được trừ lúc `fulfillment/pack` (cùng transaction với thùng, mỗi lần 1 dòng sổ). Thiếu vật tư **không chặn** đóng gói (khác thùng: hết thùng → 409 `PKG_BOX_OUT_OF_STOCK`) — trừ phần có, phần thiếu ghi vào `materialsShortfall` của kiện và bắn Notification `low_material_stock` cho Admin + Store Owner (cũng bắn khi tồn rơi xuống ≤ `reorderLevel`).
+**Trừ tồn + thiếu vật tư:** vật tư được trừ lúc đóng gói (🔄 04/10: `POST .../packing-plan/pack`) (cùng transaction với thùng, mỗi lần 1 dòng sổ). Thiếu vật tư **không chặn** đóng gói (khác thùng: hết thùng → 409 `PKG_BOX_OUT_OF_STOCK`) — trừ phần có, phần thiếu ghi vào `materialsShortfall` của kiện và bắn Notification `low_material_stock` cho Admin + Store Owner (cũng bắn khi tồn rơi xuống ≤ `reorderLevel`).
 
 Phương án đóng gói (`GET .../packaging`) — 🔄 ĐÃ ĐỔI 28/09: `materials[]` giờ là `{ type, quantity, code, name, unit, weightG, costVnd }` (bản ghi trước 28/09 chỉ có `type` + `quantity`, các field còn lại `null`/`0`); thêm `materialsWeightG`, `materialsCostVnd`, `materialsShortfall[]` (`{ code, missing }`). `estimatedPackageWeightG` **đã cộng** khối lượng vật tư (hàng + bì thùng + vật tư).
 
@@ -379,11 +370,11 @@ Danh sách là hợp của notification đích danh user và broadcast role. `is
 
 ## 11. Collection nội bộ và planned
 
-Không có public CRUD tổng quát cho `refresh_tokens`, `trusted_devices`, `login_audit_logs`, `marketplace_oauth_states`, `orders`, `order_groups`, `pick_events` và `packaging_recommendations`. (`product_master` có API hồ sơ đóng gói ở mục 8c; `packaging_boxes` ở mục 8b; `shipments` có API tạo ở mục 6b nhưng không có GET liệt kê riêng.)
+Không có public CRUD tổng quát cho `refresh_tokens`, `trusted_devices`, `login_audit_logs`, `marketplace_oauth_states`, `orders`, `order_groups`, `pick_events`, `packaging_recommendations` (🔄 04/10: chỉ còn là lịch sử, không còn API) và `packing_plans` (đọc/ghi qua mục 8). (`product_master` có API hồ sơ đóng gói ở mục 8c; `packaging_boxes` ở mục 8b; `shipments` có API tạo ở mục 6b nhưng không có GET liệt kê riêng.)
 
 🔄 **ĐÃ ĐỔI (29/09/2026)**: `processed_webhook_events` KHÔNG còn "chuẩn bị sẵn, chưa ai dùng" — đã có consumer thật (`POST /marketplace/webhooks/:platform`, mục 3b) ghi/đọc để chống xử lý trùng 1 sự kiện (Rule #17).
 
-Planned: nhánh túi mailer, danh mục vật tư (khối lượng/giá), bảng cước thật; webhook/Kafka/event queue; carrier/pickup/tracking thật; packaging flow tự động hoàn chỉnh (BE-5).
+Planned: nhánh túi mailer, bảng cước thật; webhook/Kafka/event queue; carrier/pickup/tracking thật của hãng.
 
 ---
 
@@ -408,8 +399,9 @@ GET   /notifications*                 Nhận cảnh báo thiếu hàng, SLA brea
 
 ```
 GET   /order-groups, /:id, /picking-list, /picking-list/:sku    Xem việc cần làm
-POST  .../pick-item, /pick, /pack, /return, /report-missing     Thao tác lấy/đóng gói (pack = nhập cân từng kiện)
-GET   /order-groups/:groupId/packaging                           Xem phương án + animation 3D lúc đóng
+POST  .../pick-item, /pick, /return, /report-missing           Thao tác lấy hàng
+GET   /order-groups/:groupId/packing-plan, /packing-plans/summary  🔄 04/10 — xem kế hoạch + 3D lúc đóng
+POST  .../packing-plan/pack, /parcels/:no/guide                 🔄 04/10 — đóng gói từng bước, cân từng kiện
 GET   /product-master, PUT /product-master/:id/packaging-profile  Đo và xác nhận hồ sơ SKU
 GET   /packaging/boxes                                          Danh mục thùng
 POST  /order-groups/:id/assign                                  Tự nhận việc HOẶC đổi cho đồng nghiệp khác
@@ -422,8 +414,11 @@ GET   /notifications*
 ### 🎁 Packaging Staff
 
 ```
-GET   /order-groups, /:id, /:groupId/packaging       Xem đơn cần duyệt
-POST  .../packaging/approve, /adjust, /reject         Duyệt gợi ý đóng gói (adjust = đổi thùng 1 đơn)
+GET   /order-groups, /:id, /:groupId/packing-plan    🔄 04/10 — xem kế hoạch cần duyệt
+GET   /packing-plans/summary                         Bảng hàng chờ đóng gói
+POST  .../packing-plan/approve, /recompute, /reject  Duyệt / tính lại có điều kiện / chuyển xử lý tay
+POST  .../packing-plan/parcels/:no/change-box, /move-item  Chỉnh tay: đổi thùng, chuyển món
+POST  .../packing-plan/pack, /parcels/:no/guide       Đóng gói + cân từng kiện
 GET   /packaging/boxes, /product-master               Tra danh mục thùng + hồ sơ SKU
 POST  .../fulfillment/decide-partial                  Quyết định đơn thiếu hàng
 GET   /order-groups/staff/search                       Xem tải việc của Warehouse Staff (tham khảo)
@@ -433,13 +428,13 @@ GET   /notifications*
 ### 🚚 Shipping Coordinator
 
 ```
-GET   /order-groups, /:id, /:groupId/packaging, /:id/linked
+GET   /order-groups, /:id, /:groupId/packing-plan, /:id/linked
 POST  .../fulfillment/ship, /deliver, /return
 POST  /shipments/batch          MỚI (29/09) — tạo vận đơn, giao chung chuyến cho nhiều nhóm cùng người nhận
 GET   /notifications*
 ```
 
-**Ghi chú**: Shipping Coordinator hiện có ít route riêng nhất — chưa có API chọn carrier/lên lịch pickup/tracking thật (Tầng 2, chưa code; sẽ mở rộng ngay trên collection `shipments` mới thêm ở mục 6b khi làm).
+**Ghi chú**: 🔄 30/09 Shipping Coordinator đã có báo giá/chọn hãng/hẹn lấy hàng (`/shipping`, `/shipments`, mục 6b–6d); chưa có tracking thật từ hãng.
 
 ---
 
@@ -460,7 +455,8 @@ Bảng tra nhanh theo module (chi tiết "khi nào xảy ra" vẫn ở guide tr�
 | Documents 🆕 30/09 | `DOC_NO_ORDERS`, `DOC_SHIPMENT_NOT_FOUND`, `DOC_TRIP_NOT_FOUND` |
 | Hoàn hàng 🆕 30/09 | `ORD_GROUP_RETURN_NOT_RETURNED`, `ORD_GROUP_RETURN_ALREADY_RECEIVED`, `ORD_GROUP_RETURN_EXCEEDS_SHIPPED`, `ORD_GROUP_RETURN_SKU_NOT_ASSIGNED`, `ORD_GROUP_RETURN_DUPLICATE_LINE` |
 | Shipments 🆕 29/09 | `SHP_PICKUP_IN_PAST`, `SHP_SHIPMENT_NOT_FOUND`, `SHP_EMPTY_GROUP_LIST`, `SHP_GROUP_NOT_PACKED`, `SHP_RECIPIENT_MISMATCH`, `SHP_GROUP_ALREADY_SHIPPED` |
-| Packaging | `PKG_INVALID_RECOMMENDATION_ID`, `PKG_RECOMMENDATION_NOT_FOUND`, `PKG_NO_ACTIVE_RECOMMENDATION`, `PKG_ALREADY_DECIDED`, `PKG_GROUP_NOT_PENDING_APPROVAL`, 🆕 21/09: `PKG_HAS_NO_FIT`, `PKG_BOX_DOES_NOT_FIT`, `PKG_ORDER_NOT_IN_PLAN`, `PKG_PACK_PACKAGES_MISMATCH`, `PKG_ADJUSTMENT_NOTE_REQUIRED`, `PKG_GUIDE_NOT_AVAILABLE`, `PKG_BOX_OUT_OF_STOCK`, 🆕 30/09: `PKG_CARTON_NOT_FOUND`, `PKG_INVALID_BAG_ID`, `PKG_BAG_NOT_FOUND`, `PKG_BAG_CODE_IN_USE`, `PKG_INVALID_BOX_ID`, `PKG_BOX_NOT_FOUND`, `PKG_BOX_CODE_IN_USE`, `PKG_BOX_INVALID_DIMENSIONS` |
+| Packaging (danh mục) | `PKG_INVALID_BOX_ID`, `PKG_BOX_NOT_FOUND`, `PKG_BOX_CODE_IN_USE`, `PKG_BOX_INVALID_DIMENSIONS`, `PKG_BOX_OUT_OF_STOCK`, `PKG_INVALID_BAG_ID`, `PKG_BAG_NOT_FOUND`, `PKG_BAG_CODE_IN_USE`, `PKG_INVALID_MATERIAL_ID`, `PKG_MATERIAL_NOT_FOUND`, `PKG_MATERIAL_CODE_IN_USE`, `PKG_MATERIAL_RULES_CONFLICT` (🔄 04/10: các mã của phương án cũ — `PKG_*RECOMMENDATION*`, `PKG_HAS_NO_FIT`, `PKG_ADJUSTMENT_NOTE_REQUIRED`, `PKG_CARTON_NOT_FOUND`... — đã gỡ) |
+| Kế hoạch đóng gói 🆕 04/10 | `PACKING_INVALID_ID` (400), `PACKING_PLAN_NOT_FOUND` (404), `PACKING_PLAN_COMPUTING` (409), `PACKING_WRONG_PLAN_STATUS` (409), `PACKING_VERSION_CONFLICT` (409), `PACKING_HAS_UNPLACED` (409), `PACKING_PARCEL_NOT_FOUND` (404), `PACKING_ITEM_NOT_IN_PARCEL` (404), `PACKING_MOVE_ACROSS_ORDERS` (400), `PACKING_BOX_DOES_NOT_FIT` (422), `PACKING_NOTE_REQUIRED` (400), `PACKING_PACK_WEIGHTS_MISMATCH` (400), `PACKING_GUIDE_NOT_AVAILABLE` (409) |
 | Product Master | 🆕 21/09: `PM_INVALID_ID`, `PM_NOT_FOUND` |
 | Warehouse | `WH_WAREHOUSE_NOT_FOUND`, `WH_ZONE_NOT_FOUND`, `WH_INVALID_BIN_RANGE`, `WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` (2 mã cuối 🆕 19/09/2026 — trùng mã kho/khu, trả 409 thay vì 500), `WH_INVALID_GROUP_IDS` (🆕 29/09/2026 — 400, `group_ids` rỗng/sai định dạng ở picking-list gộp) |
 | Notifications | `NOTI_INVALID_ID`, `NOTI_NOT_FOUND` |

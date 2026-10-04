@@ -1,5 +1,7 @@
 # AI 3D Packaging Optimization — Ý tưởng và hướng triển khai cho OptiPackAI
 
+> 🔄 **ĐÃ THAY ĐỔI 04/10/2026 — làm lại toàn bộ đóng gói 3D.** Engine greedy/extreme-point (`packaging/engine/` greedy-packer, ep-packer, multi-carton-packer) và luồng phương án theo đơn (`packaging_recommendations`, route `/order-groups/:id/packaging/*`, `fulfillment/pack`) **không còn chạy production**. Thay bằng: bộ giải **BRKGA + EMS** (TypeScript, xác định, `be/src/modules/packing/solver/`) + microservice **CP-SAT** (Python OR-Tools, `packer/`) cho đơn ≤ 12 món, nhãn chứng minh `optimal_global` / `optimal_in_model` / `heuristic`; **1 kế hoạch/nhóm** `packing_plans`, **tự tính khi lấy hàng xong**, chỉnh tay (đổi thùng, chuyển món) + tính lại có điều kiện; FE `/app/packing` (hàng chờ) + `/app/packing/:groupId` (màn làm việc, 3D mới). API: `API_LIST.md` mục 8; nghiệp vụ: `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 1, 4. Nội dung bên dưới là lịch sử thiết kế/lộ trình trước đó; phần validator, hồ sơ SKU, túi zip, vật tư, hướng dẫn AI vẫn còn dùng.
+
 Biên soạn: **08/09/2026**, đối chiếu code và cập nhật flow **12/09/2026**. Đối tượng đọc: nhóm phát triển, người phụ trách kho và người đánh giá đồ án AOFP.
 
 **Định hướng đề xuất:** xây dựng hệ thống chọn túi/thùng cho quần áo, giày và phụ kiện, với quy cách gấp/bọc và hướng dẫn đóng có thể kiểm chứng; dùng thuật toán hình học làm nền, bổ sung AI khi có dữ liệu và phép đo chứng minh giá trị. Thành công là nhân viên đóng được đơn đúng, ít tốn kém và có thể truy lại lý do lựa chọn.
