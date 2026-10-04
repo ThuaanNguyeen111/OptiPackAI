@@ -15,8 +15,9 @@ import type {
  * ===================================================================
  */
 
-/** Mã số đơn công khai bắt đầu từ đây (giống dải số của dữ liệu mẫu cũ). */
-export const PUBLIC_ORDER_ID_START = 710_000_000;
+/** Mã số đơn công khai bắt đầu từ đây. Tránh dải 710.xxx.xxx: đơn mẫu cố định cũ
+ * của mock (710000017) đã nằm trong `orders` — trùng mã sẽ đè lên đơn đó. */
+export const PUBLIC_ORDER_ID_START = 720_000_000;
 
 /**
  * order_item_id = public_order_id × 1000 + số thứ tự đơn vị (1..999).
