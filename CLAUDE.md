@@ -3133,4 +3133,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 
 **Kiểm chứng:** tsc 0; eslint sạch trên file đã sửa; jest 36 suite / 330 test (trước 34 / 319).
 
+**Lỗi thật khi chạy (04/10, tối):** lượt tăng dần báo `E017 Invalid Date Format` — GetProducts **không nhận** `update_after` dạng `toISOString()` (`2026-10-04T15:26:51.619Z`), khác GetOrders (vẫn nhận). Sửa: `toLazadaProductDate()` trong `lazada.adapter.ts` định dạng `YYYY-MM-DDTHH:mm:ss+0000` (đúng mẫu tài liệu `2018-01-01T00:00:00+0800`). Lượt toàn bộ không gửi ngày nên không bị. Lượt lỗi không ghi mốc → chạy lại không mất dữ liệu. Thêm 1 test → 36 suite / 331 test. **Bài học:** cùng một sàn, mỗi API có thể đòi định dạng ngày khác nhau — đối chiếu mẫu request của từng API, không suy từ API khác.
+
 **Commit:** `feat(AOFP-61)` code + `docs(AOFP-62)` tài liệu.
