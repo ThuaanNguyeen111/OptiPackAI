@@ -4,7 +4,7 @@ Run `npm run dev:aurelle` from the repository root, then open
 http://localhost:4000/developer.
 
 Create an application with a name and the exact callback URL of the OptiPack
-backend, for example `http://localhost:3003/marketplace/aurelle/callback`.
+backend, for example `http://localhost:3000/marketplace/aurelle/callback`.
 Copy the generated environment configuration into `be/.env`. Save the secret
 before closing the credentials dialog: list responses never include it.
 

@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
+  StorefrontCounter,
+  StorefrontCounterDocument,
   StorefrontInventoryStock,
   StorefrontInventoryStockDocument,
   StorefrontOrder,
@@ -16,7 +18,9 @@ import {
   StorefrontProductVariantDocument,
 } from './schemas/storefront.schema';
 import { CheckoutDto } from './dto/storefront.dto';
-import { StorefrontCanonicalOrderService } from './storefront-canonical-order.service';
+import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
+import { toOpenApiStatus } from './aurelle-open-api.mapper';
+import { nextPublicOrderId, type CounterCollection } from './storefront-counter.util';
 import { calculateOrderTotal } from './storefront-pricing';
 
 @Injectable()
@@ -28,7 +32,8 @@ export class StorefrontOrdersService {
     @InjectModel(StorefrontProductVariant.name) private readonly variantModel: Model<StorefrontProductVariantDocument>,
     @InjectModel(StorefrontProduct.name) private readonly productModel: Model<StorefrontProductDocument>,
     @InjectModel(StorefrontInventoryStock.name) private readonly stockModel: Model<StorefrontInventoryStockDocument>,
-    private readonly canonicalOrders: StorefrontCanonicalOrderService,
+    @InjectModel(StorefrontCounter.name) private readonly counterModel: Model<StorefrontCounterDocument>,
+    private readonly webhookPublisher: AurelleWebhookPublisher,
   ) {}
 
   async checkout(customerId: string, dto: CheckoutDto) {
@@ -40,10 +45,7 @@ export class StorefrontOrdersService {
         customer_id: customerObjectId,
         client_order_id: dto.client_order_id,
       });
-      if (existing) {
-        if (existing.canonical_sync_status !== 'synced') await this.tryCanonicalSync(existing);
-        return this.toResponse(existing);
-      }
+      if (existing) return this.toResponse(existing);
     }
 
     const ids = dto.items.map((item) => new Types.ObjectId(item.variant_id));
@@ -91,6 +93,9 @@ export class StorefrontOrdersService {
         customer_id: customerObjectId,
         client_order_id: dto.client_order_id,
         order_number: `KA-${Date.now().toString(36).toUpperCase()}`,
+        public_order_id: await nextPublicOrderId(
+          this.counterModel.collection as unknown as CounterCollection,
+        ),
         subtotal,
         discount_amount: discountAmount,
         shipping_fee: shippingFee,
@@ -107,7 +112,6 @@ export class StorefrontOrdersService {
         client_order_id: dto.client_order_id,
       });
       if (!existing) throw error;
-      if (existing.canonical_sync_status !== 'synced') await this.tryCanonicalSync(existing);
       return this.toResponse(existing);
     }
     await this.itemModel.insertMany(itemDocs.map((item) => ({ ...item, order_id: order._id })));
@@ -124,7 +128,11 @@ export class StorefrontOrdersService {
       );
     }
 
-    await this.tryCanonicalSync(order);
+    // Báo ứng dụng đối tác (OptiPack) qua webhook; OptiPack tự gọi Open API
+    // lấy đơn. Không còn ghi thẳng vào collection orders (kênh nội bộ đã gỡ).
+    if (order.public_order_id !== null) {
+      this.webhookPublisher.notifyOrderChanged(order.public_order_id, toOpenApiStatus(order));
+    }
     return this.toResponse(order);
   }
 
@@ -151,17 +159,6 @@ export class StorefrontOrdersService {
     };
   }
 
-  private async tryCanonicalSync(order: StorefrontOrderDocument): Promise<void> {
-    try {
-      await this.canonicalOrders.syncOrder(order._id.toString());
-      const refreshed = await this.orderModel.findById(order._id);
-      if (refreshed) Object.assign(order, refreshed.toObject());
-    } catch {
-      // The storefront order remains valid. The scheduler retries the
-      // canonical projection after a transient sync failure.
-    }
-  }
-
   private toResponse(order: StorefrontOrderDocument) {
     return {
       id: order.id,
@@ -175,8 +172,7 @@ export class StorefrontOrdersService {
       shippingFee: order.shipping_fee,
       currency: order.currency,
       createdAt: order.created_at ?? new Date(0),
-      canonicalOrderId: order.canonical_order_id?.toString() ?? null,
-      canonicalSyncStatus: order.canonical_sync_status,
+      publicOrderId: order.public_order_id,
     };
   }
 

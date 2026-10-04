@@ -115,7 +115,9 @@ Thất bại:   http://localhost:5173/marketplace-oauth-success?error=<error_cod
   "lastPolledAt": null, "connectedAt": "2026-10-04T08:00:00.000Z" } ] }
 ```
 
-Lưu ý: **app key AURELLE chỉ định danh ứng dụng OptiPack, không phải định danh shop** — có app key trong `.env` chưa có nghĩa là có shop nào kết nối. Muốn kéo đơn phải có seller bấm cấp quyền (OAuth) để BE lưu `access_token`. Thẻ "Website AURELLE · Kênh nội bộ" trên màn Kết nối sàn là kênh khác (storefront chạy chung backend, ghi đơn thẳng, `shop_id: storefront-main`), không liên quan app key.
+Lưu ý: **app key AURELLE chỉ định danh ứng dụng OptiPack, không phải định danh shop** — có app key trong `.env` chưa có nghĩa là có shop nào kết nối. Muốn kéo đơn phải có seller bấm cấp quyền (OAuth) để BE lưu `access_token`.
+
+🔄 ĐÃ ĐỔI (04/10/2026) — **đã gỡ kênh nội bộ**: đơn website AURELLE chỉ còn về OptiPack qua Open API bằng app key (platform `aurelle`). Website đặt hàng xong bắn webhook có chữ ký tới `POST /marketplace/webhooks/aurelle`, OptiPack gọi `GetOrders` lấy đơn; cron 10 phút làm dự phòng. Đơn cũ đã vào qua kênh nội bộ (`platform: storefront`, `shopId: storefront-main`) vẫn còn trong `GET /orders` làm lịch sử, không đồng bộ thêm và không bị trả lại qua Open API. FE không còn thẻ "Kênh nội bộ"; endpoint `GET /storefront/settings` chỉ còn `store_name`.
 
 FE cần có sẵn 1 route `/marketplace-oauth-success`, đọc `URLSearchParams` từ URL để lấy `shopId`/`shopName` (hoặc `error`) — **không** gọi API nào thêm ở bước này, đúng pattern đã quen với `/oauth-success` của Google. `error_code` trả về là 1 trong các mã `MKT_*` liệt kê đầy đủ ở mục 8 (VD `MKT_OAUTH_STATE_INVALID`, hoặc `MKT_SERVER_ERROR` nếu lỗi không rơi vào mã cụ thể nào khác).
 

@@ -1,6 +1,14 @@
 import express, { type Request, type Response } from 'express';
 import { LazadaProtocolClient } from '../src/modules/marketplace-integration/adapters/lazada-protocol.client';
 import { findDeveloperApp, mountDeveloperPortal, secretsMatch } from './aurelle-developer-portal';
+import {
+  connectStorefrontStore,
+  getOrderItems,
+  listOrders,
+  listProducts,
+  setSellableQuantity,
+} from './aurelle-portal/storefront-store';
+import { DEFAULT_AURELLE_SELLER_ID } from '../src/modules/storefront/aurelle-open-api.mapper';
 
 /**
  * ===================================================================
@@ -11,9 +19,11 @@ import { findDeveloperApp, mountDeveloperPortal, secretsMatch } from './aurelle-
  * dựng BE thật; nhóm OptiPack dùng để tự kiểm `aurelle-conformance.ts`
  * và `AurelleAdapter` trước khi có AURELLE BE thật để gọi.
  *
- * KHÔNG PHẢI AURELLE BE thật — chỉ có 1 shop/1 đơn/1 sản phẩm cố định
- * trong bộ nhớ (mất khi restart), đủ để chạy hết `aurelle-conformance.ts`
- * với 0 FAIL. Dùng LẠI `LazadaProtocolClient.generateSign()` để verify
+ * ĐÃ THAY ĐỔI 04/10/2026: không còn dữ liệu mẫu cố định — đơn, dòng
+ * hàng, sản phẩm và tồn đọc THẬT từ website AURELLE (các collection
+ * `storefront_*` trong MongoDB của MONGODB_URI). Website đặt hàng xong bắn
+ * webhook cho OptiPack; OptiPack gọi lại các API dưới đây để lấy đơn.
+ * Shop duy nhất: seller_id AURELLE_SELLER_ID (mặc định 200000000101). Dùng LẠI `LazadaProtocolClient.generateSign()` để verify
  * chữ ký — cùng 1 công thức với client thật, không viết lại HMAC lần 2
  * (tránh 2 bản có thể lệch nhau nếu chỉ sửa 1 chỗ).
  *
@@ -38,7 +48,7 @@ const APP_KEY = process.env.AURELLE_MOCK_APP_KEY ?? '500123';
 const APP_SECRET = process.env.AURELLE_MOCK_APP_SECRET ?? 'mock-secret';
 const ACCESS_TOKEN = 'mock-access-token';
 const REFRESH_TOKEN = 'mock-refresh-token';
-const SELLER_ID = '200000000101';
+const SELLER_ID = process.env.AURELLE_SELLER_ID ?? DEFAULT_AURELLE_SELLER_ID;
 
 // Dùng lại ĐÚNG công thức ký của client thật — KHÔNG viết lại HMAC.
 const signVerifier = new LazadaProtocolClient({
@@ -48,94 +58,6 @@ const signVerifier = new LazadaProtocolClient({
   appKey: APP_KEY,
   appSecret: APP_SECRET,
 });
-
-// ------------------------------------------------------------------
-// Dữ liệu mẫu cố định — 1 đơn, 2 dòng hàng (đúng "1 dòng = 1 đơn vị"),
-// 1 sản phẩm khớp SellerSku của dòng hàng.
-// ------------------------------------------------------------------
-
-const SAMPLE_ORDER = {
-  order_id: 710000017,
-  order_number: 'AUR260928017',
-  statuses: ['pending'],
-  created_at: '2026-09-28T09:14:05+07:00',
-  updated_at: '2026-09-28T09:14:05+07:00',
-  price: '400000.00',
-  items_count: 2,
-  payment_method: 'COD',
-  remarks: 'Giao giờ hành chính',
-  address_shipping: {
-    first_name: 'Nguyễn Thị Lan',
-    last_name: '',
-    phone: '0901234567',
-    address1: '12 Nguyễn Văn Linh, Phường Tân Phong, Quận 7',
-    address3: 'TP. Hồ Chí Minh',
-    address4: 'Quận 7',
-    address5: 'Phường Tân Phong',
-    city: 'TP. Hồ Chí Minh',
-    country: 'Vietnam',
-    post_code: '',
-  },
-  need_cancel_confirm: 'false',
-  is_cancel_pending: 'false',
-};
-
-const SAMPLE_ITEMS = [
-  {
-    order_item_id: 810000051,
-    order_id: 710000017,
-    sku: 'ATD-M-01',
-    shop_sku: '3000000456_VNAMZ-00123',
-    name: 'Áo thun basic',
-    variation: 'Màu: Đen, Size: M',
-    item_price: '200000.00',
-    paid_price: '200000.00',
-    status: 'pending',
-    shipping_type: 'Seller Own Fleet',
-    tracking_code: '',
-    package_id: '',
-  },
-  {
-    order_item_id: 810000052,
-    order_id: 710000017,
-    sku: 'ATD-M-01',
-    shop_sku: '3000000456_VNAMZ-00123',
-    name: 'Áo thun basic',
-    variation: 'Màu: Đen, Size: M',
-    item_price: '200000.00',
-    paid_price: '200000.00',
-    status: 'pending',
-    shipping_type: 'Seller Own Fleet',
-    tracking_code: '',
-    package_id: '',
-  },
-];
-
-let sampleSellableQuantity = 11;
-const SAMPLE_PRODUCT = {
-  item_id: '3000000456',
-  status: 'live',
-  attributes: { name: 'Áo thun basic', brand: 'AURELLE' },
-  skus: [
-    {
-      SkuId: '12000456',
-      SellerSku: 'ATD-M-01',
-      ShopSku: '3000000456_VNAMZ-00123',
-      Status: 'active',
-      price: '200000.00',
-      quantity: 12,
-      get sellableQuantity(): number {
-        return sampleSellableQuantity;
-      },
-      package_length: '25',
-      package_width: '20',
-      package_height: '3',
-      package_weight: '0.2',
-      color_family: 'Đen',
-      size: 'M',
-    },
-  ],
-};
 
 // ------------------------------------------------------------------
 // Helper — vỏ response, verify chữ ký, verify access_token
@@ -268,29 +190,85 @@ app.post('/rest/auth/token/refresh', (req: Request, res: Response) => {
   );
 });
 
-app.get('/rest/orders/get', (req: Request, res: Response) => {
-  if (!requireValidSignature(req, res)) return;
-  if (!requireValidAccessToken(req, res)) return;
-  res.json(envelope({ count: 1, countTotal: 1, orders: [SAMPLE_ORDER] }));
-});
+function queryString(req: Request, key: string): string | undefined {
+  const value = req.query[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
 
-app.get('/rest/order/items/get', (req: Request, res: Response) => {
+function queryInt(req: Request, key: string, fallback: number, max: number): number {
+  const parsed = Number(queryString(req, key));
+  return Number.isInteger(parsed) && parsed >= 0 ? Math.min(parsed, max) : fallback;
+}
+
+function sendServerError(res: Response, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('AURELLE mock lỗi:', message);
+  res.status(500).json(errorEnvelope('InternalError', message));
+}
+
+app.get('/rest/orders/get', async (req: Request, res: Response) => {
   if (!requireValidSignature(req, res)) return;
   if (!requireValidAccessToken(req, res)) return;
-  const orderIdRaw = req.query.order_id;
-  const orderIdLabel = typeof orderIdRaw === 'string' ? orderIdRaw : '(không hợp lệ)';
-  const orderId = Number(orderIdRaw);
-  if (orderId !== SAMPLE_ORDER.order_id) {
-    res.status(404).json(errorEnvelope('ResourceNotFound', `Không có đơn "${orderIdLabel}".`));
+  const after = queryString(req, 'update_after') ?? queryString(req, 'created_after');
+  if (!after || Number.isNaN(Date.parse(after))) {
+    res.status(400).json(errorEnvelope('MissingParameter', 'Thiếu hoặc sai update_after (ISO 8601).'));
     return;
   }
-  res.json(envelope(SAMPLE_ITEMS));
+  const before = queryString(req, 'update_before');
+  try {
+    const data = await listOrders({
+      updateAfter: new Date(after),
+      updateBefore: before && !Number.isNaN(Date.parse(before)) ? new Date(before) : undefined,
+      offset: queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER),
+      limit: queryInt(req, 'limit', 100, 100) || 100,
+    });
+    res.json(envelope(data));
+  } catch (error) {
+    sendServerError(res, error);
+  }
 });
 
-app.get('/rest/products/get', (req: Request, res: Response) => {
+app.get('/rest/order/items/get', async (req: Request, res: Response) => {
   if (!requireValidSignature(req, res)) return;
   if (!requireValidAccessToken(req, res)) return;
-  res.json(envelope({ total_products: '1', products: [SAMPLE_PRODUCT] }));
+  const orderIdLabel = queryString(req, 'order_id') ?? '(không hợp lệ)';
+  const orderId = Number(orderIdLabel);
+  if (!Number.isInteger(orderId)) {
+    res.status(400).json(errorEnvelope('InvalidParameter', `order_id "${orderIdLabel}" không hợp lệ.`));
+    return;
+  }
+  try {
+    const items = await getOrderItems(orderId);
+    if (!items) {
+      res.status(404).json(errorEnvelope('ResourceNotFound', `Không có đơn "${orderIdLabel}".`));
+      return;
+    }
+    res.json(envelope(items));
+  } catch (error) {
+    sendServerError(res, error);
+  }
+});
+
+app.get('/rest/products/get', async (req: Request, res: Response) => {
+  if (!requireValidSignature(req, res)) return;
+  if (!requireValidAccessToken(req, res)) return;
+  let skus: string[] | null = null;
+  const rawList = queryString(req, 'sku_seller_list');
+  if (rawList) {
+    try {
+      const parsed: unknown = JSON.parse(rawList);
+      if (!Array.isArray(parsed)) throw new Error('not array');
+      skus = parsed.filter((sku): sku is string => typeof sku === 'string');
+    } catch {
+      res.status(400).json(errorEnvelope('InvalidParameter', 'sku_seller_list phải là mảng JSON.'));
+      return;
+    }
+  }
+  try {
+    res.json(envelope(await listProducts(skus, queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER), queryInt(req, 'limit', 50, 50) || 50)));
+  } catch (error) {
+    sendServerError(res, error);
+  }
 });
 
 app.post('/rest/order/acknowledge', (req: Request, res: Response) => {
@@ -307,7 +285,7 @@ app.post('/rest/order/status/update', (req: Request, res: Response) => {
   res.json(envelope({ order_id: Number(body.order_id), status: String(body.status), updated_at: new Date().toISOString() }));
 });
 
-app.post('/rest/product/stock/sellable/update', (req: Request, res: Response) => {
+app.post('/rest/product/stock/sellable/update', async (req: Request, res: Response) => {
   if (!requireValidSignature(req, res)) return;
   if (!requireValidAccessToken(req, res)) return;
   const body = req.body as Record<string, unknown>;
@@ -325,16 +303,27 @@ app.post('/rest/product/stock/sellable/update', (req: Request, res: Response) =>
     return;
   }
 
-  const results = skus.map((sku) => {
-    if (sku.SellerSku === SAMPLE_PRODUCT.skus[0]?.SellerSku && typeof sku.SellableQuantity === 'number') {
-      sampleSellableQuantity = sku.SellableQuantity;
+  try {
+    const results = [];
+    for (const sku of skus) {
+      const ok = typeof sku.SellerSku === 'string' && typeof sku.SellableQuantity === 'number'
+        ? await setSellableQuantity(sku.SellerSku, sku.SellableQuantity)
+        : false;
+      results.push({ SkuId: sku.SkuId, SellerSku: sku.SellerSku, success: ok, SellableQuantity: sku.SellableQuantity });
     }
-    return { SkuId: sku.SkuId, SellerSku: sku.SellerSku, success: true, SellableQuantity: sku.SellableQuantity };
-  });
-  res.json(envelope({ results }));
+    res.json(envelope({ results }));
+  } catch (error) {
+    sendServerError(res, error);
+  }
 });
 
-app.listen(PORT, '127.0.0.1', () => {
+const mongoUri = process.env.MONGODB_URI;
+if (!mongoUri) {
+  console.error('Thiếu MONGODB_URI — mock AURELLE cần đọc dữ liệu website từ MongoDB.');
+  process.exit(1);
+}
+
+void connectStorefrontStore(mongoUri).then(() => app.listen(PORT, '127.0.0.1', () => {
   console.log(`AURELLE mock server (tham chiếu Mục 7-8) chạy tại http://localhost:${String(PORT)}`);
   console.log(`Developer Console: http://localhost:${String(PORT)}/developer`);
-});
+}));

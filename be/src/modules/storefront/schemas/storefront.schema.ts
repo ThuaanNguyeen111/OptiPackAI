@@ -155,6 +155,10 @@ export class StorefrontOrder {
   @Prop({ type: Types.ObjectId, ref: 'Customer', default: null }) customer_id!: Types.ObjectId | null;
   @Prop({ type: String }) client_order_id?: string;
   @Prop({ required: true, unique: true }) order_number!: string;
+  // Mã số công khai kiểu Lazada (order_id dạng số) mà Open API AURELLE trả cho
+  // ứng dụng đối tác (OptiPack). Cấp lúc đặt hàng từ bộ đếm storefront_counters.
+  // Đơn cũ (trước 04/10/2026) không có — mock Open API cấp bù khi cần.
+  @Prop({ type: Number, default: null }) public_order_id!: number | null;
   @Prop({ type: String, enum: ['pending', 'confirmed', 'cancelled', 'completed'], default: 'pending' }) status!: string;
   @Prop({ type: String, enum: ['unpaid', 'paid', 'failed', 'refunded'], default: 'unpaid' }) payment_status!: string;
   @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
@@ -179,6 +183,21 @@ export const StorefrontOrderSchema = SchemaFactory.createForClass(StorefrontOrde
 StorefrontOrderSchema.index({ customer_id: 1, created_at: -1 });
 StorefrontOrderSchema.index({ customer_id: 1, client_order_id: 1 }, { unique: true, sparse: true });
 StorefrontOrderSchema.index({ canonical_sync_status: 1, created_at: 1 });
+StorefrontOrderSchema.index(
+  { public_order_id: 1 },
+  { unique: true, partialFilterExpression: { public_order_id: { $type: 'number' } } },
+);
+// Phục vụ Open API GetOrders (update_after) — mock aurelle-mock-server.ts
+StorefrontOrderSchema.index({ updated_at: 1 });
+
+/** Bộ đếm tăng dần (atomic $inc) — hiện chỉ dùng cấp public_order_id. */
+@Schema({ collection: 'storefront_counters', versionKey: false })
+export class StorefrontCounter {
+  @Prop({ type: String, required: true }) _id!: string;
+  @Prop({ type: Number, required: true, default: 0 }) seq!: number;
+}
+export type StorefrontCounterDocument = HydratedDocument<StorefrontCounter>;
+export const StorefrontCounterSchema = SchemaFactory.createForClass(StorefrontCounter);
 
 @Schema({ _id: false })
 export class StorefrontOrderItemSnapshot {

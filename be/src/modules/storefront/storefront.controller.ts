@@ -7,7 +7,6 @@ import { StorefrontOrdersService } from './storefront-orders.service';
 import { AddCartItemDto, CheckoutDto, SyncCartDto } from './dto/storefront.dto';
 import { CustomerJwtGuard } from './customer-jwt.guard';
 import { StorefrontCartService } from './storefront-cart.service';
-import { STOREFRONT_SHOP_ID } from './storefront-canonical-order.service';
 
 type CustomerRequest = Request & { user: { customerId: string } };
 @ApiTags('Storefront')
@@ -21,11 +20,7 @@ export class StorefrontController {
   ) {}
   @Get('settings') settings() {
     return {
-      platform: 'storefront',
-      shop_id: STOREFRONT_SHOP_ID,
       store_name: this.configService.get<string>('storefront.name', 'AURELLE'),
-      connected: true,
-      connection_type: 'internal',
     };
   }
   @Get('categories') categories() { return this.catalog.categories(); }

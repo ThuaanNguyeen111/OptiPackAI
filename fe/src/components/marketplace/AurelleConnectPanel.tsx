@@ -168,8 +168,8 @@ export function AurelleConnectPanel({ locale }: Props) {
           </div>
           <p className="mt-1 text-xs text-ink-muted">
             {vi
-              ? 'Kết nối bằng app key của OptiPack, seller cấp quyền qua OAuth. Đơn được kéo về theo lịch 10 phút.'
-              : 'Uses the OptiPack app key with seller OAuth consent. Orders are pulled every 10 minutes.'}
+              ? 'Kênh duy nhất nhận đơn từ website AURELLE: kết nối bằng app key, seller cấp quyền qua OAuth. Website đặt hàng xong báo ngay qua webhook; cron 10 phút đồng bộ dự phòng.'
+              : 'The only channel for AURELLE website orders: app key plus seller OAuth consent. New orders arrive via webhook; a 10-minute sync is the fallback.'}
           </p>
         </div>
         <Button

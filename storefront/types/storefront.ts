@@ -65,8 +65,7 @@ export type StorefrontOrder = {
   shippingFee?: number
   currency: string
   createdAt: string
-  canonicalOrderId: string | null
-  canonicalSyncStatus: 'pending' | 'synced' | 'failed'
+  publicOrderId: number | null
 }
 
 export type StorefrontOrderItem = {

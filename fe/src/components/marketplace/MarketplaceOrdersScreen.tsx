@@ -83,7 +83,8 @@ export function MarketplaceOrdersScreen({
       const shopIds = [
         ...new Set(
           res.orders
-            .filter((order) => order.platform !== 'storefront')
+            // Chỉ shop Lazada lưu danh sách ở localStorage; AURELLE đọc từ DB.
+            .filter((order) => order.platform === 'lazada')
             .map((o) => o.shopId)
             .filter(Boolean),
         ),
