@@ -212,10 +212,6 @@ export function AdminWarehousePage() {
                               : `Created ${created} new bins.`,
                           )
                         }
-                        onPickBin={(binId) => {
-                          setPickedBinId(binId)
-                          setTab('assign')
-                        }}
                       />
                     ) : null}
                     {tab === 'assign' ? (
@@ -1132,14 +1128,12 @@ function BinsTab({
   vi,
   api,
   onGenerated,
-  onPickBin,
   onNotice,
   onOpenCategories,
 }: {
   vi: boolean
   api: Api
   onGenerated: (created: number) => void
-  onPickBin: (binId: string) => void
   onNotice: (message: string) => void
   onOpenCategories: () => void
 }) {
@@ -1373,11 +1367,6 @@ function BinsTab({
         </label>
         {selectedCategory ? (
           <div className="space-y-2 sm:col-span-3">
-            <p className="text-[11px] text-ink-muted">
-              {vi
-                ? 'Mỗi tầng một size trong thang của loại vừa chọn. Thứ tự do bạn khai.'
-                : 'Pick a size for each tier from this type.'}
-            </p>
             {tierSizes.map((size, index) => (
               <div key={index} className="flex items-center gap-2">
                 <span className="w-16 text-xs text-ink">
@@ -1491,11 +1480,7 @@ function BinsTab({
               return (
                 <TableRow
                   key={bin.id}
-                  className={cn(
-                    'cursor-pointer',
-                    justOff ? 'bg-amber-50 dark:bg-amber-950/30' : '',
-                  )}
-                  onClick={() => onPickBin(bin.id)}
+                  className={justOff ? 'bg-amber-50 dark:bg-amber-950/30' : undefined}
                 >
                   <TableCell className="font-medium text-ink">
                     {bin.binCode}
