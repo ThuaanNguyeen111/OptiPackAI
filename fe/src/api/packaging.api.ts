@@ -1,16 +1,12 @@
 import { apiRequest } from '../lib/api'
 import type {
-  AdjustmentReason,
   BoxStockMovement,
   MaterialRules,
   MaterialType,
-  MultiCartonPlanPreview,
   OrderGroupSummary,
   PackagingBag,
   PackagingBox,
   PackagingMaterial,
-  PackagingPlan,
-  PackagingRecommendation,
   ProductCategory,
   ProductProfile,
 } from '../types/packaging'
@@ -22,97 +18,6 @@ export async function listOrderGroups(fulfillmentStatus?: string): Promise<Order
 
 export async function getOrderGroup(groupId: string): Promise<OrderGroupSummary> {
   return apiRequest<OrderGroupSummary>(`/order-groups/${groupId}`, { auth: true })
-}
-
-export async function getPackagingPlan(groupId: string): Promise<PackagingPlan> {
-  return apiRequest<PackagingPlan>(`/order-groups/${groupId}/packaging`, { auth: true })
-}
-
-export async function previewMultiCartonPlan(groupId: string): Promise<MultiCartonPlanPreview> {
-  return apiRequest<MultiCartonPlanPreview>(`/order-groups/${groupId}/packaging/cartonization-preview`, {
-    auth: true,
-  })
-}
-
-export async function generatePackagingPlan(groupId: string): Promise<PackagingPlan> {
-  return apiRequest<PackagingPlan>(`/order-groups/${groupId}/packaging/generate`, {
-    method: 'POST',
-    auth: true,
-  })
-}
-
-export async function approvePackagingPlan(groupId: string, expectedGroupVersion: number): Promise<PackagingPlan> {
-  return apiRequest<PackagingPlan>(`/order-groups/${groupId}/packaging/approve`, {
-    method: 'POST',
-    auth: true,
-    body: { expected_group_version: expectedGroupVersion },
-  })
-}
-
-export async function adjustPackagingPlan(
-  groupId: string,
-  body: {
-    orderId: string
-    /** Kiện cần đổi thùng (đơn nhiều kiện); bỏ trống = kiện 0. */
-    cartonIndex?: number
-    boxCode: string
-    reason: AdjustmentReason
-    note?: string
-    expectedGroupVersion: number
-  },
-): Promise<PackagingPlan> {
-  return apiRequest<PackagingPlan>(`/order-groups/${groupId}/packaging/adjust`, {
-    method: 'POST',
-    auth: true,
-    body: {
-      order_id: body.orderId,
-      carton_index: body.cartonIndex,
-      box_code: body.boxCode,
-      adjustment_reason: body.reason,
-      adjustment_note: body.note,
-      expected_group_version: body.expectedGroupVersion,
-    },
-  })
-}
-
-export async function rejectPackagingPlan(groupId: string, expectedGroupVersion: number): Promise<{ message: string }> {
-  return apiRequest<{ message: string }>(`/order-groups/${groupId}/packaging/reject`, {
-    method: 'POST',
-    auth: true,
-    body: { expected_group_version: expectedGroupVersion },
-  })
-}
-
-/** Lấy (hoặc tạo lần đầu) hướng dẫn đóng gói từng bước cho 1 đơn. */
-export async function requestPackingGuide(
-  groupId: string,
-  recommendationId: string,
-  regenerate = false,
-  cartonIndex = 0,
-): Promise<PackagingRecommendation> {
-  return apiRequest<PackagingRecommendation>(
-    `/order-groups/${groupId}/packaging/${recommendationId}/guide`,
-    { method: 'POST', auth: true, body: { regenerate, carton_index: cartonIndex } },
-  )
-}
-
-export async function packOrderGroup(
-  groupId: string,
-  packages: { orderId: string; cartonIndex?: number; actualWeightKg: number }[],
-  expectedVersion: number,
-): Promise<{ fulfillmentStatus: string; version: number; recommendations: PackagingRecommendation[] }> {
-  return apiRequest(`/order-groups/${groupId}/fulfillment/pack`, {
-    method: 'POST',
-    auth: true,
-    body: {
-      packages: packages.map((p) => ({
-        order_id: p.orderId,
-        carton_index: p.cartonIndex,
-        actual_weight_kg: p.actualWeightKg,
-      })),
-      expected_version: expectedVersion,
-    },
-  })
 }
 
 export async function listPackagingBoxes(): Promise<PackagingBox[]> {

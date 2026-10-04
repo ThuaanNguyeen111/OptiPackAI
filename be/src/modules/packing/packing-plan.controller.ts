@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -366,5 +366,58 @@ export class PackingPlanController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ plan: PackingPlanResponse }> {
     return { plan: toPlanResponse(await this.planService.pack(groupId, dto, user.userId)) };
+  }
+}
+
+export interface PackingPlanSummary {
+  orderGroupId: string;
+  status: string;
+  version: number;
+  proof: PlanProofLabel | null;
+  cpSatPending: boolean;
+  parcels: number;
+  packagingCostVnd: number;
+  failureReason: string | null;
+}
+
+/** Tóm tắt kế hoạch của nhiều nhóm — bảng "Hàng chờ đóng gói" gọi 1 lần thay vì N lần. */
+@ApiTags('Packing plan')
+@ApiBearerAuth('JWT-auth')
+@Controller('packing-plans')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class PackingPlansController {
+  constructor(private readonly planService: PackingPlanService) {}
+
+  @Get('summary')
+  @Roles(
+    UserRole.PACKAGING_STAFF,
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.STORE_OWNER,
+    UserRole.ADMIN,
+  )
+  @ApiOperation({ summary: 'Tóm tắt kế hoạch đang hoạt động của các nhóm (?group_ids=a,b,c — tối đa 200).' })
+  async summary(@Query('group_ids') groupIds = ''): Promise<{ summaries: PackingPlanSummary[] }> {
+    const ids = groupIds
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 200);
+    const plans = await this.planService.listActiveByGroupIds(ids);
+    return {
+      summaries: plans.map((plan) => {
+        const full = toPlanResponse(plan);
+        return {
+          orderGroupId: full.orderGroupId,
+          status: full.status,
+          version: full.version,
+          proof: full.proof,
+          cpSatPending: full.cpSatPending,
+          parcels: full.totals.parcels,
+          packagingCostVnd: full.totals.packagingCostVnd,
+          failureReason: full.failureReason,
+        };
+      }),
+    };
   }
 }

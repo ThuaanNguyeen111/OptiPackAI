@@ -190,6 +190,13 @@ export class PackingPlanService {
     return this.planModel.findOne({ order_group_id: id, is_active: true });
   }
 
+  /** Kế hoạch đang hoạt động của nhiều nhóm (cho bảng hàng chờ) — 1 truy vấn `$in`. */
+  async listActiveByGroupIds(groupIds: string[]): Promise<PackingPlanDocument[]> {
+    const ids = groupIds.filter((id) => Types.ObjectId.isValid(id)).map((id) => new Types.ObjectId(id));
+    if (ids.length === 0) return [];
+    return this.planModel.find({ order_group_id: { $in: ids }, is_active: true });
+  }
+
   private async requireActivePlan(groupId: string): Promise<PackingPlanDocument> {
     const plan = await this.getActivePlan(groupId);
     if (!plan) {

@@ -7,7 +7,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { PackingPlan, PackingPlanSchema } from './schemas/packing-plan.schema';
 import { PackingPlanService } from './packing-plan.service';
 import { PackingJobService } from './packing-job.service';
-import { PackingPlanController } from './packing-plan.controller';
+import { PackingPlanController, PackingPlansController } from './packing-plan.controller';
 
 /**
  * Kế hoạch đóng gói (04/10/2026, làm lại): bộ giải BRKGA + CP-SAT, kế hoạch
@@ -24,7 +24,7 @@ import { PackingPlanController } from './packing-plan.controller';
     PackagingModule,
     NotificationsModule,
   ],
-  controllers: [PackingPlanController],
+  controllers: [PackingPlanController, PackingPlansController],
   providers: [PackingPlanService, PackingJobService],
   exports: [PackingPlanService],
 })

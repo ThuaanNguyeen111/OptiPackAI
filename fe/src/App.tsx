@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
 import {
   ForceChangeRoute,
   GuestRoute,
@@ -27,9 +27,8 @@ import { MarketplaceOAuthSuccessPage } from './pages/MarketplaceOAuthSuccessPage
 import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { OrdersPage } from './pages/OrdersPage'
-import { PackagingGroupsPage } from './pages/PackagingGroupsPage'
-import { PackagingPlanPage } from './pages/PackagingPlanPage'
-import { PackingWizardPage } from './pages/PackingWizardPage'
+import { PackingQueuePage } from './pages/PackingQueuePage'
+import { PackingWorkspacePage } from './pages/PackingWorkspacePage'
 import { PackagingProfilesPage } from './pages/PackagingProfilesPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
 import { ProfilePage } from './pages/ProfilePage'
@@ -48,6 +47,12 @@ function PortalRoot() {
       <Outlet />
     </PortalProvider>
   )
+}
+
+/** Link cũ /app/packing/groups/:groupId(/orders/:id) → màn làm việc mới (04/10/2026). */
+function LegacyPackingRedirect() {
+  const { groupId = '' } = useParams<{ groupId: string }>()
+  return <Navigate to={`/app/packing/${groupId}`} replace />
 }
 
 function App() {
@@ -82,10 +87,11 @@ function App() {
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="inventory/packaging-profiles" element={<PackagingProfilesPage />} />
-                <Route path="packing" element={<PackagingGroupsPage />} />
+                <Route path="packing" element={<PackingQueuePage />} />
                 <Route path="packing/groups" element={<Navigate to="/app/packing" replace />} />
-                <Route path="packing/groups/:groupId" element={<PackagingPlanPage />} />
-                <Route path="packing/groups/:groupId/orders/:recommendationId" element={<PackingWizardPage />} />
+                <Route path="packing/groups/:groupId" element={<LegacyPackingRedirect />} />
+                <Route path="packing/groups/:groupId/orders/:recommendationId" element={<LegacyPackingRedirect />} />
+                <Route path="packing/:groupId" element={<PackingWorkspacePage />} />
                 <Route path="shipping" element={<ShippingPage />} />
                 <Route path="shipping/dispatch" element={<ShippingDispatchPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
