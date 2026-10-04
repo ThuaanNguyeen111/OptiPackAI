@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-22 — 🆕 tồn kho thùng trong `/packaging/boxes` (stock-in, sổ xuất/nhập, engine chỉ chọn thùng còn trống), gỡ `/materials`; 2026-09-21 lần 3: 🆕 danh mục túi zip `/packaging/bags` (mục 8d), hồ sơ SKU thêm loại sản phẩm + túi zip (mục 8c), hướng dẫn đóng gói bằng AI; lần 2: 🆕 engine đóng gói 3D (mỗi đơn 1 kiện, tọa độ xếp cho animation), danh mục thùng `/packaging/boxes`, hồ sơ SKU `/product-master`, `pick`/`pick-item` đối soát số lượng, `pack` nhận cân từng kiện (mục 6, 8, 8b, 8c); lần 1: đồng bộ luồng lấy hàng trước, đóng gói sau; trước đó 2026-09-20 (gộp bản contract từ nhánh `thi_dev`: thêm mục Quy ước, mục 0 System, bảng DTO/field cho từng module, mục 11 collection nội bộ/planned và bảng mã lỗi theo module).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-09-30 — 🆕 **đa kiện thật** (mỗi đơn có N kiện: `cartons[]`, `carton_index` ở `adjust`/`pack`/`guide`, lý do no_fit có mã), engine 3D mới (extreme-point, bỏ trần 30 món); 2026-09-30 (rà business rule) — 🔄 `fulfillment/pick` chỉ từ `picking`; `decide-partial` từ chối → `picking` (lượt mới); `packaging/adjust` tăng version nhóm; thông báo `packaging_plan_invalidated`; 2026-09-29 — 🆕 webhook nhận sự kiện AURELLE (`POST /marketplace/webhooks/:platform`, mục 3b), `POST /orders/:platform/sync` tổng quát (mục 4), trạng thái `canceled` cho Order Group (N1 — tự động hủy khi mọi đơn trong nhóm không còn fulfill được, nhả giữ chỗ đóng gói), liên kết cùng người nhận `GET /order-groups/:id/linked` + `linkedGroupCount`/`linkedPending` (Mục 9.5, mục 5-6), module `shipments/` mới — giao chung chuyến (mục 6b), picking list gộp nhiều nhóm `GET /warehouse/:warehouseId/picking-list?group_ids=` (mục 9); trước đó 2026-09-28 — 🆕 vật tư chèn `/packaging/materials` (danh mục + tồn kho + bộ luật chọn vật tư, mục 8e), phương án đóng gói trả `materials[]` đầy đủ + `materialsWeightG/CostVnd/Shortfall`; 2026-09-22 — 🆕 tồn kho thùng trong `/packaging/boxes` (stock-in, sổ xuất/nhập, engine chỉ chọn thùng còn trống), gỡ `/materials`; 2026-09-21 lần 3: 🆕 danh mục túi zip `/packaging/bags` (mục 8d), hồ sơ SKU thêm loại sản phẩm + túi zip (mục 8c), hướng dẫn đóng gói bằng AI; lần 2: 🆕 engine đóng gói 3D (mỗi đơn 1 kiện, tọa độ xếp cho animation), danh mục thùng `/packaging/boxes`, hồ sơ SKU `/product-master`, `pick`/`pick-item` đối soát số lượng, `pack` nhận cân từng kiện (mục 6, 8, 8b, 8c); lần 1: đồng bộ luồng lấy hàng trước, đóng gói sau; trước đó 2026-09-20 (gộp bản contract từ nhánh `thi_dev`: thêm mục Quy ước, mục 0 System, bảng DTO/field cho từng module, mục 11 collection nội bộ/planned và bảng mã lỗi theo module).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -100,15 +100,26 @@ Public profile: `id`, `name`, `email`, `role`, `avatar`, `phone?`, `address?`, `
 | GET    | `/marketplace/:platform/connect`  | Admin  | Tạo URL OAuth để kết nối shop 1 sàn (lazada/tiktok/tiki) |
 | GET    | `/marketplace/:platform/callback` | Public | Sàn tự gọi lại sau khi seller authorize                  |
 
-`platform` là enum marketplace. Callback state dùng một lần để chống CSRF. Access/refresh token được mã hóa trong `marketplace_shops`, không expose.
+`platform` là enum marketplace (`lazada`, `tiktok`, `tiki`, 🆕 `aurelle` — sàn thứ 2 tự dựng tương thích khung Lazada, xem `AURELLE_MARKETPLACE_DESIGN.md`). Callback state dùng một lần để chống CSRF. Access/refresh token được mã hóa trong `marketplace_shops`, không expose.
+
+## 3b. 🆕 Webhook AURELLE (`/marketplace/webhooks`) — 29/09/2026
+
+| Method | Route                             | Role   | Mô tả                                                    |
+| ------ | ---------------------------------- | ------ | -------------------------------------------------------- |
+| POST   | `/marketplace/webhooks/:platform` | Public (không JWT) | AURELLE gọi khi có sự kiện đơn hàng — không expose Swagger |
+
+Không dùng Bearer token — bảo mật bằng chữ ký HMAC trong header `Authorization` (không tiền tố "Bearer"), công thức `UPPER(HEX(HMAC_SHA256(app_secret, app_key + raw_body)))` (`AurelleAdapter.verifyWebhookSignature()`), so sánh bằng `timingSafeEqual`. Chữ ký sai hoặc thiếu → 401 `MKT_WEBHOOK_SIGNATURE_INVALID`. Chống replay: `|now - timestamp| > 5 phút` → cũng 401 cùng mã lỗi. Chống trùng (Rule #17, tạo record trước — bắt lỗi trùng khóa E11000 — thay vì kiểm tra rồi tạo) theo `{platform, event_id: message_id}` trong `processed_webhook_events` (TTL 7 ngày) — `message_id` đã xử lý → ack `{received:true}` ngay, không xử lý lại.
+
+Body: `{ message_id, seller_id, message_type, timestamp, data: { trade_order_id, order_status?, status_update_time? } }`. 3 giá trị `message_type` đã biết: `order_status_changed`/`order_updated` (gọi `syncSingleOrder(platform, seller_id, trade_order_id)` — nếu shop chưa từng connect thì ack, không xử lý), `authorization_revoked` (bắn Notification `CONNECTION_LOST` cho Store Owner + Admin, KHÔNG sync). Giá trị lạ khác vẫn ack 200 (tương thích ngược). Luôn trả 2xx trong vài giây trừ 2 case từ chối ở trên; AURELLE tự retry nếu không nhận được ack.
 
 ## 4. Orders (`/orders`)
 
-| Method | Route                 | Role                   | Mô tả                                                                               |
-| ------ | --------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
-| POST   | `/orders/lazada/sync` | Admin                  | Kích hoạt tay 1 lần đồng bộ đơn từ Lazada (thao tác kỹ thuật, giữ nguyên chỉ Admin) |
-| GET    | `/orders`             | **Admin, Store Owner** | Danh sách đơn đã đồng bộ                                                            |
-| GET    | `/orders/:id`         | **Admin, Store Owner** | Chi tiết 1 đơn hàng                                                                 |
+| Method | Route                    | Role                   | Mô tả                                                                               |
+| ------ | ------------------------ | ---------------------- | ----------------------------------------------------------------------------------- |
+| POST   | `/orders/lazada/sync`    | Admin                  | Kích hoạt tay 1 lần đồng bộ đơn từ Lazada (giữ nguyên, tương thích ngược)           |
+| POST   | `/orders/:platform/sync` | Admin                  | 🆕 29/09/2026 — bản tổng quát, dùng cho MỌI sàn đã đăng ký adapter (`lazada`, `aurelle`...); `/orders/lazada/sync` giờ chỉ là alias gọi lại route này |
+| GET    | `/orders`                | **Admin, Store Owner** | Danh sách đơn đã đồng bộ                                                            |
+| GET    | `/orders/:id`            | **Admin, Store Owner** | Chi tiết 1 đơn hàng                                                                 |
 
 **Chi tiết query/response**
 
@@ -129,9 +140,10 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | Method | Route                                 | Role                                                   | Mô tả                                                                                                                                             |
 | ------ | ------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/order-groups`                       | **Store Owner**, Warehouse, Packaging, Shipping, Admin | Danh sách nhóm đơn — lọc theo `fulfillment_status`/`platform`/**`order_priority`** (MỚI — xem toàn bộ đơn Hỏa Tốc bằng `?order_priority=express`) |
-| GET    | `/order-groups/:id`                   | **Store Owner**, Warehouse, Packaging, Shipping, Admin | Chi tiết 1 nhóm đơn — đọc `version` ở đây trước mọi request ghi                                                                                   |
+| GET    | `/order-groups/:id`                   | **Store Owner**, Warehouse, Packaging, Shipping, Admin | Chi tiết 1 nhóm đơn — đọc `version` ở đây trước mọi request ghi. 🆕 29/09: thêm `linkedGroupCount` (số nhóm khác, có thể khác sàn, cùng `recipient_key`, chưa giao xong — Mục 9.5) |
 | GET    | `/order-groups/:id/picking-list`      | Warehouse, Admin                                       | Toàn bộ SKU cần lấy. 🔄 21/09: mỗi dòng có `quantity` (số đặt), `picked_quantity` (đã quét trong lượt), `packaging_profile_ready`; số đo `null` nếu SKU chưa đo — **không còn 422 khi SKU chưa có hồ sơ** |
 | GET    | `/order-groups/:id/picking-list/:sku` | Warehouse, Admin                                       | Chi tiết 1 SKU riêng lẻ trong nhóm đơn (cùng shape dòng picking-list ở trên)                                                                      |
+| 🆕 GET | `/order-groups/:id/linked`            | **Store Owner**, Warehouse, Packaging, Shipping, Admin | **MỚI (29/09/2026, Mục 9.5)** — danh sách đầy đủ các nhóm khác cùng `recipient_key` (cùng người nhận thật, có thể khác sàn), chưa tới `delivered`/`returned`/`canceled`. Trả `{ linkedGroups: OrderGroupResponse[] }` |
 
 ## 6. Order Groups — Fulfillment (ghi trạng thái)
 
@@ -141,11 +153,63 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | POST   | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin           | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt        |
 | POST   | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin           | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại (🔄 21/09: hủy = mở lượt lấy mới `pick_round + 1`, không đếm lại lượt cũ; tồn kho không tự cộng lại) |
 | POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | `picking → picked`: 🔄 21/09 server đối soát mọi SKU đã quét đủ số đặt trong lượt; thiếu → 409 `ORD_GROUP_PICK_INCOMPLETE` kèm danh sách |
-| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | `approved_for_packing → packed`: 🔄 21/09 body `packages[]` = cân THẬT từng kiện (mỗi đơn 1 kiện); lệch > 20% so với ước tính (hàng + bì) → `isAbnormal` + thông báo Store Owner. Xử lý ở module packaging |
-| POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin            | Xác nhận đã bàn giao vận chuyển                                      |
+| POST   | `/order-groups/:id/fulfillment/pack`           | 🔄 Packaging, Warehouse, Admin | `approved_for_packing → packed`: 🔄 21/09 body `packages[]` = cân THẬT từng kiện; lệch > 20% so với ước tính (hàng + bì + vật tư) → `isAbnormal` + thông báo Store Owner. 🆕 30/09: **đơn nhiều kiện phải cân đủ MỌI kiện**, mỗi phần tử có `carton_index`; đơn 1 kiện có thể bỏ `carton_index`. Mỗi kiện trừ 1 thùng. Xử lý ở module packaging |
+| POST   | `/order-groups/:id/fulfillment/ship`           | Shipping, Admin            | Xác nhận đã bàn giao vận chuyển. 🆕 29/09: response thêm `linkedPending[]` (`{id, fulfillmentStatus}`) — CẢNH BÁO các nhóm khác cùng người nhận CHƯA đóng gói xong (Mục 9.5), KHÔNG chặn hành động ship |
 | POST   | `/order-groups/:id/fulfillment/deliver`        | Shipping, Admin            | Xác nhận đã giao thành công tới khách                                |
 | POST   | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin | Ghi nhận hoàn hàng (từ shipped hoặc delivered)                       |
+| POST   | `/order-groups/:id/fulfillment/return-receive` | 🆕 Warehouse, Admin | Kho NHẬN hàng hoàn của nhóm đã `returned`: body `{ warehouse_id, lines:[{ sku, good_quantity, damaged_quantity, note? }], note? }`. Đạt → nhập lại `quantity_on_hand` (cùng transaction); hỏng → chỉ ghi nhận. Mỗi nhóm nhận hoàn **1 lần**, không nhận quá số đã giao. Lỗi `ORD_GROUP_RETURN_*` |
 | PATCH  | `/order-groups/:id/priority`                   | **Store Owner**, Admin     | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói               |
+
+**🆕 Trạng thái mới `canceled` (29/09/2026, N1 — Mục 9.6)**: KHÔNG có endpoint ghi riêng — hệ thống **tự động** chuyển 1 Order Group sang `canceled` khi MỌI đơn bên trong không còn fulfill được (đơn bị khách/sàn hủy, hoặc sự cố logistics `lost`/`damaged_by_3pl`/`package_scrapped`...), miễn nhóm đó **chưa** tới `packed`/`shipped`/`delivered` (hàng đã đóng/giao vật lý thì không tự hủy ngầm, cần luồng `return` thủ công). Trigger: mỗi lần `syncShopOrders()`/webhook cập nhật 1 đơn sang trạng thái không-fulfill-được, hệ thống tự kiểm tra và hủy nhóm nếu đủ điều kiện — không cần Warehouse/Packaging Staff xác nhận riêng (ngoại lệ có chủ đích so với nguyên tắc "người xác nhận thay đổi quan trọng" thường dùng, vì rủi ro thấp khi nhóm chưa đóng gói). Khi hủy: tự nhả giữ chỗ đóng gói (`packaging_recommendations.is_active = false` nếu có phương án đang chờ) + bắn Notification `group_auto_canceled` cho Store Owner, Admin và người phụ trách (nếu có).
+
+## 6b. 🆕 Shipments — Giao chung chuyến (`/shipments`) — 29/09/2026
+
+Mục 9.5, hàng #4. Tạo vận đơn thật (mã chuyến + mã theo dõi nội bộ) cho 1 hoặc nhiều Order Group **đã `packed`** — dùng khi nhiều nhóm (có thể khác sàn) cùng 1 người nhận thật, muốn giao chung 1 chuyến. **KHÔNG thay thế** `POST /order-groups/:id/fulfillment/ship` (route đó vẫn dùng được cho ship đơn lẻ không cần vận đơn) — đây là lựa chọn CỘNG THÊM, không bắt buộc.
+
+| Method | Route            | Role                    | Mô tả                                                                 |
+| ------ | ---------------- | ----------------------- | ----------------------------------------------------------------------- |
+| POST   | `/shipments/batch` | Shipping Coordinator, Admin | Tạo vận đơn cho 1 hoặc nhiều group đã `packed`; mỗi group chuyển `packed → shipped`. ≥2 group bắt buộc cùng `recipient_key` |
+
+Body `CreateShipmentBatchDto` (🔄 30/09 — nay bắt buộc thêm `carrier_code` + `service_code`, xem ngay dưới): `order_group_ids: string[]` (≥1 phần tử, mỗi phần tử ObjectId hợp lệ), `note?: string`. Response `{ tripCode, shipments: [{ id, orderGroupId, trackingCode }] }` — `tripCode` dạng `TRIP-yymmdd-XXXX` (chung cho mọi shipment tạo trong 1 lần gọi), `trackingCode` dạng `OPK-XXXXXXXXXX` (riêng từng shipment). Toàn bộ chạy trong 1 Mongo transaction (Rule #6) — tạo `Shipment` + chuyển trạng thái từng group đều thành công hoặc đều rollback.
+
+Collection `shipments` (mới, tối giản có chủ đích — field carrier/cước/ETA thật sẽ CỘNG THÊM vào đúng collection này khi làm module Shipping riêng, không tạo collection thứ 2): `order_group_id` (unique — 1 group chỉ tạo được 1 shipment), `trip_code`, `tracking_code`, `note`, `created_by`, `created_at`.
+
+Lỗi: `SHP_EMPTY_GROUP_LIST` (400, danh sách rỗng), `SHP_GROUP_NOT_PACKED` (409, có group chưa `packed`), `SHP_RECIPIENT_MISMATCH` (409, ≥2 group khác `recipient_key` hoặc có group `recipient_key: null` — an toàn, không tự đoán liên kết khi không chắc), `SHP_GROUP_ALREADY_SHIPPED` (409, group đã có shipment từ trước — E11000 trên `order_group_id`).
+
+🔄 **ĐÃ THAY ĐỔI 30/09/2026** so với đoạn trên: `POST /shipments/batch` **bắt buộc chọn hãng + dịch vụ**. Body giờ là `{ order_group_ids, carrier_code, service_code, note?, pickup_at? }`. Cước tính từ kiện thật rồi ghi lên vận đơn (`carrier_*`, `service_*`, `parcel_count`, `chargeable_weight_g`, `estimated_cost_vnd`, `is_sample_rate`, `eta_from/eta_to`, `pickup_at`) và lên `estimated_shipping_cost_vnd` của phương án đóng gói từng đơn. Response `{ tripCode, carrierCode, serviceCode, totalCostVnd, shipments:[{ id, orderGroupId, trackingCode, parcelCount, estimatedCostVnd, etaFrom, etaTo }] }`. `trackingCode` vẫn là **mã nội bộ**, không phải mã vận đơn của hãng (chưa gọi API hãng thật).
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/shipments?trip_code=&carrier_code=` | Shipping, Store Owner, Warehouse, Admin | Danh sách vận đơn (mới nhất trước) |
+| GET | `/shipments/group/:groupId` | Shipping, Store Owner, Warehouse, Admin | Vận đơn của 1 nhóm (`null` nếu chưa có) |
+| PATCH | `/shipments/:id/pickup` | Shipping, Admin | Đặt/đổi lịch hãng đến lấy hàng `{ pickup_at }` — chỉ lưu lịch, chưa gọi hãng. Lỗi `SHP_PICKUP_IN_PAST`, `SHP_SHIPMENT_NOT_FOUND` |
+
+## 6d. 🆕 Chứng từ in PDF (`/documents`) — 30/09/2026
+
+Trả `application/pdf` (font DejaVu nhúng nên đủ tiếng Việt). FE cần gửi Bearer nên tải bằng `fetch` → blob → mở tab mới (xem `fe/src/api/shipping.api.ts::openDocument`), không mở thẳng bằng thẻ `<a>`.
+
+| Method | Route | Role | Nội dung |
+| ------ | ----- | ---- | -------- |
+| GET | `/documents/packing-slip/:groupId` | Warehouse, Packaging, Store Owner, Admin | Phiếu đóng gói — mỗi đơn 1 trang A5: người nhận, hàng (ô tích), các kiện/thùng, barcode nhóm |
+| GET | `/documents/shipping-label/:groupId` | Shipping, Warehouse, Admin | Nhãn 100×150 mm — **mỗi kiện 1 nhãn** (k/n), barcode Code128 + QR mã vận đơn, hãng, ETA. Cần đã có vận đơn |
+| GET | `/documents/manifest/:tripCode` | Shipping, Store Owner, Admin | Bảng kê chuyến A4 — mọi vận đơn cùng mã chuyến, tổng kiện/cân/cước, chỗ ký giao nhận |
+
+Lỗi: `DOC_NO_ORDERS` (409, nhóm không còn đơn hợp lệ), `DOC_SHIPMENT_NOT_FOUND` (404, chưa có vận đơn), `DOC_TRIP_NOT_FOUND` (404).
+
+## 6c. 🆕 Vận chuyển — hãng, bảng cước, báo giá (`/shipping`) — 30/09/2026
+
+Báo giá đọc các **kiện thật** của nhóm (phương án đóng gói đã duyệt/đã đóng): cân thực = cân đo lúc `pack` nếu có, chưa pack thì cân ước tính; cân quy đổi = thể tích ngoài của thùng ÷ hệ số của hãng; **cước mỗi kiện = bậc cước theo max(cân thực, cân quy đổi)**, vượt bậc cuối cộng theo mỗi 500 g. Hãng/bảng cước hiện là **số mẫu** (`is_sample`) — Admin thay bằng số thật.
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/shipping/carriers?active=false` | Shipping, Store Owner, Warehouse, Admin | Danh mục hãng + dịch vụ + bảng cước (mặc định chỉ hãng đang dùng) |
+| POST | `/shipping/carriers` | Admin | Tạo hãng (`code`, `name`, `volumetric_divisor`, `services[]` gồm `bands[]`, `eta_min_days/eta_max_days`, `extra_price_vnd_per_500g`) |
+| PATCH | `/shipping/carriers/:id` | Admin | Sửa hãng (không đổi `code`; `is_active:false` = ngừng dùng) |
+| GET | `/shipping/quote/:groupId` | Shipping, Store Owner, Admin | Báo giá MỌI dịch vụ cho nhóm: `{ groupId, parcelCount, strategy, quotes[], recommended }` |
+| GET | `/shipping/settings` | Shipping, Store Owner, Admin | Chiến lược chọn hãng: `cheapest` / `fastest` / `fixed` (+ hãng/dịch vụ mặc định) |
+| PUT | `/shipping/settings` | Store Owner, Admin | Đổi chiến lược |
+
+Lỗi: `SHIP_INVALID_CARRIER_ID`, `SHIP_CARRIER_NOT_FOUND`, `SHIP_CARRIER_CODE_IN_USE`, `SHIP_SERVICE_NOT_FOUND`, `SHIP_INVALID_RATE_TABLE`, `SHIP_NO_PARCELS` (nhóm chưa có kiện hợp lệ để báo giá), `SHIP_SETTINGS_SERVICE_INVALID`. Seed hãng mẫu: `npx ts-node -r tsconfig-paths/register scripts/seed-shipping-carriers.ts`.
 
 ## 7. Staff Assignment — Phân công / Đổi nhân viên phụ trách
 
@@ -171,7 +235,8 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | `DecidePartialDto` | `approve` | boolean | ✓ | Tiếp tục/hủy làm lại |
 |  | `expected_version` | integer | ✓ | Version hiện tại |
 | `TransitionOrderGroupDto` | `expected_version` | integer | ✓ | Version hiện tại (pick/ship/deliver/return) |
-| `PackGroupDto` (🆕 21/09, route `pack`) | `packages[].order_id` | ObjectId string | ✓ | Đơn của kiện — phải đủ mọi kiện đã duyệt, mỗi đơn 1 lần |
+| `PackGroupDto` (🆕 21/09, route `pack`) | `packages[].order_id` | ObjectId string | ✓ | Đơn của kiện — phải đủ mọi kiện đã duyệt |
+|  | `packages[].carton_index` | integer |  | 🆕 30/09 — thứ tự kiện trong đơn (từ 0); **bắt buộc khi đơn có nhiều kiện** |
 |  | `packages[].actual_weight_kg` | number | ✓ | Cân thật cả kiện, > 0 |
 |  | `expected_version` | integer | ✓ | Version group |
 | `SetPriorityDto` | `order_priority` | `normal\|express` | ✓ | Ưu tiên |
@@ -182,16 +247,19 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 
 ## 8. Packaging — UC-04 (`/order-groups/:groupId/packaging`)
 
+🆕 **ĐA KIỆN (30/09/2026)** — quyết định "mỗi đơn một kiện" (12/09, 21/09) được thay bằng **mỗi đơn N kiện**: đơn vừa 1 thùng vẫn ra đúng 1 kiện (không đổi gì cho client cũ); đơn quá lớn/quá nặng/hơn 30 món được **chia nhiều kiện**, mỗi kiện có thùng, tọa độ 3D, cân ước tính, vật tư, hướng dẫn và cân thật riêng. Field cấp phương án (`boxCode`, `placements`, `estimatedPackageWeightG`...) **phản chiếu kiện 0**; đọc `cartons[]` để có đủ mọi kiện (bản ghi cũ tự suy ra 1 kiện). Mỗi kiện giữ và trừ **1 thùng** trong kho. Engine mới (`ep-3d-v2`): chọn vị trí theo điểm, thử nhiều thứ tự/chính sách xếp, gập đôi theo nhóm ít món nhất, bỏ trần 30 món/thùng (trần 200), dễ vỡ luôn nằm trên cùng. Không đóng hết được → `solutionStatus: no_fit` kèm lý do **có mã** (`noFitReasons[].code`: `ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `OUT_OF_STOCK`, `NO_ARRANGEMENT`, `TIMEOUT`...) và món liên quan (`itemKey`); không lưu kiện dở dang.
+
 🔄 **ĐÃ ĐỔI (21/09/2026)** — đóng gói diễn ra SAU lấy hàng. **Lần 2 cùng ngày:** `generate` chia hàng đã quét về **từng đơn** (mỗi đơn 1 kiện) rồi chạy **engine greedy 3D + validator** trên danh mục thùng thật (`/packaging/boxes`). Không thùng nào hợp lệ → `solutionStatus: "no_fit"` (không còn trả thùng Large). Approve **không nhận cân** nữa; cân chuyển sang `fulfillment/pack`.
 
 | Method | Route                                       | Role                                  | Mô tả                                                     |
 | ------ | ------------------------------------------- | ------------------------------------- | --------------------------------------------------------- |
 | GET    | `/order-groups/:groupId/packaging`          | Packaging, Warehouse, Shipping, **Store Owner**, Admin | 🔄 Trả `{ orderGroupId, recommendations[] }` — mỗi đơn 1 phần tử, kèm `placements[]` (tọa độ mm) cho animation 3D. Mảng rỗng nếu chưa generate |
-| POST   | `/order-groups/:groupId/packaging/generate` | **Chỉ Admin** (trigger tự động là BE-5) | `picked → pending_approval`: engine 3D tính phương án cho từng đơn |
+| GET    | `/order-groups/:groupId/packaging/cartonization-preview` | Packaging, Warehouse, Admin | Preview read-only số carton/thùng cho từng đơn; không lưu recommendation, giữ tồn kho hoặc đổi fulfillment status. 🆕 30/09: dùng CHUNG packer đa kiện với `generate` (cùng kết quả); `status` thêm `partial`, `unplacedItemKeys` kèm lý do khi generate |
+| POST   | `/order-groups/:groupId/packaging/generate` | **Chỉ Admin** (trigger tự động là BE-5) | `picked → pending_approval`: engine 3D tính phương án cho từng đơn; 🆕 30/09 đơn lớn/nặng được chia N kiện |
 | POST   | `/order-groups/:groupId/packaging/approve`  | Packaging, Admin                      | `pending_approval → approved_for_packing`: chốt mọi đơn. Bị chặn nếu còn đơn `no_fit` (`PKG_HAS_NO_FIT`) |
-| POST   | `/order-groups/:groupId/packaging/adjust`   | Packaging, Admin                      | 🔄 Đổi thùng cho **1 đơn** (`order_id` + `box_code` trong danh mục): engine xếp lại, validator phải chấp nhận (không vừa → 422 `PKG_BOX_DOES_NOT_FIT`). Lưu lý do. Group vẫn chờ approve |
+| POST   | `/order-groups/:groupId/packaging/adjust`   | Packaging, Admin                      | 🔄 Đổi thùng cho **1 đơn** (`order_id` + `box_code` trong danh mục): engine xếp lại, validator phải chấp nhận (không vừa → 422 `PKG_BOX_DOES_NOT_FIT`). Lưu lý do. Group vẫn chờ approve. 🆕 30/09: đơn nhiều kiện gửi thêm `carton_index` (mặc định 0) để đổi thùng đúng 1 kiện — chỉ đóng lại **các món của kiện đó**; `carton_index` không có → 404 `PKG_CARTON_NOT_FOUND`. 🆕 30/09: adjust **tăng version của nhóm** — phải tải lại nhóm trước khi `approve` |
 | POST   | `/order-groups/:groupId/packaging/reject`   | Packaging, Admin                      | `pending_approval → picked`: vô hiệu hóa mọi phương án, gọi lại generate |
-| POST   | `/order-groups/:groupId/packaging/:recommendationId/guide` | Packaging, Warehouse, Admin | 🆕 21/09: hướng dẫn đóng gói từng bước cho 1 đơn (animation 3D). Engine quyết định vị trí/thứ tự, AI viết lời (Groq); chưa cấu hình/AI trả sai → câu mẫu (`packingGuide.source = template`). Body `{ regenerate?: boolean }`. Đơn `no_fit` → 409 `PKG_GUIDE_NOT_AVAILABLE`. Giới hạn 10 lần/phút |
+| POST   | `/order-groups/:groupId/packaging/:recommendationId/guide` | Packaging, Warehouse, Admin | 🆕 21/09: hướng dẫn đóng gói từng bước cho 1 đơn (animation 3D). Engine quyết định vị trí/thứ tự, AI viết lời (Groq); chưa cấu hình/AI trả sai → câu mẫu (`packingGuide.source = template`). Body `{ regenerate?: boolean, carton_index?: number }` (🆕 30/09: hướng dẫn **theo từng kiện**, mặc định kiện 0; lưu ở `cartons[i].packingGuide`, kiện 0 còn phản chiếu ra `packingGuide` cấp trên). Đơn `no_fit` hoặc `carton_index` không tồn tại → 409 `PKG_GUIDE_NOT_AVAILABLE`. Giới hạn 10 lần/phút |
 
 **Chi tiết DTO**
 
@@ -200,13 +268,14 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | Approve | `expected_group_version` | integer | ✓ | Version group |
 |  | `actual_measured_weight_kg` | number |  | ⚠️ Deprecated từ 21/09 — bỏ qua; cân nhập ở `fulfillment/pack` |
 | Adjust | `order_id` | ObjectId string | ✓ | Đơn cần đổi thùng |
+|  | `carton_index` | integer |  | 🆕 30/09 — kiện cần đổi (từ 0); bỏ trống = kiện 0 |
 |  | `box_code` | string | ✓ | Mã thùng trong `/packaging/boxes` (không còn nhập `box_size` tùy ý) |
 |  | `adjustment_reason` | enum | ✓ | `PRODUCT_MORE_FRAGILE_THAN_EXPECTED` / `RECOMMENDED_BOX_NOT_IN_STOCK` / `OTHER` |
 |  | `adjustment_note` | string |  | Bắt buộc khi `OTHER` (`PKG_ADJUSTMENT_NOTE_REQUIRED`) |
 |  | `expected_group_version` | integer | ✓ | Version group |
 | Reject | `expected_group_version` | integer | ✓ | Version group |
 
-**Response phương án (camelCase, 1 phần tử/đơn)**: `id`, `orderId`, `platformOrderId`, `solutionStatus` (`ok`/`no_fit`), `noFitReasons[]`, `boxCode`, `boxName`, `boxInnerMm`/`boxOuterMm` (`lengthMm`, `widthMm`, `heightMm`), `boxSize` (cm, cho client cũ), `placements[]` (`itemKey`, `sku`, `step`, `x`, `y`, `z`, `dx`, `dy`, `dz`, `orientation` — mm, trục z hướng lên, `step` là thứ tự đặt; 🆕 22/09 `folded` = món đã được gập đôi, `dx/dy/dz` là số đo sau gập), `materials[]`, `itemsWeightG`, `estimatedPackageWeightG` (hàng + bì), `volumetricWeightG` (hệ số 6000), `fillRatio`, `estimatedShippingCostVnd` (**null** tới khi có bảng cước thật), `engineVersion`, `approvalStatus`, `adjustmentReason`/`adjustmentNote`/`adjustedFromBoxCode`, `actualMeasuredWeightKg`, `packedAt`, `isAbnormal`.
+**Response phương án (camelCase, 1 phần tử/đơn)**: `id`, `orderId`, `platformOrderId`, `solutionStatus` (`ok`/`no_fit`), `noFitReasons[]` (🆕 30/09: `{ boxCode, reason, code, itemKey }`), 🆕 `cartons[]` + `cartonCount` (mỗi kiện: `index`, `boxCode`, `boxName`, `boxInnerMm`/`boxOuterMm`, `placements[]`, `fillRatio`, `itemsWeightG`, `estimatedPackageWeightG`, `volumetricWeightG`, `materials[]`, `materialsWeightG`, `materialsCostVnd`, `actualMeasuredWeightKg`, `isAbnormal`, `packingGuide`; các field cùng tên ở cấp phương án phản chiếu kiện 0), `boxCode`, `boxName`, `boxInnerMm`/`boxOuterMm` (`lengthMm`, `widthMm`, `heightMm`), `boxSize` (cm, cho client cũ), `placements[]` (`itemKey`, `sku`, `step`, `x`, `y`, `z`, `dx`, `dy`, `dz`, `orientation` — mm, trục z hướng lên, `step` là thứ tự đặt; 🆕 22/09 `folded` = món đã được gập đôi, `dx/dy/dz` là số đo sau gập), `materials[]`, `itemsWeightG`, `estimatedPackageWeightG` (hàng + bì), `volumetricWeightG` (hệ số 6000), `fillRatio`, `estimatedShippingCostVnd` (**null** tới khi có bảng cước thật), `engineVersion`, `approvalStatus`, `adjustmentReason`/`adjustmentNote`/`adjustedFromBoxCode`, `actualMeasuredWeightKg`, `packedAt`, `isAbnormal`.
 
 ## 8b. 🆕 Danh mục thùng (`/packaging/boxes`) — 21/09/2026
 
@@ -241,6 +310,30 @@ Túi zip bọc **từng món** (áo, quần…) trước khi xếp vào thùng �
 
 Lỗi: `PKG_INVALID_BAG_ID` (400), `PKG_BAG_NOT_FOUND` (404), `PKG_BAG_CODE_IN_USE` (409). Phương án đóng gói (`GET .../packaging`) có thêm `itemProfiles[]` = `{ sku, productCategory, zipBagCode, zipBagFolded }` chụp từ hồ sơ SKU lúc tính.
 
+## 8e. 🆕 Vật tư chèn (`/packaging/materials`) — 28/09/2026
+
+Góc xốp, tấm ngăn carton, gối hơi, xốp hơi, tem cảnh báo dễ vỡ. **Số lượng trên mỗi phương án là ƯỚC LƯỢNG theo bộ luật** (loại hàng, số món, độ trống của thùng) — vật tư **không** chiếm thể tích trong hình học/validator, đừng trình bày như lượng đệm tính chính xác. Danh mục trống = engine vẫn đóng gói bình thường nhưng `materials` rỗng.
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/packaging/materials?active=true` | Packaging, Warehouse, Store Owner, Admin | Danh mục vật tư + tồn (mặc định chỉ vật tư đang dùng) |
+| POST | `/packaging/materials` | Admin | Thêm vật tư: `code`, `name`, `type` (`foam_corner` \| `corrugated_divider` \| `air_pillow` \| `bubble_wrap` \| `fragile_tape`), `unit`, `weight_g_per_unit`, `price_vnd_per_unit`, `reorder_level?`, `storage_location?`. Tồn ban đầu 0 |
+| PATCH | `/packaging/materials/:id` | Admin | Sửa tên/đơn vị/khối lượng/giá/mức cảnh báo/vị trí hoặc ngừng dùng (`is_active: false`). Không sửa được `code`, `type`, tồn |
+| POST | `/packaging/materials/:id/stock-in` | Admin, Warehouse | Nhập thêm `{ quantity, note? }`, ghi 1 dòng sổ |
+| GET | `/packaging/materials/:id/movements` | Admin, Warehouse, Packaging | Sổ xuất/nhập 20 dòng gần nhất (`reason`: `stock_in` \| `pack`) |
+| GET | `/packaging/materials/rules` | Packaging, Warehouse, Store Owner, Admin | Bộ luật chọn vật tư hiện hành. `version: null` + `isDefault: true` = luật mặc định trong code |
+| PUT | `/packaging/materials/rules` | Admin | Lưu bộ luật mới `{ rules[] }` (tạo version kế tiếp, bản cũ tắt — giữ lịch sử). Áp dụng từ lần `generate` sau |
+
+Luật (`rules[]`): `material_type`, `applies_to` (`fragile` \| `shoes` \| `fragile_or_shoes` \| `any`), `min_units?`, `basis` (`per_unit` \| `per_extra_unit` \| `per_carton` \| `void_band`), `quantity?`, `void_bands?` (`[{ min_void_ratio, quantity }]`, chỉ dùng cho `void_band`).
+
+Response vật tư: `id, code, name, type, unit, weightGPerUnit, priceVndPerUnit, quantityOnHand, reorderLevel, storageLocation, isSample, isActive, stockStatus` (`in_stock` \| `low_stock` \| `out_of_stock`). **Khác thùng:** không có `reserved/available` — vật tư không giữ chỗ mềm.
+
+**Trừ tồn + thiếu vật tư:** vật tư được trừ lúc `fulfillment/pack` (cùng transaction với thùng, mỗi lần 1 dòng sổ). Thiếu vật tư **không chặn** đóng gói (khác thùng: hết thùng → 409 `PKG_BOX_OUT_OF_STOCK`) — trừ phần có, phần thiếu ghi vào `materialsShortfall` của kiện và bắn Notification `low_material_stock` cho Admin + Store Owner (cũng bắn khi tồn rơi xuống ≤ `reorderLevel`).
+
+Phương án đóng gói (`GET .../packaging`) — 🔄 ĐÃ ĐỔI 28/09: `materials[]` giờ là `{ type, quantity, code, name, unit, weightG, costVnd }` (bản ghi trước 28/09 chỉ có `type` + `quantity`, các field còn lại `null`/`0`); thêm `materialsWeightG`, `materialsCostVnd`, `materialsShortfall[]` (`{ code, missing }`). `estimatedPackageWeightG` **đã cộng** khối lượng vật tư (hàng + bì thùng + vật tư).
+
+Lỗi: `PKG_INVALID_MATERIAL_ID` (400), `PKG_MATERIAL_NOT_FOUND` (404), `PKG_MATERIAL_CODE_IN_USE` (409), `PKG_MATERIAL_RULES_CONFLICT` (409 — 2 Admin lưu luật cùng lúc, tải lại rồi lưu lại).
+
 ## 9. Warehouse (`/warehouse`)
 
 🔄 **ĐÃ ĐỔI (16/09/2026)** — thêm 3 route GET còn thiếu (trước đây chỉ tạo được, không xem lại được); sửa `GET .../zones` không trả dữ liệu dù đã tạo thành công (ép kiểu `ObjectId` tường minh).
@@ -258,7 +351,8 @@ Lỗi: `PKG_INVALID_BAG_ID` (400), `PKG_BAG_NOT_FOUND` (404), `PKG_BAG_CODE_IN_U
 | 🆕 GET | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin                  | **MỚI (16/09/2026)** — Danh sách SKU đã gán vị trí trong 1 kho (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán)                                                                           |
 | POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin                  | Nhập thêm hàng (cộng dồn, không ghi đè)                                                                                                                                                                               |
 | GET    | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin                  | SKU đã có trong hệ thống nhưng CHƯA gán kệ                                                                                                                                                                            |
-| GET    | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi (🔄 21/09: cùng shape mới — `picked_quantity`, số đo có thể `null`)                                                                                   |
+| 🆕 GET | `/warehouse/:warehouseId/picking-list?group_ids=G1,G2`                         | Warehouse, Admin       | **MỚI (29/09/2026, Mục 9.5, hàng #3)** — picking list GỘP nhiều Order Group cùng lúc (đi lấy hàng 1 vòng kho cho nhiều đơn "giao chung chuyến"); mỗi dòng vẫn gắn đúng `order_group_id` gốc (KHÔNG cộng dồn trùng SKU giữa 2 group), join bin/zone 1 lần duy nhất trên toàn bộ SKU (Rule #16). `group_ids` sai định dạng/rỗng → 400 `WH_INVALID_GROUP_IDS` |
+| GET    | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật CHO 1 group, đã sắp xếp theo lộ trình đi (🔄 21/09: cùng shape mới — `picked_quantity`, số đo có thể `null`) — giữ nguyên, route trên là bản GỘP cộng thêm                          |
 
 **Chi tiết DTO**
 
@@ -285,7 +379,9 @@ Danh sách là hợp của notification đích danh user và broadcast role. `is
 
 ## 11. Collection nội bộ và planned
 
-Không có public CRUD tổng quát cho `refresh_tokens`, `trusted_devices`, `login_audit_logs`, `marketplace_oauth_states`, `processed_webhook_events`, `orders`, `order_groups`, `pick_events` và `packaging_recommendations`. (`product_master` có API hồ sơ đóng gói ở mục 8c; `packaging_boxes` ở mục 8b.)
+Không có public CRUD tổng quát cho `refresh_tokens`, `trusted_devices`, `login_audit_logs`, `marketplace_oauth_states`, `orders`, `order_groups`, `pick_events` và `packaging_recommendations`. (`product_master` có API hồ sơ đóng gói ở mục 8c; `packaging_boxes` ở mục 8b; `shipments` có API tạo ở mục 6b nhưng không có GET liệt kê riêng.)
+
+🔄 **ĐÃ ĐỔI (29/09/2026)**: `processed_webhook_events` KHÔNG còn "chuẩn bị sẵn, chưa ai dùng" — đã có consumer thật (`POST /marketplace/webhooks/:platform`, mục 3b) ghi/đọc để chống xử lý trùng 1 sự kiện (Rule #17).
 
 Planned: nhánh túi mailer, danh mục vật tư (khối lượng/giá), bảng cước thật; webhook/Kafka/event queue; carrier/pickup/tracking thật; packaging flow tự động hoàn chỉnh (BE-5).
 
@@ -318,7 +414,8 @@ GET   /product-master, PUT /product-master/:id/packaging-profile  Đo và xác n
 GET   /packaging/boxes                                          Danh mục thùng
 POST  /order-groups/:id/assign                                  Tự nhận việc HOẶC đổi cho đồng nghiệp khác
 GET   /order-groups/staff/search                                Tìm đồng nghiệp để chuyển việc
-GET   /warehouse/:warehouseId/picking-list/:groupId              Picking list có vị trí kệ
+GET   /warehouse/:warehouseId/picking-list/:groupId              Picking list có vị trí kệ (1 nhóm)
+GET   /warehouse/:warehouseId/picking-list?group_ids=            MỚI (29/09) — picking list gộp nhiều nhóm (giao chung chuyến)
 GET   /notifications*
 ```
 
@@ -336,12 +433,13 @@ GET   /notifications*
 ### 🚚 Shipping Coordinator
 
 ```
-GET   /order-groups, /:id, /:groupId/packaging
+GET   /order-groups, /:id, /:groupId/packaging, /:id/linked
 POST  .../fulfillment/ship, /deliver, /return
+POST  /shipments/batch          MỚI (29/09) — tạo vận đơn, giao chung chuyến cho nhiều nhóm cùng người nhận
 GET   /notifications*
 ```
 
-**Ghi chú**: Shipping Coordinator hiện có ít route riêng nhất — chưa có API chọn carrier/lên lịch pickup/tracking thật (Tầng 2, chưa code).
+**Ghi chú**: Shipping Coordinator hiện có ít route riêng nhất — chưa có API chọn carrier/lên lịch pickup/tracking thật (Tầng 2, chưa code; sẽ mở rộng ngay trên collection `shipments` mới thêm ở mục 6b khi làm).
 
 ---
 
@@ -358,7 +456,11 @@ Bảng tra nhanh theo module (chi tiết "khi nào xảy ra" vẫn ở guide tr�
 | Orders | `ORD_SYNC_FAILED`, `ORD_UNSUPPORTED_PLATFORM`, `ORD_INVALID_ORDER_ID`, `ORD_ORDER_NOT_FOUND` |
 | Order Groups | `ORD_GROUP_INVALID_ID`, `ORD_GROUP_NOT_FOUND`, `ORD_GROUP_STATE_CONFLICT`, `ORD_GROUP_INVALID_TRANSITION`, `ORD_GROUP_INSUFFICIENT_STOCK`, `ORD_GROUP_ITEM_NOT_IN_GROUP`, `ORD_GROUP_PACKAGING_PROFILE_NOT_READY`, `ORD_GROUP_ALL_ORDERS_CANCELED`, 🆕 21/09: `ORD_GROUP_PICK_NOT_ALLOWED`, `ORD_GROUP_PICK_EXCEEDS_ORDERED`, `ORD_GROUP_PICK_INCOMPLETE`, `ORD_GROUP_NO_PICK_EVENTS` |
 | Staff assignment | `ORD_GROUP_NO_STAFF_AVAILABLE`, `ORD_GROUP_STAFF_NOT_FOUND`, `ORD_GROUP_STAFF_INACTIVE` |
-| Packaging | `PKG_INVALID_RECOMMENDATION_ID`, `PKG_RECOMMENDATION_NOT_FOUND`, `PKG_NO_ACTIVE_RECOMMENDATION`, `PKG_ALREADY_DECIDED`, `PKG_GROUP_NOT_PENDING_APPROVAL`, 🆕 21/09: `PKG_HAS_NO_FIT`, `PKG_BOX_DOES_NOT_FIT`, `PKG_ORDER_NOT_IN_PLAN`, `PKG_PACK_PACKAGES_MISMATCH`, `PKG_ADJUSTMENT_NOTE_REQUIRED`, `PKG_GUIDE_NOT_AVAILABLE`, `PKG_BOX_OUT_OF_STOCK`, `PKG_INVALID_BAG_ID`, `PKG_BAG_NOT_FOUND`, `PKG_BAG_CODE_IN_USE`, `PKG_INVALID_BOX_ID`, `PKG_BOX_NOT_FOUND`, `PKG_BOX_CODE_IN_USE`, `PKG_BOX_INVALID_DIMENSIONS` |
+| Shipping 🆕 30/09 | `SHIP_INVALID_CARRIER_ID`, `SHIP_CARRIER_NOT_FOUND`, `SHIP_CARRIER_CODE_IN_USE`, `SHIP_SERVICE_NOT_FOUND`, `SHIP_INVALID_RATE_TABLE`, `SHIP_NO_PARCELS`, `SHIP_SETTINGS_SERVICE_INVALID` |
+| Documents 🆕 30/09 | `DOC_NO_ORDERS`, `DOC_SHIPMENT_NOT_FOUND`, `DOC_TRIP_NOT_FOUND` |
+| Hoàn hàng 🆕 30/09 | `ORD_GROUP_RETURN_NOT_RETURNED`, `ORD_GROUP_RETURN_ALREADY_RECEIVED`, `ORD_GROUP_RETURN_EXCEEDS_SHIPPED`, `ORD_GROUP_RETURN_SKU_NOT_ASSIGNED`, `ORD_GROUP_RETURN_DUPLICATE_LINE` |
+| Shipments 🆕 29/09 | `SHP_PICKUP_IN_PAST`, `SHP_SHIPMENT_NOT_FOUND`, `SHP_EMPTY_GROUP_LIST`, `SHP_GROUP_NOT_PACKED`, `SHP_RECIPIENT_MISMATCH`, `SHP_GROUP_ALREADY_SHIPPED` |
+| Packaging | `PKG_INVALID_RECOMMENDATION_ID`, `PKG_RECOMMENDATION_NOT_FOUND`, `PKG_NO_ACTIVE_RECOMMENDATION`, `PKG_ALREADY_DECIDED`, `PKG_GROUP_NOT_PENDING_APPROVAL`, 🆕 21/09: `PKG_HAS_NO_FIT`, `PKG_BOX_DOES_NOT_FIT`, `PKG_ORDER_NOT_IN_PLAN`, `PKG_PACK_PACKAGES_MISMATCH`, `PKG_ADJUSTMENT_NOTE_REQUIRED`, `PKG_GUIDE_NOT_AVAILABLE`, `PKG_BOX_OUT_OF_STOCK`, 🆕 30/09: `PKG_CARTON_NOT_FOUND`, `PKG_INVALID_BAG_ID`, `PKG_BAG_NOT_FOUND`, `PKG_BAG_CODE_IN_USE`, `PKG_INVALID_BOX_ID`, `PKG_BOX_NOT_FOUND`, `PKG_BOX_CODE_IN_USE`, `PKG_BOX_INVALID_DIMENSIONS` |
 | Product Master | 🆕 21/09: `PM_INVALID_ID`, `PM_NOT_FOUND` |
-| Warehouse | `WH_WAREHOUSE_NOT_FOUND`, `WH_ZONE_NOT_FOUND`, `WH_INVALID_BIN_RANGE`, `WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` (2 mã cuối 🆕 19/09/2026 — trùng mã kho/khu, trả 409 thay vì 500) |
+| Warehouse | `WH_WAREHOUSE_NOT_FOUND`, `WH_ZONE_NOT_FOUND`, `WH_INVALID_BIN_RANGE`, `WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` (2 mã cuối 🆕 19/09/2026 — trùng mã kho/khu, trả 409 thay vì 500), `WH_INVALID_GROUP_IDS` (🆕 29/09/2026 — 400, `group_ids` rỗng/sai định dạng ở picking-list gộp) |
 | Notifications | `NOTI_INVALID_ID`, `NOTI_NOT_FOUND` |

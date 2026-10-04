@@ -9,6 +9,7 @@
     "storefront"
   ],
   "scripts": {
+    "dev:aurelle": "cd be && npx ts-node -r dotenv/config scripts/aurelle-mock-server.ts",
     "dev": "concurrently \"npm run dev:be\" \"npm run dev:fe\" \"npm run dev:storefront\"",
     "dev:storefront": "cd storefront && npm run dev",
     "dev:be": "cd be && npm run start:dev",

@@ -23,6 +23,12 @@ export const ORD_GROUP_ERROR_CODES = {
   PICK_EXCEEDS_ORDERED: 'ORD_GROUP_PICK_EXCEEDS_ORDERED', // tổng đã quét trong lượt vượt số lượng đặt
   PICK_INCOMPLETE: 'ORD_GROUP_PICK_INCOMPLETE', // bấm "đã lấy xong" khi còn SKU chưa đủ — dùng report-missing
   NO_PICK_EVENTS: 'ORD_GROUP_NO_PICK_EVENTS', // chưa có lần quét nào trong lượt hiện tại
+  // BỔ SUNG (30/09/2026) — nhận hàng hoàn về kho
+  RETURN_NOT_RETURNED: 'ORD_GROUP_RETURN_NOT_RETURNED', // group chưa ở trạng thái returned
+  RETURN_ALREADY_RECEIVED: 'ORD_GROUP_RETURN_ALREADY_RECEIVED', // đã nhận hàng hoàn cho group này
+  RETURN_EXCEEDS_SHIPPED: 'ORD_GROUP_RETURN_EXCEEDS_SHIPPED', // số nhận hoàn vượt số đã giao
+  RETURN_SKU_NOT_ASSIGNED: 'ORD_GROUP_RETURN_SKU_NOT_ASSIGNED', // SKU chưa gán vị trí trong kho → không nhập lại được
+  RETURN_DUPLICATE_LINE: 'ORD_GROUP_RETURN_DUPLICATE_LINE', // 1 SKU xuất hiện 2 dòng
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,

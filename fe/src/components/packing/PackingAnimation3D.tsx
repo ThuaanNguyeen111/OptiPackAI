@@ -3,7 +3,7 @@ import { Canvas, useFrame } from '@react-three/fiber'
 import { Edges, OrbitControls } from '@react-three/drei'
 import { Vector3, type Group, type MeshStandardMaterial } from 'three'
 import { Pause, Play, RotateCcw, SkipBack, SkipForward } from 'lucide-react'
-import { Lightbulb, Sparkles } from 'lucide-react'
+import { Lightbulb } from 'lucide-react'
 import type { DimensionsMm, ItemProfile, PackingGuideStep, Placement } from '../../types/packaging'
 import { ModelErrorBoundary, ProductModel } from './ProductModel3D'
 import { modelForCategory, preloadCategoryModels } from './product-models'
@@ -318,161 +318,178 @@ export function PackingAnimation3D({ box, placements, vi, guideSteps = null, ite
   const currentGuide = step > 0 ? guideByStep.get(step) : undefined
   const fmt = (n: number) => n.toLocaleString(vi ? 'vi-VN' : 'en-US')
 
+  const iconBtn =
+    'rounded-md p-2 text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800'
+
   return (
-    <div className="flex flex-col gap-3 lg:flex-row">
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-      <div className="relative h-[340px] min-w-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-b from-slate-50 to-white dark:border-slate-800 dark:from-slate-900 dark:to-slate-950 sm:h-[420px]">
-        <Canvas camera={{ position: [5.2, 4.2, 5.2], fov: 42 }} dpr={[1, 2]}>
-          <Suspense fallback={null}>
-            <PackingScene box={box} placements={ordered} profiles={profiles} progressRef={progressRef} />
-            <ProgressDriver
-              progressRef={progressRef}
-              playing={playing}
-              speed={speed}
-              limit={stopAt ?? total}
-              onStep={setStep}
-              onEnd={() => {
-                setPlaying(false)
-                setStopAt(null)
+    <div className="space-y-4">
+      {/* Khung 3D + lời hướng dẫn của bước hiện tại là MỘT khối: nhìn và đọc cùng lúc. */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-950">
+        <div className="relative h-[360px] bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 sm:h-[520px]">
+          <Canvas camera={{ position: [4.1, 3.3, 4.1], fov: 42 }} dpr={[1, 2]}>
+            <Suspense fallback={null}>
+              <PackingScene box={box} placements={ordered} profiles={profiles} progressRef={progressRef} />
+              <ProgressDriver
+                progressRef={progressRef}
+                playing={playing}
+                speed={speed}
+                limit={stopAt ?? total}
+                onStep={setStep}
+                onEnd={() => {
+                  setPlaying(false)
+                  setStopAt(null)
+                }}
+              />
+            </Suspense>
+            <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={14} />
+          </Canvas>
+
+          <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-center gap-1 rounded-lg bg-white/90 p-1.5 shadow-sm backdrop-blur dark:bg-slate-900/90">
+            <button
+              type="button"
+              onClick={() => {
+                seek(0)
+                setPlaying(true)
               }}
-            />
-          </Suspense>
-          <OrbitControls makeDefault enablePan={false} minDistance={3} maxDistance={14} />
-        </Canvas>
-
-        <div className="absolute inset-x-2 bottom-2 flex flex-wrap items-center gap-1.5 rounded-lg bg-white/90 p-1.5 shadow-sm backdrop-blur dark:bg-slate-900/90">
-          <button
-            type="button"
-            onClick={() => {
-              seek(0)
-              setPlaying(true)
-            }}
-            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            title={vi ? 'Chạy lại' : 'Replay'}
-          >
-            <RotateCcw className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              seek(step - 1)
-            }}
-            disabled={step === 0}
-            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
-            title={vi ? 'Bước trước' : 'Previous step'}
-          >
-            <SkipBack className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (!playing && progressRef.current >= total) progressRef.current = 0
-              setStopAt(null)
-              setPlaying((p) => !p)
-            }}
-            className="rounded-md bg-blue-600 p-1.5 text-white hover:bg-blue-700"
-            title={playing ? (vi ? 'Tạm dừng' : 'Pause') : vi ? 'Phát' : 'Play'}
-          >
-            {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-          </button>
-          <button
-            type="button"
-            onClick={playNext}
-            disabled={step >= total}
-            className="rounded-md p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:text-slate-300 dark:hover:bg-slate-800"
-            title={vi ? 'Bước sau' : 'Next step'}
-          >
-            <SkipForward className="h-4 w-4" />
-          </button>
-          <div className="ml-1 flex items-center gap-0.5 text-xs">
-            {[0.5, 1, 2].map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => {
-                  setSpeed(s)
-                }}
-                className={`rounded px-1.5 py-0.5 ${speed === s ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-              >
-                {s}×
-              </button>
-            ))}
+              className={iconBtn}
+              title={vi ? 'Chạy lại' : 'Replay'}
+              aria-label={vi ? 'Chạy lại' : 'Replay'}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                seek(step - 1)
+              }}
+              disabled={step === 0}
+              className={iconBtn}
+              title={vi ? 'Bước trước' : 'Previous step'}
+              aria-label={vi ? 'Bước trước' : 'Previous step'}
+            >
+              <SkipBack className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (!playing && progressRef.current >= total) progressRef.current = 0
+                setStopAt(null)
+                setPlaying((p) => !p)
+              }}
+              className="rounded-md bg-blue-600 p-2 text-white transition-colors hover:bg-blue-700"
+              title={playing ? (vi ? 'Tạm dừng' : 'Pause') : vi ? 'Phát' : 'Play'}
+              aria-label={playing ? (vi ? 'Tạm dừng' : 'Pause') : vi ? 'Phát' : 'Play'}
+            >
+              {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={playNext}
+              disabled={step >= total}
+              className={iconBtn}
+              title={vi ? 'Bước sau' : 'Next step'}
+              aria-label={vi ? 'Bước sau' : 'Next step'}
+            >
+              <SkipForward className="h-4 w-4" />
+            </button>
+            <div
+              className="ml-2 flex items-center gap-0.5 rounded-md bg-slate-100 p-0.5 text-xs dark:bg-slate-800"
+              role="group"
+              aria-label={vi ? 'Tốc độ' : 'Speed'}
+            >
+              {[0.5, 1, 2].map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => {
+                    setSpeed(s)
+                  }}
+                  aria-pressed={speed === s}
+                  className={`rounded px-2 py-1 font-medium tabular-nums transition-colors ${
+                    speed === s
+                      ? 'bg-white text-slate-900 shadow-xs dark:bg-slate-600 dark:text-white'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  {s}×
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto pr-2 text-sm font-semibold tabular-nums text-slate-700 dark:text-slate-200">
+              {vi ? 'Bước' : 'Step'} {step}/{total}
+            </span>
           </div>
-          <span className="ml-auto pr-1 text-xs font-medium tabular-nums text-slate-600 dark:text-slate-300">
-            {vi ? 'Bước' : 'Step'} {step}/{total}
-          </span>
         </div>
-      </div>
 
-      {guideSteps && (
-        <div
-          aria-live="polite"
-          className="rounded-lg border border-slate-200 bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-900"
-        >
-          {currentGuide ? (
-            <>
-              <p className="flex items-start gap-2 font-medium text-slate-800 dark:text-slate-100">
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" />
-                <span>
-                  {vi ? 'Bước' : 'Step'} {step}/{total}: {currentGuide.instruction}
-                </span>
-              </p>
-              {currentGuide.tip && (
-                <p className="mt-1.5 flex items-start gap-2 text-xs text-amber-700 dark:text-amber-300">
-                  <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{currentGuide.tip}</span>
+        {guideSteps && (
+          <div aria-live="polite" className="border-t border-slate-200 px-4 py-3.5 dark:border-slate-800">
+            {currentGuide ? (
+              <>
+                <p className="max-w-[75ch] text-[15px] font-medium leading-relaxed text-slate-900 dark:text-slate-100">
+                  {currentGuide.instruction}
                 </p>
-              )}
-            </>
-          ) : (
-            <p className="text-slate-500 dark:text-slate-400">
-              {vi ? 'Bấm Phát hoặc Bước sau để xem hướng dẫn từng món.' : 'Press Play or Next step to see each item’s instruction.'}
-            </p>
-          )}
-        </div>
-      )}
+                {currentGuide.tip && (
+                  <p className="mt-2 flex max-w-[75ch] items-start gap-2 text-sm leading-relaxed text-amber-800 dark:text-amber-300">
+                    <Lightbulb className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{currentGuide.tip}</span>
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                {vi ? 'Bấm Phát hoặc Bước sau để xem hướng dẫn từng món.' : 'Press Play or Next step to see each item’s instruction.'}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
-      <ol className="max-h-[420px] w-full shrink-0 space-y-1 overflow-y-auto text-xs lg:w-72">
-        {ordered.map((p, i) => {
-          const done = i < step
-          const isCurrent = current?.itemKey === p.itemKey
-          return (
-            <li key={p.itemKey}>
-              <button
-                type="button"
-                onClick={() => {
-                  seek(i + 1)
-                }}
-                className={`flex w-full items-start gap-2 rounded-lg border px-2 py-1.5 text-left transition ${
-                  isCurrent
-                    ? 'border-blue-400 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/40'
-                    : 'border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900'
-                } ${done ? '' : 'opacity-60'}`}
-              >
-                <span
-                  className="mt-0.5 h-3 w-3 shrink-0 rounded-sm border border-slate-700/30"
-                  style={{ backgroundColor: skuColor(p.sku) }}
-                />
-                <span className="min-w-0">
-                  <span className="block font-medium text-slate-800 dark:text-slate-100">
-                    {p.step}. {p.sku} <span className="font-normal text-slate-400">({p.itemKey})</span>
-                  </span>
-                  {guideByStep.get(p.step) && (
-                    <span className="block text-slate-600 dark:text-slate-300">
-                      {guideByStep.get(p.step)?.instruction}
+      {/* Danh sách bước: gọn, để nhảy nhanh tới bước nào đó; lời hướng dẫn đầy đủ nằm ở khung trên. */}
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+          {vi ? 'Thứ tự xếp' : 'Packing order'}
+          <span className="ml-2 font-normal text-slate-400">
+            {total} {vi ? 'món' : 'items'}
+          </span>
+        </h3>
+        <ol className="grid max-h-72 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2 xl:grid-cols-3">
+          {ordered.map((p, i) => {
+            const done = i < step
+            const isCurrent = current?.itemKey === p.itemKey
+            const instruction = guideByStep.get(p.step)?.instruction
+            return (
+              <li key={p.itemKey}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    seek(i + 1)
+                  }}
+                  title={instruction}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  className={`flex h-full w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left text-xs transition-colors ${
+                    isCurrent
+                      ? 'border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/40'
+                      : 'border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900'
+                  } ${done || isCurrent ? '' : 'opacity-60'}`}
+                >
+                  <span
+                    className="h-4 w-4 shrink-0 rounded border border-slate-700/30"
+                    style={{ backgroundColor: skuColor(p.sku) }}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-slate-800 dark:text-slate-100">
+                      {p.step}. {p.sku}
                     </span>
-                  )}
-                  <span className="block text-slate-500 dark:text-slate-400">
-                    {fmt(p.dx)}×{fmt(p.dy)}×{fmt(p.dz)} mm · {vi ? 'góc' : 'at'} ({fmt(p.x)}, {fmt(p.y)}, {fmt(p.z)})
-                    {p.z > 0 ? (vi ? ' · đặt chồng' : ' · stacked') : ''}
+                    <span className="block truncate tabular-nums text-slate-500 dark:text-slate-400">
+                      {fmt(p.dx)}×{fmt(p.dy)}×{fmt(p.dz)} mm{p.z > 0 ? (vi ? ' · đặt chồng' : ' · stacked') : ''}
+                    </span>
                   </span>
-                </span>
-              </button>
-            </li>
-          )
-        })}
-      </ol>
+                </button>
+              </li>
+            )
+          })}
+        </ol>
+      </div>
     </div>
   )
 }

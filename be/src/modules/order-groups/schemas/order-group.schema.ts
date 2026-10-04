@@ -99,6 +99,17 @@ export class OrderGroup {
   @Prop({ type: Date, default: null })
   last_picked_at!: Date | null;
 
+  /**
+   * BỔ SUNG (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.md) — tính
+   * MỘT LẦN lúc tạo group (getOrCreateGroupForOrder()), KHÔNG đổi lại sau
+   * đó. KHÁC HẲN consolidation_key (không kèm platform, xem
+   * orders/utils/consolidation-key.util.ts) — dùng để LIÊN KẾT 2 nhóm
+   * đơn khác sàn cùng 1 người nhận thật (Picking List gộp, giao chung
+   * chuyến), KHÔNG dùng để tự động gộp chung 1 OrderGroup.
+   */
+  @Prop({ type: String, default: null })
+  recipient_key!: string | null;
+
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
   // __v MỚI thêm (2026-09-09) — cần TypeScript biết field này tồn tại
@@ -127,3 +138,12 @@ OrderGroupSchema.index({ order_priority: 1, packaging_deadline: 1, is_overdue: 1
 // Rule #4: fulfillment_status (cardinality thấp, 9 giá trị cố định)
 // KHÔNG được đứng index riêng lẻ — luôn đứng sau platform trong compound
 // index ở trên, không tạo thêm index đơn cho riêng field này.
+
+// BỔ SUNG (29/09/2026, Mục 9.5) — phục vụ GET /order-groups/:id/linked +
+// đếm linkedGroupCount. Partial vì phần lớn group KHÔNG có sibling khác
+// sàn (recipient_key vẫn null cho tới khi có group thứ 2 cùng khách) —
+// không cần index những document không bao giờ được tra theo field này.
+OrderGroupSchema.index(
+  { recipient_key: 1 },
+  { partialFilterExpression: { recipient_key: { $type: 'string' } } },
+);

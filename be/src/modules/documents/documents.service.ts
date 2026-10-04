@@ -1,0 +1,233 @@
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { AppException } from '../../common/exceptions/app-exception';
+import { Order, OrderDocument } from '../orders/schemas/order.schema';
+import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
+import { OrderGroupsService } from '../order-groups/order-groups.service';
+import {
+  PackagingRecommendationDoc,
+  PackagingRecommendationDocument,
+} from '../packaging/schemas/packaging-recommendation.schema';
+import { cartonsOf } from '../packaging/utils/cartons.util';
+import {
+  Shipment,
+  ShipmentDocument,
+} from '../shipments/schemas/shipment.schema';
+import { DOC_ERROR_CODES } from './documents.errors';
+import {
+  ManifestData,
+  PackingSlipData,
+  ShippingLabelData,
+  renderManifest,
+  renderPackingSlip,
+  renderShippingLabels,
+} from './pdf/document-renderers';
+
+interface RecipientLike {
+  full_name: string;
+  phone: string;
+  address_line1: string;
+  address_line2?: string;
+  city: string;
+}
+
+const addressOf = (r: RecipientLike): string =>
+  [r.address_line1, r.address_line2, r.city]
+    .filter((p): p is string => !!p)
+    .join(', ');
+
+/**
+ * Dựng dữ liệu chứng từ từ DB rồi giao cho renderer thuần (pdf/document-renderers).
+ * Chỉ ĐỌC — không đổi trạng thái nào.
+ */
+@Injectable()
+export class DocumentsService {
+  constructor(
+    @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
+    @InjectModel(PackagingRecommendationDoc.name)
+    private readonly recModel: Model<PackagingRecommendationDocument>,
+    @InjectModel(Shipment.name)
+    private readonly shipmentModel: Model<ShipmentDocument>,
+    private readonly orderGroupsService: OrderGroupsService,
+  ) {}
+
+  private async loadActiveOrders(groupId: Types.ObjectId): Promise<OrderDocument[]> {
+    return this.orderModel
+      .find({
+        consolidated_group_id: groupId,
+        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+      })
+      .sort({ _id: 1 });
+  }
+
+  async buildPackingSlip(groupId: string): Promise<Buffer> {
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
+    const orders = await this.loadActiveOrders(group._id);
+    if (orders.length === 0) {
+      throw new AppException(
+        DOC_ERROR_CODES.NO_ORDERS,
+        'Nhóm không còn đơn nào (đã hủy/lỗi) để in phiếu đóng gói.',
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+    const recs = await this.recModel.find({
+      order_group_id: group._id,
+      is_active: true,
+      order_id: { $in: orders.map((o) => o._id) },
+    });
+    const recByOrder = new Map(recs.map((r) => [String(r.order_id), r]));
+
+    const data: PackingSlipData = {
+      groupId,
+      shopName: group.shop_name_snapshot,
+      generatedAt: new Date(),
+      orders: orders.map((order) => {
+        const merged = new Map<
+          string,
+          {
+            sku: string;
+            name: string;
+            variation: string | null;
+            quantity: number;
+          }
+        >();
+        for (const item of order.items) {
+          if (NOT_PACKABLE_ORDER_STATUSES.includes(item.status)) continue;
+          const key = `${item.sku}|${item.variation ?? ''}`;
+          const cur = merged.get(key);
+          if (cur) cur.quantity += item.quantity;
+          else
+            merged.set(key, {
+              sku: item.sku,
+              name: item.name,
+              variation: item.variation ?? null,
+              quantity: item.quantity,
+            });
+        }
+        const rec = recByOrder.get(String(order._id));
+        const cartons = rec ? cartonsOf(rec) : [];
+        return {
+          platformOrderId: order.platform_order_id,
+          recipient: {
+            fullName: order.recipient.full_name,
+            phone: order.recipient.phone,
+            address: addressOf(order.recipient),
+          },
+          items: [...merged.values()],
+          parcels: cartons.map((c) => ({
+            index: c.index,
+            boxCode: c.box_code,
+            boxName: c.box_name,
+            estimatedWeightG: c.estimated_package_weight_g,
+          })),
+        };
+      }),
+    };
+    return renderPackingSlip(data);
+  }
+
+  async buildShippingLabels(groupId: string): Promise<Buffer> {
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
+    const shipment = await this.shipmentModel.findOne({
+      order_group_id: group._id,
+    });
+    if (!shipment) {
+      throw new AppException(
+        DOC_ERROR_CODES.SHIPMENT_NOT_FOUND,
+        'Nhóm chưa có vận đơn — hãy tạo vận đơn (POST /shipments/batch) trước khi in nhãn.',
+        HttpStatus.NOT_FOUND,
+        { groupId },
+      );
+    }
+    const orders = await this.loadActiveOrders(group._id);
+    const recs = await this.recModel.find({
+      order_group_id: group._id,
+      is_active: true,
+      order_id: { $in: orders.map((o) => o._id) },
+    });
+    const recByOrder = new Map(recs.map((r) => [String(r.order_id), r]));
+    const recipientOrder = orders[0];
+    const recipient = recipientOrder
+      ? {
+          fullName: recipientOrder.recipient.full_name,
+          phone: recipientOrder.recipient.phone,
+          address: addressOf(recipientOrder.recipient),
+        }
+      : { fullName: '—', phone: '—', address: '—' };
+
+    const parcels: ShippingLabelData['parcels'] = [];
+    for (const order of orders) {
+      const rec = recByOrder.get(String(order._id));
+      for (const c of rec ? cartonsOf(rec) : []) {
+        parcels.push({
+          orderId: order.platform_order_id,
+          index: 0,
+          total: 0,
+          boxCode: c.box_code,
+          weightG: c.estimated_package_weight_g,
+        });
+      }
+    }
+    // Đánh số kiện k/n trong toàn vận đơn.
+    parcels.forEach((p, i) => {
+      p.index = i;
+      p.total = parcels.length;
+    });
+
+    return renderShippingLabels({
+      shopName: group.shop_name_snapshot,
+      carrierName: shipment.carrier_name ?? 'Chưa chọn hãng',
+      serviceName: shipment.service_name ?? '',
+      trackingCode: shipment.tracking_code,
+      tripCode: shipment.trip_code,
+      recipient,
+      parcels,
+      etaTo: shipment.eta_to,
+    });
+  }
+
+  async buildManifest(tripCode: string): Promise<Buffer> {
+    const shipments = await this.shipmentModel
+      .find({ trip_code: tripCode })
+      .sort({ created_at: 1 });
+    if (shipments.length === 0) {
+      throw new AppException(
+        DOC_ERROR_CODES.TRIP_NOT_FOUND,
+        `Không có vận đơn nào thuộc chuyến "${tripCode}".`,
+        HttpStatus.NOT_FOUND,
+        { tripCode },
+      );
+    }
+    const rows: ManifestData['shipments'] = [];
+    let shopName = '—';
+    for (const s of shipments) {
+      const group = await this.orderGroupsService.findOrderGroupById(
+        s.order_group_id.toString(),
+      );
+      shopName = group.shop_name_snapshot;
+      const first = await this.orderModel
+        .findOne({ consolidated_group_id: group._id })
+        .sort({ _id: 1 });
+      rows.push({
+        trackingCode: s.tracking_code,
+        orderGroupId: s.order_group_id.toString(),
+        recipientName: first?.recipient.full_name ?? '—',
+        recipientAddress: first ? addressOf(first.recipient) : '—',
+        parcelCount: s.parcel_count,
+        chargeableWeightG: s.chargeable_weight_g,
+        costVnd: s.estimated_cost_vnd,
+      });
+    }
+    const head = shipments[0];
+    return renderManifest({
+      tripCode,
+      shopName,
+      carrierName: head?.carrier_name ?? null,
+      generatedAt: new Date(),
+      pickupAt: head?.pickup_at ?? null,
+      shipments: rows,
+    });
+  }
+}

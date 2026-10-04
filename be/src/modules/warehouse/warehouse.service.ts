@@ -1,3 +1,4 @@
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -31,6 +32,10 @@ import { PickableItem } from '../../common/interfaces/packaging.interface';
 export interface PickingListItem extends PickableItem {
   zone_code: string;
   bin_code: string;
+  // MỚI (29/09/2026, Mục 9.5) — CHỈ có mặt khi trả về từ
+  // getEnrichedPickingListForGroups() (nhiều nhóm gộp); route 1-nhóm cũ
+  // (getEnrichedPickingList()) không set field này, giữ nguyên shape cũ.
+  order_group_id?: string;
 }
 
 /**
@@ -388,13 +393,20 @@ export class WarehouseService {
     warehouseId: string,
     groupId: string,
   ): Promise<PickingListItem[]> {
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
     const { items } =
       await this.orderGroupsService.getPickableItemsForGroup(groupId);
     const skus = items.map((i) => i.sku);
 
-    // 1 query $in duy nhất — Rule #16, tránh N+1.
+    // 1 query $in duy nhất — Rule #16, tránh N+1. Lọc đủ phạm vi tồn kho
+    // (platform + shop) để không lấy nhầm vị trí kệ của shop khác cùng SKU.
     const assignments = await this.assignmentModel
-      .find({ warehouse_id: warehouseId, seller_sku: { $in: skus } })
+      .find({
+        warehouse_id: warehouseId,
+        platform: group.platform,
+        shop_id: group.shop_id,
+        seller_sku: { $in: skus },
+      })
       .lean();
     const binIds = assignments.map((a) => a.bin_location_id);
     const bins = await this.binModel.find({ _id: { $in: binIds } }).lean();
@@ -420,6 +432,96 @@ export class WarehouseService {
     // SẮP XẾP theo lộ trình vật lý (zone -> aisle/rack/level qua bin_code
     // string vì đã zero-pad sẵn lúc generate) — đúng kỹ thuật WMS wave
     // picking đã note trong CLAUDE.md.
+    enriched.sort((a, b) => {
+      if (a.zone_code !== b.zone_code)
+        return a.zone_code.localeCompare(b.zone_code);
+      return a.bin_code.localeCompare(b.bin_code);
+    });
+
+    return enriched;
+  }
+
+  /**
+   * MỚI (29/09/2026, Mục 9.5, hàng #3) — Picking List GỘP nhiều Order
+   * Group (có thể khác sàn, cùng người nhận — "liên kết cùng người nhận")
+   * thành 1 lượt đi kệ. Mỗi dòng vẫn gắn ĐÚNG 1 `order_group_id` — KHÔNG
+   * cộng dồn trùng SKU giữa 2 group khác nhau ("Quét hàng vẫn theo từng
+   * nhóm", đúng Mục 9.5). Join bin/zone 1 LẦN DUY NHẤT trên UNION toàn
+   * bộ SKU của mọi group (Rule #16 — không N+1 dù nhiều group).
+   */
+  async getEnrichedPickingListForGroups(
+    warehouseId: string,
+    groupIds: string[],
+  ): Promise<PickingListItem[]> {
+    const perGroupItems: {
+      groupId: string;
+      platform: MarketplacePlatform;
+      shopId: string;
+      item: PickableItem;
+    }[] = [];
+    for (const groupId of groupIds) {
+      const group = await this.orderGroupsService.findOrderGroupById(groupId);
+      const { items } =
+        await this.orderGroupsService.getPickableItemsForGroup(groupId);
+      for (const item of items) {
+        perGroupItems.push({
+          groupId,
+          platform: group.platform,
+          shopId: group.shop_id,
+          item,
+        });
+      }
+    }
+
+    const allSkus = Array.from(
+      new Set(perGroupItems.map(({ item }) => item.sku)),
+    );
+
+    // 1 query $in duy nhất trên UNION mọi SKU — Rule #16, không N+1 dù
+    // gộp bao nhiêu group.
+    const shopScopes = Array.from(
+      new Map(
+        perGroupItems.map((g) => [
+          `${g.platform}|${g.shopId}`,
+          { platform: g.platform, shop_id: g.shopId },
+        ]),
+      ).values(),
+    );
+    const assignments = await this.assignmentModel
+      .find({
+        warehouse_id: warehouseId,
+        $or: shopScopes,
+        seller_sku: { $in: allSkus },
+      })
+      .lean();
+    const binIds = assignments.map((a) => a.bin_location_id);
+    const bins = await this.binModel.find({ _id: { $in: binIds } }).lean();
+    const binMap = new Map(bins.map((b) => [b._id.toString(), b]));
+    const zoneIds = bins.map((b) => b.zone_id);
+    const zones = await this.zoneModel.find({ _id: { $in: zoneIds } }).lean();
+    const zoneMap = new Map(zones.map((z) => [z._id.toString(), z]));
+    const assignmentByKey = new Map(
+      assignments.map((a) => [`${a.platform}|${a.shop_id}|${a.seller_sku}`, a]),
+    );
+
+    const enriched: PickingListItem[] = perGroupItems.map(
+      ({ groupId, platform, shopId, item }) => {
+        const assignment = assignmentByKey.get(
+          `${platform}|${shopId}|${item.sku}`,
+        );
+        const bin = assignment
+          ? binMap.get(assignment.bin_location_id.toString())
+          : undefined;
+        const zone = bin ? zoneMap.get(bin.zone_id.toString()) : undefined;
+        return {
+          ...item,
+          order_group_id: groupId,
+          zone_code: zone?.zone_code ?? 'ZZZ',
+          bin_code: bin?.bin_code ?? 'CHƯA GÁN VỊ TRÍ',
+        };
+      },
+    );
+
     enriched.sort((a, b) => {
       if (a.zone_code !== b.zone_code)
         return a.zone_code.localeCompare(b.zone_code);

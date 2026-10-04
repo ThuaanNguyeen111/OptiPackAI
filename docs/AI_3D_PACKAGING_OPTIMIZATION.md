@@ -52,6 +52,8 @@ Mục 1 mô tả code hiện có và các lỗi đã thấy; các mục thiết 
 
 ### 1.3. Flow mục tiêu thay cho quy trình cũ
 
+**🔄 ĐÃ THAY ĐỔI ngày 30/09/2026 — thuật toán và phạm vi kiện:** (1) **Mỗi đơn N kiện** thay cho "mỗi đơn một kiện": đơn không vừa 1 thùng được chia nhiều kiện, mỗi kiện có thùng/tọa độ/cân riêng và đều qua validator độc lập. (2) **Engine `ep-3d-v2`** thay first-fit + tích Descartes tọa độ: điểm đặt kiểu extreme-point (~O(n) điểm/món thay vì ~O(n³)), chọn vị trí theo điểm (thấp nhất → nhiều tiếp xúc nhất), nén món về góc, tải chồng cập nhật tăng dần, 7 thứ tự xếp × 3 chính sách × các phương án gập (nhóm SKU, ít món gập nhất trước); first-fit gốc giữ làm lượt thử đầu cho đơn ≤ 24 món để kết quả cũ không xấu đi. (3) **Bỏ trần 30 món** (trần an toàn 200/thùng); ngân sách thời gian chia theo thùng còn lại. (4) **Lý do no_fit có mã** (`ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `TOTAL_VOLUME`, `TOTAL_WEIGHT`, `NO_ARRANGEMENT`, `OUT_OF_STOCK`, `TIMEOUT`...) và gợi ý xử lý. (5) Kiểm chứng bằng **bộ ~40 kịch bản đơn hàng có tên** (`engine/scenarios/`), property test ngẫu nhiên có validator làm nguồn sự thật, và `scripts/pack-benchmark.ts` (300 đơn ngẫu nhiên seed cố định) — kết quả đo ở `CLAUDE.md`. Các câu "một kiện", "30 đơn vị hàng", "greedy một lượt" bên dưới mô tả hiện trạng/ngân sách CŨ (giữ làm lịch sử).
+
 **ĐÃ THAY ĐỔI ngày 12/09/2026:** phát triển tiếp trên module hiện hữu; một đơn nguồn là một phạm vi đóng, còn gom đơn chỉ hỗ trợ lấy hàng cùng lượt. Không mặc định group nhiều đơn là một kiện/vận đơn. Nhóm legacy đang xử lý phải rà soát trước chuyển đổi, không tự sửa lịch sử đã hoàn tất.
 
 🔄 **ĐÃ ĐỔI (21/09/2026):** flow chính thức là lấy hàng trước, tính/duyệt phương án sau (code AOFP-35). Phạm vi kiện vẫn theo đơn như quyết định 12/09.

@@ -62,6 +62,7 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
       {} as never, // skuBinAssignmentModel — không dùng trong đường code này
       {} as never, // pickEventModel
       {} as never, // userModel
+      {} as never, // packagingRecommendationModel — không dùng trong đường code này
       {} as never, // notificationsService
       {} as never, // staffAssignmentService — không dùng trong đường code này
       {} as never, // connection — không dùng trong đường code này

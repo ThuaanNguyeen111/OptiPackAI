@@ -42,12 +42,18 @@ export class CreatePackagingBoxDto {
   @MinLength(1, { message: 'name không được để trống' })
   name!: string;
 
-  @ApiProperty({ type: BoxDimensionsMmDto, description: 'Lòng thùng dùng được để xếp (mm)' })
+  @ApiProperty({
+    type: BoxDimensionsMmDto,
+    description: 'Lòng thùng dùng được để xếp (mm)',
+  })
   @ValidateNested()
   @Type(() => BoxDimensionsMmDto)
   inner!: BoxDimensionsMmDto;
 
-  @ApiProperty({ type: BoxDimensionsMmDto, description: 'Kích thước ngoài (mm), phải ≥ lòng thùng' })
+  @ApiProperty({
+    type: BoxDimensionsMmDto,
+    description: 'Kích thước ngoài (mm), phải ≥ lòng thùng',
+  })
   @ValidateNested()
   @Type(() => BoxDimensionsMmDto)
   outer!: BoxDimensionsMmDto;
@@ -62,19 +68,30 @@ export class CreatePackagingBoxDto {
   @Min(1, { message: 'max_load_g phải lớn hơn 0' })
   max_load_g!: number;
 
-  @ApiPropertyOptional({ example: 4500, nullable: true, description: 'Giá thùng (VND)' })
+  @ApiPropertyOptional({
+    example: 4500,
+    nullable: true,
+    description: 'Giá thùng (VND)',
+  })
   @IsOptional()
   @IsInt({ message: 'price_vnd phải là số nguyên' })
   @Min(0, { message: 'price_vnd không được âm' })
   price_vnd?: number | null;
 
-  @ApiPropertyOptional({ example: 10, description: 'Còn ≤ mức này thì báo sắp hết (mặc định 10)' })
+  @ApiPropertyOptional({
+    example: 10,
+    description: 'Còn ≤ mức này thì báo sắp hết (mặc định 10)',
+  })
   @IsOptional()
   @IsInt({ message: 'reorder_level phải là số nguyên' })
   @Min(0, { message: 'reorder_level không được âm' })
   reorder_level?: number;
 
-  @ApiPropertyOptional({ example: 'Kệ A-01', nullable: true, description: 'Vị trí để thùng trong kho' })
+  @ApiPropertyOptional({
+    example: 'Kệ A-01',
+    nullable: true,
+    description: 'Vị trí để thùng trong kho',
+  })
   @IsOptional()
   @IsString({ message: 'storage_location phải là chuỗi' })
   storage_location?: string | null;
@@ -117,18 +134,27 @@ export class UpdatePackagingBoxDto {
   @Min(0, { message: 'price_vnd không được âm' })
   price_vnd?: number | null;
 
-  @ApiPropertyOptional({ description: 'false = ngừng dùng thùng này (xóa mềm)' })
+  @ApiPropertyOptional({
+    description: 'false = ngừng dùng thùng này (xóa mềm)',
+  })
   @IsOptional()
   @IsBoolean({ message: 'is_active phải là true/false' })
   is_active?: boolean;
 
-  @ApiPropertyOptional({ example: 10, description: 'Còn ≤ mức này thì báo sắp hết' })
+  @ApiPropertyOptional({
+    example: 10,
+    description: 'Còn ≤ mức này thì báo sắp hết',
+  })
   @IsOptional()
   @IsInt({ message: 'reorder_level phải là số nguyên' })
   @Min(0, { message: 'reorder_level không được âm' })
   reorder_level?: number;
 
-  @ApiPropertyOptional({ example: 'Kệ A-01', nullable: true, description: 'Vị trí để thùng trong kho' })
+  @ApiPropertyOptional({
+    example: 'Kệ A-01',
+    nullable: true,
+    description: 'Vị trí để thùng trong kho',
+  })
   @IsOptional()
   @IsString({ message: 'storage_location phải là chuỗi' })
   storage_location?: string | null;
@@ -145,7 +171,10 @@ export class StockInPackagingBoxDto {
   @Max(100000, { message: 'quantity quá lớn' })
   quantity!: number;
 
-  @ApiPropertyOptional({ example: 'PO-2026-0922', description: 'Ghi chú (mã phiếu nhập...)' })
+  @ApiPropertyOptional({
+    example: 'PO-2026-0922',
+    description: 'Ghi chú (mã phiếu nhập...)',
+  })
   @IsOptional()
   @IsString({ message: 'note phải là chuỗi' })
   note?: string;

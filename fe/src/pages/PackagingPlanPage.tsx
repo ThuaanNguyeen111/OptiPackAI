@@ -11,10 +11,12 @@ import {
   ADJUSTMENT_REASONS,
   ADJUSTMENT_REASON_LABELS,
   FULFILLMENT_STATUS_LABELS,
+  materialLabel,
   type AdjustmentReason,
   type PackagingBox,
   type PackagingRecommendation,
   type PackingGuide,
+  viewOfCarton,
 } from '../types/packaging'
 
 const primaryBtn =
@@ -44,6 +46,7 @@ export function PackagingPlanPage() {
   const role = session?.role
   const plan = usePackagingPlan(groupId)
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [activeCarton, setActiveCarton] = useState(0)
   const [weights, setWeights] = useState<Record<string, string>>({})
 
   const isAdmin = role === UserRole.ADMIN
@@ -51,28 +54,41 @@ export function PackagingPlanPage() {
   const canPack = isAdmin || role === UserRole.WAREHOUSE_STAFF
   // Trùng @Roles của POST .../packaging/:recommendationId/guide
   const canUseGuide = canDecide || role === UserRole.WAREHOUSE_STAFF
+  const canPreviewCartons = canDecide || role === UserRole.WAREHOUSE_STAFF
   const status = plan.group?.fulfillmentStatus ?? ''
   const active =
     plan.recommendations.find((r) => r.id === activeId) ?? plan.recommendations[0] ?? null
   const statusLabel = FULFILLMENT_STATUS_LABELS[status]
   const hasNoFit = plan.recommendations.some((r) => r.solutionStatus === 'no_fit')
 
-  const packableOrders = plan.recommendations.filter((r) => r.orderId !== null)
-  const allWeightsValid = packableOrders.every((r) => Number(weights[r.orderId ?? '']) > 0)
+  // Mỗi KIỆN có cân riêng (đơn nhiều kiện có nhiều dòng). Khóa = `orderId:cartonIndex`.
+  const parcelRows = plan.recommendations
+    .filter((r) => r.orderId !== null && r.solutionStatus === 'ok')
+    .flatMap((r) =>
+      (r.cartons.length > 0 ? r.cartons : [{ index: 0, estimatedPackageWeightG: r.estimatedPackageWeightG }]).map((c) => ({
+        rec: r,
+        index: c.index,
+        key: `${r.orderId ?? ''}:${String(c.index)}`,
+        estimatedG: c.estimatedPackageWeightG,
+      })),
+    )
+  const allWeightsValid = parcelRows.length > 0 && parcelRows.every((row) => Number(weights[row.key]) > 0)
+  const cartonIndex = active && activeCarton < active.cartonCount ? activeCarton : 0
+  const activeView = active ? viewOfCarton(active, cartonIndex) : null
 
   return (
     <>
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
-          { label: vi ? 'Kế hoạch đóng gói' : 'Packaging plans', to: '/app/packing/groups' },
+          { label: vi ? 'Kế hoạch đóng gói' : 'Packaging plans', to: '/app/packing' },
           { label: groupId.slice(-8) },
         ]}
       />
       <main className="flex-1 overflow-y-auto bg-[#F9FAFB] dark:bg-[#0B0E14]">
         <div className="mx-auto w-full max-w-7xl space-y-4 p-4 sm:p-6">
           <Link
-            to="/app/packing/groups"
+            to="/app/packing"
             className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -100,6 +116,17 @@ export function PackagingPlanPage() {
                   {statusLabel ? (vi ? statusLabel.vi : statusLabel.en) : status}
                 </span>
                 <div className="ml-auto flex flex-wrap gap-2">
+                  {status === 'picked' && canPreviewCartons && (
+                    <button
+                      type="button"
+                      className={secondaryBtn}
+                      disabled={plan.cartonPreviewLoading}
+                      onClick={() => void plan.previewCartons()}
+                    >
+                      {plan.cartonPreviewLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Box className="h-4 w-4" />}
+                      {vi ? 'Xem thử số kiện 3D' : 'Preview multi-carton plan'}
+                    </button>
+                  )}
                   {status === 'picked' && isAdmin && (
                     <button type="button" className={primaryBtn} disabled={plan.busy} onClick={() => void plan.generate()}>
                       <Cpu className="h-4 w-4" />
@@ -137,6 +164,44 @@ export function PackagingPlanPage() {
                 </div>
               )}
 
+              {plan.cartonPreview && (
+                <section className={card}>
+                  <h2 className="mb-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Xem trước đóng gói nhiều kiện' : 'Multi-carton preview'}
+                  </h2>
+                  <div className="space-y-3">
+                    {plan.cartonPreview.orders.map((order) => (
+                      <article key={order.orderId} className="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <strong>{order.platformOrderId}</strong>
+                          <span className={order.status === 'ok' ? 'text-emerald-600' : 'text-red-600'}>
+                            {order.status === 'ok' ? `${order.cartons.length} ${vi ? 'kiện' : 'cartons'}` : vi ? `Không xếp được ${order.unplacedItemKeys.length} món` : `${order.unplacedItemKeys.length} items do not fit`}
+                          </span>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                          {order.cartons.map((carton, index) => (
+                            <div key={`${carton.box.code}-${index}`} className="rounded-md bg-slate-50 p-2 text-xs dark:bg-slate-800">
+                              <div className="font-semibold">{vi ? 'Kiện' : 'Carton'} {index + 1}: {carton.box.code}</div>
+                              <div className="text-slate-500">{carton.box.inner.length_mm} × {carton.box.inner.width_mm} × {carton.box.inner.height_mm} mm</div>
+                              <div className="text-slate-500">{vi ? 'Ước tính' : 'Estimated'} {kg(carton.estimated_package_weight_g)}</div>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="mt-2 text-xs text-slate-500">
+                          {vi ? 'Chi phí bao bì ước tính' : 'Estimated packaging cost'}:{' '}
+                          {order.totalPackagingCostVnd.toLocaleString('vi-VN')} VND
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                  <p className="mt-3 text-xs text-slate-500">
+                    {vi
+                      ? 'Đây là bản xem trước: chưa lưu phương án, chưa giữ/trừ tồn và chưa dùng để xác nhận đóng gói.'
+                      : 'Preview only: it does not save a recommendation, reserve stock, or confirm packing.'}
+                  </p>
+                </section>
+              )}
+
               {plan.recommendations.length === 0 ? (
                 <div className={`${card} text-sm text-slate-500`}>
                   {status === 'picked'
@@ -156,6 +221,7 @@ export function PackagingPlanPage() {
                         type="button"
                         onClick={() => {
                           setActiveId(rec.id)
+                          setActiveCarton(0)
                         }}
                         className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium ${
                           active?.id === rec.id
@@ -169,23 +235,52 @@ export function PackagingPlanPage() {
                           <Box className="h-3.5 w-3.5" />
                         )}
                         {vi ? 'Đơn' : 'Order'} {rec.platformOrderId ?? rec.orderId?.slice(-6) ?? '—'}
+                        {rec.cartonCount > 1 && (
+                          <span className="rounded bg-slate-200 px-1.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
+                            {rec.cartonCount} {vi ? 'kiện' : 'parcels'}
+                          </span>
+                        )}
                       </button>
                     ))}
                   </nav>
 
-                  {active && (
+                  {active && active.cartonCount > 1 && (
+                    <nav className="flex flex-wrap gap-2" aria-label={vi ? 'Các kiện của đơn' : 'Order parcels'}>
+                      {active.cartons.map((c) => (
+                        <button
+                          key={c.index}
+                          type="button"
+                          onClick={() => {
+                            setActiveCarton(c.index)
+                          }}
+                          className={`rounded-md border px-2.5 py-1 text-xs font-medium ${
+                            cartonIndex === c.index
+                              ? 'border-violet-500 bg-violet-50 text-violet-700 dark:bg-violet-950/40 dark:text-violet-300'
+                              : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                          }`}
+                        >
+                          {vi ? 'Kiện' : 'Parcel'} {c.index + 1}/{active.cartonCount} · {c.boxCode}
+                          {c.isAbnormal ? ' ⚠' : ''}
+                        </button>
+                      ))}
+                    </nav>
+                  )}
+
+                  {active && activeView && (
                     <RecommendationPanel
-                      key={`${active.id}-${active.boxCode ?? 'none'}`}
-                      rec={active}
+                      key={`${active.id}-${String(cartonIndex)}-${activeView.boxCode ?? 'none'}`}
+                      rec={activeView}
+                      cartonIndex={cartonIndex}
+                      cartonCount={active.cartonCount}
                       vi={vi}
                       boxes={plan.boxes}
                       canAdjust={status === 'pending_approval' && canDecide && active.approvalStatus === 'pending'}
                       busy={plan.busy}
                       onAdjust={(input) => plan.adjust(input)}
                       canUseGuide={canUseGuide}
-                      guideLoading={plan.guideLoadingId === active.id}
+                      guideLoading={plan.guideLoadingId === `${active.id}:${String(cartonIndex)}`}
                       guideError={plan.guideError}
-                      onLoadGuide={(regenerate) => plan.loadGuide(active.id, regenerate)}
+                      onLoadGuide={(regenerate) => plan.loadGuide(active.id, regenerate, cartonIndex)}
                     />
                   )}
 
@@ -201,12 +296,17 @@ export function PackagingPlanPage() {
                           : 'Weigh the whole parcel. Deviation over 20% from the estimate is flagged.'}
                       </p>
                       <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                        {packableOrders.map((rec) => (
-                          <label key={rec.id} className="flex items-center gap-2 text-xs">
+                        {parcelRows.map((row) => (
+                          <label key={row.key} className="flex items-center gap-2 text-xs">
                             <span className="w-32 shrink-0 truncate text-slate-600 dark:text-slate-300">
-                              {rec.platformOrderId ?? rec.orderId}
+                              {row.rec.platformOrderId ?? row.rec.orderId}
+                              {row.rec.cartonCount > 1 && (
+                                <span className="ml-1 font-semibold">
+                                  ({vi ? 'kiện' : 'parcel'} {row.index + 1}/{row.rec.cartonCount})
+                                </span>
+                              )}
                               <span className="block text-slate-400">
-                                {vi ? 'ước tính' : 'est.'} {kg(rec.estimatedPackageWeightG)}
+                                {vi ? 'ước tính' : 'est.'} {kg(row.estimatedG)}
                               </span>
                             </span>
                             <input
@@ -215,10 +315,10 @@ export function PackagingPlanPage() {
                               step="0.001"
                               inputMode="decimal"
                               placeholder="kg"
-                              value={weights[rec.orderId ?? ''] ?? ''}
+                              value={weights[row.key] ?? ''}
                               onChange={(e) => {
                                 const value = e.target.value
-                                setWeights((prev) => ({ ...prev, [rec.orderId ?? '']: value }))
+                                setWeights((prev) => ({ ...prev, [row.key]: value }))
                               }}
                               className="w-full rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
                             />
@@ -231,9 +331,10 @@ export function PackagingPlanPage() {
                         disabled={plan.busy || !allWeightsValid}
                         onClick={() =>
                           void plan.pack(
-                            packableOrders.map((rec) => ({
-                              orderId: rec.orderId ?? '',
-                              actualWeightKg: Number(weights[rec.orderId ?? '']),
+                            parcelRows.map((row) => ({
+                              orderId: row.rec.orderId ?? '',
+                              cartonIndex: row.index,
+                              actualWeightKg: Number(weights[row.key]),
                             })),
                           )
                         }
@@ -280,15 +381,15 @@ function GuideHeader({
 }) {
   const fallback = guide?.fallbackReason ? FALLBACK_LABELS[guide.fallbackReason] : null
   return (
-    <div className="mb-3 rounded-lg border border-violet-200 bg-violet-50/60 p-3 text-sm dark:border-violet-900 dark:bg-violet-950/30">
+    <div className="text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-300" />
-        <span className="font-semibold text-slate-800 dark:text-slate-100">
+        <span className="text-base font-semibold text-slate-900 dark:text-slate-100">
           {vi ? 'Hướng dẫn đóng gói từng bước' : 'Step-by-step packing guide'}
         </span>
         {guide && (
           <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
               guide.source === 'ai'
                 ? 'bg-violet-600 text-white'
                 : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
@@ -302,7 +403,7 @@ function GuideHeader({
             type="button"
             onClick={onRegenerate}
             disabled={loading}
-            className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-900/40"
+            className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-100 disabled:opacity-50 dark:text-violet-300 dark:hover:bg-violet-900/40"
           >
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             {guide ? (vi ? 'Viết lại bằng AI' : 'Rewrite with AI') : vi ? 'Tạo hướng dẫn' : 'Create guide'}
@@ -314,7 +415,7 @@ function GuideHeader({
           {vi ? 'AI đang viết hướng dẫn cho từng bước…' : 'AI is writing the step instructions…'}
         </p>
       )}
-      {guide && <p className="mt-2 text-slate-700 dark:text-slate-200">{guide.summary}</p>}
+      {guide && <p className="mt-1.5 max-w-[75ch] leading-relaxed text-slate-600 dark:text-slate-300">{guide.summary}</p>}
       {fallback && <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">{vi ? fallback.vi : fallback.en}</p>}
       {error && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
@@ -323,6 +424,8 @@ function GuideHeader({
 
 function RecommendationPanel({
   rec,
+  cartonIndex,
+  cartonCount,
   vi,
   boxes,
   canAdjust,
@@ -334,11 +437,19 @@ function RecommendationPanel({
   onLoadGuide,
 }: {
   rec: PackagingRecommendation
+  cartonIndex: number
+  cartonCount: number
   vi: boolean
   boxes: PackagingBox[]
   canAdjust: boolean
   busy: boolean
-  onAdjust: (input: { orderId: string; boxCode: string; reason: AdjustmentReason; note?: string }) => Promise<boolean>
+  onAdjust: (input: {
+    orderId: string
+    cartonIndex?: number
+    boxCode: string
+    reason: AdjustmentReason
+    note?: string
+  }) => Promise<boolean>
   canUseGuide: boolean
   guideLoading: boolean
   guideError: string | null
@@ -360,25 +471,29 @@ function RecommendationPanel({
   const box = boxes.find((b) => b.code === rec.boxCode)
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[1fr_300px]">
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
       <div className={card}>
         {rec.solutionStatus === 'ok' && rec.boxInnerMm ? (
           <>
-            <Link
-              to={`/app/packing/groups/${rec.orderGroupId}/orders/${rec.id}`}
-              className="mb-3 inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              <PackageCheck className="h-4 w-4" />
-              {vi ? 'Bắt đầu đóng gói từng bước' : 'Start step-by-step packing'}
-            </Link>
-            <GuideHeader
-              guide={rec.packingGuide}
-              vi={vi}
-              loading={guideLoading}
-              error={guideError}
-              canRegenerate={canUseGuide}
-              onRegenerate={() => void onLoadGuide(rec.packingGuide !== null)}
-            />
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <GuideHeader
+                  guide={rec.packingGuide}
+                  vi={vi}
+                  loading={guideLoading}
+                  error={guideError}
+                  canRegenerate={canUseGuide}
+                  onRegenerate={() => void onLoadGuide(rec.packingGuide !== null)}
+                />
+              </div>
+              <Link
+                to={`/app/packing/groups/${rec.orderGroupId}/orders/${rec.id}?carton=${String(cartonIndex)}`}
+                className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-blue-700"
+              >
+                <PackageCheck className="h-4 w-4" />
+                {vi ? 'Bắt đầu đóng gói từng bước' : 'Start step-by-step packing'}
+              </Link>
+            </div>
             <PackingAnimation3D
               box={rec.boxInnerMm}
               placements={rec.placements}
@@ -386,7 +501,7 @@ function RecommendationPanel({
               guideSteps={rec.packingGuide?.steps ?? null}
               itemProfiles={rec.itemProfiles}
             />
-            <p className="mt-2 text-[11px] text-slate-400">
+            <p className="mt-2 text-xs text-slate-400">
               {vi ? 'Mô hình 3D minh hoạ từ ' : '3D models from '}
               <a
                 href="/models/CREDITS.md"
@@ -403,12 +518,20 @@ function RecommendationPanel({
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
             <p className="mb-2 flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4" />
-              {vi ? 'Không có thùng nào trong danh mục xếp vừa đơn này' : 'No box in the catalog fits this order'}
+              {rec.provenInfeasible === true
+                ? vi
+                  ? 'Không thể xếp: có bằng chứng (món quá cỡ / quá tải) — cần thùng lớn hơn hoặc xử lý tay'
+                  : 'Cannot be packed: proven (oversize / overweight item) — needs a bigger box or manual handling'
+                : vi
+                  ? 'Chưa tìm được cách xếp tự động — chưa chắc là không xếp được; xử lý tay hoặc tạo lại phương án'
+                  : 'No automatic arrangement found yet — not proven impossible; handle manually or regenerate'}
             </p>
             <ul className="list-disc space-y-0.5 pl-5 text-xs">
               {rec.noFitReasons.map((r) => (
-                <li key={`${r.boxCode}-${r.reason}`}>
-                  <span className="font-mono">{r.boxCode}</span>: {r.reason}
+                <li key={`${r.boxCode}-${r.code ?? ''}-${r.reason}`}>
+                  {r.boxCode !== '-' && <span className="font-mono">{r.boxCode}: </span>}
+                  {r.code && <span className="mr-1 rounded bg-amber-100 px-1 font-mono text-xs dark:bg-amber-900/50">{r.code}</span>}
+                  {r.reason}
                 </li>
               ))}
             </ul>
@@ -416,76 +539,149 @@ function RecommendationPanel({
         )}
       </div>
 
-      <aside className="space-y-3">
-        <div className={`${card} space-y-1.5 text-xs text-slate-600 dark:text-slate-300`}>
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {rec.boxName ?? (vi ? 'Chưa có thùng' : 'No box')}
-            {rec.boxCode && <span className="ml-1 font-mono text-xs font-normal text-slate-400">{rec.boxCode}</span>}
-          </p>
-          {box && (
-            <p className={box.available === 0 ? 'text-red-600 dark:text-red-400' : ''}>
-              {vi ? 'Kho' : 'Stock'}: {box.quantityOnHand} {vi ? 'thùng' : 'boxes'} · {vi ? 'đang giữ chỗ' : 'reserved'}{' '}
-              {box.reserved} · {vi ? 'còn trống' : 'available'} {box.available}
+      <aside className="space-y-4">
+        <div className={`${card} space-y-4 text-sm text-slate-600 dark:text-slate-300`}>
+          <div>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-semibold text-slate-900 dark:text-slate-100">
+              {rec.boxName ?? (vi ? 'Chưa có thùng' : 'No box')}
+              {rec.boxCode && <span className="font-mono text-xs font-normal text-slate-400">{rec.boxCode}</span>}
+              {cartonCount > 1 && (
+                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700 dark:bg-violet-950/60 dark:text-violet-300">
+                  {vi ? 'Kiện' : 'Parcel'} {cartonIndex + 1}/{cartonCount}
+                </span>
+              )}
             </p>
+            {rec.lowerBoundCartons !== null && cartonCount > 0 && (
+              <p className="mt-1 text-xs text-slate-500">
+                {cartonCount <= rec.lowerBoundCartons
+                  ? vi
+                    ? `Số kiện đã đạt mức tối thiểu (${String(rec.lowerBoundCartons)}) — tối ưu về số kiện.`
+                    : `Parcel count at the proven minimum (${String(rec.lowerBoundCartons)}).`
+                  : vi
+                    ? `Tối thiểu lý thuyết ${String(rec.lowerBoundCartons)} kiện (đang dùng ${String(cartonCount)}).`
+                    : `Theoretical minimum ${String(rec.lowerBoundCartons)} parcels (using ${String(cartonCount)}).`}
+              </p>
+            )}
+          </div>
+
+          {(rec.preferredBoxOutOfStock || box?.isSample || rec.materialsShortfall.length > 0) && (
+            <div className="space-y-1.5 text-xs">
+              {rec.preferredBoxOutOfStock && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 leading-relaxed text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                  {vi
+                    ? `Thùng ${rec.preferredBoxOutOfStock} vừa hơn nhưng kho đã hết — đang dùng ${rec.boxCode ?? ''}. Nhập thêm ${rec.preferredBoxOutOfStock} để tiết kiệm thùng.`
+                    : `${rec.preferredBoxOutOfStock} would fit better but is out of stock — using ${rec.boxCode ?? ''}.`}
+                </p>
+              )}
+              {box?.isSample && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 leading-relaxed text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                  {vi ? 'Thùng mẫu (số giả lập) — cần nhập số đo thật.' : 'Sample box (placeholder numbers).'}
+                </p>
+              )}
+              {rec.materialsShortfall.length > 0 && (
+                <p className="rounded-lg bg-amber-50 px-3 py-2 leading-relaxed text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                  {vi ? 'Kho thiếu vật tư lúc đóng: ' : 'Short of materials when packing: '}
+                  {rec.materialsShortfall
+                    .map((s) => `${s.code} (${vi ? 'thiếu' : 'missing'} ${String(s.missing)})`)
+                    .join(', ')}
+                </p>
+              )}
+            </div>
           )}
-          {rec.preferredBoxOutOfStock && (
-            <p className="rounded bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-              {vi
-                ? `Thùng ${rec.preferredBoxOutOfStock} vừa hơn nhưng kho đã hết — đang dùng ${rec.boxCode ?? ''}. Nhập thêm ${rec.preferredBoxOutOfStock} để tiết kiệm thùng.`
-                : `${rec.preferredBoxOutOfStock} would fit better but is out of stock — using ${rec.boxCode ?? ''}.`}
-            </p>
-          )}
-          {box?.isSample && (
-            <p className="rounded bg-amber-50 px-2 py-1 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-              {vi ? 'Thùng mẫu (số giả lập) — cần nhập số đo thật.' : 'Sample box (placeholder numbers).'}
-            </p>
-          )}
-          {rec.boxInnerMm && (
-            <p>
-              {vi ? 'Lòng thùng' : 'Inner'}: {cm(rec.boxInnerMm.lengthMm)} × {cm(rec.boxInnerMm.widthMm)} ×{' '}
-              {cm(rec.boxInnerMm.heightMm)} cm
-            </p>
-          )}
-          {rec.fillRatio !== null && (
-            <p>
-              {vi ? 'Lấp đầy' : 'Fill'}: {(rec.fillRatio * 100).toFixed(1)}%
-            </p>
-          )}
-          <p>
-            {vi ? 'Hàng' : 'Items'}: {kg(rec.itemsWeightG)} · {vi ? 'kiện ước tính' : 'parcel est.'}:{' '}
-            {kg(rec.estimatedPackageWeightG)}
-          </p>
-          <p>
-            {vi ? 'Cân quy đổi thể tích' : 'Volumetric weight'}: {kg(rec.volumetricWeightG)}
-          </p>
-          <p>
-            {vi ? 'Phí ship' : 'Shipping'}:{' '}
-            {rec.estimatedShippingCostVnd === null
-              ? vi
-                ? 'chưa có bảng cước'
-                : 'no rate table yet'
-              : `${rec.estimatedShippingCostVnd.toLocaleString('vi-VN')} đ`}
-          </p>
+
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+            {box && (
+              <>
+                <dt className="text-slate-500">{vi ? 'Kho thùng' : 'Box stock'}</dt>
+                <dd className={`text-right tabular-nums ${box.available === 0 ? 'font-semibold text-red-600 dark:text-red-400' : 'font-medium text-slate-900 dark:text-slate-100'}`}>
+                  {vi ? 'còn trống' : 'free'} {box.available}
+                  <span className="block text-xs font-normal text-slate-500">
+                    {box.quantityOnHand} {vi ? 'thùng' : 'boxes'} · {vi ? 'giữ chỗ' : 'reserved'} {box.reserved}
+                  </span>
+                </dd>
+              </>
+            )}
+            {rec.boxInnerMm && (
+              <>
+                <dt className="text-slate-500">{vi ? 'Lòng thùng' : 'Inner size'}</dt>
+                <dd className="text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                  {cm(rec.boxInnerMm.lengthMm)} × {cm(rec.boxInnerMm.widthMm)} × {cm(rec.boxInnerMm.heightMm)} cm
+                </dd>
+              </>
+            )}
+            {rec.fillRatio !== null && (
+              <>
+                <dt className="text-slate-500">{vi ? 'Lấp đầy' : 'Fill'}</dt>
+                <dd className="text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
+                  {(rec.fillRatio * 100).toFixed(1)}%
+                </dd>
+              </>
+            )}
+            <dt className="text-slate-500">{vi ? 'Cân hàng' : 'Items weight'}</dt>
+            <dd className="text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">{kg(rec.itemsWeightG)}</dd>
+            <dt className="text-slate-500">{vi ? 'Kiện ước tính' : 'Parcel estimate'}</dt>
+            <dd className="text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
+              {kg(rec.estimatedPackageWeightG)}
+            </dd>
+            <dt className="text-slate-500">{vi ? 'Cân quy đổi' : 'Volumetric'}</dt>
+            <dd className="text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">{kg(rec.volumetricWeightG)}</dd>
+            <dt className="text-slate-500">{vi ? 'Phí ship' : 'Shipping'}</dt>
+            <dd className="text-right font-medium tabular-nums text-slate-900 dark:text-slate-100">
+              {rec.estimatedShippingCostVnd === null ? (
+                <span className="font-normal text-slate-500">{vi ? 'chưa có bảng cước' : 'no rate table yet'}</span>
+              ) : (
+                `${rec.estimatedShippingCostVnd.toLocaleString('vi-VN')} đ`
+              )}
+            </dd>
+          </dl>
+
           {rec.materials.length > 0 && (
-            <p>
-              {vi ? 'Vật tư' : 'Materials'}:{' '}
-              {rec.materials.map((m) => `${m.type === 'bubble_wrap' ? 'Bubble wrap' : m.type} × ${String(m.quantity)}`).join(', ')}
-            </p>
+            <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
+              <p className="mb-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {vi ? 'Vật tư chèn' : 'Cushioning'}
+                <span className="ml-1.5 text-xs font-normal text-slate-500">{vi ? '(ước lượng theo luật)' : '(rule-based estimate)'}</span>
+              </p>
+              <ul className="space-y-1 text-sm">
+                {rec.materials.map((m) => (
+                  <li key={`${m.code ?? m.type}`} className="flex justify-between gap-3 tabular-nums">
+                    <span>
+                      {materialLabel(m, vi)} × {m.quantity}
+                      {m.unit ? ` ${m.unit}` : ''}
+                    </span>
+                    {m.costVnd > 0 && <span className="text-slate-500">{m.costVnd.toLocaleString('vi-VN')} đ</span>}
+                  </li>
+                ))}
+              </ul>
+              {rec.materialsCostVnd > 0 && (
+                <p className="mt-2 flex justify-between gap-3 border-t border-dashed border-slate-200 pt-2 text-sm font-medium tabular-nums text-slate-900 dark:border-slate-700 dark:text-slate-100">
+                  <span>{vi ? 'Tổng vật tư' : 'Materials total'}</span>
+                  <span>
+                    {rec.materialsCostVnd.toLocaleString('vi-VN')} đ · {kg(rec.materialsWeightG)}
+                  </span>
+                </p>
+              )}
+            </div>
           )}
-          {rec.adjustmentReason && (
-            <p className="text-slate-500">
-              {vi ? 'Đã đổi từ' : 'Changed from'} {rec.adjustedFromBoxCode ?? '—'} ·{' '}
-              {ADJUSTMENT_REASON_LABELS[rec.adjustmentReason as AdjustmentReason][vi ? 'vi' : 'en']}
-              {rec.adjustmentNote ? ` — ${rec.adjustmentNote}` : ''}
-            </p>
+
+          {(rec.adjustmentReason || rec.actualMeasuredWeightKg !== null) && (
+            <div className="space-y-1.5 border-t border-slate-200 pt-3 text-sm dark:border-slate-800">
+              {rec.adjustmentReason && (
+                <p className="text-slate-500">
+                  {vi ? 'Đã đổi từ' : 'Changed from'} {rec.adjustedFromBoxCode ?? '—'} ·{' '}
+                  {ADJUSTMENT_REASON_LABELS[rec.adjustmentReason as AdjustmentReason][vi ? 'vi' : 'en']}
+                  {rec.adjustmentNote ? ` — ${rec.adjustmentNote}` : ''}
+                </p>
+              )}
+              {rec.actualMeasuredWeightKg !== null && (
+                <p className={rec.isAbnormal ? 'font-semibold text-red-600 dark:text-red-400' : ''}>
+                  {vi ? 'Cân thật' : 'Actual'}: {rec.actualMeasuredWeightKg} kg
+                  {rec.isAbnormal ? (vi ? ' — lệch bất thường' : ' — abnormal') : ''}
+                </p>
+              )}
+            </div>
           )}
-          {rec.actualMeasuredWeightKg !== null && (
-            <p className={rec.isAbnormal ? 'font-semibold text-red-600' : ''}>
-              {vi ? 'Cân thật' : 'Actual'}: {rec.actualMeasuredWeightKg} kg
-              {rec.isAbnormal ? (vi ? ' — lệch bất thường' : ' — abnormal') : ''}
-            </p>
-          )}
-          <p className="pt-1 text-xs text-slate-400">
+
+          <p className="text-xs text-slate-400">
             {rec.engineVersion ?? 'legacy'} · {rec.computationTimeMs} ms
           </p>
         </div>
@@ -493,7 +689,13 @@ function RecommendationPanel({
         {canAdjust && (
           <div className={`${card} space-y-2 text-xs`}>
             <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              {vi ? 'Đổi thùng cho đơn này' : 'Change box for this order'}
+              {cartonCount > 1
+                ? vi
+                  ? `Đổi thùng cho kiện ${String(cartonIndex + 1)}`
+                  : `Change box for parcel ${String(cartonIndex + 1)}`
+                : vi
+                  ? 'Đổi thùng cho đơn này'
+                  : 'Change box for this order'}
             </p>
             <select
               value={boxCode}
@@ -539,7 +741,13 @@ function RecommendationPanel({
               className={secondaryBtn}
               disabled={busy || !boxCode || !rec.orderId}
               onClick={() =>
-                void onAdjust({ orderId: rec.orderId ?? '', boxCode, reason, note: note.trim() || undefined })
+                void onAdjust({
+                  orderId: rec.orderId ?? '',
+                  cartonIndex,
+                  boxCode,
+                  reason,
+                  note: note.trim() || undefined,
+                })
               }
             >
               {vi ? 'Xếp lại vào thùng này' : 'Repack into this box'}

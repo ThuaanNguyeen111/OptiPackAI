@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -22,7 +22,13 @@ import { usePortal } from '../context/use-portal'
 import { useAuth } from '../context/use-auth'
 import { usePackagingPlan } from '../hooks/usePackagingPlan'
 import { UserRole } from '../types/auth'
-import { PRODUCT_CATEGORY_LABELS, type PackagingRecommendation } from '../types/packaging'
+import {
+  PRODUCT_CATEGORY_LABELS,
+  materialLabel,
+  viewOfCarton,
+  type MaterialLine,
+  type PackagingRecommendation,
+} from '../types/packaging'
 
 const card = 'rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-surface-1'
 const navBtn =
@@ -41,6 +47,8 @@ function cm(mm: number): string {
 export function PackingWizardPage() {
   const { groupId = '', recommendationId = '' } = useParams<{ groupId: string; recommendationId: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const cartonParam = Number(searchParams.get('carton') ?? 0)
   const { locale } = usePortal()
   const vi = locale === 'vi'
   const { session } = useAuth()
@@ -51,7 +59,10 @@ export function PackingWizardPage() {
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const stageRef = useRef<HTMLDivElement>(null)
 
-  const rec = plan.recommendations.find((r) => r.id === recommendationId) ?? null
+  const fullRec = plan.recommendations.find((r) => r.id === recommendationId) ?? null
+  const cartonIndex = fullRec && Number.isInteger(cartonParam) && cartonParam >= 0 && cartonParam < fullRec.cartonCount ? cartonParam : 0
+  // Nhìn phương án như đang xem đúng 1 kiện (đơn 1 kiện: giữ nguyên số liệu cũ).
+  const rec = useMemo(() => (fullRec ? viewOfCarton(fullRec, cartonIndex) : null), [fullRec, cartonIndex])
   const steps = useMemo(() => [...(rec?.placements ?? [])].sort((a, b) => a.step - b.step), [rec])
   const profiles = useMemo(() => new Map((rec?.itemProfiles ?? []).map((p) => [p.sku, p])), [rec])
   const guideByStep = useMemo(
@@ -67,13 +78,14 @@ export function PackingWizardPage() {
 
   // Tạo hướng dẫn lần đầu nếu đơn chưa có (giống trang kế hoạch).
   // Theo từng đơn — chuyển sang đơn khác trong nhóm (cùng trang) vẫn tự tạo.
+  const guideKey = `${recommendationId}:${String(cartonIndex)}`
   const guideRequestedFor = useRef<string | null>(null)
   const needsGuide = canUseGuide && rec?.solutionStatus === 'ok' && rec.packingGuide === null
   useEffect(() => {
-    if (!needsGuide || guideRequestedFor.current === recommendationId) return
-    guideRequestedFor.current = recommendationId
-    void plan.loadGuide(recommendationId, false)
-  }, [needsGuide, plan, recommendationId])
+    if (!needsGuide || guideRequestedFor.current === guideKey) return
+    guideRequestedFor.current = guideKey
+    void plan.loadGuide(recommendationId, false, cartonIndex)
+  }, [needsGuide, plan, recommendationId, cartonIndex, guideKey])
 
   // Phím ← / → để chuyển màn (nhân viên đang cầm hàng, không tiện bấm chuột).
   useEffect(() => {
@@ -88,11 +100,23 @@ export function PackingWizardPage() {
     }
   }, [lastScreen])
 
-  const orders = plan.recommendations.filter((r) => r.orderId !== null)
-  const allWeightsValid = orders.length > 0 && orders.every((r) => Number(weights[r.orderId ?? '']) > 0)
+  // Mỗi KIỆN có cân riêng; khóa = `orderId:cartonIndex`.
+  const parcels = plan.recommendations
+    .filter((r) => r.orderId !== null && r.solutionStatus === 'ok')
+    .flatMap((r) =>
+      (r.cartons.length > 0 ? r.cartons : [{ index: 0, estimatedPackageWeightG: r.estimatedPackageWeightG }]).map((c) => ({
+        rec: r,
+        index: c.index,
+        key: `${r.orderId ?? ''}:${String(c.index)}`,
+        estimatedG: c.estimatedPackageWeightG,
+      })),
+    )
+  const allWeightsValid = parcels.length > 0 && parcels.every((p) => Number(weights[p.key]) > 0)
 
   const confirmPack = async () => {
-    const ok = await plan.pack(orders.map((r) => ({ orderId: r.orderId ?? '', actualWeightKg: Number(weights[r.orderId ?? '']) })))
+    const ok = await plan.pack(
+      parcels.map((p) => ({ orderId: p.rec.orderId ?? '', cartonIndex: p.index, actualWeightKg: Number(weights[p.key]) })),
+    )
     if (ok) void navigate(`/app/packing/groups/${groupId}`)
   }
 
@@ -100,7 +124,7 @@ export function PackingWizardPage() {
     <PortalTopBar
       breadcrumbs={[
         { label: 'OptiPackAI', to: '/app' },
-        { label: vi ? 'Kế hoạch đóng gói' : 'Packaging plans', to: '/app/packing/groups' },
+        { label: vi ? 'Kế hoạch đóng gói' : 'Packaging plans', to: '/app/packing' },
         { label: groupId.slice(-8), to: `/app/packing/groups/${groupId}` },
         { label: vi ? 'Đóng gói từng bước' : 'Step-by-step' },
       ]}
@@ -145,7 +169,6 @@ export function PackingWizardPage() {
     if (bag) bagCounts.set(bag, (bagCounts.get(bag) ?? 0) + 1)
     if (p.folded) foldCount += 1
   }
-  const bubble = rec.materials.reduce((sum, m) => sum + m.quantity, 0)
 
   return (
     <>
@@ -160,7 +183,10 @@ export function PackingWizardPage() {
             {vi ? 'Kế hoạch' : 'Plan'}
           </Link>
           <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            {vi ? 'Đơn' : 'Order'} {rec.platformOrderId ?? rec.orderId?.slice(-6)} · {rec.boxName ?? rec.boxCode}
+            {vi ? 'Đơn' : 'Order'} {rec.platformOrderId ?? rec.orderId?.slice(-6)}
+            {fullRec && fullRec.cartonCount > 1 && ` · ${vi ? 'kiện' : 'parcel'} ${String(cartonIndex + 1)}/${String(fullRec.cartonCount)}`}
+            {' · '}
+            {rec.boxName ?? rec.boxCode}
           </p>
           <span className="ml-auto text-sm tabular-nums text-slate-500">
             {screen === 0
@@ -201,7 +227,7 @@ export function PackingWizardPage() {
                 itemCount={steps.length}
                 bagCounts={bagCounts}
                 foldCount={foldCount}
-                bubble={bubble}
+                materials={rec.materials}
               />
             )}
 
@@ -233,7 +259,7 @@ export function PackingWizardPage() {
                   <p className="text-lg font-medium leading-relaxed text-slate-900 dark:text-slate-50">
                     {currentGuide.instruction}
                   </p>
-                ) : plan.guideLoadingId === rec.id ? (
+                ) : plan.guideLoadingId === guideKey ? (
                   <p className="flex items-center gap-2 text-sm text-slate-500">
                     <Loader2 className="h-4 w-4 animate-spin" />
                     {vi ? 'AI đang viết hướng dẫn…' : 'Writing instructions…'}
@@ -293,29 +319,30 @@ export function PackingWizardPage() {
                     <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {vi ? 'Cân từng kiện (kg)' : 'Weigh each parcel (kg)'}
                     </p>
-                    {orders.map((r) => (
-                      <label key={r.id} className="flex items-center gap-2 text-sm">
-                        <span className={`w-28 truncate ${r.id === rec.id ? 'font-semibold' : 'text-slate-500'}`}>
-                          {r.platformOrderId ?? r.orderId?.slice(-6)}
+                    {parcels.map((p) => (
+                      <label key={p.key} className="flex items-center gap-2 text-sm">
+                        <span
+                          className={`w-36 truncate ${p.rec.id === rec.id && p.index === cartonIndex ? 'font-semibold' : 'text-slate-500'}`}
+                        >
+                          {p.rec.platformOrderId ?? p.rec.orderId?.slice(-6)}
+                          {p.rec.cartonCount > 1 && ` (${vi ? 'kiện' : 'parcel'} ${String(p.index + 1)}/${String(p.rec.cartonCount)})`}
                         </span>
                         <input
                           type="number"
                           min="0"
                           step="0.01"
                           inputMode="decimal"
-                          value={weights[r.orderId ?? ''] ?? ''}
+                          value={weights[p.key] ?? ''}
                           onChange={(e) => {
                             const value = e.target.value
-                            setWeights((prev) => ({ ...prev, [r.orderId ?? '']: value }))
+                            setWeights((prev) => ({ ...prev, [p.key]: value }))
                           }}
-                          placeholder={
-                            r.estimatedPackageWeightG === null ? '' : `~${String(r.estimatedPackageWeightG / 1000)}`
-                          }
+                          placeholder={p.estimatedG !== null && p.estimatedG > 0 ? `~${String(p.estimatedG / 1000)}` : ''}
                           className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
                         />
-                        {r.id !== rec.id && (
+                        {!(p.rec.id === rec.id && p.index === cartonIndex) && (
                           <Link
-                            to={`/app/packing/groups/${groupId}/orders/${r.id}`}
+                            to={`/app/packing/groups/${groupId}/orders/${p.rec.id}?carton=${String(p.index)}`}
                             onClick={() => {
                               setScreen(0)
                             }}
@@ -402,14 +429,14 @@ function PrepareScreen({
   itemCount,
   bagCounts,
   foldCount,
-  bubble,
+  materials,
 }: {
   vi: boolean
   rec: PackagingRecommendation
   itemCount: number
   bagCounts: Map<string, number>
   foldCount: number
-  bubble: number
+  materials: MaterialLine[]
 }) {
   return (
     <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
@@ -432,12 +459,16 @@ function PrepareScreen({
             {vi ? 'Túi zip' : 'Zip bag'} {code}: <b>{count}</b>
           </li>
         ))}
-        {bubble > 0 && (
-          <li className="flex items-center gap-2">
+        {materials.map((m) => (
+          <li key={m.code ?? m.type} className="flex items-center gap-2">
             <Layers className="h-4 w-4 text-slate-400" />
-            {vi ? 'Xốp hơi' : 'Bubble wrap'}: <b>{bubble}</b>
+            {materialLabel(m, vi)}:{' '}
+            <b>
+              {m.quantity}
+              {m.unit ? ` ${m.unit}` : ''}
+            </b>
           </li>
-        )}
+        ))}
         {foldCount > 0 && (
           <li className="flex items-center gap-2">
             <Scissors className="h-4 w-4 text-slate-400" />

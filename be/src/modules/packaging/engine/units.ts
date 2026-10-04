@@ -73,15 +73,35 @@ export function foldUnit(unit: PackingUnit): PackingUnit {
 }
 
 /**
+ * (Bước 2) Khoảng đệm mặc định (mm, MỖI MẶT) chừa quanh món DỄ VỠ cho lớp bọc
+ * xốp hơi: món dễ vỡ chiếm chỗ lớn hơn số đo thật 2×5 mm theo mỗi chiều. Trước
+ * đây vật tư chỉ là ước lượng ngoài hình học nên engine xếp sát khít rồi mới
+ * bảo nhân viên "bọc xốp" — có thể không còn chỗ để bọc.
+ */
+export const DEFAULT_FRAGILE_CUSHION_MM = 5;
+
+export interface ExpandOptions {
+  /** Đệm quanh món dễ vỡ (mm mỗi mặt); bỏ qua = 0 (số đo thật, dùng cho test hình học thuần). */
+  fragileCushionMm?: number;
+}
+
+/**
  * Mở `PackableItem` (số lượng gộp theo SKU) thành từng đơn vị vật lý có
  * `item_key` riêng. KHÔNG đổi interface dùng chung — chỉ nở ra trong engine.
  */
-export function expandToUnits(items: PackableItem[]): PackingUnit[] {
+export function expandToUnits(
+  items: PackableItem[],
+  options: ExpandOptions = {},
+): PackingUnit[] {
+  const cushion = options.fragileCushionMm ?? 0;
   const units: PackingUnit[] = [];
   for (const item of [...items].sort((a, b) => a.sku.localeCompare(b.sku))) {
     const lieFlat = FLAT_CATEGORIES.has(item.product_category ?? '');
+    const pad = item.is_fragile ? 2 * cushion : 0;
     const orientations =
-      lieFlat || item.orientation_rule === 'upright_only' ? UPRIGHT_ORIENTATIONS : ALL_ORIENTATIONS;
+      lieFlat || item.orientation_rule === 'upright_only'
+        ? UPRIGHT_ORIENTATIONS
+        : ALL_ORIENTATIONS;
     const maxStack =
       item.max_stack_load_kg === null || item.max_stack_load_kg === undefined
         ? null
@@ -90,14 +110,15 @@ export function expandToUnits(items: PackableItem[]): PackingUnit[] {
       units.push({
         item_key: `${item.sku}#${String(n)}`,
         sku: item.sku,
-        length_mm: cmToMmCeil(item.length_cm),
-        width_mm: cmToMmCeil(item.width_cm),
-        height_mm: cmToMmCeil(item.height_cm),
+        length_mm: cmToMmCeil(item.length_cm) + pad,
+        width_mm: cmToMmCeil(item.width_cm) + pad,
+        height_mm: cmToMmCeil(item.height_cm) + pad,
         weight_g: kgToGCeil(item.weight_kg),
         is_fragile: item.is_fragile,
         orientations,
         max_stack_load_g: maxStack,
         foldable: item.can_fold_in_half === true,
+        product_category: item.product_category ?? null,
       });
     }
   }

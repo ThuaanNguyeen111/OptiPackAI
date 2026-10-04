@@ -35,7 +35,7 @@ function fact(step: number, sku: string): GuideStepFacts {
 }
 
 const facts = [fact(1, 'GIAY-42'), fact(2, 'AO-M')];
-const input = { box, facts, fill_ratio: 0.4, bubble_wrap_count: 0 };
+const input = { box, facts, fill_ratio: 0.4, materials: [] };
 
 const groq: AiProviderConfig = {
   name: 'groq',

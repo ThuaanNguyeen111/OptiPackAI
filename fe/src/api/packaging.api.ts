@@ -2,9 +2,13 @@ import { apiRequest } from '../lib/api'
 import type {
   AdjustmentReason,
   BoxStockMovement,
+  MaterialRules,
+  MaterialType,
+  MultiCartonPlanPreview,
   OrderGroupSummary,
   PackagingBag,
   PackagingBox,
+  PackagingMaterial,
   PackagingPlan,
   PackagingRecommendation,
   ProductCategory,
@@ -22,6 +26,12 @@ export async function getOrderGroup(groupId: string): Promise<OrderGroupSummary>
 
 export async function getPackagingPlan(groupId: string): Promise<PackagingPlan> {
   return apiRequest<PackagingPlan>(`/order-groups/${groupId}/packaging`, { auth: true })
+}
+
+export async function previewMultiCartonPlan(groupId: string): Promise<MultiCartonPlanPreview> {
+  return apiRequest<MultiCartonPlanPreview>(`/order-groups/${groupId}/packaging/cartonization-preview`, {
+    auth: true,
+  })
 }
 
 export async function generatePackagingPlan(groupId: string): Promise<PackagingPlan> {
@@ -43,6 +53,8 @@ export async function adjustPackagingPlan(
   groupId: string,
   body: {
     orderId: string
+    /** Kiện cần đổi thùng (đơn nhiều kiện); bỏ trống = kiện 0. */
+    cartonIndex?: number
     boxCode: string
     reason: AdjustmentReason
     note?: string
@@ -54,6 +66,7 @@ export async function adjustPackagingPlan(
     auth: true,
     body: {
       order_id: body.orderId,
+      carton_index: body.cartonIndex,
       box_code: body.boxCode,
       adjustment_reason: body.reason,
       adjustment_note: body.note,
@@ -75,23 +88,28 @@ export async function requestPackingGuide(
   groupId: string,
   recommendationId: string,
   regenerate = false,
+  cartonIndex = 0,
 ): Promise<PackagingRecommendation> {
   return apiRequest<PackagingRecommendation>(
     `/order-groups/${groupId}/packaging/${recommendationId}/guide`,
-    { method: 'POST', auth: true, body: { regenerate } },
+    { method: 'POST', auth: true, body: { regenerate, carton_index: cartonIndex } },
   )
 }
 
 export async function packOrderGroup(
   groupId: string,
-  packages: { orderId: string; actualWeightKg: number }[],
+  packages: { orderId: string; cartonIndex?: number; actualWeightKg: number }[],
   expectedVersion: number,
 ): Promise<{ fulfillmentStatus: string; version: number; recommendations: PackagingRecommendation[] }> {
   return apiRequest(`/order-groups/${groupId}/fulfillment/pack`, {
     method: 'POST',
     auth: true,
     body: {
-      packages: packages.map((p) => ({ order_id: p.orderId, actual_weight_kg: p.actualWeightKg })),
+      packages: packages.map((p) => ({
+        order_id: p.orderId,
+        carton_index: p.cartonIndex,
+        actual_weight_kg: p.actualWeightKg,
+      })),
       expected_version: expectedVersion,
     },
   })
@@ -182,4 +200,45 @@ export async function createPackagingBag(body: BagInput): Promise<PackagingBag> 
 
 export async function updatePackagingBag(id: string, body: BagInput): Promise<PackagingBag> {
   return apiRequest<PackagingBag>(`/packaging/bags/${id}`, { method: 'PATCH', auth: true, body })
+}
+
+export type MaterialInput = {
+  code?: string
+  name?: string
+  type?: MaterialType
+  unit?: string
+  weight_g_per_unit?: number
+  price_vnd_per_unit?: number
+  is_active?: boolean
+  reorder_level?: number
+  storage_location?: string | null
+}
+
+export async function listPackagingMaterials(activeOnly = true): Promise<PackagingMaterial[]> {
+  return apiRequest<PackagingMaterial[]>(`/packaging/materials${activeOnly ? '' : '?active=false'}`, { auth: true })
+}
+
+export async function createPackagingMaterial(body: MaterialInput): Promise<PackagingMaterial> {
+  return apiRequest<PackagingMaterial>('/packaging/materials', { method: 'POST', auth: true, body })
+}
+
+export async function updatePackagingMaterial(id: string, body: MaterialInput): Promise<PackagingMaterial> {
+  return apiRequest<PackagingMaterial>(`/packaging/materials/${id}`, { method: 'PATCH', auth: true, body })
+}
+
+/** Nhập thêm vật tư vào kho (ghi 1 dòng sổ). */
+export async function stockInPackagingMaterial(id: string, quantity: number, note?: string): Promise<PackagingMaterial> {
+  return apiRequest<PackagingMaterial>(`/packaging/materials/${id}/stock-in`, {
+    method: 'POST',
+    auth: true,
+    body: { quantity, note },
+  })
+}
+
+export async function listMaterialMovements(id: string): Promise<BoxStockMovement[]> {
+  return apiRequest<BoxStockMovement[]>(`/packaging/materials/${id}/movements`, { auth: true })
+}
+
+export async function getMaterialRules(): Promise<MaterialRules> {
+  return apiRequest<MaterialRules>('/packaging/materials/rules', { auth: true })
 }

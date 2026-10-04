@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AiProviderConfig } from '../../config/ai.config';
-import type { BoxSpec, GuideStepFacts, GuideText } from './engine';
+import type { BoxSpec, GuideMaterial, GuideStepFacts, GuideText } from './engine';
 import { buildTemplateGuide } from './engine';
 
 export type GuideFallbackReason = 'no_api_key' | 'ai_error' | 'ai_invalid_output';
@@ -18,7 +18,8 @@ export interface PackingGuideInput {
   box: BoxSpec;
   facts: GuideStepFacts[];
   fill_ratio: number | null;
-  bubble_wrap_count: number;
+  /** (28/09/2026) Vật tư chèn cần chuẩn bị cho kiện — thay `bubble_wrap_count`. */
+  materials: GuideMaterial[];
 }
 
 const MAX_INSTRUCTION_LENGTH = 400;
@@ -38,6 +39,7 @@ const SYSTEM_PROMPT = [
   '- Mỗi câu hướng dẫn tối đa khoảng 40 từ, giọng chuyên nghiệp, không đùa.',
   '- "tip" là một lưu ý ngắn khi thật sự cần (hàng dễ vỡ, không được đè lên, cách gấp quần áo gọn); không cần thì để chuỗi rỗng "".',
   '- "summary" là 1–2 câu tổng quan: dùng thùng nào, bao nhiêu món, lưu ý chung trước khi dán thùng.',
+  '- Nếu "materials" không rỗng thì "summary" phải liệt kê đúng tên và số lượng từng vật tư chèn cần chuẩn bị (góc xốp, tấm ngăn, gối hơi, tem...) theo dữ liệu; không tự thêm vật tư khác.',
   'Chỉ trả về JSON dạng {"summary": string, "steps": [{"step": number, "instruction": string, "tip": string}]}, không kèm chữ nào khác.',
 ].join('\n');
 
@@ -87,7 +89,7 @@ export class PackingGuideAiService {
   constructor(private readonly configService: ConfigService) {}
 
   async writeGuide(input: PackingGuideInput): Promise<PackingGuideResult> {
-    const template = buildTemplateGuide(input.facts, input.box, input.fill_ratio, input.bubble_wrap_count);
+    const template = buildTemplateGuide(input.facts, input.box, input.fill_ratio, input.materials);
     const provider = this.configService.get<AiProviderConfig | null>('ai.provider', null);
     if (!provider) return { ...template, source: 'template', model: null, fallback_reason: 'no_api_key' };
 
@@ -118,7 +120,7 @@ export class PackingGuideAiService {
     const userPayload = {
       box: { code: input.box.code, name: input.box.name, inner_mm: input.box.inner },
       fill_ratio: input.fill_ratio,
-      bubble_wrap_count: input.bubble_wrap_count,
+      materials: input.materials,
       steps: input.facts,
     };
     const body = {

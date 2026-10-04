@@ -25,6 +25,10 @@ import { PackagingModule } from './modules/packaging/packaging.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
+import { MarketplaceWebhooksModule } from './modules/marketplace-webhooks/marketplace-webhooks.module';
+import { ShipmentsModule } from './modules/shipments/shipments.module';
+import { ShippingModule } from './modules/shipping/shipping.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
@@ -60,6 +64,11 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
     WarehouseModule,
     NotificationsModule,
     StorefrontModule,
+    // MỚI (29/09/2026) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
+    MarketplaceWebhooksModule,
+    ShipmentsModule,
+    ShippingModule,
+    DocumentsModule,
   ],
   controllers: [AppController],
   providers: [

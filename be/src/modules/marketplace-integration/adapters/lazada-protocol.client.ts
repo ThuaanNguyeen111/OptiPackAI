@@ -367,7 +367,12 @@ export class LazadaProtocolClient {
     path: string,
     params: Record<string, string | number>,
   ): Promise<T> {
-    return this.post<T>(this.config.apiBaseUrl, path, params);
+    return this.post<T>(this.config.apiBaseUrl, path, {
+      ...params,
+      app_key: this.config.appKey,
+      sign_method: 'sha256',
+      timestamp: Date.now(),
+    });
   }
 
   private async post<T>(

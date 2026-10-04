@@ -27,20 +27,69 @@ export type Placement = {
 
 export type PackagingApprovalStatus = 'pending' | 'approved' | 'adjusted' | 'rejected'
 
+/** Mã lý do no_fit của engine (30/09/2026). */
+export type NoFitReasonCode =
+  | 'NO_ITEMS'
+  | 'NO_BOXES'
+  | 'TOO_MANY_UNITS'
+  | 'ITEM_TOO_LARGE'
+  | 'ITEM_TOO_HEAVY'
+  | 'TOTAL_VOLUME'
+  | 'TOTAL_WEIGHT'
+  | 'NO_ARRANGEMENT'
+  | 'OUT_OF_STOCK'
+  | 'BUDGET_EXHAUSTED'
+  | 'TIMEOUT'
+
+/**
+ * MỘT KIỆN của đơn (đa kiện, 30/09/2026). Field cấp phương án phản chiếu kiện 0;
+ * đơn nhiều kiện đọc `cartons[]` để có thùng/tọa độ/cân riêng từng kiện.
+ */
+export type Carton = {
+  index: number
+  boxCode: string
+  boxName: string | null
+  boxInnerMm: DimensionsMm
+  boxOuterMm: DimensionsMm
+  placements: Placement[]
+  fillRatio: number
+  itemsWeightG: number
+  estimatedPackageWeightG: number
+  volumetricWeightG: number
+  materials: MaterialLine[]
+  materialsWeightG: number
+  materialsCostVnd: number
+  actualMeasuredWeightKg: number | null
+  isAbnormal: boolean
+  packingGuide: PackingGuide | null
+}
+
 export type PackagingRecommendation = {
   id: string
   orderGroupId: string
   orderId: string | null
   platformOrderId: string | null
   solutionStatus: 'ok' | 'no_fit'
-  noFitReasons: { boxCode: string; reason: string }[]
+  noFitReasons: { boxCode: string; reason: string; code: NoFitReasonCode | null; itemKey: string | null }[]
+  /** Các kiện của đơn; rỗng khi no_fit. */
+  cartons: Carton[]
+  cartonCount: number
+  /** Cận dưới số kiện; cartonCount − cận = khoảng cách tới tối ưu (0 = tối ưu số kiện). */
+  lowerBoundCartons: number | null
+  /** no_fit: true = có bằng chứng không xếp được; false = chỉ là chưa tìm được. */
+  provenInfeasible: boolean | null
   boxCode: string | null
   boxName: string | null
   boxInnerMm: DimensionsMm | null
   boxOuterMm: DimensionsMm | null
   placements: Placement[]
   itemProfiles: ItemProfile[]
-  materials: { type: string; quantity: number }[]
+  /** Vật tư chèn — ƯỚC LƯỢNG theo luật (28/09/2026); bản ghi cũ chưa có code/name/unit. */
+  materials: MaterialLine[]
+  materialsWeightG: number
+  materialsCostVnd: number
+  /** Vật tư kho thiếu lúc đóng gói (đóng gói vẫn xong). */
+  materialsShortfall: { code: string; missing: number }[]
   estimatedShippingCostVnd: number | null
   itemsWeightG: number | null
   estimatedPackageWeightG: number | null
@@ -61,6 +110,16 @@ export type PackagingRecommendation = {
   preferredBoxOutOfStock: string | null
 }
 
+export type MaterialLine = {
+  type: string
+  quantity: number
+  code: string | null
+  name: string | null
+  unit: string | null
+  weightG: number
+  costVnd: number
+}
+
 export type PackingGuideStep = {
   step: number
   instruction: string
@@ -77,9 +136,62 @@ export type PackingGuide = {
   generatedAt: string
 }
 
+/**
+ * Nhìn phương án như đang xem đúng 1 kiện: field cấp phương án (thùng, tọa độ,
+ * cân, vật tư, hướng dẫn...) được thay bằng của kiện `index`. Kiện 0 hoặc đơn
+ * 1 kiện giữ nguyên số liệu cũ nên các màn hình cũ dùng lại được nguyên vẹn.
+ */
+export function viewOfCarton(rec: PackagingRecommendation, index: number): PackagingRecommendation {
+  const carton = rec.cartons.find((c) => c.index === index)
+  if (!carton) return rec
+  return {
+    ...rec,
+    boxCode: carton.boxCode,
+    boxName: carton.boxName,
+    boxInnerMm: carton.boxInnerMm,
+    boxOuterMm: carton.boxOuterMm,
+    placements: carton.placements,
+    materials: carton.materials,
+    materialsWeightG: carton.materialsWeightG,
+    materialsCostVnd: carton.materialsCostVnd,
+    itemsWeightG: carton.itemsWeightG,
+    estimatedPackageWeightG: carton.estimatedPackageWeightG,
+    volumetricWeightG: carton.volumetricWeightG,
+    fillRatio: carton.fillRatio,
+    actualMeasuredWeightKg: carton.actualMeasuredWeightKg,
+    isAbnormal: carton.isAbnormal,
+    packingGuide: carton.packingGuide,
+  }
+}
+
 export type PackagingPlan = {
   orderGroupId: string
   recommendations: PackagingRecommendation[]
+}
+
+export type MultiCartonPlanPreview = {
+  orderGroupId: string
+  orders: {
+    orderId: string
+    platformOrderId: string
+    status: 'ok' | 'partial' | 'no_fit'
+    cartons: {
+      box: {
+        code: string
+        name: string
+        inner: { length_mm: number; width_mm: number; height_mm: number }
+        outer: { length_mm: number; width_mm: number; height_mm: number }
+      }
+      estimated_package_weight_g: number
+      volumetric_weight_g: number
+      materials_cost_vnd: number
+      placements: Placement[]
+    }[]
+    unplacedItemKeys: string[]
+    totalPackagingCostVnd: number
+    totalPackageWeightG: number
+    computationTimeMs: number
+  }[]
 }
 
 export type PackagingBox = {
@@ -110,6 +222,56 @@ export type BoxStockMovement = {
   orderGroupId: string | null
   note: string | null
   createdAt: string | null
+}
+
+/** Loại vật tư chèn — khớp MATERIAL_TYPES ở backend. */
+export const MATERIAL_TYPES = ['foam_corner', 'corrugated_divider', 'air_pillow', 'bubble_wrap', 'fragile_tape'] as const
+export type MaterialType = (typeof MATERIAL_TYPES)[number]
+
+export const MATERIAL_TYPE_LABELS: Record<MaterialType, { vi: string; en: string }> = {
+  foam_corner: { vi: 'Góc xốp', en: 'Foam corner' },
+  corrugated_divider: { vi: 'Tấm ngăn carton', en: 'Corrugated divider' },
+  air_pillow: { vi: 'Gối hơi', en: 'Air pillow' },
+  bubble_wrap: { vi: 'Xốp hơi', en: 'Bubble wrap' },
+  fragile_tape: { vi: 'Tem dễ vỡ', en: 'Fragile label' },
+}
+
+/** Tên hiển thị của 1 dòng vật tư (bản ghi cũ trước 28/09 chỉ có `type`). */
+export function materialLabel(m: Pick<MaterialLine, 'type' | 'name'>, vi: boolean): string {
+  if (m.name) return m.name
+  const known = MATERIAL_TYPE_LABELS[m.type as MaterialType] as { vi: string; en: string } | undefined
+  return known ? known[vi ? 'vi' : 'en'] : m.type
+}
+
+/** Vật tư chèn trong danh mục (đơn vị lõi g/VND). Tồn không giữ chỗ mềm như thùng. */
+export type PackagingMaterial = {
+  id: string
+  code: string
+  name: string
+  type: MaterialType
+  unit: string
+  weightGPerUnit: number
+  priceVndPerUnit: number
+  quantityOnHand: number
+  reorderLevel: number
+  storageLocation: string | null
+  isSample: boolean
+  isActive: boolean
+  stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock'
+}
+
+/** Bộ luật chọn vật tư hiện hành; version null = luật mặc định trong code. */
+export type MaterialRules = {
+  version: number | null
+  isDefault: boolean
+  rules: {
+    materialType: string
+    appliesTo: string
+    minUnits: number
+    basis: string
+    quantity: number
+    voidBands: { minVoidRatio: number; quantity: number }[]
+  }[]
 }
 
 /** Túi zip bọc từng món (kích thước trải phẳng, mm). */

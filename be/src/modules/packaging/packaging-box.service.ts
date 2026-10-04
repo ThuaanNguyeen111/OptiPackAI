@@ -91,9 +91,23 @@ export class PackagingBoxService {
     if (exclude.recommendationId) match._id = { $ne: exclude.recommendationId };
     const [boxes, reservedRows] = await Promise.all([
       this.boxModel.find({ is_active: true }).select('code quantity_on_hand reorder_level').lean(),
+      // (30/09/2026) Đa kiện: mỗi KIỆN giữ 1 thùng. Bản ghi cũ chưa có `cartons`
+      // giữ 1 thùng theo `box_code` cấp trên.
       this.recommendationModel.aggregate<{ _id: string; count: number }>([
         { $match: match },
-        { $group: { _id: '$box_code', count: { $sum: 1 } } },
+        {
+          $project: {
+            reserved: {
+              $cond: [
+                { $gt: [{ $size: { $ifNull: ['$cartons', []] } }, 0] },
+                '$cartons.box_code',
+                ['$box_code'],
+              ],
+            },
+          },
+        },
+        { $unwind: '$reserved' },
+        { $group: { _id: '$reserved', count: { $sum: 1 } } },
       ]),
     ]);
     const reservedByCode = new Map(reservedRows.map((r) => [r._id, r.count]));

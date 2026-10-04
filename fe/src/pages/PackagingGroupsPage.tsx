@@ -11,7 +11,7 @@ import { FULFILLMENT_STATUS_LABELS, type OrderGroupSummary } from '../types/pack
 const PACKAGING_STATUSES = ['picked', 'pending_approval', 'approved_for_packing', 'packed'] as const
 
 /**
- * /app/packing/groups — danh sách nhóm đơn đã lấy hàng xong, vào từng
+ * /app/packing — danh sách nhóm đơn đã lấy hàng xong, vào từng
  * nhóm để xem kế hoạch đóng gói 3D (dữ liệu thật từ API).
  */
 export function PackagingGroupsPage() {

@@ -27,7 +27,10 @@ export function footprintOverlapArea(a: Box3, b: Box3): number {
  * giao diện tích với đáy. Các vật đỡ không thể chồng footprint lên nhau
  * (nếu có thì chúng giao nhau trong 3D), nên tổng diện tích = độ phủ.
  */
-export function directSupporters(item: Box3, others: Box3[]): { index: number; area: number }[] {
+export function directSupporters(
+  item: Box3,
+  others: Box3[],
+): { index: number; area: number }[] {
   const result: { index: number; area: number }[] = [];
   others.forEach((other, index) => {
     if (other === item || other.z + other.dz !== item.z) return;
@@ -40,7 +43,10 @@ export function directSupporters(item: Box3, others: Box3[]): { index: number; a
 /** Đáy phải nằm trên sàn thùng hoặc được đỡ TOÀN BỘ diện tích. */
 export function isFullySupported(item: Box3, others: Box3[]): boolean {
   if (item.z === 0) return true;
-  const covered = directSupporters(item, others).reduce((sum, s) => sum + s.area, 0);
+  const covered = directSupporters(item, others).reduce(
+    (sum, s) => sum + s.area,
+    0,
+  );
   return covered >= item.dx * item.dy;
 }
 
@@ -50,11 +56,13 @@ export function isFullySupported(item: Box3, others: Box3[]): boolean {
  */
 export function computeLoadsOnTop(placed: Box3[], weights: number[]): number[] {
   const loads = placed.map(() => 0);
-  const order = placed.map((_, i) => i).sort((a, b) => {
-    const pa = placed[a];
-    const pb = placed[b];
-    return (pb ? pb.z : 0) - (pa ? pa.z : 0);
-  });
+  const order = placed
+    .map((_, i) => i)
+    .sort((a, b) => {
+      const pa = placed[a];
+      const pb = placed[b];
+      return (pb ? pb.z : 0) - (pa ? pa.z : 0);
+    });
   for (const i of order) {
     const item = placed[i];
     if (!item || item.z === 0) continue;
@@ -63,7 +71,8 @@ export function computeLoadsOnTop(placed: Box3[], weights: number[]): number[] {
     if (totalArea === 0) continue;
     const transferred = (weights[i] ?? 0) + (loads[i] ?? 0);
     for (const s of supporters) {
-      loads[s.index] = (loads[s.index] ?? 0) + (transferred * s.area) / totalArea;
+      loads[s.index] =
+        (loads[s.index] ?? 0) + (transferred * s.area) / totalArea;
     }
   }
   return loads;
@@ -82,23 +91,37 @@ export function validateCandidate(
 ): Violation[] {
   const violations: Violation[] = [];
   if (units.length === 0) {
-    return [{ code: 'EMPTY_INPUT', message: 'Không có món hàng nào để đóng gói.' }];
+    return [
+      { code: 'EMPTY_INPUT', message: 'Không có món hàng nào để đóng gói.' },
+    ];
   }
 
   const unitByKey = new Map(units.map((u) => [u.item_key, u]));
   const seen = new Set<string>();
   for (const p of placements) {
     if (!unitByKey.has(p.item_key)) {
-      violations.push({ code: 'UNKNOWN_ITEM', item_key: p.item_key, message: 'Món không thuộc đơn.' });
+      violations.push({
+        code: 'UNKNOWN_ITEM',
+        item_key: p.item_key,
+        message: 'Món không thuộc đơn.',
+      });
     }
     if (seen.has(p.item_key)) {
-      violations.push({ code: 'DUPLICATE_ITEM', item_key: p.item_key, message: 'Món bị xếp hai lần.' });
+      violations.push({
+        code: 'DUPLICATE_ITEM',
+        item_key: p.item_key,
+        message: 'Món bị xếp hai lần.',
+      });
     }
     seen.add(p.item_key);
   }
   for (const u of units) {
     if (!seen.has(u.item_key)) {
-      violations.push({ code: 'MISSING_ITEM', item_key: u.item_key, message: 'Món chưa được xếp.' });
+      violations.push({
+        code: 'MISSING_ITEM',
+        item_key: u.item_key,
+        message: 'Món chưa được xếp.',
+      });
     }
   }
 
@@ -107,7 +130,12 @@ export function validateCandidate(
     const unit = unitByKey.get(p.item_key);
     if (unit) {
       const [ex, ey, ez] = orientedDims(unit, p.orientation);
-      if (!unit.orientations.includes(p.orientation) || ex !== p.dx || ey !== p.dy || ez !== p.dz) {
+      if (
+        !unit.orientations.includes(p.orientation) ||
+        ex !== p.dx ||
+        ey !== p.dy ||
+        ez !== p.dz
+      ) {
         violations.push({
           code: 'ORIENTATION_NOT_ALLOWED',
           item_key: p.item_key,
@@ -115,8 +143,19 @@ export function validateCandidate(
         });
       }
     }
-    if (p.x < 0 || p.y < 0 || p.z < 0 || p.x + p.dx > L || p.y + p.dy > W || p.z + p.dz > H) {
-      violations.push({ code: 'OUT_OF_BOUNDS', item_key: p.item_key, message: 'Món vượt ra ngoài lòng thùng.' });
+    if (
+      p.x < 0 ||
+      p.y < 0 ||
+      p.z < 0 ||
+      p.x + p.dx > L ||
+      p.y + p.dy > W ||
+      p.z + p.dz > H
+    ) {
+      violations.push({
+        code: 'OUT_OF_BOUNDS',
+        item_key: p.item_key,
+        message: 'Món vượt ra ngoài lòng thùng.',
+      });
     }
     for (let j = i + 1; j < placements.length; j += 1) {
       const other = placements[j];
@@ -128,12 +167,33 @@ export function validateCandidate(
         });
       }
     }
+    if (unit?.is_fragile) {
+      const stackedItem = placements.find(
+        (other, otherIndex) =>
+          otherIndex !== i &&
+          other.z === p.z + p.dz &&
+          footprintOverlapArea(p, other) > 0,
+      );
+      if (stackedItem) {
+        violations.push({
+          code: 'STACK_LOAD_EXCEEDED',
+          item_key: p.item_key,
+          message: `Không được đặt ${stackedItem.item_key} lên trên hàng dễ vỡ ${p.item_key}.`,
+        });
+      }
+    }
     if (!isFullySupported(p, placements)) {
-      violations.push({ code: 'NO_SUPPORT', item_key: p.item_key, message: 'Đáy món không được đỡ toàn bộ.' });
+      violations.push({
+        code: 'NO_SUPPORT',
+        item_key: p.item_key,
+        message: 'Đáy món không được đỡ toàn bộ.',
+      });
     }
   });
 
-  const weights = placements.map((p) => unitByKey.get(p.item_key)?.weight_g ?? 0);
+  const weights = placements.map(
+    (p) => unitByKey.get(p.item_key)?.weight_g ?? 0,
+  );
   const loads = computeLoadsOnTop(placements, weights);
   placements.forEach((p, i) => {
     const load = loads[i] ?? 0;

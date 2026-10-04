@@ -1,6 +1,6 @@
 import { Injectable, Logger, HttpStatus } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { Connection, Model, Types } from 'mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { isValidStatusTransition } from './enums/allowed-status-transitions';
@@ -17,6 +17,7 @@ import {
   aggregateOrderItems,
   RawOrderItemForAggregation,
 } from '../orders/utils/aggregate-order-items.util';
+import { computeRecipientKey } from '../orders/utils/consolidation-key.util';
 import {
   ProductMaster,
   ProductMasterDocument,
@@ -42,6 +43,13 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { addBusinessHours } from './utils/add-business-hours.util';
 import { StaffAssignmentService } from './staff-assignment.service';
+// Đọc TRỰC TIẾP schema PackagingRecommendationDoc (module packaging/) —
+// cùng pattern cross-module đã dùng cho Order/ProductMaster/SkuBinAssignment
+// ở trên, tránh vòng lặp import PackagingModule <-> OrderGroupsModule.
+import {
+  PackagingRecommendationDoc,
+  PackagingRecommendationDocument,
+} from '../packaging/schemas/packaging-recommendation.schema';
 
 /**
  * ===================================================================
@@ -75,6 +83,11 @@ export class OrderGroupsService {
     private readonly pickEventModel: Model<PickEventDocument>,
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
+    // BỔ SUNG (29/09/2026, N1) — nhả giữ chỗ đóng gói khi 1 nhóm tự động
+    // hủy (cancelIfAllOrdersUnfulfillable()). Xem comment ở order-groups.module.ts
+    // giải thích lý do đăng ký trực tiếp schema thay vì import PackagingModule.
+    @InjectModel(PackagingRecommendationDoc.name)
+    private readonly packagingRecommendationModel: Model<PackagingRecommendationDocument>,
     private readonly notificationsService: NotificationsService,
     // BỔ SUNG (20/09/2026, đảo luồng theo yêu cầu Thuận) — cần gọi
     // autoAssign() NGAY LÚC TẠO GROUP (xem startPickingPhase() bên
@@ -133,6 +146,14 @@ export class OrderGroupsService {
           // của tương lai, không thuộc phạm vi lượt này), cập nhật lại
           // dòng này để lấy tên thật thay vì id.
           shop_name_snapshot: order.shop_id,
+          // BỔ SUNG (29/09/2026, Mục 9.5) — tính 1 LẦN lúc tạo, xem
+          // consolidation-key.util.ts giải thích vì sao KHÔNG kèm platform.
+          recipient_key: computeRecipientKey(
+            order.recipient.full_name,
+            order.recipient.phone,
+            order.recipient.address_line1,
+            order.recipient.city,
+          ),
         }),
       );
     }
@@ -144,12 +165,43 @@ export class OrderGroupsService {
       shop_id: order.shop_id,
       order_count: 1,
       shop_name_snapshot: order.shop_id,
+      recipient_key: computeRecipientKey(
+        order.recipient.full_name,
+        order.recipient.phone,
+        order.recipient.address_line1,
+        order.recipient.city,
+      ),
     });
     await this.orderModel.updateOne(
       { _id: order._id },
       { $set: { consolidated_group_id: newGroup._id } },
     );
     return this.startPickingPhase(newGroup);
+  }
+
+  /**
+   * MỚI (29/09/2026, Mục 9.5) — các nhóm đơn KHÁC (có thể khác sàn) cùng
+   * `recipient_key` với `groupId`, "chưa giao xong" (chưa DELIVERED/RETURNED/
+   * CANCELED). Dùng cho `GET :id/linked`, `linkedGroupCount`, và cảnh báo
+   * "lệch nhịp" (linkedPending) khi ship 1 group còn sibling chưa packed.
+   */
+  async findLinkedGroups(groupId: string): Promise<OrderGroupDocument[]> {
+    const group = await this.findOrderGroupById(groupId);
+    if (!group.recipient_key) return [];
+
+    return this.orderGroupModel
+      .find({
+        recipient_key: group.recipient_key,
+        _id: { $ne: group._id },
+        fulfillment_status: {
+          $nin: [
+            GroupFulfillmentStatus.DELIVERED,
+            GroupFulfillmentStatus.RETURNED,
+            GroupFulfillmentStatus.CANCELED,
+          ],
+        },
+      })
+      .lean();
   }
 
   /**
@@ -564,6 +616,11 @@ export class OrderGroupsService {
     groupId: string,
     targetStatus: GroupFulfillmentStatus,
     expectedVersion: number,
+    // BỔ SUNG (29/09/2026, Phần D — shipments/) — optional, cho phép gọi
+    // BÊN TRONG 1 Mongo transaction đã mở sẵn ở nơi khác (VD tạo Shipment
+    // + chuyển group cùng lúc). KHÔNG truyền session = hành vi CŨ y hệt,
+    // 4 chỗ gọi hiện có (pick/ship/deliver/return) không cần sửa gì.
+    session?: ClientSession,
   ): Promise<OrderGroupDocument> {
     const group = await this.findOrderGroupById(groupId); // đã tự validate id + tồn tại
 
@@ -586,7 +643,7 @@ export class OrderGroupsService {
     const updated = await this.orderGroupModel.findOneAndUpdate(
       { _id: groupId, __v: expectedVersion },
       { $set: { fulfillment_status: targetStatus }, $inc: { __v: 1 } },
-      { returnDocument: 'after' },
+      { returnDocument: 'after', session },
     );
 
     if (!updated) {
@@ -603,6 +660,92 @@ export class OrderGroupsService {
     );
 
     return updated;
+  }
+
+  /**
+   * ===================================================================
+   * MỚI (29/09/2026, N1 — AURELLE_MARKETPLACE_DESIGN.md Mục 9.6)
+   * ===================================================================
+   * Khách AURELLE tự hủy đơn qua webhook (hoặc đơn Lazada rơi vào sự cố
+   * logistics) — nếu KHÔNG còn đơn nào trong nhóm còn fulfill được, tự
+   * động chuyển nhóm sang CANCELED và nhả giữ chỗ đóng gói đang active
+   * (is_active: false, mirror đúng cách `reject()` làm ở packaging.service.ts).
+   * CHỈ áp dụng cho nhóm CHƯA đóng gói (allowed-status-transitions.ts đã
+   * chặn cứng, hàm này chỉ là lớp kiểm tra sớm để không gọi transition vô ích).
+   *
+   * Gọi từ orders.service.ts (syncShopOrders()) ngay sau khi 1 đơn được
+   * cập nhật trạng thái thuộc NOT_PACKABLE_ORDER_STATUSES — BEST-EFFORT,
+   * không được làm hỏng cả lượt sync (caller tự bọc try/catch).
+   * ===================================================================
+   */
+  async cancelIfAllOrdersUnfulfillable(groupId: string): Promise<void> {
+    const group = await this.orderGroupModel.findById(groupId);
+    if (!group) return;
+
+    const TERMINAL_OR_PACKED_STATUSES: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.PACKED,
+      GroupFulfillmentStatus.SHIPPED,
+      GroupFulfillmentStatus.DELIVERED,
+      GroupFulfillmentStatus.RETURNED,
+      GroupFulfillmentStatus.CANCELED,
+    ];
+    if (TERMINAL_OR_PACKED_STATUSES.includes(group.fulfillment_status)) return;
+
+    const stillFulfillableCount = await this.orderModel.countDocuments({
+      consolidated_group_id: group._id,
+      status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+    });
+    if (stillFulfillableCount > 0) return;
+
+    await this.transitionFulfillmentStatus(
+      groupId,
+      GroupFulfillmentStatus.CANCELED,
+      group.__v,
+    );
+
+    // Generate mới tạo NHIỀU recommendation (mỗi đơn 1 bản) nhưng con trỏ
+    // `active_packaging_recommendation` chỉ trỏ được 1 bản — vô hiệu hóa
+    // theo order_group_id để KHÔNG bản nào còn giữ chỗ thùng sau khi hủy.
+    await this.packagingRecommendationModel.updateMany(
+      { order_group_id: group._id, is_active: true },
+      { $set: { is_active: false } },
+    );
+
+    const { title, message } =
+      this.notificationsService.buildGroupAutoCanceledMessage({ groupId });
+    await this.notificationsService.notify({
+      recipientRole: UserRole.STORE_OWNER,
+      type: NotificationType.GROUP_AUTO_CANCELED,
+      severity: 'warning',
+      title,
+      message,
+      relatedEntityType: 'order_group',
+      relatedEntityId: groupId,
+    });
+    await this.notificationsService.notify({
+      recipientRole: UserRole.ADMIN,
+      type: NotificationType.GROUP_AUTO_CANCELED,
+      severity: 'warning',
+      title,
+      message,
+      relatedEntityType: 'order_group',
+      relatedEntityId: groupId,
+    });
+    if (group.assigned_staff_id) {
+      await this.notificationsService.notify({
+        recipientUserId: group.assigned_staff_id.toString(),
+        type: NotificationType.GROUP_AUTO_CANCELED,
+        severity: 'warning',
+        title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    }
+
+    this.logger.warn(
+      `Order Group ${groupId}: tự động hủy (N1) — mọi đơn trong nhóm đã không còn fulfill được.`,
+    );
   }
 
   /**
@@ -700,6 +843,11 @@ export class OrderGroupsService {
         const updated = await this.skuBinAssignmentModel.findOneAndUpdate(
           {
             warehouse_id: warehouseId,
+            // Phạm vi tồn kho = warehouse + platform + shop + SKU (đúng
+            // unique index của SkuBinAssignment) — 2 shop trùng mã SKU
+            // trong cùng kho không được trừ nhầm tồn của nhau.
+            platform: group.platform,
+            shop_id: group.shop_id,
             seller_sku: sku,
             quantity_on_hand: { $gte: scannedQuantity },
           },
@@ -727,6 +875,7 @@ export class OrderGroupsService {
               client_event_id: clientEventId ?? null,
               remaining_stock_after: updated.quantity_on_hand,
               pick_round: round,
+              warehouse_id: new Types.ObjectId(warehouseId),
             },
           ],
           { session },
@@ -750,6 +899,131 @@ export class OrderGroupsService {
       `Pick item: group ${groupId} (lượt ${String(round)}), SKU ${sku}, số lượng ${String(scannedQuantity)} (${scanMethod}) — còn lại ${String(result.remainingStock)}.`,
     );
     return result;
+  }
+
+  /**
+   * MỚI (30/09/2026) — nhập lại tồn cho MỘT lượt lấy hàng bị hủy: cộng số đã quét
+   * về đúng dòng tồn (kho + sàn + shop + SKU), đánh dấu event đã nhập để không
+   * nhập lại 2 lần. Chạy trong transaction của caller.
+   */
+  private async restockPickRound(
+    group: OrderGroupDocument,
+    round: number,
+    session: ClientSession,
+  ): Promise<{ units: number; skipped: number }> {
+    const events = await this.pickEventModel
+      .find({ order_group_id: group._id, ...this.roundFilter(round), restocked_at: null })
+      .session(session)
+      .lean();
+    let units = 0;
+    let skipped = 0;
+    const perLine = new Map<string, { warehouse: Types.ObjectId; sku: string; qty: number; ids: Types.ObjectId[] }>();
+    for (const event of events) {
+      if (!event.warehouse_id) {
+        skipped += 1;
+        continue;
+      }
+      const key = event.warehouse_id.toString() + '|' + event.seller_sku;
+      const line = perLine.get(key) ?? { warehouse: event.warehouse_id, sku: event.seller_sku, qty: 0, ids: [] };
+      line.qty += event.scanned_quantity;
+      line.ids.push(event._id);
+      perLine.set(key, line);
+    }
+    for (const line of perLine.values()) {
+      const restored = await this.skuBinAssignmentModel.updateOne(
+        {
+          warehouse_id: line.warehouse,
+          platform: group.platform,
+          shop_id: group.shop_id,
+          seller_sku: line.sku,
+        },
+        { $inc: { quantity_on_hand: line.qty } },
+        { session },
+      );
+      if (restored.matchedCount === 0) {
+        // Dòng tồn đã bị xóa/đổi — không nuốt im lặng: coi như cần đối soát tay.
+        skipped += line.ids.length;
+        continue;
+      }
+      await this.pickEventModel.updateMany(
+        { _id: { $in: line.ids } },
+        { $set: { restocked_at: new Date() } },
+        { session },
+      );
+      units += line.qty;
+    }
+    return { units, skipped };
+  }
+
+  /** Số lượng ĐẶT theo SKU của group (đã loại đơn/món hủy) — cho luồng nhận hàng hoàn. */
+  async getOrderedQuantitiesForGroup(groupId: string): Promise<Map<string, number>> {
+    return this.getOrderedSkuQuantities(await this.loadGroupOrThrow(groupId));
+  }
+
+  /**
+   * MỚI (30/09/2026) — điểm vào DUY NHẤT khi 1 đơn trong nhóm chuyển sang
+   * trạng thái không fulfill được: hủy cả nhóm nếu hết đơn (N1), còn đơn
+   * khác thì vô hiệu phương án đóng gói đang có (nếu có) vì nó vẫn chứa
+   * hàng của đơn đã hủy.
+   */
+  async handleOrderBecameUnfulfillable(groupId: string): Promise<void> {
+    await this.cancelIfAllOrdersUnfulfillable(groupId);
+    await this.invalidateStalePackagingPlan(groupId);
+  }
+
+  private async invalidateStalePackagingPlan(groupId: string): Promise<void> {
+    const group = await this.orderGroupModel.findById(groupId);
+    if (!group) return;
+    if (
+      group.fulfillment_status !== GroupFulfillmentStatus.PENDING_APPROVAL &&
+      group.fulfillment_status !== GroupFulfillmentStatus.APPROVED_FOR_PACKING
+    ) {
+      return; // chưa có phương án, hoặc đã packed/canceled — không có gì để vô hiệu
+    }
+
+    await this.transitionFulfillmentStatus(
+      groupId,
+      GroupFulfillmentStatus.PICKED,
+      group.__v,
+    );
+    await this.packagingRecommendationModel.updateMany(
+      { order_group_id: group._id, is_active: true },
+      { $set: { is_active: false } },
+    );
+
+    const { title, message } =
+      this.notificationsService.buildPackagingPlanInvalidatedMessage({ groupId });
+    for (const recipientRole of [UserRole.PACKAGING_STAFF, UserRole.ADMIN]) {
+      await this.notificationsService.notify({
+        recipientRole,
+        type: NotificationType.PACKAGING_PLAN_INVALIDATED,
+        severity: 'warning',
+        title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    }
+    this.logger.warn(
+      `Order Group ${groupId}: có đơn bị hủy sau khi có phương án đóng gói — đã vô hiệu hóa phương án, quay về picked để tính lại.`,
+    );
+  }
+
+  /**
+   * MỚI (30/09/2026) — nhóm còn "mở" cho đơn mới nhập vào không? Chỉ khi
+   * chưa quét xong (awaiting_packaging/picking); từ picked trở đi danh sách
+   * đơn đã bị khóa vì lượt lấy hàng và phương án đóng gói dựa trên nó.
+   */
+  async isGroupOpenForNewOrders(groupId: string): Promise<boolean> {
+    const group = await this.orderGroupModel
+      .findById(groupId)
+      .select('fulfillment_status')
+      .lean();
+    if (!group) return true; // document group chưa tạo (chờ backfill) — chưa có gì để khóa
+    return (
+      group.fulfillment_status === GroupFulfillmentStatus.AWAITING_PACKAGING ||
+      group.fulfillment_status === GroupFulfillmentStatus.PICKING
+    );
   }
 
   /**
@@ -779,8 +1053,18 @@ export class OrderGroupsService {
         );
       }
     }
-    // Trạng thái khác PICKING: để transitionFulfillmentStatus() báo
-    // INVALID_TRANSITION đúng như trước.
+    // Chỉ PICKING mới được đi qua route "lấy xong". PARTIAL_NEEDS_REVIEW → PICKED
+    // là cạnh hợp lệ trong bảng transition, nhưng CHỈ dành cho decidePartial()
+    // (Packaging Staff/Admin duyệt) — nếu không chặn ở đây, Warehouse Staff
+    // gọi route này sẽ bỏ qua bước duyệt thiếu hàng.
+    if (group.fulfillment_status !== GroupFulfillmentStatus.PICKING) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.INVALID_TRANSITION,
+        `Không thể xác nhận lấy xong khi nhóm đang ở trạng thái "${group.fulfillment_status}" — thiếu hàng phải chờ Packaging Staff/Admin duyệt (decide-partial).`,
+        HttpStatus.BAD_REQUEST,
+        { groupId, from: group.fulfillment_status, to: GroupFulfillmentStatus.PICKED },
+      );
+    }
     return this.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.PICKED, expectedVersion);
   }
 
@@ -881,39 +1165,58 @@ export class OrderGroupsService {
     // cộng dồn số đã quét của lượt cũ. Tồn kho KHÔNG tự cộng lại (roadmap
     // BE-4): hàng đã lấy ra phải được kho đối soát/restock tay.
     const group = await this.loadGroupOrThrow(groupId);
+    // Vào thẳng PICKING (lượt mới): nhân viên phụ trách đã có từ lúc tạo
+    // nhóm, không còn trạng thái treo chờ một API "bắt đầu lấy lại".
     if (
       !isValidStatusTransition(
         group.fulfillment_status,
-        GroupFulfillmentStatus.AWAITING_PACKAGING,
+        GroupFulfillmentStatus.PICKING,
       )
     ) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.INVALID_TRANSITION,
-        `Không thể chuyển Order Group từ trạng thái "${group.fulfillment_status}" sang "${GroupFulfillmentStatus.AWAITING_PACKAGING}".`,
+        `Không thể chuyển Order Group từ trạng thái "${group.fulfillment_status}" sang "${GroupFulfillmentStatus.PICKING}".`,
         HttpStatus.BAD_REQUEST,
-        { groupId, from: group.fulfillment_status, to: GroupFulfillmentStatus.AWAITING_PACKAGING },
+        { groupId, from: group.fulfillment_status, to: GroupFulfillmentStatus.PICKING },
       );
     }
-    const updated = await this.orderGroupModel.findOneAndUpdate(
-      { _id: group._id, __v: expectedVersion },
-      {
-        $set: { fulfillment_status: GroupFulfillmentStatus.AWAITING_PACKAGING },
-        $inc: { __v: 1, pick_round: 1 },
-      },
-      { returnDocument: 'after' },
-    );
-    if (!updated) {
-      throw new AppException(
-        ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
-        'Order Group đã bị thay đổi bởi thao tác khác — vui lòng tải lại dữ liệu mới nhất rồi thử lại.',
-        HttpStatus.CONFLICT,
-        { groupId, expectedVersion },
-      );
+    // (30/09/2026) Mở lượt mới VÀ nhập lại tồn của lượt cũ trong CÙNG transaction:
+    // hàng đã lấy của lượt bị hủy được trả về kệ (theo đúng kho lúc quét), không
+    // còn "mất" khỏi tồn. Event cũ chưa lưu kho thì không nhập lại được — báo log.
+    const session = await this.connection.startSession();
+    let restocked = { units: 0, skipped: 0 };
+    let result: OrderGroupDocument;
+    try {
+      result = await session.withTransaction(async () => {
+        const doc = await this.orderGroupModel.findOneAndUpdate(
+          { _id: group._id, __v: expectedVersion },
+          {
+            $set: { fulfillment_status: GroupFulfillmentStatus.PICKING },
+            $inc: { __v: 1, pick_round: 1 },
+          },
+          { returnDocument: 'after', session },
+        );
+        if (!doc) {
+          throw new AppException(
+            ORD_GROUP_ERROR_CODES.STATE_CONFLICT,
+            'Order Group đã bị thay đổi bởi thao tác khác — vui lòng tải lại dữ liệu mới nhất rồi thử lại.',
+            HttpStatus.CONFLICT,
+            { groupId, expectedVersion },
+          );
+        }
+        restocked = await this.restockPickRound(group, group.pick_round, session);
+        return doc;
+      });
+    } finally {
+      await session.endSession();
     }
     this.logger.warn(
-      `Group ${groupId} hủy lượt lấy ${String(group.pick_round)} → lượt ${String(updated.pick_round)}. Hàng đã lấy ở lượt cũ cần kho đối soát/restock tay.`,
+      `Group ${groupId} hủy lượt lấy ${String(group.pick_round)} → lượt ${String(result.pick_round)}: đã nhập lại ${String(restocked.units)} sản phẩm vào kho` +
+        (restocked.skipped > 0
+          ? `; ${String(restocked.skipped)} lần quét cũ chưa lưu kho nên cần kho đối soát tay.`
+          : '.'),
     );
-    return updated;
+    return result;
   }
 
   /**

@@ -16,7 +16,7 @@ import {
 import { PackagingBox, PackagingBoxDocument } from '../src/modules/packaging/schemas/packaging-box.schema';
 import { PackagingBag, PackagingBagDocument } from '../src/modules/packaging/schemas/packaging-bag.schema';
 import { ProductCategory } from '../src/common/enums/product-category.enum';
-import { PackagingService } from '../src/modules/packaging/packaging.service';
+import { PackagingService, cartonsOf } from '../src/modules/packaging/packaging.service';
 import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
 import { OrderStatus } from '../src/modules/orders/enums/order-status.enum';
 import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-fulfillment-status.enum';
@@ -25,7 +25,7 @@ import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-
  * ===================================================================
  * Dữ liệu mẫu để test hướng dẫn đóng gói bằng AI (21/09/2026)
  * ===================================================================
- * Tạo 4 Order Group đã LẤY HÀNG XONG (`picked`) của shop giả
+ * Tạo 7 Order Group (3 nhóm cuối là đơn ĐA KIỆN, 30/09/2026) đã LẤY HÀNG XONG (`picked`) của shop giả
  * `DEMO-AI-GUIDE`, hồ sơ SKU đã `ready`, rồi chạy engine sinh phương án
  * (group → `pending_approval`). Mở /app/packing/groups/:groupId để xem
  * animation 3D + hướng dẫn AI.
@@ -101,6 +101,30 @@ const GROUPS: { label: string; customer: string; orders: [string, number][][] }[
     customer: 'Lê Minh Cường',
     orders: [[['DEMO-QUAN-JEAN-32', 1], ['DEMO-QUAN-SHORT-M', 1], ['DEMO-AO-THUN-M', 2], ['DEMO-SO-MI-L', 1]]],
   },
+  {
+    // (30/09/2026) Đa kiện: đơn sỉ vượt trần món của 1 thùng và quá thể tích 1 thùng L.
+    label: 'Đơn sỉ 40 áo thun + 12 quần jean — cần NHIỀU KIỆN',
+    customer: 'Công ty Đồng Phục Việt',
+    orders: [[['DEMO-AO-THUN-M', 40], ['DEMO-QUAN-JEAN-32', 12]]],
+  },
+  {
+    label: 'Đơn 8 hộp giày — hộp giày không chồng được nên cần nhiều kiện',
+    customer: 'Cửa hàng Giày Sneaker HN',
+    orders: [[['DEMO-GIAY-NIKE-42', 5], ['DEMO-GIAY-ADIDAS-40', 3]]],
+  },
+  {
+    label: 'Đơn hỗn hợp 3 giày + 3 dép + 5 áo + 2 quần + 2 kính (nhiều dạng hàng)',
+    customer: 'Hoàng Gia Bảo',
+    orders: [
+      [
+        ['DEMO-GIAY-NIKE-42', 3],
+        ['DEMO-SANDAL-39', 3],
+        ['DEMO-AO-THUN-M', 5],
+        ['DEMO-QUAN-JEAN-32', 2],
+        ['DEMO-KINH-MAT', 2],
+      ],
+    ],
+  },
 ];
 
 const SAMPLE_BOXES = [
@@ -112,13 +136,13 @@ const SAMPLE_BOXES = [
 /**
  * Tồn thùng mẫu cho demo (22/09/2026): M = 1 — group gập đôi (chạy đầu tiên)
  * giữ chỗ chiếc M duy nhất, các group sau thấy M hết nên engine chuyển sang
- * thùng còn hàng + ghi "thùng vừa hơn đã hết"; L = 11 để đóng 1 kiện L là
- * chạm mức cảnh báo 10 (thông báo sắp hết thùng).
+ * thùng còn hàng + ghi "thùng vừa hơn đã hết"; L = 16 để đóng nhiều kiện L
+ * (đơn đa kiện) chạm mức cảnh báo 10 (thông báo sắp hết thùng).
  */
 const DEMO_BOX_STOCK: Record<(typeof SAMPLE_BOXES)[number]['code'], number> = {
   'SAMPLE-S': 20,
   'SAMPLE-M': 1,
-  'SAMPLE-L': 11,
+  'SAMPLE-L': 16,
 };
 
 function mm(values: readonly number[]): { length_mm: number; width_mm: number; height_mm: number } {
@@ -276,7 +300,13 @@ async function main(): Promise<void> {
 
     const recs = await packagingService.generateRecommendations(group._id.toString());
     const summary = recs.map((r) => {
-      const box = r.solution_status === 'ok' ? (r.box_code ?? '?') : 'no_fit';
+      const cartons = cartonsOf(r);
+      const box =
+        r.solution_status !== 'ok'
+          ? `no_fit (${r.no_fit_reasons.map((n) => n.code ?? '?').join(',')})`
+          : cartons.length > 1
+            ? `${String(cartons.length)} kiện [${cartons.map((c) => c.box_code).join(', ')}]`
+            : (r.box_code ?? '?');
       const note = r.preferred_box_out_of_stock ? ` (${r.preferred_box_out_of_stock} vừa hơn nhưng hết hàng)` : '';
       return `${r.platform_order_id ?? '?'} → ${box}${note}`;
     });

@@ -2,7 +2,6 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
   Box,
-  Boxes,
   ClipboardList,
   ChevronDown,
   Database,
@@ -59,14 +58,6 @@ const navItems = [
   },
   {
     to: '/app/packing',
-    end: true,
-    labelVi: 'AI 3D Packing',
-    labelEn: 'AI 3D Packing Engine',
-    icon: Boxes,
-    section: 'logistics' as NavSection,
-  },
-  {
-    to: '/app/packing/groups',
     end: false,
     labelVi: 'Kế hoạch đóng gói 3D',
     labelEn: '3D packaging plans',
@@ -74,8 +65,16 @@ const navItems = [
     section: 'logistics' as NavSection,
   },
   {
+    to: '/app/shipping/dispatch',
+    end: true,
+    labelVi: 'Điều phối giao hàng',
+    labelEn: 'Dispatch & labels',
+    icon: Truck,
+    section: 'logistics' as NavSection,
+  },
+  {
     to: '/app/shipping',
-    end: false,
+    end: true,
     labelVi: 'Vận chuyển',
     labelEn: 'Shipping & Fulfillment',
     icon: Truck,

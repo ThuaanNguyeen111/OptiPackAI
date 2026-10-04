@@ -42,6 +42,7 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 .eslintcache
+be/.aurelle-local/
 
 # code-review-graph (dev-tool index, không commit vào repo)
 .code-review-graph/

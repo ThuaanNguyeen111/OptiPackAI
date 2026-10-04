@@ -7,6 +7,7 @@ import {
   getPackagingPlan,
   listPackagingBoxes,
   packOrderGroup,
+  previewMultiCartonPlan,
   rejectPackagingPlan,
   requestPackingGuide,
 } from '../api/packaging.api'
@@ -32,6 +33,8 @@ export function usePackagingPlan(groupId: string) {
   const [errorCode, setErrorCode] = useState<string | null>(null)
   const [guideLoadingId, setGuideLoadingId] = useState<string | null>(null)
   const [guideError, setGuideError] = useState<string | null>(null)
+  const [cartonPreview, setCartonPreview] = useState<Awaited<ReturnType<typeof previewMultiCartonPlan>> | null>(null)
+  const [cartonPreviewLoading, setCartonPreviewLoading] = useState(false)
 
   const fetchAll = useCallback(
     () => Promise.all([getOrderGroup(groupId), getPackagingPlan(groupId), listPackagingBoxes()]),
@@ -94,11 +97,11 @@ export function usePackagingPlan(groupId: string) {
    * không tải lại cả trang và không cần version (không đổi trạng thái group).
    */
   const loadGuide = useCallback(
-    async (recommendationId: string, regenerate = false): Promise<void> => {
-      setGuideLoadingId(recommendationId)
+    async (recommendationId: string, regenerate = false, cartonIndex = 0): Promise<void> => {
+      setGuideLoadingId(`${recommendationId}:${String(cartonIndex)}`)
       setGuideError(null)
       try {
-        const updated = await requestPackingGuide(groupId, recommendationId, regenerate)
+        const updated = await requestPackingGuide(groupId, recommendationId, regenerate, cartonIndex)
         setRecommendations((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
       } catch (err: unknown) {
         setGuideError(formatApiError(err))
@@ -108,6 +111,18 @@ export function usePackagingPlan(groupId: string) {
     },
     [groupId],
   )
+
+  const previewCartons = useCallback(async (): Promise<void> => {
+    setCartonPreviewLoading(true)
+    setError(null)
+    try {
+      setCartonPreview(await previewMultiCartonPlan(groupId))
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+    } finally {
+      setCartonPreviewLoading(false)
+    }
+  }, [groupId])
 
   return {
     group,
@@ -119,13 +134,16 @@ export function usePackagingPlan(groupId: string) {
     errorCode,
     guideLoadingId,
     guideError,
+    cartonPreview,
+    cartonPreviewLoading,
+    previewCartons,
     loadGuide,
     generate: () => run(() => generatePackagingPlan(groupId)),
     approve: () => run((version) => approvePackagingPlan(groupId, version)),
     reject: () => run((version) => rejectPackagingPlan(groupId, version)),
-    adjust: (input: { orderId: string; boxCode: string; reason: AdjustmentReason; note?: string }) =>
+    adjust: (input: { orderId: string; cartonIndex?: number; boxCode: string; reason: AdjustmentReason; note?: string }) =>
       run((version) => adjustPackagingPlan(groupId, { ...input, expectedGroupVersion: version })),
-    pack: (packages: { orderId: string; actualWeightKg: number }[]) =>
+    pack: (packages: { orderId: string; cartonIndex?: number; actualWeightKg: number }[]) =>
       run((version) => packOrderGroup(groupId, packages, version)),
   }
 }

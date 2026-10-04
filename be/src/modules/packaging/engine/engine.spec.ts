@@ -8,7 +8,11 @@ function unit(
   key: string,
   [l, w, h]: [number, number, number],
   weight: number,
-  opts: { orientations?: readonly Orientation[]; maxStack?: number | null; fragile?: boolean } = {},
+  opts: {
+    orientations?: readonly Orientation[];
+    maxStack?: number | null;
+    fragile?: boolean;
+  } = {},
 ): PackingUnit {
   return {
     item_key: key,
@@ -23,7 +27,11 @@ function unit(
   };
 }
 
-function box(code: string, inner: [number, number, number], outer?: [number, number, number]): BoxSpec {
+function box(
+  code: string,
+  inner: [number, number, number],
+  outer?: [number, number, number],
+): BoxSpec {
   const [l, w, h] = inner;
   const [ol, ow, oh] = outer ?? [l + 10, w + 10, h + 10];
   return {
@@ -37,8 +45,24 @@ function box(code: string, inner: [number, number, number], outer?: [number, num
   };
 }
 
-function place(u: PackingUnit, step: number, [x, y, z]: [number, number, number], o: Orientation = 'LWH'): Placement {
-  return { item_key: u.item_key, sku: u.sku, step, x, y, z, dx: u.length_mm, dy: u.width_mm, dz: u.height_mm, orientation: o };
+function place(
+  u: PackingUnit,
+  step: number,
+  [x, y, z]: [number, number, number],
+  o: Orientation = 'LWH',
+): Placement {
+  return {
+    item_key: u.item_key,
+    sku: u.sku,
+    step,
+    x,
+    y,
+    z,
+    dx: u.length_mm,
+    dy: u.width_mm,
+    dz: u.height_mm,
+    orientation: o,
+  };
 }
 
 describe('Engine đóng gói 3D — validator', () => {
@@ -51,34 +75,70 @@ describe('Engine đóng gói 3D — validator', () => {
   });
 
   it('chạm mặt là hợp lệ; lấn 1 mm là OVERLAP', () => {
-    expect(validateCandidate([a, b], cube, [place(a, 1, [0, 0, 0]), place(b, 2, [100, 0, 0])])).toEqual([]);
-    const v = validateCandidate([a, b], cube, [place(a, 1, [0, 0, 0]), place(b, 2, [99, 0, 0])]);
+    expect(
+      validateCandidate([a, b], cube, [
+        place(a, 1, [0, 0, 0]),
+        place(b, 2, [100, 0, 0]),
+      ]),
+    ).toEqual([]);
+    const v = validateCandidate([a, b], cube, [
+      place(a, 1, [0, 0, 0]),
+      place(b, 2, [99, 0, 0]),
+    ]);
     expect(v.map((x) => x.code)).toContain('OVERLAP');
   });
 
   it('thiếu món / trùng món / vượt biên đều bị bắt', () => {
-    expect(validateCandidate([a, b], cube, [place(a, 1, [0, 0, 0])]).map((x) => x.code)).toContain('MISSING_ITEM');
     expect(
-      validateCandidate([a], cube, [place(a, 1, [0, 0, 0]), place(a, 2, [100, 0, 0])]).map((x) => x.code),
+      validateCandidate([a, b], cube, [place(a, 1, [0, 0, 0])]).map(
+        (x) => x.code,
+      ),
+    ).toContain('MISSING_ITEM');
+    expect(
+      validateCandidate([a], cube, [
+        place(a, 1, [0, 0, 0]),
+        place(a, 2, [100, 0, 0]),
+      ]).map((x) => x.code),
     ).toContain('DUPLICATE_ITEM');
-    expect(validateCandidate([a], cube, [place(a, 1, [250, 0, 0])]).map((x) => x.code)).toContain('OUT_OF_BOUNDS');
+    expect(
+      validateCandidate([a], cube, [place(a, 1, [250, 0, 0])]).map(
+        (x) => x.code,
+      ),
+    ).toContain('OUT_OF_BOUNDS');
   });
 
   it('lơ lửng không có vật đỡ → NO_SUPPORT', () => {
-    expect(validateCandidate([a], cube, [place(a, 1, [0, 0, 50])]).map((x) => x.code)).toContain('NO_SUPPORT');
+    expect(
+      validateCandidate([a], cube, [place(a, 1, [0, 0, 50])]).map(
+        (x) => x.code,
+      ),
+    ).toContain('NO_SUPPORT');
   });
 
   it('đặt vật lên món có max_stack_load null → STACK_LOAD_EXCEEDED', () => {
-    const v = validateCandidate([a, b], cube, [place(a, 1, [0, 0, 0]), place(b, 2, [0, 0, 100])]);
+    const v = validateCandidate([a, b], cube, [
+      place(a, 1, [0, 0, 0]),
+      place(b, 2, [0, 0, 100]),
+    ]);
     expect(v.map((x) => x.code)).toContain('STACK_LOAD_EXCEEDED');
   });
 
   it('upright_only không được lật (hướng LHW bị từ chối)', () => {
-    const shoe = unit('SH#1', [300, 200, 120], 900, { orientations: ['LWH', 'WLH'] });
-    const lying: Placement = { ...place(shoe, 1, [0, 0, 0]), dx: 300, dy: 120, dz: 200, orientation: 'LHW' };
-    expect(validateCandidate([shoe], box('B', [400, 400, 400]), [lying]).map((x) => x.code)).toContain(
-      'ORIENTATION_NOT_ALLOWED',
-    );
+    const shoe = unit('SH#1', [300, 200, 120], 900, {
+      orientations: ['LWH', 'WLH'],
+    });
+    const lying: Placement = {
+      ...place(shoe, 1, [0, 0, 0]),
+      dx: 300,
+      dy: 120,
+      dz: 200,
+      orientation: 'LHW',
+    };
+    expect(
+      validateCandidate([shoe], box('B', [400, 400, 400]), [lying]).map(
+        (x) => x.code,
+      ),
+    ).toContain('ORIENTATION_NOT_ALLOWED');
   });
 });
 
@@ -91,14 +151,19 @@ describe('Engine đóng gói 3D — greedy + chọn thùng', () => {
 
   it('món cạnh 200 cm → no_fit, KHÔNG trả thùng lớn nhất', () => {
     const huge = unit('HUGE#1', [2000, 2000, 2000], 1000);
-    const result = packOrder([huge], [box('S', [200, 150, 100]), box('L', [500, 400, 350])]);
+    const result = packOrder(
+      [huge],
+      [box('S', [200, 150, 100]), box('L', [500, 400, 350])],
+    );
     expect(result.status).toBe('no_fit');
   });
 
   it('hai khối 60 mm trong thùng 100 mm → no_fit dù tổng thể tích nhỏ hơn (docs §5.1)', () => {
     const c1 = unit('C#1', [60, 60, 60], 100, { maxStack: 10000 });
     const c2 = unit('C#2', [60, 60, 60], 100, { maxStack: 10000 });
-    expect(packOrder([c1, c2], [box('B100', [100, 100, 100])]).status).toBe('no_fit');
+    expect(packOrder([c1, c2], [box('B100', [100, 100, 100])]).status).toBe(
+      'no_fit',
+    );
   });
 
   it('fixture docs §7 (A1/A2/B1, chỉ hướng LWH) → chọn M, tọa độ đúng như tính tay, 53,03%', () => {
@@ -127,7 +192,10 @@ describe('Engine đóng gói 3D — greedy + chọn thùng', () => {
 
   it('fixture docs §7.5 (giày SH1 đỡ áo T1, tải 300 g) → áo nằm trên hộp giày tại z = 120', () => {
     const lwh: readonly Orientation[] = ['LWH'];
-    const sh1 = unit('SH1#1', [330, 220, 120], 1000, { orientations: lwh, maxStack: 300 });
+    const sh1 = unit('SH1#1', [330, 220, 120], 1000, {
+      orientations: lwh,
+      maxStack: 300,
+    });
     const t1 = unit('T1#1', [280, 200, 40], 250, { orientations: lwh });
     const result = packOrder([sh1, t1], [box('OUT', [350, 240, 180])]);
     if (result.status !== 'ok') throw new Error('phải tìm được phương án');
@@ -137,9 +205,14 @@ describe('Engine đóng gói 3D — greedy + chọn thùng', () => {
 
   it('§7.5 nhưng hộp giày KHÔNG cho chồng (null) → no_fit', () => {
     const lwh: readonly Orientation[] = ['LWH'];
-    const sh1 = unit('SH1#1', [330, 220, 120], 1000, { orientations: lwh, maxStack: null });
+    const sh1 = unit('SH1#1', [330, 220, 120], 1000, {
+      orientations: lwh,
+      maxStack: null,
+    });
     const t1 = unit('T1#1', [280, 200, 40], 250, { orientations: lwh });
-    expect(packOrder([sh1, t1], [box('OUT', [350, 240, 180])]).status).toBe('no_fit');
+    expect(packOrder([sh1, t1], [box('OUT', [350, 240, 180])]).status).toBe(
+      'no_fit',
+    );
   });
 
   it('mọi phương án greedy trả về đều qua validator (nhiều tổ hợp ngẫu nhiên có seed)', () => {
@@ -148,35 +221,57 @@ describe('Engine đóng gói 3D — greedy + chọn thùng', () => {
       seed = (seed * 1103515245 + 12345) % 2147483648;
       return seed / 2147483648;
     };
-    const boxes = [box('S', [250, 200, 120]), box('M', [350, 250, 200]), box('L', [500, 400, 350])];
+    const boxes = [
+      box('S', [250, 200, 120]),
+      box('M', [350, 250, 200]),
+      box('L', [500, 400, 350]),
+    ];
     for (let round = 0; round < 40; round += 1) {
       const count = 1 + Math.floor(rand() * 6);
       const units = Array.from({ length: count }, (_, i) =>
         unit(
           `U${String(round)}#${String(i + 1)}`,
-          [40 + Math.floor(rand() * 200), 30 + Math.floor(rand() * 150), 10 + Math.floor(rand() * 100)],
+          [
+            40 + Math.floor(rand() * 200),
+            30 + Math.floor(rand() * 150),
+            10 + Math.floor(rand() * 100),
+          ],
           100 + Math.floor(rand() * 900),
           { maxStack: rand() > 0.3 ? 5000 : null },
         ),
       );
       const result = packOrder(units, boxes);
       if (result.status === 'ok') {
-        expect(validateCandidate(units, result.box, result.placements)).toEqual([]);
-        expect(result.placements.map((p) => p.step)).toEqual(units.map((_, i) => i + 1));
+        expect(validateCandidate(units, result.box, result.placements)).toEqual(
+          [],
+        );
+        expect(result.placements.map((p) => p.step)).toEqual(
+          units.map((_, i) => i + 1),
+        );
       }
     }
   });
 
   it('hết thời gian → no_fit kèm lý do timeout, không trả phương án dở', () => {
     let t = 0;
-    const units = [unit('A#1', [100, 100, 100], 100), unit('A#2', [100, 100, 100], 100)];
-    const result = packOrder(units, [box('M', [300, 300, 300])], { timeBudgetMs: 5, now: () => (t += 10) });
+    const units = [
+      unit('A#1', [100, 100, 100], 100),
+      unit('A#2', [100, 100, 100], 100),
+    ];
+    const result = packOrder(units, [box('M', [300, 300, 300])], {
+      timeBudgetMs: 5,
+      now: () => (t += 10),
+    });
     expect(result.status).toBe('no_fit');
-    if (result.status === 'no_fit') expect(result.reasons[0]?.reason).toContain('Hết thời gian');
+    if (result.status === 'no_fit')
+      expect(result.reasons[0]?.reason).toContain('Hết thời gian');
   });
 
   it('packIntoBox trả null thay vì phương án thiếu món', () => {
-    const units = [unit('A#1', [100, 100, 100], 100), unit('A#2', [100, 100, 100], 100)];
+    const units = [
+      unit('A#1', [100, 100, 100], 100),
+      unit('A#2', [100, 100, 100], 100),
+    ];
     expect(packIntoBox(units, box('ONE', [100, 100, 100]))).toBeNull();
   });
 });
@@ -213,7 +308,10 @@ describe('tồn kho thùng + multi-start (22/09/2026)', () => {
   const medium = box('M', [400, 300, 200], [406, 306, 206]);
   const large = box('L', [600, 400, 300], [606, 406, 306]);
   const stackable = { maxStack: 5000 };
-  const items = [unit('AO#1', [280, 180, 40], 200, stackable), unit('AO#2', [280, 180, 40], 200, stackable)];
+  const items = [
+    unit('AO#1', [280, 180, 40], 200, stackable),
+    unit('AO#2', [280, 180, 40], 200, stackable),
+  ];
 
   it('không truyền tồn -> chọn thùng nhỏ nhất xếp vừa, không ghi chú hết hàng', () => {
     const result = packOrder(items, [large, medium, small]);
@@ -237,10 +335,14 @@ describe('tồn kho thùng + multi-start (22/09/2026)', () => {
   });
 
   it('mọi thùng xếp vừa đều hết -> no_fit, lý do nói rõ hết hàng', () => {
-    const result = packOrder(items, [small, medium], { availability: new Map([['S', 0]]) });
+    const result = packOrder(items, [small, medium], {
+      availability: new Map([['S', 0]]),
+    });
     expect(result.status).toBe('no_fit');
     if (result.status !== 'no_fit') return;
-    expect(result.reasons.map((r) => r.reason).join(' ')).toContain('kho đã hết');
+    expect(result.reasons.map((r) => r.reason).join(' ')).toContain(
+      'kho đã hết',
+    );
   });
 
   it('multi-start: thứ tự thể tích giảm dần không xếp vừa, nhưng engine vẫn tìm được cách xếp khác', () => {
@@ -253,8 +355,16 @@ describe('tồn kho thùng + multi-start (22/09/2026)', () => {
       unit('U2#1', [20, 30, 10], 100, upright),
       unit('U3#1', [20, 20, 30], 100, upright),
     ];
-    const singleOrder = packIntoBox(units, tight, undefined, sortUnitsForPacking(units));
-    expect(singleOrder === null || validateCandidate(units, tight, singleOrder).length > 0).toBe(true);
+    const singleOrder = packIntoBox(
+      units,
+      tight,
+      undefined,
+      sortUnitsForPacking(units),
+    );
+    expect(
+      singleOrder === null ||
+        validateCandidate(units, tight, singleOrder).length > 0,
+    ).toBe(true);
 
     const result = packOrder(units, [tight]);
     expect(result.status).toBe('ok');
@@ -277,14 +387,20 @@ describe('quần áo nằm phẳng + gập đôi khi cần (22/09/2026)', () => 
   };
 
   it('quần áo luôn chỉ xoay ngang dù hồ sơ ghi "any"; hàng khác vẫn xoay tự do', () => {
-    const [shirt] = expandToUnits([{ ...shirtItem, product_category: 't_shirt' }]);
-    const [other] = expandToUnits([{ ...shirtItem, product_category: 'accessory' }]);
+    const [shirt] = expandToUnits([
+      { ...shirtItem, product_category: 't_shirt' },
+    ]);
+    const [other] = expandToUnits([
+      { ...shirtItem, product_category: 'accessory' },
+    ]);
     expect(shirt?.orientations).toEqual(['LWH', 'WLH']);
     expect(other?.orientations).toEqual(ALL_ORIENTATIONS);
   });
 
   it('áo không bao giờ bị dựng đứng: mọi vị trí đặt giữ độ dày 40 mm theo trục đứng', () => {
-    const units = expandToUnits([{ ...shirtItem, quantity: 3, product_category: 't_shirt' }]);
+    const units = expandToUnits([
+      { ...shirtItem, quantity: 3, product_category: 't_shirt' },
+    ]);
     const tall = box('T', [400, 300, 300], [410, 310, 310]);
     const result = packOrder(units, [tall]);
     expect(result.status).toBe('ok');
@@ -295,11 +411,19 @@ describe('quần áo nằm phẳng + gập đôi khi cần (22/09/2026)', () => 
   it('foldUnit: chia đôi cạnh dài, gấp đôi độ dày, cân giữ nguyên', () => {
     const [u] = expandToUnits([{ ...shirtItem, can_fold_in_half: true }]);
     if (!u) throw new Error('thiếu unit');
-    expect(foldUnit(u)).toMatchObject({ length_mm: 180, width_mm: 240, height_mm: 80, weight_g: 200, folded: true });
+    expect(foldUnit(u)).toMatchObject({
+      length_mm: 180,
+      width_mm: 240,
+      height_mm: 80,
+      weight_g: 200,
+      folded: true,
+    });
   });
 
   it('không gập vẫn vừa thùng nhỏ nhất → KHÔNG gập', () => {
-    const units = expandToUnits([{ ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' }]);
+    const units = expandToUnits([
+      { ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' },
+    ]);
     const result = packOrder(units, [box('M', [400, 300, 100])]);
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
@@ -307,7 +431,9 @@ describe('quần áo nằm phẳng + gập đôi khi cần (22/09/2026)', () => 
   });
 
   it('chỉ vừa thùng nhỏ khi gập → chọn thùng nhỏ và đánh dấu gập', () => {
-    const units = expandToUnits([{ ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' }]);
+    const units = expandToUnits([
+      { ...shirtItem, can_fold_in_half: true, product_category: 't_shirt' },
+    ]);
     const small = box('S', [250, 250, 100], [260, 260, 110]);
     const large = box('L', [400, 300, 100], [410, 310, 110]);
     const result = packOrder(units, [small, large]);

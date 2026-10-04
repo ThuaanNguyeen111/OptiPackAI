@@ -1,5 +1,6 @@
 import express, { type Request, type Response } from 'express';
 import { LazadaProtocolClient } from '../src/modules/marketplace-integration/adapters/lazada-protocol.client';
+import { findDeveloperApp, mountDeveloperPortal, secretsMatch } from './aurelle-developer-portal';
 
 /**
  * ===================================================================
@@ -163,8 +164,15 @@ function verifySignature(req: Request): boolean {
     // tham gia ký NGUYÊN VĂN như mọi tham số khác (Mục 7.7).
     params[key] = typeof value === 'number' ? value : String(value);
   }
-  const expected = signVerifier.generateSign(req.path.replace(/^\/rest/, ''), params);
-  return expected === sign;
+  const key = String(source.app_key ?? '');
+  const registered = findDeveloperApp(key);
+  if (!registered && key !== APP_KEY) return false;
+  const verifier = registered ? new LazadaProtocolClient({
+    logLabel: 'Aurelle-Local', authBaseUrl: '', apiBaseUrl: '',
+    appKey: registered.app_key, appSecret: registered.app_secret,
+  }) : signVerifier;
+  const expected = verifier.generateSign(req.path.replace(/^\/rest/, ''), params);
+  return secretsMatch(expected, sign);
 }
 
 function requireValidSignature(req: Request, res: Response): boolean {
@@ -191,18 +199,32 @@ function requireValidAccessToken(req: Request, res: Response): boolean {
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
+mountDeveloperPortal(app);
 
 // Mục 7.2 — trang authorize (giả lập "người bán bấm Cho phép" luôn
 // thành công, redirect thẳng kèm code+state).
 app.get('/oauth/authorize', (req: Request, res: Response) => {
   const redirectUri = typeof req.query.redirect_uri === 'string' ? req.query.redirect_uri : '';
   const state = typeof req.query.state === 'string' ? req.query.state : '';
+  const key = typeof req.query.client_id === 'string' ? req.query.client_id : '';
+  const registered = findDeveloperApp(key);
+  if ((!registered && key !== APP_KEY) || (registered && registered.redirect_uri !== redirectUri)) {
+    res.status(400).send('Ứng dụng hoặc callback chưa được đăng ký.');
+    return;
+  }
   if (!redirectUri) {
     res.status(400).send('Thiếu redirect_uri.');
     return;
   }
-  const url = new URL(redirectUri);
-  url.searchParams.set('code', `0_${APP_KEY}_mock`);
+  let url: URL;
+  try {
+    url = new URL(redirectUri);
+    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Invalid callback');
+  } catch {
+    res.status(400).send('Callback không hợp lệ.');
+    return;
+  }
+  url.searchParams.set('code', `0_${key}_mock`);
   url.searchParams.set('state', state);
   res.redirect(url.toString());
 });
@@ -307,7 +329,7 @@ app.post('/rest/product/stock/sellable/update', (req: Request, res: Response) =>
   res.json(envelope({ results }));
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, '127.0.0.1', () => {
   console.log(`AURELLE mock server (tham chiếu Mục 7-8) chạy tại http://localhost:${String(PORT)}`);
-  console.log(`  APP_KEY=${APP_KEY}  APP_SECRET=${APP_SECRET}  ACCESS_TOKEN=${ACCESS_TOKEN}`);
+  console.log(`Developer Console: http://localhost:${String(PORT)}/developer`);
 });

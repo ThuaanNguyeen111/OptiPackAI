@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from 'react'
 import { AlertTriangle, Boxes, Loader2, Pencil, Plus, X } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { ZipBagCatalog } from '../components/packing/ZipBagCatalog'
+import { MaterialCatalog } from '../components/packing/MaterialCatalog'
 import { BoxStockPanel } from '../components/packing/BoxStockPanel'
 import { usePortal } from '../context/use-portal'
 import { createPackagingBox, listAllPackagingBoxes, updatePackagingBox, type BoxInput } from '../api/packaging.api'
@@ -381,6 +382,8 @@ export function AdminBoxesPage() {
           </div>
 
           <ZipBagCatalog vi={vi} />
+
+          <MaterialCatalog vi={vi} />
         </div>
       </main>
     </>

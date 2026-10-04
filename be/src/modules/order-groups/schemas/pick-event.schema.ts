@@ -44,6 +44,18 @@ export class PickEvent {
   @Prop({ type: Number, default: 0, min: 0 })
   pick_round!: number;
 
+  /**
+   * BỔ SUNG (30/09/2026) — kho đã trừ tồn lúc quét. Cần để restock đúng kho khi
+   * lượt lấy hàng bị hủy. Event cũ (trước 30/09) không có = null → không thể
+   * tự nhập lại tồn (cần kho đối soát tay).
+   */
+  @Prop({ type: Types.ObjectId, default: null })
+  warehouse_id!: Types.ObjectId | null;
+
+  /** BỔ SUNG (30/09/2026) — đã nhập lại tồn khi hủy lượt; chặn nhập lại 2 lần. */
+  @Prop({ type: Date, default: null })
+  restocked_at!: Date | null;
+
   created_at?: Date;
 }
 

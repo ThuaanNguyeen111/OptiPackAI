@@ -52,6 +52,23 @@ interface OrderGroupResponse {
   updatedAt: Date;
 }
 
+// MỚI (29/09/2026, Mục 9.5) — nhóm đơn khác (có thể khác sàn) cùng
+// recipient_key, chưa giao xong — dùng cho cảnh báo "lệch nhịp" khi ship.
+interface LinkedPendingGroup {
+  id: string;
+  fulfillmentStatus: string;
+}
+
+// Trạng thái ĐÃ tới hoặc SAU packed — không còn tính là "đang chờ đóng gói"
+// nữa, dùng để lọc linkedPending (Mục 9.5, hàng #5 "Cảnh báo lệch nhịp").
+const PACKED_OR_LATER_STATUSES: GroupFulfillmentStatus[] = [
+  GroupFulfillmentStatus.PACKED,
+  GroupFulfillmentStatus.SHIPPED,
+  GroupFulfillmentStatus.DELIVERED,
+  GroupFulfillmentStatus.RETURNED,
+  GroupFulfillmentStatus.CANCELED,
+];
+
 function toResponse(group: OrderGroupDocument): OrderGroupResponse {
   return {
     id: group._id.toString(),
@@ -139,11 +156,29 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Chi tiết 1 Order Group — đọc field "version" để dùng cho 5 API chuyển trạng thái bên dưới',
+      'Chi tiết 1 Order Group — đọc field "version" để dùng cho 5 API chuyển trạng thái bên dưới. "linkedGroupCount" (Mục 9.5): số nhóm khác (có thể khác sàn) cùng người nhận, chưa giao xong.',
   })
-  async findOne(@Param('id') id: string): Promise<OrderGroupResponse> {
+  async findOne(@Param('id') id: string): Promise<OrderGroupResponse & { linkedGroupCount: number }> {
     const group = await this.orderGroupsService.findOrderGroupById(id);
-    return toResponse(group);
+    const linkedGroupCount = await this.orderGroupsService.findLinkedGroups(id);
+    return { ...toResponse(group), linkedGroupCount: linkedGroupCount.length };
+  }
+
+  @Get(':id/linked')
+  @Roles(
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.PACKAGING_STAFF,
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.STORE_OWNER,
+    UserRole.ADMIN,
+  )
+  @ApiOperation({
+    summary:
+      'MỚI (Mục 9.5) — Các nhóm đơn KHÁC (có thể khác sàn) cùng người nhận với nhóm này, chưa giao xong. Dùng để hiển thị "Đi cùng: N kiện" và chuẩn bị giao chung chuyến (POST /shipments/batch).',
+  })
+  async linked(@Param('id') id: string): Promise<{ linkedGroups: OrderGroupResponse[] }> {
+    const groups = await this.orderGroupsService.findLinkedGroups(id);
+    return { linkedGroups: groups.map(toResponse) };
   }
 
   @Get(':id/picking-list')
@@ -248,18 +283,23 @@ export class OrderGroupsController {
   @Post(':id/fulfillment/ship')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
   @ApiOperation({
-    summary: 'Xác nhận ĐÃ GIAO cho đơn vị vận chuyển (packed -> shipped).',
+    summary:
+      'Xác nhận ĐÃ GIAO cho đơn vị vận chuyển (packed -> shipped). "linkedPending" (Mục 9.5, "Cảnh báo lệch nhịp") — các nhóm khác cùng người nhận CHƯA đóng gói xong; KHÔNG chặn hành động ship, chỉ cảnh báo.',
   })
   async ship(
     @Param('id') id: string,
     @Body() body: TransitionOrderGroupDto,
-  ): Promise<OrderGroupResponse> {
+  ): Promise<OrderGroupResponse & { linkedPending: LinkedPendingGroup[] }> {
     const group = await this.orderGroupsService.transitionFulfillmentStatus(
       id,
       GroupFulfillmentStatus.SHIPPED,
       body.expected_version,
     );
-    return toResponse(group);
+    const linkedGroups = await this.orderGroupsService.findLinkedGroups(id);
+    const linkedPending: LinkedPendingGroup[] = linkedGroups
+      .filter((g) => !PACKED_OR_LATER_STATUSES.includes(g.fulfillment_status))
+      .map((g) => ({ id: g._id.toString(), fulfillmentStatus: g.fulfillment_status }));
+    return { ...toResponse(group), linkedPending };
   }
 
   @Post(':id/fulfillment/deliver')

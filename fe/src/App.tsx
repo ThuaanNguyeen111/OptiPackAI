@@ -32,11 +32,11 @@ import { PackagingPlanPage } from './pages/PackagingPlanPage'
 import { PackingWizardPage } from './pages/PackingWizardPage'
 import { PackagingProfilesPage } from './pages/PackagingProfilesPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
-import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { ShippingPage } from './pages/ShippingPage'
+import { ShippingDispatchPage } from './pages/ShippingDispatchPage'
 import { StaffManagementPage } from './pages/StaffManagementPage'
 import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
 import { WarehousePage } from './pages/WarehousePage'
@@ -82,11 +82,12 @@ function App() {
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="inventory/packaging-profiles" element={<PackagingProfilesPage />} />
-                <Route path="packing" element={<PackingPage />} />
-                <Route path="packing/groups" element={<PackagingGroupsPage />} />
+                <Route path="packing" element={<PackagingGroupsPage />} />
+                <Route path="packing/groups" element={<Navigate to="/app/packing" replace />} />
                 <Route path="packing/groups/:groupId" element={<PackagingPlanPage />} />
                 <Route path="packing/groups/:groupId/orders/:recommendationId" element={<PackingWizardPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
+                <Route path="shipping/dispatch" element={<ShippingDispatchPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
                 <Route path="staff" element={<StaffManagementPage />} />
                 <Route path="analytics" element={<AnalyticsReportPage />} />

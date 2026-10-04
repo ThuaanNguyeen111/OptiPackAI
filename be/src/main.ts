@@ -7,7 +7,11 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true — BẮT BUỘC cho webhook AURELLE (marketplace-webhooks/):
+  // chữ ký HMAC (Mục 8.1 AURELLE_MARKETPLACE_DESIGN.md) tính trên BODY
+  // GỐC (Buffer, chưa qua JSON.parse) — Nest tự lưu vào `req.rawBody` khi
+  // bật cờ này, KHÔNG cần middleware `express.raw()` thủ công.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(helmet());
   app.use(compression());

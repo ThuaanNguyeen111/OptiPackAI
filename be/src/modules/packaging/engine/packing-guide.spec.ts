@@ -1,5 +1,14 @@
-import { buildTemplateGuide, describeOrientation, describePackingSteps } from './packing-guide';
-import { ALL_ORIENTATIONS, type BoxSpec, type PackingUnit, type Placement } from './types';
+import {
+  buildTemplateGuide,
+  describeOrientation,
+  describePackingSteps,
+} from './packing-guide';
+import {
+  ALL_ORIENTATIONS,
+  type BoxSpec,
+  type PackingUnit,
+  type Placement,
+} from './types';
 
 const box: BoxSpec = {
   code: 'SAMPLE-M',
@@ -17,10 +26,24 @@ function placement(
   [x, y, z]: [number, number, number],
   [dx, dy, dz]: [number, number, number],
 ): Placement {
-  return { item_key: key, sku: key.split('#')[0] ?? key, step, x, y, z, dx, dy, dz, orientation: 'LWH' };
+  return {
+    item_key: key,
+    sku: key.split('#')[0] ?? key,
+    step,
+    x,
+    y,
+    z,
+    dx,
+    dy,
+    dz,
+    orientation: 'LWH',
+  };
 }
 
-function unit(key: string, opts: { fragile?: boolean; maxStack?: number | null } = {}): PackingUnit {
+function unit(
+  key: string,
+  opts: { fragile?: boolean; maxStack?: number | null } = {},
+): PackingUnit {
   return {
     item_key: key,
     sku: key.split('#')[0] ?? key,
@@ -59,9 +82,14 @@ describe('describePackingSteps', () => {
   });
 
   it('lấy cờ dễ vỡ / cấm chồng từ hồ sơ món; thiếu hồ sơ thì không cảnh báo', () => {
-    const facts = describePackingSteps([shoe1, shoe2], box, [unit('GIAY#1', { fragile: true, maxStack: null })]);
+    const facts = describePackingSteps([shoe1, shoe2], box, [
+      unit('GIAY#1', { fragile: true, maxStack: null }),
+    ]);
     expect(facts[0]).toMatchObject({ is_fragile: true, no_stack_on_top: true });
-    expect(facts[1]).toMatchObject({ is_fragile: false, no_stack_on_top: false });
+    expect(facts[1]).toMatchObject({
+      is_fragile: false,
+      no_stack_on_top: false,
+    });
   });
 });
 
@@ -81,20 +109,41 @@ describe('buildTemplateGuide', () => {
       box,
       [unit('GIAY#1', { fragile: true })],
     );
-    const guide = buildTemplateGuide(facts, box, 0.25, 1);
+    const guide = buildTemplateGuide(facts, box, 0.25, []);
     expect(guide.steps).toHaveLength(1);
     expect(guide.steps[0]?.instruction).toContain('GIAY');
     expect(guide.steps[0]?.instruction).toContain('Bọc xốp hơi');
     expect(guide.steps[0]?.tip).toContain('dễ vỡ');
     expect(guide.summary).toContain('SAMPLE-M');
     expect(guide.summary).toContain('25%');
+    expect(guide.summary).not.toContain('vật tư chèn');
+  });
+
+  it('tóm tắt liệt kê đúng tên + số lượng từng vật tư chèn (28/09/2026)', () => {
+    const facts = describePackingSteps(
+      [placement('GIAY#1', 1, [0, 0, 0], [300, 200, 120])],
+      box,
+    );
+    const guide = buildTemplateGuide(facts, box, 0.4, [
+      { name: 'Góc xốp', quantity: 4, unit: 'cái' },
+      { name: 'Gối hơi', quantity: 2, unit: 'cái' },
+    ]);
+    expect(guide.summary).toContain(
+      'vật tư chèn: 4 cái Góc xốp, 2 cái Gối hơi',
+    );
   });
 });
 
 describe('túi zip và loại sản phẩm', () => {
   const shirt = placement('AO#1', 1, [0, 0, 0], [360, 240, 40]);
   const profiles = new Map([
-    ['AO', { product_category: 't_shirt', zip_bag: { code: 'ZIP-M', name: 'Túi zip M', folded: true } }],
+    [
+      'AO',
+      {
+        product_category: 't_shirt',
+        zip_bag: { code: 'ZIP-M', name: 'Túi zip M', folded: true },
+      },
+    ],
   ]);
 
   it('dữ kiện mang tên loại sản phẩm tiếng Việt và thông tin túi zip', () => {
@@ -107,14 +156,23 @@ describe('túi zip và loại sản phẩm', () => {
 
   it('câu mẫu bắt đầu bằng cho hàng vào túi zip + gập đôi, tóm tắt nhắc chuẩn bị túi', () => {
     const facts = describePackingSteps([shirt], box, [], profiles);
-    const guide = buildTemplateGuide(facts, box, null, 0);
-    expect(guide.steps[0]?.instruction.startsWith('Cho áo thun AO (AO#1) vào túi zip Túi zip M, gập đôi túi')).toBe(true);
+    const guide = buildTemplateGuide(facts, box, null, []);
+    expect(
+      guide.steps[0]?.instruction.startsWith(
+        'Cho áo thun AO (AO#1) vào túi zip Túi zip M, gập đôi túi',
+      ),
+    ).toBe(true);
     expect(guide.steps[0]?.tip).toContain('kéo kín miệng túi');
     expect(guide.summary).toContain('1 túi zip Túi zip M');
   });
 
   it('loại "other" không gắn tên loại; thiếu hồ sơ thì không có túi', () => {
-    const [other] = describePackingSteps([shirt], box, [], new Map([['AO', { product_category: 'other', zip_bag: null }]]));
+    const [other] = describePackingSteps(
+      [shirt],
+      box,
+      [],
+      new Map([['AO', { product_category: 'other', zip_bag: null }]]),
+    );
     expect(other).toMatchObject({ product_type: null, zip_bag: null });
     const [missing] = describePackingSteps([shirt], box);
     expect(missing).toMatchObject({ product_type: null, zip_bag: null });
@@ -123,10 +181,18 @@ describe('túi zip và loại sản phẩm', () => {
 
 describe('gập đôi trong hướng dẫn (22/09/2026)', () => {
   it('món được engine gập → dữ kiện folded_in_half và câu mẫu nói gập đôi', () => {
-    const folded = { ...placement('AO#1', 1, [0, 0, 0], [180, 240, 80]), folded: true };
+    const folded = {
+      ...placement('AO#1', 1, [0, 0, 0], [180, 240, 80]),
+      folded: true,
+    };
     const [fact] = describePackingSteps([folded], box);
     expect(fact?.folded_in_half).toBe(true);
-    const guide = buildTemplateGuide(describePackingSteps([folded], box), box, null, 0);
+    const guide = buildTemplateGuide(
+      describePackingSteps([folded], box),
+      box,
+      null,
+      [],
+    );
     expect(guide.steps[0]?.instruction).toContain('Gập đôi');
   });
 });

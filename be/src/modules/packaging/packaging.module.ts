@@ -21,6 +21,20 @@ import { PackingGuideAiService } from './packing-guide-ai.service';
 import { PackagingBag, PackagingBagSchema } from './schemas/packaging-bag.schema';
 import { PackagingBagService } from './packaging-bag.service';
 import { PackagingBagController } from './packaging-bag.controller';
+import {
+  PackagingMaterial,
+  PackagingMaterialSchema,
+} from './schemas/packaging-material.schema';
+import {
+  PackagingMaterialMovement,
+  PackagingMaterialMovementSchema,
+} from './schemas/packaging-material-movement.schema';
+import {
+  PackagingMaterialRules,
+  PackagingMaterialRulesSchema,
+} from './schemas/packaging-material-rules.schema';
+import { PackagingMaterialService } from './packaging-material.service';
+import { PackagingMaterialController } from './packaging-material.controller';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -35,6 +49,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
       { name: PackagingBox.name, schema: PackagingBoxSchema },
       { name: PackagingBag.name, schema: PackagingBagSchema },
       { name: PackagingStockMovement.name, schema: PackagingStockMovementSchema },
+      { name: PackagingMaterial.name, schema: PackagingMaterialSchema },
+      { name: PackagingMaterialMovement.name, schema: PackagingMaterialMovementSchema },
+      { name: PackagingMaterialRules.name, schema: PackagingMaterialRulesSchema },
     ]),
     NotificationsModule,
     // generate()/reject()/pack() gọi NotificationsService (Packaging Staff /
@@ -42,8 +59,20 @@ import { NotificationsModule } from '../notifications/notifications.module';
     // app CRASH ngay lúc khởi động (tsc/eslint/jest đều không bắt).
     OrderGroupsModule, // export OrderGroupsService — findOrderGroupById/allocatePickedItemsToOrders/transitionFulfillmentStatus
   ],
-  controllers: [PackagingController, PackagingPackController, PackagingBoxController, PackagingBagController],
-  providers: [PackagingService, PackagingBoxService, PackagingBagService, PackingGuideAiService],
-  exports: [PackagingService, PackagingBoxService, PackagingBagService],
+  controllers: [
+    PackagingController,
+    PackagingPackController,
+    PackagingBoxController,
+    PackagingBagController,
+    PackagingMaterialController,
+  ],
+  providers: [
+    PackagingService,
+    PackagingBoxService,
+    PackagingBagService,
+    PackagingMaterialService,
+    PackingGuideAiService,
+  ],
+  exports: [PackagingService, PackagingBoxService, PackagingBagService, PackagingMaterialService],
 })
 export class PackagingModule {}

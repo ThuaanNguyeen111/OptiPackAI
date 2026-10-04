@@ -1,5 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsMongoId, IsNumber, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsMongoId,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 /**
  * UC-04 Alt Flow (Report 1): Packaging Staff không đồng ý phương án →
@@ -21,7 +30,21 @@ export class AdjustPackagingDto {
   @IsMongoId({ message: 'order_id không đúng định dạng' })
   order_id!: string;
 
-  @ApiProperty({ example: 'CARTON-M', description: 'Mã thùng trong danh mục /packaging/boxes' })
+  @ApiProperty({
+    required: false,
+    example: 0,
+    description:
+      'Kiện cần đổi thùng (từ 0) khi đơn có nhiều kiện. Bỏ trống = kiện 0.',
+  })
+  @IsOptional()
+  @IsInt({ message: 'carton_index phải là số nguyên' })
+  @Min(0, { message: 'carton_index không âm' })
+  carton_index?: number;
+
+  @ApiProperty({
+    example: 'CARTON-M',
+    description: 'Mã thùng trong danh mục /packaging/boxes',
+  })
   @IsString({ message: 'box_code phải là chuỗi' })
   @MinLength(1, { message: 'box_code không được để trống' })
   box_code!: string;
@@ -30,12 +53,18 @@ export class AdjustPackagingDto {
   @IsIn(ADJUSTMENT_REASONS, { message: 'adjustment_reason không hợp lệ' })
   adjustment_reason!: (typeof ADJUSTMENT_REASONS)[number];
 
-  @ApiProperty({ required: false, description: 'Bắt buộc khi adjustment_reason = OTHER' })
+  @ApiProperty({
+    required: false,
+    description: 'Bắt buộc khi adjustment_reason = OTHER',
+  })
   @IsOptional()
   @IsString({ message: 'adjustment_note phải là chuỗi' })
   adjustment_note?: string;
 
-  @ApiProperty({ description: 'Version hiện tại của Order Group (Rule #18)', example: 0 })
+  @ApiProperty({
+    description: 'Version hiện tại của Order Group (Rule #18)',
+    example: 0,
+  })
   @IsNumber()
   @Min(0)
   expected_group_version!: number;

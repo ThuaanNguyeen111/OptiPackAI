@@ -1,5 +1,13 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+} from 'class-validator';
 
 export class CreatePackagingBagDto {
   @ApiProperty({ example: 'ZIP-M' })
@@ -24,7 +32,11 @@ export class CreatePackagingBagDto {
   @Max(2000, { message: 'length_mm không vượt quá 2000 mm' })
   length_mm!: number;
 
-  @ApiPropertyOptional({ example: 800, nullable: true, description: 'Giá túi (VND)' })
+  @ApiPropertyOptional({
+    example: 800,
+    nullable: true,
+    description: 'Giá túi (VND)',
+  })
   @IsOptional()
   @IsInt({ message: 'price_vnd phải là số nguyên' })
   @Min(0, { message: 'price_vnd không được âm' })

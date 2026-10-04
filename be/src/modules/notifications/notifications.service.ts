@@ -246,6 +246,46 @@ export class NotificationsService {
     };
   }
 
+  /**
+   * MỚI (29/09/2026, N1) — toàn bộ đơn trong 1 nhóm đã chuyển sang trạng
+   * thái không còn fulfill được (khách tự hủy qua webhook, hàng thất lạc...)
+   * — hệ thống tự động hủy nhóm và nhả giữ chỗ đóng gói, báo lại để nhân
+   * viên biết không cần xử lý nhóm này nữa.
+   */
+  buildGroupAutoCanceledMessage(params: {
+    groupId: string;
+  }): { title: string; message: string } {
+    return {
+      title: `Đơn hàng #${params.groupId} đã bị hủy`,
+      message: `Toàn bộ đơn thuộc nhóm #${params.groupId} đã chuyển sang trạng thái không còn xử lý được (khách hủy đơn hoặc sự cố vận chuyển). Hệ thống đã tự động hủy nhóm và nhả các chỗ giữ đóng gói liên quan — không cần tiếp tục xử lý đơn này.`,
+    };
+  }
+
+  buildPackagingPlanInvalidatedMessage(params: { groupId: string }): {
+    title: string;
+    message: string;
+  } {
+    return {
+      title: `Phương án đóng gói của nhóm #${params.groupId} không còn hiệu lực`,
+      message: `Có đơn trong nhóm #${params.groupId} vừa bị hủy hoặc gặp sự cố sau khi đã tính phương án đóng gói. Hệ thống đã vô hiệu hóa phương án cũ và đưa nhóm về trạng thái đã lấy hàng để tính lại. Hàng đã lấy cho đơn bị hủy cần được đối soát và nhập lại kho thủ công.`,
+    };
+  }
+
+  buildReturnReceivedMessage(params: {
+    groupId: string;
+    goodUnits: number;
+    damagedUnits: number;
+  }): { title: string; message: string } {
+    const damaged =
+      params.damagedUnits > 0
+        ? ` Có ${String(params.damagedUnits)} sản phẩm hư hỏng, không được nhập lại tồn kho.`
+        : '';
+    return {
+      title: `Đã nhận hàng hoàn của nhóm #${params.groupId}`,
+      message: `Kho đã nhận hàng hoàn của nhóm #${params.groupId}: ${String(params.goodUnits)} sản phẩm đạt chất lượng đã nhập lại tồn kho.${damaged}`,
+    };
+  }
+
   buildMfaDisabledMessage(params: { name: string }): { title: string; message: string } {
     return {
       title: 'Xác thực 2 lớp (MFA) đã được tắt',

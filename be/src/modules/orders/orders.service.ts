@@ -5,6 +5,7 @@ import { Order, OrderDocument } from './schemas/order.schema';
 import {
   OrderStatus,
   UNFULFILLED_ORDER_STATUSES,
+  NOT_PACKABLE_ORDER_STATUSES,
 } from './enums/order-status.enum';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
@@ -251,7 +252,24 @@ export class OrdersService {
         try {
           const freshOrder = await this.orderModel.findById(orderDoc._id);
           if (freshOrder) {
-            await this.orderGroupsService.getOrCreateGroupForOrder(freshOrder);
+            const group =
+              await this.orderGroupsService.getOrCreateGroupForOrder(freshOrder);
+            // BỔ SUNG (29/09/2026, N1) — nếu đơn vừa sync rơi vào 1 trạng
+            // thái không còn fulfill được (khách hủy qua webhook, sự cố
+            // logistics...), kiểm tra xem CẢ NHÓM có còn đơn nào fulfill
+            // được không — hết thì tự động hủy nhóm + nhả giữ chỗ đóng gói
+            // (xem order-groups.service.ts). BEST-EFFORT, dùng chung cho cả
+            // cron lẫn webhook vì cả 2 đều gọi qua syncShopOrders() này.
+            if (NOT_PACKABLE_ORDER_STATUSES.includes(freshOrder.status)) {
+              await this.orderGroupsService
+                .handleOrderBecameUnfulfillable(group._id.toString())
+                .catch((cancelError: unknown) => {
+                  this.logger.error(
+                    `Kiểm tra tự động hủy nhóm ${group._id.toString()} thất bại — không chặn lượt sync.`,
+                    cancelError,
+                  );
+                });
+            }
           }
         } catch (groupError) {
           // KHÔNG fail cả lượt sync chỉ vì 1 đơn tạo group lỗi — cron
@@ -334,12 +352,41 @@ export class OrdersService {
       return false; // đơn đã fulfill xong (shipped/delivered/...) không xét gộp
     }
 
-    const sibling = await this.orderModel.findOne({
-      consolidation_key: order.consolidation_key,
-      status: { $in: UNFULFILLED_ORDER_STATUSES },
-      _id: { $ne: order._id },
-      is_active: true,
-    });
+    // Đơn đã thuộc 1 nhóm rồi (re-sync) thì KHÔNG chuyển nhóm — tránh kéo
+    // 1 đơn đang được xử lý sang nhóm khác chỉ vì lượt sync sau.
+    if (order.consolidated_group_id) {
+      return false;
+    }
+
+    // Cùng platform + shop: nhóm mang platform/shop_id của MỘT shop, gộp
+    // đơn khác shop vào sẽ trừ tồn/tra hồ sơ SKU sai phạm vi.
+    const candidates = await this.orderModel
+      .find({
+        consolidation_key: order.consolidation_key,
+        platform: order.platform,
+        shop_id: order.shop_id,
+        status: { $in: UNFULFILLED_ORDER_STATUSES },
+        _id: { $ne: order._id },
+        is_active: true,
+      })
+      .sort({ created_at: 1 })
+      .limit(20);
+
+    // Chỉ nhập vào nhóm còn "mở" (chưa qua bước lấy hàng xong) — nhóm đã
+    // picked/duyệt/đóng gói có danh sách đơn cố định, đơn đến muộn tự lập
+    // nhóm mới thay vì chen vào phương án đã tính.
+    let sibling: OrderDocument | null = null;
+    for (const candidate of candidates) {
+      if (
+        !candidate.consolidated_group_id ||
+        (await this.orderGroupsService.isGroupOpenForNewOrders(
+          candidate.consolidated_group_id.toString(),
+        ))
+      ) {
+        sibling = candidate;
+        break;
+      }
+    }
 
     if (!sibling) {
       return false; // không có đơn nào khác cùng người nhận đang chờ xử lý — giữ standalone

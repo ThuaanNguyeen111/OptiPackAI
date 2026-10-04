@@ -88,3 +88,36 @@ export function computeConsolidationKey(
 
   return createHash('sha256').update(input).digest('hex');
 }
+
+/**
+ * ===================================================================
+ * RECIPIENT KEY — MỚI (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.md)
+ * ===================================================================
+ * KHÁC HẲN consolidation_key ở trên — key này CỐ Ý KHÔNG kèm platform,
+ * để liên kết được 2 nhóm đơn CÙNG 1 khách hàng thật nhưng đặt trên
+ * 2 SÀN KHÁC NHAU (VD 1 đơn Lazada + 1 đơn AURELLE, cùng người nhận) —
+ * phục vụ "giao chung chuyến" (Mục 9.5), KHÔNG dùng để tự động gộp
+ * chung 1 OrderGroup (đó vẫn là việc của consolidation_key, giữ nguyên
+ * platform để tránh gộp nhầm 2 vận đơn khác sàn — xem comment ở trên).
+ *
+ * Công thức đúng Mục 4.2: tên + SĐT + địa chỉ + tỉnh, chuẩn hóa GIỐNG
+ * consolidation_key (bỏ dấu, chữ thường, gộp khoảng trắng cho tên/địa
+ * chỉ/tỉnh; chuẩn hóa số riêng cho SĐT) — tái dùng lại 2 hàm chuẩn hóa
+ * đã có ở trên, không viết lại logic chuẩn hóa lần 2.
+ * ===================================================================
+ */
+export function computeRecipientKey(
+  fullNameRaw: string,
+  phoneRaw: string,
+  addressLine1Raw: string,
+  cityRaw: string,
+): string {
+  const normalizedName = normalizeAddressFragment(fullNameRaw);
+  const normalizedPhone = normalizePhoneNumber(phoneRaw);
+  const normalizedAddress = normalizeAddressFragment(addressLine1Raw);
+  const normalizedCity = normalizeAddressFragment(cityRaw);
+
+  const input = `${normalizedName}|${normalizedPhone}|${normalizedAddress}|${normalizedCity}`;
+
+  return createHash('sha256').update(input).digest('hex');
+}

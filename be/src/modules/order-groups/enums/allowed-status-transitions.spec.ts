@@ -134,6 +134,43 @@ describe('allowed-status-transitions', () => {
     }
   });
 
+  describe('N1 (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.6) — hủy nhóm khi mọi đơn không còn fulfill được', () => {
+    const preCanCancel: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.AWAITING_PACKAGING,
+      GroupFulfillmentStatus.PICKING,
+      GroupFulfillmentStatus.PICKED,
+      GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+      GroupFulfillmentStatus.PENDING_APPROVAL,
+      GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+    ];
+
+    for (const from of preCanCancel) {
+      it(`${from} -> CANCELED hợp lệ (chưa đóng gói, cho phép tự động hủy)`, () => {
+        expect(
+          isValidStatusTransition(from, GroupFulfillmentStatus.CANCELED),
+        ).toBe(true);
+      });
+    }
+
+    const postPackedCannotCancel: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.PACKED,
+      GroupFulfillmentStatus.SHIPPED,
+      GroupFulfillmentStatus.DELIVERED,
+    ];
+
+    for (const from of postPackedCannotCancel) {
+      it(`${from} -> CANCELED PHẢI bị chặn (hàng đã đóng/giao vật lý, không tự hủy ngầm)`, () => {
+        expect(
+          isValidStatusTransition(from, GroupFulfillmentStatus.CANCELED),
+        ).toBe(false);
+      });
+    }
+
+    it('CANCELED là trạng thái cuối — không có đường đi tiếp nào', () => {
+      expect(getAllowedNextStatuses(GroupFulfillmentStatus.CANCELED)).toEqual([]);
+    });
+  });
+
   it('getAllowedNextStatuses trả đúng mảng cho từng trạng thái — không rỗng ngoài dự kiến', () => {
     expect(getAllowedNextStatuses(GroupFulfillmentStatus.SHIPPED)).toEqual(
       expect.arrayContaining([
