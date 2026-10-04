@@ -3546,3 +3546,7 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **FE**: thông báo lấy bản main (thăm dò 45 s); OAuth success lấy giao diện main + phân biệt `platform` (AURELLE không ghi danh sách Lazada); sửa luôn các lỗi tsc có sẵn trên main (FE main không build được) — `npm run build` FE đạt; lint FE còn 17 vấn đề có sẵn (main có 25).
 
 **Verify**: BE `tsc` 0 lỗi, `lint:ci` 0 lỗi, jest 59 suite / 647 test; khởi động thử app context (không mở cổng, dừng cron ngay) → BOOT_OK, không lỗi đăng ký model. FE `tsc -b` + `vite build` đạt; storefront `tsc` đạt. **Chưa** chạy trọn luồng trên trình duyệt, **chưa** chạy migrate kho vật tư trên DB thật.
+
+## Dọn menu "AI & Đóng gói" của Admin (05/10/2026)
+
+User hỏi 4 mục menu là gì → đối chiếu code: "Tham số AI" (state React, F5 mất, backend không đọc) và "Templates đóng gói" (`data/admin-mock.ts`) là **giao diện giả**, không ảnh hưởng engine; "Chốt kế hoạch đóng gói" (trang của main) sau gộp chỉ gọi `packing-plan/recompute` — trùng màn `/app/packing` (đã có hàng chờ, "Cần xử lý", tính lại). User: "tối ưu đi" → **xóa** `AdminAiPage`, `AdminTemplatesPage`, `AdminPackingPlansPage`, `AiConfigPanel`, `usePackagingTemplates`, `aiParams` trong `useAdminUsers`, dữ liệu giả + type liên quan; menu chỉ còn "Kế hoạch đóng gói" (→ `/app/packing`) và "Danh mục thùng"; `/app/admin/packing-plans` chuyển hướng sang `/app/packing`; thông báo `pending_approval`/`abnormal_package`/`packaging_rejected` của Admin mở thẳng `/app/packing/:groupId`. FE `tsc -b` + build đạt, lint 15 vấn đề có sẵn (trước 17).

@@ -22,13 +22,12 @@ export function resolveNotificationPath(
   if (type === 'pending_approval' || type === 'abnormal_package') {
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
     if (role === UserRole.STORE_OWNER) return '/app/order-groups'
-    if (role === UserRole.ADMIN) return '/app/admin/packing-plans'
+    if (role === UserRole.ADMIN && entityId) return `/app/packing/${entityId}`
     return '/app/packing'
   }
   if (type === 'packaging_rejected') {
-    return role === UserRole.ADMIN
-      ? '/app/admin/packing-plans'
-      : '/app/packing'
+    // Kế hoạch bị chuyển xử lý ngoài hệ thống → mở thẳng màn làm việc của nhóm.
+    return entityId ? `/app/packing/${entityId}` : '/app/packing'
   }
   if (type === 'missing_item') {
     if (role === UserRole.WAREHOUSE_STAFF) {

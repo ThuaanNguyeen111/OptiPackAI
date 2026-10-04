@@ -9,15 +9,12 @@ import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
-import { AdminAiPage } from './pages/AdminAiPage'
 import { AdminBoxesPage } from './pages/AdminBoxesPage'
 import { AdminMarketplacePage } from './pages/AdminMarketplacePage'
 import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
 import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
-import { AdminPackingPlansPage } from './pages/AdminPackingPlansPage'
-import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
 import { AdminWarehousePage } from './pages/AdminWarehousePage'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
@@ -112,9 +109,8 @@ function App() {
                 <Route path="marketplace" element={<AdminMarketplacePage />} />
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
-                <Route path="ai" element={<AdminAiPage />} />
-                <Route path="packing-plans" element={<AdminPackingPlansPage />} />
-                <Route path="templates" element={<AdminTemplatesPage />} />
+                {/* Link cũ → màn đóng gói thật (bỏ 2 trang giả + trang chốt trùng chức năng, 05/10/2026) */}
+                <Route path="packing-plans" element={<Navigate to="/app/packing" replace />} />
                 <Route path="boxes" element={<AdminBoxesPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />
               </Route>

@@ -11,12 +11,10 @@ import {
 import { formatApiError } from '../lib/api'
 import type {
   AdminUser,
-  AiPackagingParams,
   CreateUserInput,
   Role,
   UpdateUserInput,
 } from '../types/admin'
-import { defaultAiPackagingParams } from '../data/admin-mock'
 
 const USERS_PAGE_LIMIT = 20
 
@@ -39,8 +37,6 @@ type UseAdminUsersApi = {
   createUser: (
     user: CreateUserInput,
   ) => Promise<{ temporaryPassword: string }>
-  aiParams: AiPackagingParams
-  updateAiParams: (next: Partial<AiPackagingParams>) => void
 }
 
 export function useAdminUsers(): UseAdminUsersApi {
@@ -51,9 +47,6 @@ export function useAdminUsers(): UseAdminUsersApi {
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [roleFilter, setRoleFilterState] = useState<Role | 'all'>('all')
-  const [aiParams, setAiParams] = useState<AiPackagingParams>(
-    () => defaultAiPackagingParams,
-  )
 
   useEffect(() => {
     let cancelled = false
@@ -187,9 +180,6 @@ export function useAdminUsers(): UseAdminUsersApi {
     }
   }, [])
 
-  const updateAiParams = useCallback((next: Partial<AiPackagingParams>) => {
-    setAiParams((p) => ({ ...p, ...next }))
-  }, [])
 
   return {
     users,
@@ -208,7 +198,5 @@ export function useAdminUsers(): UseAdminUsersApi {
     reactivate,
     disableMfa,
     createUser,
-    aiParams,
-    updateAiParams,
   }
 }
