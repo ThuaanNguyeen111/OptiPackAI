@@ -3550,3 +3550,11 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 ## Dọn menu "AI & Đóng gói" của Admin (05/10/2026)
 
 User hỏi 4 mục menu là gì → đối chiếu code: "Tham số AI" (state React, F5 mất, backend không đọc) và "Templates đóng gói" (`data/admin-mock.ts`) là **giao diện giả**, không ảnh hưởng engine; "Chốt kế hoạch đóng gói" (trang của main) sau gộp chỉ gọi `packing-plan/recompute` — trùng màn `/app/packing` (đã có hàng chờ, "Cần xử lý", tính lại). User: "tối ưu đi" → **xóa** `AdminAiPage`, `AdminTemplatesPage`, `AdminPackingPlansPage`, `AiConfigPanel`, `usePackagingTemplates`, `aiParams` trong `useAdminUsers`, dữ liệu giả + type liên quan; menu chỉ còn "Kế hoạch đóng gói" (→ `/app/packing`) và "Danh mục thùng"; `/app/admin/packing-plans` chuyển hướng sang `/app/packing`; thông báo `pending_approval`/`abnormal_package`/`packaging_rejected` của Admin mở thẳng `/app/packing/:groupId`. FE `tsc -b` + build đạt, lint 15 vấn đề có sẵn (trước 17).
+
+## Làm lại giao diện hàng chờ đóng gói `/app/packing` (05/10/2026)
+
+- Bỏ 4 cột kanban (phần lớn trống) → **một danh sách theo bước**: tab Cần xử lý (chỉ hiện khi có lỗi) / Chờ duyệt / Chờ đóng / Đang tính / Đã đóng, có số đếm; tab mặc định = tab đầu tiên còn việc, lưu ở `?stage=`. Bảng 4 cột thẳng hàng: Đơn · Hàng · Kế hoạch (hoặc Vấn đề) · Hạn, nút hành động theo bước (Duyệt / Đóng gói / Xử lý / Xem).
+- Mỗi dòng nhận diện bằng **mã đơn sàn + người nhận + sàn + SKU×số lượng**, không còn mã hex của nhóm. Nguồn: `GET /packing-plans/summary` trả thêm `groups[]` (`PackingQueueService.describeGroups()` đọc thẳng `orders`, bỏ đơn hủy/sự cố) — nhóm đang tính hoặc tính lỗi (chưa có kiện) vẫn có đủ thông tin. FE vẫn chịu được backend cũ không có `groups`.
+- Lỗi tính phương án được diễn giải: "SKU X chưa có hồ sơ đóng gói" → "Thiếu hồ sơ đóng gói của X" + cách sửa + link `Mở hồ sơ SKU` (`/app/inventory/packaging-profiles?q=X`, trang hồ sơ tự mở đúng SKU; chỉ hiện với role vào được trang đó). Lỗi khác hiện "Không tính được phương án" kèm nguyên văn.
+- Nhãn chứng minh không còn là badge xanh lặp lại: chỉ một dòng nhỏ "Tối ưu" (có chứng minh) hoặc "Đang kiểm chứng tối ưu" (CP-SAT chạy nền); heuristic không hiện gì.
+- Verify: FE `tsc -b` + eslint sạch; BE `tsc` 0 lỗi, jest 59/59 suite, 647 test. Đã chụp màn hình (Edge headless + API giả lập) desktop/mobile — chưa xem với dữ liệu thật.
