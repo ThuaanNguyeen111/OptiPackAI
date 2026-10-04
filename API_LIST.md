@@ -98,7 +98,8 @@ Public profile: `id`, `name`, `email`, `role`, `avatar`, `phone?`, `address?`, `
 | Method | Route                             | Role   | Mô tả                                                    |
 | ------ | --------------------------------- | ------ | -------------------------------------------------------- |
 | GET    | `/marketplace/:platform/connect`  | Admin  | Tạo URL OAuth để kết nối shop 1 sàn (lazada/tiktok/tiki) |
-| GET    | `/marketplace/:platform/callback` | Public | Sàn tự gọi lại sau khi seller authorize                  |
+| GET    | `/marketplace/:platform/shops`    | Admin, Store Owner | 🆕 (04/10/2026) Shop đã kết nối OAuth của 1 sàn, đọc từ DB, không kèm token |
+| GET    | `/marketplace/:platform/callback` | Public | Sàn tự gọi lại sau khi seller authorize; 🔄 redirect kèm `platform` |
 
 `platform` là enum marketplace (`lazada`, `tiktok`, `tiki`, 🆕 `aurelle` — sàn thứ 2 tự dựng tương thích khung Lazada, xem `AURELLE_MARKETPLACE_DESIGN.md`). Callback state dùng một lần để chống CSRF. Access/refresh token được mã hóa trong `marketplace_shops`, không expose.
 

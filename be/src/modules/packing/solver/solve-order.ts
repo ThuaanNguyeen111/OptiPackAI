@@ -35,11 +35,13 @@ import type {
  *  3. Mọi kiện phải qua validator độc lập + kiểm cấp kế hoạch (mỗi món đúng
  *     1 lần, không dùng quá tồn). Sai = lỗi lập trình → ném lỗi, không lưu.
  *  4. Gắn nhãn chứng minh (proof.ts).
+ *  Sau BRKGA: gộp cặp kiện (ít kiện/rẻ hơn) rồi chia đều cặp kiện lệch tải
+ *  nhất (không đổi thùng, không tăng gập) — v2, 04/10/2026.
  * Xác định: seed mặc định băm từ nội dung đơn; ngân sách là số lần giải mã.
  * ===================================================================
  */
 
-export const SOLVER_VERSION = 'brkga-ems-v1';
+export const SOLVER_VERSION = 'brkga-ems-v2';
 /** Đơn tới chừng này món thì vét cạn không gian giải mã. */
 const EXHAUSTIVE_MAX_UNITS = 3;
 const EXHAUSTIVE_MAX_EVALUATIONS = 20_000;
@@ -270,6 +272,16 @@ export function solveOrder(
     evaluations += merged.evaluations;
   }
 
+  // 2c. Chia đều: giải lại cặp kiện lệch tải nhất CHỈ với đúng các thùng cặp đó
+  // đang dùng (không đổi thùng nên không tăng tiền), nhận khi cả kế hoạch tốt
+  // hơn theo mục tiêu bậc — số kiện/tiền/cân quy đổi/số món gập không được xấu
+  // đi, chỉ lệch tải giảm.
+  if (options.balance !== false && best.unplacedIdx.length === 0 && best.parcels.length >= 2) {
+    const balanced = balanceParcels(best, units, variants, ctx, evaluateWith, compare, seed);
+    best = balanced.best;
+    evaluations += balanced.evaluations;
+  }
+
   // Món còn lại không đặt được (thường do hết tồn giữa chừng).
   for (const i of best.unplacedIdx) {
     const u = units[i];
@@ -384,6 +396,71 @@ function exhaustive<E>(
 const MERGE_MAX_EVALUATIONS = 3000;
 /** Ngân sách BRKGA nhỏ cho MỖI lần giải lại một cặp kiện. */
 const MERGE_PAIR_EVALUATIONS = 400;
+/** Trần số lần giải mã cho bước chia đều (cả đơn) và cho mỗi cặp. */
+const BALANCE_MAX_EVALUATIONS = 2400;
+const BALANCE_PAIR_EVALUATIONS = 300;
+
+type EvaluateWith = (c: DecodeContext) => (keys: Float64Array) => Evaluated;
+
+/**
+ * Giải lại hợp các món của `pair` (2 kiện) bằng một BRKGA nhỏ, dùng cùng bộ
+ * giải mã/validator. `boxCodes` giới hạn thùng được dùng (null = mọi thùng),
+ * `stock` = tồn còn lại sau khi trừ các kiện KHÔNG thuộc cặp.
+ */
+function resolveSubset(
+  pair: SolvedParcel[],
+  units: PackingUnit[],
+  variants: Variant[][],
+  ctx: DecodeContext,
+  evaluateWith: EvaluateWith,
+  compare: (a: Evaluated, b: Evaluated) => number,
+  options: {
+    stock: Map<string, number> | undefined;
+    boxCodes: Set<string> | null;
+    maxEvaluations: number;
+    seed: number;
+  },
+): { value: Evaluated; evaluations: number } {
+  const keyIndex = new Map(units.map((u, i) => [u.item_key, i]));
+  const idxs = pair
+    .flatMap((p) => p.placements.map((q) => keyIndex.get(q.item_key)))
+    .filter((i): i is number => i !== undefined)
+    .sort((a, b) => a - b);
+  const subUnits = idxs.map((i) => units[i]).filter((u): u is PackingUnit => u !== undefined);
+  const allow = (b: BoxSpec): boolean => options.boxCodes === null || options.boxCodes.has(b.code);
+  const subCtx: DecodeContext = {
+    ...ctx,
+    units: subUnits,
+    variants: idxs.map((i) => variants[i] ?? []),
+    boxesBySizeDesc: ctx.boxesBySizeDesc.filter(allow),
+    boxesByCostAsc: ctx.boxesByCostAsc.filter(allow),
+    stock: options.stock,
+  };
+  const seeds: Float64Array[] = [];
+  for (let o = 0; o < 7; o += 1) seeds.push(seedFromOrder(orderUnits(o, subUnits), subUnits));
+  const sub = runBrkga<Evaluated>(
+    nKeys(subUnits.length),
+    evaluateWith(subCtx),
+    compare,
+    {
+      ...DEFAULT_BRKGA,
+      populationSize: 30,
+      stallGenerations: 10,
+      maxEvaluations: options.maxEvaluations,
+    },
+    mulberry32(options.seed),
+    seeds,
+  );
+  return { value: sub.value, evaluations: sub.evaluations };
+}
+
+/** Tồn còn lại cho cặp kiện: tồn của đơn trừ các kiện còn lại của kế hoạch. */
+function stockWithout(ctx: DecodeContext, rest: SolvedParcel[]): Map<string, number> | undefined {
+  if (!ctx.stock) return undefined;
+  const stock = new Map(ctx.stock);
+  for (const p of rest) stock.set(p.box.code, (stock.get(p.box.code) ?? 0) - 1);
+  return stock;
+}
 
 /**
  * Gộp cặp kiện: lấy kiện vơi nhất, lần lượt giải lại hợp của nó với từng kiện
@@ -395,11 +472,10 @@ function mergeParcels(
   units: PackingUnit[],
   variants: Variant[][],
   ctx: DecodeContext,
-  evaluateWith: (c: DecodeContext) => (keys: Float64Array) => Evaluated,
+  evaluateWith: EvaluateWith,
   compare: (a: Evaluated, b: Evaluated) => number,
   seed: number,
 ): { best: Evaluated; evaluations: number } {
-  const keyIndex = new Map(units.map((u, i) => [u.item_key, i]));
   let best = start;
   let evaluations = 0;
   let round = 0;
@@ -415,40 +491,17 @@ function mergeParcels(
     if (least === undefined) break;
     for (const other of order.slice(1)) {
       if (evaluations >= MERGE_MAX_EVALUATIONS) break;
-      const pair = [current.parcels[least], current.parcels[other]];
-      const idxs = pair
-        .flatMap((p) => p?.placements.map((q) => keyIndex.get(q.item_key)) ?? [])
-        .filter((i): i is number => i !== undefined)
-        .sort((a, b) => a - b);
-      const rest = current.parcels.filter((_p, i) => i !== least && i !== other);
-      let stock: Map<string, number> | undefined;
-      if (ctx.stock) {
-        stock = new Map(ctx.stock);
-        for (const p of rest) stock.set(p.box.code, (stock.get(p.box.code) ?? 0) - 1);
-      }
-      const subUnits = idxs.map((i) => units[i]).filter((u): u is PackingUnit => u !== undefined);
-      const subCtx: DecodeContext = {
-        ...ctx,
-        units: subUnits,
-        variants: idxs.map((i) => variants[i] ?? []),
-        stock,
-      };
-      const seeds: Float64Array[] = [];
-      for (let o = 0; o < 7; o += 1) seeds.push(seedFromOrder(orderUnits(o, subUnits), subUnits));
-      round += 1;
-      const sub = runBrkga<Evaluated>(
-        nKeys(subUnits.length),
-        evaluateWith(subCtx),
-        compare,
-        {
-          ...DEFAULT_BRKGA,
-          populationSize: 30,
-          stallGenerations: 10,
-          maxEvaluations: Math.min(MERGE_PAIR_EVALUATIONS, MERGE_MAX_EVALUATIONS - evaluations),
-        },
-        mulberry32((seed ^ Math.imul(round, 0x9e3779b1)) >>> 0),
-        seeds,
+      const pair = [current.parcels[least], current.parcels[other]].filter(
+        (p): p is SolvedParcel => p !== undefined,
       );
+      const rest = current.parcels.filter((_p, i) => i !== least && i !== other);
+      round += 1;
+      const sub = resolveSubset(pair, units, variants, ctx, evaluateWith, compare, {
+        stock: stockWithout(ctx, rest),
+        boxCodes: null,
+        maxEvaluations: Math.min(MERGE_PAIR_EVALUATIONS, MERGE_MAX_EVALUATIONS - evaluations),
+        seed: (seed ^ Math.imul(round, 0x9e3779b1)) >>> 0,
+      });
       evaluations += sub.evaluations;
       if (sub.value.unplacedIdx.length > 0) continue;
       const parcels = [...rest, ...sub.value.parcels];
@@ -457,6 +510,75 @@ function mergeParcels(
         unplacedIdx: [],
         objective: objectiveOf(parcels, 0),
       };
+      if (compare(candidate, current) < 0) {
+        best = candidate;
+        improved = true;
+        break;
+      }
+    }
+  }
+  return { best, evaluations };
+}
+
+/** Tải chuẩn hoá của 1 kiện (cân/tổng cân + thể tích/tổng thể tích) — cùng thước đo với `objectiveOf().imbalance`. */
+function loadShares(parcels: SolvedParcel[]): number[] {
+  const weights = parcels.map((p) => p.items_weight_g);
+  const volumes = parcels.map((p) => p.placements.reduce((s, q) => s + q.dx * q.dy * q.dz, 0));
+  const tw = weights.reduce((a, b) => a + b, 0) || 1;
+  const tv = volumes.reduce((a, b) => a + b, 0) || 1;
+  return parcels.map((_p, i) => (weights[i] ?? 0) / tw + (volumes[i] ?? 0) / tv);
+}
+
+/**
+ * Chia đều: thử giải lại cặp (kiện nặng nhất, kiện nhẹ nhất), rồi (nặng nhất,
+ * nhẹ nhì)… CHỈ với các mã thùng cặp đó đang dùng và đúng số lượng đó — nên
+ * không bao giờ thêm kiện hay đổi sang thùng đắt hơn. Nhận khi cả kế hoạch tốt
+ * hơn theo mục tiêu bậc (thực tế: cùng số kiện/tiền/cân quy đổi/số gập, lệch
+ * tải giảm). Lặp tới khi không cải thiện hoặc hết ngân sách (xác định).
+ */
+function balanceParcels(
+  start: Evaluated,
+  units: PackingUnit[],
+  variants: Variant[][],
+  ctx: DecodeContext,
+  evaluateWith: EvaluateWith,
+  compare: (a: Evaluated, b: Evaluated) => number,
+  seed: number,
+): { best: Evaluated; evaluations: number } {
+  let best = start;
+  let evaluations = 0;
+  let round = 0;
+  let improved = true;
+  while (improved && evaluations < BALANCE_MAX_EVALUATIONS) {
+    improved = false;
+    const current = best;
+    const shares = loadShares(current.parcels);
+    const byLoad = shares
+      .map((share, i) => ({ i, share }))
+      .sort((a, b) => b.share - a.share || a.i - b.i)
+      .map((x) => x.i);
+    const heaviest = byLoad[0];
+    if (heaviest === undefined) break;
+    for (const other of [...byLoad.slice(1)].reverse()) {
+      if (evaluations >= BALANCE_MAX_EVALUATIONS) break;
+      const pair = [current.parcels[heaviest], current.parcels[other]].filter(
+        (p): p is SolvedParcel => p !== undefined,
+      );
+      const rest = current.parcels.filter((_p, i) => i !== heaviest && i !== other);
+      // Đúng các thùng cặp đang dùng, đúng số lượng → không thể đắt hơn hay thêm kiện.
+      const pairStock = new Map<string, number>();
+      for (const p of pair) pairStock.set(p.box.code, (pairStock.get(p.box.code) ?? 0) + 1);
+      round += 1;
+      const sub = resolveSubset(pair, units, variants, ctx, evaluateWith, compare, {
+        stock: pairStock,
+        boxCodes: new Set(pairStock.keys()),
+        maxEvaluations: Math.min(BALANCE_PAIR_EVALUATIONS, BALANCE_MAX_EVALUATIONS - evaluations),
+        seed: (seed ^ Math.imul(round + 7919, 0x85ebca6b)) >>> 0,
+      });
+      evaluations += sub.evaluations;
+      if (sub.value.unplacedIdx.length > 0) continue;
+      const parcels = [...rest, ...sub.value.parcels];
+      const candidate: Evaluated = { parcels, unplacedIdx: [], objective: objectiveOf(parcels, 0) };
       if (compare(candidate, current) < 0) {
         best = candidate;
         improved = true;

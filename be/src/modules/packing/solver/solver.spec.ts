@@ -206,6 +206,65 @@ describe('Bộ giải BRKGA + EMS', () => {
   });
 });
 
+describe('Chia đều kiện (v2, 04/10/2026)', () => {
+  // Đơn sỉ của dữ liệu demo: 40 áo thun + 12 quần jean (cả hai gập đôi được).
+  const wholesale = (): PackableItem[] => [
+    item('DEMO-TEE', [36, 24, 4], 0.22, { qty: 40, category: 't_shirt', stackKg: 2, fold: true }),
+    item('DEMO-JEAN', [38, 30, 6], 0.65, { qty: 12, category: 'trousers', stackKg: 3, fold: true }),
+  ];
+  const lowL = {
+    ...customBox('SAMPLE-LT', [500, 400, 200], 15000),
+    tare_g: 260,
+    price_vnd: 6000,
+  };
+  const boxes = [...sampleBoxes(), lowL];
+  const stock = new Map([
+    ['SAMPLE-S', 20],
+    ['SAMPLE-M', 0],
+    ['SAMPLE-L', 16],
+    ['SAMPLE-LT', 20],
+  ]);
+
+  const spread = (r: SolveResult): number => {
+    const w = r.parcels.map((p) => p.items_weight_g);
+    return Math.max(...w) - Math.min(...w);
+  };
+
+  it('đơn sỉ dùng thêm thùng L thấp: không quá 5 kiện / 36.000 đ, qua validator', () => {
+    const items = wholesale();
+    const r = solve(items, { availability: stock }, boxes);
+    expect(r.unplaced).toEqual([]);
+    expectValid(r, items);
+    expect(r.parcels.length).toBeLessThanOrEqual(5);
+    expect(cost(r)).toBeLessThanOrEqual(36000);
+  });
+
+  it('chia đều không đổi số kiện/tiền thùng và không làm lệch tải hơn', () => {
+    const items = wholesale();
+    const off = solve(items, { availability: stock, balance: false }, boxes);
+    const on = solve(items, { availability: stock }, boxes);
+    expect(on.parcels.length).toBe(off.parcels.length);
+    expect(cost(on)).toBe(cost(off));
+    expect(on.objective.folds).toBeLessThanOrEqual(off.objective.folds);
+    expect(on.objective.imbalance).toBeLessThanOrEqual(off.objective.imbalance);
+    expect(spread(on)).toBeLessThanOrEqual(spread(off) + 1e-9);
+  });
+
+  it('chia đều vẫn xác định: chạy 2 lần ra cùng tọa độ', () => {
+    const a = solve(wholesale(), { availability: stock }, boxes);
+    const b = solve(wholesale(), { availability: stock }, boxes);
+    expect(b.parcels.map((p) => [p.box.code, p.placements])).toEqual(
+      a.parcels.map((p) => [p.box.code, p.placements]),
+    );
+  });
+
+  it('chia đều không dùng thùng ngoài tồn kho', () => {
+    const r = solve(wholesale(), { availability: stock }, boxes);
+    const keys = expandToUnits(wholesale()).map((u) => u.item_key);
+    expect(validatePlan(r.parcels, keys, stock)).toEqual([]);
+  });
+});
+
 describe('BRKGA (hàm tổng quát)', () => {
   // Bài toán đồ chơi: khóa càng gần 0,5 càng tốt.
   const evaluate = (k: Float64Array): number => k.reduce((s, x) => s + Math.abs(x - 0.5), 0);

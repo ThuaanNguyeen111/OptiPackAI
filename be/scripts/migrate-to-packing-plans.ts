@@ -212,6 +212,7 @@ async function main(): Promise<void> {
               explanation: [`Chuyển từ phương án cũ (engine ${r.engine_version ?? 'legacy'}) — chưa chứng minh tối ưu.`],
               strategy: 'legacy',
               cp_sat: 'skipped' as const,
+              stock_suggestion: null,
             },
           ]
         : [],

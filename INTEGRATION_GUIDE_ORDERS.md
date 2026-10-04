@@ -105,6 +105,18 @@ Thành công: http://localhost:5173/marketplace-oauth-success?shopId=20117126453
 Thất bại:   http://localhost:5173/marketplace-oauth-success?error=<error_code>
 ```
 
+🔄 ĐÃ ĐỔI (04/10/2026): redirect kèm thêm `platform` (`&platform=lazada` hoặc `&platform=aurelle`, cả khi lỗi) để FE biết shop vừa kết nối thuộc sàn nào. Thiếu `platform` thì FE coi là `lazada` (tương thích bản cũ). Chỉ Lazada còn lưu danh sách shop trong `localStorage`; AURELLE đọc từ API `GET /marketplace/:platform/shops` bên dưới.
+
+🆕 MỚI (04/10/2026) — **`GET /marketplace/:platform/shops`** (Admin, Store Owner): danh sách shop đã kết nối OAuth của 1 sàn, **đọc thật từ DB**, không bao giờ kèm token. Gồm cả shop đã ngắt (`isActive: false`) để biết cần kết nối lại.
+
+```json
+{ "shops": [ { "shopId": "200000000101", "shopName": "AURELLE Demo", "environment": "sandbox",
+  "isActive": true, "accessTokenExpiresAt": "...", "refreshTokenExpiresAt": "...",
+  "lastPolledAt": null, "connectedAt": "2026-10-04T08:00:00.000Z" } ] }
+```
+
+Lưu ý: **app key AURELLE chỉ định danh ứng dụng OptiPack, không phải định danh shop** — có app key trong `.env` chưa có nghĩa là có shop nào kết nối. Muốn kéo đơn phải có seller bấm cấp quyền (OAuth) để BE lưu `access_token`. Thẻ "Website AURELLE · Kênh nội bộ" trên màn Kết nối sàn là kênh khác (storefront chạy chung backend, ghi đơn thẳng, `shop_id: storefront-main`), không liên quan app key.
+
 FE cần có sẵn 1 route `/marketplace-oauth-success`, đọc `URLSearchParams` từ URL để lấy `shopId`/`shopName` (hoặc `error`) — **không** gọi API nào thêm ở bước này, đúng pattern đã quen với `/oauth-success` của Google. `error_code` trả về là 1 trong các mã `MKT_*` liệt kê đầy đủ ở mục 8 (VD `MKT_OAUTH_STATE_INVALID`, hoặc `MKT_SERVER_ERROR` nếu lỗi không rơi vào mã cụ thể nào khác).
 
 Sau khi connect xong 1 lần, **`shopId` (chính là Lazada `seller_id`, ví dụ `201171264532`) là định danh dùng lại cho mọi lần gọi sync/list phía dưới** — FE nên lưu lại giá trị này (theo shop, không phải theo user) để không phải hỏi lại backend mỗi lần.
@@ -397,6 +409,7 @@ Prefix `error_code` theo module: `MKT_` (marketplace-integration — lỗi liên
 | Method | Route                             | Cần đăng nhập?                                | Role      | Ghi chú                                                                                                                     |
 | ------ | --------------------------------- | --------------------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/marketplace/:platform/connect`  | Có                                            | **Admin** | `:platform` = `lazada`/🆕 `aurelle` (tiktok/tiki: enum có nhưng chưa xác nhận hoạt động — xem đầu file). Trả `{ authUrl }`  |
+| GET    | `/marketplace/:platform/shops`    | Có                                            | **Admin, Store Owner** | 🆕 (04/10/2026) Shop đã kết nối đọc từ DB, không kèm token — xem mục 3 |
 | GET    | `/marketplace/:platform/callback` | **Không** (sàn tự điều hướng trình duyệt tới) | —         | Public — bảo mật bằng state token 1 lần. **Redirect về FE** `/marketplace-oauth-success?...` (đã sửa 15/09/2026, xem mục 3) |
 | 🆕 POST | `/marketplace/webhooks/:platform` | **Không** (AURELLE tự gọi, không phải FE)     | —         | Public — bảo mật bằng chữ ký HMAC, không JWT. Xem mục 4b. Không expose Swagger                                              |
 | POST   | `/orders/lazada/sync`             | Có                                            | **Admin** | Query `shop_id` bắt buộc. Giữ nguyên, tương thích ngược                                                                     |

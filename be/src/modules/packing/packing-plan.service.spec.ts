@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
-import { jean, sampleBoxes, shoebox, tee } from '../packaging/engine/scenarios/order-scenarios';
+import { item, jean, sampleBoxes, shoebox, tee } from '../packaging/engine/scenarios/order-scenarios';
 import type { PackableItem } from '../../common/interfaces/packaging.interface';
 import { PackingPlanService, type CpSatTask } from './packing-plan.service';
 import { PackingJobService } from './packing-job.service';
@@ -242,6 +242,48 @@ describe('PackingPlanService', () => {
       expect(failed?.status).toBe('failed');
       expect(failed?.failure_reason).toMatch(/Hồ sơ SKU X/);
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PICKED);
+    });
+
+    it('kho dư thùng → không có gợi ý kho thùng', async () => {
+      const plan = await computed();
+      expect(plan.orders.every((o) => o.stock_suggestion === null)).toBe(true);
+    });
+
+    it('kho hết thùng vừa hơn → gợi ý đúng thùng thiếu, lấp đầy và tiền rẻ hơn', async () => {
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'DEMO-1', items: [tee(2), jean(1)] }];
+      stock = new Map([
+        ['SAMPLE-S', 0],
+        ['SAMPLE-M', 0],
+        ['SAMPLE-L', 50],
+      ]);
+      const plan = await computed();
+      const order = plan.orders[0];
+      expect(plan.parcels.map((p) => p.box.code)).toEqual(['SAMPLE-L']);
+      expect(order?.stock_suggestion).toMatchObject({
+        parcels: 1,
+        current_parcels: 1,
+        saving_vnd: 3500,
+        missing: [{ box_code: 'SAMPLE-M', needed: 1, available: 0 }],
+      });
+      expect(order?.stock_suggestion?.avg_fill).toBeGreaterThan(order?.stock_suggestion?.current_avg_fill ?? 1);
+      expect(order?.explanation.some((l) => l.startsWith('Nếu kho có đủ thùng SAMPLE-M (thiếu 1)'))).toBe(true);
+    });
+
+    it('đơn lớn hơn giới hạn CP-SAT mà chưa chứng minh được → ghi rõ vì sao chỉ là phương án tốt nhất tìm được', async () => {
+      allocations = [
+        {
+          order_id: new Types.ObjectId().toString(),
+          platform_order_id: 'DEMO-SI',
+          items: [
+            item('DEMO-TEE', [36, 24, 4], 0.22, { qty: 40, category: 't_shirt', stackKg: 2, fold: true }),
+            item('DEMO-JEAN', [38, 30, 6], 0.65, { qty: 12, category: 'trousers', stackKg: 3, fold: true }),
+          ],
+        },
+      ];
+      const plan = await computed();
+      const order = plan.orders[0];
+      expect(order?.proof).toBe('heuristic');
+      expect(order?.explanation.some((l) => l.includes('vượt giới hạn 12 món'))).toBe(true);
     });
 
     it('tôn trọng loại trừ thùng khi tính lại có điều kiện', async () => {

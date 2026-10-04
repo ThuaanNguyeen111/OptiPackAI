@@ -137,6 +137,35 @@ export class PlanUnplaced {
 }
 export const PlanUnplacedSchema = SchemaFactory.createForClass(PlanUnplaced);
 
+/** Thùng kho đang thiếu so với phương án "giả định đủ tồn" (04/10/2026). */
+@Schema({ _id: false })
+export class PlanMissingBox {
+  @Prop({ required: true }) box_code!: string;
+  @Prop({ required: true }) box_name!: string;
+  /** Số kiện dùng thùng này trong phương án giả định. */
+  @Prop({ type: Number, required: true }) needed!: number;
+  /** Số thùng còn trống lúc tính (đã trừ giữ chỗ của nhóm khác). */
+  @Prop({ type: Number, required: true }) available!: number;
+}
+export const PlanMissingBoxSchema = SchemaFactory.createForClass(PlanMissingBox);
+
+/**
+ * Gợi ý kho thùng (04/10/2026): nếu kho đủ các thùng ở `missing` thì đơn sẽ
+ * đóng được như dưới đây. Chụp LÚC TÍNH — đổi thùng/chuyển món không tính lại.
+ */
+@Schema({ _id: false })
+export class PlanStockSuggestion {
+  @Prop({ type: Number, required: true }) parcels!: number;
+  @Prop({ type: Number, required: true }) packaging_cost_vnd!: number;
+  @Prop({ type: Number, required: true }) avg_fill!: number;
+  @Prop({ type: Number, required: true }) current_parcels!: number;
+  @Prop({ type: Number, required: true }) current_avg_fill!: number;
+  /** Tiền thùng + vật tư rẻ hơn so với phương án hiện tại (âm = đắt hơn nhưng ít kiện hơn). */
+  @Prop({ type: Number, required: true }) saving_vnd!: number;
+  @Prop({ type: [PlanMissingBoxSchema], default: [] }) missing!: PlanMissingBox[];
+}
+export const PlanStockSuggestionSchema = SchemaFactory.createForClass(PlanStockSuggestion);
+
 @Schema({ _id: false })
 export class PlanOrder {
   @Prop({ type: Types.ObjectId, required: true }) order_id!: Types.ObjectId;
@@ -149,6 +178,7 @@ export class PlanOrder {
   @Prop({ type: [String], default: [] }) explanation!: string[];
   @Prop({ required: true }) strategy!: string;
   @Prop({ type: String, required: true, enum: CP_SAT_STATES }) cp_sat!: CpSatState;
+  @Prop({ type: PlanStockSuggestionSchema, default: null }) stock_suggestion!: PlanStockSuggestion | null;
 }
 export const PlanOrderSchema = SchemaFactory.createForClass(PlanOrder);
 

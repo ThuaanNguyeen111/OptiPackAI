@@ -29,6 +29,7 @@ import {
   type Placement,
 } from '../packaging/engine';
 import {
+  CP_SAT_MAX_UNITS,
   SOLVER_VERSION,
   httpCpSatChecker,
   solveOrder,
@@ -45,6 +46,7 @@ import {
 } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { renumberParcels, type Plain } from './utils/parcels.util';
+import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
 import type {
   ChangeBoxDto,
   MoveItemDto,
@@ -297,6 +299,25 @@ export class PackingPlanService {
           result.open_candidates.length > 0 &&
           units.length <= (packer?.maxUnits ?? 0);
         const cpSat: CpSatState = !wantsCpSat ? 'skipped' : packer ? 'pending' : 'unavailable';
+        // Gợi ý kho thùng: chỉ khi kho thiếu thùng vừa hơn mới làm phương án xấu đi.
+        const suggestion = suggestStock(units, boxes, result, stockForOrder, {
+          materials,
+          excludeBoxCodes: exclude,
+          prefer,
+        });
+        const explanation = [...result.explanation];
+        if (suggestion) explanation.push(describeSuggestion(suggestion));
+        const maxUnits = packer?.maxUnits ?? CP_SAT_MAX_UNITS;
+        if (result.proof === 'heuristic' && result.unplaced.length === 0 && units.length > maxUnits) {
+          explanation.push(
+            `Đơn ${String(units.length)} món vượt giới hạn ${String(maxUnits)} món của bước chứng minh CP-SAT. ` +
+              `Cận dưới ${String(result.lower_bound_parcels)} kiện chỉ tính theo thể tích, cân và diện tích đáy nên có thể thấp hơn mức xếp được thật — ` +
+              `chưa khẳng định được ${String(result.lower_bound_parcels)} kiện là không thể.`,
+          );
+        }
+        if (cpSat === 'unavailable') {
+          explanation.push('Service CP-SAT chưa được bật nên chưa kiểm chứng thêm các tổ hợp thùng còn mở.');
+        }
         orders.push({
           order_id: orderId,
           platform_order_id: allocation.platform_order_id,
@@ -304,9 +325,10 @@ export class PackingPlanService {
           unplaced: result.unplaced.map((u) => ({ item_key: u.item_key, code: u.code, reason: u.reason })),
           proof: result.proof,
           lower_bound_parcels: result.lower_bound_parcels,
-          explanation: result.explanation,
+          explanation,
           strategy: result.strategy,
           cp_sat: cpSat,
+          stock_suggestion: suggestion,
         });
         if (cpSat === 'pending')
           pending.push({ orderId: allocation.order_id, units, result, availability: stockForOrder });

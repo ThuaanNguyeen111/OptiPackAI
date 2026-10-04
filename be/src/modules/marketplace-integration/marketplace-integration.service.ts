@@ -28,6 +28,18 @@ import { MKT_ERROR_CODES } from './marketplace-integration.errors';
 // 2 nơi có thể lệch nhau nếu sau này chỉ sửa 1 chỗ.
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000; // refresh sớm 5 phút trước khi hết hạn thật
 
+/** Thông tin shop trả cho màn "Kết nối sàn" — không có token. */
+export interface ConnectedShopSummary {
+  shop_id: string;
+  shop_name: string | null;
+  environment: 'sandbox' | 'production';
+  is_active: boolean;
+  access_token_expires_at: Date;
+  refresh_token_expires_at: Date;
+  last_polled_at: Date | null;
+  connected_at: Date | null;
+}
+
 @Injectable()
 export class MarketplaceIntegrationService {
   private readonly logger = new Logger(MarketplaceIntegrationService.name);
@@ -265,6 +277,35 @@ export class MarketplaceIntegrationService {
     platform: MarketplacePlatform,
   ): Promise<MarketplaceShopDocument[]> {
     return this.marketplaceShopModel.find({ platform, is_active: true });
+  }
+
+  /**
+   * Danh sách shop đã kết nối để HIỂN THỊ trên màn "Kết nối sàn" — đọc thật
+   * từ `marketplace_shops`, không bao giờ kèm token (2 field token đều
+   * `select: false`). Gồm cả shop đã ngắt (is_active=false) để Admin thấy
+   * cần kết nối lại.
+   */
+  async listShopsForDisplay(
+    platform: MarketplacePlatform,
+  ): Promise<ConnectedShopSummary[]> {
+    const shops = await this.marketplaceShopModel
+      .find({ platform })
+      .select(
+        'shop_id shop_name environment access_token_expires_at refresh_token_expires_at last_polled_at is_active created_at',
+      )
+      .sort({ is_active: -1, created_at: -1 })
+      .lean();
+
+    return shops.map((shop) => ({
+      shop_id: shop.shop_id,
+      shop_name: shop.shop_name,
+      environment: shop.environment,
+      is_active: shop.is_active,
+      access_token_expires_at: shop.access_token_expires_at,
+      refresh_token_expires_at: shop.refresh_token_expires_at,
+      last_polled_at: shop.last_polled_at,
+      connected_at: shop.created_at ?? null,
+    }));
   }
 
   /**

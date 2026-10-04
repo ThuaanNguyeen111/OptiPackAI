@@ -8,6 +8,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
+import { averageFill } from './utils/stock-suggestion.util';
 import type { PackingPlanDocument, PlanProofLabel } from './schemas/packing-plan.schema';
 import {
   ApprovePlanDto,
@@ -46,6 +47,15 @@ export interface PackingPlanResponse {
     explanation: string[];
     strategy: string;
     cpSat: string;
+    stockSuggestion: {
+      parcels: number;
+      packagingCostVnd: number;
+      avgFill: number;
+      currentParcels: number;
+      currentAvgFill: number;
+      savingVnd: number;
+      missing: { boxCode: string; boxName: string; needed: number; available: number }[];
+    } | null;
   }[];
   parcels: {
     parcelNo: number;
@@ -113,7 +123,7 @@ export interface PackingPlanResponse {
     computationMs: number;
     options: { excludeBoxCodes: string[]; prefer: string };
   };
-  totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number };
+  totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number; avgFill: number };
   approvedAt: Date | null;
   rejectedAt: Date | null;
   rejectionReason: string | null;
@@ -158,6 +168,23 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       explanation: o.explanation,
       strategy: o.strategy,
       cpSat: o.cp_sat,
+      // Bản ghi trước 04/10/2026 không có field này.
+      stockSuggestion: o.stock_suggestion
+        ? {
+            parcels: o.stock_suggestion.parcels,
+            packagingCostVnd: o.stock_suggestion.packaging_cost_vnd,
+            avgFill: o.stock_suggestion.avg_fill,
+            currentParcels: o.stock_suggestion.current_parcels,
+            currentAvgFill: o.stock_suggestion.current_avg_fill,
+            savingVnd: o.stock_suggestion.saving_vnd,
+            missing: o.stock_suggestion.missing.map((m) => ({
+              boxCode: m.box_code,
+              boxName: m.box_name,
+              needed: m.needed,
+              available: m.available,
+            })),
+          }
+        : null,
     })),
     parcels: plan.parcels.map((p) => ({
       parcelNo: p.parcel_no,
@@ -240,6 +267,9 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       parcels: plan.parcels.length,
       packagingCostVnd: plan.parcels.reduce((s, p) => s + (p.box.price_vnd ?? 0) + p.materials_cost_vnd, 0),
       estimatedWeightG: plan.parcels.reduce((s, p) => s + p.estimated_weight_g, 0),
+      avgFill: averageFill(
+        plan.parcels.map((p) => ({ box: { inner: p.box.inner_mm }, placements: p.placements })),
+      ),
     },
     approvedAt: plan.approved_at,
     rejectedAt: plan.rejected_at,

@@ -44,6 +44,8 @@ export interface SolveOptions {
   /** Trần số lần giải mã (đánh giá) của BRKGA — giới hạn xác định, không dùng đồng hồ. */
   maxEvaluations?: number;
   volumetricDivisor?: number;
+  /** Bước chia đều cặp kiện lệch tải (v2). Mặc định bật; `false` để so trước/sau. */
+  balance?: boolean;
 }
 
 /** Một cách đặt món: dạng (gập hay không) + hướng xoay + kích thước sau xoay. */

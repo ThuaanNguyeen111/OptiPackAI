@@ -3,7 +3,15 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AuthLayout } from '../components/auth/AuthLayout'
 import { Button } from '../components/ui/Button'
 import { upsertLazadaShop } from '../lib/lazada-shop'
-import { LAZADA_OAUTH_MESSAGE_TYPE } from '../types/marketplace-orders'
+import {
+  LAZADA_OAUTH_MESSAGE_TYPE,
+  MARKETPLACE_OAUTH_MESSAGE_TYPE,
+} from '../types/marketplace-orders'
+
+const PLATFORM_LABELS: Record<string, string> = {
+  lazada: 'Lazada',
+  aurelle: 'AURELLE',
+}
 
 export function MarketplaceOAuthSuccessPage() {
   const [params] = useSearchParams()
@@ -17,9 +25,26 @@ export function MarketplaceOAuthSuccessPage() {
       : null
   const connected = params.get('connected') !== 'false'
   const error = params.get('error')
+  // BE cũ không gửi platform → mặc định Lazada (tương thích ngược)
+  const platform = params.get('platform')?.trim() || 'lazada'
+  const platformLabel = PLATFORM_LABELS[platform] ?? platform
 
   useEffect(() => {
     if (error || !shopId || !connected) return
+
+    // Chỉ Lazada còn lưu danh sách shop trong localStorage; sàn khác đọc từ DB.
+    if (platform !== 'lazada') {
+      if (window.opener && !window.opener.closed) {
+        window.opener.postMessage(
+          { type: MARKETPLACE_OAUTH_MESSAGE_TYPE, platform, shopId, shopName },
+          window.location.origin,
+        )
+        window.close()
+        return
+      }
+      navigate('/app/admin/marketplace', { replace: true })
+      return
+    }
 
     upsertLazadaShop({
       shopId,
@@ -38,14 +63,14 @@ export function MarketplaceOAuthSuccessPage() {
       return
     }
     navigate('/app/admin/marketplace', { replace: true })
-  }, [connected, error, navigate, shopId, shopName])
+  }, [connected, error, navigate, platform, shopId, shopName])
 
   if (error || !shopId) {
     return (
       <AuthLayout mode="login">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Kết nối Lazada không thành công
+            Kết nối {platformLabel} không thành công
           </h1>
           <p className="mt-3 text-sm text-ink-muted">
             {error

@@ -107,6 +107,8 @@ export const ORDER_STATUS_LABELS: Record<
 }
 
 export const LAZADA_OAUTH_MESSAGE_TYPE = 'optipack-lazada-connected'
+/** Sàn khác Lazada (vd AURELLE) báo kết nối xong — danh sách shop đọc từ DB. */
+export const MARKETPLACE_OAUTH_MESSAGE_TYPE = 'optipack-marketplace-connected'
 
 export function isMarketplaceOrderStatus(
   value: unknown,
