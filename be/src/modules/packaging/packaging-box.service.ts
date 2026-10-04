@@ -1,11 +1,16 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Connection, Model, Types } from 'mongoose';
-import { PackagingBox, PackagingBoxDocument } from './schemas/packaging-box.schema';
+import { InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Model, Types } from 'mongoose';
 import {
-  PackagingStockMovement,
-  PackagingStockMovementDocument,
-} from './schemas/packaging-stock-movement.schema';
+  PackagingMaterial,
+  PackagingMaterialDocument,
+  usableStock,
+} from '../packaging-materials/schemas/packaging-material.schema';
+import {
+  PackagingMovement,
+  PackagingMovementDocument,
+} from '../packaging-materials/schemas/packaging-movement.schema';
+import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
 import {
   PackingPlan,
   PackingPlanDocument,
@@ -38,7 +43,20 @@ interface DimensionsMm {
   height_mm: number;
 }
 
-function toBoxSpec(box: PackagingBox): BoxSpec {
+/** Thùng engine dùng được: đang dùng + đủ số đo mm/bì/tải. */
+const PLANNABLE_BOX_FILTER: Record<string, unknown> = {
+  kind: 'box',
+  is_active: true,
+  inner: { $ne: null },
+  outer: { $ne: null },
+  tare_g: { $ne: null },
+  max_load_g: { $ne: null },
+};
+
+function toBoxSpec(box: PackagingMaterial): BoxSpec {
+  if (!box.inner || !box.outer || box.tare_g === null || box.max_load_g === null) {
+    throw new Error(`Thùng ${box.code} thiếu số đo cho engine.`);
+  }
   return {
     code: box.code,
     name: box.name,
@@ -46,35 +64,41 @@ function toBoxSpec(box: PackagingBox): BoxSpec {
     outer: { length_mm: box.outer.length_mm, width_mm: box.outer.width_mm, height_mm: box.outer.height_mm },
     tare_g: box.tare_g,
     max_load_g: box.max_load_g,
-    price_vnd: box.price_vnd,
+    price_vnd: box.unit_cost_vnd,
   };
 }
 
+/** Kích thước ngoài (mm) → cm 1 chữ số thập phân — giữ length/width/height_cm của main đồng bộ. */
+function outerCm(outer: DimensionsMm): { length_cm: number; width_cm: number; height_cm: number } {
+  const cm = (mm: number): number => Math.round(mm) / 10;
+  return { length_cm: cm(outer.length_mm), width_cm: cm(outer.width_mm), height_cm: cm(outer.height_mm) };
+}
+
 /**
- * CRUD danh mục thùng carton (Bước 0 engine 3D, 21/09/2026). Engine chỉ
- * dùng thùng `is_active: true`; ngừng dùng = xóa mềm (Rule #8).
+ * Danh mục thùng carton cho engine đóng gói 3D.
+ *
+ * 🔄 GỘP main + thi_dev (04/10/2026): đọc/ghi KHO VẬT TƯ CHUNG
+ * `packaging_materials` (kind = box) — không còn collection `packaging_boxes`
+ * riêng. Tồn = `qty_new + qty_reused` (thùng tái sử dụng từ hàng hoàn được ưu
+ * tiên khi đóng gói, ghi tiết kiệm); sổ biến động là `packaging_movements`.
+ * Route `/packaging/boxes` giữ nguyên hình dạng response cho FE.
  */
 @Injectable()
 export class PackagingBoxService {
   constructor(
-    @InjectModel(PackagingBox.name)
-    private readonly boxModel: Model<PackagingBoxDocument>,
-    @InjectModel(PackagingStockMovement.name)
-    private readonly movementModel: Model<PackagingStockMovementDocument>,
+    @InjectModel(PackagingMaterial.name)
+    private readonly materialModel: Model<PackagingMaterialDocument>,
+    @InjectModel(PackagingMovement.name)
+    private readonly movementModel: Model<PackagingMovementDocument>,
     @InjectModel(PackingPlan.name)
     private readonly planModel: Model<PackingPlanDocument>,
-    @InjectConnection() private readonly connection: Connection,
+    private readonly materialsService: PackagingMaterialsService,
   ) {}
 
   /**
-   * ===================================================================
-   * Tồn kho thùng (22/09/2026; đọc `packing_plans` từ 04/10/2026)
-   * ===================================================================
    * Giữ chỗ mềm: mỗi KIỆN của kế hoạch đang hoạt động ở trạng thái `ready`
-   * (chờ duyệt) hoặc `approved` (chờ đóng) giữ 1 thùng. Kế hoạch đã đóng thì
-   * thùng đã bị trừ tồn thật nên không tính nữa. `exclude.groupId` = nhóm
-   * đang tính lại; `exclude.planId` = kế hoạch đang chỉnh tay (chỗ nó giữ
-   * sắp được trả lại).
+   * hoặc `approved` giữ 1 thùng. `exclude.groupId` = nhóm đang tính lại;
+   * `exclude.planId` = kế hoạch đang chỉnh tay.
    */
   async listAvailability(
     exclude: { groupId?: string; planId?: Types.ObjectId } = {},
@@ -86,7 +110,7 @@ export class PackagingBoxService {
     if (exclude.groupId) match.order_group_id = { $ne: new Types.ObjectId(exclude.groupId) };
     if (exclude.planId) match._id = { $ne: exclude.planId };
     const [boxes, reservedRows] = await Promise.all([
-      this.boxModel.find({ is_active: true }).select('code quantity_on_hand reorder_level').lean(),
+      this.materialModel.find({ kind: 'box', is_active: true }).select('code qty_new qty_reused reorder_level').lean(),
       this.planModel.aggregate<{ _id: string; count: number }>([
         { $match: match },
         { $unwind: '$parcels' },
@@ -96,9 +120,7 @@ export class PackagingBoxService {
     const reservedByCode = new Map(reservedRows.map((r) => [r._id, r.count]));
     return new Map(
       boxes.map((b) => {
-        // Thùng tạo trước 22/09 chưa có field tồn và `.lean()` không điền
-        // default → coi là 0 (hết hàng), không để NaN lọt qua thành "còn hàng".
-        const onHand = Number.isFinite(b.quantity_on_hand) ? b.quantity_on_hand : 0;
+        const onHand = usableStock(b);
         const reorderLevel = Number.isFinite(b.reorder_level) ? b.reorder_level : 10;
         const reserved = reservedByCode.get(b.code) ?? 0;
         return [b.code, { onHand, reserved, available: Math.max(0, onHand - reserved), reorderLevel }];
@@ -106,43 +128,17 @@ export class PackagingBoxService {
     );
   }
 
-  /** Nhập thêm thùng — `$inc` + 1 dòng sổ trong cùng transaction. */
-  async stockIn(id: string, quantity: number, userId: string | null, note?: string): Promise<PackagingBoxDocument> {
+  /** Nhập thêm thùng MỚI — `$inc qty_new` + 1 dòng sổ trong cùng transaction. */
+  async stockIn(id: string, quantity: number, userId: string | null, note?: string): Promise<PackagingMaterialDocument> {
     const box = await this.findById(id);
-    const session = await this.connection.startSession();
-    try {
-      return await session.withTransaction(async () => {
-        const doc = await this.boxModel.findOneAndUpdate(
-          { _id: box._id },
-          { $inc: { quantity_on_hand: quantity } },
-          { returnDocument: 'after', session },
-        );
-        if (!doc) throw this.notFound(id);
-        await this.movementModel.create(
-          [
-            {
-              box_id: box._id,
-              box_code: box.code,
-              delta: quantity,
-              reason: 'stock_in',
-              balance_after: doc.quantity_on_hand,
-              // null = script hệ thống (seed), không phải người thao tác.
-              user_id: userId ? new Types.ObjectId(userId) : null,
-              note: note?.trim() ? note.trim() : null,
-            },
-          ],
-          { session },
-        );
-        return doc;
-      });
-    } finally {
-      await session.endSession();
-    }
+    const updated = await this.materialsService.stockInById(box._id, quantity, userId, note);
+    if (!updated) throw this.notFound(id);
+    return updated;
   }
 
-  async listMovements(id: string, limit = 20): Promise<PackagingStockMovement[]> {
+  async listMovements(id: string, limit = 20): Promise<PackagingMovement[]> {
     const box = await this.findById(id);
-    return this.movementModel.find({ box_id: box._id }).sort({ created_at: -1 }).limit(limit).lean();
+    return this.movementModel.find({ material_code: box.code }).sort({ created_at: -1 }).limit(limit).lean();
   }
 
   /**
@@ -155,64 +151,44 @@ export class PackagingBoxService {
     groupId: Types.ObjectId,
     userId: string,
   ): Promise<ConsumedBox[]> {
-    const consumed: ConsumedBox[] = [];
-    for (const pkg of packages) {
-      const updated = await this.boxModel.findOneAndUpdate(
-        { code: pkg.boxCode, quantity_on_hand: { $gte: 1 } },
-        { $inc: { quantity_on_hand: -1 } },
-        { returnDocument: 'after', session },
-      );
-      if (!updated) {
-        throw new AppException(
-          PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
-          `Kho đã hết thùng "${pkg.boxCode}" — nhập thêm thùng hoặc đổi thùng cho kiện ${String(pkg.parcelNo)} trước khi xác nhận đóng.`,
-          HttpStatus.CONFLICT,
-          { boxCode: pkg.boxCode },
-        );
-      }
-      await this.movementModel.create(
-        [
-          {
-            box_id: updated._id,
-            box_code: updated.code,
-            delta: -1,
-            reason: 'pack',
-            balance_after: updated.quantity_on_hand,
-            order_group_id: groupId,
-            packing_plan_id: pkg.planId,
-            parcel_no: pkg.parcelNo,
-            user_id: new Types.ObjectId(userId),
-          },
-        ],
-        { session },
-      );
-      consumed.push({
-        code: updated.code,
-        before: updated.quantity_on_hand + 1,
-        after: updated.quantity_on_hand,
-        reorderLevel: updated.reorder_level,
-      });
-    }
-    return consumed;
+    const result = await this.materialsService.consumeForParcels(
+      session,
+      packages.map((p) => ({ code: p.boxCode, quantity: 1, planId: p.planId, parcelNo: p.parcelNo })),
+      groupId,
+      userId,
+      {
+        strict: true,
+        onShortage: (need) => {
+          throw new AppException(
+            PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
+            `Kho đã hết thùng "${need.code}" — nhập thêm thùng hoặc đổi thùng cho kiện ${String(need.parcelNo)} trước khi xác nhận đóng.`,
+            HttpStatus.CONFLICT,
+            { boxCode: need.code },
+          );
+        },
+      },
+    );
+    return result.consumed.map((c) => ({ code: c.code, before: c.before, after: c.after, reorderLevel: c.reorderLevel }));
   }
 
-  async list(activeOnly: boolean): Promise<PackagingBoxDocument[]> {
-    const query = activeOnly ? { is_active: true } : {};
-    return this.boxModel.find(query).sort({ code: 1 });
+  async list(activeOnly: boolean): Promise<PackagingMaterialDocument[]> {
+    const query: Record<string, unknown> = { kind: 'box' };
+    if (activeOnly) query.is_active = true;
+    return this.materialModel.find(query).sort({ code: 1 });
   }
 
-  /** Thùng đang dùng, đổi sang kiểu lõi của engine. */
+  /** Thùng đang dùng có đủ số đo, đổi sang kiểu lõi của engine. */
   async listActiveSpecs(): Promise<BoxSpec[]> {
-    const boxes = await this.boxModel.find({ is_active: true }).lean();
+    const boxes = await this.materialModel.find(PLANNABLE_BOX_FILTER).lean();
     return boxes.map(toBoxSpec);
   }
 
   async findActiveSpecByCode(code: string): Promise<BoxSpec> {
-    const box = await this.boxModel.findOne({ code, is_active: true }).lean();
+    const box = await this.materialModel.findOne({ ...PLANNABLE_BOX_FILTER, code }).lean();
     if (!box) {
       throw new AppException(
         PACKAGING_ERROR_CODES.BOX_NOT_FOUND,
-        `Không có thùng "${code}" đang dùng trong danh mục.`,
+        `Không có thùng "${code}" đang dùng (đủ số đo) trong danh mục.`,
         HttpStatus.NOT_FOUND,
         { code },
       );
@@ -220,19 +196,22 @@ export class PackagingBoxService {
     return toBoxSpec(box);
   }
 
-  async create(dto: CreatePackagingBoxDto): Promise<PackagingBoxDocument> {
+  async create(dto: CreatePackagingBoxDto): Promise<PackagingMaterialDocument> {
     this.assertOuterNotSmaller(dto.inner, dto.outer);
     try {
-      return await this.boxModel.create({
+      return await this.materialModel.create({
         code: dto.code,
         name: dto.name,
+        kind: 'box',
+        ...outerCm(dto.outer),
         inner: dto.inner,
         outer: dto.outer,
         tare_g: dto.tare_g,
         max_load_g: dto.max_load_g,
-        price_vnd: dto.price_vnd ?? null,
+        unit_cost_vnd: dto.price_vnd ?? 0,
         // Tồn ban đầu 0 — nhập qua stock-in để có dòng sổ.
-        quantity_on_hand: 0,
+        qty_new: 0,
+        qty_reused: 0,
         reorder_level: dto.reorder_level ?? 10,
         storage_location: dto.storage_location?.trim() ? dto.storage_location.trim() : null,
         is_sample: false,
@@ -242,7 +221,7 @@ export class PackagingBoxService {
       if (this.isDuplicateKeyError(error)) {
         throw new AppException(
           PACKAGING_ERROR_CODES.BOX_CODE_IN_USE,
-          `Mã thùng "${dto.code}" đã tồn tại — chọn mã khác.`,
+          `Mã "${dto.code}" đã có trong kho vật tư — chọn mã khác.`,
           HttpStatus.CONFLICT,
           { code: dto.code },
         );
@@ -251,25 +230,27 @@ export class PackagingBoxService {
     }
   }
 
-  async update(id: string, dto: UpdatePackagingBoxDto): Promise<PackagingBoxDocument> {
+  async update(id: string, dto: UpdatePackagingBoxDto): Promise<PackagingMaterialDocument> {
     const box = await this.findById(id);
-    this.assertOuterNotSmaller(dto.inner ?? box.inner, dto.outer ?? box.outer);
+    const inner = dto.inner ?? box.inner;
+    const outer = dto.outer ?? box.outer;
+    if (inner && outer) this.assertOuterNotSmaller(inner, outer);
     const measurementChanged =
       dto.inner !== undefined ||
       dto.outer !== undefined ||
       dto.tare_g !== undefined ||
       dto.max_load_g !== undefined;
 
-    const updated = await this.boxModel.findByIdAndUpdate(
+    const updated = await this.materialModel.findByIdAndUpdate(
       box._id,
       {
         $set: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.inner !== undefined && { inner: dto.inner }),
-          ...(dto.outer !== undefined && { outer: dto.outer }),
+          ...(dto.outer !== undefined && { outer: dto.outer, ...outerCm(dto.outer) }),
           ...(dto.tare_g !== undefined && { tare_g: dto.tare_g }),
           ...(dto.max_load_g !== undefined && { max_load_g: dto.max_load_g }),
-          ...(dto.price_vnd !== undefined && { price_vnd: dto.price_vnd }),
+          ...(dto.price_vnd !== undefined && { unit_cost_vnd: dto.price_vnd ?? 0 }),
           ...(dto.is_active !== undefined && { is_active: dto.is_active }),
           ...(dto.reorder_level !== undefined && { reorder_level: dto.reorder_level }),
           ...(dto.storage_location !== undefined && {
@@ -285,7 +266,7 @@ export class PackagingBoxService {
     return updated;
   }
 
-  private async findById(id: string): Promise<PackagingBoxDocument> {
+  private async findById(id: string): Promise<PackagingMaterialDocument> {
     if (!Types.ObjectId.isValid(id)) {
       throw new AppException(
         PACKAGING_ERROR_CODES.INVALID_BOX_ID,
@@ -294,7 +275,7 @@ export class PackagingBoxService {
         { id },
       );
     }
-    const box = await this.boxModel.findById(id);
+    const box = await this.materialModel.findOne({ _id: id, kind: 'box' });
     if (!box) throw this.notFound(id);
     return box;
   }

@@ -1,476 +1,370 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/-OptiPackAI-6E56CF?style=for-the-badge" alt="OptiPackAI" height="40"/>
+# OptiPackAI
 
-# 📦 OptiPackAI
+**Nền tảng vận hành đơn hàng đa kênh và tối ưu đóng gói cho doanh nghiệp bán hàng trực tuyến**
 
-### AI-Assisted Omnichannel Order Fulfillment & Packaging Optimization System
+Đồng bộ đơn từ sàn thương mại điện tử · Gộp đơn theo người nhận · Quản lý kho theo vị trí · Đề xuất đóng gói tối ưu · Giao hàng và đổi trả khép kín
 
-_Đồng bộ đơn hàng đa kênh — Tối ưu đóng gói bằng AI — Cắt giảm chi phí logistics_
+[![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?style=flat-square&logo=nestjs&logoColor=white)](https://nestjs.com)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-UNLICENSED-lightgrey?style=flat-square)](#giấy-phép)
 
-<br/>
-
-[![License](https://img.shields.io/badge/license-UNLICENSED-red.svg?style=flat-square)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg?style=flat-square)](https://nodejs.org)
-[![NestJS](https://img.shields.io/badge/NestJS-11-E0234E.svg?style=flat-square&logo=nestjs&logoColor=white)](https://nestjs.com)
-[![React](https://img.shields.io/badge/React-18-61DAFB.svg?style=flat-square&logo=react&logoColor=black)](https://react.dev)
-[![Flutter](https://img.shields.io/badge/Flutter-Mobile-02569B.svg?style=flat-square&logo=flutter&logoColor=white)](https://flutter.dev)
-[![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248.svg?style=flat-square&logo=mongodb&logoColor=white)](https://mongodb.com)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-orange.svg?style=flat-square)](#-đóng-góp)
-
-**Project code:** `AOFP` &nbsp;·&nbsp; **Group:** `FA26SE036` &nbsp;·&nbsp; **Duration:** 09/2026 – 03/2027 &nbsp;·&nbsp; **Supervisor:** Thân Thị Ngọc Vân
+**Mã dự án:** `AOFP` · **Nhóm:** `FA26SE036` · **Thời gian:** 09/2026 – 03/2027 · **Giảng viên hướng dẫn:** Thân Thị Ngọc Vân
 
 </div>
 
-<br/>
+---
 
-> [!NOTE]
-> Đây là hệ thống quản lý **nội bộ** (internal tool) cho một doanh nghiệp bán hàng đa kênh, không phải sản phẩm SaaS đa khách thuê.
+## Giới thiệu
+
+OptiPackAI là hệ thống quản lý nội bộ dành cho doanh nghiệp bán hàng trên nhiều kênh thương mại điện tử. Hệ thống tập trung đơn hàng từ các sàn về một nơi, tự động gộp các đơn của cùng một người nhận để đóng chung một kiện, điều phối toàn bộ quy trình kho từ lấy hàng, đóng gói đến giao hàng, và đồng bộ trạng thái xử lý ngược lại sàn.
+
+Trọng tâm của dự án là **giảm chi phí đóng gói và vận chuyển**: chọn đúng kích thước thùng và vật liệu đệm cho từng kiện, tái sử dụng vật liệu thu hồi, và rút ngắn quãng đường lấy hàng trong kho.
+
+### Điểm nổi bật
+
+- **Đồng bộ đơn hàng tự động** từ Lazada qua Lazada Open Platform (OAuth 2.0, tự làm mới token, đồng bộ định kỳ), kiến trúc adapter sẵn sàng mở rộng thêm sàn.
+- **Gộp đơn theo người nhận** — các đơn cùng sàn, cùng người nhận và địa chỉ được xử lý thành một nhóm đơn, một kiện hàng.
+- **Quản lý kho theo vị trí** — mã vị trí 5 cấp, một SKU có thể nằm ở nhiều ô, Picking List sắp theo lộ trình di chuyển, sổ cái biến động tồn bất biến.
+- **Giữ chỗ tồn kho theo SKU nội bộ** — gộp tồn của cùng một sản phẩm đăng trên nhiều sàn, phát hiện thiếu hàng ngay khi đơn về.
+- **Đề xuất đóng gói** — gợi ý kích thước thùng và vật liệu đệm theo kích thước, khối lượng và độ dễ vỡ của hàng; nhân viên duyệt, điều chỉnh hoặc từ chối.
+- **Quản lý vật liệu đóng gói** — tồn vật liệu mới và tái sử dụng, tự trừ khi đóng gói, thu hồi khi hàng hoàn, thống kê chi phí tiết kiệm.
+- **Giao hàng, đổi trả khép kín** — vận đơn tự giao, giới hạn số lần giao, cảnh báo quá hạn; phiếu trả hàng có kiểm định, hàng cách ly và đơn đổi hàng.
+- **Báo trạng thái đóng gói về sàn** — xác nhận "đã đóng gói" trên OptiPack được gửi lên Lazada qua Fulfillment API.
 
 ---
 
-## 📋 Mục lục
+## Mục lục
 
-<table>
-<tr>
-<td valign="top" width="33%">
-
-**Giới thiệu**
-
-- [Bài toán & Giải pháp](#-bài-toán--giải-pháp)
-- [Tính năng chính](#-tính-năng-chính)
-- [Kiến trúc hệ thống](#-kiến-trúc-hệ-thống)
-
-</td>
-<td valign="top" width="33%">
-
-**Kỹ thuật**
-
-- [Tech Stack](#-tech-stack)
-- [Cấu trúc dự án](#-cấu-trúc-dự-án)
-- [Bắt đầu](#-bắt-đầu)
-- [Scripts](#-scripts)
-
-</td>
-<td valign="top" width="33%">
-
-**Vận hành**
-
-- [Môi trường](#-môi-trường)
-- [API Docs](#-api-documentation)
-- [Git Workflow](#-git-workflow)
-- [Team](#-team)
-
-</td>
-</tr>
-</table>
+- [Kiến trúc hệ thống](#kiến-trúc-hệ-thống)
+- [Quy trình nghiệp vụ](#quy-trình-nghiệp-vụ)
+- [Chức năng theo phân hệ](#chức-năng-theo-phân-hệ)
+- [Vai trò người dùng](#vai-trò-người-dùng)
+- [Công nghệ sử dụng](#công-nghệ-sử-dụng)
+- [Cấu trúc mã nguồn](#cấu-trúc-mã-nguồn)
+- [Bắt đầu](#bắt-đầu)
+- [Tài liệu](#tài-liệu)
+- [Quy trình phát triển](#quy-trình-phát-triển)
+- [Định hướng phát triển](#định-hướng-phát-triển)
+- [Nhóm phát triển](#nhóm-phát-triển)
+- [Giấy phép](#giấy-phép)
 
 ---
 
-## 🎯 Bài toán & Giải pháp
+## Kiến trúc hệ thống
 
-<table>
-<tr>
-<th width="50%">❌ Hiện trạng</th>
-<th width="50%">✅ OptiPackAI giải quyết</th>
-</tr>
-<tr>
-<td>
-
-Đơn hàng rời rạc trên nhiều sàn thương mại điện tử, nhân viên kho phải tự chuyển đổi qua lại giữa các hệ thống
-
-</td>
-<td>
-
-Đồng bộ tự động, gộp đơn trùng lặp về **một dashboard duy nhất**
-
-</td>
-</tr>
-<tr>
-<td>
-
-Cần đo baseline tại kho để biết tỷ lệ dùng bao bì quá khổ và chi phí thực tế; chưa có số liệu xác minh cho dự án
-
-</td>
-<td>
-
-**Mục tiêu:** chọn túi/carton theo hồ sơ đã xác nhận và validator; code hiện chỉ có fallback theo thể tích phục vụ demo
-
-</td>
-</tr>
-<tr>
-<td>
-
-Không biết chính xác hàng nằm ở đâu trong kho, nhân viên mất thời gian tìm kiếm
-
-</td>
-<td>
-
-**Hệ thống vị trí kho** — có vị trí SKU và Picking List sắp theo mã khu/kệ; chưa chứng minh lộ trình tối ưu
-
-</td>
-</tr>
-<tr>
-<td>
-
-Không có cái nhìn tổng quan về chi phí logistics theo thời gian thực
-
-</td>
-<td>
-
-**Dashboard phân tích** chi phí đóng gói, ship, năng suất kho
-
-</td>
-</tr>
-</table>
-
----
-
-## ✨ Tính năng chính
-
-|    #    | Tính năng                 | Mô tả                                                                                           |                     Trạng thái                     |
-| :-----: | ------------------------- | ----------------------------------------------------------------------------------------------- | :------------------------------------------------: |
-| `FE-01` | 🔄 **Đồng bộ đa kênh**    | Tự động lấy đơn hàng từ marketplace, cron polling định kỳ                                       |                   🟢 Lazada xong                   |
-| `FE-02` | 🧩 **Nhóm lấy hàng** | Mục tiêu gom để lấy cùng lượt, mỗi đơn giữ phạm vi đóng riêng | 🟡 Đã có grouping, cần sửa ràng buộc và backfill |
-| `FE-03` | 🤖 **Packaging** | Đích: hồ sơ kho → túi/carton → validator; tự thông qua đơn thường | 🟡 Fallback demo có; engine 3D và tự động hóa chưa có |
-| `FE-04` | 💰 **Ước tính chi phí**   | Tính phí đóng gói + cước vận chuyển trước khi giao                                              |                 🟡 Đang phát triển                 |
-| `FE-05` | 🏷️ **Sinh nhãn tự động**  | QR/Barcode, PDF phiếu đóng gói & tem vận chuyển                                                 |                  ⬜ Chưa bắt đầu                   |
-| `FE-06` | 📦 **Kho và Picking** | Có kệ, tồn và pick event; cần sửa kiểm tra item/transaction/idempotency | 🟡 Có API, chưa đủ điều kiện vận hành tự động |
-| `FE-07` | 📱 **Mobile App**         | Quét mã cập nhật picking/packing real-time, hỗ trợ nhập tay khi không quét được                 |    🟡 API sẵn sàng, Mobile App đang phát triển     |
-| `FE-08` | 📊 **Dashboard**          | Thống kê hiệu suất kho & chi phí logistics                                                      |                  ⬜ Chưa bắt đầu                   |
-| `FE-09` | 🔔 **Thông báo** | Đã có module và cảnh báo thiếu hàng/SLA; chưa bao phủ toàn bộ sự kiện mục tiêu | 🟡 Đã triển khai một phần |
-| `FE-10` | 🔐 **Quản trị**           | User, phân quyền theo 5 vai trò, phân công nhân viên tự động                                    |                      🟢 Xong                       |
-
----
-
-## Flow đóng gói mục tiêu — cập nhật 12/09/2026
-
-**Đợt này chỉ sửa tài liệu.** Phát triển tiếp Product Master, Order Groups, Packaging và Warehouse đang có. Một đơn nguồn là một phạm vi đóng riêng; gom nhiều đơn chỉ hỗ trợ lấy hàng, không tự gom kiện/vận đơn.
-
-```text
-Sync đơn + catalog sàn → Item đủ điều kiện của mỗi đơn → Hồ sơ kho xác nhận
-→ Thiếu dữ liệu: chờ bổ sung / Đủ: tính túi-carton và validator
-→ Phương án hợp lệ: tự thông qua → Phân công → Lấy và đối chiếu hàng
-→ Thiếu/thay đổi: dừng và tính lại → Đóng → Cân/đo kiện thật, đối soát vật tư
-→ Xác nhận đóng xong → Bàn giao vận chuyển nội bộ
-```
-
-Kho/Admin xác nhận đã đo/thử khi nhập hồ sơ, không cần Admin duyệt riêng hoặc duyệt tay từng đơn thường. Dữ liệu sàn không ghi đè hồ sơ kho; thiếu số đo không dùng 20 cm/0,5 kg. Túi zip bọc item khác túi ngoài; carton dùng số đo trong để xếp, ngoài để đánh giá kiện.
-
-Hiện generate vẫn do Admin gọi và approve/adjust còn bắt cân trước picking; đó là hành vi cần sửa. Fallback thể tích +10% chưa chứng minh vừa hộp, không được dùng tự động cho hàng thật. Fulfillment hiện chỉ đổi trạng thái nội bộ, không gọi API giao hàng thật trên Lazada.
-
-Thứ tự sửa: **BE-1 đầu vào/phạm vi đơn → BE-2 hồ sơ/readiness → BE-3 validator/engine → BE-4 picking/xác nhận → BE-5 tự động hóa**. Xem [roadmap chi tiết](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md), [thiết kế](docs/AI_3D_PACKAGING_OPTIMIZATION.md) và [API đang chạy](API_LIST.md). Chỉ bật tự động sau BE-1 đến BE-4 đạt nghiệm thu.
-
-## 🏗 Kiến trúc hệ thống
-
-Sơ đồ dưới là định hướng liên kết module, không xác nhận engine 3D, UI hay Shipping/Label đã triển khai. Hiện FE vẫn là starter và fulfillment là mô phỏng nội bộ.
+Backend được xây dựng theo mô hình **modular monolith**: một ứng dụng NestJS duy nhất, mỗi nghiệp vụ là một module độc lập với ranh giới rõ ràng. Kết nối sàn thương mại điện tử đi qua lớp **adapter** chuẩn hóa, nên dữ liệu bên trong hệ thống không phụ thuộc vào định dạng riêng của từng sàn.
 
 ```mermaid
 flowchart LR
-    subgraph Sources["Nguồn đơn hàng"]
-        A[Marketplace API]
+    subgraph Channels["Kênh bán hàng"]
+        LZ[Lazada Open Platform]
+        AU[AURELLE · Open API<br/>app key + webhook]
     end
 
-    subgraph Core["OptiPackAI Backend · NestJS (modular monolith)"]
-        C[Order Sync & Consolidation]
-        D[AI Packaging Engine]
-        W[Warehouse & Picking]
-        E[Shipping & Label Service]
-        F[(MongoDB)]
+    subgraph Backend["OptiPackAI Backend · NestJS"]
+        MI[Marketplace Integration<br/>OAuth · Adapter]
+        OR[Orders<br/>Đồng bộ đơn]
+        OG[Order Groups<br/>Gộp đơn · Fulfillment]
+        WH[Warehouse<br/>Vị trí · Tồn kho · Picking]
+        PK[Packing<br/>Kế hoạch đóng gói 3D]
+        PM[Packaging Materials<br/>Kho thùng + vật tư · Tái sử dụng]
+        SH[Shipments · Shipping<br/>Giao hàng · Hãng/cước · Đổi trả]
+        DOC[Documents<br/>Phiếu · Nhãn · Bảng kê PDF]
+        NT[Notifications]
+    end
+
+    subgraph Data["Lưu trữ"]
+        DB[(MongoDB Atlas)]
+        RD[(Redis)]
     end
 
     subgraph Clients["Giao diện"]
-        G[Web Dashboard · React]
-        H[Mobile App · Flutter]
+        WEB[Web Dashboard · React]
+        APP[Mobile App · Flutter]
     end
 
-    A -- polling --> C
-    C --> F
-    C --> D
-    D --> W
-    W --> E
-    E --> F
-    F --> G
-    W -- QR/Barcode scan --> H
-    H --> W
+    LZ <-->|đồng bộ đơn · báo đóng gói| MI
+    AU <-->|đồng bộ đơn · webhook| MI
+    PK -.->|CP-SAT chứng minh| PKR[packer · Python OR-Tools]
+    MI --> OR --> OG
+    OG --> WH
+    OG --> PK --> PM
+    OG --> SH --> DOC
+    OG --> NT
+    Backend --> DB
+    Backend --> RD
+    WEB --> Backend
+    APP --> Backend
 ```
 
-> Backend là **1 NestJS app duy nhất** (modular monolith) — mỗi nghiệp vụ là 1 module riêng biệt bên trong cùng app, không tách microservice.
+---
+
+## Quy trình nghiệp vụ
+
+```mermaid
+flowchart LR
+    A[Đơn mới từ sàn] --> B[Gộp theo người nhận]
+    B --> C[Giữ chỗ tồn kho]
+    C --> D[Lấy hàng theo Picking List]
+    D --> E[Tự tính kế hoạch đóng gói 3D<br/>BRKGA + CP-SAT]
+    E --> F[Duyệt / đổi thùng / chuyển món]
+    F --> G[Đóng gói · trừ vật liệu<br/>báo trạng thái về sàn]
+    G --> H[Giao hàng · chọn hãng, cước<br/>giao chung chuyến]
+    H --> I[Giao thành công]
+    H --> J[Hoàn hàng · đổi trả<br/>kiểm định · nhập lại kho]
+```
+
+Mọi bước chuyển trạng thái của nhóm đơn đều được kiểm soát bằng bảng chuyển trạng thái hợp lệ và khóa phiên bản (optimistic concurrency), bảo đảm nhiều nhân viên thao tác đồng thời không ghi đè lên nhau.
 
 ---
 
-## 🛠 Tech Stack
+## Chức năng theo phân hệ
 
-<table>
-<tr>
-<td valign="top" width="25%">
-
-**Backend**
-
-- NestJS 11
-- MongoDB (Atlas) + Mongoose 9
-- JWT + Passport
-- Swagger/OpenAPI
-- class-validator
-- qrcode · bwip-js · pdfkit
-
-</td>
-<td valign="top" width="25%">
-
-**Frontend**
-
-- React 18
-- Vite
-- TypeScript 5
-
-</td>
-<td valign="top" width="25%">
-
-**Mobile**
-
-- Flutter
-- QR/Barcode scanner
-- Push notifications
-
-</td>
-<td valign="top" width="25%">
-
-**DevOps**
-
-- Docker + Compose
-- Husky + lint-staged
-- Commitlint
-- Jest
-
-</td>
-</tr>
-</table>
+| Phân hệ                    | Chức năng chính                                                                                                                                                                                   |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Xác thực & người dùng**  | Đăng nhập JWT với xoay vòng refresh token, xác thực hai lớp (TOTP, mã dự phòng), thiết bị tin cậy, đăng nhập Google, bắt buộc đổi mật khẩu lần đầu, nhật ký đăng nhập, giới hạn tần suất truy cập |
+| **Kết nối sàn**            | Ủy quyền OAuth 2.0, mã hóa token khi lưu, tự làm mới token sắp hết hạn, adapter riêng cho từng sàn. Lazada + AURELLE (Open API tương thích Lazada, kết nối bằng app key, webhook có chữ ký) |
+| **Đơn hàng**               | Đồng bộ định kỳ và đồng bộ theo yêu cầu, chuẩn hóa trạng thái đơn, theo dõi yêu cầu hủy từ người mua                                                                                              |
+| **Nhóm đơn & fulfillment** | Gộp đơn theo người nhận, phân công nhân viên tự động, đơn hỏa tốc với hạn xử lý theo giờ làm việc, báo thiếu hàng, xác nhận đóng gói và đồng bộ trạng thái lên sàn                                |
+| **Kho hàng**               | Nhiều kho, khu, kệ, ô với mã vị trí 5 cấp; quy định danh mục, cỡ, màu cho từng ô; gợi ý ô cất hàng; nhập hàng, kiểm kê, chuyển ô; sổ cái biến động tồn; Picking List theo lộ trình                |
+| **SKU & tồn kho**          | SKU nội bộ liên kết SKU trên các sàn, danh mục và bảng màu chuẩn, giữ chỗ tồn kho theo nhóm đơn, cảnh báo thiếu hàng                                                                              |
+| **Đóng gói**               | Tự tính kế hoạch đóng gói 3D cho cả nhóm đơn (nhiều kiện/đơn) bằng BRKGA, chứng minh tối ưu bằng CP-SAT cho đơn nhỏ; chỉ dùng số đo SKU do kho xác nhận; màn làm việc 3D, đổi thùng, chuyển món, hướng dẫn đóng gói từng bước bằng AI, cân từng kiện |
+| **Vật liệu đóng gói**      | Danh mục vật liệu có đơn giá, tồn mới / tái sử dụng / nội bộ, tự trừ khi đóng gói, thu hồi khi kiểm hàng hoàn, thống kê chi phí tiết kiệm                                                         |
+| **Giao hàng & đổi trả**    | Vận đơn tự giao, tối đa hai lần giao, cảnh báo quá hạn; chọn hãng + báo cước theo kiện thật (bảng cước mẫu), giao chung chuyến cho cùng người nhận, lịch lấy hàng; phiếu đóng gói, nhãn từng kiện, bảng kê chuyến (PDF); phiếu trả hàng có kiểm định, tự tạo đơn đổi hàng |
+| **Thông báo**              | Thông báo trong ứng dụng cho các sự kiện giao thất bại, quá hạn giao, yêu cầu trả hàng, thiếu hàng                                                                                                |
 
 ---
 
-## 📁 Cấu trúc dự án
+## Vai trò người dùng
+
+| Vai trò                  | Phạm vi công việc                                                    |
+| ------------------------ | -------------------------------------------------------------------- |
+| **Admin**                | Quản trị người dùng, cấu hình kho, kết nối sàn, toàn quyền hệ thống  |
+| **Store Owner**          | Theo dõi vận hành, duyệt trả hàng, ưu tiên đơn, xem thống kê chi phí |
+| **Warehouse Staff**      | Lấy hàng, nhập hàng, kiểm kê, chuyển ô, nhận và kiểm hàng hoàn       |
+| **Packaging Staff**      | Duyệt / chỉnh kế hoạch đóng gói, đóng gói, cân và xác nhận hoàn tất  |
+| **Shipping Coordinator** | Tạo vận đơn, cập nhật kết quả giao hàng                              |
+
+---
+
+## Công nghệ sử dụng
+
+| Lớp               | Công nghệ                                                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backend**       | NestJS 11, TypeScript 5, Mongoose 9, Passport JWT, class-validator, `@nestjs/schedule`, `@nestjs/throttler`, Swagger / OpenAPI, Helmet, Nodemailer, otplib |
+| **Cơ sở dữ liệu** | MongoDB Atlas (replica set, hỗ trợ transaction), Redis (bộ nhớ đệm và trạng thái tạm)                                                                      |
+| **Frontend**      | React 18, Vite, TypeScript                                                                                                                                 |
+| **Mobile**        | Flutter                                                                                                                                                    |
+| **Tích hợp**      | Lazada Open Platform (Order API, Fulfillment API), Google OAuth 2.0, SMTP                                                                                  |
+| **Chất lượng mã** | Jest, ESLint, Prettier, Husky, Commitlint                                                                                                                  |
+| **Hạ tầng**       | Docker, Docker Compose, npm workspaces                                                                                                                     |
+
+---
+
+## Cấu trúc mã nguồn
 
 ```
 OptiPackAI/
-├── 📂 be/                          Backend · NestJS
+├── be/                              Backend · NestJS
 │   ├── src/
-│   │   ├── common/                 Shared utilities, filters, interceptors
-│   │   ├── config/                 Configuration files
+│   │   ├── common/                  Bộ lọc lỗi, guard, interceptor, tiện ích dùng chung, Redis
+│   │   ├── config/                  Cấu hình theo namespace (database, jwt, mail, marketplace…)
 │   │   └── modules/
-│   │       ├── auth/                       🔐 Đăng nhập, MFA, phân quyền
-│   │       ├── users/                       👤 Quản lý người dùng
-│   │       ├── marketplace-integration/    🔌 Connector marketplace (OAuth, adapter)
-│   │       ├── orders/                     🔄 Đồng bộ đơn hàng                    FE-01
-│   │       ├── product-master/             📦 Cache kích thước/cân nặng sản phẩm
-│   │       ├── order-groups/               🧩 Gộp đơn, fulfillment, phân công NV FE-02 FE-10
-│   │       ├── packaging/                  🤖 AI packaging recommendation        FE-03
-│   │       └── warehouse/                  📦 Vị trí kho, picking list           FE-06
-│   ├── test/
-│   └── Dockerfile
-│
-├── 📂 fe/                          Frontend · React + Vite
-├── 📂 mobile/                      Mobile App · Flutter
-├── 📂 docker/
-├── 📂 .husky/
-├── 🐳 docker-compose.yml
-└── 📦 package.json                 npm workspaces: be, fe
+│   │       ├── auth/                Đăng nhập, MFA, Google OAuth, phân quyền
+│   │       ├── users/               Quản lý người dùng
+│   │       ├── marketplace-integration/  OAuth sàn, adapter Lazada
+│   │       ├── orders/              Đồng bộ và chuẩn hóa đơn hàng
+│   │       ├── order-groups/        Gộp đơn, fulfillment, phân công, giữ chỗ tồn, báo đóng gói về sàn
+│   │       ├── warehouse/           Kho, khu, kệ, ô, tồn theo vị trí, Picking List
+│   │       ├── master-skus/         SKU nội bộ và liên kết SKU sàn
+│   │       ├── categories/          Danh mục sản phẩm, bảng màu
+│   │       ├── product-master/      Thông số kích thước, khối lượng sản phẩm
+│   │       ├── packing/             Kế hoạch đóng gói 3D (BRKGA, CP-SAT, packing_plans)
+│   │       ├── packaging/           Engine hình học, danh mục thùng/túi zip/vật tư, hướng dẫn AI
+│   │       ├── packaging-materials/ Vật liệu đóng gói, tái sử dụng
+│   │       ├── shipments/           Vận đơn, giao hàng, giao chung chuyến, trả hàng, đổi hàng
+│   │       ├── shipping/            Hãng vận chuyển, bảng cước, báo giá
+│   │       ├── documents/           Phiếu đóng gói, nhãn, bảng kê (PDF)
+│   │       ├── marketplace-webhooks/ Nhận webhook sàn (AURELLE)
+│   │       ├── storefront/          Website bán hàng AURELLE
+│   │       ├── notifications/       Thông báo trong ứng dụng
+│   │       └── mail/                Gửi email
+│   ├── scripts/                     Khởi tạo tài khoản quản trị, script chuyển đổi dữ liệu
+│   └── test/                        Kiểm thử end-to-end
+├── fe/                              Frontend · React + Vite
+├── storefront/                      Website AURELLE + cổng nhà phát triển · Next.js
+├── packer/                          Microservice CP-SAT · Python OR-Tools
+├── mobile/                          Mobile App · Flutter
+├── GUIDE_DOC/                       Tài liệu tích hợp API và kịch bản trình diễn
+├── docker-compose.yml
+└── package.json                     npm workspaces (be, fe)
 ```
 
 ---
 
-## 🚀 Bắt đầu
+## Bắt đầu
 
-### Yêu cầu hệ thống
+### Yêu cầu
 
-| Công cụ                 | Phiên bản |
-| ----------------------- | --------- |
-| Node.js                 | ≥ 20.0.0  |
-| npm                     | ≥ 10.0.0  |
-| Docker & Docker Compose | mới nhất  |
-| Git                     | mới nhất  |
+| Công cụ                 | Phiên bản                                           |
+| ----------------------- | --------------------------------------------------- |
+| Node.js                 | ≥ 20                                                |
+| npm                     | ≥ 10                                                |
+| Git                     | mới nhất                                            |
+| Docker & Docker Compose | mới nhất (tùy chọn, cho dịch vụ cục bộ)             |
+| Redis                   | Redis hoặc tương thích (Memurai trên Windows)       |
+| MongoDB                 | Cụm MongoDB Atlas (cần replica set cho transaction) |
 
 ### Cài đặt
 
 ```bash
-# 1️⃣ Clone repository
+# 1. Lấy mã nguồn
 git clone https://github.com/ThuaanNguyeen111/OptiPackAI.git
 cd OptiPackAI
 
-# 2️⃣ Cài đặt dependencies
+# 2. Cài đặt thư viện cho toàn bộ workspace (chỉ chạy ở thư mục gốc)
 npm install
-cd be && npm install
-cd ../fe && npm install
-cd ..
 
-# 3️⃣ Cấu hình môi trường
-cp .env.example .env
+# 3. Tạo file cấu hình môi trường
 cp be/.env.example be/.env
 cp fe/.env.example fe/.env
 
-# 4️⃣ Khởi động MongoDB (Docker)
-npm run docker:dev
+# 4. Khởi tạo tài khoản quản trị đầu tiên
+cd be && npm run seed:admin && cd ..
 
-# 5️⃣ Chạy development
+# 5. Chạy môi trường phát triển (Backend + Frontend)
 npm run dev
 ```
 
-> **Test luồng OAuth marketplace cục bộ**: cần tunnel HTTPS public cho OAuth callback (marketplace không nhận `localhost`). Dùng `ngrok http --url=<domain-cố-định-của-bạn> 3000`, và cần Redis chạy sẵn (Docker, hoặc Memurai trên Windows nếu không tiện dùng Docker/WSL). MongoDB dùng Atlas (cloud) cho cả dev lẫn production, không cần cài MongoDB local.
+| Dịch vụ     | Địa chỉ                          |
+| ----------- | -------------------------------- |
+| Backend API | `http://localhost:3000`          |
+| Swagger UI  | `http://localhost:3000/api/docs` |
+| Frontend    | `http://localhost:5173`          |
 
-<div align="center">
+### Biến môi trường chính (`be/.env`)
 
-🟢 Backend: `http://localhost:3000` &nbsp;·&nbsp; 🔵 Frontend: `http://localhost:5173`
+| Nhóm                 | Biến                                                                                  | Mô tả                                                         |
+| -------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| Ứng dụng             | `PORT`, `CORS_ORIGIN`, `FRONTEND_URL`                                                 | Cổng chạy, nguồn được phép gọi API, địa chỉ giao diện         |
+| Cơ sở dữ liệu        | `MONGODB_URI`                                                                         | Chuỗi kết nối MongoDB Atlas                                   |
+| Redis                | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`                                          | Kết nối Redis                                                 |
+| Xác thực             | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Khóa ký và thời hạn token                                     |
+| Google OAuth         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                     | Đăng nhập bằng Google                                         |
+| Email                | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`           | Máy chủ SMTP                                                  |
+| Bảo mật              | `TOKEN_ENCRYPTION_KEY`                                                                | Khóa mã hóa token sàn khi lưu                                 |
+| Lazada               | `LAZADA_APP_KEY`, `LAZADA_APP_SECRET`, `LAZADA_REDIRECT_URI`, `LAZADA_API_BASE_URL`   | Thông tin ứng dụng trên Lazada Open Platform                  |
+| Lazada (ghi lên sàn) | `LAZADA_WRITE_APIS_ENABLED`, `LAZADA_SHIPPING_ALLOCATE_TYPE`                          | Bật/tắt các thao tác ghi lên shop; tham số phân bổ vận chuyển |
 
-</div>
+Danh sách đầy đủ kèm giá trị mẫu có trong `be/.env.example`.
 
----
+> [!TIP]
+> Lazada yêu cầu địa chỉ callback OAuth dạng HTTPS công khai. Khi phát triển cục bộ, dùng một đường hầm HTTPS (ví dụ `ngrok http --url=<domain-cố-định> 3000`) và khai báo địa chỉ đó cho `LAZADA_REDIRECT_URI`.
 
-## 📜 Scripts
+### Lệnh thường dùng
 
-<details>
-<summary><b>Root (Monorepo)</b></summary>
-<br/>
+| Lệnh (thư mục gốc)                           | Mô tả                                |
+| -------------------------------------------- | ------------------------------------ |
+| `npm run dev`                                | Chạy Backend và Frontend             |
+| `npm run dev:be` / `npm run dev:fe`          | Chạy riêng từng phần                 |
+| `npm run build`                              | Build toàn bộ                        |
+| `npm run lint`                               | Kiểm tra mã nguồn                    |
+| `npm run test`                               | Chạy kiểm thử Backend                |
+| `npm run docker:dev` / `npm run docker:down` | Bật / tắt dịch vụ cục bộ bằng Docker |
 
-| Script                | Mô tả                            |
-| --------------------- | -------------------------------- |
-| `npm run dev`         | Chạy cả Backend và Frontend      |
-| `npm run dev:be`      | Chạy riêng Backend               |
-| `npm run dev:fe`      | Chạy riêng Frontend              |
-| `npm run build`       | Build cả Backend và Frontend     |
-| `npm run lint`        | Lint toàn bộ project             |
-| `npm run docker:dev`  | Khởi động MongoDB, Mongo Express |
-| `npm run docker:down` | Dừng Docker containers           |
-
-</details>
-
-<details>
-<summary><b>Backend</b></summary>
-<br/>
-
-| Script              | Mô tả                           |
-| ------------------- | ------------------------------- |
-| `npm run start:dev` | Development mode với hot-reload |
-| `npm run build`     | Build production                |
-| `npm run test`      | Chạy unit tests                 |
-| `npm run test:cov`  | Test coverage                   |
-
-</details>
-
----
-
-## 🔐 Môi trường
-
-<details>
-<summary><b>Xem danh sách biến môi trường</b></summary>
-<br/>
-
-| Variable                               | Mô tả                                                           |
-| -------------------------------------- | --------------------------------------------------------------- |
-| `MONGODB_URI`                          | MongoDB Atlas connection string                                 |
-| `JWT_SECRET`                           | JWT signing key                                                 |
-| `CORS_ORIGIN`                          | Allowed CORS origins (mặc định `http://localhost:5173`)         |
-| `CLIENT_REDIRECT_CALLBACK`             | URL public (ngrok) FE dùng để nhận callback OAuth khi dev local |
-| `LAZADA_APP_KEY` / `LAZADA_APP_SECRET` | Lazada Open Platform credentials (ISV Console)                  |
-| `REDIS_URL`                            | Redis / Redis-compatible (vd Memurai) connection string         |
-
-</details>
-
-| Service       | URL                       |
-| ------------- | ------------------------- |
-| MongoDB       | Atlas (cloud, xem `.env`) |
-| Mongo Express | `http://localhost:8081`   |
+| Lệnh (thư mục `be/`)                | Mô tả                                |
+| ----------------------------------- | ------------------------------------ |
+| `npm run start:dev`                 | Chạy Backend với hot-reload          |
+| `npm run test` / `npm run test:cov` | Kiểm thử đơn vị / báo cáo độ bao phủ |
+| `npm run test:e2e`                  | Kiểm thử end-to-end                  |
+| `npm run seed:admin`                | Tạo tài khoản quản trị               |
 
 ---
 
-## 📚 API Documentation
+## Tài liệu
 
-<div align="center">
+Swagger UI (`/api/docs`) là nguồn tham chiếu chính thức cho request và response của từng endpoint. Các route không dùng tiền tố phiên bản, ví dụ `POST /auth/login`.
 
-📖 Swagger UI: **`http://localhost:3000/api/docs`**
+Tài liệu tích hợp chi tiết nằm trong `GUIDE_DOC/`, mỗi tài liệu gồm luồng nghiệp vụ, ví dụ request/response, bảng mã lỗi và hướng dẫn kiểm thử:
 
-</div>
-
-> ⚠️ **Không có tiền tố `/api/v1`** — route thật gọn hơn phiếu đề xuất ban đầu, ví dụ `/auth/login` chứ không phải `/api/v1/auth/login`.
-
-Chi tiết đầy đủ cho FE tích hợp, kèm ví dụ request/response, bảng mã lỗi, và checklist test bắt buộc:
-
-| Tài liệu                           | Phạm vi                              |
-| ---------------------------------- | ------------------------------------ |
-| `INTEGRATION_GUIDE.md`             | Auth / Users                         |
-| `INTEGRATION_GUIDE_ORDERS.md`      | Orders / Marketplace Integration     |
-| `INTEGRATION_GUIDE_FULFILLMENT.md` | Order Groups / Packaging / Warehouse |
+| Tài liệu                                                                                           | Phạm vi                                                 |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| [`API_LIST.md`](GUIDE_DOC/API_LIST.md)                                                             | Danh sách toàn bộ endpoint kèm vai trò được phép        |
+| [`INTEGRATION_GUIDE.md`](GUIDE_DOC/INTEGRATION_GUIDE.md)                                           | Xác thực và người dùng                                  |
+| [`INTEGRATION_GUIDE_ORDERS.md`](GUIDE_DOC/INTEGRATION_GUIDE_ORDERS.md)                             | Kết nối sàn và đơn hàng                                 |
+| [`INTEGRATION_GUIDE_FULFILLMENT.md`](GUIDE_DOC/INTEGRATION_GUIDE_FULFILLMENT.md)                   | Nhóm đơn, lấy hàng, đóng gói, báo trạng thái về sàn     |
+| [`INTEGRATION_GUIDE_WAREHOUSE.md`](GUIDE_DOC/INTEGRATION_GUIDE_WAREHOUSE.md)                       | Kho, vị trí, tồn kho, Picking List                      |
+| [`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md`](GUIDE_DOC/INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md)           | SKU nội bộ và giữ chỗ tồn kho                           |
+| [`INTEGRATION_GUIDE_SHIPPING.md`](GUIDE_DOC/INTEGRATION_GUIDE_SHIPPING.md)                         | Giao hàng và trả hàng                                   |
+| [`INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`](GUIDE_DOC/INTEGRATION_GUIDE_PACKAGING_MATERIALS.md)   | Vật liệu đóng gói và tái sử dụng                        |
+| [`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`](GUIDE_DOC/INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md) | Tiện ích vận hành: quá hạn giao, hàng cách ly, đổi hàng |
+| [`DEMO_PLAYBOOK.md`](GUIDE_DOC/DEMO_PLAYBOOK.md)                                                   | Kịch bản trình diễn toàn hệ thống                       |
 
 ---
 
-## 🔄 Git Workflow
+## Quy trình phát triển
 
-### Branch strategy
+### Nhánh
 
 ```
-main        ← code ổn định, sẵn sàng release
- └─ develop  ← nhánh hội tụ tính năng đang phát triển
-     └─ feature/AOFP-XX_ten-tinh-nang  ← nhánh tính năng, tạo từ develop
+main                        Mã nguồn ổn định
+ └─ feature/<tên>           Nhánh tính năng, tạo từ main, hợp nhất qua Pull Request
 ```
 
-### Commit Message
+### Quy ước commit
 
-Conventional Commits + mã ticket Jira đặt trong `scope`:
+Theo [Conventional Commits](https://www.conventionalcommits.org), phạm vi (scope) là mã ticket Jira. Quy ước được kiểm tra tự động bởi Commitlint.
 
-```bash
-type(AOFP-XX): mô tả ngắn gọn
+```
+<type>(AOFP-<số>): <mô tả ngắn, viết thường>
 ```
 
-```bash
-✅ feat(AOFP-12): add Lazada order sync module
-✅ fix(AOFP-15): resolve duplicate order detection bug
-✅ docs(AOFP-20): update API documentation for orders module
+```
+feat(AOFP-48): pool stock by master sku with fallback and add stock reservation
+fix(AOFP-15): resolve duplicate order detection
+docs(AOFP-49): add operations utilities guide and end-to-end demo playbook
 ```
 
-<sup>Type hợp lệ: `feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `ci` `chore` `revert`</sup>
+Type hợp lệ: `feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `ci` `chore` `revert`.
 
-### Pull Request
+### Kiểm tra trước khi hợp nhất
 
-- 🚫 Không push trực tiếp lên `main`/`develop`
-- ✅ Bắt buộc ≥ 1 reviewer approve trước khi merge
-- ✅ Phải pass Unit Test trước khi merge
+- Husky chạy kiểm thử tự động trước mỗi lần commit.
+- Pull Request cần ít nhất một thành viên duyệt.
+- Mã nguồn phải vượt qua `tsc`, ESLint và toàn bộ kiểm thử trước khi hợp nhất.
 
 ---
 
-## 🤝 Đóng góp
+## Định hướng phát triển
 
-```bash
-git checkout -b feature/AOFP-XX_ten-tinh-nang   # 1. Tạo nhánh từ develop
-git commit -m "feat(AOFP-XX): mô tả thay đổi"    # 2. Commit theo convention
-git push origin feature/AOFP-XX_ten-tinh-nang    # 3. Push
-```
-
-4. Tạo Pull Request vào `develop` → chờ ≥ 1 thành viên review & approve
-
----
-
-## 👥 Team — FA26SE036
-
-<div align="center">
-
-|         Role          | Name                   | Email                       |
-| :-------------------: | ---------------------- | --------------------------- |
-|     🎓 Supervisor     | Thân Thị Ngọc Vân      | vanttn@fpt.edu.vn           |
-|       👑 Leader       | Nguyễn Phương Mỹ Thuận | ThuanNPMSE171113@fpt.edu.vn |
-| ⚙️ Backend Developer  | Lê Đức Trung Thi       | thildtde180553@fpt.edu.vn   |
-| 🎨 Frontend Developer | Huỳnh Quốc Việt        | viethqse182482@fpt.edu.vn   |
-| 🎨 Frontend Developer | Phan Huỳnh Hải Phượng  | haifuong2408@gmail.com      |
-
-</div>
+- **Mở rộng kênh bán hàng** — kết nối thêm sàn thông qua lớp adapter hiện có, bao gồm sàn thương mại điện tử AURELLE do nhóm xây dựng.
+- **Gộp kiện liên sàn** — các đơn trên nhiều sàn của cùng một người nhận được lấy hàng cùng lúc và giao trong một chuyến.
+- **Đồng bộ tồn kho hai chiều** — cập nhật tồn khả dụng từ kho OptiPack lên các sàn khi có nhập hàng, kiểm kê hoặc đổi trả.
+- **Mô hình AI xếp hàng 3D** — nâng cấp đề xuất đóng gói bằng thuật toán xếp hàng ba chiều cho đơn nhiều sản phẩm.
+- **Ước tính chi phí vận chuyển** — tính trước phí đóng gói và cước giao hàng cho từng kiện.
+- **Ứng dụng di động cho nhân viên kho** — quét mã QR/Barcode khi lấy hàng, cất hàng và đóng gói.
+- **Dashboard phân tích** — năng suất kho, tỷ lệ tái sử dụng vật liệu, chi phí logistics theo thời gian.
+- **Vòng đời đơn đầy đủ trên sàn** — đồng bộ các trạng thái sẵn sàng giao, đã giao và hoàn hàng về sàn.
 
 ---
 
-<div align="center">
+## Nhóm phát triển
 
-## 📄 License
+| Vai trò               | Thành viên             | Liên hệ                     |
+| --------------------- | ---------------------- | --------------------------- |
+| Giảng viên hướng dẫn  | Thân Thị Ngọc Vân      | vanttn@fpt.edu.vn           |
+| Trưởng nhóm · Backend | Nguyễn Phương Mỹ Thuận | ThuanNPMSE171113@fpt.edu.vn |
+| Backend Developer     | Lê Đức Trung Thi       | thildtde180553@fpt.edu.vn   |
+| Frontend Developer    | Huỳnh Quốc Việt        | viethqse182482@fpt.edu.vn   |
+| Frontend Developer    | Phan Huỳnh Hải Phượng  | haifuong2408@gmail.com      |
 
-**UNLICENSED** — Proprietary software, phát triển trong khuôn khổ Capstone Project FA26SE036
+---
 
-<br/>
+## Giấy phép
 
-Made with 🧠 by **OptiPackAI Team**
-
-</div>
+**UNLICENSED** — Phần mềm độc quyền, phát triển trong khuôn khổ Đồ án tốt nghiệp FA26SE036, Trường Đại học FPT. Không được sao chép, phân phối hoặc sử dụng khi chưa có sự cho phép của nhóm phát triển.

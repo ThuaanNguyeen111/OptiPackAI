@@ -32,6 +32,10 @@ export enum NotificationType {
   // BỔ SUNG (30/09/2026) — 1 đơn trong nhóm bị hủy sau khi đã có phương án
   // đóng gói: phương án cũ bị vô hiệu, nhóm quay lại `picked` để tính lại.
   PACKAGING_PLAN_INVALIDATED = 'packaging_plan_invalidated',
-  // BỔ SUNG (30/09/2026) — kho đã nhận hàng hoàn; warning khi có hàng hỏng không nhập lại.
-  RETURN_RECEIVED = 'return_received',
+  // Hoàn thiện giao hàng + trả hàng + chống bán lố (27/09/2026)
+  DELIVERY_FAILED = 'delivery_failed',
+  DELIVERY_RETURNING = 'delivery_returning',
+  DELIVERY_OVERDUE = 'delivery_overdue',
+  RETURN_REQUESTED = 'return_requested',
+  STOCK_SHORTAGE = 'stock_shortage',
 }

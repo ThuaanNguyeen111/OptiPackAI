@@ -5,4 +5,5 @@ export const PRODUCT_MASTER_ERROR_CODES = {
   FOLD_NOT_ALLOWED: 'PM_FOLD_NOT_ALLOWED', // (22/09/2026) giày (hộp cứng) không được đánh dấu gập đôi
   // (29/09/2026) sàn chưa implement getProducts trên MarketplaceAdapter (VD TikTok/Tiki)
   UNSUPPORTED_PLATFORM: 'PM_UNSUPPORTED_PLATFORM',
+  NOTHING_TO_UPDATE: 'PM_NOTHING_TO_UPDATE',
 } as const;

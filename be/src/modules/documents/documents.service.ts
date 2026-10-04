@@ -178,8 +178,8 @@ export class DocumentsService {
       shopName: group.shop_name_snapshot,
       carrierName: shipment.carrier_name ?? 'Chưa chọn hãng',
       serviceName: shipment.service_name ?? '',
-      trackingCode: shipment.tracking_code,
-      tripCode: shipment.trip_code,
+      trackingCode: shipment.tracking_code ?? shipment.shipment_code,
+      tripCode: shipment.trip_code ?? '—',
       recipient,
       parcels,
       etaTo: shipment.eta_to,
@@ -209,13 +209,13 @@ export class DocumentsService {
         .findOne({ consolidated_group_id: group._id })
         .sort({ _id: 1 });
       rows.push({
-        trackingCode: s.tracking_code,
+        trackingCode: s.tracking_code ?? s.shipment_code,
         orderGroupId: s.order_group_id.toString(),
         recipientName: first?.recipient.full_name ?? '—',
         recipientAddress: first ? addressOf(first.recipient) : '—',
-        parcelCount: s.parcel_count,
-        chargeableWeightG: s.chargeable_weight_g,
-        costVnd: s.estimated_cost_vnd,
+        parcelCount: s.parcel_count ?? 0,
+        chargeableWeightG: s.chargeable_weight_g ?? 0,
+        costVnd: s.estimated_cost_vnd ?? 0,
       });
     }
     const head = shipments[0];

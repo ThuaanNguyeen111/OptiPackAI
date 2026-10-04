@@ -12,11 +12,32 @@ const STAFF_PREFIXES: Record<
   [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping'],
 }
 
+/**
+ * Store Owner — giám sát / cấu hình trong whitelist, không thao tác sàn kho.
+ * Whitelist chốt (2026-09-16): orders, order-groups, packaging-rules (demo UI),
+ * staff, analytics (demo UI), profile, settings + `/app` dashboard.
+ * CTA Lấy hàng / warehouse / packing / shipping KHÔNG thuộc Owner — ẩn ở UI.
+ */
+const STORE_OWNER_PREFIXES = [
+  '/app/orders',
+  '/app/order-groups',
+  '/app/returns',
+  '/app/packaging-rules',
+  '/app/staff',
+  '/app/analytics',
+  '/app/profile',
+  '/app/settings',
+] as const
+
 function normalizePath(pathname: string): string {
   if (pathname.length > 1 && pathname.endsWith('/')) {
     return pathname.slice(0, -1)
   }
   return pathname
+}
+
+function matchesPrefix(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`)
 }
 
 export function homePath(role: Role): string {
@@ -46,7 +67,8 @@ export function canAccessPath(role: Role, pathname: string): boolean {
   if (path === '/app/admin' || path.startsWith('/app/admin/')) return false
 
   if (role === UserRole.STORE_OWNER) {
-    return path === '/app' || path.startsWith('/app/')
+    if (path === '/app') return true
+    return STORE_OWNER_PREFIXES.some((p) => matchesPrefix(path, p))
   }
 
   // Đơn đa kênh (GET /orders) — chỉ Admin + Store Owner theo BE
@@ -56,7 +78,7 @@ export function canAccessPath(role: Role, pathname: string): boolean {
 
   const prefixes = STAFF_PREFIXES[role]
   if (!prefixes) return false
-  return prefixes.some((p) => path === p || path.startsWith(`${p}/`))
+  return prefixes.some((p) => matchesPrefix(path, p))
 }
 
 export function canSeeNavItem(role: Role, to: string): boolean {

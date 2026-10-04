@@ -7,8 +7,11 @@ import {
   UpdateMaterialRulesDto,
   UpdatePackagingMaterialDto,
 } from './dto/packaging-material.dto';
-import type { PackagingMaterialDocument } from './schemas/packaging-material.schema';
-import type { PackagingMaterialMovement } from './schemas/packaging-material-movement.schema';
+import {
+  usableStock,
+  type PackagingMaterialDocument,
+} from '../packaging-materials/schemas/packaging-material.schema';
+import type { PackagingMovement } from '../packaging-materials/schemas/packaging-movement.schema';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -55,16 +58,24 @@ export interface MaterialRulesResponse {
   }[];
 }
 
+/** Loại sổ chung (packaging_movements) → lý do hiển thị cũ của FE. */
+function movementReason(m: PackagingMovement): string {
+  if (m.type === 'purchase') return 'stock_in';
+  if (m.type === 'consume') return m.condition === 'reused' ? 'pack_reused' : 'pack';
+  return m.type;
+}
+
 export function toMaterialResponse(doc: PackagingMaterialDocument): PackagingMaterialResponse {
-  const onHand = doc.quantity_on_hand;
+  // Kho chung: tồn dùng được = mới + tái sử dụng.
+  const onHand = usableStock(doc);
   return {
     id: doc._id.toString(),
     code: doc.code,
     name: doc.name,
-    type: doc.type,
-    unit: doc.unit,
-    weightGPerUnit: doc.weight_g_per_unit,
-    priceVndPerUnit: doc.price_vnd_per_unit,
+    type: doc.material_type ?? 'unknown',
+    unit: doc.unit ?? 'cái',
+    weightGPerUnit: doc.weight_g_per_unit ?? 0,
+    priceVndPerUnit: doc.unit_cost_vnd,
     quantityOnHand: onHand,
     reorderLevel: doc.reorder_level,
     storageLocation: doc.storage_location,
@@ -74,14 +85,14 @@ export function toMaterialResponse(doc: PackagingMaterialDocument): PackagingMat
   };
 }
 
-function toMovementResponse(m: PackagingMaterialMovement): MaterialMovementResponse {
+function toMovementResponse(m: PackagingMovement): MaterialMovementResponse {
   return {
     delta: m.delta,
-    reason: m.reason,
-    balanceAfter: m.balance_after,
-    orderGroupId: m.order_group_id ? m.order_group_id.toString() : null,
+    reason: movementReason(m),
+    balanceAfter: m.balance_after ?? 0,
+    orderGroupId: m.ref_type === 'order_group' ? m.ref_id : null,
     note: m.note,
-    createdAt: m.created_at ?? null,
+    createdAt: m.created_at,
   };
 }
 

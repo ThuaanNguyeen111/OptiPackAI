@@ -1,21 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchLazadaConnectUrl } from '../api/marketplace.api'
-import { listOrders } from '../api/orders.api'
 import { formatApiError } from '../lib/api'
 import {
   getActiveLazadaShopId,
+  isLazadaOAuthErrorNotice,
+  isLazadaOAuthSuccessNotice,
+  LAZADA_ACTIVE_SHOP_STORAGE_KEY,
+  LAZADA_SHOPS_STORAGE_KEY,
   loadLazadaShops,
-  parseLazadaCallbackPayload,
   removeLazadaShop,
   setActiveLazadaShopId,
   upsertLazadaShop,
 } from '../lib/lazada-shop'
 import {
-  LAZADA_OAUTH_MESSAGE_TYPE,
+  formatMarketplaceOAuthError,
+  LAZADA_OAUTH_CHANNEL,
   type StoredLazadaShop,
 } from '../types/marketplace-orders'
 
-export type LazadaConnectPhase = 'idle' | 'opening' | 'waiting' | 'saving'
+export type LazadaConnectPhase = 'idle' | 'opening' | 'waiting'
 
 export function useLazadaConnection() {
   const [shops, setShops] = useState<StoredLazadaShop[]>(() => loadLazadaShops())
@@ -41,66 +44,85 @@ export function useLazadaConnection() {
     return shop
   }, [])
 
-  const applyCallbackPayload = useCallback(
-    (raw: string): StoredLazadaShop | null => {
-      const parsed = parseLazadaCallbackPayload(raw)
-      if (!parsed) return null
-      rememberShop(parsed)
-      return parsed
-    },
-    [rememberShop],
-  )
+  useEffect(() => {
+    function applyNotice(data: unknown): void {
+      if (isLazadaOAuthSuccessNotice(data)) {
+        rememberShop({
+          shopId: data.shopId,
+          shopName: data.shopName,
+          connectedAt: new Date().toISOString(),
+        })
+        connectTabRef.current?.close()
+        connectTabRef.current = null
+        return
+      }
+      if (isLazadaOAuthErrorNotice(data)) {
+        setPhase('idle')
+        setError(formatMarketplaceOAuthError(data.error))
+        connectTabRef.current?.close()
+        connectTabRef.current = null
+      }
+    }
+
+    function onMessage(event: MessageEvent): void {
+      if (event.origin !== window.location.origin) return
+      applyNotice(event.data)
+    }
+
+    window.addEventListener('message', onMessage)
+
+    let channel: BroadcastChannel | null = null
+    try {
+      channel = new BroadcastChannel(LAZADA_OAUTH_CHANNEL)
+      channel.addEventListener('message', (event: MessageEvent) => {
+        applyNotice(event.data)
+      })
+    } catch {
+      channel = null
+    }
+
+    return () => {
+      window.removeEventListener('message', onMessage)
+      channel?.close()
+    }
+  }, [rememberShop])
 
   useEffect(() => {
-    function onMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) return
-      const data: unknown = event.data
-      if (typeof data !== 'object' || data === null) return
-      const rec = data as Record<string, unknown>
-      if (rec.type !== LAZADA_OAUTH_MESSAGE_TYPE) return
-      if (typeof rec.shopId !== 'string' || !rec.shopId) return
-      rememberShop({
-        shopId: rec.shopId,
-        shopName: typeof rec.shopName === 'string' ? rec.shopName : null,
-        connectedAt: new Date().toISOString(),
-      })
+    function onStorage(event: StorageEvent): void {
+      if (
+        event.key !== LAZADA_SHOPS_STORAGE_KEY &&
+        event.key !== LAZADA_ACTIVE_SHOP_STORAGE_KEY
+      ) {
+        return
+      }
+      const known = shopsBeforeConnectRef.current
+      refreshFromStorage()
+      const added = loadLazadaShops().some((shop) => !known.has(shop.shopId))
+      if (!added) return
+      setPhase('idle')
+      setError(null)
       connectTabRef.current?.close()
       connectTabRef.current = null
     }
 
-    window.addEventListener('message', onMessage)
-    return () => window.removeEventListener('message', onMessage)
-  }, [rememberShop])
+    window.addEventListener('storage', onStorage)
+    return () => window.removeEventListener('storage', onStorage)
+  }, [refreshFromStorage])
 
   useEffect(() => {
     if (phase !== 'waiting') return
 
     const pollId = window.setInterval(() => {
       const tab = connectTabRef.current
-      if (tab && tab.closed) {
-        connectTabRef.current = null
-      }
-
-      void listOrders({ limit: 20 })
-        .then((res) => {
-          const known = shopsBeforeConnectRef.current
-          for (const order of res.orders) {
-            if (!order.shopId || known.has(order.shopId)) continue
-            rememberShop({
-              shopId: order.shopId,
-              shopName: null,
-              connectedAt: new Date().toISOString(),
-            })
-            return
-          }
-        })
-        .catch(() => {
-          /* poll im lặng — lỗi sẽ hiện khi user bấm Đồng bộ / tải đơn */
-        })
-    }, 4000)
+      if (!tab || !tab.closed) return
+      connectTabRef.current = null
+      window.setTimeout(() => {
+        setPhase((current) => (current === 'waiting' ? 'idle' : current))
+      }, 400)
+    }, 400)
 
     return () => window.clearInterval(pollId)
-  }, [phase, rememberShop])
+  }, [phase])
 
   const startConnect = useCallback(async () => {
     setError(null)
@@ -112,10 +134,7 @@ export function useLazadaConnection() {
       const { authUrl } = await fetchLazadaConnectUrl()
       const tab = window.open(authUrl, 'optipack-lazada-connect')
       if (!tab) {
-        setPhase('idle')
-        setError(
-          'Trình duyệt đã chặn tab mới. Hãy cho phép popup rồi bấm Kết nối lại.',
-        )
+        window.location.assign(authUrl)
         return
       }
       connectTabRef.current = tab
@@ -130,22 +149,6 @@ export function useLazadaConnection() {
     setPhase('idle')
     connectTabRef.current = null
   }, [])
-
-  const confirmCallbackText = useCallback(
-    (raw: string): boolean => {
-      setPhase('saving')
-      const saved = applyCallbackPayload(raw)
-      if (!saved) {
-        setPhase('waiting')
-        setError(
-          'Không đọc được JSON callback. Hãy copy nguyên nội dung trang JSON (có shopId và connected: true).',
-        )
-        return false
-      }
-      return true
-    },
-    [applyCallbackPayload],
-  )
 
   const selectShop = useCallback((shopId: string) => {
     setActiveLazadaShopId(shopId)
@@ -188,7 +191,6 @@ export function useLazadaConnection() {
     setError,
     startConnect,
     cancelWaiting,
-    confirmCallbackText,
     selectShop,
     forgetShop,
     hydrateFromOrderShopIds,

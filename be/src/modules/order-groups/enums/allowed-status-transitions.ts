@@ -70,10 +70,7 @@ const ALLOWED_TRANSITIONS: Record<
     GroupFulfillmentStatus.CANCELED,
   ],
   [GroupFulfillmentStatus.PACKED]: [GroupFulfillmentStatus.SHIPPED],
-  [GroupFulfillmentStatus.SHIPPED]: [
-    GroupFulfillmentStatus.DELIVERED,
-    GroupFulfillmentStatus.RETURNED,
-  ],
+  [GroupFulfillmentStatus.SHIPPED]: [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED],
   [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNED], // hoàn hàng SAU khi đã giao vẫn hợp lệ (khách trả hàng)
   [GroupFulfillmentStatus.RETURNED]: [], // trạng thái cuối, không đi tiếp đâu nữa
   // BỔ SUNG (29/09/2026, N1) — trạng thái cuối, giống RETURNED. KHÔNG có

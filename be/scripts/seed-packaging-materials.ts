@@ -2,10 +2,11 @@ import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AppModule } from '../src/app.module';
+// Kho vật tư CHUNG (gộp main + thi_dev 04/10/2026) — vật tư chèn = kind 'cushioning'.
 import {
   PackagingMaterial,
   PackagingMaterialDocument,
-} from '../src/modules/packaging/schemas/packaging-material.schema';
+} from '../src/modules/packaging-materials/schemas/packaging-material.schema';
 import { PackagingMaterialService } from '../src/modules/packaging/packaging-material.service';
 import { DEFAULT_MATERIAL_RULES } from '../src/modules/packaging/engine';
 
@@ -43,11 +44,14 @@ async function run(): Promise<void> {
         $setOnInsert: {
           code: m.code,
           name: m.name,
-          type: m.type,
+          kind: 'cushioning',
+          material_type: m.type,
           unit: m.unit,
           weight_g_per_unit: m.weight_g_per_unit,
-          price_vnd_per_unit: m.price_vnd_per_unit,
-          quantity_on_hand: 0,
+          unit_cost_vnd: m.price_vnd_per_unit,
+          reusable: false,
+          qty_new: 0,
+          qty_reused: 0,
           reorder_level: 20,
           is_sample: true,
           is_active: true,

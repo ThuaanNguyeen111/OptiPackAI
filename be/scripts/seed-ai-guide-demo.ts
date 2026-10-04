@@ -15,7 +15,10 @@ import {
   PackingPlanDocument,
 } from '../src/modules/packing/schemas/packing-plan.schema';
 import { PackingPlanService } from '../src/modules/packing/packing-plan.service';
-import { PackagingBox, PackagingBoxDocument } from '../src/modules/packaging/schemas/packaging-box.schema';
+import {
+  PackagingMaterial,
+  PackagingMaterialDocument,
+} from '../src/modules/packaging-materials/schemas/packaging-material.schema';
 import { PackagingBag, PackagingBagDocument } from '../src/modules/packaging/schemas/packaging-bag.schema';
 import { ProductCategory } from '../src/common/enums/product-category.enum';
 import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
@@ -166,7 +169,7 @@ async function main(): Promise<void> {
   const planModel = app.get<Model<PackingPlanDocument>>(getModelToken(PackingPlan.name));
   // Script tự gọi tính kế hoạch — tắt cron tự tính để 2 bên không tranh nhau 1 nhóm.
   void app.get(SchedulerRegistry).getCronJob('packing-plan-auto-compute').stop();
-  const boxModel = app.get<Model<PackagingBoxDocument>>(getModelToken(PackagingBox.name));
+  const boxModel = app.get<Model<PackagingMaterialDocument>>(getModelToken(PackagingMaterial.name));
   const bagModel = app.get<Model<PackagingBagDocument>>(getModelToken(PackagingBag.name));
 
   // ---- Xóa dữ liệu demo cũ ----
@@ -190,11 +193,12 @@ async function main(): Promise<void> {
         $setOnInsert: {
           code: box.code,
           name: box.name,
+          kind: 'box',
           inner: mm(box.inner),
           outer: mm(box.outer),
           tare_g: box.tare_g,
           max_load_g: box.max_load_g,
-          price_vnd: box.price_vnd,
+          unit_cost_vnd: box.price_vnd,
           is_active: true,
           is_sample: true,
         },
@@ -205,7 +209,7 @@ async function main(): Promise<void> {
     // trong script demo; tồn thật luôn đổi qua stock-in/pack (có dòng sổ).
     await boxModel.updateOne(
       { code: box.code },
-      { $set: { quantity_on_hand: DEMO_BOX_STOCK[box.code], reorder_level: 10 } },
+      { $set: { qty_new: DEMO_BOX_STOCK[box.code], qty_reused: 0, reorder_level: 10 } },
     );
   }
 

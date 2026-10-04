@@ -1,9 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
-import {
-  UserRole,
-  USER_ROLE_VALUES,
-} from '../../../common/enums/user-role.enum';
+import { UserRole, USER_ROLE_VALUES } from '../../../common/enums/user-role.enum';
 import { NotificationType } from '../enums/notification-type.enum';
 
 /**
@@ -15,10 +12,7 @@ import { NotificationType } from '../enums/notification-type.enum';
  * Packaging Staff đều thấy thông báo group nào đang chờ duyệt).
  * ===================================================================
  */
-@Schema({
-  collection: 'notifications',
-  timestamps: { createdAt: 'created_at', updatedAt: false },
-})
+@Schema({ collection: 'notifications', timestamps: { createdAt: 'created_at', updatedAt: false } })
 export class Notification {
   @Prop({ type: Types.ObjectId, default: null, index: true })
   recipient_user_id!: Types.ObjectId | null;

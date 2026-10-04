@@ -105,6 +105,7 @@ describe('PackingPlanService', () => {
   let orderGroupsService: {
     findOrderGroupById: jest.Mock;
     allocatePickedItemsToOrders: jest.Mock;
+    assertHasActiveOrders: jest.Mock;
     transitionFulfillmentStatus: jest.Mock;
   };
   let boxService: {
@@ -140,6 +141,7 @@ describe('PackingPlanService', () => {
     orderGroupsService = {
       findOrderGroupById: jest.fn(() => Promise.resolve({ ...group })),
       allocatePickedItemsToOrders: jest.fn(() => Promise.resolve(allocations)),
+      assertHasActiveOrders: jest.fn(() => Promise.resolve()),
       transitionFulfillmentStatus: jest.fn((_id: string, target: GroupFulfillmentStatus, expected: number) => {
         if (expected !== group.__v) return Promise.reject(new Error('conflict'));
         group = { ...group, fulfillment_status: target, __v: group.__v + 1 };

@@ -1,6 +1,10 @@
-import { Body, Controller, Get, Param, Put, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { ProductMasterService } from './product-master.service';
+import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ProductMasterService,
+  type CatalogSyncShopOutcome,
+} from './product-master.service';
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
 import { ListProductMasterQueryDto } from './dto/list-product-master-query.dto';
 import { ProductMaster } from './schemas/product-master.schema';
@@ -85,14 +89,46 @@ export class ProductMasterController {
   constructor(private readonly productMasterService: ProductMasterService) {}
 
   @Get()
-  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Danh sách hồ sơ SKU (lọc status=needs_measurement để biết SKU cần đo).' })
   async list(@Query() query: ListProductMasterQueryDto): Promise<ProductMasterResponse[]> {
     const docs = await this.productMasterService.listProfiles({
       status: query.status,
       shopId: query.shop_id,
+      search: query.search,
     });
     return docs.map((d) => toResponse(d as ProductMasterLike));
+  }
+
+  @Post('sync')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Đồng bộ NGAY catalog sản phẩm từ sàn vào Product Master (không chờ cron mỗi giờ). Mặc định chỉ lấy sản phẩm thay đổi từ lần trước; full=true lấy toàn bộ. Bỏ shop_id = mọi shop đang kết nối của mọi sàn hỗ trợ. Số đo sàn chỉ ghi vào marketplaceDimension, không đổi hồ sơ kho đã xác nhận.',
+  })
+  @ApiQuery({ name: 'shop_id', required: false })
+  @ApiQuery({ name: 'platform', required: false, enum: MarketplacePlatform })
+  @ApiQuery({ name: 'full', required: false, description: 'true = đồng bộ toàn bộ catalog' })
+  async syncNow(
+    @Query('shop_id') shopId?: string,
+    @Query('platform') platform?: string,
+    @Query('full') full?: string,
+  ): Promise<{ results: CatalogSyncShopOutcome[] }> {
+    const options = { full: full === 'true' };
+    if (shopId) {
+      const target = platform === MarketplacePlatform.AURELLE ? MarketplacePlatform.AURELLE : MarketplacePlatform.LAZADA;
+      return {
+        results: [{ ok: true, ...(await this.productMasterService.syncCatalogForShop(target, shopId, options)) }],
+      };
+    }
+    return { results: await this.productMasterService.syncCatalogAllShops(options) };
+  }
+
+  @Get(':id')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Chi tiết 1 hồ sơ sản phẩm.' })
+  async get(@Param('id') id: string): Promise<ProductMasterResponse> {
+    return toResponse(await this.productMasterService.getProduct(id));
   }
 
   @Put(':id/packaging-profile')

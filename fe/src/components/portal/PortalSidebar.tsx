@@ -26,10 +26,11 @@ import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useTheme } from '../../hooks/useTheme'
+import { usesTealAppChrome } from '../../lib/app-chrome'
 import { canSeeNavItem } from '../../lib/rbac'
 import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
 
-type NavSection = 'overview' | 'logistics' | 'analytics' | 'system'
+type NavSection = 'overview' | 'store' | 'logistics' | 'analytics' | 'system'
 
 const navItems = [
   {
@@ -46,7 +47,39 @@ const navItems = [
     labelVi: 'Đơn đa kênh',
     labelEn: 'Omnichannel Orders',
     icon: Package,
-    section: 'logistics' as NavSection,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/order-groups',
+    end: false,
+    labelVi: 'Nhóm đơn & Hỏa tốc',
+    labelEn: 'Groups & Express',
+    icon: ClipboardList,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/returns',
+    end: false,
+    labelVi: 'Trả hàng',
+    labelEn: 'Returns',
+    icon: Package,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/packaging-rules',
+    end: false,
+    labelVi: 'Quy tắc Bao bì (demo)',
+    labelEn: 'Packaging Rules (demo)',
+    icon: Box,
+    section: 'store' as NavSection,
+  },
+  {
+    to: '/app/staff',
+    end: false,
+    labelVi: 'Nhân viên',
+    labelEn: 'Staff directory',
+    icon: Users,
+    section: 'store' as NavSection,
   },
   {
     to: '/app/warehouse',
@@ -81,22 +114,6 @@ const navItems = [
     section: 'logistics' as NavSection,
   },
   {
-    to: '/app/packaging-rules',
-    end: false,
-    labelVi: 'Quy tắc Bao bì',
-    labelEn: 'Packaging Rules',
-    icon: Box,
-    section: 'logistics' as NavSection,
-  },
-  {
-    to: '/app/staff',
-    end: false,
-    labelVi: 'Nhân viên & Vị trí',
-    labelEn: 'Staff & Locations',
-    icon: Users,
-    section: 'logistics' as NavSection,
-  },
-  {
     to: '/app/inventory',
     end: true,
     labelVi: 'Tình trạng kho',
@@ -115,8 +132,8 @@ const navItems = [
   {
     to: '/app/analytics',
     end: false,
-    labelVi: 'Báo cáo & Xuất file',
-    labelEn: 'Analytics & Export',
+    labelVi: 'Báo cáo (demo)',
+    labelEn: 'Analytics (demo)',
     icon: BarChart3,
     section: 'analytics' as NavSection,
   },
@@ -132,6 +149,7 @@ const navItems = [
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {
   overview: null,
+  store: { vi: 'Cửa hàng', en: 'Store' },
   logistics: { vi: 'Vận hành kho', en: 'Logistics' },
   analytics: { vi: 'Báo cáo & Phân tích', en: 'Analytics' },
   system: { vi: 'Hệ thống', en: 'System' },
@@ -169,6 +187,7 @@ export function PortalSidebar() {
   const roleLabel =
     locale === 'vi' ? USER_ROLE_LABELS[role].vi : USER_ROLE_LABELS[role].en
   const isStoreOwner = role === UserRole.STORE_OWNER
+  const tealChrome = usesTealAppChrome(role)
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
   const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
@@ -225,7 +244,13 @@ export function PortalSidebar() {
           className="flex min-w-0 items-center gap-2"
           title="OptiPackAI"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]">
+          <span
+            className={
+              tealChrome
+                ? 'lp-mark h-8 w-8 shrink-0'
+                : 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]'
+            }
+          >
             OP
           </span>
           {!sidebarCollapsed ? (
@@ -344,10 +369,12 @@ export function PortalSidebar() {
       {!sidebarCollapsed && !isStoreOwner ? (
         <div className="border-b border-hairline p-3">
           <div className="rounded-lg border border-hairline bg-surface-2 px-3 py-2">
-            <p className="text-xs font-medium text-ink">
-              {locale === 'vi' ? 'Kho tổng · Ca sáng' : 'Main Warehouse · Morning'}
+            <p className="text-xs font-medium text-ink">{roleLabel}</p>
+            <p className="mt-0.5 text-[11px] text-ink-subtle">
+              {locale === 'vi'
+                ? 'Theo quyền BE — không thao tác ngoài phạm vi role'
+                : 'Scoped to BE role permissions'}
             </p>
-            <p className="mt-0.5 text-[11px] text-ink-subtle">{roleLabel}</p>
           </div>
         </div>
       ) : null}
@@ -379,7 +406,9 @@ export function PortalSidebar() {
                     sidebarCollapsed ? 'justify-center' : ''
                   } ${
                     isActive
-                      ? 'bg-primary/15 text-primary-hover'
+                      ? tealChrome
+                        ? 'owner-nav-active'
+                        : 'bg-primary/15 text-primary-hover'
                       : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
                   }`
                 }
@@ -504,7 +533,11 @@ export function PortalSidebar() {
         icon={<LogOut className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />}
       />
       <aside
-        className={`hidden shrink-0 flex-col border-r border-hairline bg-canvas transition-[width] lg:flex ${width}`}
+        className={`hidden shrink-0 flex-col transition-[width] lg:flex ${width} ${
+          tealChrome
+            ? 'owner-sidebar'
+            : 'border-r border-hairline bg-canvas'
+        }`}
       >
         {nav}
       </aside>
@@ -517,7 +550,13 @@ export function PortalSidebar() {
             aria-label="Đóng"
             onClick={() => setMobileNavOpen(false)}
           />
-          <aside className="relative z-10 flex h-full w-60 flex-col border-r border-hairline bg-canvas">
+          <aside
+            className={`relative z-10 flex h-full w-60 flex-col ${
+              tealChrome
+                ? 'owner-sidebar m-3 h-[calc(100%-24px)]'
+                : 'border-r border-hairline bg-canvas'
+            }`}
+          >
             {nav}
           </aside>
         </div>

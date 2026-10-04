@@ -11,6 +11,8 @@ import {
   type LazadaGetOrdersFilter,
   type LazadaOrderItemRaw,
   type LazadaOrderRaw,
+  type LazadaPackRequest,
+  type LazadaPackResponse,
   type LazadaProductRaw,
 } from './lazada-protocol.client';
 
@@ -22,8 +24,12 @@ export type {
   LazadaGetOrdersFilter,
   LazadaOrderItemRaw,
   LazadaOrderRaw,
+  LazadaPackItemResultRaw,
+  LazadaPackRequest,
+  LazadaPackResponse,
   LazadaProductRaw,
 } from './lazada-protocol.client';
+export { parseLazadaBoolean, toLazadaProductDate } from './lazada-protocol.client';
 
 /**
  * ===================================================================
@@ -121,6 +127,21 @@ export class LazadaAdapter implements MarketplaceAdapter {
     sellerSkus: string[],
   ): Promise<LazadaProductRaw[]> {
     return this.client.getProducts(accessToken, sellerSkus);
+  }
+
+  async listProductsPage(
+    accessToken: string,
+    params: { updatedAfter: Date | null; offset: number; limit: number },
+  ): Promise<{ products: LazadaProductRaw[]; total: number }> {
+    return this.client.listProductsPage(accessToken, params);
+  }
+
+  /** API GHI lên shop Lazada thật — chỉ gọi qua LazadaPackSyncService (có cầu dao). */
+  async packOrders(
+    accessToken: string,
+    request: LazadaPackRequest,
+  ): Promise<LazadaPackResponse> {
+    return this.client.packOrders(accessToken, request);
   }
 
   verifyWebhookSignature(): boolean {

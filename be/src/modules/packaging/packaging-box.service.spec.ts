@@ -1,30 +1,32 @@
-import { getConnectionToken, getModelToken } from '@nestjs/mongoose';
+import { getModelToken } from '@nestjs/mongoose';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Types } from 'mongoose';
 import { PackagingBoxService } from './packaging-box.service';
-import {
-  PackagingBox,
-  PackagingBoxSchema,
-} from './schemas/packaging-box.schema';
 import { CreatePackagingBoxDto } from './dto/packaging-box.dto';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
-import {
-  PackagingStockMovement,
-  PackagingStockMovementSchema,
-} from './schemas/packaging-stock-movement.schema';
 import { PackingPlan } from '../packing/schemas/packing-plan.schema';
+// Kho vật tư CHUNG (gộp main + thi_dev 04/10/2026)
+import {
+  PackagingMaterial,
+  PackagingMaterialSchema,
+} from '../packaging-materials/schemas/packaging-material.schema';
+import {
+  PackagingMovement,
+  PackagingMovementSchema,
+} from '../packaging-materials/schemas/packaging-movement.schema';
+import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
 
 describe('PackagingBoxService', () => {
   let service: PackagingBoxService;
   let boxModel: {
     find: jest.Mock;
     create: jest.Mock;
-    findById: jest.Mock;
+    findOne: jest.Mock;
     findByIdAndUpdate: jest.Mock;
-    findOneAndUpdate: jest.Mock;
   };
   let movementModel: { create: jest.Mock };
   let planModel: { aggregate: jest.Mock };
+  let materialsService: { stockInById: jest.Mock; consumeForParcels: jest.Mock };
 
   const validDto: CreatePackagingBoxDto = {
     code: 'CARTON-M',
@@ -40,39 +42,27 @@ describe('PackagingBoxService', () => {
     boxModel = {
       find: jest.fn(),
       create: jest.fn(),
-      findById: jest.fn(),
+      findOne: jest.fn(),
       findByIdAndUpdate: jest.fn(),
-      findOneAndUpdate: jest.fn(),
     };
     movementModel = { create: jest.fn().mockResolvedValue([]) };
     planModel = { aggregate: jest.fn().mockResolvedValue([]) };
-    const session = {
-      withTransaction: jest.fn(async (fn: () => Promise<unknown>) => fn()),
-      endSession: jest.fn(),
-    };
+    materialsService = { stockInById: jest.fn(), consumeForParcels: jest.fn() };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PackagingBoxService,
-        { provide: getModelToken(PackagingBox.name), useValue: boxModel },
-        {
-          provide: getModelToken(PackagingStockMovement.name),
-          useValue: movementModel,
-        },
-        {
-          provide: getModelToken(PackingPlan.name),
-          useValue: planModel,
-        },
-        {
-          provide: getConnectionToken(),
-          useValue: { startSession: jest.fn().mockResolvedValue(session) },
-        },
+        { provide: getModelToken(PackagingMaterial.name), useValue: boxModel },
+        { provide: getModelToken(PackagingMovement.name), useValue: movementModel },
+        { provide: getModelToken(PackingPlan.name), useValue: planModel },
+        { provide: PackagingMaterialsService, useValue: materialsService },
       ],
     }).compile();
     service = module.get(PackagingBoxService);
   });
 
   it('schema khởi tạo được (Rule #23 — field union có type tường minh)', () => {
-    expect(PackagingBoxSchema.path('price_vnd')).toBeDefined();
+    expect(PackagingMaterialSchema.path('inner')).toBeDefined();
+    expect(PackagingMaterialSchema.path('max_load_g')).toBeDefined();
   });
 
   it('tạo thùng hợp lệ → is_sample=false, is_active=true', async () => {
@@ -83,6 +73,8 @@ describe('PackagingBoxService', () => {
     ];
     expect(payload.is_sample).toBe(false);
     expect(payload.is_active).toBe(true);
+    // Kho chung: kind box, giá = unit_cost_vnd, giữ length/width/height_cm theo số đo ngoài.
+    expect(payload).toMatchObject({ kind: 'box', unit_cost_vnd: 4500, length_cm: 35.6, width_cm: 25.6, height_cm: 20.6 });
   });
 
   it('kích thước ngoài nhỏ hơn lòng thùng → PKG_BOX_INVALID_DIMENSIONS', async () => {
@@ -112,8 +104,8 @@ describe('PackagingBoxService', () => {
   });
 
   it('schema sổ xuất/nhập khởi tạo được (Rule #23)', () => {
-    expect(PackagingStockMovementSchema.path('note')).toBeDefined();
-    expect(PackagingBoxSchema.path('storage_location')).toBeDefined();
+    expect(PackagingMovementSchema.path('parcel_no')).toBeDefined();
+    expect(PackagingMaterialSchema.path('storage_location')).toBeDefined();
   });
 
   it('tạo thùng mới luôn có tồn 0 (chỉ nhập qua stock-in để có dòng sổ)', async () => {
@@ -122,41 +114,20 @@ describe('PackagingBoxService', () => {
     const [payload] = boxModel.create.mock.calls[0] as [
       Record<string, unknown>,
     ];
-    expect(payload.quantity_on_hand).toBe(0);
+    expect(payload.qty_new).toBe(0);
+    expect(payload.qty_reused).toBe(0);
     expect(payload.reorder_level).toBe(10);
   });
 
-  it('stock-in cộng tồn và ghi 1 dòng sổ với số dư sau khi nhập', async () => {
+  it('stock-in nhập hàng MỚI qua kho chung (stockInById), đúng thùng', async () => {
     const id = new Types.ObjectId();
-    boxModel.findById.mockResolvedValue({ _id: id, code: 'M' });
-    boxModel.findOneAndUpdate.mockResolvedValue({
-      _id: id,
-      code: 'M',
-      quantity_on_hand: 55,
-    });
+    boxModel.findOne.mockResolvedValue({ _id: id, code: 'M', kind: 'box' });
+    materialsService.stockInById.mockResolvedValue({ _id: id, code: 'M', qty_new: 55 });
 
-    await service.stockIn(
-      id.toString(),
-      50,
-      new Types.ObjectId().toString(),
-      ' PO-1 ',
-    );
+    await service.stockIn(id.toString(), 50, 'u1', ' PO-1 ');
 
-    const [, update] = boxModel.findOneAndUpdate.mock.calls[0] as [
-      unknown,
-      { $inc: { quantity_on_hand: number } },
-    ];
-    expect(update.$inc.quantity_on_hand).toBe(50);
-    const [rows] = movementModel.create.mock.calls[0] as [
-      Record<string, unknown>[],
-    ];
-    expect(rows[0]).toMatchObject({
-      box_code: 'M',
-      delta: 50,
-      reason: 'stock_in',
-      balance_after: 55,
-      note: 'PO-1',
-    });
+    expect(boxModel.findOne).toHaveBeenCalledWith({ _id: id.toString(), kind: 'box' });
+    expect(materialsService.stockInById).toHaveBeenCalledWith(id, 50, 'u1', ' PO-1 ');
   });
 
   it('còn trống = tồn − số kiện của kế hoạch chưa đóng đang giữ chỗ; loại trừ nhóm đang tính lại', async () => {
@@ -165,8 +136,9 @@ describe('PackagingBoxService', () => {
       select: () => ({
         lean: () =>
           Promise.resolve([
-            { code: 'M', quantity_on_hand: 3, reorder_level: 2 },
-            { code: 'L', quantity_on_hand: 1, reorder_level: 2 },
+            // Tồn dùng được = mới + tái sử dụng (kho chung).
+            { code: 'M', qty_new: 2, qty_reused: 1, reorder_level: 2 },
+            { code: 'L', qty_new: 1, qty_reused: 0, reorder_level: 2 },
           ]),
       }),
     });
@@ -212,8 +184,39 @@ describe('PackagingBoxService', () => {
     expect(pipeline.some((stage) => JSON.stringify(stage).includes('$parcels.box.code'))).toBe(true);
   });
 
-  it('pack khi kho đã hết thùng → PKG_BOX_OUT_OF_STOCK, không ghi sổ', async () => {
-    boxModel.findOneAndUpdate.mockResolvedValue(null);
+  it('pack trừ 1 thùng/kiện qua kho chung ở chế độ strict', async () => {
+    materialsService.consumeForParcels.mockResolvedValue({
+      consumed: [{ code: 'M', name: 'M', before: 3, after: 1, reorderLevel: 2, savingVnd: 0 }],
+      shortfalls: [],
+    });
+    const planId = new Types.ObjectId();
+    const result = await service.consumeForPack(
+      {} as never,
+      [
+        { boxCode: 'M', planId, parcelNo: 1 },
+        { boxCode: 'M', planId, parcelNo: 2 },
+      ],
+      new Types.ObjectId(),
+      'u1',
+    );
+    const [, needs, , , options] = materialsService.consumeForParcels.mock.calls[0] as [
+      unknown,
+      { code: string; quantity: number; parcelNo: number }[],
+      unknown,
+      unknown,
+      { strict: boolean },
+    ];
+    expect(needs.map((n) => [n.code, n.quantity, n.parcelNo])).toEqual([['M', 1, 1], ['M', 1, 2]]);
+    expect(options.strict).toBe(true);
+    expect(result).toEqual([{ code: 'M', before: 3, after: 1, reorderLevel: 2 }]);
+  });
+
+  it('pack khi kho đã hết thùng → PKG_BOX_OUT_OF_STOCK', async () => {
+    materialsService.consumeForParcels.mockImplementation(
+      (_s: unknown, needs: { code: string; parcelNo: number }[], _g: unknown, _u: unknown, options: { onShortage: (n: unknown, a: number) => never }) => {
+        options.onShortage(needs[0], 0);
+      },
+    );
     await expect(
       service.consumeForPack(
         {} as never,
@@ -224,6 +227,5 @@ describe('PackagingBoxService', () => {
     ).rejects.toMatchObject({
       errorCode: PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
     });
-    expect(movementModel.create.mock.calls).toHaveLength(0);
   });
 });

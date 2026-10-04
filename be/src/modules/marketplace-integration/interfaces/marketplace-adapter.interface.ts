@@ -104,6 +104,11 @@ export interface MarketplaceAdapter {
     accessToken: string,
     sellerSkus: string[],
   ): Promise<LazadaProductRaw[]>;
+  /** Đồng bộ CATALOG (không theo đơn) — phân trang, tùy chọn tăng dần. */
+  listProductsPage?(
+    accessToken: string,
+    params: { updatedAfter: Date | null; offset: number; limit: number },
+  ): Promise<{ products: LazadaProductRaw[]; total: number }>;
 
   /**
    * ===================================================================

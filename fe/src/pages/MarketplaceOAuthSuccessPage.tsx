@@ -1,12 +1,19 @@
 import { useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { AuthLayout } from '../components/auth/AuthLayout'
-import { Button } from '../components/ui/Button'
-import { upsertLazadaShop } from '../lib/lazada-shop'
+import { Loader2 } from 'lucide-react'
+import { LoginScene } from '../components/auth/LoginScene'
 import {
+  publishLazadaOAuthNotice,
+  upsertLazadaShop,
+} from '../lib/lazada-shop'
+import {
+  formatMarketplaceOAuthError,
+  LAZADA_OAUTH_ERROR_TYPE,
   LAZADA_OAUTH_MESSAGE_TYPE,
   MARKETPLACE_OAUTH_MESSAGE_TYPE,
 } from '../types/marketplace-orders'
+
+const ADMIN_MARKETPLACE_PATH = '/app/admin/marketplace'
 
 const PLATFORM_LABELS: Record<string, string> = {
   lazada: 'Lazada',
@@ -23,26 +30,52 @@ export function MarketplaceOAuthSuccessPage() {
     shopNameRaw && shopNameRaw.trim() && shopNameRaw !== 'null'
       ? shopNameRaw.trim()
       : null
-  const connected = params.get('connected') !== 'false'
+  const connected = params.get('connected') === 'true'
   const error = params.get('error')
+  const failed = Boolean(error) || !shopId || !connected
   // BE cũ không gửi platform → mặc định Lazada (tương thích ngược)
   const platform = params.get('platform')?.trim() || 'lazada'
   const platformLabel = PLATFORM_LABELS[platform] ?? platform
 
   useEffect(() => {
-    if (error || !shopId || !connected) return
-
-    // Chỉ Lazada còn lưu danh sách shop trong localStorage; sàn khác đọc từ DB.
+    // Sàn khác Lazada (vd AURELLE): danh sách shop đọc từ DB, KHÔNG ghi vào
+    // danh sách Lazada trong localStorage — chỉ báo tab gốc tải lại.
     if (platform !== 'lazada') {
+      if (failed) return
       if (window.opener && !window.opener.closed) {
         window.opener.postMessage(
           { type: MARKETPLACE_OAUTH_MESSAGE_TYPE, platform, shopId, shopName },
           window.location.origin,
         )
         window.close()
-        return
       }
-      navigate('/app/admin/marketplace', { replace: true })
+      const fallback = window.setTimeout(() => {
+        navigate(ADMIN_MARKETPLACE_PATH, { replace: true })
+      }, 250)
+      return () => window.clearTimeout(fallback)
+    }
+
+    if (error) {
+      publishLazadaOAuthNotice({
+        type: LAZADA_OAUTH_ERROR_TYPE,
+        error,
+      })
+      if (
+        window.name === 'optipack-lazada-connect' ||
+        Boolean(window.opener && !window.opener.closed)
+      ) {
+        window.close()
+      }
+      return
+    }
+
+    if (!shopId || !connected) {
+      if (window.opener && !window.opener.closed) {
+        publishLazadaOAuthNotice({
+          type: LAZADA_OAUTH_ERROR_TYPE,
+          error: 'MKT_SERVER_ERROR',
+        })
+      }
       return
     }
 
@@ -52,54 +85,59 @@ export function MarketplaceOAuthSuccessPage() {
       connectedAt: new Date().toISOString(),
     })
 
-    const payload = {
+    publishLazadaOAuthNotice({
       type: LAZADA_OAUTH_MESSAGE_TYPE,
       shopId,
       shopName,
-    }
-    if (window.opener && !window.opener.closed) {
-      window.opener.postMessage(payload, window.location.origin)
-      window.close()
-      return
-    }
-    navigate('/app/admin/marketplace', { replace: true })
-  }, [connected, error, navigate, platform, shopId, shopName])
+    })
 
-  if (error || !shopId) {
+    const openedAsConnectTab =
+      window.name === 'optipack-lazada-connect' ||
+      Boolean(window.opener && !window.opener.closed)
+
+    if (openedAsConnectTab) {
+      window.close()
+    }
+
+    const closeFallback = window.setTimeout(() => {
+      navigate(ADMIN_MARKETPLACE_PATH, { replace: true })
+    }, 250)
+    return () => window.clearTimeout(closeFallback)
+  }, [connected, error, failed, navigate, platform, shopId, shopName])
+
+  if (failed) {
     return (
-      <AuthLayout mode="login">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Kết nối {platformLabel} không thành công
-          </h1>
-          <p className="mt-3 text-sm text-ink-muted">
-            {error
-              ? `Mã lỗi: ${error}`
-              : 'Thiếu shopId trên URL callback. Nếu BE vẫn trả JSON thô, hãy dán JSON ở màn Kết nối sàn.'}
-          </p>
-          <Button
-            type="button"
-            variant="primary"
-            className="mt-8 w-full"
-            onClick={() => navigate('/app/admin/marketplace')}
-          >
-            Quay lại kết nối sàn
-          </Button>
-        </div>
-      </AuthLayout>
+      <LoginScene
+        closeTo={ADMIN_MARKETPLACE_PATH}
+        artTitle="Kết nối sàn"
+        artDescription="Hoàn tất ủy quyền shop để đồng bộ đơn hàng vào hệ thống."
+      >
+        <h1 className="login-title">Kết nối {platformLabel} không thành công</h1>
+        <p className="login-lead">{formatMarketplaceOAuthError(error)}</p>
+        <button
+          type="button"
+          className="login-cta"
+          onClick={() => navigate(ADMIN_MARKETPLACE_PATH)}
+        >
+          Quay lại kết nối sàn
+        </button>
+      </LoginScene>
     )
   }
 
   return (
-    <AuthLayout mode="login">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          Đang hoàn tất kết nối shop…
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Shop {shopName ?? shopId} đã được ghi nhận. Bạn có thể đóng tab này.
-        </p>
+    <LoginScene
+      closeTo={ADMIN_MARKETPLACE_PATH}
+      artTitle="Kết nối sàn"
+      artDescription="Hoàn tất ủy quyền shop để đồng bộ đơn hàng vào hệ thống."
+    >
+      <h1 className="login-title">Đang hoàn tất…</h1>
+      <p className="login-lead">
+        Shop {shopName ?? shopId} đã được ghi nhận. Bạn có thể đóng tab này.
+      </p>
+      <div className="login-status-icon">
+        <Loader2 className="h-6 w-6 animate-spin" />
       </div>
-    </AuthLayout>
+    </LoginScene>
   )
 }

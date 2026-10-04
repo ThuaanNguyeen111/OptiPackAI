@@ -749,6 +749,8 @@ export class PackingPlanService {
    * kế hoạch `packed`, nhóm `packed` — cùng 1 transaction.
    */
   async pack(groupId: string, dto: PackPlanDto, userId: string): Promise<PackingPlanDocument> {
+    // Gộp main (02/10/2026): nhóm không còn đơn cần xử lý (hủy hết) thì không cho đóng gói.
+    await this.orderGroupsService.assertHasActiveOrders(groupId);
     const plan = await this.requireActivePlan(groupId);
     this.assertStatus(plan, 'approved', 'xác nhận đóng gói');
     if (plan.version !== dto.expected_version) throw this.versionConflict(groupId);

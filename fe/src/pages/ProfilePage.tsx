@@ -18,6 +18,7 @@ import {
   User,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { ProfileStaffBadge } from '../components/profile/ProfileStaffBadge'
 import { Button } from '../components/ui/Button'
 import {
   PLATFORM_META,
@@ -60,15 +61,6 @@ function isLikelyImageUrl(value: string): boolean {
 
 function mfaQrImageUrl(otpauthUrl: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(otpauthUrl)}`
-}
-
-function formatJoinedDate(iso: string | undefined, vi: boolean): string {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString(vi ? 'vi-VN' : 'en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
 }
 
 function Toast({
@@ -160,14 +152,8 @@ export function ProfilePage() {
   const [toast, setToast] = useState<string | null>(null)
 
   const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
-  const connectedPlatforms = [
-    ...new Set(activeShops.map((s) => s.platform)),
-  ]
   const storeBannerLabel =
     activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'Anh Minh Store'
-  const platformBanner =
-    connectedPlatforms.map((p) => PLATFORM_META[p].label).join(' + ') ||
-    '—'
   const activeCountLabel = `${activeShopIds.length}/${shops.length}`
 
   function showToast(message: string) {
@@ -370,17 +356,17 @@ export function ProfilePage() {
   const tabs: Array<{ key: ProfileTab; label: string; icon: typeof User }> = [
     {
       key: 'personal',
-      label: vi ? 'Personal Info & Security' : 'Personal Info & Security',
+      label: vi ? 'Hồ sơ & Bảo mật' : 'Personal Info & Security',
       icon: Shield,
     },
     {
       key: 'marketplaces',
-      label: vi ? 'Connected Marketplaces' : 'Connected Marketplaces',
+      label: vi ? 'Sàn đã kết nối' : 'Connected Marketplaces',
       icon: Store,
     },
     {
       key: 'preferences',
-      label: vi ? 'System Preferences' : 'System Preferences',
+      label: vi ? 'Tùy chọn hệ thống' : 'System Preferences',
       icon: Bell,
     },
   ]
@@ -395,226 +381,201 @@ export function ProfilePage() {
       />
       <main className="flex min-h-0 flex-1 overflow-auto bg-canvas p-3 sm:p-4">
         <div className="mx-auto w-full max-w-4xl space-y-3">
-          {/* Banner */}
-          <section className="rounded-xl border border-hairline bg-surface-1 p-3.5 sm:p-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="relative shrink-0">
-                {isLikelyImageUrl(avatar) ? (
-                  <img
-                    src={avatar.trim()}
-                    alt=""
-                    className="h-12 w-12 rounded-full border-2 border-primary object-cover shadow-[0_0_20px_rgba(99,102,241,0.25)]"
-                  />
-                ) : (
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-primary bg-primary/15 text-sm font-semibold text-primary-hover shadow-[0_0_20px_rgba(99,102,241,0.4)]">
-                    {loadingProfile ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      profileInitials(fullName || '?')
-                    )}
-                  </div>
-                )}
-                <span className="absolute -right-0.5 -bottom-0.5 h-3 w-3 rounded-full border-2 border-surface-1 bg-success" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-lg font-semibold tracking-tight text-ink">
-                    {fullName}
-                  </h1>
-                  <span className="inline-flex rounded-full border border-primary/20 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary-hover">
-                    {roleLabel || '—'}
-                  </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-success/20 bg-success-bg px-2 py-0.5 text-[11px] font-medium text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                    Active
-                  </span>
-                  {mfaEnabled ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary-hover">
-                      <ShieldCheck className="h-3 w-3" strokeWidth={2} />
-                      MFA
-                    </span>
-                  ) : null}
-                </div>
-                <p className="mt-1 flex items-center gap-1.5 text-sm text-ink-muted">
-                  <Store className="h-3.5 w-3.5 text-ink-subtle" strokeWidth={1.75} />
-                  {storeBannerLabel} · {activeCountLabel}{' '}
-                  {vi ? 'shop active' : 'shops active'} ({platformBanner})
-                </p>
-                <p className="mt-0.5 font-mono text-[11px] text-ink-tertiary">
-                  {vi ? 'Tham gia' : 'Joined'}: {formatJoinedDate(joinedAt, vi)}
-                  {userId ? ` · ID ${userId}` : ''}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-9 min-h-9 shrink-0 border-error/30 text-error hover:bg-error/10 hover:text-error"
-                disabled={loggingOut}
-                onClick={() => void handleLogout()}
-              >
-                {loggingOut ? (
-                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                ) : (
-                  <LogOut className="mr-1.5 h-4 w-4" />
-                )}
-                {vi ? 'Đăng xuất' : 'Log out'}
-              </Button>
+          {/* Tabs — đặt trên để đổi mục không bị kẹt dưới thẻ cao */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-1 flex-wrap gap-1 rounded-xl border border-hairline bg-surface-1 p-1">
+              {tabs.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setTab(key)}
+                  className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:flex-none sm:justify-start ${
+                    tab === key
+                      ? 'bg-primary/15 text-primary-hover'
+                      : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                  <span className="truncate">{label}</span>
+                </button>
+              ))}
             </div>
-          </section>
-
-          {/* Tabs */}
-          <div className="flex flex-wrap gap-1 rounded-xl border border-hairline bg-surface-1 p-1">
-            {tabs.map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTab(key)}
-                className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors sm:flex-none sm:justify-start ${
-                  tab === key
-                    ? 'bg-primary/15 text-primary-hover'
-                    : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
-                }`}
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-                <span className="truncate">{label}</span>
-              </button>
-            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-9 min-h-9 shrink-0 border-error/30 text-error hover:bg-error/10 hover:text-error"
+              disabled={loggingOut}
+              onClick={() => void handleLogout()}
+            >
+              {loggingOut ? (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              ) : (
+                <LogOut className="mr-1.5 h-4 w-4" />
+              )}
+              {vi ? 'Đăng xuất' : 'Log out'}
+            </Button>
           </div>
 
-          {/* Tab 1 */}
+          {/* Tab 1 — thẻ + form hồ sơ cạnh nhau (lấp khoảng trống) */}
           {tab === 'personal' ? (
             <div className="space-y-3">
-              <form
-                onSubmit={handleSaveProfile}
-                className="rounded-xl border border-hairline bg-surface-1 p-4"
-              >
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
-                  <User className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-                  {vi ? 'Thông tin hồ sơ' : 'Profile Details'}
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <FieldLabel>{vi ? 'Họ và tên' : 'Full Name'}</FieldLabel>
-                    <input
-                      className={readOnlyInputClass}
-                      value={fullName}
-                      readOnly
-                    />
-                  </div>
-                  <div>
-                    <FieldLabel>{vi ? 'Email công việc' : 'Work Email'}</FieldLabel>
-                    <div className="relative">
-                      <input
-                        className={`${inputClass} pr-24`}
-                        value={email}
-                        readOnly
-                      />
-                      <span className="absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 rounded-full border border-success/20 bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success">
-                        <Check className="h-3 w-3" strokeWidth={2.5} />
-                        Verified
-                      </span>
+              <section className="rounded-xl border border-hairline bg-surface-1 p-3.5 sm:p-4">
+                <div className="grid items-start gap-4 lg:grid-cols-[minmax(240px,272px)_minmax(0,1fr)] lg:gap-5">
+                  <ProfileStaffBadge
+                    name={fullName}
+                    roleLabel={roleLabel}
+                    avatar={avatar}
+                    employeeCode={employeeCode}
+                    department={department}
+                    address={address}
+                    email={email}
+                    phone={phone}
+                    mfaEnabled={mfaEnabled}
+                    userId={userId}
+                    joinedAt={joinedAt}
+                    loading={loadingProfile}
+                    vi={vi}
+                  />
+
+                  <form
+                    onSubmit={handleSaveProfile}
+                    className="flex min-h-0 min-w-0 flex-col"
+                  >
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-sm font-medium text-ink">
+                        <User className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
+                        {vi ? 'Thông tin hồ sơ' : 'Profile Details'}
+                      </div>
+                      <p className="text-[11px] text-ink-tertiary">
+                        {storeBannerLabel} · {activeCountLabel}{' '}
+                        {vi ? 'shop đang dùng' : 'shops'}
+                      </p>
                     </div>
-                  </div>
-                  <div>
-                    <FieldLabel>{vi ? 'Số điện thoại' : 'Phone Number'}</FieldLabel>
-                    <input
-                      className={`${inputClass} font-mono`}
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                      maxLength={20}
-                      placeholder={vi ? '0912345678' : '0912345678'}
-                      disabled={loadingProfile}
-                    />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <FieldLabel>{vi ? 'Địa chỉ' : 'Address'}</FieldLabel>
-                    <div className="relative">
-                      <MapPin className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-ink-subtle" strokeWidth={1.75} />
-                      <input
-                        className={`${inputClass} pl-9`}
-                        value={address}
-                        onChange={(e) => setAddress(e.target.value)}
-                        maxLength={255}
-                        placeholder={
-                          vi
-                            ? '123 Nguyễn Văn Cừ, Q5, TP.HCM'
-                            : '123 Example Street, District 5'
-                        }
-                        disabled={loadingProfile}
-                      />
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <FieldLabel>{vi ? 'Ảnh đại diện (URL)' : 'Avatar URL'}</FieldLabel>
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-                      <input
-                        className={`${inputClass} flex-1 font-mono text-xs sm:text-sm`}
-                        value={avatar}
-                        onChange={(e) => setAvatar(e.target.value)}
-                        placeholder="https://..."
-                        disabled={loadingProfile}
-                      />
-                      {isLikelyImageUrl(avatar) ? (
-                        <img
-                          src={avatar.trim()}
-                          alt=""
-                          className="h-10 w-10 shrink-0 rounded-lg border border-hairline object-cover"
+                    <div className="grid flex-1 gap-2.5 sm:grid-cols-2">
+                      <div className="sm:col-span-2">
+                        <FieldLabel>{vi ? 'Họ và tên' : 'Full Name'}</FieldLabel>
+                        <input
+                          className={readOnlyInputClass}
+                          value={fullName}
+                          readOnly
                         />
-                      ) : (
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-hairline bg-surface-2 text-[10px] text-ink-subtle">
-                          {profileInitials(fullName || '?')}
+                      </div>
+                      <div>
+                        <FieldLabel>{vi ? 'Email công việc' : 'Work Email'}</FieldLabel>
+                        <div className="relative">
+                          <input
+                            className={`${inputClass} pr-24`}
+                            value={email}
+                            readOnly
+                          />
+                          <span className="absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center gap-1 rounded-full border border-success/20 bg-success-bg px-2 py-0.5 text-[10px] font-medium text-success">
+                            <Check className="h-3 w-3" strokeWidth={2.5} />
+                            {vi ? 'Đã xác minh' : 'Verified'}
+                          </span>
                         </div>
+                      </div>
+                      <div>
+                        <FieldLabel>{vi ? 'Số điện thoại' : 'Phone Number'}</FieldLabel>
+                        <input
+                          className={`${inputClass} font-mono`}
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          maxLength={20}
+                          placeholder={vi ? '0912345678' : '0912345678'}
+                          disabled={loadingProfile}
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <FieldLabel>{vi ? 'Địa chỉ' : 'Address'}</FieldLabel>
+                        <div className="relative">
+                          <MapPin className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-ink-subtle" strokeWidth={1.75} />
+                          <input
+                            className={`${inputClass} pl-9`}
+                            value={address}
+                            onChange={(e) => setAddress(e.target.value)}
+                            maxLength={255}
+                            placeholder={
+                              vi
+                                ? '123 Nguyễn Văn Cừ, Q5, TP.HCM'
+                                : '123 Example Street, District 5'
+                            }
+                            disabled={loadingProfile}
+                          />
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <FieldLabel>{vi ? 'Ảnh đại diện (URL)' : 'Avatar URL'}</FieldLabel>
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+                          <input
+                            className={`${inputClass} flex-1 font-mono text-xs sm:text-sm`}
+                            value={avatar}
+                            onChange={(e) => setAvatar(e.target.value)}
+                            placeholder="https://..."
+                            disabled={loadingProfile}
+                          />
+                          {isLikelyImageUrl(avatar) ? (
+                            <img
+                              src={avatar.trim()}
+                              alt=""
+                              className="h-10 w-10 shrink-0 rounded-lg border border-hairline object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-hairline bg-surface-2 text-[10px] text-ink-subtle">
+                              {profileInitials(fullName || '?')}
+                            </div>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[11px] text-ink-tertiary">
+                          {vi
+                            ? 'Dán URL ảnh đã upload sẵn (BE chưa hỗ trợ upload file trực tiếp).'
+                            : 'Paste a hosted image URL (direct file upload is not supported yet).'}
+                        </p>
+                      </div>
+                      {employeeCode ? (
+                        <div>
+                          <FieldLabel>{vi ? 'Mã nhân viên' : 'Employee Code'}</FieldLabel>
+                          <input
+                            className={`${readOnlyInputClass} font-mono`}
+                            value={employeeCode}
+                            readOnly
+                          />
+                        </div>
+                      ) : null}
+                      {department ? (
+                        <div>
+                          <FieldLabel>{vi ? 'Phòng ban' : 'Department'}</FieldLabel>
+                          <input
+                            className={readOnlyInputClass}
+                            value={department}
+                            readOnly
+                          />
+                        </div>
+                      ) : null}
+                      <div className={employeeCode || department ? '' : 'sm:col-span-2'}>
+                        <FieldLabel>{vi ? 'Vai trò hệ thống' : 'System Role'}</FieldLabel>
+                        <input
+                          className={readOnlyInputClass}
+                          value={roleLabel}
+                          readOnly
+                        />
+                      </div>
+                    </div>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      className="mt-3 h-9 min-h-9 self-start"
+                      disabled={savingProfile || loadingProfile}
+                    >
+                      {savingProfile ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="mr-1.5 h-4 w-4" />
                       )}
-                    </div>
-                    <p className="mt-1 text-[11px] text-ink-tertiary">
-                      {vi
-                        ? 'Dán URL ảnh đã upload sẵn (BE chưa hỗ trợ upload file trực tiếp).'
-                        : 'Paste a hosted image URL (direct file upload is not supported yet).'}
-                    </p>
-                  </div>
-                  {employeeCode ? (
-                    <div>
-                      <FieldLabel>{vi ? 'Mã nhân viên' : 'Employee Code'}</FieldLabel>
-                      <input
-                        className={`${readOnlyInputClass} font-mono`}
-                        value={employeeCode}
-                        readOnly
-                      />
-                    </div>
-                  ) : null}
-                  {department ? (
-                    <div>
-                      <FieldLabel>{vi ? 'Phòng ban' : 'Department'}</FieldLabel>
-                      <input
-                        className={readOnlyInputClass}
-                        value={department}
-                        readOnly
-                      />
-                    </div>
-                  ) : null}
-                  <div className="sm:col-span-2">
-                    <FieldLabel>{vi ? 'Vai trò hệ thống' : 'System Role'}</FieldLabel>
-                    <input
-                      className={readOnlyInputClass}
-                      value={roleLabel}
-                      readOnly
-                    />
-                  </div>
+                      {vi ? 'Lưu hồ sơ' : 'Save Profile'}
+                    </Button>
+                  </form>
                 </div>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="mt-3 h-9 min-h-9"
-                  disabled={savingProfile || loadingProfile}
-                >
-                  {savingProfile ? (
-                    <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="mr-1.5 h-4 w-4" />
-                  )}
-                  {vi ? 'Lưu hồ sơ' : 'Save Profile'}
-                </Button>
-              </form>
+              </section>
 
               <form
                 onSubmit={handleUpdatePassword}
@@ -846,7 +807,7 @@ export function ProfilePage() {
                   </div>
                   <p className="mt-0.5 text-[11px] text-ink-subtle">
                     {vi
-                      ? `Có thể bật nhiều shop cùng lúc · đang active ${activeCountLabel}`
+                      ? `Có thể bật nhiều shop cùng lúc · đang hoạt động ${activeCountLabel}`
                       : `Multi-shop sync · ${activeCountLabel} active`}
                   </p>
                 </div>
@@ -858,12 +819,12 @@ export function ProfilePage() {
                       activateAllShops()
                       showToast(
                         vi
-                          ? 'Đã active tất cả shop'
+                          ? 'Đã bật tất cả shop'
                           : 'All shops activated',
                       )
                     }}
                   >
-                    {vi ? 'Active tất cả' : 'Activate all'}
+                    {vi ? 'Bật tất cả' : 'Activate all'}
                   </Button>
                   <Button
                     variant="primary"
@@ -881,7 +842,7 @@ export function ProfilePage() {
                       void simulateSave(
                         setRefreshingOAuth,
                         vi
-                          ? 'Đã làm mới OAuth keys'
+                          ? 'Đã làm mới khóa OAuth'
                           : 'Marketplace OAuth keys refreshed',
                       )
                     }
@@ -891,7 +852,7 @@ export function ProfilePage() {
                     ) : (
                       <Key className="mr-1.5 h-3.5 w-3.5" />
                     )}
-                    Refresh OAuth
+                    {vi ? 'Làm mới OAuth' : 'Refresh OAuth'}
                   </Button>
                 </div>
               </div>
@@ -932,8 +893,12 @@ export function ProfilePage() {
                         onChange={(e) => setNewAccount(e.target.value)}
                         placeholder={
                           newPlatform === 'shopee'
-                            ? 'e.g. AnhMinh_Outlet'
-                            : 'e.g. AnhMinh_Live'
+                            ? vi
+                              ? 'VD: AnhMinh_Outlet'
+                              : 'e.g. AnhMinh_Outlet'
+                            : vi
+                              ? 'VD: AnhMinh_Live'
+                              : 'e.g. AnhMinh_Live'
                         }
                       />
                     </div>
@@ -1005,7 +970,9 @@ export function ProfilePage() {
                         <p className="mt-0.5 text-[11px] text-ink-subtle">
                           {shop.store_label} ·{' '}
                           <span className="text-success">
-                            Connected (Token valid)
+                            {vi
+                              ? 'Đã kết nối (Token còn hạn)'
+                              : 'Connected (Token valid)'}
                           </span>
                         </p>
                       </div>
@@ -1020,7 +987,7 @@ export function ProfilePage() {
                             if (wasActive && activeShopIds.length <= 1) {
                               showToast(
                                 vi
-                                  ? 'Phải giữ ít nhất 1 shop active'
+                                  ? 'Phải giữ ít nhất 1 shop đang hoạt động'
                                   : 'Keep at least 1 shop active',
                               )
                               return
@@ -1038,7 +1005,15 @@ export function ProfilePage() {
                           className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
                             isActive ? 'bg-primary' : 'bg-surface-3'
                           }`}
-                          title={isActive ? 'Deactivate' : 'Activate'}
+                          title={
+                            isActive
+                              ? vi
+                                ? 'Tắt shop'
+                                : 'Deactivate'
+                              : vi
+                                ? 'Bật shop'
+                                : 'Activate'
+                          }
                         >
                           <span
                             className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
@@ -1053,7 +1028,13 @@ export function ProfilePage() {
                               : 'border-hairline text-ink-subtle'
                           }`}
                         >
-                          {isActive ? 'Active' : 'Off'}
+                          {isActive
+                            ? vi
+                              ? 'Đang bật'
+                              : 'Active'
+                            : vi
+                              ? 'Tắt'
+                              : 'Off'}
                         </span>
                         <Button
                           variant="ghost"
@@ -1085,7 +1066,7 @@ export function ProfilePage() {
               <section className="rounded-xl border border-hairline bg-surface-1 p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-medium text-ink">
                   <Bell className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-                  Thông báo
+                  {vi ? 'Thông báo' : 'Notifications'}
                 </div>
                 <ul className="space-y-2">
                   {(
@@ -1140,7 +1121,7 @@ export function ProfilePage() {
                   onClick={() =>
                     void simulateSave(
                       setSavingPrefs,
-                      vi ? 'Đã lưu preferences' : 'Preferences saved',
+                      vi ? 'Đã lưu tùy chọn' : 'Preferences saved',
                     )
                   }
                 >
@@ -1149,7 +1130,7 @@ export function ProfilePage() {
                   ) : (
                     <Check className="mr-1.5 h-4 w-4" />
                   )}
-                  {vi ? 'Lưu preferences' : 'Save preferences'}
+                  {vi ? 'Lưu tùy chọn' : 'Save preferences'}
                 </Button>
               </section>
             </div>

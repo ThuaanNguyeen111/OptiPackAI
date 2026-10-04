@@ -1,11 +1,15 @@
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { KeyRound, Loader2, Lock, Mail, Shield } from 'lucide-react'
+import { ArrowRight, Loader2 } from 'lucide-react'
 import { googleAuthUrl, login } from '../api/auth.api'
-import { AuthInput } from '../components/auth/AuthInput'
-import { AuthLayout } from '../components/auth/AuthLayout'
-import { Button } from '../components/ui/Button'
+import { FlashlightPasswordField } from '../components/auth/FlashlightPasswordField'
+import {
+  LoginOwl,
+  LoginOwlBubble,
+  type LoginOwlMood,
+} from '../components/auth/LoginOwl'
+import { LoginScene } from '../components/auth/LoginScene'
 import { useAuth } from '../context/use-auth'
 import { formatApiError } from '../lib/api'
 import { homePath } from '../lib/rbac'
@@ -44,6 +48,7 @@ export function LoginPage() {
   const { applyLoginSuccess } = useAuth()
   const [email, setEmail] = useState(getRememberedEmail)
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [remember, setRemember] = useState(() => Boolean(getRememberedEmail()))
   const [loading, setLoading] = useState(false)
   const [errors, setErrors] = useState<LoginErrors>({})
@@ -52,6 +57,93 @@ export function LoginPage() {
   const [mfaToken, setMfaToken] = useState('')
   const [backupCode, setBackupCode] = useState('')
   const [locked, setLocked] = useState(false)
+  const [owlMood, setOwlMood] = useState<LoginOwlMood>('greet')
+  const [owlMessage, setOwlMessage] = useState(
+    'Xin chào! Mình là cú OptiPack — nhập email để bắt đầu nhé.',
+  )
+  const [emailFocused, setEmailFocused] = useState(false)
+  const [passwordFocused, setPasswordFocused] = useState(false)
+  const [greetDone, setGreetDone] = useState(false)
+  const [welcomeBack, setWelcomeBack] = useState<LoginSuccess | null>(null)
+
+  useEffect(() => {
+    if (mfaStep || locked || welcomeBack) return
+    setGreetDone(false)
+    setOwlMood('greet')
+    setOwlMessage('Xin chào! Mình là cú OptiPack — nhập email để bắt đầu nhé.')
+    const timer = window.setTimeout(() => setGreetDone(true), 3200)
+    return () => window.clearTimeout(timer)
+  }, [mfaStep, locked, welcomeBack])
+
+  useEffect(() => {
+    if (!welcomeBack) return
+    setOwlMood('welcome')
+    setOwlMessage(
+      welcomeBack.must_change_password
+        ? 'Chào mừng trở lại! Bấm bên dưới để đổi mật khẩu nhé.'
+        : 'Chào mừng trở lại! Bấm bên dưới để vào trang làm việc.',
+    )
+  }, [welcomeBack])
+
+  useEffect(() => {
+    if (mfaStep || locked || welcomeBack) return
+    // Lỗi validate luôn hiện ngay, kể cả lúc đang chào
+    if (errors.form) {
+      setOwlMood('error')
+      setOwlMessage(errors.form)
+      return
+    }
+    if (errors.email) {
+      setOwlMood('error')
+      setOwlMessage(errors.email)
+      return
+    }
+    if (errors.password) {
+      setOwlMood('error')
+      setOwlMessage(errors.password)
+      return
+    }
+    if (!greetDone) return
+    if (passwordFocused) {
+      setOwlMood('shy')
+      setOwlMessage('Mình che mắt để bạn gõ mật khẩu nhé.')
+      return
+    }
+    if (emailFocused) {
+      setOwlMood('watch')
+      setOwlMessage('Email công việc của bạn…')
+      return
+    }
+    const trimmed = email.trim()
+    if (
+      trimmed &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) &&
+      password.length >= 6
+    ) {
+      setOwlMood('ok')
+      setOwlMessage('Ổn rồi — bấm Đăng nhập khi sẵn sàng!')
+      return
+    }
+    if (trimmed && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setOwlMood('ok')
+      setOwlMessage('Email hợp lệ rồi. Tiếp tục với mật khẩu\u00A0nhé.')
+      return
+    }
+    setOwlMood('idle')
+    setOwlMessage('Nhập email và mật khẩu để vào hệ thống.')
+  }, [
+    errors.form,
+    errors.email,
+    errors.password,
+    emailFocused,
+    passwordFocused,
+    email,
+    password,
+    mfaStep,
+    locked,
+    greetDone,
+    welcomeBack,
+  ])
 
   function validateCredentials() {
     const next: LoginErrors = {}
@@ -65,10 +157,12 @@ export function LoginPage() {
     return Object.keys(next).length === 0
   }
 
-  function finishLogin(mustChange: boolean, role: LoginSuccess['role']) {
-    if (remember) setRememberedEmail(email.trim())
-    else setRememberedEmail(null)
-    navigate(mustChange ? '/change-password' : homePath(role), { replace: true })
+  function enterWorkspace(result: LoginSuccess) {
+    applyLoginSuccess(result)
+    navigate(
+      result.must_change_password ? '/change-password' : homePath(result.role),
+      { replace: true },
+    )
   }
 
   async function submitLogin(extra?: {
@@ -95,8 +189,10 @@ export function LoginPage() {
         return
       }
 
-      applyLoginSuccess(res)
-      finishLogin(res.must_change_password, res.role)
+      if (remember) setRememberedEmail(email.trim())
+      else setRememberedEmail(null)
+      // Chưa gắn session — tránh GuestRoute đá khỏi /login trước khi user bấm nút
+      setWelcomeBack(res)
     } catch (err) {
       const message = formatApiError(err)
       if (message.includes('72 giờ')) {
@@ -133,116 +229,147 @@ export function LoginPage() {
     await submitLogin()
   }
 
+  const night = showPassword && !mfaStep && !locked && !welcomeBack
+
+  if (welcomeBack) {
+    return (
+      <LoginScene night={false}>
+        <div className="login-welcome" role="status" aria-live="polite">
+          <div className="login-owl-stage">
+            <h1 className="login-title login-title--with-owl">
+              Chào mừng trở lại
+            </h1>
+            <div className="login-owl-cluster">
+              <LoginOwlBubble message={owlMessage} mood="welcome" />
+              <div className="login-owl-shelf" aria-hidden>
+                <LoginOwl mood="welcome" />
+              </div>
+            </div>
+          </div>
+          <p className="login-welcome-sub">Đăng nhập thành công</p>
+          <button
+            type="button"
+            className="login-cta"
+            onClick={() => enterWorkspace(welcomeBack)}
+          >
+            {welcomeBack.must_change_password ? (
+              'Đổi mật khẩu'
+            ) : (
+              <>
+                Vào trang làm việc
+                <ArrowRight size={16} strokeWidth={2} />
+              </>
+            )}
+          </button>
+        </div>
+      </LoginScene>
+    )
+  }
+
   if (locked) {
     return (
-      <AuthLayout mode="login">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-ink">
-            Tài khoản đã bị khóa
-          </h1>
-          <p className="mt-3 text-sm leading-relaxed text-ink-muted">
-            {ACCOUNT_LOCKED_DEADLINE}
-          </p>
-          <Button
-            type="button"
-            variant="primary"
-            className="mt-8 w-full"
-            onClick={() => {
-              setLocked(false)
-              setErrors({})
-            }}
-          >
-            Quay lại đăng nhập
-          </Button>
-        </div>
-      </AuthLayout>
+      <LoginScene night={false}>
+        <h1 className="login-title">Tài khoản đã bị khóa</h1>
+        <p className="login-foot" style={{ marginTop: 0, textAlign: 'left' }}>
+          {ACCOUNT_LOCKED_DEADLINE}
+        </p>
+        <button
+          type="button"
+          className="login-cta"
+          onClick={() => {
+            setLocked(false)
+            setErrors({})
+          }}
+        >
+          Quay lại đăng nhập
+        </button>
+      </LoginScene>
     )
   }
 
   return (
-    <AuthLayout mode="login">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          {mfaStep ? 'Xác thực 2 lớp' : 'Welcome back'}
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          {mfaStep
-            ? 'Nhập mã từ ứng dụng Authenticator hoặc mã dự phòng.'
-            : 'Sign in to manage omnichannel orders and AI packaging.'}
-        </p>
-      </div>
+    <LoginScene night={night}>
+      {mfaStep ? <h1 className="login-title">Xác thực 2 lớp</h1> : null}
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate>
+      <form className="login-form" onSubmit={handleSubmit} noValidate>
         {passwordChanged && !mfaStep ? (
-          <div className="rounded-md border border-success/30 bg-success-bg px-3 py-2 text-sm text-success">
+          <div className="login-alert login-alert-ok">
             Đổi mật khẩu thành công. Đăng nhập lại bằng mật khẩu mới.
-          </div>
-        ) : null}
-
-        {errors.form && !mfaStep ? (
-          <div className="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
-            {errors.form}
           </div>
         ) : null}
 
         {!mfaStep ? (
           <>
-            <AuthInput
-              label="Email"
-              name="email"
-              type="email"
-              autoComplete="username"
-              placeholder="you@store.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              error={errors.email}
-              icon={<Mail className="h-4 w-4" strokeWidth={1.75} />}
-            />
+            <div className="login-owl-stage">
+              <h1 className="login-title login-title--with-owl">Đăng nhập</h1>
+              {/* Bubble + cú sát nhau — title không chen giữa */}
+              <div className="login-owl-cluster">
+                <LoginOwlBubble message={owlMessage} mood={owlMood} />
+                <div className="login-owl-shelf" aria-hidden>
+                  <LoginOwl mood={owlMood} />
+                </div>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="username"
+                  placeholder="info@drakele.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => setEmailFocused(true)}
+                  onBlur={() => setEmailFocused(false)}
+                  className={`login-field${errors.email ? ' is-invalid' : ''}`}
+                  aria-invalid={Boolean(errors.email)}
+                  aria-describedby="login-owl-status"
+                />
+              </div>
+            </div>
 
-            <AuthInput
-              label="Password"
-              name="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              error={errors.password}
-              passwordToggle
-              icon={<Lock className="h-4 w-4" strokeWidth={1.75} />}
-            />
+            <div
+              className="login-stack"
+              onFocusCapture={() => setPasswordFocused(true)}
+              onBlurCapture={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                  setPasswordFocused(false)
+                }
+              }}
+            >
+              <FlashlightPasswordField
+                name="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                error={errors.password}
+                showErrorMessage={false}
+                errorDescribedBy="login-owl-status"
+                revealed={showPassword}
+                onToggle={() => setShowPassword((v) => !v)}
+              />
+            </div>
 
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <label className="inline-flex items-center gap-2 text-ink-muted">
+            <div className="login-row">
+              <label className="login-remember">
                 <input
                   type="checkbox"
                   checked={remember}
                   onChange={(e) => setRemember(e.target.checked)}
-                  className="h-4 w-4 rounded border-hairline bg-surface-2 text-primary accent-primary"
                 />
-                Remember me
+                Ghi nhớ
               </label>
-              <Link
-                to="/forgot-password"
-                className="text-primary-hover hover:underline"
-              >
+              <Link to="/forgot-password" className="login-forgot">
                 Quên mật khẩu?
               </Link>
             </div>
           </>
         ) : (
           <>
-            <div className="flex gap-1 rounded-md border border-hairline bg-surface-1 p-1 text-xs">
+            <div className="login-mfa-tabs">
               <button
                 type="button"
                 onClick={() => {
                   setMfaMode('totp')
                   setErrors({})
                 }}
-                className={`flex-1 rounded px-2 py-1.5 ${
-                  mfaMode === 'totp'
-                    ? 'bg-primary/15 text-primary-hover'
-                    : 'text-ink-subtle hover:text-ink'
-                }`}
+                className={`login-mfa-tab${mfaMode === 'totp' ? ' is-on' : ''}`}
               >
                 Mã 6 số
               </button>
@@ -252,43 +379,40 @@ export function LoginPage() {
                   setMfaMode('backup')
                   setErrors({})
                 }}
-                className={`flex-1 rounded px-2 py-1.5 ${
-                  mfaMode === 'backup'
-                    ? 'bg-primary/15 text-primary-hover'
-                    : 'text-ink-subtle hover:text-ink'
-                }`}
+                className={`login-mfa-tab${mfaMode === 'backup' ? ' is-on' : ''}`}
               >
                 Mã dự phòng
               </button>
             </div>
 
             {mfaMode === 'totp' ? (
-              <AuthInput
-                label="Mã xác thực"
+              <input
+                id="mfa_token"
                 name="mfa_token"
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 placeholder="482913"
                 value={mfaToken}
                 onChange={(e) => setMfaToken(e.target.value)}
-                error={errors.mfa}
-                icon={<Shield className="h-4 w-4" strokeWidth={1.75} />}
+                className={`login-field${errors.mfa ? ' is-invalid' : ''}`}
+                aria-invalid={Boolean(errors.mfa)}
               />
             ) : (
-              <AuthInput
-                label="Mã dự phòng"
+              <input
+                id="backup_code"
                 name="backup_code"
                 placeholder="48213096"
                 value={backupCode}
                 onChange={(e) => setBackupCode(e.target.value)}
-                error={errors.mfa}
-                icon={<KeyRound className="h-4 w-4" strokeWidth={1.75} />}
+                className={`login-field${errors.mfa ? ' is-invalid' : ''}`}
+                aria-invalid={Boolean(errors.mfa)}
               />
             )}
+            {errors.mfa ? <p className="login-error">{errors.mfa}</p> : null}
 
             <button
               type="button"
-              className="text-xs text-ink-subtle hover:text-ink"
+              className="login-back"
               onClick={() => {
                 setMfaStep(false)
                 setMfaToken('')
@@ -301,52 +425,53 @@ export function LoginPage() {
           </>
         )}
 
-        <Button type="submit" variant="primary" className="w-full" disabled={loading}>
+        <button type="submit" className="login-cta" disabled={loading}>
           {loading ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {mfaStep ? 'Đang xác thực…' : 'Signing in…'}
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {mfaStep ? 'Đang xác thực…' : 'Đang đăng nhập…'}
             </>
           ) : mfaStep ? (
             'Xác nhận MFA'
           ) : (
-            'Sign In to Dashboard'
+            <>
+              Đăng nhập
+              <ArrowRight size={16} strokeWidth={2} />
+            </>
           )}
-        </Button>
+        </button>
 
         {!mfaStep ? (
           <>
-            <div className="relative py-2 text-center text-xs text-ink-tertiary">
-              <span className="absolute inset-x-0 top-1/2 border-t border-[#27272A]" />
-              <span className="relative bg-canvas px-3">or</span>
+            <div className="login-divider">
+              <span>hoặc</span>
             </div>
 
-            <Button
+            <button
               type="button"
-              variant="ghost"
-              className="w-full"
+              className="login-google"
               onClick={() => {
                 window.location.href = googleAuthUrl()
               }}
             >
-              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" aria-hidden>
+              <svg className="h-4 w-4" viewBox="0 0 24 24" aria-hidden>
                 <path
                   fill="#EA4335"
                   d="M12 10.2v3.6h5.1c-.2 1.2-1.5 3.6-5.1 3.6-3.1 0-5.6-2.5-5.6-5.6S8.9 6.2 12 6.2c1.8 0 3 .7 3.7 1.4l2.5-2.4C16.7 3.8 14.6 3 12 3 7 3 3 7 3 12s4 9 9 9c5.2 0 8.6-3.6 8.6-8.8 0-.6-.1-1-.2-1.5H12z"
                 />
               </svg>
-              Continue with Google
-            </Button>
+              Tiếp tục với Google
+            </button>
           </>
         ) : null}
       </form>
 
-      <p className="mt-8 text-center text-sm text-ink-subtle">
-        Chưa có tài khoản?{' '}
-        <Link to="/register" className="font-medium text-primary-hover hover:underline">
-          Liên hệ Admin
-        </Link>
-      </p>
-    </AuthLayout>
+      {!mfaStep ? (
+        <p className="login-foot">
+          Bạn chưa có tài khoản?
+          <Link to="/register">Đăng ký</Link>
+        </p>
+      ) : null}
+    </LoginScene>
   )
 }

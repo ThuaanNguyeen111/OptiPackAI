@@ -25,10 +25,13 @@ import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
 import { PackingModule } from './modules/packing/packing.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
+import { CategoriesModule } from './modules/categories/categories.module';
+import { ShipmentsModule } from './modules/shipments/shipments.module';
+import { PackagingMaterialsModule } from './modules/packaging-materials/packaging-materials.module';
+import { MasterSkusModule } from './modules/master-skus/master-skus.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
 import { MarketplaceWebhooksModule } from './modules/marketplace-webhooks/marketplace-webhooks.module';
-import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 
@@ -65,11 +68,14 @@ import { DocumentsModule } from './modules/documents/documents.module';
     PackagingModule,
     PackingModule,
     WarehouseModule,
+    CategoriesModule, // K2 (26/09/2026)
+    ShipmentsModule, // G1 (27/09/2026)
+    PackagingMaterialsModule, // G4 (27/09/2026)
+    MasterSkusModule, // K4a (27/09/2026)
     NotificationsModule,
     StorefrontModule,
     // MỚI (29/09/2026) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
     MarketplaceWebhooksModule,
-    ShipmentsModule,
     ShippingModule,
     DocumentsModule,
   ],

@@ -1,3 +1,19 @@
+import {
+  StockReservation,
+  StockReservationSchema,
+  StockReservationTotal,
+  StockReservationTotalSchema,
+} from './schemas/stock-reservation.schema';
+import { StockReservationService } from './stock-reservation.service';
+import { StockAvailabilityController } from './stock-availability.controller';
+import {
+  MarketplaceSkuMapping,
+  MarketplaceSkuMappingSchema,
+} from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import {
+  InventoryMovement,
+  InventoryMovementSchema,
+} from '../warehouse/schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrderGroup, OrderGroupSchema } from './schemas/order-group.schema';
@@ -20,12 +36,6 @@ import {
   SkuBinAssignmentSchema,
 } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { PickEvent, PickEventSchema } from './schemas/pick-event.schema';
-import {
-  ReturnReceipt,
-  ReturnReceiptSchema,
-} from './schemas/return-receipt.schema';
-import { OrderReturnsService } from './order-returns.service';
-import { OrderReturnsController } from './order-returns.controller';
 import { OrderGroupsService } from './order-groups.service';
 import { OrderGroupBackfillScheduler } from './order-group-backfill.scheduler';
 import { OrderGroupsController } from './order-groups.controller';
@@ -33,6 +43,8 @@ import { StaffAssignmentService } from './staff-assignment.service';
 import { StaffAssignmentController } from './staff-assignment.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
+import { LazadaPackSyncService } from './lazada-pack-sync.service';
+import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 
 @Module({
   imports: [
@@ -43,23 +55,29 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: User.name, schema: UserSchema },
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
       { name: PickEvent.name, schema: PickEventSchema },
-      { name: ReturnReceipt.name, schema: ReturnReceiptSchema },
       { name: PackingPlan.name, schema: PackingPlanSchema },
+      { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3 — pick-item ghi sổ cái
+      { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema }, // K4b
+      { name: StockReservation.name, schema: StockReservationSchema }, // K5
+      { name: StockReservationTotal.name, schema: StockReservationTotalSchema }, // K5
     ]),
     NotificationsModule,
+    MarketplaceIntegrationModule, // 02/10/2026 — báo "đã đóng gói" lên Lazada (không vòng: module này không import ngược)
   ],
   controllers: [
     OrderGroupsController,
     StaffAssignmentController,
-    OrderReturnsController,
+    StockAvailabilityController,
   ],
   providers: [
     OrderGroupsService,
-    OrderReturnsService,
     OrderGroupBackfillScheduler,
     StaffAssignmentService,
     ExpressOrderSlaScheduler,
+    StockReservationService,
+    LazadaPackSyncService,
   ],
-  exports: [OrderGroupsService, StaffAssignmentService],
+  // LazadaPackSyncService: packing-plan.service gọi sau khi đóng gói (gộp 04/10/2026)
+  exports: [OrderGroupsService, StaffAssignmentService, LazadaPackSyncService],
 })
 export class OrderGroupsModule {}

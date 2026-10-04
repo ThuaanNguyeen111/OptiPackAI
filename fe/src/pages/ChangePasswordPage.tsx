@@ -1,12 +1,11 @@
 import type { FormEvent } from 'react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Lock } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { changePassword } from '../api/auth.api'
-import { AuthInput } from '../components/auth/AuthInput'
-import { AuthLayout } from '../components/auth/AuthLayout'
+import { FlashlightPasswordField } from '../components/auth/FlashlightPasswordField'
+import { LoginScene } from '../components/auth/LoginScene'
 import { PasswordStrength } from '../components/auth/PasswordStrength'
-import { Button } from '../components/ui/Button'
 import { useAuth } from '../context/use-auth'
 import { formatApiError } from '../lib/api'
 import { validateNewPassword } from '../lib/password'
@@ -17,6 +16,9 @@ export function ChangePasswordPage() {
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [showCurrent, setShowCurrent] = useState(false)
+  const [showNext, setShowNext] = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
 
@@ -49,67 +51,81 @@ export function ChangePasswordPage() {
     }
   }
 
+  const night = showCurrent || showNext || showConfirm
+
   return (
-    <AuthLayout mode="forgot">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink">
-          Đổi mật khẩu bắt buộc
-        </h1>
-        <p className="mt-2 text-sm text-ink-muted">
-          Tài khoản mới hoặc vừa được reset phải đổi mật khẩu trước khi dùng hệ
-          thống. Sau khi đổi, mọi phiên khác sẽ bị đăng xuất.
-        </p>
-      </div>
+    <LoginScene
+      night={night}
+      closeTo="/login"
+      artTitle="Bảo mật tài khoản"
+      artDescription="Đổi mật khẩu tạm trước khi sử dụng hệ thống quản lý công việc."
+    >
+      <h1 className="login-title">Đổi mật khẩu</h1>
+      <p className="login-lead">
+        Tài khoản mới hoặc vừa được reset phải đổi mật khẩu trước khi dùng hệ
+        thống.
+      </p>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-4" noValidate>
-        {error ? (
-          <div className="rounded-md border border-error/30 bg-error/10 px-3 py-2 text-sm text-error">
-            {error}
+      <form onSubmit={handleSubmit} noValidate>
+        {error ? <div className="login-alert login-alert-err">{error}</div> : null}
+
+        <div className="login-stack">
+          <div>
+            <label className="login-label" htmlFor="current_password">
+              Mật khẩu hiện tại
+            </label>
+            <FlashlightPasswordField
+              id="current_password"
+              name="current_password"
+              autoComplete="current-password"
+              value={current}
+              onChange={(e) => setCurrent(e.target.value)}
+              revealed={showCurrent}
+              onToggle={() => setShowCurrent((v) => !v)}
+            />
           </div>
-        ) : null}
-
-        <AuthInput
-          label="Mật khẩu hiện tại"
-          name="current_password"
-          autoComplete="current-password"
-          value={current}
-          onChange={(e) => setCurrent(e.target.value)}
-          passwordToggle
-          icon={<Lock className="h-4 w-4" strokeWidth={1.75} />}
-        />
-        <div>
-          <AuthInput
-            label="Mật khẩu mới"
-            name="new_password"
-            autoComplete="new-password"
-            value={next}
-            onChange={(e) => setNext(e.target.value)}
-            passwordToggle
-            icon={<Lock className="h-4 w-4" strokeWidth={1.75} />}
-          />
-          <PasswordStrength password={next} />
+          <div>
+            <label className="login-label" htmlFor="new_password">
+              Mật khẩu mới
+            </label>
+            <FlashlightPasswordField
+              id="new_password"
+              name="new_password"
+              autoComplete="new-password"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              revealed={showNext}
+              onToggle={() => setShowNext((v) => !v)}
+            />
+            <PasswordStrength password={next} />
+          </div>
+          <div>
+            <label className="login-label" htmlFor="confirm_password">
+              Xác nhận mật khẩu mới
+            </label>
+            <FlashlightPasswordField
+              id="confirm_password"
+              name="confirm_password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              revealed={showConfirm}
+              onToggle={() => setShowConfirm((v) => !v)}
+            />
+          </div>
         </div>
-        <AuthInput
-          label="Xác nhận mật khẩu mới"
-          name="confirm_password"
-          autoComplete="new-password"
-          value={confirm}
-          onChange={(e) => setConfirm(e.target.value)}
-          passwordToggle
-          icon={<Lock className="h-4 w-4" strokeWidth={1.75} />}
-        />
 
-        <Button type="submit" variant="primary" className="w-full" disabled={loading}>
+        <button type="submit" className="login-cta" disabled={loading}>
           {loading ? (
             <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
               Đang lưu…
             </>
           ) : (
             'Đổi mật khẩu'
           )}
-        </Button>
+        </button>
       </form>
-    </AuthLayout>
+    </LoginScene>
   )
 }

@@ -9,6 +9,10 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
 import { averageFill } from './utils/stock-suggestion.util';
+import {
+  LazadaPackSyncService,
+  type LazadaPackSyncResult,
+} from '../order-groups/lazada-pack-sync.service';
 import type { PackingPlanDocument, PlanProofLabel } from './schemas/packing-plan.schema';
 import {
   ApprovePlanDto,
@@ -294,7 +298,10 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
 @Controller('order-groups/:groupId/packing-plan')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingPlanController {
-  constructor(private readonly planService: PackingPlanService) {}
+  constructor(
+    private readonly planService: PackingPlanService,
+    private readonly lazadaPackSyncService: LazadaPackSyncService,
+  ) {}
 
   @Get()
   @Roles(
@@ -389,13 +396,19 @@ export class PackingPlanController {
 
   @Post('pack')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Đã đóng xong: cân thật từng kiện, trừ tồn thùng/vật tư, nhóm → packed.' })
+  @ApiOperation({
+    summary:
+      'Đã đóng xong: cân thật từng kiện, trừ tồn thùng/vật tư, nhóm → packed. Sau khi commit, báo "đã đóng gói" lên Lazada (có cầu dao LAZADA_WRITE_APIS_ENABLED); lỗi Lazada không đổi trạng thái OptiPack, gửi lại qua POST /order-groups/:id/lazada-pack/retry.',
+  })
   async pack(
     @Param('groupId') groupId: string,
     @Body() dto: PackPlanDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ plan: PackingPlanResponse }> {
-    return { plan: toPlanResponse(await this.planService.pack(groupId, dto, user.userId)) };
+  ): Promise<{ plan: PackingPlanResponse; lazadaPackSync: LazadaPackSyncResult }> {
+    const plan = await this.planService.pack(groupId, dto, user.userId);
+    // Gộp main (02/10/2026) — SAU khi đã commit `packed`. syncGroup không bao giờ ném lỗi.
+    const lazadaPackSync = await this.lazadaPackSyncService.syncGroup(groupId);
+    return { plan: toPlanResponse(plan), lazadaPackSync };
   }
 }
 

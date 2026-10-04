@@ -2,8 +2,11 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { PackagingBoxService, type BoxAvailability } from './packaging-box.service';
 import { CreatePackagingBoxDto, StockInPackagingBoxDto, UpdatePackagingBoxDto } from './dto/packaging-box.dto';
-import { PackagingBoxDocument } from './schemas/packaging-box.schema';
-import type { PackagingStockMovement } from './schemas/packaging-stock-movement.schema';
+import {
+  usableStock,
+  type PackagingMaterialDocument,
+} from '../packaging-materials/schemas/packaging-material.schema';
+import type { PackagingMovement } from '../packaging-materials/schemas/packaging-movement.schema';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -46,30 +49,45 @@ export interface StockMovementResponse {
   createdAt: Date | null;
 }
 
-function toMovementResponse(m: PackagingStockMovement): StockMovementResponse {
+/** Loại sổ chung (packaging_movements) → lý do hiển thị cũ của FE. */
+function movementReason(m: PackagingMovement): string {
+  if (m.type === 'purchase') return 'stock_in';
+  if (m.type === 'consume') return m.condition === 'reused' ? 'pack_reused' : 'pack';
+  return m.type;
+}
+
+function toMovementResponse(m: PackagingMovement): StockMovementResponse {
   return {
     delta: m.delta,
-    reason: m.reason,
-    balanceAfter: m.balance_after,
-    orderGroupId: m.order_group_id ? m.order_group_id.toString() : null,
+    reason: movementReason(m),
+    balanceAfter: m.balance_after ?? 0,
+    orderGroupId: m.ref_type === 'order_group' ? m.ref_id : null,
     note: m.note,
-    createdAt: m.created_at ?? null,
+    createdAt: m.created_at,
   };
 }
 
-function toBoxResponse(doc: PackagingBoxDocument, stock?: BoxAvailability): PackagingBoxResponse {
-  const onHand = doc.quantity_on_hand;
+const NO_DIMENSIONS = { lengthMm: 0, widthMm: 0, heightMm: 0 };
+
+function toBoxResponse(doc: PackagingMaterialDocument, stock?: BoxAvailability): PackagingBoxResponse {
+  // Kho chung: tồn dùng được = mới + tái sử dụng. Thùng khai từ màn vật liệu (main)
+  // chưa có số đo mm → trả 0, engine bỏ qua tới khi khai đủ.
+  const onHand = usableStock(doc);
   const reserved = stock?.reserved ?? 0;
   const available = Math.max(0, onHand - reserved);
   return {
     id: doc._id.toString(),
     code: doc.code,
     name: doc.name,
-    inner: { lengthMm: doc.inner.length_mm, widthMm: doc.inner.width_mm, heightMm: doc.inner.height_mm },
-    outer: { lengthMm: doc.outer.length_mm, widthMm: doc.outer.width_mm, heightMm: doc.outer.height_mm },
-    tareG: doc.tare_g,
-    maxLoadG: doc.max_load_g,
-    priceVnd: doc.price_vnd,
+    inner: doc.inner
+      ? { lengthMm: doc.inner.length_mm, widthMm: doc.inner.width_mm, heightMm: doc.inner.height_mm }
+      : NO_DIMENSIONS,
+    outer: doc.outer
+      ? { lengthMm: doc.outer.length_mm, widthMm: doc.outer.width_mm, heightMm: doc.outer.height_mm }
+      : NO_DIMENSIONS,
+    tareG: doc.tare_g ?? 0,
+    maxLoadG: doc.max_load_g ?? 0,
+    priceVnd: doc.unit_cost_vnd,
     isSample: doc.is_sample,
     isActive: doc.is_active,
     quantityOnHand: onHand,

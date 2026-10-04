@@ -19,10 +19,36 @@ import {
   MARKETPLACE_ADAPTERS,
   MarketplaceAdapter,
 } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
+import type { LazadaProductRaw } from '../marketplace-integration/adapters/lazada.adapter';
 
 // Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi (AURELLE
 // dùng cùng giới hạn, xem AURELLE_MARKETPLACE_DESIGN.md Mục 7.5).
 const PRODUCT_BATCH_SIZE = 50;
+
+// Đồng bộ theo catalog (04/10/2026, từ main)
+const CATALOG_PAGE_SIZE = 50; // tối đa của GetProducts
+const CATALOG_MAX_OFFSET = 10_000; // giới hạn offset của Lazada GetProducts
+const CATALOG_SYNC_OVERLAP_MS = 10 * 60 * 1000; // lùi mốc 10 phút để không lọt sản phẩm sửa sát mốc
+
+/** Các sàn đồng bộ catalog/product master định kỳ. */
+export const PRODUCT_SYNC_PLATFORMS = [
+  MarketplacePlatform.LAZADA,
+  MarketplacePlatform.AURELLE,
+] as const;
+
+export interface CatalogSyncResult {
+  platform: MarketplacePlatform;
+  shopId: string;
+  mode: 'full' | 'incremental';
+  since: Date | null;
+  products: number;
+  synced: number;
+  complete: boolean;
+}
+
+export type CatalogSyncShopOutcome =
+  | ({ ok: true } & CatalogSyncResult)
+  | { ok: false; platform: MarketplacePlatform; shopId: string; error: string };
 
 @Injectable()
 export class ProductMasterService {
@@ -98,42 +124,7 @@ export class ProductMasterService {
     for (let i = 0; i < sellerSkus.length; i += PRODUCT_BATCH_SIZE) {
       const batch = sellerSkus.slice(i, i + PRODUCT_BATCH_SIZE);
       const rawProducts = await adapter.getProducts(accessToken, batch);
-
-      const bulkOps = rawProducts.flatMap((product) =>
-        product.skus.map((sku) => ({
-          updateOne: {
-            filter: {
-              platform,
-              shop_id: shopId,
-              seller_sku: sku.SellerSku,
-            },
-            update: {
-              $set: {
-                marketplace_dimension: {
-                  // Lazada trả STRING — parse về number. Khi sàn thiếu
-                  // hoặc trả dữ liệu lỗi, giữ undefined để hồ sơ chuyển
-                  // sang needs_measurement thay vì bịa kích thước.
-                  package_length_cm: this.parseDimension(sku.package_length),
-                  package_width_cm: this.parseDimension(sku.package_width),
-                  package_height_cm: this.parseDimension(sku.package_height),
-                  package_weight_kg: this.parseWeight(sku.package_weight ?? sku.product_weight),
-                },
-                last_synced_at: now,
-              },
-              // SỬA (21/09/2026): trước đây `$set` status ở MỌI lượt sync
-              // → hồ sơ kho đã xác nhận `ready` bị reset về
-              // needs_measurement mỗi ngày. Chỉ đặt lúc tạo mới.
-              $setOnInsert: { packaging_profile_status: 'needs_measurement' as const },
-            },
-            upsert: true,
-          },
-        })),
-      );
-
-      if (bulkOps.length > 0) {
-        const result = await this.productMasterModel.bulkWrite(bulkOps);
-        synced += result.upsertedCount + result.modifiedCount;
-      }
+      synced += await this.upsertProducts(platform, shopId, rawProducts, now);
     }
 
     this.logger.log(`Đồng bộ Product Master (${platform}) cho shop ${shopId}: ${String(synced)} SKU.`);
@@ -141,17 +132,171 @@ export class ProductMasterService {
   }
 
   /**
-   * BỔ SUNG (21/09/2026, Bước 0) — danh sách hồ sơ SKU theo trạng thái,
-   * cho màn "SKU cần đo" của kho. `.lean()` (Rule #12), giới hạn 200.
+   * 04/10/2026 (từ main) — ĐỒNG BỘ THEO CATALOG CỦA SHOP (không phụ thuộc đơn
+   * hàng): SKU mới / vừa đổi mã có trong hệ thống ngay cả khi chưa ai đặt.
+   * Mặc định TĂNG DẦN theo `last_product_synced_at` (lùi 10 phút); `full`
+   * hoặc chưa từng đồng bộ → lấy toàn bộ. Chỉ ghi mốc khi quét hết trang.
+   * Ghi theo cùng quy tắc với đồng bộ theo đơn (`upsertProducts`).
+   */
+  async syncCatalogForShop(
+    platform: MarketplacePlatform,
+    shopId: string,
+    options: { full?: boolean } = {},
+  ): Promise<CatalogSyncResult> {
+    const adapter = this.adapters[platform];
+    if (!adapter?.listProductsPage) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.UNSUPPORTED_PLATFORM,
+        `Sàn "${platform}" chưa hỗ trợ đồng bộ catalog sản phẩm.`,
+        HttpStatus.NOT_IMPLEMENTED,
+        { platform },
+      );
+    }
+    const shop = await this.marketplaceIntegrationService.getConnectedShop(shopId, platform);
+    const accessToken = await this.marketplaceIntegrationService.getValidAccessToken(
+      shopId,
+      platform,
+    );
+    const startedAt = new Date();
+    const last = shop.last_product_synced_at;
+    const since =
+      options.full || !last ? null : new Date(last.getTime() - CATALOG_SYNC_OVERLAP_MS);
+
+    let offset = 0;
+    let products = 0;
+    let synced = 0;
+    let complete = true;
+    for (;;) {
+      const page = await adapter.listProductsPage(accessToken, {
+        updatedAfter: since,
+        offset,
+        limit: CATALOG_PAGE_SIZE,
+      });
+      products += page.products.length;
+      synced += await this.upsertProducts(platform, shopId, page.products, startedAt);
+      if (page.products.length < CATALOG_PAGE_SIZE) break;
+      offset += CATALOG_PAGE_SIZE;
+      if (offset >= CATALOG_MAX_OFFSET) {
+        complete = false;
+        this.logger.warn(
+          `Catalog shop ${shopId} (${platform}) vượt giới hạn offset ${String(CATALOG_MAX_OFFSET)} — dừng, giữ mốc cũ để lần sau quét lại.`,
+        );
+        break;
+      }
+    }
+
+    if (complete) {
+      await this.marketplaceIntegrationService.markShopProductsSynced(shop._id, startedAt);
+    }
+    this.logger.log(
+      `Đồng bộ catalog shop ${shopId} (${platform}, ${since ? 'tăng dần' : 'toàn bộ'}): ${String(products)} sản phẩm, ${String(synced)} SKU ghi mới/cập nhật.`,
+    );
+    return { platform, shopId, mode: since ? 'incremental' : 'full', since, products, synced, complete };
+  }
+
+  /** Đồng bộ catalog cho mọi shop đang kết nối của các sàn hỗ trợ; lỗi 1 shop không chặn shop khác. */
+  async syncCatalogAllShops(options: { full?: boolean } = {}): Promise<CatalogSyncShopOutcome[]> {
+    const results: CatalogSyncShopOutcome[] = [];
+    for (const platform of PRODUCT_SYNC_PLATFORMS) {
+      if (!this.adapters[platform]?.listProductsPage) continue;
+      const shops = await this.marketplaceIntegrationService.listConnectedShops(platform);
+      for (const shop of shops) {
+        try {
+          results.push({ ok: true, ...(await this.syncCatalogForShop(platform, shop.shop_id, options)) });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          this.logger.error(
+            `Đồng bộ catalog shop ${shop.shop_id} (${platform}) thất bại, bỏ qua, tiếp tục shop khác.`,
+            error,
+          );
+          results.push({ ok: false, platform, shopId: shop.shop_id, error: message });
+        }
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Ghi product_master cho danh sách sản phẩm từ sàn (dùng chung cho đồng bộ
+   * theo đơn và theo catalog). Số đo sàn chỉ vào `marketplace_dimension` —
+   * `dimension` + trạng thái `ready` CHỈ do kho xác nhận
+   * (`confirmPackagingProfile`). Quyết định 04/10/2026 khi gộp main: bỏ
+   * `manual_override` và mặc định 20 cm/0,5 kg của main.
+   */
+  private async upsertProducts(
+    platform: MarketplacePlatform,
+    shopId: string,
+    rawProducts: LazadaProductRaw[],
+    now: Date,
+  ): Promise<number> {
+    const bulkOps = rawProducts
+      .flatMap((product) => product.skus)
+      .filter((sku) => Boolean(sku.SellerSku))
+      .map((sku) => ({
+        updateOne: {
+          filter: { platform, shop_id: shopId, seller_sku: sku.SellerSku },
+          update: {
+            $set: {
+              marketplace_dimension: {
+                // Sàn trả STRING — parse về number. Thiếu/lỗi giữ undefined để
+                // hồ sơ ở needs_measurement thay vì bịa kích thước.
+                package_length_cm: this.parseDimension(sku.package_length),
+                package_width_cm: this.parseDimension(sku.package_width),
+                package_height_cm: this.parseDimension(sku.package_height),
+                package_weight_kg: this.parseWeight(sku.package_weight ?? sku.product_weight),
+              },
+              last_synced_at: now,
+            },
+            // Chỉ đặt lúc tạo mới — không reset hồ sơ kho đã xác nhận (lỗi 21/09).
+            $setOnInsert: { packaging_profile_status: 'needs_measurement' as const },
+          },
+          upsert: true,
+        },
+      }));
+    if (bulkOps.length === 0) return 0;
+    const result = await this.productMasterModel.bulkWrite(bulkOps);
+    return result.upsertedCount + result.modifiedCount;
+  }
+
+  /**
+   * Danh sách hồ sơ SKU (màn "SKU cần đo" + tra cứu). Gộp 2 phiên bản:
+   * lọc trạng thái/shop (thi_dev) + tìm theo SKU (main). `.lean()`, tối đa 200.
    */
   async listProfiles(filter: {
     status?: 'needs_measurement' | 'ready';
     shopId?: string;
+    search?: string;
   }): Promise<ProductMaster[]> {
     const query: Record<string, unknown> = {};
     if (filter.status) query.packaging_profile_status = filter.status;
     if (filter.shopId) query.shop_id = filter.shopId;
+    if (filter.search) {
+      // escape ký tự đặc biệt regex — tránh lỗi/ReDoS khi user gõ "(" hay "*"
+      const escaped = filter.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.seller_sku = { $regex: escaped, $options: 'i' };
+    }
     return this.productMasterModel.find(query).sort({ seller_sku: 1 }).limit(200).lean();
+  }
+
+  async getProduct(id: string): Promise<ProductMasterDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.INVALID_ID,
+        `"${id}" không đúng định dạng ObjectId hợp lệ.`,
+        HttpStatus.BAD_REQUEST,
+        { id },
+      );
+    }
+    const doc = await this.productMasterModel.findById(id);
+    if (!doc) {
+      throw new AppException(
+        PRODUCT_MASTER_ERROR_CODES.NOT_FOUND,
+        `Không tìm thấy sản phẩm với id "${id}".`,
+        HttpStatus.NOT_FOUND,
+        { id },
+      );
+    }
+    return doc;
   }
 
   /**

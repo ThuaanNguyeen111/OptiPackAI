@@ -73,8 +73,8 @@ const modules: Array<{
   },
   {
     key: 'shipping',
-    labelVi: 'Nhãn vận đơn/Ước phí',
-    labelEn: 'Shipping labels/Fee estimate',
+    labelVi: 'Điều phối giao hàng / vận đơn',
+    labelEn: 'Delivery queue / shipments',
     access: {
       [Role.STORE_OWNER]: 'full',
       [Role.WAREHOUSE_STAFF]: 'none',
@@ -111,6 +111,18 @@ const modules: Array<{
     key: 'users-write',
     labelVi: 'Chỉnh sửa nhân viên',
     labelEn: 'Edit employees',
+    access: {
+      [Role.STORE_OWNER]: 'none',
+      [Role.WAREHOUSE_STAFF]: 'none',
+      [Role.PACKAGING_STAFF]: 'none',
+      [Role.SHIPPING_COORDINATOR]: 'none',
+      [Role.ADMIN]: 'full',
+    },
+  },
+  {
+    key: 'warehouse-config',
+    labelVi: 'Cấu hình kho (kệ/SKU)',
+    labelEn: 'Warehouse configuration',
     access: {
       [Role.STORE_OWNER]: 'none',
       [Role.WAREHOUSE_STAFF]: 'none',

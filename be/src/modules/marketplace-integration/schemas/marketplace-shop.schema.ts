@@ -17,7 +17,7 @@ export type MarketplaceShopDocument = MarketplaceShop & Document;
  */
 @Schema({
   collection: 'marketplace_shops',
-  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' }, 
+  timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class MarketplaceShop {
   @Prop({ type: String, enum: MarketplacePlatform, required: true })
@@ -37,7 +37,12 @@ export class MarketplaceShop {
   shop_cipher!: string | null;
 
   //
-  @Prop({ type: String, enum: ['sandbox', 'production'], required: true, default: 'sandbox' })
+  @Prop({
+    type: String,
+    enum: ['sandbox', 'production'],
+    required: true,
+    default: 'sandbox',
+  })
   environment!: 'sandbox' | 'production';
 
   // LUÔN Ở DẠNG ĐÃ MÃ HÓA (xem token-encryption.util.ts).
@@ -60,6 +65,11 @@ export class MarketplaceShop {
   @Prop({ type: Date, default: null })
   last_polled_at!: Date | null;
 
+  // 04/10/2026 — mốc lần đồng bộ CATALOG sản phẩm (Product Master) gần nhất của shop.
+  // Lần đồng bộ sau chỉ lấy sản phẩm thay đổi sau mốc này. null = chưa từng -> lấy toàn bộ.
+  @Prop({ type: Date, default: null })
+  last_product_synced_at!: Date | null;
+
   // Admin nào bấm "Kết nối shop" — audit trail, cùng nguyên tắc
   // created_by đã áp dụng ở module Auth.
   @Prop({ type: Types.ObjectId, ref: 'User', required: true })
@@ -76,7 +86,8 @@ export class MarketplaceShop {
   updated_at?: Date;
 }
 
-export const MarketplaceShopSchema = SchemaFactory.createForClass(MarketplaceShop);
+export const MarketplaceShopSchema =
+  SchemaFactory.createForClass(MarketplaceShop);
 
 /**
  * (a) Unique compound index: 1 shop trên 1 sàn + 1 môi trường chỉ

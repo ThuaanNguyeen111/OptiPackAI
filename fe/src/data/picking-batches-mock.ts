@@ -86,6 +86,8 @@ export interface CustomerOrder {
   paymentMethod: string
   totalAmount: number
   notes?: string
+  /** FE demo: đơn sàn đã hủy → có thể gỡ khỏi nhóm gộp (Hướng B) */
+  status?: 'active' | 'canceled'
   items: CustomerOrderItem[]
 }
 
@@ -163,6 +165,7 @@ export const initialPickingBatches: PickingBatch[] = [
       {
         orderId: 'SP-10482',
         channel: 'shopee',
+        status: 'active',
         customerName: 'Trần Văn An',
         phone: '0901 882 193',
         address: '123 Nguyễn Huệ, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh',

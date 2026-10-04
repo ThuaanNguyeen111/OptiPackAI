@@ -32,6 +32,12 @@ export class SkuBinAssignment {
   @Prop({ type: Number, required: true, default: 0, min: 0 })
   quantity_on_hand!: number;
 
+  // K4b (27/09/2026) — nhãn SKU nội bộ. Có giá trị khi SKU sàn của dòng này đã
+  // được NỐI -> tồn tính chung theo SKU nội bộ (mọi sàn/shop cùng dùng dòng này).
+  // null/không có = chưa nối, tính theo SKU sàn như trước (đường lùi).
+  @Prop({ type: String, default: null })
+  master_sku?: string | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -39,7 +45,17 @@ export class SkuBinAssignment {
 export type SkuBinAssignmentDocument = HydratedDocument<SkuBinAssignment>;
 export const SkuBinAssignmentSchema = SchemaFactory.createForClass(SkuBinAssignment);
 
+// 🔄 K3 (27/09/2026) — ĐỔI KHÓA: thêm bin_location_id -> 1 SKU nằm được NHIỀU Ô
+// (hàng về 200 cái mà 1 ô chỉ chứa 50). Index cũ trên DB phải xóa bằng
+// scripts/migrate-sku-bin-assignment-multibin.ts (Mongoose không tự xóa).
 SkuBinAssignmentSchema.index(
-  { warehouse_id: 1, platform: 1, shop_id: 1, seller_sku: 1 },
+  { warehouse_id: 1, platform: 1, shop_id: 1, seller_sku: 1, bin_location_id: 1 },
   { unique: true },
+);
+SkuBinAssignmentSchema.index({ warehouse_id: 1, seller_sku: 1 }); // pick-item / Picking List tra theo SKU
+// K4b — 1 SKU nội bộ chỉ có 1 dòng tồn trên 1 ô (gộp tồn các sàn). Partial: chỉ áp
+// cho dòng đã gắn master_sku, dòng chưa nối không bị ảnh hưởng.
+SkuBinAssignmentSchema.index(
+  { warehouse_id: 1, master_sku: 1, bin_location_id: 1 },
+  { unique: true, partialFilterExpression: { master_sku: { $type: 'string' } } },
 );

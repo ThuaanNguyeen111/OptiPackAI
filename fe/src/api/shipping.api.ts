@@ -34,16 +34,17 @@ export type GroupQuote = {
 export type Shipment = {
   id: string
   orderGroupId: string
-  tripCode: string
+  // null = vận đơn giao bằng đội xe nhà / tạo từ màn giao hàng (không thuộc chuyến)
+  tripCode: string | null
   trackingCode: string
   carrierCode: string | null
   carrierName: string | null
   serviceCode: string | null
   serviceName: string | null
-  parcelCount: number
-  chargeableWeightG: number
+  parcelCount: number | null
+  chargeableWeightG: number | null
   estimatedCostVnd: number | null
-  isSampleRate: boolean
+  isSampleRate: boolean | null
   etaFrom: string | null
   etaTo: string | null
   pickupAt: string | null
@@ -91,12 +92,13 @@ export function createShipmentBatch(body: {
   })
 }
 
-export function listShipments(params: { tripCode?: string; carrierCode?: string } = {}): Promise<Shipment[]> {
-  const query = new URLSearchParams()
+/** GET /shipments (bản main, có phân trang) — trả mảng vận đơn gần nhất. */
+export async function listShipments(params: { tripCode?: string; carrierCode?: string } = {}): Promise<Shipment[]> {
+  const query = new URLSearchParams({ limit: '100' })
   if (params.tripCode) query.set('trip_code', params.tripCode)
   if (params.carrierCode) query.set('carrier_code', params.carrierCode)
-  const qs = query.toString()
-  return apiRequest<Shipment[]>(`/shipments${qs ? `?${qs}` : ''}`, { auth: true })
+  const res = await apiRequest<{ items: Shipment[] }>(`/shipments?${query.toString()}`, { auth: true })
+  return res.items
 }
 
 export function schedulePickup(shipmentId: string, pickupAt: string): Promise<Shipment> {

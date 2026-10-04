@@ -49,16 +49,16 @@ const features: {
 
 export function FeatureGrid() {
   return (
-    <section id="features" className="scroll-mt-20 px-4 pb-20 sm:px-6">
+    <section id="features" className="lp-section scroll-mt-20">
       <div className="mx-auto max-w-6xl">
         <div className="mb-10 max-w-2xl">
-          <p className="text-xs font-medium tracking-wider text-primary-hover uppercase">
+          <p className="text-xs font-medium tracking-wider text-[var(--ls-cta)] uppercase">
             Tính năng
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
             Đầy đủ cho fulfillment đa kênh
           </h2>
-          <p className="mt-3 text-sm text-ink-muted sm:text-base">
+          <p className="mt-3 text-sm text-[var(--ls-muted)] sm:text-base">
             Từ đồng bộ sàn đến AI đóng gói và vận hành kho — một hệ thống nội bộ
             cho chủ cửa hàng và đội kho.
           </p>
@@ -76,15 +76,15 @@ export function FeatureGrid() {
               <article
                 key={feature.title}
                 id={sectionId}
-                className="scroll-mt-20 rounded-xl border border-hairline bg-surface-1 p-5 transition-colors hover:border-primary/35"
+                className="lp-card scroll-mt-20 p-5"
               >
                 <div
-                  className={`mb-4 flex h-9 w-9 items-center justify-center rounded-lg border border-hairline bg-canvas ${feature.accent}`}
+                  className={`mb-4 flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--ls-card-border)] bg-[var(--ls-panel)] ${feature.accent}`}
                 >
                   <Icon className="h-4 w-4" strokeWidth={1.75} />
                 </div>
-                <h3 className="text-sm font-semibold text-ink">{feature.title}</h3>
-                <p className="mt-2 text-sm leading-relaxed text-ink-muted">
+                <h3 className="text-sm font-semibold">{feature.title}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-[var(--ls-muted)]">
                   {feature.description}
                 </p>
               </article>

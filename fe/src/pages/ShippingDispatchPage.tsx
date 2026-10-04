@@ -326,14 +326,16 @@ export function ShippingDispatchPage() {
                             <Printer className="h-3 w-3" />
                             {vi ? 'Nhãn' : 'Label'}
                           </button>
+                          {s.tripCode ? (
                           <button
                             type="button"
-                            onClick={() => void print('manifest', s.tripCode)}
+                            onClick={() => void print('manifest', s.tripCode ?? '')}
                             className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 hover:bg-slate-50 dark:border-slate-700"
                           >
                             <FileText className="h-3 w-3" />
                             {vi ? 'Bảng kê' : 'Manifest'}
                           </button>
+                          ) : null}
                         </td>
                       </tr>
                     ))}

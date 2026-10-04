@@ -4,7 +4,7 @@ import {
   PackagingApprovalStatus,
   PACKAGING_APPROVAL_STATUS_VALUES,
 } from '../enums/packaging-approval-status.enum';
-import { BoxDimensionsMm, BoxDimensionsMmSchema } from './packaging-box.schema';
+import { BoxDimensionsMm, BoxDimensionsMmSchema } from '../../packaging-materials/schemas/box-dimensions.schema';
 
 /**
  * Rule #1 (Database Design Standards) — sub-schema riêng, KHÔNG dùng
@@ -353,11 +353,8 @@ export class PackagingRecommendationDoc {
   updated_at?: Date;
 }
 
-export type PackagingRecommendationDocument =
-  HydratedDocument<PackagingRecommendationDoc>;
-export const PackagingRecommendationSchema = SchemaFactory.createForClass(
-  PackagingRecommendationDoc,
-);
+export type PackagingRecommendationDocument = HydratedDocument<PackagingRecommendationDoc>;
+export const PackagingRecommendationSchema = SchemaFactory.createForClass(PackagingRecommendationDoc);
 
 // 🔄 ĐÃ ĐỔI (21/09/2026): 1 ĐƠN = 1 bản active (trước là 1 group = 1 bản).
 // Index cũ `order_group_id_1` (unique) PHẢI được drop bằng

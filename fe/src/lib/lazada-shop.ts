@@ -1,7 +1,25 @@
-import type { StoredLazadaShop } from '../types/marketplace-orders'
+import {
+  LAZADA_OAUTH_CHANNEL,
+  LAZADA_OAUTH_ERROR_TYPE,
+  LAZADA_OAUTH_MESSAGE_TYPE,
+  type StoredLazadaShop,
+} from '../types/marketplace-orders'
 
-const SHOPS_KEY = 'optipack-lazada-shops'
-const ACTIVE_SHOP_KEY = 'optipack-lazada-active-shop-id'
+export const LAZADA_SHOPS_STORAGE_KEY = 'optipack-lazada-shops'
+export const LAZADA_ACTIVE_SHOP_STORAGE_KEY = 'optipack-lazada-active-shop-id'
+
+export type LazadaOAuthSuccessNotice = {
+  type: typeof LAZADA_OAUTH_MESSAGE_TYPE
+  shopId: string
+  shopName: string | null
+}
+
+export type LazadaOAuthErrorNotice = {
+  type: typeof LAZADA_OAUTH_ERROR_TYPE
+  error: string
+}
+
+export type LazadaOAuthNotice = LazadaOAuthSuccessNotice | LazadaOAuthErrorNotice
 
 function isStoredShop(value: unknown): value is StoredLazadaShop {
   if (typeof value !== 'object' || value === null) return false
@@ -16,7 +34,7 @@ function isStoredShop(value: unknown): value is StoredLazadaShop {
 
 export function loadLazadaShops(): StoredLazadaShop[] {
   try {
-    const raw = localStorage.getItem(SHOPS_KEY)
+    const raw = localStorage.getItem(LAZADA_SHOPS_STORAGE_KEY)
     if (!raw) return []
     const parsed: unknown = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
@@ -27,7 +45,7 @@ export function loadLazadaShops(): StoredLazadaShop[] {
 }
 
 export function saveLazadaShops(shops: StoredLazadaShop[]): void {
-  localStorage.setItem(SHOPS_KEY, JSON.stringify(shops))
+  localStorage.setItem(LAZADA_SHOPS_STORAGE_KEY, JSON.stringify(shops))
 }
 
 export function upsertLazadaShop(shop: StoredLazadaShop): StoredLazadaShop[] {
@@ -53,52 +71,44 @@ export function removeLazadaShop(shopId: string): StoredLazadaShop[] {
 }
 
 export function getActiveLazadaShopId(): string | null {
-  return localStorage.getItem(ACTIVE_SHOP_KEY)
+  return localStorage.getItem(LAZADA_ACTIVE_SHOP_STORAGE_KEY)
 }
 
 export function setActiveLazadaShopId(shopId: string | null): void {
-  if (shopId) localStorage.setItem(ACTIVE_SHOP_KEY, shopId)
-  else localStorage.removeItem(ACTIVE_SHOP_KEY)
+  if (shopId) localStorage.setItem(LAZADA_ACTIVE_SHOP_STORAGE_KEY, shopId)
+  else localStorage.removeItem(LAZADA_ACTIVE_SHOP_STORAGE_KEY)
 }
 
-export function parseLazadaCallbackPayload(
-  raw: string,
-): StoredLazadaShop | null {
-  const trimmed = raw.trim()
-  if (!trimmed) return null
+export function isLazadaOAuthSuccessNotice(
+  value: unknown,
+): value is LazadaOAuthSuccessNotice {
+  if (typeof value !== 'object' || value === null) return false
+  const rec = value as Record<string, unknown>
+  return (
+    rec.type === LAZADA_OAUTH_MESSAGE_TYPE &&
+    typeof rec.shopId === 'string' &&
+    rec.shopId.length > 0 &&
+    (rec.shopName === null || typeof rec.shopName === 'string')
+  )
+}
 
-  if (/^\d{6,}$/.test(trimmed)) {
-    return {
-      shopId: trimmed,
-      shopName: null,
-      connectedAt: new Date().toISOString(),
-    }
+export function isLazadaOAuthErrorNotice(
+  value: unknown,
+): value is LazadaOAuthErrorNotice {
+  if (typeof value !== 'object' || value === null) return false
+  const rec = value as Record<string, unknown>
+  return rec.type === LAZADA_OAUTH_ERROR_TYPE && typeof rec.error === 'string'
+}
+
+export function publishLazadaOAuthNotice(payload: LazadaOAuthNotice): void {
+  if (window.opener && !window.opener.closed) {
+    window.opener.postMessage(payload, window.location.origin)
   }
-
   try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (typeof parsed !== 'object' || parsed === null) return null
-    const rec = parsed as Record<string, unknown>
-    const shopId = typeof rec.shopId === 'string' ? rec.shopId.trim() : ''
-    const shopName =
-      typeof rec.shopName === 'string' && rec.shopName.trim()
-        ? rec.shopName.trim()
-        : null
-    const connected = rec.connected === true
-    if (!shopId || !connected) return null
-    return {
-      shopId,
-      shopName,
-      connectedAt: new Date().toISOString(),
-    }
+    const channel = new BroadcastChannel(LAZADA_OAUTH_CHANNEL)
+    channel.postMessage(payload)
+    channel.close()
   } catch {
-    const idMatch = trimmed.match(/"shopId"\s*:\s*"(\d+)"/)
-    if (!idMatch?.[1]) return null
-    const nameMatch = trimmed.match(/"shopName"\s*:\s*"([^"]*)"/)
-    return {
-      shopId: idMatch[1],
-      shopName: nameMatch?.[1] ? nameMatch[1] : null,
-      connectedAt: new Date().toISOString(),
-    }
+    /* Safari private mode / trình duyệt không hỗ trợ BroadcastChannel */
   }
 }

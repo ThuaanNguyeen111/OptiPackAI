@@ -11,29 +11,22 @@ function getStrength(password: string) {
   return score
 }
 
-const labels = ['Too weak', 'Weak', 'Fair', 'Good', 'Strong']
-const colors = [
-  'bg-error',
-  'bg-error',
-  'bg-amber-400',
-  'bg-primary-hover',
-  'bg-success',
-]
+const labels = ['Rất yếu', 'Yếu', 'Tạm được', 'Tốt', 'Mạnh']
 
 export function PasswordStrength({ password }: PasswordStrengthProps) {
   const score = password ? getStrength(password) : 0
   const percent = password ? (score / 4) * 100 : 0
 
   return (
-    <div className="mt-1">
-      <div className="h-1 overflow-hidden rounded-full bg-surface-3">
+    <div className="login-strength">
+      <div className="login-strength-bar">
         <div
-          className={`h-full rounded-full transition-all ${colors[score]}`}
+          className={`login-strength-fill is-${score}`}
           style={{ width: `${percent}%` }}
         />
       </div>
-      <p className="mt-0.5 text-[10px] text-ink-subtle">
-        {password ? labels[score] : '8+ chars, hoa/thường, số, ký tự đặc biệt'}
+      <p className="login-strength-hint">
+        {password ? labels[score] : 'Tối thiểu 8 ký tự, chữ hoa/thường, số, ký tự đặc biệt'}
       </p>
     </div>
   )

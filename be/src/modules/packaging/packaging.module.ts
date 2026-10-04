@@ -1,25 +1,22 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PackingPlan, PackingPlanSchema } from '../packing/schemas/packing-plan.schema';
-import { PackagingBox, PackagingBoxSchema } from './schemas/packaging-box.schema';
-import {
-  PackagingStockMovement,
-  PackagingStockMovementSchema,
-} from './schemas/packaging-stock-movement.schema';
 import { PackagingBoxService } from './packaging-box.service';
 import { PackagingBoxController } from './packaging-box.controller';
 import { PackingGuideAiService } from './packing-guide-ai.service';
 import { PackagingBag, PackagingBagSchema } from './schemas/packaging-bag.schema';
 import { PackagingBagService } from './packaging-bag.service';
 import { PackagingBagController } from './packaging-bag.controller';
+// Kho vật tư CHUNG (gộp main + thi_dev 04/10/2026) — thùng + vật tư chèn.
 import {
   PackagingMaterial,
   PackagingMaterialSchema,
-} from './schemas/packaging-material.schema';
+} from '../packaging-materials/schemas/packaging-material.schema';
 import {
-  PackagingMaterialMovement,
-  PackagingMaterialMovementSchema,
-} from './schemas/packaging-material-movement.schema';
+  PackagingMovement,
+  PackagingMovementSchema,
+} from '../packaging-materials/schemas/packaging-movement.schema';
+import { PackagingMaterialsModule } from '../packaging-materials/packaging-materials.module';
 import {
   PackagingMaterialRules,
   PackagingMaterialRulesSchema,
@@ -38,13 +35,12 @@ import { PackagingMaterialController } from './packaging-material.controller';
   imports: [
     MongooseModule.forFeature([
       { name: PackingPlan.name, schema: PackingPlanSchema },
-      { name: PackagingBox.name, schema: PackagingBoxSchema },
       { name: PackagingBag.name, schema: PackagingBagSchema },
-      { name: PackagingStockMovement.name, schema: PackagingStockMovementSchema },
       { name: PackagingMaterial.name, schema: PackagingMaterialSchema },
-      { name: PackagingMaterialMovement.name, schema: PackagingMaterialMovementSchema },
+      { name: PackagingMovement.name, schema: PackagingMovementSchema },
       { name: PackagingMaterialRules.name, schema: PackagingMaterialRulesSchema },
     ]),
+    PackagingMaterialsModule, // trừ tồn/nhập hàng dùng chung (consumeForParcels, stockInById)
   ],
   controllers: [
     PackagingBoxController,

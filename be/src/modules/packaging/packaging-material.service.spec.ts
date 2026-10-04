@@ -3,18 +3,21 @@ import { Test, TestingModule } from '@nestjs/testing';
 import type { ClientSession } from 'mongoose';
 import { Types } from 'mongoose';
 import { PackagingMaterialService } from './packaging-material.service';
-import { PackagingMaterial } from './schemas/packaging-material.schema';
-import { PackagingMaterialMovement } from './schemas/packaging-material-movement.schema';
 import { PackagingMaterialRules } from './schemas/packaging-material-rules.schema';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
 import { DEFAULT_MATERIAL_RULES } from './engine';
+// Kho vật tư CHUNG (gộp main + thi_dev 04/10/2026) — dùng service thật để
+// kiểm cả luật trừ tồn (consumeForParcels) chứ không chỉ việc ủy quyền.
+import { PackagingMaterial } from '../packaging-materials/schemas/packaging-material.schema';
+import { PackagingMovement } from '../packaging-materials/schemas/packaging-movement.schema';
+import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
 
-describe('PackagingMaterialService (28/09/2026)', () => {
+describe('PackagingMaterialService (28/09/2026, kho chung từ 04/10/2026)', () => {
   let service: PackagingMaterialService;
   let materialModel: {
     find: jest.Mock;
     findOne: jest.Mock;
-    findOneAndUpdate: jest.Mock;
+    updateOne: jest.Mock;
     create: jest.Mock;
   };
   let movementModel: { create: jest.Mock };
@@ -27,24 +30,33 @@ describe('PackagingMaterialService (28/09/2026)', () => {
   const recB = new Types.ObjectId();
 
   function stockDoc(code: string, onHand: number, extra: Record<string, unknown> = {}): Record<string, unknown> {
-    return { _id: new Types.ObjectId(), code, name: `Vật tư ${code}`, quantity_on_hand: onHand, reorder_level: 20, ...extra };
+    return {
+      _id: new Types.ObjectId(),
+      code,
+      name: `Vật tư ${code}`,
+      kind: 'cushioning',
+      reusable: false,
+      unit_cost_vnd: 300,
+      qty_new: onHand,
+      qty_reused: 0,
+      reorder_level: 20,
+      ...extra,
+    };
   }
 
-  /** findOne(...).session(...) → doc; findOneAndUpdate trả doc sau khi trừ. */
+  /** findOne(...).session(...) → doc; updateOne trừ được khi đủ tồn. */
   function mockStock(doc: Record<string, unknown> | null): void {
     materialModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(doc) });
-    if (doc) {
-      materialModel.findOneAndUpdate.mockImplementation((_filter: unknown, update: { $inc: { quantity_on_hand: number } }) =>
-        Promise.resolve({ ...doc, quantity_on_hand: (doc.quantity_on_hand as number) + update.$inc.quantity_on_hand }),
-      );
-    }
   }
+
+  const rows = (): { delta: number; type: string; balance_after: number; condition: string }[] =>
+    movementModel.create.mock.calls.map((c) => (c as [[{ delta: number; type: string; balance_after: number; condition: string }]])[0][0]);
 
   beforeEach(async () => {
     materialModel = {
       find: jest.fn(),
       findOne: jest.fn(),
-      findOneAndUpdate: jest.fn(),
+      updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
       create: jest.fn(),
     };
     movementModel = { create: jest.fn().mockResolvedValue([]) };
@@ -52,8 +64,9 @@ describe('PackagingMaterialService (28/09/2026)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PackagingMaterialService,
+        PackagingMaterialsService,
         { provide: getModelToken(PackagingMaterial.name), useValue: materialModel },
-        { provide: getModelToken(PackagingMaterialMovement.name), useValue: movementModel },
+        { provide: getModelToken(PackagingMovement.name), useValue: movementModel },
         { provide: getModelToken(PackagingMaterialRules.name), useValue: rulesModel },
         { provide: getConnectionToken(), useValue: { startSession: jest.fn() } },
       ],
@@ -69,9 +82,8 @@ describe('PackagingMaterialService (28/09/2026)', () => {
 
       expect(result.shortfalls).toEqual([]);
       expect(result.consumed).toEqual([expect.objectContaining({ code: 'FOAM', before: 100, after: 96, reorderLevel: 20 })]);
-      expect(movementModel.create).toHaveBeenCalledTimes(1);
-      const [[row]] = movementModel.create.mock.calls[0] as [[{ delta: number; reason: string; balance_after: number }]];
-      expect(row).toMatchObject({ delta: -4, reason: 'pack', balance_after: 96 });
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ delta: -4, type: 'consume', condition: 'new', balance_after: 96 });
     });
 
     it('tồn ít hơn cần → trừ phần có, ghi phần thiếu, KHÔNG ném lỗi', async () => {
@@ -80,8 +92,7 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, planId: recA, parcelNo: 1 }], groupId, userId);
 
       expect(result.shortfalls).toEqual([{ planId: recA, parcelNo: 1, code: 'FOAM', missing: 1 }]);
-      const [[row]] = movementModel.create.mock.calls[0] as [[{ delta: number; balance_after: number }]];
-      expect(row).toMatchObject({ delta: -3, balance_after: 0 });
+      expect(rows()[0]).toMatchObject({ delta: -3, balance_after: 0 });
     });
 
     it('tồn = 0 → thiếu toàn bộ, không trừ, không ghi sổ', async () => {
@@ -90,7 +101,7 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, planId: recA, parcelNo: 1 }], groupId, userId);
 
       expect(result.shortfalls).toEqual([{ planId: recA, parcelNo: 1, code: 'FOAM', missing: 4 }]);
-      expect(materialModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(materialModel.updateOne).not.toHaveBeenCalled();
       expect(movementModel.create).not.toHaveBeenCalled();
     });
 
@@ -107,11 +118,11 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       const doc = stockDoc('FOAM', 100);
       let balance = 100;
       materialModel.findOne.mockImplementation(() => ({
-        session: jest.fn().mockImplementation(() => Promise.resolve({ ...doc, quantity_on_hand: balance })),
+        session: jest.fn().mockImplementation(() => Promise.resolve({ ...doc, qty_new: balance })),
       }));
-      materialModel.findOneAndUpdate.mockImplementation((_f: unknown, update: { $inc: { quantity_on_hand: number } }) => {
-        balance += update.$inc.quantity_on_hand;
-        return Promise.resolve({ ...doc, quantity_on_hand: balance });
+      materialModel.updateOne.mockImplementation((_f: unknown, update: { $inc: { qty_new: number } }) => {
+        balance += update.$inc.qty_new;
+        return Promise.resolve({ modifiedCount: 1 });
       });
 
       const result = await service.consumeForPack(
@@ -127,6 +138,14 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       expect(result.consumed).toHaveLength(1);
       expect(result.consumed[0]).toMatchObject({ before: 100, after: 92 });
       expect(movementModel.create).toHaveBeenCalledTimes(2);
+    });
+
+    it('vật tư dùng lại được và có hàng tái sử dụng → trừ hàng tái sử dụng trước', async () => {
+      mockStock(stockDoc('FOAM', 10, { reusable: true, qty_reused: 2 }));
+
+      await service.consumeForPack(session, [{ code: 'FOAM', quantity: 3, planId: recA, parcelNo: 1 }], groupId, userId);
+
+      expect(rows().map((r) => [r.condition, r.delta])).toEqual([['reused', -2], ['new', -1]]);
     });
 
     it('bỏ qua dòng cần 0 đơn vị', async () => {
@@ -168,7 +187,7 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       materialModel.find.mockReturnValue({
         lean: () =>
           Promise.resolve([
-            { code: 'FOAM', name: 'Góc xốp', type: 'foam_corner', unit: 'cái', weight_g_per_unit: 5, price_vnd_per_unit: 300, quantity_on_hand: 9, is_active: true },
+            { code: 'FOAM', name: 'Góc xốp', kind: 'cushioning', material_type: 'foam_corner', unit: 'cái', weight_g_per_unit: 5, unit_cost_vnd: 300, qty_new: 9, qty_reused: 0, is_active: true },
           ]),
       });
       rulesModel.findOne.mockReturnValue({ sort: () => ({ lean: () => Promise.resolve(null) }) });
@@ -196,7 +215,7 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       materialModel.create.mockResolvedValue({});
       await service.create(dto);
       expect(materialModel.create).toHaveBeenCalledWith(
-        expect.objectContaining({ quantity_on_hand: 0, reorder_level: 20, is_sample: false, is_active: true }),
+        expect.objectContaining({ kind: 'cushioning', material_type: 'foam_corner', unit_cost_vnd: 300, qty_new: 0, reorder_level: 20, is_sample: false, is_active: true }),
       );
     });
 

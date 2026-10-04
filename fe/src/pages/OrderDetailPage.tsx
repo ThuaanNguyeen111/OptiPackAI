@@ -22,7 +22,7 @@ export function OrderDetailPage() {
           ]}
         />
         <main className="flex flex-1 items-center justify-center bg-[#F9FAFB] p-6 dark:bg-[#0B0E14]">
-          <Link to="/app/orders" className="text-sm text-[#2563eb] hover:underline">
+          <Link to="/app/orders" className="text-sm text-[var(--ls-cta,#152D35)] hover:underline">
             {vi ? '← Quay lại danh sách' : '← Back to list'}
           </Link>
         </main>

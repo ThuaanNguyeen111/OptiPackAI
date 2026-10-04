@@ -90,15 +90,20 @@ export function PackagingRulesPage() {
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-xl font-semibold tracking-tight text-ink">
-                {vi
-                  ? 'Quản lý Thùng Carton & Quy tắc Đóng gói AI'
-                  : 'Carton Inventory & AI Packaging Rules'}
-              </h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl font-semibold tracking-tight text-ink">
+                  {vi
+                    ? 'Quản lý Thùng Carton & Quy tắc Đóng gói AI'
+                    : 'Carton Inventory & AI Packaging Rules'}
+                </h1>
+                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                  Demo
+                </span>
+              </div>
               <p className="mt-1 text-sm text-ink-muted">
                 {vi
-                  ? 'Kho thùng · cushioning · volumetric safety margin'
-                  : 'Box stock · cushioning · volumetric safety margin'}
+                  ? 'Minh họa UI — chưa có API cấu hình bao bì trên BE. Thay đổi chỉ lưu trên trình duyệt.'
+                  : 'UI mock — no packaging-rules API on BE yet. Changes stay in the browser only.'}
               </p>
             </div>
             <Button variant="primary" onClick={addCarton}>

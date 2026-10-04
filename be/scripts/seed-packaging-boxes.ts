@@ -3,10 +3,11 @@ import { NestFactory } from '@nestjs/core';
 import { getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AppModule } from '../src/app.module';
+// Kho vật tư CHUNG (gộp main + thi_dev 04/10/2026) — thùng = kind 'box'.
 import {
-  PackagingBox,
-  PackagingBoxDocument,
-} from '../src/modules/packaging/schemas/packaging-box.schema';
+  PackagingMaterial,
+  PackagingMaterialDocument,
+} from '../src/modules/packaging-materials/schemas/packaging-material.schema';
 import { PackagingBoxService } from '../src/modules/packaging/packaging-box.service';
 
 /**
@@ -88,18 +89,10 @@ function parseCsv(path: string): {
 async function run(): Promise<void> {
   const csvPath = process.argv[2];
   const app = await NestFactory.createApplicationContext(AppModule);
-  const boxModel = app.get<Model<PackagingBoxDocument>>(getModelToken(PackagingBox.name));
+  const boxModel = app.get<Model<PackagingMaterialDocument>>(getModelToken(PackagingMaterial.name));
   const boxService = app.get(PackagingBoxService);
 
-  // (22/09/2026) Thùng tạo trước khi có tồn kho: bổ sung field, tồn = 0
-  // (phải nhập qua POST /packaging/boxes/:id/stock-in thì engine mới chọn).
-  const backfilled = await boxModel.updateMany(
-    { quantity_on_hand: { $exists: false } },
-    { $set: { quantity_on_hand: 0, reorder_level: 10, storage_location: null } },
-  );
-  if (backfilled.modifiedCount > 0) {
-    console.log(`Bổ sung field tồn kho cho ${String(backfilled.modifiedCount)} thùng cũ (tồn = 0).`);
-  }
+  const cm = (mm: number): number => Math.round(mm) / 10;
 
   if (!csvPath) {
     let created = 0;
@@ -110,11 +103,18 @@ async function run(): Promise<void> {
           $setOnInsert: {
             code: box.code,
             name: box.name,
+            kind: 'box',
             inner: dims(box.inner),
             outer: dims(box.outer),
+            length_cm: cm(box.outer[0]),
+            width_cm: cm(box.outer[1]),
+            height_cm: cm(box.outer[2]),
             tare_g: box.tare_g,
             max_load_g: box.max_load_g,
-            price_vnd: box.price_vnd,
+            unit_cost_vnd: box.price_vnd,
+            qty_new: 0,
+            qty_reused: 0,
+            reorder_level: 10,
             is_sample: true,
             is_active: true,
           },
@@ -138,14 +138,19 @@ async function run(): Promise<void> {
           update: {
             $set: {
               name: box.name,
+              kind: 'box',
               inner: dims(box.inner),
               outer: dims(box.outer),
+              length_cm: cm(box.outer[0] ?? 0),
+              width_cm: cm(box.outer[1] ?? 0),
+              height_cm: cm(box.outer[2] ?? 0),
               tare_g: box.tare_g,
               max_load_g: box.max_load_g,
-              price_vnd: box.price_vnd,
+              unit_cost_vnd: box.price_vnd ?? 0,
               is_sample: false,
               is_active: true,
             },
+            $setOnInsert: { qty_new: 0, qty_reused: 0, reorder_level: 10 },
           },
           upsert: true,
         },

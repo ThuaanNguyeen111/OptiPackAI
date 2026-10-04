@@ -8,6 +8,7 @@ import {
   resetPasswordApi,
   updateUserApi,
 } from '../api/users.api'
+import { formatApiError } from '../lib/api'
 import type {
   AdminUser,
   AiPackagingParams,
@@ -23,6 +24,7 @@ type UseAdminUsersApi = {
   users: AdminUser[]
   loading: boolean
   usersLoading: boolean
+  usersError: string | null
   total: number
   page: number
   limit: number
@@ -45,6 +47,7 @@ export function useAdminUsers(): UseAdminUsersApi {
   const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
   const [usersLoading, setUsersLoading] = useState(true)
+  const [usersError, setUsersError] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [roleFilter, setRoleFilterState] = useState<Role | 'all'>('all')
@@ -61,14 +64,16 @@ export function useAdminUsers(): UseAdminUsersApi {
     })
       .then((result) => {
         if (cancelled) return
+        setUsersError(null)
         setUsers(result.users)
         setTotal(result.total)
         setPage(result.page)
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (!cancelled) {
           setUsers([])
           setTotal(0)
+          setUsersError(formatApiError(err))
         }
       })
       .finally(() => {
@@ -190,6 +195,7 @@ export function useAdminUsers(): UseAdminUsersApi {
     users,
     loading,
     usersLoading,
+    usersError,
     total,
     page,
     limit: USERS_PAGE_LIMIT,

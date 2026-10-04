@@ -169,6 +169,58 @@ export interface LazadaGetOrdersFilter {
   limit?: number; // giới hạn tối đa 100/lần gọi
 }
 
+/**
+ * 02/10/2026 — Fulfillment API `Pack` (POST /order/fulfill/pack). Hình dạng theo
+ * tài liệu chính thức Lazada (cập nhật 09/08/2022). Lazada trả `success` là
+ * boolean hoặc chuỗi "true"/"false" tùy ví dụ — đọc bằng parseLazadaBoolean().
+ */
+export interface LazadaPackRequest {
+  pack_order_list: { order_id: number; order_item_list: number[] }[];
+  delivery_type: 'dropship';
+  shipping_allocate_type: string;
+  shipment_provider_code?: string;
+}
+
+export interface LazadaPackItemResultRaw {
+  order_item_id?: string | number;
+  msg?: string;
+  item_err_code?: string | number;
+  tracking_number?: string;
+  shipment_provider?: string;
+  package_id?: string;
+  retry?: string | boolean;
+}
+
+export interface LazadaPackResponse {
+  code: string;
+  message?: string;
+  result?: {
+    success?: boolean | string;
+    error_code?: string;
+    error_msg?: string;
+    data?: {
+      pack_order_list?: {
+        order_id?: string | number;
+        order_item_list?: LazadaPackItemResultRaw[];
+      }[];
+    };
+  };
+}
+
+export function parseLazadaBoolean(value: unknown): boolean {
+  return value === true || value === 'true';
+}
+
+/**
+ * 04/10/2026 — định dạng ngày cho GetProducts (`update_after`…):
+ * `YYYY-MM-DDTHH:mm:ss+0000` — đúng mẫu tài liệu Lazada. `toISOString()`
+ * (`...000Z`) bị GetProducts từ chối với `E017 Invalid Date Format`
+ * (GetOrders thì vẫn nhận — không đổi chỗ đó).
+ */
+export function toLazadaProductDate(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, '+0000');
+}
+
 export class LazadaProtocolClient {
   private readonly logger: Logger;
 
@@ -354,6 +406,64 @@ export class LazadaProtocolClient {
     params: Record<string, string | number>,
   ): Promise<T> {
     return this.post<T>(this.config.authBaseUrl, path, params);
+  }
+
+  /**
+   * 04/10/2026 — GetProducts theo CATALOG (không lọc sku_seller_list), phân
+   * trang offset/limit, tùy chọn `update_after` để đồng bộ tăng dần. Trang
+   * rỗng: Lazada có thể bỏ hẳn `data` hoặc `products`.
+   */
+  async listProductsPage(
+    accessToken: string,
+    params: { updatedAfter: Date | null; offset: number; limit: number },
+  ): Promise<{ products: LazadaProductRaw[]; total: number }> {
+    const extraParams: Record<string, string | number> = {
+      access_token: accessToken,
+      filter: 'all',
+      limit: params.limit,
+      offset: params.offset,
+    };
+    if (params.updatedAfter) {
+      extraParams.update_after = toLazadaProductDate(params.updatedAfter);
+    }
+    const data = await this.callSignedGet<{
+      code: string;
+      message?: string;
+      data?: { total_products?: string; products?: LazadaProductRaw[] };
+    }>('/products/get', extraParams);
+    if (data.code !== '0') {
+      this.logger.error(`GetProducts (catalog) thất bại: ${JSON.stringify(data)}`);
+      throw new Error(
+        `${this.config.logLabel} trả lỗi khi lấy danh sách sản phẩm: ${data.message ?? 'không rõ lý do'}`,
+      );
+    }
+    const products = Array.isArray(data.data?.products) ? data.data.products : [];
+    const total = Number(data.data?.total_products ?? 0);
+    return { products, total: Number.isFinite(total) ? total : 0 };
+  }
+
+  /**
+   * Pack — 02/10/2026. ĐÁNH DẤU "ĐÃ ĐÓNG GÓI" TRÊN SHOP THẬT (API GHI).
+   * Chỉ được gọi qua LazadaPackSyncService (kiểm tra cầu dao
+   * LAZADA_WRITE_APIS_ENABLED trước). Tối đa 20 đơn / request. KHÔNG tự
+   * retry (`callSignedApiPost` không retry): gửi lại khi chưa biết lần trước
+   * có tới sàn hay chưa có thể gây thao tác trùng.
+   */
+  async packOrders(
+    accessToken: string,
+    request: LazadaPackRequest,
+  ): Promise<LazadaPackResponse> {
+    const data = await this.callSignedApiPost<LazadaPackResponse>(
+      '/order/fulfill/pack',
+      { access_token: accessToken, packReq: JSON.stringify(request) },
+    );
+    if (data.code !== '0') {
+      this.logger.error(`Pack thất bại: ${JSON.stringify(data)}`);
+      throw new Error(
+        `${this.config.logLabel} trả lỗi khi đóng gói: ${data.message ?? 'không rõ lý do'}`,
+      );
+    }
+    return data;
   }
 
   /**

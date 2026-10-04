@@ -143,6 +143,13 @@ export class AurelleAdapter implements MarketplaceAdapter {
     return this.client.getProducts(accessToken, sellerSkus);
   }
 
+  async listProductsPage(
+    accessToken: string,
+    params: { updatedAfter: Date | null; offset: number; limit: number },
+  ): Promise<{ products: LazadaProductRaw[]; total: number }> {
+    return this.client.listProductsPage(accessToken, params);
+  }
+
   /**
    * Mục 8.1 — chữ ký webhook nằm trong header `Authorization`, CÔNG THỨC
    * KHÁC chữ ký request thường (không sort tham số, không cần path):

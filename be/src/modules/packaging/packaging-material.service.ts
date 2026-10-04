@@ -1,11 +1,15 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
-import { PackagingMaterial, PackagingMaterialDocument } from './schemas/packaging-material.schema';
 import {
-  PackagingMaterialMovement,
-  PackagingMaterialMovementDocument,
-} from './schemas/packaging-material-movement.schema';
+  PackagingMaterial,
+  PackagingMaterialDocument,
+} from '../packaging-materials/schemas/packaging-material.schema';
+import {
+  PackagingMovement,
+  PackagingMovementDocument,
+} from '../packaging-materials/schemas/packaging-movement.schema';
+import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
 import {
   MaterialRuleEntry,
   PackagingMaterialRules,
@@ -56,14 +60,25 @@ export interface ActiveMaterialRules {
   isDefault: boolean;
 }
 
+/** Vật tư chèn engine dùng được: đang dùng + có loại theo luật + khối lượng. */
+const PLANNABLE_MATERIAL_FILTER: Record<string, unknown> = {
+  kind: 'cushioning',
+  is_active: true,
+  material_type: { $ne: null },
+  weight_g_per_unit: { $ne: null },
+};
+
 function toMaterialSpec(material: PackagingMaterial): MaterialSpec {
+  if (material.material_type === null || material.weight_g_per_unit === null) {
+    throw new Error(`Vật tư ${material.code} thiếu loại/khối lượng cho engine.`);
+  }
   return {
     code: material.code,
     name: material.name,
-    type: material.type,
-    unit: material.unit,
+    type: material.material_type,
+    unit: material.unit ?? 'cái',
     weight_g_per_unit: material.weight_g_per_unit,
-    price_vnd_per_unit: material.price_vnd_per_unit,
+    price_vnd_per_unit: material.unit_cost_vnd,
   };
 }
 
@@ -95,11 +110,12 @@ export class PackagingMaterialService {
   constructor(
     @InjectModel(PackagingMaterial.name)
     private readonly materialModel: Model<PackagingMaterialDocument>,
-    @InjectModel(PackagingMaterialMovement.name)
-    private readonly movementModel: Model<PackagingMaterialMovementDocument>,
+    @InjectModel(PackagingMovement.name)
+    private readonly movementModel: Model<PackagingMovementDocument>,
     @InjectModel(PackagingMaterialRules.name)
     private readonly rulesModel: Model<PackagingMaterialRulesDocument>,
     @InjectConnection() private readonly connection: Connection,
+    private readonly materialsService: PackagingMaterialsService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -109,7 +125,7 @@ export class PackagingMaterialService {
   /** Danh mục đang dùng + bộ luật hiện hành, đổi sang kiểu lõi của engine. */
   async planningData(): Promise<MaterialPlanning> {
     const [materials, active] = await Promise.all([
-      this.materialModel.find({ is_active: true }).lean(),
+      this.materialModel.find(PLANNABLE_MATERIAL_FILTER).lean(),
       this.getActiveRules(),
     ]);
     return { catalog: materials.map(toMaterialSpec), rules: active.rules };
@@ -173,47 +189,29 @@ export class PackagingMaterialService {
   // ------------------------------------------------------------------
 
   /** Nhập thêm vật tư — `$inc` + 1 dòng sổ trong cùng transaction. */
+  /**
+   * 🔄 GỘP (04/10/2026): kho vật tư chung `packaging_materials` (kind =
+   * cushioning) — nhập hàng MỚI vào `qty_new`, sổ là `packaging_movements`.
+   */
   async stockIn(id: string, quantity: number, userId: string | null, note?: string): Promise<PackagingMaterialDocument> {
     const material = await this.findById(id);
-    const session = await this.connection.startSession();
-    try {
-      return await session.withTransaction(async () => {
-        const doc = await this.materialModel.findOneAndUpdate(
-          { _id: material._id },
-          { $inc: { quantity_on_hand: quantity } },
-          { returnDocument: 'after', session },
-        );
-        if (!doc) throw this.notFound(id);
-        await this.movementModel.create(
-          [
-            {
-              material_id: material._id,
-              material_code: material.code,
-              delta: quantity,
-              reason: 'stock_in',
-              balance_after: doc.quantity_on_hand,
-              // null = script hệ thống (seed), không phải người thao tác.
-              user_id: userId ? new Types.ObjectId(userId) : null,
-              note: note?.trim() ? note.trim() : null,
-            },
-          ],
-          { session },
-        );
-        return doc;
-      });
-    } finally {
-      await session.endSession();
-    }
+    const updated = await this.materialsService.stockInById(material._id, quantity, userId, note);
+    if (!updated) throw this.notFound(id);
+    return updated;
   }
 
-  async listMovements(id: string, limit = 20): Promise<PackagingMaterialMovement[]> {
+  async listMovements(id: string, limit = 20): Promise<PackagingMovement[]> {
     const material = await this.findById(id);
-    return this.movementModel.find({ material_id: material._id }).sort({ created_at: -1 }).limit(limit).lean();
+    return this.movementModel.find({ material_code: material.code }).sort({ created_at: -1 }).limit(limit).lean();
   }
 
   /**
    * Trừ tồn cho các kiện vừa đóng (gọi TRONG transaction của pack). Thiếu tồn
    * KHÔNG ném lỗi: trừ phần có, trả về phần thiếu để caller ghi + báo.
+   */
+  /**
+   * Trừ vật tư chèn cho các kiện vừa đóng (TRONG transaction của pack). Thiếu
+   * KHÔNG chặn đóng gói — trả `shortfalls` để báo. Ưu tiên hàng tái sử dụng.
    */
   async consumeForPack(
     session: ClientSession,
@@ -221,61 +219,17 @@ export class PackagingMaterialService {
     groupId: Types.ObjectId,
     userId: string,
   ): Promise<MaterialConsumption> {
-    const shortfalls: MaterialShortfall[] = [];
-    const balances = new Map<string, ConsumedMaterial>();
-
-    for (const need of needs) {
-      if (need.quantity <= 0) continue;
-      const material = await this.materialModel.findOne({ code: need.code }).session(session);
-      const available = material?.quantity_on_hand ?? 0;
-      const take = Math.min(need.quantity, available);
-      let taken = 0;
-
-      if (material && take > 0) {
-        const updated = await this.materialModel.findOneAndUpdate(
-          { _id: material._id, quantity_on_hand: { $gte: take } },
-          { $inc: { quantity_on_hand: -take } },
-          { returnDocument: 'after', session },
-        );
-        if (updated) {
-          taken = take;
-          await this.movementModel.create(
-            [
-              {
-                material_id: updated._id,
-                material_code: updated.code,
-                delta: -take,
-                reason: 'pack',
-                balance_after: updated.quantity_on_hand,
-                order_group_id: groupId,
-                packing_plan_id: need.planId,
-                parcel_no: need.parcelNo,
-                user_id: new Types.ObjectId(userId),
-              },
-            ],
-            { session },
-          );
-          const previous = balances.get(updated.code);
-          balances.set(updated.code, {
-            code: updated.code,
-            name: updated.name,
-            // `before` giữ lần trừ đầu tiên, `after` cập nhật theo lần trừ cuối.
-            before: previous?.before ?? updated.quantity_on_hand + take,
-            after: updated.quantity_on_hand,
-            reorderLevel: updated.reorder_level,
-          });
-        }
-      }
-      if (taken < need.quantity) {
-        shortfalls.push({
-          planId: need.planId,
-          parcelNo: need.parcelNo,
-          code: need.code,
-          missing: need.quantity - taken,
-        });
-      }
-    }
-    return { consumed: [...balances.values()], shortfalls };
+    const result = await this.materialsService.consumeForParcels(session, needs, groupId, userId, { strict: false });
+    return {
+      consumed: result.consumed.map((c) => ({
+        code: c.code,
+        name: c.name,
+        before: c.before,
+        after: c.after,
+        reorderLevel: c.reorderLevel,
+      })),
+      shortfalls: result.shortfalls,
+    };
   }
 
   // ------------------------------------------------------------------
@@ -283,7 +237,8 @@ export class PackagingMaterialService {
   // ------------------------------------------------------------------
 
   async list(activeOnly: boolean): Promise<PackagingMaterialDocument[]> {
-    const query = activeOnly ? { is_active: true } : {};
+    const query: Record<string, unknown> = { kind: 'cushioning' };
+    if (activeOnly) query.is_active = true;
     return this.materialModel.find(query).sort({ code: 1 });
   }
 
@@ -292,12 +247,16 @@ export class PackagingMaterialService {
       return await this.materialModel.create({
         code: dto.code,
         name: dto.name,
-        type: dto.type,
+        kind: 'cushioning',
+        material_type: dto.type,
         unit: dto.unit,
         weight_g_per_unit: dto.weight_g_per_unit,
-        price_vnd_per_unit: dto.price_vnd_per_unit,
+        unit_cost_vnd: dto.price_vnd_per_unit,
+        // Vật tư chèn dùng 1 lần — không đưa vào kho tái sử dụng.
+        reusable: false,
         // Tồn ban đầu 0 — nhập qua stock-in để có dòng sổ.
-        quantity_on_hand: 0,
+        qty_new: 0,
+        qty_reused: 0,
         reorder_level: dto.reorder_level ?? 20,
         storage_location: dto.storage_location?.trim() ? dto.storage_location.trim() : null,
         is_sample: false,
@@ -326,7 +285,7 @@ export class PackagingMaterialService {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.unit !== undefined && { unit: dto.unit }),
           ...(dto.weight_g_per_unit !== undefined && { weight_g_per_unit: dto.weight_g_per_unit }),
-          ...(dto.price_vnd_per_unit !== undefined && { price_vnd_per_unit: dto.price_vnd_per_unit }),
+          ...(dto.price_vnd_per_unit !== undefined && { unit_cost_vnd: dto.price_vnd_per_unit }),
           ...(dto.is_active !== undefined && { is_active: dto.is_active }),
           ...(dto.reorder_level !== undefined && { reorder_level: dto.reorder_level }),
           ...(dto.storage_location !== undefined && {
@@ -351,7 +310,7 @@ export class PackagingMaterialService {
         { id },
       );
     }
-    const material = await this.materialModel.findById(id);
+    const material = await this.materialModel.findOne({ _id: id, kind: 'cushioning' });
     if (!material) throw this.notFound(id);
     return material;
   }

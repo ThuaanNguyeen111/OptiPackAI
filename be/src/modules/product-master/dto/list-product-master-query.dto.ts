@@ -11,4 +11,9 @@ export class ListProductMasterQueryDto {
   @IsOptional()
   @IsString({ message: 'shop_id phải là chuỗi' })
   shop_id?: string;
+
+  @ApiPropertyOptional({ description: 'Tìm theo seller_sku (không phân biệt hoa thường)' })
+  @IsOptional()
+  @IsString({ message: 'search phải là chuỗi' })
+  search?: string;
 }

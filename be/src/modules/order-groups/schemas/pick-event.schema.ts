@@ -55,6 +55,9 @@ export class PickEvent {
   /** BỔ SUNG (30/09/2026) — đã nhập lại tồn khi hủy lượt; chặn nhập lại 2 lần. */
   @Prop({ type: Date, default: null })
   restocked_at!: Date | null;
+  // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
+  @Prop({ type: Types.ObjectId, default: null })
+  bin_location_id?: Types.ObjectId | null;
 
   created_at?: Date;
 }

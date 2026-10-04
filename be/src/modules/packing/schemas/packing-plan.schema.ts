@@ -3,7 +3,7 @@ import { HydratedDocument, Types } from 'mongoose';
 import {
   BoxDimensionsMm,
   BoxDimensionsMmSchema,
-} from '../../packaging/schemas/packaging-box.schema';
+} from '../../packaging-materials/schemas/box-dimensions.schema';
 
 /**
  * ===================================================================

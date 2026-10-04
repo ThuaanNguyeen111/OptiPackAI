@@ -217,6 +217,13 @@ export class Order {
   @Prop({ type: Boolean, default: true })
   is_active!: boolean;
 
+  // Đơn THAY THẾ do đổi hàng (không phải đơn từ sàn). Đơn cũ không có field = đơn từ sàn.
+  @Prop({ type: String, enum: ['marketplace', 'replacement'], default: 'marketplace' })
+  origin?: 'marketplace' | 'replacement';
+
+  @Prop({ type: Types.ObjectId, default: null })
+  source_return_id?: Types.ObjectId | null;
+
   // KHÔNG có @Prop — Mongoose tự sinh 2 field này qua option `timestamps`
   // ở @Schema() phía trên. Khai báo type-only (đúng convention đã dùng ở
   // user.schema.ts) để TypeScript biết kiểu, tránh phải cast/`.get()`

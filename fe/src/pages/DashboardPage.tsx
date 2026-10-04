@@ -3,19 +3,32 @@ import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowDown,
+  ArrowUp,
   Clock,
   FileText,
   GripVertical,
   TrendingUp,
+  Users,
+  Wallet,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import {
   DASHBOARD_KANBAN_COLUMNS,
+  OWNER_FINANCE_SUMMARY,
+  OWNER_REVENUE_BY_CHANNEL,
+  OWNER_STAFF_STATS,
   type DashboardChannel,
   type DashboardKanbanColumn,
   type DashboardKanbanItem,
 } from '../data/dashboard-mock'
+
+function formatVndShort(amount: number): string {
+  if (amount >= 1_000_000) {
+    return `${(amount / 1_000_000).toFixed(1)}tr`
+  }
+  return new Intl.NumberFormat('vi-VN').format(amount)
+}
 
 /** Channel Pill Badge */
 function ChannelBadge({ channel }: { channel: DashboardChannel }) {
@@ -53,7 +66,7 @@ function KanbanOrderCard({
   return (
     <div
       onClick={onClick}
-      className="group rounded-xl border border-slate-200/80 bg-white p-3 shadow-2xs transition-all hover:border-blue-300 hover:shadow-xs dark:border-slate-800 dark:bg-surface-1 dark:hover:border-slate-700 cursor-pointer"
+      className="owner-panel group rounded-xl p-3 transition-all cursor-pointer"
       title={vi ? `Xem chi tiết đơn #${item.id}` : `View details for #${item.id}`}
     >
       {/* Top row: Drag Grip + Order Code + Channel Pill */}
@@ -121,7 +134,7 @@ function KanbanColumn({
           : 'bg-slate-700 dark:bg-slate-300'
 
   return (
-    <div className="flex flex-col rounded-2xl border border-slate-200/90 bg-[#f8fafc]/90 p-3 sm:p-3.5 shadow-2xs dark:border-slate-800 dark:bg-surface-1/60">
+    <div className="owner-panel flex flex-col rounded-2xl p-3 sm:p-3.5">
       {/* Column Header */}
       <div className="flex items-center justify-between gap-2 pb-2.5">
         <div className="flex items-center gap-2 min-w-0">
@@ -175,8 +188,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-slate-50/50 dark:bg-slate-950">
-      {/* Top Breadcrumb Navigation */}
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
@@ -184,34 +196,268 @@ export function DashboardPage() {
         ]}
       />
 
-      {/* Main Content Area */}
       <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          {/* ========================================================= */}
-          {/* 1. TOP 4-COLUMN KANBAN BOARD MATCHING SCREENSHOT EXACTLY  */}
-          {/* ========================================================= */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 items-start">
-            {columns.map((col) => (
-              <KanbanColumn
-                key={col.id}
-                col={col}
-                vi={vi}
-                onNavigate={handleNavigate}
-              />
-            ))}
-          </div>
+          <section className="owner-hero">
+            <div>
+              <p className="owner-hero-kicker">Store Owner</p>
+              <h1>
+                {vi ? 'Giám sát đơn hàng đa kênh' : 'Omnichannel order oversight'}
+              </h1>
+              <p className="owner-hero-lead">
+                {vi
+                  ? 'Giám sát đơn & nhân viên trong phạm vi Owner — không thao tác lấy/đóng/giao hàng. Số liệu tài chính bên dưới là minh họa UI.'
+                  : 'Oversee orders & staff within Owner scope — no floor pick/pack/ship. Finance figures below are UI mock.'}
+              </p>
+              <div className="owner-hero-ctas">
+                <button
+                  type="button"
+                  onClick={() => navigate('/app/orders')}
+                  className="owner-btn-primary"
+                >
+                  {vi ? 'Đơn đa kênh' : 'Orders'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/app/order-groups')}
+                  className="owner-btn-ghost"
+                >
+                  {vi ? 'Nhóm đơn & Hỏa tốc' : 'Groups & Express'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/app/analytics')}
+                  className="owner-btn-link"
+                  title={
+                    vi
+                      ? 'Minh họa UI — chưa có API báo cáo'
+                      : 'UI mock — no analytics API yet'
+                  }
+                >
+                  {vi ? 'Báo cáo (demo) →' : 'Analytics (demo) →'}
+                </button>
+              </div>
+            </div>
+            <ol className="owner-steps">
+              <li>
+                <button type="button" onClick={() => navigate('/app/orders')}>
+                  <span>01</span>
+                  {vi ? 'Đồng bộ đơn' : 'Sync orders'}
+                </button>
+              </li>
+              <li>
+                <button
+                  type="button"
+                  onClick={() => navigate('/app/order-groups')}
+                >
+                  <span>02</span>
+                  {vi ? 'Gộp & hỏa tốc' : 'Groups & express'}
+                </button>
+              </li>
+              <li>
+                <button type="button" onClick={() => navigate('/app/staff')}>
+                  <span>03</span>
+                  {vi ? 'Nhân viên' : 'Staff'}
+                </button>
+              </li>
+            </ol>
+          </section>
+
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                {vi ? 'Thống kê chủ cửa hàng' : 'Store Owner overview'}
+              </h2>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="owner-panel rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {vi ? 'Doanh thu hôm nay' : 'Revenue today'}
+                  </span>
+                  <Wallet className="h-4 w-4 text-emerald-600" />
+                </div>
+                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatVndShort(OWNER_FINANCE_SUMMARY.revenueTodayVnd)}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {vi ? 'Tuần này: ' : 'Week: '}
+                  {formatVndShort(OWNER_FINANCE_SUMMARY.revenueWeekVnd)}₫
+                </p>
+              </div>
+              <div className="owner-panel rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {vi ? 'Chi phí đóng gói / tuần' : 'Pack cost / week'}
+                  </span>
+                  <FileText className="h-4 w-4 text-amber-600" />
+                </div>
+                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
+                  {formatVndShort(OWNER_FINANCE_SUMMARY.packagingCostWeekVnd)}
+                </p>
+                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                  <ArrowDown className="h-3 w-3" />
+                  AI tiết kiệm {formatVndShort(OWNER_FINANCE_SUMMARY.aiSavingsWeekVnd)}₫
+                </p>
+              </div>
+              <div className="owner-panel rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {vi ? 'Gộp đơn hôm nay' : 'Consolidated groups'}
+                  </span>
+                  <TrendingUp className="h-4 w-4 text-[var(--ls-cta,#152D35)]" />
+                </div>
+                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
+                  {OWNER_FINANCE_SUMMARY.multiPlatformGroupsToday}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {vi
+                    ? `${OWNER_FINANCE_SUMMARY.cancelDetachToday} đơn gỡ khỏi nhóm (hủy 1 sàn)`
+                    : `${OWNER_FINANCE_SUMMARY.cancelDetachToday} detached after single-platform cancel`}
+                </p>
+              </div>
+              <div className="owner-panel rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-slate-500">
+                    {vi ? 'Nhân viên đang hoạt động' : 'Active staff'}
+                  </span>
+                  <Users className="h-4 w-4 text-blue-600" />
+                </div>
+                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
+                  {OWNER_STAFF_STATS.length}
+                </p>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {vi ? 'Kho · Đóng gói · Giao hàng' : 'Warehouse · Pack · Ship'}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <div className="owner-panel rounded-2xl p-4">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                  {vi ? 'Doanh thu theo nền tảng (7 ngày)' : 'Revenue by channel (7d)'}
+                </h3>
+                <ul className="mt-3 space-y-2.5">
+                  {OWNER_REVENUE_BY_CHANNEL.map((row) => (
+                    <li
+                      key={row.channel}
+                      className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3 py-2.5"
+                    >
+                      <div className="min-w-0">
+                        <ChannelBadge channel={row.channel} />
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          {row.orders} {vi ? 'đơn' : 'orders'}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
+                          {formatVndShort(row.revenueVnd)}₫
+                        </p>
+                        <p className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-semibold text-emerald-600">
+                          <ArrowUp className="h-3 w-3" />
+                          {row.growthPct}%
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="owner-panel rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Hiệu suất nhân viên hôm nay' : 'Staff performance today'}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/app/staff')}
+                    className="owner-btn-link text-[11px] font-semibold cursor-pointer"
+                  >
+                    {vi ? 'Quản lý →' : 'Manage →'}
+                  </button>
+                </div>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-500 dark:border-slate-800">
+                        <th className="pb-2 font-semibold">{vi ? 'Nhân viên' : 'Staff'}</th>
+                        <th className="pb-2 font-semibold">{vi ? 'Vai trò' : 'Role'}</th>
+                        <th className="pb-2 font-semibold text-right">{vi ? 'Đơn' : 'Orders'}</th>
+                        <th className="pb-2 font-semibold text-right">{vi ? 'TB (phút)' : 'Avg min'}</th>
+                        <th className="pb-2 font-semibold text-right">%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {OWNER_STAFF_STATS.map((s) => (
+                        <tr
+                          key={s.name}
+                          className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
+                        >
+                          <td className="py-2 font-semibold text-slate-800 dark:text-slate-200">
+                            {s.name}
+                          </td>
+                          <td className="py-2 text-slate-500">
+                            {vi ? s.roleVi : s.roleEn}
+                          </td>
+                          <td className="py-2 text-right font-mono">{s.ordersToday}</td>
+                          <td className="py-2 text-right font-mono">{s.avgMinutes}</td>
+                          <td className="py-2 text-right font-mono font-semibold text-emerald-600">
+                            {s.accuracyPct}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
 
           {/* ========================================================= */}
-          {/* 2. BOTTOM SECTION: CHỈ SỐ XỬ LÝ TRỰC TIẾP (LIVE METRICS)  */}
+          {/* 2. PIPELINE TỔNG QUAN — click → Đơn đa kênh (không vào kho) */}
+          {/* ========================================================= */}
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                {vi ? 'Luồng đơn (xem tổng quan)' : 'Order pipeline (overview)'}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {vi
+                  ? 'Bấm thẻ để mở Đơn đa kênh — không vào màn hình lấy/đóng/giao hàng.'
+                  : 'Cards open Omnichannel Orders — not warehouse/packing/shipping screens.'}
+              </p>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 items-start">
+              {columns.map((col) => (
+                <KanbanColumn
+                  key={col.id}
+                  col={col}
+                  vi={vi}
+                  onNavigate={handleNavigate}
+                />
+              ))}
+            </div>
+          </section>
+
+          {/* ========================================================= */}
+          {/* 3. CHỈ SỐ XỬ LÝ (LIVE METRICS)                              */}
           {/* ========================================================= */}
           <section className="space-y-3 pt-2">
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-              {vi ? 'Chỉ số xử lý trực tiếp' : 'Live Processing Metrics'}
-            </h2>
+            <div>
+              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                {vi ? 'Chỉ số xử lý (minh họa)' : 'Processing metrics (mock)'}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                {vi
+                  ? 'Số liệu demo để bố cục dashboard — không gọi API KPI.'
+                  : 'Demo figures for layout only — no KPI API yet.'}
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
               {/* Card 1: Thời gian lấy hàng trung bình */}
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {vi ? 'Thời gian lấy hàng trung bình' : 'Avg. Picking Time'}
@@ -233,7 +479,7 @@ export function DashboardPage() {
               </div>
 
               {/* Card 2: Chi phí đóng gói tiết kiệm nhờ AI */}
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {vi ? 'Chi phí đóng gói tiết kiệm nhờ AI' : 'AI Packaging Cost Savings'}
@@ -253,7 +499,6 @@ export function DashboardPage() {
                     </p>
                   </div>
 
-                  {/* Rising Green Sparkline matching screenshot */}
                   <div className="pb-1">
                     <svg
                       className="h-9 w-24 text-emerald-500 dark:text-emerald-400 overflow-visible"
@@ -273,7 +518,7 @@ export function DashboardPage() {
               </div>
 
               {/* Card 3: Tỷ lệ hoàn thành xử lý hàng ngày */}
-              <div className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+              <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
                     {vi ? 'Tỷ lệ hoàn thành xử lý hàng ngày' : 'Daily Completion Rate'}
@@ -293,7 +538,6 @@ export function DashboardPage() {
                     </p>
                   </div>
 
-                  {/* Circular Progress Donut Ring (94%) matching screenshot */}
                   <div className="relative flex h-12 w-12 items-center justify-center">
                     <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
                       <circle
