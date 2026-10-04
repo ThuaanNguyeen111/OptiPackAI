@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei'
 import { EffectComposer, N8AO, Outline, SMAA, Selection } from '@react-three/postprocessing'
-import { Boxes, Eye, Layers, Maximize2, Shirt, Sparkles } from 'lucide-react'
+import { AlertTriangle, Boxes, Eye, Layers, Maximize2, Shirt, Sparkles } from 'lucide-react'
+import { ErrorBoundary } from '../ErrorBoundary'
 import type { PlanItemProfile, PlanParcel } from '../../types/packing-plan'
 import { preloadCategoryModels } from '../packing/product-models'
 import { Carton } from './Carton'
@@ -55,13 +56,23 @@ function prefersReducedMotion(): boolean {
 
 preloadCategoryModels()
 
+/** Trình duyệt/máy có tạo được WebGL không — không có thì hiện thông báo thay vì khung trống. */
+function detectWebGL(): boolean {
+  try {
+    const canvas = document.createElement('canvas')
+    return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
+  } catch {
+    return false
+  }
+}
+
 function CameraRig({ size, resetToken }: { size: { x: number; y: number; z: number }; resetToken: number }) {
   const controls = useRef<CameraControls>(null)
   const d = Math.max(size.x, size.y, size.z)
   useEffect(() => {
     const c = controls.current
     if (!c) return
-    void c.setLookAt(d * 1.35, size.y + d * 1.05, d * 1.65, 0, size.y * 0.35, 0, resetToken > 0)
+    void c.setLookAt(d * 2.2, size.y + d * 1.75, d * 2.6, 0, size.y * 0.3, 0, resetToken > 0)
   }, [d, size.y, resetToken])
   return (
     <CameraControls
@@ -110,6 +121,7 @@ export function Packing3DViewer({
   const [hoverKey, setHoverKey] = useState<string | null>(null)
   const [resetToken, setResetToken] = useState(0)
   const [reducedMotion] = useState(prefersReducedMotion)
+  const [webgl] = useState(detectWebGL)
 
   const inner = parcel.box.innerMm
   const size = { x: inner.lengthMm / 1000, y: inner.heightMm / 1000, z: inner.widthMm / 1000 }
@@ -130,6 +142,30 @@ export function Packing3DViewer({
     }
   }
 
+  const renderUnavailable = (detail: string, retry?: () => void) => (
+    <div role="alert" className="absolute inset-0 flex items-center justify-center p-6">
+      <div className="max-w-sm text-center">
+        <AlertTriangle className="mx-auto h-6 w-6 text-amber-500" />
+        <p className="mt-2 text-sm font-medium text-ink">
+          {vi ? 'Không hiển thị được khung 3D trên máy này' : '3D view is unavailable on this device'}
+        </p>
+        <p className="mt-1 break-words font-mono text-xs text-ink-subtle">{detail}</p>
+        <div className="mt-3 flex justify-center gap-2">
+          {retry && quality === 'high' && (
+            <button type="button" onClick={() => setQualityPersist('low')} className={toggle(true)}>
+              {vi ? 'Thử chế độ Nhẹ' : 'Try Lite mode'}
+            </button>
+          )}
+          {retry && (
+            <button type="button" onClick={retry} className={toggle(false)}>
+              {vi ? 'Thử lại' : 'Retry'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
   const fmt = (n: number) => n.toLocaleString(vi ? 'vi-VN' : 'en-US')
   const toggle = (active: boolean) =>
     `inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
@@ -142,71 +178,86 @@ export function Packing3DViewer({
         aria-hidden
         className="absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_35%,var(--app-surface-1),var(--app-canvas)_75%)]"
       />
-      <Canvas
-        frameloop="demand"
-        dpr={quality === 'high' ? [1, 2] : [1, 1.25]}
-        gl={{ antialias: quality === 'low', alpha: true, powerPreference: 'high-performance' }}
-        camera={{ fov: 32, near: 0.01, far: 40, position: [1, 1, 1] }}
-        onPointerMissed={() => onSelectItem?.(null)}
-        aria-label={vi ? 'Hình 3D cách xếp kiện' : '3D view of the parcel'}
+      {/* WebGL hỏng/thiếu, hoặc hiệu ứng hậu kỳ lỗi trên máy yếu: chỉ mất khung 3D,
+          phần còn lại của trang vẫn dùng được. Đổi kiện / chất lượng thì thử lại. */}
+      {!webgl ? (
+        renderUnavailable(
+          vi
+            ? 'Trình duyệt không bật WebGL (tăng tốc phần cứng). Bật lại trong cài đặt trình duyệt hoặc dùng Chrome/Edge bản mới.'
+            : 'WebGL is not available. Enable hardware acceleration or use a recent Chrome/Edge.',
+        )
+      ) : (
+      <ErrorBoundary
+        resetKey={`${String(parcel.parcelNo)}-${quality}`}
+        fallback={(error, retry) => renderUnavailable(error.message, retry)}
       >
-        <Selection>
-          <StudioLights />
-          <Carton inner={size} wall={wall} xray={xray} hidden={exploded} />
-          {ordered.map((p, index) => {
-            const visible = index < shown && (layerCut === null || p.z <= layerCut)
-            const focused = p.itemKey === focusItemKey
-            const hovered = p.itemKey === hoverKey
-            return (
-              <ParcelItem
-                key={p.itemKey}
-                placement={p}
-                profile={profiles.get(p.sku)}
-                inner={inner}
-                visible={visible}
-                focused={focused}
-                muted={muteOthers && focusItemKey !== null && !focused}
-                drop={animateDrops && !reducedMotion && index === shown - 1}
-                exploded={exploded}
-                showModel={showModels}
-                outline={quality === 'high'}
-                label={
-                  focused || hovered
-                    ? `${String(p.step)}. ${p.sku}${p.folded ? (vi ? ' · gập đôi' : ' · folded') : ''}`
-                    : null
-                }
-                onSelect={onSelectItem}
-                onHover={setHoverKey}
-              />
-            )
-          })}
-          <ContactShadows
-            position={[0, -wall - 0.0005, 0]}
-            scale={Math.max(size.x, size.z) * 3.2}
-            blur={2.6}
-            far={size.y + 0.2}
-            opacity={0.5}
-            resolution={512}
-            color="#1e1b4b"
-          />
-          <CameraRig size={size} resetToken={resetToken} />
-          {quality === 'high' ? (
-            <EffectComposer multisampling={0} autoClear={false}>
-              <N8AO aoRadius={0.06} distanceFalloff={0.6} intensity={2.2} quality="medium" halfRes />
-              <Outline
-                visibleEdgeColor={HIGHLIGHT}
-                hiddenEdgeColor={HIGHLIGHT}
-                edgeStrength={8}
-                blur
-                xRay
-              />
-              <SMAA />
-            </EffectComposer>
-          ) : (
-            <></>
-          )}
-        </Selection>
-      </Canvas>
+        <Canvas
+          frameloop="demand"
+          dpr={quality === 'high' ? [1, 2] : [1, 1.25]}
+          gl={{ antialias: quality === 'low', alpha: true, powerPreference: 'high-performance' }}
+          camera={{ fov: 32, near: 0.01, far: 40, position: [1, 1, 1] }}
+          onPointerMissed={() => onSelectItem?.(null)}
+          aria-label={vi ? 'Hình 3D cách xếp kiện' : '3D view of the parcel'}
+        >
+          <Selection>
+            <StudioLights />
+            <Carton inner={size} wall={wall} xray={xray} hidden={exploded} />
+            {ordered.map((p, index) => {
+              const visible = index < shown && (layerCut === null || p.z <= layerCut)
+              const focused = p.itemKey === focusItemKey
+              const hovered = p.itemKey === hoverKey
+              return (
+                <ParcelItem
+                  key={p.itemKey}
+                  placement={p}
+                  profile={profiles.get(p.sku)}
+                  inner={inner}
+                  visible={visible}
+                  focused={focused}
+                  muted={muteOthers && focusItemKey !== null && !focused}
+                  drop={animateDrops && !reducedMotion && index === shown - 1}
+                  exploded={exploded}
+                  showModel={showModels}
+                  outline={quality === 'high'}
+                  label={
+                    focused || hovered
+                      ? `${String(p.step)}. ${p.sku}${p.folded ? (vi ? ' · gập đôi' : ' · folded') : ''}`
+                      : null
+                  }
+                  onSelect={onSelectItem}
+                  onHover={setHoverKey}
+                />
+              )
+            })}
+            <ContactShadows
+              position={[0, -wall - 0.0005, 0]}
+              scale={Math.max(size.x, size.z) * 3.2}
+              blur={2.6}
+              far={size.y + 0.2}
+              opacity={0.5}
+              resolution={512}
+              color="#1e1b4b"
+            />
+            <CameraRig size={size} resetToken={resetToken} />
+            {quality === 'high' ? (
+              <EffectComposer multisampling={0} autoClear={false}>
+                <N8AO aoRadius={0.06} distanceFalloff={0.6} intensity={2.2} quality="medium" halfRes />
+                <Outline
+                  visibleEdgeColor={HIGHLIGHT}
+                  hiddenEdgeColor={HIGHLIGHT}
+                  edgeStrength={8}
+                  blur
+                  xRay
+                />
+                <SMAA />
+              </EffectComposer>
+            ) : (
+              <></>
+            )}
+          </Selection>
+        </Canvas>
+      </ErrorBoundary>
+      )}
 
       {/* Công cụ xem */}
       <div className="absolute top-3 right-3 flex flex-wrap items-center justify-end gap-0.5 rounded-lg border border-hairline bg-surface-1/90 p-1 shadow-sm backdrop-blur">
