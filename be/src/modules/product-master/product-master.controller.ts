@@ -1,8 +1,29 @@
-import { Body, Controller, Delete, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { ProductMasterService } from './product-master.service';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
+import {
+  CatalogSyncShopOutcome,
+  ProductMasterService,
+} from './product-master.service';
 import { UpdateProductMasterDto } from './dto/update-product-master.dto';
-import { PackageDimension, ProductMasterDocument } from './schemas/product-master.schema';
+import {
+  PackageDimension,
+  ProductMasterDocument,
+} from './schemas/product-master.schema';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -49,7 +70,7 @@ function toResponse(doc: ProductMasterDocument): ProductMasterResponse {
  * K1 (26/09/2026) — Product Master trước đây KHÔNG có controller nào.
  * Xem: Admin, Store Owner, Packaging Staff (cần biết kích thước khi đóng gói).
  * Sửa tay: Admin, Store Owner. Sửa xong -> manual_override=true -> cron đồng
- * bộ 3h sáng KHÔNG ghi đè nữa.
+ * bộ (mỗi giờ + 3h sáng) KHÔNG ghi đè nữa.
  */
 @ApiTags('Product Master')
 @ApiBearerAuth()
@@ -60,10 +81,21 @@ export class ProductMasterController {
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.PACKAGING_STAFF)
-  @ApiOperation({ summary: '🆕 K1 — Danh sách sản phẩm (kích thước/cân nặng dùng cho gợi ý đóng gói).' })
+  @ApiOperation({
+    summary:
+      '🆕 K1 — Danh sách sản phẩm (kích thước/cân nặng dùng cho gợi ý đóng gói).',
+  })
   @ApiQuery({ name: 'shop_id', required: false })
-  @ApiQuery({ name: 'search', required: false, description: 'Tìm theo seller_sku, không phân biệt hoa/thường' })
-  @ApiQuery({ name: 'manual_only', required: false, description: 'true = chỉ SKU đã sửa tay' })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Tìm theo seller_sku, không phân biệt hoa/thường',
+  })
+  @ApiQuery({
+    name: 'manual_only',
+    required: false,
+    description: 'true = chỉ SKU đã sửa tay',
+  })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   async list(
@@ -72,7 +104,12 @@ export class ProductMasterController {
     @Query('manual_only') manualOnly?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<{ items: ProductMasterResponse[]; total: number; page: number; limit: number }> {
+  ): Promise<{
+    items: ProductMasterResponse[];
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     const p = Math.max(1, Number(page) || 1);
     const l = Math.min(100, Math.max(1, Number(limit) || 20));
     const { items, total } = await this.productMasterService.listProducts({
@@ -85,6 +122,45 @@ export class ProductMasterController {
     return { items: items.map(toResponse), total, page: p, limit: l };
   }
 
+  @Post('sync')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 04/10/2026 — Đồng bộ NGAY danh sách sản phẩm từ Lazada vào Product Master (không chờ cron mỗi giờ). Dùng sau khi thêm sản phẩm hoặc đổi mã SKU trên Seller Center. Mặc định chỉ lấy sản phẩm thay đổi từ lần đồng bộ trước; full=true lấy toàn bộ. Bỏ shop_id = mọi shop Lazada đang kết nối. SKU cũ không bị xóa.',
+  })
+  @ApiQuery({
+    name: 'shop_id',
+    required: false,
+    description: 'shop_id Lazada; bỏ trống = mọi shop đang kết nối',
+  })
+  @ApiQuery({
+    name: 'full',
+    required: false,
+    description: 'true = đồng bộ toàn bộ catalog',
+  })
+  async syncNow(
+    @Query('shop_id') shopId?: string,
+    @Query('full') full?: string,
+  ): Promise<{ results: CatalogSyncShopOutcome[] }> {
+    const options = { full: full === 'true' };
+    if (shopId) {
+      return {
+        results: [
+          {
+            ok: true,
+            ...(await this.productMasterService.syncCatalogForShop(
+              shopId,
+              options,
+            )),
+          },
+        ],
+      };
+    }
+    return {
+      results: await this.productMasterService.syncCatalogAllShops(options),
+    };
+  }
+
   @Get(':id')
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.PACKAGING_STAFF)
   @ApiOperation({ summary: '🆕 K1 — Chi tiết 1 sản phẩm.' })
@@ -95,22 +171,28 @@ export class ProductMasterController {
   @Patch(':id')
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
   @ApiOperation({
-    summary: '🆕 K1 — Sửa tay kích thước/cân nặng/dễ vỡ. Sau khi sửa, cron đồng bộ KHÔNG ghi đè nữa (manualOverride=true).',
+    summary:
+      '🆕 K1 — Sửa tay kích thước/cân nặng/dễ vỡ. Sau khi sửa, cron đồng bộ KHÔNG ghi đè nữa (manualOverride=true).',
   })
   async update(
     @Param('id') id: string,
     @Body() dto: UpdateProductMasterDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<ProductMasterResponse> {
-    return toResponse(await this.productMasterService.updateProduct(id, dto, user.userId));
+    return toResponse(
+      await this.productMasterService.updateProduct(id, dto, user.userId),
+    );
   }
 
   @Delete(':id/manual-override')
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
   @ApiOperation({
-    summary: '🆕 K2 — Bỏ sửa tay: lần đồng bộ kế tiếp sẽ lấy lại số liệu Lazada. Số hiện tại giữ nguyên tới lúc đó.',
+    summary:
+      '🆕 K2 — Bỏ sửa tay: lần đồng bộ kế tiếp sẽ lấy lại số liệu Lazada. Số hiện tại giữ nguyên tới lúc đó.',
   })
-  async clearManualOverride(@Param('id') id: string): Promise<ProductMasterResponse> {
+  async clearManualOverride(
+    @Param('id') id: string,
+  ): Promise<ProductMasterResponse> {
     return toResponse(await this.productMasterService.clearManualOverride(id));
   }
 }

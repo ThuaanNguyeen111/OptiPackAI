@@ -1,7 +1,10 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
+import {
+  ProductMaster,
+  ProductMasterDocument,
+} from './schemas/product-master.schema';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 // Inject TRỰC TIẾP LazadaAdapter (class cụ thể, đã export sẵn từ
 // MarketplaceIntegrationModule) — ĐÚNG THEO PATTERN đã có sẵn trong
@@ -12,6 +15,7 @@ import { Order, OrderDocument } from '../orders/schemas/order.schema';
 // exchangeCodeForToken/refreshAccessToken/verifyWebhookSignature).
 // Nhất quán với code đã hoàn thành, KHÔNG tự sáng tạo pattern khác.
 import { LazadaAdapter } from '../marketplace-integration';
+import type { LazadaProductRaw } from '../marketplace-integration/adapters/lazada.adapter';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -20,6 +24,23 @@ import { UpdateProductMasterDto } from './dto/update-product-master.dto';
 
 // Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi.
 const LAZADA_PRODUCT_BATCH_SIZE = 50;
+
+const CATALOG_PAGE_SIZE = 50; // tối đa của Lazada GetProducts
+const CATALOG_MAX_OFFSET = 10_000; // giới hạn offset của Lazada GetProducts
+const CATALOG_SYNC_OVERLAP_MS = 10 * 60 * 1000; // lùi mốc 10 phút để không lọt sản phẩm sửa sát mốc
+
+export interface CatalogSyncResult {
+  shopId: string;
+  mode: 'full' | 'incremental';
+  since: Date | null;
+  products: number;
+  synced: number;
+  complete: boolean;
+}
+
+export type CatalogSyncShopOutcome =
+  | ({ ok: true } & CatalogSyncResult)
+  | { ok: false; shopId: string; error: string };
 
 @Injectable()
 export class ProductMasterService {
@@ -41,10 +62,16 @@ export class ProductMasterService {
    * qua hệ thống này — không cần tốn quota API cho SKU không liên
    * quan tới bài toán đóng gói thực tế).
    */
-  async syncProductsForShopFromOrders(shopId: string): Promise<{ synced: number }> {
-    const skus = await this.orderModel.distinct('items.sku', { shop_id: shopId });
+  async syncProductsForShopFromOrders(
+    shopId: string,
+  ): Promise<{ synced: number }> {
+    const skus = await this.orderModel.distinct('items.sku', {
+      shop_id: shopId,
+    });
     if (skus.length === 0) {
-      this.logger.log(`Shop ${shopId} chưa có SKU nào trong đơn hàng — bỏ qua lượt đồng bộ.`);
+      this.logger.log(
+        `Shop ${shopId} chưa có SKU nào trong đơn hàng — bỏ qua lượt đồng bộ.`,
+      );
       return { synced: 0 };
     }
     return this.syncProductsForShop(shopId, skus);
@@ -59,77 +86,196 @@ export class ProductMasterService {
    * ghi bằng bulkWrite() — Rule #14 (CLAUDE.md), KHÔNG lặp N lần
    * updateOne riêng lẻ cho từng SKU.
    */
-  async syncProductsForShop(shopId: string, sellerSkus: string[]): Promise<{ synced: number }> {
+  async syncProductsForShop(
+    shopId: string,
+    sellerSkus: string[],
+  ): Promise<{ synced: number }> {
     // getValidAccessToken tự tra shop + tự refresh nếu token sắp hết
     // hạn — ĐÚNG signature thật (shopId, platform), không cần gọi
     // getConnectedShop() trước như bản nháp đầu (đã verify lại theo
     // đúng code thật của marketplace-integration.service.ts).
-    const accessToken = await this.marketplaceIntegrationService.getValidAccessToken(
-      shopId,
-      MarketplacePlatform.LAZADA,
-    );
+    const accessToken =
+      await this.marketplaceIntegrationService.getValidAccessToken(
+        shopId,
+        MarketplacePlatform.LAZADA,
+      );
 
     let synced = 0;
     const now = new Date();
 
     for (let i = 0; i < sellerSkus.length; i += LAZADA_PRODUCT_BATCH_SIZE) {
       const batch = sellerSkus.slice(i, i + LAZADA_PRODUCT_BATCH_SIZE);
-      const rawProducts = await this.lazadaAdapter.getProducts(accessToken, batch);
-
-      // K1 (26/09/2026) — xung đột với luồng cũ: trước đây cron ghi đè
-      // dimension mỗi lần chạy. Nay Admin có thể sửa tay (manual_override)
-      // -> với các SKU đó CHỈ cập nhật last_synced_at, giữ nguyên số Admin nhập.
-      const manualSkus = new Set(
-        (
-          await this.productMasterModel
-            .find({
-              platform: MarketplacePlatform.LAZADA,
-              shop_id: shopId,
-              seller_sku: { $in: batch },
-              manual_override: true,
-            })
-            .select('seller_sku')
-            .lean()
-        ).map((d) => d.seller_sku),
+      const rawProducts = await this.lazadaAdapter.getProducts(
+        accessToken,
+        batch,
       );
 
-      const bulkOps = rawProducts.flatMap((product) =>
-        product.skus.map((sku) => ({
-          updateOne: {
-            filter: {
-              platform: MarketplacePlatform.LAZADA,
-              shop_id: shopId,
-              seller_sku: sku.SellerSku,
-            },
-            update: manualSkus.has(sku.SellerSku)
-              ? { $set: { last_synced_at: now } }
-              : {
+      synced += await this.upsertProducts(shopId, rawProducts, now);
+    }
+
+    this.logger.log(
+      `Đồng bộ Product Master cho shop ${shopId}: ${String(synced)} SKU.`,
+    );
+    return { synced };
+  }
+
+  /**
+   * 04/10/2026 — ĐỒNG BỘ THEO CATALOG CỦA SHOP (không phụ thuộc đơn hàng).
+   * Trước đây Product Master chỉ biết SKU đã xuất hiện trong đơn -> SKU mới / SKU vừa đổi
+   * mã trên Seller Center không có trong hệ thống cho tới khi có người đặt, nên trang
+   * cấu hình kho / tình trạng kho không thấy mã mới.
+   * - Mặc định TĂNG DẦN: chỉ lấy sản phẩm thay đổi sau `last_product_synced_at` (lùi 10
+   *   phút để không lọt sản phẩm sửa sát mốc). `full: true` hoặc chưa từng đồng bộ -> lấy toàn bộ.
+   * - Bản ghi SKU cũ KHÔNG bị xóa (đơn cũ vẫn dùng mã cũ).
+   * - Chỉ ghi mốc khi đã quét hết trang (chạm giới hạn offset thì giữ mốc cũ để lần sau quét lại).
+   */
+  async syncCatalogForShop(
+    shopId: string,
+    options: { full?: boolean } = {},
+  ): Promise<CatalogSyncResult> {
+    const shop = await this.marketplaceIntegrationService.getConnectedShop(
+      shopId,
+      MarketplacePlatform.LAZADA,
+    );
+    const accessToken =
+      await this.marketplaceIntegrationService.getValidAccessToken(
+        shopId,
+        MarketplacePlatform.LAZADA,
+      );
+    const startedAt = new Date();
+    const last = shop.last_product_synced_at;
+    const since =
+      options.full || !last
+        ? null
+        : new Date(last.getTime() - CATALOG_SYNC_OVERLAP_MS);
+
+    let offset = 0;
+    let products = 0;
+    let synced = 0;
+    let complete = true;
+    for (;;) {
+      const page = await this.lazadaAdapter.listProductsPage(accessToken, {
+        updatedAfter: since,
+        offset,
+        limit: CATALOG_PAGE_SIZE,
+      });
+      products += page.products.length;
+      synced += await this.upsertProducts(shopId, page.products, startedAt);
+      if (page.products.length < CATALOG_PAGE_SIZE) break;
+      offset += CATALOG_PAGE_SIZE;
+      if (offset >= CATALOG_MAX_OFFSET) {
+        complete = false;
+        this.logger.warn(
+          `Catalog shop ${shopId} vượt giới hạn offset ${String(CATALOG_MAX_OFFSET)} của Lazada — dừng, giữ mốc cũ để lần sau quét lại.`,
+        );
+        break;
+      }
+    }
+
+    if (complete) {
+      await this.marketplaceIntegrationService.markShopProductsSynced(
+        shop._id,
+        startedAt,
+      );
+    }
+    this.logger.log(
+      `Đồng bộ catalog shop ${shopId} (${since ? 'tăng dần' : 'toàn bộ'}): ${String(products)} sản phẩm, ${String(synced)} SKU ghi mới/cập nhật.`,
+    );
+    return {
+      shopId,
+      mode: since ? 'incremental' : 'full',
+      since,
+      products,
+      synced,
+      complete,
+    };
+  }
+
+  /** 04/10/2026 — đồng bộ catalog cho mọi shop Lazada đang kết nối; lỗi 1 shop không chặn shop khác. */
+  async syncCatalogAllShops(
+    options: { full?: boolean } = {},
+  ): Promise<CatalogSyncShopOutcome[]> {
+    const shops = await this.marketplaceIntegrationService.listConnectedShops(
+      MarketplacePlatform.LAZADA,
+    );
+    const results: CatalogSyncShopOutcome[] = [];
+    for (const shop of shops) {
+      try {
+        results.push({
+          ok: true,
+          ...(await this.syncCatalogForShop(shop.shop_id, options)),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.error(
+          `Đồng bộ catalog shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`,
+          error,
+        );
+        results.push({ ok: false, shopId: shop.shop_id, error: message });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Ghi product_master cho danh sách sản phẩm Lazada (dùng chung cho đồng bộ theo đơn và
+   * theo catalog). K1 (26/09/2026): SKU đã sửa tay (manual_override) CHỈ cập nhật
+   * last_synced_at, giữ nguyên số Admin nhập. Bỏ qua SKU không có SellerSku.
+   */
+  private async upsertProducts(
+    shopId: string,
+    rawProducts: LazadaProductRaw[],
+    now: Date,
+  ): Promise<number> {
+    const skus = rawProducts
+      .flatMap((p) => p.skus)
+      .filter((sku) => Boolean(sku.SellerSku));
+    if (skus.length === 0) return 0;
+
+    const manualSkus = new Set(
+      (
+        await this.productMasterModel
+          .find({
+            platform: MarketplacePlatform.LAZADA,
+            shop_id: shopId,
+            seller_sku: { $in: skus.map((sku) => sku.SellerSku) },
+            manual_override: true,
+          })
+          .select('seller_sku')
+          .lean()
+      ).map((d) => d.seller_sku),
+    );
+
+    const bulkOps = skus.map((sku) => ({
+      updateOne: {
+        filter: {
+          platform: MarketplacePlatform.LAZADA,
+          shop_id: shopId,
+          seller_sku: sku.SellerSku,
+        },
+        update: manualSkus.has(sku.SellerSku)
+          ? { $set: { last_synced_at: now } }
+          : {
               $set: {
                 dimension: {
-                  // Lazada trả STRING — parse về number, mặc định an
-                  // toàn (20cm/0.5kg) nếu field thiếu/parse lỗi, KHÔNG
-                  // để NaN lọt vào DB làm hỏng tính toán bin-packing.
+                  // Lazada trả STRING — parse về number, mặc định an toàn (20cm/0.5kg)
+                  // nếu field thiếu/parse lỗi, KHÔNG để NaN lọt vào DB.
                   package_length_cm: this.parseDimension(sku.package_length),
                   package_width_cm: this.parseDimension(sku.package_width),
                   package_height_cm: this.parseDimension(sku.package_height),
-                  package_weight_kg: this.parseWeight(sku.package_weight ?? sku.product_weight),
+                  package_weight_kg: this.parseWeight(
+                    sku.package_weight ?? sku.product_weight,
+                  ),
                 },
                 last_synced_at: now,
               },
             },
-            upsert: true,
-          },
-        })),
-      );
+        upsert: true,
+      },
+    }));
 
-      if (bulkOps.length > 0) {
-        const result = await this.productMasterModel.bulkWrite(bulkOps);
-        synced += result.upsertedCount + result.modifiedCount;
-      }
-    }
-
-    this.logger.log(`Đồng bộ Product Master cho shop ${shopId}: ${String(synced)} SKU.`);
-    return { synced };
+    const result = await this.productMasterModel.bulkWrite(bulkOps);
+    return result.upsertedCount + result.modifiedCount;
   }
 
   private parseDimension(raw?: string): number {
@@ -201,10 +347,14 @@ export class ProductMasterService {
     actorUserId: string,
   ): Promise<ProductMasterDocument> {
     const set: Record<string, unknown> = {};
-    if (dto.package_length_cm !== undefined) set['dimension.package_length_cm'] = dto.package_length_cm;
-    if (dto.package_width_cm !== undefined) set['dimension.package_width_cm'] = dto.package_width_cm;
-    if (dto.package_height_cm !== undefined) set['dimension.package_height_cm'] = dto.package_height_cm;
-    if (dto.package_weight_kg !== undefined) set['dimension.package_weight_kg'] = dto.package_weight_kg;
+    if (dto.package_length_cm !== undefined)
+      set['dimension.package_length_cm'] = dto.package_length_cm;
+    if (dto.package_width_cm !== undefined)
+      set['dimension.package_width_cm'] = dto.package_width_cm;
+    if (dto.package_height_cm !== undefined)
+      set['dimension.package_height_cm'] = dto.package_height_cm;
+    if (dto.package_weight_kg !== undefined)
+      set['dimension.package_weight_kg'] = dto.package_weight_kg;
     if (dto.is_fragile !== undefined) set.is_fragile = dto.is_fragile;
     if (Object.keys(set).length === 0) {
       throw new AppException(
@@ -237,7 +387,13 @@ export class ProductMasterService {
     await this.getProduct(id);
     const updated = await this.productMasterModel.findByIdAndUpdate(
       id,
-      { $set: { manual_override: false, manual_override_at: null, manual_override_by: null } },
+      {
+        $set: {
+          manual_override: false,
+          manual_override_at: null,
+          manual_override_by: null,
+        },
+      },
       { returnDocument: 'after' },
     );
     return updated ?? this.getProduct(id);

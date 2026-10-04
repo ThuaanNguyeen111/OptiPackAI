@@ -1,71 +1,53 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ProductMasterService } from './product-master.service';
-import { MarketplaceIntegrationService } from '../marketplace-integration';
-import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 /**
- * ===================================================================
- * TỰ ĐỘNG ĐỒNG BỘ PRODUCT MASTER — 1 LẦN/NGÀY, TÁCH BIỆT HOÀN TOÀN
- * với LazadaOrderSyncScheduler (10 phút/lần)
- * ===================================================================
- * Kích thước/cân nặng sản phẩm hiếm khi đổi — không cần tần suất dày
- * như order sync. Chạy vào 3h sáng (giờ thấp điểm) để không cạnh
- * tranh quota API với giờ hoạt động thật trong ngày.
- *
- * Cùng convention isRunning chống chạy chồng đã áp dụng ở
- * LazadaOrderSyncScheduler — KHÔNG import lại ScheduleModule ở đây
- * (đã bật 1 lần duy nhất ở app.module.ts, xem comment gốc ở đó).
- * ===================================================================
+ * 04/10/2026 — ĐỔI từ "đồng bộ SKU có trong đơn, 1 lần/ngày" sang ĐỒNG BỘ THEO CATALOG:
+ * - Mỗi giờ (phút 0): tăng dần — chỉ sản phẩm thay đổi sau lần đồng bộ trước. SKU mới /
+ *   SKU vừa đổi mã trên Seller Center có trong hệ thống tối đa sau ~1 giờ.
+ * - 3:00 sáng: toàn bộ catalog — tự sửa nếu lượt tăng dần nào đó bị lỡ.
+ * Muốn có ngay: Admin gọi POST /product-master/sync.
  */
 @Injectable()
 export class ProductMasterSyncScheduler {
   private readonly logger = new Logger(ProductMasterSyncScheduler.name);
   private isRunning = false;
 
-  constructor(
-    private readonly productMasterService: ProductMasterService,
-    private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
-  ) {}
+  constructor(private readonly productMasterService: ProductMasterService) {}
+
+  @Cron('0 * * * *', { name: 'product-master-hourly-catalog-sync' })
+  async hourlyIncrementalSync(): Promise<void> {
+    await this.run(false);
+  }
 
   @Cron('0 3 * * *', { name: 'product-master-daily-sync' }) // 3:00 sáng mỗi ngày
   async dailySyncAllShops(): Promise<void> {
+    await this.run(true);
+  }
+
+  private async run(full: boolean): Promise<void> {
     if (this.isRunning) {
-      this.logger.warn('Lượt đồng bộ Product Master trước chưa xong, bỏ qua lượt này.');
+      this.logger.warn(
+        'Lượt đồng bộ Product Master trước chưa xong, bỏ qua lượt này.',
+      );
       return;
     }
-
     this.isRunning = true;
     const startedAt = Date.now();
-
     try {
-      const shops = await this.marketplaceIntegrationService.listConnectedShops(
-        MarketplacePlatform.LAZADA,
-      );
-
-      if (shops.length === 0) {
-        this.logger.log('Đồng bộ Product Master: chưa có shop nào kết nối, bỏ qua.');
+      const results = await this.productMasterService.syncCatalogAllShops({
+        full,
+      });
+      if (results.length === 0) {
+        this.logger.log(
+          'Đồng bộ Product Master: chưa có shop nào kết nối, bỏ qua.',
+        );
         return;
       }
-
-      let succeeded = 0;
-      let failed = 0;
-
-      for (const shop of shops) {
-        try {
-          const result = await this.productMasterService.syncProductsForShopFromOrders(
-            shop.shop_id,
-          );
-          succeeded += 1;
-          this.logger.log(`Đồng bộ Product Master shop ${shop.shop_id}: ${String(result.synced)} SKU.`);
-        } catch (error) {
-          failed += 1;
-          this.logger.error(`Đồng bộ Product Master shop ${shop.shop_id} thất bại, bỏ qua, tiếp tục shop khác.`, error);
-        }
-      }
-
+      const ok = results.filter((r) => r.ok).length;
       this.logger.log(
-        `Đồng bộ Product Master hoàn tất: ${String(shops.length)} shop (${String(succeeded)} thành công, ${String(failed)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
+        `Đồng bộ Product Master (${full ? 'toàn bộ' : 'tăng dần'}) hoàn tất: ${String(results.length)} shop (${String(ok)} thành công, ${String(results.length - ok)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
       );
     } finally {
       this.isRunning = false;
