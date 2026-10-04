@@ -142,7 +142,7 @@ interface LazadaGetOrderItemsResponse {
 // không phải cấp item_id cha (1 item_id có thể có nhiều SKU/biến thể,
 // mỗi SKU kích thước khác nhau — VD áo size S/M/L).
 // ===================================================================
-interface LazadaProductSkuRaw {
+export interface LazadaProductSkuRaw {
   SellerSku: string;
   ShopSku?: string;
   package_length?: string; // Lazada trả STRING, không phải number (giống item_price ở Order)
@@ -153,7 +153,7 @@ interface LazadaProductSkuRaw {
   quantity?: number;
 }
 
-interface LazadaProductRaw {
+export interface LazadaProductRaw {
   item_id: string;
   skus: LazadaProductSkuRaw[];
 }
@@ -449,6 +449,52 @@ export class LazadaAdapter implements MarketplaceAdapter {
   }
 
   /**
+   * 04/10/2026 — Lấy 1 TRANG danh sách sản phẩm của shop (GetProducts), KHÔNG lọc theo
+   * danh sách SKU. Dùng để đồng bộ Product Master theo CATALOG của shop: SKU mới tạo
+   * hoặc SKU vừa đổi mã trên Seller Center xuất hiện ngay, không phải chờ có đơn hàng.
+   * - `filter: 'all'` — lấy cả sản phẩm đang ẩn/hết hàng (vẫn có thể còn tồn trong kho).
+   * - `updatedAfter` = null -> lấy toàn bộ catalog; có giá trị -> chỉ sản phẩm thay đổi
+   *   sau mốc đó (`update_after`). GetProducts KHÔNG nhận ISO có mili-giây + `Z`
+   *   (lỗi thật 04/10: `E017 Invalid Date Format`) -> dùng `toLazadaProductDate()`.
+   * - Phân trang `offset` + `limit` (tối đa 50/trang theo tài liệu Lazada; `offset`
+   *   tối đa 10.000 — service tự dừng và ghi log nếu chạm giới hạn).
+   */
+  async listProductsPage(
+    accessToken: string,
+    params: { updatedAfter: Date | null; offset: number; limit: number },
+  ): Promise<{ products: LazadaProductRaw[]; total: number }> {
+    const extraParams: Record<string, string | number> = {
+      access_token: accessToken,
+      filter: 'all',
+      limit: params.limit,
+      offset: params.offset,
+    };
+    if (params.updatedAfter) {
+      extraParams.update_after = toLazadaProductDate(params.updatedAfter);
+    }
+
+    // Trang rỗng / shop không có sản phẩm: Lazada có thể bỏ hẳn `data` hoặc `products`.
+    const data = await this.callSignedGet<{
+      code: string;
+      message?: string;
+      data?: { total_products?: string; products?: LazadaProductRaw[] };
+    }>('/products/get', extraParams);
+    if (data.code !== '0') {
+      this.logger.error(
+        `GetProducts (catalog) Lazada thất bại: ${JSON.stringify(data)}`,
+      );
+      throw new Error(
+        `Lazada trả lỗi khi lấy danh sách sản phẩm: ${data.message ?? 'không rõ lý do'}`,
+      );
+    }
+    const products = Array.isArray(data.data?.products)
+      ? data.data.products
+      : [];
+    const total = Number(data.data?.total_products ?? 0);
+    return { products, total: Number.isFinite(total) ? total : 0 };
+  }
+
+  /**
    * Pack — 02/10/2026. ĐÁNH DẤU "ĐÃ ĐÓNG GÓI" TRÊN SHOP LAZADA THẬT (API GHI).
    * Chỉ được gọi qua LazadaPackSyncService — service đó kiểm tra cầu dao
    * LAZADA_WRITE_APIS_ENABLED trước. Tối đa 20 đơn / request (giới hạn Lazada).
@@ -642,6 +688,16 @@ export class LazadaAdapter implements MarketplaceAdapter {
 }
 
 // Helper nhỏ — URLSearchParams cần value dạng string, params gốc có number (timestamp)
+/**
+ * 04/10/2026 — định dạng ngày cho GetProducts (`update_after`/`update_before`…):
+ * `YYYY-MM-DDTHH:mm:ss+0000` — đúng mẫu tài liệu Lazada (`2018-01-01T00:00:00+0800`):
+ * không mili-giây, múi giờ dạng `+HHMM`. `Date.toISOString()` (`...000Z`) bị GetProducts
+ * từ chối với `E017 Invalid Date Format` (GetOrders thì vẫn nhận — không đổi chỗ đó).
+ */
+export function toLazadaProductDate(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, '+0000');
+}
+
 function toStringRecord(
   params: Record<string, string | number>,
 ): Record<string, string> {

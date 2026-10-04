@@ -160,7 +160,7 @@ GET /warehouse/warehouses/:warehouseId        🆕 chi tiết 1 kho (trả cả 
 
 ## B.6. Product Master — xem và sửa tay kích thước 🆕
 
-**Product Master là gì:** bảng lưu kích thước + cân nặng + cờ dễ vỡ của từng SKU, lấy từ Lazada mỗi ngày 3h sáng. Thuật toán gợi ý đóng gói đọc bảng này để chọn thùng. Lazada trả sai/thiếu (đã gặp thật: thiếu kích thước làm sập Picking List ngày 19/09) → gợi ý đóng gói sai theo.
+**Product Master là gì:** bảng lưu kích thước + cân nặng + cờ dễ vỡ của từng SKU, lấy từ Lazada. 🔄 **Từ 04/10/2026** đồng bộ theo **danh sách sản phẩm của shop** (không còn chỉ theo SKU đã có trong đơn): mỗi giờ lấy sản phẩm thay đổi gần đây, 3h sáng lấy toàn bộ — xem mục "Đồng bộ ngay" bên dưới. Thuật toán gợi ý đóng gói đọc bảng này để chọn thùng. Lazada trả sai/thiếu (đã gặp thật: thiếu kích thước làm sập Picking List ngày 19/09) → gợi ý đóng gói sai theo.
 
 ```
 GET /product-master?shop_id=...&search=OPLUNG&manual_only=true&page=1&limit=20
@@ -192,11 +192,48 @@ Body: { "package_weight_kg": 0.08, "is_fragile": true }      // gửi field nào
 
 ### Xung đột với cron đồng bộ — đã xử lý
 
-**Vấn đề:** cron 3h sáng mỗi ngày ghi đè kích thước từ Lazada. Nếu không xử lý, Admin sửa tay hôm nay thì sáng mai bị ghi đè mất.
+**Vấn đề:** cron đồng bộ (mỗi giờ + 3h sáng) ghi đè kích thước từ Lazada. Nếu không xử lý, Admin sửa tay xong thì lần đồng bộ sau bị ghi đè mất.
 
 **Cách xử lý:** sửa tay → hệ thống bật `manualOverride: true`. Cron gặp SKU có cờ này thì **chỉ cập nhật `lastSyncedAt`**, giữ nguyên số Admin đã nhập. FE nên hiện nhãn "Đã sửa tay" cho các SKU này (lọc nhanh bằng `manual_only=true`).
 
 _Hiện chưa có nút "trả về số liệu Lazada" (tắt cờ sửa tay) — xem Phần E._
+
+### 🆕 Đồng bộ ngay danh sách sản phẩm từ Lazada (04/10/2026)
+
+**Vấn đề trước đây:** Product Master chỉ biết SKU **đã xuất hiện trong đơn hàng**, chạy 1 lần lúc 3h sáng. Thêm sản phẩm mới hoặc **đổi mã SKU trên Seller Center** thì trang cấu hình kho / tình trạng kho reload vẫn không thấy mã mới cho tới khi có người đặt mã đó **và** qua 3h sáng.
+
+**Từ 04/10/2026:**
+
+| Cơ chế           | Lịch             | Lấy gì                                                |
+| ---------------- | ---------------- | ----------------------------------------------------- |
+| Tự động tăng dần | Mỗi giờ (phút 0) | Sản phẩm thay đổi sau lần đồng bộ trước (lùi 10 phút) |
+| Tự động toàn bộ  | 3:00 sáng        | Toàn bộ danh sách sản phẩm của shop                   |
+| **Bấm tay**      | Khi cần          | `POST /product-master/sync` (Admin)                   |
+
+```
+POST /product-master/sync                      → mọi shop Lazada đang kết nối, chỉ sản phẩm thay đổi
+POST /product-master/sync?shop_id=201171264532  → 1 shop
+POST /product-master/sync?full=true             → toàn bộ danh sách sản phẩm
+→ 201: { "results": [ { "ok": true, "shopId": "201171264532", "mode": "incremental",
+                         "since": "2026-10-04T07:50:00.000Z", "products": 3, "synced": 3, "complete": true } ] }
+```
+
+| Trường     | Ý nghĩa                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| `ok`       | `false` kèm `error` nếu shop đó lỗi (token hết hạn, Lazada từ chối…); shop khác vẫn chạy |
+| `mode`     | `incremental` (tăng dần) hoặc `full` (toàn bộ — lần đầu hoặc `full=true`)                |
+| `products` | Số sản phẩm Lazada trả về                                                                |
+| `synced`   | Số SKU được ghi mới / cập nhật vào Product Master                                        |
+| `complete` | `false` nếu shop quá lớn chạm giới hạn 10.000 của Lazada — lần sau sẽ quét lại           |
+
+**FE:** thêm nút **"Đồng bộ sản phẩm từ Lazada"** ở trang cấu hình kho (chỉ Admin). Bấm xong tải lại danh sách "SKU chưa gán ô".
+
+**Ghi chú:**
+
+- SKU cũ **không bị xóa** (đơn cũ vẫn dùng mã cũ). Ô kho đang gán mã cũ giữ nguyên.
+- Danh sách "SKU chưa gán ô" sẽ có **mọi sản phẩm** của shop (kể cả chưa có đơn) — để Admin gán ô trước khi hàng về.
+- SKU đã sửa tay (`manualOverride`) vẫn giữ nguyên số Admin nhập.
+- Khi Lazada đổi mã SKU: sau khi mã mới xuất hiện, nối **cả mã cũ và mã mới** vào cùng một SKU nội bộ (`POST /master-skus/:code/mappings`) rồi `POST /master-skus/sync-stock` — tồn được tính chung, không phải chuyển hàng giữa ô.
 
 ---
 

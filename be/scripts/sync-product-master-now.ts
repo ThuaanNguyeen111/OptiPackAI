@@ -20,10 +20,15 @@ import { ProductMasterService } from '../src/modules/product-master/product-mast
  * ===================================================================
  */
 async function syncProductMasterNow(): Promise<void> {
+  // 04/10/2026 — đồng bộ theo CATALOG của shop (không còn chỉ theo SKU trong đơn).
+  // Cách dùng: npx ts-node -r dotenv/config scripts/sync-product-master-now.ts <shop_id> [--incremental]
+  // Mặc định lấy TOÀN BỘ catalog; --incremental chỉ lấy sản phẩm thay đổi từ lần trước.
+  // Có thể dùng thay bằng API POST /product-master/sync (Admin).
   const shopId = process.argv[2];
+  const incremental = process.argv.includes('--incremental');
   if (!shopId) {
     console.error(
-      '❌ Thiếu shop_id. Cách dùng: npx ts-node ... scripts/sync-product-master-now.ts <shop_id>',
+      '❌ Thiếu shop_id. Cách dùng: npx ts-node ... scripts/sync-product-master-now.ts <shop_id> [--incremental]',
     );
     process.exit(1);
   }
@@ -32,18 +37,19 @@ async function syncProductMasterNow(): Promise<void> {
   const productMasterService = app.get(ProductMasterService);
 
   console.log(
-    `Đang đồng bộ Product Master cho shop ${shopId} — lấy SKU từ đơn hàng đã sync, gọi Lazada GetProducts...`,
+    `Đang đồng bộ Product Master cho shop ${shopId} — lấy ${incremental ? 'sản phẩm thay đổi gần đây' : 'toàn bộ danh sách sản phẩm'} từ Lazada GetProducts...`,
   );
 
   try {
-    const result =
-      await productMasterService.syncProductsForShopFromOrders(shopId);
+    const result = await productMasterService.syncCatalogForShop(shopId, {
+      full: !incremental,
+    });
     console.log(
-      `✅ Xong — đã đồng bộ ${String(result.synced)} SKU vào product_master.`,
+      `✅ Xong — ${String(result.products)} sản phẩm từ Lazada, ${String(result.synced)} SKU ghi mới/cập nhật vào product_master.`,
     );
-    if (result.synced === 0) {
+    if (result.products === 0) {
       console.log(
-        '   (0 SKU — kiểm tra lại: shop_id đúng chưa? Đơn hàng của shop này đã sync về orders chưa?)',
+        '   (0 sản phẩm — kiểm tra lại shop_id và quyền Product API của app Lazada.)',
       );
     }
   } catch (err) {

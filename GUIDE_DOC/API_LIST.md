@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -146,12 +146,13 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 ## 9b. 🆕 Product Master (`/product-master`) — K1 (26/09/2026)
 
-| Method    | Route                                 | Role                          | Mô tả                                                                              |
-| --------- | ------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------- |
-| GET       | `/product-master`                     | Admin, Store Owner, Packaging | Danh sách kích thước/cân nặng SKU; `?shop_id&search&manual_only&page&limit`        |
-| GET       | `/product-master/:id`                 | Admin, Store Owner, Packaging | Chi tiết                                                                           |
-| PATCH     | `/product-master/:id`                 | Admin, Store Owner            | Sửa tay kích thước/cân nặng/dễ vỡ -> `manualOverride: true`, cron không ghi đè nữa |
-| 🆕 DELETE | `/product-master/:id/manual-override` | Admin, Store Owner            | **K2 (rà soát 26/09)** — bỏ sửa tay, lần đồng bộ sau lấy lại số Lazada             |
+| Method    | Route                                 | Role                          | Mô tả                                                                                                                                                      |
+| --------- | ------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET       | `/product-master`                     | Admin, Store Owner, Packaging | Danh sách kích thước/cân nặng SKU; `?shop_id&search&manual_only&page&limit`                                                                                |
+| GET       | `/product-master/:id`                 | Admin, Store Owner, Packaging | Chi tiết                                                                                                                                                   |
+| PATCH     | `/product-master/:id`                 | Admin, Store Owner            | Sửa tay kích thước/cân nặng/dễ vỡ -> `manualOverride: true`, cron không ghi đè nữa                                                                         |
+| 🆕 DELETE | `/product-master/:id/manual-override` | Admin, Store Owner            | **K2 (rà soát 26/09)** — bỏ sửa tay, lần đồng bộ sau lấy lại số Lazada                                                                                     |
+| 🆕 POST   | `/product-master/sync`                | Admin                         | **MỚI (04/10/2026)** — đồng bộ ngay danh sách sản phẩm từ Lazada; `?shop_id` (bỏ trống = mọi shop), `?full=true` (toàn bộ). Cron tự chạy mỗi giờ + 3h sáng |
 
 ## 10. Notifications (`/notifications`)
 

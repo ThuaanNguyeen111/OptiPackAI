@@ -3113,3 +3113,33 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Tài liệu:** `INTEGRATION_GUIDE_FULFILLMENT.md` v4.3 (Nghiệp vụ 4 mục mới + checklist D.4), `API_LIST.md` mục fulfillment.
 
 **Kiểm chứng (sandbox, trên `be.zip` 02/10):** tsc 0 lỗi; eslint sạch trên các file đã sửa/mới; jest 34 suite / 319 test (trước: 32 / 302).
+
+---
+
+## 📦 Nhật ký 04/10/2026 — Product Master đồng bộ theo danh sách sản phẩm của shop
+
+**Bối cảnh:** FE (Việt) báo: đổi mã SKU trên Lazada, trang **cấu hình kho** và **tình trạng kho** reload vẫn hiện mã cũ, mã mới không xuất hiện. Nguyên nhân: (1) `sku_bin_assignments.seller_sku` do Admin gán tay, không bao giờ tự đổi; (2) danh sách "SKU chưa gán ô" lấy từ `product_master`, mà `product_master` chỉ đồng bộ **SKU đã có trong đơn** (`orders.items.sku` distinct) **1 lần lúc 3h sáng** → mã mới vô hình cho tới khi có người đặt; (3) đơn cũ giữ mã cũ là đúng (Lazada lưu mã tại thời điểm đặt, cron đơn chỉ kéo đơn có thay đổi). Chốt với Thuận: đồng bộ theo catalog + route đồng bộ ngay.
+
+**Thay đổi code:**
+
+- `lazada.adapter.ts`: `listProductsPage(token, { updatedAfter, offset, limit })` — GetProducts `filter=all`, không `sku_seller_list`, `update_after` ISO, chịu trang rỗng (Lazada bỏ `data`/`products`); export `LazadaProductRaw`, `LazadaProductSkuRaw`.
+- `marketplace-shop.schema.ts`: `last_product_synced_at` (Date|null). `marketplace-integration.service.ts`: `markShopProductsSynced()` — module sở hữu collection tự ghi mốc.
+- `product-master.service.ts`: `syncCatalogForShop(shopId, { full })` (tăng dần từ mốc − 10 phút; lần đầu/`full` lấy toàn bộ; trang 50, dừng ở offset 10.000 của Lazada và **không ghi mốc** nếu chưa quét hết), `syncCatalogAllShops()` (lỗi 1 shop không chặn shop khác); tách `upsertProducts()` dùng chung với `syncProductsForShop` cũ (giữ nguyên quy tắc `manual_override`, bỏ SKU thiếu `SellerSku`).
+- `product-master-sync.scheduler.ts`: cron **mỗi giờ** (tăng dần) + **3h sáng** (toàn bộ) — **ĐÃ THAY ĐỔI** so với "1 lần/ngày theo SKU trong đơn".
+- `product-master.controller.ts`: **`POST /product-master/sync`** (Admin; `?shop_id`, `?full=true`).
+- `scripts/sync-product-master-now.ts`: dùng catalog (mặc định toàn bộ, `--incremental`).
+- Test mới: `product-master.catalog-sync.spec.ts` (7), `lazada.adapter.catalog.spec.ts` (4).
+
+**Tác động (5 câu):**
+
+1. Dữ liệu cũ: không migration; shop cũ `last_product_synced_at` null → lần đầu lấy toàn bộ. SKU cũ không bị xóa.
+2. Route đổi hành vi: không; thêm 1 route mới.
+3. Luồng bị ảnh hưởng: `product_master` có thêm SKU chưa từng có đơn → danh sách "SKU chưa gán ô" dài hơn (chủ đích); gọi Lazada mỗi giờ thay vì mỗi ngày (trong giới hạn API).
+4. Không ảnh hưởng: đơn hàng, nhóm đơn, tồn kho, giữ chỗ, đóng gói (dữ liệu kích thước giữ quy tắc sửa tay).
+5. Phát hiện: `getProducts` cũ dùng `filter=live` → sản phẩm ẩn/hết hàng trước đây không đồng bộ được kích thước; catalog dùng `filter=all`. Chưa có cảnh báo "Lazada đổi mã SKU" — xử lý bằng nối 2 mã vào 1 SKU nội bộ.
+
+**Kiểm chứng:** tsc 0; eslint sạch trên file đã sửa; jest 36 suite / 330 test (trước 34 / 319).
+
+**Lỗi thật khi chạy (04/10, tối):** lượt tăng dần báo `E017 Invalid Date Format` — GetProducts **không nhận** `update_after` dạng `toISOString()` (`2026-10-04T15:26:51.619Z`), khác GetOrders (vẫn nhận). Sửa: `toLazadaProductDate()` trong `lazada.adapter.ts` định dạng `YYYY-MM-DDTHH:mm:ss+0000` (đúng mẫu tài liệu `2018-01-01T00:00:00+0800`). Lượt toàn bộ không gửi ngày nên không bị. Lượt lỗi không ghi mốc → chạy lại không mất dữ liệu. Thêm 1 test → 36 suite / 331 test. **Bài học:** cùng một sàn, mỗi API có thể đòi định dạng ngày khác nhau — đối chiếu mẫu request của từng API, không suy từ API khác.
+
+**Commit:** `feat(AOFP-61)` code + `docs(AOFP-62)` tài liệu.
