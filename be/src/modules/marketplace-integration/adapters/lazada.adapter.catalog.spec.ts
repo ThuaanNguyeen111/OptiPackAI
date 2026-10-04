@@ -1,4 +1,4 @@
-import { LazadaAdapter } from './lazada.adapter';
+import { LazadaAdapter, toLazadaProductDate } from './lazada.adapter';
 
 const mockGet = jest.fn();
 jest.mock('axios', () => ({
@@ -60,7 +60,7 @@ describe('LazadaAdapter — listProductsPage', () => {
       filter: 'all',
       limit: 50,
       offset: 50,
-      update_after: '2026-10-04T08:00:00.000Z',
+      update_after: '2026-10-04T08:00:00+0000',
     });
     expect(p).not.toHaveProperty('sku_seller_list');
     expect(res).toEqual({ products: [{ item_id: '1', skus: [] }], total: 1 });
@@ -104,5 +104,11 @@ describe('LazadaAdapter — listProductsPage', () => {
         limit: 50,
       }),
     ).rejects.toThrow('invalid token');
+  });
+
+  it('toLazadaProductDate: bỏ mili-giây và Z, dùng +0000 (tránh E017 Invalid Date Format)', () => {
+    expect(toLazadaProductDate(new Date('2026-10-04T15:26:51.619Z'))).toBe(
+      '2026-10-04T15:26:51+0000',
+    );
   });
 });

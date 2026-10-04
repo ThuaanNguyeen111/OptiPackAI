@@ -454,7 +454,8 @@ export class LazadaAdapter implements MarketplaceAdapter {
    * hoặc SKU vừa đổi mã trên Seller Center xuất hiện ngay, không phải chờ có đơn hàng.
    * - `filter: 'all'` — lấy cả sản phẩm đang ẩn/hết hàng (vẫn có thể còn tồn trong kho).
    * - `updatedAfter` = null -> lấy toàn bộ catalog; có giá trị -> chỉ sản phẩm thay đổi
-   *   sau mốc đó (`update_after`, ISO 8601 — cùng định dạng GetOrders đang dùng thật).
+   *   sau mốc đó (`update_after`). GetProducts KHÔNG nhận ISO có mili-giây + `Z`
+   *   (lỗi thật 04/10: `E017 Invalid Date Format`) -> dùng `toLazadaProductDate()`.
    * - Phân trang `offset` + `limit` (tối đa 50/trang theo tài liệu Lazada; `offset`
    *   tối đa 10.000 — service tự dừng và ghi log nếu chạm giới hạn).
    */
@@ -469,7 +470,7 @@ export class LazadaAdapter implements MarketplaceAdapter {
       offset: params.offset,
     };
     if (params.updatedAfter) {
-      extraParams.update_after = params.updatedAfter.toISOString();
+      extraParams.update_after = toLazadaProductDate(params.updatedAfter);
     }
 
     // Trang rỗng / shop không có sản phẩm: Lazada có thể bỏ hẳn `data` hoặc `products`.
@@ -687,6 +688,16 @@ export class LazadaAdapter implements MarketplaceAdapter {
 }
 
 // Helper nhỏ — URLSearchParams cần value dạng string, params gốc có number (timestamp)
+/**
+ * 04/10/2026 — định dạng ngày cho GetProducts (`update_after`/`update_before`…):
+ * `YYYY-MM-DDTHH:mm:ss+0000` — đúng mẫu tài liệu Lazada (`2018-01-01T00:00:00+0800`):
+ * không mili-giây, múi giờ dạng `+HHMM`. `Date.toISOString()` (`...000Z`) bị GetProducts
+ * từ chối với `E017 Invalid Date Format` (GetOrders thì vẫn nhận — không đổi chỗ đó).
+ */
+export function toLazadaProductDate(date: Date): string {
+  return date.toISOString().replace(/\.\d{3}Z$/, '+0000');
+}
+
 function toStringRecord(
   params: Record<string, string | number>,
 ): Record<string, string> {
