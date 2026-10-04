@@ -3155,3 +3155,44 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Tài liệu:** `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` v1.1 — thêm **Phần 0b** (3 loại mã, đặt SKU trên Seller Center, 8 bước cấu hình kèm ví dụ, bảng xử lý sự cố "CHƯA GÁN VỊ TRÍ" / `INSUFFICIENT_STOCK` / `MAP_SELLER_SKU_UNKNOWN` / đổi mã / trùng mã ô, việc FE: khóa nút quét khi `bin_location_id = null`); sửa bước 1.3 theo đồng bộ catalog (`POST /product-master/sync`, cron mỗi giờ). `INTEGRATION_GUIDE_WAREHOUSE.md` — A.3 thêm nguyên tắc 5 và liên kết sang Phần 0b.
 
 **Điểm yếu ghi nhận:** chưa có cảnh báo khi SKU sàn trùng định dạng mã ô; FE chưa khóa quét khi dòng chưa có ô (đã ghi vào tài liệu).
+
+## 📦 Nhật ký 05/10/2026 — Tìm SKU trên tab SKU (Cấu hình kho), chỉ FE
+
+**Bối cảnh:** Admin phải dò thủ công danh sách SKU chưa gán kệ. Yêu cầu thêm ô tìm, **không đụng `be/`**.
+
+**Thay đổi:** `fe/src/pages/AdminWarehousePage.tsx`, `AssignTab` — ô tìm lọc ngay trên danh sách đã tải (`seller_sku`, `shop_id`, `platform`, không phân biệt hoa thường). Chọn dòng rồi gán kệ giữ nguyên. Không có route/API mới; danh sách rỗng thì ô tìm bị khóa. Xóa từ khóa hiện lại đủ danh sách. SKU đã chọn vẫn giữ ở form bên phải dù bị lọc khỏi bảng.
+
+## 📦 Nhật ký 05/10/2026 — Dựng lại màn cấu hình kho Admin theo 8 bước K4/K5
+
+**Bối cảnh:** màn Admin chỉ có khu / kệ / gán SKU sàn. Tài liệu `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` Phần 0b và Phần 6 yêu cầu đủ màu, SKU nội bộ, đồng bộ catalog, nối SKU sàn (không gõ tay), gộp tồn và tra tồn khả dụng. Mã ô, SKU nội bộ và SKU sàn không tự nối theo tên.
+
+**Thay đổi FE (không đụng `be/`):**
+- Tab mới trên `AdminWarehousePage`: Màu, SKU nội bộ (xem trước mã hệ thống ghép), Đồng bộ & nối, Gộp tồn. Tạo kệ chọn màu ô từ `GET /colors`.
+- API client `fe/src/api/catalog.api.ts`: `/colors`, `/master-skus`, `/product-master/sync`, `/master-skus/sync-stock`, `/stock-availability`. Đồng bộ catalog dùng timeout 120 giây.
+- `WarehousePage`: dòng picking `bin_location_id` trống thì khóa quét và hiện "SKU chưa được gán ô — liên hệ Admin".
+
+**Tác động:** dữ liệu cũ không đổi. Route cũ giữ nguyên. Màn lấy hàng không cho quét SKU chưa có ô (trước đây gửi pick-item rồi nhận 409).
+
+**Bổ sung cùng ngày:** tab SKU nội bộ có nút **Sao chép mã** cạnh mã vừa tạo, trong danh sách và trong chi tiết. Bấm nút ghi đúng mã backend trả về vào clipboard để dán lên Lazada Seller Center. Nút chỉ hiện khi SKU đang hoạt động; mã đã tắt hoặc đã thay thế không sao chép được.
+
+**Bổ sung cùng ngày — gọn lại màn cấu hình kho:** 10 tab được chia thành 2 khu.
+- Khu **Sản phẩm** có 3 tab: Danh mục & màu · SKU nội bộ · Nối SKU Lazada (gồm cả gộp tồn). Khu này dùng chung cho mọi kho.
+- Khu **Kho hàng** có 4 tab: Khu & kệ · Gán SKU vào ô · Tồn kho · Lộ trình lấy. Các tab này đi theo kho đang chọn.
+
+Sửa và tắt kho chuyển lên phần đầu kho. Form dùng khung, nhãn và nút căn phải thống nhất. Lý do tách 2 khu: danh mục, màu, SKU nội bộ và liên kết sàn không có `warehouse_id` trong BE, đây là dữ liệu sản phẩm của shop. Màn cũ đặt chúng dưới kho đang chọn nên trông như danh mục thuộc kho cũ. Chưa đổi BE sang danh mục theo kho, vì làm vậy thì 1 sản phẩm nằm ở 2 kho sẽ thành 2 mã khác nhau và tồn không gộp được. Đang chờ user xác nhận.
+
+**Bổ sung cùng ngày — màn Tồn kho theo vị trí của Warehouse Staff (`/app/inventory`) chuyển sang API thật:** màn cũ chạy toàn bộ bằng dữ liệu giả trong `localStorage`. Nhập tồn và đặt lại kho không ghi DB; UPC, ngưỡng an toàn và các thẻ thống kê đều giả. Viết lại `WarehouseInventoryPage.tsx`, chỉ dùng các route đã mở cho Warehouse Staff (01/10).
+- Chọn kho, dùng chung kho đã lưu với màn lấy hàng.
+- Danh sách dòng tồn theo ô, sắp theo `pick_sequence`. Có tìm SKU sàn / SKU nội bộ / mã ô, lọc khu, lọc còn/hết hàng.
+- Bảng bên phải theo từng dòng: Nhập hàng (`restock`), Kiểm kê (`adjust`, bắt lý do), Chuyển ô (`transfer`), Sổ cái (`movements`). Vượt sức chứa thì hỏi xác nhận rồi gửi `force`.
+- Bỏ hẳn các trường không có ở BE theo yêu cầu user: UPC, ngưỡng an toàn, đặt lại kho, thẻ sắp hết, xuất CSV.
+- Xóa `fe/src/data/warehouse-picking-mock.ts` (không còn nơi nào dùng). Không đụng `be/`.
+
+**Bổ sung cùng ngày — màn lấy hàng `/app/warehouse` vẫn hiện "CHƯA GÁN VỊ TRÍ":** đã đọc DB thật (chỉ đọc) để tìm nguyên nhân.
+- **Lỗi FE thứ nhất:** dropdown kho không lọc kho đã tắt. Admin thấy cả kho đã tắt, nên có thể chọn trúng WH-HCM-01.
+- **Lỗi FE thứ hai:** khi gọi picking list theo kho bị lỗi, màn tự lùi về `/order-groups/:id/picking-list`. Danh sách đó không có vị trí, nên mọi dòng đều hiện "CHƯA GÁN VỊ TRÍ" và lỗi thật (ví dụ 409 kho đã tắt) bị che mất.
+- **Đã sửa cả hai:** dropdown chỉ còn kho đang hoạt động; picking list theo kho lỗi thì hiện lỗi, không lùi về danh sách không có vị trí.
+- **Thiếu dữ liệu (không phải lỗi code), người dùng tự sửa ở màn Cấu hình kho:**
+  - `AOPOLO-010-BE-L` (nối với SKU sàn `KA-D2-T03-T03-1`) chỉ có dòng tồn ở WH-HCM-01 (đã tắt, tồn 0). WH-HCM-02 chỉ có size S.
+  - `KA-D1-P03-T01-3` chưa nối SKU nội bộ và chỉ được gán ở WH-HCM-01.
+- **Lạ, chưa giải thích được:** WH-HCM-01 đã tắt nhưng vẫn còn tồn khoảng 90 cái, trong khi K1 lẽ ra phải chặn việc tắt khi còn hàng. Cần kiểm tra lại.

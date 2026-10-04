@@ -417,7 +417,8 @@ export function WarehousePage() {
         .then((profile) => setMeId(profile.id))
         .catch(() => setMeId(''))
           void listWarehouses()
-        .then((rows) => {
+        .then((allRows) => {
+          const rows = allRows.filter((row) => row.isActive)
           setWarehouses(rows)
           setWarehouseListBlocked(false)
           setWarehouseId((current) => {
@@ -582,13 +583,12 @@ export function WarehousePage() {
             setHasBinRoute(true)
             return
           } catch (err: unknown) {
-            const code = getApiErrorCode(err)
-            if (code === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
-              setLines([])
-              setHasBinRoute(false)
-              setDetailError(formatApiError(err))
-              return
-            }
+            // Không lùi về danh sách không có vị trí: mọi dòng sẽ hiện
+            // "CHƯA GÁN VỊ TRÍ" và che mất lỗi thật (kho đã tắt, không có quyền...).
+            setLines([])
+            setHasBinRoute(false)
+            setDetailError(formatApiError(err))
+            return
           }
         }
         const packable = await getOrderGroupPickingList(id)
@@ -666,6 +666,7 @@ export function WarehousePage() {
       currentQty > 0 &&
       currentQty <= remainingForActive &&
       remainingForActive > 0 &&
+      Boolean(activeLine.bin_location_id) &&
       !busy,
   )
 
@@ -716,6 +717,14 @@ export function WarehousePage() {
 
   async function handlePickItem() {
     if (!group || !activeLine || !warehouseId) return
+    if (!activeLine.bin_location_id) {
+      setActionError(
+        vi
+          ? 'SKU chưa được gán ô — liên hệ Admin.'
+          : 'This SKU has no bin. Ask an admin to assign it.',
+      )
+      return
+    }
     if (!lineMatchesScan(activeLine, scanInput)) {
       setActionError(
         vi
@@ -1508,15 +1517,15 @@ export function WarehousePage() {
               </div>
           </div>
 
-                        {isBinAssigned(activeLine.bin_code) ? (
+                        {activeLine.bin_location_id && isBinAssigned(activeLine.bin_code) ? (
                           <div className="mt-5">
                             <BarcodeGraphic code={activeLine.bin_code} />
                           </div>
                         ) : (
                           <div className="mt-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2.5 text-center text-[11px] font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
                             {vi
-                              ? 'Chưa có mã kệ — quét hoặc nhập tay Seller SKU bên dưới.'
-                              : 'No bin barcode — scan or type the seller SKU below.'}
+                              ? 'SKU chưa được gán ô — liên hệ Admin. Nút quét đang khóa.'
+                              : 'This SKU has no bin. Scanning is locked until an admin assigns one.'}
                           </div>
                         )}
 
@@ -1550,8 +1559,8 @@ export function WarehousePage() {
                                     if (canConfirmItem) void handlePickItem()
                                   }
                                 }}
-                                placeholder={activeLine.bin_code || activeLine.sku}
-                                disabled={!canPickItems(status)}
+                                placeholder={activeLine.bin_location_id ? activeLine.bin_code || activeLine.sku : ''}
+                                disabled={!canPickItems(status) || !activeLine.bin_location_id}
                                 className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
                               />
                               {isVerified ? (
@@ -1566,7 +1575,7 @@ export function WarehousePage() {
                                     setScanInput(activeLine.sku)
                                     setScanMethod('manual')
                                   }}
-                                  disabled={!canPickItems(status)}
+                                  disabled={!canPickItems(status) || !activeLine.bin_location_id}
                                   className="inline-flex shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 cursor-pointer hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
                                 >
                                   {vi ? 'Nhập SKU' : 'Type SKU'}
