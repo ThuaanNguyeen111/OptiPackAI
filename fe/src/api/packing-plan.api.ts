@@ -1,6 +1,6 @@
 import { apiRequest } from '../lib/api'
 import type { AdjustmentReason } from '../types/packaging'
-import type { PackingPlan, PackingPlanSummary } from '../types/packing-plan'
+import type { GroupQueueInfo, PackingPlan, PackingPlanSummary } from '../types/packing-plan'
 
 /** Kế hoạch đóng gói của nhóm (04/10/2026). Mọi thao tác đổi dữ liệu gửi `version` đang xem. */
 const base = (groupId: string): string => `/order-groups/${groupId}/packing-plan`
@@ -12,13 +12,15 @@ export async function getPackingPlan(groupId: string): Promise<PackingPlan | nul
   return res.plan
 }
 
-export async function listPlanSummaries(groupIds: string[]): Promise<PackingPlanSummary[]> {
-  if (groupIds.length === 0) return []
-  const res = await apiRequest<{ summaries: PackingPlanSummary[] }>(
+export async function listPlanSummaries(
+  groupIds: string[],
+): Promise<{ summaries: PackingPlanSummary[]; groups: GroupQueueInfo[] }> {
+  if (groupIds.length === 0) return { summaries: [], groups: [] }
+  const res = await apiRequest<{ summaries: PackingPlanSummary[]; groups?: GroupQueueInfo[] }>(
     `/packing-plans/summary?group_ids=${encodeURIComponent(groupIds.join(','))}`,
     { auth: true },
   )
-  return res.summaries
+  return { summaries: res.summaries, groups: res.groups ?? [] }
 }
 
 export async function recomputePlan(

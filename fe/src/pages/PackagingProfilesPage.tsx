@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Loader2, Ruler } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
@@ -64,6 +65,9 @@ export function PackagingProfilesPage() {
   const [error, setError] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [bags, setBags] = useState<PackagingBag[]>([])
+  // ?q=<SKU> (từ hàng chờ đóng gói, 05/10/2026): tự mở đúng hồ sơ SKU đang chặn kế hoạch.
+  const [params] = useSearchParams()
+  const focusSku = params.get('q')
 
   useEffect(() => {
     listPackagingBags()
@@ -90,7 +94,10 @@ export function PackagingProfilesPage() {
     let cancelled = false
     listProductProfiles(filter)
       .then((rows) => {
-        if (!cancelled) setProfiles(rows)
+        if (cancelled) return
+        setProfiles(rows)
+        const match = focusSku ? rows.find((r) => r.sellerSku === focusSku) : undefined
+        if (match) setOpenId(match.id)
       })
       .catch((err: unknown) => {
         if (!cancelled) setError(formatApiError(err))
@@ -101,7 +108,7 @@ export function PackagingProfilesPage() {
     return () => {
       cancelled = true
     }
-  }, [filter])
+  }, [filter, focusSku])
 
   return (
     <>

@@ -139,6 +139,15 @@ export type PackingPlanSummary = {
   failureReason: string | null
 }
 
+/** Nhận diện nhóm trên hàng chờ: mã đơn sàn, người nhận, hàng (05/10/2026). */
+export type GroupQueueInfo = {
+  orderGroupId: string
+  orderNumbers: string[]
+  recipientName: string | null
+  units: number
+  skus: { sku: string; quantity: number }[]
+}
+
 export const PROOF_LABELS: Record<ProofLabel, { vi: string; en: string; hintVi: string; hintEn: string }> = {
   optimal_global: {
     vi: 'Tối ưu đã chứng minh',

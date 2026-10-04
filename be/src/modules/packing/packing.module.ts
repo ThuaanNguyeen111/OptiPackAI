@@ -7,6 +7,8 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { PackingPlan, PackingPlanSchema } from './schemas/packing-plan.schema';
 import { PackingPlanService } from './packing-plan.service';
 import { PackingJobService } from './packing-job.service';
+import { PackingQueueService } from './packing-queue.service';
+import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { PackingPlanController, PackingPlansController } from './packing-plan.controller';
 
 /**
@@ -19,13 +21,14 @@ import { PackingPlanController, PackingPlansController } from './packing-plan.co
     MongooseModule.forFeature([
       { name: PackingPlan.name, schema: PackingPlanSchema },
       { name: OrderGroup.name, schema: OrderGroupSchema },
+      { name: Order.name, schema: OrderSchema },
     ]),
     OrderGroupsModule,
     PackagingModule,
     NotificationsModule,
   ],
   controllers: [PackingPlanController, PackingPlansController],
-  providers: [PackingPlanService, PackingJobService],
+  providers: [PackingPlanService, PackingJobService, PackingQueueService],
   exports: [PackingPlanService],
 })
 export class PackingModule {}

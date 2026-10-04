@@ -8,6 +8,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
+import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
 import { averageFill } from './utils/stock-suggestion.util';
 import {
   LazadaPackSyncService,
@@ -429,7 +430,10 @@ export interface PackingPlanSummary {
 @Controller('packing-plans')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PackingPlansController {
-  constructor(private readonly planService: PackingPlanService) {}
+  constructor(
+    private readonly planService: PackingPlanService,
+    private readonly queueService: PackingQueueService,
+  ) {}
 
   @Get('summary')
   @Roles(
@@ -440,14 +444,20 @@ export class PackingPlansController {
     UserRole.ADMIN,
   )
   @ApiOperation({ summary: 'Tóm tắt kế hoạch đang hoạt động của các nhóm (?group_ids=a,b,c — tối đa 200).' })
-  async summary(@Query('group_ids') groupIds = ''): Promise<{ summaries: PackingPlanSummary[] }> {
+  async summary(
+    @Query('group_ids') groupIds = '',
+  ): Promise<{ summaries: PackingPlanSummary[]; groups: GroupQueueInfo[] }> {
     const ids = groupIds
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean)
       .slice(0, 200);
-    const plans = await this.planService.listActiveByGroupIds(ids);
+    const [plans, groups] = await Promise.all([
+      this.planService.listActiveByGroupIds(ids),
+      this.queueService.describeGroups(ids),
+    ]);
     return {
+      groups,
       summaries: plans.map((plan) => {
         const full = toPlanResponse(plan);
         return {
