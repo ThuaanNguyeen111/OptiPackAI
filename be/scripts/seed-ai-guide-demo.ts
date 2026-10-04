@@ -9,14 +9,15 @@ import {
   ProductMaster,
   ProductMasterDocument,
 } from '../src/modules/product-master/schemas/product-master.schema';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationDocument,
-} from '../src/modules/packaging/schemas/packaging-recommendation.schema';
+  PackingPlan,
+  PackingPlanDocument,
+} from '../src/modules/packing/schemas/packing-plan.schema';
+import { PackingPlanService } from '../src/modules/packing/packing-plan.service';
 import { PackagingBox, PackagingBoxDocument } from '../src/modules/packaging/schemas/packaging-box.schema';
 import { PackagingBag, PackagingBagDocument } from '../src/modules/packaging/schemas/packaging-bag.schema';
 import { ProductCategory } from '../src/common/enums/product-category.enum';
-import { PackagingService, cartonsOf } from '../src/modules/packaging/packaging.service';
 import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
 import { OrderStatus } from '../src/modules/orders/enums/order-status.enum';
 import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-fulfillment-status.enum';
@@ -27,7 +28,7 @@ import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-
  * ===================================================================
  * Tạo 7 Order Group (3 nhóm cuối là đơn ĐA KIỆN, 30/09/2026) đã LẤY HÀNG XONG (`picked`) của shop giả
  * `DEMO-AI-GUIDE`, hồ sơ SKU đã `ready`, rồi chạy engine sinh phương án
- * (group → `pending_approval`). Mở /app/packing/groups/:groupId để xem
+ * (group → `pending_approval`). Mở /app/packing/:groupId để xem
  * animation 3D + hướng dẫn AI.
  *
  *   npx ts-node -r tsconfig-paths/register scripts/seed-ai-guide-demo.ts          # tạo (xóa bản cũ trước)
@@ -157,14 +158,16 @@ async function main(): Promise<void> {
   const groupModel = app.get<Model<OrderGroupDocument>>(getModelToken(OrderGroup.name));
   const pickModel = app.get<Model<PickEventDocument>>(getModelToken(PickEvent.name));
   const productModel = app.get<Model<ProductMasterDocument>>(getModelToken(ProductMaster.name));
-  const recModel = app.get<Model<PackagingRecommendationDocument>>(getModelToken(PackagingRecommendationDoc.name));
+  const planModel = app.get<Model<PackingPlanDocument>>(getModelToken(PackingPlan.name));
+  // Script tự gọi tính kế hoạch — tắt cron tự tính để 2 bên không tranh nhau 1 nhóm.
+  void app.get(SchedulerRegistry).getCronJob('packing-plan-auto-compute').stop();
   const boxModel = app.get<Model<PackagingBoxDocument>>(getModelToken(PackagingBox.name));
   const bagModel = app.get<Model<PackagingBagDocument>>(getModelToken(PackagingBag.name));
 
   // ---- Xóa dữ liệu demo cũ ----
   const oldGroupIds = (await groupModel.find({ shop_id: SHOP_ID }).select('_id').lean()).map((g) => g._id);
   await pickModel.deleteMany({ order_group_id: { $in: oldGroupIds } });
-  await recModel.deleteMany({ order_group_id: { $in: oldGroupIds } });
+  await planModel.deleteMany({ order_group_id: { $in: oldGroupIds } });
   await groupModel.deleteMany({ shop_id: SHOP_ID });
   await orderModel.deleteMany({ shop_id: SHOP_ID });
   await productModel.deleteMany({ shop_id: SHOP_ID });
@@ -233,7 +236,7 @@ async function main(): Promise<void> {
   );
 
   const productBySku = new Map(PRODUCTS.map((p) => [p.sku, p]));
-  const packagingService = app.get(PackagingService);
+  const planService = app.get(PackingPlanService);
 
   for (const [gi, spec] of GROUPS.entries()) {
     const group = await groupModel.create({
@@ -298,22 +301,23 @@ async function main(): Promise<void> {
       })),
     );
 
-    const recs = await packagingService.generateRecommendations(group._id.toString());
-    const summary = recs.map((r) => {
-      const cartons = cartonsOf(r);
-      const box =
-        r.solution_status !== 'ok'
-          ? `no_fit (${r.no_fit_reasons.map((n) => n.code ?? '?').join(',')})`
-          : cartons.length > 1
-            ? `${String(cartons.length)} kiện [${cartons.map((c) => c.box_code).join(', ')}]`
-            : (r.box_code ?? '?');
-      const note = r.preferred_box_out_of_stock ? ` (${r.preferred_box_out_of_stock} vừa hơn nhưng hết hàng)` : '';
-      return `${r.platform_order_id ?? '?'} → ${box}${note}`;
+    // Tính như lúc nhóm vừa lấy hàng xong; chờ luôn CP-SAT (nếu PACKER_URL có cấu hình).
+    const { tasks } = await planService.compute(group._id.toString());
+    await planService.runCpSat(tasks);
+    const plan = await planService.getActivePlan(group._id.toString());
+    const summary = (plan?.orders ?? []).map((o) => {
+      const parcels = (plan?.parcels ?? []).filter((p) => p.order_id.equals(o.order_id));
+      const boxes =
+        o.status !== 'ok'
+          ? `${o.status} (${o.unplaced.map((u) => u.code).join(',')})`
+          : `${String(parcels.length)} kiện [${parcels.map((p) => p.box.code).join(', ')}]`;
+      return `${o.platform_order_id ?? '?'} → ${boxes} · ${o.proof}`;
     });
-    console.log(`\nGroup ${String(gi + 1)}: ${spec.label}`);
+    console.log(`
+Group ${String(gi + 1)}: ${spec.label}`);
     console.log(`  id: ${group._id.toString()}`);
-    console.log(`  phương án: ${summary.join(', ')}`);
-    console.log(`  mở: /app/packing/groups/${group._id.toString()}`);
+    console.log(`  kế hoạch: ${summary.join(' | ')}`);
+    console.log(`  mở: /app/packing/${group._id.toString()}`);
   }
 
   await app.close();

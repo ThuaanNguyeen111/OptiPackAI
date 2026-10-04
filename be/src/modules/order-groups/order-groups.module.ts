@@ -10,15 +10,10 @@ import {
   ProductMaster,
   ProductMasterSchema,
 } from '../product-master/schemas/product-master.schema';
-// Đăng ký LẠI schema PackagingRecommendationDoc đã có (module packaging/) —
-// CÙNG pattern cross-module đã áp dụng cho Order/ProductMaster ở trên,
-// tránh vòng lặp import PackagingModule <-> OrderGroupsModule (packaging/
-// phụ thuộc order-groups/ để đọc dữ liệu picking). Chỉ dùng để nhả giữ chỗ
-// (is_active: false) khi 1 nhóm tự động hủy (N1) — xem cancelIfAllOrdersUnfulfillable().
-import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationSchema,
-} from '../packaging/schemas/packaging-recommendation.schema';
+// Đăng ký LẠI schema PackingPlan (module packing/) — cùng pattern cross-module
+// như Order/ProductMaster, tránh vòng import PackingModule <-> OrderGroupsModule.
+// Chỉ dùng để vô hiệu kế hoạch khi đơn bị hủy (cancel / invalidate).
+import { PackingPlan, PackingPlanSchema } from '../packing/schemas/packing-plan.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import {
   SkuBinAssignment,
@@ -49,10 +44,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
       { name: PickEvent.name, schema: PickEventSchema },
       { name: ReturnReceipt.name, schema: ReturnReceiptSchema },
-      {
-        name: PackagingRecommendationDoc.name,
-        schema: PackagingRecommendationSchema,
-      },
+      { name: PackingPlan.name, schema: PackingPlanSchema },
     ]),
     NotificationsModule,
   ],

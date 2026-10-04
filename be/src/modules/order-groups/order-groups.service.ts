@@ -43,13 +43,10 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { addBusinessHours } from './utils/add-business-hours.util';
 import { StaffAssignmentService } from './staff-assignment.service';
-// Đọc TRỰC TIẾP schema PackagingRecommendationDoc (module packaging/) —
-// cùng pattern cross-module đã dùng cho Order/ProductMaster/SkuBinAssignment
-// ở trên, tránh vòng lặp import PackagingModule <-> OrderGroupsModule.
-import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationDocument,
-} from '../packaging/schemas/packaging-recommendation.schema';
+// Đọc TRỰC TIẾP schema PackingPlan (module packing/) — cùng pattern cross-module
+// đã dùng cho Order/ProductMaster/SkuBinAssignment ở trên, tránh vòng lặp import
+// PackingModule <-> OrderGroupsModule. Chỉ dùng để vô hiệu kế hoạch khi đơn bị hủy.
+import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
 
 /**
  * ===================================================================
@@ -86,8 +83,8 @@ export class OrderGroupsService {
     // BỔ SUNG (29/09/2026, N1) — nhả giữ chỗ đóng gói khi 1 nhóm tự động
     // hủy (cancelIfAllOrdersUnfulfillable()). Xem comment ở order-groups.module.ts
     // giải thích lý do đăng ký trực tiếp schema thay vì import PackagingModule.
-    @InjectModel(PackagingRecommendationDoc.name)
-    private readonly packagingRecommendationModel: Model<PackagingRecommendationDocument>,
+    @InjectModel(PackingPlan.name)
+    private readonly packingPlanModel: Model<PackingPlanDocument>,
     private readonly notificationsService: NotificationsService,
     // BỔ SUNG (20/09/2026, đảo luồng theo yêu cầu Thuận) — cần gọi
     // autoAssign() NGAY LÚC TẠO GROUP (xem startPickingPhase() bên
@@ -703,13 +700,8 @@ export class OrderGroupsService {
       group.__v,
     );
 
-    // Generate mới tạo NHIỀU recommendation (mỗi đơn 1 bản) nhưng con trỏ
-    // `active_packaging_recommendation` chỉ trỏ được 1 bản — vô hiệu hóa
-    // theo order_group_id để KHÔNG bản nào còn giữ chỗ thùng sau khi hủy.
-    await this.packagingRecommendationModel.updateMany(
-      { order_group_id: group._id, is_active: true },
-      { $set: { is_active: false } },
-    );
+    // Nhả giữ chỗ thùng: kế hoạch đang hoạt động (chưa đóng) bị thay.
+    await this.deactivatePackingPlan(group._id);
 
     const { title, message } =
       this.notificationsService.buildGroupAutoCanceledMessage({ groupId });
@@ -971,6 +963,14 @@ export class OrderGroupsService {
     await this.invalidateStalePackagingPlan(groupId);
   }
 
+  /** Kế hoạch đóng gói đang hoạt động (chưa đóng) → superseded, nhả giữ chỗ thùng. */
+  private async deactivatePackingPlan(groupId: Types.ObjectId): Promise<void> {
+    await this.packingPlanModel.updateMany(
+      { order_group_id: groupId, is_active: true, status: { $ne: 'packed' } },
+      { $set: { is_active: false, status: 'superseded' } },
+    );
+  }
+
   private async invalidateStalePackagingPlan(groupId: string): Promise<void> {
     const group = await this.orderGroupModel.findById(groupId);
     if (!group) return;
@@ -986,10 +986,8 @@ export class OrderGroupsService {
       GroupFulfillmentStatus.PICKED,
       group.__v,
     );
-    await this.packagingRecommendationModel.updateMany(
-      { order_group_id: group._id, is_active: true },
-      { $set: { is_active: false } },
-    );
+    // Nhóm về `picked` + không còn kế hoạch hoạt động → cron packing tự tính lại.
+    await this.deactivatePackingPlan(group._id);
 
     const { title, message } =
       this.notificationsService.buildPackagingPlanInvalidatedMessage({ groupId });

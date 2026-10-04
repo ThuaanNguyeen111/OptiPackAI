@@ -37,8 +37,16 @@ export class PackagingMaterialMovement {
   @Prop({ type: Types.ObjectId, default: null })
   order_group_id!: Types.ObjectId | null;
 
+  /** Bản ghi cũ (trước 04/10/2026): phương án trong `packaging_recommendations`. */
   @Prop({ type: Types.ObjectId, default: null })
   recommendation_id!: Types.ObjectId | null;
+
+  /** (04/10/2026) Kế hoạch `packing_plans` + số kiện đã dùng thùng/vật tư này. */
+  @Prop({ type: Types.ObjectId, default: null })
+  packing_plan_id!: Types.ObjectId | null;
+
+  @Prop({ type: Number, default: null })
+  parcel_no!: number | null;
 
   @Prop({ type: Types.ObjectId, default: null })
   user_id!: Types.ObjectId | null;

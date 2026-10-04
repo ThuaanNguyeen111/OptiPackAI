@@ -23,6 +23,7 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { ProductMasterModule } from './modules/product-master/product-master.module';
 import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
+import { PackingModule } from './modules/packing/packing.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
@@ -62,6 +63,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     ProductMasterModule,
     OrderGroupsModule,
     PackagingModule,
+    PackingModule,
     WarehouseModule,
     NotificationsModule,
     StorefrontModule,

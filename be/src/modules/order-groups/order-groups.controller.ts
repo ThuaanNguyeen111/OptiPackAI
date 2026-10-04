@@ -42,7 +42,6 @@ interface OrderGroupResponse {
   shopId: string;
   orderCount: number;
   fulfillmentStatus: string;
-  activePackagingRecommendationId: string | null;
   assignedStaffId: string | null;
   orderPriority: string;
   packagingDeadline: Date | null;
@@ -76,9 +75,6 @@ function toResponse(group: OrderGroupDocument): OrderGroupResponse {
     shopId: group.shop_id,
     orderCount: group.order_count,
     fulfillmentStatus: group.fulfillment_status,
-    activePackagingRecommendationId: group.active_packaging_recommendation
-      ? group.active_packaging_recommendation.toString()
-      : null,
     assignedStaffId: group.assigned_staff_id
       ? group.assigned_staff_id.toString()
       : null,

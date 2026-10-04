@@ -52,8 +52,8 @@ export class OrderGroup {
   })
   fulfillment_status!: GroupFulfillmentStatus;
 
-  @Prop({ type: Types.ObjectId, default: null })
-  active_packaging_recommendation!: Types.ObjectId | null;
+  // (04/10/2026) Bỏ `active_packaging_recommendation` (con trỏ chết, không ai ghi).
+  // Kế hoạch đóng gói nay ở collection `packing_plans` (1 bản hoạt động/nhóm).
 
   @Prop({ required: true })
   shop_name_snapshot!: string;

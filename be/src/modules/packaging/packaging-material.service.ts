@@ -31,7 +31,8 @@ export interface ConsumedMaterial {
 
 /** Thiếu vật tư cho 1 kiện: đóng gói vẫn tiếp tục, chỉ ghi nhận + báo. */
 export interface MaterialShortfall {
-  recommendationId: Types.ObjectId;
+  planId: Types.ObjectId;
+  parcelNo: number;
   code: string;
   missing: number;
 }
@@ -44,7 +45,8 @@ export interface MaterialConsumption {
 export interface MaterialNeed {
   code: string;
   quantity: number;
-  recommendationId: Types.ObjectId;
+  planId: Types.ObjectId;
+  parcelNo: number;
 }
 
 export interface ActiveMaterialRules {
@@ -246,7 +248,8 @@ export class PackagingMaterialService {
                 reason: 'pack',
                 balance_after: updated.quantity_on_hand,
                 order_group_id: groupId,
-                recommendation_id: need.recommendationId,
+                packing_plan_id: need.planId,
+                parcel_no: need.parcelNo,
                 user_id: new Types.ObjectId(userId),
               },
             ],
@@ -264,7 +267,12 @@ export class PackagingMaterialService {
         }
       }
       if (taken < need.quantity) {
-        shortfalls.push({ recommendationId: need.recommendationId, code: need.code, missing: need.quantity - taken });
+        shortfalls.push({
+          planId: need.planId,
+          parcelNo: need.parcelNo,
+          code: need.code,
+          missing: need.quantity - taken,
+        });
       }
     }
     return { consumed: [...balances.values()], shortfalls };

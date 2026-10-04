@@ -3,12 +3,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
-import { PackagingApprovalStatus } from '../packaging/enums/packaging-approval-status.enum';
-import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationDocument,
-} from '../packaging/schemas/packaging-recommendation.schema';
-import { cartonsOf } from '../packaging/utils/cartons.util';
+import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
+import { parcelsOfPlan } from '../packing/utils/parcels.util';
 import {
   CreateCarrierDto,
   UpdateCarrierDto,
@@ -61,8 +57,8 @@ export class ShippingService {
     private readonly carrierModel: Model<ShippingCarrierDocument>,
     @InjectModel(ShippingSettings.name)
     private readonly settingsModel: Model<ShippingSettingsDocument>,
-    @InjectModel(PackagingRecommendationDoc.name)
-    private readonly recommendationModel: Model<PackagingRecommendationDocument>,
+    @InjectModel(PackingPlan.name)
+    private readonly planModel: Model<PackingPlanDocument>,
     private readonly orderGroupsService: OrderGroupsService,
   ) {}
 
@@ -244,36 +240,22 @@ export class ShippingService {
 
   // ------------------------------------------------------------------ báo giá
 
-  /** Các kiện của nhóm (phương án đã duyệt/đóng, có thùng hợp lệ). */
+  /** Các kiện của nhóm (kế hoạch đã duyệt hoặc đã đóng). Đọc qua parcelsOfPlan() — hợp đồng duy nhất. */
   async parcelsOfGroup(groupId: string): Promise<ParcelInput[]> {
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
-    const recs = await this.recommendationModel.find({
+    const plan = await this.planModel.findOne({
       order_group_id: group._id,
       is_active: true,
-      solution_status: 'ok',
-      approval_status: {
-        $in: [
-          PackagingApprovalStatus.APPROVED,
-          PackagingApprovalStatus.ADJUSTED,
-        ],
-      },
+      status: { $in: ['approved', 'packed'] },
     });
-    return recs.flatMap((rec) =>
-      cartonsOf(rec).map((carton) => ({
-        orderId: rec.order_id ? rec.order_id.toString() : null,
-        cartonIndex: carton.index,
-        // Cân thật lúc pack nếu có (kg → g); chưa pack thì cân ước tính (hàng + bì + vật tư).
-        actualG:
-          carton.actual_measured_weight_kg !== null
-            ? Math.ceil(carton.actual_measured_weight_kg * 1000)
-            : carton.estimated_package_weight_g,
-        outer: {
-          length_mm: carton.box_outer_mm.length_mm,
-          width_mm: carton.box_outer_mm.width_mm,
-          height_mm: carton.box_outer_mm.height_mm,
-        },
-      })),
-    );
+    if (!plan) return [];
+    return parcelsOfPlan(plan).map((p) => ({
+      orderId: p.orderId,
+      cartonIndex: p.indexInOrder,
+      // Cân thật lúc pack nếu có (kg → g); chưa pack thì cân ước tính (hàng + bì + vật tư).
+      actualG: p.actualWeightKg !== null ? Math.ceil(p.actualWeightKg * 1000) : p.estimatedWeightG,
+      outer: p.outerMm,
+    }));
   }
 
   async quoteForGroup(groupId: string): Promise<GroupQuote> {
@@ -333,31 +315,25 @@ export class ShippingService {
     return quoteService(carrier, service, parcels);
   }
 
-  /** Ghi cước ước tính từng ĐƠN (tổng cước các kiện của đơn) lên phương án — thay cho `null`. */
+  /** Ghi cước ước tính lên TỪNG KIỆN của kế hoạch (thay cho `null`). */
   async persistCosts(
     groupId: string,
     quote: ServiceQuote,
     session: ClientSession,
   ): Promise<void> {
-    const perOrder = new Map<string, number>();
-    for (const parcel of quote.parcels) {
-      if (parcel.orderId)
-        perOrder.set(
-          parcel.orderId,
-          (perOrder.get(parcel.orderId) ?? 0) + parcel.costVnd,
-        );
+    const plan = await this.planModel
+      .findOne({ order_group_id: new Types.ObjectId(groupId), is_active: true })
+      .session(session);
+    if (!plan) return;
+    const views = parcelsOfPlan(plan);
+    const set: Record<string, number> = {};
+    for (const q of quote.parcels) {
+      const view = views.find((v) => v.orderId === q.orderId && v.indexInOrder === q.cartonIndex);
+      const index = view ? plan.parcels.findIndex((p) => p.parcel_no === view.parcelNo) : -1;
+      if (index >= 0) set[`parcels.${String(index)}.shipping_cost_vnd`] = q.costVnd;
     }
-    for (const [orderId, cost] of perOrder) {
-      await this.recommendationModel.updateOne(
-        {
-          order_group_id: new Types.ObjectId(groupId),
-          order_id: new Types.ObjectId(orderId),
-          is_active: true,
-        },
-        { $set: { estimated_shipping_cost_vnd: cost } },
-        { session },
-      );
-    }
+    if (Object.keys(set).length > 0)
+      await this.planModel.updateOne({ _id: plan._id }, { $set: set }, { session });
   }
 
   private async resolveService(

@@ -1,11 +1,11 @@
 import { Types } from 'mongoose';
 import { ShippingService } from './shipping.service';
 import { SHIP_ERROR_CODES } from './shipping.errors';
-import { PackagingApprovalStatus } from '../packaging/enums/packaging-approval-status.enum';
 
 //!=============================================
 // 30/09/2026 — báo giá vận chuyển theo TỪNG KIỆN (đa kiện), cân thật ưu tiên hơn
 // cân ước tính, chiến lược đề xuất, validate bảng cước, ghi cước lên phương án.
+// 04/10/2026 — đọc kiện từ `packing_plans` (kế hoạch 1/nhóm) qua parcelsOfPlan().
 //!=============================================
 describe('ShippingService', () => {
   const groupId = new Types.ObjectId().toString();
@@ -19,7 +19,7 @@ describe('ShippingService', () => {
     findByIdAndUpdate: jest.Mock;
   };
   let settingsModel: { findOne: jest.Mock; updateOne: jest.Mock };
-  let recommendationModel: { find: jest.Mock; updateOne: jest.Mock };
+  let planModel: { findOne: jest.Mock; updateOne: jest.Mock };
   let orderGroupsService: { findOrderGroupById: jest.Mock };
   let service: ShippingService;
 
@@ -54,45 +54,28 @@ describe('ShippingService', () => {
     ],
   };
 
-  function carton(
-    index: number,
+  function parcel(
+    parcelNo: number,
     outer: typeof outerSmall,
     estimatedG: number,
     actualKg: number | null = null,
+    orderId: Types.ObjectId = orderA,
   ): Record<string, unknown> {
     return {
-      index,
-      box_code: 'M',
-      box_name: 'M',
-      box_inner_mm: outer,
-      box_outer_mm: outer,
+      parcel_no: parcelNo,
+      order_id: orderId,
+      platform_order_id: 'P-' + orderId.toString().slice(-4),
+      box: { code: 'M', name: 'M', inner_mm: outer, outer_mm: outer, tare_g: 100, max_load_g: 20000, price_vnd: 4500 },
       placements: [],
-      fill_ratio: 0.3,
-      items_weight_g: estimatedG,
-      estimated_package_weight_g: estimatedG,
-      volumetric_weight_g: 0,
-      materials: [],
-      materials_weight_g: 0,
-      materials_cost_vnd: 0,
-      actual_measured_weight_kg: actualKg,
-      is_abnormal: false,
-      packing_guide: null,
+      estimated_weight_g: estimatedG,
+      actual_weight_kg: actualKg,
+      shipping_cost_vnd: null,
     };
   }
 
-  function rec(
-    cartons: Record<string, unknown>[],
-    overrides: Record<string, unknown> = {},
-  ): Record<string, unknown> {
-    return {
-      _id: new Types.ObjectId(),
-      order_id: orderA,
-      solution_status: 'ok',
-      approval_status: PackagingApprovalStatus.APPROVED,
-      cartons,
-      carton_count: cartons.length,
-      ...overrides,
-    };
+  /** Kế hoạch đã duyệt có các kiện cho trước. */
+  function plan(parcels: Record<string, unknown>[]): Record<string, unknown> {
+    return { _id: new Types.ObjectId(), status: 'approved', is_active: true, parcels };
   }
 
   beforeEach(() => {
@@ -109,8 +92,8 @@ describe('ShippingService', () => {
       findOne: jest.fn().mockResolvedValue(null),
       updateOne: jest.fn().mockResolvedValue({}),
     };
-    recommendationModel = {
-      find: jest.fn(),
+    planModel = {
+      findOne: jest.fn(),
       updateOne: jest.fn().mockResolvedValue({}),
     };
     orderGroupsService = {
@@ -121,15 +104,15 @@ describe('ShippingService', () => {
     service = new ShippingService(
       carrierModel as never,
       settingsModel as never,
-      recommendationModel as never,
+      planModel as never,
       orderGroupsService as never,
     );
   });
 
   it('báo giá tính THEO TỪNG KIỆN: kiện cồng kềnh nhẹ tính theo thể tích, mỗi (hãng, dịch vụ) một dòng', async () => {
-    recommendationModel.find.mockResolvedValue([
-      rec([carton(0, outerSmall, 400), carton(1, outerBig, 900)]),
-    ]);
+    planModel.findOne.mockResolvedValue(
+      plan([parcel(1, outerSmall, 400), parcel(2, outerBig, 900)]),
+    );
 
     const result = await service.quoteForGroup(groupId);
 
@@ -143,9 +126,7 @@ describe('ShippingService', () => {
   });
 
   it('cân THẬT lúc pack được ưu tiên hơn cân ước tính', async () => {
-    recommendationModel.find.mockResolvedValue([
-      rec([carton(0, outerSmall, 400, 1.8)]),
-    ]);
+    planModel.findOne.mockResolvedValue(plan([parcel(1, outerSmall, 400, 1.8)]));
 
     const result = await service.quoteForGroup(groupId);
 
@@ -155,35 +136,8 @@ describe('ShippingService', () => {
     });
   });
 
-  it('bản ghi CŨ (chưa có mảng cartons) vẫn báo giá đúng 1 kiện từ field cấp phương án', async () => {
-    recommendationModel.find.mockResolvedValue([
-      rec([], {
-        box_code: 'M',
-        box_name: 'M',
-        box_inner_mm: outerSmall,
-        box_outer_mm: outerSmall,
-        placements: [],
-        materials: [],
-        estimated_package_weight_g: 400,
-        items_weight_g: 300,
-        fill_ratio: 0.2,
-        volumetric_weight_g: 500,
-        materials_weight_g: 0,
-        materials_cost_vnd: 0,
-        actual_measured_weight_kg: null,
-        is_abnormal: false,
-        packing_guide: null,
-      }),
-    ]);
-
-    const result = await service.quoteForGroup(groupId);
-    expect(result.parcelCount).toBe(1);
-  });
-
   it('đề xuất theo chiến lược: mặc định cheapest; fastest chọn dịch vụ nhanh', async () => {
-    recommendationModel.find.mockResolvedValue([
-      rec([carton(0, outerSmall, 400)]),
-    ]);
+    planModel.findOne.mockResolvedValue(plan([parcel(1, outerSmall, 400)]));
     expect((await service.quoteForGroup(groupId)).recommended).toEqual({
       carrierCode: 'C1',
       serviceCode: 'ECO',
@@ -200,25 +154,19 @@ describe('ShippingService', () => {
     });
   });
 
-  it('nhóm chưa có kiện đã duyệt → SHIP_NO_PARCELS', async () => {
-    recommendationModel.find.mockResolvedValue([]);
+  it('nhóm chưa có kế hoạch đã duyệt → SHIP_NO_PARCELS', async () => {
+    planModel.findOne.mockResolvedValue(null);
     await expect(service.quoteForGroup(groupId)).rejects.toMatchObject({
       errorCode: SHIP_ERROR_CODES.NO_PARCELS,
     });
   });
 
-  it('chỉ lấy phương án ĐÃ DUYỆT còn hiệu lực có thùng hợp lệ (truy vấn đúng bộ lọc)', async () => {
-    recommendationModel.find.mockResolvedValue([
-      rec([carton(0, outerSmall, 400)]),
-    ]);
+  it('chỉ lấy kế hoạch ĐANG HOẠT ĐỘNG đã duyệt hoặc đã đóng (truy vấn đúng bộ lọc)', async () => {
+    planModel.findOne.mockResolvedValue(plan([parcel(1, outerSmall, 400)]));
     await service.quoteForGroup(groupId);
-    const [filter] = recommendationModel.find.mock.calls[0] as [
-      Record<string, unknown>,
-    ];
-    expect(filter).toMatchObject({ is_active: true, solution_status: 'ok' });
-    expect(filter.approval_status).toEqual({
-      $in: [PackagingApprovalStatus.APPROVED, PackagingApprovalStatus.ADJUSTED],
-    });
+    const [filter] = planModel.findOne.mock.calls[0] as [Record<string, unknown>];
+    expect(filter).toMatchObject({ is_active: true });
+    expect(filter.status).toEqual({ $in: ['approved', 'packed'] });
   });
 
   it('quoteChosenService: dịch vụ không tồn tại → SHIP_SERVICE_NOT_FOUND', async () => {
@@ -235,8 +183,14 @@ describe('ShippingService', () => {
     });
   });
 
-  it('persistCosts: cộng cước các kiện của MỖI đơn rồi ghi lên phương án của đơn đó', async () => {
+  it('persistCosts: ghi cước lên ĐÚNG từng kiện của kế hoạch (theo đơn + thứ tự kiện trong đơn)', async () => {
     const orderB = new Types.ObjectId();
+    const current = plan([
+      parcel(1, outerSmall, 400),
+      parcel(2, outerSmall, 400),
+      parcel(3, outerSmall, 400, null, orderB),
+    ]);
+    planModel.findOne.mockReturnValue({ session: jest.fn().mockResolvedValue(current) });
     await service.persistCosts(
       groupId,
       {
@@ -278,14 +232,13 @@ describe('ShippingService', () => {
       },
       {} as never,
     );
-    expect(recommendationModel.updateOne).toHaveBeenCalledTimes(2);
-    const costs = recommendationModel.updateOne.mock.calls.map(
-      (call) =>
-        (
-          call as [unknown, { $set: { estimated_shipping_cost_vnd: number } }]
-        )[1].$set.estimated_shipping_cost_vnd,
-    );
-    expect(costs).toEqual([50000, 20000]);
+    expect(planModel.updateOne).toHaveBeenCalledTimes(1);
+    const [, update] = planModel.updateOne.mock.calls[0] as [unknown, { $set: Record<string, number> }];
+    expect(update.$set).toEqual({
+      'parcels.0.shipping_cost_vnd': 20000,
+      'parcels.1.shipping_cost_vnd': 30000,
+      'parcels.2.shipping_cost_vnd': 20000,
+    });
   });
 
   describe('bảng cước hợp lệ', () => {

@@ -5,11 +5,8 @@ import { AppException } from '../../common/exceptions/app-exception';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
-import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationDocument,
-} from '../packaging/schemas/packaging-recommendation.schema';
-import { cartonsOf } from '../packaging/utils/cartons.util';
+import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
+import { parcelsOfPlan, type ParcelView } from '../packing/utils/parcels.util';
 import {
   Shipment,
   ShipmentDocument,
@@ -45,8 +42,8 @@ const addressOf = (r: RecipientLike): string =>
 export class DocumentsService {
   constructor(
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
-    @InjectModel(PackagingRecommendationDoc.name)
-    private readonly recModel: Model<PackagingRecommendationDocument>,
+    @InjectModel(PackingPlan.name)
+    private readonly planModel: Model<PackingPlanDocument>,
     @InjectModel(Shipment.name)
     private readonly shipmentModel: Model<ShipmentDocument>,
     private readonly orderGroupsService: OrderGroupsService,
@@ -61,6 +58,18 @@ export class DocumentsService {
       .sort({ _id: 1 });
   }
 
+  /** Kiện của kế hoạch đang hoạt động, gom theo đơn (hợp đồng parcelsOfPlan). */
+  private async parcelsByOrder(groupId: Types.ObjectId): Promise<Map<string, ParcelView[]>> {
+    const plan = await this.planModel.findOne({ order_group_id: groupId, is_active: true });
+    const byOrder = new Map<string, ParcelView[]>();
+    for (const p of plan ? parcelsOfPlan(plan) : []) {
+      const list = byOrder.get(p.orderId) ?? [];
+      list.push(p);
+      byOrder.set(p.orderId, list);
+    }
+    return byOrder;
+  }
+
   async buildPackingSlip(groupId: string): Promise<Buffer> {
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
     const orders = await this.loadActiveOrders(group._id);
@@ -72,12 +81,7 @@ export class DocumentsService {
         { groupId },
       );
     }
-    const recs = await this.recModel.find({
-      order_group_id: group._id,
-      is_active: true,
-      order_id: { $in: orders.map((o) => o._id) },
-    });
-    const recByOrder = new Map(recs.map((r) => [String(r.order_id), r]));
+    const parcelsByOrder = await this.parcelsByOrder(group._id);
 
     const data: PackingSlipData = {
       groupId,
@@ -106,8 +110,7 @@ export class DocumentsService {
               quantity: item.quantity,
             });
         }
-        const rec = recByOrder.get(String(order._id));
-        const cartons = rec ? cartonsOf(rec) : [];
+        const parcels = parcelsByOrder.get(String(order._id)) ?? [];
         return {
           platformOrderId: order.platform_order_id,
           recipient: {
@@ -116,11 +119,11 @@ export class DocumentsService {
             address: addressOf(order.recipient),
           },
           items: [...merged.values()],
-          parcels: cartons.map((c) => ({
-            index: c.index,
-            boxCode: c.box_code,
-            boxName: c.box_name,
-            estimatedWeightG: c.estimated_package_weight_g,
+          parcels: parcels.map((p) => ({
+            index: p.parcelNo - 1,
+            boxCode: p.boxCode,
+            boxName: p.boxName,
+            estimatedWeightG: p.estimatedWeightG,
           })),
         };
       }),
@@ -142,12 +145,7 @@ export class DocumentsService {
       );
     }
     const orders = await this.loadActiveOrders(group._id);
-    const recs = await this.recModel.find({
-      order_group_id: group._id,
-      is_active: true,
-      order_id: { $in: orders.map((o) => o._id) },
-    });
-    const recByOrder = new Map(recs.map((r) => [String(r.order_id), r]));
+    const parcelsByOrder = await this.parcelsByOrder(group._id);
     const recipientOrder = orders[0];
     const recipient = recipientOrder
       ? {
@@ -159,14 +157,14 @@ export class DocumentsService {
 
     const parcels: ShippingLabelData['parcels'] = [];
     for (const order of orders) {
-      const rec = recByOrder.get(String(order._id));
-      for (const c of rec ? cartonsOf(rec) : []) {
+      for (const p of parcelsByOrder.get(String(order._id)) ?? []) {
         parcels.push({
           orderId: order.platform_order_id,
           index: 0,
           total: 0,
-          boxCode: c.box_code,
-          weightG: c.estimated_package_weight_g,
+          boxCode: p.boxCode,
+          // Nhãn in sau khi đóng: dùng cân thật nếu đã có.
+          weightG: p.actualWeightKg !== null ? Math.ceil(p.actualWeightKg * 1000) : p.estimatedWeightG,
         });
       }
     }

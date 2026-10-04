@@ -12,7 +12,7 @@ import {
   PackagingStockMovement,
   PackagingStockMovementSchema,
 } from './schemas/packaging-stock-movement.schema';
-import { PackagingRecommendationDoc } from './schemas/packaging-recommendation.schema';
+import { PackingPlan } from '../packing/schemas/packing-plan.schema';
 
 describe('PackagingBoxService', () => {
   let service: PackagingBoxService;
@@ -24,7 +24,7 @@ describe('PackagingBoxService', () => {
     findOneAndUpdate: jest.Mock;
   };
   let movementModel: { create: jest.Mock };
-  let recommendationModel: { aggregate: jest.Mock };
+  let planModel: { aggregate: jest.Mock };
 
   const validDto: CreatePackagingBoxDto = {
     code: 'CARTON-M',
@@ -45,7 +45,7 @@ describe('PackagingBoxService', () => {
       findOneAndUpdate: jest.fn(),
     };
     movementModel = { create: jest.fn().mockResolvedValue([]) };
-    recommendationModel = { aggregate: jest.fn().mockResolvedValue([]) };
+    planModel = { aggregate: jest.fn().mockResolvedValue([]) };
     const session = {
       withTransaction: jest.fn(async (fn: () => Promise<unknown>) => fn()),
       endSession: jest.fn(),
@@ -59,8 +59,8 @@ describe('PackagingBoxService', () => {
           useValue: movementModel,
         },
         {
-          provide: getModelToken(PackagingRecommendationDoc.name),
-          useValue: recommendationModel,
+          provide: getModelToken(PackingPlan.name),
+          useValue: planModel,
         },
         {
           provide: getConnectionToken(),
@@ -159,7 +159,7 @@ describe('PackagingBoxService', () => {
     });
   });
 
-  it('còn trống = tồn − số phương án chưa đóng đang giữ chỗ; loại trừ group đang tính lại', async () => {
+  it('còn trống = tồn − số kiện của kế hoạch chưa đóng đang giữ chỗ; loại trừ nhóm đang tính lại', async () => {
     const groupId = new Types.ObjectId().toString();
     boxModel.find.mockReturnValue({
       select: () => ({
@@ -170,7 +170,7 @@ describe('PackagingBoxService', () => {
           ]),
       }),
     });
-    recommendationModel.aggregate.mockResolvedValue([
+    planModel.aggregate.mockResolvedValue([
       { _id: 'M', count: 2 },
       { _id: 'L', count: 4 },
     ]);
@@ -184,7 +184,7 @@ describe('PackagingBoxService', () => {
       reorderLevel: 2,
     });
     expect(availability.get('L')?.available).toBe(0);
-    const [pipeline] = recommendationModel.aggregate.mock.calls[0] as [
+    const [pipeline] = planModel.aggregate.mock.calls[0] as [
       { $match?: Record<string, unknown> }[],
     ];
     expect(
@@ -192,26 +192,24 @@ describe('PackagingBoxService', () => {
     ).toBe(groupId);
   });
 
-  it('giữ chỗ tính theo KIỆN: pipeline trải mảng cartons, bản ghi cũ dùng box_code cấp trên (30/09/2026)', async () => {
+  it('giữ chỗ tính theo KIỆN của kế hoạch ready/approved đang hoạt động (04/10/2026)', async () => {
     boxModel.find.mockReturnValue({
       select: jest
         .fn()
         .mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }),
     });
-    recommendationModel.aggregate.mockResolvedValue([]);
+    planModel.aggregate.mockResolvedValue([]);
 
     await service.listAvailability();
 
-    const [pipeline] = recommendationModel.aggregate.mock.calls[0] as [
+    const [pipeline] = planModel.aggregate.mock.calls[0] as [
       Record<string, unknown>[],
     ];
-    const project = pipeline.find((stage) => '$project' in stage) as {
-      $project: { reserved: { $cond: unknown[] } };
-    };
-    const [, whenCartons, whenLegacy] = project.$project.reserved.$cond;
-    expect(whenCartons).toBe('$cartons.box_code');
-    expect(whenLegacy).toEqual(['$box_code']);
-    expect(pipeline.some((stage) => stage.$unwind === '$reserved')).toBe(true);
+    const match = (pipeline[0] as { $match: { is_active: boolean; status: { $in: string[] } } }).$match;
+    expect(match.is_active).toBe(true);
+    expect(match.status.$in).toEqual(['ready', 'approved']);
+    expect(pipeline.some((stage) => stage.$unwind === '$parcels')).toBe(true);
+    expect(pipeline.some((stage) => JSON.stringify(stage).includes('$parcels.box.code'))).toBe(true);
   });
 
   it('pack khi kho đã hết thùng → PKG_BOX_OUT_OF_STOCK, không ghi sổ', async () => {
@@ -219,7 +217,7 @@ describe('PackagingBoxService', () => {
     await expect(
       service.consumeForPack(
         {} as never,
-        [{ boxCode: 'M', recommendationId: new Types.ObjectId() }],
+        [{ boxCode: 'M', planId: new Types.ObjectId(), parcelNo: 1 }],
         new Types.ObjectId(),
         new Types.ObjectId().toString(),
       ),

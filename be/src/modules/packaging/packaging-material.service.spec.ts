@@ -65,7 +65,7 @@ describe('PackagingMaterialService (28/09/2026)', () => {
     it('đủ tồn → trừ đúng số lượng, ghi 1 dòng sổ, không thiếu', async () => {
       mockStock(stockDoc('FOAM', 100));
 
-      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, recommendationId: recA }], groupId, userId);
+      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, planId: recA, parcelNo: 1 }], groupId, userId);
 
       expect(result.shortfalls).toEqual([]);
       expect(result.consumed).toEqual([expect.objectContaining({ code: 'FOAM', before: 100, after: 96, reorderLevel: 20 })]);
@@ -77,9 +77,9 @@ describe('PackagingMaterialService (28/09/2026)', () => {
     it('tồn ít hơn cần → trừ phần có, ghi phần thiếu, KHÔNG ném lỗi', async () => {
       mockStock(stockDoc('FOAM', 3));
 
-      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, recommendationId: recA }], groupId, userId);
+      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, planId: recA, parcelNo: 1 }], groupId, userId);
 
-      expect(result.shortfalls).toEqual([{ recommendationId: recA, code: 'FOAM', missing: 1 }]);
+      expect(result.shortfalls).toEqual([{ planId: recA, parcelNo: 1, code: 'FOAM', missing: 1 }]);
       const [[row]] = movementModel.create.mock.calls[0] as [[{ delta: number; balance_after: number }]];
       expect(row).toMatchObject({ delta: -3, balance_after: 0 });
     });
@@ -87,9 +87,9 @@ describe('PackagingMaterialService (28/09/2026)', () => {
     it('tồn = 0 → thiếu toàn bộ, không trừ, không ghi sổ', async () => {
       mockStock(stockDoc('FOAM', 0));
 
-      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, recommendationId: recA }], groupId, userId);
+      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 4, planId: recA, parcelNo: 1 }], groupId, userId);
 
-      expect(result.shortfalls).toEqual([{ recommendationId: recA, code: 'FOAM', missing: 4 }]);
+      expect(result.shortfalls).toEqual([{ planId: recA, parcelNo: 1, code: 'FOAM', missing: 4 }]);
       expect(materialModel.findOneAndUpdate).not.toHaveBeenCalled();
       expect(movementModel.create).not.toHaveBeenCalled();
     });
@@ -97,9 +97,9 @@ describe('PackagingMaterialService (28/09/2026)', () => {
     it('vật tư không còn trong danh mục → thiếu toàn bộ, không lỗi', async () => {
       mockStock(null);
 
-      const result = await service.consumeForPack(session, [{ code: 'GONE', quantity: 2, recommendationId: recA }], groupId, userId);
+      const result = await service.consumeForPack(session, [{ code: 'GONE', quantity: 2, planId: recA, parcelNo: 1 }], groupId, userId);
 
-      expect(result.shortfalls).toEqual([{ recommendationId: recA, code: 'GONE', missing: 2 }]);
+      expect(result.shortfalls).toEqual([{ planId: recA, parcelNo: 1, code: 'GONE', missing: 2 }]);
       expect(result.consumed).toEqual([]);
     });
 
@@ -117,8 +117,8 @@ describe('PackagingMaterialService (28/09/2026)', () => {
       const result = await service.consumeForPack(
         session,
         [
-          { code: 'FOAM', quantity: 4, recommendationId: recA },
-          { code: 'FOAM', quantity: 4, recommendationId: recB },
+          { code: 'FOAM', quantity: 4, planId: recA, parcelNo: 1 },
+          { code: 'FOAM', quantity: 4, planId: recB, parcelNo: 1 },
         ],
         groupId,
         userId,
@@ -130,7 +130,7 @@ describe('PackagingMaterialService (28/09/2026)', () => {
     });
 
     it('bỏ qua dòng cần 0 đơn vị', async () => {
-      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 0, recommendationId: recA }], groupId, userId);
+      const result = await service.consumeForPack(session, [{ code: 'FOAM', quantity: 0, planId: recA, parcelNo: 1 }], groupId, userId);
       expect(result).toEqual({ consumed: [], shortfalls: [] });
       expect(materialModel.findOne).not.toHaveBeenCalled();
     });

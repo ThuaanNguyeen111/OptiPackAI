@@ -20,7 +20,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
     findOneAndUpdate: jest.Mock;
   };
   let orderModel: { countDocuments: jest.Mock; updateOne: jest.Mock };
-  let packagingRecommendationModel: { updateMany: jest.Mock };
+  let packingPlanModel: { updateMany: jest.Mock };
   let notificationsService: {
     notify: jest.Mock;
     buildGroupAutoCanceledMessage: jest.Mock;
@@ -56,7 +56,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       countDocuments: jest.fn(),
       updateOne: jest.fn().mockResolvedValue({}),
     };
-    packagingRecommendationModel = {
+    packingPlanModel = {
       updateMany: jest.fn().mockResolvedValue({}),
     };
     notificationsService = {
@@ -76,7 +76,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       {} as never, // skuBinAssignmentModel
       {} as never, // pickEventModel
       {} as never, // userModel
-      packagingRecommendationModel as never,
+      packingPlanModel as never,
       notificationsService as never,
       {} as never, // staffAssignmentService
       {} as never, // connection
@@ -111,7 +111,6 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
         _id: groupId,
         fulfillment_status: GroupFulfillmentStatus.PICKING,
         __v: 0,
-        active_packaging_recommendation: null,
       });
       orderModel.countDocuments.mockResolvedValue(1); // còn 1 đơn fulfill được
 
@@ -127,7 +126,6 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
         _id: groupId,
         fulfillment_status: GroupFulfillmentStatus.PACKED,
         __v: 0,
-        active_packaging_recommendation: null,
       });
 
       await service.cancelIfAllOrdersUnfulfillable(groupId);
@@ -138,12 +136,10 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
 
     it('nhóm đang PICKING, KHÔNG còn đơn nào fulfill được -> tự động CANCELED + nhả giữ chỗ + notify 2 role', async () => {
       const groupId = new Types.ObjectId().toString();
-      const activeRecommendationId = new Types.ObjectId();
       orderGroupModel.findById.mockResolvedValue({
         _id: groupId,
         fulfillment_status: GroupFulfillmentStatus.PICKING,
         __v: 3,
-        active_packaging_recommendation: activeRecommendationId,
         assigned_staff_id: null,
       });
       orderModel.countDocuments.mockResolvedValue(0); // hết đơn fulfill được
@@ -157,11 +153,10 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
 
       await service.cancelIfAllOrdersUnfulfillable(groupId);
 
-      // Vô hiệu MỌI recommendation active của group (mỗi đơn 1 bản), không
-      // chỉ bản mà con trỏ active_packaging_recommendation trỏ tới.
-      expect(packagingRecommendationModel.updateMany).toHaveBeenCalledWith(
-        { order_group_id: expect.anything() as unknown, is_active: true },
-        { $set: { is_active: false } },
+      // (04/10/2026) Kế hoạch đóng gói đang hoạt động (chưa đóng) → superseded, nhả giữ chỗ thùng.
+      expect(packingPlanModel.updateMany).toHaveBeenCalledWith(
+        { order_group_id: expect.anything() as unknown, is_active: true, status: { $ne: 'packed' } },
+        { $set: { is_active: false, status: 'superseded' } },
       );
       // Store Owner + Admin (broadcast theo role) — 2 lời gọi notify tối thiểu.
       expect(
@@ -194,7 +189,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       expect(update.$set.fulfillment_status).toBe(
         GroupFulfillmentStatus.PICKED,
       );
-      expect(packagingRecommendationModel.updateMany).toHaveBeenCalledTimes(1);
+      expect(packingPlanModel.updateMany).toHaveBeenCalledTimes(1);
       expect(notificationsService.notify).toHaveBeenCalledTimes(2);
     });
 
@@ -210,7 +205,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       await service.handleOrderBecameUnfulfillable(groupId);
 
       expect(orderGroupModel.findOneAndUpdate).not.toHaveBeenCalled();
-      expect(packagingRecommendationModel.updateMany).not.toHaveBeenCalled();
+      expect(packingPlanModel.updateMany).not.toHaveBeenCalled();
     });
   });
 

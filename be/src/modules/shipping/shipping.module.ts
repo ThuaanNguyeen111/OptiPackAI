@@ -1,12 +1,9 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
-// Đăng ký LẠI schema phương án đóng gói (KHÔNG import PackagingModule) — cùng
+// Đăng ký LẠI schema kế hoạch đóng gói (KHÔNG import PackingModule) — cùng
 // pattern cross-module đã dùng ở OrderGroupsModule, tránh vòng lặp import.
-import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationSchema,
-} from '../packaging/schemas/packaging-recommendation.schema';
+import { PackingPlan, PackingPlanSchema } from '../packing/schemas/packing-plan.schema';
 import {
   ShippingCarrier,
   ShippingCarrierSchema,
@@ -23,10 +20,7 @@ import { ShippingService } from './shipping.service';
     MongooseModule.forFeature([
       { name: ShippingCarrier.name, schema: ShippingCarrierSchema },
       { name: ShippingSettings.name, schema: ShippingSettingsSchema },
-      {
-        name: PackagingRecommendationDoc.name,
-        schema: PackagingRecommendationSchema,
-      },
+      { name: PackingPlan.name, schema: PackingPlanSchema },
     ]),
     OrderGroupsModule,
   ],

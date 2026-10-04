@@ -1,15 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
-import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationSchema,
-} from './schemas/packaging-recommendation.schema';
-import {
-  OrderGroup,
-  OrderGroupSchema,
-} from '../order-groups/schemas/order-group.schema';
-import { PackagingService } from './packaging.service';
-import { PackagingController, PackagingPackController } from './packaging.controller';
+import { PackingPlan, PackingPlanSchema } from '../packing/schemas/packing-plan.schema';
 import { PackagingBox, PackagingBoxSchema } from './schemas/packaging-box.schema';
 import {
   PackagingStockMovement,
@@ -35,17 +26,18 @@ import {
 } from './schemas/packaging-material-rules.schema';
 import { PackagingMaterialService } from './packaging-material.service';
 import { PackagingMaterialController } from './packaging-material.controller';
-import { OrderGroupsModule } from '../order-groups/order-groups.module';
-import { NotificationsModule } from '../notifications/notifications.module';
 
+/**
+ * Danh mục thùng / túi zip / vật tư chèn + tồn kho + hướng dẫn AI.
+ * (04/10/2026) Luồng phương án cũ (`packaging_recommendations`, route
+ * `order-groups/:id/packaging/*`) đã chuyển sang module `packing/`
+ * (`packing_plans`). Schema PackingPlan đăng ký ở đây CHỈ để tính giữ chỗ
+ * thùng (listAvailability) — không import PackingModule (tránh vòng).
+ */
 @Module({
   imports: [
     MongooseModule.forFeature([
-      {
-        name: PackagingRecommendationDoc.name,
-        schema: PackagingRecommendationSchema,
-      },
-      { name: OrderGroup.name, schema: OrderGroupSchema },
+      { name: PackingPlan.name, schema: PackingPlanSchema },
       { name: PackagingBox.name, schema: PackagingBoxSchema },
       { name: PackagingBag.name, schema: PackagingBagSchema },
       { name: PackagingStockMovement.name, schema: PackagingStockMovementSchema },
@@ -53,26 +45,18 @@ import { NotificationsModule } from '../notifications/notifications.module';
       { name: PackagingMaterialMovement.name, schema: PackagingMaterialMovementSchema },
       { name: PackagingMaterialRules.name, schema: PackagingMaterialRulesSchema },
     ]),
-    NotificationsModule,
-    // generate()/reject()/pack() gọi NotificationsService (Packaging Staff /
-    // Admin / Store Owner) — thiếu import này thì Nest không inject được,
-    // app CRASH ngay lúc khởi động (tsc/eslint/jest đều không bắt).
-    OrderGroupsModule, // export OrderGroupsService — findOrderGroupById/allocatePickedItemsToOrders/transitionFulfillmentStatus
   ],
   controllers: [
-    PackagingController,
-    PackagingPackController,
     PackagingBoxController,
     PackagingBagController,
     PackagingMaterialController,
   ],
   providers: [
-    PackagingService,
     PackagingBoxService,
     PackagingBagService,
     PackagingMaterialService,
     PackingGuideAiService,
   ],
-  exports: [PackagingService, PackagingBoxService, PackagingBagService, PackagingMaterialService],
+  exports: [PackagingBoxService, PackagingBagService, PackagingMaterialService, PackingGuideAiService],
 })
 export class PackagingModule {}

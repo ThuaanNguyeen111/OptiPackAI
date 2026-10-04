@@ -7,10 +7,10 @@ import {
   PackagingStockMovementDocument,
 } from './schemas/packaging-stock-movement.schema';
 import {
-  PackagingRecommendationDoc,
-  PackagingRecommendationDocument,
-} from './schemas/packaging-recommendation.schema';
-import { PackagingApprovalStatus } from './enums/packaging-approval-status.enum';
+  PackingPlan,
+  PackingPlanDocument,
+  RESERVING_PLAN_STATUSES,
+} from '../packing/schemas/packing-plan.schema';
 import { CreatePackagingBoxDto, UpdatePackagingBoxDto } from './dto/packaging-box.dto';
 import { AppException } from '../../common/exceptions/app-exception';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
@@ -61,53 +61,36 @@ export class PackagingBoxService {
     private readonly boxModel: Model<PackagingBoxDocument>,
     @InjectModel(PackagingStockMovement.name)
     private readonly movementModel: Model<PackagingStockMovementDocument>,
-    @InjectModel(PackagingRecommendationDoc.name)
-    private readonly recommendationModel: Model<PackagingRecommendationDocument>,
+    @InjectModel(PackingPlan.name)
+    private readonly planModel: Model<PackingPlanDocument>,
     @InjectConnection() private readonly connection: Connection,
   ) {}
 
   /**
    * ===================================================================
-   * Tồn kho thùng (22/09/2026)
+   * Tồn kho thùng (22/09/2026; đọc `packing_plans` từ 04/10/2026)
    * ===================================================================
-   * Giữ chỗ mềm: thùng đã được phương án đang chờ duyệt / đã duyệt nhưng
-   * chưa đóng chọn thì không tính là còn trống. `exclude.groupId` = group
-   * đang tính lại (phương án cũ sắp bị thay); `exclude.recommendationId` =
-   * phương án đang adjust (chỗ nó giữ sắp được trả lại).
+   * Giữ chỗ mềm: mỗi KIỆN của kế hoạch đang hoạt động ở trạng thái `ready`
+   * (chờ duyệt) hoặc `approved` (chờ đóng) giữ 1 thùng. Kế hoạch đã đóng thì
+   * thùng đã bị trừ tồn thật nên không tính nữa. `exclude.groupId` = nhóm
+   * đang tính lại; `exclude.planId` = kế hoạch đang chỉnh tay (chỗ nó giữ
+   * sắp được trả lại).
    */
   async listAvailability(
-    exclude: { groupId?: string; recommendationId?: Types.ObjectId } = {},
+    exclude: { groupId?: string; planId?: Types.ObjectId } = {},
   ): Promise<Map<string, BoxAvailability>> {
     const match: Record<string, unknown> = {
       is_active: true,
-      solution_status: 'ok',
-      packed_at: null,
-      box_code: { $ne: null },
-      approval_status: {
-        $in: [PackagingApprovalStatus.PENDING, PackagingApprovalStatus.APPROVED, PackagingApprovalStatus.ADJUSTED],
-      },
+      status: { $in: RESERVING_PLAN_STATUSES },
     };
     if (exclude.groupId) match.order_group_id = { $ne: new Types.ObjectId(exclude.groupId) };
-    if (exclude.recommendationId) match._id = { $ne: exclude.recommendationId };
+    if (exclude.planId) match._id = { $ne: exclude.planId };
     const [boxes, reservedRows] = await Promise.all([
       this.boxModel.find({ is_active: true }).select('code quantity_on_hand reorder_level').lean(),
-      // (30/09/2026) Đa kiện: mỗi KIỆN giữ 1 thùng. Bản ghi cũ chưa có `cartons`
-      // giữ 1 thùng theo `box_code` cấp trên.
-      this.recommendationModel.aggregate<{ _id: string; count: number }>([
+      this.planModel.aggregate<{ _id: string; count: number }>([
         { $match: match },
-        {
-          $project: {
-            reserved: {
-              $cond: [
-                { $gt: [{ $size: { $ifNull: ['$cartons', []] } }, 0] },
-                '$cartons.box_code',
-                ['$box_code'],
-              ],
-            },
-          },
-        },
-        { $unwind: '$reserved' },
-        { $group: { _id: '$reserved', count: { $sum: 1 } } },
+        { $unwind: '$parcels' },
+        { $group: { _id: '$parcels.box.code', count: { $sum: 1 } } },
       ]),
     ]);
     const reservedByCode = new Map(reservedRows.map((r) => [r._id, r.count]));
@@ -168,7 +151,7 @@ export class PackagingBoxService {
    */
   async consumeForPack(
     session: ClientSession,
-    packages: { boxCode: string; recommendationId: Types.ObjectId }[],
+    packages: { boxCode: string; planId: Types.ObjectId; parcelNo: number }[],
     groupId: Types.ObjectId,
     userId: string,
   ): Promise<ConsumedBox[]> {
@@ -182,7 +165,7 @@ export class PackagingBoxService {
       if (!updated) {
         throw new AppException(
           PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
-          `Kho đã hết thùng "${pkg.boxCode}" — nhập thêm thùng hoặc đổi thùng (adjust) trước khi xác nhận đóng.`,
+          `Kho đã hết thùng "${pkg.boxCode}" — nhập thêm thùng hoặc đổi thùng cho kiện ${String(pkg.parcelNo)} trước khi xác nhận đóng.`,
           HttpStatus.CONFLICT,
           { boxCode: pkg.boxCode },
         );
@@ -196,7 +179,8 @@ export class PackagingBoxService {
             reason: 'pack',
             balance_after: updated.quantity_on_hand,
             order_group_id: groupId,
-            recommendation_id: pkg.recommendationId,
+            packing_plan_id: pkg.planId,
+            parcel_no: pkg.parcelNo,
             user_id: new Types.ObjectId(userId),
           },
         ],
