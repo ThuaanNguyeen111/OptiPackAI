@@ -283,6 +283,20 @@ export class MarketplaceIntegrationService {
   }
 
   /**
+   * 04/10/2026 — ghi mốc đồng bộ catalog sản phẩm (Product Master) thành công.
+   * Đặt ở module sở hữu collection marketplace_shops, module khác không ghi thẳng.
+   */
+  async markShopProductsSynced(
+    shopMongoId: Types.ObjectId,
+    syncedAt: Date,
+  ): Promise<void> {
+    await this.marketplaceShopModel.updateOne(
+      { _id: shopMongoId },
+      { $set: { last_product_synced_at: syncedAt } },
+    );
+  }
+
+  /**
    * quét shop nào sắp hết hạn token nhờ ĐÚNG partial index đã khai báo.
    */
   async findShopsWithExpiringToken(): Promise<MarketplaceShopDocument[]> {
