@@ -531,8 +531,8 @@ function StockSuggestionCard({ plan, vi, isAdmin }: { plan: PackingPlan; vi: boo
       </h2>
       <p className="mt-1 text-xs leading-relaxed text-ink-muted">
         {vi
-          ? 'Kho đang thiếu thùng vừa hơn nên phải dùng thùng to/nhiều kiện. Nhập thêm thùng dưới đây rồi bấm "Tính lại…" để dùng.'
-          : 'A better-fitting box is out of stock, so larger boxes were used. Restock the boxes below, then recompute.'}
+          ? 'Phương án hiện tại là tốt nhất với thùng đang còn trong kho. Kho thiếu thùng vừa hơn nên phải dùng thùng to/nhiều kiện — nhập thêm thùng dưới đây rồi bấm "Tính lại…" để dùng.'
+          : 'The current plan is the best with the boxes in stock. A better-fitting box is out of stock — restock the boxes below, then recompute.'}
       </p>
       <ul className="mt-3 space-y-3">
         {rows.map(({ order, s }) => (

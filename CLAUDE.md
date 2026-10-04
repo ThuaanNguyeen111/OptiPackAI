@@ -2683,3 +2683,20 @@ User hỏi vì sao đã kết nối storefront bằng app key mà màn Kết n�
 Không trùng đơn: Open API AURELLE hiện là mock dữ liệu mẫu riêng, không đọc đơn storefront. Nếu sau này Open API AURELLE thật trả chính đơn storefront thì phải chọn 1 trong 2 luồng, nếu không sẽ có 2 bản đơn khác `shop_id`.
 
 Verify: BE `tsc` 0 lỗi, lint 0 lỗi, jest 43 suite / 502 test; FE `tsc -b` + eslint file đã sửa sạch. Chưa bấm thử kết nối thật trên trình duyệt (cần chạy mock `aurelle-mock-server.ts` cổng 4000).
+
+## Tăng lấp đầy đơn nhiều kiện — gợi ý kho thùng, thùng L thấp, chia đều (04/10/2026) — ĐÃ TRIỂN KHAI
+
+**Bối cảnh**: user hỏi vì sao đơn sỉ DEMO-AI-51 (40 áo + 12 quần jean) ra 5 kiện L lấp 54–79% và có tối ưu thêm được không. Đã đo trước khi code (chạy trong bộ nhớ, không sửa file):
+- **Thuật toán không phải nút thắt**: 24 lần chạy (gập theo luật / gập tự do × có/không gập × 6 seed, ngân sách lớn) đều 5 kiện. 5 thùng L thì lấp TB bắt buộc 63% (220 L hàng ÷ 350 L).
+- **Nút thắt là kho/danh mục thùng**: thùng M duy nhất bị nhóm khác giữ chỗ. Có M → 74%; thêm cỡ L thấp 50×40×20 → 76%.
+- **[stated] Bỏ phần chứng minh 5 kiện là tối thiểu**: đã thử cận DFF Fekete–Schepers (gộp và theo mẫu thùng) — yếu hơn thực tế vì hàng gập/xoay (DFF cho 1 thùng chứa 20 áo, thật chỉ 16); muốn chứng minh phải hỏi CP-SAT từng mẫu thùng 13–17 món, không chắc ra. User chọn ghi rõ lý do trên UI thay vì làm.
+
+**Đã làm** (commit `cf771c5`, `0008b9e` + docs):
+- **Bộ giải v2** (`brkga-ems-v2`, `solve-order.ts`): bước 2c `balanceParcels` — giải lại cặp kiện lệch tải nhất CHỈ với đúng các thùng cặp đó đang dùng, nhận khi cả kế hoạch tốt hơn theo mục tiêu bậc ⇒ không bao giờ thêm kiện/đổi thùng đắt hơn/gập thêm. Tách helper `resolveSubset()` dùng chung với `mergeParcels`. Tuỳ chọn `SolveOptions.balance` (mặc định bật) để so có/không. Đo 300 đơn: 0 đơn đổi số kiện/tiền; chênh cân TB kiện nặng–nhẹ 1,40 → 1,30 kg (9 đơn đều hơn, 63 giữ nguyên, 2 lệch cân hơn chút vì thước đo gồm cả thể tích). Kết quả benchmark so engine cũ vẫn 0 thua: `scripts/benchmark-results/solver-v2.json`.
+- **Gợi ý kho thùng** (`packing/utils/stock-suggestion.util.ts` `suggestStock`): khi có thùng tồn trống < số món của đơn, giải thêm 1 lần "giả định đủ tồn" (cùng seed); chỉ ghi khi tốt hơn và có thùng thật sự thiếu. Lưu `packing_plans.orders[].stock_suggestion` (sub-schema `PlanStockSuggestion`/`PlanMissingBox`, default null), response `stockSuggestion`, `totals.avgFill`, thêm 1 dòng `explanation`. FE thẻ "Gợi ý kho thùng" + "lấp đầy x%" ở header màn làm việc. Gợi ý chụp LÚC TÍNH; đổi thùng/chuyển món không tính lại.
+- **Giải thích đơn lớn**: đơn > `PACKER_MAX_UNITS` mà `heuristic` → dòng nói rõ cận dưới chỉ theo thể tích/cân/đáy; CP-SAT chưa bật → dòng báo. FE đổi hint nhãn `heuristic`.
+- **Dữ liệu mẫu**: `SAMPLE-LT` (lòng 500×400×200, ngoài 506×406×206, bì 260 g, tải 15 kg, 6.000 đ) trong `seed-ai-guide-demo.ts` (tồn 20) và `seed-packaging-boxes.ts`. Giữ M = 1 để demo có ví dụ gợi ý. `sampleBoxes()` của test KHÔNG thêm LT (giữ benchmark cũ so sánh được).
+- **Seed lại DB demo** (04/10): DEMO-AI-51 → 3 L + 2 L thấp, lấp TB 63% → 76%, 40.000 → 36.000 đ, chênh cân vẫn 2,2–4,8 kg (chia đều hạn chế vì không được đổi thùng/gập). Nhóm 3 (DEMO-AI-32) có gợi ý "thiếu SAMPLE-M: 23% → 54%, rẻ hơn 3.100 đ".
+- Verify: `tsc` 0 lỗi (ngoài 2 script aurelle của phiên khác), `lint:ci` 0 lỗi, jest 42 suite / 505 test; FE `tsc -b` + eslint; chụp màn headless (giả lập API bằng dữ liệu DB) thấy thẻ gợi ý + lấp đầy TB.
+
+**⚠️ Sự cố commit — bài học**: cùng lúc có PHIÊN KHÁC làm việc trên repo (commit Aurelle `9b4ddd3`) và đã `git add` sẵn file của họ. `git add <file của mình> && git commit` đã gom luôn file họ đang stage (Aurelle connect panel FE, `listShops` marketplace, vài dòng CLAUDE.md/API_LIST/INTEGRATION_GUIDE_ORDERS) vào commit `cf771c5` mang tên việc của mình; git báo `cannot lock ref 'HEAD'`. Không mất code, KHÔNG viết lại lịch sử (phiên kia đang chạy). **Quy tắc**: khi repo có thể có phiên khác, commit bằng pathspec `git commit -m ... -- <đúng các file của mình>` (chỉ lấy đúng các file đó, bỏ qua phần khác đang stage) và kiểm `git show --stat` sau mỗi commit.

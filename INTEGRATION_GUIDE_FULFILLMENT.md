@@ -126,6 +126,12 @@ Body `{ "expected_version": 3 }`. Kế hoạch `ready → approved`, nhóm `pend
 - **Tính lại có điều kiện** `POST .../packing-plan/recompute` `{ expected_version, exclude_box_codes?, prefer? }`: dùng khi thực tế khác dữ liệu (thùng hỏng → loại thùng; muốn rẻ hơn → `prefer: "cheapest"`, chế độ này không chạy chứng minh). Kế hoạch cũ chuyển `superseded`, tính mới ngay (đồng bộ, vài trăm ms tới vài giây).
 - **`reject`** `{ expected_version, reason }` (3–500 ký tự): **chỉ** khi nhóm phải đóng ngoài hệ thống (thùng gỗ, hàng đặc biệt). Kế hoạch `rejected` vẫn giữ để job không tự tính lại; nhóm về `picked`; thông báo Admin (`packaging_rejected`). Muốn quay lại hệ thống → `recompute`.
 
+### 🆕 Gợi ý kho thùng, chia đều kiện, đơn lớn (04/10/2026)
+- **Gợi ý kho thùng** (`orders[].stockSuggestion`): khi kho hết thùng vừa hơn nên đơn phải dùng thùng to/nhiều kiện, lúc tính hệ thống giải thêm 1 lần "giả định kho đủ thùng". Nếu cách đó tốt hơn (theo đúng thứ tự mục tiêu), kế hoạch ghi thùng nào thiếu (`needed` vs `available` — `available` đã trừ thùng nhóm khác đang giữ chỗ), số kiện và lấp đầy TB trước/sau, tiền chênh (`savingVnd`). Kèm 1 dòng trong `explanation`. Màn `/app/packing/:groupId` hiện thẻ "Gợi ý kho thùng" (Admin có link tới danh mục thùng). Nhãn chứng minh vẫn đúng: phương án là tối ưu **với thùng đang có**; gợi ý cho biết nhập thêm thùng thì tốt hơn bao nhiêu. Nhập thùng xong bấm "Tính lại…" để dùng.
+- **Chia đều kiện** (bộ giải `brkga-ems-v2`): sau khi chọn số kiện/thùng, bộ giải thử xếp lại cặp kiện lệch tải nhất với **đúng các thùng đó** — không bao giờ thêm kiện, đổi sang thùng đắt hơn hay gập thêm món chỉ để chia đều. Hiệu quả vừa phải: trên 300 đơn mẫu, chênh cân TB giữa kiện nặng nhất và nhẹ nhất giảm 1,40 → 1,30 kg.
+- **Đơn lớn hơn giới hạn CP-SAT (12 món)** mà chưa chứng minh được: `explanation` ghi rõ cận dưới chỉ tính theo thể tích/cân/diện tích đáy nên có thể thấp hơn mức xếp được thật. Chứng minh số kiện tối thiểu cho đơn lớn (gập + xoay) chưa làm được bằng cận dưới thông thường — đã thử cận Fekete–Schepers, không đủ mạnh.
+- `totals.avgFill` (header màn làm việc: "lấp đầy x%"). Ví dụ đơn sỉ 40 áo + 12 quần: chỉ có thùng L → 5 kiện, 63%; thêm thùng `SAMPLE-LT` 50×40×20 → 3 L + 2 L thấp, 76%, rẻ hơn 4.000 đ.
+
 ### Khi nào kế hoạch bị thay
 - Một đơn trong nhóm bị hủy sau khi đã có kế hoạch → kế hoạch `superseded`, nhóm về `picked`, thông báo `packaging_plan_invalidated` (Packaging Staff + Admin) → job tự tính lại cho phần còn lại.
 - Cả nhóm bị hủy (N1, Nghiệp vụ 7) → kế hoạch `superseded`, nhả giữ chỗ thùng.
