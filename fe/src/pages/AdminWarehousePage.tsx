@@ -10,6 +10,8 @@ import {
   Plus,
   RefreshCw,
   ScanLine,
+  Search,
+  X,
 } from 'lucide-react'
 import {
   createCategory,
@@ -33,7 +35,14 @@ import {
   TableRow,
 } from '../components/ui/table'
 import { usePortal } from '../context/use-portal'
+import { listColors, type ColorRecord } from '../api/catalog.api'
 import { useAdminWarehouse } from '../hooks/useAdminWarehouse'
+import {
+  ColorsTab,
+  LinkSkuTab,
+  MasterSkuTab,
+  ReconcileTab,
+} from './admin-warehouse/CatalogPanels'
 import { cn } from '../lib/cn'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import { AdminToast } from '../modules/admin/components/AdminToast'
@@ -52,20 +61,24 @@ const rowActionClass =
 const rowOffClass =
   'inline-flex h-7 cursor-pointer items-center rounded-md border border-hairline bg-surface-1 px-2 text-[11px] font-medium text-ink transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-200'
 
+const stockActionLabelClass = 'w-16 shrink-0 text-[11px] text-ink-muted'
+
+const formCardClass = 'rounded-lg border border-hairline bg-surface-2/40 p-3'
+
 const fieldClass =
   'w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
-type TabId = 'zones' | 'categories' | 'bins' | 'assign' | 'stock' | 'picking'
-
-function pad2(value: number): string {
-  return String(value).padStart(2, '0')
-}
+type AreaId = 'catalog' | 'warehouse'
+type CatalogTabId = 'categories' | 'master' | 'link'
+type WarehouseTabId = 'layout' | 'assign' | 'stock' | 'picking'
 
 export function AdminWarehousePage() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
   const api = useAdminWarehouse()
-  const [tab, setTab] = useState<TabId>('zones')
+  const [area, setArea] = useState<AreaId>('catalog')
+  const [catalogTab, setCatalogTab] = useState<CatalogTabId>('categories')
+  const [warehouseTab, setWarehouseTab] = useState<WarehouseTabId>('layout')
   const [toast, setToast] = useState<string | null>(null)
   const [pickedBinId, setPickedBinId] = useState('')
 
@@ -74,13 +87,27 @@ export function AdminWarehousePage() {
     window.setTimeout(() => setToast(null), 2800)
   }
 
-  const tabs: Array<{ id: TabId; labelVi: string; labelEn: string }> = [
-    { id: 'zones', labelVi: 'Khu', labelEn: '2. Zones' },
-    { id: 'categories', labelVi: 'Danh mục', labelEn: 'Categories' },
-    { id: 'bins', labelVi: 'Kệ', labelEn: '3. Bins' },
-    { id: 'assign', labelVi: 'SKU', labelEn: '4. Assign SKU' },
-    { id: 'stock', labelVi: 'Nhập tồn', labelEn: 'Restock' },
-    { id: 'picking', labelVi: 'Danh sách lấy hàng', labelEn: 'Picking list' },
+  function openCatalog(next: CatalogTabId) {
+    setArea('catalog')
+    setCatalogTab(next)
+  }
+
+  function openWarehouse(next: WarehouseTabId) {
+    setArea('warehouse')
+    setWarehouseTab(next)
+  }
+
+  const catalogTabs: Array<{ id: CatalogTabId; labelVi: string; labelEn: string }> = [
+    { id: 'categories', labelVi: 'Danh mục & màu', labelEn: 'Categories & colors' },
+    { id: 'master', labelVi: 'SKU nội bộ', labelEn: 'Internal SKUs' },
+    { id: 'link', labelVi: 'Nối SKU Lazada', labelEn: 'Map Lazada SKUs' },
+  ]
+
+  const warehouseTabs: Array<{ id: WarehouseTabId; labelVi: string; labelEn: string }> = [
+    { id: 'layout', labelVi: 'Khu & kệ', labelEn: 'Zones & racks' },
+    { id: 'assign', labelVi: 'Gán SKU vào ô', labelEn: 'Assign to bin' },
+    { id: 'stock', labelVi: 'Tồn kho', labelEn: 'Stock' },
+    { id: 'picking', labelVi: 'Lộ trình lấy', labelEn: 'Picking route' },
   ]
 
   return (
@@ -95,24 +122,32 @@ export function AdminWarehousePage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-semibold tracking-tight text-ink">
-                {vi ? 'Cấu hình kho' : 'Warehouse configuration'}
-              </h1>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold tracking-tight text-ink">
+              {vi ? 'Cấu hình kho' : 'Warehouse configuration'}
+            </h1>
+            <div className="inline-flex rounded-lg border border-hairline bg-surface-1 p-1">
+              {(
+                [
+                  { id: 'catalog', labelVi: 'Sản phẩm', labelEn: 'Products' },
+                  { id: 'warehouse', labelVi: 'Kho hàng', labelEn: 'Warehouses' },
+                ] as const
+              ).map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setArea(item.id)}
+                  className={cn(
+                    'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    area === item.id
+                      ? 'bg-primary/15 text-primary-hover'
+                      : 'text-ink-subtle hover:text-ink',
+                  )}
+                >
+                  {vi ? item.labelVi : item.labelEn}
+                </button>
+              ))}
             </div>
-            <Button
-              variant="secondary"
-              className="h-9 gap-1.5 text-xs"
-              disabled={api.loading || api.mutating}
-              onClick={() => {
-                void api.reload()
-                void api.reloadUnassigned()
-              }}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {vi ? 'Tải lại' : 'Reload'}
-            </Button>
           </div>
 
           {api.error ? (
@@ -129,133 +164,309 @@ export function AdminWarehousePage() {
             </div>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-            <WarehouseListPanel
-              vi={vi}
-              api={api}
-              onCreated={() => {
-                showToast(vi ? 'Đã tạo kho.' : 'Warehouse created.')
-                setTab('zones')
-              }}
-            />
-
-            <section className="min-w-0 rounded-xl border border-hairline bg-surface-1">
-              {!api.selectedWarehouse ? (
-                <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-                  <Boxes className="h-8 w-8 text-ink-tertiary" />
-                  <p className="text-sm font-medium text-ink">
-                    {vi ? 'Chưa có kho nào' : 'No warehouse yet'}
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div className="border-b border-hairline px-4 py-3">
-                    <p className="text-sm font-semibold text-ink">
-                      {api.selectedWarehouse.warehouseName}
-                    </p>
-                    <p className="mt-0.5 text-xs text-ink-muted">
-                      {api.selectedWarehouse.warehouseCode} ·{' '}
-                      {api.selectedWarehouse.address}
-                      {api.selectedWarehouse.isActive
-                        ? ''
-                        : vi
-                          ? ' · Đang tắt'
-                          : ' · Inactive'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-1 border-b border-hairline p-2">
-                    {tabs.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => setTab(item.id)}
-                        className={cn(
-                          'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
-                          tab === item.id
-                            ? 'bg-primary/15 text-primary-hover'
-                            : 'text-ink-subtle hover:bg-surface-2 hover:text-ink',
-                        )}
-                      >
-                        {vi ? item.labelVi : item.labelEn}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="p-4">
-                    {tab === 'zones' ? (
-                      <ZonesTab
-                        vi={vi}
-                        api={api}
-                        onNotice={showToast}
-                        onCreated={() => {
-                          showToast(vi ? 'Đã tạo khu.' : 'Zone created.')
-                          setTab('bins')
-                        }}
-                      />
-                    ) : null}
-                    {tab === 'categories' ? (
+          {area === 'catalog' ? (
+            <section className="rounded-xl border border-hairline bg-surface-1">
+              <div className="border-b border-hairline px-4 py-3">
+                <p className="text-sm font-semibold text-ink">
+                  {vi ? 'Sản phẩm' : 'Products — shared by every warehouse'}
+                </p>
+              </div>
+              <TabBar
+                tabs={catalogTabs}
+                active={catalogTab}
+                vi={vi}
+                onChange={setCatalogTab}
+              />
+              <div className="p-4">
+                {catalogTab === 'categories' ? (
+                  <div className="space-y-6">
+                    <PanelSection title={vi ? 'Danh mục' : 'Categories'}>
                       <CategoriesTab
                         vi={vi}
                         onNotice={showToast}
-                        onReadyForBins={() => setTab('bins')}
+                        onReadyForBins={() => openWarehouse('layout')}
                       />
-                    ) : null}
-                    {tab === 'bins' ? (
-                      <BinsTab
-                        vi={vi}
-                        api={api}
-                        onNotice={showToast}
-                        onOpenCategories={() => setTab('categories')}
-                        onGenerated={(created) =>
-                          showToast(
-                            vi
-                              ? `Đã sinh ${created} kệ mới.`
-                              : `Created ${created} new bins.`,
-                          )
-                        }
-                        onPickBin={(binId) => {
-                          setPickedBinId(binId)
-                          setTab('assign')
-                        }}
-                      />
-                    ) : null}
-                    {tab === 'assign' ? (
-                      <AssignTab
-                        vi={vi}
-                        api={api}
-                        binId={pickedBinId}
-                        onBinIdChange={setPickedBinId}
-                        onAssigned={() =>
-                          showToast(
-                            vi
-                              ? 'Đã gán SKU vào kệ.'
-                              : 'SKU assigned to bin.',
-                          )
-                        }
-                      />
-                    ) : null}
-                    {tab === 'stock' ? (
-                      <StockTab
-                        vi={vi}
-                        api={api}
-                        onRestocked={() =>
-                          showToast(vi ? 'Đã nhập thêm hàng.' : 'Stock added.')
-                        }
-                      />
-                    ) : null}
-                    {tab === 'picking' ? (
-                      <PickingTab vi={vi} warehouseId={api.selectedWarehouse.id} />
-                    ) : null}
+                    </PanelSection>
+                    <PanelSection title={vi ? 'Màu' : 'Colors'}>
+                      <ColorsTab vi={vi} onNotice={showToast} />
+                    </PanelSection>
                   </div>
-                </>
-              )}
+                ) : null}
+                {catalogTab === 'master' ? <MasterSkuTab vi={vi} onNotice={showToast} /> : null}
+                {catalogTab === 'link' ? (
+                  <div className="space-y-6">
+                    <PanelSection title={vi ? 'Đồng bộ và nối SKU sàn' : 'Sync and map seller SKUs'}>
+                      <LinkSkuTab vi={vi} onNotice={showToast} />
+                    </PanelSection>
+                    <PanelSection title={vi ? 'Gộp tồn' : 'Pool stock'}>
+                      <ReconcileTab vi={vi} onNotice={showToast} />
+                    </PanelSection>
+                  </div>
+                ) : null}
+              </div>
             </section>
-          </div>
+          ) : (
+            <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
+              <WarehouseListPanel
+                vi={vi}
+                api={api}
+                onCreated={() => {
+                  showToast(vi ? 'Đã tạo kho.' : 'Warehouse created.')
+                  setWarehouseTab('layout')
+                }}
+              />
+
+              <section className="min-w-0 rounded-xl border border-hairline bg-surface-1">
+                {!api.selectedWarehouse ? (
+                  <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+                    <Boxes className="h-8 w-8 text-ink-tertiary" />
+                    <p className="text-sm font-medium text-ink">
+                      {vi ? 'Chưa có kho nào' : 'No warehouse yet'}
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <WarehouseHeader vi={vi} api={api} />
+                    <TabBar
+                      tabs={warehouseTabs}
+                      active={warehouseTab}
+                      vi={vi}
+                      onChange={setWarehouseTab}
+                    />
+                    <div className="p-4">
+                      {warehouseTab === 'layout' ? (
+                        <div className="space-y-6">
+                          <PanelSection
+                            title={vi ? 'Khu' : 'Zones'}
+                            hint={vi ? 'Bấm một khu để xem và tạo kệ trong khu đó.' : 'Click a zone to manage its racks.'}
+                          >
+                            <ZonesTab
+                              vi={vi}
+                              api={api}
+                              onNotice={showToast}
+                              onCreated={() => showToast(vi ? 'Đã tạo khu.' : 'Zone created.')}
+                            />
+                          </PanelSection>
+                          <PanelSection
+                            title={
+                              api.selectedZone
+                                ? vi
+                                  ? `Kệ trong khu ${api.selectedZone.zoneCode}`
+                                  : `Racks in zone ${api.selectedZone.zoneCode}`
+                                : vi
+                                  ? 'Kệ'
+                                  : 'Racks'
+                            }
+                          >
+                            <BinsTab
+                              vi={vi}
+                              api={api}
+                              onNotice={showToast}
+                              onOpenCategories={() => openCatalog('categories')}
+                              onGenerated={(created) =>
+                                showToast(
+                                  vi ? `Đã tạo ${created} ô mới.` : `Created ${created} new bins.`,
+                                )
+                              }
+                            />
+                          </PanelSection>
+                        </div>
+                      ) : null}
+                      {warehouseTab === 'assign' ? (
+                        <AssignTab
+                          vi={vi}
+                          api={api}
+                          binId={pickedBinId}
+                          onBinIdChange={setPickedBinId}
+                          onAssigned={() =>
+                            showToast(vi ? 'Đã gán SKU vào ô.' : 'SKU assigned to bin.')
+                          }
+                        />
+                      ) : null}
+                      {warehouseTab === 'stock' ? (
+                        <StockTab
+                          vi={vi}
+                          api={api}
+                          onRestocked={() =>
+                            showToast(vi ? 'Đã nhập thêm hàng.' : 'Stock added.')
+                          }
+                        />
+                      ) : null}
+                      {warehouseTab === 'picking' ? (
+                        <PickingTab vi={vi} warehouseId={api.selectedWarehouse.id} />
+                      ) : null}
+                    </div>
+                  </>
+                )}
+              </section>
+            </div>
+          )}
         </div>
       </main>
       {toast ? (
         <AdminToast message={toast} onClose={() => setToast(null)} />
       ) : null}
     </>
+  )
+}
+
+function TabBar<T extends string>({
+  tabs,
+  active,
+  vi,
+  onChange,
+}: {
+  tabs: Array<{ id: T; labelVi: string; labelEn: string }>
+  active: T
+  vi: boolean
+  onChange: (id: T) => void
+}) {
+  return (
+    <div className="flex gap-1 overflow-x-auto border-b border-hairline px-2">
+      {tabs.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onChange(item.id)}
+          className={cn(
+            '-mb-px border-b-2 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors',
+            active === item.id
+              ? 'border-primary text-primary-hover'
+              : 'border-transparent text-ink-subtle hover:text-ink',
+          )}
+        >
+          {vi ? item.labelVi : item.labelEn}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function PanelSection({
+  title,
+  hint,
+  children,
+}: {
+  title: string
+  hint?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-sm font-semibold text-ink">{title}</h2>
+        {hint ? <p className="mt-0.5 text-xs text-ink-muted">{hint}</p> : null}
+      </div>
+      {children}
+    </section>
+  )
+}
+
+function WarehouseHeader({ vi, api }: { vi: boolean; api: Api }) {
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editAddress, setEditAddress] = useState('')
+  const warehouse = api.selectedWarehouse
+  if (!warehouse) return null
+
+  return (
+    <div className="border-b border-hairline px-4 py-3">
+      {editing ? (
+        <form
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void api
+              .updateWarehouse({
+                warehouse_name: editName.trim(),
+                address: editAddress.trim(),
+              })
+              .then(() => setEditing(false))
+          }}
+        >
+          <Input
+            className={cn(fieldClass, 'sm:w-56')}
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+          />
+          <Input
+            className={cn(fieldClass, 'sm:flex-1')}
+            value={editAddress}
+            onChange={(e) => setEditAddress(e.target.value)}
+          />
+          <Button type="submit" className="h-9 text-xs" disabled={api.mutating}>
+            {vi ? 'Lưu' : 'Save'}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-9 text-xs"
+            onClick={() => setEditing(false)}
+          >
+            {vi ? 'Huỷ' : 'Cancel'}
+          </Button>
+        </form>
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+              {warehouse.warehouseName}
+              {warehouse.isActive ? null : (
+                <Badge tone="warning">{vi ? 'Đang tắt' : 'Inactive'}</Badge>
+              )}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-ink-muted">
+              {warehouse.warehouseCode} · {warehouse.address}
+            </p>
+          </div>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className={rowActionClass}
+              disabled={api.loading || api.mutating}
+              onClick={() => {
+                void api.reload()
+                void api.reloadUnassigned()
+              }}
+            >
+              <RefreshCw className="mr-1 h-3 w-3" />
+              {vi ? 'Tải lại' : 'Reload'}
+            </button>
+            <button
+              type="button"
+              className={rowActionClass}
+              onClick={() => {
+                setEditName(warehouse.warehouseName)
+                setEditAddress(warehouse.address)
+                setEditing(true)
+              }}
+            >
+              {vi ? 'Sửa' : 'Edit'}
+            </button>
+            <button
+              type="button"
+              className={warehouse.isActive ? rowOffClass : rowActionClass}
+              disabled={api.mutating}
+              onClick={() => {
+                const ok = window.confirm(
+                  warehouse.isActive
+                    ? vi
+                      ? 'Tắt kho sẽ tắt luôn khu và kệ. Còn hàng thì hệ thống từ chối.'
+                      : 'Deactivating the warehouse also deactivates its zones and bins.'
+                    : vi
+                      ? 'Bật lại chỉ kho. Khu và kệ vẫn tắt — bật lại từng khu cần dùng.'
+                      : 'Reactivating only turns the warehouse back on.',
+                )
+                if (!ok) return
+                void api.setWarehouseActive(!warehouse.isActive)
+              }}
+            >
+              {warehouse.isActive ? (vi ? 'Tắt kho' : 'Deactivate') : vi ? 'Bật kho' : 'Reactivate'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -271,12 +482,9 @@ function WarehouseListPanel({
   onCreated: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [editing, setEditing] = useState(false)
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
-  const [editName, setEditName] = useState('')
-  const [editAddress, setEditAddress] = useState('')
 
   async function submit() {
     if (!code.trim() || !name.trim() || !address.trim()) return
@@ -293,18 +501,16 @@ function WarehouseListPanel({
   }
 
   return (
-    <aside className="rounded-xl border border-hairline bg-surface-1">
+    <aside className="flex flex-col self-start rounded-xl border border-hairline bg-surface-1">
       <div className="flex items-center justify-between border-b border-hairline px-3 py-2.5">
-        <p className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
-          {vi ? 'Kho' : '1. Warehouses'}
-        </p>
+        <p className="text-sm font-semibold text-ink">{vi ? 'Danh sách kho' : 'Warehouses'}</p>
         <button
           type="button"
           className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-primary-hover hover:bg-primary/10"
           onClick={() => setOpen((v) => !v)}
         >
-          <Plus className="h-3.5 w-3.5" />
-          {vi ? 'Tạo' : 'New'}
+          {open ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+          {open ? (vi ? 'Đóng' : 'Close') : vi ? 'Tạo kho' : 'New'}
         </button>
       </div>
 
@@ -345,89 +551,6 @@ function WarehouseListPanel({
         </form>
       ) : null}
 
-      <label className="flex items-center gap-2 border-b border-hairline px-3 py-2 text-[11px] text-ink-muted">
-        <input
-          type="checkbox"
-          checked={api.showInactive}
-          onChange={(e) => api.setShowInactive(e.target.checked)}
-        />
-        {vi ? 'Hiện kho/khu/kệ đã tắt' : 'Show inactive'}
-      </label>
-
-      {api.selectedWarehouse ? (
-        <div className="space-y-2 border-b border-hairline p-3">
-          {editing ? (
-            <form
-              className="space-y-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                void api
-                  .updateWarehouse({
-                    warehouse_name: editName.trim(),
-                    address: editAddress.trim(),
-                  })
-                  .then(() => setEditing(false))
-              }}
-            >
-              <Input
-                className={fieldClass}
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-              />
-              <Input
-                className={fieldClass}
-                value={editAddress}
-                onChange={(e) => setEditAddress(e.target.value)}
-              />
-              <Button type="submit" className="h-8 w-full text-xs" disabled={api.mutating}>
-                {vi ? 'Lưu' : 'Save'}
-              </Button>
-            </form>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              <button
-                type="button"
-                className="rounded-md border border-hairline px-2 py-1 text-[11px] text-ink"
-                onClick={() => {
-                  setEditName(api.selectedWarehouse?.warehouseName ?? '')
-                  setEditAddress(api.selectedWarehouse?.address ?? '')
-                  setEditing(true)
-                }}
-              >
-                {vi ? 'Chỉnh sửa' : 'Edit'}
-              </button>
-              <button
-                type="button"
-                className="rounded-md border border-hairline px-2 py-1 text-[11px] text-ink"
-                disabled={api.mutating}
-                onClick={() => {
-                  const active = api.selectedWarehouse?.isActive === true
-                  const ok = window.confirm(
-                    active
-                      ? vi
-                        ? 'Tắt kho sẽ tắt luôn khu và kệ. Còn hàng thì hệ thống từ chối.'
-                        : 'Deactivating the warehouse also deactivates its zones and bins.'
-                      : vi
-                        ? 'Bật lại chỉ kho. Khu và kệ vẫn tắt — bật lại từng khu cần dùng.'
-                        : 'Reactivating only turns the warehouse back on.',
-                  )
-                  if (!ok) return
-                  void api.setWarehouseActive(!active)
-                }}
-              >
-                {api.selectedWarehouse.isActive
-                  ? vi
-                    ? 'Tắt kho'
-                    : 'Deactivate'
-                  : vi
-                    ? 'Bật kho'
-                    : 'Reactivate'}
-              </button>
-            </div>
-          )}
-        </div>
-      ) : null}
-
       {api.loading && api.warehouses.length === 0 ? (
         <div className="flex items-center gap-2 px-3 py-6 text-xs text-ink-muted">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -435,10 +558,10 @@ function WarehouseListPanel({
         </div>
       ) : api.warehouses.length === 0 ? (
         <p className="px-3 py-6 text-xs text-ink-muted">
-          {vi ? 'Chưa có kho. Bấm tạo để bắt đầu.' : 'No warehouses. Click New to start.'}
+          {vi ? 'Chưa có kho. Bấm "Tạo kho" để bắt đầu.' : 'No warehouses yet.'}
         </p>
       ) : (
-        <ul className="max-h-[70vh] overflow-y-auto p-2">
+        <ul className="max-h-[60vh] space-y-0.5 overflow-y-auto p-2">
           {api.warehouses.map((row) => {
             const active = row.id === api.selectedWarehouseId
             return (
@@ -448,17 +571,13 @@ function WarehouseListPanel({
                   onClick={() => api.selectWarehouse(row.id)}
                   className={cn(
                     'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
-                    active
-                      ? 'bg-primary/15 text-primary-hover'
-                      : 'hover:bg-surface-2',
+                    active ? 'bg-primary/15' : 'hover:bg-surface-2',
                   )}
                 >
-                  <p className="truncate text-sm font-medium text-ink">
-                    {row.warehouseName}
-                  </p>
+                  <p className="truncate text-sm font-medium text-ink">{row.warehouseName}</p>
                   <p className="truncate text-[11px] text-ink-muted">
                     {row.warehouseCode}
-                    {row.isActive ? '' : vi ? ' · tắt' : ' · off'}
+                    {row.isActive ? '' : vi ? ' · đang tắt' : ' · inactive'}
                   </p>
                 </button>
               </li>
@@ -466,6 +585,15 @@ function WarehouseListPanel({
           })}
         </ul>
       )}
+
+      <label className="flex items-center gap-2 border-t border-hairline px-3 py-2 text-[11px] text-ink-muted">
+        <input
+          type="checkbox"
+          checked={api.showInactive}
+          onChange={(e) => api.setShowInactive(e.target.checked)}
+        />
+        {vi ? 'Hiện kho, khu, kệ đã tắt' : 'Show inactive'}
+      </label>
     </aside>
   )
 }
@@ -550,7 +678,7 @@ function ZonesTab({
   return (
     <div className="space-y-4">
       <form
-        className="grid gap-2 sm:grid-cols-4"
+        className={cn(formCardClass, 'grid gap-2 sm:grid-cols-[110px_minmax(0,1fr)_minmax(0,1fr)_auto]')}
         onSubmit={(e) => {
           e.preventDefault()
           void submit()
@@ -558,7 +686,7 @@ function ZonesTab({
       >
         <Input
           className={fieldClass}
-          placeholder={vi ? 'Mã khu (KA)' : 'Zone code (KA)'}
+          placeholder={vi ? 'Mã (KA)' : 'Code (KA)'}
           value={code}
           onChange={(e) => setCode(e.target.value.toUpperCase())}
         />
@@ -589,7 +717,7 @@ function ZonesTab({
           title={vi ? 'Chưa có khu' : 'No zones'}
           body={
             vi
-              ? 'Mỗi kho chia thành khu A, khu B,… Tạo khu trước khi sinh kệ. Bấm Tải lại nếu khu vừa tạo chưa hiện.'
+              ? 'Tạo khu trước khi sinh kệ. Bấm Tải lại nếu khu vừa tạo chưa hiện.'
               : 'Split the warehouse into zones (A, B…). Create a zone before generating bins.'
           }
         />
@@ -795,8 +923,9 @@ function CategoriesTab({
     <div className="space-y-4">
       {error ? <p className="text-xs text-red-600">{error}</p> : null}
 
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <form
-        className="grid gap-2 rounded-lg border border-dashed border-hairline p-3 sm:grid-cols-3"
+        className={cn(formCardClass, 'grid gap-2')}
         onSubmit={(e) => {
           e.preventDefault()
           const code = groupCode.trim().toUpperCase()
@@ -809,24 +938,30 @@ function CategoriesTab({
           }, vi ? `Đã tạo nhóm ${code}.` : `Created group ${code}.`)
         }}
       >
-        <p className="text-xs font-medium text-ink sm:col-span-3">
-          {vi ? 'Nhóm' : 'Group — level 1'}
+        <p className="text-xs font-medium text-ink">
+          {vi ? 'Tạo nhóm (cấp 1)' : 'New group (level 1)'}
         </p>
-        <Input
-          className={fieldClass}
-          placeholder={vi ? 'Mã, VD AO' : 'Code, e.g. AO'}
-          value={groupCode}
-          onChange={(e) => setGroupCode(e.target.value.toUpperCase())}
-        />
-        <Input
-          className={fieldClass}
-          placeholder={vi ? 'Tên, VD Áo' : 'Name'}
-          value={groupName}
-          onChange={(e) => setGroupName(e.target.value)}
-        />
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Mã nhóm' : 'Group code'}</span>
+          <Input
+            className={fieldClass}
+            placeholder="AO"
+            value={groupCode}
+            onChange={(e) => setGroupCode(e.target.value.toUpperCase())}
+          />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Tên' : 'Name'}</span>
+          <Input
+            className={fieldClass}
+            placeholder={vi ? 'Áo' : 'Tops'}
+            value={groupName}
+            onChange={(e) => setGroupName(e.target.value)}
+          />
+        </label>
         <Button
           type="submit"
-          className="h-9 text-xs"
+          className="h-9 justify-self-end text-xs"
           disabled={busy || !/^[A-Z0-9]{2,12}$/.test(groupCode.trim()) || groupName.trim().length < 2}
         >
           {vi ? 'Tạo nhóm' : 'Create group'}
@@ -834,7 +969,7 @@ function CategoriesTab({
       </form>
 
       <form
-        className="grid gap-2 rounded-lg border border-dashed border-hairline p-3 sm:grid-cols-2"
+        className={cn(formCardClass, 'grid gap-2 sm:grid-cols-2')}
         onSubmit={(e) => {
           e.preventDefault()
           const code = typeCode.trim().toUpperCase()
@@ -857,7 +992,7 @@ function CategoriesTab({
         }}
       >
         <p className="text-xs font-medium text-ink sm:col-span-2">
-          {vi ? 'Loại' : 'Type — level 2, used when creating a rack'}
+          {vi ? 'Tạo loại (cấp 2)' : 'New type (level 2) — with sizes, used for racks'}
         </p>
         <label className="space-y-1">
           <span className="text-[11px] text-ink-muted">{vi ? 'Nhóm' : 'Parent group'}</span>
@@ -907,7 +1042,7 @@ function CategoriesTab({
         </label>
         <Button
           type="submit"
-          className="h-9 text-xs sm:col-span-2 sm:justify-self-start"
+          className="h-9 text-xs sm:col-span-2 sm:justify-self-end"
           disabled={
             busy ||
             groups.filter((row) => row.isActive).length === 0 ||
@@ -920,6 +1055,7 @@ function CategoriesTab({
           {vi ? 'Tạo loại' : 'Create type'}
         </Button>
       </form>
+      </div>
 
       <label className="flex items-center gap-2 text-xs text-ink-muted">
         <input
@@ -1035,9 +1171,11 @@ function CategoriesTab({
               ) : null}
             </div>
           ))}
-          <Button type="button" variant="secondary" className="h-9 text-xs" onClick={onReadyForBins}>
-            {vi ? 'Sang tab Kệ' : 'Open bins'}
-          </Button>
+          <div className="flex justify-end">
+            <Button type="button" variant="secondary" className="h-9 text-xs" onClick={onReadyForBins}>
+              {vi ? 'Sang tạo kệ' : 'Done — create racks'}
+            </Button>
+          </div>
         </div>
       )}
     </div>
@@ -1132,14 +1270,12 @@ function BinsTab({
   vi,
   api,
   onGenerated,
-  onPickBin,
   onNotice,
   onOpenCategories,
 }: {
   vi: boolean
   api: Api
   onGenerated: (created: number) => void
-  onPickBin: (binId: string) => void
   onNotice: (message: string) => void
   onOpenCategories: () => void
 }) {
@@ -1151,6 +1287,8 @@ function BinsTab({
   const [rackCapacity, setRackCapacity] = useState('')
   const [rackCategory, setRackCategory] = useState('')
   const [tierSizes, setTierSizes] = useState<string[]>([''])
+  const [colors, setColors] = useState<ColorRecord[]>([])
+  const [cellColors, setCellColors] = useState<string[]>(['', '', ''])
   const [binGhosts, setBinGhosts] = useState<
     Array<{ bin: BinLocationRecord; index: number }>
   >([])
@@ -1163,6 +1301,13 @@ function BinsTab({
       })
       .catch(() => {
         if (!cancelled) setCategories([])
+      })
+    void listColors()
+      .then((rows) => {
+        if (!cancelled) setColors(rows.filter((row) => row.isActive))
+      })
+      .catch(() => {
+        if (!cancelled) setColors([])
       })
     return () => {
       cancelled = true
@@ -1262,35 +1407,21 @@ function BinsTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-ink-muted">{vi ? 'Khu đang chọn' : 'Selected zone'}</span>
-        {api.zones.map((zone) => (
-          <button
-            key={zone.id}
-            type="button"
-            onClick={() => {
-              setBinGhosts([])
-              api.selectZone(zone.id)
-            }}
-            className={cn(
-              'rounded-full border px-2.5 py-1 text-xs',
-              zone.id === api.selectedZoneId
-                ? 'border-primary/40 bg-primary/15 text-primary-hover'
-                : 'border-hairline text-ink-subtle hover:bg-surface-2',
-            )}
-          >
-            {zone.zoneCode} · {zone.zoneName}
-          </button>
-        ))}
-      </div>
-
+      {!api.selectedZone ? (
+        <p className="text-xs text-ink-muted">
+          {vi ? 'Chọn một khu ở bảng trên để tạo kệ.' : 'Pick a zone above to create racks.'}
+        </p>
+      ) : (
       <form
-        className="grid gap-2 rounded-lg border border-dashed border-hairline p-3 sm:grid-cols-3"
+        className={cn(formCardClass, 'space-y-4')}
         onSubmit={(e) => {
           e.preventDefault()
           const cellCount = Math.trunc(rackCells)
           if (!selectedCategory || !tiersReady || cellCount < 1 || cellCount > 9) return
           const tiers = tierSizes.map((size, index) => ({ tier: index + 1, size }))
+          const chosenColors = cellColors.slice(0, cellCount)
+          const colorsReady =
+            chosenColors.length === cellCount && chosenColors.every((value) => value.length > 0)
           void api
             .createRack({
               aisle: rackAisle.trim(),
@@ -1302,165 +1433,225 @@ function BinsTab({
               ...(rackCapacity.trim()
                 ? { capacity_per_cell: Number(rackCapacity) }
                 : {}),
+              ...(colorsReady ? { cell_colors: chosenColors } : {}),
             })
             .then((created) => onGenerated(created))
         }}
       >
-        <label className="space-y-1">
-          <span className="text-[11px] text-ink-muted">{vi ? 'Dãy' : 'Aisle'}</span>
-          <Input
-            className={fieldClass}
-            placeholder="D1"
-            value={rackAisle}
-            onChange={(e) => setRackAisle(e.target.value.toUpperCase())}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="text-[11px] text-ink-muted">{vi ? 'Bên' : 'Side'}</span>
-          <select
-            className={fieldClass}
-            value={rackSide}
-            onChange={(e) => setRackSide(e.target.value === 'T' ? 'T' : 'P')}
-          >
-            <option value="T">{vi ? 'Trái (T)' : 'Left (T)'}</option>
-            <option value="P">{vi ? 'Phải (P)' : 'Right (P)'}</option>
-          </select>
-        </label>
-        <label className="space-y-1">
-          <span className="text-[11px] text-ink-muted">
-            {vi ? 'Số kệ trên dãy' : 'Bay on the aisle'}
-          </span>
-          <Input
-            className={fieldClass}
-            type="number"
-            min={1}
-            value={rackBay}
-            onChange={(e) => setRackBay(Number(e.target.value))}
-          />
-        </label>
-        <label className="space-y-1 sm:col-span-3">
-          <span className="text-[11px] text-ink-muted">
-            {vi ? 'Loại hàng' : 'Product type (level-2 category)'}
-          </span>
-          {level2Categories.length === 0 ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs text-ink-muted">
-                {vi
-                  ? 'Chưa có loại hàng.'
-                  : 'No product type yet. Create one on the Categories tab.'}
-              </p>
-              <button type="button" className={rowActionClass} onClick={onOpenCategories}>
-                {vi ? 'Mở danh mục' : 'Open categories'}
-              </button>
-            </div>
-          ) : (
+        <p className="text-xs font-medium text-ink">
+          {vi ? 'Tạo kệ mới' : 'New rack'}
+        </p>
+
+        <div className="grid gap-2 sm:grid-cols-[90px_130px_90px_minmax(0,1fr)]">
+          <label className="space-y-1">
+            <span className="text-[11px] text-ink-muted">{vi ? 'Dãy' : 'Aisle'}</span>
+            <Input
+              className={fieldClass}
+              placeholder="D1"
+              value={rackAisle}
+              onChange={(e) => setRackAisle(e.target.value.toUpperCase())}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] text-ink-muted">{vi ? 'Bên' : 'Side'}</span>
             <select
               className={fieldClass}
-              value={rackCategory}
-              onChange={(e) => {
-                setRackCategory(e.target.value)
-                setTierSizes([''])
-              }}
+              value={rackSide}
+              onChange={(e) => setRackSide(e.target.value === 'T' ? 'T' : 'P')}
             >
-              <option value="">{vi ? 'Chọn loại' : 'Choose type'}</option>
-              {level2Categories.map((row) => (
-                <option key={row.code} value={row.code}>
-                  {row.code} · {row.name} ({row.sizeScale.join(', ')})
-                </option>
-              ))}
+              <option value="T">{vi ? 'Trái (T)' : 'Left (T)'}</option>
+              <option value="P">{vi ? 'Phải (P)' : 'Right (P)'}</option>
             </select>
-          )}
-        </label>
-        {selectedCategory ? (
-          <div className="space-y-2 sm:col-span-3">
-            <p className="text-[11px] text-ink-muted">
-              {vi
-                ? 'Mỗi tầng một size trong thang của loại vừa chọn. Thứ tự do bạn khai.'
-                : 'Pick a size for each tier from this type.'}
-            </p>
-            {tierSizes.map((size, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <span className="w-16 text-xs text-ink">
-                  {vi ? `Tầng ${index + 1}` : `Tier ${index + 1}`}
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] text-ink-muted">{vi ? 'Số kệ' : 'Bay'}</span>
+            <Input
+              className={fieldClass}
+              type="number"
+              min={1}
+              value={rackBay}
+              onChange={(e) => setRackBay(Number(e.target.value))}
+            />
+          </label>
+          <label className="space-y-1">
+            <span className="text-[11px] text-ink-muted">{vi ? 'Loại hàng' : 'Product type'}</span>
+            {level2Categories.length === 0 ? (
+              <div className="flex h-9 items-center gap-2">
+                <span className="text-xs text-ink-muted">
+                  {vi ? 'Chưa có loại hàng.' : 'No product type yet.'}
                 </span>
-                <select
-                  className={fieldClass}
-                  value={size}
-                  onChange={(e) => {
-                    const next = [...tierSizes]
-                    next[index] = e.target.value
-                    setTierSizes(next)
-                  }}
-                >
-                  <option value="">{vi ? 'Chọn size' : 'Choose size'}</option>
-                  {sizeScale.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                {tierSizes.length > 1 ? (
-                  <button
-                    type="button"
-                    className={rowActionClass}
-                    onClick={() => setTierSizes(tierSizes.filter((_, item) => item !== index))}
-                  >
-                    {vi ? 'Bỏ' : 'Remove'}
-                  </button>
-                ) : null}
+                <button type="button" className={rowActionClass} onClick={onOpenCategories}>
+                  {vi ? 'Tạo danh mục' : 'Create categories'}
+                </button>
               </div>
-            ))}
-            <button
-              type="button"
-              className={rowActionClass}
-              disabled={tierSizes.length >= 9}
-              onClick={() => setTierSizes([...tierSizes, ''])}
-            >
-              {vi ? 'Thêm tầng' : 'Add tier'}
-            </button>
+            ) : (
+              <select
+                className={fieldClass}
+                value={rackCategory}
+                onChange={(e) => {
+                  setRackCategory(e.target.value)
+                  setTierSizes([''])
+                }}
+              >
+                <option value="">{vi ? 'Chọn loại' : 'Choose type'}</option>
+                {level2Categories.map((row) => (
+                  <option key={row.code} value={row.code}>
+                    {row.code} · {row.name} ({row.sizeScale.join(', ')})
+                  </option>
+                ))}
+              </select>
+            )}
+          </label>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="space-y-2">
+            <p className="text-[11px] text-ink-muted">
+              {vi ? 'Size theo tầng (tầng 1 sát sàn)' : 'Size per tier (tier 1 at floor)'}
+            </p>
+            {selectedCategory ? (
+              <>
+                {tierSizes.map((size, index) => (
+                  <div key={index} className="flex items-center gap-2">
+                    <span className="w-14 shrink-0 text-xs text-ink">
+                      {vi ? `Tầng ${index + 1}` : `Tier ${index + 1}`}
+                    </span>
+                    <select
+                      className={fieldClass}
+                      value={size}
+                      onChange={(e) => {
+                        const next = [...tierSizes]
+                        next[index] = e.target.value
+                        setTierSizes(next)
+                      }}
+                    >
+                      <option value="">{vi ? 'Chọn size' : 'Choose size'}</option>
+                      {sizeScale.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className={cn(rowActionClass, tierSizes.length > 1 ? '' : 'invisible')}
+                      onClick={() => setTierSizes(tierSizes.filter((_, item) => item !== index))}
+                    >
+                      {vi ? 'Bỏ' : 'Remove'}
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className={rowActionClass}
+                  disabled={tierSizes.length >= 9}
+                  onClick={() => setTierSizes([...tierSizes, ''])}
+                >
+                  <Plus className="mr-1 h-3 w-3" />
+                  {vi ? 'Thêm tầng' : 'Add tier'}
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-ink-tertiary">
+                {vi ? 'Chọn loại hàng trước.' : 'Choose a product type first.'}
+              </p>
+            )}
           </div>
-        ) : null}
-        <label className="space-y-1">
-          <span className="text-[11px] text-ink-muted">
-            {vi ? 'Số ô mỗi tầng' : 'Cells per tier'}
-          </span>
-          <Input
-            className={fieldClass}
-            type="number"
-            min={1}
-            max={9}
-            value={rackCells}
-            onChange={(e) => setRackCells(Number(e.target.value))}
-          />
-        </label>
-        <label className="space-y-1">
-          <span className="text-[11px] text-ink-muted">
-            {vi ? 'Sức chứa mỗi ô' : 'Capacity per cell'}
-          </span>
-          <Input
-            className={fieldClass}
-            type="number"
-            min={1}
-            placeholder={vi ? 'Không giới hạn' : 'No limit'}
-            value={rackCapacity}
-            onChange={(e) => setRackCapacity(e.target.value)}
-          />
-        </label>
-        <Button
-          type="submit"
-          className="h-9 self-end text-xs"
-          disabled={
-            api.mutating ||
-            !/^D([1-9][0-9]?)$/.test(rackAisle) ||
-            rackBay < 1 ||
-            rackCells < 1 ||
-            rackCells > 9 ||
-            !tiersReady
-          }
-        >
-          {vi ? 'Tạo kệ mới' : 'Create new rack'}
-        </Button>
+
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="space-y-1">
+                <span className="text-[11px] text-ink-muted">
+                  {vi ? 'Số ô mỗi tầng' : 'Cells per tier'}
+                </span>
+                <Input
+                  className={fieldClass}
+                  type="number"
+                  min={1}
+                  max={9}
+                  value={rackCells}
+                  onChange={(e) => {
+                    const count = Math.max(1, Math.min(9, Math.trunc(Number(e.target.value)) || 1))
+                    setRackCells(count)
+                    setCellColors((prev) => {
+                      const next = prev.slice(0, count)
+                      while (next.length < count) next.push('')
+                      return next
+                    })
+                  }}
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[11px] text-ink-muted">
+                  {vi ? 'Sức chứa mỗi ô' : 'Capacity per cell'}
+                </span>
+                <Input
+                  className={fieldClass}
+                  type="number"
+                  min={1}
+                  placeholder={vi ? 'Không giới hạn' : 'No limit'}
+                  value={rackCapacity}
+                  onChange={(e) => setRackCapacity(e.target.value)}
+                />
+              </label>
+            </div>
+            {colors.length > 0 ? (
+              <>
+                <p className="text-[11px] text-ink-muted">
+                  {vi ? 'Màu từng ô (tuỳ chọn, phải chọn đủ mọi ô)' : 'Cell colors (optional, all or none)'}
+                </p>
+                <div className="grid grid-cols-3 gap-2">
+                  {cellColors.map((value, index) => (
+                    <select
+                      key={index}
+                      className={fieldClass}
+                      aria-label={vi ? `Màu ô ${index + 1}` : `Cell ${index + 1} color`}
+                      value={value}
+                      onChange={(e) => {
+                        const next = [...cellColors]
+                        next[index] = e.target.value
+                        setCellColors(next)
+                      }}
+                    >
+                      <option value="">{vi ? `Ô ${index + 1}: —` : `Cell ${index + 1}: —`}</option>
+                      {colors.map((row) => (
+                        <option key={row.code} value={row.code}>
+                          {`${vi ? 'Ô' : 'Cell'} ${index + 1}: ${row.code}`}
+                        </option>
+                      ))}
+                    </select>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-hairline pt-3">
+          <p className="text-[11px] text-ink-muted">
+            {vi ? 'Mã ô đầu tiên: ' : 'First bin code: '}
+            <span className="font-mono text-ink">
+              {api.selectedZone.zoneCode}-{rackAisle || 'D?'}-{rackSide}
+              {String(Math.max(1, Math.trunc(rackBay) || 1)).padStart(2, '0')}-T01-1
+            </span>
+          </p>
+          <Button
+            type="submit"
+            className="h-9 text-xs"
+            disabled={
+              api.mutating ||
+              !/^D([1-9][0-9]?)$/.test(rackAisle) ||
+              rackBay < 1 ||
+              rackCells < 1 ||
+              rackCells > 9 ||
+              !tiersReady
+            }
+          >
+            {vi ? 'Tạo kệ' : 'Create rack'}
+          </Button>
+        </div>
       </form>
+      )}
 
       {binRows.length === 0 ? (
         <EmptyHint
@@ -1491,11 +1682,7 @@ function BinsTab({
               return (
                 <TableRow
                   key={bin.id}
-                  className={cn(
-                    'cursor-pointer',
-                    justOff ? 'bg-amber-50 dark:bg-amber-950/30' : '',
-                  )}
-                  onClick={() => onPickBin(bin.id)}
+                  className={justOff ? 'bg-amber-50 dark:bg-amber-950/30' : undefined}
                 >
                   <TableCell className="font-medium text-ink">
                     {bin.binCode}
@@ -1575,6 +1762,16 @@ function AssignTab({
 }) {
   const [sku, setSku] = useState<UnassignedSku | null>(null)
   const [qty, setQty] = useState(0)
+  const [skuQuery, setSkuQuery] = useState('')
+
+  const filteredUnassigned = useMemo(() => {
+    const query = skuQuery.trim().toLowerCase()
+    if (!query) return api.unassigned
+    return api.unassigned.filter((row) => {
+      const haystack = `${row.seller_sku} ${row.shop_id} ${row.platform}`.toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [api.unassigned, skuQuery])
 
   const binsByZone = useMemo(() => {
     const grouped = api.zones.map((zone) => ({
@@ -1627,43 +1824,79 @@ function AssignTab({
       )}
 
       <div className="grid gap-3 sm:grid-cols-[1fr_220px]">
-        <div className="max-h-72 overflow-auto rounded-lg border border-hairline">
-          <Table containerClassName="overflow-visible">
-            <TableHeader>
-              <TableRow>
-                <TableHead>SKU</TableHead>
-                <TableHead>Shop</TableHead>
-                <TableHead>{vi ? 'Sàn' : 'Platform'}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {api.unassigned.map((row) => {
-                const key = `${row.platform}|${row.shop_id}|${row.seller_sku}`
-                const selected =
-                  sku?.seller_sku === row.seller_sku &&
-                  sku.shop_id === row.shop_id &&
-                  sku.platform === row.platform
-                return (
-                  <TableRow
-                    key={key}
-                    className={cn('cursor-pointer', selected ? 'bg-primary/10' : '')}
-                    onClick={() => setSku(row)}
-                  >
-                    <TableCell className="font-medium text-ink">
-                      {row.seller_sku}
-                    </TableCell>
-                    <TableCell className="text-ink-muted">{row.shop_id}</TableCell>
-                    <TableCell>{row.platform}</TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
-          {api.unassigned.length === 0 ? (
-            <p className="px-4 py-6 text-center text-xs text-ink-muted">
-              {vi ? 'Không còn SKU chưa gán.' : 'No unassigned SKUs.'}
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
+            <Input
+              value={skuQuery}
+              onChange={(e) => setSkuQuery(e.target.value)}
+              placeholder={vi ? 'Tìm mã SKU, shop hoặc sàn…' : 'Search SKU, shop, or marketplace…'}
+              aria-label={vi ? 'Tìm SKU chưa gán kệ' : 'Search unassigned SKUs'}
+              disabled={api.unassigned.length === 0}
+              className={cn(fieldClass, 'pl-9', skuQuery ? 'pr-8' : undefined)}
+            />
+            {skuQuery ? (
+              <button
+                type="button"
+                className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-ink-subtle hover:text-ink"
+                aria-label={vi ? 'Xóa từ khóa' : 'Clear search'}
+                onClick={() => setSkuQuery('')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+          {skuQuery.trim() && api.unassigned.length > 0 ? (
+            <p className="text-[11px] text-ink-muted">
+              {vi
+                ? `${filteredUnassigned.length} / ${api.unassigned.length} SKU khớp`
+                : `${filteredUnassigned.length} / ${api.unassigned.length} matching`}
             </p>
           ) : null}
+          <div className="max-h-72 overflow-auto rounded-lg border border-hairline">
+            <Table containerClassName="overflow-visible">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Shop</TableHead>
+                  <TableHead>{vi ? 'Sàn' : 'Platform'}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredUnassigned.map((row) => {
+                  const key = `${row.platform}|${row.shop_id}|${row.seller_sku}`
+                  const selected =
+                    sku?.seller_sku === row.seller_sku &&
+                    sku.shop_id === row.shop_id &&
+                    sku.platform === row.platform
+                  return (
+                    <TableRow
+                      key={key}
+                      className={cn('cursor-pointer', selected ? 'bg-primary/10' : '')}
+                      onClick={() => setSku(row)}
+                    >
+                      <TableCell className="font-medium text-ink">
+                        {row.seller_sku}
+                      </TableCell>
+                      <TableCell className="text-ink-muted">{row.shop_id}</TableCell>
+                      <TableCell>{row.platform}</TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+            {api.unassigned.length === 0 ? (
+              <p className="px-4 py-6 text-center text-xs text-ink-muted">
+                {vi ? 'Không còn SKU chưa gán.' : 'No unassigned SKUs.'}
+              </p>
+            ) : filteredUnassigned.length === 0 ? (
+              <p className="px-4 py-6 text-center text-xs text-ink-muted">
+                {vi
+                  ? `Không có SKU khớp «${skuQuery.trim()}».`
+                  : `No SKU matches “${skuQuery.trim()}”.`}
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <form
@@ -1832,7 +2065,7 @@ function StockTab({
           <TableHead>SKU</TableHead>
           <TableHead>{vi ? 'Kệ' : 'Bin'}</TableHead>
           <TableHead>{vi ? 'Tồn hiện tại' : 'On hand'}</TableHead>
-          <TableHead>{vi ? 'Nhập/kiểm kê/chuyển' : 'Receive / count / move'}</TableHead>
+          <TableHead>{vi ? 'Thao tác' : 'Actions'}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -1857,8 +2090,9 @@ function StockTab({
             </TableCell>
             <TableCell>
               <div className="flex items-center gap-2">
+                <span className={stockActionLabelClass}>{vi ? 'Nhập thêm' : 'Receive'}</span>
                 <Input
-                  className="h-8 w-20"
+                  className="h-8 w-16"
                   type="number"
                   min={1}
                   value={qtyById[row.id] ?? 1}
@@ -1878,6 +2112,7 @@ function StockTab({
                 </Button>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={stockActionLabelClass}>{vi ? 'Kiểm kê' : 'Count'}</span>
                 <Input
                   className="h-8 w-16"
                   type="number"
@@ -1926,10 +2161,11 @@ function StockTab({
                     })
                   }
                 >
-                  {vi ? 'Kiểm kê' : 'Count'}
+                  {vi ? 'Lưu' : 'Save'}
                 </Button>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={stockActionLabelClass}>{vi ? 'Chuyển ô' : 'Move'}</span>
                 <select
                   className="h-8 max-w-[180px] rounded-md border border-hairline bg-surface-1 px-2 text-xs"
                   value={transferBinById[row.id] ?? ''}
@@ -1979,8 +2215,10 @@ function StockTab({
                     })
                   }}
                 >
-                  {vi ? 'Chuyển ô' : 'Move'}
+                  {vi ? 'Chuyển' : 'Move'}
                 </Button>
+              </div>
+              <div className="mt-2 flex items-center gap-3 pl-[4.5rem]">
                 <button
                   type="button"
                   className="text-[11px] text-primary-hover"
@@ -2089,9 +2327,9 @@ function PickingTab({
           <TableHeader>
             <TableRow>
               <TableHead>SKU</TableHead>
-              <TableHead>Qty</TableHead>
-              <TableHead>Zone</TableHead>
-              <TableHead>Bin</TableHead>
+              <TableHead>{vi ? 'Số lượng' : 'Qty'}</TableHead>
+              <TableHead>{vi ? 'Khu' : 'Zone'}</TableHead>
+              <TableHead>{vi ? 'Ô' : 'Bin'}</TableHead>
               <TableHead>{vi ? 'Ô khác' : 'Other bins'}</TableHead>
             </TableRow>
           </TableHeader>

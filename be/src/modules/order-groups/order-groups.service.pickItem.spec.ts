@@ -137,7 +137,12 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
     await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
 
     const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
-    expect(filter).toMatchObject({ master_sku: 'ATHUN-005-DEN-M' });
-    expect(filter).not.toHaveProperty('platform');
+    // Đã nối: $or [tồn gộp master_sku | unpooled đúng shop] — vẫn lấy được hàng Admin nhập trước sync-stock.
+    expect(filter.$or).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ master_sku: 'ATHUN-005-DEN-M' }),
+        expect.objectContaining({ platform: 'lazada', shop_id: 'shop-1', master_sku: null }),
+      ]),
+    );
   });
 });

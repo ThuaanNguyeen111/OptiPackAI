@@ -417,7 +417,8 @@ export function WarehousePage() {
         .then((profile) => setMeId(profile.id))
         .catch(() => setMeId(''))
           void listWarehouses()
-        .then((rows) => {
+        .then((allRows) => {
+          const rows = allRows.filter((row) => row.isActive)
           setWarehouses(rows)
           setWarehouseListBlocked(false)
           setWarehouseId((current) => {
@@ -582,13 +583,12 @@ export function WarehousePage() {
             setHasBinRoute(true)
             return
           } catch (err: unknown) {
-            const code = getApiErrorCode(err)
-            if (code === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
-              setLines([])
-              setHasBinRoute(false)
-              setDetailError(formatApiError(err))
-              return
-            }
+            // Không lùi về danh sách không có vị trí: mọi dòng sẽ hiện
+            // "CHƯA GÁN VỊ TRÍ" và che mất lỗi thật (kho đã tắt, không có quyền...).
+            setLines([])
+            setHasBinRoute(false)
+            setDetailError(formatApiError(err))
+            return
           }
         }
         const packable = await getOrderGroupPickingList(id)
@@ -1508,15 +1508,15 @@ export function WarehousePage() {
               </div>
           </div>
 
-                        {isBinAssigned(activeLine.bin_code) ? (
+                        {activeLine.bin_location_id && isBinAssigned(activeLine.bin_code) ? (
                           <div className="mt-5">
                             <BarcodeGraphic code={activeLine.bin_code} />
                           </div>
                         ) : (
                           <div className="mt-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2.5 text-center text-[11px] font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
                             {vi
-                              ? 'Chưa có mã kệ — quét hoặc nhập tay Seller SKU bên dưới.'
-                              : 'No bin barcode — scan or type the seller SKU below.'}
+                              ? 'Chưa thấy mã kệ trên list — vẫn quét/nhập SKU để trừ tồn nếu Admin đã nhập hàng đúng shop.'
+                              : 'No bin on the list yet — you can still scan/type the SKU if Admin restocked the same shop.'}
                           </div>
                         )}
 

@@ -1,5 +1,10 @@
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
-import { resolveMasterSkus, stockFilterFor } from '../master-skus/stock-key.util';
+import { normalizeSellerSku } from '../master-skus/master-skus.service';
+import {
+  resolveMasterSkus,
+  stockAssignmentOrBranches,
+  stockFilterFor,
+} from '../master-skus/stock-key.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
@@ -519,19 +524,28 @@ export class WarehouseService {
     // 🔄 K4a — lọc đúng sàn/shop của nhóm đơn (trước đây chỉ kho + seller_sku).
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
     // 🔄 K4b — SKU đã nối lấy tồn theo SKU nội bộ (chung mọi sàn); chưa nối giữ cách cũ.
+    // 🔄 (05/10/2026) — thêm nhánh unpooled cho SKU đã nối + khớp seller_sku không phân biệt hoa/thường
+    // (Admin nhập tồn trước sync-stock → trước đây Picking List hiện «CHƯA GÁN VỊ TRÍ»).
     const masters = await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, skus);
-    const unmappedSkus = skus.filter((s) => !masters.has(s));
-    const assignments = await this.assignmentModel
-      .find({
-        warehouse_id: warehouseId,
-        $or: [
-          { platform: group.platform, shop_id: group.shop_id, seller_sku: { $in: unmappedSkus }, master_sku: null },
-          { master_sku: { $in: [...new Set(masters.values())] } },
-        ],
-      })
-      .lean();
-    const rowKey = (a: { master_sku?: string | null; seller_sku: string }): string => (a.master_sku ? `M:${a.master_sku}` : `S:${a.seller_sku}`);
-    const itemKey = (sku: string): string => { const m = masters.get(sku); return m ? `M:${m}` : `S:${sku}`; };
+    const orBranches = stockAssignmentOrBranches(
+      group.platform,
+      group.shop_id,
+      skus,
+      masters,
+    );
+    const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
+      ? new Types.ObjectId(warehouseId)
+      : warehouseId;
+    const assignments =
+      orBranches.length === 0
+        ? []
+        : await this.assignmentModel
+            .find({
+              warehouse_id: warehouseObjectId,
+              $or: orBranches,
+            })
+            .lean();
+    const rowKey = (a: { master_sku?: string | null; seller_sku: string }): string => (a.master_sku ? `M:${a.master_sku}` : `S:${normalizeSellerSku(a.seller_sku)}`);
     const binIds = assignments.map((a) => a.bin_location_id);
     const bins = await this.binModel.find({ _id: { $in: binIds } }).lean();
     const binMap = new Map(bins.map((b) => [b._id.toString(), b]));
@@ -544,16 +558,36 @@ export class WarehouseService {
       binMap.get(a.bin_location_id.toString())?.pick_sequence ?? Number.MAX_SAFE_INTEGER;
     const assignmentsBySku = new Map<string, typeof assignments>();
     for (const a of assignments) {
-      const list = assignmentsBySku.get(rowKey(a)) ?? [];
-      list.push(a);
-      assignmentsBySku.set(rowKey(a), list);
+      const keys = new Set<string>([rowKey(a)]);
+      // Unpooled row của SKU đã nối: index thêm dưới M:master để itemKey tìm thấy.
+      if (!a.master_sku) {
+        for (const [sellerSku, master] of masters) {
+          if (normalizeSellerSku(sellerSku) === normalizeSellerSku(a.seller_sku)) {
+            keys.add(`M:${master}`);
+          }
+        }
+      }
+      for (const key of keys) {
+        const list = assignmentsBySku.get(key) ?? [];
+        list.push(a);
+        assignmentsBySku.set(key, list);
+      }
     }
     for (const list of assignmentsBySku.values()) {
       list.sort((x, y) => Number(y.quantity_on_hand > 0) - Number(x.quantity_on_hand > 0) || seqOf(x) - seqOf(y));
     }
 
+    const candidatesForSku = (sku: string): typeof assignments => {
+      const master = masters.get(sku);
+      if (master) {
+        const pooled = assignmentsBySku.get(`M:${master}`);
+        if (pooled && pooled.length > 0) return pooled;
+      }
+      return assignmentsBySku.get(`S:${normalizeSellerSku(sku)}`) ?? [];
+    };
+
     const enriched: PickingListItem[] = items.map((item) => {
-      const candidates = assignmentsBySku.get(itemKey(item.sku)) ?? [];
+      const candidates = candidatesForSku(item.sku);
       const assignment = candidates[0];
       const bin = assignment
         ? binMap.get(assignment.bin_location_id.toString())

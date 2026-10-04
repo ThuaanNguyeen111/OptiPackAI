@@ -31,6 +31,66 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
     // Đơn Lazada lấy được hàng dù dòng tồn đứng tên SKU Tiki — vì cùng 1 SKU nội bộ.
     expect(list[0]).toMatchObject({ sku: 'ATD-M-01', master_sku: 'ATHUN-005-DEN-M', bin_code: 'KA-D1-P02-T03-1' });
     expect((rowFind.mock.calls[0] as [{ $or: unknown[] }])[0].$or).toContainEqual({ master_sku: { $in: ['ATHUN-005-DEN-M'] } });
+    // Có thêm nhánh fallback unpooled (master_sku null) cho SKU đã nối.
+    expect((rowFind.mock.calls[0] as [{ $or: unknown[] }])[0].$or).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ platform: 'lazada', shop_id: 's1', master_sku: null }),
+      ]),
+    );
+  });
+
+  it('Picking List: SKU đã nối nhưng tồn còn unpooled (master_sku null) -> vẫn hiện mã kệ', async () => {
+    const binId = new Types.ObjectId();
+    const zoneId = new Types.ObjectId();
+    const rowFind = jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue([
+        {
+          _id: new Types.ObjectId(),
+          warehouse_id: warehouseId,
+          bin_location_id: binId,
+          platform: 'lazada',
+          shop_id: 's1',
+          seller_sku: 'KA-D1-P03-T01-3',
+          master_sku: null,
+          quantity_on_hand: 10,
+        },
+      ]),
+    });
+    const service = new WarehouseService(
+      { findById: jest.fn().mockResolvedValue({ _id: warehouseId, is_active: true }) } as never,
+      { find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ _id: zoneId, zone_code: 'KA' }]) }) } as never,
+      {
+        find: jest.fn().mockReturnValue({
+          lean: jest.fn().mockResolvedValue([
+            { _id: binId, bin_code: 'KA-D1-P03-T01-3', zone_id: zoneId, pick_sequence: 1 },
+          ]),
+        }),
+      } as never,
+      { find: rowFind } as never,
+      {} as never,
+      {
+        getPackableItemsForGroup: jest.fn().mockResolvedValue({
+          items: [{ sku: 'KA-D1-P03-T01-3', quantity: 1 }],
+        }),
+        findOrderGroupById: jest.fn().mockResolvedValue({ platform: 'lazada', shop_id: 's1' }),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      mapped([{ seller_sku_normalized: 'KA-D1-P03-T01-3', master_sku: 'ATHUN-005-DEN-M' }]) as never,
+    );
+
+    const list = await service.getEnrichedPickingList(
+      warehouseId.toString(),
+      new Types.ObjectId().toString(),
+    );
+
+    expect(list[0]).toMatchObject({
+      sku: 'KA-D1-P03-T01-3',
+      master_sku: 'ATHUN-005-DEN-M',
+      bin_code: 'KA-D1-P03-T01-3',
+      bin_location_id: binId.toString(),
+    });
   });
 
   it('Gán SKU đã nối vào ô -> tìm/tạo dòng theo SKU nội bộ, gắn nhãn master_sku', async () => {

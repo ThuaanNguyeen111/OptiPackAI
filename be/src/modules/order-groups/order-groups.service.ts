@@ -727,9 +727,13 @@ export class OrderGroupsService {
     const session = await this.skuBinAssignmentModel.db.startSession();
     try {
       await session.withTransaction(async () => {
+        // warehouse_id ép ObjectId — tránh miss khi FE gửi string (assignment lưu ObjectId).
+        const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
+          ? new Types.ObjectId(warehouseId)
+          : warehouseId;
         const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
           {
-            warehouse_id: warehouseId,
+            warehouse_id: warehouseObjectId,
             ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
             ...(binLocationId
               ? { bin_location_id: new Types.ObjectId(binLocationId) }
