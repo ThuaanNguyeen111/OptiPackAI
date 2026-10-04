@@ -205,7 +205,7 @@ Chuẩn bị: nhóm đơn G1 đã `delivered` ở Phần D.
 
 | Hiện tượng                               | Nguyên nhân                                                                       | Cách xử lý                                                             |
 | ---------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Nối SKU báo `MAP_SELLER_SKU_UNKNOWN`     | Sản phẩm chưa đồng bộ                                                             | Chạy đồng bộ Product Master                                            |
+| Nối SKU báo `MAP_SELLER_SKU_UNKNOWN`     | Sản phẩm chưa đồng bộ                                                             | Admin gọi `POST /product-master/sync` (hoặc chờ cron mỗi giờ)          |
 | Gán SKU vào ô thứ 2 lỗi trùng khóa       | Chưa chạy script K3                                                               | Chạy `migrate-sku-bin-assignment-multibin.ts`, khởi động lại BE        |
 | `pack` trả `warnings` "Chưa khai thùng…" | Kích thước thùng trong danh mục không khớp gợi ý                                  | Khai đúng 3 kích thước (20×15×10, 35×25×20, 50×40×35)                  |
 | "Giao lại" luôn báo quá sớm              | Chưa đặt `SHIPMENT_MIN_RETRY_GAP_MINUTES`                                         | Đặt biến môi trường, khởi động lại BE                                  |
