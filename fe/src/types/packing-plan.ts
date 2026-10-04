@@ -73,6 +73,18 @@ export type PlanParcel = {
   materialsShortfall: { code: string; missing: number }[]
 }
 
+/** Gợi ý kho thùng (04/10/2026): nếu kho đủ các thùng ở `missing` thì đơn đóng được như vậy. Chụp lúc tính. */
+export type StockSuggestion = {
+  parcels: number
+  packagingCostVnd: number
+  avgFill: number
+  currentParcels: number
+  currentAvgFill: number
+  /** > 0 rẻ hơn; < 0 đắt hơn nhưng ít kiện hơn. */
+  savingVnd: number
+  missing: { boxCode: string; boxName: string; needed: number; available: number }[]
+}
+
 export type PlanOrder = {
   orderId: string
   platformOrderId: string | null
@@ -83,6 +95,7 @@ export type PlanOrder = {
   explanation: string[]
   strategy: string
   cpSat: 'pending' | 'done' | 'skipped' | 'unavailable'
+  stockSuggestion: StockSuggestion | null
 }
 
 export type PlanItemProfile = {
@@ -106,7 +119,7 @@ export type PackingPlan = {
   itemProfiles: PlanItemProfile[]
   adjustments: { kind: string; detail: string; reason: string; note: string | null; at: string }[]
   solver: { engineVersion: string; computationMs: number; options: { excludeBoxCodes: string[]; prefer: string } }
-  totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number }
+  totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number; avgFill: number }
   approvedAt: string | null
   rejectedAt: string | null
   rejectionReason: string | null
@@ -142,8 +155,8 @@ export const PROOF_LABELS: Record<ProofLabel, { vi: string; en: string; hintVi: 
   heuristic: {
     vi: 'Phương án tốt nhất tìm được',
     en: 'Best found',
-    hintVi: 'Chưa chứng minh được là tối ưu — xem khoảng cách tới số kiện tối thiểu.',
-    hintEn: 'Not proven optimal — see the gap to the minimum parcel count.',
+    hintVi: 'Chưa chứng minh được là tối ưu — cận dưới chỉ tính theo thể tích nên có thể thấp hơn mức xếp được thật.',
+    hintEn: 'Not proven optimal — the lower bound only uses volume, so it can be below what is actually packable.',
   },
 }
 

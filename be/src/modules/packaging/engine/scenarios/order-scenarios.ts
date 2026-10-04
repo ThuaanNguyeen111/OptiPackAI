@@ -89,7 +89,10 @@ export const sandal = (qty = 1, sku = 'SANDAL'): PackableItem =>
 export const sunglasses = (qty = 1, sku = 'GLASSES'): PackableItem =>
   item(sku, [16, 7, 5], 0.2, { qty, category: 'accessory', fragile: true });
 
-/** Danh mục thùng mẫu (khớp scripts/seed-packaging-boxes.ts). */
+/**
+ * Danh mục thùng mẫu (khớp scripts/seed-packaging-boxes.ts, TRỪ SAMPLE-LT thêm 04/10/2026 —
+ * cố ý không thêm vào đây để benchmark/kịch bản cũ còn so sánh được với kết quả đã lưu).
+ */
 export function sampleBoxes(): BoxSpec[] {
   const mk = (
     code: string,

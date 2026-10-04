@@ -132,18 +132,23 @@ const SAMPLE_BOXES = [
   { code: 'SAMPLE-S', name: 'Thùng mẫu S (số giả lập)', inner: [200, 150, 100], outer: [206, 156, 106], tare_g: 90, max_load_g: 5000, price_vnd: 2500 },
   { code: 'SAMPLE-M', name: 'Thùng mẫu M (số giả lập)', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
   { code: 'SAMPLE-L', name: 'Thùng mẫu L (số giả lập)', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
+  { code: 'SAMPLE-LT', name: 'Thùng mẫu L thấp (số giả lập)', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000 },
 ] as const;
 
 /**
  * Tồn thùng mẫu cho demo (22/09/2026): M = 1 — group gập đôi (chạy đầu tiên)
  * giữ chỗ chiếc M duy nhất, các group sau thấy M hết nên engine chuyển sang
  * thùng còn hàng + ghi "thùng vừa hơn đã hết"; L = 16 để đóng nhiều kiện L
- * (đơn đa kiện) chạm mức cảnh báo 10 (thông báo sắp hết thùng).
+ * (đơn đa kiện) chạm mức cảnh báo 10 (thông báo sắp hết thùng). LT = 20
+ * (04/10/2026, thùng L thấp 50×40×20 cho phần lẻ của đơn sỉ). Giữ M = 1 để
+ * màn làm việc vẫn có ví dụ "Gợi ý kho thùng" (thiếu M).
  */
 const DEMO_BOX_STOCK: Record<(typeof SAMPLE_BOXES)[number]['code'], number> = {
   'SAMPLE-S': 20,
   'SAMPLE-M': 1,
   'SAMPLE-L': 16,
+  // (04/10/2026) Cỡ trung gian: đơn sỉ dùng L thấp cho phần lẻ thay vì L đầy đủ (lấp đầy 63% → ~76%).
+  'SAMPLE-LT': 20,
 };
 
 function mm(values: readonly number[]): { length_mm: number; width_mm: number; height_mm: number } {

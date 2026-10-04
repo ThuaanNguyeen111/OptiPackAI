@@ -10,6 +10,7 @@ import {
   Cpu,
   Loader2,
   PackageCheck,
+  PackagePlus,
   Play,
   RefreshCw,
   Truck,
@@ -123,6 +124,9 @@ export function PackingWorkspacePage() {
               </span>
               <span>{vnd(plan.totals.packagingCostVnd)}</span>
               <span>{kg(plan.totals.estimatedWeightG, vi)}</span>
+              <span title={vi ? 'Tổng thể tích hàng ÷ tổng lòng thùng' : 'Goods volume ÷ box volume'}>
+                {vi ? 'lấp đầy' : 'fill'} {Math.round(plan.totals.avgFill * 100)}%
+              </span>
             </span>
           )}
         </div>
@@ -218,6 +222,7 @@ export function PackingWorkspacePage() {
                 </section>
               )}
 
+              <StockSuggestionCard plan={plan} vi={vi} isAdmin={isAdmin} />
               <ProofCard plan={plan} vi={vi} />
               <ParcelDetails
                 plan={plan}
@@ -505,6 +510,67 @@ function ProofCard({ plan, vi }: { plan: PackingPlan; vi: boolean }) {
             {plan.solver.engineVersion} · {plan.solver.computationMs.toLocaleString('vi-VN')} ms
           </p>
         </div>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Gợi ý kho thùng (04/10/2026): đơn phải dùng thùng to hơn/nhiều kiện hơn chỉ
+ * vì kho hết thùng vừa hơn. Số liệu chụp lúc tính kế hoạch.
+ */
+function StockSuggestionCard({ plan, vi, isAdmin }: { plan: PackingPlan; vi: boolean; isAdmin: boolean }) {
+  const rows = plan.orders.flatMap((o) => (o.stockSuggestion ? [{ order: o, s: o.stockSuggestion }] : []))
+  if (rows.length === 0) return null
+  const pct = (x: number) => `${String(Math.round(x * 100))}%`
+  return (
+    <section className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-ink">
+        <PackagePlus className="h-4 w-4 text-amber-600" />
+        {vi ? 'Gợi ý kho thùng' : 'Box stock suggestion'}
+      </h2>
+      <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+        {vi
+          ? 'Kho đang thiếu thùng vừa hơn nên phải dùng thùng to/nhiều kiện. Nhập thêm thùng dưới đây rồi bấm "Tính lại…" để dùng.'
+          : 'A better-fitting box is out of stock, so larger boxes were used. Restock the boxes below, then recompute.'}
+      </p>
+      <ul className="mt-3 space-y-3">
+        {rows.map(({ order, s }) => (
+          <li key={order.orderId} className="rounded-lg bg-surface-1 p-3 text-xs">
+            {plan.orders.length > 1 && (
+              <p className="mb-1 font-mono text-ink-subtle">{order.platformOrderId ?? `…${order.orderId.slice(-6)}`}</p>
+            )}
+            <p className="text-sm text-ink">
+              {s.missing
+                .map((m) => `${m.boxCode} — ${vi ? 'cần' : 'need'} ${String(m.needed)}, ${vi ? 'còn trống' : 'free'} ${String(m.available)}`)
+                .join(' · ')}
+            </p>
+            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 tabular-nums">
+              <dt className="text-ink-muted">{vi ? 'Số kiện' : 'Parcels'}</dt>
+              <dd className="text-right text-ink">
+                {s.currentParcels} → <span className="font-semibold">{s.parcels}</span>
+              </dd>
+              <dt className="text-ink-muted">{vi ? 'Lấp đầy TB' : 'Avg fill'}</dt>
+              <dd className="text-right text-ink">
+                {pct(s.currentAvgFill)} → <span className="font-semibold text-success">{pct(s.avgFill)}</span>
+              </dd>
+              {s.savingVnd !== 0 && (
+                <>
+                  <dt className="text-ink-muted">{vi ? 'Thùng + vật tư' : 'Box + materials'}</dt>
+                  <dd className={`text-right font-semibold ${s.savingVnd > 0 ? 'text-success' : 'text-ink'}`}>
+                    {s.savingVnd > 0 ? '−' : '+'}
+                    {vnd(Math.abs(s.savingVnd))}
+                  </dd>
+                </>
+              )}
+            </dl>
+          </li>
+        ))}
+      </ul>
+      {isAdmin && (
+        <Link to="/app/admin/boxes" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline">
+          {vi ? 'Mở danh mục thùng để nhập thêm' : 'Open box catalog to restock'}
+        </Link>
       )}
     </section>
   )

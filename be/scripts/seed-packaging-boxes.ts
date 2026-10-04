@@ -32,6 +32,7 @@ const SAMPLE_BOXES = [
   { code: 'SAMPLE-S', name: 'Thùng mẫu S (số giả lập)', inner: [200, 150, 100], outer: [206, 156, 106], tare_g: 90, max_load_g: 5000, price_vnd: 2500 },
   { code: 'SAMPLE-M', name: 'Thùng mẫu M (số giả lập)', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
   { code: 'SAMPLE-L', name: 'Thùng mẫu L (số giả lập)', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
+  { code: 'SAMPLE-LT', name: 'Thùng mẫu L thấp (số giả lập)', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000 },
 ] as const;
 
 /** Tồn nhập cho mỗi thùng mẫu mới tạo. */
