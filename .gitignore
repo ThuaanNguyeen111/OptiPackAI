@@ -63,3 +63,7 @@ packer/.venv/
 .mypy_cache/
 .ruff_cache/
 *.egg-info/
+
+# UI dev tools
+.impeccable/
+fe/.impeccable/

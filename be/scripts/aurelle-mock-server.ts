@@ -167,6 +167,7 @@ function verifySignature(req: Request): boolean {
   const key = String(source.app_key ?? '');
   const registered = findDeveloperApp(key);
   if (!registered && key !== APP_KEY) return false;
+  if (registered && registered.status === 'revoked') return false;
   const verifier = registered ? new LazadaProtocolClient({
     logLabel: 'Aurelle-Local', authBaseUrl: '', apiBaseUrl: '',
     appKey: registered.app_key, appSecret: registered.app_secret,
@@ -208,6 +209,10 @@ app.get('/oauth/authorize', (req: Request, res: Response) => {
   const state = typeof req.query.state === 'string' ? req.query.state : '';
   const key = typeof req.query.client_id === 'string' ? req.query.client_id : '';
   const registered = findDeveloperApp(key);
+  if (registered && registered.status === 'revoked') {
+    res.status(403).send('Khóa ứng dụng này đã bị thu hồi (revoked). Vui lòng kích hoạt lại trong Cổng nhà phát triển.');
+    return;
+  }
   if ((!registered && key !== APP_KEY) || (registered && registered.redirect_uri !== redirectUri)) {
     res.status(400).send('Ứng dụng hoặc callback chưa được đăng ký.');
     return;
