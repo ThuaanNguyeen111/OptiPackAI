@@ -199,90 +199,232 @@ OptiPackAI/
 ├── fe/                              Frontend · React + Vite
 ├── storefront/                      Website AURELLE + cổng nhà phát triển · Next.js
 ├── packer/                          Microservice CP-SAT · Python OR-Tools
-├── mobile/                          Mobile App · Flutter
+├── k8s/                             Manifest Kubernetes (kustomize: base + overlays local/ghcr)
+├── scripts/                         Script hạ tầng (tạo Secret Kubernetes từ be/.env)
+├── docs/                            Tài liệu thuật toán, ERD, triển khai
 ├── GUIDE_DOC/                       Tài liệu tích hợp API và kịch bản trình diễn
 ├── docker-compose.yml
-└── package.json                     npm workspaces (be, fe)
+└── package.json                     npm workspaces (be, fe, storefront)
 ```
 
 ---
 
 ## Bắt đầu
 
+Hệ thống gồm 4 phần chạy độc lập. Chỉ **Backend** là bắt buộc; các phần còn lại bật khi cần.
+
+| Phần | Thư mục | Công nghệ | Cổng mặc định | Bắt buộc? |
+| ---- | ------- | --------- | ------------- | --------- |
+| Backend API | `be/` | NestJS (Node.js) | `3000` | Có |
+| Giao diện quản trị | `fe/` | React + Vite | `5173` | Có, nếu dùng giao diện |
+| Website bán hàng AURELLE | `storefront/` | Next.js | `3001` | Không |
+| Service CP-SAT kiểm chứng đóng gói | `packer/` | Python (FastAPI + OR-Tools) | `8000` | Không — thiếu thì backend vẫn tính đóng gói bằng BRKGA |
+| Sàn AURELLE giả lập (Open API) | `be/scripts/aurelle-mock-server.ts` | Node.js | `4000` | Không — chỉ khi test kết nối AURELLE bằng app key |
+
 ### Yêu cầu
 
-| Công cụ                 | Phiên bản                                           |
-| ----------------------- | --------------------------------------------------- |
-| Node.js                 | ≥ 20                                                |
-| npm                     | ≥ 10                                                |
-| Git                     | mới nhất                                            |
-| Docker & Docker Compose | mới nhất (tùy chọn, cho dịch vụ cục bộ)             |
-| Redis                   | Redis hoặc tương thích (Memurai trên Windows)       |
-| MongoDB                 | Cụm MongoDB Atlas (cần replica set cho transaction) |
+| Công cụ | Phiên bản | Dùng cho |
+| ------- | --------- | -------- |
+| Node.js | ≥ 20 | Backend, Frontend, Storefront |
+| npm | ≥ 10 | Cài thư viện (npm workspaces) |
+| Git | mới nhất | |
+| MongoDB | Cụm MongoDB Atlas (replica set — bắt buộc cho transaction) | Cơ sở dữ liệu |
+| Redis | Redis 7 hoặc tương thích (Memurai trên Windows) | Cache trạng thái đăng nhập |
+| Python | ≥ 3.12 (tùy chọn) | Service CP-SAT `packer/` |
+| Docker Desktop | mới nhất (tùy chọn) | Chạy bằng container / Kubernetes |
 
-### Cài đặt
+### Cách 1 — Chạy trực tiếp trên máy (phát triển)
+
+**Bước 1. Lấy mã nguồn và cài thư viện** (chỉ chạy `npm install` ở thư mục gốc — repo dùng npm workspaces cho `be`, `fe`, `storefront`):
 
 ```bash
-# 1. Lấy mã nguồn
 git clone https://github.com/ThuaanNguyeen111/OptiPackAI.git
 cd OptiPackAI
-
-# 2. Cài đặt thư viện cho toàn bộ workspace (chỉ chạy ở thư mục gốc)
 npm install
-
-# 3. Tạo file cấu hình môi trường
-cp be/.env.example be/.env
-cp fe/.env.example fe/.env
-
-# 4. Khởi tạo tài khoản quản trị đầu tiên
-cd be && npm run seed:admin && cd ..
-
-# 5. Chạy môi trường phát triển (Backend + Frontend)
-npm run dev
 ```
 
-| Dịch vụ     | Địa chỉ                          |
-| ----------- | -------------------------------- |
-| Backend API | `http://localhost:3000`          |
-| Swagger UI  | `http://localhost:3000/api/docs` |
-| Frontend    | `http://localhost:5173`          |
+**Bước 2. Tạo file cấu hình**
+
+```bash
+cp be/.env.example be/.env                  # điền MONGODB_URI, JWT, SMTP, Lazada... (xem bảng biến bên dưới)
+cp fe/.env.example fe/.env                  # VITE_API_URL=http://localhost:3000
+cp storefront/.env.example storefront/.env  # NEXT_PUBLIC_API_URL=http://localhost:3000 (nếu chạy storefront)
+```
+
+**Bước 3. Bật Redis** — chọn 1 trong 2:
+
+```bash
+npm run docker:infra          # chạy Redis bằng Docker (cổng 6379)
+# hoặc cài Redis / Memurai trên máy và để REDIS_HOST=localhost trong be/.env
+```
+
+**Bước 4. Tạo tài khoản quản trị đầu tiên**
+
+```bash
+cd be && npm run seed:admin && cd ..
+```
+
+**Bước 5. Chạy ứng dụng** (ở thư mục gốc):
+
+```bash
+npm run dev            # chạy cùng lúc Backend + Frontend + Storefront
+# hoặc từng phần:
+npm run dev:be         # Backend  → http://localhost:3000 (Swagger: /api/docs)
+npm run dev:fe         # Frontend → http://localhost:5173
+npm run dev:storefront # Website bán hàng → http://localhost:3001
+```
+
+**Bước 6 (tùy chọn). Service CP-SAT bằng Python** — kiểm chứng phương án đóng gói của đơn ≤ 12 món có tối ưu không:
+
+```bash
+cd packer
+python -m venv .venv                                          # tạo môi trường riêng (1 lần)
+.venv/Scripts/python -m pip install -e ".[dev]"               # Windows; macOS/Linux: .venv/bin/python
+.venv/Scripts/python -m uvicorn packer.main:app --port 8000   # chạy service
+```
+
+Kiểm tra: mở `http://127.0.0.1:8000/healthz`. Sau đó đặt `PACKER_URL=http://127.0.0.1:8000` trong `be/.env` rồi khởi động lại backend. Không chạy service này thì để trống `PACKER_URL` — backend vẫn tính kế hoạch đóng gói, chỉ không có nhãn `optimal_in_model`.
+
+Chạy kiểm tra code Python: `cd packer && .venv/Scripts/python -m pytest` (thêm `ruff check .`, `mypy .` như CI).
+
+**Bước 7 (tùy chọn). Sàn AURELLE giả lập** — khi cần test kết nối AURELLE bằng app key:
+
+```bash
+npm run dev:aurelle    # cổng 4000, đổi bằng AURELLE_MOCK_PORT; đọc dữ liệu website thật từ MONGODB_URI
+```
+
+Rồi điền `AURELLE_APP_KEY`, `AURELLE_APP_SECRET` (cấp từ cổng nhà phát triển giả lập) trong `be/.env`.
+
+**Bước 8 (tùy chọn). Kết nối Lazada thật** — Lazada chỉ nhận callback OAuth dạng HTTPS công khai, nên khi chạy trên máy cần đường hầm:
+
+```bash
+ngrok http --url=<domain-cố-định-của-bạn> 3000
+```
+
+và khai báo cùng địa chỉ đó cho `LAZADA_REDIRECT_URI` (trong `be/.env` lẫn Lazada ISV Console).
+
+| Dịch vụ | Địa chỉ |
+| ------- | ------- |
+| Backend API | `http://localhost:3000` |
+| Swagger UI | `http://localhost:3000/api/docs` |
+| Frontend | `http://localhost:5173` |
+| Website AURELLE | `http://localhost:3001` |
+| Service CP-SAT | `http://localhost:8000/healthz` |
+| Sàn AURELLE giả lập | `http://localhost:4000` |
+
+### Cách 2 — Chạy toàn bộ bằng Docker Compose
+
+Build context là **thư mục gốc** (npm workspaces). MongoDB mặc định vẫn dùng Atlas qua `MONGODB_URI` trong `be/.env`.
+
+```bash
+cp be/.env.example be/.env      # điền như Cách 1
+npm run docker:up               # build + chạy redis, packer, be, fe, storefront (nền)
+npm run docker:logs             # xem log
+npm run docker:down             # tắt
+```
+
+| Container | Cổng trên máy (đổi bằng biến) |
+| --------- | ----------------------------- |
+| `be` | `3000` (`BE_PORT`) |
+| `fe` | `5173` (`FE_PORT`) |
+| `storefront` | `3001` (`STOREFRONT_PORT`) |
+| `redis` | `6379` (`REDIS_PORT`) |
+| `packer` | chỉ trong mạng nội bộ; `be` gọi qua `PACKER_URL=http://packer:8000` |
+
+Muốn dùng **MongoDB cục bộ** thay Atlas (chạy dạng replica set `rs0` để có transaction, kèm giao diện Mongo Express cổng `8081`):
+
+```bash
+npm run docker:dev     # mongodb + mongo-express + redis
+```
+
+rồi đổi `MONGODB_URI` trong `be/.env` sang MongoDB cục bộ.
+
+> [!NOTE]
+> `VITE_API_URL` (fe) và `NEXT_PUBLIC_API_URL` (storefront) được nhúng vào bản build. Đổi địa chỉ backend thì phải build lại image, không chỉ khởi động lại.
+
+### Cách 3 — Kubernetes (chạy thử)
+
+Hướng dẫn đầy đủ (bật Kubernetes trong Docker Desktop, WSL2 trên Windows, Ingress, port-forward) ở [`k8s/README.md`](k8s/README.md). Tóm tắt:
+
+```bash
+docker compose build                       # build 4 image :local
+bash scripts/k8s-create-secret.sh          # tạo Secret từ be/.env (KHÔNG gọi thẳng kubectl --from-env-file)
+kubectl apply -k k8s/overlays/local
+kubectl -n optipackai get pods -w          # chờ các pod Running
+kubectl -n optipackai port-forward svc/be 3000:3000
+kubectl -n optipackai port-forward svc/fe 5173:80
+```
+
+Triển khai thật (image trên GHCR, CI/CD): [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 ### Biến môi trường chính (`be/.env`)
 
-| Nhóm                 | Biến                                                                                  | Mô tả                                                         |
-| -------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Ứng dụng             | `PORT`, `CORS_ORIGIN`, `FRONTEND_URL`                                                 | Cổng chạy, nguồn được phép gọi API, địa chỉ giao diện         |
-| Cơ sở dữ liệu        | `MONGODB_URI`                                                                         | Chuỗi kết nối MongoDB Atlas                                   |
-| Redis                | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD`                                          | Kết nối Redis                                                 |
-| Xác thực             | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Khóa ký và thời hạn token                                     |
-| Google OAuth         | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`                     | Đăng nhập bằng Google                                         |
-| Email                | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS`           | Máy chủ SMTP                                                  |
-| Bảo mật              | `TOKEN_ENCRYPTION_KEY`                                                                | Khóa mã hóa token sàn khi lưu                                 |
-| Lazada               | `LAZADA_APP_KEY`, `LAZADA_APP_SECRET`, `LAZADA_REDIRECT_URI`, `LAZADA_API_BASE_URL`   | Thông tin ứng dụng trên Lazada Open Platform                  |
-| Lazada (ghi lên sàn) | `LAZADA_WRITE_APIS_ENABLED`, `LAZADA_SHIPPING_ALLOCATE_TYPE`                          | Bật/tắt các thao tác ghi lên shop; tham số phân bổ vận chuyển |
+| Nhóm | Biến | Mô tả |
+| ---- | ---- | ----- |
+| Ứng dụng | `PORT`, `CORS_ORIGIN`, `FRONTEND_URL` | Cổng chạy, nguồn được phép gọi API, địa chỉ giao diện |
+| Cơ sở dữ liệu | `MONGODB_URI` | Chuỗi kết nối MongoDB Atlas |
+| Redis | `REDIS_HOST`, `REDIS_PORT`, `REDIS_PASSWORD` | Kết nối Redis |
+| Xác thực | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `JWT_EXPIRES_IN`, `JWT_REFRESH_EXPIRES_IN` | Khóa ký và thời hạn token |
+| Google OAuth | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | Đăng nhập bằng Google |
+| Email | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS` | Máy chủ SMTP |
+| Bảo mật | `TOKEN_ENCRYPTION_KEY` | Khóa mã hóa token sàn khi lưu |
+| Lazada | `LAZADA_APP_KEY`, `LAZADA_APP_SECRET`, `LAZADA_REDIRECT_URI`, `LAZADA_API_BASE_URL` | Ứng dụng trên Lazada Open Platform |
+| Lazada (ghi lên sàn) | `LAZADA_WRITE_APIS_ENABLED`, `LAZADA_SHIPPING_ALLOCATE_TYPE` | Bật/tắt báo "đã đóng gói" lên shop thật (mặc định tắt) |
+| AURELLE | `AURELLE_APP_KEY`, `AURELLE_APP_SECRET`, `AURELLE_REDIRECT_URI`, `AURELLE_*_BASE_URL`, `AURELLE_WEBHOOK_URL`, `AURELLE_SELLER_ID` | Kết nối sàn AURELLE (giả lập cổng 4000) bằng app key + webhook |
+| Hướng dẫn đóng gói AI | `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`, `AI_TIMEOUT_MS` | Groq viết lời hướng dẫn; để trống `AI_API_KEY` → dùng câu mẫu |
+| CP-SAT | `PACKER_URL`, `PACKER_ENABLED`, `PACKER_TIMEOUT_MS`, `PACKER_MAX_UNITS`, `PACKER_DET_TIME_PER_COMBO`, `PACKER_WALL_TIME_S` | Service Python kiểm chứng tối ưu; để trống `PACKER_URL` → tắt |
 
 Danh sách đầy đủ kèm giá trị mẫu có trong `be/.env.example`.
 
-> [!TIP]
-> Lazada yêu cầu địa chỉ callback OAuth dạng HTTPS công khai. Khi phát triển cục bộ, dùng một đường hầm HTTPS (ví dụ `ngrok http --url=<domain-cố-định> 3000`) và khai báo địa chỉ đó cho `LAZADA_REDIRECT_URI`.
+### Dữ liệu mẫu và script vận hành (`be/scripts/`)
+
+Chạy trong thư mục `be/` bằng `npx ts-node -r tsconfig-paths/register scripts/<tên>.ts`. Script đọc `be/.env` và ghi vào **CSDL thật** đang cấu hình — kiểm tra `MONGODB_URI` trước khi chạy.
+
+| Script | Việc làm |
+| ------ | -------- |
+| `seed-admin.ts` (`npm run seed:admin`) | Tạo tài khoản quản trị đầu tiên |
+| `seed-packaging-boxes.ts` | Tạo thùng carton mẫu (hoặc nhập từ file CSV thùng thật) |
+| `seed-packaging-materials.ts` | Tạo vật tư chèn mẫu (góc xốp, túi khí...) |
+| `seed-shipping-carriers.ts` | Tạo hãng vận chuyển + bảng cước **mẫu** |
+| `seed-ai-guide-demo.ts` | Tạo các nhóm đơn demo đóng gói 3D/nhiều kiện (`--clean` để xóa) |
+| `sync-product-master-now.ts` | Đồng bộ ngay danh mục sản phẩm từ sàn (`--incremental` = chỉ phần mới) |
+| `migrate-*.ts`, `backfill-*.ts` | Chuyển đổi dữ liệu cũ sau khi nâng cấp — đọc chú thích đầu file; nhiều script mặc định chỉ chạy thử, thêm `--apply` mới ghi |
+| `pack-benchmark.ts`, `solver-benchmark.ts`, `cpsat-benchmark.ts` | Đo chất lượng/tốc độ bộ giải đóng gói (không ghi CSDL) |
+| `aurelle-mock-server.ts`, `aurelle-conformance.ts`, `aurelle-webhook-smoke-test.ts` | Sàn AURELLE giả lập và bộ kiểm tra tương thích Open API |
 
 ### Lệnh thường dùng
 
-| Lệnh (thư mục gốc)                           | Mô tả                                |
-| -------------------------------------------- | ------------------------------------ |
-| `npm run dev`                                | Chạy Backend và Frontend             |
-| `npm run dev:be` / `npm run dev:fe`          | Chạy riêng từng phần                 |
-| `npm run build`                              | Build toàn bộ                        |
-| `npm run lint`                               | Kiểm tra mã nguồn                    |
-| `npm run test`                               | Chạy kiểm thử Backend                |
-| `npm run docker:dev` / `npm run docker:down` | Bật / tắt dịch vụ cục bộ bằng Docker |
+| Lệnh (thư mục gốc) | Mô tả |
+| ------------------ | ----- |
+| `npm run dev` | Chạy Backend + Frontend + Storefront |
+| `npm run dev:be` / `dev:fe` / `dev:storefront` | Chạy riêng từng phần |
+| `npm run dev:aurelle` | Chạy sàn AURELLE giả lập (cổng 4000) |
+| `npm run build` | Build toàn bộ |
+| `npm run lint` / `npm run lint:ci` | Kiểm tra mã nguồn (có / không tự sửa) |
+| `npm run test` | Chạy kiểm thử Backend |
+| `npm run docker:up` / `docker:down` / `docker:logs` | Chạy / tắt / xem log toàn bộ bằng Docker |
+| `npm run docker:infra` | Chỉ chạy Redis bằng Docker |
+| `npm run docker:dev` | MongoDB cục bộ + Mongo Express + Redis |
 
-| Lệnh (thư mục `be/`)                | Mô tả                                |
-| ----------------------------------- | ------------------------------------ |
-| `npm run start:dev`                 | Chạy Backend với hot-reload          |
+| Lệnh (thư mục `be/`) | Mô tả |
+| -------------------- | ----- |
+| `npm run start:dev` | Chạy Backend với hot-reload |
+| `npm run start:prod` | Chạy bản đã build (`npm run build` trước) |
+| `npx tsc --noEmit` | Kiểm tra kiểu (CI chạy bước này riêng, không nằm trong lint) |
 | `npm run test` / `npm run test:cov` | Kiểm thử đơn vị / báo cáo độ bao phủ |
-| `npm run test:e2e`                  | Kiểm thử end-to-end                  |
-| `npm run seed:admin`                | Tạo tài khoản quản trị               |
+| `npm run test:e2e` | Kiểm thử end-to-end |
+| `npm run seed:admin` | Tạo tài khoản quản trị |
+
+### Lỗi hay gặp khi chạy
+
+| Hiện tượng | Cách xử lý |
+| ---------- | ---------- |
+| Backend log `ioredis ECONNREFUSED` liên tục | Redis chưa chạy — `npm run docker:infra` hoặc bật Memurai |
+| Lỗi transaction khi duyệt/đóng gói | MongoDB không phải replica set — dùng Atlas hoặc `npm run docker:dev` |
+| Kế hoạch đóng gói không có nhãn tối ưu, ghi "CP-SAT chưa được bật" | Chưa chạy `packer/` hoặc thiếu `PACKER_URL` — không ảnh hưởng chức năng |
+| Hướng dẫn đóng gói toàn câu mẫu | Chưa đặt `AI_API_KEY` |
+| Lazada báo sai redirect khi kết nối | `LAZADA_REDIRECT_URI` phải trùng địa chỉ ngrok và cấu hình trên Lazada ISV Console |
+| Commit bị chặn | Husky chạy toàn bộ test trước commit; Commitlint yêu cầu dạng `type(AOFP-<số>): ...`, dòng đầu ≤ 100 ký tự |
 
 ---
 
