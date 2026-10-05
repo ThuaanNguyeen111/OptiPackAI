@@ -107,6 +107,7 @@ Thông điệp: nhóm đơn thiếu hàng được phát hiện ngay khi đơn v
 | C2  | Warehouse | Quét SKU tại ô, xác nhận lấy xong                                         | `POST .../pick-item` → `POST .../fulfillment/pick` | Tồn giảm; giữ chỗ chuyển `released`                            |
 | C3  | Packaging | Mở gợi ý đóng gói, duyệt                                                  | Luồng gợi ý đóng gói hiện có                       | Nhóm đơn sẵn sàng đóng gói                                     |
 | C4  | Packaging | Màn đóng gói: đổi thùng gợi ý sang `BOX-L`, nguồn _Mới_ → "Đóng gói xong" | `POST .../fulfillment/pack` + `materials_used`     | Nhóm đơn `packed`; `packagingConsumption` ghi đúng `BOX-L` mới |
+| C4' 🔄 05/10 | Packaging | Thay C4 khi dùng backend hiện tại: `start` → quét từng món (`parcels/:no/scan`) → `seal` từng kiện; thử cân lệch để thấy kiện bị giữ, nhờ người khác `review accept` | `POST .../packing-plan/start`, `.../scan`, `.../seal`, `.../review` | Kiện `sealed`/`held` đúng ngưỡng; kiện cuối → nhóm `packed`; sổ thùng có 1 dòng/kiện |
 | C5  | Admin     | Màn vật liệu                                                              | `GET /packaging-materials`                         | `BOX-L.qtyNew` giảm 1                                          |
 
 Thông điệp: kho vật liệu phản ánh đúng thứ nhân viên đã dùng; trạng thái đóng gói và tồn vật liệu được cập nhật trong cùng một giao dịch.

@@ -2665,6 +2665,8 @@ Verify: packer — ruff, ruff format, mypy strict, pytest 11/11; backend — `ts
 
 ## Làm lại đóng gói 3D — Đợt 4: giao diện mới (04/10/2026) — ĐÃ TRIỂN KHAI (frontend)
 
+> 🔄 **ĐÃ THAY ĐỔI 05/10/2026:** toàn bộ FE trên `thi_dev` đã khôi phục về bản `main` (Thuận chốt: FE do nhóm FE làm, Claude chỉ làm backend). Các màn mô tả ở mục này và mục "Khung 3D đóng gói từng thao tác" không còn trên `thi_dev`; code lưu ở nhánh `backup/fe-packing-3d`. Xem mục "Khôi phục FE về main + phiên đóng gói (05/10/2026)" cuối file.
+
 - **Backend phụ**: `GET /packing-plans/summary?group_ids=` (`PackingPlansController`, `listActiveByGroupIds`) — tóm tắt kế hoạch cho bảng hàng chờ (trạng thái, số kiện, chi phí, nhãn chứng minh, CP-SAT đang chạy).
 - **`/app/packing` = `PackingQueuePage`**: 4 cột Đang tính / Chờ duyệt / Chờ đóng / Đã đóng (12 nhóm gần nhất) + dải "Cần xử lý" (kế hoạch `failed`/`rejected`). Hỏa tốc lên đầu, rồi hạn chót. Tự làm mới 10 s.
 - **`/app/packing/:groupId` = `PackingWorkspacePage`** (1 màn hình thay trang kế hoạch + wizard): trái danh sách kiện theo đơn (cảnh báo đơn chưa xếp hết), giữa khung 3D, phải theo trạng thái: chờ duyệt → Duyệt / Đổi thùng / Tính lại có điều kiện (ưu tiên ít kiện/rẻ, loại thùng) / chuyển xử lý tay; mỗi món có nút chuyển sang kiện khác (cùng đơn hoặc kiện mới); "Vì sao phương án này?" (nhãn chứng minh, cận dưới, lời giải thích từng đơn); lịch sử chỉnh tay. Đang tính / lỗi / bị từ chối → màn trạng thái, thăm dò 3 s tới khi có kết quả. Link cũ `/app/packing/groups/:id(/orders/:x)` tự chuyển hướng.
@@ -3561,6 +3563,8 @@ User hỏi 4 mục menu là gì → đối chiếu code: "Tham số AI" (state R
 
 ## Khung 3D đóng gói "từng thao tác": vải mô phỏng, túi zip, đóng thùng (05/10/2026)
 
+> 🔄 **ĐÃ GỠ khỏi `thi_dev` cùng ngày** — FE khôi phục về `main`; code còn ở nhánh `backup/fe-packing-3d` (gồm 4 file đang sửa dở lúc gỡ).
+
 **[stated] User chốt**: (1) có ở **cả hai nơi**: màn làm việc `/app/packing/:groupId` (tab "Xem từng bước", xem trước lúc duyệt) và chế độ đóng gói toàn màn hình; (2) **tách bước nhỏ**, mỗi thao tác 1 lần bấm Tiếp; (3) **mô phỏng vải thật**. Không đổi backend.
 
 - **Dòng thời gian** `fe/src/components/packing3d/timeline.ts` (`buildPackingTimeline`, hàm thuần):
@@ -3597,3 +3601,30 @@ User hỏi 4 mục menu là gì → đối chiếu code: "Tham số AI" (state R
   - Chụp Edge headless (SwiftShader) với kế hoạch giả lập 5 món: trải áo, gấp, túi, kéo khoá, gập túi, đặt, chèn vật tư, đóng nắp, băng keo. Chụp cả chế độ đóng gói.
   - **Chưa đo fps trên GPU thật.** Dựng hình phần mềm chậm nên animation trong ảnh chưa chạy hết. User cần xem trên máy thật.
 - **Giới hạn**: nếp gấp do bản lề dẫn hướng, vật lý chỉ làm mềm (không phải mô phỏng vải tự do). Chưa có va chạm vải-với-vải; khe giữa các lớp do động học giữ.
+
+## Khôi phục FE về main + phiên đóng gói backend (05/10/2026)
+
+**[stated] Thuận chốt:** FE do nhóm FE làm → `fe/` trên `thi_dev` quay về đúng `origin/main`; Claude chỉ làm backend, đầu tư sâu nghiệp vụ đóng gói. Chọn: giữ `fe/Dockerfile` + `fe/nginx.conf` + sửa lỗi build; FE main gọi route cũ `/packaging/*` + `fulfillment/pack` (đã gỡ) sẽ 404, **FE tự chuyển** (bảng ánh xạ ở `GUIDE_DOC/API_LIST.md` mục 8a.7, BE không thêm route tương thích); lưu phần 3D sang nhánh `backup/fe-packing-3d`; làm cả 4 nhóm nghiệp vụ; kiện lệch cân phải do **người khác** người niêm phong chấp nhận; giữ `POST .../packing-plan/pack` làm lối tắt.
+
+**FE (AOFP-67):** `git checkout origin/main -- fe`, xóa 43 file chỉ có trên thi_dev, `npm install` gỡ `postprocessing` khỏi lockfile. FE main **không build được** (lỗi tsc có sẵn) → sửa tối thiểu 6 file (`MarketplaceOrderDetailScreen` thu hẹp `id`, `PackagingWorkbench` thêm `pending_approval` vào `QueueTab`, `AdminPackingPlansPage` truyền `onClose` cho toast, bỏ biến thừa ở `AdminWarehousePage`/`ProfilePage`, `ReturnsPage` bỏ tham số không tồn tại). `npm run build -w fe` đạt. Kèm: jest backend `testTimeout` 30 s (bcrypt + PDF trượt 5 s khi hook pre-commit chạy song song).
+
+**Backend (AOFP-68):**
+- **Phiên đóng gói theo kiện** (`packing-session.service.ts`): plan thêm trạng thái `packing`; kiện có `status` `pending|sealed|held|to_unpack|voided`, `scans[]`, `box_consumed`, `weighings[]`, `reviews[]`, `unpack`. Route `start`, `parcels/:no/scan|unscan|seal|review|unpack`, `report-issue`, `finish`, `assign`. Quét nhận SKU sàn hoặc SKU nội bộ (không phân biệt hoa/thường), sai kiện trả `belongsToParcels`, idempotent theo `client_event_id`, không cần `expected_version` (retry 3 lần khi đụng version). Trừ thùng + vật tư **lúc niêm phong từng kiện**; kiện cuối → plan + nhóm `packed` cùng transaction → controller báo Lazada.
+- **Kiện lệch cân bị giữ** (`held`) — thay hành vi cũ "vẫn packed, chỉ báo". `review accept` cấm người niêm phong tự duyệt (403), `reweigh`, `reopen` (không trừ thùng lần 2). Lối tắt `pack` ghi quét `bypass`, cũng giữ kiện lệch; `pack_mode` = `scan|quick`.
+- **Sự cố lúc đóng:** `replace` = `adjustPickedUnits(restock:false)` + `takeReplacementUnit` (sổ kho `pack_replace`); `back_to_picking` = thay plan + nhóm `approved_for_packing → picking` (cạnh mới), chỉ khi chưa niêm phong kiện nào.
+- **Đơn hủy sau khi bắt đầu đóng:** `handleOrderBecameUnfulfillable` → `markCanceledOrdersForUnpack` (plan `packing|packed`): đơn `canceled`, kiện của đơn `to_unpack`, KHÔNG thay plan; hủy hết thì nhóm `canceled` kể cả từ `packed` (cạnh mới), plan giữ tới khi tháo xong. `unpack` trả hàng về đúng ô (`adjustPickedUnits(restock:true)`, sổ kho `cancel_unpack`) + thu hồi thùng (`recoverFromUnpack`). `parcelsOfPlan` bỏ kiện `to_unpack/voided`; giao hàng chặn 409 `SHP_PARCELS_TO_UNPACK`. Plan `ready/approved` khi đơn hủy giữ cách cũ (thay plan, về picked).
+- **pick_events điều chỉnh:** trường `kind` (`scan|pack_issue|pack_replace|unpack`); event âm mang kho + ô nguồn để `restockPickRound` cộng ròng đúng ô (đã thêm nhánh dòng ròng ≤ 0 chỉ đánh dấu). Mọi phép đếm "đã lấy" tự khớp hàng thật.
+- **Cài đặt** `packing_settings` (có version, mặc định trong code): ngưỡng lệch cân, đệm dễ vỡ (chụp vào `solver.options.fragile_cushion_mm` — mọi lần dựng lại món dùng số đã chụp), mục tiêu mặc định, số kiện tối đa (vượt → `approve` cần `override_reason`), cho/không thùng tái sử dụng với hàng dễ vỡ, bắt buộc quét.
+- **Luật dễ vỡ đã thực thi** (trước chỉ nằm trong comment): `consumeForParcels` nhận `allowReused` theo kiện; kiện `has_fragile` chỉ lấy `qty_new`.
+- **Giữ chỗ thùng sửa:** kiện đã niêm phong (thùng đã trừ thật) và kiện đang/đã tháo không còn tính giữ chỗ — trước đây trong lúc đóng dở có thể bị tính 2 lần.
+- **Giao người đóng** (`packer-assignment.service.ts`): Packaging Staff ít plan mở nhất, tính lại giữ người cũ; route `assign`. **Sửa lỗi có sẵn:** `staff-assignment.manualAssign` không kiểm vai trò → giờ chỉ Warehouse Staff (`ORD_GROUP_STAFF_WRONG_ROLE`).
+- **Báo cáo** `GET /packing/reports/summary`: thời gian chờ/đóng, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt cận dưới, quét kiểm, chi phí, sự cố (đếm theo thời điểm báo trên mọi plan), theo nhân viên. Tính trong bộ nhớ, tối đa 5.000 plan.
+- 4 loại thông báo mới: `packing_assigned`, `packing_parcel_held`, `packing_issue`, `unpack_required`.
+
+**Tác động (5 câu):** (1) không migration, mọi trường có mặc định; plan `packed` cũ trả kiện `sealed` (`effectiveParcelStatus`). (2) Đổi hành vi: `pack` giữ kiện lệch + thêm `completed`; `approve` vượt số kiện cần lý do; gán tay lấy hàng chỉ Warehouse Staff; giao hàng chặn khi còn kiện phải tháo; báo giá đọc cả plan `packing`. (3) Xung đột: quét đồng thời → khóa `version` + đọc lại; giữ chỗ không còn đếm trùng. (4) Không ảnh hưởng: tính plan, CP-SAT, chỉnh tay, hướng dẫn AI, lấy hàng thường. (5) Giới hạn: plan `ready/approved` khi đơn hủy vẫn chưa trả kệ hàng đã lấy của đơn đó; chưa kiểm chứng giữ chỗ tồn K5 được tính lại đúng sau `back_to_picking` (có gọi `reconcileReservation`, chưa test số liệu); vật tư chèn không thu hồi; chưa có ảnh bằng chứng.
+
+**Verify:** `tsc` 0 lỗi, `lint:ci` 0 lỗi (43 cảnh báo storefront có sẵn), jest 61 suite / 680 test (thêm test phiên đóng gói trong `packing-plan.service.spec.ts` dùng bộ giải thật, `order-groups.service.adjustPickedUnits.spec.ts`, `packing-settings-assignment-report.spec.ts`, luật dễ vỡ + thu hồi trong `packaging-material.service.spec.ts`, hủy khi đang đóng trong `recipientKeyAndCancel.spec.ts`). Khởi động app context thật (Atlas) → BOOT_OK (Mongoose tự tạo index mới trên DB dev). **Chưa** chạy luồng HTTP thật với dữ liệu thật.
+
+**Tài liệu:** `GUIDE_DOC/API_LIST.md` mục 8a (route, cài đặt, báo cáo, bảng ánh xạ cho FE main), `INTEGRATION_GUIDE_FULFILLMENT.md` v7.1 (Nghiệp vụ 1b mới, Nghiệp vụ 4, 6, D.3, D.4), ghi chú ở `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md` phần C và `DEMO_PLAYBOOK.md` C4'.
+
+**Bài học:** (1) `git commit` ở repo này chạy jest toàn bộ trong hook — nhớ cho timeout dài; commitlint chặn header > 100 ký tự. (2) Viết sửa file bằng script Python trong scratchpad (heredoc bash với chuỗi tiếng Việt dài bị cắt). (3) Schema class (`PlanParcel`) spread bị lint `no-misused-spread` → dùng kiểu `Plain<T>` (`toObject<T>()`) hoặc `Object.assign`.

@@ -52,7 +52,14 @@ POST /packaging-materials/BOX-M/purchase     (Admin, Warehouse)
 
 ## PHẦN C — TỰ TRỪ KHI ĐÓNG GÓI 🔄
 
-`POST /order-groups/:id/fulfillment/pack` **giữ nguyên body và các field cũ**, response **thêm** 1 field:
+> 🔄 **ĐÃ THAY ĐỔI (gộp 04/10 + phiên đóng gói 05/10/2026)** — đoạn dưới mô tả route cũ `POST /order-groups/:id/fulfillment/pack` (đã gỡ, giữ làm lịch sử). Hiện nay:
+> - Thùng + vật tư trừ theo **từng kiện lúc niêm phong**: `POST /order-groups/:groupId/packing-plan/parcels/:no/seal` (hoặc lối tắt `POST .../packing-plan/pack`). Sổ `packaging_movements` có `packing_plan_id` + `parcel_no`. Hết thùng → 409 `PKG_BOX_OUT_OF_STOCK` (không niêm phong); thiếu vật tư chèn không chặn (`materialsShortfall` trên kiện).
+> - Luật dễ vỡ: kiện có hàng dễ vỡ (`parcels[].hasFragile`) **chỉ lấy thùng mới**, trừ khi `PUT /packing/settings {allow_reused_box_for_fragile: true}`. Kiện khác vẫn ưu tiên thùng tái sử dụng (ghi tiết kiệm).
+> - Mở kiện đóng lại (`review reopen`) không trừ thùng lần 2.
+> - 🆕 **Thu hồi khi tháo kiện** (đơn hủy sau khi đóng): `POST .../packing-plan/parcels/:no/unpack {box_condition: "reusable"}` → `qty_reused + 1`, sổ `recover`; `damaged` → sổ `discard`. Vật tư chèn không thu hồi.
+> - Field `packagingConsumption` trong response cũ không còn; xem kiện trong `GET .../packing-plan`.
+
+`POST /order-groups/:id/fulfillment/pack` (cũ) **giữ nguyên body và các field cũ**, response **thêm** 1 field:
 
 ```json
 {
