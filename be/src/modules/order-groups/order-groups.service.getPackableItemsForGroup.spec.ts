@@ -69,6 +69,7 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
       { create: jest.fn().mockResolvedValue({}) } as never, // K3 inventoryMovementModel
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
       { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0) } as never, // K5
+      {} as never, // binLocationModel
     );
   });
 

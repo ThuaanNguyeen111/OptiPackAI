@@ -53,6 +53,7 @@ import {
   SkuBinAssignmentDocument,
 } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { PickEvent, PickEventDocument } from './schemas/pick-event.schema';
+import { BinLocation, BinLocationDocument } from '../warehouse/schemas/bin-location.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -132,6 +133,9 @@ export class OrderGroupsService {
     private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
     // K5 — giữ chỗ tồn kho chống bán lố
     private readonly stockReservationService: StockReservationService,
+    // (05/10/2026) mã ô cho thông báo trả hàng về kệ
+    @InjectModel(BinLocation.name)
+    private readonly binLocationModel: Model<BinLocationDocument>,
   ) {}
 
   /**
@@ -1203,12 +1207,17 @@ export class OrderGroupsService {
     lines: { sku: string; quantity: number }[],
     options: {
       restock: boolean;
-      kind: 'pack_issue' | 'unpack';
+      kind: 'pack_issue' | 'unpack' | 'cancel_return';
       note: string;
       actorId: string;
       session: ClientSession;
     },
-  ): Promise<{ restocked: number; withoutLocation: number }> {
+  ): Promise<{
+    restocked: number;
+    withoutLocation: number;
+    /** Từng phần đã cộng lại tồn: SKU, số lượng, ô (để báo kho đem đúng chỗ). */
+    returned: { sku: string; quantity: number; binLocationId: Types.ObjectId | null }[];
+  }> {
     const { session } = options;
     const group = await this.loadGroupOrThrow(groupId);
     const masters = await resolveMasterSkus(
@@ -1219,6 +1228,7 @@ export class OrderGroupsService {
     );
     let restocked = 0;
     let withoutLocation = 0;
+    const returned: { sku: string; quantity: number; binLocationId: Types.ObjectId | null }[] = [];
     for (const { sku, quantity } of lines) {
       if (quantity <= 0) continue;
       const events = await this.pickEventModel
@@ -1263,7 +1273,7 @@ export class OrderGroupsService {
                   shop_id: doc.shop_id,
                   seller_sku: doc.seller_sku,
                   master_sku: doc.master_sku ?? null,
-                  type: 'cancel_unpack',
+                  type: options.kind === 'cancel_return' ? 'cancel_return' : 'cancel_unpack',
                   delta: take,
                   quantity_before: doc.quantity_on_hand - take,
                   quantity_after: doc.quantity_on_hand,
@@ -1278,6 +1288,7 @@ export class OrderGroupsService {
               { session },
             );
             restocked += take;
+            returned.push({ sku, quantity: take, binLocationId: doc.bin_location_id });
           } else {
             // Dòng tồn đã bị xóa — hàng vẫn rời giỏ đóng gói, kho phải đối soát tay.
             withoutLocation += take;
@@ -1332,7 +1343,88 @@ export class OrderGroupsService {
         );
       }
     }
-    return { restocked, withoutLocation };
+    return { restocked, withoutLocation, returned };
+  }
+
+  /**
+   * ===================================================================
+   * MỚI (05/10/2026) — đơn bị hủy khi nhóm CHƯA bắt đầu đóng
+   * ===================================================================
+   * Hàng đã lấy vượt nhu cầu của các đơn CÒN LẠI (= hàng của đơn bị hủy) tự
+   * cộng lại tồn đúng ô đã lấy, ghi sổ kho `cancel_return`, rồi báo Warehouse
+   * Staff đem hàng trong giỏ trả về đúng ô (Thuận chốt: tự cộng tồn + báo kho,
+   * giống decide-partial từ chối). Gọi lại không cộng 2 lần (lần sau dư = 0).
+   * Trả số món đã trả kệ.
+   * ===================================================================
+   */
+  async returnSurplusPickedUnits(groupId: string, actorId = 'system'): Promise<number> {
+    const group = await this.loadGroupOrThrow(groupId);
+    const picked = await this.getPickedSkuQuantities(group);
+    if (picked.size === 0) return 0;
+    let ordered: Map<string, number>;
+    try {
+      ordered = await this.getOrderedSkuQuantities(group);
+    } catch (error: unknown) {
+      // Mọi đơn đều hủy → toàn bộ hàng đã lấy là dư.
+      if (error instanceof AppException && error.errorCode === ORD_GROUP_ERROR_CODES.ALL_ORDERS_CANCELED) {
+        ordered = new Map();
+      } else throw error;
+    }
+    const lines = [...picked]
+      .map(([sku, qty]) => ({ sku, quantity: qty - (ordered.get(sku) ?? 0) }))
+      .filter((l) => l.quantity > 0);
+    if (lines.length === 0) return 0;
+
+    const session = await this.connection.startSession();
+    let result: Awaited<ReturnType<OrderGroupsService['adjustPickedUnits']>>;
+    try {
+      result = await session.withTransaction(() =>
+        this.adjustPickedUnits(groupId, lines, {
+          restock: true,
+          kind: 'cancel_return',
+          note: 'Đơn bị hủy trước khi đóng gói — trả hàng đã lấy về kệ',
+          actorId,
+          session,
+        }),
+      );
+    } finally {
+      await session.endSession();
+    }
+
+    const binIds = result.returned.flatMap((r) => (r.binLocationId ? [r.binLocationId] : []));
+    const bins = binIds.length
+      ? await this.binLocationModel.find({ _id: { $in: binIds } }).select('bin_code').lean()
+      : [];
+    const codeOf = new Map(bins.map((b) => [b._id.toString(), b.bin_code]));
+    const parts = result.returned.map(
+      (r) => `${r.sku} ×${String(r.quantity)} → ô ${r.binLocationId ? (codeOf.get(r.binLocationId.toString()) ?? '?') : '?'}`,
+    );
+    if (result.withoutLocation > 0) {
+      parts.push(`${String(result.withoutLocation)} món không rõ ô (lần quét cũ) — đặt lại kệ và đối soát tay`);
+    }
+    const message = `Đơn trong nhóm vừa bị hủy. Đem hàng đã lấy trong giỏ trả về kệ: ${parts.join('; ')}. Tồn trên hệ thống đã được cộng lại.`;
+    const recipients: { recipientRole?: UserRole; recipientUserId?: string }[] = [
+      { recipientRole: UserRole.WAREHOUSE_STAFF },
+    ];
+    if (group.assigned_staff_id) recipients.push({ recipientUserId: group.assigned_staff_id.toString() });
+    for (const r of recipients) {
+      try {
+        await this.notificationsService.notify({
+          ...r,
+          type: NotificationType.RETURN_TO_SHELF,
+          severity: 'warning',
+          title: 'Trả hàng đã lấy về kệ',
+          message,
+          relatedEntityType: 'order_group',
+          relatedEntityId: groupId,
+        });
+      } catch (error: unknown) {
+        this.logger.warn(`Gửi thông báo trả kệ thất bại: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    const units = result.restocked + result.withoutLocation;
+    this.logger.warn(`Order Group ${groupId}: đơn hủy trước khi đóng — trả ${String(units)} món đã lấy về kệ.`);
+    return units;
   }
 
   /**
@@ -1433,8 +1525,28 @@ export class OrderGroupsService {
     // (05/10/2026) Đã bắt đầu đóng (kế hoạch packing/packed): KHÔNG thay cả kế
     // hoạch — mỗi đơn có kiện riêng nên chỉ kiện của đơn bị hủy phải tháo.
     const sessionStarted = await this.markCanceledOrdersForUnpack(groupId);
+    if (!sessionStarted) await this.returnSurplusIfPicking(groupId);
     await this.cancelIfAllOrdersUnfulfillable(groupId, { keepPackingPlan: sessionStarted });
     if (!sessionStarted) await this.invalidateStalePackagingPlan(groupId);
+  }
+
+  /** Nhóm đã có hàng lấy ra nhưng chưa bắt đầu đóng → trả phần dư về kệ. Best-effort. */
+  private async returnSurplusIfPicking(groupId: string): Promise<void> {
+    const group = await this.orderGroupModel.findById(groupId);
+    const states: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.PICKING,
+      GroupFulfillmentStatus.PICKED,
+      GroupFulfillmentStatus.PENDING_APPROVAL,
+      GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+    ];
+    if (!group || !states.includes(group.fulfillment_status)) return;
+    try {
+      await this.returnSurplusPickedUnits(groupId);
+    } catch (error: unknown) {
+      this.logger.error(
+        `Trả hàng dư về kệ cho nhóm ${groupId} thất bại (không chặn hủy đơn): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   /**

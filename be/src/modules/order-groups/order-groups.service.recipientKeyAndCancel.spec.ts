@@ -86,6 +86,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       {} as never, // inventoryMovementModel
       {} as never, // mappingModel
       { releaseGroup: jest.fn().mockResolvedValue(0), reconcile: jest.fn().mockResolvedValue([]) } as never, // stockReservationService
+      {} as never, // binLocationModel
     );
   });
 

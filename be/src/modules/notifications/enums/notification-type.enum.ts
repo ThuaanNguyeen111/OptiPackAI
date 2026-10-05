@@ -43,4 +43,5 @@ export enum NotificationType {
   PACKING_PARCEL_HELD = 'packing_parcel_held', // kiện lệch cân đang chờ người khác xem lại
   PACKING_ISSUE = 'packing_issue', // báo món hỏng/thiếu/sai lúc đóng
   UNPACK_REQUIRED = 'unpack_required', // đơn hủy sau khi đóng — phải tháo kiện trả hàng về kệ
+  RETURN_TO_SHELF = 'return_to_shelf', // đơn hủy trước khi đóng — đem hàng đã lấy trả về đúng ô
 }

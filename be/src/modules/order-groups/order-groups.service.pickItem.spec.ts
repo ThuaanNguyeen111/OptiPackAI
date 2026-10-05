@@ -120,6 +120,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       inventoryMovementModel as never, // K3
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
       { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0) } as never, // K5
+      {} as never, // binLocationModel
     );
   });
 

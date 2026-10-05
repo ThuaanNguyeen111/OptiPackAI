@@ -48,6 +48,7 @@ describe('OrderGroupsService — getOrderCountsForGroups + response nhóm đơn'
       {} as never, // inventoryMovementModel
       {} as never, // mappingModel
       {} as never, // stockReservationService
+      {} as never, // binLocationModel
     );
   });
 
@@ -161,6 +162,7 @@ describe('OrderGroupsService — getOrderCountsForGroups + response nhóm đơn'
       service = new OrderGroupsService(
         groupModel as never,
         { aggregate: orderModel.aggregate, countDocuments } as never,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,

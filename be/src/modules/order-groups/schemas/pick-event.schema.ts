@@ -61,11 +61,12 @@ export class PickEvent {
    * - pack_issue (số ÂM): món hỏng/thiếu/sai bị loại lúc đóng.
    * - pack_replace (số DƯƠNG): món thay lấy từ kệ lúc đóng.
    * - unpack (số ÂM): món trả về kệ khi tháo kiện của đơn bị hủy.
+   * - cancel_return (số ÂM): hàng đã lấy của đơn bị hủy TRƯỚC khi bắt đầu đóng, tự trả kệ.
    * Event điều chỉnh mang kho + ô của dòng tồn bị ảnh hưởng nên restockPickRound
    * cộng ròng đúng theo ô. Event cũ không có field → `scan`.
    */
-  @Prop({ type: String, enum: ['scan', 'pack_issue', 'pack_replace', 'unpack'], default: 'scan' })
-  kind!: 'scan' | 'pack_issue' | 'pack_replace' | 'unpack';
+  @Prop({ type: String, enum: ['scan', 'pack_issue', 'pack_replace', 'unpack', 'cancel_return'], default: 'scan' })
+  kind!: 'scan' | 'pack_issue' | 'pack_replace' | 'unpack' | 'cancel_return';
 
   // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
   @Prop({ type: Types.ObjectId, default: null })

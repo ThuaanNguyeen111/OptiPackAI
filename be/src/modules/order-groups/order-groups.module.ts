@@ -36,6 +36,8 @@ import {
   SkuBinAssignmentSchema,
 } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { PickEvent, PickEventSchema } from './schemas/pick-event.schema';
+// (05/10/2026) tra mã ô cho thông báo "trả hàng về kệ".
+import { BinLocation, BinLocationSchema } from '../warehouse/schemas/bin-location.schema';
 import { OrderGroupsService } from './order-groups.service';
 import { OrderGroupBackfillScheduler } from './order-group-backfill.scheduler';
 import { OrderGroupsController } from './order-groups.controller';
@@ -54,6 +56,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
       { name: ProductMaster.name, schema: ProductMasterSchema },
       { name: User.name, schema: UserSchema },
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
+      { name: BinLocation.name, schema: BinLocationSchema },
       { name: PickEvent.name, schema: PickEventSchema },
       { name: PackingPlan.name, schema: PackingPlanSchema },
       { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3 — pick-item ghi sổ cái

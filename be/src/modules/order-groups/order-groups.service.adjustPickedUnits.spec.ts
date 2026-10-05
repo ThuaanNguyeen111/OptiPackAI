@@ -19,7 +19,24 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
   let skuBinAssignmentModel: { findOneAndUpdate: jest.Mock };
   let inventoryMovementModel: { create: jest.Mock };
   let reservation: { unconsume: jest.Mock; recordPicked: jest.Mock };
+  let orderModel: { find: jest.Mock };
+  let notify: jest.Mock;
+  let events: Record<string, unknown>[];
   let service: OrderGroupsService;
+
+  /** Đơn còn đóng gói được trong nhóm: mỗi phần tử = danh sách món (sku, số lượng). */
+  function remainingOrders(lines: [string, number][][]): void {
+    const orders = lines.map((items) => ({
+      items: items.map(([sku, quantity], i) => ({
+        sku,
+        quantity,
+        status: 'pending',
+        variation: null,
+        platform_order_item_id: `${sku}-${String(i)}`,
+      })),
+    }));
+    orderModel.find.mockReturnValue({ select: () => ({ lean: () => Promise.resolve(orders) }) });
+  }
 
   const createdEvents = (): { scanned_quantity: number; kind: string; bin_location_id: Types.ObjectId | null }[] =>
     pickEventModel.create.mock.calls.map(
@@ -28,13 +45,21 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
 
   beforeEach(() => {
     // Lượt hiện tại: lấy 2 cái ở ô A (lúc 1), 1 cái ở ô B (lúc 2, sau cùng).
-    const events = [
+    events = [
       { seller_sku: 'TEE', scanned_quantity: 2, warehouse_id: warehouse, bin_location_id: binA, created_at: new Date(1000) },
       { seller_sku: 'TEE', scanned_quantity: 1, warehouse_id: warehouse, bin_location_id: binB, created_at: new Date(2000) },
     ];
     pickEventModel = {
-      find: jest.fn().mockReturnValue({ session: () => ({ lean: () => Promise.resolve(events) }) }),
-      create: jest.fn().mockResolvedValue([]),
+      // adjustPickedUnits đọc .session().lean(); đếm "đã lấy" đọc .select().lean().
+      find: jest.fn(() => ({
+        session: () => ({ lean: () => Promise.resolve(events) }),
+        select: () => ({ lean: () => Promise.resolve(events) }),
+      })),
+      // Ghi event mới vào "sổ" để lần gọi sau thấy (kiểm tra gọi lặp không trả 2 lần).
+      create: jest.fn((docs: Record<string, unknown>[]) => {
+        events.push(...docs.map((d) => ({ ...d, created_at: new Date(3000) })));
+        return Promise.resolve([]);
+      }),
     };
     skuBinAssignmentModel = {
       findOneAndUpdate: jest.fn((filter: { bin_location_id?: Types.ObjectId }) =>
@@ -52,6 +77,9 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
     };
     inventoryMovementModel = { create: jest.fn().mockResolvedValue([]) };
     reservation = { unconsume: jest.fn().mockResolvedValue(undefined), recordPicked: jest.fn().mockResolvedValue(undefined) };
+    orderModel = { find: jest.fn() };
+    remainingOrders([[['TEE', 3]]]);
+    notify = jest.fn().mockResolvedValue({});
     const orderGroupModel = {
       findById: jest.fn().mockResolvedValue({
         _id: groupId,
@@ -59,23 +87,40 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
         shop_id: 'shop-1',
         pick_round: 0,
         fulfillment_status: GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+        assigned_staff_id: new Types.ObjectId(),
+      }),
+    };
+    const connection = {
+      startSession: () =>
+        Promise.resolve({ withTransaction: (fn: () => Promise<unknown>) => fn(), endSession: () => Promise.resolve() }),
+    };
+    const binLocationModel = {
+      find: () => ({
+        select: () => ({
+          lean: () =>
+            Promise.resolve([
+              { _id: binA, bin_code: 'KA-D1-P01-T02-1' },
+              { _id: binB, bin_code: 'KA-D1-P01-T03-2' },
+            ]),
+        }),
       }),
     };
     const mappingModel = { find: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) };
     service = new OrderGroupsService(
       orderGroupModel as never,
-      {} as never,
+      orderModel as never,
       {} as never,
       skuBinAssignmentModel as never,
       pickEventModel as never,
       {} as never,
       {} as never,
+      { notify } as never,
       {} as never,
-      {} as never,
-      {} as never,
+      connection as never,
       inventoryMovementModel as never,
       mappingModel as never,
       reservation as never,
+      binLocationModel as never,
     );
   });
 
@@ -87,7 +132,8 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
       actorId: 'u1',
       session,
     });
-    expect(result).toEqual({ restocked: 2, withoutLocation: 0 });
+    expect(result).toMatchObject({ restocked: 2, withoutLocation: 0 });
+    expect(result.returned.map((r) => String(r.binLocationId))).toEqual([String(binB), String(binA)]);
     const events = createdEvents();
     expect(events.map((e) => [e.scanned_quantity, String(e.bin_location_id)])).toEqual([
       [-1, String(binB)],
@@ -124,7 +170,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
       actorId: 'u1',
       session,
     });
-    expect(result).toEqual({ restocked: 3, withoutLocation: 2 });
+    expect(result).toMatchObject({ restocked: 3, withoutLocation: 2 });
     expect(createdEvents().at(-1)).toMatchObject({ scanned_quantity: -2, bin_location_id: null });
   });
 
@@ -145,5 +191,37 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
     await expect(
       service.takeReplacementUnit(groupId.toString(), 'TEE', warehouse.toString(), undefined, 'u1', session),
     ).rejects.toMatchObject({ errorCode: ORD_GROUP_ERROR_CODES.INSUFFICIENT_STOCK });
+  });
+  describe('returnSurplusPickedUnits — đơn hủy trước khi bắt đầu đóng', () => {
+    it('nhóm còn đơn cần 1 áo, đã lấy 3 → trả 2 áo về đúng ô, sổ kho cancel_return, báo kho kèm mã ô', async () => {
+      remainingOrders([[['TEE', 1]]]);
+      expect(await service.returnSurplusPickedUnits(groupId.toString())).toBe(2);
+      const movements = inventoryMovementModel.create.mock.calls.map((c) => (c as [[{ type: string }]])[0][0].type);
+      expect(movements).toEqual(['cancel_return', 'cancel_return']);
+      expect(createdEvents().every((e) => e.kind === 'cancel_return' && e.scanned_quantity < 0)).toBe(true);
+      const message = (notify.mock.calls[0] as [{ message: string; type: string }])[0];
+      expect(message.type).toBe('return_to_shelf');
+      expect(message.message).toContain('KA-D1-P01-T03-2');
+      expect(notify).toHaveBeenCalledTimes(2); // Warehouse Staff + người lấy hàng được giao
+    });
+
+    it('không dư (đơn còn lại cần đủ 3) → không làm gì', async () => {
+      expect(await service.returnSurplusPickedUnits(groupId.toString())).toBe(0);
+      expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(notify).not.toHaveBeenCalled();
+    });
+
+    it('mọi đơn đều hủy → trả toàn bộ 3 món', async () => {
+      remainingOrders([]);
+      expect(await service.returnSurplusPickedUnits(groupId.toString())).toBe(3);
+    });
+
+    it('gọi lần 2 → không trả thêm (sự kiện âm lần 1 đã làm "đã lấy" khớp)', async () => {
+      remainingOrders([[['TEE', 1]]]);
+      await service.returnSurplusPickedUnits(groupId.toString());
+      skuBinAssignmentModel.findOneAndUpdate.mockClear();
+      expect(await service.returnSurplusPickedUnits(groupId.toString())).toBe(0);
+      expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+    });
   });
 });
