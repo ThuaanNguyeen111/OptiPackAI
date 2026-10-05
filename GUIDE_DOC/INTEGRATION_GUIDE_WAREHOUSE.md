@@ -32,7 +32,7 @@ Trước K1, phần kho chỉ có **Tạo** và **Xem**: không sửa được t
 | Kệ             | Sinh hàng loạt, Xem | + Vô hiệu hóa, Kích hoạt lại                    |
 | Product Master | _(không có API)_    | Xem danh sách, Xem chi tiết, Sửa tay            |
 
-## A.3. 4 nguyên tắc FE cần nắm trước khi đọc chi tiết
+## A.3. 5 nguyên tắc FE cần nắm trước khi đọc chi tiết
 
 **1. "Xóa" nghĩa là VÔ HIỆU HÓA, không xóa hẳn.** Gọi `DELETE` → đối tượng chuyển `isActive: false`, vẫn còn trong DB. Lý do: lịch sử lấy hàng, đơn đã giao từ kho đó vẫn phải tra ra được. Muốn dùng lại → gọi `.../reactivate`.
 
@@ -41,6 +41,8 @@ Trước K1, phần kho chỉ có **Tạo** và **Xem**: không sửa được t
 **3. MÃ không bao giờ sửa được** (`warehouseCode`, `zoneCode`, `binCode`). Chỉ sửa tên/mô tả/địa chỉ. Mã khu nằm trong mọi mã kệ của khu, và mã kệ đã in nhãn dán lên kệ thật — đổi mã trên hệ thống mà nhãn vẫn cũ thì nhân viên đi nhầm chỗ. Gửi kèm trường mã khi sửa → **400** (hệ thống bật chế độ từ chối trường lạ).
 
 **4. Tắt theo dây chuyền từ trên xuống, bật lại có quy tắc riêng** (Phần B.2).
+
+**5. 🆕 Mã ô, SKU nội bộ và SKU sàn là 3 thứ khác nhau — hệ thống không tự nối theo tên.** Đặt SKU trên Lazada trùng mã ô (ví dụ `KA-D1-P03-T01-3`) **không** làm hàng tự nằm ở ô đó: SKU sàn phải được **gán vào ô** hoặc **nối vào SKU nội bộ** thì Picking List mới có vị trí. Quy trình cấu hình chuẩn 8 bước, cách đặt SKU trên Seller Center và xử lý "CHƯA GÁN VỊ TRÍ": **`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` Phần 0b**.
 
 ---
 
