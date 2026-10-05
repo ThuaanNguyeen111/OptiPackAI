@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -8,6 +8,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Cpu,
+  Lightbulb,
+  ListOrdered,
   Loader2,
   PackageCheck,
   PackagePlus,
@@ -20,6 +22,9 @@ import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Button } from '../components/ui/Button'
 import { Badge } from '../components/ui/Badge'
 import { Packing3DViewer } from '../components/packing3d/Packing3DViewer'
+import { PlayerBar } from '../components/packing3d/PlayerBar'
+import { buildPackingTimeline } from '../components/packing3d/timeline'
+import { usePackingPlayer } from '../components/packing3d/usePackingPlayer'
 import { ParcelList } from '../components/packing-workspace/ParcelList'
 import { PackingMode } from '../components/packing-workspace/PackingMode'
 import {
@@ -76,6 +81,21 @@ export function PackingWorkspacePage() {
     plan?.parcels.find((p) => p.parcelNo === selectedNo) ?? plan?.parcels[0] ?? null
   const groupLabel = `#${groupId.slice(-6).toUpperCase()}`
   const showsPlan = plan !== null && ['ready', 'approved', 'packed'].includes(plan.status)
+  // Khung giữa: "Kết quả" (hình xếp xong) hoặc "Từng bước" (diễn lại từng thao tác).
+  const [viewMode, setViewMode] = useState<'result' | 'steps'>('result')
+  const timeline = useMemo(
+    () => (parcel && plan ? buildPackingTimeline(parcel, plan.itemProfiles, vi) : null),
+    [parcel, plan, vi],
+  )
+  const player = usePackingPlayer(timeline?.actions.length ?? 0, { keyboard: viewMode === 'steps' && !packing })
+  const stepAction = timeline?.actions[player.index]
+  const focusRow = (key: string | null) => {
+    setFocusKey(key)
+    if (key && viewMode === 'steps' && timeline) {
+      const at = timeline.placeIndex.get(key)
+      if (at !== undefined) player.goTo(at)
+    }
+  }
 
   const act = async (fn: (current: PackingPlan) => Promise<PackingPlan>): Promise<boolean> => {
     const ok = await ws.run((current) => {
@@ -162,15 +182,79 @@ export function PackingWorkspacePage() {
               />
             </aside>
 
-            <Packing3DViewer
-              key={`${String(parcel.parcelNo)}-${String(plan.version)}`}
-              parcel={parcel}
-              itemProfiles={plan.itemProfiles}
-              vi={vi}
-              focusItemKey={focusKey}
-              onSelectItem={setFocusKey}
-              className="h-[52vh] lg:h-full"
-            />
+            <div className="flex min-h-0 flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <div
+                  role="tablist"
+                  aria-label={vi ? 'Chế độ xem 3D' : '3D view mode'}
+                  className="inline-flex rounded-lg border border-hairline bg-surface-1 p-0.5"
+                >
+                  {(['result', 'steps'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      role="tab"
+                      aria-selected={viewMode === m}
+                      onClick={() => {
+                        setViewMode(m)
+                        if (m === 'steps') player.goTo(0)
+                      }}
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm transition-colors ${
+                        viewMode === m ? 'bg-primary font-medium text-on-primary' : 'text-ink-muted hover:text-ink'
+                      }`}
+                    >
+                      {m === 'result' ? <Box className="h-3.5 w-3.5" /> : <ListOrdered className="h-3.5 w-3.5" />}
+                      {m === 'result' ? (vi ? 'Kết quả xếp' : 'Result') : vi ? 'Xem từng bước' : 'Step by step'}
+                    </button>
+                  ))}
+                </div>
+                {viewMode === 'steps' && timeline && (
+                  <span className="hidden text-xs text-ink-subtle sm:inline">
+                    {vi
+                      ? `${String(timeline.actions.length)} thao tác · ← → để chuyển, Space để phát`
+                      : `${String(timeline.actions.length)} steps · ← → to move, Space to play`}
+                  </span>
+                )}
+              </div>
+              <Packing3DViewer
+                key={`${String(parcel.parcelNo)}-${String(plan.version)}`}
+                parcel={parcel}
+                itemProfiles={plan.itemProfiles}
+                vi={vi}
+                focusItemKey={viewMode === 'result' ? focusKey : null}
+                onSelectItem={setFocusKey}
+                steps={
+                  viewMode === 'steps' && timeline
+                    ? {
+                        timeline,
+                        index: player.index,
+                        playing: true,
+                        speed: player.speed,
+                        onActionDone: player.onActionDone,
+                        replay: player.replay,
+                      }
+                    : undefined
+                }
+                caption={
+                  viewMode === 'steps' && stepAction ? (
+                    <div className="rounded-xl border border-hairline bg-surface-1/92 px-3.5 py-2.5 shadow-sm backdrop-blur">
+                      <p className="text-sm font-semibold text-ink">{stepAction.title}</p>
+                      <p className="mt-0.5 text-sm leading-relaxed text-ink-muted">{stepAction.instruction}</p>
+                      {stepAction.tip && (
+                        <p className="mt-1.5 flex items-start gap-1.5 text-xs leading-relaxed text-amber-700 dark:text-amber-300">
+                          <Lightbulb className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                          {stepAction.tip}
+                        </p>
+                      )}
+                    </div>
+                  ) : undefined
+                }
+                overlay={
+                  viewMode === 'steps' && timeline ? <PlayerBar timeline={timeline} player={player} vi={vi} /> : undefined
+                }
+                className="h-[56vh] min-h-0 lg:h-auto lg:flex-1"
+              />
+            </div>
 
             <aside className="space-y-4 lg:overflow-y-auto lg:pr-1">
               {plan.status === 'ready' && (
@@ -229,7 +313,7 @@ export function PackingWorkspacePage() {
                 parcel={parcel}
                 vi={vi}
                 focusKey={focusKey}
-                onFocus={setFocusKey}
+                onFocus={focusRow}
                 canMove={plan.status === 'ready' && canDecide}
                 onMove={(itemKey) => setDialog({ kind: 'move', itemKey })}
               />

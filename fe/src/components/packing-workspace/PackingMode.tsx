@@ -1,20 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, ArrowRight, Bot, CheckCircle2, Lightbulb, Loader2, PackageCheck, RefreshCw, Scale, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  CheckCircle2,
+  Lightbulb,
+  Loader2,
+  PackageCheck,
+  RefreshCw,
+  RotateCcw,
+  Scale,
+  X,
+} from 'lucide-react'
 import { Button } from '../ui/Button'
 import { Badge } from '../ui/Badge'
 import { Packing3DViewer } from '../packing3d/Packing3DViewer'
+import { buildPackingTimeline, type PackTimeline } from '../packing3d/timeline'
 import { materialLabel } from '../../types/packaging'
 import type { PackingPlan, PlanParcel } from '../../types/packing-plan'
-import { dims, fallbackInstruction, kg, orderLabel, sortedPlacements } from './format'
+import { dims, kg, orderLabel } from './format'
 
 /**
- * Chế độ đóng gói toàn màn hình (04/10/2026, thay trang từng bước cũ).
- * Với mỗi kiện: chuẩn bị → từng món (3D + câu chữ to) → cân kiện;
- * cuối cùng xác nhận đã đóng cả nhóm. Phím ←/→ để chuyển bước.
+ * Chế độ đóng gói toàn màn hình (04/10/2026; 05/10/2026 tách thao tác nhỏ).
+ * Mỗi kiện: chuẩn bị → từng thao tác (trải áo, gấp, cho vào túi, kéo khoá, gập
+ * túi, đặt vào thùng… — 3D diễn lại thao tác + câu chữ to) → chèn vật tư → đóng
+ * nắp → dán băng keo → cân kiện; cuối cùng xác nhận cả nhóm. Phím ←/→.
  */
 type Frame =
   | { kind: 'prepare'; parcelNo: number }
-  | { kind: 'item'; parcelNo: number; step: number }
+  | { kind: 'action'; parcelNo: number; action: number }
   | { kind: 'weigh'; parcelNo: number }
   | { kind: 'confirm' }
 
@@ -43,22 +58,32 @@ export function PackingMode({
   onPack: (weights: { parcelNo: number; weightKg: number }[]) => Promise<boolean>
   onClose: () => void
 }) {
+  const timelines = useMemo(
+    () =>
+      new Map<number, PackTimeline>(
+        plan.parcels.map((p) => [p.parcelNo, buildPackingTimeline(p, plan.itemProfiles, vi)]),
+      ),
+    [plan.parcels, plan.itemProfiles, vi],
+  )
   const frames = useMemo<Frame[]>(
     () => [
       ...plan.parcels.flatMap((p): Frame[] => [
         { kind: 'prepare', parcelNo: p.parcelNo },
-        ...sortedPlacements(p).map((_, i): Frame => ({ kind: 'item', parcelNo: p.parcelNo, step: i + 1 })),
+        ...(timelines.get(p.parcelNo)?.actions ?? []).map(
+          (_, i): Frame => ({ kind: 'action', parcelNo: p.parcelNo, action: i }),
+        ),
         { kind: 'weigh', parcelNo: p.parcelNo },
       ]),
       { kind: 'confirm' },
     ],
-    [plan.parcels],
+    [plan.parcels, timelines],
   )
   const [index, setIndex] = useState(0)
+  const [replay, setReplay] = useState(0)
   const [weights, setWeights] = useState<Record<number, string>>({})
   const frame = frames[Math.min(index, frames.length - 1)] ?? { kind: 'confirm' }
   const parcel = frame.kind === 'confirm' ? null : (plan.parcels.find((p) => p.parcelNo === frame.parcelNo) ?? null)
-  const placements = parcel ? sortedPlacements(parcel) : []
+  const timeline = parcel ? timelines.get(parcel.parcelNo) : undefined
   const parcelPosition = parcel ? plan.parcels.indexOf(parcel) + 1 : plan.parcels.length
 
   // Vào kiện mới mà chưa có hướng dẫn → xin máy chủ viết (AI hoặc câu mẫu).
@@ -86,11 +111,13 @@ export function PackingMode({
     return Number.isFinite(v) && v > 0 ? v : null
   }
   const allWeighed = plan.parcels.every((p) => parsed(p.parcelNo) !== null)
-  const currentItem = frame.kind === 'item' ? placements[frame.step - 1] : undefined
-  const guideStep = frame.kind === 'item' ? parcel?.guide?.steps.find((s) => s.step === frame.step) : undefined
+  const action = frame.kind === 'action' ? timeline?.actions[frame.action] : undefined
+  const currentItem = action && action.itemIndex >= 0 ? timeline?.items[action.itemIndex] : undefined
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label={vi ? 'Chế độ đóng gói' : 'Packing mode'} className="fixed inset-0 z-50 flex flex-col bg-canvas text-ink">
+  // Portal ra body: khung trang (owner-stage) ép nền trong suốt và có backdrop-filter
+  // làm `fixed` bị neo trong khung — chế độ đóng gói phải phủ kín màn hình.
+  return createPortal(
+    <div role="dialog" aria-modal="true" aria-label={vi ? 'Chế độ đóng gói' : 'Packing mode'} className="fixed inset-0 z-50 flex flex-col text-ink" style={{ backgroundColor: 'var(--app-canvas)' }}>
       {/* Đầu trang + tiến độ */}
       <header className="flex items-center gap-3 border-b border-hairline px-4 py-3 sm:px-6">
         <PackageCheck className="h-5 w-5 text-primary" />
@@ -104,7 +131,9 @@ export function PackingMode({
                 ? 'Xác nhận cuối'
                 : 'Final check'
               : `${vi ? 'Kiện' : 'Parcel'} ${String(parcelPosition)}/${String(plan.parcels.length)}${
-                  frame.kind === 'item' ? ` · ${vi ? 'Bước' : 'Step'} ${String(frame.step)}/${String(placements.length)}` : ''
+                  frame.kind === 'action' && timeline
+                    ? ` · ${vi ? 'Bước' : 'Step'} ${String(frame.action + 1)}/${String(timeline.actions.length)}`
+                    : ''
                 }`}
           </p>
         </div>
@@ -119,16 +148,24 @@ export function PackingMode({
 
       {/* Thân: 3D + nội dung bước */}
       <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:overflow-hidden">
-        {parcel ? (
+        {parcel && timeline ? (
           <Packing3DViewer
             key={parcel.parcelNo}
             parcel={parcel}
             itemProfiles={plan.itemProfiles}
             vi={vi}
-            visibleCount={frame.kind === 'prepare' ? 0 : frame.kind === 'item' ? frame.step : undefined}
-            focusItemKey={currentItem?.itemKey ?? null}
-            animateDrops={frame.kind === 'item'}
-            muteOthers={frame.kind === 'item'}
+            steps={
+              frame.kind === 'prepare'
+                ? undefined
+                : {
+                    timeline,
+                    index: frame.kind === 'action' ? frame.action : timeline.actions.length,
+                    playing: frame.kind === 'action',
+                    speed: 1,
+                    replay,
+                    onActionDone: () => undefined,
+                  }
+            }
             className="h-[48vh] lg:h-full"
           />
         ) : (
@@ -147,28 +184,51 @@ export function PackingMode({
             />
           )}
 
-          {frame.kind === 'item' && currentItem && (
+          {frame.kind === 'action' && action && timeline && (
             <div className="space-y-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-ink-subtle">
-                {vi ? 'Bước' : 'Step'} {frame.step}/{placements.length}
+              <p className="text-xs font-medium tabular-nums text-ink-subtle">
+                {vi ? 'Bước' : 'Step'} {frame.action + 1}/{timeline.actions.length}
+                {currentItem && <span className="ml-2 font-mono">{currentItem.placement.sku}</span>}
               </p>
-              <p className="text-2xl leading-snug font-semibold text-balance">
-                {guideStep?.instruction ?? fallbackInstruction(currentItem, vi)}
-              </p>
-              {guideStep?.tip && (
+              <h2 className="text-2xl leading-snug font-semibold text-balance">{action.title}</h2>
+              <p className="text-lg leading-relaxed text-ink">{action.instruction}</p>
+              {action.tip && (
                 <p className="flex items-start gap-2 rounded-lg bg-amber-500/10 px-3 py-2.5 text-sm leading-relaxed text-amber-800 dark:text-amber-200">
                   <Lightbulb className="mt-0.5 h-4 w-4 shrink-0" />
-                  {guideStep.tip}
+                  {action.tip}
                 </p>
               )}
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="rounded-md bg-surface-2 px-2.5 py-1 font-mono">{currentItem.sku}</span>
-                <span className="tabular-nums text-ink-muted">
-                  {dims({ lengthMm: currentItem.dx, widthMm: currentItem.dy, heightMm: currentItem.dz }, vi)}
-                </span>
-                {currentItem.folded && <Badge tone="primary">{vi ? 'Gập đôi' : 'Fold in half'}</Badge>}
-                {currentItem.z > 0 && <Badge>{vi ? 'Đặt chồng' : 'Stacked'}</Badge>}
-              </div>
+              {currentItem && (
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="tabular-nums text-ink-muted">
+                    {dims(
+                      {
+                        lengthMm: currentItem.placement.dx,
+                        widthMm: currentItem.placement.dy,
+                        heightMm: currentItem.placement.dz,
+                      },
+                      vi,
+                    )}
+                  </span>
+                  {currentItem.bagged && (
+                    <Badge>
+                      {vi ? 'Túi' : 'Bag'} {currentItem.profile?.zipBagCode}
+                    </Badge>
+                  )}
+                  {currentItem.placement.folded && <Badge tone="primary">{vi ? 'Gập đôi' : 'Fold in half'}</Badge>}
+                  {action.kind === 'place' && currentItem.placement.z > 0 && (
+                    <Badge>{vi ? 'Đặt chồng' : 'Stacked'}</Badge>
+                  )}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setReplay((n) => n + 1)}
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-2 hover:underline"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                {vi ? 'Xem lại thao tác' : 'Replay this step'}
+              </button>
             </div>
           )}
 
@@ -238,7 +298,8 @@ export function PackingMode({
           </Button>
         )}
       </footer>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

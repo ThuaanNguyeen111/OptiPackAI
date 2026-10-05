@@ -8,6 +8,8 @@ import { FoldedPants3D } from '../packing/FoldedPants3D'
 import { ModelErrorBoundary, ProductModel } from '../packing/ProductModel3D'
 import { modelForCategory } from '../packing/product-models'
 import { HIGHLIGHT, itemColor } from './colors'
+import { weaveTexture } from './textures'
+import { garmentShape } from './timeline'
 
 /**
  * Một món trong kiện (04/10/2026). Toạ độ engine (mm, x dài / y rộng / z cao)
@@ -107,13 +109,17 @@ export function ParcelItem({
   const radius = Math.min(size.x, size.y, size.z, 0.06) * 0.14
   const stripe = Math.max(size.y * 0.05, 0.0015)
   const isShoeBox = profile?.productCategory === 'shoes'
+  const soft = garmentShape(profile?.productCategory) !== null
+  const bagged = soft && Boolean(profile?.zipBagCode)
   const emissive = focused && !outline ? HIGHLIGHT : '#000000'
+  // Hàng mềm đã gói: lõi vải (hơi nhỏ hơn) + lớp túi nhựa trong bao ngoài.
+  const core = bagged ? 0.9 : 0.985
 
   const body = (
     <RoundedBox
-      args={[size.x * 0.985, size.y * 0.985, size.z * 0.985]}
-      radius={radius}
-      smoothness={3}
+      args={[size.x * core, size.y * (bagged ? 0.82 : 0.985), size.z * core]}
+      radius={soft ? Math.min(size.x, size.y, size.z) * 0.32 : radius}
+      smoothness={soft ? 5 : 3}
       onClick={(e) => {
         e.stopPropagation()
         onSelect?.(p.itemKey)
@@ -124,15 +130,31 @@ export function ParcelItem({
       }}
       onPointerOut={() => onHover?.(null)}
     >
-      <meshStandardMaterial
-        color={color}
-        roughness={isShoeBox ? 0.55 : 0.82}
-        emissive={emissive}
-        emissiveIntensity={focused && !outline ? 0.28 : 0}
-        transparent={model !== null}
-        opacity={model !== null ? 0.16 : 1}
-        depthWrite={model === null}
-      />
+      {soft ? (
+        <meshPhysicalMaterial
+          color={color}
+          map={weaveTexture()}
+          roughness={0.9}
+          sheen={1}
+          sheenRoughness={0.7}
+          sheenColor="#ffffff"
+          emissive={emissive}
+          emissiveIntensity={focused && !outline ? 0.28 : 0}
+          transparent={model !== null}
+          opacity={model !== null ? 0.16 : 1}
+          depthWrite={model === null}
+        />
+      ) : (
+        <meshStandardMaterial
+          color={color}
+          roughness={isShoeBox ? 0.55 : 0.82}
+          emissive={emissive}
+          emissiveIntensity={focused && !outline ? 0.28 : 0}
+          transparent={model !== null}
+          opacity={model !== null ? 0.16 : 1}
+          depthWrite={model === null}
+        />
+      )}
     </RoundedBox>
   )
 
@@ -158,12 +180,26 @@ export function ParcelItem({
           <meshStandardMaterial color={color.clone().multiplyScalar(0.72)} roughness={0.6} />
         </mesh>
       )}
-      {profile?.zipBagCode && (
-        // Đường khoá kéo túi zip, dọc mép sau mặt trên
-        <mesh position={[0, size.y / 2, -size.z / 2 + size.z * 0.1]}>
-          <boxGeometry args={[size.x * 0.9, stripe, size.z * 0.035]} />
-          <meshStandardMaterial color="#3b82f6" roughness={0.4} />
-        </mesh>
+      {bagged && model === null && (
+        <>
+          {/* Túi zip trong suốt bao ngoài */}
+          <RoundedBox args={[size.x * 0.985, size.y * 0.97, size.z * 0.985]} radius={radius * 1.6} smoothness={3} renderOrder={2}>
+            <meshPhysicalMaterial
+              color="#e0f2fe"
+              transparent
+              opacity={0.3}
+              roughness={0.06}
+              clearcoat={1}
+              clearcoatRoughness={0.05}
+              depthWrite={false}
+            />
+          </RoundedBox>
+          {/* Đường khoá kéo dọc mép túi */}
+          <mesh position={[0, size.y * 0.485, size.z * 0.43]}>
+            <boxGeometry args={[size.x * 0.92, stripe * 0.6, Math.max(size.z * 0.025, 0.003)]} />
+            <meshStandardMaterial color="#2563eb" roughness={0.35} />
+          </mesh>
+        </>
       )}
       {p.folded && (
         // Nếp gập đôi, ngang giữa mặt trên
