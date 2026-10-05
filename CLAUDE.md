@@ -3558,3 +3558,42 @@ User hỏi 4 mục menu là gì → đối chiếu code: "Tham số AI" (state R
 - Lỗi tính phương án được diễn giải: "SKU X chưa có hồ sơ đóng gói" → "Thiếu hồ sơ đóng gói của X" + cách sửa + link `Mở hồ sơ SKU` (`/app/inventory/packaging-profiles?q=X`, trang hồ sơ tự mở đúng SKU; chỉ hiện với role vào được trang đó). Lỗi khác hiện "Không tính được phương án" kèm nguyên văn.
 - Nhãn chứng minh không còn là badge xanh lặp lại: chỉ một dòng nhỏ "Tối ưu" (có chứng minh) hoặc "Đang kiểm chứng tối ưu" (CP-SAT chạy nền); heuristic không hiện gì.
 - Verify: FE `tsc -b` + eslint sạch; BE `tsc` 0 lỗi, jest 59/59 suite, 647 test. Đã chụp màn hình (Edge headless + API giả lập) desktop/mobile — chưa xem với dữ liệu thật.
+
+## Khung 3D đóng gói "từng thao tác": vải mô phỏng, túi zip, đóng thùng (05/10/2026)
+
+**[stated] User chốt**: (1) có ở **cả hai nơi**: màn làm việc `/app/packing/:groupId` (tab "Xem từng bước", xem trước lúc duyệt) và chế độ đóng gói toàn màn hình; (2) **tách bước nhỏ**, mỗi thao tác 1 lần bấm Tiếp; (3) **mô phỏng vải thật**. Không đổi backend.
+
+- **Dòng thời gian** `fe/src/components/packing3d/timeline.ts` (`buildPackingTimeline`, hàm thuần):
+  - Hàng mềm (áo thun/sơ mi/khoác, quần dài/short, váy): trải phẳng → gấp hai bên → gấp thân → [cho vào túi → kéo khoá → gập túi nếu `zipBagFolded`] → [gập đôi nếu `placement.folded`] → đặt vào thùng.
+  - Hàng cứng (giày, dép, phụ kiện, khác): lấy → đặt.
+  - Cuối kiện: chèn vật tư → gập nắp → dán băng keo.
+  - Bước "đặt" dùng lời AI `guide.steps`, các bước khác dùng câu mẫu. `ACTION_SECONDS` = thời lượng mỗi thao tác.
+- **Vải** `cloth/shapes.ts` + `cloth/cloth-sim.ts`:
+  - Lưới hạt theo mặt nạ hình (cổ áo, tay, đũng quần), có làm mượt mép.
+  - `PackageModel` = động học có dẫn hướng: gấp kiểu cuộn trụ quanh bản lề; phần lật đáp lên đỉnh phần đứng yên trong vùng đáp + 1 lớp + 1 mm. Vị trí cuối mỗi pha tính sẵn, nên lùi/tiến dựng lại đúng hình.
+  - `ClothSim` (Verlet + ràng buộc giãn/cắt/uốn + kéo về đích) làm vải rủ mềm.
+  - Kích thước trải phẳng suy ngược từ ô trong thùng, giới hạn 62×72 cm. Độ dày lớp = độ cao ô ÷ 2^(số lần gấp). Đo bằng script: gói gấp xong cao 42/40 mm (áo), 54/60 (jean), 27/30 (short).
+  - Bước đặt nhấc gói theo vòng cung và co cho khít đúng ô. Chế độ "Nhẹ" / `prefers-reduced-motion` bỏ vật lý.
+- **Túi zip**: 2 lớp nhựa trong cũng là "vải" (cùng phép gấp). Miệng túi mở, khoá kéo chạy dọc mép, túi gập đôi được.
+  - **Lỗi đã gặp**: lưới túi dựng theo ô đơn vị 1 m, quên tính lại chiều dài cạnh, nên mô phỏng làm túi "nổ". Đã tính lại theo kích thước túi thật.
+- **Thùng/cảnh**:
+  - `Carton` có vân giấy, 4 nắp đóng có animation (nắp ngắn trước), băng keo kéo dọc khe. Đọc tiến độ qua `FinishState` (không qua state React).
+  - `PackingStage`: bàn gỗ + thảm gấp có lưới.
+  - `Materials3D`: túi khí, góc xốp theo số lượng kế hoạch. **Vị trí chỉ để minh hoạ.**
+  - Món đã vào thùng: lõi vải + vỏ túi trong suốt + đường khoá.
+  - Camera tự bay tới thảm / thùng / nắp.
+- **Trình phát**:
+  - `usePackingPlayer`: chỉ số, phát/tạm dừng, ×0,5/×1/×2, phím ←/→/Space.
+  - `PlayerBar`: thanh tiến trình chia đoạn theo từng món, bấm để nhảy.
+  - Màn làm việc có tab "Kết quả xếp" / "Xem từng bước", lời hướng dẫn nổi góc trên. Bấm dòng "Thứ tự xếp" thì nhảy tới bước đặt món đó.
+  - `PackingMode` thay bước "từng món" bằng từng thao tác (+ nút "Xem lại thao tác"). Màn Chuẩn bị hiện kết quả xếp, màn Cân hiện thùng đã dán.
+- **Lỗi có sẵn đã sửa**: `teal-shell.css` ép `.owner-stage .bg-canvas` trong suốt, và khung có backdrop-filter làm `fixed` bị neo trong khung, nên chế độ đóng gói lộ trang bên dưới. Đã sửa: `PackingMode` portal ra `document.body` + nền `var(--app-canvas)`.
+- **Bài học**:
+  - `heredoc` bash bị cắt với khối TS dài có nhiều nháy, nên viết bằng công cụ Write rồi ghép.
+  - Lint `react-hooks/immutability` cấm sửa ref/biến memo truyền qua props. Gói trạng thái mutable vào class có method (`FinishState`, `ModelCache`).
+- **Verify**:
+  - `tsc -b`, eslint các file đã sửa, `npm run build` đều đạt.
+  - Script số kiểm tra gấp (không NaN, ~0,05 ms/khung).
+  - Chụp Edge headless (SwiftShader) với kế hoạch giả lập 5 món: trải áo, gấp, túi, kéo khoá, gập túi, đặt, chèn vật tư, đóng nắp, băng keo. Chụp cả chế độ đóng gói.
+  - **Chưa đo fps trên GPU thật.** Dựng hình phần mềm chậm nên animation trong ảnh chưa chạy hết. User cần xem trên máy thật.
+- **Giới hạn**: nếp gấp do bản lề dẫn hướng, vật lý chỉ làm mềm (không phải mô phỏng vải tự do). Chưa có va chạm vải-với-vải; khe giữa các lớp do động học giữ.
