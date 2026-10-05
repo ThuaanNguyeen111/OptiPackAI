@@ -92,4 +92,35 @@ describe('StockReservationService — K5', () => {
     totalModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ reserved: 4 }) });
     await expect(service.availability(MarketplacePlatform.LAZADA, 's1', 'ATD-M-01')).resolves.toMatchObject({ onHand: 10, reserved: 4, available: 6 });
   });
+  describe('(05/10/2026) bộ đếm "đã lấy" theo hàng thật', () => {
+    it('unconsume: giảm quantity_picked, không xuống dưới 0 (pipeline $max)', async () => {
+      await service.unconsume(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+      const [filter, update] = reservationModel.updateOne.mock.calls[0] as [Record<string, unknown>, unknown[]];
+      expect(filter).toMatchObject({ stock_key: 'S:lazada|s1|ATD-M-01' });
+      expect(JSON.stringify(update)).toContain('$max');
+    });
+
+    it('đặt 3, đã lấy 3, loại 1 món hỏng → tính lại giữ đúng 1 món thay', async () => {
+      // Sau unconsume, bản ghi giữ chỗ còn quantity_picked = 2.
+      reservationModel.findOne.mockReturnValue(existing({ status: 'released', quantity_reserved: 0, quantity_picked: 2 }));
+      totalModel.findOneAndUpdate.mockResolvedValue({ reserved: 0 });
+      assignmentModel.aggregate.mockReturnValue(agg(5));
+      const shortages = await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 3 }]);
+      expect(shortages).toEqual([]);
+      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
+    });
+
+    it('recordPicked: giữ chỗ đã nhả → chỉ cộng bộ đếm, không đụng tổng đã giữ', async () => {
+      reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', status: 'released', quantity_reserved: 0 }));
+      await service.recordPicked(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+      expect(reservationModel.updateOne).toHaveBeenCalledWith({ _id: 'r1' }, { $inc: { quantity_picked: 1 } }, expect.anything());
+      expect(totalModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('recordPicked: giữ chỗ còn hoạt động → tiêu như quét thường', async () => {
+      reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', status: 'active', quantity_reserved: 2 }));
+      await service.recordPicked(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
+    });
+  });
 });

@@ -18,6 +18,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
   let pickEventModel: { find: jest.Mock; create: jest.Mock };
   let skuBinAssignmentModel: { findOneAndUpdate: jest.Mock };
   let inventoryMovementModel: { create: jest.Mock };
+  let reservation: { unconsume: jest.Mock; recordPicked: jest.Mock };
   let service: OrderGroupsService;
 
   const createdEvents = (): { scanned_quantity: number; kind: string; bin_location_id: Types.ObjectId | null }[] =>
@@ -50,6 +51,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
       ),
     };
     inventoryMovementModel = { create: jest.fn().mockResolvedValue([]) };
+    reservation = { unconsume: jest.fn().mockResolvedValue(undefined), recordPicked: jest.fn().mockResolvedValue(undefined) };
     const orderGroupModel = {
       findById: jest.fn().mockResolvedValue({
         _id: groupId,
@@ -73,7 +75,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
       {} as never,
       inventoryMovementModel as never,
       mappingModel as never,
-      {} as never,
+      reservation as never,
     );
   });
 
@@ -97,6 +99,8 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
       ['cancel_unpack', 1],
       ['cancel_unpack', 1],
     ]);
+    // Bộ đếm "đã lấy" của giữ chỗ giảm đúng số món rời giỏ.
+    expect(reservation.unconsume).toHaveBeenCalledWith(groupId.toString(), 'S:lazada|shop-1|TEE', 2, session);
   });
 
   it('món hỏng (restock = false): không cộng tồn, vẫn ghi pick_event âm theo ô', async () => {
@@ -133,6 +137,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
     expect(filter.quantity_on_hand).toEqual({ $gte: 1 });
     expect(update.$inc.quantity_on_hand).toBe(-1);
     expect(createdEvents()[0]).toMatchObject({ scanned_quantity: 1, kind: 'pack_replace' });
+    expect(reservation.recordPicked).toHaveBeenCalledWith(groupId.toString(), 'S:lazada|shop-1|TEE', 1, session);
   });
 
   it('lấy món thay khi kho hết → ORD_GROUP_INSUFFICIENT_STOCK', async () => {

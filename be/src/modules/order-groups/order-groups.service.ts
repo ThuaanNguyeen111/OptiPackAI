@@ -1302,6 +1302,13 @@ export class OrderGroupsService {
         );
         left -= take;
       }
+      // Bộ đếm "đã lấy" của giữ chỗ phải giảm theo — không thì reconcile không giữ chỗ món thay.
+      await this.stockReservationService.unconsume(
+        groupId,
+        stockKeyOf(masters.get(sku), group.platform, group.shop_id, sku),
+        quantity,
+        session,
+      );
       if (left > 0) {
         // Lần quét cũ không lưu kho/ô: vẫn bớt "đã lấy" nhưng không biết trả về đâu.
         withoutLocation += options.restock ? left : 0;
@@ -1401,6 +1408,12 @@ export class OrderGroupsService {
         },
       ],
       { session },
+    );
+    await this.stockReservationService.recordPicked(
+      groupId,
+      stockKeyOf(masterSku, group.platform, group.shop_id, sku),
+      1,
+      session,
     );
     return { binLocationId: doc.bin_location_id.toString(), remainingStock: doc.quantity_on_hand };
   }
