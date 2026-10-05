@@ -157,6 +157,15 @@ export class PlanParcelReview {
 export const PlanParcelReviewSchema = SchemaFactory.createForClass(PlanParcelReview);
 
 @Schema({ _id: false })
+export class PlanRecoveredMaterial {
+  @Prop({ required: true }) code!: string;
+  @Prop({ type: Number, required: true }) quantity!: number;
+  @Prop({ type: String, required: true, enum: ['reused', 'discarded', 'unknown'] })
+  outcome!: 'reused' | 'discarded' | 'unknown';
+}
+export const PlanRecoveredMaterialSchema = SchemaFactory.createForClass(PlanRecoveredMaterial);
+
+@Schema({ _id: false })
 export class PlanUnpack {
   /** Lý do phải tháo (đơn hủy...) — ghi lúc chuyển to_unpack. */
   @Prop({ required: true }) reason!: string;
@@ -164,6 +173,8 @@ export class PlanUnpack {
   @Prop({ type: String, default: null, enum: ['reusable', 'damaged', null] })
   box_condition!: 'reusable' | 'damaged' | null;
   @Prop({ type: Number, default: 0 }) units_restocked!: number;
+  /** (05/10/2026) Thùng + vật tư chèn đã thu hồi/bỏ khi tháo. */
+  @Prop({ type: [PlanRecoveredMaterialSchema], default: [] }) recovered_materials!: PlanRecoveredMaterial[];
   @Prop({ type: String, default: null }) note!: string | null;
   @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) done_at!: Date | null;

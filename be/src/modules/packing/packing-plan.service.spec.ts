@@ -180,7 +180,11 @@ describe('PackingPlanService', () => {
       reconcileReservation: jest.fn(() => Promise.resolve()),
     };
     settings = { ...DEFAULT_PACKING_SETTINGS };
-    materialsService = { recoverFromUnpack: jest.fn(() => Promise.resolve('reused')) };
+    materialsService = {
+      recoverFromUnpack: jest.fn((lines: { code: string; quantity: number }[]) =>
+        Promise.resolve(lines.map((l) => ({ code: l.code, quantity: l.quantity, outcome: 'reused' }))),
+      ),
+    };
     boxService = {
       listActiveSpecs: jest.fn(() => Promise.resolve(sampleBoxes())),
       findActiveSpecByCode: jest.fn((code: string) =>
@@ -741,6 +745,51 @@ describe('PackingPlanService', () => {
       expect(materialsService.recoverFromUnpack).toHaveBeenCalled();
       expect(result.plan.parcels.find((p) => p.parcel_no === target.parcel_no)?.status).toBe('voided');
       expect(result.box).toBe('reused');
+    });
+
+    describe('thu hồi vật tư chèn khi tháo kiện', () => {
+      async function parcelToUnpack(): Promise<{ plan: PackingPlanDocument; no: number }> {
+        const plan = await approvedPlan();
+        const doc = planModel.docs[0];
+        const target = (doc?.parcels as Record<string, unknown>[] | undefined)?.[0];
+        if (!doc || !target) throw new Error('thiếu kiện');
+        Object.assign(target, {
+          status: 'to_unpack',
+          box_consumed: true,
+          materials: [{ type: 'foam_corner', code: 'FOAM', name: 'Góc xốp', unit: 'cái', quantity: 4, weight_g: 20, cost_vnd: 800 }],
+          unpack: { reason: 'Đơn hủy', requested_at: new Date(), box_condition: null, units_restocked: 0, recovered_materials: [], note: null, by: null, done_at: null },
+        });
+        doc.status = 'packing';
+        return { plan, no: target.parcel_no as number };
+      }
+
+      it('khai thu hồi 3 góc xốp → gửi kèm thùng, lưu kết quả vào kiện', async () => {
+        const { plan, no } = await parcelToUnpack();
+        const result = await session.unpack(
+          groupId,
+          no,
+          { box_condition: 'reusable', recovered_materials: [{ code: 'FOAM', quantity: 3 }], expected_version: plan.version },
+          userId,
+        );
+        const [lines] = materialsService.recoverFromUnpack.mock.calls[0] as unknown as [{ code: string; quantity: number; strict?: boolean }[]];
+        expect(lines).toEqual([
+          expect.objectContaining({ quantity: 1, condition: 'reusable' }),
+          { code: 'FOAM', quantity: 3, condition: 'reusable', strict: true },
+        ]);
+        expect(result.materials).toEqual([{ code: 'FOAM', quantity: 3, outcome: 'reused' }]);
+        const saved = result.plan.parcels.find((p) => p.parcel_no === no);
+        expect(saved?.unpack?.recovered_materials.map((m) => m.code)).toContain('FOAM');
+      });
+
+      it('vật tư không có trong kiện hoặc vượt số lượng → PACKING_RECOVER_MATERIAL_INVALID', async () => {
+        const { plan, no } = await parcelToUnpack();
+        for (const bad of [{ code: 'AIR', quantity: 1 }, { code: 'FOAM', quantity: 5 }]) {
+          await expect(
+            session.unpack(groupId, no, { box_condition: 'reusable', recovered_materials: [bad], expected_version: plan.version }, userId),
+          ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.RECOVER_MATERIAL_INVALID });
+        }
+        expect(materialsService.recoverFromUnpack).not.toHaveBeenCalled();
+      });
     });
   });
 

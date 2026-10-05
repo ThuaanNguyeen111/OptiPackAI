@@ -63,6 +63,15 @@ export class CreatePackagingMaterialDto {
   @IsOptional()
   @IsString({ message: 'storage_location phải là chuỗi' })
   storage_location?: string | null;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      '(05/10/2026) true = thu hồi dùng lại được khi tháo kiện (góc xốp, túi khí còn nguyên). Mặc định false (dùng 1 lần).',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'reusable phải là true/false' })
+  reusable?: boolean;
 }
 
 export class UpdatePackagingMaterialDto {
@@ -107,6 +116,15 @@ export class UpdatePackagingMaterialDto {
   @IsOptional()
   @IsString({ message: 'storage_location phải là chuỗi' })
   storage_location?: string | null;
+
+  @ApiPropertyOptional({
+    example: false,
+    description:
+      '(05/10/2026) true = thu hồi dùng lại được khi tháo kiện (góc xốp, túi khí còn nguyên). Mặc định false (dùng 1 lần).',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'reusable phải là true/false' })
+  reusable?: boolean;
 }
 
 /** Nhập thêm vật tư — tồn CHỈ đổi qua route này hoặc lúc pack. */

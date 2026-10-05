@@ -575,12 +575,20 @@ export class PackingSessionService {
     parcelNo: number,
     dto: UnpackParcelDto,
     userId: string,
-  ): Promise<{ plan: PackingPlanDocument; completed: boolean; restocked: number; withoutLocation: number; box: string }> {
+  ): Promise<{
+    plan: PackingPlanDocument;
+    completed: boolean;
+    restocked: number;
+    withoutLocation: number;
+    box: string;
+    materials: { code: string; quantity: number; outcome: string }[];
+  }> {
     const plan = await this.planService.requireActivePlan(groupId);
     if (plan.version !== dto.expected_version) throw this.planService.versionConflict(groupId);
     const data = this.data(plan);
     const parcel = this.parcelOf(data, parcelNo);
     if (parcel.status !== 'to_unpack') throw this.parcelWrongStatus(groupId, parcel, 'tháo kiện');
+    const recovered = this.validateRecoveredMaterials(parcel, dto.recovered_materials ?? []);
     const counts = new Map<string, number>();
     for (const p of parcel.placements) counts.set(p.sku, (counts.get(p.sku) ?? 0) + 1);
     const now = new Date();
@@ -589,6 +597,7 @@ export class PackingSessionService {
     let restocked = 0;
     let withoutLocation = 0;
     let box = 'not_consumed';
+    let materials: { code: string; quantity: number; outcome: 'reused' | 'discarded' | 'unknown' }[] = [];
     const outcome = await this.runInTransaction(async (session) => {
       const adjusted = await this.orderGroupsService.adjustPickedUnits(
         groupId,
@@ -598,13 +607,19 @@ export class PackingSessionService {
       restocked = adjusted.restocked;
       withoutLocation = adjusted.withoutLocation;
       if (parcel.box_consumed) {
-        box = await this.materialsService.recoverFromUnpack(
-          parcel.box.code,
-          dto.box_condition,
+        const results = await this.materialsService.recoverFromUnpack(
+          [
+            { code: parcel.box.code, quantity: 1, condition: dto.box_condition },
+            // Vật tư chèn chỉ thu hồi phần người dùng khai còn dùng được; phần còn lại coi như đã dùng.
+            ...recovered.map((r) => ({ code: r.code, quantity: r.quantity, condition: 'reusable' as const, strict: true })),
+          ],
           { groupId: plan.order_group_id, planId: plan._id, parcelNo },
           userId,
           session,
         );
+        const [boxResult, ...rest] = results;
+        box = boxResult?.outcome ?? 'unknown';
+        materials = rest;
       }
       const parcels = data.parcels.map((p): ParcelData =>
         p.parcel_no === parcelNo
@@ -616,6 +631,9 @@ export class PackingSessionService {
                 requested_at: p.unpack?.requested_at ?? now,
                 box_condition: parcel.box_consumed ? dto.box_condition : null,
                 units_restocked: adjusted.restocked,
+                recovered_materials: parcel.box_consumed
+                  ? [{ code: parcel.box.code, quantity: 1, outcome: box as 'reused' | 'discarded' | 'unknown' }, ...materials]
+                  : [],
                 note,
                 by: new Types.ObjectId(userId),
                 done_at: now,
@@ -637,7 +655,34 @@ export class PackingSessionService {
       const finalized = await this.finalizeIfComplete(doc, userId, session);
       return { plan: finalized ?? doc, completed: finalized !== null };
     });
-    return { ...outcome, restocked, withoutLocation, box };
+    return { ...outcome, restocked, withoutLocation, box, materials };
+  }
+
+  /**
+   * Vật tư chèn khai thu hồi phải có trong kiện và không vượt số lượng của kiện.
+   * Kiện chưa niêm phong (chưa trừ vật tư) thì không có gì để thu hồi → bỏ qua.
+   */
+  private validateRecoveredMaterials(
+    parcel: ParcelData,
+    lines: { code: string; quantity: number }[],
+  ): { code: string; quantity: number }[] {
+    if (!parcel.box_consumed) return [];
+    const merged = new Map<string, number>();
+    for (const l of lines) merged.set(l.code, (merged.get(l.code) ?? 0) + l.quantity);
+    for (const [code, quantity] of merged) {
+      const inParcel = parcel.materials.filter((m) => m.code === code).reduce((s, m) => s + m.quantity, 0);
+      if (inParcel === 0 || quantity > inParcel) {
+        throw new AppException(
+          PACKING_ERROR_CODES.RECOVER_MATERIAL_INVALID,
+          inParcel === 0
+            ? `Kiện ${String(parcel.parcel_no)} không có vật tư "${code}".`
+            : `Kiện ${String(parcel.parcel_no)} chỉ có ${String(inParcel)} "${code}", không thu hồi ${String(quantity)}.`,
+          HttpStatus.BAD_REQUEST,
+          { parcelNo: parcel.parcel_no, code, inParcel, requested: quantity },
+        );
+      }
+    }
+    return [...merged].map(([code, quantity]) => ({ code, quantity }));
   }
 
   // ------------------------------------------------------------------ nội bộ

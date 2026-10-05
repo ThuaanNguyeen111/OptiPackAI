@@ -149,6 +149,7 @@ export interface PackingPlanResponse {
       requestedAt: Date;
       boxCondition: string | null;
       unitsRestocked: number;
+      recoveredMaterials: { code: string; quantity: number; outcome: string }[];
       note: string | null;
       by: string | null;
       doneAt: Date | null;
@@ -328,6 +329,11 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
             requestedAt: p.unpack.requested_at,
             boxCondition: p.unpack.box_condition,
             unitsRestocked: p.unpack.units_restocked,
+            recoveredMaterials: p.unpack.recovered_materials.map((m) => ({
+              code: m.code,
+              quantity: m.quantity,
+              outcome: m.outcome,
+            })),
             note: p.unpack.note,
             by: p.unpack.by?.toString() ?? null,
             doneAt: p.unpack.done_at,
@@ -628,7 +634,7 @@ export class PackingPlanController {
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Tháo kiện của đơn bị hủy sau khi đóng: hàng về đúng ô đã lấy (sổ kho cancel_unpack), thùng còn tốt vào kho tái sử dụng.',
+      'Tháo kiện của đơn bị hủy sau khi đóng: hàng về đúng ô đã lấy (sổ kho cancel_unpack), thùng còn tốt vào kho tái sử dụng, vật tư chèn khai trong recovered_materials được thu hồi.',
   })
   async unpack(
     @Param('groupId') groupId: string,
@@ -641,6 +647,7 @@ export class PackingPlanController {
     restocked: number;
     withoutLocation: number;
     box: string;
+    materials: { code: string; quantity: number; outcome: string }[];
     lazadaPackSync: LazadaPackSyncResult | null;
   }> {
     const result = await this.sessionService.unpack(groupId, parcelNo, dto, user.userId);
@@ -651,6 +658,7 @@ export class PackingPlanController {
       restocked: result.restocked,
       withoutLocation: result.withoutLocation,
       box: result.box,
+      materials: result.materials,
       lazadaPackSync,
     };
   }

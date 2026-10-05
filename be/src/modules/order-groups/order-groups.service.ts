@@ -1590,6 +1590,7 @@ export class OrderGroupsService {
             requested_at: now,
             box_condition: null,
             units_restocked: 0,
+            recovered_materials: [],
             note: null,
             by: null,
             done_at: null,

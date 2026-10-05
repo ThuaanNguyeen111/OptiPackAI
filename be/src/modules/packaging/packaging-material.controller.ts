@@ -33,6 +33,10 @@ export interface PackagingMaterialResponse {
   isSample: boolean;
   isActive: boolean;
   stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock';
+  /** (05/10/2026) Thu hồi dùng lại được khi tháo kiện. */
+  reusable: boolean;
+  quantityNew: number;
+  quantityReused: number;
 }
 
 export interface MaterialMovementResponse {
@@ -81,6 +85,9 @@ export function toMaterialResponse(doc: PackagingMaterialDocument): PackagingMat
     storageLocation: doc.storage_location,
     isSample: doc.is_sample,
     isActive: doc.is_active,
+    reusable: doc.reusable,
+    quantityNew: doc.qty_new,
+    quantityReused: doc.qty_reused,
     stockStatus: onHand === 0 ? 'out_of_stock' : onHand <= doc.reorder_level ? 'low_stock' : 'in_stock',
   };
 }

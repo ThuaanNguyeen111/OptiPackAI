@@ -264,29 +264,42 @@ export class PackagingMaterialsService {
   }
 
   /**
-   * (05/10/2026) Thu hồi thùng khi THÁO kiện (đơn hủy sau khi đã đóng). Gọi TRONG
-   * transaction của tháo kiện. reusable → kho tái sử dụng (nếu loại thùng tái sử
-   * dụng được); damaged hoặc không tái sử dụng được → ghi bỏ.
+   * (05/10/2026) Thu hồi khi THÁO kiện (đơn hủy sau khi đã đóng): thùng + vật tư
+   * chèn còn dùng được. Gọi TRONG transaction của tháo kiện.
+   * - `reusable` + loại tái sử dụng được → cộng `qty_reused`, sổ `recover`.
+   * - `damaged`, hoặc thùng loại không tái sử dụng → sổ `discard`.
+   * - `strict` (vật tư chèn người dùng chủ động khai thu hồi) mà loại không tái
+   *   sử dụng được → 400 PKG_MATERIAL_NOT_REUSABLE (không âm thầm bỏ).
    */
   async recoverFromUnpack(
-    code: string,
-    condition: 'reusable' | 'damaged',
+    lines: { code: string; quantity: number; condition: 'reusable' | 'damaged'; strict?: boolean }[],
     ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
     actorId: string,
     session: ClientSession,
-  ): Promise<'reused' | 'discarded' | 'unknown'> {
-    const m = await this.materialModel.findOne({ code }).session(session);
-    if (!m) return 'unknown';
-    const reused = condition === 'reusable' && m.reusable;
-    if (reused) await this.materialModel.updateOne({ _id: m._id }, { $inc: { qty_reused: 1 } }, { session });
-    await this.movementModel.create([{
-      material_code: code, condition: reused ? 'reused' : 'discarded', type: reused ? 'recover' : 'discard',
-      delta: 1, saving_vnd: 0, ref_type: 'order_group', ref_id: ref.groupId.toString(),
-      note: reused ? 'Thu hồi thùng khi tháo kiện (đơn hủy sau khi đóng)' : 'Thùng hỏng khi tháo kiện — bỏ',
-      actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
-      balance_after: usableStock(m) + (reused ? 1 : 0), created_at: new Date(),
-    }], { session });
-    return reused ? 'reused' : 'discarded';
+  ): Promise<{ code: string; quantity: number; outcome: 'reused' | 'discarded' | 'unknown' }[]> {
+    const out: { code: string; quantity: number; outcome: 'reused' | 'discarded' | 'unknown' }[] = [];
+    for (const line of lines) {
+      if (line.quantity <= 0) continue;
+      const m = await this.materialModel.findOne({ code: line.code }).session(session);
+      if (!m) {
+        out.push({ code: line.code, quantity: line.quantity, outcome: 'unknown' });
+        continue;
+      }
+      if (line.strict && line.condition === 'reusable' && !m.reusable) {
+        this.fail(E.NOT_REUSABLE, `Vật tư "${m.code}" không tái sử dụng được — bật "reusable" trong danh mục trước khi thu hồi.`, HttpStatus.BAD_REQUEST);
+      }
+      const reused = line.condition === 'reusable' && m.reusable;
+      if (reused) await this.materialModel.updateOne({ _id: m._id }, { $inc: { qty_reused: line.quantity } }, { session });
+      await this.movementModel.create([{
+        material_code: m.code, condition: reused ? 'reused' : 'discarded', type: reused ? 'recover' : 'discard',
+        delta: line.quantity, saving_vnd: 0, ref_type: 'order_group', ref_id: ref.groupId.toString(),
+        note: reused ? 'Thu hồi khi tháo kiện (đơn hủy sau khi đóng)' : 'Hỏng/không dùng lại khi tháo kiện — bỏ',
+        actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
+        balance_after: usableStock(m) + (reused ? line.quantity : 0), created_at: new Date(),
+      }], { session });
+      out.push({ code: m.code, quantity: line.quantity, outcome: reused ? 'reused' : 'discarded' });
+    }
+    return out;
   }
 
   /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */

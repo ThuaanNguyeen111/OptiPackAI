@@ -1,5 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
+  ValidateNested,
   IsBoolean,
   IsIn,
   IsInt,
@@ -147,6 +151,18 @@ export class ReportIssueDto extends VersionedDto {
   note?: string;
 }
 
+export class RecoveredMaterialDto {
+  @ApiProperty({ example: 'FOAM-CORNER', description: 'Mã vật tư chèn có trong kiện (parcels[].materials[].code).' })
+  @IsString({ message: 'code phải là chuỗi' })
+  @MinLength(1, { message: 'code không được trống' })
+  code!: string;
+
+  @ApiProperty({ example: 4, description: 'Số lượng còn dùng lại được (≤ số lượng trong kiện).' })
+  @IsInt({ message: 'quantity phải là số nguyên' })
+  @Min(1, { message: 'quantity phải ≥ 1' })
+  quantity!: number;
+}
+
 export class UnpackParcelDto extends VersionedDto {
   @ApiProperty({
     enum: ['reusable', 'damaged'],
@@ -154,6 +170,19 @@ export class UnpackParcelDto extends VersionedDto {
   })
   @IsIn(['reusable', 'damaged'], { message: 'box_condition chỉ nhận reusable hoặc damaged' })
   box_condition!: 'reusable' | 'damaged';
+
+  @ApiProperty({
+    required: false,
+    type: [RecoveredMaterialDto],
+    description:
+      '(05/10/2026) Vật tư chèn còn dùng lại được (góc xốp, túi khí...). Không gửi = bỏ hết như trước. Vật tư phải bật "reusable" trong danh mục.',
+  })
+  @IsOptional()
+  @IsArray({ message: 'recovered_materials phải là mảng' })
+  @ArrayMaxSize(20, { message: 'recovered_materials tối đa 20 dòng' })
+  @ValidateNested({ each: true })
+  @Type(() => RecoveredMaterialDto)
+  recovered_materials?: RecoveredMaterialDto[];
 
   @ApiProperty({ required: false })
   @IsOptional()

@@ -221,6 +221,14 @@ describe('PackagingMaterialService (28/09/2026, kho chung từ 04/10/2026)', () 
       );
     });
 
+    it('mặc định dùng 1 lần; gửi reusable: true → lưu tái sử dụng được (05/10/2026)', async () => {
+      materialModel.create.mockResolvedValue({});
+      await service.create(dto);
+      await service.create({ ...dto, reusable: true });
+      const calls = materialModel.create.mock.calls as [{ reusable: boolean }][];
+      expect(calls.map(([c]) => c.reusable)).toEqual([false, true]);
+    });
+
     it('trùng mã (E11000) → PKG_MATERIAL_CODE_IN_USE', async () => {
       materialModel.create.mockRejectedValue(Object.assign(new Error('dup'), { code: 11000 }));
       await expect(service.create(dto)).rejects.toMatchObject({ errorCode: PACKAGING_ERROR_CODES.MATERIAL_CODE_IN_USE });
@@ -270,15 +278,42 @@ describe('PackagingMaterialService (28/09/2026, kho chung từ 04/10/2026)', () 
     it('tháo kiện: thùng còn tốt → +1 tái sử dụng; thùng hỏng → ghi bỏ, không cộng tồn', async () => {
       mockStock(stockDoc('BOX-M', 0, { kind: 'box', reusable: true, qty_new: 2, qty_reused: 0 }));
       const ref = { groupId, planId: recA, parcelNo: 1 };
-      expect(await materials.recoverFromUnpack('BOX-M', 'reusable', ref, userId, session)).toBe('reused');
+      expect(await materials.recoverFromUnpack([{ code: 'BOX-M', quantity: 1, condition: 'reusable' }], ref, userId, session)).toEqual([
+        { code: 'BOX-M', quantity: 1, outcome: 'reused' },
+      ]);
       const [, update] = materialModel.updateOne.mock.calls[0] as [unknown, { $inc: Record<string, number> }];
       expect(update.$inc).toEqual({ qty_reused: 1 });
       expect(rows()[0]).toMatchObject({ type: 'recover', condition: 'reused', delta: 1 });
 
       materialModel.updateOne.mockClear();
-      expect(await materials.recoverFromUnpack('BOX-M', 'damaged', ref, userId, session)).toBe('discarded');
+      expect(await materials.recoverFromUnpack([{ code: 'BOX-M', quantity: 1, condition: 'damaged' }], ref, userId, session)).toEqual([
+        { code: 'BOX-M', quantity: 1, outcome: 'discarded' },
+      ]);
       expect(materialModel.updateOne).not.toHaveBeenCalled();
       expect(rows()[1]).toMatchObject({ type: 'discard', condition: 'discarded' });
+    });
+
+    it('vật tư chèn tái sử dụng được: thu hồi đúng số lượng vào kho tái sử dụng', async () => {
+      mockStock(stockDoc('FOAM', 10, { reusable: true }));
+      const ref = { groupId, planId: recA, parcelNo: 1 };
+      expect(
+        await materials.recoverFromUnpack([{ code: 'FOAM', quantity: 4, condition: 'reusable', strict: true }], ref, userId, session),
+      ).toEqual([{ code: 'FOAM', quantity: 4, outcome: 'reused' }]);
+      const [, update] = materialModel.updateOne.mock.calls[0] as [unknown, { $inc: Record<string, number> }];
+      expect(update.$inc).toEqual({ qty_reused: 4 });
+      expect(rows()[0]).toMatchObject({ type: 'recover', delta: 4 });
+    });
+
+    it('vật tư chèn loại dùng 1 lần mà khai thu hồi → PKG_MATERIAL_NOT_REUSABLE', async () => {
+      mockStock(stockDoc('AIR', 10, { reusable: false }));
+      await expect(
+        materials.recoverFromUnpack(
+          [{ code: 'AIR', quantity: 1, condition: 'reusable', strict: true }],
+          { groupId, planId: recA, parcelNo: 1 },
+          userId,
+          session,
+        ),
+      ).rejects.toMatchObject({ errorCode: 'PKG_MATERIAL_NOT_REUSABLE' });
     });
   });
 });

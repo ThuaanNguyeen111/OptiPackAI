@@ -253,8 +253,8 @@ export class PackagingMaterialService {
         unit: dto.unit,
         weight_g_per_unit: dto.weight_g_per_unit,
         unit_cost_vnd: dto.price_vnd_per_unit,
-        // Vật tư chèn dùng 1 lần — không đưa vào kho tái sử dụng.
-        reusable: false,
+        // Mặc định dùng 1 lần; (05/10/2026) Admin bật được cho loại thu hồi được khi tháo kiện.
+        reusable: dto.reusable ?? false,
         // Tồn ban đầu 0 — nhập qua stock-in để có dòng sổ.
         qty_new: 0,
         qty_reused: 0,
@@ -288,6 +288,7 @@ export class PackagingMaterialService {
           ...(dto.weight_g_per_unit !== undefined && { weight_g_per_unit: dto.weight_g_per_unit }),
           ...(dto.price_vnd_per_unit !== undefined && { unit_cost_vnd: dto.price_vnd_per_unit }),
           ...(dto.is_active !== undefined && { is_active: dto.is_active }),
+          ...(dto.reusable !== undefined && { reusable: dto.reusable }),
           ...(dto.reorder_level !== undefined && { reorder_level: dto.reorder_level }),
           ...(dto.storage_location !== undefined && {
             storage_location: dto.storage_location?.trim() ? dto.storage_location.trim() : null,
