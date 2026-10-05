@@ -78,6 +78,28 @@ export type UpdateUserInput = Partial<
   Pick<AdminUser, 'name' | 'role' | 'phone' | 'address' | 'employeeCode' | 'department'>
 >
 
+export type AiPackagingParams = {
+  /** NFR Report 2: AI recommendation ≤ 5s */
+  timeoutSeconds: number
+  min_fill_rate: number
+  autoFallback: boolean
+}
+
+export type PackagingTemplate = {
+  id: string
+  name: string
+  description?: string
+  boxCode: string
+  lengthCm: number
+  widthCm: number
+  heightCm: number
+  maxWeightKg: number
+  cushioning?: string
+  createdBy: string
+  createdAt: string
+  active: boolean
+}
+
 export function getUserLockState(
   user: AdminUser,
   now = Date.now(),

@@ -79,7 +79,6 @@ function platformLabel(platform: string): string {
   if (platform === 'lazada') return 'Lazada'
   if (platform === 'tiktok') return 'TikTok'
   if (platform === 'tiki') return 'Tiki'
-  if (platform === 'storefront') return 'Storefront'
   if (platform === 'shopee') return 'Shopee'
   return platform
 }
@@ -111,8 +110,6 @@ function PlatformPill({ platform }: { platform: string }) {
       ? 'border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,var(--ls-cta,#152D35)_10%,#D4ECDD)] text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]'
       : platform === 'tiktok'
         ? 'border-zinc-300 bg-zinc-50 text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200'
-        : platform === 'storefront'
-          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300'
         : platform === 'shopee'
           ? 'border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-300'
         : 'border-slate-200/80 bg-slate-50 text-slate-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-slate-300'

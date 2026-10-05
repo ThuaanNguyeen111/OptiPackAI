@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import {
   ForceChangeRoute,
   GuestRoute,
@@ -9,12 +9,14 @@ import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
-import { AdminBoxesPage } from './pages/AdminBoxesPage'
+import { AdminAiPage } from './pages/AdminAiPage'
 import { AdminMarketplacePage } from './pages/AdminMarketplacePage'
 import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
 import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
+import { AdminPackingPlansPage } from './pages/AdminPackingPlansPage'
+import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
 import { AdminWarehousePage } from './pages/AdminWarehousePage'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
@@ -27,16 +29,13 @@ import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { OrderGroupsPage } from './pages/OrderGroupsPage'
 import { OrdersPage } from './pages/OrdersPage'
-import { PackingQueuePage } from './pages/PackingQueuePage'
-import { PackingWorkspacePage } from './pages/PackingWorkspacePage'
-import { PackagingProfilesPage } from './pages/PackagingProfilesPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
+import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { ReturnsPage } from './pages/ReturnsPage'
 import { ShippingPage } from './pages/ShippingPage'
-import { ShippingDispatchPage } from './pages/ShippingDispatchPage'
 import { StaffManagementPage } from './pages/StaffManagementPage'
 import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
 import { WarehousePage } from './pages/WarehousePage'
@@ -48,12 +47,6 @@ function PortalRoot() {
       <Outlet />
     </PortalProvider>
   )
-}
-
-/** Link cũ /app/packing/groups/:groupId(/orders/:id) → màn làm việc mới (04/10/2026). */
-function LegacyPackingRedirect() {
-  const { groupId = '' } = useParams<{ groupId: string }>()
-  return <Navigate to={`/app/packing/${groupId}`} replace />
 }
 
 function App() {
@@ -89,14 +82,8 @@ function App() {
                 <Route path="returns" element={<ReturnsPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
-                <Route path="inventory/packaging-profiles" element={<PackagingProfilesPage />} />
-                <Route path="packing" element={<PackingQueuePage />} />
-                <Route path="packing/groups" element={<Navigate to="/app/packing" replace />} />
-                <Route path="packing/groups/:groupId" element={<LegacyPackingRedirect />} />
-                <Route path="packing/groups/:groupId/orders/:recommendationId" element={<LegacyPackingRedirect />} />
-                <Route path="packing/:groupId" element={<PackingWorkspacePage />} />
+                <Route path="packing" element={<PackingPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
-                <Route path="shipping/dispatch" element={<ShippingDispatchPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
                 <Route path="staff" element={<StaffManagementPage />} />
                 <Route path="analytics" element={<AnalyticsReportPage />} />
@@ -109,9 +96,9 @@ function App() {
                 <Route path="marketplace" element={<AdminMarketplacePage />} />
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
-                {/* Link cũ → màn đóng gói thật (bỏ 2 trang giả + trang chốt trùng chức năng, 05/10/2026) */}
-                <Route path="packing-plans" element={<Navigate to="/app/packing" replace />} />
-                <Route path="boxes" element={<AdminBoxesPage />} />
+                <Route path="ai" element={<AdminAiPage />} />
+                <Route path="packing-plans" element={<AdminPackingPlansPage />} />
+                <Route path="templates" element={<AdminTemplatesPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />

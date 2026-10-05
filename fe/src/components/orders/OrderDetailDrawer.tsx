@@ -80,10 +80,13 @@ export function OrderDetailDrawer({
   const [siblings, setSiblings] = useState<MarketplaceOrderListItem[]>([])
 
   useEffect(() => {
-    if (!orderId) return
+    if (!orderId) {
+      setOrder(null)
+      setSiblings([])
+      setError(null)
+      return
+    }
     let cancelled = false
-    // This effect owns the request lifecycle for the currently selected order.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
     setError(null)
     void getOrderById(orderId)
@@ -415,67 +418,16 @@ export function OrderDetailDrawer({
                           colSpan={4}
                           className="px-3 py-2.5 text-right text-slate-500"
                         >
-                          {order.subtotalAmount !== null
-                            ? vi
-                              ? 'Tạm tính'
-                              : 'Subtotal'
-                            : vi
-                              ? 'Tổng đơn'
-                              : 'Order total'}
+                          {vi ? 'Tổng đơn' : 'Order total'}
                         </td>
                         <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900 dark:text-slate-100">
-                          {formatCurrency(
-                            order.subtotalAmount ?? order.totalAmount,
-                            order.currency,
-                          )}
+                          {formatCurrency(order.totalAmount, order.currency)}
                         </td>
                       </tr>
                     </tfoot>
                   </table>
                 </div>
               </div>
-
-              {order.subtotalAmount !== null ||
-              order.discountAmount !== null ||
-              order.shippingFee !== null ? (
-                <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-surface-1">
-                  <h3 className="mb-2 font-semibold text-slate-900 dark:text-slate-100">
-                    {vi ? 'Chi phí đơn hàng' : 'Order costs'}
-                  </h3>
-                  <dl className="space-y-1.5 text-sm">
-                    {order.subtotalAmount !== null ? (
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-slate-500">{vi ? 'Tạm tính' : 'Subtotal'}</dt>
-                        <dd className="font-mono text-slate-700 dark:text-slate-300">
-                          {formatCurrency(order.subtotalAmount, order.currency)}
-                        </dd>
-                      </div>
-                    ) : null}
-                    {order.discountAmount !== null ? (
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-slate-500">{vi ? 'Giảm giá' : 'Discount'}</dt>
-                        <dd className="font-mono text-emerald-600">
-                          -{formatCurrency(order.discountAmount, order.currency)}
-                        </dd>
-                      </div>
-                    ) : null}
-                    {order.shippingFee !== null ? (
-                      <div className="flex justify-between gap-3">
-                        <dt className="text-slate-500">{vi ? 'Phí vận chuyển' : 'Shipping'}</dt>
-                        <dd className="font-mono text-slate-700 dark:text-slate-300">
-                          {formatCurrency(order.shippingFee, order.currency)}
-                        </dd>
-                      </div>
-                    ) : null}
-                    <div className="flex justify-between gap-3 border-t border-slate-200 pt-1.5 font-semibold dark:border-slate-800">
-                      <dt className="text-slate-900 dark:text-slate-100">{vi ? 'Tổng thanh toán' : 'Total'}</dt>
-                      <dd className="font-mono text-slate-900 dark:text-slate-100">
-                        {formatCurrency(order.totalAmount, order.currency)}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-              ) : null}
 
               <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-surface-1">
                 <h3 className="mb-2 font-semibold text-slate-900 dark:text-slate-100">

@@ -142,7 +142,7 @@ async function ensureRefreshed(): Promise<boolean> {
 }
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
   body?: unknown
   auth?: boolean
   skipRefresh?: boolean

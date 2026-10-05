@@ -1,7 +1,9 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useState } from 'react'
 import {
+  Box,
   Boxes,
+  Cpu,
   LogOut,
   Moon,
   Package,
@@ -63,21 +65,27 @@ const navItems = [
     section: 'warehouse' as NavSection,
   },
   {
-    // Màn đóng gói thật (packing_plans): hàng chờ, "Cần xử lý", tính lại, duyệt, 3D.
-    // Thay trang "Chốt kế hoạch" riêng của Admin (trùng chức năng) — 05/10/2026.
-    to: '/app/packing',
+    to: '/app/admin/ai',
     end: false,
-    labelVi: 'Kế hoạch đóng gói',
-    labelEn: 'Packing plans',
+    labelVi: 'Tham số AI',
+    labelEn: 'AI parameters',
+    icon: Cpu,
+    section: 'ai' as NavSection,
+  },
+  {
+    to: '/app/admin/packing-plans',
+    end: false,
+    labelVi: 'Chốt kế hoạch đóng gói',
+    labelEn: 'Confirm packing plan',
     icon: Sparkles,
     section: 'ai' as NavSection,
   },
   {
-    to: '/app/admin/boxes',
+    to: '/app/admin/templates',
     end: false,
-    labelVi: 'Danh mục thùng',
-    labelEn: 'Box catalog',
-    icon: Boxes,
+    labelVi: 'Templates đóng gói',
+    labelEn: 'Packaging templates',
+    icon: Box,
     section: 'ai' as NavSection,
   },
 ]

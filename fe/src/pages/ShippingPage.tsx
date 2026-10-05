@@ -17,7 +17,7 @@ import {
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { listOrderGroups } from '../api/order-groups.api'
-import { getPackingPlan } from '../api/packing-plan.api'
+import { getPackagingRecommendation } from '../api/packaging.api'
 import {
   deliverShipment,
   failShipment,
@@ -32,7 +32,7 @@ import { formatApiError } from '../lib/api'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import type { OrderGroup } from '../types/order-groups'
-import type { PackingPlan } from '../types/packing-plan'
+import type { PackagingRecommendation } from '../types/packaging'
 import type {
   DeliveryFailureReason,
   FailureReasonOption,
@@ -115,19 +115,15 @@ function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id
 }
 
-// Gộp main + thi_dev (04/10/2026): đọc từ kế hoạch đóng gói (packing_plans) —
-// tổng mọi kiện của nhóm; cân dùng cân thật nếu đã đóng, chưa đóng thì ước tính.
-function boxVolumeCbm(plan: PackingPlan | null): number {
-  if (!plan) return 0
-  return plan.parcels.reduce((sum, p) => {
-    const { lengthMm, widthMm, heightMm } = p.box.outerMm
-    return sum + (lengthMm * widthMm * heightMm) / 1_000_000_000
-  }, 0)
+function boxVolumeCbm(rec: PackagingRecommendation | null): number {
+  if (!rec) return 0
+  const { lengthCm, widthCm, heightCm } = rec.boxSize
+  return (lengthCm * widthCm * heightCm) / 1_000_000
 }
 
-function boxWeightKg(plan: PackingPlan | null): number {
-  if (!plan) return 0
-  return plan.parcels.reduce((sum, p) => sum + (p.actualWeightKg ?? p.estimatedWeightG / 1000), 0)
+function boxWeightKg(rec: PackagingRecommendation | null): number {
+  if (!rec) return 0
+  return rec.actualMeasuredWeightKg ?? 0
 }
 
 function rowGroupId(row: QueueRow): string {
@@ -156,7 +152,7 @@ export function ShippingPage() {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [events, setEvents] = useState<ShipmentEvent[]>([])
   const [packRecByGroupId, setPackRecByGroupId] = useState<
-    Record<string, PackingPlan | null>
+    Record<string, PackagingRecommendation | null>
   >({})
 
   const [modalMode, setModalMode] = useState<ModalMode>(null)
@@ -256,7 +252,7 @@ export function ShippingPage() {
       const results = await Promise.all(
         missing.map(async (id) => {
           try {
-            return [id, await getPackingPlan(id)] as const
+            return [id, await getPackagingRecommendation(id)] as const
           } catch {
             return [id, null] as const
           }

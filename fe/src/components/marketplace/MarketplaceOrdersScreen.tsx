@@ -102,13 +102,7 @@ export function MarketplaceOrdersScreen({
     void ordersApi.load(listParams).then((res) => {
       if (!res) return
       const shopIds = [
-        ...new Set(
-          res.orders
-            // Chỉ shop Lazada lưu danh sách ở localStorage; AURELLE đọc từ DB.
-            .filter((order) => order.platform === 'lazada')
-            .map((o) => o.shopId)
-            .filter(Boolean),
-        ),
+        ...new Set(res.orders.map((o) => o.shopId).filter(Boolean)),
       ]
       connection.hydrateFromOrderShopIds(shopIds)
     })
@@ -121,13 +115,10 @@ export function MarketplaceOrdersScreen({
   }
 
   async function handleSync() {
-    const marketplaceShops = connection.shops.filter(
-      (shop) => shop.shopId !== 'storefront-main',
-    )
     const shopId =
       shopFilter !== 'all'
         ? shopFilter
-        : marketplaceShops.find((shop) => shop.shopId === connection.activeShopId)?.shopId ?? marketplaceShops[0]?.shopId
+        : connection.activeShopId ?? connection.shops[0]?.shopId
     if (!shopId) {
       showToast(
         vi

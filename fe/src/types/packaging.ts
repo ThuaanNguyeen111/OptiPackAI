@@ -1,210 +1,67 @@
-/**
- * Kiểu dữ liệu danh mục đóng gói — khớp response camelCase của BE
- * (/packaging/boxes, /packaging/bags, /packaging/materials, /product-master).
- * Kế hoạch đóng gói (04/10/2026) ở types/packing-plan.ts.
- */
+/** Khớp `PackagingRecommendationResponse` camelCase từ BE packaging.controller. */
 
-export type DimensionsMm = {
-  lengthMm: number
-  widthMm: number
-  heightMm: number
+export type PackagingBoxSize = {
+  lengthCm: number
+  widthCm: number
+  heightCm: number
 }
 
-export type MaterialLine = {
-  type: string
-  quantity: number
-  code: string | null
-  name: string | null
-  unit: string | null
-  weightG: number
-  costVnd: number
-}
-
-export type PackagingBox = {
+export type PackagingRecommendation = {
   id: string
-  code: string
-  name: string
-  inner: DimensionsMm
-  outer: DimensionsMm
-  tareG: number
-  maxLoadG: number
-  priceVnd: number | null
-  isSample: boolean
-  isActive: boolean
-  /** Tồn kho (22/09/2026): thực có, đang được phương án chưa đóng giữ chỗ, còn trống. */
-  quantityOnHand: number
-  reserved: number
-  available: number
-  reorderLevel: number
-  storageLocation: string | null
-  stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock'
-}
-
-/** 1 dòng sổ xuất/nhập thùng. */
-export type BoxStockMovement = {
-  delta: number
-  reason: 'stock_in' | 'pack'
-  balanceAfter: number
-  orderGroupId: string | null
-  note: string | null
-  createdAt: string | null
-}
-
-/** Loại vật tư chèn — khớp MATERIAL_TYPES ở backend. */
-export const MATERIAL_TYPES = ['foam_corner', 'corrugated_divider', 'air_pillow', 'bubble_wrap', 'fragile_tape'] as const
-export type MaterialType = (typeof MATERIAL_TYPES)[number]
-
-export const MATERIAL_TYPE_LABELS: Record<MaterialType, { vi: string; en: string }> = {
-  foam_corner: { vi: 'Góc xốp', en: 'Foam corner' },
-  corrugated_divider: { vi: 'Tấm ngăn carton', en: 'Corrugated divider' },
-  air_pillow: { vi: 'Gối hơi', en: 'Air pillow' },
-  bubble_wrap: { vi: 'Xốp hơi', en: 'Bubble wrap' },
-  fragile_tape: { vi: 'Tem dễ vỡ', en: 'Fragile label' },
-}
-
-/** Tên hiển thị của 1 dòng vật tư (bản ghi cũ trước 28/09 chỉ có `type`). */
-export function materialLabel(m: Pick<MaterialLine, 'type' | 'name'>, vi: boolean): string {
-  if (m.name) return m.name
-  const known = MATERIAL_TYPE_LABELS[m.type as MaterialType] as { vi: string; en: string } | undefined
-  return known ? known[vi ? 'vi' : 'en'] : m.type
-}
-
-/** Vật tư chèn trong danh mục (đơn vị lõi g/VND). Tồn không giữ chỗ mềm như thùng. */
-export type PackagingMaterial = {
-  id: string
-  code: string
-  name: string
-  type: MaterialType
-  unit: string
-  weightGPerUnit: number
-  priceVndPerUnit: number
-  quantityOnHand: number
-  reorderLevel: number
-  storageLocation: string | null
-  isSample: boolean
-  isActive: boolean
-  stockStatus: 'in_stock' | 'low_stock' | 'out_of_stock'
-}
-
-/** Bộ luật chọn vật tư hiện hành; version null = luật mặc định trong code. */
-export type MaterialRules = {
-  version: number | null
-  isDefault: boolean
-  rules: {
-    materialType: string
-    appliesTo: string
-    minUnits: number
-    basis: string
-    quantity: number
-    voidBands: { minVoidRatio: number; quantity: number }[]
-  }[]
-}
-
-/** Túi zip bọc từng món (kích thước trải phẳng, mm). */
-export type PackagingBag = {
-  id: string
-  code: string
-  name: string
-  widthMm: number
-  lengthMm: number
-  priceVnd: number | null
-  isSample: boolean
-  isActive: boolean
-}
-
-/** Loại sản phẩm — khớp enum ProductCategory ở backend. */
-export const PRODUCT_CATEGORIES = [
-  't_shirt',
-  'shirt',
-  'jacket',
-  'shorts',
-  'trousers',
-  'dress',
-  'shoes',
-  'sandals',
-  'accessory',
-  'other',
-] as const
-export type ProductCategory = (typeof PRODUCT_CATEGORIES)[number]
-
-export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, { vi: string; en: string }> = {
-  t_shirt: { vi: 'Áo thun', en: 'T-shirt' },
-  shirt: { vi: 'Áo sơ mi', en: 'Shirt' },
-  jacket: { vi: 'Áo khoác', en: 'Jacket' },
-  shorts: { vi: 'Quần đùi/short', en: 'Shorts' },
-  trousers: { vi: 'Quần dài/jean', en: 'Trousers/jeans' },
-  dress: { vi: 'Váy/đầm', en: 'Dress' },
-  shoes: { vi: 'Giày (hộp)', en: 'Shoes (boxed)' },
-  sandals: { vi: 'Dép/sandal', en: 'Sandals' },
-  accessory: { vi: 'Phụ kiện', en: 'Accessory' },
-  other: { vi: 'Khác', en: 'Other' },
-}
-
-export type ProfileDimension = {
-  lengthCm?: number
-  widthCm?: number
-  heightCm?: number
-  weightKg?: number
-}
-
-/** Hồ sơ đóng gói SKU — GET /product-master. */
-export type ProductProfile = {
-  id: string
-  platform: string
-  shopId: string
-  sellerSku: string
-  packagingProfileStatus: 'needs_measurement' | 'ready'
-  dimension: ProfileDimension | null
-  marketplaceDimension: ProfileDimension | null
-  isFragile: boolean | null
-  orientationRule: 'any' | 'upright_only' | null
-  maxStackLoadKg: number | null
-  productCategory: ProductCategory | null
-  zipBagCode: string | null
-  zipBagFolded: boolean
-  canFoldInHalf: boolean
-  profileConfirmedAt: string | null
-  lastSyncedAt: string
-}
-
-export type OrderGroupSummary = {
-  id: string
-  platform: string
-  shopId: string
-  orderCount: number
-  fulfillmentStatus: string
-  assignedStaffId: string | null
-  orderPriority: string
-  packagingDeadline: string | null
-  isOverdue: boolean
-  version: number
+  orderGroupId: string
+  boxSize: PackagingBoxSize
+  materialType: string
+  materialQuantity: number
+  estimatedShippingCostVnd: number
+  computationTimeMs: number
+  fallbackUsed: boolean
+  approvalStatus: string
+  approvedBy: string | null
+  approvedAt: string | null
+  actualMeasuredWeightKg: number | null
+  isAbnormal: boolean
+  rejectionReason?: string | null
   createdAt: string
   updatedAt: string
 }
 
-export const ADJUSTMENT_REASONS = [
-  'PRODUCT_MORE_FRAGILE_THAN_EXPECTED',
-  'RECOMMENDED_BOX_NOT_IN_STOCK',
-  'OTHER',
-] as const
-
-export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number]
-
-export const ADJUSTMENT_REASON_LABELS: Record<AdjustmentReason, { vi: string; en: string }> = {
-  PRODUCT_MORE_FRAGILE_THAN_EXPECTED: { vi: 'Hàng dễ vỡ hơn dự kiến', en: 'More fragile than expected' },
-  RECOMMENDED_BOX_NOT_IN_STOCK: { vi: 'Thùng đề xuất hết hàng', en: 'Recommended box out of stock' },
-  OTHER: { vi: 'Khác', en: 'Other' },
+export type ApprovePackagingInput = {
+  actual_measured_weight_kg: number
+  expected_group_version: number
 }
 
-export const FULFILLMENT_STATUS_LABELS: Record<string, { vi: string; en: string }> = {
-  awaiting_packaging: { vi: 'Chờ lấy hàng', en: 'Awaiting pick' },
-  picking: { vi: 'Đang lấy hàng', en: 'Picking' },
-  partial_needs_review: { vi: 'Thiếu hàng — chờ xử lý', en: 'Partial — review' },
-  picked: { vi: 'Đã lấy xong', en: 'Picked' },
-  pending_approval: { vi: 'Chờ duyệt đóng gói', en: 'Pending approval' },
-  approved_for_packing: { vi: 'Đã duyệt — chờ đóng', en: 'Approved for packing' },
-  packed: { vi: 'Đã đóng gói', en: 'Packed' },
-  shipped: { vi: 'Đã giao vận chuyển', en: 'Shipped' },
-  delivered: { vi: 'Đã giao', en: 'Delivered' },
-  returned: { vi: 'Hoàn hàng', en: 'Returned' },
+export type AdjustPackagingInput = {
+  box_size: {
+    length_cm: number
+    width_cm: number
+    height_cm: number
+  }
+  material_type: string
+  adjustment_reason:
+    | 'PRODUCT_MORE_FRAGILE_THAN_EXPECTED'
+    | 'RECOMMENDED_BOX_NOT_IN_STOCK'
+    | 'OTHER'
+  adjustment_note?: string
+  actual_measured_weight_kg: number
+  expected_group_version: number
+}
+
+export type RejectPackagingInput = {
+  expected_group_version: number
+  rejection_reason: string
+}
+
+export const ADJUSTMENT_REASON_LABELS: Record<
+  AdjustPackagingInput['adjustment_reason'],
+  { vi: string; en: string }
+> = {
+  PRODUCT_MORE_FRAGILE_THAN_EXPECTED: {
+    vi: 'Sản phẩm dễ vỡ hơn dự kiến',
+    en: 'Product more fragile than expected',
+  },
+  RECOMMENDED_BOX_NOT_IN_STOCK: {
+    vi: 'Thùng đề xuất không có trong kho',
+    en: 'Recommended box not in stock',
+  },
+  OTHER: { vi: 'Khác', en: 'Other' },
 }

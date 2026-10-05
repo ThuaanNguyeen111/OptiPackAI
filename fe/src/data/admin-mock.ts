@@ -1,5 +1,7 @@
 import type {
   AdminUser,
+  AiPackagingParams,
+  PackagingTemplate,
 } from '../types/admin'
 import { LoginType, Role } from '../types/admin'
 
@@ -109,3 +111,67 @@ export const adminUsersMock: AdminUser[] = [
   },
 ]
 
+export const defaultAiPackagingParams: AiPackagingParams = {
+  timeoutSeconds: 5,
+  min_fill_rate: 0.82,
+  autoFallback: true,
+}
+
+export const packagingTemplatesMock: PackagingTemplate[] = [
+  {
+    id: 'tpl-1',
+    name: 'Hàng nhỏ tiêu chuẩn',
+    description: 'Đơn lẻ Shopee · SKU nhỏ',
+    boxCode: 'CARTON-A1',
+    lengthCm: 20,
+    widthCm: 12,
+    heightCm: 8,
+    maxWeightKg: 3,
+    cushioning: 'Không',
+    createdBy: 'Alice Nguyễn',
+    createdAt: new Date(now - 60 * 24 * hour).toISOString(),
+    active: true,
+  },
+  {
+    id: 'tpl-2',
+    name: 'Đồ điện tử dễ vỡ',
+    description: 'Hàng dễ vỡ · bắt buộc phải có chống sốc',
+    boxCode: 'CARTON-B1',
+    lengthCm: 30,
+    widthCm: 20,
+    heightCm: 15,
+    maxWeightKg: 8,
+    cushioning: 'Bọc chống sốc 2cm',
+    createdBy: 'Alice Nguyễn',
+    createdAt: new Date(now - 40 * 24 * hour).toISOString(),
+    active: true,
+  },
+  {
+    id: 'tpl-3',
+    name: 'Hàng nặng',
+    description: 'Double-wall · hàng nặng',
+    boxCode: 'CARTON-HD',
+    lengthCm: 40,
+    widthCm: 30,
+    heightCm: 25,
+    maxWeightKg: 20,
+    cushioning: 'Mút xốp',
+    createdBy: 'Alice Nguyễn',
+    createdAt: new Date(now - 20 * 24 * hour).toISOString(),
+    active: true,
+  },
+  {
+    id: 'tpl-4',
+    name: 'Đơn đa kênh',
+    description: 'Gộp đơn đa kênh · 2–5 SKU',
+    boxCode: 'CARTON-C3',
+    lengthCm: 35,
+    widthCm: 25,
+    heightCm: 18,
+    maxWeightKg: 12,
+    cushioning: 'Giấy lót',
+    createdBy: 'Alice Nguyễn',
+    createdAt: new Date(now - 12 * 24 * hour).toISOString(),
+    active: false,
+  },
+]

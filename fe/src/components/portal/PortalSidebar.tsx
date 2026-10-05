@@ -2,6 +2,7 @@ import { NavLink, Link, useNavigate } from 'react-router-dom'
 import {
   BarChart3,
   Box,
+  Boxes,
   ClipboardList,
   ChevronDown,
   Database,
@@ -16,8 +17,6 @@ import {
   Truck,
   Users,
   X,
-  PackageCheck,
-  Ruler,
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { fetchMyProfile } from '../../api/users.api'
@@ -92,22 +91,14 @@ const navItems = [
   {
     to: '/app/packing',
     end: false,
-    labelVi: 'Kế hoạch đóng gói 3D',
-    labelEn: '3D packaging plans',
-    icon: PackageCheck,
-    section: 'logistics' as NavSection,
-  },
-  {
-    to: '/app/shipping/dispatch',
-    end: true,
-    labelVi: 'Điều phối giao hàng',
-    labelEn: 'Dispatch & labels',
-    icon: Truck,
+    labelVi: 'Đóng gói',
+    labelEn: 'Packing station',
+    icon: Boxes,
     section: 'logistics' as NavSection,
   },
   {
     to: '/app/shipping',
-    end: true,
+    end: false,
     labelVi: 'Vận chuyển',
     labelEn: 'Shipping & Fulfillment',
     icon: Truck,
@@ -115,18 +106,10 @@ const navItems = [
   },
   {
     to: '/app/inventory',
-    end: true,
+    end: false,
     labelVi: 'Tình trạng kho',
     labelEn: 'Warehouse Inventory',
     icon: Database,
-    section: 'logistics' as NavSection,
-  },
-  {
-    to: '/app/inventory/packaging-profiles',
-    end: false,
-    labelVi: 'Đo hồ sơ SKU',
-    labelEn: 'SKU measurements',
-    icon: Ruler,
     section: 'logistics' as NavSection,
   },
   {
