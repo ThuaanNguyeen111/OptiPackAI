@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
+**🆕 Cập nhật 05/10/2026 tối (v7.2):** đơn bị hủy **trước khi bắt đầu đóng** (nhóm đang lấy hàng, đã lấy xong, hoặc kế hoạch mới tính/duyệt) → hàng đã lấy của đơn đó **tự trả về đúng ô** + thông báo `return_to_shelf` cho kho (Nghiệp vụ 1b, 3, 6); tháo kiện thu hồi được **vật tư chèn** (`recovered_materials`, vật tư phải bật `reusable`); giữ chỗ tồn kho khớp hàng thật khi loại món hỏng. Xem D.3, D.4.
+
 **🆕 Cập nhật 05/10/2026 chiều (v7.1 — PHIÊN ĐÓNG GÓI):** đóng gói giờ theo **từng kiện**: quét từng món vào đúng kiện (sai kiện/thừa bị chặn), niêm phong + cân từng kiện (trừ thùng + vật tư lúc này), kiện lệch cân **bị giữ** chờ người KHÁC xem lại (không còn thành packed ngay), báo món hỏng/thiếu/sai lúc đóng, **tháo kiện** khi đơn bị hủy sau khi đã bắt đầu đóng (hàng về đúng ô, thùng tốt vào kho tái sử dụng, chặn giao tới khi tháo xong), cài đặt đóng gói có phiên bản (`/packing/settings`), tự giao người đóng (Packaging Staff), báo cáo hiệu suất (`/packing/reports/summary`). `POST .../packing-plan/pack` vẫn giữ làm **lối tắt**. Xem **Nghiệp vụ 1b** (mới), Nghiệp vụ 4, 6, D.3, D.4. **Lưu ý FE:** nhánh `thi_dev` đã khôi phục FE về bản `main`; màn đóng gói của `main` còn gọi `/packaging/*` + `fulfillment/pack` (đã gỡ) — bảng ánh xạ route cũ → mới ở `API_LIST.md` mục 8a.7.
 
 **🔄 Cập nhật 05/10/2026 (v7.0 — GỘP `main` + `thi_dev`):** giữ kế hoạch đóng gói `packing_plans` (mục Nghiệp vụ 1) thay luồng `/packaging/*` cũ; `POST .../fulfillment/pack` đã gỡ — đóng gói qua `POST /order-groups/:groupId/packing-plan/pack`, sau khi commit tự báo "đã đóng gói" lên Lazada (`lazadaPackSync`, cầu dao `LAZADA_WRITE_APIS_ENABLED`, gửi lại `POST /order-groups/:id/lazada-pack/retry`). Kho vật tư **chung** `packaging_materials` (thùng + vật tư chèn, tồn mới/tái sử dụng). Lấy hàng theo kho K1–K5 của main (SKU nội bộ, ô, giữ chỗ tồn) cộng lượt lấy + chặn quét vượt số đặt; `decide-partial(false)` vào lại `picking` lượt mới và **tự nhập lại tồn đúng ô**. Giao hàng dùng `shipments` (G1) + chọn hãng/cước + giao chung chuyến (`POST /shipments/batch`); hoàn hàng dùng `/returns` (G3) — đã bỏ `return-receive`. Chi tiết route: `GUIDE_DOC/API_LIST.md`.
@@ -223,9 +225,17 @@ Kiện phải đang `pending` (kiện `held` thì `review {action: "reopen"}` tr
 ### Đơn hủy sau khi đã bắt đầu đóng — tháo kiện
 - Đồng bộ đơn thấy 1 đơn chuyển hủy/sự cố khi kế hoạch đang `packing`/`packed`: đơn đó `orders[].status = "canceled"`, **mọi kiện của đơn** → `to_unpack` (kể cả kiện chưa niêm phong — hàng đã lấy khỏi kệ). Kiện đơn khác giữ nguyên, không tính lại. Thông báo `unpack_required`.
 - Tất cả đơn đều hủy → nhóm `canceled` (kể cả từ `packed`), kế hoạch giữ tới khi tháo xong.
-- `POST .../parcels/:no/unpack {box_condition: "reusable"|"damaged"}`: hàng về **đúng ô đã lấy** (sổ kho `cancel_unpack`), thùng `reusable` → kho tái sử dụng, `damaged` → ghi bỏ; kiện `voided`. `withoutLocation > 0` = có món lấy từ lần quét cũ không lưu ô — kho phải tự đặt lại và đối soát.
+- `POST .../parcels/:no/unpack {box_condition: "reusable"|"damaged", recovered_materials?: [{code, quantity}]}`: hàng về **đúng ô đã lấy** (sổ kho `cancel_unpack`), thùng `reusable` → kho tái sử dụng, `damaged` → ghi bỏ; kiện `voided`. 🆕 Vật tư chèn còn dùng được khai trong `recovered_materials` → cộng kho tái sử dụng (ví dụ kiện có 4 góc xốp, 3 cái còn nguyên → `[{"code": "FOAM-CORNER", "quantity": 3}]`; 1 cái còn lại coi như đã dùng). Vật tư phải bật `reusable` ở `/packaging/materials` (400 `PKG_MATERIAL_NOT_REUSABLE`); mã không có trong kiện hoặc vượt số → 400 `PACKING_RECOVER_MATERIAL_INVALID`. `withoutLocation > 0` = có món lấy từ lần quét cũ không lưu ô — kho phải tự đặt lại và đối soát.
 - Còn kiện `to_unpack` → **không giao được** (409 `SHP_PARCELS_TO_UNPACK`). Kiện đã tháo không xuất hiện trong báo giá, phiếu, nhãn, tổng kiện.
 - Nếu đơn cuối cùng còn kiện chưa đóng bị hủy khiến các kiện còn lại đều đã `sealed` nhưng kế hoạch chưa tự `packed` → gọi `POST .../packing-plan/finish`.
+
+### 🆕 Đơn hủy TRƯỚC khi bắt đầu đóng — hàng đã lấy tự trả kệ (05/10/2026 tối)
+Áp dụng khi nhóm đang `picking`, `picked`, `pending_approval` hoặc `approved_for_packing` (chưa ai bấm bắt đầu/quét).
+- Hệ thống tính **hàng dư** = đã lấy (lượt hiện tại) − số đặt của các đơn còn lại, theo từng SKU. Phần dư **tự cộng lại tồn** đúng ô đã lấy (ô lấy sau cùng trả trước), sổ kho loại `cancel_return`.
+- Warehouse Staff + người lấy hàng được giao nhận `return_to_shelf`: *"Đem hàng đã lấy trong giỏ trả về kệ: TEE-M ×2 → ô KA-D1-P01-T03-2; …"*. Thuận chốt cách này (tự cộng tồn + báo kho), không có bước xác nhận — giống `decide-partial` từ chối.
+- Hủy hết nhóm → mọi món đã lấy được trả. Lần quét cũ không lưu ô → thông báo ghi "không rõ ô, đối soát tay".
+- Kế hoạch đã tính/duyệt vẫn bị thay và tính lại như trước; khi tính lại chỉ còn hàng của đơn còn lại.
+- Đang `picking` mà chưa lấy vượt nhu cầu còn lại → không trả gì.
 
 ### Cài đặt đóng gói — `GET/PUT /packing/settings`
 | Cài đặt | Mặc định | Có hiệu lực |
@@ -247,7 +257,9 @@ Store Owner, Admin. Thời gian chờ đóng, thời gian đóng, tỷ lệ ki�
 2. **Route đổi hành vi:** `pack` (kiện lệch bị giữ, response thêm `completed`; `lazadaPackSync` = `null` khi chưa hoàn tất), `approve` (vượt số kiện tối đa cần lý do), `POST /order-groups/:id/assign` gán tay chỉ nhận Warehouse Staff (422 `ORD_GROUP_STAFF_WRONG_ROLE` — trước đây gán được cho bất kỳ ai), bắt đầu giao/`shipments/batch` (chặn khi còn kiện phải tháo).
 3. **Giữ chỗ thùng:** kiện đã niêm phong không còn tính giữ chỗ (thùng đã trừ thật — trước đây có thể tính 2 lần trong lúc đóng dở); kế hoạch `packing` vẫn giữ chỗ cho kiện chưa niêm phong.
 4. **Không ảnh hưởng:** tính kế hoạch, CP-SAT, chỉnh tay, hướng dẫn AI, lấy hàng, báo Lazada (vẫn chỉ gửi khi nhóm sang `packed`).
-5. **Giới hạn:** ảnh/bằng chứng kiện chưa có; quét theo SKU (chưa có mã từng món); báo cáo tính trực tiếp, chưa có bảng tổng hợp định kỳ; kế hoạch `ready`/`approved` khi đơn bị hủy vẫn theo cách cũ (thay kế hoạch) và hàng đã lấy của đơn hủy chưa tự trả kệ; vật tư chèn không thu hồi khi tháo kiện.
+5. **Giới hạn:** ảnh/bằng chứng kiện chưa có; quét theo SKU (chưa có mã từng món); báo cáo tính trực tiếp, chưa có bảng tổng hợp định kỳ. ~~Hàng đã lấy của đơn hủy trước khi đóng chưa tự trả kệ; vật tư chèn không thu hồi~~ — 🔄 đã sửa tối 05/10/2026 (xem trên). Trả kệ tự động nghĩa là tồn trên hệ thống có trước khi hàng thật về kệ vài phút (cho tới khi kho làm theo thông báo).
+
+**Tác động của bản sửa tối 05/10:** (1) Dữ liệu cũ: không migration; `unpack.recovered_materials` mặc định rỗng; vật tư cũ `reusable: false`. (2) Đổi hành vi: hủy đơn trước khi đóng giờ cộng tồn + bắn thông báo; `unpack` nhận thêm `recovered_materials`; response vật tư thêm 3 trường. (3) Xung đột: trả kệ chạy trong transaction, gọi lặp không cộng 2 lần; lỗi trả kệ không chặn việc hủy đơn (chỉ log). (4) Không ảnh hưởng: phiên đóng gói, tính kế hoạch, lấy hàng bình thường. (5) Phát hiện + sửa: bộ đếm "đã lấy" của giữ chỗ trước đây không giảm khi loại món hỏng → món thay không được giữ chỗ.
 
 ---
 
@@ -700,6 +712,7 @@ Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
 | 🆕 **05/10/2026** `packing_parcel_held` — kiện lệch cân chờ xem lại | Packaging Staff + Store Owner | warning |
 | 🆕 **05/10/2026** `packing_issue` — món hỏng/thiếu/sai lúc đóng | Store Owner (+ Warehouse Staff khi trả về lấy hàng) | warning |
 | 🆕 **05/10/2026** `unpack_required` — đơn hủy sau khi đóng, phải tháo kiện | Packaging Staff + người đóng được giao | warning |
+| 🆕 **05/10/2026** `return_to_shelf` — đơn hủy trước khi đóng, đem hàng đã lấy về kệ (kèm SKU, số lượng, mã ô) | Warehouse Staff + người lấy hàng được giao | warning |
 
 > 🔄 **Bug đã sửa (21/09/2026)** — thông báo gửi theo ROLE (broadcast, không đích danh) trước đây có thể "biến mất" ở phía nhận do lệch kiểu dữ liệu (`recipient_role` lưu dạng chuỗi thay vì số) — đã sửa cả schema lẫn logic so khớp, dữ liệu cũ đã chạy migration cập nhật lại. FE không cần đổi gì, chỉ cần biết chuông thông báo giờ đáng tin cậy hơn cho các loại broadcast-theo-role.
 
@@ -964,6 +977,7 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 | 🆕 `PACKING_ISSUE_HAS_SEALED_PARCELS` / `PACKING_REPLACEMENT_WAREHOUSE_REQUIRED` | 409/400 | 05/10 — sự cố lúc đóng |
 | 🆕 `PACKING_PACKER_INVALID` / `PACKING_NO_PACKER_AVAILABLE` / `PACKING_INVALID_DATE_RANGE` | 422/409/400 | 05/10 — giao người đóng; báo cáo |
 | 🆕 `SHP_PARCELS_TO_UNPACK` / `ORD_GROUP_STAFF_WRONG_ROLE` | 409/422 | 05/10 — còn kiện phải tháo khi giao; gán tay lấy hàng cho người không phải Warehouse Staff |
+| 🆕 `PACKING_RECOVER_MATERIAL_INVALID` / `PKG_MATERIAL_NOT_REUSABLE` | 400/400 | 05/10 tối — thu hồi vật tư chèn không có trong kiện/vượt số; vật tư chưa bật `reusable` |
 
 ## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
 
@@ -983,6 +997,8 @@ Các mục dưới đây kiểm tra route/flow legacy đang có trong code. Chec
 - [ ] 🆕 **Nghiệp vụ 1b**: `review reopen` rồi `seal` lại → sổ `/packaging/boxes/:id/movements` chỉ có 1 dòng xuất cho kiện đó
 - [ ] 🆕 **Nghiệp vụ 1b**: `report-issue replace` → món đó phải quét lại; `back_to_picking` khi đã niêm phong 1 kiện → 409 `PACKING_ISSUE_HAS_SEALED_PARCELS`
 - [ ] 🆕 **Nghiệp vụ 1b**: hủy 1 đơn (sync) khi kế hoạch `packing` → kiện của đơn `to_unpack`, các kiện khác giữ nguyên; tạo vận đơn → 409 `SHP_PARCELS_TO_UNPACK`; `unpack` → kiện `voided`, tồn ô tăng lại
+- [ ] 🆕 **Nghiệp vụ 1b** (05/10 tối): nhóm 2 đơn đã `picked`, hủy 1 đơn (sync) → tồn các ô đã lấy hàng của đơn đó tăng lại, sổ kho có dòng `cancel_return`, Warehouse Staff nhận `return_to_shelf` có mã ô; kế hoạch tính lại chỉ còn đơn kia
+- [ ] 🆕 **Nghiệp vụ 1b** (05/10 tối): `unpack` với `recovered_materials` 3/4 góc xốp → kho tái sử dụng của vật tư tăng 3; gửi 5 → 400 `PACKING_RECOVER_MATERIAL_INVALID`
 - [ ] 🆕 **Nghiệp vụ 1b**: `PUT /packing/settings {require_scan: true}` → `pack` trả 409 `PACKING_SCAN_REQUIRED`; `GET /packing/reports/summary` có số liệu sau khi đóng vài nhóm
 - [ ] 🔄 **Nghiệp vụ 2**: ngay khi group được tạo → `assignedStaffId` đã có giá trị và group ở `picking`
 - [ ] **Nghiệp vụ 3**: `pick-item` vượt tồn kho → 409, UI gợi ý report-missing
