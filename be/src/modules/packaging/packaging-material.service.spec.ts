@@ -14,6 +14,7 @@ import { PackagingMaterialsService } from '../packaging-materials/packaging-mate
 
 describe('PackagingMaterialService (28/09/2026, kho chung từ 04/10/2026)', () => {
   let service: PackagingMaterialService;
+  let materials: PackagingMaterialsService;
   let materialModel: {
     find: jest.Mock;
     findOne: jest.Mock;
@@ -72,6 +73,7 @@ describe('PackagingMaterialService (28/09/2026, kho chung từ 04/10/2026)', () 
       ],
     }).compile();
     service = module.get(PackagingMaterialService);
+    materials = module.get(PackagingMaterialsService);
   });
 
   describe('consumeForPack', () => {
@@ -222,6 +224,61 @@ describe('PackagingMaterialService (28/09/2026, kho chung từ 04/10/2026)', () 
     it('trùng mã (E11000) → PKG_MATERIAL_CODE_IN_USE', async () => {
       materialModel.create.mockRejectedValue(Object.assign(new Error('dup'), { code: 11000 }));
       await expect(service.create(dto)).rejects.toMatchObject({ errorCode: PACKAGING_ERROR_CODES.MATERIAL_CODE_IN_USE });
+    });
+  });
+  describe('luật dễ vỡ + thu hồi thùng khi tháo kiện (05/10/2026)', () => {
+    it('allowReused = false → bỏ qua hàng tái sử dụng, chỉ trừ hàng MỚI', async () => {
+      mockStock(stockDoc('BOX-M', 0, { kind: 'box', reusable: true, qty_new: 2, qty_reused: 5 }));
+
+      const result = await materials.consumeForParcels(
+        session,
+        [{ code: 'BOX-M', quantity: 1, planId: recA, parcelNo: 1, allowReused: false }],
+        groupId,
+        userId,
+        { strict: true },
+      );
+
+      expect(result.shortfalls).toEqual([]);
+      expect(rows()).toHaveLength(1);
+      expect(rows()[0]).toMatchObject({ condition: 'new', delta: -1 });
+      const [, update] = materialModel.updateOne.mock.calls[0] as [unknown, { $inc: Record<string, number> }];
+      expect(update.$inc).toEqual({ qty_new: -1 });
+    });
+
+    it('allowReused = false, chỉ còn thùng tái sử dụng → thiếu (strict ném lỗi)', async () => {
+      mockStock(stockDoc('BOX-M', 0, { kind: 'box', reusable: true, qty_new: 0, qty_reused: 3 }));
+      await expect(
+        materials.consumeForParcels(
+          session,
+          [{ code: 'BOX-M', quantity: 1, planId: recA, parcelNo: 1, allowReused: false }],
+          groupId,
+          userId,
+          { strict: true },
+        ),
+      ).rejects.toBeDefined();
+      expect(materialModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('không gửi allowReused → vẫn ưu tiên hàng tái sử dụng như trước', async () => {
+      mockStock(stockDoc('BOX-M', 0, { kind: 'box', reusable: true, qty_new: 2, qty_reused: 5 }));
+      await materials.consumeForParcels(session, [{ code: 'BOX-M', quantity: 1, planId: recB, parcelNo: 2 }], groupId, userId, {
+        strict: true,
+      });
+      expect(rows()[0]).toMatchObject({ condition: 'reused', delta: -1 });
+    });
+
+    it('tháo kiện: thùng còn tốt → +1 tái sử dụng; thùng hỏng → ghi bỏ, không cộng tồn', async () => {
+      mockStock(stockDoc('BOX-M', 0, { kind: 'box', reusable: true, qty_new: 2, qty_reused: 0 }));
+      const ref = { groupId, planId: recA, parcelNo: 1 };
+      expect(await materials.recoverFromUnpack('BOX-M', 'reusable', ref, userId, session)).toBe('reused');
+      const [, update] = materialModel.updateOne.mock.calls[0] as [unknown, { $inc: Record<string, number> }];
+      expect(update.$inc).toEqual({ qty_reused: 1 });
+      expect(rows()[0]).toMatchObject({ type: 'recover', condition: 'reused', delta: 1 });
+
+      materialModel.updateOne.mockClear();
+      expect(await materials.recoverFromUnpack('BOX-M', 'damaged', ref, userId, session)).toBe('discarded');
+      expect(materialModel.updateOne).not.toHaveBeenCalled();
+      expect(rows()[1]).toMatchObject({ type: 'discard', condition: 'discarded' });
     });
   });
 });

@@ -10,12 +10,8 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
-import { PackagingBoxService, type ConsumedBox } from '../packaging/packaging-box.service';
-import {
-  PackagingMaterialService,
-  type ConsumedMaterial,
-  type MaterialShortfall,
-} from '../packaging/packaging-material.service';
+import { PackagingBoxService } from '../packaging/packaging-box.service';
+import { PackagingMaterialService } from '../packaging/packaging-material.service';
 import { PackagingBagService } from '../packaging/packaging-bag.service';
 import { PackingGuideAiService } from '../packaging/packing-guide-ai.service';
 import {
@@ -45,19 +41,21 @@ import {
   type PlanParcel,
 } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
-import { renumberParcels, type Plain } from './utils/parcels.util';
+import { freshParcelSession, renumberParcels, type Plain } from './utils/parcels.util';
 import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
-import type {
-  ChangeBoxDto,
-  MoveItemDto,
-  PackPlanDto,
-  RecomputePlanDto,
-} from './dto/packing-plan.dto';
+import type { ChangeBoxDto, MoveItemDto, RecomputePlanDto } from './dto/packing-plan.dto';
+import { PackingSettingsService } from './packing-settings.service';
+import { PackerAssignmentService } from './packer-assignment.service';
 
-/** Mọi đường dựng units PHẢI dùng chung tùy chọn này (đệm hàng dễ vỡ 5 mm). */
-const UNIT_OPTIONS = { fragileCushionMm: DEFAULT_FRAGILE_CUSHION_MM } as const;
-/** Lệch cân thật so với ước tính quá ngưỡng này → kiện bất thường. */
-const ABNORMAL_WEIGHT_DEVIATION = 0.2;
+/**
+ * Đệm hàng dễ vỡ của 1 kế hoạch (05/10/2026: lấy từ packing_settings lúc tính,
+ * chụp vào `solver.options`). Mọi đường dựng lại món của kế hoạch (đổi thùng,
+ * chuyển món, hướng dẫn) PHẢI dùng đúng số đã chụp, không dùng cài đặt hiện tại.
+ * Kế hoạch trước 05/10 không có trường → 5 mm như trước.
+ */
+function unitOptionsOf(plan: { solver: { options: { fragile_cushion_mm?: number } } }): { fragileCushionMm: number } {
+  return { fragileCushionMm: plan.solver.options.fragile_cushion_mm ?? DEFAULT_FRAGILE_CUSHION_MM };
+}
 
 interface Allocation {
   order_id: string;
@@ -85,8 +83,10 @@ function toPlanParcel(
   orderId: Types.ObjectId,
   platformOrderId: string | null,
   parcelNo: number,
+  fragileKeys: ReadonlySet<string> = new Set(),
 ): PlanParcel {
   return {
+    ...freshParcelSession(p.placements.some((q) => fragileKeys.has(q.item_key))),
     parcel_no: parcelNo,
     order_id: orderId,
     platform_order_id: platformOrderId,
@@ -121,6 +121,10 @@ function toPlanParcel(
     is_abnormal: false,
     materials_shortfall: [],
   };
+}
+
+function fragileKeysOf(units: PackingUnit[]): Set<string> {
+  return new Set(units.filter((u) => u.is_fragile).map((u) => u.item_key));
 }
 
 function dimsOf(d: { length_mm: number; width_mm: number; height_mm: number }): {
@@ -183,6 +187,8 @@ export class PackingPlanService {
     private readonly guideAi: PackingGuideAiService,
     private readonly notificationsService: NotificationsService,
     private readonly configService: ConfigService,
+    private readonly settingsService: PackingSettingsService,
+    private readonly packerAssignment: PackerAssignmentService,
   ) {}
 
   // ------------------------------------------------------------------ đọc
@@ -199,7 +205,7 @@ export class PackingPlanService {
     return this.planModel.find({ order_group_id: { $in: ids }, is_active: true });
   }
 
-  private async requireActivePlan(groupId: string): Promise<PackingPlanDocument> {
+  async requireActivePlan(groupId: string): Promise<PackingPlanDocument> {
     const plan = await this.getActivePlan(groupId);
     if (!plan) {
       throw new AppException(
@@ -237,10 +243,12 @@ export class PackingPlanService {
     const last = await this.planModel
       .findOne({ order_group_id: group._id })
       .sort({ revision: -1 })
-      .select('revision')
+      .select('revision assigned_packer_id')
       .lean();
-    const prefer = options.prefer ?? 'fewest_parcels';
+    const settings = await this.settingsService.get();
+    const prefer = options.prefer ?? settings.defaultPrefer;
     const exclude = options.exclude_box_codes ?? [];
+    const unitOptions = { fragileCushionMm: settings.fragileCushionMm };
 
     let plan: PackingPlanDocument;
     try {
@@ -250,7 +258,11 @@ export class PackingPlanService {
         version: 1,
         is_active: true,
         status: 'computing',
-        solver: { engine_version: SOLVER_VERSION, computation_ms: 0, options: { exclude_box_codes: exclude, prefer } },
+        solver: {
+          engine_version: SOLVER_VERSION,
+          computation_ms: 0,
+          options: { exclude_box_codes: exclude, prefer, fragile_cushion_mm: unitOptions.fragileCushionMm },
+        },
       });
     } catch (error: unknown) {
       if (this.isDuplicateKey(error)) {
@@ -280,7 +292,8 @@ export class PackingPlanService {
       const packer = this.packerConfig();
 
       for (const allocation of allocations) {
-        const units = expandToUnits(allocation.items, UNIT_OPTIONS);
+        const units = expandToUnits(allocation.items, unitOptions);
+        const fragileKeys = new Set(units.filter((u) => u.is_fragile).map((u) => u.item_key));
         const stockForOrder = new Map(remaining);
         const result = solveOrder(units, boxes, {
           availability: stockForOrder,
@@ -291,7 +304,7 @@ export class PackingPlanService {
         for (const p of result.parcels) remaining.set(p.box.code, (remaining.get(p.box.code) ?? 0) - 1);
         const orderId = new Types.ObjectId(allocation.order_id);
         for (const p of result.parcels)
-          parcels.push(toPlanParcel(p, orderId, allocation.platform_order_id, parcels.length + 1));
+          parcels.push(toPlanParcel(p, orderId, allocation.platform_order_id, parcels.length + 1, fragileKeys));
 
         const wantsCpSat =
           result.proof === 'heuristic' &&
@@ -318,6 +331,13 @@ export class PackingPlanService {
         if (cpSat === 'unavailable') {
           explanation.push('Service CP-SAT chưa được bật nên chưa kiểm chứng thêm các tổ hợp thùng còn mở.');
         }
+        const overParcelLimit =
+          settings.maxParcelsPerOrder !== null && result.parcels.length > settings.maxParcelsPerOrder;
+        if (overParcelLimit) {
+          explanation.push(
+            `Đơn cần ${String(result.parcels.length)} kiện, vượt mức tối đa ${String(settings.maxParcelsPerOrder)} kiện/đơn trong cài đặt — duyệt phải ghi lý do.`,
+          );
+        }
         orders.push({
           order_id: orderId,
           platform_order_id: allocation.platform_order_id,
@@ -329,6 +349,7 @@ export class PackingPlanService {
           strategy: result.strategy,
           cp_sat: cpSat,
           stock_suggestion: suggestion,
+          over_parcel_limit: overParcelLimit,
         });
         if (cpSat === 'pending')
           pending.push({ orderId: allocation.order_id, units, result, availability: stockForOrder });
@@ -359,12 +380,14 @@ export class PackingPlanService {
         return updated;
       });
 
-      await this.notifyPendingPlan(groupId, saved);
+      // Giao người đóng: giữ người của lần tính trước (tính lại), không thì người ít việc nhất.
+      const assigned = await this.packerAssignment.assignOnReady(saved._id, last?.assigned_packer_id ?? null);
+      await this.notifyPendingPlan(groupId, assigned ?? saved);
       this.logger.log(
         `Kế hoạch đóng gói nhóm ${groupId} (lần ${String(saved.revision)}): ${String(saved.orders.length)} đơn, ${String(saved.parcels.length)} kiện, ${String(Date.now() - started)} ms.`,
       );
       return {
-        plan: saved,
+        plan: assigned ?? saved,
         tasks: pending.map((t) => ({ ...t, planId: saved._id, revision: saved.revision })),
       };
     } catch (error: unknown) {
@@ -413,11 +436,16 @@ export class PackingPlanService {
 
   // ------------------------------------------------------------------ duyệt / từ chối
 
-  async approve(groupId: string, expectedVersion: number, userId: string): Promise<PackingPlanDocument> {
+  async approve(
+    groupId: string,
+    expectedVersion: number,
+    userId: string,
+    overrideReason?: string,
+  ): Promise<PackingPlanDocument> {
     const plan = await this.requireActivePlan(groupId);
     this.assertStatus(plan, 'ready', 'duyệt');
     if (plan.version !== expectedVersion) throw this.versionConflict(groupId);
-    const unresolved = plan.orders.filter((o) => o.status !== 'ok');
+    const unresolved = plan.orders.filter((o) => o.status === 'partial' || o.status === 'no_fit');
     if (unresolved.length > 0) {
       throw new AppException(
         PACKING_ERROR_CODES.HAS_UNPLACED,
@@ -426,11 +454,26 @@ export class PackingPlanService {
         { groupId, orderIds: unresolved.map((o) => o.order_id.toString()) },
       );
     }
+    const overLimit = plan.orders.filter((o) => o.over_parcel_limit);
+    const reason = overrideReason?.trim() ?? '';
+    if (overLimit.length > 0 && reason.length < 3) {
+      throw new AppException(
+        PACKING_ERROR_CODES.PARCEL_LIMIT_EXCEEDED,
+        `Có ${String(overLimit.length)} đơn vượt số kiện tối đa trong cài đặt — ghi lý do (override_reason) để duyệt.`,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { groupId, orderIds: overLimit.map((o) => o.order_id.toString()) },
+      );
+    }
     return this.runInTransaction(async (session) => {
       const updated = await this.planModel.findOneAndUpdate(
         { _id: plan._id, version: expectedVersion, status: 'ready', is_active: true },
         {
-          $set: { status: 'approved', approved_by: new Types.ObjectId(userId), approved_at: new Date() },
+          $set: {
+            status: 'approved',
+            approved_by: new Types.ObjectId(userId),
+            approved_at: new Date(),
+            approve_override_reason: overLimit.length > 0 ? reason : null,
+          },
           $inc: { version: 1 },
         },
         { session, returnDocument: 'after' },
@@ -500,7 +543,7 @@ export class PackingPlanService {
     const box = await this.boxService.findActiveSpecByCode(dto.box_code);
     await this.assertBoxInStock(plan, box.code, parcelNo);
 
-    const units = await this.unitsOfParcel(groupId, parcel);
+    const units = await this.unitsOfParcel(groupId, parcel, plan);
     const result = solveOrder(units, [box], { materials: await this.materialService.planningData() });
     const [only] = result.parcels;
     if (result.status !== 'ok' || result.parcels.length !== 1 || !only) {
@@ -511,7 +554,7 @@ export class PackingPlanService {
         { boxCode: box.code, parcelNo },
       );
     }
-    const replaced = toPlanParcel(only, parcel.order_id, parcel.platform_order_id, parcel.parcel_no);
+    const replaced = toPlanParcel(only, parcel.order_id, parcel.platform_order_id, parcel.parcel_no, fragileKeysOf(units));
     const parcels = plan.parcels.map((p) => (p.parcel_no === parcelNo ? replaced : this.plain(p)));
     return this.saveManualEdit(plan, dto.expected_version, parcels, parcel.order_id, {
       kind: 'change_box',
@@ -560,7 +603,7 @@ export class PackingPlanService {
     if (target?.parcel_no === parcelNo) return plan;
 
     const materials = await this.materialService.planningData();
-    const sourceUnits = await this.unitsOfParcel(groupId, source);
+    const sourceUnits = await this.unitsOfParcel(groupId, source, plan);
     const moving = sourceUnits.find((u) => u.item_key === dto.item_key);
     if (!moving) throw this.versionConflict(groupId);
     const rest = sourceUnits.filter((u) => u.item_key !== dto.item_key);
@@ -584,16 +627,23 @@ export class PackingPlanService {
       if (p.parcel_no === source.parcel_no) {
         if (rest.length > 0)
           next.push(
-            toPlanParcel(repack(rest, [boxSpecOf(p)], `Kiện ${String(p.parcel_no)}`), p.order_id, p.platform_order_id, p.parcel_no),
+            toPlanParcel(
+              repack(rest, [boxSpecOf(p)], `Kiện ${String(p.parcel_no)}`),
+              p.order_id,
+              p.platform_order_id,
+              p.parcel_no,
+              fragileKeysOf(rest),
+            ),
           );
       } else if (p.parcel_no === target?.parcel_no) {
-        const targetUnits = await this.unitsOfParcel(groupId, p);
+        const targetUnits = await this.unitsOfParcel(groupId, p, plan);
         next.push(
           toPlanParcel(
             repack([...targetUnits, moving], [boxSpecOf(p)], `Kiện ${String(p.parcel_no)}`),
             p.order_id,
             p.platform_order_id,
             p.parcel_no,
+            fragileKeysOf([...targetUnits, moving]),
           ),
         );
       } else {
@@ -614,6 +664,7 @@ export class PackingPlanService {
           source.order_id,
           source.platform_order_id,
           Math.max(...plan.parcels.map((p) => p.parcel_no)) + 1,
+          fragileKeysOf([moving]),
         ),
       );
     }
@@ -690,7 +741,7 @@ export class PackingPlanService {
     }));
     let units: PackingUnit[] = [];
     try {
-      units = await this.unitsOfParcel(groupId, parcel);
+      units = await this.unitsOfParcel(groupId, parcel, plan);
     } catch (error: unknown) {
       this.logger.warn(
         `Không lấy được hồ sơ món cho hướng dẫn (nhóm ${groupId}): ${error instanceof Error ? error.message : String(error)}`,
@@ -739,106 +790,6 @@ export class PackingPlanService {
     );
     if (!updated) throw this.versionConflict(groupId);
     return updated;
-  }
-
-  // ------------------------------------------------------------------ đóng gói
-
-  /**
-   * "Đã đóng xong": cân THẬT từng kiện (đủ mọi kiện, mỗi kiện 1 lần), trừ
-   * tồn thùng (thiếu → rollback) + vật tư (thiếu → ghi lại, không chặn),
-   * kế hoạch `packed`, nhóm `packed` — cùng 1 transaction.
-   */
-  async pack(groupId: string, dto: PackPlanDto, userId: string): Promise<PackingPlanDocument> {
-    // Gộp main (02/10/2026): nhóm không còn đơn cần xử lý (hủy hết) thì không cho đóng gói.
-    await this.orderGroupsService.assertHasActiveOrders(groupId);
-    const plan = await this.requireActivePlan(groupId);
-    this.assertStatus(plan, 'approved', 'xác nhận đóng gói');
-    if (plan.version !== dto.expected_version) throw this.versionConflict(groupId);
-
-    const weights = new Map<number, number>();
-    for (const w of dto.parcels) {
-      if (!plan.parcels.some((p) => p.parcel_no === w.parcel_no) || weights.has(w.parcel_no)) {
-        throw new AppException(
-          PACKING_ERROR_CODES.PACK_WEIGHTS_MISMATCH,
-          `Kiện ${String(w.parcel_no)} không có trong kế hoạch hoặc bị gửi cân hai lần.`,
-          HttpStatus.BAD_REQUEST,
-          { parcelNo: w.parcel_no },
-        );
-      }
-      weights.set(w.parcel_no, w.weight_kg);
-    }
-    if (weights.size !== plan.parcels.length) {
-      throw new AppException(
-        PACKING_ERROR_CODES.PACK_WEIGHTS_MISMATCH,
-        `Cần cân cho đủ ${String(plan.parcels.length)} kiện, mới có ${String(weights.size)}.`,
-        HttpStatus.BAD_REQUEST,
-        { expected: plan.parcels.length, received: weights.size },
-      );
-    }
-
-    let consumed: ConsumedBox[] = [];
-    let consumedMaterials: ConsumedMaterial[] = [];
-    let shortfalls: MaterialShortfall[] = [];
-    const now = new Date();
-    const packed = await this.runInTransaction(async (session) => {
-      const group = await this.orderGroupsService.findOrderGroupById(groupId);
-      consumed = await this.boxService.consumeForPack(
-        session,
-        plan.parcels.map((p) => ({ boxCode: p.box.code, planId: plan._id, parcelNo: p.parcel_no })),
-        group._id,
-        userId,
-      );
-      const materialResult = await this.materialService.consumeForPack(
-        session,
-        plan.parcels.flatMap((p) =>
-          p.materials.flatMap((m) =>
-            m.code === null ? [] : [{ code: m.code, quantity: m.quantity, planId: plan._id, parcelNo: p.parcel_no }],
-          ),
-        ),
-        group._id,
-        userId,
-      );
-      consumedMaterials = materialResult.consumed;
-      shortfalls = materialResult.shortfalls;
-
-      const parcels = plan.parcels.map((p) => {
-        const actual = weights.get(p.parcel_no) ?? 0;
-        return {
-          ...this.plain(p),
-          actual_weight_kg: actual,
-          is_abnormal: this.isAbnormal(p.estimated_weight_g, actual),
-          materials_shortfall: shortfalls
-            .filter((s) => s.parcelNo === p.parcel_no)
-            .map((s) => ({ code: s.code, missing: s.missing })),
-        };
-      });
-      const updated = await this.planModel.findOneAndUpdate(
-        { _id: plan._id, version: dto.expected_version, status: 'approved', is_active: true },
-        {
-          $set: { status: 'packed', parcels, packed_by: new Types.ObjectId(userId), packed_at: now },
-          $inc: { version: 1 },
-        },
-        { session, returnDocument: 'after' },
-      );
-      if (!updated) throw this.versionConflict(groupId);
-      await this.orderGroupsService.transitionFulfillmentStatus(
-        groupId,
-        GroupFulfillmentStatus.PACKED,
-        group.__v,
-        session,
-      );
-      return updated;
-    });
-
-    for (const p of packed.parcels.filter((x) => x.is_abnormal)) await this.notifyAbnormal(groupId, p);
-    for (const box of consumed.filter((c) => c.before > c.reorderLevel && c.after <= c.reorderLevel))
-      await this.notifyLowStock('box', box.code, box.code, box.after, box.reorderLevel, 0);
-    for (const m of consumedMaterials.filter((c) => c.before > c.reorderLevel && c.after <= c.reorderLevel))
-      await this.notifyLowStock('material', m.code, m.name, m.after, m.reorderLevel, 0);
-    const missingByCode = new Map<string, number>();
-    for (const s of shortfalls) missingByCode.set(s.code, (missingByCode.get(s.code) ?? 0) + s.missing);
-    for (const [code, missing] of missingByCode) await this.notifyLowStock('material', code, code, 0, 0, missing);
-    return packed;
   }
 
   // ------------------------------------------------------------------ CP-SAT nền
@@ -934,7 +885,7 @@ export class PackingPlanService {
     return plan;
   }
 
-  private findParcel(plan: PackingPlanDocument, parcelNo: number): PlanParcel {
+  findParcel(plan: PackingPlanDocument, parcelNo: number): PlanParcel {
     const parcel = plan.parcels.find((p) => p.parcel_no === parcelNo);
     if (!parcel) {
       throw new AppException(
@@ -948,12 +899,14 @@ export class PackingPlanService {
   }
 
   /** Món (đúng dạng gốc, đã đệm dễ vỡ) của 1 kiện — dựng lại từ hàng đã lấy của đơn. */
-  private async unitsOfParcel(groupId: string, parcel: PlanParcel): Promise<PackingUnit[]> {
+  private async unitsOfParcel(groupId: string, parcel: PlanParcel, plan: PackingPlanDocument): Promise<PackingUnit[]> {
     const allocation = (await this.orderGroupsService.allocatePickedItemsToOrders(groupId)).find(
       (a) => a.order_id === parcel.order_id.toString(),
     );
     const keys = new Set(parcel.placements.map((p) => p.item_key));
-    const units = allocation ? expandToUnits(allocation.items, UNIT_OPTIONS).filter((u) => keys.has(u.item_key)) : [];
+    const units = allocation
+      ? expandToUnits(allocation.items, unitOptionsOf(plan)).filter((u) => keys.has(u.item_key))
+      : [];
     if (units.length !== keys.size) throw this.versionConflict(groupId);
     return units;
   }
@@ -985,7 +938,7 @@ export class PackingPlanService {
     }
   }
 
-  private wrongStatus(groupId: string, status: string, action: string): AppException {
+  wrongStatus(groupId: string, status: string, action: string): AppException {
     return new AppException(
       PACKING_ERROR_CODES.WRONG_PLAN_STATUS,
       `Không thể ${action} khi kế hoạch đang ở trạng thái "${status}".`,
@@ -994,19 +947,13 @@ export class PackingPlanService {
     );
   }
 
-  private versionConflict(groupId: string): AppException {
+  versionConflict(groupId: string): AppException {
     return new AppException(
       PACKING_ERROR_CODES.VERSION_CONFLICT,
       'Kế hoạch đóng gói vừa được thay đổi — tải lại dữ liệu mới nhất rồi thử lại.',
       HttpStatus.CONFLICT,
       { groupId },
     );
-  }
-
-  private isAbnormal(estimatedG: number, actualKg: number): boolean {
-    if (estimatedG <= 0) return false;
-    const estimatedKg = estimatedG / 1000;
-    return Math.abs(actualKg - estimatedKg) / estimatedKg > ABNORMAL_WEIGHT_DEVIATION;
   }
 
   /** Bản sao thuần (không phải subdocument Mongoose) để ghi lại an toàn. */
@@ -1079,53 +1026,5 @@ export class PackingPlanService {
       relatedEntityType: 'order_group',
       relatedEntityId: groupId,
     });
-  }
-
-  private async notifyAbnormal(groupId: string, parcel: PlanParcel): Promise<void> {
-    const label = `${parcel.platform_order_id ?? groupId} (kiện ${String(parcel.parcel_no)})`;
-    const { title, message } = this.notificationsService.buildAbnormalPackageMessage({
-      groupId: label,
-      estimatedWeightKg: parcel.estimated_weight_g / 1000,
-      actualWeightKg: parcel.actual_weight_kg ?? 0,
-    });
-    await this.safeNotify({
-      recipientRole: UserRole.STORE_OWNER,
-      type: NotificationType.ABNORMAL_PACKAGE,
-      severity: 'warning',
-      title,
-      message,
-      relatedEntityType: 'order_group',
-      relatedEntityId: groupId,
-    });
-  }
-
-  private async notifyLowStock(
-    kind: 'box' | 'material',
-    code: string,
-    name: string,
-    after: number,
-    reorderLevel: number,
-    missing: number,
-  ): Promise<void> {
-    const what = kind === 'box' ? 'thùng' : 'vật tư';
-    const title =
-      missing > 0 ? `Thiếu ${what} ${code} khi đóng gói` : after === 0 ? `Đã hết ${what} ${name}` : `${what === 'thùng' ? 'Thùng' : 'Vật tư'} ${name} sắp hết`;
-    const message =
-      missing > 0
-        ? `Kho không đủ ${what} ${code}: thiếu ${String(missing)} so với kế hoạch. Đơn vẫn được đóng — kiểm tra lại kiện và nhập thêm.`
-        : after === 0
-          ? `Kho vừa dùng hết ${what} ${name}. Vui lòng nhập thêm.`
-          : `Kho còn ${String(after)} ${what} ${name} (mức cảnh báo ${String(reorderLevel)}). Vui lòng nhập thêm.`;
-    for (const recipientRole of [UserRole.ADMIN, UserRole.STORE_OWNER]) {
-      await this.safeNotify({
-        recipientRole,
-        type: kind === 'box' ? NotificationType.LOW_BOX_STOCK : NotificationType.LOW_MATERIAL_STOCK,
-        severity: 'warning',
-        title,
-        message,
-        relatedEntityType: kind === 'box' ? 'packaging_box' : 'packaging_material',
-        relatedEntityId: code,
-      });
-    }
   }
 }

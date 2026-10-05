@@ -145,6 +145,16 @@ export class StaffAssignmentService {
         { staffId },
       );
     }
+    // SỬA (05/10/2026): trước đây gán tay được cho BẤT KỲ ai (kể cả Admin, Shipping
+    // Coordinator) — việc lấy hàng chỉ dành cho Warehouse Staff, giống auto-assign.
+    if (staff.role !== UserRole.WAREHOUSE_STAFF) {
+      throw new AppException(
+        STAFF_ASSIGNMENT_ERROR_CODES.STAFF_WRONG_ROLE,
+        `Nhân viên "${staffId}" không phải Warehouse Staff — chỉ gán lấy hàng cho Warehouse Staff.`,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { staffId, role: staff.role },
+      );
+    }
     return this.applyAssignment(groupId, staff._id, 'manual');
   }
 

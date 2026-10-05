@@ -4,6 +4,9 @@ import { item, jean, sampleBoxes, shoebox, tee } from '../packaging/engine/scena
 import type { PackableItem } from '../../common/interfaces/packaging.interface';
 import { PackingPlanService, type CpSatTask } from './packing-plan.service';
 import { PackingJobService } from './packing-job.service';
+import { PackingSessionService } from './packing-session.service';
+import { DEFAULT_PACKING_SETTINGS, type ActivePackingSettings } from './packing-settings.service';
+import { sunglasses } from '../packaging/engine/scenarios/order-scenarios';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import type { PackingPlanDocument } from './schemas/packing-plan.schema';
 
@@ -29,17 +32,27 @@ function fakePlanModel() {
     Object.entries(f).every(([k, v]) => {
       const actual = d[k];
       if (k === '_id') return String(actual) === String(v);
+      if (v && typeof v === 'object' && '$in' in v) return (v.$in as unknown[]).map(String).includes(String(actual));
       if (v && typeof v === 'object' && '$ne' in v) return actual !== v.$ne;
       if (actual instanceof Types.ObjectId) return String(actual) === String(v);
       return actual === v;
     });
-  const hydrate = (d: Doc): Doc =>
-    Object.assign(structuredClone(d), {
-      _id: d._id,
-      order_group_id: d.order_group_id,
+  const copyParcel = (p: Doc): Doc => ({
+    ...p,
+    scans: [...((p.scans as unknown[] | undefined) ?? [])],
+    weighings: [...((p.weighings as unknown[] | undefined) ?? [])],
+    reviews: [...((p.reviews as unknown[] | undefined) ?? [])],
+  });
+  const hydrate = (d: Doc): Doc => {
+    const plain = (): Doc => ({
+      ...d,
       orders: (d.orders as Doc[] | undefined)?.map((o) => ({ ...o })) ?? [],
-      parcels: (d.parcels as Doc[] | undefined)?.map((p) => ({ ...p })) ?? [],
+      parcels: (d.parcels as Doc[] | undefined)?.map(copyParcel) ?? [],
+      issues: [...((d.issues as unknown[] | undefined) ?? [])],
+      activity: [...((d.activity as unknown[] | undefined) ?? [])],
     });
+    return Object.assign(plain(), { toObject: plain });
+  };
   const applyUpdate = (d: Doc, update: Record<string, unknown>): void => {
     const set = (update.$set ?? (update.$inc || update.$push ? {} : update)) as Record<string, unknown>;
     for (const [k, v] of Object.entries(set)) {
@@ -60,7 +73,16 @@ function fakePlanModel() {
     create: jest.fn((data: Record<string, unknown>) => {
       if (data.is_active && docs.some((d) => d.is_active && String(d.order_group_id) === String(data.order_group_id)))
         return Promise.reject(Object.assign(new Error('dup'), { code: 11000 }));
-      const doc = { _id: new Types.ObjectId(), orders: [], parcels: [], adjustments: [], ...data } as Doc;
+      const doc = {
+        _id: new Types.ObjectId(),
+        orders: [],
+        parcels: [],
+        adjustments: [],
+        issues: [],
+        activity: [],
+        assigned_packer_id: null,
+        ...data,
+      } as Doc;
       docs.push(doc);
       return Promise.resolve(hydrate(doc));
     }),
@@ -107,6 +129,9 @@ describe('PackingPlanService', () => {
     allocatePickedItemsToOrders: jest.Mock;
     assertHasActiveOrders: jest.Mock;
     transitionFulfillmentStatus: jest.Mock;
+    adjustPickedUnits: jest.Mock;
+    takeReplacementUnit: jest.Mock;
+    reconcileReservation: jest.Mock;
   };
   let boxService: {
     listActiveSpecs: jest.Mock;
@@ -123,6 +148,9 @@ describe('PackingPlanService', () => {
   };
   let guideAi: { writeGuide: jest.Mock };
   let service: PackingPlanService;
+  let session: PackingSessionService;
+  let settings: ActivePackingSettings;
+  let materialsService: { recoverFromUnpack: jest.Mock };
   let stock: Map<string, number>;
 
   beforeEach(() => {
@@ -147,7 +175,12 @@ describe('PackingPlanService', () => {
         group = { ...group, fulfillment_status: target, __v: group.__v + 1 };
         return Promise.resolve(group);
       }),
+      adjustPickedUnits: jest.fn(() => Promise.resolve({ restocked: 1, withoutLocation: 0 })),
+      takeReplacementUnit: jest.fn(() => Promise.resolve({ binLocationId: 'b', remainingStock: 4 })),
+      reconcileReservation: jest.fn(() => Promise.resolve()),
     };
+    settings = { ...DEFAULT_PACKING_SETTINGS };
+    materialsService = { recoverFromUnpack: jest.fn(() => Promise.resolve('reused')) };
     boxService = {
       listActiveSpecs: jest.fn(() => Promise.resolve(sampleBoxes())),
       findActiveSpecByCode: jest.fn((code: string) =>
@@ -194,6 +227,20 @@ describe('PackingPlanService', () => {
       guideAi as never,
       notificationsService as never,
       { get: () => null } as never, // không có CP-SAT
+      { get: () => Promise.resolve(settings) } as never,
+      { assignOnReady: jest.fn(() => Promise.resolve(null)) } as never,
+    );
+    session = new PackingSessionService(
+      planModel as never,
+      { find: () => ({ select: () => ({ lean: () => Promise.resolve([]) }) }) } as never, // chưa nối SKU nội bộ
+      connection as never,
+      service,
+      orderGroupsService as never,
+      boxService as never,
+      materialService as never,
+      materialsService as never,
+      { get: () => Promise.resolve(settings) } as never,
+      notificationsService as never,
     );
   });
 
@@ -431,55 +478,269 @@ describe('PackingPlanService', () => {
     });
   });
 
-  describe('đóng gói', () => {
+  describe('cài đặt khi tính + duyệt', () => {
+    it('chụp đệm dễ vỡ vào kế hoạch; đánh dấu kiện có hàng dễ vỡ', async () => {
+      settings = { ...settings, fragileCushionMm: 8 };
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'F-1', items: [sunglasses(1)] }];
+      const plan = await computed();
+      expect(plan.solver.options.fragile_cushion_mm).toBe(8);
+      expect(plan.parcels.every((p) => p.has_fragile)).toBe(true);
+    });
+
+    it('vượt số kiện tối đa → duyệt phải có override_reason', async () => {
+      settings = { ...settings, maxParcelsPerOrder: 1 };
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'BIG', items: [shoebox(6)] }];
+      const plan = await computed();
+      expect(plan.parcels.length).toBeGreaterThan(1);
+      expect(plan.orders[0]?.over_parcel_limit).toBe(true);
+      await expect(service.approve(groupId, plan.version, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.PARCEL_LIMIT_EXCEEDED,
+      });
+      const approved = await service.approve(groupId, plan.version, userId, 'Khách đặt sỉ, chấp nhận nhiều kiện');
+      expect(approved.status).toBe('approved');
+      expect(approved.approve_override_reason).toBe('Khách đặt sỉ, chấp nhận nhiều kiện');
+    });
+  });
+
+  describe('phiên đóng gói (quét + niêm phong)', () => {
+    const other = new Types.ObjectId().toString();
+
     async function approvedPlan(): Promise<PackingPlanDocument> {
       const plan = await computed();
       return service.approve(groupId, plan.version, userId);
     }
 
-    it('cân đủ mọi kiện → packed, trừ 1 thùng/kiện, đánh dấu kiện lệch > 20%, nhóm packed', async () => {
+    /** Quét đủ mọi món của 1 kiện. */
+    async function scanAll(parcelNo: number): Promise<PackingPlanDocument> {
+      let plan = await service.requireActivePlan(groupId);
+      const parcel = plan.parcels.find((p) => p.parcel_no === parcelNo);
+      if (!parcel) throw new Error('thiếu kiện');
+      for (const q of parcel.placements) {
+        plan = (await session.scan(groupId, parcelNo, { code: q.sku.toLowerCase(), scan_method: 'barcode' }, userId)).plan;
+      }
+      return plan;
+    }
+
+    const weightOf = (plan: PackingPlanDocument, parcelNo: number, factor = 1): number =>
+      ((plan.parcels.find((p) => p.parcel_no === parcelNo)?.estimated_weight_g ?? 0) / 1000) * factor;
+
+    it('quét món đầu tiên tự bắt đầu phiên (approved → packing, ghi người + giờ)', async () => {
       const plan = await approvedPlan();
-      const weights = plan.parcels.map((p, i) => ({
-        parcel_no: p.parcel_no,
-        // kiện đầu cân lệch gấp đôi để thành bất thường
-        weight_kg: i === 0 ? (p.estimated_weight_g / 1000) * 2 : p.estimated_weight_g / 1000,
-      }));
-      const packed = await service.pack(groupId, { parcels: weights, expected_version: plan.version }, userId);
-      expect(packed.status).toBe('packed');
-      expect(packed.parcels[0]?.is_abnormal).toBe(true);
-      expect(packed.parcels.slice(1).every((p) => !p.is_abnormal)).toBe(true);
-      const consumed = boxService.consumeForPack.mock.calls[0] as unknown as [unknown, { parcelNo: number }[]];
-      expect(consumed[1].map((c) => c.parcelNo)).toEqual(plan.parcels.map((p) => p.parcel_no));
+      const sku = plan.parcels[0]?.placements[0]?.sku ?? '';
+      const { plan: after, scan } = await session.scan(groupId, 1, { code: sku, scan_method: 'barcode' }, userId);
+      expect(after.status).toBe('packing');
+      expect(String(after.packing_started_by)).toBe(userId);
+      expect(scan.itemKeys).toHaveLength(1);
+      expect(scan.duplicate).toBe(false);
+    });
+
+    it('quét sai kiện → chỉ ra kiện đúng; mã lạ → không thuộc kế hoạch; quét thừa → bị chặn', async () => {
+      const plan = await approvedPlan();
+      const shoeParcel = plan.parcels.find((p) => p.placements.some((q) => q.sku === 'SHOE'));
+      const otherParcel = plan.parcels.find((p) => !p.placements.some((q) => q.sku === 'SHOE'));
+      if (!shoeParcel || !otherParcel) throw new Error('thiếu kiện');
+      await expect(
+        session.scan(groupId, otherParcel.parcel_no, { code: 'SHOE', scan_method: 'barcode' }, userId),
+      ).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.SCAN_WRONG_PARCEL,
+        details: { belongsToParcels: expect.arrayContaining([shoeParcel.parcel_no]) as unknown },
+      });
+      await expect(
+        session.scan(groupId, 1, { code: 'KHONG-CO', scan_method: 'manual' }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SCAN_NOT_IN_PLAN });
+      const shoes = shoeParcel.placements.filter((q) => q.sku === 'SHOE').length;
+      await expect(
+        session.scan(groupId, shoeParcel.parcel_no, { code: 'SHOE', quantity: shoes + 1, scan_method: 'barcode' }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SCAN_OVER });
+    });
+
+    it('gửi lại cùng client_event_id không đếm 2 lần', async () => {
+      const plan = await approvedPlan();
+      const sku = plan.parcels[0]?.placements[0]?.sku ?? '';
+      const dto = { code: sku, scan_method: 'barcode' as const, client_event_id: 'ev-1' };
+      await session.scan(groupId, 1, dto, userId);
+      const again = await session.scan(groupId, 1, dto, userId);
+      expect(again.scan.duplicate).toBe(true);
+      expect(again.plan.parcels[0]?.scans).toHaveLength(1);
+    });
+
+    it('niêm phong khi chưa quét đủ → bị chặn', async () => {
+      const plan = await approvedPlan();
+      await expect(
+        session.seal(groupId, 1, { weight_kg: weightOf(plan, 1), expected_version: plan.version }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.PARCEL_NOT_FULLY_SCANNED });
+    });
+
+    it('quét đủ + niêm phong từng kiện → kiện cuối chuyển cả nhóm packed, chế độ "scan", trừ thùng từng kiện', async () => {
+      let plan = await approvedPlan();
+      const nos = plan.parcels.map((p) => p.parcel_no);
+      let completed = false;
+      for (const no of nos) {
+        plan = await scanAll(no);
+        const result = await session.seal(groupId, no, { weight_kg: weightOf(plan, no), expected_version: plan.version }, userId);
+        plan = result.plan;
+        completed = result.completed;
+      }
+      expect(completed).toBe(true);
+      expect(plan.status).toBe('packed');
+      expect(plan.pack_mode).toBe('scan');
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PACKED);
+      expect(boxService.consumeForPack).toHaveBeenCalledTimes(nos.length);
     });
 
-    it('thiếu cân 1 kiện hoặc gửi trùng → PACKING_PACK_WEIGHTS_MISMATCH', async () => {
+    it('lệch cân → kiện bị giữ; người niêm phong không tự chấp nhận được; người khác chấp nhận → hoàn tất', async () => {
+      let plan = await approvedPlan();
+      const nos = plan.parcels.map((p) => p.parcel_no);
+      for (const [i, no] of nos.entries()) {
+        plan = await scanAll(no);
+        plan = (
+          await session.seal(groupId, no, { weight_kg: weightOf(plan, no, i === 0 ? 2 : 1), expected_version: plan.version }, userId)
+        ).plan;
+      }
+      const first = nos[0] ?? 1;
+      expect(plan.status).toBe('packing');
+      expect(plan.parcels.find((p) => p.parcel_no === first)?.status).toBe('held');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      await expect(
+        session.review(groupId, first, { action: 'accept', reason: 'SCALE_ERROR', expected_version: plan.version }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SELF_REVIEW_FORBIDDEN });
+      const done = await session.review(
+        groupId,
+        first,
+        { action: 'accept', reason: 'MATERIALS_HEAVIER', expected_version: plan.version },
+        other,
+      );
+      expect(done.completed).toBe(true);
+      expect(done.plan.status).toBe('packed');
+    });
+
+    it('mở kiện ra đóng lại không trừ thùng lần 2', async () => {
+      let plan = await approvedPlan();
+      const [no] = plan.parcels.map((p) => p.parcel_no);
+      if (no === undefined) throw new Error('thiếu kiện');
+      plan = await scanAll(no);
+      plan = (await session.seal(groupId, no, { weight_kg: weightOf(plan, no, 3), expected_version: plan.version }, userId)).plan;
+      plan = (
+        await session.review(groupId, no, { action: 'reopen', reason: 'WRONG_ITEM_INSIDE', expected_version: plan.version }, other)
+      ).plan;
+      expect(plan.parcels.find((p) => p.parcel_no === no)?.status).toBe('pending');
+      plan = (await session.seal(groupId, no, { weight_kg: weightOf(plan, no), expected_version: plan.version }, userId)).plan;
+      expect(plan.parcels.find((p) => p.parcel_no === no)?.status).toBe('sealed');
+      const consumedParcels = boxService.consumeForPack.mock.calls.flatMap(
+        (c) => (c as unknown as [unknown, { parcelNo: number }[]])[1],
+      );
+      expect(consumedParcels.filter((c) => c.parcelNo === no)).toHaveLength(1);
+    });
+
+    it('lối tắt pack: ghi quét "bypass", kiện lệch vẫn bị giữ; cài đặt bắt buộc quét thì chặn', async () => {
       const plan = await approvedPlan();
-      const [first] = plan.parcels;
-      if (!first) throw new Error('thiếu kiện');
+      const weights = plan.parcels.map((p, i) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no, i === 0 ? 2 : 1) }));
+      settings = { ...settings, requireScan: true };
+      await expect(session.quickPack(groupId, { parcels: weights, expected_version: plan.version }, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.SCAN_REQUIRED,
+      });
+      settings = { ...settings, requireScan: false };
+      const result = await session.quickPack(groupId, { parcels: weights, expected_version: plan.version }, userId);
+      expect(result.completed).toBe(false);
+      expect(result.plan.status).toBe('packing');
+      expect(result.plan.parcels.every((p) => p.scans.length === p.placements.length)).toBe(true);
+      expect(result.plan.parcels[0]?.scans.every((x) => x.method === 'bypass')).toBe(true);
       await expect(
-        service.pack(groupId, { parcels: [{ parcel_no: first.parcel_no, weight_kg: 1 }], expected_version: plan.version }, userId),
-      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.PACK_WEIGHTS_MISMATCH });
-      await expect(
-        service.pack(
-          groupId,
-          {
-            parcels: [
-              { parcel_no: first.parcel_no, weight_kg: 1 },
-              { parcel_no: first.parcel_no, weight_kg: 1 },
-            ],
-            expected_version: plan.version,
-          },
-          userId,
-        ),
+        session.quickPack(groupId, { parcels: [{ parcel_no: 1, weight_kg: 1 }, { parcel_no: 1, weight_kg: 1 }], expected_version: result.plan.version }, userId),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.PACK_WEIGHTS_MISMATCH });
     });
 
-    it('chưa duyệt thì không đóng được', async () => {
+    it('kiện có hàng dễ vỡ chỉ lấy thùng mới (allowReused = false) theo cài đặt mặc định', async () => {
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'F-1', items: [sunglasses(1)] }];
+      const plan = await approvedPlan();
+      await session.quickPack(
+        groupId,
+        { parcels: plan.parcels.map((p) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no) })), expected_version: plan.version },
+        userId,
+      );
+      const packages = (boxService.consumeForPack.mock.calls[0] as unknown as [unknown, { allowReused?: boolean }[]])[1];
+      expect(packages.every((p) => p.allowReused === false)).toBe(true);
+    });
+
+    it('chưa duyệt thì không quét/đóng được', async () => {
       const plan = await computed();
       await expect(
-        service.pack(groupId, { parcels: [{ parcel_no: 1, weight_kg: 1 }], expected_version: plan.version }, userId),
+        session.quickPack(groupId, { parcels: [{ parcel_no: 1, weight_kg: 1 }], expected_version: plan.version }, userId),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+    });
+  });
+
+  describe('sự cố lúc đóng + tháo kiện', () => {
+    async function approvedPlan(): Promise<PackingPlanDocument> {
+      const plan = await computed();
+      return service.approve(groupId, plan.version, userId);
+    }
+
+    it('món hỏng → lấy món thay: bớt món cũ khỏi "đã lấy", lấy món mới từ kệ, phải quét lại món đó', async () => {
+      let plan = await approvedPlan();
+      const q = plan.parcels[0]?.placements[0];
+      if (!q) throw new Error('thiếu món');
+      plan = (await session.scan(groupId, 1, { code: q.sku, scan_method: 'barcode' }, userId)).plan;
+      const after = await session.reportIssue(
+        groupId,
+        { parcel_no: 1, item_key: plan.parcels[0]?.scans[0]?.item_key ?? q.item_key, issue: 'damaged', resolution: 'replace', warehouse_id: new Types.ObjectId().toString(), expected_version: plan.version },
+        userId,
+      );
+      expect(orderGroupsService.adjustPickedUnits).toHaveBeenCalledWith(groupId, [{ sku: q.sku, quantity: 1 }], expect.objectContaining({ restock: false, kind: 'pack_issue' }));
+      expect(orderGroupsService.takeReplacementUnit).toHaveBeenCalled();
+      expect(after.issues).toHaveLength(1);
+      expect(after.parcels[0]?.scans).toHaveLength(0);
+    });
+
+    it('trả về lấy hàng: thay kế hoạch + nhóm về picking; đã có kiện niêm phong thì bị chặn', async () => {
+      const plan = await approvedPlan();
+      const q = plan.parcels[0]?.placements[0];
+      if (!q) throw new Error('thiếu món');
+      const superseded = await session.reportIssue(
+        groupId,
+        { parcel_no: 1, item_key: q.item_key, issue: 'missing', resolution: 'back_to_picking', expected_version: plan.version },
+        userId,
+      );
+      expect(superseded.status).toBe('superseded');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PICKING);
+      expect(orderGroupsService.reconcileReservation).toHaveBeenCalledWith(groupId);
+    });
+
+    it('chặn trả về lấy hàng khi đã có kiện niêm phong', async () => {
+      let plan = await approvedPlan();
+      const [no, second] = plan.parcels.map((p) => p.parcel_no);
+      if (no === undefined || second === undefined) throw new Error('cần 2 kiện');
+      plan = await service.requireActivePlan(groupId);
+      const parcel = plan.parcels.find((p) => p.parcel_no === no);
+      for (const q of parcel?.placements ?? [])
+        plan = (await session.scan(groupId, no, { code: q.sku, scan_method: 'barcode' }, userId)).plan;
+      const w = (plan.parcels.find((p) => p.parcel_no === no)?.estimated_weight_g ?? 0) / 1000;
+      plan = (await session.seal(groupId, no, { weight_kg: w, expected_version: plan.version }, userId)).plan;
+      const q = plan.parcels.find((p) => p.parcel_no === second)?.placements[0];
+      if (!q) throw new Error('thiếu món');
+      await expect(
+        session.reportIssue(groupId, { parcel_no: second, item_key: q.item_key, issue: 'damaged', resolution: 'back_to_picking', expected_version: plan.version }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.ISSUE_HAS_SEALED_PARCELS });
+    });
+
+    it('tháo kiện của đơn hủy: trả hàng về kệ, thu hồi thùng, kiện thành voided', async () => {
+      const plan = await approvedPlan();
+      const doc = planModel.docs[0];
+      if (!doc) throw new Error('thiếu kế hoạch');
+      const parcels = doc.parcels as Record<string, unknown>[];
+      const target = parcels[0];
+      if (!target) throw new Error('thiếu kiện');
+      Object.assign(target, {
+        status: 'to_unpack',
+        box_consumed: true,
+        unpack: { reason: 'Đơn hủy', requested_at: new Date(), box_condition: null, units_restocked: 0, note: null, by: null, done_at: null },
+      });
+      doc.status = 'packing';
+      const result = await session.unpack(groupId, target.parcel_no as number, { box_condition: 'reusable', expected_version: plan.version }, userId);
+      expect(orderGroupsService.adjustPickedUnits).toHaveBeenCalledWith(groupId, expect.any(Array), expect.objectContaining({ restock: true, kind: 'unpack' }));
+      expect(materialsService.recoverFromUnpack).toHaveBeenCalled();
+      expect(result.plan.parcels.find((p) => p.parcel_no === target.parcel_no)?.status).toBe('voided');
+      expect(result.box).toBe('reused');
     });
   });
 

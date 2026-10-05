@@ -161,12 +161,12 @@ describe('ShippingService', () => {
     });
   });
 
-  it('chỉ lấy kế hoạch ĐANG HOẠT ĐỘNG đã duyệt hoặc đã đóng (truy vấn đúng bộ lọc)', async () => {
+  it('chỉ lấy kế hoạch ĐANG HOẠT ĐỘNG đã duyệt, đang đóng hoặc đã đóng (truy vấn đúng bộ lọc)', async () => {
     planModel.findOne.mockResolvedValue(plan([parcel(1, outerSmall, 400)]));
     await service.quoteForGroup(groupId);
     const [filter] = planModel.findOne.mock.calls[0] as [Record<string, unknown>];
     expect(filter).toMatchObject({ is_active: true });
-    expect(filter.status).toEqual({ $in: ['approved', 'packed'] });
+    expect(filter.status).toEqual({ $in: ['approved', 'packing', 'packed'] });
   });
 
   it('quoteChosenService: dịch vụ không tồn tại → SHIP_SERVICE_NOT_FOUND', async () => {

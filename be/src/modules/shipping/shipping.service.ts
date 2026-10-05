@@ -240,13 +240,25 @@ export class ShippingService {
 
   // ------------------------------------------------------------------ báo giá
 
+  /**
+   * (05/10/2026) Số kiện của nhóm đang chờ tháo (đơn hủy sau khi đóng). Còn kiện
+   * phải tháo thì không giao — kiện đó vẫn nằm lẫn với các kiện đi giao.
+   */
+  async countParcelsToUnpack(groupId: string): Promise<number> {
+    const plan = await this.planModel
+      .findOne({ order_group_id: new Types.ObjectId(groupId), is_active: true })
+      .select('parcels.status')
+      .lean();
+    return plan ? plan.parcels.filter((p) => p.status === 'to_unpack').length : 0;
+  }
+
   /** Các kiện của nhóm (kế hoạch đã duyệt hoặc đã đóng). Đọc qua parcelsOfPlan() — hợp đồng duy nhất. */
   async parcelsOfGroup(groupId: string): Promise<ParcelInput[]> {
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
     const plan = await this.planModel.findOne({
       order_group_id: group._id,
       is_active: true,
-      status: { $in: ['approved', 'packed'] },
+      status: { $in: ['approved', 'packing', 'packed'] },
     });
     if (!plan) return [];
     return parcelsOfPlan(plan).map((p) => ({

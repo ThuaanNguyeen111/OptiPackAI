@@ -55,6 +55,18 @@ export class PickEvent {
   /** BỔ SUNG (30/09/2026) — đã nhập lại tồn khi hủy lượt; chặn nhập lại 2 lần. */
   @Prop({ type: Date, default: null })
   restocked_at!: Date | null;
+  /**
+   * (05/10/2026) Loại sự kiện. `scan` = quét lấy hàng thật. Các loại còn lại do
+   * khâu đóng gói ghi để số "đã lấy" của lượt luôn khớp hàng THẬT đang giữ:
+   * - pack_issue (số ÂM): món hỏng/thiếu/sai bị loại lúc đóng.
+   * - pack_replace (số DƯƠNG): món thay lấy từ kệ lúc đóng.
+   * - unpack (số ÂM): món trả về kệ khi tháo kiện của đơn bị hủy.
+   * Event điều chỉnh mang kho + ô của dòng tồn bị ảnh hưởng nên restockPickRound
+   * cộng ròng đúng theo ô. Event cũ không có field → `scan`.
+   */
+  @Prop({ type: String, enum: ['scan', 'pack_issue', 'pack_replace', 'unpack'], default: 'scan' })
+  kind!: 'scan' | 'pack_issue' | 'pack_replace' | 'unpack';
+
   // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
   @Prop({ type: Types.ObjectId, default: null })
   bin_location_id?: Types.ObjectId | null;

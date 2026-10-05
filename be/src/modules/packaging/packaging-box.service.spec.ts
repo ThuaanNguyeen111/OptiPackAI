@@ -179,8 +179,10 @@ describe('PackagingBoxService', () => {
     ];
     const match = (pipeline[0] as { $match: { is_active: boolean; status: { $in: string[] } } }).$match;
     expect(match.is_active).toBe(true);
-    expect(match.status.$in).toEqual(['ready', 'approved']);
+    expect(match.status.$in).toEqual(['ready', 'approved', 'packing']);
     expect(pipeline.some((stage) => stage.$unwind === '$parcels')).toBe(true);
+    // (05/10/2026) kiện đã niêm phong (đã trừ tồn thật) và kiện đang/đã tháo không giữ chỗ nữa.
+    expect(JSON.stringify(pipeline)).toContain('parcels.box_consumed');
     expect(pipeline.some((stage) => JSON.stringify(stage).includes('$parcels.box.code'))).toBe(true);
   });
 

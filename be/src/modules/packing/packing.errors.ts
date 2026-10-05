@@ -13,4 +13,22 @@ export const PACKING_ERROR_CODES = {
   NOTE_REQUIRED: 'PACKING_NOTE_REQUIRED', // lý do "Khác" phải ghi chú
   PACK_WEIGHTS_MISMATCH: 'PACKING_PACK_WEIGHTS_MISMATCH', // danh sách cân không khớp đúng các kiện
   GUIDE_NOT_AVAILABLE: 'PACKING_GUIDE_NOT_AVAILABLE',
+  // ---- phiên đóng gói (05/10/2026)
+  PARCEL_WRONG_STATUS: 'PACKING_PARCEL_WRONG_STATUS', // thao tác không hợp với trạng thái KIỆN
+  SCAN_NOT_IN_PLAN: 'PACKING_SCAN_NOT_IN_PLAN', // mã quét không thuộc kế hoạch
+  SCAN_WRONG_PARCEL: 'PACKING_SCAN_WRONG_PARCEL', // món thuộc kiện khác
+  SCAN_OVER: 'PACKING_SCAN_OVER', // quét nhiều hơn số món của kiện
+  SCAN_NOT_FOUND: 'PACKING_SCAN_NOT_FOUND', // gỡ lần quét không tồn tại
+  PARCEL_NOT_FULLY_SCANNED: 'PACKING_PARCEL_NOT_FULLY_SCANNED', // niêm phong khi chưa quét đủ
+  SCAN_REQUIRED: 'PACKING_SCAN_REQUIRED', // cài đặt bắt buộc quét — lối tắt pack bị chặn
+  WEIGHT_REQUIRED: 'PACKING_WEIGHT_REQUIRED', // cân lại mà không gửi cân
+  SELF_REVIEW_FORBIDDEN: 'PACKING_SELF_REVIEW_FORBIDDEN', // tự chấp nhận kiện mình niêm phong
+  NOT_COMPLETE: 'PACKING_NOT_COMPLETE', // hoàn tất khi còn kiện chưa niêm phong/đang giữ
+  PARCEL_LIMIT_EXCEEDED: 'PACKING_PARCEL_LIMIT_EXCEEDED', // vượt số kiện tối đa, duyệt thiếu lý do
+  ISSUE_HAS_SEALED_PARCELS: 'PACKING_ISSUE_HAS_SEALED_PARCELS', // trả về lấy hàng khi đã có kiện niêm phong
+  REPLACEMENT_WAREHOUSE_REQUIRED: 'PACKING_REPLACEMENT_WAREHOUSE_REQUIRED',
+  PACKER_INVALID: 'PACKING_PACKER_INVALID', // người được giao không phải Packaging Staff đang hoạt động
+  NO_PACKER_AVAILABLE: 'PACKING_NO_PACKER_AVAILABLE',
+  SETTINGS_CONFLICT: 'PACKING_SETTINGS_CONFLICT',
+  INVALID_DATE_RANGE: 'PACKING_INVALID_DATE_RANGE',
 } as const;

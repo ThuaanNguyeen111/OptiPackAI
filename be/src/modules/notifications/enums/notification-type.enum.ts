@@ -38,4 +38,9 @@ export enum NotificationType {
   DELIVERY_OVERDUE = 'delivery_overdue',
   RETURN_REQUESTED = 'return_requested',
   STOCK_SHORTAGE = 'stock_shortage',
+  // ---- đóng gói (05/10/2026)
+  PACKING_ASSIGNED = 'packing_assigned', // được giao đóng 1 nhóm
+  PACKING_PARCEL_HELD = 'packing_parcel_held', // kiện lệch cân đang chờ người khác xem lại
+  PACKING_ISSUE = 'packing_issue', // báo món hỏng/thiếu/sai lúc đóng
+  UNPACK_REQUIRED = 'unpack_required', // đơn hủy sau khi đóng — phải tháo kiện trả hàng về kệ
 }

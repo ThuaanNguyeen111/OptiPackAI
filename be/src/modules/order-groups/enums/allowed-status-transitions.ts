@@ -68,8 +68,13 @@ const ALLOWED_TRANSITIONS: Record<
     // án cũ chứa hàng đơn đã hủy, phải vô hiệu hóa và tính lại từ `picked`.
     GroupFulfillmentStatus.PICKED,
     GroupFulfillmentStatus.CANCELED,
+    // BỔ SUNG (05/10/2026) — báo món hỏng/thiếu lúc đóng, chọn "trả về lấy hàng":
+    // kế hoạch bị thay, nhóm quay lại lượt lấy hiện tại để lấy món thay.
+    GroupFulfillmentStatus.PICKING,
   ],
-  [GroupFulfillmentStatus.PACKED]: [GroupFulfillmentStatus.SHIPPED],
+  // BỔ SUNG (05/10/2026) — mọi đơn bị hủy SAU khi đã đóng (chưa giao): nhóm hủy,
+  // các kiện chuyển "phải tháo" và nhân viên tháo kiện trả hàng về kệ.
+  [GroupFulfillmentStatus.PACKED]: [GroupFulfillmentStatus.SHIPPED, GroupFulfillmentStatus.CANCELED],
   [GroupFulfillmentStatus.SHIPPED]: [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED],
   [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNED], // hoàn hàng SAU khi đã giao vẫn hợp lệ (khách trả hàng)
   [GroupFulfillmentStatus.RETURNED]: [], // trạng thái cuối, không đi tiếp đâu nữa

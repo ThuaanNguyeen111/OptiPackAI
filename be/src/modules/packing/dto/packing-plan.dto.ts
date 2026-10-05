@@ -24,7 +24,7 @@ export const ADJUSTMENT_REASONS = [
 ] as const;
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
 
-class VersionedDto {
+export class VersionedDto {
   @ApiProperty({ example: 3, description: 'Giá trị `version` của kế hoạch lúc người dùng xem (khóa lạc quan).' })
   @IsInt({ message: 'expected_version phải là số nguyên' })
   @Min(1, { message: 'expected_version phải ≥ 1' })
@@ -53,7 +53,17 @@ export class RecomputePlanDto {
   prefer?: 'fewest_parcels' | 'cheapest';
 }
 
-export class ApprovePlanDto extends VersionedDto {}
+export class ApprovePlanDto extends VersionedDto {
+  @ApiProperty({
+    required: false,
+    description: 'Bắt buộc khi có đơn vượt số kiện tối đa (packing_settings.max_parcels_per_order).',
+  })
+  @IsOptional()
+  @IsString({ message: 'override_reason phải là chuỗi' })
+  @MinLength(3, { message: 'override_reason tối thiểu 3 ký tự' })
+  @MaxLength(500, { message: 'override_reason tối đa 500 ký tự' })
+  override_reason?: string;
+}
 
 export class ChangeBoxDto extends VersionedDto {
   @ApiProperty({ example: 'SAMPLE-L', description: 'Mã thùng trong danh mục (đang dùng).' })

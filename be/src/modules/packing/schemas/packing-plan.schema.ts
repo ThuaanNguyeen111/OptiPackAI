@@ -22,6 +22,8 @@ export const PACKING_PLAN_STATUSES = [
   'computing',
   'ready',
   'approved',
+  // MỚI (05/10/2026) — đang đóng: đã bấm "Bắt đầu" hoặc đã quét/niêm phong ít nhất 1 kiện.
+  'packing',
   'packed',
   'rejected',
   'failed',
@@ -30,7 +32,24 @@ export const PACKING_PLAN_STATUSES = [
 export type PackingPlanStatus = (typeof PACKING_PLAN_STATUSES)[number];
 
 /** Trạng thái còn GIỮ CHỖ thùng (soft reservation) — chưa đóng, chưa bỏ. */
-export const RESERVING_PLAN_STATUSES: PackingPlanStatus[] = ['ready', 'approved'];
+export const RESERVING_PLAN_STATUSES: PackingPlanStatus[] = ['ready', 'approved', 'packing'];
+
+/**
+ * Trạng thái TỪNG KIỆN (05/10/2026):
+ * - pending: chưa niêm phong (đang quét món).
+ * - sealed: đã niêm phong + cân trong ngưỡng (hoặc đã được chấp nhận dù lệch).
+ * - held: đã niêm phong nhưng cân lệch quá ngưỡng — chờ người KHÁC xem lại.
+ * - to_unpack: đơn của kiện bị hủy sau khi bắt đầu đóng — phải tháo, trả hàng về kệ.
+ * - voided: đã tháo xong — không còn là kiện để giao.
+ * Bản ghi trước 05/10 không có trường này: kế hoạch `packed` coi mọi kiện là sealed.
+ */
+export const PARCEL_STATUSES = ['pending', 'sealed', 'held', 'to_unpack', 'voided'] as const;
+export type ParcelStatus = (typeof PARCEL_STATUSES)[number];
+/** Kiện KHÔNG còn đi giao (đã/đang tháo). */
+export const INACTIVE_PARCEL_STATUSES: readonly ParcelStatus[] = ['to_unpack', 'voided'];
+
+export const SCAN_METHODS = ['barcode', 'manual', 'bypass'] as const;
+export type ScanMethod = (typeof SCAN_METHODS)[number];
 
 export const PROOF_LABELS = ['optimal_global', 'optimal_in_model', 'heuristic'] as const;
 export type PlanProofLabel = (typeof PROOF_LABELS)[number];
@@ -104,6 +123,53 @@ export class PlanGuide {
 }
 export const PlanGuideSchema = SchemaFactory.createForClass(PlanGuide);
 
+/** 1 lần quét món vào kiện. `bypass` = lối tắt POST pack (không quét thật). */
+@Schema({ _id: false })
+export class PlanScan {
+  @Prop({ required: true }) item_key!: string;
+  @Prop({ required: true }) sku!: string;
+  @Prop({ type: String, required: true, enum: SCAN_METHODS }) method!: ScanMethod;
+  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: Date, required: true }) at!: Date;
+  @Prop({ type: String, default: null }) client_event_id!: string | null;
+}
+export const PlanScanSchema = SchemaFactory.createForClass(PlanScan);
+
+@Schema({ _id: false })
+export class PlanWeighing {
+  @Prop({ type: Number, required: true }) weight_kg!: number;
+  @Prop({ type: String, required: true, enum: ['seal', 'reweigh'] }) kind!: 'seal' | 'reweigh';
+  @Prop({ type: Boolean, required: true }) is_abnormal!: boolean;
+  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const PlanWeighingSchema = SchemaFactory.createForClass(PlanWeighing);
+
+@Schema({ _id: false })
+export class PlanParcelReview {
+  @Prop({ type: String, required: true, enum: ['accept', 'reweigh', 'reopen'] })
+  action!: 'accept' | 'reweigh' | 'reopen';
+  @Prop({ required: true }) reason!: string;
+  @Prop({ type: String, default: null }) note!: string | null;
+  @Prop({ type: Types.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const PlanParcelReviewSchema = SchemaFactory.createForClass(PlanParcelReview);
+
+@Schema({ _id: false })
+export class PlanUnpack {
+  /** Lý do phải tháo (đơn hủy...) — ghi lúc chuyển to_unpack. */
+  @Prop({ required: true }) reason!: string;
+  @Prop({ type: Date, required: true }) requested_at!: Date;
+  @Prop({ type: String, default: null, enum: ['reusable', 'damaged', null] })
+  box_condition!: 'reusable' | 'damaged' | null;
+  @Prop({ type: Number, default: 0 }) units_restocked!: number;
+  @Prop({ type: String, default: null }) note!: string | null;
+  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: Date, default: null }) done_at!: Date | null;
+}
+export const PlanUnpackSchema = SchemaFactory.createForClass(PlanUnpack);
+
 @Schema({ _id: false })
 export class PlanParcel {
   /** Số kiện 1..N trong cả nhóm (đánh lại sau mỗi lần chỉnh tay). */
@@ -126,6 +192,18 @@ export class PlanParcel {
   @Prop({ type: Number, default: null }) actual_weight_kg!: number | null;
   @Prop({ type: Boolean, default: false }) is_abnormal!: boolean;
   @Prop({ type: [PlanShortfallSchema], default: [] }) materials_shortfall!: PlanShortfall[];
+  // ---- phiên đóng gói (05/10/2026) — mọi trường có mặc định, bản ghi cũ đọc được.
+  @Prop({ type: String, default: 'pending', enum: PARCEL_STATUSES }) status!: ParcelStatus;
+  /** Kiện có món dễ vỡ — luật "dễ vỡ chỉ dùng thùng mới" (packing_settings). */
+  @Prop({ type: Boolean, default: false }) has_fragile!: boolean;
+  @Prop({ type: [PlanScanSchema], default: [] }) scans!: PlanScan[];
+  /** Thùng + vật tư của kiện ĐÃ trừ tồn (lúc niêm phong lần đầu) — mở ra đóng lại không trừ lần 2. */
+  @Prop({ type: Boolean, default: false }) box_consumed!: boolean;
+  @Prop({ type: Types.ObjectId, default: null }) sealed_by!: Types.ObjectId | null;
+  @Prop({ type: Date, default: null }) sealed_at!: Date | null;
+  @Prop({ type: [PlanWeighingSchema], default: [] }) weighings!: PlanWeighing[];
+  @Prop({ type: [PlanParcelReviewSchema], default: [] }) reviews!: PlanParcelReview[];
+  @Prop({ type: PlanUnpackSchema, default: null }) unpack!: PlanUnpack | null;
 }
 export const PlanParcelSchema = SchemaFactory.createForClass(PlanParcel);
 
@@ -171,7 +249,9 @@ export class PlanOrder {
   @Prop({ type: Types.ObjectId, required: true }) order_id!: Types.ObjectId;
   @Prop({ type: String, default: null }) platform_order_id!: string | null;
   /** ok = mọi món có kiện; partial/no_fit = còn món chưa xếp (phải xử lý trước khi duyệt). */
-  @Prop({ type: String, required: true, enum: ['ok', 'partial', 'no_fit'] }) status!: 'ok' | 'partial' | 'no_fit';
+  /** canceled (05/10/2026) = đơn bị hủy sau khi đã bắt đầu đóng — kiện của đơn phải tháo. */
+  @Prop({ type: String, required: true, enum: ['ok', 'partial', 'no_fit', 'canceled'] })
+  status!: 'ok' | 'partial' | 'no_fit' | 'canceled';
   @Prop({ type: [PlanUnplacedSchema], default: [] }) unplaced!: PlanUnplaced[];
   @Prop({ type: String, required: true, enum: PROOF_LABELS }) proof!: PlanProofLabel;
   @Prop({ type: Number, default: 0 }) lower_bound_parcels!: number;
@@ -179,6 +259,8 @@ export class PlanOrder {
   @Prop({ required: true }) strategy!: string;
   @Prop({ type: String, required: true, enum: CP_SAT_STATES }) cp_sat!: CpSatState;
   @Prop({ type: PlanStockSuggestionSchema, default: null }) stock_suggestion!: PlanStockSuggestion | null;
+  /** Số kiện vượt `max_parcels_per_order` trong packing_settings — duyệt phải ghi lý do. */
+  @Prop({ type: Boolean, default: false }) over_parcel_limit!: boolean;
 }
 export const PlanOrderSchema = SchemaFactory.createForClass(PlanOrder);
 
@@ -202,11 +284,42 @@ export class PlanAdjustment {
 }
 export const PlanAdjustmentSchema = SchemaFactory.createForClass(PlanAdjustment);
 
+/** Sự cố báo lúc đóng (05/10/2026). */
+@Schema({ _id: false })
+export class PlanIssue {
+  @Prop({ type: Number, required: true }) parcel_no!: number;
+  @Prop({ required: true }) item_key!: string;
+  @Prop({ required: true }) sku!: string;
+  @Prop({ type: String, required: true, enum: ['damaged', 'missing', 'wrong_item'] })
+  issue!: 'damaged' | 'missing' | 'wrong_item';
+  @Prop({ type: String, required: true, enum: ['replaced', 'back_to_picking'] })
+  resolution!: 'replaced' | 'back_to_picking';
+  @Prop({ type: String, default: null }) note!: string | null;
+  @Prop({ type: Types.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const PlanIssueSchema = SchemaFactory.createForClass(PlanIssue);
+
+/** Nhật ký thao tác phiên đóng gói không thuộc kiện/sự cố riêng (05/10/2026). */
+@Schema({ _id: false })
+export class PlanActivity {
+  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish'] })
+  kind!: 'start' | 'unscan' | 'assign' | 'finish';
+  @Prop({ type: Number, default: null }) parcel_no!: number | null;
+  @Prop({ required: true }) detail!: string;
+  @Prop({ type: String, default: null }) reason!: string | null;
+  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const PlanActivitySchema = SchemaFactory.createForClass(PlanActivity);
+
 @Schema({ _id: false })
 export class PlanSolverOptions {
   @Prop({ type: [String], default: [] }) exclude_box_codes!: string[];
   @Prop({ type: String, required: true, enum: ['fewest_parcels', 'cheapest'] })
   prefer!: 'fewest_parcels' | 'cheapest';
+  /** Đệm hàng dễ vỡ (mm) dùng lúc tính — mọi lần dựng lại món của kế hoạch PHẢI dùng đúng số này. */
+  @Prop({ type: Number, default: 5 }) fragile_cushion_mm!: number;
 }
 export const PlanSolverOptionsSchema = SchemaFactory.createForClass(PlanSolverOptions);
 
@@ -256,6 +369,17 @@ export class PackingPlan {
   @Prop({ type: Types.ObjectId, default: null }) packed_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) packed_at!: Date | null;
 
+  // ---- phiên đóng gói, phân công, sự cố (05/10/2026)
+  @Prop({ type: String, default: null }) approve_override_reason!: string | null;
+  @Prop({ type: Types.ObjectId, default: null }) assigned_packer_id!: Types.ObjectId | null;
+  @Prop({ type: Date, default: null }) assigned_packer_at!: Date | null;
+  @Prop({ type: Types.ObjectId, default: null }) packing_started_by!: Types.ObjectId | null;
+  @Prop({ type: Date, default: null }) packing_started_at!: Date | null;
+  /** scan = mọi kiện quét kiểm; quick = có kiện đi lối tắt POST pack (không quét). */
+  @Prop({ type: String, default: null, enum: ['scan', 'quick', null] }) pack_mode!: 'scan' | 'quick' | null;
+  @Prop({ type: [PlanIssueSchema], default: [] }) issues!: PlanIssue[];
+  @Prop({ type: [PlanActivitySchema], default: [] }) activity!: PlanActivity[];
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -272,3 +396,7 @@ PackingPlanSchema.index(
 PackingPlanSchema.index({ is_active: 1, status: 1 });
 // Lịch sử các lần tính của 1 nhóm.
 PackingPlanSchema.index({ order_group_id: 1, revision: -1 });
+// Báo cáo hiệu suất đóng gói: GET /packing/reports/summary (lọc packed theo packed_at).
+PackingPlanSchema.index({ status: 1, packed_at: -1 });
+// Tự giao người đóng: đếm kế hoạch đang mở của từng Packaging Staff.
+PackingPlanSchema.index({ assigned_packer_id: 1, is_active: 1, status: 1 });

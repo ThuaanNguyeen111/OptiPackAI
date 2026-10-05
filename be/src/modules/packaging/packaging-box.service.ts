@@ -96,8 +96,8 @@ export class PackagingBoxService {
   ) {}
 
   /**
-   * Giữ chỗ mềm: mỗi KIỆN của kế hoạch đang hoạt động ở trạng thái `ready`
-   * hoặc `approved` giữ 1 thùng. `exclude.groupId` = nhóm đang tính lại;
+   * Giữ chỗ mềm: mỗi KIỆN chưa niêm phong của kế hoạch đang hoạt động ở trạng
+   * thái `ready`, `approved` hoặc `packing` giữ 1 thùng. `exclude.groupId` = nhóm đang tính lại;
    * `exclude.planId` = kế hoạch đang chỉnh tay.
    */
   async listAvailability(
@@ -114,6 +114,9 @@ export class PackagingBoxService {
       this.planModel.aggregate<{ _id: string; count: number }>([
         { $match: match },
         { $unwind: '$parcels' },
+        // (05/10/2026) Kiện đã niêm phong đã TRỪ tồn thật — không giữ chỗ thêm lần nữa;
+        // kiện đang/đã tháo không còn cần thùng.
+        { $match: { 'parcels.box_consumed': { $ne: true }, 'parcels.status': { $nin: ['to_unpack', 'voided'] } } },
         { $group: { _id: '$parcels.box.code', count: { $sum: 1 } } },
       ]),
     ]);
@@ -147,13 +150,19 @@ export class PackagingBoxService {
    */
   async consumeForPack(
     session: ClientSession,
-    packages: { boxCode: string; planId: Types.ObjectId; parcelNo: number }[],
+    packages: { boxCode: string; planId: Types.ObjectId; parcelNo: number; allowReused?: boolean }[],
     groupId: Types.ObjectId,
     userId: string,
   ): Promise<ConsumedBox[]> {
     const result = await this.materialsService.consumeForParcels(
       session,
-      packages.map((p) => ({ code: p.boxCode, quantity: 1, planId: p.planId, parcelNo: p.parcelNo })),
+      packages.map((p) => ({
+        code: p.boxCode,
+        quantity: 1,
+        planId: p.planId,
+        parcelNo: p.parcelNo,
+        allowReused: p.allowReused,
+      })),
       groupId,
       userId,
       {

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -8,6 +8,11 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
+import { PackingSessionService, type ScanOutcome, type SessionResult } from './packing-session.service';
+import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
+import { PackingReportService, type PackingReport } from './packing-report.service';
+import { PackerAssignmentService } from './packer-assignment.service';
+import { effectiveParcelStatus } from './utils/parcels.util';
 import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
 import { averageFill } from './utils/stock-suggestion.util';
 import {
@@ -24,6 +29,18 @@ import {
   RecomputePlanDto,
   RejectPlanDto,
 } from './dto/packing-plan.dto';
+import {
+  AssignPackerDto,
+  FinishPackingDto,
+  ReportIssueDto,
+  ReviewParcelDto,
+  ScanItemDto,
+  SealParcelDto,
+  StartPackingDto,
+  UnpackParcelDto,
+  UnscanItemDto,
+  UpdatePackingSettingsDto,
+} from './dto/packing-session.dto';
 
 interface DimsResponse {
   lengthMm: number;
@@ -52,6 +69,7 @@ export interface PackingPlanResponse {
     explanation: string[];
     strategy: string;
     cpSat: string;
+    overParcelLimit: boolean;
     stockSuggestion: {
       parcels: number;
       packagingCostVnd: number;
@@ -115,6 +133,26 @@ export interface PackingPlanResponse {
     actualWeightKg: number | null;
     isAbnormal: boolean;
     materialsShortfall: { code: string; missing: number }[];
+    /** pending | sealed | held | to_unpack | voided (05/10/2026). */
+    status: string;
+    hasFragile: boolean;
+    boxConsumed: boolean;
+    scannedCount: number;
+    itemCount: number;
+    scans: { itemKey: string; sku: string; method: string; by: string | null; at: Date }[];
+    sealedBy: string | null;
+    sealedAt: Date | null;
+    weighings: { weightKg: number; kind: string; isAbnormal: boolean; by: string | null; at: Date }[];
+    reviews: { action: string; reason: string; note: string | null; by: string; at: Date }[];
+    unpack: {
+      reason: string;
+      requestedAt: Date;
+      boxCondition: string | null;
+      unitsRestocked: number;
+      note: string | null;
+      by: string | null;
+      doneAt: Date | null;
+    } | null;
   }[];
   itemProfiles: {
     sku: string;
@@ -123,10 +161,31 @@ export interface PackingPlanResponse {
     zipBagFolded: boolean;
   }[];
   adjustments: { kind: string; detail: string; reason: string; note: string | null; at: Date }[];
+  issues: {
+    parcelNo: number;
+    itemKey: string;
+    sku: string;
+    issue: string;
+    resolution: string;
+    note: string | null;
+    by: string;
+    at: Date;
+  }[];
+  activity: { kind: string; parcelNo: number | null; detail: string; reason: string | null; by: string | null; at: Date }[];
+  session: {
+    assignedPackerId: string | null;
+    assignedPackerAt: Date | null;
+    startedBy: string | null;
+    startedAt: Date | null;
+    packMode: string | null;
+    approveOverrideReason: string | null;
+    /** Số kiện theo trạng thái — FE dựng tiến độ đóng. */
+    parcelCounts: Record<string, number>;
+  };
   solver: {
     engineVersion: string;
     computationMs: number;
-    options: { excludeBoxCodes: string[]; prefer: string };
+    options: { excludeBoxCodes: string[]; prefer: string; fragileCushionMm: number };
   };
   totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number; avgFill: number };
   approvedAt: Date | null;
@@ -173,6 +232,7 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       explanation: o.explanation,
       strategy: o.strategy,
       cpSat: o.cp_sat,
+      overParcelLimit: o.over_parcel_limit,
       // Bản ghi trước 04/10/2026 không có field này.
       stockSuggestion: o.stock_suggestion
         ? {
@@ -246,6 +306,33 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       actualWeightKg: p.actual_weight_kg,
       isAbnormal: p.is_abnormal,
       materialsShortfall: p.materials_shortfall.map((s) => ({ code: s.code, missing: s.missing })),
+      status: effectiveParcelStatus(plan.status, p),
+      hasFragile: p.has_fragile,
+      boxConsumed: p.box_consumed || plan.status === 'packed',
+      scannedCount: p.scans.length,
+      itemCount: p.placements.length,
+      scans: p.scans.map((x) => ({ itemKey: x.item_key, sku: x.sku, method: x.method, by: x.by?.toString() ?? null, at: x.at })),
+      sealedBy: p.sealed_by?.toString() ?? null,
+      sealedAt: p.sealed_at,
+      weighings: p.weighings.map((w) => ({
+        weightKg: w.weight_kg,
+        kind: w.kind,
+        isAbnormal: w.is_abnormal,
+        by: w.by?.toString() ?? null,
+        at: w.at,
+      })),
+      reviews: p.reviews.map((r) => ({ action: r.action, reason: r.reason, note: r.note, by: r.by.toString(), at: r.at })),
+      unpack: p.unpack
+        ? {
+            reason: p.unpack.reason,
+            requestedAt: p.unpack.requested_at,
+            boxCondition: p.unpack.box_condition,
+            unitsRestocked: p.unpack.units_restocked,
+            note: p.unpack.note,
+            by: p.unpack.by?.toString() ?? null,
+            doneAt: p.unpack.done_at,
+          }
+        : null,
     })),
     itemProfiles: plan.item_profiles.map((i) => ({
       sku: i.sku,
@@ -260,22 +347,56 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       note: a.note,
       at: a.at,
     })),
+    issues: plan.issues.map((i) => ({
+      parcelNo: i.parcel_no,
+      itemKey: i.item_key,
+      sku: i.sku,
+      issue: i.issue,
+      resolution: i.resolution,
+      note: i.note,
+      by: i.by.toString(),
+      at: i.at,
+    })),
+    activity: plan.activity.map((a) => ({
+      kind: a.kind,
+      parcelNo: a.parcel_no,
+      detail: a.detail,
+      reason: a.reason,
+      by: a.by?.toString() ?? null,
+      at: a.at,
+    })),
+    session: {
+      assignedPackerId: plan.assigned_packer_id?.toString() ?? null,
+      assignedPackerAt: plan.assigned_packer_at,
+      startedBy: plan.packing_started_by?.toString() ?? null,
+      startedAt: plan.packing_started_at,
+      packMode: plan.pack_mode,
+      approveOverrideReason: plan.approve_override_reason,
+      parcelCounts: plan.parcels.reduce<Record<string, number>>((acc, p) => {
+        const status = effectiveParcelStatus(plan.status, p);
+        acc[status] = (acc[status] ?? 0) + 1;
+        return acc;
+      }, {}),
+    },
     solver: {
       engineVersion: plan.solver.engine_version,
       computationMs: plan.solver.computation_ms,
       options: {
         excludeBoxCodes: plan.solver.options.exclude_box_codes,
         prefer: plan.solver.options.prefer,
+        fragileCushionMm: plan.solver.options.fragile_cushion_mm,
       },
     },
-    totals: {
-      parcels: plan.parcels.length,
-      packagingCostVnd: plan.parcels.reduce((s, p) => s + (p.box.price_vnd ?? 0) + p.materials_cost_vnd, 0),
-      estimatedWeightG: plan.parcels.reduce((s, p) => s + p.estimated_weight_g, 0),
-      avgFill: averageFill(
-        plan.parcels.map((p) => ({ box: { inner: p.box.inner_mm }, placements: p.placements })),
-      ),
-    },
+    // Tổng chỉ tính kiện CÒN GIAO (kiện đang/đã tháo vì đơn hủy không tính).
+    totals: (() => {
+      const live = plan.parcels.filter((p) => p.status !== 'to_unpack' && p.status !== 'voided');
+      return {
+        parcels: live.length,
+        packagingCostVnd: live.reduce((s, p) => s + (p.box.price_vnd ?? 0) + p.materials_cost_vnd, 0),
+        estimatedWeightG: live.reduce((s, p) => s + p.estimated_weight_g, 0),
+        avgFill: averageFill(live.map((p) => ({ box: { inner: p.box.inner_mm }, placements: p.placements }))),
+      };
+    })(),
     approvedAt: plan.approved_at,
     rejectedAt: plan.rejected_at,
     rejectionReason: plan.rejection_reason,
@@ -301,8 +422,19 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
 export class PackingPlanController {
   constructor(
     private readonly planService: PackingPlanService,
+    private readonly sessionService: PackingSessionService,
+    private readonly packerAssignment: PackerAssignmentService,
     private readonly lazadaPackSyncService: LazadaPackSyncService,
   ) {}
+
+  /** Nhóm vừa sang packed → báo "đã đóng gói" lên Lazada SAU commit (syncGroup không ném lỗi). */
+  private async withLazada(
+    groupId: string,
+    result: SessionResult,
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
+    const lazadaPackSync = result.completed ? await this.lazadaPackSyncService.syncGroup(groupId) : null;
+    return { plan: toPlanResponse(result.plan), completed: result.completed, lazadaPackSync };
+  }
 
   @Get()
   @Roles(
@@ -341,7 +473,11 @@ export class PackingPlanController {
     @Body() dto: ApprovePlanDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ plan: PackingPlanResponse }> {
-    return { plan: toPlanResponse(await this.planService.approve(groupId, dto.expected_version, user.userId)) };
+    return {
+      plan: toPlanResponse(
+        await this.planService.approve(groupId, dto.expected_version, user.userId, dto.override_reason),
+      ),
+    };
   }
 
   @Post('reject')
@@ -395,21 +531,153 @@ export class PackingPlanController {
     };
   }
 
+  // ------------------------------------------------------------ phiên đóng gói (05/10/2026)
+
+  @Post('assign')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Giao người đóng (Packaging Staff): auto = ít việc nhất; manual = chỉ định staff_id.' })
+  async assign(@Param('groupId') groupId: string, @Body() dto: AssignPackerDto): Promise<{ plan: PackingPlanResponse }> {
+    const plan = await this.planService.requireActivePlan(groupId);
+    return { plan: toPlanResponse(await this.packerAssignment.assign(plan, dto.mode, dto.staff_id)) };
+  }
+
+  @Post('start')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Bắt đầu đóng (approved → packing), ghi người + giờ bắt đầu. Quét món đầu tiên cũng tự bắt đầu.' })
+  async start(
+    @Param('groupId') groupId: string,
+    @Body() dto: StartPackingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.sessionService.start(groupId, dto.expected_version, user.userId)) };
+  }
+
+  @Post('parcels/:parcelNo/scan')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Quét món vào kiện (SKU sàn hoặc SKU nội bộ). Sai kiện / quá số món bị chặn. Không cần expected_version; gửi lại cùng client_event_id không đếm 2 lần.',
+  })
+  async scan(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: ScanItemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse; scan: ScanOutcome }> {
+    const result = await this.sessionService.scan(groupId, parcelNo, dto, user.userId);
+    return { plan: toPlanResponse(result.plan), scan: result.scan };
+  }
+
+  @Post('parcels/:parcelNo/unscan')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Gỡ 1 lần quét (quét nhầm) — bắt buộc lý do, ghi nhật ký.' })
+  async unscan(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: UnscanItemDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.sessionService.unscan(groupId, parcelNo, dto, user.userId)) };
+  }
+
+  @Post('parcels/:parcelNo/seal')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Niêm phong + cân 1 kiện (đã quét đủ): trừ thùng/vật tư của kiện. Lệch cân quá ngưỡng → kiện "held" chờ người khác xem lại. Kiện cuối cùng → nhóm packed + báo Lazada.',
+  })
+  async seal(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: SealParcelDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
+    return this.withLazada(groupId, await this.sessionService.seal(groupId, parcelNo, dto, user.userId));
+  }
+
+  @Post('parcels/:parcelNo/review')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Xem lại kiện lệch cân: accept (người KHÁC người niêm phong), reweigh (cân lại), reopen (mở ra đóng lại, không trừ thùng lần 2).',
+  })
+  async review(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: ReviewParcelDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
+    return this.withLazada(groupId, await this.sessionService.review(groupId, parcelNo, dto, user.userId));
+  }
+
+  @Post('report-issue')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Báo món hỏng/thiếu/sai lúc đóng: replace = lấy món thay từ kệ ngay; back_to_picking = trả nhóm về lấy hàng (chỉ khi chưa niêm phong kiện nào).',
+  })
+  async reportIssue(
+    @Param('groupId') groupId: string,
+    @Body() dto: ReportIssueDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.sessionService.reportIssue(groupId, dto, user.userId)) };
+  }
+
+  @Post('parcels/:parcelNo/unpack')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Tháo kiện của đơn bị hủy sau khi đóng: hàng về đúng ô đã lấy (sổ kho cancel_unpack), thùng còn tốt vào kho tái sử dụng.',
+  })
+  async unpack(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: UnpackParcelDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{
+    plan: PackingPlanResponse;
+    completed: boolean;
+    restocked: number;
+    withoutLocation: number;
+    box: string;
+    lazadaPackSync: LazadaPackSyncResult | null;
+  }> {
+    const result = await this.sessionService.unpack(groupId, parcelNo, dto, user.userId);
+    const lazadaPackSync = result.completed ? await this.lazadaPackSyncService.syncGroup(groupId) : null;
+    return {
+      plan: toPlanResponse(result.plan),
+      completed: result.completed,
+      restocked: result.restocked,
+      withoutLocation: result.withoutLocation,
+      box: result.box,
+      lazadaPackSync,
+    };
+  }
+
+  @Post('finish')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Hoàn tất khi mọi kiện còn giao đã niêm phong nhưng kế hoạch chưa tự sang packed.' })
+  async finish(
+    @Param('groupId') groupId: string,
+    @Body() dto: FinishPackingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
+    return this.withLazada(groupId, await this.sessionService.finish(groupId, dto.expected_version, user.userId));
+  }
+
   @Post('pack')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Đã đóng xong: cân thật từng kiện, trừ tồn thùng/vật tư, nhóm → packed. Sau khi commit, báo "đã đóng gói" lên Lazada (có cầu dao LAZADA_WRITE_APIS_ENABLED); lỗi Lazada không đổi trạng thái OptiPack, gửi lại qua POST /order-groups/:id/lazada-pack/retry.',
+      'Lối tắt: cân cho ĐỦ các kiện chưa niêm phong trong 1 lần (không quét từng món — ghi "bypass"). Kiện lệch cân bị giữ chờ xem lại; hết kiện giữ → nhóm packed + báo Lazada (cầu dao LAZADA_WRITE_APIS_ENABLED). Bị chặn khi cài đặt require_scan = true.',
   })
   async pack(
     @Param('groupId') groupId: string,
     @Body() dto: PackPlanDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ plan: PackingPlanResponse; lazadaPackSync: LazadaPackSyncResult }> {
-    const plan = await this.planService.pack(groupId, dto, user.userId);
-    // Gộp main (02/10/2026) — SAU khi đã commit `packed`. syncGroup không bao giờ ném lỗi.
-    const lazadaPackSync = await this.lazadaPackSyncService.syncGroup(groupId);
-    return { plan: toPlanResponse(plan), lazadaPackSync };
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
+    return this.withLazada(groupId, await this.sessionService.quickPack(groupId, dto, user.userId));
   }
 }
 
@@ -422,6 +690,9 @@ export interface PackingPlanSummary {
   parcels: number;
   packagingCostVnd: number;
   failureReason: string | null;
+  assignedPackerId: string | null;
+  /** Số kiện theo trạng thái (pending/sealed/held/to_unpack/voided). */
+  parcelCounts: Record<string, number>;
 }
 
 /** Tóm tắt kế hoạch của nhiều nhóm — bảng "Hàng chờ đóng gói" gọi 1 lần thay vì N lần. */
@@ -469,8 +740,53 @@ export class PackingPlansController {
           parcels: full.totals.parcels,
           packagingCostVnd: full.totals.packagingCostVnd,
           failureReason: full.failureReason,
+          assignedPackerId: full.session.assignedPackerId,
+          parcelCounts: full.session.parcelCounts,
         };
       }),
     };
+  }
+}
+
+/** Luật đóng gói Store Owner/Admin chỉnh được (05/10/2026). */
+@ApiTags('Packing settings & reports')
+@ApiBearerAuth('JWT-auth')
+@Controller('packing')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class PackingSettingsController {
+  constructor(
+    private readonly settingsService: PackingSettingsService,
+    private readonly reportService: PackingReportService,
+  ) {}
+
+  @Get('settings')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Cài đặt đóng gói đang dùng (version null = mặc định trong code).' })
+  async getSettings(): Promise<{ settings: ActivePackingSettings }> {
+    return { settings: await this.settingsService.get() };
+  }
+
+  @Put('settings')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Lưu cài đặt mới (tạo version mới, giữ lịch sử). Trường không gửi giữ nguyên.' })
+  async updateSettings(
+    @Body() dto: UpdatePackingSettingsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ settings: ActivePackingSettings }> {
+    return { settings: await this.settingsService.update(dto, user.userId) };
+  }
+
+  @Get('reports/summary')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Hiệu suất đóng gói trong khoảng ngày (?from&to ISO, mặc định 30 ngày; ?staff_id lọc 1 người): thời gian, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt số kiện tối thiểu, quét kiểm, chi phí, theo nhân viên.',
+  })
+  async report(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('staff_id') staffId?: string,
+  ): Promise<{ report: PackingReport }> {
+    return { report: await this.reportService.summary(from, to, staffId) };
   }
 }

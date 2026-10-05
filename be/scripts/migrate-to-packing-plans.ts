@@ -10,7 +10,7 @@ import {
   type PlanOrder,
   type PlanParcel,
 } from '../src/modules/packing/schemas/packing-plan.schema';
-import { renumberParcels } from '../src/modules/packing/utils/parcels.util';
+import { freshParcelSession, renumberParcels } from '../src/modules/packing/utils/parcels.util';
 
 /**
  * ===================================================================
@@ -185,6 +185,9 @@ async function main(): Promise<void> {
           actual_weight_kg: c.actual_measured_weight_kg,
           is_abnormal: c.is_abnormal,
           materials_shortfall: [],
+          // Phương án cũ đã đóng → kiện coi như đã niêm phong (thùng đã trừ tồn ở luồng cũ).
+          ...freshParcelSession(false),
+          ...(rec.packed_at ? { status: 'sealed' as const, box_consumed: true, sealed_at: rec.packed_at } : {}),
         });
       }
     }
@@ -213,6 +216,7 @@ async function main(): Promise<void> {
               strategy: 'legacy',
               cp_sat: 'skipped' as const,
               stock_suggestion: null,
+              over_parcel_limit: false,
             },
           ]
         : [],

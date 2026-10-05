@@ -109,6 +109,19 @@ export class ShipmentsService {
     private readonly shippingService: ShippingService, // gộp thi_dev — báo giá + ghi cước
   ) {}
 
+  /** (05/10/2026) Nhóm còn kiện của đơn đã hủy chưa tháo → chưa được giao. */
+  private async assertNothingToUnpack(orderGroupId: string): Promise<void> {
+    const count = await this.shippingService.countParcelsToUnpack(orderGroupId);
+    if (count > 0) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.PARCELS_TO_UNPACK,
+        `Nhóm đơn còn ${String(count)} kiện của đơn đã hủy chưa tháo — tháo kiện (POST .../packing-plan/parcels/:no/unpack) trước khi giao.`,
+        HttpStatus.CONFLICT,
+        { orderGroupId, parcelsToUnpack: count },
+      );
+    }
+  }
+
   // ------------------------------------------------------------------ đọc
 
   async getShipment(id: string): Promise<ShipmentDocument> {
@@ -174,6 +187,7 @@ export class ShipmentsService {
         { orderGroupId, status: group.fulfillment_status },
       );
     }
+    await this.assertNothingToUnpack(orderGroupId);
 
     // Gộp thi_dev: có chọn hãng → báo giá theo các kiện thật của kế hoạch đóng gói.
     const quote = carrier
@@ -539,6 +553,7 @@ export class ShipmentsService {
         );
       }
       await this.assertNoShipment(group);
+      await this.assertNothingToUnpack(id);
       groups.push(group);
     }
     if (groups.length > 1) {

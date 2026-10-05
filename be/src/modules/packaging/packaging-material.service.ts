@@ -51,6 +51,7 @@ export interface MaterialNeed {
   quantity: number;
   planId: Types.ObjectId;
   parcelNo: number;
+  allowReused?: boolean;
 }
 
 export interface ActiveMaterialRules {

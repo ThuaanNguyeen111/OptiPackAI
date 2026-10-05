@@ -1,5 +1,9 @@
 import type { Types } from 'mongoose';
-import type { PlanParcel } from '../schemas/packing-plan.schema';
+import {
+  INACTIVE_PARCEL_STATUSES,
+  type ParcelStatus,
+  type PlanParcel,
+} from '../schemas/packing-plan.schema';
 
 /** Kiểu "đối tượng thuần" của 1 class schema — để sao chép/ghi đè field mà không mang prototype class. */
 export type Plain<T> = { [K in keyof T]: T[K] };
@@ -23,9 +27,43 @@ export interface ParcelView {
   shippingCostVnd: number | null;
 }
 
+/** Trường phiên đóng gói của 1 kiện MỚI (chưa quét, chưa niêm phong). */
+export function freshParcelSession(hasFragile: boolean): Pick<
+  PlanParcel,
+  'status' | 'has_fragile' | 'scans' | 'box_consumed' | 'sealed_by' | 'sealed_at' | 'weighings' | 'reviews' | 'unpack'
+> {
+  return {
+    status: 'pending',
+    has_fragile: hasFragile,
+    scans: [],
+    box_consumed: false,
+    sealed_by: null,
+    sealed_at: null,
+    weighings: [],
+    reviews: [],
+    unpack: null,
+  };
+}
+
+/**
+ * Trạng thái THẬT của kiện. Kế hoạch đã `packed` trước 05/10/2026 không có
+ * trường `status` (Mongoose điền mặc định `pending`) → coi là đã niêm phong.
+ */
+export function effectiveParcelStatus(planStatus: string, parcel: Pick<PlanParcel, 'status' | 'sealed_at'>): ParcelStatus {
+  if (planStatus === 'packed' && parcel.status === 'pending' && parcel.sealed_at === null) return 'sealed';
+  return parcel.status;
+}
+
+/** Kiện còn đi giao (không phải đang/đã tháo). */
+export function isLiveParcel(parcel: Pick<PlanParcel, 'status'>): boolean {
+  return !INACTIVE_PARCEL_STATUSES.includes(parcel.status);
+}
+
 export function parcelsOfPlan(plan: { parcels: PlanParcel[] }): ParcelView[] {
   const seenPerOrder = new Map<string, number>();
+  // Kiện đang/đã tháo (đơn bị hủy sau khi đóng) không còn là kiện để giao/in nhãn.
   return [...plan.parcels]
+    .filter(isLiveParcel)
     .sort((a, b) => a.parcel_no - b.parcel_no)
     .map((p) => {
       const orderId = p.order_id.toString();

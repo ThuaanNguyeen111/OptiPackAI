@@ -85,7 +85,8 @@ describe('allowed-status-transitions', () => {
       // đóng gói khi CHƯA lấy hàng.
       [GroupFulfillmentStatus.AWAITING_PACKAGING, GroupFulfillmentStatus.PENDING_APPROVAL],
       [GroupFulfillmentStatus.PICKED, GroupFulfillmentStatus.PACKED],
-      [GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.PICKING],
+      // ĐÃ THAY ĐỔI 05/10/2026: approved_for_packing -> picking giờ HỢP LỆ (báo món
+      // hỏng/thiếu lúc đóng, chọn "trả về lấy hàng") — xem test riêng bên dưới.
       // Đi lùi sai chỗ (không phải đường Reject/Return hợp lệ)
       [GroupFulfillmentStatus.PACKED, GroupFulfillmentStatus.PICKED],
       [GroupFulfillmentStatus.SHIPPED, GroupFulfillmentStatus.PACKED],
@@ -122,8 +123,9 @@ describe('allowed-status-transitions', () => {
       });
     }
 
+    // ĐÃ THAY ĐỔI 05/10/2026: packed -> canceled giờ HỢP LỆ, nhưng chỉ đi qua luồng
+    // "đơn hủy sau khi đóng" (kiện chuyển phải tháo) — xem test riêng bên dưới.
     const postPackedCannotCancel: GroupFulfillmentStatus[] = [
-      GroupFulfillmentStatus.PACKED,
       GroupFulfillmentStatus.SHIPPED,
       GroupFulfillmentStatus.DELIVERED,
     ];
@@ -135,6 +137,16 @@ describe('allowed-status-transitions', () => {
         ).toBe(false);
       });
     }
+
+    it('packed -> CANCELED hợp lệ (05/10/2026: mọi đơn hủy sau khi đóng, kiện phải tháo trả kệ)', () => {
+      expect(isValidStatusTransition(GroupFulfillmentStatus.PACKED, GroupFulfillmentStatus.CANCELED)).toBe(true);
+    });
+
+    it('approved_for_packing -> PICKING hợp lệ (05/10/2026: sự cố lúc đóng, trả về lấy món thay)', () => {
+      expect(
+        isValidStatusTransition(GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.PICKING),
+      ).toBe(true);
+    });
 
     it('CANCELED là trạng thái cuối — không có đường đi tiếp nào', () => {
       expect(getAllowedNextStatuses(GroupFulfillmentStatus.CANCELED)).toEqual([]);

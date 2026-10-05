@@ -21,6 +21,11 @@ export interface ParcelMaterialNeed {
   quantity: number;
   planId: Types.ObjectId;
   parcelNo: number;
+  /**
+   * (05/10/2026) false = chỉ lấy hàng MỚI (kiện có hàng dễ vỡ mà cài đặt không
+   * cho dùng thùng tái sử dụng). Không gửi = được dùng hàng tái sử dụng.
+   */
+  allowReused?: boolean;
 }
 
 /** Tồn trước/sau của 1 mã sau khi trừ (để báo sắp hết). */
@@ -212,13 +217,15 @@ export class PackagingMaterialsService {
       if (need.quantity <= 0) continue;
       const m = await this.materialModel.findOne({ code: need.code }).session(session);
       const available = m ? usableStock(m) : 0;
-      if (options.strict && (!m || available < need.quantity)) {
-        if (options.onShortage) options.onShortage(need, available);
-        this.fail(E.INSUFFICIENT_STOCK, `Kho chỉ còn ${String(available)} "${need.code}", cần ${String(need.quantity)}.`, HttpStatus.CONFLICT);
+      // Kiện không được dùng hàng tái sử dụng: chỉ tính phần hàng MỚI là "còn".
+      const usable = m && need.allowReused === false ? Math.min(available, m.qty_new) : available;
+      if (options.strict && (!m || usable < need.quantity)) {
+        if (options.onShortage) options.onShortage(need, usable);
+        this.fail(E.INSUFFICIENT_STOCK, `Kho chỉ còn ${String(usable)} "${need.code}", cần ${String(need.quantity)}.`, HttpStatus.CONFLICT);
       }
-      let remaining = m ? Math.min(need.quantity, available) : 0;
+      let remaining = m ? Math.min(need.quantity, usable) : 0;
       let saving = 0;
-      if (m && remaining > 0 && m.reusable && m.qty_reused > 0) {
+      if (m && remaining > 0 && m.reusable && m.qty_reused > 0 && need.allowReused !== false) {
         const take = Math.min(remaining, m.qty_reused);
         const ok = await this.materialModel.updateOne({ _id: m._id, qty_reused: { $gte: take } }, { $inc: { qty_reused: -take } }, { session });
         if (ok.modifiedCount === 1) {
@@ -227,7 +234,7 @@ export class PackagingMaterialsService {
           remaining -= take;
         }
       }
-      let taken = m ? Math.min(need.quantity, available) - remaining : 0;
+      let taken = m ? Math.min(need.quantity, usable) - remaining : 0;
       if (m && remaining > 0) {
         const ok = await this.materialModel.updateOne({ _id: m._id, qty_new: { $gte: remaining } }, { $inc: { qty_new: -remaining } }, { session });
         if (ok.modifiedCount === 1) {
@@ -254,6 +261,32 @@ export class PackagingMaterialsService {
       }
     }
     return { consumed: [...balances.values()], shortfalls };
+  }
+
+  /**
+   * (05/10/2026) Thu hồi thùng khi THÁO kiện (đơn hủy sau khi đã đóng). Gọi TRONG
+   * transaction của tháo kiện. reusable → kho tái sử dụng (nếu loại thùng tái sử
+   * dụng được); damaged hoặc không tái sử dụng được → ghi bỏ.
+   */
+  async recoverFromUnpack(
+    code: string,
+    condition: 'reusable' | 'damaged',
+    ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
+    actorId: string,
+    session: ClientSession,
+  ): Promise<'reused' | 'discarded' | 'unknown'> {
+    const m = await this.materialModel.findOne({ code }).session(session);
+    if (!m) return 'unknown';
+    const reused = condition === 'reusable' && m.reusable;
+    if (reused) await this.materialModel.updateOne({ _id: m._id }, { $inc: { qty_reused: 1 } }, { session });
+    await this.movementModel.create([{
+      material_code: code, condition: reused ? 'reused' : 'discarded', type: reused ? 'recover' : 'discard',
+      delta: 1, saving_vnd: 0, ref_type: 'order_group', ref_id: ref.groupId.toString(),
+      note: reused ? 'Thu hồi thùng khi tháo kiện (đơn hủy sau khi đóng)' : 'Thùng hỏng khi tháo kiện — bỏ',
+      actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
+      balance_after: usableStock(m) + (reused ? 1 : 0), created_at: new Date(),
+    }], { session });
+    return reused ? 'reused' : 'discarded';
   }
 
   /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */

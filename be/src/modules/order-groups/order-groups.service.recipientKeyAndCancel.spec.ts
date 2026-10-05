@@ -19,8 +19,8 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
     find: jest.Mock;
     findOneAndUpdate: jest.Mock;
   };
-  let orderModel: { countDocuments: jest.Mock; updateOne: jest.Mock };
-  let packingPlanModel: { updateMany: jest.Mock };
+  let orderModel: { countDocuments: jest.Mock; updateOne: jest.Mock; find?: jest.Mock };
+  let packingPlanModel: { updateMany: jest.Mock; findOne: jest.Mock; updateOne: jest.Mock };
   let notificationsService: {
     notify: jest.Mock;
     buildGroupAutoCanceledMessage: jest.Mock;
@@ -58,6 +58,9 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
     };
     packingPlanModel = {
       updateMany: jest.fn().mockResolvedValue({}),
+      // Chưa có phiên đóng gói (kế hoạch packing/packed) → luồng hủy như trước 05/10/2026.
+      findOne: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(null) }),
+      updateOne: jest.fn().mockResolvedValue({ matchedCount: 1 }),
     };
     notificationsService = {
       notify: jest.fn().mockResolvedValue({}),
@@ -275,5 +278,91 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
 
   it('OrderStatus.CANCELED được coi là không còn fulfill được (sanity check dùng chung enum)', () => {
     expect(OrderStatus.CANCELED).toBe('canceled');
+  });
+  describe('handleOrderBecameUnfulfillable() — đơn hủy SAU khi đã bắt đầu đóng (05/10/2026)', () => {
+    const keepOrder = new Types.ObjectId();
+    const deadOrder = new Types.ObjectId();
+
+    function sessionPlan(status: 'packing' | 'packed'): Record<string, unknown> {
+      const parcel = (no: number, orderId: Types.ObjectId, st: string): Record<string, unknown> => ({
+        parcel_no: no,
+        order_id: orderId,
+        status: st,
+        box_consumed: st === 'sealed',
+        unpack: null,
+      });
+      return {
+        _id: new Types.ObjectId(),
+        order_group_id: new Types.ObjectId(),
+        version: 7,
+        status,
+        assigned_packer_id: null,
+        orders: [
+          { order_id: keepOrder, status: 'ok', cp_sat: 'done', explanation: [] },
+          { order_id: deadOrder, status: 'ok', cp_sat: 'pending', explanation: [] },
+        ],
+        parcels: [parcel(1, keepOrder, 'sealed'), parcel(2, deadOrder, 'sealed'), parcel(3, deadOrder, 'pending')],
+      };
+    }
+
+    function mockDeadOrders(): void {
+      orderModel.find = jest.fn().mockReturnValue({
+        select: () => ({ lean: () => Promise.resolve([{ _id: deadOrder }]) }),
+      });
+    }
+
+    it('kế hoạch đang đóng, còn đơn khác → chỉ kiện của đơn hủy thành "phải tháo", KHÔNG thay kế hoạch, nhóm giữ nguyên', async () => {
+      const groupId = new Types.ObjectId().toString();
+      packingPlanModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(sessionPlan('packing')) });
+      mockDeadOrders();
+      orderGroupModel.findById.mockResolvedValue({
+        _id: groupId,
+        fulfillment_status: GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+        __v: 5,
+      });
+      orderModel.countDocuments.mockResolvedValue(1);
+
+      await service.handleOrderBecameUnfulfillable(groupId);
+
+      const [filter, update] = packingPlanModel.updateOne.mock.calls[0] as [
+        { version: number },
+        { $set: { parcels: { parcel_no: number; status: string }[]; orders: { status: string; cp_sat: string }[] } },
+      ];
+      expect(filter.version).toBe(7);
+      expect(update.$set.parcels.map((p) => p.status)).toEqual(['sealed', 'to_unpack', 'to_unpack']);
+      expect(update.$set.orders.map((o) => o.status)).toEqual(['ok', 'canceled']);
+      expect(update.$set.orders[1]?.cp_sat).toBe('skipped');
+      expect(orderGroupModel.findOneAndUpdate).not.toHaveBeenCalled(); // không quay về picked
+      expect(packingPlanModel.updateMany).not.toHaveBeenCalled(); // không thay kế hoạch
+      expect(notificationsService.notify).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'unpack_required' }),
+      );
+    });
+
+    it('nhóm đã packed và mọi đơn đều hủy → nhóm CANCELED, giữ kế hoạch để tháo kiện', async () => {
+      const groupId = new Types.ObjectId().toString();
+      packingPlanModel.findOne.mockReturnValue({ lean: jest.fn().mockResolvedValue(sessionPlan('packed')) });
+      mockDeadOrders();
+      orderGroupModel.findById.mockResolvedValue({
+        _id: groupId,
+        fulfillment_status: GroupFulfillmentStatus.PACKED,
+        __v: 9,
+      });
+      orderModel.countDocuments.mockResolvedValue(0);
+      orderGroupModel.findOneAndUpdate.mockResolvedValue({
+        _id: groupId,
+        fulfillment_status: GroupFulfillmentStatus.CANCELED,
+        __v: 10,
+      });
+
+      await service.handleOrderBecameUnfulfillable(groupId);
+
+      const [, update] = orderGroupModel.findOneAndUpdate.mock.calls[0] as [
+        unknown,
+        { $set: { fulfillment_status: string } },
+      ];
+      expect(update.$set.fulfillment_status).toBe(GroupFulfillmentStatus.CANCELED);
+      expect(packingPlanModel.updateMany).not.toHaveBeenCalled();
+    });
   });
 });
