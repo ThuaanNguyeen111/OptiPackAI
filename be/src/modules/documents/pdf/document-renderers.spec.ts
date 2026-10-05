@@ -12,6 +12,10 @@ const recipient = {
   address: '12 Lê Lợi, Quận 1, TP.HCM',
 };
 
+// Dựng PDF + nhúng font + sinh mã vạch tốn vài giây khi jest chạy song song cả backend
+// (hook pre-commit) — 5 s mặc định làm test này lúc qua lúc trượt.
+jest.setTimeout(30_000);
+
 describe('document-renderers', () => {
   it('phiếu đóng gói: PDF hợp lệ, mỗi đơn một trang', async () => {
     const pdf = await renderPackingSlip({
