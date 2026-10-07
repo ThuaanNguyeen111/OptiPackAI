@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Quản lý Kho (Warehouse Management)
 
-**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.** **v1.4 (01/10/2026): mở quyền vận hành kho cho Warehouse Staff — xem danh sách khu, danh sách ô, tồn theo ô và nhập thêm hàng — xem PHẦN B5.**
+**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.** **v1.4 (01/10/2026): mở quyền vận hành kho cho Warehouse Staff — xem danh sách khu, danh sách ô, tồn theo ô và nhập thêm hàng — xem PHẦN B5.** **v1.5 (07/10/2026): sửa lỗi kiểu id khiến Picking List báo "CHƯA GÁN VỊ TRÍ", quét hàng báo thiếu tồn và nhập thêm hàng luôn 404 dù dữ liệu kho đúng; gộp bản sửa tìm tồn của nhánh `feature/viet_befe`; script chuyển dữ liệu id cũ — xem PHẦN B6.**
 
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
 
@@ -42,7 +42,7 @@ Trước K1, phần kho chỉ có **Tạo** và **Xem**: không sửa được t
 
 **4. Tắt theo dây chuyền từ trên xuống, bật lại có quy tắc riêng** (Phần B.2).
 
-**5. 🆕 Mã ô, SKU nội bộ và SKU sàn là 3 thứ khác nhau — hệ thống không tự nối theo tên.** Đặt SKU trên Lazada trùng mã ô (ví dụ `KA-D1-P03-T01-3`) **không** làm hàng tự nằm ở ô đó: SKU sàn phải được **gán vào ô** hoặc **nối vào SKU nội bộ** thì Picking List mới có vị trí. Quy trình cấu hình chuẩn 8 bước, cách đặt SKU trên Seller Center và xử lý "CHƯA GÁN VỊ TRÍ": **`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` Phần 0b**.
+**5. 🆕 Mã ô, SKU nội bộ và SKU sàn là 3 thứ khác nhau — hệ thống không tự nối theo tên.** Đặt SKU trên Lazada trùng mã ô (ví dụ `KA-D1-P03-T01-3`) **không** làm hàng tự nằm ở ô đó: SKU sàn phải được **gán vào ô** hoặc **nối vào SKU nội bộ** thì Picking List mới có vị trí. Quy trình cấu hình chuẩn 8 bước, cách đặt SKU trên Seller Center và xử lý "CHƯA GÁN VỊ TRÍ": **`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` Phần 0b**. 🔄 Trước 07/10/2026 Picking List còn báo "CHƯA GÁN VỊ TRÍ" vì một lỗi BE dù đã gán đúng — đã sửa, xem PHẦN B6.
 
 ---
 
@@ -632,7 +632,7 @@ Hệ thống cộng dồn tồn và ghi sổ cái loại `receive` trong cùng m
 | ------------------------ | --------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | `WH_BIN_OVER_CAPACITY`   | 409       | Tổng hàng trong ô sau khi nhập vượt `capacity`; `details: { capacity, current, incoming }` | Hộp thoại "Ô chứa tối đa 30, đang có 25, thêm 10 sẽ vượt — vẫn nhập?". Đồng ý thì gửi lại cùng body kèm `"force": true` |
 | `WH_WAREHOUSE_INACTIVE`  | 409       | Kho đã bị vô hiệu hóa                                                                      | Thông báo và quay về bước 1                                                                                             |
-| `WH_WAREHOUSE_NOT_FOUND` | 400 / 404 | `assignmentId` sai định dạng, hoặc dòng không thuộc kho này (mã lỗi dùng chung, xem B5.5)  | Tải lại danh sách                                                                                                       |
+| `WH_WAREHOUSE_NOT_FOUND` | 400 / 404 | `assignmentId` sai định dạng, hoặc dòng không thuộc kho này (mã lỗi dùng chung, xem B5.5). 🔄 Trước 07/10/2026 route này **luôn** trả 404 do lỗi BE — xem PHẦN B6  | Tải lại danh sách                                                                                                       |
 | (validate)               | 400       | `quantity` không phải số nguyên ≥ 1                                                        | Chặn ngay ở ô nhập                                                                                                      |
 | —                        | 403       | Tài khoản không phải Admin hoặc Warehouse Staff                                            | Ẩn nút theo vai trò                                                                                                     |
 
@@ -665,6 +665,92 @@ Hệ thống cộng dồn tồn và ghi sổ cái loại `receive` trong cùng m
 | `include_inactive=true` ở danh sách khu/ô có tác dụng với Warehouse Staff       | Nhân viên có thể thấy khu/ô đã tắt nếu tự truyền tham số (chỉ xem, không thao tác được vì ô tắt bị chặn)                                 | Bỏ qua tham số này với vai trò không phải Admin, như danh sách kho                                            |
 | "Không tìm thấy dòng tồn" dùng chung mã `WH_WAREHOUSE_NOT_FOUND`                | FE không phân biệt được "sai kho" với "sai dòng tồn"                                                                                     | Thêm mã riêng `WH_ASSIGNMENT_NOT_FOUND`                                                                       |
 | Nhập hàng chỉ có số lượng                                                       | Không có phiếu nhập, nhà cung cấp, chứng từ                                                                                              | Bổ sung phiếu nhập khi mở rộng nghiệp vụ nhập kho                                                             |
+
+---
+
+# PHẦN B6 — SỬA LỖI KIỂU ID: PICKING LIST, QUÉT HÀNG, NHẬP THÊM HÀNG 🔄 (07/10/2026)
+
+## B6.1. Hiện tượng trước khi sửa
+
+| Màn hình / thao tác | Hiện tượng | Dù dữ liệu đã đúng |
+|---|---|---|
+| Picking List — `GET /warehouse/:warehouseId/picking-list/:groupId` | Dòng hàng hiện `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null` | Đã gán SKU vào ô, đã nối SKU nội bộ, ô đang hoạt động, còn tồn |
+| Quét hàng — `POST /order-groups/:id/fulfillment/pick-item` | `409 ORD_GROUP_INSUFFICIENT_STOCK` | Như trên |
+| Nhập thêm hàng — `POST .../sku-bin-assignments/:assignmentId/restock` | `404 WH_WAREHOUSE_NOT_FOUND` "Không tìm thấy sku_bin_assignment" | Dòng tồn có thật, đúng kho |
+| Gợi ý đóng gói — `POST .../packaging/generate` | Luôn tính theo **số lượng đặt**, không theo số đã quét | Đã quét từng món bằng `pick-item` |
+
+Ví dụ thật (đọc DB ngày 05/10/2026): SKU `KC-D1-T05-T01-2`, dòng tồn ở kho HCM-02, ô `KC-D1-T05-T01-1` đang hoạt động, tồn 3, `master_sku: "GUOC-020-DEN-35"`, mapping khớp từng ký tự — Picking List vẫn báo "CHƯA GÁN VỊ TRÍ".
+
+## B6.2. Nguyên nhân
+
+Trong DB, các trường id (`warehouse_id`, `bin_location_id`, `order_group_id`…) lưu kiểu **ObjectId**. Id FE gửi lên luôn là **chuỗi** (đường dẫn và JSON không chở được kiểu ObjectId) — điều này đúng, FE không làm sai gì. BE có trách nhiệm đổi chuỗi sang ObjectId trước khi tìm.
+
+Schema BE khai các trường này bằng `@Prop({ type: Types.ObjectId })`. Với thư viện `@nestjs/mongoose`, cách khai đó tạo ra kiểu **Mixed** ("kiểu gì cũng được"), nên Mongoose **không** tự đổi chuỗi sang ObjectId. Truy vấn mang chuỗi đi so với ObjectId trong DB → 0 dòng. Lỗi nằm ở 35 trường trên 18 collection; phần lớn chỗ truy vấn đã tự đổi kiểu nên chạy đúng, còn 3 chỗ trong bảng trên thì không. Chỗ ghi `pick_events.order_group_id` thì lưu nguyên chuỗi.
+
+## B6.3. Đã sửa
+
+| Thay đổi | Ghi chú |
+|---|---|
+| 35 trường id khai lại `type: SchemaTypes.ObjectId` | Mongoose tự đổi chuỗi → ObjectId ở mọi truy vấn và lệnh ghi |
+| Picking List, quét hàng đổi `warehouse_id` sang ObjectId | Bản sửa của Việt (nhánh `feature/viet_befe`), giữ nguyên |
+| Nhập thêm hàng đổi `warehouse_id` sang ObjectId | Hết lỗi luôn 404 |
+| `pick_events.order_group_id` lưu ObjectId | Gợi ý đóng gói đọc được số đã quét |
+| Picking List / quét hàng tìm thêm dòng tồn **chưa gắn nhãn** của SKU đã nối, và so `seller_sku` **không phân biệt hoa thường** | Bản sửa của Việt. Trường hợp Admin nhập tồn trước khi bấm "Đồng bộ tồn" (`POST /master-skus/sync-stock`) vẫn lấy được hàng |
+| Nhập lại hàng hoàn vào ô chưa có dòng tồn tạo dòng mới mang đủ `master_sku` / `seller_sku` | Sửa lỗi phát sinh từ thay đổi tìm tồn ở trên |
+| Test tự động quét mọi schema, báo lỗi nếu còn trường id kiểu Mixed | Chặn lỗi lặp lại |
+
+**FE không phải sửa gì.** Request/response của mọi route giữ nguyên. Riêng thông báo `sync_failed`: `relatedEntityId` nay là id của shop đã kết nối (trước là mã shop Lazada) — xem `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6.
+
+## B6.4. Việc BẮT BUỘC sau khi deploy — chuyển dữ liệu id cũ
+
+Một số bản ghi cũ đang lưu id dạng chuỗi (đã biết: `pick_events`, `notifications`, `login_audit_logs`). Sau khi sửa schema, các bản ghi đó **không còn khớp truy vấn** (ví dụ thông báo cũ không hiện cho người nhận) cho tới khi được chuyển sang ObjectId. Chạy 1 lần cho **mỗi** database (Atlas dùng chung, và DB riêng trên máy từng người nếu có):
+
+```bash
+cd be
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # 1. Chạy thử: chỉ đếm, KHÔNG ghi
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply    # 2. Ghi thật
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # 3. Kiểm tra lại: phải báo "✅ Không còn ..." (xem dưới)
+```
+
+Dạng kết quả khi chạy thử (số liệu dưới đây chỉ minh họa cách đọc, số thật tùy từng database):
+
+```
+Database: optipackai — chế độ: CHẠY THỬ (không ghi)
+  pick_events.order_group_id: 42 chuỗi id -> ObjectId, 0 chuỗi rỗng -> null
+  notifications.recipient_user_id: 7 chuỗi id -> ObjectId, 0 chuỗi rỗng -> null
+  notifications.related_entity_id: 30 chuỗi id -> ObjectId, 0 chuỗi rỗng -> null, 2 không phải id (["201171264532"]) -> giữ nguyên
+ℹ️  Chạy thử: sẽ chuyển 79 giá trị, 2 giá trị không phải id. Thêm --apply để ghi thật.
+```
+
+- Lần chạy lại đúng sẽ báo `✅ Không còn giá trị id nào lưu dạng chuỗi — không cần làm gì.`, hoặc `✅ Không còn id dạng chuỗi nào cần chuyển. Còn N giá trị không phải id được giữ nguyên…`.
+- Giá trị **không phải id** (ví dụ mã shop Lazada trong thông báo `sync_failed` cũ) không đổi được; mặc định giữ nguyên, khi đọc sẽ ra `null`. Muốn dọn hẳn thì thêm `--null-invalid` vào lệnh `--apply`.
+- Script dùng `MONGODB_URI` trong `be/.env`, không khởi động ứng dụng, không chạy cron. Chạy lại nhiều lần an toàn.
+
+## B6.5. Cách kiểm tra lại (demo)
+
+1. Chọn 1 nhóm đơn có SKU đã gán ô và còn tồn → mở Picking List → dòng hàng có `bin_code` thật, `bin_location_id` khác `null`.
+2. Quét 1 món đúng ô → `200`, tồn giảm 1; mở sổ cái của dòng tồn → có dòng `pick`.
+3. Warehouse Staff nhập thêm 5 vào dòng đó → `201`, tồn tăng 5 (trước đây `404`).
+4. Lấy hàng xong, Admin tạo gợi ý đóng gói → số lượng trong gợi ý bằng số **đã quét** (thử quét thiếu 1 món so với đơn để thấy khác biệt).
+5. Mở chuông thông báo của tài khoản từng nhận thông báo đích danh trước đây → thông báo cũ vẫn hiện (sau khi chạy script).
+
+## B6.6. Tác động tới dữ liệu và luồng đã có
+
+| Câu hỏi | Trả lời |
+|---|---|
+| Dữ liệu cũ có còn đọc đúng không | Có, **sau khi chạy script ở B6.4**. Không chạy thì các bản ghi id lưu chuỗi không khớp truy vấn |
+| Route nào đổi hành vi | Picking List, quét hàng, nhập thêm hàng hết báo lỗi sai; gợi ý đóng gói dùng số đã quét. Không route nào đổi request/response |
+| Luồng nào bị ảnh hưởng | Lấy hàng, nhập hàng, gợi ý đóng gói, nhập lại hàng hoàn, thông báo `sync_failed` |
+| Luồng nào không bị ảnh hưởng | Cấu hình kho/khu/ô, kiểm kê, chuyển ô, nối SKU, gộp tồn, giữ chỗ K5, giao hàng, vật liệu đóng gói, đăng nhập |
+
+## B6.7. Hạn chế hiện tại và hướng khắc phục
+
+| Hạn chế | Ảnh hưởng | Hướng khắc phục |
+|---|---|---|
+| Tìm tồn có nhánh dự phòng "dòng chưa gắn nhãn" | Hàng chưa gộp tồn vẫn lấy được nên khó phát hiện còn thiếu bước "Đồng bộ tồn"; báo cáo tồn theo SKU nội bộ vẫn thiếu phần này | Tự gắn nhãn khi nối SKU / gán ô, rồi bỏ nhánh dự phòng |
+| So SKU không phân biệt hoa thường dùng biểu thức chính quy | Không dùng được index, chậm khi dữ liệu lớn (không đáng kể ở quy mô demo) | Lưu thêm cột SKU đã chuẩn hóa có index |
+| Các chỗ khác vẫn so SKU nguyên văn (nối SKU, danh sách "SKU chưa gán ô") | Gõ khác hoa thường có thể báo `MAP_SELLER_SKU_UNKNOWN` hoặc hiện "chưa gán" sai | Như trên — dùng cột SKU đã chuẩn hóa ở mọi nơi |
+| Script không đổi được giá trị không phải id | Thông báo `sync_failed` cũ mất liên kết điều hướng | Chấp nhận; tùy chọn `--null-invalid` |
 
 ---
 
@@ -888,3 +974,15 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] Warehouse Staff nhập vượt sức chứa → `409 WH_BIN_OVER_CAPACITY` → gửi lại `force: true` → thành công
 - [ ] Warehouse Staff gọi `POST .../warehouses/:id/zones` hoặc `POST .../sku-bin-assignments` → vẫn `403`
 - [ ] Packaging Staff / Shipping Coordinator gọi 4 route trên → `403`
+
+## F.6. Checklist test cho FE — sửa lỗi kiểu id (07/10/2026)
+
+- [ ] Đã chạy `scripts/migrate-objectid-fields.ts --apply` trên DB đang test; chạy lại báo "không cần làm gì"
+- [ ] Picking List của nhóm đơn có SKU đã gán ô → có `bin_code`, `bin_location_id` (không còn "CHƯA GÁN VỊ TRÍ")
+- [ ] SKU đã nối nhưng tồn chưa "Đồng bộ tồn" → Picking List vẫn có ô; quét trừ được
+- [ ] SKU trong đơn viết khác hoa thường so với dòng tồn → Picking List và quét vẫn khớp
+- [ ] Quét 1 món → `200`, tồn giảm; quét vượt tồn → `409 ORD_GROUP_INSUFFICIENT_STOCK` (vẫn đúng)
+- [ ] Nhập thêm hàng → `201` (trước đây `404`)
+- [ ] Quét thiếu so với đơn rồi tạo gợi ý đóng gói → số lượng theo số đã quét
+- [ ] Kiểm hàng hoàn `restock` vào ô chưa từng chứa SKU đó → dòng tồn mới có `masterSku` (SKU đã nối) hoặc `sellerSku` (SKU chưa nối)
+
