@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 //!=============================================
 // Audit log đăng nhập — ghi lại MỌI lần thử login, kể cả thất bại,
@@ -10,7 +10,7 @@ import { HydratedDocument, Types } from 'mongoose';
   timestamps: { createdAt: 'created_at', updatedAt: false },
 })
 export class LoginAuditLog {
-  @Prop({ type: Types.ObjectId, ref: 'User' })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User' })
   user_id?: Types.ObjectId; // null nếu email không tồn tại trong hệ thống
 
   @Prop({ required: true })

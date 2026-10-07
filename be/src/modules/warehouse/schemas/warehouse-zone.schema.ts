@@ -1,12 +1,12 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
  * warehouse_zones — tầng 2/4 ("khu", VD "Khu A - Phụ kiện điện tử").
  */
 @Schema({ collection: 'warehouse_zones', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class WarehouseZone {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'Warehouse', index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'Warehouse', index: true })
   warehouse_id!: Types.ObjectId;
 
   @Prop({ required: true })

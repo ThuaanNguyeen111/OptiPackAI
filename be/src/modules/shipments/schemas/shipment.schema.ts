@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
 import { DeliveryFailureReason } from '../enums/delivery-failure-reason.enum';
 
@@ -13,7 +13,7 @@ export class Shipment {
   @Prop({ required: true, unique: true })
   shipment_code!: string; // VD SHP-260927-8F3A1C
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'OrderGroup' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'OrderGroup' })
   order_group_id!: Types.ObjectId;
 
   @Prop({ type: String, required: true, default: 'forward' })

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
 import { ShipmentEventType } from '../enums/shipment-event-type.enum';
 
@@ -10,10 +10,10 @@ import { ShipmentEventType } from '../enums/shipment-event-type.enum';
  */
 @Schema({ collection: 'shipment_events', timestamps: false })
 export class ShipmentEvent {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'Shipment' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'Shipment' })
   shipment_id!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'OrderGroup', index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'OrderGroup', index: true })
   order_group_id!: Types.ObjectId;
 
   @Prop({ type: String, enum: ShipmentEventType, required: true })

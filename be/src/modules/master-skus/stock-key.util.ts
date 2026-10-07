@@ -37,8 +37,24 @@ export async function resolveMasterSkus(
   return out;
 }
 
-/** Bộ lọc tồn kho cho 1 SKU sàn: theo SKU nội bộ nếu đã nối, ngược lại theo SKU sàn. */
-export function stockFilterFor(
+/** Khớp seller_sku không phân biệt hoa/thường (tránh lệch chuỗi lúc gán ô vs đơn sàn). */
+export function sellerSkuEqualsIgnoreCase(sellerSku: string): RegExp {
+  const escaped = sellerSku.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^${escaped}$`, 'i');
+}
+
+/**
+ * 07/10/2026 — Bộ lọc KHỚP CHÍNH XÁC, chỉ gồm điều kiện so sánh bằng, dùng cho
+ * `findOneAndUpdate(..., { upsert: true })`.
+ * Khi upsert không tìm thấy dòng nào, MongoDB tạo dòng mới bằng cách chép các điều
+ * kiện so sánh bằng ở cấp trên của bộ lọc. Điều kiện trong `$or` và điều kiện regex
+ * KHÔNG được chép -> nếu upsert bằng `stockFilterFor` (có `$or`/regex), dòng mới sẽ
+ * thiếu `master_sku` hoặc thiếu `seller_sku`. Vì vậy mọi lệnh upsert dòng tồn phải
+ * dùng hàm này, không dùng `stockFilterFor`.
+ * - Đã nối: { master_sku } -> dòng mới mang đúng nhãn SKU nội bộ.
+ * - Chưa nối: { platform, shop_id, seller_sku, master_sku: null } (seller_sku đã trim).
+ */
+export function stockUpsertFilterFor(
   masterSku: string | undefined,
   platform: string,
   shopId: string,
@@ -46,7 +62,81 @@ export function stockFilterFor(
 ): Record<string, unknown> {
   return masterSku
     ? { master_sku: masterSku }
-    : { platform, shop_id: shopId, seller_sku: sellerSku, master_sku: null }; // null khớp cả dòng cũ không có field
+    : { platform, shop_id: shopId, seller_sku: sellerSku.trim(), master_sku: null };
+}
+
+/**
+ * Bộ lọc tồn kho cho 1 SKU sàn — CHỈ dùng để TÌM / TRỪ / CỘNG dòng đã có, không dùng
+ * để upsert (xem `stockUpsertFilterFor`).
+ * - Chưa nối: theo platform + shop_id + seller_sku (master_sku null).
+ * - Đã nối: ưu tiên dòng gộp { master_sku }, ĐỒNG THỜI fallback dòng chưa gắn nhãn
+ *   (master_sku null, đúng shop) — case Admin nhập tồn trước khi sync-stock / tạo mapping.
+ *   Không fallback = Picking List «CHƯA GÁN» + pick-item 409 dù Admin thấy còn hàng.
+ */
+export function stockFilterFor(
+  masterSku: string | undefined,
+  platform: string,
+  shopId: string,
+  sellerSku: string,
+): Record<string, unknown> {
+  const unpooled: Record<string, unknown> = {
+    platform,
+    shop_id: shopId,
+    seller_sku: sellerSkuEqualsIgnoreCase(sellerSku),
+    master_sku: null, // null khớp cả dòng cũ không có field
+  };
+  if (!masterSku) return unpooled;
+  return {
+    $or: [{ master_sku: masterSku }, unpooled],
+  };
+}
+
+/**
+ * Các nhánh $or để lấy assignment cho Picking List (1 query cho nhiều SKU).
+ * Gồm: (1) SKU chưa nối theo seller_sku, (2) tồn đã gộp theo master_sku,
+ * (3) SKU đã nối nhưng tồn còn unpooled (chưa sync-stock).
+ */
+export function stockAssignmentOrBranches(
+  platform: string,
+  shopId: string,
+  sellerSkus: string[],
+  masters: Map<string, string>,
+): Record<string, unknown>[] {
+  const branches: Record<string, unknown>[] = [];
+  const unmapped = sellerSkus.filter((s) => !masters.has(s));
+  const mapped = sellerSkus.filter((s) => masters.has(s));
+  const masterValues = [...new Set(masters.values())];
+
+  if (unmapped.length > 0) {
+    branches.push({
+      platform,
+      shop_id: shopId,
+      seller_sku: { $in: unmapped },
+      master_sku: null,
+    });
+    // Case-insensitive: từng SKU (tránh lệch hoa/thường so với $in exact).
+    for (const sku of unmapped) {
+      branches.push({
+        platform,
+        shop_id: shopId,
+        seller_sku: sellerSkuEqualsIgnoreCase(sku),
+        master_sku: null,
+      });
+    }
+  }
+  if (masterValues.length > 0) {
+    branches.push({ master_sku: { $in: masterValues } });
+  }
+  // Fallback unpooled cho SKU đã nối (Admin nhập tồn trước khi gắn nhãn master).
+  for (const sku of mapped) {
+    branches.push({
+      platform,
+      shop_id: shopId,
+      seller_sku: sellerSkuEqualsIgnoreCase(sku),
+      master_sku: null,
+    });
+  }
+  return branches;
 }
 
 /** Khóa tồn kho dạng chuỗi — dùng cho giữ chỗ (K5) và gom nhóm. */

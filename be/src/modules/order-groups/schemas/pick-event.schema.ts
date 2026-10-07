@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
  * ===================================================================
@@ -16,7 +16,7 @@ import { HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ collection: 'pick_events', timestamps: { createdAt: 'created_at', updatedAt: false } })
 export class PickEvent {
-  @Prop({ type: Types.ObjectId, required: true, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, index: true })
   order_group_id!: Types.ObjectId;
 
   @Prop({ required: true })
@@ -40,7 +40,7 @@ export class PickEvent {
   remaining_stock_after!: number;
 
   // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   bin_location_id?: Types.ObjectId | null;
 
   created_at?: Date;

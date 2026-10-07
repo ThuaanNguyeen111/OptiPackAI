@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { UserRole, USER_ROLE_VALUES } from '../../../common/enums/user-role.enum';
 import { NotificationType } from '../enums/notification-type.enum';
 
@@ -14,7 +14,7 @@ import { NotificationType } from '../enums/notification-type.enum';
  */
 @Schema({ collection: 'notifications', timestamps: { createdAt: 'created_at', updatedAt: false } })
 export class Notification {
-  @Prop({ type: Types.ObjectId, default: null, index: true })
+  @Prop({ type: SchemaTypes.ObjectId, default: null, index: true })
   recipient_user_id!: Types.ObjectId | null;
 
   // SỬA (21/09/2026, báo cáo thật từ FE) — trước đây khai `type: String`
@@ -45,7 +45,7 @@ export class Notification {
   @Prop({ type: String, default: null })
   related_entity_type!: string | null;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   related_entity_id!: Types.ObjectId | null;
 
   @Prop({ default: false, index: true })
