@@ -1,5 +1,10 @@
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
-import { resolveMasterSkus, stockFilterFor } from '../master-skus/stock-key.util';
+import { normalizeSellerSku } from '../master-skus/master-skus.service';
+import {
+  resolveMasterSkus,
+  stockAssignmentOrBranches,
+  stockUpsertFilterFor,
+} from '../master-skus/stock-key.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
@@ -459,10 +464,15 @@ export class WarehouseService {
     actorId = 'system',
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
+    // 🔄 07/10/2026 — SỬA LỖI: trước đây truy vấn `warehouse_id: warehouseId` (chuỗi) trong khi
+    // DB lưu ObjectId và schema bị Mongoose hiểu là Mixed (không tự ép kiểu) -> không bao giờ tìm
+    // thấy dòng tồn -> "Nhập thêm hàng" luôn 404. Schema nay đã khai đúng SchemaTypes.ObjectId
+    // (Mongoose tự ép); vẫn ép tường minh ở đây để không phụ thuộc vào khai báo schema.
+    const warehouseObjectId = new Types.ObjectId(warehouseId);
     // K2 — kiểm tra sức chứa ô trước khi cộng (không atomic tuyệt đối: 2 lần
     // nhập cùng lúc có thể cùng lọt — ghi nhận ở điểm yếu, xử lý ở K3 bằng sổ cái).
     if (Types.ObjectId.isValid(assignmentId) && !force) {
-      const current = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: warehouseId }).lean();
+      const current = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: warehouseObjectId }).lean();
       if (current) {
         const bin = await this.binModel.findById(current.bin_location_id).lean();
         if (bin && typeof bin.capacity === 'number') {
@@ -482,7 +492,7 @@ export class WarehouseService {
     // 🔄 K3 — cộng tồn + ghi sổ cái trong CÙNG transaction.
     const updated = await this.runTx(async (session) => {
       const doc = await this.assignmentModel.findOneAndUpdate(
-        { _id: assignmentId, warehouse_id: warehouseId },
+        { _id: assignmentId, warehouse_id: warehouseObjectId },
         { $inc: { quantity_on_hand: quantity } },
         { returnDocument: 'after', session },
       );
@@ -519,19 +529,28 @@ export class WarehouseService {
     // 🔄 K4a — lọc đúng sàn/shop của nhóm đơn (trước đây chỉ kho + seller_sku).
     const group = await this.orderGroupsService.findOrderGroupById(groupId);
     // 🔄 K4b — SKU đã nối lấy tồn theo SKU nội bộ (chung mọi sàn); chưa nối giữ cách cũ.
+    // 🔄 (05/10/2026) — thêm nhánh unpooled cho SKU đã nối + khớp seller_sku không phân biệt hoa/thường
+    // (Admin nhập tồn trước sync-stock → trước đây Picking List hiện «CHƯA GÁN VỊ TRÍ»).
     const masters = await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, skus);
-    const unmappedSkus = skus.filter((s) => !masters.has(s));
-    const assignments = await this.assignmentModel
-      .find({
-        warehouse_id: warehouseId,
-        $or: [
-          { platform: group.platform, shop_id: group.shop_id, seller_sku: { $in: unmappedSkus }, master_sku: null },
-          { master_sku: { $in: [...new Set(masters.values())] } },
-        ],
-      })
-      .lean();
-    const rowKey = (a: { master_sku?: string | null; seller_sku: string }): string => (a.master_sku ? `M:${a.master_sku}` : `S:${a.seller_sku}`);
-    const itemKey = (sku: string): string => { const m = masters.get(sku); return m ? `M:${m}` : `S:${sku}`; };
+    const orBranches = stockAssignmentOrBranches(
+      group.platform,
+      group.shop_id,
+      skus,
+      masters,
+    );
+    const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
+      ? new Types.ObjectId(warehouseId)
+      : warehouseId;
+    const assignments =
+      orBranches.length === 0
+        ? []
+        : await this.assignmentModel
+            .find({
+              warehouse_id: warehouseObjectId,
+              $or: orBranches,
+            })
+            .lean();
+    const rowKey = (a: { master_sku?: string | null; seller_sku: string }): string => (a.master_sku ? `M:${a.master_sku}` : `S:${normalizeSellerSku(a.seller_sku)}`);
     const binIds = assignments.map((a) => a.bin_location_id);
     const bins = await this.binModel.find({ _id: { $in: binIds } }).lean();
     const binMap = new Map(bins.map((b) => [b._id.toString(), b]));
@@ -544,16 +563,36 @@ export class WarehouseService {
       binMap.get(a.bin_location_id.toString())?.pick_sequence ?? Number.MAX_SAFE_INTEGER;
     const assignmentsBySku = new Map<string, typeof assignments>();
     for (const a of assignments) {
-      const list = assignmentsBySku.get(rowKey(a)) ?? [];
-      list.push(a);
-      assignmentsBySku.set(rowKey(a), list);
+      const keys = new Set<string>([rowKey(a)]);
+      // Unpooled row của SKU đã nối: index thêm dưới M:master để itemKey tìm thấy.
+      if (!a.master_sku) {
+        for (const [sellerSku, master] of masters) {
+          if (normalizeSellerSku(sellerSku) === normalizeSellerSku(a.seller_sku)) {
+            keys.add(`M:${master}`);
+          }
+        }
+      }
+      for (const key of keys) {
+        const list = assignmentsBySku.get(key) ?? [];
+        list.push(a);
+        assignmentsBySku.set(key, list);
+      }
     }
     for (const list of assignmentsBySku.values()) {
       list.sort((x, y) => Number(y.quantity_on_hand > 0) - Number(x.quantity_on_hand > 0) || seqOf(x) - seqOf(y));
     }
 
+    const candidatesForSku = (sku: string): typeof assignments => {
+      const master = masters.get(sku);
+      if (master) {
+        const pooled = assignmentsBySku.get(`M:${master}`);
+        if (pooled && pooled.length > 0) return pooled;
+      }
+      return assignmentsBySku.get(`S:${normalizeSellerSku(sku)}`) ?? [];
+    };
+
     const enriched: PickingListItem[] = items.map((item) => {
-      const candidates = assignmentsBySku.get(itemKey(item.sku)) ?? [];
+      const candidates = candidatesForSku(item.sku);
       const assignment = candidates[0];
       const bin = assignment
         ? binMap.get(assignment.bin_location_id.toString())
@@ -1164,8 +1203,11 @@ export class WarehouseService {
     }
     // 🔄 K4b — SKU đã nối thì hàng hoàn nhập lại vào tồn chung của SKU nội bộ.
     const master = (await resolveMasterSkus(this.mappingModel, params.platform, params.shopId, [params.sellerSku])).get(params.sellerSku);
+    // 🔄 07/10/2026 — upsert phải dùng bộ lọc KHỚP CHÍNH XÁC (stockUpsertFilterFor).
+    // Dùng stockFilterFor (có $or + regex) thì khi ô chưa có dòng tồn, dòng mới tạo ra
+    // thiếu master_sku (SKU đã nối) hoặc thiếu seller_sku (SKU chưa nối).
     const doc = await this.assignmentModel.findOneAndUpdate(
-      { warehouse_id: bin.warehouse_id, bin_location_id: bin._id, ...stockFilterFor(master, params.platform, params.shopId, params.sellerSku) },
+      { warehouse_id: bin.warehouse_id, bin_location_id: bin._id, ...stockUpsertFilterFor(master, params.platform, params.shopId, params.sellerSku) },
       {
         $inc: { quantity_on_hand: params.quantity },
         ...(master ? { $setOnInsert: { platform: params.platform, shop_id: params.shopId, seller_sku: params.sellerSku } } : {}),

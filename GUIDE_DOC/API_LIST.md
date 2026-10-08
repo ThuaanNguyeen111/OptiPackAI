@@ -1,6 +1,6 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-07 (sửa lỗi kiểu id: Picking List, `pick-item`, nhập thêm hàng hết báo lỗi sai; gợi ý đóng gói theo số đã quét; `relatedEntityId` của thông báo `sync_failed` đổi nghĩa — không route nào thêm/bớt, không request/response nào đổi; chi tiết `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6). Trước đó: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -63,7 +63,7 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 | Method  | Route                                          | Role                           | Mô tả                                                                                                                                                                                                     |
 | ------- | ---------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST    | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin               | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng                                                                                                                                      |
+| POST    | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin               | Quét/nhập tay 1 SKU — trừ tồn kho ngay, chống trừ trùng khi mất mạng. 🔄 **07/10/2026**: hết báo `409 INSUFFICIENT_STOCK` sai khi kho đã gán đúng; tìm được tồn chưa "Đồng bộ tồn"; không phân biệt hoa thường |
 | POST    | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin               | Báo thiếu hàng lúc lấy — dừng đơn, báo Store Owner, chờ duyệt                                                                                                                                             |
 | POST    | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin               | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại                                                                                                                                                              |
 | POST    | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin               | Xác nhận đã lấy xong TOÀN BỘ nhóm đơn                                                                                                                                                                     |
@@ -110,9 +110,9 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId/bin-locations`                             | Admin, Warehouse Staff | **MỚI (16/09/2026)** — Danh sách TOÀN BỘ kệ trong 1 kho (gộp mọi khu). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**                                                                                                    |
 | POST      | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin                  | Gán 1 SKU vào 1 kệ, kèm số lượng ban đầu (bước 4/4)                                                                                                                                                                   |
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin, Warehouse Staff | **MỚI (16/09/2026)** — Danh sách SKU đã gán vị trí trong 1 kho, kèm số lượng từng ô (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**         |
-| POST      | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin, Warehouse Staff | Nhập thêm hàng (cộng dồn, không ghi đè; ghi sổ cái `receive`). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**                                                                                                            |
+| POST      | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin, Warehouse Staff | Nhập thêm hàng (cộng dồn, không ghi đè; ghi sổ cái `receive`). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**. 🔄 **Sửa lỗi luôn trả 404 (07/10/2026)** |
 | GET       | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin                  | SKU đã có trong hệ thống nhưng CHƯA gán kệ                                                                                                                                                                            |
-| GET       | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi                                                                                                                                                           |
+| GET       | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi. 🔄 **07/10/2026**: hết báo "CHƯA GÁN VỊ TRÍ" sai khi kho đã gán đúng |
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId`                                           | Admin, Warehouse       | **K1 (26/09/2026)** — chi tiết 1 kho (kể cả đã tắt)                                                                                                                                                                   |
 | 🆕 PATCH  | `/warehouse/warehouses/:warehouseId`                                           | Admin                  | K1 — sửa tên/địa chỉ, KHÔNG sửa mã                                                                                                                                                                                    |
 | 🆕 DELETE | `/warehouse/warehouses/:warehouseId`                                           | Admin                  | K1 — vô hiệu hóa (xóa mềm) + dây chuyền khu/kệ; 409 nếu còn hàng                                                                                                                                                      |
@@ -158,7 +158,7 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 | Method | Route                         | Role   | Mô tả                                                       |
 | ------ | ----------------------------- | ------ | ----------------------------------------------------------- |
-| GET    | `/notifications`              | Bất kỳ | Danh sách thông báo của chính user đang login               |
+| GET    | `/notifications`              | Bất kỳ | Danh sách thông báo của chính user đang login. 🔄 **07/10/2026**: `relatedEntityId` luôn là id hoặc `null`; loại `sync_failed` mang id shop đã kết nối (trước là mã shop Lazada) |
 | GET    | `/notifications/unread-count` | Bất kỳ | Số chưa đọc — FE gọi định kỳ (polling) cho chuông thông báo |
 | PATCH  | `/notifications/:id/read`     | Bất kỳ | Đánh dấu 1 thông báo đã đọc                                 |
 
@@ -312,3 +312,17 @@ Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (�
 | POST   | `/packaging-materials/:code/internal-use`    | Admin, Warehouse                           | Xuất vật liệu hạng B dùng nội bộ         |
 
 > 🔄 Trường tùy chọn mới: `fail` nhận `reschedule_at`; `retry` nhận `override_reason`; `pack` nhận `materials_used`; `POST /returns` nhận `type: exchange` + `exchange_items`. Response bổ sung: vận đơn `nextAttemptNotBefore`, `dueAt`, `isOverdue`; phiếu trả `exchangeItems`, `replacementStatus`, `replacementGroupId`, `replacementError`; nhóm đơn `origin`, `sourceReturnId`; vật liệu `qtyInternal`. Chi tiết: **`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`**.
+
+## 16. 🔄 Sửa lỗi kiểu id (07/10/2026)
+
+Không có route mới. Các route dưới đây trước đây trả kết quả sai dù dữ liệu đúng, do 35 trường id trong schema bị Mongoose hiểu là kiểu Mixed (không đổi chuỗi id sang ObjectId):
+
+| Route | Trước 07/10/2026 | Sau |
+| ----- | ---------------- | --- |
+| `GET /warehouse/:warehouseId/picking-list/:groupId` | "CHƯA GÁN VỊ TRÍ" dù đã gán ô | Có vị trí ô |
+| `POST /order-groups/:id/fulfillment/pick-item` | `409 ORD_GROUP_INSUFFICIENT_STOCK` dù còn hàng | Trừ tồn bình thường |
+| `POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Luôn `404` | Cộng tồn bình thường |
+| `POST /order-groups/:groupId/packaging/generate` | Luôn tính theo số lượng đặt | Tính theo số đã quét |
+| `POST /returns/:id/inspect`, `POST /returns/:id/quarantine/:lineIndex/resolve` (`restock` vào ô mới) | Dòng tồn mới có thể thiếu `masterSku`/`sellerSku` (chỉ trên bản có thay đổi tìm tồn mới) | Dòng tồn mới đủ thông tin |
+
+Việc bắt buộc sau khi deploy: chạy `npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply` trên mỗi database. Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6**.

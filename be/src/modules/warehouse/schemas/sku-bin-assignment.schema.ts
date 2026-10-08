@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 /**
@@ -10,7 +10,7 @@ import { MarketplacePlatform } from '../../marketplace-integration/enums/platfor
  */
 @Schema({ collection: 'sku_bin_assignments', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class SkuBinAssignment {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'Warehouse', index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'Warehouse', index: true })
   warehouse_id!: Types.ObjectId;
 
   @Prop({ type: String, enum: MarketplacePlatform, required: true })
@@ -22,7 +22,7 @@ export class SkuBinAssignment {
   @Prop({ required: true })
   seller_sku!: string;
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'BinLocation' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'BinLocation' })
   bin_location_id!: Types.ObjectId;
 
   // BỔ SUNG (2026-09-10) — Điểm yếu #10 mục 1 (CLAUDE.md): CORE, không

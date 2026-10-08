@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
  * K5 (27/09/2026) — GIỮ CHỖ TỒN KHO cho 1 nhóm đơn trên 1 khóa tồn.
@@ -8,7 +8,7 @@ import { HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ collection: 'stock_reservations', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StockReservation {
-  @Prop({ type: Types.ObjectId, required: true, index: true }) order_group_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true, index: true }) order_group_id!: Types.ObjectId;
   @Prop({ required: true, index: true }) stock_key!: string;
   @Prop({ type: String, default: null }) master_sku!: string | null;
   @Prop({ required: true }) platform!: string;

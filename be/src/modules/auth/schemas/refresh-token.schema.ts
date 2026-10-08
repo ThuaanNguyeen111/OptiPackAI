@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { UserRole, USER_ROLE_VALUES } from '../../../common/enums/user-role.enum';
 
 @Schema({
@@ -11,7 +11,7 @@ export class RefreshToken {
   @Prop({ required: true })
   token_hash!: string;
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'User' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'User' })
   user_id!: Types.ObjectId;
 
   @Prop({ required: true })

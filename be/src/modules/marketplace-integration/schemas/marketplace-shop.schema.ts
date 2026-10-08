@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, SchemaTypes, Types } from 'mongoose';
 import { MarketplacePlatform } from '../enums/platform.enum';
 
 export type MarketplaceShopDocument = MarketplaceShop & Document;
@@ -72,7 +72,7 @@ export class MarketplaceShop {
 
   // Admin nào bấm "Kết nối shop" — audit trail, cùng nguyên tắc
   // created_by đã áp dụng ở module Auth.
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })
   connected_by!: Types.ObjectId;
 
   // false khi: Admin chủ động ngắt kết nối, HOẶC refresh token cũng

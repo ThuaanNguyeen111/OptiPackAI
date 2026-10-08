@@ -2,7 +2,7 @@
 
 | Thông tin         | Giá trị                                                                                                                                                                                            |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Phiên bản         | 1.0 — 27/09/2026                                                                                                                                                                                   |
+| Phiên bản         | 1.1 — 07/10/2026 (thêm script chuyển dữ liệu id ở 1.2, 4 dòng xử lý sự cố ở mục 10) · 1.0 — 27/09/2026                                                                                                                                                                                   |
 | Phạm vi           | Toàn bộ luồng sau đồng bộ đơn: kho & SKU → lấy hàng → đóng gói & vật liệu → giao hàng → trả / đổi hàng → chống bán lố                                                                              |
 | Thời lượng        | Bản đầy đủ ~25 phút · Bản rút gọn trước hội đồng ~12 phút (Mục 9)                                                                                                                                  |
 | Tài liệu chi tiết | `INTEGRATION_GUIDE_WAREHOUSE.md`, `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md`, `INTEGRATION_GUIDE_SHIPPING.md`, `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`, `INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md` |
@@ -28,6 +28,7 @@ SHIPMENT_DUE_BUSINESS_HOURS=0
 cd be
 npx ts-node -r dotenv/config scripts/migrate-sku-bin-assignment-multibin.ts   # 1 lần mỗi môi trường
 npx ts-node -r dotenv/config scripts/backfill-order-group-counts.ts            # 1 lần mỗi môi trường (01/10/2026) — số đơn còn hiệu lực/đã hủy cho nhóm đơn cũ
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply       # 1 lần mỗi môi trường (07/10/2026) — đổi id lưu dạng chuỗi sang ObjectId (chạy không --apply để xem trước)
 npm run start:dev                                                              # khởi động lại để tạo index mới
 ```
 
@@ -206,6 +207,10 @@ Chuẩn bị: nhóm đơn G1 đã `delivered` ở Phần D.
 | Hiện tượng                               | Nguyên nhân                                                                       | Cách xử lý                                                             |
 | ---------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | Nối SKU báo `MAP_SELLER_SKU_UNKNOWN`     | Sản phẩm chưa đồng bộ                                                             | Admin gọi `POST /product-master/sync` (hoặc chờ cron mỗi giờ)          |
+| Picking List "CHƯA GÁN VỊ TRÍ" / quét báo thiếu tồn dù đã gán ô | BE chưa phải bản 07/10/2026 | Cập nhật BE, khởi động lại, chạy `migrate-objectid-fields.ts --apply` |
+| Nhập thêm hàng (`restock`) báo 404 | BE chưa phải bản 07/10/2026 | Như trên; tạm thời dùng kiểm kê (`adjust`) để tăng tồn |
+| Thông báo cũ không hiện ở chuông | Chưa chạy script chuyển dữ liệu id | Chạy `migrate-objectid-fields.ts --apply` |
+| Gợi ý đóng gói không khớp số đã quét | Nhóm đơn quét trước khi chạy script | Chạy script, rồi tạo lại gợi ý |
 | Gán SKU vào ô thứ 2 lỗi trùng khóa       | Chưa chạy script K3                                                               | Chạy `migrate-sku-bin-assignment-multibin.ts`, khởi động lại BE        |
 | `pack` trả `warnings` "Chưa khai thùng…" | Kích thước thùng trong danh mục không khớp gợi ý                                  | Khai đúng 3 kích thước (20×15×10, 35×25×20, 50×40×35)                  |
 | "Giao lại" luôn báo quá sớm              | Chưa đặt `SHIPMENT_MIN_RETRY_GAP_MINUTES`                                         | Đặt biến môi trường, khởi động lại BE                                  |
