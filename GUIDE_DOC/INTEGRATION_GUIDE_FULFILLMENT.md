@@ -138,6 +138,14 @@ Body `{ "expected_version": 3 }`. Kế hoạch `ready → approved`, nhóm `pend
   2. **Đóng gói thủ công** `POST .../packing-plan/manual` `{ expected_version, parcels: [{ order_id, box_code, item_keys[] }], note }`: người xử lý nhập kiện thật (thùng nhân viên thực tế dùng + các món trong từng kiện). Hệ thống kiểm: mỗi món đúng 1 kiện, thùng còn tồn, không quá tải thùng (không kiểm hình học). Cố gắng xếp 3D vào thùng đó; không xếp được thì kiện `manualLayout: true` (không có tọa độ thật). Tạo kế hoạch mới `source: 'manual'` ở `ready` → người **khác** duyệt (hai cặp mắt) → quét, niêm phong, trừ thùng/vật tư, cân, báo sàn như luồng thường.
   3. **Trả về lấy hàng** khi hàng hỏng: `POST .../packing-plan/report-issue` (đã có).
 
+### 🆕 Đổi thùng khác có tốn vật liệu không? (08/10/2026)
+| Thời điểm | Đổi thùng | Tốn gì |
+| --------- | --------- | ------ |
+| Chưa duyệt (`ready`) | `POST .../parcels/:no/change-box` | **Không tốn gì** — chỉ giữ chỗ mềm, chưa trừ tồn |
+| Đang đóng, kiện chưa niêm phong (`approved`/`packing`) | `POST .../parcels/:no/change-box-in-session` + `old_box_outcome` | `unused`: không tốn (thùng cũ về kệ). `damaged`: trừ 1 thùng cũ khỏi tồn, ghi sổ `waste` + chi phí hao hụt |
+| Đã niêm phong | Chưa đổi trực tiếp được | Thùng đã trừ tồn lúc niêm phong — cần hoàn tác niêm phong trước (sắp làm) |
+Thùng chỉ bị trừ **lúc niêm phong**, theo thùng ghi trên kiện — nên đổi thùng trước khi niêm phong thì hệ thống trừ đúng thùng thật. Hệ thống xếp lại các món vào thùng mới qua validator và **giữ nguyên các lần quét đã có**. Thùng mới không xếp vừa → 422; hết tồn → 409. Hao hụt hiện trong `GET /packing/reports/feedback` (`waste`).
+
 ### 🆕 Vòng phản hồi — nhân viên làm khác gợi ý thì Admin cải thiện gì (08/10/2026)
 Gợi ý chỉ là gợi ý: nhân viên có thể đổi thùng, chuyển món, từ chối. Mỗi lần làm khác đều có **mã lý do** + SKU + thùng bị chạm. `GET /packing/reports/feedback?from&to&min_count` (Store Owner, Admin) gom theo lý do × SKU × thùng và sinh **đề xuất**, ví dụ:
 | Lặp lại | Admin làm gì |
@@ -151,6 +159,8 @@ Gợi ý chỉ là gợi ý: nhân viên có thể đổi thùng, chuyển món,
 Hệ thống **chỉ đề xuất**, Admin tự quyết. "AI" tốt lên nhờ dữ liệu đầu vào và tham số đúng hơn — không tự học máy; dùng `followedRate` (tỷ lệ kế hoạch được làm đúng gợi ý) so trước/sau mỗi lần sửa để chứng minh.
 
 **Tác động (08/10/2026):** (1) Dữ liệu cũ: không migration; kế hoạch cũ `source = solver`, `rejection_reason` chữ tự do đọc bình thường (`rejection.reasonCode = null`). (2) Đổi hành vi: `reject` đổi `reason` từ chữ tự do sang **mã** (FE phải gửi mã + `note`), thông báo từ chối giờ gửi cả Store Owner; `recompute` từ kế hoạch `rejected` ghi `resolution`. (3) Xung đột: `manual` thay kế hoạch `rejected` bằng kế hoạch mới trong 1 transaction, khóa `version`. (4) Không ảnh hưởng: tính kế hoạch, quét/niêm phong, giữ chỗ thùng (kế hoạch `rejected` không giữ chỗ). (5) Giới hạn: kiện `manualLayout` không dựng được 3D/hướng dẫn từng bước; báo cáo feedback tính trực tiếp (tối đa 5.000 kế hoạch).
+
+**Tác động bước 2 (đổi thùng lúc đóng, 08/10/2026):** (1) Dữ liệu cũ: không migration; `adjustments[]` cũ không có `oldBoxOutcome` (null), sổ vật tư thêm loại `waste`. (2) Route mới, route cũ không đổi. (3) Xung đột: trừ hao hụt + cập nhật kế hoạch cùng transaction, khóa `version` của kế hoạch; kiện đã niêm phong/đã trừ thùng bị chặn nên không trừ trùng. (4) Không ảnh hưởng: niêm phong, trừ thùng, giữ chỗ thùng (kiện đổi sang thùng mới thì giữ chỗ chuyển theo). (5) Giới hạn: tồn thùng cũ không đủ để trừ hết hao hụt thì chỉ trừ phần có (ghi chú trong sổ); chưa đổi được thùng của kiện đã niêm phong.
 
 ### 🆕 Gợi ý kho thùng, chia đều kiện, đơn lớn (04/10/2026)
 - **Gợi ý kho thùng** (`orders[].stockSuggestion`): khi kho hết thùng vừa hơn nên đơn phải dùng thùng to/nhiều kiện, lúc tính hệ thống giải thêm 1 lần "giả định kho đủ thùng". Nếu cách đó tốt hơn (theo đúng thứ tự mục tiêu), kế hoạch ghi thùng nào thiếu (`needed` vs `available` — `available` đã trừ thùng nhóm khác đang giữ chỗ), số kiện và lấp đầy TB trước/sau, tiền chênh (`savingVnd`). Kèm 1 dòng trong `explanation`. Màn `/app/packing/:groupId` hiện thẻ "Gợi ý kho thùng" (Admin có link tới danh mục thùng). Nhãn chứng minh vẫn đúng: phương án là tối ưu **với thùng đang có**; gợi ý cho biết nhập thêm thùng thì tốt hơn bao nhiêu. Nhập thùng xong bấm "Tính lại…" để dùng.
