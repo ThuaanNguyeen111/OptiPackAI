@@ -278,8 +278,11 @@ Túi zip bọc **từng món** (áo, quần…) trước khi xếp vào thùng �
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
 | GET | `/packaging/bags?active=true` | Packaging, Warehouse, Store Owner, Admin | Danh mục túi (mặc định chỉ túi đang dùng) |
-| POST | `/packaging/bags` | Admin | Thêm túi: `code`, `name`, `width_mm`, `length_mm` (trải phẳng), `price_vnd?` |
+| POST | `/packaging/bags` | Admin | Thêm túi: `code`, `name`, `width_mm`, `length_mm` (trải phẳng), `price_vnd?`, `reorder_level?` (mặc định 20) |
+| POST | `/packaging/bags/:id/stock-in` | Warehouse, Admin | 🆕 08/10/2026 — nhập thêm túi `{ quantity, note? }`: tăng tồn + ghi sổ vật tư (loại `purchase`) |
 | PATCH | `/packaging/bags/:id` | Admin | Sửa túi / ngừng dùng (`is_active: false`) |
+
+🆕 **08/10/2026 — túi theo size món:** response túi thêm `quantityOnHand`, `reorderLevel`. `PUT /product-master/:id/packaging-profile` **kiểm túi có vừa gói đã đo không** (gói sắp 3 cạnh a ≥ b ≥ t mm: cần `b + t + 10 ≤ rộng túi` và `a + t + 30 ≤ dài túi`, thử cả hai chiều xoay túi). Túi chọn quá nhỏ → **422 `PM_ZIP_BAG_TOO_SMALL`** (`details.suggestedZipBagCode` = túi nhỏ nhất còn vừa, hoặc `null` nếu không túi nào đủ lớn). Response PUT luôn có `suggestedZipBagCode` (gợi ý, không tự gán). **Túi bị trừ lúc niêm phong kiện:** mỗi món có túi = 1 túi, trừ cùng lúc với thùng (chỉ lần niêm phong đầu; mở lại bằng thùng `reusable` không trừ lần 2). Thiếu túi **không chặn** niêm phong — phần thiếu vào `parcels[].materialsShortfall`, báo Admin + Store Owner, tồn ≤ `reorderLevel` cũng báo. Sổ túi nằm chung `packaging_movements` (`GET /packaging-materials/movements?code=<mã túi>`).
 
 Lỗi: `PKG_INVALID_BAG_ID` (400), `PKG_BAG_NOT_FOUND` (404), `PKG_BAG_CODE_IN_USE` (409). Phương án đóng gói (`GET .../packaging`) có thêm `itemProfiles[]` = `{ sku, productCategory, zipBagCode, zipBagFolded }` chụp từ hồ sơ SKU lúc tính.
 

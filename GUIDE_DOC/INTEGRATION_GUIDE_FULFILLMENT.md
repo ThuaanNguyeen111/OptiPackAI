@@ -146,6 +146,11 @@ Body `{ "expected_version": 3 }`. Kế hoạch `ready → approved`, nhóm `pend
 | Đã niêm phong | Hoàn tác niêm phong trước (`POST .../parcels/:no/unseal`), rồi đổi thùng | Thùng đã trừ tồn lúc niêm phong: `reusable` dùng lại không tốn; `damaged` coi như mất (đã trừ), niêm phong lại trừ cái mới |
 Thùng chỉ bị trừ **lúc niêm phong**, theo thùng ghi trên kiện — nên đổi thùng trước khi niêm phong thì hệ thống trừ đúng thùng thật. Hệ thống xếp lại các món vào thùng mới qua validator và **giữ nguyên các lần quét đã có**. Thùng mới không xếp vừa → 422; hết tồn → 409. Hao hụt hiện trong `GET /packing/reports/feedback` (`waste`).
 
+### 🆕 Túi zip theo size món + tồn túi (08/10/2026)
+- **Chọn túi khi đo hồ sơ SKU** (`PUT /product-master/:id/packaging-profile`): hệ thống kiểm túi có **vừa** gói đã đo không; quá nhỏ → 422 `PM_ZIP_BAG_TOO_SMALL` kèm túi gợi ý. Response PUT có `suggestedZipBagCode` — FE nên **tự điền gợi ý** khi người dùng chưa chọn túi (hệ thống không tự gán; hàng không cần túi vẫn để trống). Công thức: gói sắp 3 cạnh a ≥ b ≥ t (mm), túi W×L vừa khi `b + t + 10 ≤ W` và `a + t + 30 ≤ L` (thử cả hai chiều xoay) — lề là số khởi đầu, chưa hiệu chỉnh.
+- **Tồn túi:** `POST /packaging/bags/:id/stock-in` (Warehouse/Admin). Mỗi món có túi trừ **1 túi lúc niêm phong kiện** (cùng lúc thùng). Thiếu túi không chặn đóng — ghi `materialsShortfall` + báo Admin/Store Owner.
+- Giới hạn: túi **chưa** tính vào chi phí kiện hay phí vận chuyển (giá túi chỉ để tham khảo/báo cáo sổ kho).
+
 ### 🆕 Hoàn tác xác nhận đóng gói (08/10/2026)
 `POST .../packing-plan/parcels/:parcelNo/unseal` `{ expected_version, reason, note?, box_condition, rescan? }` — mở lại 1 kiện đã niêm phong (hoặc đang bị giữ vì lệch cân) để đóng lại.
 | Tình huống | Ai làm được | Kết quả |
@@ -173,6 +178,8 @@ Hệ thống **chỉ đề xuất**, Admin tự quyết. "AI" tốt lên nhờ d
 **Tác động bước 2 (đổi thùng lúc đóng, 08/10/2026):** (1) Dữ liệu cũ: không migration; `adjustments[]` cũ không có `oldBoxOutcome` (null), sổ vật tư thêm loại `waste`. (2) Route mới, route cũ không đổi. (3) Xung đột: trừ hao hụt + cập nhật kế hoạch cùng transaction, khóa `version` của kế hoạch; kiện đã niêm phong/đã trừ thùng bị chặn nên không trừ trùng. (4) Không ảnh hưởng: niêm phong, trừ thùng, giữ chỗ thùng (kiện đổi sang thùng mới thì giữ chỗ chuyển theo). (5) Giới hạn: tồn thùng cũ không đủ để trừ hết hao hụt thì chỉ trừ phần có (ghi chú trong sổ); đổi thùng kiện đã niêm phong phải hoàn tác niêm phong trước.
 
 **Tác động bước 3 (hoàn tác niêm phong, 08/10/2026):** (1) Dữ liệu cũ: không migration; thêm loại `adjustments.kind = unseal` và `activity.kind = unseal`; bảng chuyển trạng thái nhóm thêm cạnh `packed → approved_for_packing` (các cạnh cũ không đổi). (2) Route mới, route cũ không đổi. (3) Xung đột: cập nhật kế hoạch + chuyển trạng thái nhóm cùng transaction, khóa `version`; `reusable` giữ `box_consumed` nên không trừ trùng; giữ chỗ thùng chỉ tính kiện chưa trừ nên `damaged` (box_consumed=false) giữ chỗ lại đúng. (4) Không ảnh hưởng: giao hàng (nhóm phải `packed` mới bắt đầu giao; về `approved_for_packing` thì chưa giao được cho tới khi đóng lại), tháo kiện do đơn hủy, quét/niêm phong thường. (5) Giới hạn: Lazada không hoàn tác Pack; vật tư chèn của lần niêm phong trước KHÔNG tự thu hồi khi `damaged` (coi mất) — muốn thu hồi dùng luồng tháo kiện.
+
+**Tác động bước 4 (túi zip theo size, 08/10/2026):** (1) Dữ liệu cũ: túi cũ chưa có tồn → `quantityOnHand = 0` (mặc định), `reorderLevel = 20`; không migration. Hồ sơ SKU đã `ready` với túi KHÔNG vừa vẫn giữ nguyên — chỉ kiểm lại khi xác nhận hồ sơ lần sau (có thể bị 422 nếu gửi lại cùng túi). (2) Đổi hành vi: `PUT packaging-profile` có thêm lỗi 422 `PM_ZIP_BAG_TOO_SMALL`, response thêm `suggestedZipBagCode`; niêm phong kiện giờ trừ túi và có thể thêm thông báo thiếu/sắp hết túi. (3) Xung đột: trừ túi nằm CÙNG transaction niêm phong; mở lại kiện `reusable` giữ `box_consumed` nên không trừ lần 2, `damaged` trừ túi mới. (4) Không ảnh hưởng: engine tính kế hoạch (không dùng kích thước túi), giữ chỗ thùng. (5) Giới hạn: không có sổ riêng 'túi hỏng' — túi dùng dở khi `damaged` coi như mất (đã trừ lần niêm phong trước).
 
 ### 🆕 Gợi ý kho thùng, chia đều kiện, đơn lớn (04/10/2026)
 - **Gợi ý kho thùng** (`orders[].stockSuggestion`): khi kho hết thùng vừa hơn nên đơn phải dùng thùng to/nhiều kiện, lúc tính hệ thống giải thêm 1 lần "giả định kho đủ thùng". Nếu cách đó tốt hơn (theo đúng thứ tự mục tiêu), kế hoạch ghi thùng nào thiếu (`needed` vs `available` — `available` đã trừ thùng nhóm khác đang giữ chỗ), số kiện và lấp đầy TB trước/sau, tiền chênh (`savingVnd`). Kèm 1 dòng trong `explanation`. Màn `/app/packing/:groupId` hiện thẻ "Gợi ý kho thùng" (Admin có link tới danh mục thùng). Nhãn chứng minh vẫn đúng: phương án là tối ưu **với thùng đang có**; gợi ý cho biết nhập thêm thùng thì tốt hơn bao nhiêu. Nhập thùng xong bấm "Tính lại…" để dùng.
@@ -1001,6 +1008,7 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 | 🆕 `PACKING_PACK_WEIGHTS_MISMATCH` | 400 | 04/10 — danh sách cân không khớp đúng các kiện |
 | 🆕 `PACKING_GUIDE_NOT_AVAILABLE` | 409 | 04/10 — xin hướng dẫn cho kiện không xếp được |
 | 🆕 `PM_ZIP_BAG_NOT_FOUND` | 422 | 21/09 — hồ sơ SKU chọn túi zip không có/ngừng dùng |
+| 🆕 `PM_ZIP_BAG_TOO_SMALL` | 422 | 08/10 — túi chọn không vừa gói đã đo; `details.suggestedZipBagCode` = túi nhỏ nhất còn vừa |
 | 🆕 `PM_FOLD_NOT_ALLOWED` | 422 | 22/09 — bật "có thể gập đôi" cho giày (hộp cứng) |
 | 🆕 `PKG_BAG_NOT_FOUND` / `PKG_BAG_CODE_IN_USE` / `PKG_INVALID_BAG_ID` | 404/409/400 | 21/09 — danh mục túi zip |
 | 🆕 `PKG_BOX_NOT_FOUND` / `PKG_BOX_CODE_IN_USE` / `PKG_BOX_INVALID_DIMENSIONS` / `PKG_INVALID_BOX_ID` | 404/409/400/400 | 21/09 — danh mục thùng |
