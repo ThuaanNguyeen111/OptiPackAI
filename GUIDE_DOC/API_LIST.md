@@ -159,7 +159,8 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 | GET | `/packing-plans/summary?group_ids=a,b,c` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ summaries[] }` tóm tắt tối đa 200 nhóm (trạng thái, version, nhãn, `cpSatPending`, số kiện, chi phí đóng gói, `failureReason`) — dùng cho bảng hàng chờ |
 | POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | Tính lại, thay kế hoạch `ready`/`failed`/`rejected` hiện tại (nhóm `pending_approval` tạm về `picked` rồi tính ngay). Body `{ expected_version?, exclude_box_codes?: string[], prefer?: 'fewest_parcels' \| 'cheapest' }` — `expected_version` bắt buộc khi đã có kế hoạch |
 | POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ready → approved`, nhóm `pending_approval → approved_for_packing`. Còn đơn chưa xếp hết món → 409 `PACKING_HAS_UNPLACED` |
-| POST | `/order-groups/:groupId/packing-plan/reject` | Packaging, Admin | Chuyển xử lý ngoài hệ thống: kế hoạch `rejected` (vẫn hoạt động để job không tự tính lại), nhóm về `picked`, báo Admin. Body `{ expected_version, reason }` (3–500 ký tự) |
+| POST | `/order-groups/:groupId/packing-plan/reject` | Packaging, Admin | 🔄 ĐÃ ĐỔI 08/10/2026 — từ chối **có kiểm soát**: kế hoạch `rejected` (vẫn hoạt động để job không tự tính lại), nhóm về `picked`, báo Admin + Store Owner (hoặc đích danh `owner_id`). Body `{ expected_version, reason, note?, owner_id? }` — `reason` là **mã** (xem 8a.8), `note` bắt buộc khi `OTHER`. Có hạn xử lý 2 giờ làm việc (`rejection.dueAt`), quá hạn được nhắc 1 lần. Lối ra: `recompute`, `manual` hoặc trả về lấy hàng |
+| POST | `/order-groups/:groupId/packing-plan/manual` | Packaging, Admin | 🆕 08/10/2026 — **đóng gói thủ công** sau khi từ chối. Body `{ expected_version, parcels: [{ order_id, box_code, item_keys[] }], note }`. Kiểm đủ món (mỗi món đúng 1 kiện), thùng còn tồn, không quá tải. Tạo kế hoạch mới `source: 'manual'` ở `ready`, nhóm `pending_approval` — người KHÁC duyệt như luồng thường. Lỗi: 422 `PACKING_MANUAL_PACK_INVALID`, 409 `PKG_BOX_OUT_OF_STOCK`, 409 `PACKING_WRONG_PLAN_STATUS` (chỉ khi đang `rejected`) |
 | POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/change-box` | Packaging, Admin | Đổi thùng 1 kiện: xếp lại đúng các món của kiện vào thùng mới, phải qua validator (không vừa → 422 `PACKING_BOX_DOES_NOT_FIT`, hết thùng → 409 `PKG_BOX_OUT_OF_STOCK`). Body `{ expected_version, box_code, reason, note? }` |
 | POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/move-item` | Packaging, Admin | Chuyển 1 món sang kiện khác **cùng đơn** (`to_parcel_no`) hoặc tách kiện mới (`to_parcel_no` bỏ trống/null — hệ thống chọn thùng). Cả 2 kiện bị ảnh hưởng xếp lại và validate. Sang kiện của đơn khác → 400 `PACKING_MOVE_ACROSS_ORDERS`. Body `{ expected_version, item_key, to_parcel_no?, reason, note? }` |
 | POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/guide` | Packaging, Warehouse, Admin | Hướng dẫn đóng gói từng bước cho 1 kiện (engine quyết định vị trí/thứ tự, AI Groq viết lời; chưa cấu hình/AI trả sai → câu mẫu). Body `{ regenerate? }`. Không cần `expected_version`, không đổi `version`. Giới hạn 10 lần/phút |
@@ -232,6 +233,14 @@ Ngưỡng lệch cân + luật dễ vỡ + bắt buộc quét áp dụng **ngay*
 
 Role: Store Owner, Admin. Query `from`, `to` (ISO, mặc định 30 ngày gần nhất), `staff_id?`. Sai khoảng ngày → 400 `PACKING_INVALID_DATE_RANGE`. Response `{ report: { from, to, groups, orders, parcels, avgWaitMinutes, avgPackMinutes, heldRate, acceptedDespiteDeviation, approvedIntactRate, minimalParcelRate, scanRate, packagingCostVnd, issues: {damaged, missing, wrongItem}, byStaff[] {staffId, name, groups, parcels, avgPackMinutes, heldParcels, quickPackGroups} } }`. Thời gian chỉ tính nhóm có bấm bắt đầu/quét (lối tắt `pack` không có giờ bắt đầu). Đọc tối đa 5.000 kế hoạch mỗi lần.
 
+### 8a.8 Vòng phản hồi cho Admin (🆕 08/10/2026)
+
+**Mã lý do** (dùng cho `change-box`, `move-item`, `reject`): `PRODUCT_MORE_FRAGILE_THAN_EXPECTED`, `RECOMMENDED_BOX_NOT_IN_STOCK`, `ITEM_DIMENSION_WRONG`, `ITEM_WEIGHT_WRONG`, `BOX_TOO_TIGHT`, `BOX_TOO_LOOSE`, `BOX_SPEC_WRONG`, `TOO_MANY_PARCELS`, `ITEM_DAMAGED`, `OTHER` (bắt buộc `note`). Riêng `reject` còn nhận `SPECIAL_PACKING_NEEDED`, `PLAN_UNREALISTIC`.
+
+`GET /packing/reports/feedback` — Store Owner, Admin. Query `from`, `to` (ISO, mặc định 30 ngày), `min_count` (số lần tối thiểu để sinh đề xuất, mặc định 3). Response `{ report: { plans, followedRate, adjustedPlans, rejectedPlans, byReason[], bySku[] {sku, reason, count}, byBox[] {boxCode, reason, count}, rejections {total, open, overdue, byReason[], resolvedBy {recompute, manual}}, suggestions[] {target {type: 'sku'|'box'|'settings', code}, reason, count, message, action {label, method, route}} } }`. `suggestions` chỉ là **đề xuất** (vd SKU bị báo sai kích thước ≥ 3 lần → đo lại hồ sơ SKU `PUT /product-master/:id/packaging-profile`); Admin tự quyết, hệ thống không tự sửa.
+
+Response kế hoạch thêm: `rejection {reasonCode, ownerId, dueAt, overdue, resolution, resolvedAt}`, `source` (`solver`|`manual`), `parcels[].manualLayout` (true = kiện nhập tay, không có tọa độ để dựng 3D), `adjustments[].skus/boxCodes`.
+
 ### 8a.7 Bảng ánh xạ cho FE bản `main` (route cũ đã gỡ → route mới)
 
 | FE `main` đang gọi | Thay bằng |
@@ -240,7 +249,7 @@ Role: Store Owner, Admin. Query `from`, `to` (ISO, mặc định 30 ngày gần 
 | `POST .../packaging/generate` | Không còn — kế hoạch **tự tính** khi nhóm `picked`. Muốn tính lại: `POST .../packing-plan/recompute` |
 | `POST .../packaging/approve` | `POST .../packing-plan/approve` `{ expected_version, override_reason? }` |
 | `POST .../packaging/adjust` | `POST .../packing-plan/parcels/:no/change-box` hoặc `.../move-item` |
-| `POST .../packaging/reject` | `POST .../packing-plan/reject` (chỉ khi xử lý ngoài hệ thống) hoặc `recompute` |
+| `POST .../packaging/reject` | `POST .../packing-plan/reject` `{ expected_version, reason: <mã>, note? }` — rồi `recompute` hoặc `manual` |
 | `POST .../fulfillment/pack` | Đóng có quét: `start` → `scan` → `seal` từng kiện. Đóng nhanh: `POST .../packing-plan/pack` |
 | Khóa version của nhóm (`expected_group_version`) | Khóa version của **kế hoạch** (`expected_version` = `plan.version`) |
 

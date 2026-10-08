@@ -108,7 +108,8 @@ Lấy hàng xong (group `picked`, Nghiệp vụ 3) thì hệ thống biết chí
   POST .../parcels/:no/change-box           đổi thùng 1 kiện (xếp lại + validator)
   POST .../parcels/:no/move-item            chuyển 1 món sang kiện khác cùng đơn / tách kiện mới
   POST .../packing-plan/recompute           tính lại có điều kiện (loại thùng, ưu tiên rẻ)
-  POST .../packing-plan/reject              chỉ khi phải xử lý NGOÀI hệ thống
+  POST .../packing-plan/reject              từ chối: lý do theo mã, có người xử lý + hạn
+  POST .../packing-plan/manual              đóng gói thủ công sau khi từ chối (người khác duyệt)
 ```
 
 ### Thuật toán — nói đúng khi trình bày
@@ -130,9 +131,26 @@ Body `{ "expected_version": 3 }`. Kế hoạch `ready → approved`, nhóm `pend
 ### Chỉnh tay — thay cho "từ chối, tính lại"
 - **Đổi thùng 1 kiện** `POST .../parcels/:parcelNo/change-box` `{ expected_version, box_code, reason, note? }`: xếp lại đúng các món của kiện đó vào thùng mới; không vừa → 422 `PACKING_BOX_DOES_NOT_FIT` (kèm `details.violations`); thùng không còn trống → 409 `PKG_BOX_OUT_OF_STOCK`. Kế hoạch giữ nguyên các kiện khác.
 - **Chuyển món** `POST .../parcels/:parcelNo/move-item` `{ expected_version, item_key, to_parcel_no?, reason, note? }`: sang kiện khác **cùng đơn**, hoặc bỏ trống `to_parcel_no` để tách kiện mới (hệ thống chọn thùng). Cả 2 kiện bị ảnh hưởng xếp lại và qua validator. Sang kiện của đơn khác → 400 `PACKING_MOVE_ACROSS_ORDERS` (một đơn nguồn là một phạm vi đóng).
-- `reason`: `PRODUCT_MORE_FRAGILE_THAN_EXPECTED` / `RECOMMENDED_BOX_NOT_IN_STOCK` / `OTHER` (bắt buộc `note`, thiếu → 400 `PACKING_NOTE_REQUIRED`). Mỗi lần chỉnh ghi 1 dòng `adjustments[]` (ai, lúc nào, vì sao) và **tăng `version`** — FE dùng `plan` trả về cho thao tác kế tiếp.
+- `reason` (🔄 mở rộng 08/10/2026): `PRODUCT_MORE_FRAGILE_THAN_EXPECTED`, `RECOMMENDED_BOX_NOT_IN_STOCK`, `ITEM_DIMENSION_WRONG`, `ITEM_WEIGHT_WRONG`, `BOX_TOO_TIGHT`, `BOX_TOO_LOOSE`, `BOX_SPEC_WRONG`, `TOO_MANY_PARCELS`, `ITEM_DAMAGED`, `OTHER` (bắt buộc `note`, thiếu → 400 `PACKING_NOTE_REQUIRED`). Lý do là dữ liệu để Admin cải thiện gợi ý — xem "Vòng phản hồi" bên dưới. Mỗi lần chỉnh ghi 1 dòng `adjustments[]` (ai, lúc nào, vì sao) và **tăng `version`** — FE dùng `plan` trả về cho thao tác kế tiếp.
 - **Tính lại có điều kiện** `POST .../packing-plan/recompute` `{ expected_version, exclude_box_codes?, prefer? }`: dùng khi thực tế khác dữ liệu (thùng hỏng → loại thùng; muốn rẻ hơn → `prefer: "cheapest"`, chế độ này không chạy chứng minh). Kế hoạch cũ chuyển `superseded`, tính mới ngay (đồng bộ, vài trăm ms tới vài giây).
-- **`reject`** `{ expected_version, reason }` (3–500 ký tự): **chỉ** khi nhóm phải đóng ngoài hệ thống (thùng gỗ, hàng đặc biệt). Kế hoạch `rejected` vẫn giữ để job không tự tính lại; nhóm về `picked`; thông báo Admin (`packaging_rejected`). Muốn quay lại hệ thống → `recompute`.
+- **`reject`** (🔄 ĐÃ ĐỔI 08/10/2026) `{ expected_version, reason, note?, owner_id? }`: `reason` là **mã** (không còn chữ tự do). Kế hoạch `rejected` vẫn giữ để job không tự tính lại; nhóm về `picked`. Có **hạn xử lý 2 giờ làm việc** (`rejection.dueAt`); quá hạn hệ thống nhắc 1 lần (Admin, Store Owner, người được giao). Thông báo `packaging_rejected` gửi Admin + Store Owner, hoặc đích danh `owner_id`. **Từ chối không còn là ngõ cụt** — phải kết thúc bằng một trong 3 cách:
+  1. **Sửa dữ liệu rồi tính lại** `POST .../recompute` (ghi `rejection.resolution = 'recompute'`).
+  2. **Đóng gói thủ công** `POST .../packing-plan/manual` `{ expected_version, parcels: [{ order_id, box_code, item_keys[] }], note }`: người xử lý nhập kiện thật (thùng nhân viên thực tế dùng + các món trong từng kiện). Hệ thống kiểm: mỗi món đúng 1 kiện, thùng còn tồn, không quá tải thùng (không kiểm hình học). Cố gắng xếp 3D vào thùng đó; không xếp được thì kiện `manualLayout: true` (không có tọa độ thật). Tạo kế hoạch mới `source: 'manual'` ở `ready` → người **khác** duyệt (hai cặp mắt) → quét, niêm phong, trừ thùng/vật tư, cân, báo sàn như luồng thường.
+  3. **Trả về lấy hàng** khi hàng hỏng: `POST .../packing-plan/report-issue` (đã có).
+
+### 🆕 Vòng phản hồi — nhân viên làm khác gợi ý thì Admin cải thiện gì (08/10/2026)
+Gợi ý chỉ là gợi ý: nhân viên có thể đổi thùng, chuyển món, từ chối. Mỗi lần làm khác đều có **mã lý do** + SKU + thùng bị chạm. `GET /packing/reports/feedback?from&to&min_count` (Store Owner, Admin) gom theo lý do × SKU × thùng và sinh **đề xuất**, ví dụ:
+| Lặp lại | Admin làm gì |
+| ------- | ------------ |
+| `ITEM_DIMENSION_WRONG`, `BOX_TOO_TIGHT/LOOSE` trên 1 SKU | Đo lại hồ sơ SKU (`PUT /product-master/:id/packaging-profile`) |
+| `ITEM_WEIGHT_WRONG`, lệch cân vì `PRODUCT_WEIGHT_WRONG` | Sửa cân nặng SKU |
+| `PRODUCT_MORE_FRAGILE_THAN_EXPECTED`, `ITEM_DAMAGED` | Bật dễ vỡ / giảm tải chồng của SKU, hoặc tăng đệm trong `/packing/settings` |
+| `RECOMMENDED_BOX_NOT_IN_STOCK` trên 1 thùng | Nhập thùng, tăng `reorder_level` |
+| `BOX_SPEC_WRONG` | Sửa số đo thùng trong danh mục |
+| `TOO_MANY_PARCELS`, `SPECIAL_PACKING_NEEDED`, `PLAN_UNREALISTIC` | Xem cài đặt đóng gói, thêm cỡ thùng |
+Hệ thống **chỉ đề xuất**, Admin tự quyết. "AI" tốt lên nhờ dữ liệu đầu vào và tham số đúng hơn — không tự học máy; dùng `followedRate` (tỷ lệ kế hoạch được làm đúng gợi ý) so trước/sau mỗi lần sửa để chứng minh.
+
+**Tác động (08/10/2026):** (1) Dữ liệu cũ: không migration; kế hoạch cũ `source = solver`, `rejection_reason` chữ tự do đọc bình thường (`rejection.reasonCode = null`). (2) Đổi hành vi: `reject` đổi `reason` từ chữ tự do sang **mã** (FE phải gửi mã + `note`), thông báo từ chối giờ gửi cả Store Owner; `recompute` từ kế hoạch `rejected` ghi `resolution`. (3) Xung đột: `manual` thay kế hoạch `rejected` bằng kế hoạch mới trong 1 transaction, khóa `version`. (4) Không ảnh hưởng: tính kế hoạch, quét/niêm phong, giữ chỗ thùng (kế hoạch `rejected` không giữ chỗ). (5) Giới hạn: kiện `manualLayout` không dựng được 3D/hướng dẫn từng bước; báo cáo feedback tính trực tiếp (tối đa 5.000 kế hoạch).
 
 ### 🆕 Gợi ý kho thùng, chia đều kiện, đơn lớn (04/10/2026)
 - **Gợi ý kho thùng** (`orders[].stockSuggestion`): khi kho hết thùng vừa hơn nên đơn phải dùng thùng to/nhiều kiện, lúc tính hệ thống giải thêm 1 lần "giả định kho đủ thùng". Nếu cách đó tốt hơn (theo đúng thứ tự mục tiêu), kế hoạch ghi thùng nào thiếu (`needed` vs `available` — `available` đã trừ thùng nhóm khác đang giữ chỗ), số kiện và lấp đầy TB trước/sau, tiền chênh (`savingVnd`). Kèm 1 dòng trong `explanation`. Màn `/app/packing/:groupId` hiện thẻ "Gợi ý kho thùng" (Admin có link tới danh mục thùng). Nhãn chứng minh vẫn đúng: phương án là tối ưu **với thùng đang có**; gợi ý cho biết nhập thêm thùng thì tốt hơn bao nhiêu. Nhập thùng xong bấm "Tính lại…" để dùng.
