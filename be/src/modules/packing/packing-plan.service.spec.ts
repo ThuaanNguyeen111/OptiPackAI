@@ -68,24 +68,27 @@ function fakePlanModel() {
     for (const [k, v] of Object.entries((update.$push ?? {}) as Record<string, unknown>))
       d[k] = [...((d[k] as unknown[] | undefined) ?? []), v];
   };
+  const createOne = (data: Record<string, unknown>): Promise<Doc> => {
+    if (data.is_active && docs.some((d) => d.is_active && String(d.order_group_id) === String(data.order_group_id)))
+      return Promise.reject(Object.assign(new Error('dup'), { code: 11000 }));
+    const doc = {
+      _id: new Types.ObjectId(),
+      orders: [],
+      parcels: [],
+      adjustments: [],
+      issues: [],
+      activity: [],
+      assigned_packer_id: null,
+      ...data,
+    } as Doc;
+    docs.push(doc);
+    return Promise.resolve(hydrate(doc));
+  };
   const model = {
     docs,
-    create: jest.fn((data: Record<string, unknown>) => {
-      if (data.is_active && docs.some((d) => d.is_active && String(d.order_group_id) === String(data.order_group_id)))
-        return Promise.reject(Object.assign(new Error('dup'), { code: 11000 }));
-      const doc = {
-        _id: new Types.ObjectId(),
-        orders: [],
-        parcels: [],
-        adjustments: [],
-        issues: [],
-        activity: [],
-        assigned_packer_id: null,
-        ...data,
-      } as Doc;
-      docs.push(doc);
-      return Promise.resolve(hydrate(doc));
-    }),
+    create: jest.fn((input: Record<string, unknown> | Record<string, unknown>[]) =>
+      Array.isArray(input) ? Promise.all(input.map(createOne)) : createOne(input),
+    ),
     findOne: jest.fn((f: Record<string, unknown>) => {
       const found = docs.filter((d) => matches(d, f)).sort((a, b) => (b.revision as number) - (a.revision as number))[0];
       const result = found ? hydrate(found) : null;
@@ -384,14 +387,129 @@ describe('PackingPlanService', () => {
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
     });
 
-    it('reject: kế hoạch rejected (vẫn hoạt động — cron không tự tính lại), nhóm về picked, báo Admin', async () => {
+    it('reject: lý do theo mã, có hạn xử lý, kế hoạch rejected vẫn hoạt động, nhóm về picked, báo Admin + Store Owner', async () => {
       const plan = await computed();
-      const rejected = await service.reject(groupId, plan.version, 'Đóng thùng gỗ ngoài hệ thống', userId);
+      const rejected = await service.reject(groupId, plan.version, 'BOX_TOO_TIGHT', 'Thùng chật hơn dự kiến', userId);
       expect(rejected.status).toBe('rejected');
       expect(rejected.is_active).toBe(true);
-      expect(rejected.rejection_reason).toBe('Đóng thùng gỗ ngoài hệ thống');
+      expect(rejected.rejection_reason_code).toBe('BOX_TOO_TIGHT');
+      expect(rejected.rejection_reason).toBe('BOX_TOO_TIGHT: Thùng chật hơn dự kiến');
+      expect(rejected.rejection_due_at).toBeInstanceOf(Date);
+      expect(rejected.rejection_owner_id).toBeNull();
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PICKED);
-      expect(notificationsService.notify).toHaveBeenCalledTimes(2); // chờ duyệt + bị từ chối
+      expect(notificationsService.notify).toHaveBeenCalledTimes(3); // chờ duyệt + Admin + Store Owner
+    });
+
+    it('reject: giao đích danh người xử lý thì chỉ báo người đó', async () => {
+      const plan = await computed();
+      const owner = new Types.ObjectId().toString();
+      const rejected = await service.reject(groupId, plan.version, 'ITEM_DAMAGED', undefined, userId, owner);
+      expect(rejected.rejection_owner_id?.toString()).toBe(owner);
+      expect(notificationsService.notify).toHaveBeenCalledTimes(2); // chờ duyệt + người xử lý
+    });
+
+    it('reject: lý do OTHER bắt buộc ghi chú', async () => {
+      const plan = await computed();
+      await expect(service.reject(groupId, plan.version, 'OTHER', undefined, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.NOTE_REQUIRED,
+      });
+    });
+
+    it('recompute từ kế hoạch bị từ chối: ghi cách xử lý là recompute', async () => {
+      const plan = await computed();
+      const rejected = await service.reject(groupId, plan.version, 'TOO_MANY_PARCELS', undefined, userId);
+      await service.recompute(groupId, { expected_version: rejected.version });
+      expect(planModel.docs[0]?.rejection_resolution).toBe('recompute');
+      expect(planModel.docs[0]?.rejection_resolved_at).toBeInstanceOf(Date);
+    });
+
+    describe('đóng gói thủ công sau khi từ chối', () => {
+      async function rejectedPlan(): Promise<PackingPlanDocument> {
+        const plan = await computed();
+        return service.reject(groupId, plan.version, 'SPECIAL_PACKING_NEEDED', undefined, userId);
+      }
+
+      /** Mỗi đơn gói tất cả món vào 1 kiện thùng `box` (cho dễ kiểm). */
+      function onePerOrder(plan: PackingPlanDocument, box: string): { order_id: string; box_code: string; item_keys: string[] }[] {
+        return plan.orders.map((o) => ({
+          order_id: o.order_id.toString(),
+          box_code: box,
+          item_keys: plan.parcels
+            .filter((p) => p.order_id.equals(o.order_id))
+            .flatMap((p) => p.placements.map((q) => q.item_key)),
+        }));
+      }
+
+      it('nhập đủ món + thùng còn tồn → kế hoạch mới source=manual, ready, nhóm pending_approval, kế hoạch cũ superseded', async () => {
+        const rejected = await rejectedPlan();
+        const created = await service.manualPack(
+          groupId,
+          { expected_version: rejected.version, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'Khách yêu cầu gói chung' },
+          userId,
+        );
+        expect(created.source).toBe('manual');
+        expect(created.status).toBe('ready');
+        expect(created.revision).toBe(rejected.revision + 1);
+        expect(created.parcels).toHaveLength(2);
+        expect(created.adjustments[0]?.kind).toBe('manual_pack');
+        expect(created.adjustments[0]?.box_codes).toEqual(['SAMPLE-L']);
+        expect(created.orders.every((o) => o.status === 'ok' && o.proof === 'heuristic')).toBe(true);
+        expect(planModel.docs[0]?.status).toBe('superseded');
+        expect(planModel.docs[0]?.rejection_resolution).toBe('manual');
+        expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
+      });
+
+      it('chỉ dùng được khi kế hoạch đang bị từ chối', async () => {
+        const plan = await computed();
+        await expect(
+          service.manualPack(groupId, { expected_version: plan.version, parcels: onePerOrder(plan, 'SAMPLE-L'), note: 'x y z' }, userId),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+      });
+
+      it('thiếu món → MANUAL_PACK_INVALID', async () => {
+        const rejected = await rejectedPlan();
+        const parcels = onePerOrder(rejected, 'SAMPLE-L');
+        parcels[0]?.item_keys.pop();
+        await expect(
+          service.manualPack(groupId, { expected_version: rejected.version, parcels, note: 'thiếu món' }, userId),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.MANUAL_PACK_INVALID });
+      });
+
+      it('món trùng ở 2 kiện → MANUAL_PACK_INVALID', async () => {
+        const rejected = await rejectedPlan();
+        const parcels = onePerOrder(rejected, 'SAMPLE-L');
+        const first = parcels[0];
+        if (!first) throw new Error('thiếu dữ liệu test');
+        const dup = first.item_keys[0];
+        if (!dup) throw new Error('thiếu dữ liệu test');
+        parcels.push({ ...first, item_keys: [dup] });
+        await expect(
+          service.manualPack(groupId, { expected_version: rejected.version, parcels, note: 'trùng món' }, userId),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.MANUAL_PACK_INVALID });
+      });
+
+      it('thùng hết tồn → PKG_BOX_OUT_OF_STOCK', async () => {
+        const rejected = await rejectedPlan();
+        stock.set('SAMPLE-L', 1); // cần 2 kiện thùng L
+        await expect(
+          service.manualPack(
+            groupId,
+            { expected_version: rejected.version, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'hết thùng' },
+            userId,
+          ),
+        ).rejects.toMatchObject({ errorCode: 'PKG_BOX_OUT_OF_STOCK' });
+      });
+
+      it('version cũ → xung đột', async () => {
+        const rejected = await rejectedPlan();
+        await expect(
+          service.manualPack(
+            groupId,
+            { expected_version: rejected.version - 1, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'cũ rồi' },
+            userId,
+          ),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });
+      });
     });
   });
 
@@ -834,10 +952,34 @@ describe('PackingPlanService', () => {
           select: () => ({ sort: () => ({ limit: () => ({ lean: () => Promise.resolve([{ _id: group._id }]) }) }) }),
         })),
       };
-      const job = new PackingJobService(groupModel as never, planModel as never, service);
+      const job = new PackingJobService(groupModel as never, planModel as never, service, notificationsService as never);
       expect(await job.computePending()).toBe(1);
       group.fulfillment_status = GroupFulfillmentStatus.PICKED; // giả lập: vẫn picked nhưng đã có kế hoạch
       expect(await job.computePending()).toBe(0);
+    });
+
+    it('nhắc kế hoạch bị từ chối quá hạn: Admin + Store Owner + người được giao, mỗi kế hoạch đúng 1 lần', async () => {
+      const owner = new Types.ObjectId();
+      const overdue = [
+        { _id: new Types.ObjectId(), order_group_id: group._id, rejection_owner_id: owner, rejection_reason: 'BOX_TOO_TIGHT' },
+        { _id: new Types.ObjectId(), order_group_id: group._id, rejection_owner_id: null, rejection_reason: 'OTHER: x' },
+      ];
+      const claimed = new Set<string>();
+      const overduePlanModel = {
+        find: jest.fn(() => ({ select: () => ({ limit: () => ({ lean: () => Promise.resolve(overdue) }) }) })),
+        updateOne: jest.fn((f: { _id: Types.ObjectId }) => {
+          const first = !claimed.has(f._id.toString());
+          claimed.add(f._id.toString());
+          return Promise.resolve({ matchedCount: first ? 1 : 0 });
+        }),
+      };
+      const job = new PackingJobService({} as never, overduePlanModel as never, service, notificationsService as never);
+      expect(await job.remindOverdueRejections()).toBe(2);
+      // kế hoạch 1: Admin + Store Owner + owner = 3; kế hoạch 2: Admin + Store Owner = 2
+      expect(notificationsService.notify).toHaveBeenCalledTimes(5);
+      notificationsService.notify.mockClear();
+      expect(await job.remindOverdueRejections()).toBe(0); // đã nhắc rồi → không nhắc lại
+      expect(notificationsService.notify).not.toHaveBeenCalled();
     });
   });
 });

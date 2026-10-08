@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsMongoId,
   IsNumber,
   IsOptional,
   IsString,
@@ -16,10 +17,20 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-/** Lý do chỉnh tay kế hoạch (giữ đúng bộ lý do đã dùng từ UC-04). */
+/**
+ * Lý do làm KHÁC gợi ý (chỉnh tay, từ chối). Mỗi mã ứng với một việc Admin
+ * sửa được ở dữ liệu đầu vào — xem báo cáo feedback (packing-feedback.service).
+ */
 export const ADJUSTMENT_REASONS = [
   'PRODUCT_MORE_FRAGILE_THAN_EXPECTED',
   'RECOMMENDED_BOX_NOT_IN_STOCK',
+  'ITEM_DIMENSION_WRONG',
+  'ITEM_WEIGHT_WRONG',
+  'BOX_TOO_TIGHT',
+  'BOX_TOO_LOOSE',
+  'BOX_SPEC_WRONG',
+  'TOO_MANY_PARCELS',
+  'ITEM_DAMAGED',
   'OTHER',
 ] as const;
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
@@ -109,12 +120,60 @@ export class MoveItemDto extends VersionedDto {
   note?: string;
 }
 
+/** Lý do từ chối = bộ lý do chỉnh tay + 2 lý do chỉ có ở từ chối. */
+export const REJECT_REASONS = [...ADJUSTMENT_REASONS, 'SPECIAL_PACKING_NEEDED', 'PLAN_UNREALISTIC'] as const;
+export type RejectReason = (typeof REJECT_REASONS)[number];
+
 export class RejectPlanDto extends VersionedDto {
-  @ApiProperty({ example: 'Hàng cần đóng thùng gỗ, xử lý ngoài hệ thống', minLength: 3, maxLength: 500 })
-  @IsString({ message: 'reason phải là chuỗi' })
-  @MinLength(3, { message: 'reason tối thiểu 3 ký tự' })
-  @MaxLength(500, { message: 'reason tối đa 500 ký tự' })
-  reason!: string;
+  @ApiProperty({ enum: REJECT_REASONS, description: 'Mã lý do (thay cho chữ tự do trước 08/10/2026).' })
+  @IsIn(REJECT_REASONS, { message: 'reason không hợp lệ' })
+  reason!: RejectReason;
+
+  @ApiProperty({ required: false, minLength: 3, maxLength: 500, description: 'Bắt buộc khi reason = OTHER.' })
+  @IsOptional()
+  @IsString({ message: 'note phải là chuỗi' })
+  @MaxLength(500, { message: 'note tối đa 500 ký tự' })
+  note?: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Người chịu trách nhiệm xử lý. Bỏ trống = báo Admin + Store Owner, ai nhận thì giao lại sau.',
+  })
+  @IsOptional()
+  @IsMongoId({ message: 'owner_id phải là ObjectId hợp lệ' })
+  owner_id?: string;
+}
+
+export class ManualParcelDto {
+  @ApiProperty({ description: 'Đơn của kiện (phải thuộc kế hoạch).' })
+  @IsMongoId({ message: 'order_id phải là ObjectId hợp lệ' })
+  order_id!: string;
+
+  @ApiProperty({ example: 'SAMPLE-M', description: 'Thùng nhân viên THỰC TẾ dùng (trong danh mục, còn tồn).' })
+  @IsString({ message: 'box_code phải là chuỗi' })
+  @MinLength(1, { message: 'box_code không được trống' })
+  box_code!: string;
+
+  @ApiProperty({ type: [String], example: ['TEE#1', 'TEE#2'], description: 'Các món (item_key) nằm trong kiện.' })
+  @IsArray({ message: 'item_keys phải là mảng' })
+  @ArrayMinSize(1, { message: 'Mỗi kiện cần ít nhất 1 món' })
+  @IsString({ each: true, message: 'Mỗi item_key phải là chuỗi' })
+  item_keys!: string[];
+}
+
+export class ManualPackDto extends VersionedDto {
+  @ApiProperty({ type: [ManualParcelDto], description: 'Toàn bộ kiện thật của nhóm — phủ đủ mọi món, mỗi món đúng 1 kiện.' })
+  @IsArray({ message: 'parcels phải là mảng' })
+  @ArrayMinSize(1, { message: 'Cần ít nhất 1 kiện' })
+  @ValidateNested({ each: true })
+  @Type(() => ManualParcelDto)
+  parcels!: ManualParcelDto[];
+
+  @ApiProperty({ minLength: 3, maxLength: 500, description: 'Vì sao đóng thủ công (ghi nhận).' })
+  @IsString({ message: 'note phải là chuỗi' })
+  @MinLength(3, { message: 'note tối thiểu 3 ký tự' })
+  @MaxLength(500, { message: 'note tối đa 500 ký tự' })
+  note!: string;
 }
 
 export class GuideDto {

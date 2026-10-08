@@ -152,6 +152,7 @@ async function main(): Promise<void> {
       for (const c of cartons) {
         const box = boxes.get(c.box_code);
         parcels.push({
+          manual_layout: false,
           parcel_no: parcels.length + 1,
           order_id: orderId,
           platform_order_id: rec.platform_order_id,

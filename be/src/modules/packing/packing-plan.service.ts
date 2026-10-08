@@ -9,6 +9,7 @@ import type { PackerConfig } from '../../config/packer.config';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
+import { addBusinessHours } from '../order-groups/utils/add-business-hours.util';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { PackagingBoxService } from '../packaging/packaging-box.service';
 import { PackagingMaterialService } from '../packaging/packaging-material.service';
@@ -43,7 +44,7 @@ import {
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { freshParcelSession, renumberParcels, type Plain } from './utils/parcels.util';
 import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
-import type { ChangeBoxDto, MoveItemDto, RecomputePlanDto } from './dto/packing-plan.dto';
+import type { ChangeBoxDto, ManualPackDto, MoveItemDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
 import { PackingSettingsService } from './packing-settings.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 
@@ -56,6 +57,9 @@ import { PackerAssignmentService } from './packer-assignment.service';
 function unitOptionsOf(plan: { solver: { options: { fragile_cushion_mm?: number } } }): { fragileCushionMm: number } {
   return { fragileCushionMm: plan.solver.options.fragile_cushion_mm ?? DEFAULT_FRAGILE_CUSHION_MM };
 }
+
+/** Hạn xử lý kế hoạch bị từ chối (giờ làm việc, 8h-17h, tính cả Thứ 7). */
+export const REJECTION_DUE_BUSINESS_HOURS = 2;
 
 interface Allocation {
   order_id: string;
@@ -101,6 +105,7 @@ function toPlanParcel(
     },
     placements: p.placements.map((q) => ({ ...q, folded: q.folded === true })),
     fill_ratio: p.fill_ratio,
+    manual_layout: false,
     items_weight_g: p.items_weight_g,
     estimated_weight_g: p.estimated_package_weight_g,
     volumetric_weight_g: p.volumetric_weight_g,
@@ -416,7 +421,12 @@ export class PackingPlanService {
       await this.runInTransaction(async (session) => {
         const superseded = await this.planModel.updateOne(
           { _id: current._id, version: current.version, is_active: true },
-          { $set: { is_active: false, status: 'superseded' } },
+          {
+            $set:
+              current.status === 'rejected'
+                ? { is_active: false, status: 'superseded', rejection_resolution: 'recompute', rejection_resolved_at: new Date() }
+                : { is_active: false, status: 'superseded' },
+          },
           { session },
         );
         if (superseded.matchedCount === 0) throw this.versionConflict(groupId);
@@ -490,16 +500,29 @@ export class PackingPlanService {
     });
   }
 
-  /** Chuyển xử lý ngoài hệ thống: kế hoạch `rejected` (vẫn hoạt động để cron không tự tính lại), nhóm về `picked`. */
+  /**
+   * Từ chối kế hoạch (08/10/2026: có kiểm soát). Lý do theo MÃ, có người chịu
+   * trách nhiệm + hạn xử lý (giờ làm việc). Kế hoạch `rejected` vẫn hoạt động để
+   * cron không tự tính lại; lối ra: tính lại (`recompute`), đóng thủ công
+   * (`manualPack`) hoặc trả về lấy hàng — không còn "xử lý ngoài hệ thống".
+   */
   async reject(
     groupId: string,
     expectedVersion: number,
-    reason: string,
+    reason: RejectReason,
+    note: string | undefined,
     userId: string,
+    ownerId?: string,
   ): Promise<PackingPlanDocument> {
+    this.assertNote(reason, note);
     const plan = await this.requireActivePlan(groupId);
     this.assertStatus(plan, 'ready', 'từ chối');
     if (plan.version !== expectedVersion) throw this.versionConflict(groupId);
+    const owner = ownerId ? this.objectId(ownerId) : null;
+    const trimmedNote = note?.trim() ? note.trim() : null;
+    const now = new Date();
+    const dueAt = addBusinessHours(now, REJECTION_DUE_BUSINESS_HOURS);
+    const readable = trimmedNote ? `${reason}: ${trimmedNote}` : reason;
     const updated = await this.runInTransaction(async (session) => {
       const doc = await this.planModel.findOneAndUpdate(
         { _id: plan._id, version: expectedVersion, status: 'ready', is_active: true },
@@ -507,8 +530,11 @@ export class PackingPlanService {
           $set: {
             status: 'rejected',
             rejected_by: new Types.ObjectId(userId),
-            rejected_at: new Date(),
-            rejection_reason: reason.trim(),
+            rejected_at: now,
+            rejection_reason: readable,
+            rejection_reason_code: reason,
+            rejection_owner_id: owner,
+            rejection_due_at: dueAt,
           },
           $inc: { version: 1 },
         },
@@ -524,8 +550,217 @@ export class PackingPlanService {
       );
       return doc;
     });
-    await this.notifyRejected(groupId, reason.trim());
+    await this.notifyRejected(groupId, readable, owner?.toString() ?? null, dueAt);
     return updated;
+  }
+
+  /**
+   * Đóng gói THỦ CÔNG sau khi từ chối: người xử lý nhập kiện thật (thùng + món).
+   * Hệ thống kiểm: đủ món (mỗi món đúng 1 kiện), thùng có trong danh mục và còn
+   * tồn, tổng cân không vượt tải thùng. Cố gắng xếp hình học vào thùng đó; nếu
+   * không xếp được thì giữ kiện không tọa độ (`manual_layout`). Kế hoạch mới
+   * `source: manual` ở trạng thái `ready` — người KHÁC duyệt như luồng thường
+   * (hai cặp mắt), rồi quét, niêm phong, trừ tồn, cân, báo sàn.
+   */
+  async manualPack(groupId: string, dto: ManualPackDto, userId: string): Promise<PackingPlanDocument> {
+    const plan = await this.requireActivePlan(groupId);
+    this.assertStatus(plan, 'rejected', 'đóng thủ công');
+    if (plan.version !== dto.expected_version) throw this.versionConflict(groupId);
+
+    const allocations = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
+    const unitsByKey = new Map<string, { orderId: string; unit: PackingUnit }>();
+    for (const a of allocations) {
+      for (const unit of expandToUnits(a.items, unitOptionsOf(plan))) {
+        unitsByKey.set(unit.item_key, { orderId: a.order_id, unit });
+      }
+    }
+    const orderIds = new Set(plan.orders.filter((o) => o.status !== 'canceled').map((o) => o.order_id.toString()));
+    const seen = new Set<string>();
+    for (const p of dto.parcels) {
+      if (!orderIds.has(p.order_id)) {
+        throw this.manualInvalid(`Đơn ${p.order_id} không thuộc kế hoạch này.`, { orderId: p.order_id });
+      }
+      for (const key of p.item_keys) {
+        const entry = unitsByKey.get(key);
+        if (entry?.orderId !== p.order_id) {
+          throw this.manualInvalid(`Món "${key}" không thuộc đơn ${p.order_id}.`, { itemKey: key });
+        }
+        if (seen.has(key)) throw this.manualInvalid(`Món "${key}" xuất hiện trong hơn một kiện.`, { itemKey: key });
+        seen.add(key);
+      }
+    }
+    const missing = [...unitsByKey.keys()].filter((k) => !seen.has(k));
+    if (missing.length > 0) {
+      throw this.manualInvalid(`Còn ${String(missing.length)} món chưa nằm trong kiện nào.`, { missing });
+    }
+
+    // Thùng: có trong danh mục, đủ tồn cho số kiện dùng.
+    const availability = await this.boxService.listAvailability({ planId: plan._id });
+    const used = new Map<string, number>();
+    for (const p of dto.parcels) used.set(p.box_code, (used.get(p.box_code) ?? 0) + 1);
+    const boxes = new Map<string, BoxSpec>();
+    for (const [code, count] of used) {
+      boxes.set(code, await this.boxService.findActiveSpecByCode(code));
+      const stock = availability.get(code);
+      if (!stock || stock.available < count) {
+        throw new AppException(
+          'PKG_BOX_OUT_OF_STOCK',
+          `Kho không đủ thùng "${code}" (cần ${String(count)}, còn trống ${String(stock?.available ?? 0)}).`,
+          HttpStatus.CONFLICT,
+          { boxCode: code },
+        );
+      }
+    }
+
+    const materials = await this.materialService.planningData();
+    const parcels: PlanParcel[] = [];
+    for (const input of dto.parcels) {
+      const box = boxes.get(input.box_code);
+      if (!box) throw this.manualInvalid(`Thùng "${input.box_code}" không có trong danh mục.`, { boxCode: input.box_code });
+      const units = input.item_keys.map((k) => (unitsByKey.get(k) as { unit: PackingUnit }).unit);
+      const weight = units.reduce((sum, u) => sum + u.weight_g, 0);
+      if (weight > box.max_load_g) {
+        throw this.manualInvalid(
+          `Kiện thùng "${box.code}" nặng ${String(weight)} g, vượt tải tối đa ${String(box.max_load_g)} g.`,
+          { boxCode: box.code, weightG: weight },
+        );
+      }
+      const orderId = new Types.ObjectId(input.order_id);
+      const platformOrderId = plan.orders.find((o) => o.order_id.equals(orderId))?.platform_order_id ?? null;
+      const solved = solveOrder(units, [box], { materials });
+      const [only] = solved.parcels;
+      parcels.push(
+        solved.status === 'ok' && solved.parcels.length === 1 && only
+          ? toPlanParcel(only, orderId, platformOrderId, parcels.length + 1, fragileKeysOf(units))
+          : this.manualLayoutParcel(box, units, orderId, platformOrderId, parcels.length + 1),
+      );
+    }
+
+    const adjustment: PackingPlan['adjustments'][number] = {
+      kind: 'manual_pack',
+      detail: `Đóng thủ công ${String(parcels.length)} kiện sau khi từ chối`,
+      reason: 'OTHER',
+      note: dto.note.trim(),
+      by: new Types.ObjectId(userId),
+      at: new Date(),
+      skus: [...new Set([...seen].map((k) => (unitsByKey.get(k) as { unit: PackingUnit }).unit.sku))],
+      box_codes: [...used.keys()],
+    };
+    const orders = plan.orders.map((o) => ({
+      ...this.plain(o),
+      status: o.status === 'canceled' ? o.status : ('ok' as const),
+      unplaced: [],
+      proof: 'heuristic' as const,
+      cp_sat: 'skipped' as const,
+      strategy: 'manual',
+      stock_suggestion: null,
+      over_parcel_limit: false,
+      explanation: [`Đóng thủ công do kế hoạch bị từ chối: ${dto.note.trim()}`],
+    }));
+
+    return this.runInTransaction(async (session) => {
+      const old = await this.planModel.updateOne(
+        { _id: plan._id, version: dto.expected_version, status: 'rejected', is_active: true },
+        {
+          $set: {
+            is_active: false,
+            status: 'superseded',
+            rejection_resolution: 'manual',
+            rejection_resolved_at: new Date(),
+          },
+        },
+        { session },
+      );
+      if (old.matchedCount === 0) throw this.versionConflict(groupId);
+      const [created] = await this.planModel.create(
+        [
+          {
+            order_group_id: plan.order_group_id,
+            revision: plan.revision + 1,
+            version: 1,
+            is_active: true,
+            status: 'ready',
+            source: 'manual',
+            orders,
+            parcels: renumberParcels(parcels, plan.orders.map((o) => o.order_id)),
+            item_profiles: plan.item_profiles.map((i) => this.plain(i)),
+            adjustments: [adjustment],
+            solver: this.plain(plan.solver),
+            assigned_packer_id: plan.assigned_packer_id,
+            assigned_packer_at: plan.assigned_packer_at,
+          },
+        ],
+        { session },
+      );
+      if (!created) throw this.versionConflict(groupId);
+      const group = await this.orderGroupsService.findOrderGroupById(groupId);
+      await this.orderGroupsService.transitionFulfillmentStatus(
+        groupId,
+        GroupFulfillmentStatus.PENDING_APPROVAL,
+        group.__v,
+        session,
+      );
+      return created;
+    });
+  }
+
+  /** Kiện nhập tay mà bộ giải không xếp được: liệt kê món, không có tọa độ thật. */
+  private manualLayoutParcel(
+    box: BoxSpec,
+    units: PackingUnit[],
+    orderId: Types.ObjectId,
+    platformOrderId: string | null,
+    parcelNo: number,
+  ): PlanParcel {
+    const itemsWeight = units.reduce((sum, u) => sum + u.weight_g, 0);
+    const itemsVolume = units.reduce((sum, u) => sum + u.length_mm * u.width_mm * u.height_mm, 0);
+    const innerVolume = box.inner.length_mm * box.inner.width_mm * box.inner.height_mm;
+    const outerVolume = box.outer.length_mm * box.outer.width_mm * box.outer.height_mm;
+    return {
+      ...freshParcelSession(units.some((u) => u.is_fragile)),
+      parcel_no: parcelNo,
+      order_id: orderId,
+      platform_order_id: platformOrderId,
+      box: {
+        code: box.code,
+        name: box.name,
+        inner_mm: { ...box.inner },
+        outer_mm: { ...box.outer },
+        tare_g: box.tare_g,
+        max_load_g: box.max_load_g,
+        price_vnd: box.price_vnd,
+      },
+      placements: units.map((u, i) => ({
+        item_key: u.item_key,
+        sku: u.sku,
+        step: i + 1,
+        x: 0,
+        y: 0,
+        z: 0,
+        dx: u.length_mm,
+        dy: u.width_mm,
+        dz: u.height_mm,
+        orientation: 'LWH',
+        folded: false,
+      })),
+      fill_ratio: innerVolume > 0 ? Math.min(1, itemsVolume / innerVolume) : 0,
+      manual_layout: true,
+      items_weight_g: itemsWeight,
+      estimated_weight_g: itemsWeight + box.tare_g,
+      volumetric_weight_g: Math.round(outerVolume / 5),
+      materials: [],
+      materials_weight_g: 0,
+      materials_cost_vnd: 0,
+      shipping_cost_vnd: null,
+      guide: null,
+      actual_weight_kg: null,
+      is_abnormal: false,
+      materials_shortfall: [],
+    };
+  }
+
+  private manualInvalid(message: string, details: Record<string, unknown>): AppException {
+    return new AppException(PACKING_ERROR_CODES.MANUAL_PACK_INVALID, message, HttpStatus.UNPROCESSABLE_ENTITY, details);
   }
 
   // ------------------------------------------------------------------ chỉnh tay
@@ -559,6 +794,8 @@ export class PackingPlanService {
     return this.saveManualEdit(plan, dto.expected_version, parcels, parcel.order_id, {
       kind: 'change_box',
       detail: `Kiện ${String(parcelNo)}: ${parcel.box.code} → ${box.code}`,
+      skus: [...new Set(units.map((u) => u.sku))],
+      box_codes: [parcel.box.code, box.code],
       reason: dto.reason,
       note: dto.note?.trim() ? dto.note.trim() : null,
       by: new Types.ObjectId(userId),
@@ -672,6 +909,8 @@ export class PackingPlanService {
     return this.saveManualEdit(plan, dto.expected_version, next, source.order_id, {
       kind: 'move_item',
       detail: `${dto.item_key}: kiện ${String(parcelNo)} → ${target ? `kiện ${String(target.parcel_no)}` : 'kiện mới'}`,
+      skus: [moving.sku],
+      box_codes: [source.box.code, ...(target ? [target.box.code] : [])],
       reason: dto.reason,
       note: dto.note?.trim() ? dto.note.trim() : null,
       by: new Types.ObjectId(userId),
@@ -1015,16 +1254,21 @@ export class PackingPlanService {
     });
   }
 
-  private async notifyRejected(groupId: string, reason: string): Promise<void> {
-    const { title, message } = this.notificationsService.buildPackagingRejectedMessage({ groupId, reason });
-    await this.safeNotify({
-      recipientRole: UserRole.ADMIN,
+  private async notifyRejected(groupId: string, reason: string, ownerId: string | null, dueAt: Date): Promise<void> {
+    const base = this.notificationsService.buildPackagingRejectedMessage({ groupId, reason });
+    const common = {
       type: NotificationType.PACKAGING_REJECTED,
-      severity: 'warning',
-      title,
-      message,
+      severity: 'warning' as const,
+      title: base.title,
+      message: `${base.message} Hạn xử lý: ${dueAt.toLocaleString('vi-VN')}.`,
       relatedEntityType: 'order_group',
       relatedEntityId: groupId,
-    });
+    };
+    if (ownerId) {
+      await this.safeNotify({ ...common, recipientUserId: ownerId });
+      return;
+    }
+    await this.safeNotify({ ...common, recipientRole: UserRole.ADMIN });
+    await this.safeNotify({ ...common, recipientRole: UserRole.STORE_OWNER });
   }
 }

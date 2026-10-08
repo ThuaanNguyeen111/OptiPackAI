@@ -190,6 +190,8 @@ export class PlanParcel {
   @Prop({ type: PlanBoxSchema, required: true }) box!: PlanBox;
   @Prop({ type: [PlanPlacementSchema], default: [] }) placements!: PlanPlacement[];
   @Prop({ type: Number, required: true }) fill_ratio!: number;
+  /** true = kiện nhập tay, không có tọa độ xếp thật (placements chỉ liệt kê món). */
+  @Prop({ type: Boolean, default: false }) manual_layout!: boolean;
   @Prop({ type: Number, required: true }) items_weight_g!: number;
   /** Hàng + bì thùng + vật tư. */
   @Prop({ type: Number, required: true }) estimated_weight_g!: number;
@@ -286,9 +288,13 @@ export const PlanItemProfileSchema = SchemaFactory.createForClass(PlanItemProfil
 
 @Schema({ _id: false })
 export class PlanAdjustment {
-  @Prop({ type: String, required: true, enum: ['change_box', 'move_item'] }) kind!: 'change_box' | 'move_item';
+  @Prop({ type: String, required: true, enum: ['change_box', 'move_item', 'manual_pack'] })
+  kind!: 'change_box' | 'move_item' | 'manual_pack';
   @Prop({ required: true }) detail!: string;
   @Prop({ required: true }) reason!: string;
+  /** (08/10/2026) SKU và thùng bị chạm — để báo cáo feedback gom theo SKU/thùng. */
+  @Prop({ type: [String], default: [] }) skus!: string[];
+  @Prop({ type: [String], default: [] }) box_codes!: string[];
   @Prop({ type: String, default: null }) note!: string | null;
   @Prop({ type: Types.ObjectId, required: true }) by!: Types.ObjectId;
   @Prop({ type: Date, required: true }) at!: Date;
@@ -377,6 +383,18 @@ export class PackingPlan {
   @Prop({ type: Types.ObjectId, default: null }) rejected_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) rejected_at!: Date | null;
   @Prop({ type: String, default: null }) rejection_reason!: string | null;
+  // ---- từ chối có kiểm soát (08/10/2026)
+  @Prop({ type: String, default: null }) rejection_reason_code!: string | null;
+  @Prop({ type: Types.ObjectId, default: null }) rejection_owner_id!: Types.ObjectId | null;
+  @Prop({ type: Date, default: null }) rejection_due_at!: Date | null;
+  /** Cách đã xử lý: tính lại / đóng thủ công. null = chưa xử lý. */
+  @Prop({ type: String, default: null, enum: ['recompute', 'manual', null] })
+  rejection_resolution!: 'recompute' | 'manual' | null;
+  @Prop({ type: Date, default: null }) rejection_resolved_at!: Date | null;
+  /** Đã nhắc quá hạn xử lý (chỉ nhắc 1 lần). */
+  @Prop({ type: Date, default: null }) rejection_overdue_notified_at!: Date | null;
+  /** solver = bộ giải tính ra; manual = người xử lý nhập kiện thật sau khi từ chối. */
+  @Prop({ type: String, default: 'solver', enum: ['solver', 'manual'] }) source!: 'solver' | 'manual';
   @Prop({ type: Types.ObjectId, default: null }) packed_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) packed_at!: Date | null;
 
@@ -411,3 +429,7 @@ PackingPlanSchema.index({ order_group_id: 1, revision: -1 });
 PackingPlanSchema.index({ status: 1, packed_at: -1 });
 // Tự giao người đóng: đếm kế hoạch đang mở của từng Packaging Staff.
 PackingPlanSchema.index({ assigned_packer_id: 1, is_active: 1, status: 1 });
+// Nhắc kế hoạch bị từ chối quá hạn + báo cáo feedback (cần xử lý trước hạn).
+PackingPlanSchema.index({ status: 1, rejection_due_at: 1 });
+// Báo cáo feedback: kế hoạch từng bị từ chối theo thời điểm.
+PackingPlanSchema.index({ rejected_at: -1 });

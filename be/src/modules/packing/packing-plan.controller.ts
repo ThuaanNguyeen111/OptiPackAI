@@ -11,6 +11,7 @@ import { PackingPlanService } from './packing-plan.service';
 import { PackingSessionService, type ScanOutcome, type SessionResult } from './packing-session.service';
 import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
 import { PackingReportService, type PackingReport } from './packing-report.service';
+import { PackingFeedbackService, type FeedbackReport } from './packing-feedback.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 import { effectiveParcelStatus } from './utils/parcels.util';
 import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
@@ -24,6 +25,7 @@ import {
   ApprovePlanDto,
   ChangeBoxDto,
   GuideDto,
+  ManualPackDto,
   MoveItemDto,
   PackPlanDto,
   RecomputePlanDto,
@@ -107,6 +109,8 @@ export interface PackingPlanResponse {
       folded: boolean;
     }[];
     fillRatio: number;
+    /** true = kiện nhập tay, không có tọa độ xếp thật (3D không dựng được). */
+    manualLayout: boolean;
     itemsWeightG: number;
     estimatedWeightG: number;
     volumetricWeightG: number;
@@ -161,7 +165,7 @@ export interface PackingPlanResponse {
     zipBagCode: string | null;
     zipBagFolded: boolean;
   }[];
-  adjustments: { kind: string; detail: string; reason: string; note: string | null; at: Date }[];
+  adjustments: { kind: string; detail: string; reason: string; note: string | null; at: Date; skus: string[]; boxCodes: string[] }[];
   issues: {
     parcelNo: number;
     itemKey: string;
@@ -192,6 +196,17 @@ export interface PackingPlanResponse {
   approvedAt: Date | null;
   rejectedAt: Date | null;
   rejectionReason: string | null;
+  /** Mã lý do từ chối + người xử lý + hạn + đã xử lý bằng cách nào (null = chưa). */
+  rejection: {
+    reasonCode: string | null;
+    ownerId: string | null;
+    dueAt: Date | null;
+    overdue: boolean;
+    resolution: 'recompute' | 'manual' | null;
+    resolvedAt: Date | null;
+  } | null;
+  /** solver = bộ giải tính; manual = đóng thủ công sau khi từ chối. */
+  source: 'solver' | 'manual';
   packedAt: Date | null;
   createdAt: Date | null;
   updatedAt: Date | null;
@@ -279,6 +294,7 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
         folded: q.folded,
       })),
       fillRatio: p.fill_ratio,
+      manualLayout: p.manual_layout,
       itemsWeightG: p.items_weight_g,
       estimatedWeightG: p.estimated_weight_g,
       volumetricWeightG: p.volumetric_weight_g,
@@ -352,6 +368,8 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       reason: a.reason,
       note: a.note,
       at: a.at,
+      skus: a.skus,
+      boxCodes: a.box_codes,
     })),
     issues: plan.issues.map((i) => ({
       parcelNo: i.parcel_no,
@@ -406,6 +424,18 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
     approvedAt: plan.approved_at,
     rejectedAt: plan.rejected_at,
     rejectionReason: plan.rejection_reason,
+    rejection: plan.rejected_at
+      ? {
+          reasonCode: plan.rejection_reason_code,
+          ownerId: plan.rejection_owner_id?.toString() ?? null,
+          dueAt: plan.rejection_due_at,
+          overdue:
+            plan.status === 'rejected' && plan.rejection_due_at !== null && plan.rejection_due_at.getTime() < Date.now(),
+          resolution: plan.rejection_resolution,
+          resolvedAt: plan.rejection_resolved_at,
+        }
+      : null,
+    source: plan.source,
     packedAt: plan.packed_at,
     createdAt: plan.created_at ?? null,
     updatedAt: plan.updated_at ?? null,
@@ -488,15 +518,34 @@ export class PackingPlanController {
 
   @Post('reject')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Chuyển xử lý ngoài hệ thống (ghi lý do, báo Admin); nhóm về picked, không tự tính lại.' })
+  @ApiOperation({
+    summary:
+      'Từ chối kế hoạch: lý do theo MÃ, có người xử lý + hạn (2 giờ làm việc). Nhóm về picked, không tự tính lại; lối ra: recompute, manual hoặc trả về lấy hàng.',
+  })
   async reject(
     @Param('groupId') groupId: string,
     @Body() dto: RejectPlanDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ plan: PackingPlanResponse }> {
     return {
-      plan: toPlanResponse(await this.planService.reject(groupId, dto.expected_version, dto.reason, user.userId)),
+      plan: toPlanResponse(
+        await this.planService.reject(groupId, dto.expected_version, dto.reason, dto.note, user.userId, dto.owner_id),
+      ),
     };
+  }
+
+  @Post('manual')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Đóng gói THỦ CÔNG sau khi từ chối: nhập kiện thật (thùng + món). Hệ thống kiểm đủ món, thùng còn tồn, quá tải; tạo kế hoạch mới chờ người KHÁC duyệt.',
+  })
+  async manual(
+    @Param('groupId') groupId: string,
+    @Body() dto: ManualPackDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.planService.manualPack(groupId, dto, user.userId)) };
   }
 
   @Post('parcels/:parcelNo/change-box')
@@ -765,6 +814,7 @@ export class PackingSettingsController {
   constructor(
     private readonly settingsService: PackingSettingsService,
     private readonly reportService: PackingReportService,
+    private readonly feedbackService: PackingFeedbackService,
   ) {}
 
   @Get('settings')
@@ -796,5 +846,20 @@ export class PackingSettingsController {
     @Query('staff_id') staffId?: string,
   ): Promise<{ report: PackingReport }> {
     return { report: await this.reportService.summary(from, to, staffId) };
+  }
+
+  @Get('reports/feedback')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Vòng phản hồi (08/10/2026): gom các lần nhân viên làm KHÁC gợi ý (chỉnh tay, từ chối, lệch cân) theo lý do × SKU × thùng và ĐỀ XUẤT việc Admin nên sửa (hồ sơ SKU, danh mục thùng, cài đặt). ?from&to ISO (mặc định 30 ngày); ?min_count số lần tối thiểu để sinh đề xuất (mặc định 3).',
+  })
+  async feedback(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('min_count') minCount?: string,
+  ): Promise<{ report: FeedbackReport }> {
+    const parsed = minCount === undefined ? 3 : Number(minCount);
+    return { report: await this.feedbackService.report(from, to, Number.isFinite(parsed) ? parsed : 3) };
   }
 }

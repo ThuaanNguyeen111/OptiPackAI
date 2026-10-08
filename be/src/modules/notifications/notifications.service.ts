@@ -308,7 +308,7 @@ export class NotificationsService {
   }): { title: string; message: string } {
     return {
       title: `Gợi ý đóng gói bị từ chối — Đơn hàng #${params.groupId}`,
-      message: `Packaging Staff đã từ chối gợi ý đóng gói hiện tại của đơn hàng #${params.groupId}. Lý do: "${params.reason}". Hàng vẫn giữ nguyên đã lấy — chờ tính lại gợi ý mới.`,
+      message: `Packaging Staff đã từ chối gợi ý đóng gói hiện tại của đơn hàng #${params.groupId}. Lý do: "${params.reason}". Hàng vẫn giữ nguyên đã lấy — cần xử lý trong hệ thống: tính lại, đóng gói thủ công hoặc trả về lấy hàng.`,
     };
   }
 }

@@ -17,6 +17,7 @@ import {
 import { PackingSessionService } from './packing-session.service';
 import { PackingSettingsService } from './packing-settings.service';
 import { PackingReportService } from './packing-report.service';
+import { PackingFeedbackService } from './packing-feedback.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 import { PackingSettings, PackingSettingsSchema } from './schemas/packing-settings.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
@@ -55,6 +56,7 @@ import { PackagingMaterialsModule } from '../packaging-materials/packaging-mater
     PackingSessionService,
     PackingSettingsService,
     PackingReportService,
+    PackingFeedbackService,
     PackerAssignmentService,
   ],
   exports: [PackingPlanService],
