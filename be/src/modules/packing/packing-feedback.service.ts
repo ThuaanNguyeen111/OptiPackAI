@@ -47,6 +47,8 @@ export interface FeedbackReport {
     byReason: { reason: string; count: number }[];
     resolvedBy: { recompute: number; manual: number };
   };
+  /** Thùng hỏng khi đang đóng (đổi thùng, thùng cũ damaged) — hao hụt thật đã trừ tồn. */
+  waste: { events: number; costVnd: number; byBox: { boxCode: string; count: number; costVnd: number }[] };
   suggestions: FeedbackSuggestion[];
 }
 
@@ -148,6 +150,7 @@ export function buildFeedback(
   const boxMap = new Map<string, { key: { boxCode: string; reason: string }; count: number }>();
   const settingsMap = new Map<string, number>();
   const rejectionReasons = new Map<string, number>();
+  const wasteByBox = new Map<string, { count: number; costVnd: number }>();
   let adjustedPlans = 0;
   let rejectedPlans = 0;
   let planCount = 0;
@@ -167,6 +170,13 @@ export function buildFeedback(
     if (adjustments.length > 0) adjustedPlans += 1;
     for (const a of adjustments) {
       count(a.reason);
+      if (a.kind === 'change_box_in_session' && a.old_box_outcome === 'damaged') {
+        const code = a.box_codes[0] ?? 'unknown';
+        const w = wasteByBox.get(code) ?? { count: 0, costVnd: 0 };
+        w.count += 1;
+        w.costVnd += a.waste_cost_vnd ?? 0;
+        wasteByBox.set(code, w);
+      }
       if (SKU_REASONS[a.reason]) for (const sku of a.skus) bump(skuMap, `${sku}|${a.reason}`, { sku, reason: a.reason });
       const boxCode = a.box_codes[0];
       if (BOX_REASONS[a.reason] && boxCode) bump(boxMap, `${boxCode}|${a.reason}`, { boxCode, reason: a.reason });
@@ -255,6 +265,11 @@ export function buildFeedback(
       overdue: rejections.overdue,
       byReason: sortDesc([...rejectionReasons].map(([reason, n]) => ({ reason, count: n }))),
       resolvedBy: { recompute: rejections.recompute, manual: rejections.manual },
+    },
+    waste: {
+      events: [...wasteByBox.values()].reduce((s, w) => s + w.count, 0),
+      costVnd: [...wasteByBox.values()].reduce((s, w) => s + w.costVnd, 0),
+      byBox: sortDesc([...wasteByBox].map(([boxCode, w]) => ({ boxCode, ...w }))),
     },
     suggestions,
   };

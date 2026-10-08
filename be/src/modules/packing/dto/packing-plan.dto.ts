@@ -93,6 +93,19 @@ export class ChangeBoxDto extends VersionedDto {
   note?: string;
 }
 
+export const OLD_BOX_OUTCOMES = ['unused', 'damaged'] as const;
+export type OldBoxOutcome = (typeof OLD_BOX_OUTCOMES)[number];
+
+/** Đổi thùng khi ĐANG đóng (kế hoạch đã duyệt/đang đóng, kiện chưa niêm phong). */
+export class ChangeBoxInSessionDto extends ChangeBoxDto {
+  @ApiProperty({
+    enum: OLD_BOX_OUTCOMES,
+    description: 'Thùng cũ: unused = chưa dùng, trả lại kệ (không trừ); damaged = đã hỏng/rách → trừ tồn + ghi hao hụt.',
+  })
+  @IsIn(OLD_BOX_OUTCOMES, { message: 'old_box_outcome chỉ nhận unused hoặc damaged' })
+  old_box_outcome!: OldBoxOutcome;
+}
+
 export class MoveItemDto extends VersionedDto {
   @ApiProperty({ example: 'TEE#2', description: 'Món cần chuyển (item_key).' })
   @IsString({ message: 'item_key phải là chuỗi' })

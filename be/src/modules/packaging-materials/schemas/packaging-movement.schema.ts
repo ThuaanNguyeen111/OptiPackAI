@@ -2,14 +2,14 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
 
 export type MaterialCondition = 'new' | 'reused' | 'internal' | 'discarded';
-export type MaterialMovementType = 'purchase' | 'consume' | 'recover' | 'internal_use' | 'discard';
+export type MaterialMovementType = 'purchase' | 'consume' | 'recover' | 'internal_use' | 'discard' | 'waste';
 
 /** G4 — sổ cái vật liệu đóng gói (append-only). Nguồn cho số liệu tiết kiệm. */
 @Schema({ collection: 'packaging_movements', timestamps: false })
 export class PackagingMovement {
   @Prop({ required: true, index: true }) material_code!: string;
   @Prop({ type: String, enum: ['new', 'reused', 'internal', 'discarded'], required: true }) condition!: MaterialCondition;
-  @Prop({ type: String, enum: ['purchase', 'consume', 'recover', 'internal_use', 'discard'], required: true }) type!: MaterialMovementType;
+  @Prop({ type: String, enum: ['purchase', 'consume', 'recover', 'internal_use', 'discard', 'waste'], required: true }) type!: MaterialMovementType;
   // true = nhân viên dùng đúng thùng gợi ý; false = dùng thùng khác; null = không áp dụng
   @Prop({ type: Boolean, default: null }) followed_recommendation!: boolean | null;
   @Prop({ type: Number, required: true }) delta!: number;

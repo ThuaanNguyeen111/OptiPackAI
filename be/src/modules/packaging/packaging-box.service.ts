@@ -180,6 +180,17 @@ export class PackagingBoxService {
     return result.consumed.map((c) => ({ code: c.code, before: c.before, after: c.after, reorderLevel: c.reorderLevel }));
   }
 
+  /** Thùng hỏng trước khi niêm phong (đổi thùng lúc đóng): trừ tồn + ghi sổ hao hụt. */
+  async recordWaste(
+    session: ClientSession,
+    boxCode: string,
+    ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
+    userId: string,
+    note: string,
+  ): Promise<{ taken: number; unitCostVnd: number }> {
+    return this.materialsService.recordWaste(boxCode, 1, ref, userId, note, session);
+  }
+
   async list(activeOnly: boolean): Promise<PackagingMaterialDocument[]> {
     const query: Record<string, unknown> = { kind: 'box' };
     if (activeOnly) query.is_active = true;

@@ -44,7 +44,7 @@ import {
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { freshParcelSession, renumberParcels, type Plain } from './utils/parcels.util';
 import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
-import type { ChangeBoxDto, ManualPackDto, MoveItemDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
+import type { ChangeBoxDto, ChangeBoxInSessionDto, ManualPackDto, MoveItemDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
 import { PackingSettingsService } from './packing-settings.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 
@@ -804,6 +804,104 @@ export class PackingPlanService {
   }
 
   /**
+   * Đổi thùng khi ĐANG đóng (08/10/2026): kế hoạch đã duyệt/đang đóng, kiện chưa
+   * niêm phong (thùng chưa trừ tồn). Bắt buộc khai thùng cũ: `unused` = trả lại
+   * kệ, không tốn gì; `damaged` = đã hỏng → trừ 1 thùng cũ khỏi tồn + ghi sổ
+   * hao hụt (`waste`). Giữ nguyên các lần quét đã có của kiện.
+   */
+  async changeBoxInSession(
+    groupId: string,
+    parcelNo: number,
+    dto: ChangeBoxInSessionDto,
+    userId: string,
+  ): Promise<PackingPlanDocument> {
+    this.assertNote(dto.reason, dto.note);
+    const plan = await this.requireActivePlan(groupId);
+    if (plan.status !== 'approved' && plan.status !== 'packing') {
+      throw this.wrongStatus(groupId, plan.status, 'đổi thùng khi đóng');
+    }
+    if (plan.version !== dto.expected_version) throw this.versionConflict(groupId);
+    const parcel = this.findParcel(plan, parcelNo);
+    if (parcel.status !== 'pending' || parcel.box_consumed) {
+      throw new AppException(
+        PACKING_ERROR_CODES.PARCEL_WRONG_STATUS,
+        `Kiện ${String(parcelNo)} đã niêm phong hoặc đã trừ thùng — chỉ đổi được kiện chưa niêm phong.`,
+        HttpStatus.CONFLICT,
+        { parcelNo, status: parcel.status },
+      );
+    }
+    const damaged = dto.old_box_outcome === 'damaged';
+    const sameBox = dto.box_code === parcel.box.code;
+    if (sameBox && !damaged) {
+      throw new AppException(
+        PACKING_ERROR_CODES.SAME_BOX,
+        'Thùng mới trùng thùng hiện tại — chọn thùng khác, hoặc khai thùng cũ đã hỏng để thay cái mới cùng loại.',
+        HttpStatus.BAD_REQUEST,
+        { boxCode: dto.box_code },
+      );
+    }
+    const box = await this.boxService.findActiveSpecByCode(dto.box_code);
+    // Thùng cũ hỏng cùng loại: 1 cái bị bỏ, cần thêm 1 cái nữa cho kiện.
+    await this.assertBoxInStock(plan, box.code, parcelNo, sameBox && damaged ? 1 : 0);
+
+    let replaced: PlanParcel = this.plain(parcel);
+    if (!sameBox) {
+      const units = await this.unitsOfParcel(groupId, parcel, plan);
+      const result = solveOrder(units, [box], { materials: await this.materialService.planningData() });
+      const [only] = result.parcels;
+      if (result.status !== 'ok' || result.parcels.length !== 1 || !only) {
+        throw new AppException(
+          PACKING_ERROR_CODES.BOX_DOES_NOT_FIT,
+          `Thùng "${box.code}" không xếp vừa các món của kiện ${String(parcelNo)}.`,
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          { boxCode: box.code, parcelNo },
+        );
+      }
+      // Giữ lần quét/cân đã có: chỉ đổi thùng + cách xếp.
+      const kept = this.plain(parcel);
+      replaced = Object.assign(
+        {},
+        toPlanParcel(only, parcel.order_id, parcel.platform_order_id, parcel.parcel_no, fragileKeysOf(units)),
+        { status: parcel.status, scans: kept.scans, weighings: kept.weighings, reviews: kept.reviews },
+      );
+    }
+    const parcels = plan.parcels.map((p) => (p.parcel_no === parcelNo ? replaced : this.plain(p)));
+    const oldCode = parcel.box.code;
+    return this.runInTransaction(async (session) => {
+      let wasteCost = 0;
+      if (damaged) {
+        const waste = await this.boxService.recordWaste(
+          session,
+          oldCode,
+          { groupId: plan.order_group_id, planId: plan._id, parcelNo },
+          userId,
+          `Thùng hỏng trước khi niêm phong (kiện ${String(parcelNo)}): ${dto.reason}`,
+        );
+        wasteCost = waste.taken * waste.unitCostVnd;
+      }
+      return this.saveManualEdit(
+        plan,
+        dto.expected_version,
+        parcels,
+        parcel.order_id,
+        {
+          kind: 'change_box_in_session',
+          detail: `Kiện ${String(parcelNo)}: ${oldCode} → ${box.code} (thùng cũ: ${damaged ? 'đã hỏng, ghi hao hụt' : 'chưa dùng'})`,
+          skus: [...new Set(parcel.placements.map((p) => p.sku))],
+          box_codes: [oldCode, box.code],
+          old_box_outcome: dto.old_box_outcome,
+          waste_cost_vnd: wasteCost,
+          reason: dto.reason,
+          note: dto.note?.trim() ? dto.note.trim() : null,
+          by: new Types.ObjectId(userId),
+          at: new Date(),
+        },
+        { statuses: ['approved', 'packing'], session },
+      );
+    });
+  }
+
+  /**
    * Chuyển 1 món sang kiện khác CÙNG đơn (giữ thùng của kiện đích) hoặc tách
    * ra kiện mới (hệ thống chọn thùng tốt nhất còn tồn). Kiện nguồn hết món
    * thì bị bỏ. Mọi kiện bị chạm đều xếp lại + qua validator.
@@ -924,6 +1022,7 @@ export class PackingPlanService {
     parcels: PlanParcel[],
     orderId: Types.ObjectId,
     adjustment: PackingPlan['adjustments'][number],
+    opts: { statuses?: PackingPlan['status'][]; session?: ClientSession } = {},
   ): Promise<PackingPlanDocument> {
     const orderIds = plan.orders.map((o) => o.order_id);
     // Chỉnh tay = không còn là lời giải của bộ tối ưu → nhãn heuristic cho đơn đó.
@@ -938,13 +1037,13 @@ export class PackingPlanService {
         : this.plain(o),
     );
     const updated = await this.planModel.findOneAndUpdate(
-      { _id: plan._id, version: expectedVersion, status: 'ready', is_active: true },
+      { _id: plan._id, version: expectedVersion, status: opts.statuses ? { $in: opts.statuses } : 'ready', is_active: true },
       {
         $set: { parcels: renumberParcels(parcels, orderIds), orders },
         $push: { adjustments: adjustment },
         $inc: { version: 1 },
       },
-      { returnDocument: 'after' },
+      { returnDocument: 'after', session: opts.session },
     );
     if (!updated) throw this.versionConflict(plan.order_group_id.toString());
     return updated;
@@ -1150,10 +1249,10 @@ export class PackingPlanService {
     return units;
   }
 
-  private async assertBoxInStock(plan: PackingPlanDocument, code: string, parcelNo: number): Promise<void> {
+  private async assertBoxInStock(plan: PackingPlanDocument, code: string, parcelNo: number, extraNeeded = 0): Promise<void> {
     const stock = (await this.boxService.listAvailability({ planId: plan._id })).get(code);
     const usedByOthers = plan.parcels.filter((p) => p.parcel_no !== parcelNo && p.box.code === code).length;
-    if (!stock || stock.available - usedByOthers <= 0) {
+    if (!stock || stock.available - usedByOthers - extraNeeded <= 0) {
       throw new AppException(
         'PKG_BOX_OUT_OF_STOCK',
         `Kho không còn thùng "${code}" trống (tồn ${String(stock?.onHand ?? 0)}, đang giữ chỗ ${String(stock?.reserved ?? 0)}).`,

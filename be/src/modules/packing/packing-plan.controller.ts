@@ -24,6 +24,7 @@ import type { PackingPlanDocument, PlanProofLabel } from './schemas/packing-plan
 import {
   ApprovePlanDto,
   ChangeBoxDto,
+  ChangeBoxInSessionDto,
   GuideDto,
   ManualPackDto,
   MoveItemDto,
@@ -165,7 +166,7 @@ export interface PackingPlanResponse {
     zipBagCode: string | null;
     zipBagFolded: boolean;
   }[];
-  adjustments: { kind: string; detail: string; reason: string; note: string | null; at: Date; skus: string[]; boxCodes: string[] }[];
+  adjustments: { kind: string; detail: string; reason: string; note: string | null; at: Date; skus: string[]; boxCodes: string[]; oldBoxOutcome: 'unused' | 'damaged' | null; wasteCostVnd: number }[];
   issues: {
     parcelNo: number;
     itemKey: string;
@@ -370,6 +371,8 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       at: a.at,
       skus: a.skus,
       boxCodes: a.box_codes,
+      oldBoxOutcome: a.old_box_outcome ?? null,
+      wasteCostVnd: a.waste_cost_vnd ?? 0,
     })),
     issues: plan.issues.map((i) => ({
       parcelNo: i.parcel_no,
@@ -558,6 +561,21 @@ export class PackingPlanController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ plan: PackingPlanResponse }> {
     return { plan: toPlanResponse(await this.planService.changeBox(groupId, parcelNo, dto, user.userId)) };
+  }
+
+  @Post('parcels/:parcelNo/change-box-in-session')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Đổi thùng khi ĐANG đóng (kế hoạch approved/packing, kiện chưa niêm phong). Bắt buộc khai thùng cũ: unused = trả kệ, không trừ; damaged = trừ tồn + ghi hao hụt. Giữ các lần quét đã có.',
+  })
+  async changeBoxInSession(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: ChangeBoxInSessionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.planService.changeBoxInSession(groupId, parcelNo, dto, user.userId)) };
   }
 
   @Post('parcels/:parcelNo/move-item')

@@ -288,8 +288,11 @@ export const PlanItemProfileSchema = SchemaFactory.createForClass(PlanItemProfil
 
 @Schema({ _id: false })
 export class PlanAdjustment {
-  @Prop({ type: String, required: true, enum: ['change_box', 'move_item', 'manual_pack'] })
-  kind!: 'change_box' | 'move_item' | 'manual_pack';
+  @Prop({ type: String, required: true, enum: ['change_box', 'move_item', 'manual_pack', 'change_box_in_session'] })
+  kind!: 'change_box' | 'move_item' | 'manual_pack' | 'change_box_in_session';
+  /** (08/10/2026) Chỉ có ở change_box_in_session: thùng cũ chưa dùng hay đã hỏng (ghi hao hụt). */
+  @Prop({ type: String, default: null, enum: ['unused', 'damaged', null] }) old_box_outcome?: 'unused' | 'damaged' | null;
+  @Prop({ type: Number, default: 0 }) waste_cost_vnd?: number;
   @Prop({ required: true }) detail!: string;
   @Prop({ required: true }) reason!: string;
   /** (08/10/2026) SKU và thùng bị chạm — để báo cáo feedback gom theo SKU/thùng. */

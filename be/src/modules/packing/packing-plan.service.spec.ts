@@ -141,6 +141,7 @@ describe('PackingPlanService', () => {
     findActiveSpecByCode: jest.Mock;
     listAvailability: jest.Mock;
     consumeForPack: jest.Mock;
+    recordWaste: jest.Mock;
   };
   let materialService: { planningData: jest.Mock; consumeForPack: jest.Mock };
   let notificationsService: {
@@ -201,6 +202,7 @@ describe('PackingPlanService', () => {
         ),
       ),
       consumeForPack: jest.fn(() => Promise.resolve([])),
+      recordWaste: jest.fn(() => Promise.resolve({ taken: 1, unitCostVnd: 3000 })),
     };
     materialService = {
       planningData: jest.fn(() => Promise.resolve({ catalog: [], rules: [] })),
@@ -942,6 +944,134 @@ describe('PackingPlanService', () => {
       await service.runCpSat([task]);
       expect((planModel.docs[0]?.orders as Record<string, unknown>[])[0]?.cp_sat).toBe('unavailable');
       expect(planModel.docs[0]?.version).toBe(plan.version);
+    });
+  });
+
+  describe('đổi thùng khi đang đóng (08/10/2026)', () => {
+    async function approved(): Promise<PackingPlanDocument> {
+      const plan = await computed();
+      return service.approve(groupId, plan.version, userId);
+    }
+
+    /** Kiện chưa dùng thùng L + thùng L làm đích (L chứa vừa mọi kiện trong test). */
+    function pendingParcel(plan: PackingPlanDocument): PackingPlanDocument['parcels'][number] {
+      const found = plan.parcels.find((p) => p.box.code !== 'SAMPLE-L');
+      if (!found) throw new Error('thiếu kiện không dùng thùng L để test');
+      return found;
+    }
+
+    it('thùng cũ chưa dùng: đổi thùng, không ghi hao hụt, giữ lần quét đã có, version tăng, ghi lịch sử', async () => {
+      const plan = await approved();
+      const parcel = pendingParcel(plan);
+      const stored = planModel.docs[0] as unknown as { parcels: { parcel_no: number; scans: unknown[] }[] };
+      const mark = { item_key: 'x#1', sku: 'x', method: 'barcode', by: null, at: new Date(), client_event_id: null };
+      stored.parcels.find((p) => p.parcel_no === parcel.parcel_no)?.scans.push(mark);
+
+      const next = await service.changeBoxInSession(
+        groupId,
+        parcel.parcel_no,
+        {
+          expected_version: plan.version,
+          box_code: 'SAMPLE-L',
+          reason: 'BOX_TOO_TIGHT',
+          old_box_outcome: 'unused',
+        },
+        userId,
+      );
+      const changed = next.parcels.find((p) => p.parcel_no === parcel.parcel_no);
+      expect(changed?.box.code).toBe('SAMPLE-L');
+      expect(changed?.status).toBe('pending');
+      expect(changed?.scans).toHaveLength(1);
+      expect(next.version).toBe(plan.version + 1);
+      expect(boxService.recordWaste).not.toHaveBeenCalled();
+      const adj = next.adjustments.at(-1);
+      expect(adj).toMatchObject({ kind: 'change_box_in_session', old_box_outcome: 'unused', waste_cost_vnd: 0 });
+      expect(adj?.box_codes).toEqual([parcel.box.code, 'SAMPLE-L']);
+    });
+
+    it('thùng cũ đã hỏng: trừ tồn + ghi hao hụt thùng CŨ, lưu chi phí hao hụt', async () => {
+      const plan = await approved();
+      const parcel = pendingParcel(plan);
+      const next = await service.changeBoxInSession(
+        groupId,
+        parcel.parcel_no,
+        { expected_version: plan.version, box_code: 'SAMPLE-L', reason: 'OTHER', note: 'Thùng bị rách đáy', old_box_outcome: 'damaged' },
+        userId,
+      );
+      expect(boxService.recordWaste).toHaveBeenCalledTimes(1);
+      expect((boxService.recordWaste.mock.calls[0] as unknown[] | undefined)?.[1]).toBe(parcel.box.code);
+      const adj = next.adjustments.at(-1);
+      expect(adj).toMatchObject({ old_box_outcome: 'damaged', waste_cost_vnd: 3000 });
+    });
+
+    it('thùng mới trùng thùng cũ mà khai chưa dùng → SAME_BOX; khai hỏng thì cho (thay cái mới cùng loại)', async () => {
+      const plan = await approved();
+      const parcel = pendingParcel(plan);
+      await expect(
+        service.changeBoxInSession(
+          groupId,
+          parcel.parcel_no,
+          { expected_version: plan.version, box_code: parcel.box.code, reason: 'OTHER', note: 'x', old_box_outcome: 'unused' },
+          userId,
+        ),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.SAME_BOX });
+      const next = await service.changeBoxInSession(
+        groupId,
+        parcel.parcel_no,
+        { expected_version: plan.version, box_code: parcel.box.code, reason: 'OTHER', note: 'rách', old_box_outcome: 'damaged' },
+        userId,
+      );
+      expect(next.parcels.find((p) => p.parcel_no === parcel.parcel_no)?.box.code).toBe(parcel.box.code);
+      expect(boxService.recordWaste).toHaveBeenCalledTimes(1);
+    });
+
+    it('kiện đã niêm phong → PARCEL_WRONG_STATUS; kế hoạch chưa duyệt (ready) → WRONG_PLAN_STATUS', async () => {
+      const ready = await computed();
+      await expect(
+        service.changeBoxInSession(
+          groupId,
+          1,
+          { expected_version: ready.version, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          userId,
+        ),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+
+      const plan = await service.approve(groupId, ready.version, userId);
+      const stored = planModel.docs[0] as unknown as { parcels: { parcel_no: number; status: string }[] };
+      const target = stored.parcels[0];
+      if (!target) throw new Error('thiếu kiện');
+      target.status = 'sealed';
+      await expect(
+        service.changeBoxInSession(
+          groupId,
+          target.parcel_no,
+          { expected_version: plan.version, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          userId,
+        ),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.PARCEL_WRONG_STATUS });
+    });
+
+    it('thùng mới không còn tồn → PKG_BOX_OUT_OF_STOCK; version cũ → xung đột', async () => {
+      const plan = await approved();
+      const parcel = pendingParcel(plan);
+      stock.set('SAMPLE-L', 0);
+      await expect(
+        service.changeBoxInSession(
+          groupId,
+          parcel.parcel_no,
+          { expected_version: plan.version, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          userId,
+        ),
+      ).rejects.toMatchObject({ errorCode: 'PKG_BOX_OUT_OF_STOCK' });
+      stock.set('SAMPLE-L', 50);
+      await expect(
+        service.changeBoxInSession(
+          groupId,
+          parcel.parcel_no,
+          { expected_version: plan.version - 1, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          userId,
+        ),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });
     });
   });
 

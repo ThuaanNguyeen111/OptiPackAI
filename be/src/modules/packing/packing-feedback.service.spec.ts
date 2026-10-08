@@ -142,6 +142,21 @@ describe('buildFeedback — vòng phản hồi cho Admin', () => {
     expect(report.suggestions[0]).toMatchObject({ target: { type: 'sku', code: 'JEAN-BLUE-30' } });
   });
 
+  it('hao hụt: chỉ tính đổi thùng lúc đóng khi thùng cũ hỏng, gom theo thùng cũ', () => {
+    const waste = (cost: number): Plan['adjustments'][number] =>
+      Object.assign(adjustment('OTHER', [], ['SAMPLE-M', 'SAMPLE-L']), {
+        kind: 'change_box_in_session' as const,
+        old_box_outcome: 'damaged' as const,
+        waste_cost_vnd: cost,
+      });
+    const unused = Object.assign(adjustment('OTHER', [], ['SAMPLE-M', 'SAMPLE-L']), {
+      kind: 'change_box_in_session' as const,
+      old_box_outcome: 'unused' as const,
+    });
+    const report = buildFeedback([plan({ adjustments: [waste(3000), waste(3000), unused] })], range, 3);
+    expect(report.waste).toEqual({ events: 2, costVnd: 6000, byBox: [{ boxCode: 'SAMPLE-M', count: 2, costVnd: 6000 }] });
+  });
+
   it('bỏ qua sự kiện ngoài khoảng ngày', () => {
     const old = new Date('2026-08-01T00:00:00Z');
     const report = buildFeedback(

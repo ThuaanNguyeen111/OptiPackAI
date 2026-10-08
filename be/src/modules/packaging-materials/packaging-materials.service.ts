@@ -302,6 +302,47 @@ export class PackagingMaterialsService {
     return out;
   }
 
+  /**
+   * (08/10/2026) Ghi HAO HỤT: vật tư/thùng đã lấy khỏi kho nhưng hỏng trước khi
+   * được tính vào kiện (vd đổi thùng lúc đóng, thùng cũ rách). Trừ tồn thật —
+   * ưu tiên hàng mới — và ghi sổ `waste`. Tồn không đủ thì trừ phần có, ghi chú
+   * phần thiếu (không chặn: hàng đã hỏng ngoài đời rồi). Gọi TRONG transaction.
+   */
+  async recordWaste(
+    code: string,
+    quantity: number,
+    ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
+    actorId: string,
+    note: string,
+    session: ClientSession,
+  ): Promise<{ taken: number; unitCostVnd: number }> {
+    const m = await this.materialModel.findOne({ code }).session(session);
+    if (!m || quantity <= 0) return { taken: 0, unitCostVnd: 0 };
+    let remaining = quantity;
+    let taken = 0;
+    const fromNew = Math.min(remaining, m.qty_new);
+    if (fromNew > 0) {
+      const ok = await this.materialModel.updateOne({ _id: m._id, qty_new: { $gte: fromNew } }, { $inc: { qty_new: -fromNew } }, { session });
+      if (ok.modifiedCount === 1) {
+        taken += fromNew;
+        remaining -= fromNew;
+      }
+    }
+    const fromReused = Math.min(remaining, m.qty_reused);
+    if (fromReused > 0) {
+      const ok = await this.materialModel.updateOne({ _id: m._id, qty_reused: { $gte: fromReused } }, { $inc: { qty_reused: -fromReused } }, { session });
+      if (ok.modifiedCount === 1) taken += fromReused;
+    }
+    await this.movementModel.create([{
+      material_code: m.code, condition: 'discarded', type: 'waste', delta: -taken, saving_vnd: 0,
+      ref_type: 'order_group', ref_id: ref.groupId.toString(),
+      note: taken < quantity ? `${note} (tồn chỉ đủ trừ ${String(taken)}/${String(quantity)})` : note,
+      actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
+      balance_after: usableStock(m) - taken, created_at: new Date(),
+    }], { session });
+    return { taken, unitCostVnd: m.unit_cost_vnd };
+  }
+
   /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */
   async stockInById(id: Types.ObjectId, quantity: number, actorId: string | null, note?: string): Promise<PackagingMaterialDocument | null> {
     return this.runTx(async (session) => {
