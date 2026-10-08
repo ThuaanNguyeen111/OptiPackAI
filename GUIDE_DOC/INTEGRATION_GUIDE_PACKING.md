@@ -660,3 +660,280 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | Khóa `expected_group_version`     | Khóa `expected_version` = `plan.version`                                            |
 
 Thay đổi gây gãy từ 08/10/2026: `reject.reason` đổi từ chuỗi tự do sang **mã lý do** (kèm `note`).
+
+
+---
+
+## Phụ lục — Ví dụ body & response (số liệu minh hoạ)
+
+> Shape lấy đúng theo `PackingPlanResponse` trong `packing-plan.controller.ts`. ID/số liệu là giả. `…` = đã rút gọn cho dễ đọc (field đó vẫn có trong response thật).
+
+### A. `GET /order-groups/:groupId/packing-plan` — kế hoạch `ready`
+
+```json
+{
+  "plan": {
+    "id": "6ad0f1c2a1b2c3d4e5f60001",
+    "orderGroupId": "6ad0e9aa11b2c3d4e5f60abc",
+    "revision": 1,
+    "version": 1,
+    "status": "ready",
+    "failureReason": null,
+    "proof": "optimal_global",
+    "cpSatPending": false,
+    "source": "solver",
+    "orders": [
+      {
+        "orderId": "6ad0e9aa11b2c3d4e5f60a01",
+        "platformOrderId": "710000123",
+        "status": "ok",
+        "unplaced": [],
+        "proof": "optimal_global",
+        "lowerBoundParcels": 1,
+        "explanation": ["Đã đạt số kiện tối thiểu (1) và không có thùng rẻ hơn khả thi."],
+        "strategy": "brkga-ems-v2",
+        "cpSat": "skipped",
+        "overParcelLimit": false,
+        "stockSuggestion": null
+      }
+    ],
+    "parcels": [
+      {
+        "parcelNo": 1,
+        "orderId": "6ad0e9aa11b2c3d4e5f60a01",
+        "platformOrderId": "710000123",
+        "status": "pending",
+        "box": {
+          "code": "SAMPLE-M",
+          "name": "Thùng M 30×25×15",
+          "innerMm": { "lengthMm": 300, "widthMm": 250, "heightMm": 150 },
+          "outerMm": { "lengthMm": 306, "widthMm": 256, "heightMm": 156 },
+          "tareG": 180,
+          "maxLoadG": 8000,
+          "priceVnd": 4500
+        },
+        "placements": [
+          { "itemKey": "TEE-M-WHITE#1", "sku": "TEE-M-WHITE", "step": 1,
+            "x": 0, "y": 0, "z": 0, "dx": 280, "dy": 200, "dz": 20,
+            "orientation": "LWH", "folded": false },
+          { "itemKey": "TEE-M-WHITE#2", "sku": "TEE-M-WHITE", "step": 2,
+            "x": 0, "y": 0, "z": 20, "dx": 280, "dy": 200, "dz": 20,
+            "orientation": "LWH", "folded": false }
+        ],
+        "fillRatio": 0.37,
+        "manualLayout": false,
+        "itemsWeightG": 500,
+        "estimatedWeightG": 760,
+        "volumetricWeightG": 1873,
+        "materials": [
+          { "type": "air_pillow", "code": "GOI-HOI", "name": "Gối hơi", "unit": "cái",
+            "quantity": 2, "weightG": 10, "costVnd": 600 }
+        ],
+        "materialsWeightG": 10,
+        "materialsCostVnd": 600,
+        "shippingCostVnd": null,
+        "guide": null,
+        "actualWeightKg": null,
+        "isAbnormal": false,
+        "materialsShortfall": [],
+        "hasFragile": false,
+        "boxConsumed": false,
+        "scannedCount": 0,
+        "itemCount": 2,
+        "scans": [], "sealedBy": null, "sealedAt": null,
+        "weighings": [], "reviews": [], "unpack": null
+      }
+    ],
+    "itemProfiles": [
+      { "sku": "TEE-M-WHITE", "productCategory": "t_shirt", "zipBagCode": "ZIP-M", "zipBagFolded": true }
+    ],
+    "adjustments": [],
+    "issues": [],
+    "activity": [],
+    "session": {
+      "assignedPackerId": "6a9fa00000000000000000aa",
+      "assignedPackerAt": "2026-10-08T03:10:00.000Z",
+      "startedBy": null, "startedAt": null, "packMode": null,
+      "approveOverrideReason": null,
+      "parcelCounts": { "pending": 1 }
+    },
+    "solver": {
+      "engineVersion": "brkga-ems-v2",
+      "computationMs": 142,
+      "options": { "excludeBoxCodes": [], "prefer": "fewest_parcels", "fragileCushionMm": 5 }
+    },
+    "totals": { "parcels": 1, "packagingCostVnd": 5100, "estimatedWeightG": 760, "avgFill": 0.37 },
+    "approvedAt": null, "rejectedAt": null, "rejectionReason": null,
+    "rejection": null,
+    "packedAt": null,
+    "createdAt": "2026-10-08T03:09:58.000Z",
+    "updatedAt": "2026-10-08T03:10:00.000Z"
+  }
+}
+```
+
+Chưa có kế hoạch (nhóm vừa `picked`, cron chưa tính): `{ "plan": null }`.
+
+### B. Duyệt
+
+```http
+POST /order-groups/6ad0e9aa11b2c3d4e5f60abc/packing-plan/approve
+{ "expected_version": 1 }
+```
+
+Response: `{ "plan": { …như A, "status": "approved", "version": 2, "approvedAt": "2026-10-08T03:15:00.000Z" } }`
+
+Lỗi khi còn đơn chưa xếp hết (`409`):
+
+```json
+{
+  "success": false,
+  "error_code": "PACKING_HAS_UNPLACED",
+  "message": "Còn 1 đơn chưa xếp hết món — chỉnh tay hoặc tính lại trước khi duyệt.",
+  "details": { "groupId": "6ad0e9aa11b2c3d4e5f60abc", "orderIds": ["6ad0e9aa11b2c3d4e5f60a02"] },
+  "timestamp": "2026-10-08T03:15:00.000Z",
+  "path": "/order-groups/6ad0e9aa11b2c3d4e5f60abc/packing-plan/approve"
+}
+```
+
+### C. Từ chối → response có khối `rejection`
+
+```http
+POST …/packing-plan/reject
+{ "expected_version": 1, "reason": "SPECIAL_PACKING_NEEDED", "note": "Khách yêu cầu thùng gỗ" }
+```
+
+```json
+{
+  "plan": {
+    "status": "rejected",
+    "version": 2,
+    "rejectedAt": "2026-10-08T03:20:00.000Z",
+    "rejectionReason": "SPECIAL_PACKING_NEEDED: Khách yêu cầu thùng gỗ",
+    "rejection": {
+      "reasonCode": "SPECIAL_PACKING_NEEDED",
+      "ownerId": null,
+      "dueAt": "2026-10-08T05:20:00.000Z",
+      "overdue": false,
+      "resolution": null,
+      "resolvedAt": null
+    }
+  }
+}
+```
+
+### D. Đóng gói thủ công (sau khi từ chối)
+
+```http
+POST …/packing-plan/manual
+{
+  "expected_version": 2,
+  "note": "Khách yêu cầu gói chung 1 thùng",
+  "parcels": [
+    { "order_id": "6ad0e9aa11b2c3d4e5f60a01", "box_code": "SAMPLE-L",
+      "item_keys": ["TEE-M-WHITE#1", "TEE-M-WHITE#2"] }
+  ]
+}
+```
+
+Response: `{ "plan": { "source": "manual", "status": "ready", "revision": 2, "version": 1, "proof": "heuristic", "parcels": [ { "box": { "code": "SAMPLE-L", … }, "manualLayout": false, … } ], "adjustments": [ { "kind": "manual_pack", "reason": "OTHER", "note": "Khách yêu cầu gói chung 1 thùng", "boxCodes": ["SAMPLE-L"], … } ] } }`
+
+Lỗi thiếu món (`422`): `error_code: "PACKING_MANUAL_PACK_INVALID"`, `message: "Còn 1 món chưa nằm trong kiện nào."`, `details: { "missing": ["TEE-M-WHITE#2"] }`.
+
+### E. Đổi thùng lúc đang đóng
+
+```http
+POST …/packing-plan/parcels/1/change-box-in-session
+{ "expected_version": 4, "box_code": "SAMPLE-L", "reason": "BOX_TOO_TIGHT", "old_box_outcome": "damaged" }
+```
+
+Response: `plan.parcels[0].box.code = "SAMPLE-L"` (các lần quét giữ nguyên), `plan.version = 5`, và `plan.adjustments` có thêm:
+
+```json
+{ "kind": "change_box_in_session",
+  "detail": "Kiện 1: SAMPLE-M → SAMPLE-L (thùng cũ: đã hỏng, ghi hao hụt)",
+  "reason": "BOX_TOO_TIGHT", "note": null, "at": "2026-10-08T03:40:00.000Z",
+  "skus": ["TEE-M-WHITE"], "boxCodes": ["SAMPLE-M", "SAMPLE-L"],
+  "oldBoxOutcome": "damaged", "wasteCostVnd": 4500 }
+```
+
+### F. Quét món
+
+```http
+POST …/packing-plan/parcels/1/scan
+{ "code": "tee-m-white", "scan_method": "barcode", "client_event_id": "dev1-1759894800123" }
+```
+
+```json
+{
+  "plan": { "status": "packing", "version": 4, "parcels": [ { "parcelNo": 1, "scannedCount": 1, "itemCount": 2,
+      "scans": [ { "itemKey": "TEE-M-WHITE#1", "sku": "TEE-M-WHITE", "method": "barcode",
+                   "by": "6a9fa00000000000000000aa", "at": "2026-10-08T03:30:00.000Z" } ], "…": "…" } ], "…": "…" },
+  "scan": { "parcelNo": 1, "sku": "TEE-M-WHITE", "itemKeys": ["TEE-M-WHITE#1"], "remainingInParcel": 1, "duplicate": false }
+}
+```
+
+Quét sai kiện (`409`):
+
+```json
+{ "success": false, "error_code": "PACKING_SCAN_WRONG_PARCEL",
+  "message": "Món \"SHOE\" không thuộc kiện 1 — món này của kiện 2.",
+  "details": { "parcelNo": 1, "sku": "SHOE", "belongsToParcels": [2] }, "timestamp": "…", "path": "…" }
+```
+
+### G. Niêm phong + cân
+
+```http
+POST …/packing-plan/parcels/1/seal
+{ "expected_version": 6, "weight_kg": 0.76 }
+```
+
+Kiện cuối, trong ngưỡng:
+
+```json
+{
+  "plan": { "status": "packed", "version": 7, "packedAt": "2026-10-08T03:50:00.000Z",
+            "parcels": [ { "parcelNo": 1, "status": "sealed", "actualWeightKg": 0.76, "isAbnormal": false,
+                           "boxConsumed": true, "sealedAt": "2026-10-08T03:50:00.000Z",
+                           "weighings": [ { "weightKg": 0.76, "kind": "seal", "isAbnormal": false, "by": "…", "at": "…" } ] } ] },
+  "completed": true,
+  "lazadaPackSync": { "status": "disabled" }
+}
+```
+
+Lệch cân > 20%: `"parcels": [ { "status": "held", "isAbnormal": true, … } ]`, `"completed": false`, `"lazadaPackSync": null`.
+
+### H. Xem lại kiện lệch cân
+
+```http
+POST …/packing-plan/parcels/1/review
+{ "expected_version": 7, "action": "accept", "reason": "SCALE_ERROR" }
+```
+
+Response cùng dạng G (`plan`, `completed`, `lazadaPackSync`); `parcels[0].reviews` có `{ "action": "accept", "reason": "SCALE_ERROR", "note": null, "by": "…", "at": "…" }`. Người niêm phong tự chấp nhận → `403`:
+
+```json
+{ "success": false, "error_code": "PACKING_SELF_REVIEW_FORBIDDEN",
+  "message": "Không tự chấp nhận kiện chính mình vừa niêm phong — nhờ Packaging Staff khác hoặc Admin xem lại.",
+  "details": { "parcelNo": 1 }, "timestamp": "…", "path": "…" }
+```
+
+### I. Hoàn tác niêm phong
+
+```http
+POST …/packing-plan/parcels/1/unseal
+{ "expected_version": 8, "reason": "BOX_TOO_TIGHT", "box_condition": "reusable" }
+```
+
+```json
+{
+  "plan": { "status": "packing", "version": 9, "packedAt": null,
+            "parcels": [ { "parcelNo": 1, "status": "pending", "boxConsumed": true, "actualWeightKg": null, "…": "…" } ] },
+  "wasPacked": true,
+  "warnings": ["Nếu đơn đã được báo \"Đã đóng gói\" lên Lazada, Lazada không hỗ trợ hoàn tác — trạng thái trên sàn giữ nguyên."]
+}
+```
+
+### J. Báo cáo phản hồi (`GET /packing/reports/feedback`) và K. Hàng chờ (`GET /packing-plans/summary`)
+
+Xem mẫu đầy đủ ở mục 6.2 và mục 1.2 phía trên.
