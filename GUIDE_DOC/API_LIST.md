@@ -146,6 +146,8 @@ Detail bổ sung địa chỉ nhận đầy đủ và `items[]`. Items được 
 
 ## 8. Kế hoạch đóng gói (`/order-groups/:groupId/packing-plan`) — 🔄 ĐÃ LÀM LẠI 04/10/2026
 
+> 📘 **Hướng dẫn FE tích hợp đầy đủ (luồng màn hình, request/response mẫu, mã lỗi): [`INTEGRATION_GUIDE_PACKING.md`](INTEGRATION_GUIDE_PACKING.md)** — bảng dưới chỉ là tra cứu nhanh.
+
 🔄 **ĐÃ THAY ĐỔI 04/10/2026** — toàn bộ route `/order-groups/:groupId/packaging/*` (generate, approve, adjust, reject, guide, cartonization-preview) và `POST /order-groups/:id/fulfillment/pack` **đã gỡ**. Thay bằng **1 kế hoạch cho cả nhóm** (collection `packing_plans`), gồm mọi đơn và mọi kiện của nhóm:
 
 - **Tự tính**: khi nhóm vào `picked`, job nền (quét mỗi 10 giây) tính kế hoạch rồi chuyển nhóm sang `pending_approval` và báo Packaging Staff — **không còn nút "generate"**. Kế hoạch có trạng thái riêng: `computing` → `ready` (chờ duyệt) → `approved` (chờ đóng) → `packed`; nhánh phụ `failed` (lỗi dữ liệu, kèm `failureReason`), `rejected` (chuyển xử lý ngoài hệ thống), `superseded` (bị thay bởi lần tính mới — không hiện ra API).
