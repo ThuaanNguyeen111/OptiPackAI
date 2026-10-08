@@ -41,6 +41,12 @@ export class CreatePackagingBagDto {
   @IsInt({ message: 'price_vnd phải là số nguyên' })
   @Min(0, { message: 'price_vnd không được âm' })
   price_vnd?: number | null;
+
+  @ApiPropertyOptional({ example: 20, description: 'Mức cảnh báo tồn túi (mặc định 20)' })
+  @IsOptional()
+  @IsInt({ message: 'reorder_level phải là số nguyên' })
+  @Min(0, { message: 'reorder_level không được âm' })
+  reorder_level?: number;
 }
 
 export class UpdatePackagingBagDto {
@@ -70,8 +76,27 @@ export class UpdatePackagingBagDto {
   @Min(0, { message: 'price_vnd không được âm' })
   price_vnd?: number | null;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt({ message: 'reorder_level phải là số nguyên' })
+  @Min(0, { message: 'reorder_level không được âm' })
+  reorder_level?: number;
+
   @ApiPropertyOptional({ description: 'false = ngừng dùng túi này (xóa mềm)' })
   @IsOptional()
   @IsBoolean({ message: 'is_active phải là true/false' })
   is_active?: boolean;
+}
+
+export class StockInBagDto {
+  @ApiProperty({ example: 200, description: 'Số túi nhập thêm' })
+  @IsInt({ message: 'quantity phải là số nguyên' })
+  @Min(1, { message: 'quantity phải ≥ 1' })
+  @Max(100000, { message: 'quantity không vượt quá 100000' })
+  quantity!: number;
+
+  @ApiPropertyOptional({ description: 'Ghi chú nhập (nhà cung cấp, số phiếu...)' })
+  @IsOptional()
+  @IsString({ message: 'note phải là chuỗi' })
+  note?: string;
 }

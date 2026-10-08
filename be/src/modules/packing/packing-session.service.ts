@@ -14,6 +14,7 @@ import {
   type MaterialShortfall,
 } from '../packaging/packaging-material.service';
 import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
+import { PackagingBagService } from '../packaging/packaging-bag.service';
 import {
   MarketplaceSkuMapping,
   MarketplaceSkuMappingDocument,
@@ -96,6 +97,7 @@ export class PackingSessionService {
     private readonly materialsService: PackagingMaterialsService,
     private readonly settingsService: PackingSettingsService,
     private readonly notificationsService: NotificationsService,
+    private readonly bagService: PackagingBagService,
   ) {}
 
   // ------------------------------------------------------------------ bắt đầu / hoàn tất
@@ -342,6 +344,30 @@ export class PackingSessionService {
       );
       consumedMaterials = materialResult.consumed;
       shortfalls = materialResult.shortfalls;
+
+      // (08/10/2026) Túi zip: mỗi món có túi = 1 túi, trừ cùng lúc với thùng (chỉ lần niêm phong đầu).
+      const bagByParcel = new Map<string, { code: string; quantity: number; parcelNo: number }>();
+      const bagOfSku = new Map(data.item_profiles.flatMap((i) => (i.zip_bag_code ? [[i.sku, i.zip_bag_code] as const] : [])));
+      for (const p of toConsume) {
+        for (const q of p.placements) {
+          const code = bagOfSku.get(q.sku);
+          if (!code) continue;
+          const key = `${String(p.parcel_no)}|${code}`;
+          const row = bagByParcel.get(key) ?? { code, quantity: 0, parcelNo: p.parcel_no };
+          row.quantity += 1;
+          bagByParcel.set(key, row);
+        }
+      }
+      if (bagByParcel.size > 0) {
+        const bags = await this.bagService.consumeForParcels(
+          session,
+          [...bagByParcel.values()],
+          { groupId: plan.order_group_id, planId: plan._id },
+          userId,
+        );
+        consumedMaterials = [...consumedMaterials, ...bags.consumed];
+        shortfalls = [...shortfalls, ...bags.shortfalls.map((s) => ({ ...s, planId: plan._id }))];
+      }
 
       const parcels = data.parcels.map((p): ParcelData => {
         const weight = weights.get(p.parcel_no);

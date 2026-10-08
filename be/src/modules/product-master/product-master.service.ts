@@ -8,6 +8,7 @@ import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto'
 import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { PackagingBag, PackagingBagDocument } from '../packaging/schemas/packaging-bag.schema';
+import { bagFits, suggestSmallestBag } from '../packaging/bag-fit.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 // 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #7) —
@@ -328,13 +329,24 @@ export class ProductMasterService {
     }
     const zipBagCode = dto.zip_bag_code ?? null;
     if (zipBagCode !== null) {
-      const bagExists = await this.bagModel.exists({ code: zipBagCode, is_active: true });
-      if (!bagExists) {
+      const bag = await this.bagModel.findOne({ code: zipBagCode, is_active: true }).lean();
+      if (!bag) {
         throw new AppException(
           PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_NOT_FOUND,
           `Không có túi zip "${zipBagCode}" đang dùng trong danh mục.`,
           HttpStatus.UNPROCESSABLE_ENTITY,
           { zipBagCode },
+        );
+      }
+      const pkg = { length_cm: dto.length_cm, width_cm: dto.width_cm, height_cm: dto.height_cm };
+      if (!bagFits(pkg, bag)) {
+        const suggested = await this.suggestZipBag(pkg);
+        throw new AppException(
+          PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_TOO_SMALL,
+          `Túi "${zipBagCode}" (${String(bag.width_mm)}×${String(bag.length_mm)} mm) không vừa gói ${String(dto.length_cm)}×${String(dto.width_cm)}×${String(dto.height_cm)} cm.` +
+            (suggested ? ` Gợi ý: túi "${suggested}".` : ' Không túi nào trong danh mục đủ lớn — thêm túi lớn hơn.'),
+          HttpStatus.UNPROCESSABLE_ENTITY,
+          { zipBagCode, suggestedZipBagCode: suggested },
         );
       }
     }
@@ -374,6 +386,12 @@ export class ProductMasterService {
     }
     this.logger.log(`Xác nhận hồ sơ đóng gói SKU ${updated.seller_sku} (shop ${updated.shop_id}).`);
     return updated;
+  }
+
+  /** Mã túi zip nhỏ nhất (theo diện tích) còn vừa gói đã đo (cm); null nếu không túi nào vừa. */
+  async suggestZipBag(pkg: { length_cm: number; width_cm: number; height_cm: number }): Promise<string | null> {
+    const bags = await this.bagModel.find({ is_active: true }).select('code width_mm length_mm').lean();
+    return suggestSmallestBag(pkg, bags)?.code ?? null;
   }
 
   private parseDimension(raw?: string): number | undefined {

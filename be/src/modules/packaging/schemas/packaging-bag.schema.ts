@@ -32,6 +32,14 @@ export class PackagingBag {
   @Prop({ type: Number, default: null, min: 0 })
   price_vnd!: number | null;
 
+  /** (08/10/2026) Tồn túi — nhập qua stock-in, trừ lúc niêm phong kiện (mỗi món có túi = 1 túi). */
+  @Prop({ type: Number, default: 0, min: 0 })
+  quantity_on_hand!: number;
+
+  /** Tồn ≤ mức này sau khi đóng → cảnh báo Admin + Store Owner. */
+  @Prop({ type: Number, default: 20, min: 0 })
+  reorder_level!: number;
+
   @Prop({ type: Boolean, default: false })
   is_sample!: boolean;
 

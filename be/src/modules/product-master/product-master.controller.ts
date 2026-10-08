@@ -29,6 +29,8 @@ export interface ProductMasterResponse {
   productCategory: string | null;
   zipBagCode: string | null;
   zipBagFolded: boolean;
+  /** (08/10/2026) Chỉ có ở PUT packaging-profile: túi zip nhỏ nhất còn vừa gói vừa đo (null = không túi nào vừa). */
+  suggestedZipBagCode?: string | null;
   canFoldInHalf: boolean;
   profileConfirmedBy: string | null;
   profileConfirmedAt: Date | null;
@@ -142,6 +144,11 @@ export class ProductMasterController {
     @Body() dto: ConfirmPackagingProfileDto,
   ): Promise<ProductMasterResponse> {
     const doc = await this.productMasterService.confirmPackagingProfile(id, user.userId, dto);
-    return toResponse(doc);
+    const suggestedZipBagCode = await this.productMasterService.suggestZipBag({
+      length_cm: dto.length_cm,
+      width_cm: dto.width_cm,
+      height_cm: dto.height_cm,
+    });
+    return { ...toResponse(doc), suggestedZipBagCode };
   }
 }

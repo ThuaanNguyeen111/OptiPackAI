@@ -1,7 +1,9 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { PackagingBagService } from './packaging-bag.service';
-import { CreatePackagingBagDto, UpdatePackagingBagDto } from './dto/packaging-bag.dto';
+import { CreatePackagingBagDto, StockInBagDto, UpdatePackagingBagDto } from './dto/packaging-bag.dto';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { PackagingBagDocument } from './schemas/packaging-bag.schema';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -17,6 +19,8 @@ export interface PackagingBagResponse {
   priceVnd: number | null;
   isSample: boolean;
   isActive: boolean;
+  quantityOnHand: number;
+  reorderLevel: number;
 }
 
 function toBagResponse(doc: PackagingBagDocument): PackagingBagResponse {
@@ -29,6 +33,8 @@ function toBagResponse(doc: PackagingBagDocument): PackagingBagResponse {
     priceVnd: doc.price_vnd,
     isSample: doc.is_sample,
     isActive: doc.is_active,
+    quantityOnHand: doc.quantity_on_hand,
+    reorderLevel: doc.reorder_level,
   };
 }
 
@@ -60,5 +66,16 @@ export class PackagingBagController {
   @ApiOperation({ summary: 'Sửa túi zip hoặc ngừng dùng (is_active=false) — Admin.' })
   async update(@Param('id') id: string, @Body() dto: UpdatePackagingBagDto): Promise<PackagingBagResponse> {
     return toBagResponse(await this.bagService.update(id, dto));
+  }
+
+  @Post(':id/stock-in')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Nhập thêm túi zip vào kho (tăng tồn, ghi sổ vật tư). Tồn bị trừ lúc niêm phong kiện.' })
+  async stockIn(
+    @Param('id') id: string,
+    @Body() dto: StockInBagDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<PackagingBagResponse> {
+    return toBagResponse(await this.bagService.stockIn(id, dto, user.userId));
   }
 }

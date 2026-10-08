@@ -18,7 +18,12 @@ describe('ProductMasterService', () => {
   // 🔄 (29/09/2026) — service giờ tra adapter qua registry MARKETPLACE_ADAPTERS
   // thay vì inject thẳng LazadaAdapter (xem product-master.service.ts).
   let lazadaAdapter: { getProducts: jest.Mock };
-  let bagModel: { exists: jest.Mock };
+  let bagModel: { findOne: jest.Mock; find: jest.Mock };
+  // Gói mẫu 28×20×4 cm cần túi tối thiểu ~250×350 mm (xem bag-fit.util).
+  const ZIP_M = { code: 'ZIP-M', width_mm: 300, length_mm: 400 };
+  const ZIP_S = { code: 'ZIP-S', width_mm: 200, length_mm: 300 };
+  let bagDoc: Record<string, unknown> | null;
+  let activeBags: Record<string, unknown>[];
 
   function makeDto(
     zip: { zip_bag_code?: string; zip_bag_folded?: boolean; can_fold_in_half?: boolean; product_category?: ProductCategory } = {},
@@ -40,7 +45,12 @@ describe('ProductMasterService', () => {
   beforeEach(async () => {
     productMasterModel = { findByIdAndUpdate: jest.fn(), bulkWrite: jest.fn() };
     lazadaAdapter = { getProducts: jest.fn() };
-    bagModel = { exists: jest.fn().mockResolvedValue({ _id: 'bag' }) };
+    bagDoc = ZIP_M;
+    activeBags = [ZIP_S, ZIP_M];
+    bagModel = {
+      findOne: jest.fn(() => ({ lean: () => Promise.resolve(bagDoc) })),
+      find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve(activeBags) }) })),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ProductMasterService,
@@ -94,7 +104,7 @@ describe('ProductMasterService', () => {
 
     const [, update] = productMasterModel.findByIdAndUpdate.mock.calls[0] as [string, { $set: Record<string, unknown> }];
     expect(update.$set).toMatchObject({ product_category: 't_shirt', zip_bag_code: null, zip_bag_folded: false });
-    expect(bagModel.exists.mock.calls).toHaveLength(0);
+    expect(bagModel.findOne.mock.calls).toHaveLength(0);
   });
 
   it('có túi zip đang dùng -> lưu mã túi + gập đôi', async () => {
@@ -104,17 +114,34 @@ describe('ProductMasterService', () => {
 
     const [, update] = productMasterModel.findByIdAndUpdate.mock.calls[0] as [string, { $set: Record<string, unknown> }];
     expect(update.$set).toMatchObject({ zip_bag_code: 'ZIP-M', zip_bag_folded: true });
-    const [bagFilter] = bagModel.exists.mock.calls[0] as [unknown];
+    const [bagFilter] = bagModel.findOne.mock.calls[0] as [unknown];
     expect(bagFilter).toEqual({ code: 'ZIP-M', is_active: true });
   });
 
   it('mã túi zip không có trong danh mục -> PM_ZIP_BAG_NOT_FOUND, không ghi hồ sơ', async () => {
-    bagModel.exists.mockResolvedValue(null);
+    bagDoc = null;
 
     await expect(
       service.confirmPackagingProfile(new Types.ObjectId().toString(), new Types.ObjectId().toString(), makeDto({ zip_bag_code: 'ZIP-KHONG-CO' })),
     ).rejects.toMatchObject({ errorCode: PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_NOT_FOUND });
     expect(productMasterModel.findByIdAndUpdate.mock.calls).toHaveLength(0);
+  });
+
+  it('túi quá nhỏ so với gói đã đo -> PM_ZIP_BAG_TOO_SMALL kèm gợi ý túi nhỏ nhất còn vừa, không ghi hồ sơ', async () => {
+    bagDoc = ZIP_S;
+    await expect(
+      service.confirmPackagingProfile(new Types.ObjectId().toString(), new Types.ObjectId().toString(), makeDto({ zip_bag_code: 'ZIP-S' })),
+    ).rejects.toMatchObject({
+      errorCode: PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_TOO_SMALL,
+      details: { zipBagCode: 'ZIP-S', suggestedZipBagCode: 'ZIP-M' },
+    });
+    expect(productMasterModel.findByIdAndUpdate.mock.calls).toHaveLength(0);
+  });
+
+  it('suggestZipBag: túi nhỏ nhất còn vừa; không túi nào vừa -> null', async () => {
+    expect(await service.suggestZipBag({ length_cm: 28, width_cm: 20, height_cm: 4 })).toBe('ZIP-M');
+    expect(await service.suggestZipBag({ length_cm: 20, width_cm: 12, height_cm: 2 })).toBe('ZIP-S');
+    expect(await service.suggestZipBag({ length_cm: 80, width_cm: 60, height_cm: 30 })).toBeNull();
   });
 
   it('lưu cờ có thể gập đôi cho hàng mềm', async () => {

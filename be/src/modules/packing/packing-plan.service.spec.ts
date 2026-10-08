@@ -156,6 +156,7 @@ describe('PackingPlanService', () => {
   let session: PackingSessionService;
   let settings: ActivePackingSettings;
   let materialsService: { recoverFromUnpack: jest.Mock };
+  let bagService: { consumeForParcels: jest.Mock };
   let stock: Map<string, number>;
 
   beforeEach(() => {
@@ -185,6 +186,7 @@ describe('PackingPlanService', () => {
       reconcileReservation: jest.fn(() => Promise.resolve()),
     };
     settings = { ...DEFAULT_PACKING_SETTINGS };
+    bagService = { consumeForParcels: jest.fn(() => Promise.resolve({ consumed: [], shortfalls: [] })) };
     materialsService = {
       recoverFromUnpack: jest.fn((lines: { code: string; quantity: number }[]) =>
         Promise.resolve(lines.map((l) => ({ code: l.code, quantity: l.quantity, outcome: 'reused' }))),
@@ -251,6 +253,7 @@ describe('PackingPlanService', () => {
       materialsService as never,
       { get: () => Promise.resolve(settings) } as never,
       notificationsService as never,
+      bagService as never,
     );
   });
 
@@ -755,6 +758,62 @@ describe('PackingPlanService', () => {
         (c) => (c as unknown as [unknown, { parcelNo: number }[]])[1],
       );
       expect(consumedParcels.filter((c) => c.parcelNo === no)).toHaveLength(1);
+    });
+
+    describe('túi zip trừ lúc niêm phong (08/10/2026)', () => {
+      /** Gắn túi ZIP-M cho mọi SKU trong kế hoạch (hồ sơ SKU đã chụp vào item_profiles). */
+      function bagEverything(): void {
+        const stored = planModel.docs[0] as unknown as { parcels: { placements: { sku: string }[] }[]; item_profiles: unknown[] };
+        const skus = new Set(stored.parcels.flatMap((p) => p.placements.map((q) => q.sku)));
+        stored.item_profiles = [...skus].map((sku) => ({ sku, product_category: null, zip_bag_code: 'ZIP-M', zip_bag_folded: false }));
+      }
+
+      it('mỗi món có túi = 1 túi, gom theo kiện + mã túi; chỉ trừ ở lần niêm phong đầu', async () => {
+        let plan = await approvedPlan();
+        bagEverything();
+        const parcel = plan.parcels[0];
+        if (!parcel) throw new Error('thiếu kiện');
+        plan = await scanAll(parcel.parcel_no);
+        plan = (await session.seal(groupId, parcel.parcel_no, { weight_kg: weightOf(plan, parcel.parcel_no), expected_version: plan.version }, userId)).plan;
+        expect(bagService.consumeForParcels).toHaveBeenCalledTimes(1);
+        const needs = (bagService.consumeForParcels.mock.calls[0] as unknown as [unknown, { code: string; quantity: number; parcelNo: number }[]])[1];
+        expect(needs).toEqual([{ code: 'ZIP-M', quantity: parcel.placements.length, parcelNo: parcel.parcel_no }]);
+
+        // mở ra đóng lại bằng thùng cũ (reusable) → không trừ túi lần 2
+        plan = (
+          await session.unseal(groupId, parcel.parcel_no, { expected_version: plan.version, reason: 'OTHER', note: 'x', box_condition: 'reusable' } as never, userId, UserRole.ADMIN)
+        ).plan;
+        plan = (await session.seal(groupId, parcel.parcel_no, { weight_kg: weightOf(plan, parcel.parcel_no), expected_version: plan.version }, userId)).plan;
+        expect(bagService.consumeForParcels).toHaveBeenCalledTimes(1);
+      });
+
+      it('thiếu túi không chặn niêm phong: phần thiếu ghi vào materials_shortfall của kiện + báo Admin/Store Owner', async () => {
+        let plan = await approvedPlan();
+        bagEverything();
+        const parcel = plan.parcels[0];
+        if (!parcel) throw new Error('thiếu kiện');
+        bagService.consumeForParcels.mockResolvedValueOnce({
+          consumed: [],
+          shortfalls: [{ parcelNo: parcel.parcel_no, code: 'ZIP-M', missing: 2 }],
+        });
+        plan = await scanAll(parcel.parcel_no);
+        plan = (await session.seal(groupId, parcel.parcel_no, { weight_kg: weightOf(plan, parcel.parcel_no), expected_version: plan.version }, userId)).plan;
+        const sealed = plan.parcels.find((p) => p.parcel_no === parcel.parcel_no);
+        expect(sealed?.status).toBe('sealed');
+        expect(sealed?.materials_shortfall).toEqual([{ code: 'ZIP-M', missing: 2 }]);
+        expect(
+          notificationsService.notify.mock.calls.some((c) => ((c as unknown[])[0] as { title: string }).title.includes('Thiếu vật tư ZIP-M')),
+        ).toBe(true);
+      });
+
+      it('kho không có hồ sơ túi (item_profiles không có zip_bag_code) → không gọi trừ túi', async () => {
+        let plan = await approvedPlan();
+        const parcel = plan.parcels[0];
+        if (!parcel) throw new Error('thiếu kiện');
+        plan = await scanAll(parcel.parcel_no);
+        await session.seal(groupId, parcel.parcel_no, { weight_kg: weightOf(plan, parcel.parcel_no), expected_version: plan.version }, userId);
+        expect(bagService.consumeForParcels).not.toHaveBeenCalled();
+      });
     });
 
     describe('hoàn tác niêm phong (08/10/2026)', () => {

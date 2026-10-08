@@ -217,7 +217,7 @@ async function main(): Promise<void> {
   for (const bag of SAMPLE_BAGS) {
     await bagModel.updateOne(
       { code: bag.code },
-      { $setOnInsert: { ...bag, is_active: true, is_sample: true } },
+      { $setOnInsert: { ...bag, is_active: true, is_sample: true, quantity_on_hand: 100 } },
       { upsert: true },
     );
   }
