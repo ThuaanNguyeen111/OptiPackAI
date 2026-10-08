@@ -31,6 +31,7 @@ import { PackingSettingsService, type ActivePackingSettings } from './packing-se
 import { isLiveParcel, type Plain } from './utils/parcels.util';
 import type { PackPlanDto } from './dto/packing-plan.dto';
 import type {
+  UnsealParcelDto,
   ReportIssueDto,
   ReviewParcelDto,
   ScanItemDto,
@@ -451,6 +452,109 @@ export class PackingSessionService {
     });
   }
 
+  // ------------------------------------------------------------------ hoàn tác niêm phong (08/10/2026)
+
+  /**
+   * Mở lại 1 kiện đã niêm phong (sealed/held) để đóng lại. Kế hoạch còn `packing`:
+   * nhân viên đóng gói làm được. Nhóm đã `packed` (chưa giao): chỉ Admin/Store
+   * Owner — kế hoạch về `packing`, nhóm về `approved_for_packing`. Đã giao thì
+   * không hoàn tác (409). Thùng `reusable` → đóng lại bằng chính thùng, không
+   * trừ tồn lần 2; `damaged` → thùng + vật tư lần trước coi như mất (đã trừ lúc
+   * niêm phong), niêm phong lại sẽ trừ cái mới, ghi hao hụt cho báo cáo.
+   * Lazada không có API hoàn tác Pack — controller trả cảnh báo.
+   */
+  async unseal(
+    groupId: string,
+    parcelNo: number,
+    dto: UnsealParcelDto,
+    userId: string,
+    role: UserRole,
+  ): Promise<{ plan: PackingPlanDocument; wasPacked: boolean }> {
+    if (dto.reason === 'OTHER' && !dto.note?.trim()) {
+      throw new AppException(PACKING_ERROR_CODES.NOTE_REQUIRED, 'Chọn lý do "Khác" thì phải ghi chú cụ thể.', HttpStatus.BAD_REQUEST);
+    }
+    const plan = await this.planService.requireActivePlan(groupId);
+    if (plan.status !== 'packing' && plan.status !== 'packed') {
+      throw this.planService.wrongStatus(groupId, plan.status, 'hoàn tác niêm phong');
+    }
+    const wasPacked = plan.status === 'packed';
+    if (wasPacked && role !== UserRole.ADMIN && role !== UserRole.STORE_OWNER) {
+      throw new AppException(
+        PACKING_ERROR_CODES.UNSEAL_NOT_ALLOWED,
+        'Nhóm đã đóng xong — chỉ Admin hoặc Store Owner được hoàn tác niêm phong.',
+        HttpStatus.FORBIDDEN,
+        { groupId },
+      );
+    }
+    if (plan.version !== dto.expected_version) throw this.planService.versionConflict(groupId);
+    const data = this.data(plan);
+    const parcel = this.parcelOf(data, parcelNo);
+    if (parcel.status !== 'sealed' && parcel.status !== 'held') {
+      throw this.parcelWrongStatus(groupId, parcel, 'hoàn tác niêm phong (chỉ kiện đã niêm phong hoặc đang bị giữ)');
+    }
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
+    const expectedGroup = wasPacked ? GroupFulfillmentStatus.PACKED : GroupFulfillmentStatus.APPROVED_FOR_PACKING;
+    if (group.fulfillment_status !== expectedGroup) {
+      throw this.planService.wrongStatus(groupId, group.fulfillment_status, 'hoàn tác niêm phong');
+    }
+
+    const damaged = dto.box_condition === 'damaged';
+    const now = new Date();
+    const by = new Types.ObjectId(userId);
+    const next: ParcelData = {
+      ...parcel,
+      status: 'pending',
+      actual_weight_kg: null,
+      is_abnormal: false,
+      sealed_by: null,
+      sealed_at: null,
+      scans: dto.rescan === true ? [] : parcel.scans,
+      // Thùng hỏng: lần niêm phong trước đã trừ thùng + vật tư → mất; đóng lại phải trừ cái mới.
+      box_consumed: damaged ? false : parcel.box_consumed,
+      materials_shortfall: damaged ? [] : parcel.materials_shortfall,
+    };
+    const parcels = data.parcels.map((p) => (p.parcel_no === parcelNo ? next : p));
+    const adjustment = {
+      kind: 'unseal' as const,
+      detail: `Kiện ${String(parcelNo)}: hoàn tác niêm phong (thùng ${parcel.box.code}: ${damaged ? 'hỏng, ghi hao hụt' : 'còn tốt, dùng lại'})`,
+      skus: [...new Set(parcel.placements.map((p) => p.sku))],
+      box_codes: [parcel.box.code],
+      old_box_outcome: damaged ? ('damaged' as const) : ('unused' as const),
+      waste_cost_vnd: damaged ? (parcel.box.price_vnd ?? 0) : 0,
+      reason: dto.reason,
+      note: dto.note?.trim() ? dto.note.trim() : null,
+      by,
+      at: now,
+    };
+    const updated = await this.runInTransaction(async (session) => {
+      const res = await this.planModel.findOneAndUpdate(
+        { _id: plan._id, version: plan.version, is_active: true, status: plan.status },
+        {
+          $set: wasPacked
+            ? { parcels, status: 'packing', packed_by: null, packed_at: null, pack_mode: null }
+            : { parcels },
+          $push: {
+            adjustments: adjustment,
+            activity: this.activity('unseal', userId, `Hoàn tác niêm phong kiện ${String(parcelNo)}`, parcelNo, dto.reason),
+          },
+          $inc: { version: 1 },
+        },
+        { session, returnDocument: 'after' },
+      );
+      if (!res) throw this.planService.versionConflict(groupId);
+      if (wasPacked) {
+        await this.orderGroupsService.transitionFulfillmentStatus(
+          groupId,
+          GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+          group.__v,
+          session,
+        );
+      }
+      return res;
+    });
+    return { plan: updated, wasPacked };
+  }
+
   // ------------------------------------------------------------------ sự cố lúc đóng
 
   async reportIssue(groupId: string, dto: ReportIssueDto, userId: string): Promise<PackingPlanDocument> {
@@ -759,7 +863,7 @@ export class PackingSessionService {
   }
 
   private activity(
-    kind: 'start' | 'unscan' | 'assign' | 'finish',
+    kind: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal',
     userId: string,
     detail: string,
     parcelNo: number | null = null,

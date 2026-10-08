@@ -170,7 +170,7 @@ export function buildFeedback(
     if (adjustments.length > 0) adjustedPlans += 1;
     for (const a of adjustments) {
       count(a.reason);
-      if (a.kind === 'change_box_in_session' && a.old_box_outcome === 'damaged') {
+      if ((a.kind === 'change_box_in_session' || a.kind === 'unseal') && a.old_box_outcome === 'damaged') {
         const code = a.box_codes[0] ?? 'unknown';
         const w = wasteByBox.get(code) ?? { count: 0, costVnd: 0 };
         w.count += 1;

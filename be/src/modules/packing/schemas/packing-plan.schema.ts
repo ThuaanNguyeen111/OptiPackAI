@@ -288,8 +288,8 @@ export const PlanItemProfileSchema = SchemaFactory.createForClass(PlanItemProfil
 
 @Schema({ _id: false })
 export class PlanAdjustment {
-  @Prop({ type: String, required: true, enum: ['change_box', 'move_item', 'manual_pack', 'change_box_in_session'] })
-  kind!: 'change_box' | 'move_item' | 'manual_pack' | 'change_box_in_session';
+  @Prop({ type: String, required: true, enum: ['change_box', 'move_item', 'manual_pack', 'change_box_in_session', 'unseal'] })
+  kind!: 'change_box' | 'move_item' | 'manual_pack' | 'change_box_in_session' | 'unseal';
   /** (08/10/2026) Chỉ có ở change_box_in_session: thùng cũ chưa dùng hay đã hỏng (ghi hao hụt). */
   @Prop({ type: String, default: null, enum: ['unused', 'damaged', null] }) old_box_outcome?: 'unused' | 'damaged' | null;
   @Prop({ type: Number, default: 0 }) waste_cost_vnd?: number;
@@ -323,8 +323,8 @@ export const PlanIssueSchema = SchemaFactory.createForClass(PlanIssue);
 /** Nhật ký thao tác phiên đóng gói không thuộc kiện/sự cố riêng (05/10/2026). */
 @Schema({ _id: false })
 export class PlanActivity {
-  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish'] })
-  kind!: 'start' | 'unscan' | 'assign' | 'finish';
+  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish', 'unseal'] })
+  kind!: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal';
   @Prop({ type: Number, default: null }) parcel_no!: number | null;
   @Prop({ required: true }) detail!: string;
   @Prop({ type: String, default: null }) reason!: string | null;

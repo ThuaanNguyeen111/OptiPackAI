@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { UserRole } from '../../common/enums/user-role.enum';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { item, jean, sampleBoxes, shoebox, tee } from '../packaging/engine/scenarios/order-scenarios';
 import type { PackableItem } from '../../common/interfaces/packaging.interface';
@@ -754,6 +755,102 @@ describe('PackingPlanService', () => {
         (c) => (c as unknown as [unknown, { parcelNo: number }[]])[1],
       );
       expect(consumedParcels.filter((c) => c.parcelNo === no)).toHaveLength(1);
+    });
+
+    describe('hoàn tác niêm phong (08/10/2026)', () => {
+      const STAFF = UserRole.WAREHOUSE_STAFF;
+      const ADMIN = UserRole.ADMIN;
+      const OWNER = UserRole.STORE_OWNER;
+      const unsealDto = (version: number, extra: Record<string, unknown> = {}): never =>
+        ({ expected_version: version, reason: 'BOX_TOO_TIGHT', box_condition: 'reusable', ...extra }) as never;
+
+      async function sealOne(no: number): Promise<PackingPlanDocument> {
+        let plan = await scanAll(no);
+        plan = (await session.seal(groupId, no, { weight_kg: weightOf(plan, no), expected_version: plan.version }, userId)).plan;
+        return plan;
+      }
+
+      async function sealEverything(): Promise<PackingPlanDocument> {
+        let plan = await approvedPlan();
+        for (const no of plan.parcels.map((p) => p.parcel_no)) plan = await sealOne(no);
+        return plan;
+      }
+
+      const consumedFor = (no: number): number =>
+        boxService.consumeForPack.mock.calls
+          .flatMap((c) => (c as unknown as [unknown, { parcelNo: number }[]])[1])
+          .filter((c) => c.parcelNo === no).length;
+
+      it('đang đóng, thùng còn tốt: kiện về pending, giữ box_consumed → niêm phong lại KHÔNG trừ thùng lần 2', async () => {
+        await approvedPlan();
+        let plan = await sealOne(1);
+        const { plan: after, wasPacked } = await unsealParcel(1, unsealDto(plan.version), STAFF);
+        plan = after;
+        expect(wasPacked).toBe(false);
+        const parcel = plan.parcels.find((p) => p.parcel_no === 1);
+        expect(parcel?.status).toBe('pending');
+        expect(parcel?.box_consumed).toBe(true);
+        expect(parcel?.actual_weight_kg).toBeNull();
+        expect(plan.adjustments.at(-1)).toMatchObject({ kind: 'unseal', old_box_outcome: 'unused', waste_cost_vnd: 0 });
+        expect(plan.activity.at(-1)).toMatchObject({ kind: 'unseal', parcel_no: 1 });
+        plan = (await session.seal(groupId, 1, { weight_kg: weightOf(plan, 1), expected_version: plan.version }, userId)).plan;
+        expect(plan.parcels.find((p) => p.parcel_no === 1)?.status).toBe('sealed');
+        expect(consumedFor(1)).toBe(1);
+      });
+
+      it('thùng hỏng: box_consumed về false → niêm phong lại trừ thùng MỚI; ghi hao hụt theo giá thùng', async () => {
+        await approvedPlan();
+        let plan = await sealOne(1);
+        const price = plan.parcels.find((p) => p.parcel_no === 1)?.box.price_vnd ?? 0;
+        plan = (await unsealParcel(1, unsealDto(plan.version, { box_condition: 'damaged', rescan: true }), STAFF)).plan;
+        const parcel = plan.parcels.find((p) => p.parcel_no === 1);
+        expect(parcel?.box_consumed).toBe(false);
+        expect(parcel?.scans).toHaveLength(0); // rescan: true
+        expect(plan.adjustments.at(-1)).toMatchObject({ old_box_outcome: 'damaged', waste_cost_vnd: price });
+        plan = await sealOne(1);
+        expect(consumedFor(1)).toBe(2);
+      });
+
+      it('nhóm đã packed: nhân viên bị chặn (403); Admin/Store Owner hoàn tác → plan packing, nhóm approved_for_packing, đóng lại thì packed', async () => {
+        let plan = await sealEverything();
+        expect(plan.status).toBe('packed');
+        await expect(unsealParcel(1, unsealDto(plan.version), STAFF)).rejects.toMatchObject({
+          errorCode: PACKING_ERROR_CODES.UNSEAL_NOT_ALLOWED,
+        });
+        for (const role of [ADMIN, OWNER]) {
+          const probe = await unsealParcel(1, unsealDto(plan.version), role);
+          expect(probe.wasPacked).toBe(true);
+          expect(probe.plan.status).toBe('packing');
+          expect(probe.plan.packed_at).toBeNull();
+          expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+          plan = (
+            await session.seal(groupId, 1, { weight_kg: weightOf(probe.plan, 1), expected_version: probe.plan.version }, userId)
+          ).plan;
+          expect(plan.status).toBe('packed');
+          expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PACKED);
+        }
+      });
+
+      it('đã giao (nhóm shipped) → không hoàn tác; kiện chưa niêm phong → PARCEL_WRONG_STATUS; OTHER cần ghi chú', async () => {
+        let plan = await sealEverything();
+        await expect(unsealParcel(1, unsealDto(plan.version, { reason: 'OTHER' }), ADMIN)).rejects.toMatchObject({
+          errorCode: PACKING_ERROR_CODES.NOTE_REQUIRED,
+        });
+        group = { ...group, fulfillment_status: GroupFulfillmentStatus.SHIPPED };
+        await expect(unsealParcel(1, unsealDto(plan.version), ADMIN)).rejects.toMatchObject({
+          errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS,
+        });
+        group = { ...group, fulfillment_status: GroupFulfillmentStatus.PACKED };
+        const probe = await unsealParcel(1, unsealDto(plan.version), ADMIN);
+        plan = probe.plan;
+        await expect(unsealParcel(1, unsealDto(plan.version), ADMIN)).rejects.toMatchObject({
+          errorCode: PACKING_ERROR_CODES.PARCEL_WRONG_STATUS,
+        });
+      });
+
+      function unsealParcel(no: number, dto: never, role: UserRole): ReturnType<PackingSessionService['unseal']> {
+        return session.unseal(groupId, no, dto, userId, role);
+      }
     });
 
     it('lối tắt pack: ghi quét "bypass", kiện lệch vẫn bị giữ; cài đặt bắt buộc quét thì chặn', async () => {

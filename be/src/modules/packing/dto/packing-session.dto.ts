@@ -17,7 +17,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { VersionedDto } from './packing-plan.dto';
+import { ADJUSTMENT_REASONS, VersionedDto, type AdjustmentReason } from './packing-plan.dto';
 
 /** Lý do khi xem lại kiện lệch cân / gỡ lần quét. */
 export const PARCEL_REVIEW_REASONS = [
@@ -106,6 +106,32 @@ export class ReviewParcelDto extends VersionedDto {
   note?: string;
 
   @ApiProperty({ required: false, description: 'reopen: true = xóa các lần quét, phải quét lại từ đầu.' })
+  @IsOptional()
+  @IsBoolean({ message: 'rescan phải là true/false' })
+  rescan?: boolean;
+}
+
+/** Hoàn tác niêm phong 1 kiện (đã sealed/held) — mở ra đóng lại. */
+export class UnsealParcelDto extends VersionedDto {
+  @ApiProperty({ enum: ADJUSTMENT_REASONS, description: 'Mã lý do mở lại kiện (dùng cho báo cáo feedback).' })
+  @IsIn(ADJUSTMENT_REASONS, { message: 'reason không hợp lệ' })
+  reason!: AdjustmentReason;
+
+  @ApiProperty({ required: false, description: 'Bắt buộc khi reason = OTHER.' })
+  @IsOptional()
+  @IsString({ message: 'note phải là chuỗi' })
+  @MaxLength(500, { message: 'note tối đa 500 ký tự' })
+  note?: string;
+
+  @ApiProperty({
+    enum: ['reusable', 'damaged'],
+    description:
+      'Thùng lúc mở ra: reusable = còn tốt, đóng lại bằng chính thùng đó (KHÔNG trừ tồn lần 2); damaged = hỏng → coi như mất, niêm phong lại sẽ trừ thùng mới + vật tư mới, ghi hao hụt.',
+  })
+  @IsIn(['reusable', 'damaged'], { message: 'box_condition chỉ nhận reusable hoặc damaged' })
+  box_condition!: 'reusable' | 'damaged';
+
+  @ApiProperty({ required: false, description: 'true = xóa các lần quét, phải quét lại từ đầu.' })
   @IsOptional()
   @IsBoolean({ message: 'rescan phải là true/false' })
   rescan?: boolean;

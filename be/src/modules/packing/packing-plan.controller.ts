@@ -41,6 +41,7 @@ import {
   SealParcelDto,
   StartPackingDto,
   UnpackParcelDto,
+  UnsealParcelDto,
   UnscanItemDto,
   UpdatePackingSettingsDto,
 } from './dto/packing-session.dto';
@@ -695,6 +696,28 @@ export class PackingPlanController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ plan: PackingPlanResponse }> {
     return { plan: toPlanResponse(await this.sessionService.reportIssue(groupId, dto, user.userId)) };
+  }
+
+  @Post('parcels/:parcelNo/unseal')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Hoàn tác niêm phong 1 kiện (sealed/held) để đóng lại. Kế hoạch đang đóng: nhân viên đóng gói làm được. Nhóm đã packed (chưa giao): chỉ Admin/Store Owner, nhóm quay về approved_for_packing. Thùng reusable = dùng lại, không trừ lần 2; damaged = mất, niêm phong lại trừ cái mới + ghi hao hụt. Lazada KHÔNG hoàn tác được Pack — response có cảnh báo.',
+  })
+  async unseal(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: UnsealParcelDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse; wasPacked: boolean; warnings: string[] }> {
+    const { plan, wasPacked } = await this.sessionService.unseal(groupId, parcelNo, dto, user.userId, user.role);
+    return {
+      plan: toPlanResponse(plan),
+      wasPacked,
+      warnings: wasPacked
+        ? ['Nếu đơn đã được báo "Đã đóng gói" lên Lazada, Lazada không hỗ trợ hoàn tác — trạng thái trên sàn giữ nguyên.']
+        : [],
+    };
   }
 
   @Post('parcels/:parcelNo/unpack')

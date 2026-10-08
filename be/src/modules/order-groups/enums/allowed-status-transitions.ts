@@ -74,7 +74,13 @@ const ALLOWED_TRANSITIONS: Record<
   ],
   // BỔ SUNG (05/10/2026) — mọi đơn bị hủy SAU khi đã đóng (chưa giao): nhóm hủy,
   // các kiện chuyển "phải tháo" và nhân viên tháo kiện trả hàng về kệ.
-  [GroupFulfillmentStatus.PACKED]: [GroupFulfillmentStatus.SHIPPED, GroupFulfillmentStatus.CANCELED],
+  // BỔ SUNG (08/10/2026) — hoàn tác niêm phong 1 kiện của nhóm đã `packed` (chưa giao):
+  // nhóm quay lại approved_for_packing để đóng lại kiện đó.
+  [GroupFulfillmentStatus.PACKED]: [
+    GroupFulfillmentStatus.SHIPPED,
+    GroupFulfillmentStatus.CANCELED,
+    GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+  ],
   [GroupFulfillmentStatus.SHIPPED]: [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED],
   [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNED], // hoàn hàng SAU khi đã giao vẫn hợp lệ (khách trả hàng)
   [GroupFulfillmentStatus.RETURNED]: [], // trạng thái cuối, không đi tiếp đâu nữa

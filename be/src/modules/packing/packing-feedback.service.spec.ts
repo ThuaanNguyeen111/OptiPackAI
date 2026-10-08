@@ -155,6 +155,12 @@ describe('buildFeedback — vòng phản hồi cho Admin', () => {
     });
     const report = buildFeedback([plan({ adjustments: [waste(3000), waste(3000), unused] })], range, 3);
     expect(report.waste).toEqual({ events: 2, costVnd: 6000, byBox: [{ boxCode: 'SAMPLE-M', count: 2, costVnd: 6000 }] });
+    const reopened = Object.assign(adjustment('BOX_TOO_TIGHT', [], ['SAMPLE-M']), {
+      kind: 'unseal' as const,
+      old_box_outcome: 'damaged' as const,
+      waste_cost_vnd: 1000,
+    });
+    expect(buildFeedback([plan({ adjustments: [reopened] })], range, 3).waste).toMatchObject({ events: 1, costVnd: 1000 });
   });
 
   it('bỏ qua sự kiện ngoài khoảng ngày', () => {
