@@ -87,6 +87,9 @@ function fakePlanModel() {
   };
   const model = {
     docs,
+    distinct: jest.fn((field: string, f: Record<string, unknown>) =>
+      Promise.resolve([...new Map(docs.filter((d) => matches(d, f)).map((d) => [String(d[field]), d[field]])).values()]),
+    ),
     create: jest.fn((input: Record<string, unknown> | Record<string, unknown>[]) =>
       Array.isArray(input) ? Promise.all(input.map(createOne)) : createOne(input),
     ),
@@ -1301,6 +1304,32 @@ describe('PackingPlanService', () => {
       expect(await job.computePending()).toBe(1);
       group.fulfillment_status = GroupFulfillmentStatus.PICKED; // giả lập: vẫn picked nhưng đã có kế hoạch
       expect(await job.computePending()).toBe(0);
+    });
+
+    it('nhóm có kế hoạch failed/rejected bị loại khỏi lô trước khi lấy (không chiếm chỗ nhóm mới)', async () => {
+      const plan = await computed();
+      await service.reject(groupId, plan.version, 'ITEM_DAMAGED', undefined, userId);
+      const find = jest.fn(() => ({
+        select: () => ({ sort: () => ({ limit: () => ({ lean: () => Promise.resolve([]) }) }) }),
+      }));
+      const job = new PackingJobService({ find } as never, planModel as never, service, notificationsService as never);
+      await job.computePending();
+      const filter = (find.mock.calls[0] as unknown as [{ _id: { $nin: unknown[] } }])[0];
+      expect(filter._id.$nin.map(String)).toContain(groupId);
+    });
+
+    it('kế hoạch kẹt computing quá 5 phút bị đánh failed', async () => {
+      const updateMany = jest.fn(() => Promise.resolve({ modifiedCount: 2 }));
+      const job = new PackingJobService({} as never, { updateMany } as never, service, notificationsService as never);
+      const now = new Date('2026-10-09T10:00:00Z');
+      expect(await job.failStaleComputing(now)).toBe(2);
+      const [filter, update] = (updateMany.mock.calls[0] as unknown as [
+        { status: string; created_at: { $lt: Date } },
+        { $set: { status: string } },
+      ]);
+      expect(filter.status).toBe('computing');
+      expect(filter.created_at.$lt.getTime()).toBe(now.getTime() - 5 * 60 * 1000);
+      expect(update.$set.status).toBe('failed');
     });
 
     it('nhắc kế hoạch bị từ chối quá hạn: Admin + Store Owner + người được giao, mỗi kế hoạch đúng 1 lần', async () => {

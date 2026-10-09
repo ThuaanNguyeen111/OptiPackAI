@@ -15,6 +15,8 @@ import { UserRole } from '../../common/enums/user-role.enum';
 
 /** Số nhóm tối đa xử lý mỗi lượt quét (giữ mỗi lượt ngắn). */
 const BATCH = 10;
+/** Kế hoạch `computing` lâu hơn mức này coi như tiến trình đã chết giữa chừng (bộ giải chỉ chạy vài giây). */
+export const STALE_COMPUTING_MS = 5 * 60 * 1000;
 
 /**
  * ===================================================================
@@ -44,6 +46,7 @@ export class PackingJobService {
     if (this.running) return;
     this.running = true;
     try {
+      await this.failStaleComputing();
       await this.computePending();
     } catch (error: unknown) {
       this.logger.error(`Quét tự tính kế hoạch lỗi: ${error instanceof Error ? error.message : String(error)}`);
@@ -101,10 +104,33 @@ export class PackingJobService {
     return notified;
   }
 
+  /**
+   * (09/10/2026) Kế hoạch kẹt `computing` — app tắt/khởi động lại giữa lúc tính
+   * nên khối catch không kịp ghi `failed`. Kế hoạch đó vẫn `is_active` nên chặn
+   * cron tự tính và chặn `recompute`. Đánh `failed` để người dùng bấm "Tính lại".
+   */
+  async failStaleComputing(now: Date = new Date()): Promise<number> {
+    const result = await this.planModel.updateMany(
+      { is_active: true, status: 'computing', created_at: { $lt: new Date(now.getTime() - STALE_COMPUTING_MS) } },
+      { $set: { status: 'failed', failure_reason: 'Quá thời gian tính (tiến trình bị dừng giữa chừng) — bấm Tính lại.' } },
+    );
+    if (result.modifiedCount > 0) {
+      this.logger.warn(`Đã đánh failed ${String(result.modifiedCount)} kế hoạch kẹt ở trạng thái computing.`);
+    }
+    return result.modifiedCount;
+  }
+
   /** Tính cho các nhóm đang chờ; trả số nhóm đã tính thành công (dùng cho test/script). */
   async computePending(): Promise<number> {
+    // (09/10/2026) Loại sẵn nhóm đã có kế hoạch hoạt động (failed/rejected/đang tính)
+    // TRƯỚC khi lấy lô — trước đây lấy 50 nhóm cũ nhất rồi mới lọc, nên nhiều nhóm
+    // failed/rejected chiếm hết lô và nhóm mới lấy xong không bao giờ được tính.
+    const blocked = await this.planModel.distinct('order_group_id', {
+      is_active: true,
+      status: { $in: ['computing', 'failed', 'rejected'] },
+    });
     const picked = await this.groupModel
-      .find({ fulfillment_status: GroupFulfillmentStatus.PICKED })
+      .find({ fulfillment_status: GroupFulfillmentStatus.PICKED, _id: { $nin: blocked } })
       .select('_id')
       .sort({ updated_at: 1 })
       .limit(BATCH * 5)
