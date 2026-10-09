@@ -33,7 +33,7 @@ describe('ReturnsService — G3', () => {
   });
 
   beforeEach(() => {
-    returnModel = { findById: jest.fn(), exists: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([rma()]), findOneAndUpdate: jest.fn(), findByIdAndUpdate: jest.fn(), find: jest.fn() };
+    returnModel = { findById: jest.fn(), exists: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([rma()]), findOneAndUpdate: jest.fn(), findByIdAndUpdate: jest.fn(), find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]) }) })) };
     shipmentModel = { findOne: jest.fn().mockResolvedValue({ delivered_at: new Date() }) };
     orderGroupsService = {
       findOrderGroupById: jest.fn().mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.DELIVERED, platform: 'lazada', shop_id: 's1', __v: 4, updated_at: new Date() }),
@@ -68,6 +68,24 @@ describe('ReturnsService — G3', () => {
     it('trả nhiều hơn số đã mua / SKU lạ -> 400 RMA_INVALID_ITEMS', async () => {
       await expect(service.createSimulated(createDto([{ seller_sku: 'A', quantity: 3 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.INVALID_ITEMS });
       await expect(service.createSimulated(createDto([{ seller_sku: 'ZZZ', quantity: 1 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.INVALID_ITEMS });
+    });
+
+    it('lần trả sau trừ số đã trả ở phiếu trước (bỏ phiếu bị từ chối/hủy)', async () => {
+      returnModel.find.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ items: [{ seller_sku: 'A', quantity: 2 }] }]) }) });
+      await expect(service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.INVALID_ITEMS });
+      const [filter] = returnModel.find.mock.calls[0] as [{ status: { $nin: ReturnStatus[] } }];
+      expect(filter.status.$nin).toEqual([ReturnStatus.REJECTED, ReturnStatus.CANCELED]);
+    });
+
+    it('hủy phiếu đã duyệt mà hàng không về: bắt buộc lý do, awaiting_receipt → canceled', async () => {
+      await expect(service.cancel(rmaId.toString(), 1, 'owner-1', '  ')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.NOTE_REQUIRED });
+      returnModel.findById.mockResolvedValue(rma({ status: ReturnStatus.AWAITING_RECEIPT, __v: 1 }));
+      returnModel.findOneAndUpdate.mockResolvedValue(rma({ status: ReturnStatus.CANCELED }));
+      const out = await service.cancel(rmaId.toString(), 1, 'owner-1', 'Khách không gửi hàng');
+      expect(out.status).toBe(ReturnStatus.CANCELED);
+      const [filter, update] = returnModel.findOneAndUpdate.mock.calls[0] as [{ status: ReturnStatus }, { $set: { status: ReturnStatus } }];
+      expect(filter.status).toBe(ReturnStatus.AWAITING_RECEIPT);
+      expect(update.$set.status).toBe(ReturnStatus.CANCELED);
     });
 
     it('đang có phiếu chưa xử lý xong -> 409 RMA_OPEN_EXISTS', async () => {

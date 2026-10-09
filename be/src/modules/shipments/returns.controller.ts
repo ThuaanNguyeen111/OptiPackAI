@@ -143,6 +143,13 @@ export class ReturnsController {
     return toReturnResponse(await this.returnsService.reject(id, dto.expected_version, user.userId, dto.note));
   }
 
+  @Post(':id/cancel')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: '[Hủy phiếu đã duyệt] Hàng khách không gửi về — phiếu awaiting_receipt → canceled. Bắt buộc lý do (note).' })
+  async cancel(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
+    return toReturnResponse(await this.returnsService.cancel(id, dto.expected_version, user.userId, dto.note));
+  }
+
   @Post(':id/receive')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({ summary: '[Kho] Hàng khách trả đã về kho. Trả toàn bộ -> nhóm đơn -> returned.' })

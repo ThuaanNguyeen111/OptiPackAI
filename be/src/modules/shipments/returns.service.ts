@@ -129,11 +129,20 @@ export class ReturnsService {
     }
 
     const bought = new Map((await this.orderGroupsService.getPackableItemsForGroup(dto.order_group_id)).items.map((i) => [i.sku, i.quantity]));
+    // (09/10/2026) Trừ số đã trả/hoàn ở các phiếu trước (trừ phiếu bị từ chối/hủy) —
+    // trước đây so với toàn bộ số đã mua nên cùng 1 món trả được nhiều lần.
+    const earlier = await this.returnModel
+      .find({ order_group_id: group._id, status: { $nin: [ReturnStatus.REJECTED, ReturnStatus.CANCELED] } })
+      .select('items')
+      .lean();
+    for (const r of earlier) {
+      for (const it of r.items) bought.set(it.seller_sku, (bought.get(it.seller_sku) ?? 0) - it.quantity);
+    }
     const seen = new Set<string>();
     for (const item of dto.items) {
       const max = bought.get(item.seller_sku);
       if (seen.has(item.seller_sku) || max === undefined || item.quantity > max) {
-        this.fail(RETURN_ERROR_CODES.INVALID_ITEMS, `SKU "${item.seller_sku}" không thuộc nhóm đơn, bị khai trùng, hoặc vượt số lượng đã mua (${String(max ?? 0)}).`, HttpStatus.BAD_REQUEST, { sku: item.seller_sku });
+        this.fail(RETURN_ERROR_CODES.INVALID_ITEMS, `SKU "${item.seller_sku}" không thuộc nhóm đơn, bị khai trùng, hoặc vượt số lượng còn được trả (${String(Math.max(max ?? 0, 0))}).`, HttpStatus.BAD_REQUEST, { sku: item.seller_sku });
       }
       seen.add(item.seller_sku);
     }
@@ -194,6 +203,19 @@ export class ReturnsService {
     if (!note?.trim()) this.fail(RETURN_ERROR_CODES.NOTE_REQUIRED, 'Từ chối phải ghi rõ lý do.', HttpStatus.BAD_REQUEST);
     const rma = await this.get(id);
     return this.move(rma, expectedVersion, ReturnStatus.REQUESTED, ReturnStatus.REJECTED, { decided_by: actorId, decision_note: note, closed_at: new Date() });
+  }
+
+  /**
+   * (09/10/2026) [Store Owner/Admin] Hủy phiếu đã duyệt mà hàng không bao giờ về
+   * (khách không gửi). Trước đây phiếu `awaiting_receipt` không có lối ra và chặn
+   * mọi phiếu mới của nhóm đơn. Bắt buộc lý do.
+   */
+  async cancel(id: string, expectedVersion: number, actorId: string, note?: string): Promise<ReturnRequestDocument> {
+    if (!note?.trim()) this.fail(RETURN_ERROR_CODES.NOTE_REQUIRED, 'Hủy phiếu phải ghi rõ lý do.', HttpStatus.BAD_REQUEST);
+    const rma = await this.get(id);
+    return this.move(rma, expectedVersion, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.CANCELED, {
+      decided_by: actorId, decision_note: note, closed_at: new Date(),
+    });
   }
 
   /** [Warehouse] Hàng khách trả đã về kho. Trả TOÀN BỘ -> nhóm đơn -> returned. */
