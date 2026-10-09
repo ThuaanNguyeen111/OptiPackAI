@@ -271,7 +271,8 @@ export class OrderGroupsService {
     group: OrderGroupDocument,
   ): Promise<OrderGroupDocument> {
     try {
-      await this.staffAssignmentService.autoAssign(group._id.toString());
+      // (09/10/2026) Chạy lại từ cron cứu nhóm kẹt: giữ người đã được gán.
+      if (!group.assigned_staff_id) await this.staffAssignmentService.autoAssign(group._id.toString());
     } catch (error) {
       this.logger.warn(
         `Auto-assign Warehouse Staff thất bại ngay lúc tạo group ${group._id.toString()} — cần gán tay qua POST .../assign.`,
@@ -300,6 +301,42 @@ export class OrderGroupsService {
       );
       return group;
     }
+  }
+
+  /**
+   * (09/10/2026) Lưới an toàn cho nhóm kẹt `awaiting_packaging`: luồng hiện hành
+   * chuyển nhóm sang `picking` NGAY khi tạo; nếu bước đó lỗi, nhóm nằm im vì
+   * không có API nào đưa đi tiếp. Cron backfill gọi hàm này — nhóm còn đơn hợp
+   * lệ thì chạy lại `startPickingPhase`, hủy hết thì đi đường hủy tự động.
+   * Trả số nhóm đã đưa sang `picking`.
+   */
+  async resumeStuckAwaitingGroups(olderThanMs = 5 * 60 * 1000, limit = 50): Promise<number> {
+    const stuck = await this.orderGroupModel
+      .find({
+        fulfillment_status: GroupFulfillmentStatus.AWAITING_PACKAGING,
+        updated_at: { $lt: new Date(Date.now() - olderThanMs) },
+      })
+      .sort({ updated_at: 1 })
+      .limit(limit);
+    let resumed = 0;
+    for (const group of stuck) {
+      const id = group._id.toString();
+      try {
+        const active = await this.orderModel.countDocuments({
+          consolidated_group_id: group._id,
+          status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+        });
+        if (active === 0) {
+          await this.cancelIfAllOrdersUnfulfillable(id);
+          continue;
+        }
+        const after = await this.startPickingPhase(group);
+        if (after.fulfillment_status === GroupFulfillmentStatus.PICKING) resumed += 1;
+      } catch (error) {
+        this.logger.error(`Cứu nhóm kẹt awaiting_packaging ${id} thất bại.`, error);
+      }
+    }
+    return resumed;
   }
 
   /**
