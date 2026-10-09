@@ -214,7 +214,7 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc picking để biết cần lấy hàng gì, Packaging Staff lọc pending_approval để duyệt kế hoạch đóng gói)',
+      'Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id / stock_shortage / is_overdue để mỗi role thấy đúng hàng đợi. Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
   })
   async list(
     @Query() query: ListOrderGroupsQueryDto,
@@ -223,6 +223,11 @@ export class OrderGroupsController {
       fulfillmentStatus: query.fulfillment_status,
       platform: query.platform,
       orderPriority: query.order_priority,
+      assignedStaffId: query.assigned_staff_id,
+      stockShortage: query.stock_shortage === undefined ? undefined : query.stock_shortage === 'true',
+      isOverdue: query.is_overdue === undefined ? undefined : query.is_overdue === 'true',
+      before: query.before ? new Date(query.before) : undefined,
+      limit: query.limit,
     });
     return buildOrderGroupResponses(this.orderGroupsService, groups);
   }

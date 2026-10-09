@@ -22,6 +22,9 @@ import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-gr
 import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { RETURN_ERROR_CODES } from './returns.errors';
 
+/** (09/10/2026) Số phiếu tối đa đọc cho danh sách cách ly. */
+const QUARANTINE_MAX_RETURNS = 200;
+
 /**
  * ===================================================================
  * G3 (27/09/2026) — TRẢ HÀNG / HOÀN HÀNG (bản gọn, bấm nút)
@@ -343,8 +346,9 @@ export class ReturnsService {
   // ------------------------------------------------------ hàng cách ly
 
   /** Danh sách dòng hàng đang cách ly chờ xử lý (mọi phiếu), cũ nhất trước. */
+  /** (09/10/2026) Tối đa 200 phiếu cũ nhất mỗi lần (trước đây không giới hạn). */
   async listQuarantine(): Promise<{ returnId: string; rmaCode: string; lineIndex: number; sellerSku: string; quantity: number; note: string | null; since: Date | null }[]> {
-    const rmas = await this.returnModel.find({ inspection: { $elemMatch: { result: InspectionResult.QUARANTINE, disposition: { $in: ['pending', null] } } } }).sort({ closed_at: 1 });
+    const rmas = await this.returnModel.find({ inspection: { $elemMatch: { result: InspectionResult.QUARANTINE, disposition: { $in: ['pending', null] } } } }).sort({ closed_at: 1 }).limit(QUARANTINE_MAX_RETURNS);
     const out: { returnId: string; rmaCode: string; lineIndex: number; sellerSku: string; quantity: number; note: string | null; since: Date | null }[] = [];
     for (const r of rmas) {
       r.inspection.forEach((l, i) => {

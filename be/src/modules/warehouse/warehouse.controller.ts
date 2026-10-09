@@ -1,3 +1,4 @@
+import { BinSuggestionsQueryDto } from './dto/bin-suggestions-query.dto';
 import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
 import {
   Body,
@@ -540,9 +541,7 @@ export class WarehouseController {
   })
   async suggestBins(
     @Param('warehouseId') warehouseId: string,
-    @Query('category_code') categoryCode: string,
-    @Query('size') size?: string,
-    @Query('color_code') colorCode?: string,
+    @Query() q: BinSuggestionsQueryDto,
   ): Promise<
     {
       bin: BinLocationResponse;
@@ -552,9 +551,9 @@ export class WarehouseController {
     }[]
   > {
     const rows = await this.warehouseService.suggestBins(warehouseId, {
-      category_code: categoryCode,
-      size,
-      color_code: colorCode,
+      category_code: q.category_code,
+      size: q.size,
+      color_code: q.color_code,
     });
     return rows.map((r) => ({ ...r, bin: toBinLocationResponse(r.bin) }));
   }

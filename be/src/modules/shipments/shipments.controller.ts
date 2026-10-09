@@ -1,3 +1,4 @@
+import { ListShipmentsQueryDto } from './dto/list-query.dto';
 import { Body, Controller, Get, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ShipmentsService, ShipmentActor, type CarrierChoice, type ShipmentBatchResult } from './shipments.service';
@@ -150,17 +151,19 @@ export class ShipmentsController {
   @ApiQuery({ name: 'limit', required: false })
   @ApiOperation({ summary: 'Danh sách vận đơn (lọc theo trạng thái / nhóm đơn / chuyến / hãng).' })
   async list(
-    @Query('status') status?: ShipmentStatus,
-    @Query('order_group_id') orderGroupId?: string,
-    @Query('overdue') overdue?: string,
-    @Query('trip_code') tripCode?: string,
-    @Query('carrier_code') carrierCode?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() q: ListShipmentsQueryDto,
   ): Promise<{ items: ShipmentResponse[]; total: number; page: number; limit: number }> {
-    const p = Math.max(1, Number(page) || 1);
-    const l = Math.min(100, Math.max(1, Number(limit) || 20));
-    const { items, total } = await this.shipmentsService.listShipments({ status, orderGroupId, overdueOnly: overdue === 'true', tripCode, carrierCode, page: p, limit: l });
+    const p = q.page ?? 1;
+    const l = q.limit ?? 20;
+    const { items, total } = await this.shipmentsService.listShipments({
+      status: q.status,
+      orderGroupId: q.order_group_id,
+      overdueOnly: q.overdue === 'true',
+      tripCode: q.trip_code,
+      carrierCode: q.carrier_code,
+      page: p,
+      limit: l,
+    });
     return { items: items.map(toShipmentResponse), total, page: p, limit: l };
   }
 

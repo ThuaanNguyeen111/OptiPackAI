@@ -1,3 +1,4 @@
+import { ListReturnsQueryDto } from './dto/list-query.dto';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ReturnsService } from './returns.service';
@@ -76,14 +77,16 @@ export class ReturnsController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   async list(
-    @Query('status') status?: ReturnStatus,
-    @Query('order_group_id') orderGroupId?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() q: ListReturnsQueryDto,
   ): Promise<{ items: Record<string, unknown>[]; total: number; page: number; limit: number }> {
-    const p = Math.max(1, Number(page) || 1);
-    const l = Math.min(100, Math.max(1, Number(limit) || 20));
-    const { items, total } = await this.returnsService.list({ status, orderGroupId, page: p, limit: l });
+    const p = q.page ?? 1;
+    const l = q.limit ?? 20;
+    const { items, total } = await this.returnsService.list({
+      status: q.status,
+      orderGroupId: q.order_group_id,
+      page: p,
+      limit: l,
+    });
     return { items: items.map(toReturnResponse), total, page: p, limit: l };
   }
 

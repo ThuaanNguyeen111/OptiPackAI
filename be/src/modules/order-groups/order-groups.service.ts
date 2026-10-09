@@ -645,12 +645,22 @@ export class OrderGroupsService {
     fulfillmentStatus?: GroupFulfillmentStatus;
     platform?: MarketplacePlatform;
     orderPriority?: 'normal' | 'express';
+    assignedStaffId?: string;
+    stockShortage?: boolean;
+    isOverdue?: boolean;
+    before?: Date;
+    limit?: number;
   }): Promise<OrderGroupDocument[]> {
     const query: Record<string, unknown> = {};
     if (filter.fulfillmentStatus)
       query.fulfillment_status = filter.fulfillmentStatus;
     if (filter.platform) query.platform = filter.platform;
     if (filter.orderPriority) query.order_priority = filter.orderPriority;
+    // (09/10/2026) "việc của tôi", nhóm thiếu hàng, đơn hỏa tốc quá hạn + phân trang con trỏ.
+    if (filter.assignedStaffId) query.assigned_staff_id = new Types.ObjectId(filter.assignedStaffId);
+    if (filter.stockShortage !== undefined) query.stock_shortage = filter.stockShortage ? true : { $ne: true };
+    if (filter.isOverdue !== undefined) query.is_overdue = filter.isOverdue ? true : { $ne: true };
+    if (filter.before) query.created_at = { $lt: filter.before };
 
     // .lean() (Rule #12) — endpoint chỉ đọc để trả JSON, không cần
     // Document đầy đủ. Sort theo created_at mới nhất trước, tận dụng
@@ -659,7 +669,7 @@ export class OrderGroupsService {
     return this.orderGroupModel
       .find(query)
       .sort({ created_at: -1 })
-      .limit(100) // giới hạn an toàn — chưa có cursor pagination như orders/, đủ dùng cho quy mô demo hiện tại
+      .limit(Math.min(Math.max(filter.limit ?? 100, 1), 200))
       .lean();
   }
 

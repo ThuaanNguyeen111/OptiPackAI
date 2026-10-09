@@ -213,7 +213,7 @@ describe('ReturnsService — G3', () => {
       rma({ status: ReturnStatus.CLOSED, closed_at: new Date(), inspection: [{ seller_sku: 'A', quantity: 1, result: InspectionResult.RESTOCK }, { seller_sku: 'A', quantity: 1, result: InspectionResult.QUARANTINE, note: 'Nghi lỗi', disposition }] });
 
     it('danh sách chỉ gồm dòng cách ly CHỜ XỬ LÝ (kể cả dữ liệu cũ không có trạng thái)', async () => {
-      returnModel.find.mockReturnValue({ sort: jest.fn().mockResolvedValue([withQuarantine(undefined), withQuarantine('discarded')]) });
+      returnModel.find.mockReturnValue({ sort: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue([withQuarantine(undefined), withQuarantine('discarded')]) }) });
       const list = await service.listQuarantine();
       expect(list).toHaveLength(1);
       expect(list[0]).toMatchObject({ lineIndex: 1, sellerSku: 'A', quantity: 1 });
