@@ -160,45 +160,39 @@ GET /warehouse/warehouses/:warehouseId        🆕 chi tiết 1 kho (trả cả 
 
 **FE:** dropdown chọn kệ nên lấy từ `GET /warehouse/warehouses/:warehouseId/bin-locations` (đúng kho đang thao tác, mặc định chỉ kệ đang hoạt động) — khi đó 3 lỗi trên gần như không bao giờ xảy ra.
 
-## B.6. Product Master — xem và sửa tay kích thước 🆕
+## B.6. Product Master — xem và kho xác nhận số đo 🔄 ĐÃ ĐỔI (gộp 04/10/2026, sửa tài liệu 09/10/2026)
 
-**Product Master là gì:** bảng lưu kích thước + cân nặng + cờ dễ vỡ của từng SKU, lấy từ Lazada. 🔄 **Từ 04/10/2026** đồng bộ theo **danh sách sản phẩm của shop** (không còn chỉ theo SKU đã có trong đơn): mỗi giờ lấy sản phẩm thay đổi gần đây, 3h sáng lấy toàn bộ — xem mục "Đồng bộ ngay" bên dưới. Thuật toán gợi ý đóng gói đọc bảng này để chọn thùng. Lazada trả sai/thiếu (đã gặp thật: thiếu kích thước làm sập Picking List ngày 19/09) → gợi ý đóng gói sai theo.
+**Product Master là gì:** bảng hồ sơ đóng gói của từng SKU. 🔄 **Từ 04/10/2026** đồng bộ theo **danh sách sản phẩm của shop** (không còn chỉ theo SKU đã có trong đơn): mỗi giờ lấy sản phẩm thay đổi gần đây, 3h sáng lấy toàn bộ — xem mục "Đồng bộ ngay" bên dưới.
+
+> 🔄 **ĐÃ ĐỔI (09/10/2026, sửa tài liệu cho khớp code)**: bản trước mô tả `PATCH /product-master/:id`, cờ `manualOverride` và `DELETE /product-master/:id/manual-override` — **các route/trường này không còn** (bỏ khi gộp 04/10). Số đo sàn chỉ ghi vào `marketplaceDimension` (tham khảo); kích thước engine đóng gói dùng là `dimension`, **chỉ** do kho xác nhận qua `PUT /product-master/:id/packaging-profile`. Cron đồng bộ **không bao giờ** ghi đè `dimension` nên không cần cờ sửa tay.
 
 ```
-GET /product-master?shop_id=...&search=OPLUNG&manual_only=true&page=1&limit=20
-→ 200: { "items": [ {...} ], "total": 56, "page": 1, "limit": 20 }
+GET /product-master?status=needs_measurement&shop_id=...&search=OPLUNG
+→ 200: [ {...}, ... ]                       // mảng, tối đa 200 dòng
 
 GET /product-master/:id
 → 200: {
   "id": "...", "platform": "lazada", "shopId": "201171264532", "sellerSku": "OPLUNG-IP15",
-  "lengthCm": 20, "widthCm": 12, "heightCm": 2, "weightKg": 0.05,
-  "isFragile": false,
-  "manualOverride": false, "manualOverrideAt": null,
+  "packagingProfileStatus": "needs_measurement",
+  "dimension": null,
+  "marketplaceDimension": { "lengthCm": 20, "widthCm": 12, "heightCm": 2, "weightKg": 0.05 },
+  "isFragile": null, "orientationRule": null, "maxStackLoadKg": null,
+  "productCategory": null, "zipBagCode": null, "zipBagFolded": false, "canFoldInHalf": false,
+  "profileConfirmedBy": null, "profileConfirmedAt": null,
   "lastSyncedAt": "2026-09-26T20:00:00.000Z"
 }
 
-PATCH /product-master/:id
-Body: { "package_weight_kg": 0.08, "is_fragile": true }      // gửi field nào sửa field đó
-→ 200: { ..., "weightKg": 0.08, "isFragile": true, "manualOverride": true, "manualOverrideAt": "..." }
+PUT /product-master/:id/packaging-profile      // kho đo thật sau gấp/bọc → status "ready"
 ```
 
-| Điểm cần biết     | Chi tiết                                                                              |
-| ----------------- | ------------------------------------------------------------------------------------- |
-| Ai xem            | Admin, Store Owner, Packaging Staff                                                   |
-| Ai sửa            | Admin, Store Owner                                                                    |
-| `search`          | Tìm theo `sellerSku`, không phân biệt hoa/thường, chấp nhận ký tự đặc biệt            |
-| `limit`           | Tối đa 100, mặc định 20                                                               |
-| Kích thước `null` | Dữ liệu hỏng/thiếu — FE hiện "Chưa có kích thước", mời nhập tay. Không coi là lỗi tải |
-| Sửa 1 cạnh        | 3 cạnh còn lại **giữ nguyên** (không bị xóa)                                          |
-| Không sửa được    | `platform`, `shopId`, `sellerSku` — gửi lên → 400                                     |
-
-### Xung đột với cron đồng bộ — đã xử lý
-
-**Vấn đề:** cron đồng bộ (mỗi giờ + 3h sáng) ghi đè kích thước từ Lazada. Nếu không xử lý, Admin sửa tay xong thì lần đồng bộ sau bị ghi đè mất.
-
-**Cách xử lý:** sửa tay → hệ thống bật `manualOverride: true`. Cron gặp SKU có cờ này thì **chỉ cập nhật `lastSyncedAt`**, giữ nguyên số Admin đã nhập. FE nên hiện nhãn "Đã sửa tay" cho các SKU này (lọc nhanh bằng `manual_only=true`).
-
-_Hiện chưa có nút "trả về số liệu Lazada" (tắt cờ sửa tay) — xem Phần E._
+| Điểm cần biết       | Chi tiết |
+| ------------------- | -------- |
+| Ai xem              | Admin, Store Owner, Warehouse Staff, Packaging Staff |
+| Ai xác nhận số đo   | Warehouse Staff, Admin (`PUT .../packaging-profile` — body và kiểm túi zip xem `INTEGRATION_GUIDE_PACKING.md`) |
+| `status`            | `needs_measurement` \| `ready` |
+| `search`            | Tìm theo `sellerSku`, không phân biệt hoa/thường |
+| `dimension: null`   | Kho chưa đo — FE hiện "Chưa có hồ sơ đóng gói", mời đo. Kế hoạch đóng gói của nhóm có SKU này sẽ `failed` với lý do thiếu hồ sơ |
+| `marketplaceDimension` | Số đo khai báo trên sàn, chỉ để tham khảo khi đo |
 
 ### 🆕 Đồng bộ ngay danh sách sản phẩm từ Lazada (04/10/2026)
 
@@ -234,7 +228,7 @@ POST /product-master/sync?full=true             → toàn bộ danh sách sản 
 
 - SKU cũ **không bị xóa** (đơn cũ vẫn dùng mã cũ). Ô kho đang gán mã cũ giữ nguyên.
 - Danh sách "SKU chưa gán ô" sẽ có **mọi sản phẩm** của shop (kể cả chưa có đơn) — để Admin gán ô trước khi hàng về.
-- SKU đã sửa tay (`manualOverride`) vẫn giữ nguyên số Admin nhập.
+- Hồ sơ kho đã xác nhận (`dimension`, `packagingProfileStatus: ready`) không bị đồng bộ ghi đè — sàn chỉ cập nhật `marketplaceDimension`.
 - Khi Lazada đổi mã SKU: sau khi mã mới xuất hiện, nối **cả mã cũ và mã mới** vào cùng một SKU nội bộ (`POST /master-skus/:code/mappings`) rồi `POST /master-skus/sync-stock` — tồn được tính chung, không phải chuyển hàng giữa ô.
 
 ---
@@ -386,14 +380,9 @@ Kệ 3   [T][P]    ↓           ↑    [T][P]
 
 ---
 
-## B2.8. Product Master — bỏ sửa tay 🆕
+## B2.8. ~~Product Master — bỏ sửa tay~~ 🔄 ĐÃ GỠ (gộp 04/10/2026, sửa tài liệu 09/10/2026)
 
-```
-DELETE /product-master/:id/manual-override   (Admin, Store Owner)
-→ 200: { ..., "manualOverride": false, "manualOverrideAt": null }
-```
-
-Số hiện tại **giữ nguyên** cho tới lần đồng bộ kế tiếp (cron 3h sáng hoặc chạy script đồng bộ tay) — lúc đó mới lấy lại số liệu Lazada. Dùng khi Admin sửa tay nhầm, hoặc Lazada đã cập nhật số đúng.
+`DELETE /product-master/:id/manual-override` **không còn tồn tại** (gọi → 404). Số đo dùng cho đóng gói do kho xác nhận qua `PUT /product-master/:id/packaging-profile`; số liệu sàn nằm riêng ở `marketplaceDimension` nên không cần "trả về số liệu Lazada". Xem B.6.
 
 ---
 
@@ -678,7 +667,7 @@ Khu và kệ tạo **trước K1** không có trường `is_active`. Hệ thốn
 - Mọi khu/kệ cũ vẫn hiện bình thường, response trả `isActive: true`.
 - Chỉ khi Admin chủ động tắt thì trường mới được ghi `false`.
 
-Product Master cũ không có `manual_override` → coi là chưa sửa tay → cron vẫn đồng bộ bình thường.
+~~Product Master cũ không có `manual_override` → coi là chưa sửa tay.~~ 🔄 (09/10/2026) Cờ `manual_override` đã bỏ khi gộp 04/10 — xem B.6.
 
 ## C.2. Các luồng bị ảnh hưởng — FE phải sửa gì
 
@@ -689,7 +678,7 @@ Product Master cũ không có `manual_override` → coi là chưa sửa tay → 
 | Form gán SKU vào kệ                              | Dropdown kệ lấy đúng kho đang thao tác; bắt 3 lỗi kệ ở mục B.5                                                                                                  |
 | Nhập thêm hàng                                   | Bắt `409 WH_WAREHOUSE_INACTIVE`                                                                                                                                 |
 | Màn hình Warehouse Staff chọn kho → Picking List | Không đổi gì nếu chỉ lấy kho từ danh sách mặc định (đã lọc sẵn). Vẫn nên bắt `409 WH_WAREHOUSE_INACTIVE` phòng trường hợp kho bị tắt trong lúc đang mở màn hình |
-| _(mới)_ Màn hình Product Master                  | Danh sách + tìm kiếm + form sửa kích thước                                                                                                                      |
+| _(mới)_ Màn hình Product Master                  | Danh sách + tìm kiếm + form kho xác nhận số đo (`PUT .../packaging-profile`) — 🔄 09/10: không còn form sửa tay `PATCH` |
 
 ## C.3. Luồng KHÔNG bị ảnh hưởng
 
@@ -727,7 +716,7 @@ Product Master cũ không có `manual_override` → coi là chưa sửa tay → 
 | Ô đang có hàng vẫn đổi được danh mục/size/màu đăng ký                                                       | Nhãn hệ thống và hàng thật lệch nhau → lấy nhầm hàng                                | Chặn `409 WH_BIN_HAS_STOCK_DESIGNATION`                                                             |
 | Route sinh kệ **kiểu cũ** (`.../bin-locations/generate`, đã lỗi thời) vẫn chạy trong khu chuẩn mới `KA..KZ` | 1 khu lẫn 2 kiểu mã (`KA-03-01-01` và `KA-D1-P02-T03-1`), lộ trình lấy hàng lẫn lộn | Ở khu `KA..KZ` trả `409 WH_ZONE_V2_USE_RACKS`; khu mã cũ vẫn dùng route cũ được (tương thích ngược) |
 
-**FE cần làm thêm:** bắt 2 mã lỗi trên; ẩn nút "Sinh kệ kiểu cũ" ở khu có mã `KA..KZ`; thêm nút "Bỏ sửa tay" ở Product Master (B2.8).
+**FE cần làm thêm:** bắt 2 mã lỗi trên; ẩn nút "Sinh kệ kiểu cũ" ở khu có mã `KA..KZ`. ~~Thêm nút "Bỏ sửa tay" ở Product Master~~ (🔄 09/10: route đã gỡ, xem B2.8).
 
 ---
 
@@ -748,7 +737,7 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 
 1. **Chưa ghi ai tắt/bật, lúc nào.** Có trạng thái nhưng không có nhật ký thao tác quản trị. → Làm cùng sổ cái ở K3.
 2. **Khe thời gian hẹp khi tắt kho:** hệ thống kiểm tồn = 0 rồi mới tắt; nếu đúng giữa 2 bước đó có người nhập hàng thì kho bị tắt khi vẫn còn hàng. Rất hiếm (Admin tắt kho và nhân viên nhập hàng cùng lúc). → Xử lý triệt để ở K3 khi mọi thay đổi tồn đi qua sổ cái.
-3. **Chưa có nút bỏ sửa tay** Product Master (trả về số Lazada). → Bổ sung nhỏ, làm cùng K2.
+3. ~~**Chưa có nút bỏ sửa tay** Product Master~~ — 🔄 không còn áp dụng: từ 04/10 số đo sàn (`marketplaceDimension`) và số đo kho xác nhận (`dimension`) tách riêng, không có sửa tay.
 4. **Nhập hàng chỉ là 1 con số** — không có phiếu nhập, nhà cung cấp, người nhận hàng. → K3.
 5. **Chưa có cảnh báo tồn kho thấp.** → Đề xuất thêm sau K3 (dùng lại hệ thống thông báo sẵn có).
 6. **Product Master chỉ có SKU đã từng có đơn** (thiết kế cũ để tiết kiệm lượt gọi Lazada) — sản phẩm mới chưa ai mua thì không có kích thước. → Bước K4 cho phép tạo SKU nội bộ kèm kích thước ngay từ đầu, không phụ thuộc đơn hàng.
@@ -815,10 +804,13 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 | PATCH  | `/categories/:code`                                      | Admin                                    | 🆕 K2 tên + thang size                                           |
 | DELETE | `/categories/:code`                                      | Admin                                    | 🆕 K2 vô hiệu hóa                                                |
 | POST   | `/categories/:code/reactivate`                           | Admin                                    | 🆕 K2                                                            |
-| GET    | `/product-master`                                        | Admin, Store Owner, Packaging            | 🆕                                                               |
-| GET    | `/product-master/:id`                                    | Admin, Store Owner, Packaging            | 🆕                                                               |
-| PATCH  | `/product-master/:id`                                    | Admin, Store Owner                       | 🆕 bật `manualOverride`                                          |
-| DELETE | `/product-master/:id/manual-override`                    | Admin, Store Owner                       | 🆕 K2 bỏ sửa tay                                                 |
+| GET    | `/product-master`                                        | Admin, Store Owner, Warehouse, Packaging | 🔄 09/10 sửa role: có Warehouse; trả mảng, `?status&shop_id&search` |
+| GET    | `/product-master/:id`                                    | Admin, Store Owner, Warehouse, Packaging | 🔄 09/10 sửa role                                                |
+| PUT    | `/product-master/:id/packaging-profile`                  | Warehouse, Admin                         | Kho xác nhận số đo → `ready`                                     |
+| POST   | `/product-master/sync`                                   | Admin                                    | Đồng bộ catalog ngay                                             |
+| ~~PATCH~~ | ~~`/product-master/:id`~~                             | —                                        | 🔄 ĐÃ GỠ (04/10) — dùng `PUT .../packaging-profile`              |
+| ~~DELETE~~ | ~~`/product-master/:id/manual-override`~~            | —                                        | 🔄 ĐÃ GỠ (04/10)                                                 |
+| GET    | `/warehouse/:warehouseId/picking-list?group_ids=G1,G2`   | Warehouse, Admin                         | 🆕 (bổ sung bảng 09/10) Picking list gộp nhiều nhóm; `group_ids` sai → `WH_INVALID_GROUP_IDS` |
 
 ## F.2. Mã lỗi
 
@@ -842,7 +834,7 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 | 🆕 `WH_BIN_OVER_CAPACITY`                          | 409         | Vượt sức chứa ô — gửi lại kèm `force: true` nếu chấp nhận      |
 | 🆕 `CAT_*`                                         | 400/404/409 | Xem bảng mục B2.2                                              |
 | 🆕 `PM_INVALID_ID` / `PM_NOT_FOUND`                | 400/404     | Id Product Master sai / không tồn tại                          |
-| 🆕 `PM_NOTHING_TO_UPDATE`                          | 400         | PATCH body rỗng                                                |
+| ~~`PM_NOTHING_TO_UPDATE`~~                         | —           | 🔄 09/10: route PATCH đã gỡ                                    |
 | 🆕 `WH_ZONE_V2_USE_RACKS`                          | 409         | Gọi sinh kệ kiểu cũ trong khu `KA..KZ` — dùng `POST .../racks` |
 | 🆕 `WH_BIN_HAS_STOCK_DESIGNATION`                  | 409         | Đổi danh mục/size/màu của ô còn hàng                           |
 
@@ -855,8 +847,8 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] Sửa kho kèm `warehouse_code` → 400
 - [ ] Gán SKU vào kệ của kho khác → `WH_BIN_NOT_IN_WAREHOUSE`
 - [ ] Warehouse Staff gọi danh sách kho với `include_inactive=true` → vẫn chỉ thấy kho đang hoạt động
-- [ ] Sửa cân nặng 1 SKU Product Master → `manualOverride: true`, 3 cạnh kích thước không đổi
-- [ ] Product Master có kích thước `null` → UI hiện "Chưa có kích thước", không báo lỗi
+- [ ] 🔄 (09/10) Kho xác nhận số đo 1 SKU (`PUT .../packaging-profile`) → `packagingProfileStatus: ready`, `dimension` có giá trị; đồng bộ sàn sau đó không đổi `dimension`
+- [ ] Product Master có `dimension: null` → UI hiện "Chưa có hồ sơ đóng gói", không báo lỗi
 
 ## F.4. Checklist test cho FE — K2
 
@@ -871,7 +863,8 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] Picking List kho có cả kệ cũ và mới → dòng kệ mới đứng trước theo lộ trình
 - [ ] 🆕 Rà soát K2: đổi size của ô đang có hàng → `WH_BIN_HAS_STOCK_DESIGNATION`; ô trống → đổi được
 - [ ] 🆕 Rà soát K2: gọi sinh kệ kiểu cũ trong khu `KA` → `WH_ZONE_V2_USE_RACKS`; trong khu mã cũ `A` → vẫn chạy
-- [ ] 🆕 Rà soát K2: "Bỏ sửa tay" Product Master → `manualOverride: false`, kích thước chưa đổi ngay
+- [ ] ~~Rà soát K2: "Bỏ sửa tay" Product Master~~ (🔄 09/10: route đã gỡ)
+- [ ] 🆕 (09/10) Gợi ý ô thiếu `category_code` → 400 `VALIDATION_ERROR`
 - [ ] 🆕 K3: kiểm kê 1 ô đếm lệch → tồn cập nhật, sổ cái có dòng `adjust` đúng chênh lệch + người kiểm
 - [ ] 🆕 K3: chuyển 5 cái sang ô khác → 2 ô cập nhật đúng, sổ cái 2 dòng cùng `refId`
 - [ ] 🆕 K3: Picking List của SKU nằm 2 ô → có `bin_location_id` + `other_bins`; quét pick-item gửi `bin_location_id` → trừ đúng ô

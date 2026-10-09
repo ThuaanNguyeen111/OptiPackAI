@@ -105,12 +105,12 @@ Thông điệp: nhóm đơn thiếu hàng được phát hiện ngay khi đơn v
 | --- | --------- | ------------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------- |
 | C1  | Warehouse | Mở Picking List của G1                                                    | `GET /warehouse/:warehouseId/picking-list/G1`      | Có `bin_code`, `bin_location_id`, `master_sku`                 |
 | C2  | Warehouse | Quét SKU tại ô, xác nhận lấy xong                                         | `POST .../pick-item` → `POST .../fulfillment/pick` | Tồn giảm; giữ chỗ chuyển `released`                            |
-| C3  | Packaging | Mở gợi ý đóng gói, duyệt                                                  | Luồng gợi ý đóng gói hiện có                       | Nhóm đơn sẵn sàng đóng gói                                     |
-| C4  | Packaging | Màn đóng gói: đổi thùng gợi ý sang `BOX-L`, nguồn _Mới_ → "Đóng gói xong" | `POST .../fulfillment/pack` + `materials_used`     | Nhóm đơn `packed`; `packagingConsumption` ghi đúng `BOX-L` mới |
-| C4' 🔄 05/10 | Packaging | Thay C4 khi dùng backend hiện tại: `start` → quét từng món (`parcels/:no/scan`) → `seal` từng kiện; thử cân lệch để thấy kiện bị giữ, nhờ người khác `review accept` | `POST .../packing-plan/start`, `.../scan`, `.../seal`, `.../review` | Kiện `sealed`/`held` đúng ngưỡng; kiện cuối → nhóm `packed`; sổ thùng có 1 dòng/kiện |
-| C5  | Admin     | Màn vật liệu                                                              | `GET /packaging-materials`                         | `BOX-L.qtyNew` giảm 1                                          |
+| C3  | Packaging | Mở kế hoạch đóng gói (tự tính khi lấy xong), duyệt                        | `GET .../packing-plan` → `POST .../packing-plan/approve` | Kế hoạch `approved`, nhóm `approved_for_packing`          |
+| C4 🔄 09/10 | Packaging | Đổi thùng kiện 1 sang `BOX-L` (`change-box` trước khi duyệt, hoặc `change-box-in-session` khi đang đóng) → `start` → quét từng món (`parcels/:no/scan`) → `seal` từng kiện; thử cân lệch để thấy kiện bị giữ, nhờ **người khác** `review accept`. (Bản cũ dùng `POST .../fulfillment/pack` + `materials_used` — route đã gỡ 04/10) | `POST .../packing-plan/start`, `.../scan`, `.../seal`, `.../review` (lối tắt không quét: `POST .../packing-plan/pack`) | Kiện `sealed`/`held` đúng ngưỡng; kiện cuối → nhóm `packed`; sổ thùng có 1 dòng/kiện |
+| C5  | Admin     | Màn vật liệu                                                              | `GET /packaging-materials`                         | `BOX-L` giảm 1 (mới hoặc tái sử dụng — ưu tiên tái sử dụng, hàng dễ vỡ chỉ lấy thùng mới) |
+| C6 🆕 09/10 | Packaging | (tùy chọn) Từ chối 1 kế hoạch vì áo bẩn → "Trả về lấy hàng" khai SKU ×1 | `POST .../packing-plan/reject` → `POST .../packing-plan/back-to-picking` | Nhóm về `picking`; kho quét bù 1 món, xác nhận lấy xong → kế hoạch mới tự tính |
 
-Thông điệp: kho vật liệu phản ánh đúng thứ nhân viên đã dùng; trạng thái đóng gói và tồn vật liệu được cập nhật trong cùng một giao dịch.
+Thông điệp: kho vật liệu phản ánh đúng thùng/vật tư của từng kiện; niêm phong kiện và trừ tồn được cập nhật trong cùng một giao dịch.
 
 ---
 

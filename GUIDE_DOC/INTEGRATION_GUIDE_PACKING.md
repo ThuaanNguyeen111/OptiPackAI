@@ -1,6 +1,6 @@
 # Hướng dẫn FE tích hợp API Đóng gói (Packing)
 
-> **Cập nhật:** 08/10/2026 · **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
+> **Cập nhật:** 09/10/2026 (🆕 `back-to-picking` sau từ chối, `GET /packing/staff`, chặn tự duyệt kế hoạch thủ công, kế hoạch kẹt `computing` tự thành `failed`, không giới hạn request khi quét — các mục đánh dấu 09/10) · Trước đó 08/10/2026 · **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
 > Tài liệu này gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Phần lấy hàng, giao hàng, kho vẫn ở `INTEGRATION_GUIDE_FULFILLMENT.md` / `INTEGRATION_GUIDE_WAREHOUSE.md`; bảng tra route ngắn ở `API_LIST.md` mục 8.
 
 ---
@@ -45,8 +45,8 @@ async function act(path: string, body: object) {
 ```
 Nhóm đơn:  … → picked ─(tự tính ≤10 s)→ pending_approval ─(duyệt)→ approved_for_packing ─(kiện cuối niêm phong)→ packed → (giao hàng)
 Kế hoạch:       computing → ready ──────────────────────────→ approved ─(quét/bắt đầu)→ packing ───────────────→ packed
-                              └─ rejected (từ chối) ─ recompute | manual | trả về lấy hàng
-                 failed (lỗi dữ liệu, vd thiếu hồ sơ SKU) ─ sửa dữ liệu rồi "Tính lại"
+                              └─ rejected (từ chối) ─ recompute | manual | back-to-picking (🆕 09/10)
+                 failed (lỗi dữ liệu, vd thiếu hồ sơ SKU; hoặc kẹt computing > 5 phút) ─ sửa dữ liệu rồi "Tính lại"
 Kiện:      pending ─(niêm phong + cân)→ sealed | held (lệch cân, chờ người khác xem) ─ accept/reweigh → sealed | reopen → pending
            sealed ─(unseal)→ pending ;   to_unpack ─(unpack)→ voided   (đơn bị hủy sau khi đã đóng)
 ```
@@ -54,7 +54,7 @@ Kiện:      pending ─(niêm phong + cân)→ sealed | held (lệch cân, ch�
 **Không có API "Tạo kế hoạch".** Khi nhóm sang `picked`, cron backend tự tính (BRKGA, vài trăm ms; CP-SAT chạy nền để chứng minh tối ưu). FE chỉ **thăm dò**:
 
 - Nhóm vừa `picked`, `GET …/packing-plan` trả `{ "plan": null }` → chờ 3 s hỏi lại.
-- `plan.status === 'computing'` → chờ 3 s hỏi lại.
+- `plan.status === 'computing'` → chờ 3 s hỏi lại. 🆕 (09/10/2026) Bộ giải chỉ chạy vài giây; nếu app backend dừng giữa lúc tính, cron tự đánh kế hoạch `computing` quá **5 phút** thành `failed` (`failureReason`: "Quá thời gian tính (tiến trình bị dừng giữa chừng) — bấm Tính lại.") — FE không bị kẹt màn "Đang tính" mãi.
 - `plan.status === 'failed'` → hiện `plan.failureReason` (VD "Hồ sơ SKU X chưa sẵn sàng") + nút **Tính lại** sau khi người dùng sửa dữ liệu. Backend **không** tự tính lặp.
 - `plan.cpSatPending === true` → kế hoạch dùng được ngay; nhãn "tối ưu" sẽ cập nhật sau → thăm dò thưa (10 s) nếu muốn hiện nhãn mới.
 
@@ -171,7 +171,7 @@ interface PackingPlan {
     guide: { source: 'ai'|'template'; summary: string; steps: { step:number; instruction:string; tip:string|null }[] } | null;
     // + scans[], weighings[], reviews[], unpack, sealedBy, sealedAt, boxConsumed, hasFragile
   }[];
-  rejection: { reasonCode: string|null; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|null } | null;
+  rejection: { reasonCode: string|null; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|'back_to_picking'|null } | null;   // 🆕 09/10: back_to_picking
   session: { assignedPackerId: string|null; startedAt: string|null; packMode: 'scan'|'quick'|null; parcelCounts: Record<string, number> };
   adjustments: { kind: string; detail: string; reason: string; note: string|null; at: string; oldBoxOutcome: 'unused'|'damaged'|null; wasteCostVnd: number }[];
   issues: …[]; activity: …[];
@@ -203,6 +203,7 @@ POST …/packing-plan/approve                   Role: Packaging, Admin
 | ------------------------------- | ---- | ------------------------------------------------------------- |
 | `PACKING_HAS_UNPLACED`          | 409  | Còn đơn `partial`/`no_fit` — chuyển món, đổi thùng, tính lại, hoặc từ chối |
 | `PACKING_PARCEL_LIMIT_EXCEEDED` | 422  | Vượt số kiện tối đa mà thiếu `override_reason`                |
+| `PACKING_SELF_APPROVE_FORBIDDEN` | 403 | 🆕 09/10 — kế hoạch `source: "manual"` do chính người gọi lập. Response hiện **không** trả người lập (`adjustments[]` không có `by`), nên FE bắt lỗi này và báo "Cần người khác duyệt kế hoạch thủ công" |
 
 Sau duyệt: kế hoạch `approved`, nhóm `approved_for_packing`.
 
@@ -252,7 +253,7 @@ POST …/packing-plan/reject                     Role: Packaging, Admin
 { "expected_version": 3,
   "reason": "SPECIAL_PACKING_NEEDED",           // mã: các mã ở 2.4 + SPECIAL_PACKING_NEEDED | PLAN_UNREALISTIC
   "note": "Khách yêu cầu thùng gỗ",             // bắt buộc khi reason = OTHER
-  "owner_id": "<userId>" }                      // tùy chọn: giao đích danh người xử lý
+  "owner_id": "<userId>" }                      // tùy chọn: giao đích danh người xử lý — lấy từ GET /packing/staff (mục 3.1)
 ```
 
 - ⚠️ **`reason` là MÃ, không còn chữ tự do** (thay đổi từ 08/10/2026). Gửi chuỗi tự do → 400.
@@ -270,9 +271,24 @@ POST …/packing-plan/reject                     Role: Packaging, Admin
        { "order_id": "<orderId>", "box_code": "SAMPLE-L", "item_keys": ["TEE#1","TEE#2","JEAN#1"] }
      ] }
    ```
-   Phủ **đủ mọi món, mỗi món đúng 1 kiện**. Hệ thống kiểm: thùng còn tồn, không quá tải. Tạo kế hoạch **mới** `source: "manual"` ở `ready` → **người KHÁC duyệt** (mục 2.3) rồi đóng như bình thường. Kiện không xếp được 3D sẽ có `manualLayout: true`.
+   Phủ **đủ mọi món, mỗi món đúng 1 kiện**. Hệ thống kiểm: thùng còn tồn, không quá tải. Tạo kế hoạch **mới** `source: "manual"` ở `ready` → **người KHÁC duyệt** (mục 2.3; 🔄 09/10 backend chặn thật — người lập tự duyệt → `403 PACKING_SELF_APPROVE_FORBIDDEN`) rồi đóng như bình thường. Kiện không xếp được 3D sẽ có `manualLayout: true`.
    Lỗi: `422 PACKING_MANUAL_PACK_INVALID` (thiếu/trùng/sai món/quá tải), `409 PKG_BOX_OUT_OF_STOCK`, `409 PACKING_WRONG_PLAN_STATUS` (chỉ dùng khi đang `rejected`).
-3. **Trả về lấy hàng** — khi hàng hỏng: `POST …/report-issue` (mục 3.5).
+3. 🆕 **Trả về lấy hàng** (09/10/2026) — khi có món hỏng/lấy nhầm cần kho lấy cái khác:
+   ```
+   POST …/packing-plan/back-to-picking           Role: Packaging, Admin
+   { "expected_version": 5,
+     "items": [
+       { "sku": "TEE-RED-M", "quantity": 1 },                    // món hỏng: loại bỏ, không về kệ (mặc định)
+       { "sku": "JEAN-BLU-30", "quantity": 1, "restock": true }  // món lấy nhầm còn tốt: cộng lại tồn đúng ô đã lấy
+     ],
+     "note": "Áo bẩn cổ" }                                        // tùy chọn, ≤ 500 ký tự
+   → { "plan": { …, "status": "superseded", "rejection": { "resolution": "back_to_picking", … } } }
+   ```
+   - Chỉ khi kế hoạch đang `rejected` (khác → `409 PACKING_WRONG_PLAN_STATUS`).
+   - Món khai bị rút khỏi số "đã lấy" của lượt hiện tại; nhóm `picked → picking`; giữ chỗ tồn tính lại; người lấy hàng được giao (không có thì mọi Warehouse Staff) nhận thông báo `packing_issue`.
+   - Kho chỉ cần **quét bù đúng các món đã rút** rồi bấm "Lấy xong" (`POST /order-groups/:id/fulfillment/pick`) → cron tự tính kế hoạch mới. FE sau khi gọi nên rời màn kế hoạch (kế hoạch đã `superseded`, `GET …/packing-plan` trả `null` tới khi tính lại).
+   - Lỗi: `400 PACKING_BACK_TO_PICKING_INVALID` — SKU không có trong hàng đã lấy, hoặc khai vượt số đã lấy (`details: { sku, requested, picked }`); `400 VALIDATION_ERROR` khi `items` rỗng.
+   - ⚠️ Bản trước ghi lối này là `POST …/report-issue` — **sai**: `report-issue` chỉ dùng khi đang đóng (kế hoạch `approved`/`packing`, mục 3.5), không dùng được với kế hoạch `rejected`.
 
 ### 2.6 Hướng dẫn đóng gói từng bước (AI)
 
@@ -312,6 +328,15 @@ POST …/packing-plan/assign        Role: Packaging, Admin
 ```
 
 Backend cũng tự giao khi kế hoạch `ready` và báo người đó. Lỗi: `409 PACKING_NO_PACKER_AVAILABLE`, `422 PACKING_PACKER_INVALID`.
+
+🆕 **Danh sách để chọn `staff_id` (09/10/2026):**
+
+```
+GET /packing/staff?q=an                 Role: Packaging, Store Owner, Admin
+→ { "staff": [ { "staffId": "…", "fullName": "Nguyễn An", "email": "an@…", "activeWorkload": 2 } ] }
+```
+
+Packaging Staff đang hoạt động, tìm theo tên/email (không phân biệt hoa thường), `activeWorkload` = số kế hoạch `ready`/`approved`/`packing` đang giao cho người đó. Dùng chung cho dropdown người xử lý khi từ chối (`reject.owner_id`). (`GET /order-groups/staff/search` chỉ trả **Warehouse Staff** — không dùng cho đóng gói.)
 
 ### 3.2 Bắt đầu
 
@@ -540,7 +565,7 @@ GET /packing/reports/feedback?from&to&min_count=3
       "byReason": [{ "reason": "BOX_TOO_TIGHT", "count": 6 }],
       "bySku":   [{ "sku": "TEE-M-WHITE", "reason": "ITEM_DIMENSION_WRONG", "count": 4 }],
       "byBox":   [{ "boxCode": "SAMPLE-M", "reason": "RECOMMENDED_BOX_NOT_IN_STOCK", "count": 5 }],
-      "rejections": { "total": 4, "open": 1, "overdue": 0, "byReason": […], "resolvedBy": { "recompute": 2, "manual": 1 } },
+      "rejections": { "total": 4, "open": 1, "overdue": 0, "byReason": […], "resolvedBy": { "recompute": 2, "manual": 1, "backToPicking": 0 } },
       "waste": { "events": 2, "costVnd": 6000, "byBox": [{ "boxCode": "SAMPLE-M", "count": 2, "costVnd": 6000 }] },
       "suggestions": [{
         "target": { "type": "sku", "code": "TEE-M-WHITE" },     // sku | box | settings
@@ -594,6 +619,9 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `PACKING_RECOVER_MATERIAL_INVALID`    | 400  | Thu hồi vật tư không có trong kiện / vượt số lượng                       |
 | `PACKING_SETTINGS_CONFLICT`           | 409  | Cài đặt vừa bị người khác lưu                                            |
 | `PACKING_INVALID_DATE_RANGE`          | 400  | `from`/`to` báo cáo sai                                                  |
+| `PACKING_BACK_TO_PICKING_INVALID`     | 400  | 🆕 09/10 — `back-to-picking`: SKU không có trong hàng đã lấy / khai vượt số đã lấy (`details: {sku, requested, picked}`) |
+| `PACKING_SELF_APPROVE_FORBIDDEN`      | 403  | 🆕 09/10 — người lập kế hoạch thủ công tự duyệt                          |
+| `RATE_LIMITED`                        | 429  | 🔄 09/10 — quá 600 request/phút/IP (quét `scan`/`unscan` không bị giới hạn; `guide` 10/phút) |
 | `PKG_BOX_OUT_OF_STOCK`                | 409  | Hết thùng (`details.boxCode`)                                            |
 | `PKG_MATERIAL_NOT_REUSABLE`           | 400  | Vật tư không bật "reusable"                                              |
 | `PM_ZIP_BAG_TOO_SMALL`                | 422  | Túi zip không vừa gói đã đo                                              |
@@ -607,7 +635,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 
 | `plan.status` | Hiện                                                                                                            |
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
-| `null` / `computing` | Màn "Đang tính phương án…", thăm dò 3 s                                                                  |
+| `null` / `computing` | Màn "Đang tính phương án…", thăm dò 3 s (quá 5 phút backend tự chuyển `failed`)                          |
 | `failed`      | Lỗi `failureReason` + **Tính lại**                                                                              |
 | `ready`       | 3D + danh sách kiện + giải thích; nút **Duyệt**, **Đổi thùng**, **Chuyển món**, **Tính lại**, **Từ chối**       |
 | `rejected`    | Banner đỏ + hạn (`rejection.dueAt`) + 3 nút **Tính lại / Đóng thủ công / Trả về lấy hàng**                      |
@@ -637,7 +665,9 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 - [ ] Duyệt khi còn đơn `no_fit` → 409 `PACKING_HAS_UNPLACED`
 - [ ] Gửi `expected_version` cũ → 409 `PACKING_VERSION_CONFLICT`
 - [ ] Từ chối bằng mã → thông báo Admin tăng; gửi chữ tự do → 400
-- [ ] Đóng thủ công thiếu 1 món → 422; đủ món → kế hoạch mới `source: "manual"`, người khác duyệt được
+- [ ] Đóng thủ công thiếu 1 món → 422; đủ món → kế hoạch mới `source: "manual"`; người lập tự duyệt → 403 `PACKING_SELF_APPROVE_FORBIDDEN`; người khác duyệt được
+- [ ] 🆕 Từ chối → `back-to-picking` khai 1 món hỏng → kế hoạch `superseded`, nhóm `picking`; khai SKU lạ → 400 `PACKING_BACK_TO_PICKING_INVALID`; kho quét bù + `fulfillment/pick` → kế hoạch mới tự tính
+- [ ] 🆕 `GET /packing/staff` → danh sách Packaging Staff kèm `activeWorkload`; chọn 1 người cho `assign` manual
 - [ ] Quét sai kiện → 409 kèm `belongsToParcels`; gửi lại cùng `client_event_id` → `duplicate: true`
 - [ ] Niêm phong khi chưa quét đủ → 409; cân lệch > 20% → kiện `held`; tự chấp nhận → 403
 - [ ] Đổi thùng lúc đóng `damaged` → báo cáo feedback `waste.events` tăng
@@ -655,7 +685,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `POST …/packaging/generate`       | Không còn — tự tính khi nhóm `picked`; muốn tính lại: `…/packing-plan/recompute`    |
 | `POST …/packaging/approve`        | `POST …/packing-plan/approve`                                                       |
 | `POST …/packaging/adjust`         | `…/parcels/:no/change-box` hoặc `…/move-item`                                       |
-| `POST …/packaging/reject`         | `…/packing-plan/reject` (**`reason` là mã**) rồi `recompute` / `manual`             |
+| `POST …/packaging/reject`         | `…/packing-plan/reject` (**`reason` là mã**) rồi `recompute` / `manual` / `back-to-picking` |
 | `POST …/fulfillment/pack`         | Có quét: `start` → `scan` → `seal`. Đóng nhanh: `…/packing-plan/pack`               |
 | Khóa `expected_group_version`     | Khóa `expected_version` = `plan.version`                                            |
 

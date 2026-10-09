@@ -148,6 +148,8 @@ GET /shipments/:id
 ```
 Quyền xem: Admin, Shipping Coordinator, Store Owner, Warehouse Staff.
 
+🔄 (09/10/2026) Query được validate: `status` (enum trạng thái vận đơn), `order_group_id` (ObjectId), `overdue` (`true`/`false`), `trip_code`, `carrier_code`, `page` ≥ 1, `limit` 1–100 (mặc định 20). Sai → 400 `VALIDATION_ERROR` (trước đây id sai định dạng lọt thành 500).
+
 ---
 
 # PHẦN C — TRẢ HÀNG / HOÀN HÀNG (G3) 🆕
@@ -160,7 +162,7 @@ Quyền xem: Admin, Shipping Coordinator, Store Owner, Warehouse Staff.
 | `return_refund` | Admin đóng vai khách | Có | `requested` → duyệt → `awaiting_receipt` → nhận → `received` → kiểm → `closed` |
 | `refund_only` | Admin đóng vai khách | **Không** | `requested` → duyệt → `closed` luôn |
 
-Từ chối ở bước `requested` → `rejected` (kết thúc). Hệ thống **chỉ quản lý hàng**; tiền hoàn do sàn xử lý.
+Từ chối ở bước `requested` → `rejected` (kết thúc). 🆕 (09/10/2026) Phiếu `awaiting_receipt` mà khách không gửi hàng → `canceled` (kết thúc) bằng `POST /returns/:id/cancel`. Hệ thống **chỉ quản lý hàng**; tiền hoàn do sàn xử lý.
 
 ## C.2. Tạo yêu cầu trả hàng (giả lập khách)
 
@@ -182,7 +184,7 @@ Lý do trả: `GET /returns/reason-codes` → `defective, wrong_item, not_as_des
 |---|---|
 | Nhóm đơn chưa `delivered` | `409 RMA_ORDER_NOT_DELIVERED` |
 | Quá 15 ngày kể từ lúc giao | `409 RMA_WINDOW_EXPIRED` |
-| SKU không thuộc nhóm đơn / khai trùng / trả nhiều hơn đã mua | `400 RMA_INVALID_ITEMS` |
+| SKU không thuộc nhóm đơn / khai trùng / trả nhiều hơn **số còn được trả** (🔄 09/10: = đã mua − đã khai ở các phiếu trước, trừ phiếu `rejected`/`canceled`) | `400 RMA_INVALID_ITEMS` |
 | Nhóm đơn đang có phiếu chưa xử lý xong | `409 RMA_OPEN_EXISTS` |
 
 ## C.3. Duyệt / từ chối (Store Owner)
@@ -193,6 +195,14 @@ POST /returns/:id/reject    { "expected_version": 0, "note": "Hàng đã qua s�
 ```
 - **Người tạo phiếu không được tự duyệt** → `403 RMA_SELF_APPROVAL`. Khi demo: tạo bằng tài khoản Admin, duyệt bằng tài khoản Store Owner.
 - `refund_only` duyệt xong → `closed` ngay; `return_refund` → `awaiting_receipt`.
+
+🆕 **Hủy phiếu đã duyệt mà hàng không về (09/10/2026):**
+
+```
+POST /returns/:id/cancel    { "expected_version": 1, "note": "Khách không gửi hàng sau 7 ngày" }   // Store Owner, Admin; note BẮT BUỘC
+```
+
+`awaiting_receipt → canceled`. Thiếu `note` → `400 RMA_NOTE_REQUIRED`; phiếu không ở `awaiting_receipt` → `409 RMA_INVALID_STATUS`. Trước đây phiếu này không có lối ra và chặn mọi phiếu mới của nhóm đơn (`RMA_OPEN_EXISTS`).
 
 ## C.4. Kho nhận hàng trả
 
@@ -250,7 +260,7 @@ Tất cả dòng + đóng phiếu chạy trong **1 transaction**: lỗi 1 dòng 
 | `return` (nhóm đơn `shipped`) | Vận đơn → `returned_to_warehouse` + nhóm đơn → `returned` + **tự tạo phiếu hoàn** để kiểm hàng |
 | `return` (nhóm đơn `delivered`) | Giữ hành vi cũ: nhóm đơn → `returned`, chỉ ghi lịch sử vận đơn — **KHÔNG tạo phiếu trả, KHÔNG kiểm hàng**. Khuyến nghị FE chuyển sang `POST /returns` |
 
-Swagger đánh dấu 3 route này `deprecated`. FE mới nên dùng `/shipments/*` và `/returns/*`.
+Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không gọi 3 route này** — `ship` tạo vận đơn không có hãng/cước; `return` bỏ qua hạn trả, kiểm hàng và nhập lại tồn. Dùng `/shipments/*` và `/returns/*`.
 
 ## D.2. Dữ liệu cũ
 
@@ -297,7 +307,7 @@ Swagger đánh dấu 3 route này `deprecated`. FE mới nên dùng `/shipments/
 | POST | `/order-groups/:id/fulfillment/return` | Coordinator, Warehouse, Admin (🔄 lỗi thời) |
 | GET | `/returns/reason-codes` · `/returns` · `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator |
 | POST | `/returns` | Admin (đóng vai khách) |
-| POST | `/returns/:id/approve` · `/reject` | Store Owner, Admin |
+| POST | `/returns/:id/approve` · `/reject` · 🆕 `/cancel` (09/10) | Store Owner, Admin |
 | POST | `/returns/:id/receive` · `/inspect` | Warehouse, Admin |
 
 ## F.2. Mã lỗi

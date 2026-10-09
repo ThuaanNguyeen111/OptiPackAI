@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
+**🔄 Cập nhật 09/10/2026 (v7.3 — rà soát trước khi giao FE):** `GET /order-groups` thêm lọc `assigned_staff_id`, `stock_shortage`, `is_overdue` và phân trang con trỏ `before` + `limit` (1–200); `GET /order-groups/:id` trả thêm `orders[]` (đơn, người nhận, món đã gộp) cho mọi role vận hành; `POST /order-groups/:id/assign` trả response camelCase chuẩn; nhóm tự hủy **nhả giữ chỗ tồn** ngay, hủy một phần tính lại giữ chỗ; `report-missing` báo thêm Packaging Staff; kế hoạch bị từ chối có lối `back-to-picking`; thông báo đọc riêng từng người + `PATCH /notifications/read-all` + response đã map; rate limit 600/phút/IP. Các route `fulfillment/ship|deliver|return` là **legacy — FE không gọi** (dùng `/shipments`, `/returns`). Xem Nghiệp vụ 3, 6, sơ đồ C.1 và `API_LIST.md` mục 5–7, 10.
+
 **🆕 Cập nhật 05/10/2026 tối (v7.2):** đơn bị hủy **trước khi bắt đầu đóng** (nhóm đang lấy hàng, đã lấy xong, hoặc kế hoạch mới tính/duyệt) → hàng đã lấy của đơn đó **tự trả về đúng ô** + thông báo `return_to_shelf` cho kho (Nghiệp vụ 1b, 3, 6); tháo kiện thu hồi được **vật tư chèn** (`recovered_materials`, vật tư phải bật `reusable`); giữ chỗ tồn kho khớp hàng thật khi loại món hỏng. Xem D.3, D.4.
 
 **🆕 Cập nhật 05/10/2026 chiều (v7.1 — PHIÊN ĐÓNG GÓI):** đóng gói giờ theo **từng kiện**: quét từng món vào đúng kiện (sai kiện/thừa bị chặn), niêm phong + cân từng kiện (trừ thùng + vật tư lúc này), kiện lệch cân **bị giữ** chờ người KHÁC xem lại (không còn thành packed ngay), báo món hỏng/thiếu/sai lúc đóng, **tháo kiện** khi đơn bị hủy sau khi đã bắt đầu đóng (hàng về đúng ô, thùng tốt vào kho tái sử dụng, chặn giao tới khi tháo xong), cài đặt đóng gói có phiên bản (`/packing/settings`), tự giao người đóng (Packaging Staff), báo cáo hiệu suất (`/packing/reports/summary`). `POST .../packing-plan/pack` vẫn giữ làm **lối tắt**. Xem **Nghiệp vụ 1b** (mới), Nghiệp vụ 4, 6, D.3, D.4. **Lưu ý FE:** nhánh `thi_dev` đã khôi phục FE về bản `main`; màn đóng gói của `main` còn gọi `/packaging/*` + `fulfillment/pack` (đã gỡ) — bảng ánh xạ route cũ → mới ở `API_LIST.md` mục 8a.7.
@@ -494,6 +496,10 @@ Ví dụ nhóm 2 đơn, khách hủy 1 đơn:
 { "id": "6a9c18292fced4f442f6e1b1", "orderCount": 2, "activeOrderCount": 1, "canceledOrderCount": 1, "fulfillmentStatus": "picking", ... }
 ```
 
+🆕 **(09/10/2026) Xem đơn nào bị hủy, món gì:** `GET /order-groups/:id` trả thêm `orders[]` — mỗi đơn có `platformOrderId`, `status`, `recipient` (`fullName`, `phone`, `addressLine1`, `addressLine2`, `city`) và `items[]` đã gộp theo SKU + biến thể + trạng thái (`sku`, `name`, `variation`, `status`, `quantity`, `unitPrice`, `lineTotal`, `platformOrderItemIds`). Gồm cả đơn đã hủy. Warehouse/Packaging/Shipping xem được (không cần quyền `GET /orders`).
+
+🆕 **(09/10/2026) Lọc + phân trang danh sách:** `GET /order-groups?fulfillment_status=picking&assigned_staff_id=<id>` = "việc của tôi"; `stock_shortage=true` = nhóm thiếu hàng; `is_overdue=true` = hỏa tốc quá hạn. Danh sách vẫn là mảng mới nhất trước, mặc định 100 dòng (`limit` tối đa 200); trang kế gửi `before=<createdAt của dòng cuối>`.
+
 **Quy tắc hiển thị trên FE:**
 
 | Điều kiện                                        | Hiển thị                                                                                                                                                     |
@@ -554,7 +560,7 @@ Script chạy lại nhiều lần vẫn an toàn (tính lại từ đầu, ghi �
 1. POST .../fulfillment/report-missing
    { sku, missing_quantity, warehouse_id, note?, expected_version }
    → OrderGroup.fulfillment_status = "partial_needs_review"
-   → Store Owner NHẬN THÔNG BÁO NGAY (in-app + email, mức "critical")
+   → Store Owner + 🔄 (09/10) Packaging Staff NHẬN THÔNG BÁO NGAY (in-app + email, mức "critical")
    → Group đổi trạng thái chờ xem lại; 🔄 21/09: pick-item bị chặn khi group không ở `picking`
 
 2. [PACKAGING STAFF, không phải Warehouse Staff] xem lại, quyết định:
@@ -563,7 +569,8 @@ Script chạy lại nhiều lần vẫn an toàn (tính lại từ đầu, ghi �
                          (đơn không nhận được món nào sẽ không có phương án)
    { approve: false }  → hủy lượt, quay lại "picking" và MỞ LƯỢT LẤY MỚI
                          (`pick_round + 1` — số đã quét của lượt cũ không còn được cộng).
-                         Tồn kho đã trừ ở lượt cũ KHÔNG tự cộng lại — kho cần đối soát/restock tay.
+                         🔄 (gộp 04/10, sửa tài liệu 09/10) Hàng đã quét của lượt cũ TỰ CỘNG LẠI
+                         đúng ô đã lấy (sổ kho loại `pick_cancel`); lần quét cũ không lưu ô thì kho đối soát tay.
 ```
 
 **Tại sao Warehouse Staff không tự quyết định được** (thiết kế có chủ đích, không phải giới hạn kỹ thuật): quyết định "giao thiếu hàng cho khách" là quyết định kinh doanh (ảnh hưởng trải nghiệm khách hàng, có thể cần bồi thường/giải thích) — không nên để 1 nhân viên kho tự ý quyết ngay tại chỗ.
@@ -748,7 +755,8 @@ Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
 
 | Sự kiện                                                                                                                          | Ai nhận                     | Mức độ   |
 | -------------------------------------------------------------------------------------------------------------------------------- | --------------------------- | -------- |
-| Báo thiếu hàng (Nghiệp vụ 3)                                                                                                     | Store Owner (toàn bộ)       | critical |
+| Báo thiếu hàng (Nghiệp vụ 3) — 🔄 09/10/2026: báo thêm Packaging Staff (người quyết `decide-partial`)                             | Store Owner + Packaging Staff (toàn bộ) | critical |
+| 🆕 **09/10/2026** `packing_issue` — kế hoạch bị từ chối được trả về lấy hàng (`back-to-picking`), kèm SKU × số lượng phải lấy lại | Người lấy hàng được giao (không có thì mọi Warehouse Staff) | warning |
 | Sắp quá hạn Hỏa Tốc (<1h)                                                                                                        | Đúng 1 người đang phụ trách | warning  |
 | Đã quá hạn Hỏa Tốc                                                                                                               | Store Owner (toàn bộ)       | critical |
 | **MỚI (15/09/2026)** — Buyer yêu cầu hủy đơn, seller có hạn phản hồi (`cancel_trigger_time`) trước khi Lazada tự động hủy        | Store Owner + Admin (cả 2)  | critical |
@@ -767,11 +775,24 @@ Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
 
 ### Cách FE nhận — Polling (không cần WebSocket)
 ```
-GET /notifications/unread-count    (gọi mỗi 15-30 giây) → { "count": 3 }
+GET /notifications/unread-count    (gọi mỗi 15-30 giây; không bị giới hạn request) → { "count": 3 }
 GET /notifications?is_read=false   (khi user bấm vào chuông)
+GET /notifications?before=<created_at dòng cuối>&limit=50   (🆕 09/10: trang kế)
 PATCH /notifications/:id/read      (khi user đọc xong)
+PATCH /notifications/read-all      (🆕 09/10: "Đánh dấu tất cả đã đọc" → { "updated": 5 })
 ```
-Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **điều hướng thẳng** tới đúng Order Group, không chỉ hiện chữ suông.
+
+🔄 **ĐÃ ĐỔI (09/10/2026)** — response đã map (không còn `_id`, `__v`, `recipient_*`, `read_by`, `channels_sent`); `GET` trả **mảng** mới nhất trước, `PATCH .../read` trả 1 phần tử cùng dạng:
+
+```json
+{ "id": "…", "type": "missing_item", "severity": "critical", "title": "…", "message": "…",
+  "related_entity_type": "order_group", "related_entity_id": "…", "is_read": false, "created_at": "2026-10-09T02:00:00.000Z" }
+```
+
+- `is_read` là trạng thái **của người gọi**. Thông báo broadcast theo role giờ **mỗi người đọc riêng** (lưu `read_by`) — trước đây 1 người bấm đọc là cả role mất thông báo. Thông báo role đã đọc trước 09/10 vẫn coi là đã đọc với mọi người.
+- `limit` 1–100 (mặc định 50); `before` phải là thời điểm ISO (sai → 400 `VALIDATION_ERROR`).
+
+Mỗi thông báo có `related_entity_type`/`related_entity_id` (snake_case) — bấm vào **điều hướng thẳng** tới đúng Order Group, không chỉ hiện chữ suông.
 
 ### DB liên quan — `Notification`
 
@@ -779,11 +800,12 @@ Mỗi thông báo có `relatedEntityType`/`relatedEntityId` — bấm vào **đi
 | ----------------------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `recipient_user_id`                       | ObjectId\|null                  | Gửi đích danh 1 người — 1 trong 2 với `recipient_role`, KHÔNG bao giờ cả 2 cùng có giá trị                                                                            |
 | `recipient_role`                          | UserRole\|null                  | HOẶC gửi broadcast cho cả 1 role                                                                                                                                      |
-| `type`                                    | String                          | 1 trong 10 loại (`missing_item`, `sla_warning`, `sla_breach`, `sync_failed`, `cancel_confirmation_required`, `mfa_disabled`...) — **MỚI (15/09/2026)**: `cancel_confirmation_required`; 🆕 **22/09/2026**: `low_box_stock` (thùng carton xuống ≤ mức cảnh báo sau khi đóng gói, gửi Admin + Store Owner, `relatedEntityType: 'packaging_box'`, `relatedEntityId` = mã thùng) |
+| `type`                                    | String                          | Chuỗi snake_case, danh sách đầy đủ ở `be/src/modules/notifications/enums/notification-type.enum.ts` (🔄 09/10: `connection_lost` = mất kết nối sàn; `abnormal_package` có trong enum nhưng không được phát). Bản cũ ghi: 1 trong 10 loại (`missing_item`, `sla_warning`, `sla_breach`, `sync_failed`, `cancel_confirmation_required`, `mfa_disabled`...) — **MỚI (15/09/2026)**: `cancel_confirmation_required`; 🆕 **22/09/2026**: `low_box_stock` (thùng carton xuống ≤ mức cảnh báo sau khi đóng gói, gửi Admin + Store Owner, `relatedEntityType: 'packaging_box'`, `relatedEntityId` = mã thùng) |
 | `severity`                                | `'info'\|'warning'\|'critical'` | Mức độ hiển thị (màu sắc/icon)                                                                                                                                        |
 | `title`/`message`                         | String                          | Nội dung — văn phong chuyên nghiệp, dựng sẵn từ backend, FE không tự ghép chuỗi                                                                                       |
 | `related_entity_type`/`related_entity_id` | String\|null / ObjectId\|null   | Điều hướng khi bấm vào                                                                                                                                                |
-| `is_read`                                 | Boolean                         | Đã đọc chưa                                                                                                                                                           |
+| `is_read`                                 | Boolean                         | Đã đọc chưa — dùng cho thông báo đích danh (và thông báo role cũ trước 09/10)                                                                                          |
+| `read_by` 🆕 09/10                        | ObjectId[]                      | Thông báo theo role: những người đã đọc. Không trả ra API — FE đọc `is_read` đã tính theo người gọi                                                                    |
 | `channels_sent`                           | String[]                        | Đã gửi qua kênh nào (audit — `['in_app']` hoặc `['in_app', 'email']`)                                                                                                 |
 
 ---
@@ -941,9 +963,9 @@ Cước là bảng mẫu; chưa gọi API hãng vận chuyển thật; chưa có
 
 **4 khác biệt cốt lõi so với thiết kế ban đầu** (đọc kỹ nếu đã quen sơ đồ cũ):
 
-1. `awaiting_packaging` giờ chỉ là trạng thái THOÁNG QUA lúc mới tạo group — auto-assign Warehouse Staff xảy ra NGAY, không cần ai Approve gì trước.
+1. `awaiting_packaging` giờ chỉ là trạng thái THOÁNG QUA lúc mới tạo group — auto-assign Warehouse Staff xảy ra NGAY, không cần ai Approve gì trước. 🆕 (09/10/2026) Nếu bước sang `picking` lúc tạo bị lỗi, cron 5 phút tự đưa nhóm kẹt `awaiting_packaging` sang `picking` (hết đơn hợp lệ thì hủy tự động) — FE không cần nút xử lý.
 2. Khối "Đóng gói" giờ nằm SAU khối "Lấy hàng" — trước đây ngược lại. 🔄 04/10: không còn bước `generate` thủ công — vào `picked` là job tự tính; duyệt/chỉnh tay/đóng đi qua `/packing-plan`.
-3. Reject quay về `picked` (không phải `awaiting_packaging`) — hàng đã lấy xong rồi. 🔄 04/10: reject chỉ còn nghĩa "xử lý ngoài hệ thống", kế hoạch `rejected` giữ lại nên job không tự tính lại; muốn quay lại hệ thống thì `recompute`.
+3. Reject quay về `picked` (không phải `awaiting_packaging`) — hàng đã lấy xong rồi. 🔄 04/10: reject chỉ còn nghĩa "xử lý ngoài hệ thống", kế hoạch `rejected` giữ lại nên job không tự tính lại; muốn quay lại hệ thống thì `recompute`. 🔄 08–09/10/2026: kế hoạch `rejected` có 3 lối ra — `recompute`, `manual`, và 🆕 `back-to-picking` (cạnh mới `picked → picking`: rút món hỏng/lấy nhầm, kho lấy lại) — xem `INTEGRATION_GUIDE_PACKING.md` mục 2.5.
 4. 🆕 **(29/09/2026)** — MỌI trạng thái từ `awaiting_packaging` tới `approved_for_packing` (bao gồm cả `partial_needs_review`) có thêm 1 đường TỰ ĐỘNG (không do FE gọi) sang **`canceled`** (trạng thái cuối, không sơ đồ tiếp) khi mọi đơn trong nhóm không còn fulfill được — xem Nghiệp vụ 7 (N1). Từ `packed` trở đi KHÔNG có đường này.
 
 ---
@@ -970,7 +992,7 @@ Cân ước tính phải gồm hàng + bao bì + vật tư đúng một lần. C
 
 ## D.1. Response format — đã thống nhất camelCase (2026-09-10)
 
-Mọi module (`order-groups`/`packing`/`packaging`/`warehouse`/`staff-assignment`/`notifications`) đều trả camelCase sạch, không lộ `_id`/`__v`. **Ngoại lệ duy nhất**: `PackableItem` (trong `picking-list`) giữ nguyên snake_case (`length_cm`...) — đây là hợp đồng interface đã bàn giao cho AI Packaging, cố ý không đổi.
+Mọi module (`order-groups`/`packing`/`packaging`/`warehouse`/`staff-assignment`) đều trả camelCase sạch, không lộ `_id`/`__v`. 🔄 (09/10/2026, sửa cho đúng code) `POST /order-groups/:id/assign` trước đây trả document thô — nay đã map như mọi route nhóm đơn. `notifications` trả dạng đã map nhưng giữ **snake_case** (`id`, `related_entity_type`, `is_read`, `created_at`) — xem Nghiệp vụ 6. **Ngoại lệ duy nhất**: `PackableItem` (trong `picking-list`) giữ nguyên snake_case (`length_cm`...) — đây là hợp đồng interface đã bàn giao cho AI Packaging, cố ý không đổi.
 
 ## D.2. Optimistic Concurrency — kiểm tra theo từng endpoint hiện hữu
 
