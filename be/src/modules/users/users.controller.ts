@@ -20,7 +20,7 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { PaginatedUsers, UsersService } from './services/users.service';
+import { UsersService } from './services/users.service';
 import { UserDocument } from './schemas/user.schema';
 
 
@@ -52,6 +52,61 @@ function toPublicProfile(user: UserDocument): PublicUserProfile {
     department: user.department,
     mfa_enabled: user.mfa_enabled,
     login_type: user.login_type,
+    created_at: user.created_at,
+  };
+}
+
+/**
+ * (09/10/2026) Một dòng trong danh sách nhân viên cho Admin/Store Owner. Trước
+ * đây trả nguyên document (lộ `_id`, `__v`, `failed_login_attempts`,
+ * `reset_password_expires`, `created_by`); giờ chỉ các trường màn quản lý cần.
+ * Giữ snake_case như `/users/me` để FE không phải đổi.
+ */
+export interface AdminUserListItem {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  avatar: string;
+  phone?: string;
+  address?: string;
+  employee_code?: string;
+  department?: string;
+  is_active: boolean;
+  mfa_enabled: boolean;
+  login_type: string;
+  must_change_password: boolean;
+  must_change_password_by?: Date;
+  locked_until?: Date;
+  last_login_at?: Date;
+  created_at?: Date;
+}
+
+export interface PaginatedAdminUsers {
+  data: AdminUserListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+function toAdminListItem(user: UserDocument): AdminUserListItem {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    avatar: user.avatar,
+    phone: user.phone,
+    address: user.address,
+    employee_code: user.employee_code,
+    department: user.department,
+    is_active: user.is_active,
+    mfa_enabled: user.mfa_enabled,
+    login_type: user.login_type,
+    must_change_password: user.must_change_password,
+    must_change_password_by: user.must_change_password_by,
+    locked_until: user.locked_until,
+    last_login_at: user.last_login_at,
     created_at: user.created_at,
   };
 }
@@ -95,11 +150,11 @@ export class UsersController {
     @Query('role') role?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-  ): Promise<PaginatedUsers> {
-
+  ): Promise<PaginatedAdminUsers> {
     const roleNumber = role !== undefined ? Number(role) : undefined;
     const roleFilter = roleNumber !== undefined && isUserRole(roleNumber) ? { role: roleNumber } : {};
-    return this.usersService.findAll(roleFilter, Number(page) || 1, Number(limit) || 20);
+    const result = await this.usersService.findAll(roleFilter, Number(page) || 1, Number(limit) || 20);
+    return { ...result, data: result.data.map(toAdminListItem) };
   }
 
 

@@ -104,10 +104,19 @@ export class CatalogService {
     return this.shape(product, category?.name);
   }
 
-  async categories() {
-    return this.categoryModel
-      .find({ is_active: true })
-      .sort({ sort_order: 1, name: 1 })
-      .lean();
+  /** (09/10/2026) camelCase như sản phẩm — trước đây trả document thô (`_id`, `__v`, snake_case). */
+  async categories(): Promise<
+    { id: string; name: string; slug: string; parentId: string | null; description: string; imageUrl: string; sortOrder: number }[]
+  > {
+    const rows = await this.categoryModel.find({ is_active: true }).sort({ sort_order: 1, name: 1 }).lean();
+    return rows.map((c) => ({
+      id: c._id.toString(),
+      name: c.name,
+      slug: c.slug,
+      parentId: c.parent_id ? c.parent_id.toString() : null,
+      description: c.description,
+      imageUrl: c.image_url,
+      sortOrder: c.sort_order,
+    }));
   }
 }
