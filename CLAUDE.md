@@ -3278,3 +3278,13 @@ npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # ch�
 
 **Commit đề xuất:** `git merge origin/feature/viet_befe` (giữ tên Việt) → chép file → `fix(AOFP-64): declare id fields as schematypes objectid and fix restock lookups` (code + test + script) → `docs(AOFP-65): document objectid fix, migration script and viet stock lookup merge` (toàn bộ tài liệu). Số AOFP cần đối chiếu `git log` trước khi commit.
 
+
+---
+
+## Nhật ký 08/10/2026 — FE sau bản sửa kiểu id của BE (AOFP-64/65)
+
+- Đối chiếu FE với `INTEGRATION_GUIDE_WAREHOUSE.md` B6 + `GUIDE_DOC/API_LIST.md` mục 16: request/response không đổi; các sửa FE ngày 05/10 (dropdown chỉ kho đang hoạt động, Picking List lỗi thì hiện lỗi thay vì lùi về danh sách không có vị trí, khóa quét khi `bin_location_id = null`) vẫn còn sau merge, giữ nguyên.
+- `sync_failed`/`connection_lost`: FE không dùng `relatedEntityId` như mã shop Lazada ở đâu cả. Sửa `fe/src/lib/notification-nav.ts`: Admin bấm thông báo -> `/app/admin/marketplace` (trước về `/app`).
+- `be/dist` còn bản build 05/10 (vẫn `Types.ObjectId`) — phải build lại/chạy `start:dev` và chạy `scripts/migrate-objectid-fields.ts --apply` thì bản sửa mới có hiệu lực. Không sửa `be/`.
+- **Đã sửa (09/10/2026): danh sách "SKU chưa gán" bị gộp chung mọi kho.** `GET /warehouse/sku-bin-assignments/unassigned` (BE `findUnassignedSkus`) tính trên mọi kho, kể cả kho đã tắt, nên gán SKU ở kho 01 thì kho 02 không còn thấy SKU đó để gán. Lệnh gán của BE vẫn tách theo kho, chỉ danh sách này gộp chung. Cách sửa chỉ ở FE (`useAdminWarehouse.ts`): danh sách = toàn bộ catalog (`listAllProductMaster`, 100 dòng/trang) trừ SKU đã có dòng tồn trong kho đang chọn. So theo platform + shop + seller_sku (trim, chữ hoa); SKU sàn đã nối tới một SKU nội bộ có ô trong kho này cũng tính là đã gán (tra `/master-skus/:code/mappings`). Không đụng `be/`. Nên sửa ở BE: thêm `?warehouse_id=` cho route unassigned.
+

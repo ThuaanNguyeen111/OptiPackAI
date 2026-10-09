@@ -11,7 +11,6 @@ import {
   generateBinLocations,
   listAllWarehouseBins,
   listSkuBinAssignments,
-  listUnassignedSkus,
   listWarehouseZones,
   listWarehouses,
   reactivateBin,
@@ -23,6 +22,7 @@ import {
   updateWarehouse,
   updateWarehouseZone,
 } from '../api/warehouse.api'
+import { listAllProductMaster, listSkuMappings } from '../api/catalog.api'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import type {
   AdjustStockInput,
@@ -58,6 +58,19 @@ function formatWarehouseWriteError(
   return formatApiError(err)
 }
 
+function sellerSkuKey(platform: string, shopId: string, sellerSku: string): string {
+  return `${platform}|${shopId}|${sellerSku.trim().toUpperCase()}`
+}
+
+async function loadCatalogSkus(): Promise<UnassignedSku[]> {
+  const rows = await listAllProductMaster()
+  return rows.map((row) => ({
+    platform: row.platform,
+    shop_id: row.shopId,
+    seller_sku: row.sellerSku,
+  }))
+}
+
 export function useAdminWarehouse() {
   const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([])
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(
@@ -67,7 +80,13 @@ export function useAdminWarehouse() {
   const [selectedZoneId, setSelectedZoneId] = useState<string | null>(null)
   const [allBins, setAllBins] = useState<BinLocationRecord[]>([])
   const [assignments, setAssignments] = useState<SkuBinAssignmentRecord[]>([])
-  const [unassigned, setUnassigned] = useState<UnassignedSku[]>([])
+  // `GET /warehouse/sku-bin-assignments/unassigned` của BE tính chung mọi kho
+  // (gán ở kho A thì SKU biến mất khỏi danh sách của kho B). FE tự tính theo
+  // kho đang chọn: catalog − dòng tồn của chính kho đó.
+  const [catalog, setCatalog] = useState<UnassignedSku[]>([])
+  const [pooledSellerKeys, setPooledSellerKeys] = useState<Set<string>>(
+    () => new Set(),
+  )
   const [showInactive, setShowInactive] = useState(false)
 
   const [loading, setLoading] = useState(true)
@@ -97,6 +116,46 @@ export function useAdminWarehouse() {
       binCode: row.binCode || codes.get(row.binLocationId) || row.binCode,
     }))
   }, [assignments, allBins])
+
+  // SKU sàn đã nối: 1 dòng tồn gộp theo SKU nội bộ chỉ mang seller_sku của sàn
+  // tạo ra nó — tra liên kết của các SKU nội bộ có mặt trong kho này.
+  useEffect(() => {
+    const masters = Array.from(
+      new Set(
+        assignments
+          .map((row) => row.masterSku)
+          .filter((code): code is string => Boolean(code)),
+      ),
+    )
+    let cancelled = false
+    void Promise.all(
+      masters.map((code) => listSkuMappings(code).catch(() => [])),
+    ).then((lists) => {
+      if (cancelled) return
+      setPooledSellerKeys(
+        new Set(
+          lists
+            .flat()
+            .map((row) => sellerSkuKey(row.platform, row.shopId, row.sellerSku)),
+        ),
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [assignments])
+
+  const unassigned = useMemo(() => {
+    const assigned = new Set(
+      assignments.map((row) =>
+        sellerSkuKey(row.platform, row.shopId, row.sellerSku),
+      ),
+    )
+    return catalog.filter((row) => {
+      const key = sellerSkuKey(row.platform, row.shop_id, row.seller_sku)
+      return !assigned.has(key) && !pooledSellerKeys.has(key)
+    })
+  }, [catalog, assignments, pooledSellerKeys])
 
   const reloadBins = useCallback(
     async (
@@ -131,9 +190,9 @@ export function useAdminWarehouse() {
       }
 
       try {
-        const skuRows = await listUnassignedSkus()
+        const skuRows = await loadCatalogSkus()
         if (cancelled || gen !== warehouseLoadGen.current) return
-        setUnassigned(skuRows)
+        setCatalog(skuRows)
       } catch (err: unknown) {
         if (cancelled || gen !== warehouseLoadGen.current) return
         setError(formatApiError(err))
@@ -201,7 +260,7 @@ export function useAdminWarehouse() {
         return rows[0]?.id ?? null
       })
       try {
-        setUnassigned(await listUnassignedSkus())
+        setCatalog(await loadCatalogSkus())
       } catch (err: unknown) {
         setError(formatApiError(err))
       }
@@ -215,7 +274,7 @@ export function useAdminWarehouse() {
 
   async function reloadUnassigned(): Promise<void> {
     try {
-      setUnassigned(await listUnassignedSkus())
+      setCatalog(await loadCatalogSkus())
     } catch (err: unknown) {
       setError(formatApiError(err))
     }
@@ -339,11 +398,6 @@ export function useAdminWarehouse() {
         setAssignments((prev) =>
           prev.some((row) => row.id === created.id) ? prev : [...prev, created],
         )
-      }
-      try {
-        setUnassigned(await listUnassignedSkus())
-      } catch (err: unknown) {
-        setError(formatApiError(err))
       }
     } catch (err: unknown) {
       setError(formatApiError(err))

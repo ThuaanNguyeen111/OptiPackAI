@@ -1813,13 +1813,13 @@ function AssignTab({
         <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           {vi
-            ? `${api.unassigned.length} SKU đã có trong catalog nhưng chưa gán kệ.`
-            : `${api.unassigned.length} SKUs exist in catalog but have no bin.`}
+            ? `${api.unassigned.length} SKU trong catalog chưa có ô trong kho này (mỗi kho gán riêng).`
+            : `${api.unassigned.length} catalog SKUs have no bin in this warehouse (each warehouse is separate).`}
         </div>
       ) : (
         <div className="flex items-center gap-2 rounded-lg border border-success/20 bg-success-bg px-3 py-2 text-xs text-success">
           <CheckCircle2 className="h-3.5 w-3.5" />
-          {vi ? 'Mọi SKU trong catalog đã được gán kệ.' : 'Every catalog SKU has a bin.'}
+          {vi ? 'Mọi SKU trong catalog đã có ô trong kho này.' : 'Every catalog SKU has a bin in this warehouse.'}
         </div>
       )}
 
@@ -1887,7 +1887,7 @@ function AssignTab({
             </Table>
             {api.unassigned.length === 0 ? (
               <p className="px-4 py-6 text-center text-xs text-ink-muted">
-                {vi ? 'Không còn SKU chưa gán.' : 'No unassigned SKUs.'}
+                {vi ? 'Không còn SKU chưa gán trong kho này.' : 'No unassigned SKUs in this warehouse.'}
               </p>
             ) : filteredUnassigned.length === 0 ? (
               <p className="px-4 py-6 text-center text-xs text-ink-muted">
