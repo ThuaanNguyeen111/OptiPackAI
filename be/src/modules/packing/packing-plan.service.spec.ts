@@ -527,6 +527,20 @@ describe('PackingPlanService', () => {
         expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
       });
 
+      it('người lập kế hoạch thủ công không tự duyệt được; người khác duyệt được', async () => {
+        const rejected = await rejectedPlan();
+        const created = await service.manualPack(
+          groupId,
+          { expected_version: rejected.version, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'Gói chung theo yêu cầu' },
+          userId,
+        );
+        await expect(service.approve(groupId, created.version, userId)).rejects.toMatchObject({
+          errorCode: PACKING_ERROR_CODES.SELF_APPROVE_FORBIDDEN,
+        });
+        const approved = await service.approve(groupId, created.version, new Types.ObjectId().toString());
+        expect(approved.status).toBe('approved');
+      });
+
       it('chỉ dùng được khi kế hoạch đang bị từ chối', async () => {
         const plan = await computed();
         await expect(

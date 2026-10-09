@@ -459,6 +459,19 @@ export class PackingPlanService {
     const plan = await this.requireActivePlan(groupId);
     this.assertStatus(plan, 'ready', 'duyệt');
     if (plan.version !== expectedVersion) throw this.versionConflict(groupId);
+    // (09/10/2026) Kế hoạch đóng thủ công phải do người KHÁC duyệt (hai cặp mắt) —
+    // trước đây chỉ ghi trong comment, code không kiểm.
+    if (plan.source === 'manual') {
+      const author = plan.adjustments.find((a) => a.kind === 'manual_pack')?.by;
+      if (author?.toString() === userId) {
+        throw new AppException(
+          PACKING_ERROR_CODES.SELF_APPROVE_FORBIDDEN,
+          'Kế hoạch đóng thủ công phải do người khác duyệt.',
+          HttpStatus.FORBIDDEN,
+          { groupId },
+        );
+      }
+    }
     const unresolved = plan.orders.filter((o) => o.status === 'partial' || o.status === 'no_fit');
     if (unresolved.length > 0) {
       throw new AppException(

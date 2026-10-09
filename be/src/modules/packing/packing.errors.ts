@@ -23,6 +23,7 @@ export const PACKING_ERROR_CODES = {
   SCAN_REQUIRED: 'PACKING_SCAN_REQUIRED', // cài đặt bắt buộc quét — lối tắt pack bị chặn
   WEIGHT_REQUIRED: 'PACKING_WEIGHT_REQUIRED', // cân lại mà không gửi cân
   SELF_REVIEW_FORBIDDEN: 'PACKING_SELF_REVIEW_FORBIDDEN', // tự chấp nhận kiện mình niêm phong
+  SELF_APPROVE_FORBIDDEN: 'PACKING_SELF_APPROVE_FORBIDDEN', // (09/10/2026) tự duyệt kế hoạch thủ công do mình lập
   NOT_COMPLETE: 'PACKING_NOT_COMPLETE', // hoàn tất khi còn kiện chưa niêm phong/đang giữ
   PARCEL_LIMIT_EXCEEDED: 'PACKING_PARCEL_LIMIT_EXCEEDED', // vượt số kiện tối đa, duyệt thiếu lý do
   ISSUE_HAS_SEALED_PARCELS: 'PACKING_ISSUE_HAS_SEALED_PARCELS', // trả về lấy hàng khi đã có kiện niêm phong
