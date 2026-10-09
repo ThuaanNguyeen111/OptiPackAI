@@ -13,6 +13,7 @@ export const MOVEMENT_TYPES = [
   'pack_replace', // (05/10/2026) lấy món thay từ kệ lúc đóng gói (món cũ hỏng/thiếu/sai)
   'cancel_unpack', // (05/10/2026) tháo kiện của đơn hủy sau khi đóng — trả hàng về đúng ô
   'cancel_return', // (05/10/2026) đơn hủy trước khi đóng — hàng đã lấy tự trả về đúng ô
+  'reject_return', // (09/10/2026) kế hoạch bị từ chối, trả về lấy hàng — món lấy nhầm (còn tốt) về đúng ô
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 

@@ -288,8 +288,12 @@ export const PlanItemProfileSchema = SchemaFactory.createForClass(PlanItemProfil
 
 @Schema({ _id: false })
 export class PlanAdjustment {
-  @Prop({ type: String, required: true, enum: ['change_box', 'move_item', 'manual_pack', 'change_box_in_session', 'unseal'] })
-  kind!: 'change_box' | 'move_item' | 'manual_pack' | 'change_box_in_session' | 'unseal';
+  @Prop({
+    type: String,
+    required: true,
+    enum: ['change_box', 'move_item', 'manual_pack', 'change_box_in_session', 'unseal', 'back_to_picking'],
+  })
+  kind!: 'change_box' | 'move_item' | 'manual_pack' | 'change_box_in_session' | 'unseal' | 'back_to_picking';
   /** (08/10/2026) Chỉ có ở change_box_in_session: thùng cũ chưa dùng hay đã hỏng (ghi hao hụt). */
   @Prop({ type: String, default: null, enum: ['unused', 'damaged', null] }) old_box_outcome?: 'unused' | 'damaged' | null;
   @Prop({ type: Number, default: 0 }) waste_cost_vnd?: number;
@@ -390,9 +394,9 @@ export class PackingPlan {
   @Prop({ type: String, default: null }) rejection_reason_code!: string | null;
   @Prop({ type: Types.ObjectId, default: null }) rejection_owner_id!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) rejection_due_at!: Date | null;
-  /** Cách đã xử lý: tính lại / đóng thủ công. null = chưa xử lý. */
-  @Prop({ type: String, default: null, enum: ['recompute', 'manual', null] })
-  rejection_resolution!: 'recompute' | 'manual' | null;
+  /** Cách đã xử lý: tính lại / đóng thủ công / trả về lấy hàng. null = chưa xử lý. */
+  @Prop({ type: String, default: null, enum: ['recompute', 'manual', 'back_to_picking', null] })
+  rejection_resolution!: 'recompute' | 'manual' | 'back_to_picking' | null;
   @Prop({ type: Date, default: null }) rejection_resolved_at!: Date | null;
   /** Đã nhắc quá hạn xử lý (chỉ nhắc 1 lần). */
   @Prop({ type: Date, default: null }) rejection_overdue_notified_at!: Date | null;

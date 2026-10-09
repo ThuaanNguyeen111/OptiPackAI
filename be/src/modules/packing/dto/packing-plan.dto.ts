@@ -189,6 +189,43 @@ export class ManualPackDto extends VersionedDto {
   note!: string;
 }
 
+export class BackToPickingItemDto {
+  @ApiProperty({ example: 'TSHIRT-RED-M', description: 'SKU sàn của món bị loại khỏi giỏ đóng gói.' })
+  @IsString({ message: 'sku phải là chuỗi' })
+  @MinLength(1, { message: 'sku không được rỗng' })
+  sku!: string;
+
+  @ApiProperty({ example: 1, minimum: 1 })
+  @IsInt({ message: 'quantity phải là số nguyên' })
+  @Min(1, { message: 'quantity phải ≥ 1' })
+  quantity!: number;
+
+  @ApiProperty({
+    required: false,
+    default: false,
+    description:
+      'true = món còn tốt (lấy nhầm) → cộng lại tồn đúng ô đã lấy; false (mặc định) = món hỏng → loại bỏ, không về kệ.',
+  })
+  @IsOptional()
+  @IsBoolean({ message: 'restock phải là true/false' })
+  restock?: boolean;
+}
+
+export class BackToPickingDto extends VersionedDto {
+  @ApiProperty({ type: [BackToPickingItemDto], description: 'Các món phải lấy lại (ít nhất 1).' })
+  @IsArray({ message: 'items phải là mảng' })
+  @ArrayMinSize(1, { message: 'Cần ít nhất 1 món phải lấy lại' })
+  @ValidateNested({ each: true })
+  @Type(() => BackToPickingItemDto)
+  items!: BackToPickingItemDto[];
+
+  @ApiProperty({ required: false, maxLength: 500 })
+  @IsOptional()
+  @IsString({ message: 'note phải là chuỗi' })
+  @MaxLength(500, { message: 'note tối đa 500 ký tự' })
+  note?: string;
+}
+
 export class GuideDto {
   @ApiProperty({ required: false, description: 'true = viết lại hướng dẫn dù đã có.' })
   @IsOptional()

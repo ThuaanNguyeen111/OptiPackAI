@@ -44,7 +44,11 @@ import {
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { freshParcelSession, renumberParcels, type Plain } from './utils/parcels.util';
 import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
-import type { ChangeBoxDto, ChangeBoxInSessionDto, ManualPackDto, MoveItemDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
+import type {
+  BackToPickingDto,
+  ChangeBoxDto,
+  ChangeBoxInSessionDto,
+  ManualPackDto, MoveItemDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
 import { PackingSettingsService } from './packing-settings.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 
@@ -551,6 +555,123 @@ export class PackingPlanService {
       return doc;
     });
     await this.notifyRejected(groupId, readable, owner?.toString() ?? null, dueAt);
+    return updated;
+  }
+
+  /**
+   * Lối ra thứ 3 sau khi từ chối (09/10/2026): TRẢ VỀ LẤY HÀNG. Các món khai
+   * báo bị rút khỏi số "đã lấy" của lượt hiện tại (món hỏng loại bỏ; món lấy
+   * nhầm `restock: true` cộng lại đúng ô), kế hoạch `rejected` thành
+   * `superseded` (`rejection_resolution: back_to_picking`), nhóm `picked →
+   * picking`. Kho chỉ cần quét bù đúng số món đã rút rồi xác nhận lấy xong —
+   * cron tự tính kế hoạch mới. Tất cả trong 1 transaction.
+   */
+  async backToPicking(groupId: string, dto: BackToPickingDto, userId: string): Promise<PackingPlanDocument> {
+    const plan = await this.requireActivePlan(groupId);
+    this.assertStatus(plan, 'rejected', 'trả về lấy hàng');
+    if (plan.version !== dto.expected_version) throw this.versionConflict(groupId);
+
+    const picked = new Map<string, number>();
+    for (const a of await this.orderGroupsService.allocatePickedItemsToOrders(groupId)) {
+      for (const item of a.items) picked.set(item.sku, (picked.get(item.sku) ?? 0) + item.quantity);
+    }
+    const wanted = new Map<string, { remove: number; restock: number }>();
+    for (const line of dto.items) {
+      const cur = wanted.get(line.sku) ?? { remove: 0, restock: 0 };
+      if (line.restock) cur.restock += line.quantity;
+      else cur.remove += line.quantity;
+      wanted.set(line.sku, cur);
+    }
+    for (const [sku, w] of wanted) {
+      const have = picked.get(sku) ?? 0;
+      if (w.remove + w.restock > have) {
+        throw new AppException(
+          PACKING_ERROR_CODES.BACK_TO_PICKING_INVALID,
+          have === 0
+            ? `SKU "${sku}" không có trong hàng đã lấy của nhóm.`
+            : `SKU "${sku}": khai ${String(w.remove + w.restock)} món nhưng nhóm chỉ lấy ${String(have)}.`,
+          HttpStatus.BAD_REQUEST,
+          { sku, requested: w.remove + w.restock, picked: have },
+        );
+      }
+    }
+
+    const note = dto.note?.trim() ? dto.note.trim() : null;
+    const baseNote = `Kế hoạch bị từ chối (${plan.rejection_reason_code ?? '—'}) — trả về lấy hàng${note ? `: ${note}` : ''}`;
+    const updated = await this.runInTransaction(async (session) => {
+      const removeLines = [...wanted].filter(([, w]) => w.remove > 0).map(([sku, w]) => ({ sku, quantity: w.remove }));
+      const restockLines = [...wanted].filter(([, w]) => w.restock > 0).map(([sku, w]) => ({ sku, quantity: w.restock }));
+      if (removeLines.length > 0) {
+        await this.orderGroupsService.adjustPickedUnits(groupId, removeLines, {
+          restock: false,
+          kind: 'pack_issue',
+          note: baseNote,
+          actorId: userId,
+          session,
+        });
+      }
+      if (restockLines.length > 0) {
+        await this.orderGroupsService.adjustPickedUnits(groupId, restockLines, {
+          restock: true,
+          kind: 'reject_return',
+          note: baseNote,
+          actorId: userId,
+          session,
+        });
+      }
+      const doc = await this.planModel.findOneAndUpdate(
+        { _id: plan._id, version: dto.expected_version, status: 'rejected', is_active: true },
+        {
+          $set: {
+            is_active: false,
+            status: 'superseded',
+            rejection_resolution: 'back_to_picking',
+            rejection_resolved_at: new Date(),
+          },
+          $push: {
+            adjustments: {
+              kind: 'back_to_picking',
+              detail: dto.items
+                .map((i) => `${i.sku} ×${String(i.quantity)}${i.restock ? ' (về kệ)' : ' (loại bỏ)'}`)
+                .join(', '),
+              reason: plan.rejection_reason_code ?? 'OTHER',
+              note,
+              by: new Types.ObjectId(userId),
+              at: new Date(),
+              skus: [...wanted.keys()],
+              box_codes: [],
+            },
+          },
+          $inc: { version: 1 },
+        },
+        { session, returnDocument: 'after' },
+      );
+      if (!doc) throw this.versionConflict(groupId);
+      const group = await this.orderGroupsService.findOrderGroupById(groupId);
+      await this.orderGroupsService.transitionFulfillmentStatus(
+        groupId,
+        GroupFulfillmentStatus.PICKING,
+        group.__v,
+        session,
+      );
+      return doc;
+    });
+    await this.orderGroupsService.reconcileReservation(groupId);
+    const summary = dto.items.map((i) => `${i.sku} ×${String(i.quantity)}`).join(', ');
+    const common = {
+      type: NotificationType.PACKING_ISSUE,
+      severity: 'warning' as const,
+      title: 'Nhóm đơn quay lại bước lấy hàng',
+      message: `Kế hoạch đóng gói bị từ chối — cần lấy lại: ${summary}.`,
+      relatedEntityType: 'order_group',
+      relatedEntityId: groupId,
+    };
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
+    if (group.assigned_staff_id) {
+      await this.safeNotify({ ...common, recipientUserId: group.assigned_staff_id.toString() });
+    } else {
+      await this.safeNotify({ ...common, recipientRole: UserRole.WAREHOUSE_STAFF });
+    }
     return updated;
   }
 

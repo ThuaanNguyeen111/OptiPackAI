@@ -45,7 +45,7 @@ export interface FeedbackReport {
     open: number;
     overdue: number;
     byReason: { reason: string; count: number }[];
-    resolvedBy: { recompute: number; manual: number };
+    resolvedBy: { recompute: number; manual: number; backToPicking: number };
   };
   /** Thùng hỏng khi đang đóng (đổi thùng, thùng cũ damaged) — hao hụt thật đã trừ tồn. */
   waste: { events: number; costVnd: number; byBox: { boxCode: string; count: number; costVnd: number }[] };
@@ -155,7 +155,7 @@ export function buildFeedback(
   let rejectedPlans = 0;
   let planCount = 0;
   let followedPlans = 0;
-  const rejections = { total: 0, open: 0, overdue: 0, recompute: 0, manual: 0 };
+  const rejections = { total: 0, open: 0, overdue: 0, recompute: 0, manual: 0, backToPicking: 0 };
 
   const count = (reason: string): void => {
     reasonTotals.set(reason, (reasonTotals.get(reason) ?? 0) + 1);
@@ -166,7 +166,8 @@ export function buildFeedback(
       planCount += 1;
       if (plan.adjustments.length === 0 && !plan.rejected_at) followedPlans += 1;
     }
-    const adjustments = plan.adjustments.filter((a) => inRange(a.at));
+    // back_to_picking là cách xử lý từ chối (đã đếm ở rejections) — không đếm lại như chỉnh tay.
+    const adjustments = plan.adjustments.filter((a) => a.kind !== 'back_to_picking' && inRange(a.at));
     if (adjustments.length > 0) adjustedPlans += 1;
     for (const a of adjustments) {
       count(a.reason);
@@ -192,6 +193,7 @@ export function buildFeedback(
       if (SETTINGS_REASONS[code]) settingsMap.set(code, (settingsMap.get(code) ?? 0) + 1);
       if (plan.rejection_resolution === 'recompute') rejections.recompute += 1;
       else if (plan.rejection_resolution === 'manual') rejections.manual += 1;
+      else if (plan.rejection_resolution === 'back_to_picking') rejections.backToPicking += 1;
       else if (plan.status === 'rejected') {
         rejections.open += 1;
         if (plan.rejection_due_at && plan.rejection_due_at < now) rejections.overdue += 1;
@@ -264,7 +266,7 @@ export function buildFeedback(
       open: rejections.open,
       overdue: rejections.overdue,
       byReason: sortDesc([...rejectionReasons].map(([reason, n]) => ({ reason, count: n }))),
-      resolvedBy: { recompute: rejections.recompute, manual: rejections.manual },
+      resolvedBy: { recompute: rejections.recompute, manual: rejections.manual, backToPicking: rejections.backToPicking },
     },
     waste: {
       events: [...wasteByBox.values()].reduce((s, w) => s + w.count, 0),

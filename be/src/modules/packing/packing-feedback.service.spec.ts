@@ -107,7 +107,7 @@ describe('buildFeedback — vòng phản hồi cho Admin', () => {
       total: 4,
       open: 2,
       overdue: 1,
-      resolvedBy: { recompute: 1, manual: 1 },
+      resolvedBy: { recompute: 1, manual: 1, backToPicking: 0 },
     });
     expect(report.rejections.byReason[0]).toEqual({ reason: 'PLAN_UNREALISTIC', count: 2 });
   });

@@ -429,6 +429,65 @@ describe('PackingPlanService', () => {
       expect(planModel.docs[0]?.rejection_resolved_at).toBeInstanceOf(Date);
     });
 
+    describe('trả về lấy hàng sau khi từ chối', () => {
+      async function rejectedPlan(): Promise<PackingPlanDocument> {
+        const plan = await computed();
+        return service.reject(groupId, plan.version, 'ITEM_DAMAGED', undefined, userId);
+      }
+      function firstSku(): string {
+        const sku = allocations[0]?.items[0]?.sku;
+        if (sku === undefined) throw new Error('fixture không có món');
+        return sku;
+      }
+
+      it('rút món hỏng + món lấy nhầm, kế hoạch superseded, nhóm picked → picking, giữ chỗ được tính lại', async () => {
+        const rejected = await rejectedPlan();
+        const sku = firstSku();
+        const result = await service.backToPicking(
+          groupId,
+          { expected_version: rejected.version, items: [{ sku, quantity: 1 }, { sku, quantity: 1, restock: true }], note: 'áo bẩn' },
+          userId,
+        );
+        expect(result.status).toBe('superseded');
+        expect(result.is_active).toBe(false);
+        expect(result.rejection_resolution).toBe('back_to_picking');
+        expect(result.adjustments.at(-1)?.kind).toBe('back_to_picking');
+        expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PICKING);
+        expect(orderGroupsService.adjustPickedUnits).toHaveBeenCalledWith(
+          groupId,
+          [{ sku, quantity: 1 }],
+          expect.objectContaining({ restock: false, kind: 'pack_issue' }),
+        );
+        expect(orderGroupsService.adjustPickedUnits).toHaveBeenCalledWith(
+          groupId,
+          [{ sku, quantity: 1 }],
+          expect.objectContaining({ restock: true, kind: 'reject_return' }),
+        );
+        expect(orderGroupsService.reconcileReservation).toHaveBeenCalledWith(groupId);
+      });
+
+      it('SKU không có trong hàng đã lấy → BACK_TO_PICKING_INVALID', async () => {
+        const rejected = await rejectedPlan();
+        await expect(
+          service.backToPicking(groupId, { expected_version: rejected.version, items: [{ sku: 'KHONG-CO', quantity: 1 }] }, userId),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.BACK_TO_PICKING_INVALID });
+      });
+
+      it('khai vượt số đã lấy → BACK_TO_PICKING_INVALID', async () => {
+        const rejected = await rejectedPlan();
+        await expect(
+          service.backToPicking(groupId, { expected_version: rejected.version, items: [{ sku: firstSku(), quantity: 999 }] }, userId),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.BACK_TO_PICKING_INVALID });
+      });
+
+      it('chỉ dùng được khi kế hoạch đang bị từ chối', async () => {
+        const plan = await computed();
+        await expect(
+          service.backToPicking(groupId, { expected_version: plan.version, items: [{ sku: firstSku(), quantity: 1 }] }, userId),
+        ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+      });
+    });
+
     describe('đóng gói thủ công sau khi từ chối', () => {
       async function rejectedPlan(): Promise<PackingPlanDocument> {
         const plan = await computed();

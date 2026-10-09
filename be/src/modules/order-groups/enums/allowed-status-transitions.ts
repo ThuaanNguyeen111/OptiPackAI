@@ -37,6 +37,8 @@ const ALLOWED_TRANSITIONS: Record<
   // đúng bảng này, không cần check riêng trong service).
   [GroupFulfillmentStatus.PICKED]: [
     GroupFulfillmentStatus.PENDING_APPROVAL,
+    // (09/10/2026) kế hoạch bị từ chối → trả về lấy hàng (món hỏng/nhầm phải lấy lại).
+    GroupFulfillmentStatus.PICKING,
     GroupFulfillmentStatus.CANCELED,
   ],
   // PARTIAL_NEEDS_REVIEW KHÔNG tự động đi tiếp — chỉ 2 đường: duyệt

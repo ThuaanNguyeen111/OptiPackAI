@@ -1207,7 +1207,7 @@ export class OrderGroupsService {
     lines: { sku: string; quantity: number }[],
     options: {
       restock: boolean;
-      kind: 'pack_issue' | 'unpack' | 'cancel_return';
+      kind: 'pack_issue' | 'unpack' | 'cancel_return' | 'reject_return';
       note: string;
       actorId: string;
       session: ClientSession;
@@ -1273,7 +1273,10 @@ export class OrderGroupsService {
                   shop_id: doc.shop_id,
                   seller_sku: doc.seller_sku,
                   master_sku: doc.master_sku ?? null,
-                  type: options.kind === 'cancel_return' ? 'cancel_return' : 'cancel_unpack',
+                  type:
+                    options.kind === 'cancel_return' || options.kind === 'reject_return'
+                      ? options.kind
+                      : 'cancel_unpack',
                   delta: take,
                   quantity_before: doc.quantity_on_hand - take,
                   quantity_after: doc.quantity_on_hand,

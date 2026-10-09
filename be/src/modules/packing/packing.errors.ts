@@ -34,5 +34,6 @@ export const PACKING_ERROR_CODES = {
   UNSEAL_NOT_ALLOWED: 'PACKING_UNSEAL_NOT_ALLOWED', // nhóm đã packed: chỉ Admin/Store Owner hoàn tác niêm phong
   SAME_BOX: 'PACKING_SAME_BOX', // đổi thùng lúc đóng nhưng chọn đúng thùng đang dùng và khai chưa dùng
   MANUAL_PACK_INVALID: 'PACKING_MANUAL_PACK_INVALID', // đóng thủ công: thiếu/trùng/sai món, quá tải thùng
+  BACK_TO_PICKING_INVALID: 'PACKING_BACK_TO_PICKING_INVALID', // trả về lấy hàng: SKU không thuộc nhóm / vượt số đã lấy
   RECOVER_MATERIAL_INVALID: 'PACKING_RECOVER_MATERIAL_INVALID', // thu hồi vật tư không có trong kiện / vượt số lượng
 } as const;

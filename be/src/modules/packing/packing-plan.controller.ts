@@ -26,6 +26,7 @@ import {
   ChangeBoxDto,
   ChangeBoxInSessionDto,
   GuideDto,
+  BackToPickingDto,
   ManualPackDto,
   MoveItemDto,
   PackPlanDto,
@@ -204,7 +205,7 @@ export interface PackingPlanResponse {
     ownerId: string | null;
     dueAt: Date | null;
     overdue: boolean;
-    resolution: 'recompute' | 'manual' | null;
+    resolution: 'recompute' | 'manual' | 'back_to_picking' | null;
     resolvedAt: Date | null;
   } | null;
   /** solver = bộ giải tính; manual = đóng thủ công sau khi từ chối. */
@@ -524,7 +525,7 @@ export class PackingPlanController {
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Từ chối kế hoạch: lý do theo MÃ, có người xử lý + hạn (2 giờ làm việc). Nhóm về picked, không tự tính lại; lối ra: recompute, manual hoặc trả về lấy hàng.',
+      'Từ chối kế hoạch: lý do theo MÃ, có người xử lý + hạn (2 giờ làm việc). Nhóm về picked, không tự tính lại; lối ra: recompute, manual hoặc back-to-picking.',
   })
   async reject(
     @Param('groupId') groupId: string,
@@ -536,6 +537,20 @@ export class PackingPlanController {
         await this.planService.reject(groupId, dto.expected_version, dto.reason, dto.note, user.userId, dto.owner_id),
       ),
     };
+  }
+
+  @Post('back-to-picking')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Lối ra thứ 3 sau khi từ chối: trả nhóm về bước lấy hàng. Khai món phải lấy lại (restock=true: món lấy nhầm còn tốt, cộng lại đúng ô; mặc định: món hỏng, loại bỏ). Kế hoạch cũ superseded, nhóm picked → picking; kho quét bù rồi xác nhận lấy xong, cron tự tính kế hoạch mới.',
+  })
+  async backToPicking(
+    @Param('groupId') groupId: string,
+    @Body() dto: BackToPickingDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.planService.backToPicking(groupId, dto, user.userId)) };
   }
 
   @Post('manual')
