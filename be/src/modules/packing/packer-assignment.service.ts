@@ -81,6 +81,44 @@ export class PackerAssignmentService {
     return updated;
   }
 
+  /**
+   * (09/10/2026) Danh sách Packaging Staff đang hoạt động + số kế hoạch đang mở
+   * (ready/approved/packing) — FE dùng cho dropdown giao người đóng (`assign`
+   * với staff_id) và chọn người xử lý khi từ chối (`reject.owner_id`).
+   */
+  async listPackers(
+    search?: string,
+  ): Promise<{ staffId: string; fullName: string; email: string; activeWorkload: number }[]> {
+    const filter: Record<string, unknown> = { role: UserRole.PACKAGING_STAFF, is_active: true };
+    const q = search?.trim();
+    if (q) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.$or = [
+        { name: { $regex: escaped, $options: 'i' } },
+        { email: { $regex: escaped, $options: 'i' } },
+      ];
+    }
+    const staff = await this.userModel.find(filter).select('_id name email').sort({ name: 1 }).lean();
+    if (staff.length === 0) return [];
+    const rows = await this.planModel.aggregate<{ _id: Types.ObjectId; count: number }>([
+      {
+        $match: {
+          assigned_packer_id: { $in: staff.map((s) => s._id) },
+          is_active: true,
+          status: { $in: OPEN_PLAN_STATUSES },
+        },
+      },
+      { $group: { _id: '$assigned_packer_id', count: { $sum: 1 } } },
+    ]);
+    const load = new Map(rows.map((r) => [r._id.toString(), r.count]));
+    return staff.map((s) => ({
+      staffId: s._id.toString(),
+      fullName: s.name,
+      email: s.email,
+      activeWorkload: load.get(s._id.toString()) ?? 0,
+    }));
+  }
+
   private async apply(planId: Types.ObjectId, packerId: Types.ObjectId): Promise<PackingPlanDocument | null> {
     // Không tăng version: giao việc không đổi phương án, không làm hỏng màn người khác đang xem.
     const updated = await this.planModel.findOneAndUpdate(

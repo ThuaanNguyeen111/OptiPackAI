@@ -873,7 +873,20 @@ export class PackingSettingsController {
     private readonly settingsService: PackingSettingsService,
     private readonly reportService: PackingReportService,
     private readonly feedbackService: PackingFeedbackService,
+    private readonly packerAssignment: PackerAssignmentService,
   ) {}
+
+  @Get('staff')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Danh sách Packaging Staff đang hoạt động kèm số kế hoạch đang mở (?q tìm theo tên/email). Dùng cho dropdown giao người đóng (packing-plan/assign) và người xử lý khi từ chối (reject.owner_id).',
+  })
+  async listPackers(
+    @Query('q') q?: string,
+  ): Promise<{ staff: { staffId: string; fullName: string; email: string; activeWorkload: number }[] }> {
+    return { staff: await this.packerAssignment.listPackers(q) };
+  }
 
   @Get('settings')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)

@@ -110,6 +110,28 @@ describe('PackerAssignmentService', () => {
       service.assign({ _id: planId } as never, 'manual', new Types.ObjectId().toString()),
     ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.PACKER_INVALID });
   });
+
+  it('listPackers: chỉ Packaging Staff đang hoạt động, kèm số kế hoạch đang mở, tìm có escape regex', async () => {
+    userModel.find.mockReturnValue({
+      select: () => ({
+        sort: () => ({
+          lean: () =>
+            Promise.resolve([
+              { _id: packerA, name: 'An', email: 'an@x.vn' },
+              { _id: packerB, name: 'Bình', email: 'binh@x.vn' },
+            ]),
+        }),
+      }),
+    });
+    const list = await service.listPackers('a.(');
+    expect(list).toEqual([
+      { staffId: String(packerA), fullName: 'An', email: 'an@x.vn', activeWorkload: 3 },
+      { staffId: String(packerB), fullName: 'Bình', email: 'binh@x.vn', activeWorkload: 0 },
+    ]);
+    const [filter] = userModel.find.mock.calls[0] as [{ role: UserRole; $or: { name: { $regex: string } }[] }];
+    expect(filter.role).toBe(UserRole.PACKAGING_STAFF);
+    expect(filter.$or[0]?.name.$regex).toBe(String.raw`a\.\(`);
+  });
 });
 
 describe('PackingReportService', () => {
