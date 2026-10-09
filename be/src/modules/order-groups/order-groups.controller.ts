@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { OrderGroupsService, GroupOrderCounts } from './order-groups.service';
+import { OrderGroupsService, GroupOrderCounts, type GroupOrderView } from './order-groups.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
 import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
 import { PickItemDto } from './dto/pick-item.dto';
@@ -242,14 +242,20 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Chi tiết 1 Order Group — đọc field "version" để dùng cho các API chuyển trạng thái. "linkedGroupCount" (Mục 9.5): số nhóm khác (có thể khác sàn) cùng người nhận, chưa giao xong.',
+      'Chi tiết 1 Order Group — đọc field "version" để dùng cho các API chuyển trạng thái. "linkedGroupCount" (Mục 9.5): số nhóm khác (có thể khác sàn) cùng người nhận, chưa giao xong. "orders" (09/10/2026): các đơn trong nhóm kèm người nhận + món đã gộp (cả đơn đã hủy).',
   })
-  async findOne(@Param('id') id: string): Promise<OrderGroupResponse & { linkedGroupCount: number }> {
+  async findOne(
+    @Param('id') id: string,
+  ): Promise<OrderGroupResponse & { linkedGroupCount: number; orders: GroupOrderView[] }> {
     const group = await this.orderGroupsService.findOrderGroupById(id);
-    const linked = await this.orderGroupsService.findLinkedGroups(id);
+    const [linked, orders] = await Promise.all([
+      this.orderGroupsService.findLinkedGroups(id),
+      this.orderGroupsService.listOrdersInGroup(id),
+    ]);
     return {
       ...(await buildOrderGroupResponse(this.orderGroupsService, group)),
       linkedGroupCount: linked.length,
+      orders,
     };
   }
 

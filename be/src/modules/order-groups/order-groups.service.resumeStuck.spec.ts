@@ -58,3 +58,43 @@ describe('OrderGroupsService.resumeStuckAwaitingGroups', () => {
     expect(transition).not.toHaveBeenCalled();
   });
 });
+
+// (09/10/2026) Chi tiết nhóm đơn trả kèm các đơn bên trong cho staff vận hành.
+describe('OrderGroupsService.listOrdersInGroup', () => {
+  it('trả đơn kèm người nhận và món đã gộp theo SKU', async () => {
+    const groupId = new Types.ObjectId();
+    const order = {
+      _id: new Types.ObjectId(),
+      platform: 'lazada',
+      platform_order_id: '123',
+      status: 'pending',
+      recipient: { full_name: 'A', phone: '090', address_line1: '1 Đường X', city: 'HCM' },
+      items: [
+        { platform_order_item_id: '1', sku: 'S1', name: 'Áo', quantity: 1, unit_price: 100, status: 'pending' },
+        { platform_order_item_id: '2', sku: 'S1', name: 'Áo', quantity: 1, unit_price: 100, status: 'pending' },
+      ],
+      created_at: new Date(),
+    };
+    const service = new OrderGroupsService(
+      { findById: jest.fn().mockResolvedValue({ _id: groupId }) } as never,
+      { find: () => ({ select: () => ({ sort: () => ({ lean: () => Promise.resolve([order]) }) }) }) } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+    const [view] = await service.listOrdersInGroup(groupId.toString());
+    expect(view?.platformOrderId).toBe('123');
+    expect(view?.recipient.fullName).toBe('A');
+    expect(view?.items).toHaveLength(1);
+    expect(view?.items[0]?.quantity).toBe(2);
+  });
+});

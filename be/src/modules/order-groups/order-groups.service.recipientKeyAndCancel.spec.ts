@@ -21,6 +21,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
   };
   let orderModel: { countDocuments: jest.Mock; updateOne: jest.Mock; find?: jest.Mock };
   let packingPlanModel: { updateMany: jest.Mock; findOne: jest.Mock; updateOne: jest.Mock };
+  let stockReservationService: { releaseGroup: jest.Mock; reconcile: jest.Mock };
   let notificationsService: {
     notify: jest.Mock;
     buildGroupAutoCanceledMessage: jest.Mock;
@@ -72,6 +73,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
         .mockReturnValue({ title: 't', message: 'm' }),
     };
 
+    stockReservationService = { releaseGroup: jest.fn().mockResolvedValue(0), reconcile: jest.fn().mockResolvedValue([]) };
     service = new OrderGroupsService(
       orderGroupModel as never,
       orderModel as never,
@@ -85,7 +87,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       {} as never, // connection
       {} as never, // inventoryMovementModel
       {} as never, // mappingModel
-      { releaseGroup: jest.fn().mockResolvedValue(0), reconcile: jest.fn().mockResolvedValue([]) } as never, // stockReservationService
+      stockReservationService as never,
       {} as never, // binLocationModel
     );
   });
@@ -165,6 +167,8 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
         { order_group_id: expect.anything() as unknown, is_active: true, status: { $ne: 'packed' } },
         { $set: { is_active: false, status: 'superseded' } },
       );
+      // (09/10/2026) Nhả giữ chỗ tồn kho K5 ngay khi tự hủy.
+      expect(stockReservationService.releaseGroup).toHaveBeenCalledWith(groupId);
       // Store Owner + Admin (broadcast theo role) — 2 lời gọi notify tối thiểu.
       expect(
         notificationsService.notify.mock.calls.length,

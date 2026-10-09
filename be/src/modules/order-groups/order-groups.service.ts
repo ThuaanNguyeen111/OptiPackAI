@@ -31,6 +31,7 @@ import {
 } from '../orders/enums/order-status.enum';
 import {
   aggregateOrderItems,
+  type AggregatedOrderItemView,
   RawOrderItemForAggregation,
 } from '../orders/utils/aggregate-order-items.util';
 import { computeRecipientKey } from '../orders/utils/consolidation-key.util';
@@ -92,6 +93,17 @@ import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-pla
 export interface GroupOrderCounts {
   activeOrderCount: number;
   canceledOrderCount: number;
+}
+
+/** (09/10/2026) Một đơn trong nhóm — trả kèm chi tiết nhóm đơn. */
+export interface GroupOrderView {
+  id: string;
+  platform: string;
+  platformOrderId: string;
+  status: string;
+  recipient: { fullName: string; phone: string; addressLine1: string; addressLine2: string | null; city: string };
+  items: AggregatedOrderItemView[];
+  createdAt: Date | null;
 }
 
 @Injectable()
@@ -674,6 +686,36 @@ export class OrderGroupsService {
   }
 
   /**
+   * (09/10/2026) Đơn bên trong 1 nhóm cho màn chi tiết của staff vận hành —
+   * trước đây Warehouse/Packaging/Shipping không xem được đơn nào, món gì, giao
+   * cho ai (`GET /orders` chỉ Admin/Store Owner). Món gộp theo SKU + biến thể +
+   * trạng thái như `GET /orders/:id`. Đơn đã hủy vẫn trả để thấy vì sao thiếu.
+   */
+  async listOrdersInGroup(groupId: string): Promise<GroupOrderView[]> {
+    const group = await this.loadGroupOrThrow(groupId);
+    const orders = await this.orderModel
+      .find({ consolidated_group_id: group._id })
+      .select('platform platform_order_id status recipient items created_at')
+      .sort({ created_at: 1 })
+      .lean();
+    return orders.map((o) => ({
+      id: o._id.toString(),
+      platform: o.platform,
+      platformOrderId: o.platform_order_id,
+      status: o.status,
+      recipient: {
+        fullName: o.recipient.full_name,
+        phone: o.recipient.phone,
+        addressLine1: o.recipient.address_line1,
+        addressLine2: o.recipient.address_line2 ?? null,
+        city: o.recipient.city,
+      },
+      items: aggregateOrderItems(o.items),
+      createdAt: o.created_at ?? null,
+    }));
+  }
+
+  /**
    * 01/10/2026 — đếm đơn còn hiệu lực / đã hủy cho NHIỀU nhóm đơn trong 1 truy vấn
    * (Rule #16 — tránh N+1: danh sách 100 nhóm = 1 aggregation, không phải 100 lần đếm).
    * Tính trực tiếp từ collection `orders` (nguồn sự thật) lúc đọc — không lưu sẵn trên
@@ -906,6 +948,10 @@ export class OrderGroupsService {
       GroupFulfillmentStatus.CANCELED,
       group.__v,
     );
+
+    // (09/10/2026) Nhả giữ chỗ TỒN KHO (K5) — trước đây nhóm hủy vẫn giữ hàng cho
+    // tới khi Admin gọi tay stock-reservation/release, đơn khác bị báo thiếu hàng giả.
+    await this.releaseReservation(groupId);
 
     // Nhả giữ chỗ thùng: kế hoạch đang hoạt động (chưa đóng) bị thay. Đã bắt đầu
     // đóng thì GIỮ kế hoạch tới khi tháo xong các kiện (05/10/2026).
@@ -1578,6 +1624,12 @@ export class OrderGroupsService {
     if (!sessionStarted) await this.returnSurplusIfPicking(groupId);
     await this.cancelIfAllOrdersUnfulfillable(groupId, { keepPackingPlan: sessionStarted });
     if (!sessionStarted) await this.invalidateStalePackagingPlan(groupId);
+    // (09/10/2026) Hủy MỘT PHẦN: giữ chỗ tính lại theo số đặt của đơn còn lại
+    // (trước đây vẫn giữ cả phần của đơn đã hủy). Nhóm đã hủy hết thì đã nhả ở trên.
+    const after = await this.orderGroupModel.findById(groupId);
+    if (after && after.fulfillment_status !== GroupFulfillmentStatus.CANCELED) {
+      await this.reconcileReservation(groupId);
+    }
   }
 
   /** Nhóm đã có hàng lấy ra nhưng chưa bắt đầu đóng → trả phần dư về kệ. Best-effort. */
@@ -1843,18 +1895,22 @@ export class OrderGroupsService {
         reportedBy: reporterName,
       });
 
-    await this.notificationsService.notify({
-      recipientRole: UserRole.STORE_OWNER,
-      type: NotificationType.MISSING_ITEM,
-      severity: 'critical',
-      title: note ? `${title} — Ghi chú: ${note}` : title,
-      message,
-      relatedEntityType: 'order_group',
-      relatedEntityId: groupId,
-    });
+    // (09/10/2026) Báo cả Packaging Staff — họ (hoặc Admin) là người quyết
+    // decide-partial; trước đây chỉ Store Owner được báo nên nhóm nằm chờ.
+    for (const recipientRole of [UserRole.STORE_OWNER, UserRole.PACKAGING_STAFF]) {
+      await this.notificationsService.notify({
+        recipientRole,
+        type: NotificationType.MISSING_ITEM,
+        severity: 'critical',
+        title: note ? `${title} — Ghi chú: ${note}` : title,
+        message,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      });
+    }
 
     this.logger.warn(
-      `Report missing: group ${groupId}, SKU ${sku}, thiếu ${String(missingQuantity)} — đã thông báo Store Owner.`,
+      `Report missing: group ${groupId}, SKU ${sku}, thiếu ${String(missingQuantity)} — đã thông báo Store Owner + Packaging Staff.`,
     );
     return group;
   }
