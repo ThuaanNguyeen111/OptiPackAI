@@ -8,6 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { OrderGroupsService, GroupOrderCounts } from './order-groups.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
@@ -288,6 +289,7 @@ export class OrderGroupsController {
   }
 
   @Post(':id/fulfillment/pick-item')
+  @SkipThrottle()
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:

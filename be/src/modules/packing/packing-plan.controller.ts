@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -627,6 +627,7 @@ export class PackingPlanController {
   }
 
   @Post('parcels/:parcelNo/scan')
+  @SkipThrottle()
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
@@ -643,6 +644,7 @@ export class PackingPlanController {
   }
 
   @Post('parcels/:parcelNo/unscan')
+  @SkipThrottle()
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({ summary: 'Gỡ 1 lần quét (quét nhầm) — bắt buộc lý do, ghi nhật ký.' })
   async unscan(

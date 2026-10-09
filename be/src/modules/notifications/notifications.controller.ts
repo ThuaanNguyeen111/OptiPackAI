@@ -6,6 +6,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -44,6 +45,7 @@ export class NotificationsController {
   }
 
   @Get('unread-count')
+  @SkipThrottle()
   @ApiOperation({
     summary:
       'Số thông báo chưa đọc — FE gọi định kỳ (polling) để cập nhật chuông thông báo.',

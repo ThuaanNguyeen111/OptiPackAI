@@ -48,7 +48,12 @@ import { DocumentsModule } from './modules/documents/documents.module';
       }),
       inject: [ConfigService],
     }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
+    // Giới hạn chung theo IP. Cả kho dùng chung 1 IP (NAT) và FE có polling
+    // + quét mã liên tục nên 20/phút (cũ) gây 429 giả. Route nhạy cảm
+    // (login, forgot-password, AI guide) vẫn có @Throttle riêng chặt hơn.
+    ThrottlerModule.forRoot([
+      { ttl: 60000, limit: Number(process.env.THROTTLE_LIMIT_PER_MINUTE) || 600 },
+    ]),
     // BẮT BUỘC gọi Ở GỐC APP (không phải trong OrdersModule) — mọi
     // @Cron()/@Interval() ở BẤT KỲ module con nào (kể cả các module
     // thêm sau này) chỉ hoạt động khi ScheduleModule được đăng ký ĐÚNG
