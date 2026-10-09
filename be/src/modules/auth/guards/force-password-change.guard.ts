@@ -1,3 +1,4 @@
+import { AUTH_ERROR_CODES, authError } from '../auth.errors';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import type { AuthenticatedRequest } from '../interfaces/authenticated-request.interface';
 
@@ -13,7 +14,7 @@ export class ForcePasswordChangeGuard implements CanActivate {
     }
 
     if (user.mustChangePassword && !ALLOWED_PATHS_WHEN_MUST_CHANGE.includes(request.path)) {
-      throw new ForbiddenException('Bạn phải đổi mật khẩu trước khi tiếp tục sử dụng hệ thống');
+      throw new ForbiddenException(authError(AUTH_ERROR_CODES.PASSWORD_CHANGE_REQUIRED, 'Bạn phải đổi mật khẩu trước khi tiếp tục sử dụng hệ thống'));
     }
 
     return true;

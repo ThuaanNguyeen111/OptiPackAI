@@ -1,3 +1,4 @@
+import { SF_ERROR_CODES, sfError } from './storefront.errors';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -90,7 +91,7 @@ export class CatalogService {
       status: 'active',
     });
 
-    if (!product) throw new NotFoundException('Không tìm thấy sản phẩm');
+    if (!product) throw new NotFoundException(sfError(SF_ERROR_CODES.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'));
 
     await this.productModel.updateOne(
       { _id: product._id },

@@ -94,9 +94,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             ? (res as { message: string[] }).message.join('; ')
             : ((res as { message?: string }).message ?? exception.message);
 
+      // (09/10/2026) Exception Nest thường mà body có `error_code` (vd Auth) → dùng mã đó.
+      const ownCode =
+        typeof res === 'object' && typeof (res as { error_code?: unknown }).error_code === 'string'
+          ? (res as { error_code: string }).error_code
+          : null;
       return {
         success: false,
-        error_code: this.mapHttpStatusToErrorCode(exception.getStatus()),
+        error_code: ownCode ?? this.mapHttpStatusToErrorCode(exception.getStatus()),
         message,
         details: null,
         timestamp,

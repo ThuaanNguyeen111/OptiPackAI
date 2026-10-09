@@ -1,3 +1,4 @@
+import { SF_ERROR_CODES, sfError } from './storefront.errors';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -32,7 +33,7 @@ export class StorefrontCartService {
 
   private objectId(value: string) {
     if (!Types.ObjectId.isValid(value)) {
-      throw new BadRequestException('Mã biến thể không hợp lệ');
+      throw new BadRequestException(sfError(SF_ERROR_CODES.VARIANT_INVALID, 'Mã biến thể không hợp lệ'));
     }
 
     return new Types.ObjectId(value);
@@ -127,7 +128,7 @@ export class StorefrontCartService {
     const variantId = this.objectId(dto.variant_id);
     const variant = await this.variantModel.findOne({ _id: variantId, is_active: true });
 
-    if (!variant) throw new NotFoundException('Không tìm thấy biến thể');
+    if (!variant) throw new NotFoundException(sfError(SF_ERROR_CODES.VARIANT_NOT_FOUND, 'Không tìm thấy biến thể'));
 
     const availableQuantity = await this.getAvailableQuantity(variantId);
     const cart = await this.getOrCreate(customerId);
@@ -140,7 +141,7 @@ export class StorefrontCartService {
       (existing?.quantity ?? 0) + dto.quantity,
     );
 
-    if (quantity < 1) throw new BadRequestException('Sản phẩm đã hết hàng');
+    if (quantity < 1) throw new BadRequestException(sfError(SF_ERROR_CODES.OUT_OF_STOCK, 'Sản phẩm đã hết hàng'));
 
     await this.itemModel.findOneAndUpdate(
       { cart_id: cart._id, variant_id: variantId },
@@ -159,14 +160,14 @@ export class StorefrontCartService {
 
   async update(customerId: string, variantId: string, quantity: number) {
     if (quantity < 1) {
-      throw new BadRequestException('Số lượng phải lớn hơn 0');
+      throw new BadRequestException(sfError(SF_ERROR_CODES.QUANTITY_INVALID, 'Số lượng phải lớn hơn 0'));
     }
 
     const variantObjectId = this.objectId(variantId);
     const availableQuantity = await this.getAvailableQuantity(variantObjectId);
 
     if (availableQuantity < quantity) {
-      throw new BadRequestException('Số lượng vượt quá tồn kho');
+      throw new BadRequestException(sfError(SF_ERROR_CODES.OUT_OF_STOCK, 'Số lượng vượt quá tồn kho'));
     }
 
     const cart = await this.getOrCreate(customerId);
@@ -176,7 +177,7 @@ export class StorefrontCartService {
       { returnDocument: 'after' },
     );
 
-    if (!item) throw new NotFoundException('Sản phẩm không có trong giỏ');
+    if (!item) throw new NotFoundException(sfError(SF_ERROR_CODES.CART_ITEM_NOT_FOUND, 'Sản phẩm không có trong giỏ'));
 
     return this.get(customerId);
   }

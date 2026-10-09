@@ -126,7 +126,7 @@ export class UsersService {
 
   async findById(id: string): Promise<UserDocument> {
     const user = await this.userModel.findById(id);
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
     return user;
   }
 
@@ -212,7 +212,7 @@ export class UsersService {
           },
           { new: true, session },
         );
-        if (!updated) throw new NotFoundException('Không tìm thấy người dùng');
+        if (!updated) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
 
         await this.tokenService.revokeAllForUser(userId, session);
         return updated;
@@ -336,7 +336,7 @@ export class UsersService {
       mfa_secret: null,
       mfa_backup_codes: [],
     });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
     await this.redisCache.invalidateUserAuthState(userId);
 
     // Chỉ báo khi MFA thực sự đang bật (document trả về là bản TRƯỚC khi update).
@@ -373,7 +373,7 @@ export class UsersService {
     const user = await this.userModel.findByIdAndUpdate(userId, dto, {
       new: true,
     });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
     return user;
   }
 
@@ -388,7 +388,7 @@ export class UsersService {
     const user = await this.userModel.findByIdAndUpdate(userId, dto, {
       new: true,
     });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
 
     await this.redisCache.invalidateUserAuthState(userId);
     return user;
@@ -434,7 +434,7 @@ export class UsersService {
           { is_active: false },
           { session },
         );
-        if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+        if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
 
         await this.tokenService.revokeAllForUser(userId, session);
       });
@@ -453,7 +453,7 @@ export class UsersService {
     const user = await this.userModel.findByIdAndUpdate(userId, {
       is_active: true,
     });
-    if (!user) throw new NotFoundException('Không tìm thấy người dùng');
+    if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
     await this.redisCache.invalidateUserAuthState(userId);
   }
 

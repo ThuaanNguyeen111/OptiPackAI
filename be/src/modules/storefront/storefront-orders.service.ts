@@ -1,3 +1,4 @@
+import { SF_ERROR_CODES, sfError } from './storefront.errors';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -37,7 +38,7 @@ export class StorefrontOrdersService {
   ) {}
 
   async checkout(customerId: string, dto: CheckoutDto) {
-    if (!dto.items.length) throw new BadRequestException('Giỏ hàng đang trống');
+    if (!dto.items.length) throw new BadRequestException(sfError(SF_ERROR_CODES.CART_EMPTY, 'Giỏ hàng đang trống'));
 
     const customerObjectId = new Types.ObjectId(customerId);
     if (dto.client_order_id) {
@@ -50,7 +51,7 @@ export class StorefrontOrdersService {
 
     const ids = dto.items.map((item) => new Types.ObjectId(item.variant_id));
     const variants = await this.variantModel.find({ _id: { $in: ids }, is_active: true });
-    if (variants.length !== dto.items.length) throw new BadRequestException('Một sản phẩm không còn khả dụng');
+    if (variants.length !== dto.items.length) throw new BadRequestException(sfError(SF_ERROR_CODES.VARIANT_UNAVAILABLE, 'Một sản phẩm không còn khả dụng'));
 
     const products = await this.productModel.find({
       _id: { $in: variants.map((variant) => variant.product_id) },
@@ -64,12 +65,12 @@ export class StorefrontOrdersService {
 
     const itemDocs = dto.items.map((input) => {
       const variant = variants.find((candidate) => candidate.id === input.variant_id);
-      if (!variant) throw new NotFoundException('Không tìm thấy biến thể');
+      if (!variant) throw new NotFoundException(sfError(SF_ERROR_CODES.VARIANT_NOT_FOUND, 'Không tìm thấy biến thể'));
       const stock = stockMap.get(variant.id);
       const available = (stock?.quantity_on_hand ?? 0) - (stock?.reserved_quantity ?? 0);
-      if (available < input.quantity) throw new BadRequestException(`SKU ${variant.sku} không đủ tồn kho`);
+      if (available < input.quantity) throw new BadRequestException(sfError(SF_ERROR_CODES.OUT_OF_STOCK, `SKU ${variant.sku} không đủ tồn kho`));
       const product = productMap.get(variant.product_id.toString());
-      if (!product) throw new NotFoundException('Không tìm thấy sản phẩm');
+      if (!product) throw new NotFoundException(sfError(SF_ERROR_CODES.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'));
       return {
         product_id: product._id,
         variant_id: variant._id,
@@ -145,8 +146,11 @@ export class StorefrontOrdersService {
   }
 
   async findOne(customerId: string, id: string) {
-    const order = await this.orderModel.findOne({ _id: id, customer_id: new Types.ObjectId(customerId) });
-    if (!order) throw new NotFoundException('Không tìm thấy đơn hàng');
+    // id sai định dạng → cùng 404 (trước đây CastError lọt thành 500).
+    const order = Types.ObjectId.isValid(id)
+      ? await this.orderModel.findOne({ _id: id, customer_id: new Types.ObjectId(customerId) })
+      : null;
+    if (!order) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
     const [items, payment] = await Promise.all([
       this.itemModel.find({ order_id: order._id }).lean(),
       this.paymentModel.findOne({ order_id: order._id }).lean(),
