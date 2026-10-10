@@ -40,8 +40,6 @@ import { StaffAssignmentService } from './staff-assignment.service';
 import { StaffAssignmentController } from './staff-assignment.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
-import { LazadaPackSyncService } from './lazada-pack-sync.service';
-import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 
 @Module({
   imports: [
@@ -59,7 +57,6 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
     ]),
     NotificationsModule,
     PackagingMaterialsModule, // G4 — pack trừ vật liệu đóng gói
-    MarketplaceIntegrationModule, // 02/10/2026 — báo "đã đóng gói" lên Lazada (không vòng: module này không import ngược)
   ],
   controllers: [
     OrderGroupsController,
@@ -72,7 +69,6 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
     StaffAssignmentService,
     ExpressOrderSlaScheduler,
     StockReservationService,
-    LazadaPackSyncService,
   ],
   exports: [OrderGroupsService, StaffAssignmentService],
 })

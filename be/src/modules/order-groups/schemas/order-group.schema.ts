@@ -30,21 +30,6 @@ import {
  *               (đặc thù sàn dừng lại ở tầng Adapter/Mapper).
  * ===================================================================
  */
-/** 02/10/2026 — trạng thái báo "đã đóng gói" lên Lazada của 1 nhóm đơn. */
-export type LazadaPackStatus =
-  'disabled' | 'skipped' | 'success' | 'partial' | 'failed';
-
-export interface LazadaPackItemResult {
-  order_id: string;
-  order_item_id: string;
-  ok: boolean;
-  item_err_code: string | null;
-  msg: string | null;
-  package_id: string | null;
-  tracking_number: string | null;
-  shipment_provider: string | null;
-}
-
 @Schema({
   collection: 'order_groups',
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
@@ -146,40 +131,10 @@ export class OrderGroup {
   @Prop({ type: Date, default: null })
   order_counts_refreshed_at?: Date | null;
 
-  // 02/10/2026 — kết quả báo "đã đóng gói" lên Lazada (Fulfillment API Pack) sau khi
-  // nhóm chuyển `packed`. Lưu trên NHÓM ĐƠN, không lưu trong orders.items[]: mỗi lần
-  // đồng bộ, orders.service ghi đè toàn bộ `items` theo dữ liệu Lazada -> trường thêm
-  // vào items sẽ bị xóa. null = nhóm chưa từng đi qua bước này (dữ liệu cũ).
-  @Prop({
-    type: String,
-    enum: ['disabled', 'skipped', 'success', 'partial', 'failed'],
-    default: null,
-  })
-  lazada_pack_status?: LazadaPackStatus | null;
-
-  @Prop({ type: Date, default: null })
-  lazada_pack_attempted_at?: Date | null;
-
-  @Prop({ type: String, default: null })
-  lazada_pack_error?: string | null;
-
-  @Prop({
-    type: [
-      {
-        order_id: String,
-        order_item_id: String,
-        ok: Boolean,
-        item_err_code: String,
-        msg: String,
-        package_id: String,
-        tracking_number: String,
-        shipment_provider: String,
-        _id: false,
-      },
-    ],
-    default: [],
-  })
-  lazada_pack_items?: LazadaPackItemResult[];
+  // 10/10/2026 — ĐÃ BỎ 4 field lazada_pack_status / lazada_pack_attempted_at /
+  // lazada_pack_error / lazada_pack_items (bỏ chức năng báo "đã đóng gói" lên Lazada).
+  // Nhóm đơn cũ có thể còn các field này trong DB — không xoá dữ liệu, schema chỉ
+  // không đọc/ghi nữa (Mongoose strict bỏ qua field không khai báo).
 
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).

@@ -17,8 +17,6 @@ export const ORD_GROUP_ERROR_CODES = {
   ITEM_NOT_IN_GROUP: 'ORD_GROUP_ITEM_NOT_IN_GROUP', // SKU truyền vào không thuộc group này
   // BỔ SUNG (2026-09-15) — fix bug đơn canceled vẫn bị tính vào Packaging/Picking List
   ALL_ORDERS_CANCELED: 'ORD_GROUP_ALL_ORDERS_CANCELED', // toàn bộ đơn trong group đã bị hủy, không còn gì để đóng gói/lấy hàng
-  // BỔ SUNG (2026-10-02) — gửi lại Pack lên Lazada khi nhóm chưa ở trạng thái cho phép
-  LAZADA_PACK_NOT_ALLOWED: 'ORD_GROUP_LAZADA_PACK_NOT_ALLOWED',
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,
