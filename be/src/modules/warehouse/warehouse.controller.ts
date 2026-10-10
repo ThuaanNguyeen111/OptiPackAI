@@ -1,4 +1,4 @@
-import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
+import { AdjustStockDto, MoveAssignmentDto, TransferStockDto } from './dto/stock-operations.dto';
 import {
   Body,
   Controller,
@@ -11,7 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { WarehouseService, PickingListItem } from './warehouse.service';
+import { WarehouseService, PickingListItem, PurgeResult } from './warehouse.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
@@ -19,7 +19,7 @@ import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { RestockSkuDto } from './dto/restock-sku.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
-import { CreateRackDto } from './dto/create-rack.dto';
+import { CreateRackDto, PurgeRackQueryDto } from './dto/create-rack.dto';
 import { UpdateBinDto } from './dto/update-bin.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
@@ -388,6 +388,16 @@ export class WarehouseController {
     );
   }
 
+  @Delete('warehouses/:warehouseId/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN kho tạo nhầm + toàn bộ khu/ô bên trong. Chỉ khi kho CHƯA TỪNG có hàng/nhập–xuất (409 WH_HAS_STOCK / WH_HAS_HISTORY nếu đã dùng → dùng DELETE thường để vô hiệu hoá).',
+  })
+  async purgeWarehouse(@Param('warehouseId') warehouseId: string): Promise<PurgeResult> {
+    return this.warehouseService.purgeWarehouse(warehouseId);
+  }
+
   @Post('warehouses/:warehouseId/reactivate')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -427,6 +437,16 @@ export class WarehouseController {
     return toZoneResponse(await this.warehouseService.deactivateZone(zoneId));
   }
 
+  @Delete('zones/:zoneId/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN khu tạo nhầm + toàn bộ ô trong khu. Chỉ khi chưa từng có hàng/nhập–xuất (409 WH_HAS_STOCK / WH_HAS_HISTORY).',
+  })
+  async purgeZone(@Param('zoneId') zoneId: string): Promise<PurgeResult> {
+    return this.warehouseService.purgeZone(zoneId);
+  }
+
   @Post('zones/:zoneId/reactivate')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -450,6 +470,16 @@ export class WarehouseController {
     return toBinLocationResponse(
       await this.warehouseService.deactivateBin(binId),
     );
+  }
+
+  @Delete('bin-locations/:binId/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN 1 ô tạo nhầm (kèm dòng gán thử tồn 0). Chỉ khi chưa từng có hàng/nhập–xuất (409 WH_HAS_STOCK / WH_HAS_HISTORY).',
+  })
+  async purgeBin(@Param('binId') binId: string): Promise<PurgeResult> {
+    return this.warehouseService.purgeBin(binId);
   }
 
   @Post('bin-locations/:binId/reactivate')
@@ -480,6 +510,19 @@ export class WarehouseController {
   ): Promise<BinLocationResponse[]> {
     const docs = await this.warehouseService.createRack(zoneId, dto);
     return docs.map(toBinLocationResponse);
+  }
+
+  @Delete('zones/:zoneId/racks/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN nguyên KỆ hoặc nguyên DÃY tạo nhầm trong 1 lần gọi. ?aisle=D1 (cả dãy) | &side=P (1 bên) | &bay=2 (đúng 1 kệ). Tất cả hoặc không gì: có 1 ô đã có hàng/nhập–xuất → 409 WH_HAS_STOCK / WH_HAS_HISTORY, không xoá ô nào.',
+  })
+  async purgeRack(
+    @Param('zoneId') zoneId: string,
+    @Query() query: PurgeRackQueryDto,
+  ): Promise<PurgeResult> {
+    return this.warehouseService.purgeRack(zoneId, query);
   }
 
   @Patch('bin-locations/:binId')
@@ -568,6 +611,23 @@ export class WarehouseController {
       user.userId,
     );
     return { from: toAssignmentResponse(from), to: toAssignmentResponse(to) };
+  }
+
+  @Patch('warehouses/:warehouseId/sku-bin-assignments/:assignmentId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — SỬA GÁN NHẦM: dời SKU sang ô đúng (cùng kho). Ô hết hàng → chỉ đổi ô; ô còn hàng → chuyển toàn bộ (ghi sổ cái) rồi bỏ dòng cũ. Trả về dòng ở ô đích.',
+  })
+  async moveAssignment(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: MoveAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SkuBinAssignmentResponse> {
+    return toAssignmentResponse(
+      await this.warehouseService.moveAssignment(warehouseId, assignmentId, dto, user.userId),
+    );
   }
 
   @Delete('warehouses/:warehouseId/sku-bin-assignments/:assignmentId')

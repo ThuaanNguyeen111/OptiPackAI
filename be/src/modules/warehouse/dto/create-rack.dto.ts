@@ -55,3 +55,25 @@ export class CreateRackDto {
   @IsOptional() @IsInt() @Min(1) @Max(100000)
   capacity_per_cell?: number;
 }
+
+/**
+ * 10/10/2026 — xoá hẳn NGUYÊN KỆ hoặc NGUYÊN DÃY tạo nhầm trong 1 lần gọi
+ * (tạo kệ là 1 lệnh thì xoá kệ cũng phải 1 lệnh — báo cáo Hải Phượng).
+ *   - chỉ aisle            → cả dãy (mọi kệ, cả 2 bên)
+ *   - aisle + side         → 1 bên của dãy
+ *   - aisle + side + bay   → đúng 1 kệ (kệ chuẩn mới)
+ *   - aisle + bay          → 1 kệ kiểu cũ (không có bên T/P)
+ */
+export class PurgeRackQueryDto {
+  @ApiProperty({ example: 'D1', description: 'Mã dãy (kệ chuẩn mới D1..D99; kệ kiểu cũ dùng đúng mã dãy đang lưu)' })
+  @Matches(/^[A-Za-z0-9]{1,10}$/, { message: 'aisle chỉ gồm chữ/số, tối đa 10 ký tự' })
+  aisle!: string;
+
+  @ApiPropertyOptional({ example: 'P', enum: SIDE_VALUES, description: 'Bên của dãy. Bỏ trống = cả 2 bên.' })
+  @IsOptional() @IsIn(SIDE_VALUES)
+  side?: 'T' | 'P';
+
+  @ApiPropertyOptional({ example: 2, description: 'Số kệ. Bỏ trống = cả dãy (hoặc cả bên).' })
+  @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(LAYOUT_LIMITS.MAX_BAY)
+  bay?: number;
+}

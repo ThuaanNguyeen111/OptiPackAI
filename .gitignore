@@ -53,3 +53,6 @@ mobile/.flutter-plugins-dependencies
 mobile/build/
 mobile/.pub-cache/
 mobile/.pub/
+
+# Backup do script dọn dữ liệu tạo ra (có thể chứa dữ liệu thật, không commit)
+be/backups/
