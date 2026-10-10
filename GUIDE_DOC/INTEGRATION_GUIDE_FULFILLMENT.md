@@ -427,7 +427,23 @@ Sau `approved_for_packing` (Nghiệp vụ 1 duyệt xong — KHÔNG phải ngay 
 
 Đây là 3 bước tuyến tính đơn giản, không có tình huống rẽ nhánh đặc biệt — mỗi bước chỉ cần đúng `version` hiện tại (Optimistic Concurrency).
 
-### 🆕 Báo "đã đóng gói" lên Lazada (02/10/2026)
+### ❌ ĐÃ BỎ (10/10/2026) — Báo "đã đóng gói" lên Lazada
+
+Quyết định của nhóm: trạng thái `packed` **chỉ ghi trong OptiPack, không ghi ngược lên Lazada**.
+
+| Trước (02/10/2026) | Từ 10/10/2026 |
+|---|---|
+| Bấm `pack` → OptiPack `packed` rồi tự gọi Lazada Pack | Bấm `pack` → chỉ OptiPack `packed` |
+| Response `pack` có `lazadaPackSync` | **Không còn** `lazadaPackSync` |
+| Mọi response nhóm đơn có `lazadaPack` | **Không còn** `lazadaPack` |
+| Route `POST /order-groups/:id/lazada-pack/retry` | **Đã xoá** (gọi vào sẽ 404) |
+| Mã lỗi `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED` | **Đã xoá** |
+
+**FE cần làm:** bỏ mọi chỗ hiển thị `lazadaPack` / `lazadaPackSync` và nút "Gửi lại lên Lazada" (nếu đã làm). Response `pack` còn lại: thông tin nhóm đơn + `packagingConsumption`. Nếu cần đánh dấu đóng gói trên Lazada, người bán tự thao tác trên Seller Center.
+
+<details><summary>Nội dung cũ (02/10/2026) — chỉ để tham khảo lịch sử</summary>
+
+**Báo "đã đóng gói" lên Lazada (02/10/2026)**
 
 **Mục đích:** nhân viên đóng gói chỉ bấm **đúng nút "pack" hiện có**, không cần mở Seller Center. Sau khi OptiPack chuyển nhóm sang `packed`, BE tự gọi API **Pack** của Lazada để đơn trên shop cũng chuyển "Đã đóng gói". FE không cần gọi Lazada (FE không giữ token của shop).
 
@@ -512,6 +528,9 @@ Lỗi trả về **trong từng món** (`items[].errorCode`) là mã của Lazad
 | 1 thùng OptiPack gồm nhiều đơn Lazada → nhiều `packageId`                                          | Không ảnh hưởng shop tự giao (không có nhãn Lazada)             | Cần xử lý nếu chuyển sang vận chuyển của Lazada       |
 | Gửi lại phải bấm tay                                                                               | Lỗi tạm thời không tự khắc phục                                 | Thêm tác vụ định kỳ gửi lại cho nhóm `failed`         |
 | Không có thông báo khi gửi lỗi                                                                     | Chỉ thấy khi mở nhóm đơn                                        | Gửi thông báo cho Store Owner khi `failed`/`partial`  |
+
+
+</details>
 
 ### Hoàn hàng — có thể xảy ra ở 2 thời điểm khác nhau
 
@@ -712,7 +731,7 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 - [ ] **Nghiệp vụ 3**: `report-missing` → thử gọi `pick`/`pack` trực tiếp → phải bị chặn `ORD_GROUP_INVALID_TRANSITION`
 - [ ] **Nghiệp vụ 3**: `decide-partial(false)` → xác nhận quay đúng về `awaiting_packaging`
 - [ ] 🔄 **Nghiệp vụ 4** (sửa 21/09/2026): `pack` gọi bằng tài khoản Packaging Staff → PHẢI thành công (200), không còn 403
-- [ ] 🆕 **Nghiệp vụ 4** (02/10/2026): cầu dao tắt → `pack` trả `lazadaPackSync.status = "disabled"`, Seller Center không đổi; nhóm hủy hết → `pack` trả 409 `ORD_GROUP_ALL_ORDERS_CANCELED`; `lazada-pack/retry` khi nhóm chưa `packed` → 409 `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`
+- [ ] 🔄 **Nghiệp vụ 4** (sửa 10/10/2026): `pack` → nhóm `packed`, response KHÔNG có `lazadaPackSync`, Seller Center không đổi; nhóm hủy hết → `pack` trả 409 `ORD_GROUP_ALL_ORDERS_CANCELED`
 - [ ] **Nghiệp vụ 5**: `PATCH .../priority` express → `packagingDeadline` hợp lý (không null, đúng khoảng giờ làm việc)
 - [ ] **Nghiệp vụ 6**: sau `report-missing` → `unread-count` của Store Owner tăng lên
 - [ ] 🆕 **Nghiệp vụ 6** (mới 21/09/2026): sau `generate` → `unread-count` của tài khoản Packaging Staff tăng lên; sau `reject` → `unread-count` của tài khoản Admin tăng lên

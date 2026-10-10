@@ -378,8 +378,7 @@ Bảng dưới liệt kê **toàn bộ 251 file** trong `src/`, `scripts/`, `tes
 | File | Dòng | Chức năng |
 |---|---|---|
 | `express-order-sla.scheduler.ts` | 95 | Cron 10 phút: gắn cờ quá hạn đóng gói cho đơn hỏa tốc + thông báo. |
-| `lazada-pack-sync.service.spec.ts` | 296 | Kiểm thử đơn vị (Jest) cho `lazada-pack-sync.service`. |
-| `lazada-pack-sync.service.ts` | 404 | Báo "đã đóng gói" lên Lazada sau `pack` (cầu dao, lọc món, chia lô 20, lưu kết quả), gửi lại. |
+| ~~`lazada-pack-sync.service.ts` / `.spec.ts`~~ | — | **ĐÃ XOÁ 10/10/2026** — bỏ báo "đã đóng gói" lên Lazada. |
 | `order-group-backfill.scheduler.ts` | 71 | Cron 5 phút: lưới an toàn tạo nhóm cho đơn chưa có nhóm. |
 | `order-groups.controller.ts` | 440 | 11 route `/order-groups/*` + định nghĩa `OrderGroupResponse` và hàm dựng response. |
 | `order-groups.errors.ts` | 25 | Bảng mã lỗi nghiệp vụ của module. |

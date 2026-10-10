@@ -3375,3 +3375,49 @@ npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # ch�
 
 
 **Bài học commit (10/10/2026):** commitlint giới hạn tiêu đề commit **≤ 100 ký tự** (`header-max-length`). Commit AOFP-68 dài 107 ký tự bị husky chặn, các file đã `git add` vẫn nằm trong vùng chờ nên bị gộp nhầm vào commit docs AOFP-69 kế tiếp. Luôn đếm độ dài tiêu đề trước khi đưa lệnh commit; khi đưa chuỗi lệnh, nhắc kiểm tra mỗi commit thành công rồi mới chạy lệnh sau.
+
+### 🚚 Nhật ký 10/10/2026 — Kiểm chứng GHN nhận địa chỉ 2 cấp mới (chuẩn bị C3)
+
+Script `be/scripts/ghn-preview-new-address.ts` (chỉ gọi preview, không tạo vận đơn, đọc token từ `.env`, viết bằng TS để tránh lỗi mã hoá tiếng Việt của curl trên Windows). Kết quả thật trên staging (shop 227609):
+
+| Trường hợp | Kết quả |
+|---|---|
+| A. `is_new_to_address=true`, `to_address` = "47/88 Nguyễn Văn Đậu, Phường Bình Lợi Trung, Thành phố Hồ Chí Minh" | ❌ 400 `To address conflict` — "Địa chỉ nhận không hợp lệ" |
+| B. `is_new_to_address=true`, `to_address` chỉ có phường + tỉnh (giống đơn Lazada bị che số nhà) | ✅ phí 20.900đ, sort_code `GXT-M-11-00` |
+| C. Kiểu cũ `to_district_id=1462` + `to_ward_code=21620` | ✅ phí 20.900đ, sort_code `THUY-00` |
+
+**Kết luận:** (1) GHN Preview/Create nhận địa chỉ mới chỉ gồm tên phường mới + tỉnh, không cần quận → C3 **không cần** bảng `carrier_locations` đổi phường mới sang mã cũ như kế hoạch ban đầu. (2) Báo phí dùng **preview** (trả `total_fee`) thay cho Calculate Fee (chỉ nhận mã cũ). (3) GHN đối chiếu số nhà/đường trong `to_address` với phường: lệch → `To address conflict` → phải bắt lỗi này thành mã riêng để Coordinator sửa phường/địa chỉ. (4) Sort code khác nhau giữa B và C (mã phường cũ 21620 có thể không phải Phường 6) — không ảnh hưởng phí. Lượt 2 của script thử "chỉ số nhà + đường" với 3 phường để biết GHN xếp 47/88 Nguyễn Văn Đậu vào phường nào.
+
+**Lượt 2 test (10/10):** "47/88 Nguyễn Văn Đậu" chỉ được GHN nhận khi ward = **Phường Gia Định**; Bình Lợi Trung và Bình Thạnh đều `To address conflict` → GHN có dữ liệu địa giới riêng theo số nhà, đối chiếu rất chặt.
+
+### 🚚 C3 (10/10/2026) — Địa chỉ 2 cấp mới gửi GHN — ĐÃ CODE (thu gọn so với kế hoạch)
+
+**Quyết định:** bỏ `carrier_locations` + đồng bộ danh mục + address-resolver tra mã (không cần — GHN nhận tên phường mới + tỉnh). Báo phí dùng Preview.
+
+**Code:** `carrier.types.ts` — `CarrierRecipient.district_id/ward_code/district_name` thành tuỳ chọn; `ghn.adapter.ts` → `toAddressFields()` (đủ mã cũ → kiểu cũ; không → `is_new_to_address=true` + `to_ward_name` + `to_province_name`), `mapGhnError` nhận "address conflict" (trong `code_message` hoặc `message`) → `CARRIER_ADDRESS_CONFLICT`; `carriers.errors.ts` thêm `ADDRESS_CONFLICT`, `ADDRESS_INCOMPLETE`; mới `utils/recipient-address.util.ts` (`buildCarrierRecipient` thuần: phường/tỉnh từ đơn hoặc Coordinator nhập đè, số nhà từ `address_line1` nếu không bị che `*`, `street: ''` = cố ý bỏ số nhà, không nối trùng phường/tỉnh đã có trong `address_line1`; `toCarrierProvinceName` bỏ tiền tố "Thành phố/TP./Tỉnh"). Test: +2 adapter, +6 util.
+
+**Kiểm chứng:** tsc 0, eslint carriers 0, jest carriers 4 suite / 35 test.
+
+**Tác động:** (1) Không đổi schema DB. (2) Không có route mới (route nằm ở C4). (3) Kiểu cũ vẫn chạy y nguyên khi có đủ mã (test cũ giữ nguyên, pass). (4) Mock adapter không đọc địa chỉ → không ảnh hưởng. (5) Hạn chế: GHN không trả gợi ý phường đúng khi conflict → Coordinator tự sửa; đơn Lazada không có số nhà thật thì nhãn chỉ có phường + tỉnh (ổn cho demo, thật cần quyền dữ liệu nhạy cảm của Lazada).
+
+### 📚 Đọc tài liệu Lazada Open Platform (10/10/2026) — có cách nào lấy địa chỉ không bị che?
+
+Nguồn: `open.lazada.com/apps/doc/api` (đọc qua JSON `isvconsole.lazada.com/handler/share/apidoc/getApiCategoryMixed.json` = danh mục 378 API, và `getApi.json?path=...` = chi tiết từng API).
+
+1. **Che dữ liệu là chính sách chính thức, ghi ngay trong tài liệu từng field.** `GetOrders`/`GetOrder`: `address1..address5`, `addressDistrict`, `phone`, `phone2`, `first_name`, `last_name`, `customer_first_name`, `recipient_info.detail_address` gắn `sensitiveDataTag=C`, mức bảo mật **C3** (bị che). Riêng `city` mức **C2** (không che) → đúng với thực tế: chỉ còn phường mới trong `city`.
+2. **Không có API giải mã/lấy bản rõ.** Đã rà toàn bộ tên 378 API: không có API "decrypt/sensitive/plaintext" nào.
+3. **Lối chính thức duy nhất: DBS (Delivered By Seller, tên cũ SOF — Seller Own Fleet).** Đơn do người bán tự giao. Theo thông báo của đối tác Lazada (Zetpy, 26/06/2026): Open Platform che dữ liệu người mua từ 01/07/2026; người bán DBS được **xin miễn che** qua Lazada Open Platform. BigSeller (thị trường MY): đơn DBS vẫn hiện đủ tên/địa chỉ/SĐT. Chưa có nguồn xác nhận riêng cho Lazada VN.
+4. **API cho đơn DBS có sẵn:** `/order/package/sof/collect` (đã lấy hàng), `/order/package/sof/delivered` (giao thành công), `/order/package/sof/failed_delivery` (giao thất bại), `/order/package/sof/status/update` (cập nhật hành trình, "chỉ mở cho một số shop"). Gọi cho đơn không phải DBS → lỗi `700009 operation not support fot nonDBS order!`. `/order/fulfill/pack`: không được truyền `shipment_provider_code` cho đơn DBS.
+5. **Đơn thường (không DBS):** Lazada tự giao bằng hãng của Lazada; nhãn in qua `/order/package/document/get` (PrintAWB, PDF). Khi đó không dùng GHN cho đơn Lazada.
+
+**Hệ quả với GHN:** "mọi đơn Lazada đi GHN" chỉ hợp lệ khi shop là DBS. Hướng: (a) shop đăng ký DBS + xin miễn che → GetOrders trả địa chỉ đầy đủ, GHN giao, BE báo trạng thái về Lazada qua các API `sof/*`; (b) không có DBS → đơn Lazada đi hãng Lazada (Pack → RTS → in AWB Lazada), GHN chỉ cho đơn AURELLE. Demo hiện tại vẫn dùng C3 (phường + tỉnh, Coordinator nhập số nhà).
+
+### ❌ 10/10/2026 — BỎ chức năng báo "đã đóng gói" lên Lazada (yêu cầu của Thuận)
+
+**Xác nhận trước khi bỏ:** có chức năng này từ 02/10/2026 — `order-groups.controller.ts` `pack` gọi `LazadaPackSyncService.syncGroup()` ngay sau khi nhóm chuyển `packed` → `LazadaAdapter.packOrders()` → `POST /order/fulfill/pack`; có route `POST /order-groups/:id/lazada-pack/retry`. Có cầu dao `LAZADA_WRITE_APIS_ENABLED` (máy Thuận đang `false` → thực tế chưa ghi lên Lazada).
+
+**Đã bỏ:** lời gọi trong `pack`; route `lazada-pack/retry`; `lazada-pack-sync.service.ts` + spec (không xoá được trong thư mục đã kết nối → chuyển vào `_to_delete/` đổi đuôi `.bak`, Thuận tự xoá); `lazadaPack` trong mọi response nhóm đơn, `lazadaPackSync` trong response `pack`; 4 field `lazada_pack_*` + kiểu `LazadaPackStatus/LazadaPackItemResult` khỏi schema (dữ liệu cũ trong DB giữ nguyên, Mongoose strict bỏ qua); mã lỗi `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`; cấu hình `writeApisEnabled`, `shippingAllocateType`; `OrderGroupsModule` thôi import `MarketplaceIntegrationModule`. **Giữ** `LazadaAdapter.packOrders()` + test (không còn ai gọi) để dùng lại nếu shop chuyển DBS.
+
+**Kiểm chứng:** tsc 0, eslint 0, jest order-groups + marketplace-integration 8 suite / 70 test. FE (`fe/`) không dùng `lazadaPack` (đã `git grep`).
+
+**Tác động:** (1) Dữ liệu cũ: không migration, không xoá. (2) Route `lazada-pack/retry` → 404. (3) Response `pack`/nhóm đơn bớt field (FE chưa dùng). (4) Không ảnh hưởng trừ vật liệu G4, giao hàng G1, GHN. (5) `.env` có thể xoá 2 dòng `LAZADA_WRITE_APIS_ENABLED`, `LAZADA_SHIPPING_ALLOCATE_TYPE` (để lại cũng vô hại).

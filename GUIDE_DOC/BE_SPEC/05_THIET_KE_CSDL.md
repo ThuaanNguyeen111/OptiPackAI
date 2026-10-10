@@ -382,6 +382,7 @@ Ký hiệu: **R** bắt buộc · **U** duy nhất · **I** có index đơn trư
 | `active_order_count` | `number \| null` |  | null  |  | Bản lưu sẵn: số đơn còn phải xử lý |
 | `canceled_order_count` | `number \| null` |  | null  |  | Bản lưu sẵn: số đơn đã hủy |
 | `order_counts_refreshed_at` | `Date \| null` |  | null  |  | Lần tính lại số đếm |
+| _10/10/2026: 4 field `lazada_pack_*` không còn trong schema; nhóm đơn cũ có thể còn dữ liệu, không xoá_ | | | | | |
 | `lazada_pack_status` | `LazadaPackStatus \| null` |  | null |  | Kết quả báo đóng gói lên Lazada |
 | `lazada_pack_attempted_at` | `Date \| null` |  | null  |  | Lần gửi gần nhất |
 | `lazada_pack_error` | `string \| null` |  | null  |  | Lỗi lần gửi gần nhất |

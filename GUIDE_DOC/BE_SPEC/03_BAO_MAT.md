@@ -145,7 +145,7 @@ Chỉ đăng nhập cho email **đã được Admin tạo**, không tự tạo t
 | `POST` | `/order-groups/:id/fulfillment/decide-partial` | ✔ | — | — | ✔ | — | JWT, Roles |
 | `POST` | `/order-groups/:id/fulfillment/pick` | ✔ | — | ✔ | — | — | JWT, Roles |
 | `POST` | `/order-groups/:id/fulfillment/pack` | ✔ | — | ✔ | ✔ | — | JWT, Roles |
-| `POST` | `/order-groups/:id/lazada-pack/retry` | ✔ | — | ✔ | ✔ | — | JWT, Roles |
+| ~~`POST`~~ | ~~`/order-groups/:id/lazada-pack/retry`~~ | — | — | — | — | — | ĐÃ BỎ 10/10/2026 |
 | `PATCH` | `/order-groups/:id/priority` | ✔ | ✔ | — | — | — | JWT, Roles |
 | `POST` | `/order-groups/:id/assign` | ✔ | — | ✔ | — | — | JWT, Roles |
 | `GET` | `/order-groups/staff/search` | ✔ | — | ✔ | ✔ | — | JWT, Roles |

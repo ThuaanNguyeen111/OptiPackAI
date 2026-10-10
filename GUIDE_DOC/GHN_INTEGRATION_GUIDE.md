@@ -232,7 +232,7 @@ Body `{ "shop_id": <int>, "from_district": <int>, "to_district": <int> }` → m�
 | `district_name` | `address4` | Có thể rỗng nếu Lazada đã chuyển sang địa chỉ 2 cấp |
 | `ward_name` | `address5` | |
 
-**Collection mới `carrier_locations`** — bản sao danh mục địa chỉ GHN (cũ + mới), đồng bộ 1 lần/ngày, có trường tên đã chuẩn hoá để so khớp.
+~~Collection mới `carrier_locations`~~ — **bỏ (10/10/2026)**, xem mục 3.3.
 
 **`shipments`** — thêm field (chỉ THÊM, vận đơn cũ không bị ảnh hưởng):
 
@@ -244,7 +244,7 @@ Body `{ "shop_id": <int>, "from_district": <int>, "to_district": <int> }` → m�
 | `carrier_fee` | Object \| null | `{ total, service_fee, insurance_fee, cod_fee, ... }` lúc tạo đơn |
 | `carrier_final_fee` | Number \| null | Phí sau cập nhật (webhook `update_fee`) |
 | `parcel` | Object | `{ weight_g, length_cm, width_cm, height_cm, converted_weight_g }` |
-| `to_location` | Object | `{ district_id, ward_code, province_name, district_name, ward_name, resolved_by: 'auto' \| 'manual' }` |
+| `to_location` | Object | `{ street, ward_name, province_name, district_id, ward_code }` — địa chỉ đã gửi GHN (sửa theo mục 3.3) |
 | `expected_delivery_at` | Date \| null | Từ GHN |
 | `cod_amount` | Number | |
 
@@ -278,14 +278,30 @@ Bảng map trạng thái GHN → OptiPack:
 
 **Khác với G1:** khi `carrier = 'ghn'`, số lần giao lại, thời gian giữa các lần giao và việc tự hoàn hàng **do GHN quyết định**. OptiPack chỉ ghi nhận. Các luật `MAX_DELIVERY_ATTEMPTS`, `SHIPMENT_MIN_RETRY_GAP_MINUTES` chỉ áp dụng cho `carrier = 'self'`. Webhook GHN được phép "nhảy" trạng thái (VD từ `awaiting_pickup` thẳng tới `delivered`) vì có thể mất hoặc đến không đúng thứ tự — bảng chuyển trạng thái chặt của G1 không áp dụng cho nguồn GHN, chỉ chặn đi lùi khỏi trạng thái kết thúc.
 
-### 3.3. Đổi địa chỉ sang mã GHN (khâu dễ lỗi nhất)
+### 3.3. Địa chỉ gửi GHN (đã đổi thiết kế 10/10/2026 sau khi test thật)
 
-1. Đồng bộ `carrier_locations` từ API (1)–(5); lưu thêm tên đã chuẩn hoá: bỏ dấu, chữ thường, bỏ tiền tố `Tỉnh/Thành phố/TP./Quận/Huyện/Thị xã/Phường/Xã/Thị trấn/P./Q.`, gộp khoảng trắng.
-2. Với mỗi đơn: chuẩn hoá `province_name → district_name → ward_name` của người nhận rồi so khớp lần lượt từng cấp.
-3. Kết quả:
-   - Khớp đủ 3 cấp → `resolved_by: 'auto'`.
-   - Không khớp (thiếu quận do địa chỉ 2 cấp, sai chính tả, sáp nhập) → vận đơn ở trạng thái **"Cần xác nhận địa chỉ"**, Shipping Coordinator chọn tay Tỉnh → Quận → Phường từ danh sách GHN → `resolved_by: 'manual'`. Lựa chọn tay được ghi nhớ để lần sau tự khớp.
-4. Create Order gửi **tên** đúng như danh mục GHN; Calculate Fee gửi **mã** (`to_district_id`, `to_ward_code`).
+**Vấn đề:** Lazada che số nhà/đường của mọi đơn (`***`), chỉ còn **phường mới** (sau sáp nhập 07/2025) và tỉnh. Calculate Fee của GHN chỉ nhận mã quận/phường kiểu cũ.
+
+**Kết quả test thật trên staging** (`be/scripts/ghn-preview-new-address.ts`, API Preview, không tạo vận đơn):
+
+| Gửi lên GHN (`is_new_to_address=true` trừ dòng cuối) | Kết quả |
+|---|---|
+| Phường Bình Lợi Trung + tỉnh, **không số nhà** | ✅ 20.900đ |
+| "47/88 Nguyễn Văn Đậu" + Phường Bình Lợi Trung | ❌ `To address conflict` |
+| "47/88 Nguyễn Văn Đậu" + Phường Gia Định | ✅ 20.900đ |
+| "47/88 Nguyễn Văn Đậu" + Phường Bình Thạnh | ❌ `To address conflict` |
+| Kiểu cũ: mã Quận Bình Thạnh 1462 + mã phường | ✅ 20.900đ |
+
+**Thiết kế chốt:**
+
+1. **Không làm** bảng `carrier_locations` và bộ đồng bộ danh mục như kế hoạch cũ: GHN nhận thẳng tên phường mới + tỉnh.
+2. Mặc định gửi **kiểu mới 2 cấp**: `is_new_to_address=true`, `to_ward_name`, `to_province_name` (tên tỉnh dạng trần, VD "Hồ Chí Minh"). Lấy từ `orders.recipient` (C1). Kiểu cũ (mã quận + mã phường) giữ làm dự phòng khi có đủ mã.
+3. **Báo phí bằng API Preview** (trả `total_fee`, nhận địa chỉ mới). Calculate Fee chỉ dùng cho so sánh phương án đóng gói (C6) với mã cũ.
+4. Số nhà/đường: lấy từ đơn nếu sàn không che; Lazada che thì Shipping Coordinator nhập thêm (không bắt buộc ở demo).
+5. GHN tự đối chiếu số nhà/đường với phường. Lệch → BE trả `CARRIER_ADDRESS_CONFLICT` (422) kèm thông báo "Số nhà/đường không thuộc phường đã chọn". Coordinator sửa phường, hoặc bỏ số nhà rồi gửi lại.
+6. Đơn thiếu phường hoặc tỉnh → `CARRIER_ADDRESS_INCOMPLETE` (422), Coordinator nhập tay phường và tỉnh.
+
+Code: `carriers/utils/recipient-address.util.ts` (`buildCarrierRecipient`, `toCarrierProvinceName`), `ghn.adapter.ts` (`toAddressFields`).
 
 ### 3.4. Module mới `carriers/`
 
@@ -317,9 +333,7 @@ be/src/modules/carriers/
 | POST | `/shipments/:id/carrier/cancel` | Shipping Coordinator, Admin | Cancel Order (kèm `reason_code`) |
 | GET | `/shipments/:id/carrier/label` | Shipping Coordinator, Packaging Staff | Gọi `gen-token`, trả URL in (không lưu) |
 | POST | `/shipments/:id/carrier/sync` | Shipping Coordinator, Admin | Gọi Order Info, cập nhật trạng thái (dự phòng mất webhook) |
-| PATCH | `/shipments/:id/to-location` | Shipping Coordinator | Chọn tay địa chỉ GHN |
-| GET | `/carriers/ghn/locations` | Đã đăng nhập | Danh sách tỉnh/quận/phường cho dropdown |
-| POST | `/carriers/ghn/locations/sync` | Admin | Đồng bộ lại danh mục địa chỉ |
+| PATCH | `/shipments/:id/to-location` | Shipping Coordinator | Sửa địa chỉ gửi GHN: số nhà, phường, tỉnh (mục 3.3) |
 | POST | `/carriers/ghn/webhook?secret=...` | **Public** + secret | Nhận callback GHN |
 | GET | `/shipper-simulator/shipments` | Shipper giả lập | Danh sách vận đơn GHN đang chạy |
 | POST | `/shipper-simulator/shipments/:id/events` | Shipper giả lập | Gửi sự kiện, BE dựng payload GHN rồi đi cùng đường xử lý với webhook |
@@ -499,17 +513,16 @@ Mỗi lần bấm, BE dựng payload theo đúng định dạng webhook GHN và 
 
 ## 6. Kế hoạch triển khai
 
-| Đợt | Nội dung | Commit dự kiến |
+| Đợt | Nội dung | Trạng thái |
 |---|---|---|
-| C1 | `orders.recipient` thêm `province_name/district_name/ward_name` + mapper Lazada + backfill | `feat(AOFP-66)` |
-| C2 | Module `carriers/`: interface, `ghn.adapter` (fee, preview, create, cancel, detail, gen-token), `mock.adapter`, cấu hình env | `feat(AOFP-67)` |
-| C3 | `carrier_locations` + đồng bộ danh mục + `address-resolver` + chọn tay địa chỉ | `feat(AOFP-68)` |
-| C4 | Mở rộng `shipments` (field mới, trạng thái `awaiting_pickup/in_transit/cancelled`), route quote/create/cancel/label/sync, chặn nút G1 cho vận đơn GHN | `feat(AOFP-69)` |
-| C5 | Webhook GHN + chống trùng + map trạng thái + trang giả lập shipper | `feat(AOFP-70)` |
-| C6 | Tính phí theo nhiều phương án đóng gói (gắn với bộ gợi ý đóng gói) | `feat(AOFP-71)` |
-| Tài liệu | Hướng dẫn FE vận chuyển (bản GHN), API_LIST, DEMO_PLAYBOOK, CLAUDE.md | `docs(AOFP-72)` |
+| C1 | `orders.recipient` thêm `province_name/district_name/ward_name` + mapper Lazada + backfill | ✅ `feat(AOFP-66)` |
+| C2 | Module `carriers/`: interface, `ghn.adapter`, `mock.adapter`, cấu hình env | ✅ `feat(AOFP-67)` |
+| C3 | Địa chỉ 2 cấp mới (`is_new_to_address`), dựng địa chỉ từ đơn, mã lỗi `ADDRESS_CONFLICT` / `ADDRESS_INCOMPLETE` — **thu gọn**, bỏ `carrier_locations` (mục 3.3) | ✅ code xong 10/10 |
+| C4 | Mở rộng `shipments`, route quote/create/cancel/label/sync/to-location, chặn nút G1 cho vận đơn GHN | Chưa làm |
+| C5 | Webhook GHN + chống trùng + map trạng thái + nút giả lập trạng thái cho Coordinator | Chưa làm |
+| C6 | Tính phí theo nhiều phương án đóng gói | Chưa làm |
 
-Mỗi đợt kiểm tra đủ `npx tsc --noEmit`, `npm run lint`, `npm run test` trước khi giao.
+Số AOFP gán lúc commit (tăng dần). Mỗi đợt kiểm tra đủ `npx tsc --noEmit`, `npm run lint`, `npm run test` trước khi giao.
 
 ---
 
@@ -525,9 +538,9 @@ Mỗi đợt kiểm tra đủ `npx tsc --noEmit`, `npm run lint`, `npm run test`
 | Đơn Lazada giao bằng GHN: Lazada không biết mã vận đơn GHN | Ngoài phạm vi demo; ghi nhận làm hướng phát triển |
 | Chỉ có 1 hãng | Interface `CarrierAdapter` sẵn sàng cho GHTK |
 
-## 8. Câu hỏi còn chờ chốt
+## 8. Các câu hỏi đã chốt
 
-1. `required_note` mặc định: `CHOXEMHANGKHONGTHU` (cho xem, không cho thử) — đồng ý?
-2. Ai bấm "Tạo vận đơn GHN": tự động ngay khi đóng gói xong, hay Shipping Coordinator xác nhận sau khi xem phí (đề xuất: **xác nhận**, vì demo được bước so sánh phí)?
-3. Đơn Lazada của shop demo (tự giao) cũng gửi qua GHN — đồng ý?
-4. Role cho trang giả lập shipper: tạo role `SHIPPER_SIMULATOR` riêng, hay dùng tài khoản Shipping Coordinator?
+1. `required_note` mặc định: `CHOXEMHANGKHONGTHU` — **đã chốt**.
+2. Shipping Coordinator xem phí rồi bấm xác nhận tạo vận đơn GHN — **đã chốt**.
+3. Mọi đơn (Lazada và AURELLE) đều gửi qua GHN — **đã chốt**.
+4. Demo chỉ trên web: Coordinator bấm các nút trạng thái giả lập; nút đi qua cùng hàm xử lý với webhook GHN thật — **đã chốt**.

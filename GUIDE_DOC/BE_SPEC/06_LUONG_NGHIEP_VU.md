@@ -178,6 +178,7 @@ sequenceDiagram
       BE->>LZ: POST /order/fulfill/pack (≤20 đơn/lô)
       LZ-->>BE: kết quả từng món (package_id, item_err_code)
     end
+    Note over P,BE: 10/10/2026 — ĐÃ BỎ các bước gửi Lazada bên dưới
     BE->>DB: lưu lazada_pack_status / items trên nhóm (updateOne)
     BE-->>P: nhóm đơn + packagingConsumption + lazadaPackSync
     Note over P,BE: Lazada lỗi → nhóm vẫn packed; gửi lại bằng POST .../lazada-pack/retry
