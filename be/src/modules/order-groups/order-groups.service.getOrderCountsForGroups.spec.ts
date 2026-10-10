@@ -41,11 +41,14 @@ describe('OrderGroupsService — getOrderCountsForGroups + response nhóm đơn'
       {} as never, // skuBinAssignmentModel
       {} as never, // pickEventModel
       {} as never, // userModel
+      {} as never, // packingPlanModel
       {} as never, // notificationsService
       {} as never, // staffAssignmentService
+      {} as never, // connection
       {} as never, // inventoryMovementModel
       {} as never, // mappingModel
       {} as never, // stockReservationService
+      {} as never, // binLocationModel
     );
   });
 
@@ -159,6 +162,9 @@ describe('OrderGroupsService — getOrderCountsForGroups + response nhóm đơn'
       service = new OrderGroupsService(
         groupModel as never,
         { aggregate: orderModel.aggregate, countDocuments } as never,
+        {} as never,
+        {} as never,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,

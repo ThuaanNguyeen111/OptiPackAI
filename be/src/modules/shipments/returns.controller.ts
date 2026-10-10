@@ -1,3 +1,4 @@
+import { ListReturnsQueryDto } from './dto/list-query.dto';
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ReturnsService } from './returns.service';
@@ -76,14 +77,16 @@ export class ReturnsController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   async list(
-    @Query('status') status?: ReturnStatus,
-    @Query('order_group_id') orderGroupId?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() q: ListReturnsQueryDto,
   ): Promise<{ items: Record<string, unknown>[]; total: number; page: number; limit: number }> {
-    const p = Math.max(1, Number(page) || 1);
-    const l = Math.min(100, Math.max(1, Number(limit) || 20));
-    const { items, total } = await this.returnsService.list({ status, orderGroupId, page: p, limit: l });
+    const p = q.page ?? 1;
+    const l = q.limit ?? 20;
+    const { items, total } = await this.returnsService.list({
+      status: q.status,
+      orderGroupId: q.order_group_id,
+      page: p,
+      limit: l,
+    });
     return { items: items.map(toReturnResponse), total, page: p, limit: l };
   }
 
@@ -138,6 +141,13 @@ export class ReturnsController {
   @ApiOperation({ summary: '[Từ chối] Bắt buộc ghi lý do.' })
   async reject(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.reject(id, dto.expected_version, user.userId, dto.note));
+  }
+
+  @Post(':id/cancel')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({ summary: '[Hủy phiếu đã duyệt] Hàng khách không gửi về — phiếu awaiting_receipt → canceled. Bắt buộc lý do (note).' })
+  async cancel(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
+    return toReturnResponse(await this.returnsService.cancel(id, dto.expected_version, user.userId, dto.note));
   }
 
   @Post(':id/receive')

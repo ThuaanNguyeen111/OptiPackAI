@@ -13,6 +13,9 @@ import jwtConfig from './config/jwt.config';
 import mailConfig from './config/mail.config';
 import redisConfig from './config/redis.config';
 import marketplaceConfig from './config/marketplace.config';
+import storefrontConfig from './config/storefront.config';
+import aiConfig from './config/ai.config';
+import packerConfig from './config/packer.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
@@ -20,18 +23,23 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { ProductMasterModule } from './modules/product-master/product-master.module';
 import { OrderGroupsModule } from './modules/order-groups/order-groups.module';
 import { PackagingModule } from './modules/packaging/packaging.module';
+import { PackingModule } from './modules/packing/packing.module';
 import { WarehouseModule } from './modules/warehouse/warehouse.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { PackagingMaterialsModule } from './modules/packaging-materials/packaging-materials.module';
 import { MasterSkusModule } from './modules/master-skus/master-skus.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { StorefrontModule } from './modules/storefront/storefront.module';
+import { MarketplaceWebhooksModule } from './modules/marketplace-webhooks/marketplace-webhooks.module';
+import { ShippingModule } from './modules/shipping/shipping.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig],
+      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, storefrontConfig, aiConfig, packerConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -40,7 +48,12 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
       }),
       inject: [ConfigService],
     }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 20 }]),
+    // Giới hạn chung theo IP. Cả kho dùng chung 1 IP (NAT) và FE có polling
+    // + quét mã liên tục nên 20/phút (cũ) gây 429 giả. Route nhạy cảm
+    // (login, forgot-password, AI guide) vẫn có @Throttle riêng chặt hơn.
+    ThrottlerModule.forRoot([
+      { ttl: 60000, limit: Number(process.env.THROTTLE_LIMIT_PER_MINUTE) || 600 },
+    ]),
     // BẮT BUỘC gọi Ở GỐC APP (không phải trong OrdersModule) — mọi
     // @Cron()/@Interval() ở BẤT KỲ module con nào (kể cả các module
     // thêm sau này) chỉ hoạt động khi ScheduleModule được đăng ký ĐÚNG
@@ -58,12 +71,18 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     ProductMasterModule,
     OrderGroupsModule,
     PackagingModule,
+    PackingModule,
     WarehouseModule,
     CategoriesModule, // K2 (26/09/2026)
     ShipmentsModule, // G1 (27/09/2026)
     PackagingMaterialsModule, // G4 (27/09/2026)
     MasterSkusModule, // K4a (27/09/2026)
     NotificationsModule,
+    StorefrontModule,
+    // MỚI (29/09/2026) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
+    MarketplaceWebhooksModule,
+    ShippingModule,
+    DocumentsModule,
   ],
   controllers: [AppController],
   providers: [

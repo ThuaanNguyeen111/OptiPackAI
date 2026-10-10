@@ -57,9 +57,6 @@ const fieldClass =
 
 type TabId = 'zones' | 'categories' | 'bins' | 'assign' | 'stock' | 'picking'
 
-function pad2(value: number): string {
-  return String(value).padStart(2, '0')
-}
 
 export function AdminWarehousePage() {
   const { locale } = usePortal()

@@ -14,91 +14,75 @@ function q<T>(value: T): Promise<T> & { session: jest.Mock } {
 // hay không; hạng A phải gỡ nhãn cũ; hạng B vào kho nội bộ; hạng C ghi nhận loại bỏ.
 //!=============================================
 describe('PackagingMaterialsService', () => {
-  const groupId = new Types.ObjectId().toString();
   let materialModel: { findOne: jest.Mock; updateOne: jest.Mock; create: jest.Mock; findOneAndUpdate: jest.Mock };
   let movementModel: { exists: jest.Mock; create: jest.Mock; aggregate: jest.Mock; updateMany: jest.Mock };
-  let recommendationModel: { findOne: jest.Mock };
   let startSession: jest.Mock;
   let service: PackagingMaterialsService;
 
   const boxM = { _id: new Types.ObjectId(), code: 'BOX-M', kind: 'box', reusable: true, unit_cost_vnd: 6500, max_reuse_cycles: 3, qty_new: 10, qty_reused: 2, qty_internal: 0, is_active: true };
-  const boxL = { ...boxM, _id: new Types.ObjectId(), code: 'BOX-L', unit_cost_vnd: 12000 };
   const bubble = { _id: new Types.ObjectId(), code: 'BUBBLE', kind: 'cushioning', reusable: true, unit_cost_vnd: 1500, max_reuse_cycles: 3, qty_new: 20, qty_reused: 0, qty_internal: 0, is_active: true };
-  const rec = (materialType: string, qty = 1): Record<string, unknown> => ({ box_size: { length_cm: 35, width_cm: 25, height_cm: 20 }, material_type: materialType, material_quantity: qty });
   const moves = (): Record<string, unknown>[] => movementModel.create.mock.calls.map((c) => (c as [[Record<string, unknown>]])[0][0]);
 
   beforeEach(() => {
     materialModel = { findOne: jest.fn(), updateOne: jest.fn().mockResolvedValue({ modifiedCount: 1 }), create: jest.fn(), findOneAndUpdate: jest.fn() };
     movementModel = { exists: jest.fn().mockReturnValue(q(null)), create: jest.fn().mockResolvedValue([{}]), aggregate: jest.fn(), updateMany: jest.fn().mockResolvedValue({}) };
-    recommendationModel = { findOne: jest.fn() };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     startSession = jest.fn().mockResolvedValue(session);
-    service = new PackagingMaterialsService(materialModel as never, movementModel as never, recommendationModel as never, { startSession } as never);
+    service = new PackagingMaterialsService(materialModel as never, movementModel as never, { startSession } as never);
   });
 
   it('khai thùng thiếu kích thước -> 400 PKG_MATERIAL_INVALID_DEFINITION', async () => {
     await expect(service.create({ code: 'BOX-X', name: 'Thùng', kind: 'box', unit_cost_vnd: 1000 })).rejects.toMatchObject({ errorCode: E.INVALID_DEFINITION });
   });
 
-  describe('trừ vật liệu theo GỢI Ý (không khai materials_used)', () => {
-    it('hàng thường: dùng thùng tái sử dụng trước, ghi tiết kiệm, đánh dấu làm theo gợi ý', async () => {
-      recommendationModel.findOne.mockReturnValue(q(rec('Medium Box')));
-      materialModel.findOne.mockReturnValueOnce(q(boxM));
-      const r = await service.consumeForPackedGroup(groupId, 'pk-1');
-      expect(r.consumed).toEqual([{ materialCode: 'BOX-M', condition: 'reused', quantity: 1, savingVnd: 6500 }]);
-      expect(r).toMatchObject({ recommendedBoxCode: 'BOX-M', followedRecommendation: true });
+  // Gộp main + thi_dev (04/10/2026): đóng gói trừ tồn theo KIỆN của kế hoạch đóng gói.
+  describe('consumeForParcels — trừ tồn khi đóng gói theo kiện', () => {
+    const planId = new Types.ObjectId();
+    const gid = new Types.ObjectId();
+    const session = {} as never;
+
+    it('thùng: dùng hàng TÁI SỬ DỤNG trước (ghi tiết kiệm), thiếu mới lấy hàng mới; ghi kiện + kế hoạch vào sổ', async () => {
+      materialModel.findOne.mockReturnValue(q({ ...boxM, qty_reused: 1 }));
+      const r = await service.consumeForParcels(
+        session,
+        [{ code: 'BOX-M', quantity: 2, planId, parcelNo: 1 }],
+        gid,
+        'pk-1',
+        { strict: true },
+      );
+      expect(moves().map((m) => [m.condition, m.delta, m.saving_vnd])).toEqual([['reused', -1, 6500], ['new', -1, 0]]);
+      expect(moves()[0]).toMatchObject({ type: 'consume', parcel_no: 1, packing_plan_id: planId, ref_id: gid.toString() });
+      expect(r.consumed[0]).toMatchObject({ code: 'BOX-M', before: 11, after: 9, savingVnd: 6500 });
+      expect(r.shortfalls).toEqual([]);
     });
 
-    it('hàng dễ vỡ: thùng CHỈ dùng hàng mới + trừ Bubble Wrap theo gợi ý', async () => {
-      recommendationModel.findOne.mockReturnValue(q(rec('Bubble Wrap', 2)));
-      materialModel.findOne.mockReturnValueOnce(q(boxM)).mockReturnValueOnce(q(bubble));
-      const r = await service.consumeForPackedGroup(groupId, 'pk-1');
-      expect(r.consumed).toEqual([
-        { materialCode: 'BOX-M', condition: 'new', quantity: 1, savingVnd: 0 },
-        { materialCode: 'BUBBLE', condition: 'new', quantity: 2, savingVnd: 0 },
-      ]);
+    it('thùng (strict) không đủ tồn -> gọi onShortage/ném lỗi, KHÔNG trừ gì', async () => {
+      materialModel.findOne.mockReturnValue(q({ ...boxM, qty_new: 0, qty_reused: 0 }));
+      await expect(
+        service.consumeForParcels(session, [{ code: 'BOX-M', quantity: 1, planId, parcelNo: 2 }], gid, 'pk-1', { strict: true }),
+      ).rejects.toMatchObject({ errorCode: E.INSUFFICIENT_STOCK });
+      expect(materialModel.updateOne).not.toHaveBeenCalled();
     });
 
-    it('pack lại (đã trừ) -> không trừ lần 2', async () => {
-      movementModel.exists.mockReturnValue(q({ _id: 'x' }));
-      const r = await service.consumeForPackedGroup(groupId, 'pk-1');
-      expect(r.consumed).toEqual([]);
-      expect(recommendationModel.findOne).not.toHaveBeenCalled();
+    it('vật tư chèn (không strict) thiếu -> trừ phần có, trả shortfall, KHÔNG chặn', async () => {
+      materialModel.findOne.mockReturnValue(q({ ...bubble, reusable: false, qty_new: 3 }));
+      const r = await service.consumeForParcels(
+        session,
+        [{ code: 'BUBBLE', quantity: 5, planId, parcelNo: 1 }],
+        gid,
+        'pk-1',
+        { strict: false },
+      );
+      expect(moves().map((m) => [m.condition, m.delta])).toEqual([['new', -3]]);
+      expect(r.shortfalls).toEqual([{ planId, parcelNo: 1, code: 'BUBBLE', missing: 2 }]);
     });
 
-    it('chưa khai thùng trong danh mục -> không lỗi, chỉ cảnh báo (không chặn pack)', async () => {
-      recommendationModel.findOne.mockReturnValue(q(rec('Medium Box')));
-      materialModel.findOne.mockReturnValueOnce(q(null));
-      const r = await service.consumeForPackedGroup(groupId, 'pk-1');
-      expect(r.consumed).toEqual([]);
-      expect(r.warnings[0]).toContain('Chưa khai thùng');
+    it('mã không có trong kho (không strict) -> toàn bộ là shortfall', async () => {
+      materialModel.findOne.mockReturnValue(q(null));
+      const r = await service.consumeForParcels(session, [{ code: 'X', quantity: 2, planId, parcelNo: 1 }], gid, 'pk-1', { strict: false });
+      expect(r.shortfalls[0]).toMatchObject({ code: 'X', missing: 2 });
+      expect(movementModel.create).not.toHaveBeenCalled();
     });
-  });
-
-  describe('khai vật liệu THỰC TẾ (materials_used)', () => {
-    it('gợi ý Medium nhưng nhân viên dùng Large mới -> trừ đúng Large ngăn mới, followedRecommendation=false', async () => {
-      recommendationModel.findOne.mockReturnValue(q(rec('Medium Box')));
-      materialModel.findOne.mockReturnValueOnce(q(boxM)).mockReturnValueOnce(q(boxL));
-      const r = await service.consumeForPackedGroup(groupId, 'pk-1', undefined, [{ material_code: 'BOX-L', quantity: 1, condition: 'new' }]);
-      expect(r.consumed).toEqual([{ materialCode: 'BOX-L', condition: 'new', quantity: 1, savingVnd: 0 }]);
-      expect(r).toMatchObject({ recommendedBoxCode: 'BOX-M', followedRecommendation: false });
-      expect(movementModel.updateMany).toHaveBeenCalledWith(expect.objectContaining({ ref_id: groupId }), { $set: { followed_recommendation: false } }, expect.anything());
-    });
-
-    it('khai lấy từ ngăn tái sử dụng -> trừ qty_reused (không phải qty_new) và ghi tiết kiệm', async () => {
-      recommendationModel.findOne.mockReturnValue(q(rec('Medium Box')));
-      materialModel.findOne.mockReturnValueOnce(q(boxM)).mockReturnValueOnce(q(boxM));
-      await service.consumeForPackedGroup(groupId, 'pk-1', undefined, [{ material_code: 'BOX-M', quantity: 1, condition: 'reused' }]);
-      expect(materialModel.updateOne).toHaveBeenCalledWith({ _id: boxM._id, qty_reused: { $gte: 1 } }, { $inc: { qty_reused: -1 } }, expect.anything());
-      expect(moves()[0]).toMatchObject({ condition: 'reused', saving_vnd: 6500 });
-    });
-  });
-
-  it('có session truyền vào (pack) -> chạy CHUNG transaction đó, không mở transaction riêng', async () => {
-    recommendationModel.findOne.mockReturnValue(q(rec('Medium Box')));
-    materialModel.findOne.mockReturnValueOnce(q(boxM));
-    await service.consumeForPackedGroup(groupId, 'pk-1', {} as never);
-    expect(startSession).not.toHaveBeenCalled();
   });
 
   describe('thu hồi từ hàng hoàn', () => {

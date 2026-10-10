@@ -1,5 +1,6 @@
 import { Types } from 'mongoose';
 import { ProductMasterService } from './product-master.service';
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 //!=============================================
 // 04/10/2026 — Product Master đồng bộ theo CATALOG của shop (GetProducts), không còn
@@ -61,11 +62,14 @@ describe('ProductMasterService — đồng bộ catalog', () => {
       markShopProductsSynced: jest.fn().mockResolvedValue(undefined),
       listConnectedShops: jest.fn(),
     };
+    // Adapter tra qua registry MARKETPLACE_ADAPTERS; chỉ khai Lazada → AURELLE
+    // (không có listProductsPage trong test) bị syncCatalogAllShops bỏ qua.
     service = new ProductMasterService(
       productMasterModel as never,
       {} as never,
+      {} as never,
       marketplace as never,
-      lazadaAdapter as never,
+      { [MarketplacePlatform.LAZADA]: lazadaAdapter } as never,
     );
   });
 
@@ -75,7 +79,7 @@ describe('ProductMasterService — đồng bộ catalog', () => {
       total: 1,
     });
 
-    const res = await service.syncCatalogForShop('shop-1');
+    const res = await service.syncCatalogForShop(MarketplacePlatform.LAZADA, 'shop-1');
 
     expect(pageCall(0)).toEqual({ updatedAfter: null, offset: 0, limit: 50 });
     const ops = (
@@ -100,7 +104,7 @@ describe('ProductMasterService — đồng bộ catalog', () => {
       total: 0,
     });
 
-    const res = await service.syncCatalogForShop('shop-1');
+    const res = await service.syncCatalogForShop(MarketplacePlatform.LAZADA, 'shop-1');
 
     expect(pageCall(0).updatedAfter?.toISOString()).toBe(
       '2026-10-04T07:50:00.000Z',
@@ -119,7 +123,7 @@ describe('ProductMasterService — đồng bộ catalog', () => {
       total: 0,
     });
 
-    await service.syncCatalogForShop('shop-1', { full: true });
+    await service.syncCatalogForShop(MarketplacePlatform.LAZADA, 'shop-1', { full: true });
 
     expect(pageCall(0).updatedAfter).toBeNull();
   });
@@ -132,7 +136,7 @@ describe('ProductMasterService — đồng bộ catalog', () => {
       .mockResolvedValueOnce({ products: full, total: 51 })
       .mockResolvedValueOnce({ products: [product('SKU-50')], total: 51 });
 
-    const res = await service.syncCatalogForShop('shop-1');
+    const res = await service.syncCatalogForShop(MarketplacePlatform.LAZADA, 'shop-1');
 
     expect(lazadaAdapter.listProductsPage).toHaveBeenCalledTimes(2);
     expect(pageCall(1).offset).toBe(50);
@@ -153,50 +157,44 @@ describe('ProductMasterService — đồng bộ catalog', () => {
       total: 99999,
     });
 
-    const res = await service.syncCatalogForShop('shop-1');
+    const res = await service.syncCatalogForShop(MarketplacePlatform.LAZADA, 'shop-1');
 
     expect(lazadaAdapter.listProductsPage).toHaveBeenCalledTimes(200);
     expect(res.complete).toBe(false);
     expect(marketplace.markShopProductsSynced).not.toHaveBeenCalled();
   });
 
-  it('SKU đã sửa tay vẫn giữ nguyên số Admin nhập; SKU thiếu SellerSku bị bỏ qua', async () => {
+  it('số đo sàn chỉ vào marketplace_dimension, không đè trạng thái hồ sơ kho; SKU thiếu SellerSku bị bỏ qua', async () => {
     lazadaAdapter.listProductsPage.mockResolvedValue({
       products: [
         {
           item_id: '1',
           skus: [
-            { SellerSku: 'SKU-MANUAL' },
+            { SellerSku: 'SKU-A', package_length: '30' },
             { SellerSku: '' },
-            { SellerSku: 'SKU-AUTO' },
+            { SellerSku: 'SKU-B' },
           ],
         },
       ],
       total: 1,
     });
-    productMasterModel.find.mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        lean: jest.fn().mockResolvedValue([{ seller_sku: 'SKU-MANUAL' }]),
-      }),
-    });
 
-    await service.syncCatalogForShop('shop-1');
+    await service.syncCatalogForShop(MarketplacePlatform.LAZADA, 'shop-1');
 
     const ops = (
       productMasterModel.bulkWrite.mock.calls as unknown[][]
     )[0]?.[0] as {
       updateOne: {
         filter: { seller_sku: string };
-        update: { $set: Record<string, unknown> };
+        update: { $set: Record<string, unknown>; $setOnInsert: Record<string, unknown> };
       };
     }[];
     expect(ops).toHaveLength(2);
-    const manual = ops.find(
-      (o) => o.updateOne.filter.seller_sku === 'SKU-MANUAL',
-    );
-    expect(Object.keys(manual?.updateOne.update.$set ?? {})).toEqual([
-      'last_synced_at',
-    ]);
+    const first = ops[0]?.updateOne.update;
+    expect(first?.$set).toHaveProperty('marketplace_dimension');
+    expect(first?.$set).not.toHaveProperty('dimension');
+    expect(first?.$set.packaging_profile_status).toBeUndefined();
+    expect(first?.$setOnInsert.packaging_profile_status).toBe('needs_measurement');
   });
 
   it('syncCatalogAllShops: 1 shop lỗi không chặn shop khác', async () => {
@@ -221,8 +219,9 @@ describe('ProductMasterService — đồng bộ catalog', () => {
     const results = await service.syncCatalogAllShops();
 
     expect(results).toEqual([
-      { ok: false, shopId: 'shop-1', error: 'token hết hạn' },
+      { ok: false, platform: MarketplacePlatform.LAZADA, shopId: 'shop-1', error: 'token hết hạn' },
       expect.objectContaining({ ok: true, shopId: 'shop-2' }),
     ]);
+    expect(marketplace.listConnectedShops).toHaveBeenCalledWith(MarketplacePlatform.LAZADA);
   });
 });

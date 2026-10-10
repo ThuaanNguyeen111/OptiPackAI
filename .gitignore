@@ -42,6 +42,7 @@ Thumbs.db
 # Misc
 *.tsbuildinfo
 .eslintcache
+be/.aurelle-local/
 
 # code-review-graph (dev-tool index, không commit vào repo)
 .code-review-graph/
@@ -53,3 +54,16 @@ mobile/.flutter-plugins-dependencies
 mobile/build/
 mobile/.pub-cache/
 mobile/.pub/
+
+# Python (packer/)
+packer/.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# UI dev tools
+.impeccable/
+fe/.impeccable/

@@ -5,3 +5,5 @@ export * from './enums/platform.enum';
 export * from './interfaces/marketplace-adapter.interface';
 
 export * from './adapters/lazada.adapter';
+export * from './adapters/lazada-protocol.client';
+export * from './adapters/aurelle.adapter';

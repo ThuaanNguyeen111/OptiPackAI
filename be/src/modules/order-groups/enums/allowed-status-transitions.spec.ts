@@ -85,7 +85,8 @@ describe('allowed-status-transitions', () => {
       // đóng gói khi CHƯA lấy hàng.
       [GroupFulfillmentStatus.AWAITING_PACKAGING, GroupFulfillmentStatus.PENDING_APPROVAL],
       [GroupFulfillmentStatus.PICKED, GroupFulfillmentStatus.PACKED],
-      [GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.PICKING],
+      // ĐÃ THAY ĐỔI 05/10/2026: approved_for_packing -> picking giờ HỢP LỆ (báo món
+      // hỏng/thiếu lúc đóng, chọn "trả về lấy hàng") — xem test riêng bên dưới.
       // Đi lùi sai chỗ (không phải đường Reject/Return hợp lệ)
       [GroupFulfillmentStatus.PACKED, GroupFulfillmentStatus.PICKED],
       [GroupFulfillmentStatus.SHIPPED, GroupFulfillmentStatus.PACKED],
@@ -102,6 +103,54 @@ describe('allowed-status-transitions', () => {
         expect(isValidStatusTransition(from, to)).toBe(false);
       });
     }
+  });
+
+  describe('N1 (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.6) — hủy nhóm khi mọi đơn không còn fulfill được', () => {
+    const preCanCancel: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.AWAITING_PACKAGING,
+      GroupFulfillmentStatus.PICKING,
+      GroupFulfillmentStatus.PICKED,
+      GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+      GroupFulfillmentStatus.PENDING_APPROVAL,
+      GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+    ];
+
+    for (const from of preCanCancel) {
+      it(`${from} -> CANCELED hợp lệ (chưa đóng gói, cho phép tự động hủy)`, () => {
+        expect(
+          isValidStatusTransition(from, GroupFulfillmentStatus.CANCELED),
+        ).toBe(true);
+      });
+    }
+
+    // ĐÃ THAY ĐỔI 05/10/2026: packed -> canceled giờ HỢP LỆ, nhưng chỉ đi qua luồng
+    // "đơn hủy sau khi đóng" (kiện chuyển phải tháo) — xem test riêng bên dưới.
+    const postPackedCannotCancel: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.SHIPPED,
+      GroupFulfillmentStatus.DELIVERED,
+    ];
+
+    for (const from of postPackedCannotCancel) {
+      it(`${from} -> CANCELED PHẢI bị chặn (hàng đã đóng/giao vật lý, không tự hủy ngầm)`, () => {
+        expect(
+          isValidStatusTransition(from, GroupFulfillmentStatus.CANCELED),
+        ).toBe(false);
+      });
+    }
+
+    it('packed -> CANCELED hợp lệ (05/10/2026: mọi đơn hủy sau khi đóng, kiện phải tháo trả kệ)', () => {
+      expect(isValidStatusTransition(GroupFulfillmentStatus.PACKED, GroupFulfillmentStatus.CANCELED)).toBe(true);
+    });
+
+    it('approved_for_packing -> PICKING hợp lệ (05/10/2026: sự cố lúc đóng, trả về lấy món thay)', () => {
+      expect(
+        isValidStatusTransition(GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.PICKING),
+      ).toBe(true);
+    });
+
+    it('CANCELED là trạng thái cuối — không có đường đi tiếp nào', () => {
+      expect(getAllowedNextStatuses(GroupFulfillmentStatus.CANCELED)).toEqual([]);
+    });
   });
 
   it('getAllowedNextStatuses trả đúng mảng cho từng trạng thái — không rỗng ngoài dự kiến', () => {

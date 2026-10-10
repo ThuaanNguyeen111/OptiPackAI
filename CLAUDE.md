@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Coding Guide cho Claude
 
+**Đối chiếu 12/09/2026:** đã triển khai lát cắt BE-1 để không mặc định số đo/độ nhạy và chặn hồ sơ packaging chưa `ready`; các phần tự động hóa/validator/picking nhất quán vẫn chưa hoàn tất. Quyết định flow hiện hành nằm ở mục [Roadmap điều chỉnh](#flow-20260912) và [BE-1 → BE-5](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md). Các mục ghi ngày 09–11/09 bên dưới là nhật ký code/lựa chọn cũ, không phải bằng chứng mọi bảo đảm nghiệp vụ đã đạt. Khi khác flow mới, giữ chúng làm lịch sử và theo quyết định 12/09; không tự bật tính năng chưa triển khai.
+
 ## 📌 QUY TẮC QUẢN TRỊ TÀI LIỆU NÀY — ĐỌC TRƯỚC TIÊN, ÁP DỤNG CHO MỌI THAO TÁC SAU NÀY
 
 **Mở rộng 2026-09-10 — bắt buộc chủ động hỏi lại trước/sau mỗi chức năng**: mỗi khi CHUẨN BỊ code 1 chức năng/nghiệp vụ mới, HOẶC vừa code xong 1 chức năng — PHẢI chủ động đặt câu hỏi làm rõ lại cho user, để xác nhận đúng hướng TRƯỚC KHI code tiếp/code sai hướng. Không tự đoán ý user rồi làm luôn nếu còn điểm mơ hồ về nghiệp vụ (khác với mơ hồ kỹ thuật thuần túy, việc đó vẫn tự quyết theo đúng judgement bình thường). Câu hỏi nên có VÍ DỤ CỤ THỂ đi kèm (không hỏi chay lý thuyết) — nếu user báo "chưa hiểu câu hỏi", phải giải thích lại bằng ví dụ đời thường/tình huống cụ thể, không lặp lại nguyên câu hỏi cũ.
@@ -57,7 +59,7 @@ Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ 
 
 - **Database**: MongoDB + Mongoose (không dùng PostgreSQL dù phiếu đề xuất có gợi ý)
 - **Message queue**: CHƯA dùng Kafka/BullMQ ở giai đoạn đầu — TikTok đồng bộ qua webhook (best-effort, cần cron đối soát dự phòng), Lazada qua polling định kỳ (chưa xác nhận có webhook chính thức đáng tin), Tiki qua Event Queue (cơ chế riêng của Tiki, KHÁC webhook truyền thống — đọc kỹ tài liệu `event-queue` trước khi code, không áp thẳng logic webhook TikTok vào đây). Có thể bổ sung BullMQ+Redis sau nếu cần retry/queue.
-- **3D Bin Packing (AI Packaging)**: CHƯA chốt cách triển khai (microservice Python OR-Tools vs thư viện JS thuần) — quyết định sau khi có prototype. Không tự ý chọn khi code — hỏi lại nếu task đụng tới module này.
+- **3D Bin Packing (AI Packaging)**: 🔄 **ĐÃ CHỐT 04/10/2026** (thay câu cũ "chưa chốt microservice Python OR-Tools vs JS thuần") — dùng **cả hai, lai**: bộ giải BRKGA + EMS viết TypeScript trong backend (`modules/packing/solver/`, xác định) cho mọi đơn, cộng microservice Python **CP-SAT** (OR-Tools, `packer/`) chạy nền để chứng minh tối ưu cho đơn ≤ 12 món; thiếu `PACKER_URL` thì hệ thống vẫn chạy bằng BRKGA. Chi tiết ở các mục "Làm lại đóng gói 3D — Đợt 1…5" cuối file.
 - **Phạm vi tích hợp sàn — CODE TÍCH CỰC hiện tại: CHỈ Lazada** (đã đổi từ Shopee + TikTok — xem lịch sử đổi phạm vi ở đầu file). TikTok Shop + Tiki vẫn trong roadmap nhưng adapter **cố ý HOÃN**, không code song song lúc này — tránh vừa dang dở nhiều sàn cùng lúc trong khi Lazada mới vừa chạy ổn định. Facebook Shop mới ở mức nghiên cứu, chưa vào scope chính thức. Shopee: KHÔNG code lại trừ khi được yêu cầu rõ (đã gỡ `shopee.adapter.ts` khỏi `marketplace-integration/`; toàn bộ nghiên cứu sandbox Shopee được giữ lại làm tài liệu tham khảo, không phải code).
 
 ## Tech Stack
@@ -82,7 +84,9 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 - Refresh token rotation + reuse detection
 - **User tự xem/sửa hồ sơ CHỈ qua `GET/PATCH /users/me`** (phone/address/avatar) — **`employee_code`/`department` CHỈ Admin sửa được, qua `PATCH /users/:id`**, kể cả khi Admin tự sửa hồ sơ chính mình cũng phải đi qua route `:id`, không được lẫn vào `/me` (2 DTO tách riêng có chủ đích, không gộp)
 - Admin: tạo/sửa (`PATCH /users/:id`)/reset-password/deactivate/reactivate/disable-mfa cho user khác
-- Gửi email qua module `mail/` (4 template: welcome, forgot-password, account-locked, mfa-enabled) — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
+- **Tạo user — email trùng bị chặn tuyệt đối (2026-09-14, ĐÃ THAY ĐỔI)**: trước đây `createByAdmin()` chỉ chặn email của tài khoản `is_active: true`, unique index cũng partial theo `is_active` → Admin tạo lại đúng email của nhân viên đã vô hiệu hóa thì hệ thống **tạo thêm 1 user mới** (không ghi đè, nhưng ra 2 tài khoản cùng email). Giờ tìm email **không lọc is_active**; nếu trùng tài khoản đang hoạt động → `USER_EMAIL_IN_USE` (409); nếu trùng tài khoản đã vô hiệu hóa → `USER_EMAIL_INACTIVE` (409) kèm `details.existingUserId`, **không tạo mới, không ghi đè**. Unique `{ email: 1 }` giờ áp mọi trạng thái (bỏ `partialFilterExpression`). FE hiện lỗi trên form tạo user; với `USER_EMAIL_INACTIVE` có nút **Kích hoạt lại ngay** (gọi `POST /users/:id/reactivate`, mở lại tài khoản cũ với dữ liệu đã lưu — không lấy tên/vai trò từ form tạo mới).
+- **Admin tắt MFA hộ → thông báo user (2026-09-14)**: `adminDisableMfa()` gọi cổng `NotificationsService.notify()` (in-app + email `mfaDisabledTemplate`). FE hiện popup `MfaDisabledNotice` khi user đăng nhập / đang trong phiên (poll **10s** — user chốt 2026-09-14, đủ cho capstone, không cần WebSocket). Không báo lại nếu MFA vốn đã tắt. Lỗi gửi thông báo không làm fail thao tác tắt MFA.
+- Gửi email qua module `mail/` (5 template: welcome, forgot-password, account-locked, mfa-enabled, mfa-disabled) + `sendNotificationEmail()` cho thông báo vận hành — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
 - `ThrottlerGuard` đã gắn `APP_GUARD` global trong `app.module.ts` — `@Throttle()` trên route (login, forgot-password) giờ thực sự có tác dụng (trước đây từng bị khai config nhưng chưa gắn guard, không chặn được gì)
 - TTL tự dọn: `login_audit_logs` (180 ngày), `trusted_devices` (30 ngày), `refresh_tokens` (theo hạn token)
 
@@ -230,132 +234,57 @@ lazada.adapter.ts:260     getOrders() — path = '/orders/get' (API GetOrders TH
 
 **🔴 Gap thật, chưa xử lý** (phát hiện khi trace lại chuỗi trên): lỗi từ `lazadaAdapter.getOrders()` — bất kể nguyên nhân gốc là gì (token hết hạn, Lazada rate-limit, downtime tạm thời, lỗi mạng...) — đều bị `orders.service.ts` bắt chung và ném ra đúng 1 mã `ORD_ERROR_CODES.SYNC_FAILED` (502) duy nhất. Hệ quả: hệ thống hiện **không phân biệt được** "shop mất kết nối cần Store Owner bấm reconnect lại" với "lỗi tạm thời, tự thử lại lượt cron sau là được" — cả 2 tình huống đều chỉ log ra 1 dòng lỗi generic giống nhau, Store Owner không được chủ động báo cần hành động gì. Muốn vá: cần đọc `data.code`/message cụ thể của Lazada để phân loại lỗi "token/auth" (nên set 1 field kiểu `connection_status: 'disconnected'` trên shop document + tách mã lỗi riêng, VD `ORD_SHOP_DISCONNECTED`) khỏi lỗi tạm thời khác (giữ nguyên generic `SYNC_FAILED`, cron tự retry lượt sau là đủ) — CHƯA làm, cần cân nhắc trước khi coi module `orders` là hoàn thiện đầy đủ cho production thật (không bắt buộc cho demo capstone).
 
-## Roadmap tiếp theo (chốt 2026-09-07) — Product Master Data → Package 4 khung → giao Package 3 cho thành viên khác
+<a id="flow-20260912"></a>
 
-### 0. Tổng quan — vì sao chia việc và thứ tự như dưới đây
+## Roadmap điều chỉnh — chốt 12/09/2026, thay thứ tự 07/09
 
-Package 3 (AI Packaging — thuật toán 3D Bin Packing) là phần nặng nhất theo Report 2 (33 man-days, risk R02 High Impact) — **đã quyết định giao cho 1 thành viên khác trong nhóm đảm nhận riêng**, không phải người đang maintain `orders`/`marketplace-integration`. Để 2 người code song song không giẫm chân nhau, đã chốt 1 **HỢP ĐỒNG INTERFACE** cố định giữa 2 phần (xem mục 3) — miễn đúng interface, ai đổi implementation bên trong phần của mình cũng không ảnh hưởng người kia.
+**[stated] Phạm vi được chốt:** phát triển trên module hiện có, đã triển khai lát cắt BE-1 và tiếp tục theo kế hoạch BE-1 → BE-5, không tạo packaging song song. Một đơn nguồn là một phạm vi đóng; grouping chỉ phục vụ lấy hàng cùng lượt, không tự gom kiện/vận đơn. Kho/Admin xác nhận đã đo/thử khi nhập hồ sơ, không có bước Admin duyệt riêng. Đơn thường tự tính/thông qua chỉ khi đủ dữ liệu và candidate qua validator; nhân viên xử lý ngoại lệ.
 
-Thứ tự làm (không tùy ý — Package 4 phải có field `fulfillment_status` tồn tại trước thì UC-04 mới có chỗ để ghi kết quả duyệt của AI vào):
+### 1. Dữ liệu đầu vào và thuật toán
 
-```
-1. Product Master Data (LazadaAdapter.getProducts() + product_master schema)  ← làm trước, AI cần dữ liệu này
-2. Package 4 khung sườn (fulfillment_status + 5 endpoint giả lập nội bộ)      ← độc lập, không phụ thuộc AI
-3. [THÀNH VIÊN KHÁC] Thuật toán bin-packing thật, dùng input từ bước 1
-4. UC-04 (Packaging Staff Approve/Adjust/Reject) — NỐI bước 2 và bước 3 lại thành 1 luồng
-```
+Product Master đã lấy package dimensions qua GetProducts. Đây là số đo khai báo từ sàn, chưa thay cho hồ sơ gấp/bọc thực tế. Lưu hồ sơ kho/version/người-thời điểm xác nhận riêng; sync không ghi đè. Thiếu dữ liệu không được thay bằng 20 cm/0,5 kg hoặc false cho độ nhạy. Giữ unit ID, shop/platform, SKU/biến thể và trạng thái; chỉ PENDING đã xác minh ở bản đầu, canceled loại bỏ, trạng thái lạ chờ xem lại.
 
-### 1. Product Master Data — nền tảng bắt buộc trước khi AI Packaging chạy được
+Túi zip bọc item khác bao bì ngoài. Hàng sau chuẩn bị là khối đưa vào engine; carton có số đo trong/ngoài riêng, túi có quy cách fit đã thử. Vật tư đã trong gói khác cấp thêm, không cộng hai lần. Giữ greedy 3D + validator độc lập; fallback hiện tại chỉ cộng thể tích +10%, không phải FFD 3D và chưa an toàn cho hàng thật.
 
-**Vấn đề cần giải**: UC-03 (AI Packaging) Precondition ghi rõ _"Order Group đã có đầy đủ kích thước/khối lượng từng sản phẩm"_ — nhưng hiện tại **không có nguồn dữ liệu nào** cung cấp kích thước sản phẩm cả (Store Owner không tự nhập, hệ thống cũng chưa lấy từ đâu).
+### 2. Flow mục tiêu và phạm vi demo
 
-**Đã xác nhận qua doc Lazada thật**: API `GetProducts` (`/products/get`, hỗ trợ `sku_seller_list` tra theo lô tối đa 50 SKU/lần — khớp trực tiếp với `SellerSku` đã lưu sẵn trong `orders`) trả về đủ field cần thiết, nằm ở cấp **SKU** (trong mảng `skus[]`, không phải cấp `item_id`):
+**🔄 ĐÃ THAY ĐỔI 30/09/2026 (phạm vi kiện):** "mỗi đơn một kiện" trong mục này và các mục 21/09, 28/09 bên dưới đã được thay bằng **mỗi đơn N kiện** — xem mục "Engine đóng gói 3D mới + đa kiện thật (30/09/2026)" ở cuối file.
 
-```json
-{
-  "package_length": "10.00",
-  "package_width": "10.00",
-  "package_height": "4.00",
-  "package_weight": "0.04",
-  "product_weight": "0.03"
-}
+**ĐÃ THAY ĐỔI 21/09/2026** (so với flow 12/09 "tính phương án → phân công → lấy hàng"): flow chính thức là **lấy hàng trước, đóng gói sau** — theo code AOFP-35 (Thuận, merge 20/09), user chốt 21/09. Phạm vi kiện **vẫn là mỗi đơn nguồn một kiện** (code hiện còn tính cả group thành một thùng — cần sửa, xem BE-3a).
+
+```text
+Sync → Gộp nhóm lấy hàng → Tự phân công (lúc tạo group) → picking
+→ Quét từng SKU, không vượt số đặt; đủ → picked / thiếu → partial_needs_review
+→ Chia hàng đã lấy về từng đơn → Hồ sơ kho đã xác nhận
+→ Thiếu: chờ bổ sung / Đủ: tính và validate túi-carton cho từng đơn
+→ pending_approval → approve/adjust (không cân) → approved_for_packing
+→ Đóng → Cân/đo kiện thật từng đơn tại pack + đối soát vật tư
+→ Xác nhận packed → Bàn giao vận chuyển nội bộ
 ```
 
-Ưu tiên dùng `package_weight` (đã tính cả bao bì gốc seller, sát thực tế vận chuyển hơn) thay vì `product_weight` (chỉ cân nặng tịnh).
+Approve/adjust kế hoạch không bắt cân sau đóng; dời cân/đo thật sang pack. Chọn kế hoạch không trừ vật tư; cấp phát lúc bắt đầu đóng có transaction/ledger. Cân dự kiến gồm hàng + bì + vật tư; lệch policy thì chờ xem lại trước packed. Partial không chuyển picked bằng boolean nếu chưa đối soát tập giao và tính lại; bản đầu chờ bổ sung hoặc hủy/xử lý lại, chưa giao thiếu tự động.
 
-**Đã cân nhắc và LOẠI `GetProductItem`** (`/product/item/get`) — API này giờ **chỉ tra được theo `item_id`** (tham số `seller_sku` đã bị Lazada deprecated từ 15/11/2023), trong khi dữ liệu đơn hàng của hệ thống có sẵn là `SellerSku` cấp SKU — dùng `GetProductItem` sẽ phải thêm 1 bước tra ngược `item_id`, không cần thiết khi `GetProducts` đã tra thẳng được.
+Giữ status nguồn sàn tách fulfillment nội bộ. Trong phạm vi đồ án, không gọi Pack/ReadyToShip/giao hàng thật lên Lazada. Đây là phạm vi mô phỏng có chủ đích; không tuyên bố đã tích hợp shipping production.
 
-**Việc cần code**:
+### 3. Contract và tương thích
 
-1. `LazadaAdapter.getProducts(sellerSkus[])` — method mới, gọi `GetProducts` với `sku_seller_list`
-2. `product-master.schema.ts` — collection mới, xem chuẩn thiết kế ở mục 4 bên dưới
-3. Hàm giao diện cho AI: `OrdersService.getPackableItemsForGroup(groupId): Promise<OrderGroupForPackaging>` — xem interface đầy đủ ở mục 3
+Interface đang chạy ở common/interfaces/packaging.interface.ts dùng group ID, SKU/quantity, cm/kg và một box; HTTP packaging/warehouse đã camelCase. Đây là contract legacy cần adapter/version sang unit một đơn, mm/g, candidate box/mailer, snapshot và branch status; không đổi tên ngầm hoặc ép túi thành box giả.
 
-**Chiến lược cache — KHÔNG gọi Lazada mỗi lần AI tính toán**: lần đầu gặp 1 `sellerSku` chưa có trong `product_master` → gọi API lấy về, cache lại; đồng bộ lại định kỳ 1 lần/ngày (không cần dày như order sync 10 phút — kích thước sản phẩm hiếm khi đổi). Bin-packing đọc thẳng từ cache local, đảm bảo NFR "≤5 giây/đơn" đã cam kết ở Report 2 không phụ thuộc độ trễ mạng ra ngoài.
+Nhóm legacy chứa nhiều đơn đang xử lý phải được rà soát trước chuyển; không tự tách/viết lại lịch sử đã hoàn tất. Recommendation cũ thiếu snapshot không được tự hợp thức hóa. Chỉ sửa các module Orders liên quan theo BE-1 có regression; yêu cầu cũ “không đụng Orders” là phạm vi của lượt code trước, không cấm sửa lỗi đã xác định.
 
-### 2. Package 4 khung sườn — `fulfillment_status`, KHÔNG gọi API Lazada thật để đổi trạng thái
+### 4. Các đợt sửa và bảo đảm cần kiểm chứng
 
-**Quyết định quan trọng, đến từ chính giảng viên hướng dẫn**: vì tài khoản Lazada dùng để demo là seller thật (đã KYC) nhưng **không có hàng thật, không có shipper Lazada thật tới lấy** — nên **chỉ luồng `sync` (đọc đơn về) là gọi Lazada thật**; mọi hành động sau đó (đã lấy hàng, đã đóng gói, đã giao, hoàn hàng) đều **giả lập bằng cách tự đổi trạng thái trong DB nội bộ**, không gọi `Pack`/`ReadyToShip`/`Return and Refund API` thật lên Lazada.
+| Đợt | Nội dung | Nghiệm thu chính |
+| --- | --- | --- |
+| BE-1 | Mapper, unit đủ điều kiện, mỗi đơn riêng, backfill group | Không canceled/nhầm shop, không thiếu document group |
+| BE-2 | Hồ sơ kho, version, catalog và readiness | Nháp không dùng, thiếu báo thiếu, sync không ghi đè |
+| BE-3 | Validator, greedy/carton, fit túi, snapshot/adapter | Không hộp giả/quá cỡ, giữ fixture hình học đúng |
+| BE-4 | Picking, idempotency/transaction, partial, vật tư/cân sau đóng | Không trừ trùng/đủ giả/stale; ledger và đối soát |
+| BE-5 | Job bền vững, retry/recovery, tự thông qua và pilot | Chỉ bật khi BE-1 đến BE-4 đạt, không mất/lặp quyết định |
 
-**Lý do kỹ thuật, không chỉ là "cho đơn giản"**: Lazada Open Platform **không có sandbox riêng** — mọi API gọi ra đều chạm production thật. Gọi `Pack`/`ReadyToShip` thật trên 1 đơn không có hàng thật **có thể khiến Lazada thật sự điều phối 1 shipper thật** tới lấy 1 kiện hàng không tồn tại; gọi `Return and Refund API` thật có thể kích hoạt hoàn tiền thật qua cổng thanh toán thật. Rủi ro thật, không phải lý thuyết — có thể khiến shop test bị đánh dấu hoạt động bất thường.
+Nguồn chi tiết: [roadmap backend](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md). Multi-start/ML/nhiều kiện/viewer/cước thật là các bước sau; không giữ lịch triển khai M0–M8 cũ như một kế hoạch song song.
 
-**Hệ quả cho code đã có sẵn**: các method Fulfillment API đã research trước đó (`readyToShip`, `packOrders`, `printAWB`, nhóm DBS) — **vẫn giữ nguyên kế hoạch implement đủ trong `LazadaAdapter`** theo đúng spec (sẵn sàng dùng thật khi lên production thật ngoài phạm vi đồ án), nhưng **không invoke trong luồng demo** — cùng 1 pattern đã áp dụng với DBS trước đó ("implemented nhưng unverifiable trong môi trường hiện tại").
-
-**Thiết kế**: tách 2 field trạng thái, KHÔNG gộp chung:
-
-| Field                            | Nguồn                                                                                             | Ai cập nhật                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `status` (đã có)                 | Lấy nguyên từ Lazada                                                                              | Cron `syncLazadaOrders` — giữ nguyên                 |
-| `fulfillment_status` (field MỚI) | Tự định nghĩa: `new → picking → picked → packed → ready_to_ship → shipped → delivered → returned` | 5 endpoint nội bộ, nhân viên bấm tay/quét QR giả lập |
-
-Cron sync (đọc `status`) và luồng fulfillment nội bộ (ghi `fulfillment_status`) là 2 field độc lập hoàn toàn — cron chạy lại mỗi 10 phút sẽ không bao giờ ghi đè lên `fulfillment_status`, an toàn tuyệt đối.
-
-**5 endpoint nội bộ cần thêm** (đúng UC-07 đã viết ở Report 1 — Warehouse Staff quét QR cập nhật trạng thái, không cần Lazada xác nhận gì):
-
-```
-POST /orders/:groupId/fulfillment/pick
-POST /orders/:groupId/fulfillment/pack
-POST /orders/:groupId/fulfillment/ship
-POST /orders/:groupId/fulfillment/deliver
-POST /orders/:groupId/fulfillment/return
-```
-
-### 3. HỢP ĐỒNG INTERFACE với thành viên làm Package 3 (AI Packaging) — cố định trước khi tách việc
-
-**Input — người làm `orders`/Product Master cung cấp cho AI**:
-
-```ts
-interface PackableItem {
-  sku: string;
-  quantity: number;
-  length_cm: number;
-  width_cm: number;
-  height_cm: number;
-  weight_kg: number;
-  is_fragile: boolean; // phục vụ BR-06 (bubble wrap bắt buộc)
-}
-interface OrderGroupForPackaging {
-  order_group_id: string;
-  items: PackableItem[];
-}
-```
-
-**Output — người làm AI Packaging trả về**:
-
-```ts
-interface PackagingRecommendation {
-  order_group_id: string;
-  box_size: { length_cm: number; width_cm: number; height_cm: number };
-  material_type: string;
-  material_quantity: number;
-  computation_time_ms: number;
-  fallback_used: boolean; // đúng UC-03 alt flow: timeout >5s → fallback First Fit Decreasing đơn giản
-}
-```
-
-Miễn đúng 2 shape này, người làm AI có thể tự viết unit test bằng dữ liệu giả (mock `PackableItem[]`) mà không cần chờ Product Master code xong; ngược lại người làm `orders` cũng test được UC-04 (Approve/Adjust) bằng recommendation giả mà không cần chờ thuật toán AI thật.
-
-### 4. Chuẩn thiết kế DB cho các collection MỚI (áp đúng 11 quy tắc "Database Design Standards" đã có ở mục dưới, cụ thể hoá cho lần này)
-
-**`product_master`**:
-
-- Sub-schema riêng `PackageDimension` (`@Schema({ _id: false })`) cho `package_length/width/height/weight` — không dùng `type: Object`
-- Index bắt buộc: `{ shop_id: 1, seller_sku: 1 }` **unique** (tra cứu chính luôn theo cặp này)
-- Không nhét lịch sử đổi kích thước vào mảng lồng trong document chính — nếu cần track lịch sử, tách collection `product_master_history` riêng
-
-**`packaging_recommendations`** (chi tiết bên trong do người làm AI tự thiết kế, nhưng các ràng buộc sau BẮT BUỘC):
-
-- Index: `{ order_group_id: 1 }` unique (1 group chỉ có 1 recommendation `is_active: true` tại 1 thời điểm) + `{ approval_status: 1, created_at: -1 }` (phục vụ UI Packaging Staff xem danh sách đang chờ duyệt)
-- Khi bị Reject và tính lại (UC-03 alt flow): **không xóa cứng bản cũ** — đánh `is_active: false`, tạo bản ghi mới `is_active: true`, giữ lịch sử phục vụ audit "AI Recommendation Accuracy Rate" (BR-08)
-
-**`orders.fulfillment_status`** (field thêm vào schema có sẵn):
-
-- Index bổ sung: `{ fulfillment_status: 1, consolidated_group_id: 1 }` — phục vụ query "danh sách đơn theo trạng thái" cho UI kho
-- Theo nguyên tắc ESR: nếu sau này thêm filter theo `created_at` kèm `fulfillment_status`, đặt `fulfillment_status` (equality) trước, `created_at` (range) sau trong compound index
-
-**Transaction bắt buộc khi Approve (UC-04)**: hành động Approve ghi ĐỒNG THỜI `packaging_recommendations.approval_status` VÀ `orders.fulfillment_status` (2 collection khác nhau, cùng 1 nghiệp vụ) → bắt buộc bọc `session.withTransaction()`, không ghi rời rạc.
-
-**Counter cho Dashboard (Package 5, làm sau)**: nếu track kiểu "số đơn đã đóng gói hôm nay", dùng atomic `$inc` (`findByIdAndUpdate(id, { $inc: { total_packed: 1 } }, { upsert: true })`), **không** đọc-document-rồi-cộng-rồi-save.
+**Kết quả rà code trước đợt docs:** 16/16 test packaging cũ đạt nhưng có test chấp nhận quá cỡ vẫn trả Large. Chạy trực tiếp fallback tái hiện món 100×1×1 cm được Small, món cạnh 200 cm được Large, đơn rỗng cũng có hộp. Các vấn đề còn phải sửa: mất ID/lọc trạng thái ở getPackableItemsForGroup; grouping thiếu shop/phạm vi; backfill chỉ ID null; pick trừ tồn và ghi event không nguyên tử; partial chỉ đổi trạng thái; generate không transaction; adjust chưa validate/tính lại/ghi đủ lý do. Không coi log “đã xong” cũ là bằng chứng các lỗi này đã được vá.
 
 ## Kiến trúc mở rộng đa sàn (Multi-Platform Scalability) — chốt 2026-09-09, nghiên cứu sâu để thêm TikTok/Tiki KHÔNG phải sửa lại code Lazada đang chạy sống
 
@@ -515,42 +444,19 @@ src/
       product-master.module.ts
 ```
 
-### Luồng chạy — từ lúc có đơn hàng tới lúc AI Packaging lấy được dữ liệu
+### Luồng đang có — đối chiếu lại 12/09/2026
 
-```
-[ĐÃ CÓ, không đổi] Cron 10' → syncLazadaOrders() → Order lưu vào MongoDB (consolidated_group_id vẫn null nếu chưa gộp)
-        ↓
-[MỚI] Lần đầu 1 group được cần tới (VD Packaging Staff mở màn hình, hoặc gọi getPackableItemsForGroup):
-  OrderGroupsService.getOrCreateGroupForOrder(order)
-    → nếu order.consolidated_group_id đã có giá trị (tryConsolidate() cũ đã gán) → tìm/tạo OrderGroup dùng ĐÚNG id đó
-    → nếu null (đơn chưa từng gộp) → tạo OrderGroup mới, ghi NGƯỢC id vào field consolidated_group_id
-      (field này vốn LUÔN null trong code cũ, không ai đọc — ghi vào đây là AN TOÀN, không ảnh hưởng
-      logic sync/tryConsolidate() đang chạy, vì họ chưa từng dùng giá trị này để quyết định gì)
-        ↓
-[MỚI] OrderGroupsService.getPackableItemsForGroup(groupId)
-    → query orders theo consolidated_group_id (Rule #12 .lean(), #13 .select())
-    → aggregateOrderItems() (TÁI DÙNG util đã có, không viết lại)
-    → query product_master theo $in (Rule #16, chống N+1)
-    → trả về OrderGroupForPackaging — ĐÚNG shape đã chốt cho thành viên làm AI
-        ↓
-[Riêng, độc lập] ProductMasterService.syncProductsForShop(shopId, skus)
-    → gọi LazadaAdapter.getProducts() (method mới) theo batch 50
-    → bulkWrite() cache vào product_master (Rule #14)
-    → chạy 1 lần/ngày (cron riêng, CHƯA code — xem "Việc còn thiếu" bên dưới), KHÔNG phải mỗi lần AI tính
-```
+Orders sync mỗi 10 phút. Group backfill mỗi 15 phút chỉ tìm consolidated_group_id=null, còn thiếu trường hợp ID có giá trị mà document group không tồn tại. Product Master có cron riêng lúc 3h mỗi ngày; chưa có cache-miss fetch trong getPackableItemsForGroup, nơi đang dùng số đo mặc định khi thiếu.
+
+Packaging hiện (21/09) đọc số lượng đã quét (`pick_events`) của cả group rồi tra Product Master; group được phân công và chuyển picking ngay lúc tạo, sau picked Admin mới gọi generate bằng fallback, rồi Packaging Staff/Admin approve/adjust (ĐÃ THAY ĐỔI so với thứ tự "approve rồi mới phân công và picking" ghi 12/09). Các lỗi dữ liệu/thứ tự cân được xử lý theo [roadmap mới](docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md); không phải code đã tự theo flow mới.
 
 ### Verify — đã chạy compiler thật, không chỉ đọc mắt (đúng chuẩn Type Safety đã đặt ra)
 
 Merge patch vào bản đầy đủ, `npm install`, chạy `npx tsc --noEmit -p tsconfig.json` → **0 lỗi** (1 lỗi unused-import nhỏ phát hiện lúc đầu, đã tự sửa). Chạy `npx eslint` trên toàn bộ file mới + 2 file bị chạm → **0 lỗi/warning**. Không có lỗi nào lan sang phần code cũ.
 
-### Việc CÒN THIẾU, chưa code trong lượt này (liệt kê rõ để không hiểu nhầm đã xong hết)
+### Trạng thái các phần từng thiếu — cập nhật 12/09/2026
 
-1. `getOrCreateGroupForOrder()` mới chỉ được gọi khi cần (on-demand) — CHƯA có cron/job tự động chạy nó cho MỌI order mới sync xong. Cần quyết định: gọi ngay sau mỗi lần sync (thêm hook), hay để lazy tới khi Packaging Staff/API nào đó cần mới tạo group.
-2. `ProductMasterService.syncProductsForShop()` viết xong nhưng **chưa có nơi nào gọi nó** — cần 1 cron riêng (khác cron Lazada order sync, tần suất 1 lần/ngày) hoặc 1 endpoint admin gọi tay.
-3. `order-groups.controller.ts` — CHƯA có, hiện `OrderGroupsService` chỉ dùng nội bộ (service-to-service), chưa có route HTTP nào cho FE gọi.
-4. 5 endpoint fulfillment nội bộ (pick/pack/ship/deliver/return) — CHƯA code, đây là việc tiếp theo sau khi có `order_groups` (vừa xong).
-5. `PackagingRecommendation` schema — CHƯA code, thuộc phần bàn giao cho thành viên làm AI Packaging.
-6. UC-04 (Approve/Adjust/Reject, transaction Rule #6) — CHƯA code, phụ thuộc mục 5 xong trước.
+Cron Product Master, group backfill, controller Order Groups, schema recommendation và approve/adjust/reject đã có. Không triển khai lại từ đầu. Những việc còn thiếu hiện hành là hồ sơ kho/readiness, validator/engine, sửa picking/nhất quán dữ liệu và tự động hóa theo BE-1 đến BE-5.
 
 ## Điểm yếu đã phát hiện khi rà toàn bộ Backend (2026-09-09) — vấn đề, cách khắc phục, tại sao, lợi ích sau khi vá
 
@@ -852,7 +758,9 @@ POST /order-groups/:id/fulfillment/return   @Roles(SHIPPING_COORDINATOR, WAREHOU
 1. `isValidStatusTransition()` (đã có từ trước) — chặn nhảy trạng thái sai thứ tự nghiệp vụ
 2. Rule #18 Optimistic Concurrency — `findOneAndUpdate({_id, __v: expectedVersion}, {$set, $inc: {__v:1}}, {returnDocument:'after'})`; không match được document (do version lệch) → ném `ORD_GROUP_STATE_CONFLICT` (409), báo FE tải lại dữ liệu mới nhất thay vì âm thầm ghi đè lost-update
 
-### Quyết định thiết kế cần biết — `pick` nhảy thẳng qua `PICKING`
+### Hành vi legacy — `pick` nhảy thẳng qua `PICKING`
+
+**ĐÃ THAY ĐỔI 12/09:** BE-4 phải đối soát unit/số lượng ở server trước picked. Đường tắt bên dưới chỉ mô tả code/demo cũ, không phải lựa chọn vận hành mục tiêu.
 
 `allowed-status-transitions.ts` trước đó chỉ cho `APPROVED_FOR_PACKING → PICKING` (1 bước) — đã thêm `APPROVED_FOR_PACKING → PICKED` (nhảy thẳng), vì endpoint `pick` hiện tại là **"1 lần bấm = xác nhận đã lấy xong toàn bộ hàng"**, chưa có màn hình quét QR từng SKU riêng lẻ (đó là việc tương lai). `PICKING` **vẫn giữ nguyên** trong enum + transition map — không xóa, chỉ tạm thời không có endpoint nào dừng lại đúng trạng thái đó. Khi sau này tách thành 2 thao tác thật ("bắt đầu lấy" / "lấy xong"), transition 1-bước cũ vẫn dùng được ngay, không cần sửa gì thêm.
 
@@ -883,13 +791,13 @@ Muốn `pick` chạy được, group phải đang ở đúng trạng thái ngu�
 
 ## ĐÃ TRIỂN KHAI — Module `packaging/` + Module `warehouse/` (2026-09-09, lượt code thứ 3 trong ngày)
 
-### Bối cảnh — vì sao 2 module này làm CÙNG lúc
+### Bối cảnh và giới hạn fallback — đính chính 12/09/2026
 
-Trước đó có 1 nghịch lý bị chỉ ra đúng: 5 endpoint fulfillment (đã code) không tự chạy được vì phụ thuộc UC-04 (chuyển group sang `approved_for_packing`), mà UC-04 lại phụ thuộc UC-03 (AI thật, thành viên khác đang làm) — không việc nào tự làm xong để có demo thật. Giải pháp: **code thuật toán fallback đơn giản NGAY**, không phải "code test rồi vứt" mà là **implement sớm 1 phần production thật** (chính UC-03 Alt Flow, Report 1, đã note từ trước: _"Thuật toán vượt quá 5 giây (timeout) -> dùng fallback đơn giản (First Fit Decreasing)"_). Khi AI thật xong, code fallback này **không bị thay thế, vẫn giữ nguyên vai trò lưới an toàn** như thiết kế ban đầu.
+Fallback được tạo để mở khóa demo UC-04/fulfillment khi chưa có engine thật. Code thực tế chỉ chọn theo tổng thể tích +10%, vẫn trả Large khi quá cỡ; không có bước xếp giảm dần hay validator. Vì vậy nhận định cũ “production/lưới an toàn giữ nguyên” bị thay thế: chỉ dùng làm dữ liệu demo cho tới khi BE-3 có fallback hợp lệ. Không gọi implementation hiện tại là FFD 3D.
 
-### Module `packaging/` — UC-04 hoàn chỉnh
+### Module `packaging/` — API UC-04 hiện hữu, còn lỗi flow cần sửa
 
-**File mới (12 file)**: schema (`PackagingRecommendationDoc` + sub-schema `BoxSize`), enum `PackagingApprovalStatus`, `fallback-packaging.util.ts` (First Fit Decreasing đơn giản, 3 size thùng cố định, BR-05 padding 10%, BR-06 fragile→Bubble Wrap), 3 DTO (Approve/Adjust/Reject), Service, Controller, Module, errors.
+**File mới (12 file)**: schema (`PackagingRecommendationDoc` + sub-schema `BoxSize`), enum `PackagingApprovalStatus`, `fallback-packaging.util.ts` (chọn theo thể tích, 3 hộp cố định, +10%, fragile→Bubble Wrap; chưa chứng minh xếp vừa/bảo vệ), 3 DTO (Approve/Adjust/Reject), Service, Controller, Module, errors.
 
 **Route + role:**
 
@@ -902,7 +810,7 @@ POST /order-groups/:groupId/packaging/reject     @Roles(PACKAGING_STAFF, ADMIN)
 
 **Điểm kỹ thuật quan trọng nhất — transaction thật, dùng đúng Rule #6**: `approve()`/`adjust()`/`reject()` đều `connection.startSession()` + `session.withTransaction()`, ghi ĐỒNG THỜI `packaging_recommendations` + `order_groups` trong cùng 1 session — nếu 1 trong 2 lệnh ghi fail, CẢ 2 tự rollback, không có tình trạng "nửa vời". Đã xác nhận an toàn từ trước (project dùng Atlas, luôn là replica set).
 
-**"Detect abnormal packages" (đề bài, actor AI Engine) — đã implement, kết nối trực tiếp với "Measure package weight" (Packaging Staff)**: `approve()`/`adjust()` đều nhận `actual_measured_weight_kg` (cân THẬT), so sánh với cân lý thuyết từ `product_master` — lệch >20% tự đánh `is_abnormal: true`, log cảnh báo. Đúng phát hiện đã ghi ở mục "Nghiên cứu Actor" — 1 field dữ liệu phục vụ đồng thời 2 trách nhiệm của 2 actor khác nhau trong đề bài.
+**Cân bất thường — hành vi cũ còn phải sửa:** `approve()`/`adjust()` đều nhận `actual_measured_weight_kg` (cân THẬT), so sánh với cân lý thuyết từ `product_master` — lệch >20% tự đánh `is_abnormal: true`, log cảnh báo. BE-4 dời cân về sau đóng; so với cả kiện gồm bì/vật tư, không chỉ khối lượng item. Hiện trạng này chưa đáp ứng thứ tự thao tác thực tế.
 
 **Reject KHÔNG xóa cứng** — đánh `is_active: false`, group quay lại `awaiting_packaging` (dùng transition đã vá bug từ trước), giữ lịch sử phục vụ audit BR-08.
 
@@ -1012,7 +920,9 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 **Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
 
-## 🗺️ ROADMAP TỔNG HỢP (2026-09-10) — toàn bộ việc còn lại, 4 tầng ưu tiên
+## 🗺️ Backlog lịch sử 10/09/2026 — không thay thứ tự BE-1 → BE-5
+
+Các nhãn hoàn tất dưới đây ghi nhận API đã được thêm ở lượt cũ; không chứng minh các bảo đảm nghiệp vụ đã đạt. Phần packaging/fulfillment thực hiện theo roadmap 12/09 ở trên.
 
 **Nguồn duy nhất tổng hợp mọi việc còn thiếu đã rải rác trong file này** — khi cần biết "làm gì tiếp theo", đọc mục này trước, không cần lục lại từng mục "Việc CÒN LẠI"/"ĐÃ TRIỂN KHAI" rải rác phía trên.
 
@@ -1031,9 +941,9 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 
 ## Nghiên cứu Notification (2026-09-10) — khi nào bắn, nội dung gì, bắn ra sao
 
-**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin).
+**Sự kiện kích hoạt**: `report-missing` (Critical, báo Store Owner+Admin), `is_abnormal=true` lúc Approve (Warning), Order Group hỏa tốc còn <1h (Warning, báo staff phụ trách), hỏa tốc quá hạn (Critical, escalate Store Owner+Admin), group mới `pending_approval` (Info, báo Packaging Staff), token sàn hết hạn/mất kết nối (Critical, báo Store Owner+Admin), Product Master sync thất bại lặp lại (Warning, báo Admin), **Admin tắt MFA hộ user (Warning, 2026-09-14 — đích danh user bị tắt, popup in-app + email)**.
 
-**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
+**Schema `Notification`**: `recipient_user_id`/`recipient_role` (1 trong 2), `type` (enum — 8 giá trị: 7 loại vận hành kho/sàn + `mfa_disabled` thêm 2026-09-14), `severity` ('info'|'warning'|'critical'), `title`, `message`, `related_entity_type`+`related_entity_id` (bấm thông báo điều hướng thẳng tới đúng trang), `is_read`, `channels_sent` (audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh: in-app + Dashboard + email), `created_at`.
 
 **Cách bắn**: khuyên dùng **Phương án A — polling** (`GET /notifications/unread-count` mỗi 15-30s từ FE) cho quy mô capstone, đơn giản không cần hạ tầng mới. Phương án B (WebSocket/NestJS Gateway, real-time push) là chuẩn production nhưng tốn công hơn, chỉ làm nếu dư thời gian.
 
@@ -1129,7 +1039,9 @@ Thêm field vào `SkuBinAssignment` (module `warehouse/`). Đồng thời bổ s
 - **`initial_quantity` optional trên `AssignSkuBinDto`** — gán vị trí lần đầu có thể chưa có hàng thật (mặc định 0), dùng `$setOnInsert` (không phải `$set`) để KHÔNG reset số lượng nếu chỉ đang đổi vị trí kệ cho SKU đã có sẵn assignment.
 - **Endpoint `POST .../sku-bin-assignments/:assignmentId/restock`** (mới, chưa có trong thiết kế gốc) — nghiệp vụ NHẬP HÀNG là khác biệt với GÁN VỊ TRÍ (gán 1 lần, nhập hàng lặp lại định kỳ) — cộng dồn bằng `$inc` atomic (Rule #7), không phải set lại toàn bộ.
 
-### `pick-item` — Điểm yếu #10 mục 4, trung tâm của Tầng 1
+### `pick-item` — API đã thêm, chưa bảo đảm retry đồng thời
+
+**Đính chính 12/09:** decrement và create event hiện chưa trong cùng transaction; unique event không ngăn lần trừ trước đó. BE-4 cần transaction, kiểm tra unit/số lượng và idempotency theo cả nội dung.
 
 `POST /order-groups/:id/fulfillment/pick-item` (body: `sku`, `scanned_quantity`, `scan_method`, `warehouse_id`, `client_event_id?`) — `OrderGroupsService.pickItem()`:
 
@@ -1162,7 +1074,9 @@ Trạng thái mới, đúng Hướng Y đã chốt: `APPROVED_FOR_PACKING`/`PICK
 - Route: `GET /notifications` (danh sách), `GET /notifications/unread-count` (polling, Phương án A đã chốt — không cần WebSocket), `PATCH /notifications/:id/read`.
 - `MailService` (module `mail/`, đã hoàn thiện từ trước) — thêm method MỚI `sendNotificationEmail()` (additive, không đụng 4 method cũ) — mẫu email ĐƠN GIẢN có chủ đích (chỉ text, không thiết kế phức tạp), đúng quyết định "tối ưu tốc độ" đã chốt, nhưng văn phong vẫn chuyên nghiệp.
 
-### `report-missing` + `decide-partial` — hoàn thiện UC-07 Alt Flow + Hướng Y
+### `report-missing` + `decide-partial` — API legacy cần hoàn thiện đối soát
+
+**ĐÃ THAY ĐỔI 12/09:** code hiện chỉ đổi trạng thái khi decide-partial. Mục tiêu không cho picked trước khi xử lý tập hàng, phần thiếu và tính lại recommendation; xem BE-4.
 
 `POST /order-groups/:id/fulfillment/report-missing` (role `WAREHOUSE_STAFF`, `ADMIN`) — `OrderGroupsService.reportMissing()`: chuyển group `partial_needs_review` (dùng lại `transitionFulfillmentStatus()` đã có, không viết logic transition mới), tra tên người báo cáo (`User.name`), build message chuyên nghiệp, gọi `notificationsService.notify()` broadcast cho toàn bộ `STORE_OWNER`.
 
@@ -1598,6 +1512,8 @@ await this.orderModel.findByIdAndUpdate(id, { $inc: { total_packed: 1 } });
 ### 8. Xóa mềm nhất quán trên MỌI schema có thể bị tham chiếu
 
 Không được để 1 module dùng soft-delete (`is_active`) còn module khác xóa cứng — chọn 1 convention duy nhất (`is_active: boolean` + `deleted_at?: Date`) áp dụng toàn bộ `modules/`, ghi rõ trong PR nếu có ngoại lệ.
+
+**Ngoại lệ email user (2026-09-14, ĐÃ THAY ĐỔI so với unique partial `is_active:true`)**: xóa mềm `users` VẪN giữ unique `email` trên mọi trạng thái — Admin không được tạo tài khoản mới trùng email đã vô hiệu hóa; phải dùng Kích hoạt lại. Đây là unique định danh đăng nhập, khác unique nghiệp vụ cho phép tái sử dụng mã sau khi deactivate (vd `employee_code` vẫn partial).
 
 ### 9. Kiểu Document nhất quán toàn project
 
@@ -2138,6 +2054,66 @@ Sau khi thêm các file test mới (batch 4), `npm run lint` báo 2 lỗi thật
 
 **Quy tắc rút ra cho các file test sau này trong dự án này**: chỉ import `AppException` (hay bất kỳ type nào tương tự) nếu có **ít nhất 1 chỗ dùng làm giá trị runtime thật** trong file đó (VD `toBeInstanceOf(AppException)`, `expect(error).toBeInstanceOf(X)`) — nếu chỉ cần ép kiểu cho TypeScript đọc hiểu, bỏ hẳn phần ép kiểu đó thay vì cố giữ lại bằng `import type`.
 
+## Hạ tầng triển khai — Docker, Kubernetes, CI/CD (16/09/2026)
+
+Trước đợt này hạ tầng chỉ có 3 file rời rạc và **có lỗi thật chặn deploy**, không phải chỉ thiếu tiện nghi. Đã sửa/bổ sung, chi tiết vận hành nằm ở [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) + [`k8s/README.md`](k8s/README.md) (không copy nguyên văn vào đây, tránh phình file).
+
+### 1. `be/Dockerfile` cũ KHÔNG build được — lỗi thật, không phải chỉnh cho đẹp
+
+Bản cũ `COPY package*.json ./` rồi `npm ci` với build context là `be/` — nhưng repo là **npm workspaces**, `be/package-lock.json` **không tồn tại** (chỉ có lockfile ở gốc), nên `npm ci` luôn fail. Nghĩa là image backend chưa từng build được kể từ khi chuyển sang workspaces.
+
+**Cách sửa đã chốt, áp dụng cho CẢ 3 Dockerfile**: build context là **THƯ MỤC GỐC repo**, cài bằng `npm ci --workspace <ws> --include-workspace-root --ignore-scripts`. 2 chi tiết bắt buộc, đã kiểm chứng bằng cách chạy thật:
+
+- `--ignore-scripts` + `HUSKY=0`: script `"prepare": "husky"` ở root package.json sẽ fail trong image (husky là devDependency của môi trường dev). Không có cờ này thì `npm ci --omit=dev` chết ngay.
+- npm hoist **toàn bộ** package lên `/repo/node_modules`, KHÔNG sinh `be/node_modules` riêng (đã verify) → image runtime phải `WORKDIR /repo/be` để Node resolve ngược lên gốc. Entry đúng là `dist/src/main.js` (không phải `dist/main.js`) vì tsconfig gồm cả `scripts/` ngoài `src/`.
+- Thiếu workspace nào trong `package.json` mà thư mục chưa tồn tại (`storefront/` hiện chưa commit) thì `npm ci` **vẫn chạy bình thường**, chỉ bỏ qua — đã test, nên CI không đỏ vì lý do này.
+
+Thêm mới: `fe/Dockerfile` (Vite build → `nginxinc/nginx-unprivileged`, có SPA fallback + `/healthz` cho probe) và `storefront/Dockerfile` (Next `output: 'standalone'` + `outputFileTracingRoot` trỏ về gốc repo vì node_modules bị hoist). `.dockerignore` chuyển từ `be/` lên **gốc repo** (cùng lý do build context).
+
+**`VITE_API_URL`/`NEXT_PUBLIC_API_URL` bị nhúng vào bundle LÚC BUILD** — đổi địa chỉ backend là phải build lại image, không restart được. Đây là ràng buộc cần nhớ khi deploy, không phải bug.
+
+### 2. `docker-compose.yml` — nay chạy đủ redis + be + fe + storefront
+
+Bản cũ chỉ có hạ tầng (mongo/mongo-express/redis), không đóng gói app. Bản mới theo đúng phạm vi đã chốt với user: **MongoDB vẫn dùng Atlas**, compose không chạy Mongo mặc định.
+
+MongoDB local chuyển vào profile `local-db` (`docker compose --profile local-db up -d`) và **bắt buộc chạy `mongod --replSet rs0` + tự `rs.initiate()` trong healthcheck** — vì `packaging.service.ts` dùng `session.withTransaction()`, Mongo standalone sẽ lỗi ngay lúc approve packaging. Điều này KHÔNG mâu thuẫn với kết luận cũ ở mục "Đối chiếu 3 tài liệu thuật toán AI Packaging → Vấn đề 4" (Atlas đã là replica set, không cần làm gì): nhận định đó áp dụng cho Atlas, còn đây là vá cho đúng nhánh chạy Mongo local.
+
+### 3. Kubernetes — `k8s/` (mới, user muốn chạy thử)
+
+`k8s/base` (namespace, configmap, redis, be, fe, storefront, ingress) + 2 overlay kustomize: `local` (image `:local` build ở máy) và `ghcr` (image do CI đẩy lên). Quyết định thiết kế:
+
+- **Secret KHÔNG commit** — nạp từ chính `be/.env` bằng `kubectl create secret generic optipackai-be-env --from-env-file=be/.env`. ConfigMap đứng SAU secret trong `envFrom` để ghi đè được `REDIS_HOST=localhost` trong `.env`.
+- **Ingress 3 host riêng** (`app/api/shop.optipackai.local`) thay vì 1 host + path `/api`: backend đặt route ở gốc (`/auth`, `/orders`...), gom vào `/api` sẽ phải rewrite path, dễ sai.
+- Redis dùng `emptyDir` (cache trạng thái auth, mất thì tự dựng lại từ Mongo), không cần PVC.
+
+### 4. CI/CD — 2 workflow
+
+`ci.yml`: thêm job `fe` (build = `tsc -b` + vite), `storefront` (tự bỏ qua nếu chưa commit), `docker` (build cả 3 image, không push), `k8s` (`kustomize` + `kubeconform -strict`). **Sửa 1 lỗi thật**: job backend gọi `npm run lint` mà script đó có `--fix` → trong CI nó tự sửa file rồi báo xanh, che mất lỗi. Đã thêm script `lint:ci` (eslint không `--fix`) và dùng nó trong CI.
+
+`release.yml` (mới): build & push 3 image lên GHCR khi push `main`/tag `v*`/bấm tay. **Cố ý KHÔNG tự `kubectl apply`** lên cụm nào — CI chỉ tạo image, deploy do người chạy.
+
+Lint FE hiện để `continue-on-error: true` vì bản UI vừa merge từ `feature/viet_ui` còn 9 lỗi + 3 cảnh báo có sẵn (`set-state-in-effect`, `react-refresh`) — đây là nợ đã biết, bỏ cờ đó ngay khi dọn xong, không để lâu thành lint FE vô hiệu vĩnh viễn.
+
+### 4b. ✅ ĐÃ CHẠY THẬT TRÊN KUBERNETES (16/09/2026) — không còn là kế hoạch trên giấy
+
+Toàn bộ chuỗi đã chạy thành công trên máy user: `docker compose build` (3 image build sạch, xác nhận Dockerfile mới đúng) → `scripts/k8s-create-secret.sh` (29 biến) → `kubectl apply -k k8s/overlays/local` → **4 pod `Running`**, BE trả `Hello World!` + `/api/docs` 200, FE trả `index.html` + `/healthz`, storefront 200.
+
+3 điều học được từ lần chạy thật, đã cập nhật vào `k8s/README.md`:
+
+1. **Rào cản thật trên Windows 11 Home là WSL2, không phải Docker/k8s**: bản Home không có Hyper-V, thiếu WSL thì Docker Desktop báo `hasNoVirtualization: true`, engine không bao giờ start. Phải `wsl --install --no-distribution` bằng quyền Admin **rồi reboot** (2 thành phần Windows chỉ có hiệu lực sau khởi động lại). BIOS không liên quan — `systeminfo` báo "A hypervisor has been detected" là đủ.
+2. **Docker Desktop bản hiện tại dựng k8s bằng `kind` bên trong** (log: `kubernetes starting: {"mode":"kind"}`, node `desktop-control-plane`) — **nhưng image build ở máy VẪN dùng được ngay**, pod chạy với `imagePullPolicy: IfNotPresent`, không cần registry/`kind load`. Đã kiểm chứng, không phải suy đoán.
+3. **`ioredis ECONNREFUSED` lúc mới deploy là bình thường** — pod `be` lên trước pod `redis` vài giây, ioredis tự kết nối lại, log tự dứt. Chỉ đáng lo nếu lỗi còn tiếp diễn SAU khi `redis` đã `Running`.
+
+Cần tạo Secret bằng `scripts/k8s-create-secret.sh` (mới), KHÔNG gọi thẳng `kubectl create secret --from-env-file=be/.env`: file `.env` thật của dự án có 6 dòng key thụt đầu dòng (kubectl từ chối: "not a valid key name") và 3 dòng value bọc nháy (`JWT_SECRET="..."` — dotenv bỏ nháy, kubectl giữ nguyên → token trong cụm ký bằng chuỗi khác local, lỗi rất khó truy). Script chuẩn hoá đúng 2 điểm đó.
+
+### 5. 🔴 Bí mật thật bị commit vào git — cần ĐỔI MẬT KHẨU, không chỉ xóa file
+
+Khi sửa `.env.example` ở gốc phát hiện file này (tracked, có từ commit `faaea86`) chứa **chuỗi kết nối Atlas thật kèm mật khẩu** (user `nhoxmymap74_db_user`, cluster `capstoneproject.o62tptf`) và một `JWT_SECRET`. Nội dung mới đã thay bằng biến cho docker compose, **nhưng mật khẩu vẫn nằm vĩnh viễn trong lịch sử git** (kể cả sau khi sửa file) và repo đang ở GitHub.
+
+**Việc phải làm, theo thứ tự**: (1) đổi mật khẩu user đó trong Atlas → (2) đổi `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET` (mọi token cũ sẽ mất hiệu lực, user phải đăng nhập lại) → (3) chỉ khi cần mới tính tới việc xoá lịch sử (`git filter-repo`) vì thao tác đó viết lại toàn bộ hash, cả nhóm phải clone lại. Xoá file mà không đổi mật khẩu là **không có tác dụng bảo mật**.
+
+Quy tắc từ nay: `.env.example` chỉ chứa **placeholder** (`<user>`, `<password>`), không bao giờ chứa giá trị thật — kể cả "tạm để cho tiện".
+
 ## Rút kinh nghiệm debug thật — "đã gửi file đúng" không có nghĩa là "đã chạy đúng" (16/09/2026)
 
 Sự cố: test `lazada-order-sync.scheduler.spec.ts` fail liên tục 3 lần dù code/test đã đúng (đã tự xác nhận bằng cách chạy thật trong sandbox: `npm install` + `npx jest` + `npx eslint` trên chính `be.zip` user upload — 2 giả thuyết đầu sai (tương tác `jest.useFakeTimers()`, rồi `git diff` không phát hiện khác biệt) trước khi tìm ra nguyên nhân thật.
@@ -2302,6 +2278,123 @@ User chỉ ra: nhiều nội dung ghi ngày "16/09/2026" thực ra làm vào **1
 
 Viết câu kết luận không rõ ràng khiến tưởng đã cập nhật `INTEGRATION_GUIDE_FULFILLMENT.md`/`API_LIST.md`/tài liệu giảng giải cho 2 fix (mở role Warehouse Staff cho GET warehouses, validate SKU trước khi trừ tồn ở pick-item) — thực ra CHƯA làm. User hỏi lại mới phát hiện, đã làm bù đủ cả 3 file ngay. **Bài học**: không viết câu tổng kết kiểu "đã X" nếu chưa thực sự gọi tool chỉnh sửa file đó trong lượt trả lời — dễ gây hiểu nhầm đã xong việc.
 
+## Gộp `main` vào `thi_dev` — 2 conflict tài liệu + 1 xung đột NGỮ NGHĨA chỉ jest bắt được (20/09/2026)
+
+`git pull origin main` báo conflict ở `API_LIST.md` và `INTEGRATION_GUIDE_FULFILLMENT.md`. Cả 2 bên đều mô tả ĐÚNG code (đã grep xác nhận từng claim), chỉ là 2 nhánh sửa song song:
+
+- **`INTEGRATION_GUIDE_FULFILLMENT.md`**: git tự gộp được phần lớn, còn 3 chỗ — đã gộp UNION (giữ cả "Nghiệp vụ 2b — Thiết lập kho" + 19/09 pick-item validate từ `main`, lẫn A.3/A.4/C.2/D.6 "flow mục tiêu" + dòng `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` từ `thi_dev`). Sắp lại changelog đầu file theo đúng thứ tự thời gian.
+- **`API_LIST.md`**: xung đột thật — `thi_dev` (commit `223ae75`, 14/09) đã VIẾT LẠI thành kiểu "API contract hiện trạng" (có bảng DTO/field), trong khi `main` vẫn là bản "Danh sách API theo Role" và được Thuận cập nhật tiếp tới 20/09. **User chốt: lấy bản `main` làm khung** (bản cả team đang cập nhật, chứa fact mới nhất 19-20/09), bổ sung phần chỉ `thi_dev` có: mục **Quy ước** + error response mẫu, mục **0. System**, bảng **DTO/field chi tiết** cho từng module, mục **11. Collection nội bộ và planned**, bảng **mã lỗi theo module** (đã tự thêm 2 mã `WH_WAREHOUSE_CODE_IN_USE`/`WH_ZONE_CODE_IN_USE` mà bản `thi_dev` viết trước khi 2 mã này ra đời). Không bên nào bị mất nội dung.
+
+**Xung đột NGỮ NGHĨA `tsc`/`eslint` KHÔNG bắt được, chỉ `jest` bắt** — bài học chính của lượt này: `order-groups.service.ts` git auto-merge SẠCH (không conflict marker), nhưng 2 thay đổi của 2 nhánh tương tác với nhau: `pickItem()` (từ `main`) gọi `getPackableItemDetail()` → `getPackableItemsForGroup()`, mà hàm này vừa bị BE-1 (từ `thi_dev`) siết lại — ném `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` nếu SKU chưa có hồ sơ kho `ready`. Hệ quả: `order-groups.service.pickItem.spec.ts` (mock `productMasterModel.find` trả `[]`, viết TRƯỚC khi có BE-1) fail 2/2 — readiness chặn trước, không bao giờ tới bước kiểm tra SKU thuộc group.
+
+- **Cách sửa đã chọn**: sửa MOCK trong spec (trả hồ sơ `ready` đủ số đo + `is_fragile`), KHÔNG đổi thứ tự kiểm tra trong `pickItem()` — mục đích test là bước validate SKU thuộc group, readiness chặn sớm chỉ là nhiễu do mock cũ; đổi code production để test xanh sẽ là sửa sai chỗ.
+- **Quy tắc rút ra**: sau MỌI lần merge/rebase có auto-merge file service (kể cả khi git báo sạch, kể cả khi `tsc` + `eslint` 0 lỗi), BẮT BUỘC chạy `jest` toàn bộ — 2 nhánh sửa 2 hàm gọi nhau là lớp lỗi duy nhất chỉ test runtime mới lộ ra.
+
+**Verify sau khi gộp**: `tsc --noEmit` 0 lỗi, `npm run lint:ci` 0 lỗi (43 warning `explicit-function-return-type` đều nằm trong `src/modules/storefront/` — nợ có sẵn từ commit storefront `3c0291c` trên `thi_dev`, không phải phát sinh từ lượt gộp này), `jest` **19/19 suite, 164/164 test pass**.
+
+**Lần gộp thứ 2 (21/09/2026, commit `5b6c15d` AOFP-35 — đảo luồng: lấy hàng trước, quyết định đóng gói sau)**: `main` tách logic tra Product Master thành `mapSkuQuantitiesToPackableItems()` (dùng chung cho `getPackableItemsForGroup()` và `getActuallyPickedItemsForGroup()`), nhưng lại đưa số đo mặc định 20 cm / 0,5 kg / `is_fragile=false` trở lại. Cách gộp: giữ cấu trúc hàm mới của `main`, áp lại kiểm tra hồ sơ `ready` của BE-1 bên trong hàm dùng chung (nên cả 2 nguồn gọi đều bị chặn), sửa test `dimension bị thiếu` của `main` sang kỳ vọng `ORD_GROUP_PACKAGING_PROFILE_NOT_READY` (vẫn là 422 rõ ràng, không phải 500). Verify: `tsc` 0 lỗi, eslint `order-groups`/`packaging` 0 lỗi, `jest` 19/19 suite, 170/170 test.
+
+### Lần gộp thứ 3 (23/09/2026, `main` commit `68c1e4b` + `021c6a3` — sửa 18 mục FE báo)
+
+11 file conflict. Cách giải quyết: **giữ luồng mới của `thi_dev`** (engine 3D, mỗi đơn một kiện, lấy hàng đối soát theo lượt), **ghép thêm tính năng thật của `main`**:
+
+- `rejection_reason` bắt buộc khi `reject` → lưu trên bản bị từ chối, trả ra `rejectionReason`, thông báo Admin (`packaging_rejected`).
+- `generate` thông báo Packaging Staff (`pending_approval`) — viết lại cho nhiều đơn (`notifyPendingPlan`), không dùng `box_size` của bản cũ.
+- `pack` mở thêm role `PACKAGING_STAFF` (route nằm ở `PackagingPackController` của nhánh mình, không phải `order-groups.controller.ts` như `main`).
+- Enum notification: giữ cả `MFA_DISABLED`, `LOW_BOX_STOCK` (của mình) lẫn `PACKAGING_REJECTED` (của `main`); `recipient_role` đổi sang `type: Number` + script `migrate-notification-role-types.ts` của `main` giữ nguyên.
+
+**KHÔNG lấy `resolveItemsForPackaging()` (fallback khi group không có `pick_events`)** — BE-4a đã đổi `pick` thành `confirmPicked()` đối soát đủ số đã quét, nên group **không thể** vào `picked` mà không có event; fallback đó giờ chỉ che lỗi dữ liệu. Nếu sau này mở lại nút "xác nhận hàng loạt", phải thêm lại đường này cùng một quyết định rõ ràng.
+
+**Lỗi thật trên `main` phát hiện khi gộp**: commit `021c6a3` **ghi đè `INTEGRATION_GUIDE_ORDERS.md` bằng nội dung của `INTEGRATION_GUIDE_FULFILLMENT.md`** (2 file giống hệt nhau, 582 dòng, cùng tiêu đề "Fulfillment & Warehouse"). Bản gộp giữ lại file Orders đúng của `thi_dev` — cần báo team để không ghi đè lại lần nữa.
+
+**2 lỗi tự gây ra khi gộp, tự phát hiện + sửa** (ghi lại để không lặp):
+1. Regex `<<<<<<< HEAD(.*?)=======` không neo đầu dòng → khớp nhầm vào **dòng kẻ banner comment** `* ====...====` trong chính file service, nuốt mất phần khai báo `async getOrCreatePackingGuide(...)`, `tsc` mới báo "Property does not exist". **Quy tắc**: khi giải conflict bằng script, luôn neo `^<<<<<<< HEAD$` / `^=======$` / `^>>>>>>>` theo chế độ multiline, và chạy `tsc` ngay sau đó.
+2. Auto-merge để lại **2 dòng `NotificationsModule` trùng nhau** trong `packaging.module.ts` và **2 khối gán `notificationsService`** trong spec — cả hai đều hợp lệ về cú pháp, chỉ `tsc`/đọc lại mới thấy.
+
+**Verify sau gộp**: `tsc --noEmit` 0 lỗi, `lint:ci` 0 lỗi (43 warning storefront có sẵn), `jest` **23/23 suite, 250/250 test**.
+
+## Rà logic AI Packaging + đồng bộ docs theo luồng lấy hàng trước (21/09/2026)
+
+Rà toàn bộ code packaging/order-groups + 3 docs thuật toán. User chốt: (1) luồng **lấy hàng trước** là chính thức; (2) phạm vi kiện **mỗi đơn một kiện**; (3) đợt code tới gồm sửa lỗi logic + validator hình học + greedy 3D cơ bản (BE-3a/BE-4a, ghi trong roadmap mục 5–6).
+
+**Điểm yếu xác nhận bằng code (chưa sửa code, đợt này chỉ sửa docs):**
+
+- `fallback-packaging.util.ts` chỉ so tổng thể tích +10% với 3 thùng cố định, comment cũ gọi sai là FFD; món 100×1×1 cm vẫn vào thùng 20 cm; quá cỡ vẫn trả Large, không tầng nào xử lý "multi-package".
+- `approve()/adjust()` bắt nhập cân thật trước khi đóng, so với cân hàng thuần (không cộng bì/vật tư) → đơn quần áo nhẹ gần như luôn `is_abnormal`; `is_abnormal` chỉ log, không notify.
+- `getActuallyPickedItemsForGroup()` cộng mọi `pick_events` của group (không theo lượt) → sau `decidePartial(false)` lấy lại sẽ đếm gấp đôi; không lọc lại đơn bị hủy sau khi đã quét; `pickItem()` không chặn quét vượt số đặt; trừ tồn và ghi event không cùng transaction.
+- Endpoint `pick` chỉ đổi trạng thái, không đối soát đủ hàng; group `picked` không có event → lỗi `ALL_ORDERS_CANCELED` (sai nghĩa).
+- `generate` không transaction (deactivate → create → transition); `approve/adjust/reject` cập nhật thẳng theo `__v`, không qua `isValidStatusTransition()`.
+- `adjust` không kiểm tra thùng nhập tay có chứa vừa hàng, không tính lại phí/vật tư, không lưu `adjustment_reason`.
+- Phí ship = cân hàng × 15.000 đ/kg, bỏ khối lượng quy đổi và bì.
+- Tính gợi ý cho cả group thành một thùng — mâu thuẫn quyết định mỗi đơn một kiện.
+
+**Docs đã sửa (21/09):** roadmap (mục 1, 2, 5 BE-3a, 6 BE-4a, 7), `AI_3D_PACKAGING_OPTIMIZATION.md` (flow + hiện trạng), `INTEGRATION_GUIDE_FULFILLMENT.md` (v3.4: thứ tự A.1, A.4, Nghiệp vụ 1/2/3, sơ đồ C.1/C.2), `API_LIST.md` (mục 6, 8; `be/API_LIST.md` chỉ là file trỏ, không cần sửa), Swagger summary của `pick`/`pack`/`generate`/`approve`/`reject`/list, comment đầu `fallback-packaging.util.ts`. Kế hoạch implement tiếp theo (mỗi bước 1 commit): A — sửa luồng lấy hàng (round, chặn vượt số đặt, transaction, `pick` đối soát đủ); B — `packaging/engine/` validator + greedy 3D mm/g, không trả Large khi quá cỡ; C — recommendation theo từng đơn (`order_id`), adjust qua validator, cân kiện tại `pack`; D — cập nhật docs theo code mới.
+
+## Engine đóng gói 3D + animation — ĐÃ TRIỂN KHAI (21/09/2026, BE-3a/BE-4a)
+
+Theo plan đã duyệt (user: 3D hiển thị trên web ở màn duyệt + màn đóng gói; user sẽ gửi danh mục thùng thật). "AI" ở giai đoạn này = **thuật toán tìm kiếm heuristic có validator**, không phải ML (ML ranker cần lịch sử approve/adjust thật, để sau).
+
+**Backend**
+- **Bước 0 — mở khóa dữ liệu**: trước đợt này KHÔNG có API nào đặt `packaging_profile_status = ready` → mọi `generate` đều 422. Thêm `product-master.controller.ts` (`GET /product-master?status=`, `PUT /product-master/:id/packaging-profile`), field mới `orientation_rule`, `max_stack_load_kg`, `profile_confirmed_by/at`. **Bug thật đã sửa**: `syncProductsForShop()` `$set` status `needs_measurement` ở MỌI lượt sync → reset hồ sơ đã xác nhận mỗi ngày; chuyển sang `$setOnInsert`. Danh mục thùng `packaging_boxes` (mm/g, `is_sample`) + `GET/POST/PATCH /packaging/boxes` + `scripts/seed-packaging-boxes.ts` (không tham số = 3 thùng mẫu; có CSV cm/g = nhập thùng thật). `PackableItem` chỉ THÊM 2 field optional.
+- **Bước A — lấy hàng (BE-4a)**: `pick_round` trên group + pick_event; `decidePartial(false)` mở lượt mới; `pickItem()` chỉ khi `picking`, không đi qua Product Master (lấy hàng không cần hồ sơ đóng gói), chặn quét vượt số đặt, trừ tồn + ghi event trong 1 transaction (chạm `last_picked_at` của group để 2 lần quét đồng thời xung đột ghi → withTransaction chạy lại); `confirmPicked()` cho route `pick` đối soát đủ. 4 mã lỗi mới `ORD_GROUP_PICK_*`/`NO_PICK_EVENTS`.
+- **Bước B — engine** `packaging/engine/` (hàm thuần): `units.ts` (cm→mm làm tròn lên, nở `item_key`), `validator.ts` (đủ món, biên, AABB, hướng, đỡ toàn đáy, tải chồng chia theo diện tích tiếp xúc, tải thùng), `greedy-packer.ts` (điểm thử = tích Descartes tọa độ, z→y→x, thùng theo thể tích ngoài tăng dần, deadline 2 s, ≤30 món, không thùng hợp lệ → `no_fit`). Benchmark: 30 món ≤10 ms. Fixture docs §7 (A1/A2/B1 → thùng M, tọa độ đúng tính tay, 53,03%) và §7.5 (áo trên hộp giày z=120) đều khớp.
+- **Bước C — mỗi đơn một kiện**: `allocatePickedItemsToOrders()` chia số đã quét về từng đơn (đơn tạo trước ưu tiên); recommendation có `order_id`, `placements[]`, `solution_status`, cân ước tính hàng + bì, phí ship `null` (bỏ 15.000 đ/kg); generate/approve/reject/pack đều transaction + `isValidStatusTransition()`; adjust = chọn `box_code` trong danh mục, phải qua validator; `pack` (chuyển sang `PackagingPackController`, giữ URL cũ) nhận cân từng kiện, lệch >20% → `is_abnormal` + notify Store Owner. Đã XÓA `fallback-packaging.util.ts` (chỉ so thể tích, không có tọa độ nên không thể qua validator). Index mới `uniq_active_per_order`; **phải chạy 1 lần** `scripts/migrate-packaging-recommendation-index.ts` để drop index cũ `order_group_id_1`.
+
+**Frontend** (`fe/`): `types/packaging.ts`, `api/packaging.api.ts`, `hooks/usePackagingPlan.ts`, `components/packing/PackingAnimation3D.tsx` (R3F, món rơi theo `step`, Play/Pause/Bước trước-sau/tốc độ/xoay camera, danh sách bước bấm để nhảy), trang `/app/packing/groups` + `/app/packing/groups/:groupId` (tab mỗi đơn, duyệt/đổi thùng/từ chối, nhập cân từng kiện). RBAC thêm prefix `/app/packing/groups` cho Warehouse Staff; sidebar thêm mục "Kế hoạch đóng gói 3D". `PackingDashboard.tsx` (mock) giữ nguyên.
+
+**Verify**: BE `tsc` 0 lỗi, `lint:ci` 0 lỗi (43 warning storefront có sẵn), `jest` 21/21 suite 200/200 test. FE `npm run build` (tsc -b + vite) sạch, eslint file mới 0 lỗi. **Chưa** chạy thử end-to-end trên trình duyệt với dữ liệu thật.
+
+**Tồn kho thùng + chọn thùng tối ưu — ĐÃ TRIỂN KHAI (22/09/2026)**. [stated] User chốt: (1) gộp tồn kho vào `packaging_boxes` và **gỡ module `materials`** (`carton_materials` trống, không màn hình nào dùng — tránh 2 danh mục thùng lệch nhau); (2) trừ tồn **lúc `pack`**, lúc chờ duyệt chỉ **giữ chỗ mềm**; (3) thùng vừa nhất hết hàng → **tự chọn thùng còn hàng kế tiếp** và ghi lý do; (4) mục tiêu tối ưu = **thùng nhỏ nhất** (thể tích ngoài), hòa thì rẻ hơn.
+- `packaging_boxes` thêm `quantity_on_hand`/`reorder_level`/`storage_location`; collection mới `packaging_stock_movements` (sổ xuất/nhập, index `{box_id, created_at:-1}`). Tồn CHỈ đổi qua `POST /packaging/boxes/:id/stock-in` hoặc `pack` (mỗi lần 1 dòng sổ, cùng transaction), PATCH không sửa tồn.
+- `PackagingBoxService.listAvailability({groupId?|recommendationId?})`: `available = tồn − số recommendation active, ok, pending/approved/adjusted, chưa packed`; loại trừ group đang generate lại / phương án đang adjust. Thùng cũ chưa có field tồn → `.lean()` không điền default → coi là 0 (đã chặn NaN lọt thành "còn hàng"); `seed-packaging-boxes.ts` backfill field + nhập 50 thùng mẫu qua `stockIn`.
+- Engine: `packOrder(..., { availability })` chỉ chọn thùng `available > 0`, thùng nhỏ hơn vừa mà hết → `preferred_box_out_of_stock`; **multi-start** 4 thứ tự xếp mỗi thùng (thể tích, diện tích đáy, cạnh dài, chiều cao). Đã dò được ca thật (thùng 40×40×50, 4 món đặt đứng) mà thứ tự thể tích hụt còn multi-start xếp vừa — có test.
+- `generate` xếp tuần tự từng đơn, trừ dần map còn trống (2 đơn không giành 1 thùng cuối). `adjust` sang thùng hết → 409 `PKG_BOX_OUT_OF_STOCK`. `pack` gọi `consumeForPack` trong transaction (thiếu → rollback, không `packed`); vượt ngưỡng `reorder_level` lần đầu → Notification `low_box_stock` cho Admin + Store Owner.
+- FE: `/app/admin/boxes` có cột tồn (trống/tồn/giữ chỗ, badge sắp hết/hết), panel nhập thùng + sổ (`BoxStockPanel`), form mức cảnh báo/vị trí; trang kế hoạch hiện tồn thùng đang dùng, cảnh báo thùng vừa hơn đã hết, khóa thùng hết hàng khi adjust.
+- Verify: BE `tsc` 0 lỗi, `lint:ci` 0 lỗi, `jest` 23/23 suite 236/236; FE `tsc -b` + eslint sạch. Chạy `seed-ai-guide-demo.ts` thật (SAMPLE-M = 0, L = 11): đơn DEMO-AI-22 vừa M nhưng M hết → sang L, ghi đúng "SAMPLE-M vừa hơn nhưng hết hàng". **Chưa gọi `pack` thật** để thấy trừ tồn/thông báo trên DB (chỉ có unit test).
+
+**Còn thiếu / cần user cung cấp**: danh mục thùng thật (trong/ngoài cm, bì g, tải g, giá), số đo từng SKU sau gấp/bọc + quy cách xếp, danh mục vật tư (g, giá), đơn vị vận chuyển + hệ số quy đổi + bảng cước. Giới hạn còn lại: chưa có nhánh túi mailer, chia nhiều kiện, snapshot/version hồ sơ, job tự động (BE-5). ✅ Đợt tiếp theo cùng ngày đã sửa: `picking-list` không còn bắt hồ sơ đóng gói (`PickableItem`/`getPickableItemsForGroup()`, có `picked_quantity`); thêm FE `/app/admin/boxes` (danh mục thùng thật — trang "Templates đóng gói" cũ vẫn là mock, chưa gộp) và `/app/inventory/packaging-profiles` (kho đo SKU).
+
+## Hướng dẫn đóng gói từng bước bằng AI cho animation 3D (21/09/2026)
+
+**[stated] Quyết định của user**: animation 3D ở FE phải hướng dẫn từng bước và "bắt buộc dùng AI". Đã hỏi lại, user chọn **cả hai**: thuật toán quyết định hình học, mô hình ngôn ngữ viết lời. **ĐÃ THAY ĐỔI cùng ngày**: ban đầu chọn OpenAI, sau đó user thấy tốn tiền (gói ChatGPT Plus KHÔNG kèm API, API tính tiền riêng theo token) → chuyển sang Gemini miễn phí + Ollama dự phòng, rồi **user chốt lần cuối: bỏ cả Gemini lẫn Ollama, chỉ dùng Groq** (bậc miễn phí). Ollama cài thử lên máy dev trong lúc đó đã được gỡ.
+
+**Ranh giới trách nhiệm (không được đảo)**: engine greedy 3D + validator quyết định thùng/vị trí/xoay/thứ tự. `engine/packing-guide.ts` (hàm thuần) đổi toạ độ thành dữ kiện dạng chữ (góc nào, đặt lên món nào, cách xoay, dễ vỡ, cấm chồng) và dựng câu mẫu. `PackingGuideAiService` gửi dữ kiện đó cho mô hình ngôn ngữ để viết lại lời — **không gửi thông tin khách hàng**, mô hình không tính cách xếp.
+
+**Gọi AI**: `config/ai.config.ts` trả `ai.provider` = Groq khi `AI_API_KEY` khác rỗng, ngược lại `null` → câu mẫu. Mặc định `AI_BASE_URL=https://api.groq.com/openai/v1`, `AI_MODEL=openai/gpt-oss-120b` (**ĐÃ THAY ĐỔI lần 2, 21/09/2026**: user yêu cầu đổi khỏi qwen; gọi thật ~4,6 s, qua `parseGuide()`, đủ ý bọc xốp/sát đáy). **ĐÃ THAY ĐỔI lần 1**: mặc định ban đầu `llama-3.3-70b-versatile` bị Groq ngừng (gọi thật trả HTTP 404); tra `GET /openai/v1/models` bằng key thật, thử `openai/gpt-oss-120b` (~3 s) và `qwen/qwen3.8-27b` (~0,9 s) — cả hai qua `parseGuide()`, chọn qwen vì nhanh hơn và câu tiếng Việt tự nhiên hơn. Lần đầu cả hai bỏ sót "bọc xốp hơi"/"sát đáy thùng" → đã thêm 2 quy tắc vào SYSTEM_PROMPT, chạy lại đều đủ ý. Model Groq thay đổi theo thời gian: gặp 404 thì tra lại `/models`. Gọi chuẩn Chat Completions bằng `axios` có sẵn — **không thêm SDK**. Gửi `response_format: json_schema`; HTTP 400 thì thử lại 1 lần với `json_object`. `extractContent()` chịu được khối ```json bao quanh. Schema để `tip` là string, chuỗi rỗng → null.
+
+**Chốt an toàn**: `parseGuide()` bắt buộc đủ số bước, đúng thứ tự, mỗi câu chứa nguyên văn SKU của bước; sai → câu mẫu. `model` lưu dạng `nhà-cung-cấp/model`. `fallback_reason`: `no_api_key` | `ai_error` | `ai_invalid_output`.
+
+**Lưu trữ**: sub-schema `packing_guide` trên `packaging_recommendations`, bị đặt `null` trong `resultToFields()` mỗi khi `generate`/`adjust` đổi phương án. Endpoint `POST /order-groups/:groupId/packaging/:recommendationId/guide` (Packaging/Warehouse/Admin, `@Throttle` 10/phút, `regenerate` tuỳ chọn), lỗi mới `PKG_GUIDE_NOT_AVAILABLE` (409, đơn `no_fit`).
+
+**FE**: `PackagingPlanPage` tự tạo hướng dẫn lần đầu khi mở đơn, nhãn "AI · nhà-cung-cấp/model" hoặc "Câu mẫu", nút viết lại; `PackingAnimation3D` nhận `guideSteps`, hiện câu + lưu ý của bước hiện tại dưới khung 3D, làm nổi món vừa đặt và làm mờ món các bước trước.
+
+**Khi trình bày**: nói đúng — "thuật toán tối ưu xếp hộp + mô hình ngôn ngữ viết hướng dẫn", không nói AI tự tính cách xếp.
+
+Verify: BE `tsc` 0 lỗi, eslint `packaging`/`config` 0 lỗi, `jest` 23/23 suite, 215/215 test. FE `tsc -b` + eslint 0 lỗi trên các file đã sửa. **Đã gọi thử Groq thật (21/09/2026)** với đơn mẫu 2 hộp giày + 1 áo qua engine thật: `source: 'ai'` với cả qwen (~0,9 s) và gpt-oss-120b (~4,6 s, model hiện dùng).
+
+**Đã dọn máy dev (21/09/2026)**: theo yêu cầu user, đã xóa model `qwen2.5:7b`, gỡ Ollama (winget) và xóa thư mục `~/.ollama` cài trong lượt thử trước.
+
+## Túi zip bọc hàng + hình 3D theo loại sản phẩm (21/09/2026)
+
+**[stated] Quyết định của user (đã hỏi lại trước khi code)**: (1) kích thước gói sau khi cho vào túi zip và gập đôi do **kho đo trực tiếp** (không suy ra từ kích thước túi) — đúng roadmap 12/09 "không đoán số đo"; (2) túi zip có **danh mục riêng** như thùng carton; (3) danh sách loại sản phẩm: áo thun, áo sơ mi, áo khoác, quần đùi/short, quần dài/jean, váy/đầm, giày (hộp), dép/sandal, phụ kiện, khác; (4) hình 3D dùng **file mô hình có sẵn** (không tự vẽ bằng code).
+
+**Backend**: collection mới `packaging_bags` (`code`, `name`, `width_mm`, `length_mm` trải phẳng, `price_vnd`, `is_sample`, `is_active`; unique `code`) + `/packaging/bags` (GET Packaging/Warehouse/Store Owner/Admin; POST/PATCH Admin). Enum dùng chung `common/enums/product-category.enum.ts` (+ nhãn tiếng Việt). `ProductMaster` thêm `product_category`, `zip_bag_code`, `zip_bag_folded`; `PUT /product-master/:id/packaging-profile` bắt buộc `product_category`, kiểm tra túi đang dùng (`PM_ZIP_BAG_NOT_FOUND` 422). `ProductMasterModule` chỉ đăng ký model `PackagingBag` để đọc — **không import PackagingModule** (tránh vòng phụ thuộc). `PackableItem` thêm 3 field optional; recommendation chụp `item_profiles[]` lúc generate/adjust (engine KHÔNG dùng — hình học vẫn theo `dimension` đã đo). Hướng dẫn: dữ kiện thêm `product_type` + `zip_bag`; câu mẫu và lời nhắc AI bắt đầu bằng "Cho … vào túi zip …, gập đôi túi".
+
+**Frontend**: form hồ sơ SKU thêm loại/túi/gập đôi; `ZipBagCatalog` gắn vào `/app/admin/boxes`; `PackingAnimation3D` nhận `itemProfiles`, `ProductModel3D` tải GLB theo loại, thử 6 hướng xoay vuông góc chọn hướng vừa khối nhất, thu phóng ĐỀU (không méo); túi zip = lớp nhựa trong + đường khoá kéo (+ nếp gập), giày = hộp carton; tải lỗi → khối màu (ErrorBoundary). Bảng loại → file ở `components/packing/product-models.ts`.
+
+**Mô hình 3D**: GLB từ Poly Pizza trong `fe/public/models/` — giấy phép **CC-BY 3.0** (bắt buộc ghi công; màn hình có dòng ghi công trỏ `fe/public/models/CREDITS.md`), áo khoác Public Domain. **ĐÃ THAY ĐỔI 22/09/2026**: `jeans.glb` thực chất là **xe Jeep "Mom's Wrangler"** (nhận nhầm là quần jean chỉ vì tên file) → đã xóa; quần dài/quần đùi giờ **vẽ bằng code** (`FoldedPants3D.tsx`, 3 lớp vải so le + cạp + túi + đường gập). Bài học: chọn mô hình 3D phải xem hình/vật liệu, không tin tên file. Hàng mềm (áo) kéo giãn theo từng trục cho khít khối engine tính (`stretch: true` ở `product-models.ts`); hàng cứng (giày, sandal, kính) thu phóng đều. Sơ mi dùng áo gấp đổi màu; váy/khác là khối hộp. 5 file GLB có sẵn trước đó (`shirt/trousers/backpack/hat/glasses.glb`) thuộc Hero 3D landing page, không đụng tới, giấy phép chưa rõ.
+
+**Quần áo luôn nằm phẳng + gập đôi khi cần (22/09/2026, user chốt — thay câu hỏi còn treo về `orientation_rule: any` dựng đứng)**:
+- `engine/units.ts` `FLAT_CATEGORIES` (`t_shirt`, `shirt`, `jacket`, `shorts`, `trousers`, `dress`) luôn dùng `UPRIGHT_ORIENTATIONS`, bỏ qua `orientation_rule` đã lưu — không cần migration.
+- Cờ `can_fold_in_half` trên `ProductMaster` (DTO optional, response `canFoldInHalf`; bật cho `shoes` → 422 `PM_FOLD_NOT_ALLOWED`). Số đo gập do **hệ thống tự tính** (`foldUnit()`: cạnh dài hơn trong dài/rộng ÷ 2 làm tròn lên, độ dày × 2, cân giữ nguyên).
+- `packOrder()`: mỗi thùng (nhỏ → lớn) thử bộ món nguyên trạng trước, hụt mới thử `foldVariants()` (gập dần món gập được, lớn trước). Nghĩa là **chỉ gập khi nhờ đó dùng được thùng nhỏ hơn**. `adjust` cũng đi qua `packOrder` với 1 thùng nên cũng được gập.
+- `placements[].folded` (schema + response); hướng dẫn: `folded_in_half` trong dữ kiện, câu mẫu/lời nhắc AI "gập đôi … theo chiều dài trước khi đặt".
+
+**Trang đóng gói từng bước** `/app/packing/groups/:groupId/orders/:recommendationId` (`PackingWizardPage.tsx`, toàn màn hình, user chốt "mỗi bước một màn hình"): màn Chuẩn bị → mỗi bước một màn (`PackingStepView` — 3D tới bước đó, món mới nổi bật; câu chữ to; nhãn loại/túi zip/Gập đôi) → màn cuối checklist + nhập cân mọi đơn của group, gọi `pack` khi `approved_for_packing` và role Admin/Warehouse. Nút Trước/Sau, chấm tiến độ, phím ←/→. Nút mở ở `PackagingPlanPage`. Form hồ sơ SKU có checkbox "Có thể gập đôi" (khóa với giày).
+
+**Dữ liệu demo** (`scripts/seed-ai-guide-demo.ts`, shop `DEMO-AI-GUIDE`, 4 group): group 1 = 1 quần jean → gập đôi vừa thùng M (tồn M = 1, group này giữ chỗ nên các group sau thấy M hết → "thùng vừa hơn đã hết").
+
+Verify (22/09/2026, sau đợt nằm phẳng/gập đôi/trang từng bước): BE `tsc` 0 lỗi, `lint:ci` 0 lỗi, `jest` 23/23 suite, 245/245 test; FE `tsc -b` + eslint 0 lỗi. Đã kiểm tra DB: mọi placement quần áo có `dz` = độ dày, đơn jean `SAMPLE-M` 300×190×120 `folded: true`. Lượt 21/09: `jest` 23/23 suite, 221/221 test đạt (thêm test hồ sơ túi zip, dữ kiện/câu mẫu túi zip, `item_profiles`). FE `tsc -b` + eslint 0 lỗi. Đã gọi Groq thật với group toàn quần áo đóng túi: `source: 'ai'`, câu nhắc đúng túi + gập đôi. **Chưa xem animation bằng mắt** (không có trình duyệt trong phiên) — user cần kiểm tra hình hiển thị.
 ## 📋 TỔNG KẾT — Toàn bộ lỗ hổng phát hiện khi đảo luồng Picking/Packaging (20-21/09/2026) + QUY TRÌNH TỐT HƠN cho lần sau
 
 ### Danh sách đầy đủ — lỗi gì, ai/khi nào phát hiện, đã sửa chưa
@@ -2342,6 +2435,307 @@ Nhìn lại, cả 8 lỗi trên rơi vào ĐÚNG 3 nhóm nguyên nhân gốc —
 
 **Cập nhật (21-22/09/2026) — TOÀN BỘ 18 mục trong "bản chốt" của FE đã code xong, xác nhận `tsc`/`eslint`/`jest` sạch (17/17 suite, 167/167 test), đã chạy migration DB thật (13 bản ghi `recipient_role` string→number đã sửa), đã commit/push.** Chi tiết đầy đủ từng mục xem `git log` các commit `AOFP-36`/`AOFP-37` — không lặp lại ở đây, chỉ giữ bảng lỗi + quy trình bên trên làm tài liệu tham khảo cho lần sau.
 
+## Hoàn thiện AI Packaging + Shipping + Tài liệu in — kế hoạch 28/09/2026, P1 (vật tư chèn) ĐÃ XONG
+
+Khảo sát 28/09 xác nhận 4 khoảng trống so với đề bài: vật tư chèn, số kiện, phí ship/hãng/ETA, tài liệu in (slip/label/QR/manifest). User chốt: làm cả 4 mảng theo thứ tự **P1 vật tư → P2 nhiều kiện → P3 phí ship + hãng → P4 tài liệu in → P5 đồng bộ docs**; nhiều kiện = *đề xuất + xử lý tay* (🔄 ĐÃ THAY ĐỔI quyết định 12/09 "mỗi đơn một kiện" thành "mỗi đơn N kiện", N ≤ 5, khi đến P2 — **chưa áp dụng ở code**, hiện vẫn mỗi đơn một kiện); dữ liệu vật tư/bảng cước dùng **số mẫu `is_sample`**. Kế hoạch chi tiết: `C:\Users\Admin\.claude\plans\c-nghi-n-c-u-v-adaptive-cat.md`.
+
+**P1 — ĐÃ TRIỂN KHAI (28/09/2026):**
+- Collection mới `packaging_materials` (5 loại: `foam_corner`, `corrugated_divider`, `air_pillow`, `bubble_wrap`, `fragile_tape`; tồn + `reorder_level`), `packaging_material_movements` (sổ riêng, không đụng sổ thùng), `packaging_material_rules` (bộ luật có version, mỗi lần lưu = document mới, bản cũ tắt; chưa có → dùng `DEFAULT_MATERIAL_RULES` trong code). Routes `/packaging/materials` (+ `/rules` GET/PUT) — chi tiết `API_LIST.md` mục 8e.
+- Engine: `engine/material-selector.ts` (`selectMaterials`, hàm thuần) — luật gồm `applies_to` (fragile/shoes/fragile_or_shoes/any) × `basis` (per_unit/per_extra_unit/per_carton/void_band). `packOrder` nhận `options.materials`; `buildOk` cộng khối lượng vật tư vào `estimated_package_weight_g`, trả `materials_weight_g/materials_cost_vnd`. `PackingUnit.product_category` (mới) để luật nhận ra giày.
+- **Vật tư là ƯỚC LƯỢNG THEO LUẬT, không vào hình học** (không chiếm thể tích trong validator, chưa mô hình hóa khoảng đệm) — khi trình bày phải nói đúng như vậy; các dải `void_band` (50%→2, 70%→4) và số lượng mặc định là số khởi đầu chưa hiệu chỉnh.
+- **Thiếu vật tư KHÔNG chặn `pack`** (khác thùng hết → 409 `PKG_BOX_OUT_OF_STOCK`): trừ `min(cần, tồn)`, ghi `materials_shortfall` trên recommendation + Notification `low_material_stock` (Admin + Store Owner; cũng báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần). Vật tư **không giữ chỗ mềm**.
+- Hướng dẫn đóng gói: `buildTemplateGuide`/`PackingGuideInput` nhận `materials[]` thay `bubble_wrap_count`; AI được nhắc liệt kê đúng vật tư trong `summary`.
+- FE: `MaterialCatalog` (trong `/app/admin/boxes`, gồm xem luật), `StockPanel` (dùng chung với `BoxStockPanel`), bảng vật tư + chi phí ở `PackagingPlanPage`, danh sách vật tư ở màn Chuẩn bị của wizard. **Chưa vẽ vật tư trong animation 3D.**
+- Seed: `npx ts-node scripts/seed-packaging-materials.ts` (chưa chạy trên DB thật; chỉ tạo mã chưa có, an toàn chạy lại).
+- Verify: BE `tsc` 0 lỗi, `eslint` module packaging/notifications 0 lỗi, `jest` 25/25 suite 276/276 test; FE `tsc -b` + `npm run build` + eslint file đã sửa sạch. **Chưa** chạy end-to-end với DB thật, chưa xem giao diện bằng mắt, chưa boot thử Nest app (wiring module chỉ kiểm bằng đọc code).
+- Bài học lặp lại: thêm dependency `PackagingMaterialService` vào constructor `PackagingService` làm 21 test cũ fail vì spec thiếu mock provider — đúng cảnh báo "thêm dependency thì rà spec ngay". Lint `no-unnecessary-condition` bắt `?? 0` trên field schema không-null (document hydrate đã tự áp default).
+
+## Tích hợp sàn thứ 2 — AURELLE (29/09/2026, Giai đoạn 2 theo `AURELLE_MARKETPLACE_DESIGN.md`)
+
+**[stated] Bối cảnh**: nhóm đối tác AURELLE giao tài liệu thiết kế `AURELLE_MARKETPLACE_DESIGN.md` (v2.2, gốc để ở `C:\Users\Admin\Desktop\Mao\OptiPackAI\`, chưa copy vào repo) — Open API của AURELLE **cố ý dựng byte-for-byte tương thích Lazada Open Platform** (cùng thuật toán ký HMAC-SHA256, cùng vỏ response, cùng tên field đơn/dòng hàng/sản phẩm) để OptiPack tái dùng gần như nguyên vẹn code Lazada đang chạy sống, không viết lại từ đầu. Tài liệu tự chia 5 giai đoạn (Mục 12): (1) AURELLE dựng BE, (2) AURELLE làm OAuth+API đọc / OptiPack tách adapter dùng chung, (3) webhook+outbox, (4) API ghi trạng thái+tồn, (5) liên kết cùng người nhận (độc lập AURELLE, làm song song được). **Đã làm xong Giai đoạn 2 phía OptiPack** (Mục 9.3 — 11 file đổi + `AurelleAdapter` mới) và cả 2 script Mục 14. **CHƯA làm Giai đoạn 3-5** — webhook cần AURELLE BE thật tồn tại trước (Giai đoạn 1 bên AURELLE chưa xong theo tài liệu), liên kết cùng người nhận (Mục 9.5, field `recipient_key` mới trên `OrderGroup`, khái niệm `shipments`/`delivery_trip` hoàn toàn chưa tồn tại trong code) là 1 tính năng lớn riêng, để làm đợt sau.
+
+### Kiến trúc tái dùng — composition, không kế thừa
+
+Tách `LazadaProtocolClient` (file mới `marketplace-integration/adapters/lazada-protocol.client.ts`, class thuần, KHÔNG `@Injectable()`) khỏi `LazadaAdapter` — chứa toàn bộ "giao thức dây" dùng chung: `generateSign()`, `callSignedGet()` (retry backoff cũ), `callSignedPost()` (POST tới `authBaseUrl` — đổi/làm mới token), **`callSignedApiPost()` MỚI** (POST tới `apiBaseUrl` — cần cho các API ghi của AURELLE, Lazada hiện chưa dùng), `getOrders/getOrderItems/getProducts`, `mapTokenResponse()`. `LazadaAdapter` (`@Injectable()`) giờ **compose** 1 instance `LazadaProtocolClient` cấu hình theo host/key Lazada; `AurelleAdapter` (file mới `aurelle.adapter.ts`) compose 1 instance KHÁC cấu hình theo host/key AURELLE (`config/marketplace.config.ts` thêm block `aurelle`). Chọn composition thay vì kế thừa vì 2 adapter có method RIÊNG không dùng chung (`AurelleAdapter` có thêm `acknowledgeOrder/updateOrderStatus/updateSellableQuantity/verifyWebhookSignature` — Lazada không có các method ghi này).
+
+### Registry thay vì inject thẳng — đúng thiết kế Adapter Registry đã có sẵn từ 2026-09-09
+
+`MarketplaceAdapter` interface (`marketplace-adapter.interface.ts`) thêm các method **optional** (`getOrders?/getOrderItems?/getProducts?/acknowledgeOrder?/updateOrderStatus?/updateSellableQuantity?`) — optional để adapter TikTok/Tiki cũ (hiện đang tắt, không đăng ký trong module) không bị lỗi biên dịch khi bật lại. `MarketplaceIntegrationModule` đăng ký `AurelleAdapter`, thêm vào factory map `MARKETPLACE_ADAPTERS`, và **lần đầu tiên export `MARKETPLACE_ADAPTERS`** (trước đây chỉ dùng nội bộ module) — để `orders.service.ts`/`product-master.service.ts` inject registry thay vì class cụ thể `LazadaAdapter`. `enums/platform.enum.ts` thêm `AURELLE = 'aurelle'`. Method nghiệp vụ dùng `adapter.getOrders(...)` gọi trực tiếp qua biến `const adapter` (không destructure ra biến rời — tránh lỗi `@typescript-eslint/unbound-method`).
+
+### `orders.service.ts`/`product-master.service.ts` — tổng quát hóa đúng theo mục "Kiến trúc mở rộng đa sàn" đã thiết kế từ 2026-09-09
+
+`syncLazadaOrders(shopId)` đổi thành `syncShopOrders(platform, shopId)` tổng quát, giữ `syncLazadaOrders` làm wrapper 1 dòng gọi `syncShopOrders(LAZADA, shopId)` (không phá route `POST /orders/lazada/sync` cũ) — thêm route mới `POST /orders/:platform/sync` (đăng ký SAU route literal `lazada/sync` để Nest match đúng thứ tự). Thêm `syncSingleOrder(platform, shopId, orderId)` — cho webhook tương lai gọi, hiện chỉ delegate lại `syncShopOrders` đầy đủ (AURELLE không có API lọc theo 1 order_id, dựa vào `last_polled_at`/`update_after` để đơn vừa đổi tự nằm trong lượt sync). `mapLazadaOrder()` thêm tham số `platform` (không đổi tên hàm — hàm này vẫn CHỈ áp dụng cho sàn tương thích khung Lazada, không phải mapper phổ quát). `LazadaOrderSyncScheduler` đổi vòng lặp 1 sàn → lặp `[LAZADA, AURELLE]`, cooldown chống spam Notification giờ khóa theo `platform+shop_id` (trước chỉ `shop_id`). `ProductMasterSyncScheduler` tương tự — **tiện tay vá luôn thiếu `timeZone` đã ghi nợ từ 19/09** (nay đã có từ trước, chỉ audit lại xác nhận đúng, không cần sửa lần nữa). `product-master.errors.ts` thêm `PM_UNSUPPORTED_PLATFORM` — sàn chưa implement `getProducts` (adapter thiếu method optional) bị chặn rõ ràng thay vì lỗi ngầm.
+
+### 2 script Mục 14 — đã giao đủ, đã tự chạy thử thật (không chỉ đọc code)
+
+- **`scripts/aurelle-conformance.ts`** (đứng độc lập, không NestFactory/Mongo — chỉ import thẳng `LazadaProtocolClient`/`mapLazadaOrder` từ `src/`) — ký request đúng thuật toán OptiPack đang dùng, gọi Open API AURELLE thật, kiểm từng field/kiểu dữ liệu theo đúng bảng Mục 14.2, chạy response qua CHÍNH `mapLazadaOrder()` thật (không phải bản rút gọn) để chắc chắn "đọc được" = "OptiPack dùng được ngay", không phải chỉ đúng hình thức JSON. PASS/WARN/FAIL, có FAIL → exit code 1 (dùng được trong CI của AURELLE nếu họ muốn).
+- **`scripts/aurelle-mock-server.ts`** (Express, cổng mặc định 4000 qua `AURELLE_MOCK_PORT`, dữ liệu mẫu cố định trong bộ nhớ — 1 shop/1 đơn/2 dòng hàng/1 sản phẩm) — bản tham chiếu chạy được đúng Mục 7-8, verify chữ ký bằng cách tự khởi tạo `LazadaProtocolClient` với app_key/secret CỦA CHÍNH MOCK rồi gọi `generateSign()` public — **cố ý dùng lại đúng 1 công thức với client thật**, không viết lại HMAC lần 2 (tránh 2 bản có thể lệch nhau nếu chỉ sửa 1 chỗ).
+- **Đã tự chạy thật, không chỉ tin đọc code**: khởi động `aurelle-mock-server.ts` (nền, cổng 4321), chạy `aurelle-conformance.ts` nhắm vào chính server này với `AURELLE_TEST_WRITE=true` → **25 PASS · 0 WARN · 0 FAIL**, bao gồm cả case "ký sai bị từ chối HTTP 400" và cập nhật tồn bán được. Đóng script mock ngay sau khi test xong (đã xác nhận cổng 4321 giải phóng, không để lại process nền).
+
+### Xác nhận phạm vi CHƯA làm, tránh hiểu nhầm "đã xong hết Mục 9.3"
+
+`acknowledgeOrder/updateOrderStatus/updateSellableQuantity` trên `AurelleAdapter` đã VIẾT ĐỦ theo đúng spec Mục 7.6-7.8 (dùng `callSignedApiPost` mới) nhưng **CHƯA có route/service nào gọi tới** — đúng tinh thần "code đủ, không invoke" đã áp dụng cho Fulfillment API Lazada trước đây (`BE_System_Audit/04...md`), vì Giai đoạn 4 (outbox ghi ngược + đối soát) chưa tới lượt theo Mục 12. `verifyWebhookSignature()` trên `AurelleAdapter` đã cài đúng công thức HMAC Mục 8.1 nhưng **chưa có controller webhook nào gọi** — `ProcessedWebhookEvent` (schema có sẵn từ lâu, đã ghi nợ "chưa đăng ký/chưa dùng" trong CLAUDE.md nhiều lần) vẫn ở trạng thái y hệt, chưa đổi.
+
+**Verify cuối**: `tsc --noEmit` 0 lỗi, `npm run lint:ci` toàn `src` 0 lỗi (43 warning `storefront/` có sẵn, không liên quan), `jest` **25/25 suite, 276/276 test pass** — đã chạy trên TOÀN BỘ backend (không chỉ module đụng tới), đúng nguyên tắc "chạy jest sau mỗi lần đổi cross-module/dependency mới" đã rút ra 20/09. **Chưa làm**: đồng bộ `API_LIST.md`/`INTEGRATION_GUIDE_ORDERS.md` (route mới `POST /orders/:platform/sync`, platform `aurelle` trong response `GET /orders`) — để đợt sau cùng lúc với việc quyết định có làm Giai đoạn 3 (webhook) ngay hay đợi AURELLE có BE thật.
+
+**Còn lại:** P2 (nhiều kiện — nhúng `cartons[]` vào recommendation, `packOrderMulti`, xác nhận bắt buộc), P3 (module `shipping/`: hãng, bảng cước, `ship` yêu cầu chọn hãng — 🔄 **ĐÃ THAY ĐỔI 29/09/2026**: collection `shipments` tối giản đã tạo TRƯỚC ở mục dưới đây cho Mục 9.5, P3 sẽ THÊM field carrier/cost/eta/pickup vào ĐÚNG collection này, không tạo mới), P4 (`documents/`: pdfkit + qrcode + bwip-js, font tiếng Việt nhúng), P5 (guide mới `INTEGRATION_GUIDE_SHIPPING.md`, sửa roadmap/`AI_3D_PACKAGING_OPTIMIZATION.md`, giảng giải, dọn interface `PackagingRecommendation` cũ).
+
+## Webhook AURELLE (Giai đoạn 3) + Liên kết cùng người nhận & giao chung chuyến (Mục 9.5) + hủy nhóm tự động N1 (29/09/2026)
+
+Tiếp nối mục "Tích hợp sàn thứ 2 — AURELLE" ở trên (Giai đoạn 2 đã xong) — user yêu cầu thẳng "làm đi giúp tôi" cho 2 phần còn treo: Giai đoạn 3 (webhook) và Giai đoạn 5/Mục 9.5 (liên kết cùng người nhận). Đọc kỹ Mục 12 phát hiện N1 (Mục 9.6 — trạng thái hủy nhóm) là phụ thuộc CHÍNH THỨC của Giai đoạn 5, không phải việc tự thêm ngoài phạm vi: `GroupFulfillmentStatus` trước đó không có đường nào để 1 nhóm "chết hẳn" khi mọi đơn bên trong bị hủy/thất lạc — nếu không có, nhóm treo mãi ở trạng thái cũ dù không còn gì để xử lý.
+
+**[stated] 2 quyết định đã hỏi lại và user xác nhận trước khi code**: (1) nhóm hết đơn fulfill được → **tự động** chuyển `CANCELED` + tự nhả giữ chỗ đóng gói, KHÔNG chờ người xác nhận riêng (ngoại lệ có chủ đích so với nguyên tắc "1 người xác nhận thay đổi quan trọng" — hợp lý vì N1 chỉ tác động nhóm CHƯA đóng gói, rủi ro thấp). (2) Collection `shipments` mới làm **tối giản trước** (`order_group_id`, `trip_code`, `tracking_code`) — khi làm P3 sẽ THÊM field carrier/cost/eta vào ĐÚNG collection này (additive), không tạo 2 collection trùng khái niệm.
+
+### Phần B — N1 (trạng thái `CANCELED`)
+
+`GroupFulfillmentStatus` thêm `CANCELED`; `allowed-status-transitions.ts` cho phép từ MỌI trạng thái trước `PACKED` (`AWAITING_PACKAGING, PICKING, PICKED, PARTIAL_NEEDS_REVIEW, PENDING_APPROVAL, APPROVED_FOR_PACKING`) đi tới `CANCELED` (trạng thái cuối, `[]`) — KHÔNG có đường từ `PACKED/SHIPPED/DELIVERED` (hàng đã đóng/giao vật lý không tự hủy ngầm, cần `return` thủ công).
+
+`OrderGroupsService.cancelIfAllOrdersUnfulfillable(groupId)` (method mới): no-op nếu group đã ở `PACKED/SHIPPED/DELIVERED/RETURNED/CANCELED`; đếm `orderModel.countDocuments({consolidated_group_id, status: {$nin: NOT_PACKABLE_ORDER_STATUSES}})` (tái dùng đúng constant đã có, không định nghĩa lại tập trạng thái); còn ≥1 đơn fulfill được → không làm gì; = 0 → gọi `transitionFulfillmentStatus(groupId, CANCELED, group.__v)` (TÁI DÙNG đúng choke-point đã dùng cho cả 5 endpoint fulfillment, không viết logic update riêng), nhả giữ chỗ (`packagingRecommendationModel.findByIdAndUpdate(id, {is_active:false})` nếu có `active_packaging_recommendation`), bắn Notification `GROUP_AUTO_CANCELED` (warning) cho Store Owner + Admin + `assigned_staff_id` (nếu có).
+
+Để inject `PackagingRecommendationDoc` model vào `OrderGroupsService` mà KHÔNG tạo vòng lặp import `PackagingModule ↔ OrderGroupsModule`: đăng ký lại CÙNG schema đó qua `MongooseModule.forFeature()` trong `order-groups.module.ts` — đúng pattern đã dùng sẵn cho `Order`/`ProductMaster` trong chính file này.
+
+Hook gọi: `orders.service.ts` → `syncShopOrders()`, ngay sau `getOrCreateGroupForOrder()` — nếu đơn vừa sync rơi vào `NOT_PACKABLE_ORDER_STATUSES`, gọi `cancelIfAllOrdersUnfulfillable()` (best-effort, `.catch()` log lỗi, không làm hỏng cả lượt sync). Vì `syncShopOrders()` dùng chung cho CẢ cron lẫn webhook (`syncSingleOrder()` gọi lại nó), fix này tự động áp dụng cho cả 2 đường mà không cần sửa 2 nơi.
+
+### Phần A — Webhook receiver (đúng phạm vi Giai đoạn 3: endpoint + rawBody + dedupe, KHÔNG làm outbox Giai đoạn 4)
+
+Hạ tầng đã có sẵn từ trước nhưng chưa ai gọi tới (xác nhận qua đọc code, không suy đoán): `ProcessedWebhookEvent` schema (unique `{platform,event_id}`, TTL 7 ngày), `AurelleAdapter.verifyWebhookSignature()` (đúng công thức `UPPER(HEX(HMAC_SHA256(app_secret, app_key+raw_body)))`, so `timingSafeEqual`), `OrdersService.syncSingleOrder(platform, shopId, orderId)`. Việc làm là NỐI các mảnh có sẵn, không viết lại từ đầu.
+
+Module nhỏ, để phẳng `marketplace-webhooks/`: `marketplace-webhooks.controller.ts` (`POST /marketplace/webhooks/:platform`, PUBLIC — không `JwtAuthGuard`, bảo mật bằng chữ ký thay vì JWT, giống triết lý OAuth callback; `@ApiExcludeController()` không lộ Swagger; `@SkipThrottle()` vì `ThrottlerGuard` gắn global; dùng `@Req() req: RawBodyRequest<Request>` lấy `req.rawBody`). `main.ts` bật `NestFactory.create(AppModule, { rawBody: true })` (trước đó chưa bật).
+
+`MarketplaceWebhooksService.handleWebhook()`: (1) parse `platform` param, 400 nếu không hợp lệ; (2) tra adapter qua `MARKETPLACE_ADAPTERS` registry, `verifyWebhookSignature()` sai/thiếu → `AppException(MKT_WEBHOOK_SIGNATURE_INVALID, 401)`; (3) chống replay `|Date.now() - timestamp| > 5 phút` → cũng 401 cùng mã; (4) chống trùng theo Rule #17 (tạo record TRƯỚC — bắt E11000 — không phải kiểm tra rồi tạo): `try { await processedEventModel.create({platform, event_id: message_id}) } catch(e) { if (isDuplicateKeyError(e)) return {received:true}; throw e; }`; (5) dispatch theo `message_type`: `order_status_changed`/`order_updated` → `getConnectedShop()` (bắt `MKT_SHOP_NOT_CONNECTED` → ack, không throw) rồi `syncSingleOrder()`; `authorization_revoked` → `notify()` 2 lần (`CONNECTION_LOST`, Store Owner + Admin — tái dùng type đã có, KHÔNG thêm type mới); giá trị lạ khác → vẫn ack 200 (tương thích ngược).
+
+`marketplace-webhooks.module.ts` đăng ký `ProcessedWebhookEvent` schema **lần đầu tiên trong toàn bộ codebase** (schema đã tồn tại từ lâu, ghi nợ "chưa ai dùng" nhiều lần trong lịch sử file này — nay hết nợ).
+
+### Phần C — `recipient_key` (Mục 9.5, liên kết cùng người nhận)
+
+`consolidation-key.util.ts` thêm `computeRecipientKey(name, phone, addressLine1, city)` — công thức `sha256(tên|SĐT|địa chỉ|tỉnh đã chuẩn hóa)`, tái dùng NGUYÊN `normalizePhoneNumber()`/`normalizeAddressFragment()` đã có, **KHÔNG kèm platform** (khác hẳn `computeConsolidationKey()`) — cố ý, vì mục đích là liên kết XUYÊN SÀN (1 khách mua cả Lazada lẫn AURELLE phải ra CÙNG 1 `recipient_key`), khác hẳn mục đích gộp đơn CÙNG SÀN của `consolidation_key`.
+
+`OrderGroup` thêm field `recipient_key: string | null` (default `null`, index thường — không unique, nhiều group được phép trùng key) — set 1 LẦN lúc `getOrCreateGroupForOrder()` tạo group mới (ở CẢ 2 code path tạo mới trong hàm này), KHÔNG đổi lại sau. `findLinkedGroups(groupId)`: `recipient_key` null → `[]` ngay; khác null → `find({recipient_key, _id:{$ne}, fulfillment_status:{$nin:[DELIVERED,RETURNED,CANCELED]}}).lean()`.
+
+`order-groups.controller.ts`: `GET :id` thêm `linkedGroupCount` (đếm qua `findLinkedGroups().length`); route mới `GET :id/linked` trả `{linkedGroups: OrderGroupResponse[]}`; `ship()` thêm `linkedPending: {id, fulfillmentStatus}[]` (lọc các group liên kết CHƯA tới `packed` trở lên) — CHỈ cảnh báo, KHÔNG chặn hành động ship.
+
+Script `scripts/backfill-order-group-recipient-key.ts` (mirror `migrate-consolidation-key.ts` đã có) — set `recipient_key` cho `OrderGroup` cũ (`recipient_key: null`) dựa vào 1 `Order` đại diện trong group, chạy 1 lần sau deploy.
+
+**Chuẩn hóa Đ/đ — giới hạn đã biết, không phải bug**: `normalizeAddressFragment()` (NFD + strip combining marks) KHÔNG gập "Đường"→"duong" vì Đ/đ (U+0110/U+0111) là 1 CHỮ CÁI RIÊNG trong Unicode, không phải "D" + dấu kết hợp qua NFD — phát hiện khi viết test (test ban đầu SAI giả định, đã tự sửa lại test, không sửa helper — đây là đặc tính CÓ SẴN của hàm dùng chung, không phải lỗi mới).
+
+### Phần D — Giao chung chuyến (Mục 9.5, module `shipments/` mới)
+
+Schema `Shipment`: `order_group_id` (unique — 1 group chỉ tạo được 1 shipment), `trip_code`, `tracking_code`, `note`, `created_by`, `created_at`. `ShipmentsService.createBatch(orderGroupIds, note, userId)`: rỗng → `SHP_EMPTY_GROUP_LIST`; mỗi group phải `PACKED` (khác → `SHP_GROUP_NOT_PACKED`); ≥2 group phải cùng `recipient_key` khác null (khác/thiếu → `SHP_RECIPIENT_MISMATCH` — an toàn, không tự đoán liên kết); sinh `tripCode` (`TRIP-yymmdd-XXXX`, chung cho cả lô) + `trackingCode` riêng từng shipment (`OPK-XXXXXXXXXX`); trong 1 `session.withTransaction()` (Rule #6): tạo `Shipment` (bắt E11000 → `SHP_GROUP_ALREADY_SHIPPED`) rồi `transitionFulfillmentStatus(id, SHIPPED, group.__v, session)`.
+
+`transitionFulfillmentStatus()` (đã có từ lâu) thêm tham số cuối `session?: ClientSession` (optional, additive — 4 chỗ gọi cũ không đổi hành vi) để tham gia được transaction ngoài của `ShipmentsService`, tránh viết lại logic optimistic-concurrency + validate transition lần 2. Route `POST /shipments/batch` (`SHIPPING_COORDINATOR, ADMIN`) — **KHÔNG thay thế** `POST .../fulfillment/ship` hiện có, là lựa chọn CỘNG THÊM khi cần vận đơn thật/giao chung chuyến.
+
+### Phần E — Picking list gộp nhiều nhóm (Mục 9.5)
+
+`WarehouseService.getEnrichedPickingListForGroups(warehouseId, groupIds[])` (method mới) — với mỗi `groupId` gọi `getPackableItemsForGroup()` (TÁI DÙNG), gắn `order_group_id` vào mỗi dòng, rồi join bin/zone **1 LẦN DUY NHẤT** trên UNION toàn bộ SKU của mọi group (Rule #16 — không N+1 dù nhiều group). Route mới `GET :warehouseId/picking-list?group_ids=G1,G2` (khác pattern path `.../picking-list/:groupId` đã có — không đụng nhau); sai/rỗng `group_ids` → `WH_INVALID_GROUP_IDS` (400, mới thêm vào `warehouse.errors.ts`).
+
+### Phát hiện + xử lý phụ trong lúc làm (không nằm trong plan ban đầu, ghi lại để không lặp lại)
+
+- **Đã vô tình grep in ra chuỗi kết nối MongoDB Atlas kèm mật khẩu thật vào output** khi tìm biến môi trường bằng pattern quá rộng (`grep "MARKETPLACE\|MONGODB" .env`) — đã báo ngay cho user, không ghi/lặp lại chuỗi đó ở bất kỳ đâu khác, đề xuất cân nhắc đổi mật khẩu Atlas. Bài học: khi cần đọc `.env` để lấy 1-2 biến cụ thể, dùng pattern hẹp đúng tên biến cần, không dùng regex rộng dễ dính cả `MONGODB_URI`.
+- **Smoke-test webhook thật đã tạo 2 bản ghi Notification `CONNECTION_LOST` THẬT** trong Atlas dev DB (case `authorization_revoked`, seller giả `200000000101`) — email gửi lỗi do SMTP dev sai cấu hình (không tới hộp thư ai), nhưng bản ghi in-app là thật. Đã báo user, chưa xóa (chờ xác nhận có cần dọn không) — đây là dữ liệu test tự nhận diện được (tiêu đề nhắc `aurelle`, seller_id giả), không lẫn với dữ liệu thật.
+- **🔴 Phát hiện lỗi thật, không liên quan việc đang làm — `INTEGRATION_GUIDE_ORDERS.md` bị merge SAI từ trước**: khi định thêm mục webhook vào file này, phát hiện nội dung file KHÔNG PHẢI guide Orders/Marketplace như tên gọi — mà là 1 bản CŨ của `INTEGRATION_GUIDE_FULFILLMENT.md` (tiêu đề "Fulfillment & Warehouse", cắt ở mốc 16/09/2026). Đây chính là hệ quả thật của commit `021c6a3` mà mục "Đối chiếu 3 tài liệu thuật toán AI Packaging"/lịch sử merge 23/09/2026 đã CẢNH BÁO trước ("021c6a3 ghi đè `INTEGRATION_GUIDE_ORDERS.md` bằng nội dung của `INTEGRATION_GUIDE_FULFILLMENT.md`") — dù ghi chú lúc đó khẳng định "bản gộp giữ lại file Orders đúng của `thi_dev`", thực tế merge `81198b5` đã lấy NHẦM phía (giữ bản sai của `main`). Đã khôi phục lại đúng nội dung từ `git show c96cab0:INTEGRATION_GUIDE_ORDERS.md` (commit `thi_dev` ngay trước merge lỗi, 404 dòng, tiêu đề đúng "Orders & Marketplace Integration") rồi mới thêm mục webhook mới vào bản đã khôi phục — không viết đè lần 2 lên bản sai. **Bài học nhắc lại lần nữa**: trước khi sửa 1 file guide, LUÔN đọc lướt qua tiêu đề/vài dòng đầu xác nhận đúng file, không tin tên file — lịch sử dự án đã có ít nhất 2 lần file bị lệch nội dung so với tên (lần trước là `packaging`/`warehouse` module dùng response snake_case, lần này là cả 1 file bị tráo nội dung).
+
+**1 bug thật phát hiện lúc smoke test SỐNG (không phải unit test mock) — đã tự sửa**: case replay (timestamp lệch >5 phút) trả **400**, khác case chữ ký sai/thiếu trả **401** — dù cả 2 đều dùng chung `error_code: MKT_WEBHOOK_SIGNATURE_INVALID`, cùng ý nghĩa "không tin request này". Unit test (`marketplace-webhooks.service.spec.ts`) chỉ assert `errorCode`, không assert HTTP status nên không bắt được lệch này — chỉ lộ ra khi POST thật qua HTTP và đọc status code trả về. Đã sửa `marketplace-webhooks.service.ts` đổi case replay sang `HttpStatus.UNAUTHORIZED` (401) cho nhất quán với tài liệu đã viết (CLAUDE.md/2 guide đều ghi "cũng 401") — đúng bài học đã có: **HTTP status code là 1 lớp không được unit test mock che phủ, chỉ verify được qua gọi HTTP thật**.
+
+**Sự cố phụ trong lúc live-boot smoke test — dọn tiến trình `node` rác tồn đọng từ các lượt live-boot TRƯỚC ĐÓ trong CÙNG phiên này** (Phần A, Phần D): phát hiện port 3000 bị 1 tiến trình `node` khởi động từ ~45 phút trước (dùng credential AURELLE giả KHÁC lần này) chiếm giữ, khiến lần khởi động server mới nhất bind thất bại ÂM THẦM (Nest không crash, không log lỗi rõ ràng — chỉ dừng lại ở "Found 0 errors. Watching for file changes." của tsc-watch, không có dòng "Nest application successfully started") — smoke test cứ 401 dù ký đúng công thức, vì đang gọi nhầm vào server CŨ với secret cũ. Dùng `Get-CimInstance Win32_Process` (PowerShell) lọc đúng `CommandLine` chứa `be\node_modules...nest.js`/`be\dist\src\main` để nhận diện ĐÚNG các tiến trình backend rác (tránh nhầm sang tiến trình `vite`/`dev:fe` của chính user đang chạy dở, không được đụng) — `taskkill //F` từng PID, khởi động lại DUY NHẤT 1 instance, chờ đúng dòng log `"Nest application successfully started"` (không chỉ tin `curl` trả 200, vì 200 có thể tới từ instance CŨ vẫn còn treo) rồi mới tin tưởng chạy smoke test. **Bài học mới, bổ sung cho nguyên tắc "chạy thử thật" đã có**: trong 1 phiên làm việc dài lặp lại nhiều lần `npm run start:dev` để live-boot-test, LUÔN kill sạch tiến trình cũ (theo đúng `CommandLine`, không đoán qua PID) và chờ dòng log khởi động THÀNH CÔNG rõ ràng trước khi tin tưởng bất kỳ phép thử `curl`/HTTP nào tiếp theo — `curl` trả 200 chỉ chứng minh "CÓ AI ĐÓ đang nghe cổng này", không chứng minh "ĐÚNG code/config mới nhất đang chạy".
+
+**Verify**: `tsc --noEmit` 0 lỗi, `npx eslint <module đã sửa>` 0 lỗi, `npm run test` (toàn bộ, không chỉ module đụng) — **29/29 suite, 314/314 test pass** (tăng từ 25/25 suite, 276/276 test trước lượt này — 4 suite mới: `marketplace-webhooks.service.spec.ts`, `shipments.service.spec.ts`, `order-groups.service.recipientKeyAndCancel.spec.ts`, `consolidation-key.util.spec.ts` mở rộng; các suite cũ như `allowed-status-transitions.spec.ts` mở rộng thêm case N1). Đã live-boot app thật (`npm run start:dev` với env giả cho AURELLE/Lazada) xác nhận không có circular-dependency giữa `MarketplaceWebhooksModule`/`ShipmentsModule` và các module đã có — `curl /api/docs` trả 200 sau khi thêm cả 2 module mới. Đã tự chạy smoke test webhook thật (5 case: chữ ký sai, replay, dedupe, sync thành công, authorization_revoked) — toàn bộ đúng thiết kế.
+
+**Còn lại (ngoài phạm vi việc này, ghi lại để không quên)**: Giai đoạn 4 (outbox ghi ngược trạng thái/tồn kho về AURELLE) — vẫn "code đủ, không invoke" như đã chốt cho Fulfillment API Lazada. N2 (nới rate-limit cho các API khác ngoài webhook) — không đụng.
+
+
+## Rà business rule sau review (30/09/2026) — Phase 1–3 đã sửa, Phase 4–5 còn lại
+
+Review ngoài chỉ ra 6 lỗi nghiệp vụ; đã sửa và có test:
+1. **Tồn kho sai phạm vi**: `pickItem()` và 2 picking list của `warehouse.service.ts` giờ lọc đủ `warehouse + platform + shop_id + seller_sku` (khớp unique index của `SkuBinAssignment`).
+2. **Bypass duyệt partial**: `confirmPicked()` chỉ chạy từ `picking`; `partial_needs_review → picked` chỉ đi qua `decidePartial(true)`.
+3. **Hủy đơn**: hủy nhóm nhả MỌI recommendation active (`updateMany` theo `order_group_id`, không dựa con trỏ `active_packaging_recommendation`); mới có `handleOrderBecameUnfulfillable()` — đơn hủy mà nhóm còn đơn khác và đã có phương án thì vô hiệu phương án, `approved_for_packing → picked` (cạnh mới), notify `packaging_plan_invalidated`.
+4. **Khóa nhóm**: `tryConsolidate()` chỉ gộp cùng platform + shop, chỉ vào nhóm `awaiting_packaging`/`picking` (`isGroupOpenForNewOrders()`), không chuyển nhóm cho đơn đã có nhóm.
+5. **Nhánh partial**: `decidePartial(false)` vào thẳng `picking` lượt mới (trước đây kẹt ở `awaiting_packaging`, không API nào đưa đi tiếp). Vẫn chưa tự nhập lại tồn của lượt bị hủy: `pick_events` không lưu `warehouse_id` nên không restock tự động được — cần thêm field đó ở Phase 4.
+6. **Khóa đồng thời**: `adjust()` ghi trong transaction, khóa lạc quan `__v` của recommendation và tăng `__v` của nhóm (FE `run()` đã tải lại sau mỗi thao tác nên không đổi FE).
+
+**Bài học**: unit test mock không thấy được lỗi phạm vi truy vấn (filter thiếu trường vẫn "đúng" với mock) — test mới assert thẳng filter được truyền vào Mongo.
+
+**Còn lại**: hoàn hàng nhận + kiểm chất lượng + nhập lại tồn, lưu `warehouse_id` trên `pick_events` (restock lượt lấy bị hủy), duyệt kiện bất thường, shipping/carrier/ETA/phí, chứng từ in, nối màn mock FE với API. ✅ Đa kiện trong generate/approve/pack ĐÃ LÀM ở mục "Engine đóng gói 3D mới + đa kiện thật (30/09/2026)" bên dưới (user chọn tập trung thuật toán/hình dạng đơn hàng trước phần còn lại).
+
+## Engine đóng gói 3D mới + đa kiện thật (30/09/2026)
+
+**[stated] Quyết định của user (30/09/2026):** tập trung sâu vào thuật toán và "một tỉ tình huống" hình dạng đơn; (1) **đa kiện thật** vào generate/approve/adjust/pack — 🔄 **ĐÃ THAY ĐỔI** quyết định "mỗi đơn một kiện" (12/09, 21/09): mỗi đơn có N kiện; (2) giữ mọi món là khối hộp, làm thật sâu (shop chỉ bán giày dép + quần áo); (3) kiểm chứng bằng cả 3: bộ kịch bản đơn, benchmark, property test. Hoàn hàng/Phase 5 để sau.
+
+### M1 — bộ kịch bản + benchmark (làm TRƯỚC để chứng minh cải tiến)
+`engine/scenarios/order-scenarios.ts` (~40 kịch bản có tên: số lượng 1→120 món, tải, cỡ + dung sai làm tròn, giày, dễ vỡ, quần áo/gập, kho, biên) + `scenario-runner.spec.ts` (mọi kết quả ok qua `validateCandidate`, không mất/không trùng món giữa các kiện; kịch bản chưa đạt đánh dấu `knownGap` chạy bằng `it.failing` — hết lỗi thì jest báo đỏ để gỡ cờ) + `engine-property.spec.ts` (80 đơn ngẫu nhiên ≤ ~24 món, validator là nguồn sự thật) + `scripts/pack-benchmark.ts` (300 đơn seed cố định; `--out`/`--compare`, kết quả lưu `scripts/benchmark-results/`). **Baseline lộ đúng điểm yếu thật:** 2 hộp giày không xếp cạnh nhau được trong thùng L dù xoay 1 hộp thì vừa (first-fit chọn hướng đầu), dễ vỡ luôn xếp trước nên không bao giờ nằm trên áo, `packIntoMultipleCartons` chậm (60 món ~5 s, 120 món ~10 s và hụt).
+
+### M2 — lõi thuật toán (`engine/ep-packer.ts`, `greedy-packer.ts`)
+Packer extreme-point có chấm điểm (điểm thử ~O(n) thay tích Descartes ~O(n³)); tải chồng cập nhật **tăng dần** (vật đỡ cố định lúc đặt vì luôn đỡ 100% đáy); vị trí chọn theo (z thấp → nhiều tiếp xúc → góc) hoặc theo chính sách `narrow-x`/`narrow-y`; món được nén về -x, -y. 7 thứ tự xếp (thêm: nền chịu tải trước – dễ vỡ cuối, nặng trước, đáy lớn + dễ vỡ cuối) × 3 chính sách; first-fit gốc giữ làm 4 lượt thử đầu cho đơn ≤ 24 món (fixture tính tay §7 vẫn xanh). Bỏ trần 30 món (200). Gập đôi theo **nhóm SKU, ít món gập nhất trước** (≤ 48 phương án) thay tiền tố "lớn nhất trước". `analyzeUnfittable`/`classifyUnfittable`: món không vào được thùng nào (quá cỡ mọi hướng kể cả sau gập, hoặc nặng hơn mọi thùng) báo ngay có mã, không lặp lại từng thùng. `NoFitCode` + `suggest` (`multi_carton|bigger_box|manual`). Ngân sách thời gian chia theo thùng còn lại (thùng nhỏ thất bại lâu không ăn hết giờ của thùng lớn). **Không làm** `min_support_ratio` (nới đỡ đáy cho hàng mềm): benchmark không chứng minh cần, và nới phải đồng thời sửa validator — ghi vào giới hạn.
+
+### M3 — đa kiện (`engine/multi-carton-packer.ts`, viết lại)
+Tách món không thể đóng → thử 1 kiện → điền từng thùng bằng `createEPPacker` có trạng thái (món nào vừa thì đặt, món giống hệt chia sẻ kết quả thất bại tới khi thùng thay đổi) → chọn thùng nhỏ nhất chứa được toàn bộ phần còn lại, nếu không có thì thùng xếp được nhiều thể tích nhất → đóng lại kiện bằng `packOrder` (thùng nhỏ nhất vừa đúng nhóm món, có validator + vật tư), không tái lập được thì dùng kết quả điền nhưng **vẫn phải qua validator độc lập**. Trừ tồn thùng theo từng kiện. `status: ok|partial|no_fit` + `unplaced[]` có mã (`ITEM_TOO_LARGE/ITEM_TOO_HEAVY/OUT_OF_STOCK/NO_ARRANGEMENT/TIMEOUT`).
+
+### M4 — tích hợp
+Schema `cartons: CartonEntry[]` + `carton_count` (sub-schema; field cấp phương án **phản chiếu kiện 0** → luồng/FE 1 kiện chạy nguyên; bản ghi cũ suy ra 1 kiện qua `cartonsOf()`); `no_fit_reasons` thêm `code`, `item_key`. `generateRecommendations` gọi packer đa kiện, lưu N kiện, đơn không đóng hết được = `no_fit` (không lưu kiện dở dang). `listAvailability` giữ chỗ **theo kiện** (pipeline `$unwind` cartons; bản ghi cũ dùng `box_code` cấp trên). `adjust` nhận `carton_index` (đóng lại đúng các món của kiện đó; trừ chỗ các kiện khác đang dùng cùng thùng khi kiểm tồn; đơn no_fit thì đóng toàn bộ đơn). `pack` nhận cân **từng kiện** (`carton_index` bắt buộc khi đơn nhiều kiện; khóa `recommendationId:index`), trừ 1 thùng/kiện, `isAbnormal` cấp kiện + cấp phương án, thông báo riêng từng kiện bất thường. Hướng dẫn đóng gói theo kiện (`cartons.<i>.packing_guide`; kiện 0 còn ghi guide cấp trên; bản ghi cũ chưa có mảng `cartons` chỉ ghi guide cấp trên vì `$set` đường dẫn mảng chưa tồn tại sẽ lỗi). `ENGINE_VERSION = 'ep-3d-v2'`. Mã lỗi mới `PKG_CARTON_NOT_FOUND`. FE: `viewOfCarton()` nhìn phương án như đang xem 1 kiện nên các màn cũ dùng lại; trang kế hoạch có tab kiện + cân từng kiện, wizard nhận `?carton=`. Seed demo `scripts/seed-ai-guide-demo.ts` thêm 3 nhóm đa kiện (đã chạy thật: đơn sỉ 52 món → 5 kiện L, 8 hộp giày → 2 kiện, đơn hỗn hợp → 2 kiện).
+
+### Kết quả đo (300 → 150 đơn ngẫu nhiên seed 20260930, `pack-benchmark.ts`; baseline = engine cũ)
+| Chỉ số | Baseline | Sau M3 |
+|---|---|---|
+| Số kiện TB / đơn | 1,84 | **1,48** |
+| % đơn phải nhiều kiện | 32,7 | **25,3** |
+| Đơn 9–20 món: kiện TB | 3,59 | **2,76** |
+| Đơn 21+ món: kiện TB | 8,00 | **5,75** |
+| Chi phí thùng+vật tư / đơn (VND, baseline suy ra 1,84×5.781) | ~10.600 | **10.003** |
+| Thời gian p95 | 10 ms | 17 ms |
+Kịch bản: 34/34 suite, **414 test** (từ 316 đầu đợt) đạt; 2 hộp giày cùng thùng, dễ vỡ nằm trên áo, 60 món 5,1 s → 0,15 s, 120 món hụt → đóng đủ 8 kiện 0,3 s. Độ lấp đầy TB giảm (0,39 → 0,34) vì ít kiện hơn nhưng dùng thùng lớn hơn — chấp nhận, vì mục tiêu là ít kiện/chi phí đơn thấp hơn, không phải lấp đầy.
+
+### Bài học + giới hạn còn lại
+- **Test mock không thấy được bao nhiêu thứ bằng chạy thật:** kịch bản có hình dạng thật (hộp giày 33×21×12 upright) lộ điểm yếu first-fit mà 40 vòng ngẫu nhiên ≤ 6 món cũ không bao giờ chạm; seed thật lộ đường dẫn `$set` vào mảng chưa tồn tại (bản ghi cũ) mà mock không lỗi.
+- `it.failing` dùng làm "hàng rào tiến độ" cho `knownGap` rất hiệu quả: mỗi milestone chỉ cần chạy jest là biết kịch bản nào đã được cứu (10/10 gap của baseline được cứu bởi M2+M3).
+- Giới hạn: heuristic, không chứng minh tối ưu — `no_fit` có thể do thời gian; multi-carton là greedy theo thể tích, chưa cân bằng tải giữa kiện; vật tư vẫn là ước lượng theo luật (không chiếm thể tích); nhiều kiện chưa có chứng từ in/vận đơn theo kiện; chưa xem animation nhiều kiện bằng mắt trên trình duyệt (chỉ tsc/eslint/build FE).
+- Multi-carton dùng đồng hồ tường (`Date.now`) cho ngân sách thời gian nên kịch bản sát trần có thể lệch giữa 2 lần chạy khi máy bận — test xác định chỉ dùng kịch bản nhanh.
+- Chạy `scripts/seed-ai-guide-demo.ts` gọi `notify()` thật → tạo thông báo in-app cho user thật (email lỗi vì SMTP dev sai cấu hình, không tới ai); cần biết khi chạy lại.
+
+## Hoàn thiện engine đa kiện, hoàn hàng/nhập lại tồn, vận chuyển thật, chứng từ PDF (30/09/2026)
+
+**Đã làm (backend, có test; `tsc` 0 lỗi, `lint:ci` 0 lỗi, jest 38 suite / 464 test):**
+- 🔄 **ĐÃ THAY ĐỔI quyết định 12/09 + 21/09 "mỗi đơn một kiện"**: mỗi đơn N kiện (đa kiện thật, `cartons[]`; đơn vừa 1 thùng vẫn 1 kiện). Chia kiện theo tải + **cân bằng tải giữa các kiện** (`balanceLoad`, LPT + `rebalanceCartons`); `no_fit` có mã lý do (`ITEM_TOO_LARGE`, `ITEM_TOO_HEAVY`, `OUT_OF_STOCK`, `TIMEOUT`…).
+- Sửa 6 lỗ hổng business rule: tồn kho quét theo đúng sàn+shop, `pick` chỉ từ `picking`, hủy đơn làm vô hiệu phương án đóng gói, `tryConsolidate` khóa nhóm đã vào giai đoạn đóng/giao, khóa lạc quan ở adjust.
+- **Hoàn hàng nhận lại kho**: `POST /order-groups/:id/fulfillment/return-receive` (collection `return_receipts`, unique theo nhóm), đạt → nhập lại tồn, hỏng → chỉ ghi nhận.
+- **Nhập lại tồn khi hủy lượt lấy** (`decidePartial(false)`): `pick_events` thêm `warehouse_id` + `restocked_at`. Sự kiện cũ không có `warehouse_id` **không** tự nhập được → log để kho đối soát tay. Giả định: nhân viên đã trả hàng về kệ.
+- **Module `shipping/`**: hãng + bảng cước theo bậc (`shipping_carriers`), chiến lược `cheapest/fastest/fixed` (`shipping_settings`), báo giá theo kiện (cân tính cước = max(thực, thể tích ngoài ÷ hệ số hãng)). **Số cước là MẪU** (`is_sample`, seed `scripts/seed-shipping-carriers.ts`) — không phải cước thật.
+- **`shipments/`**: `POST /shipments/batch` giờ **bắt buộc** hãng + dịch vụ, lưu cước/ETA/lịch lấy hàng, ghi cước lên phương án đóng gói; thêm GET list/theo nhóm, `PATCH :id/pickup`.
+- **Module `documents/`**: phiếu đóng gói, nhãn từng kiện (Code128 + QR), bảng kê chuyến — pdfkit + bwip-js + qrcode, font DejaVu nhúng (gói `dejavu-fonts-ttf`).
+- FE: `api/shipping.api.ts` + trang `/app/shipping/dispatch` (báo giá → chọn hãng → tạo vận đơn → in nhãn/bảng kê/phiếu → hẹn lấy hàng).
+
+**Chưa làm / giới hạn thật (không được tuyên bố ngược lại khi trình bày):**
+- Trang `/app/shipping` cũ (`ShippingPage.tsx`), `PackingDashboard` và các trang warehouse mock **vẫn là mock**; chưa có FE cho nhận hàng hoàn, quản lý hãng vận chuyển, cấu hình chiến lược.
+- Chưa gọi API hãng vận chuyển thật, chưa có tracking trạng thái từ hãng; `trackingCode` là mã nội bộ.
+- Vật tư chèn chỉ là **ước lượng theo luật**, không vào hình học; thuật toán là heuristic, không chứng minh tối ưu, `no_fit` có thể do hết ngân sách thời gian.
+- Chưa chạy end-to-end với DB thật + xem PDF/giao diện bằng mắt.
+
+**Bài học kỹ thuật:** heredoc bash chứa tiếng Việt bị cắt → viết file bằng công cụ Write (kể cả script python sửa docs); ESLint `react-hooks/set-state-in-effect` bắt cả `void reload()` gọi trong effect → dùng chuỗi `.then` trong effect + biến `version` để tải lại.
+
+## Engine đóng gói — Bước 1 "độ tin cậy kết quả" (04/10/2026) — ĐÃ TRIỂN KHAI
+
+Theo kế hoạch 4 bước khắc phục hạn chế engine (độ tin cậy → chất lượng xếp → hình dạng thật → kiểm chứng trực quan). **Mới xong Bước 1**; Bước 2–4 chưa làm.
+
+- **Xác định hóa** (`engine/budget.ts`): ngân sách giờ là SỐ LẦN KIỂM TRA VỊ TRÍ (`CheckBudget`; mặc định 3M cho 1 thùng, 15M cho đa kiện ≈ 2 s / 10 s trên máy dev, đo ~1.400 lần/ms; ca hợp lệ nặng nhất ~420k). Đồng hồ tường (`timeBudgetMs`, mặc định 60 s) chỉ còn là chốt chặn chống treo → cùng đầu vào luôn ra cùng kết quả, kể cả khi máy bận. Test dùng `maxChecks`; test cũ dùng `timeBudgetMs`+`now` giả vẫn chạy.
+- **Phân loại no_fit**: mã mới `BUDGET_EXHAUSTED` ("chưa tìm được", không phải vô nghiệm; `TIMEOUT` chỉ còn cho chốt chặn đồng hồ). `PackNoFit.proven_infeasible` = true chỉ khi MỌI lý do là bằng chứng (`ITEM_TOO_LARGE/HEAVY`, `TOTAL_VOLUME/WEIGHT`, `NO_ITEMS/NO_BOXES`) — `isProvenInfeasible()`. Lưu vào `packaging_recommendations.proven_infeasible`, trả `provenInfeasible`; FE hiện "Không thể xếp" vs "Chưa tìm được cách xếp tự động".
+- **Cận dưới số kiện** (`engine/lower-bound.ts`, `lowerBoundCartons`): max(⌈tổng thể tích ÷ lòng thùng lớn nhất⌉, ⌈tổng cân ÷ tải lớn nhất⌉). Lưu `lower_bound_cartons`, trả `lowerBoundCartons`, FE hiện "đã đạt mức tối thiểu". Benchmark 300 đơn (seed 20260930, `scripts/benchmark-results/step1.json`): **76,7% đơn đạt đúng cận dưới** (tối ưu số kiện có chứng minh), khoảng cách TB 0,37 kiện, 1,45 kiện/đơn, 9.677 đ/đơn, p95 7 ms — không hồi quy so với m3. Bin packing 3D là NP-khó: cận dưới KHÔNG phải tối ưu tuyệt đối, chỉ là mức không thể thấp hơn.
+- Verify: `tsc` 0 lỗi, eslint engine/scripts 0 lỗi, jest 39 suite / 474 test. Chưa chạy e2e với DB thật (bản ghi cũ không có 2 field mới → null, FE đã xử lý).
+- Bài học: KHÔNG dùng `git stash` để "so sánh trước/sau" trong repo có hàng trăm thay đổi chưa commit của người khác — suýt cất mất toàn bộ (đã `pop` khôi phục đủ). Muốn so sánh thì đọc `git diff`/`git show HEAD:file`.
+
+## Engine đóng gói — Bước 2 "chất lượng xếp" (04/10/2026) — ĐÃ TRIỂN KHAI MỘT PHẦN
+
+Tiếp Bước 1. Làm theo kiểu **đo trước, giữ cái có tác dụng, gỡ cái không** (benchmark 300 đơn, seed 20260930, `scripts/benchmark-results/step2.json`). `ENGINE_VERSION` = `ep-3d-v3`.
+
+**Đã giữ (có số đo):**
+- **Giải thể kiện nhỏ** (`engine/improve.ts`, `consolidateCartons`): thử nhét từng món của kiện ít món nhất vào kiện khác (đóng lại bằng `packOrder` nên mọi kiện mới đều qua validator), chỉ nhận khi tổng chi phí thùng+vật tư không tăng. Ca thật 3 kiện (14u + 4u lấp 0,20 + 1 giày nặng) → 2 kiện, 20.500 → 16.000 đ. Ngân sách xác định, **co theo số món** (`16M / n`, tối đa 800k lần kiểm tra) vì chi phí mỗi lần kiểm tra tăng theo số món đã đặt; không co thì đơn 250 món chậm 2,9 s (test cũ `< 15 s` trong jest rớt, jest chậm hơn node ~30×).
+- **Cân bằng cả cân lẫn thể tích** (`rebalanceCartons`): LPT trên tải chuẩn hóa (cân/tổng cân + thể tích/tổng thể tích); chỉ nhận khi độ lệch chuẩn hóa giảm và chi phí không tăng.
+- **Đệm cho hàng dễ vỡ vào hình học** (`expandToUnits(items, { fragileCushionMm })`, `DEFAULT_FRAGILE_CUSHION_MM = 5`): món dễ vỡ chiếm 2×5 mm thêm theo mỗi chiều (chừa chỗ bọc xốp). Production bật qua `UNIT_OPTIONS` trong `packaging.service.ts` — **mọi đường dựng units (generate/adjust/hướng dẫn) phải dùng chung `UNIT_OPTIONS`**, lệch là số đo kiện đã lưu không khớp lúc validate. Mặc định hàm = 0 để test hình học thuần không đổi. Chi phí/đơn chỉ +0,4%. Placement của bản ghi `ep-3d-v2` cũ không có đệm, vẫn hợp lệ (adjust luôn đóng lại từ đầu).
+- **Siết cận dưới**: khi mọi món không chịu được tải đè (dễ vỡ / không cho chồng / sức chịu < món nhẹ nhất) thì tất cả phải nằm sát sàn → thêm cận theo diện tích đáy (`lower-bound.ts`). Vật tư vẫn là ước lượng theo luật cho số lượng; chỉ phần đệm dễ vỡ đã vào hình học.
+
+**Đã thử và GỠ (không có tác dụng thật):**
+- **Thứ tự ngẫu nhiên có seed** khi thứ tự cố định hụt: kết quả y hệt (kể cả khi tăng lên 40 lượt × 48 phương án gập), chỉ chậm hơn → 21 thứ tự × 3 chính sách đã bão hòa.
+- **Nới đỡ đáy 0,8 cho quần áo** (kèm điều kiện tâm đáy nằm trên vật đỡ): không giảm số kiện. Mức giảm 1,42→1,38 thấy ở thử nghiệm chỉ xuất hiện khi nới cho **cả hộp giày** — là giả định vật lý rủi ro (hộp cứng thò 20% ra ngoài), chưa áp dụng; nếu cần thì phải hỏi kho/đóng gói trước.
+
+**Kết quả (300 đơn):** kiện TB 1,45 → 1,43; chi phí/đơn 9.677 → 9.575 đ (đã gồm đệm dễ vỡ); khoảng cách tới cận dưới 0,37 → 0,32; 78,7% đơn đạt cận dưới; p95 43 ms, tối đa 292 ms. Phần lớn đơn còn xa cận dưới có hộp giày (không chồng được) nên một phần khoảng cách là do cận chưa chặt, không hẳn do thuật toán.
+Verify: `tsc` 0 lỗi, eslint packaging/scripts 0 lỗi, jest 40 suite / 488 test. Chưa chạy e2e với DB thật, chưa xem 3D bằng mắt với đệm dễ vỡ (kích thước món dễ vỡ hiển thị lớn hơn số đo thật 10 mm).
+Bước 3 (hình dạng thật — cần số đo từ kho) và Bước 4 (kiểm chứng trực quan) chưa làm.
+
+## Làm lại đóng gói 3D — Đợt 1: bộ giải BRKGA + EMS (04/10/2026) — ĐÃ TRIỂN KHAI
+
+**[stated] Quyết định của user (04/10/2026):** không hài lòng cả 4 mặt (hình 3D, kết quả xếp, luồng thao tác, khó bảo vệ) → **làm lại tất cả**: thuật toán lai **BRKGA (TypeScript) + CP-SAT (microservice Python OR-Tools)**, 3D kiểu render sạch (khối bo góc + nhãn, có công tắc bật mô hình sản phẩm), mô hình dữ liệu mới `packing_plans` (1 kế hoạch/nhóm), **tự tính khi lấy hàng xong**, bỏ "Từ chối, tính lại" → chỉnh tay (đổi thùng, chuyển món giữa kiện) + tính lại có điều kiện, **một màn hình làm việc**. Kế hoạch 5 đợt: `C:\Users\Admin\.claude\plans\v-y-nh-ng-h-n-ch-hashed-koala.md`. Đợt 1 đã xong; đợt 2–5 chưa làm. Engine cũ (`packaging/engine/`) vẫn đang chạy production cho tới đợt 3.
+
+**Bộ giải mới `be/src/modules/packing/solver/`** (hàm thuần, chưa nối vào service/API):
+- `solve-order.ts` (`solveOrder`): tách món không xếp được (`ITEM_TOO_LARGE/HEAVY`, `OUT_OF_STOCK`) → n ≤ 3 **vét cạn không gian giải mã**, n > 3 **BRKGA** (quần thể clamp(10n,40,120), elite 15%, đột biến 15%, ρe 0,7, ngân sách theo số lần giải mã — xác định, seed băm từ item_key) → **gộp cặp kiện** (giải lại hợp 2 kiện bằng BRKGA nhỏ) → `validatePlan` (validator cũ từng kiện + mỗi món đúng 1 lần + không vượt tồn; sai = ném lỗi) → nhãn chứng minh.
+- `decoder.ts` + `parcel-state.ts`: khóa = thứ tự + chọn biến thể + thiên lệch thùng; **Empty Maximal Spaces** + luật **DFTRC** (Gonçalves & Resende 2013); gen chọn trong **4 vị trí DFTRC tốt nhất** (chỉ chọn biến thể trong 1 EMS cố định đã làm sót bố cục 2 đôi dép đặt cạnh nhau); **gập chỉ khi dạng gốc không còn chỗ** (đúng quy tắc 22/09); mở kiện bằng thùng lớn nhất còn tồn rồi **co thùng**.
+- `proof.ts`: nhãn `optimal_global` = số kiện bằng cận dưới VÀ mọi tổ hợp thùng rẻ hơn bị loại bằng điều kiện cần (vừa cỡ, thể tích, cân, diện tích sàn khi mọi món không chịu tải), kèm lời giải thích từng tổ hợp ("SAMPLE-S: không thể — món JEAN không vừa…"). Tổ hợp chưa loại được → `heuristic`, giữ lại `openCandidates` cho CP-SAT ở đợt 2. Giá vật tư không thuộc phần chứng minh.
+- Tái dùng từ engine cũ: `validator.ts`, `units.ts`, `lower-bound.ts`, `material-selector.ts`, `orderUnits` (gieo quần thể đầu).
+- Benchmark mới `scripts/solver-benchmark.ts` (so từng đơn với engine cũ: thắng/hòa/thua, nhãn, độ trễ theo cỡ, kiểm tra xác định, bộ ca đối kháng); bộ sinh đơn tách ra `scripts/benchmark-orders.ts` (dùng chung với `pack-benchmark.ts`, kết quả không đổi).
+
+**Kết quả** (đệm dễ vỡ 5 mm, không vật tư): 300 đơn — 20 thắng / 280 hòa / **0 thua**, kiện TB 1,43 → 1,41, giá thùng 9.575 → 9.287 đ (−3,0%), 68% `optimal_global`, p95 229 ms. Phân tầng 1.094 đơn (≥100 đơn 9–20 và 21+) — 125 thắng / 969 hòa / **0 thua**, kiện 1,815 → 1,757, giá thùng 12.771 → 12.137 đ (−5,0%), 63% `optimal_global`, p95 472 ms (đơn 21+ p95 885 ms; 200 món 1,3 s), chạy 2 lần giống hệt. Kết quả lưu `scripts/benchmark-results/solver-v1*.json`. Lợi ích chủ yếu ở chi phí và chứng minh, số kiện chỉ giảm nhẹ (đúng kỳ vọng đã nói với user).
+**Bài học:** (1) quy tắc chọn vị trí "EMS đáy-sâu-trái đầu tiên" xếp kém chặt → đơn 3 kiện; DFTRC sửa được. (2) Cho gen chọn biến thể trong 1 EMS là chưa đủ — phải cho chọn trong vài vị trí tốt nhất. (3) Viết test "quần không gập" sai vì jean rộng 26 cm > lòng M 25 cm — kiểm số đo trước khi kết luận bộ giải sai.
+Verify: `tsc` 0 lỗi, `lint:ci` 0 lỗi, jest 41 suite / 509 test (21 test mới ở `packing/solver/solver.spec.ts`).
+
+## Làm lại đóng gói 3D — Đợt 2: microservice CP-SAT `packer/` (04/10/2026) — ĐÃ TRIỂN KHAI
+
+- **Service mới `packer/`** (Python 3.12+, FastAPI, OR-Tools 9.15, pydantic 2.13 — bản cũ hơn không có wheel cho Python 3.14 trên máy dev): `GET /healthz`, `POST /v1/check-combos` (hợp đồng `schema_version: 1`, mm/g, biến thể món đã nở sẵn từ backend). Trả lời từng tổ hợp thùng **theo thứ tự backend gửi**, dừng ở tổ hợp đầu tiên không bị chứng minh "infeasible" (phần còn lại `skipped`).
+- **Mô hình CP-SAT (`packer/packer/feasibility.py`) CHẶT HƠN validator TS**: đỡ đáy = sàn / 1 vật chứa trọn đáy / **2 vật phủ trọn** (chia theo x hoặc y — áo vắt qua 2 hộp giày được); tải chồng tính **toàn bộ** trọng lượng phía trên cho mỗi vật đỡ; món không chịu tải không có gì chạm mặt trên. Phá đối xứng: thùng giống nhau điền theo thứ tự chỉ số; **món giống hệt nhau xếp theo (thùng, z, y, x)** — thêm cái này nâng tỷ lệ chứng minh 93,8% → 97,8%. `interleave_search=True` + seed + `max_deterministic_time` → **cùng request luôn cùng kết quả** (đã kiểm 40/40 đơn).
+- **Backend**: `proof.ts` giờ liệt kê mọi tổ hợp **ít kiện hơn** (từ cận dưới, bất kể giá) + tổ hợp cùng số kiện rẻ hơn → `open_candidates` trên `SolveResult`; chế độ `prefer: 'cheapest'` không chạy chứng minh. `cp-sat.ts` (`upgradeWithCpSat`, `httpCpSatChecker`): mọi tổ hợp infeasible → `optimal_in_model`; CP-SAT tìm được tổ hợp tốt hơn → nhận **chỉ khi qua `validatePlan`** (hai ngôn ngữ kiểm nhau); `unknown`/lỗi mạng → giữ `heuristic` kèm lời giải thích. Config `config/packer.config.ts` (`PACKER_URL`, `PACKER_ENABLED`, `PACKER_TIMEOUT_MS`, `PACKER_MAX_UNITS=12`, `PACKER_DET_TIME_PER_COMBO=1`, `PACKER_WALL_TIME_S=6`); thiếu URL → `packer: null`, hệ thống vẫn chạy bằng BRKGA. **Chưa nối vào service/API** — đợt 3 sẽ gọi trong job nền sau khi BRKGA đã có kết quả.
+- **Kết quả** (`be/scripts/cpsat-benchmark.ts`, 300 đơn, service chạy local): đơn ≤ 12 món **97,8% có nhãn tối ưu** (203 `optimal_global` + 66 `optimal_in_model`), toàn bộ 300 đơn: 204 global + 66 in-model + 30 heuristic; CP-SAT tìm được 1 đơn rẻ hơn BRKGA; p95 cả pipeline 2,5 s (riêng nhóm ≤ 12 món p95 3,9 s, tối đa 6,3 s = trần thời gian), xác định. Lưu `be/scripts/benchmark-results/cpsat-v1.json`. Đơn còn `heuristic` chủ yếu là chứng minh "không vừa 1 thùng L" khó.
+- **Hạ tầng**: `packer/Dockerfile` (python:3.12-slim, user `app` uid 1001, healthcheck; image 522 MB, đã build + chạy thử healthy); docker-compose service `packer` + `be` có `PACKER_URL=http://packer:8000` và chờ `packer` healthy; k8s `base/packer.yaml` (Service nội bộ, không Ingress) + ConfigMap `PACKER_URL` + 2 overlay; CI job `packer` (ruff, ruff format, mypy strict, pytest) + build image trong job `docker`; release matrix thêm `packer`; `.dockerignore`/`.gitignore` thêm mục Python. Docs `docs/DEPLOYMENT.md`, `k8s/README.md` đã cập nhật.
+- **Chạy local**: `cd packer && python -m venv .venv && .venv/Scripts/python -m pip install -e ".[dev]"` rồi `.venv/Scripts/python -m uvicorn packer.main:app --port 8000`. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` (file thật không commit — chưa tự sửa).
+- **Bài học**: (1) sửa CI bằng `str.replace` theo tên bước đã chèn nhầm vào job `storefront` vì job đó có bước cùng tên — luôn grep lại cấu trúc job sau khi sửa workflow. (2) mypy bắt được biến `box_index` bị đặt trùng tên ở hai nghĩa khác nhau trong cùng hàm.
+Verify: packer — ruff, ruff format, mypy strict, pytest 11/11; backend — `tsc` 0 lỗi, `lint:ci` 0 lỗi (43 cảnh báo storefront có sẵn), jest 42 suite / 514 test; `docker compose config` hợp lệ; `kubectl kustomize` 2 overlay render đúng image packer; YAML workflow hợp lệ.
+
+## Làm lại đóng gói 3D — Đợt 3: `packing_plans` + API mới + tự tính (04/10/2026) — ĐÃ TRIỂN KHAI (backend)
+
+- **Collection mới `packing_plans`** (`be/src/modules/packing/schemas/packing-plan.schema.ts`): **1 kế hoạch/nhóm** chứa mọi đơn (`orders[]`: trạng thái ok/partial/no_fit, món chưa xếp, **nhãn chứng minh riêng từng đơn**, lời giải thích, trạng thái CP-SAT) và mọi kiện (`parcels[]`, `parcel_no` 1..N trong cả nhóm, thùng chụp đủ inner/outer/bì/tải/giá, toạ độ, vật tư, hướng dẫn, cân thật, bất thường, thiếu vật tư, cước). Trạng thái `computing | ready | approved | packed | rejected | failed | superseded`. **Khoá lạc quan bằng field `version` tường minh** (không dùng `__v`). Chỉ mục duy nhất 1 kế hoạch hoạt động/nhóm — đồng thời là khoá chống 2 job cùng tính. Tất cả field enum đã khai `type: String` (đúng Rule #23 — lần đầu quên, app hỏng lúc nạp schema trong jest).
+- **API mới** `order-groups/:groupId/packing-plan` (`packing-plan.controller.ts`): `GET` (PKG/WH/SHIP/OWNER/ADMIN), `POST recompute` (loại trừ thùng / ưu tiên rẻ), `POST approve`, `POST reject` (chuyển xử lý ngoài hệ thống — kế hoạch `rejected` VẪN hoạt động để cron không tự tính lại, báo Admin), `POST parcels/:no/change-box`, `POST parcels/:no/move-item` (chỉ trong cùng đơn hoặc tách kiện mới), `POST parcels/:no/guide` (throttle), `POST pack` (cân đủ mọi kiện). Mọi thay đổi gửi `expected_version`. Response camelCase, có `proof` = nhãn yếu nhất các đơn, `cpSatPending`, `totals`.
+- **ĐÃ GỠ luồng cũ**: `PackagingService`/`PackagingController`/`PackagingPackController`, route `order-groups/:id/packaging/*` + `order-groups/:id/fulfillment/pack`, DTO approve/adjust/reject/pack-group/packing-guide, `cartonsOf()`, script `migrate-packaging-recommendation-index.ts`, field chết `order_groups.active_packaging_recommendation`. **FE cũ (trang kế hoạch + wizard) sẽ gọi hỏng cho tới Đợt 4** — đã biết, có chủ đích. Collection `packaging_recommendations` + schema cũ giữ nguyên làm lịch sử (chỉ script migrate đọc).
+- **Tự tính** (`packing-job.service.ts`): cron **mỗi 10 giây** tìm nhóm `picked` chưa có kế hoạch hoạt động → `compute()` (BRKGA đồng bộ, ghi kế hoạch `ready` + nhóm `pending_approval` trong 1 transaction, báo Packaging Staff) → **CP-SAT chạy nền** (`runCpSatInBackground`) nâng nhãn; chỉ thay kiện khi kế hoạch còn `ready` và `version` chưa đổi, đã duyệt thì chỉ ghi chú. Dùng quét định kỳ thay vì gọi từ order-groups để không vòng phụ thuộc module và tự chữa khi app khởi động lại. Lỗi dữ liệu (vd hồ sơ SKU chưa sẵn sàng) → kế hoạch `failed` + lý do, KHÔNG tự tính lặp; sửa xong bấm "Tính lại".
+- **Module khác đã chuyển sang `packing_plans`** qua hợp đồng duy nhất `parcelsOfPlan()` (`packing/utils/parcels.util.ts`): shipping (`parcelsOfGroup` đọc kế hoạch `approved|packed`; `persistCosts` ghi `shipping_cost_vnd` lên TỪNG kiện), documents (phiếu đóng gói, nhãn — nhãn dùng cân thật nếu đã đóng), order-groups (hủy nhóm / đơn bị hủy → kế hoạch `superseded`, nhóm về `picked` → cron tự tính lại). Giữ chỗ thùng (`listAvailability`) đếm kiện của kế hoạch `ready|approved`; sổ xuất thùng/vật tư thêm `packing_plan_id` + `parcel_no` (giữ `recommendation_id` cho bản ghi cũ).
+- **Script**: `scripts/migrate-to-packing-plans.ts` (mặc định chạy thử, `--apply` mới ghi; bỏ qua nhóm đã có kế hoạch mới; nhãn luôn `heuristic`; không sửa collection cũ) — **CHƯA chạy trên DB thật**. `seed-ai-guide-demo.ts` viết lại: tắt cron tự tính trong script rồi gọi `compute()` + chờ CP-SAT; in link `/app/packing/:groupId` (route FE của Đợt 4).
+- **Verify**: `tsc` 0 lỗi trong phần của đợt này, `lint:ci` 0 lỗi, jest 42 suite / 496 test (gỡ spec của service cũ, thêm 23 test `packing-plan.service.spec.ts` dùng bộ giải thật + kho dữ liệu giả: tính, khoá chống tính trùng, failed, loại trừ thùng, duyệt/xung đột version/còn món chưa xếp, tính lại, từ chối, đổi thùng, chuyển món, cấm chuyển khác đơn, đóng gói + bất thường + thiếu cân, hướng dẫn lưu lại, CP-SAT vắng mặt, job cron). **Đã khởi động backend thật** (cổng 3100, Atlas thật): Nest khởi động thành công, route mới đăng ký, trả 401 khi thiếu token; cron không ghi gì (DB không có nhóm `picked` nào chưa có kế hoạch).
+- **Lưu ý ngoài phạm vi**: lúc làm đợt này, `be/scripts/aurelle-developer-portal.ts` + `aurelle-mock-server.ts` đang được sửa ở nơi khác (không phải đợt này) và có lỗi `tsc` riêng — không đụng, không commit cùng.
+- Docs FE (`API_LIST.md`, `INTEGRATION_GUIDE_FULFILLMENT.md`) chưa cập nhật — để Đợt 5.
+
+## Làm lại đóng gói 3D — Đợt 4: giao diện mới (04/10/2026) — ĐÃ TRIỂN KHAI (frontend)
+
+> 🔄 **ĐÃ THAY ĐỔI 05/10/2026:** toàn bộ FE trên `thi_dev` đã khôi phục về bản `main` (Thuận chốt: FE do nhóm FE làm, Claude chỉ làm backend). Các màn mô tả ở mục này và mục "Khung 3D đóng gói từng thao tác" không còn trên `thi_dev`; code lưu ở nhánh `backup/fe-packing-3d`. Xem mục "Khôi phục FE về main + phiên đóng gói (05/10/2026)" cuối file.
+
+- **Backend phụ**: `GET /packing-plans/summary?group_ids=` (`PackingPlansController`, `listActiveByGroupIds`) — tóm tắt kế hoạch cho bảng hàng chờ (trạng thái, số kiện, chi phí, nhãn chứng minh, CP-SAT đang chạy).
+- **`/app/packing` = `PackingQueuePage`**: 4 cột Đang tính / Chờ duyệt / Chờ đóng / Đã đóng (12 nhóm gần nhất) + dải "Cần xử lý" (kế hoạch `failed`/`rejected`). Hỏa tốc lên đầu, rồi hạn chót. Tự làm mới 10 s.
+- **`/app/packing/:groupId` = `PackingWorkspacePage`** (1 màn hình thay trang kế hoạch + wizard): trái danh sách kiện theo đơn (cảnh báo đơn chưa xếp hết), giữa khung 3D, phải theo trạng thái: chờ duyệt → Duyệt / Đổi thùng / Tính lại có điều kiện (ưu tiên ít kiện/rẻ, loại thùng) / chuyển xử lý tay; mỗi món có nút chuyển sang kiện khác (cùng đơn hoặc kiện mới); "Vì sao phương án này?" (nhãn chứng minh, cận dưới, lời giải thích từng đơn); lịch sử chỉnh tay. Đang tính / lỗi / bị từ chối → màn trạng thái, thăm dò 3 s tới khi có kết quả. Link cũ `/app/packing/groups/:id(/orders/:x)` tự chuyển hướng.
+- **Chế độ đóng gói toàn màn hình** (`components/packing-workspace/PackingMode.tsx`): mỗi kiện = chuẩn bị (thùng, hàng, vật tư, tóm tắt hướng dẫn AI — tự xin khi chưa có) → từng món (3D món rơi xuống + câu chữ to + lưu ý) → cân kiện (cảnh báo lệch >20% ngay trên màn) → xác nhận cả nhóm gọi `POST pack`. Phím ←/→, Esc.
+- **Khung 3D mới `components/packing3d/`** (R3F + drei + `@react-three/postprocessing`): thùng carton mở 4 nắp, vách quay về camera tự mờ, công tắc X-ray / Tách lớp / Mô hình sản phẩm (dùng lại GLB + `FoldedPants3D`) / Chất lượng (Đẹp = AO N8AO + viền sáng Outline + SMAA + ContactShadows; Nhẹ = tắt hậu kỳ, lưu `localStorage`); món là khối bo góc màu theo loại hàng, nhãn SKU khi chọn/rê chuột; thanh lọc lớp theo độ cao; `CameraControls` tự đóng khung; `frameloop="demand"` (chỉ vẽ lại khi đang chuyển động); tôn trọng `prefers-reduced-motion`. Ánh sáng dựng bằng `Lightformer` (không tải HDRI qua mạng). Không dùng `maath` trực tiếp (chỉ là phụ thuộc gián tiếp của drei) — damping bằng `MathUtils.damp` của three.
+- **Đã xoá**: `PackagingPlanPage`, `PackingWizardPage`, `PackagingGroupsPage`, `PackingAnimation3D`, `PackingDashboard` (mock chết), `Packing3DBoxViewer`, `usePackagingPlan`, `data/packing-dashboard-mock.ts`, các hàm API/kiểu của phương án cũ trong `api/packaging.api.ts` + `types/packaging.ts`. Giữ `ProductModel3D`, `product-models.ts`, `FoldedPants3D` (dùng cho công tắc mô hình).
+- **Verify**: `tsc -b` 0 lỗi, eslint các file mới/đã sửa 0 lỗi, `npm run build` thành công (cảnh báo chunk >500 kB có từ trước). **Chưa xem bằng mắt trên trình duyệt** và chưa đi trọn luồng với dữ liệu thật — để Đợt 5 (script chụp màn hình user chạy với tài khoản của mình).
+
+## Làm lại đóng gói 3D — Đợt 5: tài liệu + dọn dẹp (04/10/2026) — ĐÃ TRIỂN KHAI
+
+- **Tài liệu FE**: `API_LIST.md` mục 8 viết lại cho `/order-groups/:groupId/packing-plan` + `/packing-plans/summary` (route, role, body, response, khoá `version` của kế hoạch), gạch dòng `fulfillment/pack`, gỡ `PackGroupDto`/`activePackagingRecommendationId`, cập nhật ma trận role và bảng mã lỗi (`PACKING_*` kèm HTTP thật đối chiếu code). `INTEGRATION_GUIDE_FULFILLMENT.md` v6.0: Nghiệp vụ 1 viết lại (tự tính, nhãn chứng minh, chỉnh tay thay cho "từ chối tính lại", hướng dẫn theo kiện, màn FE mới, bảng DB `packing_plans`), Nghiệp vụ 4 (pack theo `parcel_no`), A.4, sơ đồ C.1, D.2 (version riêng của kế hoạch), D.3 (mã lỗi mới, gỡ `PKG_*` cũ), D.4 checklist. `docs/BE_PACKAGING_IMPLEMENTATION_ROADMAP.md` + `docs/AI_3D_PACKAGING_OPTIMIZATION.md` có ghi chú đầu file: phần engine/route cũ là lịch sử.
+- **Dọn code chết**: gỡ các mã lỗi `PKG_*` của luồng phương án cũ (`packaging.errors.ts` chỉ còn danh mục thùng/túi/vật tư) và interface `PackagingRecommendation` cũ trong `common/interfaces/packaging.interface.ts` (không còn ai dùng). Schema `packaging_recommendations` vẫn giữ cho script migrate đọc lịch sử.
+- **Test thời gian engine cũ**: `multi-carton-packer.spec.ts` ca 250 món bỏ phần đo đồng hồ (< 15 s) — engine cũ dùng ngân sách theo số lần kiểm tra nên kết quả xác định, thời gian chỉ phản ánh tải máy; ca này từng làm hook pre-commit trượt (22 s khi máy bận, qua khi máy rảnh). Vẫn giữ kiểm tra kết quả. Engine cũ giờ chỉ là mốc so sánh trong benchmark.
+- **Verify**: `tsc` 0 lỗi (ngoài 2 script aurelle đang sửa ở nơi khác), `lint:ci` 0 lỗi, jest 42 suite / 496 test.
+- **Chưa làm (cần user)**: (1) xem giao diện mới bằng mắt — script chụp màn hình puppeteer chạy bằng tài khoản của user; (2) `scripts/migrate-to-packing-plans.ts` chưa chạy trên DB thật — chạy thử (không ghi) rồi `--apply` khi user đồng ý; lưu ý script khởi động cả AppModule nên các cron khác (sync Lazada…) có thể chạy nếu trùng giờ; (3) thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` và chạy service `packer/` nếu muốn có nhãn `optimal_in_model`.
+- **Sửa trang trắng (04/10/2026, commit `50c193c`)**: user mở trang đóng gói mới thấy trắng toàn bộ. Tái hiện bằng trình duyệt không giao diện + dữ liệu kế hoạch thật xuất từ DB (giả lập API, không cần mật khẩu): code vẽ được bình thường, nhưng **máy không có WebGL thì cả app sập** vì chưa có lớp bắt lỗi. Đã thêm `components/ErrorBoundary.tsx` quanh mọi trang trong `AppLayout` (hiện lỗi + nút tải lại, tự xoá khi đổi trang) và quanh khung 3D (kiểm tra WebGL trước khi vẽ; lỗi chỉ làm mất khung 3D). Camera mặc định lùi ra cho thùng nằm trọn khung. Nguyên nhân trắng trên máy user chưa xác định chắc (tab Vite cũ sau khi cài thư viện mới, hoặc WebGL) — cần user Ctrl+F5 rồi báo lại.
+
+## Màn "Kết nối sàn" hiện trạng thái AURELLE thật (04/10/2026)
+
+User hỏi vì sao đã kết nối storefront bằng app key mà màn Kết nối sàn vẫn ghi "Kênh nội bộ". Nguyên nhân: thẻ AURELLE trên `AdminMarketplacePage` lấy từ `GET /storefront/settings`, endpoint trả cứng `connected: true, connection_type: 'internal', shop_id: 'storefront-main'` (luồng storefront chạy chung backend, commit `3c0291c`). Luồng Open API bằng app key (platform `aurelle`, mock server cổng 4000) chưa có chỗ nào trên FE.
+
+Đã sửa: (1) BE `GET /marketplace/:platform/shops` (Admin, Store Owner) đọc `marketplace_shops`, không kèm token, gồm shop đã ngắt; schema `MarketplaceShop` khai kiểu `created_at/updated_at` (Rule #7). (2) Callback OAuth redirect kèm `platform`. (3) FE `AurelleConnectPanel`: nút kết nối OAuth, trạng thái thật (đã kết nối / hết hạn refresh token / đã ngắt), lần đồng bộ gần nhất, nút "Đồng bộ ngay" (`POST /orders/aurelle/sync`). (4) `MarketplaceOAuthSuccessPage` chỉ lưu `localStorage` khi `platform=lazada` — trước đây shop AURELLE sẽ bị ghi nhầm vào danh sách Lazada. (5) Thẻ storefront nội bộ giữ lại nhưng ghi rõ "không qua app key".
+
+Không trùng đơn: Open API AURELLE hiện là mock dữ liệu mẫu riêng, không đọc đơn storefront. Nếu sau này Open API AURELLE thật trả chính đơn storefront thì phải chọn 1 trong 2 luồng, nếu không sẽ có 2 bản đơn khác `shop_id`.
+
+Verify: BE `tsc` 0 lỗi, lint 0 lỗi, jest 43 suite / 502 test; FE `tsc -b` + eslint file đã sửa sạch. Chưa bấm thử kết nối thật trên trình duyệt (cần chạy mock `aurelle-mock-server.ts` cổng 4000).
+
+## Tăng lấp đầy đơn nhiều kiện — gợi ý kho thùng, thùng L thấp, chia đều (04/10/2026) — ĐÃ TRIỂN KHAI
+
+**Bối cảnh**: user hỏi vì sao đơn sỉ DEMO-AI-51 (40 áo + 12 quần jean) ra 5 kiện L lấp 54–79% và có tối ưu thêm được không. Đã đo trước khi code (chạy trong bộ nhớ, không sửa file):
+- **Thuật toán không phải nút thắt**: 24 lần chạy (gập theo luật / gập tự do × có/không gập × 6 seed, ngân sách lớn) đều 5 kiện. 5 thùng L thì lấp TB bắt buộc 63% (220 L hàng ÷ 350 L).
+- **Nút thắt là kho/danh mục thùng**: thùng M duy nhất bị nhóm khác giữ chỗ. Có M → 74%; thêm cỡ L thấp 50×40×20 → 76%.
+- **[stated] Bỏ phần chứng minh 5 kiện là tối thiểu**: đã thử cận DFF Fekete–Schepers (gộp và theo mẫu thùng) — yếu hơn thực tế vì hàng gập/xoay (DFF cho 1 thùng chứa 20 áo, thật chỉ 16); muốn chứng minh phải hỏi CP-SAT từng mẫu thùng 13–17 món, không chắc ra. User chọn ghi rõ lý do trên UI thay vì làm.
+
+**Đã làm** (commit `cf771c5`, `0008b9e` + docs):
+- **Bộ giải v2** (`brkga-ems-v2`, `solve-order.ts`): bước 2c `balanceParcels` — giải lại cặp kiện lệch tải nhất CHỈ với đúng các thùng cặp đó đang dùng, nhận khi cả kế hoạch tốt hơn theo mục tiêu bậc ⇒ không bao giờ thêm kiện/đổi thùng đắt hơn/gập thêm. Tách helper `resolveSubset()` dùng chung với `mergeParcels`. Tuỳ chọn `SolveOptions.balance` (mặc định bật) để so có/không. Đo 300 đơn: 0 đơn đổi số kiện/tiền; chênh cân TB kiện nặng–nhẹ 1,40 → 1,30 kg (9 đơn đều hơn, 63 giữ nguyên, 2 lệch cân hơn chút vì thước đo gồm cả thể tích). Kết quả benchmark so engine cũ vẫn 0 thua: `scripts/benchmark-results/solver-v2.json`.
+- **Gợi ý kho thùng** (`packing/utils/stock-suggestion.util.ts` `suggestStock`): khi có thùng tồn trống < số món của đơn, giải thêm 1 lần "giả định đủ tồn" (cùng seed); chỉ ghi khi tốt hơn và có thùng thật sự thiếu. Lưu `packing_plans.orders[].stock_suggestion` (sub-schema `PlanStockSuggestion`/`PlanMissingBox`, default null), response `stockSuggestion`, `totals.avgFill`, thêm 1 dòng `explanation`. FE thẻ "Gợi ý kho thùng" + "lấp đầy x%" ở header màn làm việc. Gợi ý chụp LÚC TÍNH; đổi thùng/chuyển món không tính lại.
+- **Giải thích đơn lớn**: đơn > `PACKER_MAX_UNITS` mà `heuristic` → dòng nói rõ cận dưới chỉ theo thể tích/cân/đáy; CP-SAT chưa bật → dòng báo. FE đổi hint nhãn `heuristic`.
+- **Dữ liệu mẫu**: `SAMPLE-LT` (lòng 500×400×200, ngoài 506×406×206, bì 260 g, tải 15 kg, 6.000 đ) trong `seed-ai-guide-demo.ts` (tồn 20) và `seed-packaging-boxes.ts`. Giữ M = 1 để demo có ví dụ gợi ý. `sampleBoxes()` của test KHÔNG thêm LT (giữ benchmark cũ so sánh được).
+- **Seed lại DB demo** (04/10): DEMO-AI-51 → 3 L + 2 L thấp, lấp TB 63% → 76%, 40.000 → 36.000 đ, chênh cân vẫn 2,2–4,8 kg (chia đều hạn chế vì không được đổi thùng/gập). Nhóm 3 (DEMO-AI-32) có gợi ý "thiếu SAMPLE-M: 23% → 54%, rẻ hơn 3.100 đ".
+- Verify: `tsc` 0 lỗi (ngoài 2 script aurelle của phiên khác), `lint:ci` 0 lỗi, jest 42 suite / 505 test; FE `tsc -b` + eslint; chụp màn headless (giả lập API bằng dữ liệu DB) thấy thẻ gợi ý + lấp đầy TB.
+
+**⚠️ Sự cố commit — bài học**: cùng lúc có PHIÊN KHÁC làm việc trên repo (commit Aurelle `9b4ddd3`) và đã `git add` sẵn file của họ. `git add <file của mình> && git commit` đã gom luôn file họ đang stage (Aurelle connect panel FE, `listShops` marketplace, vài dòng CLAUDE.md/API_LIST/INTEGRATION_GUIDE_ORDERS) vào commit `cf771c5` mang tên việc của mình; git báo `cannot lock ref 'HEAD'`. Không mất code, KHÔNG viết lại lịch sử (phiên kia đang chạy). **Quy tắc**: khi repo có thể có phiên khác, commit bằng pathspec `git commit -m ... -- <đúng các file của mình>` (chỉ lấy đúng các file đó, bỏ qua phần khác đang stage) và kiểm `git show --stat` sau mỗi commit.
+
+## Gỡ kênh nội bộ website AURELLE — chỉ còn kết nối bằng app key (04/10/2026)
+
+**[stated] User chốt**: bỏ kênh nội bộ (storefront ghi thẳng `orders`, shop `storefront-main`), đơn website chỉ về qua Open API bằng app key. Ba quyết định đã hỏi lại: (1) mock cổng 4000 đọc dữ liệu THẬT của website từ MongoDB, không dùng dữ liệu mẫu nữa; (2) đơn cũ của kênh nội bộ giữ làm lịch sử, không xoá/không chuyển; (3) webhook + cron 10 phút dự phòng.
+
+- **Gỡ**: `StorefrontCanonicalOrderService` (+ spec), cron `storefront-order-sync.scheduler` (1 phút), các field kết nối của `GET /storefront/settings`, `fe/src/api/storefront.api.ts`, thẻ "Kênh nội bộ" trên `AdminMarketplacePage`. Field `canonical_*` trên `storefront_orders` giữ lại làm dấu lịch sử (mock dùng `canonical_order_id` để loại đơn cũ).
+- **Website**: `storefront_orders.public_order_id` (số, kiểu `order_id` Lazada) cấp lúc checkout từ bộ đếm atomic `storefront_counters` (`nextPublicOrderId`, bắt đầu 710.000.000). Checkout xong gọi `AurelleWebhookPublisher.notifyOrderChanged()` (fire-and-forget) — POST `AURELLE_WEBHOOK_URL` (mặc định `http://localhost:$PORT/marketplace/webhooks/aurelle`), header `Authorization = UPPER(HEX(HMAC_SHA256(app_secret, app_key + body)))` bằng `AURELLE_APP_KEY/SECRET`, `seller_id = AURELLE_SELLER_ID` (mặc định `200000000101`, khớp mock).
+- **Mock 4000**: `scripts/aurelle-portal/storefront-store.ts` đọc `storefront_orders/order_items/products/product_variants/inventory_stocks`; hàm thuần chuyển định dạng ở `src/modules/storefront/aurelle-open-api.mapper.ts` (mỗi đơn vị 1 dòng, `order_item_id = public_order_id × 1000 + stt`, tối đa 999 đơn vị/đơn; tồn bán được = tồn − giữ chỗ). `GetOrders` lọc `update_after`, có offset/limit; bỏ đơn có `canonical_order_id`; đơn chưa có `public_order_id` được cấp bù. `/product/stock/sellable/update` ghi thật vào `storefront_inventory_stocks`. Mock cần `MONGODB_URI` (chạy với `-r dotenv/config`).
+- **FE**: `MarketplaceOrdersScreen` chỉ đưa shop `platform === 'lazada'` vào danh sách Lazada localStorage (trước đây shop AURELLE lấy từ đơn cũng bị đưa vào).
+- README portal: ví dụ Redirect URI sửa `3003` → `3000` (nguồn của redirect 3003 trong Developer Console).
+
+Verify: BE `tsc` 0 lỗi, lint 0 lỗi, jest 43 suite / 510 test (test mới: mapper qua đúng `mapLazadaOrder`, bộ đếm, chữ ký website được `AurelleAdapter.verifyWebhookSignature` chấp nhận); FE `tsc -b` + eslint sạch; storefront `tsc` sạch. Chạy thử mock mới ở cổng 4100 với Atlas thật + client ký thật: `GetProducts` trả 9 sản phẩm thật; `GetOrders` trả 0 vì mọi đơn website hiện có đều đã vào qua kênh nội bộ. **Chưa thử trọn luồng đặt đơn mới → webhook → OptiPack** (cần khởi động lại backend 3000 + mock 4000, kết nối shop AURELLE, rồi đặt 1 đơn trên website).
 ## 📋 RÀ SOÁT CRUD TOÀN BE + VÌ SAO LẠI THIẾU CHỨC NĂNG CƠ BẢN (25/09/2026)
 
 **Bối cảnh**: user phát hiện module `warehouse/` chỉ có Tạo + Xem, không sửa/xóa được kho đã tạo. Rà lại toàn bộ 10 module bằng cách liệt kê mọi route trong các controller.
@@ -3144,8 +3538,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 
 **Commit:** `feat(AOFP-61)` code + `docs(AOFP-62)` tài liệu.
 
----
-
 ## 📦 Nhật ký 04/10/2026 (tối) — Lỗi "CHƯA GÁN VỊ TRÍ" do đặt SKU Lazada trùng mã ô; bổ sung quy trình cấu hình chuẩn vào tài liệu
 
 **Bối cảnh:** FE (Việt) báo `pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK` với `sku: "KA-D1-P03-T01-3"`. Picking List: `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null`. Nguyên nhân: nhóm đặt **SKU sản phẩm trên Lazada trùng mã ô** (và nghĩ trùng cả SKU nội bộ), tin rằng hệ thống tự nối theo tên — nên bỏ sót bước gán SKU vào ô / nối SKU nội bộ. BE báo đúng; không phải lỗi code. 🔄 **ĐÃ THAY ĐỔI (07/10/2026):** kết luận "không phải lỗi code" SAI một phần — ca tương tự `KC-D1-T05-T01-2` (dữ liệu đã nhập đúng) vẫn lỗi vì `warehouse_id` truy vấn bằng chuỗi vào field Mixed; nhiều khả năng ca `KA-D1-P03-T01-3` cũng dính lỗi này. Đã sửa tận gốc 07/10 (Rule DB #24). `pick-item` tìm dòng tồn theo kho + (`master_sku` hoặc platform/shop/seller_sku) + ô (nếu gửi) + đủ số lượng; thiếu `bin_location_id` trong body không phải nguyên nhân (trường tùy chọn).
@@ -3156,6 +3548,153 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 
 **Điểm yếu ghi nhận:** chưa có cảnh báo khi SKU sàn trùng định dạng mã ô; FE chưa khóa quét khi dòng chưa có ô (đã ghi vào tài liệu).
 
+## GỘP `main` vào `thi_dev` (05/10/2026) — quyết định và hiện trạng sau gộp
+
+**Bối cảnh**: hai nhánh tách từ `021c6a3` (23/09) đi hai hướng lớn (main 101 commit: kho K1–K5, giao hàng G1, hoàn hàng G3, vật tư tái sử dụng G4, Lazada Pack, đồng bộ catalog; thi_dev 80 commit: `packing_plans` BRKGA + CP-SAT, vận chuyển có hãng/cước, chứng từ PDF, AURELLE). Ghép trong worktree riêng, nhánh `merge/main-into-thi_dev`.
+
+**[stated] Quyết định của user**: ưu tiên thiết kế của main ở các mảng trùng, đưa phần riêng của thi_dev lên trên; cụ thể:
+1. **Đóng gói**: giữ `packing_plans` (luồng `packaging` cũ trên main không có thay đổi chức năng nào). Gỡ `POST /order-groups/:id/fulfillment/pack`; đóng gói qua `POST /order-groups/:groupId/packing-plan/pack`, sau commit gọi `LazadaPackSyncService.syncGroup()` (response thêm `lazadaPackSync`) + chặn nhóm hủy hết (`assertHasActiveOrders`). Màn FE cũ của main (`PackingPage`, `PackagingWorkbench`, `Packing3DBoxViewer`) đã xóa; `ShippingPage` đọc kế hoạch mới, `AdminPackingPlansPage` gọi `packing-plan/recompute`.
+2. **Kho vật tư chung**: `packaging_materials` của main là kho DUY NHẤT (thùng `kind: box` thêm `inner`/`outer` mm, `tare_g`, `max_load_g`; vật tư chèn `kind: cushioning` thêm `material_type`, `unit`, `weight_g_per_unit`; chung `reorder_level`, `storage_location`, `is_sample`). Tồn dùng được = `qty_new + qty_reused`; đóng gói trừ theo kiện qua `PackagingMaterialsService.consumeForParcels()` — ưu tiên hàng tái sử dụng (ghi tiết kiệm); thùng thiếu → 409 `PKG_BOX_OUT_OF_STOCK`, vật tư chèn thiếu → không chặn. Sổ chung `packaging_movements` (+ `packing_plan_id`, `parcel_no`, `balance_after`). Đã bỏ collection `packaging_boxes`, `packaging_stock_movements`, `packaging_material_movements` và schema riêng của thi_dev; route `/packaging/boxes`, `/packaging/materials` giữ hình dạng response nhưng đọc/ghi kho chung. Bỏ `consumeForPackedGroup` (đọc `packaging_recommendations`) của main. Chuyển dữ liệu: `scripts/migrate-unify-packaging-materials.ts` (chạy thử mặc định, `--apply` mới ghi; trùng mã thùng thì giữ tồn của main, chỉ bổ sung số đo) — **CHƯA chạy trên DB thật**.
+3. **Lấy thiếu bị từ chối**: giữ cách thi_dev — `decide-partial(false)` vào lại `picking`, lượt mới, nhập lại hàng đã quét **đúng ô** (theo tồn gộp SKU nội bộ nếu đã nối), ghi sổ kho loại mới `pick_cancel`, rồi `reconcileReservation`.
+4. **Số đo sản phẩm**: kho xác nhận là nguồn duy nhất của `dimension`; sync sàn (cả đồng bộ catalog theo giờ của main) chỉ ghi `marketplace_dimension` + `$setOnInsert` `needs_measurement`. Bỏ `manual_override` và `PATCH`/`DELETE manual-override` của main.
+
+**Ưu tiên main (không hỏi lại)**: vận chuyển dùng `shipments` G1 làm gốc, thêm trường hãng/cước/ETA/`trip_code`/`pickup_at`, `POST /shipments/batch` (bắt buộc hãng + cùng `recipient_key`), `GET /shipments/group/:groupId`, `PATCH /shipments/:id/pickup`, `startDelivery` tùy chọn chọn hãng, `GET /shipments` lọc thêm `trip_code`/`carrier_code`; module `shipping/`, `documents/` của thi_dev giữ nguyên trên schema mới. Hoàn hàng dùng `/returns` G3 — bỏ `return-receive`/`return_receipts`. Kho dùng K1–K5; `pickItem` ghép: khung thi_dev (chống trùng trước, chỉ khi `picking`, chặn vượt số đặt, chạm group theo `pick_round`) + của main (SKU nội bộ, chọn ô, sổ kho, tiêu giữ chỗ); `reconcileReservation` tính theo **số lượng đặt** (không qua `getPackableItemsForGroup` vì hàm đó báo lỗi khi SKU chưa đo). Picking list gộp nhiều nhóm dựng lại trên hàm 1 nhóm của main. Product Master: đồng bộ catalog theo giờ của main chạy cho cả Lazada + AURELLE qua adapter registry (`listProductsPage` thêm vào `LazadaProtocolClient`/interface); `GET /product-master` giữ hình dạng thi_dev (mảng) + `search`; thêm `POST /product-master/sync`, `GET /product-master/:id`. Lazada adapter giữ cấu trúc client dùng chung, thêm `listProductsPage`, `packOrders` (không retry), `toLazadaProductDate`. Transition map theo thi_dev (có `CANCELED`). Loại thông báo: hợp hai bên, bỏ `RETURN_RECEIVED`.
+
+**Tài liệu**: guide chuẩn nằm trong `GUIDE_DOC/` (main đã chuyển); `API_LIST.md` ở gốc chỉ còn trỏ tới `GUIDE_DOC/API_LIST.md` (đã gộp mục packing-plan, kho chung, AURELLE, vận chuyển, chứng từ). `AURELLE_MARKETPLACE_DESIGN.md` chuyển vào `GUIDE_DOC/Aurelle/` (bản thi_dev, mới hơn).
+
+**FE**: thông báo lấy bản main (thăm dò 45 s); OAuth success lấy giao diện main + phân biệt `platform` (AURELLE không ghi danh sách Lazada); sửa luôn các lỗi tsc có sẵn trên main (FE main không build được) — `npm run build` FE đạt; lint FE còn 17 vấn đề có sẵn (main có 25).
+
+**Verify**: BE `tsc` 0 lỗi, `lint:ci` 0 lỗi, jest 59 suite / 647 test; khởi động thử app context (không mở cổng, dừng cron ngay) → BOOT_OK, không lỗi đăng ký model. FE `tsc -b` + `vite build` đạt; storefront `tsc` đạt. **Chưa** chạy trọn luồng trên trình duyệt, **chưa** chạy migrate kho vật tư trên DB thật.
+
+## Dọn menu "AI & Đóng gói" của Admin (05/10/2026)
+
+User hỏi 4 mục menu là gì → đối chiếu code: "Tham số AI" (state React, F5 mất, backend không đọc) và "Templates đóng gói" (`data/admin-mock.ts`) là **giao diện giả**, không ảnh hưởng engine; "Chốt kế hoạch đóng gói" (trang của main) sau gộp chỉ gọi `packing-plan/recompute` — trùng màn `/app/packing` (đã có hàng chờ, "Cần xử lý", tính lại). User: "tối ưu đi" → **xóa** `AdminAiPage`, `AdminTemplatesPage`, `AdminPackingPlansPage`, `AiConfigPanel`, `usePackagingTemplates`, `aiParams` trong `useAdminUsers`, dữ liệu giả + type liên quan; menu chỉ còn "Kế hoạch đóng gói" (→ `/app/packing`) và "Danh mục thùng"; `/app/admin/packing-plans` chuyển hướng sang `/app/packing`; thông báo `pending_approval`/`abnormal_package`/`packaging_rejected` của Admin mở thẳng `/app/packing/:groupId`. FE `tsc -b` + build đạt, lint 15 vấn đề có sẵn (trước 17).
+
+## Làm lại giao diện hàng chờ đóng gói `/app/packing` (05/10/2026)
+
+- Bỏ 4 cột kanban (phần lớn trống) → **một danh sách theo bước**: tab Cần xử lý (chỉ hiện khi có lỗi) / Chờ duyệt / Chờ đóng / Đang tính / Đã đóng, có số đếm; tab mặc định = tab đầu tiên còn việc, lưu ở `?stage=`. Bảng 4 cột thẳng hàng: Đơn · Hàng · Kế hoạch (hoặc Vấn đề) · Hạn, nút hành động theo bước (Duyệt / Đóng gói / Xử lý / Xem).
+- Mỗi dòng nhận diện bằng **mã đơn sàn + người nhận + sàn + SKU×số lượng**, không còn mã hex của nhóm. Nguồn: `GET /packing-plans/summary` trả thêm `groups[]` (`PackingQueueService.describeGroups()` đọc thẳng `orders`, bỏ đơn hủy/sự cố) — nhóm đang tính hoặc tính lỗi (chưa có kiện) vẫn có đủ thông tin. FE vẫn chịu được backend cũ không có `groups`.
+- Lỗi tính phương án được diễn giải: "SKU X chưa có hồ sơ đóng gói" → "Thiếu hồ sơ đóng gói của X" + cách sửa + link `Mở hồ sơ SKU` (`/app/inventory/packaging-profiles?q=X`, trang hồ sơ tự mở đúng SKU; chỉ hiện với role vào được trang đó). Lỗi khác hiện "Không tính được phương án" kèm nguyên văn.
+- Nhãn chứng minh không còn là badge xanh lặp lại: chỉ một dòng nhỏ "Tối ưu" (có chứng minh) hoặc "Đang kiểm chứng tối ưu" (CP-SAT chạy nền); heuristic không hiện gì.
+- Verify: FE `tsc -b` + eslint sạch; BE `tsc` 0 lỗi, jest 59/59 suite, 647 test. Đã chụp màn hình (Edge headless + API giả lập) desktop/mobile — chưa xem với dữ liệu thật.
+
+## Khung 3D đóng gói "từng thao tác": vải mô phỏng, túi zip, đóng thùng (05/10/2026)
+
+> 🔄 **ĐÃ GỠ khỏi `thi_dev` cùng ngày** — FE khôi phục về `main`; code còn ở nhánh `backup/fe-packing-3d` (gồm 4 file đang sửa dở lúc gỡ).
+
+**[stated] User chốt**: (1) có ở **cả hai nơi**: màn làm việc `/app/packing/:groupId` (tab "Xem từng bước", xem trước lúc duyệt) và chế độ đóng gói toàn màn hình; (2) **tách bước nhỏ**, mỗi thao tác 1 lần bấm Tiếp; (3) **mô phỏng vải thật**. Không đổi backend.
+
+- **Dòng thời gian** `fe/src/components/packing3d/timeline.ts` (`buildPackingTimeline`, hàm thuần):
+  - Hàng mềm (áo thun/sơ mi/khoác, quần dài/short, váy): trải phẳng → gấp hai bên → gấp thân → [cho vào túi → kéo khoá → gập túi nếu `zipBagFolded`] → [gập đôi nếu `placement.folded`] → đặt vào thùng.
+  - Hàng cứng (giày, dép, phụ kiện, khác): lấy → đặt.
+  - Cuối kiện: chèn vật tư → gập nắp → dán băng keo.
+  - Bước "đặt" dùng lời AI `guide.steps`, các bước khác dùng câu mẫu. `ACTION_SECONDS` = thời lượng mỗi thao tác.
+- **Vải** `cloth/shapes.ts` + `cloth/cloth-sim.ts`:
+  - Lưới hạt theo mặt nạ hình (cổ áo, tay, đũng quần), có làm mượt mép.
+  - `PackageModel` = động học có dẫn hướng: gấp kiểu cuộn trụ quanh bản lề; phần lật đáp lên đỉnh phần đứng yên trong vùng đáp + 1 lớp + 1 mm. Vị trí cuối mỗi pha tính sẵn, nên lùi/tiến dựng lại đúng hình.
+  - `ClothSim` (Verlet + ràng buộc giãn/cắt/uốn + kéo về đích) làm vải rủ mềm.
+  - Kích thước trải phẳng suy ngược từ ô trong thùng, giới hạn 62×72 cm. Độ dày lớp = độ cao ô ÷ 2^(số lần gấp). Đo bằng script: gói gấp xong cao 42/40 mm (áo), 54/60 (jean), 27/30 (short).
+  - Bước đặt nhấc gói theo vòng cung và co cho khít đúng ô. Chế độ "Nhẹ" / `prefers-reduced-motion` bỏ vật lý.
+- **Túi zip**: 2 lớp nhựa trong cũng là "vải" (cùng phép gấp). Miệng túi mở, khoá kéo chạy dọc mép, túi gập đôi được.
+  - **Lỗi đã gặp**: lưới túi dựng theo ô đơn vị 1 m, quên tính lại chiều dài cạnh, nên mô phỏng làm túi "nổ". Đã tính lại theo kích thước túi thật.
+- **Thùng/cảnh**:
+  - `Carton` có vân giấy, 4 nắp đóng có animation (nắp ngắn trước), băng keo kéo dọc khe. Đọc tiến độ qua `FinishState` (không qua state React).
+  - `PackingStage`: bàn gỗ + thảm gấp có lưới.
+  - `Materials3D`: túi khí, góc xốp theo số lượng kế hoạch. **Vị trí chỉ để minh hoạ.**
+  - Món đã vào thùng: lõi vải + vỏ túi trong suốt + đường khoá.
+  - Camera tự bay tới thảm / thùng / nắp.
+- **Trình phát**:
+  - `usePackingPlayer`: chỉ số, phát/tạm dừng, ×0,5/×1/×2, phím ←/→/Space.
+  - `PlayerBar`: thanh tiến trình chia đoạn theo từng món, bấm để nhảy.
+  - Màn làm việc có tab "Kết quả xếp" / "Xem từng bước", lời hướng dẫn nổi góc trên. Bấm dòng "Thứ tự xếp" thì nhảy tới bước đặt món đó.
+  - `PackingMode` thay bước "từng món" bằng từng thao tác (+ nút "Xem lại thao tác"). Màn Chuẩn bị hiện kết quả xếp, màn Cân hiện thùng đã dán.
+- **Lỗi có sẵn đã sửa**: `teal-shell.css` ép `.owner-stage .bg-canvas` trong suốt, và khung có backdrop-filter làm `fixed` bị neo trong khung, nên chế độ đóng gói lộ trang bên dưới. Đã sửa: `PackingMode` portal ra `document.body` + nền `var(--app-canvas)`.
+- **Bài học**:
+  - `heredoc` bash bị cắt với khối TS dài có nhiều nháy, nên viết bằng công cụ Write rồi ghép.
+  - Lint `react-hooks/immutability` cấm sửa ref/biến memo truyền qua props. Gói trạng thái mutable vào class có method (`FinishState`, `ModelCache`).
+- **Verify**:
+  - `tsc -b`, eslint các file đã sửa, `npm run build` đều đạt.
+  - Script số kiểm tra gấp (không NaN, ~0,05 ms/khung).
+  - Chụp Edge headless (SwiftShader) với kế hoạch giả lập 5 món: trải áo, gấp, túi, kéo khoá, gập túi, đặt, chèn vật tư, đóng nắp, băng keo. Chụp cả chế độ đóng gói.
+  - **Chưa đo fps trên GPU thật.** Dựng hình phần mềm chậm nên animation trong ảnh chưa chạy hết. User cần xem trên máy thật.
+- **Giới hạn**: nếp gấp do bản lề dẫn hướng, vật lý chỉ làm mềm (không phải mô phỏng vải tự do). Chưa có va chạm vải-với-vải; khe giữa các lớp do động học giữ.
+
+## Khôi phục FE về main + phiên đóng gói backend (05/10/2026)
+
+**[stated] Thuận chốt:** FE do nhóm FE làm → `fe/` trên `thi_dev` quay về đúng `origin/main`; Claude chỉ làm backend, đầu tư sâu nghiệp vụ đóng gói. Chọn: giữ `fe/Dockerfile` + `fe/nginx.conf` + sửa lỗi build; FE main gọi route cũ `/packaging/*` + `fulfillment/pack` (đã gỡ) sẽ 404, **FE tự chuyển** (bảng ánh xạ ở `GUIDE_DOC/API_LIST.md` mục 8a.7, BE không thêm route tương thích); lưu phần 3D sang nhánh `backup/fe-packing-3d`; làm cả 4 nhóm nghiệp vụ; kiện lệch cân phải do **người khác** người niêm phong chấp nhận; giữ `POST .../packing-plan/pack` làm lối tắt.
+
+**FE (AOFP-67):** `git checkout origin/main -- fe`, xóa 43 file chỉ có trên thi_dev, `npm install` gỡ `postprocessing` khỏi lockfile. FE main **không build được** (lỗi tsc có sẵn) → sửa tối thiểu 6 file (`MarketplaceOrderDetailScreen` thu hẹp `id`, `PackagingWorkbench` thêm `pending_approval` vào `QueueTab`, `AdminPackingPlansPage` truyền `onClose` cho toast, bỏ biến thừa ở `AdminWarehousePage`/`ProfilePage`, `ReturnsPage` bỏ tham số không tồn tại). `npm run build -w fe` đạt. Kèm: jest backend `testTimeout` 30 s (bcrypt + PDF trượt 5 s khi hook pre-commit chạy song song).
+
+**Backend (AOFP-68):**
+- **Phiên đóng gói theo kiện** (`packing-session.service.ts`): plan thêm trạng thái `packing`; kiện có `status` `pending|sealed|held|to_unpack|voided`, `scans[]`, `box_consumed`, `weighings[]`, `reviews[]`, `unpack`. Route `start`, `parcels/:no/scan|unscan|seal|review|unpack`, `report-issue`, `finish`, `assign`. Quét nhận SKU sàn hoặc SKU nội bộ (không phân biệt hoa/thường), sai kiện trả `belongsToParcels`, idempotent theo `client_event_id`, không cần `expected_version` (retry 3 lần khi đụng version). Trừ thùng + vật tư **lúc niêm phong từng kiện**; kiện cuối → plan + nhóm `packed` cùng transaction → controller báo Lazada.
+- **Kiện lệch cân bị giữ** (`held`) — thay hành vi cũ "vẫn packed, chỉ báo". `review accept` cấm người niêm phong tự duyệt (403), `reweigh`, `reopen` (không trừ thùng lần 2). Lối tắt `pack` ghi quét `bypass`, cũng giữ kiện lệch; `pack_mode` = `scan|quick`.
+- **Sự cố lúc đóng:** `replace` = `adjustPickedUnits(restock:false)` + `takeReplacementUnit` (sổ kho `pack_replace`); `back_to_picking` = thay plan + nhóm `approved_for_packing → picking` (cạnh mới), chỉ khi chưa niêm phong kiện nào.
+- **Đơn hủy sau khi bắt đầu đóng:** `handleOrderBecameUnfulfillable` → `markCanceledOrdersForUnpack` (plan `packing|packed`): đơn `canceled`, kiện của đơn `to_unpack`, KHÔNG thay plan; hủy hết thì nhóm `canceled` kể cả từ `packed` (cạnh mới), plan giữ tới khi tháo xong. `unpack` trả hàng về đúng ô (`adjustPickedUnits(restock:true)`, sổ kho `cancel_unpack`) + thu hồi thùng (`recoverFromUnpack`). `parcelsOfPlan` bỏ kiện `to_unpack/voided`; giao hàng chặn 409 `SHP_PARCELS_TO_UNPACK`. Plan `ready/approved` khi đơn hủy giữ cách cũ (thay plan, về picked).
+- **pick_events điều chỉnh:** trường `kind` (`scan|pack_issue|pack_replace|unpack`); event âm mang kho + ô nguồn để `restockPickRound` cộng ròng đúng ô (đã thêm nhánh dòng ròng ≤ 0 chỉ đánh dấu). Mọi phép đếm "đã lấy" tự khớp hàng thật.
+- **Cài đặt** `packing_settings` (có version, mặc định trong code): ngưỡng lệch cân, đệm dễ vỡ (chụp vào `solver.options.fragile_cushion_mm` — mọi lần dựng lại món dùng số đã chụp), mục tiêu mặc định, số kiện tối đa (vượt → `approve` cần `override_reason`), cho/không thùng tái sử dụng với hàng dễ vỡ, bắt buộc quét.
+- **Luật dễ vỡ đã thực thi** (trước chỉ nằm trong comment): `consumeForParcels` nhận `allowReused` theo kiện; kiện `has_fragile` chỉ lấy `qty_new`.
+- **Giữ chỗ thùng sửa:** kiện đã niêm phong (thùng đã trừ thật) và kiện đang/đã tháo không còn tính giữ chỗ — trước đây trong lúc đóng dở có thể bị tính 2 lần.
+- **Giao người đóng** (`packer-assignment.service.ts`): Packaging Staff ít plan mở nhất, tính lại giữ người cũ; route `assign`. **Sửa lỗi có sẵn:** `staff-assignment.manualAssign` không kiểm vai trò → giờ chỉ Warehouse Staff (`ORD_GROUP_STAFF_WRONG_ROLE`).
+- **Báo cáo** `GET /packing/reports/summary`: thời gian chờ/đóng, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt cận dưới, quét kiểm, chi phí, sự cố (đếm theo thời điểm báo trên mọi plan), theo nhân viên. Tính trong bộ nhớ, tối đa 5.000 plan.
+- 4 loại thông báo mới: `packing_assigned`, `packing_parcel_held`, `packing_issue`, `unpack_required`.
+
+**Tác động (5 câu):** (1) không migration, mọi trường có mặc định; plan `packed` cũ trả kiện `sealed` (`effectiveParcelStatus`). (2) Đổi hành vi: `pack` giữ kiện lệch + thêm `completed`; `approve` vượt số kiện cần lý do; gán tay lấy hàng chỉ Warehouse Staff; giao hàng chặn khi còn kiện phải tháo; báo giá đọc cả plan `packing`. (3) Xung đột: quét đồng thời → khóa `version` + đọc lại; giữ chỗ không còn đếm trùng. (4) Không ảnh hưởng: tính plan, CP-SAT, chỉnh tay, hướng dẫn AI, lấy hàng thường. (5) Giới hạn: ~~hàng đã lấy của đơn hủy trước khi đóng không về kệ; giữ chỗ K5 sau `back_to_picking`; vật tư chèn không thu hồi~~ 🔄 đã sửa cùng ngày (AOFP-70..72, xem mục ngay dưới); còn lại: chưa có ảnh bằng chứng.
+
+**Verify:** `tsc` 0 lỗi, `lint:ci` 0 lỗi (43 cảnh báo storefront có sẵn), jest 61 suite / 680 test (thêm test phiên đóng gói trong `packing-plan.service.spec.ts` dùng bộ giải thật, `order-groups.service.adjustPickedUnits.spec.ts`, `packing-settings-assignment-report.spec.ts`, luật dễ vỡ + thu hồi trong `packaging-material.service.spec.ts`, hủy khi đang đóng trong `recipientKeyAndCancel.spec.ts`). Khởi động app context thật (Atlas) → BOOT_OK (Mongoose tự tạo index mới trên DB dev). **Chưa** chạy luồng HTTP thật với dữ liệu thật.
+
+**Tài liệu:** `GUIDE_DOC/API_LIST.md` mục 8a (route, cài đặt, báo cáo, bảng ánh xạ cho FE main), `INTEGRATION_GUIDE_FULFILLMENT.md` v7.1 (Nghiệp vụ 1b mới, Nghiệp vụ 4, 6, D.3, D.4), ghi chú ở `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md` phần C và `DEMO_PLAYBOOK.md` C4'.
+
+**Bài học:** (1) `git commit` ở repo này chạy jest toàn bộ trong hook — nhớ cho timeout dài; commitlint chặn header > 100 ký tự. (2) Viết sửa file bằng script Python trong scratchpad (heredoc bash với chuỗi tiếng Việt dài bị cắt). (3) Schema class (`PlanParcel`) spread bị lint `no-misused-spread` → dùng kiểu `Plain<T>` (`toObject<T>()`) hoặc `Object.assign`.
+
+### Sửa 3 giới hạn của phiên đóng gói (05/10/2026 tối, AOFP-70..73)
+
+**[stated] Thuận chốt:** hàng đã lấy của đơn hủy trước khi đóng → **tự cộng tồn đúng ô + báo kho** (không có bước xác nhận, giống decide-partial từ chối); làm luôn thu hồi vật tư chèn; ảnh bằng chứng để sau (chưa chọn nơi lưu file).
+
+- **AOFP-70 — lỗi thật giữ chỗ K5:** `reconcile` tính `cần giữ = đặt − quantity_picked`, mà `quantity_picked` chỉ tăng. Loại món hỏng ("trả về lấy hàng") → giữ 0 cho món thay. Sửa: `StockReservationService.unconsume()` (pipeline `$max 0`, mọi status) gọi trong `adjustPickedUnits`; `recordPicked()` (giữ chỗ active → `consume`, đã nhả → chỉ cộng bộ đếm) gọi trong `takeReplacementUnit`.
+- **AOFP-71 — trả kệ khi đơn hủy trước khi đóng:** `OrderGroupsService.returnSurplusPickedUnits()` — dư = đã lấy (lượt hiện tại, ròng) − đặt của đơn còn lại (hủy hết → tất cả); `adjustPickedUnits(restock, kind 'cancel_return')` cộng tồn ô lấy sau cùng trước, sổ kho `cancel_return`, pick_event âm; thông báo `return_to_shelf` (Warehouse Staff + người lấy được giao) có `SKU ×n → ô <bin_code>` (đăng ký thêm `BinLocation` vào order-groups module, tham số cuối constructor). Gọi trong `handleOrderBecameUnfulfillable` khi chưa có phiên đóng, nhóm `picking|picked|pending_approval|approved_for_packing`, best-effort, TRƯỚC khi thay kế hoạch. Gọi lặp không trả 2 lần.
+- **AOFP-72 — thu hồi vật tư chèn:** `/packaging/materials` nhận `reusable` (mặc định false), response thêm `reusable`, `quantityNew`, `quantityReused`. `unpack` nhận `recovered_materials[{code, quantity}]` (≤ số trong kiện, mã phải có — `PACKING_RECOVER_MATERIAL_INVALID`; vật tư không tái sử dụng → `PKG_MATERIAL_NOT_REUSABLE`). `recoverFromUnpack` nhận nhiều dòng; kết quả lưu `parcels[].unpack.recovered_materials`.
+- Verify: tsc 0, eslint 0 trên module đụng, jest 61 suite / 693 test, BOOT_OK. Chưa chạy HTTP thật.
+- Bài học: sửa hàng loạt lời gọi constructor trong spec bằng script dễ chèn tham số SAU comment cuối dòng (`// x, {} as never`) — thêm tham số vị trí thì grep lại từng file, và cân nhắc đặt tham số mới ở cuối để giảm số chỗ phải sửa.
+
+## Hướng xử lý 5 góp ý của cô về đóng gói (08/10/2026) — ĐÃ DUYỆT HƯỚNG, CHƯA CODE
+
+Kế hoạch đầy đủ: `C:\Users\Admin\.claude\plans\pasted-content-id-f472-g-i-curious-rabbit.md`. [stated] User chốt: "setup back lại" = **hoàn tác xác nhận đóng gói**; "đóng gói theo size túi" = **túi zip bọc từng món** (không phải túi làm bao ngoài).
+
+Lỗ hổng đối chiếu code: (1) `adjustments[]` có lý do nhưng không có vòng phản hồi cho Admin; (2) `changeBox` chỉ ở `ready`, lúc đóng không đổi được thùng, thùng hỏng không ghi hao hụt; (3) chỉ mở lại được kiện bị giữ lệch cân; (4) túi zip gán tay, không kiểm vừa, không tồn kho/không trừ; (5) `reject` là ngõ cụt (lý do tự do, không người xử lý, không hạn, lối ra duy nhất là tính lại).
+
+Hướng: mọi lần làm khác gợi ý phải có mã lý do + người chịu trách nhiệm + lối kết thúc trong hệ thống + quay về dữ liệu cho Admin sửa. Thứ tự: (1) mã lý do mở rộng + `GET /packing/reports/feedback` (đề xuất cải thiện khi cùng SKU/thùng lệch ≥ N lần, ánh xạ sang route sửa hồ sơ SKU/thùng/cài đặt có sẵn) + từ chối có `rejection_owner_id`/`rejection_due_at` + 3 lối ra (tính lại / `POST .../packing-plan/manual` đóng gói thủ công có ghi nhận / trả về lấy hàng); (2) đổi thùng lúc đóng với `old_box_outcome` `unused|damaged`, sổ `waste`; (3) `unseal` kiện đã niêm phong, nhóm `packed → packing` chỉ Admin/Store Owner, chặn khi đã có vận đơn đang giao; (4) `bag-fit.util.ts` + gợi ý túi nhỏ nhất vừa + túi vào kho vật tư chung `kind: 'bag'`, trừ lúc niêm phong. Khi bảo vệ nói rõ: "AI" cải thiện nhờ dữ liệu đầu vào và tham số, không tự học máy.
+
+**Tiến độ 08/10/2026 — bước 1 ĐÃ CODE (mục 5 + mục 1):** `reject` đổi sang mã lý do (`REJECT_REASONS`) + `note` + `owner_id`, hạn xử lý 2 giờ làm việc (`rejection_due_at`), cron 15 phút nhắc quá hạn 1 lần (`PackingJobService.remindOverdueRejections`); route mới `POST .../packing-plan/manual` (đóng gói thủ công, tạo kế hoạch `source: manual` ở `ready` để người khác duyệt, kiện không xếp được thì `manual_layout`); `adjustments[]` lưu thêm `skus`/`box_codes`; `GET /packing/reports/feedback` (`packing-feedback.service.ts`, hàm thuần `buildFeedback`) sinh đề xuất cho Admin. Breaking cho FE: `reject.reason` giờ là mã. Verify: tsc 0 lỗi, lint 0 lỗi, jest 62 suite / 711 test. Chưa chạy HTTP thật. **Còn lại: bước 2 (đổi thùng lúc đóng + sổ waste), 3 (unseal), 4 (túi zip theo size).**
+
+**Bước 2 ĐÃ CODE (08/10/2026):** `POST .../packing-plan/parcels/:no/change-box-in-session` (`PackingPlanService.changeBoxInSession`): kế hoạch `approved|packing`, kiện `pending` và chưa `box_consumed`; bắt buộc `old_box_outcome` `unused|damaged` — `damaged` gọi `PackagingMaterialsService.recordWaste` (trừ `qty_new` rồi `qty_reused`, movement loại mới `waste`) cùng transaction với cập nhật kế hoạch; giữ nguyên `scans/weighings/reviews`; `saveManualEdit` nhận `opts {statuses, session}`; adjustment thêm `old_box_outcome`, `waste_cost_vnd`; báo cáo feedback thêm `waste`. Verify: tsc 0, lint 0, jest 62 suite / 717 test. Chưa chạy HTTP thật.
+
+**Bước 3 ĐÃ CODE (08/10/2026):** `POST .../packing-plan/parcels/:no/unseal` (`PackingSessionService.unseal`): kiện `sealed|held` về `pending`; plan `packing` → nhân viên đóng gói làm được; plan `packed` (nhóm `packed`) → chỉ Admin/Store Owner (403 `PACKING_UNSEAL_NOT_ALLOWED`), plan về `packing`, nhóm `packed → approved_for_packing` (cạnh MỚI trong `allowed-status-transitions.ts`). `box_condition`: `reusable` giữ `box_consumed` (niêm phong lại không trừ lần 2) / `damaged` đặt `box_consumed=false` (lần trước coi mất, trừ cái mới), ghi `adjustments` kind `unseal` + `waste_cost_vnd` = giá thùng, tính vào `waste` của báo cáo feedback. Controller trả `warnings` về Lazada không hoàn tác Pack. Verify: tsc 0, lint 0, jest 62 suite / 721 test. Chưa chạy HTTP thật.
+
+**Bước 4 ĐÃ CODE (08/10/2026) — HOÀN THÀNH CẢ 4 BƯỚC:** `packaging/bag-fit.util.ts` (`bagFits`, `suggestSmallestBag`; gói a ≥ b ≥ t mm vừa túi W×L khi `b + t + 10 ≤ W` và `a + t + 30 ≤ L`, thử xoay túi); `PUT /product-master/:id/packaging-profile` kiểm túi (422 `PM_ZIP_BAG_TOO_SMALL` kèm `suggestedZipBagCode`) và trả `suggestedZipBagCode`; `packaging_bags` thêm `quantity_on_hand`/`reorder_level` + `POST /packaging/bags/:id/stock-in`; `PackagingBagService.consumeForParcels` trừ túi (mỗi món có túi = 1) CÙNG transaction niêm phong (`PackingSessionService.sealParcels`, chỉ khi `!box_consumed`), thiếu không chặn → `materials_shortfall` + thông báo, ghi sổ chung `packaging_movements` (material_code = mã túi). **LỆCH so với kế hoạch gốc:** KHÔNG đưa túi vào `packaging_materials` (`kind: 'bag'`) — giữ collection `packaging_bags` có tồn riêng cho rủi ro thấp (không migration); túi chưa tính vào chi phí kiện. Verify: tsc 0, lint 0, jest 64 suite / 734 test. Chưa chạy HTTP thật.
+
+## Rà soát BE trước khi giao docs FE + Đợt 1 vá lỗi chặn FE (09/10/2026)
+
+Rà 26 controller (~209 route) theo 3 hướng: route vs `GUIDE_DOC/API_LIST.md`, trạng thái không có lối ra, kỹ thuật (mã lỗi, validate, bảo mật, env). Kết luận: luồng chính đủ API, guard đúng, ValidationPipe whitelist, Swagger, mọi module có spec — nhưng CHƯA nên chốt docs khi còn lỗi chặn FE. Kế hoạch 4 đợt: `C:\Users\Admin\.claude\plans\b-n-ki-m-tra-to-n-modular-salamander.md`.
+
+**Đợt 1 — ĐÃ CODE (commit AOFP-87..91):**
+- **AOFP-87** rate limit toàn cục 20 → 600 req/phút/IP (env `THROTTLE_LIMIT_PER_MINUTE`) — cả kho chung 1 IP NAT + FE polling/quét mã bị 429 giả; `@SkipThrottle` cho `notifications/unread-count`, `pick-item`, `parcels/:no/scan|unscan`. `.env.example` thêm `LAZADA_WRITE_APIS_ENABLED`, `LAZADA_SHIPPING_ALLOCATE_TYPE` (trước đó thiếu dù CLAUDE.md ghi đã có).
+- **AOFP-88** [stated: user chọn thêm lối thay vì bỏ lời hứa] `POST /order-groups/:groupId/packing-plan/back-to-picking` — lối ra thứ 3 sau từ chối (route/comment/thông báo đã hứa mà code không có). Body `{expected_version, items[{sku, quantity, restock?}], note?}`: món hỏng rút khỏi "đã lấy" (pack_issue, không về kệ), món lấy nhầm `restock: true` cộng lại đúng ô (loại sổ kho + pick_event mới `reject_return`). Kế hoạch `superseded`, `rejection_resolution: back_to_picking`, adjustment kind `back_to_picking` (báo cáo feedback KHÔNG đếm lại như chỉnh tay, thêm `resolvedBy.backToPicking`). Cạnh MỚI `picked → picking`. Mã lỗi `PACKING_BACK_TO_PICKING_INVALID` (SKU không có / vượt số đã lấy). Báo người lấy hàng được gán (không có thì cả Warehouse Staff).
+- **AOFP-89** cron 10 s đánh `failed` kế hoạch kẹt `computing` > 5 phút (app chết giữa lúc tính → chặn cron + recompute mãi); cron tự tính loại sẵn nhóm có kế hoạch `computing|failed|rejected` TRƯỚC khi lấy lô (trước đây ≥50 nhóm failed chiếm hết lô, nhóm mới không bao giờ được tính).
+- **AOFP-90** `GET /packing/staff?q=` (Packaging Staff, Store Owner, Admin) — Packaging Staff đang hoạt động + số kế hoạch mở; trước đây FE không có nguồn nào để chọn `staff_id` cho `assign` và `owner_id` cho `reject`.
+- **AOFP-91** cron backfill 5 phút gọi `resumeStuckAwaitingGroups()` — nhóm kẹt `awaiting_packaging` (bước sang picking lúc tạo lỗi) chạy lại `startPickingPhase` (giữ người đã gán), hết đơn hợp lệ thì đi đường hủy tự động.
+
+**Tác động (5 câu):** (1) không migration; enum thêm giá trị. (2) Đổi hành vi: rate limit; cron giờ có thể đánh `failed` kế hoạch `computing` cũ; nhóm `awaiting_packaging` cũ (dữ liệu trước 21/09) sẽ tự sang `picking`. (3) Xung đột: back-to-picking dùng chung `adjustPickedUnits` (đã có unconsume giữ chỗ) + `reconcileReservation`. (4) Không ảnh hưởng: tính kế hoạch, phiên đóng gói, giao/trả hàng. (5) Còn lại: Đợt 2 (response raw `GET /users` lộ trường bảo mật, notifications, assign; mã lỗi auth/storefront; query DTO; phân trang), Đợt 3 (nhả giữ chỗ khi tự hủy, report-missing báo Packaging Staff, chặn tự duyệt kế hoạch thủ công, trả hàng lặp/hủy phiếu, `is_read` theo role), Đợt 4 (docs lệch: role returns, route đã gỡ còn trong guide Warehouse/Operations/Demo, 13 mã lỗi chưa ghi, storefront chưa có trong API_LIST, `ABNORMAL_PACKAGE` không ai phát).
+
+**Verify:** tsc 0 lỗi, eslint file đụng 0 lỗi, hook pre-commit chạy jest toàn bộ đạt mỗi commit. Chưa gọi HTTP thật. Docs FE chưa cập nhật cho Đợt 1 (gom vào Đợt 4).
+
+**Đợt 2 — ĐÃ CODE (AOFP-92..94):**
+- **AOFP-92** response sạch: `GET /users` → `AdminUserListItem` (snake_case như `/users/me`, có `id`, bỏ `_id/__v/failed_login_attempts/reset_password_expires/created_by` — FE main đọc đúng các trường này nên không vỡ); thông báo → `NotificationView` (snake_case, `id`) + **đọc riêng theo người**: thông báo theo role dùng `read_by[]` (thông báo role cũ đã `is_read: true` vẫn coi là đã đọc — không hồi sinh), `PATCH /notifications/read-all`, `?before&limit` con trỏ; `POST /order-groups/:id/assign` trả `OrderGroupResponse`; `GET /storefront/categories` camelCase.
+- **AOFP-93** mã lỗi: `auth/auth.errors.ts` (`AUTH_*`), `USER_NOT_FOUND`, `storefront/storefront.errors.ts` (`SF_*`). Exception GIỮ lớp Nest (Unauthorized/Forbidden/NotFound…) và HTTP status, chỉ thêm `error_code` vào body; `GlobalExceptionFilter` nhánh (b) ưu tiên `error_code` trong body. Lý do không đổi sang AppException: hàng chục test + code dùng `instanceof UnauthorizedException`. Storefront order id sai định dạng → 404 thay vì 500. Lỗi dữ liệu thùng/vật tư/mã dãy ném `Error` thì KHÔNG đổi — query đã lọc sẵn/DTO đã kiểm, không tới được từ input.
+- **AOFP-94** query DTO: `stock-availability`, `bin-suggestions`, `GET /shipments`, `GET /returns` (page/limit ≤100, enum, ObjectId), `auth/refresh|logout` (`RefreshTokenDto`); `GET /order-groups` thêm `assigned_staff_id`, `stock_shortage`, `is_overdue`, `before` (createdAt dòng cuối), `limit` 1–200 (vẫn trả mảng); `returns/quarantine` tối đa 200 phiếu.
+
+**Đợt 3 — ĐÃ CODE (AOFP-95..97):** nhóm tự hủy nhả giữ chỗ K5 (`releaseReservation`), hủy một phần thì `reconcileReservation`; `report-missing` báo thêm Packaging Staff; `GET /order-groups/:id` thêm `orders[]` (người nhận + món gộp, cả đơn hủy) cho staff vận hành; kế hoạch thủ công người lập không tự duyệt (403 `PACKING_SELF_APPROVE_FORBIDDEN`, áp cả Admin như `review accept`); trả hàng `POST /returns/:id/cancel` (awaiting_receipt → trạng thái MỚI `canceled`, bắt lý do) + lần trả sau trừ số đã trả ở phiếu trước (bỏ phiếu rejected/canceled). Cron tự tính không bị nhóm failed/rejected chiếm lô và đọc riêng thông báo đã làm ở AOFP-89/92.
+
+**Bài học Đợt 2–3:** (1) `re.sub` với chuỗi thay thế chứa `\1` trong Python heredoc bị biến thành ký tự `\x01` 2 lần → khi chèn quanh decorator dùng `str.replace` chuỗi cố định. (2) Heredoc bash chứa tiếng Việt + dấu nháy đơn trong code TS làm cả lệnh lỗi parse, không chạy gì → viết file bằng công cụ Write. (3) commitlint chặn header > 100 ký tự nhưng `grep` lọc output làm lỗi bị nuốt — kiểm `git log -1` sau mỗi commit.
 ---
 
 ## 🔍 Nhật ký 06/10/2026 — Rà soát các chỗ cùng loại lỗi "khớp SKU / khóa tồn / module phụ thuộc ngầm"
@@ -3271,3 +3810,18 @@ npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # ch�
 
 **Commit đề xuất:** `git merge origin/feature/viet_befe` (giữ tên Việt) → chép file → `fix(AOFP-64): declare id fields as schematypes objectid and fix restock lookups` (code + test + script) → `docs(AOFP-65): document objectid fix, migration script and viet stock lookup merge` (toàn bộ tài liệu). Số AOFP cần đối chiếu `git log` trước khi commit.
 
+
+---
+
+## Gộp `main` (07/10 — sửa kiểu id ObjectId) vào `thi_dev` (10/10/2026)
+
+**Bối cảnh:** tạo PR `thi_dev → main`; `main` có thêm `abe6eb0` (khai `SchemaTypes.ObjectId`, `stockFilterFor` khớp SKU không phân biệt hoa/thường, `stockUpsertFilterFor`, script `migrate-objectid-fields.ts`) + `5bbdfbb` (tài liệu). 8 file xung đột.
+
+**Cách gỡ:**
+- `order-group.schema.ts`: giữ thi_dev (đã bỏ `active_packaging_recommendation`). `order.schema.ts`: giữ `marketplace_shop` nullable nhưng đổi sang `SchemaTypes.ObjectId`. `packaging-recommendation.schema.ts`: gộp import. `lazada-order-sync.scheduler.ts`: giữ vòng lặp đa sàn của thi_dev + `relatedEntityId: String(shop._id)` của main. `order-groups.service.ts` `pickItem`: giữ khung thi_dev (chạm group, chặn vượt số đặt) + ép `warehouse_id` sang ObjectId của main.
+- **Xung đột ngữ nghĩa (chỉ jest bắt):** schema mới của thi_dev (packing_plans, cài đặt, product_master, packaging_movements, pick_events.warehouse_id, storefront…) vẫn khai `type: Types.ObjectId` → 61 field Mixed. Đã đổi hết sang `SchemaTypes.ObjectId`; `OBJECT_ID_FIELDS` thêm các collection đó (77 field top-level; thêm thuộc tính `nested` cho field 2 tầng mảng `parcels[].scans[].by`… — luôn ghi ObjectId nên script không cần chuyển). **`packing_plans.orders[].order_id` và `parcels[].order_id` từng được ghi dạng CHUỖI** → đã đưa vào script; phải chạy `scripts/migrate-objectid-fields.ts --apply` sau deploy, nếu không truy vấn theo `order_id` sẽ không khớp dữ liệu cũ.
+- Bonus: vài truy vấn bằng chuỗi id trên collection mới (vd `documents.service.ts` tìm kế hoạch theo `order_group_id` chuỗi) trước đây âm thầm ra 0 dòng, nay Mongoose tự ép kiểu nên khớp.
+- Không lệnh upsert nào của thi_dev dùng `stockFilterFor` (đều trừ/cộng dòng có sẵn) → đổi sang regex của main an toàn. Sửa 3 test cho khớp (regex `seller_sku`, `warehouse_id` ObjectId, mock `getPickableItemsForGroup`).
+- Tài liệu: giữ cả hai; bỏ các câu của main nhắc `POST .../packaging/generate` và `fulfillment/pack` (đã gỡ trên thi_dev) — thi_dev vốn đã ghi `pick_events.order_group_id` bằng ObjectId nên không bị lỗi "gợi ý theo số lượng đặt".
+
+**Verify:** tsc 0 lỗi, `lint:ci` 0 lỗi (42 cảnh báo storefront có sẵn), jest 69 suite / 769 test. Chưa chạy migrate trên DB thật.

@@ -80,6 +80,10 @@ export class MarketplaceShop {
   // kết nối — giữ lại lịch sử phục vụ audiT
   @Prop({ type: Boolean, default: true })
   is_active!: boolean;
+
+  // Mongoose tự sinh qua timestamps — chỉ khai kiểu, không @Prop() (Rule #7)
+  created_at?: Date;
+  updated_at?: Date;
 }
 
 export const MarketplaceShopSchema =

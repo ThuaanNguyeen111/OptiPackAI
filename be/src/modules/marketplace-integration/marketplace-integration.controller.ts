@@ -27,6 +27,17 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { MKT_ERROR_CODES } from './marketplace-integration.errors';
 
+export interface ShopResponse {
+  shopId: string;
+  shopName: string | null;
+  environment: 'sandbox' | 'production';
+  isActive: boolean;
+  accessTokenExpiresAt: string;
+  refreshTokenExpiresAt: string;
+  lastPolledAt: string | null;
+  connectedAt: string | null;
+}
+
 @ApiTags('Marketplace Integration')
 @Controller('marketplace')
 export class MarketplaceIntegrationController {
@@ -57,6 +68,35 @@ export class MarketplaceIntegrationController {
     );
 
     return { authUrl };
+  }
+
+  @Get(':platform/shops')
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
+  @ApiOperation({
+    summary:
+      'Danh sách shop đã kết nối OAuth của 1 sàn, đọc thật từ DB (không kèm token) — dùng cho màn Kết nối sàn',
+  })
+  @ApiParam({ name: 'platform', enum: MarketplacePlatform })
+  async listShops(
+    @Param('platform', new ParseEnumPipe(MarketplacePlatform))
+    platform: MarketplacePlatform,
+  ): Promise<{ shops: ShopResponse[] }> {
+    const shops =
+      await this.marketplaceIntegrationService.listShopsForDisplay(platform);
+    return {
+      shops: shops.map((shop) => ({
+        shopId: shop.shop_id,
+        shopName: shop.shop_name,
+        environment: shop.environment,
+        isActive: shop.is_active,
+        accessTokenExpiresAt: shop.access_token_expires_at.toISOString(),
+        refreshTokenExpiresAt: shop.refresh_token_expires_at.toISOString(),
+        lastPolledAt: shop.last_polled_at?.toISOString() ?? null,
+        connectedAt: shop.connected_at?.toISOString() ?? null,
+      })),
+    };
   }
 
   @Get(':platform/callback')
@@ -91,6 +131,7 @@ export class MarketplaceIntegrationController {
         shopId: shopDoc.shop_id,
         shopName: shopDoc.shop_name ?? '',
         connected: 'true',
+        platform,
       });
       return { url: `${frontendUrl}?${params.toString()}` };
     } catch (err: unknown) {
@@ -102,7 +143,9 @@ export class MarketplaceIntegrationController {
       this.logger.warn(
         `Marketplace OAuth callback (${platform}) thất bại → error=${errorCode}: ${message}`,
       );
-      return { url: `${frontendUrl}?error=${errorCode}` };
+      return {
+        url: `${frontendUrl}?${new URLSearchParams({ error: errorCode, platform }).toString()}`,
+      };
     }
   }
 }

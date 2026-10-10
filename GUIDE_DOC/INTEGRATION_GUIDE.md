@@ -99,7 +99,7 @@ Nếu còn hạn (30 ngày) và khớp đúng thiết bị → **bỏ qua hoàn 
 
 ## 5. Tài khoản mới tạo / vừa bị Admin reset password
 
-Response login có `must_change_password: true` → FE **bắt buộc điều hướng thẳng** sang màn hình "Đổi mật khẩu", **ẩn hết menu khác**. Mọi API khác (trừ `/auth/change-password`, `/auth/logout`) sẽ trả về **403** cho tới khi đổi xong — đây là backend tự chặn, không phải bug.
+Response login có `must_change_password: true` → FE **bắt buộc điều hướng thẳng** sang màn hình "Đổi mật khẩu", **ẩn hết menu khác**. Mọi API khác (trừ `/auth/change-password`, `/auth/logout`) sẽ trả về **403** cho tới khi đổi xong — đây là backend tự chặn, không phải bug. 🔄 (09/10/2026) Lỗi này có `error_code: "AUTH_PASSWORD_CHANGE_REQUIRED"` — FE bắt mã này ở interceptor chung để chuyển sang màn đổi mật khẩu.
 
 ### Khóa cứng sau 72 giờ
 
@@ -109,7 +109,7 @@ Nếu quá 72h kể từ lúc được cấp mà chưa đổi mật khẩu, **m�
 "Tài khoản đã bị khóa do chưa đổi mật khẩu trong 72 giờ. Vui lòng liên hệ Admin để được mở khóa."
 ```
 
-→ FE nên hiển thị màn hình riêng cho tình huống này (không phải lỗi thường), hướng dẫn user liên hệ Admin — Admin gọi `POST /users/:id/reset-password` để mở lại.
+→ FE nên hiển thị màn hình riêng cho tình huống này (không phải lỗi thường), hướng dẫn user liên hệ Admin — Admin gọi `POST /users/:id/reset-password` để mở lại. 🔄 (09/10/2026) Nhận diện bằng `error_code: "AUTH_PASSWORD_DEADLINE_LOCKED"` (403 lúc đăng nhập, 401 với token đang dùng), không so câu chữ.
 
 ---
 
@@ -119,6 +119,8 @@ Nếu quá 72h kể từ lúc được cấp mà chưa đổi mật khẩu, **m�
 POST /auth/refresh
 Body: { "refresh_token": "..." }
 ```
+
+🔄 (09/10/2026) `refresh_token` bắt buộc, khác rỗng (cả ở `POST /auth/logout`) — thiếu → 400 `VALIDATION_ERROR`. Lỗi token: `AUTH_REFRESH_TOKEN_INVALID`, `AUTH_REFRESH_TOKEN_EXPIRED`, `AUTH_REFRESH_TOKEN_REUSED` (dùng lại token cũ → mọi phiên bị thu hồi) — cả 3 đều 401, FE đưa về màn đăng nhập.
 
 Trả về **cặp token MỚI hoàn toàn** (cả access lẫn refresh). FE phải **thay thế cả 2** giá trị đã lưu, không chỉ thay access token — refresh token **cũ sẽ mất hiệu lực ngay** sau khi dùng 1 lần (rotation). Nếu FE dùng lại refresh token cũ đã hết hạn dùng → toàn bộ session của user sẽ bị thu hồi (cơ chế phát hiện đánh cắp token), bắt phải đăng nhập lại từ đầu — đây là **chủ đích bảo mật**, không phải bug.
 
@@ -181,31 +183,52 @@ FE cần có sẵn 1 route `/oauth-success`, tự đọc `URLSearchParams` từ 
 | PATCH  | `/users/:id`                | Có                         | Admin (sửa tên/role/phone/address/mã NV/phòng ban) |
 | DELETE | `/users/:id`                | Có                         | Admin (xóa mềm)                                    |
 
+🔄 (09/10/2026) `GET /users?role&page&limit` trả `{ data, total, page, limit }`; mỗi phần tử: `id, name, email, role, avatar, phone, address, employee_code, department, is_active, mfa_enabled, login_type, must_change_password, must_change_password_by, locked_until, last_login_at, created_at` — không còn `_id`, `__v`, `failed_login_attempts`, `reset_password_expires`, `created_by`. Id không tồn tại ở `/users/:id` → 404 `USER_NOT_FOUND`.
+
 ---
 
 ## 9. Format lỗi chung
 
-Mọi lỗi trả về đều theo format NestJS chuẩn:
+🔄 **ĐÃ ĐỔI (sửa tài liệu cho khớp code, 09/10/2026)** — bản trước mô tả format NestJS mặc định (`statusCode`/`error`), **không đúng**: mọi lỗi đi qua `GlobalExceptionFilter` và có dạng:
 
 ```json
 {
-  "statusCode": 401,
+  "success": false,
+  "error_code": "AUTH_INVALID_CREDENTIALS",
   "message": "Email hoặc mật khẩu không chính xác.",
-  "error": "Unauthorized"
+  "details": null,
+  "timestamp": "2026-10-09T02:00:00.000Z",
+  "path": "/auth/login"
 }
 ```
 
-Riêng lỗi validate (body sai định dạng) — `message` là **mảng chuỗi**, không phải 1 chuỗi:
+- HTTP status nằm ở status của response (không có field `statusCode`).
+- Lỗi validate body/query: `error_code: "VALIDATION_ERROR"`, `message` là **1 chuỗi** các lỗi nối bằng `"; "`.
+- FE rẽ nhánh theo `error_code`, chỉ hiển thị `message`.
 
-```json
-{
-  "statusCode": 400,
-  "message": ["email must be an email", "password should not be empty"],
-  "error": "Bad Request"
-}
-```
+**Mã lỗi Auth/Users (🆕 09/10/2026 — trước đây chỉ có `UNAUTHORIZED`/`FORBIDDEN` chung):**
 
-FE nên xử lý cả 2 trường hợp `message` là `string` hoặc `string[]`.
+| `error_code` | HTTP | Khi nào |
+| --- | --- | --- |
+| `AUTH_INVALID_CREDENTIALS` | 401 | Sai email/mật khẩu |
+| `AUTH_ACCOUNT_LOCKED` | 403 | Sai quá 5 lần, khóa 15 phút |
+| `AUTH_ACCOUNT_INACTIVE` | 401 | Tài khoản bị vô hiệu hóa |
+| `AUTH_PASSWORD_DEADLINE_LOCKED` | 403 / 401 | Quá 72h chưa đổi mật khẩu tạm (mục 5) |
+| `AUTH_PASSWORD_CHANGE_REQUIRED` | 403 | Phải đổi mật khẩu trước (mục 5) |
+| `AUTH_MFA_TOKEN_INVALID` / `AUTH_MFA_BACKUP_CODE_INVALID` | 401 | Mã TOTP / mã dự phòng sai |
+| `AUTH_MFA_SETUP_NOT_STARTED` | 401 | Gọi `mfa/verify` khi chưa `mfa/setup` |
+| `AUTH_MFA_MISCONFIGURED` | 401 | Cấu hình MFA hỏng, liên hệ Admin |
+| `AUTH_CURRENT_PASSWORD_INVALID` | 401 | Đổi mật khẩu, mật khẩu cũ sai |
+| `AUTH_RESET_TOKEN_INVALID` | 401 | Link quên mật khẩu sai/hết hạn |
+| `AUTH_REFRESH_TOKEN_INVALID` / `_EXPIRED` / `_REUSED` | 401 | Mục 6 |
+| `AUTH_ROLE_INVALID` | 401 | Vai trò tài khoản không hợp lệ |
+| `AUTH_FORBIDDEN_ROLE` | 403 | Vai trò không được gọi route này |
+| `AUTH_UNAUTHENTICATED` | 401 | Không đọc được người dùng đã xác thực |
+| `UNAUTHORIZED` | 401 | Thiếu/sai/hết hạn access token |
+| `USER_EMAIL_IN_USE` | 409 | Tạo user trùng email đang hoạt động |
+| `USER_EMAIL_INACTIVE` | 409 | Trùng email của tài khoản đã vô hiệu hóa (`details.existingUserId`) — dùng Kích hoạt lại |
+| `USER_NOT_FOUND` | 404 | Id user không tồn tại |
+| `RATE_LIMITED` | 429 | Đăng nhập > 5 lần/phút, quên mật khẩu > 3 lần/phút, hoặc > 600 request/phút/IP |
 
 ---
 
@@ -217,3 +240,4 @@ FE nên xử lý cả 2 trường hợp `message` là `string` hoặc `string[]`
 - [ ] Đã có màn hình riêng cho `must_change_password: true` và khóa cứng 72h
 - [ ] Đã có route `/oauth-success` đọc query string, xử lý đủ 7 mã lỗi ở mục 7
 - [ ] Refresh token: thay **cả 2** token mỗi lần gọi `/auth/refresh`, không chỉ access token
+- [ ] 🆕 (09/10/2026) Interceptor lỗi đọc `error_code` (mục 9): `AUTH_PASSWORD_CHANGE_REQUIRED` → màn đổi mật khẩu; `AUTH_PASSWORD_DEADLINE_LOCKED` → màn khóa cứng; `AUTH_REFRESH_TOKEN_*` → đăng nhập lại; `RATE_LIMITED` → báo thử lại sau

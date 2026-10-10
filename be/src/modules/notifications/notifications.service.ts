@@ -39,6 +39,45 @@ interface CreateNotificationInput {
  * ghép chuỗi tùy tiện, đảm bảo văn phong nhất quán trên toàn hệ thống.
  * ===================================================================
  */
+/**
+ * (09/10/2026) Hình dạng trả cho FE — trước đây trả nguyên document (`_id`,
+ * `__v`, `read_by`, `channels_sent`). Giữ snake_case như FE đang đọc; `is_read`
+ * là trạng thái CỦA NGƯỜI GỌI (thông báo theo role mỗi người đọc riêng).
+ */
+export interface NotificationView {
+  id: string;
+  type: string;
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  message: string;
+  related_entity_type: string | null;
+  related_entity_id: string | null;
+  is_read: boolean;
+  created_at: Date | null;
+}
+
+type NotificationLean = Pick<
+  Notification,
+  'recipient_user_id' | 'type' | 'severity' | 'title' | 'message' | 'related_entity_type' | 'related_entity_id' | 'is_read'
+> & { _id: Types.ObjectId; read_by?: Types.ObjectId[]; created_at?: Date };
+
+export function toNotificationView(doc: NotificationLean, userId: string): NotificationView {
+  const isRead = doc.recipient_user_id
+    ? doc.is_read
+    : doc.is_read || (doc.read_by ?? []).some((id) => id.toString() === userId);
+  return {
+    id: doc._id.toString(),
+    type: doc.type,
+    severity: doc.severity,
+    title: doc.title,
+    message: doc.message,
+    related_entity_type: doc.related_entity_type,
+    related_entity_id: doc.related_entity_id ? doc.related_entity_id.toString() : null,
+    is_read: isRead,
+    created_at: doc.created_at ?? null,
+  };
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
@@ -118,11 +157,18 @@ export class NotificationsService {
             .lean();
 
       for (const recipient of recipients) {
-        await this.mailService.sendNotificationEmail({
-          to: recipient.email,
-          title: input.title,
-          message: input.message,
-        });
+        if (input.type === NotificationType.MFA_DISABLED) {
+          await this.mailService.sendMfaDisabled({
+            to: recipient.email,
+            name: recipient.name,
+          });
+        } else {
+          await this.mailService.sendNotificationEmail({
+            to: recipient.email,
+            title: input.title,
+            message: input.message,
+          });
+        }
       }
 
       if (recipients.length > 0) {
@@ -158,33 +204,52 @@ export class NotificationsService {
     };
   }
 
+  /** Filter có `role` dạng chuỗi (dữ liệu cũ) — kiểu strict của Mongoose không diễn tả được. */
+  private asFilter(filter: Record<string, unknown>): Record<string, unknown> {
+    return filter;
+  }
+
+  /** Điều kiện "đã đọc/chưa đọc" theo NGƯỜI GỌI (đích danh dùng is_read, theo role dùng read_by). */
+  private readStateFilter(userId: string, role: UserRole, isRead: boolean): Record<string, unknown> {
+    const roles = { $in: [role, String(role)] };
+    return isRead
+      ? {
+          $or: [
+            { recipient_user_id: userId, is_read: true },
+            { recipient_role: roles, $or: [{ is_read: true }, { read_by: userId }] },
+          ],
+        }
+      : {
+          $or: [
+            { recipient_user_id: userId, is_read: false },
+            { recipient_role: roles, is_read: false, read_by: { $ne: userId } },
+          ],
+        };
+  }
+
+  /**
+   * Danh sách thông báo của người gọi, mới nhất trước. Phân trang bằng con trỏ
+   * `before` (created_at của dòng cuối trang trước), `limit` 1–100 (mặc định 50).
+   */
   async listForUser(
     userId: string,
     role: UserRole,
     isRead?: boolean,
-  ): Promise<NotificationDocument[]> {
-    const filter: Record<string, unknown> = this.recipientFilter(userId, role);
-    if (isRead !== undefined) filter.is_read = isRead;
-
-    return this.notificationModel
-      .find(filter)
-      .sort({ created_at: -1 })
-      .limit(50)
-      .lean();
+    options: { before?: Date; limit?: number } = {},
+  ): Promise<NotificationView[]> {
+    const filter: Record<string, unknown> =
+      isRead === undefined ? this.recipientFilter(userId, role) : this.readStateFilter(userId, role, isRead);
+    if (options.before) filter.created_at = { $lt: options.before };
+    const limit = Math.min(Math.max(options.limit ?? 50, 1), 100);
+    const docs = await this.notificationModel.find(filter).sort({ created_at: -1 }).limit(limit).lean();
+    return docs.map((d) => toNotificationView(d, userId));
   }
 
   async unreadCount(userId: string, role: UserRole): Promise<number> {
-    return this.notificationModel.countDocuments({
-      ...this.recipientFilter(userId, role),
-      is_read: false,
-    });
+    return this.notificationModel.countDocuments(this.readStateFilter(userId, role, false));
   }
 
-  async markAsRead(
-    notificationId: string,
-    userId: string,
-    role: UserRole,
-  ): Promise<NotificationDocument> {
+  async markAsRead(notificationId: string, userId: string, role: UserRole): Promise<NotificationView> {
     if (!Types.ObjectId.isValid(notificationId)) {
       throw new AppException(
         NOTIFICATION_ERROR_CODES.INVALID_ID,
@@ -193,21 +258,23 @@ export class NotificationsService {
         { notificationId },
       );
     }
-    // Chỉ cho phép đánh dấu đã đọc thông báo thuộc về CHÍNH người gọi
-    // (đích danh HOẶC broadcast theo đúng role của họ) — trước đây
-    // thiếu điều kiện này, bất kỳ user nào cũng đánh dấu đã đọc được
-    // thông báo của người khác (AOFP-XX). Không tìm thấy do sai id
-    // HAY do không thuộc về mình đều trả cùng 404 NOT_FOUND — không
-    // để lộ việc thông báo đó có tồn tại hay không nếu không phải của
-    // người gọi.
-    const updated = await this.notificationModel.findOneAndUpdate(
-      {
-        _id: notificationId,
-        ...this.recipientFilter(userId, role),
-      },
-      { $set: { is_read: true } },
-      { returnDocument: 'after' },
-    );
+    // Chỉ thông báo của CHÍNH người gọi (đích danh hoặc theo role của họ). Không
+    // tìm thấy do sai id hay do không phải của mình đều trả cùng 404.
+    const updated =
+      (await this.notificationModel
+        .findOneAndUpdate(
+          this.asFilter({ _id: notificationId, recipient_user_id: userId }),
+          { $set: { is_read: true } },
+          { returnDocument: 'after' },
+        )
+        .lean()) ??
+      (await this.notificationModel
+        .findOneAndUpdate(
+          this.asFilter({ _id: notificationId, recipient_role: { $in: [role, String(role)] } }),
+          { $addToSet: { read_by: new Types.ObjectId(userId) } },
+          { returnDocument: 'after' },
+        )
+        .lean());
     if (!updated) {
       throw new AppException(
         NOTIFICATION_ERROR_CODES.NOT_FOUND,
@@ -216,7 +283,21 @@ export class NotificationsService {
         { notificationId },
       );
     }
-    return updated;
+    return toNotificationView(updated, userId);
+  }
+
+  /** (09/10/2026) Đánh dấu tất cả thông báo của người gọi là đã đọc. Trả số dòng đã đổi. */
+  async markAllAsRead(userId: string, role: UserRole): Promise<number> {
+    const [direct, byRole] = await Promise.all([
+      this.notificationModel.updateMany(this.asFilter({ recipient_user_id: userId, is_read: false }), {
+        $set: { is_read: true },
+      }),
+      this.notificationModel.updateMany(
+        this.asFilter({ recipient_role: { $in: [role, String(role)] }, is_read: false, read_by: { $ne: userId } }),
+        { $addToSet: { read_by: new Types.ObjectId(userId) } },
+      ),
+    ]);
+    return direct.modifiedCount + byRole.modifiedCount;
   }
 
   // ===================================================================
@@ -247,6 +328,53 @@ export class NotificationsService {
     };
   }
 
+  /**
+   * MỚI (29/09/2026, N1) — toàn bộ đơn trong 1 nhóm đã chuyển sang trạng
+   * thái không còn fulfill được (khách tự hủy qua webhook, hàng thất lạc...)
+   * — hệ thống tự động hủy nhóm và nhả giữ chỗ đóng gói, báo lại để nhân
+   * viên biết không cần xử lý nhóm này nữa.
+   */
+  buildGroupAutoCanceledMessage(params: {
+    groupId: string;
+  }): { title: string; message: string } {
+    return {
+      title: `Đơn hàng #${params.groupId} đã bị hủy`,
+      message: `Toàn bộ đơn thuộc nhóm #${params.groupId} đã chuyển sang trạng thái không còn xử lý được (khách hủy đơn hoặc sự cố vận chuyển). Hệ thống đã tự động hủy nhóm và nhả các chỗ giữ đóng gói liên quan — không cần tiếp tục xử lý đơn này.`,
+    };
+  }
+
+  buildPackagingPlanInvalidatedMessage(params: { groupId: string }): {
+    title: string;
+    message: string;
+  } {
+    return {
+      title: `Phương án đóng gói của nhóm #${params.groupId} không còn hiệu lực`,
+      message: `Có đơn trong nhóm #${params.groupId} vừa bị hủy hoặc gặp sự cố sau khi đã tính phương án đóng gói. Hệ thống đã vô hiệu hóa phương án cũ và đưa nhóm về trạng thái đã lấy hàng để tính lại. Hàng đã lấy cho đơn bị hủy cần được đối soát và nhập lại kho thủ công.`,
+    };
+  }
+
+  buildReturnReceivedMessage(params: {
+    groupId: string;
+    goodUnits: number;
+    damagedUnits: number;
+  }): { title: string; message: string } {
+    const damaged =
+      params.damagedUnits > 0
+        ? ` Có ${String(params.damagedUnits)} sản phẩm hư hỏng, không được nhập lại tồn kho.`
+        : '';
+    return {
+      title: `Đã nhận hàng hoàn của nhóm #${params.groupId}`,
+      message: `Kho đã nhận hàng hoàn của nhóm #${params.groupId}: ${String(params.goodUnits)} sản phẩm đạt chất lượng đã nhập lại tồn kho.${damaged}`,
+    };
+  }
+
+  buildMfaDisabledMessage(params: { name: string }): { title: string; message: string } {
+    return {
+      title: 'Xác thực 2 lớp (MFA) đã được tắt',
+      message: `Chào ${params.name}, Quản trị viên vừa tắt xác thực 2 lớp trên tài khoản của bạn. Lần đăng nhập tiếp theo sẽ không yêu cầu mã xác thực. Nếu bạn vẫn dùng được ứng dụng Authenticator, hãy vào Hồ sơ để thiết lập lại. Nếu không phải bạn yêu cầu, liên hệ Quản trị viên ngay.`,
+    };
+  }
+
   // BỔ SUNG (21/09/2026, báo cáo thật từ FE — mục 2/3 checklist) —
   // 2 template mới cho notify sau generate()/reject() (packaging.service.ts).
   buildPendingPackagingPlanMessage(params: {
@@ -265,7 +393,7 @@ export class NotificationsService {
   }): { title: string; message: string } {
     return {
       title: `Gợi ý đóng gói bị từ chối — Đơn hàng #${params.groupId}`,
-      message: `Packaging Staff đã từ chối gợi ý đóng gói hiện tại của đơn hàng #${params.groupId}. Lý do: "${params.reason}". Hàng vẫn giữ nguyên đã lấy — chờ tính lại gợi ý mới.`,
+      message: `Packaging Staff đã từ chối gợi ý đóng gói hiện tại của đơn hàng #${params.groupId}. Lý do: "${params.reason}". Hàng vẫn giữ nguyên đã lấy — cần xử lý trong hệ thống: tính lại, đóng gói thủ công hoặc trả về lấy hàng.`,
     };
   }
 }

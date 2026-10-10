@@ -17,6 +17,7 @@ import { WarehouseModule } from '../warehouse/warehouse.module';
 import { ReturnRequest, ReturnRequestSchema } from './schemas/return-request.schema';
 import { ReturnsService } from './returns.service';
 import { ReturnsController } from './returns.controller';
+import { ShippingModule } from '../shipping/shipping.module';
 
 // G1 (27/09/2026). Phụ thuộc 1 chiều: shipments -> order-groups. OrderGroupsModule
 // KHÔNG import module này (tránh vòng).
@@ -35,6 +36,7 @@ import { ReturnsController } from './returns.controller';
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)
     PackagingMaterialsModule, // G4 — thu hồi vật liệu khi kiểm hàng hoàn
     NotificationsModule, // thông báo giao thất bại / hoàn về / trễ hạn / yêu cầu trả hàng
+    ShippingModule, // gộp thi_dev — báo giá hãng/dịch vụ + ghi cước lên kế hoạch đóng gói
   ],
   controllers: [ShipmentsController, LegacyFulfillmentController, ReturnsController],
   providers: [ShipmentsService, ReturnsService, ShipmentSlaScheduler],

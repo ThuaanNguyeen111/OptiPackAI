@@ -10,7 +10,6 @@ import {
   MarketplaceSkuMapping,
   MarketplaceSkuMappingSchema,
 } from '../master-skus/schemas/marketplace-sku-mapping.schema';
-import { PackagingMaterialsModule } from '../packaging-materials/packaging-materials.module';
 import {
   InventoryMovement,
   InventoryMovementSchema,
@@ -27,12 +26,18 @@ import {
   ProductMaster,
   ProductMasterSchema,
 } from '../product-master/schemas/product-master.schema';
+// Đăng ký LẠI schema PackingPlan (module packing/) — cùng pattern cross-module
+// như Order/ProductMaster, tránh vòng import PackingModule <-> OrderGroupsModule.
+// Chỉ dùng để vô hiệu kế hoạch khi đơn bị hủy (cancel / invalidate).
+import { PackingPlan, PackingPlanSchema } from '../packing/schemas/packing-plan.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import {
   SkuBinAssignment,
   SkuBinAssignmentSchema,
 } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { PickEvent, PickEventSchema } from './schemas/pick-event.schema';
+// (05/10/2026) tra mã ô cho thông báo "trả hàng về kệ".
+import { BinLocation, BinLocationSchema } from '../warehouse/schemas/bin-location.schema';
 import { OrderGroupsService } from './order-groups.service';
 import { OrderGroupBackfillScheduler } from './order-group-backfill.scheduler';
 import { OrderGroupsController } from './order-groups.controller';
@@ -51,14 +56,15 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
       { name: ProductMaster.name, schema: ProductMasterSchema },
       { name: User.name, schema: UserSchema },
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
+      { name: BinLocation.name, schema: BinLocationSchema },
       { name: PickEvent.name, schema: PickEventSchema },
+      { name: PackingPlan.name, schema: PackingPlanSchema },
       { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3 — pick-item ghi sổ cái
       { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema }, // K4b
       { name: StockReservation.name, schema: StockReservationSchema }, // K5
       { name: StockReservationTotal.name, schema: StockReservationTotalSchema }, // K5
     ]),
     NotificationsModule,
-    PackagingMaterialsModule, // G4 — pack trừ vật liệu đóng gói
     MarketplaceIntegrationModule, // 02/10/2026 — báo "đã đóng gói" lên Lazada (không vòng: module này không import ngược)
   ],
   controllers: [
@@ -74,6 +80,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
     StockReservationService,
     LazadaPackSyncService,
   ],
-  exports: [OrderGroupsService, StaffAssignmentService],
+  // LazadaPackSyncService: packing-plan.service gọi sau khi đóng gói (gộp 04/10/2026)
+  exports: [OrderGroupsService, StaffAssignmentService, LazadaPackSyncService],
 })
 export class OrderGroupsModule {}

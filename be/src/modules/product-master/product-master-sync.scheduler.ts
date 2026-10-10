@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ProductMasterService } from './product-master.service';
 
+// Danh sách sàn đồng bộ nằm ở ProductMasterService (PRODUCT_SYNC_PLATFORMS) —
+// syncCatalogAllShops() tự lặp Lazada + AURELLE.
+
 /**
  * 04/10/2026 — ĐỔI từ "đồng bộ SKU có trong đơn, 1 lần/ngày" sang ĐỒNG BỘ THEO CATALOG:
  * - Mỗi giờ (phút 0): tăng dần — chỉ sản phẩm thay đổi sau lần đồng bộ trước. SKU mới /
@@ -21,7 +24,9 @@ export class ProductMasterSyncScheduler {
     await this.run(false);
   }
 
-  @Cron('0 3 * * *', { name: 'product-master-daily-sync' }) // 3:00 sáng mỗi ngày
+  // 3:00 sáng mỗi ngày, GIỜ VIỆT NAM — thiếu `timeZone` từng gây lệch 7
+  // tiếng khi deploy lên cloud mặc định UTC (đã sửa 19/09/2026, giữ lại).
+  @Cron('0 3 * * *', { name: 'product-master-daily-sync', timeZone: 'Asia/Ho_Chi_Minh' })
   async dailySyncAllShops(): Promise<void> {
     await this.run(true);
   }

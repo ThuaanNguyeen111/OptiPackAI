@@ -67,8 +67,8 @@ export class OrderGroup {
   })
   fulfillment_status!: GroupFulfillmentStatus;
 
-  @Prop({ type: SchemaTypes.ObjectId, default: null })
-  active_packaging_recommendation!: Types.ObjectId | null;
+  // (04/10/2026) Bỏ `active_packaging_recommendation` (con trỏ chết, không ai ghi).
+  // Kế hoạch đóng gói nay ở collection `packing_plans` (1 bản hoạt động/nhóm).
 
   @Prop({ required: true })
   shop_name_snapshot!: string;
@@ -98,6 +98,32 @@ export class OrderGroup {
   @Prop({ type: Boolean, default: false })
   is_overdue!: boolean;
 
+  /**
+   * BỔ SUNG (21/09/2026, BE-4a) — lượt lấy hàng hiện tại. Chỉ pick_events
+   * cùng lượt mới được cộng vào "đã lấy"; decide-partial(false) mở lượt
+   * mới để lấy lại mà không đếm gấp đôi lượt cũ.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  pick_round!: number;
+
+  /**
+   * Mốc lần quét gần nhất — ghi trong CÙNG transaction với pick_event để
+   * 2 lần quét đồng thời chạm cùng document group → Mongo báo xung đột
+   * ghi, withTransaction chạy lại và kiểm tra lại "không vượt số đặt".
+   */
+  @Prop({ type: Date, default: null })
+  last_picked_at!: Date | null;
+
+  /**
+   * BỔ SUNG (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.md) — tính
+   * MỘT LẦN lúc tạo group (getOrCreateGroupForOrder()), KHÔNG đổi lại sau
+   * đó. KHÁC HẲN consolidation_key (không kèm platform, xem
+   * orders/utils/consolidation-key.util.ts) — dùng để LIÊN KẾT 2 nhóm
+   * đơn khác sàn cùng 1 người nhận thật (Picking List gộp, giao chung
+   * chuyến), KHÔNG dùng để tự động gộp chung 1 OrderGroup.
+   */
+  @Prop({ type: String, default: null })
+  recipient_key!: string | null;
   // K5 (27/09/2026) — thiếu hàng NGAY lúc tạo nhóm đơn (tồn khả dụng không đủ giữ chỗ).
   @Prop({ type: Boolean, default: false })
   stock_shortage?: boolean;
@@ -213,3 +239,12 @@ OrderGroupSchema.index({
 // Rule #4: fulfillment_status (cardinality thấp, 9 giá trị cố định)
 // KHÔNG được đứng index riêng lẻ — luôn đứng sau platform trong compound
 // index ở trên, không tạo thêm index đơn cho riêng field này.
+
+// BỔ SUNG (29/09/2026, Mục 9.5) — phục vụ GET /order-groups/:id/linked +
+// đếm linkedGroupCount. Partial vì phần lớn group KHÔNG có sibling khác
+// sàn (recipient_key vẫn null cho tới khi có group thứ 2 cùng khách) —
+// không cần index những document không bao giờ được tra theo field này.
+OrderGroupSchema.index(
+  { recipient_key: 1 },
+  { partialFilterExpression: { recipient_key: { $type: 'string' } } },
+);

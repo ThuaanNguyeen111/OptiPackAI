@@ -7,6 +7,10 @@ export const WAREHOUSE_ERROR_CODES = {
   // vụ rõ ràng cho FE bắt riêng.
   WAREHOUSE_CODE_IN_USE: 'WH_WAREHOUSE_CODE_IN_USE',
   ZONE_CODE_IN_USE: 'WH_ZONE_CODE_IN_USE',
+  // BỔ SUNG (29/09/2026, Mục 9.5) — Picking List gộp nhiều group
+  // (GET :warehouseId/picking-list?group_ids=...): tham số group_ids rỗng
+  // hoặc chứa ObjectId sai định dạng.
+  INVALID_GROUP_IDS: 'WH_INVALID_GROUP_IDS',
   // BỔ SUNG (26/09/2026, K1) — vòng đời kho/khu/kệ
   WAREHOUSE_INACTIVE: 'WH_WAREHOUSE_INACTIVE', // thao tác trên kho đã vô hiệu hóa
   ZONE_INACTIVE: 'WH_ZONE_INACTIVE',

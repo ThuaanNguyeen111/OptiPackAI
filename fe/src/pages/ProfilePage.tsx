@@ -152,14 +152,8 @@ export function ProfilePage() {
   const [toast, setToast] = useState<string | null>(null)
 
   const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
-  const connectedPlatforms = [
-    ...new Set(activeShops.map((s) => s.platform)),
-  ]
   const storeBannerLabel =
     activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'Anh Minh Store'
-  const platformBanner =
-    connectedPlatforms.map((p) => PLATFORM_META[p].label).join(' + ') ||
-    '—'
   const activeCountLabel = `${activeShopIds.length}/${shops.length}`
 
   function showToast(message: string) {

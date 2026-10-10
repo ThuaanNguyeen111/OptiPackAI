@@ -13,6 +13,7 @@ import { MarketplaceIntegrationController } from './marketplace-integration.cont
 import { MARKETPLACE_ADAPTERS } from './interfaces/marketplace-adapter.interface';
 import { MarketplacePlatform } from './enums/platform.enum';
 import { LazadaAdapter } from './adapters/lazada.adapter';
+import { AurelleAdapter } from './adapters/aurelle.adapter';
 // import { TikTokShopAdapter } from './adapters/tiktok-shop.adapter';
 // import { TikiAdapter } from './adapters/tiki.adapter';
 
@@ -27,15 +28,23 @@ import { LazadaAdapter } from './adapters/lazada.adapter';
   providers: [
     MarketplaceIntegrationService,
     LazadaAdapter,
+    AurelleAdapter,
 
     {
       provide: MARKETPLACE_ADAPTERS,
-      useFactory: (lazadaAdapter: LazadaAdapter) => ({
+      useFactory: (lazadaAdapter: LazadaAdapter, aurelleAdapter: AurelleAdapter) => ({
         [MarketplacePlatform.LAZADA]: lazadaAdapter,
+        [MarketplacePlatform.AURELLE]: aurelleAdapter,
       }),
-      inject: [LazadaAdapter],
+      inject: [LazadaAdapter, AurelleAdapter],
     },
   ],
-  exports: [MarketplaceIntegrationService, LazadaAdapter],
+  // BỔ SUNG (29/09/2026) — MARKETPLACE_ADAPTERS giờ CŨNG export: orders/
+  // và product-master/ cần lookup adapter theo platform một cách tổng
+  // quát (syncShopOrders(platform, shopId)) thay vì inject thẳng
+  // LazadaAdapter như trước (xem AURELLE_MARKETPLACE_DESIGN.md Mục 9.3
+  // #5). Trước đây token này CHỈ dùng nội bộ trong chính
+  // MarketplaceIntegrationService — chưa có module ngoài nào cần.
+  exports: [MarketplaceIntegrationService, LazadaAdapter, AurelleAdapter, MARKETPLACE_ADAPTERS],
 })
 export class MarketplaceIntegrationModule {}

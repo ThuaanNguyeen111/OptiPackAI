@@ -5,6 +5,7 @@ import type { Transporter } from 'nodemailer';
 import { requireEnv } from '../../common/utils/env.util';
 import {
   accountLockedTemplate,
+  mfaDisabledTemplate,
   mfaEnabledTemplate,
   passwordResetTemplate,
   welcomeTempPasswordTemplate,
@@ -94,6 +95,11 @@ export class MailService {
 
   async sendMfaEnabled(params: { to: string; name: string }): Promise<void> {
     const { subject, html } = mfaEnabledTemplate({ name: params.name });
+    await this.send(params.to, subject, html);
+  }
+
+  async sendMfaDisabled(params: { to: string; name: string }): Promise<void> {
+    const { subject, html } = mfaDisabledTemplate({ name: params.name });
     await this.send(params.to, subject, html);
   }
 

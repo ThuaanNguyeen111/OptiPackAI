@@ -46,11 +46,16 @@ const ACTIVE_ONLY = { is_active: { $ne: false } } as const;
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
-import { PackableItem } from '../../common/interfaces/packaging.interface';
+import { PickableItem } from '../../common/interfaces/packaging.interface';
 
-export interface PickingListItem extends PackableItem {
+// 🔄 21/09/2026: dựa trên PickableItem (không bắt hồ sơ đóng gói).
+export interface PickingListItem extends PickableItem {
   zone_code: string;
   bin_code: string;
+  // MỚI (29/09/2026, Mục 9.5) — CHỈ có mặt khi trả về từ
+  // getEnrichedPickingListForGroups() (nhiều nhóm gộp); route 1-nhóm cũ
+  // (getEnrichedPickingList()) không set field này, giữ nguyên shape cũ.
+  order_group_id?: string;
   pick_sequence: number | null; // K2 — null = kệ chuẩn cũ (v1) hoặc chưa gán vị trí
   master_sku: string | null; // K4b — SKU nội bộ nếu SKU sàn đã nối (tồn tính chung)
   bin_location_id: string | null; // K3 — ô CHÍNH nên lấy (gửi kèm khi quét pick-item)
@@ -522,7 +527,7 @@ export class WarehouseService {
   ): Promise<PickingListItem[]> {
     await this.assertWarehouseActive(warehouseId); // K1 — kho đã tắt thì không lấy hàng
     const { items } =
-      await this.orderGroupsService.getPackableItemsForGroup(groupId);
+      await this.orderGroupsService.getPickableItemsForGroup(groupId);
     const skus = items.map((i) => i.sku);
 
     // 1 query $in duy nhất — Rule #16, tránh N+1.
@@ -1217,5 +1222,32 @@ export class WarehouseService {
     await this.recordMovement(doc, 'return_restock', params.quantity, doc.quantity_on_hand - params.quantity, params.actorId, session, {
       refType: 'return_request', refId: params.returnRequestId,
     });
+  }
+
+  /**
+   * MỚI (29/09/2026, Mục 9.5) — Picking List GỘP nhiều Order Group (có thể
+   * khác sàn, cùng người nhận) thành 1 lượt đi kệ. 🔄 Gộp main (04/10/2026):
+   * dựng trên getEnrichedPickingList() 1 nhóm để dùng chung logic SKU nội bộ
+   * (K4b), ô chính/ô khác (K3) và lộ trình pick_sequence (K2). Mỗi dòng vẫn
+   * gắn ĐÚNG 1 `order_group_id` — quét hàng vẫn theo từng nhóm, không cộng
+   * dồn trùng SKU giữa 2 nhóm.
+   */
+  async getEnrichedPickingListForGroups(
+    warehouseId: string,
+    groupIds: string[],
+  ): Promise<PickingListItem[]> {
+    const lines: PickingListItem[] = [];
+    for (const groupId of groupIds) {
+      const items = await this.getEnrichedPickingList(warehouseId, groupId);
+      lines.push(...items.map((item) => ({ ...item, order_group_id: groupId })));
+    }
+    lines.sort((a, b) => {
+      if (a.pick_sequence !== null && b.pick_sequence !== null) return a.pick_sequence - b.pick_sequence;
+      if (a.pick_sequence !== null) return -1;
+      if (b.pick_sequence !== null) return 1;
+      if (a.zone_code !== b.zone_code) return a.zone_code.localeCompare(b.zone_code);
+      return a.bin_code.localeCompare(b.bin_code);
+    });
+    return lines;
   }
 }

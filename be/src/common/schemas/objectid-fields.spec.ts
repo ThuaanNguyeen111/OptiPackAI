@@ -60,14 +60,15 @@ describe('Schema — field id phải là ObjectId thật, không phải Mixed', 
     expect(found.mixed).toEqual([]);
   });
 
-  it('danh sách OBJECT_ID_FIELDS khớp đúng các field ObjectId thực tế (đủ 35 field)', () => {
+  it('danh sách OBJECT_ID_FIELDS khớp đúng các field ObjectId thực tế (đủ 77 field)', () => {
     const expected = new Set<string>();
     for (const entry of OBJECT_ID_FIELDS) {
       for (const f of entry.fields) expected.add(`${entry.collection}.${f}`);
       for (const f of entry.arrayPath?.fields ?? []) expected.add(`${entry.collection}.${entry.arrayPath?.array ?? ''}.${f}`);
+      for (const f of entry.nested ?? []) expected.add(`${entry.collection}.${f}`);
     }
     const actualTopLevel = [...found.objectId].filter((p) => !p.startsWith('(sub:')).sort();
     expect(actualTopLevel).toEqual([...expected].sort());
-    expect(expected.size).toBe(35);
+    expect(expected.size).toBe(77);
   });
 });

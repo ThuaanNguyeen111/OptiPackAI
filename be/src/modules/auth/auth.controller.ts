@@ -14,7 +14,6 @@ import {
 import { ConfigService } from '@nestjs/config';
 import {
   ApiBearerAuth,
-  ApiBody,
   ApiOperation,
   ApiQuery,
   ApiTags,
@@ -28,6 +27,7 @@ import {
   ChangePasswordDto,
   ForgotPasswordDto,
   LoginDto,
+  RefreshTokenDto,
   ResetPasswordDto,
   VerifyMfaSetupDto,
 } from './dto';
@@ -182,15 +182,14 @@ export class AuthController {
   // 4. REFRESH TOKEN
   //!=============================================
   @ApiOperation({ summary: 'Làm mới access token bằng refresh token' })
-  @ApiBody({ schema: { properties: { refresh_token: { type: 'string' } } } })
   @HttpCode(HttpStatus.OK)
   @Post('refresh')
   async refresh(
-    @Body('refresh_token') refreshToken: string,
+    @Body() dto: RefreshTokenDto,
     @Req() req: Request,
   ): Promise<TokenPair> {
     return this.authService.refreshAccessToken(
-      refreshToken,
+      dto.refresh_token,
       this.extractMeta(req),
     );
   }
@@ -200,14 +199,11 @@ export class AuthController {
   //!=============================================
   @ApiOperation({ summary: 'Đăng xuất khỏi hệ thống (thu hồi refresh token)' })
   @ApiBearerAuth('JWT-auth')
-  @ApiBody({ schema: { properties: { refresh_token: { type: 'string' } } } })
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
   @Post('logout')
-  async logout(
-    @Body('refresh_token') refreshToken: string,
-  ): Promise<{ message: string }> {
-    return this.authService.logout(refreshToken);
+  async logout(@Body() dto: RefreshTokenDto): Promise<{ message: string }> {
+    return this.authService.logout(dto.refresh_token);
   }
 
   //!=============================================

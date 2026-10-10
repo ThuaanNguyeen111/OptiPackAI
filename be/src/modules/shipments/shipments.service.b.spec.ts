@@ -24,7 +24,7 @@ describe('ShipmentsService — hoàn thiện giao hàng', () => {
     notify = jest.fn().mockResolvedValue({});
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     service = new ShipmentsService(shipmentModel as never, { create: jest.fn().mockResolvedValue([{}]) } as never, {} as never,
-      { startSession: jest.fn().mockResolvedValue(session) } as never, {} as never, { notify } as never);
+      { startSession: jest.fn().mockResolvedValue(session) } as never, {} as never, { notify } as never, {} as never);
   });
 
   const setOf = (): Record<string, unknown> => (shipmentModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: Record<string, unknown> }])[1].$set;

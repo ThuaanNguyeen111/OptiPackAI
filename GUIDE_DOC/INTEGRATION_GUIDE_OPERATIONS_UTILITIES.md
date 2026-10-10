@@ -119,7 +119,7 @@ Khi kiểm hàng hoàn, dòng hàng nghi lỗi được xếp `quarantine`: khô
 
 ### 4.2. API
 
-**Danh sách** — `GET /returns/quarantine`
+**Danh sách** — `GET /returns/quarantine` (Admin, Store Owner, Warehouse Staff). 🔄 (09/10/2026) Đọc tối đa **200 phiếu cũ nhất** mỗi lần (trước đây không giới hạn); cũ nhất trước.
 ```json
 [
   { "returnId": "66f7...", "rmaCode": "RMA-260927-4B1D22", "lineIndex": 1,
@@ -178,12 +178,13 @@ Nhóm đơn thay thế đi lại luồng chuẩn: giữ chỗ tồn (K5) → l�
 ```
 - `items`: hàng khách gửi trả. `exchange_items`: hàng giao sang cho khách.
 - Hàng đổi sang phải có trong danh mục sản phẩm đã đồng bộ của shop.
-- Các quy tắc của trả hàng vẫn áp dụng: nhóm đơn đã giao, trong 15 ngày, không vượt số đã mua, người tạo không tự duyệt.
+- Các quy tắc của trả hàng vẫn áp dụng: nhóm đơn đã giao, trong 15 ngày, không vượt số đã mua, người tạo không tự duyệt. 🔄 (09/10/2026) "Không vượt số đã mua" giờ tính **số còn được trả** = đã mua − đã khai ở các phiếu trước (trừ phiếu `rejected`/`canceled`).
+- 🆕 (09/10/2026) Phiếu đã duyệt mà khách không gửi hàng về: Store Owner/Admin hủy bằng `POST /returns/:id/cancel` `{ expected_version, note }` (`note` bắt buộc) → `canceled`, nhóm đơn mở lại được phiếu mới.
 
 ### 5.3. Tạo đơn thay thế
 
 - Sau khi kiểm hàng xong, hệ thống tự tạo đơn thay thế. Phiếu trả về `replacementStatus: "created"` cùng `replacementGroupId`.
-- Nếu bước tạo tự động lỗi, phiếu vẫn đóng với `replacementStatus: "failed"` và `replacementError`; Admin bấm tạo lại: `POST /returns/:id/create-replacement`.
+- Nếu bước tạo tự động lỗi, phiếu vẫn đóng với `replacementStatus: "failed"` và `replacementError`; Store Owner hoặc Admin bấm tạo lại: `POST /returns/:id/create-replacement` (🔄 09/10: sửa role — trước ghi chỉ Admin).
 - Đơn thay thế có mã `EXC-<mã phiếu>`, giá trị 0, dùng lại thông tin người nhận của đơn gốc. Mã này không tồn tại trên Lazada nên không bị đồng bộ ghi đè; khóa gộp riêng đảm bảo **không bị gộp** với đơn Lazada khác của cùng khách.
 - Nhóm đơn thay thế có `origin: "replacement"` và `sourceReturnId`.
 
@@ -200,29 +201,20 @@ Nhóm đơn thay thế đi lại luồng chuẩn: giữ chỗ tồn (K5) → l�
 
 ## 6. Đóng gói và vật liệu
 
-### 6.1. Trừ vật liệu trong cùng giao dịch với `pack`
+> 🔄 **ĐÃ ĐỔI (sửa tài liệu 09/10/2026)** — mục 6.1–6.2 bản cũ mô tả `POST /order-groups/:id/fulfillment/pack` kèm `materials_used`. Route này **đã gỡ khi gộp 04/10/2026** (gọi → 404). Luồng hiện hành bên dưới; chi tiết: `INTEGRATION_GUIDE_PACKING.md`.
 
-Chuyển trạng thái `packed` và trừ vật liệu được thực hiện trong **một giao dịch**. Lỗi hệ thống giữa chừng thì cả hai cùng hủy, nhân viên bấm lại. Nguyên tắc cũ giữ nguyên: thiếu vật liệu hoặc chưa khai danh mục **không chặn** đóng gói, chỉ trả về `warnings`.
+### 6.1. Trừ thùng + vật tư theo từng kiện lúc niêm phong
 
-### 6.2. Khai vật liệu thực tế đã dùng
+Đóng gói theo **kế hoạch đóng gói** (`/order-groups/:groupId/packing-plan`):
 
-`POST /order-groups/:id/fulfillment/pack`
-```json
-{
-  "expected_version": 5,
-  "materials_used": [
-    { "material_code": "BOX-L",  "quantity": 1, "condition": "new" },
-    { "material_code": "BUBBLE", "quantity": 2, "condition": "reused" }
-  ]
-}
-```
+- **Có quét** (khuyến nghị): `POST .../packing-plan/start` → `POST .../parcels/:parcelNo/scan` từng món → `POST .../parcels/:parcelNo/seal` `{ expected_version, weight_kg }`. Mỗi lần `seal` trừ 1 thùng + vật tư chèn + túi zip **của kiện đó** trong cùng giao dịch với việc niêm phong.
+- **Lối tắt** (không quét): `POST .../packing-plan/pack` `{ expected_version, parcels: [{ parcel_no, weight_kg }] }` — trừ cho mọi kiện chưa niêm phong.
 
-| Trường hợp | Hệ thống |
-|---|---|
-| Không gửi `materials_used` | Trừ theo gợi ý đóng gói đã duyệt (hành vi cũ) |
-| Có gửi | Trừ đúng vật liệu và đúng ngăn (mới / tái sử dụng) nhân viên đã lấy |
+Thùng không đủ → 409 `PKG_BOX_OUT_OF_STOCK` (không niêm phong). Vật tư chèn / túi zip thiếu → **không chặn**, ghi `materialsShortfall` trên kiện và báo Admin + Store Owner. Thùng tái sử dụng (`qtyReused`) được ưu tiên; kiện có hàng dễ vỡ chỉ lấy thùng mới (trừ khi cài đặt `allow_reused_box_for_fragile = true`).
 
-**Giao diện:** màn hình đóng gói chọn sẵn thùng theo gợi ý; nhân viên đổi được thùng và chọn nguồn *Mới / Tái sử dụng (còn N)*.
+### 6.2. Dùng thùng khác gợi ý
+
+Không còn khai `materials_used`. Đổi thùng trước khi duyệt: `POST .../parcels/:parcelNo/change-box`; đang đóng: `POST .../parcels/:parcelNo/change-box-in-session` (khai thùng cũ `unused` hoặc `damaged` — `damaged` ghi hao hụt). Thùng mới phải qua kiểm tra xếp vừa.
 
 ### 6.3. Kho vật liệu nội bộ
 

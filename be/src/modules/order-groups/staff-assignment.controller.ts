@@ -2,7 +2,8 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { StaffAssignmentService } from './staff-assignment.service';
 import { AssignStaffDto } from './dto/assign-staff.dto';
-import { OrderGroupDocument } from './schemas/order-group.schema';
+import { OrderGroupsService } from './order-groups.service';
+import { buildOrderGroupResponse, type OrderGroupResponse } from './order-groups.controller';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -28,7 +29,10 @@ interface StaffWithWorkload {
 @Controller('order-groups')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class StaffAssignmentController {
-  constructor(private readonly staffAssignmentService: StaffAssignmentService) {}
+  constructor(
+    private readonly staffAssignmentService: StaffAssignmentService,
+    private readonly orderGroupsService: OrderGroupsService,
+  ) {}
 
   @Post(':id/assign')
   @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
@@ -36,10 +40,12 @@ export class StaffAssignmentController {
     summary:
       'Phân công Warehouse Staff cho 1 Order Group. Không truyền staff_id = tự động (Least-Busy, ít việc nhất). Truyền staff_id = đổi tay, ghi đè kết quả auto bất kỳ lúc nào.',
   })
-  async assign(@Param('id') id: string, @Body() body: AssignStaffDto): Promise<OrderGroupDocument> {
-    return body.staff_id
-      ? this.staffAssignmentService.manualAssign(id, body.staff_id)
-      : this.staffAssignmentService.autoAssign(id);
+  async assign(@Param('id') id: string, @Body() body: AssignStaffDto): Promise<OrderGroupResponse> {
+    // (09/10/2026) Trả cùng hình dạng camelCase với mọi route nhóm đơn khác (trước đây trả document thô).
+    const group = body.staff_id
+      ? await this.staffAssignmentService.manualAssign(id, body.staff_id)
+      : await this.staffAssignmentService.autoAssign(id);
+    return buildOrderGroupResponse(this.orderGroupsService, group);
   }
 
   @Get('staff/search')

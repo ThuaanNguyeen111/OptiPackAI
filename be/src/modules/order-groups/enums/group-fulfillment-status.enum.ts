@@ -27,6 +27,13 @@ export enum GroupFulfillmentStatus {
   SHIPPED = 'shipped',
   DELIVERED = 'delivered',
   RETURNED = 'returned',
+  // BỔ SUNG (29/09/2026, N1 — AURELLE_MARKETPLACE_DESIGN.md Mục 9.6): khách
+  // AURELLE tự hủy đơn qua webhook, nhưng trước đây group KHÔNG có trạng
+  // thái hủy nào — nhóm bị hủy hết đơn vẫn treo mãi ở trạng thái cũ, giữ
+  // chỗ (packaging recommendation) không bao giờ được nhả. Chỉ áp dụng cho
+  // nhóm CHƯA đóng gói (xem allowed-status-transitions.ts) — hàng đã đóng/
+  // giao vật lý không tự hủy ngầm, phải qua luồng `return` thủ công.
+  CANCELED = 'canceled',
 }
 
 // Database Design Standards Rule #11 (CLAUDE.md) — mảng đã lọc, dùng

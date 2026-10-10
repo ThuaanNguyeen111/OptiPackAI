@@ -442,6 +442,8 @@ GET /stock-availability?platform=lazada&shop_id=201171264532&seller_sku=ATD-M-01
 
 Hỏi bằng `AOTHUN-DEN-M` cũng ra **đúng cùng 1 con số** (vì đã nối chung).
 
+🔄 (09/10/2026) 3 tham số `platform`, `shop_id`, `seller_sku` **bắt buộc**, `platform` phải đúng enum (`lazada`, `aurelle`, ...) — thiếu/sai → 400 `VALIDATION_ERROR` (trước đây vẫn chạy và trả số 0, dễ hiểu nhầm là hết hàng).
+
 ### Trường hợp 5.2 — Đủ hàng: giữ chỗ bình thường
 
 Nhóm đơn cần 2 cái:
@@ -513,6 +515,8 @@ GET  /order-groups/GROUP_ID/stock-reservation
 ```
 
 ### Trường hợp 5.6 — Nhóm đơn treo / bị hủy → nhả tay
+
+🔄 **ĐÃ ĐỔI (09/10/2026)**: khi **mọi** đơn của nhóm bị hủy, hệ thống tự chuyển nhóm `canceled` và **nhả giữ chỗ ngay**; khi chỉ **một phần** đơn bị hủy, giữ chỗ tự tính lại theo số đặt của các đơn còn lại. Route nhả tay dưới đây chỉ còn dùng cho trường hợp đặc biệt (dữ liệu cũ trước 09/10, nhóm treo vì lý do khác).
 
 Đơn bị hủy trên Lazada mà nhóm đơn không đi tiếp → phần giữ chỗ nằm im, làm giảm tồn khả dụng của đơn khác:
 
@@ -589,6 +593,8 @@ Chuẩn bị sẵn Phần 1 + Phần 2 trước buổi demo. Mở sẵn 2 tab tr
 | POST   | `/order-groups/:id/stock-reservation/release`     | Admin                         |
 
 Field mới trong response: nhóm đơn `stockShortage`, `stockShortageItems`; dòng tồn `masterSku`; sổ cái `masterSku`; Picking List `master_sku`.
+
+🆕 (09/10/2026) Lọc nhóm đơn thiếu hàng: `GET /order-groups?stock_shortage=true`.
 
 ## 8.3. Hạn chế hiện tại và hướng khắc phục
 

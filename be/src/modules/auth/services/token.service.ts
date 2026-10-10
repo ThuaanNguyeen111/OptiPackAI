@@ -1,3 +1,4 @@
+import { AUTH_ERROR_CODES, authError } from '../auth.errors';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
@@ -94,25 +95,23 @@ export class TokenService {
     const stored = await this.refreshTokenModel.findOne({ token_hash: tokenHash });
 
     if (!stored) {
-      throw new UnauthorizedException('Refresh token không hợp lệ hoặc đã hết hạn');
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.REFRESH_TOKEN_INVALID, 'Refresh token không hợp lệ hoặc đã hết hạn'));
     }
 
     if (stored.is_revoked) {
       await this.revokeAllForUser(stored.user_id.toString());
-      throw new UnauthorizedException(
-        'Phát hiện refresh token bị sử dụng lại bất thường — toàn bộ phiên đăng nhập đã bị thu hồi, vui lòng đăng nhập lại',
-      );
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.REFRESH_TOKEN_REUSED, 'Phát hiện refresh token bị sử dụng lại bất thường — toàn bộ phiên đăng nhập đã bị thu hồi, vui lòng đăng nhập lại'));
     }
 
     if (stored.exp < new Date()) {
       await this.refreshTokenModel.deleteOne({ _id: stored._id });
-      throw new UnauthorizedException('Refresh token đã hết hạn, vui lòng đăng nhập lại');
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.REFRESH_TOKEN_EXPIRED, 'Refresh token đã hết hạn, vui lòng đăng nhập lại'));
     }
 
     const subject = await getSubject(stored.user_id.toString());
 
     if (!subject.isActive) {
-      throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin');
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, 'Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin'));
     }
 
     stored.is_revoked = true;

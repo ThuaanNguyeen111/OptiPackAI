@@ -1,16 +1,19 @@
+import { BinSuggestionsQueryDto } from './dto/bin-suggestions-query.dto';
 import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
 import {
   Body,
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Types } from 'mongoose';
 import { WarehouseService, PickingListItem } from './warehouse.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { CreateZoneDto } from './dto/create-zone.dto';
@@ -31,6 +34,8 @@ import { WarehouseDocument } from './schemas/warehouse.schema';
 import { WarehouseZoneDocument } from './schemas/warehouse-zone.schema';
 import { BinLocationDocument } from './schemas/bin-location.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
+import { AppException } from '../../common/exceptions/app-exception';
+import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 
 // BỔ SUNG (2026-09-10) — Điểm yếu #9: trước đây trả THẲNG Document
 // (snake_case, `_id`/`__v` thô) — sửa cho nhất quán với
@@ -331,6 +336,37 @@ export class WarehouseController {
     return this.warehouseService.findUnassignedSkus();
   }
 
+  @Get(':warehouseId/picking-list')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiQuery({
+    name: 'group_ids',
+    required: true,
+    example: '66f0a1b2c3d4e5f678901234,66f0a1b2c3d4e5f678905678',
+    description: 'Danh sách Order Group ID cách nhau bằng dấu phẩy.',
+  })
+  @ApiOperation({
+    summary:
+      'MỚI (Mục 9.5) — Picking List GỘP nhiều Order Group (có thể khác sàn, cùng người nhận — xem GET :id/linked) thành 1 lượt đi kệ. Mỗi dòng vẫn ghi rõ order_group_id (thùng nào) — quét hàng vẫn theo từng nhóm.',
+  })
+  async pickingListForGroups(
+    @Param('warehouseId') warehouseId: string,
+    @Query('group_ids') groupIdsCsv: string | undefined,
+  ): Promise<PickingListItem[]> {
+    const groupIds = (groupIdsCsv ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (groupIds.length === 0 || groupIds.some((id) => !Types.ObjectId.isValid(id))) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.INVALID_GROUP_IDS,
+        'Tham số group_ids phải là danh sách ObjectId hợp lệ, cách nhau bằng dấu phẩy, ít nhất 1 giá trị.',
+        HttpStatus.BAD_REQUEST,
+        { groupIdsCsv },
+      );
+    }
+    return this.warehouseService.getEnrichedPickingListForGroups(warehouseId, groupIds);
+  }
+
   @Get(':warehouseId/picking-list/:groupId')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
@@ -505,9 +541,7 @@ export class WarehouseController {
   })
   async suggestBins(
     @Param('warehouseId') warehouseId: string,
-    @Query('category_code') categoryCode: string,
-    @Query('size') size?: string,
-    @Query('color_code') colorCode?: string,
+    @Query() q: BinSuggestionsQueryDto,
   ): Promise<
     {
       bin: BinLocationResponse;
@@ -517,9 +551,9 @@ export class WarehouseController {
     }[]
   > {
     const rows = await this.warehouseService.suggestBins(warehouseId, {
-      category_code: categoryCode,
-      size,
-      color_code: colorCode,
+      category_code: q.category_code,
+      size: q.size,
+      color_code: q.color_code,
     });
     return rows.map((r) => ({ ...r, bin: toBinLocationResponse(r.bin) }));
   }

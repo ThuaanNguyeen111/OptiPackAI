@@ -48,8 +48,17 @@ export class Notification {
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   related_entity_id!: Types.ObjectId | null;
 
+  /** Đã đọc — CHỈ dùng cho thông báo đích danh (recipient_user_id). */
   @Prop({ default: false, index: true })
   is_read!: boolean;
+
+  /**
+   * (09/10/2026) Thông báo theo ROLE: mỗi người đọc riêng. Trước đây 1 người bấm
+   * đọc là `is_read = true` cho cả role — người khác mất thông báo. Thông báo
+   * role cũ đã `is_read = true` vẫn coi là đã đọc với mọi người (không hồi sinh).
+   */
+  @Prop({ type: [SchemaTypes.ObjectId], default: [] })
+  read_by!: Types.ObjectId[];
 
   // Audit đã gửi qua kênh nào — user yêu cầu TẤT CẢ kênh (in-app +
   // Dashboard + email). 'in_app' luôn có (chính document này); 'email'
