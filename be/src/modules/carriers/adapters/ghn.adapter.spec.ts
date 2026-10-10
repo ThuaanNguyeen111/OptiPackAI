@@ -152,6 +152,41 @@ describe('GhnAdapter', () => {
     expect(result.expected_delivery_at?.toISOString()).toBe('2026-10-08T16:59:59.000Z');
   });
 
+  it('C3 — previewShipment kiểu mới (không mã cũ): is_new_to_address=true, chỉ phường + tỉnh, không gửi mã quận', async () => {
+    mockPost.mockResolvedValue({ data: { code: 200, data: { order_code: '', sort_code: 'GXT-M-11-00', total_fee: 20900 } } });
+    const result = await makeAdapter().previewShipment({
+      ...createInput,
+      recipient: {
+        name: 'Khach Test',
+        phone: '0377168254',
+        address: 'Phường Bình Lợi Trung, Hồ Chí Minh',
+        ward_name: 'Phường Bình Lợi Trung',
+        province_name: 'Hồ Chí Minh',
+        district_name: null,
+      },
+    });
+    const [path, body] = mockPost.mock.calls[0] as [string, Record<string, unknown>];
+    expect(path).toBe('/v2/shipping-order/preview');
+    expect(body).toMatchObject({
+      is_new_to_address: true,
+      to_ward_name: 'Phường Bình Lợi Trung',
+      to_province_name: 'Hồ Chí Minh',
+      to_address: 'Phường Bình Lợi Trung, Hồ Chí Minh',
+    });
+    expect(body).not.toHaveProperty('to_district_id');
+    expect(body).not.toHaveProperty('to_ward_code');
+    expect(result.fee.total).toBe(20900);
+  });
+
+  it('C3 — GHN "To address conflict" (số nhà không thuộc phường) → CARRIER_ADDRESS_CONFLICT', async () => {
+    mockPost.mockRejectedValue(
+      httpError(400, { code: 400, message: 'To address conflict', code_message_value: 'Địa chỉ nhận không hợp lệ' }),
+    );
+    await expect(makeAdapter().previewShipment(createInput)).rejects.toMatchObject({
+      errorCode: 'CARRIER_ADDRESS_CONFLICT',
+    });
+  });
+
   it('createShipment: lỗi mạng rồi thành công → tự thử lại (an toàn vì GHN chống trùng client_order_code)', async () => {
     mockPost
       .mockRejectedValueOnce(httpError(undefined))
