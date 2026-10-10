@@ -44,6 +44,10 @@ interface OrderDetailResponse extends OrderResponse {
   recipientAddressLine2: string | null;
   recipientPostalCode: string | null;
   recipientCountry: string;
+  // 🆕 08/10/2026 — null với đơn đồng bộ trước 08/10 hoặc sàn không trả cấp đó.
+  recipientProvince: string | null;
+  recipientDistrict: string | null;
+  recipientWard: string | null;
   items: AggregatedOrderItemView[];
   // BỔ SUNG (AOFP-XX, 16/09/2026) — luồng "chờ seller xác nhận hủy đơn"
   // (O6): trước đây 4 field này chỉ dùng nội bộ để bắn Notification,
@@ -139,6 +143,9 @@ export class OrdersController {
       recipientCity: order.recipient.city,
       recipientPostalCode: order.recipient.postal_code ?? null,
       recipientCountry: order.recipient.country,
+      recipientProvince: order.recipient.province_name ?? null,
+      recipientDistrict: order.recipient.district_name ?? null,
+      recipientWard: order.recipient.ward_name ?? null,
       isConsolidated: order.is_consolidated,
       consolidatedGroupId: order.consolidated_group_id
         ? order.consolidated_group_id.toString()

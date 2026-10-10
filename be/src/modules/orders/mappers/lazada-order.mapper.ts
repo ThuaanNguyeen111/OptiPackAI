@@ -6,6 +6,7 @@ import {
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { computeConsolidationKey } from '../utils/consolidation-key.util';
+import { extractAdministrativeAreas } from '../utils/vn-administrative-area.util';
 
 /**
  * ===================================================================
@@ -169,6 +170,9 @@ export interface MappedOrderFields {
     city: string;
     postal_code?: string;
     country: string;
+    province_name: string | null;
+    district_name: string | null;
+    ward_name: string | null;
   };
   consolidation_key: string;
   items: {
@@ -217,6 +221,16 @@ export function mapLazadaOrder(
       city: raw.address_shipping.city,
       postal_code: raw.address_shipping.post_code,
       country,
+      // address3/4/5 của Lazada VN = các cấp hành chính rộng → hẹp, NHƯNG dữ liệu
+      // thật (08/10/2026) cho thấy Lazada CHE 3 trường này ("T**h") — chuỗi bị che bị
+      // bỏ qua. `city` thật lại chứa tên phường kiểu mới ("Phường Gia Định") → đưa
+      // vào làm phần tử thứ 4, chỉ dùng khi nhận ra theo tiền tố.
+      ...extractAdministrativeAreas([
+        raw.address_shipping.address3,
+        raw.address_shipping.address4,
+        raw.address_shipping.address5,
+        raw.address_shipping.city,
+      ]),
     },
     consolidation_key: computeConsolidationKey(
       MarketplacePlatform.LAZADA,
