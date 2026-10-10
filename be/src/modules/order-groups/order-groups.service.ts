@@ -1088,11 +1088,15 @@ export class OrderGroupsService {
           );
         }
 
+        // warehouse_id ép ObjectId — tránh miss khi FE gửi string (assignment lưu ObjectId).
+        const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
+          ? new Types.ObjectId(warehouseId)
+          : warehouseId;
         // Atomic check-and-decrement — điều kiện `quantity_on_hand: {$gte}` trong
         // CÙNG 1 lệnh. Phạm vi tồn: kho + (SKU nội bộ | sàn+shop+SKU) [+ ô nếu chỉ định].
         const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
           {
-            warehouse_id: warehouseId,
+            warehouse_id: warehouseObjectId,
             ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
             ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
             quantity_on_hand: { $gte: scannedQuantity },
@@ -1140,6 +1144,10 @@ export class OrderGroupsService {
         await this.pickEventModel.create(
           [
             {
+              // 🔄 07/10/2026 — SỬA LỖI: trước đây ghi `groupId` (chuỗi) vào field bị Mongoose
+              // hiểu là Mixed -> DB lưu CHUỖI, trong khi getActuallyPickedItemsForGroup đọc bằng
+              // group._id (ObjectId) -> không bao giờ thấy pick_events -> gợi ý đóng gói lặng lẽ
+              // dùng số lượng ĐẶT thay vì số đã quét. Nay lưu ObjectId (schema cũng đã sửa).
               order_group_id: group._id,
               seller_sku: sku,
               scanned_quantity: scannedQuantity,

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { Document, Types } from 'mongoose';
+import { Document, SchemaTypes, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 import {
   OrderStatus,
@@ -118,7 +118,7 @@ export class Order {
   // Marketplace orders point to a MarketplaceShop. Storefront orders do
   // not have an OAuth-connected marketplace shop, so this reference is
   // intentionally nullable for the canonical storefront source.
-  @Prop({ type: Types.ObjectId, ref: 'MarketplaceShop', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'MarketplaceShop', default: null })
   marketplace_shop!: Types.ObjectId | null;
 
   // Denormalized — xem giải thích ở JSDoc class phía trên.
@@ -204,7 +204,7 @@ export class Order {
   // đơn chung, 1 trạng thái đóng gói chung), ĐÓ là lúc tách collection
   // riêng — field này migrate thẳng thành FK sang collection mới,
   // không cần đổi giá trị đã lưu.
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   consolidated_group_id!: Types.ObjectId | null;
 
   // Lần cuối service polling ghi/cập nhật document này — KHÁC với
@@ -221,7 +221,7 @@ export class Order {
   @Prop({ type: String, enum: ['marketplace', 'replacement'], default: 'marketplace' })
   origin?: 'marketplace' | 'replacement';
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   source_return_id?: Types.ObjectId | null;
 
   // KHÔNG có @Prop — Mongoose tự sinh 2 field này qua option `timestamps`

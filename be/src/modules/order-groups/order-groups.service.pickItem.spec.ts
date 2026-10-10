@@ -182,10 +182,10 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       Record<string, unknown>,
     ];
     expect(filter).toMatchObject({
-      warehouse_id: warehouseId,
+      warehouse_id: new Types.ObjectId(warehouseId),
       platform: 'lazada',
       shop_id: 'shop-1',
-      seller_sku: 'SKU-TRUNG',
+      seller_sku: /^SKU-TRUNG$/i,
     });
   });
 
@@ -363,7 +363,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       warehouse_id: wh,
       platform: 'lazada',
       shop_id: 'shop-1',
-      seller_sku: 'AO',
+      seller_sku: /^AO$/i,
     });
     expect(update.$inc.quantity_on_hand).toBe(3); // 2 + 1 gộp theo SKU
     // Gộp main (K3): ghi sổ tồn loại pick_cancel cho phần trả về kệ.
@@ -441,7 +441,33 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
 
     const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
-    expect(filter).toMatchObject({ master_sku: 'ATHUN-005-DEN-M' });
-    expect(filter).not.toHaveProperty('platform');
+    // Đã nối: $or [tồn gộp master_sku | unpooled đúng shop] — vẫn lấy được hàng Admin nhập trước sync-stock.
+    expect(filter.$or).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ master_sku: 'ATHUN-005-DEN-M' }),
+        expect.objectContaining({ platform: 'lazada', shop_id: 'shop-1', master_sku: null }),
+      ]),
+    );
+  });
+  //!=============================================
+  // 07/10/2026 — lỗi ObjectId: schema cũ khai `type: Types.ObjectId` bị Mongoose hiểu là
+  // Mixed (không tự ép kiểu). (1) lọc tồn bằng chuỗi id kho -> 0 dòng -> 409 dù còn hàng;
+  // (2) pick_events lưu order_group_id dạng CHUỖI trong khi chỗ đọc dùng ObjectId.
+  //!=============================================
+  it('ObjectId — lọc tồn bằng warehouse_id kiểu ObjectId và ghi pick_events.order_group_id kiểu ObjectId', async () => {
+    mockGroup();
+    mockOrderedItems([{ sku: 'ABC-123', quantity: 5 }]);
+    mockPickedEvents([]);
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 2, warehouse_id: new Types.ObjectId(warehouseId), bin_location_id: new Types.ObjectId(), platform: 'lazada', shop_id: 'shop-1', seller_sku: 'ABC-123' });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    await service.pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode');
+
+    const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
+    expect(filter.warehouse_id).toBeInstanceOf(Types.ObjectId);
+    expect(String(filter.warehouse_id)).toBe(warehouseId);
+    const [events] = pickEventModel.create.mock.calls[0] as [{ order_group_id: unknown }[]];
+    expect(events[0]?.order_group_id).toBeInstanceOf(Types.ObjectId);
+    expect(String(events[0]?.order_group_id)).toBe(groupId);
   });
 });

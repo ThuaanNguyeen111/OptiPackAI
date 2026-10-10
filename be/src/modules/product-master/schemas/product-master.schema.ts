@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { PRODUCT_CATEGORY_VALUES, ProductCategory } from '../../../common/enums/product-category.enum';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 /**
@@ -85,7 +85,7 @@ export class ProductMaster {
   @Prop({ type: Boolean, default: false })
   can_fold_in_half?: boolean;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   profile_confirmed_by?: Types.ObjectId | null;
 
   @Prop({ type: Date, default: null })

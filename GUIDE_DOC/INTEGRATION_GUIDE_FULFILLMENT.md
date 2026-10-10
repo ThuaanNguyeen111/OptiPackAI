@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
+**🔄 Cập nhật 10/10/2026 (v7.4 — gộp sửa kiểu id của `main` 07/10):** Picking List hết báo "CHƯA GÁN VỊ TRÍ" sai, `pick-item` hết báo thiếu tồn sai khi kho đã gán đúng, khớp SKU không phân biệt hoa/thường (Nghiệp vụ 3); `related_entity_id` của thông báo `sync_failed` là id shop đã kết nối (Nghiệp vụ 6). FE không phải sửa request/response.
+
 **🔄 Cập nhật 09/10/2026 (v7.3 — rà soát trước khi giao FE):** `GET /order-groups` thêm lọc `assigned_staff_id`, `stock_shortage`, `is_overdue` và phân trang con trỏ `before` + `limit` (1–200); `GET /order-groups/:id` trả thêm `orders[]` (đơn, người nhận, món đã gộp) cho mọi role vận hành; `POST /order-groups/:id/assign` trả response camelCase chuẩn; nhóm tự hủy **nhả giữ chỗ tồn** ngay, hủy một phần tính lại giữ chỗ; `report-missing` báo thêm Packaging Staff; kế hoạch bị từ chối có lối `back-to-picking`; thông báo đọc riêng từng người + `PATCH /notifications/read-all` + response đã map; rate limit 600/phút/IP. Các route `fulfillment/ship|deliver|return` là **legacy — FE không gọi** (dùng `/shipments`, `/returns`). Xem Nghiệp vụ 3, 6, sơ đồ C.1 và `API_LIST.md` mục 5–7, 10.
 
 **🆕 Cập nhật 05/10/2026 tối (v7.2):** đơn bị hủy **trước khi bắt đầu đóng** (nhóm đang lấy hàng, đã lấy xong, hoặc kế hoạch mới tính/duyệt) → hàng đã lấy của đơn đó **tự trả về đúng ô** + thông báo `return_to_shelf` cho kho (Nghiệp vụ 1b, 3, 6); tháo kiện thu hồi được **vật tư chèn** (`recovered_materials`, vật tư phải bật `reusable`); giữ chỗ tồn kho khớp hàng thật khi loại món hỏng. Xem D.3, D.4.
@@ -477,6 +479,8 @@ Xem lại (🆕 MỚI 16/09/2026): `GET /warehouse/warehouses/:warehouseId/sku-b
 4. Sau khi lấy hết: POST .../fulfillment/pick    → server đối soát đủ số lượng, group chuyển "picked"
 ```
 
+🔄 **ĐÃ SỬA (07/10/2026)** — trước ngày này bước 2 có thể trả `bin_code: "CHƯA GÁN VỊ TRÍ"` và bước 3 trả `409 ORD_GROUP_INSUFFICIENT_STOCK` **dù kho đã gán đúng và còn hàng**: BE truy vấn `warehouse_id` dạng chuỗi trong khi schema bị Mongoose hiểu là kiểu Mixed nên không tự đổi sang ObjectId. Đã sửa ở BE (schema 35 trường id + truy vấn), kèm 2 cải tiến từ nhánh `feature/viet_befe`: (a) SKU đã nối SKU nội bộ nhưng tồn chưa "Đồng bộ tồn" vẫn được tìm thấy; (b) so `seller_sku` không phân biệt hoa thường. FE giữ nguyên cách gọi: gửi `warehouse_id` là chuỗi id kho, `sku` là mã sản phẩm trong đơn (`item.sku`), `bin_location_id` lấy từ dòng Picking List. Dòng có `bin_location_id = null` nên khóa nút quét (xem `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` mục 0b.5). Chi tiết lỗi và việc chạy script chuyển dữ liệu: `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6.
+
 🔄 **ĐÃ ĐỔI (15/09/2026)** — cả 2 API lấy danh sách ở trên đều tự động **loại bỏ SKU thuộc đơn đã `canceled` hoặc gặp sự cố logistics** (`lost`, `damaged_by_3pl`... xem `INTEGRATION_GUIDE_ORDERS.md` mục 7b) khỏi danh sách cần lấy — trước đây KHÔNG lọc, nhân viên có thể bị yêu cầu đi lấy hàng cho đơn đã hủy/mất. Trường hợp TOÀN BỘ đơn trong group đều rơi vào 2 nhóm này (group rỗng sau khi lọc) → API trả lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (409) thay vì trả về danh sách rỗng — FE nên bắt riêng mã lỗi này, hiện thông báo rõ ràng ("Nhóm đơn này không còn gì cần lấy") thay vì hiểu nhầm là màn hình trắng/lỗi tải dữ liệu.
 
 ### 🆕 Phân biệt nhóm đơn có đơn đã hủy ngay trên danh sách (01/10/2026)
@@ -794,6 +798,8 @@ PATCH /notifications/read-all      (🆕 09/10: "Đánh dấu tất cả đã đ
 
 Mỗi thông báo có `related_entity_type`/`related_entity_id` (snake_case) — bấm vào **điều hướng thẳng** tới đúng Order Group, không chỉ hiện chữ suông.
 
+🔄 **ĐÃ ĐỔI (07/10/2026)** — `related_entity_id` luôn là id (ObjectId) hoặc `null`. Thông báo `sync_failed` (`related_entity_type: "marketplace_shop"`) trước đây mang **mã shop Lazada** (vd `201171264532`), nay mang **id của shop đã kết nối**; mã shop Lazada vẫn có trong `title`.
+
 ### DB liên quan — `Notification`
 
 | Field                                     | Kiểu                            | Ý nghĩa                                                                                                                                                               |
@@ -1093,6 +1099,7 @@ Các mục dưới đây kiểm tra route/flow legacy đang có trong code. Chec
 - [ ] Đã tích hợp polling `unread-count`
 - [ ] Đã đối chiếu `API_LIST.md` đúng role cho từng màn hình đang build
 - [ ] 🔄 **ĐÃ ĐỔI (19/09)** — Warehouse Staff giờ gọi được `GET /warehouse/warehouses` (trước chỉ Admin) — màn hình Warehouse Staff nên tự lấy `warehouse_id` từ đây, không hardcode tay
+- [ ] 🔄 **ĐÃ SỬA (07/10)** — Picking List có ô và `pick-item` trừ được tồn khi kho đã gán đúng (trước đây có thể "CHƯA GÁN VỊ TRÍ" / 409 sai); gợi ý đóng gói theo số đã quét
 - [ ] 🔄 **ĐÃ ĐỔI (19/09)** — `pick-item` có thể trả `ORD_GROUP_ITEM_NOT_IN_GROUP` (404) khi quét nhầm SKU — FE cần bắt riêng, khác với lỗi hết hàng (`ORD_GROUP_INSUFFICIENT_STOCK`)
 - [ ] 🆕 **MỚI (16/09)** — Đã xử lý 2 loại Notification mới (`cancel_confirmation_required`, `sync_failed`) trong UI chuông thông báo (Nghiệp vụ 6)
 - [ ] 🔄 **ĐÃ ĐỔI (16/09)** — Đã biết `PATCH /notifications/:id/read` trả 404 nếu gọi nhầm ID không thuộc về mình (không phải bug khi test chéo role)

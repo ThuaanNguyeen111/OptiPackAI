@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   BoxDimensionsMm,
   BoxDimensionsMmSchema,
@@ -129,7 +129,7 @@ export class PlanScan {
   @Prop({ required: true }) item_key!: string;
   @Prop({ required: true }) sku!: string;
   @Prop({ type: String, required: true, enum: SCAN_METHODS }) method!: ScanMethod;
-  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) by!: Types.ObjectId | null;
   @Prop({ type: Date, required: true }) at!: Date;
   @Prop({ type: String, default: null }) client_event_id!: string | null;
 }
@@ -140,7 +140,7 @@ export class PlanWeighing {
   @Prop({ type: Number, required: true }) weight_kg!: number;
   @Prop({ type: String, required: true, enum: ['seal', 'reweigh'] }) kind!: 'seal' | 'reweigh';
   @Prop({ type: Boolean, required: true }) is_abnormal!: boolean;
-  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) by!: Types.ObjectId | null;
   @Prop({ type: Date, required: true }) at!: Date;
 }
 export const PlanWeighingSchema = SchemaFactory.createForClass(PlanWeighing);
@@ -151,7 +151,7 @@ export class PlanParcelReview {
   action!: 'accept' | 'reweigh' | 'reopen';
   @Prop({ required: true }) reason!: string;
   @Prop({ type: String, default: null }) note!: string | null;
-  @Prop({ type: Types.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) by!: Types.ObjectId;
   @Prop({ type: Date, required: true }) at!: Date;
 }
 export const PlanParcelReviewSchema = SchemaFactory.createForClass(PlanParcelReview);
@@ -176,7 +176,7 @@ export class PlanUnpack {
   /** (05/10/2026) Thùng + vật tư chèn đã thu hồi/bỏ khi tháo. */
   @Prop({ type: [PlanRecoveredMaterialSchema], default: [] }) recovered_materials!: PlanRecoveredMaterial[];
   @Prop({ type: String, default: null }) note!: string | null;
-  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) done_at!: Date | null;
 }
 export const PlanUnpackSchema = SchemaFactory.createForClass(PlanUnpack);
@@ -185,7 +185,7 @@ export const PlanUnpackSchema = SchemaFactory.createForClass(PlanUnpack);
 export class PlanParcel {
   /** Số kiện 1..N trong cả nhóm (đánh lại sau mỗi lần chỉnh tay). */
   @Prop({ type: Number, required: true }) parcel_no!: number;
-  @Prop({ type: Types.ObjectId, required: true }) order_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) order_id!: Types.ObjectId;
   @Prop({ type: String, default: null }) platform_order_id!: string | null;
   @Prop({ type: PlanBoxSchema, required: true }) box!: PlanBox;
   @Prop({ type: [PlanPlacementSchema], default: [] }) placements!: PlanPlacement[];
@@ -212,7 +212,7 @@ export class PlanParcel {
   @Prop({ type: [PlanScanSchema], default: [] }) scans!: PlanScan[];
   /** Thùng + vật tư của kiện ĐÃ trừ tồn (lúc niêm phong lần đầu) — mở ra đóng lại không trừ lần 2. */
   @Prop({ type: Boolean, default: false }) box_consumed!: boolean;
-  @Prop({ type: Types.ObjectId, default: null }) sealed_by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) sealed_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) sealed_at!: Date | null;
   @Prop({ type: [PlanWeighingSchema], default: [] }) weighings!: PlanWeighing[];
   @Prop({ type: [PlanParcelReviewSchema], default: [] }) reviews!: PlanParcelReview[];
@@ -259,7 +259,7 @@ export const PlanStockSuggestionSchema = SchemaFactory.createForClass(PlanStockS
 
 @Schema({ _id: false })
 export class PlanOrder {
-  @Prop({ type: Types.ObjectId, required: true }) order_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) order_id!: Types.ObjectId;
   @Prop({ type: String, default: null }) platform_order_id!: string | null;
   /** ok = mọi món có kiện; partial/no_fit = còn món chưa xếp (phải xử lý trước khi duyệt). */
   /** canceled (05/10/2026) = đơn bị hủy sau khi đã bắt đầu đóng — kiện của đơn phải tháo. */
@@ -303,7 +303,7 @@ export class PlanAdjustment {
   @Prop({ type: [String], default: [] }) skus!: string[];
   @Prop({ type: [String], default: [] }) box_codes!: string[];
   @Prop({ type: String, default: null }) note!: string | null;
-  @Prop({ type: Types.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) by!: Types.ObjectId;
   @Prop({ type: Date, required: true }) at!: Date;
 }
 export const PlanAdjustmentSchema = SchemaFactory.createForClass(PlanAdjustment);
@@ -319,7 +319,7 @@ export class PlanIssue {
   @Prop({ type: String, required: true, enum: ['replaced', 'back_to_picking'] })
   resolution!: 'replaced' | 'back_to_picking';
   @Prop({ type: String, default: null }) note!: string | null;
-  @Prop({ type: Types.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) by!: Types.ObjectId;
   @Prop({ type: Date, required: true }) at!: Date;
 }
 export const PlanIssueSchema = SchemaFactory.createForClass(PlanIssue);
@@ -332,7 +332,7 @@ export class PlanActivity {
   @Prop({ type: Number, default: null }) parcel_no!: number | null;
   @Prop({ required: true }) detail!: string;
   @Prop({ type: String, default: null }) reason!: string | null;
-  @Prop({ type: Types.ObjectId, default: null }) by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) by!: Types.ObjectId | null;
   @Prop({ type: Date, required: true }) at!: Date;
 }
 export const PlanActivitySchema = SchemaFactory.createForClass(PlanActivity);
@@ -360,7 +360,7 @@ export const PlanSolverSchema = SchemaFactory.createForClass(PlanSolver);
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class PackingPlan {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'OrderGroup' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'OrderGroup' })
   order_group_id!: Types.ObjectId;
 
   /** Lần tính thứ mấy của nhóm này (1, 2, …) — để đối chiếu lịch sử. */
@@ -385,14 +385,14 @@ export class PackingPlan {
 
   @Prop({ type: PlanSolverSchema, required: true }) solver!: PlanSolver;
 
-  @Prop({ type: Types.ObjectId, default: null }) approved_by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) approved_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) approved_at!: Date | null;
-  @Prop({ type: Types.ObjectId, default: null }) rejected_by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) rejected_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) rejected_at!: Date | null;
   @Prop({ type: String, default: null }) rejection_reason!: string | null;
   // ---- từ chối có kiểm soát (08/10/2026)
   @Prop({ type: String, default: null }) rejection_reason_code!: string | null;
-  @Prop({ type: Types.ObjectId, default: null }) rejection_owner_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) rejection_owner_id!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) rejection_due_at!: Date | null;
   /** Cách đã xử lý: tính lại / đóng thủ công / trả về lấy hàng. null = chưa xử lý. */
   @Prop({ type: String, default: null, enum: ['recompute', 'manual', 'back_to_picking', null] })
@@ -402,14 +402,14 @@ export class PackingPlan {
   @Prop({ type: Date, default: null }) rejection_overdue_notified_at!: Date | null;
   /** solver = bộ giải tính ra; manual = người xử lý nhập kiện thật sau khi từ chối. */
   @Prop({ type: String, default: 'solver', enum: ['solver', 'manual'] }) source!: 'solver' | 'manual';
-  @Prop({ type: Types.ObjectId, default: null }) packed_by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) packed_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) packed_at!: Date | null;
 
   // ---- phiên đóng gói, phân công, sự cố (05/10/2026)
   @Prop({ type: String, default: null }) approve_override_reason!: string | null;
-  @Prop({ type: Types.ObjectId, default: null }) assigned_packer_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) assigned_packer_id!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) assigned_packer_at!: Date | null;
-  @Prop({ type: Types.ObjectId, default: null }) packing_started_by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) packing_started_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) packing_started_at!: Date | null;
   /** scan = mọi kiện quét kiểm; quick = có kiện đi lối tắt POST pack (không quét). */
   @Prop({ type: String, default: null, enum: ['scan', 'quick', null] }) pack_mode!: 'scan' | 'quick' | null;

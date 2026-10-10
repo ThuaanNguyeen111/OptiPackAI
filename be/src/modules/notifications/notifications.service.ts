@@ -89,6 +89,14 @@ export class NotificationsService {
     private readonly mailService: MailService,
   ) {}
 
+  /** 07/10/2026 — chuỗi id 24 ký tự hex -> ObjectId; còn lại -> null (ghi cảnh báo). */
+  private toObjectIdOrNull(value: string | undefined, field: string): Types.ObjectId | null {
+    if (value === undefined || value === '') return null;
+    if (/^[0-9a-fA-F]{24}$/.test(value)) return new Types.ObjectId(value);
+    this.logger.warn(`notify(): ${field} "${value}" không phải ObjectId hợp lệ — lưu null.`);
+    return null;
+  }
+
   /**
    * Gửi 1 thông báo — ghi in-app NGAY (đồng bộ, để FE polling thấy
    * ngay lập tức), gửi email SONG SONG không chờ (bất đồng bộ — lỗi
@@ -96,7 +104,10 @@ export class NotificationsService {
    */
   async notify(input: CreateNotificationInput): Promise<NotificationDocument> {
     const notification = await this.notificationModel.create({
-      recipient_user_id: input.recipientUserId ?? null,
+      // 🔄 07/10/2026 — 2 field này nay là ObjectId thật (trước đây schema bị hiểu là Mixed nên
+      // lưu nguyên chuỗi). Giá trị không phải id 24 ký tự hex sẽ làm Mongoose ném CastError và
+      // làm hỏng thao tác chính đang gọi notify() -> đổi thành null kèm cảnh báo trong log.
+      recipient_user_id: this.toObjectIdOrNull(input.recipientUserId, 'recipientUserId'),
       // SỬA (21/09/2026) — Number() tường minh, không phụ thuộc schema
       // tự cast đúng — phòng thủ rõ ràng, khớp đúng kiểu Number đã sửa
       // ở schema (notification.schema.ts). TS tin `recipientRole` chắc
@@ -117,7 +128,7 @@ export class NotificationsService {
       title: input.title,
       message: input.message,
       related_entity_type: input.relatedEntityType ?? null,
-      related_entity_id: input.relatedEntityId ?? null,
+      related_entity_id: this.toObjectIdOrNull(input.relatedEntityId, 'relatedEntityId'),
       channels_sent: ['in_app'],
     });
 

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
  * ===================================================================
@@ -37,7 +37,7 @@ export class PackingSettings {
   /** true = bắt buộc quét từng món; lối tắt POST pack bị chặn. */
   @Prop({ type: Boolean, required: true }) require_scan!: boolean;
 
-  @Prop({ type: Types.ObjectId, default: null }) updated_by!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) updated_by!: Types.ObjectId | null;
   @Prop({ type: Boolean, default: true }) is_active!: boolean;
 
   created_at?: Date;

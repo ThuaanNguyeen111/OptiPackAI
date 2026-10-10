@@ -140,6 +140,25 @@ describe('NotificationsService — notify() ghi Number + 2 template mới', () =
     expect(typeof createCall[0].recipient_role).toBe('number');
   });
 
+  // 07/10/2026 — recipient_user_id / related_entity_id nay là ObjectId thật trong schema.
+  it('notify() đổi id dạng chuỗi hex sang ObjectId; giá trị không phải id (vd mã shop Lazada) -> null, không ném lỗi', async () => {
+    const userId = new Types.ObjectId().toString();
+    await service.notify({
+      recipientUserId: userId,
+      type: 'sync_failed' as never,
+      severity: 'warning',
+      title: 't',
+      message: 'm',
+      relatedEntityType: 'marketplace_shop',
+      relatedEntityId: '201171264532',
+    });
+
+    const [doc] = notificationModel.create.mock.calls[0] as [{ recipient_user_id: unknown; related_entity_id: unknown }];
+    expect(doc.recipient_user_id).toBeInstanceOf(Types.ObjectId);
+    expect(String(doc.recipient_user_id)).toBe(userId);
+    expect(doc.related_entity_id).toBeNull();
+  });
+
   it('recipientRole không truyền -> ghi null, KHÔNG ghi undefined/NaN', async () => {
     await service.notify({
       type: 'pending_approval' as never,

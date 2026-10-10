@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   PackagingApprovalStatus,
   PACKAGING_APPROVAL_STATUS_VALUES,
@@ -175,11 +175,14 @@ export const CartonEntrySchema = SchemaFactory.createForClass(CartonEntry);
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class PackagingRecommendationDoc {
-  @Prop({ type: Types.ObjectId, required: true })
+  // KHÔNG dùng index:true ở đây — index thật đã khai riêng bên dưới
+  // (partialFilterExpression, cần cấu hình chi tiết hơn "index: true"
+  // đơn thuần cho phép) — khai cả 2 chỗ gây warning trùng lặp Mongoose.
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   order_group_id!: Types.ObjectId;
 
   /** Đơn nguồn của kiện này; null = bản legacy cấp group (trước 21/09). */
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   order_id!: Types.ObjectId | null;
 
   @Prop({ type: String, default: null })
@@ -296,7 +299,7 @@ export class PackagingRecommendationDoc {
 
   // BR-07 (Report 1) — mọi hành động Approve/Adjust/Reject PHẢI gắn với
   // tài khoản đã login, không có chế độ ẩn danh.
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   approved_by!: Types.ObjectId | null;
 
   // Rule #23 — field union `| null` PHẢI khai `type:` tường minh.
@@ -314,7 +317,7 @@ export class PackagingRecommendationDoc {
   @Prop({ type: String, default: null })
   adjusted_from_box_code!: string | null;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   adjusted_by!: Types.ObjectId | null;
 
   // 🔄 ĐÃ ĐỔI (21/09/2026): cân THẬT của kiện, nhập lúc `pack` (sau khi
@@ -325,7 +328,7 @@ export class PackagingRecommendationDoc {
   @Prop({ type: Date, default: null })
   packed_at!: Date | null;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   packed_by!: Types.ObjectId | null;
 
   @Prop({ type: Boolean, default: false })

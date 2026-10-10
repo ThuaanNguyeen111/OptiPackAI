@@ -2,6 +2,8 @@
 
 Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-09 (🔄 rà soát BE trước khi giao FE, AOFP-87..97: rate limit 600/phút, mã lỗi `AUTH_*`/`USER_NOT_FOUND`/`SF_*`, `back-to-picking` sau từ chối, `GET /packing/staff`, chặn tự duyệt kế hoạch thủ công, phân trang + bộ lọc `GET /order-groups`, chi tiết nhóm đơn kèm `orders`, thông báo đọc riêng từng người + `read-all`, `POST /returns/:id/cancel`, validate query, response `GET /users`/`assign`/`storefront/categories` đã map, thêm route storefront, sửa ma trận role — xem các mục đánh dấu 09/10/2026). Trước đó: 2026-10-05 (tối — 🆕 đơn hủy **trước** khi đóng: hàng đã lấy tự trả về đúng ô + thông báo `return_to_shelf`; tháo kiện thu hồi vật tư chèn `recovered_materials`; vật tư chèn có `reusable`; sửa giữ chỗ tồn sau khi loại món hỏng — mục 8a.4, 8a.2, 8e). Trước đó: 2026-10-05 (chiều — 🆕 **phiên đóng gói**: quét từng món vào kiện, niêm phong + cân từng kiện, kiện lệch cân chờ người khác xem lại, báo sự cố lúc đóng, tháo kiện khi đơn hủy sau khi đóng, cài đặt đóng gói, giao người đóng, báo cáo hiệu suất — mục 8a; FE quay về bản `main` nên có bảng ánh xạ route cũ → mới ở mục 8a.7). Trước đó: 2026-10-05 (GỘP `main` + `thi_dev`: kế hoạch đóng gói `packing_plans` thay luồng `packaging` cũ, kho vật tư chung, vận chuyển có hãng/cước + chứng từ PDF, sàn AURELLE). Trước đó: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
+> 🔄 10/10/2026: gộp bản sửa kiểu id của `main` (07/10) — xem **mục 17**. Không route nào thêm/bớt.
+
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
 ---
@@ -155,7 +157,7 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 
 | Method  | Route                                          | Role                           | Mô tả                                                                                                                                                                                                     |
 | ------- | ---------------------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin           | Quét/nhập tay 1 SKU — trừ tồn + ghi pick_event trong 1 transaction, chống trừ trùng khi mất mạng. 🔄 21/09: chỉ khi group `picking`; chặn quét vượt số đặt trong lượt; KHÔNG cần hồ sơ đóng gói |
+| POST   | `/order-groups/:id/fulfillment/pick-item`      | Warehouse, Admin           | Quét/nhập tay 1 SKU — trừ tồn + ghi pick_event trong 1 transaction, chống trừ trùng khi mất mạng. 🔄 21/09: chỉ khi group `picking`; chặn quét vượt số đặt trong lượt; KHÔNG cần hồ sơ đóng gói 🔄 07/10/2026 (main): hết báo `409 INSUFFICIENT_STOCK` sai khi kho đã gán đúng; tìm được tồn chưa "Đồng bộ tồn"; không phân biệt hoa thường |
 | POST    | `/order-groups/:id/fulfillment/report-missing` | Warehouse, Admin               | Báo thiếu hàng lúc lấy — dừng đơn, chờ duyệt. 🔄 ĐÃ ĐỔI (09/10/2026): báo cả Store Owner **và Packaging Staff** (người quyết `decide-partial`) |
 | POST    | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin | Duyệt tiếp với phần có sẵn, hoặc hủy làm lại. 🔄 Gộp 04/10: hủy = vào lại `picking` với lượt mới (`pick_round + 1`), hàng đã quét của lượt bị hủy **tự nhập lại đúng ô** (sổ kho loại `pick_cancel`) và giữ chỗ tồn lại |
 | POST   | `/order-groups/:id/fulfillment/pick`           | Warehouse, Admin           | `picking → picked`: 🔄 21/09 server đối soát mọi SKU đã quét đủ số đặt trong lượt; thiếu → 409 `ORD_GROUP_PICK_INCOMPLETE` kèm danh sách |
@@ -369,9 +371,9 @@ Lỗi: `PKG_INVALID_MATERIAL_ID` (400), `PKG_MATERIAL_NOT_FOUND` (404), `PKG_MAT
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId/bin-locations`                             | Admin, Warehouse Staff | **MỚI (16/09/2026)** — Danh sách TOÀN BỘ kệ trong 1 kho (gộp mọi khu). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**                                                                                                    |
 | POST      | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin                  | Gán 1 SKU vào 1 kệ, kèm số lượng ban đầu (bước 4/4)                                                                                                                                                                   |
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId/sku-bin-assignments`                       | Admin, Warehouse Staff | **MỚI (16/09/2026)** — Danh sách SKU đã gán vị trí trong 1 kho, kèm số lượng từng ô (trước đây chỉ GET được danh sách CHƯA gán, không GET được danh sách ĐÃ gán). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**         |
-| POST      | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin, Warehouse Staff | Nhập thêm hàng (cộng dồn, không ghi đè; ghi sổ cái `receive`). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**                                                                                                            |
+| POST      | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin, Warehouse Staff | Nhập thêm hàng (cộng dồn, không ghi đè; ghi sổ cái `receive`). 🔄 **Mở thêm Warehouse Staff (01/10/2026)**. 🔄 **Sửa lỗi luôn trả 404 (07/10/2026)** |
 | GET       | `/warehouse/sku-bin-assignments/unassigned`                                    | Admin                  | SKU đã có trong hệ thống nhưng CHƯA gán kệ                                                                                                                                                                            |
-| GET       | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi                                                                                                                                                           |
+| GET       | `/warehouse/:warehouseId/picking-list/:groupId`                                | Warehouse, Admin       | Picking list CÓ vị trí kệ thật, đã sắp xếp theo lộ trình đi. 🔄 **07/10/2026**: hết báo "CHƯA GÁN VỊ TRÍ" sai khi kho đã gán đúng |
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId`                                           | Admin, Warehouse       | **K1 (26/09/2026)** — chi tiết 1 kho (kể cả đã tắt)                                                                                                                                                                   |
 | 🆕 PATCH  | `/warehouse/warehouses/:warehouseId`                                           | Admin                  | K1 — sửa tên/địa chỉ, KHÔNG sửa mã                                                                                                                                                                                    |
 | 🆕 DELETE | `/warehouse/warehouses/:warehouseId`                                           | Admin                  | K1 — vô hiệu hóa (xóa mềm) + dây chuyền khu/kệ; 409 nếu còn hàng                                                                                                                                                      |
@@ -428,6 +430,7 @@ Lỗi: `PKG_INVALID_MATERIAL_ID` (400), `PKG_MATERIAL_NOT_FOUND` (404), `PKG_MAT
 - `GET /notifications` và `PATCH /notifications/:id/read` trả dạng đã map (không còn `_id`, `__v`, `read_by`, `channels_sent`, `recipient_*`): `{ id, type, severity, title, message, related_entity_type, related_entity_id, is_read, created_at }` — `GET` trả **mảng**, mới nhất trước.
 - `is_read` là trạng thái **của người gọi**. Thông báo gửi theo role (vd mọi Packaging Staff) giờ mỗi người đọc riêng — trước đây 1 người bấm đọc là cả role mất thông báo. Thông báo role cũ đã đánh dấu đọc trước 09/10 vẫn coi là đã đọc.
 - Giá trị `type` trên dây là chuỗi snake_case, vd `connection_lost` (mất kết nối sàn), `missing_item`, `pending_approval`, `packing_issue`, `return_to_shelf`... `abnormal_package` có trong enum nhưng **hệ thống không phát** (kiện lệch cân dùng `packing_parcel_held`).
+- 🔄 07/10/2026 (main): `related_entity_id` luôn là id hoặc `null`; loại `sync_failed` mang id shop đã kết nối (trước là mã shop Lazada, mã shop vẫn có trong `title`).
 
 ---
 
@@ -706,3 +709,17 @@ Không dùng JWT nhân viên. "Khách" = token khách hàng (`type: customer`) l
 | GET | `/customer-auth/me` | Khách | Hồ sơ khách |
 
 Mã lỗi `SF_*`: xem "Bảng mã lỗi".
+
+## 17. 🔄 Sửa lỗi kiểu id (07/10/2026, gộp vào thi_dev 10/10/2026)
+
+Không có route mới. Các route dưới đây trước đây có thể trả kết quả sai dù dữ liệu đúng, do các trường id trong schema bị Mongoose hiểu là kiểu Mixed (không đổi chuỗi id sang ObjectId):
+
+| Route | Trước | Sau |
+| ----- | ----- | --- |
+| `GET /warehouse/:warehouseId/picking-list/:groupId` | "CHƯA GÁN VỊ TRÍ" dù đã gán ô | Có vị trí ô |
+| `POST /order-groups/:id/fulfillment/pick-item` | `409 ORD_GROUP_INSUFFICIENT_STOCK` dù còn hàng | Trừ tồn bình thường |
+| `POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Luôn `404` | Cộng tồn bình thường |
+| `POST /returns/:id/inspect`, `POST /returns/:id/quarantine/:lineIndex/resolve` (`restock` vào ô mới) | Dòng tồn mới có thể thiếu `masterSku`/`sellerSku` | Dòng tồn mới đủ thông tin |
+| Chứng từ PDF, kế hoạch đóng gói, cài đặt, storefront | Một số truy vấn theo id dạng chuỗi ra 0 dòng | Khớp đúng |
+
+Việc bắt buộc sau khi deploy: chạy `npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply` trên mỗi database (nay gồm cả `packing_plans.orders[].order_id` / `parcels[].order_id` từng lưu dạng chuỗi). Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6**.

@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 //!=============================================
 //Trusted Device — sau khi verify MFA đúng 1 lần trên 1 thiết bị,
@@ -12,7 +12,7 @@ import { HydratedDocument, Types } from 'mongoose';
   timestamps: { createdAt: 'created_at', updatedAt: false },
 })
 export class TrustedDevice {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'User' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'User' })
   user_id!: Types.ObjectId;
 
   @Prop({ required: true })

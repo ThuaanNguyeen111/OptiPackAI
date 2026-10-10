@@ -131,7 +131,8 @@ export class LazadaOrderSyncScheduler {
                 title: `Đồng bộ đơn ${platform} (shop ${shop.shop_id}) đang thất bại`,
                 message: `Tự động đồng bộ đơn hàng từ ${platform} đang gặp lỗi liên tục: ${message}. Vui lòng kiểm tra kết nối shop (token có thể đã hết hạn).`,
                 relatedEntityType: 'marketplace_shop',
-                relatedEntityId: shop.shop_id,
+                // 🔄 07/10/2026 (main) — id document marketplace_shops (ObjectId); mã shop vẫn nằm trong title.
+                relatedEntityId: String(shop._id),
               });
             }
           }

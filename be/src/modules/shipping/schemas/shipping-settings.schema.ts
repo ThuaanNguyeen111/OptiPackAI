@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
  * ===================================================================
@@ -32,7 +32,7 @@ export class ShippingSettings {
   @Prop({ type: String, default: null })
   default_service_code!: string | null;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   updated_by!: Types.ObjectId | null;
 
   updated_at?: Date;

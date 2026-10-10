@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import {
   LoginType,
   USER_ROLE_VALUES,
@@ -39,7 +39,7 @@ export class User {
   @Prop({ default: true })
   is_active!: boolean;
 
-  @Prop({ type: Types.ObjectId, ref: 'User' })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User' })
   created_by?: Types.ObjectId;
 
   @Prop({ type: Date })

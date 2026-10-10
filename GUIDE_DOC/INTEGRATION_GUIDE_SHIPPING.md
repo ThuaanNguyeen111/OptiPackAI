@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Giao hàng & Trả hàng (Shipping & Returns)
 
-**Phiên bản v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
+**Phiên bản v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
 
 **Phạm vi bản gọn (đã chốt):** mọi bước là **bấm nút đổi trạng thái**. Tracking = lịch sử các lần bấm (ai, lúc nào, lý do). **Chưa có:** bản đồ/GPS, ảnh bằng chứng giao hàng, chuyến giao nhiều điểm, role shipper riêng, đổi hàng — xem Phần E.
 
@@ -241,6 +241,8 @@ Body:
 
 Tất cả dòng + đóng phiếu chạy trong **1 transaction**: lỗi 1 dòng thì không dòng nào được nhập kho.
 
+🔄 **ĐÃ SỬA (07/10/2026)** — dòng `restock` vào một ô **chưa có** dòng tồn của SKU đó: hệ thống tạo dòng tồn mới. SKU đã nối SKU nội bộ → dòng mới mang `masterSku` (hàng hoàn vào tồn chung); SKU chưa nối → dòng mới mang đủ `platform`, `shopId`, `sellerSku`. Trước khi sửa (chỉ trên bản có thay đổi tìm tồn của nhánh `feature/viet_befe`), dòng mới có thể thiếu `masterSku` hoặc `sellerSku`. Request/response không đổi. Áp dụng cả cho xử lý hàng cách ly `action: restock`.
+
 🆕 **G4 — kiểm luôn thùng/xốp đi kèm:** body `inspect` nhận thêm mảng tùy chọn `packaging` (hạng A/B/C, số lần đã dùng, đã gỡ nhãn cũ chưa). Hạng A hợp lệ → vào kho vật liệu tái sử dụng, cùng transaction với phiếu. Kết quả trả trong `packagingInspection`. Chi tiết: `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md` Phần D.
 
 **Gợi ý FE:** form kiểm hàng cho mỗi SKU hiện ô "số lượng còn phải kiểm", chỉ bật nút Lưu khi tất cả về 0; dòng "Nhập lại" có dropdown ô — lấy từ `GET /warehouse/warehouses/:id/bin-suggestions` (K2).
@@ -289,6 +291,7 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 | 10 | Route cũ `return` cho nhóm đơn đã giao không tạo phiếu | Hàng về kho mà không kiểm, không nhập lại | FE chuyển sang `/returns`; có thể chặn route cũ trường hợp này sau |
 | 11 | Hạn 15 ngày tính từ `deliveredAt` của vận đơn; nhóm đơn giao trước G1 dùng thời điểm cập nhật cuối của nhóm đơn | Có thể lệch với ngày giao thật của đơn cũ | Chấp nhận cho dữ liệu cũ |
 | 12 | ~~Chưa tái sử dụng vật liệu đóng gói~~ ✅ **Đã có ở G4** | — | Xem guide vật liệu |
+| 13 | Phiếu hoàn giao thất bại lấy SKU từ sổ cái `pick`; với tồn đã gộp theo SKU nội bộ, sổ cái ghi `seller_sku` của dòng tồn (có thể là SKU của sàn/shop khác) | Phiếu có thể mang SKU khác SKU trong đơn; nhập lại kho có thể tạo dòng tồn chưa nối mới thay vì cộng vào tồn chung (rà soát 06/10/2026, chưa sửa) | Lấy danh sách hàng hoàn từ `pick_events` (lưu đúng SKU trong đơn) |
 
 ---
 

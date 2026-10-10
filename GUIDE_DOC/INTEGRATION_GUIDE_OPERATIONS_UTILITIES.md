@@ -2,7 +2,7 @@
 
 | Thông tin | Giá trị |
 |---|---|
-| Phiên bản | 1.0 |
+| Phiên bản | 1.1 (07/10/2026 — mục 3 và 4: id điều hướng của thông báo, nhập lại hàng cách ly vào ô mới) |
 | Ngày | 27/09/2026 |
 | Đối tượng | Frontend, QA, người trình diễn |
 | Phụ thuộc | `INTEGRATION_GUIDE_SHIPPING.md` (G1, G3), `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md` (G4), `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` (K5) |
@@ -107,6 +107,8 @@ Việc gửi thông báo không ảnh hưởng thao tác chính: nếu gửi l�
 
 **Giao diện:** bổ sung biểu tượng và màu theo `type`; khi bấm thông báo, điều hướng tới vận đơn / phiếu trả hàng / nhóm đơn tương ứng (`related_entity_type`, `related_entity_id`).
 
+🔄 **07/10/2026:** `related_entity_id` luôn là id (ObjectId) hoặc `null`. Thông báo `sync_failed` mang id của shop đã kết nối (trước là mã shop Lazada). Thông báo đích danh tạo trước ngày này chỉ hiện lại cho người nhận sau khi chạy `scripts/migrate-objectid-fields.ts --apply` (xem `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6).
+
 ---
 
 ## 4. Xử lý hàng cách ly
@@ -133,7 +135,7 @@ Khi kiểm hàng hoàn, dòng hàng nghi lỗi được xếp `quarantine`: khô
 
 | `action` | Kết quả |
 |---|---|
-| `restock` | Cộng vào ô đã chọn, ghi sổ cái `return_restock` (K3); tuân theo SKU nội bộ nếu đã nối (K4b) |
+| `restock` | Cộng vào ô đã chọn, ghi sổ cái `return_restock` (K3); tuân theo SKU nội bộ nếu đã nối (K4b). Ô chưa có dòng tồn của SKU → tạo dòng mới mang đúng `masterSku` / `sellerSku` (🔄 sửa 07/10/2026) |
 | `discard` | Ghi nhận loại bỏ, không cộng tồn |
 
 | Mã lỗi | HTTP | Nguyên nhân |

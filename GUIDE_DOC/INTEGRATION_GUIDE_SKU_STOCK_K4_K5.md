@@ -1,6 +1,6 @@
 # OptiPackAI — Hướng dẫn FE & Demo: SKU nội bộ, Tồn kho chung, Chống bán lố (K4a · K4b · K5)
 
-**Phiên bản v1.1 — 04/10/2026** (thêm Phần 0b: quy trình cấu hình chuẩn, cách đặt SKU trên Lazada, xử lý sự cố "CHƯA GÁN VỊ TRÍ"; sửa bước 1.3 theo cơ chế đồng bộ sản phẩm mới). **v1.0 — 27/09/2026.** Tài liệu này dành cho FE ghép giao diện **và** cho người thuyết trình chạy demo. Đi đúng thứ tự từ trên xuống: mỗi bước đều có _làm gì → gọi API nào → body mẫu → kết quả phải thấy → nếu sai thì lỗi gì_.
+**Phiên bản v1.2 — 07/10/2026** (sửa lỗi BE khiến Picking List báo "CHƯA GÁN VỊ TRÍ" và quét hàng báo thiếu tồn dù cấu hình đúng; Picking List / quét hàng tìm thêm tồn chưa gộp và không phân biệt hoa thường; bước 1.5 chạy script chuyển dữ liệu id; cập nhật mục 0b.2, 0b.4, 4.7, 5.4, 8.3, 8.4). **v1.1 — 04/10/2026** (thêm Phần 0b: quy trình cấu hình chuẩn, cách đặt SKU trên Lazada, xử lý sự cố "CHƯA GÁN VỊ TRÍ"; sửa bước 1.3 theo cơ chế đồng bộ sản phẩm mới). **v1.0 — 27/09/2026.** Tài liệu này dành cho FE ghép giao diện **và** cho người thuyết trình chạy demo. Đi đúng thứ tự từ trên xuống: mỗi bước đều có _làm gì → gọi API nào → body mẫu → kết quả phải thấy → nếu sai thì lỗi gì_.
 
 Đọc kèm (đã có trước): `INTEGRATION_GUIDE_WAREHOUSE.md` (kho, kệ, sổ cái K3), `INTEGRATION_GUIDE_SHIPPING.md`, `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`.
 
@@ -69,7 +69,7 @@ Thiếu cả (A) lẫn (B) thì SKU sàn bị coi là **sản phẩm mới, chư
 | Nên                                                                                                      | Không nên                                                                                      |
 | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Đặt SKU trên Lazada **trùng SKU nội bộ** (ví dụ `ATHUN-005-DEN-M`) — dễ đối chiếu, nhìn mã biết sản phẩm | Đặt SKU trên Lazada **trùng mã ô** (ví dụ `KA-D1-P03-T01-3`)                                   |
-| Giữ một kiểu viết thống nhất (chữ hoa, không khoảng trắng)                                               | Viết lẫn hoa/thường hoặc có khoảng trắng — ô kho, giữ chỗ tồn so khớp **chính xác từng ký tự** |
+| Giữ một kiểu viết thống nhất (chữ hoa, không khoảng trắng)                                               | Viết lẫn hoa/thường hoặc có khoảng trắng — từ 07/10/2026 Picking List và quét hàng đã bỏ qua khác biệt hoa thường, nhưng nối SKU (`MAP_SELLER_SKU_UNKNOWN`) và danh sách "SKU chưa gán ô" **vẫn so chính xác từng ký tự** |
 
 Vì sao không đặt trùng mã ô: nhân viên quét mã dán trên kệ hay mã trên sản phẩm đều ra cùng chuỗi nên không phát hiện được quét nhầm; chuyển hàng sang ô khác thì mã trên Lazada mang tên ô cũ; một ô chứa nhiều sản phẩm hoặc một sản phẩm nằm nhiều ô thì không thể đặt "mã sản phẩm = mã ô".
 
@@ -129,8 +129,8 @@ Ghi chú:
 
 | Hiện tượng                                                                                   | Nguyên nhân                                                                                                               | Cách xử lý                                                                                                                                                                                                  |
 | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Picking List hiện `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null` | SKU sàn của đơn **chưa gán ô (A)** và **chưa nối SKU nội bộ (B)**                                                         | Làm bước 6–8 (nếu hàng đang nằm dưới SKU nội bộ / mã khác) hoặc bước 7 (nếu chưa có hàng gán cho sản phẩm này); sau đó `POST /order-groups/:id/stock-reservation/recheck`                                   |
-| `POST .../fulfillment/pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK`                      | Không có dòng tồn nào khớp: cùng kho + cùng SKU (hoặc cùng SKU nội bộ) + đúng ô (nếu gửi `bin_location_id`) + đủ số lượng | Kiểm tra theo thứ tự: dòng Picking List có ô chưa → `GET .../sku-bin-assignments` dòng đó còn tồn không → FE gửi đúng `sku` (mã **sản phẩm**, không phải mã ô), đúng `warehouse_id`, đúng `bin_location_id` |
+| Picking List hiện `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null` | SKU sàn của đơn **chưa gán ô (A)** và **chưa nối SKU nội bộ (B)**. 🔄 Trước 07/10/2026 còn một nguyên nhân phía BE: dữ liệu đúng hết vẫn báo "CHƯA GÁN VỊ TRÍ" (lỗi kiểu id kho) — đã sửa; nếu vẫn gặp sau khi cập nhật BE, kiểm tra đã chạy bước 1.5 chưa | Làm bước 6–8 (nếu hàng đang nằm dưới SKU nội bộ / mã khác) hoặc bước 7 (nếu chưa có hàng gán cho sản phẩm này); sau đó `POST /order-groups/:id/stock-reservation/recheck`                                   |
+| `POST .../fulfillment/pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK`                      | (Trước 07/10/2026 lỗi này xảy ra cả khi dữ liệu đúng — lỗi kiểu id kho phía BE, đã sửa.) Không có dòng tồn nào khớp: cùng kho + cùng SKU (hoặc cùng SKU nội bộ) + đúng ô (nếu gửi `bin_location_id`) + đủ số lượng | Kiểm tra theo thứ tự: dòng Picking List có ô chưa → `GET .../sku-bin-assignments` dòng đó còn tồn không → FE gửi đúng `sku` (mã **sản phẩm**, không phải mã ô), đúng `warehouse_id`, đúng `bin_location_id` |
 | Nối SKU báo `400 MAP_SELLER_SKU_UNKNOWN`                                                     | Hệ thống chưa biết SKU sàn đó                                                                                             | `POST /product-master/sync` rồi nối lại                                                                                                                                                                     |
 | Đã đổi mã SKU trên Lazada, trang kho vẫn hiện mã cũ                                          | Ô kho lưu mã lúc gán, không tự đổi; đơn cũ giữ mã cũ                                                                      | `POST /product-master/sync` → nối **cả mã cũ và mã mới** vào cùng SKU nội bộ → `POST /master-skus/sync-stock`. Không xóa dòng tồn mã cũ (đơn cũ đang chờ lấy sẽ thiếu hàng)                                 |
 | Mã trên Lazada đang trùng mã ô                                                               | Đặt sai quy ước (mục 0b.2)                                                                                                | Tạm thời: nối mã đó vào SKU nội bộ đúng để đơn đang chờ lấy được. Lâu dài: đổi SKU trên Lazada thành SKU nội bộ, rồi nối mã mới                                                                             |
@@ -174,6 +174,16 @@ POST /product-master/sync?shop_id=201171264532&full=true (toàn bộ danh sách 
 🔄 **Từ 04/10/2026** hệ thống đồng bộ theo **danh sách sản phẩm của shop** (không còn chỉ theo SKU đã có trong đơn): tự chạy **mỗi giờ** (sản phẩm thay đổi) và **3h sáng** (toàn bộ). Script tay vẫn dùng được: `npx ts-node -r dotenv/config scripts/sync-product-master-now.ts 201171264532`.
 
 **Bước 1.4 — Chuẩn bị 3 tài khoản** để demo đúng quyền: **Admin**, **Store Owner**, **Warehouse Staff**.
+
+**Bước 1.5 — 🆕 (07/10/2026) Chuyển dữ liệu id cũ sang ObjectId.** Bắt buộc 1 lần trên mỗi database sau khi cập nhật BE bản 07/10/2026 (chi tiết: `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6):
+
+```bash
+cd be
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # chạy thử, chỉ đếm
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply    # ghi thật
+```
+
+Kết quả đúng: lần chạy lại báo `✅ Không còn giá trị id nào lưu dạng chuỗi — không cần làm gì.`, hoặc `✅ Không còn id dạng chuỗi nào cần chuyển. Còn N giá trị không phải id được giữ nguyên…` (các giá trị này nằm ở thông báo `sync_failed` cũ — không ảnh hưởng nghiệp vụ).
 
 ---
 
@@ -396,6 +406,8 @@ GET /master-skus/unpooled-stock        (Admin, Store Owner)
 
 Mục tiêu trước khi chạy thật: `notMapped` rỗng (hoặc chấp nhận có — vẫn chạy theo đường lùi).
 
+🔄 **Từ 07/10/2026** (bản sửa của nhánh `feature/viet_befe`): nếu một SKU **đã nối** nhưng dòng tồn còn nằm trong `mappedNotSynced` (chưa bấm `sync-stock`), Picking List và quét hàng **vẫn tìm thấy** dòng đó (cùng sàn/shop) thay vì báo "CHƯA GÁN VỊ TRÍ". Tuy vậy **vẫn phải bấm `sync-stock`**: tồn khả dụng, báo cáo tồn theo SKU nội bộ và gộp tồn nhiều listing chỉ tính dòng đã gắn nhãn.
+
 ---
 
 # PHẦN 5 — K5: CHỐNG BÁN LỐ
@@ -483,6 +495,8 @@ POST /order-groups/GROUP_B/stock-reservation/recheck
 ```
 
 ⚠️ Nhập hàng **không tự** tính lại các nhóm đơn đang thiếu — phải bấm "Tính lại" (xem Phần 8 điểm yếu).
+
+🔄 **07/10/2026:** trước ngày này lệnh `restock` luôn trả `404 WH_WAREHOUSE_NOT_FOUND` do lỗi kiểu id kho phía BE — đã sửa. Nếu demo trên bản BE cũ, dùng kiểm kê (`adjust`) để tăng tồn thay thế.
 
 🔄 **Từ 01/10/2026** lệnh nhập hàng (`restock`) gọi được bằng tài khoản **Warehouse Staff** (trước đây chỉ Admin). Lệnh "Tính lại giữ chỗ" vẫn do Admin hoặc Store Owner thực hiện như trước.
 
@@ -585,13 +599,15 @@ Field mới trong response: nhóm đơn `stockShortage`, `stockShortageItems`; d
 ## 8.3. Hạn chế hiện tại và hướng khắc phục
 
 1. **Nhập hàng không tự tính lại** nhóm đơn đang thiếu — phải bấm "Tính lại". → Nên tự quét các nhóm đơn `stockShortage` của khóa tồn đó sau mỗi lần nhập.
-2. **Đơn hủy trên Lazada không tự nhả giữ chỗ** — phải nhả tay (5.6). → Nối vào luồng đồng bộ trạng thái hủy.
+2. **Đơn hủy trên Lazada không tự nhả giữ chỗ** — phải nhả tay (5.6). Giữ chỗ chỉ được tính lại khi số đơn trong nhóm đổi; hủy đơn không đổi số đơn. → Tính lại khi số đơn còn hiệu lực / đã hủy đổi; nhóm hủy hết thì nhả toàn bộ (rà soát 06/10/2026, chưa làm).
 3. **Giữ chỗ tính trên TỔNG mọi kho**, chưa theo từng kho (đúng với shop 1 kho). → Khi có nhiều kho cần chọn kho lúc giữ chỗ.
 4. **Không đẩy tồn khả dụng lên Lazada** — seller vẫn phải tự chỉnh số tồn trên Seller Center; K5 chỉ phát hiện sớm, không ngăn khách đặt.
 5. **Giữ chỗ tính theo số lượng ĐẶT** — nếu kiểm hàng sau đó phát hiện nhầm, phải "Tính lại".
 6. **Bỏ nối khi tồn = 0 mới được** — muốn tách listing đã gộp phải kiểm kê/chuyển ô về 0 trước; chưa có thao tác "tách tồn".
 7. **Màu trên kệ (K2) chưa bị ép theo danh mục màu** — FE phải dùng dropdown `/colors`.
-8. **Thiếu hàng chưa có thông báo (chuông)** — chỉ có badge; nên gửi thông báo cho Store Owner.
+8. ~~**Thiếu hàng chưa có thông báo (chuông)**~~ — đã có thông báo `stock_shortage` cho Store Owner.
+9. **Khóa giữ chỗ không đổi theo khi nối / bỏ nối / thay SKU nội bộ** (rà soát 06/10/2026, chưa làm) — nhóm đơn đang giữ chỗ dưới khóa SKU sàn, sau khi nối thì quét hàng không trừ được phần đã giữ và "Tính lại" sẽ giữ thêm lần nữa; thay SKU nội bộ có thể cho giữ vượt tồn. → Trước khi sửa: chỉ nối/thay SKU khi không có nhóm đơn đang giữ chỗ SKU đó, hoặc bấm "Nhả giữ chỗ" rồi "Tính lại" cho các nhóm liên quan ngay sau khi nối.
+10. **Tìm tồn có nhánh dự phòng dòng chưa gắn nhãn** (từ 07/10/2026) — giúp không bị kẹt khi quên `sync-stock`, nhưng che việc chưa gộp tồn. → Tự gắn nhãn khi nối SKU / gán ô.
 
 ## 8.4. Checklist test (đánh dấu khi chạy xong)
 
@@ -607,3 +623,6 @@ Field mới trong response: nhóm đơn `stockShortage`, `stockShortageItems`; d
 - [ ] Nhập thêm + Tính lại → B hết thiếu
 - [ ] Quét 1/2 rồi xác nhận lấy xong → giữ chỗ `released`, tồn khả dụng tăng lại phần dư
 - [ ] Nhả tay → `releasedUnits` đúng số đang giữ
+- [ ] 🆕 (07/10) Đã chạy script `migrate-objectid-fields.ts --apply`; Picking List của SKU đã gán ô không còn "CHƯA GÁN VỊ TRÍ"
+- [ ] 🆕 (07/10) SKU đã nối nhưng chưa `sync-stock` → Picking List vẫn có ô, quét trừ được; sau `sync-stock` dòng tồn có `masterSku`
+- [ ] 🆕 (07/10) `restock` → `201`, tồn tăng (trước đây `404`)

@@ -1367,7 +1367,7 @@ export class User {
 
 ### 8. `Model<T>.create()`/`findOne()` với field kiểu `Types.ObjectId` — LUÔN bọc `new Types.ObjectId(idString)`, không truyền thẳng string
 
-Dù Mongoose thường tự ép kiểu string -> ObjectId lúc runtime, đừng phụ thuộc vào auto-cast ngầm này — luôn tường minh:
+🔄 **ĐÃ THAY ĐỔI (07/10/2026)** — câu cũ "Mongoose thường tự ép kiểu string -> ObjectId" là SAI với cách khai cũ của dự án: `@Prop({ type: Types.ObjectId })` bị @nestjs/mongoose dựng thành kiểu **Mixed**, Mongoose KHÔNG ép gì cả (xem Rule DB #24 và nhật ký 07/10/2026). Từ 07/10 schema đã khai đúng `SchemaTypes.ObjectId` nên Mongoose có ép, nhưng quy tắc dưới đây VẪN GIỮ — luôn tường minh, không phụ thuộc khai báo schema:
 
 ```ts
 // ❌ Tránh
@@ -1677,6 +1677,20 @@ approved_at!: Date | null;
 ```
 
 **Bài học quan trọng hơn cả bug này**: đây là bằng chứng cụ thể cho lý do CLAUDE.md luôn yêu cầu chạy `jest` thật (không chỉ `tsc`/`eslint`) trước khi coi 1 module là hoàn thiện — có 1 lớp lỗi (runtime reflection của thư viện) mà static analysis tuyệt đối không bắt được, chỉ lộ ra khi thực sự khởi tạo schema.
+
+### 24. 🆕 (07/10/2026) Field id tham chiếu PHẢI khai `type: SchemaTypes.ObjectId` — KHÔNG BAO GIỜ `type: Types.ObjectId`
+
+`Types.ObjectId` là lớp GIÁ TRỊ của bson. @nestjs/mongoose (`DefinitionsFactory.inspectTypeDefinition`) coi nó là một class lồng, gọi `createForClass` ra `{}` → field thành kiểu **Mixed**. Field Mixed: Mongoose không ép chuỗi → ObjectId khi truy vấn, khi ghi lưu nguyên giá trị nhận được. Hậu quả thật (05–07/10/2026): Picking List "CHƯA GÁN VỊ TRÍ", pick-item 409, Nhập thêm hàng 404 (truy vấn bằng chuỗi id kho), `pick_events.order_group_id` lưu chuỗi nên gợi ý đóng gói không đọc được số đã quét. `tsc`/`eslint`/unit test với mock đều KHÔNG bắt được.
+
+```ts
+import { SchemaTypes, Types } from 'mongoose';
+// ❌ SAI — thành Mixed
+@Prop({ type: Types.ObjectId, ref: 'Warehouse' }) warehouse_id!: Types.ObjectId;
+// ✅ ĐÚNG — SchemaTypes cho khai báo schema, Types cho kiểu TypeScript
+@Prop({ type: SchemaTypes.ObjectId, ref: 'Warehouse' }) warehouse_id!: Types.ObjectId;
+```
+
+Bắt buộc kèm theo: (1) thêm field mới vào `src/common/schemas/objectid-fields.ts` (`OBJECT_ID_FIELDS`); (2) test `objectid-fields.spec.ts` quét MỌI `*.schema.ts`, báo lỗi nếu còn field Mixed hoặc danh sách lệch thực tế; (3) kiểm kiểu thật bằng `Schema.path(field).instance`, không suy từ khai báo TypeScript. Lệnh upsert dòng tồn dùng `stockUpsertFilterFor` (khớp chính xác), không dùng `stockFilterFor` (có `$or`/regex — MongoDB không chép các điều kiện đó vào dòng mới).
 
 ## Khi tạo module mới, LUÔN:
 
@@ -2195,7 +2209,7 @@ File này là tài liệu TĨNH (chụp đúng trạng thái code 16/09/2026), k
 
 ## Báo cáo lỗi thật từ Hải Phượng (teammate) — warehouse module thiếu GET + nghi ngờ ObjectId cast (16/09/2026)
 
-Đối chiếu code thật: (1) xác nhận đúng — thiếu 3 API GET để xem lại bin-locations/sku-bin-assignments đã tạo (trước đây chỉ có POST tạo, không có GET liệt kê) — đã thêm đủ 3 route + service method + response DTO (`toBinLocationResponse`). (2) Về nghi ngờ `warehouse_id` cần ép ObjectId tường minh trong `listZones()` — đã thêm ép kiểu (an toàn dù đúng hay không phải nguyên nhân thật), nhưng lưu ý: Mongoose chuẩn tự cast string→ObjectId trong query filter, nên nhiều khả năng nguyên nhân thật là code server đang chạy chưa phải bản mới nhất (đã lặp lại nhiều lần trong dự án này).
+Đối chiếu code thật: (1) xác nhận đúng — thiếu 3 API GET để xem lại bin-locations/sku-bin-assignments đã tạo (trước đây chỉ có POST tạo, không có GET liệt kê) — đã thêm đủ 3 route + service method + response DTO (`toBinLocationResponse`). (2) Về nghi ngờ `warehouse_id` cần ép ObjectId tường minh trong `listZones()` — đã thêm ép kiểu (an toàn dù đúng hay không phải nguyên nhân thật), nhưng lưu ý: Mongoose chuẩn tự cast string→ObjectId trong query filter, nên nhiều khả năng nguyên nhân thật là code server đang chạy chưa phải bản mới nhất (đã lặp lại nhiều lần trong dự án này). 🔄 **ĐÃ THAY ĐỔI (07/10/2026):** nhận định "Mongoose tự cast" là SAI — schema khai `type: Types.ObjectId` bị hiểu là Mixed, không ép kiểu; ép tường minh ở `listZones()` mới chính là cách sửa đúng lúc đó. Xem Rule DB #24.
 
 **Sự cố phụ trong lúc verify**: lần đầu chạy `tsc --noEmit` báo lỗi giả (do tự mình copy `node_modules` bị thiếu sót vì hạn chế dung lượng sandbox, không phải lỗi code thật) — đã tự phát hiện bằng cách so sánh với bản gốc chưa sửa (cũng lỗi y hệt dù code không đổi = môi trường, không phải code), cài lại `node_modules` sạch bằng `npm install` trực tiếp thay vì `cp -r`, xác nhận lại đúng: `tsc`/`eslint`/`jest` (153/153) đều sạch. Bài học: khi cần xác minh code bằng cách chạy thật, ưu tiên `npm install` sạch trong đúng thư mục thay vì copy `node_modules` giữa các bản sao — tránh copy thiếu sót gây báo lỗi giả.
 
@@ -3304,39 +3318,39 @@ Nhập hàng không tự tính lại nhóm đơn thiếu; đơn hủy trên Laza
 
 **1. Mô hình tồn của Lazada (5 loại, theo từng SKU/kho):**
 
-| Loại                 | Ý nghĩa                                                                        | Ai sửa                                  |
-| -------------------- | ------------------------------------------------------------------------------ | --------------------------------------- |
-| `withholdQuantity`   | Đơn **unpaid**; quá 30 phút không trả tiền → trả về sellable                   | Không sửa được                          |
-| `occupyQuantity`     | Đơn **pending → packed**; **rời occupy khi đơn sang RTS**, hủy thì về sellable | Không sửa được                          |
-| `sellableQuantity`   | Số khách mua được, Seller Center hiển thị; **đã gồm** phần khóa chiến dịch     | Adjust / UpdateSellable / UpdateProduct |
-| `totalQuantity`      | Tổng các loại trên; phải ≥ withhold + occupy + campaign                        | UpdatePriceQuantity                     |
-| `channelInventories` | Phần khóa cho chiến dịch; hết chiến dịch → về sellable                         | Không sửa được                          |
+| Loại | Ý nghĩa | Ai sửa |
+|---|---|---|
+| `withholdQuantity` | Đơn **unpaid**; quá 30 phút không trả tiền → trả về sellable | Không sửa được |
+| `occupyQuantity` | Đơn **pending → packed**; **rời occupy khi đơn sang RTS**, hủy thì về sellable | Không sửa được |
+| `sellableQuantity` | Số khách mua được, Seller Center hiển thị; **đã gồm** phần khóa chiến dịch | Adjust / UpdateSellable / UpdateProduct |
+| `totalQuantity` | Tổng các loại trên; phải ≥ withhold + occupy + campaign | UpdatePriceQuantity |
+| `channelInventories` | Phần khóa cho chiến dịch; hết chiến dịch → về sellable | Không sửa được |
 
 Sơ đồ luồng: khi RTS thì `total` giảm hẳn. Hủy do **khách hủy / seller không giao được** → trả về sellable. Hủy do **seller hết hàng / sai giá** → sơ đồ cho thấy `total` và `sellable` về **0** (chưa rõ cả SKU hay chỉ phần của đơn — cần test).
 
 **2. Chọn API (ĐÃ THAY ĐỔI so với ghi chú 27/09 "ưu tiên UpdateSellableQuantity hơn Adjust"):**
 
-| API                                                                                                                                                   | Dùng  | Vai trò                                                                                                                            |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /product/stock/sellable/adjust` (Adjust)                                                                                                        | Có    | Đẩy **chênh lệch** (+N/−N, được gửi số âm) cho biến động phát sinh trong kho OptiPack — không đè phần Lazada vừa tự trừ khi có đơn |
-| `/product/stock/sellable/update` (UpdateSellable)                                                                                                     | Có    | **Ghi đè** sellable: đối soát định kỳ, lần đầu nối SKU, khôi phục sau khi Lazada đưa về 0                                          |
-| GetProducts (`options=1`, `sku_seller_list`, cuộn `update_after`, limit ≤ 50) / GetProductItem (`item_id` bắt buộc; `seller_sku` ngừng từ 15/11/2023) | Có    | Lấy `item_id`/`SkuId`; đọc sellable/occupy/withhold/`channelInventories`                                                           |
-| GetMultiWarehouseBySeller (`/seller/warehouse/get`, `addressTypes=["warehouse"]`)                                                                     | 1 lần | Xác định shop 1 kho (`dropshipping`) để dùng payload 1 kho                                                                         |
-| UpdatePriceQuantity                                                                                                                                   | Không | Ghi **total** → trừ trùng occupy (kho mình trừ ở pick, Lazada giữ occupy tới RTS), có thể bị từ chối; payload kèm giá              |
-| UpdateProduct                                                                                                                                         | Không | Lazada ghi rõ không khuyến nghị dùng để sửa tồn; ghi đè thuộc tính sản phẩm                                                        |
-| RemoveProduct / RemoveSku / ProductCheck                                                                                                              | Không | Phá hủy dữ liệu / chỉ cho seller xuyên biên giới                                                                                   |
+| API | Dùng | Vai trò |
+|---|---|---|
+| `POST /product/stock/sellable/adjust` (Adjust) | Có | Đẩy **chênh lệch** (+N/−N, được gửi số âm) cho biến động phát sinh trong kho OptiPack — không đè phần Lazada vừa tự trừ khi có đơn |
+| `/product/stock/sellable/update` (UpdateSellable) | Có | **Ghi đè** sellable: đối soát định kỳ, lần đầu nối SKU, khôi phục sau khi Lazada đưa về 0 |
+| GetProducts (`options=1`, `sku_seller_list`, cuộn `update_after`, limit ≤ 50) / GetProductItem (`item_id` bắt buộc; `seller_sku` ngừng từ 15/11/2023) | Có | Lấy `item_id`/`SkuId`; đọc sellable/occupy/withhold/`channelInventories` |
+| GetMultiWarehouseBySeller (`/seller/warehouse/get`, `addressTypes=["warehouse"]`) | 1 lần | Xác định shop 1 kho (`dropshipping`) để dùng payload 1 kho |
+| UpdatePriceQuantity | Không | Ghi **total** → trừ trùng occupy (kho mình trừ ở pick, Lazada giữ occupy tới RTS), có thể bị từ chối; payload kèm giá |
+| UpdateProduct | Không | Lazada ghi rõ không khuyến nghị dùng để sửa tồn; ghi đè thuộc tính sản phẩm |
+| RemoveProduct / RemoveSku / ProductCheck | Không | Phá hủy dữ liệu / chỉ cho seller xuyên biên giới |
 
 **3. Quy tắc đẩy — câu hỏi quyết định: "Lazada đã tự biết thay đổi này chưa?"** Chỉ đẩy biến động **không** bắt nguồn từ vòng đời đơn Lazada.
 
-| Sự kiện OptiPack                                                                                                                             | Hành động                                                                                 |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Nhập hàng (`restock`), kiểm kê, loại bỏ/cách ly, restock hàng trả (RMA giả lập, giao thất bại), giữ hàng cho đơn kênh khác (AURELLE, `EXC-`) | Adjust ±N                                                                                 |
-| Chuyển ô                                                                                                                                     | Không đẩy (tổng không đổi)                                                                |
-| Đơn Lazada: giữ chỗ → pick → pack → giao                                                                                                     | Không đẩy (Lazada đã trừ)                                                                 |
-| Đơn Lazada khách hủy / seller không giao được                                                                                                | Không đẩy; chỉ giải phóng giữ chỗ nội bộ; nếu đã pick thì restock nội bộ **không** Adjust |
-| Seller hủy vì hết hàng                                                                                                                       | UpdateSellable khôi phục                                                                  |
-| Seller hủy vì sai giá                                                                                                                        | Không đẩy; cảnh báo Store Owner                                                           |
-| Nối SKU mới / đối soát đêm                                                                                                                   | UpdateSellable                                                                            |
+| Sự kiện OptiPack | Hành động |
+|---|---|
+| Nhập hàng (`restock`), kiểm kê, loại bỏ/cách ly, restock hàng trả (RMA giả lập, giao thất bại), giữ hàng cho đơn kênh khác (AURELLE, `EXC-`) | Adjust ±N |
+| Chuyển ô | Không đẩy (tổng không đổi) |
+| Đơn Lazada: giữ chỗ → pick → pack → giao | Không đẩy (Lazada đã trừ) |
+| Đơn Lazada khách hủy / seller không giao được | Không đẩy; chỉ giải phóng giữ chỗ nội bộ; nếu đã pick thì restock nội bộ **không** Adjust |
+| Seller hủy vì hết hàng | UpdateSellable khôi phục |
+| Seller hủy vì sai giá | Không đẩy; cảnh báo Store Owner |
+| Nối SKU mới / đối soát đêm | UpdateSellable |
 
 Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_sync`, với `chưa_sync = max(0, (withhold + occupy) − (đơn Lazada đã giữ chưa pick + đã pick chưa RTS))`; không thấp hơn `channelInventories` (thấp hơn → không đẩy, cảnh báo).
 
@@ -3377,13 +3391,11 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Bối cảnh:** FE (Việt) báo màn kho không phân biệt được nhóm đơn có đơn hủy: đơn có `status: canceled` ở collection `orders`, BE đã lọc đơn hủy ở tầng hàng cần lấy (`getPackableItemsForGroup`, dùng chung cho Picking List + gợi ý đóng gói), nhưng `OrderGroupResponse` chỉ có `orderCount` → trên danh sách nhóm bình thường / hủy một phần / hủy hết giống hệt nhau. Yêu cầu: thêm trường cho danh sách. User chốt: làm đúng yêu cầu này trước, phần xử lý nghiệp vụ hủy làm sau.
 
 **Thay đổi code:**
-
 - `order-groups.service.ts`: `interface GroupOrderCounts` + `getOrderCountsForGroups(groupIds)` — 1 aggregation trên `orders` cho cả danh sách (Rule #16). `activeOrderCount` = status KHÔNG thuộc `NOT_PACKABLE_ORDER_STATUSES` (đúng quy tắc Picking List); `canceledOrderCount` = status `canceled`. **Không** thêm `is_consolidated: true` vào `$match` dù index `consolidated_group_id` là partial theo field đó — nhóm 1 đơn có `consolidated_group_id` nhưng `is_consolidated` vẫn false (`getOrCreateGroupForOrder` chỉ `$set consolidated_group_id`), thêm vào sẽ đếm thiếu.
 - `order-groups.controller.ts`: `OrderGroupResponse` thêm `activeOrderCount`, `canceledOrderCount`; `toResponse(group, counts)` bắt buộc tham số đếm (tránh âm thầm trả 0); thêm `buildOrderGroupResponse` / `buildOrderGroupResponses`; mọi route trả nhóm đơn (list, detail, report-missing, decide-partial, pick, pack, priority) đều có số đếm. `toOrderGroupResponse` (dùng ở `shipments/legacy-fulfillment.controller.ts`) đổi thành bản async nhận service — 3 route legacy cập nhật theo.
 - Test mới `order-groups.service.getOrderCountsForGroups.spec.ts` (6 test).
 
 **Tác động & xử lý xung đột (5 câu):**
-
 1. Dữ liệu cũ: API đếm lúc đọc nên nhóm cũ có số đúng ngay. 🔄 Sau phần bổ sung bên dưới: schema có thêm 3 trường lưu sẵn (default null) — document cũ không có trường cho tới khi chạy `scripts/backfill-order-group-counts.ts` hoặc được đồng bộ lại; không ảnh hưởng API.
 2. Route đổi hành vi: không đổi request; response chỉ THÊM 2 trường. Mỗi response nhóm đơn tốn thêm 1 truy vấn đếm (danh sách: 1 truy vấn cho cả trang).
 3. Luồng bị ảnh hưởng: không luồng nào đổi hành vi — chỉ đọc.
@@ -3397,7 +3409,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Kết quả kiểm chứng (sandbox, `npm install` mới trong `be/`):** tsc 0 lỗi; eslint 0 lỗi trên các file đã sửa; jest 32/32 suite — 298/298 test (trước: 31/292). Eslint toàn repo báo 3 lỗi `no-unsafe-enum-assignment` ở `notifications.service.ts` và `packaging.service.spec.ts` — file không đụng tới, xuất hiện do sandbox cài phiên bản `typescript-eslint` mới hơn lockfile của repo; kiểm tra lại bằng `npm run lint` trên máy.
 
 **Bổ sung cùng ngày — bản lưu sẵn trong DB (theo yêu cầu Thuận: xem được số đếm trực tiếp trong Compass):**
-
 - `order-group.schema.ts`: thêm `active_order_count`, `canceled_order_count` (`Number | null`, default null — Rule #23), `order_counts_refreshed_at`.
 - `order-groups.service.ts`: `getOrCreateGroupForOrder` tách thân hàm thành `resolveGroupForOrder` (private, giữ nguyên logic) + gọi `refreshOrderCounts(group._id)` sau đó — mọi lần đồng bộ chạm tới nhóm (đơn mới, đổi trạng thái, gộp muộn, đơn `EXC-`) đều tính lại. `refreshOrderCounts` dùng `updateOne` (không `save`) để KHÔNG tăng `__v` (Rule #18), best-effort (lỗi chỉ log).
 - Script `scripts/backfill-order-group-counts.ts`: điền cho mọi nhóm cũ, theo lô 200 (`_id` tăng dần) + `bulkWrite` (Rule #14), chạy lại an toàn. Đã thêm vào `DEMO_PLAYBOOK.md` mục 1.2.
@@ -3434,14 +3445,14 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 - Response `result.data.pack_order_list[]` → `order_id`, `order_item_list[]`: `order_item_id`, `msg`, **`item_err_code` ("0" = thành công)**, `tracking_number`, `shipment_provider`, **`package_id`**, `retry`. `result.success = true` **không có nghĩa** mọi item thành công — phải xét `item_err_code` từng item; `success = false` thì cả lô thất bại (`error_code`, `error_msg`). Mẫu response của Lazada có `error_msg: "order not found"` đi kèm item thành công → không dựa vào `error_msg` cấp lô khi `success = true`.
 - Mã lỗi (gom nhóm để xử lý):
 
-| Nhóm                                 | Mã                                                                                                                                                                 | Xử lý đề xuất                                                                                                                 |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
-| Hệ thống bận, thử lại                | 6 `SYSTEM_ERROR`, 40011 `RPC_ERROR`, 700024 `GET_LOCK_FAILED`, 1003 `E1003_3PL_ALLOCATION_FAIL`                                                                    | Retry có backoff (xét thêm cờ `retry` của item)                                                                               |
-| Trạng thái không cho đóng gói        | 700000 `PACKAGE_STATUS_NOT_ALLOW_TO_OP`, 700026 `FO_ITEM_NOT_ALLOW_TO_PACK`, 700031 `ITEM_NOT_READY_TO_FULFILL`                                                    | Đọc lại `GetOrderItems`: nếu item đã `packed` và có `package_id` → coi như đã đóng gói (idempotent); nếu đã hủy → bỏ qua item |
-| Không tìm thấy                       | 700020, 700021 `ORDER_NOT_FOUND`, 700025 `ORDER_ITEM_NOT_FOUND`, 700032 `SELLER_NOT_FOUND`                                                                         | Lỗi dữ liệu/token, không retry, báo Admin                                                                                     |
-| Sai tham số                          | 700004 `PARAM_ILLEGAL`, 700017 `PARAM_IS_NULL`, 700018 `PARAM_SIZE_ERROR`, 700019 `PARAM_MIN_ERROR`, 700022 `BATCH_SIZE_OUT_OF_LIMIT`                              | Lỗi code phía mình, không retry                                                                                               |
-| Đơn vị vận chuyển / kho trung chuyển | 700001 `DBS_SHIPMENT_PROVIDER_CODE_NOT_EXITS`, 700016 `NOT_AVAILABLE_NTFS_3PL`, 700033 `TRANSFERRING_WAREHOUSE_PROVIDER`, 700029 `ITEM_MUST_BELONG_SAME_WAREHOUSE` | Kiểm tra lại kết quả GetShipmentProvider / tách lô theo kho                                                                   |
-| Loại đơn không hỗ trợ                | 700013 `OP_NOT_SUPPORT`, 700023/700028 (nhận tại cửa hàng), 700027 (FBL), 700030 (hàng số/dịch vụ)                                                                 | Bỏ qua, đánh dấu "không đóng gói qua API"                                                                                     |
+| Nhóm | Mã | Xử lý đề xuất |
+|---|---|---|
+| Hệ thống bận, thử lại | 6 `SYSTEM_ERROR`, 40011 `RPC_ERROR`, 700024 `GET_LOCK_FAILED`, 1003 `E1003_3PL_ALLOCATION_FAIL` | Retry có backoff (xét thêm cờ `retry` của item) |
+| Trạng thái không cho đóng gói | 700000 `PACKAGE_STATUS_NOT_ALLOW_TO_OP`, 700026 `FO_ITEM_NOT_ALLOW_TO_PACK`, 700031 `ITEM_NOT_READY_TO_FULFILL` | Đọc lại `GetOrderItems`: nếu item đã `packed` và có `package_id` → coi như đã đóng gói (idempotent); nếu đã hủy → bỏ qua item |
+| Không tìm thấy | 700020, 700021 `ORDER_NOT_FOUND`, 700025 `ORDER_ITEM_NOT_FOUND`, 700032 `SELLER_NOT_FOUND` | Lỗi dữ liệu/token, không retry, báo Admin |
+| Sai tham số | 700004 `PARAM_ILLEGAL`, 700017 `PARAM_IS_NULL`, 700018 `PARAM_SIZE_ERROR`, 700019 `PARAM_MIN_ERROR`, 700022 `BATCH_SIZE_OUT_OF_LIMIT` | Lỗi code phía mình, không retry |
+| Đơn vị vận chuyển / kho trung chuyển | 700001 `DBS_SHIPMENT_PROVIDER_CODE_NOT_EXITS`, 700016 `NOT_AVAILABLE_NTFS_3PL`, 700033 `TRANSFERRING_WAREHOUSE_PROVIDER`, 700029 `ITEM_MUST_BELONG_SAME_WAREHOUSE` | Kiểm tra lại kết quả GetShipmentProvider / tách lô theo kho |
+| Loại đơn không hỗ trợ | 700013 `OP_NOT_SUPPORT`, 700023/700028 (nhận tại cửa hàng), 700027 (FBL), 700030 (hàng số/dịch vụ) | Bỏ qua, đánh dấu "không đóng gói qua API" |
 
 ### 3. ReadyToShip — `POST /order/package/rts`
 
@@ -3478,7 +3489,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Bối cảnh:** cô yêu cầu (buổi meet) nhân viên đóng gói bấm xác nhận đóng gói trên OptiPack thì đơn trên Lazada cũng chuyển "Đã đóng gói". FE không giữ token shop → BE làm. Chốt với Thuận: **không thêm nút mới**, nối vào nút `pack` hiện có; **giữ nguyên** bước OptiPack chuyển `packed` (G1 giao hàng và G4 trừ vật liệu dựa vào nó); **bỏ GetShipmentProvider** — `shipping_allocate_type` lấy từ env (`TFS`), đổi nếu Pack báo `700004`.
 
 **Thay đổi code:**
-
 - `config/marketplace.config.ts`: `lazada.writeApisEnabled` (env `LAZADA_WRITE_APIS_ENABLED`, chỉ `"true"` mới bật — cầu dao cho mọi API ghi), `lazada.shippingAllocateType` (env `LAZADA_SHIPPING_ALLOCATE_TYPE`, mặc định `TFS`). `.env.example` thêm 2 biến.
 - `lazada.adapter.ts`: `callSignedPost()` (form-urlencoded, cùng cách 2 API token đang chạy thật; **không tự retry** vì là API ghi) + `packOrders()` + kiểu `LazadaPackRequest/Response` + `parseLazadaBoolean()` (Lazada trả `success` lúc boolean lúc chuỗi).
 - `order-group.schema.ts`: `lazada_pack_status` (`disabled|skipped|success|partial|failed`, null = chưa từng), `lazada_pack_attempted_at`, `lazada_pack_error`, `lazada_pack_items[]` (order_id, order_item_id, ok, item_err_code, msg, package_id, tracking_number, shipment_provider). **Lưu trên nhóm đơn, KHÔNG lưu trong `orders.items[]`** — `orders.service` ghi đè toàn bộ `items` mỗi lần sync, trường thêm vào sẽ mất.
@@ -3488,7 +3498,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 - Test mới: `lazada.adapter.pack.spec.ts` (3 — endpoint, form body, **chữ ký tính lại độc lập**, không retry), `lazada-pack-sync.service.spec.ts` (12), thêm 2 test guard trong `order-groups.service.getOrderCountsForGroups.spec.ts`. Đây là test đầu tiên của module marketplace-integration (audit 27/09 ghi "0 test").
 
 **Tác động & xử lý xung đột (5 câu):**
-
 1. Dữ liệu cũ: chỉ thêm trường (mặc định null/rỗng), không migration; nhóm cũ `lazadaPack.status = null`; nhóm đã đóng gói trước đó không tự gửi.
 2. Route đổi hành vi: `pack` — request giữ nguyên; response thêm `lazadaPackSync` + `lazadaPack`; **mới chặn 409 khi nhóm hủy hết** (trước đây cho qua). Mọi response nhóm đơn thêm `lazadaPack`.
 3. Luồng bị ảnh hưởng: khi cầu dao bật, đơn trên shop Lazada thật chuyển "Đã đóng gói" — không hoàn tác bằng API. Sau đó sync kéo về `packed` (không thuộc NOT_PACKABLE → không ảnh hưởng số đếm hủy, Picking List, K5).
@@ -3508,7 +3517,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 **Bối cảnh:** FE (Việt) báo: đổi mã SKU trên Lazada, trang **cấu hình kho** và **tình trạng kho** reload vẫn hiện mã cũ, mã mới không xuất hiện. Nguyên nhân: (1) `sku_bin_assignments.seller_sku` do Admin gán tay, không bao giờ tự đổi; (2) danh sách "SKU chưa gán ô" lấy từ `product_master`, mà `product_master` chỉ đồng bộ **SKU đã có trong đơn** (`orders.items.sku` distinct) **1 lần lúc 3h sáng** → mã mới vô hình cho tới khi có người đặt; (3) đơn cũ giữ mã cũ là đúng (Lazada lưu mã tại thời điểm đặt, cron đơn chỉ kéo đơn có thay đổi). Chốt với Thuận: đồng bộ theo catalog + route đồng bộ ngay.
 
 **Thay đổi code:**
-
 - `lazada.adapter.ts`: `listProductsPage(token, { updatedAfter, offset, limit })` — GetProducts `filter=all`, không `sku_seller_list`, `update_after` ISO, chịu trang rỗng (Lazada bỏ `data`/`products`); export `LazadaProductRaw`, `LazadaProductSkuRaw`.
 - `marketplace-shop.schema.ts`: `last_product_synced_at` (Date|null). `marketplace-integration.service.ts`: `markShopProductsSynced()` — module sở hữu collection tự ghi mốc.
 - `product-master.service.ts`: `syncCatalogForShop(shopId, { full })` (tăng dần từ mốc − 10 phút; lần đầu/`full` lấy toàn bộ; trang 50, dừng ở offset 10.000 của Lazada và **không ghi mốc** nếu chưa quét hết), `syncCatalogAllShops()` (lỗi 1 shop không chặn shop khác); tách `upsertProducts()` dùng chung với `syncProductsForShop` cũ (giữ nguyên quy tắc `manual_override`, bỏ SKU thiếu `SellerSku`).
@@ -3518,7 +3526,6 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 - Test mới: `product-master.catalog-sync.spec.ts` (7), `lazada.adapter.catalog.spec.ts` (4).
 
 **Tác động (5 câu):**
-
 1. Dữ liệu cũ: không migration; shop cũ `last_product_synced_at` null → lần đầu lấy toàn bộ. SKU cũ không bị xóa.
 2. Route đổi hành vi: không; thêm 1 route mới.
 3. Luồng bị ảnh hưởng: `product_master` có thêm SKU chưa từng có đơn → danh sách "SKU chưa gán ô" dài hơn (chủ đích); gọi Lazada mỗi giờ thay vì mỗi ngày (trong giới hạn API).
@@ -3533,7 +3540,7 @@ Công thức ghi đè: `sellable = on_hand − reserved (mọi kênh) − chưa_
 
 ## 📦 Nhật ký 04/10/2026 (tối) — Lỗi "CHƯA GÁN VỊ TRÍ" do đặt SKU Lazada trùng mã ô; bổ sung quy trình cấu hình chuẩn vào tài liệu
 
-**Bối cảnh:** FE (Việt) báo `pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK` với `sku: "KA-D1-P03-T01-3"`. Picking List: `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null`. Nguyên nhân: nhóm đặt **SKU sản phẩm trên Lazada trùng mã ô** (và nghĩ trùng cả SKU nội bộ), tin rằng hệ thống tự nối theo tên — nên bỏ sót bước gán SKU vào ô / nối SKU nội bộ. BE báo đúng; không phải lỗi code. `pick-item` tìm dòng tồn theo kho + (`master_sku` hoặc platform/shop/seller_sku) + ô (nếu gửi) + đủ số lượng; thiếu `bin_location_id` trong body không phải nguyên nhân (trường tùy chọn).
+**Bối cảnh:** FE (Việt) báo `pick-item` trả `409 ORD_GROUP_INSUFFICIENT_STOCK` với `sku: "KA-D1-P03-T01-3"`. Picking List: `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null`, `master_sku: null`. Nguyên nhân: nhóm đặt **SKU sản phẩm trên Lazada trùng mã ô** (và nghĩ trùng cả SKU nội bộ), tin rằng hệ thống tự nối theo tên — nên bỏ sót bước gán SKU vào ô / nối SKU nội bộ. BE báo đúng; không phải lỗi code. 🔄 **ĐÃ THAY ĐỔI (07/10/2026):** kết luận "không phải lỗi code" SAI một phần — ca tương tự `KC-D1-T05-T01-2` (dữ liệu đã nhập đúng) vẫn lỗi vì `warehouse_id` truy vấn bằng chuỗi vào field Mixed; nhiều khả năng ca `KA-D1-P03-T01-3` cũng dính lỗi này. Đã sửa tận gốc 07/10 (Rule DB #24). `pick-item` tìm dòng tồn theo kho + (`master_sku` hoặc platform/shop/seller_sku) + ô (nếu gửi) + đủ số lượng; thiếu `bin_location_id` trong body không phải nguyên nhân (trường tùy chọn).
 
 **Quy tắc chốt (ghi vào tài liệu FE):** mã ô (hệ thống sinh khi tạo kệ), SKU nội bộ (hệ thống sinh `<DANHMỤC>-<MẪU 3 số>-<MÀU>-<SIZE>`), SKU sàn (người bán đặt) là 3 thứ khác nhau; **chỉ liên kết qua gán SKU vào ô hoặc nối SKU sàn → SKU nội bộ — không bao giờ tự nối theo tên** (cố ý, tránh nối nhầm). Khuyến nghị: SKU trên Lazada = SKU nội bộ, không đặt trùng mã ô.
 
@@ -3688,3 +3695,133 @@ Rà 26 controller (~209 route) theo 3 hướng: route vs `GUIDE_DOC/API_LIST.md`
 **Đợt 3 — ĐÃ CODE (AOFP-95..97):** nhóm tự hủy nhả giữ chỗ K5 (`releaseReservation`), hủy một phần thì `reconcileReservation`; `report-missing` báo thêm Packaging Staff; `GET /order-groups/:id` thêm `orders[]` (người nhận + món gộp, cả đơn hủy) cho staff vận hành; kế hoạch thủ công người lập không tự duyệt (403 `PACKING_SELF_APPROVE_FORBIDDEN`, áp cả Admin như `review accept`); trả hàng `POST /returns/:id/cancel` (awaiting_receipt → trạng thái MỚI `canceled`, bắt lý do) + lần trả sau trừ số đã trả ở phiếu trước (bỏ phiếu rejected/canceled). Cron tự tính không bị nhóm failed/rejected chiếm lô và đọc riêng thông báo đã làm ở AOFP-89/92.
 
 **Bài học Đợt 2–3:** (1) `re.sub` với chuỗi thay thế chứa `\1` trong Python heredoc bị biến thành ký tự `\x01` 2 lần → khi chèn quanh decorator dùng `str.replace` chuỗi cố định. (2) Heredoc bash chứa tiếng Việt + dấu nháy đơn trong code TS làm cả lệnh lỗi parse, không chạy gì → viết file bằng công cụ Write. (3) commitlint chặn header > 100 ký tự nhưng `grep` lọc output làm lỗi bị nuốt — kiểm `git log -1` sau mỗi commit.
+---
+
+## 🔍 Nhật ký 06/10/2026 — Rà soát các chỗ cùng loại lỗi "khớp SKU / khóa tồn / module phụ thuộc ngầm"
+
+**Bối cảnh:** sau vụ `pick-item` 409 (SKU sàn trùng mã ô, chưa gán ô/chưa nối) và nhánh `feature/viet_befe` của Việt, Thuận yêu cầu rà toàn hệ thống xem còn chỗ nào dính lỗi tương tự. Chỉ rà, **chưa sửa code**. Mỗi mục đã đọc code thật.
+
+**Mức CAO (sai số liệu tồn/giữ chỗ):**
+1. **Khóa giữ chỗ đổi giữa chừng.** `stock_reservations.stock_key` / `stock_reservation_totals._id` = `S:...` (chưa nối) hoặc `M:<master>` (đã nối). `createMapping` (tagStockForMapping), `deleteMapping` (gỡ nhãn khi bỏ liên kết cuối), `replace` (đổi `master_sku` trên mapping + assignment) **không chuyển khóa giữ chỗ**. Hậu quả: `consume()` trong pick-item tìm theo khóa mới → không trừ; `reconcile()` tạo thêm dòng khóa mới → giữ 2 lần; khóa cũ treo tới khi nhóm `picked`. Riêng `replace`: khóa mới có `reserved = 0` → tồn khả dụng bị tính dư → có thể giữ chỗ vượt tồn. Hướng sửa: trong CÙNG transaction của 3 thao tác trên, đổi `stock_key` các reservation `active` và dồn `reserved` sang khóa mới.
+2. **Đơn hủy không nhả giữ chỗ.** `reconcileReservation` chỉ chạy khi `order_count` đổi; hủy đơn không đổi số đơn → phần giữ của đơn hủy giữ nguyên. Nhóm hủy hết không bao giờ tới `picked` → giữ mãi. Ngoài ra `reconcile()` chỉ lặp SKU còn trong danh sách, không nhả SKU đã biến mất. Hướng sửa: gọi reconcile khi `active/canceled_order_count` đổi (đã có `refreshOrderCounts`), reconcile nhả reservation có khóa không còn trong danh sách hàng; nhóm hủy hết → `releaseGroup`. Gắn với Bước 2 xử lý hủy đơn.
+3. **Phiếu hoàn lấy nhầm SKU của sàn khác.** pick-item ghi `inventory_movements.seller_sku = doc.seller_sku` — với dòng tồn gộp (SKU nội bộ) đây là SKU của sàn/shop TẠO dòng đó đầu tiên, không phải SKU trong đơn. `returns.createFromFailedDelivery` gom theo `movement.seller_sku` → phiếu hoàn mang SKU lạ; `inspect`→`restockReturnedItem` tra mapping theo `rma.platform/shop` + SKU lạ → không ra SKU nội bộ → tạo dòng tồn chưa nối mới (hàng hoàn "lạc"). Hướng sửa: gom từ `pick_events` (lưu đúng SKU đơn), hoặc thêm `order_sku` vào sổ cái.
+
+**Mức TRUNG BÌNH:**
+4. **Giữ chỗ tính mọi kho, quét chỉ trừ 1 kho.** `onHand()` cộng tồn mọi kho; pick-item lọc `warehouse_id` FE gửi; `order_groups` không có `warehouse_id`. Nhiều kho → "đủ hàng" nhưng quét vẫn 409. Hiện 1 kho nên chưa lộ.
+5. **Đơn đến muộn gộp vào nhóm đã lấy/đóng gói.** `orders.tryConsolidate` chỉ xét trạng thái đơn trên sàn (`UNFULFILLED` gồm cả `packed`, `ready_to_ship`), không xét `order_groups.fulfillment_status` → nhóm đã `picked/packed` có thể nhận thêm đơn mà kho không biết phải lấy thêm.
+6. **Nguyên văn vs chuẩn hóa:** `stockFilterFor` (chưa nối) và Picking List lọc `seller_sku` nguyên văn trong khi `stockKeyOf` và mapping dùng bản chuẩn hóa (trim + upper); `createMapping` kiểm `product_master` nguyên văn (gõ khác hoa/thường → `MAP_SELLER_SKU_UNKNOWN`); `findUnassignedSkus` so nguyên văn với dòng đã gán; `assignSkuToBin` không kiểm SKU có trong `product_master` (gõ sai vẫn gán được → dòng tồn "mồ côi"). Hướng sửa: thêm `seller_sku_normalized` + index cho `sku_bin_assignments`, lọc theo trường đó; assign kiểm product_master.
+
+**Mức THẤP:**
+7. Đóng gói lấy kích thước theo `product_master` của SKU sàn, không theo `master_skus` (đã có kích thước) → cùng sản phẩm 2 sàn có thể ra 2 kích thước.
+8. Màn kho hiển thị `seller_sku` của dòng tồn gộp (SKU sàn đầu tiên) → dễ hiểu nhầm; nên hiển thị `master_sku` khi có.
+9. Returns: `bought.get(sku)` và kiểm SKU đổi hàng trong `product_master` so nguyên văn.
+
+**Không sửa trong lượt này.** Thứ tự đề xuất: 2 → 1 → 3 → 6 → 4/5. Mục 2 làm cùng Bước 2 xử lý hủy đơn.
+
+---
+
+## ⚠️ Nhật ký 07/10/2026 — `type: Types.ObjectId` trong @Prop bị Mongoose hiểu là `Mixed` (ĐÍNH CHÍNH phân tích 05–06/10)
+
+**ĐÃ THAY ĐỔI so với** nhận định trước đó ("ép `warehouse_id` sang ObjectId trong nhánh Việt là thừa vì Mongoose tự ép kiểu") và nhận định ca `KA-D1-P03-T01-3` "chỉ do dữ liệu". Cả hai SAI.
+
+**Kiểm chứng (sandbox, @nestjs/mongoose 11.0.4 + mongoose 9.11 và 8.24):** `@Prop({ type: Types.ObjectId })` → `schema.path(...).instance === 'Mixed'`. Lý do: `DefinitionsFactory.inspectTypeDefinition` coi `Types.ObjectId` (lớp bson) là một class lồng → `createForClass` → `{}` → Mixed. Hệ quả: Mongoose KHÔNG ép chuỗi → ObjectId khi truy vấn/ghi; truyền chuỗi thì truy vấn ra 0 dòng (dữ liệu lưu ObjectId), ghi chuỗi thì DB lưu chuỗi. Viết đúng: `mongoose.Schema.Types.ObjectId` (hoặc `SchemaTypes.ObjectId`). Phạm vi: **35 field / 18 schema** dùng cách viết này.
+
+**Rà soát TOÀN BỘ BE trên `origin/main` (commit `93d20bf`, 07/10):** đã đọc 120 chỗ dùng 35 field ObjectId (truy vấn, aggregate `$match`, filter dựng động, ghi/upsert); không có `$lookup`/`populate`. Phần lớn đã ép `new Types.ObjectId(...)` hoặc dùng `_id` lấy từ document → chạy đúng. Còn lại:
+
+*A. Truy vấn bằng chuỗi vào dữ liệu ObjectId → ra 0 dòng (LỖI ĐANG XẢY RA):*
+1. `warehouse.service.ts` `getEnrichedPickingList` (~526) — Picking List "CHƯA GÁN VỊ TRÍ" dù dữ liệu đúng (ca FE đo thật trên DB 05/10). Nhánh Việt đã sửa.
+2. `order-groups.service.ts` `pickItem` (~732) — quét hàng luôn 409 `INSUFFICIENT_STOCK`. Nhánh Việt đã sửa.
+3. `warehouse.service.ts` `restockSku` (~465, ~485) — **Nhập thêm hàng** (`POST .../sku-bin-assignments/:id/restock`) luôn 404 "Không tìm thấy sku_bin_assignment". Nhánh Việt CHƯA sửa. (Kiểm kê `adjustStock`, chuyển ô, gỡ gán, lịch sử dùng `getAssignmentInWarehouse` đã ép ObjectId → không lỗi.)
+
+*B. Ghi chuỗi, đọc bằng ObjectId → không khớp:*
+4. `pickItem` ghi `pick_events.order_group_id = groupId` (chuỗi, ~777); `getActuallyPickedItemsForGroup` đọc bằng `group._id` (~365) → luôn "chưa có pick_events" → `packaging.service` lặng lẽ **dùng số lượng ĐẶT thay vì số đã quét** (sai khi lấy thiếu/partial pick). Không báo lỗi nên khó phát hiện.
+
+*C. Ghi chuỗi, đọc cũng chuỗi → hiện chạy, sẽ VỠ khi sửa schema (cần migration):*
+5. `notifications.recipient_user_id` (ghi `recipientUserId` chuỗi, đọc `recipientFilter(userId)` chuỗi) và `notifications.related_entity_id` (chỉ ghi).
+6. `login_audit_logs.user_id` (`auth.service.ts` ~644, chỉ ghi).
+7. `pick_events.order_group_id` dữ liệu cũ (mục 4).
+
+*Không lỗi:* tất cả truy vấn auth/token, users, packaging, packaging-materials, shipments, returns, orders, lazada-pack-sync, stock-reservation, staff-assignment, backfill, master-skus. Các field `created_by` của returns/shipments/master-skus là kiểu String (không thuộc 35 field) nên `actorId = 'system'` không gây CastError ở đó.
+
+Script kiểm DB (chỉ đọc): `check-objectid-strings.js` — đếm giá trị chuỗi ở từng field của 18 collection, báo giá trị không phải id hợp lệ.
+
+✅ **ĐÃ SỬA TẬN GỐC (07/10/2026, chiều)** — Thuận chọn sửa tận gốc, không vá ngắn hạn; xem nhật ký "07/10/2026 (chiều)" bên dưới. Nội dung hướng sửa ban đầu giữ lại để tra cứu: **Hướng sửa:** (1) ngắn hạn: merge nhánh Việt + ép kiểu ở `restockSku` + ghi `pick_events.order_group_id` bằng ObjectId + sửa lỗi upsert của `restockReturnedItem` (xem nhật ký so sánh nhánh bên dưới); (2) tận gốc: đổi 35 field sang `mongoose.Schema.Types.ObjectId` + script migration đổi giá trị chuỗi cũ sang ObjectId cho các field từng bị ghi chuỗi + rà mọi chỗ ghi giá trị không phải ObjectId hợp lệ (vd `actorId = 'system'`) vì sau khi sửa Mongoose sẽ ném CastError.
+
+**Bài học:** với @nestjs/mongoose, KHÔNG viết `type: Types.ObjectId`; kiểm kiểu thật bằng `Schema.path(field).instance`, đừng suy từ khai báo TypeScript.
+
+---
+
+## 🔎 Nhật ký 07/10/2026 (trưa) — So sánh `origin/main` với `origin/feature/viet_befe` (BE)
+
+**Khác nhau đúng 6 file:** `master-skus/stock-key.util.ts` (+ spec mới `stock-key.util.spec.ts`), `order-groups/order-groups.service.ts` (+ spec pickItem), `warehouse/warehouse.service.ts` (+ spec k4b). Không có thay đổi nào ngoài phạm vi teammate báo. Nhánh Việt: tsc 0, eslint sạch trên 6 file, jest 37 suite / 336 test.
+
+**Khớp với báo cáo:** (1) ép `warehouse_id` sang ObjectId ở `getEnrichedPickingList` và `pickItem` — phần sửa đúng ca `KC-D1-T05-T01-2`; (2) `stockFilterFor` đã nối → `$or [{master_sku}, dòng chưa gắn nhãn cùng shop]`, khớp `seller_sku` không phân biệt hoa/thường (regex); Picking List dùng `stockAssignmentOrBranches`, gom theo khóa chuẩn hóa.
+
+✅ **ĐÃ SỬA 07/10 (chiều)** — 3 mục dưới đây. **Chưa sửa (đúng như teammate nói, tại thời điểm so sánh):** `restockSku` vẫn truy vấn `warehouse_id` bằng chuỗi; `pick_events.order_group_id` vẫn ghi chuỗi; schema vẫn `type: Types.ObjectId` (Mixed).
+
+✅ **ĐÃ SỬA 07/10 (chiều)** bằng `stockUpsertFilterFor`. **LỖI MỚI do thay đổi `stockFilterFor` (phải sửa trước khi merge):** `restockReturnedItem` dùng `stockFilterFor` làm filter của `findOneAndUpdate(..., { upsert: true })`. MongoDB khi upsert chỉ chép điều kiện bằng (equality) ở cấp trên vào document mới — KHÔNG chép từ `$or`, KHÔNG chép regex. Hậu quả khi ô đó chưa có dòng tồn: SKU đã nối → dòng mới thiếu `master_sku` (hàng hoàn thành tồn chưa gộp); SKU chưa nối → dòng mới thiếu `seller_sku` (upsert không chạy validator) → dòng tồn hỏng. Hướng sửa: `restockReturnedItem` giữ filter bằng chính xác cũ (`master_sku` hoặc platform/shop/seller_sku + master_sku null), hoặc thêm `$setOnInsert` đầy đủ (`master_sku`, `seller_sku`).
+
+**Rủi ro nhỏ:** regex `^...$/i` không dùng được index → chậm khi bảng lớn (chấp nhận được ở quy mô demo); `onHand` của giữ chỗ giờ cộng cả dòng chưa gắn nhãn cùng shop (đúng hướng, vì pick-item cũng trừ được dòng đó).
+
+🔄 **ĐÃ THAY ĐỔI:** không làm bản vá ngắn hạn; làm tận gốc cùng 1 đợt (nhật ký 07/10 chiều). **Đề xuất merge (cũ):** merge nhánh Việt + 1 commit vá: `restockReturnedItem` không dùng `stockFilterFor` cho upsert; ép kiểu `restockSku`; ghi `pick_events.order_group_id` bằng ObjectId. Sửa schema ObjectId tận gốc để commit riêng kèm migration.
+
+---
+
+## 🛠️ Nhật ký 07/10/2026 (chiều) — Sửa tận gốc lỗi ObjectId bị hiểu là Mixed + gộp bản sửa của Việt
+
+**Yêu cầu của Thuận:** không vá ngắn hạn; sửa luôn trên `main` gồm phần nhánh Việt (`feature/viet_befe`, commit `631dc39`) đã làm, phần Việt chưa làm và phần còn thiếu; cập nhật toàn bộ tài liệu bị ảnh hưởng; kèm script và lệnh chạy. 6 lỗi rà ngày 06/10 (khóa giữ chỗ, nhả giữ chỗ khi hủy, phiếu hoàn sai SKU, giữ chỗ nhiều kho, gộp đơn muộn, so SKU hoa/thường) **chưa làm** theo yêu cầu.
+
+**Nền code:** `origin/main` commit `93d20bf` + 6 file của nhánh Việt (giữ nguyên nội dung: `stock-key.util.ts` + spec, `order-groups.service.ts` + pickItem spec, `warehouse.service.ts` + k4b spec).
+
+**Thay đổi code (ngoài phần của Việt):**
+- 18 file `*.schema.ts`: 35 field `type: Types.ObjectId` → `type: SchemaTypes.ObjectId` (import `SchemaTypes` từ `mongoose`). Kiểu TypeScript giữ `Types.ObjectId`.
+- `src/common/schemas/objectid-fields.ts` (mới): danh sách 35 field theo collection (`OBJECT_ID_FIELDS`) + `OBJECT_ID_HEX`.
+- `src/common/schemas/objectid-fields.spec.ts` (mới): quét mọi `*.schema.ts`; lỗi nếu còn field Mixed hoặc danh sách lệch thực tế. Đã thử đổi ngược 1 field → test báo lỗi đúng.
+- `src/common/schemas/objectid-migration.ts` + spec (mới): lõi chuyển dữ liệu; `scripts/migrate-objectid-fields.ts` (mới): chạy thử mặc định, `--apply` ghi thật, `--null-invalid` ghi null cho giá trị không phải id; dùng driver trực tiếp, không khởi động app/cron; chạy lại an toàn.
+- `warehouse.service.ts`: `restockSku` ép `warehouse_id` sang ObjectId (trước luôn 404); `restockReturnedItem` upsert bằng `stockUpsertFilterFor` (sửa lỗi do `stockFilterFor` mới có `$or`/regex).
+- `stock-key.util.ts`: thêm `stockUpsertFilterFor` (khớp chính xác: `{master_sku}` hoặc `{platform, shop_id, seller_sku (trim), master_sku: null}`).
+- `order-groups.service.ts` `pickItem`: `pick_events.order_group_id = group._id` (trước ghi chuỗi → gợi ý đóng gói luôn rơi về số lượng đặt).
+- `notifications.service.ts`: `recipient_user_id`, `related_entity_id` đổi qua `toObjectIdOrNull` (24 hex → ObjectId; khác → null + log cảnh báo) để không bao giờ ném CastError làm hỏng thao tác chính.
+- `lazada-order-sync.scheduler.ts`: thông báo `sync_failed` có `relatedEntityId` = id document `marketplace_shops` (trước là mã shop Lazada, không phải ObjectId → sẽ CastError sau khi sửa schema). Mã shop vẫn trong `title`.
+
+**Kiểm chứng:** `tsc --noEmit` 0 lỗi; `jest` 39 suite / 350 test (trước 37 / 336; +2 suite, +14 test); eslint các file đã sửa sạch. Toàn dự án còn 6 lỗi `no-unsafe-enum-assignment` có SẴN trên main (user-role.enum, global-exception.filter, notifications.service dòng `recipient_role`, packaging.service.spec) — chỉ xuất hiện với bản typescript-eslint mới cài trong sandbox (không có lockfile), không do đợt sửa này. Script chạy thử kết nối thất bại đúng cách khi không có DB (không chạy được trên Atlas từ sandbox).
+
+**Tác động (5 câu):**
+1. *Dữ liệu cũ:* giá trị lưu chuỗi ở 35 field sẽ không còn khớp truy vấn (Mongoose nay ép điều kiện sang ObjectId). Đã biết chắc: `pick_events.order_group_id`, `notifications.recipient_user_id`/`related_entity_id`, `login_audit_logs.user_id`. Khi ĐỌC, chuỗi hex vẫn tự đổi sang ObjectId; chuỗi không phải id bị bỏ qua (như không có). → BẮT BUỘC chạy `scripts/migrate-objectid-fields.ts --apply` trên mỗi database ngay sau khi deploy.
+2. *Route đổi hành vi:* `POST .../sku-bin-assignments/:id/restock` hết 404 sai; Picking List / pick-item tìm được tồn (phần Việt); không route nào đổi request/response. Thông báo `sync_failed`: `relatedEntityId` đổi nghĩa (id document shop thay vì mã shop Lazada).
+3. *Luồng bị ảnh hưởng:* gợi ý đóng gói nay dùng đúng số đã quét (`pick_events`) thay vì lặng lẽ dùng số đặt; nhập lại hàng hoàn tạo dòng tồn đúng nhãn; thông báo cũ (sau migration) hiện lại đúng người nhận.
+4. *Không ảnh hưởng:* đồng bộ Lazada, gộp đơn, giữ chỗ K5, vận đơn, phiếu trả, vật liệu đóng gói, auth (các chỗ này vốn đã ép ObjectId tường minh).
+5. *Phát hiện thêm:* trước đây `notify()` có thể ném lỗi giữa vòng đồng bộ nếu id không hợp lệ (nay không); file `INTEGRATION_GUIDE_ORDERS.md` trong repo đang chứa nội dung cũ của guide Fulfillment v3 (không phải guide Orders) — chưa sửa, cần Thuận xác nhận.
+
+**Hạn chế hiện tại và hướng khắc phục:**
+- Phần nới điều kiện tìm của Việt (`$or` dòng chưa gắn nhãn + regex không phân biệt hoa thường) vẫn giữ: che dữ liệu chưa gộp tồn, regex không dùng index. → Thay bằng cột `seller_sku_normalized` có index + tự gắn nhãn khi nối/gán ô (nằm trong lỗi (6) ngày 06/10).
+- Script không đổi được giá trị không phải id; mặc định giữ nguyên để Thuận xem, `--null-invalid` để ghi null.
+- 6 lỗi ngày 06/10 vẫn còn (xem nhật ký 06/10).
+
+**Lệnh chạy (mỗi database, sau khi deploy code mới):**
+```bash
+cd be
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # chạy thử, xem số lượng
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply    # ghi thật
+npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # chạy lại: phải báo "✅ Không còn ..." (có thể còn giá trị không phải id ở thông báo sync_failed cũ)
+```
+
+**Tài liệu đã cập nhật (cùng đợt):** `GUIDE_DOC/BE_SPEC/00–07` (đưa về đúng code hiện tại, gồm cả đồng bộ Product Master theo catalog 04/10 trước đó chưa có: 141 endpoint, 6 cron, 251 file, 39 suite/350 test; 05 thêm mục 1b kiểu trường id; 07 thêm mục 0 lỗi đã sửa + 6 lỗi rà 06/10 vào bảng ưu tiên); `INTEGRATION_GUIDE_WAREHOUSE.md` v1.5 (PHẦN B6 + F.6); `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` v1.2 (0b.2, 0b.4, bước 1.5, 4.7, 5.4, 8.3, 8.4); `INTEGRATION_GUIDE_FULFILLMENT.md` v4.4 (Nghiệp vụ 1, 3, 6, D.4); `INTEGRATION_GUIDE_SHIPPING.md` v1.2 (C.5, E.13); `INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md` v1.1 (mục 3, 4); `API_LIST.md` (mục 16 + ghi chú route); `DEMO_PLAYBOOK.md` v1.1 (1.2, mục 10). Không đổi: `INTEGRATION_GUIDE.md` (auth), `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`. `INTEGRATION_GUIDE_ORDERS.md` bản trong repo đang chứa nội dung guide Fulfillment v3 — chờ Thuận xác nhận.
+
+**Commit đề xuất:** `git merge origin/feature/viet_befe` (giữ tên Việt) → chép file → `fix(AOFP-64): declare id fields as schematypes objectid and fix restock lookups` (code + test + script) → `docs(AOFP-65): document objectid fix, migration script and viet stock lookup merge` (toàn bộ tài liệu). Số AOFP cần đối chiếu `git log` trước khi commit.
+
+
+---
+
+## Gộp `main` (07/10 — sửa kiểu id ObjectId) vào `thi_dev` (10/10/2026)
+
+**Bối cảnh:** tạo PR `thi_dev → main`; `main` có thêm `abe6eb0` (khai `SchemaTypes.ObjectId`, `stockFilterFor` khớp SKU không phân biệt hoa/thường, `stockUpsertFilterFor`, script `migrate-objectid-fields.ts`) + `5bbdfbb` (tài liệu). 8 file xung đột.
+
+**Cách gỡ:**
+- `order-group.schema.ts`: giữ thi_dev (đã bỏ `active_packaging_recommendation`). `order.schema.ts`: giữ `marketplace_shop` nullable nhưng đổi sang `SchemaTypes.ObjectId`. `packaging-recommendation.schema.ts`: gộp import. `lazada-order-sync.scheduler.ts`: giữ vòng lặp đa sàn của thi_dev + `relatedEntityId: String(shop._id)` của main. `order-groups.service.ts` `pickItem`: giữ khung thi_dev (chạm group, chặn vượt số đặt) + ép `warehouse_id` sang ObjectId của main.
+- **Xung đột ngữ nghĩa (chỉ jest bắt):** schema mới của thi_dev (packing_plans, cài đặt, product_master, packaging_movements, pick_events.warehouse_id, storefront…) vẫn khai `type: Types.ObjectId` → 61 field Mixed. Đã đổi hết sang `SchemaTypes.ObjectId`; `OBJECT_ID_FIELDS` thêm các collection đó (77 field top-level; thêm thuộc tính `nested` cho field 2 tầng mảng `parcels[].scans[].by`… — luôn ghi ObjectId nên script không cần chuyển). **`packing_plans.orders[].order_id` và `parcels[].order_id` từng được ghi dạng CHUỖI** → đã đưa vào script; phải chạy `scripts/migrate-objectid-fields.ts --apply` sau deploy, nếu không truy vấn theo `order_id` sẽ không khớp dữ liệu cũ.
+- Bonus: vài truy vấn bằng chuỗi id trên collection mới (vd `documents.service.ts` tìm kế hoạch theo `order_group_id` chuỗi) trước đây âm thầm ra 0 dòng, nay Mongoose tự ép kiểu nên khớp.
+- Không lệnh upsert nào của thi_dev dùng `stockFilterFor` (đều trừ/cộng dòng có sẵn) → đổi sang regex của main an toàn. Sửa 3 test cho khớp (regex `seller_sku`, `warehouse_id` ObjectId, mock `getPickableItemsForGroup`).
+- Tài liệu: giữ cả hai; bỏ các câu của main nhắc `POST .../packaging/generate` và `fulfillment/pack` (đã gỡ trên thi_dev) — thi_dev vốn đã ghi `pick_events.order_group_id` bằng ObjectId nên không bị lỗi "gợi ý theo số lượng đặt".
+
+**Verify:** tsc 0 lỗi, `lint:ci` 0 lỗi (42 cảnh báo storefront có sẵn), jest 69 suite / 769 test. Chưa chạy migrate trên DB thật.

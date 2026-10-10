@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MATERIAL_TYPES, type MaterialType } from '../engine/types';
 
 export const MATERIAL_RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any'] as const;
@@ -44,7 +44,7 @@ export class PackagingMaterialRules {
   @Prop({ type: [MaterialRuleEntrySchema], default: [] })
   rules!: MaterialRuleEntry[];
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   updated_by!: Types.ObjectId | null;
 
   @Prop({ type: Boolean, default: true })

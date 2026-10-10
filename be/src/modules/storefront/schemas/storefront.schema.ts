@@ -1,11 +1,11 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 @Schema({ collection: 'storefront_categories', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontCategory {
   @Prop({ required: true, trim: true }) name!: string;
   @Prop({ required: true, unique: true, trim: true, lowercase: true }) slug!: string;
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontCategory', default: null }) parent_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontCategory', default: null }) parent_id!: Types.ObjectId | null;
   @Prop({ default: '' }) description!: string;
   @Prop({ default: '' }) image_url!: string;
   @Prop({ default: 0 }) sort_order!: number;
@@ -31,7 +31,7 @@ export class StorefrontProduct {
   @Prop({ required: true, trim: true }) name!: string;
   @Prop({ required: true, unique: true, trim: true, lowercase: true }) slug!: string;
   @Prop({ default: '' }) description!: string;
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontCategory', default: null }) category_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontCategory', default: null }) category_id!: Types.ObjectId | null;
   @Prop({ default: '' }) brand!: string;
   @Prop({ required: true }) thumbnail_url!: string;
   @Prop({ type: [String], default: [] }) gallery_images!: string[];
@@ -51,7 +51,7 @@ StorefrontProductSchema.index({ status: 1, is_featured: 1, created_at: -1 });
 
 @Schema({ collection: 'storefront_product_variants', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontProductVariant {
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontProduct', required: true, index: true }) product_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontProduct', required: true, index: true }) product_id!: Types.ObjectId;
   @Prop({ required: true, unique: true, uppercase: true, trim: true }) sku!: string;
   @Prop({ default: '' }) barcode!: string;
   @Prop({ required: true, trim: true }) variant_name!: string;
@@ -75,8 +75,8 @@ export const StorefrontProductVariantSchema = SchemaFactory.createForClass(Store
 
 @Schema({ collection: 'storefront_inventory_stocks', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontInventoryStock {
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontProductVariant', required: true }) variant_id!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'Warehouse', default: null }) warehouse_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontProductVariant', required: true }) variant_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Warehouse', default: null }) warehouse_id!: Types.ObjectId | null;
   @Prop({ required: true, min: 0, default: 0 }) quantity_on_hand!: number;
   @Prop({ required: true, min: 0, default: 0 }) reserved_quantity!: number;
   @Prop({ required: true, min: 0, default: 0 }) reorder_level!: number;
@@ -118,7 +118,7 @@ export const CustomerAddressSnapshotSchema = SchemaFactory.createForClass(Custom
 
 @Schema({ collection: 'customer_addresses', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class CustomerAddress extends CustomerAddressSnapshot {
-  @Prop({ type: Types.ObjectId, ref: 'Customer', required: true, index: true }) customer_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Customer', required: true, index: true }) customer_id!: Types.ObjectId;
   @Prop({ default: '' }) note!: string;
   @Prop({ default: false }) is_default!: boolean;
 }
@@ -127,7 +127,7 @@ export const CustomerAddressSchema = SchemaFactory.createForClass(CustomerAddres
 
 @Schema({ collection: 'storefront_carts', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontCart {
-  @Prop({ type: Types.ObjectId, ref: 'Customer', required: true, unique: true }) customer_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Customer', required: true, unique: true }) customer_id!: Types.ObjectId;
   @Prop({ type: String, enum: ['active', 'converted', 'abandoned'], default: 'active' }) status!: 'active' | 'converted' | 'abandoned';
   @Prop({ type: Date, default: null }) expires_at!: Date | null;
   created_at?: Date;
@@ -138,9 +138,9 @@ export const StorefrontCartSchema = SchemaFactory.createForClass(StorefrontCart)
 
 @Schema({ collection: 'storefront_cart_items', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontCartItem {
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontCart', required: true, index: true }) cart_id!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontProduct', required: true }) product_id!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontProductVariant', required: true }) variant_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontCart', required: true, index: true }) cart_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontProduct', required: true }) product_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontProductVariant', required: true }) variant_id!: Types.ObjectId;
   @Prop({ required: true }) sku!: string;
   @Prop({ required: true, min: 1 }) quantity!: number;
   created_at?: Date;
@@ -152,7 +152,7 @@ StorefrontCartItemSchema.index({ cart_id: 1, variant_id: 1 }, { unique: true });
 
 @Schema({ collection: 'storefront_orders', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontOrder {
-  @Prop({ type: Types.ObjectId, ref: 'Customer', default: null }) customer_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Customer', default: null }) customer_id!: Types.ObjectId | null;
   @Prop({ type: String }) client_order_id?: string;
   @Prop({ required: true, unique: true }) order_number!: string;
   // Mã số công khai kiểu Lazada (order_id dạng số) mà Open API AURELLE trả cho
@@ -170,7 +170,7 @@ export class StorefrontOrder {
   @Prop({ type: CustomerAddressSnapshotSchema, required: true }) shipping_address_snapshot!: CustomerAddressSnapshot;
   @Prop({ default: '' }) customer_note!: string;
   @Prop({ type: Date, default: null }) placed_at!: Date | null;
-  @Prop({ type: Types.ObjectId, ref: 'Order', default: null }) canonical_order_id!: Types.ObjectId | null;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Order', default: null }) canonical_order_id!: Types.ObjectId | null;
   @Prop({ type: String, enum: ['pending', 'synced', 'failed'], default: 'pending', index: true }) canonical_sync_status!: 'pending' | 'synced' | 'failed';
   @Prop({ type: String, default: null }) canonical_sync_error!: string | null;
   @Prop({ type: Date, default: null }) canonical_synced_at!: Date | null;
@@ -201,8 +201,8 @@ export const StorefrontCounterSchema = SchemaFactory.createForClass(StorefrontCo
 
 @Schema({ _id: false })
 export class StorefrontOrderItemSnapshot {
-  @Prop({ type: Types.ObjectId, required: true }) product_id!: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, required: true }) variant_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) product_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) variant_id!: Types.ObjectId;
   @Prop({ required: true }) sku_snapshot!: string;
   @Prop({ required: true }) product_name_snapshot!: string;
   @Prop({ required: true }) variant_snapshot!: string;
@@ -216,14 +216,14 @@ export const StorefrontOrderItemSnapshotSchema = SchemaFactory.createForClass(St
 
 @Schema({ collection: 'storefront_order_items', timestamps: { createdAt: 'created_at', updatedAt: false } })
 export class StorefrontOrderItem extends StorefrontOrderItemSnapshot {
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontOrder', required: true, index: true }) order_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true, index: true }) order_id!: Types.ObjectId;
 }
 export type StorefrontOrderItemDocument = HydratedDocument<StorefrontOrderItem>;
 export const StorefrontOrderItemSchema = SchemaFactory.createForClass(StorefrontOrderItem);
 
 @Schema({ collection: 'storefront_payments', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontPayment {
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontOrder', required: true, index: true }) order_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true, index: true }) order_id!: Types.ObjectId;
   @Prop({ type: String, enum: ['cod'], required: true }) payment_method!: 'cod';
   @Prop({ default: 'manual' }) provider!: string;
   @Prop({ type: String, default: null }) transaction_id!: string | null;
@@ -239,7 +239,7 @@ export const StorefrontPaymentSchema = SchemaFactory.createForClass(StorefrontPa
 
 @Schema({ collection: 'storefront_shipments', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontShipment {
-  @Prop({ type: Types.ObjectId, ref: 'StorefrontOrder', required: true, unique: true }) order_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true, unique: true }) order_id!: Types.ObjectId;
   @Prop({ default: '' }) carrier!: string;
   @Prop({ default: '' }) tracking_number!: string;
   @Prop({ type: String, enum: ['pending', 'picked_up', 'in_transit', 'delivered', 'returned'], default: 'pending' }) status!: string;
