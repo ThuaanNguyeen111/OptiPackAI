@@ -424,6 +424,43 @@ export async function listProductMaster(query: {
   }
 }
 
+/** Toàn bộ catalog (mọi trang, tối đa 100/trang theo BE). */
+export async function listAllProductMaster(): Promise<ProductMasterRow[]> {
+  const pageSize = 100
+  const rows: ProductMasterRow[] = []
+  for (let page = 1; page <= 50; page += 1) {
+    const res = asRecord(
+      await apiRequest<unknown>(
+        `/product-master${qs({ page, limit: pageSize })}`,
+        { auth: true },
+      ),
+    )
+    const items = Array.isArray(res?.items) ? res.items : []
+    for (const raw of items) {
+      const row = asRecord(raw)
+      if (!row) continue
+      const id = pickString(row.id)
+      const sellerSku = pickString(row.sellerSku, row.seller_sku)
+      if (!id || !sellerSku) continue
+      rows.push({
+        id,
+        platform: pickString(row.platform),
+        shopId: pickString(row.shopId, row.shop_id),
+        sellerSku,
+        lengthCm: pickNumber(row.lengthCm, row.length_cm),
+        widthCm: pickNumber(row.widthCm, row.width_cm),
+        heightCm: pickNumber(row.heightCm, row.height_cm),
+        weightKg: pickNumber(row.weightKg, row.weight_kg),
+        isFragile: row.isFragile === true || row.is_fragile === true,
+        manualOverride: row.manualOverride === true || row.manual_override === true,
+      })
+    }
+    const total = pickNumber(res?.total) ?? 0
+    if (items.length < pageSize || rows.length >= total) break
+  }
+  return rows
+}
+
 export async function lookupStockAvailability(input: {
   platform: string
   shop_id: string

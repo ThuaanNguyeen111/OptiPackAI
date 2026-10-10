@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { PackagingApprovalStatus, PACKAGING_APPROVAL_STATUS_VALUES } from '../enums/packaging-approval-status.enum';
 
 /**
@@ -37,7 +37,7 @@ export class PackagingRecommendationDoc {
   // KHÔNG dùng index:true ở đây — index thật đã khai riêng bên dưới
   // (partialFilterExpression, cần cấu hình chi tiết hơn "index: true"
   // đơn thuần cho phép) — khai cả 2 chỗ gây warning trùng lặp Mongoose.
-  @Prop({ type: Types.ObjectId, required: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true })
   order_group_id!: Types.ObjectId;
 
   @Prop({ type: BoxSizeSchema, required: true })
@@ -67,7 +67,7 @@ export class PackagingRecommendationDoc {
 
   // BR-07 (Report 1) — mọi hành động Approve/Adjust/Reject PHẢI gắn với
   // tài khoản đã login, không có chế độ ẩn danh.
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   approved_by!: Types.ObjectId | null;
 
   // BUG ĐÃ VÁ (2026-09-09, phát hiện lúc chạy Jest thật, KHÔNG lộ ra

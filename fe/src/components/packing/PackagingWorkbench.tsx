@@ -2,13 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
-  ExternalLink,
   Info,
   Loader2,
   Package,
   RefreshCw,
   Scale,
-  Store,
   XCircle,
 } from 'lucide-react'
 import {
@@ -25,7 +23,6 @@ import {
 } from '../../api/packaging.api'
 import { usePortal } from '../../context/use-portal'
 import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
-import { loadLazadaShops } from '../../lib/lazada-shop'
 import {
   canRetryLazadaPack,
   GROUP_FULFILLMENT_STATUS_LABELS,
@@ -51,36 +48,15 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
  * Demo 3D chỉ hướng dẫn, không ghi trạng thái lên BE.
  */
 type QueueTab =
-  | 'pending_approval'
   | 'picked'
   | 'partial_needs_review'
   | 'approved_for_packing'
   | 'awaiting_packaging'
 
-const LAZADA_SELLER_CENTER_URL = 'https://sellercenter.lazada.vn/'
-
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
   if (!known) return status
   return vi ? known.vi : known.en
-}
-
-function platformLabel(platform: string): string {
-  const p = platform.toLowerCase()
-  if (p === 'lazada') return 'Lazada'
-  if (p === 'tiktok') return 'TikTok'
-  if (p === 'tiki') return 'Tiki'
-  return platform
-}
-
-function resolveShopLabel(
-  shopId: string,
-  nameByShopId: Map<string, string>,
-): string {
-  const named = nameByShopId.get(shopId)
-  if (named && named.trim()) return named.trim()
-  if (shopId.length > 12) return `…${shopId.slice(-8)}`
-  return shopId || '—'
 }
 
 function emptyCopy(
@@ -245,11 +221,6 @@ export function PackagingWorkbench() {
   const [adjustNote, setAdjustNote] = useState('')
   const [rejectReason, setRejectReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
-  const [platformFilter, setPlatformFilter] = useState<string>('all')
-  const [shopFilter, setShopFilter] = useState<string>('all')
-  const [shopNameById, setShopNameById] = useState<Map<string, string>>(
-    () => new Map(),
-  )
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -257,11 +228,6 @@ export function PackagingWorkbench() {
     try {
       const rows = await listOrderGroups()
       setAllGroups(rows)
-      const map = new Map<string, string>()
-      for (const s of loadLazadaShops()) {
-        if (s.shopName?.trim()) map.set(s.shopId, s.shopName.trim())
-      }
-      setShopNameById(map)
     } catch (err: unknown) {
       setListError(formatApiError(err))
       setAllGroups([])
@@ -295,57 +261,13 @@ export function PackagingWorkbench() {
     return { pending, partial, awaiting, picked, approved }
   }, [allGroups])
 
-  const tabGroups = useMemo(
+  const groups = useMemo(
     () =>
       allGroups.filter(
         (g) => g.fulfillmentStatus === tab && hasPackableOrders(g),
       ),
     [allGroups, tab],
   )
-
-  const filterOptions = useMemo(() => {
-    const platforms = new Set<string>()
-    const shops = new Map<string, string>()
-    for (const g of tabGroups) {
-      if (g.platform) platforms.add(g.platform.toLowerCase())
-      if (g.shopId) {
-        shops.set(g.shopId, resolveShopLabel(g.shopId, shopNameById))
-      }
-    }
-    return {
-      platforms: [...platforms].sort(),
-      shops: [...shops.entries()].sort((a, b) => a[1].localeCompare(b[1])),
-    }
-  }, [tabGroups, shopNameById])
-
-  const groups = useMemo(() => {
-    return tabGroups.filter((g) => {
-      if (
-        platformFilter !== 'all' &&
-        g.platform.toLowerCase() !== platformFilter
-      ) {
-        return false
-      }
-      if (shopFilter !== 'all' && g.shopId !== shopFilter) return false
-      return true
-    })
-  }, [tabGroups, platformFilter, shopFilter])
-
-  useEffect(() => {
-    // Đổi tab → reset filter nếu sàn/shop không còn trong tab hiện tại.
-    if (
-      platformFilter !== 'all' &&
-      !tabGroups.some((g) => g.platform.toLowerCase() === platformFilter)
-    ) {
-      setPlatformFilter('all')
-    }
-    if (
-      shopFilter !== 'all' &&
-      !tabGroups.some((g) => g.shopId === shopFilter)
-    ) {
-      setShopFilter('all')
-    }
-  }, [tabGroups, platformFilter, shopFilter])
 
   // Chỉ nhảy tới tab thao tác được.
   useEffect(() => {
@@ -805,8 +727,8 @@ export function PackagingWorkbench() {
           <h1>{vi ? 'Bàn đóng gói' : 'Packing station'}</h1>
           <p className="owner-hero-lead">
             {vi
-              ? 'Chấp nhận kế hoạch → xem hướng dẫn 3D. Lọc theo sàn/shop để tách kiện từng kênh. Từ chối kèm lý do → gửi Admin.'
-              : 'Accept plan → 3D guide. Filter by platform/shop to keep channels separate. Reject with reason → Admin notified.'}
+              ? 'Chấp nhận kế hoạch → xem hướng dẫn 3D. Từ chối kèm lý do → gửi Admin.'
+              : 'Accept plan → 3D guide. Reject with reason → Admin notified.'}
           </p>
           <div className="owner-hero-ctas">
             <button
@@ -936,43 +858,6 @@ export function PackagingWorkbench() {
             </div>
             <span className="pack-bench-count">{String(groups.length)}</span>
           </div>
-          {tabGroups.length > 0 ? (
-            <div className="flex flex-wrap gap-2 border-b border-hairline px-3 py-2">
-              <label className="flex min-w-[7.5rem] flex-1 flex-col gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
-                {vi ? 'Sàn' : 'Platform'}
-                <select
-                  value={platformFilter}
-                  onChange={(e) => {
-                    setPlatformFilter(e.target.value)
-                    setShopFilter('all')
-                  }}
-                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-xs font-medium normal-case tracking-normal text-ink"
-                >
-                  <option value="all">{vi ? 'Tất cả sàn' : 'All platforms'}</option>
-                  {filterOptions.platforms.map((p) => (
-                    <option key={p} value={p}>
-                      {platformLabel(p)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex min-w-[8.5rem] flex-[1.4] flex-col gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
-                {vi ? 'Shop' : 'Shop'}
-                <select
-                  value={shopFilter}
-                  onChange={(e) => setShopFilter(e.target.value)}
-                  className="rounded-md border border-hairline bg-canvas px-2 py-1.5 text-xs font-medium normal-case tracking-normal text-ink"
-                >
-                  <option value="all">{vi ? 'Tất cả shop' : 'All shops'}</option>
-                  {filterOptions.shops.map(([id, label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          ) : null}
           <div className="pack-bench-scroll">
             {listLoading ? (
               <div className="flex items-center gap-2 p-3 text-sm text-ink-muted">
@@ -981,22 +866,11 @@ export function PackagingWorkbench() {
               </div>
             ) : listError ? (
               <p className="p-3 text-sm text-rose-600">{listError}</p>
-            ) : tabGroups.length === 0 ? (
+            ) : groups.length === 0 ? (
               <div className="space-y-1 p-3">
                 <p className="text-sm font-medium text-ink">{empty.title}</p>
                 <p className="text-xs leading-relaxed text-ink-subtle">
                   {empty.body}
-                </p>
-              </div>
-            ) : groups.length === 0 ? (
-              <div className="space-y-1 p-3">
-                <p className="text-sm font-medium text-ink">
-                  {vi ? 'Không khớp bộ lọc' : 'No matches for filters'}
-                </p>
-                <p className="text-xs leading-relaxed text-ink-subtle">
-                  {vi
-                    ? 'Thử chọn «Tất cả sàn» / «Tất cả shop», hoặc đổi tab hàng đợi.'
-                    : 'Try All platforms / All shops, or switch queue tab.'}
                 </p>
               </div>
             ) : (
@@ -1013,33 +887,24 @@ export function PackagingWorkbench() {
                         <span className="font-mono text-[11px] font-medium text-ink">
                           {g.id.slice(-8)}
                         </span>
-                        <span className="flex flex-wrap items-center justify-end gap-1">
-                          <span className="inline-flex items-center rounded bg-[color-mix(in_srgb,var(--ls-cta)_14%,transparent)] px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-[var(--ls-cta)]">
-                            {platformLabel(g.platform)}
+                        {g.orderPriority === 'express' ? (
+                          <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                            Express
                           </span>
-                          {g.orderPriority === 'express' ? (
-                            <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                              Express
-                            </span>
-                          ) : null}
-                        </span>
+                        ) : null}
                       </div>
-                      <p className="mt-0.5 flex items-center gap-1 truncate text-[11px] text-ink-muted">
-                        <Store className="h-3 w-3 shrink-0 opacity-70" />
-                        <span className="truncate">
-                          {resolveShopLabel(g.shopId, shopNameById)}
-                        </span>
-                      </p>
-                      <p className="mt-0.5 truncate text-[11px] text-ink-subtle">
-                        {g.activeOrderCount}/{g.orderCount}{' '}
+                      <p className="mt-0.5 truncate text-[11px] text-ink-muted capitalize">
+                        {g.platform} · {g.activeOrderCount}/{g.orderCount}{' '}
                         {vi ? 'còn/tổng' : 'active/total'}
                         {isPartiallyCanceledGroup(g) ? (
                           <span className="font-semibold text-amber-700 dark:text-amber-300">
                             {vi ? ' · một phần hủy' : ' · partial cancel'}
                           </span>
                         ) : null}
-                        {' · '}
-                        {statusLabel(g.fulfillmentStatus, vi)}
+                        <span className="text-ink-subtle">
+                          {' · '}
+                          {statusLabel(g.fulfillmentStatus, vi)}
+                        </span>
                       </p>
                     </button>
                   </li>
@@ -1124,9 +989,6 @@ export function PackagingWorkbench() {
                   <h2 className="font-mono text-sm font-semibold text-ink">
                     {group.id}
                   </h2>
-                  <span className="inline-flex items-center rounded-full border border-[color-mix(in_srgb,var(--ls-cta)_35%,transparent)] bg-[color-mix(in_srgb,var(--ls-cta)_12%,transparent)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--ls-cta)]">
-                    {platformLabel(group.platform)}
-                  </span>
                   {group.isOverdue ? (
                     <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-100">
                       <AlertTriangle className="h-3 w-3" />
@@ -1134,26 +996,6 @@ export function PackagingWorkbench() {
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-muted">
-                  <span className="inline-flex items-center gap-1 font-medium text-ink">
-                    <Store className="h-3.5 w-3.5" />
-                    {resolveShopLabel(group.shopId, shopNameById)}
-                  </span>
-                  <span className="font-mono text-[11px] text-ink-subtle">
-                    shopId {group.shopId || '—'}
-                  </span>
-                  {group.platform.toLowerCase() === 'lazada' ? (
-                    <a
-                      href={LAZADA_SELLER_CENTER_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 font-semibold text-[var(--ls-cta)] underline-offset-2 hover:underline"
-                    >
-                      {vi ? 'Mở Lazada Seller' : 'Open Lazada Seller'}
-                      <ExternalLink className="h-3 w-3" />
-                    </a>
-                  ) : null}
-                </p>
                 <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
                   <div>
                     <dt className="text-ink-subtle">
@@ -1187,19 +1029,6 @@ export function PackagingWorkbench() {
                         : '—'}
                     </dd>
                   </div>
-                  {group.platform.toLowerCase() === 'lazada' ? (
-                    <div className="sm:col-span-2">
-                      <dt className="text-ink-subtle">
-                        {vi ? 'Báo đóng gói Lazada' : 'Lazada pack report'}
-                      </dt>
-                      <dd className="text-ink">
-                        {lazadaPackStatusLabel(group.lazadaPack.status, vi)}
-                        {group.lazadaPack.error
-                          ? ` — ${group.lazadaPack.error}`
-                          : ''}
-                      </dd>
-                    </div>
-                  ) : null}
                 </dl>
               </div>
 
@@ -1217,30 +1046,10 @@ export function PackagingWorkbench() {
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
                   <p className="font-medium">
                     {vi
-                      ? 'Đã chấp nhận kế hoạch. Đóng đúng kiện của sàn/shop bên dưới — không gộp với kênh khác.'
-                      : 'Plan accepted. Pack this platform/shop only — do not mix with another channel.'}
+                      ? 'Đã chấp nhận kế hoạch. Xem hướng dẫn 3D bên cạnh, đóng gói xong rồi bấm xác nhận.'
+                      : 'Plan accepted. Follow the 3D guide, then confirm when packing is done.'}
                   </p>
-                  <ul className="mt-3 space-y-1.5 text-xs opacity-90">
-                    <li className="flex gap-2">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      {vi
-                        ? `Kiện thuộc ${platformLabel(group.platform)} · ${resolveShopLabel(group.shopId, shopNameById)}`
-                        : `Package for ${platformLabel(group.platform)} · ${resolveShopLabel(group.shopId, shopNameById)}`}
-                    </li>
-                    <li className="flex gap-2">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      {vi
-                        ? 'Đúng thùng/vật liệu theo gợi ý (hoặc đã điều chỉnh khi duyệt).'
-                        : 'Use the recommended box/materials (or your approved adjust).'}
-                    </li>
-                    <li className="flex gap-2">
-                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                      {vi
-                        ? 'Xem hướng dẫn 3D bên cạnh, rồi bấm xác nhận khi gói xong.'
-                        : 'Follow the 3D guide, then confirm when packing is done.'}
-                    </li>
-                  </ul>
-                  {group.fulfillmentStatus === 'approved_for_packing' ? (
+                  {group?.fulfillmentStatus === 'approved_for_packing' ? (
                     <button
                       type="button"
                       disabled={actionBusy}

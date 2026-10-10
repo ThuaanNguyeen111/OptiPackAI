@@ -2,6 +2,7 @@ import {
   sellerSkuEqualsIgnoreCase,
   stockAssignmentOrBranches,
   stockFilterFor,
+  stockUpsertFilterFor,
 } from './stock-key.util';
 
 describe('stock-key.util — khớp tồn unpooled / normalize', () => {
@@ -44,5 +45,16 @@ describe('stock-key.util — khớp tồn unpooled / normalize', () => {
         expect.objectContaining({ platform: 'lazada', shop_id: 's1', master_sku: null }),
       ]),
     );
+  });
+  // 07/10/2026 — upsert chỉ chép điều kiện so sánh bằng ở cấp trên vào dòng mới; $or và regex
+  // không được chép. Bộ lọc upsert vì vậy phải là khớp chính xác, không có $or/regex.
+  it('stockUpsertFilterFor đã nối: chỉ { master_sku } để dòng mới mang đúng nhãn', () => {
+    expect(stockUpsertFilterFor('ATHUN-005-DEN-M', 'lazada', 's1', 'ATD-M-01')).toEqual({ master_sku: 'ATHUN-005-DEN-M' });
+  });
+
+  it('stockUpsertFilterFor chưa nối: so sánh bằng (không regex), seller_sku đã trim, master_sku null', () => {
+    const filter = stockUpsertFilterFor(undefined, 'lazada', 's1', ' ATD-M-01 ');
+    expect(filter).toEqual({ platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01', master_sku: null });
+    expect(filter).not.toHaveProperty('$or');
   });
 });

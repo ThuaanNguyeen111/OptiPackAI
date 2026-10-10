@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 import {
   GROUP_FULFILLMENT_STATUS_VALUES,
@@ -67,7 +67,7 @@ export class OrderGroup {
   })
   fulfillment_status!: GroupFulfillmentStatus;
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   active_packaging_recommendation!: Types.ObjectId | null;
 
   @Prop({ required: true })
@@ -76,7 +76,7 @@ export class OrderGroup {
   // Phân công nhân viên (2026-09-10) — xem staff-assignment.service.ts.
   // Union `X | null` PHẢI khai type: tường minh (Rule #23, bài học từ
   // bug thật packaging_recommendation.schema.ts).
-  @Prop({ type: Types.ObjectId, ref: 'User', default: null })
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
   assigned_staff_id!: Types.ObjectId | null;
 
   @Prop({ type: Date, default: null })
@@ -129,7 +129,7 @@ export class OrderGroup {
   })
   origin?: 'marketplace' | 'replacement';
 
-  @Prop({ type: Types.ObjectId, default: null })
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
   source_return_id?: Types.ObjectId | null;
 
   // 01/10/2026 — BẢN LƯU SẴN số đơn còn hiệu lực / đã hủy (để xem trực tiếp trong DB và

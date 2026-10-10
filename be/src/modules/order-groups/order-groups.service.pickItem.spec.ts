@@ -145,4 +145,25 @@ describe('OrderGroupsService — pickItem (validate SKU thuộc group trước k
       ]),
     );
   });
+  //!=============================================
+  // 07/10/2026 — lỗi ObjectId: schema cũ khai `type: Types.ObjectId` bị Mongoose hiểu là
+  // Mixed (không tự ép kiểu). (1) lọc tồn bằng chuỗi id kho -> 0 dòng -> 409 dù còn hàng;
+  // (2) pick_events lưu order_group_id dạng CHUỖI trong khi chỗ đọc dùng ObjectId.
+  //!=============================================
+  it('ObjectId — lọc tồn bằng warehouse_id kiểu ObjectId và ghi pick_events.order_group_id kiểu ObjectId', async () => {
+    mockGroupHasOnlySku('ABC-123');
+    const realGroupId = new Types.ObjectId(groupId);
+    orderGroupModel.findById.mockResolvedValue({ _id: realGroupId, platform: 'lazada', shop_id: 'shop-1' });
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 2, warehouse_id: new Types.ObjectId(warehouseId), bin_location_id: new Types.ObjectId(), platform: 'lazada', shop_id: 'shop-1', seller_sku: 'ABC-123' });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    await service.pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode');
+
+    const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
+    expect(filter.warehouse_id).toBeInstanceOf(Types.ObjectId);
+    expect(String(filter.warehouse_id)).toBe(warehouseId);
+    const [events] = pickEventModel.create.mock.calls[0] as [{ order_group_id: unknown }[]];
+    expect(events[0]?.order_group_id).toBeInstanceOf(Types.ObjectId);
+    expect(String(events[0]?.order_group_id)).toBe(groupId);
+  });
 });

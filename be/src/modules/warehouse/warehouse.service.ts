@@ -3,7 +3,7 @@ import { normalizeSellerSku } from '../master-skus/master-skus.service';
 import {
   resolveMasterSkus,
   stockAssignmentOrBranches,
-  stockFilterFor,
+  stockUpsertFilterFor,
 } from '../master-skus/stock-key.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { HttpStatus, Injectable } from '@nestjs/common';
@@ -464,10 +464,15 @@ export class WarehouseService {
     actorId = 'system',
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
+    // 🔄 07/10/2026 — SỬA LỖI: trước đây truy vấn `warehouse_id: warehouseId` (chuỗi) trong khi
+    // DB lưu ObjectId và schema bị Mongoose hiểu là Mixed (không tự ép kiểu) -> không bao giờ tìm
+    // thấy dòng tồn -> "Nhập thêm hàng" luôn 404. Schema nay đã khai đúng SchemaTypes.ObjectId
+    // (Mongoose tự ép); vẫn ép tường minh ở đây để không phụ thuộc vào khai báo schema.
+    const warehouseObjectId = new Types.ObjectId(warehouseId);
     // K2 — kiểm tra sức chứa ô trước khi cộng (không atomic tuyệt đối: 2 lần
     // nhập cùng lúc có thể cùng lọt — ghi nhận ở điểm yếu, xử lý ở K3 bằng sổ cái).
     if (Types.ObjectId.isValid(assignmentId) && !force) {
-      const current = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: warehouseId }).lean();
+      const current = await this.assignmentModel.findOne({ _id: assignmentId, warehouse_id: warehouseObjectId }).lean();
       if (current) {
         const bin = await this.binModel.findById(current.bin_location_id).lean();
         if (bin && typeof bin.capacity === 'number') {
@@ -487,7 +492,7 @@ export class WarehouseService {
     // 🔄 K3 — cộng tồn + ghi sổ cái trong CÙNG transaction.
     const updated = await this.runTx(async (session) => {
       const doc = await this.assignmentModel.findOneAndUpdate(
-        { _id: assignmentId, warehouse_id: warehouseId },
+        { _id: assignmentId, warehouse_id: warehouseObjectId },
         { $inc: { quantity_on_hand: quantity } },
         { returnDocument: 'after', session },
       );
@@ -1198,8 +1203,11 @@ export class WarehouseService {
     }
     // 🔄 K4b — SKU đã nối thì hàng hoàn nhập lại vào tồn chung của SKU nội bộ.
     const master = (await resolveMasterSkus(this.mappingModel, params.platform, params.shopId, [params.sellerSku])).get(params.sellerSku);
+    // 🔄 07/10/2026 — upsert phải dùng bộ lọc KHỚP CHÍNH XÁC (stockUpsertFilterFor).
+    // Dùng stockFilterFor (có $or + regex) thì khi ô chưa có dòng tồn, dòng mới tạo ra
+    // thiếu master_sku (SKU đã nối) hoặc thiếu seller_sku (SKU chưa nối).
     const doc = await this.assignmentModel.findOneAndUpdate(
-      { warehouse_id: bin.warehouse_id, bin_location_id: bin._id, ...stockFilterFor(master, params.platform, params.shopId, params.sellerSku) },
+      { warehouse_id: bin.warehouse_id, bin_location_id: bin._id, ...stockUpsertFilterFor(master, params.platform, params.shopId, params.sellerSku) },
       {
         $inc: { quantity_on_hand: params.quantity },
         ...(master ? { $setOnInsert: { platform: params.platform, shop_id: params.shopId, seller_sku: params.sellerSku } } : {}),

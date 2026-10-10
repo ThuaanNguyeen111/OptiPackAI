@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 export const MOVEMENT_TYPES = [
   'assign_initial', // tồn ban đầu khi gán SKU vào ô
@@ -28,13 +28,13 @@ export enum StockAdjustReason {
  */
 @Schema({ collection: 'inventory_movements', timestamps: false })
 export class InventoryMovement {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'Warehouse' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'Warehouse' })
   warehouse_id!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'SkuBinAssignment' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'SkuBinAssignment' })
   assignment_id!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'BinLocation' })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'BinLocation' })
   bin_location_id!: Types.ObjectId;
 
   @Prop({ required: true }) platform!: string;

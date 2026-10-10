@@ -14,10 +14,10 @@ export function resolveNotificationPath(
   if (type === 'cancel_confirmation_required') {
     return entityId ? `/app/orders/${entityId}` : '/app/orders'
   }
+  // relatedEntityId là id document marketplace_shops (không phải mã shop Lazada —
+  // mã đó nằm trong title). Chỉ Admin kết nối lại được shop.
   if (type === 'sync_failed' || type === 'connection_lost') {
-    return role === UserRole.STORE_OWNER || role === UserRole.ADMIN
-      ? '/app'
-      : '/app'
+    return role === UserRole.ADMIN ? '/app/admin/marketplace' : '/app'
   }
   if (type === 'pending_approval' || type === 'abnormal_package') {
     if (role === UserRole.PACKAGING_STAFF) return '/app/packing'

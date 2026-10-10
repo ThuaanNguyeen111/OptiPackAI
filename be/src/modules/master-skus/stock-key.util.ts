@@ -44,7 +44,30 @@ export function sellerSkuEqualsIgnoreCase(sellerSku: string): RegExp {
 }
 
 /**
- * Bộ lọc tồn kho cho 1 SKU sàn.
+ * 07/10/2026 — Bộ lọc KHỚP CHÍNH XÁC, chỉ gồm điều kiện so sánh bằng, dùng cho
+ * `findOneAndUpdate(..., { upsert: true })`.
+ * Khi upsert không tìm thấy dòng nào, MongoDB tạo dòng mới bằng cách chép các điều
+ * kiện so sánh bằng ở cấp trên của bộ lọc. Điều kiện trong `$or` và điều kiện regex
+ * KHÔNG được chép -> nếu upsert bằng `stockFilterFor` (có `$or`/regex), dòng mới sẽ
+ * thiếu `master_sku` hoặc thiếu `seller_sku`. Vì vậy mọi lệnh upsert dòng tồn phải
+ * dùng hàm này, không dùng `stockFilterFor`.
+ * - Đã nối: { master_sku } -> dòng mới mang đúng nhãn SKU nội bộ.
+ * - Chưa nối: { platform, shop_id, seller_sku, master_sku: null } (seller_sku đã trim).
+ */
+export function stockUpsertFilterFor(
+  masterSku: string | undefined,
+  platform: string,
+  shopId: string,
+  sellerSku: string,
+): Record<string, unknown> {
+  return masterSku
+    ? { master_sku: masterSku }
+    : { platform, shop_id: shopId, seller_sku: sellerSku.trim(), master_sku: null };
+}
+
+/**
+ * Bộ lọc tồn kho cho 1 SKU sàn — CHỈ dùng để TÌM / TRỪ / CỘNG dòng đã có, không dùng
+ * để upsert (xem `stockUpsertFilterFor`).
  * - Chưa nối: theo platform + shop_id + seller_sku (master_sku null).
  * - Đã nối: ưu tiên dòng gộp { master_sku }, ĐỒNG THỜI fallback dòng chưa gắn nhãn
  *   (master_sku null, đúng shop) — case Admin nhập tồn trước khi sync-stock / tạo mapping.

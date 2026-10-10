@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
  * bin_locations — tầng 3/4 ("kệ/vị trí", VD "A-03-02" = Khu A, Kệ 3,
@@ -9,10 +9,10 @@ import { HydratedDocument, Types } from 'mongoose';
  */
 @Schema({ collection: 'bin_locations', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class BinLocation {
-  @Prop({ type: Types.ObjectId, required: true, ref: 'Warehouse', index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'Warehouse', index: true })
   warehouse_id!: Types.ObjectId;
 
-  @Prop({ type: Types.ObjectId, required: true, ref: 'WarehouseZone', index: true })
+  @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'WarehouseZone', index: true })
   zone_id!: Types.ObjectId;
 
   @Prop({ required: true })

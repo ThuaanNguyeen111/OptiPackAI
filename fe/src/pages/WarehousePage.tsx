@@ -666,6 +666,7 @@ export function WarehousePage() {
       currentQty > 0 &&
       currentQty <= remainingForActive &&
       remainingForActive > 0 &&
+      Boolean(activeLine.bin_location_id) &&
       !busy,
   )
 
@@ -716,6 +717,14 @@ export function WarehousePage() {
 
   async function handlePickItem() {
     if (!group || !activeLine || !warehouseId) return
+    if (!activeLine.bin_location_id) {
+      setActionError(
+        vi
+          ? 'SKU chưa được gán ô — liên hệ Admin.'
+          : 'This SKU has no bin. Ask an admin to assign it.',
+      )
+      return
+    }
     if (!lineMatchesScan(activeLine, scanInput)) {
       setActionError(
         vi
@@ -1515,8 +1524,8 @@ export function WarehousePage() {
                         ) : (
                           <div className="mt-5 rounded-xl border border-dashed border-amber-200 bg-amber-50/60 px-3 py-2.5 text-center text-[11px] font-medium text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-300">
                             {vi
-                              ? 'Chưa thấy mã kệ trên list — vẫn quét/nhập SKU để trừ tồn nếu Admin đã nhập hàng đúng shop.'
-                              : 'No bin on the list yet — you can still scan/type the SKU if Admin restocked the same shop.'}
+                              ? 'SKU chưa được gán ô — liên hệ Admin. Nút quét đang khóa.'
+                              : 'This SKU has no bin. Scanning is locked until an admin assigns one.'}
                           </div>
                         )}
 
@@ -1550,8 +1559,8 @@ export function WarehousePage() {
                                     if (canConfirmItem) void handlePickItem()
                                   }
                                 }}
-                                placeholder={activeLine.bin_code || activeLine.sku}
-                                disabled={!canPickItems(status)}
+                                placeholder={activeLine.bin_location_id ? activeLine.bin_code || activeLine.sku : ''}
+                                disabled={!canPickItems(status) || !activeLine.bin_location_id}
                                 className="min-w-0 flex-1 bg-transparent font-mono text-sm font-semibold text-slate-800 focus:outline-none dark:text-slate-100"
                               />
                               {isVerified ? (
@@ -1566,7 +1575,7 @@ export function WarehousePage() {
                                     setScanInput(activeLine.sku)
                                     setScanMethod('manual')
                                   }}
-                                  disabled={!canPickItems(status)}
+                                  disabled={!canPickItems(status) || !activeLine.bin_location_id}
                                   className="inline-flex shrink-0 items-center rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-800 cursor-pointer hover:bg-amber-100 disabled:opacity-50 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
                                 >
                                   {vi ? 'Nhập SKU' : 'Type SKU'}
