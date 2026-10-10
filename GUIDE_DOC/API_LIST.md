@@ -48,7 +48,7 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 | ------ | --------------------- | ---------------------- | ----------------------------------------------------------------------------------- |
 | POST   | `/orders/lazada/sync` | Admin                  | Kích hoạt tay 1 lần đồng bộ đơn từ Lazada (thao tác kỹ thuật, giữ nguyên chỉ Admin) |
 | GET    | `/orders`             | **Admin, Store Owner** | Danh sách đơn đã đồng bộ                                                            |
-| GET    | `/orders/:id`         | **Admin, Store Owner** | Chi tiết 1 đơn hàng                                                                 |
+| GET    | `/orders/:id`         | **Admin, Store Owner** | Chi tiết 1 đơn hàng. 🆕 08/10/2026: thêm `recipientProvince`, `recipientDistrict`, `recipientWard` (`string \| null`) |
 
 ## 5. Order Groups — Đọc (`/order-groups`)
 
@@ -116,11 +116,15 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 | 🆕 GET    | `/warehouse/warehouses/:warehouseId`                                           | Admin, Warehouse       | **K1 (26/09/2026)** — chi tiết 1 kho (kể cả đã tắt)                                                                                                                                                                   |
 | 🆕 PATCH  | `/warehouse/warehouses/:warehouseId`                                           | Admin                  | K1 — sửa tên/địa chỉ, KHÔNG sửa mã                                                                                                                                                                                    |
 | 🆕 DELETE | `/warehouse/warehouses/:warehouseId`                                           | Admin                  | K1 — vô hiệu hóa (xóa mềm) + dây chuyền khu/kệ; 409 nếu còn hàng                                                                                                                                                      |
+| 🆕 DELETE | `/warehouse/warehouses/:warehouseId/permanent` | Admin | **10/10/2026** — XOÁ HẲN kho chưa từng dùng + khu/ô bên trong; 409 `WH_HAS_STOCK` / `WH_HAS_HISTORY` |
 | 🆕 POST   | `/warehouse/warehouses/:warehouseId/reactivate`                                | Admin                  | K1 — bật lại CHỈ kho                                                                                                                                                                                                  |
 | 🆕 PATCH  | `/warehouse/zones/:zoneId`                                                     | Admin                  | K1 — sửa tên/mô tả khu                                                                                                                                                                                                |
 | 🆕 DELETE | `/warehouse/zones/:zoneId`                                                     | Admin                  | K1 — vô hiệu hóa khu + kệ; 409 nếu còn hàng                                                                                                                                                                           |
+| 🆕 DELETE | `/warehouse/zones/:zoneId/permanent` | Admin | **10/10/2026** — XOÁ HẲN khu chưa từng dùng + ô trong khu |
 | 🆕 POST   | `/warehouse/zones/:zoneId/reactivate`                                          | Admin                  | K1 — bật lại khu + kệ (kho phải đang bật)                                                                                                                                                                             |
 | 🆕 DELETE | `/warehouse/bin-locations/:binId`                                              | Admin                  | K1 — vô hiệu hóa 1 kệ; 409 nếu còn hàng                                                                                                                                                                               |
+| 🆕 DELETE | `/warehouse/bin-locations/:binId/permanent` | Admin | **10/10/2026** — XOÁ HẲN 1 ô chưa từng dùng |
+| 🆕 DELETE | `/warehouse/zones/:zoneId/racks/permanent?aisle=&side=&bay=` | Admin | **10/10/2026** — XOÁ HẲN nguyên kệ / nguyên dãy chưa từng dùng trong 1 lần gọi; có 1 ô đã dùng → 409, không xoá ô nào |
 | 🆕 POST   | `/warehouse/bin-locations/:binId/reactivate`                                   | Admin                  | K1 — bật lại 1 kệ (khu phải đang bật)                                                                                                                                                                                 |
 
 > 🔄 **ĐÃ ĐỔI (26/09/2026, K1)**: các GET danh sách kho/khu/kệ nhận thêm `?include_inactive=true` (mặc định chỉ trả mục đang hoạt động); response khu/kệ có thêm `isActive`; tạo khu, sinh kệ, gán SKU, nhập hàng, Picking List bị chặn `409` khi kho/khu/kệ đã tắt; gán SKU giờ kiểm tra kệ tồn tại + thuộc đúng kho. Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md`**.
@@ -228,6 +232,7 @@ Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (�
 | POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/adjust`    | Admin, Warehouse              | Kiểm kê: số đếm thực tế + lý do, ghi sổ cái            |
 | POST   | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/transfer`  | Admin, Warehouse              | Chuyển hàng sang ô khác (1 transaction, 2 dòng sổ cái) |
 | DELETE | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId`           | Admin                         | Bỏ gán SKU khỏi ô (tồn phải = 0)                       |
+| 🆕 PATCH | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId` | Admin | **10/10/2026** — sửa gán nhầm: dời SKU sang ô đúng (còn hàng thì chuyển toàn bộ, ghi sổ cái) |
 | GET    | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/movements` | Admin, Warehouse, Store Owner | Sổ cái của SKU trên ô                                  |
 
 > 🔄 K3: gán SKU vào ô khác nay là THÊM ô (không còn dời); Picking List có `bin_location_id` + `other_bins`; `pick-item` nhận thêm `bin_location_id`. **Phải chạy `scripts/migrate-sku-bin-assignment-multibin.ts` trên mỗi môi trường.**
@@ -279,6 +284,7 @@ Xem chi tiết đầy đủ ở `INTEGRATION_GUIDE_FULFILLMENT.md` PHẦN D.3 (�
 | POST · PATCH · DELETE | `/colors` · `/colors/:code`                                            | Admin                                    |                                            |
 | POST                  | `/colors/:code/reactivate`                                             | Admin                                    |                                            |
 | GET                   | `/master-skus` · `/master-skus/:code` · `/:code/mappings`              | Admin, Store Owner, Warehouse, Packaging |                                            |
+| 🆕 DELETE | `/master-skus/:code/permanent` | Admin | **10/10/2026** — XOÁ HẲN SKU nội bộ chưa từng dùng (409 `MSKU_HAS_MAPPINGS` / `MSKU_HAS_STOCK` / `MSKU_HAS_HISTORY`) |
 | GET                   | `/master-skus/unmapped-seller-skus`                                    | Admin, Store Owner                       | SKU sàn chưa nối                           |
 | POST                  | `/master-skus`                                                         | Admin                                    | Tạo — hệ thống tự ghép mã                  |
 | PATCH · DELETE        | `/master-skus/:code`                                                   | Admin                                    | Sửa thuộc tính mô tả · vô hiệu hóa         |

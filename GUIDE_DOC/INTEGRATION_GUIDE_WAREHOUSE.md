@@ -2,6 +2,8 @@
 
 **Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.** **v1.4 (01/10/2026): mở quyền vận hành kho cho Warehouse Staff — xem danh sách khu, danh sách ô, tồn theo ô và nhập thêm hàng — xem PHẦN B5.** **v1.5 (07/10/2026): sửa lỗi kiểu id khiến Picking List báo "CHƯA GÁN VỊ TRÍ", quét hàng báo thiếu tồn và nhập thêm hàng luôn 404 dù dữ liệu kho đúng; gộp bản sửa tìm tồn của nhánh `feature/viet_befe`; script chuyển dữ liệu id cũ — xem PHẦN B6.**
 
+**🆕 Cập nhật 10/10/2026:** PHẦN B7 — xoá hẳn kho/khu/ô/SKU nội bộ chưa từng dùng (`DELETE .../permanent`) và sửa gán nhầm ô (`PATCH .../sku-bin-assignments/:assignmentId`).
+
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
 
 Quy ước đánh dấu: 🆕 **MỚI** = route/hành vi mới có; 🔄 **ĐÃ ĐỔI** = route cũ đổi hành vi, FE phải sửa; ⏳ **SẮP CÓ** = đã thiết kế, CHƯA code — KHÔNG gọi được, chỉ để FE chuẩn bị.
@@ -628,13 +630,13 @@ POST /warehouse/warehouses/66e1.../sku-bin-assignments/66f3.../restock
 
 Hệ thống cộng dồn tồn và ghi sổ cái loại `receive` trong cùng một giao dịch, người thực hiện lấy từ tài khoản đang đăng nhập (không nhận từ body). Thành công thì tải lại bước 3.
 
-| Mã lỗi                   | HTTP      | Nguyên nhân                                                                                | Xử lý trên FE                                                                                                           |
-| ------------------------ | --------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `WH_BIN_OVER_CAPACITY`   | 409       | Tổng hàng trong ô sau khi nhập vượt `capacity`; `details: { capacity, current, incoming }` | Hộp thoại "Ô chứa tối đa 30, đang có 25, thêm 10 sẽ vượt — vẫn nhập?". Đồng ý thì gửi lại cùng body kèm `"force": true` |
-| `WH_WAREHOUSE_INACTIVE`  | 409       | Kho đã bị vô hiệu hóa                                                                      | Thông báo và quay về bước 1                                                                                             |
-| `WH_WAREHOUSE_NOT_FOUND` | 400 / 404 | `assignmentId` sai định dạng, hoặc dòng không thuộc kho này (mã lỗi dùng chung, xem B5.5). 🔄 Trước 07/10/2026 route này **luôn** trả 404 do lỗi BE — xem PHẦN B6  | Tải lại danh sách                                                                                                       |
-| (validate)               | 400       | `quantity` không phải số nguyên ≥ 1                                                        | Chặn ngay ở ô nhập                                                                                                      |
-| —                        | 403       | Tài khoản không phải Admin hoặc Warehouse Staff                                            | Ẩn nút theo vai trò                                                                                                     |
+| Mã lỗi                   | HTTP      | Nguyên nhân                                                                                                                                                       | Xử lý trên FE                                                                                                           |
+| ------------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `WH_BIN_OVER_CAPACITY`   | 409       | Tổng hàng trong ô sau khi nhập vượt `capacity`; `details: { capacity, current, incoming }`                                                                        | Hộp thoại "Ô chứa tối đa 30, đang có 25, thêm 10 sẽ vượt — vẫn nhập?". Đồng ý thì gửi lại cùng body kèm `"force": true` |
+| `WH_WAREHOUSE_INACTIVE`  | 409       | Kho đã bị vô hiệu hóa                                                                                                                                             | Thông báo và quay về bước 1                                                                                             |
+| `WH_WAREHOUSE_NOT_FOUND` | 400 / 404 | `assignmentId` sai định dạng, hoặc dòng không thuộc kho này (mã lỗi dùng chung, xem B5.5). 🔄 Trước 07/10/2026 route này **luôn** trả 404 do lỗi BE — xem PHẦN B6 | Tải lại danh sách                                                                                                       |
+| (validate)               | 400       | `quantity` không phải số nguyên ≥ 1                                                                                                                               | Chặn ngay ở ô nhập                                                                                                      |
+| —                        | 403       | Tài khoản không phải Admin hoặc Warehouse Staff                                                                                                                   | Ẩn nút theo vai trò                                                                                                     |
 
 **Xem lịch sử của 1 dòng** (đã mở cho Warehouse Staff từ K3): `GET .../sku-bin-assignments/:assignmentId/movements` — dòng vừa nhập có `type: receive`, đúng số lượng và đúng nhân viên.
 
@@ -672,12 +674,12 @@ Hệ thống cộng dồn tồn và ghi sổ cái loại `receive` trong cùng m
 
 ## B6.1. Hiện tượng trước khi sửa
 
-| Màn hình / thao tác | Hiện tượng | Dù dữ liệu đã đúng |
-|---|---|---|
-| Picking List — `GET /warehouse/:warehouseId/picking-list/:groupId` | Dòng hàng hiện `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null` | Đã gán SKU vào ô, đã nối SKU nội bộ, ô đang hoạt động, còn tồn |
-| Quét hàng — `POST /order-groups/:id/fulfillment/pick-item` | `409 ORD_GROUP_INSUFFICIENT_STOCK` | Như trên |
-| Nhập thêm hàng — `POST .../sku-bin-assignments/:assignmentId/restock` | `404 WH_WAREHOUSE_NOT_FOUND` "Không tìm thấy sku_bin_assignment" | Dòng tồn có thật, đúng kho |
-| Gợi ý đóng gói — `POST .../packaging/generate` | Luôn tính theo **số lượng đặt**, không theo số đã quét | Đã quét từng món bằng `pick-item` |
+| Màn hình / thao tác                                                   | Hiện tượng                                                            | Dù dữ liệu đã đúng                                             |
+| --------------------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Picking List — `GET /warehouse/:warehouseId/picking-list/:groupId`    | Dòng hàng hiện `bin_code: "CHƯA GÁN VỊ TRÍ"`, `bin_location_id: null` | Đã gán SKU vào ô, đã nối SKU nội bộ, ô đang hoạt động, còn tồn |
+| Quét hàng — `POST /order-groups/:id/fulfillment/pick-item`            | `409 ORD_GROUP_INSUFFICIENT_STOCK`                                    | Như trên                                                       |
+| Nhập thêm hàng — `POST .../sku-bin-assignments/:assignmentId/restock` | `404 WH_WAREHOUSE_NOT_FOUND` "Không tìm thấy sku_bin_assignment"      | Dòng tồn có thật, đúng kho                                     |
+| Gợi ý đóng gói — `POST .../packaging/generate`                        | Luôn tính theo **số lượng đặt**, không theo số đã quét                | Đã quét từng món bằng `pick-item`                              |
 
 Ví dụ thật (đọc DB ngày 05/10/2026): SKU `KC-D1-T05-T01-2`, dòng tồn ở kho HCM-02, ô `KC-D1-T05-T01-1` đang hoạt động, tồn 3, `master_sku: "GUOC-020-DEN-35"`, mapping khớp từng ký tự — Picking List vẫn báo "CHƯA GÁN VỊ TRÍ".
 
@@ -689,15 +691,15 @@ Schema BE khai các trường này bằng `@Prop({ type: Types.ObjectId })`. V�
 
 ## B6.3. Đã sửa
 
-| Thay đổi | Ghi chú |
-|---|---|
-| 35 trường id khai lại `type: SchemaTypes.ObjectId` | Mongoose tự đổi chuỗi → ObjectId ở mọi truy vấn và lệnh ghi |
-| Picking List, quét hàng đổi `warehouse_id` sang ObjectId | Bản sửa của Việt (nhánh `feature/viet_befe`), giữ nguyên |
-| Nhập thêm hàng đổi `warehouse_id` sang ObjectId | Hết lỗi luôn 404 |
-| `pick_events.order_group_id` lưu ObjectId | Gợi ý đóng gói đọc được số đã quét |
+| Thay đổi                                                                                                                       | Ghi chú                                                                                                                    |
+| ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| 35 trường id khai lại `type: SchemaTypes.ObjectId`                                                                             | Mongoose tự đổi chuỗi → ObjectId ở mọi truy vấn và lệnh ghi                                                                |
+| Picking List, quét hàng đổi `warehouse_id` sang ObjectId                                                                       | Bản sửa của Việt (nhánh `feature/viet_befe`), giữ nguyên                                                                   |
+| Nhập thêm hàng đổi `warehouse_id` sang ObjectId                                                                                | Hết lỗi luôn 404                                                                                                           |
+| `pick_events.order_group_id` lưu ObjectId                                                                                      | Gợi ý đóng gói đọc được số đã quét                                                                                         |
 | Picking List / quét hàng tìm thêm dòng tồn **chưa gắn nhãn** của SKU đã nối, và so `seller_sku` **không phân biệt hoa thường** | Bản sửa của Việt. Trường hợp Admin nhập tồn trước khi bấm "Đồng bộ tồn" (`POST /master-skus/sync-stock`) vẫn lấy được hàng |
-| Nhập lại hàng hoàn vào ô chưa có dòng tồn tạo dòng mới mang đủ `master_sku` / `seller_sku` | Sửa lỗi phát sinh từ thay đổi tìm tồn ở trên |
-| Test tự động quét mọi schema, báo lỗi nếu còn trường id kiểu Mixed | Chặn lỗi lặp lại |
+| Nhập lại hàng hoàn vào ô chưa có dòng tồn tạo dòng mới mang đủ `master_sku` / `seller_sku`                                     | Sửa lỗi phát sinh từ thay đổi tìm tồn ở trên                                                                               |
+| Test tự động quét mọi schema, báo lỗi nếu còn trường id kiểu Mixed                                                             | Chặn lỗi lặp lại                                                                                                           |
 
 **FE không phải sửa gì.** Request/response của mọi route giữ nguyên. Riêng thông báo `sync_failed`: `relatedEntityId` nay là id của shop đã kết nối (trước là mã shop Lazada) — xem `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 6.
 
@@ -736,21 +738,217 @@ Database: optipackai — chế độ: CHẠY THỬ (không ghi)
 
 ## B6.6. Tác động tới dữ liệu và luồng đã có
 
-| Câu hỏi | Trả lời |
-|---|---|
-| Dữ liệu cũ có còn đọc đúng không | Có, **sau khi chạy script ở B6.4**. Không chạy thì các bản ghi id lưu chuỗi không khớp truy vấn |
-| Route nào đổi hành vi | Picking List, quét hàng, nhập thêm hàng hết báo lỗi sai; gợi ý đóng gói dùng số đã quét. Không route nào đổi request/response |
-| Luồng nào bị ảnh hưởng | Lấy hàng, nhập hàng, gợi ý đóng gói, nhập lại hàng hoàn, thông báo `sync_failed` |
-| Luồng nào không bị ảnh hưởng | Cấu hình kho/khu/ô, kiểm kê, chuyển ô, nối SKU, gộp tồn, giữ chỗ K5, giao hàng, vật liệu đóng gói, đăng nhập |
+| Câu hỏi                          | Trả lời                                                                                                                       |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Dữ liệu cũ có còn đọc đúng không | Có, **sau khi chạy script ở B6.4**. Không chạy thì các bản ghi id lưu chuỗi không khớp truy vấn                               |
+| Route nào đổi hành vi            | Picking List, quét hàng, nhập thêm hàng hết báo lỗi sai; gợi ý đóng gói dùng số đã quét. Không route nào đổi request/response |
+| Luồng nào bị ảnh hưởng           | Lấy hàng, nhập hàng, gợi ý đóng gói, nhập lại hàng hoàn, thông báo `sync_failed`                                              |
+| Luồng nào không bị ảnh hưởng     | Cấu hình kho/khu/ô, kiểm kê, chuyển ô, nối SKU, gộp tồn, giữ chỗ K5, giao hàng, vật liệu đóng gói, đăng nhập                  |
 
 ## B6.7. Hạn chế hiện tại và hướng khắc phục
 
-| Hạn chế | Ảnh hưởng | Hướng khắc phục |
-|---|---|---|
-| Tìm tồn có nhánh dự phòng "dòng chưa gắn nhãn" | Hàng chưa gộp tồn vẫn lấy được nên khó phát hiện còn thiếu bước "Đồng bộ tồn"; báo cáo tồn theo SKU nội bộ vẫn thiếu phần này | Tự gắn nhãn khi nối SKU / gán ô, rồi bỏ nhánh dự phòng |
-| So SKU không phân biệt hoa thường dùng biểu thức chính quy | Không dùng được index, chậm khi dữ liệu lớn (không đáng kể ở quy mô demo) | Lưu thêm cột SKU đã chuẩn hóa có index |
-| Các chỗ khác vẫn so SKU nguyên văn (nối SKU, danh sách "SKU chưa gán ô") | Gõ khác hoa thường có thể báo `MAP_SELLER_SKU_UNKNOWN` hoặc hiện "chưa gán" sai | Như trên — dùng cột SKU đã chuẩn hóa ở mọi nơi |
-| Script không đổi được giá trị không phải id | Thông báo `sync_failed` cũ mất liên kết điều hướng | Chấp nhận; tùy chọn `--null-invalid` |
+| Hạn chế                                                                  | Ảnh hưởng                                                                                                                     | Hướng khắc phục                                        |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Tìm tồn có nhánh dự phòng "dòng chưa gắn nhãn"                           | Hàng chưa gộp tồn vẫn lấy được nên khó phát hiện còn thiếu bước "Đồng bộ tồn"; báo cáo tồn theo SKU nội bộ vẫn thiếu phần này | Tự gắn nhãn khi nối SKU / gán ô, rồi bỏ nhánh dự phòng |
+| So SKU không phân biệt hoa thường dùng biểu thức chính quy               | Không dùng được index, chậm khi dữ liệu lớn (không đáng kể ở quy mô demo)                                                     | Lưu thêm cột SKU đã chuẩn hóa có index                 |
+| Các chỗ khác vẫn so SKU nguyên văn (nối SKU, danh sách "SKU chưa gán ô") | Gõ khác hoa thường có thể báo `MAP_SELLER_SKU_UNKNOWN` hoặc hiện "chưa gán" sai                                               | Như trên — dùng cột SKU đã chuẩn hóa ở mọi nơi         |
+| Script không đổi được giá trị không phải id                              | Thông báo `sync_failed` cũ mất liên kết điều hướng                                                                            | Chấp nhận; tùy chọn `--null-invalid`                   |
+
+---
+
+# PHẦN B7 — XOÁ HẲN MỤC TẠO NHẦM VÀ SỬA GÁN NHẦM Ô 🆕 (10/10/2026)
+
+## B7.1. Bối cảnh
+
+Trong quá trình thiết lập kho thử nghiệm, nhiều kho, khu, ô và SKU nội bộ được tạo nhầm hoặc tạo thử; một số SKU được gán sai ô. Trước đợt này hệ thống chỉ có **vô hiệu hoá** (ẩn) và không có cách dời một SKU sang ô đúng. Đợt này bổ sung hai nhóm chức năng:
+
+1. **Xoá hẳn** kho / khu / ô / SKU nội bộ **chưa từng được sử dụng**.
+2. **Sửa gán nhầm**: dời một dòng "SKU trên ô" sang ô đúng.
+
+**Không xoá dữ liệu trực tiếp trên MongoDB.** Các collection kho liên kết chặt với nhau (ô → dòng tồn → sổ cái → giữ hàng). Xoá tay một bản ghi sẽ để lại dữ liệu mồ côi, dẫn tới các lỗi như Picking List báo "CHƯA GÁN VỊ TRÍ". Mọi thao tác xoá phải qua API dưới đây.
+
+## B7.2. Quy tắc "chưa từng dùng thì xoá hẳn, đã dùng thì chỉ vô hiệu hoá"
+
+| Đối tượng  | Được xoá hẳn khi                                                                 | Nếu đã dùng                                     |
+| ---------- | -------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Ô (kệ)     | Không ô nào còn hàng **và** chưa có dòng sổ cái nào trỏ tới ô                    | Dùng `DELETE` thường để vô hiệu hoá             |
+| Khu        | Tất cả ô trong khu thoả điều kiện trên                                           | Vô hiệu hoá khu                                 |
+| Kho        | Tất cả ô trong kho thoả điều kiện trên **và** sổ cái không có dòng nào thuộc kho | Vô hiệu hoá kho                                 |
+| SKU nội bộ | Không còn SKU sàn nối vào, không nằm trên ô nào, chưa có dòng sổ cái nào         | Vô hiệu hoá, hoặc "Thay thế SKU" nếu đặt sai mã |
+
+"Chưa có dòng sổ cái" nghĩa là chưa từng nhập hàng, kiểm kê, chuyển ô, lấy hàng hay nhập lại hàng hoàn tại đó. Lý do giữ lại các mục đã dùng: sổ cái là bằng chứng nhập–xuất, phải luôn trỏ được về ô và SKU thật.
+
+Khi xoá hẳn ô / khu / kho, các dòng "SKU trên ô" có **tồn = 0 và chưa từng nhập–xuất** (gán thử) được xoá cùng. Toàn bộ thao tác chạy trong **một transaction**: hoặc xoá hết, hoặc không xoá gì.
+
+## B7.3. API
+
+| Method | Route                                                                  | Role  | Trả về                                                                |
+| ------ | ---------------------------------------------------------------------- | ----- | --------------------------------------------------------------------- |
+| DELETE | `/warehouse/bin-locations/:binId/permanent`                            | Admin | `{ warehouses, zones, bins, assignments }` — số bản ghi đã xoá        |
+| DELETE | `/warehouse/zones/:zoneId/racks/permanent?aisle=&side=&bay=`           | Admin | như trên — xoá **nguyên kệ hoặc nguyên dãy** trong 1 lần gọi          |
+| DELETE | `/warehouse/zones/:zoneId/permanent`                                   | Admin | như trên                                                              |
+| DELETE | `/warehouse/warehouses/:warehouseId/permanent`                         | Admin | như trên                                                              |
+| DELETE | `/master-skus/:code/permanent`                                         | Admin | `{ deleted: true, masterSku }`                                        |
+| PATCH  | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId` | Admin | Dòng "SKU trên ô" tại ô đích (cùng định dạng các API gán SKU hiện có) |
+
+Các route `DELETE` cũ (không có `/permanent`) **giữ nguyên hành vi vô hiệu hoá**.
+
+### Ví dụ: xoá hẳn một khu tạo thử
+
+```http
+DELETE /warehouse/zones/66f1a2b3c4d5e6f708192a3b/permanent
+Authorization: Bearer <token Admin>
+```
+
+Thành công (200):
+
+```json
+{ "warehouses": 0, "zones": 1, "bins": 12, "assignments": 2 }
+```
+
+Khu đã có nhập–xuất (409):
+
+```json
+{
+  "error_code": "WH_HAS_HISTORY",
+  "message": "Khu \"KA\" đã có lịch sử nhập–xuất hàng — chỉ vô hiệu hoá được (DELETE thường), không xoá hẳn để giữ sổ cái.",
+  "details": { "zoneId": "66f1a2b3c4d5e6f708192a3b" }
+}
+```
+
+### Ví dụ: xoá hẳn nguyên kệ hoặc nguyên dãy
+
+Tạo kệ là 1 lệnh (`POST /warehouse/zones/:zoneId/racks`), nên xoá kệ cũng là 1 lệnh. FE không phải gọi xoá từng ô.
+
+| Muốn xoá                             | Query                         |
+| ------------------------------------ | ----------------------------- |
+| Đúng 1 kệ chuẩn mới (VD `KA-D1-P02`) | `?aisle=D1&side=P&bay=2`      |
+| 1 bên của dãy (mọi kệ bên P của D1)  | `?aisle=D1&side=P`            |
+| Cả dãy D1 (cả 2 bên)                 | `?aisle=D1`                   |
+| 1 kệ kiểu cũ (không có bên T/P)      | `?aisle=<mã dãy>&bay=<số kệ>` |
+
+```http
+DELETE /warehouse/zones/66f1a2b3c4d5e6f708192a3b/racks/permanent?aisle=D1&side=P&bay=2
+Authorization: Bearer <token Admin>
+```
+
+Thành công (200): `{ "warehouses": 0, "zones": 0, "bins": 9, "assignments": 0 }`
+
+Quy tắc **tất cả hoặc không gì**: chỉ cần 1 ô trong phạm vi đã có hàng hoặc lịch sử nhập–xuất là trả 409 (`WH_HAS_STOCK` / `WH_HAS_HISTORY`) và **không xoá ô nào**, để kệ không bị thủng lỗ trên sơ đồ.
+
+Lỗi riêng của API này:
+
+| HTTP | `error_code`             | Khi nào                                                                        |
+| ---- | ------------------------ | ------------------------------------------------------------------------------ |
+| 404  | `WH_BIN_NOT_FOUND`       | Không có ô nào khớp dãy/bên/kệ đã chọn trong khu                               |
+| 400  | `WH_INVALID_RACK_LAYOUT` | Truyền `bay` mà không truyền `side`, trong khi dãy có kệ số đó ở cả bên T và P |
+
+**Gợi ý giao diện:** trên sơ đồ kệ, thêm nút "Xoá kệ" (và "Xoá dãy" ở tiêu đề dãy), hộp xác nhận ghi rõ số ô sẽ bị xoá. Nếu nhận 409 thì hiện thông báo của BE và gợi ý dùng "Vô hiệu hoá".
+
+### Ví dụ: sửa gán nhầm ô
+
+```http
+PATCH /warehouse/warehouses/66f0.../sku-bin-assignments/66f3...
+Content-Type: application/json
+
+{ "to_bin_location_id": "66f2...", "note": "Gán nhầm ô lúc thiết lập kho" }
+```
+
+| Trường               | Bắt buộc | Ý nghĩa                                    |
+| -------------------- | -------- | ------------------------------------------ |
+| `to_bin_location_id` | Có       | Ô đúng, phải cùng kho và đang hoạt động    |
+| `force`              | Không    | `true` = bỏ qua chặn vượt sức chứa ô đích  |
+| `note`               | Không    | Ghi chú, lưu vào sổ cái khi có chuyển hàng |
+
+Hành vi:
+
+- **Ô hiện tại hết hàng:** chỉ đổi ô, không phát sinh dòng sổ cái. Nếu ô đích đã có sẵn dòng của đúng SKU đó, hệ thống bỏ dòng cũ và trả về dòng ở ô đích.
+- **Ô hiện tại còn hàng:** chuyển **toàn bộ** số đang có sang ô đích (2 dòng sổ cái "chuyển ô", kiểm tra sức chứa như API chuyển hàng), sau đó bỏ dòng cũ.
+
+### Ví dụ: xoá hẳn SKU nội bộ tạo nhầm
+
+```http
+DELETE /master-skus/ATHUN-005-DEN-M/permanent
+```
+
+Thứ tự thao tác nếu SKU đã được nối hoặc gán ô:
+
+1. Bỏ nối từng SKU sàn: `DELETE /master-skus/mappings/:id`.
+2. Bỏ gán khỏi ô: `DELETE /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId` (tồn phải = 0).
+3. Gọi lại `DELETE /master-skus/:code/permanent`.
+
+## B7.4. Mã lỗi mới
+
+| Mã                  | HTTP | Khi nào                                                 | FE xử lý                                                                             |
+| ------------------- | ---- | ------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `WH_HAS_HISTORY`    | 409  | Xoá hẳn ô/khu/kho đã có nhập–xuất                       | Thông báo "Mục này đã có lịch sử, chỉ có thể vô hiệu hoá" và đề xuất nút Vô hiệu hoá |
+| `WH_HAS_STOCK`      | 409  | Xoá hẳn khi còn hàng (mã đã có, dùng lại)               | Hiện số lượng `unitsInStock`, hướng dẫn chuyển hàng trước                            |
+| `MSKU_HAS_STOCK`    | 409  | Xoá SKU nội bộ đang nằm trên ô                          | Hướng dẫn bỏ gán khỏi ô                                                              |
+| `MSKU_HAS_HISTORY`  | 409  | Xoá SKU nội bộ đã có nhập–xuất                          | Đề xuất Vô hiệu hoá hoặc Thay thế SKU                                                |
+| `MSKU_HAS_MAPPINGS` | 409  | Xoá SKU nội bộ còn SKU sàn nối vào (mã đã có, dùng lại) | Hướng dẫn bỏ nối                                                                     |
+| `WH_SAME_BIN`       | 400  | Sửa gán nhầm nhưng chọn đúng ô đang gán                 | Báo chọn ô khác                                                                      |
+| `WH_STOCK_CHANGED`  | 409  | Ô vừa được nhập hàng trong lúc sửa                      | Tải lại dữ liệu rồi thử lại                                                          |
+
+## B7.5. Gợi ý giao diện
+
+- Mỗi dòng kho / khu / ô / SKU nội bộ có **hai hành động tách biệt**: "Vô hiệu hoá" (`DELETE`) và "Xoá hẳn" (`DELETE .../permanent`). Nút "Xoá hẳn" luôn có hộp thoại xác nhận nêu rõ thao tác không hoàn tác được.
+- Khi "Xoá hẳn" trả `WH_HAS_HISTORY` / `MSKU_HAS_HISTORY`, giao diện chuyển sang đề xuất "Vô hiệu hoá".
+- Màn "Tồn kho theo vị trí": thêm hành động **"Chuyển sang ô khác"** trên từng dòng, gọi `PATCH .../sku-bin-assignments/:assignmentId`.
+
+## B7.6. Cách demo
+
+1. Admin tạo một khu thử `KZ` và một kệ trong khu (`POST /warehouse/zones/:zoneId/racks`).
+2. Gọi `DELETE /warehouse/zones/:zoneId/permanent` → khu và toàn bộ ô biến mất khỏi danh sách (kể cả khi bật `include_inactive=true`).
+3. Gán một SKU vào ô A (tồn 0) → `PATCH .../sku-bin-assignments/:id` với `to_bin_location_id` = ô B → danh sách hiện SKU ở ô B.
+4. Nhập 5 sản phẩm vào ô B → `PATCH` dời sang ô C → ô C có 5, ô B không còn dòng; lịch sử nhập–xuất của dòng ở ô C có 1 dòng "chuyển vào".
+5. Thử `DELETE /warehouse/bin-locations/<ô B>/permanent` → 409 `WH_HAS_HISTORY` (ô B đã có nhập–xuất) → dùng `DELETE` thường để vô hiệu hoá.
+
+## B7.7. Tác động tới dữ liệu và luồng đã có
+
+1. **Dữ liệu cũ:** không đổi cấu trúc dữ liệu, không cần migration. Thêm 3 index (MongoDB tự tạo khi BE khởi động): `inventory_movements.bin_location_id`, `inventory_movements.master_sku` (partial), `sku_bin_assignments.master_sku` (partial).
+2. **Route cũ:** không route nào đổi hành vi. `DELETE` thường vẫn là vô hiệu hoá.
+3. **Luồng đọc dữ liệu kho:** Picking List, lấy hàng, giữ hàng chỉ đọc ô/dòng tồn còn tồn tại. Mục bị xoá hẳn là mục chưa từng có hàng nên không có nhóm đơn nào đang trỏ tới.
+4. **Không ảnh hưởng:** đơn hàng, `product_master` (SKU Lazada), nhóm đơn, đóng gói, vận chuyển.
+5. **Hạn chế:** phần giữ hàng (`stock_reservations`) không được kiểm tra khi xoá SKU nội bộ; giữ hàng chỉ phát sinh khi SKU đã được nối với SKU sàn, mà điều kiện "không còn SKU sàn nối vào" đã chặn trường hợp này.
+
+## B7.8. Script dọn dữ liệu kho test một lần (BE chạy, không cần FE)
+
+Dùng khi kho thử đã có quá nhiều mã tạo nhầm, muốn dọn sạch một lần thay vì bấm xoá từng mục. Script áp dụng **đúng quy tắc của B7.2** bằng cách gọi lại chính các hàm của API xoá hẳn, nên kết quả giống hệt việc gọi API từng mục.
+
+**Script làm gì:**
+
+| Đối tượng                                                                               | Hành động                                  |
+| --------------------------------------------------------------------------------------- | ------------------------------------------ |
+| Kho / khu / ô chưa từng dùng                                                            | Xoá hẳn (kèm dòng gán SKU tồn 0 bên trong) |
+| Kho / khu / ô đã có hàng hoặc lịch sử nhập–xuất                                         | Giữ nguyên, chỉ liệt kê                    |
+| Khu / ô mồ côi (kho hoặc khu cha không còn)                                             | Xoá hẳn nếu chưa từng dùng                 |
+| Dòng gán SKU mồ côi tồn 0 (trỏ tới kho/ô không còn — nguyên nhân lỗi "CHƯA GÁN VỊ TRÍ") | Xoá hẳn                                    |
+| Dòng gán SKU mồ côi còn tồn > 0                                                         | Giữ, báo "CẦN KIỂM TRA"                    |
+| Sổ cái, đơn hàng, master SKU, mapping, product master                                   | Không đụng tới                             |
+
+**Ô được xét theo nguyên kệ:** một kệ (cùng khu, dãy, phía, số kệ) chỉ bị xoá khi **mọi ô** trong kệ chưa từng dùng. Kệ có dù chỉ 1 ô đã có hàng hoặc lịch sử thì giữ nguyên cả kệ, để sơ đồ kho không bị thủng lỗ. Muốn bỏ một ô lẻ, dùng API `DELETE /warehouse/bin-locations/:binId/permanent`.
+
+**Các bước (chạy trong thư mục `be`):**
+
+1. **Chạy thử — không ghi gì**, xem bảng kế hoạch (cột `hanh_dong` = XOÁ HẲN / GIỮ):
+   ```bash
+   npx ts-node -r dotenv/config scripts/cleanup-warehouse-test-data.ts --all
+   # hoặc chỉ một vài kho:
+   npx ts-node -r dotenv/config scripts/cleanup-warehouse-test-data.ts --warehouse=<id_kho_1>,<id_kho_2>
+   ```
+2. Đọc kỹ bảng. **Lưu ý:** kho/kệ trống đã dựng sẵn nhưng chưa nhập hàng cũng tính là "chưa từng dùng" và sẽ bị xoá. Nếu có kho thật cần giữ, dùng `--warehouse=` chỉ chọn kho test.
+3. **Xoá thật** — thêm `--apply` vào đúng lệnh vừa chạy thử:
+   ```bash
+   npx ts-node -r dotenv/config scripts/cleanup-warehouse-test-data.ts --all --apply
+   ```
+   Script tự ghi file backup `be/backups/warehouse-cleanup-<thời gian>.json` **trước khi xoá** (thư mục này đã được đưa vào `.gitignore`).
+4. Mở lại màn hình kho để kiểm tra. Nếu có dòng "CẦN KIỂM TRA", đối chiếu hàng thật rồi xử lý bằng kiểm kê hoặc API PATCH chuyển ô (B7.3).
+
+**An toàn:**
+
+- Bắt buộc chọn `--all` hoặc `--warehouse=...`; cờ gõ sai (VD `--aply`) → dừng ngay, không ghi gì.
+- Mỗi kho/khu/ô được xoá trong một transaction riêng và được kiểm tra lại ngay lúc xoá; nếu dữ liệu vừa thay đổi (VD có người vừa nhập hàng) thì mục đó bị bỏ qua và được liệt kê ở cuối.
+- Phần mồ côi được xoá chung một transaction, vẫn kèm điều kiện tồn 0 ngay trong lệnh xoá.
 
 ---
 
@@ -911,6 +1109,8 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 | Mã                                                 | HTTP        | Khi nào                                                        |
 | -------------------------------------------------- | ----------- | -------------------------------------------------------------- |
 | `WH_WAREHOUSE_NOT_FOUND`                           | 400/404     | Id kho sai định dạng / không tồn tại                           |
+| 🆕 `WH_HAS_HISTORY` (10/10)                        | 409         | Xoá hẳn ô/khu/kho đã có nhập–xuất (xem B7)                     |
+| 🆕 `MSKU_HAS_STOCK` / `MSKU_HAS_HISTORY` (10/10)   | 409         | Xoá hẳn SKU nội bộ đang nằm trên ô / đã có nhập–xuất (xem B7)  |
 | `WH_ZONE_NOT_FOUND`                                | 400/404     | Id khu sai / không tồn tại                                     |
 | 🆕 `WH_BIN_NOT_FOUND`                              | 400/404     | Id kệ sai / không tồn tại                                      |
 | 🆕 `WH_WAREHOUSE_INACTIVE`                         | 409         | Thao tác trên kho đã tắt                                       |
@@ -985,4 +1185,3 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] Nhập thêm hàng → `201` (trước đây `404`)
 - [ ] Quét thiếu so với đơn rồi tạo gợi ý đóng gói → số lượng theo số đã quét
 - [ ] Kiểm hàng hoàn `restock` vào ô chưa từng chứa SKU đó → dòng tồn mới có `masterSku` (SKU đã nối) hoặc `sellerSku` (SKU chưa nối)
-

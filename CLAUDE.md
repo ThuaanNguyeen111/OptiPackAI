@@ -2546,6 +2546,8 @@ inventory_movements    master_sku, bin_location_id, delta (+/-), type (receive|p
 
 ## PHẦN II — GIAO HÀNG TỰ THÂN (OWN FLEET) + HOÀN/ĐỔI HÀNG + TÁI SỬ DỤNG BAO BÌ
 
+> **ĐÃ THAY ĐỔI so với thiết kế giao hàng tự thân (07/10/2026, theo góp ý giảng viên):** shop không tự giao nữa — sau đóng gói, OptiPack gọi đơn vị vận chuyển thứ ba (GHN trước) để tạo vận đơn và lấy phí ship; trạng thái đến từ webhook GHN (demo: trang giả lập shipper). Luồng nút bấm G1 bên dưới chỉ còn áp dụng cho vận đơn `carrier = self`. Xem nhật ký 07/10 cuối file và `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md`.
+
 ### II.1. Hiện trạng code
 
 Giao hàng hiện chỉ là 3 nút đổi trạng thái trên `order_groups` (`ship`, `deliver`, `return`). Chưa có collection vận đơn, tracking, lần giao thất bại, hoàn/đổi. Có sẵn dùng được: `reverse_order_id` trên Order, 19 trạng thái Lazada đã map, `addBusinessHours()`, mẫu cron SLA, mẫu `client_event_id` (idempotency) từ `pick-item`.
@@ -3271,3 +3273,105 @@ npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts            # ch�
 
 **Commit đề xuất:** `git merge origin/feature/viet_befe` (giữ tên Việt) → chép file → `fix(AOFP-64): declare id fields as schematypes objectid and fix restock lookups` (code + test + script) → `docs(AOFP-65): document objectid fix, migration script and viet stock lookup merge` (toàn bộ tài liệu). Số AOFP cần đối chiếu `git log` trước khi commit.
 
+## 🚚 Nhật ký 07–08/10/2026 — Chuyển sang giao hàng qua GHN (THIẾT KẾ, CHƯA CODE)
+
+**Quyết định:** theo góp ý giảng viên, bỏ mô hình đội giao của shop. Sau khi đóng gói: đổi địa chỉ người nhận sang mã GHN → Calculate Fee → Preview → Create Order (nhận `order_code`, `total_fee`, `expected_delivery_time`) → in nhãn GHN → trạng thái cập nhật qua webhook GHN. Demo: phần phí và vận đơn gọi GHN môi trường test thật; phần đổi trạng thái do **trang mobile giả lập shipper** gửi đúng payload webhook GHN, xử lý qua cùng hàm với webhook thật (`source: simulator`).
+
+**Đã đọc tài liệu GHN (developer.ghn.vn, 07/10):** Create/Preview/Cancel Order, Order Info (theo `order_code` và `client_order_code`), Calculate Fee, Leadtime, Get Service, Get Province/District/Ward (cũ + mới 2 cấp), Get/Create Shop, Print (gen-token), Order Status Codes, Reason Codes, Order Status Callback. Chi tiết field trong `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` mục 2.
+
+**Phát hiện quan trọng:**
+1. Calculate Fee và Leadtime chỉ nhận `to_district_id` + `to_ward_code` (địa chỉ kiểu cũ); Create Order nhận tên (có `is_new_to_address` cho địa chỉ 2 cấp). → Bắt buộc có khâu đổi địa chỉ sang mã GHN, khớp không được thì chọn tay.
+2. `orders.recipient` hiện chỉ lưu `address_line1/2`, `city` — mapper Lazada bỏ `address3/4/5` (tỉnh/quận/phường). → Phải thêm `province_name/district_name/ward_name` (cần đối chiếu response Lazada thật sau sáp nhập 07/2025).
+3. Webhook GHN không có chữ ký → bảo vệ bằng secret + kiểm `ShopID` + `OrderCode` có trong DB. GHN không gửi lại khi nhận 4xx (trừ 408/429) → lỗi phía OptiPack vẫn trả 200 + ghi log.
+4. Tài liệu không nói môi trường test có tự đổi trạng thái / tự gửi webhook → kiểm chứng bằng Order Info sau vài giờ (Bước 4.7 trong hướng dẫn).
+
+**Tác động:** `shipments` thêm `carrier`, `carrier_order_code`, `carrier_status`, `carrier_fee`, `parcel`, `to_location`, `expected_delivery_at`; trạng thái mới `awaiting_pickup`, `in_transit`, `cancelled`. Vận đơn cũ đọc như `carrier = self`, nút G1 giữ cho `self`, chặn với `ghn`. Luật số lần giao/khoảng cách giao lại của G1 không áp dụng cho GHN. Kế hoạch commit C1–C6 (AOFP-66 → 71) + docs AOFP-72 trong hướng dẫn mục 6.
+
+### 📦 C1 (08/10/2026) — Địa chỉ có cấu trúc cho đơn hàng (bước 1 tích hợp GHN) — ĐÃ CODE
+
+**Code:** `orders/utils/vn-administrative-area.util.ts` MỚI (hàm thuần: `normalizeVietnameseText`, `classifyAdministrativeUnit`, `extractAdministrativeAreas`) + spec 21 test. `order.schema.ts` → `RecipientAddress` thêm `province_name`, `district_name`, `ward_name` (`type: String`, `default: null` — Rule #23; KHÔNG index vì không lọc/sắp xếp theo — Rule #3/#4). `lazada-order.mapper.ts` tách `address3/4/5` qua `extractAdministrativeAreas` + 3 test. `orders.controller.ts` → `GET /orders/:id` trả thêm `recipientProvince`, `recipientDistrict`, `recipientWard` (camelCase ở response, snake_case trong Mongo — Rule #11). `orders.service.ts` → `backfillRecipientAreas(shopId, {lookbackDays, dryRun})`: đọc lại GetOrders theo trang 100, `bulkWrite` mỗi trang (Rule #14), lọc đúng index unique `{platform, shop_id, platform_order_id}`, không upsert. Script `scripts/backfill-order-recipient-areas.ts` (`--dry-run`, `--days=90`).
+
+**Vì sao phân loại theo TIỀN TỐ chứ không gán cứng vị trí:** sau sáp nhập 01/07/2025 nhiều địa chỉ chỉ còn Tỉnh → Phường; sàn có thể đặt phường vào vị trí của quận. Ví dụ thật: kho demo "Phường Bình Lợi Trung" không có trong danh mục GHN kiểu cũ (chỉ có Phường 1…28 của Bình Thạnh). "Thành phố X" là cấp tỉnh chỉ khi X là 1 trong 6 thành phố trực thuộc trung ương, còn lại là cấp quận (TP Thủ Đức, TP Thủ Dầu Một). Chuỗi không có tiền tố lấp theo vị trí, không ghi đè cấp đã nhận theo tiền tố.
+
+**Kiểm chứng:** tsc 0 lỗi; eslint toàn `src` 0 lỗi; jest 40/40 suite — 377/377 test (trước C1: 39 suite / 349 test; C1 thêm 1 suite + 28 test).
+
+**Môi trường kiểm thử trên máy Windows của user qua VM Linux:** `unrs-resolver` (jest-resolve 30) là thư viện native, `node_modules` cài trên Windows chỉ có bản win32 → jest báo nhầm "Module ts-jest in the transform option was not found". Cách chạy test trong VM mà KHÔNG sửa `node_modules` của repo: cài `@unrs/resolver-binding-linux-x64-gnu@<cùng version unrs-resolver>` vào thư mục riêng ngoài repo rồi chạy với `NODE_PATH=<thư mục đó>/node_modules`. Lệnh chạy nền bị kill khi lệnh shell kết thúc → chạy jest theo từng nhóm module, mỗi lần < 3 phút.
+
+**Tác động & xử lý xung đột (quy tắc 26/09):**
+1. Dữ liệu cũ: đơn trước 08/10 không có 3 field → type khai optional `?: string | null`, response trả `null`. Mỗi lần cron sync chạm lại đơn (đổi trạng thái) mapper tự điền. Đơn không còn thay đổi → chạy script backfill (chạy thử `--dry-run` trước để xem 5 mẫu, chạy lại an toàn).
+2. Route đổi hành vi: chỉ `GET /orders/:id` THÊM 3 field, không bỏ/đổi field cũ. Không có lỗi mới.
+3. Luồng đọc bị ảnh hưởng: chưa có (C3 address resolver sẽ đọc). `returns.service.ts` tạo đơn `EXC-` chép nguyên `recipient` → tự mang theo 3 field mới. `consolidation_key` KHÔNG đổi (vẫn tính từ phone + address1 + city) → không làm lệch gộp đơn cũ.
+4. Không ảnh hưởng: gộp đơn, nhóm đơn, lấy hàng, đóng gói, kho, vận đơn G1, thông báo.
+5. Lỗi có sẵn phát hiện khi làm (CHƯA sửa, ngoài phạm vi C1): `syncLazadaOrders()` chỉ gọi `getOrders()` 1 lần (`limit` mặc định 100, không phân trang) → nếu > 100 đơn thay đổi giữa 2 lượt sync, phần dư không được đồng bộ ở lượt đó, và `last_polled_at` vẫn tiến lên → có thể mất đơn vĩnh viễn. Quy mô demo chưa chạm ngưỡng; nên sửa (lặp theo `offset` như `backfillRecipientAreas`) trước khi có nhiều đơn thật. **Đối chiếu dữ liệu thật (08/10/2026, `--dry-run` trên shop 201171264532, 31 đơn/90 ngày):** Lazada **CHE** `address3/4/5` bằng dấu `*` (VD `T**h`, `P**h`, `T*****h`), còn `city` chứa đúng tên **phường kiểu mới** ("Phường Gia Định", "Phường Tân Bình"). Nếu ghi theo giả định ban đầu sẽ lưu `T**h` làm tên tỉnh. Đã sửa: `isMaskedValue()` bỏ qua mọi chuỗi có `*`; mapper đưa `city` vào làm phần tử thứ 4 (chỉ dùng khi nhận ra theo tiền tố); script in thêm `statuses`, `address1Tail` (2 đoạn cuối address1, chữ số thay bằng #), số đơn thiếu tỉnh và số đơn bị che. **Hệ quả cho C3:** với Lazada, OptiPack thường chỉ có PHƯỜNG (kiểu mới) — tỉnh phải suy ra từ danh mục phường mới của GHN (tra tên phường → tỉnh) hoặc từ đuôi `address1`; Calculate Fee lại cần mã quận + mã phường kiểu cũ → bộ đổi địa chỉ phải ánh xạ phường mới → phường cũ, khớp không chắc thì Shipping Coordinator chọn tay.
+
+### 📦 C2 (08/10/2026) — Module `carriers/`: adapter GHN + adapter mock — ĐÃ CODE
+
+**Code:** `config/carrier.config.ts` MỚI (namespace `carrier`, đăng ký trong `app.module.ts`). Module MỚI `modules/carriers/`: `carrier.types.ts` (kiểu chung snake_case — tầng chống rò rỉ đặc thù hãng, cùng tinh thần Rule #22), `carrier-adapter.interface.ts` (token DI `CARRIER_ADAPTER` + hợp đồng 8 hàm: calculateFee, getAvailableServices, previewShipment, createShipment, cancelShipment, getShipmentDetail, getShipmentDetailByClientCode, createLabel), `carriers.errors.ts` (9 mã `CARRIER_*`), `adapters/ghn.adapter.ts`, `adapters/mock.adapter.ts`, `utils/parcel.util.ts` (giới hạn 50 kg/200 cm, trọng lượng quy đổi/tính cước), `carriers.module.ts` (`selectCarrierAdapter`). Script `scripts/ghn-smoke-test.ts` (chỉ đọc: Get Service + Calculate Fee 2 phương án). `.env.example` thêm khối đơn vị vận chuyển. Test: `ghn.adapter.spec.ts` (16), `mock.adapter.spec.ts` (9), `carriers.module.spec.ts` (2, dựng DI thật).
+
+**Quyết định kỹ thuật:**
+- Chọn adapter theo `CARRIER_MODE` (`ghn_staging` / `ghn_production` / `mock`); không đặt → GHN nếu có `GHN_TOKEN`, ngược lại mock + cảnh báo. Thiếu token KHÔNG chặn app khởi động — báo `CARRIER_NOT_CONFIGURED` lúc gọi.
+- **Thử lại** (lỗi mạng/5xx/429, tối đa 3 lần, 300 ms × 2ⁿ): bật cho các thao tác đọc, tính phí, xem trước, sinh token in, và **tạo vận đơn** (an toàn vì đã kiểm chứng 08/10 GHN trả lại vận đơn cũ khi trùng `client_order_code`). **Tắt** cho huỷ vận đơn. Lỗi 4xx không bao giờ thử lại.
+- Ánh xạ lỗi GHN → mã OptiPack: `PHONE_INVALID`→`CARRIER_INVALID_PHONE`; mã chứa PROVINCE/DISTRICT/WARD/ADDRESS (VD `PROVINCE_NAME_NOT_VALID`, `FROM_ADDRESS_CONVERT_FAIL` — đều gặp thật 08/10)→`CARRIER_INVALID_ADDRESS`; `ROUTE_NOT_FOUND_SERVICE`/`SERVICE_NOT_FOUND_CONFIG_FEE`→`CARRIER_ROUTE_NOT_SUPPORTED`; `CLIENT_NOT_OWNER_OF_SHOP`/401/403→`CARRIER_UNAUTHORIZED` (HTTP 502 — lỗi cấu hình hệ thống, không phải quyền người dùng); không phản hồi/5xx→`CARRIER_UNAVAILABLE` (502). Giữ nguyên câu báo tiếng Việt của GHN (`code_message_value`) làm `message`.
+- Tạo/xem trước vận đơn gửi **cả mã lẫn tên** địa chỉ (kiểm chứng 08/10). Body JSON UTF-8.
+- Kiểm tra kiện (số nguyên dương, ≤ 50 kg, mỗi cạnh ≤ 200 cm) TRƯỚC khi gọi hãng → `CARRIER_PARCEL_LIMIT_EXCEEDED`.
+- `getAvailableServices` cần quận của kho → lấy từ Get Shop 1 lần rồi cache trong adapter.
+- Token in nhãn sống ~30 phút → `expires_at` = 25 phút; KHÔNG lưu URL in.
+- Mock: phí theo bậc 500 g của trọng lượng tính cước (hệ số quy đổi 5000), mốc 20.900đ cho ≤ 1 kg khớp phí GHN thật đo 08/10; tạo lại cùng mã trả cùng mã (giống GHN). Hệ số 5000 chỉ dùng cho mock/sắp xếp sơ bộ — tài liệu API GHN không công bố hệ số, phí thật luôn hỏi GHN.
+
+**Kiểm chứng:** tsc 0; eslint toàn `src` + 2 script mới 0 lỗi; jest `carriers` 3/3 suite — 27/27 test (toàn hệ thống 43 suite / 404 test). Lần đầu chạy `carriers.module.spec.ts` lỗi DI vì test dựng `ConfigModule` không `isGlobal` — app thật dùng `isGlobal: true` nên không lỗi; test đã sửa cho giống app.
+
+**Tác động & xử lý xung đột (quy tắc 26/09):**
+1. Dữ liệu cũ: không có schema mới, không migration.
+2. Route đổi hành vi: chưa có route nào (C4 mới mở API).
+3. Luồng đọc/ghi bị ảnh hưởng: không. Module chưa được service nào inject.
+4. Không ảnh hưởng: toàn bộ module hiện có; app khởi động bình thường cả khi chưa có GHN_TOKEN (tự dùng mock).
+5. Lỗi có sẵn: không phát hiện thêm. Biến `.env` cũ `SHIPPER_SIMULATOR_ENABLED` (đề xuất trước khi chốt "chỉ web") đã bỏ — thay bằng `CARRIER_MANUAL_STATUS_ENABLED`.
+
+## 🧹 Nhật ký 10/10/2026 — Xoá hẳn mục tạo nhầm + sửa gán nhầm ô (báo cáo Hải Phượng) — ĐÃ CODE
+
+**Yêu cầu thật:** Hải Phượng thiết lập kho thử bị "nhiều mã quá, hoa mắt", hỏi kho/khu/kệ/SKU "xoá được không hay chỉ ẩn", đã gán nhầm vài SKU vào ô sai mà "không có API PATCH để sửa", đề xuất thêm API xoá hoặc vào thẳng DB xoá. Trả lời: KHÔNG xoá tay trên DB (dữ liệu mồ côi → lỗi "CHƯA GÁN VỊ TRÍ"); làm API.
+
+**Code:**
+- `warehouse.service.ts`: `purgeBin`, `purgeZone`, `purgeWarehouse` (xoá hẳn khi chưa từng dùng, 1 transaction, xoá kèm dòng gán thử tồn 0) + helper `assertBinsNeverUsed`; `moveAssignment` (sửa gán nhầm: tồn 0 → đổi `bin_location_id`; còn hàng → `transferStock` toàn bộ rồi xoá dòng nguồn đã về 0; ô đích đã có dòng cùng SKU → giữ dòng đích; bắt E11000 khi gán đồng thời). Export `PurgeResult`.
+- `warehouse.controller.ts`: `DELETE warehouses/:id/permanent`, `DELETE zones/:id/permanent`, `DELETE bin-locations/:id/permanent`, `PATCH warehouses/:wid/sku-bin-assignments/:aid` (Admin). `MoveAssignmentDto` trong `stock-operations.dto.ts`. Mã lỗi `WH_HAS_HISTORY`.
+- `master-skus.service.ts` → `purge(code)`; controller `DELETE /master-skus/:code/permanent`; mã lỗi `MSKU_HAS_STOCK`, `MSKU_HAS_HISTORY`.
+- Index mới (Rule #3, mỗi truy vấn kiểm tra có index riêng): `inventory_movements.{bin_location_id}`, `inventory_movements.{master_sku}` partial string, `sku_bin_assignments.{master_sku}` partial string (index unique cũ bắt đầu bằng `warehouse_id` không phục vụ được lọc chỉ theo `master_sku`). Kiểm tra tồn theo ô luôn kèm `warehouse_id` để dùng index unique sẵn có.
+- Test: `warehouse.service.purge.spec.ts` (11), `master-skus.service.purge.spec.ts` (5).
+
+**Quy tắc thiết kế:** "chưa từng dùng thì xoá hẳn, đã dùng thì chỉ vô hiệu hoá". "Đã dùng" = có ô còn hàng hoặc có ≥ 1 dòng `inventory_movements` trỏ tới ô/kho/SKU — mọi luồng đổi tồn (nhập, kiểm kê, chuyển ô, lấy hàng, nhập lại hàng hoàn) đều ghi sổ cái nên chỉ cần kiểm sổ cái. Mã kho/khu/ô vẫn KHÔNG sửa (in trên nhãn, nằm trong sổ cái) — đặt nhầm mà chưa dùng thì xoá hẳn rồi tạo lại. Route `DELETE` cũ giữ nguyên nghĩa vô hiệu hoá (không đổi hành vi route cũ).
+
+**Kiểm chứng:** tsc 0; eslint toàn `src` 0; jest các suite warehouse/master-skus/order-groups/shipments/common đều pass; toàn hệ thống 45 suite / 420 test.
+
+**Tác động & xử lý xung đột (quy tắc 26/09):**
+1. Dữ liệu cũ: không đổi schema, không migration; 3 index mới tự tạo khi BE khởi động (autoIndex).
+2. Route cũ: không đổi. Route mới chỉ Admin.
+3. Luồng đọc: Picking List / pick-item / giữ hàng chỉ đọc dòng còn tồn tại; mục xoá hẳn chưa từng có hàng nên không nhóm đơn nào trỏ tới. Sổ cái không bao giờ bị xoá.
+4. Không ảnh hưởng: đơn hàng, `product_master`, nhóm đơn, đóng gói, vận chuyển, GHN (C1/C2).
+5. Hạn chế/ghi nhận: không kiểm `stock_reservations` khi xoá SKU nội bộ (giữ hàng chỉ có khi SKU còn nối SKU sàn — đã bị chặn bởi `MSKU_HAS_MAPPINGS`). Việc "thống nhất SKU Lazada cũ/mới về 1 master SKU" (sản phẩm bị xoá rồi đăng lại trên Lazada với SKU mới) là việc riêng, chưa làm: hướng đi đã chốt là ánh xạ cả SKU cũ lẫn mới vào cùng master SKU + cho màn hình hiển thị master SKU; cần thêm cờ "đã gỡ khỏi Lazada" cho `product_master` và cho phép ánh xạ SKU chỉ có trong đơn hàng.
+
+### 🧹 Bổ sung 10/10/2026 — Script dọn dữ liệu kho test một lần
+
+**Lý do:** phương án đã đề xuất cho nhóm ("Dọn một lần cho sạch — script dọn dữ liệu kho test, chạy thử trước, backup trước; không vào DB xoá tay"). Hoàn tất cùng đợt với các API xoá hẳn.
+
+**Code:** `be/scripts/cleanup-warehouse-test-data.ts`. Mặc định chạy thử (chỉ đọc); `--apply` mới xoá. Bắt buộc `--all` hoặc `--warehouse=<id>[,<id>]`; cờ lạ → dừng (bài học `--dry-run~` 08/10). Lập kế hoạch bằng 3 truy vấn `distinct` (ô còn hàng, ô có sổ cái, kho có sổ cái) + đọc cây kho một lần, không N+1. Xoá kho/khu/ô bằng chính `purgeWarehouse` / `purgeZone` / `purgeBin` (kiểm tra lại lúc xoá, 1 transaction mỗi mục, `AppException` → bỏ qua và liệt kê). Mồ côi (khu/ô mất cha, dòng gán tồn 0 trỏ tới kho/ô không còn) xoá chung 1 transaction qua `connection.transaction`, điều kiện `quantity_on_hand: 0` nằm ngay trong lệnh xoá; dòng mồ côi còn tồn chỉ báo. Backup JSON ghi vào `be/backups/` trước khi xoá; thêm `be/backups/` vào `.gitignore`.
+
+**Sửa kèm:** `warehouse.service.purge.spec.ts` khai báo kiểu mock bằng `Record<'tên' | ..., jest.Mock>` thay cho `Record<string, jest.Mock>` (TS gotcha `noUncheckedIndexedAccess` → TS18048 khi `tsc -p tsconfig.json` có tính file spec).
+
+**Kiểm chứng:** `tsc -p tsconfig.json` 0 lỗi (gồm cả spec); eslint script + spec 0; jest 2 suite purge 16/16; kiểm tra chặn cờ thiếu/sai chạy đúng. Chưa chạy trên DB thật (nhóm tự chạy bước chạy thử trước).
+
+**Tác động:** (1) Dữ liệu cũ: không đổi schema. (2) Route: không đổi. (3) Luồng đọc: chỉ xoá mục chưa từng dùng và dòng tồn 0 mồ côi → Picking List hết hiện "CHƯA GÁN VỊ TRÍ" do dòng mồ côi. (4) Không đụng sổ cái, đơn hàng, master SKU, mapping, product master. (5) Hạn chế: kho/kệ trống dựng sẵn cũng bị coi là chưa dùng → dùng `--warehouse=` để giới hạn.
+
+**Chạy thử thật trên DB (10/10, máy Thuận):** 2 kho WH-HCM-01/02 đều GIỮ, không có dữ liệu mồ côi (lỗi "CHƯA GÁN VỊ TRÍ" cũ đã hết sau AOFP-64). Bản đầu xét từng ô lẻ → nhiều kệ bị xoá lẻ ô (VD kệ KA-D1-P03 giữ 1 ô, xoá 8) → sơ đồ kệ thủng lỗ. **Đã đổi:** xét theo NGUYÊN KỆ (khoá `zone + aisle + side + rack`), kệ có ≥ 1 ô đã dùng thì giữ cả kệ; ô lẻ muốn bỏ thì gọi API xoá hẳn từng ô. Log `[ioredis] Unhandled error event` khi chạy script = Redis local chưa bật, không ảnh hưởng (script chỉ dùng MongoDB).
+
+### 🧹 Bổ sung 10/10/2026 — API xoá hẳn NGUYÊN KỆ / NGUYÊN DÃY
+
+**Lý do:** đối chiếu lại yêu cầu Hải Phượng ("kho/kệ/dãy này xoá được không") → thiếu xoá kệ/dãy: tạo kệ 1 lệnh (`POST zones/:zoneId/racks`) nhưng xoá phải gọi từng ô, lỗi giữa chừng để kệ thủng lỗ. Bài học: khi làm API xoá phải đối chiếu với **đơn vị người dùng thao tác lúc tạo** (kệ), không chỉ theo document có trong DB (kệ không có collection riêng, chỉ là nhóm ô).
+
+**Code:** `PurgeRackQueryDto` (trong `create-rack.dto.ts`: `aisle` bắt buộc, `side`/`bay` tuỳ chọn, `@Type(() => Number)` cho query); `warehouse.service.ts` → `purgeRack(zoneId, query)`: lọc `{zone_id, aisle, side?, rack?}` (index `zone_id`), 404 `WH_BIN_NOT_FOUND` nếu không khớp ô nào, 400 `WH_INVALID_RACK_LAYOUT` nếu có `bay` mà thiếu `side` khi dãy có cả T/P, dùng lại `assertBinsNeverUsed` → tất cả hoặc không gì, 1 transaction xoá dòng gán tồn 0 + ô. Controller `DELETE zones/:zoneId/racks/permanent` (Admin). Test +5 trong `warehouse.service.purge.spec.ts`.
+
+**Kiểm chứng:** tsc 0, eslint 0, jest module warehouse 7 suite / 57 test pass.
+
+**Tác động:** (1) Không đổi schema/index. (2) Không đổi route cũ. (3) Luồng đọc: như các API purge khác. (4) Không đụng sổ cái, đơn, SKU. (5) Script dọn hàng loạt: chạy thử trên DB thật cho thấy không phân biệt được ô tạo nhầm và ô tạo sẵn chưa dùng → KHÔNG chạy `--all --apply`; ưu tiên xoá có chủ đích qua API (từng kệ/khu).
+
+
+**Bài học commit (10/10/2026):** commitlint giới hạn tiêu đề commit **≤ 100 ký tự** (`header-max-length`). Commit AOFP-68 dài 107 ký tự bị husky chặn, các file đã `git add` vẫn nằm trong vùng chờ nên bị gộp nhầm vào commit docs AOFP-69 kế tiếp. Luôn đếm độ dài tiêu đề trước khi đưa lệnh commit; khi đưa chuỗi lệnh, nhắc kiểm tra mỗi commit thành công rồi mới chạy lệnh sau.
