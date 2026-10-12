@@ -21,6 +21,10 @@ import {
   getPackagingRecommendation,
   rejectPackaging,
 } from '../../api/packaging.api'
+import {
+  listPackagingMaterials,
+  type PackagingMaterialStock,
+} from '../../api/packaging-materials.api'
 import { usePortal } from '../../context/use-portal'
 import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
 import {
@@ -155,6 +159,43 @@ function lazadaPackStatusLabel(
   return vi ? known.vi : known.en
 }
 
+function sameBoxSize(
+  box: { lengthCm: number; widthCm: number; heightCm: number },
+  stock: PackagingMaterialStock,
+): boolean {
+  if (stock.lengthCm == null || stock.widthCm == null || stock.heightCm == null) {
+    return false
+  }
+  const left = [box.lengthCm, box.widthCm, box.heightCm].sort((a, b) => a - b)
+  const right = [stock.lengthCm, stock.widthCm, stock.heightCm].sort((a, b) => a - b)
+  return left.every((value, index) => Math.abs(value - (right[index] ?? Number.NaN)) < 0.05)
+}
+
+function confirmBoxUse(
+  box: { lengthCm: number; widthCm: number; heightCm: number },
+  stock: PackagingMaterialStock[],
+  vi: boolean,
+): boolean {
+  const match = stock.find((row) => row.kind === 'box' && sameBoxSize(box, row))
+  const size = `${box.lengthCm}×${box.widthCm}×${box.heightCm} cm`
+  const name = match?.name.trim() ?? ''
+  const named =
+    name.length > 0 &&
+    (name.toLowerCase().startsWith('thùng') || name.toLowerCase().startsWith('box'))
+  const message = named
+    ? vi
+      ? `Dùng ${name} ${size}?`
+      : `Use ${name} ${size}?`
+    : name
+      ? vi
+        ? `Dùng thùng ${name} ${size}?`
+        : `Use box ${name} ${size}?`
+      : vi
+        ? `Dùng thùng ${size}?`
+        : `Use box ${size}?`
+  return window.confirm(message)
+}
+
 function lazadaPackToastHint(sync: LazadaPackInfo, vi: boolean): string {
   const status = sync.status
   if (status === 'success') {
@@ -221,6 +262,8 @@ export function PackagingWorkbench() {
   const [adjustNote, setAdjustNote] = useState('')
   const [rejectReason, setRejectReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
+  const [boxStock, setBoxStock] = useState<PackagingMaterialStock[]>([])
+  const [boxStockError, setBoxStockError] = useState<string | null>(null)
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -236,12 +279,23 @@ export function PackagingWorkbench() {
     }
   }, [])
 
+  const loadBoxStock = useCallback(async () => {
+    try {
+      const rows = await listPackagingMaterials()
+      setBoxStock(rows.filter((row) => row.kind === 'box' && row.isActive))
+      setBoxStockError(null)
+    } catch (err: unknown) {
+      setBoxStockError(formatApiError(err))
+    }
+  }, [])
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadList()
+      void loadBoxStock()
     }, 150)
     return () => window.clearTimeout(timer)
-  }, [loadList])
+  }, [loadList, loadBoxStock])
 
   const counts = useMemo(() => {
     let pending = 0
@@ -391,6 +445,27 @@ export function PackagingWorkbench() {
       )
       return
     }
+    if (!rec) {
+      setActionError(
+        vi
+          ? 'Chưa có gợi ý thùng. Chờ Admin chốt kế hoạch.'
+          : 'No box recommendation yet. Wait for Admin to confirm a plan.',
+      )
+      return
+    }
+    if (
+      !confirmBoxUse(
+        {
+          lengthCm: rec.boxSize.lengthCm,
+          widthCm: rec.boxSize.widthCm,
+          heightCm: rec.boxSize.heightCm,
+        },
+        boxStock,
+        vi,
+      )
+    ) {
+      return
+    }
     setActionBusy(true)
     setActionError(null)
     try {
@@ -437,6 +512,15 @@ export function PackagingWorkbench() {
       setActionError(
         vi ? 'Nhập ghi chú khi chọn lý do Khác.' : 'Note required for Other.',
       )
+      return
+    }
+    if (
+      !confirmBoxUse(
+        { lengthCm: l, widthCm: w, heightCm: h },
+        boxStock,
+        vi,
+      )
+    ) {
       return
     }
     setActionBusy(true)
@@ -579,6 +663,7 @@ export function PackagingWorkbench() {
       )
       setGuide3dActive(false)
       await refreshAfterAction()
+      await loadBoxStock()
     } catch (err: unknown) {
       const code = getApiErrorCode(err)
       if (code === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
@@ -616,6 +701,7 @@ export function PackagingWorkbench() {
           lazadaPackToastHint(result.lazadaPackSync, vi),
       )
       await refreshAfterAction()
+      await loadBoxStock()
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 403) {
         setActionError(
@@ -1156,6 +1242,50 @@ export function PackagingWorkbench() {
                         ) : null}
                       </dl>
                     )}
+                    <div className="mt-3 border-t border-hairline pt-3">
+                      <p className="text-xs font-medium text-ink-muted">
+                        {vi ? 'Tồn thùng' : 'Box stock'}
+                      </p>
+                      {boxStockError ? (
+                        <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">
+                          {boxStockError}
+                        </p>
+                      ) : boxStock.length === 0 ? (
+                        <p className="mt-1 text-xs text-ink-subtle">
+                          {vi
+                            ? 'Chưa có thùng trong danh mục vật liệu.'
+                            : 'No boxes in the material catalog.'}
+                        </p>
+                      ) : (
+                        <ul className="mt-1 space-y-1 text-xs text-ink">
+                          {boxStock.map((row) => {
+                            const size =
+                              row.lengthCm != null &&
+                              row.widthCm != null &&
+                              row.heightCm != null
+                                ? `${row.lengthCm}×${row.widthCm}×${row.heightCm} cm`
+                                : null
+                            const suggested =
+                              rec != null && sameBoxSize(rec.boxSize, row)
+                            return (
+                              <li
+                                key={row.code}
+                                className={
+                                  suggested ? 'font-medium text-primary' : undefined
+                                }
+                              >
+                                {row.name}
+                                {size ? ` · ${size}` : ''}
+                                {' — '}
+                                {vi ? 'mới' : 'new'} {row.qtyNew}
+                                {' · '}
+                                {vi ? 'tái sử dụng' : 'reused'} {row.qtyReused}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   </div>
 
                   {tab === 'picked' &&
