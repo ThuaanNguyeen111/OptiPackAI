@@ -429,16 +429,9 @@ POST …/packing-plan/finish    { "expected_version": 12 }
 
 Chỉ dùng khi mọi kiện còn giao đã `sealed` mà kế hoạch chưa tự sang `packed` (VD đơn cuối chưa đóng vừa bị hủy). Lỗi: `409 PACKING_NOT_COMPLETE`.
 
-### 3.8 Báo "Đã đóng gói" lên Lazada
+### 3.8 ~~Báo "Đã đóng gói" lên Lazada~~ — ĐÃ BỎ (10/10/2026)
 
-`seal` / `review` / `finish` / `pack` trả `lazadaPackSync` khi nhóm vừa `packed`:
-
-```jsonc
-{ "status": "success" | "partial" | "failed" | "skipped" | "disabled", … }
-```
-
-- `disabled` = cầu dao `LAZADA_WRITE_APIS_ENABLED` đang tắt (mặc định ở dev) — **không phải lỗi**.
-- `failed`/`partial` **không** chặn đóng gói; hiện cảnh báo + nút thử lại: `POST /order-groups/:id/lazada-pack/retry` (xem `INTEGRATION_GUIDE_FULFILLMENT.md`).
+`seal` / `review` / `finish` / `pack` **không còn** trả `lazadaPackSync`; route `POST /order-groups/:id/lazada-pack/retry` đã xoá. Trạng thái `packed` chỉ ghi trong OptiPack, không ghi ngược lên Lazada. FE bỏ cảnh báo và nút "thử lại" liên quan.
 
 ### 3.9 Lối tắt: cân cả nhóm một lần (không quét)
 

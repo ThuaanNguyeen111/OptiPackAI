@@ -117,6 +117,12 @@ Nhóm #G2 (AURELLE, 1 váy) ─┘
 
 ---
 
+### 4.4. Cập nhật 13/10/2026 — thực tế khi chạy
+
+- **Mỗi đơn luôn đóng kiện riêng** (module `packing`: mỗi kiện thuộc đúng 1 đơn). "Cùng sàn → 1 nhóm" nghĩa là xử lý cùng lượt, **không** chung thùng.
+- **Lazada che tên, SĐT, số nhà, tỉnh** → `recipient_key` của đơn Lazada không bao giờ khớp đơn AURELLE; kịch bản #5 Mục 11.2 thực hiện bằng **liên kết tay** `POST /order-groups/:id/link` (xem `INTEGRATION_GUIDE_SHIPPING.md` B.6).
+- Bảng đủ 15 trường hợp gom/liên kết: `INTEGRATION_GUIDE_SHIPPING.md` B.6.1.
+
 ## 5. Cơ sở dữ liệu AURELLE
 
 Database `aurelle_marketplace` (MongoDB; có thể đặt cùng cluster Atlas với OptiPack). Tiền lưu **số nguyên VND**; khi trả qua Open API chuyển thành **chuỗi** như Lazada.

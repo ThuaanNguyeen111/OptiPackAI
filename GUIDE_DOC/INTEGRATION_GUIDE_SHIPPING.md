@@ -152,6 +152,76 @@ Quyền xem: Admin, Shipping Coordinator, Store Owner, Warehouse Staff.
 
 ---
 
+## B.6. 🆕 Gom đơn, liên kết và giao chung chuyến (13/10/2026)
+
+### B.6.1. Hệ thống tự gom thế nào
+
+| Mã | Gồm | Dùng để |
+|---|---|---|
+| `consolidation_key` | sàn + SĐT + dòng địa chỉ + thành phố (**không có tên**) | Gom đơn vào **cùng 1 nhóm** (cùng sàn, cùng shop, nhóm còn mở: `awaiting_packaging`/`picking`) |
+| `recipient_key` | tên + SĐT + dòng địa chỉ + thành phố (**không có sàn**) | **Liên kết** các nhóm khác nhau → Picking List gộp, "Đi cùng: N kiện", giao chung chuyến |
+
+Chuẩn hoá trước khi so: bỏ dấu (kể cả **Đ/đ → d**, từ 13/10/2026), chữ thường, gộp khoảng trắng; SĐT `+84`/`84`/`0` quy về một dạng. **Mỗi đơn luôn đóng kiện riêng** (kế hoạch đóng gói: mỗi kiện thuộc đúng 1 đơn) — gom chỉ để xử lý và giao cùng lúc.
+
+| # | Tình huống | Chung nhóm | Liên kết |
+|---|---|---|---|
+| 1 | Cùng sàn + shop, cùng tên/SĐT/địa chỉ, nhóm đầu còn mở | ✅ | (đã chung nhóm) |
+| 2 | Như #1, nhóm đầu đã lấy hàng/đóng gói | ❌ nhóm mới | ✅ |
+| 3 | Cùng SĐT + địa chỉ, khác tên, nhóm còn mở | ✅ | — |
+| 4 | Như #3, nhóm đầu đã đóng | ❌ | ❌ |
+| 5 | Cùng tên + SĐT, khác địa chỉ (hoặc khác phường) | ❌ | ❌ |
+| 6 | Cùng tên + địa chỉ, khác SĐT | ❌ | ❌ |
+| 7 | Cùng sàn, khác shop | ❌ | ✅ |
+| 8 | Khác sàn, thông tin ghi y hệt | ❌ | ✅ |
+| 9 | Địa chỉ khác cách viết ("3/2" và "3-2", "P.5" và "Phường 5") | ❌ | ❌ (cố ý — thà bỏ sót còn hơn gộp nhầm) |
+| 10 | Khác dấu, hoa/thường, khoảng trắng, đầu số SĐT | ✅ | ✅ |
+| 11 | Đơn kia đã giao/huỷ/hoàn | ❌ | ❌ |
+| 12 | Đơn đã thuộc nhóm, lần đồng bộ sau thấy trùng | giữ nhóm cũ | — |
+| 13 | **Lazada** — dữ liệu bị che (`V**h`, `8**5`) | gom theo dữ liệu đã che (có thể gộp nhầm 2 người — hạn chế đã biết) | — |
+| 14 | **Lazada + AURELLE** cùng người thật | ❌ | ❌ tự động — dùng **liên kết tay** (B.6.2) |
+| 15 | AURELLE: cùng khách, 1 đơn chọn địa chỉ "trước sáp nhập" | ❌ | ❌ (tên tỉnh/phường khác) |
+
+Bảng trên được kiểm bằng test `be/src/modules/storefront/aurelle-consolidation-cases.spec.ts` (đi đúng đường dữ liệu thật của đơn AURELLE).
+
+### B.6.2. Liên kết tay (Shipping Coordinator)
+
+Dùng khi Coordinator biết 2 nhóm là cùng người nhận nhưng hệ thống không tự nhận ra (chủ yếu đơn Lazada bị che dữ liệu + đơn AURELLE).
+
+**Bước 1 — Liên kết**
+
+```http
+POST /order-groups/66f0a1b2c3d4e5f678901234/link
+Authorization: Bearer <token Coordinator/Admin>
+Content-Type: application/json
+
+{ "target_group_id": "66f0a1b2c3d4e5f678905678", "note": "Cùng khách — đã gọi xác nhận" }
+```
+
+Trả `{ "linkedGroups": OrderGroupResponse[] }` — các nhóm đang liên kết với nhóm trên URL. Nhóm đã nằm trong 1 bộ liên kết tay → nhóm mới nối vào đúng bộ đó; 2 bộ khác nhau → gộp thành 1 bộ.
+
+**Bước 2 — Hiển thị.** Mọi response nhóm đơn có thêm:
+
+```json
+"manualLink": { "linkId": "6710…", "linkedBy": "<userId>", "linkedAt": "2026-10-13T00:40:00.000Z", "note": "Cùng khách — đã gọi xác nhận" }
+```
+
+`null` = không có liên kết tay. `linkedGroupCount` và `GET /order-groups/:id/linked` nay tính **cả** liên kết tự động lẫn liên kết tay. Gợi ý: hiện nhãn "Đi cùng: N kiện" kèm biểu tượng "liên kết tay" khi `manualLink != null`.
+
+**Bước 3 — Giao chung chuyến:** `POST /shipments/batch` với các nhóm đã `packed` — chấp nhận khi cùng `recipient_key` **hoặc** cùng `manualLink.linkId`.
+
+**Bỏ liên kết:** `DELETE /order-groups/:id/link`. Bộ chỉ còn 1 nhóm → nhóm đó cũng tự bỏ liên kết.
+
+| HTTP | `error_code` | Khi nào |
+|---|---|---|
+| 400 | `ORD_GROUP_LINK_SELF` | `target_group_id` trùng nhóm trên URL |
+| 409 | `ORD_GROUP_LINK_NOT_ALLOWED` | 1 trong 2 nhóm đã `shipped`/`delivered`/`returned`/`canceled` |
+| 409 | `ORD_GROUP_NOT_MANUALLY_LINKED` | Bỏ liên kết khi nhóm không có liên kết tay |
+| 400 | `SHP_RECIPIENT_MISMATCH` (sẵn có) | Giao chung chuyến các nhóm không cùng người nhận và không liên kết tay |
+
+**Màn hình gợi ý:** trên chi tiết nhóm đơn (vai trò Coordinator) thêm nút "Liên kết với nhóm khác" → hộp chọn nhóm đang chờ (lọc theo trạng thái chưa giao, tìm theo mã đơn) + ô ghi chú → gọi Bước 1. Nhóm có `manualLink` hiện nút "Bỏ liên kết".
+
+---
+
 # PHẦN C — TRẢ HÀNG / HOÀN HÀNG (G3) 🆕
 
 ## C.1. 3 loại phiếu

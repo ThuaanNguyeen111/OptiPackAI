@@ -3983,3 +3983,36 @@ Giải quyết 13 file xung đột của lần pull đang dở; giữ luồng l�
 Áp dụng việc bỏ báo đóng gói lên Lazada vào cả `packing-plan.controller.ts` (seal, review, unpack, finish, pack): response còn `plan` và `completed` cùng các thông tin riêng của thao tác; không khôi phục route `fulfillment/pack` cũ. Backfill địa chỉ Lazada tra adapter qua registry hiện có. Bốn test địa chỉ mới truyền rõ `MarketplacePlatform.LAZADA` theo chữ ký mapper của `thi_dev`. Tài liệu API và hướng dẫn fulfillment đã đồng bộ với luồng gộp.
 
 Kiểm chứng: TypeScript không lỗi; Jest 75 suite / 840 test đều pass; `lint:ci` không lỗi (42 cảnh báo storefront có sẵn). Không chạy script cập nhật hoặc dọn dữ liệu trên DB.
+
+### 🚚 12/10/2026 — Môi trường test GHN trả 404 + Lazada che cả tỉnh
+
+- **Lazada che cả tỉnh:** đơn thật `532953751471670` có `province_name` rỗng (address3 bị che), `post_code` rỗng (tài liệu ghi mức C2 không che nhưng Lazada không trả giá trị) → chỉ còn phường mới trong `city` (VD "Phường Long Bình" — có thể trùng tên ở nhiều tỉnh). ⇒ C4: Coordinator BẮT BUỘC chọn tỉnh cho đơn Lazada (gợi ý mặc định tỉnh của shop). GHN có API mới `Get Province (New)` / `Get Ward (New)` (developer.ghn.vn/en/docs/master-data/get-province-new) để kiểm tra phường thuộc tỉnh nào.
+- **GHN staging 404:** từ 12/10/2026 tối, `https://dev-online-gateway.ghn.vn/shiip/public-api/...` (kể cả `master-data/province`, `v2/shipping-order/preview`) trả text `404 page not found`; production `online-gateway.ghn.vn` cùng đường dẫn trả JSON 401 (đường dẫn vẫn tồn tại). Tài liệu developer.ghn.vn vẫn ghi đúng host + đường dẫn cũ ⇒ lỗi phía máy chủ test của GHN, không phải code. Chưa kiểm chứng được GHN có nhận SĐT bị che (`8**5`) hay không. Script `ghn-masked-order-test.ts` đã chịu được phản hồi không phải JSON. Dự phòng: `CARRIER_MODE=mock` (mock adapter từ C2) để làm tiếp C4/C5.
+
+### 🔎 12/10/2026 — Đọc lại luồng AURELLE (storefront) sau khi merge `thi_dev` (PR #7)
+
+- **Đường đi của 1 đơn AURELLE:** khách đặt trên storefront Next.js (:3001) → `POST /storefront/orders/checkout` (module `storefront` NẰM TRONG OptiPack BE :3000, lưu vào collection `storefront_*`) → `AurelleWebhookPublisher` bắn webhook ký HMAC tới `AURELLE_WEBHOOK_URL` (mặc định `/marketplace/webhooks/aurelle` của chính OptiPack) → `marketplace-webhooks` kiểm chữ ký, chống trùng `message_id` → `OrdersService.syncSingleOrder` gọi `AurelleAdapter` → **AURELLE Open API giả lập** `be/scripts/aurelle-mock-server.ts` (:4000, `npm run dev:aurelle`, đọc thẳng `storefront_*`, trả đúng khuôn Lazada) → `mapLazadaOrder(platform='aurelle')` → đơn `platform: aurelle` trong `orders`. Webhook mất → cron kéo định kỳ bù.
+- **Địa chỉ đơn AURELLE KHÔNG bị che:** mapper `aurelle-open-api.mapper.ts` đổ `address1 = số nhà + phường`, `address3 = tỉnh`, `address5 = phường`, `city = tỉnh`, `phone` thật → đủ để gửi GHN, không cần thay SĐT/tỉnh như đơn Lazada.
+- **Gộp đơn đang chạy:** `tryConsolidate` gộp đơn **cùng sàn + cùng shop + cùng `consolidation_key`** vào 1 nhóm nếu nhóm còn "mở" (chưa qua lấy hàng); đến muộn → nhóm mới. `recipient_key` (không kèm sàn) liên kết các nhóm cùng người nhận (kể cả khác sàn) → `POST /shipments/batch` giao chung chuyến `TRIP-...`. Kế hoạch đóng gói (`packing`) có thể chia nhiều kiện/nhóm (`parcelsOfPlan`).
+- **Lệch với yêu cầu mới của Thuận (12/10):** "cùng sàn đặt 2 thời điểm → vẫn 2 hộp" trong khi AURELLE_MARKETPLACE_DESIGN.md quyết định #4 và code hiện tại gộp cùng sàn vào 1 nhóm/1 thùng khi nhóm còn mở → CẦN CHỐT.
+- **Trùng phạm vi:** `thi_dev` đã có module `shipping` (cấu hình hãng + báo giá nội bộ theo kiện) và `packing` (kiện, cân, niêm phong) → C4 GHN phải gắn VÀO các module này, không làm luồng song song.
+- Hướng dẫn `INTEGRATION_GUIDE_PACKING.md` mục 3.8 còn mô tả `lazadaPackSync` (đã bỏ ở code, AOFP-71) → cần sửa tài liệu.
+
+### 🔗 13/10/2026 — Liên kết tay nhóm đơn + chuẩn hoá "Đ/đ" trong khoá gom (yêu cầu Thuận)
+
+**Quyết định:** Lazada giữ nguyên "gom mù" theo dữ liệu bị che (chấp nhận rủi ro gộp nhầm, ghi hạn chế). AURELLE chạy đủ mọi trường hợp gom. Thêm nút **liên kết tay** cho Coordinator để nối đơn Lazada (bị che) với đơn AURELLE cùng người nhận. Sau này Lazada trả đủ dữ liệu → gom như AURELLE, không cần sửa code.
+
+**Code:**
+- `order-group.schema.ts`: `manual_link_id` (ObjectId, `SchemaTypes.ObjectId` — Rule #24), `manual_linked_by`, `manual_linked_at`, `manual_link_note`; index partial `{ manual_link_id: 1 }` (`$type: 'objectId'`).
+- `order-groups.service.ts`: `findLinkedGroups` = cùng `recipient_key` **hoặc** cùng `manual_link_id` (`$or` chỉ khi có cả 2, giữ query cũ khi chỉ có recipient_key); `linkGroupsManually` (chặn tự liên kết; chặn nhóm `shipped/delivered/returned/canceled`; nối vào bộ sẵn có; 2 bộ khác nhau → gộp; 1 transaction); `unlinkGroupManually` (bộ còn 1 nhóm → xoá luôn); hằng `LINK_CLOSED_STATUSES`, `LINK_LOCKED_STATUSES`.
+- Controller: `POST /order-groups/:id/link` (body `LinkOrderGroupDto { target_group_id, note? }`), `DELETE /order-groups/:id/link` — Coordinator, Admin. `OrderGroupResponse.manualLink`.
+- `shipments.service.ts` `createBatch`: giao chung chuyến khi cùng `recipient_key` HOẶC cùng `manual_link_id`.
+- Mã lỗi `ORD_GROUP_LINK_SELF`, `ORD_GROUP_LINK_NOT_ALLOWED`, `ORD_GROUP_NOT_MANUALLY_LINKED`.
+- **Bug chuẩn hoá phát hiện khi viết bảng trường hợp:** `normalizeAddressFragment` không gập "Đ/đ" (NFD không tách) → "Nguyễn Văn Đậu" ≠ "Nguyen Van Dau". Đã thêm `.replace(/[đĐ]/g, 'd')` (ảnh hưởng cả consolidation_key và recipient_key mọi sàn). Script `be/scripts/recompute-consolidation-keys.ts` (chạy thử mặc định, `--apply`) tính lại key của đơn CHƯA fulfill và nhóm CHƯA xong.
+- Test: `order-groups.service.manualLink.spec.ts` (8), `shipments.service.batchLink.spec.ts` (3), `storefront/aurelle-consolidation-cases.spec.ts` (10 — bảng trường hợp đi đúng đường dữ liệu AURELLE), +1 test Đ/đ trong `consolidation-key.util.spec.ts`.
+
+**Kiểm chứng:** tsc 0 lỗi trong phần sửa (còn 3 lỗi có sẵn ở `documents/pdf` do máy VM thiếu `pdfkit`/`bwip-js`/`qrcode` — cần `npm install`); eslint 0; jest order-groups 10 suite/125, shipments 3/43 + 1/3, orders + storefront aurelle 7/85.
+
+**Tác động:** (1) Dữ liệu cũ: field mới mặc định null, không migration; key đổi công thức → chạy `recompute-consolidation-keys.ts --apply` 1 lần. (2) Route cũ không đổi hành vi; `linked`/`linkedGroupCount` nay gồm cả liên kết tay. (3) Picking List gộp `?group_ids=` không kiểm liên kết → dùng được ngay. (4) Không ảnh hưởng đóng gói, vật liệu, GHN. (5) Hạn chế: gom Lazada theo dữ liệu che vẫn có thể gộp nhầm; AURELLE "trước/sau sáp nhập" khác tên địa giới → không gom.
+
+**Bổ sung 13/10/2026:** thêm field ObjectId mới vào schema thì PHẢI thêm vào `be/src/common/schemas/objectid-fields.ts` và tăng số đếm trong `objectid-fields.spec.ts` (đã làm cho `order_groups.manual_link_id`, 77 → 78) — thiếu thì test đối chiếu fail và husky chặn commit. Husky pre-commit chạy TOÀN BỘ jest: máy chưa `npm install` sau khi gộp thi_dev (thiếu `pdfkit`, `bwip-js`, `qrcode`) cũng bị chặn commit.
