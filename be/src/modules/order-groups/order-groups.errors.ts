@@ -23,8 +23,6 @@ export const ORD_GROUP_ERROR_CODES = {
   PICK_EXCEEDS_ORDERED: 'ORD_GROUP_PICK_EXCEEDS_ORDERED', // tổng đã quét trong lượt vượt số lượng đặt
   PICK_INCOMPLETE: 'ORD_GROUP_PICK_INCOMPLETE', // bấm "đã lấy xong" khi còn SKU chưa đủ — dùng report-missing
   NO_PICK_EVENTS: 'ORD_GROUP_NO_PICK_EVENTS', // chưa có lần quét nào trong lượt hiện tại
-  // BỔ SUNG (2026-10-02) — gửi lại Pack lên Lazada khi nhóm chưa ở trạng thái cho phép
-  LAZADA_PACK_NOT_ALLOWED: 'ORD_GROUP_LAZADA_PACK_NOT_ALLOWED',
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,

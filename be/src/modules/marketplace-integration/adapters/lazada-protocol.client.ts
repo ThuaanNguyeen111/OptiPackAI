@@ -444,8 +444,8 @@ export class LazadaProtocolClient {
 
   /**
    * Pack — 02/10/2026. ĐÁNH DẤU "ĐÃ ĐÓNG GÓI" TRÊN SHOP THẬT (API GHI).
-   * Chỉ được gọi qua LazadaPackSyncService (kiểm tra cầu dao
-   * LAZADA_WRITE_APIS_ENABLED trước). Tối đa 20 đơn / request. KHÔNG tự
+   * 10/10/2026: luồng đóng gói OptiPack không còn gọi API này.
+   * Giữ lại giao thức để dùng lại khi cần. Tối đa 20 đơn / request. KHÔNG tự
    * retry (`callSignedApiPost` không retry): gửi lại khi chưa biết lần trước
    * có tới sàn hay chưa có thể gây thao tác trùng.
    */

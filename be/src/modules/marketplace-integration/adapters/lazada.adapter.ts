@@ -136,7 +136,14 @@ export class LazadaAdapter implements MarketplaceAdapter {
     return this.client.listProductsPage(accessToken, params);
   }
 
-  /** API GHI lên shop Lazada thật — chỉ gọi qua LazadaPackSyncService (có cầu dao). */
+  /**
+   * Pack — 02/10/2026. ĐÁNH DẤU "ĐÃ ĐÓNG GÓI" TRÊN SHOP LAZADA THẬT (API GHI).
+   * 10/10/2026: KHÔNG CÒN NƠI NÀO GỌI (đã bỏ LazadaPackSyncService — OptiPack không
+   * ghi ngược lên Lazada). Giữ lại hàm + test để dùng lại nếu shop chuyển sang giao
+   * bởi người bán (DBS), khi đó đơn DBS vẫn cần Pack trên Lazada. Tối đa 20 đơn / request (giới hạn Lazada).
+   * Trả nguyên response để service xét `item_err_code` từng món: `success = true`
+   * KHÔNG có nghĩa mọi món đều thành công.
+   */
   async packOrders(
     accessToken: string,
     request: LazadaPackRequest,

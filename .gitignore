@@ -67,3 +67,5 @@ packer/.venv/
 # UI dev tools
 .impeccable/
 fe/.impeccable/
+# Backup do script dọn dữ liệu tạo ra (có thể chứa dữ liệu thật, không commit)
+be/backups/

@@ -45,8 +45,6 @@ import { StaffAssignmentService } from './staff-assignment.service';
 import { StaffAssignmentController } from './staff-assignment.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
-import { LazadaPackSyncService } from './lazada-pack-sync.service';
-import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 
 @Module({
   imports: [
@@ -65,7 +63,6 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
       { name: StockReservationTotal.name, schema: StockReservationTotalSchema }, // K5
     ]),
     NotificationsModule,
-    MarketplaceIntegrationModule, // 02/10/2026 — báo "đã đóng gói" lên Lazada (không vòng: module này không import ngược)
   ],
   controllers: [
     OrderGroupsController,
@@ -78,9 +75,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
     StaffAssignmentService,
     ExpressOrderSlaScheduler,
     StockReservationService,
-    LazadaPackSyncService,
   ],
-  // LazadaPackSyncService: packing-plan.service gọi sau khi đóng gói (gộp 04/10/2026)
-  exports: [OrderGroupsService, StaffAssignmentService, LazadaPackSyncService],
+  exports: [OrderGroupsService, StaffAssignmentService],
 })
 export class OrderGroupsModule {}

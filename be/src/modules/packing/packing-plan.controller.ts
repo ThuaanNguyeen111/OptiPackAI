@@ -16,10 +16,6 @@ import { PackerAssignmentService } from './packer-assignment.service';
 import { effectiveParcelStatus } from './utils/parcels.util';
 import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
 import { averageFill } from './utils/stock-suggestion.util';
-import {
-  LazadaPackSyncService,
-  type LazadaPackSyncResult,
-} from '../order-groups/lazada-pack-sync.service';
 import type { PackingPlanDocument, PlanProofLabel } from './schemas/packing-plan.schema';
 import {
   ApprovePlanDto,
@@ -465,16 +461,13 @@ export class PackingPlanController {
     private readonly planService: PackingPlanService,
     private readonly sessionService: PackingSessionService,
     private readonly packerAssignment: PackerAssignmentService,
-    private readonly lazadaPackSyncService: LazadaPackSyncService,
   ) {}
 
-  /** Nhóm vừa sang packed → báo "đã đóng gói" lên Lazada SAU commit (syncGroup không ném lỗi). */
-  private async withLazada(
-    groupId: string,
+  /** Trạng thái đóng gói chỉ ghi trong OptiPack (quyết định 10/10/2026). */
+  private toSessionResponse(
     result: SessionResult,
-  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
-    const lazadaPackSync = result.completed ? await this.lazadaPackSyncService.syncGroup(groupId) : null;
-    return { plan: toPlanResponse(result.plan), completed: result.completed, lazadaPackSync };
+  ): { plan: PackingPlanResponse; completed: boolean } {
+    return { plan: toPlanResponse(result.plan), completed: result.completed };
   }
 
   @Get()
@@ -675,15 +668,15 @@ export class PackingPlanController {
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Niêm phong + cân 1 kiện (đã quét đủ): trừ thùng/vật tư của kiện. Lệch cân quá ngưỡng → kiện "held" chờ người khác xem lại. Kiện cuối cùng → nhóm packed + báo Lazada.',
+      'Niêm phong + cân 1 kiện (đã quét đủ): trừ thùng/vật tư của kiện. Lệch cân quá ngưỡng → kiện "held" chờ người khác xem lại. Kiện cuối cùng → nhóm packed trong OptiPack.',
   })
   async seal(
     @Param('groupId') groupId: string,
     @Param('parcelNo', ParseIntPipe) parcelNo: number,
     @Body() dto: SealParcelDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
-    return this.withLazada(groupId, await this.sessionService.seal(groupId, parcelNo, dto, user.userId));
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean }> {
+    return this.toSessionResponse(await this.sessionService.seal(groupId, parcelNo, dto, user.userId));
   }
 
   @Post('parcels/:parcelNo/review')
@@ -697,8 +690,8 @@ export class PackingPlanController {
     @Param('parcelNo', ParseIntPipe) parcelNo: number,
     @Body() dto: ReviewParcelDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
-    return this.withLazada(groupId, await this.sessionService.review(groupId, parcelNo, dto, user.userId));
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean }> {
+    return this.toSessionResponse(await this.sessionService.review(groupId, parcelNo, dto, user.userId));
   }
 
   @Post('report-issue')
@@ -755,10 +748,8 @@ export class PackingPlanController {
     withoutLocation: number;
     box: string;
     materials: { code: string; quantity: number; outcome: string }[];
-    lazadaPackSync: LazadaPackSyncResult | null;
   }> {
     const result = await this.sessionService.unpack(groupId, parcelNo, dto, user.userId);
-    const lazadaPackSync = result.completed ? await this.lazadaPackSyncService.syncGroup(groupId) : null;
     return {
       plan: toPlanResponse(result.plan),
       completed: result.completed,
@@ -766,7 +757,6 @@ export class PackingPlanController {
       withoutLocation: result.withoutLocation,
       box: result.box,
       materials: result.materials,
-      lazadaPackSync,
     };
   }
 
@@ -777,22 +767,22 @@ export class PackingPlanController {
     @Param('groupId') groupId: string,
     @Body() dto: FinishPackingDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
-    return this.withLazada(groupId, await this.sessionService.finish(groupId, dto.expected_version, user.userId));
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean }> {
+    return this.toSessionResponse(await this.sessionService.finish(groupId, dto.expected_version, user.userId));
   }
 
   @Post('pack')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Lối tắt: cân cho ĐỦ các kiện chưa niêm phong trong 1 lần (không quét từng món — ghi "bypass"). Kiện lệch cân bị giữ chờ xem lại; hết kiện giữ → nhóm packed + báo Lazada (cầu dao LAZADA_WRITE_APIS_ENABLED). Bị chặn khi cài đặt require_scan = true.',
+      'Lối tắt: cân cho ĐỦ các kiện chưa niêm phong trong 1 lần (không quét từng món — ghi "bypass"). Kiện lệch cân bị giữ chờ xem lại; hết kiện giữ → nhóm packed trong OptiPack. Bị chặn khi cài đặt require_scan = true.',
   })
   async pack(
     @Param('groupId') groupId: string,
     @Body() dto: PackPlanDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{ plan: PackingPlanResponse; completed: boolean; lazadaPackSync: LazadaPackSyncResult | null }> {
-    return this.withLazada(groupId, await this.sessionService.quickPack(groupId, dto, user.userId));
+  ): Promise<{ plan: PackingPlanResponse; completed: boolean }> {
+    return this.toSessionResponse(await this.sessionService.quickPack(groupId, dto, user.userId));
   }
 }
 

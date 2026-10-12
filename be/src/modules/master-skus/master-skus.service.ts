@@ -164,6 +164,29 @@ export class MasterSkusService {
   }
 
   /**
+   * 10/10/2026 — XOÁ HẲN SKU nội bộ tạo nhầm (báo cáo Hải Phượng). Chỉ khi CHƯA
+   * TỪNG DÙNG: không còn SKU sàn nối vào, không nằm trên ô nào (kể cả dòng tồn 0),
+   * không có dòng sổ cái nào. Đã dùng → vô hiệu hoá (DELETE thường) hoặc "Thay thế".
+   * 3 truy vấn kiểm tra đều có index riêng theo master_sku.
+   */
+  async purge(code: string): Promise<{ deleted: true; masterSku: string }> {
+    await this.get(code);
+    const [mapped, onBin, movement] = await Promise.all([
+      this.mappingModel.countDocuments({ master_sku: code }),
+      this.assignmentModel.exists({ master_sku: code }),
+      this.movementModel.exists({ master_sku: code }),
+    ]);
+    if (mapped > 0) this.fail(E.HAS_MAPPINGS, `Còn ${String(mapped)} SKU sàn nối vào "${code}" — bỏ nối trước khi xoá.`, HttpStatus.CONFLICT);
+    if (onBin) this.fail(E.HAS_STOCK, `SKU "${code}" đang được gán vào ô trong kho — bỏ gán (hoặc chuyển hết hàng) trước khi xoá.`, HttpStatus.CONFLICT);
+    if (movement) this.fail(E.HAS_HISTORY, `SKU "${code}" đã có lịch sử nhập–xuất — chỉ vô hiệu hoá hoặc "Thay thế SKU", không xoá hẳn.`, HttpStatus.CONFLICT);
+    // Điều kiện lặp lại ngay trong lệnh xoá không cần: 3 điều kiện trên đều do
+    // thao tác của Admin tạo ra (nối/gán/nhập), xung đột đồng thời gần như không có.
+    await this.skuModel.deleteOne({ master_sku: code });
+    return { deleted: true, masterSku: code };
+  }
+
+
+  /**
    * THAY THẾ SKU — cách duy nhất để "sửa" mã đã đặt sai: tạo SKU mới (giữ tên/kích
    * thước), chuyển mọi liên kết SKU sàn sang SKU mới, khóa SKU cũ + replaced_by.
    * 1 transaction. Lịch sử cũ nguyên vẹn, tra SKU cũ vẫn biết đã thay bằng gì.

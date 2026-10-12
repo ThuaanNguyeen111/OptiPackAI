@@ -16,6 +16,7 @@ import marketplaceConfig from './config/marketplace.config';
 import storefrontConfig from './config/storefront.config';
 import aiConfig from './config/ai.config';
 import packerConfig from './config/packer.config';
+import carrierConfig from './config/carrier.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
@@ -34,12 +35,13 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
 import { MarketplaceWebhooksModule } from './modules/marketplace-webhooks/marketplace-webhooks.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { DocumentsModule } from './modules/documents/documents.module';
+import { CarriersModule } from './modules/carriers/carriers.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, storefrontConfig, aiConfig, packerConfig],
+      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, storefrontConfig, aiConfig, packerConfig, carrierConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -83,6 +85,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
     MarketplaceWebhooksModule,
     ShippingModule,
     DocumentsModule,
+    CarriersModule, // C2 (08/10/2026) — đơn vị vận chuyển (GHN / mock)
   ],
   controllers: [AppController],
   providers: [

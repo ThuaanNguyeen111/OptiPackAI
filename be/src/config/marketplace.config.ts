@@ -35,13 +35,8 @@ export default registerAs('marketplace', () => ({
     redirectUri: process.env.LAZADA_REDIRECT_URI,
     sandbox: process.env.LAZADA_SANDBOX === 'true',
     apiBaseUrl: process.env.LAZADA_API_BASE_URL, // để trống dùng mặc định api.lazada.vn thật
-    // 02/10/2026 — CẦU DAO cho mọi API GHI lên shop Lazada thật (hiện tại: Pack).
-    // Mặc định TẮT: chỉ đúng chuỗi "true" mới bật. Lazada không có sandbox thật.
-    writeApisEnabled: process.env.LAZADA_WRITE_APIS_ENABLED === 'true',
-    // 02/10/2026 — tham số bắt buộc `shipping_allocate_type` của Pack. Shop nội địa: TFS.
-    shippingAllocateType: process.env.LAZADA_SHIPPING_ALLOCATE_TYPE?.trim()
-      ? process.env.LAZADA_SHIPPING_ALLOCATE_TYPE.trim()
-      : 'TFS',
+    // 10/10/2026 — đã bỏ cầu dao LAZADA_WRITE_APIS_ENABLED và LAZADA_SHIPPING_ALLOCATE_TYPE
+    // cùng chức năng báo "đã đóng gói" lên Lazada (OptiPack không ghi ngược lên sàn).
   },
 
   tiki: {
