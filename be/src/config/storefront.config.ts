@@ -4,6 +4,11 @@ export const DEFAULT_STOREFRONT_NAME = 'AURELLE';
 
 export default registerAs('storefront', () => ({
   name: process.env.STOREFRONT_NAME?.trim() ?? DEFAULT_STOREFRONT_NAME,
+  admin: {
+    email: process.env.STOREFRONT_ADMIN_EMAIL?.trim().toLowerCase(),
+    passwordHash: process.env.STOREFRONT_ADMIN_PASSWORD_HASH,
+    jwtSecret: process.env.STOREFRONT_ADMIN_JWT_SECRET,
+  },
   // Website đặt hàng xong bắn webhook "đơn mới" tới ứng dụng đối tác đã
   // kết nối bằng app key (OptiPack). Ký bằng app key/secret của ứng dụng đó
   // — cùng cặp OptiPack dùng để gọi Open API (AURELLE_APP_KEY/SECRET).

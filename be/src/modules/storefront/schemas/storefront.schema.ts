@@ -42,12 +42,21 @@ export class StorefrontProduct {
   @Prop({ default: false }) is_featured!: boolean;
   @Prop({ default: 0 }) view_count!: number;
   @Prop({ default: 0 }) sold_count!: number;
+  @Prop({ type: Date, default: null }) deleted_at!: Date | null;
   created_at?: Date;
   updated_at?: Date;
 }
 export type StorefrontProductDocument = HydratedDocument<StorefrontProduct>;
 export const StorefrontProductSchema = SchemaFactory.createForClass(StorefrontProduct);
 StorefrontProductSchema.index({ status: 1, is_featured: 1, created_at: -1 });
+
+@Schema({ collection: 'storefront_images', timestamps: { createdAt: 'created_at', updatedAt: false } })
+export class StorefrontImage {
+  @Prop({ type: Buffer, required: true }) data!: Buffer;
+  @Prop({ required: true, enum: ['image/jpeg', 'image/png', 'image/webp'] }) content_type!: string;
+}
+export type StorefrontImageDocument = HydratedDocument<StorefrontImage>;
+export const StorefrontImageSchema = SchemaFactory.createForClass(StorefrontImage);
 
 @Schema({ collection: 'storefront_product_variants', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class StorefrontProductVariant {

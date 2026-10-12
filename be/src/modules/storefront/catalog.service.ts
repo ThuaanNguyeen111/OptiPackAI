@@ -26,7 +26,7 @@ export class CatalogService {
     private readonly stockModel: Model<StorefrontInventoryStockDocument>,
   ) {}
 
-  private async shape(product: StorefrontProductDocument, categoryName?: string) {
+  async shape(product: StorefrontProductDocument, categoryName?: string, admin = false) {
     const variants = await this.variantModel
       .find({ product_id: product._id, is_active: true })
       .lean();
@@ -65,6 +65,10 @@ export class CatalogService {
             - (stockMap.get(variant._id.toString())?.reserved_quantity ?? 0),
         ),
         isDefault: variant.is_default,
+        ...(admin ? {
+          quantityOnHand: stockMap.get(variant._id.toString())?.quantity_on_hand ?? 0,
+          reservedQuantity: stockMap.get(variant._id.toString())?.reserved_quantity ?? 0,
+        } : {}),
       })),
     };
   }
@@ -72,7 +76,7 @@ export class CatalogService {
   async list() {
     const [products, categories] = await Promise.all([
       this.productModel
-        .find({ status: 'active' })
+        .find({ status: 'active', deleted_at: null })
         .sort({ is_featured: -1, created_at: -1 })
         .limit(100),
       this.categoryModel.find({ is_active: true }).lean(),
@@ -89,6 +93,7 @@ export class CatalogService {
     const product = await this.productModel.findOne({
       slug: slug.toLowerCase(),
       status: 'active',
+      deleted_at: null,
     });
 
     if (!product) throw new NotFoundException(sfError(SF_ERROR_CODES.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'));

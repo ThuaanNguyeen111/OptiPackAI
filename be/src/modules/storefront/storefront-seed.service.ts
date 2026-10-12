@@ -196,13 +196,11 @@ export class StorefrontSeedService implements OnModuleInit {
       const product = await this.productModel.findOneAndUpdate(
         { slug: record.slug },
         {
-          $set: {
+          $setOnInsert: {
             gallery_images: record.gallery_images,
             size_chart: record.size_chart,
             size_chart_type: record.slug === 'soft-leather-loafers' ? 'shoes' : 'apparel',
             size_guide_note: record.size_guide_note,
-          },
-          $setOnInsert: {
             name: record.name,
             slug: record.slug,
             category_id: record.category_id,
@@ -214,6 +212,9 @@ export class StorefrontSeedService implements OnModuleInit {
         },
         { upsert: true, returnDocument: 'after' },
       );
+
+      // Existing variants (including removed ones) belong to the admin after the first seed.
+      if (product.deleted_at || await this.variantModel.exists({ product_id: product._id })) continue;
 
       for (const item of record.variants) {
         const variant = await this.variantModel.findOneAndUpdate(

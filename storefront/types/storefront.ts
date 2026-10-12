@@ -46,6 +46,17 @@ export type CartItem = {
   quantity: number
 }
 
+export type Category = { id: string; name: string; slug: string }
+
+export type AdminProduct = Omit<Product, 'variants'> & {
+  variants: (ProductVariant & { quantityOnHand: number; reservedQuantity: number })[]
+}
+
+export type SaveAdminProduct = Pick<Product, 'name' | 'description' | 'thumbnailUrl' | 'galleryImages' | 'status' | 'isFeatured'> & {
+  categoryId: string | null
+  variants: { id?: string; color: string; size: string; price: number; quantityOnHand: number }[]
+}
+
 export type Customer = {
   id: string
   name: string
