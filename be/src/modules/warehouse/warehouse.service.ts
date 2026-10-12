@@ -32,9 +32,9 @@ import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
 import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
-import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
+import { AdjustStockDto, MoveAssignmentDto, TransferStockDto } from './dto/stock-operations.dto';
 import { InventoryMovement, InventoryMovementDocument, MovementType, StockAdjustReason } from './schemas/inventory-movement.schema';
-import { CreateRackDto } from './dto/create-rack.dto';
+import { CreateRackDto, PurgeRackQueryDto } from './dto/create-rack.dto';
 import { UpdateBinDto } from './dto/update-bin.dto';
 import { CategoriesService } from '../categories/categories.service';
 import { ZONE_CODE_V2_REGEX, buildBinCodeV2, computePickSequence } from './warehouse-layout';
@@ -47,6 +47,14 @@ import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { PackableItem } from '../../common/interfaces/packaging.interface';
+
+/** 10/10/2026 — số bản ghi đã xoá hẳn (DELETE .../permanent). */
+export interface PurgeResult {
+  warehouses: number;
+  zones: number;
+  bins: number;
+  assignments: number;
+}
 
 export interface PickingListItem extends PackableItem {
   zone_code: string;
@@ -847,6 +855,156 @@ export class WarehouseService {
     return this.assertBinExists(binId);
   }
   // ===================================================================
+  // 10/10/2026 — XOÁ HẲN mục tạo nhầm (báo cáo Hải Phượng: "nhiều mã quá,
+  // chỉ ẩn được"). Quy tắc: CHƯA TỪNG DÙNG thì xoá hẳn; đã có nhập–xuất thì
+  // chỉ vô hiệu hoá (DELETE cũ) — giữ toàn vẹn sổ cái inventory_movements.
+  // "Đã dùng" = có ô còn hàng HOẶC có ≥ 1 dòng sổ cái trỏ tới ô (mọi luồng
+  // làm đổi tồn — nhập, kiểm kê, chuyển ô, lấy hàng, nhập lại hàng hoàn — đều
+  // ghi sổ cái, nên chỉ cần kiểm tra sổ cái). Dòng "SKU trên ô" tồn 0 chưa
+  // từng nhập–xuất là gán thử → xoá luôn cùng ô.
+  // ===================================================================
+
+  /** Chặn xoá hẳn nếu phạm vi ô đã có hàng hoặc có lịch sử nhập–xuất. */
+  private async assertBinsNeverUsed(
+    warehouseId: Types.ObjectId,
+    binIds: Types.ObjectId[],
+    scope: string,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    if (binIds.length === 0) return;
+    const [units, movement] = await Promise.all([
+      // warehouse_id đứng đầu → dùng được index unique của sku_bin_assignments
+      this.countStockUnits({ warehouse_id: warehouseId, bin_location_id: { $in: binIds } }),
+      this.movementModel.exists({ bin_location_id: { $in: binIds } }), // index bin_location_id
+    ]);
+    if (units > 0) this.throwHasStock(scope, units, details);
+    if (movement) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.HAS_HISTORY,
+        `${scope} đã có lịch sử nhập–xuất hàng — chỉ vô hiệu hoá được (DELETE thường), không xoá hẳn để giữ sổ cái.`,
+        HttpStatus.CONFLICT,
+        details,
+      );
+    }
+  }
+
+  /** Xoá hẳn 1 ô (kệ) chưa từng dùng + các dòng gán thử (tồn 0) trên ô. */
+  async purgeBin(binId: string): Promise<PurgeResult> {
+    const bin = await this.assertBinExists(binId);
+    await this.assertBinsNeverUsed(bin.warehouse_id, [bin._id], `Ô "${bin.bin_code}"`, { binId });
+    const result: PurgeResult = { warehouses: 0, zones: 0, bins: 0, assignments: 0 };
+    await this.runInTransaction(async (session) => {
+      const a = await this.assignmentModel.deleteMany(
+        { warehouse_id: bin.warehouse_id, bin_location_id: bin._id, quantity_on_hand: 0 },
+        { session },
+      );
+      const b = await this.binModel.deleteOne({ _id: bin._id }, { session });
+      result.assignments = a.deletedCount;
+      result.bins = b.deletedCount;
+    });
+    return result;
+  }
+
+  /**
+   * Xoá hẳn NGUYÊN KỆ / NGUYÊN DÃY chưa từng dùng (mọi ô + dòng gán thử tồn 0),
+   * tất cả hoặc không gì cả — có 1 ô đã dùng thì 409, không xoá ô nào (tránh
+   * kệ bị thủng lỗ trên sơ đồ). Lọc theo zone_id (index) + aisle/side/rack.
+   */
+  async purgeRack(zoneId: string, query: PurgeRackQueryDto): Promise<PurgeResult> {
+    const zone = await this.assertZoneExists(zoneId);
+    const filter = {
+      zone_id: zone._id,
+      aisle: query.aisle,
+      ...(query.side !== undefined && { side: query.side }),
+      ...(query.bay !== undefined && { rack: query.bay }),
+    };
+    const rackBins = await this.binModel.find(filter).select('_id side').lean();
+    const label = `${query.aisle}${query.side ?? ''}${query.bay !== undefined ? `-${String(query.bay).padStart(2, '0')}` : ''}`;
+    const details = { zoneId, aisle: query.aisle, side: query.side ?? null, bay: query.bay ?? null };
+    if (rackBins.length === 0) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.BIN_NOT_FOUND,
+        `Không có ô nào thuộc ${query.bay !== undefined ? 'kệ' : 'dãy'} "${label}" trong khu "${zone.zone_code}".`,
+        HttpStatus.NOT_FOUND,
+        details,
+      );
+    }
+    // Có số kệ mà không có bên, trong khi dãy có cả T và P → mơ hồ (2 kệ khác nhau) → bắt chọn bên.
+    if (query.bay !== undefined && query.side === undefined && new Set(rackBins.map((b) => b.side ?? '')).size > 1) {
+      this.layoutFail(
+        WAREHOUSE_ERROR_CODES.INVALID_RACK_LAYOUT,
+        `Dãy ${query.aisle} có kệ số ${String(query.bay)} ở cả bên T và bên P — truyền thêm side để chọn đúng 1 kệ.`,
+        details,
+      );
+    }
+    const binIds = rackBins.map((b) => b._id);
+    const scope = `${query.bay !== undefined ? 'Kệ' : 'Dãy'} "${label}" (khu ${zone.zone_code})`;
+    await this.assertBinsNeverUsed(zone.warehouse_id, binIds, scope, details);
+    const result: PurgeResult = { warehouses: 0, zones: 0, bins: 0, assignments: 0 };
+    await this.runInTransaction(async (session) => {
+      const a = await this.assignmentModel.deleteMany(
+        { warehouse_id: zone.warehouse_id, bin_location_id: { $in: binIds }, quantity_on_hand: 0 },
+        { session },
+      );
+      const b = await this.binModel.deleteMany({ _id: { $in: binIds } }, { session });
+      result.assignments = a.deletedCount;
+      result.bins = b.deletedCount;
+    });
+    return result;
+  }
+
+  /** Xoá hẳn 1 khu chưa từng dùng + toàn bộ ô trong khu + dòng gán thử. */
+  async purgeZone(zoneId: string): Promise<PurgeResult> {
+    const zone = await this.assertZoneExists(zoneId);
+    const binIds = (await this.binModel.find({ zone_id: zone._id }).select('_id').lean()).map((b) => b._id);
+    await this.assertBinsNeverUsed(zone.warehouse_id, binIds, `Khu "${zone.zone_code}"`, { zoneId });
+    const result: PurgeResult = { warehouses: 0, zones: 0, bins: 0, assignments: 0 };
+    await this.runInTransaction(async (session) => {
+      if (binIds.length > 0) {
+        const a = await this.assignmentModel.deleteMany(
+          { warehouse_id: zone.warehouse_id, bin_location_id: { $in: binIds }, quantity_on_hand: 0 },
+          { session },
+        );
+        const b = await this.binModel.deleteMany({ zone_id: zone._id }, { session });
+        result.assignments = a.deletedCount;
+        result.bins = b.deletedCount;
+      }
+      const z = await this.zoneModel.deleteOne({ _id: zone._id }, { session });
+      result.zones = z.deletedCount;
+    });
+    return result;
+  }
+
+  /** Xoá hẳn 1 kho chưa từng dùng + toàn bộ khu, ô, dòng gán thử bên trong. */
+  async purgeWarehouse(warehouseId: string): Promise<PurgeResult> {
+    const warehouse = await this.getWarehouse(warehouseId);
+    const whId = warehouse._id;
+    const binIds = (await this.binModel.find({ warehouse_id: whId }).select('_id').lean()).map((b) => b._id);
+    await this.assertBinsNeverUsed(whId, binIds, `Kho "${warehouse.warehouse_code}"`, { warehouseId });
+    // Sổ cái theo kho (kể cả dòng trỏ tới ô đã bị xoá trước đây) — index warehouse_id đứng đầu.
+    if (await this.movementModel.exists({ warehouse_id: whId })) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.HAS_HISTORY,
+        `Kho "${warehouse.warehouse_code}" đã có lịch sử nhập–xuất hàng — chỉ vô hiệu hoá được, không xoá hẳn.`,
+        HttpStatus.CONFLICT,
+        { warehouseId },
+      );
+    }
+    const result: PurgeResult = { warehouses: 0, zones: 0, bins: 0, assignments: 0 };
+    await this.runInTransaction(async (session) => {
+      const a = await this.assignmentModel.deleteMany({ warehouse_id: whId, quantity_on_hand: 0 }, { session });
+      const b = await this.binModel.deleteMany({ warehouse_id: whId }, { session });
+      const z = await this.zoneModel.deleteMany({ warehouse_id: whId }, { session });
+      const w = await this.warehouseModel.deleteOne({ _id: whId }, { session });
+      result.assignments = a.deletedCount;
+      result.bins = b.deletedCount;
+      result.zones = z.deletedCount;
+      result.warehouses = w.deletedCount;
+    });
+    return result;
+  }
+
+  // ===================================================================
   // K2 (26/09/2026) — BỐ CỤC KHO MỚI: tạo kệ, sửa ô, gợi ý ô, sức chứa
   // ===================================================================
 
@@ -1179,6 +1337,80 @@ export class WarehouseService {
       );
     }
     await this.assignmentModel.deleteOne({ _id: a._id, quantity_on_hand: 0 });
+  }
+
+  /**
+   * 10/10/2026 — SỬA GÁN NHẦM: dời 1 dòng "SKU trên ô" sang ô đúng (cùng kho).
+   *  - Ô nguồn hết hàng: chỉ đổi ô (không có hàng nên không ghi sổ cái). Nếu ô
+   *    đích đã có sẵn dòng của đúng SKU đó → bỏ dòng nguồn, giữ dòng đích.
+   *  - Ô nguồn còn hàng: chuyển TOÀN BỘ số đang có qua transferStock (2 dòng sổ
+   *    cái, kiểm tra sức chứa) rồi bỏ dòng nguồn đã về 0.
+   * Trả về dòng ở ô đích.
+   */
+  async moveAssignment(
+    warehouseId: string,
+    assignmentId: string,
+    dto: MoveAssignmentDto,
+    actorId: string,
+  ): Promise<SkuBinAssignmentDocument> {
+    await this.assertWarehouseActive(warehouseId);
+    const source = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
+
+    if (source.quantity_on_hand > 0) {
+      const { to } = await this.transferStock(
+        warehouseId,
+        assignmentId,
+        {
+          to_bin_location_id: dto.to_bin_location_id,
+          quantity: source.quantity_on_hand,
+          force: dto.force,
+          note: dto.note ?? 'Sửa gán nhầm ô',
+        },
+        actorId,
+      );
+      // Có người lấy hàng xen giữa thì quantity_on_hand > 0 → giữ dòng, không xoá.
+      await this.assignmentModel.deleteOne({ _id: source._id, quantity_on_hand: 0 });
+      return to;
+    }
+
+    const dest = await this.assertBinExists(dto.to_bin_location_id);
+    if (dest.warehouse_id.toString() !== warehouseId) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_NOT_IN_WAREHOUSE, `Ô "${dest.bin_code}" không thuộc kho này.`, HttpStatus.BAD_REQUEST, { binId: dto.to_bin_location_id });
+    }
+    if (dest._id.equals(source.bin_location_id)) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.SAME_BIN, 'Ô đích trùng ô đang gán.', HttpStatus.BAD_REQUEST);
+    }
+    if (dest.is_active === false) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.BIN_INACTIVE, `Ô "${dest.bin_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { binId: dto.to_bin_location_id });
+    }
+    // Cùng khoá định danh với transferStock (master_sku nếu đã nối, ngược lại SKU sàn).
+    const destFilter = source.master_sku
+      ? { warehouse_id: source.warehouse_id, master_sku: source.master_sku, bin_location_id: dest._id }
+      : { warehouse_id: source.warehouse_id, platform: source.platform, shop_id: source.shop_id, seller_sku: source.seller_sku, bin_location_id: dest._id, master_sku: null };
+    const existingAtDest = await this.assignmentModel.findOne(destFilter);
+    if (existingAtDest) {
+      await this.assignmentModel.deleteOne({ _id: source._id, quantity_on_hand: 0 });
+      return existingAtDest;
+    }
+    try {
+      const moved = await this.assignmentModel.findOneAndUpdate(
+        { _id: source._id, quantity_on_hand: 0 },
+        { $set: { bin_location_id: dest._id } },
+        { returnDocument: 'after' },
+      );
+      if (!moved) {
+        throw new AppException(WAREHOUSE_ERROR_CODES.STOCK_CHANGED, 'Ô vừa được nhập hàng trong lúc sửa — tải lại rồi thử lại.', HttpStatus.CONFLICT, { assignmentId });
+      }
+      return moved;
+    } catch (error: unknown) {
+      if (this.isDuplicateKeyError(error)) {
+        // Vừa có người gán cùng SKU vào ô đích — giữ dòng đích, bỏ dòng nguồn.
+        await this.assignmentModel.deleteOne({ _id: source._id, quantity_on_hand: 0 });
+        const winner = await this.assignmentModel.findOne(destFilter);
+        if (winner) return winner;
+      }
+      throw error;
+    }
   }
 
   async listMovements(warehouseId: string, assignmentId: string, limit = 100): Promise<InventoryMovementDocument[]> {

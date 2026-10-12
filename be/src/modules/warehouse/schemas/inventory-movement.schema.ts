@@ -64,3 +64,11 @@ export type InventoryMovementDocument = HydratedDocument<InventoryMovement>;
 export const InventoryMovementSchema = SchemaFactory.createForClass(InventoryMovement);
 InventoryMovementSchema.index({ assignment_id: 1, created_at: -1 });
 InventoryMovementSchema.index({ warehouse_id: 1, seller_sku: 1, created_at: -1 });
+// 10/10/2026 — kiểm tra "ô/khu đã từng có nhập–xuất chưa" trước khi xoá hẳn
+// (DELETE .../permanent): lọc theo bin_location_id $in, không có warehouse_id đứng đầu.
+InventoryMovementSchema.index({ bin_location_id: 1 });
+// 10/10/2026 — kiểm tra "SKU nội bộ đã từng có nhập–xuất chưa" (DELETE /master-skus/:code/permanent).
+InventoryMovementSchema.index(
+  { master_sku: 1 },
+  { partialFilterExpression: { master_sku: { $type: 'string' } } },
+);

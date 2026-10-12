@@ -8,6 +8,10 @@ import {
 } from './enums/order-status.enum';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
 import {
+  extractAdministrativeAreas,
+  isMaskedValue,
+} from './utils/vn-administrative-area.util';
+import {
   MarketplaceIntegrationService,
   LazadaAdapter,
 } from '../marketplace-integration';
@@ -38,6 +42,32 @@ export interface ListOrdersFilter {
   before?: Date; // cursor phân trang — xem giải thích ở listOrders()
   limit: number;
 }
+
+/** 08/10/2026 (C1) — kết quả bổ sung Tỉnh/Quận/Phường cho đơn cũ. */
+export interface RecipientAreaBackfillSample {
+  platformOrderId: string;
+  statuses: string;
+  address1Tail: string | null; // 2 đoạn cuối của address1, chữ số đã thay bằng #
+  address3: string | null;
+  address4: string | null;
+  address5: string | null;
+  city: string | null;
+  provinceName: string | null;
+  districtName: string | null;
+  wardName: string | null;
+}
+
+export interface RecipientAreaBackfillResult {
+  fetched: number; // số đơn Lazada trả về trong khoảng thời gian
+  matched: number; // số đơn có trong DB được ghi (0 khi dryRun)
+  missingWard: number; // đơn không tách được phường — sẽ phải chọn tay ở bước GHN
+  missingProvince: number; // đơn không tách được tỉnh
+  maskedAddress: number; // đơn có address3/4/5 bị sàn che (dấu *)
+  canceledOrders: number; // đơn mà mọi item đều đã huỷ
+  samples: RecipientAreaBackfillSample[]; // tối đa 5 đơn chưa huỷ + 2 đơn huỷ, KHÔNG chứa tên/SĐT/số nhà
+}
+
+const BACKFILL_PAGE_SIZE = 100; // Lazada GetOrders tối đa 100/lần
 
 @Injectable()
 export class OrdersService {
@@ -280,6 +310,125 @@ export class OrdersService {
     );
 
     return true;
+  }
+
+  /**
+   * 08/10/2026 (C1 — GHN) — bổ sung province/district/ward cho đơn đã đồng bộ
+   * TRƯỚC khi có 3 field này. Đọc lại địa chỉ từ Lazada GetOrders (không gọi
+   * GetOrderItems — chỉ cần address_shipping), phân trang 100 đơn/lần, ghi bằng
+   * bulkWrite mỗi trang (Rule DB #14). KHÔNG upsert (không tạo đơn mới), KHÔNG
+   * đụng field khác của đơn. Chạy lại bao nhiêu lần cũng ra cùng kết quả.
+   * dryRun = chỉ đọc + trả mẫu để đối chiếu cách tách địa chỉ với dữ liệu thật.
+   */
+  async backfillRecipientAreas(
+    shopId: string,
+    options: { lookbackDays: number; dryRun: boolean },
+  ): Promise<RecipientAreaBackfillResult> {
+    const accessToken =
+      await this.marketplaceIntegrationService.getValidAccessToken(
+        shopId,
+        MarketplacePlatform.LAZADA,
+      );
+    const updatedAfter = new Date(
+      Date.now() - options.lookbackDays * 24 * 60 * 60 * 1000,
+    );
+    const result: RecipientAreaBackfillResult = {
+      fetched: 0,
+      matched: 0,
+      missingWard: 0,
+      missingProvince: 0,
+      maskedAddress: 0,
+      canceledOrders: 0,
+      samples: [],
+    };
+
+    let activeSampleCount = 0;
+    let canceledSampleCount = 0;
+
+    for (let offset = 0; ; offset += BACKFILL_PAGE_SIZE) {
+      const page = await this.lazadaAdapter.getOrders(accessToken, {
+        updatedAfter,
+        offset,
+        limit: BACKFILL_PAGE_SIZE,
+      });
+      result.fetched += page.length;
+
+      const operations = page.map((raw) => {
+        const address = raw.address_shipping;
+        // Cùng thứ tự phần tử với mapLazadaOrder (address3/4/5 + city).
+        const areas = extractAdministrativeAreas([
+          address.address3,
+          address.address4,
+          address.address5,
+          address.city,
+        ]);
+        if (areas.ward_name === null) result.missingWard += 1;
+        if (areas.province_name === null) result.missingProvince += 1;
+        if (
+          [address.address3, address.address4, address.address5].some(
+            (part) => part !== undefined && isMaskedValue(part),
+          )
+        ) {
+          result.maskedAddress += 1;
+        }
+        // Mẫu: tối đa 5 đơn chưa huỷ + 2 đơn huỷ. Đơn huỷ bị Lazada che gần hết
+        // địa chỉ nên không đại diện cho đơn sẽ thực sự đi giao.
+        const isCanceledOnly = raw.statuses.every((st) => st === 'canceled');
+        if (isCanceledOnly) result.canceledOrders += 1;
+        const canTakeSample = isCanceledOnly
+          ? canceledSampleCount < 2
+          : activeSampleCount < 5;
+        if (canTakeSample) {
+          if (isCanceledOnly) canceledSampleCount += 1;
+          else activeSampleCount += 1;
+          result.samples.push({
+            platformOrderId: String(raw.order_id),
+            statuses: raw.statuses.join(','),
+            address1Tail: address.address1
+              ? address.address1
+                  .split(',')
+                  .slice(-2)
+                  .join(',')
+                  .replace(/[0-9]/g, '#')
+                  .trim()
+              : null,
+            address3: address.address3 ?? null,
+            address4: address.address4 ?? null,
+            address5: address.address5 ?? null,
+            city: address.city || null,
+            provinceName: areas.province_name,
+            districtName: areas.district_name,
+            wardName: areas.ward_name,
+          });
+        }
+        return {
+          updateOne: {
+            filter: {
+              platform: MarketplacePlatform.LAZADA,
+              shop_id: shopId,
+              platform_order_id: String(raw.order_id),
+            },
+            update: {
+              $set: {
+                'recipient.province_name': areas.province_name,
+                'recipient.district_name': areas.district_name,
+                'recipient.ward_name': areas.ward_name,
+              },
+            },
+          },
+        };
+      });
+
+      if (!options.dryRun && operations.length > 0) {
+        const write = await this.orderModel.bulkWrite(operations, {
+          ordered: false,
+        });
+        result.matched += write.matchedCount;
+      }
+      if (page.length < BACKFILL_PAGE_SIZE) break;
+    }
+
+    return result;
   }
 
   /**

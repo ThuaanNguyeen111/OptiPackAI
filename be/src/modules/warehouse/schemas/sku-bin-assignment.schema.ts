@@ -59,3 +59,10 @@ SkuBinAssignmentSchema.index(
   { warehouse_id: 1, master_sku: 1, bin_location_id: 1 },
   { unique: true, partialFilterExpression: { master_sku: { $type: 'string' } } },
 );
+// 10/10/2026 — kiểm tra "SKU nội bộ còn nằm trên ô nào không" trước khi xoá hẳn
+// SKU nội bộ: lọc chỉ theo master_sku (index unique ở trên bắt đầu bằng warehouse_id
+// nên không dùng được). Partial: dòng chưa nối (master_sku null) không vào index.
+SkuBinAssignmentSchema.index(
+  { master_sku: 1 },
+  { partialFilterExpression: { master_sku: { $type: 'string' } } },
+);

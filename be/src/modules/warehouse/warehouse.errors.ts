@@ -31,4 +31,6 @@ export const WAREHOUSE_ERROR_CODES = {
   INSUFFICIENT_STOCK: 'WH_INSUFFICIENT_STOCK', // chuyển nhiều hơn số đang có
   SAME_BIN: 'WH_SAME_BIN', // chuyển sang chính ô đang đứng
   NOTE_REQUIRED: 'WH_NOTE_REQUIRED', // lý do "other" phải có ghi chú
+  // 10/10/2026 — xoá hẳn mục tạo nhầm (báo cáo Hải Phượng)
+  HAS_HISTORY: 'WH_HAS_HISTORY', // đã có nhập–xuất → chỉ vô hiệu hoá được, không xoá hẳn
 } as const;

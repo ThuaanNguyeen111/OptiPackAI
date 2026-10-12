@@ -35,3 +35,23 @@ export class TransferStockDto {
   @IsOptional() @IsString() @MaxLength(500)
   note?: string;
 }
+
+/**
+ * 10/10/2026 — sửa gán nhầm: dời 1 dòng "SKU trên ô" sang ô khác.
+ * Ô hết hàng → chỉ đổi ô. Ô còn hàng → chuyển TOÀN BỘ số đang có (ghi sổ cái
+ * như "chuyển ô") rồi bỏ dòng cũ.
+ */
+export class MoveAssignmentDto {
+  @ApiProperty({ example: '66f0...', description: 'Ô đúng (cùng kho)' })
+  @IsMongoId()
+  to_bin_location_id!: string;
+
+  @ApiPropertyOptional({ example: false, description: 'Bỏ qua chặn vượt sức chứa ô đích' })
+  @IsOptional() @IsBoolean()
+  force?: boolean;
+
+  @ApiPropertyOptional({ example: 'Gán nhầm ô lúc thiết lập kho' })
+  @IsOptional() @IsString() @MaxLength(500)
+  note?: string;
+}
+

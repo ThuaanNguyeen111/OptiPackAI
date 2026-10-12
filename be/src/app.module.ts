@@ -13,6 +13,7 @@ import jwtConfig from './config/jwt.config';
 import mailConfig from './config/mail.config';
 import redisConfig from './config/redis.config';
 import marketplaceConfig from './config/marketplace.config';
+import carrierConfig from './config/carrier.config';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { MarketplaceIntegrationModule } from './modules/marketplace-integration/marketplace-integration.module';
@@ -26,12 +27,13 @@ import { ShipmentsModule } from './modules/shipments/shipments.module';
 import { PackagingMaterialsModule } from './modules/packaging-materials/packaging-materials.module';
 import { MasterSkusModule } from './modules/master-skus/master-skus.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { CarriersModule } from './modules/carriers/carriers.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig],
+      load: [databaseConfig, jwtConfig, googleConfig, redisConfig, mailConfig, marketplaceConfig, carrierConfig],
     }),
     MongooseModule.forRootAsync({
       imports: [ConfigModule],
@@ -64,6 +66,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     PackagingMaterialsModule, // G4 (27/09/2026)
     MasterSkusModule, // K4a (27/09/2026)
     NotificationsModule,
+    CarriersModule, // C2 (08/10/2026) — đơn vị vận chuyển (GHN / mock)
   ],
   controllers: [AppController],
   providers: [
