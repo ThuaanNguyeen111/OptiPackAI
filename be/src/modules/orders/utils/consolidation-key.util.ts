@@ -57,6 +57,10 @@ function normalizeAddressFragment(text: string): string {
   return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // bỏ dấu
+    // 13/10/2026 — "Đ"/"đ" là chữ cái riêng, NFD không tách dấu → gập tay về "d".
+    // Thiếu bước này: khách gõ "Nguyễn Văn Đậu" lần này, "Nguyen Van Dau" lần sau
+    // → khác key, không gom (phát hiện khi viết bảng trường hợp gom đơn AURELLE).
+    .replace(/[đĐ]/g, 'd')
     .toLowerCase()
     .trim()
     .replace(/\s+/g, ' ');

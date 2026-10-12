@@ -54,11 +54,7 @@ describe('computeRecipientKey (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.
   });
 
   it('chuẩn hóa tên/địa chỉ giống hệt consolidation_key — chữ HOA/thường và khoảng trắng thừa không tạo ra key khác nhau', () => {
-    // Lưu ý: "Đ"/"đ" là 1 CHỮ CÁI RIÊNG trong Unicode (không phải "D" + dấu
-    // kết hợp qua NFD) — normalizeAddressFragment (bỏ dấu qua NFD) KHÔNG
-    // gập "Đường" thành "duong". Test này chỉ xác nhận đúng phần chuẩn hóa
-    // THẬT SỰ áp dụng: hạ chữ thường + gộp khoảng trắng — giữ nguyên "Đường"
-    // giống hệt ở cả 2 vế để không phụ thuộc vào hành vi Đ/đ.
+    // (13/10/2026: "Đ"/"đ" nay cũng được gập về "d" — xem test riêng bên dưới.)
     const key1 = computeRecipientKey(
       'Nguyễn Văn A',
       '0901234567',
@@ -75,15 +71,68 @@ describe('computeRecipientKey (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.
   });
 
   it('SĐT khác dạng đầu số (+84/84/0) nhưng cùng số thật -> cùng recipient_key (tái dùng normalizePhoneNumber)', () => {
-    const keyWithZero = computeRecipientKey('A', '0901234567', 'Địa chỉ', 'Tỉnh');
-    const keyWithCountryCode = computeRecipientKey('A', '+84901234567', 'Địa chỉ', 'Tỉnh');
+    const keyWithZero = computeRecipientKey(
+      'A',
+      '0901234567',
+      'Địa chỉ',
+      'Tỉnh',
+    );
+    const keyWithCountryCode = computeRecipientKey(
+      'A',
+      '+84901234567',
+      'Địa chỉ',
+      'Tỉnh',
+    );
     expect(keyWithZero).toBe(keyWithCountryCode);
     expect(normalizePhoneNumber('+84901234567')).toBe('0901234567');
   });
 
   it('khác tên (dù cùng SĐT/địa chỉ/tỉnh) -> KHÁC recipient_key — an toàn, không liên kết nhầm', () => {
-    const key1 = computeRecipientKey('Nguyễn Văn A', '0901234567', '12 Đường 3/2', 'TP.HCM');
-    const key2 = computeRecipientKey('Nguyễn Văn B', '0901234567', '12 Đường 3/2', 'TP.HCM');
+    const key1 = computeRecipientKey(
+      'Nguyễn Văn A',
+      '0901234567',
+      '12 Đường 3/2',
+      'TP.HCM',
+    );
+    const key2 = computeRecipientKey(
+      'Nguyễn Văn B',
+      '0901234567',
+      '12 Đường 3/2',
+      'TP.HCM',
+    );
     expect(key1).not.toBe(key2);
+  });
+
+  it('13/10/2026 — "Đ/đ" gập về "d": gõ có dấu hay không dấu đều ra cùng key', () => {
+    expect(
+      computeRecipientKey(
+        'Đỗ Văn Đạt',
+        '0901234567',
+        '47/88 Nguyễn Văn Đậu',
+        'Đà Nẵng',
+      ),
+    ).toBe(
+      computeRecipientKey(
+        'Do Van Dat',
+        '0901234567',
+        '47/88 Nguyen Van Dau',
+        'Da Nang',
+      ),
+    );
+    expect(
+      computeConsolidationKey(
+        'aurelle',
+        '0901234567',
+        '12 Đường 3/2',
+        'Đà Nẵng',
+      ),
+    ).toBe(
+      computeConsolidationKey(
+        'aurelle',
+        '0901234567',
+        '12 duong 3/2',
+        'da nang',
+      ),
+    );
   });
 });
