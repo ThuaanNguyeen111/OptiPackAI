@@ -91,9 +91,8 @@ export function ReturnsPage() {
     [items, selectedId],
   )
 
-  const queuePaging = useLocalQueuePagination(items, {
-    resetKey: statusFilter,
-  })
+  // Hook tự về trang 1 khi danh sách đổi (đổi bộ lọc trạng thái nạp lại items).
+  const queuePaging = useLocalQueuePagination(items)
 
   async function onApprove(): Promise<void> {
     if (!selected || selected.status !== 'requested') return

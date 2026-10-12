@@ -87,10 +87,12 @@ export class User {
 export type UserDocument = HydratedDocument<User>;
 export const UserSchema = SchemaFactory.createForClass(User);
 
-UserSchema.index(
-  { email: 1 },
-  { unique: true, partialFilterExpression: { is_active: true } },
-);
+// ĐÃ THAY ĐỔI 2026-09-14 so với unique partial `{ is_active: true }`:
+// trước đây cho phép tạo user MỚI trùng email tài khoản đã vô hiệu hóa.
+// User yêu cầu chặn tuyệt đối — email là định danh, kể cả khi deactivate.
+// Nếu Mongo báo IndexOptionsConflict lúc start: drop index cũ `email_1`
+// trên collection `users` (Atlas) rồi restart app.
+UserSchema.index({ email: 1 }, { unique: true });
 
 UserSchema.index({ role: 1, is_active: 1 });
 UserSchema.index(

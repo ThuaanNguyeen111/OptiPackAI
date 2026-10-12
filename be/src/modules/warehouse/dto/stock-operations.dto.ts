@@ -54,4 +54,3 @@ export class MoveAssignmentDto {
   @IsOptional() @IsString() @MaxLength(500)
   note?: string;
 }
-

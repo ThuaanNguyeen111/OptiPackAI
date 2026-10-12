@@ -2,7 +2,7 @@
 
 | Thông tin | Giá trị |
 |---|---|
-| Phiên bản | 2.0 — 28/09/2026 (viết lại toàn bộ; thay thế v1.x) |
+| Phiên bản | 2.2 — 29/09/2026 (v2.1: sửa khóa gộp theo nền tảng, quy tắc 1 dòng = 1 đơn vị; v2.2: bổ sung Mục 14 — kiểm tra tương thích) |
 | Mục đích | Đặc tả cơ sở dữ liệu, API và cách tích hợp để sàn tự xây dựng **AURELLE** hoạt động như sàn thương mại điện tử thứ hai, kết nối OptiPack **theo đúng khuôn đang dùng với Lazada** |
 | Đối tượng | Nhóm phát triển AURELLE (BE + storefront), nhóm OptiPack BE, người trình diễn |
 | Mã nền tảng trong OptiPack | `aurelle` |
@@ -206,7 +206,7 @@ counters (sinh số order_id / order_item_id)
 | `order_id` | number, index | |
 | `sku_id`, `seller_sku`, `shop_sku`, `item_id` | string | |
 | `name`, `variation` | string | Chụp lúc đặt |
-| `quantity` | int | Mỗi dòng 1 đơn vị như Lazada, hoặc gộp số lượng — xem ghi chú Mục 7.4 |
+| `quantity` | int | Lưu nội bộ tùy ý, nhưng **Open API bắt buộc tách thành N dòng, mỗi dòng 1 đơn vị** (Mục 7.4) |
 | `item_price`, `paid_price` | int VND | |
 | `status` | như Mục 6 | |
 | `tracking_code`, `package_id` | string | Do OptiPack ghi ngược (mã vận đơn) |
@@ -426,7 +426,7 @@ Response cùng cấu trúc; `refresh_token` cũ hết hiệu lực.
 }
 ```
 - `sku` = `SellerSku` — OptiPack lấy trường này làm SKU sàn.
-- **Mỗi đơn vị hàng là 1 dòng** (mua 2 cái → 2 dòng cùng `sku`) — đúng cách Lazada trả và đúng cách OptiPack đang gom số lượng theo SKU.
+- ⚠️ **Bắt buộc: mỗi đơn vị hàng là 1 dòng** (mua 2 cái → 2 dòng cùng `sku`, mỗi dòng `order_item_id` riêng). `mapLazadaOrder` gán cứng `quantity: 1` cho mọi dòng rồi gom theo SKU — trả 1 dòng số lượng 2 thì OptiPack chỉ tính **1 cái**.
 
 Mở rộng (không bắt buộc): `GET /rest/orders/items/get?order_ids=[710000017,710000018]` — lấy dòng hàng nhiều đơn một lần (≤ 50 đơn), tương đương `GetMultipleOrderItems` của Lazada.
 
@@ -574,7 +574,7 @@ Tách phần giao thức Lazada đang nằm trong `LazadaAdapter` (ký request, 
 
 ### 9.2. Ánh xạ đơn
 
-Dùng lại **nguyên `mapLazadaOrder(rawOrder, rawItems)`** — hàm không gắn cứng tên sàn; tên sàn do tầng đồng bộ gán khi lưu.
+Dùng lại `mapLazadaOrder(rawOrder, rawItems)` với **1 sửa bắt buộc**: hàm hiện gọi `computeConsolidationKey(MarketplacePlatform.LAZADA, …)` — gắn cứng Lazada. Thêm tham số `platform` và truyền vào hàm tính khóa; nếu không, đơn AURELLE mang khóa gộp của Lazada và **bị gộp chung thùng với đơn Lazada**. Các phần còn lại của hàm (giá dạng chuỗi, `statuses`, địa chỉ từ `address1`, `quantity: 1`) dùng nguyên.
 
 | `Order` (OptiPack) | Nguồn |
 |---|---|
@@ -597,6 +597,7 @@ Dùng lại **nguyên `mapLazadaOrder(rawOrder, rawItems)`** — hàm không g�
 | 2 | `marketplace-integration.module.ts` | Đăng ký `AurelleAdapter` vào bảng adapter |
 | 3 | `marketplace-integration.service.ts` → `isSandboxEnvironment` | Thêm nhánh `aurelle` + cấu hình `marketplace.aurelle.sandbox` |
 | 4 | `lazada.adapter.ts` | Tách `LazadaProtocolClient` (Mục 9.1) |
+| 4b | `orders/mappers/lazada-order.mapper.ts` | `mapLazadaOrder` nhận thêm `platform`, truyền cho `computeConsolidationKey` (đang gắn cứng `LAZADA`) |
 | 5 | `orders.service.ts` | Tổng quát `syncLazadaOrders` thành `syncShopOrders(platform, shopId)` (bỏ 5 chỗ gắn cứng Lazada); thêm `syncSingleOrder(platform, shopId, orderId)` cho webhook; gọi `acknowledgeOrder` với AURELLE |
 | 6 | `lazada-order-sync.scheduler.ts` | Quét shop của cả `lazada` và `aurelle` |
 | 7 | `product-master.service.ts`, `product-master-sync.scheduler.ts` | Đồng bộ sản phẩm theo nền tảng (bỏ 3 chỗ gắn cứng) — **bắt buộc** để có kích thước đóng gói và nối SKU nội bộ |
@@ -736,3 +737,49 @@ Giai đoạn 5 phía OptiPack **độc lập** với AURELLE — có thể làm 
 | 2 | Mã nguồn `/storefront/*` hiện có | Cung cấp nhánh chứa code để chuyển sang AURELLE BE |
 | 3 | Thanh toán chuyển khoản | Giả lập bằng nút "Tôi đã thanh toán" |
 | 4 | Trả hàng do khách khởi tạo trên sàn | Sau khi luồng chính ổn định |
+
+---
+
+## 14. Kiểm tra tương thích (dành cho nhóm AURELLE)
+
+Hai file trong `be/scripts/` của repo OptiPack:
+
+| File | Vai trò |
+|---|---|
+| `aurelle-conformance.ts` | Ký request **đúng như OptiPack**, gọi Open API của AURELLE, kiểm từng trường và kiểu dữ liệu, rồi chạy response qua **chính hàm `mapLazadaOrder` của OptiPack**. Mỗi mục in PASS / WARN / FAIL; có FAIL → exit code 1 |
+| `aurelle-mock-server.ts` | Bản giả lập tham chiếu đúng đặc tả Mục 7 — xem định dạng request/response mẫu chạy thật |
+
+### 14.1. Chạy với AURELLE thật
+
+```bash
+cd be
+AURELLE_API_BASE_URL=http://localhost:4000/rest \
+AURELLE_APP_KEY=500123 AURELLE_APP_SECRET=<secret> \
+AURELLE_ACCESS_TOKEN=<token sau khi cấp quyền> \
+npx ts-node -r dotenv/config scripts/aurelle-conformance.ts
+```
+
+Tùy chọn: `AURELLE_AUTH_CODE` (kiểm đổi token), `AURELLE_REFRESH_TOKEN` (kiểm làm mới token), `AURELLE_TEST_WRITE=true` (kiểm cập nhật tồn — chỉ ghi lại đúng số đang có), `AURELLE_LOOKBACK_DAYS` (mặc định 30). Cần ít nhất **1 đơn** đặt trên storefront trong khoảng thời gian kiểm.
+
+### 14.2. Nội dung được kiểm
+
+| Nhóm | Kiểm tra |
+|---|---|
+| Token | `code` chuỗi `"0"`, đủ `access_token`/`refresh_token`/`account`, `expires_in` là số giây, có `country_user_info[0].seller_id` |
+| Chữ ký | Request ký sai **phải bị từ chối** |
+| `/orders/get` | Vỏ response, `data.orders`, `order_id` là số, `statuses` hợp lệ, ngày ISO, `price` là chuỗi, cờ hủy là `"true"`/`"false"`, địa chỉ đủ trường, `address1` có phường/quận, sắp xếp theo `updated_at` |
+| `/order/items/get` | `data` là mảng, `order_item_id` số và không trùng, **1 dòng = 1 đơn vị**, `items_count` khớp số dòng, `item_price` là chuỗi, **`mapLazadaOrder` của OptiPack chạy không lỗi** |
+| `/products/get` | Trả đủ SKU trong `sku_seller_list`, `package_*` là chuỗi số > 0, có `SkuId` |
+| Cập nhật tồn | Response `code "0"` khi đặt lại số hiện có |
+
+### 14.3. Đã kiểm chứng script
+
+| Bản giả lập | Kết quả |
+|---|---|
+| Đúng đặc tả | 11 PASS · 0 FAIL — `mapLazadaOrder` đọc đúng 2 đơn vị, tổng 400.000 VND |
+| `code` trả số `0` | FAIL: "code là SỐ 0 — phải là CHUỖI" |
+| Gộp 2 đơn vị vào 1 dòng | FAIL: quantity=2 và items_count lệch số dòng |
+| `price` là số | FAIL: "price phải là CHUỖI số" |
+| `address1` thiếu phường/quận | WARN |
+
+Nhóm AURELLE chạy script đạt **0 FAIL** thì phần đọc dữ liệu (OAuth, đơn, dòng hàng, sản phẩm) sẵn sàng để OptiPack tích hợp. Webhook và API ghi trạng thái được kiểm khi phía OptiPack triển khai (Mục 12).

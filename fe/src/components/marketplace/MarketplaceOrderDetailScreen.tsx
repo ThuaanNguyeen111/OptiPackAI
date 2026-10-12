@@ -93,15 +93,17 @@ export function MarketplaceOrderDetailScreen({
 
   useEffect(() => {
     if (!id) return
+    // Hằng đã thu hẹp kiểu (string) — narrowing của `id` không đi vào hàm async lồng.
+    const orderId: string = id
     let cancelled = false
 
     async function load(): Promise<void> {
-      if (isDemoOrderId(id)) {
-        const detail = getDemoOrderDetail(id)
+      if (isDemoOrderId(orderId)) {
+        const detail = getDemoOrderDetail(orderId)
         if (!detail) {
           if (!cancelled) {
             setLoaded({
-              id,
+              id: orderId,
               order: null,
               siblings: [],
               groupItems: [],
@@ -138,7 +140,7 @@ export function MarketplaceOrderDetailScreen({
         }
         if (!cancelled) {
           setLoaded({
-            id,
+            id: orderId,
             order: detail,
             siblings,
             groupItems,
@@ -152,7 +154,7 @@ export function MarketplaceOrderDetailScreen({
       }
 
       try {
-        const detail = await getOrderById(id)
+        const detail = await getOrderById(orderId)
         let siblings: MarketplaceOrderListItem[] = []
         let groupError: string | null = null
         const groupItems: Array<{
@@ -217,7 +219,7 @@ export function MarketplaceOrderDetailScreen({
 
         if (!cancelled) {
           setLoaded({
-            id,
+            id: orderId,
             order: detail,
             siblings:
               siblings.length > 0
@@ -250,7 +252,7 @@ export function MarketplaceOrderDetailScreen({
       } catch (err: unknown) {
         if (!cancelled) {
           setLoaded({
-            id,
+            id: orderId,
             order: null,
             siblings: [],
             groupItems: [],

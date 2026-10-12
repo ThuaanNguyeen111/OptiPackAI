@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PackagingMaterial, PackagingMaterialSchema } from './schemas/packaging-material.schema';
 import { PackagingMovement, PackagingMovementSchema } from './schemas/packaging-movement.schema';
-import { PackagingRecommendationDoc, PackagingRecommendationSchema } from '../packaging/schemas/packaging-recommendation.schema';
 import { PackagingMaterialsService } from './packaging-materials.service';
 import { PackagingMaterialsController } from './packaging-materials.controller';
 
@@ -13,7 +12,6 @@ import { PackagingMaterialsController } from './packaging-materials.controller';
     MongooseModule.forFeature([
       { name: PackagingMaterial.name, schema: PackagingMaterialSchema },
       { name: PackagingMovement.name, schema: PackagingMovementSchema },
-      { name: PackagingRecommendationDoc.name, schema: PackagingRecommendationSchema },
     ]),
   ],
   controllers: [PackagingMaterialsController],

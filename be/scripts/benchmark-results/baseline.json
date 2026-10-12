@@ -1,0 +1,38 @@
+{
+  "orders": 150,
+  "okPct": 100,
+  "noFitPct": 0,
+  "multiPct": 32.7,
+  "avgCartons": 1.84,
+  "avgFillRatio": 0.392,
+  "avgBoxCostVnd": 5781,
+  "timeP50Ms": 0,
+  "timeP95Ms": 10,
+  "timeMaxMs": 58,
+  "byBucket": {
+    "4-8": {
+      "orders": 45,
+      "okPct": 100,
+      "avgCartons": 1.96,
+      "p95Ms": 2
+    },
+    "1-3": {
+      "orders": 84,
+      "okPct": 100,
+      "avgCartons": 1.13,
+      "p95Ms": 0
+    },
+    "9-20": {
+      "orders": 17,
+      "okPct": 100,
+      "avgCartons": 3.59,
+      "p95Ms": 28
+    },
+    "21+": {
+      "orders": 4,
+      "okPct": 100,
+      "avgCartons": 8,
+      "p95Ms": 58
+    }
+  }
+}

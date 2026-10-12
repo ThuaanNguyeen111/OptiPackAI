@@ -1,3 +1,4 @@
+import { AUTH_ERROR_CODES, authError } from './auth.errors';
 import {
   ForbiddenException,
   Injectable,
@@ -130,9 +131,7 @@ export class AuthService {
 
     if (user && this.usersService.isLocked(user)) {
       await this.writeAuditLog(email, false, meta, user.id, 'account_locked');
-      throw new ForbiddenException(
-        AUTH_MESSAGES.ACCOUNT_LOCKED_FAILED_ATTEMPTS,
-      );
+      throw new ForbiddenException(authError(AUTH_ERROR_CODES.ACCOUNT_LOCKED, AUTH_MESSAGES.ACCOUNT_LOCKED_FAILED_ATTEMPTS));
     }
 
     const isPasswordValid = await bcrypt.compare(
@@ -151,12 +150,12 @@ export class AuthService {
         user?.id,
         'invalid_credentials',
       );
-      throw new UnauthorizedException(AUTH_MESSAGES.INVALID_CREDENTIALS);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.INVALID_CREDENTIALS, AUTH_MESSAGES.INVALID_CREDENTIALS));
     }
 
     if (!user.is_active) {
       await this.writeAuditLog(email, false, meta, user.id, 'account_inactive');
-      throw new UnauthorizedException(AUTH_MESSAGES.ACCOUNT_INACTIVE);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, AUTH_MESSAGES.ACCOUNT_INACTIVE));
     }
 
     //!=============================================
@@ -176,9 +175,7 @@ export class AuthService {
         to: user.email,
         name: user.name,
       });
-      throw new ForbiddenException(
-        AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE,
-      );
+      throw new ForbiddenException(authError(AUTH_ERROR_CODES.PASSWORD_DEADLINE_LOCKED, AUTH_MESSAGES.ACCOUNT_LOCKED_PASSWORD_DEADLINE));
     }
 
     let newTrustedDeviceToken: string | undefined;
@@ -192,7 +189,7 @@ export class AuthService {
           user.id,
           'mfa_misconfigured',
         );
-        throw new UnauthorizedException(AUTH_MESSAGES.MFA_MISCONFIGURED);
+        throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_MISCONFIGURED, AUTH_MESSAGES.MFA_MISCONFIGURED));
       }
 
       //!=============================================
@@ -222,9 +219,7 @@ export class AuthService {
               user.id,
               'invalid_mfa_backup_code',
             );
-            throw new UnauthorizedException(
-              AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID,
-            );
+            throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_BACKUP_CODE_INVALID, AUTH_MESSAGES.MFA_BACKUP_CODE_INVALID));
           }
           await this.usersService.consumeBackupCode(user.id, usedIndex);
           newTrustedDeviceToken = await this.issueTrustedDeviceToken(
@@ -244,7 +239,7 @@ export class AuthService {
               user.id,
               'invalid_mfa',
             );
-            throw new UnauthorizedException(AUTH_MESSAGES.MFA_TOKEN_INVALID);
+            throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_TOKEN_INVALID, AUTH_MESSAGES.MFA_TOKEN_INVALID));
           }
           newTrustedDeviceToken = await this.issueTrustedDeviceToken(
             user.id,
@@ -459,14 +454,12 @@ export class AuthService {
       this.logger.error(
         `Google token exchange thất bại (HTTP ${String(tokenResponse.status)}), redirect_uri=${redirectUri}, client_id=${clientId}: ${errorBody}`,
       );
-      throw new UnauthorizedException(GOOGLE_OAUTH_MESSAGES.GOOGLE_AUTH_FAILED);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_AUTH_FAILED, GOOGLE_OAUTH_MESSAGES.GOOGLE_AUTH_FAILED));
     }
 
     const tokenData: unknown = await tokenResponse.json();
     if (!isGoogleTokenResponse(tokenData)) {
-      throw new UnauthorizedException(
-        GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID,
-      );
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_RESPONSE_INVALID, GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID));
     }
 
     const userInfoResponse = await fetch(
@@ -482,9 +475,7 @@ export class AuthService {
       this.logger.error(
         `Google userinfo sai định dạng (HTTP ${String(userInfoResponse.status)}): ${JSON.stringify(userInfoData)}`,
       );
-      throw new UnauthorizedException(
-        GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID,
-      );
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.GOOGLE_RESPONSE_INVALID, GOOGLE_OAUTH_MESSAGES.GOOGLE_RESPONSE_FORMAT_INVALID));
     }
 
     return userInfo;
@@ -503,7 +494,7 @@ export class AuthService {
     if (user.password) {
       const isValid = await bcrypt.compare(currentPassword, user.password);
       if (!isValid) {
-        throw new UnauthorizedException(AUTH_MESSAGES.CURRENT_PASSWORD_INVALID);
+        throw new UnauthorizedException(authError(AUTH_ERROR_CODES.CURRENT_PASSWORD_INVALID, AUTH_MESSAGES.CURRENT_PASSWORD_INVALID));
       }
     }
 
@@ -550,7 +541,7 @@ export class AuthService {
       hashToken(token),
     );
     if (!user) {
-      throw new UnauthorizedException(AUTH_MESSAGES.RESET_TOKEN_INVALID);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.RESET_TOKEN_INVALID, AUTH_MESSAGES.RESET_TOKEN_INVALID));
     }
 
     await this.usersService.changePassword(user.id, newPassword);
@@ -586,11 +577,11 @@ export class AuthService {
   ): Promise<{ message: string; backup_codes: string[] }> {
     const user = await this.usersService.findById(userId);
     if (!user.mfa_secret) {
-      throw new UnauthorizedException(AUTH_MESSAGES.MFA_SETUP_NOT_STARTED);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_SETUP_NOT_STARTED, AUTH_MESSAGES.MFA_SETUP_NOT_STARTED));
     }
     const isValid = this.mfaService.verifyToken(token, user.mfa_secret);
     if (!isValid) {
-      throw new UnauthorizedException(AUTH_MESSAGES.MFA_TOKEN_INVALID);
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.MFA_TOKEN_INVALID, AUTH_MESSAGES.MFA_TOKEN_INVALID));
     }
 
     const { plainCodes, hashedCodes } =

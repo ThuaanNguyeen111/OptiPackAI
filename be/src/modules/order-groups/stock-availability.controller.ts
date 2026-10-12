@@ -1,3 +1,4 @@
+import { StockAvailabilityQueryDto } from './dto/stock-availability-query.dto';
 import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { StockReservationService } from './stock-reservation.service';
@@ -6,7 +7,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
-import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 /** K5 (27/09/2026) — tồn khả dụng + giữ chỗ của nhóm đơn. */
 @ApiTags('Stock Availability (K5)')
@@ -22,12 +22,8 @@ export class StockAvailabilityController {
   @Get('stock-availability')
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'Tồn thực / đã giữ / khả dụng của 1 SKU sàn (tự tra SKU nội bộ nếu đã nối). ?platform&shop_id&seller_sku' })
-  availability(
-    @Query('platform') platform: MarketplacePlatform,
-    @Query('shop_id') shopId: string,
-    @Query('seller_sku') sellerSku: string,
-  ): ReturnType<StockReservationService['availability']> {
-    return this.reservations.availability(platform, shopId, sellerSku);
+  availability(@Query() q: StockAvailabilityQueryDto): ReturnType<StockReservationService['availability']> {
+    return this.reservations.availability(q.platform, q.shop_id, q.seller_sku);
   }
 
   @Get('order-groups/:id/stock-reservation')

@@ -12,6 +12,7 @@ export enum ReturnStatus {
   AWAITING_RECEIPT = 'awaiting_receipt', // đã duyệt, chờ hàng về kho
   RECEIVED = 'received', // kho đã nhận, chờ kiểm hàng
   CLOSED = 'closed', // KẾT THÚC — đã kiểm hàng (hoặc hoàn tiền không cần trả hàng)
+  CANCELED = 'canceled', // (09/10/2026) KẾT THÚC — đã duyệt nhưng hàng không bao giờ về (khách không gửi)
 }
 
 export const OPEN_RETURN_STATUSES: readonly ReturnStatus[] = [ReturnStatus.REQUESTED, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.RECEIVED];

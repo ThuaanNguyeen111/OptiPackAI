@@ -13,7 +13,7 @@ describe('WarehouseService — bố cục kho mới K2', () => {
   let binModel: { countDocuments: jest.Mock; insertMany: jest.Mock; find: jest.Mock; findById: jest.Mock };
   let assignmentModel: { aggregate: jest.Mock; findOne: jest.Mock; findOneAndUpdate: jest.Mock; find: jest.Mock };
   let categoriesService: { getActiveLevel2: jest.Mock };
-  let orderGroupsService: { getPackableItemsForGroup: jest.Mock; findOrderGroupById: jest.Mock };
+  let orderGroupsService: { getPickableItemsForGroup: jest.Mock; findOrderGroupById: jest.Mock };
   let service: WarehouseService;
 
   const zone = (code: string): { _id: Types.ObjectId; warehouse_id: Types.ObjectId; zone_code: string } => ({ _id: zoneId, warehouse_id: warehouseId, zone_code: code });
@@ -25,7 +25,7 @@ describe('WarehouseService — bố cục kho mới K2', () => {
     binModel = { countDocuments: jest.fn().mockResolvedValue(0), insertMany: jest.fn().mockResolvedValue([]), find: jest.fn(), findById: jest.fn() };
     assignmentModel = { aggregate: jest.fn().mockResolvedValue([]), findOne: jest.fn(), findOneAndUpdate: jest.fn(), find: jest.fn() };
     categoriesService = { getActiveLevel2: jest.fn().mockResolvedValue(category) };
-    orderGroupsService = { getPackableItemsForGroup: jest.fn(), findOrderGroupById: jest.fn().mockResolvedValue({ platform: 'lazada', shop_id: 's1' }) };
+    orderGroupsService = { getPickableItemsForGroup: jest.fn(), findOrderGroupById: jest.fn().mockResolvedValue({ platform: 'lazada', shop_id: 's1' }) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     service = new WarehouseService(
       warehouseModel as never, zoneModel as never, binModel as never, assignmentModel as never,
@@ -102,7 +102,7 @@ describe('WarehouseService — bố cục kho mới K2', () => {
     const binNew1 = { _id: new Types.ObjectId(), zone_id: zoneId, bin_code: 'KA-D2-T01-T01-1', pick_sequence: 500 };
     const binNew2 = { _id: new Types.ObjectId(), zone_id: zoneId, bin_code: 'KA-D1-T05-T01-1', pick_sequence: 100 };
     const binOld = { _id: new Types.ObjectId(), zone_id: zoneId, bin_code: 'A-01-01-01' };
-    orderGroupsService.getPackableItemsForGroup.mockResolvedValue({
+    orderGroupsService.getPickableItemsForGroup.mockResolvedValue({
       items: ['OLD', 'NEW-500', 'NONE', 'NEW-100'].map((sku) => ({ sku, quantity: 1 })),
     });
     assignmentModel.find.mockReturnValue({ lean: jest.fn().mockResolvedValue([

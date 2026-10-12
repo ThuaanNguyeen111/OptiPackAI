@@ -37,6 +37,10 @@ export class OrderGroupBackfillScheduler {
     const startedAt = Date.now();
 
     try {
+      // (09/10/2026) Cứu nhóm kẹt awaiting_packaging (bước chuyển sang picking lúc tạo bị lỗi).
+      const resumed = await this.orderGroupsService.resumeStuckAwaitingGroups();
+      if (resumed > 0) this.logger.warn(`Đã đưa ${String(resumed)} nhóm kẹt awaiting_packaging sang picking.`);
+
       // Giới hạn 200 đơn/lượt — tránh 1 lượt cron ôm quá nhiều việc nếu
       // có backlog lớn (VD lần đầu bật tính năng này, đơn cũ dồn lại).
       const orphanOrders = await this.orderModel

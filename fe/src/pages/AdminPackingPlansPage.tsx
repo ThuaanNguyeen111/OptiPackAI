@@ -411,7 +411,7 @@ export function AdminPackingPlansPage() {
           </div>
         </div>
       </main>
-      <AdminToast message={toast} />
+      {toast ? <AdminToast message={toast} onClose={() => setToast(null)} /> : null}
     </>
   )
 }

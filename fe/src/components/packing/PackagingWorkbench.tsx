@@ -44,6 +44,7 @@ type QueueTab =
   | 'partial_needs_review'
   | 'approved_for_packing'
   | 'awaiting_packaging'
+  | 'pending_approval'
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]

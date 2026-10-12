@@ -8,4 +8,5 @@ export const PACKAGING_MATERIAL_ERROR_CODES = {
   OLD_LABEL_NOT_REMOVED: 'PKG_OLD_LABEL_NOT_REMOVED', // xếp hạng A mà chưa gỡ nhãn cũ
   NOT_REUSABLE: 'PKG_MATERIAL_NOT_REUSABLE', // xếp hạng A cho vật liệu không tái sử dụng được
   INSUFFICIENT_INTERNAL: 'PKG_INSUFFICIENT_INTERNAL', // xuất dùng nội bộ vượt tồn hạng B
+  INSUFFICIENT_STOCK: 'PKG_MATERIAL_INSUFFICIENT_STOCK', // (04/10/2026) không đủ thùng khi xác nhận đóng gói
 } as const;

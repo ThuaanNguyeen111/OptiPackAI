@@ -18,6 +18,54 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { addBusinessHours } from '../order-groups/utils/add-business-hours.util';
 import { deliveryDueBusinessHours, minRetryGapMinutes } from './shipment-config';
+import { randomBytes } from 'crypto';
+import { ShippingService } from '../shipping/shipping.service';
+import type { ServiceQuote } from '../shipping/utils/shipping-cost.util';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Hãng/dịch vụ chọn khi tạo vận đơn (gộp thi_dev 04/10/2026). */
+export interface CarrierChoice {
+  carrierCode: string;
+  serviceCode: string;
+  pickupAt?: Date;
+}
+
+export interface ShipmentBatchResult {
+  tripCode: string;
+  carrierCode: string;
+  serviceCode: string;
+  totalCostVnd: number;
+  shipments: {
+    id: string;
+    orderGroupId: string;
+    trackingCode: string;
+    parcelCount: number;
+    estimatedCostVnd: number;
+    etaFrom: Date;
+    etaTo: Date;
+  }[];
+}
+
+/** Trường thêm khi tạo vận đơn có chọn hãng / thuộc 1 chuyến. */
+type ShipmentExtras = Partial<
+  Pick<
+    Shipment,
+    | 'trip_code'
+    | 'note'
+    | 'carrier_code'
+    | 'carrier_name'
+    | 'service_code'
+    | 'service_name'
+    | 'parcel_count'
+    | 'chargeable_weight_g'
+    | 'estimated_cost_vnd'
+    | 'is_sample_rate'
+    | 'eta_from'
+    | 'eta_to'
+    | 'pickup_at'
+  >
+>;
 
 export interface ShipmentActor {
   userId: string;
@@ -58,7 +106,21 @@ export class ShipmentsService {
     // G3 — kho nhận lại kiện giao thất bại -> tự tạo phiếu hoàn trong CÙNG transaction
     private readonly returnsService: ReturnsService,
     private readonly notificationsService: NotificationsService,
+    private readonly shippingService: ShippingService, // gộp thi_dev — báo giá + ghi cước
   ) {}
+
+  /** (05/10/2026) Nhóm còn kiện của đơn đã hủy chưa tháo → chưa được giao. */
+  private async assertNothingToUnpack(orderGroupId: string): Promise<void> {
+    const count = await this.shippingService.countParcelsToUnpack(orderGroupId);
+    if (count > 0) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.PARCELS_TO_UNPACK,
+        `Nhóm đơn còn ${String(count)} kiện của đơn đã hủy chưa tháo — tháo kiện (POST .../packing-plan/parcels/:no/unpack) trước khi giao.`,
+        HttpStatus.CONFLICT,
+        { orderGroupId, parcelsToUnpack: count },
+      );
+    }
+  }
 
   // ------------------------------------------------------------------ đọc
 
@@ -77,12 +139,16 @@ export class ShipmentsService {
     status?: ShipmentStatus;
     orderGroupId?: string;
     overdueOnly?: boolean; // lọc vận đơn đã bị cron gắn cờ quá hạn giao
+    tripCode?: string; // gộp thi_dev — vận đơn cùng chuyến
+    carrierCode?: string;
     page: number;
     limit: number;
   }): Promise<{ items: ShipmentDocument[]; total: number }> {
     const filter: Record<string, unknown> = {};
     if (params.status) filter.status = params.status;
     if (params.overdueOnly) filter.is_overdue = true;
+    if (params.tripCode) filter.trip_code = params.tripCode;
+    if (params.carrierCode) filter.carrier_code = params.carrierCode;
     if (params.orderGroupId && Types.ObjectId.isValid(params.orderGroupId)) {
       filter.order_group_id = new Types.ObjectId(params.orderGroupId);
     }
@@ -101,9 +167,16 @@ export class ShipmentsService {
   // ------------------------------------------------------------ nút bấm
 
   /** [Coordinator] Bắt đầu giao — tạo vận đơn cho nhóm đơn đã đóng gói. */
-  async startDelivery(orderGroupId: string, actor: ShipmentActor, note?: string, groupExpectedVersion?: number): Promise<ShipmentDocument> {
+  async startDelivery(
+    orderGroupId: string,
+    actor: ShipmentActor,
+    note?: string,
+    groupExpectedVersion?: number,
+    carrier?: CarrierChoice,
+  ): Promise<ShipmentDocument> {
     const group = await this.orderGroupsService.findOrderGroupById(orderGroupId);
     await this.assertNoShipment(group);
+    if (carrier?.pickupAt) this.assertPickupNotPast(carrier.pickupAt);
 
     const isLegacyShipped = group.fulfillment_status === GroupFulfillmentStatus.SHIPPED;
     if (group.fulfillment_status !== GroupFulfillmentStatus.PACKED && !isLegacyShipped) {
@@ -114,9 +187,18 @@ export class ShipmentsService {
         { orderGroupId, status: group.fulfillment_status },
       );
     }
+    await this.assertNothingToUnpack(orderGroupId);
+
+    // Gộp thi_dev: có chọn hãng → báo giá theo các kiện thật của kế hoạch đóng gói.
+    const quote = carrier
+      ? await this.shippingService.quoteChosenService(orderGroupId, carrier.carrierCode, carrier.serviceCode)
+      : null;
 
     return this.runInTransaction(async (session) => {
-      const shipment = await this.createShipmentDoc(group, actor, session);
+      const extras: ShipmentExtras = { note: note ?? null };
+      if (quote) Object.assign(extras, this.quoteExtras(quote, new Date(), carrier?.pickupAt));
+      const shipment = await this.createShipmentDoc(group, actor, session, extras);
+      if (quote) await this.shippingService.persistCosts(orderGroupId, quote, session);
       await this.writeEvent(shipment, null, {
         to: ShipmentStatus.OUT_FOR_DELIVERY,
         // Nhóm đơn "shipped" từ trước G1 (chưa có vận đơn) -> tạo bù, KHÔNG đổi trạng thái nhóm đơn.
@@ -315,14 +397,22 @@ export class ShipmentsService {
     }
   }
 
-  private async createShipmentDoc(group: OrderGroupDocument, actor: ShipmentActor, session: ClientSession): Promise<ShipmentDocument> {
+  private async createShipmentDoc(
+    group: OrderGroupDocument,
+    actor: ShipmentActor,
+    session: ClientSession,
+    extras: ShipmentExtras = {},
+  ): Promise<ShipmentDocument> {
     const id = new Types.ObjectId();
     const d = new Date();
     const ymd = `${String(d.getFullYear() % 100).padStart(2, '0')}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const shipmentCode = `SHP-${ymd}-${id.toString().slice(-6).toUpperCase()}`;
     try {
       const [doc] = await this.shipmentModel.create([{
+        ...extras,
         _id: id,
-        shipment_code: `SHP-${ymd}-${id.toString().slice(-6).toUpperCase()}`,
+        shipment_code: shipmentCode,
+        tracking_code: shipmentCode,
         order_group_id: group._id,
         direction: 'forward',
         status: ShipmentStatus.OUT_FOR_DELIVERY,
@@ -426,5 +516,155 @@ export class ShipmentsService {
     } finally {
       await session.endSession();
     }
+  }
+
+  // ===================================================================
+  // Gộp thi_dev (04/10/2026) — giao chung chuyến + chọn hãng + lịch lấy hàng
+  // ===================================================================
+
+  /**
+   * Tạo N vận đơn (mỗi nhóm 1 cái) trong 1 transaction, chung 1 mã chuyến.
+   * Chỉ nhận nhóm đã `packed`; ≥2 nhóm thì BẮT BUỘC cùng `recipient_key`
+   * (Mục 9.5). Bắt buộc chọn hãng + dịch vụ; cước tính từ kiện thật của kế
+   * hoạch đóng gói, ghi lên vận đơn và lên từng kiện. Mỗi vận đơn đi đúng
+   * vòng đời G1 (out_for_delivery, có lịch sử, SLA).
+   */
+  async createBatch(
+    orderGroupIds: string[],
+    carrier: CarrierChoice,
+    note: string | undefined,
+    actor: ShipmentActor,
+  ): Promise<ShipmentBatchResult> {
+    const uniqueIds = Array.from(new Set(orderGroupIds));
+    if (uniqueIds.length === 0) {
+      throw new AppException(SHIPMENT_ERROR_CODES.EMPTY_GROUP_LIST, 'Phải chọn ít nhất 1 nhóm đơn.', HttpStatus.BAD_REQUEST);
+    }
+    if (carrier.pickupAt) this.assertPickupNotPast(carrier.pickupAt);
+
+    const groups: OrderGroupDocument[] = [];
+    for (const id of uniqueIds) {
+      const group = await this.orderGroupsService.findOrderGroupById(id);
+      if (group.fulfillment_status !== GroupFulfillmentStatus.PACKED) {
+        throw new AppException(
+          SHIPMENT_ERROR_CODES.GROUP_NOT_READY,
+          `Nhóm đơn ${id} đang ở trạng thái "${group.fulfillment_status}" — chỉ tạo vận đơn khi đã đóng gói xong (packed).`,
+          HttpStatus.CONFLICT,
+          { orderGroupId: id, status: group.fulfillment_status },
+        );
+      }
+      await this.assertNoShipment(group);
+      await this.assertNothingToUnpack(id);
+      groups.push(group);
+    }
+    if (groups.length > 1) {
+      const key = groups[0]?.recipient_key ?? null;
+      if (key === null || !groups.every((g) => g.recipient_key === key)) {
+        throw new AppException(
+          SHIPMENT_ERROR_CODES.RECIPIENT_MISMATCH,
+          'Chỉ được giao chung chuyến các nhóm đơn cùng người nhận (recipient_key khớp nhau).',
+          HttpStatus.BAD_REQUEST,
+          { orderGroupIds: uniqueIds },
+        );
+      }
+    }
+
+    const quotes = new Map<string, ServiceQuote>();
+    for (const group of groups) {
+      const id = group._id.toString();
+      quotes.set(id, await this.shippingService.quoteChosenService(id, carrier.carrierCode, carrier.serviceCode));
+    }
+
+    const tripCode = this.generateTripCode();
+    const now = new Date();
+    const created = await this.runInTransaction(async (session) => {
+      const rows: ShipmentBatchResult['shipments'] = [];
+      for (const group of groups) {
+        const id = group._id.toString();
+        const quote = quotes.get(id);
+        if (!quote) throw new Error(`Thiếu báo giá cho nhóm ${id}`);
+        const extras = { ...this.quoteExtras(quote, now, carrier.pickupAt), trip_code: tripCode, note: note ?? null };
+        const shipment = await this.createShipmentDoc(group, actor, session, extras);
+        await this.writeEvent(shipment, null, {
+          to: ShipmentStatus.OUT_FOR_DELIVERY,
+          eventType: ShipmentEventType.START_DELIVERY,
+          actor,
+          note: `Chuyến ${tripCode}${note ? ` — ${note}` : ''}`,
+        }, session);
+        await this.shippingService.persistCosts(id, quote, session);
+        await this.orderGroupsService.transitionFulfillmentStatus(id, GroupFulfillmentStatus.SHIPPED, group.__v, session);
+        rows.push({
+          id: shipment._id.toString(),
+          orderGroupId: id,
+          trackingCode: shipment.shipment_code,
+          parcelCount: quote.parcels.length,
+          estimatedCostVnd: quote.totalCostVnd,
+          etaFrom: extras.eta_from,
+          etaTo: extras.eta_to,
+        });
+      }
+      return rows;
+    });
+
+    this.logger.log(
+      `Tạo ${String(created.length)} vận đơn (${carrier.carrierCode}/${carrier.serviceCode}), chuyến ${tripCode}, nhóm: ${uniqueIds.join(', ')}.`,
+    );
+    return {
+      tripCode,
+      carrierCode: carrier.carrierCode,
+      serviceCode: carrier.serviceCode,
+      totalCostVnd: created.reduce((sum, row) => sum + row.estimatedCostVnd, 0),
+      shipments: created,
+    };
+  }
+
+  /** Đặt/đổi lịch hãng đến lấy hàng (chỉ lịch — chưa gọi API hãng thật). */
+  async schedulePickup(id: string, pickupAt: Date): Promise<ShipmentDocument> {
+    await this.getShipment(id);
+    this.assertPickupNotPast(pickupAt);
+    const updated = await this.shipmentModel.findByIdAndUpdate(
+      id,
+      { $set: { pickup_at: pickupAt } },
+      { returnDocument: 'after' },
+    );
+    return updated ?? this.getShipment(id);
+  }
+
+  private quoteExtras(
+    quote: ServiceQuote,
+    now: Date,
+    pickupAt?: Date,
+  ): ShipmentExtras & { eta_from: Date; eta_to: Date } {
+    return {
+      carrier_code: quote.carrierCode,
+      carrier_name: quote.carrierName,
+      service_code: quote.serviceCode,
+      service_name: quote.serviceName,
+      parcel_count: quote.parcels.length,
+      chargeable_weight_g: quote.totalChargeableG,
+      estimated_cost_vnd: quote.totalCostVnd,
+      is_sample_rate: quote.isSample,
+      eta_from: new Date(now.getTime() + quote.etaMinDays * DAY_MS),
+      eta_to: new Date(now.getTime() + quote.etaMaxDays * DAY_MS),
+      pickup_at: pickupAt ?? null,
+    };
+  }
+
+  private assertPickupNotPast(pickupAt: Date): void {
+    if (pickupAt.getTime() < Date.now() - 60_000) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.PICKUP_IN_PAST,
+        'Thời điểm hãng đến lấy hàng không được ở quá khứ.',
+        HttpStatus.BAD_REQUEST,
+        { pickupAt: pickupAt.toISOString() },
+      );
+    }
+  }
+
+  private generateTripCode(): string {
+    const now = new Date();
+    const yy = String(now.getFullYear() % 100).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    return `TRIP-${yy}${mm}${dd}-${randomBytes(2).toString('hex').toUpperCase()}`;
   }
 }
