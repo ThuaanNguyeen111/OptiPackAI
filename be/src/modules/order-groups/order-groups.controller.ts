@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -17,6 +18,7 @@ import { PickItemDto } from './dto/pick-item.dto';
 import { ReportMissingDto } from './dto/report-missing.dto';
 import { DecidePartialDto } from './dto/decide-partial.dto';
 import { SetPriorityDto } from './dto/set-priority.dto';
+import { LinkOrderGroupDto } from './dto/link-order-group.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
@@ -38,6 +40,8 @@ import { OrderGroupDocument } from './schemas/order-group.schema';
 // body của 5 endpoint fulfillment (Rule #18, Optimistic Concurrency)
 // — không phải rò rỉ Mongoose internal, mà là hợp đồng API có chủ đích.
 export interface OrderGroupResponse {
+  // 13/10/2026 — liên kết tay (null = không có). Liên kết tự động xem linkedGroupCount.
+  manualLink: { linkId: string; linkedBy: string | null; linkedAt: Date | null; note: string | null } | null;
   stockShortage: boolean; // K5
   origin: 'marketplace' | 'replacement'; // đơn thay thế do đổi hàng
   sourceReturnId: string | null;
@@ -84,6 +88,14 @@ export function toResponse(
   counts: GroupOrderCounts,
 ): OrderGroupResponse {
   return {
+    manualLink: group.manual_link_id
+      ? {
+          linkId: group.manual_link_id.toString(),
+          linkedBy: group.manual_linked_by ?? null,
+          linkedAt: group.manual_linked_at ?? null,
+          note: group.manual_link_note ?? null,
+        }
+      : null,
     stockShortage: group.stock_shortage === true, // K5
     origin: group.origin ?? 'marketplace',
     sourceReturnId: group.source_return_id?.toString() ?? null,
@@ -238,6 +250,32 @@ export class OrderGroupsController {
   async linked(@Param('id') id: string): Promise<{ linkedGroups: OrderGroupResponse[] }> {
     const groups = await this.orderGroupsService.findLinkedGroups(id);
     return { linkedGroups: await buildOrderGroupResponses(this.orderGroupsService, groups) };
+  }
+
+  @Post(':id/link')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 13/10/2026 — LIÊN KẾT TAY nhóm này với `target_group_id` (cùng người nhận nhưng hệ thống không tự nhận ra — VD đơn Lazada bị che dữ liệu). Sau đó 2 nhóm hiện "Đi cùng", Picking List gộp được và giao chung chuyến (POST /shipments/batch). Cả 2 nhóm phải chưa giao. Trả danh sách nhóm đang liên kết với nhóm này.',
+  })
+  async linkManually(
+    @Param('id') id: string,
+    @Body() dto: LinkOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ linkedGroups: OrderGroupResponse[] }> {
+    const groups = await this.orderGroupsService.linkGroupsManually(id, dto.target_group_id, dto.note, user.userId);
+    return { linkedGroups: await buildOrderGroupResponses(this.orderGroupsService, groups) };
+  }
+
+  @Delete(':id/link')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 13/10/2026 — Bỏ liên kết tay của nhóm này (nhóm phải chưa giao). Liên kết tự động theo cùng người nhận (recipient_key) không bị ảnh hưởng.',
+  })
+  async unlinkManually(@Param('id') id: string): Promise<{ message: string }> {
+    await this.orderGroupsService.unlinkGroupManually(id);
+    return { message: 'Đã bỏ liên kết tay.' };
   }
 
   @Get(':id/picking-list')

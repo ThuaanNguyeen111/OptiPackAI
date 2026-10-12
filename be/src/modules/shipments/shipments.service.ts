@@ -524,7 +524,7 @@ export class ShipmentsService {
 
   /**
    * Tạo N vận đơn (mỗi nhóm 1 cái) trong 1 transaction, chung 1 mã chuyến.
-   * Chỉ nhận nhóm đã `packed`; ≥2 nhóm thì BẮT BUỘC cùng `recipient_key`
+   * Chỉ nhận nhóm đã `packed`; ≥2 nhóm thì BẮT BUỘC cùng `recipient_key` hoặc cùng `manual_link_id`
    * (Mục 9.5). Bắt buộc chọn hãng + dịch vụ; cước tính từ kiện thật của kế
    * hoạch đóng gói, ghi lên vận đơn và lên từng kiện. Mỗi vận đơn đi đúng
    * vòng đời G1 (out_for_delivery, có lịch sử, SLA).
@@ -557,11 +557,17 @@ export class ShipmentsService {
       groups.push(group);
     }
     if (groups.length > 1) {
+      // Cùng người nhận = cùng recipient_key (tự động) HOẶC cùng manual_link_id
+      // (Coordinator liên kết tay, 13/10/2026 — VD đơn Lazada bị che dữ liệu).
       const key = groups[0]?.recipient_key ?? null;
-      if (key === null || !groups.every((g) => g.recipient_key === key)) {
+      const linkId = groups[0]?.manual_link_id?.toString() ?? null;
+      const sameRecipient = key !== null && groups.every((g) => g.recipient_key === key);
+      const sameManualLink =
+        linkId !== null && groups.every((g) => g.manual_link_id?.toString() === linkId);
+      if (!sameRecipient && !sameManualLink) {
         throw new AppException(
           SHIPMENT_ERROR_CODES.RECIPIENT_MISMATCH,
-          'Chỉ được giao chung chuyến các nhóm đơn cùng người nhận (recipient_key khớp nhau).',
+          'Chỉ được giao chung chuyến các nhóm đơn cùng người nhận (cùng recipient_key) hoặc đã được liên kết tay (POST /order-groups/:id/link).',
           HttpStatus.BAD_REQUEST,
           { orderGroupIds: uniqueIds },
         );

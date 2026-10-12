@@ -23,6 +23,10 @@ export const ORD_GROUP_ERROR_CODES = {
   PICK_EXCEEDS_ORDERED: 'ORD_GROUP_PICK_EXCEEDS_ORDERED', // tổng đã quét trong lượt vượt số lượng đặt
   PICK_INCOMPLETE: 'ORD_GROUP_PICK_INCOMPLETE', // bấm "đã lấy xong" khi còn SKU chưa đủ — dùng report-missing
   NO_PICK_EVENTS: 'ORD_GROUP_NO_PICK_EVENTS', // chưa có lần quét nào trong lượt hiện tại
+  // 13/10/2026 — liên kết tay nhóm đơn (Coordinator)
+  LINK_SELF: 'ORD_GROUP_LINK_SELF', // liên kết nhóm với chính nó
+  LINK_NOT_ALLOWED: 'ORD_GROUP_LINK_NOT_ALLOWED', // nhóm đã giao/đã xong — không đổi liên kết
+  NOT_MANUALLY_LINKED: 'ORD_GROUP_NOT_MANUALLY_LINKED', // bỏ liên kết khi nhóm không có liên kết tay
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,

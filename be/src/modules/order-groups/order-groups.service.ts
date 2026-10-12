@@ -106,6 +106,17 @@ export interface GroupOrderView {
   createdAt: Date | null;
 }
 
+// 13/10/2026 — nhóm "đã xong" không còn tính là liên kết; nhóm đã giao thì khoá liên kết tay.
+const LINK_CLOSED_STATUSES: GroupFulfillmentStatus[] = [
+  GroupFulfillmentStatus.DELIVERED,
+  GroupFulfillmentStatus.RETURNED,
+  GroupFulfillmentStatus.CANCELED,
+];
+const LINK_LOCKED_STATUSES: GroupFulfillmentStatus[] = [
+  GroupFulfillmentStatus.SHIPPED,
+  ...LINK_CLOSED_STATUSES,
+];
+
 @Injectable()
 export class OrderGroupsService {
   private readonly logger = new Logger(OrderGroupsService.name);
@@ -250,21 +261,131 @@ export class OrderGroupsService {
    */
   async findLinkedGroups(groupId: string): Promise<OrderGroupDocument[]> {
     const group = await this.findOrderGroupById(groupId);
-    if (!group.recipient_key) return [];
+    // 13/10/2026 — liên kết = cùng recipient_key (tự động) HOẶC cùng manual_link_id (tay).
+    const linkConditions: Record<string, unknown>[] = [];
+    if (group.recipient_key) linkConditions.push({ recipient_key: group.recipient_key });
+    if (group.manual_link_id) linkConditions.push({ manual_link_id: group.manual_link_id });
+    if (linkConditions.length === 0) return [];
 
     return this.orderGroupModel
       .find({
-        recipient_key: group.recipient_key,
+        ...(linkConditions.length === 1 ? linkConditions[0] : { $or: linkConditions }),
         _id: { $ne: group._id },
-        fulfillment_status: {
-          $nin: [
-            GroupFulfillmentStatus.DELIVERED,
-            GroupFulfillmentStatus.RETURNED,
-            GroupFulfillmentStatus.CANCELED,
-          ],
-        },
+        fulfillment_status: { $nin: LINK_CLOSED_STATUSES },
       })
       .lean();
+  }
+
+  /**
+   * 13/10/2026 — Coordinator LIÊN KẾT TAY 2 nhóm đơn mà hệ thống không tự nhận
+   * ra là cùng người nhận (VD đơn Lazada bị che dữ liệu + đơn AURELLE). Cả 2
+   * nhóm phải chưa giao (chưa shipped/delivered/returned/canceled). Nhóm đã có
+   * liên kết tay thì nối vào bộ đó; 2 bộ khác nhau thì gộp thành 1 bộ.
+   */
+  async linkGroupsManually(
+    groupId: string,
+    targetGroupId: string,
+    note: string | undefined,
+    actorId: string,
+  ): Promise<OrderGroupDocument[]> {
+    if (groupId === targetGroupId) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.LINK_SELF,
+        'Không thể liên kết một nhóm đơn với chính nó.',
+        HttpStatus.BAD_REQUEST,
+        { groupId },
+      );
+    }
+    const [group, target] = await Promise.all([
+      this.findOrderGroupById(groupId),
+      this.findOrderGroupById(targetGroupId),
+    ]);
+    for (const g of [group, target]) this.assertLinkable(g);
+
+    const linkId = group.manual_link_id ?? target.manual_link_id ?? new Types.ObjectId();
+    const now = new Date();
+    const session = await this.connection.startSession();
+    try {
+      await session.withTransaction(async () => {
+        // 2 bộ liên kết tay khác nhau → gộp bộ của target vào bộ của group.
+        if (
+          group.manual_link_id &&
+          target.manual_link_id &&
+          !group.manual_link_id.equals(target.manual_link_id)
+        ) {
+          await this.orderGroupModel.updateMany(
+            { manual_link_id: target.manual_link_id },
+            { $set: { manual_link_id: linkId } },
+            { session },
+          );
+        }
+        await this.orderGroupModel.updateMany(
+          { _id: { $in: [group._id, target._id] } },
+          {
+            $set: {
+              manual_link_id: linkId,
+              manual_linked_by: actorId,
+              manual_linked_at: now,
+              manual_link_note: note?.trim() ? note.trim() : null,
+            },
+          },
+          { session },
+        );
+      });
+    } finally {
+      await session.endSession();
+    }
+    this.logger.log(
+      `Liên kết tay nhóm ${groupId} với ${targetGroupId} (bộ ${linkId.toString()}) bởi ${actorId}.`,
+    );
+    return this.findLinkedGroups(groupId);
+  }
+
+  /** 13/10/2026 — bỏ liên kết tay của 1 nhóm. Bộ chỉ còn 1 nhóm → xoá luôn liên kết của nhóm đó. */
+  async unlinkGroupManually(groupId: string): Promise<void> {
+    const group = await this.findOrderGroupById(groupId);
+    if (!group.manual_link_id) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.NOT_MANUALLY_LINKED,
+        'Nhóm đơn này không có liên kết tay để bỏ.',
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+    this.assertLinkable(group);
+    const linkId = group.manual_link_id;
+    const cleared = {
+      manual_link_id: null,
+      manual_linked_by: null,
+      manual_linked_at: null,
+      manual_link_note: null,
+    };
+    const session = await this.connection.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await this.orderGroupModel.updateOne({ _id: group._id }, { $set: cleared }, { session });
+        const remaining = await this.orderGroupModel
+          .countDocuments({ manual_link_id: linkId })
+          .session(session);
+        if (remaining <= 1) {
+          await this.orderGroupModel.updateMany({ manual_link_id: linkId }, { $set: cleared }, { session });
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
+  }
+
+  /** Chỉ liên kết / bỏ liên kết khi nhóm CHƯA giao — đã có vận đơn thì chuyến đã chốt. */
+  private assertLinkable(group: OrderGroupDocument): void {
+    if (LINK_LOCKED_STATUSES.includes(group.fulfillment_status)) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.LINK_NOT_ALLOWED,
+        `Nhóm đơn ${group._id.toString()} đang ở trạng thái "${group.fulfillment_status}" — chỉ liên kết/bỏ liên kết khi nhóm chưa giao.`,
+        HttpStatus.CONFLICT,
+        { groupId: group._id.toString(), fulfillmentStatus: group.fulfillment_status },
+      );
+    }
   }
 
   /**

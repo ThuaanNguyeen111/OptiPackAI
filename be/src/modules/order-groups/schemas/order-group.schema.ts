@@ -109,6 +109,25 @@ export class OrderGroup {
    */
   @Prop({ type: String, default: null })
   recipient_key!: string | null;
+
+  /**
+   * 13/10/2026 — LIÊN KẾT TAY (Coordinator bấm). Dùng khi hệ thống không tự
+   * nhận ra 2 nhóm là cùng người nhận — chủ yếu đơn Lazada bị che tên/SĐT/địa
+   * chỉ nên recipient_key không bao giờ khớp đơn AURELLE. Các nhóm cùng
+   * `manual_link_id` được coi là liên kết như cùng recipient_key: Picking List
+   * gộp, "Đi cùng: N kiện", giao chung chuyến. Không đổi recipient_key.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  manual_link_id!: Types.ObjectId | null;
+
+  @Prop({ type: String, default: null })
+  manual_linked_by!: string | null;
+
+  @Prop({ type: Date, default: null })
+  manual_linked_at!: Date | null;
+
+  @Prop({ type: String, default: null })
+  manual_link_note!: string | null;
   // K5 (27/09/2026) — thiếu hàng NGAY lúc tạo nhóm đơn (tồn khả dụng không đủ giữ chỗ).
   @Prop({ type: Boolean, default: false })
   stock_shortage?: boolean;
@@ -202,4 +221,9 @@ OrderGroupSchema.index({
 OrderGroupSchema.index(
   { recipient_key: 1 },
   { partialFilterExpression: { recipient_key: { $type: 'string' } } },
+);
+// 13/10/2026 — tra các nhóm liên kết tay. Partial: đa số nhóm không liên kết.
+OrderGroupSchema.index(
+  { manual_link_id: 1 },
+  { partialFilterExpression: { manual_link_id: { $type: 'objectId' } } },
 );
