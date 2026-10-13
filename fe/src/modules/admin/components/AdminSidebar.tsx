@@ -7,6 +7,7 @@ import {
   LogOut,
   Moon,
   Package,
+  PackageX,
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
@@ -54,6 +55,14 @@ const navItems = [
     labelVi: 'Đơn hàng',
     labelEn: 'Orders',
     icon: Package,
+    section: 'marketplace' as NavSection,
+  },
+  {
+    to: '/app/admin/returns',
+    end: false,
+    labelVi: 'Trả hàng',
+    labelEn: 'Returns',
+    icon: PackageX,
     section: 'marketplace' as NavSection,
   },
   {

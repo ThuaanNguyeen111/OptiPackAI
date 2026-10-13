@@ -9,9 +9,13 @@ import {
 } from 'lucide-react'
 import {
   approveReturn,
+  createReplacementReturn,
   listReturns,
   rejectReturn,
 } from '../api/returns.api'
+import { CreateReturnForm } from '../components/returns/CreateReturnForm'
+import { useAuth } from '../context/use-auth'
+import { UserRole } from '../types/auth'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -40,16 +44,32 @@ function statusTone(
   return 'default'
 }
 
-export function ReturnsPage() {
+const STATUS_FILTERS = [
+  'requested',
+  'awaiting_receipt',
+  'received',
+  'closed',
+  'rejected',
+  'all',
+] as const
+
+type StatusFilter = (typeof STATUS_FILTERS)[number]
+
+export function ReturnsPage({
+  shell = 'portal',
+}: {
+  shell?: 'portal' | 'admin'
+} = {}) {
   const { locale } = usePortal()
+  const { session } = useAuth()
   const vi = locale === 'vi'
+  const isAdmin = session?.role === UserRole.ADMIN
 
   const [items, setItems] = useState<ReturnRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<'requested' | 'all'>(
-    'requested',
-  )
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('requested')
+  const [createOpen, setCreateOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [actionNote, setActionNote] = useState('')
@@ -77,7 +97,10 @@ export function ReturnsPage() {
   }, [statusFilter])
 
   useEffect(() => {
-    void load()
+    const timer = window.setTimeout(() => {
+      void load()
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [load])
 
   useEffect(() => {
@@ -91,9 +114,7 @@ export function ReturnsPage() {
     [items, selectedId],
   )
 
-  const queuePaging = useLocalQueuePagination(items, {
-    resetKey: statusFilter,
-  })
+  const queuePaging = useLocalQueuePagination(items)
 
   async function onApprove(): Promise<void> {
     if (!selected || selected.status !== 'requested') return
@@ -140,13 +161,40 @@ export function ReturnsPage() {
     }
   }
 
+  async function onRecreateReplacement(): Promise<void> {
+    if (!selected) return
+    setBusy(true)
+    try {
+      await createReplacementReturn(selected.id)
+      setToast(
+        vi
+          ? 'Đã tạo lại đơn thay thế. Nhóm đơn mới đi luồng lấy hàng.'
+          : 'Replacement order created. The new group enters picking.',
+      )
+      await load()
+    } catch (err: unknown) {
+      setToast(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
-        breadcrumbs={[
-          { label: 'OptiPackAI', to: '/app' },
-          { label: vi ? 'Trả hàng' : 'Returns' },
-        ]}
+        variant={shell === 'admin' ? 'admin' : 'ops'}
+        breadcrumbs={
+          shell === 'admin'
+            ? [
+                { label: 'OptiPackAI', to: '/app/admin' },
+                { label: vi ? 'Quản trị' : 'Admin', to: '/app/admin' },
+                { label: vi ? 'Trả hàng' : 'Returns' },
+              ]
+            : [
+                { label: 'OptiPackAI', to: '/app' },
+                { label: vi ? 'Trả hàng' : 'Returns' },
+              ]
+        }
       />
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -159,32 +207,42 @@ export function ReturnsPage() {
                 </h1>
                 <p className="text-xs text-ink-muted">
                   {vi
-                    ? 'Store Owner duyệt hoặc từ chối yêu cầu trả hàng (G3).'
-                    : 'Store Owner approves or rejects return requests (G3).'}
+                    ? 'Store Owner duyệt hoặc từ chối. Admin tạo phiếu giả lập khách.'
+                    : 'Store Owner approves or rejects. Admin creates a simulated request.'}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <div className="flex rounded-lg bg-surface-2 p-0.5">
-                  {(
-                    [
-                      { id: 'requested' as const, vi: 'Chờ duyệt', en: 'Pending' },
-                      { id: 'all' as const, vi: 'Tất cả', en: 'All' },
-                    ] as const
-                  ).map((chip) => (
+                {isAdmin ? (
+                  <Button
+                    type="button"
+                    className="h-8 px-2.5 text-xs"
+                    onClick={() => setCreateOpen((open) => !open)}
+                  >
+                    {vi ? 'Tạo phiếu' : 'New request'}
+                  </Button>
+                ) : null}
+                <div className="flex flex-wrap rounded-lg bg-surface-2 p-0.5">
+                  {STATUS_FILTERS.map((id) => {
+                    const label =
+                      id === 'all'
+                        ? { vi: 'Tất cả', en: 'All' }
+                        : RETURN_STATUS_LABELS[id]
+                    return (
                     <button
-                      key={chip.id}
+                      key={id}
                       type="button"
-                      onClick={() => setStatusFilter(chip.id)}
+                      onClick={() => setStatusFilter(id)}
                       className={cn(
                         'rounded-md px-2.5 py-1 text-xs font-semibold cursor-pointer',
-                        statusFilter === chip.id
+                        statusFilter === id
                           ? 'bg-white text-ink shadow-xs dark:bg-zinc-800'
                           : 'text-ink-muted',
                       )}
                     >
-                      {vi ? chip.vi : chip.en}
+                      {label ? (vi ? label.vi : label.en) : id}
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
                 <Button
                   type="button"
@@ -197,6 +255,23 @@ export function ReturnsPage() {
                 </Button>
               </div>
             </div>
+
+            {isAdmin && createOpen ? (
+              <CreateReturnForm
+                vi={vi}
+                onCreated={() => {
+                  setCreateOpen(false)
+                  setToast(
+                    vi
+                      ? 'Đã tạo phiếu, chờ Store Owner duyệt.'
+                      : 'Request created, waiting for Store Owner.',
+                  )
+                  if (statusFilter === 'requested') void load()
+                  else setStatusFilter('requested')
+                }}
+                onError={(message) => setToast(message)}
+              />
+            ) : null}
 
             <div className="min-h-0 max-h-[min(70vh,640px)] overflow-auto">
               {loading ? (
@@ -216,8 +291,8 @@ export function ReturnsPage() {
                   </p>
                   <p className="max-w-sm text-xs text-ink-subtle">
                     {vi
-                      ? 'Admin giả lập khách tạo phiếu qua POST /returns. Owner duyệt tại đây.'
-                      : 'Admin simulates a customer via POST /returns. Owner approves here.'}
+                      ? 'Admin tạo phiếu khi đơn đã giao. Store Owner duyệt tại đây.'
+                      : 'Admin creates a request after delivery. Store Owner approves it here.'}
                   </p>
                 </div>
               ) : (
@@ -354,6 +429,53 @@ export function ReturnsPage() {
                     </span>
                     {selected.customerNote}
                   </p>
+                ) : null}
+
+                {selected.exchangeItems.length > 0 ? (
+                  <div>
+                    <p className="mb-1.5 text-xs font-semibold text-ink">
+                      {vi ? 'Đổi sang' : 'Exchange for'}
+                    </p>
+                    <ul className="space-y-1">
+                      {selected.exchangeItems.map((item) => (
+                        <li key={item.sellerSku} className="text-xs">
+                          <span className="font-mono font-semibold">{item.sellerSku}</span>
+                          <span className="text-ink-muted"> × {item.quantity}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {selected.replacementStatus ? (
+                  <p className="rounded-lg border border-hairline px-3 py-2 text-xs">
+                    <span className="font-semibold">
+                      {vi ? 'Đơn thay thế: ' : 'Replacement: '}
+                    </span>
+                    {selected.replacementStatus}
+                    {selected.replacementGroupId
+                      ? ` · ${shortId(selected.replacementGroupId)}`
+                      : ''}
+                    {selected.replacementError
+                      ? ` — ${selected.replacementError}`
+                      : ''}
+                  </p>
+                ) : null}
+
+                {selected.type === 'exchange' &&
+                selected.status === 'closed' &&
+                selected.replacementStatus === 'failed' ? (
+                  <Button
+                    type="button"
+                    className="w-full"
+                    disabled={busy}
+                    onClick={() => void onRecreateReplacement()}
+                  >
+                    {busy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : null}
+                    {vi ? 'Tạo lại đơn thay thế' : 'Recreate replacement'}
+                  </Button>
                 ) : null}
 
                 <div>

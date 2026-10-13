@@ -1,6 +1,11 @@
 import { apiRequest } from '../lib/api'
 import type {
+  CreateReturnInput,
+  ExchangeItem,
+  InspectReturnLineInput,
+  QuarantineLine,
   ReturnActionInput,
+  ReturnInspectionLine,
   ReturnItem,
   ReturnListResult,
   ReturnRequest,
@@ -46,6 +51,28 @@ function toIso(value: unknown): string | null {
   return null
 }
 
+function mapExchangeItem(raw: unknown): ExchangeItem | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const sellerSku = pickString(row.sellerSku, row.seller_sku)
+  if (!sellerSku) return null
+  return { sellerSku, quantity: pickNumber(row.quantity) || 1 }
+}
+
+function mapInspection(raw: unknown): ReturnInspectionLine | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const sellerSku = pickString(row.sellerSku, row.seller_sku)
+  if (!sellerSku) return null
+  return {
+    sellerSku,
+    quantity: pickNumber(row.quantity) || 1,
+    result: pickString(row.result),
+    disposition: pickString(row.disposition) || null,
+    note: pickString(row.note) || null,
+  }
+}
+
 function mapItem(raw: unknown): ReturnItem | null {
   const row = asRecord(raw)
   if (!row) return null
@@ -65,6 +92,12 @@ export function mapReturnRequest(raw: unknown): ReturnRequest | null {
   const id = pickString(row.id, row._id)
   if (!id) return null
   const rawItems = Array.isArray(row.items) ? row.items : []
+  const rawExchange = Array.isArray(row.exchangeItems)
+    ? row.exchangeItems
+    : Array.isArray(row.exchange_items)
+      ? row.exchange_items
+      : []
+  const rawInspection = Array.isArray(row.inspection) ? row.inspection : []
   return {
     id,
     rmaCode: pickString(row.rmaCode, row.rma_code),
@@ -76,6 +109,18 @@ export function mapReturnRequest(raw: unknown): ReturnRequest | null {
     items: rawItems
       .map(mapItem)
       .filter((item): item is ReturnItem => item !== null),
+    exchangeItems: rawExchange
+      .map(mapExchangeItem)
+      .filter((item): item is ExchangeItem => item !== null),
+    inspection: rawInspection
+      .map(mapInspection)
+      .filter((item): item is ReturnInspectionLine => item !== null),
+    replacementStatus:
+      pickString(row.replacementStatus, row.replacement_status) || null,
+    replacementGroupId:
+      pickString(row.replacementGroupId, row.replacement_group_id) || null,
+    replacementError:
+      pickString(row.replacementError, row.replacement_error) || null,
     customerNote: pickString(row.customerNote, row.customer_note) || null,
     decisionNote: pickString(row.decisionNote, row.decision_note) || null,
     createdBy: pickString(row.createdBy, row.created_by) || null,
@@ -146,6 +191,109 @@ export async function approveReturn(
         },
         auth: true,
       },
+    ),
+  )
+}
+
+export async function listReturnReasonCodes(): Promise<
+  { code: string; label: string }[]
+> {
+  const res = await apiRequest<unknown>('/returns/reason-codes', { auth: true })
+  if (!Array.isArray(res)) return []
+  return res.flatMap((raw) => {
+    const row = asRecord(raw)
+    if (!row) return []
+    const code = pickString(row.code)
+    if (!code) return []
+    return [{ code, label: pickString(row.label) || code }]
+  })
+}
+
+export async function createReturn(
+  input: CreateReturnInput,
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>('/returns', {
+      method: 'POST',
+      body: input,
+      auth: true,
+    }),
+  )
+}
+
+export async function receiveReturn(
+  id: string,
+  input: ReturnActionInput,
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>(`/returns/${encodeURIComponent(id)}/receive`, {
+      method: 'POST',
+      body: { expected_version: input.expected_version },
+      auth: true,
+    }),
+  )
+}
+
+export async function inspectReturn(
+  id: string,
+  input: { expected_version: number; lines: InspectReturnLineInput[] },
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>(`/returns/${encodeURIComponent(id)}/inspect`, {
+      method: 'POST',
+      body: input,
+      auth: true,
+    }),
+  )
+}
+
+export async function createReplacementReturn(
+  id: string,
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>(
+      `/returns/${encodeURIComponent(id)}/create-replacement`,
+      { method: 'POST', auth: true },
+    ),
+  )
+}
+
+export async function listQuarantine(): Promise<QuarantineLine[]> {
+  const res = await apiRequest<unknown>('/returns/quarantine', { auth: true })
+  if (!Array.isArray(res)) return []
+  return res.flatMap((raw) => {
+    const row = asRecord(raw)
+    if (!row) return []
+    const returnId = pickString(row.returnId, row.return_id)
+    if (!returnId) return []
+    return [
+      {
+        returnId,
+        rmaCode: pickString(row.rmaCode, row.rma_code),
+        lineIndex: pickNumber(row.lineIndex, row.line_index),
+        sellerSku: pickString(row.sellerSku, row.seller_sku),
+        quantity: pickNumber(row.quantity) || 1,
+        note: pickString(row.note) || null,
+        since: toIso(row.since),
+      },
+    ]
+  })
+}
+
+export async function resolveQuarantine(
+  id: string,
+  lineIndex: number,
+  input: {
+    action: 'restock' | 'discard'
+    warehouse_id?: string
+    bin_location_id?: string
+    note?: string
+  },
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>(
+      `/returns/${encodeURIComponent(id)}/quarantine/${String(lineIndex)}/resolve`,
+      { method: 'POST', body: input, auth: true },
     ),
   )
 }

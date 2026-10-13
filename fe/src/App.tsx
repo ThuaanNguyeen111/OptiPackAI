@@ -100,6 +100,7 @@ function App() {
                 <Route path="packing-plans" element={<AdminPackingPlansPage />} />
                 <Route path="templates" element={<AdminTemplatesPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />
+                <Route path="returns" element={<ReturnsPage shell="admin" />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Route>
