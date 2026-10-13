@@ -1,3 +1,4 @@
+import { AUTH_ERROR_CODES, authError } from '../auth.errors';
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '../../../common/enums/user-role.enum';
@@ -23,7 +24,7 @@ export class RolesGuard implements CanActivate {
     const { user } = request;
 
     if (!user || !requiredRoles.includes(user.role)) {
-      throw new ForbiddenException('Bạn không có quyền thực hiện thao tác này');
+      throw new ForbiddenException(authError(AUTH_ERROR_CODES.FORBIDDEN_ROLE, 'Bạn không có quyền thực hiện thao tác này'));
     }
 
     return true;

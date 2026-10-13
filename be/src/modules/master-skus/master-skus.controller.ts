@@ -103,6 +103,10 @@ export class MasterSkusController {
   @Delete(':code') @Roles(UserRole.ADMIN) @ApiOperation({ summary: 'Vô hiệu hóa (chặn nếu còn SKU sàn nối vào).' })
   async deactivate(@Param('code') code: string): Promise<Record<string, unknown>> { return skuRes(await this.service.setActive(code, false)); }
 
+  @Delete(':code/permanent') @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '🆕 10/10/2026 — XOÁ HẲN SKU nội bộ tạo nhầm. Chỉ khi chưa từng dùng: không còn SKU sàn nối vào (MSKU_HAS_MAPPINGS), không nằm trên ô (MSKU_HAS_STOCK), chưa có nhập–xuất (MSKU_HAS_HISTORY).' })
+  async purge(@Param('code') code: string): Promise<{ deleted: true; masterSku: string }> { return this.service.purge(code); }
+
   @Post(':code/reactivate') @Roles(UserRole.ADMIN)
   async reactivate(@Param('code') code: string): Promise<Record<string, unknown>> { return skuRes(await this.service.setActive(code, true)); }
 

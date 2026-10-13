@@ -1,12 +1,11 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
-import { PackagingMaterial, PackagingMaterialDocument } from './schemas/packaging-material.schema';
+import { PackagingMaterial, PackagingMaterialDocument, usableStock } from './schemas/packaging-material.schema';
 import { PackagingMovement, PackagingMovementDocument } from './schemas/packaging-movement.schema';
-import { PackagingRecommendationDoc, PackagingRecommendationDocument } from '../packaging/schemas/packaging-recommendation.schema';
 import {
-  CreatePackagingMaterialDto, InternalUseDto, MaterialUsedDto, PackagingInspectionLineDto, PurchasePackagingDto, UpdatePackagingMaterialDto,
+  CreatePackagingMaterialDto, InternalUseDto, PackagingInspectionLineDto, PurchasePackagingDto, UpdatePackagingMaterialDto,
 } from './dto/packaging-material.dto';
 import { MaterialCondition, MaterialMovementType } from './schemas/packaging-movement.schema';
 import { PACKAGING_MATERIAL_ERROR_CODES as E } from './packaging-materials.errors';
@@ -14,8 +13,34 @@ import { PACKAGING_MATERIAL_ERROR_CODES as E } from './packaging-materials.error
 export interface ConsumptionResult {
   consumed: { materialCode: string; condition: 'new' | 'reused'; quantity: number; savingVnd: number }[];
   warnings: string[];
-  recommendedBoxCode: string | null; // thùng theo gợi ý đóng gói
-  followedRecommendation: boolean | null; // nhân viên có dùng đúng thùng gợi ý không
+}
+
+/** 1 dòng cần trừ khi đóng gói: vật tư/thùng của 1 kiện trong kế hoạch. */
+export interface ParcelMaterialNeed {
+  code: string;
+  quantity: number;
+  planId: Types.ObjectId;
+  parcelNo: number;
+  /**
+   * (05/10/2026) false = chỉ lấy hàng MỚI (kiện có hàng dễ vỡ mà cài đặt không
+   * cho dùng thùng tái sử dụng). Không gửi = được dùng hàng tái sử dụng.
+   */
+  allowReused?: boolean;
+}
+
+/** Tồn trước/sau của 1 mã sau khi trừ (để báo sắp hết). */
+export interface ParcelConsumed {
+  code: string;
+  name: string;
+  before: number;
+  after: number;
+  reorderLevel: number;
+  savingVnd: number;
+}
+
+export interface ParcelConsumption {
+  consumed: ParcelConsumed[];
+  shortfalls: { planId: Types.ObjectId; parcelNo: number; code: string; missing: number }[];
 }
 
 export interface RecoveryResult {
@@ -39,12 +64,9 @@ export interface RecoveryResult {
  */
 @Injectable()
 export class PackagingMaterialsService {
-  private readonly logger = new Logger(PackagingMaterialsService.name);
-
   constructor(
     @InjectModel(PackagingMaterial.name) private readonly materialModel: Model<PackagingMaterialDocument>,
     @InjectModel(PackagingMovement.name) private readonly movementModel: Model<PackagingMovementDocument>,
-    @InjectModel(PackagingRecommendationDoc.name) private readonly recommendationModel: Model<PackagingRecommendationDocument>,
     @InjectConnection() private readonly connection: Connection,
   ) {}
 
@@ -172,73 +194,178 @@ export class PackagingMaterialsService {
    *   hàng dễ vỡ chỉ dùng thùng mới).
    * - Idempotent theo nhóm đơn. Thiếu vật liệu KHÔNG chặn pack — chỉ trả cảnh báo.
    */
-  async consumeForPackedGroup(orderGroupId: string, actorId: string, session?: ClientSession, materialsUsed?: MaterialUsedDto[]): Promise<ConsumptionResult> {
-    const work = (s: ClientSession): Promise<ConsumptionResult> => this.consumeInSession(orderGroupId, actorId, s, materialsUsed);
-    return session ? work(session) : this.runTx(work);
-  }
-
-  private async consumeInSession(orderGroupId: string, actorId: string, session: ClientSession, materialsUsed?: MaterialUsedDto[]): Promise<ConsumptionResult> {
-    const result: ConsumptionResult = { consumed: [], warnings: [], recommendedBoxCode: null, followedRecommendation: null };
-    const already = await this.movementModel.exists({ ref_type: 'order_group', ref_id: orderGroupId, type: 'consume' }).session(session);
-    if (already) return result;
-
-    const rec = await this.recommendationModel.findOne({ order_group_id: new Types.ObjectId(orderGroupId), is_active: true }).session(session);
-    const fragile = rec?.material_type === 'Bubble Wrap';
-    const recBox = rec
-      ? await this.materialModel.findOne({ kind: 'box', is_active: true, length_cm: rec.box_size.length_cm, width_cm: rec.box_size.width_cm, height_cm: rec.box_size.height_cm }).session(session)
-      : null;
-    result.recommendedBoxCode = recBox?.code ?? null;
-
-    if (materialsUsed && materialsUsed.length > 0) {
-      // Khai thực tế: trừ đúng ngăn nhân viên đã lấy.
-      const usedBoxCodes: string[] = [];
-      for (const line of materialsUsed) {
-        const m = await this.materialModel.findOne({ code: line.material_code, is_active: true }).session(session);
-        if (!m) {
-          result.warnings.push(`Vật liệu "${line.material_code}" không có trong danh mục (hoặc đã vô hiệu hóa) — bỏ qua.`);
-          continue;
+  /**
+   * GỘP main + thi_dev (04/10/2026) — trừ tồn cho các kiện vừa đóng của kế
+   * hoạch đóng gói (gọi TRONG transaction của PackingPlanService.pack). Mỗi
+   * dòng ưu tiên hàng TÁI SỬ DỤNG nếu vật tư cho phép (ghi tiết kiệm), thiếu
+   * mới lấy hàng mới.
+   * - `strict` (thùng): thiếu → ném lỗi để caller rollback (không đóng gói khi
+   *   kho không còn thùng).
+   * - không strict (vật tư chèn): trừ được bao nhiêu trừ bấy nhiêu, phần thiếu
+   *   trả trong `shortfalls` để báo, KHÔNG chặn đóng gói.
+   */
+  async consumeForParcels(
+    session: ClientSession,
+    needs: ParcelMaterialNeed[],
+    groupId: Types.ObjectId,
+    actorId: string,
+    options: { strict: boolean; onShortage?: (need: ParcelMaterialNeed, available: number) => never },
+  ): Promise<ParcelConsumption> {
+    const balances = new Map<string, ParcelConsumed>();
+    const shortfalls: ParcelConsumption['shortfalls'] = [];
+    for (const need of needs) {
+      if (need.quantity <= 0) continue;
+      const m = await this.materialModel.findOne({ code: need.code }).session(session);
+      const available = m ? usableStock(m) : 0;
+      // Kiện không được dùng hàng tái sử dụng: chỉ tính phần hàng MỚI là "còn".
+      const usable = m && need.allowReused === false ? Math.min(available, m.qty_new) : available;
+      if (options.strict && (!m || usable < need.quantity)) {
+        if (options.onShortage) options.onShortage(need, usable);
+        this.fail(E.INSUFFICIENT_STOCK, `Kho chỉ còn ${String(usable)} "${need.code}", cần ${String(need.quantity)}.`, HttpStatus.CONFLICT);
+      }
+      let remaining = m ? Math.min(need.quantity, usable) : 0;
+      let saving = 0;
+      if (m && remaining > 0 && m.reusable && m.qty_reused > 0 && need.allowReused !== false) {
+        const take = Math.min(remaining, m.qty_reused);
+        const ok = await this.materialModel.updateOne({ _id: m._id, qty_reused: { $gte: take } }, { $inc: { qty_reused: -take } }, { session });
+        if (ok.modifiedCount === 1) {
+          saving = take * m.unit_cost_vnd;
+          await this.recordParcel(m, 'reused', -take, saving, groupId, need, available - take, actorId, session);
+          remaining -= take;
         }
-        if (m.kind === 'box') usedBoxCodes.push(m.code);
-        await this.deduct(m, line.condition, line.quantity, orderGroupId, actorId, session, result);
       }
-      result.followedRecommendation = recBox ? usedBoxCodes.length === 1 && usedBoxCodes[0] === recBox.code : null;
-    } else {
-      if (!rec) {
-        result.warnings.push('Nhóm đơn chưa có gợi ý đóng gói đang hiệu lực — không trừ vật liệu.');
-        return result;
+      let taken = m ? Math.min(need.quantity, usable) - remaining : 0;
+      if (m && remaining > 0) {
+        const ok = await this.materialModel.updateOne({ _id: m._id, qty_new: { $gte: remaining } }, { $inc: { qty_new: -remaining } }, { session });
+        if (ok.modifiedCount === 1) {
+          await this.recordParcel(m, 'new', -remaining, 0, groupId, need, available - taken - remaining, actorId, session);
+          taken += remaining;
+        } else if (options.strict) {
+          if (options.onShortage) options.onShortage(need, available - taken);
+          this.fail(E.INSUFFICIENT_STOCK, `Kho vừa hết "${need.code}" trong lúc đóng gói — tải lại rồi thử lại.`, HttpStatus.CONFLICT);
+        }
       }
-      if (recBox) {
-        await this.consumeOne(recBox, 1, !fragile, orderGroupId, actorId, session, result);
-      } else {
-        result.warnings.push(`Chưa khai thùng ${String(rec.box_size.length_cm)}x${String(rec.box_size.width_cm)}x${String(rec.box_size.height_cm)} trong danh mục vật liệu.`);
+      if (m && taken > 0) {
+        const previous = balances.get(m.code);
+        balances.set(m.code, {
+          code: m.code,
+          name: m.name,
+          before: previous?.before ?? available,
+          after: available - taken,
+          reorderLevel: m.reorder_level,
+          savingVnd: (previous?.savingVnd ?? 0) + saving,
+        });
       }
-      if (fragile) {
-        const cushioning = await this.materialModel.findOne({ kind: 'cushioning', is_active: true, match_material_type: rec.material_type }).session(session);
-        if (cushioning) await this.consumeOne(cushioning, rec.material_quantity, true, orderGroupId, actorId, session, result);
-        else result.warnings.push(`Chưa khai vật liệu đệm "${rec.material_type}" trong danh mục.`);
+      if (taken < need.quantity) {
+        shortfalls.push({ planId: need.planId, parcelNo: need.parcelNo, code: need.code, missing: need.quantity - taken });
       }
-      result.followedRecommendation = recBox ? true : null;
     }
-    // Đánh dấu mọi dòng tiêu hao của nhóm đơn này có theo gợi ý hay không (phục vụ chỉ số).
-    await this.movementModel.updateMany({ ref_type: 'order_group', ref_id: orderGroupId, type: 'consume' }, { $set: { followed_recommendation: result.followedRecommendation } }, { session });
-    if (result.warnings.length > 0) this.logger.warn(`Trừ vật liệu nhóm đơn ${orderGroupId}: ${result.warnings.join(' | ')}`);
-    return result;
+    return { consumed: [...balances.values()], shortfalls };
   }
 
-  /** Trừ đúng 1 ngăn (mới / tái sử dụng) theo khai báo của nhân viên. */
-  private async deduct(
-    m: PackagingMaterialDocument, condition: 'new' | 'reused', quantity: number, groupId: string, actorId: string,
-    session: ClientSession, result: ConsumptionResult,
-  ): Promise<void> {
-    const field = condition === 'reused' ? 'qty_reused' : 'qty_new';
-    const ok = await this.materialModel.updateOne({ _id: m._id, [field]: { $gte: quantity } }, { $inc: { [field]: -quantity } }, { session });
-    if (ok.modifiedCount !== 1) {
-      result.warnings.push(`Không đủ "${m.code}" (${condition === 'reused' ? 'tái sử dụng' : 'mới'}) — cần ${String(quantity)}, còn ${String(m[field])}. Kiểm tra lại tồn vật liệu.`);
-      return;
+  /**
+   * (05/10/2026) Thu hồi khi THÁO kiện (đơn hủy sau khi đã đóng): thùng + vật tư
+   * chèn còn dùng được. Gọi TRONG transaction của tháo kiện.
+   * - `reusable` + loại tái sử dụng được → cộng `qty_reused`, sổ `recover`.
+   * - `damaged`, hoặc thùng loại không tái sử dụng → sổ `discard`.
+   * - `strict` (vật tư chèn người dùng chủ động khai thu hồi) mà loại không tái
+   *   sử dụng được → 400 PKG_MATERIAL_NOT_REUSABLE (không âm thầm bỏ).
+   */
+  async recoverFromUnpack(
+    lines: { code: string; quantity: number; condition: 'reusable' | 'damaged'; strict?: boolean }[],
+    ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
+    actorId: string,
+    session: ClientSession,
+  ): Promise<{ code: string; quantity: number; outcome: 'reused' | 'discarded' | 'unknown' }[]> {
+    const out: { code: string; quantity: number; outcome: 'reused' | 'discarded' | 'unknown' }[] = [];
+    for (const line of lines) {
+      if (line.quantity <= 0) continue;
+      const m = await this.materialModel.findOne({ code: line.code }).session(session);
+      if (!m) {
+        out.push({ code: line.code, quantity: line.quantity, outcome: 'unknown' });
+        continue;
+      }
+      if (line.strict && line.condition === 'reusable' && !m.reusable) {
+        this.fail(E.NOT_REUSABLE, `Vật tư "${m.code}" không tái sử dụng được — bật "reusable" trong danh mục trước khi thu hồi.`, HttpStatus.BAD_REQUEST);
+      }
+      const reused = line.condition === 'reusable' && m.reusable;
+      if (reused) await this.materialModel.updateOne({ _id: m._id }, { $inc: { qty_reused: line.quantity } }, { session });
+      await this.movementModel.create([{
+        material_code: m.code, condition: reused ? 'reused' : 'discarded', type: reused ? 'recover' : 'discard',
+        delta: line.quantity, saving_vnd: 0, ref_type: 'order_group', ref_id: ref.groupId.toString(),
+        note: reused ? 'Thu hồi khi tháo kiện (đơn hủy sau khi đóng)' : 'Hỏng/không dùng lại khi tháo kiện — bỏ',
+        actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
+        balance_after: usableStock(m) + (reused ? line.quantity : 0), created_at: new Date(),
+      }], { session });
+      out.push({ code: m.code, quantity: line.quantity, outcome: reused ? 'reused' : 'discarded' });
     }
-    const saving = condition === 'reused' ? quantity * m.unit_cost_vnd : 0;
-    await this.record(m.code, condition, 'consume', -quantity, saving, 'order_group', groupId, null, actorId, session);
-    result.consumed.push({ materialCode: m.code, condition, quantity, savingVnd: saving });
+    return out;
+  }
+
+  /**
+   * (08/10/2026) Ghi HAO HỤT: vật tư/thùng đã lấy khỏi kho nhưng hỏng trước khi
+   * được tính vào kiện (vd đổi thùng lúc đóng, thùng cũ rách). Trừ tồn thật —
+   * ưu tiên hàng mới — và ghi sổ `waste`. Tồn không đủ thì trừ phần có, ghi chú
+   * phần thiếu (không chặn: hàng đã hỏng ngoài đời rồi). Gọi TRONG transaction.
+   */
+  async recordWaste(
+    code: string,
+    quantity: number,
+    ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
+    actorId: string,
+    note: string,
+    session: ClientSession,
+  ): Promise<{ taken: number; unitCostVnd: number }> {
+    const m = await this.materialModel.findOne({ code }).session(session);
+    if (!m || quantity <= 0) return { taken: 0, unitCostVnd: 0 };
+    let remaining = quantity;
+    let taken = 0;
+    const fromNew = Math.min(remaining, m.qty_new);
+    if (fromNew > 0) {
+      const ok = await this.materialModel.updateOne({ _id: m._id, qty_new: { $gte: fromNew } }, { $inc: { qty_new: -fromNew } }, { session });
+      if (ok.modifiedCount === 1) {
+        taken += fromNew;
+        remaining -= fromNew;
+      }
+    }
+    const fromReused = Math.min(remaining, m.qty_reused);
+    if (fromReused > 0) {
+      const ok = await this.materialModel.updateOne({ _id: m._id, qty_reused: { $gte: fromReused } }, { $inc: { qty_reused: -fromReused } }, { session });
+      if (ok.modifiedCount === 1) taken += fromReused;
+    }
+    await this.movementModel.create([{
+      material_code: m.code, condition: 'discarded', type: 'waste', delta: -taken, saving_vnd: 0,
+      ref_type: 'order_group', ref_id: ref.groupId.toString(),
+      note: taken < quantity ? `${note} (tồn chỉ đủ trừ ${String(taken)}/${String(quantity)})` : note,
+      actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
+      balance_after: usableStock(m) - taken, created_at: new Date(),
+    }], { session });
+    return { taken, unitCostVnd: m.unit_cost_vnd };
+  }
+
+  /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */
+  async stockInById(id: Types.ObjectId, quantity: number, actorId: string | null, note?: string): Promise<PackagingMaterialDocument | null> {
+    return this.runTx(async (session) => {
+      const updated = await this.materialModel.findOneAndUpdate({ _id: id }, { $inc: { qty_new: quantity } }, { returnDocument: 'after', session });
+      if (!updated) return null;
+      await this.movementModel.create([{
+        material_code: updated.code, condition: 'new', type: 'purchase', delta: quantity, saving_vnd: 0,
+        ref_type: null, ref_id: null, note: note?.trim() ? note.trim() : null, actor_id: actorId ?? 'system',
+        balance_after: usableStock(updated), created_at: new Date(),
+      }], { session });
+      return updated;
+    });
+  }
+
+  private async recordParcel(
+    m: PackagingMaterialDocument, condition: 'new' | 'reused', delta: number, saving: number,
+    groupId: Types.ObjectId, need: ParcelMaterialNeed, balanceAfter: number, actorId: string, session: ClientSession,
+  ): Promise<void> {
+    await this.movementModel.create([{
+      material_code: m.code, condition, type: 'consume', delta, saving_vnd: saving,
+      ref_type: 'order_group', ref_id: groupId.toString(), note: null, actor_id: actorId,
+      packing_plan_id: need.planId, parcel_no: need.parcelNo, balance_after: balanceAfter, created_at: new Date(),
+    }], { session });
   }
 
   /** Xuất vật liệu hạng B dùng nội bộ (đựng hàng, chia khu...). */
@@ -252,32 +379,6 @@ export class PackagingMaterialsService {
       await this.record(code, 'internal', 'internal_use', -dto.quantity, 0, null, null, dto.purpose, actorId, session);
       return updated;
     });
-  }
-
-  private async consumeOne(
-    m: PackagingMaterialDocument, quantity: number, allowReused: boolean, groupId: string, actorId: string,
-    session: ClientSession, result: ConsumptionResult,
-  ): Promise<void> {
-    let remaining = quantity;
-    if (allowReused && m.reusable && m.qty_reused > 0) {
-      const take = Math.min(remaining, m.qty_reused);
-      const ok = await this.materialModel.updateOne({ _id: m._id, qty_reused: { $gte: take } }, { $inc: { qty_reused: -take } }, { session });
-      if (ok.modifiedCount === 1) {
-        const saving = take * m.unit_cost_vnd;
-        await this.record(m.code, 'reused', 'consume', -take, saving, 'order_group', groupId, null, actorId, session);
-        result.consumed.push({ materialCode: m.code, condition: 'reused', quantity: take, savingVnd: saving });
-        remaining -= take;
-      }
-    }
-    if (remaining > 0) {
-      const ok = await this.materialModel.updateOne({ _id: m._id, qty_new: { $gte: remaining } }, { $inc: { qty_new: -remaining } }, { session });
-      if (ok.modifiedCount === 1) {
-        await this.record(m.code, 'new', 'consume', -remaining, 0, 'order_group', groupId, null, actorId, session);
-        result.consumed.push({ materialCode: m.code, condition: 'new', quantity: remaining, savingVnd: 0 });
-      } else {
-        result.warnings.push(`Không đủ "${m.code}" (cần ${String(remaining)}, còn mới ${String(m.qty_new)}) — nhập thêm vật liệu.`);
-      }
-    }
   }
 
   // ------------------------------------------------ thu hồi từ hàng hoàn

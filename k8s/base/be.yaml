@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: be
+  labels: { app: be }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: be }
+  template:
+    metadata:
+      labels: { app: be }
+    spec:
+      containers:
+        - name: be
+          image: optipackai-be:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+          envFrom:
+            # Thứ tự có ý nghĩa: ConfigMap đứng SAU nên ghi đè được các biến
+            # trùng tên trong Secret (vd REDIS_HOST=localhost trong be/.env).
+            - secretRef: { name: optipackai-be-env }
+            - configMapRef: { name: optipackai-be-config }
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          livenessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 40
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: '1', memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: be
+spec:
+  selector: { app: be }
+  ports:
+    - port: 3000
+      targetPort: 3000

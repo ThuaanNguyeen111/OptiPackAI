@@ -7,6 +7,10 @@ export const WAREHOUSE_ERROR_CODES = {
   // vụ rõ ràng cho FE bắt riêng.
   WAREHOUSE_CODE_IN_USE: 'WH_WAREHOUSE_CODE_IN_USE',
   ZONE_CODE_IN_USE: 'WH_ZONE_CODE_IN_USE',
+  // BỔ SUNG (29/09/2026, Mục 9.5) — Picking List gộp nhiều group
+  // (GET :warehouseId/picking-list?group_ids=...): tham số group_ids rỗng
+  // hoặc chứa ObjectId sai định dạng.
+  INVALID_GROUP_IDS: 'WH_INVALID_GROUP_IDS',
   // BỔ SUNG (26/09/2026, K1) — vòng đời kho/khu/kệ
   WAREHOUSE_INACTIVE: 'WH_WAREHOUSE_INACTIVE', // thao tác trên kho đã vô hiệu hóa
   ZONE_INACTIVE: 'WH_ZONE_INACTIVE',
@@ -31,4 +35,6 @@ export const WAREHOUSE_ERROR_CODES = {
   INSUFFICIENT_STOCK: 'WH_INSUFFICIENT_STOCK', // chuyển nhiều hơn số đang có
   SAME_BIN: 'WH_SAME_BIN', // chuyển sang chính ô đang đứng
   NOTE_REQUIRED: 'WH_NOTE_REQUIRED', // lý do "other" phải có ghi chú
+  // 10/10/2026 — xoá hẳn mục tạo nhầm (báo cáo Hải Phượng)
+  HAS_HISTORY: 'WH_HAS_HISTORY', // đã có nhập–xuất → chỉ vô hiệu hoá được, không xoá hẳn
 } as const;

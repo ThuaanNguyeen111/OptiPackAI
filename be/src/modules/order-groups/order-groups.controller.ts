@@ -1,11 +1,7 @@
-import { PackOrderGroupDto } from './dto/pack-order-group.dto';
-import {
-  PackagingMaterialsService,
-  ConsumptionResult,
-} from '../packaging-materials/packaging-materials.service';
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -13,30 +9,25 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { OrderGroupsService, GroupOrderCounts } from './order-groups.service';
+import { OrderGroupsService, GroupOrderCounts, type GroupOrderView } from './order-groups.service';
 import { ListOrderGroupsQueryDto } from './dto/list-order-groups-query.dto';
 import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
 import { PickItemDto } from './dto/pick-item.dto';
 import { ReportMissingDto } from './dto/report-missing.dto';
 import { DecidePartialDto } from './dto/decide-partial.dto';
 import { SetPriorityDto } from './dto/set-priority.dto';
+import { LinkOrderGroupDto } from './dto/link-order-group.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
-import {
-  OrderGroupForPackaging,
-  PackableItem,
-} from '../../common/interfaces/packaging.interface';
+import { OrderGroupForPicking, PickableItem } from '../../common/interfaces/packaging.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { OrderGroupDocument } from './schemas/order-group.schema';
-import {
-  LazadaPackSyncService,
-  LazadaPackSyncResult,
-} from './lazada-pack-sync.service';
 
 // Response tối thiểu — cùng nguyên tắc "không trả thẳng Document ra
 // ngoài" đã áp dụng ở orders.controller.ts (tránh lộ __v raw của
@@ -49,6 +40,8 @@ import {
 // body của 5 endpoint fulfillment (Rule #18, Optimistic Concurrency)
 // — không phải rò rỉ Mongoose internal, mà là hợp đồng API có chủ đích.
 export interface OrderGroupResponse {
+  // 13/10/2026 — liên kết tay (null = không có). Liên kết tự động xem linkedGroupCount.
+  manualLink: { linkId: string; linkedBy: string | null; linkedAt: Date | null; note: string | null } | null;
   stockShortage: boolean; // K5
   origin: 'marketplace' | 'replacement'; // đơn thay thế do đổi hàng
   sourceReturnId: string | null;
@@ -64,24 +57,7 @@ export interface OrderGroupResponse {
   orderCount: number;
   activeOrderCount: number; // 01/10/2026 — đơn còn phải xử lý (cùng quy tắc Picking List)
   canceledOrderCount: number; // 01/10/2026 — đơn đã hủy (status canceled)
-  // 02/10/2026 — kết quả báo "đã đóng gói" lên Lazada; status null = chưa từng gửi
-  lazadaPack: {
-    status: string | null;
-    attemptedAt: Date | null;
-    error: string | null;
-    items: {
-      orderId: string;
-      orderItemId: string;
-      ok: boolean;
-      errorCode: string | null;
-      message: string | null;
-      packageId: string | null;
-      trackingNumber: string | null;
-      shipmentProvider: string | null;
-    }[];
-  };
   fulfillmentStatus: string;
-  activePackagingRecommendationId: string | null;
   assignedStaffId: string | null;
   orderPriority: string;
   packagingDeadline: Date | null;
@@ -91,11 +67,35 @@ export interface OrderGroupResponse {
   updatedAt: Date;
 }
 
+// MỚI (29/09/2026, Mục 9.5) — nhóm đơn khác (có thể khác sàn) cùng
+// recipient_key, chưa giao xong — dùng cho cảnh báo "lệch nhịp" khi ship.
+export interface LinkedPendingGroup {
+  id: string;
+  fulfillmentStatus: string;
+}
+
+// Trạng thái ĐÃ tới hoặc SAU packed — không còn tính là "đang chờ đóng gói".
+export const PACKED_OR_LATER_STATUSES: GroupFulfillmentStatus[] = [
+  GroupFulfillmentStatus.PACKED,
+  GroupFulfillmentStatus.SHIPPED,
+  GroupFulfillmentStatus.DELIVERED,
+  GroupFulfillmentStatus.RETURNED,
+  GroupFulfillmentStatus.CANCELED,
+];
+
 export function toResponse(
   group: OrderGroupDocument,
   counts: GroupOrderCounts,
 ): OrderGroupResponse {
   return {
+    manualLink: group.manual_link_id
+      ? {
+          linkId: group.manual_link_id.toString(),
+          linkedBy: group.manual_linked_by ?? null,
+          linkedAt: group.manual_linked_at ?? null,
+          note: group.manual_link_note ?? null,
+        }
+      : null,
     stockShortage: group.stock_shortage === true, // K5
     origin: group.origin ?? 'marketplace',
     sourceReturnId: group.source_return_id?.toString() ?? null,
@@ -106,25 +106,7 @@ export function toResponse(
     orderCount: group.order_count,
     activeOrderCount: counts.activeOrderCount,
     canceledOrderCount: counts.canceledOrderCount,
-    lazadaPack: {
-      status: group.lazada_pack_status ?? null,
-      attemptedAt: group.lazada_pack_attempted_at ?? null,
-      error: group.lazada_pack_error ?? null,
-      items: (group.lazada_pack_items ?? []).map((i) => ({
-        orderId: i.order_id,
-        orderItemId: i.order_item_id,
-        ok: i.ok,
-        errorCode: i.item_err_code ?? null,
-        message: i.msg ?? null,
-        packageId: i.package_id ?? null,
-        trackingNumber: i.tracking_number ?? null,
-        shipmentProvider: i.shipment_provider ?? null,
-      })),
-    },
     fulfillmentStatus: group.fulfillment_status,
-    activePackagingRecommendationId: group.active_packaging_recommendation
-      ? group.active_packaging_recommendation.toString()
-      : null,
     assignedStaffId: group.assigned_staff_id
       ? group.assigned_staff_id.toString()
       : null,
@@ -196,8 +178,6 @@ export async function buildOrderGroupResponses(
 export class OrderGroupsController {
   constructor(
     private readonly orderGroupsService: OrderGroupsService,
-    private readonly packagingMaterialsService: PackagingMaterialsService, // G4
-    private readonly lazadaPackSyncService: LazadaPackSyncService, // 02/10/2026
   ) {}
 
   @Get()
@@ -210,7 +190,7 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Danh sách Order Group — lọc theo fulfillment_status để mỗi role thấy đúng hàng đợi của mình (VD Warehouse Staff lọc approved_for_packing để biết cần lấy hàng gì)',
+      'Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id / stock_shortage / is_overdue để mỗi role thấy đúng hàng đợi. Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
   })
   async list(
     @Query() query: ListOrderGroupsQueryDto,
@@ -219,6 +199,11 @@ export class OrderGroupsController {
       fulfillmentStatus: query.fulfillment_status,
       platform: query.platform,
       orderPriority: query.order_priority,
+      assignedStaffId: query.assigned_staff_id,
+      stockShortage: query.stock_shortage === undefined ? undefined : query.stock_shortage === 'true',
+      isOverdue: query.is_overdue === undefined ? undefined : query.is_overdue === 'true',
+      before: query.before ? new Date(query.before) : undefined,
+      limit: query.limit,
     });
     return buildOrderGroupResponses(this.orderGroupsService, groups);
   }
@@ -233,24 +218,74 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Chi tiết 1 Order Group — đọc field "version" để dùng cho 5 API chuyển trạng thái bên dưới',
+      'Chi tiết 1 Order Group — đọc field "version" để dùng cho các API chuyển trạng thái. "linkedGroupCount" (Mục 9.5): số nhóm khác (có thể khác sàn) cùng người nhận, chưa giao xong. "orders" (09/10/2026): các đơn trong nhóm kèm người nhận + món đã gộp (cả đơn đã hủy).',
   })
-  async findOne(@Param('id') id: string): Promise<OrderGroupResponse> {
+  async findOne(
+    @Param('id') id: string,
+  ): Promise<OrderGroupResponse & { linkedGroupCount: number; orders: GroupOrderView[] }> {
     const group = await this.orderGroupsService.findOrderGroupById(id);
-    return buildOrderGroupResponse(this.orderGroupsService, group);
+    const [linked, orders] = await Promise.all([
+      this.orderGroupsService.findLinkedGroups(id),
+      this.orderGroupsService.listOrdersInGroup(id),
+    ]);
+    return {
+      ...(await buildOrderGroupResponse(this.orderGroupsService, group)),
+      linkedGroupCount: linked.length,
+      orders,
+    };
+  }
+
+  @Get(':id/linked')
+  @Roles(
+    UserRole.WAREHOUSE_STAFF,
+    UserRole.PACKAGING_STAFF,
+    UserRole.SHIPPING_COORDINATOR,
+    UserRole.STORE_OWNER,
+    UserRole.ADMIN,
+  )
+  @ApiOperation({
+    summary:
+      'MỚI (Mục 9.5) — Các nhóm đơn KHÁC (có thể khác sàn) cùng người nhận với nhóm này, chưa giao xong. Dùng để hiển thị "Đi cùng: N kiện" và chuẩn bị giao chung chuyến.',
+  })
+  async linked(@Param('id') id: string): Promise<{ linkedGroups: OrderGroupResponse[] }> {
+    const groups = await this.orderGroupsService.findLinkedGroups(id);
+    return { linkedGroups: await buildOrderGroupResponses(this.orderGroupsService, groups) };
+  }
+
+  @Post(':id/link')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 13/10/2026 — LIÊN KẾT TAY nhóm này với `target_group_id` (cùng người nhận nhưng hệ thống không tự nhận ra — VD đơn Lazada bị che dữ liệu). Sau đó 2 nhóm hiện "Đi cùng", Picking List gộp được và giao chung chuyến (POST /shipments/batch). Cả 2 nhóm phải chưa giao. Trả danh sách nhóm đang liên kết với nhóm này.',
+  })
+  async linkManually(
+    @Param('id') id: string,
+    @Body() dto: LinkOrderGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ linkedGroups: OrderGroupResponse[] }> {
+    const groups = await this.orderGroupsService.linkGroupsManually(id, dto.target_group_id, dto.note, user.userId);
+    return { linkedGroups: await buildOrderGroupResponses(this.orderGroupsService, groups) };
+  }
+
+  @Delete(':id/link')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 13/10/2026 — Bỏ liên kết tay của nhóm này (nhóm phải chưa giao). Liên kết tự động theo cùng người nhận (recipient_key) không bị ảnh hưởng.',
+  })
+  async unlinkManually(@Param('id') id: string): Promise<{ message: string }> {
+    await this.orderGroupsService.unlinkGroupManually(id);
+    return { message: 'Đã bỏ liên kết tay.' };
   }
 
   @Get(':id/picking-list')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Danh sách sản phẩm cần lấy cho 1 Order Group, kèm kích thước (đã cache từ Product Master) — dùng cho màn hình Warehouse Picking (Mobile App). CHƯA có vị trí kệ thật (module warehouse/ chưa code, xem CLAUDE.md).',
+      'Danh sách sản phẩm cần lấy: số đặt + đã quét trong lượt hiện tại (picked_quantity). Số đo chỉ có khi hồ sơ đóng gói đã ready — KHÔNG bắt buộc để lấy hàng. Bản có vị trí kệ: GET /warehouse/:warehouseId/picking-list/:groupId.',
   })
-  async pickingList(@Param('id') id: string): Promise<OrderGroupForPackaging> {
-    // TÁI DÙNG ĐÚNG hàm đã có, viết cho mục đích bàn giao AI Packaging
-    // — giờ dùng lại cho mục đích khác (Warehouse Staff xem) mà không
-    // cần viết logic mới, đúng tinh thần "không thừa thãi".
-    return this.orderGroupsService.getPackableItemsForGroup(id);
+  async pickingList(@Param('id') id: string): Promise<OrderGroupForPicking> {
+    return this.orderGroupsService.getPickableItemsForGroup(id);
   }
 
   @Get(':id/picking-list/:sku')
@@ -262,11 +297,12 @@ export class OrderGroupsController {
   async pickingListItemDetail(
     @Param('id') id: string,
     @Param('sku') sku: string,
-  ): Promise<PackableItem> {
-    return this.orderGroupsService.getPackableItemDetail(id, sku);
+  ): Promise<PickableItem> {
+    return this.orderGroupsService.getPickableItemDetail(id, sku);
   }
 
   @Post(':id/fulfillment/pick-item')
+  @SkipThrottle()
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
@@ -333,87 +369,14 @@ export class OrderGroupsController {
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (approved_for_packing -> picked). Warehouse Staff bấm sau khi soạn xong theo picking-list.',
+      'Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (picking -> picked). Server đối soát mọi SKU đã quét đủ số đặt trong lượt hiện tại; thiếu → 409 ORD_GROUP_PICK_INCOMPLETE (dùng report-missing). Sau bước này hệ thống tự tính kế hoạch đóng gói.',
   })
   async pick(
     @Param('id') id: string,
     @Body() body: TransitionOrderGroupDto,
   ): Promise<OrderGroupResponse> {
-    const group = await this.orderGroupsService.transitionFulfillmentStatus(
-      id,
-      GroupFulfillmentStatus.PICKED,
-      body.expected_version,
-    );
+    const group = await this.orderGroupsService.confirmPicked(id, body.expected_version);
     return buildOrderGroupResponse(this.orderGroupsService, group);
-  }
-
-  @Post(':id/fulfillment/pack')
-  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      'Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). 🔄 (21/09/2026) mở thêm PACKAGING_STAFF — trước đây chỉ Warehouse+Admin, Packaging Staff bị 403 dù đúng người thực hiện đóng gói vật lý.',
-  })
-  async pack(
-    @Param('id') id: string,
-    @Body() body: PackOrderGroupDto,
-    @CurrentUser() user: AuthenticatedUser,
-  ): Promise<
-    OrderGroupResponse & {
-      packagingConsumption: ConsumptionResult;
-      lazadaPackSync: LazadaPackSyncResult;
-    }
-  > {
-    // 02/10/2026 — nhóm không còn đơn cần xử lý (hủy hết) thì không cho đóng gói.
-    await this.orderGroupsService.assertHasActiveOrders(id);
-    // Đổi trạng thái "packed" + trừ vật liệu trong CÙNG 1 transaction: hoặc cả 2 xong,
-    // hoặc không gì thay đổi. Thiếu vật liệu vẫn KHÔNG chặn pack (chỉ trả cảnh báo).
-    // `materials_used` (tùy chọn): vật liệu nhân viên thực tế đã dùng — không gửi thì
-    // trừ theo gợi ý đóng gói như trước.
-    const { group, packagingConsumption } =
-      await this.packagingMaterialsService.withTransaction(async (session) => ({
-        group: await this.orderGroupsService.transitionFulfillmentStatus(
-          id,
-          GroupFulfillmentStatus.PACKED,
-          body.expected_version,
-          session,
-        ),
-        packagingConsumption:
-          await this.packagingMaterialsService.consumeForPackedGroup(
-            id,
-            user.userId,
-            session,
-            body.materials_used,
-          ),
-      }));
-    // 02/10/2026 — SAU khi OptiPack đã `packed` (transaction đã commit): báo "đã đóng
-    // gói" lên Lazada. Không bao giờ ném lỗi — Lazada lỗi vẫn giữ `packed`, kết quả
-    // ghi vào nhóm đơn (lazadaPack) và có route gửi lại bên dưới.
-    const lazadaPackSync = await this.lazadaPackSyncService.syncGroup(id);
-    const fresh = await this.orderGroupsService
-      .findOrderGroupById(id)
-      .catch(() => group);
-    return {
-      ...(await buildOrderGroupResponse(this.orderGroupsService, fresh)),
-      packagingConsumption,
-      lazadaPackSync,
-    };
-  }
-
-  @Post(':id/lazada-pack/retry')
-  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({
-    summary:
-      '02/10/2026 — Gửi lại "đã đóng gói" lên Lazada cho nhóm đơn đang "packed" mà lần trước chưa thành công (failed / partial / disabled / chưa gửi). Không đổi trạng thái OptiPack.',
-  })
-  async retryLazadaPack(
-    @Param('id') id: string,
-  ): Promise<OrderGroupResponse & { lazadaPackSync: LazadaPackSyncResult }> {
-    const lazadaPackSync = await this.lazadaPackSyncService.retryGroup(id);
-    const group = await this.orderGroupsService.findOrderGroupById(id);
-    return {
-      ...(await buildOrderGroupResponse(this.orderGroupsService, group)),
-      lazadaPackSync,
-    };
   }
 
   @Patch(':id/priority')

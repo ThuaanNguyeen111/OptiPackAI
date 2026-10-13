@@ -1,17 +1,20 @@
-import { AdjustStockDto, TransferStockDto } from './dto/stock-operations.dto';
+import { BinSuggestionsQueryDto } from './dto/bin-suggestions-query.dto';
+import { AdjustStockDto, MoveAssignmentDto, TransferStockDto } from './dto/stock-operations.dto';
 import {
   Body,
   Controller,
   Delete,
   Get,
+  HttpStatus,
   Param,
   Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { WarehouseService, PickingListItem } from './warehouse.service';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import { Types } from 'mongoose';
+import { WarehouseService, PickingListItem, PurgeResult } from './warehouse.service';
 import { CreateWarehouseDto } from './dto/create-warehouse.dto';
 import { CreateZoneDto } from './dto/create-zone.dto';
 import { GenerateBinLocationsDto } from './dto/generate-bin-locations.dto';
@@ -19,7 +22,7 @@ import { AssignSkuBinDto } from './dto/assign-sku-bin.dto';
 import { RestockSkuDto } from './dto/restock-sku.dto';
 import { UpdateWarehouseDto } from './dto/update-warehouse.dto';
 import { UpdateZoneDto } from './dto/update-zone.dto';
-import { CreateRackDto } from './dto/create-rack.dto';
+import { CreateRackDto, PurgeRackQueryDto } from './dto/create-rack.dto';
 import { UpdateBinDto } from './dto/update-bin.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
@@ -31,6 +34,8 @@ import { WarehouseDocument } from './schemas/warehouse.schema';
 import { WarehouseZoneDocument } from './schemas/warehouse-zone.schema';
 import { BinLocationDocument } from './schemas/bin-location.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
+import { AppException } from '../../common/exceptions/app-exception';
+import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
 
 // BỔ SUNG (2026-09-10) — Điểm yếu #9: trước đây trả THẲNG Document
 // (snake_case, `_id`/`__v` thô) — sửa cho nhất quán với
@@ -331,6 +336,37 @@ export class WarehouseController {
     return this.warehouseService.findUnassignedSkus();
   }
 
+  @Get(':warehouseId/picking-list')
+  @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiQuery({
+    name: 'group_ids',
+    required: true,
+    example: '66f0a1b2c3d4e5f678901234,66f0a1b2c3d4e5f678905678',
+    description: 'Danh sách Order Group ID cách nhau bằng dấu phẩy.',
+  })
+  @ApiOperation({
+    summary:
+      'MỚI (Mục 9.5) — Picking List GỘP nhiều Order Group (có thể khác sàn, cùng người nhận — xem GET :id/linked) thành 1 lượt đi kệ. Mỗi dòng vẫn ghi rõ order_group_id (thùng nào) — quét hàng vẫn theo từng nhóm.',
+  })
+  async pickingListForGroups(
+    @Param('warehouseId') warehouseId: string,
+    @Query('group_ids') groupIdsCsv: string | undefined,
+  ): Promise<PickingListItem[]> {
+    const groupIds = (groupIdsCsv ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+    if (groupIds.length === 0 || groupIds.some((id) => !Types.ObjectId.isValid(id))) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.INVALID_GROUP_IDS,
+        'Tham số group_ids phải là danh sách ObjectId hợp lệ, cách nhau bằng dấu phẩy, ít nhất 1 giá trị.',
+        HttpStatus.BAD_REQUEST,
+        { groupIdsCsv },
+      );
+    }
+    return this.warehouseService.getEnrichedPickingListForGroups(warehouseId, groupIds);
+  }
+
   @Get(':warehouseId/picking-list/:groupId')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
@@ -388,6 +424,16 @@ export class WarehouseController {
     );
   }
 
+  @Delete('warehouses/:warehouseId/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN kho tạo nhầm + toàn bộ khu/ô bên trong. Chỉ khi kho CHƯA TỪNG có hàng/nhập–xuất (409 WH_HAS_STOCK / WH_HAS_HISTORY nếu đã dùng → dùng DELETE thường để vô hiệu hoá).',
+  })
+  async purgeWarehouse(@Param('warehouseId') warehouseId: string): Promise<PurgeResult> {
+    return this.warehouseService.purgeWarehouse(warehouseId);
+  }
+
   @Post('warehouses/:warehouseId/reactivate')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -427,6 +473,16 @@ export class WarehouseController {
     return toZoneResponse(await this.warehouseService.deactivateZone(zoneId));
   }
 
+  @Delete('zones/:zoneId/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN khu tạo nhầm + toàn bộ ô trong khu. Chỉ khi chưa từng có hàng/nhập–xuất (409 WH_HAS_STOCK / WH_HAS_HISTORY).',
+  })
+  async purgeZone(@Param('zoneId') zoneId: string): Promise<PurgeResult> {
+    return this.warehouseService.purgeZone(zoneId);
+  }
+
   @Post('zones/:zoneId/reactivate')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -450,6 +506,16 @@ export class WarehouseController {
     return toBinLocationResponse(
       await this.warehouseService.deactivateBin(binId),
     );
+  }
+
+  @Delete('bin-locations/:binId/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN 1 ô tạo nhầm (kèm dòng gán thử tồn 0). Chỉ khi chưa từng có hàng/nhập–xuất (409 WH_HAS_STOCK / WH_HAS_HISTORY).',
+  })
+  async purgeBin(@Param('binId') binId: string): Promise<PurgeResult> {
+    return this.warehouseService.purgeBin(binId);
   }
 
   @Post('bin-locations/:binId/reactivate')
@@ -482,6 +548,19 @@ export class WarehouseController {
     return docs.map(toBinLocationResponse);
   }
 
+  @Delete('zones/:zoneId/racks/permanent')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — XOÁ HẲN nguyên KỆ hoặc nguyên DÃY tạo nhầm trong 1 lần gọi. ?aisle=D1 (cả dãy) | &side=P (1 bên) | &bay=2 (đúng 1 kệ). Tất cả hoặc không gì: có 1 ô đã có hàng/nhập–xuất → 409 WH_HAS_STOCK / WH_HAS_HISTORY, không xoá ô nào.',
+  })
+  async purgeRack(
+    @Param('zoneId') zoneId: string,
+    @Query() query: PurgeRackQueryDto,
+  ): Promise<PurgeResult> {
+    return this.warehouseService.purgeRack(zoneId, query);
+  }
+
   @Patch('bin-locations/:binId')
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -505,9 +584,7 @@ export class WarehouseController {
   })
   async suggestBins(
     @Param('warehouseId') warehouseId: string,
-    @Query('category_code') categoryCode: string,
-    @Query('size') size?: string,
-    @Query('color_code') colorCode?: string,
+    @Query() q: BinSuggestionsQueryDto,
   ): Promise<
     {
       bin: BinLocationResponse;
@@ -517,9 +594,9 @@ export class WarehouseController {
     }[]
   > {
     const rows = await this.warehouseService.suggestBins(warehouseId, {
-      category_code: categoryCode,
-      size,
-      color_code: colorCode,
+      category_code: q.category_code,
+      size: q.size,
+      color_code: q.color_code,
     });
     return rows.map((r) => ({ ...r, bin: toBinLocationResponse(r.bin) }));
   }
@@ -568,6 +645,23 @@ export class WarehouseController {
       user.userId,
     );
     return { from: toAssignmentResponse(from), to: toAssignmentResponse(to) };
+  }
+
+  @Patch('warehouses/:warehouseId/sku-bin-assignments/:assignmentId')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 10/10/2026 — SỬA GÁN NHẦM: dời SKU sang ô đúng (cùng kho). Ô hết hàng → chỉ đổi ô; ô còn hàng → chuyển toàn bộ (ghi sổ cái) rồi bỏ dòng cũ. Trả về dòng ở ô đích.',
+  })
+  async moveAssignment(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body() dto: MoveAssignmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<SkuBinAssignmentResponse> {
+    return toAssignmentResponse(
+      await this.warehouseService.moveAssignment(warehouseId, assignmentId, dto, user.userId),
+    );
   }
 
   @Delete('warehouses/:warehouseId/sku-bin-assignments/:assignmentId')

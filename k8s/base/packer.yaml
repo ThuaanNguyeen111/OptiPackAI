@@ -1,0 +1,45 @@
+# CP-SAT (Python) — chứng minh tổ hợp thùng không xếp được. Service NỘI BỘ:
+# chỉ backend gọi qua http://packer:8000, không có rule Ingress.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: packer
+  labels: { app: packer }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: packer }
+  template:
+    metadata:
+      labels: { app: packer }
+    spec:
+      containers:
+        - name: packer
+          image: optipackai-packer:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8000 }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            # CP-SAT dùng tới 8 luồng cho mỗi lời giải; giới hạn 2 CPU vẫn đủ
+            # (chậm hơn chứ không sai — kết quả xác định theo thời gian quy ước).
+            requests: { cpu: 250m, memory: 256Mi }
+            limits: { cpu: '2', memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: packer
+spec:
+  selector: { app: packer }
+  ports:
+    - port: 8000
+      targetPort: 8000

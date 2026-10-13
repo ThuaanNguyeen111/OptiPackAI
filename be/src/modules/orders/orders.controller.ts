@@ -1,5 +1,5 @@
-import { Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Param, ParseEnumPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { OrdersService, SyncResult } from './orders.service';
 import { SyncLazadaOrdersQueryDto } from './dto/sync-lazada-orders-query.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 // Hình dạng response public — KHÔNG trả thẳng OrderDocument ra ngoài
 // (tránh lộ field nội bộ như __v, Mongoose internals). Cùng nguyên tắc
@@ -28,6 +29,9 @@ interface OrderResponse {
   isConsolidated: boolean;
   consolidatedGroupId: string | null;
   totalAmount: number;
+  subtotalAmount: number | null;
+  discountAmount: number | null;
+  shippingFee: number | null;
   currency: string;
   itemCount: number;
   createdAt: Date;
@@ -44,6 +48,10 @@ interface OrderDetailResponse extends OrderResponse {
   recipientAddressLine2: string | null;
   recipientPostalCode: string | null;
   recipientCountry: string;
+  // 🆕 08/10/2026 — null với đơn đồng bộ trước 08/10 hoặc sàn không trả cấp đó.
+  recipientProvince: string | null;
+  recipientDistrict: string | null;
+  recipientWard: string | null;
   items: AggregatedOrderItemView[];
   // BỔ SUNG (AOFP-XX, 16/09/2026) — luồng "chờ seller xác nhận hủy đơn"
   // (O6): trước đây 4 field này chỉ dùng nội bộ để bắn Notification,
@@ -77,6 +85,25 @@ export class OrdersController {
     return this.ordersService.syncLazadaOrders(query.shop_id);
   }
 
+  // BỔ SUNG (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md) — route TỔNG
+  // QUÁT theo platform, dùng cho AURELLE (và mọi sàn tương thích sau
+  // này) — giữ NGUYÊN route `lazada/sync` phía trên cho FE đã tích hợp
+  // sẵn, KHÔNG thay thế.
+  @Post(':platform/sync')
+  @Roles(UserRole.ADMIN)
+  @ApiParam({ name: 'platform', enum: MarketplacePlatform })
+  @ApiOperation({
+    summary:
+      'Kích hoạt tay 1 lần đồng bộ đơn cho 1 shop đã kết nối, theo platform bất kỳ (Lazada, AURELLE...) — bản tổng quát của lazada/sync.',
+  })
+  async syncPlatform(
+    @Param('platform', new ParseEnumPipe(MarketplacePlatform))
+    platform: MarketplacePlatform,
+    @Query() query: SyncLazadaOrdersQueryDto,
+  ): Promise<SyncResult> {
+    return this.ordersService.syncShopOrders(platform, query.shop_id);
+  }
+
   @Get()
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
   @ApiOperation({
@@ -108,6 +135,9 @@ export class OrdersController {
           ? order.consolidated_group_id.toString()
           : null,
         totalAmount: order.total_amount,
+        subtotalAmount: order.subtotal_amount ?? null,
+        discountAmount: order.discount_amount ?? null,
+        shippingFee: order.shipping_fee ?? null,
         currency: order.currency,
         itemCount: order.items.length,
         createdAt: order.created_at ?? new Date(0),
@@ -139,11 +169,17 @@ export class OrdersController {
       recipientCity: order.recipient.city,
       recipientPostalCode: order.recipient.postal_code ?? null,
       recipientCountry: order.recipient.country,
+      recipientProvince: order.recipient.province_name ?? null,
+      recipientDistrict: order.recipient.district_name ?? null,
+      recipientWard: order.recipient.ward_name ?? null,
       isConsolidated: order.is_consolidated,
       consolidatedGroupId: order.consolidated_group_id
         ? order.consolidated_group_id.toString()
         : null,
       totalAmount: order.total_amount,
+      subtotalAmount: order.subtotal_amount ?? null,
+      discountAmount: order.discount_amount ?? null,
+      shippingFee: order.shipping_fee ?? null,
       currency: order.currency,
       itemCount: order.items.length,
       items: aggregateOrderItems(order.items),

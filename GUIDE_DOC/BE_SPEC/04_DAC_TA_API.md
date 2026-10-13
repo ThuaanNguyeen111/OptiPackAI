@@ -418,7 +418,7 @@ Trung tâm vận hành kho. Mỗi nhóm đơn = các đơn cùng sàn, cùng ng�
 | 7 | `POST` | `/order-groups/:id/fulfillment/decide-partial` | Packaging Staff, Admin | Quyết định group đang "partial_needs_review" — approve=true: tiếp tục với phần có sẵn (picked); approve=false: hủy, quay lại awaiting_packag |
 | 8 | `POST` | `/order-groups/:id/fulfillment/pick` | Warehouse Staff, Admin | Xác nhận ĐÃ LẤY XONG toàn bộ hàng trong Order Group (approved_for_packing -> picked). |
 | 9 | `POST` | `/order-groups/:id/fulfillment/pack` | Packaging Staff, Warehouse Staff, Admin | Xác nhận ĐÃ ĐÓNG GÓI xong (approved_for_packing -> packed). |
-| 10 | `POST` | `/order-groups/:id/lazada-pack/retry` | Packaging Staff, Warehouse Staff, Admin | 02/10/2026 — Gửi lại "đã đóng gói" lên Lazada cho nhóm đơn đang "packed" mà lần trước chưa thành công (failed / partial / disabled / chưa gử |
+| 10 | ~~`POST`~~ | ~~`/order-groups/:id/lazada-pack/retry`~~ **ĐÃ BỎ 10/10/2026** | Packaging Staff, Warehouse Staff, Admin | 02/10/2026 — Gửi lại "đã đóng gói" lên Lazada cho nhóm đơn đang "packed" mà lần trước chưa thành công (failed / partial / disabled / chưa gử |
 | 11 | `PATCH` | `/order-groups/:id/priority` | Store Owner, Admin | Đánh dấu đơn Hỏa Tốc/Bình thường — Lazada KHÔNG cung cấp tín hiệu tự động (đã xác minh bằng doc thật), Store Owner/Admin tự tay quyết định. |
 
 ### Chi tiết từng endpoint
@@ -535,7 +535,7 @@ Trong đó `MaterialUsedDto`:
 | `quantity` | `number` | Có | @IsInt() @Min(1) @Max(100) |
 | `condition` | `'new' \| 'reused'` | Có | @IsIn(['new', 'reused']) |
 
-#### `POST /order-groups/:id/lazada-pack/retry`
+#### ~~`POST /order-groups/:id/lazada-pack/retry`~~ — ĐÃ BỎ 10/10/2026 (OptiPack không ghi ngược lên Lazada)
 
 - **Hàm xử lý:** `retryLazadaPack()` · **Guard:** JwtAuthGuard, RolesGuard · **Quyền:** Packaging Staff, Warehouse Staff, Admin
 - **Path params:** `id`

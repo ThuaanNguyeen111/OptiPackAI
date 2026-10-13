@@ -1,8 +1,10 @@
 # Giải thích thuật toán đóng gói quần áo, giày và phụ kiện — OptiPackAI
 
-Ngày biên soạn: **09/09/2026**. Tài liệu dành cho người muốn hiểu cách thuật toán hoạt động trước khi đọc code hoặc bắt đầu triển khai backend.
+Ngày biên soạn: **09/09/2026**, cập nhật flow **12/09/2026**. Tài liệu dành cho người muốn hiểu cách thuật toán hoạt động trước khi đọc code hoặc bắt đầu triển khai backend.
 
 **Hệ thống dự kiến chọn bao bì cho quần áo, giày và phụ kiện bằng hai nhánh: chọn túi theo quy cách đã kiểm chứng, hoặc xếp 3D vào thùng bằng greedy có kiểm tra ràng buộc.** Đầu vào là hàng sau gấp/bọc theo hồ sơ SKU và biến thể. Prototype xây nhánh thùng trước; bản pilot ngành hàng có cả nhánh túi. Sau đó cải thiện thứ tự xếp và lựa chọn bao bì bằng benchmark.
+
+Code hiện đã có PackagingModule và fallback chọn hộp theo tổng thể tích +10%, chưa có validator 3D. Fallback đó không phải implementation của thuật toán dưới đây và không đủ để xác nhận xếp vừa.
 
 Đây là giải thích của thiết kế trong [roadmap backend](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md), **chưa phải mô tả engine đã chạy trong dự án**. Hướng prototype được đề xuất là TypeScript; lựa chọn triển khai cuối cùng cần dựa trên prototype và benchmark như roadmap đã nêu.
 
@@ -19,7 +21,7 @@ Giả sử một đơn có hai áo thun đã gấp/bọc và một hộp phụ k
 
 Muốn trả lời, hệ thống cần biết kích thước, khối lượng, quy cách bọc, hướng xoay và những hạn chế của hàng/thùng. Tên sản phẩm hoặc ảnh sản phẩm không thay thế được số đo đã xác minh.
 
-**Prototype thuật toán xét một đơn trong một thùng; bản pilot thời trang xét một đơn trong một bao bì ngoài — túi hoặc thùng.** Hộp bảo vệ một phụ kiện nằm bên trong vẫn là bao bì của item, không tự thành kiện giao riêng. Chia thành nhiều kiện là bước mở rộng sau, khi quy trình giao hàng hỗ trợ.
+**Mỗi đơn nguồn là phạm vi đóng riêng; group nhiều đơn chỉ giúp lấy hàng cùng lượt, không tự giao chung kiện.** Prototype thuật toán xét một đơn trong một thùng; bản pilot thời trang xét một đơn trong một bao bì ngoài — túi hoặc thùng. Hộp bảo vệ một phụ kiện nằm bên trong vẫn là bao bì của item, không tự thành kiện giao riêng. Chia thành nhiều kiện là bước mở rộng sau, khi quy trình giao hàng hỗ trợ.
 
 ### 1.1. Phân loại sản phẩm theo nhu cầu đóng gói
 
@@ -37,15 +39,15 @@ Ví dụ một SKU áo size M có hồ sơ gấp/bọc riêng. Size XL hoặc ch
 
 Không mặc định mọi phụ kiện đều dễ vỡ hoặc mọi quần áo đều nén được. Quy tắc thuộc về hồ sơ sản phẩm, không chỉ tên nhóm hàng.
 
-**Trường hợp trang sức cần chống sốc:** dùng quy cách đã duyệt để cố định món hàng trong hộp nhỏ, bảo vệ bề mặt và bọc chống sốc, rồi đo gói hoàn chỉnh để xếp vào thùng ngoài. Khoảng đệm chưa nằm trong khối gói phải được giữ riêng khi xếp. Thuật toán loại các phương án thiếu bảo vệ trước khi so chi phí; không giảm đệm hoặc bỏ quy tắc cấm đè để vừa hộp. Nếu thiếu quy cách/vật tư hoặc chưa tìm được phương án phù hợp, chuyển xử lý thủ công kèm lý do. Xem [yêu cầu và quy trình chi tiết](AI_3D_PACKAGING_OPTIMIZATION.md#hang-de-vo-chong-soc).
+**Trường hợp trang sức cần chống sốc:** dùng quy cách đã xác nhận để cố định món hàng trong hộp nhỏ, bảo vệ bề mặt và bọc chống sốc, rồi đo gói hoàn chỉnh để xếp vào thùng ngoài. Khoảng đệm chưa nằm trong khối gói phải được giữ riêng khi xếp. Thuật toán loại các phương án thiếu bảo vệ trước khi so chi phí; không giảm đệm hoặc bỏ quy tắc cấm đè để vừa hộp. Nếu thiếu quy cách/vật tư hoặc chưa tìm được phương án phù hợp, chuyển xử lý thủ công kèm lý do. Xem [yêu cầu và quy trình chi tiết](AI_3D_PACKAGING_OPTIMIZATION.md#hang-de-vo-chong-soc).
 
 ### 1.2. Khi nào xét túi, khi nào xét thùng?
 
 Với ngành hàng này, **chọn túi giao hàng hay thùng** cần được đưa vào bài toán. Greedy 3D đã mô tả là nhánh xếp vào thùng; nhánh túi cần một bộ kiểm tra phù hợp riêng.
 
-Đề xuất phát triển: làm prototype thùng để kiểm tra engine, sau đó bổ sung chọn túi sớm sau MVP API. Túi chỉ được đề xuất khi toàn bộ item được phép dùng túi và có quy cách gói/túi đã thử thực tế, gồm độ dày gói, miệng túi và phần cần chừa để đóng kín. Không biến kích thước phẳng dài × rộng của túi thành một thùng 3D có chiều cao tự đoán.
+BE-3 làm prototype thùng rồi chọn túi; BE-4 hoàn thiện picking/xác nhận, BE-5 mới bật tự động. Túi chỉ được đề xuất khi toàn bộ item được phép dùng túi và có quy cách gói/túi đã thử thực tế, gồm độ dày gói, miệng túi và phần cần chừa để đóng kín. Không biến kích thước phẳng dài × rộng của túi thành một thùng 3D có chiều cao tự đoán.
 
-Đơn chỉ có quần áo đã có quy cách dùng túi sẽ thử các túi đủ điều kiện; đơn có phụ kiện cần bảo vệ cứng xét thùng hoặc quy cách hộp bảo vệ đã duyệt. Nếu chưa có dữ liệu đủ để xác nhận túi vừa, vẫn có thể xét thùng và ghi rõ chưa đánh giá được nhánh túi. Đây là giới hạn dữ liệu, không phải kết luận thùng là phương án tốt nhất cho mọi đơn thời trang.
+Đơn chỉ có quần áo đã có quy cách dùng túi sẽ thử các túi đủ điều kiện; đơn có phụ kiện cần bảo vệ cứng xét thùng hoặc quy cách hộp bảo vệ đã xác nhận. Nếu chưa có dữ liệu đủ để xác nhận túi vừa, vẫn có thể xét thùng và ghi rõ chưa đánh giá được nhánh túi. Đây là giới hạn dữ liệu, không phải kết luận thùng là phương án tốt nhất cho mọi đơn thời trang.
 
 ### 1.3. Giày có hộp: xếp nguyên hộp sản phẩm
 
@@ -68,7 +70,7 @@ Chưa tự dùng hộp giày gốc làm kiện giao trực tiếp. Hộp gốc n
 
 ## 2. Tên và ý nghĩa của cách làm
 
-Toàn hệ thống là **bộ chọn bao bì theo quy tắc kết hợp heuristic 3D packing**. Nhánh túi kiểm tra hồ sơ gói đã duyệt; nhánh thùng dùng greedy và điểm đặt ứng viên. Không áp phép kiểm tra thể tích thùng cho túi mềm.
+Toàn hệ thống là **bộ chọn bao bì theo quy tắc kết hợp heuristic 3D packing**. Nhánh túi kiểm tra hồ sơ gói đã xác nhận; nhánh thùng dùng greedy và điểm đặt ứng viên. Không áp phép kiểm tra thể tích thùng cho túi mềm.
 
 | Khái niệm         | Hiểu đơn giản                                                              |
 | ----------------- | -------------------------------------------------------------------------- |
@@ -83,6 +85,10 @@ Cách sinh điểm trong prototype là quy tắc riêng đã mô tả trong road
 
 ## 3. Dữ liệu thuật toán cần nhận
 
+Product Master đã lấy số đo package khai báo từ sàn, nhưng hồ sơ dùng cho engine phải là trạng thái gấp/bọc được kho/Admin xác nhận đã đo/thử. Lưu hai nguồn riêng; sync không ghi đè hồ sơ kho. Thiếu số đo/độ nhạy thì báo thiếu, không dùng mặc định 20 cm/0,5 kg hoặc false. Không cần Admin duyệt riêng hồ sơ và không duyệt tay mọi đơn.
+
+Túi zip bọc item khác túi ngoài: áo trong zip dùng kích thước gói áo đã chứa trong túi để xếp carton. Không dùng kích thước túi rỗng làm kích thước hàng. Lưu định lượng bọc đã nằm trong số đo/khối lượng và vật tư cấp thêm để không cộng hai lần.
+
 ### 3.1. Mỗi đơn vị sản phẩm
 
 | Dữ liệu              | Ví dụ                                   | Lý do cần                                       |
@@ -95,7 +101,7 @@ Cách sinh điểm trong prototype là quy tắc riêng đã mô tả trong road
 
 **Kích thước hiệu dụng** là kích thước dùng để xếp. Ví dụ món hàng dài 180 mm, bọc thêm 10 mm mỗi đầu thì chiều dài hiệu dụng là 200 mm. Nếu số đo ban đầu đã gồm lớp bọc đó, không cộng lần nữa.
 
-Đối với quần áo, bổ sung `packing_profile_id` và phiên bản để nhận biết quy cách gấp/bọc đã dùng; lưu khả năng dùng túi, yêu cầu giữ phom và quy tắc chồng. Nếu sau này thử nhiều cách gấp, đó là các hồ sơ thay thế của **cùng một item**, không phải thêm item mới vào đơn. V1 chọn một hồ sơ đã duyệt cho mỗi biến thể để giữ tìm kiếm đơn giản.
+Đối với quần áo, bổ sung `packing_profile_id` và phiên bản để nhận biết quy cách gấp/bọc đã dùng; lưu khả năng dùng túi, yêu cầu giữ phom và quy tắc chồng. Nếu sau này thử nhiều cách gấp, đó là các hồ sơ thay thế của **cùng một item**, không phải thêm item mới vào đơn. V1 chọn một hồ sơ đã xác nhận cho mỗi biến thể để giữ tìm kiếm đơn giản.
 
 ### 3.2. Mỗi loại bao bì ngoài
 
@@ -103,9 +109,9 @@ Thuật toán cần kích thước trong dùng được, kích thước ngoài, 
 
 Catalog túi lưu kích thước phẳng của nhà cung cấp, bì, giá, tồn và liên kết quy cách đóng đã xác minh. Kích thước phẳng dùng để nhận diện loại túi, không đủ để khẳng định chứa được gói hàng có độ dày.
 
-Mỗi quy cách túi chỉ áp dụng cho tập `packing_profile_id + version + quantity` đã thử, cùng thứ tự gói, giới hạn tải và cách đóng kín. Ví dụ quy cách cho hai áo thun không tự áp cho một áo thun và một quần jean, hoặc cho ba áo cùng SKU. Trong bản đầu, so khớp đúng tổ hợp; trường hợp mới cần kho thử và duyệt quy cách mới.
+Mỗi quy cách túi chỉ áp dụng cho tập `packing_profile_id + version + quantity` đã thử, cùng thứ tự gói, giới hạn tải và cách đóng kín. Ví dụ quy cách cho hai áo thun không tự áp cho một áo thun và một quần jean, hoặc cho ba áo cùng SKU. Trong bản đầu, so khớp đúng tổ hợp; trường hợp mới cần kho thử và xác nhận quy cách mới.
 
-Backend lấy dữ liệu đã duyệt từ catalog. Thiếu hồ sơ sản phẩm thì báo bổ sung; chỉ thiếu quy cách túi thì nhánh túi trả `not_evaluated` và vẫn có thể xét thùng.
+Backend lấy dữ liệu đã xác nhận từ catalog. Thiếu hồ sơ sản phẩm thì báo bổ sung; chỉ thiếu quy cách túi thì nhánh túi trả `not_evaluated` và vẫn có thể xét thùng.
 
 ## 4. Biểu diễn hàng trong không gian 3D
 
@@ -397,16 +403,18 @@ Ví dụ engine tạo ba cách xếp hợp lệ. Mô hình dự đoán thời gi
 
 Không cần LLM/ChatGPT để tính tọa độ bản đầu. Nếu dùng LLM về sau để diễn đạt lời giải thích, dữ liệu giải thích phải lấy từ kết quả đã kiểm tra. Không để mô hình tự bịa kích thước, tải hoặc giá cước.
 
-## 11. Backend dùng thuật toán này như thế nào?
+## 11. Backend và flow vận hành mục tiêu
 
-1. Nhận yêu cầu recommendation theo ID đơn.
-2. Đọc đơn, hồ sơ gấp/bọc đúng biến thể, catalog túi/thùng/vật tư, quy cách túi và policy.
-3. Chuẩn hóa, xét quy cách túi và gửi dữ liệu thuần vào worker để tìm cách xếp thùng.
-4. Kiểm tra kết quả, xếp hạng và lưu snapshot cùng engine version.
-5. Trả `package_type=box` kèm placement hoặc `package_type=mailer` kèm quy cách gói; cả hai có danh sách item, vật tư, lý do và trạng thái từng nhánh.
-6. Khi nhân viên xác nhận, kiểm tra lại dữ liệu/tồn kho vì chúng có thể đã thay đổi sau lúc tính.
+1. Sau sync, tạo yêu cầu đánh giá bền vững cho từng đơn/revision; không gom các đơn cùng địa chỉ thành một phạm vi đóng. API gọi lại dùng cùng service.
+2. Lấy unit đủ điều kiện và hồ sơ đã xác nhận; thiếu dữ liệu chuyển hàng đợi bổ sung. Không dùng dòng gộp hiển thị làm mất ID item, không nhận canceled hoặc trạng thái lạ như pending.
+3. Tính/validate túi và thùng, lưu snapshot và phiên bản; phương án hợp lệ tự thông qua, còn ngoại lệ do nhân viên xử lý. Chỉ bật tự động sau BE-1 đến BE-4.
+4. Phân công, lấy và đối chiếu hàng; thiếu/thay đổi phải dừng và tính lại, không dùng phương án cũ. Chọn phương án chưa trừ tồn vật tư; cấp phát lúc bắt đầu đóng theo attempt/ledger nguyên tử.
+5. Sau đóng mới cân/đo kiện thật, đối soát vật tư và xác nhận packed. Cân dự kiến gồm hàng + bì + vật tư; sai lệch cần xem lại trước đi tiếp.
+6. Bàn giao vận chuyển nội bộ; không gọi API fulfillment thật lên Lazada trong demo.
 
-Worker là cách tổ chức thực thi để công việc tìm kiếm nặng CPU không chiếm vòng xử lý HTTP của NestJS; nó không làm thuật toán tự tìm nghiệm tốt hơn. Giới hạn prototype trong roadmap là 30 đơn vị hàng, 20 loại thùng và ngân sách solver 2 giây, cần đo lại trên máy chạy thật.
+Hiện code vẫn dùng group ID, cm/kg, một box và response HTTP camelCase. Adapter/version phải giữ client hiện hữu khi đưa vào lõi mm/g và kết quả box/mailer; không tạo box giả cho túi. Recommendation legacy thiếu snapshot phải tính lại trước xử lý mới. Group cũ nhiều đơn cần rà soát, không tự viết lại lịch sử.
+
+Worker cách ly CPU khỏi HTTP, không làm thuật toán tìm nghiệm tốt hơn. Prototype giới hạn 30 unit, 20 loại thùng, solver 2 giây; cần benchmark và smoke test worker sau build. Đây là kế hoạch, chưa phải engine đang chạy.
 
 ## 12. Những giới hạn cần nhớ khi triển khai
 
@@ -419,4 +427,4 @@ Worker là cách tổ chức thực thi để công việc tìm kiếm nặng CP
 - Thùng nhỏ hơn không tự động có cước thấp hơn; bản có biểu phí cần tối ưu chi phí theo cả đơn.
 - Độ chính xác số đo, thuật toán tìm kiếm và khả năng bảo vệ hàng là ba phần cần kiểm tra riêng.
 
-Để bắt đầu code, đọc tiếp [roadmap backend](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md), đặc biệt **M0–M3**: chốt contract/fixture → chuẩn hóa dữ liệu → validator → greedy baseline. Phần ý tưởng sản phẩm, chi phí và các hướng nghiên cứu rộng hơn nằm trong [tài liệu tổng thể](AI_3D_PACKAGING_OPTIMIZATION.md).
+Để bắt đầu code, đọc tiếp [roadmap backend](BE_PACKAGING_IMPLEMENTATION_ROADMAP.md), theo **BE-1 → BE-5**: sửa đầu vào → hồ sơ/readiness → validator/engine → picking/xác nhận → tự động hóa. Phần ý tưởng sản phẩm, chi phí và các hướng nghiên cứu rộng hơn nằm trong [tài liệu tổng thể](AI_3D_PACKAGING_OPTIMIZATION.md).

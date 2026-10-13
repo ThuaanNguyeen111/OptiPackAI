@@ -21,7 +21,7 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
       { find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId(), zone_code: 'KA' }]) }) } as never,
       { find: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ _id: binId, bin_code: 'KA-D1-P02-T03-1', zone_id: new Types.ObjectId(), pick_sequence: 5 }]) }) } as never,
       { find: rowFind } as never, {} as never,
-      { getPackableItemsForGroup: jest.fn().mockResolvedValue({ items: [{ sku: 'ATD-M-01', quantity: 1 }] }), findOrderGroupById: jest.fn().mockResolvedValue({ platform: 'lazada', shop_id: 's1' }) } as never,
+      { getPickableItemsForGroup: jest.fn().mockResolvedValue({ items: [{ sku: 'ATD-M-01', quantity: 1 }] }), findOrderGroupById: jest.fn().mockResolvedValue({ platform: 'lazada', shop_id: 's1' }) } as never,
       {} as never, {} as never, {} as never,
       mapped([{ seller_sku_normalized: 'ATD-M-01', master_sku: 'ATHUN-005-DEN-M' }]) as never,
     );
@@ -69,7 +69,7 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
       { find: rowFind } as never,
       {} as never,
       {
-        getPackableItemsForGroup: jest.fn().mockResolvedValue({
+        getPickableItemsForGroup: jest.fn().mockResolvedValue({
           items: [{ sku: 'KA-D1-P03-T01-3', quantity: 1 }],
         }),
         findOrderGroupById: jest.fn().mockResolvedValue({ platform: 'lazada', shop_id: 's1' }),

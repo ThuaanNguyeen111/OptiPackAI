@@ -1,0 +1,36 @@
+{
+  "determinism": {
+    "checked": 40,
+    "mismatches": 0
+  },
+  "orders": 300,
+  "maxUnits": 12,
+  "detTimePerCombo": 1,
+  "labels": {
+    "optimal_in_model": 66,
+    "optimal_global": 204,
+    "heuristic": 30
+  },
+  "smallOrders": 275,
+  "smallLabels": {
+    "optimal_in_model": 66,
+    "optimal_global": 203,
+    "heuristic": 6
+  },
+  "provenShareSmall": 97.8,
+  "improvedByCpSat": 1,
+  "latencyMs": {
+    "allP95": 2500,
+    "allMax": 6273,
+    "smallP95": 3881,
+    "smallMax": 6273
+  },
+  "unresolvedExamples": [
+    "#28 (8 món): SAMPLE-S + SAMPLE-S + SAMPLE-L: CP-SAT chưa kết luận trong thời gian cho phép — giữ nhãn heuristic.",
+    "#92 (8 món): SAMPLE-M + SAMPLE-L: CP-SAT chưa kết luận trong thời gian cho phép — giữ nhãn heuristic.",
+    "#104 (11 món): SAMPLE-L: CP-SAT chưa kết luận trong thời gian cho phép — giữ nhãn heuristic.",
+    "#122 (12 món): SAMPLE-L: CP-SAT chưa kết luận trong thời gian cho phép — giữ nhãn heuristic.",
+    "#147 (11 món): SAMPLE-S + SAMPLE-L: CP-SAT chưa kết luận trong thời gian cho phép — giữ nhãn heuristic.",
+    "#231 (12 món): SAMPLE-M + SAMPLE-L: CP-SAT chưa kết luận trong thời gian cho phép — giữ nhãn heuristic."
+  ]
+}

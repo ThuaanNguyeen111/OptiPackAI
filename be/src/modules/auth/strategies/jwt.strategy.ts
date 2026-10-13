@@ -1,3 +1,4 @@
+import { AUTH_ERROR_CODES, authError } from '../auth.errors';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
@@ -45,11 +46,11 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     }
 
     if (!state.is_active) {
-      throw new UnauthorizedException('Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin');
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ACCOUNT_INACTIVE, 'Tài khoản đã bị vô hiệu hóa, vui lòng liên hệ Admin'));
     }
 
     if (!isUserRole(state.role)) {
-      throw new UnauthorizedException('Vai trò tài khoản không hợp lệ');
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.ROLE_INVALID, 'Vai trò tài khoản không hợp lệ'));
     }
 
     //!=============================================
@@ -65,9 +66,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       state.must_change_password_by &&
       new Date(state.must_change_password_by) < new Date()
     ) {
-      throw new UnauthorizedException(
-        'Tài khoản đã bị khóa do không đổi mật khẩu trong vòng 72 giờ. Vui lòng liên hệ Admin để được mở khóa.',
-      );
+      throw new UnauthorizedException(authError(AUTH_ERROR_CODES.PASSWORD_DEADLINE_LOCKED, 'Tài khoản đã bị khóa do không đổi mật khẩu trong vòng 72 giờ. Vui lòng liên hệ Admin để được mở khóa.'));
     }
 
     return {

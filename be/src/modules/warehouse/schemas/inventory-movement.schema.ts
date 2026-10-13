@@ -9,6 +9,11 @@ export const MOVEMENT_TYPES = [
   'transfer_out', // chuyển đi ô khác
   'transfer_in', // nhận từ ô khác
   'return_restock', // G3 — hàng trả/hoàn đạt kiểm tra, nhập lại
+  'pick_cancel', // (04/10/2026) hủy lượt lấy hàng (decide-partial từ chối) — trả hàng đã quét về đúng ô
+  'pack_replace', // (05/10/2026) lấy món thay từ kệ lúc đóng gói (món cũ hỏng/thiếu/sai)
+  'cancel_unpack', // (05/10/2026) tháo kiện của đơn hủy sau khi đóng — trả hàng về đúng ô
+  'cancel_return', // (05/10/2026) đơn hủy trước khi đóng — hàng đã lấy tự trả về đúng ô
+  'reject_return', // (09/10/2026) kế hoạch bị từ chối, trả về lấy hàng — món lấy nhầm (còn tốt) về đúng ô
 ] as const;
 export type MovementType = (typeof MOVEMENT_TYPES)[number];
 
@@ -64,3 +69,11 @@ export type InventoryMovementDocument = HydratedDocument<InventoryMovement>;
 export const InventoryMovementSchema = SchemaFactory.createForClass(InventoryMovement);
 InventoryMovementSchema.index({ assignment_id: 1, created_at: -1 });
 InventoryMovementSchema.index({ warehouse_id: 1, seller_sku: 1, created_at: -1 });
+// 10/10/2026 — kiểm tra "ô/khu đã từng có nhập–xuất chưa" trước khi xoá hẳn
+// (DELETE .../permanent): lọc theo bin_location_id $in, không có warehouse_id đứng đầu.
+InventoryMovementSchema.index({ bin_location_id: 1 });
+// 10/10/2026 — kiểm tra "SKU nội bộ đã từng có nhập–xuất chưa" (DELETE /master-skus/:code/permanent).
+InventoryMovementSchema.index(
+  { master_sku: 1 },
+  { partialFilterExpression: { master_sku: { $type: 'string' } } },
+);

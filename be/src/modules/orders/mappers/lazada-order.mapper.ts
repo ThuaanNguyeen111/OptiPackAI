@@ -6,6 +6,7 @@ import {
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 import { OrderStatus } from '../enums/order-status.enum';
 import { computeConsolidationKey } from '../utils/consolidation-key.util';
+import { extractAdministrativeAreas } from '../utils/vn-administrative-area.util';
 
 /**
  * ===================================================================
@@ -169,6 +170,9 @@ export interface MappedOrderFields {
     city: string;
     postal_code?: string;
     country: string;
+    province_name: string | null;
+    district_name: string | null;
+    ward_name: string | null;
   };
   consolidation_key: string;
   items: {
@@ -185,9 +189,21 @@ export interface MappedOrderFields {
   synced_at: Date;
 }
 
+/**
+ * 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #4b) —
+ * thêm tham số `platform` BẮT BUỘC, truyền cho `computeConsolidationKey`
+ * thay vì gắn cứng `MarketplacePlatform.LAZADA`. Tên hàm giữ nguyên
+ * `mapLazadaOrder` (không đổi thành tên trung lập) — CÓ CHỦ ĐÍCH: hàm
+ * này CHỈ dùng được cho sàn tương thích vỏ response Lazada (Lazada thật
+ * + AURELLE), không phải hàm map tổng quát cho MỌI sàn. Sàn không tương
+ * thích (VD TikTok/Tiki thật sau này) cần mapper riêng, không gọi hàm
+ * này — đổi tên trung lập sẽ ngụy trang sai bản chất "chỉ dùng được cho
+ * 2 sàn cụ thể" này.
+ */
 export function mapLazadaOrder(
   raw: LazadaOrderRaw,
   rawItems: LazadaOrderItemRaw[],
+  platform: MarketplacePlatform,
 ): MappedOrderFields {
   // Lazada address_shipping không có field "country" dạng tên đầy đủ ở
   // mọi trường hợp quan sát được (thường là mã 2 ký tự "VN") — fallback
@@ -217,9 +233,19 @@ export function mapLazadaOrder(
       city: raw.address_shipping.city,
       postal_code: raw.address_shipping.post_code,
       country,
+      // address3/4/5 của Lazada VN = các cấp hành chính rộng → hẹp, NHƯNG dữ liệu
+      // thật (08/10/2026) cho thấy Lazada CHE 3 trường này ("T**h") — chuỗi bị che bị
+      // bỏ qua. `city` thật lại chứa tên phường kiểu mới ("Phường Gia Định") → đưa
+      // vào làm phần tử thứ 4, chỉ dùng khi nhận ra theo tiền tố.
+      ...extractAdministrativeAreas([
+        raw.address_shipping.address3,
+        raw.address_shipping.address4,
+        raw.address_shipping.address5,
+        raw.address_shipping.city,
+      ]),
     },
     consolidation_key: computeConsolidationKey(
-      MarketplacePlatform.LAZADA,
+      platform,
       raw.address_shipping.phone,
       raw.address_shipping.address1,
       raw.address_shipping.city,

@@ -36,7 +36,8 @@ function scan(): Found {
       if (!(value instanceof Schema)) continue;
       const schema: Schema = value as Schema;
       const configured: unknown = schema.get('collection');
-      const collection = typeof configured === 'string' ? configured : `(sub:${exportName})`;
+      const collection =
+        typeof configured === 'string' ? configured : `(sub:${exportName})`;
       const visit = (schema: Schema, prefix: string): void => {
         schema.eachPath((path, type) => {
           if (path === '_id') return;
@@ -60,14 +61,21 @@ describe('Schema — field id phải là ObjectId thật, không phải Mixed', 
     expect(found.mixed).toEqual([]);
   });
 
-  it('danh sách OBJECT_ID_FIELDS khớp đúng các field ObjectId thực tế (đủ 35 field)', () => {
+  it('danh sách OBJECT_ID_FIELDS khớp đúng các field ObjectId thực tế (đủ 78 field)', () => {
     const expected = new Set<string>();
     for (const entry of OBJECT_ID_FIELDS) {
       for (const f of entry.fields) expected.add(`${entry.collection}.${f}`);
-      for (const f of entry.arrayPath?.fields ?? []) expected.add(`${entry.collection}.${entry.arrayPath?.array ?? ''}.${f}`);
+      for (const f of entry.arrayPath?.fields ?? [])
+        expected.add(
+          `${entry.collection}.${entry.arrayPath?.array ?? ''}.${f}`,
+        );
+      for (const f of entry.nested ?? [])
+        expected.add(`${entry.collection}.${f}`);
     }
-    const actualTopLevel = [...found.objectId].filter((p) => !p.startsWith('(sub:')).sort();
+    const actualTopLevel = [...found.objectId]
+      .filter((p) => !p.startsWith('(sub:'))
+      .sort();
     expect(actualTopLevel).toEqual([...expected].sort());
-    expect(expected.size).toBe(35);
+    expect(expected.size).toBe(78); // +1 order_groups.manual_link_id (13/10/2026)
   });
 });

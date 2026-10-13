@@ -1,0 +1,96 @@
+{
+  "orders": 300,
+  "wins": 20,
+  "ties": 280,
+  "losses": 0,
+  "avgParcels": {
+    "old": 1.43,
+    "new": 1.41
+  },
+  "avgBoxCost": {
+    "old": 9575,
+    "new": 9287
+  },
+  "proofLabels": {
+    "heuristic": 96,
+    "optimal_global": 204
+  },
+  "strategies": {
+    "brkga": 119,
+    "exhaustive": 181
+  },
+  "latencyMs": {
+    "oldP95": 119,
+    "newP50": 11,
+    "newP95": 560,
+    "newMax": 2841,
+    "byBucket": {
+      "4-8": {
+        "n": 84,
+        "p95": 262,
+        "max": 488
+      },
+      "1-3": {
+        "n": 181,
+        "p95": 59,
+        "max": 98
+      },
+      "9-20": {
+        "n": 26,
+        "p95": 952,
+        "max": 1542
+      },
+      "21+": {
+        "n": 9,
+        "p95": 2841,
+        "max": 2841
+      }
+    }
+  },
+  "deterministic": true,
+  "lossExamples": [],
+  "adversarial": [
+    {
+      "name": "Áo vắt qua 2 hộp giày",
+      "old": "1 kiện / 8000đ",
+      "new": "1 kiện / 8000đ",
+      "proof": "optimal_global",
+      "ms": 19
+    },
+    {
+      "name": "Toàn hàng dễ vỡ",
+      "old": "1 kiện / 4500đ",
+      "new": "1 kiện / 4500đ",
+      "proof": "optimal_global",
+      "ms": 691
+    },
+    {
+      "name": "Chỉ vừa khi gập",
+      "old": "1 kiện / 4500đ",
+      "new": "1 kiện / 4500đ",
+      "proof": "optimal_global",
+      "ms": 1
+    },
+    {
+      "name": "8 hộp giày không chồng được",
+      "old": "4 kiện / 32000đ",
+      "new": "4 kiện / 32000đ",
+      "proof": "heuristic",
+      "ms": 199
+    },
+    {
+      "name": "200 món nhỏ",
+      "old": "1 kiện / 8000đ",
+      "new": "1 kiện / 8000đ",
+      "proof": "optimal_global",
+      "ms": 2554
+    },
+    {
+      "name": "Áo + quần + giày + kính",
+      "old": "2 kiện / 12500đ",
+      "new": "2 kiện / 12500đ",
+      "proof": "heuristic",
+      "ms": 165
+    }
+  ]
+}

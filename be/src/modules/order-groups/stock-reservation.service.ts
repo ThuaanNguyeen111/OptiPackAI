@@ -99,6 +99,38 @@ export class StockReservationService {
     if (take > 0) await this.totalModel.updateOne({ _id: stockKey }, { $inc: { reserved: -take } }, { session });
   }
 
+  /**
+   * (05/10/2026) Bớt `quantity_picked` khi món đã lấy rời giỏ đóng gói (món hỏng bị
+   * loại, trả kệ khi tháo kiện / đơn hủy). Không có thì `reconcile` tính
+   * "cần giữ = đặt − đã lấy" theo số cũ → món thay không được giữ chỗ. Áp mọi
+   * trạng thái giữ chỗ, không xuống dưới 0; không đụng phần đang giữ (reconcile lo).
+   */
+  async unconsume(groupId: string, stockKey: string, quantity: number, session: ClientSession): Promise<void> {
+    if (quantity <= 0) return;
+    await this.reservationModel.updateOne(
+      { order_group_id: new Types.ObjectId(groupId), stock_key: stockKey },
+      [{ $set: { quantity_picked: { $max: [0, { $subtract: ['$quantity_picked', quantity] }] } } }],
+      { session },
+    );
+  }
+
+  /**
+   * (05/10/2026) Ghi nhận món vừa lấy thêm (món thay lúc đóng gói). Giữ chỗ còn
+   * hoạt động → tiêu như quét thường; đã nhả (nhóm đã picked) → chỉ cộng bộ đếm
+   * "đã lấy" để lần reconcile sau không giữ thừa.
+   */
+  async recordPicked(groupId: string, stockKey: string, quantity: number, session: ClientSession): Promise<void> {
+    const res = await this.reservationModel
+      .findOne({ order_group_id: new Types.ObjectId(groupId), stock_key: stockKey })
+      .session(session);
+    if (!res) return;
+    if (res.status === 'active') {
+      await this.consume(groupId, stockKey, quantity, session);
+      return;
+    }
+    await this.reservationModel.updateOne({ _id: res._id }, { $inc: { quantity_picked: quantity } }, { session });
+  }
+
   /** Nhả toàn bộ phần còn giữ của nhóm đơn (đã lấy xong / hủy). Idempotent. */
   async releaseGroup(groupId: string): Promise<number> {
     const gid = new Types.ObjectId(groupId);
