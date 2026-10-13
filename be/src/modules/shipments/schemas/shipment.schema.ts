@@ -51,6 +51,52 @@ export class Shipment {
   @Prop({ type: String, required: true })
   created_by!: string;
 
+  // ---- Gộp từ thi_dev (04/10/2026): hãng, cước, ETA, giao chung chuyến ----
+  // Mã chuyến chung cho các vận đơn tạo cùng lúc (POST /shipments/batch).
+  @Prop({ type: String, default: null })
+  trip_code!: string | null;
+
+  // Mã vận đơn in trên nhãn — bằng shipment_code (giữ field riêng cho tài liệu in).
+  @Prop({ type: String, default: null })
+  tracking_code!: string | null;
+
+  @Prop({ type: String, default: null })
+  note!: string | null;
+
+  @Prop({ type: String, default: null })
+  carrier_code!: string | null;
+
+  @Prop({ type: String, default: null })
+  carrier_name!: string | null;
+
+  @Prop({ type: String, default: null })
+  service_code!: string | null;
+
+  @Prop({ type: String, default: null })
+  service_name!: string | null;
+
+  @Prop({ type: Number, default: null })
+  parcel_count!: number | null;
+
+  @Prop({ type: Number, default: null })
+  chargeable_weight_g!: number | null;
+
+  @Prop({ type: Number, default: null })
+  estimated_cost_vnd!: number | null;
+
+  // true = cước tính từ bảng cước MẪU (is_sample) — không phải cước thật.
+  @Prop({ type: Boolean, default: null })
+  is_sample_rate!: boolean | null;
+
+  @Prop({ type: Date, default: null })
+  eta_from!: Date | null;
+
+  @Prop({ type: Date, default: null })
+  eta_to!: Date | null;
+
+  @Prop({ type: Date, default: null })
+  pickup_at!: Date | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -60,3 +106,6 @@ export const ShipmentSchema = SchemaFactory.createForClass(Shipment);
 // 1 nhóm đơn chỉ có 1 vận đơn chiều đi — chặn tạo trùng ở tầng DB (2 người bấm cùng lúc).
 ShipmentSchema.index({ order_group_id: 1, direction: 1 }, { unique: true });
 ShipmentSchema.index({ status: 1, updated_at: -1 });
+// Bảng kê chuyến (documents/manifest/:tripCode) + lọc theo hãng.
+ShipmentSchema.index({ trip_code: 1 }, { partialFilterExpression: { trip_code: { $type: 'string' } } });
+ShipmentSchema.index({ carrier_code: 1, created_at: -1 });

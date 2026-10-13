@@ -1,6 +1,7 @@
 import { LazadaOrderSyncScheduler } from './lazada-order-sync.scheduler';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 //!=============================================
 // FIX (AOFP-XX, 2026-09-16): notify(SYNC_FAILED) cho lỗi sync cron —
@@ -20,7 +21,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 describe('LazadaOrderSyncScheduler — chống spam Notification khi sync lỗi', () => {
   let scheduler: LazadaOrderSyncScheduler;
 
-  let ordersService: { syncLazadaOrders: jest.Mock };
+  let ordersService: { syncShopOrders: jest.Mock };
   let marketplaceIntegrationService: { listConnectedShops: jest.Mock };
   let notificationsService: { notify: jest.Mock };
   let nowSpy: jest.SpyInstance<number, []>;
@@ -30,10 +31,15 @@ describe('LazadaOrderSyncScheduler — chống spam Notification khi sync lỗi'
 
   beforeEach(() => {
     ordersService = {
-      syncLazadaOrders: jest.fn().mockRejectedValue(new Error('token hết hạn')),
+      syncShopOrders: jest.fn().mockRejectedValue(new Error('token hết hạn')),
     };
     marketplaceIntegrationService = {
-      listConnectedShops: jest.fn().mockResolvedValue([shop]),
+      // 🔄 (29/09/2026) — scheduler giờ quét CẢ Lazada lẫn AURELLE (2 lệnh
+      // gọi/lượt); chỉ Lazada có shop trong test này để giữ nguyên đúng
+      // số lần notify() các assertion cũ đã kỳ vọng.
+      listConnectedShops: jest.fn().mockImplementation((platform: MarketplacePlatform) =>
+        Promise.resolve(platform === MarketplacePlatform.LAZADA ? [shop] : []),
+      ),
     };
     notificationsService = { notify: jest.fn().mockResolvedValue(undefined) };
 

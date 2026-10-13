@@ -7,15 +7,26 @@ import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true — BẮT BUỘC cho webhook AURELLE (marketplace-webhooks/):
+  // chữ ký HMAC (Mục 8.1 AURELLE_MARKETPLACE_DESIGN.md) tính trên BODY
+  // GỐC (Buffer, chưa qua JSON.parse) — Nest tự lưu vào `req.rawBody` khi
+  // bật cờ này, KHÔNG cần middleware `express.raw()` thủ công.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.use(helmet());
   app.use(compression());
 
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? true,
-    credentials: true,
-  });
+  const configuredCorsOrigins = process.env.CORS_ORIGIN
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const corsOrigins = configuredCorsOrigins?.length
+    ? configuredCorsOrigins
+    : ['http://localhost:5173'];
+  if (process.env.NODE_ENV !== 'production' && !corsOrigins.includes('http://localhost:3001')) {
+    corsOrigins.push('http://localhost:3001');
+  }
+  app.enableCors({ origin: corsOrigins, credentials: true });
 
   app.useGlobalPipes(
     new ValidationPipe({

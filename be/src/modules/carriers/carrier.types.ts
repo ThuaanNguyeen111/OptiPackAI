@@ -24,19 +24,24 @@ export interface CarrierParcel {
 }
 
 /**
- * Địa chỉ người nhận. Tính phí cần MÃ kiểu cũ (district_id + ward_code — tài liệu
- * GHN Calculate Fee không có field địa chỉ 2 cấp). Tạo vận đơn gửi cả mã lẫn tên
- * (đã kiểm chứng 08/10/2026: GHN nhận cả hai, gửi cả hai an toàn nhất).
+ * Địa chỉ người nhận — 2 kiểu (C3, 10/10/2026, kiểm chứng thật trên staging):
+ *   - KIỂU MỚI (mặc định): chỉ cần ward_name (phường/xã MỚI sau 07/2025) +
+ *     province_name; adapter gửi `is_new_to_address=true`, không cần quận.
+ *     Đơn Lazada bị che số nhà vẫn gửi được (GHN nhận phường + tỉnh).
+ *   - KIỂU CŨ (dự phòng): có ĐỦ district_id + ward_code (mã GHN cũ) thì gửi
+ *     theo mã như trước. Calculate Fee chỉ nhận kiểu này.
+ * Lưu ý: GHN đối chiếu số nhà/đường trong `address` với phường — lệch là bị từ
+ * chối "To address conflict" (→ CARRIER_ADDRESS_CONFLICT).
  */
 export interface CarrierRecipient {
   name: string;
   phone: string;
   address: string; // địa chỉ đầy đủ in trên nhãn
-  district_id: number;
-  ward_code: string; // chuỗi — giữ nguyên số 0 ở đầu
   province_name: string;
-  district_name: string;
   ward_name: string;
+  district_name?: string | null;
+  district_id?: number | null; // chỉ kiểu cũ
+  ward_code?: string | null; // chỉ kiểu cũ — chuỗi, giữ số 0 ở đầu
 }
 
 export interface CarrierItem {

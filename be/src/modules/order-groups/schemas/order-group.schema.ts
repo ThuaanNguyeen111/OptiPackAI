@@ -30,21 +30,6 @@ import {
  *               (đặc thù sàn dừng lại ở tầng Adapter/Mapper).
  * ===================================================================
  */
-/** 02/10/2026 — trạng thái báo "đã đóng gói" lên Lazada của 1 nhóm đơn. */
-export type LazadaPackStatus =
-  'disabled' | 'skipped' | 'success' | 'partial' | 'failed';
-
-export interface LazadaPackItemResult {
-  order_id: string;
-  order_item_id: string;
-  ok: boolean;
-  item_err_code: string | null;
-  msg: string | null;
-  package_id: string | null;
-  tracking_number: string | null;
-  shipment_provider: string | null;
-}
-
 @Schema({
   collection: 'order_groups',
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
@@ -67,8 +52,8 @@ export class OrderGroup {
   })
   fulfillment_status!: GroupFulfillmentStatus;
 
-  @Prop({ type: SchemaTypes.ObjectId, default: null })
-  active_packaging_recommendation!: Types.ObjectId | null;
+  // (04/10/2026) Bỏ `active_packaging_recommendation` (con trỏ chết, không ai ghi).
+  // Kế hoạch đóng gói nay ở collection `packing_plans` (1 bản hoạt động/nhóm).
 
   @Prop({ required: true })
   shop_name_snapshot!: string;
@@ -98,6 +83,51 @@ export class OrderGroup {
   @Prop({ type: Boolean, default: false })
   is_overdue!: boolean;
 
+  /**
+   * BỔ SUNG (21/09/2026, BE-4a) — lượt lấy hàng hiện tại. Chỉ pick_events
+   * cùng lượt mới được cộng vào "đã lấy"; decide-partial(false) mở lượt
+   * mới để lấy lại mà không đếm gấp đôi lượt cũ.
+   */
+  @Prop({ type: Number, default: 0, min: 0 })
+  pick_round!: number;
+
+  /**
+   * Mốc lần quét gần nhất — ghi trong CÙNG transaction với pick_event để
+   * 2 lần quét đồng thời chạm cùng document group → Mongo báo xung đột
+   * ghi, withTransaction chạy lại và kiểm tra lại "không vượt số đặt".
+   */
+  @Prop({ type: Date, default: null })
+  last_picked_at!: Date | null;
+
+  /**
+   * BỔ SUNG (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.md) — tính
+   * MỘT LẦN lúc tạo group (getOrCreateGroupForOrder()), KHÔNG đổi lại sau
+   * đó. KHÁC HẲN consolidation_key (không kèm platform, xem
+   * orders/utils/consolidation-key.util.ts) — dùng để LIÊN KẾT 2 nhóm
+   * đơn khác sàn cùng 1 người nhận thật (Picking List gộp, giao chung
+   * chuyến), KHÔNG dùng để tự động gộp chung 1 OrderGroup.
+   */
+  @Prop({ type: String, default: null })
+  recipient_key!: string | null;
+
+  /**
+   * 13/10/2026 — LIÊN KẾT TAY (Coordinator bấm). Dùng khi hệ thống không tự
+   * nhận ra 2 nhóm là cùng người nhận — chủ yếu đơn Lazada bị che tên/SĐT/địa
+   * chỉ nên recipient_key không bao giờ khớp đơn AURELLE. Các nhóm cùng
+   * `manual_link_id` được coi là liên kết như cùng recipient_key: Picking List
+   * gộp, "Đi cùng: N kiện", giao chung chuyến. Không đổi recipient_key.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  manual_link_id!: Types.ObjectId | null;
+
+  @Prop({ type: String, default: null })
+  manual_linked_by!: string | null;
+
+  @Prop({ type: Date, default: null })
+  manual_linked_at!: Date | null;
+
+  @Prop({ type: String, default: null })
+  manual_link_note!: string | null;
   // K5 (27/09/2026) — thiếu hàng NGAY lúc tạo nhóm đơn (tồn khả dụng không đủ giữ chỗ).
   @Prop({ type: Boolean, default: false })
   stock_shortage?: boolean;
@@ -146,40 +176,10 @@ export class OrderGroup {
   @Prop({ type: Date, default: null })
   order_counts_refreshed_at?: Date | null;
 
-  // 02/10/2026 — kết quả báo "đã đóng gói" lên Lazada (Fulfillment API Pack) sau khi
-  // nhóm chuyển `packed`. Lưu trên NHÓM ĐƠN, không lưu trong orders.items[]: mỗi lần
-  // đồng bộ, orders.service ghi đè toàn bộ `items` theo dữ liệu Lazada -> trường thêm
-  // vào items sẽ bị xóa. null = nhóm chưa từng đi qua bước này (dữ liệu cũ).
-  @Prop({
-    type: String,
-    enum: ['disabled', 'skipped', 'success', 'partial', 'failed'],
-    default: null,
-  })
-  lazada_pack_status?: LazadaPackStatus | null;
-
-  @Prop({ type: Date, default: null })
-  lazada_pack_attempted_at?: Date | null;
-
-  @Prop({ type: String, default: null })
-  lazada_pack_error?: string | null;
-
-  @Prop({
-    type: [
-      {
-        order_id: String,
-        order_item_id: String,
-        ok: Boolean,
-        item_err_code: String,
-        msg: String,
-        package_id: String,
-        tracking_number: String,
-        shipment_provider: String,
-        _id: false,
-      },
-    ],
-    default: [],
-  })
-  lazada_pack_items?: LazadaPackItemResult[];
+  // 10/10/2026 — ĐÃ BỎ 4 field lazada_pack_status / lazada_pack_attempted_at /
+  // lazada_pack_error / lazada_pack_items (bỏ chức năng báo "đã đóng gói" lên Lazada).
+  // Nhóm đơn cũ có thể còn các field này trong DB — không xoá dữ liệu, schema chỉ
+  // không đọc/ghi nữa (Mongoose strict bỏ qua field không khai báo).
 
   // Không @Prop() — Mongoose tự sinh, chỉ khai kiểu (đúng convention đã
   // dùng ở user.schema.ts, xem CLAUDE.md phần Type Safety rule #7).
@@ -213,3 +213,17 @@ OrderGroupSchema.index({
 // Rule #4: fulfillment_status (cardinality thấp, 9 giá trị cố định)
 // KHÔNG được đứng index riêng lẻ — luôn đứng sau platform trong compound
 // index ở trên, không tạo thêm index đơn cho riêng field này.
+
+// BỔ SUNG (29/09/2026, Mục 9.5) — phục vụ GET /order-groups/:id/linked +
+// đếm linkedGroupCount. Partial vì phần lớn group KHÔNG có sibling khác
+// sàn (recipient_key vẫn null cho tới khi có group thứ 2 cùng khách) —
+// không cần index những document không bao giờ được tra theo field này.
+OrderGroupSchema.index(
+  { recipient_key: 1 },
+  { partialFilterExpression: { recipient_key: { $type: 'string' } } },
+);
+// 13/10/2026 — tra các nhóm liên kết tay. Partial: đa số nhóm không liên kết.
+OrderGroupSchema.index(
+  { manual_link_id: 1 },
+  { partialFilterExpression: { manual_link_id: { $type: 'objectId' } } },
+);

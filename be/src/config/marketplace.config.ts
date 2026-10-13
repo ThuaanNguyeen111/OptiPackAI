@@ -35,13 +35,8 @@ export default registerAs('marketplace', () => ({
     redirectUri: process.env.LAZADA_REDIRECT_URI,
     sandbox: process.env.LAZADA_SANDBOX === 'true',
     apiBaseUrl: process.env.LAZADA_API_BASE_URL, // để trống dùng mặc định api.lazada.vn thật
-    // 02/10/2026 — CẦU DAO cho mọi API GHI lên shop Lazada thật (hiện tại: Pack).
-    // Mặc định TẮT: chỉ đúng chuỗi "true" mới bật. Lazada không có sandbox thật.
-    writeApisEnabled: process.env.LAZADA_WRITE_APIS_ENABLED === 'true',
-    // 02/10/2026 — tham số bắt buộc `shipping_allocate_type` của Pack. Shop nội địa: TFS.
-    shippingAllocateType: process.env.LAZADA_SHIPPING_ALLOCATE_TYPE?.trim()
-      ? process.env.LAZADA_SHIPPING_ALLOCATE_TYPE.trim()
-      : 'TFS',
+    // 10/10/2026 — đã bỏ cầu dao LAZADA_WRITE_APIS_ENABLED và LAZADA_SHIPPING_ALLOCATE_TYPE
+    // cùng chức năng báo "đã đóng gói" lên Lazada (OptiPack không ghi ngược lên sàn).
   },
 
   tiki: {
@@ -52,5 +47,24 @@ export default registerAs('marketplace', () => ({
     authorizeBaseUrl: process.env.TIKI_AUTHORIZE_BASE_URL,
     tokenUrl: process.env.TIKI_TOKEN_URL,
     apiBaseUrl: process.env.TIKI_API_BASE_URL,
+  },
+
+  // BỔ SUNG (29/09/2026) — AURELLE_MARKETPLACE_DESIGN.md Mục 11.1.
+  // 3 base URL TÁCH RIÊNG vì AURELLE dùng "Host cấp quyền" (trang
+  // authorize + API token, KHÔNG có /rest) khác "Host API" (nghiệp vụ,
+  // CÓ /rest) — 2 khái niệm này ở Lazada là 2 domain thật khác nhau
+  // (auth.lazada.com / api.lazada.com / api.lazada.vn), ở AURELLE (demo
+  // 1 máy) trùng host nhưng path prefix khác, không gộp làm 1 biến được.
+  aurelle: {
+    appKey: process.env.AURELLE_APP_KEY,
+    appSecret: process.env.AURELLE_APP_SECRET,
+    redirectUri: process.env.AURELLE_REDIRECT_URI,
+    sandbox: process.env.AURELLE_SANDBOX === 'true',
+    // GET /oauth/authorize — trang browser, KHÔNG có /rest.
+    authPageBaseUrl: process.env.AURELLE_AUTH_PAGE_BASE_URL,
+    // POST /rest/auth/token/create|refresh — CÓ /rest.
+    authApiBaseUrl: process.env.AURELLE_AUTH_API_BASE_URL,
+    // GET nghiệp vụ đã ký (/rest/orders/get, /rest/products/get...).
+    apiBaseUrl: process.env.AURELLE_API_BASE_URL,
   },
 }));

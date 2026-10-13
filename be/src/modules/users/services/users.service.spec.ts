@@ -1,9 +1,12 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { Connection, Types } from 'mongoose';
+import { AppException } from '../../../common/exceptions/app-exception';
 import { UserRole } from '../../../common/enums/user-role.enum';
 import { RedisCacheService } from '../../../common/redis/redis-cache.service';
 import { TokenService } from '../../auth/services/token.service';
 import { MailService } from '../../mail/mail.service';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { USER_ERROR_CODES } from '../users.errors';
 import { UsersService } from './users.service';
 
 //!=============================================
@@ -27,6 +30,9 @@ describe('UsersService', () => {
   let tokenService: jest.Mocked<Pick<TokenService, 'revokeAllForUser'>>;
   let redisCache: jest.Mocked<Pick<RedisCacheService, 'invalidateUserAuthState'>>;
   let mailService: jest.Mocked<Pick<MailService, 'sendWelcomeTempPassword'>>;
+  let notificationsService: jest.Mocked<
+    Pick<NotificationsService, 'notify' | 'buildMfaDisabledMessage'>
+  >;
 
   const adminId = new Types.ObjectId().toHexString();
   const userId = new Types.ObjectId().toHexString();
@@ -53,6 +59,13 @@ describe('UsersService', () => {
     tokenService = { revokeAllForUser: jest.fn().mockResolvedValue(undefined) };
     redisCache = { invalidateUserAuthState: jest.fn().mockResolvedValue(undefined) };
     mailService = { sendWelcomeTempPassword: jest.fn().mockResolvedValue(undefined) };
+    notificationsService = {
+      notify: jest.fn().mockResolvedValue({}),
+      buildMfaDisabledMessage: jest.fn().mockReturnValue({
+        title: 'Xác thực 2 lớp (MFA) đã được tắt',
+        message: 'MFA đã tắt',
+      }),
+    };
 
     service = new UsersService(
       userModel as never,
@@ -60,19 +73,45 @@ describe('UsersService', () => {
       tokenService as unknown as TokenService,
       redisCache as unknown as RedisCacheService,
       mailService as unknown as MailService,
+      notificationsService as unknown as NotificationsService,
     );
   });
 
   describe('createByAdmin', () => {
-    it('email đã có tài khoản ĐANG hoạt động -> 409 Conflict, KHÔNG tạo user', async () => {
-      userModel.findOne.mockResolvedValue({ _id: 'existing' });
+    it('email đã có tài khoản ĐANG hoạt động -> USER_EMAIL_IN_USE, KHÔNG tạo user', async () => {
+      userModel.findOne.mockResolvedValue({ _id: 'existing', id: 'existing', is_active: true });
 
-      await expect(
-        service.createByAdmin(
+      try {
+        await service.createByAdmin(
           { name: 'A', email: 'a@optipackai.com', role: UserRole.WAREHOUSE_STAFF },
           adminId,
-        ),
-      ).rejects.toThrow(ConflictException);
+        );
+        throw new Error('should have thrown');
+      } catch (error: unknown) {
+        if (!(error instanceof AppException)) throw error;
+        expect(error.errorCode).toBe(USER_ERROR_CODES.EMAIL_IN_USE);
+      }
+
+      expect(userModel.create).not.toHaveBeenCalled();
+    });
+
+    it('email thuộc tài khoản đã vô hiệu hóa -> USER_EMAIL_INACTIVE, KHÔNG tạo mới / ghi đè', async () => {
+      userModel.findOne.mockResolvedValue({
+        _id: 'existing',
+        id: 'existing',
+        is_active: false,
+      });
+
+      try {
+        await service.createByAdmin(
+          { name: 'A', email: 'a@optipackai.com', role: UserRole.WAREHOUSE_STAFF },
+          adminId,
+        );
+        throw new Error('should have thrown');
+      } catch (error: unknown) {
+        if (!(error instanceof AppException)) throw error;
+        expect(error.errorCode).toBe(USER_ERROR_CODES.EMAIL_INACTIVE);
+      }
 
       expect(userModel.create).not.toHaveBeenCalled();
     });
@@ -160,8 +199,12 @@ describe('UsersService', () => {
       await expect(service.reactivate(userId)).rejects.toThrow(NotFoundException);
     });
 
-    it('adminDisableMfa: xóa sạch secret + backup codes, xóa cache', async () => {
-      userModel.findByIdAndUpdate.mockResolvedValue({ id: userId });
+    it('adminDisableMfa: MFA đang bật -> xóa secret + backup codes, thông báo user', async () => {
+      userModel.findByIdAndUpdate.mockResolvedValue({
+        id: userId,
+        name: 'A',
+        mfa_enabled: true,
+      });
       await service.adminDisableMfa(userId);
 
       expect(userModel.findByIdAndUpdate).toHaveBeenCalledWith(
@@ -169,6 +212,18 @@ describe('UsersService', () => {
         expect.objectContaining({ mfa_enabled: false, mfa_secret: null, mfa_backup_codes: [] }),
       );
       expect(redisCache.invalidateUserAuthState).toHaveBeenCalledWith(userId);
+      expect(notificationsService.buildMfaDisabledMessage).toHaveBeenCalledWith({ name: 'A' });
+      expect(notificationsService.notify).toHaveBeenCalledTimes(1);
+    });
+
+    it('adminDisableMfa: MFA vốn đã tắt -> không gửi thông báo', async () => {
+      userModel.findByIdAndUpdate.mockResolvedValue({
+        id: userId,
+        name: 'A',
+        mfa_enabled: false,
+      });
+      await service.adminDisableMfa(userId);
+      expect(notificationsService.notify).not.toHaveBeenCalled();
     });
 
     it('adminUpdateUser: cập nhật xong -> xóa cache Redis (vì role có thể đã đổi)', async () => {

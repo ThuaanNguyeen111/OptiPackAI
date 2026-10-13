@@ -5,6 +5,7 @@ import {
 } from './lazada-order.mapper';
 import { LazadaOrderRaw } from '../../marketplace-integration/adapters/lazada.adapter';
 import { OrderStatus } from '../enums/order-status.enum';
+import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
 //!=============================================
 // FIX (AOFP-XX, 2026-09-15):
@@ -101,6 +102,7 @@ describe('lazada-order.mapper — mapLazadaOrder: địa chỉ có cấu trúc (
     const mapped = mapLazadaOrder(
       makeRaw({ address3: 'Hồ Chí Minh', address4: 'Quận Bình Thạnh', address5: 'Phường 28' }),
       [],
+      MarketplacePlatform.LAZADA,
     );
     expect(mapped.recipient.province_name).toBe('Hồ Chí Minh');
     expect(mapped.recipient.district_name).toBe('Quận Bình Thạnh');
@@ -115,13 +117,14 @@ describe('lazada-order.mapper — mapLazadaOrder: địa chỉ có cấu trúc (
         city: 'Phường Bình Lợi Trung',
       }),
       [],
+      MarketplacePlatform.LAZADA,
     );
     expect(mapped.recipient.district_name).toBeNull();
     expect(mapped.recipient.ward_name).toBe('Phường Bình Lợi Trung');
   });
 
   it('không có address3/4/5 → 3 field null, các field địa chỉ cũ giữ nguyên', () => {
-    const mapped = mapLazadaOrder(makeRaw({}), []);
+    const mapped = mapLazadaOrder(makeRaw({}), [], MarketplacePlatform.LAZADA);
     expect(mapped.recipient.province_name).toBeNull();
     expect(mapped.recipient.ward_name).toBeNull();
     expect(mapped.recipient.address_line1).toBe('10 Xo Viet Nghe Tinh');
@@ -132,10 +135,10 @@ describe('lazada-order.mapper — mapLazadaOrder: địa chỉ có cấu trúc (
     const mapped = mapLazadaOrder(
       makeRaw({ address3: 'T**h', address4: 'P**h', address5: 'T*****h', city: 'Phường Gia Định' }),
       [],
+      MarketplacePlatform.LAZADA,
     );
     expect(mapped.recipient.province_name).toBeNull();
     expect(mapped.recipient.district_name).toBeNull();
     expect(mapped.recipient.ward_name).toBe('Phường Gia Định');
   });
 });
-

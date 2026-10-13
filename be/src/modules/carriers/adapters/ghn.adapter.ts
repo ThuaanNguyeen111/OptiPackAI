@@ -12,6 +12,7 @@ import {
   CarrierLabel,
   CarrierOrderDetail,
   CarrierParcel,
+  CarrierRecipient,
   CarrierService,
   CreateShipmentInput,
   CreateShipmentResult,
@@ -287,11 +288,7 @@ export class GhnAdapter implements CarrierAdapter {
         to_name: recipient.name,
         to_phone: recipient.phone,
         to_address: recipient.address,
-        to_ward_code: recipient.ward_code,
-        to_district_id: recipient.district_id,
-        to_ward_name: recipient.ward_name,
-        to_district_name: recipient.district_name,
-        to_province_name: recipient.province_name,
+        ...this.toAddressFields(recipient),
         weight: parcel.weight_g,
         length: parcel.length_cm,
         width: parcel.width_cm,
@@ -323,6 +320,28 @@ export class GhnAdapter implements CarrierAdapter {
       expected_delivery_at: data.expected_delivery_time
         ? new Date(data.expected_delivery_time)
         : null,
+    };
+  }
+
+  /**
+   * C3 (10/10/2026) — có ĐỦ mã cũ (district_id + ward_code) → gửi kiểu cũ (mã + tên,
+   * đã kiểm chứng 08/10). Không có → kiểu mới 2 cấp: `is_new_to_address=true`,
+   * chỉ tên phường mới + tỉnh (kiểm chứng 10/10: GHN nhận, phí bằng kiểu cũ).
+   */
+  private toAddressFields(recipient: CarrierRecipient): Record<string, unknown> {
+    if (recipient.district_id && recipient.ward_code) {
+      return {
+        to_ward_code: recipient.ward_code,
+        to_district_id: recipient.district_id,
+        to_ward_name: recipient.ward_name,
+        to_district_name: recipient.district_name ?? undefined,
+        to_province_name: recipient.province_name,
+      };
+    }
+    return {
+      is_new_to_address: true,
+      to_ward_name: recipient.ward_name,
+      to_province_name: recipient.province_name,
     };
   }
 
@@ -467,6 +486,9 @@ export class GhnAdapter implements CarrierAdapter {
       code = CARRIER_ERROR_CODES.INVALID_PHONE;
     } else if (ghnCode === 'ROUTE_NOT_FOUND_SERVICE' || ghnCode === 'SERVICE_NOT_FOUND_CONFIG_FEE') {
       code = CARRIER_ERROR_CODES.ROUTE_NOT_SUPPORTED;
+    } else if (/address conflict/i.test(`${ghnCode} ${body?.message ?? ''}`)) {
+      // C3 — GHN đối chiếu số nhà/đường với phường; lệch → "To address conflict".
+      code = CARRIER_ERROR_CODES.ADDRESS_CONFLICT;
     } else if (/PROVINCE|DISTRICT|WARD|ADDRESS/.test(ghnCode)) {
       code = CARRIER_ERROR_CODES.INVALID_ADDRESS;
     } else if (this.looksLikeNotFound(body)) {

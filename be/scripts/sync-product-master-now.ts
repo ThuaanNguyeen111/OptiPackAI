@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from '../src/app.module';
 import { ProductMasterService } from '../src/modules/product-master/product-master.service';
+import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
 
 /**
  * ===================================================================
@@ -15,20 +16,30 @@ import { ProductMasterService } from '../src/modules/product-master/product-mast
  * trống/thiếu SKU, và không muốn đợi tới lần cron kế tiếp (VD app
  * chưa từng chạy liên tục qua đúng 3h sáng giờ VN từ lúc có đơn).
  *
- *   npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts <shop_id>
+ *   npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts <shop_id> [platform]
  *   VD: npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts 201171264532
+ *       npx ts-node -r tsconfig-paths/register scripts/sync-product-master-now.ts 200000000101 aurelle
+ *   platform mặc định 'lazada' (giữ nguyên hành vi cũ khi không truyền).
  * ===================================================================
  */
 async function syncProductMasterNow(): Promise<void> {
   // 04/10/2026 — đồng bộ theo CATALOG của shop (không còn chỉ theo SKU trong đơn).
-  // Cách dùng: npx ts-node -r dotenv/config scripts/sync-product-master-now.ts <shop_id> [--incremental]
+  // Cách dùng: npx ts-node -r dotenv/config scripts/sync-product-master-now.ts <shop_id> [platform] [--incremental]
   // Mặc định lấy TOÀN BỘ catalog; --incremental chỉ lấy sản phẩm thay đổi từ lần trước.
   // Có thể dùng thay bằng API POST /product-master/sync (Admin).
   const shopId = process.argv[2];
+  const platformArg = (process.argv.slice(3).find((a) => !a.startsWith('--')) ??
+    MarketplacePlatform.LAZADA) as MarketplacePlatform;
   const incremental = process.argv.includes('--incremental');
   if (!shopId) {
     console.error(
-      '❌ Thiếu shop_id. Cách dùng: npx ts-node ... scripts/sync-product-master-now.ts <shop_id> [--incremental]',
+      '❌ Thiếu shop_id. Cách dùng: npx ts-node ... scripts/sync-product-master-now.ts <shop_id> [platform] [--incremental]',
+    );
+    process.exit(1);
+  }
+  if (!Object.values(MarketplacePlatform).includes(platformArg)) {
+    console.error(
+      `❌ platform "${platformArg}" không hợp lệ — phải là 1 trong: ${Object.values(MarketplacePlatform).join(', ')}.`,
     );
     process.exit(1);
   }
@@ -37,15 +48,15 @@ async function syncProductMasterNow(): Promise<void> {
   const productMasterService = app.get(ProductMasterService);
 
   console.log(
-    `Đang đồng bộ Product Master cho shop ${shopId} — lấy ${incremental ? 'sản phẩm thay đổi gần đây' : 'toàn bộ danh sách sản phẩm'} từ Lazada GetProducts...`,
+    `Đang đồng bộ Product Master cho shop ${shopId} (${platformArg}) — lấy ${incremental ? 'sản phẩm thay đổi gần đây' : 'toàn bộ danh sách sản phẩm'} từ GetProducts...`,
   );
 
   try {
-    const result = await productMasterService.syncCatalogForShop(shopId, {
+    const result = await productMasterService.syncCatalogForShop(platformArg, shopId, {
       full: !incremental,
     });
     console.log(
-      `✅ Xong — ${String(result.products)} sản phẩm từ Lazada, ${String(result.synced)} SKU ghi mới/cập nhật vào product_master.`,
+      `✅ Xong — ${String(result.products)} sản phẩm từ sàn, ${String(result.synced)} SKU ghi mới/cập nhật vào product_master.`,
     );
     if (result.products === 0) {
       console.log(

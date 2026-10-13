@@ -39,6 +39,35 @@ export class PickEvent {
   @Prop({ required: true })
   remaining_stock_after!: number;
 
+  // BỔ SUNG (21/09/2026, BE-4a) — lượt lấy hàng của group lúc quét.
+  // Event cũ không có field → mặc định 0, khớp group cũ (pick_round 0).
+  @Prop({ type: Number, default: 0, min: 0 })
+  pick_round!: number;
+
+  /**
+   * BỔ SUNG (30/09/2026) — kho đã trừ tồn lúc quét. Cần để restock đúng kho khi
+   * lượt lấy hàng bị hủy. Event cũ (trước 30/09) không có = null → không thể
+   * tự nhập lại tồn (cần kho đối soát tay).
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  warehouse_id!: Types.ObjectId | null;
+
+  /** BỔ SUNG (30/09/2026) — đã nhập lại tồn khi hủy lượt; chặn nhập lại 2 lần. */
+  @Prop({ type: Date, default: null })
+  restocked_at!: Date | null;
+  /**
+   * (05/10/2026) Loại sự kiện. `scan` = quét lấy hàng thật. Các loại còn lại do
+   * khâu đóng gói ghi để số "đã lấy" của lượt luôn khớp hàng THẬT đang giữ:
+   * - pack_issue (số ÂM): món hỏng/thiếu/sai bị loại lúc đóng.
+   * - pack_replace (số DƯƠNG): món thay lấy từ kệ lúc đóng.
+   * - unpack (số ÂM): món trả về kệ khi tháo kiện của đơn bị hủy.
+   * - cancel_return (số ÂM): hàng đã lấy của đơn bị hủy TRƯỚC khi bắt đầu đóng, tự trả kệ.
+   * Event điều chỉnh mang kho + ô của dòng tồn bị ảnh hưởng nên restockPickRound
+   * cộng ròng đúng theo ô. Event cũ không có field → `scan`.
+   */
+  @Prop({ type: String, enum: ['scan', 'pack_issue', 'pack_replace', 'unpack', 'cancel_return', 'reject_return'], default: 'scan' })
+  kind!: 'scan' | 'pack_issue' | 'pack_replace' | 'unpack' | 'cancel_return' | 'reject_return';
+
   // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   bin_location_id?: Types.ObjectId | null;
@@ -56,3 +85,6 @@ PickEventSchema.index(
   { client_event_id: 1 },
   { unique: true, partialFilterExpression: { client_event_id: { $type: 'string' } } },
 );
+
+// Phục vụ: cộng số đã lấy theo (group, lượt, SKU) — getActuallyPickedItemsForGroup/confirmPicked/pickItem.
+PickEventSchema.index({ order_group_id: 1, pick_round: 1, seller_sku: 1 });

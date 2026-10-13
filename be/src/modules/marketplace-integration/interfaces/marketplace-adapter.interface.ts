@@ -1,4 +1,10 @@
 import { MarketplacePlatform } from '../enums/platform.enum';
+import type {
+  LazadaGetOrdersFilter,
+  LazadaOrderItemRaw,
+  LazadaOrderRaw,
+  LazadaProductRaw,
+} from '../adapters/lazada-protocol.client';
 
 /**
  * ===================================================================
@@ -71,6 +77,70 @@ export interface MarketplaceAdapter {
    * TikTok/Lazada không dùng tham số này.
    */
   verifyWebhookSignature(rawBody: Buffer, headerSignature: string, sellerCode?: string): boolean;
+
+  /**
+   * ===================================================================
+   * BỔ SUNG (29/09/2026) — nghiệp vụ đơn hàng/sản phẩm, TÙY CHỌN.
+   * ===================================================================
+   * KHÔNG bắt buộc mọi adapter implement (TikTok/Tiki hiện là code chết,
+   * chưa cần) — chỉ Lazada và AURELLE (tương thích Lazada theo
+   * AURELLE_MARKETPLACE_DESIGN.md) có 2 phương thức này. Kiểu dữ liệu
+   * `LazadaXxxRaw` được tái dùng cho CẢ 2 sàn CÓ CHỦ ĐÍCH — AURELLE mô
+   * phỏng NGUYÊN VẸN vỏ response Lazada, không phải vì mọi adapter tương
+   * lai đều nên dùng type "Lazada". Sàn KHÔNG tương thích Lazada (VD
+   * TikTok/Tiki thật) phải tự định nghĩa Raw type + hàm map riêng, KHÔNG
+   * ép vào đây (đúng nguyên tắc Anti-Corruption Layer — mỗi sàn có
+   * RawOrder riêng, orders.service.ts chỉ thấy MappedOrderFields chung).
+   */
+  getOrders?(
+    accessToken: string,
+    filter: LazadaGetOrdersFilter,
+  ): Promise<LazadaOrderRaw[]>;
+  getOrderItems?(
+    accessToken: string,
+    orderId: number,
+  ): Promise<LazadaOrderItemRaw[]>;
+  getProducts?(
+    accessToken: string,
+    sellerSkus: string[],
+  ): Promise<LazadaProductRaw[]>;
+  /** Đồng bộ CATALOG (không theo đơn) — phân trang, tùy chọn tăng dần. */
+  listProductsPage?(
+    accessToken: string,
+    params: { updatedAfter: Date | null; offset: number; limit: number },
+  ): Promise<{ products: LazadaProductRaw[]; total: number }>;
+
+  /**
+   * ===================================================================
+   * BỔ SUNG (29/09/2026) — ghi ngược, TÙY CHỌN, CHỈ AURELLE có.
+   * ===================================================================
+   * Lazada KHÔNG có 3 phương thức này (seller tự giao hàng, không ghi
+   * ngược Lazada — quyết định đã chốt, xem CLAUDE.md). AURELLE là sàn
+   * TỰ XÂY của nhóm nên hỗ trợ ghi ngược trạng thái/tồn (Mục 7.6-7.8
+   * AURELLE_MARKETPLACE_DESIGN.md) — orders.service.ts gọi qua dấu `?.`
+   * (optional chaining), không throw nếu adapter không hỗ trợ.
+   */
+  acknowledgeOrder?(
+    accessToken: string,
+    orderId: string,
+    partnerReference: string,
+  ): Promise<void>;
+  updateOrderStatus?(
+    accessToken: string,
+    input: {
+      orderId: string;
+      status: string;
+      eventTime: Date;
+      trackingCode?: string;
+      tripCode?: string;
+      reason?: string;
+      idempotencyKey: string;
+    },
+  ): Promise<void>;
+  updateSellableQuantity?(
+    accessToken: string,
+    updates: { itemId: string; skuId: string; sellerSku: string; sellableQuantity: number }[],
+  ): Promise<{ sellerSku: string; success: boolean }[]>;
 }
 
 // DI token — dùng để inject đúng adapter theo platform trong service,

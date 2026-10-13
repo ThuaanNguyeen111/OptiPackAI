@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { NotificationsService } from './notifications.service';
+import { NotificationsService, toNotificationView } from './notifications.service';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { AppException } from '../../common/exceptions/app-exception';
 import { NOTIFICATION_ERROR_CODES } from './notifications.errors';
@@ -11,119 +11,91 @@ import { NOTIFICATION_ERROR_CODES } from './notifications.errors';
 // thêm (recipient_user_id HOẶC recipient_role phải khớp người gọi), không
 // test lại toàn bộ service (notify()/listForUser() đã ổn định từ trước).
 //!=============================================
-describe('NotificationsService — markAsRead (kiểm tra quyền sở hữu)', () => {
+describe('NotificationsService — markAsRead (sở hữu + đọc riêng theo người)', () => {
   let service: NotificationsService;
-
-  let notificationModel: { findOneAndUpdate: jest.Mock };
-  let userModel: { find: jest.Mock };
-  let mailService: { sendNotificationEmail: jest.Mock };
+  let notificationModel: { findOneAndUpdate: jest.Mock; updateMany: jest.Mock; find: jest.Mock; countDocuments: jest.Mock };
 
   const notificationId = new Types.ObjectId().toString();
   const callerUserId = new Types.ObjectId().toString();
-
-  beforeEach(() => {
-    notificationModel = { findOneAndUpdate: jest.fn() };
-    userModel = { find: jest.fn() };
-    mailService = { sendNotificationEmail: jest.fn() };
-
-    service = new NotificationsService(
-      notificationModel as never,
-      userModel as never,
-      mailService as never,
-    );
+  const roleIn = (role: UserRole): { $in: (UserRole | string)[] } => ({ $in: [role, String(role)] });
+  const lean = (value: unknown): { lean: () => Promise<unknown> } => ({ lean: () => Promise.resolve(value) });
+  const doc = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+    _id: new Types.ObjectId(notificationId),
+    recipient_user_id: null,
+    type: 'pending_approval',
+    severity: 'info',
+    title: 't',
+    message: 'm',
+    related_entity_type: 'order_group',
+    related_entity_id: new Types.ObjectId(),
+    is_read: false,
+    read_by: [],
+    created_at: new Date(),
+    ...extra,
   });
 
-  it('id sai định dạng ObjectId -> throw NOTI_INVALID_ID, KHÔNG chạm DB', async () => {
-    await expect(
-      service.markAsRead(
-        'khong-phai-object-id',
-        callerUserId,
-        UserRole.WAREHOUSE_STAFF,
-      ),
-    ).rejects.toMatchObject({
+  beforeEach(() => {
+    notificationModel = {
+      findOneAndUpdate: jest.fn(() => lean(null)),
+      updateMany: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+      find: jest.fn(() => ({ sort: () => ({ limit: () => lean([]) }) })),
+      countDocuments: jest.fn().mockResolvedValue(0),
+    };
+    service = new NotificationsService(notificationModel as never, {} as never, {} as never);
+  });
+
+  it('id sai định dạng ObjectId -> NOTI_INVALID_ID, KHÔNG chạm DB', async () => {
+    await expect(service.markAsRead('khong-phai-object-id', callerUserId, UserRole.WAREHOUSE_STAFF)).rejects.toMatchObject({
       errorCode: NOTIFICATION_ERROR_CODES.INVALID_ID,
     });
-
     expect(notificationModel.findOneAndUpdate).not.toHaveBeenCalled();
   });
 
-  it('query gửi lên DB PHẢI kèm điều kiện sở hữu (đích danh HOẶC theo role, dual-match số+chuỗi) — đây là dòng fix chính', async () => {
-    notificationModel.findOneAndUpdate.mockResolvedValue({
-      _id: notificationId,
-      is_read: true,
-    });
-
-    await service.markAsRead(
-      notificationId,
-      callerUserId,
-      UserRole.STORE_OWNER,
-    );
-
-    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — recipient_role giờ
-    // dual-match CẢ 2 kiểu (số THẬT + String(role) — dữ liệu CŨ trước
-    // migration) qua $in, không còn so khớp trực tiếp 1 giá trị.
+  it('thông báo đích danh -> set is_read; trả dạng view (id, không _id)', async () => {
+    notificationModel.findOneAndUpdate.mockReturnValueOnce(lean(doc({ recipient_user_id: new Types.ObjectId(callerUserId), is_read: true })));
+    const view = await service.markAsRead(notificationId, callerUserId, UserRole.PACKAGING_STAFF);
     expect(notificationModel.findOneAndUpdate).toHaveBeenCalledWith(
-      {
-        _id: notificationId,
-        $or: [
-          { recipient_user_id: callerUserId },
-          { recipient_role: { $in: [UserRole.STORE_OWNER, String(UserRole.STORE_OWNER)] } },
-        ],
-      },
+      { _id: notificationId, recipient_user_id: callerUserId },
       { $set: { is_read: true } },
       { returnDocument: 'after' },
     );
+    expect(view.id).toBe(notificationId);
+    expect(view.is_read).toBe(true);
+    expect(view).not.toHaveProperty('_id');
   });
 
-  it('thông báo tồn tại nhưng KHÔNG thuộc về người gọi -> DB trả null -> throw NOTI_NOT_FOUND (404, không phải 403)', async () => {
-    // Mô phỏng đúng hành vi Mongo thật: điều kiện $or không khớp ai cả
-    // -> findOneAndUpdate trả null, dù document với _id đó CÓ tồn tại.
-    notificationModel.findOneAndUpdate.mockResolvedValue(null);
-
-    await expect(
-      service.markAsRead(
-        notificationId,
-        callerUserId,
-        UserRole.WAREHOUSE_STAFF,
-      ),
-    ).rejects.toMatchObject({
-      errorCode: NOTIFICATION_ERROR_CODES.NOT_FOUND,
-    });
+  it('thông báo theo role -> chỉ thêm người gọi vào read_by (người khác cùng role vẫn thấy chưa đọc)', async () => {
+    notificationModel.findOneAndUpdate
+      .mockReturnValueOnce(lean(null))
+      .mockReturnValueOnce(lean(doc({ read_by: [new Types.ObjectId(callerUserId)] })));
+    const view = await service.markAsRead(notificationId, callerUserId, UserRole.STORE_OWNER);
+    const [filter, update] = notificationModel.findOneAndUpdate.mock.calls[1] as [Record<string, unknown>, { $addToSet: { read_by: Types.ObjectId } }];
+    expect(filter).toEqual({ _id: notificationId, recipient_role: roleIn(UserRole.STORE_OWNER) });
+    expect(String(update.$addToSet.read_by)).toBe(callerUserId);
+    expect(view.is_read).toBe(true);
+    expect(toNotificationView(doc() as never, new Types.ObjectId().toString()).is_read).toBe(false);
   });
 
-  it('id không tồn tại trong DB -> CÙNG throw NOTI_NOT_FOUND y hệt case "không thuộc về mình" — không để lộ khác biệt', async () => {
-    notificationModel.findOneAndUpdate.mockResolvedValue(null);
-
-    const error = await service
-      .markAsRead(
-        new Types.ObjectId().toString(),
-        callerUserId,
-        UserRole.WAREHOUSE_STAFF,
-      )
-      .catch((e: unknown) => e);
-
+  it('không thuộc về người gọi / không tồn tại -> cùng NOTI_NOT_FOUND 404', async () => {
+    const error = await service.markAsRead(notificationId, callerUserId, UserRole.WAREHOUSE_STAFF).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(AppException);
-    expect((error as AppException).errorCode).toBe(
-      NOTIFICATION_ERROR_CODES.NOT_FOUND,
-    );
+    expect((error as AppException).errorCode).toBe(NOTIFICATION_ERROR_CODES.NOT_FOUND);
     expect((error as AppException).getStatus()).toBe(404);
   });
 
-  it('thông báo thuộc về đúng người gọi (đích danh) -> đánh dấu đã đọc thành công', async () => {
-    const updated = {
-      _id: notificationId,
-      is_read: true,
-      recipient_user_id: callerUserId,
-    };
-    notificationModel.findOneAndUpdate.mockResolvedValue(updated);
+  it('unreadCount: thông báo role chưa có người gọi trong read_by mới tính chưa đọc', async () => {
+    await service.unreadCount(callerUserId, UserRole.WAREHOUSE_STAFF);
+    expect(notificationModel.countDocuments).toHaveBeenCalledWith({
+      $or: [
+        { recipient_user_id: callerUserId, is_read: false },
+        { recipient_role: roleIn(UserRole.WAREHOUSE_STAFF), is_read: false, read_by: { $ne: callerUserId } },
+      ],
+    });
+  });
 
-    const result = await service.markAsRead(
-      notificationId,
-      callerUserId,
-      UserRole.PACKAGING_STAFF,
-    );
-
-    expect(result).toBe(updated);
+  it('markAllAsRead: đích danh set is_read, role thêm read_by', async () => {
+    expect(await service.markAllAsRead(callerUserId, UserRole.ADMIN)).toBe(2);
+    expect(notificationModel.updateMany).toHaveBeenCalledTimes(2);
   });
 });
 
