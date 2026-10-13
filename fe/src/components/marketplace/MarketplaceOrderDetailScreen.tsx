@@ -93,8 +93,7 @@ export function MarketplaceOrderDetailScreen({
 
   useEffect(() => {
     if (!id) return
-    // Hằng đã thu hẹp kiểu (string) — narrowing của `id` không đi vào hàm async lồng.
-    const orderId: string = id
+    const orderId = id
     let cancelled = false
 
     async function load(): Promise<void> {

@@ -1,7 +1,8 @@
 /**
- * 7 loại thông báo đã nghiên cứu trong CLAUDE.md (mục "Nghiên cứu
- * Notification") — mở rộng thêm khi có sự kiện mới, không đổi giá
+ * Loại thông báo — mở rộng thêm khi có sự kiện mới, không đổi giá
  * trị cũ (FE có thể đã lưu/so sánh theo string này).
+ *
+ * ĐÃ THAY ĐỔI 2026-09-14: thêm MFA_DISABLED (Admin tắt MFA hộ user).
  */
 export enum NotificationType {
   MISSING_ITEM = 'missing_item',

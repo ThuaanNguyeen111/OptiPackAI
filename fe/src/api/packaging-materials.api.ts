@@ -28,6 +28,47 @@ function pickNumber(...values: unknown[]): number {
   return 0
 }
 
+export type PackagingMaterialStock = {
+  code: string
+  name: string
+  kind: string
+  lengthCm: number | null
+  widthCm: number | null
+  heightCm: number | null
+  qtyNew: number
+  qtyReused: number
+  isActive: boolean
+}
+
+function pickNullableNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/** GET /packaging-materials — Packaging Staff được xem tồn mới / tái sử dụng. */
+export async function listPackagingMaterials(): Promise<PackagingMaterialStock[]> {
+  const res = await apiRequest<unknown>('/packaging-materials', { auth: true })
+  const rows = Array.isArray(res) ? res : []
+  return rows.flatMap((raw) => {
+    const row = asRecord(raw)
+    if (!row) return []
+    const code = typeof row.code === 'string' ? row.code : ''
+    if (!code) return []
+    return [
+      {
+        code,
+        name: typeof row.name === 'string' ? row.name : code,
+        kind: typeof row.kind === 'string' ? row.kind : '',
+        lengthCm: pickNullableNumber(row.lengthCm ?? row.length_cm),
+        widthCm: pickNullableNumber(row.widthCm ?? row.width_cm),
+        heightCm: pickNullableNumber(row.heightCm ?? row.height_cm),
+        qtyNew: pickNumber(row.qtyNew, row.qty_new),
+        qtyReused: pickNumber(row.qtyReused, row.qty_reused),
+        isActive: row.isActive !== false && row.is_active !== false,
+      },
+    ]
+  })
+}
+
 /** GET /packaging-materials/savings — Admin + Store Owner. */
 export async function getPackagingMaterialsSavings(): Promise<PackagingMaterialsSavings> {
   const res = await apiRequest<unknown>('/packaging-materials/savings', {

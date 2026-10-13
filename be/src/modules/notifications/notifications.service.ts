@@ -157,11 +157,18 @@ export class NotificationsService {
             .lean();
 
       for (const recipient of recipients) {
-        await this.mailService.sendNotificationEmail({
-          to: recipient.email,
-          title: input.title,
-          message: input.message,
-        });
+        if (input.type === NotificationType.MFA_DISABLED) {
+          await this.mailService.sendMfaDisabled({
+            to: recipient.email,
+            name: recipient.name,
+          });
+        } else {
+          await this.mailService.sendNotificationEmail({
+            to: recipient.email,
+            title: input.title,
+            message: input.message,
+          });
+        }
       }
 
       if (recipients.length > 0) {

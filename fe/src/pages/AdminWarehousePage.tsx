@@ -68,8 +68,9 @@ const formCardClass = 'rounded-lg border border-hairline bg-surface-2/40 p-3'
 const fieldClass =
   'w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
-type TabId = 'zones' | 'categories' | 'bins' | 'assign' | 'stock' | 'picking'
-
+type AreaId = 'catalog' | 'warehouse'
+type CatalogTabId = 'categories' | 'master' | 'link'
+type WarehouseTabId = 'layout' | 'assign' | 'stock' | 'picking'
 
 export function AdminWarehousePage() {
   const { locale } = usePortal()

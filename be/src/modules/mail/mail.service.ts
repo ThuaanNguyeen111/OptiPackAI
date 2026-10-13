@@ -98,6 +98,11 @@ export class MailService {
     await this.send(params.to, subject, html);
   }
 
+  async sendMfaDisabled(params: { to: string; name: string }): Promise<void> {
+    const { subject, html } = mfaDisabledTemplate({ name: params.name });
+    await this.send(params.to, subject, html);
+  }
+
   /**
    * BỔ SUNG (2026-09-10) — email cho hệ thống Notification (module
    * notifications/). Mẫu ĐƠN GIẢN có chủ đích (chỉ text, không thiết

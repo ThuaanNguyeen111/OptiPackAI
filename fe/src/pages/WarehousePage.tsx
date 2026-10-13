@@ -20,6 +20,8 @@ import {
   Zap,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { WarehouseReturnsPanel } from '../components/warehouse/WarehouseReturnsPanel'
+import { listQuarantine, listReturns } from '../api/returns.api'
 import {
   Dialog,
   DialogContent,
@@ -156,7 +158,7 @@ function matchesTab(row: OrderGroup, tab: QueueTab): boolean {
   if (tab === 'review') return status === 'partial_needs_review'
   if (tab === 'picked') return status === 'picked'
   if (tab === 'packed') return status === 'packed'
-  return status === 'shipped' || status === 'delivered' || status === 'returned'
+  return false
 }
 
 function statusLabel(status: string, vi: boolean): string {
@@ -355,6 +357,8 @@ export function WarehousePage() {
 
   const [warehouses, setWarehouses] = useState<WarehouseRecord[]>([])
   const [warehouseId, setWarehouseId] = useState(() => readStoredWarehouseId())
+  const [returnQueueCount, setReturnQueueCount] = useState(0)
+  const [returnsRefresh, setReturnsRefresh] = useState(0)
   const [warehouseDraft, setWarehouseDraft] = useState(() => readStoredWarehouseId())
   const [warehouseListBlocked, setWarehouseListBlocked] = useState(false)
 
@@ -413,6 +417,15 @@ export function WarehousePage() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadGroups()
+      void Promise.all([
+        listReturns({ status: 'awaiting_receipt', limit: 100 }),
+        listReturns({ status: 'received', limit: 100 }),
+        listQuarantine(),
+      ])
+        .then(([receipt, received, held]) => {
+          setReturnQueueCount(receipt.total + received.total + held.length)
+        })
+        .catch(() => setReturnQueueCount(0))
       void fetchMyProfile()
         .then((profile) => setMeId(profile.id))
         .catch(() => setMeId(''))
@@ -452,10 +465,10 @@ export function WarehousePage() {
       else if (matchesTab(row, 'review')) next.review += 1
       else if (matchesTab(row, 'picked')) next.picked += 1
       else if (matchesTab(row, 'packed')) next.packed += 1
-      else if (matchesTab(row, 'returns')) next.returns += 1
     }
+    next.returns = returnQueueCount
     return next
-  }, [groups])
+  }, [groups, returnQueueCount])
 
   const tabGroups = useMemo(() => {
     return groups
@@ -1007,6 +1020,8 @@ export function WarehousePage() {
                 ))}
       </div>
 
+              {tab === 'returns' ? null : (
+              <>
               <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-surface-2">
                 {(
                   [
@@ -1165,6 +1180,8 @@ export function WarehousePage() {
                   </div>
         ) : null}
       </div>
+              </>
+              )}
 
               <div className="relative flex min-w-[10.5rem] max-w-[16rem] items-center gap-1.5">
                 <Warehouse className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-slate-400" />
@@ -1212,7 +1229,10 @@ export function WarehousePage() {
 
               <button
                 type="button"
-                onClick={() => void loadGroups()}
+                onClick={() => {
+                  if (tab === 'returns') setReturnsRefresh((n) => n + 1)
+                  else void loadGroups()
+                }}
                 title={vi ? 'Tải lại hàng đợi' : 'Reload queue'}
                 aria-label={vi ? 'Tải lại' : 'Reload'}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 cursor-pointer hover:bg-slate-50 hover:text-slate-800 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-300 dark:hover:text-white"
@@ -1272,13 +1292,23 @@ export function WarehousePage() {
             </p>
           ) : null}
 
-          {listError ? (
+          {tab === 'returns' ? (
+            <WarehouseReturnsPanel
+              vi={vi}
+              warehouses={warehouses}
+              warehouseId={warehouseId}
+              refreshToken={returnsRefresh}
+              onCounts={setReturnQueueCount}
+            />
+          ) : null}
+
+          {tab !== 'returns' && listError ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
               {listError}
           </div>
           ) : null}
 
-          {listLoading ? (
+          {tab === 'returns' ? null : listLoading ? (
             <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500 dark:border-slate-800 dark:bg-surface-1">
               <Loader2 className="h-4 w-4 animate-spin" />
               {vi ? 'Đang tải hàng đợi lấy hàng…' : 'Loading pick queue…'}

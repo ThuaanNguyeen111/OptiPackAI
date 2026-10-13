@@ -19,6 +19,8 @@ import {
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { listOrderGroups } from '../api/order-groups.api'
+import { listReturns } from '../api/returns.api'
+import { RETURN_STATUS_LABELS } from '../types/returns'
 import { getPackagingRecommendation } from '../api/packaging.api'
 import {
   deliverShipment,
@@ -214,6 +216,9 @@ export function ShippingPage() {
   const [modalMode, setModalMode] = useState<ModalMode>(null)
   const [failReason, setFailReason] = useState<string>('customer_unreachable')
   const [actionNote, setActionNote] = useState('')
+  const [returnsByGroup, setReturnsByGroup] = useState<
+    Record<string, { rmaCode: string; status: string }[]>
+  >({})
 
   const showToast = (msg: string) => {
     setToastMessage(msg)
@@ -224,14 +229,27 @@ export function ShippingPage() {
     setLoading(true)
     setLoadError(null)
     try {
-      const [groups, shipmentPage, reasons] = await Promise.all([
+      const [groups, shipmentPage, reasons, returnPage] = await Promise.all([
         listOrderGroups({ fulfillment_status: 'packed' }),
         listShipments({ page: 1, limit: 100 }),
         listFailureReasonCodes(),
+        listReturns({ limit: 100 }).catch(() => ({
+          items: [],
+          total: 0,
+          page: 1,
+          limit: 100,
+        })),
       ])
       setPackedGroups(groups)
       setShipments(shipmentPage.items)
       setReasonCodes(reasons)
+      const grouped: Record<string, { rmaCode: string; status: string }[]> = {}
+      for (const slip of returnPage.items) {
+        const bucket = grouped[slip.orderGroupId] ?? []
+        bucket.push({ rmaCode: slip.rmaCode, status: slip.status })
+        grouped[slip.orderGroupId] = bucket
+      }
+      setReturnsByGroup(grouped)
     } catch (err: unknown) {
       setLoadError(formatApiError(err))
     } finally {
@@ -507,6 +525,9 @@ export function ShippingPage() {
       : false
   const selectedDueAt =
     selected?.kind === 'shipment' ? selected.shipment.dueAt : null
+  const selectedReturns = selected
+    ? returnsByGroup[rowGroupId(selected)] ?? []
+    : []
   const slaBadge = deliverySlaBadge(selectedDueAt, selectedDueOverdue, vi)
 
   const panelCode =
@@ -911,6 +932,23 @@ export function ShippingPage() {
                         ? 'Chưa có lần thất bại. Coordinator bấm nút dưới để đổi trạng thái.'
                         : 'No failure yet. Use the footer actions to update status.'}
                   </p>
+                  {selectedReturns.length > 0 ? (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        {vi ? 'Phiếu trả hàng' : 'Return slips'}
+                      </p>
+                      {selectedReturns.map((slip) => {
+                        const label = RETURN_STATUS_LABELS[slip.status]
+                        return (
+                          <p key={`${slip.rmaCode}-${slip.status}`} className="text-[11px] text-slate-700 dark:text-slate-200">
+                            <span className="font-mono font-semibold">{slip.rmaCode}</span>
+                            {' · '}
+                            {label ? (vi ? label.vi : label.en) : slip.status}
+                          </p>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="grid grid-cols-2 gap-2.5 pt-0.5">
