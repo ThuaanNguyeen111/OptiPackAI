@@ -97,14 +97,6 @@ const navItems = [
     icon: Sparkles,
     section: 'ai' as NavSection,
   },
-  {
-    to: '/app/admin/templates',
-    end: false,
-    labelVi: 'Templates đóng gói',
-    labelEn: 'Packaging templates',
-    icon: Box,
-    section: 'ai' as NavSection,
-  },
 ]
 
 const sectionLabels: Record<NavSection, { vi: string; en: string } | null> = {

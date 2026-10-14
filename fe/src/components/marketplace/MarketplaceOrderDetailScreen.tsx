@@ -596,14 +596,7 @@ export function MarketplaceOrderDetailScreen({
                         : 'BE groups orders that share platform, customer and address. Cross-platform groups are linked from the Order groups page.'}
                     </p>
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-hairline bg-surface-1 px-4 py-3">
-                    <p className="text-xs text-ink-subtle">
-                      {vi
-                        ? 'Đơn lẻ — BE gộp khi có đơn khác cùng sàn, cùng khách/địa chỉ (không gộp cross-platform).'
-                        : 'Standalone — BE consolidates only with same-platform siblings sharing customer/address.'}
-                    </p>
-                  </div>
+                ) : (null
                 )}
 
                 <div className="rounded-xl border border-hairline bg-surface-1 p-5">

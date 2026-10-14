@@ -105,11 +105,6 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
           {vi ? 'Kết nối shop AURELLE' : 'Connect AURELLE shop'}
         </Button>
       </div>
-      <p className="text-[11px] text-ink-muted">
-        {vi
-          ? 'Link cấp quyền chỉ dùng một lần, hết hạn sau 10 phút. Không ghi shop AURELLE vào danh sách Lazada.'
-          : 'The authorization link is single-use and expires after 10 minutes. AURELLE shops stay off the Lazada list.'}
-      </p>
       {error ? (
         <p className="rounded-lg border border-error/30 bg-error/5 px-3 py-2 text-xs text-error">
           {error}
