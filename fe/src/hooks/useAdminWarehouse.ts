@@ -12,6 +12,7 @@ import {
   listAllWarehouseBins,
   listSkuBinAssignments,
   listWarehouseZones,
+  getWarehouse,
   listWarehouses,
   moveSkuAssignment,
   purgeBin,
@@ -24,9 +25,11 @@ import {
   restockSkuAssignment,
   transferStockAssignment,
   unassignSkuFromBin,
+  updateBin,
   updateWarehouse,
   updateWarehouseZone,
 } from '../api/warehouse.api'
+import type { UpdateBinInput } from '../api/warehouse.api'
 import { listAllProductMaster, listSkuMappings } from '../api/catalog.api'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import type {
@@ -210,6 +213,22 @@ export function useAdminWarehouse() {
       cancelled = true
     }
   }, [showInactive])
+
+  useEffect(() => {
+    if (!selectedWarehouseId) return
+    let cancelled = false
+    void getWarehouse(selectedWarehouseId)
+      .then((detail) => {
+        if (cancelled || !detail) return
+        setWarehouses((current) =>
+          current.map((row) => (row.id === detail.id ? detail : row)),
+        )
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [selectedWarehouseId])
 
   useEffect(() => {
     if (!selectedWarehouseId) return
@@ -682,6 +701,23 @@ export function useAdminWarehouse() {
     setAssignments(await listSkuBinAssignments(selectedWarehouseId))
   }
 
+  async function handleUpdateBin(
+    binId: string,
+    input: UpdateBinInput,
+  ): Promise<void> {
+    setMutating(true)
+    setError(null)
+    try {
+      await updateBin(binId, input)
+      await refreshBinsAndAssignments()
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+      throw err
+    } finally {
+      setMutating(false)
+    }
+  }
+
   async function handlePurgeBin(binId: string): Promise<PurgeResult> {
     setMutating(true)
     setError(null)
@@ -757,6 +793,7 @@ export function useAdminWarehouse() {
     setWarehouseActive: handleSetWarehouseActive,
     purgeWarehouse: handlePurgeWarehouse,
     purgeZone: handlePurgeZone,
+    updateBin: handleUpdateBin,
     purgeBin: handlePurgeBin,
     purgeRack: handlePurgeRack,
     moveAssignment: handleMoveAssignment,

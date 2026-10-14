@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   fetchUnreadNotificationCount,
   listNotifications,
+  markAllNotificationsRead,
   markNotificationRead,
 } from '../api/notifications.api'
 import { getAccessToken } from '../lib/auth-storage'
@@ -79,11 +80,14 @@ export function useNotifications(enabled: boolean) {
   }, [])
 
   const markAllRead = useCallback(async () => {
-    const unread = items.filter((n) => !n.isRead)
-    for (const n of unread) {
-      await markRead(n.id)
+    try {
+      await markAllNotificationsRead()
+      setItems((prev) => prev.map((n) => ({ ...n, isRead: true })))
+      setUnreadCount(0)
+    } catch {
+      /* giữ UI; lần mở panel sau sẽ đồng bộ lại */
     }
-  }, [items, markRead])
+  }, [])
 
   return {
     items,

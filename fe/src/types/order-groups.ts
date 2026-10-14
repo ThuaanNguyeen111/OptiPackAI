@@ -11,6 +11,7 @@ export const GROUP_FULFILLMENT_STATUSES = [
   'shipped',
   'delivered',
   'returned',
+  'canceled',
 ] as const
 
 export type GroupFulfillmentStatus =
@@ -324,13 +325,14 @@ export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
   shipped: { vi: 'Đã giao vận', en: 'Shipped' },
   delivered: { vi: 'Đã giao', en: 'Delivered' },
   returned: { vi: 'Hoàn hàng', en: 'Returned' },
+  canceled: { vi: 'Đã huỷ', en: 'Canceled' },
 }
 
 export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_INVALID_ID: 'Mã nhóm đơn không hợp lệ.',
   ORD_GROUP_NOT_FOUND: 'Không tìm thấy nhóm đơn.',
   ORD_GROUP_INVALID_TRANSITION:
-    'BE không cho phép bước này từ trạng thái hiện tại. Luồng: kho lấy (→ picked) → duyệt kế hoạch Packaging (→ approved_for_packing) → Warehouse pack (→ packed).',
+    'BE không cho phép bước này từ trạng thái hiện tại. Luồng đóng gói: duyệt kế hoạch → bắt đầu đóng → quét từng món → niêm phong từng kiện.',
   ORD_GROUP_STATE_CONFLICT:
     'Dữ liệu nhóm đơn đã đổi. Tải lại rồi thao tác tiếp.',
   ORD_GROUP_INSUFFICIENT_STOCK: 'Không đủ tồn kho cho SKU này.',

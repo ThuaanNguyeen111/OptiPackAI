@@ -157,6 +157,75 @@ function inactiveQuery(includeInactive?: boolean): string {
   return includeInactive ? '?include_inactive=true' : ''
 }
 
+export async function getWarehouse(
+  warehouseId: string,
+): Promise<WarehouseRecord | null> {
+  return mapWarehouse(
+    await apiRequest<unknown>(`/warehouse/warehouses/${warehouseId}`, {
+      auth: true,
+    }),
+  )
+}
+
+export type UpdateBinInput = {
+  capacity?: number | null
+  designated_category_code?: string
+  designated_size?: string
+  designated_color_code?: string | null
+}
+
+export async function updateBin(
+  binId: string,
+  input: UpdateBinInput,
+): Promise<BinLocationRecord> {
+  const saved = mapBin(
+    await apiRequest<unknown>(`/warehouse/bin-locations/${binId}`, {
+      method: 'PATCH',
+      body: input,
+      auth: true,
+    }),
+  )
+  if (!saved) throw new Error('Sửa ô thành công nhưng server không trả mã ô.')
+  return saved
+}
+
+export type BinSuggestion = {
+  bin: BinLocationRecord
+  matchLevel: 1 | 2 | 3
+  usedUnits: number
+  freeCapacity: number | null
+}
+
+export async function suggestBins(
+  warehouseId: string,
+  query: { category_code: string; size?: string; color_code?: string },
+): Promise<BinSuggestion[]> {
+  const qs = new URLSearchParams({ category_code: query.category_code })
+  if (query.size) qs.set('size', query.size)
+  if (query.color_code) qs.set('color_code', query.color_code)
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/bin-suggestions?${qs.toString()}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const bin = mapBin(row.bin)
+    if (!bin) return []
+    const level = row.matchLevel
+    return [
+      {
+        bin,
+        matchLevel: level === 1 || level === 2 || level === 3 ? level : 3,
+        usedUnits: typeof row.usedUnits === 'number' ? row.usedUnits : 0,
+        freeCapacity:
+          typeof row.freeCapacity === 'number' ? row.freeCapacity : null,
+      },
+    ]
+  })
+}
+
 export async function listWarehouses(options?: {
   includeInactive?: boolean
 }): Promise<WarehouseRecord[]> {
@@ -735,6 +804,21 @@ function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
     bin_location_id: pickString(row.bin_location_id) || null,
     other_bins: mapOtherBins(row.other_bins),
   }
+}
+
+export async function getWarehousePickingListForGroups(
+  warehouseId: string,
+  groupIds: string[],
+): Promise<WarehousePickingListItem[]> {
+  const qs = new URLSearchParams({ group_ids: groupIds.join(',') })
+  const res = await apiRequest<unknown>(
+    `/warehouse/${encodeURIComponent(warehouseId)}/picking-list?${qs.toString()}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res
+    .map(mapPickingListItem)
+    .filter((row): row is WarehousePickingListItem => row !== null)
 }
 
 export async function getWarehousePickingList(

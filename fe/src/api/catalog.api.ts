@@ -258,6 +258,29 @@ export async function createMasterSku(input: {
   return created
 }
 
+export async function updateMasterSku(
+  code: string,
+  input: {
+    name?: string
+    gender?: 'nam' | 'nu' | 'unisex'
+    length_cm?: number
+    width_cm?: number
+    height_cm?: number
+    weight_kg?: number
+    is_fragile?: boolean
+  },
+): Promise<MasterSkuRecord> {
+  const saved = mapMasterSku(
+    await apiRequest<unknown>(`/master-skus/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      body: input,
+      auth: true,
+    }),
+  )
+  if (!saved) throw new Error('Sửa SKU nội bộ thành công nhưng server không trả mã.')
+  return saved
+}
+
 export async function replaceMasterSku(
   code: string,
   input: {

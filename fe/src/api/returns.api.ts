@@ -87,28 +87,6 @@ function mapItem(raw: unknown): ReturnItem | null {
 }
 
 
-function mapPackagingInspection(raw: unknown): ReturnPackagingInspectionLine[] {
-  if (!Array.isArray(raw)) return []
-  return raw.flatMap((item) => {
-    const row = asRecord(item)
-    if (!row) return []
-    const materialCode = pickString(row.materialCode, row.material_code)
-    if (!materialCode) return []
-    return [
-      {
-        materialCode,
-        quantity: pickNumber(row.quantity),
-        grade: pickString(row.grade),
-        reuseCycleSeen: pickNumber(row.reuseCycleSeen, row.reuse_cycle_seen),
-        oldLabelRemoved:
-          row.oldLabelRemoved === true || row.old_label_removed === true,
-        recoveredToReuse:
-          row.recoveredToReuse === true || row.recovered_to_reuse === true,
-        outcome: pickString(row.outcome) || null,
-      },
-    ]
-  })
-}
 export function mapReturnRequest(raw: unknown): ReturnRequest | null {
   const row = asRecord(raw)
   if (!row) return null

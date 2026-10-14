@@ -4,10 +4,16 @@ import type {
   LazadaConnectResponse,
 } from '../types/marketplace-orders'
 
-export async function fetchLazadaConnectUrl(): Promise<LazadaConnectResponse> {
-  return apiRequest<LazadaConnectResponse>('/marketplace/lazada/connect', {
+export async function fetchMarketplaceConnectUrl(
+  platform: 'lazada' | 'aurelle',
+): Promise<LazadaConnectResponse> {
+  return apiRequest<LazadaConnectResponse>(`/marketplace/${platform}/connect`, {
     auth: true,
   })
+}
+
+export async function fetchLazadaConnectUrl(): Promise<LazadaConnectResponse> {
+  return fetchMarketplaceConnectUrl('lazada')
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

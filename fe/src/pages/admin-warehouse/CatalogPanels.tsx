@@ -16,6 +16,7 @@ import {
   previewMasterSku,
   purgeMasterSku,
   replaceMasterSku,
+  updateMasterSku,
   setColorActive,
   setMasterSkuActive,
   syncPooledStock,
@@ -499,8 +500,10 @@ export function MasterSkuTab({
       </Table>
       {selected ? (
         <MasterSkuDetail
+          key={selected}
           vi={vi}
           code={selected}
+          sku={selectedRow ?? null}
           isActive={selectedRow?.isActive === true}
           colors={activeColors}
           onNotice={onNotice}
@@ -515,6 +518,7 @@ export function MasterSkuTab({
 function MasterSkuDetail({
   vi,
   code,
+  sku,
   isActive,
   colors,
   onNotice,
@@ -523,12 +527,21 @@ function MasterSkuDetail({
 }: {
   vi: boolean
   code: string
+  sku: MasterSkuRecord | null
   isActive: boolean
   colors: ColorRecord[]
   onNotice: (message: string) => void
   onChanged: () => void
   onDeleted: () => void
 }) {
+  const [editName, setEditName] = useState(sku?.name ?? '')
+  const [editGender, setEditGender] = useState<'nam' | 'nu' | 'unisex'>(
+    sku?.gender === 'nam' || sku?.gender === 'nu' ? sku.gender : 'unisex',
+  )
+  const [editFragile, setEditFragile] = useState(sku?.isFragile === true)
+  const [editWeight, setEditWeight] = useState(
+    sku?.weightKg == null ? '' : String(sku.weightKg),
+  )
   const [mappings, setMappings] = useState<SkuMappingRecord[]>([])
   const [unmapped, setUnmapped] = useState<UnmappedSellerSku[]>([])
   const [linkKey, setLinkKey] = useState('')
@@ -624,6 +637,63 @@ function MasterSkuDetail({
           {vi ? 'Nối' : 'Map'}
         </Button>
       </div>
+      <form
+        className="grid gap-2 sm:grid-cols-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          const weight = editWeight.trim()
+          void updateMasterSku(code, {
+            name: editName.trim(),
+            gender: editGender,
+            is_fragile: editFragile,
+            ...(weight === '' ? {} : { weight_kg: Number(weight) }),
+          })
+            .then(async () => {
+              onNotice(vi ? 'Đã sửa tên, giới tính và cờ dễ vỡ. Mã SKU không đổi.' : 'Saved name, gender, and fragile flag. The SKU code stays.')
+              onChanged()
+            })
+            .catch((err: unknown) => setError(formatApiError(err)))
+        }}
+      >
+        <Input
+          className={fieldClass}
+          value={editName}
+          onChange={(e) => setEditName(e.target.value)}
+          placeholder={vi ? 'Tên' : 'Name'}
+        />
+        <select
+          className={fieldClass}
+          value={editGender}
+          onChange={(e) => {
+            const value = e.target.value
+            if (value === 'nam' || value === 'nu' || value === 'unisex') setEditGender(value)
+          }}
+        >
+          <option value="unisex">Unisex</option>
+          <option value="nam">{vi ? 'Nam' : 'Men'}</option>
+          <option value="nu">{vi ? 'Nữ' : 'Women'}</option>
+        </select>
+        <Input
+          className={fieldClass}
+          type="number"
+          min={0}
+          step="0.01"
+          value={editWeight}
+          onChange={(e) => setEditWeight(e.target.value)}
+          placeholder="kg"
+        />
+        <label className="flex items-center gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={editFragile}
+            onChange={(e) => setEditFragile(e.target.checked)}
+          />
+          {vi ? 'Dễ vỡ' : 'Fragile'}
+        </label>
+        <Button type="submit" className="h-9 text-xs sm:col-span-4" disabled={editName.trim().length < 2}>
+          {vi ? 'Lưu thông tin SKU' : 'Save SKU details'}
+        </Button>
+      </form>
       <form
         className="grid gap-2 sm:grid-cols-3"
         onSubmit={(e) => {
@@ -852,6 +922,7 @@ export function LinkSkuTab({
   const [products, setProducts] = useState<ProductMasterRow[]>([])
   const [measuringId, setMeasuringId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [profileStatus, setProfileStatus] = useState<'' | 'needs_measurement' | 'ready'>('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -867,7 +938,11 @@ export function LinkSkuTab({
     const [unmapped, skuPage, catalog] = await Promise.all([
       listUnmappedSellerSkus(),
       listMasterSkus({ limit: 100 }),
-      listProductMaster({ shopId: shopId.trim() || undefined, search: query.trim() || undefined }),
+      listProductMaster({
+        shopId: shopId.trim() || undefined,
+        search: query.trim() || undefined,
+        status: profileStatus || undefined,
+      }),
     ])
     setPending(unmapped)
     setMasters(skuPage.items.filter((row) => row.isActive))
@@ -1007,6 +1082,36 @@ export function LinkSkuTab({
           })}
         </TableBody>
       </Table>
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          setBusy(true)
+          void reload()
+            .catch((err: unknown) => setError(formatApiError(err)))
+            .finally(() => setBusy(false))
+        }}
+      >
+        <select
+          className={fieldClass}
+          value={profileStatus}
+          onChange={(e) => {
+            const value = e.target.value
+            setProfileStatus(
+              value === 'needs_measurement' || value === 'ready' ? value : '',
+            )
+          }}
+        >
+          <option value="">{vi ? 'Mọi hồ sơ' : 'All profiles'}</option>
+          <option value="needs_measurement">
+            {vi ? 'Chưa đo' : 'Needs measurement'}
+          </option>
+          <option value="ready">{vi ? 'Đã xác nhận' : 'Ready'}</option>
+        </select>
+        <Button type="submit" variant="secondary" className="h-9 text-xs" disabled={busy}>
+          {vi ? 'Lọc catalog' : 'Filter catalog'}
+        </Button>
+      </form>
       <p className="text-[11px] text-ink-muted">
         {vi
           ? 'Hồ sơ đóng gói. Số đo kho xác nhận mới dùng được khi đóng gói. Số sàn chỉ để tham khảo.'
