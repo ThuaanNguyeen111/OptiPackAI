@@ -70,9 +70,23 @@ export type OrderGroup = {
   isOverdue: boolean
   stockShortage: boolean
   stockShortageItems: StockShortageItem[]
+  /** (14/10/2026) Liên kết tay với nhóm khác (giao chung chuyến) — null = chưa liên kết. */
+  manualLink?: OrderGroupManualLink | null
+  /** (14/10/2026) `replacement` = nhóm của đơn đổi hàng `EXC-…`. */
+  origin?: 'marketplace' | 'replacement' | string
+  /** (14/10/2026) Phiếu trả sinh ra nhóm đổi hàng (khi origin = replacement). */
+  sourceReturnId?: string | null
   version: number
   createdAt: string
   updatedAt: string
+}
+
+/** (14/10/2026) Thông tin liên kết tay (`POST /order-groups/:id/link`). */
+export type OrderGroupManualLink = {
+  linkId: string
+  linkedBy: string | null
+  linkedAt: string | null
+  note: string | null
 }
 
 /** Còn ít nhất 1 đơn lấy/đóng được. */
@@ -128,6 +142,16 @@ export type ListOrderGroupsParams = {
   fulfillment_status?: GroupFulfillmentStatus | string
   platform?: string
   order_priority?: OrderPriority
+  /** (14/10/2026) Lọc theo nhân viên được phân công (ObjectId user). */
+  assigned_staff_id?: string
+  /** (14/10/2026) Chỉ nhóm đang thiếu hàng (K5). */
+  stock_shortage?: boolean
+  /** (14/10/2026) Chỉ nhóm hỏa tốc đã quá hạn. */
+  is_overdue?: boolean
+  /** (14/10/2026) Phân trang: lấy nhóm tạo TRƯỚC thời điểm này (ISO) — truyền `createdAt` của dòng cuối trang trước. */
+  before?: string
+  /** (14/10/2026) Số dòng mỗi trang, 1–200 (BE mặc định 100). */
+  limit?: number
 }
 
 export type SetPriorityInput = {

@@ -143,7 +143,7 @@ async function ensureRefreshed(): Promise<boolean> {
 }
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   auth?: boolean
   skipRefresh?: boolean
@@ -196,6 +196,51 @@ export async function apiRequest<T>(
 
   return payload as T
 }
+
+/**
+ * (14/10/2026) Tải file nhị phân (PDF phiếu đóng gói / nhãn kiện / bảng kê chuyến
+ * `GET /documents/*`, nhãn A5 của hãng…). Cùng cơ chế token + tự refresh khi 401
+ * như `apiRequest`; lỗi BE (JSON) ném `ApiError` như thường.
+ *
+ * Dùng: `const url = URL.createObjectURL(await apiRequestBlob('/documents/shipping-label/' + groupId))`
+ * rồi `window.open(url)`; nhớ `URL.revokeObjectURL(url)` khi đóng.
+ */
+export async function apiRequestBlob(
+  path: string,
+  options: { auth?: boolean; skipRefresh?: boolean; timeoutMs?: number } = {},
+): Promise<Blob> {
+  const { auth = true, skipRefresh = false, timeoutMs } = options
+  const headers: Record<string, string> = {}
+  if (auth) {
+    const token = getAccessToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+  const res = await fetchWithTimeout(
+    `${API_BASE_URL}${path}`,
+    { method: 'GET', headers },
+    timeoutMs ?? 30_000,
+  )
+  if (res.status === 401 && auth && !skipRefresh) {
+    const ok = await ensureRefreshed()
+    if (ok) return apiRequestBlob(path, { ...options, skipRefresh: true })
+  }
+  if (!res.ok) {
+    const payload = await parseJson(res)
+    throw new ApiError(
+      res.status,
+      parseMessage(payload),
+      parseErrorCode(payload),
+      parseDetails(payload),
+    )
+  }
+  return res.blob()
+}
+
+/**
+ * (14/10/2026) Thời gian chờ gợi ý cho các route gọi API hãng vận chuyển
+ * (báo giá GHN, đặt GHN, so phương án đóng gói) — truyền vào `timeoutMs`.
+ */
+export const CARRIER_REQUEST_TIMEOUT_MS = 60_000
 
 export function getApiErrorCode(err: unknown): string | null {
   return err instanceof ApiError ? err.errorCode : null

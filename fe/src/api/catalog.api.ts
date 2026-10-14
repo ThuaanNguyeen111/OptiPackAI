@@ -386,12 +386,18 @@ export async function listProductMaster(query: {
   shopId?: string
   search?: string
   page?: number
+  /**
+   * (14/10/2026) `needs_measurement` = sản phẩm chưa có kích thước/cân (engine đóng
+   * gói không xếp được) · `ready` = đã đủ thông số.
+   */
+  status?: 'needs_measurement' | 'ready'
 }): Promise<{ items: ProductMasterRow[]; total: number }> {
   const res = asRecord(
     await apiRequest<unknown>(
       `/product-master${qs({
         shop_id: query.shopId,
         search: query.search,
+        status: query.status,
         page: query.page ?? 1,
         limit: 20,
       })}`,

@@ -175,9 +175,26 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     stockShortageItems: mapShortageItems(
       row.stockShortageItems ?? row.stock_shortage_items,
     ),
+    manualLink: mapManualLink(row.manualLink ?? row.manual_link),
+    origin: pickString(row.origin) || 'marketplace',
+    sourceReturnId:
+      pickString(row.sourceReturnId, row.source_return_id) || null,
     version: pickNumber(row.version, row.__v),
     createdAt,
     updatedAt,
+  }
+}
+
+function mapManualLink(raw: unknown): OrderGroup['manualLink'] {
+  const row = asRecord(raw)
+  if (!row) return null
+  const linkId = pickString(row.linkId, row.link_id)
+  if (!linkId) return null
+  return {
+    linkId,
+    linkedBy: pickString(row.linkedBy, row.linked_by) || null,
+    linkedAt: toIso(row.linkedAt) ?? toIso(row.linked_at),
+    note: pickString(row.note) || null,
   }
 }
 
@@ -246,6 +263,13 @@ export async function listOrderGroups(
     fulfillment_status: params.fulfillment_status,
     platform: params.platform,
     order_priority: params.order_priority,
+    assigned_staff_id: params.assigned_staff_id,
+    stock_shortage:
+      params.stock_shortage === undefined ? undefined : String(params.stock_shortage),
+    is_overdue:
+      params.is_overdue === undefined ? undefined : String(params.is_overdue),
+    before: params.before,
+    limit: params.limit === undefined ? undefined : String(params.limit),
   })
   const res = await apiRequest<unknown>(`/order-groups${query}`, {
     auth: true,
