@@ -137,6 +137,14 @@ export type OrderGroup = {
   updatedAt: string
 }
 
+/** (14/10/2026) Thông tin liên kết tay (`POST /order-groups/:id/link`). */
+export type OrderGroupManualLink = {
+  linkId: string
+  linkedBy: string | null
+  linkedAt: string | null
+  note: string | null
+}
+
 /** Còn ít nhất 1 đơn lấy/đóng được. */
 export function hasPackableOrders(
   group: Pick<OrderGroup, 'activeOrderCount'>,

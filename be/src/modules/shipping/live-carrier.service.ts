@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
+import { mapWithConcurrency } from '../../common/utils/concurrency.util';
 import { CARRIER_ADAPTER } from '../carriers/carrier-adapter.interface';
 import type { CarrierAdapter } from '../carriers/carrier-adapter.interface';
 import type {
@@ -17,6 +18,8 @@ import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import type { ParcelInput, ParcelQuote, ServiceQuote } from './utils/shipping-cost.util';
 import { volumetricWeightG } from './utils/shipping-cost.util';
 
+/** Số kiện hỏi hãng cùng lúc (tránh chạm giới hạn tần suất GHN). */
+export const QUOTE_CONCURRENCY = 4;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Địa chỉ Coordinator sửa / bổ sung khi gửi hãng (đơn Lazada bị che). Rỗng = lấy từ đơn. */
@@ -181,16 +184,19 @@ export class LiveCarrierService {
    * kiện nào ném ra nguyên AppException của adapter (VD CARRIER_ADDRESS_CONFLICT).
    */
   async quoteParcels(service: LiveServiceRef, parcels: ParcelInput[], toLocation?: ToLocationInput | null): Promise<ServiceQuote> {
+    // (14/10/2026) Đọc mỗi đơn 1 lần rồi hỏi hãng SONG SONG (tối đa QUOTE_CONCURRENCY kiện
+    // cùng lúc) — trước đây tuần tự từng kiện, nhóm nhiều kiện vượt timeout 12 s của FE.
+    const orderIds = [...new Set(parcels.map((p) => p.orderId ?? ''))];
+    const loaded = await Promise.all(orderIds.map((id) => this.loadOrder(id)));
     const orders = new Map<string, OrderDocument>();
+    orderIds.forEach((id, i) => {
+      const o = loaded[i];
+      if (o) orders.set(id, o);
+    });
     const assumptions = new Set<string>();
-    const quoted: ParcelQuote[] = [];
-    let latestEta = 0;
-    for (const p of parcels) {
-      const orderId = p.orderId ?? '';
-      const order = orders.get(orderId) ?? (await this.loadOrder(orderId));
-      orders.set(orderId, order);
+    const results = await mapWithConcurrency(parcels, QUOTE_CONCURRENCY, async (p) => {
+      const order = orders.get(p.orderId ?? '') ?? (await this.loadOrder(p.orderId ?? ''));
       const { recipient, assumptions: a } = this.resolveRecipient(order, toLocation);
-      a.forEach((x) => assumptions.add(x));
       const carrierParcel = this.toCarrierParcel(p);
       const preview = await this.adapter.previewShipment({
         client_order_code: `Q-${order.platform_order_id}-${String(p.cartonIndex)}`.slice(0, 50),
@@ -202,7 +208,7 @@ export class LiveCarrierService {
         ...(service.serviceTypeId !== null ? { service_type_id: service.serviceTypeId } : {}),
       });
       const volumetricG = volumetricWeightG(p.outer, service.volumetricDivisor);
-      quoted.push({
+      const quote: ParcelQuote = {
         orderId: p.orderId,
         cartonIndex: p.cartonIndex,
         ...(p.parcelNo !== undefined ? { parcelNo: p.parcelNo } : {}),
@@ -210,9 +216,12 @@ export class LiveCarrierService {
         volumetricG,
         chargeableG: Math.max(Math.ceil(p.actualG), volumetricG),
         costVnd: preview.fee.total,
-      });
-      if (preview.expected_delivery_at) latestEta = Math.max(latestEta, preview.expected_delivery_at.getTime());
-    }
+      };
+      return { quote, assumptions: a, eta: preview.expected_delivery_at?.getTime() ?? 0 };
+    });
+    const quoted = results.map((r) => r.quote);
+    for (const r of results) for (const x of r.assumptions) assumptions.add(x);
+    const latestEta = results.reduce((m, r) => Math.max(m, r.eta), 0);
     const etaDays = latestEta > 0 ? Math.max(1, Math.ceil((latestEta - Date.now()) / DAY_MS)) : 2;
     return {
       carrierCode: service.carrierCode,

@@ -33,6 +33,12 @@ export type Shipment = {
   dueAt: string | null
   deliveredAt: string | null
   returnedAt: string | null
+  /** (14/10/2026) Sớm nhất được bấm giao lại (khoảng chờ giữa 2 lần giao); trước giờ này phải gửi `override_reason`. */
+  nextAttemptNotBefore?: string | null
+  /** (14/10/2026) BE đã gắn cờ quá hạn giao (cron 15 phút). */
+  isOverdue?: boolean
+  /** (14/10/2026) Mã vận đơn hiển thị (`SHP-…`, GHN thì là mã nội bộ — mã GHN ở từng kiện). */
+  trackingCode?: string | null
   version: number
   createdAt: string | null
   updatedAt: string | null

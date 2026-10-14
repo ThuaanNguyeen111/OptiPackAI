@@ -136,9 +136,12 @@ interface SkuBinAssignmentResponse {
   binLocationId: string;
   quantityOnHand: number;
   masterSku: string | null; // K4b — có giá trị = dòng tồn gộp chung theo SKU nội bộ
+  /** (14/10/2026) Mã ô, chỉ có ở danh sách tồn theo kho. */
+  binCode?: string;
 }
 function toAssignmentResponse(
   doc: SkuBinAssignmentDocument,
+  binCode?: string,
 ): SkuBinAssignmentResponse {
   return {
     id: doc._id.toString(),
@@ -149,6 +152,7 @@ function toAssignmentResponse(
     binLocationId: doc.bin_location_id.toString(),
     quantityOnHand: doc.quantity_on_hand,
     masterSku: doc.master_sku ?? null, // K4b
+    ...(binCode ? { binCode } : {}),
   };
 }
 
@@ -269,7 +273,12 @@ export class WarehouseController {
   ): Promise<SkuBinAssignmentResponse[]> {
     const docs =
       await this.warehouseService.listSkuBinAssignmentsByWarehouse(warehouseId);
-    return docs.map(toAssignmentResponse);
+    const binCodes = await this.warehouseService.binCodesByIds(
+      docs.map((d) => d.bin_location_id),
+    );
+    return docs.map((d) =>
+      toAssignmentResponse(d, binCodes.get(d.bin_location_id.toString())),
+    );
   }
 
   @Post('zones/:zoneId/bin-locations/generate')
