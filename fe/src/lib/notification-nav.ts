@@ -31,7 +31,10 @@ export function resolveNotificationPath(
       : '/app/packing'
   }
   if (type === 'low_box_stock' || type === 'low_material_stock') {
-    return role === UserRole.ADMIN ? '/app/admin/warehouse' : '/app'
+    const tab = type === 'low_box_stock' ? 'boxes' : 'cushions'
+    return role === UserRole.ADMIN
+      ? `/app/admin/packaging-materials?tab=${tab}`
+      : `/app/packaging-materials?tab=${tab}`
   }
   if (
     type === 'delivery_failed' ||
