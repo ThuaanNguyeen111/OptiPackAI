@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Giao hàng & Trả hàng (Shipping & Returns)
 
-**Phiên bản v1.3 — 14/10/2026** (thêm Phần B.7: báo giá theo kiện, chọn hãng, giao chung chuyến, lịch lấy hàng, in phiếu/nhãn/manifest — các route của module `shipping`/`documents` gộp từ thi_dev 04/10 trước đây chỉ có ở `API_LIST.md`; bổ sung bảng route F.1, mã lỗi F.2, checklist F.3; Phần E thêm hạn chế 14–16 về GHN). **v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
+**Phiên bản v1.4 — 14/10/2026 (chiều)** (C4–C6: giao qua GHN thật — Phần B.8; F.1/F.2/F.3 bổ sung). **v1.3 — 14/10/2026** (thêm Phần B.7: báo giá theo kiện, chọn hãng, giao chung chuyến, lịch lấy hàng, in phiếu/nhãn/manifest — các route của module `shipping`/`documents` gộp từ thi_dev 04/10 trước đây chỉ có ở `API_LIST.md`; bổ sung bảng route F.1, mã lỗi F.2, checklist F.3; Phần E thêm hạn chế 14–16 về GHN). **v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
 
 **Phạm vi bản gọn (đã chốt):** mọi bước là **bấm nút đổi trạng thái**. Tracking = lịch sử các lần bấm (ai, lúc nào, lý do). **Chưa có:** bản đồ/GPS, ảnh bằng chứng giao hàng, chuyến giao nhiều điểm, role shipper riêng, đổi hàng — xem Phần E.
 
@@ -222,7 +222,7 @@ Trả `{ "linkedGroups": OrderGroupResponse[] }` — các nhóm đang liên kế
 
 ## B.7. 🆕 Báo giá theo kiện, chọn hãng, giao chung chuyến, in chứng từ (gộp từ thi_dev 04/10/2026)
 
-> ⚠️ **Phạm vi hiện tại (14/10/2026):** "hãng" ở đây là **hãng mẫu cấu hình trong DB** (`SAMPLE-EXPRESS`, `SAMPLE-ECONOMY`), cước là **số giả lập** (`isSampleRate: true`), mã in trên nhãn là mã nội bộ `SHP-...`. **Chưa gọi GHN.** Khi làm C4 (`GHN_INTEGRATION_GUIDE.md` mục 9.3), GHN sẽ là một hãng trong cùng danh sách này — FE không phải đổi luồng, chỉ thấy thêm dòng `GHN` trong báo giá.
+> 🔄 **Cập nhật 14/10/2026 (chiều):** đã có hãng **GHN thật** trong cùng danh sách (`kind: "live"`) — báo giá, tạo vận đơn, in nhãn, trạng thái giao đi qua API GHN. Xem **Phần B.8**. Các hãng mẫu (`SAMPLE-*`, `isSampleRate: true`, mã nội bộ `SHP-...`) vẫn chạy như mô tả dưới đây.
 
 ### B.7.1. Chuẩn bị (Admin, làm 1 lần)
 
@@ -302,6 +302,21 @@ FE mở bằng `fetch` kèm token rồi tạo `blob:` URL để xem/in. Đơn La
 3. Chọn cả 2 nhóm → **Giao chung chuyến** (`POST /shipments/batch`) → nhận `TRIP-...`.
 4. In **nhãn** cho từng nhóm và **bảng kê chuyến** → dán nhãn lên kiện.
 5. Bấm các nút giao hàng ở B.3 cho từng vận đơn.
+
+## B.8. 🆕 Giao qua GHN thật (C4–C6, 14/10/2026)
+
+> Hướng dẫn đầy đủ từng bước (request/response, mã lỗi, kịch bản demo): **`GHN_INTEGRATION_GUIDE.md` mục 11**. Tóm tắt cho màn Vận chuyển:
+
+1. **Chuẩn bị 1 lần:** `npx ts-node -r dotenv/config scripts/seed-ghn-carrier.ts` → `GET /shipping/carriers` có thêm `GHN` (`kind: "live"`, dịch vụ `LIGHT`, `HEAVY`).
+2. **Báo giá** (`GET /shipping/quote/:groupId`): dòng GHN có `isLive: true`, cước là phí THẬT GHN (Preview từng kiện). `unavailableReason` ≠ null → làm mờ dòng + cho sửa địa chỉ (query `province_name`, `ward_name`, `street`, `phone`). `assumptions[]` → hiện cảnh báo (đơn Lazada bị che: dùng tỉnh mặc định / SĐT demo).
+3. **So phương án đóng gói** (`GET /shipping/packaging-options/:groupId?carrier_code=GHN&service_code=LIGHT`): tổng chi phí thùng + vật tư + phí ship của mọi thùng xếp vừa từng kiện; áp dụng bằng route đổi thùng của kế hoạch đóng gói.
+4. **Tạo vận đơn** (`POST /shipments` hoặc `/shipments/batch` với `carrier_code: "GHN"`, tuỳ chọn `to_location`): vận đơn **`awaiting_pickup`** ("Chờ GHN lấy hàng"), mỗi kiện 1 mã GHN (`carrierParcels[].carrierOrderCode`). Lỗi hãng → `carrierBookingError`; sửa `PATCH /shipments/:id/to-location` hoặc thử lại `POST /shipments/:id/carrier/book`.
+5. **In nhãn:** `GET /documents/shipping-label/:groupId` in mã GHN từng kiện; hoặc `GET /shipments/:id/carrier/label` lấy link A5 của GHN.
+6. **Trạng thái giao:** nút B.3 (giao/thất bại/giao lại) **bị chặn** với vận đơn GHN (`409 SHP_MANAGED_BY_CARRIER`). Trạng thái đến từ webhook GHN, hoặc (demo) nút **"Mô phỏng GHN: …"** `POST /shipments/:id/carrier/simulate { status }` — chỉ đổi dữ liệu OptiPack, shop không đổi được trạng thái bên GHN. Trạng thái mới: `awaiting_pickup` (Chờ lấy hàng), `in_transit` (Đang trung chuyển), `cancelled` (Đã huỷ ở hãng).
+7. **Hoàn hàng:** GHN báo hoàn → vận đơn `returning_to_warehouse` → **kho vẫn bấm "Nhận hàng hoàn"** (B.3) → phiếu hoàn tự tạo → kiểm hàng (Phần C, kèm thu hồi thùng/vật tư hạng A vào kho tái sử dụng).
+8. **Huỷ ở hãng:** `POST /shipments/:id/carrier/cancel` (chỉ khi chờ lấy hàng) → vận đơn `cancelled`, nhóm đơn về `packed`, tạo lại vận đơn được.
+
+Cột gợi ý cho danh sách vận đơn: Hãng · Mã GHN (`carrierParcels[].carrierOrderCode`) · Trạng thái hãng (`carrierStatusLabel`) · Phí ship (`estimatedCostVnd`) · Giao dự kiến (`etaTo`) · cờ đỏ khi `carrierBookingError` / `carrierIncident`.
 
 ---
 
@@ -472,6 +487,12 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 | GET | 🆕 `/documents/shipping-label/:groupId` | Coordinator, Warehouse, Admin |
 | GET | 🆕 `/documents/manifest/:tripCode` | Coordinator, Store Owner, Admin |
 | POST · DELETE | 🆕 `/order-groups/:id/link` | Coordinator, Admin |
+| GET | 🆕 `/shipping/packaging-options/:groupId` (C6) | Coordinator, Packaging, Store Owner, Admin |
+| POST | 🆕 `/shipments/:id/carrier/book` · `/carrier/cancel` · `/carrier/sync` · `/carrier/simulate` (C4/C5) | Coordinator, Admin |
+| PATCH | 🆕 `/shipments/:id/to-location` (C4) | Coordinator, Admin |
+| GET | 🆕 `/shipments/:id/carrier/label` (C4) | Coordinator, Warehouse, Packaging, Admin |
+| GET | 🆕 `/shipments/carrier/statuses` (C5) | Coordinator, Store Owner, Warehouse, Admin |
+| POST | 🆕 `/carriers/ghn/webhook` (C5) | Public + `X-OptiPack-Secret` |
 | POST | `/shipments/:id/receive-return` | Warehouse, Admin |
 | POST | `/order-groups/:id/fulfillment/ship` · `/deliver` | Coordinator, Admin (🔄 lỗi thời) |
 | POST | `/order-groups/:id/fulfillment/return` | Coordinator, Warehouse, Admin (🔄 lỗi thời) |
@@ -500,6 +521,8 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 | `SHIP_INVALID_RATE_TABLE` | 400 | Bảng cước sai (trống/trùng/không tăng dần) |
 | `SHIP_CARRIER_CODE_IN_USE` | 409 | Mã hãng đã tồn tại |
 | `DOC_NO_ORDERS` · `DOC_SHIPMENT_NOT_FOUND` · `DOC_TRIP_NOT_FOUND` | 404/409 | Không có đơn / chưa có vận đơn / mã chuyến không có vận đơn |
+| `SHP_MANAGED_BY_CARRIER` | 409 | Bấm nút giao/thất bại/giao lại trên vận đơn GHN |
+| `SHP_CARRIER_*`, `SHP_TO_LOCATION_LOCKED`, `SHP_WEBHOOK_UNAUTHORIZED`, `SHIP_LIVE_CARRIER_*` | — | Xem `GHN_INTEGRATION_GUIDE.md` mục 11.5 |
 | `RMA_NOT_FOUND` / `RMA_INVALID_ID` | 404/400 | Phiếu không tồn tại / id sai |
 | `RMA_ORDER_NOT_DELIVERED` | 409 | Nhóm đơn chưa giao |
 | `RMA_WINDOW_EXPIRED` | 409 | Quá 15 ngày |
@@ -530,3 +553,9 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 - [ ] 🆕 `/shipments/batch` 2 nhóm cùng người nhận → cùng `tripCode`; 2 nhóm khác người nhận → `SHP_RECIPIENT_MISMATCH`; liên kết tay rồi gửi lại → thành công
 - [ ] 🆕 In nhãn trước khi có vận đơn → `DOC_SHIPMENT_NOT_FOUND`; sau khi có → PDF đủ số nhãn = số kiện
 - [ ] 🆕 `GET /documents/manifest/:tripCode` liệt kê đủ vận đơn của chuyến
+- [ ] 🆕 (GHN) Seed GHN → báo giá có dòng `GHN` `isLive: true`; đơn Lazada có `assumptions`
+- [ ] 🆕 (GHN) Tạo vận đơn GHN → `awaiting_pickup`, mỗi kiện có `carrierOrderCode`; nút "Giao thành công" kiểu cũ trả `SHP_MANAGED_BY_CARRIER`
+- [ ] 🆕 (GHN) Mô phỏng picked → delivering → delivered → nhóm đơn `delivered`; lịch sử có `source: carrier_simulated`
+- [ ] 🆕 (GHN) Mô phỏng delivery_fail → returning → returned → kho "Nhận hàng hoàn" → phiếu hoàn → kiểm hàng có thu hồi thùng hạng A
+- [ ] 🆕 (GHN) Huỷ khi chờ lấy hàng → vận đơn `cancelled`, nhóm đơn `packed`; tạo lại → `bookingRound: 2`
+- [ ] 🆕 (C6) `packaging-options` trả `best` + `savingVnd`; áp dụng bằng change-box rồi báo giá lại thấy giảm
