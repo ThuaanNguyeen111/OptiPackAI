@@ -4,6 +4,8 @@
 > Tài liệu này là **bản tổng hợp việc phải làm**; request/response chi tiết nằm ở guide của từng phần (cột "Đọc ở đâu").
 > Thứ tự đọc đề xuất: Mục 1 (đang gãy) → Mục 2 (giao hàng/GHN) → Mục 3 (hoàn hàng) → các mục còn lại.
 
+> 🔄 **14/10 tối — đã gộp FE từ `feature/viet_ui` (12/10) vào nhánh `merge/viet-fe`:** FE nay đã gọi `/colors`, `/master-skus`, `/product-master` (+ sync), `/stock-availability`, `POST /returns` (form tạo phiếu), màn Tồn kho bỏ dữ liệu giả → các dòng tương ứng ở Mục 6, 7b.3, 7b.4 coi như **đã có phần gọi API** (vẫn cần nghiệm thu). Bản của Việt **thêm 1 route đã gỡ**: `POST /order-groups/:id/lazada-pack/retry` (`retryLazadaPack` trong `PackagingWorkbench.tsx`) — BE bỏ từ 10/10 (OptiPack không báo pack lên Lazada) → xoá cùng Mục 1.
+
 **Quy ước chung (áp cho mọi mục):**
 - Mọi nút đổi trạng thái gửi `expected_version` = trường `version` đọc được lần gần nhất. Nhận `409 *_STATE_CONFLICT` / `*_VERSION_CONFLICT` → tải lại dữ liệu rồi cho bấm lại.
 - Lỗi luôn có dạng `{ error_code, message, details }` — hiển thị `message`, rẽ nhánh theo `error_code` (không theo `message`).
