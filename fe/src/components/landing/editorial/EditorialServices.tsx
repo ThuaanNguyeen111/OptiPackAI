@@ -57,7 +57,7 @@ export function EditorialServices(): ReactNode {
         Mỗi khối dưới đây map thẳng vào module đang chạy — không slide lý thuyết.
       </p>
 
-      <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {SERVICES.map((item, i) => (
           <motion.article
             key={item.title}

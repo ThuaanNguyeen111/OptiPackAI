@@ -1,6 +1,9 @@
 import { apiRequest } from '../lib/api'
 import type {
   DecidePartialInput,
+  LazadaPackInfo,
+  LazadaPackItem,
+  LazadaPackStatus,
   ListOrderGroupsParams,
   OrderGroup,
   PackableItem,
@@ -10,10 +13,14 @@ import type {
   PickItemInput,
   PickItemResult,
   ReportMissingInput,
+  RetryLazadaPackResult,
   SetPriorityInput,
   TransitionOrderGroupInput,
 } from '../types/order-groups'
-import { WAREHOUSE_STAFF_QUEUE_STATUSES } from '../types/order-groups'
+import {
+  EMPTY_LAZADA_PACK,
+  WAREHOUSE_STAFF_QUEUE_STATUSES,
+} from '../types/order-groups'
 
 function toQuery(params: Record<string, string | undefined>): string {
   const qs = new URLSearchParams()
@@ -63,6 +70,55 @@ function toIso(value: unknown): string | null {
   return null
 }
 
+const LAZADA_PACK_STATUSES: readonly LazadaPackStatus[] = [
+  'disabled',
+  'skipped',
+  'success',
+  'partial',
+  'failed',
+]
+
+function asLazadaPackStatus(value: unknown): LazadaPackStatus | null {
+  if (typeof value !== 'string') return null
+  return (LAZADA_PACK_STATUSES as readonly string[]).includes(value)
+    ? (value as LazadaPackStatus)
+    : null
+}
+
+/** Map `lazadaPack` (camelCase từ toResponse) hoặc `lazadaPackSync` (items snake_case từ service). */
+export function mapLazadaPackInfo(raw: unknown): LazadaPackInfo {
+  const row = asRecord(raw)
+  if (!row) return { ...EMPTY_LAZADA_PACK }
+  const rawItems = Array.isArray(row.items) ? row.items : []
+  const items: LazadaPackItem[] = []
+  for (const item of rawItems) {
+    const line = asRecord(item)
+    if (!line) continue
+    const orderId = pickString(line.orderId, line.order_id)
+    const orderItemId = pickString(line.orderItemId, line.order_item_id)
+    if (!orderId || !orderItemId) continue
+    items.push({
+      orderId,
+      orderItemId,
+      ok: line.ok === true,
+      errorCode:
+        pickString(line.errorCode, line.item_err_code) || null,
+      message: pickString(line.message, line.msg) || null,
+      packageId: pickString(line.packageId, line.package_id) || null,
+      trackingNumber:
+        pickString(line.trackingNumber, line.tracking_number) || null,
+      shipmentProvider:
+        pickString(line.shipmentProvider, line.shipment_provider) || null,
+    })
+  }
+  return {
+    status: asLazadaPackStatus(row.status),
+    attemptedAt: toIso(row.attemptedAt) ?? toIso(row.attempted_at),
+    error: pickString(row.error) || null,
+    items,
+  }
+}
+
 /**
  * `GET /order-groups*` trả camelCase (`toResponse`).
  * `POST /order-groups/:id/assign` hiện trả raw Mongoose (snake_case).
@@ -75,6 +131,17 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
   if (!id) return null
   const createdAt = toIso(row.createdAt) ?? toIso(row.created_at) ?? ''
   const updatedAt = toIso(row.updatedAt) ?? toIso(row.updated_at) ?? createdAt
+  const lazadaPackRaw =
+    row.lazadaPack ??
+    row.lazada_pack ??
+    (row.lazada_pack_status !== undefined
+      ? {
+          status: row.lazada_pack_status,
+          attemptedAt: row.lazada_pack_attempted_at,
+          error: row.lazada_pack_error,
+          items: row.lazada_pack_items,
+        }
+      : null)
   return {
     id,
     platform: pickString(row.platform) || 'lazada',
@@ -90,6 +157,7 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
       row.canceledOrderCount,
       row.canceled_order_count,
     ),
+    lazadaPack: mapLazadaPackInfo(lazadaPackRaw),
     fulfillmentStatus: pickString(row.fulfillmentStatus, row.fulfillment_status),
     activePackagingRecommendationId:
       pickString(
@@ -359,11 +427,45 @@ export async function packOrderGroup(
     },
   )
   const row = asRecord(raw)
+  const group = requireOrderGroup(raw)
+  const lazadaPackSync = mapLazadaPackInfo(
+    row?.lazadaPackSync ?? row?.lazada_pack_sync,
+  )
   return {
-    group: requireOrderGroup(raw),
+    group: {
+      ...group,
+      lazadaPack:
+        lazadaPackSync.status != null ? lazadaPackSync : group.lazadaPack,
+    },
     packagingConsumption: mapPackagingConsumption(
       row?.packagingConsumption ?? row?.packaging_consumption,
     ),
+    lazadaPackSync,
+  }
+}
+
+export async function retryLazadaPack(
+  id: string,
+): Promise<RetryLazadaPackResult> {
+  const raw = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(id)}/lazada-pack/retry`,
+    {
+      method: 'POST',
+      auth: true,
+    },
+  )
+  const row = asRecord(raw)
+  const group = requireOrderGroup(raw)
+  const lazadaPackSync = mapLazadaPackInfo(
+    row?.lazadaPackSync ?? row?.lazada_pack_sync,
+  )
+  return {
+    group: {
+      ...group,
+      lazadaPack:
+        lazadaPackSync.status != null ? lazadaPackSync : group.lazadaPack,
+    },
+    lazadaPackSync,
   }
 }
 

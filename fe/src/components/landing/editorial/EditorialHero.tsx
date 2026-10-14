@@ -8,7 +8,7 @@ export function EditorialHero(): ReactNode {
   return (
     <section
       id="top"
-      className="relative px-4 pb-8 pt-28 sm:px-6 sm:pt-32 lg:px-10"
+      className="relative px-4 pb-4 pt-28 sm:px-6 sm:pt-32 lg:px-10"
     >
       <div className="mx-auto w-full max-w-[1120px]">
         <div className="grid items-stretch gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-12">
@@ -57,7 +57,7 @@ export function EditorialHero(): ReactNode {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4, duration: 0.5 }}
-              className="mt-12 flex flex-wrap items-center gap-3"
+              className="mt-8 flex flex-wrap items-center gap-3"
             >
               <LandingAuthCta variant="hero" />
               <a

@@ -84,7 +84,8 @@
 .ed-section {
   width: min(1120px, calc(100% - 2rem));
   margin-inline: auto;
-  padding-block: clamp(4rem, 8vw, 7rem);
+  /* Tighter rhythm: adjacent sections no longer stack ~14rem of air */
+  padding-block: clamp(2.5rem, 5vw, 4.25rem);
 }
 
 .ed-kicker {

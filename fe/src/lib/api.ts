@@ -23,11 +23,12 @@ function isAbortError(err: unknown): boolean {
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController()
   const timeoutId = globalThis.setTimeout(
     () => controller.abort(),
-    REQUEST_TIMEOUT_MS,
+    timeoutMs,
   )
   try {
     return await fetch(url, { ...init, signal: controller.signal })
@@ -146,13 +147,15 @@ type RequestOptions = {
   body?: unknown
   auth?: boolean
   skipRefresh?: boolean
+  /** Đồng bộ catalog Lazada có thể lâu hơn 12 giây mặc định. */
+  timeoutMs?: number
 }
 
 export async function apiRequest<T>(
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  const { method = 'GET', body, auth = false, skipRefresh = false } = options
+  const { method = 'GET', body, auth = false, skipRefresh = false, timeoutMs } = options
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -163,11 +166,15 @@ export async function apiRequest<T>(
     if (token) headers.Authorization = `Bearer ${token}`
   }
 
-  const res = await fetchWithTimeout(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  })
+  const res = await fetchWithTimeout(
+    `${API_BASE_URL}${path}`,
+    {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    timeoutMs,
+  )
 
   if (res.status === 401 && auth && !skipRefresh) {
     const ok = await ensureRefreshed()

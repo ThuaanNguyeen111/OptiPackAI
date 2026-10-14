@@ -9,19 +9,31 @@ import {
   Scale,
   XCircle,
 } from 'lucide-react'
-import { decidePartialOrderGroup, listOrderGroups, packOrderGroup } from '../../api/order-groups.api'
+import {
+  decidePartialOrderGroup,
+  listOrderGroups,
+  packOrderGroup,
+  retryLazadaPack,
+} from '../../api/order-groups.api'
 import {
   adjustPackaging,
   approvePackaging,
   getPackagingRecommendation,
   rejectPackaging,
 } from '../../api/packaging.api'
-import { usePortal } from '../../context/use-portal'
-import { ApiError, formatApiError } from '../../lib/api'
 import {
+  listPackagingMaterials,
+  type PackagingMaterialStock,
+} from '../../api/packaging-materials.api'
+import { usePortal } from '../../context/use-portal'
+import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
+import {
+  canRetryLazadaPack,
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
   isPartiallyCanceledGroup,
+  LAZADA_PACK_STATUS_LABELS,
+  type LazadaPackInfo,
   type OrderGroup,
 } from '../../types/order-groups'
 import {
@@ -139,6 +151,80 @@ function boxViewerSub(rec: PackagingRecommendation | null, vi: boolean): string 
     : `${rec.materialType} · packing guide demo`
 }
 
+function lazadaPackStatusLabel(
+  status: LazadaPackInfo['status'],
+  vi: boolean,
+): string {
+  if (!status) return vi ? 'Chưa gửi Lazada' : 'Not sent to Lazada'
+  const known = LAZADA_PACK_STATUS_LABELS[status]
+  return vi ? known.vi : known.en
+}
+
+function sameBoxSize(
+  box: { lengthCm: number; widthCm: number; heightCm: number },
+  stock: PackagingMaterialStock,
+): boolean {
+  if (stock.lengthCm == null || stock.widthCm == null || stock.heightCm == null) {
+    return false
+  }
+  const left = [box.lengthCm, box.widthCm, box.heightCm].sort((a, b) => a - b)
+  const right = [stock.lengthCm, stock.widthCm, stock.heightCm].sort((a, b) => a - b)
+  return left.every((value, index) => Math.abs(value - (right[index] ?? Number.NaN)) < 0.05)
+}
+
+function confirmBoxUse(
+  box: { lengthCm: number; widthCm: number; heightCm: number },
+  stock: PackagingMaterialStock[],
+  vi: boolean,
+): boolean {
+  const match = stock.find((row) => row.kind === 'box' && sameBoxSize(box, row))
+  const size = `${box.lengthCm}×${box.widthCm}×${box.heightCm} cm`
+  const name = match?.name.trim() ?? ''
+  const named =
+    name.length > 0 &&
+    (name.toLowerCase().startsWith('thùng') || name.toLowerCase().startsWith('box'))
+  const message = named
+    ? vi
+      ? `Dùng ${name} ${size}?`
+      : `Use ${name} ${size}?`
+    : name
+      ? vi
+        ? `Dùng thùng ${name} ${size}?`
+        : `Use box ${name} ${size}?`
+      : vi
+        ? `Dùng thùng ${size}?`
+        : `Use box ${size}?`
+  return window.confirm(message)
+}
+
+function lazadaPackToastHint(sync: LazadaPackInfo, vi: boolean): string {
+  const status = sync.status
+  if (status === 'success') {
+    return vi ? ' Đã báo đóng gói lên Lazada.' : ' Reported packed to Lazada.'
+  }
+  if (status === 'partial') {
+    return vi
+      ? ` Lazada chỉ thành công một phần${sync.error ? `: ${sync.error}` : '.'}`
+      : ` Lazada partial success${sync.error ? `: ${sync.error}` : '.'}`
+  }
+  if (status === 'failed') {
+    return vi
+      ? ` Báo Lazada thất bại${sync.error ? `: ${sync.error}` : '.'} Có thể gửi lại.`
+      : ` Lazada report failed${sync.error ? `: ${sync.error}` : '.'} You can retry.`
+  }
+  if (status === 'disabled') {
+    return vi
+      ? ' Chưa gửi sàn (cầu dao LAZADA_WRITE_APIS_ENABLED tắt).'
+      : ' Not sent to marketplace (LAZADA_WRITE_APIS_ENABLED is off).'
+  }
+  if (status === 'skipped') {
+    return vi
+      ? ' Bỏ qua bước Lazada (không cần gửi).'
+      : ' Skipped Lazada report (nothing to send).'
+  }
+  return ''
+}
+
 export function PackagingWorkbench() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
@@ -157,6 +243,12 @@ export function PackagingWorkbench() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  /** Giữ kết quả báo Lazada sau pack — group đã rời hàng đợi (status=packed). */
+  const [lazadaFollowUp, setLazadaFollowUp] = useState<{
+    groupId: string
+    pack: LazadaPackInfo
+  } | null>(null)
+  const [lazadaRetryBusy, setLazadaRetryBusy] = useState(false)
 
   const [weightKg, setWeightKg] = useState('')
   const [mode, setMode] = useState<'approve' | 'adjust'>('approve')
@@ -171,6 +263,8 @@ export function PackagingWorkbench() {
   const [adjustNote, setAdjustNote] = useState('')
   const [rejectReason, setRejectReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
+  const [boxStock, setBoxStock] = useState<PackagingMaterialStock[]>([])
+  const [boxStockError, setBoxStockError] = useState<string | null>(null)
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -186,12 +280,23 @@ export function PackagingWorkbench() {
     }
   }, [])
 
+  const loadBoxStock = useCallback(async () => {
+    try {
+      const rows = await listPackagingMaterials()
+      setBoxStock(rows.filter((row) => row.kind === 'box' && row.isActive))
+      setBoxStockError(null)
+    } catch (err: unknown) {
+      setBoxStockError(formatApiError(err))
+    }
+  }, [])
+
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void loadList()
+      void loadBoxStock()
     }, 150)
     return () => window.clearTimeout(timer)
-  }, [loadList])
+  }, [loadList, loadBoxStock])
 
   const counts = useMemo(() => {
     let pending = 0
@@ -341,6 +446,27 @@ export function PackagingWorkbench() {
       )
       return
     }
+    if (!rec) {
+      setActionError(
+        vi
+          ? 'Chưa có gợi ý thùng. Chờ Admin chốt kế hoạch.'
+          : 'No box recommendation yet. Wait for Admin to confirm a plan.',
+      )
+      return
+    }
+    if (
+      !confirmBoxUse(
+        {
+          lengthCm: rec.boxSize.lengthCm,
+          widthCm: rec.boxSize.widthCm,
+          heightCm: rec.boxSize.heightCm,
+        },
+        boxStock,
+        vi,
+      )
+    ) {
+      return
+    }
     setActionBusy(true)
     setActionError(null)
     try {
@@ -387,6 +513,15 @@ export function PackagingWorkbench() {
       setActionError(
         vi ? 'Nhập ghi chú khi chọn lý do Khác.' : 'Note required for Other.',
       )
+      return
+    }
+    if (
+      !confirmBoxUse(
+        { lengthCm: l, widthCm: w, heightCm: h },
+        boxStock,
+        vi,
+      )
+    ) {
       return
     }
     setActionBusy(true)
@@ -461,6 +596,40 @@ export function PackagingWorkbench() {
     }
   }
 
+  function rememberLazadaFollowUp(
+    groupId: string,
+    sync: LazadaPackInfo,
+  ): void {
+    const needsFollowUp =
+      sync.status === 'failed' ||
+      sync.status === 'partial' ||
+      sync.status === 'disabled' ||
+      sync.status === null
+    setLazadaFollowUp(
+      needsFollowUp || sync.status === 'success' || sync.status === 'skipped'
+        ? { groupId, pack: sync }
+        : null,
+    )
+  }
+
+  async function onRetryLazadaPack(): Promise<void> {
+    if (!lazadaFollowUp) return
+    setLazadaRetryBusy(true)
+    setActionError(null)
+    try {
+      const result = await retryLazadaPack(lazadaFollowUp.groupId)
+      rememberLazadaFollowUp(lazadaFollowUp.groupId, result.lazadaPackSync)
+      showToast(
+        (vi ? 'Đã gửi lại lên Lazada.' : 'Retried Lazada pack report.') +
+          lazadaPackToastHint(result.lazadaPackSync, vi),
+      )
+    } catch (err: unknown) {
+      setActionError(formatApiError(err))
+    } finally {
+      setLazadaRetryBusy(false)
+    }
+  }
+
   async function onConfirmPacked(): Promise<void> {
     if (!group || group.fulfillmentStatus !== 'approved_for_packing') return
     setActionBusy(true)
@@ -484,17 +653,29 @@ export function PackagingWorkbench() {
             ? ` Tiết kiệm ~${saved.toLocaleString('vi-VN')}₫ (thùng tái sử dụng).`
             : ` Saved ~${saved.toLocaleString('en-US')} VND (reused packing).`
           : ''
+      rememberLazadaFollowUp(group.id, result.lazadaPackSync)
       showToast(
         (vi
           ? 'Đã xác nhận đóng gói xong — nhóm chuyển sang packed.'
           : 'Confirmed packed — group is now packed.') +
           saveHint +
-          warn,
+          warn +
+          lazadaPackToastHint(result.lazadaPackSync, vi),
       )
       setGuide3dActive(false)
       await refreshAfterAction()
+      await loadBoxStock()
     } catch (err: unknown) {
-      setActionError(formatApiError(err))
+      const code = getApiErrorCode(err)
+      if (code === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
+        setActionError(
+          vi
+            ? 'Nhóm không còn đơn để đóng gói (đã hủy / sự cố).'
+            : 'No active orders left to pack (canceled / exception).',
+        )
+      } else {
+        setActionError(formatApiError(err))
+      }
     } finally {
       setActionBusy(false)
     }
@@ -514,16 +695,26 @@ export function PackagingWorkbench() {
           ? ` Cảnh báo: ${consumption.warnings.join('; ')}`
           : ` Warnings: ${consumption.warnings.join('; ')}`
         : ''
+      rememberLazadaFollowUp(group.id, result.lazadaPackSync)
       showToast(
-        (vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.') + warn,
+        (vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.') +
+          warn +
+          lazadaPackToastHint(result.lazadaPackSync, vi),
       )
       await refreshAfterAction()
+      await loadBoxStock()
     } catch (err: unknown) {
       if (err instanceof ApiError && err.status === 403) {
         setActionError(
           vi
             ? 'Không có quyền pack. Kiểm tra role PACKAGING_STAFF trên BE.'
             : 'No pack permission. Check PACKAGING_STAFF role on BE.',
+        )
+      } else if (getApiErrorCode(err) === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
+        setActionError(
+          vi
+            ? 'Nhóm không còn đơn để đóng gói (đã hủy / sự cố).'
+            : 'No active orders left to pack (canceled / exception).',
         )
       } else {
         setActionError(formatApiError(err))
@@ -605,6 +796,14 @@ export function PackagingWorkbench() {
 
   const queuePaging = useLocalQueuePagination(groups)
 
+  const lazadaFollowUpCanRetry = lazadaFollowUp
+    ? canRetryLazadaPack({
+        platform: 'lazada',
+        fulfillmentStatus: 'packed',
+        lazadaPack: lazadaFollowUp.pack,
+      })
+    : false
+
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
       <section className="owner-hero">
@@ -672,6 +871,63 @@ export function PackagingWorkbench() {
                 : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
         </p>
       </div>
+
+      {lazadaFollowUp ? (
+        <div
+          className={`owner-panel flex flex-wrap items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-sm ${
+            lazadaFollowUp.pack.status === 'success'
+              ? 'border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100'
+              : lazadaFollowUp.pack.status === 'failed' ||
+                  lazadaFollowUp.pack.status === 'partial'
+                ? 'border-rose-200 bg-rose-50/80 text-rose-950 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-100'
+                : 'border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'
+          }`}
+        >
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="font-semibold">
+              {vi ? 'Báo đóng gói lên Lazada' : 'Lazada pack report'} ·{' '}
+              <span className="font-mono text-xs">
+                …{lazadaFollowUp.groupId.slice(-8)}
+              </span>
+            </p>
+            <p className="text-xs opacity-90">
+              {lazadaPackStatusLabel(lazadaFollowUp.pack.status, vi)}
+              {lazadaFollowUp.pack.error
+                ? ` — ${lazadaFollowUp.pack.error}`
+                : ''}
+            </p>
+            <p className="text-[11px] opacity-75">
+              {vi
+                ? 'OptiPack đã packed. Lỗi Lazada không hoàn tác bước đóng gói.'
+                : 'OptiPack is already packed. A Lazada error does not undo packing.'}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {lazadaFollowUpCanRetry ? (
+              <button
+                type="button"
+                disabled={lazadaRetryBusy}
+                onClick={() => void onRetryLazadaPack()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
+              >
+                {lazadaRetryBusy ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                {vi ? 'Gửi lại Lazada' : 'Retry Lazada'}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setLazadaFollowUp(null)}
+              className="rounded-lg border border-current/20 px-3 py-2 text-xs font-semibold opacity-80 hover:opacity-100"
+            >
+              {vi ? 'Đóng' : 'Dismiss'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="pack-bench">
         <section className="pack-bench-col">
@@ -987,6 +1243,50 @@ export function PackagingWorkbench() {
                         ) : null}
                       </dl>
                     )}
+                    <div className="mt-3 border-t border-hairline pt-3">
+                      <p className="text-xs font-medium text-ink-muted">
+                        {vi ? 'Tồn thùng' : 'Box stock'}
+                      </p>
+                      {boxStockError ? (
+                        <p className="mt-1 text-xs text-rose-700 dark:text-rose-300">
+                          {boxStockError}
+                        </p>
+                      ) : boxStock.length === 0 ? (
+                        <p className="mt-1 text-xs text-ink-subtle">
+                          {vi
+                            ? 'Chưa có thùng trong danh mục vật liệu.'
+                            : 'No boxes in the material catalog.'}
+                        </p>
+                      ) : (
+                        <ul className="mt-1 space-y-1 text-xs text-ink">
+                          {boxStock.map((row) => {
+                            const size =
+                              row.lengthCm != null &&
+                              row.widthCm != null &&
+                              row.heightCm != null
+                                ? `${row.lengthCm}×${row.widthCm}×${row.heightCm} cm`
+                                : null
+                            const suggested =
+                              rec != null && sameBoxSize(rec.boxSize, row)
+                            return (
+                              <li
+                                key={row.code}
+                                className={
+                                  suggested ? 'font-medium text-primary' : undefined
+                                }
+                              >
+                                {row.name}
+                                {size ? ` · ${size}` : ''}
+                                {' — '}
+                                {vi ? 'mới' : 'new'} {row.qtyNew}
+                                {' · '}
+                                {vi ? 'tái sử dụng' : 'reused'} {row.qtyReused}
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   </div>
 
                   {tab === 'picked' &&
