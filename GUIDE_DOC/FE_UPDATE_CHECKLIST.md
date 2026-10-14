@@ -154,6 +154,23 @@ Hàng chờ (`GET /packing-plans/summary?group_ids=`), giao người đóng (`..
 
 > Không cần làm ở FE quản trị: `/storefront/*`, `/customer-auth/*` (app `storefront/` đã gọi đủ), `POST /carriers/ghn/webhook`, `POST /marketplace/webhooks/:platform`, `GET /marketplace/:platform/callback` (do sàn/hãng gọi).
 
+### 7b.4. Dữ liệu gửi lên đã khớp; còn các màn đang dùng dữ liệu giả dù BE đã có API
+
+Đã so **dữ liệu gửi lên** (body của 43 lời gọi POST/PATCH/PUT, kể cả kiểu `*Input` của màn Kho/Danh mục/User) và **tham số lọc** (query của các màn danh sách) với DTO của BE (BE bật `forbidNonWhitelisted`, gửi thừa trường là bị 400). Kết quả: **không có chỗ nào gửi thừa hay thiếu trường bắt buộc**; vai trò (`UserRole` 0–4) khớp BE.
+
+Những màn còn đọc dữ liệu giả trong `fe/src/data/*-mock.ts` dù BE đã có API:
+
+| Màn / file | Dữ liệu giả | API BE thay thế | Mức sửa |
+|---|---|---|---|
+| Đơn hàng (`OrdersPage`, `AdminOrdersPage` → `MarketplaceOrdersScreen.tsx`, `MarketplaceOrdersView.tsx`) | **Trộn đơn "demo đa sàn" Lazada + TikTok giả** (`data/demo-multi-platform-orders.ts`) vào danh sách đơn thật, kèm dòng chú thích "DEMO FE" | `GET /orders` (đã gọi) — đơn AURELLE thật + liên kết tay nhóm (`POST /order-groups/:id/link`) thay cho demo đa sàn | Nhỏ: bỏ phần trộn + chú thích. **Nên sửa trước demo** (TikTok đã bỏ khỏi phạm vi) |
+| Tồn kho (`/app/inventory`, `WarehouseInventoryPage.tsx`) | Toàn bộ danh sách tồn giả, lưu `localStorage` | `GET /warehouse/warehouses/:id/sku-bin-assignments`, `GET /stock-availability` | Vừa |
+| Quy tắc đóng gói (`/app/packaging-rules`, `PackagingRulesPage.tsx`) | Danh sách thùng giả `initialCartons` | `GET /packaging/boxes`, `GET/PUT /packaging/materials/rules`, `GET/PUT /packing/settings` | Vừa |
+| Mẫu đóng gói (Admin `templates`, `usePackagingTemplates.ts`) | `admin-mock` | `/packaging/boxes`, `/packaging/bags` | Vừa |
+| Bảng điều khiển (`DashboardPage.tsx`), Báo cáo (`AnalyticsReportPage.tsx`) | Số liệu giả | `GET /packing/reports/summary`, `GET /packing-plans/summary`, `GET /packaging-materials/savings` | Vừa |
+| Màn Vận chuyển (`ShippingPage.tsx`) | Hằng số `OWN_FLEET_ACCOUNT` (đội giao riêng) | Hãng thật từ `GET /shipping/carriers` | Nhỏ (cùng việc Mục 2) |
+| `PackingDashboard.tsx`, `ConsolidationPage.tsx`, `IntegrationsPage.tsx`, `SyncEventLog.tsx`, `BatchDetailDrawer.tsx`, `useWarehouseFloor.ts` | Dữ liệu giả | Màn cũ, kiểm tra còn được dùng trên menu không; không dùng thì xoá | Tuỳ |
+
+
 ---
 
 ## 8. Checklist nghiệm thu FE
