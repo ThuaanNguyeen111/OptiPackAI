@@ -1,3 +1,5 @@
+> ⚠️ **BẢN CŨ (28/09/2026)** — bản mới nhất ở `GUIDE_DOC/DEMO_PLAYBOOK.md`; phần giao hàng GHN ở `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` mục 11.6.
+
 # OptiPackAI — Sổ tay trình diễn hệ thống (Demo Playbook)
 
 | Thông tin | Giá trị |

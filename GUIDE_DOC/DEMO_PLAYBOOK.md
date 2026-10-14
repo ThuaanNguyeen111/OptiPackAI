@@ -1,5 +1,7 @@
 # OptiPackAI — Sổ tay trình diễn hệ thống (Demo Playbook)
 
+> 🆕 14/10/2026 — Giao hàng qua **GHN** (báo giá phí thật, vận đơn GHN, nút mô phỏng trạng thái, hoàn hàng + thu hồi vật tư): kịch bản 5 phút ở `GHN_INTEGRATION_GUIDE.md` mục 11.6. Cài đặt: chạy `scripts/seed-ghn-carrier.ts`, đặt `CARRIER_MANUAL_STATUS_ENABLED=true`.
+
 | Thông tin         | Giá trị                                                                                                                                                                                            |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Phiên bản         | 1.1 — 07/10/2026 (thêm script chuyển dữ liệu id ở 1.2, 4 dòng xử lý sự cố ở mục 10) · 1.0 — 27/09/2026                                                                                                                                                                                   |
