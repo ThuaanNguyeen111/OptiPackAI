@@ -2,6 +2,7 @@ import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
+import { mapWithConcurrency } from '../../common/utils/concurrency.util';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
 import { parcelsOfPlan } from '../packing/utils/parcels.util';
@@ -19,7 +20,7 @@ import {
   ShippingSettingsDocument,
 } from './schemas/shipping-settings.schema';
 import { SHIP_ERROR_CODES } from './shipping.errors';
-import { LiveCarrierService, type LiveServiceRef, type ToLocationInput } from './live-carrier.service';
+import { LiveCarrierService, QUOTE_CONCURRENCY, type LiveServiceRef, type ToLocationInput } from './live-carrier.service';
 import { PackingPlanService } from '../packing/packing-plan.service';
 import {
   pickRecommended,
@@ -334,17 +335,16 @@ export class ShippingService {
       );
     }
     const carriers = await this.listCarriers(true);
-    const quotes: ServiceQuote[] = [];
-    for (const carrier of carriers) {
-      for (const service of carrier.services) {
-        if (carrier.kind === 'live') {
-          // C4 — hãng API: hỏi hãng cho từng kiện; lỗi (sai địa chỉ...) không làm hỏng cả bảng báo giá.
-          quotes.push(await this.safeLiveQuote(this.toLiveRef(carrier, service), parcels, toLocation));
-        } else {
-          quotes.push(quoteService(carrier, service, parcels));
-        }
-      }
-    }
+    // (14/10/2026) Các dịch vụ hỏi song song (giữ thứ tự hãng/dịch vụ như trước).
+    const pairs = carriers.flatMap((carrier) => carrier.services.map((service) => ({ carrier, service })));
+    const quotes: ServiceQuote[] = await Promise.all(
+      pairs.map(({ carrier, service }) =>
+        carrier.kind === 'live'
+          ? // C4 — hãng API: hỏi hãng cho từng kiện; lỗi (sai địa chỉ...) không làm hỏng cả bảng báo giá.
+            this.safeLiveQuote(this.toLiveRef(carrier, service), parcels, toLocation)
+          : Promise.resolve(quoteService(carrier, service, parcels)),
+      ),
+    );
     const settings = await this.getSettings();
     const available = quotes.filter((q) => !q.unavailableReason);
     const recommended = pickRecommended(available, settings.strategy, {
@@ -515,20 +515,26 @@ export class ShippingService {
         available: null,
         isCurrent: true,
       };
-      const options: PackagingOptionCost[] = [current];
-      for (const o of p.options) {
-        if (o.boxCode === p.current.boxCode) continue;
-        if (o.available <= 0) continue; // hết thùng → không đề xuất (và không tốn lượt gọi hãng)
-        const c = await priceOne(p.parcelNo, p.orderId, o.estimatedWeightG, o.outerMm);
-        options.push({
-          ...o,
-          chargeableWeightG: c.chargeable,
-          shippingVnd: c.shipping,
-          shippingError: c.error,
-          totalVnd: c.shipping === null ? null : o.boxPriceVnd + o.materialsCostVnd + c.shipping,
-          isCurrent: false,
-        });
-      }
+      // hết thùng → không đề xuất (và không tốn lượt gọi hãng)
+      const candidates = p.options.filter((o) => o.boxCode !== p.current.boxCode && o.available > 0);
+      // (14/10/2026) Hỏi giá các thùng thay thế song song, tối đa QUOTE_CONCURRENCY lượt cùng lúc.
+      const priced = await mapWithConcurrency(candidates, QUOTE_CONCURRENCY, (o) =>
+        priceOne(p.parcelNo, p.orderId, o.estimatedWeightG, o.outerMm),
+      );
+      const options: PackagingOptionCost[] = [
+        current,
+        ...candidates.map((o, i): PackagingOptionCost => {
+          const c = priced[i] as { shipping: number | null; chargeable: number | null; error: string | null };
+          return {
+            ...o,
+            chargeableWeightG: c.chargeable,
+            shippingVnd: c.shipping,
+            shippingError: c.error,
+            totalVnd: c.shipping === null ? null : o.boxPriceVnd + o.materialsCostVnd + c.shipping,
+            isCurrent: false,
+          };
+        }),
+      ];
       options.sort((a, b) => (a.totalVnd ?? Number.MAX_SAFE_INTEGER) - (b.totalVnd ?? Number.MAX_SAFE_INTEGER) || Number(b.isCurrent) - Number(a.isCurrent));
       const best = options.find((o) => o.totalVnd !== null) ?? null;
       const saving = best && current.totalVnd !== null && best.totalVnd !== null ? Math.max(0, current.totalVnd - best.totalVnd) : 0;

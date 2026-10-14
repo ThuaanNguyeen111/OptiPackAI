@@ -260,6 +260,22 @@ export class WarehouseService {
       .lean();
   }
 
+  /**
+   * BỔ SUNG (14/10/2026) — mã ô (`bin_code`) theo id ô, để response danh sách
+   * tồn theo ô trả thêm `binCode` (màn Kho FE đọc `binCode`, trước đây BE không
+   * trả nên FE hiện 8 ký tự cuối của id). 1 truy vấn cho cả trang, chỉ lấy
+   * `_id` + `bin_code`. Id không còn ô (đã xoá) thì không có trong Map.
+   */
+  async binCodesByIds(ids: Types.ObjectId[]): Promise<Map<string, string>> {
+    const unique = [...new Set(ids.map((id) => id.toString()))];
+    if (unique.length === 0) return new Map();
+    const bins = await this.binModel
+      .find({ _id: { $in: unique.map((id) => new Types.ObjectId(id)) } })
+      .select({ _id: 1, bin_code: 1 })
+      .lean<{ _id: Types.ObjectId; bin_code: string }[]>();
+    return new Map(bins.map((b) => [b._id.toString(), b.bin_code]));
+  }
+
   private async assertZoneExists(
     zoneId: string,
   ): Promise<WarehouseZoneDocument> {

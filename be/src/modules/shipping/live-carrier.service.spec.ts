@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { LiveCarrierService } from './live-carrier.service';
+import { LiveCarrierService, QUOTE_CONCURRENCY } from './live-carrier.service';
 import { MockCarrierAdapter } from '../carriers/adapters/mock.adapter';
 import { OrderStatus } from '../orders/enums/order-status.enum';
 
@@ -90,6 +90,36 @@ describe('LiveCarrierService', () => {
     expect(quote.totalCostVnd).toBe(quote.parcels.reduce((s, p) => s + p.costVnd, 0));
     expect(quote.parcels[0]?.costVnd).toBe(20_900); // mock: ≤ 1 kg tính cước
     expect(orderModel.findById).toHaveBeenCalledTimes(1); // 2 kiện cùng đơn — đọc đơn 1 lần
+  });
+
+  it('(14/10) báo giá nhiều kiện: hỏi hãng song song (≤ QUOTE_CONCURRENCY) nhưng giữ đúng thứ tự kiện', async () => {
+    orderModel.findById.mockResolvedValue(fullOrder);
+    let running = 0;
+    let peak = 0;
+    const slowAdapter = {
+      code: 'GHN',
+      previewShipment: jest.fn(async (input: { parcel: { weight_g: number } }) => {
+        running += 1;
+        peak = Math.max(peak, running);
+        // kiện đầu chậm nhất — nếu gộp sai thứ tự, kết quả kiện 1 sẽ nằm sau
+        await new Promise((r) => setTimeout(r, input.parcel.weight_g === 100 ? 30 : 2));
+        running -= 1;
+        return { fee: { total: input.parcel.weight_g * 10 }, expected_delivery_at: null };
+      }),
+    };
+    const svc = new LiveCarrierService(slowAdapter as never, orderModel as never, configService as never);
+    const parcels = [100, 200, 300, 400, 500, 600].map((g, i) => ({
+      orderId: orderId.toString(), cartonIndex: i, parcelNo: i + 1, actualG: g, outer: { length_mm: 100, width_mm: 100, height_mm: 100 },
+    }));
+    const quote = await svc.quoteParcels(
+      { carrierCode: 'GHN', carrierName: 'GHN', volumetricDivisor: 5000, serviceCode: 'LIGHT', serviceName: 'Hàng nhẹ', serviceTypeId: 2 },
+      parcels,
+    );
+    expect(quote.parcels.map((p) => p.parcelNo)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(quote.parcels.map((p) => p.costVnd)).toEqual([1000, 2000, 3000, 4000, 5000, 6000]);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(QUOTE_CONCURRENCY);
+    expect(orderModel.findById).toHaveBeenCalledTimes(1);
   });
 
   it('tạo vận đơn: cùng client_order_code tạo lại → cùng mã hãng (chống trùng)', async () => {
