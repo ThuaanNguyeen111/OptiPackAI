@@ -17,6 +17,10 @@ export default registerAs('carrier', () => ({
   mode: process.env.CARRIER_MODE,
   // Bật các nút mô phỏng trạng thái giao (demo). Chỉ đúng chuỗi "true" mới bật.
   manualStatusEnabled: process.env.CARRIER_MANUAL_STATUS_ENABLED === 'true',
+  // C4 (14/10/2026) — CHỈ MÔI TRƯỜNG DEMO: đơn Lazada bị che tỉnh / SĐT.
+  // Thiếu tỉnh → dùng tỉnh này; SĐT bị che/sai → dùng SĐT này khi gửi hãng.
+  defaultProvince: process.env.CARRIER_DEFAULT_PROVINCE,
+  demoRecipientPhone: process.env.CARRIER_DEMO_RECIPIENT_PHONE,
   ghn: {
     baseUrl: process.env.GHN_BASE_URL,
     token: process.env.GHN_TOKEN,

@@ -148,17 +148,31 @@ export interface ShippingLabelData {
   trackingCode: string;
   tripCode: string;
   recipient: { fullName: string; phone: string; address: string };
-  parcels: { orderId: string; index: number; total: number; boxCode: string; weightG: number }[];
+  parcels: {
+    orderId: string;
+    index: number;
+    total: number;
+    boxCode: string;
+    weightG: number;
+    /** C4 (14/10/2026) — mã vận đơn của HÃNG cho riêng kiện này (GHN: 1 kiện = 1 mã). Không có → dùng trackingCode chung. */
+    trackingCode?: string | null;
+    /** C4 — mã phân loại của hãng (GHN sort_code) in nhỏ dưới mã vạch. */
+    sortCode?: string | null;
+  }[];
   etaTo: Date | null;
 }
 
 /** Nhãn 100 × 150 mm: mã vận đơn Code128 + QR, người nhận, kiện k/n. Mã vận đơn là mã NỘI BỘ. */
 export async function renderShippingLabels(data: ShippingLabelData): Promise<Buffer> {
   const { doc, done } = createDoc({ size: [mm(100), mm(150)], margin: mm(5), autoFirstPage: false });
-  const trackingBarcode = await barcodePng(data.trackingCode);
-  const qr = await qrPng(`${data.trackingCode}|${data.tripCode}`);
+  const sharedBarcode = await barcodePng(data.trackingCode);
+  const sharedQr = await qrPng(`${data.trackingCode}|${data.tripCode}`);
 
   for (const parcel of data.parcels) {
+    // C4 — kiện có mã hãng riêng (GHN) thì mã vạch/QR là mã của hãng cho đúng kiện đó.
+    const code = parcel.trackingCode ?? data.trackingCode;
+    const trackingBarcode = parcel.trackingCode ? await barcodePng(parcel.trackingCode) : sharedBarcode;
+    const qr = parcel.trackingCode ? await qrPng(`${parcel.trackingCode}|${data.trackingCode}|${data.tripCode}`) : sharedQr;
     doc.addPage();
     const left = doc.page.margins.left;
     const width = doc.page.width - left - doc.page.margins.right;
@@ -172,7 +186,12 @@ export async function renderShippingLabels(data: ShippingLabelData): Promise<Buf
 
     const barcodeY = doc.page.margins.top + mm(16);
     doc.image(trackingBarcode, left, barcodeY, { width, height: mm(22) });
-    doc.font('vn-bold').fontSize(10).text(data.trackingCode, left, barcodeY + mm(23), { width, align: 'center' });
+    doc.font('vn-bold').fontSize(10).text(
+      parcel.sortCode ? `${code}  ·  ${parcel.sortCode}` : code,
+      left,
+      barcodeY + mm(23),
+      { width, align: 'center' },
+    );
 
     const recipientY = barcodeY + mm(31);
     doc.moveTo(left, recipientY - 4).lineTo(left + width, recipientY - 4).strokeColor('#000000').stroke();
@@ -186,6 +205,7 @@ export async function renderShippingLabels(data: ShippingLabelData): Promise<Buf
     doc.font('vn').fontSize(8);
     doc.text(`Từ: ${data.shopName}`, left + mm(30), footerY, { width: width - mm(30) });
     doc.text(`Chuyến: ${data.tripCode}`, left + mm(30), doc.y, { width: width - mm(30) });
+    if (parcel.trackingCode) doc.text(`Vận đơn OptiPack: ${data.trackingCode}`, left + mm(30), doc.y, { width: width - mm(30) });
     doc.text(`Thùng: ${parcel.boxCode}`, left + mm(30), doc.y, { width: width - mm(30) });
     doc.text(`Cân: ${formatKg(parcel.weightG)}`, left + mm(30), doc.y, { width: width - mm(30) });
     if (data.etaTo) doc.text(`Giao dự kiến trước: ${formatDate(data.etaTo).split(' ').at(-1) ?? ''}`, left + mm(30), doc.y, { width: width - mm(30) });

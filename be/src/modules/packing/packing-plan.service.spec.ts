@@ -595,6 +595,26 @@ describe('PackingPlanService', () => {
     });
   });
 
+  describe('C6 (14/10/2026) — phương án thùng xếp vừa từng kiện (chỉ đọc)', () => {
+    it('mỗi kiện liệt kê các thùng xếp vừa (cùng solver với đổi thùng), có cân ước tính + giá thùng + tồn; không ghi gì', async () => {
+      const plan = await computed();
+      const options = await service.boxOptionsForGroup(groupId);
+      expect(options).toHaveLength(plan.parcels.length);
+      const first = options[0];
+      expect(first?.current.boxCode).toBe(plan.parcels[0]?.box.code);
+      expect(first?.options.length).toBeGreaterThan(0);
+      for (const o of first?.options ?? []) {
+        expect(o.estimatedWeightG).toBeGreaterThan(0);
+        expect(o.available).toBeGreaterThanOrEqual(0);
+      }
+      // Kiện giày không vừa thùng S (xem test đổi thùng) → S không có trong phương án của kiện đó.
+      const shoesNo = plan.parcels.find((p) => p.platform_order_id === 'DEMO-2')?.parcel_no;
+      const shoes = options.find((o) => o.parcelNo === shoesNo);
+      expect(shoes?.options.map((o) => o.boxCode)).not.toContain('SAMPLE-S');
+      expect((await service.requireActivePlan(groupId)).version).toBe(plan.version); // chỉ đọc
+    });
+  });
+
   describe('chỉnh tay', () => {
     it('đổi thùng: xếp lại vào thùng mới, ghi lịch sử, nhãn đơn thành heuristic, version tăng', async () => {
       const plan = await computed();
