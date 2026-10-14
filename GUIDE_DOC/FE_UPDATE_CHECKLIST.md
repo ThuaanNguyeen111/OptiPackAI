@@ -1,6 +1,6 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
-> Phiên bản 1.0 — 14/10/2026. Đối chiếu tự động: mọi đường dẫn API xuất hiện trong `fe/src` (nhánh `main`) so với 239 route của BE hiện tại (gồm C4–C6 GHN).
+> Phiên bản 1.1 — 14/10/2026 (tối: thêm Mục 7b sau rà soát kỹ từng lời gọi API và kiểu dữ liệu FE). Đối chiếu tự động: mọi đường dẫn API xuất hiện trong `fe/src` (nhánh `main`) so với 239 route của BE hiện tại (gồm C4–C6 GHN).
 > Tài liệu này là **bản tổng hợp việc phải làm**; request/response chi tiết nằm ở guide của từng phần (cột "Đọc ở đâu").
 > Thứ tự đọc đề xuất: Mục 1 (đang gãy) → Mục 2 (giao hàng/GHN) → Mục 3 (hoàn hàng) → các mục còn lại.
 
@@ -119,6 +119,43 @@ Hàng chờ (`GET /packing-plans/summary?group_ids=`), giao người đóng (`..
 
 ---
 
+## 7b. 🔎 Bổ sung sau rà soát kỹ (14/10 tối) — kiểu dữ liệu FE lệch BE và route chưa có màn
+
+> Cách rà: trích **84 lời gọi API** trong `fe/src` (mọi `apiRequest`/`fetch`) so khớp method + path với 239 route BE; đọc thêm các file `fe/src/types/*` có danh sách trạng thái cố định. Kết quả: ngoài Mục 1, **không còn route nào FE gọi mà BE không có**; body của các nút giao hàng cũ (`deliver`/`fail`/`retry`) vẫn khớp DTO. Các thiếu sót dưới đây chưa có trong Mục 1–7.
+
+### 7b.1. Danh sách trạng thái cố định trong FE đã cũ (gây hiện sai nhãn/lọc sai tab)
+
+| File FE | Đang có | Phải thêm | Hậu quả nếu không sửa |
+|---|---|---|---|
+| `fe/src/types/shipments.ts` → `SHIPMENT_STATUSES` | 5 trạng thái G1 | `awaiting_pickup` (Chờ hãng lấy hàng), `in_transit` (Đang trung chuyển), `cancelled` (Đã huỷ ở hãng) | Vận đơn GHN không có nhãn, không vào tab nào trên `ShippingPage.tsx`; `shipments.api.ts` dòng 60 mặc định rơi về `out_for_delivery` khi thiếu → hiện sai trạng thái |
+| `fe/src/types/order-groups.ts` → `GROUP_FULFILLMENT_STATUSES` | 10 trạng thái | `canceled` (nhóm bị huỷ do mọi đơn huỷ) | Nhóm huỷ hiện trống nhãn, lọt vào danh sách việc |
+| `fe/src/types/order-groups.ts` dòng ~199 | Câu giải thích luồng "duyệt kế hoạch Packaging → Warehouse pack" | Viết lại theo packing plan: duyệt → bắt đầu → quét → niêm phong | Hướng dẫn sai cho người dùng |
+| `fe/src/types/notifications.ts` → `NOTIFICATION_TYPES` | 10 loại | `low_box_stock`, `low_material_stock`, `group_auto_canceled`, `packaging_plan_invalidated`, `delivery_failed`, `delivery_returning`, `delivery_overdue`, `return_requested`, `stock_shortage`, `packing_assigned`, `packing_parcel_held`, `packing_issue`, `unpack_required`, `return_to_shelf` (BE có 24 loại) | Thông báo mới hiện mã thô, không có nhãn/icon; `lib/notification-nav.ts` không biết điều hướng tới đâu (gợi ý: `delivery_*` → màn Vận chuyển, `return_*` → Hoàn hàng, `packing_*`/`unpack_required` → Đóng gói, `low_*_stock` → Vật tư) |
+
+### 7b.2. Mã chết cần xoá cùng lúc sửa Mục 1
+
+- `fe/src/types/packaging.ts`, `mapPackagingConsumption` và trường `packagingConsumption` trong `types/order-groups.ts` (dữ liệu của `fulfillment/pack` cũ).
+- `order-groups.api.ts` dòng ~97 đọc `active_packaging_recommendation` — BE đã xoá trường này (luôn `undefined`). Thay bằng `GET /order-groups/:groupId/packing-plan` hoặc `GET /packing-plans/summary` cho danh sách.
+- `postFulfillmentTransition` có `action: 'pack'` trong kiểu union → bỏ `'pack'` (chỉ còn `pick`; `ship`/`deliver`/`return` là route cũ, nên chuyển sang `/shipments/*`).
+
+### 7b.3. Route BE đã có nhưng FE chưa có màn (chưa nêu ở Mục 2–7)
+
+| Nhóm | Route | Ai dùng | Ghi chú |
+|---|---|---|---|
+| Kết nối sàn AURELLE | `GET /marketplace/aurelle/connect`, `GET /marketplace/:platform/shops` | Admin | `marketplace.api.ts` đang **cố định `lazada`** → không kết nối được AURELLE từ FE; cần tham số `platform` + danh sách shop đã kết nối (hiện FE chỉ nhớ shopId trong trình duyệt) |
+| Thông báo | `PATCH /notifications/read-all` | Mọi vai trò | Nút "Đánh dấu đã đọc hết" |
+| Danh mục túi / vật tư chèn | `GET/POST/PATCH /packaging/bags`, `POST /packaging/bags/:id/stock-in`, `GET/POST/PATCH /packaging/materials`, `.../:id/stock-in`, `.../:id/movements`, `GET/PUT /packaging/materials/rules` | Admin, Warehouse | Engine đóng gói chọn từ các danh mục này; không có màn thì phải nhập qua Swagger |
+| Vật tư (kho mới/tái dùng) | `GET /packaging-materials`, `/movements`, `POST/PATCH/DELETE /packaging-materials/:code`, `/reactivate`, `/purchase`, `/internal-use` | Admin, Warehouse | FE hiện chỉ gọi `/savings` |
+| Kho | `GET /warehouse/warehouses/:warehouseId/bin-suggestions` (gợi ý ô cất), `PATCH .../sku-bin-assignments/:assignmentId` (sửa gán nhầm ô), `PATCH /warehouse/bin-locations/:binId`, `GET /warehouse/warehouses/:warehouseId`, các route `.../permanent` (xoá hẳn mục tạo nhầm) | Admin, Warehouse | Xem `INTEGRATION_GUIDE_WAREHOUSE.md` |
+| Hãng vận chuyển (cấu hình) | `POST /shipping/carriers`, `PATCH /shipping/carriers/:id` | Admin | Bảng cước hãng mẫu; GHN thì seed bằng script |
+| Vận đơn quá hạn | `POST /shipments/overdue-scan`, lọc `GET /shipments?overdue=true` | Admin, Coordinator | Cron 15 phút đã tự chạy; nút chỉ để demo |
+| Danh mục | `GET /categories/:code` | Admin | Tuỳ chọn |
+| Đăng nhập Google | `GET /auth/google` (+ callback) | Mọi vai trò | Tuỳ chọn; BE trả token qua query string của `CLIENT_REDIRECT_CALLBACK` |
+
+> Không cần làm ở FE quản trị: `/storefront/*`, `/customer-auth/*` (app `storefront/` đã gọi đủ), `POST /carriers/ghn/webhook`, `POST /marketplace/webhooks/:platform`, `GET /marketplace/:platform/callback` (do sàn/hãng gọi).
+
+---
+
 ## 8. Checklist nghiệm thu FE
 
 - [ ] Màn đóng gói không còn gọi `/packaging*`, `/fulfillment/pack` (tìm trong `fe/src` ra 0 kết quả)
@@ -129,3 +166,6 @@ Hàng chờ (`GET /packing-plans/summary?group_ids=`), giao người đóng (`..
 - [ ] Huỷ ở hãng → vận đơn "Đã huỷ ở hãng", nhóm đơn quay về "Đã đóng gói", tạo lại được
 - [ ] Liên kết tay 2 nhóm → giao chung chuyến → in bảng kê chuyến
 - [ ] Mọi nút xử lý 409 version conflict bằng tải lại
+- [ ] `SHIPMENT_STATUSES`, `GROUP_FULFILLMENT_STATUSES`, `NOTIFICATION_TYPES` khớp BE (Mục 7b.1)
+- [ ] Kết nối được shop AURELLE từ FE; có nút "Đọc hết thông báo"
+
