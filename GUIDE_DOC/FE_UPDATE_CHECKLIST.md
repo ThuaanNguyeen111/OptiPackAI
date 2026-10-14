@@ -1,10 +1,58 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
-> Phiên bản 1.1 — 14/10/2026 (tối: thêm Mục 7b sau rà soát kỹ từng lời gọi API và kiểu dữ liệu FE). Đối chiếu tự động: mọi đường dẫn API xuất hiện trong `fe/src` (nhánh `main`) so với 239 route của BE hiện tại (gồm C4–C6 GHN).
+> Phiên bản 1.2 — 14/10/2026 (22h: thêm Mục 0 tóm tắt đã sửa / FE cần làm). Đối chiếu tự động: mọi đường dẫn API xuất hiện trong `fe/src` (nhánh `main`) so với 239 route của BE hiện tại (gồm C4–C6 GHN).
 > Tài liệu này là **bản tổng hợp việc phải làm**; request/response chi tiết nằm ở guide của từng phần (cột "Đọc ở đâu").
 > Thứ tự đọc đề xuất: Mục 1 (đang gãy) → Mục 2 (giao hàng/GHN) → Mục 3 (hoàn hàng) → các mục còn lại.
 
 > 🔄 **14/10 tối — đã gộp FE từ `feature/viet_ui` (12/10) vào nhánh `merge/viet-fe`:** FE nay đã gọi `/colors`, `/master-skus`, `/product-master` (+ sync), `/stock-availability`, `POST /returns` (form tạo phiếu), màn Tồn kho bỏ dữ liệu giả → các dòng tương ứng ở Mục 6, 7b.3, 7b.4 coi như **đã có phần gọi API** (vẫn cần nghiệm thu). Bản của Việt **thêm 1 route đã gỡ**: `POST /order-groups/:id/lazada-pack/retry` (`retryLazadaPack` trong `PackagingWorkbench.tsx`) — BE bỏ từ 10/10 (OptiPack không báo pack lên Lazada) → xoá cùng Mục 1.
+
+## 0. Tóm tắt trạng thái (cập nhật 14/10/2026, 22h)
+
+### ✅ Đã sửa sẵn (không đụng màn hình — FE chỉ việc dùng)
+
+| Đã sửa | Ở đâu | FE dùng thế nào |
+|---|---|---|
+| Gọi được method `PUT` | `fe/src/lib/api.ts` | `apiRequest(path, { method: 'PUT', body, auth: true })` cho `/packing/settings`, `/shipping/settings`, `/packaging/materials/rules`, `/product-master/:id/packaging-profile` |
+| Tải file PDF | `fe/src/lib/api.ts` → `apiRequestBlob(path)` | `URL.createObjectURL(await apiRequestBlob('/documents/shipping-label/' + groupId))` rồi mở/in |
+| Thời gian chờ cho route gọi GHN | `fe/src/lib/api.ts` → `CARRIER_REQUEST_TIMEOUT_MS` (60 s) | Truyền `timeoutMs: CARRIER_REQUEST_TIMEOUT_MS` khi gọi báo giá / đặt GHN / so phương án |
+| Thu hồi vật tư khi kiểm hàng hoàn | `inspectReturn(id, { expected_version, lines, packaging })`, kiểu `InspectReturnPackagingInput`; đọc `ReturnRequest.packagingInspection` | Gửi `packaging: [{ material_code, quantity, grade: 'A'|'B'|'C', old_label_removed }]` |
+| Lọc + phân trang nhóm đơn | `listOrderGroups({ assigned_staff_id, stock_shortage, is_overdue, before, limit })` | Trang sau: `before = createdAt` của dòng cuối |
+| Thông tin liên kết tay / đơn đổi hàng | `OrderGroup.manualLink`, `origin`, `sourceReturnId` | Hiện nhãn "Đã liên kết" / "Đơn đổi hàng" |
+| Giao thất bại có hẹn giờ; giao lại sớm có lý do | `failShipment(id, version, reason, note, rescheduleAt)`, `retryShipment(id, version, note, overrideReason)`; đọc `Shipment.nextAttemptNotBefore`, `isOverdue`, `trackingCode` | Trước `nextAttemptNotBefore` phải nhập lý do (3–300 ký tự) |
+| Lọc sản phẩm theo trạng thái | `listProductMaster({ status: 'needs_measurement' | 'ready' })` | Lọc sản phẩm chưa đo kích thước |
+| Mã ô trong bảng tồn | **BE** trả `binCode` ở `GET .../sku-bin-assignments` | Màn Kho (Admin) tự hiện mã ô — không cần sửa |
+| Báo giá GHN nhanh hơn | **BE** hỏi GHN song song (≤ 4 kiện cùng lúc) | Không cần sửa |
+| Đã nối từ nhánh Việt | `/colors`, `/master-skus`, `/product-master` (+ đồng bộ), `/stock-availability`, phiếu trả (tạo, nhận, kiểm, cách ly, đổi hàng), màn Tồn kho dùng dữ liệu thật | Nghiệm thu |
+
+### ❌ FE cần làm (chưa làm)
+
+**Ưu tiên 1 — đang lỗi, sửa trước demo**
+1. Màn đóng gói gọi 7 route đã gỡ: `/order-groups/:id/packaging*` (5), `fulfillment/pack`, `lazada-pack/retry` → chuyển sang `/order-groups/:groupId/packing-plan/*` (Mục 1, Mục 5).
+2. Màn Đơn hàng còn trộn đơn giả "demo đa sàn" Lazada + TikTok (`data/demo-multi-platform-orders.ts`) → bỏ (Mục 7b.4).
+
+**Ưu tiên 2 — giao hàng / GHN / chứng từ (Mục 2)**
+3. Báo giá, chọn hãng, đặt GHN, hủy, đồng bộ, nút giả lập trạng thái, sửa địa chỉ, giao chung chuyến, in nhãn / phiếu / bảng kê.
+4. Thêm trạng thái vận đơn `awaiting_pickup`, `in_transit`, `cancelled` (kiểu + nhãn + tab) và bỏ chỗ tự gán `out_for_delivery` trong `shipments.api.ts` (Mục 7b.1, N6).
+5. Kho "Nhận hàng hoàn" (`POST /shipments/:id/receive-return`).
+
+**Ưu tiên 3 — thêm phần màn hình cho các hàm đã có sẵn ở trên**
+6. Ô chọn hạng thu hồi vật tư khi kiểm hàng hoàn (Mục 3).
+7. Ô "lý do giao sớm" ở nút giao lại; hiện giờ được giao lại và cờ quá hạn.
+8. Nút "trang sau" + bộ lọc (thiếu hàng, quá hạn, của tôi) ở danh sách nhóm đơn; nhãn "Đã liên kết" / "Đơn đổi hàng".
+9. Liên kết tay 2 nhóm (`POST/DELETE /order-groups/:id/link`, `GET .../linked`); giữ chỗ tồn (`/stock-reservation*`) (Mục 4).
+
+**Ưu tiên 4 — màn còn thiếu / dữ liệu giả**
+10. Danh mục thùng, túi, vật tư (`/packaging/boxes|bags|materials`) và quản lý vật tư (`/packaging-materials` mua, dùng nội bộ…) (Mục 7b.3).
+11. Cài đặt đóng gói, báo cáo đóng gói (`/packing/settings`, `/packing/reports/*`, `/packing-plans/summary`).
+12. Kết nối AURELLE + danh sách shop (`marketplace.api.ts` đang cố định `lazada`); nút "Đọc hết thông báo" (`PATCH /notifications/read-all`).
+13. Thêm trạng thái nhóm đơn `canceled` và 14 loại thông báo mới (kiểu + nhãn + điều hướng) (Mục 7b.1).
+14. Các màn đang dùng dữ liệu giả: Dashboard, Báo cáo, Quy tắc đóng gói, Mẫu đóng gói (Mục 7b.4).
+15. Kho: gợi ý ô cất, sửa gán nhầm ô, sửa ô, xóa hẳn mục tạo nhầm; SKU nội bộ: sửa/xóa; Product Master: chi tiết + hồ sơ kích thước đóng gói.
+16. Xóa mã chết: `types/packaging.ts`, `packagingConsumption`, `active_packaging_recommendation`, `lazadaPack*` (Mục 7b.2).
+
+> Chi tiết từng việc (route, body, mã lỗi) ở các mục bên dưới. Làm xong việc nào thì tick ở Mục 8.
+
+---
 
 **Quy ước chung (áp cho mọi mục):**
 - Mọi nút đổi trạng thái gửi `expected_version` = trường `version` đọc được lần gần nhất. Nhận `409 *_STATE_CONFLICT` / `*_VERSION_CONFLICT` → tải lại dữ liệu rồi cho bấm lại.
@@ -172,6 +220,33 @@ Những màn còn đọc dữ liệu giả trong `fe/src/data/*-mock.ts` dù BE 
 | Màn Vận chuyển (`ShippingPage.tsx`) | Hằng số `OWN_FLEET_ACCOUNT` (đội giao riêng) | Hãng thật từ `GET /shipping/carriers` | Nhỏ (cùng việc Mục 2) |
 | `PackingDashboard.tsx`, `ConsolidationPage.tsx`, `IntegrationsPage.tsx`, `SyncEventLog.tsx`, `BatchDetailDrawer.tsx`, `useWarehouseFloor.ts` | Dữ liệu giả | Màn cũ, kiểm tra còn được dùng trên menu không; không dùng thì xoá | Tuỳ |
 
+
+---
+
+### 7b.5. Rà sâu 14/10 (21h) — các route FE ĐÃ gọi nhưng nối chưa đủ + tầng kết nối chung
+
+> ✅ **14/10 (22h) đã sửa (AOFP-86/87, chỉ tầng API + BE, không đụng màn hình):** K1 (`PUT`), K2 (`apiRequestBlob` + hằng `CARRIER_REQUEST_TIMEOUT_MS = 60_000`), K3 phía BE (báo giá / so phương án hỏi GHN song song, tối đa 4 lượt cùng lúc), N1 (kiểu `InspectReturnPackagingInput`, tham số `packaging` của `inspectReturn`, đọc `packagingInspection`), N2 (`listOrderGroups` nhận `assigned_staff_id`, `stock_shortage`, `is_overdue`, `before`, `limit`), N3 (đọc `manualLink`, `origin`, `sourceReturnId`), N4 phía BE (`binCode` trong `GET .../sku-bin-assignments`), N5 (`failShipment(..., rescheduleAt)`, `retryShipment(..., overrideReason)`, đọc `nextAttemptNotBefore`, `isOverdue`, `trackingCode`), N7 (`listProductMaster({ status })`). **FE còn phải làm phần màn hình:** ô chọn hạng thu hồi vật tư khi kiểm hàng, ô "lý do giao sớm" ở nút giao lại, nút "trang sau"/bộ lọc nhóm đơn, nhãn "Đã liên kết"/"Đơn đổi hàng". **Chưa sửa:** N6 (tự gán `out_for_delivery`) — để làm cùng tab GHN ở màn Vận chuyển.
+
+**Tầng kết nối chung (`fe/src/lib/api.ts`)** — đã đúng: `VITE_API_URL` (mặc định `http://localhost:3000`), CORS BE mặc định cho `http://localhost:5173`, header Bearer, tự `POST /auth/refresh` khi 401 (chống gọi trùng), đọc đúng `{ error_code, message, details }`, xử lý 429, luồng MFA/thiết bị tin cậy/bắt đổi mật khẩu, redirect Google và kết nối sàn. Còn thiếu:
+
+| # | Thiếu | Hậu quả | Sửa (không đụng màn hình) |
+|---|---|---|---|
+| K1 | `RequestOptions.method` không có `'PUT'` | Không gọi được `PUT /packing/settings`, `/shipping/settings`, `/packaging/materials/rules`, `/product-master/:id/packaging-profile` | Thêm `'PUT'` vào kiểu |
+| K2 | `apiRequest` luôn đọc JSON | Không tải được PDF `/documents/*` (phiếu đóng gói, nhãn, bảng kê) | Thêm hàm `apiRequestBlob()` trả `Blob` + tạo `blob:` URL |
+| K3 | Hết giờ mặc định 12 giây | Báo giá GHN / đặt GHN / so phương án gọi GHN **tuần tự từng kiện** (mỗi lần tới 10 s) → nhóm nhiều kiện dễ quá 12 s, FE báo "Máy chủ không phản hồi" dù BE vẫn chạy | Gọi các route này với `timeoutMs: 60_000`; phía BE nên gọi GHN song song (`Promise.all`) |
+| K4 | 108/206 mã lỗi BE chưa có câu tiếng Việt riêng trong FE (nhóm `PKG_*`, `SHIP_*`, `DOC_*`, `PM_*`, `SF_*`, một phần `SHP_*`, `ORD_*`, `WH_*`) | Không gãy — FE rơi về `message` của BE (đã là tiếng Việt) | Tuỳ chọn |
+
+**Route FE đã gọi nhưng chưa dùng hết những gì BE hỗ trợ** (ngoài phần GHN/đóng gói mới):
+
+| # | Route | Đang thiếu | Hậu quả |
+|---|---|---|---|
+| N1 | `POST /returns/:id/inspect` | Không gửi `packaging[]` (thu hồi thùng/vật tư hạng A/B/C); không đọc `packagingInspection` | **Không demo được thu hồi vật tư từ hàng hoàn** (G4) trên FE |
+| N2 | `GET /order-groups` | Không gửi `limit`/`before` (chỉ lấy 100 nhóm đầu), không dùng lọc `is_overdue`, `stock_shortage`, `assigned_staff_id` | Quá 100 nhóm thì phần sau không hiện; không lọc được nhóm quá hạn/thiếu hàng/của tôi |
+| N3 | Dữ liệu nhóm đơn | Không đọc `manualLink`, `origin`, `sourceReturnId` | Không biết nhóm nào đang liên kết tay, nhóm nào là đơn đổi hàng (`EXC-…`) |
+| N4 | `GET .../sku-bin-assignments` | BE không trả `binCode` | Bảng tồn ở màn Kho (Admin) hiện 8 ký tự cuối id ô thay vì mã ô → **sửa phía BE** |
+| N5 | `POST /shipments/:id/fail`, `/retry` (G1) | Không gửi `reschedule_at`, `override_reason`; không đọc `nextAttemptNotBefore`, `isOverdue` | Bấm giao lại trước khoảng chờ → lỗi mà không có ô nhập lý do giao sớm; không hiện cờ quá hạn |
+| N6 | Dữ liệu vận đơn | Gặp trạng thái lạ tự gán `out_for_delivery` | Vận đơn GHN `awaiting_pickup` hiện sai thành "Đang giao" |
+| N7 | `GET /product-master` | Không lọc `status` | Nhỏ |
 
 ---
 
