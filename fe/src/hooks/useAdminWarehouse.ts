@@ -13,6 +13,11 @@ import {
   listSkuBinAssignments,
   listWarehouseZones,
   listWarehouses,
+  moveSkuAssignment,
+  purgeBin,
+  purgeRack,
+  purgeWarehouse,
+  purgeWarehouseZone,
   reactivateBin,
   reactivateWarehouse,
   reactivateWarehouseZone,
@@ -32,6 +37,9 @@ import type {
   CreateWarehouseInput,
   CreateZoneInput,
   GenerateBinsInput,
+  MoveAssignmentInput,
+  PurgeRackQuery,
+  PurgeResult,
   SkuBinAssignmentRecord,
   TransferStockInput,
   UnassignedSku,
@@ -464,6 +472,47 @@ export function useAdminWarehouse() {
     }
   }
 
+  async function handlePurgeWarehouse(): Promise<PurgeResult> {
+    if (!selectedWarehouseId) throw new Error('Chưa chọn kho.')
+    setMutating(true)
+    setError(null)
+    try {
+      const result = await purgeWarehouse(selectedWarehouseId)
+      const removed = selectedWarehouseId
+      setWarehouses((prev) => prev.filter((row) => row.id !== removed))
+      setSelectedWarehouseId((current) => (current === removed ? null : current))
+      setZones([])
+      setAllBins([])
+      setAssignments([])
+      return result
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+      throw err
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  async function handlePurgeZone(zoneId: string): Promise<PurgeResult> {
+    setMutating(true)
+    setError(null)
+    try {
+      const result = await purgeWarehouseZone(zoneId)
+      setZones((prev) => prev.filter((row) => row.id !== zoneId))
+      setAllBins((prev) => prev.filter((row) => row.zoneId !== zoneId))
+      setSelectedZoneId((current) => (current === zoneId ? null : current))
+      if (selectedWarehouseId) {
+        setAssignments(await listSkuBinAssignments(selectedWarehouseId))
+      }
+      return result
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+      throw err
+    } finally {
+      setMutating(false)
+    }
+  }
+
   async function handleUpdateZone(
     zoneId: string,
     input: UpdateZoneInput,
@@ -626,6 +675,62 @@ export function useAdminWarehouse() {
     }
   }
 
+  async function refreshBinsAndAssignments(): Promise<void> {
+    if (!selectedWarehouseId) return
+    const zoneIds = zones.map((row) => row.id)
+    setAllBins(await reloadBins(selectedWarehouseId, zoneIds, showInactive))
+    setAssignments(await listSkuBinAssignments(selectedWarehouseId))
+  }
+
+  async function handlePurgeBin(binId: string): Promise<PurgeResult> {
+    setMutating(true)
+    setError(null)
+    try {
+      const result = await purgeBin(binId)
+      await refreshBinsAndAssignments()
+      return result
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+      throw err
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  async function handlePurgeRack(query: PurgeRackQuery): Promise<PurgeResult> {
+    if (!selectedZoneId) throw new Error('Chưa chọn khu.')
+    setMutating(true)
+    setError(null)
+    try {
+      const result = await purgeRack(selectedZoneId, query)
+      await refreshBinsAndAssignments()
+      return result
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+      throw err
+    } finally {
+      setMutating(false)
+    }
+  }
+
+  async function handleMoveAssignment(
+    assignmentId: string,
+    input: MoveAssignmentInput,
+  ): Promise<void> {
+    if (!selectedWarehouseId) return
+    setMutating(true)
+    setError(null)
+    try {
+      await moveSkuAssignment(selectedWarehouseId, assignmentId, input)
+      setAssignments(await listSkuBinAssignments(selectedWarehouseId))
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+      throw err
+    } finally {
+      setMutating(false)
+    }
+  }
+
   return {
     warehouses,
     selectedWarehouseId,
@@ -650,6 +755,11 @@ export function useAdminWarehouse() {
     createWarehouse: handleCreateWarehouse,
     updateWarehouse: handleUpdateWarehouse,
     setWarehouseActive: handleSetWarehouseActive,
+    purgeWarehouse: handlePurgeWarehouse,
+    purgeZone: handlePurgeZone,
+    purgeBin: handlePurgeBin,
+    purgeRack: handlePurgeRack,
+    moveAssignment: handleMoveAssignment,
     createZone: handleCreateZone,
     updateZone: handleUpdateZone,
     setZoneActive: handleSetZoneActive,

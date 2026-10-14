@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
+  confirmPackagingProfile,
   createColor,
   createMasterSku,
   createSkuMapping,
@@ -13,6 +14,7 @@ import {
   listUnpooledStock,
   lookupStockAvailability,
   previewMasterSku,
+  purgeMasterSku,
   replaceMasterSku,
   setColorActive,
   setMasterSkuActive,
@@ -20,6 +22,7 @@ import {
   syncProductCatalog,
   updateColor,
   type ColorRecord,
+  type ConfirmPackagingProfileInput,
   type MasterSkuRecord,
   type ProductMasterRow,
   type SkuMappingRecord,
@@ -502,6 +505,7 @@ export function MasterSkuTab({
           colors={activeColors}
           onNotice={onNotice}
           onChanged={() => void reload()}
+          onDeleted={() => setSelected('')}
         />
       ) : null}
     </div>
@@ -515,6 +519,7 @@ function MasterSkuDetail({
   colors,
   onNotice,
   onChanged,
+  onDeleted,
 }: {
   vi: boolean
   code: string
@@ -522,6 +527,7 @@ function MasterSkuDetail({
   colors: ColorRecord[]
   onNotice: (message: string) => void
   onChanged: () => void
+  onDeleted: () => void
 }) {
   const [mappings, setMappings] = useState<SkuMappingRecord[]>([])
   const [unmapped, setUnmapped] = useState<UnmappedSellerSku[]>([])
@@ -667,7 +673,167 @@ function MasterSkuDetail({
       >
         {vi ? 'Tắt SKU này' : 'Deactivate'}
       </button>
+      <button
+        type="button"
+        className={rowActionClass}
+        onClick={() => {
+          const ok = window.confirm(
+            vi
+              ? `Xoá hẳn SKU ${code}? Không hoàn tác. Chỉ khi chưa nối sàn, chưa nằm trên ô và chưa có nhập–xuất. Đã dùng thì tắt hoặc thay thế.`
+              : `Permanently delete SKU ${code}? This cannot be undone.`,
+          )
+          if (!ok) return
+          void purgeMasterSku(code)
+            .then(() => {
+              onNotice(vi ? `Đã xoá hẳn SKU ${code}.` : `Permanently deleted SKU ${code}.`)
+              onChanged()
+              onDeleted()
+            })
+            .catch((err: unknown) => setError(formatApiError(err)))
+        }}
+      >
+        {vi ? 'Xoá hẳn' : 'Delete permanently'}
+      </button>
     </div>
+  )
+}
+
+const PRODUCT_CATEGORIES: Array<[string, string]> = [
+  ['t_shirt', 'Áo thun'],
+  ['shirt', 'Áo sơ mi'],
+  ['jacket', 'Áo khoác'],
+  ['shorts', 'Quần đùi'],
+  ['trousers', 'Quần dài'],
+  ['dress', 'Váy/đầm'],
+  ['shoes', 'Giày (hộp)'],
+  ['sandals', 'Dép/sandal'],
+  ['accessory', 'Phụ kiện'],
+  ['other', 'Khác'],
+]
+
+function PackagingProfileForm({
+  vi,
+  row,
+  busy,
+  onSave,
+}: {
+  vi: boolean
+  row: ProductMasterRow | null
+  busy: boolean
+  onSave: (input: ConfirmPackagingProfileInput) => Promise<void>
+}) {
+  const [lengthCm, setLengthCm] = useState(row?.lengthCm != null ? String(row.lengthCm) : '')
+  const [widthCm, setWidthCm] = useState(row?.widthCm != null ? String(row.widthCm) : '')
+  const [heightCm, setHeightCm] = useState(row?.heightCm != null ? String(row.heightCm) : '')
+  const [weightKg, setWeightKg] = useState(row?.weightKg != null ? String(row.weightKg) : '')
+  const [fragile, setFragile] = useState(row?.isFragile ?? false)
+  const [orientation, setOrientation] = useState<'any' | 'upright_only'>(row?.orientationRule ?? 'any')
+  const [category, setCategory] = useState(row?.productCategory ?? 't_shirt')
+  const [stack, setStack] = useState(row?.maxStackLoadKg != null ? String(row.maxStackLoadKg) : '')
+  const [zipBag, setZipBag] = useState(row?.zipBagCode ?? '')
+  const [zipFolded, setZipFolded] = useState(row?.zipBagFolded ?? false)
+  const [fold, setFold] = useState(row?.canFoldInHalf ?? false)
+  const shoes = category === 'shoes'
+
+  if (!row) return null
+
+  return (
+    <form
+      className="grid gap-2 rounded-lg border border-hairline bg-surface-2/40 p-3 sm:grid-cols-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        const length = Number(lengthCm)
+        const width = Number(widthCm)
+        const height = Number(heightCm)
+        const weight = Number(weightKg)
+        if (![length, width, height, weight].every((value) => Number.isFinite(value) && value > 0)) {
+          return
+        }
+        void onSave({
+          length_cm: length,
+          width_cm: width,
+          height_cm: height,
+          weight_kg: weight,
+          is_fragile: fragile,
+          orientation_rule: orientation,
+          product_category: category,
+          max_stack_load_kg: stack.trim() === '' ? null : Number(stack),
+          zip_bag_code: zipBag.trim() === '' ? null : zipBag.trim(),
+          zip_bag_folded: zipBag.trim() !== '' && zipFolded,
+          can_fold_in_half: shoes ? false : fold,
+        })
+      }}
+    >
+      <p className="sm:col-span-4 text-xs text-ink">
+        {vi ? `Số đo sau gấp/bọc của ${row.sellerSku}` : `Folded size of ${row.sellerSku}`}
+      </p>
+      <label className="space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Dài (cm)' : 'Length (cm)'}
+        <Input className={fieldClass} value={lengthCm} onChange={(e) => setLengthCm(e.target.value)} inputMode="decimal" />
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Rộng (cm)' : 'Width (cm)'}
+        <Input className={fieldClass} value={widthCm} onChange={(e) => setWidthCm(e.target.value)} inputMode="decimal" />
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Cao (cm)' : 'Height (cm)'}
+        <Input className={fieldClass} value={heightCm} onChange={(e) => setHeightCm(e.target.value)} inputMode="decimal" />
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted">
+        {vi ? 'Nặng (kg)' : 'Weight (kg)'}
+        <Input className={fieldClass} value={weightKg} onChange={(e) => setWeightKg(e.target.value)} inputMode="decimal" />
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
+        {vi ? 'Loại hàng' : 'Category'}
+        <select className={fieldClass} value={category} onChange={(e) => setCategory(e.target.value)}>
+          {PRODUCT_CATEGORIES.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
+        {vi ? 'Hướng xếp' : 'Orientation'}
+        <select
+          className={fieldClass}
+          value={orientation}
+          onChange={(e) => setOrientation(e.target.value === 'upright_only' ? 'upright_only' : 'any')}
+        >
+          <option value="any">{vi ? 'Xoay tự do' : 'Any'}</option>
+          <option value="upright_only">{vi ? 'Chỉ đứng' : 'Upright only'}</option>
+        </select>
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
+        {vi ? 'Tải chồng tối đa (kg, trống = không chồng)' : 'Max stack (kg, blank = none)'}
+        <Input className={fieldClass} value={stack} onChange={(e) => setStack(e.target.value)} inputMode="decimal" />
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
+        {vi ? 'Mã túi zip' : 'Zip bag code'}
+        <Input className={fieldClass} value={zipBag} onChange={(e) => setZipBag(e.target.value)} />
+      </label>
+      <label className="flex items-center gap-2 text-xs text-ink">
+        <input type="checkbox" checked={fragile} onChange={(e) => setFragile(e.target.checked)} />
+        {vi ? 'Dễ vỡ' : 'Fragile'}
+      </label>
+      <label className="flex items-center gap-2 text-xs text-ink">
+        <input type="checkbox" checked={zipFolded} onChange={(e) => setZipFolded(e.target.checked)} />
+        {vi ? 'Gập đôi túi' : 'Fold bag'}
+      </label>
+      <label className="flex items-center gap-2 text-xs text-ink">
+        <input
+          type="checkbox"
+          checked={shoes ? false : fold}
+          disabled={shoes}
+          onChange={(e) => setFold(e.target.checked)}
+        />
+        {vi ? 'Có thể gập đôi hàng' : 'Can fold item'}
+      </label>
+      <Button type="submit" className="h-9 text-xs" disabled={busy}>
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+        {vi ? 'Lưu hồ sơ' : 'Save profile'}
+      </Button>
+    </form>
   )
 }
 
@@ -684,6 +850,7 @@ export function LinkSkuTab({
   const [masters, setMasters] = useState<MasterSkuRecord[]>([])
   const [targetByKey, setTargetByKey] = useState<Record<string, string>>({})
   const [products, setProducts] = useState<ProductMasterRow[]>([])
+  const [measuringId, setMeasuringId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -841,26 +1008,34 @@ export function LinkSkuTab({
         </TableBody>
       </Table>
       <p className="text-[11px] text-ink-muted">
-        {vi ? 'Sản phẩm đã đồng bộ (kích thước dùng cho đóng gói)' : 'Synced products'}
+        {vi
+          ? 'Hồ sơ đóng gói. Số đo kho xác nhận mới dùng được khi đóng gói. Số sàn chỉ để tham khảo.'
+          : 'Packaging profiles. Only warehouse-confirmed sizes are used when packing.'}
       </p>
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>SKU</TableHead>
+            <TableHead>{vi ? 'Hồ sơ' : 'Profile'}</TableHead>
             <TableHead>cm</TableHead>
             <TableHead>kg</TableHead>
+            <TableHead />
           </TableRow>
         </TableHeader>
         <TableBody>
           {products.map((row) => (
             <TableRow key={row.id}>
-              <TableCell className="font-medium text-ink">
-                {row.sellerSku}
-                {row.manualOverride ? (
-                  <Badge tone="primary" className="ml-1">
-                    {vi ? 'Đã sửa tay' : 'Manual'}
-                  </Badge>
-                ) : null}
+              <TableCell className="font-medium text-ink">{row.sellerSku}</TableCell>
+              <TableCell>
+                <Badge tone={row.packagingProfileStatus === 'ready' ? 'primary' : 'warning'}>
+                  {row.packagingProfileStatus === 'ready'
+                    ? vi
+                      ? 'Đã đo'
+                      : 'Ready'
+                    : vi
+                      ? 'Chưa đo'
+                      : 'Needs measure'}
+                </Badge>
               </TableCell>
               <TableCell className="text-xs">
                 {row.lengthCm == null
@@ -870,10 +1045,48 @@ export function LinkSkuTab({
                   : `${row.lengthCm}×${row.widthCm}×${row.heightCm}`}
               </TableCell>
               <TableCell>{row.weightKg ?? '—'}</TableCell>
+              <TableCell>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-primary"
+                  onClick={() => setMeasuringId((current) => (current === row.id ? null : row.id))}
+                >
+                  {vi ? 'Xác nhận số đo' : 'Confirm size'}
+                </button>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+      {measuringId ? (
+        <PackagingProfileForm
+          key={measuringId}
+          vi={vi}
+          row={products.find((row) => row.id === measuringId) ?? null}
+          busy={busy}
+          onSave={async (input) => {
+            setBusy(true)
+            setError(null)
+            try {
+              const saved = await confirmPackagingProfile(measuringId, input)
+              setProducts((current) => current.map((row) => (row.id === saved.id ? saved : row)))
+              const hint = saved.suggestedZipBagCode
+                ? vi
+                  ? ` Túi vừa nhất: ${saved.suggestedZipBagCode}.`
+                  : ` Smallest bag: ${saved.suggestedZipBagCode}.`
+                : ''
+              onNotice(
+                (vi ? `Đã xác nhận hồ sơ ${saved.sellerSku}.` : `Confirmed ${saved.sellerSku}.`) + hint,
+              )
+              setMeasuringId(null)
+            } catch (err: unknown) {
+              setError(formatApiError(err))
+            } finally {
+              setBusy(false)
+            }
+          }}
+        />
+      ) : null}
     </div>
   )
 }

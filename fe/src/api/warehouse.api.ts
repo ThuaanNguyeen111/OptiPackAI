@@ -10,7 +10,10 @@ import type {
   CreateZoneInput,
   GenerateBinsInput,
   InventoryMovementRecord,
+  MoveAssignmentInput,
   OtherBin,
+  PurgeRackQuery,
+  PurgeResult,
   SkuBinAssignmentRecord,
   TransferStockInput,
   UnassignedSku,
@@ -207,6 +210,62 @@ export async function deactivateWarehouse(
   )
   if (!updated) throw new Error('Tắt kho thành công nhưng server không trả dữ liệu.')
   return updated
+}
+
+function mapPurge(raw: unknown): PurgeResult {
+  const row = asRecord(raw)
+  const count = (key: string): number => {
+    const value = row?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+  }
+  return {
+    warehouses: count('warehouses'),
+    zones: count('zones'),
+    bins: count('bins'),
+    assignments: count('assignments'),
+  }
+}
+
+export async function purgeWarehouse(warehouseId: string): Promise<PurgeResult> {
+  return mapPurge(
+    await apiRequest<unknown>(`/warehouse/warehouses/${warehouseId}/permanent`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+  )
+}
+
+export async function purgeWarehouseZone(zoneId: string): Promise<PurgeResult> {
+  return mapPurge(
+    await apiRequest<unknown>(`/warehouse/zones/${zoneId}/permanent`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+  )
+}
+
+export async function purgeBin(binId: string): Promise<PurgeResult> {
+  return mapPurge(
+    await apiRequest<unknown>(`/warehouse/bin-locations/${binId}/permanent`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+  )
+}
+
+export async function purgeRack(
+  zoneId: string,
+  query: PurgeRackQuery,
+): Promise<PurgeResult> {
+  const params = new URLSearchParams({ aisle: query.aisle })
+  if (query.side) params.set('side', query.side)
+  if (query.bay != null) params.set('bay', String(query.bay))
+  return mapPurge(
+    await apiRequest<unknown>(
+      `/warehouse/zones/${zoneId}/racks/permanent?${params.toString()}`,
+      { method: 'DELETE', auth: true },
+    ),
+  )
 }
 
 export async function reactivateWarehouse(
@@ -494,6 +553,21 @@ export async function transferStockAssignment(
   const to = mapAssignment(res?.to)
   if (!from || !to) throw new Error('Chuyển ô thành công nhưng server không trả đủ dữ liệu.')
   return { from, to }
+}
+
+export async function moveSkuAssignment(
+  warehouseId: string,
+  assignmentId: string,
+  input: MoveAssignmentInput,
+): Promise<SkuBinAssignmentRecord> {
+  const updated = mapAssignment(
+    await apiRequest<unknown>(
+      `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}`,
+      { method: 'PATCH', body: input, auth: true },
+    ),
+  )
+  if (!updated) throw new Error('Sửa gán thành công nhưng server không trả dữ liệu.')
+  return updated
 }
 
 export async function unassignSkuFromBin(
