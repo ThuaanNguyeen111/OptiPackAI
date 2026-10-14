@@ -14,6 +14,10 @@ import {
 } from './schemas/shipping-settings.schema';
 import { ShippingController } from './shipping.controller';
 import { ShippingService } from './shipping.service';
+import { CarriersModule } from '../carriers/carriers.module';
+import { PackingModule } from '../packing/packing.module';
+import { Order, OrderSchema } from '../orders/schemas/order.schema';
+import { LiveCarrierService } from './live-carrier.service';
 
 @Module({
   imports: [
@@ -21,11 +25,14 @@ import { ShippingService } from './shipping.service';
       { name: ShippingCarrier.name, schema: ShippingCarrierSchema },
       { name: ShippingSettings.name, schema: ShippingSettingsSchema },
       { name: PackingPlan.name, schema: PackingPlanSchema },
+      { name: Order.name, schema: OrderSchema }, // C4 — người nhận/hàng của từng kiện gửi hãng
     ]),
     OrderGroupsModule,
+    CarriersModule, // C4 (14/10/2026) — CARRIER_ADAPTER (GHN / mock theo CARRIER_MODE)
+    PackingModule, // C6 (14/10/2026) — phương án thùng xếp vừa từng kiện (chỉ đọc)
   ],
   controllers: [ShippingController],
-  providers: [ShippingService],
-  exports: [ShippingService],
+  providers: [ShippingService, LiveCarrierService],
+  exports: [ShippingService, LiveCarrierService],
 })
 export class ShippingModule {}

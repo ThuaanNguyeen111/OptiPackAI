@@ -81,6 +81,32 @@ export interface CpSatTask {
   availability: Map<string, number>;
 }
 
+/** C6 (14/10/2026) — phương án thùng xếp vừa cho 1 kiện (chưa có phí ship). */
+export interface BoxOptionsOfParcel {
+  parcelNo: number;
+  orderId: string;
+  platformOrderId: string | null;
+  /** true = kiện đã niêm phong/trừ thùng — đổi thùng phải tháo kiện (chỉ để tham khảo). */
+  sealed: boolean;
+  current: {
+    boxCode: string;
+    boxName: string;
+    outerMm: { length_mm: number; width_mm: number; height_mm: number };
+    estimatedWeightG: number;
+    boxPriceVnd: number;
+    materialsCostVnd: number;
+  };
+  options: {
+    boxCode: string;
+    boxName: string;
+    outerMm: { length_mm: number; width_mm: number; height_mm: number };
+    estimatedWeightG: number;
+    boxPriceVnd: number;
+    materialsCostVnd: number;
+    available: number;
+  }[];
+}
+
 export interface ComputeOutcome {
   plan: PackingPlanDocument;
   tasks: CpSatTask[];
@@ -935,6 +961,67 @@ export class PackingPlanService {
       by: new Types.ObjectId(userId),
       at: new Date(),
     });
+  }
+
+  /**
+   * C6 (14/10/2026) — CHỈ ĐỌC: với từng kiện của kế hoạch đang hoạt động, thử xếp đúng các
+   * món của kiện vào TỪNG loại thùng đang dùng (cùng solver + validator như "đổi thùng"),
+   * trả các phương án xếp vừa kèm cân ước tính, kích thước ngoài, giá thùng, vật tư chèn,
+   * tồn khả dụng. Module `shipping` ghép thêm phí ship (bảng cước hoặc GHN) để so TỔNG chi
+   * phí. Không ghi gì — áp dụng phương án bằng route đổi thùng sẵn có.
+   */
+  async boxOptionsForGroup(groupId: string): Promise<BoxOptionsOfParcel[]> {
+    const plan = await this.requireActivePlan(groupId);
+    const allocations = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
+    const boxes = await this.boxService.listActiveSpecs();
+    const availability = await this.boxService.listAvailability({ planId: plan._id });
+    const materials = await this.materialService.planningData();
+    const out: BoxOptionsOfParcel[] = [];
+    for (const parcel of plan.parcels) {
+      if (parcel.status === 'to_unpack' || parcel.status === 'voided') continue;
+      const allocation = allocations.find((a) => a.order_id === parcel.order_id.toString());
+      const keys = new Set(parcel.placements.map((q) => q.item_key));
+      const units = allocation ? expandToUnits(allocation.items, unitOptionsOf(plan)).filter((u) => keys.has(u.item_key)) : [];
+      const options: BoxOptionsOfParcel['options'] = [];
+      if (units.length === keys.size && units.length > 0) {
+        for (const box of boxes) {
+          const result = solveOrder(units, [box], { materials });
+          const [only] = result.parcels;
+          if (result.status !== 'ok' || result.parcels.length !== 1 || !only) continue;
+          const usedByOthers = plan.parcels.filter((p) => p.parcel_no !== parcel.parcel_no && p.box.code === box.code).length;
+          options.push({
+            boxCode: box.code,
+            boxName: box.name,
+            outerMm: { ...box.outer },
+            estimatedWeightG: only.estimated_package_weight_g,
+            boxPriceVnd: box.price_vnd ?? 0,
+            materialsCostVnd: only.materials_cost_vnd,
+            available: Math.max(0, (availability.get(box.code)?.available ?? 0) - usedByOthers),
+          });
+        }
+      }
+      out.push({
+        parcelNo: parcel.parcel_no,
+        orderId: parcel.order_id.toString(),
+        platformOrderId: parcel.platform_order_id,
+        sealed: parcel.box_consumed || parcel.status !== 'pending',
+        current: {
+          boxCode: parcel.box.code,
+          boxName: parcel.box.name,
+          outerMm: {
+            length_mm: parcel.box.outer_mm.length_mm,
+            width_mm: parcel.box.outer_mm.width_mm,
+            height_mm: parcel.box.outer_mm.height_mm,
+          },
+          // So cùng thước đo với các phương án (cân ƯỚC TÍNH), không dùng cân thật.
+          estimatedWeightG: parcel.estimated_weight_g,
+          boxPriceVnd: parcel.box.price_vnd ?? 0,
+          materialsCostVnd: parcel.materials_cost_vnd,
+        },
+        options,
+      });
+    }
+    return out;
   }
 
   /**

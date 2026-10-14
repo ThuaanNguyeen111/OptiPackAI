@@ -67,6 +67,8 @@ export function priceForWeight(service: RateService, weightG: number): number {
 export interface ParcelInput {
   orderId: string | null;
   cartonIndex: number;
+  /** C4 (14/10/2026) — số kiện trong kế hoạch (dùng khi tạo vận đơn hãng theo kiện). */
+  parcelNo?: number;
   actualG: number;
   outer: OuterDimensionsMm;
 }
@@ -74,6 +76,7 @@ export interface ParcelInput {
 export interface ParcelQuote {
   orderId: string | null;
   cartonIndex: number;
+  parcelNo?: number;
   actualG: number;
   volumetricG: number;
   chargeableG: number;
@@ -91,6 +94,12 @@ export interface ServiceQuote {
   totalChargeableG: number;
   totalCostVnd: number;
   isSample: boolean;
+  /** C4 (14/10/2026) — true = cước do API hãng thật trả (GHN preview), không phải bảng cước. */
+  isLive?: boolean;
+  /** C4 — hãng không báo giá được (VD sai địa chỉ) → dịch vụ không chọn được, kèm lý do. */
+  unavailableReason?: string | null;
+  /** C4 — giá trị hệ thống tự bổ sung vì đơn bị che (VD tỉnh mặc định, SĐT demo). */
+  assumptions?: string[];
 }
 
 export function quoteService(
@@ -112,6 +121,7 @@ export function quoteService(
     return {
       orderId: parcel.orderId,
       cartonIndex: parcel.cartonIndex,
+      ...(parcel.parcelNo !== undefined ? { parcelNo: parcel.parcelNo } : {}),
       actualG: parcel.actualG,
       volumetricG,
       chargeableG,

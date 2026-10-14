@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDateString, IsEnum, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsDateString, IsEnum, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { DeliveryFailureReason } from '../enums/delivery-failure-reason.enum';
+import { ToLocationDto } from '../../shipping/dto/shipping.dto';
 
 export class StartShipmentDto {
   @ApiProperty({ example: '66f0...' })
@@ -24,6 +26,40 @@ export class StartShipmentDto {
   @ApiPropertyOptional({ example: '2026-10-05T09:00:00+07:00', description: 'Lịch hãng đến lấy hàng' })
   @IsOptional() @IsDateString()
   pickup_at?: string;
+
+  // C4 (14/10/2026) — chỉ dùng khi hãng là API (GHN): sửa/bổ sung địa chỉ gửi hãng cho đơn bị che.
+  @ApiPropertyOptional({ type: () => ToLocationDto })
+  @IsOptional() @ValidateNested() @Type(() => ToLocationDto)
+  to_location?: ToLocationDto;
+}
+
+/** C4 (14/10/2026) — PATCH /shipments/:id/to-location. */
+export class UpdateToLocationDto extends ToLocationDto {}
+
+/** C4 — POST /shipments/:id/carrier/cancel. */
+export class CancelCarrierDto {
+  @ApiPropertyOptional({ example: 'GHN-CO001', description: 'Mã lý do huỷ của GHN (GHN-CO001/CO002/CO003/GHN-CANCEL-OTHER). Bỏ trống = không gửi.' })
+  @IsOptional() @IsString() @MaxLength(40)
+  reason_code?: string;
+
+  @ApiPropertyOptional({ example: 'Khách đổi địa chỉ, tạo lại vận đơn' })
+  @IsOptional() @IsString() @MaxLength(500)
+  note?: string;
+}
+
+/** C5 (14/10/2026) — POST /shipments/:id/carrier/simulate (chỉ môi trường demo). */
+export class SimulateCarrierStatusDto {
+  @ApiProperty({ example: 'picked', description: 'Trạng thái GHN muốn mô phỏng: picked, storing, transporting, delivering, delivered, delivery_fail, returning, returned, lost, damage... (không gồm cancel / ready_to_pick)' })
+  @IsString() @MaxLength(40)
+  status!: string;
+
+  @ApiPropertyOptional({ example: 'GHN-DFC1A4', description: 'Mã lý do của GHN (giao thất bại: GHN-DFC1A4 không nghe máy, GHN-DCD0A8 khách đổi ý...)' })
+  @IsOptional() @IsString() @MaxLength(40)
+  reason_code?: string;
+
+  @ApiPropertyOptional({ example: 'Khách không nghe máy' })
+  @IsOptional() @IsString() @MaxLength(300)
+  reason?: string;
 }
 
 export class SchedulePickupDto {

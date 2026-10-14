@@ -68,6 +68,29 @@ describe('document-renderers', () => {
     expect(pageCount(pdf)).toBe(3);
   });
 
+  it('C4 (14/10/2026) — nhãn vận đơn GHN: mỗi kiện in mã hãng riêng (mã vạch khác nhau), vẫn 1 trang/kiện', async () => {
+    const pdf = await renderShippingLabels({
+      shopName: 'Shop A',
+      carrierName: 'Giao Hàng Nhanh (GHN)',
+      serviceName: 'Hàng nhẹ',
+      trackingCode: 'SHP-261014-ABCDEF',
+      tripCode: '—',
+      recipient,
+      parcels: [0, 1].map((i) => ({
+        orderId: 'O1',
+        index: i,
+        total: 2,
+        boxCode: 'BAG',
+        weightG: 300,
+        trackingCode: `L88K7P${String(i)}`,
+        sortCode: 'GXT-M-11-00',
+      })),
+      etaTo: null,
+    });
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(pageCount(pdf)).toBe(2);
+  });
+
   it('bảng kê: 1 trang cho vài vận đơn, sang trang khi nhiều', async () => {
     const mk = (
       n: number,

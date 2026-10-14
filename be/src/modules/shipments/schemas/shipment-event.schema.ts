@@ -42,6 +42,18 @@ export class ShipmentEvent {
 
   @Prop({ type: Date, required: true })
   occurred_at!: Date;
+
+  /**
+   * C5 (14/10/2026) — nguồn của sự kiện hãng: 'carrier_webhook' (GHN gọi), 'carrier_sync'
+   * (gọi Order Info), 'carrier_simulated' (nút mô phỏng demo), 'manual' (người bấm).
+   * Sự kiện G1 cũ không có field này.
+   */
+  @Prop({ type: String, default: null })
+  source?: string | null;
+
+  /** Trạng thái gốc hãng gửi (VD `picked`, `delivery_fail`). */
+  @Prop({ type: String, default: null })
+  carrier_status?: string | null;
 }
 
 export type ShipmentEventDocument = HydratedDocument<ShipmentEvent>;

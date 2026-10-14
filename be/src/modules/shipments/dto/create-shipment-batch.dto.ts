@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
@@ -7,7 +8,9 @@ import {
   IsOptional,
   IsString,
   Matches,
+  ValidateNested,
 } from 'class-validator';
+import { ToLocationDto } from '../../shipping/dto/shipping.dto';
 
 /**
  * Body của POST /shipments/batch (Mục 9.5, hàng #4). 🔄 30/09/2026: BẮT BUỘC chọn
@@ -59,6 +62,17 @@ export class CreateShipmentBatchDto {
   @IsOptional()
   @IsDateString({}, { message: 'pickup_at phải là ngày giờ ISO 8601' })
   pickup_at?: string;
+
+  @ApiProperty({
+    required: false,
+    type: () => ToLocationDto,
+    description:
+      'C4 (14/10/2026) — chỉ dùng khi hãng là API (GHN): địa chỉ gửi hãng cho đơn bị che (áp cho mọi nhóm trong chuyến — cùng người nhận).',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ToLocationDto)
+  to_location?: ToLocationDto;
 }
 
 export class SchedulePickupDto {

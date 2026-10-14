@@ -23,11 +23,25 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { UserRole } from '../../common/enums/user-role.enum';
 import {
   CreateCarrierDto,
+  PackagingOptionsQueryDto,
+  QuoteQueryDto,
+  type ToLocationDto,
   UpdateCarrierDto,
   UpdateShippingSettingsDto,
 } from './dto/shipping.dto';
 import type { ShippingCarrierDocument } from './schemas/shipping-carrier.schema';
-import { ShippingService, type GroupQuote } from './shipping.service';
+import { ShippingService, type GroupQuote, type PackagingOptionsResult } from './shipping.service';
+import type { ToLocationInput } from './live-carrier.service';
+
+/** Query địa chỉ → ToLocationInput (bỏ field không gửi). */
+function toLocationOf(q: ToLocationDto): ToLocationInput | null {
+  const out: ToLocationInput = {};
+  if (q.street !== undefined) out.street = q.street;
+  if (q.ward_name) out.ward_name = q.ward_name;
+  if (q.province_name) out.province_name = q.province_name;
+  if (q.phone) out.phone = q.phone;
+  return Object.keys(out).length > 0 ? out : null;
+}
 import type { ShippingStrategy } from './utils/shipping-cost.util';
 
 export interface CarrierResponse {
@@ -37,9 +51,12 @@ export interface CarrierResponse {
   volumetricDivisor: number;
   isSample: boolean;
   isActive: boolean;
+  /** C4 (14/10/2026) — 'table' = bảng cước; 'live' = cước + vận đơn từ API hãng (GHN). */
+  kind: 'table' | 'live';
   services: {
     code: string;
     name: string;
+    serviceTypeId: number | null;
     etaMinDays: number;
     etaMaxDays: number;
     bands: { upToG: number; priceVnd: number }[];
@@ -55,9 +72,11 @@ function toCarrierResponse(doc: ShippingCarrierDocument): CarrierResponse {
     volumetricDivisor: doc.volumetric_divisor,
     isSample: doc.is_sample,
     isActive: doc.is_active,
+    kind: doc.kind,
     services: doc.services.map((s) => ({
       code: s.code,
       name: s.name,
+      serviceTypeId: s.carrier_service_type_id ?? null,
       etaMinDays: s.eta_min_days,
       etaMaxDays: s.eta_max_days,
       bands: s.bands.map((b) => ({ upToG: b.up_to_g, priceVnd: b.price_vnd })),
@@ -129,8 +148,22 @@ export class ShippingController {
     summary:
       'Báo giá vận chuyển cho nhóm đơn: mỗi (hãng, dịch vụ) một dòng — cước từng kiện, tổng cước, thời gian giao dự kiến — kèm dịch vụ ĐỀ XUẤT theo tùy chọn của Store Owner.',
   })
-  async quote(@Param('groupId') groupId: string): Promise<GroupQuote> {
-    return this.shippingService.quoteForGroup(groupId);
+  async quote(@Param('groupId') groupId: string, @Query() q: QuoteQueryDto): Promise<GroupQuote> {
+    // C4 (14/10/2026) — query địa chỉ (street/ward_name/province_name/phone) chỉ dùng cho hãng API.
+    return this.shippingService.quoteForGroup(groupId, toLocationOf(q));
+  }
+
+  @Get('packaging-options/:groupId')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'C6 — So TỔNG chi phí (thùng + vật tư chèn + phí ship của hãng/dịch vụ chọn) cho mọi thùng xếp vừa từng kiện; chỉ ra phương án rẻ nhất và số tiền tiết kiệm. Chỉ đọc — áp dụng bằng route đổi thùng của kế hoạch đóng gói.',
+  })
+  async packagingOptions(
+    @Param('groupId') groupId: string,
+    @Query() q: PackagingOptionsQueryDto,
+  ): Promise<PackagingOptionsResult> {
+    return this.shippingService.packagingOptions(groupId, q.carrier_code, q.service_code, toLocationOf(q));
   }
 
   @Get('settings')

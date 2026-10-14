@@ -4019,3 +4019,139 @@ Kiểm chứng: TypeScript không lỗi; Jest 75 suite / 840 test đều pass; `
 **Tác động:** (1) Dữ liệu cũ: field mới mặc định null, không migration; key đổi công thức → chạy `recompute-consolidation-keys.ts --apply` 1 lần. (2) Route cũ không đổi hành vi; `linked`/`linkedGroupCount` nay gồm cả liên kết tay. (3) Picking List gộp `?group_ids=` không kiểm liên kết → dùng được ngay. (4) Không ảnh hưởng đóng gói, vật liệu, GHN. (5) Hạn chế: gom Lazada theo dữ liệu che vẫn có thể gộp nhầm; AURELLE "trước/sau sáp nhập" khác tên địa giới → không gom.
 
 **Bổ sung 13/10/2026:** thêm field ObjectId mới vào schema thì PHẢI thêm vào `be/src/common/schemas/objectid-fields.ts` và tăng số đếm trong `objectid-fields.spec.ts` (đã làm cho `order_groups.manual_link_id`, 77 → 78) — thiếu thì test đối chiếu fail và husky chặn commit. Husky pre-commit chạy TOÀN BỘ jest: máy chưa `npm install` sau khi gộp thi_dev (thiếu `pdfkit`, `bwip-js`, `qrcode`) cũng bị chặn commit.
+
+### 🚚 13/10/2026 (tối) — Rà soát luồng đóng gói → ship + GHN chạy lại + shop Lazada mới
+
+- **Shop Lazada mới** VN34FGISNC / shop_id `201182096267` đã thêm vào whitelist app OptiPack AI (App Key 141553) và kết nối OAuth thành công; shop cũ `201171264532` tự `isActive=false`. Không cần đổi key/secret. Lỗi gặp: "Not Login" khi Add Seller (phiên console hết hạn), `MKT_OAUTH_STATE_INVALID` (state 1 lần, TTL 10 phút — dùng lại link cũ/tab cũ).
+- **`.env` máy Thuận thiếu `AURELLE_*`** (thêm vào `.env.example` 12/10) → BE sập lúc khởi động (`requireEnv`). Đã thêm giá trị khớp mock server (500123/mock-secret); bản cũ lưu `be/backups/env.bak-20261013` (gitignore).
+- **GHN staging chạy lại** (12/10 trả 404). Kết quả thật: smoke OK (2 dịch vụ), túi rẻ hơn thùng 13.200đ; địa chỉ 2 cấp không số nhà → nhận; số nhà + đường chỉ nhận khi đúng phường; đơn Lazada che: SĐT `8**5` bị `master_data_validate_phone`, thay SĐT demo → nhận 20.900đ; đơn che cả tỉnh → phải `--province=`.
+- **Rà soát code:** `CARRIER_ADAPTER` (C2/C3) KHÔNG được module nào inject → tạo vận đơn chỉ sinh `SHP-...` nội bộ, nhãn in mã nội bộ; chưa có route webhook GHN (có `GHN_WEBHOOK_SECRET` nhưng không dùng); chưa có `awaiting_pickup`; 1 vận đơn/nhóm (không theo kiện); cước = bảng mẫu của Thi (`is_sample_rate`). Test liên quan: packing+packaging 20 suite/321, shipments+carriers+documents+shipping 11/108 — xanh.
+- **Tài liệu GHN mới:** developer.ghn.vn (thay api.ghn.vn). Webhook đăng ký trên Developer Portal (staging: developer.ghn.dev, tách tài khoản), không có chữ ký → dùng custom header; trả 2xx; chống trùng theo `OrderCode+Type+Time`; 4xx (trừ 408/429) bị bỏ, 5xx retry 30s→12h. `client_order_code` gửi lại trả order_code cũ (chống tạo trùng). Có Pick Shift, Return Order, Delivery Again, Update COD, Leadtime, Fee of Order, Get Station.
+
+### 📚 14/10/2026 — TỔNG HỢP: hiện trạng luồng ship + mọi tài liệu GHN và Lazada đã đọc (mục tra cứu một chỗ)
+
+> Mục này gom lại các phát hiện rải rác ở nhật ký 15/09, 02/10, 07–08/10, 10/10, 12/10, 13/10 để tra cứu nhanh. Khi mâu thuẫn với nhật ký cũ, **mục này là bản mới nhất**.
+
+#### A. Hiện trạng luồng đóng gói → ship (rà code 13/10/2026)
+
+| Module | Người làm | Route | Trạng thái |
+|---|---|---|---|
+| `packing` | Thi + Thuận | ~30 route `/packing`, `/order-groups/:groupId/packing-plan` | ✅ Đóng nhiều kiện, cân thật, niêm phong, trừ thùng/vật liệu/túi theo kiện; huỷ giữa chừng chỉ tháo kiện của đơn huỷ |
+| `shipping` | Thi (gộp 04/10) | `/shipping/carriers`, `/shipping/quote/:groupId`, `/shipping/settings` | ✅ Báo giá theo kiện bằng **bảng cước mẫu** (`is_sample_rate`), hãng `SAMPLE-EXPRESS`/`SAMPLE-ECONOMY` (`scripts/seed-shipping-carriers.ts`) |
+| `shipments` | Thuận (G1) + Thi (batch, pickup) | `/shipments`, `/shipments/batch`, `/shipments/:id/pickup`, deliver/fail/retry/receive-return, overdue-scan | ✅ Vận đơn nội bộ `SHP-...`, chuyến `TRIP-...`; tạo xong nhảy thẳng `out_for_delivery`; 1 vận đơn / nhóm |
+| `documents` | Thi | `/documents/packing-slip`, `/shipping-label`, `/manifest` | ✅ PDF; nhãn mỗi kiện 1 nhãn nhưng in mã nội bộ |
+| `carriers` | Thuận (AOFP-67, 70) | **không có** | ⚠️ `CARRIER_ADAPTER` không module nào inject → GHN chỉ chạy qua script |
+| `returns` | Thuận (G3) | `/returns/*` | ✅ |
+
+- Module của Thi **đã chạy trong cùng BE** (PR #7): `ShipmentsService.startDelivery/createBatch` gọi `ShippingService.quoteChosenService` + `persistCosts`. Chỉ `carriers` là chưa nối.
+- Storefront AURELLE không có luồng ship riêng: phí cố định 30.000đ, miễn phí từ 1.000.000đ (`storefront/lib/order-pricing.ts`), chỉ hiện "Đang giao hàng", không có mã vận đơn.
+- Test 13/10: packing+packaging 20 suite/321 test, shipments+carriers+documents+shipping 11/108 — xanh.
+- **Hướng C4 đã chỉnh (14/10):** GHN thành 1 hãng `kind: 'live'` trong `shipping_carriers`; `GET /shipping/quote` gọi Preview GHN cho từng kiện; `POST /shipments`/`batch` với `carrier_code: "GHN"` tạo **mỗi kiện 1 đơn GHN** (`client_order_code = SHP-...-<n>`), trạng thái mới `awaiting_pickup`; nhãn in mã GHN; route riêng cancel/label/sync/to-location; chặn nút G1 cho vận đơn GHN. C5: webhook + nút trạng thái đi chung hàm. C6: so phí theo phương án đóng gói.
+- **Chờ chốt (Thuận + Thi):** (1) thêm `awaiting_pickup`; (2) nhóm `delivered` khi mọi kiện giao xong; (3) Thi không sửa dở `shipping/shipments/documents` khi làm C4.
+
+#### B. Tài liệu GHN đã đọc (07/10, 10/10, 13/10/2026)
+
+**Nguồn:** `https://developer.ghn.vn/en/docs/<nhóm>/<trang>` (trang cũ `api.ghn.vn/home/docs/detail?id=...` không cập nhật). Host API: staging `https://dev-online-gateway.ghn.vn`, production `https://online-gateway.ghn.vn`, tiền tố `/shiip/public-api`. Header `Token`, `ShopId` (số), `Content-Type: application/json`. Portal staging `developer.ghn.dev` (tài khoản tách khỏi production). Staging shop kho: **227609** (47/88 Nguyễn Văn Đậu).
+
+**Mục lục đầy đủ và mức dùng:**
+
+| Nhóm | API | Trong `GhnAdapter` | Dùng ở |
+|---|---|---|---|
+| Orders | Create Order `v2/shipping-order/create` | ✅ | C4 |
+| | Preview Order `v2/shipping-order/preview` | ✅ | C4 báo giá (nhận địa chỉ mới) |
+| | Calculate Fee `v2/shipping-order/fee` | ✅ | C6 (chỉ mã quận/phường cũ) |
+| | Cancel `v2/switch-status/cancel` | ✅ | C4 |
+| | Print `v2/a5/gen-token` → `/a5/public-api/printA5|print80x80|print52x70?token=` | ✅ | C4 (token ~30 phút) |
+| | Order Info `v2/shipping-order/detail`, `detail-by-client-code` | ✅ | C5 dự phòng, chống trùng |
+| | Leadtime `v2/shipping-order/leadtime` | — | Tuỳ chọn (Preview đã có `expected_delivery_time`) |
+| | Update Order, Update COD, Return Order, Delivery Again, Fee of Order Info | — | Mở rộng (Return/Delivery Again nối G3 và nút "Giao lại") |
+| Master Data | Province/District/Ward cũ | — | Không cần |
+| | Province (New) `v3/master-data/province/all`, Ward (New) `v3/master-data/ward/all-by-province-id` | — | C4 dropdown khi Lazada che tỉnh |
+| | Get Service `v2/shipping-order/available-services` | ✅ | Staging: 53320 Hàng nhẹ (type 2), 100039 Hàng nặng (type 5) |
+| | Pick Shift, Get Station | — | Mở rộng (Pick Shift thay `PATCH /shipments/:id/pickup`) |
+| | Reason Codes, Order Status Codes | hằng số | C5 |
+| Shops | Get Shop `v2/shop/all`, Create Shop `v2/shop/register` | ✅ Get | Cấu hình |
+| Webhooks | Order Status Callback | — | C5 |
+| | Ticket Callback, Tickets, Affiliate | — | Không dùng |
+
+**Create Order (điểm then chốt):** 1 đơn GHN = 1 kiện (1 bộ cân/kích thước) → nhóm nhiều kiện = nhiều đơn GHN. `client_order_code` ≤ 50, duy nhất theo shop; gửi lại → trả `order_code` cũ (kiểm chứng 08/10 với `TEST-0001` → `L88K7P`). Cân ≤ 50.000 g, cạnh ≤ 200 cm, COD ≤ 50 triệu, bảo hiểm ≤ 5 triệu. `service_type_id` 2 (< 20 kg) / 5 (≥ 20 kg, `items[]` cần kích thước). `is_new_to_address=true` → chỉ phường + tỉnh. `required_note` KHONGCHOXEMHANG / CHOXEMHANGKHONGTHU (chốt mặc định) / CHOTHUHANG. `payment_type_id` 1 shop trả / 2 người nhận trả. `pick_shift[]` từ Pick Shift, không có giờ lấy hàng tự do. Lỗi: `USER_ERR_COMMON`, `PHONE_INVALID`, `CLIENT_NOT_OWNER_OF_SHOP`, `ROUTE_NOT_FOUND_SERVICE`, `SERVICE_NOT_FOUND_CONFIG_FEE`, `SERVER_ERROR_COMMON`.
+
+**Order Status Callback (đọc lại 13/10):** đăng ký trên Portal → Webhook configuration → tab Order (≈ 15 phút có hiệu lực); tuỳ chọn header tự đặt, timeout 1–60 s, gửi lại 1–5 lần, chọn sự kiện. **Không có chữ ký** → dùng header bí mật + kiểm `ShopID`/`OrderCode`. 2xx = xong; 4xx (trừ 408/429) bị bỏ không gửi lại; 5xx/408/429/timeout gửi lại 30 s → 12 h. FIFO theo từng đơn (1 callback lỗi chặn các callback sau của đơn đó). Chống trùng `OrderCode + Type + Time`. `Type`: create, switch_status, update_weight, update_cod, update_fee, update_payment_type, cod, update_partial_return. `Reason/ReasonCode` chỉ ở ready_to_pick, delivery_fail, return_fail, damage, lost, cancel. Khoá PascalCase, field luôn có mặt.
+
+**Trạng thái GHN (thứ tự):** ready_to_pick, picking, money_collect_picking, picked, storing, sorting, transporting, delivering, money_collect_delivering, delivered*, delivery_fail, waiting_to_return, return, return_transporting, return_sorting, returning, return_fail, returned*, cancel*, exception*, lost*, damage*, scrap* (* = kết thúc). Bảng map sang OptiPack: `GHN_INTEGRATION_GUIDE.md` mục 3.2.
+
+**Kết quả test thật:** 08/10 tạo `L88K7P` (20.900đ); túi 30×25×4 = 20.900đ, thùng 40×30×20 = 34.100đ (chênh 13.200đ — bằng chứng tối ưu đóng gói). 10/10 và 13/10: địa chỉ 2 cấp không số nhà → nhận; số nhà + đường chỉ nhận khi đúng phường ("47/88 Nguyễn Văn Đậu" ↔ Phường Gia Định); kiểu cũ (mã quận) vẫn nhận. 13/10 đơn Lazada che: SĐT `8**5` → `master_data_validate_phone`; SĐT demo + phường + tỉnh tự chọn → 20.900đ. Staging 404 tối 12/10, chạy lại 13/10.
+
+**Bẫy đã gặp:** curl inline tiếng Việt trên Git Bash → `PROVINCE_NAME_NOT_VALID` (phải gửi file JSON UTF-8); đăng ký shop bằng curl inline → địa chỉ lỗi font (shop 227608) → dùng 227609; danh mục phường cũ của Bình Thạnh không có "Bình Lợi Trung".
+
+#### C. Tài liệu Lazada Open Platform đã đọc (15/09 → 13/10/2026)
+
+**Đơn hàng / che dữ liệu (10/10):** GetOrders đánh dấu `address1–5`, `district`, `phone`, tên người mua là **C3 (bị che)**; `city` là C2 (không che, chứa **phường mới**); `post_code` C2 nhưng thực tế rỗng; đơn thật 12/10 che cả tỉnh. Không có API giải mã trong 378 API. Trang app có mục **Sensitive Data Privilege: Mask — Apply Unmask** (xin bỏ che, chưa nộp). Lối chính thức duy nhất để có địa chỉ: shop **DBS** (Delivered By Seller, tên cũ SOF) + xin miễn che; API riêng cho DBS: `/order/package/sof/collect`, `/sof/delivered`, `/sof/failed_delivery`, `/sof/status/update` (gọi cho đơn không DBS → `700009`). GetOrders phải lọc `update_after` (không phải `created_after`), trang tối đa 100 đơn (BE chưa phân trang).
+
+**Fulfillment API (02/10):** GetShipmentProvider `/order/shipment/providers/get`; Pack `/order/fulfill/pack` (`delivery_type: dropship`, `shipping_allocate_type` TFS/NTFS, không truyền `shipment_provider_code` cho DBS; kết quả theo từng item `item_err_code`); ReadyToShip `/order/package/rts`; PrintAWB `/order/package/document/get` — **không hỗ trợ đơn SOF/DBS** (xác nhận 15/09). Pack đã code 02/10 rồi **bỏ 10/10 (AOFP-71)**: OptiPack không ghi trạng thái ngược lên Lazada; giữ `LazadaAdapter.packOrders()` không dùng.
+
+**Webhook Lazada (15/09):** chữ ký `HEX_LOWERCASE(HMAC_SHA256(app_key + raw_body, app_secret))` ở header `Authorization`; URL callback cần chứng chỉ OV/EV; đăng ký ở tab Message Service; trả 200 trong 500 ms; gửi lại 12 lần/30 phút; có thể trùng. Hoãn đến khi có domain thật — cron 5 phút vẫn là đường chính.
+
+**Tồn kho (29–30/09, chưa code):** chỉ ghi **sellable** — `AdjustSellableQuantity` (± chênh lệch) cho thay đổi phát sinh ở OptiPack, `UpdateSellableQuantity` cho đối soát; không dùng `UpdatePriceQuantity`; ≤ 20 SKU/request khuyến nghị, 50 lần/giây/shop.
+
+**App & shop (13/10):** App "OptiPack AI" (App Key 141553, Seller In-house APP, trạng thái Testing) — chỉ shop trong **Authorized Seller Whitelist** (tối đa 5) mới cấp quyền được; thêm shop ở App Management → Authorized Seller Whitelist → Add (Seller ID = **mã ngắn** trong Seller Center → Cài đặt, ví dụ VN34FGISNC; email/mật khẩu của tài khoản chính shop). "Not Login" = phiên console hết hạn → tải lại/đăng nhập lại. Callback `https://congenial-nectar-siesta.ngrok-free.dev/marketplace/lazada/callback` (ngrok phải chạy lúc cấp quyền, không cần lúc kéo đơn). `GET /marketplace/lazada/connect` sinh `state` dùng 1 lần, sống 10 phút → dùng link cũ/bấm lại → `MKT_OAUTH_STATE_INVALID`. Token shop mới: access ~7 ngày, refresh ~30 ngày. Shop đang dùng: **201182096267** (VN34FGISNC); shop cũ bị ban 201171264532 (VN34F9B5F7) tự `isActive=false` khi gia hạn token thất bại — đơn cũ vẫn chạy luồng nội bộ. BE chưa có API ngắt kết nối shop (đề xuất `DELETE /marketplace/:platform/shops/:shopId` chỉ đặt `is_active=false`).
+
+#### D. Tài liệu đã cập nhật 14/10/2026
+
+- `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` v1.3: trạng thái C1–C3 đã commit; mục 2.1b mục lục đầy đủ API GHN + webhook + Create Order; 3.4 cấu trúc thật của `carriers/`; 3.5 ghi rõ route chưa có và gắn vào `shipping`/`shipments`; 3.6 bỏ dòng Lazada Pack; Bước 5–7 cập nhật (portal staging, header bí mật, nút trên web thay trang giả lập, `CARRIER_MANUAL_STATUS_ENABLED`); bảng kế hoạch C4–C6 chỉnh; **mục 9** hiện trạng + kết hợp với Thi; **mục 10** kết quả test 13/10 + lệnh chạy.
+- `GUIDE_DOC/INTEGRATION_GUIDE_SHIPPING.md` v1.3: **Phần B.7** (seed hãng mẫu, báo giá theo kiện, `POST /shipments` có hãng, `/shipments/batch`, pickup, in phiếu/nhãn/manifest, kịch bản demo); Phần E thêm hạn chế 14–16; F.1 thêm route `shipping`/`documents`/batch/pickup/link; F.2 thêm mã lỗi `SHP_*`/`SHIP_*`/`DOC_*`; F.3 thêm checklist.
+- `GUIDE_DOC/API_LIST.md`: ghi chú GHN chưa có route trước mục 10c.
+
+### 🚚 14/10/2026 (chiều) — C4–C6 ĐÃ CODE: giao qua GHN gắn vào module shipping/shipments/documents/packing của Thi
+
+**Quyết định (Thuận):** demo-only, không lấy/giao thật. Thêm `awaiting_pickup` (+ `in_transit`, `cancelled`); nhóm đơn chỉ `delivered` khi mọi kiện giao xong; nút mô phỏng theo vận đơn (mọi kiện đổi cùng lúc). Shop KHÔNG có quyền đổi trạng thái bên GHN — nút mô phỏng chỉ đổi DB OptiPack, đi chung hàm với webhook thật. Đã kiểm luồng hoàn hàng: G3 + G4 có sẵn (receive-return → phiếu hoàn `failed_delivery` → inspect `packaging[]` hạng A + gỡ nhãn → `qty_reused`; `consumeForParcels` ưu tiên hàng tái sử dụng khi đóng gói lần sau — box/material service của Thi dùng chung `PackagingMaterialsService`). Túi zip (`packaging_bags`) không thu hồi được qua inspect (ghi hạn chế).
+
+**Thiết kế (không làm luồng song song, chỉ THÊM vào code của Thi):**
+- `shipping_carriers`: `kind: 'table' | 'live'` (mặc định table), `services[].carrier_service_type_id`. Seed `be/scripts/seed-ghn-carrier.ts` (GHN, LIGHT=2, HEAVY=5). PATCH services của hãng live → 400 `SHIP_LIVE_CARRIER_SERVICES_LOCKED`.
+- `shipping/live-carrier.service.ts` (mới): cầu nối shipping ↔ carriers — `resolveRecipient` (bỏ `***`, phường từ `city` khi bị che, tỉnh mặc định `CARRIER_DEFAULT_PROVINCE`, SĐT demo `CARRIER_DEMO_RECIPIENT_PHONE`, trả `assumptions`), `toCarrierParcel` (mm→cm làm tròn lên), `quoteParcels` (Preview từng kiện → `ServiceQuote` khuôn của Thi), `bookParcel` (Create Order).
+- `ShippingService`: 2 tham số `@Optional()` cuối (LiveCarrierService, PackingPlanService); `quoteForGroup(groupId, toLocation?)` hãng live → `safeLiveQuote` (lỗi → `unavailableReason`, không được đề xuất); `quoteChosenService(..., toLocation?)` live → báo giá CHẶT; `resolveLiveService`, `isLiveCarrier`; `packagingOptions` (C6). `ParcelInput/ParcelQuote.parcelNo?`, `ServiceQuote.isLive?/unavailableReason?/assumptions?` (optional). Module import thêm `CarriersModule`, `PackingModule`, schema Order.
+- `PackingPlanService.boxOptionsForGroup` (C6, chỉ đọc): mỗi kiện thử mọi thùng bằng `solveOrder` (cùng solver/validator với change-box), trả cân ước tính, giá thùng, vật tư, tồn khả dụng.
+- `shipments` schema: `carrier_kind`, `carrier_adapter`, `booking_round`, `carrier_parcels[]` (parcel_no, order_id ObjectId, client_order_code, carrier_order_code, sort_code, cân/kích thước, fee subdoc, expected_delivery_at, carrier_status, booking_error), `to_location`, `carrier_status`, `carrier_booking_error`, `carrier_incident`, `picked_up_at`, `carrier_returned_at`, `cancelled_at`; index partial `carrier_parcels.carrier_order_code`. `shipment_events` + `source`, `carrier_status`. Collection mới `carrier_webhook_events` (unique `dedupe_key` = `OrderCode|Type|Status|Time`, payload lưu chuỗi JSON — KHÔNG Mixed).
+- `ShipmentsService`: 3 tham số `@Optional()` cuối (LiveCarrierService, model CarrierWebhookEvent, ConfigService). `startDelivery/createBatch` hãng live → `awaiting_pickup`, kiện dự kiến từ báo giá, nhóm đơn → `shipped` như cũ, gọi hãng NGOÀI transaction (`bookCarrierParcels`, lỗi ghi lên vận đơn). Vận đơn `cancelled` được đặt lại trên CÙNG document (index unique giữ nguyên), `booking_round+1`, client code `SHP-...-R2-<kiện>`. Nút G1 deliver/fail/retry → 409 `SHP_MANAGED_BY_CARRIER`. Mới: `updateToLocation`, `getCarrierLabel`, `cancelCarrier`, `simulateCarrierStatus`, `syncCarrier`, `handleGhnWebhook`, `processCarrierEvent` (điểm vào duy nhất: chống trùng → `applyCarrierEvent`; lỗi tạm thời xoá bản ghi chống trùng). Cron quá hạn thêm `awaiting_pickup`, `in_transit`; `due_at` = ngày giao dự kiến GHN.
+- `shipments/carrier-status.util.ts` (mới, thuần): map GHN→OptiPack (`returned` → vẫn `returning_to_warehouse`, kho phải quét nhận), `aggregateCarrierStatus` (kiện chậm nhất; delivered khi đủ kiện), `canCarrierMove` (nhảy bước được, không lùi, không rời kết thúc, returning chỉ kho đi tiếp, huỷ chỉ khi chờ lấy), `mapGhnFailureReason`, nhãn tiếng Việt, danh sách mô phỏng (không có cancel/ready_to_pick).
+- Nhóm đơn: thêm chuyển `shipped → packed` (CHỈ khi huỷ ở hãng trước khi lấy hàng) — cập nhật `allowed-status-transitions.spec`.
+- `documents`: nhãn in mã GHN + sort code TỪNG KIỆN (renderer nhận `trackingCode`/`sortCode` optional), manifest liệt kê mã GHN.
+- Route mới: `GET /shipping/packaging-options/:groupId`, `POST /shipments/:id/carrier/book|cancel|sync|simulate`, `PATCH /shipments/:id/to-location`, `GET /shipments/:id/carrier/label`, `GET /shipments/carrier/statuses`, `POST /carriers/ghn/webhook` (public, `@SkipThrottle`, header `X-OptiPack-Secret` hoặc `?secret=`, kiểm ShopID). Mã lỗi `SHP_MANAGED_BY_CARRIER`, `SHP_NOT_CARRIER_SHIPMENT`, `SHP_CARRIER_NOT_BOOKED`, `SHP_CARRIER_CANCEL_NOT_ALLOWED`, `SHP_CARRIER_CANCEL_REJECTED`, `SHP_CARRIER_SIMULATION_DISABLED`, `SHP_CARRIER_STATUS_INVALID`, `SHP_TO_LOCATION_LOCKED`, `SHP_WEBHOOK_UNAUTHORIZED`, `SHIP_LIVE_CARRIER_SERVICES_LOCKED`, `SHIP_LIVE_CARRIER_UNAVAILABLE`, `SHIP_NOT_LIVE_CARRIER`.
+- Env mới: `CARRIER_DEFAULT_PROVINCE`, `CARRIER_DEMO_RECIPIENT_PHONE` (`carrier.config.ts`, `.env.example`).
+- `objectid-fields.ts`: + `shipments.carrier_parcels.order_id`, `carrier_webhook_events.shipment_id` → spec 78 → 80.
+
+**Bài học:** (1) test cũ dựng service bằng `new X(...)` theo vị trí → tham số mới phải `@Optional()` ở CUỐI; (2) mock cũ chỉ có `shipmentModel.exists` → giữ `exists` cho đường cũ, chỉ `findOne` vận đơn huỷ khi có LiveCarrierService; (3) không dùng Mixed (spec quét schema) → payload webhook lưu chuỗi; (4) `ConfigService.get` sau khi đã kiểm `?.` một lần thì TS thu hẹp — eslint báo `?.` thừa; (5) `{ ...subdoc }` trên subdocument Mongoose bị eslint `no-misused-spread` → copy từng field.
+
+**Kiểm chứng:** tsc 0 lỗi; eslint sạch các file sửa; jest chạy theo cụm (VM giới hạn 180 s/lệnh): shipments+shipping+carriers+documents+common 18 suite/161, order-groups 10/125, packing+packaging-materials+warehouse 13/187, packaging 15/202, auth+categories+mail+marketplace+users 13/99, master-skus+notifications+orders+product-master+storefront 16/152 (+1 skipped) — tất cả xanh. Test mới: `carrier-status.util.spec` (12), `live-carrier.service.spec` (6), `shipments.service.carrier.spec` (18), `shipping.service.live.spec` (7), +1 nhãn GHN trong `document-renderers.spec`, +1 C6 trong `packing-plan.service.spec`, +1 transition.
+
+**5 câu hỏi tác động:** (1) Dữ liệu cũ: field mới optional/mặc định, vận đơn cũ = không do hãng quản lý, hãng cũ = `table`; không migration. (2) Luồng cũ (G1, hãng mẫu, batch, nhãn, manifest) giữ nguyên hành vi. (3) Code của Thi chỉ được THÊM tham số optional + field optional + 1 method đọc mới. (4) Phụ thuộc module mới: Shipping → Carriers, Packing (không vòng). (5) Hạn chế: chưa Update Order (sửa địa chỉ sau khi có mã phải huỷ + tạo lại); nhóm đơn bị huỷ khi vận đơn GHN đang chờ lấy chưa tự huỷ ở GHN; COD/bảo hiểm = 0; túi zip không thu hồi qua inspect; chưa chạy thử khởi động BE thật sau thay đổi DI (cần Thuận chạy `npm run start:dev`).
+
+**Docs:** `GHN_INTEGRATION_GUIDE.md` v1.3 → mục 3.5 (route thật), 3.6, 6 (C4–C6 ✅), 7, 9.4 (đã chốt), **11 (hướng dẫn FE + demo + mã lỗi + tác động)**; `INTEGRATION_GUIDE_SHIPPING.md` v1.4 Phần B.8 + F.1/F.2/F.3; `API_LIST.md` ghi chú GHN.
+
+### 🔍 14/10/2026 (tối) — Rà soát tổng thể hệ thống (BE + FE + storefront + docs + DB) — CHỈ ĐÁNH GIÁ, CHƯA SỬA
+
+**Quy mô (code hiện tại, gồm C4–C6 chưa commit):** 20 module, 239 route, ~50 collection, 85 file test (~920 test, toàn bộ mock — chưa có test chạy với Mongo thật/transaction thật).
+
+**Phân quyền:** mọi route có guard (JWT + RolesGuard; storefront admin dùng guard riêng; webhook/callback/OAuth public có kiểm chữ ký/state/secret). ADMIN có mặt ở ~182 route. `ForcePasswordChangeGuard` chỉ gắn ở `users.controller` → tài khoản phải đổi mật khẩu vẫn gọi được route nghiệp vụ khác (thấp). Không có API ngắt kết nối shop sàn; sync đơn chỉ Admin.
+
+**Lỗi/thiếu logic còn mở:**
+1. **Sync Lazada chỉ lấy trang đầu 100 đơn** (`lazada-protocol.client.getOrders` limit 100, không lặp offset) mà `last_polled_at` vẫn tiến → >100 đơn đổi trạng thái trong 1 cửa sổ thì phần dư bị bỏ sót vĩnh viễn.
+2. 06/10: (1) khoá giữ chỗ không đổi khi nối/bỏ nối/thay SKU nội bộ; (3) phiếu hoàn lấy `seller_sku` từ sổ cái pick (có thể là SKU sàn khác); (4) giữ chỗ cộng mọi kho, quét trừ 1 kho; (6) một phần (mapping đã chuẩn hoá, Picking/stockFilter còn regex). Đã sửa: (2) nhả giữ chỗ khi huỷ (09/10), (5) đơn muộn không chen vào nhóm đã đóng (`isGroupOpenForNewOrders`).
+3. **AURELLE:** OptiPack KHÔNG ghi trạng thái ngược về `storefront_orders.fulfillment_status` (khách không thấy "đang giao/đã giao", không có mã vận đơn) — trái quyết định 28/09; tồn `storefront_inventory_stocks` tách rời tồn kho OptiPack (2 nguồn tồn, không đồng bộ). AURELLE nằm TRONG OptiPack BE/DB (design doc ghi BE+DB riêng) — chấp nhận cho demo, ghi hạn chế.
+4. **FE (main) lệch BE:** `fe/src/api/packaging.api.ts` còn gọi `/order-groups/:id/packaging*` (đã bỏ khi gộp 04/10 → màn đóng gói gọi API không tồn tại); FE chưa gọi `/shipping/*`, `/documents/*`, `/shipments/batch`, `/returns/:id/receive|inspect`, liên kết tay, route GHN, master-skus, product-master, packing-plan (đếm tĩnh theo chuỗi path trong fe/src).
+
+**DB/hiệu năng:**
+- **Index `orders.consolidated_group_id` là partial `is_consolidated: true` nhưng nhóm 1 đơn có `consolidated_group_id` mà `is_consolidated=false`, và mọi truy vấn (`getOrderCountsForGroups`, documents, packing-queue, returns, order-groups) KHÔNG lọc `is_consolidated` → Mongo không dùng được index → quét toàn collection orders.** Sửa: index thường `{ consolidated_group_id: 1 }` (partial `$type: 'objectId'`), bỏ index partial cũ.
+- 7 chỗ `$regex`/`RegExp` trong service (tìm SKU không phân biệt hoa thường) không dùng index.
+- Còn lại: index đúng ESR cho danh sách đơn, partial cho consolidation_key/recipient_key/manual_link_id, unique chống trùng (đơn, giữ chỗ, pick_events client_event_id, webhook), transaction + khoá version ở mọi luồng ghi quan trọng.
+
+**Tài liệu lệch:** `DEMO_PLAYBOOK.md` ở gốc (28/09) trùng và cũ hơn `GUIDE_DOC/DEMO_PLAYBOOK.md` (10/10); `GUIDE_DOC/BE_SPEC` (07/10, 141 endpoint) cũ so với 239 route; `docs/ERD.md` thiếu shipments/packing_plans/storefront_*…; README chưa có env GHN (`CARRIER_*`, `GHN_*`), seed GHN, mock AURELLE trong phần chạy; DEMO_PLAYBOOK chưa có đoạn GHN. `.env` máy Thuận thiếu `PACKER_*` → CP-SAT tắt, chỉ BRKGA.
+- **14/10/2026 (tối, bổ sung):** viết `GUIDE_DOC/FE_UPDATE_CHECKLIST.md` — gom mọi việc FE phải chỉnh: (1) route đã bỏ FE còn gọi (`packaging.api.ts` 5 hàm `/order-groups/:id/packaging*`, `order-groups.api.ts` `packOrderGroup` + `postFulfillmentTransition('pack')` → `packing-plan`; ảnh hưởng `PackagingWorkbench.tsx`, `AdminPackingPlansPage.tsx`, `ShippingPage.tsx`); (2) giao hàng/GHN/chứng từ/chuyến; (3) hoàn hàng nhận + kiểm + thu hồi vật tư; (4) liên kết tay, giữ chỗ; (5) đóng gói; (6) SKU nội bộ/Product Master; (7) kết nối sàn; (8) checklist nghiệm thu. README thêm env GHN + trỏ checklist; `DEMO_PLAYBOOK.md` gốc gắn nhãn BẢN CŨ; `GUIDE_DOC/DEMO_PLAYBOOK.md`, `API_LIST.md` thêm ghi chú trỏ GHN/checklist. (BE_SPEC + ERD đã viết lại ngay sau — xem mục kế tiếp.)
+
+### 📘 14/10/2026 (khuya) — Viết lại `GUIDE_DOC/BE_SPEC` 00–07 + `docs/ERD.md` theo code hiện tại
+
+- **Sinh tự động** (không sửa tay các bảng này, chạy lại khi code đổi): route → `04_DAC_TA_API.md` và ma trận quyền `03` mục 7 (239 route); schema/index → `05` mục 2 & 4 (50 collection, 49 có schema); danh sách file → `02` mục 4. Bộ sinh lưu dạng `be/backups/gen/routes.ts.txt`, `schemas.ts.txt` (gitignore; **đuôi .txt bắt buộc** — để `.ts` trong `be/` thì `npm run start:dev` biên dịch luôn và báo lỗi TS2345, sự cố 14/10) — khi cần sinh lại: đổi tạm sang `.ts`, chạy `npx ts-node --transpile-only <file> <src> <out>`, xong đổi lại `.txt`; phần ghép markdown bằng script Python trong thư mục làm việc (không commit).
+- **Viết tay:** 01 (20 module, 9 cron, graph phụ thuộc từ `imports` thật, env theo nhóm gồm AURELLE/AI/PACKER/CARRIER/GHN, bỏ `LAZADA_WRITE_APIS_ENABLED`); 03 (CORS mặc định localhost, throttle 600/phút + login 5 + forgot 3, guard 30 controller, bảo mật GHN webhook `X-OptiPack-Secret` và AURELLE HMAC, rủi ro còn mở); 06 (packing plan thay gợi ý cũ, trừ vật liệu ưu tiên `qty_reused`, giao G1/GHN có bảng map trạng thái từ `carrier-status.util.ts`, thu hồi vật liệu G4, AURELLE webhook); 07 (đánh giá 14/10: đã sửa vs còn mở P0 = phân trang sync Lazada, index `consolidated_group_id`, FE gọi route đã gỡ); 00 (số liệu, thuật ngữ, lịch sử).
+- Phát hiện khi viết: `decide-partial approve=false` nay về thẳng `picking` (lỗi "nhóm kẹt" của 07 cũ đã hết); `connection_lost` đã được gửi từ webhook AURELLE; `Warehouse ↔ Categories` là vòng phụ thuộc duy nhất (forwardRef); không có cron đồng bộ GHN.
+- **5 câu hỏi tác động:** (1) Chỉ tài liệu, không đổi code/DB. (2) FE đọc 04/06 để biết route mới; nhóm đọc 07 cho ưu tiên sửa. (3) Không ảnh hưởng dữ liệu. (4) Rủi ro: bảng sinh tự động lệch nếu code đổi mà không chạy lại bộ sinh. (5) Kiểm: đếm route/collection khớp `routes.json`/`schemas.json`; grep không còn `141 endpoint`, `packaging/generate`, cầu dao ghi Lazada.
+

@@ -155,9 +155,16 @@ export class DocumentsService {
         }
       : { fullName: '—', phone: '—', address: '—' };
 
+    // C4 (14/10/2026) — vận đơn qua hãng API: mỗi kiện in mã vận đơn của hãng (GHN) cho đúng kiện.
+    const carrierByParcel = new Map(
+      (shipment.carrier_parcels ?? [])
+        .filter((cp) => cp.carrier_order_code && cp.carrier_status !== 'cancel')
+        .map((cp) => [cp.parcel_no, cp]),
+    );
     const parcels: ShippingLabelData['parcels'] = [];
     for (const order of orders) {
       for (const p of parcelsByOrder.get(String(order._id)) ?? []) {
+        const cp = carrierByParcel.get(p.parcelNo);
         parcels.push({
           orderId: order.platform_order_id,
           index: 0,
@@ -165,6 +172,8 @@ export class DocumentsService {
           boxCode: p.boxCode,
           // Nhãn in sau khi đóng: dùng cân thật nếu đã có.
           weightG: p.actualWeightKg !== null ? Math.ceil(p.actualWeightKg * 1000) : p.estimatedWeightG,
+          trackingCode: cp?.carrier_order_code ?? null,
+          sortCode: cp?.sort_code ?? null,
         });
       }
     }
@@ -178,7 +187,8 @@ export class DocumentsService {
       shopName: group.shop_name_snapshot,
       carrierName: shipment.carrier_name ?? 'Chưa chọn hãng',
       serviceName: shipment.service_name ?? '',
-      trackingCode: shipment.tracking_code ?? shipment.shipment_code,
+      // Mã chung = mã vận đơn OptiPack (SHP-...); kiện có mã hãng thì in mã hãng (xem trên).
+      trackingCode: carrierByParcel.size > 0 ? shipment.shipment_code : (shipment.tracking_code ?? shipment.shipment_code),
       tripCode: shipment.trip_code ?? '—',
       recipient,
       parcels,
@@ -208,8 +218,12 @@ export class DocumentsService {
       const first = await this.orderModel
         .findOne({ consolidated_group_id: group._id })
         .sort({ _id: 1 });
+      // C4 — vận đơn qua hãng API: liệt kê mã hãng của các kiện (cho shipper đối chiếu khi bàn giao).
+      const carrierCodes = (s.carrier_parcels ?? [])
+        .map((cp) => cp.carrier_order_code)
+        .filter((c): c is string => !!c);
       rows.push({
-        trackingCode: s.tracking_code ?? s.shipment_code,
+        trackingCode: carrierCodes.length > 0 ? `${carrierCodes.join(', ')} (${s.shipment_code})` : (s.tracking_code ?? s.shipment_code),
         orderGroupId: s.order_group_id.toString(),
         recipientName: first?.recipient.full_name ?? '—',
         recipientAddress: first ? addressOf(first.recipient) : '—',

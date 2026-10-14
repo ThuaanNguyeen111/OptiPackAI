@@ -373,6 +373,7 @@ Triển khai thật (image trên GHCR, CI/CD): [`docs/DEPLOYMENT.md`](docs/DEPLO
 | AURELLE | `AURELLE_APP_KEY`, `AURELLE_APP_SECRET`, `AURELLE_REDIRECT_URI`, `AURELLE_*_BASE_URL`, `AURELLE_WEBHOOK_URL`, `AURELLE_SELLER_ID` | Kết nối sàn AURELLE (giả lập cổng 4000) bằng app key + webhook |
 | Hướng dẫn đóng gói AI | `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`, `AI_TIMEOUT_MS` | Groq viết lời hướng dẫn; để trống `AI_API_KEY` → dùng câu mẫu |
 | CP-SAT | `PACKER_URL`, `PACKER_ENABLED`, `PACKER_TIMEOUT_MS`, `PACKER_MAX_UNITS`, `PACKER_DET_TIME_PER_COMBO`, `PACKER_WALL_TIME_S` | Service Python kiểm chứng tối ưu; để trống `PACKER_URL` → tắt |
+| Vận chuyển GHN (14/10/2026) | `CARRIER_MODE` (`ghn_staging` / `ghn_production` / `mock`), `CARRIER_MANUAL_STATUS_ENABLED`, `CARRIER_DEFAULT_PROVINCE`, `CARRIER_DEMO_RECIPIENT_PHONE`, `GHN_BASE_URL`, `GHN_TOKEN`, `GHN_SHOP_ID`, `GHN_WEBHOOK_SECRET`, `GHN_DEFAULT_*`, `GHN_TIMEOUT_MS` | Báo giá + tạo vận đơn GHN thật (staging); `mock` = không gọi mạng. Sau khi cấu hình chạy `npx ts-node -r dotenv/config scripts/seed-ghn-carrier.ts` (trong `be/`). Xem `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` mục 11 |
 
 Danh sách đầy đủ kèm giá trị mẫu có trong `be/.env.example`.
 
@@ -429,6 +430,8 @@ Chạy trong thư mục `be/` bằng `npx ts-node -r tsconfig-paths/register scr
 ---
 
 ## Tài liệu
+
+> 🆕 14/10/2026 — FE: danh sách việc cần chỉnh để khớp BE mới nhất ở **`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`**.
 
 Swagger UI (`/api/docs`) là nguồn tham chiếu chính thức cho request và response của từng endpoint. Các route không dùng tiền tố phiên bản, ví dụ `POST /auth/login`.
 

@@ -83,7 +83,13 @@ const ALLOWED_TRANSITIONS: Record<
     GroupFulfillmentStatus.CANCELED,
     GroupFulfillmentStatus.APPROVED_FOR_PACKING,
   ],
-  [GroupFulfillmentStatus.SHIPPED]: [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED],
+  [GroupFulfillmentStatus.SHIPPED]: [
+    GroupFulfillmentStatus.DELIVERED,
+    GroupFulfillmentStatus.RETURNED,
+    // C4 (14/10/2026) — CHỈ ShipmentsService dùng: huỷ vận đơn ở hãng (GHN) trước khi hãng
+    // lấy hàng → nhóm đơn quay về "đã đóng gói" để tạo lại vận đơn. Hàng chưa rời kho.
+    GroupFulfillmentStatus.PACKED,
+  ],
   [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNED], // hoàn hàng SAU khi đã giao vẫn hợp lệ (khách trả hàng)
   [GroupFulfillmentStatus.RETURNED]: [], // trạng thái cuối, không đi tiếp đâu nữa
   // BỔ SUNG (29/09/2026, N1) — trạng thái cuối, giống RETURNED. KHÔNG có
