@@ -1,8 +1,8 @@
 # Tích hợp Giao Hàng Nhanh (GHN) vào OptiPack AI
 
-> Phiên bản 1.0 — 07/10/2026. Tài liệu thiết kế và hướng dẫn từng bước.
-> Nguồn: tài liệu chính thức GHN tại `https://developer.ghn.vn/en/docs/...` (đã đọc từng trang ngày 07/10/2026).
-> Trạng thái: **THIẾT KẾ — CHƯA CODE.**
+> Phiên bản 1.3 — 14/10/2026 (v1.0 07/10 thiết kế · v1.1 10/10 địa chỉ 2 cấp C3 · v1.2 12/10 staging 404 · **v1.3 14/10: hiện trạng code, kết hợp với module `shipping`/`documents` của Thi, danh sách đầy đủ API GHN, kết quả test thật 13/10, kế hoạch C4–C6 chỉnh lại**).
+> Nguồn: tài liệu chính thức GHN tại `https://developer.ghn.vn/en/docs/...` (đọc từng trang 07/10/2026, đọc lại mục lục + webhook + Create Order + Order Status 13/10/2026).
+> Trạng thái: **C1, C2, C3 ĐÃ CODE + ĐÃ COMMIT (AOFP-66, 67, 70; script test AOFP-76). C4, C5, C6 CHƯA CODE.** Hiện trạng chi tiết: **mục 9**. Kết quả test thật: **mục 10**.
 
 ---
 
@@ -91,6 +91,55 @@ ShopId: <GHN_SHOP_ID>      (số nguyên)
 | — | Order Status Codes, Reason Codes | Bảng tra cứu | Map trạng thái và lý do | Hằng số trong code |
 
 Chưa dùng ở giai đoạn này: Update Order, Update COD, Return Order, Delivery Again, Fee of Order Info, Get Station, Pick Shift, Create Shop, Tickets, Affiliate.
+
+### 2.1b. Mục lục đầy đủ tài liệu GHN và mức độ dùng ở OptiPack (đọc lại 13/10/2026)
+
+Tài liệu hiện hành nằm ở `https://developer.ghn.vn/en/docs/<nhóm>/<trang>` (trang cũ `api.ghn.vn/home/docs/detail?id=...` vẫn còn nhưng không cập nhật).
+
+| Nhóm | API (trang tài liệu) | Đã có trong `GhnAdapter` | Dùng ở bước | Ghi chú |
+|---|---|---|---|---|
+| Token | Get Token (`token/get-token`) | — | Cấu hình | Lấy token trên Developer Portal, không gọi API |
+| Orders | Create Order (`order/create`) | ✅ `createShipment` | C4 tạo vận đơn | Đã tạo thử `L88K7P` (08/10) |
+| | Preview Order (`order/preview`) | ✅ `previewShipment` | C4 báo giá theo kiện | Nhận địa chỉ mới 2 cấp — dùng thay Calculate Fee |
+| | Calculate Fee (`order/calculate-fee`) | ✅ `calculateFee` | C6 so sánh phương án | Chỉ nhận mã quận/phường cũ |
+| | Cancel Order (`order/cancel`) | ✅ `cancelShipment` | C4 huỷ | Một mã sai làm hỏng cả lô |
+| | Print Order (`order/print`) | ✅ `createLabel` | C4 in nhãn | Token in sống ~30 phút |
+| | Order Info (`order/info`) | ✅ `getShipmentDetail` | C5 đồng bộ dự phòng | |
+| | Order Info by Client Order Code (`order/info-by-client-code`) | ✅ `getShipmentDetailByClientCode` | C4 chống tạo trùng | |
+| | Leadtime (`order/leadtime`) | — | Tuỳ chọn | Preview đã trả `expected_delivery_time` |
+| | Update Order (`order/update`) | — | Mở rộng | Sửa địa chỉ/khối lượng sau khi tạo |
+| | Update COD of Order (`order/update-cod`) | — | Mở rộng | |
+| | Return Order (`order/return`) | — | Mở rộng — nối G3 | Chủ động yêu cầu hoàn |
+| | Delivery Again (`order/delivery-again`) | — | Mở rộng — nối nút "Giao lại" | |
+| | Fee of Order Info (`order/fee`) | — | Mở rộng — đối soát | |
+| Master Data | Get Province / District / Ward (cũ) | — | Không cần (C3 gửi tên) | |
+| | Get Province (New) / Get Ward (New) | — | C4 — dropdown chọn tỉnh/phường khi Lazada che tỉnh | |
+| | Get Station | — | Mở rộng — gửi tại bưu cục | |
+| | Get Service | ✅ `getAvailableServices` | C4 | Staging trả: 53320 "Hàng nhẹ" (type 2), 100039 "Hàng nặng" (type 5) |
+| | Pick Shift (`master-data/pick-shift`) | — | Mở rộng — thay `PATCH /shipments/:id/pickup` (hiện chỉ lưu lịch) bằng ca lấy hàng thật | Truyền `pick_shift[]` khi Create Order |
+| | Reason Codes, Order Status Codes | Hằng số | C5 | Bảng ở mục 2.2 / 3.2 |
+| Shops | Get Shop / Create Shop | ✅ Get Shop (`/v2/shop/all`) | Cấu hình | Shop kho staging: 227609 |
+| Webhooks | Order Status Callback | — | **C5** | Chi tiết ngay dưới |
+| | Ticket Callback, Tickets, Affiliate | — | Không dùng | |
+
+**Order Status Callback — điểm cần nhớ khi code C5 (đọc 13/10/2026):**
+
+1. Đăng ký trên Developer Portal → menu tài khoản → **Webhook configuration** → tab **Order** → dán URL → **Create webhook**. Staging dùng `developer.ghn.dev` (tài khoản riêng, cấu hình không tự sang production). Đổi cấu hình mất khoảng 15 phút mới có hiệu lực.
+2. Tuỳ chọn: header tự đặt (dùng làm khoá bí mật), timeout 1–60 giây, số lần gửi lại 1–5, chọn loại sự kiện.
+3. **GHN không ký request.** Bảo vệ bằng header bí mật + chỉ nhận `ShopID` = `GHN_SHOP_ID` + `OrderCode` có trong DB.
+4. Trả **2xx** = thành công. 4xx (trừ 408, 429) bị bỏ, **không gửi lại**. 5xx/408/429/timeout gửi lại theo backoff 30 giây → 12 giờ. ⇒ Lỗi dữ liệu phía mình nên trả 200 kèm ghi log, chỉ trả 5xx khi lỗi tạm thời (DB mất kết nối).
+5. Thứ tự FIFO **theo từng đơn**: 1 callback của đơn A đang lỗi chặn mọi callback sau của đơn A (đơn khác không ảnh hưởng).
+6. Một sự kiện có thể đến nhiều lần → chống trùng theo `OrderCode + Type + Time`.
+7. `Type`: `create`, `switch_status`, `update_weight`, `update_cod`, `update_fee`, `update_payment_type`, `cod`, `update_partial_return`. `Reason`/`ReasonCode` chỉ có ở `ready_to_pick`, `delivery_fail`, `return_fail`, `damage`, `lost`, `cancel`.
+8. Khoá PascalCase, mọi field luôn có mặt (rỗng = giá trị 0).
+
+**Create Order — điểm cần nhớ khi code C4:**
+
+- **Một đơn GHN = một kiện** (một bộ `weight`/`length`/`width`/`height`). Nhóm đơn nhiều kiện → tạo **mỗi kiện một đơn GHN**, `client_order_code = <shipment_code>-<parcelNo>`.
+- `client_order_code` (≤ 50 ký tự, duy nhất theo shop): gửi lại mã cũ thì GHN trả lại `order_code` cũ → thử lại an toàn khi lỗi mạng.
+- Giới hạn: cân ≤ 50.000 g, mỗi cạnh ≤ 200 cm, COD ≤ 50 triệu, bảo hiểm ≤ 5 triệu. `service_type_id` 2 (< 20 kg), 5 (≥ 20 kg — khi đó `items[]` phải có kích thước, cân).
+- `is_new_to_address=true` → chỉ gửi phường + tỉnh, bỏ quận. Tương tự `is_new_from_address`, `is_new_return_address`.
+- `pick_shift[]` (từ Pick Shift) chọn ca lấy hàng; bỏ trống = ca sớm nhất. Không có field giờ lấy hàng tự do.
 
 ### 2.2. Chi tiết từng API
 
@@ -305,26 +354,30 @@ Code: `carriers/utils/recipient-address.util.ts` (`buildCarrierRecipient`, `toCa
 
 ### 3.4. Module mới `carriers/`
 
+**Cấu trúc THỰC TẾ trong repo (14/10/2026):**
+
 ```
 be/src/modules/carriers/
-├── carriers.module.ts
-├── carrier-adapter.interface.ts     # calculateFee, preview, createOrder, cancel, getOrder, printLabel
+├── carriers.module.ts               # chọn adapter theo CARRIER_MODE, export token CARRIER_ADAPTER
+├── carrier-adapter.interface.ts     # calculateFee, getAvailableServices, previewShipment, createShipment,
+│                                    # cancelShipment, getShipmentDetail(+ByClientCode), createLabel
+├── carrier.types.ts                 # CarrierRecipient, CreateShipmentInput, CarrierFeeBreakdown...
+├── carriers.errors.ts               # CARRIER_ADDRESS_CONFLICT, CARRIER_ADDRESS_INCOMPLETE, PHONE_INVALID...
 ├── adapters/
-│   ├── ghn.adapter.ts               # gọi HTTP GHN
-│   └── mock.adapter.ts              # không gọi mạng, phí theo công thức — dự phòng khi demo
-├── ghn/
-│   ├── ghn-status.map.ts            # bảng map mục 3.2
-│   ├── ghn-reason-codes.ts
-│   └── ghn-location-sync.service.ts # đồng bộ carrier_locations
-├── address-resolver.service.ts      # mục 3.3
-├── carrier-webhook.controller.ts    # POST /carriers/ghn/webhook
-├── shipper-simulator.controller.ts  # chỉ bật khi SHIPPER_SIMULATOR_ENABLED=true
-└── schemas/ (carrier-location, carrier-webhook-event)
+│   ├── ghn.adapter.ts (+spec)       # gọi HTTP GHN, thử lại lỗi tạm thời, dịch mã lỗi
+│   └── mock.adapter.ts (+spec)      # không gọi mạng, phí theo bậc 500 g — dự phòng khi demo
+└── utils/
+    ├── parcel.util.ts               # quy đổi kiện → weight/dimensions GHN
+    └── recipient-address.util.ts    # buildCarrierRecipient, toCarrierProvinceName (bỏ giá trị bị che "***")
 ```
 
-`ShipmentsService` gọi `CarrierAdapter` qua interface; thêm hãng mới = thêm 1 adapter, không sửa luồng.
+**Chưa có (thuộc C4/C5):** controller nào trong `carriers/`, file map trạng thái, controller webhook, nút giả lập trạng thái. Thiết kế cũ có `ghn-location-sync.service.ts`, `address-resolver.service.ts`, schema `carrier-location` — **đã bỏ** từ C3 (mục 3.3).
+
+⚠️ **14/10/2026:** `CARRIER_ADAPTER` được tạo nhưng **chưa module nào inject** — `ShipmentsService` vẫn tạo vận đơn nội bộ `SHP-...` và báo giá bằng bảng cước mẫu của module `shipping`. Cách nối: mục 9.
 
 ### 3.5. Endpoint OptiPack mới
+
+> ⏳ **CHƯA CÓ ROUTE NÀO TRONG BẢNG DƯỚI** (thuộc C4/C5). FE chưa gọi được. Từ 14/10/2026 thiết kế được chỉnh để **gắn vào route sẵn có của module `shipping`/`shipments`/`documents`** (mục 9.3): báo giá GHN đi qua `GET /shipping/quote/:groupId`, tạo vận đơn GHN đi qua `POST /shipments` và `POST /shipments/batch` với `carrier_code: "GHN"`. Các route `/shipments/:id/carrier/*` dưới đây chỉ còn cho thao tác riêng của hãng (huỷ, nhãn GHN, đồng bộ, sửa địa chỉ). Route `/shipper-simulator/*` **bỏ** (quyết định 08/10: không có trang giả lập riêng, Coordinator bấm nút trên web).
 
 | Method | Route | Role | Mục đích |
 |---|---|---|---|
@@ -349,7 +402,8 @@ Màn hình danh sách vận chuyển thêm cột **Đơn vị vận chuyển**, 
 | Cron quá hạn giao (15 phút) | Hạn giao do GHN cung cấp | Với `ghn`: `due_at = expected_delivery_at`; logic quét giữ nguyên |
 | Đơn cũ thiếu `province/district/ward_name` | Không tự khớp được | Script backfill đọc lại từ Lazada khi sync lần tới; còn lại chọn tay |
 | RMA thất bại giao (G3) | Trước do nút "Kho nhận hàng hoàn" | Với `ghn`: webhook `returned` đưa vận đơn về `returned_to_warehouse`; Warehouse Staff **vẫn phải quét nhận** để tạo RMA và kiểm hàng (hàng chưa chắc đã về kho thật) |
-| Lazada Pack (02/10) | Độc lập | Giữ nguyên; Pack báo Lazada "đã đóng gói", GHN lo vận chuyển |
+| Lazada Pack (02/10) | ~~Độc lập~~ | **Đã bỏ 10/10/2026 (AOFP-71)** — "đã đóng gói" chỉ ghi trong OptiPack, không ghi ngược lên Lazada |
+| Báo giá + tạo vận đơn của module `shipping` (Thi, 04/10) | Trùng vai trò "chọn hãng, tính phí" | GHN thành **một hãng** trong `shipping_carriers` (kiểu `live`), không làm luồng song song — mục 9.3 |
 
 ---
 
@@ -481,18 +535,23 @@ Lưu bộ request thành Postman Collection `GHN-Staging` để cả nhóm dùng
 
 ### Bước 5 — Đăng ký webhook (tuỳ chọn ở môi trường test)
 
-Chỉ cần nếu muốn thử GHN gọi thật. Khi demo bằng trang giả lập thì **bỏ qua bước này**.
+> ⏳ Route webhook chưa có (C5). Các bước dưới đây áp dụng sau khi làm C5.
+
+Chỉ cần nếu muốn thử GHN gọi thật. Khi demo bằng nút trạng thái trên web thì **bỏ qua bước này**.
 
 1. Chạy BE và ngrok (`ngrok http --url=<domain> 3000`).
-2. Developer Portal → menu tài khoản → **Webhook configuration** → tab **Order**.
-3. Dán `https://<domain ngrok>/carriers/ghn/webhook?secret=<GHN_WEBHOOK_SECRET>` → **Create webhook**.
+2. Đăng nhập Developer Portal **staging** `https://developer.ghn.dev` (production là `developer.ghn.vn`, tài khoản riêng) → menu tài khoản → **Webhook configuration** → tab **Order**.
+3. Dán `https://<domain ngrok>/carriers/ghn/webhook`. Ở mục header tự đặt, thêm `X-OptiPack-Secret: <GHN_WEBHOOK_SECRET>` (GHN không ký request — mục 2.1b). Đặt timeout 10 giây, số lần gửi lại 5 → **Create webhook**.
 4. Đợi khoảng 15 phút cho GHN cập nhật cache.
+5. Tạo 1 vận đơn GHN → GHN gửi ngay sự kiện `create` → kiểm tra log BE và `carrier_webhook_events`. Môi trường test không có shipper nên các trạng thái sau không tự đến.
 
-### Bước 6 — Demo bằng trang giả lập shipper
+### Bước 6 — Demo bằng nút trạng thái trên web
 
-1. Đặt `SHIPPER_SIMULATOR_ENABLED=true`, khởi động lại BE.
-2. Trên điện thoại (cùng mạng Wi-Fi với máy chạy BE, hoặc qua ngrok) mở trang giả lập.
-3. Chọn vận đơn GHN vừa tạo, bấm lần lượt:
+> 🔄 Đổi 08/10/2026: **không** có trang/app giả lập shipper riêng. Shipping Coordinator bấm các nút trạng thái ngay trên màn hình vận đơn của web quản trị. Biến môi trường `CARRIER_MANUAL_STATUS_ENABLED=true` (thay `SHIPPER_SIMULATOR_ENABLED`). ⏳ Nút thuộc C5, chưa code.
+
+1. Đặt `CARRIER_MANUAL_STATUS_ENABLED=true`, khởi động lại BE.
+2. Đăng nhập web bằng tài khoản Shipping Coordinator, mở vận đơn GHN vừa tạo.
+3. Bấm lần lượt:
 
 | Nút | Trạng thái GHN gửi đi | Màn hình quản trị |
 |---|---|---|
@@ -503,11 +562,11 @@ Chỉ cần nếu muốn thử GHN gọi thật. Khi demo bằng trang giả l�
 | Đang hoàn về | `returning` | Đang hoàn về kho |
 | Đã hoàn về shop | `returned` | Đã hoàn — Warehouse Staff quét nhận, tạo RMA |
 
-Mỗi lần bấm, BE dựng payload theo đúng định dạng webhook GHN và xử lý qua cùng hàm với webhook thật; sự kiện được ghi `source: 'simulator'`.
+Mỗi lần bấm, BE dựng payload theo đúng định dạng webhook GHN và xử lý qua cùng hàm với webhook thật; sự kiện được ghi `source: 'manual'`.
 
 ### Bước 7 — Chuyển sang môi trường thật (sau đồ án)
 
-Đăng ký tài khoản ở `developer.ghn.vn`, lấy Token/ShopId thật, đổi `CARRIER_MODE=ghn_production`, `GHN_BASE_URL=https://online-gateway.ghn.vn`, `SHIPPER_SIMULATOR_ENABLED=false`, đăng ký webhook với domain thật.
+Đăng ký tài khoản ở `developer.ghn.vn`, lấy Token/ShopId thật, đổi `CARRIER_MODE=ghn_production`, `GHN_BASE_URL=https://online-gateway.ghn.vn`, `CARRIER_MANUAL_STATUS_ENABLED=false`, đăng ký webhook với domain thật.
 
 ---
 
@@ -517,10 +576,11 @@ Mỗi lần bấm, BE dựng payload theo đúng định dạng webhook GHN và 
 |---|---|---|
 | C1 | `orders.recipient` thêm `province_name/district_name/ward_name` + mapper Lazada + backfill | ✅ `feat(AOFP-66)` |
 | C2 | Module `carriers/`: interface, `ghn.adapter`, `mock.adapter`, cấu hình env | ✅ `feat(AOFP-67)` |
-| C3 | Địa chỉ 2 cấp mới (`is_new_to_address`), dựng địa chỉ từ đơn, mã lỗi `ADDRESS_CONFLICT` / `ADDRESS_INCOMPLETE` — **thu gọn**, bỏ `carrier_locations` (mục 3.3) | ✅ code xong 10/10 |
-| C4 | Mở rộng `shipments`, route quote/create/cancel/label/sync/to-location, chặn nút G1 cho vận đơn GHN | Chưa làm |
-| C5 | Webhook GHN + chống trùng + map trạng thái + nút giả lập trạng thái cho Coordinator | Chưa làm |
-| C6 | Tính phí theo nhiều phương án đóng gói | Chưa làm |
+| C3 | Địa chỉ 2 cấp mới (`is_new_to_address`), dựng địa chỉ từ đơn, mã lỗi `ADDRESS_CONFLICT` / `ADDRESS_INCOMPLETE` — **thu gọn**, bỏ `carrier_locations` (mục 3.3) | ✅ `feat(AOFP-70)` |
+| — | Script thử GHN với đơn Lazada bị che (`ghn-masked-order-test.ts`) | ✅ `chore(AOFP-76)` |
+| C4 | GHN thành 1 hãng trong `shipping_carriers`; báo giá GHN theo kiện qua `GET /shipping/quote`; `POST /shipments` + `/batch` với `carrier_code: "GHN"` tạo mỗi kiện 1 đơn GHN; trạng thái `awaiting_pickup`; nhãn in mã GHN; route huỷ/nhãn/đồng bộ/sửa địa chỉ; chặn nút G1 cho vận đơn GHN (mục 9.3) | Chưa làm — chờ chốt 3 câu hỏi mục 9.4 |
+| C5 | Webhook GHN + chống trùng + map trạng thái + nút trạng thái cho Coordinator (cùng hàm với webhook) | Chưa làm |
+| C6 | Tính phí theo nhiều phương án đóng gói (túi / thùng nhỏ / thùng vừa) khi duyệt kế hoạch | Chưa làm |
 
 Số AOFP gán lúc commit (tăng dần). Mỗi đợt kiểm tra đủ `npx tsc --noEmit`, `npm run lint`, `npm run test` trước khi giao.
 
@@ -544,3 +604,86 @@ Số AOFP gán lúc commit (tăng dần). Mỗi đợt kiểm tra đủ `npx tsc
 2. Shipping Coordinator xem phí rồi bấm xác nhận tạo vận đơn GHN — **đã chốt**.
 3. Mọi đơn (Lazada và AURELLE) đều gửi qua GHN — **đã chốt**.
 4. Demo chỉ trên web: Coordinator bấm các nút trạng thái giả lập; nút đi qua cùng hàm xử lý với webhook GHN thật — **đã chốt**.
+
+
+---
+
+## 9. Hiện trạng 14/10/2026 và cách kết hợp với module của Thi
+
+### 9.1. Ai làm phần nào
+
+| Module | Người làm | Đã có | Ghi chú |
+|---|---|---|---|
+| `carriers` | Thuận (AOFP-67, 70) | Adapter GHN + mock, địa chỉ 2 cấp, dịch lỗi GHN | **Không có route**, chưa được gọi trong luồng |
+| `shipments` – G1 | Thuận (AOFP-44, 27/09) | `POST /shipments`, `deliver`/`fail`/`retry`/`receive-return`, timeline, SLA, quá hạn | Vận đơn nội bộ `SHP-...` |
+| `shipments` – bổ sung | Thi (thi_dev, gộp 04/10) | `POST /shipments/batch` (chuyến `TRIP-...`), `PATCH /shipments/:id/pickup`, ghi cước + ETA lên vận đơn | Pickup chỉ lưu lịch |
+| `shipping` | Thi | `GET/POST/PATCH /shipping/carriers`, `GET /shipping/quote/:groupId`, `GET/PUT /shipping/settings` | Cước tính từ **bảng cước mẫu** (`is_sample_rate`) — hãng `SAMPLE-EXPRESS`, `SAMPLE-ECONOMY` (`scripts/seed-shipping-carriers.ts`) |
+| `documents` | Thi | Phiếu đóng gói, nhãn 100×150 mỗi kiện 1 nhãn (Code128 + QR), manifest chuyến | Nhãn in mã nội bộ |
+| `packing` | Thi + Thuận | Đóng nhiều kiện, cân thật, niêm phong | Nguồn kiện cho báo giá |
+| `returns` – G3 | Thuận | Nhận hàng hoàn, kiểm, nhập lại kho | |
+
+Module của Thi **đã chạy trong cùng BE** (gộp PR #7): `ShipmentsService.startDelivery` và `createBatch` gọi `ShippingService.quoteChosenService` + `persistCosts`. Thứ chưa nối là `carriers` (GHN).
+
+### 9.2. Hai phần khác nhau thế nào
+
+| | `shipping` + `documents` (Thi) | `carriers` (Thuận) |
+|---|---|---|
+| "Hãng" | 1 dòng cấu hình trong DB | 1 adapter gọi API thật |
+| Phí ship | Tra bảng cước theo bậc cân (cân tính cước = max(cân thực, cân quy đổi)) | GHN trả về |
+| Mã vận đơn | `SHP-...` | `order_code` GHN |
+| Nhãn | PDF tự vẽ | Link in A5 của GHN |
+| Trạng thái | Coordinator bấm | Webhook GHN (C5) |
+| Điểm mạnh | Hiểu kiện, chuyến, manifest | Nói chuyện với hãng thật, xử lý địa chỉ bị che |
+
+Hai phần **bổ sung cho nhau, không mâu thuẫn** — làm song song nên chưa ráp.
+
+### 9.3. Thiết kế C4 sau khi ráp
+
+1. **Hãng GHN trong `shipping_carriers`:** thêm trường `kind: 'table' | 'live'` (mặc định `table` cho hãng cũ). Hãng `GHN` (`kind: 'live'`), dịch vụ `2` (Hàng nhẹ) và `5` (Hàng nặng), không cần bảng cước.
+2. **Báo giá:** `GET /shipping/quote/:groupId` — với hãng `live`, gọi `CARRIER_ADAPTER.previewShipment` **cho từng kiện** (kích thước thùng, cân thật/ước tính) thay vì tra bảng. Kết quả cùng khuôn `ServiceQuote`, `isSample: false`:
+   ```json
+   { "carrierCode": "GHN", "serviceCode": "2", "isSample": false,
+     "parcels": [{ "cartonIndex": 0, "chargeableG": 300, "costVnd": 20900 }, { "cartonIndex": 1, "chargeableG": 4000, "costVnd": 34100 }],
+     "totalCostVnd": 55000, "etaMaxDays": 1 }
+   ```
+   Lỗi địa chỉ của 1 kiện không làm hỏng cả báo giá: dịch vụ đó trả `error: "CARRIER_ADDRESS_CONFLICT"` để FE hiện cảnh báo.
+3. **Tạo vận đơn:** `POST /shipments` / `POST /shipments/batch` với `carrier_code: "GHN"` → trong transaction tạo vận đơn `SHP-...`; **ngoài transaction** gọi Create Order cho từng kiện (`client_order_code = SHP-...-<parcelNo>`) rồi lưu `carrier_order_code` lên từng kiện. Gọi GHN lỗi giữa chừng → gọi lại an toàn nhờ `client_order_code`. Trạng thái vận đơn mới `awaiting_pickup`.
+4. **Địa chỉ:** AURELLE gửi đủ địa chỉ thật. Lazada (bị che): phường từ `city`, tỉnh do Coordinator chọn (mặc định tỉnh của kho), SĐT demo (`GHN_DEMO_RECIPIENT_PHONE`), bỏ số nhà — công thức đã test thật 13/10 (mục 10). Sửa khi GHN báo `ADDRESS_CONFLICT`: `PATCH /shipments/:id/to-location`.
+5. **Nhãn:** `GET /documents/shipping-label/:groupId` in **mã GHN** của từng kiện khi có; thêm `GET /shipments/:id/carrier/label` trả link A5 của GHN.
+6. **Huỷ:** `POST /shipments/:id/carrier/cancel` khi nhóm đơn bị huỷ trước khi GHN lấy hàng.
+7. **Chặn nút G1** (`deliver`/`fail`/`retry`) với vận đơn GHN → `409 SHIPMENT_MANAGED_BY_CARRIER`; trạng thái đến từ C5.
+
+**Ví dụ một nhóm đơn 2 kiện:**
+- Hôm nay: quote trả `SAMPLE-ECONOMY/STANDARD` (số mẫu) → `POST /shipments/batch` → vận đơn `SHP-261013-A1B2C3`, nhãn in mã đó, không gọi GHN.
+- Sau C4: quote trả thêm `GHN/2 = 20.900 + 34.100 = 55.000đ` → chọn GHN → 2 đơn GHN (`client_order_code` `SHP-261013-A1B2C3-1`, `-2`) → nhãn in 2 mã GHN → vận đơn `awaiting_pickup` → C5 cập nhật tiếp.
+
+### 9.4. Cần chốt trước khi code C4
+
+1. Thêm trạng thái `awaiting_pickup`? — Đề xuất **có**.
+2. Nhóm đơn chỉ `delivered` khi **mọi kiện** đã giao? — Đề xuất **có**.
+3. Làm C4 trực tiếp trên `shipping`/`shipments`/`documents` — cần Thi xác nhận không có thay đổi dở dang trên các file này.
+
+---
+
+## 10. Kết quả test thật trên GHN staging (13/10/2026)
+
+Staging trả `404 page not found` từ tối 12/10 (production cùng đường dẫn trả 401) — **13/10 đã hoạt động lại**.
+
+| Script | Kết quả |
+|---|---|
+| `ghn-smoke-test.ts` | Token + shop hợp lệ; dịch vụ tới Quận Bình Thạnh: 53320 Hàng nhẹ (type 2), 100039 Hàng nặng (type 5). Túi 30×25×4 = **20.900đ**, thùng 40×30×20 = **34.100đ** → chênh **13.200đ** |
+| `ghn-preview-new-address.ts` | Mới, không số nhà → ✅ 20.900đ; "47/88 Nguyễn Văn Đậu" chỉ nhận với Phường Gia Định (Bình Lợi Trung, Bình Thạnh → `To address conflict`); kiểu cũ (mã quận) → ✅ |
+| `ghn-masked-order-test.ts` (đơn Lazada `532953751471670`) | Lazada che cả tỉnh → phải truyền `--province`. SĐT bị che `8**5` → ❌ `master_data_validate_phone`. SĐT demo 0377168254 + Phường Long Bình + Hồ Chí Minh → ✅ 20.900đ |
+| `--create` | Phải chạy kèm `--province=...` (thiếu tỉnh thì script dừng trước khi tạo) |
+
+**Lệnh chạy (trong thư mục `be`):**
+
+```bash
+npx ts-node -r dotenv/config scripts/ghn-smoke-test.ts
+npx ts-node -T -r dotenv/config scripts/ghn-preview-new-address.ts
+npx ts-node -T -r dotenv/config scripts/ghn-masked-order-test.ts --province="Hồ Chí Minh"
+npx ts-node -T -r dotenv/config scripts/ghn-masked-order-test.ts --province="Hồ Chí Minh" --create
+npx jest src/modules/carriers src/modules/shipments
+```
+
+Các dòng `ERROR`/`WARN` của `GhnAdapter` khi chạy jest (`PROVINCE_NAME_NOT_VALID`, `PHONE_INVALID`, cancel không phản hồi…) là lỗi giả lập có chủ đích trong test.

@@ -1,6 +1,6 @@
 # OptiPackAI Backend — Integration Guide: Giao hàng & Trả hàng (Shipping & Returns)
 
-**Phiên bản v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
+**Phiên bản v1.3 — 14/10/2026** (thêm Phần B.7: báo giá theo kiện, chọn hãng, giao chung chuyến, lịch lấy hàng, in phiếu/nhãn/manifest — các route của module `shipping`/`documents` gộp từ thi_dev 04/10 trước đây chỉ có ở `API_LIST.md`; bổ sung bảng route F.1, mã lỗi F.2, checklist F.3; Phần E thêm hạn chế 14–16 về GHN). **v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
 
 **Phạm vi bản gọn (đã chốt):** mọi bước là **bấm nút đổi trạng thái**. Tracking = lịch sử các lần bấm (ai, lúc nào, lý do). **Chưa có:** bản đồ/GPS, ảnh bằng chứng giao hàng, chuyến giao nhiều điểm, role shipper riêng, đổi hàng — xem Phần E.
 
@@ -220,6 +220,89 @@ Trả `{ "linkedGroups": OrderGroupResponse[] }` — các nhóm đang liên kế
 
 **Màn hình gợi ý:** trên chi tiết nhóm đơn (vai trò Coordinator) thêm nút "Liên kết với nhóm khác" → hộp chọn nhóm đang chờ (lọc theo trạng thái chưa giao, tìm theo mã đơn) + ô ghi chú → gọi Bước 1. Nhóm có `manualLink` hiện nút "Bỏ liên kết".
 
+## B.7. 🆕 Báo giá theo kiện, chọn hãng, giao chung chuyến, in chứng từ (gộp từ thi_dev 04/10/2026)
+
+> ⚠️ **Phạm vi hiện tại (14/10/2026):** "hãng" ở đây là **hãng mẫu cấu hình trong DB** (`SAMPLE-EXPRESS`, `SAMPLE-ECONOMY`), cước là **số giả lập** (`isSampleRate: true`), mã in trên nhãn là mã nội bộ `SHP-...`. **Chưa gọi GHN.** Khi làm C4 (`GHN_INTEGRATION_GUIDE.md` mục 9.3), GHN sẽ là một hãng trong cùng danh sách này — FE không phải đổi luồng, chỉ thấy thêm dòng `GHN` trong báo giá.
+
+### B.7.1. Chuẩn bị (Admin, làm 1 lần)
+
+1. Tạo hãng mẫu: trong thư mục `be` chạy `npx ts-node -r dotenv/config scripts/seed-shipping-carriers.ts` (chạy lại không tạo trùng).
+2. Kiểm tra: `GET /shipping/carriers` → thấy `SAMPLE-EXPRESS` (dịch vụ `FAST`, 1–2 ngày) và `SAMPLE-ECONOMY` (`STANDARD` 3–5 ngày, `BULK` 4–7 ngày).
+3. (Tuỳ chọn) Store Owner đặt chiến lược: `PUT /shipping/settings` `{ "strategy": "cheapest" | "fastest" | "fixed", "default_carrier_code": "...", "default_service_code": "..." }`.
+
+Thêm/sửa hãng: `POST /shipping/carriers`, `PATCH /shipping/carriers/:id` (Admin) — bảng cước theo bậc khối lượng `bands[{ up_to_g, price_vnd }]` tăng dần, `extra_price_vnd_per_500g`, `volumetric_divisor`, ETA. Sai bảng cước → `400 SHIP_INVALID_RATE_TABLE`.
+
+### B.7.2. Báo giá cho 1 nhóm đơn (Coordinator)
+
+```http
+GET /shipping/quote/66f0a1b2c3d4e5f678901234
+→ 200
+{
+  "groupId": "66f0...", "parcelCount": 2, "strategy": "cheapest",
+  "quotes": [
+    { "carrierCode": "SAMPLE-ECONOMY", "carrierName": "Hãng mẫu — Tiết kiệm (số giả lập)",
+      "serviceCode": "STANDARD", "serviceName": "Tiêu chuẩn 3-5 ngày",
+      "isSample": true, "totalChargeableG": 1400, "totalCostVnd": 44000, "etaMinDays": 3, "etaMaxDays": 5,
+      "parcels": [
+        { "orderId": "66f1...", "cartonIndex": 0, "actualG": 450, "volumetricG": 600, "chargeableG": 600, "costVnd": 22000 },
+        { "orderId": "66f1...", "cartonIndex": 1, "actualG": 800, "volumetricG": 520, "chargeableG": 800, "costVnd": 22000 } ] },
+    { "carrierCode": "SAMPLE-EXPRESS", "serviceCode": "FAST", "...": "..." }
+  ],
+  "recommended": { "carrierCode": "SAMPLE-ECONOMY", "serviceCode": "STANDARD" }
+}
+```
+
+- Kiện lấy từ **kế hoạch đóng gói đã duyệt/đã đóng**: cân thật lúc niêm phong nếu có, chưa đóng thì cân ước tính; kích thước ngoài của thùng.
+- Cân tính cước mỗi kiện = max(cân thực, thể tích ngoài cm³ / `volumetric_divisor`). Cước nhóm = tổng cước các kiện.
+- Nhóm chưa có kiện hợp lệ → `409 SHIP_NO_PARCELS`.
+- **Màn hình gợi ý:** bảng so sánh các dịch vụ (cước, ETA), đánh dấu dòng `recommended`, nhãn "Cước mẫu" khi `isSample = true`.
+
+### B.7.3. Bắt đầu giao 1 nhóm đơn có chọn hãng
+
+```http
+POST /shipments
+{ "order_group_id": "66f0...", "carrier_code": "SAMPLE-ECONOMY", "service_code": "STANDARD", "pickup_at": "2026-10-15T02:00:00.000Z", "note": "..." }
+```
+
+`carrier_code` + `service_code` đi cùng nhau (thiếu 1 trong 2 → `400 SHP_CARRIER_REQUIRED`). Không gửi hãng → vận đơn kiểu G1 cũ (không cước, không ETA). Response vận đơn có thêm `trackingCode`, `carrierCode/Name`, `serviceCode/Name`, `parcelCount`, `chargeableWeightG`, `estimatedCostVnd`, `isSampleRate`, `etaFrom/To`, `pickupAt`, `tripCode`.
+
+### B.7.4. Giao chung chuyến nhiều nhóm
+
+```http
+POST /shipments/batch
+{ "order_group_ids": ["66f0...1234", "66f0...5678"], "carrier_code": "SAMPLE-ECONOMY", "service_code": "STANDARD", "pickup_at": "2026-10-15T02:00:00.000Z", "note": "Chuyến chiều" }
+→ 201
+{ "tripCode": "TRIP-261014-3FA2", "carrierCode": "SAMPLE-ECONOMY", "serviceCode": "STANDARD", "totalCostVnd": 88000,
+  "shipments": [ { "id": "...", "orderGroupId": "...1234", "trackingCode": "SHP-261014-AB12CD", "parcelCount": 2, "estimatedCostVnd": 44000, "etaFrom": "...", "etaTo": "..." }, { "...": "..." } ] }
+```
+
+- Mọi nhóm phải `packed`, chưa có vận đơn, không còn kiện chờ tháo.
+- Từ 2 nhóm trở lên: cùng `recipient_key` **hoặc** cùng liên kết tay (B.6). Sai → `400 SHP_RECIPIENT_MISMATCH`.
+- Tất cả tạo trong **1 transaction**: lỗi 1 nhóm thì không nhóm nào được tạo.
+- Mỗi nhóm vẫn có **vận đơn riêng** (`SHP-...`), chung `tripCode`. Lọc: `GET /shipments?trip_code=TRIP-...`.
+
+### B.7.5. Lịch hãng đến lấy hàng
+
+`PATCH /shipments/:id/pickup` `{ "pickup_at": "<ISO 8601>" }` — chỉ **lưu lịch** (chưa gọi hãng). Thời điểm ở quá khứ → `400 SHP_PICKUP_IN_PAST`.
+
+### B.7.6. In chứng từ (trả về file PDF)
+
+| Route | Nội dung | Điều kiện |
+|---|---|---|
+| `GET /documents/packing-slip/:groupId` | Phiếu đóng gói A5, mỗi đơn 1 trang: người nhận, danh sách hàng có ô tích, các kiện/thùng, mã vạch nhóm | Nhóm còn đơn (`DOC_NO_ORDERS`) |
+| `GET /documents/shipping-label/:groupId` | Nhãn 100×150 mm, **mỗi kiện 1 nhãn** (k/n), Code128 + QR của mã vận đơn, hãng, dịch vụ, ETA, mã chuyến | Đã có vận đơn (`DOC_SHIPMENT_NOT_FOUND`) |
+| `GET /documents/manifest/:tripCode` | Bảng kê chuyến A4: mọi vận đơn cùng mã chuyến, tổng kiện/cân/cước, chỗ ký giao nhận | Có vận đơn thuộc chuyến (`DOC_TRIP_NOT_FOUND`) |
+
+FE mở bằng `fetch` kèm token rồi tạo `blob:` URL để xem/in. Đơn Lazada bị che dữ liệu sẽ in tên/SĐT/địa chỉ dạng `***` — đây là giới hạn của Lazada.
+
+### B.7.7. Kịch bản demo từng bước
+
+1. Đóng gói xong 2 nhóm của cùng người nhận (hoặc liên kết tay 1 nhóm Lazada + 1 nhóm AURELLE theo B.6.2).
+2. Coordinator mở nhóm 1 → **Báo giá** (`GET /shipping/quote/:id`) → xem bảng, chọn dịch vụ được gợi ý.
+3. Chọn cả 2 nhóm → **Giao chung chuyến** (`POST /shipments/batch`) → nhận `TRIP-...`.
+4. In **nhãn** cho từng nhóm và **bảng kê chuyến** → dán nhãn lên kiện.
+5. Bấm các nút giao hàng ở B.3 cho từng vận đơn.
+
 ---
 
 # PHẦN C — TRẢ HÀNG / HOÀN HÀNG (G3) 🆕
@@ -361,6 +444,9 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 | 10 | Route cũ `return` cho nhóm đơn đã giao không tạo phiếu | Hàng về kho mà không kiểm, không nhập lại | FE chuyển sang `/returns`; có thể chặn route cũ trường hợp này sau |
 | 11 | Hạn 15 ngày tính từ `deliveredAt` của vận đơn; nhóm đơn giao trước G1 dùng thời điểm cập nhật cuối của nhóm đơn | Có thể lệch với ngày giao thật của đơn cũ | Chấp nhận cho dữ liệu cũ |
 | 12 | ~~Chưa tái sử dụng vật liệu đóng gói~~ ✅ **Đã có ở G4** | — | Xem guide vật liệu |
+| 14 | Chưa gọi hãng vận chuyển thật (GHN) khi tạo vận đơn — module `carriers` có sẵn nhưng chưa nối (14/10/2026) | Mã vận đơn là `SHP-...` nội bộ, cước là số mẫu, lịch lấy hàng chỉ lưu | C4 trong `GHN_INTEGRATION_GUIDE.md` mục 9.3 |
+| 15 | Trạng thái giao vẫn do Coordinator bấm, chưa có webhook GHN | — | C5 (webhook + nút trạng thái đi cùng hàm) |
+| 16 | 1 vận đơn cho cả nhóm dù nhiều kiện (nhãn đã in theo kiện) | Khi dùng GHN phải có mỗi kiện 1 mã GHN | C4: lưu `carrier_order_code` theo kiện |
 | 13 | Phiếu hoàn giao thất bại lấy SKU từ sổ cái `pick`; với tồn đã gộp theo SKU nội bộ, sổ cái ghi `seller_sku` của dòng tồn (có thể là SKU của sàn/shop khác) | Phiếu có thể mang SKU khác SKU trong đơn; nhập lại kho có thể tạo dòng tồn chưa nối mới thay vì cộng vào tồn chung (rà soát 06/10/2026, chưa sửa) | Lấy danh sách hàng hoàn từ `pick_events` (lưu đúng SKU trong đơn) |
 
 ---
@@ -373,8 +459,19 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 |---|---|---|
 | GET | `/shipments/reason-codes` | Admin, Coordinator, Store Owner, Warehouse |
 | GET | `/shipments` · `/shipments/:id` · `/shipments/:id/events` | Admin, Coordinator, Store Owner, Warehouse |
-| POST | `/shipments` | Coordinator, Admin |
+| POST | `/shipments` (🆕 tùy chọn `carrier_code`, `service_code`, `pickup_at`) | Coordinator, Admin |
+| POST | 🆕 `/shipments/batch` | Coordinator, Admin |
+| PATCH | 🆕 `/shipments/:id/pickup` | Coordinator, Admin |
+| POST | `/shipments/overdue-scan` | Coordinator, Admin |
 | POST | `/shipments/:id/deliver` · `/fail` · `/retry` | Coordinator, Admin |
+| GET | 🆕 `/shipping/carriers` | Coordinator, Store Owner, Admin |
+| POST · PATCH | 🆕 `/shipping/carriers` · `/shipping/carriers/:id` | Admin |
+| GET | 🆕 `/shipping/quote/:groupId` | Coordinator, Store Owner, Admin |
+| GET · PUT | 🆕 `/shipping/settings` | GET: Coordinator, Store Owner, Admin · PUT: Store Owner, Admin |
+| GET | 🆕 `/documents/packing-slip/:groupId` | Warehouse, Packaging, Store Owner, Admin |
+| GET | 🆕 `/documents/shipping-label/:groupId` | Coordinator, Warehouse, Admin |
+| GET | 🆕 `/documents/manifest/:tripCode` | Coordinator, Store Owner, Admin |
+| POST · DELETE | 🆕 `/order-groups/:id/link` | Coordinator, Admin |
 | POST | `/shipments/:id/receive-return` | Warehouse, Admin |
 | POST | `/order-groups/:id/fulfillment/ship` · `/deliver` | Coordinator, Admin (🔄 lỗi thời) |
 | POST | `/order-groups/:id/fulfillment/return` | Coordinator, Warehouse, Admin (🔄 lỗi thời) |
@@ -393,6 +490,16 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 | `SHP_INVALID_TRANSITION` | 409 | Bấm nút sai thứ tự |
 | `SHP_STATE_CONFLICT` | 409 | Sai version — tải lại |
 | `SHP_NOTE_REQUIRED` | 400 | Lý do `other` không ghi chú |
+| `SHP_PARCELS_TO_UNPACK` | 409 | Còn kiện của đơn đã huỷ chưa tháo |
+| `SHP_EMPTY_GROUP_LIST` | 400 | `/shipments/batch` không có nhóm nào |
+| `SHP_RECIPIENT_MISMATCH` | 400 | Giao chung chuyến các nhóm khác người nhận, không liên kết tay |
+| `SHP_PICKUP_IN_PAST` | 400 | Lịch lấy hàng ở quá khứ |
+| `SHP_CARRIER_REQUIRED` | 400 | Gửi `carrier_code` thiếu `service_code` hoặc ngược lại |
+| `SHIP_SERVICE_NOT_FOUND` | 404 | Hãng/dịch vụ không có hoặc đã ngừng |
+| `SHIP_NO_PARCELS` | 409 | Nhóm chưa có kiện để báo giá |
+| `SHIP_INVALID_RATE_TABLE` | 400 | Bảng cước sai (trống/trùng/không tăng dần) |
+| `SHIP_CARRIER_CODE_IN_USE` | 409 | Mã hãng đã tồn tại |
+| `DOC_NO_ORDERS` · `DOC_SHIPMENT_NOT_FOUND` · `DOC_TRIP_NOT_FOUND` | 404/409 | Không có đơn / chưa có vận đơn / mã chuyến không có vận đơn |
 | `RMA_NOT_FOUND` / `RMA_INVALID_ID` | 404/400 | Phiếu không tồn tại / id sai |
 | `RMA_ORDER_NOT_DELIVERED` | 409 | Nhóm đơn chưa giao |
 | `RMA_WINDOW_EXPIRED` | 409 | Quá 15 ngày |
@@ -418,3 +525,8 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 - [ ] `refund_only` → duyệt là `closed` ngay, tồn kho không đổi
 - [ ] Kiểm hàng thiếu số lượng → `RMA_INSPECTION_MISMATCH`
 - [ ] Route cũ `fulfillment/ship|deliver|return` vẫn trả response nhóm đơn như trước
+- [ ] 🆕 Chạy seed hãng mẫu → `GET /shipping/quote/:id` trả ≥ 2 dịch vụ, có `recommended`, mỗi dịch vụ có cước từng kiện
+- [ ] 🆕 `POST /shipments` có `carrier_code` mà thiếu `service_code` → `SHP_CARRIER_REQUIRED`
+- [ ] 🆕 `/shipments/batch` 2 nhóm cùng người nhận → cùng `tripCode`; 2 nhóm khác người nhận → `SHP_RECIPIENT_MISMATCH`; liên kết tay rồi gửi lại → thành công
+- [ ] 🆕 In nhãn trước khi có vận đơn → `DOC_SHIPMENT_NOT_FOUND`; sau khi có → PDF đủ số nhãn = số kiện
+- [ ] 🆕 `GET /documents/manifest/:tripCode` liệt kê đủ vận đơn của chuyến

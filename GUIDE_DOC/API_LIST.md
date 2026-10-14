@@ -605,6 +605,8 @@ Báo giá đọc các **kiện thật** của nhóm (phương án đóng gói đ
 
 Lỗi: `SHIP_INVALID_CARRIER_ID`, `SHIP_CARRIER_NOT_FOUND`, `SHIP_CARRIER_CODE_IN_USE`, `SHIP_SERVICE_NOT_FOUND`, `SHIP_INVALID_RATE_TABLE`, `SHIP_NO_PARCELS` (nhóm chưa có kiện hợp lệ để báo giá), `SHIP_SETTINGS_SERVICE_INVALID`. Seed hãng mẫu: `npx ts-node -r tsconfig-paths/register scripts/seed-shipping-carriers.ts`.
 
+> ⏳ **GHN (14/10/2026):** module `carriers` (adapter GHN + mock, AOFP-67/70) **chưa có route nào** và chưa được gọi khi báo giá/tạo vận đơn — hãng trong `/shipping/*` hiện là hãng mẫu (`isSample: true`). Route GHN dự kiến (C4/C5): báo giá GHN đi qua `GET /shipping/quote/:groupId`, tạo vận đơn GHN qua `POST /shipments` · `/shipments/batch` với `carrier_code: "GHN"`, thêm `POST /shipments/:id/carrier/cancel`, `GET /shipments/:id/carrier/label`, `POST /shipments/:id/carrier/sync`, `PATCH /shipments/:id/to-location`, `POST /carriers/ghn/webhook`. Chi tiết: `GHN_INTEGRATION_GUIDE.md` mục 3.5 và 9.
+
 ## 10c. 🆕 Chứng từ in PDF (`/documents`) — 30/09/2026
 
 Trả `application/pdf` (font DejaVu nhúng nên đủ tiếng Việt). FE cần gửi Bearer nên tải bằng `fetch` → blob → mở tab mới (xem `fe/src/api/shipping.api.ts::openDocument`), không mở thẳng bằng thẻ `<a>`.
