@@ -94,6 +94,25 @@ export function computeConsolidationKey(
 }
 
 /**
+ * 15/10/2026 — khoá gom theo TRƯỜNG ADMIN CHỌN (order_sync_settings). Thứ tự
+ * ghép cố định phone → address_line1 → city → full_name, nên với bộ mặc định
+ * (phone, address_line1, city) ra ĐÚNG chuỗi của `computeConsolidationKey` cũ
+ * → khoá đã lưu trong DB vẫn khớp, không cần tính lại khi chưa đổi cấu hình.
+ */
+export function computeConsolidationKeyFor(
+  platform: string,
+  recipient: { full_name?: string | null; phone?: string | null; address_line1?: string | null; city?: string | null },
+  keyFields: readonly string[],
+): string {
+  const parts: string[] = [platform];
+  if (keyFields.includes('phone')) parts.push(normalizePhoneNumber(recipient.phone ?? ''));
+  if (keyFields.includes('address_line1')) parts.push(normalizeAddressFragment(recipient.address_line1 ?? ''));
+  if (keyFields.includes('city')) parts.push(normalizeAddressFragment(recipient.city ?? ''));
+  if (keyFields.includes('full_name')) parts.push(normalizeAddressFragment(recipient.full_name ?? ''));
+  return createHash('sha256').update(parts.join('|')).digest('hex');
+}
+
+/**
  * ===================================================================
  * RECIPIENT KEY — MỚI (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.md)
  * ===================================================================

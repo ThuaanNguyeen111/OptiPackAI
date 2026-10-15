@@ -61,7 +61,7 @@ describe('Schema — field id phải là ObjectId thật, không phải Mixed', 
     expect(found.mixed).toEqual([]);
   });
 
-  it('danh sách OBJECT_ID_FIELDS khớp đúng các field ObjectId thực tế (đủ 90 field)', () => {
+  it('danh sách OBJECT_ID_FIELDS khớp đúng các field ObjectId thực tế (đủ 91 field)', () => {
     const expected = new Set<string>();
     for (const entry of OBJECT_ID_FIELDS) {
       for (const f of entry.fields) expected.add(`${entry.collection}.${f}`);
@@ -76,6 +76,6 @@ describe('Schema — field id phải là ObjectId thật, không phải Mixed', 
       .filter((p) => !p.startsWith('(sub:'))
       .sort();
     expect(actualTopLevel).toEqual([...expected].sort());
-    expect(expected.size).toBe(90); // +10 lô hàng/phiếu nhập (15/10/2026); // +1 order_groups.manual_link_id (13/10/2026); +2 shipments.carrier_parcels.order_id, carrier_webhook_events.shipment_id (14/10/2026)
+    expect(expected.size).toBe(91); // +10 lô hàng/phiếu nhập, +1 order_sync_settings.updated_by (15/10/2026); // +1 order_groups.manual_link_id (13/10/2026); +2 shipments.carrier_parcels.order_id, carrier_webhook_events.shipment_id (14/10/2026)
   });
 });

@@ -7,6 +7,9 @@ import { LazadaOrderSyncScheduler } from './lazada-order-sync.scheduler';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
+import { OrderSyncSettings, OrderSyncSettingsSchema } from './schemas/order-sync-settings.schema';
+import { OrderSyncSettingsService } from './order-sync-settings.service';
+import { OrderSyncSettingsController } from './order-sync-settings.controller';
 
 /**
  * ===================================================================
@@ -26,7 +29,10 @@ import { OrderGroupsModule } from '../order-groups/order-groups.module';
  */
 @Module({
   imports: [
-    MongooseModule.forFeature([{ name: Order.name, schema: OrderSchema }]),
+    MongooseModule.forFeature([
+      { name: Order.name, schema: OrderSchema },
+      { name: OrderSyncSettings.name, schema: OrderSyncSettingsSchema }, // 15/10/2026 — tiêu chí đồng bộ & gom đơn
+    ]),
     MarketplaceIntegrationModule,
     NotificationsModule,
     // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo OrderGroup ngay
@@ -35,8 +41,8 @@ import { OrderGroupsModule } from '../order-groups/order-groups.module';
     // ngược lại (đã dự đoán trước, xem comment trong order-groups.module.ts).
     OrderGroupsModule,
   ],
-  controllers: [OrdersController],
-  providers: [OrdersService, LazadaOrderSyncScheduler],
+  controllers: [OrdersController, OrderSyncSettingsController],
+  providers: [OrdersService, LazadaOrderSyncScheduler, OrderSyncSettingsService],
   exports: [OrdersService],
 })
 export class OrdersModule {}
