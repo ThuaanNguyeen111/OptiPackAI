@@ -66,6 +66,14 @@ const navItems = [
     section: 'marketplace' as NavSection,
   },
   {
+    to: '/app/admin/packaging-materials',
+    end: false,
+    labelVi: 'Vật liệu đóng gói',
+    labelEn: 'Packaging materials',
+    icon: Box,
+    section: 'warehouse' as NavSection,
+  },
+  {
     to: '/app/admin/warehouse',
     end: false,
     labelVi: 'Cấu hình kho',
@@ -87,14 +95,6 @@ const navItems = [
     labelVi: 'Chốt kế hoạch đóng gói',
     labelEn: 'Confirm packing plan',
     icon: Sparkles,
-    section: 'ai' as NavSection,
-  },
-  {
-    to: '/app/admin/templates',
-    end: false,
-    labelVi: 'Templates đóng gói',
-    labelEn: 'Packaging templates',
-    icon: Box,
     section: 'ai' as NavSection,
   },
 ]

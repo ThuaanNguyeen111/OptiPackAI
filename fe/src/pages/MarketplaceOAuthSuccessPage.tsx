@@ -18,6 +18,7 @@ export function MarketplaceOAuthSuccessPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
 
+  const platform = (params.get('platform') ?? 'lazada').trim().toLowerCase()
   const shopId = params.get('shopId')?.trim() ?? ''
   const shopNameRaw = params.get('shopName')
   const shopName =
@@ -53,17 +54,19 @@ export function MarketplaceOAuthSuccessPage() {
       return
     }
 
-    upsertLazadaShop({
-      shopId,
-      shopName,
-      connectedAt: new Date().toISOString(),
-    })
+    if (platform === 'lazada') {
+      upsertLazadaShop({
+        shopId,
+        shopName,
+        connectedAt: new Date().toISOString(),
+      })
 
-    publishLazadaOAuthNotice({
-      type: LAZADA_OAUTH_MESSAGE_TYPE,
-      shopId,
-      shopName,
-    })
+      publishLazadaOAuthNotice({
+        type: LAZADA_OAUTH_MESSAGE_TYPE,
+        shopId,
+        shopName,
+      })
+    }
 
     const openedAsConnectTab =
       window.name === 'optipack-lazada-connect' ||
@@ -77,7 +80,7 @@ export function MarketplaceOAuthSuccessPage() {
       navigate(ADMIN_MARKETPLACE_PATH, { replace: true })
     }, 250)
     return () => window.clearTimeout(closeFallback)
-  }, [connected, error, navigate, shopId, shopName])
+  }, [connected, error, navigate, platform, shopId, shopName])
 
   if (failed) {
     return (

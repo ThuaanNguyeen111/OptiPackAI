@@ -78,12 +78,33 @@ export type ProductMasterRow = {
   platform: string
   shopId: string
   sellerSku: string
+  packagingProfileStatus: 'needs_measurement' | 'ready'
   lengthCm: number | null
   widthCm: number | null
   heightCm: number | null
   weightKg: number | null
   isFragile: boolean
-  manualOverride: boolean
+  productCategory: string | null
+  orientationRule: 'any' | 'upright_only' | null
+  maxStackLoadKg: number | null
+  zipBagCode: string | null
+  zipBagFolded: boolean
+  canFoldInHalf: boolean
+  suggestedZipBagCode?: string | null
+}
+
+export type ConfirmPackagingProfileInput = {
+  length_cm: number
+  width_cm: number
+  height_cm: number
+  weight_kg: number
+  is_fragile: boolean
+  orientation_rule: 'any' | 'upright_only'
+  max_stack_load_kg?: number | null
+  product_category: string
+  zip_bag_code?: string | null
+  zip_bag_folded?: boolean
+  can_fold_in_half?: boolean
 }
 
 export type StockAvailability = {
@@ -237,6 +258,29 @@ export async function createMasterSku(input: {
   return created
 }
 
+export async function updateMasterSku(
+  code: string,
+  input: {
+    name?: string
+    gender?: 'nam' | 'nu' | 'unisex'
+    length_cm?: number
+    width_cm?: number
+    height_cm?: number
+    weight_kg?: number
+    is_fragile?: boolean
+  },
+): Promise<MasterSkuRecord> {
+  const saved = mapMasterSku(
+    await apiRequest<unknown>(`/master-skus/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      body: input,
+      auth: true,
+    }),
+  )
+  if (!saved) throw new Error('Sửa SKU nội bộ thành công nhưng server không trả mã.')
+  return saved
+}
+
 export async function replaceMasterSku(
   code: string,
   input: {
@@ -259,6 +303,13 @@ export async function replaceMasterSku(
     newSku: next?.masterSku ?? '',
     movedMappings: pickNumber(res?.movedMappings) ?? 0,
   }
+}
+
+export async function purgeMasterSku(code: string): Promise<void> {
+  await apiRequest<unknown>(`/master-skus/${encodeURIComponent(code)}/permanent`, {
+    method: 'DELETE',
+    auth: true,
+  })
 }
 
 export async function setMasterSkuActive(code: string, active: boolean): Promise<void> {
@@ -382,83 +433,81 @@ export async function syncProductCatalog(input: {
   })
 }
 
-export async function listProductMaster(query: {
-  shopId?: string
-  search?: string
-  page?: number
-}): Promise<{ items: ProductMasterRow[]; total: number }> {
-  const res = asRecord(
-    await apiRequest<unknown>(
-      `/product-master${qs({
-        shop_id: query.shopId,
-        search: query.search,
-        page: query.page ?? 1,
-        limit: 20,
-      })}`,
-      { auth: true },
-    ),
-  )
-  const items = Array.isArray(res?.items) ? res.items : []
+function mapProductMaster(raw: unknown): ProductMasterRow | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const id = pickString(row.id)
+  const sellerSku = pickString(row.sellerSku, row.seller_sku)
+  if (!id || !sellerSku) return null
+  const dimension = asRecord(row.dimension)
+  const status = pickString(row.packagingProfileStatus, row.packaging_profile_status)
+  const orientation = pickString(row.orientationRule, row.orientation_rule)
   return {
-    total: pickNumber(res?.total) ?? items.length,
-    items: items.flatMap((raw) => {
-      const row = asRecord(raw)
-      if (!row) return []
-      const id = pickString(row.id)
-      if (!id) return []
-      return [
-        {
-          id,
-          platform: pickString(row.platform),
-          shopId: pickString(row.shopId, row.shop_id),
-          sellerSku: pickString(row.sellerSku, row.seller_sku),
-          lengthCm: pickNumber(row.lengthCm, row.length_cm),
-          widthCm: pickNumber(row.widthCm, row.width_cm),
-          heightCm: pickNumber(row.heightCm, row.height_cm),
-          weightKg: pickNumber(row.weightKg, row.weight_kg),
-          isFragile: row.isFragile === true || row.is_fragile === true,
-          manualOverride: row.manualOverride === true || row.manual_override === true,
-        },
-      ]
-    }),
+    id,
+    platform: pickString(row.platform),
+    shopId: pickString(row.shopId, row.shop_id),
+    sellerSku,
+    packagingProfileStatus: status === 'ready' ? 'ready' : 'needs_measurement',
+    lengthCm: pickNumber(dimension?.lengthCm, dimension?.package_length_cm, row.lengthCm),
+    widthCm: pickNumber(dimension?.widthCm, dimension?.package_width_cm, row.widthCm),
+    heightCm: pickNumber(dimension?.heightCm, dimension?.package_height_cm, row.heightCm),
+    weightKg: pickNumber(dimension?.weightKg, dimension?.package_weight_kg, row.weightKg),
+    isFragile: row.isFragile === true || row.is_fragile === true,
+    productCategory: pickString(row.productCategory, row.product_category) || null,
+    orientationRule: orientation === 'upright_only' || orientation === 'any' ? orientation : null,
+    maxStackLoadKg: pickNumber(row.maxStackLoadKg, row.max_stack_load_kg),
+    zipBagCode: pickString(row.zipBagCode, row.zip_bag_code) || null,
+    zipBagFolded: row.zipBagFolded === true || row.zip_bag_folded === true,
+    canFoldInHalf: row.canFoldInHalf === true || row.can_fold_in_half === true,
+    suggestedZipBagCode: pickString(row.suggestedZipBagCode, row.suggested_zip_bag_code) || null,
   }
 }
 
-/** Toàn bộ catalog (mọi trang, tối đa 100/trang theo BE). */
+function unwrapProductList(res: unknown): unknown[] {
+  if (Array.isArray(res)) return res
+  const row = asRecord(res)
+  if (Array.isArray(row?.items)) return row.items
+  return []
+}
+
+export async function listProductMaster(query: {
+  shopId?: string
+  search?: string
+  status?: 'needs_measurement' | 'ready'
+}): Promise<{ items: ProductMasterRow[]; total: number }> {
+  const res = await apiRequest<unknown>(
+    `/product-master${qs({
+      shop_id: query.shopId,
+      search: query.search,
+      status: query.status,
+    })}`,
+    { auth: true },
+  )
+  const items = unwrapProductList(res).flatMap((raw) => {
+    const row = mapProductMaster(raw)
+    return row ? [row] : []
+  })
+  return { total: items.length, items }
+}
+
 export async function listAllProductMaster(): Promise<ProductMasterRow[]> {
-  const pageSize = 100
-  const rows: ProductMasterRow[] = []
-  for (let page = 1; page <= 50; page += 1) {
-    const res = asRecord(
-      await apiRequest<unknown>(
-        `/product-master${qs({ page, limit: pageSize })}`,
-        { auth: true },
-      ),
-    )
-    const items = Array.isArray(res?.items) ? res.items : []
-    for (const raw of items) {
-      const row = asRecord(raw)
-      if (!row) continue
-      const id = pickString(row.id)
-      const sellerSku = pickString(row.sellerSku, row.seller_sku)
-      if (!id || !sellerSku) continue
-      rows.push({
-        id,
-        platform: pickString(row.platform),
-        shopId: pickString(row.shopId, row.shop_id),
-        sellerSku,
-        lengthCm: pickNumber(row.lengthCm, row.length_cm),
-        widthCm: pickNumber(row.widthCm, row.width_cm),
-        heightCm: pickNumber(row.heightCm, row.height_cm),
-        weightKg: pickNumber(row.weightKg, row.weight_kg),
-        isFragile: row.isFragile === true || row.is_fragile === true,
-        manualOverride: row.manualOverride === true || row.manual_override === true,
-      })
-    }
-    const total = pickNumber(res?.total) ?? 0
-    if (items.length < pageSize || rows.length >= total) break
-  }
-  return rows
+  const listed = await listProductMaster({})
+  return listed.items
+}
+
+export async function confirmPackagingProfile(
+  id: string,
+  input: ConfirmPackagingProfileInput,
+): Promise<ProductMasterRow> {
+  const saved = mapProductMaster(
+    await apiRequest<unknown>(`/product-master/${encodeURIComponent(id)}/packaging-profile`, {
+      method: 'PUT',
+      body: input,
+      auth: true,
+    }),
+  )
+  if (!saved) throw new Error('Đã lưu hồ sơ nhưng server không trả SKU.')
+  return saved
 }
 
 export async function lookupStockAvailability(input: {

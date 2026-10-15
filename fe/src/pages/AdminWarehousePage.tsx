@@ -17,7 +17,9 @@ import {
   createCategory,
   deactivateCategory,
   getWarehousePickingList,
+  getWarehousePickingListForGroups,
   listCategories,
+  suggestBins,
   listStockMovements,
   reactivateCategory,
   updateCategory,
@@ -60,6 +62,20 @@ const rowActionClass =
   'inline-flex h-7 cursor-pointer items-center rounded-md border border-hairline bg-surface-1 px-2 text-[11px] font-medium text-ink transition-colors hover:bg-surface-2'
 const rowOffClass =
   'inline-flex h-7 cursor-pointer items-center rounded-md border border-hairline bg-surface-1 px-2 text-[11px] font-medium text-ink transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-700 dark:hover:border-red-900 dark:hover:bg-red-950/40 dark:hover:text-red-200'
+
+function purgeDoneMessage(
+  result: { warehouses: number; zones: number; bins: number; assignments: number },
+  vi: boolean,
+): string {
+  const parts = [
+    result.warehouses > 0 ? `${result.warehouses} ${vi ? 'kho' : 'warehouse'}` : '',
+    result.zones > 0 ? `${result.zones} ${vi ? 'khu' : 'zone'}` : '',
+    result.bins > 0 ? `${result.bins} ${vi ? 'ô' : 'bin'}` : '',
+    result.assignments > 0 ? `${result.assignments} ${vi ? 'dòng gán' : 'assignment'}` : '',
+  ].filter((part) => part.length > 0)
+  const list = parts.length > 0 ? parts.join(', ') : vi ? '0 bản ghi' : '0 records'
+  return vi ? `Đã xoá hẳn ${list}.` : `Permanently deleted ${list}.`
+}
 
 const stockActionLabelClass = 'w-16 shrink-0 text-[11px] text-ink-muted'
 
@@ -226,7 +242,7 @@ export function AdminWarehousePage() {
                   </div>
                 ) : (
                   <>
-                    <WarehouseHeader vi={vi} api={api} />
+                    <WarehouseHeader vi={vi} api={api} onNotice={showToast} />
                     <TabBar
                       tabs={warehouseTabs}
                       active={warehouseTab}
@@ -362,7 +378,15 @@ function PanelSection({
   )
 }
 
-function WarehouseHeader({ vi, api }: { vi: boolean; api: Api }) {
+function WarehouseHeader({
+  vi,
+  api,
+  onNotice,
+}: {
+  vi: boolean
+  api: Api
+  onNotice: (message: string) => void
+}) {
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState('')
   const [editAddress, setEditAddress] = useState('')
@@ -462,6 +486,27 @@ function WarehouseHeader({ vi, api }: { vi: boolean; api: Api }) {
               }}
             >
               {warehouse.isActive ? (vi ? 'Tắt kho' : 'Deactivate') : vi ? 'Bật kho' : 'Reactivate'}
+            </button>
+            <button
+              type="button"
+              className={rowOffClass}
+              disabled={api.mutating}
+              onClick={() => {
+                const ok = window.confirm(
+                  vi
+                    ? 'Xoá hẳn kho này? Không hoàn tác được. Chỉ thành công khi kho chưa từng nhập–xuất. Nếu đã dùng, hãy dùng «Tắt kho».'
+                    : 'Permanently delete this warehouse? This cannot be undone. If it was used, deactivate it instead.',
+                )
+                if (!ok) return
+                void api
+                  .purgeWarehouse()
+                  .then((result) => {
+                    onNotice(purgeDoneMessage(result, vi))
+                  })
+                  .catch(() => undefined)
+              }}
+            >
+              {vi ? 'Xoá hẳn' : 'Delete permanently'}
             </button>
           </div>
         </div>
@@ -818,6 +863,27 @@ function ZonesTab({
                       onClick={() => void toggleZone(zone, index)}
                     >
                       {zone.isActive ? (vi ? 'Tắt' : 'Off') : vi ? 'Bật lại' : 'Turn on'}
+                    </button>
+                    <button
+                      type="button"
+                      className={rowOffClass}
+                      disabled={api.mutating}
+                      onClick={() => {
+                        const ok = window.confirm(
+                          vi
+                            ? `Xoá hẳn khu ${zone.zoneCode}? Không hoàn tác. Chỉ khi khu chưa từng nhập–xuất. Nếu đã dùng, hãy tắt khu.`
+                            : `Permanently delete zone ${zone.zoneCode}? This cannot be undone.`,
+                        )
+                        if (!ok) return
+                        void api
+                          .purgeZone(zone.id)
+                          .then((result) => {
+                            onNotice(purgeDoneMessage(result, vi))
+                          })
+                          .catch(() => undefined)
+                      }}
+                    >
+                      {vi ? 'Xoá hẳn' : 'Delete'}
                     </button>
                   </div>
                 </TableCell>
@@ -1292,6 +1358,11 @@ function BinsTab({
   const [binGhosts, setBinGhosts] = useState<
     Array<{ bin: BinLocationRecord; index: number }>
   >([])
+  const [editBin, setEditBin] = useState<BinLocationRecord | null>(null)
+  const [editCapacity, setEditCapacity] = useState('')
+  const [editCategory, setEditCategory] = useState('')
+  const [editSize, setEditSize] = useState('')
+  const [editColor, setEditColor] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -1363,6 +1434,32 @@ function BinsTab({
     }
     return list
   }, [api.bins, binGhosts])
+
+  const rackGroups = useMemo(() => {
+    const racks = new Map<
+      string,
+      { aisle: string; side: 'T' | 'P' | null; bay: number; count: number }
+    >()
+    const aisles = new Map<string, number>()
+    for (const bin of api.bins) {
+      aisles.set(bin.aisle, (aisles.get(bin.aisle) ?? 0) + 1)
+      const key = `${bin.aisle}|${bin.side ?? ''}|${bin.rack}`
+      const current = racks.get(key)
+      if (current) current.count += 1
+      else {
+        racks.set(key, {
+          aisle: bin.aisle,
+          side: bin.side,
+          bay: bin.rack,
+          count: 1,
+        })
+      }
+    }
+    return {
+      racks: [...racks.values()],
+      aisles: [...aisles.entries()].map(([aisle, count]) => ({ aisle, count })),
+    }
+  }, [api.bins])
 
   function rememberBinOff(bin: BinLocationRecord, index: number) {
     if (api.showInactive) return
@@ -1653,6 +1750,75 @@ function BinsTab({
       </form>
       )}
 
+      {rackGroups.racks.length > 0 ? (
+        <div className="space-y-2 rounded-lg border border-hairline bg-surface-2/40 p-3">
+          <p className="text-[11px] text-ink-muted">
+            {vi
+              ? 'Xoá hẳn chỉ khi cả kệ hoặc cả dãy chưa từng nhập–xuất. Một ô đã dùng thì cả cụm được giữ.'
+              : 'Permanent delete only works when the whole rack or aisle was never used.'}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {rackGroups.aisles.map((aisle) => (
+              <button
+                key={`aisle-${aisle.aisle}`}
+                type="button"
+                className={rowOffClass}
+                disabled={api.mutating}
+                onClick={() => {
+                  const ok = window.confirm(
+                    vi
+                      ? `Xoá hẳn dãy ${aisle.aisle} (${aisle.count} ô)? Không hoàn tác. Một ô đã dùng thì cả dãy được giữ.`
+                      : `Permanently delete aisle ${aisle.aisle}? One used bin keeps the whole aisle.`,
+                  )
+                  if (!ok) return
+                  void api
+                    .purgeRack({ aisle: aisle.aisle })
+                    .then((result) => {
+                      onNotice(purgeDoneMessage(result, vi))
+                    })
+                    .catch(() => undefined)
+                }}
+              >
+                {vi ? `Xoá dãy ${aisle.aisle}` : `Delete aisle ${aisle.aisle}`}
+              </button>
+            ))}
+            {rackGroups.racks.map((rack) => {
+              const label = rack.side
+                ? `${rack.aisle}-${rack.side}${String(rack.bay).padStart(2, '0')}`
+                : `${rack.aisle}-${String(rack.bay).padStart(2, '0')}`
+              return (
+                <button
+                  key={`rack-${label}`}
+                  type="button"
+                  className={rowOffClass}
+                  disabled={api.mutating}
+                  onClick={() => {
+                    const ok = window.confirm(
+                      vi
+                        ? `Xoá hẳn kệ ${label} (${rack.count} ô)? Không hoàn tác. Một ô đã dùng thì cả kệ được giữ.`
+                        : `Permanently delete rack ${label}? One used bin keeps the whole rack.`,
+                    )
+                    if (!ok) return
+                    void api
+                      .purgeRack({
+                        aisle: rack.aisle,
+                        side: rack.side ?? undefined,
+                        bay: rack.bay,
+                      })
+                      .then((result) => {
+                        onNotice(purgeDoneMessage(result, vi))
+                      })
+                      .catch(() => undefined)
+                  }}
+                >
+                  {vi ? `Xoá kệ ${label}` : `Delete rack ${label}`}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      ) : null}
+
       {binRows.length === 0 ? (
         <EmptyHint
           icon={<MapPin className="h-5 w-5" />}
@@ -1664,6 +1830,80 @@ function BinsTab({
           }
         />
       ) : (
+        <div className="space-y-3">
+          {editBin ? (
+            <form
+              className="grid gap-2 rounded-lg border border-hairline bg-surface-2/40 p-3 sm:grid-cols-5"
+              onSubmit={(e) => {
+                e.preventDefault()
+                const capacity = editCapacity.trim()
+                void api
+                  .updateBin(editBin.id, {
+                    capacity: capacity === '' ? null : Number(capacity),
+                    ...(editCategory
+                      ? { designated_category_code: editCategory }
+                      : {}),
+                    ...(editSize ? { designated_size: editSize } : {}),
+                    designated_color_code: editColor || null,
+                  })
+                  .then(() => {
+                    onNotice(
+                      vi
+                        ? `Đã sửa ô ${editBin.binCode}. Mã ô không đổi.`
+                        : `Updated ${editBin.binCode}. The code stays the same.`,
+                    )
+                    setEditBin(null)
+                  })
+                  .catch(() => undefined)
+              }}
+            >
+              <Input
+                className={fieldClass}
+                type="number"
+                min={1}
+                placeholder={vi ? 'Sức chứa (trống = bỏ giới hạn)' : 'Capacity'}
+                value={editCapacity}
+                onChange={(e) => setEditCapacity(e.target.value)}
+              />
+              <select
+                className={fieldClass}
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
+              >
+                <option value="">{vi ? 'Danh mục' : 'Category'}</option>
+                {categories
+                  .filter((row) => row.level === 2 && row.isActive)
+                  .map((row) => (
+                    <option key={row.code} value={row.code}>
+                      {row.code}
+                    </option>
+                  ))}
+              </select>
+              <Input
+                className={fieldClass}
+                placeholder="Size"
+                value={editSize}
+                onChange={(e) => setEditSize(e.target.value)}
+              />
+              <select
+                className={fieldClass}
+                value={editColor}
+                onChange={(e) => setEditColor(e.target.value)}
+              >
+                <option value="">{vi ? 'Màu' : 'Color'}</option>
+                {colors
+                  .filter((row) => row.isActive)
+                  .map((row) => (
+                    <option key={row.code} value={row.code}>
+                      {row.code}
+                    </option>
+                  ))}
+              </select>
+              <Button type="submit" className="h-9 text-xs" disabled={api.mutating}>
+                {vi ? `Lưu ${editBin.binCode}` : `Save ${editBin.binCode}`}
+              </Button>
+            </form>
+          ) : null}
         <Table>
           <TableHeader>
             <TableRow>
@@ -1728,6 +1968,20 @@ function BinsTab({
                   <TableCell>
                     <button
                       type="button"
+                      className={rowActionClass}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditBin(bin)
+                        setEditCapacity(bin.capacity == null ? '' : String(bin.capacity))
+                        setEditCategory(bin.designated?.categoryCode ?? '')
+                        setEditSize(bin.designated?.size ?? '')
+                        setEditColor(bin.designated?.colorCode ?? '')
+                      }}
+                    >
+                      {vi ? 'Sửa ô' : 'Edit bin'}
+                    </button>
+                    <button
+                      type="button"
                       className={bin.isActive ? rowOffClass : rowActionClass}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -1736,12 +1990,35 @@ function BinsTab({
                     >
                       {bin.isActive ? (vi ? 'Tắt' : 'Off') : vi ? 'Bật lại' : 'Turn on'}
                     </button>
+                    <button
+                      type="button"
+                      className={rowOffClass}
+                      disabled={api.mutating}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const ok = window.confirm(
+                          vi
+                            ? `Xoá hẳn ô ${bin.binCode}? Không hoàn tác. Chỉ khi ô chưa từng nhập–xuất. Nếu đã dùng, hãy tắt ô.`
+                            : `Permanently delete bin ${bin.binCode}? This cannot be undone.`,
+                        )
+                        if (!ok) return
+                        void api
+                          .purgeBin(bin.id)
+                          .then((result) => {
+                            onNotice(purgeDoneMessage(result, vi))
+                          })
+                          .catch(() => undefined)
+                      }}
+                    >
+                      {vi ? 'Xoá hẳn' : 'Delete'}
+                    </button>
                   </TableCell>
                 </TableRow>
               )
             })}
           </TableBody>
         </Table>
+        </div>
       )}
     </div>
   )
@@ -1763,6 +2040,13 @@ function AssignTab({
   const [sku, setSku] = useState<UnassignedSku | null>(null)
   const [qty, setQty] = useState(0)
   const [skuQuery, setSkuQuery] = useState('')
+  const [suggestCategory, setSuggestCategory] = useState('')
+  const [suggestSize, setSuggestSize] = useState('')
+  const [suggestColor, setSuggestColor] = useState('')
+  const [suggestions, setSuggestions] = useState<
+    Array<{ binId: string; binCode: string; match: string }>
+  >([])
+  const [suggestError, setSuggestError] = useState<string | null>(null)
 
   const filteredUnassigned = useMemo(() => {
     const query = skuQuery.trim().toLowerCase()
@@ -1822,6 +2106,70 @@ function AssignTab({
           {vi ? 'Mọi SKU trong catalog đã có ô trong kho này.' : 'Every catalog SKU has a bin in this warehouse.'}
         </div>
       )}
+
+      <form
+        className="grid gap-2 rounded-lg border border-hairline p-3 sm:grid-cols-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!suggestCategory.trim() || !api.selectedWarehouse) return
+          void suggestBins(api.selectedWarehouse.id, {
+            category_code: suggestCategory.trim(),
+            size: suggestSize.trim() || undefined,
+            color_code: suggestColor.trim() || undefined,
+          })
+            .then((rows) => {
+              setSuggestions(
+                rows.map((row) => ({
+                  binId: row.bin.id,
+                  binCode: row.bin.binCode,
+                  match: String(row.matchLevel),
+                })),
+              )
+              setSuggestError(null)
+            })
+            .catch((err: unknown) => setSuggestError(formatApiError(err)))
+        }}
+      >
+        <Input
+          className={fieldClass}
+          required
+          placeholder={vi ? 'Mã danh mục cấp 2' : 'Level-2 category code'}
+          value={suggestCategory}
+          onChange={(e) => setSuggestCategory(e.target.value)}
+        />
+        <Input
+          className={fieldClass}
+          placeholder="Size"
+          value={suggestSize}
+          onChange={(e) => setSuggestSize(e.target.value)}
+        />
+        <Input
+          className={fieldClass}
+          placeholder={vi ? 'Mã màu' : 'Color code'}
+          value={suggestColor}
+          onChange={(e) => setSuggestColor(e.target.value)}
+        />
+        <Button type="submit" variant="secondary" className="h-9 text-xs">
+          {vi ? 'Gợi ý ô' : 'Suggest bins'}
+        </Button>
+        {suggestError ? (
+          <p className="text-xs text-red-600 sm:col-span-4">{suggestError}</p>
+        ) : null}
+        {suggestions.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 sm:col-span-4">
+            {suggestions.map((row) => (
+              <button
+                key={row.binId}
+                type="button"
+                className="rounded-md border border-hairline px-2 py-1 text-xs hover:bg-surface-2"
+                onClick={() => onBinIdChange(row.binId)}
+              >
+                {row.binCode} · {row.match}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </form>
 
       <div className="grid gap-3 sm:grid-cols-[1fr_220px]">
         <div className="flex min-w-0 flex-col gap-2">
@@ -2012,6 +2360,7 @@ function StockTab({
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [transferBinById, setTransferBinById] = useState<Record<string, string>>({})
   const [transferQtyById, setTransferQtyById] = useState<Record<string, number>>({})
+  const [moveBinById, setMoveBinById] = useState<Record<string, string>>({})
   const [ledgerId, setLedgerId] = useState('')
   const [movements, setMovements] = useState<InventoryMovementRecord[]>([])
 
@@ -2218,6 +2567,53 @@ function StockTab({
                   {vi ? 'Chuyển' : 'Move'}
                 </Button>
               </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className={stockActionLabelClass}>{vi ? 'Sửa gán' : 'Retarget'}</span>
+                <select
+                  className="h-8 max-w-[180px] rounded-md border border-hairline bg-surface-1 px-2 text-xs"
+                  value={moveBinById[row.id] ?? ''}
+                  onChange={(e) =>
+                    setMoveBinById((prev) => ({
+                      ...prev,
+                      [row.id]: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">{vi ? 'Ô đúng' : 'Correct bin'}</option>
+                  {api.allBins
+                    .filter((bin) => bin.id !== row.binLocationId && bin.isActive)
+                    .map((bin) => (
+                      <option key={bin.id} value={bin.id}>
+                        {bin.binCode}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  variant="secondary"
+                  className="h-8 px-2.5 text-xs"
+                  disabled={api.mutating || !moveBinById[row.id]}
+                  onClick={() => {
+                    const destId = moveBinById[row.id] ?? ''
+                    const dest = api.allBins.find((bin) => bin.id === destId)
+                    const ok = window.confirm(
+                      vi
+                        ? `Sửa gán: chuyển cả dòng sang ô ${dest?.binCode ?? ''}? Hàng còn lại cũng đi theo.`
+                        : `Move the whole assignment to ${dest?.binCode ?? ''}?`,
+                    )
+                    if (!ok) return
+                    const input = { to_bin_location_id: destId }
+                    void api.moveAssignment(row.id, input).catch((err: unknown) => {
+                      if (getApiErrorCode(err) !== 'WH_BIN_OVER_CAPACITY') return
+                      const force = window.confirm(
+                        `${formatApiError(err)}\n\n${vi ? 'Vẫn chuyển?' : 'Move anyway?'}`,
+                      )
+                      if (force) void api.moveAssignment(row.id, { ...input, force: true })
+                    })
+                  }}
+                >
+                  {vi ? 'Chuyển cả dòng' : 'Move all'}
+                </Button>
+              </div>
               <div className="mt-2 flex items-center gap-3 pl-[4.5rem]">
                 <button
                   type="button"
@@ -2272,6 +2668,7 @@ function PickingTab({
   warehouseId: string
 }) {
   const [groupId, setGroupId] = useState('')
+  const [groupIds, setGroupIds] = useState('')
   const [items, setItems] = useState<WarehousePickingListItem[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -2308,6 +2705,36 @@ function PickingTab({
         <Button type="submit" className="h-9 text-xs" disabled={loading || !groupId.trim()}>
           <ScanLine className="h-3.5 w-3.5" />
           {vi ? 'Xem lộ trình' : 'Load route'}
+        </Button>
+        <Input
+          className={cn(fieldClass, 'min-w-64 flex-1')}
+          placeholder={vi ? 'Nhiều nhóm: id1,id2' : 'Several groups: id1,id2'}
+          value={groupIds}
+          onChange={(e) => setGroupIds(e.target.value)}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-9 text-xs"
+          disabled={loading || !groupIds.trim()}
+          onClick={() => {
+            const ids = groupIds
+              .split(',')
+              .map((part) => part.trim())
+              .filter(Boolean)
+            if (ids.length === 0) return
+            setLoading(true)
+            setError(null)
+            void getWarehousePickingListForGroups(warehouseId, ids)
+              .then(setItems)
+              .catch((err: unknown) => {
+                setItems(null)
+                setError(formatApiError(err))
+              })
+              .finally(() => setLoading(false))
+          }}
+        >
+          {vi ? 'Lộ trình nhiều nhóm' : 'Multi-group route'}
         </Button>
       </form>
       {error ? <p className="text-xs text-red-600">{error}</p> : null}

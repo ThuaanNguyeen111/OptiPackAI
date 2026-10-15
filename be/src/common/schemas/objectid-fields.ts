@@ -61,7 +61,12 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
     collection: 'orders',
     fields: ['marketplace_shop', 'consolidated_group_id', 'source_return_id'],
   },
-  { collection: 'shipments', fields: ['order_group_id'] },
+  {
+    collection: 'shipments',
+    fields: ['order_group_id'],
+    arrayPath: { array: 'carrier_parcels', fields: ['order_id'] }, // C4 (14/10/2026) — kiện gửi hãng
+  },
+  { collection: 'carrier_webhook_events', fields: ['shipment_id'] }, // C5 (14/10/2026)
   { collection: 'shipment_events', fields: ['shipment_id', 'order_group_id'] },
   {
     collection: 'return_requests',

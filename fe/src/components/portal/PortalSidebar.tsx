@@ -113,6 +113,14 @@ const navItems = [
     section: 'logistics' as NavSection,
   },
   {
+    to: '/app/packaging-materials',
+    end: false,
+    labelVi: 'Vật liệu đóng gói',
+    labelEn: 'Packaging materials',
+    icon: Box,
+    section: 'logistics' as NavSection,
+  },
+  {
     to: '/app/analytics',
     end: false,
     labelVi: 'Báo cáo (demo)',

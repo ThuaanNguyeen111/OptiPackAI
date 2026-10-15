@@ -89,7 +89,7 @@ describe('allowed-status-transitions', () => {
       // hỏng/thiếu lúc đóng, chọn "trả về lấy hàng") — xem test riêng bên dưới.
       // Đi lùi sai chỗ (không phải đường Reject/Return hợp lệ)
       [GroupFulfillmentStatus.PACKED, GroupFulfillmentStatus.PICKED],
-      [GroupFulfillmentStatus.SHIPPED, GroupFulfillmentStatus.PACKED],
+      // ĐÃ THAY ĐỔI 14/10/2026 (C4): shipped -> packed giờ HỢP LỆ (huỷ vận đơn GHN trước khi lấy hàng) — test riêng bên dưới.
       [GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.AWAITING_PACKAGING],
       // Từ trạng thái cuối
       [GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.DELIVERED],
@@ -155,8 +155,12 @@ describe('allowed-status-transitions', () => {
 
   it('getAllowedNextStatuses trả đúng mảng cho từng trạng thái — không rỗng ngoài dự kiến', () => {
     expect(getAllowedNextStatuses(GroupFulfillmentStatus.SHIPPED)).toEqual(
-      expect.arrayContaining([GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED]),
+      expect.arrayContaining([GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.PACKED]),
     );
-    expect(getAllowedNextStatuses(GroupFulfillmentStatus.SHIPPED)).toHaveLength(2);
+    expect(getAllowedNextStatuses(GroupFulfillmentStatus.SHIPPED)).toHaveLength(3);
+  });
+
+  it('C4 (14/10/2026) — SHIPPED -> PACKED hợp lệ: huỷ vận đơn ở hãng trước khi lấy hàng để tạo lại', () => {
+    expect(isValidStatusTransition(GroupFulfillmentStatus.SHIPPED, GroupFulfillmentStatus.PACKED)).toBe(true);
   });
 });

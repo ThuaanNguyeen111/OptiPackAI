@@ -5,11 +5,6 @@ import { usePortal } from '../../context/use-portal'
 import { useLazadaConnection } from '../../hooks/useLazadaConnection'
 import { useMarketplaceOrders } from '../../hooks/useMarketplaceOrders'
 import {
-  demoMultiPlatformListOrders,
-  isDemoOrderId,
-} from '../../data/demo-multi-platform-orders'
-import {
-  filterActiveGroupMembers,
   formatPlatformOrderIds,
   isMultiPlatformGroup,
   shortGroupCode,
@@ -141,13 +136,7 @@ export function MarketplaceOrdersScreen({
     ordersApi.errorCode === 'MKT_SHOP_NOT_CONNECTED' ||
     ordersApi.errorCode === 'MKT_TOKEN_REFRESH_FAILED'
 
-  /** Live Lazada + FE demo gộp đa sàn (giày+áo Lazada · quần TikTok) */
-  const allOrders = useMemo(() => {
-    const live = ordersApi.orders
-    const demoIds = new Set(demoMultiPlatformListOrders.map((o) => o.id))
-    const withoutDup = live.filter((o) => !demoIds.has(o.id))
-    return [...demoMultiPlatformListOrders, ...withoutDup]
-  }, [ordersApi.orders])
+  const allOrders = ordersApi.orders
 
   const groupMembersById = useMemo(() => {
     const map = new Map<string, MarketplaceOrderListItem[]>()
@@ -158,11 +147,7 @@ export function MarketplaceOrdersScreen({
       list.push(order)
       map.set(key, list)
     }
-    const cleaned = new Map<string, MarketplaceOrderListItem[]>()
-    for (const [key, list] of map) {
-      cleaned.set(key, filterActiveGroupMembers(key, list))
-    }
-    return cleaned
+    return map
   }, [allOrders])
 
   const groupMetaById = useMemo(() => {
@@ -200,13 +185,13 @@ export function MarketplaceOrdersScreen({
         ? groupMetaById.get(order.consolidatedGroupId)
         : undefined
 
-      // Demo đa sàn (≥2 nền tảng) → 1 dòng / nhóm. Live cùng sàn: mỗi đơn 1 dòng.
+      // Nhóm đa sàn (nếu có) hiện 1 dòng; nhóm cùng sàn hiện từng đơn.
       if (grouped && meta?.multiPlatform && order.consolidatedGroupId) {
         if (seenMultiGroups.has(order.consolidatedGroupId)) continue
         seenMultiGroups.add(order.consolidatedGroupId)
       }
 
-      // Tab Đơn gộp = mọi isConsolidated (khớp BE cùng sàn); demo đa sàn cũng nằm đây.
+      // Tab Đơn gộp = mọi isConsolidated (khớp BE cùng sàn).
       if (consolidateView === 'grouped') {
         if (!grouped) continue
       }
@@ -250,7 +235,7 @@ export function MarketplaceOrdersScreen({
     return rows
   }, [allOrders, consolidateView, groupId, groupMetaById, searchTerm])
 
-  /** Số nhóm gộp (live cùng sàn + demo đa sàn). */
+  /** Số nhóm gộp cùng sàn. */
   const groupedCount = useMemo(() => groupMetaById.size, [groupMetaById])
   const standaloneCount = useMemo(() => {
     let inGroups = 0
@@ -261,8 +246,7 @@ export function MarketplaceOrdersScreen({
   }, [allOrders.length, groupMetaById])
 
   function openDetail(order: MarketplaceOrderListItem) {
-    // Demo đa sàn → trang chi tiết đầy đủ (drawer API không có bản ghi demo)
-    if (isDemoOrderId(order.id) || !ops) {
+    if (!ops) {
       navigate(detailPath(order.id))
       return
     }
@@ -313,7 +297,6 @@ export function MarketplaceOrdersScreen({
       needsConnect={needsConnect}
       visibleOrders={visibleOrders}
       groupMetaById={groupMetaById}
-      showDemoBanner
       loading={ordersApi.loading}
       loadingMore={ordersApi.loadingMore}
       nextCursor={ordersApi.nextCursor}

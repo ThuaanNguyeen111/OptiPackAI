@@ -11,6 +11,7 @@ export const GROUP_FULFILLMENT_STATUSES = [
   'shipped',
   'delivered',
   'returned',
+  'canceled',
 ] as const
 
 export type GroupFulfillmentStatus =
@@ -51,6 +52,62 @@ export const EMPTY_LAZADA_PACK: LazadaPackInfo = {
   items: [],
 }
 
+export type ManualLink = {
+  linkId: string
+  linkedBy: string | null
+  linkedAt: string | null
+  note: string | null
+}
+
+/** Đơn trong nhóm — chỉ có khi gọi `GET /order-groups/:id`. */
+export type GroupOrderLine = {
+  sku: string
+  name: string
+  quantity: number
+  status: string
+}
+
+export type GroupOrderView = {
+  id: string
+  platform: string
+  platformOrderId: string
+  status: string
+  recipientName: string
+  recipientPhone: string
+  recipientCity: string
+  items: GroupOrderLine[]
+}
+
+export type StockReservationLine = {
+  sellerSku: string
+  masterSku: string | null
+  stockKey: string
+  status: string
+  quantityNeeded: number
+  quantityPicked: number
+  quantityReserved: number
+  shortage: number
+}
+
+export type StockAvailability = {
+  stockKey: string
+  masterSku: string | null
+  onHand: number
+  reserved: number
+  available: number
+}
+
+const LINK_LOCKED_STATUSES = new Set([
+  'shipped',
+  'delivered',
+  'returned',
+  'canceled',
+])
+
+export function canManuallyLinkGroup(status: string): boolean {
+  return !LINK_LOCKED_STATUSES.has(status)
+}
+
 export type OrderGroup = {
   id: string
   platform: string
@@ -70,9 +127,23 @@ export type OrderGroup = {
   isOverdue: boolean
   stockShortage: boolean
   stockShortageItems: StockShortageItem[]
+  /** Liên kết tay (null = không có). Liên kết tự động xem `linkedGroupCount`. */
+  manualLink: ManualLink | null
+  /** Chỉ có ở chi tiết nhóm. Danh sách trả 0. */
+  linkedGroupCount: number
+  origin: string
+  orders: GroupOrderView[]
   version: number
   createdAt: string
   updatedAt: string
+}
+
+/** (14/10/2026) Thông tin liên kết tay (`POST /order-groups/:id/link`). */
+export type OrderGroupManualLink = {
+  linkId: string
+  linkedBy: string | null
+  linkedAt: string | null
+  note: string | null
 }
 
 /** Còn ít nhất 1 đơn lấy/đóng được. */
@@ -128,6 +199,8 @@ export type ListOrderGroupsParams = {
   fulfillment_status?: GroupFulfillmentStatus | string
   platform?: string
   order_priority?: OrderPriority
+  stock_shortage?: boolean
+  is_overdue?: boolean
 }
 
 export type SetPriorityInput = {
@@ -252,13 +325,14 @@ export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
   shipped: { vi: 'Đã giao vận', en: 'Shipped' },
   delivered: { vi: 'Đã giao', en: 'Delivered' },
   returned: { vi: 'Hoàn hàng', en: 'Returned' },
+  canceled: { vi: 'Đã huỷ', en: 'Canceled' },
 }
 
 export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_INVALID_ID: 'Mã nhóm đơn không hợp lệ.',
   ORD_GROUP_NOT_FOUND: 'Không tìm thấy nhóm đơn.',
   ORD_GROUP_INVALID_TRANSITION:
-    'BE không cho phép bước này từ trạng thái hiện tại. Luồng: kho lấy (→ picked) → duyệt kế hoạch Packaging (→ approved_for_packing) → Warehouse pack (→ packed).',
+    'BE không cho phép bước này từ trạng thái hiện tại. Luồng đóng gói: duyệt kế hoạch → bắt đầu đóng → quét từng món → niêm phong từng kiện.',
   ORD_GROUP_STATE_CONFLICT:
     'Dữ liệu nhóm đơn đã đổi. Tải lại rồi thao tác tiếp.',
   ORD_GROUP_INSUFFICIENT_STOCK: 'Không đủ tồn kho cho SKU này.',
@@ -270,4 +344,8 @@ export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
     'Nhóm đơn này không còn hàng cần lấy (đơn đã hủy hoặc gặp sự cố logistics).',
   ORD_GROUP_LAZADA_PACK_NOT_ALLOWED:
     'Không gửi lại được lên Lazada (nhóm chưa packed hoặc đã báo thành công).',
+  ORD_GROUP_LINK_SELF: 'Không liên kết một nhóm với chính nó.',
+  ORD_GROUP_LINK_NOT_ALLOWED:
+    'Không liên kết được — một trong hai nhóm đã giao, đã hoàn hoặc đã hủy.',
+  ORD_GROUP_NOT_MANUALLY_LINKED: 'Nhóm này không có liên kết tay để bỏ.',
 }

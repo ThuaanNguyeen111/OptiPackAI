@@ -4,26 +4,11 @@ import { AlertTriangle, ArrowLeft, Layers, Loader2 } from 'lucide-react'
 import { MarketplaceConsolidationBadge } from './MarketplaceConsolidationBadge'
 import { MarketplaceOrderStatusBadge } from './MarketplaceOrderStatusBadge'
 import { PortalTopBar } from '../portal/PortalTopBar'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../ui/dialog'
 import { usePortal } from '../../context/use-portal'
 import { listNotifications } from '../../api/notifications.api'
 import { getOrderById, listOrders } from '../../api/orders.api'
 import { formatApiError, getApiErrorCode } from '../../lib/api'
 import {
-  getDemoOrderDetail,
-  getDemoSiblingsForGroup,
-  isDemoOrderId,
-} from '../../data/demo-multi-platform-orders'
-import {
-  detachOrderFromGroup,
-  filterActiveGroupMembers,
   formatPlatformOrderIds,
   isMultiPlatformGroup,
   shortGroupCode,
@@ -85,7 +70,6 @@ export function MarketplaceOrderDetailScreen({
     groupError: string | null
     error: string | null
     errorCode: string | null
-    isDemo: boolean
   } | null>(null)
   /** Fallback chuông nếu field đơn thiếu (bản BE cũ) hoặc bổ sung nội dung message. */
   const [cancelConfirmNotif, setCancelConfirmNotif] =
@@ -97,61 +81,6 @@ export function MarketplaceOrderDetailScreen({
     let cancelled = false
 
     async function load(): Promise<void> {
-      if (isDemoOrderId(orderId)) {
-        const detail = getDemoOrderDetail(orderId)
-        if (!detail) {
-          if (!cancelled) {
-            setLoaded({
-              id: orderId,
-              order: null,
-              siblings: [],
-              groupItems: [],
-              groupError: null,
-              error: vi ? 'Không tìm thấy đơn demo.' : 'Demo order not found.',
-              errorCode: 'ORD_ORDER_NOT_FOUND',
-              isDemo: true,
-            })
-          }
-          return
-        }
-        const siblings = getDemoSiblingsForGroup(
-          detail.consolidatedGroupId ?? '',
-        )
-        const groupItems: Array<{
-          platform: string
-          orderNumber: string
-          orderId: string
-          item: MarketplaceOrderItem
-          currency: string
-        }> = []
-        for (const sib of siblings) {
-          const full = getDemoOrderDetail(sib.id)
-          if (!full) continue
-          for (const item of full.items) {
-            groupItems.push({
-              platform: full.platform,
-              orderNumber: displayOrderNumber(full),
-              orderId: full.id,
-              item,
-              currency: full.currency,
-            })
-          }
-        }
-        if (!cancelled) {
-          setLoaded({
-            id: orderId,
-            order: detail,
-            siblings,
-            groupItems,
-            groupError: null,
-            error: null,
-            errorCode: null,
-            isDemo: true,
-          })
-        }
-        return
-      }
-
       try {
         const detail = await getOrderById(orderId)
         let siblings: MarketplaceOrderListItem[] = []
@@ -245,7 +174,6 @@ export function MarketplaceOrderDetailScreen({
             groupError,
             error: null,
             errorCode: null,
-            isDemo: false,
           })
         }
       } catch (err: unknown) {
@@ -258,7 +186,6 @@ export function MarketplaceOrderDetailScreen({
             groupError: null,
             error: formatApiError(err),
             errorCode: getApiErrorCode(err),
-            isDemo: false,
           })
         }
       }
@@ -271,7 +198,7 @@ export function MarketplaceOrderDetailScreen({
   }, [id, vi])
 
   useEffect(() => {
-    if (!id || isDemoOrderId(id)) {
+    if (!id) {
       const clearId = window.setTimeout(() => {
         setCancelConfirmNotif(null)
       }, 0)
@@ -309,9 +236,6 @@ export function MarketplaceOrderDetailScreen({
     }
   }, [id, loaded])
 
-  const [detachTarget, setDetachTarget] =
-    useState<MarketplaceOrderListItem | null>(null)
-  const [detachTick, setDetachTick] = useState(0)
   const [platformTab, setPlatformTab] = useState<string>('all')
 
   const matches = loaded !== null && loaded.id === id
@@ -320,17 +244,13 @@ export function MarketplaceOrderDetailScreen({
   const groupError = matches ? loaded.groupError : null
   const error = matches ? loaded.error : null
   const errorCode = matches ? loaded.errorCode : null
-  const isDemo = matches ? loaded.isDemo : false
   const loading = Boolean(id) && !matches
   const orderLabel = order ? displayOrderNumber(order) : (id ?? '—')
 
   const groupKey = order?.consolidatedGroupId ?? ''
   const siblings = useMemo(() => {
-    void detachTick
-    const raw = matches ? loaded.siblings : []
-    if (!groupKey) return raw
-    return filterActiveGroupMembers(groupKey, raw)
-  }, [detachTick, groupKey, loaded, matches])
+    return matches ? loaded.siblings : []
+  }, [loaded, matches])
 
   const multiPlatform = isMultiPlatformGroup(siblings)
   const groupCode = groupKey ? shortGroupCode(groupKey) : null
@@ -363,14 +283,6 @@ export function MarketplaceOrderDetailScreen({
             row.platform.toLowerCase() === platformTab &&
             siblings.some((s) => s.id === row.orderId),
         )
-
-  const handleConfirmDetach = () => {
-    if (!detachTarget || !groupKey) return
-    detachOrderFromGroup(groupKey, detachTarget.id)
-    setDetachTarget(null)
-    setDetachTick((t) => t + 1)
-    setPlatformTab('all')
-  }
 
   return (
     <>
@@ -432,11 +344,6 @@ export function MarketplaceOrderDetailScreen({
                   </div>
                   <p className="mt-1 font-mono text-[11px] text-ink-tertiary">
                     {order.platform} · shop {order.shopId}
-                    {isDemo
-                      ? vi
-                        ? ' · DEMO FE'
-                        : ' · FE DEMO'
-                      : ''}
                   </p>
                   {siblings.length > 1 ? (
                     <div className="mt-3 space-y-2">
@@ -513,14 +420,6 @@ export function MarketplaceOrderDetailScreen({
                     </div>
                   ) : null}
 
-                  {isDemo ? (
-                    <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
-                      {vi
-                        ? 'DEMO FE: Lazada + TikTok cùng khách. BE live chỉ gộp đơn cùng sàn — không phải dữ liệu sync thật.'
-                        : 'FE DEMO: Lazada + TikTok same customer. Live BE consolidates same-platform only — not live sync data.'}
-                    </p>
-                  ) : null}
-
                   <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                     <div>
                       <dt className="text-ink-subtle">
@@ -568,8 +467,8 @@ export function MarketplaceOrderDetailScreen({
                           />
                           {multiPlatform
                             ? vi
-                              ? `Demo đa sàn · ${siblings.length} đơn`
-                              : `Demo multi-platform · ${siblings.length} orders`
+                              ? `Nhiều sàn · ${siblings.length} đơn`
+                              : `Multi-platform · ${siblings.length} orders`
                             : vi
                               ? `Đơn gộp · ${siblings.length || '—'} đơn (cùng sàn)`
                               : `Grouped · ${siblings.length || '—'} (same platform)`}
@@ -683,20 +582,6 @@ export function MarketplaceOrderDetailScreen({
                                       sibling.currency,
                                     )}
                                   </span>
-                                  {canceled || siblings.length > 1 ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setDetachTarget(sibling)}
-                                      className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 cursor-pointer dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-                                      title={
-                                        vi
-                                          ? 'Gỡ đơn này khỏi nhóm gộp (Hướng B: phần còn lại tiếp tục)'
-                                          : 'Detach from group (keep remaining)'
-                                      }
-                                    >
-                                      {vi ? 'Gỡ khỏi nhóm' : 'Detach'}
-                                    </button>
-                                  ) : null}
                                 </div>
                               </div>
                             </li>
@@ -707,18 +592,11 @@ export function MarketplaceOrderDetailScreen({
 
                     <p className="mt-3 text-[11px] leading-snug text-ink-subtle">
                       {vi
-                        ? 'BE live: gộp khi cùng sàn + cùng khách/địa chỉ. Demo đa sàn chỉ để thuyết trình. Hủy 1 đơn (demo) → gỡ khỏi nhóm local, không gọi BE.'
-                        : 'Live BE: same platform + same customer/address. Multi-platform is FE demo only. Detach on cancel is local demo — no BE call.'}
+                        ? 'BE gộp đơn khi cùng sàn và cùng khách/địa chỉ. Muốn nối nhóm khác sàn, dùng Liên kết tay ở trang Nhóm đơn.'
+                        : 'BE groups orders that share platform, customer and address. Cross-platform groups are linked from the Order groups page.'}
                     </p>
                   </div>
-                ) : (
-                  <div className="rounded-xl border border-hairline bg-surface-1 px-4 py-3">
-                    <p className="text-xs text-ink-subtle">
-                      {vi
-                        ? 'Đơn lẻ — BE gộp khi có đơn khác cùng sàn, cùng khách/địa chỉ (không gộp cross-platform).'
-                        : 'Standalone — BE consolidates only with same-platform siblings sharing customer/address.'}
-                    </p>
-                  </div>
+                ) : (null
                 )}
 
                 <div className="rounded-xl border border-hairline bg-surface-1 p-5">
@@ -820,7 +698,7 @@ export function MarketplaceOrderDetailScreen({
                     </h2>
                     <p className="mt-1 text-[11px] text-ink-subtle">
                       {vi
-                        ? 'Mỗi dòng gắn nền tảng + mã đơn sàn tương ứng (VD giày/áo Lazada · quần TikTok).'
+                        ? 'Mỗi dòng gắn sàn và mã đơn tương ứng.'
                         : 'Each row is tagged with marketplace + that platform order ID.'}
                     </p>
                     <div className="mt-3 overflow-x-auto">
@@ -922,59 +800,6 @@ export function MarketplaceOrderDetailScreen({
           )}
         </div>
       </main>
-
-      <Dialog
-        open={Boolean(detachTarget)}
-        onOpenChange={(open) => {
-          if (!open) setDetachTarget(null)
-        }}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {vi ? 'Xác nhận gỡ đơn khỏi nhóm gộp' : 'Confirm detach from group'}
-            </DialogTitle>
-            <DialogDescription>
-              {vi
-                ? 'Hướng B: chỉ gỡ đơn này khỏi nhóm. Các đơn sàn còn lại tiếp tục lấy hàng / đóng gói / giao — không hủy cả nhóm.'
-                : 'Option B: remove only this order. Remaining platform orders keep fulfilling — the whole group is not canceled.'}
-            </DialogDescription>
-          </DialogHeader>
-          {detachTarget ? (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-surface-2">
-              <p className="font-medium text-slate-900 dark:text-slate-100">
-                <span className="capitalize">{detachTarget.platform}</span>
-                {' · '}
-                {displayOrderNumber(detachTarget)}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                {vi ? 'Trạng thái:' : 'Status:'} {detachTarget.status}
-                {detachTarget.status === 'canceled'
-                  ? vi
-                    ? ' (đã hủy trên sàn)'
-                    : ' (canceled on marketplace)'
-                  : ''}
-              </p>
-            </div>
-          ) : null}
-          <DialogFooter>
-            <button
-              type="button"
-              onClick={() => setDetachTarget(null)}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer dark:border-slate-700 dark:text-slate-200"
-            >
-              {vi ? 'Hủy' : 'Cancel'}
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirmDetach}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-amber-600 px-3 text-sm font-semibold text-white hover:bg-amber-700 cursor-pointer"
-            >
-              {vi ? 'Gỡ khỏi nhóm' : 'Detach'}
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   )
 }

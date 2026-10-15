@@ -35,12 +35,19 @@ export async function getOrderById(
   return apiRequest<MarketplaceOrderDetail>(`/orders/${id}`, { auth: true })
 }
 
-export async function syncLazadaOrders(
+export async function syncPlatformOrders(
+  platform: 'lazada' | 'aurelle',
   shopId: string,
 ): Promise<SyncLazadaResult> {
   const query = toQuery({ shop_id: shopId })
-  return apiRequest<SyncLazadaResult>(`/orders/lazada/sync${query}`, {
+  return apiRequest<SyncLazadaResult>(`/orders/${platform}/sync${query}`, {
     method: 'POST',
     auth: true,
   })
+}
+
+export async function syncLazadaOrders(
+  shopId: string,
+): Promise<SyncLazadaResult> {
+  return syncPlatformOrders('lazada', shopId)
 }

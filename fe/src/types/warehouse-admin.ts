@@ -152,6 +152,26 @@ export type TransferStockInput = {
   note?: string
 }
 
+/** PATCH gán nhầm — dời cả dòng, không nhập số lượng. */
+export type MoveAssignmentInput = {
+  to_bin_location_id: string
+  force?: boolean
+  note?: string
+}
+
+export type PurgeResult = {
+  warehouses: number
+  zones: number
+  bins: number
+  assignments: number
+}
+
+export type PurgeRackQuery = {
+  aisle: string
+  side?: 'T' | 'P'
+  bay?: number
+}
+
 export type InventoryMovementRecord = {
   id: string
   type: string
@@ -183,7 +203,10 @@ export const WAREHOUSE_ERROR_MESSAGES: Record<string, string> = {
   WH_INVALID_BIN_RANGE: 'Khoảng kệ/tầng không hợp lệ (from phải ≤ to).',
   WH_WAREHOUSE_CODE_IN_USE: 'Mã kho đã tồn tại. Kho cũ vẫn còn trong hệ thống — tải lại trang nếu không thấy.',
   WH_ZONE_CODE_IN_USE: 'Mã khu đã tồn tại trong kho này.',
-  WH_HAS_STOCK: 'Còn hàng — chuyển hết hàng đi trước khi vô hiệu hóa.',
+  WH_HAS_STOCK: 'Còn hàng — chuyển hết hàng đi trước khi tắt hoặc xoá hẳn.',
+  WH_HAS_HISTORY: 'Đã có lịch sử nhập–xuất. Chỉ tắt được, không xoá hẳn.',
+  WH_INVALID_RACK_LAYOUT: 'Dãy có cả hai bên — chọn bên (T/P) khi xoá một kệ.',
+  WH_SAME_BIN: 'Ô đích trùng ô hiện tại.',
   WH_WAREHOUSE_INACTIVE: 'Kho đang tắt. Kích hoạt lại kho trước.',
   WH_ZONE_INACTIVE: 'Khu đang tắt. Kích hoạt lại khu trước.',
   WH_BIN_INACTIVE: 'Kệ đang tắt.',
@@ -216,7 +239,9 @@ export const WAREHOUSE_ERROR_MESSAGES: Record<string, string> = {
   MSKU_INACTIVE: 'SKU nội bộ đang tắt.',
   MSKU_SIZE_NOT_IN_SCALE: 'Size không thuộc thang size của danh mục.',
   MSKU_NOTHING_TO_UPDATE: 'Chưa có gì để sửa trên SKU nội bộ.',
-  MSKU_HAS_MAPPINGS: 'Còn SKU sàn đang nối — bỏ nối trước khi tắt.',
+  MSKU_HAS_MAPPINGS: 'Còn SKU sàn đang nối — bỏ nối trước khi tắt hoặc xoá hẳn.',
+  MSKU_HAS_STOCK: 'SKU còn nằm trên ô. Bỏ gán hoặc chuyển hết hàng trước khi xoá hẳn.',
+  MSKU_HAS_HISTORY: 'SKU đã có nhập–xuất. Chỉ tắt hoặc thay thế được, không xoá hẳn.',
   MSKU_REPLACE_SAME: 'Thay thế phải đổi ít nhất một thành phần của mã.',
   COLOR_NOT_FOUND: 'Không tìm thấy màu.',
   COLOR_INACTIVE: 'Màu đang tắt.',

@@ -19,6 +19,11 @@ export class ShippingCarrierService {
   @Prop({ type: [ShippingRateBandSchema], default: [] })
   bands!: ShippingRateBand[];
   @Prop({ type: Number, default: 0, min: 0 }) extra_price_vnd_per_500g!: number;
+  /**
+   * C4 (14/10/2026) — chỉ cho hãng `kind = 'live'`: `service_type_id` gửi sang API hãng
+   * (GHN: 2 = hàng nhẹ < 20 kg, 5 = hàng nặng). Hãng bảng cước để null.
+   */
+  @Prop({ type: Number, default: null }) carrier_service_type_id?: number | null;
 }
 export const ShippingCarrierServiceSchema = SchemaFactory.createForClass(
   ShippingCarrierService,
@@ -46,6 +51,12 @@ export class ShippingCarrier {
   services!: ShippingCarrierService[];
   @Prop({ type: Boolean, default: false }) is_sample!: boolean;
   @Prop({ type: Boolean, default: true }) is_active!: boolean;
+  /**
+   * C4 (14/10/2026) — 'table' (mặc định, hãng cũ): cước tra BẢNG CƯỚC ở `services[].bands`.
+   * 'live': cước + vận đơn lấy từ API hãng thật qua CARRIER_ADAPTER (GHN / mock theo
+   * CARRIER_MODE) — `bands` để trống. Tạo bằng scripts/seed-ghn-carrier.ts.
+   */
+  @Prop({ type: String, default: 'table', enum: ['table', 'live'] }) kind!: 'table' | 'live';
 
   created_at?: Date;
   updated_at?: Date;

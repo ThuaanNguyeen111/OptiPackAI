@@ -9,7 +9,19 @@ import { ShipmentDocument } from './schemas/shipment.schema';
 import { ShipmentEventDocument } from './schemas/shipment-event.schema';
 import { ShipmentStatus } from './enums/shipment-status.enum';
 import { DELIVERY_FAILURE_REASON_LABELS, DeliveryFailureReason } from './enums/delivery-failure-reason.enum';
-import { FailShipmentDto, RetryShipmentDto, SchedulePickupDto, ShipmentActionDto, StartShipmentDto } from './dto/shipment-action.dto';
+import {
+  CancelCarrierDto,
+  FailShipmentDto,
+  RetryShipmentDto,
+  SchedulePickupDto,
+  ShipmentActionDto,
+  SimulateCarrierStatusDto,
+  StartShipmentDto,
+  UpdateToLocationDto,
+} from './dto/shipment-action.dto';
+import type { ToLocationDto } from '../shipping/dto/shipping.dto';
+import type { ToLocationInput } from '../shipping/live-carrier.service';
+import { GHN_STATUS_LABELS, SIMULATABLE_GHN_STATUSES } from './carrier-status.util';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -48,6 +60,32 @@ export interface ShipmentResponse {
   etaFrom: Date | null;
   etaTo: Date | null;
   pickupAt: Date | null;
+  // C4/C5 (14/10/2026) — giao qua hãng API (GHN). carrierManaged=false với vận đơn cũ.
+  carrierManaged: boolean;
+  carrierAdapter: string | null;
+  carrierStatus: string | null;
+  carrierStatusLabel: string | null;
+  carrierBookingError: string | null;
+  carrierIncident: string | null;
+  bookingRound: number;
+  toLocation: { street: string | null; wardName: string | null; provinceName: string | null; phone: string | null } | null;
+  carrierParcels: {
+    parcelNo: number;
+    orderId: string;
+    clientOrderCode: string;
+    carrierOrderCode: string | null;
+    sortCode: string | null;
+    weightG: number | null;
+    dimensionsCm: { length: number; width: number; height: number } | null;
+    feeTotalVnd: number | null;
+    expectedDeliveryAt: Date | null;
+    carrierStatus: string | null;
+    carrierStatusLabel: string | null;
+    bookingError: string | null;
+  }[];
+  pickedUpAt: Date | null;
+  carrierReturnedAt: Date | null;
+  cancelledAt: Date | null;
 }
 
 export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
@@ -81,11 +119,55 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     etaFrom: doc.eta_from ?? null,
     etaTo: doc.eta_to ?? null,
     pickupAt: doc.pickup_at ?? null,
+    carrierManaged: doc.carrier_kind === 'live',
+    carrierAdapter: doc.carrier_adapter ?? null,
+    carrierStatus: doc.carrier_status ?? null,
+    carrierStatusLabel: doc.carrier_status ? (GHN_STATUS_LABELS[doc.carrier_status] ?? doc.carrier_status) : null,
+    carrierBookingError: doc.carrier_booking_error ?? null,
+    carrierIncident: doc.carrier_incident ?? null,
+    bookingRound: doc.booking_round ?? 1,
+    toLocation: doc.to_location
+      ? {
+          street: doc.to_location.street ?? null,
+          wardName: doc.to_location.ward_name ?? null,
+          provinceName: doc.to_location.province_name ?? null,
+          phone: doc.to_location.phone ?? null,
+        }
+      : null,
+    carrierParcels: (doc.carrier_parcels ?? []).map((p) => ({
+      parcelNo: p.parcel_no,
+      orderId: p.order_id.toString(),
+      clientOrderCode: p.client_order_code,
+      carrierOrderCode: p.carrier_order_code ?? null,
+      sortCode: p.sort_code ?? null,
+      weightG: p.weight_g ?? null,
+      dimensionsCm:
+        p.length_cm && p.width_cm && p.height_cm ? { length: p.length_cm, width: p.width_cm, height: p.height_cm } : null,
+      feeTotalVnd: p.fee?.total ?? null,
+      expectedDeliveryAt: p.expected_delivery_at ?? null,
+      carrierStatus: p.carrier_status ?? null,
+      carrierStatusLabel: p.carrier_status ? (GHN_STATUS_LABELS[p.carrier_status] ?? p.carrier_status) : null,
+      bookingError: p.booking_error ?? null,
+    })),
+    pickedUpAt: doc.picked_up_at ?? null,
+    carrierReturnedAt: doc.carrier_returned_at ?? null,
+    cancelledAt: doc.cancelled_at ?? null,
   };
 }
 
+/** Body địa chỉ → ToLocationInput (bỏ field không gửi). */
+function toLocationOf(dto: ToLocationDto | undefined): ToLocationInput | null {
+  if (!dto) return null;
+  const out: ToLocationInput = {};
+  if (dto.street !== undefined) out.street = dto.street;
+  if (dto.ward_name) out.ward_name = dto.ward_name;
+  if (dto.province_name) out.province_name = dto.province_name;
+  if (dto.phone) out.phone = dto.phone;
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** carrier_code + service_code phải đi cùng nhau (hoặc cùng bỏ trống = đội xe nhà). */
-function carrierChoiceOf(dto: { carrier_code?: string; service_code?: string; pickup_at?: string }): CarrierChoice | undefined {
+function carrierChoiceOf(dto: { carrier_code?: string; service_code?: string; pickup_at?: string; to_location?: ToLocationDto }): CarrierChoice | undefined {
   if (!dto.carrier_code && !dto.service_code) return undefined;
   if (!dto.carrier_code || !dto.service_code) {
     throw new AppException(
@@ -98,6 +180,7 @@ function carrierChoiceOf(dto: { carrier_code?: string; service_code?: string; pi
     carrierCode: dto.carrier_code,
     serviceCode: dto.service_code,
     pickupAt: dto.pickup_at ? new Date(dto.pickup_at) : undefined,
+    toLocation: toLocationOf(dto.to_location),
   };
 }
 
@@ -115,6 +198,9 @@ function toEventResponse(e: ShipmentEventDocument): Record<string, unknown> {
     reasonLabel: e.reason_code ? ((DELIVERY_FAILURE_REASON_LABELS as Record<string, string | undefined>)[e.reason_code] ?? null) : null,
     note: e.note,
     occurredAt: e.occurred_at,
+    // C5 (14/10/2026) — sự kiện của hãng: nguồn + trạng thái gốc.
+    source: e.source ?? null,
+    carrierStatus: e.carrier_status ?? null,
   };
 }
 
@@ -195,10 +281,18 @@ export class ShipmentsController {
         carrierCode: dto.carrier_code,
         serviceCode: dto.service_code,
         pickupAt: dto.pickup_at ? new Date(dto.pickup_at) : undefined,
+        toLocation: toLocationOf(dto.to_location),
       },
       dto.note,
       actorOf(user),
     );
+  }
+
+  @Get('carrier/statuses')
+  @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({ summary: 'C5 — Trạng thái hãng (GHN) mô phỏng được + nhãn tiếng Việt (dropdown nút mô phỏng).' })
+  carrierStatuses(): { status: string; label: string }[] {
+    return SIMULATABLE_GHN_STATUSES.map((status) => ({ status, label: GHN_STATUS_LABELS[status] ?? status }));
   }
 
   @Get(':id')
@@ -250,6 +344,57 @@ export class ShipmentsController {
   @ApiOperation({ summary: '[Giao lại] delivery_failed -> out_for_delivery. Trước giờ cho phép (nextAttemptNotBefore) phải gửi override_reason.' })
   async retry(@Param('id') id: string, @Body() dto: RetryShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
     return toShipmentResponse(await this.shipmentsService.retryDelivery(id, dto.expected_version, actorOf(user), dto.note, dto.override_reason));
+  }
+
+  // ------------------------------------------------ C4/C5 (14/10/2026) — hãng API (GHN)
+
+  @Post(':id/carrier/book')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({ summary: 'C4 — Tạo (lại) vận đơn ở hãng cho các kiện CHƯA có mã hãng (gọi lại an toàn, hãng không tạo trùng).' })
+  async carrierBook(@Param('id') id: string): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.bookCarrierParcels(id));
+  }
+
+  @Patch(':id/to-location')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({ summary: 'C4 — Sửa địa chỉ gửi hãng (số nhà / phường / tỉnh / SĐT) khi hãng báo sai địa chỉ, rồi tự tạo lại ở hãng. Chỉ khi còn kiện chưa có mã hãng.' })
+  async toLocation(@Param('id') id: string, @Body() dto: UpdateToLocationDto): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.updateToLocation(id, toLocationOf(dto) ?? {}));
+  }
+
+  @Get(':id/carrier/label')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'C4 — Link in nhãn của hãng (GHN A5, sống ~30 phút) cho mọi kiện đã có mã hãng.' })
+  async carrierLabel(@Param('id') id: string): Promise<{ url: string; expiresAt: Date; carrierOrderCodes: string[] }> {
+    return this.shipmentsService.getCarrierLabel(id);
+  }
+
+  @Post(':id/carrier/cancel')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({ summary: 'C4 — Huỷ vận đơn ở hãng (chỉ khi "chờ lấy hàng"). Vận đơn -> cancelled, nhóm đơn -> packed để tạo lại.' })
+  async carrierCancel(@Param('id') id: string, @Body() dto: CancelCarrierDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.cancelCarrier(id, actorOf(user), dto.reason_code, dto.note));
+  }
+
+  @Post(':id/carrier/sync')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({ summary: 'C5 — Đồng bộ trạng thái từ hãng (Order Info) — dự phòng khi mất webhook.' })
+  async carrierSync(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.syncCarrier(id, actorOf(user)));
+  }
+
+  @Post(':id/carrier/simulate')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'C5 — [DEMO] Mô phỏng sự kiện của hãng (VD picked, delivering, delivered, delivery_fail, returning, returned). Dựng đúng payload webhook GHN và đi CÙNG hàm xử lý webhook. Chỉ đổi dữ liệu OptiPack, không đổi gì bên GHN. Bật bằng CARRIER_MANUAL_STATUS_ENABLED=true.',
+  })
+  async carrierSimulate(
+    @Param('id') id: string,
+    @Body() dto: SimulateCarrierStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.simulateCarrierStatus(id, dto.status, actorOf(user), dto.reason_code, dto.reason));
   }
 
   @Post(':id/receive-return')

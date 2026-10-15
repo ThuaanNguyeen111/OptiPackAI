@@ -64,6 +64,10 @@ export function mapShipment(raw: unknown): Shipment | null {
     dueAt: toIso(row.dueAt) ?? toIso(row.due_at),
     deliveredAt: toIso(row.deliveredAt) ?? toIso(row.delivered_at),
     returnedAt: toIso(row.returnedAt) ?? toIso(row.returned_at),
+    nextAttemptNotBefore:
+      toIso(row.nextAttemptNotBefore) ?? toIso(row.next_attempt_not_before),
+    isOverdue: row.isOverdue === true || row.is_overdue === true,
+    trackingCode: pickString(row.trackingCode, row.tracking_code) || null,
     version: pickNumber(row.version, row.__v),
     createdAt: toIso(row.createdAt) ?? toIso(row.created_at),
     updatedAt: toIso(row.updatedAt) ?? toIso(row.updated_at),
@@ -201,6 +205,8 @@ export async function failShipment(
   expectedVersion: number,
   reasonCode: DeliveryFailureReason | string,
   note?: string,
+  /** (14/10/2026) Khách hẹn giao lại lúc nào (ISO 8601) — tuỳ chọn. */
+  rescheduleAt?: string,
 ): Promise<Shipment> {
   return requireShipment(
     await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/fail`, {
@@ -210,6 +216,7 @@ export async function failShipment(
         expected_version: expectedVersion,
         reason_code: reasonCode,
         ...(note?.trim() ? { note: note.trim() } : {}),
+        ...(rescheduleAt ? { reschedule_at: rescheduleAt } : {}),
       },
     }),
   )
@@ -219,6 +226,11 @@ export async function retryShipment(
   id: string,
   expectedVersion: number,
   note?: string,
+  /**
+   * (14/10/2026) Lý do giao lại SỚM hơn `nextAttemptNotBefore` (3–300 ký tự).
+   * Thiếu mà còn trong khoảng chờ → BE trả lỗi khoảng chờ.
+   */
+  overrideReason?: string,
 ): Promise<Shipment> {
   return requireShipment(
     await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/retry`, {
@@ -227,6 +239,7 @@ export async function retryShipment(
       body: {
         expected_version: expectedVersion,
         ...(note?.trim() ? { note: note.trim() } : {}),
+        ...(overrideReason?.trim() ? { override_reason: overrideReason.trim() } : {}),
       },
     }),
   )

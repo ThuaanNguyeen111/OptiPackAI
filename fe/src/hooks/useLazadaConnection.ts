@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchLazadaConnectUrl } from '../api/marketplace.api'
+import { fetchLazadaConnectUrl, listMarketplaceShops } from '../api/marketplace.api'
+import { syncLazadaOrders } from '../api/orders.api'
 import { formatApiError } from '../lib/api'
 import {
   getActiveLazadaShopId,
@@ -16,6 +17,7 @@ import {
   formatMarketplaceOAuthError,
   LAZADA_OAUTH_CHANNEL,
   type StoredLazadaShop,
+  type SyncLazadaResult,
 } from '../types/marketplace-orders'
 
 export type LazadaConnectPhase = 'idle' | 'opening' | 'waiting'
@@ -27,6 +29,9 @@ export function useLazadaConnection() {
   )
   const [phase, setPhase] = useState<LazadaConnectPhase>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [shopsLoading, setShopsLoading] = useState(false)
+  const [syncingShopId, setSyncingShopId] = useState<string | null>(null)
+  const [lastSync, setLastSync] = useState<SyncLazadaResult | null>(null)
   const connectTabRef = useRef<Window | null>(null)
   const shopsBeforeConnectRef = useRef<Set<string>>(new Set())
 
@@ -34,6 +39,40 @@ export function useLazadaConnection() {
     setShops(loadLazadaShops())
     setActiveShopIdState(getActiveLazadaShopId())
   }, [])
+
+  const refreshServerShops = useCallback(async () => {
+    setShopsLoading(true)
+    try {
+      const remote = await listMarketplaceShops('lazada')
+      const mapped: StoredLazadaShop[] = remote.map((shop) => ({
+        shopId: shop.shopId,
+        shopName: shop.shopName,
+        connectedAt: shop.connectedAt ?? new Date().toISOString(),
+        isActive: shop.isActive,
+        environment: shop.environment,
+        accessTokenExpiresAt: shop.accessTokenExpiresAt,
+        refreshTokenExpiresAt: shop.refreshTokenExpiresAt,
+        lastPolledAt: shop.lastPolledAt,
+        fromServer: true,
+      }))
+      setShops(mapped)
+      const current = getActiveLazadaShopId()
+      const stillThere = mapped.some((shop) => shop.shopId === current)
+      const fallback =
+        mapped.find((shop) => shop.isActive !== false) ?? mapped[0] ?? null
+      const nextId = stillThere ? current : (fallback?.shopId ?? null)
+      setActiveLazadaShopId(nextId)
+      setActiveShopIdState(nextId)
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+    } finally {
+      setShopsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshServerShops()
+  }, [refreshServerShops])
 
   const rememberShop = useCallback((shop: StoredLazadaShop) => {
     const next = upsertLazadaShop(shop)
@@ -52,6 +91,7 @@ export function useLazadaConnection() {
           shopName: data.shopName,
           connectedAt: new Date().toISOString(),
         })
+        void refreshServerShops()
         connectTabRef.current?.close()
         connectTabRef.current = null
         return
@@ -85,7 +125,7 @@ export function useLazadaConnection() {
       window.removeEventListener('message', onMessage)
       channel?.close()
     }
-  }, [rememberShop])
+  }, [rememberShop, refreshServerShops])
 
   useEffect(() => {
     function onStorage(event: StorageEvent): void {
@@ -155,6 +195,21 @@ export function useLazadaConnection() {
     setActiveShopIdState(shopId)
   }, [])
 
+  const syncShop = useCallback(async (shopId: string) => {
+    setSyncingShopId(shopId)
+    setLastSync(null)
+    setError(null)
+    try {
+      const result = await syncLazadaOrders(shopId)
+      setLastSync(result)
+      await refreshServerShops()
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+    } finally {
+      setSyncingShopId(null)
+    }
+  }, [refreshServerShops])
+
   const forgetShop = useCallback((shopId: string) => {
     const next = removeLazadaShop(shopId)
     setShops(next)
@@ -193,6 +248,11 @@ export function useLazadaConnection() {
     cancelWaiting,
     selectShop,
     forgetShop,
+    shopsLoading,
+    syncingShopId,
+    lastSync,
+    syncShop,
+    refreshServerShops,
     hydrateFromOrderShopIds,
     refreshFromStorage,
     rememberShop,

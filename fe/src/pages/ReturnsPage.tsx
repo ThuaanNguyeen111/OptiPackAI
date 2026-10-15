@@ -203,13 +203,8 @@ export function ReturnsPage({
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
               <div>
                 <h1 className="text-base font-bold text-ink">
-                  {vi ? 'Phiếu trả / hoàn hàng' : 'Return requests'}
+                  {vi ? 'Phiếu hoàn hàng' : 'Return requests'}
                 </h1>
-                <p className="text-xs text-ink-muted">
-                  {vi
-                    ? 'Store Owner duyệt hoặc từ chối. Admin tạo phiếu giả lập khách.'
-                    : 'Store Owner approves or rejects. Admin creates a simulated request.'}
-                </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {isAdmin ? (
@@ -288,11 +283,6 @@ export function ReturnsPage({
                   <PackageX className="h-8 w-8 text-ink-subtle" />
                   <p className="text-sm font-medium text-ink">
                     {vi ? 'Không có phiếu trả' : 'No return requests'}
-                  </p>
-                  <p className="max-w-sm text-xs text-ink-subtle">
-                    {vi
-                      ? 'Admin tạo phiếu khi đơn đã giao. Store Owner duyệt tại đây.'
-                      : 'Admin creates a request after delivery. Store Owner approves it here.'}
                   </p>
                 </div>
               ) : (
@@ -376,12 +366,7 @@ export function ReturnsPage({
           </section>
 
           <aside className="owner-panel w-full shrink-0 rounded-2xl p-4 lg:w-80">
-            {!selected ? (
-              <p className="text-sm text-ink-muted">
-                {vi
-                  ? 'Chọn một phiếu bên trái để duyệt hoặc từ chối.'
-                  : 'Select a request on the left to approve or reject.'}
-              </p>
+            {!selected ? (null
             ) : (
               <div className="space-y-3">
                 <div>

@@ -85,21 +85,6 @@ export type AiPackagingParams = {
   autoFallback: boolean
 }
 
-export type PackagingTemplate = {
-  id: string
-  name: string
-  description?: string
-  boxCode: string
-  lengthCm: number
-  widthCm: number
-  heightCm: number
-  maxWeightKg: number
-  cushioning?: string
-  createdBy: string
-  createdAt: string
-  active: boolean
-}
-
 export function getUserLockState(
   user: AdminUser,
   now = Date.now(),

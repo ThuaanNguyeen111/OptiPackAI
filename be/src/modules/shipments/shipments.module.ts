@@ -18,6 +18,8 @@ import { ReturnRequest, ReturnRequestSchema } from './schemas/return-request.sch
 import { ReturnsService } from './returns.service';
 import { ReturnsController } from './returns.controller';
 import { ShippingModule } from '../shipping/shipping.module';
+import { CarrierWebhookEvent, CarrierWebhookEventSchema } from './schemas/carrier-webhook-event.schema';
+import { CarrierWebhookController } from './carrier-webhook.controller';
 
 // G1 (27/09/2026). Phụ thuộc 1 chiều: shipments -> order-groups. OrderGroupsModule
 // KHÔNG import module này (tránh vòng).
@@ -31,6 +33,7 @@ import { ShippingModule } from '../shipping/shipping.module';
       { name: Order.name, schema: OrderSchema }, // đổi hàng — đơn thay thế
       { name: OrderGroup.name, schema: OrderGroupSchema }, // đổi hàng — gắn nhãn nhóm đơn thay thế
       { name: ProductMaster.name, schema: ProductMasterSchema }, // đổi hàng — kiểm hàng đổi sang
+      { name: CarrierWebhookEvent.name, schema: CarrierWebhookEventSchema }, // C5 — chống xử lý trùng sự kiện hãng
     ]),
     OrderGroupsModule,
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)
@@ -38,7 +41,7 @@ import { ShippingModule } from '../shipping/shipping.module';
     NotificationsModule, // thông báo giao thất bại / hoàn về / trễ hạn / yêu cầu trả hàng
     ShippingModule, // gộp thi_dev — báo giá hãng/dịch vụ + ghi cước lên kế hoạch đóng gói
   ],
-  controllers: [ShipmentsController, LegacyFulfillmentController, ReturnsController],
+  controllers: [ShipmentsController, LegacyFulfillmentController, ReturnsController, CarrierWebhookController],
   providers: [ShipmentsService, ReturnsService, ShipmentSlaScheduler],
   exports: [ShipmentsService],
 })
