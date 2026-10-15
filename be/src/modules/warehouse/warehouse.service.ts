@@ -6,7 +6,7 @@ import {
   stockUpsertFilterFor,
 } from '../master-skus/stock-key.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { Warehouse, WarehouseDocument } from './schemas/warehouse.schema';
@@ -38,6 +38,20 @@ import { CreateRackDto, PurgeRackQueryDto } from './dto/create-rack.dto';
 import { UpdateBinDto } from './dto/update-bin.dto';
 import { CategoriesService } from '../categories/categories.service';
 import { ZONE_CODE_V2_REGEX, buildBinCodeV2, computePickSequence } from './warehouse-layout';
+import { LotAllocation, StockLot, StockLotDocument } from './schemas/stock-lot.schema';
+import { StockReceipt, StockReceiptDocument, StockReceiptLine } from './schemas/stock-receipt.schema';
+import { OldestLotInfo, StockLotLedger, fifoDateOf, generateLotCode, trimOrNull } from './stock-lot.ledger';
+import { CreateStockReceiptDto, ListStockLotsQueryDto } from './dto/stock-receipt.dto';
+import { sellerSkuEqualsIgnoreCase } from '../master-skus/stock-key.util';
+
+/** Ngày nhập được phép lệch lên tương lai tối đa (đồng hồ máy khách lệch). */
+const RECEIVED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+export interface PickingLot {
+  lot_code: string;
+  received_at: Date;
+  quantity_remaining: number;
+}
 
 // K1 (26/09/2026) — document khu/kệ tạo TRƯỚC K1 không có field is_active.
 // Lọc bằng `$ne: false` (không phải `is_active: true`) để document cũ vẫn
@@ -67,7 +81,9 @@ export interface PickingListItem extends PickableItem {
   pick_sequence: number | null; // K2 — null = kệ chuẩn cũ (v1) hoặc chưa gán vị trí
   master_sku: string | null; // K4b — SKU nội bộ nếu SKU sàn đã nối (tồn tính chung)
   bin_location_id: string | null; // K3 — ô CHÍNH nên lấy (gửi kèm khi quét pick-item)
-  other_bins: { bin_location_id: string; bin_code: string; quantity_on_hand: number }[]; // K3 — 1 SKU nhiều ô
+  other_bins: { bin_location_id: string; bin_code: string; quantity_on_hand: number; oldest_lot: PickingLot | null }[]; // K3 — 1 SKU nhiều ô
+  /** 15/10/2026 — lô cũ nhất còn hàng ở ô chính (FIFO theo ngày nhập); null = chưa có lô/chưa gán. */
+  oldest_lot: PickingLot | null;
 }
 
 /**
@@ -104,7 +120,17 @@ export class WarehouseService {
     // K4b — tra SKU sàn -> SKU nội bộ (đường lùi: chưa nối thì tính theo SKU sàn)
     @InjectModel(MarketplaceSkuMapping.name)
     private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
-  ) {}
+    // 15/10/2026 — lô hàng + phiếu nhập (FIFO theo ngày nhập). @Optional để unit
+    // test cũ không đăng ký 2 model này vẫn chạy (sổ lô thành no-op).
+    @Optional() @InjectModel(StockLot.name)
+    private readonly lotModel?: Model<StockLotDocument>,
+    @Optional() @InjectModel(StockReceipt.name)
+    private readonly receiptModel?: Model<StockReceiptDocument>,
+  ) {
+    this.lots = new StockLotLedger(lotModel);
+  }
+
+  private readonly lots: StockLotLedger;
 
   async createWarehouse(dto: CreateWarehouseDto): Promise<WarehouseDocument> {
     try {
@@ -467,7 +493,8 @@ export class WarehouseService {
         const [created] = await this.assignmentModel.create([{ ...filter, master_sku: master ?? null, quantity_on_hand: initial }], { session });
         if (!created) throw new Error('Tạo assignment không trả về document');
         if (initial > 0) {
-          await this.recordMovement(created, 'assign_initial', initial, 0, actorId, session, { note: 'Tồn ban đầu khi gán SKU vào ô' });
+          const lotAllocations = await this.lots.add(created, { quantity: initial, receivedAt: new Date(), source: 'initial' }, 0, session);
+          await this.recordMovement(created, 'assign_initial', initial, 0, actorId, session, { note: 'Tồn ban đầu khi gán SKU vào ô', lotAllocations });
         }
         return created;
       });
@@ -491,8 +518,10 @@ export class WarehouseService {
     quantity: number,
     force = false,
     actorId = 'system',
+    lot: { receivedAt?: string; lotCode?: string } = {},
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
+    const receivedAt = this.parseReceivedAt(lot.receivedAt);
     // 🔄 07/10/2026 — SỬA LỖI: trước đây truy vấn `warehouse_id: warehouseId` (chuỗi) trong khi
     // DB lưu ObjectId và schema bị Mongoose hiểu là Mixed (không tự ép kiểu) -> không bao giờ tìm
     // thấy dòng tồn -> "Nhập thêm hàng" luôn 404. Schema nay đã khai đúng SchemaTypes.ObjectId
@@ -519,13 +548,20 @@ export class WarehouseService {
       );
     }
     // 🔄 K3 — cộng tồn + ghi sổ cái trong CÙNG transaction.
+    // 15/10/2026 — mỗi lần nhập là 1 phiếu nhập 1 dòng → 1 lô có ngày nhập (FIFO).
+    const receiptId = new Types.ObjectId();
+    const receiptCode = generateLotCode('PN');
+    const lotCode = trimOrNull(lot.lotCode)?.toUpperCase() ?? receiptCode;
     const updated = await this.runTx(async (session) => {
       const doc = await this.assignmentModel.findOneAndUpdate(
         { _id: assignmentId, warehouse_id: warehouseObjectId },
         { $inc: { quantity_on_hand: quantity } },
         { returnDocument: 'after', session },
       );
-      if (doc) await this.recordMovement(doc, 'receive', quantity, doc.quantity_on_hand - quantity, actorId, session);
+      if (doc) {
+        const line = await this.receiveIntoLot(doc, quantity, { receivedAt, lotCode, receiptId }, actorId, session);
+        await this.saveReceipt({ _id: receiptId, receiptCode, warehouseId: doc.warehouse_id, lotCode, receivedAt, supplier: null, note: null, lines: [line], actorId }, session);
+      }
       return doc;
     });
     if (!updated) {
@@ -607,9 +643,19 @@ export class WarehouseService {
         assignmentsBySku.set(key, list);
       }
     }
+    // 15/10/2026 — FIFO theo ngày nhập: ô CHÍNH = ô còn hàng có lô cũ nhất; hoà thì theo lộ trình.
+    const oldest = await this.lots.oldestLots(assignments.map((a) => a._id));
+    const fifoOf = (a: (typeof assignments)[number]): number => (this.lots.enabled ? fifoDateOf(a, oldest) : 0);
     for (const list of assignmentsBySku.values()) {
-      list.sort((x, y) => Number(y.quantity_on_hand > 0) - Number(x.quantity_on_hand > 0) || seqOf(x) - seqOf(y));
+      list.sort(
+        (x, y) =>
+          Number(y.quantity_on_hand > 0) - Number(x.quantity_on_hand > 0) || fifoOf(x) - fifoOf(y) || seqOf(x) - seqOf(y),
+      );
     }
+    const lotOf = (a: (typeof assignments)[number] | undefined): PickingLot | null => {
+      if (!a || a.quantity_on_hand <= 0 || !this.lots.enabled) return null;
+      return this.toPickingLot(oldest.get(a._id.toString()), a);
+    };
 
     const candidatesForSku = (sku: string): typeof assignments => {
       const master = masters.get(sku);
@@ -634,6 +680,7 @@ export class WarehouseService {
         pick_sequence: bin?.pick_sequence ?? null,
         master_sku: masters.get(item.sku) ?? null,
         bin_location_id: bin ? bin._id.toString() : null,
+        oldest_lot: lotOf(assignment),
         other_bins: candidates
           .slice(1)
           .filter((c) => c.quantity_on_hand > 0)
@@ -641,6 +688,7 @@ export class WarehouseService {
             bin_location_id: c.bin_location_id.toString(),
             bin_code: binMap.get(c.bin_location_id.toString())?.bin_code ?? '?',
             quantity_on_hand: c.quantity_on_hand,
+            oldest_lot: lotOf(c),
           })),
       };
     });
@@ -1224,7 +1272,7 @@ export class WarehouseService {
     quantityBefore: number,
     actorId: string,
     session: ClientSession,
-    extra: { reasonCode?: string | null; note?: string | null; refType?: string | null; refId?: string | null } = {},
+    extra: { reasonCode?: string | null; note?: string | null; refType?: string | null; refId?: string | null; lotAllocations?: LotAllocation[] } = {},
   ): Promise<void> {
     await this.movementModel.create([{
       warehouse_id: a.warehouse_id,
@@ -1242,6 +1290,7 @@ export class WarehouseService {
       note: extra.note ?? null,
       ref_type: extra.refType ?? null,
       ref_id: extra.refId ?? null,
+      lot_allocations: extra.lotAllocations ?? [],
       actor_id: actorId,
       created_at: new Date(),
     }], { session });
@@ -1285,7 +1334,13 @@ export class WarehouseService {
           { assignmentId },
         );
       }
-      await this.recordMovement(updated, 'adjust', dto.counted_quantity - before, before, actorId, session, { reasonCode: dto.reason_code, note: dto.note ?? null });
+      // 15/10/2026 — đếm thiếu: trừ lô CŨ NHẤT trước (FIFO); đếm thừa: lô mới ngày hôm nay.
+      const delta = dto.counted_quantity - before;
+      const lotAllocations =
+        delta < 0
+          ? await this.lots.consume(updated, -delta, before, session)
+          : await this.lots.add(updated, { quantity: delta, receivedAt: new Date(), source: 'count_found', note: dto.note ?? null }, before, session);
+      await this.recordMovement(updated, 'adjust', delta, before, actorId, session, { reasonCode: dto.reason_code, note: dto.note ?? null, lotAllocations });
       return updated;
     });
   }
@@ -1339,9 +1394,12 @@ export class WarehouseService {
         },
         { upsert: true, returnDocument: 'after', session },
       );
+      // 15/10/2026 — chuyển theo FIFO, lô sang ô đích GIỮ nguyên ngày nhập + mã lô.
+      const moved = await this.lots.consume(from, dto.quantity, from.quantity_on_hand + dto.quantity, session);
+      const deposited = await this.lots.deposit(to, moved, to.quantity_on_hand - dto.quantity, session);
       const extra = { refType: 'transfer', refId: transferId, note: dto.note ?? null };
-      await this.recordMovement(from, 'transfer_out', -dto.quantity, from.quantity_on_hand + dto.quantity, actorId, session, extra);
-      await this.recordMovement(to, 'transfer_in', dto.quantity, to.quantity_on_hand - dto.quantity, actorId, session, extra);
+      await this.recordMovement(from, 'transfer_out', -dto.quantity, from.quantity_on_hand + dto.quantity, actorId, session, { ...extra, lotAllocations: moved });
+      await this.recordMovement(to, 'transfer_in', dto.quantity, to.quantity_on_hand - dto.quantity, actorId, session, { ...extra, lotAllocations: deposited });
       return { from, to };
     });
   }
@@ -1422,6 +1480,7 @@ export class WarehouseService {
       if (!moved) {
         throw new AppException(WAREHOUSE_ERROR_CODES.STOCK_CHANGED, 'Ô vừa được nhập hàng trong lúc sửa — tải lại rồi thử lại.', HttpStatus.CONFLICT, { assignmentId });
       }
+      await this.lots.moveBin(moved._id, dest._id); // lô (đã về 0) đi theo dòng tồn
       return moved;
     } catch (error: unknown) {
       if (this.isDuplicateKeyError(error)) {
@@ -1467,8 +1526,15 @@ export class WarehouseService {
       },
       { upsert: true, returnDocument: 'after', session },
     );
+    // 15/10/2026 — hàng hoàn vào lô mới, ngày nhập = hôm nay (đứng cuối hàng đợi FIFO).
+    const lotAllocations = await this.lots.add(
+      doc,
+      { quantity: params.quantity, receivedAt: new Date(), source: 'return', lotCode: generateLotCode('HOAN'), note: `Phiếu trả ${params.returnRequestId}` },
+      doc.quantity_on_hand - params.quantity,
+      session,
+    );
     await this.recordMovement(doc, 'return_restock', params.quantity, doc.quantity_on_hand - params.quantity, params.actorId, session, {
-      refType: 'return_request', refId: params.returnRequestId,
+      refType: 'return_request', refId: params.returnRequestId, lotAllocations,
     });
   }
 
@@ -1497,5 +1563,239 @@ export class WarehouseService {
       return a.bin_code.localeCompare(b.bin_code);
     });
     return lines;
+  }
+
+  // ===================================================================
+  // 15/10/2026 — PHIẾU NHẬP THEO LÔ + XEM TỒN THEO LÔ (FIFO theo ngày nhập)
+  // ===================================================================
+
+  /** Ngày nhập kho: bỏ trống = bây giờ; ở tương lai (quá 5 phút) → 400. */
+  private parseReceivedAt(raw?: string): Date {
+    if (!raw) return new Date();
+    const at = new Date(raw);
+    if (Number.isNaN(at.getTime())) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.RECEIPT_DATE_IN_FUTURE, 'Ngày nhập không hợp lệ.', HttpStatus.BAD_REQUEST, { receivedAt: raw });
+    }
+    if (at.getTime() > Date.now() + RECEIVED_AT_FUTURE_TOLERANCE_MS) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.RECEIPT_DATE_IN_FUTURE,
+        'Ngày nhập kho không được ở tương lai.',
+        HttpStatus.BAD_REQUEST,
+        { receivedAt: raw },
+      );
+    }
+    return at;
+  }
+
+  /** Tạo lô cho phần vừa cộng vào dòng tồn + ghi sổ cái `receive`. `doc` là bản SAU khi cộng. */
+  private async receiveIntoLot(
+    doc: SkuBinAssignmentDocument,
+    quantity: number,
+    lot: { receivedAt: Date; lotCode: string; receiptId: Types.ObjectId },
+    actorId: string,
+    session: ClientSession,
+  ): Promise<StockReceiptLine> {
+    const lotAllocations = await this.lots.add(
+      doc,
+      { quantity, receivedAt: lot.receivedAt, source: 'receipt', lotCode: lot.lotCode, receiptId: lot.receiptId },
+      doc.quantity_on_hand - quantity,
+      session,
+    );
+    await this.recordMovement(doc, 'receive', quantity, doc.quantity_on_hand - quantity, actorId, session, {
+      refType: 'stock_receipt',
+      refId: lot.receiptId.toString(),
+      lotAllocations,
+    });
+    return {
+      assignment_id: doc._id,
+      bin_location_id: doc.bin_location_id,
+      lot_id: lotAllocations[0]?.lot_id ?? new Types.ObjectId(),
+      platform: doc.platform,
+      shop_id: doc.shop_id,
+      seller_sku: doc.seller_sku,
+      master_sku: doc.master_sku ?? null,
+      quantity,
+    };
+  }
+
+  private async saveReceipt(
+    r: {
+      _id: Types.ObjectId;
+      receiptCode: string;
+      warehouseId: Types.ObjectId;
+      lotCode: string;
+      receivedAt: Date;
+      supplier: string | null;
+      note: string | null;
+      lines: StockReceiptLine[];
+      actorId: string;
+    },
+    session: ClientSession,
+  ): Promise<StockReceiptDocument | null> {
+    if (!this.receiptModel) return null;
+    const [doc] = await this.receiptModel.create(
+      [
+        {
+          _id: r._id,
+          receipt_code: r.receiptCode,
+          warehouse_id: r.warehouseId,
+          lot_code: r.lotCode,
+          received_at: r.receivedAt,
+          supplier: r.supplier,
+          note: r.note,
+          lines: r.lines,
+          total_quantity: r.lines.reduce((sum, l) => sum + l.quantity, 0),
+          created_by: r.actorId,
+        },
+      ],
+      { session },
+    );
+    return doc ?? null;
+  }
+
+  private toPickingLot(lot: OldestLotInfo | undefined, a: { created_at?: Date; quantity_on_hand: number }): PickingLot {
+    if (lot) return { lot_code: lot.lot_code, received_at: lot.received_at, quantity_remaining: lot.quantity_remaining };
+    // Dòng tồn chưa có lô (dữ liệu cũ) — hiển thị như lô tồn đầu kỳ.
+    return { lot_code: 'TON-DAU-KY', received_at: a.created_at ?? new Date(0), quantity_remaining: a.quantity_on_hand };
+  }
+
+  /**
+   * Phiếu nhập NHIỀU SKU = 1 lô hàng: cùng `lot_code` + ngày nhập cho mọi dòng.
+   * Mỗi dòng: cộng tồn + tạo lô + sổ cái `receive`, tất cả 1 transaction.
+   */
+  async createReceipt(warehouseId: string, dto: CreateStockReceiptDto, actorId: string): Promise<StockReceiptDocument> {
+    if (!this.receiptModel) throw new Error('StockReceipt model chưa được đăng ký');
+    const warehouse = await this.assertWarehouseActive(warehouseId);
+    const receivedAt = this.parseReceivedAt(dto.received_at);
+
+    // 1. Tìm dòng tồn cho từng dòng phiếu; gộp các dòng trùng.
+    const perAssignment = new Map<string, { doc: SkuBinAssignmentDocument; quantity: number }>();
+    for (const [index, line] of dto.lines.entries()) {
+      const doc = await this.resolveReceiptLine(warehouse._id, line, index);
+      const key = doc._id.toString();
+      const cur = perAssignment.get(key) ?? { doc, quantity: 0 };
+      cur.quantity += line.quantity;
+      perAssignment.set(key, cur);
+    }
+
+    // 2. Sức chứa theo ô (cộng mọi dòng cùng ô).
+    if (dto.force !== true) {
+      const perBin = new Map<string, number>();
+      for (const { doc, quantity } of perAssignment.values()) {
+        const key = doc.bin_location_id.toString();
+        perBin.set(key, (perBin.get(key) ?? 0) + quantity);
+      }
+      const bins = await this.binModel.find({ _id: { $in: [...perBin.keys()].map((id) => new Types.ObjectId(id)) } }).lean();
+      for (const bin of bins) {
+        if (typeof bin.capacity !== 'number') continue;
+        const adding = perBin.get(bin._id.toString()) ?? 0;
+        const binTotal = await this.countStockUnits({ bin_location_id: bin._id });
+        if (binTotal + adding > bin.capacity) this.throwOverCapacity(bin.bin_code, bin.capacity, binTotal, adding);
+      }
+    }
+
+    // 3. Ghi.
+    const receiptId = new Types.ObjectId();
+    const receiptCode = generateLotCode('PN');
+    const lotCode = trimOrNull(dto.lot_code)?.toUpperCase() ?? receiptCode;
+    const receipt = await this.runTx(async (session) => {
+      const lines: StockReceiptLine[] = [];
+      for (const { doc, quantity } of perAssignment.values()) {
+        const updated = await this.assignmentModel.findOneAndUpdate(
+          { _id: doc._id },
+          { $inc: { quantity_on_hand: quantity } },
+          { returnDocument: 'after', session },
+        );
+        if (!updated) {
+          throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, `Dòng tồn ${doc._id.toString()} vừa bị bỏ gán.`, HttpStatus.CONFLICT);
+        }
+        lines.push(await this.receiveIntoLot(updated, quantity, { receivedAt, lotCode, receiptId }, actorId, session));
+      }
+      return this.saveReceipt(
+        { _id: receiptId, receiptCode, warehouseId: warehouse._id, lotCode, receivedAt, supplier: trimOrNull(dto.supplier), note: trimOrNull(dto.note), lines, actorId },
+        session,
+      );
+    });
+    if (!receipt) throw new Error('Tạo phiếu nhập không trả về document');
+    return receipt;
+  }
+
+  private async resolveReceiptLine(
+    warehouseId: Types.ObjectId,
+    line: CreateStockReceiptDto['lines'][number],
+    index: number,
+  ): Promise<SkuBinAssignmentDocument> {
+    if (line.assignment_id) {
+      const doc = await this.assignmentModel.findOne({ _id: new Types.ObjectId(line.assignment_id), warehouse_id: warehouseId });
+      if (!doc) {
+        throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, `Dòng ${String(index + 1)}: không tìm thấy SKU trên ô trong kho này.`, HttpStatus.NOT_FOUND, { index, assignmentId: line.assignment_id });
+      }
+      return doc;
+    }
+    if (!line.bin_location_id || !line.platform || !line.shop_id || !line.seller_sku) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.RECEIPT_LINE_INVALID,
+        `Dòng ${String(index + 1)}: gửi assignment_id, hoặc đủ bin_location_id + platform + shop_id + seller_sku.`,
+        HttpStatus.BAD_REQUEST,
+        { index },
+      );
+    }
+    const master = (await resolveMasterSkus(this.mappingModel, line.platform, line.shop_id, [line.seller_sku])).get(line.seller_sku);
+    const binId = new Types.ObjectId(line.bin_location_id);
+    const doc = await this.assignmentModel.findOne(
+      master
+        ? { warehouse_id: warehouseId, bin_location_id: binId, master_sku: master }
+        : { warehouse_id: warehouseId, bin_location_id: binId, platform: line.platform, shop_id: line.shop_id, seller_sku: sellerSkuEqualsIgnoreCase(line.seller_sku), master_sku: null },
+    );
+    if (!doc) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.RECEIPT_LINE_NOT_ASSIGNED,
+        `Dòng ${String(index + 1)}: SKU "${line.seller_sku}" chưa được gán vào ô này — gán SKU vào ô trước rồi nhập.`,
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { index, binLocationId: line.bin_location_id, sellerSku: line.seller_sku },
+      );
+    }
+    return doc;
+  }
+
+  async listReceipts(warehouseId: string, limit = 50): Promise<StockReceiptDocument[]> {
+    if (!this.receiptModel) return [];
+    const warehouse = await this.getWarehouse(warehouseId);
+    return this.receiptModel
+      .find({ warehouse_id: warehouse._id })
+      .sort({ received_at: -1, _id: -1 })
+      .limit(Math.min(200, Math.max(1, limit)));
+  }
+
+  async getReceipt(warehouseId: string, receiptId: string): Promise<StockReceiptDocument> {
+    if (!this.receiptModel || !Types.ObjectId.isValid(receiptId)) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.RECEIPT_NOT_FOUND, 'Không tìm thấy phiếu nhập.', HttpStatus.NOT_FOUND, { receiptId });
+    }
+    const doc = await this.receiptModel.findOne({ _id: new Types.ObjectId(receiptId), warehouse_id: new Types.ObjectId(warehouseId) });
+    if (!doc) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.RECEIPT_NOT_FOUND, 'Không tìm thấy phiếu nhập trong kho này.', HttpStatus.NOT_FOUND, { receiptId, warehouseId });
+    }
+    return doc;
+  }
+
+  /** Lô của 1 dòng "SKU trên ô", cũ nhất trước (đúng thứ tự sẽ xuất). */
+  async listLotsForAssignment(warehouseId: string, assignmentId: string, includeEmpty = false): Promise<StockLotDocument[]> {
+    const a = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
+    if (!this.lotModel) return [];
+    return this.lotModel
+      .find({ assignment_id: a._id, ...(includeEmpty ? {} : { quantity_remaining: { $gt: 0 } }) })
+      .sort({ received_at: 1, _id: 1 });
+  }
+
+  /** Tồn theo lô của cả kho (lọc SKU nội bộ / SKU sàn / mã lô), cũ nhất trước. */
+  async listLots(warehouseId: string, query: ListStockLotsQueryDto): Promise<StockLotDocument[]> {
+    const warehouse = await this.getWarehouse(warehouseId);
+    if (!this.lotModel) return [];
+    const filter: Record<string, unknown> = { warehouse_id: warehouse._id };
+    if (query.include_empty !== 'true') filter.quantity_remaining = { $gt: 0 };
+    if (query.master_sku) filter.master_sku = query.master_sku.trim();
+    if (query.seller_sku) filter.seller_sku = sellerSkuEqualsIgnoreCase(query.seller_sku);
+    if (query.lot_code) filter.lot_code = query.lot_code.trim().toUpperCase();
+    return this.lotModel.find(filter).sort({ received_at: 1, _id: 1 }).limit(500);
   }
 }

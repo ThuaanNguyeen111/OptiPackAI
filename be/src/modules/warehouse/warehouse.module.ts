@@ -7,6 +7,8 @@ import { WarehouseZone, WarehouseZoneSchema } from './schemas/warehouse-zone.sch
 import { BinLocation, BinLocationSchema } from './schemas/bin-location.schema';
 import { SkuBinAssignment, SkuBinAssignmentSchema } from './schemas/sku-bin-assignment.schema';
 import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/product-master.schema';
+import { StockLot, StockLotSchema } from './schemas/stock-lot.schema';
+import { StockReceipt, StockReceiptSchema } from './schemas/stock-receipt.schema';
 import { WarehouseService } from './warehouse.service';
 import { WarehouseController } from './warehouse.controller';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
@@ -22,6 +24,8 @@ import { CategoriesModule } from '../categories/categories.module';
       { name: BinLocation.name, schema: BinLocationSchema },
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema },
       { name: ProductMaster.name, schema: ProductMasterSchema },
+      { name: StockLot.name, schema: StockLotSchema }, // 15/10/2026 — lô hàng FIFO
+      { name: StockReceipt.name, schema: StockReceiptSchema }, // 15/10/2026 — phiếu nhập
     ]),
     CategoriesModule, // K2 — kiểm tra danh mục/size khi tạo kệ, đăng ký ô
     OrderGroupsModule, // export OrderGroupsService — dùng getPackableItemsForGroup() cho picking-list

@@ -1,4 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { LotAllocation, LotAllocationSchema } from '../../warehouse/schemas/stock-lot.schema';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
 /**
@@ -71,6 +72,13 @@ export class PickEvent {
   // K3 (27/09/2026) — ô đã trừ tồn. Event cũ (trước K3) không có field này.
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   bin_location_id?: Types.ObjectId | null;
+
+  /**
+   * 15/10/2026 — lô đã trừ (event dương) / lô đã trả hoặc bỏ (event âm). Dùng để
+   * trả hàng về ĐÚNG lô (FIFO theo ngày nhập). Event cũ không có = mảng rỗng.
+   */
+  @Prop({ type: [LotAllocationSchema], default: [] })
+  lot_allocations?: LotAllocation[];
 
   created_at?: Date;
 }

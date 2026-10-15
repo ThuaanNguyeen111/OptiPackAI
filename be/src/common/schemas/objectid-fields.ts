@@ -42,6 +42,17 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   {
     collection: 'inventory_movements',
     fields: ['warehouse_id', 'assignment_id', 'bin_location_id'],
+    nested: ['lot_allocations.lot_id'], // 15/10/2026 — lô hàng FIFO
+  },
+  // 15/10/2026 — lô hàng + phiếu nhập kho (FIFO theo ngày nhập). Luôn ghi ObjectId.
+  {
+    collection: 'stock_lots',
+    fields: ['warehouse_id', 'assignment_id', 'bin_location_id', 'receipt_id'],
+  },
+  {
+    collection: 'stock_receipts',
+    fields: ['warehouse_id'],
+    arrayPath: { array: 'lines', fields: ['assignment_id', 'bin_location_id', 'lot_id'] },
   },
   {
     collection: 'packaging_recommendations',
@@ -90,6 +101,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   {
     collection: 'pick_events',
     fields: ['order_group_id', 'warehouse_id', 'bin_location_id'],
+    nested: ['lot_allocations.lot_id'], // 15/10/2026
   },
   {
     collection: 'order_groups',
