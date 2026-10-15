@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { PackingSettingsForm } from '../components/packing/PackingSettingsReports'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -88,6 +89,7 @@ export function PackagingRulesPage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
+          <PackingSettingsForm vi={vi} canEdit />
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">

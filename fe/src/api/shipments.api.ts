@@ -7,6 +7,7 @@ import type {
   ShipmentListResult,
   ShipmentStatus,
 } from '../types/shipments'
+import { SHIPMENT_STATUSES } from '../types/shipments'
 
 function toQuery(params: Record<string, string | undefined>): string {
   const qs = new URLSearchParams()
@@ -57,7 +58,9 @@ export function mapShipment(raw: unknown): Shipment | null {
     id,
     shipmentCode: pickString(row.shipmentCode, row.shipment_code),
     orderGroupId: pickString(row.orderGroupId, row.order_group_id),
-    status: pickString(row.status) || 'out_for_delivery',
+    status: (SHIPMENT_STATUSES as readonly string[]).includes(pickString(row.status))
+      ? (pickString(row.status) as ShipmentStatus)
+      : 'out_for_delivery',
     attemptCount: pickNumber(row.attemptCount, row.attempt_count),
     maxAttempts: pickNumber(row.maxAttempts, row.max_attempts) || 2,
     lastFailureReason: pickString(row.lastFailureReason, row.last_failure_reason) || null,
@@ -68,10 +71,63 @@ export function mapShipment(raw: unknown): Shipment | null {
       toIso(row.nextAttemptNotBefore) ?? toIso(row.next_attempt_not_before),
     isOverdue: row.isOverdue === true || row.is_overdue === true,
     trackingCode: pickString(row.trackingCode, row.tracking_code) || null,
+    carrierCode: pickString(row.carrierCode, row.carrier_code) || null,
+    carrierName: pickString(row.carrierName, row.carrier_name) || null,
+    serviceCode: pickString(row.serviceCode, row.service_code) || null,
+    serviceName: pickString(row.serviceName, row.service_name) || null,
+    carrierManaged: row.carrierManaged === true || row.carrier_managed === true,
+    carrierStatus: pickString(row.carrierStatus, row.carrier_status) || null,
+    carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
+    carrierBookingError: pickString(row.carrierBookingError, row.carrier_booking_error) || null,
+    carrierIncident: pickString(row.carrierIncident, row.carrier_incident) || null,
+    estimatedCostVnd:
+      typeof row.estimatedCostVnd === 'number'
+        ? row.estimatedCostVnd
+        : typeof row.estimated_cost_vnd === 'number'
+          ? row.estimated_cost_vnd
+          : null,
+    tripCode: pickString(row.tripCode, row.trip_code) || null,
+    pickupAt: toIso(row.pickupAt) ?? toIso(row.pickup_at),
+    toLocation: mapToLocation(row.toLocation ?? row.to_location),
+    carrierParcels: mapCarrierParcels(row.carrierParcels ?? row.carrier_parcels),
     version: pickNumber(row.version, row.__v),
     createdAt: toIso(row.createdAt) ?? toIso(row.created_at),
     updatedAt: toIso(row.updatedAt) ?? toIso(row.updated_at),
   }
+}
+
+function mapToLocation(raw: unknown): Shipment['toLocation'] {
+  const row = asRecord(raw)
+  if (!row) return null
+  return {
+    street: pickString(row.street) || null,
+    wardName: pickString(row.wardName, row.ward_name) || null,
+    provinceName: pickString(row.provinceName, row.province_name) || null,
+    phone: pickString(row.phone) || null,
+  }
+}
+
+function mapCarrierParcels(raw: unknown): Shipment['carrierParcels'] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    return [
+      {
+        parcelNo: pickNumber(row.parcelNo, row.parcel_no),
+        carrierOrderCode: pickString(row.carrierOrderCode, row.carrier_order_code) || null,
+        sortCode: pickString(row.sortCode, row.sort_code) || null,
+        feeTotalVnd:
+          typeof row.feeTotalVnd === 'number'
+            ? row.feeTotalVnd
+            : typeof row.fee_total_vnd === 'number'
+              ? row.fee_total_vnd
+              : null,
+        carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
+        bookingError: pickString(row.bookingError, row.booking_error) || null,
+      },
+    ]
+  })
 }
 
 function mapEvent(raw: unknown): ShipmentEvent | null {
@@ -167,10 +223,23 @@ export async function listFailureReasonCodes(): Promise<FailureReasonOption[]> {
     .filter((item): item is FailureReasonOption => item !== null)
 }
 
+export type ShipmentToLocation = {
+  street?: string
+  ward_name?: string
+  province_name?: string
+  phone?: string
+}
+
 export async function startShipment(
   orderGroupId: string,
   note?: string,
+  choice?: {
+    carrierCode?: string
+    serviceCode?: string
+    toLocation?: ShipmentToLocation
+  },
 ): Promise<Shipment> {
+  const toLocation = compactLocation(choice?.toLocation)
   return requireShipment(
     await apiRequest<unknown>('/shipments', {
       method: 'POST',
@@ -178,7 +247,105 @@ export async function startShipment(
       body: {
         order_group_id: orderGroupId,
         ...(note?.trim() ? { note: note.trim() } : {}),
+        ...(choice?.carrierCode ? { carrier_code: choice.carrierCode } : {}),
+        ...(choice?.serviceCode ? { service_code: choice.serviceCode } : {}),
+        ...(toLocation ? { to_location: toLocation } : {}),
       },
+    }),
+  )
+}
+
+function compactLocation(input: ShipmentToLocation | undefined): ShipmentToLocation | undefined {
+  if (!input) return undefined
+  const out: ShipmentToLocation = {}
+  if (input.street !== undefined && input.street !== '') out.street = input.street
+  if (input.ward_name?.trim()) out.ward_name = input.ward_name.trim()
+  if (input.province_name?.trim()) out.province_name = input.province_name.trim()
+  if (input.phone?.trim()) out.phone = input.phone.trim()
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+export async function listCarrierStatuses(): Promise<{ status: string; label: string }[]> {
+  const res = await apiRequest<unknown>('/shipments/carrier/statuses', { auth: true })
+  if (!Array.isArray(res)) return []
+  return res.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const status = pickString(row.status)
+    if (!status) return []
+    return [{ status, label: pickString(row.label) || status }]
+  })
+}
+
+export async function bookCarrierShipment(id: string): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/carrier/book`, {
+      method: 'POST',
+      auth: true,
+      body: {},
+    }),
+  )
+}
+
+export async function updateShipmentLocation(
+  id: string,
+  location: ShipmentToLocation,
+): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/to-location`, {
+      method: 'PATCH',
+      auth: true,
+      body: location,
+    }),
+  )
+}
+
+export async function getCarrierLabel(
+  id: string,
+): Promise<{ url: string; expiresAt: string | null; carrierOrderCodes: string[] }> {
+  const res = await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/carrier/label`, {
+    auth: true,
+  })
+  const row = asRecord(res)
+  const codes = Array.isArray(row?.carrierOrderCodes)
+    ? row.carrierOrderCodes.filter((code): code is string => typeof code === 'string')
+    : []
+  return {
+    url: pickString(row?.url),
+    expiresAt: toIso(row?.expiresAt),
+    carrierOrderCodes: codes,
+  }
+}
+
+export async function cancelCarrierShipment(id: string, note?: string): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/carrier/cancel`, {
+      method: 'POST',
+      auth: true,
+      body: {
+        reason_code: 'GHN-CO001',
+        ...(note?.trim() ? { note: note.trim() } : {}),
+      },
+    }),
+  )
+}
+
+export async function syncCarrierShipment(id: string): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/carrier/sync`, {
+      method: 'POST',
+      auth: true,
+      body: {},
+    }),
+  )
+}
+
+export async function simulateCarrierStatus(id: string, status: string): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/carrier/simulate`, {
+      method: 'POST',
+      auth: true,
+      body: { status },
     }),
   )
 }
@@ -217,6 +384,78 @@ export async function failShipment(
         reason_code: reasonCode,
         ...(note?.trim() ? { note: note.trim() } : {}),
         ...(rescheduleAt ? { reschedule_at: rescheduleAt } : {}),
+      },
+    }),
+  )
+}
+
+export async function createShipmentBatch(input: {
+  order_group_ids: string[]
+  carrier_code: string
+  service_code: string
+  note?: string
+  pickup_at?: string
+  to_location?: ShipmentToLocation
+}): Promise<{ tripCode: string }> {
+  const location = input.to_location ? compactLocation(input.to_location) : undefined
+  const res = await apiRequest<unknown>('/shipments/batch', {
+    method: 'POST',
+    auth: true,
+    body: {
+      order_group_ids: input.order_group_ids,
+      carrier_code: input.carrier_code,
+      service_code: input.service_code,
+      ...(input.note?.trim() ? { note: input.note.trim() } : {}),
+      ...(input.pickup_at ? { pickup_at: input.pickup_at } : {}),
+      ...(location ? { to_location: location } : {}),
+    },
+  })
+  const row = asRecord(res)
+  return { tripCode: pickString(row?.tripCode) }
+}
+
+export async function scheduleShipmentPickup(
+  id: string,
+  pickupAt: string,
+): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/pickup`, {
+      method: 'PATCH',
+      auth: true,
+      body: { pickup_at: pickupAt },
+    }),
+  )
+}
+
+export async function getShipmentByGroup(groupId: string): Promise<Shipment | null> {
+  const res = await apiRequest<unknown>(
+    `/shipments/group/${encodeURIComponent(groupId)}`,
+    { auth: true },
+  )
+  return mapShipment(res)
+}
+
+export async function scanOverdueShipments(): Promise<number> {
+  const res = await apiRequest<unknown>('/shipments/overdue-scan', {
+    method: 'POST',
+    auth: true,
+    body: {},
+  })
+  return pickNumber(asRecord(res)?.flagged)
+}
+
+export async function receiveReturnedShipment(
+  id: string,
+  expectedVersion: number,
+  note?: string,
+): Promise<Shipment> {
+  return requireShipment(
+    await apiRequest<unknown>(`/shipments/${encodeURIComponent(id)}/receive-return`, {
+      method: 'POST',
+      auth: true,
+      body: {
+        expected_version: expectedVersion,
+        ...(note?.trim() ? { note: note.trim() } : {}),
       },
     }),
   )

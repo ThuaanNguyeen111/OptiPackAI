@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
+import { PackingReportsPanel, PackingSettingsForm } from '../components/packing/PackingSettingsReports'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
@@ -78,6 +79,8 @@ export function AnalyticsReportPage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
+          <PackingReportsPanel vi={vi} />
+          <PackingSettingsForm vi={vi} canEdit />
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <div className="flex flex-wrap items-center gap-2">
