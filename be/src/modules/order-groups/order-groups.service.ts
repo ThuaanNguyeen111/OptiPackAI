@@ -16,6 +16,7 @@ import { Injectable, Logger, HttpStatus, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
+import { notPackableStatuses, orderSyncPolicy } from '../orders/order-sync-policy';
 import { StockLotLedger, fifoDateOf, netLotsInHand, takeFromLots } from '../warehouse/stock-lot.ledger';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
@@ -28,8 +29,7 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 // circular dependency giữa orders/ và order-groups/).
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import {
-  NOT_PACKABLE_ORDER_STATUSES,
-  OrderStatus,
+    OrderStatus,
 } from '../orders/enums/order-status.enum';
 import {
   aggregateOrderItems,
@@ -87,7 +87,7 @@ import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-pla
  * 01/10/2026 — số đơn trong 1 nhóm đơn theo trạng thái, trả kèm danh sách/chi tiết
  * nhóm đơn để FE phân biệt nhóm bình thường / hủy một phần / hủy hết.
  * - activeOrderCount: đơn còn phải xử lý — dùng ĐÚNG quy tắc của Picking List và gợi ý
- *   đóng gói (status KHÔNG thuộc NOT_PACKABLE_ORDER_STATUSES).
+ *   đóng gói (status KHÔNG thuộc notPackableStatuses()).
  * - canceledOrderCount: đơn có status `canceled`.
  * Đơn sự cố vận chuyển (lost, damaged_by_3pl, failed...) không thuộc 2 nhóm trên:
  * orderCount − activeOrderCount − canceledOrderCount = số đơn sự cố.
@@ -488,7 +488,7 @@ export class OrderGroupsService {
       try {
         const active = await this.orderModel.countDocuments({
           consolidated_group_id: group._id,
-          status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+          status: { $nin: notPackableStatuses() },
         });
         if (active === 0) {
           await this.cancelIfAllOrdersUnfulfillable(id);
@@ -596,7 +596,7 @@ export class OrderGroupsService {
     const orders = await this.orderModel
       .find({
         consolidated_group_id: group._id,
-        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+        status: { $nin: notPackableStatuses() },
       })
       .select('_id platform_order_id items created_at')
       .sort({ created_at: 1, _id: 1 })
@@ -679,14 +679,14 @@ export class OrderGroupsService {
     // Lọc bỏ đơn KHÔNG THỂ ĐÓNG GÓI (AOFP-XX, fix 15/09/2026, mở rộng
     // 15/09/2026 thêm nhóm sự cố logistics) — trước đây chỉ lọc
     // CANCELED, giờ lọc thêm LOST/DAMAGED_BY_3PL/PACKAGE_SCRAPPED...
-    // (xem NOT_PACKABLE_ORDER_STATUSES) — hàng đã báo sự cố thì không
+    // (xem notPackableStatuses()) — hàng đã báo sự cố thì không
     // còn gì để đóng gói/đi lấy, y hệt lý do lọc CANCELED. Ảnh hưởng
     // CẢ Packaging lẫn Picking List (warehouse.service.ts tái dùng
     // đúng hàm này).
     const orders = await this.orderModel
       .find({
         consolidated_group_id: group._id,
-        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+        status: { $nin: notPackableStatuses() },
       })
       .select('items platform shop_id') // Rule #13 — chỉ lấy field cần
       .lean();
@@ -893,7 +893,7 @@ export class OrderGroupsService {
           _id: '$consolidated_group_id',
           active: {
             $sum: {
-              $cond: [{ $in: ['$status', NOT_PACKABLE_ORDER_STATUSES] }, 0, 1],
+              $cond: [{ $in: ['$status', notPackableStatuses()] }, 0, 1],
             },
           },
           canceled: {
@@ -1067,7 +1067,7 @@ export class OrderGroupsService {
    * chặn cứng, hàm này chỉ là lớp kiểm tra sớm để không gọi transition vô ích).
    *
    * Gọi từ orders.service.ts (syncShopOrders()) ngay sau khi 1 đơn được
-   * cập nhật trạng thái thuộc NOT_PACKABLE_ORDER_STATUSES — BEST-EFFORT,
+   * cập nhật trạng thái thuộc notPackableStatuses() — BEST-EFFORT,
    * không được làm hỏng cả lượt sync (caller tự bọc try/catch).
    * ===================================================================
    */
@@ -1091,7 +1091,7 @@ export class OrderGroupsService {
 
     const stillFulfillableCount = await this.orderModel.countDocuments({
       consolidated_group_id: group._id,
-      status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+      status: { $nin: notPackableStatuses() },
     });
     if (stillFulfillableCount > 0) return;
 
@@ -1850,7 +1850,7 @@ export class OrderGroupsService {
         .lean();
       if (!plan) return false;
       const dead = await this.orderModel
-        .find({ consolidated_group_id: plan.order_group_id, status: { $in: NOT_PACKABLE_ORDER_STATUSES } })
+        .find({ consolidated_group_id: plan.order_group_id, status: { $in: notPackableStatuses() } })
         .select('_id')
         .lean();
       const deadIds = new Set(dead.map((o) => o._id.toString()));
@@ -1971,10 +1971,9 @@ export class OrderGroupsService {
       .select('fulfillment_status')
       .lean();
     if (!group) return true; // document group chưa tạo (chờ backfill) — chưa có gì để khóa
-    return (
-      group.fulfillment_status === GroupFulfillmentStatus.AWAITING_PACKAGING ||
-      group.fulfillment_status === GroupFulfillmentStatus.PICKING
-    );
+    // 🔄 15/10/2026 — trạng thái còn nhận đơn gom đến muộn do Admin cấu hình
+    // (mặc định awaiting_packaging + picking, như trước).
+    return (orderSyncPolicy().consolidation.openGroupStatuses as string[]).includes(group.fulfillment_status);
   }
 
   /**

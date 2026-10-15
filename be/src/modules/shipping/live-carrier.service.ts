@@ -13,7 +13,7 @@ import type {
 } from '../carriers/carrier.types';
 import { buildCarrierRecipient } from '../carriers/utils/recipient-address.util';
 import { isMaskedValue } from '../orders/utils/vn-administrative-area.util';
-import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
+import { notPackableStatuses } from '../orders/order-sync-policy';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import type { ParcelInput, ParcelQuote, ServiceQuote } from './utils/shipping-cost.util';
 import { volumetricWeightG } from './utils/shipping-cost.util';
@@ -175,7 +175,7 @@ export class LiveCarrierService {
 
   private itemsOf(order: OrderDocument): { name: string; code: string; quantity: number; price: number }[] {
     return order.items
-      .filter((i) => !NOT_PACKABLE_ORDER_STATUSES.includes(i.status))
+      .filter((i) => !notPackableStatuses().includes(i.status))
       .map((i) => ({ name: i.name.slice(0, 500), code: i.sku, quantity: i.quantity, price: Math.round(i.unit_price) }));
   }
 
