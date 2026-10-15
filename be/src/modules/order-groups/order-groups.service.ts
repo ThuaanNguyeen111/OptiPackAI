@@ -12,9 +12,11 @@ import {
   InventoryMovement,
   InventoryMovementDocument,
 } from '../warehouse/schemas/inventory-movement.schema';
-import { Injectable, Logger, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpStatus, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
+import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
+import { StockLotLedger, fifoDateOf, netLotsInHand, takeFromLots } from '../warehouse/stock-lot.ledger';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { isValidStatusTransition } from './enums/allowed-status-transitions';
@@ -159,7 +161,36 @@ export class OrderGroupsService {
     // (05/10/2026) mã ô cho thông báo trả hàng về kệ
     @InjectModel(BinLocation.name)
     private readonly binLocationModel: Model<BinLocationDocument>,
-  ) {}
+    // 15/10/2026 — lô hàng: lấy hàng trừ lô có ngày nhập CŨ NHẤT trước (FIFO).
+    // @Optional: unit test cũ không đăng ký model → sổ lô no-op, hành vi như trước.
+    @Optional() @InjectModel(StockLot.name)
+    stockLotModel?: Model<StockLotDocument>,
+  ) {
+    this.lots = new StockLotLedger(stockLotModel);
+  }
+
+  private readonly lots: StockLotLedger;
+
+  /**
+   * 15/10/2026 — FIFO giữa các ô: khi nhân viên không chỉ định ô, chọn dòng tồn đủ
+   * hàng có LÔ CŨ NHẤT (ngày nhập). Chưa bật sổ lô → null (giữ cách cũ).
+   */
+  private async pickFifoAssignmentId(
+    filter: Record<string, unknown>,
+    quantity: number,
+    session: ClientSession,
+  ): Promise<Types.ObjectId | null> {
+    if (!this.lots.enabled) return null;
+    const candidates = await this.skuBinAssignmentModel
+      .find({ ...filter, quantity_on_hand: { $gte: quantity } })
+      .select('_id created_at')
+      .session(session)
+      .lean();
+    if (candidates.length === 0) return null;
+    const oldest = await this.lots.oldestLots(candidates.map((c) => c._id));
+    candidates.sort((x, y) => fifoDateOf(x, oldest) - fifoDateOf(y, oldest) || x._id.toString().localeCompare(y._id.toString()));
+    return candidates[0]?._id ?? null;
+  }
 
   /**
    * Đảm bảo 1 order có group thật sự tồn tại trong `order_groups` —
@@ -1215,13 +1246,15 @@ export class OrderGroupsService {
           : warehouseId;
         // Atomic check-and-decrement — điều kiện `quantity_on_hand: {$gte}` trong
         // CÙNG 1 lệnh. Phạm vi tồn: kho + (SKU nội bộ | sàn+shop+SKU) [+ ô nếu chỉ định].
+        const scope = {
+          warehouse_id: warehouseObjectId,
+          ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
+          ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
+        };
+        // 15/10/2026 — không chỉ định ô → lấy ở ô có lô cũ nhất (FIFO theo ngày nhập).
+        const fifoId = binLocationId ? null : await this.pickFifoAssignmentId(scope, scannedQuantity, session);
         const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
-          {
-            warehouse_id: warehouseObjectId,
-            ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
-            ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
-            quantity_on_hand: { $gte: scannedQuantity },
-          },
+          { ...scope, ...(fifoId ? { _id: fifoId } : {}), quantity_on_hand: { $gte: scannedQuantity } },
           { $inc: { quantity_on_hand: -scannedQuantity } },
           { returnDocument: 'after', session },
         );
@@ -1233,6 +1266,9 @@ export class OrderGroupsService {
             { sku, warehouseId, requestedQuantity: scannedQuantity },
           );
         }
+
+        // 15/10/2026 — trừ lô theo FIFO (ngày nhập cũ nhất trước) trong ô vừa trừ tồn.
+        const lotAllocations = await this.lots.consume(doc, scannedQuantity, doc.quantity_on_hand + scannedQuantity, session);
 
         // K3 (main) — sổ cái biến động kho, cùng transaction.
         await this.inventoryMovementModel.create(
@@ -1253,6 +1289,7 @@ export class OrderGroupsService {
               note: null,
               ref_type: 'order_group',
               ref_id: groupId,
+              lot_allocations: lotAllocations,
               actor_id: actorId,
               created_at: new Date(),
             },
@@ -1278,6 +1315,7 @@ export class OrderGroupsService {
               pick_round: round,
               warehouse_id: new Types.ObjectId(warehouseId),
               bin_location_id: doc.bin_location_id,
+              lot_allocations: lotAllocations,
             },
           ],
           { session },
@@ -1332,7 +1370,7 @@ export class OrderGroupsService {
     // trả vào dòng tồn đầu tiên khớp phạm vi.
     const perLine = new Map<
       string,
-      { warehouse: Types.ObjectId; bin: Types.ObjectId | null; sku: string; qty: number; ids: Types.ObjectId[] }
+      { warehouse: Types.ObjectId; bin: Types.ObjectId | null; sku: string; qty: number; ids: Types.ObjectId[]; events: typeof events }
     >();
     for (const event of events) {
       if (!event.warehouse_id) {
@@ -1341,9 +1379,10 @@ export class OrderGroupsService {
       }
       const bin = event.bin_location_id ?? null;
       const key = `${event.warehouse_id.toString()}|${bin?.toString() ?? '-'}|${event.seller_sku}`;
-      const line = perLine.get(key) ?? { warehouse: event.warehouse_id, bin, sku: event.seller_sku, qty: 0, ids: [] };
+      const line = perLine.get(key) ?? { warehouse: event.warehouse_id, bin, sku: event.seller_sku, qty: 0, ids: [], events: [] };
       line.qty += event.scanned_quantity;
       line.ids.push(event._id);
+      line.events.push(event);
       perLine.set(key, line);
     }
     // K4b (main) — SKU đã nối SKU nội bộ thì tồn nằm ở dòng gộp theo master_sku.
@@ -1378,6 +1417,8 @@ export class OrderGroupsService {
         skipped += line.ids.length;
         continue;
       }
+      // 15/10/2026 — trả về ĐÚNG lô đã lấy (lô lấy sau cùng trả trước).
+      const restoredLots = await this.lots.restore(doc, line.qty, netLotsInHand(line.events), doc.quantity_on_hand - line.qty, session);
       await this.inventoryMovementModel.create(
         [
           {
@@ -1388,6 +1429,7 @@ export class OrderGroupsService {
             shop_id: doc.shop_id,
             seller_sku: doc.seller_sku,
             master_sku: doc.master_sku ?? null,
+            lot_allocations: restoredLots,
             type: 'pick_cancel',
             delta: line.qty,
             quantity_before: doc.quantity_on_hand - line.qty,
@@ -1458,14 +1500,15 @@ export class OrderGroupsService {
         .session(session)
         .lean();
       // Ròng theo (kho, ô) — ô lấy sau cùng trả trước (giống thứ tự lấy ra khỏi giỏ).
-      const net = new Map<string, { warehouse: Types.ObjectId; bin: Types.ObjectId | null; qty: number; last: number }>();
+      const net = new Map<string, { warehouse: Types.ObjectId; bin: Types.ObjectId | null; qty: number; last: number; events: typeof events }>();
       for (const e of events) {
         if (!e.warehouse_id) continue;
         const bin = e.bin_location_id ?? null;
         const key = `${e.warehouse_id.toString()}|${bin?.toString() ?? '-'}`;
-        const cur = net.get(key) ?? { warehouse: e.warehouse_id, bin, qty: 0, last: 0 };
+        const cur = net.get(key) ?? { warehouse: e.warehouse_id, bin, qty: 0, last: 0, events: [] };
         cur.qty += e.scanned_quantity;
         cur.last = Math.max(cur.last, e.created_at?.getTime() ?? 0);
+        cur.events.push(e);
         net.set(key, cur);
       }
       let left = quantity;
@@ -1473,6 +1516,8 @@ export class OrderGroupsService {
         if (left === 0) break;
         const take = Math.min(left, line.qty);
         let remainingAfter = 0;
+        // 15/10/2026 — lô của các món rời giỏ (lô lấy sau cùng trước); trả kệ thì cộng lại đúng lô.
+        let lotAllocations = takeFromLots(netLotsInHand(line.events), take).allocations;
         if (options.restock) {
           const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
             {
@@ -1485,6 +1530,7 @@ export class OrderGroupsService {
           );
           if (doc) {
             remainingAfter = doc.quantity_on_hand;
+            lotAllocations = await this.lots.restore(doc, take, lotAllocations, doc.quantity_on_hand - take, session);
             await this.inventoryMovementModel.create(
               [
                 {
@@ -1495,6 +1541,7 @@ export class OrderGroupsService {
                   shop_id: doc.shop_id,
                   seller_sku: doc.seller_sku,
                   master_sku: doc.master_sku ?? null,
+                  lot_allocations: lotAllocations,
                   type:
                     options.kind === 'cancel_return' || options.kind === 'reject_return'
                       ? options.kind
@@ -1532,6 +1579,7 @@ export class OrderGroupsService {
               pick_round: group.pick_round,
               warehouse_id: line.warehouse,
               bin_location_id: line.bin,
+              lot_allocations: lotAllocations,
             },
           ],
           { session },
@@ -1667,13 +1715,15 @@ export class OrderGroupsService {
   ): Promise<{ binLocationId: string; remainingStock: number }> {
     const group = await this.loadGroupOrThrow(groupId);
     const masterSku = (await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, [sku])).get(sku);
+    const scope = {
+      warehouse_id: new Types.ObjectId(warehouseId),
+      ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
+      ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
+    };
+    // 15/10/2026 — món thay cũng lấy ở ô có lô cũ nhất (FIFO).
+    const fifoId = binLocationId ? null : await this.pickFifoAssignmentId(scope, 1, session);
     const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
-      {
-        warehouse_id: new Types.ObjectId(warehouseId),
-        ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
-        ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
-        quantity_on_hand: { $gte: 1 },
-      },
+      { ...scope, ...(fifoId ? { _id: fifoId } : {}), quantity_on_hand: { $gte: 1 } },
       { $inc: { quantity_on_hand: -1 } },
       { returnDocument: 'after', session },
     );
@@ -1685,6 +1735,7 @@ export class OrderGroupsService {
         { sku, warehouseId, binLocationId: binLocationId ?? null },
       );
     }
+    const replacementLots = await this.lots.consume(doc, 1, doc.quantity_on_hand + 1, session);
     await this.inventoryMovementModel.create(
       [
         {
@@ -1696,6 +1747,7 @@ export class OrderGroupsService {
           seller_sku: doc.seller_sku,
           master_sku: doc.master_sku ?? null,
           type: 'pack_replace',
+          lot_allocations: replacementLots,
           delta: -1,
           quantity_before: doc.quantity_on_hand + 1,
           quantity_after: doc.quantity_on_hand,
@@ -1722,6 +1774,7 @@ export class OrderGroupsService {
           pick_round: group.pick_round,
           warehouse_id: doc.warehouse_id,
           bin_location_id: doc.bin_location_id,
+          lot_allocations: replacementLots,
         },
       ],
       { session },
