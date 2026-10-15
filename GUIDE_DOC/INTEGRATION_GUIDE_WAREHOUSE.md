@@ -2,6 +2,8 @@
 
 **Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.** **v1.4 (01/10/2026): mở quyền vận hành kho cho Warehouse Staff — xem danh sách khu, danh sách ô, tồn theo ô và nhập thêm hàng — xem PHẦN B5.** **v1.5 (07/10/2026): sửa lỗi kiểu id khiến Picking List báo "CHƯA GÁN VỊ TRÍ", quét hàng báo thiếu tồn và nhập thêm hàng luôn 404 dù dữ liệu kho đúng; gộp bản sửa tìm tồn của nhánh `feature/viet_befe`; script chuyển dữ liệu id cũ — xem PHẦN B6.**
 
+**🆕 Cập nhật 15/10/2026:** PHẦN B8 — phiếu nhập kho theo **lô** (nhiều SKU, có ngày nhập) và lấy hàng **lô cũ nhất trước** (FIFO theo ngày nhập); Picking List thêm `oldest_lot`.
+
 **🆕 Cập nhật 10/10/2026:** PHẦN B7 — xoá hẳn kho/khu/ô/SKU nội bộ chưa từng dùng (`DELETE .../permanent`) và sửa gán nhầm ô (`PATCH .../sku-bin-assignments/:assignmentId`).
 
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
@@ -938,6 +940,122 @@ Dùng khi kho thử đã có quá nhiều mã tạo nhầm, muốn dọn sạch 
 - Bắt buộc chọn `--all` hoặc `--warehouse=...`; cờ gõ sai (VD `--aply`) → dừng ngay, không ghi gì.
 - Mỗi kho/khu/ô được xoá trong một transaction riêng và được kiểm tra lại ngay lúc xoá; nếu dữ liệu vừa thay đổi (VD có người vừa nhập hàng) thì mục đó bị bỏ qua và được liệt kê ở cuối.
 - Phần mồ côi được xoá chung một transaction, vẫn kèm điều kiện tồn 0 ngay trong lệnh xoá.
+
+---
+
+# PHẦN B8 — 🆕 NHẬP KHO THEO LÔ + LẤY HÀNG LÔ CŨ NHẤT TRƯỚC (15/10/2026)
+
+## B8.1. Bối cảnh
+
+Trước đây tồn của 1 SKU trên 1 ô chỉ là **1 con số** (`quantityOnHand`). Hệ thống không biết hàng nào nhập trước, hàng nào nhập sau, nên lấy hàng có thể lấy nhầm hàng mới trong khi hàng cũ nằm mãi trên kệ.
+
+Từ 15/10/2026:
+
+- Mỗi lần nhập hàng tạo ra **lô** có **ngày nhập kho** (`receivedAt`).
+- Khi **lấy hàng**, **lấy món thay lúc đóng gói**, **kiểm kê đếm thiếu** hay **chuyển ô**, hệ thống **tự trừ lô có ngày nhập cũ nhất trước** (FIFO). Nhân viên **không phải quét mã lô**.
+- `quantityOnHand` của dòng "SKU trên ô" vẫn là **tổng** các lô, nên màn hình nào đang hiển thị con số này không phải sửa.
+
+Đã chốt với Thuận: "cũ" tính theo **ngày nhập kho**, không theo hạn sử dụng (shop bán quần áo, giày dép nên hàng không có hạn dùng).
+
+## B8.2. Phiếu nhập — nhập nhiều SKU một lần, cùng một lô
+
+`POST /warehouse/warehouses/:warehouseId/receipts` (Admin, Warehouse Staff)
+
+```json
+{
+  "received_at": "2026-10-15T08:00:00+07:00",
+  "lot_code": "LO-2026-10-A",
+  "supplier": "Xưởng may Bình Tân",
+  "note": "Hàng về đợt 2",
+  "lines": [
+    { "assignment_id": "6710...a1", "quantity": 40 },
+    { "bin_location_id": "6710...b2", "platform": "lazada", "shop_id": "201171264532", "seller_sku": "AO-THUN-M", "quantity": 25 }
+  ]
+}
+```
+
+- `received_at`: ngày nhập của lô. Bỏ trống = bây giờ. **Không được ở tương lai** → `400 WH_RECEIPT_DATE_IN_FUTURE`. Được nhập ngày trong quá khứ (hàng về hôm qua, hôm nay mới nhập máy).
+- `lot_code`: mã lô in trên nhãn thùng (chữ, số, gạch ngang). Bỏ trống thì dùng mã phiếu (`PN-251015-7KQ2`). BE tự viết HOA.
+- Mỗi dòng chỉ định dòng tồn theo 1 trong 2 cách:
+  - `assignment_id`: id của dòng "SKU trên ô" (lấy từ `GET .../sku-bin-assignments`), **hoặc**
+  - `bin_location_id` + `platform` + `shop_id` + `seller_sku`. SKU phải **đã gán vào ô đó** từ trước, nếu chưa → `422 WH_RECEIPT_LINE_NOT_ASSIGNED`. Phiếu nhập **không tự gán SKU vào ô**.
+- Thiếu cả 2 cách → `400 WH_RECEIPT_LINE_INVALID`.
+- Nhiều dòng trỏ cùng 1 dòng tồn thì cộng dồn.
+- Sức chứa ô: tính cộng mọi dòng cùng ô. Vượt → `409 WH_BIN_OVER_CAPACITY`, gửi `force: true` để vẫn nhập.
+- Cả phiếu là **1 transaction**: một dòng lỗi thì không dòng nào được ghi.
+
+Response (rút gọn):
+
+```json
+{
+  "id": "6712...", "receiptCode": "PN-251015-7KQ2", "lotCode": "LO-2026-10-A",
+  "receivedAt": "2026-10-15T01:00:00.000Z", "supplier": "Xưởng may Bình Tân",
+  "totalQuantity": 65,
+  "lines": [{ "assignmentId": "6710...a1", "binLocationId": "...", "lotId": "...", "sellerSku": "QUAN-JEAN-30", "masterSku": null, "quantity": 40 }]
+}
+```
+
+Xem lại: `GET .../receipts?limit=50`, `GET .../receipts/:receiptId` (thêm quyền Store Owner).
+
+🔄 Nút **Nhập thêm hàng** cũ (`POST .../sku-bin-assignments/:assignmentId/restock`) vẫn dùng được, nhận thêm `received_at?` và `lot_code?`. Mỗi lần bấm tạo một phiếu nhập 1 dòng.
+
+## B8.3. Xem tồn theo lô
+
+- `GET /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/lots`: các lô của 1 SKU trên 1 ô, **theo đúng thứ tự sẽ xuất** (cũ nhất trước). Gợi ý: hiển thị khi bấm vào 1 dòng ở màn "Tồn kho theo vị trí".
+- `GET /warehouse/warehouses/:warehouseId/lots?master_sku=&seller_sku=&lot_code=`: tồn theo lô của cả kho (tối đa 500 dòng). Dùng cho màn "Tồn theo lô" hoặc tra một mã lô.
+- Mặc định chỉ trả lô còn hàng. Thêm `include_empty=true` để xem cả lô đã xuất hết (truy vết).
+
+Mỗi lô có `source` (nguồn gốc): `receipt` (nhập theo phiếu), `initial` (tồn ban đầu khi gán ô), `opening` (tồn có trước 15/10), `count_found` (kiểm kê đếm thừa), `return` (hàng hoàn), `transfer` (chuyển từ ô khác, **giữ nguyên mã lô và ngày nhập gốc**).
+
+## B8.4. Picking List và quét hàng thay đổi gì
+
+- **Ô chính** (`bin_location_id`) nay là ô còn hàng có **lô cũ nhất**. Nếu 2 ô có lô cùng ngày thì chọn theo lộ trình đi kho như trước. Thứ tự các dòng trong danh sách vẫn theo lộ trình (`pick_sequence`).
+- Mỗi dòng có thêm `oldest_lot: { lot_code, received_at, quantity_remaining }` (`null` khi SKU chưa gán ô). `other_bins[]` cũng có `oldest_lot`.
+- Gợi ý FE: hiện dưới mã ô dòng "Lô LO-2026-10-A · nhập 15/10" để nhân viên lấy đúng thùng cũ.
+- `pick-item` **không gửi** `bin_location_id` → BE tự lấy ở ô có lô cũ nhất. **Có gửi** → BE trừ trong ô đó, vẫn theo lô cũ nhất của ô.
+- Sổ cái (`GET .../movements`) có thêm `lots[]`: lần nhập/lấy/chuyển đó đụng lô nào, bao nhiêu.
+
+## B8.5. Các luồng khác
+
+| Thao tác | Lô bị ảnh hưởng thế nào |
+|---|---|
+| Kiểm kê đếm thiếu | Trừ lô cũ nhất trước |
+| Kiểm kê đếm thừa | Tạo lô `count_found`, ngày = hôm nay |
+| Chuyển ô | Trừ lô cũ nhất ở ô nguồn; ở ô đích **giữ nguyên mã lô và ngày nhập** |
+| Trả hàng đã lấy về kệ (hủy lượt lấy, đơn hủy, tháo kiện, trả về lấy hàng) | Cộng lại **đúng lô** đã lấy (lô lấy sau cùng được trả trước) |
+| Nhập lại hàng hoàn của khách (`/returns`) | Lô `return` mới, ngày = ngày nhận lại, đứng cuối hàng đợi |
+| Nối SKU sàn → SKU nội bộ (gộp tồn) | Lô chuyển sang dòng gộp, giữ ngày nhập |
+
+## B8.6. Dữ liệu cũ
+
+Tồn có trước 15/10 chưa có lô. Hệ thống coi phần đó là lô **`TON-DAU-KY`**, ngày nhập = lần nhập/gán sớm nhất trong sổ cái (không có thì lấy ngày tạo dòng tồn). Vì cũ hơn mọi lô mới nên lô này **luôn được xuất trước**.
+
+- Không làm gì: lô `TON-DAU-KY` tự được tạo lần đầu dòng tồn bị trừ/cộng.
+- Muốn màn "Tồn theo lô" thấy ngay: BE chạy `cd be && npx ts-node -r dotenv/config scripts/backfill-stock-lots.ts` (chạy thử, chỉ đếm). Sau đó thêm `--apply` để ghi. Chạy lại an toàn.
+- Picking List đã hiển thị `oldest_lot` ngay cả khi chưa chạy script (lô `TON-DAU-KY` tính tạm từ ngày tạo dòng tồn).
+
+## B8.7. Cách demo
+
+1. Gán SKU `AO-THUN-M` vào 2 ô A và B (tồn 0).
+2. Nhập phiếu 1, `received_at` = 3 ngày trước, 5 cái vào ô B.
+3. Nhập phiếu 2, hôm nay, 5 cái vào ô A.
+4. Mở Picking List của một nhóm đơn cần 3 cái: ô chính là **B** (lô cũ hơn), dù ô A đứng trước trên lộ trình.
+5. Quét 3 cái không chọn ô, rồi mở `GET .../lots` của ô B: còn 2. Sổ cái ghi `lots[]` là lô của phiếu 1.
+
+## B8.8. Tác động tới dữ liệu và luồng đã có
+
+1. **Dữ liệu cũ:** không đổi schema cũ, chỉ thêm 2 collection `stock_lots`, `stock_receipts` và trường `lot_allocations` (mặc định rỗng) trên `pick_events`, `inventory_movements`. Không bắt buộc chạy script.
+2. **Route đổi hành vi:** Picking List đổi cách chọn ô chính (lô cũ nhất); `pick-item` không có ô thì chọn ô có lô cũ nhất. Request/response không bỏ trường nào.
+3. **Luồng ghi:** mọi đường đổi tồn ghi lô trong **cùng transaction** với thay đổi tồn. Tổng lô của 1 dòng luôn bằng `quantityOnHand`.
+4. **Không ảnh hưởng:** giữ chỗ tồn (K5), sức chứa ô, gợi ý ô, đồng bộ đơn, đóng gói, giao hàng.
+
+## B8.9. Hạn chế hiện tại và hướng khắc phục
+
+- **Không ép quét mã lô.** Nếu nhân viên thực tế lấy thùng mới thay vì thùng cũ, hệ thống vẫn ghi trừ lô cũ. Số tổng luôn đúng, chỉ phân bổ theo lô có thể lệch thực tế. Hướng khắc phục: in mã lô lên thùng và cho quét lô (đã cân nhắc, Thuận chọn tự trừ để thao tác nhanh).
+- **Chưa có hạn sử dụng (FEFO).** Chỉ theo ngày nhập. Khi bán hàng có hạn dùng thì thêm `expiry_date` vào lô và đổi khoá sắp xếp.
+- **Phiếu nhập không sửa/xoá được.** Nhập sai thì dùng kiểm kê điều chỉnh. Kiểm kê đếm thiếu sẽ trừ lô cũ nhất, không phải lô vừa nhập sai.
+- **Hàng hoàn không về lô gốc.** Hàng hoàn của khách vào lô mới ngày hôm nay vì phiếu trả không biết món đó thuộc lô nào.
+- **Chưa có màn hình FE.** Cần làm: form phiếu nhập nhiều dòng, danh sách phiếu, tồn theo lô, hiển thị `oldest_lot` trên Picking List.
 
 ---
 

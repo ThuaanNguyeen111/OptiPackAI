@@ -6,6 +6,8 @@ Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong 
 
 > 🔄 10/10/2026: gộp bản sửa kiểu id của `main` (07/10) — xem **mục 17**. Không route nào thêm/bớt.
 
+> 🆕 15/10/2026: **phiếu nhập kho theo lô + lấy hàng lô cũ nhất trước (FIFO theo ngày nhập)** — mục 18; **Admin cấu hình tiêu chí đồng bộ & gom đơn** (`/order-sync-settings`) — mục 19. Thêm trường (không bỏ trường nào) ở: `restock`, Picking List (`oldest_lot`), sổ cái (`lots`).
+
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
 ---
@@ -735,3 +737,47 @@ Không có route mới. Các route dưới đây trước đây có thể trả 
 | Chứng từ PDF, kế hoạch đóng gói, cài đặt, storefront | Một số truy vấn theo id dạng chuỗi ra 0 dòng | Khớp đúng |
 
 Việc bắt buộc sau khi deploy: chạy `npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply` trên mỗi database (nay gồm cả `packing_plans.orders[].order_id` / `parcels[].order_id` từng lưu dạng chuỗi). Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6**.
+
+## 18. 🆕 Nhập kho theo lô + FIFO theo ngày nhập (15/10/2026)
+
+Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`). Lấy hàng (`pick-item`), lấy món thay lúc đóng gói, kiểm kê đếm thiếu và chuyển ô đều **trừ lô có ngày nhập cũ nhất trước**. Hệ thống tự trừ, nhân viên **không quét mã lô**. `quantityOnHand` của dòng "SKU trên ô" vẫn là tổng các lô.
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| POST | `/warehouse/warehouses/:warehouseId/receipts` | Admin, Warehouse | Phiếu nhập NHIỀU SKU = 1 lô (cùng `lot_code` + `received_at`). Body: `received_at?` (ISO, mặc định bây giờ, không được ở tương lai), `lot_code?` (mặc định = mã phiếu `PN-yymmdd-XXXX`), `supplier?`, `note?`, `force?` (bỏ qua sức chứa), `lines[]` (1–200): `{ assignment_id, quantity }` HOẶC `{ bin_location_id, platform, shop_id, seller_sku, quantity }` (SKU phải đã gán vào ô đó) |
+| GET | `/warehouse/warehouses/:warehouseId/receipts?limit=` | Admin, Warehouse, Store Owner | Danh sách phiếu nhập (mới nhất trước, tối đa 200) |
+| GET | `/warehouse/warehouses/:warehouseId/receipts/:receiptId` | Admin, Warehouse, Store Owner | Chi tiết phiếu nhập |
+| GET | `/warehouse/warehouses/:warehouseId/lots?master_sku=&seller_sku=&lot_code=&include_empty=` | Admin, Warehouse, Store Owner | Tồn theo lô của kho, lô cũ nhất trước (tối đa 500) |
+| GET | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/lots?include_empty=` | Admin, Warehouse, Store Owner | Các lô của 1 SKU trên 1 ô theo đúng thứ tự sẽ xuất |
+| 🔄 POST | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin, Warehouse | Nhận thêm `received_at?`, `lot_code?`; mỗi lần nhập tạo 1 phiếu nhập 1 dòng |
+
+**Response lô** (`StockLotResponse`): `id`, `assignmentId`, `binLocationId`, `platform`, `shopId`, `sellerSku`, `masterSku`, `lotCode`, `receivedAt`, `quantityReceived`, `quantityRemaining`, `source` (`receipt`/`initial`/`opening`/`count_found`/`return`/`transfer`), `receiptId`.
+
+**Response phiếu nhập**: `id`, `receiptCode`, `warehouseId`, `lotCode`, `receivedAt`, `supplier`, `note`, `totalQuantity`, `createdBy`, `createdAt`, `lines[]` (`assignmentId`, `binLocationId`, `lotId`, `platform`, `shopId`, `sellerSku`, `masterSku`, `quantity`).
+
+**Thay đổi ở route có sẵn (chỉ thêm trường)**
+- Picking List (`GET /warehouse/:warehouseId/picking-list...`): ô chính (`bin_location_id`) nay là ô còn hàng có **lô cũ nhất** (hoà thì theo lộ trình); thêm `oldest_lot { lot_code, received_at, quantity_remaining }` (null khi chưa gán ô), `other_bins[].oldest_lot`.
+- `pick-item` không gửi `bin_location_id` → hệ thống tự lấy ở ô có lô cũ nhất (trước đây là ô bất kỳ đủ hàng).
+- Sổ cái (`GET .../movements`): thêm `lots[] { lotId, lotCode, receivedAt, quantity }`.
+
+**Mã lỗi mới**: `WH_RECEIPT_DATE_IN_FUTURE` (400), `WH_RECEIPT_LINE_INVALID` (400), `WH_RECEIPT_LINE_NOT_ASSIGNED` (422), `WH_RECEIPT_NOT_FOUND` (404). Vượt sức chứa vẫn `WH_BIN_OVER_CAPACITY` (409).
+
+**Dữ liệu cũ**: tồn có trước ngày 15/10 được coi là lô `TON-DAU-KY` (ngày nhập = lần nhập/gán sớm nhất trong sổ cái) và luôn xuất trước. Hệ thống tự tạo lô này khi dòng tồn bị đụng tới; chạy `npx ts-node -r dotenv/config scripts/backfill-stock-lots.ts` (thêm `--apply` để ghi) để thấy ngay trên màn hình. Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B7**.
+
+## 19. 🆕 Tiêu chí đồng bộ & gom đơn do Admin cấu hình (`/order-sync-settings`) — 15/10/2026
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/order-sync-settings` | Admin, Store Owner | Tiêu chí đang hiệu lực + `options` (danh sách lựa chọn có nhãn tiếng Việt để dựng form) |
+| PUT | `/order-sync-settings` | Admin | Lưu phiên bản mới; trường không gửi giữ nguyên; gửi `expected_version` để không ghi đè người khác |
+| GET | `/order-sync-settings/history?limit=` | Admin, Store Owner | Lịch sử phiên bản (ai đổi, lúc nào, ghi chú) |
+
+**Body PUT** (mọi trường tùy chọn): `expected_version`, `platforms[] { platform: lazada|aurelle, auto_sync_enabled }`, `interval_minutes` (5–1440), `first_sync_lookback_days` (1–90), `sync_failed_cooldown_minutes` (5–1440), `consolidation_enabled`, `consolidation_key_fields` (tập con `phone`, `address_line1`, `city`, `full_name`; bắt buộc có `phone` hoặc `address_line1`), `consolidation_time_window_hours` (1–720 hoặc `null`), `open_group_statuses` (tập con `awaiting_packaging`, `picking`), `consolidatable_statuses` (tập con 6 trạng thái chờ xử lý), `not_packable_statuses` (phải có `canceled`, không được chứa trạng thái luồng giao bình thường), `note`.
+
+**Mặc định = giá trị cũ trong code**: tự đồng bộ cả 2 sàn, 5 phút, lần đầu lùi 30 ngày, báo lỗi cách 20 phút; gom theo SĐT + địa chỉ + tỉnh/phường, không giới hạn thời gian, nhóm `awaiting_packaging`/`picking` còn nhận đơn; trạng thái như cũ. Response PUT thêm `recomputingKeys: true` khi đổi trường gom (hệ thống tính lại khoá gom cho đơn chưa xử lý xong, chạy nền).
+
+**Mã lỗi**: `ORD_SYNC_SETTINGS_INVALID` (400), `ORD_SYNC_SETTINGS_CONFLICT` (409).
+
+**Luôn cố định (không cấu hình)**: chỉ gom đơn **cùng sàn + cùng shop** — nhóm đơn trừ tồn và tra hồ sơ SKU theo đúng 1 shop. Muốn giao chung đơn khác shop/khác sàn dùng liên kết nhóm (`POST /order-groups/:id/link`) và giao chung chuyến. Chi tiết: **`INTEGRATION_GUIDE_ORDERS.md`** mục "Cấu hình tiêu chí đồng bộ & gom đơn".
+
+**Sửa kèm**: đồng bộ đơn nay **lấy theo trang** (100 đơn/trang, tối đa 50 trang/lượt). Trước đây chỉ lấy 100 đơn đầu nên shop có hơn 100 đơn thay đổi giữa 2 lượt bị sót.
