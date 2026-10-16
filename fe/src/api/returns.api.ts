@@ -235,12 +235,43 @@ export async function receiveReturn(
   )
 }
 
+export type PackagingInspectInput = {
+  material_code: string
+  quantity: number
+  grade: 'A' | 'B' | 'C'
+  reuse_cycle_seen?: number
+  old_label_removed?: boolean
+}
+
 export async function inspectReturn(
   id: string,
-  input: { expected_version: number; lines: InspectReturnLineInput[] },
+  input: {
+    expected_version: number
+    lines: InspectReturnLineInput[]
+    packaging?: PackagingInspectInput[]
+  },
 ): Promise<ReturnRequest> {
   return requireReturn(
     await apiRequest<unknown>(`/returns/${encodeURIComponent(id)}/inspect`, {
+      method: 'POST',
+      body: {
+        expected_version: input.expected_version,
+        lines: input.lines,
+        ...(input.packaging && input.packaging.length > 0
+          ? { packaging: input.packaging }
+          : {}),
+      },
+      auth: true,
+    }),
+  )
+}
+
+export async function cancelReturn(
+  id: string,
+  input: ReturnActionInput,
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>(`/returns/${encodeURIComponent(id)}/cancel`, {
       method: 'POST',
       body: input,
       auth: true,

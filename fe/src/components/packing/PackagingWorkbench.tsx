@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useAuth } from '../../context/use-auth'
 import {
   AlertTriangle,
   CheckCircle2,
@@ -6,45 +7,53 @@ import {
   Loader2,
   Package,
   RefreshCw,
-  Scale,
+  X,
   XCircle,
 } from 'lucide-react'
 import {
-  decidePartialOrderGroup,
-  listOrderGroups,
-  packOrderGroup,
-  retryLazadaPack,
-} from '../../api/order-groups.api'
-import {
-  adjustPackaging,
-  approvePackaging,
-  getPackagingRecommendation,
-  rejectPackaging,
-} from '../../api/packaging.api'
+  approvePackingPlan,
+  assignPacker,
+  backToPicking,
+  changeParcelBox,
+  getPackingPlan,
+  getPackingSettings,
+  listPackingPlanSummaries,
+  listPackingStaff,
+  packPlan,
+  rejectPackingPlan,
+  requestParcelGuide,
+} from '../../api/packing-plan.api'
+import { decidePartialOrderGroup, listOrderGroups } from '../../api/order-groups.api'
 import {
   listPackagingMaterials,
   type PackagingMaterialStock,
 } from '../../api/packaging-materials.api'
 import { usePortal } from '../../context/use-portal'
+import { UserRole } from '../../types/auth'
 import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
 import {
-  canRetryLazadaPack,
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
   isPartiallyCanceledGroup,
-  LAZADA_PACK_STATUS_LABELS,
-  type LazadaPackInfo,
   type OrderGroup,
 } from '../../types/order-groups'
 import {
-  ADJUSTMENT_REASON_LABELS,
-  type AdjustPackagingInput,
-  type PackagingRecommendation,
-} from '../../types/packaging'
+  ADJUSTMENT_REASONS,
+  outerCm,
+  PACKING_REASON_LABELS,
+  REJECT_REASONS,
+  type AdjustmentReason,
+  type PackingPlan,
+  type PackingPlanSummary,
+  type PackingStaffMember,
+  type RejectReason,
+} from '../../types/packing-plan'
 import { formatCurrency, formatDateTime } from '../../utils/format'
 import { useLocalQueuePagination } from '../../hooks/useLocalQueuePagination'
+import { Badge } from '../ui/Badge'
 import { QueuePaginationBar } from '../ui/QueuePaginationBar'
 import { Packing3DBoxViewer } from './Packing3DBoxViewer'
+import { PackingSessionPanel } from './PackingSessionPanel'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -130,104 +139,90 @@ function emptyCopy(
       }
 }
 
-function boxViewerLabel(rec: PackagingRecommendation | null, vi: boolean): string {
-  if (!rec) {
-    return vi ? 'Demo thùng — chưa có gợi ý BE' : 'Demo box — no BE plan yet'
+function boxViewerLabel(plan: PackingPlan | null, vi: boolean): string {
+  const first = plan?.parcels[0]
+  if (!plan || !first) {
+    return vi ? 'Demo thùng — chưa có kế hoạch' : 'Demo box — no plan yet'
   }
-  const { lengthCm, widthCm, heightCm } = rec.boxSize
+  const { lengthCm, widthCm, heightCm } = outerCm(first.box)
+  const extra =
+    plan.parcels.length > 1
+      ? vi
+        ? ` · ${String(plan.parcels.length)} kiện`
+        : ` · ${String(plan.parcels.length)} parcels`
+      : ''
   return vi
-    ? `Thùng: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm`
-    : `Box: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm`
+    ? `${first.box.name}: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm${extra}`
+    : `${first.box.name}: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm${extra}`
 }
 
-function boxViewerSub(rec: PackagingRecommendation | null, vi: boolean): string {
-  if (!rec) {
+function boxViewerSub(plan: PackingPlan | null, vi: boolean): string {
+  const first = plan?.parcels[0]
+  if (!plan || !first) {
     return vi
       ? 'Hướng dẫn 3D (demo) — không ghi trạng thái lên hệ thống'
       : '3D guide (demo) — does not write fulfillment status'
   }
-  return vi
-    ? `${rec.materialType} · demo hướng dẫn đóng gói`
-    : `${rec.materialType} · packing guide demo`
+  return vi ? 'Demo hướng dẫn đóng gói' : 'Packing guide demo'
 }
 
-function lazadaPackStatusLabel(
-  status: LazadaPackInfo['status'],
-  vi: boolean,
-): string {
-  if (!status) return vi ? 'Chưa gửi Lazada' : 'Not sent to Lazada'
-  const known = LAZADA_PACK_STATUS_LABELS[status]
-  return vi ? known.vi : known.en
+function MaterialTags({
+  materials,
+}: {
+  materials: { name: string; quantity: number; code?: string | null }[]
+}): ReactNode {
+  if (materials.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1">
+      {materials.map((row, index) => (
+        <Badge
+          key={`${row.code ?? row.name}-${String(index)}`}
+          tone="primary"
+          className="font-medium"
+        >
+          {row.name}
+          {row.quantity > 1 ? ` ×${String(row.quantity)}` : ''}
+        </Badge>
+      ))}
+    </div>
+  )
 }
 
-function sameBoxSize(
-  box: { lengthCm: number; widthCm: number; heightCm: number },
-  stock: PackagingMaterialStock,
-): boolean {
-  if (stock.lengthCm == null || stock.widthCm == null || stock.heightCm == null) {
-    return false
-  }
-  const left = [box.lengthCm, box.widthCm, box.heightCm].sort((a, b) => a - b)
-  const right = [stock.lengthCm, stock.widthCm, stock.heightCm].sort((a, b) => a - b)
-  return left.every((value, index) => Math.abs(value - (right[index] ?? Number.NaN)) < 0.05)
+function confirmBoxCode(code: string, name: string, vi: boolean): boolean {
+  const label = name.trim() || code
+  return window.confirm(
+    vi ? `Đổi sang thùng ${label} (${code})?` : `Change to box ${label} (${code})?`,
+  )
 }
 
-function confirmBoxUse(
-  box: { lengthCm: number; widthCm: number; heightCm: number },
-  stock: PackagingMaterialStock[],
-  vi: boolean,
-): boolean {
-  const match = stock.find((row) => row.kind === 'box' && sameBoxSize(box, row))
-  const size = `${box.lengthCm}×${box.widthCm}×${box.heightCm} cm`
-  const name = match?.name.trim() ?? ''
-  const named =
-    name.length > 0 &&
-    (name.toLowerCase().startsWith('thùng') || name.toLowerCase().startsWith('box'))
-  const message = named
-    ? vi
-      ? `Dùng ${name} ${size}?`
-      : `Use ${name} ${size}?`
-    : name
-      ? vi
-        ? `Dùng thùng ${name} ${size}?`
-        : `Use box ${name} ${size}?`
-      : vi
-        ? `Dùng thùng ${size}?`
-        : `Use box ${size}?`
-  return window.confirm(message)
+function weightPrefill(plan: PackingPlan): Record<number, string> {
+  const next: Record<number, string> = {}
+  for (const parcel of plan.parcels) {
+    const kg = parcel.actualWeightKg ?? parcel.estimatedWeightG / 1000
+    next[parcel.parcelNo] = kg > 0 ? kg.toFixed(3) : ''
+  }
+  return next
 }
 
-function lazadaPackToastHint(sync: LazadaPackInfo, vi: boolean): string {
-  const status = sync.status
-  if (status === 'success') {
-    return vi ? ' Đã báo đóng gói lên Lazada.' : ' Reported packed to Lazada.'
+function readParcelWeights(
+  plan: PackingPlan,
+  weights: Record<number, string>,
+): { parcel_no: number; weight_kg: number }[] | null {
+  const rows: { parcel_no: number; weight_kg: number }[] = []
+  for (const parcel of plan.parcels) {
+    const weight = Number(weights[parcel.parcelNo])
+    if (!Number.isFinite(weight) || weight < 0.001 || weight > 100) return null
+    rows.push({ parcel_no: parcel.parcelNo, weight_kg: weight })
   }
-  if (status === 'partial') {
-    return vi
-      ? ` Lazada chỉ thành công một phần${sync.error ? `: ${sync.error}` : '.'}`
-      : ` Lazada partial success${sync.error ? `: ${sync.error}` : '.'}`
-  }
-  if (status === 'failed') {
-    return vi
-      ? ` Báo Lazada thất bại${sync.error ? `: ${sync.error}` : '.'} Có thể gửi lại.`
-      : ` Lazada report failed${sync.error ? `: ${sync.error}` : '.'} You can retry.`
-  }
-  if (status === 'disabled') {
-    return vi
-      ? ' Chưa gửi sàn (cầu dao LAZADA_WRITE_APIS_ENABLED tắt).'
-      : ' Not sent to marketplace (LAZADA_WRITE_APIS_ENABLED is off).'
-  }
-  if (status === 'skipped') {
-    return vi
-      ? ' Bỏ qua bước Lazada (không cần gửi).'
-      : ' Skipped Lazada report (nothing to send).'
-  }
-  return ''
+  return rows
 }
 
 export function PackagingWorkbench() {
   const { locale } = usePortal()
+  const { session } = useAuth()
   const vi = locale === 'vi'
+  const canAssign =
+    session?.role === UserRole.PACKAGING_STAFF || session?.role === UserRole.ADMIN
 
   const [tab, setTab] = useState<QueueTab>('picked')
   const [tabBootstrapped, setTabBootstrapped] = useState(false)
@@ -237,34 +232,37 @@ export function PackagingWorkbench() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [group, setGroup] = useState<OrderGroup | null>(null)
-  const [rec, setRec] = useState<PackagingRecommendation | null>(null)
+  const [plan, setPlan] = useState<PackingPlan | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
-  /** Giữ kết quả báo Lazada sau pack — group đã rời hàng đợi (status=packed). */
-  const [lazadaFollowUp, setLazadaFollowUp] = useState<{
-    groupId: string
-    pack: LazadaPackInfo
-  } | null>(null)
-  const [lazadaRetryBusy, setLazadaRetryBusy] = useState(false)
 
-  const [weightKg, setWeightKg] = useState('')
-  const [mode, setMode] = useState<'approve' | 'adjust'>('approve')
-  const [boxL, setBoxL] = useState('')
-  const [boxW, setBoxW] = useState('')
-  const [boxH, setBoxH] = useState('')
-  const [material, setMaterial] = useState('Bubble Wrap')
-  const [adjustReason, setAdjustReason] =
-    useState<AdjustPackagingInput['adjustment_reason']>(
-      'RECOMMENDED_BOX_NOT_IN_STOCK',
-    )
+  const [parcelWeights, setParcelWeights] = useState<Record<number, string>>({})
+  const [planDialog, setPlanDialog] = useState<'approve' | 'adjust' | null>(null)
+  const [parcelNo, setParcelNo] = useState<number | null>(null)
+  const [boxCode, setBoxCode] = useState('')
+  const [adjustReason, setAdjustReason] = useState<AdjustmentReason>(
+    'RECOMMENDED_BOX_NOT_IN_STOCK',
+  )
   const [adjustNote, setAdjustNote] = useState('')
-  const [rejectReason, setRejectReason] = useState('')
+  const [rejectCode, setRejectCode] = useState<RejectReason>('BOX_TOO_LOOSE')
+  const [rejectNote, setRejectNote] = useState('')
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [overrideReason, setOverrideReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
+  const [guideDetailOpen, setGuideDetailOpen] = useState(false)
   const [boxStock, setBoxStock] = useState<PackagingMaterialStock[]>([])
   const [boxStockError, setBoxStockError] = useState<string | null>(null)
+  const [summaries, setSummaries] = useState<Record<string, PackingPlanSummary>>({})
+  const [staff, setStaff] = useState<PackingStaffMember[]>([])
+  const [staffId, setStaffId] = useState('')
+  const [returnSku, setReturnSku] = useState('')
+  const [returnQty, setReturnQty] = useState('1')
+  const [returnRestock, setReturnRestock] = useState(false)
+  const [returnNote, setReturnNote] = useState('')
+  const [requireScan, setRequireScan] = useState(false)
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -272,6 +270,15 @@ export function PackagingWorkbench() {
     try {
       const rows = await listOrderGroups()
       setAllGroups(rows)
+      const ids = rows.map((row) => row.id)
+      if (ids.length > 0) {
+        const listed = await listPackingPlanSummaries(ids).catch(() => [])
+        const next: Record<string, PackingPlanSummary> = {}
+        for (const item of listed) next[item.orderGroupId] = item
+        setSummaries(next)
+      } else {
+        setSummaries({})
+      }
     } catch (err: unknown) {
       setListError(formatApiError(err))
       setAllGroups([])
@@ -297,6 +304,19 @@ export function PackagingWorkbench() {
     }, 150)
     return () => window.clearTimeout(timer)
   }, [loadList, loadBoxStock])
+
+  useEffect(() => {
+    if (!canAssign) return
+    const timer = window.setTimeout(() => {
+      void listPackingStaff()
+        .then(setStaff)
+        .catch(() => setStaff([]))
+      void getPackingSettings()
+        .then((settings) => setRequireScan(settings.requireScan))
+        .catch(() => setRequireScan(false))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [canAssign])
 
   const counts = useMemo(() => {
     let pending = 0
@@ -364,7 +384,7 @@ export function PackagingWorkbench() {
       lastPackagingKeyRef.current = null
       const clearId = window.setTimeout(() => {
         setGroup(null)
-        setRec(null)
+        setPlan(null)
       }, 0)
       return () => window.clearTimeout(clearId)
     }
@@ -383,7 +403,7 @@ export function PackagingWorkbench() {
       tab === 'awaiting_packaging'
     ) {
       lastPackagingKeyRef.current = null
-      const clearRec = window.setTimeout(() => setRec(null), 0)
+      const clearRec = window.setTimeout(() => setPlan(null), 0)
       return () => {
         window.clearTimeout(syncId)
         window.clearTimeout(clearRec)
@@ -398,22 +418,21 @@ export function PackagingWorkbench() {
     let cancelled = false
     const timer = window.setTimeout(() => {
       setDetailLoading(true)
-      void getPackagingRecommendation(selectedId)
-        .then((recommendation) => {
+      void getPackingPlan(selectedId)
+        .then((next) => {
           if (cancelled) return
           lastPackagingKeyRef.current = fetchKey
-          setRec(recommendation)
-          if (recommendation) {
-            setBoxL(String(recommendation.boxSize.lengthCm))
-            setBoxW(String(recommendation.boxSize.widthCm))
-            setBoxH(String(recommendation.boxSize.heightCm))
-            setMaterial(recommendation.materialType)
+          setPlan(next)
+          if (next) {
+            setParcelWeights(weightPrefill(next))
+            setParcelNo(next.parcels[0]?.parcelNo ?? null)
+            setBoxCode(next.parcels[0]?.box.code ?? '')
           }
         })
         .catch((err: unknown) => {
           if (!cancelled) {
             setDetailError(formatApiError(err))
-            setRec(null)
+            setPlan(null)
           }
         })
         .finally(() => {
@@ -437,75 +456,82 @@ export function PackagingWorkbench() {
     await loadList()
   }
 
+  function reloadPlanAfterConflict(err: unknown): void {
+    setActionError(formatApiError(err))
+    if (!(err instanceof ApiError) || err.status !== 409 || !group) return
+    lastPackagingKeyRef.current = null
+    void getPackingPlan(group.id)
+      .then((next) => {
+        setPlan(next)
+        if (next) {
+          setParcelWeights(weightPrefill(next))
+          setParcelNo(next.parcels[0]?.parcelNo ?? null)
+          setBoxCode(next.parcels[0]?.box.code ?? '')
+        }
+      })
+      .catch(() => undefined)
+  }
+
   async function onApprove(): Promise<void> {
-    if (!group) return
-    const weight = Number(weightKg)
-    if (!Number.isFinite(weight) || weight < 0) {
-      setActionError(
-        vi ? 'Nhập cân nặng thật (kg) ≥ 0.' : 'Enter measured weight (kg) ≥ 0.',
-      )
-      return
-    }
-    if (!rec) {
+    if (!group || !plan) {
       setActionError(
         vi
-          ? 'Chưa có gợi ý thùng. Chờ Admin chốt kế hoạch.'
-          : 'No box recommendation yet. Wait for Admin to confirm a plan.',
+          ? 'Chưa có kế hoạch. Chờ Admin chốt hoặc bấm Tải lại.'
+          : 'No plan yet. Wait for Admin to confirm, or refresh.',
       )
       return
     }
-    if (
-      !confirmBoxUse(
-        {
-          lengthCm: rec.boxSize.lengthCm,
-          widthCm: rec.boxSize.widthCm,
-          heightCm: rec.boxSize.heightCm,
-        },
-        boxStock,
-        vi,
+    const needsOverride = plan.orders.some((order) => order.overParcelLimit)
+    if (needsOverride && overrideReason.trim().length < 3) {
+      setActionError(
+        vi
+          ? 'Kế hoạch vượt số kiện cho phép — nhập lý do chấp nhận (ít nhất 3 ký tự).'
+          : 'Plan exceeds the parcel limit — enter an override reason (min 3 chars).',
       )
+      return
+    }
+    const first = plan.parcels[0]
+    if (
+      first &&
+      !confirmBoxCode(first.box.code, first.box.name, vi)
     ) {
       return
     }
     setActionBusy(true)
     setActionError(null)
     try {
-      await approvePackaging(group.id, {
-        actual_measured_weight_kg: weight,
-        expected_group_version: group.version,
-      })
+      await approvePackingPlan(
+        group.id,
+        plan.version,
+        needsOverride ? overrideReason.trim() : undefined,
+      )
       showToast(
         vi
           ? 'Đã chấp nhận — xem hướng dẫn 3D, rồi bấm «Xác nhận đã đóng gói» khi gói xong.'
           : 'Accepted — see 3D guide, then tap «Confirm packed» when done.',
       )
-      setWeightKg('')
       setGuide3dActive(true)
+      setPlanDialog(null)
       await refreshAfterAction()
       setTab('approved_for_packing')
     } catch (err: unknown) {
-      setActionError(formatApiError(err))
+      reloadPlanAfterConflict(err)
     } finally {
       setActionBusy(false)
     }
   }
 
   async function onAdjust(): Promise<void> {
-    if (!group) return
-    const weight = Number(weightKg)
-    const l = Number(boxL)
-    const w = Number(boxW)
-    const h = Number(boxH)
-    if (
-      ![weight, l, w, h].every((n) => Number.isFinite(n) && n >= 0) ||
-      l < 1 ||
-      w < 1 ||
-      h < 1
-    ) {
+    if (!group || !plan || parcelNo == null) {
       setActionError(
-        vi
-          ? 'Kiểm tra kích thước thùng (≥1) và cân nặng (≥0).'
-          : 'Check box size (≥1) and weight (≥0).',
+        vi ? 'Chọn kiện cần đổi thùng.' : 'Choose a parcel to change box.',
+      )
+      return
+    }
+    const chosen = boxStock.find((row) => row.code === boxCode)
+    if (!chosen) {
+      setActionError(
+        vi ? 'Chọn thùng trong danh mục.' : 'Choose a box from the catalog.',
       )
       return
     }
@@ -515,52 +541,34 @@ export function PackagingWorkbench() {
       )
       return
     }
-    if (
-      !confirmBoxUse(
-        { lengthCm: l, widthCm: w, heightCm: h },
-        boxStock,
-        vi,
-      )
-    ) {
-      return
-    }
+    if (!confirmBoxCode(chosen.code, chosen.name, vi)) return
     setActionBusy(true)
     setActionError(null)
     try {
-      await adjustPackaging(group.id, {
-        box_size: { length_cm: l, width_cm: w, height_cm: h },
-        material_type: material.trim() || 'Bubble Wrap',
-        adjustment_reason: adjustReason,
-        ...(adjustReason === 'OTHER'
-          ? { adjustment_note: adjustNote.trim() }
-          : {}),
-        actual_measured_weight_kg: weight,
-        expected_group_version: group.version,
+      const next = await changeParcelBox(group.id, parcelNo, {
+        expectedVersion: plan.version,
+        boxCode: chosen.code,
+        reason: adjustReason,
+        ...(adjustReason === 'OTHER' ? { note: adjustNote.trim() } : {}),
       })
-      showToast(
-        vi
-          ? 'Đã điều chỉnh & chấp nhận — xem hướng dẫn 3D, rồi xác nhận đã đóng gói.'
-          : 'Adjusted & accepted — see 3D guide, then confirm packed.',
-      )
-      setWeightKg('')
-      setGuide3dActive(true)
-      await refreshAfterAction()
-      setTab('approved_for_packing')
+      setPlan(next)
+      setParcelWeights(weightPrefill(next))
+      showToast(vi ? 'Đã đổi thùng.' : 'Box changed.')
+      setPlanDialog(null)
     } catch (err: unknown) {
-      setActionError(formatApiError(err))
+      reloadPlanAfterConflict(err)
     } finally {
       setActionBusy(false)
     }
   }
 
   async function onReject(): Promise<void> {
-    if (!group) return
-    const reason = rejectReason.trim()
-    if (reason.length < 3) {
+    if (!group || !plan) return
+    if (rejectCode === 'OTHER' && rejectNote.trim().length < 3) {
       setActionError(
         vi
-          ? 'Nhập lý do từ chối (ít nhất 3 ký tự) để gửi Admin.'
-          : 'Enter a rejection reason (min 3 chars) for Admin.',
+          ? 'Nhập ghi chú (ít nhất 3 ký tự) khi lý do là Khác.'
+          : 'Enter a note (min 3 chars) when the reason is Other.',
       )
       return
     }
@@ -576,131 +584,58 @@ export function PackagingWorkbench() {
     setActionBusy(true)
     setActionError(null)
     try {
-      await rejectPackaging(group.id, {
-        expected_group_version: group.version,
-        rejection_reason: reason,
+      await rejectPackingPlan(group.id, {
+        expectedVersion: plan.version,
+        reason: rejectCode,
+        ...(rejectNote.trim() ? { note: rejectNote.trim() } : {}),
       })
       showToast(
         vi
           ? 'Đã từ chối — Admin đã được thông báo.'
           : 'Rejected — Admin notified.',
       )
-      setRejectReason('')
+      setRejectNote('')
+      setRejectOpen(false)
       setGuide3dActive(false)
       await refreshAfterAction()
       setTab('pending_approval')
     } catch (err: unknown) {
-      setActionError(formatApiError(err))
+      reloadPlanAfterConflict(err)
     } finally {
       setActionBusy(false)
     }
   }
 
-  function rememberLazadaFollowUp(
-    groupId: string,
-    sync: LazadaPackInfo,
-  ): void {
-    const needsFollowUp =
-      sync.status === 'failed' ||
-      sync.status === 'partial' ||
-      sync.status === 'disabled' ||
-      sync.status === null
-    setLazadaFollowUp(
-      needsFollowUp || sync.status === 'success' || sync.status === 'skipped'
-        ? { groupId, pack: sync }
-        : null,
-    )
-  }
-
-  async function onRetryLazadaPack(): Promise<void> {
-    if (!lazadaFollowUp) return
-    setLazadaRetryBusy(true)
-    setActionError(null)
-    try {
-      const result = await retryLazadaPack(lazadaFollowUp.groupId)
-      rememberLazadaFollowUp(lazadaFollowUp.groupId, result.lazadaPackSync)
-      showToast(
-        (vi ? 'Đã gửi lại lên Lazada.' : 'Retried Lazada pack report.') +
-          lazadaPackToastHint(result.lazadaPackSync, vi),
+  async function submitPack(): Promise<void> {
+    if (!group || !plan) {
+      setActionError(
+        vi ? 'Chưa có kế hoạch để đóng.' : 'No plan to pack.',
       )
-    } catch (err: unknown) {
-      setActionError(formatApiError(err))
-    } finally {
-      setLazadaRetryBusy(false)
+      return
     }
-  }
-
-  async function onConfirmPacked(): Promise<void> {
-    if (!group || group.fulfillmentStatus !== 'approved_for_packing') return
+    const parcels = readParcelWeights(plan, parcelWeights)
+    if (!parcels) {
+      setActionError(
+        vi
+          ? 'Nhập cân từng kiện từ 0,001 đến 100 kg.'
+          : 'Enter each parcel weight from 0.001 to 100 kg.',
+      )
+      return
+    }
     setActionBusy(true)
     setActionError(null)
     try {
-      const result = await packOrderGroup(group.id, {
-        expected_version: group.version,
-      })
-      const consumption = result.packagingConsumption
-      const warn = consumption?.warnings?.length
-        ? vi
-          ? ` Cảnh báo vật liệu: ${consumption.warnings.join('; ')}`
-          : ` Material warnings: ${consumption.warnings.join('; ')}`
-        : ''
-      const saved =
-        consumption?.consumed?.reduce((sum, line) => sum + line.savingVnd, 0) ??
-        0
-      const saveHint =
-        saved > 0
-          ? vi
-            ? ` Tiết kiệm ~${saved.toLocaleString('vi-VN')}₫ (thùng tái sử dụng).`
-            : ` Saved ~${saved.toLocaleString('en-US')} VND (reused packing).`
-          : ''
-      rememberLazadaFollowUp(group.id, result.lazadaPackSync)
+      const result = await packPlan(group.id, plan.version, parcels)
       showToast(
-        (vi
-          ? 'Đã xác nhận đóng gói xong — nhóm chuyển sang packed.'
-          : 'Confirmed packed — group is now packed.') +
-          saveHint +
-          warn +
-          lazadaPackToastHint(result.lazadaPackSync, vi),
+        result.completed
+          ? vi
+            ? 'Đã xác nhận đóng gói xong — nhóm chuyển sang packed.'
+            : 'Confirmed packed — group is now packed.'
+          : vi
+            ? 'Đã gửi cân. Còn kiện lệch cân, nhóm chưa packed.'
+            : 'Weights saved. A parcel is held, so the group is not packed yet.',
       )
       setGuide3dActive(false)
-      await refreshAfterAction()
-      await loadBoxStock()
-    } catch (err: unknown) {
-      const code = getApiErrorCode(err)
-      if (code === 'ORD_GROUP_ALL_ORDERS_CANCELED') {
-        setActionError(
-          vi
-            ? 'Nhóm không còn đơn để đóng gói (đã hủy / sự cố).'
-            : 'No active orders left to pack (canceled / exception).',
-        )
-      } else {
-        setActionError(formatApiError(err))
-      }
-    } finally {
-      setActionBusy(false)
-    }
-  }
-
-  async function onPack(): Promise<void> {
-    if (!group) return
-    setActionBusy(true)
-    setActionError(null)
-    try {
-      const result = await packOrderGroup(group.id, {
-        expected_version: group.version,
-      })
-      const consumption = result.packagingConsumption
-      const warn = consumption?.warnings?.length
-        ? vi
-          ? ` Cảnh báo: ${consumption.warnings.join('; ')}`
-          : ` Warnings: ${consumption.warnings.join('; ')}`
-        : ''
-      rememberLazadaFollowUp(group.id, result.lazadaPackSync)
-      showToast(
-        (vi ? 'Đã xác nhận đóng gói xong.' : 'Marked as packed.') +
-          warn +
-          lazadaPackToastHint(result.lazadaPackSync, vi),
-      )
       await refreshAfterAction()
       await loadBoxStock()
     } catch (err: unknown) {
@@ -717,8 +652,73 @@ export function PackagingWorkbench() {
             : 'No active orders left to pack (canceled / exception).',
         )
       } else {
-        setActionError(formatApiError(err))
+        reloadPlanAfterConflict(err)
       }
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function onConfirmPacked(): Promise<void> {
+    if (!group || group.fulfillmentStatus !== 'approved_for_packing') return
+    await submitPack()
+  }
+
+  async function onPack(): Promise<void> {
+    await submitPack()
+  }
+
+  async function onAssign(mode: 'auto' | 'manual'): Promise<void> {
+    if (!group) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const next = await assignPacker(group.id, mode, staffId || undefined)
+      setPlan(next)
+      setToast(vi ? 'Đã gán người đóng gói.' : 'Packer assigned.')
+    } catch (err: unknown) {
+      setActionError(formatApiError(err))
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function onBackToPicking(): Promise<void> {
+    if (!group || !plan) return
+    const quantity = Number(returnQty)
+    if (!returnSku.trim() || !Number.isInteger(quantity) || quantity < 1) {
+      setActionError(vi ? 'Nhập SKU và số lượng.' : 'Enter SKU and quantity.')
+      return
+    }
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const next = await backToPicking(group.id, {
+        expectedVersion: plan.version,
+        items: [{ sku: returnSku.trim(), quantity, restock: returnRestock }],
+        note: returnNote.trim() || undefined,
+      })
+      setPlan(next)
+      setToast(vi ? 'Đã trả về lấy hàng.' : 'Sent back to picking.')
+    } catch (err: unknown) {
+      reloadPlanAfterConflict(err)
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function onWriteGuide(): Promise<void> {
+    if (!group || !plan || plan.parcels.length === 0) return
+    const no = parcelNo ?? plan.parcels[0]?.parcelNo
+    if (no == null) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const next = await requestParcelGuide(group.id, no, true)
+      setPlan(next)
+      setToast(vi ? 'Đã lấy hướng dẫn.' : 'Guide ready.')
+    } catch (err: unknown) {
+      setActionError(formatApiError(err))
     } finally {
       setActionBusy(false)
     }
@@ -756,7 +756,7 @@ export function PackagingWorkbench() {
   })
   const canApprove =
     tab === 'pending_approval' &&
-    Boolean(rec) &&
+    Boolean(plan) &&
     group?.fulfillmentStatus === 'pending_approval'
   const actionableCount = counts.pending + counts.partial
   const isViewOnlyTab = tab === 'awaiting_packaging'
@@ -796,13 +796,43 @@ export function PackagingWorkbench() {
 
   const queuePaging = useLocalQueuePagination(groups)
 
-  const lazadaFollowUpCanRetry = lazadaFollowUp
-    ? canRetryLazadaPack({
-        platform: 'lazada',
-        fulfillmentStatus: 'packed',
-        lazadaPack: lazadaFollowUp.pack,
-      })
-    : false
+  const overParcelLimit = plan?.orders.some((order) => order.overParcelLimit) ?? false
+
+  function parcelWeightFields(): ReactNode {
+    if (!plan || plan.parcels.length === 0) return null
+    return (
+      <div className="mt-3 space-y-2">
+        <p className="text-xs font-medium text-ink-muted">
+          {vi ? 'Cân từng kiện (kg)' : 'Weight per parcel (kg)'}
+        </p>
+        {plan.parcels.map((parcel) => (
+          <label
+            key={parcel.parcelNo}
+            className="flex items-center gap-2 text-sm text-ink"
+          >
+            <span className="w-28 font-mono text-xs">
+              #{String(parcel.parcelNo)} {parcel.box.code}
+            </span>
+            <input
+              type="number"
+              min={0.001}
+              max={100}
+              step="0.001"
+              value={parcelWeights[parcel.parcelNo] ?? ''}
+              onChange={(event) =>
+                setParcelWeights((prev) => ({
+                  ...prev,
+                  [parcel.parcelNo]: event.target.value,
+                }))
+              }
+              className="w-28 rounded-lg border border-hairline bg-canvas px-2 py-1.5"
+            />
+            <span className="text-xs text-ink-muted">kg</span>
+          </label>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
@@ -872,63 +902,6 @@ export function PackagingWorkbench() {
         </p>
       </div>
 
-      {lazadaFollowUp ? (
-        <div
-          className={`owner-panel flex flex-wrap items-start justify-between gap-3 rounded-2xl border px-4 py-3 text-sm ${
-            lazadaFollowUp.pack.status === 'success'
-              ? 'border-emerald-200 bg-emerald-50/80 text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100'
-              : lazadaFollowUp.pack.status === 'failed' ||
-                  lazadaFollowUp.pack.status === 'partial'
-                ? 'border-rose-200 bg-rose-50/80 text-rose-950 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-100'
-                : 'border-amber-200 bg-amber-50/80 text-amber-950 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100'
-          }`}
-        >
-          <div className="min-w-0 flex-1 space-y-1">
-            <p className="font-semibold">
-              {vi ? 'Báo đóng gói lên Lazada' : 'Lazada pack report'} ·{' '}
-              <span className="font-mono text-xs">
-                …{lazadaFollowUp.groupId.slice(-8)}
-              </span>
-            </p>
-            <p className="text-xs opacity-90">
-              {lazadaPackStatusLabel(lazadaFollowUp.pack.status, vi)}
-              {lazadaFollowUp.pack.error
-                ? ` — ${lazadaFollowUp.pack.error}`
-                : ''}
-            </p>
-            <p className="text-[11px] opacity-75">
-              {vi
-                ? 'OptiPack đã packed. Lỗi Lazada không hoàn tác bước đóng gói.'
-                : 'OptiPack is already packed. A Lazada error does not undo packing.'}
-            </p>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            {lazadaFollowUpCanRetry ? (
-              <button
-                type="button"
-                disabled={lazadaRetryBusy}
-                onClick={() => void onRetryLazadaPack()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50"
-              >
-                {lazadaRetryBusy ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-3.5 w-3.5" />
-                )}
-                {vi ? 'Gửi lại Lazada' : 'Retry Lazada'}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => setLazadaFollowUp(null)}
-              className="rounded-lg border border-current/20 px-3 py-2 text-xs font-semibold opacity-80 hover:opacity-100"
-            >
-              {vi ? 'Đóng' : 'Dismiss'}
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       <div className="pack-bench">
         <section className="pack-bench-col">
           <div className="pack-bench-head">
@@ -993,6 +966,12 @@ export function PackagingWorkbench() {
                           {statusLabel(g.fulfillmentStatus, vi)}
                         </span>
                       </p>
+                      {summaries[g.id] ? (
+                        <p className="mt-0.5 text-[10px] text-ink-subtle">
+                          {vi ? 'Kế hoạch' : 'Plan'} {summaries[g.id]?.status} ·{' '}
+                          {String(summaries[g.id]?.parcels ?? 0)} {vi ? 'kiện' : 'parcels'}
+                        </p>
+                      ) : null}
                     </button>
                   </li>
                 ))}
@@ -1033,7 +1012,7 @@ export function PackagingWorkbench() {
               </h2>
             </div>
           </div>
-          <div className="pack-bench-scroll">
+          <div className="pack-bench-scroll pb-12">
           {!selectedId ? (
             <div className="space-y-2">
               {isViewOnlyTab ? (
@@ -1137,19 +1116,122 @@ export function PackagingWorkbench() {
                       : 'Plan accepted. Follow the 3D guide, then confirm when packing is done.'}
                   </p>
                   {group?.fulfillmentStatus === 'approved_for_packing' ? (
-                    <button
-                      type="button"
-                      disabled={actionBusy}
-                      onClick={() => void onConfirmPacked()}
-                      className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                    >
-                      {actionBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                    <>
+                      {canAssign && plan ? (
+                        <div className="mt-3 space-y-2 rounded-lg border border-hairline bg-surface p-3 text-xs">
+                          <p className="font-semibold text-ink">
+                            {vi ? 'Gán người đóng' : 'Assign packer'}
+                            {plan.session?.assignedPackerId
+                              ? ` · ${plan.session.assignedPackerId.slice(-6)}`
+                              : ''}
+                          </p>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={actionBusy}
+                              onClick={() => void onAssign('auto')}
+                              className="rounded-lg border border-hairline px-2 py-1"
+                            >
+                              {vi ? 'Tự gán' : 'Auto'}
+                            </button>
+                            <select
+                              value={staffId}
+                              onChange={(e) => setStaffId(e.target.value)}
+                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
+                            >
+                              <option value="">{vi ? 'Chọn nhân viên' : 'Pick staff'}</option>
+                              {staff.map((person) => (
+                                <option key={person.staffId} value={person.staffId}>
+                                  {person.fullName} ({String(person.activeWorkload)})
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              disabled={actionBusy || !staffId}
+                              onClick={() => void onAssign('manual')}
+                              className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
+                            >
+                              {vi ? 'Gán tay' : 'Assign'}
+                            </button>
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <input
+                              value={returnSku}
+                              onChange={(e) => setReturnSku(e.target.value)}
+                              placeholder="SKU"
+                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
+                            />
+                            <input
+                              value={returnQty}
+                              onChange={(e) => setReturnQty(e.target.value)}
+                              inputMode="numeric"
+                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
+                            />
+                          </div>
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={returnRestock}
+                              onChange={(e) => setReturnRestock(e.target.checked)}
+                            />
+                            {vi ? 'Hàng còn tốt, nhập lại kệ' : 'Good item, restock'}
+                          </label>
+                          <input
+                            value={returnNote}
+                            onChange={(e) => setReturnNote(e.target.value)}
+                            placeholder={vi ? 'Ghi chú (tuỳ chọn)' : 'Note'}
+                            className="w-full rounded-lg border border-hairline bg-canvas px-2 py-1"
+                          />
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => void onBackToPicking()}
+                            className="rounded-lg border border-hairline px-2 py-1"
+                          >
+                            {vi ? 'Trả về lấy hàng' : 'Back to picking'}
+                          </button>
+                        </div>
+                      ) : null}
+                      {plan &&
+                      (plan.status === 'approved' || plan.status === 'packing') ? (
+                        <PackingSessionPanel
+                          groupId={group.id}
+                          plan={plan}
+                          boxes={boxStock.map((row) => ({ code: row.code, name: row.name }))}
+                          vi={vi}
+                          onPlan={(next) => {
+                            setPlan(next)
+                            setParcelWeights(weightPrefill(next))
+                          }}
+                          onError={(err) => reloadPlanAfterConflict(err)}
+                        />
+                      ) : null}
+                      {requireScan ? (
+                        <p className="mt-3 text-xs text-ink-muted">
+                          {vi
+                            ? 'Cài đặt đang bắt buộc quét từng món. Dùng phiên đóng gói phía trên, không bấm đóng nhanh.'
+                            : 'Scan is required. Use the packing session above.'}
+                        </p>
                       ) : (
-                        <Package className="h-4 w-4" />
+                        <>
+                          {parcelWeightFields()}
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => void onConfirmPacked()}
+                            className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                          >
+                            {actionBusy ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Package className="h-4 w-4" />
+                            )}
+                            {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
+                          </button>
+                        </>
                       )}
-                      {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
-                    </button>
+                    </>
                   ) : null}
                   {actionError && tab === 'approved_for_packing' ? (
                     <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">
@@ -1190,58 +1272,98 @@ export function PackagingWorkbench() {
               ) : tab !== 'awaiting_packaging' ? (
                 <>
                   <div className="rounded-lg border border-hairline bg-canvas p-4">
-                    <h3 className="text-sm font-semibold text-ink">
-                      {vi ? 'Gợi ý đóng gói' : 'Packaging recommendation'}
-                    </h3>
-                    {!rec ? (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold text-ink">
+                        {vi ? 'Kế hoạch đóng gói' : 'Packing plan'}
+                      </h3>
+                      {canApprove ? (
+                        <div className="inline-flex rounded-lg border border-hairline bg-surface p-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionError(null)
+                              setPlanDialog('approve')
+                            }}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                              planDialog === 'approve'
+                                ? 'bg-primary text-white'
+                                : 'text-ink'
+                            }`}
+                          >
+                            {vi ? 'Duyệt' : 'Approve'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActionError(null)
+                              setPlanDialog('adjust')
+                            }}
+                            className={`rounded-md px-2.5 py-1 text-xs font-medium ${
+                              planDialog === 'adjust'
+                                ? 'bg-primary text-white'
+                                : 'text-ink'
+                            }`}
+                          >
+                            {vi ? 'Điều chỉnh' : 'Adjust'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    {!plan ? (
                       <p className="mt-2 text-sm text-ink-subtle">
                         {vi
-                          ? 'Chưa có gợi ý. Chờ Admin chốt kế hoạch. Không thể duyệt khi chưa có kế hoạch thùng.'
-                          : 'No recommendation yet. Wait for Admin to confirm a plan. Cannot approve without one.'}
+                          ? 'Chưa có kế hoạch. Chờ Admin chốt. Không thể duyệt khi chưa có kế hoạch.'
+                          : 'No plan yet. Wait for Admin to confirm. Cannot approve without one.'}
                       </p>
                     ) : (
-                      <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
-                        <div>
-                          <dt className="text-ink-subtle">
-                            {vi ? 'Thùng (cm)' : 'Box (cm)'}
-                          </dt>
-                          <dd className="font-mono text-ink">
-                            {rec.boxSize.lengthCm} × {rec.boxSize.widthCm} ×{' '}
-                            {rec.boxSize.heightCm}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-ink-subtle">
-                            {vi ? 'Vật liệu' : 'Material'}
-                          </dt>
-                          <dd className="text-ink">
-                            {rec.materialType} × {rec.materialQuantity}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-ink-subtle">
-                            {vi ? 'Ước phí ship' : 'Est. shipping'}
-                          </dt>
-                          <dd className="text-ink">
-                            {formatCurrency(rec.estimatedShippingCostVnd)}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt className="text-ink-subtle">
-                            {vi ? 'Trạng thái duyệt' : 'Approval'}
-                          </dt>
-                          <dd className="capitalize text-ink">
-                            {rec.approvalStatus}
-                          </dd>
-                        </div>
-                        {rec.fallbackUsed ? (
-                          <div className="sm:col-span-2 text-xs text-amber-700 dark:text-amber-300">
-                            {vi
-                              ? 'Đang dùng thuật toán fallback (không phải AI đầy đủ).'
-                              : 'Using fallback algorithm (not full AI).'}
+                      <div className="mt-3 space-y-3 text-sm">
+                        <dl className="grid gap-2 sm:grid-cols-2">
+                          <div>
+                            <dt className="text-ink-subtle">
+                              {vi ? 'Trạng thái kế hoạch' : 'Plan status'}
+                            </dt>
+                            <dd className="capitalize text-ink">{plan.status}</dd>
                           </div>
+                          <div>
+                            <dt className="text-ink-subtle">
+                              {vi ? 'Số kiện' : 'Parcels'}
+                            </dt>
+                            <dd className="text-ink">{plan.totals.parcels}</dd>
+                          </div>
+                        </dl>
+                        {plan.failureReason ? (
+                          <p className="text-xs text-rose-700 dark:text-rose-300">
+                            {plan.failureReason}
+                          </p>
                         ) : null}
-                      </dl>
+                        <ul className="space-y-2">
+                          {plan.parcels.map((parcel) => {
+                            const size = outerCm(parcel.box)
+                            return (
+                              <li
+                                key={parcel.parcelNo}
+                                className="rounded-lg border border-hairline px-3 py-2"
+                              >
+                                <p className="font-medium text-ink">
+                                  #{String(parcel.parcelNo)} {parcel.box.name}{' '}
+                                  <span className="font-mono text-xs text-ink-muted">
+                                    {parcel.box.code}
+                                  </span>
+                                </p>
+                                <p className="font-mono text-xs text-ink-muted">
+                                  {size.lengthCm} × {size.widthCm} × {size.heightCm} cm
+                                  {' · '}
+                                  {(parcel.estimatedWeightG / 1000).toFixed(2)} kg
+                                  {parcel.shippingCostVnd != null
+                                    ? ` · ${formatCurrency(parcel.shippingCostVnd)}`
+                                    : ''}
+                                </p>
+                                <MaterialTags materials={parcel.materials} />
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </div>
                     )}
                     <div className="mt-3 border-t border-hairline pt-3">
                       <p className="text-xs font-medium text-ink-muted">
@@ -1266,8 +1388,9 @@ export function PackagingWorkbench() {
                               row.heightCm != null
                                 ? `${row.lengthCm}×${row.widthCm}×${row.heightCm} cm`
                                 : null
-                            const suggested =
-                              rec != null && sameBoxSize(rec.boxSize, row)
+                            const suggested = plan?.parcels.some(
+                              (parcel) => parcel.box.code === row.code,
+                            )
                             return (
                               <li
                                 key={row.code}
@@ -1294,199 +1417,32 @@ export function PackagingWorkbench() {
                     <div className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950/30">
                       <p className="text-sm font-medium text-emerald-950 dark:text-emerald-100">
                         {vi
-                          ? 'Kho đã lấy xong. Gói kiện rồi xác nhận. Cân thật hiện nằm trên API duyệt kế hoạch (approve), không gửi kèm pack — nhờ BE nếu cần cân lúc gói.'
-                          : 'Warehouse finished picking. Pack the tote then confirm. Measured weight lives on the approve-plan API, not pack — ask BE if weight should be recorded at pack time.'}
+                          ? 'Kho đã lấy xong. Nhập cân từng kiện rồi xác nhận.'
+                          : 'Warehouse finished picking. Enter each parcel weight, then confirm.'}
                       </p>
-                      <button
-                        type="button"
-                        disabled={actionBusy}
-                        onClick={() => void onPack()}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
-                      >
-                        <CheckCircle2 className="h-4 w-4" />
-                        {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
-                      </button>
-                    </div>
-                  ) : null}
-
-                  {canApprove ? (
-                    <div className="space-y-4 rounded-lg border border-hairline p-4">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setMode('approve')}
-                          className={`rounded-lg px-3 py-1.5 text-sm ${
-                            mode === 'approve'
-                              ? 'bg-primary text-white'
-                              : 'border border-hairline'
-                          }`}
-                        >
-                          {vi ? 'Duyệt' : 'Approve'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setMode('adjust')}
-                          className={`rounded-lg px-3 py-1.5 text-sm ${
-                            mode === 'adjust'
-                              ? 'bg-primary text-white'
-                              : 'border border-hairline'
-                          }`}
-                        >
-                          {vi ? 'Điều chỉnh' : 'Adjust'}
-                        </button>
-                      </div>
-
-                      <label className="block text-sm">
-                        <span className="mb-1 flex items-center gap-1 text-ink-muted">
-                          <Scale className="h-3.5 w-3.5" />
-                          {vi ? 'Cân nặng thật (kg)' : 'Measured weight (kg)'}
-                        </span>
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={weightKg}
-                          onChange={(e) => setWeightKg(e.target.value)}
-                          className="w-full max-w-xs rounded-lg border border-hairline bg-canvas px-3 py-2 text-ink"
-                        />
-                      </label>
-
-                      {mode === 'adjust' ? (
-                        <div className="grid gap-3 sm:grid-cols-3">
-                          <label className="text-sm">
-                            <span className="text-ink-muted">L (cm)</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={boxL}
-                              onChange={(e) => setBoxL(e.target.value)}
-                              className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
-                            />
-                          </label>
-                          <label className="text-sm">
-                            <span className="text-ink-muted">W (cm)</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={boxW}
-                              onChange={(e) => setBoxW(e.target.value)}
-                              className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
-                            />
-                          </label>
-                          <label className="text-sm">
-                            <span className="text-ink-muted">H (cm)</span>
-                            <input
-                              type="number"
-                              min={1}
-                              value={boxH}
-                              onChange={(e) => setBoxH(e.target.value)}
-                              className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
-                            />
-                          </label>
-                          <label className="text-sm sm:col-span-2">
-                            <span className="text-ink-muted">
-                              {vi ? 'Vật liệu' : 'Material'}
-                            </span>
-                            <input
-                              value={material}
-                              onChange={(e) => setMaterial(e.target.value)}
-                              className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
-                            />
-                          </label>
-                          <label className="text-sm sm:col-span-3">
-                            <span className="text-ink-muted">
-                              {vi ? 'Lý do điều chỉnh' : 'Adjustment reason'}
-                            </span>
-                            <select
-                              value={adjustReason}
-                              onChange={(e) =>
-                                setAdjustReason(
-                                  e.target
-                                    .value as AdjustPackagingInput['adjustment_reason'],
-                                )
-                              }
-                              className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
-                            >
-                              {(
-                                Object.keys(
-                                  ADJUSTMENT_REASON_LABELS,
-                                ) as AdjustPackagingInput['adjustment_reason'][]
-                              ).map((key) => (
-                                <option key={key} value={key}>
-                                  {vi
-                                    ? ADJUSTMENT_REASON_LABELS[key].vi
-                                    : ADJUSTMENT_REASON_LABELS[key].en}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          {adjustReason === 'OTHER' ? (
-                            <label className="text-sm sm:col-span-3">
-                              <span className="text-ink-muted">
-                                {vi ? 'Ghi chú' : 'Note'}
-                              </span>
-                              <input
-                                value={adjustNote}
-                                onChange={(e) => setAdjustNote(e.target.value)}
-                                className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
-                              />
-                            </label>
-                          ) : null}
-                        </div>
-                      ) : null}
-
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() =>
-                            void (mode === 'approve' ? onApprove() : onAdjust())
-                          }
-                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                        >
-                          {actionBusy ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : (
+                      {requireScan ? (
+                        <p className="text-xs text-emerald-900 dark:text-emerald-100">
+                          {vi
+                            ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
+                            : 'Scan is required. Open the approved tab and use the session.'}
+                        </p>
+                      ) : (
+                        <>
+                          {parcelWeightFields()}
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => void onPack()}
+                            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                          >
                             <CheckCircle2 className="h-4 w-4" />
-                          )}
-                          {mode === 'approve'
-                            ? vi
-                              ? 'Chấp nhận thực hiện'
-                              : 'Accept & follow guide'
-                            : vi
-                              ? 'Lưu điều chỉnh & duyệt'
-                              : 'Save adjust & approve'}
-                        </button>
-                        <div className="w-full space-y-1.5 sm:col-span-2">
-                          <label className="block text-xs font-medium text-ink-subtle">
-                            {vi
-                              ? 'Lý do từ chối (bắt buộc nếu từ chối)'
-                              : 'Rejection reason (required to reject)'}
-                          </label>
-                          <textarea
-                            value={rejectReason}
-                            onChange={(e) => setRejectReason(e.target.value)}
-                            rows={2}
-                            placeholder={
-                              vi
-                                ? 'VD: Thùng quá lớn so với hàng đã lấy…'
-                                : 'e.g. Box too large for picked items…'
-                            }
-                            className="w-full rounded-lg border border-hairline bg-canvas px-3 py-2 text-sm text-ink"
-                          />
-                        </div>
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() => void onReject()}
-                          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 px-4 py-2 text-sm text-rose-700 dark:border-rose-800 dark:text-rose-300 disabled:opacity-50"
-                        >
-                          <XCircle className="h-4 w-4" />
-                          {vi ? 'Từ chối & gửi Admin' : 'Reject & notify Admin'}
-                        </button>
-                      </div>
+                            {vi ? 'Xác nhận đã đóng gói' : 'Confirm packed'}
+                          </button>
+                        </>
+                      )}
                     </div>
                   ) : null}
+
                 </>
               ) : null}
 
@@ -1508,14 +1464,49 @@ export function PackagingWorkbench() {
                     : '3D preview'}
               </p>
               <Packing3DBoxViewer
-                boxLabel={boxViewerLabel(rec, vi)}
-                boxSub={boxViewerSub(rec, vi)}
+                boxLabel={boxViewerLabel(plan, vi)}
+                boxSub={boxViewerSub(plan, vi)}
                 autoRotate={
                   guide3dActive || tab === 'approved_for_packing'
                 }
+                onOpenDetail={() => setGuideDetailOpen(true)}
               />
+              <MaterialTags materials={plan?.parcels[0]?.materials ?? []} />
+              <button
+                type="button"
+                onClick={() => setGuideDetailOpen(true)}
+                className="rounded-lg border border-hairline px-3 py-1.5 text-xs font-medium text-ink"
+              >
+                {vi ? 'Xem chi tiết' : 'View details'}
+              </button>
             </div>
           </div>
+          {canApprove ? (
+            <div className="pack-action-bar">
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setRejectOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-white px-4 py-2.5 text-sm font-medium text-rose-700 disabled:opacity-50 dark:border-rose-800 dark:bg-transparent dark:text-rose-300"
+              >
+                <XCircle className="h-4 w-4" />
+                {vi ? 'Từ chối & gửi Admin' : 'Reject & notify Admin'}
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => void onApprove()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#152d35] px-4 py-2.5 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+              >
+                {actionBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                {vi ? 'Chấp nhận thực hiện' : 'Accept & follow guide'}
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <aside className="pack-bench-col pack-bench-guide hidden lg:flex">
@@ -1540,19 +1531,379 @@ export function PackagingWorkbench() {
                     : 'Drag to orbit'}
               </h2>
             </div>
+            <button
+              type="button"
+              onClick={() => setGuideDetailOpen(true)}
+              className="shrink-0 rounded-lg border border-hairline bg-white px-2.5 py-1.5 text-xs font-medium text-ink"
+            >
+              {vi ? 'Xem chi tiết' : 'View details'}
+            </button>
           </div>
           <div className="pack-bench-scroll p-3">
             <Packing3DBoxViewer
-              boxLabel={boxViewerLabel(rec, vi)}
-              boxSub={boxViewerSub(rec, vi)}
+              boxLabel={boxViewerLabel(plan, vi)}
+              boxSub={boxViewerSub(plan, vi)}
               autoRotate={
                 guide3dActive || tab === 'approved_for_packing'
               }
               className="relative h-full w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40"
+              onOpenDetail={() => setGuideDetailOpen(true)}
             />
+            <MaterialTags materials={plan?.parcels[0]?.materials ?? []} />
+            {plan && plan.parcels.length > 0 ? (
+              <div className="mt-3 space-y-2 text-xs text-ink">
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() => void onWriteGuide()}
+                  className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
+                >
+                  {vi ? 'Viết hướng dẫn kiện' : 'Write parcel guide'}
+                </button>
+                {(plan.parcels.find((row) => row.parcelNo === parcelNo) ?? plan.parcels[0])?.guide
+                  ?.steps.map((step) => (
+                    <p key={step.step}>
+                      {step.step}. {step.instruction}
+                      {step.tip ? ` — ${step.tip}` : ''}
+                    </p>
+                  ))}
+              </div>
+            ) : null}
           </div>
         </aside>
       </div>
+
+      {guideDetailOpen ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 p-4"
+          onClick={() => setGuideDetailOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="guide-detail-title"
+            className="flex h-[min(92vh,880px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+              <h3 id="guide-detail-title" className="text-base font-semibold text-slate-900">
+                {vi ? 'Chi tiết hướng dẫn đóng gói' : 'Packing guide details'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setGuideDetailOpen(false)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                aria-label={vi ? 'Đóng' : 'Close'}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.6fr)_22rem]">
+              <div className="min-h-[360px] bg-[#f8faff] p-3">
+                <Packing3DBoxViewer
+                  boxLabel={boxViewerLabel(plan, vi)}
+                  boxSub={boxViewerSub(plan, vi)}
+                  autoRotate={guide3dActive || tab === 'approved_for_packing'}
+                  className="relative h-full min-h-[340px] w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff]"
+                />
+              </div>
+              <aside className="min-h-0 overflow-y-auto border-t border-slate-200 p-5 lg:border-t-0 lg:border-l">
+                <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                  {vi ? 'Mô tả' : 'Description'}
+                </p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{boxViewerLabel(plan, vi)}</p>
+                <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, vi)}</p>
+                <div className="mt-3">
+                  <MaterialTags materials={plan?.parcels[0]?.materials ?? []} />
+                </div>
+                {(() => {
+                  const guide = (
+                    plan?.parcels.find((row) => row.parcelNo === parcelNo) ?? plan?.parcels[0]
+                  )?.guide
+                  return (
+                    <div className="mt-5">
+                      <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                        {vi ? 'Các bước' : 'Steps'}
+                      </p>
+                      {guide?.summary ? (
+                        <p className="mt-2 text-sm text-slate-700">{guide.summary}</p>
+                      ) : null}
+                      {guide && guide.steps.length > 0 ? (
+                        <ol className="mt-3 space-y-3">
+                          {guide.steps.map((step) => (
+                            <li key={step.step} className="flex gap-3">
+                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#152d35] text-xs font-semibold text-white">
+                                {step.step}
+                              </span>
+                              <div>
+                                <p className="text-sm text-slate-800">{step.instruction}</p>
+                                {step.tip ? (
+                                  <p className="mt-1 text-xs text-slate-500">{step.tip}</p>
+                                ) : null}
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : (
+                        <p className="mt-2 text-sm text-slate-500">
+                          {vi
+                            ? 'Chưa có hướng dẫn từng bước.'
+                            : 'No step-by-step guide yet.'}
+                        </p>
+                      )}
+                      {plan && plan.parcels.length > 0 ? (
+                        <button
+                          type="button"
+                          disabled={actionBusy}
+                          onClick={() => void onWriteGuide()}
+                          className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
+                        >
+                          {vi ? 'Viết hướng dẫn kiện' : 'Write parcel guide'}
+                        </button>
+                      ) : null}
+                    </div>
+                  )
+                })()}
+              </aside>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {planDialog ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => {
+            if (!actionBusy) setPlanDialog(null)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="plan-dialog-title"
+            className="w-full max-w-md rounded-xl border border-slate-200/80 bg-white p-5 shadow-lg dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="plan-dialog-title" className="text-base font-semibold text-ink">
+              {planDialog === 'approve'
+                ? vi
+                  ? 'Duyệt kế hoạch'
+                  : 'Approve plan'
+                : vi
+                  ? 'Điều chỉnh thùng'
+                  : 'Adjust box'}
+            </h3>
+            {planDialog === 'approve' ? (
+              <div className="mt-4 space-y-3">
+                {overParcelLimit ? (
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-xs font-medium text-ink-subtle">
+                      {vi
+                        ? 'Lý do chấp nhận khi vượt số kiện'
+                        : 'Override reason when over the parcel limit'}
+                    </span>
+                    <input
+                      value={overrideReason}
+                      onChange={(event) => setOverrideReason(event.target.value)}
+                      className="w-full rounded-lg border border-hairline bg-canvas px-3 py-2 text-ink"
+                    />
+                  </label>
+                ) : (
+                  <p className="text-sm text-ink-muted">
+                    {vi
+                      ? 'Chấp nhận phương án hiện tại. Không cần điền thêm.'
+                      : 'Accept the current plan. Nothing else to fill in.'}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="mt-4 grid gap-3">
+                <label className="text-sm">
+                  <span className="text-ink-muted">{vi ? 'Kiện' : 'Parcel'}</span>
+                  <select
+                    value={parcelNo ?? ''}
+                    onChange={(event) => setParcelNo(Number(event.target.value))}
+                    className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
+                  >
+                    {(plan?.parcels ?? []).map((parcel) => (
+                      <option key={parcel.parcelNo} value={parcel.parcelNo}>
+                        #{String(parcel.parcelNo)} {parcel.box.code}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="text-ink-muted">
+                    {vi ? 'Thùng trong danh mục' : 'Catalog box'}
+                  </span>
+                  <select
+                    value={boxCode}
+                    onChange={(event) => setBoxCode(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
+                  >
+                    <option value="">{vi ? 'Chọn thùng' : 'Choose a box'}</option>
+                    {boxStock.map((row) => (
+                      <option key={row.code} value={row.code}>
+                        {row.name} ({row.code})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-sm">
+                  <span className="text-ink-muted">
+                    {vi ? 'Lý do điều chỉnh' : 'Adjustment reason'}
+                  </span>
+                  <select
+                    value={adjustReason}
+                    onChange={(event) =>
+                      setAdjustReason(event.target.value as AdjustmentReason)
+                    }
+                    className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
+                  >
+                    {ADJUSTMENT_REASONS.map((key) => (
+                      <option key={key} value={key}>
+                        {vi
+                          ? PACKING_REASON_LABELS[key].vi
+                          : PACKING_REASON_LABELS[key].en}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {adjustReason === 'OTHER' ? (
+                  <label className="text-sm">
+                    <span className="text-ink-muted">{vi ? 'Ghi chú' : 'Note'}</span>
+                    <input
+                      value={adjustNote}
+                      onChange={(event) => setAdjustNote(event.target.value)}
+                      className="mt-1 w-full rounded-lg border border-hairline bg-canvas px-3 py-2"
+                    />
+                  </label>
+                ) : null}
+              </div>
+            )}
+            {actionError ? (
+              <p className="mt-3 text-sm text-rose-600">{actionError}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setPlanDialog(null)}
+                className="rounded-lg border border-hairline px-3 py-2 text-sm text-ink disabled:opacity-50"
+              >
+                {vi ? 'Đóng' : 'Close'}
+              </button>
+              {planDialog === 'approve' ? (
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() => void onApprove()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#152d35] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {actionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {vi ? 'Chấp nhận thực hiện' : 'Accept & follow guide'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={actionBusy}
+                  onClick={() => void onAdjust()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+                >
+                  {actionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {vi ? 'Đổi thùng' : 'Change box'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {rejectOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => {
+            if (!actionBusy) setRejectOpen(false)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reject-plan-title"
+            className="w-full max-w-md rounded-xl border border-slate-200/80 bg-white p-5 shadow-lg dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 id="reject-plan-title" className="text-base font-semibold text-ink">
+              {vi ? 'Từ chối & gửi Admin' : 'Reject & notify Admin'}
+            </h3>
+            <p className="mt-1 text-sm text-ink-muted">
+              {vi
+                ? 'Chọn lý do. Nhóm quay về đã lấy hàng và Admin nhận thông báo.'
+                : 'Choose a reason. The group returns to picked and Admin is notified.'}
+            </p>
+            <label className="mt-4 block text-sm">
+              <span className="mb-1 block text-xs font-medium text-ink-subtle">
+                {vi ? 'Lý do từ chối' : 'Rejection reason'}
+              </span>
+              <select
+                value={rejectCode}
+                onChange={(event) =>
+                  setRejectCode(event.target.value as RejectReason)
+                }
+                className="w-full rounded-lg border border-hairline bg-canvas px-3 py-2 text-sm text-ink"
+              >
+                {REJECT_REASONS.map((key) => (
+                  <option key={key} value={key}>
+                    {vi
+                      ? PACKING_REASON_LABELS[key].vi
+                      : PACKING_REASON_LABELS[key].en}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {rejectCode === 'OTHER' ? (
+              <label className="mt-3 block text-sm">
+                <span className="mb-1 block text-xs font-medium text-ink-subtle">
+                  {vi ? 'Ghi chú' : 'Note'}
+                </span>
+                <textarea
+                  value={rejectNote}
+                  onChange={(event) => setRejectNote(event.target.value)}
+                  rows={3}
+                  placeholder={
+                    vi
+                      ? 'Ghi chú bắt buộc khi chọn Khác'
+                      : 'Note required when reason is Other'
+                  }
+                  className="w-full rounded-lg border border-hairline bg-canvas px-3 py-2 text-sm text-ink"
+                />
+              </label>
+            ) : null}
+            {actionError ? (
+              <p className="mt-3 text-sm text-rose-600">{actionError}</p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setRejectOpen(false)}
+                className="rounded-lg border border-hairline px-3 py-2 text-sm text-ink disabled:opacity-50"
+              >
+                {vi ? 'Đóng' : 'Close'}
+              </button>
+              <button
+                type="button"
+                disabled={actionBusy}
+                onClick={() => void onReject()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {actionBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {vi ? 'Gửi từ chối' : 'Send rejection'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {toast ? (
         <div className="fixed right-4 bottom-4 z-50 rounded-lg bg-ink px-4 py-2 text-sm text-white shadow-lg">

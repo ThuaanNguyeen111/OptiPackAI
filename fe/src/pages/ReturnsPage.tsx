@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import {
   approveReturn,
+  cancelReturn,
   createReplacementReturn,
   listReturns,
   rejectReturn,
@@ -50,6 +51,7 @@ const STATUS_FILTERS = [
   'received',
   'closed',
   'rejected',
+  'canceled',
   'all',
 ] as const
 
@@ -64,6 +66,8 @@ export function ReturnsPage({
   const { session } = useAuth()
   const vi = locale === 'vi'
   const isAdmin = session?.role === UserRole.ADMIN
+  const canCancelSlip =
+    session?.role === UserRole.ADMIN || session?.role === UserRole.STORE_OWNER
 
   const [items, setItems] = useState<ReturnRequest[]>([])
   const [loading, setLoading] = useState(true)
@@ -152,6 +156,29 @@ export function ReturnsPage({
         note,
       })
       setToast(vi ? 'Đã từ chối phiếu trả hàng.' : 'Return request rejected.')
+      setActionNote('')
+      await load()
+    } catch (err: unknown) {
+      setToast(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onCancelSlip(): Promise<void> {
+    if (!selected || selected.status !== 'awaiting_receipt') return
+    const note = actionNote.trim()
+    if (!note) {
+      setToast(vi ? 'Hủy phiếu phải ghi lý do.' : 'Cancel requires a reason.')
+      return
+    }
+    setBusy(true)
+    try {
+      await cancelReturn(selected.id, {
+        expected_version: selected.version,
+        note,
+      })
+      setToast(vi ? 'Đã hủy phiếu.' : 'Slip canceled.')
       setActionNote('')
       await load()
     } catch (err: unknown) {
@@ -482,6 +509,30 @@ export function ReturnsPage({
                     ))}
                   </ul>
                 </div>
+
+                {canCancelSlip && selected.status === 'awaiting_receipt' ? (
+                  <div className="space-y-2 border-t border-hairline pt-3">
+                    <label className="block text-xs font-medium text-ink">
+                      {vi ? 'Lý do hủy phiếu' : 'Cancel reason'}
+                    </label>
+                    <textarea
+                      value={actionNote}
+                      onChange={(e) => setActionNote(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm dark:bg-zinc-900"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50"
+                      disabled={busy}
+                      onClick={() => void onCancelSlip()}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      {vi ? 'Hủy phiếu' : 'Cancel slip'}
+                    </Button>
+                  </div>
+                ) : null}
 
                 {selected.status === 'requested' ? (
                   <div className="space-y-2 border-t border-hairline pt-3">

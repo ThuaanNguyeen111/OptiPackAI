@@ -114,6 +114,7 @@ export const RETURN_STATUS_LABELS: Record<string, { vi: string; en: string }> = 
   awaiting_receipt: { vi: 'Chờ hàng về kho', en: 'Awaiting receipt' },
   received: { vi: 'Kho đã nhận', en: 'Received' },
   closed: { vi: 'Đã đóng', en: 'Closed' },
+  canceled: { vi: 'Đã hủy phiếu', en: 'Canceled' },
 }
 
 export const RETURN_TYPE_LABELS: Record<string, { vi: string; en: string }> = {
