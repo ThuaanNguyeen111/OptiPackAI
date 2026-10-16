@@ -1,83 +1,44 @@
-import { useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { listPackagingBoxes, type PackagingBox } from '../api/packaging-catalog.api'
 import { PackingSettingsForm } from '../components/packing/PackingSettingsReports'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
-import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
-import {
-  formatVnd,
-  initialCartons,
-  type CartonBox,
-} from '../data/packaging-rules-mock'
+import { formatApiError } from '../lib/api'
 
-function ToggleRow({
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  label: string
-  description: string
-  checked: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-hairline bg-canvas px-4 py-3">
-      <div className="min-w-0">
-        <p className="text-sm font-medium text-ink">{label}</p>
-        <p className="mt-0.5 text-xs text-ink-subtle">{description}</p>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-          checked ? 'bg-primary' : 'bg-surface-3'
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-            checked ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </div>
-  )
+function formatVnd(amount: number): string {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
+
+function cm(mm: number): string {
+  const value = mm / 10
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function stockLabel(status: PackagingBox['stockStatus'], vi: boolean): string {
+  if (status === 'out_of_stock') return vi ? 'Hết hàng' : 'Out of stock'
+  if (status === 'low_stock') return vi ? 'Sắp hết' : 'Low'
+  return vi ? 'Còn hàng' : 'In stock'
 }
 
 export function PackagingRulesPage() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
-  const [cartons, setCartons] = useState<CartonBox[]>(() =>
-    structuredClone(initialCartons),
-  )
-  const [fragilePad, setFragilePad] = useState(true)
-  const [heavyHd, setHeavyHd] = useState(true)
-  const [marginPct, setMarginPct] = useState(8)
+  const [boxes, setBoxes] = useState<PackagingBox[]>([])
+  const [error, setError] = useState<string | null>(null)
 
-  function addCarton() {
-    const n = cartons.length + 1
-    setCartons((prev) => [
-      ...prev,
-      {
-        id: `box-new-${Date.now()}`,
-        box_code: `CARTON-X${n}`,
-        length_cm: 22,
-        width_cm: 14,
-        height_cm: 10,
-        max_weight_kg: 4,
-        stock_qty: 100,
-        unit_cost_vnd: 4000,
-        status: 'in_stock',
-      },
-    ])
-  }
-
-  function removeCarton(id: string) {
-    setCartons((prev) => prev.filter((c) => c.id !== id))
-  }
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void listPackagingBoxes(false)
+        .then(setBoxes)
+        .catch((err: unknown) => setError(formatApiError(err)))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   return (
     <>
@@ -90,149 +51,93 @@ export function PackagingRulesPage() {
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <PackingSettingsForm vi={vi} canEdit />
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-tight text-ink">
-                  {vi
-                    ? 'Quản lý Thùng Carton & Quy tắc Đóng gói AI'
-                    : 'Carton Inventory & AI Packaging Rules'}
-                </h1>
-                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                  Demo
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-ink-muted">
-                {vi
-                  ? 'Minh họa UI — chưa có API cấu hình bao bì trên BE. Thay đổi chỉ lưu trên trình duyệt.'
-                  : 'UI mock — no packaging-rules API on BE yet. Changes stay in the browser only.'}
-              </p>
-            </div>
-            <Button variant="primary" onClick={addCarton}>
-              <Plus className="mr-1.5 h-4 w-4" />
-              {vi ? '+ Thêm Kích Thước Thùng' : '+ Add Box Size'}
-            </Button>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">
+              {vi ? 'Danh mục thùng carton' : 'Carton catalog'}
+            </h1>
+            <p className="mt-1 text-sm text-ink-muted">
+              {vi
+                ? 'Đọc từ danh mục thùng. Thêm hoặc sửa thùng ở màn Vật tư đóng gói.'
+                : 'Read from the box catalog. Add or edit boxes on the packaging materials screen.'}
+            </p>
           </div>
+          {error ? <p className="text-xs text-rose-600">{error}</p> : null}
 
           <section className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
             <div className="border-b border-hairline px-4 py-3">
               <h2 className="text-sm font-medium text-ink">
-                Danh mục thùng carton có sẵn
+                {vi ? 'Thùng đang có trong kho vật tư' : 'Boxes in the materials catalog'}
               </h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[900px] text-left text-sm">
                 <thead>
                   <tr className="border-b border-hairline text-ink-subtle">
-                    <th className="px-4 py-3 font-medium">Mã thùng</th>
-                    <th className="px-4 py-3 font-medium">Kích thước</th>
-                    <th className="px-4 py-3 font-medium">Tải trọng tối đa</th>
-                    <th className="px-4 py-3 font-medium">Tồn kho</th>
-                    <th className="px-4 py-3 font-medium">Đơn giá</th>
-                    <th className="px-4 py-3 font-medium">Trạng thái</th>
-                    <th className="px-4 py-3 font-medium">Thao tác</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Mã thùng' : 'Code'}</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Lòng thùng' : 'Inner size'}</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Tải tối đa' : 'Max load'}</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Tồn' : 'On hand'}</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Còn trống' : 'Available'}</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Đơn giá' : 'Price'}</th>
+                    <th className="px-4 py-3 font-medium">{vi ? 'Trạng thái' : 'Status'}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {cartons.map((box) => (
-                    <tr
-                      key={box.id}
-                      className="border-b border-hairline/70 last:border-0 hover:bg-surface-2/50"
-                    >
-                      <td className="px-4 py-3 font-mono font-medium text-ink">
-                        {box.box_code}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {box.length_cm}×{box.width_cm}×{box.height_cm} cm
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {box.max_weight_kg} kg
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {box.stock_qty}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {formatVnd(box.unit_cost_vnd)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          tone={
-                            box.status === 'in_stock' ? 'success' : 'warning'
-                          }
-                        >
-                          {box.status === 'in_stock' ? 'Còn hàng' : 'Sắp hết'}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-1.5">
-                          <button
-                            type="button"
-                            className="inline-flex h-8 items-center gap-1 rounded-md border border-hairline px-2 text-xs text-ink-muted hover:bg-surface-2 hover:text-ink"
-                          >
-                            <Pencil className="h-3 w-3" />
-                            Sửa
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => removeCarton(box.id)}
-                            className="inline-flex h-8 items-center gap-1 rounded-md border border-[#EF4444]/30 px-2 text-xs text-[#EF4444] hover:bg-[#EF4444]/10"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Xóa
-                          </button>
-                        </div>
+                  {boxes.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-6 text-sm text-ink-muted" colSpan={7}>
+                        {error
+                          ? null
+                          : vi
+                            ? 'Chưa có thùng hoặc đang tải.'
+                            : 'No boxes yet, or still loading.'}
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    boxes.map((box) => (
+                      <tr
+                        key={box.id}
+                        className="border-b border-hairline/70 last:border-0 hover:bg-surface-2/50"
+                      >
+                        <td className="px-4 py-3 font-mono font-medium text-ink">
+                          {box.code}
+                          <span className="mt-0.5 block text-[11px] font-sans font-normal text-ink-subtle">
+                            {box.name}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-ink-muted">
+                          {cm(box.inner.lengthMm)}×{cm(box.inner.widthMm)}×{cm(box.inner.heightMm)} cm
+                        </td>
+                        <td className="px-4 py-3 font-mono text-ink-muted">
+                          {(box.maxLoadG / 1000).toLocaleString(vi ? 'vi-VN' : 'en-US')} kg
+                        </td>
+                        <td className="px-4 py-3 font-mono text-ink-muted">
+                          {box.quantityOnHand}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-ink-muted">
+                          {box.available}
+                        </td>
+                        <td className="px-4 py-3 font-mono text-ink-muted">
+                          {box.priceVnd == null ? '—' : formatVnd(box.priceVnd)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge
+                            tone={
+                              box.stockStatus === 'in_stock'
+                                ? 'success'
+                                : box.stockStatus === 'low_stock'
+                                  ? 'warning'
+                                  : 'default'
+                            }
+                          >
+                            {stockLabel(box.stockStatus, vi)}
+                          </Badge>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-hairline bg-surface-1 p-4 sm:p-5">
-            <h2 className="mb-3 text-sm font-medium text-ink">
-              Quy tắc đệm lót & An toàn đóng gói
-            </h2>
-            <div className="space-y-3">
-              <ToggleRow
-                label="Hàng dễ vỡ (Fragile)"
-                description="Tự động áp dụng khoảng đệm màng xốp bóng khí (Bubble Wrap) 2cm"
-                checked={fragilePad}
-                onChange={setFragilePad}
-              />
-              <ToggleRow
-                label="Hàng nặng / Điện tử"
-                description="Bắt buộc sử dụng thùng carton 5 lớp gia cố (CARTON-HD)"
-                checked={heavyHd}
-                onChange={setHeavyHd}
-              />
-              <div className="rounded-lg border border-hairline bg-canvas px-4 py-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-ink">
-                      Khoảng trống an toàn thể tích (Safety Margin)
-                    </p>
-                    <p className="mt-0.5 text-xs text-ink-subtle">
-                      Ngưỡng khoảng đệm an toàn hạn chế va đập
-                    </p>
-                  </div>
-                  <span className="font-mono text-sm font-semibold text-primary-hover">
-                    {marginPct}%
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={4}
-                  max={20}
-                  step={1}
-                  value={marginPct}
-                  onChange={(e) => setMarginPct(Number(e.target.value))}
-                  className="mt-3 w-full accent-[#6366F1]"
-                />
-                <p className="mt-1 font-mono text-[11px] text-ink-tertiary">
-                  Khoảng đệm mặc định: 8% · hiện tại={marginPct}%
-                </p>
-              </div>
             </div>
           </section>
         </div>

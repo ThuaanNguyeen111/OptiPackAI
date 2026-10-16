@@ -67,8 +67,8 @@ const navItems = [
   {
     to: '/app/packaging-rules',
     end: false,
-    labelVi: 'Quy tắc Bao bì (demo)',
-    labelEn: 'Packaging Rules (demo)',
+    labelVi: 'Quy tắc Bao bì',
+    labelEn: 'Packaging Rules',
     icon: Box,
     section: 'store' as NavSection,
   },
@@ -123,8 +123,8 @@ const navItems = [
   {
     to: '/app/analytics',
     end: false,
-    labelVi: 'Báo cáo (demo)',
-    labelEn: 'Analytics (demo)',
+    labelVi: 'Báo cáo',
+    labelEn: 'Analytics',
     icon: BarChart3,
     section: 'analytics' as NavSection,
   },

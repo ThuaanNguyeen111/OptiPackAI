@@ -57,7 +57,6 @@ import {
   type ShippingCarrier,
   type ShippingServiceQuote,
 } from '../api/shipping.api'
-import { OWN_FLEET_ACCOUNT } from '../data/shipping-mock'
 import { formatApiError } from '../lib/api'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
@@ -1011,7 +1010,7 @@ export function ShippingPage() {
                         <div className="flex min-w-0 items-center gap-2.5 pr-2">
                           <Truck className="h-4 w-4 shrink-0 text-slate-600 dark:text-slate-300" />
                           <span className="truncate">
-                            {chosenCarrier?.name ?? OWN_FLEET_ACCOUNT.name}
+                            {chosenCarrier?.name ?? (vi ? 'Giao của shop' : 'Shop fleet')}
                           </span>
                           <span className="hidden sm:inline shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                             {chosenCarrier ? chosenCarrier.code : 'SOF'}
@@ -1033,7 +1032,7 @@ export function ShippingPage() {
                             className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-bold text-[var(--ls-ink)] transition-colors hover:bg-slate-50 dark:hover:bg-slate-800"
                           >
                             <span>
-                              {OWN_FLEET_ACCOUNT.name} ({OWN_FLEET_ACCOUNT.hub})
+                              {vi ? 'Giao của shop' : 'Shop fleet'}
                             </span>
                             {carrierChoice === 'own' ? (
                               <Check className="h-3.5 w-3.5 text-[var(--ls-cta)]" />
@@ -1954,7 +1953,7 @@ export function ShippingPage() {
                 <div className="flex justify-between">
                   <span className="text-slate-400">{vi ? 'Hình thức:' : 'Model:'}</span>
                   <span className="font-bold text-slate-800 dark:text-slate-100">
-                    {chosenCarrier?.name ?? OWN_FLEET_ACCOUNT.name}
+                    {chosenCarrier?.name ?? (vi ? 'Giao của shop' : 'Shop fleet')}
                   </span>
                 </div>
               </div>
