@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
-import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
+import { notPackableStatuses } from '../orders/order-sync-policy';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
 import { parcelsOfPlan, type ParcelView } from '../packing/utils/parcels.util';
@@ -53,7 +53,7 @@ export class DocumentsService {
     return this.orderModel
       .find({
         consolidated_group_id: groupId,
-        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+        status: { $nin: notPackableStatuses() },
       })
       .sort({ _id: 1 });
   }
@@ -98,7 +98,7 @@ export class DocumentsService {
           }
         >();
         for (const item of order.items) {
-          if (NOT_PACKABLE_ORDER_STATUSES.includes(item.status)) continue;
+          if (notPackableStatuses().includes(item.status)) continue;
           const key = `${item.sku}|${item.variation ?? ''}`;
           const cur = merged.get(key);
           if (cur) cur.quantity += item.quantity;

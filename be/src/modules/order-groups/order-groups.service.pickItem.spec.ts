@@ -189,6 +189,65 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     });
   });
 
+  it('15/10/2026 — không chỉ định ô: lấy ở ô có LÔ CŨ NHẤT, trừ lô theo FIFO, lưu lô vào pick_event', async () => {
+    mockGroup();
+    mockOrderedItems([{ sku: 'SKU-LO', quantity: 3 }]);
+    mockPickedEvents([]);
+    const binNew = { _id: new Types.ObjectId(), created_at: new Date('2026-10-01') };
+    const binOld = { _id: new Types.ObjectId(), created_at: new Date('2026-10-01') };
+    const lean = jest.fn().mockResolvedValue([binNew, binOld]);
+    (skuBinAssignmentModel as unknown as { find: jest.Mock }).find = jest.fn().mockReturnValue({
+      select: () => ({ session: () => ({ lean }) }),
+    });
+    const lot = { _id: new Types.ObjectId(), lot_code: 'LO-CU', received_at: new Date('2026-09-01'), quantity_remaining: 5 };
+    const lotModel = {
+      // oldestLots: ô binOld có lô ngày 01/09, ô binNew có lô 10/10.
+      aggregate: jest.fn((pipeline: { $match: Record<string, unknown> }[]) => {
+        const isSum = JSON.stringify(pipeline).includes('"total"');
+        const rowsOut = isSum
+          ? [{ total: 5 }]
+          : [
+              { _id: binNew._id, lot_code: 'LO-MOI', received_at: new Date('2026-10-10'), quantity_remaining: 5 },
+              { _id: binOld._id, lot_code: 'LO-CU', received_at: new Date('2026-09-01'), quantity_remaining: 5 },
+            ];
+        return Object.assign(Promise.resolve(rowsOut), { session: () => Promise.resolve(rowsOut) });
+      }),
+      find: jest.fn().mockReturnValue({ sort: () => ({ session: () => ({ lean: () => Promise.resolve([lot]) }) }) }),
+      updateOne: jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
+    };
+    const fifoService = new OrderGroupsService(
+      orderGroupModel as never,
+      orderModel as never,
+      productMasterModel as never,
+      skuBinAssignmentModel as never,
+      pickEventModel as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      connection as never,
+      inventoryMovementModel as never,
+      { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never,
+      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0) } as never,
+      {} as never,
+      lotModel as never,
+    );
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: binOld._id, quantity_on_hand: 3 });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    await fifoService.pickItem(groupId, warehouseId, 'SKU-LO', 2, 'barcode');
+
+    const [filter] = skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>];
+    expect(String(filter._id)).toBe(binOld._id.toString());
+    expect(lotModel.updateOne).toHaveBeenCalledWith(
+      { _id: lot._id, quantity_remaining: { $gte: 2 } },
+      { $inc: { quantity_remaining: -2 } },
+      expect.anything(),
+    );
+    const [events] = pickEventModel.create.mock.calls[0] as [{ lot_allocations: { lot_code: string; quantity: number }[] }[]];
+    expect(events[0]?.lot_allocations).toEqual([expect.objectContaining({ lot_code: 'LO-CU', quantity: 2 })]);
+  });
+
   it('confirmPicked khi group đang partial_needs_review -> bị chặn, KHÔNG được bỏ qua bước duyệt partial', async () => {
     mockGroup({
       fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,

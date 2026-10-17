@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
+import { LotAllocation, LotAllocationSchema } from './stock-lot.schema';
 
 export const MOVEMENT_TYPES = [
   'assign_initial', // tồn ban đầu khi gán SKU vào ô
@@ -60,6 +61,9 @@ export class InventoryMovement {
   // Liên kết chứng từ: order_group (pick), transfer (cặp out/in), return_request (G3)
   @Prop({ type: String, default: null }) ref_type!: string | null;
   @Prop({ type: String, default: null }) ref_id!: string | null;
+
+  // 15/10/2026 — lô hàng bị ảnh hưởng (FIFO theo ngày nhập). Dòng cũ không có = rỗng.
+  @Prop({ type: [LotAllocationSchema], default: [] }) lot_allocations!: LotAllocation[];
 
   @Prop({ type: String, required: true }) actor_id!: string;
   @Prop({ type: Date, required: true }) created_at!: Date;

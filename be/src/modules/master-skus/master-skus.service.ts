@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -14,6 +14,8 @@ import { MASTER_SKU_ERROR_CODES as E } from './master-skus.errors';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { SkuBinAssignment, SkuBinAssignmentDocument } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
+import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
+import { StockLotLedger } from '../warehouse/stock-lot.ledger';
 
 export function buildMasterSkuCode(p: { category_code: string; model_no: number; color_code: string; size: string }): string {
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
@@ -45,7 +47,13 @@ export class MasterSkusService {
     // K4b — gắn nhãn / gộp tồn khi nối SKU
     @InjectModel(SkuBinAssignment.name) private readonly assignmentModel: Model<SkuBinAssignmentDocument>,
     @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>,
-  ) {}
+    // 15/10/2026 — lô hàng đi theo dòng tồn khi gộp/đổi nhãn SKU nội bộ.
+    @Optional() @InjectModel(StockLot.name) stockLotModel?: Model<StockLotDocument>,
+  ) {
+    this.lots = new StockLotLedger(stockLotModel);
+  }
+
+  private readonly lots: StockLotLedger;
 
   // ------------------------------------------------------------ màu
 
@@ -216,6 +224,7 @@ export class MasterSkusService {
       const moved = await this.mappingModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
       // K4b — tồn đang gắn nhãn SKU cũ chuyển sang SKU mới (không đổi số lượng).
       await this.assignmentModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
+      await this.lots.relabel({ master_sku: code }, newSku.master_sku, session);
       const oldSku = await this.skuModel.findOneAndUpdate(
         { master_sku: code, is_active: true },
         { $set: { is_active: false, replaced_by: newSku.master_sku } },
@@ -276,7 +285,10 @@ export class MasterSkusService {
     await this.runTx(async (session) => {
       await this.mappingModel.deleteOne({ _id: mapping._id }, { session });
       const left = await this.mappingModel.countDocuments({ master_sku: mapping.master_sku }).session(session);
-      if (left === 0) await this.assignmentModel.updateMany({ master_sku: mapping.master_sku }, { $set: { master_sku: null } }, { session });
+      if (left === 0) {
+        await this.assignmentModel.updateMany({ master_sku: mapping.master_sku }, { $set: { master_sku: null } }, { session });
+        await this.lots.relabel({ master_sku: mapping.master_sku }, null, session);
+      }
     });
   }
 
@@ -303,10 +315,13 @@ export class MasterSkusService {
       const pooled = await this.assignmentModel.findOne({ warehouse_id: row.warehouse_id, bin_location_id: row.bin_location_id, master_sku: masterSku }).session(session);
       if (!pooled) {
         await this.assignmentModel.updateOne({ _id: row._id }, { $set: { master_sku: masterSku } }, { session });
+        await this.lots.relabel({ assignment_id: row._id }, masterSku, session);
         tagged++;
         continue;
       }
       const qty = row.quantity_on_hand;
+      // 15/10/2026 — lô của dòng cũ chuyển sang dòng gộp, giữ ngày nhập (FIFO không đổi).
+      await this.lots.moveAll(row, qty, pooled, pooled.quantity_on_hand, session);
       if (qty > 0) {
         await this.assignmentModel.updateOne({ _id: pooled._id }, { $inc: { quantity_on_hand: qty } }, { session });
         const base = { warehouse_id: row.warehouse_id, bin_location_id: row.bin_location_id, master_sku: masterSku, reason_code: null, ref_type: 'sku_merge', ref_id: masterSku, actor_id: actorId, created_at: new Date() };

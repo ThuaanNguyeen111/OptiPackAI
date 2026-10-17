@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Orders & Marketplace Integration (FE-01, FE-02)
 
+**🆕 Cập nhật 15/10/2026** — Admin tự cấu hình tiêu chí đồng bộ và gom đơn (chu kỳ, số ngày lấy lần đầu, bật/tắt theo sàn, trường dùng để gom, giới hạn thời gian gom, trạng thái được gom / bị loại) qua `/order-sync-settings` — mục 7c. Sửa kèm: đồng bộ nay lấy theo trang, không còn sót đơn khi > 100 đơn thay đổi giữa 2 lượt.
+
 **🆕 Cập nhật 29/09/2026** — thêm sàn thứ 2 **AURELLE** (tự dựng, cố ý tương thích byte-for-byte với khung Lazada — xem `AURELLE_MARKETPLACE_DESIGN.md`): `POST /orders/lazada/sync` giờ chỉ là alias của route tổng quát mới `POST /orders/:platform/sync` (nhận cả `lazada` lẫn `aurelle`); **AURELLE có webhook thật** (`POST /marketplace/webhooks/:platform`, mục 4b) — khác Lazada (vẫn polling, webhook hoãn tới lúc deploy có domain thật, xem CLAUDE.md); Order Group giờ có thêm trạng thái tự động `canceled` khi mọi đơn trong nhóm không còn fulfill được (N1) — không có endpoint ghi riêng, xem `INTEGRATION_GUIDE_FULFILLMENT.md`.
 
 **Cập nhật 16/09/2026** — callback OAuth Lazada đổi từ trả JSON thô sang redirect thật về FE; xác nhận gộp nhiều đơn hoạt động đúng bằng dữ liệu thật; bổ sung đầy đủ 19 giá trị `status` (trước đây tài liệu ngầm hiểu ít hơn); thêm mã lỗi `MKT_SERVER_ERROR`.
@@ -341,6 +343,8 @@ Có 1 hệ quả cần biết: **nếu 1 đơn có 2 cái cùng SKU nhưng 1 cá
 
 **Cập nhật 12/09/2026 — BE-1 mới chỉ có safety guard cho packaging.** Hiện tryConsolidate tìm đơn cùng consolidation_key và nhóm trạng thái chưa fulfill, gán consolidated_group_id. Query chưa giới hạn cùng shop/platform hoặc khóa nhóm đang xử lý; không coi kết quả nhóm là quyền đóng chung một kiện.
 
+> 🔄 **ĐÃ ĐỔI (30/09 và 15/10/2026):** câu trên đã cũ. Hiện chỉ gom đơn **cùng sàn + cùng shop**, chỉ vào nhóm còn mở (`awaiting_packaging`/`picking`), và các tiêu chí gom do Admin cấu hình — xem mục 7c.
+
 FE vẫn đọc isConsolidated/consolidatedGroupId theo response hiện tại. Group-of-1 có thể được backfill ngay cả khi isConsolidated=false, nên không suy mọi đơn không gộp đều có group ID null. Backfill hiện chỉ quét ID null, còn thiếu trường hợp ID có giá trị nhưng document group chưa tồn tại; BE-1 sẽ sửa.
 
 **ĐÃ THAY ĐỔI so với quyết định gộp kiện cũ:** mỗi đơn nguồn có phạm vi đóng riêng. Có thể gom để lấy hàng cùng lượt; không tự gộp kiện/vận đơn kể cả cùng shop/người nhận. Group legacy nhiều đơn đang làm cần rà soát, không tự tách hoặc sửa lịch sử đã hoàn tất.
@@ -366,6 +370,70 @@ Order/item `status` có **19 giá trị thật** (đã xác nhận qua tài li�
 | **⚠️ Sự cố logistics thật — NÊN có icon cảnh báo riêng** | `failed`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back_failed`, `package_scrapped` | Badge đỏ/cam nổi bật — đây là các trường hợp hàng thật gặp vấn đề (thất lạc/hư hỏng/giao thất bại), FE nên làm nổi bật để Store Owner/Admin chú ý ngay, khác hẳn nhóm "hủy bình thường" ở trên |
 
 🔄 **ĐÃ ĐỔI (15/09/2026) — lưu ý về `status` cấp Order (không phải cấp item)**: nếu 1 đơn có nhiều item ở nhiều trạng thái khác nhau, BE tự chọn trạng thái "đáng chú ý nhất" làm đại diện (ưu tiên nhóm sự cố > hủy/hoàn > luồng bình thường) — KHÔNG phải trạng thái của item đầu tiên trong mảng như trước đây. FE hiển thị field `status` cấp Order là đã đúng ưu tiên, không cần tự tính lại.
+
+---
+
+## 7c. 🆕 MỚI (15/10/2026) — Admin cấu hình tiêu chí đồng bộ & gom đơn (`/order-sync-settings`)
+
+Trước đây chu kỳ đồng bộ, số ngày lấy lần đầu, cách gom đơn và danh sách trạng thái đơn đều viết cứng trong code. Nay Admin tự đổi trên màn hình. **Mặc định = đúng giá trị cũ**, nên chưa ai lưu thì hệ thống chạy y như trước.
+
+### Route
+
+| Method | Route | Role |
+|---|---|---|
+| GET | `/order-sync-settings` | Admin, Store Owner (xem) |
+| PUT | `/order-sync-settings` | Admin |
+| GET | `/order-sync-settings/history?limit=20` | Admin, Store Owner |
+
+### Các tiêu chí
+
+| Nhóm | Trường (body PUT) | Mặc định | Ý nghĩa |
+|---|---|---|---|
+| Đồng bộ | `platforms[] { platform, auto_sync_enabled }` | cả `lazada` và `aurelle` bật | Tắt thì hệ thống không **tự** kéo đơn sàn đó. Nút "Đồng bộ ngay" (`POST /orders/:platform/sync`) vẫn chạy |
+| | `interval_minutes` | 5 | Mỗi shop tự đồng bộ cách nhau bao nhiêu phút (5–1440) |
+| | `first_sync_lookback_days` | 30 | Lần đồng bộ **đầu tiên** của shop mới kết nối lấy đơn bao nhiêu ngày về trước (1–90) |
+| | `sync_failed_cooldown_minutes` | 20 | Thông báo "đồng bộ thất bại" của cùng 1 shop cách nhau tối thiểu (5–1440) |
+| Gom đơn | `consolidation_enabled` | `true` | Tắt thì mỗi đơn một nhóm, không gom |
+| | `consolidation_key_fields` | `phone`, `address_line1`, `city` | Thông tin người nhận phải **trùng** để gom. Thêm `full_name` để 2 người khác tên cùng địa chỉ (ở chung nhà) không bị gom. Bắt buộc có `phone` hoặc `address_line1` |
+| | `consolidation_time_window_hours` | `null` (không giới hạn) | Chỉ gom với đơn đã vào hệ thống trong vòng N giờ (1–720) |
+| | `open_group_statuses` | `awaiting_packaging`, `picking` | Nhóm ở trạng thái nào còn nhận thêm đơn gom đến muộn. Bỏ `picking` thì nhóm đang lấy hàng không nhận thêm đơn |
+| Trạng thái | `consolidatable_statuses` | 6 trạng thái chờ xử lý | Đơn ở trạng thái nào được xét gom (chỉ chọn trong 6 trạng thái chờ xử lý) |
+| | `not_packable_statuses` | `canceled`, `failed`, `lost`, `lost_by_3pl`, `damaged_by_3pl`, `failed_delivery`, `shipped_back_failed`, `package_scrapped` | Đơn ở các trạng thái này bị loại khỏi Picking List, đóng gói, chứng từ, đếm số đơn còn hiệu lực. Luôn phải có `canceled`; không được chọn trạng thái của luồng giao bình thường |
+
+`GET` trả về kèm `options` (danh sách lựa chọn hợp lệ, có nhãn tiếng Việt), nên FE dựng form từ đây, không cần viết cứng danh sách:
+
+```json
+{
+  "version": 3, "isDefault": false, "updatedBy": "6700...", "updatedAt": "2026-10-15T09:00:00.000Z",
+  "sync": { "platforms": [{ "platform": "lazada", "autoSyncEnabled": true }, { "platform": "aurelle", "autoSyncEnabled": false }],
+            "intervalMinutes": 15, "firstSyncLookbackDays": 30, "syncFailedCooldownMinutes": 20 },
+  "consolidation": { "enabled": true, "keyFields": ["phone", "address_line1", "city"], "timeWindowHours": 48, "openGroupStatuses": ["awaiting_packaging", "picking"] },
+  "statuses": { "consolidatable": ["unpaid", "pending", "packed", "ready_to_ship", "topack", "toship"], "notPackable": ["canceled", "..."] },
+  "options": { "platforms": [...], "keyFields": [{ "value": "phone", "label": "Số điện thoại" }, ...], "openGroupStatuses": [...], "consolidatableStatuses": [...], "notPackableStatuses": [...] }
+}
+```
+
+### Lưu (PUT)
+
+- Chỉ gửi trường muốn đổi; trường không gửi giữ nguyên.
+- Gửi `expected_version` = `version` đang hiển thị (`null` nếu `isDefault`). Người khác vừa lưu trước thì nhận `409 ORD_SYNC_SETTINGS_CONFLICT` → tải lại rồi lưu lại.
+- Vi phạm ràng buộc → `400 ORD_SYNC_SETTINGS_INVALID`, `details` chỉ rõ giá trị sai. Ví dụ: gom chỉ theo tên + tỉnh, bỏ `canceled` khỏi danh sách không đóng gói, coi `pending` là không đóng gói được.
+- `note` (tuỳ chọn): lý do thay đổi, hiện trong lịch sử.
+- Response giống GET, thêm `recomputingKeys: true` nếu vừa đổi trường gom. Khi đó BE chạy nền việc tính lại khoá gom cho các đơn **chưa xử lý xong**. **Nhóm đã tạo không bị tách/gộp lại**; tiêu chí mới chỉ áp cho lần gom tiếp theo.
+
+### Có hiệu lực khi nào
+
+- Ngay sau khi lưu trên máy chủ nhận lệnh. Các máy chủ khác (nếu chạy nhiều bản) thấy trong tối đa 30 giây.
+- Chu kỳ đồng bộ: bộ đếm tính từ lần đồng bộ trước của từng shop (`last_polled_at`). Đổi từ 5 lên 30 phút thì shop vừa đồng bộ 4 phút trước sẽ chờ thêm 26 phút.
+
+### Cố định, không cấu hình được
+
+- **Chỉ gom đơn cùng sàn + cùng shop.** Mỗi nhóm đơn lấy hàng và trừ tồn theo đúng 1 shop, nên gom đơn khác shop vào 1 nhóm sẽ trừ nhầm tồn. Muốn giao chung đơn khác shop/khác sàn của cùng người nhận: dùng liên kết nhóm (`POST /order-groups/:id/link`) rồi tạo chuyến chung.
+- Giờ hành chính của đơn hoả tốc (8h–17h, nghỉ Chủ nhật) chưa đưa vào cấu hình.
+
+### 🔄 Sửa kèm: đồng bộ lấy theo trang
+
+Trước đây mỗi lượt đồng bộ chỉ gọi sàn 1 lần (tối đa 100 đơn). Shop có hơn 100 đơn thay đổi giữa 2 lượt bị sót đơn vĩnh viễn, vì mốc thời gian vẫn tiến lên. Nay BE lấy theo trang (100 đơn/trang, tối đa 50 trang/lượt). Quá 5.000 đơn thì giữ nguyên mốc để lượt sau lấy tiếp.
 
 ---
 

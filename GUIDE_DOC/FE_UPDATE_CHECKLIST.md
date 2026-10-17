@@ -1,5 +1,7 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
+> 🆕 **15/10/2026:** thêm 2 việc mới ở **mục 11**: nhập kho theo lô + lấy hàng lô cũ nhất trước; màn Admin cấu hình tiêu chí đồng bộ & gom đơn.
+
 > **Phiên bản 2.0 — 14/10/2026 (22h30).** Viết lại sau khi đối chiếu **code FE hiện tại trên `main`** (đã gộp `feature/viet_ui` + vá tầng API AOFP-87) với **239 route BE** (gồm GHN C4–C6). Cách rà: trích mọi lời gọi `apiRequest` / `apiRequestBlob` / `fetch` trong `fe/src`, so method + đường dẫn với route BE; so dữ liệu gửi lên với DTO; so dữ liệu FE đọc với response BE; đọc các file `fe/src/types/*` và `fe/src/data/*-mock.ts`.
 > Bỏ qua route do bên ngoài gọi (webhook GHN/AURELLE, callback OAuth) và route của app `storefront/` (app đó đã gọi đủ).
 > Request/response chi tiết từng route: xem guide ở cột "Đọc ở đâu".
@@ -68,6 +70,7 @@
 | 8 | Kho, SKU nội bộ, Product Master: các route còn thiếu | 6 | Vài giờ |
 | 9 | Kết nối AURELLE + danh sách shop; "đọc hết thông báo" | 7 | Vài giờ |
 | 10 | Màn dùng dữ liệu giả, mã chết | 8 | Tuỳ |
+| 11 | 🆕 Phiếu nhập theo lô + tồn theo lô + `oldest_lot` trên Picking List; màn cấu hình đồng bộ & gom đơn | 11 | ~1 ngày |
 
 ---
 
@@ -256,3 +259,30 @@ Chi tiết: `INTEGRATION_GUIDE_WAREHOUSE.md`, `INTEGRATION_GUIDE_SKU_STOCK_K4_K5
 - [ ] `SHIPMENT_STATUSES`, `GROUP_FULFILLMENT_STATUSES`, `NOTIFICATION_TYPES` khớp BE
 - [ ] Kết nối được shop AURELLE từ FE; có nút "Đọc hết thông báo"
 - [ ] Mọi nút xử lý 409 bằng tải lại
+
+---
+
+## 11. 🆕 Nhập kho theo lô + cấu hình đồng bộ/gom đơn (15/10/2026)
+
+**Nhập kho theo lô (FIFO theo ngày nhập)** — đọc `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B8.
+
+| Việc | API |
+|---|---|
+| Form **phiếu nhập** nhiều dòng (ngày nhập, mã lô, nhà cung cấp, ghi chú, chọn SKU trên ô + số lượng) | `POST /warehouse/warehouses/:warehouseId/receipts` |
+| Danh sách / chi tiết phiếu nhập | `GET .../receipts`, `GET .../receipts/:receiptId` |
+| Tồn theo lô của 1 dòng "SKU trên ô" (mở khi bấm vào dòng) | `GET .../sku-bin-assignments/:assignmentId/lots` |
+| Màn "Tồn theo lô" của kho, lọc SKU / mã lô | `GET /warehouse/warehouses/:warehouseId/lots` |
+| Nút "Nhập thêm hàng" cũ: thêm ô ngày nhập + mã lô (tuỳ chọn) | `restock` nhận `received_at?`, `lot_code?` |
+| Picking List: hiện "Lô … · nhập dd/mm" dưới mã ô | trường mới `oldest_lot`, `other_bins[].oldest_lot` |
+| Lịch sử ô: hiện lô của từng dòng | sổ cái có thêm `lots[]` |
+| Bắt lỗi | `WH_RECEIPT_DATE_IN_FUTURE`, `WH_RECEIPT_LINE_INVALID`, `WH_RECEIPT_LINE_NOT_ASSIGNED`, `WH_RECEIPT_NOT_FOUND` |
+
+**Cấu hình tiêu chí đồng bộ & gom đơn (Admin)** — đọc `INTEGRATION_GUIDE_ORDERS.md` mục 7c.
+
+| Việc | API |
+|---|---|
+| Màn "Cấu hình đồng bộ đơn" trong menu Admin: dựng form từ `options` của GET | `GET /order-sync-settings` |
+| Lưu (gửi `expected_version`; 409 → tải lại) | `PUT /order-sync-settings` |
+| Lịch sử thay đổi | `GET /order-sync-settings/history` |
+| Store Owner xem (không sửa) | GET ở trên |
+| Bắt lỗi | `ORD_SYNC_SETTINGS_INVALID` (hiện `details`), `ORD_SYNC_SETTINGS_CONFLICT` |

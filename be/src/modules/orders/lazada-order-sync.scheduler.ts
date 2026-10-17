@@ -6,13 +6,15 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { orderSyncPolicy } from './order-sync-policy';
 
-// BỔ SUNG (AOFP-XX, 2026-09-16) — chống spam Notification khi sync lỗi
-// LIÊN TỤC (VD token hết hạn, không ai xử lý ngay) — cron chạy mỗi 5
-// phút, không giới hạn sẽ bắn hàng chục Notification trùng lặp mỗi giờ
-// cho CÙNG 1 sự cố chưa được giải quyết. 20 phút = đủ ngắn để Store
-// Owner biết sớm, đủ dài để không spam.
-const SYNC_FAILURE_NOTIFY_COOLDOWN_MS = 20 * 60 * 1000;
+// BỔ SUNG (AOFP-XX, 2026-09-16) — chống spam Notification khi sync lỗi LIÊN TỤC.
+// 🔄 15/10/2026: khoảng cách (mặc định 20 phút), chu kỳ đồng bộ (mặc định 5 phút)
+// và bật/tắt theo sàn đọc từ order_sync_settings do Admin cấu hình.
+const MINUTE_MS = 60 * 1000;
+// Cron chạy mỗi phút; shop được coi là "đến hạn" sớm hơn chu kỳ tối đa 30 giây
+// để lệch nhịp cron không làm trễ thêm 1 phút.
+const DUE_SLACK_MS = 30 * 1000;
 
 // 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #6) —
 // quét MỌI sàn polling-based đã bật (Lazada + AURELLE). Sàn nào KHÔNG
@@ -71,7 +73,9 @@ export class LazadaOrderSyncScheduler {
    * tức thời", vẫn đủ thưa để không phí quota API (Lazada 10.000
    * request/ngày/app).
    */
-  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'lazada-order-auto-sync' })
+  // 🔄 15/10/2026 — tick mỗi phút, từng shop chỉ đồng bộ khi đã qua `interval_minutes`
+  // kể từ lần đồng bộ trước (last_polled_at) và sàn đó đang bật tự đồng bộ.
+  @Cron(CronExpression.EVERY_MINUTE, { name: 'lazada-order-auto-sync' })
   async autoSyncAllConnectedShops(): Promise<void> {
     if (this.isRunning) {
       this.logger.warn(
@@ -90,9 +94,16 @@ export class LazadaOrderSyncScheduler {
 
       // Tuần tự CẢ theo sàn LẪN theo shop — cùng lý do đã giải thích ở
       // OrdersService.syncShopOrders(): tránh dồn dập request.
+      const policy = orderSyncPolicy();
+      const intervalMs = policy.sync.intervalMinutes * MINUTE_MS;
       for (const platform of POLLING_PLATFORMS) {
-        const shops = await this.marketplaceIntegrationService.listConnectedShops(
-          platform,
+        if (policy.sync.autoSyncEnabled[platform] === false) continue;
+        const shops = (
+          await this.marketplaceIntegrationService.listConnectedShops(platform)
+        ).filter(
+          (shop) =>
+            !shop.last_polled_at ||
+            startedAt - shop.last_polled_at.getTime() >= intervalMs - DUE_SLACK_MS,
         );
         if (shops.length === 0) continue;
         totalShops += shops.length;
@@ -120,7 +131,7 @@ export class LazadaOrderSyncScheduler {
             const lastNotified =
               this.lastSyncFailureNotifiedAt.get(cooldownKey) ?? 0;
             const now = Date.now();
-            if (now - lastNotified >= SYNC_FAILURE_NOTIFY_COOLDOWN_MS) {
+            if (now - lastNotified >= policy.sync.syncFailedCooldownMinutes * MINUTE_MS) {
               this.lastSyncFailureNotifiedAt.set(cooldownKey, now);
               const message =
                 error instanceof Error ? error.message : String(error);
@@ -139,12 +150,7 @@ export class LazadaOrderSyncScheduler {
         }
       }
 
-      if (totalShops === 0) {
-        this.logger.log(
-          'Auto-sync: chưa có shop nào được kết nối, bỏ qua lượt này.',
-        );
-        return;
-      }
+      if (totalShops === 0) return; // không shop nào đến hạn (cron chạy mỗi phút — không log để khỏi rác)
 
       this.logger.log(
         `Auto-sync hoàn tất: ${String(totalShops)} shop (${String(succeeded)} thành công, ${String(failed)} lỗi), mất ${String(Date.now() - startedAt)}ms.`,
