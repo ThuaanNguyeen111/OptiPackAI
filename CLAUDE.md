@@ -4199,3 +4199,11 @@ Kiểm chứng: TypeScript không lỗi; Jest 75 suite / 840 test đều pass; `
 5. Hạn chế: không ép quét mã lô (thực tế lấy thùng mới thì phân bổ lô lệch, tổng vẫn đúng); chưa FEFO; hàng hoàn của khách không về lô gốc; giới hạn giờ gom tính theo giờ vào OptiPack; SLA hoả tốc (8–17h) chưa cấu hình; chưa có FE.
 
 **Tài liệu:** `GUIDE_DOC/API_LIST.md` mục 18–19, `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B8, `INTEGRATION_GUIDE_ORDERS.md` mục 7c (+ sửa câu cũ ở mục 7), `FE_UPDATE_CHECKLIST.md` mục 11.
+
+### Kiểm thử HTTP thật (17/10/2026)
+
+Gọi HTTP vào BE đang chạy (cổng 3000, Atlas dev, token Admin + Store Owner ký bằng `JWT_ACCESS_SECRET`). Dùng SKU `13459043458-1789113724707-0`, 2 ô trống của WH-HCM-02.
+- **Lô hàng: đạt.** Phiếu 1 dòng và 2 dòng; ngày tương lai → 400, không tạo lô; thứ tự lô cũ → mới; Σ lô = tồn; kiểm kê đếm thiếu 6 → trừ hết lô cũ 5 rồi lô mới 1 (sổ cái ghi `lots[]` đúng); chuyển ô giữ mã + ngày gốc (lô cùng mã + ngày ở ô đích được CỘNG DỒN, không tách lô `transfer` — đúng thiết kế `deposit`); Picking List trả `oldest_lot`. `pick-item` FIFO chỉ có unit test (không có nhóm `picking` phù hợp để quét thật).
+- **Cấu hình đồng bộ: đạt.** Mặc định, PUT, 3 ca 400, 409, lịch sử, Store Owner GET 200 / PUT 403, chu kỳ 7 phút được tuân thủ, tắt Lazada thì BE này không tự đồng bộ, bật lại thì đồng bộ ngay tick kế tiếp, đồng bộ tay vẫn chạy.
+- **Phát hiện ngoài code:** (1) DB dev còn index unique cũ `{warehouse_id, platform, shop_id, seller_sku}` (script K3 `migrate-sku-bin-assignment-multibin.ts` chưa chạy) → gán SKU vào ô thứ 2 trả **500**. Đã xoá đúng index đó trên DB dev. Môi trường khác cần chạy script K3. (2) Trong lúc Lazada tắt vẫn có lần đồng bộ lúc :30 và :40 (cách 10 phút, không có :45) → **một máy khác đang chạy BE bản rất cũ (cron 10 phút) trên cùng Atlas dev**; cấu hình mới không chặn được máy đó.
+- Dữ liệu test để lại: 2 phiếu nhập, lô (đã về 0), sổ cái của SKU trên; cấu hình đã về mặc định (version 6).
