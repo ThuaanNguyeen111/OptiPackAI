@@ -26,13 +26,15 @@ export enum GroupFulfillmentStatus {
   PACKED = 'packed',
   SHIPPED = 'shipped',
   DELIVERED = 'delivered',
-  RETURNED = 'returned',
+  RETURNING = 'returning', // phiếu trả đủ nhóm đang chờ Store duyệt
+  RETURNED = 'returned', // Store đã duyệt trả đủ nhóm; hoặc kho nhận kiện giao thất bại
   // BỔ SUNG (29/09/2026, N1 — AURELLE_MARKETPLACE_DESIGN.md Mục 9.6): khách
   // AURELLE tự hủy đơn qua webhook, nhưng trước đây group KHÔNG có trạng
   // thái hủy nào — nhóm bị hủy hết đơn vẫn treo mãi ở trạng thái cũ, giữ
   // chỗ (packaging recommendation) không bao giờ được nhả. Chỉ áp dụng cho
   // nhóm CHƯA đóng gói (xem allowed-status-transitions.ts) — hàng đã đóng/
   // giao vật lý không tự hủy ngầm, phải qua luồng `return` thủ công.
+  // Trả đủ nhóm: cũng kết thúc canceled khi kho kiểm và xử lý tồn xong.
   CANCELED = 'canceled',
 }
 

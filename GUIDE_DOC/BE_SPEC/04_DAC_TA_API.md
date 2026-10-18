@@ -334,15 +334,15 @@
 | POST | `/order-groups/:id/fulfillment/return` | Coordinator, Warehouse, Admin | `TransitionOrderGroupDto` | (Cũ) shipped/delivered -> returned. Nay ghi lịch sử vận đơn. Dùng luồng /shipments. |
 | POST | `/order-groups/:id/fulfillment/ship` | Coordinator, Admin | `TransitionOrderGroupDto` | (Cũ) packed -> shipped. Nay tạo vận đơn out_for_delivery. Dùng POST /shipments. |
 | GET | `/returns` | Admin, Store Owner, Warehouse, Coordinator | `ListReturnsQueryDto` | Danh sách phiếu trả hàng (lọc trạng thái, nhóm đơn, phân trang). |
-| POST | `/returns` | Admin | `CreateReturnDto` | [Giả lập khách] Yêu cầu trả hàng / hoàn tiền cho nhóm đơn đã giao (trong 15 ngày). |
+| POST | `/returns` | Admin | `CreateReturnDto` | Tạo phiếu trong 15 ngày từ ngày giao gốc; return_refund trả đủ nhóm (cộng dồn phiếu closed) → nhóm returning, phiếu requested. |
 | GET | `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator | — | Chi tiết phiếu trả hàng (dòng hàng, kết quả kiểm, thu hồi vật liệu). |
-| POST | `/returns/:id/approve` | Store Owner, Admin | `ReturnActionDto` | [Duyệt] Hoàn tiền không trả hàng -> đóng luôn; trả hàng -> chờ hàng về kho. Người tạo phiếu không được tự duyệt. |
-| POST | `/returns/:id/cancel` | Store Owner, Admin | `ReturnActionDto` | [Hủy phiếu đã duyệt] Hàng khách không gửi về — phiếu awaiting_receipt → canceled. Bắt buộc lý do (note). |
+| POST | `/returns/:id/approve` | Store Owner, Admin | `ReturnActionDto` | return_refund trả đủ nhóm → nhóm returned, phiếu awaiting_receipt; refund_only đóng luôn. Người tạo không tự duyệt. |
+| POST | `/returns/:id/cancel` | Store Owner, Admin | `ReturnActionDto` | Khách không gửi: phiếu awaiting_receipt → canceled, cần note; return_refund trả đủ nhóm khôi phục nhóm delivered. |
 | POST | `/returns/:id/create-replacement` | Store Owner, Admin | — | Tạo lại đơn thay thế cho phiếu đổi hàng (khi lần tạo tự động bị lỗi). |
-| POST | `/returns/:id/inspect` | Warehouse, Admin | `InspectReturnDto` | [Kho] Kiểm hàng: restock (nhập lại ô, ghi sổ cái) / quarantine (cách ly) / discard (loại bỏ). Tổng mỗi SKU phải khớp số trả. |
+| POST | `/returns/:id/inspect` | Warehouse, Admin | `InspectReturnDto` | Kiểm đủ từng SKU: restock/quarantine/discard, phiếu closed; return_refund trả đủ nhóm → canceled cùng transaction xử lý tồn. |
 | POST | `/returns/:id/quarantine/:lineIndex/resolve` | Warehouse, Admin | `ResolveQuarantineDto` | Xử lý 1 dòng cách ly: restock (nhập lại ô bán, ghi sổ cái) hoặc discard (loại bỏ). |
-| POST | `/returns/:id/receive` | Warehouse, Admin | `ReturnActionDto` | [Kho] Hàng khách trả đã về kho. Trả toàn bộ -> nhóm đơn -> returned. |
-| POST | `/returns/:id/reject` | Store Owner, Admin | `ReturnActionDto` | [Từ chối] Bắt buộc ghi lý do. |
+| POST | `/returns/:id/receive` | Warehouse, Admin | `ReturnActionDto` | Nhận kiện: phiếu received, nhóm trả đủ giữ returned; chưa nhập tồn/chưa canceled. Có tương thích phiếu cũ. |
+| POST | `/returns/:id/reject` | Store Owner, Admin | `ReturnActionDto` | Từ chối phải ghi lý do; return_refund trả đủ nhóm khôi phục nhóm delivered. |
 | GET | `/returns/quarantine` | Admin, Store Owner, Warehouse | — | Hàng đang cách ly chờ xử lý (mọi phiếu), cũ nhất trước. |
 | GET | `/returns/reason-codes` | Admin, Store Owner, Warehouse, Coordinator | — | Danh sách lý do trả hàng (dropdown). |
 | GET | `/shipments` | Admin, Coordinator, Store Owner, Warehouse | `ListShipmentsQueryDto` | Danh sách vận đơn (lọc theo trạng thái / nhóm đơn / chuyến / hãng). |

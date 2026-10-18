@@ -285,6 +285,20 @@ Luật gộp trạng thái nhiều kiện (`aggregateCarrierStatus`): mọi ki�
 
 ## 9. Trả hàng và đổi hàng
 
+**18/10/2026 — tiến độ nhóm đơn với `return_refund` do Admin tạo:**
+
+| Mốc | Trạng thái nhóm / nhãn |
+|---|---|
+| Tạo phiếu trả đủ nhóm | `returning` — Đang hoàn |
+| Store duyệt | `returned` — Đã hoàn hàng |
+| Kho nhận kiện | Giữ `returned` |
+| Kho kiểm và xử lý tồn xong | `canceled` — Đã hủy |
+| Store từ chối/hủy phiếu trước nhận hàng | Khôi phục `delivered` |
+
+Trả một phần giữ `delivered`; cộng các phiếu `return_refund` cùng nguồn đã `closed` với phiếu hiện tại theo từng SKU để xét trả đủ. Ghi nhóm/phiếu/tồn trong cùng transaction; snapshot ngày giao gốc giữ hạn 15 ngày. Phiếu cũ đang mở tiếp tục từ thao tác kế tiếp, phiếu đã kết thúc không backfill. Luồng đổi hàng/chỉ hoàn tiền/giao thất bại giữ nguyên. FE lấy `OrderGroup.fulfillmentStatus`, không dùng trạng thái phiếu/hãng làm tiến độ nhóm. Chi tiết và checklist: [hướng dẫn Shipping C.0](../INTEGRATION_GUIDE_SHIPPING.md).
+
+Vòng đời **phiếu** vẫn giữ:
+
 ```mermaid
 stateDiagram-v2
     [*] --> requested: POST /returns (Admin giả lập khách)

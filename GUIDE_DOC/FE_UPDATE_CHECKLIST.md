@@ -1,5 +1,12 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
+> **18/10/2026 — trạng thái đơn khi trả đủ hàng:** xem [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
+
+- Thêm `returning` vào type/bộ lọc/nhãn `fulfillmentStatus`: **Đang hoàn** khi Admin tạo phiếu; **Đã hoàn hàng** (`returned`) sau Store duyệt; **Đã hủy** (`canceled`) sau kho kiểm và xử lý tồn xong.
+- Sau thao tác phiếu, tải lại nhóm bằng `orderGroupId`. Nhãn tiến độ đơn lấy từ nhóm, giữ tiến độ phiếu riêng; vận đơn giao đi có thể vẫn `delivered`.
+- Kho nhận kiện chưa hủy nhóm. Trả một phần giữ `delivered`; BE tự cộng dồn phiếu đã xử lý để xét trả đủ. Từ chối/hủy phiếu trước nhận hàng khôi phục nhóm `delivered`.
+- `canceled` của phiếu là khách không gửi hàng; `canceled` của nhóm trong luồng mới là đã xử lý hoàn xong. API/body phiếu giữ nguyên; không thêm màn hoặc bước xác nhận.
+
 > **18/10/2026 — Đóng gói gọn trong một luồng.** Request/response và lỗi: [hướng dẫn Packing](INTEGRATION_GUIDE_PACKING.md#23-chấp-nhận--đóng-gói).
 
 - Bỏ màn/bước **Chốt kế hoạch** ở Admin; BE tự tính và tự gán người ít việc sau khi kho lấy xong. Admin có thể gán lại bằng API hiện có.

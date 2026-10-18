@@ -111,6 +111,7 @@ export interface GroupOrderView {
 // 13/10/2026 — nhóm "đã xong" không còn tính là liên kết; nhóm đã giao thì khoá liên kết tay.
 const LINK_CLOSED_STATUSES: GroupFulfillmentStatus[] = [
   GroupFulfillmentStatus.DELIVERED,
+  GroupFulfillmentStatus.RETURNING,
   GroupFulfillmentStatus.RETURNED,
   GroupFulfillmentStatus.CANCELED,
 ];
@@ -970,7 +971,7 @@ export class OrderGroupsService {
     }
   }
 
-  async findOrderGroupById(groupId: string): Promise<OrderGroupDocument> {
+  async findOrderGroupById(groupId: string, session?: ClientSession): Promise<OrderGroupDocument> {
     if (!Types.ObjectId.isValid(groupId)) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.INVALID_GROUP_ID,
@@ -979,7 +980,9 @@ export class OrderGroupsService {
         { groupId },
       );
     }
-    const group = await this.orderGroupModel.findById(groupId);
+    const group = session
+      ? await this.orderGroupModel.findById(groupId, null, { session })
+      : await this.orderGroupModel.findById(groupId);
     if (!group) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
@@ -1021,7 +1024,7 @@ export class OrderGroupsService {
     // 4 chỗ gọi hiện có (pick/ship/deliver/return) không cần sửa gì.
     session?: ClientSession,
   ): Promise<OrderGroupDocument> {
-    const group = await this.findOrderGroupById(groupId); // đã tự validate id + tồn tại
+    const group = await this.findOrderGroupById(groupId, session); // đọc cùng snapshot với lần ghi
 
     if (!isValidStatusTransition(group.fulfillment_status, targetStatus)) {
       throw new AppException(
@@ -1090,6 +1093,7 @@ export class OrderGroupsService {
     const TERMINAL_OR_PACKED_STATUSES: GroupFulfillmentStatus[] = [
       GroupFulfillmentStatus.SHIPPED,
       GroupFulfillmentStatus.DELIVERED,
+      GroupFulfillmentStatus.RETURNING,
       GroupFulfillmentStatus.RETURNED,
       GroupFulfillmentStatus.CANCELED,
     ];

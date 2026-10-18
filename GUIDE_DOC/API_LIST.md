@@ -1,5 +1,7 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
+> **18/10/2026 — Trả đủ hàng:** với `return_refund` do Admin tạo, nhóm đơn đi `delivered → returning` khi tạo phiếu, `→ returned` khi Store duyệt, `→ canceled` sau kho kiểm/xử lý tồn. Trả một phần giữ `delivered`; cộng dồn các phiếu cùng loại đã đóng để xét trả đủ. Từ chối/hủy phiếu khôi phục `delivered`. FE đọc `OrderGroup.fulfillmentStatus`; xem [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
+
 > **18/10/2026 — Luồng đóng gói rút gọn:** tự tính/tự gán sau lấy hàng, không cần Admin chốt. `GET /order-groups?assigned_packer_id=<userId>` lọc việc người đóng trước phân trang. `POST .../packing-plan/approve` duyệt và bắt đầu trong một transaction, trả `packing` (version +1); FE mở quét/cân ngay, không gọi tiếp `/start`. `/start` giữ tương thích `approved` cũ. Hướng dẫn FE: [INTEGRATION_GUIDE_PACKING.md](INTEGRATION_GUIDE_PACKING.md).
 
 > 🆕 14/10/2026 — FE cần chỉnh gì để khớp danh sách này (route đã bỏ mà FE còn gọi, route mới FE chưa gọi): **`FE_UPDATE_CHECKLIST.md`**.
@@ -631,17 +633,19 @@ Lỗi: `DOC_NO_ORDERS` (409, nhóm không còn đơn hợp lệ), `DOC_SHIPMENT_
 | Method | Route                                                 | Role                                       | Mô tả                                                        |
 | ------ | ----------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
 | GET    | `/returns/reason-codes` · `/returns` · `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator |                                                              |
-| POST   | `/returns`                                            | Admin (đóng vai khách)                     | Yêu cầu trả hàng / hoàn tiền (nhóm đơn delivered, ≤15 ngày)  |
-| POST   | `/returns/:id/approve`                                | Store Owner, Admin                         | Duyệt (người tạo không tự duyệt)                             |
-| POST   | `/returns/:id/reject`                                 | Store Owner, Admin                         | Từ chối (bắt buộc lý do)                                     |
+| POST   | `/returns`                                            | Admin (đóng vai khách)                     | Phiếu requested; return_refund trả đủ nhóm → nhóm returning. Hạn 15 ngày từ ngày giao gốc |
+| POST   | `/returns/:id/approve`                                | Store Owner, Admin                         | Người tạo không tự duyệt; return_refund trả đủ nhóm → nhóm returned, phiếu awaiting_receipt |
+| POST   | `/returns/:id/reject`                                 | Store Owner, Admin                         | Bắt buộc lý do; return_refund trả đủ nhóm khôi phục delivered |
 | 🆕 POST | `/returns/:id/cancel`                                | Store Owner, Admin                         | **MỚI (09/10/2026)** — hủy phiếu đã duyệt mà hàng không bao giờ về (khách không gửi). Body `{ expected_version, note }` (`note` bắt buộc → thiếu 400 `RMA_NOTE_REQUIRED`). `awaiting_receipt → canceled` (trạng thái cuối mới); phiếu khác trạng thái → 409 `RMA_INVALID_STATUS`. Trước đây phiếu này không có lối ra và chặn mọi phiếu mới của nhóm đơn |
-| POST   | `/returns/:id/receive`                                | Warehouse, Admin                           | Hàng trả về kho                                              |
-| POST   | `/returns/:id/inspect`                                | Warehouse, Admin                           | Kiểm hàng: restock (nhập lại, sổ cái) / quarantine / discard |
+| POST   | `/returns/:id/receive`                                | Warehouse, Admin                           | Phiếu received; nhóm trả đủ giữ returned, chưa nhập tồn/chưa canceled |
+| POST   | `/returns/:id/inspect`                                | Warehouse, Admin                           | Kiểm đủ: restock/quarantine/discard; phiếu closed, return_refund trả đủ nhóm → canceled cùng transaction xử lý tồn |
 
 > 🔄 ĐÃ ĐỔI (09/10/2026):
 > - `POST /returns`: số lượng mỗi SKU tối đa = **số đã mua − số đã khai ở các phiếu trước** (trừ phiếu `rejected`/`canceled`) — trước đây so với toàn bộ số đã mua nên 1 món trả được nhiều lần. Vượt → 400 `RMA_INVALID_ITEMS`.
 > - `GET /returns` validate query: `status` (enum `requested|rejected|awaiting_receipt|received|closed|canceled`), `order_group_id` (ObjectId), `page` ≥ 1, `limit` 1–100 — sai → 400 `VALIDATION_ERROR`.
 > - Trạng thái phiếu thêm `canceled` (cuối).
+
+**18/10/2026:** `cancel` phiếu `return_refund` trả đủ nhóm còn khôi phục nhóm về `delivered`; `canceled` của phiếu nghĩa là khách không gửi hàng, khác `canceled` của nhóm sau kiểm hàng thành công. Các API phiếu giữ nguyên body/response. `GET /order-groups?fulfillment_status=returning` đã lọc được trạng thái mới; sau thao tác phiếu, tải lại nhóm bằng `orderGroupId`. Snapshot ngày giao là dữ liệu nội bộ, không thêm field response. Đổi hàng, chỉ hoàn tiền, giao thất bại giữ luồng cũ.
 
 > Gộp 04/10/2026: route nhận hàng hoàn riêng của thi_dev (`POST /order-groups/:id/fulfillment/return-receive`, collection `return_receipts`) **đã bỏ** — dùng luồng `/returns` ở trên (có kiểm chất lượng và ghi sổ kho).
 

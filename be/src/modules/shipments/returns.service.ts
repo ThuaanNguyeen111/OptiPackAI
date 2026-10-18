@@ -122,7 +122,13 @@ export class ReturnsService {
     if (open) this.fail(RETURN_ERROR_CODES.OPEN_EXISTS, 'Nhóm đơn đang có phiếu trả hàng chưa xử lý xong.', HttpStatus.CONFLICT, { returnId: open._id.toString() });
 
     const shipment = await this.shipmentModel.findOne({ order_group_id: group._id, direction: 'forward' });
-    const deliveredAt = shipment?.delivered_at ?? group.updated_at ?? new Date();
+    const earlier = await this.returnModel
+      .find({ order_group_id: group._id })
+      .select('items status delivered_at_snapshot')
+      .lean();
+    const deliveredAt = shipment?.delivered_at
+      ?? earlier.find((r) => r.delivered_at_snapshot)?.delivered_at_snapshot
+      ?? group.updated_at ?? new Date();
     const ageDays = (Date.now() - deliveredAt.getTime()) / 86_400_000;
     if (ageDays > RETURN_WINDOW_DAYS) {
       this.fail(RETURN_ERROR_CODES.WINDOW_EXPIRED, `Đã quá ${String(RETURN_WINDOW_DAYS)} ngày kể từ khi giao — hết hạn trả hàng.`, HttpStatus.CONFLICT, { deliveredAt });
@@ -131,11 +137,8 @@ export class ReturnsService {
     const bought = new Map((await this.orderGroupsService.getPackableItemsForGroup(dto.order_group_id)).items.map((i) => [i.sku, i.quantity]));
     // (09/10/2026) Trừ số đã trả/hoàn ở các phiếu trước (trừ phiếu bị từ chối/hủy) —
     // trước đây so với toàn bộ số đã mua nên cùng 1 món trả được nhiều lần.
-    const earlier = await this.returnModel
-      .find({ order_group_id: group._id, status: { $nin: [ReturnStatus.REJECTED, ReturnStatus.CANCELED] } })
-      .select('items')
-      .lean();
     for (const r of earlier) {
+      if (r.status === ReturnStatus.REJECTED || r.status === ReturnStatus.CANCELED) continue;
       for (const it of r.items) bought.set(it.seller_sku, (bought.get(it.seller_sku) ?? 0) - it.quantity);
     }
     const seen = new Set<string>();
@@ -160,20 +163,25 @@ export class ReturnsService {
       }
     }
 
-    const [doc] = await this.returnModel.create([{
-      rma_code: this.newCode(),
-      order_group_id: group._id,
-      type: dto.type,
-      exchange_items: dto.type === ReturnType.EXCHANGE ? exchangeItems : [],
-      source: 'simulated',
-      status: ReturnStatus.REQUESTED,
-      platform: group.platform,
-      shop_id: group.shop_id,
-      items: dto.items,
-      customer_note: dto.customer_note ?? null,
-      created_by: actorId,
-    }]);
-    if (!doc) throw new Error('Tạo phiếu trả hàng không trả về document');
+    const doc = await this.runTx(async (session) => {
+      const [created] = await this.returnModel.create([{
+        rma_code: this.newCode(),
+        order_group_id: group._id,
+        type: dto.type,
+        exchange_items: dto.type === ReturnType.EXCHANGE ? exchangeItems : [],
+        source: 'simulated',
+        status: ReturnStatus.REQUESTED,
+        platform: group.platform,
+        shop_id: group.shop_id,
+        items: dto.items,
+        customer_note: dto.customer_note ?? null,
+        created_by: actorId,
+        delivered_at_snapshot: deliveredAt,
+      }], { session });
+      if (!created) throw new Error('Tạo phiếu trả hàng không trả về document');
+      await this.updateReturnGroup(created, GroupFulfillmentStatus.RETURNING, session);
+      return created;
+    });
     try {
       await this.notificationsService.notify({
         recipientRole: UserRole.STORE_OWNER, type: NotificationType.RETURN_REQUESTED, severity: 'warning',
@@ -194,15 +202,23 @@ export class ReturnsService {
       this.fail(RETURN_ERROR_CODES.SELF_APPROVAL, 'Người tạo phiếu không được tự duyệt — cần Store Owner khác duyệt.', HttpStatus.FORBIDDEN);
     }
     const refundOnly = rma.type === ReturnType.REFUND_ONLY;
-    return this.move(rma, expectedVersion, ReturnStatus.REQUESTED, refundOnly ? ReturnStatus.CLOSED : ReturnStatus.AWAITING_RECEIPT, {
-      decided_by: actorId, decision_note: note ?? null, ...(refundOnly ? { closed_at: new Date() } : {}),
+    return this.runTx(async (session) => {
+      const updated = await this.move(rma, expectedVersion, ReturnStatus.REQUESTED, refundOnly ? ReturnStatus.CLOSED : ReturnStatus.AWAITING_RECEIPT, {
+        decided_by: actorId, decision_note: note ?? null, ...(refundOnly ? { closed_at: new Date() } : {}),
+      }, session);
+      await this.updateReturnGroup(rma, GroupFulfillmentStatus.RETURNED, session);
+      return updated;
     });
   }
 
   async reject(id: string, expectedVersion: number, actorId: string, note?: string): Promise<ReturnRequestDocument> {
     if (!note?.trim()) this.fail(RETURN_ERROR_CODES.NOTE_REQUIRED, 'Từ chối phải ghi rõ lý do.', HttpStatus.BAD_REQUEST);
     const rma = await this.get(id);
-    return this.move(rma, expectedVersion, ReturnStatus.REQUESTED, ReturnStatus.REJECTED, { decided_by: actorId, decision_note: note, closed_at: new Date() });
+    return this.runTx(async (session) => {
+      const updated = await this.move(rma, expectedVersion, ReturnStatus.REQUESTED, ReturnStatus.REJECTED, { decided_by: actorId, decision_note: note, closed_at: new Date() }, session);
+      await this.updateReturnGroup(rma, GroupFulfillmentStatus.DELIVERED, session);
+      return updated;
+    });
   }
 
   /**
@@ -213,21 +229,28 @@ export class ReturnsService {
   async cancel(id: string, expectedVersion: number, actorId: string, note?: string): Promise<ReturnRequestDocument> {
     if (!note?.trim()) this.fail(RETURN_ERROR_CODES.NOTE_REQUIRED, 'Hủy phiếu phải ghi rõ lý do.', HttpStatus.BAD_REQUEST);
     const rma = await this.get(id);
-    return this.move(rma, expectedVersion, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.CANCELED, {
-      decided_by: actorId, decision_note: note, closed_at: new Date(),
+    return this.runTx(async (session) => {
+      const updated = await this.move(rma, expectedVersion, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.CANCELED, {
+        decided_by: actorId, decision_note: note, closed_at: new Date(),
+      }, session);
+      await this.updateReturnGroup(rma, GroupFulfillmentStatus.DELIVERED, session);
+      return updated;
     });
   }
 
-  /** [Warehouse] Hàng khách trả đã về kho. Trả TOÀN BỘ -> nhóm đơn -> returned. */
+  /** [Warehouse] Ghi nhận kiện đã về; nhóm trả đủ đã returned từ lúc Store duyệt. */
   async receive(id: string, expectedVersion: number, actorId: string): Promise<ReturnRequestDocument> {
     const rma = await this.get(id);
-    const bought = (await this.orderGroupsService.getPackableItemsForGroup(rma.order_group_id.toString())).items;
-    const returnedAll = bought.every((b) => rma.items.find((i) => i.seller_sku === b.sku)?.quantity === b.quantity);
     return this.runTx(async (session) => {
       const updated = await this.move(rma, expectedVersion, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.RECEIVED, { received_by: actorId }, session);
-      if (returnedAll) {
-        const group = await this.orderGroupsService.findOrderGroupById(rma.order_group_id.toString());
-        await this.orderGroupsService.transitionFulfillmentStatus(group._id.toString(), GroupFulfillmentStatus.RETURNED, group.__v, session);
+      if (rma.type === ReturnType.RETURN_REFUND && rma.source === 'simulated') {
+        await this.updateReturnGroup(rma, GroupFulfillmentStatus.RETURNED, session);
+      } else {
+        const bought = (await this.orderGroupsService.getPackableItemsForGroup(rma.order_group_id.toString())).items;
+        if (bought.every((b) => rma.items.find((i) => i.seller_sku === b.sku)?.quantity === b.quantity)) {
+          const group = await this.orderGroupsService.findOrderGroupById(rma.order_group_id.toString(), session);
+          await this.orderGroupsService.transitionFulfillmentStatus(group._id.toString(), GroupFulfillmentStatus.RETURNED, group.__v, session);
+        }
       }
       return updated;
     });
@@ -239,6 +262,7 @@ export class ReturnsService {
    */
   async inspect(id: string, dto: InspectReturnDto, actorId: string): Promise<ReturnRequestDocument> {
     const rma = await this.get(id);
+    this.assertStatusVersion(rma, dto.expected_version, ReturnStatus.RECEIVED);
     const expected = new Map(rma.items.map((i) => [i.seller_sku, i.quantity]));
     const counted = new Map<string, number>();
     for (const line of dto.lines) {
@@ -275,7 +299,7 @@ export class ReturnsService {
           }, session);
         }
       }
-      return this.move(rma, dto.expected_version, ReturnStatus.RECEIVED, ReturnStatus.CLOSED, {
+      const updated = await this.move(rma, dto.expected_version, ReturnStatus.RECEIVED, ReturnStatus.CLOSED, {
         inspection: dto.lines.map((l) => ({
           seller_sku: l.seller_sku,
           quantity: l.quantity,
@@ -297,6 +321,8 @@ export class ReturnsService {
           outcome: o.outcome,
         })),
       }, session);
+      await this.updateReturnGroup(rma, GroupFulfillmentStatus.CANCELED, session);
+      return updated;
     });
     // Đổi hàng: kiểm hàng xong -> tạo đơn thay thế. Lỗi ở bước này KHÔNG hủy kết quả
     // kiểm hàng (đã lưu) — phiếu ghi replacement_status "failed", bấm tạo lại được.
@@ -415,6 +441,50 @@ export class ReturnsService {
 
   // ------------------------------------------------------------ nội bộ
 
+  private async updateReturnGroup(
+    rma: ReturnRequestDocument,
+    target: GroupFulfillmentStatus,
+    session: ClientSession,
+  ): Promise<void> {
+    if (rma.type !== ReturnType.RETURN_REFUND || rma.source !== 'simulated') return;
+    const groupId = rma.order_group_id.toString();
+    const bought = (await this.orderGroupsService.getPackableItemsForGroup(groupId)).items;
+    const earlier = await this.returnModel.find({
+      order_group_id: rma.order_group_id,
+      _id: { $ne: rma._id },
+      type: ReturnType.RETURN_REFUND,
+      source: 'simulated',
+      status: ReturnStatus.CLOSED,
+    }).select('items').session(session).lean();
+    const quantities = new Map<string, number>();
+    for (const request of [...earlier, rma]) {
+      for (const item of request.items) {
+        quantities.set(item.seller_sku, (quantities.get(item.seller_sku) ?? 0) + item.quantity);
+      }
+    }
+    if (bought.length === 0 || !bought.every((b) => quantities.get(b.sku) === b.quantity)) return;
+
+    let group = await this.orderGroupsService.findOrderGroupById(groupId, session);
+    if (target === GroupFulfillmentStatus.RETURNING && group.fulfillment_status !== GroupFulfillmentStatus.DELIVERED) {
+      this.fail(RETURN_ERROR_CODES.OPEN_EXISTS, 'Nhóm đơn đang có phiếu trả hàng chưa xử lý xong.', HttpStatus.CONFLICT);
+    }
+    if (group.fulfillment_status === target) return;
+    // Phiếu received cũ có thể đã trả đủ qua nhiều lần nhưng nhóm vẫn delivered.
+    if (target === GroupFulfillmentStatus.CANCELED && group.fulfillment_status === GroupFulfillmentStatus.DELIVERED) {
+      group = await this.orderGroupsService.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.RETURNED, group.__v, session);
+    }
+    await this.orderGroupsService.transitionFulfillmentStatus(groupId, target, group.__v, session);
+  }
+
+  private assertStatusVersion(rma: ReturnRequestDocument, expectedVersion: number, from: ReturnStatus): void {
+    if (rma.status !== from) {
+      this.fail(RETURN_ERROR_CODES.INVALID_STATUS, `Phiếu đang "${rma.status}" — thao tác này chỉ làm được khi phiếu "${from}".`, HttpStatus.CONFLICT, { status: rma.status });
+    }
+    if (rma.__v !== expectedVersion) {
+      this.fail(RETURN_ERROR_CODES.STATE_CONFLICT, 'Phiếu vừa được người khác thay đổi — tải lại rồi thử lại.', HttpStatus.CONFLICT, { expectedVersion });
+    }
+  }
+
   private async move(
     rma: ReturnRequestDocument,
     expectedVersion: number,
@@ -423,9 +493,7 @@ export class ReturnsService {
     set: Record<string, unknown>,
     session?: ClientSession,
   ): Promise<ReturnRequestDocument> {
-    if (rma.status !== from) {
-      this.fail(RETURN_ERROR_CODES.INVALID_STATUS, `Phiếu đang "${rma.status}" — thao tác này chỉ làm được khi phiếu "${from}".`, HttpStatus.CONFLICT, { status: rma.status });
-    }
+    this.assertStatusVersion(rma, expectedVersion, from);
     const updated = await this.returnModel.findOneAndUpdate(
       { _id: rma._id, __v: expectedVersion, status: from },
       { $set: { status: to, ...set }, $inc: { __v: 1 } },

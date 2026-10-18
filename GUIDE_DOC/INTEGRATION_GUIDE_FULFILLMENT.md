@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
+**18/10/2026 — trả đủ hàng:** Admin tạo phiếu `return_refund` → nhóm `returning` (Đang hoàn); Store duyệt → `returned` (Đã hoàn hàng); kho kiểm/xử lý tồn xong → `canceled` (Đã hủy). Nhận kiện chưa hủy nhóm. Trả một phần giữ `delivered`; tính cộng dồn phiếu cùng loại đã đóng và phiếu hiện tại. Từ chối/hủy phiếu trước nhận hàng khôi phục `delivered`. Hướng dẫn FE và tương thích dữ liệu cũ: [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
+
 **Cập nhật 18/10/2026 — đóng gói một bước chấp nhận:** BE tự tính và tự gán người sau khi kho lấy xong; không cần Admin chốt. `GET /order-groups?assigned_packer_id=<userId>` lọc theo người đóng trên kế hoạch active trước phân trang (`assigned_staff_id` vẫn là người lấy). Sau khi gán thành công, lần đọc kế tiếp có việc; thăm dò 10 giây hoặc tải lại khi nhận thông báo. `/packing-plan/approve` chuyển thẳng `ready → packing`, ghi người/giờ duyệt và bắt đầu, version +1 trong cùng transaction. FE mở quét/cân/niêm phong ngay, bỏ màn Approved trung gian và nút bắt đầu riêng; `/start` giữ tương thích `approved` cũ. Chi tiết: [INTEGRATION_GUIDE_PACKING.md](INTEGRATION_GUIDE_PACKING.md).
 
 **🔄 Cập nhật 10/10/2026 (v7.4 — gộp sửa kiểu id của `main` 07/10):** Picking List hết báo "CHƯA GÁN VỊ TRÍ" sai, `pick-item` hết báo thiếu tồn sai khi kho đã gán đúng, khớp SKU không phân biệt hoa/thường (Nghiệp vụ 3); `related_entity_id` của thông báo `sync_failed` là id shop đã kết nối (Nghiệp vụ 6). FE không phải sửa request/response.
@@ -980,7 +982,7 @@ Cước là bảng mẫu; chưa gọi API hãng vận chuyển thật; chưa có
                           │ ship
                           ▼
                     ┌───────────┐  return   ┌───────────┐
-                    │  shipped  │──────────►│ returned  │ (trạng thái cuối)
+                    │  shipped  │──────────►│ returned  │ (hoàn do giao thất bại)
                     └─────┬─────┘           └───────────┘
                           │ deliver               ▲
                           ▼                        │ return

@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Giao hàng & Trả hàng (Shipping & Returns)
 
+> **18/10/2026 — Tiến độ nhóm đơn khi khách trả đủ hàng:** Admin tạo phiếu → `returning` (Đang hoàn); Store duyệt → `returned` (Đã hoàn hàng); kho kiểm và xử lý tồn xong → `canceled` (Đã hủy). Xem **C.0** để nối FE; trạng thái phiếu và trạng thái hãng vận chuyển vẫn có ý nghĩa riêng.
+
 **Phiên bản v1.4 — 14/10/2026 (chiều)** (C4–C6: giao qua GHN thật — Phần B.8; F.1/F.2/F.3 bổ sung). **v1.3 — 14/10/2026** (thêm Phần B.7: báo giá theo kiện, chọn hãng, giao chung chuyến, lịch lấy hàng, in phiếu/nhãn/manifest — các route của module `shipping`/`documents` gộp từ thi_dev 04/10 trước đây chỉ có ở `API_LIST.md`; bổ sung bảng route F.1, mã lỗi F.2, checklist F.3; Phần E thêm hạn chế 14–16 về GHN). **v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
 
 **Phạm vi bản gọn (đã chốt):** mọi bước là **bấm nút đổi trạng thái**. Tracking = lịch sử các lần bấm (ai, lúc nào, lý do). **Chưa có:** bản đồ/GPS, ảnh bằng chứng giao hàng, chuyến giao nhiều điểm, role shipper riêng, đổi hàng — xem Phần E.
@@ -322,6 +324,41 @@ Cột gợi ý cho danh sách vận đơn: Hãng · Mã GHN (`carrierParcels[].c
 
 # PHẦN C — TRẢ HÀNG / HOÀN HÀNG (G3) 🆕
 
+## C.0. Trạng thái đơn nội bộ theo tiến độ hoàn hàng (18/10/2026)
+
+Áp dụng cho phiếu `type: "return_refund"`, `source: "simulated"` do Admin tạo. Khi tổng số trả theo từng SKU bằng toàn bộ hàng trong nhóm:
+
+| Thao tác | API | `ReturnRequest.status` | `OrderGroup.fulfillmentStatus` / nhãn FE |
+|---|---|---|---|
+| Admin tạo phiếu | `POST /returns` | `requested` | `returning` — **Đang hoàn** |
+| Store duyệt | `POST /returns/:id/approve` | `awaiting_receipt` | `returned` — **Đã hoàn hàng** |
+| Kho nhận kiện | `POST /returns/:id/receive` | `received` | Giữ `returned`; chưa cộng tồn |
+| Kho kiểm và xử lý đủ hàng | `POST /returns/:id/inspect` | `closed` | `canceled` — **Đã hủy** |
+| Store từ chối phiếu | `POST /returns/:id/reject` | `rejected` | Khôi phục `delivered` |
+| Khách không gửi, Store hủy phiếu đã duyệt | `POST /returns/:id/cancel` | `canceled` | Khôi phục `delivered` |
+
+- **Trả một phần:** nhóm giữ `delivered` ở mọi bước. Cộng các phiếu `return_refund` cùng nguồn đã `closed` trước đó với phiếu hiện tại, theo từng SKU; phiếu cuối trả đủ phần còn lại áp dụng bảng trên. Ví dụ nhóm A×2, B×1: đã xử lý A×1; tạo phiếu A×1+B×1 sẽ đưa nhóm sang `returning`.
+- Phiếu `rejected`/`canceled`, phiếu đổi hàng, chỉ hoàn tiền và giao thất bại không được cộng vào tiến độ trả đủ nhóm này. Giới hạn số lượng còn được yêu cầu trả vẫn trừ các phiếu trước theo quy tắc hiện có.
+- **Đã hoàn hàng** trong luồng này là mốc Store đã duyệt; việc nhận vật lý/kiểm hàng theo `ReturnRequest.status`. Kho nhận kiện chưa chuyển nhóm sang `canceled`.
+- `inspect` phải xử lý đủ số lượng: chỉ `restock` cộng tồn bán; `quarantine`/`discard` ghi nhận đúng kết quả, không cộng tồn bán. Xử lý đủ vẫn kết thúc nhóm bằng `canceled`, kể cả có hàng cách ly/loại bỏ.
+- Mỗi lần đổi phiếu và nhóm, hoặc đóng phiếu + xử lý tồn, đều dùng cùng transaction và khóa version. Lỗi nhập tồn/khóa version không được để lại trạng thái dở dang. Gửi lại thao tác đã thành công sẽ bị chặn bằng lỗi trạng thái/version; FE tải lại dữ liệu trước khi cho thao tác tiếp.
+- BE giữ ngày giao gốc bằng snapshot nội bộ `delivered_at_snapshot`, kể cả ở phiếu bị từ chối/hủy, để thay đổi `updated_at` của nhóm không làm kéo dài hạn trả 15 ngày. Field này không thêm vào response FE.
+
+**FE dùng trạng thái nào:**
+
+```http
+GET /order-groups?fulfillment_status=returning
+GET /order-groups?fulfillment_status=returned
+GET /order-groups?fulfillment_status=canceled
+GET /order-groups/:orderGroupId
+```
+
+Query vẫn dùng bộ lọc/phân trang hiện có; nhãn tiến độ đơn lấy từ `fulfillmentStatus` trong response nhóm. Ghép bằng `orderGroupId` ở vận đơn/phiếu, hoặc `consolidatedGroupId` ở đơn. Sau thao tác phiếu, tải lại phiếu và nhóm liên quan. Không suy ra tiến độ đơn từ `Shipment.status`, `carrierStatus` hoặc `Order.status` gốc từ sàn; vận đơn giao đi có thể vẫn `delivered` trong khi nhóm đang hoàn.
+
+URL và request body của các API phiếu giữ nguyên; response phiếu vẫn là đối tượng phiếu hiện tại, không có field `fulfillmentStatus` mới. FE bổ sung giá trị `returning` và nhãn trên, không cần thêm màn hay bước xác nhận. Phân biệt `canceled` của **nhóm** sau kiểm hàng thành công với `canceled` của **phiếu** khi khách không gửi hàng.
+
+**Tương thích:** không chạy migration/backfill trạng thái hàng loạt. Phiếu cũ đang mở tiếp tục từ thao tác tiếp theo: phiếu chưa duyệt có thể chuyển nhóm từ `delivered` thẳng `returned` khi duyệt; phiếu cũ đã nhận đủ hàng có thể kết thúc nhóm bằng `canceled` khi kiểm xong. Phiếu đã đóng trước bản sửa giữ trạng thái nhóm đã có. Đổi hàng, chỉ hoàn tiền và giao thất bại giữ luồng hiện tại.
+
 ## C.1. 3 loại phiếu
 
 | `type` | Ai tạo | Có hàng về kho? | Luồng |
@@ -377,7 +414,7 @@ POST /returns/:id/cancel    { "expected_version": 1, "note": "Khách không gử
 ```
 POST /returns/:id/receive   { "expected_version": 1 }        (Warehouse Staff)
 ```
-Trả **toàn bộ** hàng của nhóm đơn → nhóm đơn chuyển `returned`. Trả 1 phần → nhóm đơn giữ `delivered`.
+Với `return_refund` trả đủ nhóm, nhóm đã `returned` từ lúc Store duyệt; bước này chỉ ghi nhận đã nhận kiện. Trả một phần giữ nhóm `delivered`. Phiếu cũ chưa cập nhật nhóm được xử lý tương thích tại bước nhận. Chi tiết cộng dồn và mốc kết thúc `canceled`: C.0.
 
 ## C.5. Kiểm hàng — bước quan trọng nhất
 
@@ -544,7 +581,11 @@ Swagger đánh dấu 3 route này `deprecated`. 🔄 (09/10/2026) **FE không g�
 - [ ] Warehouse nhận hàng hoàn → nhóm đơn `returned` + xuất hiện 1 phiếu `failed_delivery` trạng thái `received`
 - [ ] Kiểm phiếu đó: 1 dòng `restock` chọn ô → mở sổ cái của SKU trên ô thấy dòng `return_restock`
 - [ ] Bấm 2 máy cùng lúc cùng 1 nút → 1 thành công, 1 `SHP_STATE_CONFLICT`
-- [ ] Nhóm đơn đã giao → Admin tạo trả hàng → Admin tự duyệt bị `RMA_SELF_APPROVAL` → Store Owner duyệt → kho nhận → kiểm → `closed`
+- [ ] Trả đủ nhóm: Admin tạo → nhóm `returning`; Admin tự duyệt bị `RMA_SELF_APPROVAL`; Store duyệt → `returned`; kho nhận giữ `returned`; kiểm đủ → phiếu `closed`, nhóm `canceled`
+- [ ] Trả một phần giữ nhóm `delivered`; nhiều phiếu cộng dồn trả đủ thì phiếu cuối áp dụng đủ các mốc trên
+- [ ] Từ chối/hủy phiếu trả đủ nhóm trước nhận hàng → nhóm về `delivered`; ngày giao gốc vẫn giữ cho hạn trả 15 ngày
+- [ ] Gửi version cũ hoặc kiểm lại phiếu đã đóng không cộng tồn lần hai; lỗi nhập tồn không đóng phiếu/hủy nhóm
+- [ ] Phiếu cũ đang mở tiếp tục được; phiếu đổi hàng/chỉ hoàn tiền/giao thất bại giữ luồng hiện có
 - [ ] `refund_only` → duyệt là `closed` ngay, tồn kho không đổi
 - [ ] Kiểm hàng thiếu số lượng → `RMA_INSPECTION_MISMATCH`
 - [ ] Route cũ `fulfillment/ship|deliver|return` vẫn trả response nhóm đơn như trước

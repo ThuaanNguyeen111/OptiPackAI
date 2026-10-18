@@ -114,6 +114,17 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
   });
 
   describe('cancelIfAllOrdersUnfulfillable() (N1)', () => {
+    it('nhóm returning không tự hủy theo đồng bộ đơn trước khi kho kiểm hàng', async () => {
+      const groupId = new Types.ObjectId();
+      orderGroupModel.findById.mockResolvedValue({
+        _id: groupId, fulfillment_status: GroupFulfillmentStatus.RETURNING, __v: 0,
+      });
+      await service.cancelIfAllOrdersUnfulfillable(groupId.toString());
+      expect(orderModel.countDocuments).not.toHaveBeenCalled();
+      expect(orderGroupModel.findOneAndUpdate).not.toHaveBeenCalled();
+      expect(stockReservationService.releaseGroup).not.toHaveBeenCalled();
+    });
+
     it('nhóm đang PICKING, còn 1 đơn fulfill được -> KHÔNG hủy, KHÔNG notify', async () => {
       const groupId = new Types.ObjectId().toString();
       orderGroupModel.findById.mockResolvedValue({
@@ -271,6 +282,7 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
           fulfillment_status: {
             $nin: [
               GroupFulfillmentStatus.DELIVERED,
+              GroupFulfillmentStatus.RETURNING,
               GroupFulfillmentStatus.RETURNED,
               GroupFulfillmentStatus.CANCELED,
             ],
@@ -279,6 +291,20 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       );
       expect(result).toEqual([{ _id: 'other-group' }]);
     });
+  });
+
+  it('chuyển trạng thái trong transaction đọc và ghi nhóm bằng cùng session', async () => {
+    const groupId = new Types.ObjectId().toString();
+    const session = {} as never;
+    orderGroupModel.findById.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.RETURNED, __v: 6 });
+    orderGroupModel.findOneAndUpdate.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.CANCELED, __v: 7 });
+    await service.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.CANCELED, 6, session);
+    expect(orderGroupModel.findById).toHaveBeenCalledWith(groupId, null, { session });
+    expect(orderGroupModel.findOneAndUpdate).toHaveBeenCalledWith(
+      { _id: groupId, __v: 6 },
+      { $set: { fulfillment_status: GroupFulfillmentStatus.CANCELED }, $inc: { __v: 1 } },
+      { returnDocument: 'after', session },
+    );
   });
 
   it('OrderStatus.CANCELED được coi là không còn fulfill được (sanity check dùng chung enum)', () => {

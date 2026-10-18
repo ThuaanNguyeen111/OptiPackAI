@@ -90,11 +90,10 @@ const ALLOWED_TRANSITIONS: Record<
     // lấy hàng → nhóm đơn quay về "đã đóng gói" để tạo lại vận đơn. Hàng chưa rời kho.
     GroupFulfillmentStatus.PACKED,
   ],
-  [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNED], // hoàn hàng SAU khi đã giao vẫn hợp lệ (khách trả hàng)
-  [GroupFulfillmentStatus.RETURNED]: [], // trạng thái cuối, không đi tiếp đâu nữa
-  // BỔ SUNG (29/09/2026, N1) — trạng thái cuối, giống RETURNED. KHÔNG có
-  // cạnh đi TỚI CANCELED từ PACKED/SHIPPED/DELIVERED (hàng đã đóng/giao vật
-  // lý không tự hủy ngầm — dùng luồng `return` thủ công như hiện có).
+  [GroupFulfillmentStatus.DELIVERED]: [GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.RETURNED],
+  [GroupFulfillmentStatus.RETURNING]: [GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.DELIVERED],
+  // Phiếu trả đủ nhóm: kiểm hàng xong mới hủy; hủy phiếu trước nhận hàng thì khôi phục đã giao.
+  [GroupFulfillmentStatus.RETURNED]: [GroupFulfillmentStatus.CANCELED, GroupFulfillmentStatus.DELIVERED],
   [GroupFulfillmentStatus.CANCELED]: [],
 };
 

@@ -1,8 +1,11 @@
-import { Types } from 'mongoose';
+import { Types, type ClientSession } from 'mongoose';
 import { ReturnsService } from './returns.service';
 import { RETURN_ERROR_CODES } from './returns.errors';
 import { InspectionResult, ReturnReason, ReturnStatus, ReturnType } from './enums/return.enums';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
+import { isValidStatusTransition } from '../order-groups/enums/allowed-status-transitions';
+import type { ReturnRequestDocument } from './schemas/return-request.schema';
+import type { InspectReturnDto } from './dto/return.dto';
 
 //!=============================================
 // G3 (27/09/2026) — trả/hoàn hàng bản gọn. Kiểm đúng các quy tắc nghiệp vụ:
@@ -25,15 +28,16 @@ describe('ReturnsService — G3', () => {
   let orderModel: { findOne: jest.Mock; create: jest.Mock };
   let orderGroupModel: { updateOne: jest.Mock };
   let productMasterModel: { find: jest.Mock };
+  let session: { withTransaction: jest.Mock; endSession: jest.Mock };
   let service: ReturnsService;
 
   const rma = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
-    _id: rmaId, order_group_id: groupId, status: ReturnStatus.REQUESTED, type: ReturnType.RETURN_REFUND, platform: 'lazada', shop_id: 's1',
+    _id: rmaId, order_group_id: groupId, status: ReturnStatus.REQUESTED, type: ReturnType.RETURN_REFUND, source: 'simulated', platform: 'lazada', shop_id: 's1',
     items: [{ seller_sku: 'A', quantity: 2, reason_code: ReturnReason.DEFECTIVE }], created_by: 'admin-1', __v: 0, ...over,
   });
 
   beforeEach(() => {
-    returnModel = { findById: jest.fn(), exists: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([rma()]), findOneAndUpdate: jest.fn(), findByIdAndUpdate: jest.fn(), find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]) }) })) };
+    returnModel = { findById: jest.fn(), exists: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([rma()]), findOneAndUpdate: jest.fn(), findByIdAndUpdate: jest.fn(), find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]), session: () => ({ lean: () => Promise.resolve([]) }) }) })) };
     shipmentModel = { findOne: jest.fn().mockResolvedValue({ delivered_at: new Date() }) };
     orderGroupsService = {
       findOrderGroupById: jest.fn().mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.DELIVERED, platform: 'lazada', shop_id: 's1', __v: 4, updated_at: new Date() }),
@@ -47,7 +51,7 @@ describe('ReturnsService — G3', () => {
     orderModel = { findOne: jest.fn(), create: jest.fn() };
     orderGroupModel = { updateOne: jest.fn().mockResolvedValue({}) };
     productMasterModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
-    const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
+    session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, packagingMaterialsService as never, movementModel as never, { notify: jest.fn().mockResolvedValue({}) } as never, orderModel as never, orderGroupModel as never, productMasterModel as never);
   });
 
@@ -73,8 +77,8 @@ describe('ReturnsService — G3', () => {
     it('lần trả sau trừ số đã trả ở phiếu trước (bỏ phiếu bị từ chối/hủy)', async () => {
       returnModel.find.mockReturnValue({ select: () => ({ lean: () => Promise.resolve([{ items: [{ seller_sku: 'A', quantity: 2 }] }]) }) });
       await expect(service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.INVALID_ITEMS });
-      const [filter] = returnModel.find.mock.calls[0] as [{ status: { $nin: ReturnStatus[] } }];
-      expect(filter.status.$nin).toEqual([ReturnStatus.REJECTED, ReturnStatus.CANCELED]);
+      const [filter] = returnModel.find.mock.calls[0] as [Record<string, unknown>];
+      expect(filter).toEqual({ order_group_id: groupId });
     });
 
     it('hủy phiếu đã duyệt mà hàng không về: bắt buộc lý do, awaiting_receipt → canceled', async () => {
@@ -223,6 +227,214 @@ describe('ReturnsService — G3', () => {
     it('tạo đơn thay thế lần 2 -> 409 RMA_REPLACEMENT_EXISTS', async () => {
       returnModel.findById.mockResolvedValue(rma({ type: ReturnType.EXCHANGE, status: ReturnStatus.CLOSED, replacement_status: 'created' }));
       await expect(service.createReplacement(rmaId.toString(), 'owner-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.REPLACEMENT_EXISTS });
+    });
+  });
+
+  describe('tiến độ trả đủ nhóm (18/10/2026)', () => {
+    interface ReturnQuery {
+      select(): ReturnQuery;
+      session(): ReturnQuery;
+      lean(): Promise<ReturnRequestDocument[]>;
+    }
+    let requests: ReturnRequestDocument[];
+    let group: { _id: Types.ObjectId; fulfillment_status: GroupFulfillmentStatus; __v: number; platform: string; shop_id: string; updated_at: Date };
+    const allItems = [{ seller_sku: 'A', quantity: 2 }, { seller_sku: 'B', quantity: 1 }];
+    const inspection = (request: ReturnRequestDocument, result = InspectionResult.RESTOCK): InspectReturnDto => ({
+      expected_version: request.__v,
+      lines: request.items.map((i) => ({ seller_sku: i.seller_sku, quantity: i.quantity, result, warehouse_id: whId, bin_location_id: binId })),
+    });
+
+    beforeEach(() => {
+      requests = [];
+      group = { _id: groupId, fulfillment_status: GroupFulfillmentStatus.DELIVERED, __v: 4, platform: 'lazada', shop_id: 's1', updated_at: new Date() };
+      orderGroupsService.findOrderGroupById.mockImplementation(() => Promise.resolve({ ...group }));
+      orderGroupsService.transitionFulfillmentStatus.mockImplementation((_id: string, target: GroupFulfillmentStatus, expected: number) => {
+        if (expected !== group.__v || !isValidStatusTransition(group.fulfillment_status, target)) throw new Error('group conflict');
+        group = { ...group, fulfillment_status: target, __v: expected + 1, updated_at: new Date() };
+        return Promise.resolve({ ...group });
+      });
+      returnModel.find.mockImplementation((filter: { status?: ReturnStatus; _id?: { $ne: Types.ObjectId }; type?: ReturnType; source?: string }) => {
+        const chain: ReturnQuery = {
+          select: () => chain,
+          session: () => chain,
+          lean: (): Promise<ReturnRequestDocument[]> => Promise.resolve(requests.filter((r) =>
+            (!filter.status || r.status === filter.status) &&
+            (!filter._id || !r._id.equals(filter._id.$ne)) &&
+            (!filter.type || r.type === filter.type) && (!filter.source || r.source === filter.source),
+          )),
+        };
+        return chain;
+      });
+      returnModel.exists.mockImplementation(() => Promise.resolve(
+        requests.find((r) => [ReturnStatus.REQUESTED, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.RECEIVED].includes(r.status)) ?? null,
+      ));
+      returnModel.create.mockImplementation((docs: Record<string, unknown>[]) => {
+        const created = docs.map((d) => rma({ ...d, _id: new Types.ObjectId() }) as unknown as ReturnRequestDocument);
+        requests.push(...created);
+        return Promise.resolve(created);
+      });
+      returnModel.findById.mockImplementation((id: string) => Promise.resolve(requests.find((r) => r._id.equals(id))));
+      returnModel.findOneAndUpdate.mockImplementation((filter: { _id: Types.ObjectId; __v: number; status: ReturnStatus }, update: { $set: Partial<ReturnRequestDocument> }) => {
+        const current = requests.find((r) => r._id.equals(filter._id) && r.__v === filter.__v && r.status === filter.status);
+        if (!current) return Promise.resolve(null);
+        Object.assign(current, update.$set, { __v: current.__v + 1 });
+        return Promise.resolve(current);
+      });
+    });
+
+    it('tạo → returning; duyệt → returned; nhận giữ returned; kiểm xong → canceled, cùng session', async () => {
+      let request = await service.createSimulated(createDto(allItems), 'admin-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNING);
+      expect(request.status).toBe(ReturnStatus.REQUESTED);
+      request = await service.approve(request._id.toString(), request.__v, 'owner-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNED);
+      expect(request.status).toBe(ReturnStatus.AWAITING_RECEIPT);
+      const approvedVersion = group.__v;
+      request = await service.receive(request._id.toString(), request.__v, 'wh-1');
+      expect(group.__v).toBe(approvedVersion);
+      expect(warehouseService.restockReturnedItem).not.toHaveBeenCalled();
+      request = await service.inspect(request._id.toString(), inspection(request), 'wh-1');
+      expect(request.status).toBe(ReturnStatus.CLOSED);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.CANCELED);
+      expect(warehouseService.restockReturnedItem).toHaveBeenCalledTimes(2);
+      const transitions = orderGroupsService.transitionFulfillmentStatus.mock.calls as [string, GroupFulfillmentStatus, number, ClientSession][];
+      expect(transitions.map((call) => call[1])).toEqual([
+        GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.CANCELED,
+      ]);
+      expect(transitions.every((call) => call[3] === (session as unknown))).toBe(true);
+      expect(returnModel.create).toHaveBeenCalledWith(expect.anything(), { session });
+      expect(warehouseService.restockReturnedItem).toHaveBeenCalledWith(expect.anything(), session);
+      expect(returnModel.findOneAndUpdate).toHaveBeenCalledWith(expect.anything(), expect.anything(), { returnDocument: 'after', session });
+    });
+
+    it('trả một phần giữ delivered; phiếu sau trả hết phần còn lại thì hủy sau kiểm hàng', async () => {
+      let first = await service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }]), 'admin-1');
+      first = await service.approve(first._id.toString(), first.__v, 'owner-1');
+      first = await service.receive(first._id.toString(), first.__v, 'wh-1');
+      await service.inspect(first._id.toString(), inspection(first), 'wh-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.DELIVERED);
+      expect(orderGroupsService.transitionFulfillmentStatus).not.toHaveBeenCalled();
+
+      let last = await service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }, { seller_sku: 'B', quantity: 1 }]), 'admin-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNING);
+      last = await service.approve(last._id.toString(), last.__v, 'owner-1');
+      last = await service.receive(last._id.toString(), last.__v, 'wh-1');
+      await service.inspect(last._id.toString(), inspection(last), 'wh-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.CANCELED);
+    });
+
+    it.each([ReturnStatus.REJECTED, ReturnStatus.CANCELED])('không cộng phiếu %s vào số đã trả', async (status) => {
+      requests.push(rma({ _id: new Types.ObjectId(), status, items: [{ seller_sku: 'A', quantity: 1 }] }) as never);
+      await service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }, { seller_sku: 'B', quantity: 1 }]), 'admin-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.DELIVERED);
+    });
+
+    it.each(['reject', 'cancel'] as const)('%s phiếu trả đủ khôi phục delivered, vẫn tạo lại phiếu được', async (action) => {
+      let request = await service.createSimulated(createDto(allItems), 'admin-1');
+      if (action === 'cancel') request = await service.approve(request._id.toString(), request.__v, 'owner-1');
+      await service[action](request._id.toString(), request.__v, 'owner-1', 'Khách không trả hàng');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.DELIVERED);
+      await service.createSimulated(createDto(allItems), 'admin-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNING);
+    });
+
+    it('giữ ngày giao gốc qua phiếu bị từ chối, không kéo dài hạn bằng updated_at của nhóm', async () => {
+      shipmentModel.findOne.mockResolvedValue(null);
+      const deliveredAt = new Date(Date.now() - 14 * 86_400_000);
+      group.updated_at = deliveredAt;
+      const request = await service.createSimulated(createDto(allItems), 'admin-1');
+      expect(request.delivered_at_snapshot).toEqual(deliveredAt);
+      await service.reject(request._id.toString(), request.__v, 'owner-1', 'Khách đổi ý');
+      requests[0]?.delivered_at_snapshot?.setTime(Date.now() - 16 * 86_400_000);
+      await expect(service.createSimulated(createDto(allItems), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.WINDOW_EXPIRED });
+    });
+
+    it('nhóm đổi sang returning giữa lúc kiểm và tạo phiếu thì chặn yêu cầu tạo thứ hai', async () => {
+      group.fulfillment_status = GroupFulfillmentStatus.RETURNING;
+      orderGroupsService.findOrderGroupById.mockResolvedValueOnce({ ...group, fulfillment_status: GroupFulfillmentStatus.DELIVERED });
+      await expect(service.createSimulated(createDto(allItems), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.OPEN_EXISTS });
+      expect(orderGroupsService.transitionFulfillmentStatus).not.toHaveBeenCalled();
+    });
+
+    it('phiếu requested cũ vẫn duyệt được từ delivered, không cần tạo lại phiếu', async () => {
+      const request = rma({ items: allItems }) as unknown as ReturnRequestDocument;
+      requests.push(request);
+      await service.approve(request._id.toString(), request.__v, 'owner-1');
+      expect(request.status).toBe(ReturnStatus.AWAITING_RECEIPT);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNED);
+    });
+
+    it('kiểm lại phiếu đã đóng hoặc gửi version cũ không nhập tồn lần hai', async () => {
+      let request = await service.createSimulated(createDto(allItems), 'admin-1');
+      request = await service.approve(request._id.toString(), request.__v, 'owner-1');
+      request = await service.receive(request._id.toString(), request.__v, 'wh-1');
+      const stale = inspection(request);
+      stale.expected_version -= 1;
+      await expect(service.inspect(request._id.toString(), stale, 'wh-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.STATE_CONFLICT });
+      expect(warehouseService.restockReturnedItem).not.toHaveBeenCalled();
+      await service.inspect(request._id.toString(), inspection(request), 'wh-1');
+      warehouseService.restockReturnedItem.mockClear();
+      await expect(service.inspect(request._id.toString(), inspection(request), 'wh-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.INVALID_STATUS });
+      expect(warehouseService.restockReturnedItem).not.toHaveBeenCalled();
+    });
+
+    it('nhập tồn thất bại không đóng phiếu hoặc hủy nhóm; các ghi tồn dùng session của transaction', async () => {
+      let request = await service.createSimulated(createDto(allItems), 'admin-1');
+      request = await service.approve(request._id.toString(), request.__v, 'owner-1');
+      request = await service.receive(request._id.toString(), request.__v, 'wh-1');
+      warehouseService.restockReturnedItem.mockRejectedValueOnce(new Error('Lỗi nhập tồn'));
+      await expect(service.inspect(request._id.toString(), inspection(request), 'wh-1')).rejects.toThrow('Lỗi nhập tồn');
+      expect(request.status).toBe(ReturnStatus.RECEIVED);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNED);
+      expect(warehouseService.restockReturnedItem).toHaveBeenCalledWith(expect.anything(), session);
+    });
+
+    it.each([GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED])('phiếu received cũ, nhóm %s, vẫn kiểm và kết thúc được', async (status) => {
+      group.fulfillment_status = status;
+      const request = rma({ status: ReturnStatus.RECEIVED, items: allItems }) as unknown as ReturnRequestDocument;
+      requests.push(request);
+      await service.inspect(request._id.toString(), inspection(request, InspectionResult.DISCARD), 'wh-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.CANCELED);
+      expect(warehouseService.restockReturnedItem).not.toHaveBeenCalled();
+    });
+
+    it('kiểm đủ nhóm có hàng cách ly/loại bỏ vẫn kết thúc; chỉ dòng đạt được cộng tồn bán', async () => {
+      group.fulfillment_status = GroupFulfillmentStatus.RETURNED;
+      const request = rma({ status: ReturnStatus.RECEIVED, items: allItems }) as unknown as ReturnRequestDocument;
+      requests.push(request);
+      await service.inspect(request._id.toString(), {
+        expected_version: 0,
+        lines: [
+          { seller_sku: 'A', quantity: 1, result: InspectionResult.RESTOCK, warehouse_id: whId, bin_location_id: binId },
+          { seller_sku: 'A', quantity: 1, result: InspectionResult.QUARANTINE },
+          { seller_sku: 'B', quantity: 1, result: InspectionResult.DISCARD },
+        ],
+      }, 'wh-1');
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.CANCELED);
+      expect(warehouseService.restockReturnedItem).toHaveBeenCalledTimes(1);
+    });
+
+    it('chỉ hoàn tiền: duyệt đóng phiếu, nhóm vẫn delivered và không đi qua kho', async () => {
+      let request = await service.createSimulated({
+        order_group_id: groupId.toString(), type: ReturnType.REFUND_ONLY,
+        items: allItems.map((item) => ({ ...item, reason_code: ReturnReason.DEFECTIVE })),
+      }, 'admin-1');
+      request = await service.approve(request._id.toString(), request.__v, 'owner-1');
+      expect(request.status).toBe(ReturnStatus.CLOSED);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.DELIVERED);
+      expect(orderGroupsService.transitionFulfillmentStatus).not.toHaveBeenCalled();
+      expect(warehouseService.restockReturnedItem).not.toHaveBeenCalled();
+    });
+
+    it.each([ReturnType.EXCHANGE, ReturnType.FAILED_DELIVERY])('kiểm hàng %s giữ nhóm returned theo luồng cũ', async (type) => {
+      group.fulfillment_status = GroupFulfillmentStatus.RETURNED;
+      const request = rma({ type, source: type === ReturnType.FAILED_DELIVERY ? 'failed_delivery' : 'simulated', status: ReturnStatus.RECEIVED, items: allItems }) as unknown as ReturnRequestDocument;
+      requests.push(request);
+      jest.spyOn(service, 'createReplacement').mockResolvedValue(request);
+      await service.inspect(request._id.toString(), inspection(request), 'wh-1');
+      expect(request.status).toBe(ReturnStatus.CLOSED);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.RETURNED);
+      expect(orderGroupsService.transitionFulfillmentStatus).not.toHaveBeenCalled();
     });
   });
 
