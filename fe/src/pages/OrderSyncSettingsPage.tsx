@@ -3,23 +3,22 @@ import { useLocation } from 'react-router-dom'
 import { Loader2, RefreshCw } from 'lucide-react'
 import {
   getOrderSyncSettings,
-  listOrderSyncHistory,
   saveOrderSyncSettings,
-  type OrderSyncHistoryItem,
   type OrderSyncSettings,
   type SyncOption,
 } from '../api/order-sync-settings.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/input'
 import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
-import { formatApiError } from '../lib/api'
+import { formatApiError, getApiErrorCode } from '../lib/api'
 import { UserRole } from '../types/auth'
 import { formatDateTime } from '../utils/format'
 
 const fieldClass =
-  'h-9 w-full rounded-md border border-hairline bg-surface-1 px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
+  'h-9 w-full rounded-md border border-hairline bg-canvas px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
 type Draft = {
   platforms: { platform: string; autoSyncEnabled: boolean }[]
@@ -58,7 +57,49 @@ function toggle(values: string[], value: string): string[] {
   return values.includes(value) ? values.filter((item) => item !== value) : [...values, value]
 }
 
-function Checks({
+function optionLabel(options: SyncOption[], value: string): string {
+  return options.find((option) => option.value === value)?.label ?? value
+}
+
+function inRange(raw: string, min: number, max: number): boolean {
+  const value = Number(raw)
+  return Number.isInteger(value) && value >= min && value <= max
+}
+
+function issuesOf(draft: Draft, vi: boolean): string[] {
+  const issues: string[] = []
+  if (!inRange(draft.intervalMinutes, 5, 1440)) {
+    issues.push(vi ? 'Chu kỳ tự kéo đơn phải từ 5 đến 1440 phút.' : 'Sync interval must be 5–1440 minutes.')
+  }
+  if (!inRange(draft.firstSyncLookbackDays, 1, 90)) {
+    issues.push(vi ? 'Lần kéo đầu chỉ lùi từ 1 đến 90 ngày.' : 'First lookback must be 1–90 days.')
+  }
+  if (!inRange(draft.syncFailedCooldownMinutes, 5, 1440)) {
+    issues.push(vi ? 'Khoảng cách báo lỗi phải từ 5 đến 1440 phút.' : 'Failure cooldown must be 5–1440 minutes.')
+  }
+  if (draft.consolidationEnabled) {
+    const hasIdentity = draft.keyFields.includes('phone') || draft.keyFields.includes('address_line1')
+    if (!hasIdentity) {
+      issues.push(vi ? 'Chọn số điện thoại hoặc địa chỉ.' : 'Select a phone number or an address.')
+    }
+    if (draft.openGroupStatuses.length === 0) {
+      issues.push(vi ? 'Chọn ít nhất một trạng thái nhóm.' : 'Select at least one group status.')
+    }
+    if (draft.consolidatable.length === 0) {
+      issues.push(vi ? 'Chọn ít nhất một trạng thái được gộp.' : 'Select at least one status.')
+    }
+  }
+  const windowHours = draft.timeWindowHours.trim()
+  if (windowHours !== '' && !inRange(windowHours, 1, 720)) {
+    issues.push(vi ? 'Cửa sổ giờ: để trống hoặc 1–720.' : 'Time window: blank or 1–720.')
+  }
+  if (!draft.notPackable.includes('canceled')) {
+    issues.push(vi ? 'Giữ trạng thái Đã hủy.' : 'Keep Canceled selected.')
+  }
+  return issues
+}
+
+function ChoiceList({
   options,
   selected,
   disabled,
@@ -70,19 +111,56 @@ function Checks({
   onChange: (next: string[]) => void
 }) {
   return (
-    <div className="flex flex-wrap gap-2">
-      {options.map((option) => (
-        <label key={option.value} className="flex items-center gap-1.5 text-xs text-ink">
-          <input
-            type="checkbox"
-            checked={selected.includes(option.value)}
-            disabled={disabled}
-            onChange={() => onChange(toggle(selected, option.value))}
-          />
-          {option.label}
-        </label>
-      ))}
+    <div className="grid gap-2 sm:grid-cols-2">
+      {options.map((option) => {
+        const checked = selected.includes(option.value)
+        return (
+          <label
+            key={option.value}
+            className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+              checked ? 'border-primary/40 bg-primary/5 text-ink' : 'border-hairline bg-canvas text-ink-muted'
+            } ${disabled ? 'cursor-default' : 'cursor-pointer'}`}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={checked}
+              disabled={disabled}
+              onChange={() => onChange(toggle(selected, option.value))}
+            />
+            <span>{option.label}</span>
+          </label>
+        )
+      })}
     </div>
+  )
+}
+
+function NumberField({
+  label,
+  value,
+  disabled,
+  placeholder,
+  onChange,
+}: {
+  label: string
+  value: string
+  disabled: boolean
+  placeholder?: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-sm text-ink">{label}</span>
+      <Input
+        className={fieldClass}
+        disabled={disabled}
+        inputMode="numeric"
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
   )
 }
 
@@ -96,7 +174,6 @@ export function OrderSyncSettingsPage() {
 
   const [settings, setSettings] = useState<OrderSyncSettings | null>(null)
   const [draft, setDraft] = useState<Draft | null>(null)
-  const [history, setHistory] = useState<OrderSyncHistoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -106,13 +183,9 @@ export function OrderSyncSettingsPage() {
     setLoading(true)
     setError(null)
     try {
-      const [current, rows] = await Promise.all([
-        getOrderSyncSettings(),
-        listOrderSyncHistory(),
-      ])
+      const current = await getOrderSyncSettings()
       setSettings(current)
       setDraft(draftFrom(current))
-      setHistory(rows)
     } catch (err: unknown) {
       setError(formatApiError(err))
     } finally {
@@ -127,11 +200,10 @@ export function OrderSyncSettingsPage() {
     return () => window.clearTimeout(timer)
   }, [load])
 
+  const issues = draft ? issuesOf(draft, vi) : []
+
   async function save() {
-    if (!settings || !draft || !canSave) return
-    const interval = Number(draft.intervalMinutes)
-    const lookback = Number(draft.firstSyncLookbackDays)
-    const cooldown = Number(draft.syncFailedCooldownMinutes)
+    if (!settings || !draft || !canSave || issues.length > 0) return
     const windowHours = draft.timeWindowHours.trim()
     setBusy(true)
     setError(null)
@@ -143,9 +215,9 @@ export function OrderSyncSettingsPage() {
           platform: row.platform,
           auto_sync_enabled: row.autoSyncEnabled,
         })),
-        interval_minutes: interval,
-        first_sync_lookback_days: lookback,
-        sync_failed_cooldown_minutes: cooldown,
+        interval_minutes: Number(draft.intervalMinutes),
+        first_sync_lookback_days: Number(draft.firstSyncLookbackDays),
+        sync_failed_cooldown_minutes: Number(draft.syncFailedCooldownMinutes),
         consolidation_enabled: draft.consolidationEnabled,
         consolidation_key_fields: draft.keyFields,
         consolidation_time_window_hours: windowHours === '' ? null : Number(windowHours),
@@ -156,17 +228,17 @@ export function OrderSyncSettingsPage() {
       })
       setSettings(saved)
       setDraft(draftFrom(saved))
-      setHistory(await listOrderSyncHistory())
-      setNotice(
-        saved.recomputingKeys
-          ? vi
-            ? 'Đã lưu. Hệ thống đang tính lại khóa gộp cho đơn chưa xử lý xong.'
-            : 'Saved. Consolidation keys for unfinished orders are being recomputed.'
-          : vi
-            ? 'Đã lưu cấu hình đồng bộ.'
-            : 'Sync settings saved.',
-      )
+      setNotice(saved.recomputingKeys ? (vi ? 'Đã lưu. Đang tính lại khóa gộp.' : 'Saved. Recomputing merge keys.') : vi ? 'Đã lưu.' : 'Saved.')
     } catch (err: unknown) {
+      if (getApiErrorCode(err) === 'ORD_SYNC_SETTINGS_CONFLICT') {
+        try {
+          const current = await getOrderSyncSettings()
+          setSettings(current)
+          setDraft(draftFrom(current))
+        } catch {
+          // Giữ lỗi gốc nếu tải lại cũng thất bại.
+        }
+      }
       setError(formatApiError(err))
     } finally {
       setBusy(false)
@@ -179,210 +251,194 @@ export function OrderSyncSettingsPage() {
         variant={adminShell ? 'admin' : 'ops'}
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
-          ...(adminShell
-            ? [{ label: vi ? 'Quản trị' : 'Admin', to: '/app/admin' }]
-            : []),
-          { label: vi ? 'Đồng bộ đơn' : 'Order sync' },
+          ...(adminShell ? [{ label: vi ? 'Quản trị' : 'Admin', to: '/app/admin' }] : []),
+          { label: vi ? 'Luật gộp đơn' : 'Sync rules' },
         ]}
       />
-      <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-3xl space-y-4 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-sm text-ink-muted">
-            {canSave
-              ? vi
-                ? 'Chỉ Admin lưu được. Trường bỏ trống trên form không gửi — form này gửi đủ giá trị đang hiện.'
-                : 'Only Admin can save. This form sends the values shown.'
-              : vi
-                ? 'Store Owner chỉ xem. Admin mới lưu được.'
-                : 'Store Owner can read. Only Admin can save.'}
-          </p>
-          <Button className="h-9 min-h-0 text-xs" variant="secondary" onClick={() => void load()}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            {vi ? 'Tải lại' : 'Refresh'}
-          </Button>
-        </div>
-
-        {loading || !draft || !settings ? (
-          <div className="flex items-center gap-2 text-sm text-ink-muted">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {vi ? 'Đang tải…' : 'Loading…'}
+      <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto max-w-3xl space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-semibold text-ink">{vi ? 'Luật gộp đơn' : 'Sync rules'}</h1>
+              {settings ? (
+                <Badge tone={settings.isDefault ? 'default' : 'primary'}>
+                  {settings.isDefault
+                    ? vi
+                      ? 'Mặc định'
+                      : 'Default'
+                    : vi
+                      ? `Lần ${String(settings.version)}`
+                      : `v${String(settings.version)}`}
+                </Badge>
+              ) : null}
+              {settings?.updatedAt ? (
+                <span className="text-xs text-ink-tertiary">{formatDateTime(settings.updatedAt)}</span>
+              ) : null}
+              {!canSave && !loading ? <Badge>{vi ? 'Chỉ xem' : 'Read only'}</Badge> : null}
+            </div>
+            <Button className="h-9 min-h-0 text-xs" variant="secondary" onClick={() => void load()}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              {vi ? 'Tải lại' : 'Refresh'}
+            </Button>
           </div>
-        ) : (
-          <div className="space-y-5 rounded-xl border border-hairline bg-surface-1 p-4">
-            <p className="text-xs text-ink-muted">
-              {vi ? 'Phiên bản' : 'Version'} {settings.version ?? (vi ? 'mặc định' : 'default')}
-              {settings.updatedAt ? ` · ${formatDateTime(settings.updatedAt)}` : ''}
-            </p>
 
-            <section className="space-y-2">
-              <h2 className="text-sm font-semibold text-ink">
-                {vi ? 'Sàn tự đồng bộ' : 'Auto sync'}
-              </h2>
-              {draft.platforms.map((row) => (
-                <label key={row.platform} className="flex items-center gap-2 text-sm text-ink">
-                  <input
-                    type="checkbox"
-                    checked={row.autoSyncEnabled}
-                    disabled={!canSave}
-                    onChange={() =>
-                      setDraft({
-                        ...draft,
-                        platforms: draft.platforms.map((item) =>
-                          item.platform === row.platform
-                            ? { ...item, autoSyncEnabled: !item.autoSyncEnabled }
-                            : item,
-                        ),
-                      })
-                    }
-                  />
-                  {row.platform}
-                </label>
-              ))}
-              <label className="block text-xs text-ink-muted">
-                {vi ? 'Chu kỳ (phút, 5–1440)' : 'Interval (minutes, 5–1440)'}
-                <Input
-                  className={fieldClass}
-                  disabled={!canSave}
-                  value={draft.intervalMinutes}
-                  onChange={(e) => setDraft({ ...draft, intervalMinutes: e.target.value })}
-                />
-              </label>
-              <label className="block text-xs text-ink-muted">
-                {vi ? 'Lần đầu lấy lùi (ngày, 1–90)' : 'First lookback (days, 1–90)'}
-                <Input
-                  className={fieldClass}
-                  disabled={!canSave}
-                  value={draft.firstSyncLookbackDays}
-                  onChange={(e) => setDraft({ ...draft, firstSyncLookbackDays: e.target.value })}
-                />
-              </label>
-              <label className="block text-xs text-ink-muted">
-                {vi ? 'Chờ sau lỗi đồng bộ (phút, 5–1440)' : 'Failure cooldown (minutes, 5–1440)'}
-                <Input
-                  className={fieldClass}
-                  disabled={!canSave}
-                  value={draft.syncFailedCooldownMinutes}
-                  onChange={(e) =>
-                    setDraft({ ...draft, syncFailedCooldownMinutes: e.target.value })
-                  }
-                />
-              </label>
-            </section>
+          {notice ? <p className="text-sm text-emerald-700">{notice}</p> : null}
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
 
-            <section className="space-y-2">
-              <h2 className="text-sm font-semibold text-ink">{vi ? 'Gộp đơn' : 'Consolidation'}</h2>
-              <label className="flex items-center gap-2 text-sm text-ink">
-                <input
-                  type="checkbox"
-                  checked={draft.consolidationEnabled}
-                  disabled={!canSave}
-                  onChange={() =>
-                    setDraft({ ...draft, consolidationEnabled: !draft.consolidationEnabled })
-                  }
-                />
-                {vi ? 'Bật gộp đơn' : 'Consolidation on'}
-              </label>
-              <p className="text-xs text-ink-muted">
-                {vi ? 'Trường khóa gộp' : 'Key fields'}
-              </p>
-              <Checks
-                options={settings.options.keyFields}
-                selected={draft.keyFields}
-                disabled={!canSave}
-                onChange={(keyFields) => setDraft({ ...draft, keyFields })}
-              />
-              <label className="block text-xs text-ink-muted">
-                {vi
-                  ? 'Cửa sổ giờ (1–720, để trống = không giới hạn)'
-                  : 'Time window hours (1–720, blank = unlimited)'}
-                <Input
-                  className={fieldClass}
-                  disabled={!canSave}
-                  value={draft.timeWindowHours}
-                  onChange={(e) => setDraft({ ...draft, timeWindowHours: e.target.value })}
-                />
-              </label>
-              <p className="text-xs text-ink-muted">
-                {vi ? 'Nhóm còn nhận đơn mới' : 'Groups still open'}
-              </p>
-              <Checks
-                options={settings.options.openGroupStatuses}
-                selected={draft.openGroupStatuses}
-                disabled={!canSave}
-                onChange={(openGroupStatuses) => setDraft({ ...draft, openGroupStatuses })}
-              />
-            </section>
-
-            <section className="space-y-2">
-              <h2 className="text-sm font-semibold text-ink">
-                {vi ? 'Trạng thái đơn' : 'Order statuses'}
-              </h2>
-              <p className="text-xs text-ink-muted">{vi ? 'Được gộp' : 'Consolidatable'}</p>
-              <Checks
-                options={settings.options.consolidatableStatuses}
-                selected={draft.consolidatable}
-                disabled={!canSave}
-                onChange={(consolidatable) => setDraft({ ...draft, consolidatable })}
-              />
-              <p className="text-xs text-ink-muted">{vi ? 'Không đóng gói' : 'Not packable'}</p>
-              <Checks
-                options={settings.options.notPackableStatuses}
-                selected={draft.notPackable}
-                disabled={!canSave}
-                onChange={(notPackable) => setDraft({ ...draft, notPackable })}
-              />
-            </section>
-
-            {canSave ? (
-              <label className="block text-xs text-ink-muted">
-                {vi ? 'Ghi chú lần lưu (tối đa 300 ký tự)' : 'Note for this save (max 300)'}
-                <Input
-                  className={fieldClass}
-                  maxLength={300}
-                  value={draft.note}
-                  onChange={(e) => setDraft({ ...draft, note: e.target.value })}
-                />
-              </label>
-            ) : null}
-
-            {canSave ? (
-              <div className="flex justify-end">
-                <Button className="h-9 min-h-0 text-xs" disabled={busy} onClick={() => void save()}>
-                  {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {vi ? 'Lưu cấu hình' : 'Save settings'}
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        )}
-
-        {notice ? <p className="text-sm text-emerald-700">{notice}</p> : null}
-        {error ? <p className="text-sm text-red-600">{error}</p> : null}
-
-        <section className="rounded-xl border border-hairline bg-surface-1 p-4">
-          <h2 className="mb-2 text-sm font-semibold text-ink">{vi ? 'Lịch sử' : 'History'}</h2>
-          {history.length === 0 ? (
-            <p className="text-xs text-ink-muted">{vi ? 'Chưa có lần lưu.' : 'No saves yet.'}</p>
+          {loading || !draft || !settings ? (
+            <div className="flex items-center gap-2 text-sm text-ink-muted">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {vi ? 'Đang tải…' : 'Loading…'}
+            </div>
           ) : (
-            <ul className="divide-y divide-hairline text-xs">
-              {history.map((row) => (
-                <li key={row.version} className="py-2">
-                  <span className="font-medium text-ink">
-                    v{row.version}
-                    {row.isActive ? (vi ? ' · đang dùng' : ' · active') : ''}
-                  </span>
-                  <p className="text-ink-muted">
-                    {row.createdAt ? formatDateTime(row.createdAt) : ''}
-                    {row.note ? ` · ${row.note}` : ''}
-                  </p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <section className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">
+                <h2 className="text-sm font-semibold text-ink">{vi ? 'Đồng bộ' : 'Sync'}</h2>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {draft.platforms.map((row) => (
+                    <label
+                      key={row.platform}
+                      className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                        row.autoSyncEnabled ? 'border-primary/40 bg-primary/5 text-ink' : 'border-hairline bg-canvas text-ink-muted'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={row.autoSyncEnabled}
+                        disabled={!canSave}
+                        onChange={() =>
+                          setDraft({
+                            ...draft,
+                            platforms: draft.platforms.map((item) =>
+                              item.platform === row.platform ? { ...item, autoSyncEnabled: !item.autoSyncEnabled } : item,
+                            ),
+                          })
+                        }
+                      />
+                      {optionLabel(settings.options.platforms, row.platform)}
+                    </label>
+                  ))}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <NumberField
+                    label={vi ? 'Chu kỳ (phút)' : 'Interval (min)'}
+                    value={draft.intervalMinutes}
+                    disabled={!canSave}
+                    onChange={(intervalMinutes) => setDraft({ ...draft, intervalMinutes })}
+                  />
+                  <NumberField
+                    label={vi ? 'Lần đầu (ngày)' : 'First lookback (days)'}
+                    value={draft.firstSyncLookbackDays}
+                    disabled={!canSave}
+                    onChange={(firstSyncLookbackDays) => setDraft({ ...draft, firstSyncLookbackDays })}
+                  />
+                  <NumberField
+                    label={vi ? 'Báo lỗi (phút)' : 'Error gap (min)'}
+                    value={draft.syncFailedCooldownMinutes}
+                    disabled={!canSave}
+                    onChange={(syncFailedCooldownMinutes) => setDraft({ ...draft, syncFailedCooldownMinutes })}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h2 className="text-sm font-semibold text-ink">{vi ? 'Gộp đơn' : 'Merge'}</h2>
+                  <label className="flex items-center gap-2 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      checked={draft.consolidationEnabled}
+                      disabled={!canSave}
+                      onChange={() => setDraft({ ...draft, consolidationEnabled: !draft.consolidationEnabled })}
+                    />
+                    {vi ? 'Bật' : 'On'}
+                  </label>
+                </div>
+                {draft.consolidationEnabled ? (
+                  <>
+                    <div className="space-y-1">
+                      <p className="text-sm text-ink">{vi ? 'Trường khớp' : 'Match fields'}</p>
+                      <ChoiceList
+                        options={settings.options.keyFields}
+                        selected={draft.keyFields}
+                        disabled={!canSave}
+                        onChange={(keyFields) => setDraft({ ...draft, keyFields })}
+                      />
+                    </div>
+                    <NumberField
+                      label={vi ? 'Cửa sổ (giờ)' : 'Window (hours)'}
+                      placeholder={vi ? 'Không giới hạn' : 'No limit'}
+                      value={draft.timeWindowHours}
+                      disabled={!canSave}
+                      onChange={(timeWindowHours) => setDraft({ ...draft, timeWindowHours })}
+                    />
+                    <div className="space-y-1">
+                      <p className="text-sm text-ink">{vi ? 'Nhóm còn mở' : 'Open groups'}</p>
+                      <ChoiceList
+                        options={settings.options.openGroupStatuses}
+                        selected={draft.openGroupStatuses}
+                        disabled={!canSave}
+                        onChange={(openGroupStatuses) => setDraft({ ...draft, openGroupStatuses })}
+                      />
+                    </div>
+                  </>
+                ) : null}
+              </section>
+
+              <section className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">
+                <h2 className="text-sm font-semibold text-ink">{vi ? 'Trạng thái' : 'Statuses'}</h2>
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="space-y-2">
+                    <p className="text-sm text-ink">{vi ? 'Được gộp' : 'Mergeable'}</p>
+                    <ChoiceList
+                      options={settings.options.consolidatableStatuses}
+                      selected={draft.consolidatable}
+                      disabled={!canSave || !draft.consolidationEnabled}
+                      onChange={(consolidatable) => setDraft({ ...draft, consolidatable })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm text-ink">{vi ? 'Không đóng gói' : 'Not packable'}</p>
+                    <ChoiceList
+                      options={settings.options.notPackableStatuses}
+                      selected={draft.notPackable}
+                      disabled={!canSave}
+                      onChange={(notPackable) => setDraft({ ...draft, notPackable })}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {canSave ? (
+                <section className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">
+                  <label className="block space-y-1">
+                    <span className="text-sm text-ink">{vi ? 'Ghi chú' : 'Note'}</span>
+                    <Input
+                      className={fieldClass}
+                      maxLength={300}
+                      value={draft.note}
+                      onChange={(e) => setDraft({ ...draft, note: e.target.value })}
+                    />
+                  </label>
+                  {issues.length > 0 ? (
+                    <ul className="space-y-1 text-xs text-red-600">
+                      {issues.map((issue) => (
+                        <li key={issue}>{issue}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <div className="flex justify-end">
+                    <Button className="h-9 min-h-0 text-xs" disabled={busy || issues.length > 0} onClick={() => void save()}>
+                      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {vi ? 'Lưu' : 'Save'}
+                    </Button>
+                  </div>
+                </section>
+              ) : null}
+            </>
           )}
-        </section>
-      </div>
-      </div>
+        </div>
+      </main>
     </div>
   )
 }
