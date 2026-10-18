@@ -10,6 +10,7 @@ export const GROUP_FULFILLMENT_STATUSES = [
   'packed',
   'shipped',
   'delivered',
+  'returning',
   'returned',
   'canceled',
 ] as const
@@ -199,8 +200,12 @@ export type ListOrderGroupsParams = {
   fulfillment_status?: GroupFulfillmentStatus | string
   platform?: string
   order_priority?: OrderPriority
+  assigned_staff_id?: string
+  assigned_packer_id?: string
   stock_shortage?: boolean
   is_overdue?: boolean
+  before?: string
+  limit?: number
 }
 
 export type SetPriorityInput = {
@@ -324,6 +329,7 @@ export const GROUP_FULFILLMENT_STATUS_LABELS: Record<
   packed: { vi: 'Đã đóng gói', en: 'Packed' },
   shipped: { vi: 'Đã giao vận', en: 'Shipped' },
   delivered: { vi: 'Đã giao', en: 'Delivered' },
+  returning: { vi: 'Đang chờ duyệt trả hàng', en: 'Return pending approval' },
   returned: { vi: 'Hoàn hàng', en: 'Returned' },
   canceled: { vi: 'Đã huỷ', en: 'Canceled' },
 }

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import {
   approvePackingPlan,
+  undoApprovePackingPlan,
   assignPacker,
   backToPicking,
   changeParcelBox,
@@ -25,10 +26,12 @@ import {
   requestParcelGuide,
 } from '../../api/packing-plan.api'
 import { decidePartialOrderGroup, listOrderGroups } from '../../api/order-groups.api'
+import { fetchMyProfile } from '../../api/users.api'
 import {
   listPackagingMaterials,
   type PackagingMaterialStock,
 } from '../../api/packaging-materials.api'
+import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { usePortal } from '../../context/use-portal'
 import { UserRole } from '../../types/auth'
 import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
@@ -207,13 +210,6 @@ function MaterialTags({
   )
 }
 
-function confirmBoxCode(code: string, name: string, vi: boolean): boolean {
-  const label = name.trim() || code
-  return window.confirm(
-    vi ? `Đổi sang thùng ${label} (${code})?` : `Change to box ${label} (${code})?`,
-  )
-}
-
 function weightPrefill(plan: PackingPlan): Record<number, string> {
   const next: Record<number, string> = {}
   for (const parcel of plan.parcels) {
@@ -256,6 +252,11 @@ export function PackagingWorkbench() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [boxConfirm, setBoxConfirm] = useState<{
+    code: string
+    name: string
+    action: 'approve' | 'adjust'
+  } | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -288,7 +289,13 @@ export function PackagingWorkbench() {
     setListLoading(true)
     setListError(null)
     try {
-      const rows = await listOrderGroups()
+      const packerId =
+        session?.role === UserRole.PACKAGING_STAFF
+          ? (await fetchMyProfile()).id
+          : ''
+      const rows = await listOrderGroups(
+        packerId ? { assigned_packer_id: packerId } : {},
+      )
       setAllGroups(rows)
       const ids = rows.map((row) => row.id)
       if (ids.length > 0) {
@@ -305,7 +312,7 @@ export function PackagingWorkbench() {
     } finally {
       setListLoading(false)
     }
-  }, [])
+  }, [session])
 
   const loadBoxStock = useCallback(async () => {
     try {
@@ -515,12 +522,16 @@ export function PackagingWorkbench() {
       return
     }
     const first = plan.parcels[0]
-    if (
-      first &&
-      !confirmBoxCode(first.box.code, first.box.name, vi)
-    ) {
+    if (first) {
+      setBoxConfirm({ code: first.box.code, name: first.box.name, action: 'approve' })
       return
     }
+    await submitApprove()
+  }
+
+  async function submitApprove(): Promise<void> {
+    if (!group || !plan) return
+    const needsOverride = plan.orders.some((order) => order.overParcelLimit)
     setActionBusy(true)
     setActionError(null)
     try {
@@ -538,6 +549,29 @@ export function PackagingWorkbench() {
       setPlanDialog(null)
       await refreshAfterAction()
       setTab('approved_for_packing')
+    } catch (err: unknown) {
+      reloadPlanAfterConflict(err)
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  async function onUndoApprove(): Promise<void> {
+    if (!group || !plan) return
+    if (plan.status !== 'packing' && plan.status !== 'approved') return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      await undoApprovePackingPlan(group.id, plan.version)
+      showToast(
+        vi
+          ? 'Đã quay lại chờ duyệt. Có thể chấp nhận hoặc từ chối lại.'
+          : 'Returned to pending approval. You can accept or reject again.',
+      )
+      setGuide3dActive(false)
+      setPlanDialog(null)
+      await refreshAfterAction()
+      setTab('pending_approval')
     } catch (err: unknown) {
       reloadPlanAfterConflict(err)
     } finally {
@@ -565,7 +599,13 @@ export function PackagingWorkbench() {
       )
       return
     }
-    if (!confirmBoxCode(chosen.code, chosen.name, vi)) return
+    setBoxConfirm({ code: chosen.code, name: chosen.name, action: 'adjust' })
+  }
+
+  async function submitAdjust(): Promise<void> {
+    if (!group || !plan || parcelNo == null) return
+    const chosen = boxStock.find((row) => row.code === boxCode)
+    if (!chosen) return
     setActionBusy(true)
     setActionError(null)
     try {
@@ -1158,6 +1198,18 @@ export function PackagingWorkbench() {
                       ? 'Đã chấp nhận kế hoạch. Xem hướng dẫn 3D bên cạnh, đóng gói xong rồi bấm xác nhận.'
                       : 'Plan accepted. Follow the 3D guide, then confirm when packing is done.'}
                   </p>
+                  {canAssign &&
+                  plan &&
+                  (plan.status === 'packing' || plan.status === 'approved') ? (
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void onUndoApprove()}
+                      className="mt-3 inline-flex items-center rounded-lg border border-emerald-800/30 bg-white px-3 py-2 text-sm font-medium text-emerald-950 disabled:opacity-50 dark:bg-transparent dark:text-emerald-100"
+                    >
+                      {vi ? 'Quay lại chờ duyệt' : 'Return to pending approval'}
+                    </button>
+                  ) : null}
                   {group?.fulfillmentStatus === 'approved_for_packing' ? (
                     <>
                       {canAssign && plan ? (
@@ -1947,6 +1999,30 @@ export function PackagingWorkbench() {
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={boxConfirm !== null}
+        title={vi ? 'Xác nhận thùng' : 'Confirm box'}
+        description={
+          boxConfirm
+            ? vi
+              ? `Đổi sang thùng ${boxConfirm.name.trim() || boxConfirm.code} (${boxConfirm.code})?`
+              : `Change to box ${boxConfirm.name.trim() || boxConfirm.code} (${boxConfirm.code})?`
+            : ''
+        }
+        confirmLabel={vi ? 'Xác nhận' : 'Confirm'}
+        cancelLabel={vi ? 'Hủy' : 'Cancel'}
+        loading={actionBusy}
+        onCancel={() => {
+          if (!actionBusy) setBoxConfirm(null)
+        }}
+        onConfirm={() => {
+          const action = boxConfirm?.action
+          setBoxConfirm(null)
+          if (action === 'approve') void submitApprove()
+          else if (action === 'adjust') void submitAdjust()
+        }}
+      />
 
       {toast ? (
         <div className="fixed right-4 bottom-4 z-50 rounded-lg bg-ink px-4 py-2 text-sm text-white shadow-lg">

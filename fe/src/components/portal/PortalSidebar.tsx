@@ -65,6 +65,14 @@ const navItems = [
     section: 'store' as NavSection,
   },
   {
+    to: '/app/order-sync',
+    end: false,
+    labelVi: 'Đồng bộ đơn',
+    labelEn: 'Order sync',
+    icon: Settings,
+    section: 'store' as NavSection,
+  },
+  {
     to: '/app/packaging-rules',
     end: false,
     labelVi: 'Quy tắc Bao bì',

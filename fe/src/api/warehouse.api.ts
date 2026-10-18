@@ -15,6 +15,9 @@ import type {
   PurgeRackQuery,
   PurgeResult,
   SkuBinAssignmentRecord,
+  StockLotRecord,
+  StockReceiptRecord,
+  CreateStockReceiptInput,
   TransferStockInput,
   UnassignedSku,
   UpdateWarehouseInput,
@@ -667,6 +670,23 @@ function mapMovement(raw: unknown): InventoryMovementRecord | null {
     refId: pickString(row.refId, row.ref_id) || null,
     actorId: pickString(row.actorId, row.actor_id) || null,
     createdAt: pickString(row.createdAt, row.created_at),
+    lots: Array.isArray(row.lots)
+      ? row.lots.flatMap((item) => {
+          const lot = asRecord(item)
+          if (!lot) return []
+          const lotId = pickString(lot.lotId, lot.lot_id)
+          const lotCode = pickString(lot.lotCode, lot.lot_code)
+          if (!lotId && !lotCode) return []
+          return [
+            {
+              lotId,
+              lotCode,
+              receivedAt: pickString(lot.receivedAt, lot.received_at),
+              quantity: pickNumber(lot.quantity),
+            },
+          ]
+        })
+      : [],
   }
 }
 
@@ -682,6 +702,121 @@ export async function listStockMovements(
   return res
     .map(mapMovement)
     .filter((row): row is InventoryMovementRecord => row !== null)
+}
+
+function mapStockLot(raw: unknown): StockLotRecord | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const id = pickString(row.id, row._id)
+  if (!id) return null
+  return {
+    id,
+    assignmentId: pickString(row.assignmentId, row.assignment_id),
+    binLocationId: pickString(row.binLocationId, row.bin_location_id),
+    platform: pickString(row.platform),
+    shopId: pickString(row.shopId, row.shop_id),
+    sellerSku: pickString(row.sellerSku, row.seller_sku),
+    masterSku: pickString(row.masterSku, row.master_sku) || null,
+    lotCode: pickString(row.lotCode, row.lot_code),
+    receivedAt: pickString(row.receivedAt, row.received_at),
+    quantityReceived: pickNumber(row.quantityReceived, row.quantity_received),
+    quantityRemaining: pickNumber(row.quantityRemaining, row.quantity_remaining),
+    source: pickString(row.source),
+    receiptId: pickString(row.receiptId, row.receipt_id) || null,
+  }
+}
+
+export async function listAssignmentLots(
+  warehouseId: string,
+  assignmentId: string,
+  includeEmpty = false,
+): Promise<StockLotRecord[]> {
+  const query = includeEmpty ? '?include_empty=true' : ''
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}/lots${query}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.map(mapStockLot).filter((row): row is StockLotRecord => row !== null)
+}
+
+export async function listStockLots(
+  warehouseId: string,
+  params: { seller_sku?: string; lot_code?: string; include_empty?: boolean } = {},
+): Promise<StockLotRecord[]> {
+  const search = new URLSearchParams()
+  if (params.seller_sku) search.set('seller_sku', params.seller_sku)
+  if (params.lot_code) search.set('lot_code', params.lot_code)
+  if (params.include_empty) search.set('include_empty', 'true')
+  const query = search.size > 0 ? `?${search.toString()}` : ''
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/lots${query}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.map(mapStockLot).filter((row): row is StockLotRecord => row !== null)
+}
+
+function mapStockReceipt(raw: unknown): StockReceiptRecord | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const id = pickString(row.id, row._id)
+  if (!id) return null
+  const linesRaw = Array.isArray(row.lines) ? row.lines : []
+  return {
+    id,
+    receiptCode: pickString(row.receiptCode, row.receipt_code),
+    warehouseId: pickString(row.warehouseId, row.warehouse_id),
+    lotCode: pickString(row.lotCode, row.lot_code),
+    receivedAt: pickString(row.receivedAt, row.received_at),
+    supplier: pickString(row.supplier) || null,
+    note: pickString(row.note) || null,
+    totalQuantity: pickNumber(row.totalQuantity, row.total_quantity),
+    createdBy: pickString(row.createdBy, row.created_by),
+    createdAt: pickString(row.createdAt, row.created_at),
+    lines: linesRaw.flatMap((item) => {
+      const line = asRecord(item)
+      if (!line) return []
+      return [
+        {
+          assignmentId: pickString(line.assignmentId, line.assignment_id),
+          binLocationId: pickString(line.binLocationId, line.bin_location_id),
+          lotId: pickString(line.lotId, line.lot_id),
+          platform: pickString(line.platform),
+          shopId: pickString(line.shopId, line.shop_id),
+          sellerSku: pickString(line.sellerSku, line.seller_sku),
+          masterSku: pickString(line.masterSku, line.master_sku) || null,
+          quantity: pickNumber(line.quantity),
+        },
+      ]
+    }),
+  }
+}
+
+export async function listStockReceipts(
+  warehouseId: string,
+): Promise<StockReceiptRecord[]> {
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/receipts`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res
+    .map(mapStockReceipt)
+    .filter((row): row is StockReceiptRecord => row !== null)
+}
+
+export async function createStockReceipt(
+  warehouseId: string,
+  input: CreateStockReceiptInput,
+): Promise<StockReceiptRecord> {
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/receipts`,
+    { method: 'POST', auth: true, body: input },
+  )
+  const receipt = mapStockReceipt(res)
+  if (!receipt) throw new Error('Phiếu nhập không đúng định dạng.')
+  return receipt
 }
 
 function mapCategory(raw: unknown): CategoryRecord | null {

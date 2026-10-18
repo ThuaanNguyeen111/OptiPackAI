@@ -172,6 +172,13 @@ export type PurgeRackQuery = {
   bay?: number
 }
 
+export type StockMovementLot = {
+  lotId: string
+  lotCode: string
+  receivedAt: string
+  quantity: number
+}
+
 export type InventoryMovementRecord = {
   id: string
   type: string
@@ -185,6 +192,64 @@ export type InventoryMovementRecord = {
   refId: string | null
   actorId: string | null
   createdAt: string
+  lots: StockMovementLot[]
+}
+
+export type StockLotRecord = {
+  id: string
+  assignmentId: string
+  binLocationId: string
+  platform: string
+  shopId: string
+  sellerSku: string
+  masterSku: string | null
+  lotCode: string
+  receivedAt: string
+  quantityReceived: number
+  quantityRemaining: number
+  source: string
+  receiptId: string | null
+}
+
+export type StockReceiptLine = {
+  assignmentId: string
+  binLocationId: string
+  lotId: string
+  platform: string
+  shopId: string
+  sellerSku: string
+  masterSku: string | null
+  quantity: number
+}
+
+export type StockReceiptRecord = {
+  id: string
+  receiptCode: string
+  warehouseId: string
+  lotCode: string
+  receivedAt: string
+  supplier: string | null
+  note: string | null
+  totalQuantity: number
+  createdBy: string
+  createdAt: string
+  lines: StockReceiptLine[]
+}
+
+export type CreateStockReceiptInput = {
+  received_at?: string
+  lot_code?: string
+  supplier?: string
+  note?: string
+  force?: boolean
+  lines: {
+    assignment_id?: string
+    bin_location_id?: string
+    platform?: string
+    shop_id?: string
+    seller_sku?: string
+    quantity: number
+  }[]
 }
 
 export type CategoryRecord = {

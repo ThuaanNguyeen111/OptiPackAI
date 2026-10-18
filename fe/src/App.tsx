@@ -35,6 +35,7 @@ import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { ReturnsPage } from './pages/ReturnsPage'
+import { OrderSyncSettingsPage } from './pages/OrderSyncSettingsPage'
 import { ShippingPage } from './pages/ShippingPage'
 import { StaffManagementPage } from './pages/StaffManagementPage'
 import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
@@ -80,6 +81,7 @@ function App() {
                 <Route path="orders/:id" element={<OrderDetailPage />} />
                 <Route path="order-groups" element={<OrderGroupsPage />} />
                 <Route path="returns" element={<ReturnsPage />} />
+                <Route path="order-sync" element={<OrderSyncSettingsPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="packing" element={<PackingPage />} />
@@ -97,6 +99,7 @@ function App() {
                 <Route path="marketplace" element={<AdminMarketplacePage />} />
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
+                <Route path="order-sync" element={<OrderSyncSettingsPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
                 <Route path="packing-plans" element={<AdminPackingPlansPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />

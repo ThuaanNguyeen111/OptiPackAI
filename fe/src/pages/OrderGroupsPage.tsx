@@ -54,6 +54,7 @@ function statusTone(
     return 'success'
   }
   if (
+    status === 'returning' ||
     status === 'partial_needs_review' ||
     status === 'pending_approval' ||
     status === 'awaiting_packaging'
