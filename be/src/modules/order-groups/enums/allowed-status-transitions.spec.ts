@@ -71,8 +71,15 @@ describe('allowed-status-transitions', () => {
     ).toBe(true);
   });
 
-  it('RETURNED là trạng thái cuối — không có đường đi tiếp nào', () => {
-    expect(getAllowedNextStatuses(GroupFulfillmentStatus.RETURNED)).toEqual([]);
+  it('trả đủ nhóm: tạo phiếu → duyệt → kiểm hàng; từ chối/hủy phiếu quay về delivered', () => {
+    expect(isValidStatusTransition(GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNING)).toBe(true);
+    expect(getAllowedNextStatuses(GroupFulfillmentStatus.RETURNING)).toEqual([
+      GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.DELIVERED,
+    ]);
+    expect(getAllowedNextStatuses(GroupFulfillmentStatus.RETURNED)).toEqual([
+      GroupFulfillmentStatus.CANCELED, GroupFulfillmentStatus.DELIVERED,
+    ]);
+    expect(isValidStatusTransition(GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.CANCELED)).toBe(false);
   });
 
   describe('chặn nhảy trạng thái tùy tiện (invalid transitions) — đặc biệt chặn ĐI THEO ĐÚNG THỨ TỰ CŨ đã bỏ', () => {
@@ -92,7 +99,7 @@ describe('allowed-status-transitions', () => {
       // ĐÃ THAY ĐỔI 14/10/2026 (C4): shipped -> packed giờ HỢP LỆ (huỷ vận đơn GHN trước khi lấy hàng) — test riêng bên dưới.
       [GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.AWAITING_PACKAGING],
       // Từ trạng thái cuối
-      [GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.DELIVERED],
+      [GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.PACKED],
       [GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.AWAITING_PACKAGING],
       // Đứng yên (không tự chuyển sang chính nó)
       [GroupFulfillmentStatus.PACKED, GroupFulfillmentStatus.PACKED],

@@ -2,11 +2,9 @@ import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, OrderDocument } from './schemas/order.schema';
-import {
-  OrderStatus,
-  UNFULFILLED_ORDER_STATUSES,
-  NOT_PACKABLE_ORDER_STATUSES,
-} from './enums/order-status.enum';
+import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
+import { notPackableStatuses, orderSyncPolicy } from './order-sync-policy';
+import { computeConsolidationKeyFor } from './utils/consolidation-key.util';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import {
@@ -25,11 +23,14 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 
-// Lần sync ĐẦU TIÊN của 1 shop (last_polled_at = null) — kéo lịch sử tối
-// đa 30 ngày trước, KHÔNG kéo toàn bộ lịch sử vô hạn (tránh 1 lần gọi
-// đầu tiên kéo hàng chục nghìn đơn cũ làm chậm/tốn quota API không cần
-// thiết — 30 ngày đủ cho mục đích demo và vận hành thực tế bắt đầu).
-const FIRST_SYNC_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
+// Lần sync ĐẦU TIÊN của 1 shop (last_polled_at = null) — kéo lịch sử tối đa N
+// ngày trước. 🔄 15/10/2026: N do Admin cấu hình (order_sync_settings, mặc định 30).
+const DAY_MS = 24 * 60 * 60 * 1000;
+// 15/10/2026 — GetOrders trả tối đa 100 đơn/lần; lặp offset theo trang (trước đây
+// chỉ gọi 1 lần → shop có > 100 đơn thay đổi giữa 2 lượt bị sót đơn, vì
+// last_polled_at vẫn tiến lên). Chặn trên 50 trang/lượt; phần còn lại lượt sau lấy tiếp.
+const SYNC_PAGE_SIZE = 100;
+const SYNC_MAX_PAGES = 50;
 
 export interface SyncResult {
   fetched: number;
@@ -138,13 +139,23 @@ export class OrdersService {
         platform,
       );
 
+    const policy = orderSyncPolicy();
     const updatedAfter =
-      shopDoc.last_polled_at ?? new Date(Date.now() - FIRST_SYNC_LOOKBACK_MS);
-    const syncStartedAt = new Date();
+      shopDoc.last_polled_at ?? new Date(Date.now() - policy.sync.firstSyncLookbackDays * DAY_MS);
+    let syncStartedAt = new Date();
 
-    let rawOrders;
+    const rawOrders: Awaited<ReturnType<typeof adapter.getOrders>> = [];
     try {
-      rawOrders = await adapter.getOrders(accessToken, { updatedAfter });
+      for (let page = 0; page < SYNC_MAX_PAGES; page += 1) {
+        const batch = await adapter.getOrders(accessToken, { updatedAfter, offset: page * SYNC_PAGE_SIZE, limit: SYNC_PAGE_SIZE });
+        rawOrders.push(...batch);
+        if (batch.length < SYNC_PAGE_SIZE) break;
+        if (page === SYNC_MAX_PAGES - 1) {
+          // Còn đơn chưa lấy hết: KHÔNG tiến last_polled_at quá mốc cũ để lượt sau lấy tiếp.
+          syncStartedAt = updatedAfter;
+          this.logger.warn(`Sync ${platform} shop ${shopId}: quá ${String(SYNC_MAX_PAGES * SYNC_PAGE_SIZE)} đơn trong 1 lượt — lượt sau lấy tiếp.`);
+        }
+      }
     } catch (error) {
       this.logger.error(
         `Sync đơn ${platform} thất bại cho shop ${shopId} (bước GetOrders)`,
@@ -171,6 +182,8 @@ export class OrdersService {
       try {
         const rawItems = await adapter.getOrderItems(accessToken, rawOrder.order_id);
         const mapped = mapLazadaOrder(rawOrder, rawItems, platform);
+        // 15/10/2026 — khoá gom theo trường Admin chọn (mặc định trùng công thức cũ).
+        mapped.consolidation_key = computeConsolidationKeyFor(platform, mapped.recipient, policy.consolidation.keyFields);
 
         // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
         // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không
@@ -290,7 +303,7 @@ export class OrdersService {
             // được không — hết thì tự động hủy nhóm + nhả giữ chỗ đóng gói
             // (xem order-groups.service.ts). BEST-EFFORT, dùng chung cho cả
             // cron lẫn webhook vì cả 2 đều gọi qua syncShopOrders() này.
-            if (NOT_PACKABLE_ORDER_STATUSES.includes(freshOrder.status)) {
+            if (notPackableStatuses().includes(freshOrder.status)) {
               await this.orderGroupsService
                 .handleOrderBecameUnfulfillable(group._id.toString())
                 .catch((cancelError: unknown) => {
@@ -378,7 +391,10 @@ export class OrdersService {
    * hoặc nhập vào nhóm đã có sẵn).
    */
   private async tryConsolidate(order: OrderDocument): Promise<boolean> {
-    if (!UNFULFILLED_ORDER_STATUSES.includes(order.status)) {
+    // 🔄 15/10/2026 — tiêu chí gom do Admin cấu hình (order_sync_settings).
+    const { consolidation, statuses } = orderSyncPolicy();
+    if (!consolidation.enabled) return false; // tắt gom: mỗi đơn một nhóm
+    if (!statuses.consolidatable.includes(order.status)) {
       return false; // đơn đã fulfill xong (shipped/delivered/...) không xét gộp
     }
 
@@ -395,7 +411,15 @@ export class OrdersService {
         consolidation_key: order.consolidation_key,
         platform: order.platform,
         shop_id: order.shop_id,
+        // Giữ nguyên điều kiện của partial index (đủ 6 trạng thái) để Mongo dùng index;
+        // điều kiện thứ 2 lọc theo tập con Admin chọn.
         status: { $in: UNFULFILLED_ORDER_STATUSES },
+        $and: [
+          { status: { $in: statuses.consolidatable } },
+          ...(consolidation.timeWindowHours !== null && order.created_at
+            ? [{ created_at: { $gte: new Date(order.created_at.getTime() - consolidation.timeWindowHours * 3_600_000) } }]
+            : []),
+        ],
         _id: { $ne: order._id },
         is_active: true,
       })

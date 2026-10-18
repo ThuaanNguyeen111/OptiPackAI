@@ -36,6 +36,90 @@ import { BinLocationDocument } from './schemas/bin-location.schema';
 import { SkuBinAssignmentDocument } from './schemas/sku-bin-assignment.schema';
 import { AppException } from '../../common/exceptions/app-exception';
 import { WAREHOUSE_ERROR_CODES } from './warehouse.errors';
+import { CreateStockReceiptDto, ListStockLotsQueryDto } from './dto/stock-receipt.dto';
+import { StockLotDocument } from './schemas/stock-lot.schema';
+import { StockReceiptDocument } from './schemas/stock-receipt.schema';
+
+// 15/10/2026 — lô hàng + phiếu nhập (FIFO theo ngày nhập kho).
+interface StockLotResponse {
+  id: string;
+  assignmentId: string;
+  binLocationId: string;
+  platform: string;
+  shopId: string;
+  sellerSku: string;
+  masterSku: string | null;
+  lotCode: string;
+  receivedAt: Date;
+  quantityReceived: number;
+  quantityRemaining: number;
+  source: string;
+  receiptId: string | null;
+}
+function toLotResponse(doc: StockLotDocument): StockLotResponse {
+  return {
+    id: doc._id.toString(),
+    assignmentId: doc.assignment_id.toString(),
+    binLocationId: doc.bin_location_id.toString(),
+    platform: doc.platform,
+    shopId: doc.shop_id,
+    sellerSku: doc.seller_sku,
+    masterSku: doc.master_sku,
+    lotCode: doc.lot_code,
+    receivedAt: doc.received_at,
+    quantityReceived: doc.quantity_received,
+    quantityRemaining: doc.quantity_remaining,
+    source: doc.source,
+    receiptId: doc.receipt_id ? doc.receipt_id.toString() : null,
+  };
+}
+
+interface StockReceiptResponse {
+  id: string;
+  receiptCode: string;
+  warehouseId: string;
+  lotCode: string;
+  receivedAt: Date;
+  supplier: string | null;
+  note: string | null;
+  totalQuantity: number;
+  createdBy: string;
+  createdAt: Date | null;
+  lines: {
+    assignmentId: string;
+    binLocationId: string;
+    lotId: string;
+    platform: string;
+    shopId: string;
+    sellerSku: string;
+    masterSku: string | null;
+    quantity: number;
+  }[];
+}
+function toReceiptResponse(doc: StockReceiptDocument): StockReceiptResponse {
+  return {
+    id: doc._id.toString(),
+    receiptCode: doc.receipt_code,
+    warehouseId: doc.warehouse_id.toString(),
+    lotCode: doc.lot_code,
+    receivedAt: doc.received_at,
+    supplier: doc.supplier,
+    note: doc.note,
+    totalQuantity: doc.total_quantity,
+    createdBy: doc.created_by,
+    createdAt: doc.created_at ?? null,
+    lines: doc.lines.map((l) => ({
+      assignmentId: l.assignment_id.toString(),
+      binLocationId: l.bin_location_id.toString(),
+      lotId: l.lot_id.toString(),
+      platform: l.platform,
+      shopId: l.shop_id,
+      sellerSku: l.seller_sku,
+      masterSku: l.master_sku,
+      quantity: l.quantity,
+    })),
+  };
+}
 
 // BỔ SUNG (2026-09-10) — Điểm yếu #9: trước đây trả THẲNG Document
 // (snake_case, `_id`/`__v` thô) — sửa cho nhất quán với
@@ -329,6 +413,7 @@ export class WarehouseController {
       dto.quantity,
       dto.force === true, // K2 — vượt sức chứa chỉ cho qua khi FE xác nhận force
       user.userId, // K3 — sổ cái
+      { receivedAt: dto.received_at, lotCode: dto.lot_code }, // 15/10/2026 — lô hàng
     );
     return toAssignmentResponse(doc);
   }
@@ -714,8 +799,87 @@ export class WarehouseController {
       note: m.note,
       refType: m.ref_type,
       refId: m.ref_id,
+      // 15/10/2026 — lô bị ảnh hưởng (dòng cũ: rỗng)
+      lots: m.lot_allocations.map((l) => ({
+        lotId: l.lot_id.toString(),
+        lotCode: l.lot_code,
+        receivedAt: l.received_at,
+        quantity: l.quantity,
+      })),
       actorId: m.actor_id,
       createdAt: m.created_at,
     }));
+  }
+
+  // ===================================================================
+  // 15/10/2026 — PHIẾU NHẬP THEO LÔ + TỒN THEO LÔ (FIFO theo ngày nhập)
+  // ===================================================================
+
+  @Post('warehouses/:warehouseId/receipts')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({
+    summary:
+      '🆕 Phiếu nhập kho theo LÔ (nhiều SKU, cùng mã lô + ngày nhập). Lấy hàng/đóng gói trừ lô có ngày nhập CŨ NHẤT trước (FIFO).',
+  })
+  async createReceipt(
+    @Param('warehouseId') warehouseId: string,
+    @Body() dto: CreateStockReceiptDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<StockReceiptResponse> {
+    this.assertObjectId(warehouseId, 'warehouseId');
+    return toReceiptResponse(await this.warehouseService.createReceipt(warehouseId, dto, user.userId));
+  }
+
+  @Get('warehouses/:warehouseId/receipts')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '🆕 Danh sách phiếu nhập của kho (mới nhất trước).' })
+  async listReceipts(
+    @Param('warehouseId') warehouseId: string,
+    @Query('limit') limit?: string,
+  ): Promise<StockReceiptResponse[]> {
+    this.assertObjectId(warehouseId, 'warehouseId');
+    const docs = await this.warehouseService.listReceipts(warehouseId, Number(limit) || 50);
+    return docs.map(toReceiptResponse);
+  }
+
+  @Get('warehouses/:warehouseId/receipts/:receiptId')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '🆕 Chi tiết 1 phiếu nhập.' })
+  async getReceipt(
+    @Param('warehouseId') warehouseId: string,
+    @Param('receiptId') receiptId: string,
+  ): Promise<StockReceiptResponse> {
+    this.assertObjectId(warehouseId, 'warehouseId');
+    return toReceiptResponse(await this.warehouseService.getReceipt(warehouseId, receiptId));
+  }
+
+  @Get('warehouses/:warehouseId/lots')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '🆕 Tồn theo lô của kho, lô cũ nhất trước (lọc master_sku / seller_sku / lot_code).' })
+  async listLots(
+    @Param('warehouseId') warehouseId: string,
+    @Query() query: ListStockLotsQueryDto,
+  ): Promise<StockLotResponse[]> {
+    this.assertObjectId(warehouseId, 'warehouseId');
+    const docs = await this.warehouseService.listLots(warehouseId, query);
+    return docs.map(toLotResponse);
+  }
+
+  @Get('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/lots')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '🆕 Các lô của 1 SKU trên 1 ô, theo đúng thứ tự sẽ xuất (cũ nhất trước).' })
+  async listLotsForAssignment(
+    @Param('warehouseId') warehouseId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Query('include_empty') includeEmpty?: string,
+  ): Promise<StockLotResponse[]> {
+    const docs = await this.warehouseService.listLotsForAssignment(warehouseId, assignmentId, includeEmpty === 'true');
+    return docs.map(toLotResponse);
+  }
+
+  private assertObjectId(value: string, name: string): void {
+    if (!Types.ObjectId.isValid(value)) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND, `${name} không đúng định dạng ObjectId.`, HttpStatus.BAD_REQUEST, { [name]: value });
+    }
   }
 }

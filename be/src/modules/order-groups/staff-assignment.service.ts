@@ -8,7 +8,7 @@ import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { STAFF_ASSIGNMENT_ERROR_CODES } from './staff-assignment.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 
-const COMPLETED_STATUSES = [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNED];
+const COMPLETED_STATUSES = [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.CANCELED];
 
 /**
  * ===================================================================

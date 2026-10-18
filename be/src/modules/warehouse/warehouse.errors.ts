@@ -37,4 +37,9 @@ export const WAREHOUSE_ERROR_CODES = {
   NOTE_REQUIRED: 'WH_NOTE_REQUIRED', // lý do "other" phải có ghi chú
   // 10/10/2026 — xoá hẳn mục tạo nhầm (báo cáo Hải Phượng)
   HAS_HISTORY: 'WH_HAS_HISTORY', // đã có nhập–xuất → chỉ vô hiệu hoá được, không xoá hẳn
+  // 15/10/2026 — phiếu nhập theo lô (FIFO theo ngày nhập)
+  RECEIPT_DATE_IN_FUTURE: 'WH_RECEIPT_DATE_IN_FUTURE', // ngày nhập ở tương lai
+  RECEIPT_LINE_INVALID: 'WH_RECEIPT_LINE_INVALID', // dòng thiếu assignment_id lẫn (ô + sàn + shop + SKU)
+  RECEIPT_LINE_NOT_ASSIGNED: 'WH_RECEIPT_LINE_NOT_ASSIGNED', // SKU chưa được gán vào ô đó
+  RECEIPT_NOT_FOUND: 'WH_RECEIPT_NOT_FOUND',
 } as const;
