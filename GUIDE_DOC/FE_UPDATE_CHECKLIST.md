@@ -1,5 +1,12 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
+> **18/10/2026 — Quay lại sau khi chấp nhận đóng gói:** xem [Packing, mục 2.3.1](INTEGRATION_GUIDE_PACKING.md#231-quay-lại-chờ-chấp-nhận).
+
+- Thêm nút **Quay lại chờ chấp nhận** cho Packaging Staff/Admin, gọi `POST /order-groups/:groupId/packing-plan/undo-approve` với `{ expected_version: plan.version }`; nhận `{ plan }` rồi tải lại nhóm.
+- Báo rõ **lượt quét sẽ bị xóa**. Thành công: kế hoạch `ready`, nhóm `pending_approval`, giữ người được giao và phương án; lần nhận đóng tiếp theo phải quét lại, không có màn Approved trung gian.
+- Chỉ dùng trước khi từng niêm phong; đã mở niêm phong lại vẫn bị chặn. Xử lý `409 PACKING_UNDO_APPROVE_NOT_ALLOWED`; xung đột version thì tải lại. Không nhầm với `back-to-picking` (trả về kho lấy hàng).
+- Type `activity.kind` thêm `undo_approve`. FE chưa được sửa trong thay đổi BE này.
+
 > **18/10/2026 — trạng thái đơn khi trả đủ hàng:** xem [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
 
 - Thêm `returning` vào type/bộ lọc/nhãn `fulfillmentStatus`: **Đang hoàn** khi Admin tạo phiếu; **Đã hoàn hàng** (`returned`) sau Store duyệt; **Đã hủy** (`canceled`) sau kho kiểm và xử lý tồn xong.

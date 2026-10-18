@@ -208,6 +208,7 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
 | GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ plan }` — kế hoạch đang hoạt động, `null` nếu chưa có (nhóm chưa lấy xong hoặc job chưa chạy tới) |
+| POST | `/order-groups/:groupId/packing-plan/undo-approve` | Packaging, Admin | Quay lại chờ chấp nhận trước khi từng niêm phong. Body `{ expected_version }`, response `{ plan }`. Kế hoạch `packing`/`approved` → `ready`, nhóm → `pending_approval`; version +1, giữ kế hoạch/phân công, xóa lượt quét và người/giờ chấp nhận/bắt đầu, ghi `activity.kind = undo_approve`. Không hoàn tồn/hao hụt. Đã/từng niêm phong hoặc có kiện phải tháo → 409 `PACKING_UNDO_APPROVE_NOT_ALLOWED`; version cũ → 409 `PACKING_VERSION_CONFLICT`; sai trạng thái → 409 `PACKING_WRONG_PLAN_STATUS`. Chi tiết: guide Packing mục 2.3.1 |
 | GET | `/packing-plans/summary?group_ids=a,b,c` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ summaries[] }` tóm tắt tối đa 200 nhóm (trạng thái, version, nhãn, `cpSatPending`, số kiện, chi phí đóng gói, `failureReason`) — dùng cho bảng hàng chờ |
 | POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | Tính lại, thay kế hoạch `ready`/`failed`/`rejected` hiện tại (nhóm `pending_approval` tạm về `picked` rồi tính ngay). Body `{ expected_version?, exclude_box_codes?: string[], prefer?: 'fewest_parcels' \| 'cheapest' }` — `expected_version` bắt buộc khi đã có kế hoạch |
 | POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | Chấp nhận và bắt đầu ngay: `ready → packing`, nhóm `pending_approval → approved_for_packing`, version +1 trong cùng transaction; ghi người/giờ duyệt và bắt đầu. Còn đơn chưa xếp hết món → 409 `PACKING_HAS_UNPLACED`; nhóm đã hủy hết đơn → 409 `ORD_GROUP_ALL_ORDERS_CANCELED`; tự duyệt kế hoạch `source: manual` → 403 `PACKING_SELF_APPROVE_FORBIDDEN` |
@@ -502,7 +503,7 @@ GET   /notifications*
 
 ```
 GET   /order-groups, /:id, /:groupId/packing-plan     Xem kế hoạch đóng gói (🔄 05/10: thay /packaging cũ)
-POST  .../packing-plan/approve, /recompute, /reject   Duyệt / tính lại / từ chối
+POST  .../packing-plan/approve, /undo-approve, /recompute, /reject   Chấp nhận / quay lại chờ chấp nhận / tính lại / từ chối
 POST  .../packing-plan/manual, /back-to-picking       Lối ra sau từ chối (🆕 09/10: back-to-picking; không tự duyệt kế hoạch thủ công mình lập)
 GET   /packing/staff                                  🆕 09/10 Danh sách Packaging Staff (giao người đóng, người xử lý từ chối)
 POST  .../packing-plan/parcels/:no/change-box|move-item   Chỉnh tay

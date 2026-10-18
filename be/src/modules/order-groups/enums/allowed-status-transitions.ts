@@ -66,6 +66,8 @@ const ALLOWED_TRANSITIONS: Record<
   // xảy ra TRƯỚC, ở đầu luồng).
   [GroupFulfillmentStatus.APPROVED_FOR_PACKING]: [
     GroupFulfillmentStatus.PACKED,
+    // Hoàn tác chấp nhận đóng gói trước khi từng niêm phong kiện nào.
+    GroupFulfillmentStatus.PENDING_APPROVAL,
     // BỔ SUNG (30/09/2026) — 1 đơn trong nhóm bị hủy sau khi đã duyệt: phương
     // án cũ chứa hàng đơn đã hủy, phải vô hiệu hóa và tính lại từ `picked`.
     GroupFulfillmentStatus.PICKED,

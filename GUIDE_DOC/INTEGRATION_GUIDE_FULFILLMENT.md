@@ -136,6 +136,10 @@ Lấy hàng xong (group `picked`, Nghiệp vụ 3) thì hệ thống biết chí
 ### `approve` — chốt kế hoạch
 Body `{ "expected_version": 3 }`. Kế hoạch `ready → packing`, nhóm `pending_approval → approved_for_packing` trong cùng transaction; version tăng 1, ghi người/giờ duyệt và bắt đầu. FE mở quét/cân ngay từ `{ plan }` trả về, không gọi thêm `/start`. Còn đơn `partial`/`no_fit` → 409 `PACKING_HAS_UNPLACED` — chuyển món/đổi thùng/tính lại trước. Nhóm đã hủy hết đơn → 409 `ORD_GROUP_ALL_ORDERS_CANCELED`.
 
+### `undo-approve` — quay lại chờ chấp nhận
+
+Packaging Staff/Admin gọi `POST /order-groups/:groupId/packing-plan/undo-approve` với `{ "expected_version": 4 }` (version kế hoạch), nhận `{ plan }`. Kế hoạch `packing`/`approved` cũ → `ready`, nhóm `approved_for_packing` → `pending_approval`, cùng transaction; version kế hoạch tăng 1. Giữ kế hoạch và người được giao, xóa lượt quét cùng người/giờ duyệt/bắt đầu; ghi `activity.kind = undo_approve`. Chỉ trước khi từng niêm phong, kể cả đã mở lại cũng bị chặn (`409 PACKING_UNDO_APPROVE_NOT_ALLOWED`). Không hoàn tồn/hao hụt. FE tải lại nhóm và chấp nhận lại bằng `/approve`, quét lại từ đầu. Chi tiết: `INTEGRATION_GUIDE_PACKING.md` mục 2.3.1.
+
 ### Chỉnh tay — thay cho "từ chối, tính lại"
 - **Đổi thùng 1 kiện** `POST .../parcels/:parcelNo/change-box` `{ expected_version, box_code, reason, note? }`: xếp lại đúng các món của kiện đó vào thùng mới; không vừa → 422 `PACKING_BOX_DOES_NOT_FIT` (kèm `details.violations`); thùng không còn trống → 409 `PKG_BOX_OUT_OF_STOCK`. Kế hoạch giữ nguyên các kiện khác.
 - **Chuyển món** `POST .../parcels/:parcelNo/move-item` `{ expected_version, item_key, to_parcel_no?, reason, note? }`: sang kiện khác **cùng đơn**, hoặc bỏ trống `to_parcel_no` để tách kiện mới (hệ thống chọn thùng). Cả 2 kiện bị ảnh hưởng xếp lại và qua validator. Sang kiện của đơn khác → 400 `PACKING_MOVE_ACROSS_ORDERS` (một đơn nguồn là một phạm vi đóng).

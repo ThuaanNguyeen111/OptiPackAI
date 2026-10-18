@@ -228,9 +228,10 @@ export class PackingPlanService {
 
   // ------------------------------------------------------------------ đọc
 
-  async getActivePlan(groupId: string): Promise<PackingPlanDocument | null> {
+  async getActivePlan(groupId: string, session?: ClientSession): Promise<PackingPlanDocument | null> {
     const id = this.objectId(groupId);
-    return this.planModel.findOne({ order_group_id: id, is_active: true });
+    const query = this.planModel.findOne({ order_group_id: id, is_active: true });
+    return session ? query.session(session) : query;
   }
 
   /** Kế hoạch đang hoạt động của nhiều nhóm (cho bảng hàng chờ) — 1 truy vấn `$in`. */
@@ -240,8 +241,8 @@ export class PackingPlanService {
     return this.planModel.find({ order_group_id: { $in: ids }, is_active: true });
   }
 
-  async requireActivePlan(groupId: string): Promise<PackingPlanDocument> {
-    const plan = await this.getActivePlan(groupId);
+  async requireActivePlan(groupId: string, session?: ClientSession): Promise<PackingPlanDocument> {
+    const plan = await this.getActivePlan(groupId, session);
     if (!plan) {
       throw new AppException(
         PACKING_ERROR_CODES.PLAN_NOT_FOUND,
@@ -551,6 +552,69 @@ export class PackingPlanService {
       await this.orderGroupsService.transitionFulfillmentStatus(
         groupId,
         GroupFulfillmentStatus.APPROVED_FOR_PACKING,
+        group.__v,
+        session,
+      );
+      return updated;
+    });
+  }
+
+  async undoApprove(groupId: string, expectedVersion: number, userId: string): Promise<PackingPlanDocument> {
+    return this.runInTransaction(async (session) => {
+      const plan = await this.requireActivePlan(groupId, session);
+      if (plan.version !== expectedVersion) throw this.versionConflict(groupId);
+      if (plan.status !== 'packing' && plan.status !== 'approved') {
+        throw this.wrongStatus(groupId, plan.status, 'hoàn tác chấp nhận');
+      }
+      const group = await this.orderGroupsService.findOrderGroupById(groupId, session);
+      if (group.fulfillment_status !== GroupFulfillmentStatus.APPROVED_FOR_PACKING) {
+        throw this.wrongStatus(groupId, group.fulfillment_status, 'hoàn tác chấp nhận');
+      }
+      await this.orderGroupsService.assertHasActiveOrders(groupId);
+      // Mở niêm phong có thể xóa box_consumed/sealed_at, nhưng vẫn phải chặn quay lại.
+      const blocked = plan.parcels.filter(
+        (p) => p.status !== 'pending' || p.box_consumed || p.sealed_at !== null || p.weighings.length > 0,
+      );
+      if (blocked.length > 0 || plan.adjustments.some((a) => a.kind === 'unseal')) {
+        throw new AppException(
+          PACKING_ERROR_CODES.UNDO_APPROVE_NOT_ALLOWED,
+          'Chỉ quay lại chờ chấp nhận khi chưa từng niêm phong kiện nào và không có kiện phải tháo.',
+          HttpStatus.CONFLICT,
+          { groupId, parcelNos: blocked.map((p) => p.parcel_no) },
+        );
+      }
+      const clearedScans = plan.parcels.reduce((count, p) => count + p.scans.length, 0);
+      const updated = await this.planModel.findOneAndUpdate(
+        { _id: plan._id, version: expectedVersion, status: plan.status, is_active: true },
+        {
+          $set: {
+            status: 'ready',
+            approved_by: null,
+            approved_at: null,
+            packing_started_by: null,
+            packing_started_at: null,
+            approve_override_reason: null,
+            pack_mode: null,
+            parcels: plan.parcels.map((p) => ({ ...this.plain(p), scans: [] })),
+          },
+          $push: {
+            activity: {
+              kind: 'undo_approve',
+              parcel_no: null,
+              detail: `Hoàn tác chấp nhận đóng gói; xóa ${String(clearedScans)} lượt quét`,
+              reason: null,
+              by: new Types.ObjectId(userId),
+              at: new Date(),
+            },
+          },
+          $inc: { version: 1 },
+        },
+        { session, returnDocument: 'after' },
+      );
+      if (!updated) throw this.versionConflict(groupId);
+      await this.orderGroupsService.transitionFulfillmentStatus(
+        groupId,
+        GroupFulfillmentStatus.PENDING_APPROVAL,
         group.__v,
         session,
       );

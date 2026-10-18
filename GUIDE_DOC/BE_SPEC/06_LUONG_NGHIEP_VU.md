@@ -137,6 +137,7 @@ stateDiagram-v2
     partial_needs_review --> awaiting_packaging: decide-partial approve=false
     picked --> pending_approval: engine tính xong packing plan (cron 10 giây)
     pending_approval --> approved_for_packing: packing-plan/approve
+    approved_for_packing --> pending_approval: undo-approve (chưa từng niêm phong)
     pending_approval --> picked: packing-plan/reject (tính lại)
     approved_for_packing --> picking: back-to-picking / report-issue
     approved_for_packing --> packed: niêm phong đủ kiện (finish / pack)
@@ -181,6 +182,7 @@ stateDiagram-v2
     computing --> ready: engine BRKGA xong (cron 10 giây)
     computing --> failed: không xếp được
     ready --> packing: approve (chấp nhận và bắt đầu)
+    packing --> ready: undo-approve (chưa từng niêm phong, xóa lượt quét)
     ready --> rejected: reject (có hạn xử lý)
     rejected --> computing: recompute
     approved --> packing: start / quét (dữ liệu cũ)
@@ -195,6 +197,7 @@ stateDiagram-v2
 | Tính phương án | Tự động | cron `packing-plan-auto-compute` (10 giây) | Lấy món **đã quét thực tế** (`pick_events`), kích thước/khối lượng từ `product_master` + `packaging profile`; engine BRKGA chọn thùng/túi, xếp món vào từng kiện. Nếu bật `packer/` (CP-SAT) thì chạy thêm để gắn nhãn `optimal_in_model`/`optimal_global` |
 | Xem | Packaging/Warehouse/Coordinator/Owner | `GET /order-groups/:groupId/packing-plan` | Kiện, thùng, vật tư, cân ước tính, nhãn chứng minh tối ưu |
 | Chấp nhận & đóng gói | Packaging/Admin | `POST .../packing-plan/approve` | `ready → packing`; nhóm `pending_approval → approved_for_packing`, cùng transaction; ghi người/giờ duyệt và bắt đầu, version +1 |
+| Quay lại chờ chấp nhận | Packaging/Admin | `POST .../packing-plan/undo-approve` | `packing`/`approved` cũ → `ready`; nhóm → `pending_approval`, cùng transaction; xóa lượt quét và người/giờ duyệt/bắt đầu, giữ kế hoạch/phân công/hao hụt, version +1, ghi hoạt động `undo_approve`. Chỉ khi chưa từng niêm phong, không có kiện phải tháo; chặn bằng `409 PACKING_UNDO_APPROVE_NOT_ALLOWED` |
 | Từ chối / tính lại | Packaging | `POST .../reject`, `POST .../recompute` | Ghi lý do, hạn xử lý (cron 15 phút nhắc quá hạn) |
 | Sửa tay | Packaging | `POST .../manual`, `.../parcels/:n/change-box`, `.../move-item` | Lưu bản sửa, kiểm tồn thùng (`assertBoxInStock`) |
 | Phân công | Hệ thống, Admin khi cần đổi người | Tự giao khi `ready`; `POST .../assign` để gán lại | Giữ tự chọn người ít việc; không có bước chốt riêng. Danh sách cá nhân: `GET /order-groups?assigned_packer_id=<userId>` (lọc trước phân trang) |

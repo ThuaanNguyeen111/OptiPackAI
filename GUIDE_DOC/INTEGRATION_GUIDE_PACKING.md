@@ -3,6 +3,8 @@
 > **Cập nhật:** 18/10/2026 — bỏ bước chốt riêng ở Admin; tự tính và tự gán; lọc việc bằng `assigned_packer_id`; **chấp nhận là bắt đầu đóng ngay** (`ready → packing`). `/start` chỉ còn dùng cho dữ liệu `approved` cũ. **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
 > Tài liệu này gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Phần lấy hàng, giao hàng, kho vẫn ở `INTEGRATION_GUIDE_FULFILLMENT.md` / `INTEGRATION_GUIDE_WAREHOUSE.md`; bảng tra route ngắn ở `API_LIST.md` mục 8.
 
+> **18/10/2026 — Quay lại sau khi chấp nhận:** thêm `POST …/packing-plan/undo-approve` để trở về chờ chấp nhận, giữ kế hoạch và phân công, xóa lượt quét. Chỉ dùng trước khi từng niêm phong kiện nào; xem mục 2.3.1.
+
 ---
 
 ## 0. Đọc trước 5 phút
@@ -59,6 +61,8 @@ Kiện:      pending ─(niêm phong + cân)→ sealed | held (lệch cân, ch�
 - `plan.cpSatPending === true` → kế hoạch dùng được ngay; nhãn "tối ưu" sẽ cập nhật sau → thăm dò thưa (10 s) nếu muốn hiện nhãn mới.
 
 `approved` chỉ còn là trạng thái tương thích cho dữ liệu cũ; không cần migration. FE phải chấp nhận `/approve` trả `packing` trước khi dùng backend mới.
+
+Nhánh quay lại: kế hoạch `packing` (hoặc `approved` cũ) → `ready`, nhóm `approved_for_packing` → `pending_approval` bằng `undo-approve`, chỉ trước khi từng niêm phong. Sau đó vẫn chấp nhận và bắt đầu đóng ngay bằng `approve`.
 
 ### 0.4 Phân quyền theo vai trò
 
@@ -231,6 +235,25 @@ Ví dụ với `expected_version: 3` (trích response; BE trả toàn bộ kế 
 ```
 
 FE đặt nhãn nút **"Chấp nhận & đóng gói"**, thay state bằng `plan` trả về rồi mở ngay phần quét/cân/niêm phong cùng hướng dẫn 3D. **Không gọi `/start` sau `/approve`, không hiện màn Approved trung gian.** Bấm lặp sau thành công trả `409 PACKING_WRONG_PLAN_STATUS`; xung đột version trả `409 PACKING_VERSION_CONFLICT` — tải lại kế hoạch, không tự gửi lại mù. Nhóm đã hủy hết đơn bị chặn bởi `409 ORD_GROUP_ALL_ORDERS_CANCELED`.
+
+### 2.3.1 Quay lại chờ chấp nhận
+
+```http
+POST /order-groups/:groupId/packing-plan/undo-approve
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{ "expected_version": 4 }
+```
+
+**Quyền:** Packaging Staff, Admin. Dùng `plan.version`, không dùng version nhóm. Response `{ "plan": { ... } }` giữ cấu trúc hiện tại:
+
+- Kế hoạch `packing` hoặc `approved` cũ → `ready`; nhóm `approved_for_packing` → `pending_approval` trong cùng transaction. `plan.version` tăng 1, `revision` giữ nguyên.
+- Giữ cách xếp, thùng đã chọn, người được giao, chỉnh sửa và sự cố. **Xóa lượt quét ở mọi kiện**, người/giờ chấp nhận, người/giờ bắt đầu và lý do duyệt vượt số kiện. Lịch sử thêm `activity.kind = undo_approve` ghi người, giờ và số lượt quét bị xóa. Không hoàn tồn hoặc xóa hao hụt đã ghi nhận.
+- Chỉ được quay lại nếu mọi kiện còn `pending`, chưa trừ thùng và chưa từng niêm phong/cân. Kiện `sealed`, `held`, `to_unpack`, `voided`, hoặc đã mở niêm phong lại đều bị chặn bởi `409 PACKING_UNDO_APPROVE_NOT_ALLOWED` (`details.parcelNos` là các kiện đang chặn).
+- Sai version hoặc gửi lại request cũ → `409 PACKING_VERSION_CONFLICT`; sai trạng thái kế hoạch/nhóm → `409 PACKING_WRONG_PLAN_STATUS`. Nhóm hết đơn hoạt động → `409 ORD_GROUP_ALL_ORDERS_CANCELED`.
+
+FE đặt nút **“Quay lại chờ chấp nhận”** tại phiên đang đóng, báo rõ tiến độ quét sẽ bị xóa. Sau thành công, thay kế hoạch bằng response, tải lại nhóm và hiển thị “Chờ chấp nhận” trong danh sách của người được giao. Khi chấp nhận lại, gọi `/approve` và quét lại từ đầu; giờ bắt đầu tính theo lần chấp nhận mới. Không gọi `/start` khi kế hoạch đang `ready`, không dùng `back-to-picking` cho thao tác này.
 
 ### 2.4 Chỉnh tay trước khi duyệt (kế hoạch `ready`)
 
@@ -631,6 +654,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `PACKING_PACK_WEIGHTS_MISMATCH`       | 400  | Danh sách cân của `pack` không khớp đúng các kiện chưa niêm phong        |
 | `PACKING_SELF_REVIEW_FORBIDDEN`       | 403  | Tự chấp nhận kiện mình niêm phong                                        |
 | `PACKING_UNSEAL_NOT_ALLOWED`          | 403  | Nhóm đã `packed`: chỉ Admin/Store Owner hoàn tác                         |
+| `PACKING_UNDO_APPROVE_NOT_ALLOWED`    | 409  | Không thể quay lại chờ chấp nhận: có kiện đã/từng niêm phong hoặc phải tháo |
 | `PACKING_NOT_COMPLETE`                | 409  | `finish` khi còn kiện chưa niêm phong/đang giữ                           |
 | `PACKING_ISSUE_HAS_SEALED_PARCELS`    | 409  | `back_to_picking` khi đã niêm phong kiện                                 |
 | `PACKING_REPLACEMENT_WAREHOUSE_REQUIRED` | 400 | `replace` thiếu `warehouse_id`                                         |
@@ -660,7 +684,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `ready`       | 3D + danh sách kiện; nút chính **Chấp nhận & đóng gói**, **Từ chối**; chỉnh phương án để trong phần phụ khi cần |
 | `rejected`    | Banner đỏ + hạn (`rejection.dueAt`) + 3 nút **Tính lại / Đóng thủ công / Trả về lấy hàng**                      |
 | `approved`    | Dữ liệu cũ: gọi `/start` rồi mở cùng phần đóng gói, không thêm bước xác nhận trên UI                         |
-| `packing`     | Chế độ đóng: từng kiện → quét → cân; kiện `held` có nút xem lại; kiện `to_unpack` có nút Tháo                   |
+| `packing`     | Chế độ đóng: từng kiện → quét → cân; kiện `held` có nút xem lại; kiện `to_unpack` có nút Tháo; **Quay lại chờ chấp nhận** chỉ trước khi từng niêm phong |
 | `packed`      | Tóm tắt + nút **Hoàn tác niêm phong** (chỉ Admin/Store Owner)                                                   |
 
 FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt riêng ở Admin, không khối gán người trong luồng nhân viên, không màn Approved trung gian. Hướng dẫn 3D giữ bên cạnh trong lúc quét/cân.
@@ -687,6 +711,8 @@ FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt
 - [ ] Gán lại → đơn rời danh sách người cũ và hiện ở người mới sau lần tải lại
 - [ ] Chấp nhận một lần → response `packing`, version tăng 1 → quét/cân ngay, không có nút "Bắt đầu đóng"
 - [ ] Tải lại kế hoạch đang `packing` giữ nguyên người/giờ bắt đầu; dữ liệu `approved` cũ vẫn dùng được
+- [ ] Chấp nhận → quét một số món → `undo-approve`: kế hoạch `ready`, nhóm `pending_approval`, lượt quét rỗng, vẫn nằm trong danh sách người được giao; chấp nhận lại rồi quét lại được
+- [ ] Đã niêm phong/giữ cân lệch hoặc đã mở niêm phong lại → `undo-approve` trả 409 `PACKING_UNDO_APPROVE_NOT_ALLOWED`; gửi version cũ → 409 `PACKING_VERSION_CONFLICT`
 
 - [ ] Nhóm `picked` → ≤ 10 s sau có `plan` `ready`
 - [ ] Duyệt khi còn đơn `no_fit` → 409 `PACKING_HAS_UNPLACED`
