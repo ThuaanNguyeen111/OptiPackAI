@@ -327,8 +327,8 @@ export const PlanIssueSchema = SchemaFactory.createForClass(PlanIssue);
 /** Nhật ký thao tác phiên đóng gói không thuộc kiện/sự cố riêng (05/10/2026). */
 @Schema({ _id: false })
 export class PlanActivity {
-  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish', 'unseal'] })
-  kind!: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal';
+  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish', 'unseal', 'undo_approve'] })
+  kind!: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal' | 'undo_approve';
   @Prop({ type: Number, default: null }) parcel_no!: number | null;
   @Prop({ required: true }) detail!: string;
   @Prop({ type: String, default: null }) reason!: string | null;

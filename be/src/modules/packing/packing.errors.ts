@@ -33,6 +33,7 @@ export const PACKING_ERROR_CODES = {
   SETTINGS_CONFLICT: 'PACKING_SETTINGS_CONFLICT',
   INVALID_DATE_RANGE: 'PACKING_INVALID_DATE_RANGE',
   UNSEAL_NOT_ALLOWED: 'PACKING_UNSEAL_NOT_ALLOWED', // nhóm đã packed: chỉ Admin/Store Owner hoàn tác niêm phong
+  UNDO_APPROVE_NOT_ALLOWED: 'PACKING_UNDO_APPROVE_NOT_ALLOWED', // quay lại chờ chấp nhận khi đã niêm phong hoặc có kiện phải tháo
   SAME_BOX: 'PACKING_SAME_BOX', // đổi thùng lúc đóng nhưng chọn đúng thùng đang dùng và khai chưa dùng
   MANUAL_PACK_INVALID: 'PACKING_MANUAL_PACK_INVALID', // đóng thủ công: thiếu/trùng/sai món, quá tải thùng
   BACK_TO_PICKING_INVALID: 'PACKING_BACK_TO_PICKING_INVALID', // trả về lấy hàng: SKU không thuộc nhóm / vượt số đã lấy

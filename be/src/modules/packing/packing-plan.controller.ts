@@ -28,6 +28,7 @@ import {
   PackPlanDto,
   RecomputePlanDto,
   RejectPlanDto,
+  VersionedDto,
 } from './dto/packing-plan.dto';
 import {
   AssignPackerDto,
@@ -512,6 +513,17 @@ export class PackingPlanController {
         await this.planService.approve(groupId, dto.expected_version, user.userId, dto.override_reason),
       ),
     };
+  }
+
+  @Post('undo-approve')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Quay lại chờ chấp nhận trước khi từng niêm phong: packing/approved → ready, nhóm → pending_approval. Giữ kế hoạch và phân công, xóa lượt quét.' })
+  async undoApprove(
+    @Param('groupId') groupId: string,
+    @Body() dto: VersionedDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse }> {
+    return { plan: toPlanResponse(await this.planService.undoApprove(groupId, dto.expected_version, user.userId)) };
   }
 
   @Post('reject')
