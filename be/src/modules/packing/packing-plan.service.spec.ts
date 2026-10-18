@@ -359,12 +359,44 @@ describe('PackingPlanService', () => {
   });
 
   describe('duyệt / tính lại / từ chối', () => {
-    it('approve đúng version → approved, nhóm approved_for_packing, version tăng', async () => {
+    it('approve bắt đầu đóng ngay, ghi người + giờ một lần, nhóm approved_for_packing', async () => {
       const plan = await computed();
       const approved = await service.approve(groupId, plan.version, userId);
-      expect(approved.status).toBe('approved');
+      expect(approved.status).toBe('packing');
       expect(approved.version).toBe(plan.version + 1);
+      expect(String(approved.approved_by)).toBe(userId);
+      expect(String(approved.packing_started_by)).toBe(userId);
+      expect(approved.packing_started_at).toEqual(expect.any(Date));
+      expect(approved.packing_started_at).toEqual(approved.approved_at);
+      expect(approved.activity).toEqual([
+        expect.objectContaining({ kind: 'start', by: new Types.ObjectId(userId), at: approved.packing_started_at }),
+      ]);
+      expect(approved.parcels.every((p) => p.status === 'pending')).toBe(true);
+      expect(boxService.consumeForPack).not.toHaveBeenCalled();
+      expect(materialService.consumeForPack).not.toHaveBeenCalled();
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+    });
+
+    it('approve hai lần không ghi thêm hoạt động hoặc tăng version', async () => {
+      const plan = await computed();
+      const approved = await service.approve(groupId, plan.version, userId);
+      await expect(service.approve(groupId, plan.version, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS,
+      });
+      const current = await service.requireActivePlan(groupId);
+      expect(current.version).toBe(approved.version);
+      expect(current.activity).toEqual(approved.activity);
+    });
+
+    it('approve không bắt đầu đóng khi nhóm đã hủy hết đơn', async () => {
+      const plan = await computed();
+      orderGroupsService.assertHasActiveOrders.mockRejectedValueOnce(new Error('Đã hủy hết đơn'));
+      await expect(service.approve(groupId, plan.version, userId)).rejects.toThrow('Đã hủy hết đơn');
+      const current = await service.requireActivePlan(groupId);
+      expect(current.status).toBe('ready');
+      expect(current.version).toBe(plan.version);
+      expect(current.activity).toEqual([]);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
     });
 
     it('approve với version cũ → PACKING_VERSION_CONFLICT', async () => {
@@ -538,7 +570,7 @@ describe('PackingPlanService', () => {
           errorCode: PACKING_ERROR_CODES.SELF_APPROVE_FORBIDDEN,
         });
         const approved = await service.approve(groupId, created.version, new Types.ObjectId().toString());
-        expect(approved.status).toBe('approved');
+        expect(approved.status).toBe('packing');
       });
 
       it('chỉ dùng được khi kế hoạch đang bị từ chối', async () => {
@@ -721,7 +753,7 @@ describe('PackingPlanService', () => {
         errorCode: PACKING_ERROR_CODES.PARCEL_LIMIT_EXCEEDED,
       });
       const approved = await service.approve(groupId, plan.version, userId, 'Khách đặt sỉ, chấp nhận nhiều kiện');
-      expect(approved.status).toBe('approved');
+      expect(approved.status).toBe('packing');
       expect(approved.approve_override_reason).toBe('Khách đặt sỉ, chấp nhận nhiều kiện');
     });
   });
@@ -748,14 +780,40 @@ describe('PackingPlanService', () => {
     const weightOf = (plan: PackingPlanDocument, parcelNo: number, factor = 1): number =>
       ((plan.parcels.find((p) => p.parcel_no === parcelNo)?.estimated_weight_g ?? 0) / 1000) * factor;
 
-    it('quét món đầu tiên tự bắt đầu phiên (approved → packing, ghi người + giờ)', async () => {
+    it('quét ngay sau approve giữ nguyên người + giờ bắt đầu, không cần gọi start', async () => {
       const plan = await approvedPlan();
       const sku = plan.parcels[0]?.placements[0]?.sku ?? '';
-      const { plan: after, scan } = await session.scan(groupId, 1, { code: sku, scan_method: 'barcode' }, userId);
+      const { plan: after, scan } = await session.scan(groupId, 1, { code: sku, scan_method: 'barcode' }, other);
       expect(after.status).toBe('packing');
       expect(String(after.packing_started_by)).toBe(userId);
+      expect(after.packing_started_at).toEqual(plan.packing_started_at);
+      expect(after.activity).toEqual(plan.activity);
       expect(scan.itemKeys).toHaveLength(1);
       expect(scan.duplicate).toBe(false);
+    });
+
+    it('start sau approve không đổi version, người, giờ hoặc hoạt động', async () => {
+      const plan = await approvedPlan();
+      const after = await session.start(groupId, plan.version - 1, other);
+      expect(after.version).toBe(plan.version);
+      expect(after.packing_started_by).toEqual(plan.packing_started_by);
+      expect(after.packing_started_at).toEqual(plan.packing_started_at);
+      expect(after.activity).toEqual(plan.activity);
+    });
+
+    it.each(['start', 'scan'] as const)('kế hoạch approved cũ vẫn bắt đầu được bằng %s', async (action) => {
+      const plan = await approvedPlan();
+      await planModel.updateOne(
+        { _id: plan._id },
+        { $set: { status: 'approved', packing_started_by: null, packing_started_at: null, activity: [] } },
+      );
+      const after = action === 'start'
+        ? await session.start(groupId, plan.version, other)
+        : (await session.scan(groupId, 1, { code: plan.parcels[0]?.placements[0]?.sku ?? '', scan_method: 'barcode' }, other)).plan;
+      expect(after.status).toBe('packing');
+      expect(String(after.packing_started_by)).toBe(other);
+      expect(after.packing_started_at).toEqual(expect.any(Date));
+      expect(after.version).toBe(plan.version + 1);
     });
 
     it('quét sai kiện → chỉ ra kiện đúng; mã lạ → không thuộc kế hoạch; quét thừa → bị chặn', async () => {

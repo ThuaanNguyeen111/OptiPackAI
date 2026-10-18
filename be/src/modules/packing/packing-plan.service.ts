@@ -517,15 +517,30 @@ export class PackingPlanService {
         { groupId, orderIds: overLimit.map((o) => o.order_id.toString()) },
       );
     }
+    await this.orderGroupsService.assertHasActiveOrders(groupId);
     return this.runInTransaction(async (session) => {
+      const now = new Date();
+      const actorId = new Types.ObjectId(userId);
       const updated = await this.planModel.findOneAndUpdate(
         { _id: plan._id, version: expectedVersion, status: 'ready', is_active: true },
         {
           $set: {
-            status: 'approved',
-            approved_by: new Types.ObjectId(userId),
-            approved_at: new Date(),
+            status: 'packing',
+            approved_by: actorId,
+            approved_at: now,
+            packing_started_by: actorId,
+            packing_started_at: now,
             approve_override_reason: overLimit.length > 0 ? reason : null,
+          },
+          $push: {
+            activity: {
+              kind: 'start',
+              parcel_no: null,
+              detail: 'Chấp nhận kế hoạch và bắt đầu đóng gói',
+              reason: null,
+              by: actorId,
+              at: now,
+            },
           },
           $inc: { version: 1 },
         },

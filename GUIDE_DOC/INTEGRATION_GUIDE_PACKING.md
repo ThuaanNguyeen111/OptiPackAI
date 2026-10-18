@@ -1,6 +1,6 @@
 # Hướng dẫn FE tích hợp API Đóng gói (Packing)
 
-> **Cập nhật:** 09/10/2026 (🆕 `back-to-picking` sau từ chối, `GET /packing/staff`, chặn tự duyệt kế hoạch thủ công, kế hoạch kẹt `computing` tự thành `failed`, không giới hạn request khi quét — các mục đánh dấu 09/10) · Trước đó 08/10/2026 · **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
+> **Cập nhật:** 18/10/2026 — bỏ bước chốt riêng ở Admin; tự tính và tự gán; lọc việc bằng `assigned_packer_id`; **chấp nhận là bắt đầu đóng ngay** (`ready → packing`). `/start` chỉ còn dùng cho dữ liệu `approved` cũ. **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
 > Tài liệu này gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Phần lấy hàng, giao hàng, kho vẫn ở `INTEGRATION_GUIDE_FULFILLMENT.md` / `INTEGRATION_GUIDE_WAREHOUSE.md`; bảng tra route ngắn ở `API_LIST.md` mục 8.
 
 ---
@@ -44,19 +44,21 @@ async function act(path: string, body: object) {
 
 ```
 Nhóm đơn:  … → picked ─(tự tính ≤10 s)→ pending_approval ─(duyệt)→ approved_for_packing ─(kiện cuối niêm phong)→ packed → (giao hàng)
-Kế hoạch:       computing → ready ──────────────────────────→ approved ─(quét/bắt đầu)→ packing ───────────────→ packed
+Kế hoạch:       computing → ready ─(chấp nhận & bắt đầu đóng)──────────────────────→ packing ───────────────→ packed
                               └─ rejected (từ chối) ─ recompute | manual | back-to-picking (🆕 09/10)
                  failed (lỗi dữ liệu, vd thiếu hồ sơ SKU; hoặc kẹt computing > 5 phút) ─ sửa dữ liệu rồi "Tính lại"
 Kiện:      pending ─(niêm phong + cân)→ sealed | held (lệch cân, chờ người khác xem) ─ accept/reweigh → sealed | reopen → pending
            sealed ─(unseal)→ pending ;   to_unpack ─(unpack)→ voided   (đơn bị hủy sau khi đã đóng)
 ```
 
-**Không có API "Tạo kế hoạch".** Khi nhóm sang `picked`, cron backend tự tính (BRKGA, vài trăm ms; CP-SAT chạy nền để chứng minh tối ưu). FE chỉ **thăm dò**:
+**Không có bước chốt riêng ở Admin hay API "Tạo kế hoạch".** Khi nhóm sang `picked`, cron backend tự tính (BRKGA, vài trăm ms; CP-SAT chạy nền để chứng minh tối ưu), tự gán Packaging Staff ít việc nhất và gửi thông báo `packing_assigned`. Admin chỉ cần gán lại khi cần. FE chỉ **thăm dò**:
 
 - Nhóm vừa `picked`, `GET …/packing-plan` trả `{ "plan": null }` → chờ 3 s hỏi lại.
 - `plan.status === 'computing'` → chờ 3 s hỏi lại. 🆕 (09/10/2026) Bộ giải chỉ chạy vài giây; nếu app backend dừng giữa lúc tính, cron tự đánh kế hoạch `computing` quá **5 phút** thành `failed` (`failureReason`: "Quá thời gian tính (tiến trình bị dừng giữa chừng) — bấm Tính lại.") — FE không bị kẹt màn "Đang tính" mãi.
 - `plan.status === 'failed'` → hiện `plan.failureReason` (VD "Hồ sơ SKU X chưa sẵn sàng") + nút **Tính lại** sau khi người dùng sửa dữ liệu. Backend **không** tự tính lặp.
 - `plan.cpSatPending === true` → kế hoạch dùng được ngay; nhãn "tối ưu" sẽ cập nhật sau → thăm dò thưa (10 s) nếu muốn hiện nhãn mới.
+
+`approved` chỉ còn là trạng thái tương thích cho dữ liệu cũ; không cần migration. FE phải chấp nhận `/approve` trả `packing` trước khi dùng backend mới.
 
 ### 0.4 Phân quyền theo vai trò
 
@@ -76,16 +78,21 @@ Gửi sai vai trò → `403`. Ẩn nút theo vai trò ở FE, nhưng **không** 
 
 ### 1.1 Lấy danh sách nhóm cần đóng
 
-Lấy các nhóm đang ở các trạng thái đóng gói từ API nhóm đơn có sẵn:
+Danh sách mặc định là **việc của người đang đăng nhập** (`<userId>`). Lấy nhóm đã được giao bằng API nhóm đơn có sẵn:
 
 ```
-GET /order-groups?fulfillment_status=picked
-GET /order-groups?fulfillment_status=pending_approval
-GET /order-groups?fulfillment_status=approved_for_packing
-GET /order-groups?fulfillment_status=packed
+GET /order-groups?assigned_packer_id=<userId>&fulfillment_status=pending_approval
+GET /order-groups?assigned_packer_id=<userId>&fulfillment_status=approved_for_packing
+GET /order-groups?assigned_packer_id=<userId>&fulfillment_status=packed
 ```
 
-(Chi tiết lọc/phân trang: `INTEGRATION_GUIDE_FULFILLMENT.md`.)
+- `assigned_packer_id` là ObjectId của **người đóng** trên kế hoạch `is_active: true`; khác `assigned_staff_id` (người **lấy** hàng). ID sai → `400 VALIDATION_ERROR`.
+- Backend lọc **trước phân trang**, kết hợp được với các bộ lọc cũ. `limit` mặc định 100, tối đa 200; trang kế dùng `before=<createdAt dòng cuối>`. Response vẫn là `OrderGroupResponse[]`; lấy thông tin kế hoạch bằng summary bên dưới.
+- Sau khi gán/đổi người thành công, lần GET kế tiếp phản ánh ngay người mới; không cần chốt hoặc chấp nhận trước để xuất hiện trong danh sách. FE không tải danh sách chung rồi lọc người đóng sau khi đã phân trang.
+- Mở trang/nhận thông báo giao việc thì tải lại; khi còn ở trang, thăm dò mỗi 10 giây. Đây là cập nhật bằng GET, không có push thời gian thực mới.
+- Không có Packaging Staff hoạt động thì kế hoạch vẫn `ready`, chưa có người nhận; Admin xem danh sách không truyền `assigned_packer_id` và gán khi có nhân viên. Không truyền bộ lọc giữ hành vi danh sách chung hiện tại.
+
+(Chi tiết bộ lọc khác: `INTEGRATION_GUIDE_FULFILLMENT.md`.)
 
 ### 1.2 Tóm tắt kế hoạch hàng loạt — **1 lần gọi cho cả bảng**
 
@@ -122,7 +129,7 @@ Role: Packaging, Warehouse, Shipping, Store Owner, Admin
 }
 ```
 
-Gợi ý chia cột: **Cần xử lý** (`failed` / `rejected`) · **Chờ duyệt** (`ready`) · **Chờ đóng** (`approved`/`packing`) · **Đã đóng** (`packed`). Tự làm mới 10 s.
+Gợi ý trạng thái trong cùng danh sách: **Chờ chấp nhận** (`ready`) · **Đang đóng** (`packing`) · **Đã đóng** (`packed`); lỗi/từ chối hiện khi có. Không tạo bước "Đã duyệt — chờ bắt đầu".
 
 ---
 
@@ -192,7 +199,7 @@ POST …/packing-plan/recompute                 Role: Packaging, Admin
 
 Dùng khi: kế hoạch `failed` (sau khi sửa hồ sơ SKU), `rejected`, hoặc muốn loại thùng hỏng. Chỉ chạy được ở `ready` / `failed` / `rejected`.
 
-### 2.3 Duyệt
+### 2.3 Chấp nhận & đóng gói
 
 ```
 POST …/packing-plan/approve                   Role: Packaging, Admin
@@ -205,7 +212,25 @@ POST …/packing-plan/approve                   Role: Packaging, Admin
 | `PACKING_PARCEL_LIMIT_EXCEEDED` | 422  | Vượt số kiện tối đa mà thiếu `override_reason`                |
 | `PACKING_SELF_APPROVE_FORBIDDEN` | 403 | 🆕 09/10 — kế hoạch `source: "manual"` do chính người gọi lập. Response hiện **không** trả người lập (`adjustments[]` không có `by`), nên FE bắt lỗi này và báo "Cần người khác duyệt kế hoạch thủ công" |
 
-Sau duyệt: kế hoạch `approved`, nhóm `approved_for_packing`.
+Một lần gọi vừa duyệt vừa bắt đầu: kế hoạch **`ready → packing`**, nhóm `pending_approval → approved_for_packing`, cùng một transaction. `version` tăng đúng 1; BE lưu `approved_by`/`approved_at` và `packing_started_by`/`packing_started_at` cùng người, cùng thời điểm; thêm đúng một `activity` loại `start`. Không trừ thùng/vật tư, không tự quét hay đánh dấu đã đóng xong.
+
+Ví dụ với `expected_version: 3` (trích response; BE trả toàn bộ kế hoạch):
+
+```json
+{
+  "plan": {
+    "status": "packing",
+    "version": 4,
+    "approvedAt": "2026-10-18T14:00:00.000Z",
+    "session": {
+      "startedBy": "6a9fa00000000000000000aa",
+      "startedAt": "2026-10-18T14:00:00.000Z"
+    }
+  }
+}
+```
+
+FE đặt nhãn nút **"Chấp nhận & đóng gói"**, thay state bằng `plan` trả về rồi mở ngay phần quét/cân/niêm phong cùng hướng dẫn 3D. **Không gọi `/start` sau `/approve`, không hiện màn Approved trung gian.** Bấm lặp sau thành công trả `409 PACKING_WRONG_PLAN_STATUS`; xung đột version trả `409 PACKING_VERSION_CONFLICT` — tải lại kế hoạch, không tự gửi lại mù. Nhóm đã hủy hết đơn bị chặn bởi `409 ORD_GROUP_ALL_ORDERS_CANCELED`.
 
 ### 2.4 Chỉnh tay trước khi duyệt (kế hoạch `ready`)
 
@@ -315,11 +340,11 @@ Dùng `plan.orders[]`:
 
 ---
 
-## 3. Chế độ đóng gói (`approved` → `packing` → `packed`)
+## 3. Chế độ đóng gói (`ready` → `packing` → `packed`)
 
 Đóng **từng kiện**: quét từng món → niêm phong + cân. Thùng + vật tư + túi zip chỉ bị trừ tồn **lúc niêm phong**.
 
-### 3.1 (Tuỳ chọn) Giao người đóng
+### 3.1 Giao người đóng — phần quản lý của Admin
 
 ```
 POST …/packing-plan/assign        Role: Packaging, Admin
@@ -327,7 +352,7 @@ POST …/packing-plan/assign        Role: Packaging, Admin
 { "mode": "manual", "staff_id": "<packagingStaffId>" }
 ```
 
-Backend cũng tự giao khi kế hoạch `ready` và báo người đó. Lỗi: `409 PACKING_NO_PACKER_AVAILABLE`, `422 PACKING_PACKER_INVALID`.
+Backend tự giao khi kế hoạch `ready` và báo người đó. API này dùng khi Admin muốn gán/đổi người, trả `{ plan }`, không tăng `version` và không thay trạng thái kế hoạch. Không đặt khối "Tự gán / Gán tay" trong màn nhân viên như một bước bắt buộc; quyền API hiện có vẫn giữ. Lỗi: `409 PACKING_NO_PACKER_AVAILABLE`, `422 PACKING_PACKER_INVALID`.
 
 🆕 **Danh sách để chọn `staff_id` (09/10/2026):**
 
@@ -338,14 +363,14 @@ GET /packing/staff?q=an                 Role: Packaging, Store Owner, Admin
 
 Packaging Staff đang hoạt động, tìm theo tên/email (không phân biệt hoa thường), `activeWorkload` = số kế hoạch `ready`/`approved`/`packing` đang giao cho người đó. Dùng chung cho dropdown người xử lý khi từ chối (`reject.owner_id`). (`GET /order-groups/staff/search` chỉ trả **Warehouse Staff** — không dùng cho đóng gói.)
 
-### 3.2 Bắt đầu
+### 3.2 Tương thích kế hoạch `approved` cũ
 
 ```
 POST …/packing-plan/start         Role: Packaging, Warehouse, Admin
 { "expected_version": 6 }          // bấm lại khi đã packing: không lỗi
 ```
 
-**Không bắt buộc** — quét món đầu tiên cũng tự bắt đầu. Dùng khi muốn ghi giờ bắt đầu chính xác.
+Luồng mới đã bắt đầu tại `/approve`, **không cần nút "Bắt đầu đóng"**. Khi mở kế hoạch cũ còn `approved`, FE có thể gọi `/start` một lần bằng version đang có rồi mở cùng phần đóng gói; quét món đầu tiên cũng vẫn tự bắt đầu được. Gọi `/start` khi đã `packing` trả kế hoạch hiện tại, không đổi version/người/giờ bắt đầu và không thêm hoạt động.
 
 ### 3.3 Quét món vào kiện
 
@@ -483,7 +508,7 @@ Khi `wasPacked: true`, hiện nguyên văn `warnings[]`: **Lazada không hoàn t
 
 ### 4.3 Tháo kiện của đơn bị hủy sau khi đã đóng (`to_unpack`)
 
-Khi một đơn trong nhóm bị hủy sau khi đã bắt đầu đóng, các kiện của đơn đó chuyển `to_unpack` (FE hiện banner đỏ) và **chặn giao hàng** (`409 SHP_PARCELS_TO_UNPACK`) tới khi tháo xong:
+Khi một đơn trong nhóm bị hủy sau khi đã bắt đầu đóng (**từ lúc chấp nhận kế hoạch**), các kiện của đơn đó chuyển `to_unpack` (FE hiện banner đỏ) và **chặn giao hàng** (`409 SHP_PARCELS_TO_UNPACK`) tới khi tháo xong:
 
 ```
 POST …/packing-plan/parcels/:parcelNo/unpack    Role: Packaging, Warehouse, Admin
@@ -547,6 +572,8 @@ Hai người lưu cùng lúc → người sau `409 PACKING_SETTINGS_CONFLICT` (t
 ### 6.1 Hiệu suất
 
 `GET /packing/reports/summary?from&to&staff_id` — thời gian chờ/đóng, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt số kiện tối thiểu, quét kiểm, chi phí, sự cố, theo nhân viên. `from`/`to` ISO (mặc định 30 ngày); sai khoảng ngày → `400 PACKING_INVALID_DATE_RANGE`.
+
+Từ 18/10/2026, thời điểm bắt đầu chính là lúc chấp nhận: `avgWaitMinutes` của dữ liệu mới bằng 0; `avgPackMinutes` tính tới lúc hoàn tất (kể cả sau đó dùng lối tắt `pack`). Dữ liệu cũ giữ cách tính hiện có, bản ghi thiếu giờ bắt đầu không tính thời gian.
 
 ### 6.2 Vòng phản hồi — Admin cải thiện gợi ý
 
@@ -630,11 +657,13 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | ------------- | --------------------------------------------------------------------------------------------------------------- |
 | `null` / `computing` | Màn "Đang tính phương án…", thăm dò 3 s (quá 5 phút backend tự chuyển `failed`)                          |
 | `failed`      | Lỗi `failureReason` + **Tính lại**                                                                              |
-| `ready`       | 3D + danh sách kiện + giải thích; nút **Duyệt**, **Đổi thùng**, **Chuyển món**, **Tính lại**, **Từ chối**       |
+| `ready`       | 3D + danh sách kiện; nút chính **Chấp nhận & đóng gói**, **Từ chối**; chỉnh phương án để trong phần phụ khi cần |
 | `rejected`    | Banner đỏ + hạn (`rejection.dueAt`) + 3 nút **Tính lại / Đóng thủ công / Trả về lấy hàng**                      |
-| `approved`    | Nút **Bắt đầu đóng**; vẫn đổi thùng (4.1) được                                                                  |
+| `approved`    | Dữ liệu cũ: gọi `/start` rồi mở cùng phần đóng gói, không thêm bước xác nhận trên UI                         |
 | `packing`     | Chế độ đóng: từng kiện → quét → cân; kiện `held` có nút xem lại; kiện `to_unpack` có nút Tháo                   |
 | `packed`      | Tóm tắt + nút **Hoàn tác niêm phong** (chỉ Admin/Store Owner)                                                   |
+
+FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt riêng ở Admin, không khối gán người trong luồng nhân viên, không màn Approved trung gian. Hướng dẫn 3D giữ bên cạnh trong lúc quét/cân.
 
 ### 8.2 Thứ tự khuyến nghị trong chế độ đóng một kiện
 
@@ -653,6 +682,11 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | Đang đóng nhiều máy  | 5 s     | Rời trang (để thấy kiện người khác vừa niêm phong) |
 
 ### 8.4 Checklist test FE (chạy tay trên Swagger/Postman trước khi tích hợp)
+
+- [ ] Kho lấy xong → tự tính/tự gán → GET theo `assigned_packer_id` có đơn mà không cần Admin chốt
+- [ ] Gán lại → đơn rời danh sách người cũ và hiện ở người mới sau lần tải lại
+- [ ] Chấp nhận một lần → response `packing`, version tăng 1 → quét/cân ngay, không có nút "Bắt đầu đóng"
+- [ ] Tải lại kế hoạch đang `packing` giữ nguyên người/giờ bắt đầu; dữ liệu `approved` cũ vẫn dùng được
 
 - [ ] Nhóm `picked` → ≤ 10 s sau có `plan` `ready`
 - [ ] Duyệt khi còn đơn `no_fit` → 409 `PACKING_HAS_UNPLACED`
@@ -679,7 +713,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `POST …/packaging/approve`        | `POST …/packing-plan/approve`                                                       |
 | `POST …/packaging/adjust`         | `…/parcels/:no/change-box` hoặc `…/move-item`                                       |
 | `POST …/packaging/reject`         | `…/packing-plan/reject` (**`reason` là mã**) rồi `recompute` / `manual` / `back-to-picking` |
-| `POST …/fulfillment/pack`         | Có quét: `start` → `scan` → `seal`. Đóng nhanh: `…/packing-plan/pack`               |
+| `POST …/fulfillment/pack`         | Chấp nhận: `approve` → `packing`; có quét: `scan` → `seal`. Đóng nhanh: `…/packing-plan/pack` |
 | Khóa `expected_group_version`     | Khóa `expected_version` = `plan.version`                                            |
 
 Thay đổi gây gãy từ 08/10/2026: `reject.reason` đổi từ chuỗi tự do sang **mã lý do** (kèm `note`).
@@ -804,7 +838,7 @@ POST /order-groups/6ad0e9aa11b2c3d4e5f60abc/packing-plan/approve
 { "expected_version": 1 }
 ```
 
-Response: `{ "plan": { …như A, "status": "approved", "version": 2, "approvedAt": "2026-10-08T03:15:00.000Z" } }`
+Response: `{ "plan": { …như A, "status": "packing", "version": 2, "approvedAt": "2026-10-18T14:00:00.000Z", "session": { …như A.session, "startedBy": "6a9fa00000000000000000aa", "startedAt": "2026-10-18T14:00:00.000Z" } } }`. Mở quét/cân ngay từ kế hoạch trả về, không gọi thêm `/start`.
 
 Lỗi khi còn đơn chưa xếp hết (`409`):
 

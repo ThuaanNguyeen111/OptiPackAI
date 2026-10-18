@@ -125,7 +125,7 @@
 
 | Method | Đường dẫn | Ai gọi được | Body / Query DTO | Mô tả |
 |---|---|---|---|---|
-| GET | `/order-groups` | Warehouse, Packaging, Coordinator, Store Owner, Admin | `ListOrderGroupsQueryDto` | Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id / stock_shortage / is_overdue để mỗi role thấy đúng hàng đợi. Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>. |
+| GET | `/order-groups` | Warehouse, Packaging, Coordinator, Store Owner, Admin | `ListOrderGroupsQueryDto` | Danh sách mới nhất trước; lọc fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng trên kế hoạch active, trước phân trang) / stock_shortage / is_overdue. Mặc định 100 dòng, tối đa 200; trang kế dùng before=<createdAt dòng cuối>. |
 | GET | `/order-groups/:id` | Warehouse, Packaging, Coordinator, Store Owner, Admin | — | Chi tiết 1 Order Group — đọc field "version" để dùng cho các API chuyển trạng thái. "linkedGroupCount" (Mục 9.5): số nhóm khác (có thể khác sàn) cùng người nhận, chưa giao xong. "orders" (09/10/2026): các đơn trong nhóm kèm người nhận + món đã gộp (cả đơn đã hủy). |
 | POST | `/order-groups/:id/assign` | Admin, Warehouse | `AssignStaffDto` | Phân công Warehouse Staff cho 1 Order Group. Không truyền staff_id = tự động (Least-Busy, ít việc nhất). Truyền staff_id = đổi tay, ghi đè kết quả auto bất kỳ lúc nào. |
 | POST | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin | `DecidePartialDto` | Quyết định group đang "partial_needs_review" — approve=true: tiếp tục với phần có sẵn (picked); approve=false: hủy, quay lại awaiting_packaging. |
@@ -242,7 +242,7 @@
 | Method | Đường dẫn | Ai gọi được | Body / Query DTO | Mô tả |
 |---|---|---|---|---|
 | GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Coordinator, Store Owner, Admin | — | Kế hoạch đóng gói đang hoạt động của nhóm (null nếu chưa có). |
-| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ApprovePlanDto` | Duyệt kế hoạch → nhóm approved_for_packing. Mọi đơn phải xếp hết món. |
+| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ApprovePlanDto` | Chấp nhận và bắt đầu ngay: ready → packing, nhóm → approved_for_packing trong cùng transaction; version +1, ghi người/giờ duyệt và bắt đầu. Mọi đơn phải xếp hết món. |
 | POST | `/order-groups/:groupId/packing-plan/assign` | Packaging, Admin | `AssignPackerDto` | Giao người đóng (Packaging Staff): auto = ít việc nhất; manual = chỉ định staff_id. |
 | POST | `/order-groups/:groupId/packing-plan/back-to-picking` | Packaging, Admin | `BackToPickingDto` | Lối ra thứ 3 sau khi từ chối: trả nhóm về bước lấy hàng. Khai món phải lấy lại (restock=true: món lấy nhầm còn tốt, cộng lại đúng ô; mặc định: món hỏng, loại bỏ). Kế hoạch cũ superseded, nhóm picked → picking; kho quét bù rồi xác nhận lấy xong, cron tự tính kế hoạch mới. |
 | POST | `/order-groups/:groupId/packing-plan/finish` | Packaging, Warehouse, Admin | `FinishPackingDto` | Hoàn tất khi mọi kiện còn giao đã niêm phong nhưng kế hoạch chưa tự sang packed. |
@@ -261,7 +261,7 @@
 | POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | `RecomputePlanDto` | Tính lại (có điều kiện: loại trừ thùng, ưu tiên rẻ). Kế hoạch cũ bị thay, nhóm quay về picked rồi tính ngay; CP-SAT chạy nền. |
 | POST | `/order-groups/:groupId/packing-plan/reject` | Packaging, Admin | `RejectPlanDto` | Từ chối kế hoạch: lý do theo MÃ, có người xử lý + hạn (2 giờ làm việc). Nhóm về picked, không tự tính lại; lối ra: recompute, manual hoặc back-to-picking. |
 | POST | `/order-groups/:groupId/packing-plan/report-issue` | Packaging, Warehouse, Admin | `ReportIssueDto` | Báo món hỏng/thiếu/sai lúc đóng: replace = lấy món thay từ kệ ngay; back_to_picking = trả nhóm về lấy hàng (chỉ khi chưa niêm phong kiện nào). |
-| POST | `/order-groups/:groupId/packing-plan/start` | Packaging, Warehouse, Admin | `StartPackingDto` | Bắt đầu đóng (approved → packing), ghi người + giờ bắt đầu. Quét món đầu tiên cũng tự bắt đầu. |
+| POST | `/order-groups/:groupId/packing-plan/start` | Packaging, Warehouse, Admin | `StartPackingDto` | Tương thích kế hoạch approved cũ → packing. Luồng mới approve đã bắt đầu đóng; gọi lại khi packing không thay đổi dữ liệu. |
 | GET | `/packing-plans/summary` | Packaging, Warehouse, Coordinator, Store Owner, Admin | — | Tóm tắt kế hoạch đang hoạt động của các nhóm (?group_ids=a,b,c — tối đa 200). |
 | GET | `/packing/reports/feedback` | Store Owner, Admin | — | Vòng phản hồi (08/10/2026): gom các lần nhân viên làm KHÁC gợi ý (chỉnh tay, từ chối, lệch cân) theo lý do × SKU × thùng và ĐỀ XUẤT việc Admin nên sửa (hồ sơ SKU, danh mục thùng, cài đặt). ?from&to ISO (mặc định 30 ngày); ?min_count số lần tối thiểu để sinh đề xuất (mặc định 3). |
 | GET | `/packing/reports/summary` | Store Owner, Admin | — | Hiệu suất đóng gói trong khoảng ngày (?from&to ISO, mặc định 30 ngày; ?staff_id lọc 1 người): thời gian, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt số kiện tối thiểu, quét kiểm, chi phí, theo nhân viên. |

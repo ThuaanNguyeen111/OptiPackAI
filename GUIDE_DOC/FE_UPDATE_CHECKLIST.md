@@ -1,5 +1,12 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
+> **18/10/2026 — Đóng gói gọn trong một luồng.** Request/response và lỗi: [hướng dẫn Packing](INTEGRATION_GUIDE_PACKING.md#23-chấp-nhận--đóng-gói).
+
+- Bỏ màn/bước **Chốt kế hoạch** ở Admin; BE tự tính và tự gán người ít việc sau khi kho lấy xong. Admin có thể gán lại bằng API hiện có.
+- Danh sách nhân viên: `GET /order-groups?assigned_packer_id=<userId>` (kết hợp trạng thái/phân trang), rồi lấy summary như cũ. Làm mới khi mở trang/nhận thông báo và mỗi 10 giây.
+- Nút **Chấp nhận & đóng gói** gọi `/packing-plan/approve` một lần, nhận `packing` và mở ngay quét/cân/niêm phong với 3D bên cạnh.
+- Bỏ màn Approved trung gian, nút **Bắt đầu đóng** và khối gán người trên màn nhân viên. Dữ liệu `approved` cũ có thể tự gọi `/start` khi mở.
+
 > 🆕 **15/10/2026:** thêm 2 việc mới ở **mục 11**: nhập kho theo lô + lấy hàng lô cũ nhất trước; màn Admin cấu hình tiêu chí đồng bộ & gom đơn.
 
 > **Phiên bản 2.0 — 14/10/2026 (22h30).** Viết lại sau khi đối chiếu **code FE hiện tại trên `main`** (đã gộp `feature/viet_ui` + vá tầng API AOFP-87) với **239 route BE** (gồm GHN C4–C6). Cách rà: trích mọi lời gọi `apiRequest` / `apiRequestBlob` / `fetch` trong `fe/src`, so method + đường dẫn với route BE; so dữ liệu gửi lên với DTO; so dữ liệu FE đọc với response BE; đọc các file `fe/src/types/*` và `fe/src/data/*-mock.ts`.
@@ -85,7 +92,7 @@ Route `/order-groups/:id/packaging*`, `/fulfillment/pack` bị bỏ khi gộp `t
 | | `approvePackaging` | `POST .../packaging/approve` | `POST .../packing-plan/approve` | 2.3 |
 | | `adjustPackaging` | `POST .../packaging/adjust` | `.../parcels/:parcelNo/change-box`, `.../move-item`, `.../manual` | 2.4 |
 | | `rejectPackaging` | `POST .../packaging/reject` | `POST .../packing-plan/reject` | 2.5 |
-| `api/order-groups.api.ts` (~445) | `packOrderGroup` | `POST /order-groups/:id/fulfillment/pack` | `start` → `parcels/:no/scan` → `parcels/:no/seal`, hoặc lối tắt `POST .../packing-plan/pack` | 3.2–3.4, 3.9 |
+| `api/order-groups.api.ts` (~445) | `packOrderGroup` | `POST /order-groups/:id/fulfillment/pack` | `approve` (trả `packing`) → `parcels/:no/scan` → `parcels/:no/seal`, hoặc lối tắt `POST .../packing-plan/pack` sau chấp nhận | 2.3, 3.3–3.4, 3.9 |
 | | `postFulfillmentTransition('pack')` | `.../fulfillment/pack` | như trên | |
 | `api/order-groups.api.ts` (~474) | `retryLazadaPack` | `POST /order-groups/:id/lazada-pack/retry` | **Xoá** (cùng nút "gửi lại Lazada" và các toast Lazada trong `PackagingWorkbench.tsx`) | — |
 

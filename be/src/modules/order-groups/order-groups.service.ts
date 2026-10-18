@@ -810,6 +810,7 @@ export class OrderGroupsService {
     platform?: MarketplacePlatform;
     orderPriority?: 'normal' | 'express';
     assignedStaffId?: string;
+    assignedPackerId?: string;
     stockShortage?: boolean;
     isOverdue?: boolean;
     before?: Date;
@@ -822,6 +823,14 @@ export class OrderGroupsService {
     if (filter.orderPriority) query.order_priority = filter.orderPriority;
     // (09/10/2026) "việc của tôi", nhóm thiếu hàng, đơn hỏa tốc quá hạn + phân trang con trỏ.
     if (filter.assignedStaffId) query.assigned_staff_id = new Types.ObjectId(filter.assignedStaffId);
+    if (filter.assignedPackerId) {
+      query._id = {
+        $in: await this.packingPlanModel.distinct('order_group_id', {
+          assigned_packer_id: new Types.ObjectId(filter.assignedPackerId),
+          is_active: true,
+        }),
+      };
+    }
     if (filter.stockShortage !== undefined) query.stock_shortage = filter.stockShortage ? true : { $ne: true };
     if (filter.isOverdue !== undefined) query.is_overdue = filter.isOverdue ? true : { $ne: true };
     if (filter.before) query.created_at = { $lt: filter.before };

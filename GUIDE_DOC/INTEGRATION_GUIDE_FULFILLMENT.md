@@ -1,5 +1,7 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
+**Cập nhật 18/10/2026 — đóng gói một bước chấp nhận:** BE tự tính và tự gán người sau khi kho lấy xong; không cần Admin chốt. `GET /order-groups?assigned_packer_id=<userId>` lọc theo người đóng trên kế hoạch active trước phân trang (`assigned_staff_id` vẫn là người lấy). Sau khi gán thành công, lần đọc kế tiếp có việc; thăm dò 10 giây hoặc tải lại khi nhận thông báo. `/packing-plan/approve` chuyển thẳng `ready → packing`, ghi người/giờ duyệt và bắt đầu, version +1 trong cùng transaction. FE mở quét/cân/niêm phong ngay, bỏ màn Approved trung gian và nút bắt đầu riêng; `/start` giữ tương thích `approved` cũ. Chi tiết: [INTEGRATION_GUIDE_PACKING.md](INTEGRATION_GUIDE_PACKING.md).
+
 **🔄 Cập nhật 10/10/2026 (v7.4 — gộp sửa kiểu id của `main` 07/10):** Picking List hết báo "CHƯA GÁN VỊ TRÍ" sai, `pick-item` hết báo thiếu tồn sai khi kho đã gán đúng, khớp SKU không phân biệt hoa/thường (Nghiệp vụ 3); `related_entity_id` của thông báo `sync_failed` là id shop đã kết nối (Nghiệp vụ 6). FE không phải sửa request/response.
 
 **🔄 Cập nhật 09/10/2026 (v7.3 — rà soát trước khi giao FE):** `GET /order-groups` thêm lọc `assigned_staff_id`, `stock_shortage`, `is_overdue` và phân trang con trỏ `before` + `limit` (1–200); `GET /order-groups/:id` trả thêm `orders[]` (đơn, người nhận, món đã gộp) cho mọi role vận hành; `POST /order-groups/:id/assign` trả response camelCase chuẩn; nhóm tự hủy **nhả giữ chỗ tồn** ngay, hủy một phần tính lại giữ chỗ; `report-missing` báo thêm Packaging Staff; kế hoạch bị từ chối có lối `back-to-picking`; thông báo đọc riêng từng người + `PATCH /notifications/read-all` + response đã map; rate limit 600/phút/IP. Các route `fulfillment/ship|deliver|return` là **legacy — FE không gọi** (dùng `/shipments`, `/returns`). Xem Nghiệp vụ 3, 6, sơ đồ C.1 và `API_LIST.md` mục 5–7, 10.
@@ -108,7 +110,7 @@ Lấy hàng xong (group `picked`, Nghiệp vụ 3) thì hệ thống biết chí
 
 [PACKAGING STAFF / ADMIN] — màn /app/packing/:groupId
   GET  .../packing-plan                     xem mọi kiện + 3D + "Vì sao phương án này?"
-  POST .../packing-plan/approve             chốt → kế hoạch `approved`, nhóm `approved_for_packing`
+  POST .../packing-plan/approve             chấp nhận & bắt đầu → kế hoạch `packing`, nhóm `approved_for_packing`
   POST .../parcels/:no/change-box           đổi thùng 1 kiện (xếp lại + validator)
   POST .../parcels/:no/move-item            chuyển 1 món sang kiện khác cùng đơn / tách kiện mới
   POST .../packing-plan/recompute           tính lại có điều kiện (loại thùng, ưu tiên rẻ)
@@ -130,7 +132,7 @@ Lấy hàng xong (group `picked`, Nghiệp vụ 3) thì hệ thống biết chí
 - Đây là **tối ưu tổ hợp có chứng minh**, không phải học máy. Hướng dẫn bằng chữ (Groq) chỉ **viết lời** từ toạ độ bộ giải đã tính.
 
 ### `approve` — chốt kế hoạch
-Body `{ "expected_version": 3 }`. Kế hoạch `ready → approved`, nhóm `pending_approval → approved_for_packing`. Còn đơn chưa xếp hết món (`orders[].status !== 'ok'`) → 409 `PACKING_HAS_UNPLACED` — chuyển món/đổi thùng/tính lại trước.
+Body `{ "expected_version": 3 }`. Kế hoạch `ready → packing`, nhóm `pending_approval → approved_for_packing` trong cùng transaction; version tăng 1, ghi người/giờ duyệt và bắt đầu. FE mở quét/cân ngay từ `{ plan }` trả về, không gọi thêm `/start`. Còn đơn `partial`/`no_fit` → 409 `PACKING_HAS_UNPLACED` — chuyển món/đổi thùng/tính lại trước. Nhóm đã hủy hết đơn → 409 `ORD_GROUP_ALL_ORDERS_CANCELED`.
 
 ### Chỉnh tay — thay cho "từ chối, tính lại"
 - **Đổi thùng 1 kiện** `POST .../parcels/:parcelNo/change-box` `{ expected_version, box_code, reason, note? }`: xếp lại đúng các món của kiện đó vào thùng mới; không vừa → 422 `PACKING_BOX_DOES_NOT_FIT` (kèm `details.violations`); thùng không còn trống → 409 `PKG_BOX_OUT_OF_STOCK`. Kế hoạch giữ nguyên các kiện khác.
@@ -214,10 +216,11 @@ Role: Packaging, Warehouse, Admin; 10 lần/phút. Body `{ "regenerate": false }
 ```
 `fallbackReason`: `null` | `no_api_key` | `ai_error` | `ai_invalid_output`. Đổi thùng/chuyển món làm hướng dẫn của kiện đó về `null` — FE gọi lại. Đơn chưa xếp được → 409 `PACKING_GUIDE_NOT_AVAILABLE`.
 
-### Màn FE (04/10/2026)
-- `/app/packing` — **hàng chờ đóng gói** 4 cột (Đang tính / Chờ duyệt / Chờ đóng / Đã đóng) + dải "Cần xử lý" (kế hoạch lỗi hoặc đã chuyển xử lý tay); dữ liệu từ `GET /order-groups` + `GET /packing-plans/summary`, tự làm mới 10 s.
-- `/app/packing/:groupId` — **một màn làm việc**: trái danh sách kiện theo đơn, giữa khung 3D (thùng carton mở nắp, vách phía camera tự mờ, X-ray, tách lớp, lọc lớp theo độ cao, công tắc mô hình sản phẩm, chế độ Đẹp/Nhẹ), phải thao tác theo trạng thái. Đang tính → thăm dò 3 s. Link cũ `/app/packing/groups/:id(/orders/:x)` tự chuyển hướng.
-- **Chế độ đóng gói toàn màn hình** (khi kế hoạch `approved`): mỗi kiện = chuẩn bị (thùng, hàng, vật tư, tóm tắt hướng dẫn) → từng món (3D món rơi vào + câu chữ to) → cân kiện → cuối cùng xác nhận cả nhóm (gọi `pack`). Phím ←/→, Esc.
+### Màn FE (18/10/2026)
+
+- `/app/packing` — một danh sách việc được giao (`GET /order-groups?assigned_packer_id=<userId>` + summary), chọn dòng để xem chi tiết và 3D. `ready`: **Chấp nhận & đóng gói**; nhận `packing` thì mở quét/cân ngay. Tự làm mới 10 giây, không màn Approved trung gian; lỗi/từ chối hiện khi cần xử lý.
+- `/app/packing/:groupId` nếu có liên kết trực tiếp thì mở lại cùng phần chi tiết, không thêm bước xác nhận. Dữ liệu `approved` cũ có thể tự gọi `/start` rồi dùng cùng phần đóng gói.
+- **Đóng từng kiện** ngay sau chấp nhận: quét → cân/niêm phong, giữ 3D bên cạnh. Kiện cuối hoàn tất thì BE tự chuyển nhóm `packed`; kiện lệch cân hiện việc xem lại. Gán/đổi người là thao tác quản lý của Admin, không phải khối bắt buộc trên màn nhân viên.
 
 ### DB liên quan — `packing_plans` (1 bản hoạt động / nhóm)
 
@@ -252,7 +255,7 @@ Trước đây "đóng gói" chỉ là 1 lần gửi cân cho cả nhóm. Không
 |---|---|---|---|
 | 0. Được giao việc | Hệ thống | (tự động khi kế hoạch `ready`) | `session.assignedPackerId` = Packaging Staff ít việc nhất; tính lại giữ người cũ; người được giao nhận `packing_assigned` |
 | 0b. Đổi người | Packaging, Admin | `POST .../packing-plan/assign` | `{mode: auto}` hoặc `{mode: manual, staff_id}` |
-| 1. Bắt đầu | Packaging, Warehouse, Admin | `POST .../packing-plan/start` | Kế hoạch `approved → packing`, ghi người + giờ. Quét món đầu tiên cũng tự bắt đầu |
+| 1. Chấp nhận & đóng gói | Packaging, Admin | `POST .../packing-plan/approve` | Kế hoạch `ready → packing`, ghi người/giờ duyệt và bắt đầu trong một transaction, version +1. `/start` chỉ cần cho `approved` cũ; không có bước bắt đầu riêng trên UI mới |
 | 2. Quét món | như trên | `POST .../parcels/:no/scan` | Mỗi lần quét gắn 1 món (`item_key`) chưa quét của kiện. Sai kiện → 409 kèm kiện đúng |
 | 3. Niêm phong + cân | như trên | `POST .../parcels/:no/seal` | Quét đủ mới cho niêm phong. Trừ thùng + vật tư của kiện. Trong ngưỡng → `sealed`; lệch → `held` |
 | 4. Xem lại kiện lệch | Packaging (người KHÁC), Admin | `POST .../parcels/:no/review` | `accept` / `reweigh` / `reopen` |
@@ -281,7 +284,7 @@ Kiện phải đang `pending` (kiện `held` thì `review {action: "reopen"}` tr
 - Nếu đơn cuối cùng còn kiện chưa đóng bị hủy khiến các kiện còn lại đều đã `sealed` nhưng kế hoạch chưa tự `packed` → gọi `POST .../packing-plan/finish`.
 
 ### 🆕 Đơn hủy TRƯỚC khi bắt đầu đóng — hàng đã lấy tự trả kệ (05/10/2026 tối)
-Áp dụng khi nhóm đang `picking`, `picked`, `pending_approval` hoặc `approved_for_packing` (chưa ai bấm bắt đầu/quét).
+Áp dụng khi nhóm đang `picking`, `picked`, `pending_approval` hoặc kế hoạch `approved` cũ chưa bắt đầu. Từ 18/10/2026, chấp nhận đã chuyển kế hoạch sang `packing`; đơn hủy sau thời điểm đó đi qua luồng tháo kiện ở trên, kể cả kiện chưa niêm phong.
 - Hệ thống tính **hàng dư** = đã lấy (lượt hiện tại) − số đặt của các đơn còn lại, theo từng SKU. Phần dư **tự cộng lại tồn** đúng ô đã lấy (ô lấy sau cùng trả trước), sổ kho loại `cancel_return`.
 - Warehouse Staff + người lấy hàng được giao nhận `return_to_shelf`: *"Đem hàng đã lấy trong giỏ trả về kệ: TEE-M ×2 → ô KA-D1-P01-T03-2; …"*. Thuận chốt cách này (tự cộng tồn + báo kho), không có bước xác nhận — giống `decide-partial` từ chối.
 - Hủy hết nhóm → mọi món đã lấy được trả. Lần quét cũ không lưu ô → thông báo ghi "không rõ ô, đối soát tay".
@@ -301,7 +304,7 @@ Kiện phải đang `pending` (kiện `held` thì `review {action: "reopen"}` tr
 Mỗi lần lưu = 1 version mới (giữ lịch sử); 2 người lưu cùng lúc → người sau 409 `PACKING_SETTINGS_CONFLICT`.
 
 ### Báo cáo — `GET /packing/reports/summary?from&to&staff_id`
-Store Owner, Admin. Thời gian chờ đóng, thời gian đóng, tỷ lệ kiện lệch cân, số kiện được chấp nhận dù lệch, tỷ lệ duyệt nguyên vẹn (không chỉnh tay), tỷ lệ đơn đạt đúng số kiện tối thiểu, tỷ lệ quét kiểm, chi phí thùng + vật tư, số sự cố theo loại, bảng theo nhân viên. Thời gian chỉ có ở nhóm đã bấm bắt đầu/quét (lối tắt không có giờ bắt đầu).
+Store Owner, Admin. Thời gian chờ đóng, thời gian đóng, tỷ lệ kiện lệch cân, số kiện được chấp nhận dù lệch, tỷ lệ duyệt nguyên vẹn (không chỉnh tay), tỷ lệ đơn đạt đúng số kiện tối thiểu, tỷ lệ quét kiểm, chi phí thùng + vật tư, số sự cố theo loại, bảng theo nhân viên. Từ 18/10/2026, chấp nhận đã ghi giờ bắt đầu: `avgWaitMinutes` dữ liệu mới bằng 0, `avgPackMinutes` tính từ chấp nhận tới hoàn tất, kể cả sau đó dùng lối tắt `pack`. Bản ghi cũ thiếu giờ bắt đầu không tính thời gian.
 
 ### Tác động tới dữ liệu và luồng đã có
 1. **Dữ liệu cũ:** không migration. Kế hoạch `packed` trước 05/10 trả kiện `sealed`; kế hoạch `ready`/`approved` cũ có kiện `pending`, đóng bằng quét hoặc lối tắt đều được.
@@ -605,7 +608,7 @@ Kế hoạch đã duyệt (nhóm `approved_for_packing`) → nhân viên đóng 
 🆕 **05/10/2026:** cách chính là **phiên đóng gói theo từng kiện** (quét → niêm phong + cân, kiện lệch chờ xem lại) — xem **Nghiệp vụ 1b**. Mục dưới mô tả lối tắt `pack` (vẫn dùng được).
 
 ```
-[PACKAGING STAFF, WAREHOUSE STAFF, ADMIN] start → scan → seal từng kiện (hoặc lối tắt POST .../packing-plan/pack) → "packed"
+[PACKAGING STAFF/ADMIN] approve → packing; [PACKAGING STAFF, WAREHOUSE STAFF, ADMIN] scan → seal từng kiện (hoặc lối tắt POST .../packing-plan/pack) → "packed"
 [SHIPPING COORDINATOR] POST /shipments/batch (hoặc .../fulfillment/ship) → "shipped"
 [SHIPPING COORDINATOR] POST .../fulfillment/deliver  → "delivered"
 ```
