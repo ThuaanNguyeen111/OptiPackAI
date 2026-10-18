@@ -7,6 +7,7 @@ import {
   Loader2,
   Package,
   RefreshCw,
+  Search,
   X,
   XCircle,
 } from 'lucide-react'
@@ -66,6 +67,24 @@ type QueueTab =
   | 'approved_for_packing'
   | 'awaiting_packaging'
   | 'pending_approval'
+
+function groupMatchesSearch(group: OrderGroup, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const parts = [
+    group.id,
+    group.id.slice(-8),
+    group.platform,
+    ...group.orders.flatMap((order) => [
+      order.id,
+      order.platformOrderId,
+      order.recipientName,
+      order.recipientPhone,
+      ...order.items.flatMap((item) => [item.sku, item.name]),
+    ]),
+  ]
+  return parts.some((part) => part.toLowerCase().includes(q))
+}
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
@@ -225,6 +244,7 @@ export function PackagingWorkbench() {
     session?.role === UserRole.PACKAGING_STAFF || session?.role === UserRole.ADMIN
 
   const [tab, setTab] = useState<QueueTab>('picked')
+  const [queueQuery, setQueueQuery] = useState('')
   const [tabBootstrapped, setTabBootstrapped] = useState(false)
   const [allGroups, setAllGroups] = useState<OrderGroup[]>([])
   const [listLoading, setListLoading] = useState(true)
@@ -343,6 +363,10 @@ export function PackagingWorkbench() {
       ),
     [allGroups, tab],
   )
+  const visibleGroups = useMemo(() => {
+    if (tab !== 'pending_approval') return groups
+    return groups.filter((group) => groupMatchesSearch(group, queueQuery))
+  }, [groups, tab, queueQuery])
 
   // Chỉ nhảy tới tab thao tác được.
   useEffect(() => {
@@ -794,7 +818,7 @@ export function PackagingWorkbench() {
     queueTabs.find((row) => row[0] === tab)?.[1] ??
     (vi ? 'Hàng đợi' : 'Queue')
 
-  const queuePaging = useLocalQueuePagination(groups)
+  const queuePaging = useLocalQueuePagination(visibleGroups)
 
   const overParcelLimit = plan?.orders.some((order) => order.overParcelLimit) ?? false
 
@@ -905,7 +929,7 @@ export function PackagingWorkbench() {
       <div className="pack-bench">
         <section className="pack-bench-col">
           <div className="pack-bench-head">
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="pack-bench-kicker">
                 {vi ? 'Hàng đợi' : 'Queue'}
               </p>
@@ -915,8 +939,21 @@ export function PackagingWorkbench() {
                   {vi ? 'Chỉ xem' : 'View only'}
                 </p>
               ) : null}
+              {tab === 'pending_approval' ? (
+                <label className="relative mt-2 block">
+                  <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
+                  <input
+                    type="search"
+                    value={queueQuery}
+                    onChange={(event) => setQueueQuery(event.target.value)}
+                    placeholder={vi ? 'Tìm mã đơn…' : 'Search order…'}
+                    aria-label={vi ? 'Tìm đơn chờ duyệt' : 'Search pending orders'}
+                    className="h-8 w-full rounded-lg border border-hairline bg-canvas pl-7 pr-2 text-xs text-ink"
+                  />
+                </label>
+              ) : null}
             </div>
-            <span className="pack-bench-count">{String(groups.length)}</span>
+            <span className="pack-bench-count">{String(visibleGroups.length)}</span>
           </div>
           <div className="pack-bench-scroll">
             {listLoading ? (
@@ -933,6 +970,12 @@ export function PackagingWorkbench() {
                   {empty.body}
                 </p>
               </div>
+            ) : visibleGroups.length === 0 ? (
+              <p className="p-3 text-sm text-ink-muted">
+                {vi
+                  ? `Không có đơn khớp «${queueQuery.trim()}».`
+                  : `No order matches “${queueQuery.trim()}”.`}
+              </p>
             ) : (
               <ul className="divide-y divide-hairline">
                 {queuePaging.pagedItems.map((g) => (
@@ -978,7 +1021,7 @@ export function PackagingWorkbench() {
               </ul>
             )}
           </div>
-          {!listLoading && !listError && groups.length > 0 ? (
+          {!listLoading && !listError && visibleGroups.length > 0 ? (
             <QueuePaginationBar
               vi={vi}
               variant="pack"
