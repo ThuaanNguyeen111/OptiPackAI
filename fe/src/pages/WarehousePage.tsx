@@ -63,7 +63,7 @@ import {
   type ScanMethod,
 } from '../types/order-groups'
 import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatLotReceived } from '../utils/format'
 
 type QueueTab =
   | 'to_pick'
@@ -86,6 +86,7 @@ type PickLine = {
   bin_location_id: string | null
   master_sku: string | null
   other_bins: WarehousePickingListItem['other_bins']
+  oldest_lot: WarehousePickingListItem['oldest_lot']
   qtyPicked: number
   remainingStock: number | null
 }
@@ -251,6 +252,7 @@ function mergeLines(
         typeof enriched.bin_location_id === 'string' ? enriched.bin_location_id : null,
       master_sku: typeof enriched.master_sku === 'string' ? enriched.master_sku : null,
       other_bins: Array.isArray(enriched.other_bins) ? enriched.other_bins : [],
+      oldest_lot: enriched.oldest_lot ?? null,
       qtyPicked: saved?.qtyPicked ?? 0,
       remainingStock: saved?.remainingStock ?? null,
     }
@@ -1507,6 +1509,15 @@ export function WarehousePage() {
                                 binCode={activeLine.bin_code}
                                 zoneCode={activeLine.zone_code}
                               />
+                              {activeLine.oldest_lot ? (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {formatLotReceived(
+                                    activeLine.oldest_lot.lot_code,
+                                    activeLine.oldest_lot.received_at,
+                                    vi,
+                                  )}
+                                </p>
+                              ) : null}
                             </div>
                             <p className="mt-1.5 text-[11px] text-slate-500">
                               {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
@@ -1708,7 +1719,16 @@ export function WarehousePage() {
                                     binCode={line.bin_code}
                                     zoneCode={line.zone_code}
                                   />
-          </div>
+                                </div>
+                                {line.oldest_lot ? (
+                                  <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                                    {formatLotReceived(
+                                      line.oldest_lot.lot_code,
+                                      line.oldest_lot.received_at,
+                                      vi,
+                                    )}
+                                  </p>
+                                ) : null}
                                 {line.other_bins.length > 0 ? (
                                   <p className="mt-0.5 truncate text-[10px] text-slate-500">
                                     {vi ? 'Ô khác' : 'Also at'}{' '}

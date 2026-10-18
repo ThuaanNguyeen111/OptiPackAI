@@ -11,6 +11,7 @@ import type {
   GenerateBinsInput,
   InventoryMovementRecord,
   MoveAssignmentInput,
+  OldestLot,
   OtherBin,
   PurgeRackQuery,
   PurgeResult,
@@ -573,11 +574,21 @@ export async function restockSkuAssignment(
   assignmentId: string,
   quantity: number,
   force = false,
+  extra?: { received_at?: string; lot_code?: string },
 ): Promise<SkuBinAssignmentRecord> {
   const updated = mapAssignment(
     await apiRequest<unknown>(
       `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}/restock`,
-      { method: 'POST', body: { quantity, force }, auth: true },
+      {
+        method: 'POST',
+        body: {
+          quantity,
+          force,
+          ...(extra?.received_at ? { received_at: extra.received_at } : {}),
+          ...(extra?.lot_code ? { lot_code: extra.lot_code } : {}),
+        },
+        auth: true,
+      },
     ),
   )
   if (!updated) {
@@ -742,9 +753,15 @@ export async function listAssignmentLots(
 
 export async function listStockLots(
   warehouseId: string,
-  params: { seller_sku?: string; lot_code?: string; include_empty?: boolean } = {},
+  params: {
+    master_sku?: string
+    seller_sku?: string
+    lot_code?: string
+    include_empty?: boolean
+  } = {},
 ): Promise<StockLotRecord[]> {
   const search = new URLSearchParams()
+  if (params.master_sku) search.set('master_sku', params.master_sku)
   if (params.seller_sku) search.set('seller_sku', params.seller_sku)
   if (params.lot_code) search.set('lot_code', params.lot_code)
   if (params.include_empty) search.set('include_empty', 'true')
@@ -795,9 +812,10 @@ function mapStockReceipt(raw: unknown): StockReceiptRecord | null {
 
 export async function listStockReceipts(
   warehouseId: string,
+  limit = 50,
 ): Promise<StockReceiptRecord[]> {
   const res = await apiRequest<unknown>(
-    `/warehouse/warehouses/${warehouseId}/receipts`,
+    `/warehouse/warehouses/${warehouseId}/receipts?limit=${limit}`,
     { auth: true },
   )
   if (!Array.isArray(res)) return []
@@ -815,6 +833,20 @@ export async function createStockReceipt(
     { method: 'POST', auth: true, body: input },
   )
   const receipt = mapStockReceipt(res)
+  if (!receipt) throw new Error('Phiếu nhập không đúng định dạng.')
+  return receipt
+}
+
+export async function getStockReceipt(
+  warehouseId: string,
+  receiptId: string,
+): Promise<StockReceiptRecord> {
+  const receipt = mapStockReceipt(
+    await apiRequest<unknown>(
+      `/warehouse/warehouses/${warehouseId}/receipts/${receiptId}`,
+      { auth: true },
+    ),
+  )
   if (!receipt) throw new Error('Phiếu nhập không đúng định dạng.')
   return receipt
 }
@@ -903,6 +935,18 @@ export async function reactivateCategory(code: string): Promise<CategoryRecord> 
   return updated
 }
 
+function mapOldestLot(raw: unknown): OldestLot | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const lotCode = pickString(row.lot_code, row.lotCode)
+  if (!lotCode) return null
+  return {
+    lot_code: lotCode,
+    received_at: pickString(row.received_at, row.receivedAt),
+    quantity_remaining: pickNumber(row.quantity_remaining, row.quantityRemaining),
+  }
+}
+
 function mapOtherBins(raw: unknown): OtherBin[] {
   if (!Array.isArray(raw)) return []
   return raw.flatMap((item) => {
@@ -915,6 +959,7 @@ function mapOtherBins(raw: unknown): OtherBin[] {
         bin_location_id: binLocationId,
         bin_code: pickString(row.bin_code, row.binCode),
         quantity_on_hand: pickNumber(row.quantity_on_hand, row.quantityOnHand),
+        oldest_lot: mapOldestLot(row.oldest_lot),
       },
     ]
   })
@@ -938,6 +983,7 @@ function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
     master_sku: pickString(row.master_sku) || null,
     bin_location_id: pickString(row.bin_location_id) || null,
     other_bins: mapOtherBins(row.other_bins),
+    oldest_lot: mapOldestLot(row.oldest_lot),
   }
 }
 

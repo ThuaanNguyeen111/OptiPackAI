@@ -28,6 +28,7 @@ import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/input'
+import { formatLotReceived } from '../utils/format'
 import {
   Table,
   TableBody,
@@ -2422,6 +2423,8 @@ function StockTab({
   onRestocked: () => void
 }) {
   const [qtyById, setQtyById] = useState<Record<string, number>>({})
+  const [receivedAtById, setReceivedAtById] = useState<Record<string, string>>({})
+  const [lotCodeById, setLotCodeById] = useState<Record<string, string>>({})
   const [countedById, setCountedById] = useState<Record<string, number>>({})
   const [reasonById, setReasonById] = useState<Record<string, StockAdjustReason>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
@@ -2435,8 +2438,16 @@ function StockTab({
   async function submit(assignmentId: string, force = false) {
     const qty = qtyById[assignmentId] ?? 0
     if (qty < 1) return
+    const received = receivedAtById[assignmentId]?.trim()
+    const parsed = received ? new Date(received) : null
+    const lot = lotCodeById[assignmentId]?.trim()
+    const extra = {
+      received_at:
+        parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
+      lot_code: lot || undefined,
+    }
     try {
-      await api.restock(assignmentId, qty, force)
+      await api.restock(assignmentId, qty, force, extra)
       setQtyById((prev) => ({ ...prev, [assignmentId]: 1 }))
       onRestocked()
     } catch (err: unknown) {
@@ -2600,6 +2611,25 @@ function StockTab({
                         {row.quantityOnHand + (Number.isFinite(addQty) ? addQty : 0)}
                       </span>
                     </span>
+                    <Input
+                      className="h-9 w-44"
+                      type="datetime-local"
+                      aria-label={vi ? 'Ngày nhập' : 'Received at'}
+                      value={receivedAtById[row.id] ?? ''}
+                      onChange={(e) =>
+                        setReceivedAtById((prev) => ({ ...prev, [row.id]: e.target.value }))
+                      }
+                    />
+                    <Input
+                      className="h-9 w-28"
+                      aria-label={vi ? 'Mã lô' : 'Lot code'}
+                      placeholder={vi ? 'Mã lô' : 'Lot'}
+                      maxLength={40}
+                      value={lotCodeById[row.id] ?? ''}
+                      onChange={(e) =>
+                        setLotCodeById((prev) => ({ ...prev, [row.id]: e.target.value }))
+                      }
+                    />
                     <Button
                       className="h-9 px-3 text-xs sm:ml-auto"
                       disabled={api.mutating}
@@ -2806,7 +2836,7 @@ function StockTab({
         )
       })}
     </div>
-  )
+  )
 }
 
 function PickingTab({
@@ -2926,6 +2956,15 @@ function PickingTab({
                   ) : (
                     item.bin_code
                   )}
+                  {item.oldest_lot ? (
+                    <p className="mt-0.5 text-[11px] text-ink-muted">
+                      {formatLotReceived(
+                        item.oldest_lot.lot_code,
+                        item.oldest_lot.received_at,
+                        vi,
+                      )}
+                    </p>
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-[11px] text-ink-muted">
                   {item.other_bins.length === 0

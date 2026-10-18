@@ -29,6 +29,21 @@ export function formatDateTime(iso: string) {
   }).format(new Date(iso))
 }
 
+/** Lô FIFO: "Lô LO-1 · nhập 15/10". */
+export function formatLotReceived(
+  lotCode: string,
+  receivedAt: string | null | undefined,
+  vi: boolean,
+): string {
+  const date = receivedAt
+    ? new Intl.DateTimeFormat('vi-VN', { day: '2-digit', month: '2-digit' }).format(
+        new Date(receivedAt),
+      )
+    : ''
+  if (vi) return date ? `Lô ${lotCode} · nhập ${date}` : `Lô ${lotCode}`
+  return date ? `Lot ${lotCode} · in ${date}` : `Lot ${lotCode}`
+}
+
 export function formatRelativeTime(iso: string) {
   const diffMs = Date.now() - new Date(iso).getTime()
   const diffMin = Math.floor(diffMs / 60_000)
