@@ -70,6 +70,8 @@ export class ReturnRequest {
   @Prop({ type: String, default: null }) received_by!: string | null;
   @Prop({ type: String, default: null }) inspected_by!: string | null;
   @Prop({ type: Date, default: null }) closed_at!: Date | null;
+  // Giữ hạn trả hàng theo ngày giao gốc dù tiến độ hoàn làm đổi updated_at của nhóm.
+  @Prop({ type: Date, default: null }) delivered_at_snapshot!: Date | null;
   created_at?: Date;
   updated_at?: Date;
 }

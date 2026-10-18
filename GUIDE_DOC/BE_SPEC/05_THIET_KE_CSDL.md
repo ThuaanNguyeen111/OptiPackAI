@@ -59,7 +59,7 @@
 | Vận chuyển & trả hàng | `shipments` | `ShipmentSchema` — `modules/shipments/schemas/shipment.schema.ts` | 65 | 8 | ✔ |
 | Vận chuyển & trả hàng | `shipment_events` | `ShipmentEventSchema` — `modules/shipments/schemas/shipment-event.schema.ts` | 13 | 2 | ✔ |
 | Vận chuyển & trả hàng | `carrier_webhook_events` | `CarrierWebhookEventSchema` — `modules/shipments/schemas/carrier-webhook-event.schema.ts` | 11 | 2 | ✔ |
-| Vận chuyển & trả hàng | `return_requests` | `ReturnRequestSchema` — `modules/shipments/schemas/return-request.schema.ts` | 47 | 3 | ✔ |
+| Vận chuyển & trả hàng | `return_requests` | `ReturnRequestSchema` — `modules/shipments/schemas/return-request.schema.ts` | 48 | 3 | ✔ |
 | Website AURELLE (storefront) | `storefront_categories` | `StorefrontCategorySchema` — `modules/storefront/schemas/storefront.schema.ts` | 9 | 1 | ✔ |
 | Website AURELLE (storefront) | `storefront_products` | `StorefrontProductSchema` — `modules/storefront/schemas/storefront.schema.ts` | 22 | 2 | ✔ |
 | Website AURELLE (storefront) | `storefront_product_variants` | `StorefrontProductVariantSchema` — `modules/storefront/schemas/storefront.schema.ts` | 18 | 2 | ✔ |
@@ -347,7 +347,7 @@ Schema `OrderGroupSchema` · `be/src/modules/order-groups/schemas/order-group.sc
 | `platform` | String | req |  |
 | `shop_id` | String | req · idx |  |
 | `order_count` | Number | req · mặc định 0 |  |
-| `fulfillment_status` | String | mặc định "awaiting_packaging" | enum: awaiting_packaging, pending_approval, approved_for_packing, picking, picked, partial_needs_review, packed, shipped, delivered, returned, canceled |
+| `fulfillment_status` | String | mặc định "awaiting_packaging" | enum: awaiting_packaging, pending_approval, approved_for_packing, picking, picked, partial_needs_review, packed, shipped, delivered, returning, returned, canceled |
 | `shop_name_snapshot` | String | req |  |
 | `assigned_staff_id` | ObjectId |  | → `User` |
 | `assigned_at` | Date |  |  |
@@ -1330,6 +1330,7 @@ Schema `ReturnRequestSchema` · `be/src/modules/shipments/schemas/return-request
 | `received_by` | String |  |  |
 | `inspected_by` | String |  |  |
 | `closed_at` | Date |  |  |
+| `delivered_at_snapshot` | Date | mặc định null | Nội bộ: ngày giao gốc để giữ hạn trả 15 ngày qua các lần từ chối/hủy phiếu (18/10/2026); dữ liệu cũ không cần backfill |
 | `created_at` | Date |  |  |
 | `updated_at` | Date |  |  |
 

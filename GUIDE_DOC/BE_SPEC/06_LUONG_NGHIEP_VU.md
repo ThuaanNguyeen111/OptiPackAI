@@ -180,10 +180,10 @@ stateDiagram-v2
     [*] --> computing: nhóm vừa picked → tạo job
     computing --> ready: engine BRKGA xong (cron 10 giây)
     computing --> failed: không xếp được
-    ready --> approved: approve
+    ready --> packing: approve (chấp nhận và bắt đầu)
     ready --> rejected: reject (có hạn xử lý)
     rejected --> computing: recompute
-    approved --> packing: start / quét kiện đầu tiên
+    approved --> packing: start / quét (dữ liệu cũ)
     packing --> packed: niêm phong đủ mọi kiện (finish / pack)
     ready --> superseded: recompute / manual
     approved --> superseded: back-to-picking / report-issue
@@ -194,12 +194,12 @@ stateDiagram-v2
 |---|---|---|---|
 | Tính phương án | Tự động | cron `packing-plan-auto-compute` (10 giây) | Lấy món **đã quét thực tế** (`pick_events`), kích thước/khối lượng từ `product_master` + `packaging profile`; engine BRKGA chọn thùng/túi, xếp món vào từng kiện. Nếu bật `packer/` (CP-SAT) thì chạy thêm để gắn nhãn `optimal_in_model`/`optimal_global` |
 | Xem | Packaging/Warehouse/Coordinator/Owner | `GET /order-groups/:groupId/packing-plan` | Kiện, thùng, vật tư, cân ước tính, nhãn chứng minh tối ưu |
-| Duyệt | Packaging | `POST .../packing-plan/approve` | `ready → approved`; nhóm `pending_approval → approved_for_packing` |
+| Chấp nhận & đóng gói | Packaging/Admin | `POST .../packing-plan/approve` | `ready → packing`; nhóm `pending_approval → approved_for_packing`, cùng transaction; ghi người/giờ duyệt và bắt đầu, version +1 |
 | Từ chối / tính lại | Packaging | `POST .../reject`, `POST .../recompute` | Ghi lý do, hạn xử lý (cron 15 phút nhắc quá hạn) |
 | Sửa tay | Packaging | `POST .../manual`, `.../parcels/:n/change-box`, `.../move-item` | Lưu bản sửa, kiểm tồn thùng (`assertBoxInStock`) |
-| Phân công | Packaging/Admin | `POST .../assign` | Chọn người đóng (`assigned_packer_id`) |
+| Phân công | Hệ thống, Admin khi cần đổi người | Tự giao khi `ready`; `POST .../assign` để gán lại | Giữ tự chọn người ít việc; không có bước chốt riêng. Danh sách cá nhân: `GET /order-groups?assigned_packer_id=<userId>` (lọc trước phân trang) |
 | Hướng dẫn AI | Packaging/Warehouse | `POST .../parcels/:n/guide` | Sinh hướng dẫn xếp bằng AI (thiếu `AI_API_KEY` → bỏ qua) |
-| Đóng gói | Packaging/Warehouse | `start` → `parcels/:n/scan` (quét từng món) → `parcels/:n/seal` (cân thật) → `finish` | Sai món → từ chối quét; niêm phong đủ kiện → nhóm `packed` |
+| Đóng gói | Packaging/Warehouse | Sau chấp nhận: `parcels/:n/scan` → `parcels/:n/seal`; `finish` nếu cần | Mở quét/cân ngay từ response approve; sai món bị chặn, niêm phong đủ kiện → nhóm `packed`. `start` chỉ để tương thích `approved` cũ |
 | Đóng nhanh | Packaging/Warehouse | `POST .../pack` | Niêm phong mọi kiện một lần (demo) |
 | Sự cố | Packaging/Warehouse | `report-issue`, `back-to-picking`, `unseal`, `unpack` | Trả về lấy lại món / tháo kiện |
 | Báo cáo | Owner/Admin | `GET /packing/reports/summary`, `/feedback`, `GET /packing-plans/summary` | Tỷ lệ lấp đầy, chi phí, phản hồi |
@@ -284,6 +284,20 @@ Luật gộp trạng thái nhiều kiện (`aggregateCarrierStatus`): mọi ki�
 ---
 
 ## 9. Trả hàng và đổi hàng
+
+**18/10/2026 — tiến độ nhóm đơn với `return_refund` do Admin tạo:**
+
+| Mốc | Trạng thái nhóm / nhãn |
+|---|---|
+| Tạo phiếu trả đủ nhóm | `returning` — Đang hoàn |
+| Store duyệt | `returned` — Đã hoàn hàng |
+| Kho nhận kiện | Giữ `returned` |
+| Kho kiểm và xử lý tồn xong | `canceled` — Đã hủy |
+| Store từ chối/hủy phiếu trước nhận hàng | Khôi phục `delivered` |
+
+Trả một phần giữ `delivered`; cộng các phiếu `return_refund` cùng nguồn đã `closed` với phiếu hiện tại theo từng SKU để xét trả đủ. Ghi nhóm/phiếu/tồn trong cùng transaction; snapshot ngày giao gốc giữ hạn 15 ngày. Phiếu cũ đang mở tiếp tục từ thao tác kế tiếp, phiếu đã kết thúc không backfill. Luồng đổi hàng/chỉ hoàn tiền/giao thất bại giữ nguyên. FE lấy `OrderGroup.fulfillmentStatus`, không dùng trạng thái phiếu/hãng làm tiến độ nhóm. Chi tiết và checklist: [hướng dẫn Shipping C.0](../INTEGRATION_GUIDE_SHIPPING.md).
+
+Vòng đời **phiếu** vẫn giữ:
 
 ```mermaid
 stateDiagram-v2

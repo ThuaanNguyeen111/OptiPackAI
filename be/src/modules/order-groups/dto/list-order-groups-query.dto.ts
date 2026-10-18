@@ -32,6 +32,11 @@ export class ListOrderGroupsQueryDto {
   @IsMongoId({ message: 'assigned_staff_id phải là ObjectId hợp lệ' })
   assigned_staff_id?: string;
 
+  @ApiPropertyOptional({ description: 'Nhóm giao cho 1 người đóng gói trên kế hoạch đang hoạt động; khác assigned_staff_id (người lấy hàng).' })
+  @IsOptional()
+  @IsMongoId({ message: 'assigned_packer_id phải là ObjectId hợp lệ' })
+  assigned_packer_id?: string;
+
   @ApiPropertyOptional({ enum: ['true', 'false'], description: '(09/10/2026) true = chỉ nhóm đang thiếu hàng (K5).' })
   @IsOptional()
   @IsIn(['true', 'false'], { message: 'stock_shortage chỉ nhận true/false' })

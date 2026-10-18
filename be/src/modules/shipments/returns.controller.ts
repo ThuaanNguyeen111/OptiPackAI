@@ -124,42 +124,42 @@ export class ReturnsController {
 
   @Post()
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '[Giả lập khách] Yêu cầu trả hàng / hoàn tiền cho nhóm đơn đã giao (trong 15 ngày).' })
+  @ApiOperation({ summary: '[Admin] Tạo phiếu trong 15 ngày từ lúc giao. return_refund trả đủ nhóm (cộng dồn phiếu đã đóng) → nhóm returning, phiếu requested.' })
   async create(@Body() dto: CreateReturnDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.createSimulated(dto, user.userId));
   }
 
   @Post(':id/approve')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Duyệt] Hoàn tiền không trả hàng -> đóng luôn; trả hàng -> chờ hàng về kho. Người tạo phiếu không được tự duyệt.' })
+  @ApiOperation({ summary: '[Duyệt] return_refund trả đủ nhóm → nhóm returned, phiếu awaiting_receipt. refund_only đóng phiếu luôn. Người tạo không tự duyệt.' })
   async approve(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.approve(id, dto.expected_version, user.userId, dto.note));
   }
 
   @Post(':id/reject')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Từ chối] Bắt buộc ghi lý do.' })
+  @ApiOperation({ summary: '[Từ chối] Bắt buộc lý do; return_refund trả đủ nhóm khôi phục nhóm delivered.' })
   async reject(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.reject(id, dto.expected_version, user.userId, dto.note));
   }
 
   @Post(':id/cancel')
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Hủy phiếu đã duyệt] Hàng khách không gửi về — phiếu awaiting_receipt → canceled. Bắt buộc lý do (note).' })
+  @ApiOperation({ summary: '[Hủy phiếu đã duyệt] Khách không gửi hàng: awaiting_receipt → canceled, bắt buộc note. return_refund trả đủ nhóm khôi phục nhóm delivered.' })
   async cancel(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.cancel(id, dto.expected_version, user.userId, dto.note));
   }
 
   @Post(':id/receive')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Kho] Hàng khách trả đã về kho. Trả toàn bộ -> nhóm đơn -> returned.' })
+  @ApiOperation({ summary: '[Kho] Nhận kiện: phiếu awaiting_receipt → received; nhóm trả đủ giữ returned, chưa nhập tồn/chưa canceled. Phiếu cũ tiếp tục xử lý được.' })
   async receive(@Param('id') id: string, @Body() dto: ReturnActionDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.receive(id, dto.expected_version, user.userId));
   }
 
   @Post(':id/inspect')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Kho] Kiểm hàng: restock (nhập lại ô, ghi sổ cái) / quarantine (cách ly) / discard (loại bỏ). Tổng mỗi SKU phải khớp số trả.' })
+  @ApiOperation({ summary: '[Kho] Kiểm đủ từng SKU: restock/quarantine/discard, phiếu → closed. return_refund trả đủ nhóm → canceled cùng transaction nhập tồn.' })
   async inspect(@Param('id') id: string, @Body() dto: InspectReturnDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
     return toReturnResponse(await this.returnsService.inspect(id, dto, user.userId));
   }

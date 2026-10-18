@@ -919,7 +919,7 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
 **Tại sao core**: đây đúng cơ chế được ĐẶT TÊN trong chính UC-07 gốc, không phải chi tiết kỹ thuật tùy chọn.
 **Lợi ích**: khớp đúng tên use case đã cam kết với hội đồng, đồng thời tự động có luôn dữ liệu để làm #1-#3 (mỗi lần quét = 1 lần biết chính xác đã lấy bao nhiêu, hàng còn bao nhiêu).
 
-**Không core, giữ nguyên loại trừ** (đúng ranh giới, không đổi): an toàn tồn kho (safety stock), tự động đặt hàng lại (reorder), FIFO/FEFO theo lô/hạn dùng, kiểm kê định kỳ (cycle counting), validate 2 SKU trùng 1 kệ, giới hạn sức chứa 1 kệ — đây mới đúng là tính năng WMS doanh nghiệp, không ảnh hưởng việc "lấy đúng hàng ở đúng chỗ" tại mức cơ bản.
+**Không core, giữ nguyên loại trừ** (đúng ranh giới, không đổi; 🔄 15/10/2026: FIFO theo ngày nhập đã làm theo yêu cầu, xem Tầng 4): an toàn tồn kho (safety stock), tự động đặt hàng lại (reorder), FIFO/FEFO theo lô/hạn dùng, kiểm kê định kỳ (cycle counting), validate 2 SKU trùng 1 kệ, giới hạn sức chứa 1 kệ — đây mới đúng là tính năng WMS doanh nghiệp, không ảnh hưởng việc "lấy đúng hàng ở đúng chỗ" tại mức cơ bản.
 
 **Trạng thái**: 🔴 CHƯA code — mới dừng ở thiết kế lại, cần lượt riêng để implement (schema mới, 2 endpoint mới, enum bổ sung, cập nhật `allowed-status-transitions.ts`).
 
@@ -994,6 +994,8 @@ Các nhãn hoàn tất dưới đây ghi nhận API đã được thêm ở lư�
 ### Tầng 4 — LOẠI TRỪ có chủ đích (đúng nguyên tắc thiết kế mới, KHÔNG làm)
 
 An toàn tồn kho, reorder tự động, FIFO/FEFO theo lô, kiểm kê định kỳ, giới hạn sức chứa kệ — tính năng WMS doanh nghiệp đầy đủ, không ảnh hưởng chức năng lõi ở mức cơ bản.
+
+> 🔄 **ĐÃ THAY ĐỔI (15/10/2026):** Thuận yêu cầu rõ nhập kho theo lô có ngày và lấy lô cũ nhất trước → **FIFO theo ngày nhập kho ĐÃ LÀM** (xem nhật ký 15/10/2026 cuối file). FEFO (hạn dùng), reorder, kiểm kê định kỳ vẫn loại trừ. Giới hạn sức chứa ô đã có từ K2.
 
 ### Đã có câu trả lời cho 6 câu hỏi (cập nhật 2026-09-10) — cập nhật thiết kế Tầng 1 theo đúng hướng này
 
@@ -4163,3 +4165,48 @@ Kiểm chứng: TypeScript không lỗi; Jest 75 suite / 840 test đều pass; `
 - **5 câu tác động:** (1) Không đổi schema/dữ liệu. (2) Response thêm trường (`binCode`) — client cũ bỏ qua. (3) GHN nhận tối đa ~8 request cùng lúc khi báo giá (2 dịch vụ × 4) — trong giới hạn hợp lý; nếu bị 429 thì giảm `QUOTE_CONCURRENCY`. (4) Không ảnh hưởng: đặt vận đơn, webhook, giả lập. (5) Còn lại: N6 + phần màn hình (checklist 7b.5).
 - **14/10/2026 (22h30):** viết lại `GUIDE_DOC/FE_UPDATE_CHECKLIST.md` v2.0 theo FE hiện tại trên `main` (sau gộp viet_ui + AOFP-87): bảng mức độ nối từng module (VD packing-plan 0/21, liên kết tay+giữ chỗ 0/6, shipping 0/7, documents 0/3, shipments 8/20, returns 11/12, master-skus 12/14, warehouse 25/34, colors 5/5, users 9/9); Mục 3 và 6 sửa thành "đã nối phần lớn" (trước ghi nhầm "FE chưa gọi" vì viết trước khi gộp nhánh Việt); thêm Mục 9 (tầng kết nối đã kiểm) và Mục 10 (nghiệm thu); `pages/ConsolidationPage.tsx`, `IntegrationsPage.tsx` không có route → xoá được. Bản cũ v1.2 lưu ngoài repo.
 
+## 📦 Nhật ký 15/10/2026 — Nhập kho theo lô (FIFO theo ngày nhập) + Admin cấu hình tiêu chí đồng bộ & gom đơn
+
+**Nhánh:** `feat/stock-lots-and-sync-settings` (tạo từ `main` sau khi pull 15/10). Commit AOFP-116 → 120. **Chưa push.** 5 commit sửa đóng gói AOFP-111..115 vẫn nằm riêng trên `feat/gemini-ai-provider`.
+
+**[stated] Thuận chốt:** (1) "date cũ nhất" = **ngày nhập kho** (FIFO), không phải hạn dùng; (2) hệ thống **tự trừ lô cũ nhất**, nhân viên không quét mã lô; (3) cấu hình gồm cả 3 nhóm: tiêu chí gom đơn, thông số đồng bộ, trạng thái đơn được xử lý; (4) làm trên nhánh mới từ `main`. Chỉ làm BE.
+
+### Phần 1 — Lô hàng (AOFP-116, 117)
+- Collection mới `stock_lots` (lô trên 1 dòng `sku_bin_assignments`: `lot_code`, `received_at`, `quantity_received`, `quantity_remaining`, `source` = receipt/initial/opening/count_found/return/transfer, `receipt_id`) và `stock_receipts` (phiếu nhập nhiều SKU = 1 lô). `pick_events` + `inventory_movements` thêm `lot_allocations[]` (sub-schema `LotAllocation`).
+- `quantity_on_hand` VẪN là tổng → giữ chỗ K5, sức chứa, gợi ý ô không đổi. Bất biến: Σ lô = `quantity_on_hand`.
+- Lõi: `warehouse/stock-lot.ledger.ts` — lớp `StockLotLedger(model?)` (no-op khi không có model → unit test cũ không phải sửa; model inject `@Optional()`): `ensureCovers` (bù lô `TON-DAU-KY` cho tồn có trước khi có lô, ngày = ngày tạo dòng), `add`, `consume` (FIFO, `$gte` từng lô), `deposit` (chuyển ô giữ mã + ngày), `restore` (trả kệ đúng lô, không rõ lô → lô cũ nhất của dòng, dòng chưa có lô → lô `return`), `moveAll`/`relabel`/`moveBin`, `oldestLots` (1 aggregate). Hàm thuần `netLotsInHand`, `takeFromLots`, `fifoDateOf`.
+- Nối vào mọi đường đổi tồn trong cùng transaction: assign initial, `restockSku` (nay tạo phiếu nhập 1 dòng, nhận `received_at?`/`lot_code?`), `createReceipt` (mới), `adjustStock` (thiếu → trừ lô cũ; thừa → lô `count_found`), `transferStock`, `moveAssignment`, `restockReturnedItem` (lô `return` ngày hôm nay), `pickItem` + `takeReplacementUnit` (không gửi ô → chọn ô có lô cũ nhất qua `pickFifoAssignmentId`), `restockPickRound` + `adjustPickedUnits` (trả về đúng lô), K4b `tagStockForMapping`/`replace`/`deleteMapping` (lô đi theo dòng tồn).
+- Picking List: ô chính = ô còn hàng có lô cũ nhất (hoà → `pick_sequence`); thêm `oldest_lot`, `other_bins[].oldest_lot`. Thứ tự dòng vẫn theo lộ trình.
+- Route mới (warehouse): `POST/GET .../receipts`, `GET .../receipts/:id`, `GET .../lots`, `GET .../sku-bin-assignments/:id/lots`; sổ cái thêm `lots[]`. Mã lỗi `WH_RECEIPT_*`.
+- Script `scripts/backfill-stock-lots.ts` (chạy thử mặc định, `--apply`) — **CHƯA chạy trên DB thật** (không bắt buộc, sổ lô tự bù).
+
+### Phần 2 — Cấu hình đồng bộ & gom đơn (AOFP-118, 119)
+- `order_sync_settings` nhiều phiên bản (giống `packing_settings`), route `/order-sync-settings` (GET Admin+Store Owner, PUT Admin, GET history). Đường dẫn riêng để không đụng `GET /orders/:id`.
+- Bản hiệu lực giữ ở biến cấp module `orders/order-sync-policy.ts` (`orderSyncPolicy()`, `notPackableStatuses()`); `OrderSyncSettingsService` nạp lúc khởi động, sau khi lưu và mỗi 30 giây. Lý do: `NOT_PACKABLE_ORDER_STATUSES` dùng ở order-groups, packing-queue, documents, live-carrier — đọc qua hàm đồng bộ, không phải inject service, không vòng module, test cũ tự dùng mặc định.
+- Tiêu chí: bật/tắt tự đồng bộ theo sàn, chu kỳ (cron đổi sang **mỗi phút**, shop chỉ chạy khi qua `interval_minutes` từ `last_polled_at`), số ngày lần đầu, cooldown báo lỗi; bật/tắt gom, trường gom (`phone|address_line1|city|full_name`, bắt buộc có phone hoặc address), giới hạn giờ gom (theo `created_at` OptiPack — đơn không lưu ngày đặt trên sàn), trạng thái nhóm còn nhận đơn; trạng thái được gom (tập con 6 trạng thái chờ), trạng thái không đóng gói (luôn có `canceled`).
+- `computeConsolidationKeyFor(platform, recipient, keyFields)`: thứ tự ghép cố định → bộ mặc định ra **đúng khoá cũ** (test chứng minh), DB không phải tính lại. Đổi trường gom → chạy nền tính lại khoá cho đơn chưa xử lý xong; nhóm đã tạo giữ nguyên.
+- Truy vấn gom giữ `status: {$in: UNFULFILLED}` (khớp partial index) + `$and` lọc tập con.
+- **LỆCH kế hoạch:** bỏ tuỳ chọn `scope: same_platform` (gom khác shop cùng sàn). Nhóm đơn lấy hàng/trừ tồn/tra hồ sơ theo 1 `shop_id` → gom khác shop sẽ trừ nhầm tồn. Giữ cố định cùng sàn + cùng shop; giao chung dùng liên kết nhóm.
+- **Sửa lỗi có sẵn:** `syncShopOrders` chỉ gọi GetOrders 1 lần (100 đơn) mà vẫn tiến `last_polled_at` → sót đơn. Nay lặp trang 100, tối đa 50 trang; quá thì giữ mốc cũ.
+
+### Kiểm chứng
+- tsc 0 lỗi; eslint các file đụng 0 lỗi; jest toàn bộ 952 test đạt (thêm `stock-lot.ledger.spec.ts` 8 test với model giả lập đúng phần MongoDB dùng tới, `warehouse.service.receipt.spec.ts` 5, FIFO trong `pickItem` 1, `order-sync-settings.spec.ts` 14, not-packable tuỳ chỉnh 1). `OBJECT_ID_FIELDS` 80 → 91.
+- Khởi động app context thật (Atlas): BOOT_OK. Mongoose tự tạo index cho 3 collection mới trên DB dev.
+- **Chưa** gọi HTTP thật; chưa chạy backfill.
+
+### Tác động (5 câu)
+1. Dữ liệu cũ: không migration bắt buộc; field mới mặc định rỗng/null. Tồn cũ thành lô `TON-DAU-KY` khi bị đụng.
+2. Route đổi hành vi: Picking List chọn ô chính theo lô cũ nhất; `pick-item` không có ô chọn ô có lô cũ nhất; cron đồng bộ chạy mỗi phút (vẫn 5 phút/shop theo mặc định). Không bỏ trường nào.
+3. Xung đột: lô ghi cùng transaction với tồn; 2 người lưu cấu hình cùng lúc → unique version → 409.
+4. Không ảnh hưởng: giữ chỗ K5 (vẫn tính trên tổng), đóng gói, giao hàng.
+5. Hạn chế: không ép quét mã lô (thực tế lấy thùng mới thì phân bổ lô lệch, tổng vẫn đúng); chưa FEFO; hàng hoàn của khách không về lô gốc; giới hạn giờ gom tính theo giờ vào OptiPack; SLA hoả tốc (8–17h) chưa cấu hình; chưa có FE.
+
+**Tài liệu:** `GUIDE_DOC/API_LIST.md` mục 18–19, `INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B8, `INTEGRATION_GUIDE_ORDERS.md` mục 7c (+ sửa câu cũ ở mục 7), `FE_UPDATE_CHECKLIST.md` mục 11.
+
+### Kiểm thử HTTP thật (17/10/2026)
+
+Gọi HTTP vào BE đang chạy (cổng 3000, Atlas dev, token Admin + Store Owner ký bằng `JWT_ACCESS_SECRET`). Dùng SKU `13459043458-1789113724707-0`, 2 ô trống của WH-HCM-02.
+- **Lô hàng: đạt.** Phiếu 1 dòng và 2 dòng; ngày tương lai → 400, không tạo lô; thứ tự lô cũ → mới; Σ lô = tồn; kiểm kê đếm thiếu 6 → trừ hết lô cũ 5 rồi lô mới 1 (sổ cái ghi `lots[]` đúng); chuyển ô giữ mã + ngày gốc (lô cùng mã + ngày ở ô đích được CỘNG DỒN, không tách lô `transfer` — đúng thiết kế `deposit`); Picking List trả `oldest_lot`. `pick-item` FIFO chỉ có unit test (không có nhóm `picking` phù hợp để quét thật).
+- **Cấu hình đồng bộ: đạt.** Mặc định, PUT, 3 ca 400, 409, lịch sử, Store Owner GET 200 / PUT 403, chu kỳ 7 phút được tuân thủ, tắt Lazada thì BE này không tự đồng bộ, bật lại thì đồng bộ ngay tick kế tiếp, đồng bộ tay vẫn chạy.
+- **Phát hiện ngoài code:** (1) DB dev còn index unique cũ `{warehouse_id, platform, shop_id, seller_sku}` (script K3 `migrate-sku-bin-assignment-multibin.ts` chưa chạy) → gán SKU vào ô thứ 2 trả **500**. Đã xoá đúng index đó trên DB dev. Môi trường khác cần chạy script K3. (2) Trong lúc Lazada tắt vẫn có lần đồng bộ lúc :30 và :40 (cách 10 phút, không có :45) → **một máy khác đang chạy BE bản rất cũ (cron 10 phút) trên cùng Atlas dev**; cấu hình mới không chặn được máy đó.
+- Dữ liệu test để lại: 2 phiếu nhập, lô (đã về 0), sổ cái của SKU trên; cấu hình đã về mặc định (version 6).

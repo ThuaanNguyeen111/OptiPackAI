@@ -125,7 +125,7 @@
 
 | Method | Đường dẫn | Ai gọi được | Body / Query DTO | Mô tả |
 |---|---|---|---|---|
-| GET | `/order-groups` | Warehouse, Packaging, Coordinator, Store Owner, Admin | `ListOrderGroupsQueryDto` | Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id / stock_shortage / is_overdue để mỗi role thấy đúng hàng đợi. Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>. |
+| GET | `/order-groups` | Warehouse, Packaging, Coordinator, Store Owner, Admin | `ListOrderGroupsQueryDto` | Danh sách mới nhất trước; lọc fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng trên kế hoạch active, trước phân trang) / stock_shortage / is_overdue. Mặc định 100 dòng, tối đa 200; trang kế dùng before=<createdAt dòng cuối>. |
 | GET | `/order-groups/:id` | Warehouse, Packaging, Coordinator, Store Owner, Admin | — | Chi tiết 1 Order Group — đọc field "version" để dùng cho các API chuyển trạng thái. "linkedGroupCount" (Mục 9.5): số nhóm khác (có thể khác sàn) cùng người nhận, chưa giao xong. "orders" (09/10/2026): các đơn trong nhóm kèm người nhận + món đã gộp (cả đơn đã hủy). |
 | POST | `/order-groups/:id/assign` | Admin, Warehouse | `AssignStaffDto` | Phân công Warehouse Staff cho 1 Order Group. Không truyền staff_id = tự động (Least-Busy, ít việc nhất). Truyền staff_id = đổi tay, ghi đè kết quả auto bất kỳ lúc nào. |
 | POST | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin | `DecidePartialDto` | Quyết định group đang "partial_needs_review" — approve=true: tiếp tục với phần có sẵn (picked); approve=false: hủy, quay lại awaiting_packaging. |
@@ -242,7 +242,7 @@
 | Method | Đường dẫn | Ai gọi được | Body / Query DTO | Mô tả |
 |---|---|---|---|---|
 | GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Coordinator, Store Owner, Admin | — | Kế hoạch đóng gói đang hoạt động của nhóm (null nếu chưa có). |
-| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ApprovePlanDto` | Duyệt kế hoạch → nhóm approved_for_packing. Mọi đơn phải xếp hết món. |
+| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ApprovePlanDto` | Chấp nhận và bắt đầu ngay: ready → packing, nhóm → approved_for_packing trong cùng transaction; version +1, ghi người/giờ duyệt và bắt đầu. Mọi đơn phải xếp hết món. |
 | POST | `/order-groups/:groupId/packing-plan/assign` | Packaging, Admin | `AssignPackerDto` | Giao người đóng (Packaging Staff): auto = ít việc nhất; manual = chỉ định staff_id. |
 | POST | `/order-groups/:groupId/packing-plan/back-to-picking` | Packaging, Admin | `BackToPickingDto` | Lối ra thứ 3 sau khi từ chối: trả nhóm về bước lấy hàng. Khai món phải lấy lại (restock=true: món lấy nhầm còn tốt, cộng lại đúng ô; mặc định: món hỏng, loại bỏ). Kế hoạch cũ superseded, nhóm picked → picking; kho quét bù rồi xác nhận lấy xong, cron tự tính kế hoạch mới. |
 | POST | `/order-groups/:groupId/packing-plan/finish` | Packaging, Warehouse, Admin | `FinishPackingDto` | Hoàn tất khi mọi kiện còn giao đã niêm phong nhưng kế hoạch chưa tự sang packed. |
@@ -261,7 +261,7 @@
 | POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | `RecomputePlanDto` | Tính lại (có điều kiện: loại trừ thùng, ưu tiên rẻ). Kế hoạch cũ bị thay, nhóm quay về picked rồi tính ngay; CP-SAT chạy nền. |
 | POST | `/order-groups/:groupId/packing-plan/reject` | Packaging, Admin | `RejectPlanDto` | Từ chối kế hoạch: lý do theo MÃ, có người xử lý + hạn (2 giờ làm việc). Nhóm về picked, không tự tính lại; lối ra: recompute, manual hoặc back-to-picking. |
 | POST | `/order-groups/:groupId/packing-plan/report-issue` | Packaging, Warehouse, Admin | `ReportIssueDto` | Báo món hỏng/thiếu/sai lúc đóng: replace = lấy món thay từ kệ ngay; back_to_picking = trả nhóm về lấy hàng (chỉ khi chưa niêm phong kiện nào). |
-| POST | `/order-groups/:groupId/packing-plan/start` | Packaging, Warehouse, Admin | `StartPackingDto` | Bắt đầu đóng (approved → packing), ghi người + giờ bắt đầu. Quét món đầu tiên cũng tự bắt đầu. |
+| POST | `/order-groups/:groupId/packing-plan/start` | Packaging, Warehouse, Admin | `StartPackingDto` | Tương thích kế hoạch approved cũ → packing. Luồng mới approve đã bắt đầu đóng; gọi lại khi packing không thay đổi dữ liệu. |
 | GET | `/packing-plans/summary` | Packaging, Warehouse, Coordinator, Store Owner, Admin | — | Tóm tắt kế hoạch đang hoạt động của các nhóm (?group_ids=a,b,c — tối đa 200). |
 | GET | `/packing/reports/feedback` | Store Owner, Admin | — | Vòng phản hồi (08/10/2026): gom các lần nhân viên làm KHÁC gợi ý (chỉnh tay, từ chối, lệch cân) theo lý do × SKU × thùng và ĐỀ XUẤT việc Admin nên sửa (hồ sơ SKU, danh mục thùng, cài đặt). ?from&to ISO (mặc định 30 ngày); ?min_count số lần tối thiểu để sinh đề xuất (mặc định 3). |
 | GET | `/packing/reports/summary` | Store Owner, Admin | — | Hiệu suất đóng gói trong khoảng ngày (?from&to ISO, mặc định 30 ngày; ?staff_id lọc 1 người): thời gian, tỷ lệ lệch cân, duyệt nguyên vẹn, đạt số kiện tối thiểu, quét kiểm, chi phí, theo nhân viên. |
@@ -334,15 +334,15 @@
 | POST | `/order-groups/:id/fulfillment/return` | Coordinator, Warehouse, Admin | `TransitionOrderGroupDto` | (Cũ) shipped/delivered -> returned. Nay ghi lịch sử vận đơn. Dùng luồng /shipments. |
 | POST | `/order-groups/:id/fulfillment/ship` | Coordinator, Admin | `TransitionOrderGroupDto` | (Cũ) packed -> shipped. Nay tạo vận đơn out_for_delivery. Dùng POST /shipments. |
 | GET | `/returns` | Admin, Store Owner, Warehouse, Coordinator | `ListReturnsQueryDto` | Danh sách phiếu trả hàng (lọc trạng thái, nhóm đơn, phân trang). |
-| POST | `/returns` | Admin | `CreateReturnDto` | [Giả lập khách] Yêu cầu trả hàng / hoàn tiền cho nhóm đơn đã giao (trong 15 ngày). |
+| POST | `/returns` | Admin | `CreateReturnDto` | Tạo phiếu trong 15 ngày từ ngày giao gốc; return_refund trả đủ nhóm (cộng dồn phiếu closed) → nhóm returning, phiếu requested. |
 | GET | `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator | — | Chi tiết phiếu trả hàng (dòng hàng, kết quả kiểm, thu hồi vật liệu). |
-| POST | `/returns/:id/approve` | Store Owner, Admin | `ReturnActionDto` | [Duyệt] Hoàn tiền không trả hàng -> đóng luôn; trả hàng -> chờ hàng về kho. Người tạo phiếu không được tự duyệt. |
-| POST | `/returns/:id/cancel` | Store Owner, Admin | `ReturnActionDto` | [Hủy phiếu đã duyệt] Hàng khách không gửi về — phiếu awaiting_receipt → canceled. Bắt buộc lý do (note). |
+| POST | `/returns/:id/approve` | Store Owner, Admin | `ReturnActionDto` | return_refund trả đủ nhóm → nhóm returned, phiếu awaiting_receipt; refund_only đóng luôn. Người tạo không tự duyệt. |
+| POST | `/returns/:id/cancel` | Store Owner, Admin | `ReturnActionDto` | Khách không gửi: phiếu awaiting_receipt → canceled, cần note; return_refund trả đủ nhóm khôi phục nhóm delivered. |
 | POST | `/returns/:id/create-replacement` | Store Owner, Admin | — | Tạo lại đơn thay thế cho phiếu đổi hàng (khi lần tạo tự động bị lỗi). |
-| POST | `/returns/:id/inspect` | Warehouse, Admin | `InspectReturnDto` | [Kho] Kiểm hàng: restock (nhập lại ô, ghi sổ cái) / quarantine (cách ly) / discard (loại bỏ). Tổng mỗi SKU phải khớp số trả. |
+| POST | `/returns/:id/inspect` | Warehouse, Admin | `InspectReturnDto` | Kiểm đủ từng SKU: restock/quarantine/discard, phiếu closed; return_refund trả đủ nhóm → canceled cùng transaction xử lý tồn. |
 | POST | `/returns/:id/quarantine/:lineIndex/resolve` | Warehouse, Admin | `ResolveQuarantineDto` | Xử lý 1 dòng cách ly: restock (nhập lại ô bán, ghi sổ cái) hoặc discard (loại bỏ). |
-| POST | `/returns/:id/receive` | Warehouse, Admin | `ReturnActionDto` | [Kho] Hàng khách trả đã về kho. Trả toàn bộ -> nhóm đơn -> returned. |
-| POST | `/returns/:id/reject` | Store Owner, Admin | `ReturnActionDto` | [Từ chối] Bắt buộc ghi lý do. |
+| POST | `/returns/:id/receive` | Warehouse, Admin | `ReturnActionDto` | Nhận kiện: phiếu received, nhóm trả đủ giữ returned; chưa nhập tồn/chưa canceled. Có tương thích phiếu cũ. |
+| POST | `/returns/:id/reject` | Store Owner, Admin | `ReturnActionDto` | Từ chối phải ghi lý do; return_refund trả đủ nhóm khôi phục nhóm delivered. |
 | GET | `/returns/quarantine` | Admin, Store Owner, Warehouse | — | Hàng đang cách ly chờ xử lý (mọi phiếu), cũ nhất trước. |
 | GET | `/returns/reason-codes` | Admin, Store Owner, Warehouse, Coordinator | — | Danh sách lý do trả hàng (dropdown). |
 | GET | `/shipments` | Admin, Coordinator, Store Owner, Warehouse | `ListShipmentsQueryDto` | Danh sách vận đơn (lọc theo trạng thái / nhóm đơn / chuyến / hãng). |

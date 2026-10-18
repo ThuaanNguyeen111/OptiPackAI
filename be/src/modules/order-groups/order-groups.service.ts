@@ -12,9 +12,12 @@ import {
   InventoryMovement,
   InventoryMovementDocument,
 } from '../warehouse/schemas/inventory-movement.schema';
-import { Injectable, Logger, HttpStatus } from '@nestjs/common';
+import { Injectable, Logger, HttpStatus, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
+import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
+import { notPackableStatuses, orderSyncPolicy } from '../orders/order-sync-policy';
+import { StockLotLedger, fifoDateOf, netLotsInHand, takeFromLots } from '../warehouse/stock-lot.ledger';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { isValidStatusTransition } from './enums/allowed-status-transitions';
@@ -26,8 +29,7 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 // circular dependency giữa orders/ và order-groups/).
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import {
-  NOT_PACKABLE_ORDER_STATUSES,
-  OrderStatus,
+    OrderStatus,
 } from '../orders/enums/order-status.enum';
 import {
   aggregateOrderItems,
@@ -85,7 +87,7 @@ import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-pla
  * 01/10/2026 — số đơn trong 1 nhóm đơn theo trạng thái, trả kèm danh sách/chi tiết
  * nhóm đơn để FE phân biệt nhóm bình thường / hủy một phần / hủy hết.
  * - activeOrderCount: đơn còn phải xử lý — dùng ĐÚNG quy tắc của Picking List và gợi ý
- *   đóng gói (status KHÔNG thuộc NOT_PACKABLE_ORDER_STATUSES).
+ *   đóng gói (status KHÔNG thuộc notPackableStatuses()).
  * - canceledOrderCount: đơn có status `canceled`.
  * Đơn sự cố vận chuyển (lost, damaged_by_3pl, failed...) không thuộc 2 nhóm trên:
  * orderCount − activeOrderCount − canceledOrderCount = số đơn sự cố.
@@ -109,6 +111,7 @@ export interface GroupOrderView {
 // 13/10/2026 — nhóm "đã xong" không còn tính là liên kết; nhóm đã giao thì khoá liên kết tay.
 const LINK_CLOSED_STATUSES: GroupFulfillmentStatus[] = [
   GroupFulfillmentStatus.DELIVERED,
+  GroupFulfillmentStatus.RETURNING,
   GroupFulfillmentStatus.RETURNED,
   GroupFulfillmentStatus.CANCELED,
 ];
@@ -159,7 +162,36 @@ export class OrderGroupsService {
     // (05/10/2026) mã ô cho thông báo trả hàng về kệ
     @InjectModel(BinLocation.name)
     private readonly binLocationModel: Model<BinLocationDocument>,
-  ) {}
+    // 15/10/2026 — lô hàng: lấy hàng trừ lô có ngày nhập CŨ NHẤT trước (FIFO).
+    // @Optional: unit test cũ không đăng ký model → sổ lô no-op, hành vi như trước.
+    @Optional() @InjectModel(StockLot.name)
+    stockLotModel?: Model<StockLotDocument>,
+  ) {
+    this.lots = new StockLotLedger(stockLotModel);
+  }
+
+  private readonly lots: StockLotLedger;
+
+  /**
+   * 15/10/2026 — FIFO giữa các ô: khi nhân viên không chỉ định ô, chọn dòng tồn đủ
+   * hàng có LÔ CŨ NHẤT (ngày nhập). Chưa bật sổ lô → null (giữ cách cũ).
+   */
+  private async pickFifoAssignmentId(
+    filter: Record<string, unknown>,
+    quantity: number,
+    session: ClientSession,
+  ): Promise<Types.ObjectId | null> {
+    if (!this.lots.enabled) return null;
+    const candidates = await this.skuBinAssignmentModel
+      .find({ ...filter, quantity_on_hand: { $gte: quantity } })
+      .select('_id created_at')
+      .session(session)
+      .lean();
+    if (candidates.length === 0) return null;
+    const oldest = await this.lots.oldestLots(candidates.map((c) => c._id));
+    candidates.sort((x, y) => fifoDateOf(x, oldest) - fifoDateOf(y, oldest) || x._id.toString().localeCompare(y._id.toString()));
+    return candidates[0]?._id ?? null;
+  }
 
   /**
    * Đảm bảo 1 order có group thật sự tồn tại trong `order_groups` —
@@ -457,7 +489,7 @@ export class OrderGroupsService {
       try {
         const active = await this.orderModel.countDocuments({
           consolidated_group_id: group._id,
-          status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+          status: { $nin: notPackableStatuses() },
         });
         if (active === 0) {
           await this.cancelIfAllOrdersUnfulfillable(id);
@@ -565,7 +597,7 @@ export class OrderGroupsService {
     const orders = await this.orderModel
       .find({
         consolidated_group_id: group._id,
-        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+        status: { $nin: notPackableStatuses() },
       })
       .select('_id platform_order_id items created_at')
       .sort({ created_at: 1, _id: 1 })
@@ -648,14 +680,14 @@ export class OrderGroupsService {
     // Lọc bỏ đơn KHÔNG THỂ ĐÓNG GÓI (AOFP-XX, fix 15/09/2026, mở rộng
     // 15/09/2026 thêm nhóm sự cố logistics) — trước đây chỉ lọc
     // CANCELED, giờ lọc thêm LOST/DAMAGED_BY_3PL/PACKAGE_SCRAPPED...
-    // (xem NOT_PACKABLE_ORDER_STATUSES) — hàng đã báo sự cố thì không
+    // (xem notPackableStatuses()) — hàng đã báo sự cố thì không
     // còn gì để đóng gói/đi lấy, y hệt lý do lọc CANCELED. Ảnh hưởng
     // CẢ Packaging lẫn Picking List (warehouse.service.ts tái dùng
     // đúng hàm này).
     const orders = await this.orderModel
       .find({
         consolidated_group_id: group._id,
-        status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+        status: { $nin: notPackableStatuses() },
       })
       .select('items platform shop_id') // Rule #13 — chỉ lấy field cần
       .lean();
@@ -779,6 +811,7 @@ export class OrderGroupsService {
     platform?: MarketplacePlatform;
     orderPriority?: 'normal' | 'express';
     assignedStaffId?: string;
+    assignedPackerId?: string;
     stockShortage?: boolean;
     isOverdue?: boolean;
     before?: Date;
@@ -791,6 +824,14 @@ export class OrderGroupsService {
     if (filter.orderPriority) query.order_priority = filter.orderPriority;
     // (09/10/2026) "việc của tôi", nhóm thiếu hàng, đơn hỏa tốc quá hạn + phân trang con trỏ.
     if (filter.assignedStaffId) query.assigned_staff_id = new Types.ObjectId(filter.assignedStaffId);
+    if (filter.assignedPackerId) {
+      query._id = {
+        $in: await this.packingPlanModel.distinct('order_group_id', {
+          assigned_packer_id: new Types.ObjectId(filter.assignedPackerId),
+          is_active: true,
+        }),
+      };
+    }
     if (filter.stockShortage !== undefined) query.stock_shortage = filter.stockShortage ? true : { $ne: true };
     if (filter.isOverdue !== undefined) query.is_overdue = filter.isOverdue ? true : { $ne: true };
     if (filter.before) query.created_at = { $lt: filter.before };
@@ -862,7 +903,7 @@ export class OrderGroupsService {
           _id: '$consolidated_group_id',
           active: {
             $sum: {
-              $cond: [{ $in: ['$status', NOT_PACKABLE_ORDER_STATUSES] }, 0, 1],
+              $cond: [{ $in: ['$status', notPackableStatuses()] }, 0, 1],
             },
           },
           canceled: {
@@ -930,7 +971,7 @@ export class OrderGroupsService {
     }
   }
 
-  async findOrderGroupById(groupId: string): Promise<OrderGroupDocument> {
+  async findOrderGroupById(groupId: string, session?: ClientSession): Promise<OrderGroupDocument> {
     if (!Types.ObjectId.isValid(groupId)) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.INVALID_GROUP_ID,
@@ -939,7 +980,9 @@ export class OrderGroupsService {
         { groupId },
       );
     }
-    const group = await this.orderGroupModel.findById(groupId);
+    const group = session
+      ? await this.orderGroupModel.findById(groupId, null, { session })
+      : await this.orderGroupModel.findById(groupId);
     if (!group) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.GROUP_NOT_FOUND,
@@ -981,7 +1024,7 @@ export class OrderGroupsService {
     // 4 chỗ gọi hiện có (pick/ship/deliver/return) không cần sửa gì.
     session?: ClientSession,
   ): Promise<OrderGroupDocument> {
-    const group = await this.findOrderGroupById(groupId); // đã tự validate id + tồn tại
+    const group = await this.findOrderGroupById(groupId, session); // đọc cùng snapshot với lần ghi
 
     if (!isValidStatusTransition(group.fulfillment_status, targetStatus)) {
       throw new AppException(
@@ -1036,7 +1079,7 @@ export class OrderGroupsService {
    * chặn cứng, hàm này chỉ là lớp kiểm tra sớm để không gọi transition vô ích).
    *
    * Gọi từ orders.service.ts (syncShopOrders()) ngay sau khi 1 đơn được
-   * cập nhật trạng thái thuộc NOT_PACKABLE_ORDER_STATUSES — BEST-EFFORT,
+   * cập nhật trạng thái thuộc notPackableStatuses() — BEST-EFFORT,
    * không được làm hỏng cả lượt sync (caller tự bọc try/catch).
    * ===================================================================
    */
@@ -1050,6 +1093,7 @@ export class OrderGroupsService {
     const TERMINAL_OR_PACKED_STATUSES: GroupFulfillmentStatus[] = [
       GroupFulfillmentStatus.SHIPPED,
       GroupFulfillmentStatus.DELIVERED,
+      GroupFulfillmentStatus.RETURNING,
       GroupFulfillmentStatus.RETURNED,
       GroupFulfillmentStatus.CANCELED,
     ];
@@ -1060,7 +1104,7 @@ export class OrderGroupsService {
 
     const stillFulfillableCount = await this.orderModel.countDocuments({
       consolidated_group_id: group._id,
-      status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+      status: { $nin: notPackableStatuses() },
     });
     if (stillFulfillableCount > 0) return;
 
@@ -1215,13 +1259,15 @@ export class OrderGroupsService {
           : warehouseId;
         // Atomic check-and-decrement — điều kiện `quantity_on_hand: {$gte}` trong
         // CÙNG 1 lệnh. Phạm vi tồn: kho + (SKU nội bộ | sàn+shop+SKU) [+ ô nếu chỉ định].
+        const scope = {
+          warehouse_id: warehouseObjectId,
+          ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
+          ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
+        };
+        // 15/10/2026 — không chỉ định ô → lấy ở ô có lô cũ nhất (FIFO theo ngày nhập).
+        const fifoId = binLocationId ? null : await this.pickFifoAssignmentId(scope, scannedQuantity, session);
         const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
-          {
-            warehouse_id: warehouseObjectId,
-            ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
-            ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
-            quantity_on_hand: { $gte: scannedQuantity },
-          },
+          { ...scope, ...(fifoId ? { _id: fifoId } : {}), quantity_on_hand: { $gte: scannedQuantity } },
           { $inc: { quantity_on_hand: -scannedQuantity } },
           { returnDocument: 'after', session },
         );
@@ -1233,6 +1279,9 @@ export class OrderGroupsService {
             { sku, warehouseId, requestedQuantity: scannedQuantity },
           );
         }
+
+        // 15/10/2026 — trừ lô theo FIFO (ngày nhập cũ nhất trước) trong ô vừa trừ tồn.
+        const lotAllocations = await this.lots.consume(doc, scannedQuantity, doc.quantity_on_hand + scannedQuantity, session);
 
         // K3 (main) — sổ cái biến động kho, cùng transaction.
         await this.inventoryMovementModel.create(
@@ -1253,6 +1302,7 @@ export class OrderGroupsService {
               note: null,
               ref_type: 'order_group',
               ref_id: groupId,
+              lot_allocations: lotAllocations,
               actor_id: actorId,
               created_at: new Date(),
             },
@@ -1278,6 +1328,7 @@ export class OrderGroupsService {
               pick_round: round,
               warehouse_id: new Types.ObjectId(warehouseId),
               bin_location_id: doc.bin_location_id,
+              lot_allocations: lotAllocations,
             },
           ],
           { session },
@@ -1332,7 +1383,7 @@ export class OrderGroupsService {
     // trả vào dòng tồn đầu tiên khớp phạm vi.
     const perLine = new Map<
       string,
-      { warehouse: Types.ObjectId; bin: Types.ObjectId | null; sku: string; qty: number; ids: Types.ObjectId[] }
+      { warehouse: Types.ObjectId; bin: Types.ObjectId | null; sku: string; qty: number; ids: Types.ObjectId[]; events: typeof events }
     >();
     for (const event of events) {
       if (!event.warehouse_id) {
@@ -1341,9 +1392,10 @@ export class OrderGroupsService {
       }
       const bin = event.bin_location_id ?? null;
       const key = `${event.warehouse_id.toString()}|${bin?.toString() ?? '-'}|${event.seller_sku}`;
-      const line = perLine.get(key) ?? { warehouse: event.warehouse_id, bin, sku: event.seller_sku, qty: 0, ids: [] };
+      const line = perLine.get(key) ?? { warehouse: event.warehouse_id, bin, sku: event.seller_sku, qty: 0, ids: [], events: [] };
       line.qty += event.scanned_quantity;
       line.ids.push(event._id);
+      line.events.push(event);
       perLine.set(key, line);
     }
     // K4b (main) — SKU đã nối SKU nội bộ thì tồn nằm ở dòng gộp theo master_sku.
@@ -1378,6 +1430,8 @@ export class OrderGroupsService {
         skipped += line.ids.length;
         continue;
       }
+      // 15/10/2026 — trả về ĐÚNG lô đã lấy (lô lấy sau cùng trả trước).
+      const restoredLots = await this.lots.restore(doc, line.qty, netLotsInHand(line.events), doc.quantity_on_hand - line.qty, session);
       await this.inventoryMovementModel.create(
         [
           {
@@ -1388,6 +1442,7 @@ export class OrderGroupsService {
             shop_id: doc.shop_id,
             seller_sku: doc.seller_sku,
             master_sku: doc.master_sku ?? null,
+            lot_allocations: restoredLots,
             type: 'pick_cancel',
             delta: line.qty,
             quantity_before: doc.quantity_on_hand - line.qty,
@@ -1458,14 +1513,15 @@ export class OrderGroupsService {
         .session(session)
         .lean();
       // Ròng theo (kho, ô) — ô lấy sau cùng trả trước (giống thứ tự lấy ra khỏi giỏ).
-      const net = new Map<string, { warehouse: Types.ObjectId; bin: Types.ObjectId | null; qty: number; last: number }>();
+      const net = new Map<string, { warehouse: Types.ObjectId; bin: Types.ObjectId | null; qty: number; last: number; events: typeof events }>();
       for (const e of events) {
         if (!e.warehouse_id) continue;
         const bin = e.bin_location_id ?? null;
         const key = `${e.warehouse_id.toString()}|${bin?.toString() ?? '-'}`;
-        const cur = net.get(key) ?? { warehouse: e.warehouse_id, bin, qty: 0, last: 0 };
+        const cur = net.get(key) ?? { warehouse: e.warehouse_id, bin, qty: 0, last: 0, events: [] };
         cur.qty += e.scanned_quantity;
         cur.last = Math.max(cur.last, e.created_at?.getTime() ?? 0);
+        cur.events.push(e);
         net.set(key, cur);
       }
       let left = quantity;
@@ -1473,6 +1529,8 @@ export class OrderGroupsService {
         if (left === 0) break;
         const take = Math.min(left, line.qty);
         let remainingAfter = 0;
+        // 15/10/2026 — lô của các món rời giỏ (lô lấy sau cùng trước); trả kệ thì cộng lại đúng lô.
+        let lotAllocations = takeFromLots(netLotsInHand(line.events), take).allocations;
         if (options.restock) {
           const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
             {
@@ -1485,6 +1543,7 @@ export class OrderGroupsService {
           );
           if (doc) {
             remainingAfter = doc.quantity_on_hand;
+            lotAllocations = await this.lots.restore(doc, take, lotAllocations, doc.quantity_on_hand - take, session);
             await this.inventoryMovementModel.create(
               [
                 {
@@ -1495,6 +1554,7 @@ export class OrderGroupsService {
                   shop_id: doc.shop_id,
                   seller_sku: doc.seller_sku,
                   master_sku: doc.master_sku ?? null,
+                  lot_allocations: lotAllocations,
                   type:
                     options.kind === 'cancel_return' || options.kind === 'reject_return'
                       ? options.kind
@@ -1532,6 +1592,7 @@ export class OrderGroupsService {
               pick_round: group.pick_round,
               warehouse_id: line.warehouse,
               bin_location_id: line.bin,
+              lot_allocations: lotAllocations,
             },
           ],
           { session },
@@ -1667,13 +1728,15 @@ export class OrderGroupsService {
   ): Promise<{ binLocationId: string; remainingStock: number }> {
     const group = await this.loadGroupOrThrow(groupId);
     const masterSku = (await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, [sku])).get(sku);
+    const scope = {
+      warehouse_id: new Types.ObjectId(warehouseId),
+      ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
+      ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
+    };
+    // 15/10/2026 — món thay cũng lấy ở ô có lô cũ nhất (FIFO).
+    const fifoId = binLocationId ? null : await this.pickFifoAssignmentId(scope, 1, session);
     const doc = await this.skuBinAssignmentModel.findOneAndUpdate(
-      {
-        warehouse_id: new Types.ObjectId(warehouseId),
-        ...stockFilterFor(masterSku, group.platform, group.shop_id, sku),
-        ...(binLocationId ? { bin_location_id: new Types.ObjectId(binLocationId) } : {}),
-        quantity_on_hand: { $gte: 1 },
-      },
+      { ...scope, ...(fifoId ? { _id: fifoId } : {}), quantity_on_hand: { $gte: 1 } },
       { $inc: { quantity_on_hand: -1 } },
       { returnDocument: 'after', session },
     );
@@ -1685,6 +1748,7 @@ export class OrderGroupsService {
         { sku, warehouseId, binLocationId: binLocationId ?? null },
       );
     }
+    const replacementLots = await this.lots.consume(doc, 1, doc.quantity_on_hand + 1, session);
     await this.inventoryMovementModel.create(
       [
         {
@@ -1696,6 +1760,7 @@ export class OrderGroupsService {
           seller_sku: doc.seller_sku,
           master_sku: doc.master_sku ?? null,
           type: 'pack_replace',
+          lot_allocations: replacementLots,
           delta: -1,
           quantity_before: doc.quantity_on_hand + 1,
           quantity_after: doc.quantity_on_hand,
@@ -1722,6 +1787,7 @@ export class OrderGroupsService {
           pick_round: group.pick_round,
           warehouse_id: doc.warehouse_id,
           bin_location_id: doc.bin_location_id,
+          lot_allocations: replacementLots,
         },
       ],
       { session },
@@ -1797,7 +1863,7 @@ export class OrderGroupsService {
         .lean();
       if (!plan) return false;
       const dead = await this.orderModel
-        .find({ consolidated_group_id: plan.order_group_id, status: { $in: NOT_PACKABLE_ORDER_STATUSES } })
+        .find({ consolidated_group_id: plan.order_group_id, status: { $in: notPackableStatuses() } })
         .select('_id')
         .lean();
       const deadIds = new Set(dead.map((o) => o._id.toString()));
@@ -1918,10 +1984,9 @@ export class OrderGroupsService {
       .select('fulfillment_status')
       .lean();
     if (!group) return true; // document group chưa tạo (chờ backfill) — chưa có gì để khóa
-    return (
-      group.fulfillment_status === GroupFulfillmentStatus.AWAITING_PACKAGING ||
-      group.fulfillment_status === GroupFulfillmentStatus.PICKING
-    );
+    // 🔄 15/10/2026 — trạng thái còn nhận đơn gom đến muộn do Admin cấu hình
+    // (mặc định awaiting_packaging + picking, như trước).
+    return (orderSyncPolicy().consolidation.openGroupStatuses as string[]).includes(group.fulfillment_status);
   }
 
   /**

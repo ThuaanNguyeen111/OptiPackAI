@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Order, type OrderDocument } from '../orders/schemas/order.schema';
-import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
+import { notPackableStatuses } from '../orders/order-sync-policy';
 
 /** Thông tin nhận diện 1 nhóm trên bảng hàng chờ đóng gói. */
 export interface GroupQueueInfo {
@@ -28,7 +28,7 @@ export class PackingQueueService {
     const ids = groupIds.filter((id) => Types.ObjectId.isValid(id)).map((id) => new Types.ObjectId(id));
     if (ids.length === 0) return [];
     const orders = await this.orderModel
-      .find({ consolidated_group_id: { $in: ids }, status: { $nin: NOT_PACKABLE_ORDER_STATUSES } })
+      .find({ consolidated_group_id: { $in: ids }, status: { $nin: notPackableStatuses() } })
       .select('consolidated_group_id platform_order_id recipient.full_name items.sku items.quantity items.status')
       .sort({ created_at: 1 })
       .lean();
@@ -45,7 +45,7 @@ export class PackingQueueService {
       info.orderNumbers.push(order.platform_order_id);
       info.recipientName ??= order.recipient.full_name || null;
       for (const item of order.items) {
-        if ((NOT_PACKABLE_ORDER_STATUSES as string[]).includes(item.status)) continue;
+        if ((notPackableStatuses() as string[]).includes(item.status)) continue;
         info.units += item.quantity;
         info.skuMap.set(item.sku, (info.skuMap.get(item.sku) ?? 0) + item.quantity);
       }

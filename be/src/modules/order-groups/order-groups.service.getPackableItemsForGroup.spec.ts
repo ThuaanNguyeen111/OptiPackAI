@@ -1,6 +1,7 @@
+import { DEFAULT_ORDER_SYNC_POLICY, setOrderSyncPolicy } from '../orders/order-sync-policy';
 import { Types } from 'mongoose';
 import { OrderGroupsService } from './order-groups.service';
-import { NOT_PACKABLE_ORDER_STATUSES } from '../orders/enums/order-status.enum';
+import { NOT_PACKABLE_ORDER_STATUSES, OrderStatus } from '../orders/enums/order-status.enum';
 import { ORD_GROUP_ERROR_CODES } from './order-groups.errors';
 
 //!=============================================
@@ -81,6 +82,23 @@ describe('OrderGroupsService — getPackableItemsForGroup (lọc đơn canceled 
     expect(orderModel.find).toHaveBeenCalledWith({
       consolidated_group_id: groupId,
       status: { $nin: NOT_PACKABLE_ORDER_STATUSES },
+    });
+  });
+
+  it('15/10/2026 — Admin thêm "returned" vào danh sách không đóng gói → truy vấn dùng đúng danh sách đó', async () => {
+    mockOrderFind([{ items: [], platform: 'lazada', shop_id: 'shop-1' }]);
+    setOrderSyncPolicy({
+      ...DEFAULT_ORDER_SYNC_POLICY,
+      statuses: { ...DEFAULT_ORDER_SYNC_POLICY.statuses, notPackable: [...NOT_PACKABLE_ORDER_STATUSES, OrderStatus.RETURNED] },
+    });
+    try {
+      await service.getPackableItemsForGroup(groupId);
+    } finally {
+      setOrderSyncPolicy(DEFAULT_ORDER_SYNC_POLICY);
+    }
+    expect(orderModel.find).toHaveBeenCalledWith({
+      consolidated_group_id: groupId,
+      status: { $nin: [...NOT_PACKABLE_ORDER_STATUSES, OrderStatus.RETURNED] },
     });
   });
 

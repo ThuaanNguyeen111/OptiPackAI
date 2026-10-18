@@ -1,10 +1,16 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
+> **18/10/2026 — Trả đủ hàng:** với `return_refund` do Admin tạo, nhóm đơn đi `delivered → returning` khi tạo phiếu, `→ returned` khi Store duyệt, `→ canceled` sau kho kiểm/xử lý tồn. Trả một phần giữ `delivered`; cộng dồn các phiếu cùng loại đã đóng để xét trả đủ. Từ chối/hủy phiếu khôi phục `delivered`. FE đọc `OrderGroup.fulfillmentStatus`; xem [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
+
+> **18/10/2026 — Luồng đóng gói rút gọn:** tự tính/tự gán sau lấy hàng, không cần Admin chốt. `GET /order-groups?assigned_packer_id=<userId>` lọc việc người đóng trước phân trang. `POST .../packing-plan/approve` duyệt và bắt đầu trong một transaction, trả `packing` (version +1); FE mở quét/cân ngay, không gọi tiếp `/start`. `/start` giữ tương thích `approved` cũ. Hướng dẫn FE: [INTEGRATION_GUIDE_PACKING.md](INTEGRATION_GUIDE_PACKING.md).
+
 > 🆕 14/10/2026 — FE cần chỉnh gì để khớp danh sách này (route đã bỏ mà FE còn gọi, route mới FE chưa gọi): **`FE_UPDATE_CHECKLIST.md`**.
 
 Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-09 (🔄 rà soát BE trước khi giao FE, AOFP-87..97: rate limit 600/phút, mã lỗi `AUTH_*`/`USER_NOT_FOUND`/`SF_*`, `back-to-picking` sau từ chối, `GET /packing/staff`, chặn tự duyệt kế hoạch thủ công, phân trang + bộ lọc `GET /order-groups`, chi tiết nhóm đơn kèm `orders`, thông báo đọc riêng từng người + `read-all`, `POST /returns/:id/cancel`, validate query, response `GET /users`/`assign`/`storefront/categories` đã map, thêm route storefront, sửa ma trận role — xem các mục đánh dấu 09/10/2026). Trước đó: 2026-10-05 (tối — 🆕 đơn hủy **trước** khi đóng: hàng đã lấy tự trả về đúng ô + thông báo `return_to_shelf`; tháo kiện thu hồi vật tư chèn `recovered_materials`; vật tư chèn có `reusable`; sửa giữ chỗ tồn sau khi loại món hỏng — mục 8a.4, 8a.2, 8e). Trước đó: 2026-10-05 (chiều — 🆕 **phiên đóng gói**: quét từng món vào kiện, niêm phong + cân từng kiện, kiện lệch cân chờ người khác xem lại, báo sự cố lúc đóng, tháo kiện khi đơn hủy sau khi đóng, cài đặt đóng gói, giao người đóng, báo cáo hiệu suất — mục 8a; FE quay về bản `main` nên có bảng ánh xạ route cũ → mới ở mục 8a.7). Trước đó: 2026-10-05 (GỘP `main` + `thi_dev`: kế hoạch đóng gói `packing_plans` thay luồng `packaging` cũ, kho vật tư chung, vận chuyển có hãng/cước + chứng từ PDF, sàn AURELLE). Trước đó: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
 > 🔄 10/10/2026: gộp bản sửa kiểu id của `main` (07/10) — xem **mục 17**. Không route nào thêm/bớt.
+
+> 🆕 15/10/2026: **phiếu nhập kho theo lô + lấy hàng lô cũ nhất trước (FIFO theo ngày nhập)** — mục 18; **Admin cấu hình tiêu chí đồng bộ & gom đơn** (`/order-sync-settings`) — mục 19. Thêm trường (không bỏ trường nào) ở: `restock`, Picking List (`oldest_lot`), sổ cái (`lots`).
 
 **Cách đọc**: "Bất kỳ" = mọi role đã đăng nhập đều gọi được. "Public" = không cần token.
 
@@ -136,6 +142,7 @@ Detail bổ sung địa chỉ nhận đầy đủ, `recipientProvince`, `recipie
 | Query | Kiểu | Ý nghĩa |
 |---|---|---|
 | `assigned_staff_id` | ObjectId | Nhóm giao cho 1 nhân viên lấy hàng ("việc của tôi") |
+| `assigned_packer_id` | ObjectId | Nhóm giao cho người đóng trên kế hoạch `is_active: true`; lọc trước phân trang, kết hợp được với bộ lọc cũ (18/10/2026) |
 | `stock_shortage` | `true`/`false` | Chỉ nhóm đang thiếu hàng (K5) / không thiếu |
 | `is_overdue` | `true`/`false` | Chỉ đơn hỏa tốc đã quá hạn / chưa |
 | `before` | ISO date | Con trỏ trang kế: `createdAt` của dòng **cuối** trang trước |
@@ -193,7 +200,7 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 
 🔄 **ĐÃ THAY ĐỔI 04/10/2026** — toàn bộ route `/order-groups/:groupId/packaging/*` (generate, approve, adjust, reject, guide, cartonization-preview) và `POST /order-groups/:id/fulfillment/pack` **đã gỡ**. Thay bằng **1 kế hoạch cho cả nhóm** (collection `packing_plans`), gồm mọi đơn và mọi kiện của nhóm:
 
-- **Tự tính**: khi nhóm vào `picked`, job nền (quét mỗi 10 giây) tính kế hoạch rồi chuyển nhóm sang `pending_approval` và báo Packaging Staff — **không còn nút "generate"**. Kế hoạch có trạng thái riêng: `computing` → `ready` (chờ duyệt) → `approved` (chờ đóng) → `packed`; nhánh phụ `failed` (lỗi dữ liệu, kèm `failureReason`; 🆕 09/10/2026 kế hoạch kẹt `computing` quá 5 phút — app dừng giữa lúc tính — cũng được tự đánh `failed` với lý do "Quá thời gian tính", bấm "Tính lại"), `rejected` (🔄 08–09/10/2026: chờ xử lý — 3 lối ra `recompute` / `manual` / `back-to-picking`), `superseded` (bị thay bởi lần tính mới — không hiện ra API).
+- **Tự tính**: khi nhóm vào `picked`, job nền (quét mỗi 10 giây) tính kế hoạch rồi chuyển nhóm sang `pending_approval` và báo Packaging Staff — **không còn nút "generate"**. Kế hoạch có trạng thái riêng: `computing` → `ready` (tự giao người, chờ chấp nhận) → `packing` (chấp nhận và bắt đầu ngay) → `packed`; nhánh phụ `failed` (lỗi dữ liệu, kèm `failureReason`; 🆕 09/10/2026 kế hoạch kẹt `computing` quá 5 phút — app dừng giữa lúc tính — cũng được tự đánh `failed` với lý do "Quá thời gian tính", bấm "Tính lại"), `rejected` (🔄 08–09/10/2026: chờ xử lý — 3 lối ra `recompute` / `manual` / `back-to-picking`), `superseded` (bị thay bởi lần tính mới — không hiện ra API).
 - **Bộ giải**: BRKGA (TypeScript, xác định — cùng đầu vào cùng kết quả) cho mọi đơn; đơn ≤ 12 món được service CP-SAT (`packer/`) kiểm tra thêm ở nền. Mỗi đơn có **nhãn chứng minh**: `optimal_global` (không thể ít kiện hơn và mọi tổ hợp thùng rẻ hơn đều không chứa được, đúng với mọi cách xếp), `optimal_in_model` (CP-SAT chứng minh mọi tổ hợp tốt hơn không xếp được theo luật chồng hàng chặt hơn thực tế), `heuristic` (phương án tốt nhất tìm được, chưa chứng minh). `proof` cấp kế hoạch = nhãn yếu nhất các đơn. `cpSatPending: true` = CP-SAT đang chạy, nhãn có thể còn nâng.
 - **Không còn "Từ chối, tính lại"**: sai thì **chỉnh tay** (đổi thùng 1 kiện, chuyển món sang kiện khác cùng đơn hoặc tách kiện mới) hoặc **tính lại có điều kiện** (loại thùng, ưu tiên rẻ). `reject` giờ chỉ dùng khi nhóm phải xử lý **ngoài hệ thống** (vd cần thùng gỗ).
 - **Khoá lạc quan bằng `version` của kế hoạch** (không phải version nhóm): mọi thao tác ghi gửi `expected_version`; lệch → 409 `PACKING_VERSION_CONFLICT`, tải lại kế hoạch.
@@ -203,7 +210,7 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 | GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ plan }` — kế hoạch đang hoạt động, `null` nếu chưa có (nhóm chưa lấy xong hoặc job chưa chạy tới) |
 | GET | `/packing-plans/summary?group_ids=a,b,c` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ summaries[] }` tóm tắt tối đa 200 nhóm (trạng thái, version, nhãn, `cpSatPending`, số kiện, chi phí đóng gói, `failureReason`) — dùng cho bảng hàng chờ |
 | POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | Tính lại, thay kế hoạch `ready`/`failed`/`rejected` hiện tại (nhóm `pending_approval` tạm về `picked` rồi tính ngay). Body `{ expected_version?, exclude_box_codes?: string[], prefer?: 'fewest_parcels' \| 'cheapest' }` — `expected_version` bắt buộc khi đã có kế hoạch |
-| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | `ready → approved`, nhóm `pending_approval → approved_for_packing`. Còn đơn chưa xếp hết món → 409 `PACKING_HAS_UNPLACED`. 🆕 09/10/2026: kế hoạch `source: manual` do chính người gọi lập → 403 `PACKING_SELF_APPROVE_FORBIDDEN` |
+| POST | `/order-groups/:groupId/packing-plan/approve` | Packaging, Admin | Chấp nhận và bắt đầu ngay: `ready → packing`, nhóm `pending_approval → approved_for_packing`, version +1 trong cùng transaction; ghi người/giờ duyệt và bắt đầu. Còn đơn chưa xếp hết món → 409 `PACKING_HAS_UNPLACED`; nhóm đã hủy hết đơn → 409 `ORD_GROUP_ALL_ORDERS_CANCELED`; tự duyệt kế hoạch `source: manual` → 403 `PACKING_SELF_APPROVE_FORBIDDEN` |
 | POST | `/order-groups/:groupId/packing-plan/reject` | Packaging, Admin | 🔄 ĐÃ ĐỔI 08/10/2026 — từ chối **có kiểm soát**: kế hoạch `rejected` (vẫn hoạt động để job không tự tính lại), nhóm về `picked`, báo Admin + Store Owner (hoặc đích danh `owner_id`). Body `{ expected_version, reason, note?, owner_id? }` — `reason` là **mã** (xem 8a.8), `note` bắt buộc khi `OTHER`. Có hạn xử lý 2 giờ làm việc (`rejection.dueAt`), quá hạn được nhắc 1 lần. Lối ra: `recompute`, `manual` hoặc `back-to-picking` (🆕 09/10/2026). Danh sách người xử lý (`owner_id`): `GET /packing/staff` |
 | 🆕 POST | `/order-groups/:groupId/packing-plan/back-to-picking` | Packaging, Admin | **MỚI (09/10/2026)** — lối ra thứ 3 sau khi từ chối: trả nhóm về bước lấy hàng (vd phát hiện áo bẩn, cần lấy cái khác). Chỉ khi kế hoạch `rejected` (khác → 409 `PACKING_WRONG_PLAN_STATUS`). Body `{ expected_version, items: [{ sku, quantity, restock? }] (≥1 dòng), note? (≤500) }`. `restock` mặc định `false` = món hỏng, rút khỏi số "đã lấy", **không về kệ**; `true` = món lấy nhầm còn tốt, **cộng lại tồn đúng ô đã lấy** (sổ kho loại `reject_return`). Kế hoạch → `superseded` (`rejection.resolution = back_to_picking`), nhóm `picked → picking`, giữ chỗ tồn tính lại; người lấy hàng được giao (không có thì mọi Warehouse Staff) nhận thông báo `packing_issue`. Kho quét bù đúng số món đã rút rồi bấm `fulfillment/pick` — kế hoạch mới tự tính. SKU không có trong hàng đã lấy hoặc khai vượt số đã lấy → 400 `PACKING_BACK_TO_PICKING_INVALID` (`details: {sku, requested, picked}`) |
 | POST | `/order-groups/:groupId/packing-plan/parcels/:parcelNo/change-box-in-session` | Packaging, Warehouse, Admin | 🆕 08/10/2026 — đổi thùng khi **đang đóng** (kế hoạch `approved`/`packing`, kiện chưa niêm phong). Body `{ expected_version, box_code, reason, note?, old_box_outcome: 'unused' \| 'damaged' }`. `unused` = thùng cũ chưa dùng, trả kệ, không trừ gì; `damaged` = đã hỏng/rách → trừ 1 thùng cũ khỏi tồn + ghi sổ `waste`. Xếp lại qua validator, **giữ các lần quét đã có**. Lỗi: 409 `PACKING_PARCEL_WRONG_STATUS` (kiện đã niêm phong), 409 `PACKING_WRONG_PLAN_STATUS`, 400 `PACKING_SAME_BOX` (trùng thùng cũ mà khai chưa dùng), 422 `PACKING_BOX_DOES_NOT_FIT`, 409 `PKG_BOX_OUT_OF_STOCK` |
@@ -228,7 +235,7 @@ Dữ liệu cũ: `packaging_recommendations` giữ nguyên làm lịch sử. Nh�
 ### 8a.1 Luồng
 
 ```
-kế hoạch approved ──start / quét món đầu tiên──► packing ──(mọi kiện còn giao đều sealed)──► packed
+kế hoạch ready ──approve (chấp nhận & bắt đầu)──► packing ──(mọi kiện còn giao đều sealed)──► packed
 mỗi kiện:  pending ──quét đủ món──► seal + cân ──┬─ trong ngưỡng ─► sealed
                                                 └─ lệch quá ngưỡng ─► held ──review──► sealed | held | pending (reopen)
 đơn hủy sau khi đã bắt đầu đóng:  kiện của đơn ─► to_unpack ──unpack──► voided
@@ -242,7 +249,7 @@ mỗi kiện:  pending ──quét đủ món──► seal + cân ──┬─ 
 
 | Method | Route | Role | Body / Mô tả |
 | ------ | ----- | ---- | ------------ |
-| POST | `start` | Packaging, Warehouse, Admin | `{ expected_version }` — `approved → packing`, ghi người + giờ bắt đầu. Bấm lại khi đã `packing` không lỗi. Quét món đầu tiên cũng tự bắt đầu |
+| POST | `start` | Packaging, Warehouse, Admin | `{ expected_version }` — tương thích `approved` cũ → `packing`. Luồng mới `/approve` đã bắt đầu đóng; gọi lại khi `packing` không đổi version/người/giờ/hoạt động |
 | POST | `parcels/:parcelNo/scan` | Packaging, Warehouse, Admin | `{ code, quantity?=1, scan_method: barcode\|manual, client_event_id? }` — **không cần `expected_version`** (quét liên tục). `code` = SKU sàn hoặc SKU nội bộ đã nối, không phân biệt hoa/thường. Response `{ plan, scan: { parcelNo, sku, itemKeys[], remainingInParcel, duplicate } }`. Trùng `client_event_id` → `duplicate: true`, không đếm thêm. Lỗi: 409 `PACKING_SCAN_WRONG_PARCEL` (món của kiện khác — `details.belongsToParcels`), 404 `PACKING_SCAN_NOT_IN_PLAN`, 409 `PACKING_SCAN_OVER`, 409 `PACKING_PARCEL_WRONG_STATUS` (kiện đã niêm phong/đang giữ/phải tháo) |
 | POST | `parcels/:parcelNo/unscan` | Packaging, Warehouse, Admin | `{ expected_version, item_key, reason }` — gỡ 1 lần quét nhầm, ghi `activity[]`. 404 `PACKING_SCAN_NOT_FOUND` |
 | POST | `parcels/:parcelNo/seal` | Packaging, Warehouse, Admin | `{ expected_version, weight_kg }` — kiện phải quét đủ (409 `PACKING_PARCEL_NOT_FULLY_SCANNED`, `details.missing[]`). Trừ thùng + vật tư của kiện (hết thùng → 409 `PKG_BOX_OUT_OF_STOCK`). Lệch quá ngưỡng → kiện `held` + thông báo `packing_parcel_held` (Packaging Staff, Store Owner). Response `{ plan, completed }` |
@@ -281,7 +288,7 @@ Ngưỡng lệch cân + luật dễ vỡ + bắt buộc quét áp dụng **ngay*
 
 ### 8a.6 Báo cáo hiệu suất (`GET /packing/reports/summary`)
 
-Role: Store Owner, Admin. Query `from`, `to` (ISO, mặc định 30 ngày gần nhất), `staff_id?`. Sai khoảng ngày → 400 `PACKING_INVALID_DATE_RANGE`. Response `{ report: { from, to, groups, orders, parcels, avgWaitMinutes, avgPackMinutes, heldRate, acceptedDespiteDeviation, approvedIntactRate, minimalParcelRate, scanRate, packagingCostVnd, issues: {damaged, missing, wrongItem}, byStaff[] {staffId, name, groups, parcels, avgPackMinutes, heldParcels, quickPackGroups} } }`. Thời gian chỉ tính nhóm có bấm bắt đầu/quét (lối tắt `pack` không có giờ bắt đầu). Đọc tối đa 5.000 kế hoạch mỗi lần.
+Role: Store Owner, Admin. Query `from`, `to` (ISO, mặc định 30 ngày gần nhất), `staff_id?`. Sai khoảng ngày → 400 `PACKING_INVALID_DATE_RANGE`. Response `{ report: { from, to, groups, orders, parcels, avgWaitMinutes, avgPackMinutes, heldRate, acceptedDespiteDeviation, approvedIntactRate, minimalParcelRate, scanRate, packagingCostVnd, issues: {damaged, missing, wrongItem}, byStaff[] {staffId, name, groups, parcels, avgPackMinutes, heldParcels, quickPackGroups} } }`. Từ 18/10/2026, giờ bắt đầu được ghi ngay khi chấp nhận (kể cả sau đó dùng lối tắt `pack`), nên `avgWaitMinutes` của dữ liệu mới bằng 0; `avgPackMinutes` tính từ lúc chấp nhận tới hoàn tất. Bản ghi cũ thiếu giờ bắt đầu không tính thời gian. Đọc tối đa 5.000 kế hoạch mỗi lần.
 
 ### 8a.8 Vòng phản hồi cho Admin (🆕 08/10/2026)
 
@@ -302,7 +309,7 @@ Response kế hoạch thêm: `rejection {reasonCode, ownerId, dueAt, overdue, re
 | `POST .../packaging/approve` | `POST .../packing-plan/approve` `{ expected_version, override_reason? }` |
 | `POST .../packaging/adjust` | `POST .../packing-plan/parcels/:no/change-box` hoặc `.../move-item` |
 | `POST .../packaging/reject` | `POST .../packing-plan/reject` `{ expected_version, reason: <mã>, note? }` — rồi `recompute`, `manual` hoặc `back-to-picking` |
-| `POST .../fulfillment/pack` | Đóng có quét: `start` → `scan` → `seal` từng kiện. Đóng nhanh: `POST .../packing-plan/pack` |
+| `POST .../fulfillment/pack` | Chấp nhận: `approve` → `packing`; đóng có quét: `scan` → `seal` từng kiện. Đóng nhanh: `POST .../packing-plan/pack` |
 | Khóa version của nhóm (`expected_group_version`) | Khóa version của **kế hoạch** (`expected_version` = `plan.version`) |
 
 ## 8b. 🆕 Danh mục thùng (`/packaging/boxes`) — 21/09/2026
@@ -626,17 +633,19 @@ Lỗi: `DOC_NO_ORDERS` (409, nhóm không còn đơn hợp lệ), `DOC_SHIPMENT_
 | Method | Route                                                 | Role                                       | Mô tả                                                        |
 | ------ | ----------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
 | GET    | `/returns/reason-codes` · `/returns` · `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator |                                                              |
-| POST   | `/returns`                                            | Admin (đóng vai khách)                     | Yêu cầu trả hàng / hoàn tiền (nhóm đơn delivered, ≤15 ngày)  |
-| POST   | `/returns/:id/approve`                                | Store Owner, Admin                         | Duyệt (người tạo không tự duyệt)                             |
-| POST   | `/returns/:id/reject`                                 | Store Owner, Admin                         | Từ chối (bắt buộc lý do)                                     |
+| POST   | `/returns`                                            | Admin (đóng vai khách)                     | Phiếu requested; return_refund trả đủ nhóm → nhóm returning. Hạn 15 ngày từ ngày giao gốc |
+| POST   | `/returns/:id/approve`                                | Store Owner, Admin                         | Người tạo không tự duyệt; return_refund trả đủ nhóm → nhóm returned, phiếu awaiting_receipt |
+| POST   | `/returns/:id/reject`                                 | Store Owner, Admin                         | Bắt buộc lý do; return_refund trả đủ nhóm khôi phục delivered |
 | 🆕 POST | `/returns/:id/cancel`                                | Store Owner, Admin                         | **MỚI (09/10/2026)** — hủy phiếu đã duyệt mà hàng không bao giờ về (khách không gửi). Body `{ expected_version, note }` (`note` bắt buộc → thiếu 400 `RMA_NOTE_REQUIRED`). `awaiting_receipt → canceled` (trạng thái cuối mới); phiếu khác trạng thái → 409 `RMA_INVALID_STATUS`. Trước đây phiếu này không có lối ra và chặn mọi phiếu mới của nhóm đơn |
-| POST   | `/returns/:id/receive`                                | Warehouse, Admin                           | Hàng trả về kho                                              |
-| POST   | `/returns/:id/inspect`                                | Warehouse, Admin                           | Kiểm hàng: restock (nhập lại, sổ cái) / quarantine / discard |
+| POST   | `/returns/:id/receive`                                | Warehouse, Admin                           | Phiếu received; nhóm trả đủ giữ returned, chưa nhập tồn/chưa canceled |
+| POST   | `/returns/:id/inspect`                                | Warehouse, Admin                           | Kiểm đủ: restock/quarantine/discard; phiếu closed, return_refund trả đủ nhóm → canceled cùng transaction xử lý tồn |
 
 > 🔄 ĐÃ ĐỔI (09/10/2026):
 > - `POST /returns`: số lượng mỗi SKU tối đa = **số đã mua − số đã khai ở các phiếu trước** (trừ phiếu `rejected`/`canceled`) — trước đây so với toàn bộ số đã mua nên 1 món trả được nhiều lần. Vượt → 400 `RMA_INVALID_ITEMS`.
 > - `GET /returns` validate query: `status` (enum `requested|rejected|awaiting_receipt|received|closed|canceled`), `order_group_id` (ObjectId), `page` ≥ 1, `limit` 1–100 — sai → 400 `VALIDATION_ERROR`.
 > - Trạng thái phiếu thêm `canceled` (cuối).
+
+**18/10/2026:** `cancel` phiếu `return_refund` trả đủ nhóm còn khôi phục nhóm về `delivered`; `canceled` của phiếu nghĩa là khách không gửi hàng, khác `canceled` của nhóm sau kiểm hàng thành công. Các API phiếu giữ nguyên body/response. `GET /order-groups?fulfillment_status=returning` đã lọc được trạng thái mới; sau thao tác phiếu, tải lại nhóm bằng `orderGroupId`. Snapshot ngày giao là dữ liệu nội bộ, không thêm field response. Đổi hàng, chỉ hoàn tiền, giao thất bại giữ luồng cũ.
 
 > Gộp 04/10/2026: route nhận hàng hoàn riêng của thi_dev (`POST /order-groups/:id/fulfillment/return-receive`, collection `return_receipts`) **đã bỏ** — dùng luồng `/returns` ở trên (có kiểm chất lượng và ghi sổ kho).
 
@@ -735,3 +744,47 @@ Không có route mới. Các route dưới đây trước đây có thể trả 
 | Chứng từ PDF, kế hoạch đóng gói, cài đặt, storefront | Một số truy vấn theo id dạng chuỗi ra 0 dòng | Khớp đúng |
 
 Việc bắt buộc sau khi deploy: chạy `npx ts-node -r dotenv/config scripts/migrate-objectid-fields.ts --apply` trên mỗi database (nay gồm cả `packing_plans.orders[].order_id` / `parcels[].order_id` từng lưu dạng chuỗi). Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B6**.
+
+## 18. 🆕 Nhập kho theo lô + FIFO theo ngày nhập (15/10/2026)
+
+Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`). Lấy hàng (`pick-item`), lấy món thay lúc đóng gói, kiểm kê đếm thiếu và chuyển ô đều **trừ lô có ngày nhập cũ nhất trước**. Hệ thống tự trừ, nhân viên **không quét mã lô**. `quantityOnHand` của dòng "SKU trên ô" vẫn là tổng các lô.
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| POST | `/warehouse/warehouses/:warehouseId/receipts` | Admin, Warehouse | Phiếu nhập NHIỀU SKU = 1 lô (cùng `lot_code` + `received_at`). Body: `received_at?` (ISO, mặc định bây giờ, không được ở tương lai), `lot_code?` (mặc định = mã phiếu `PN-yymmdd-XXXX`), `supplier?`, `note?`, `force?` (bỏ qua sức chứa), `lines[]` (1–200): `{ assignment_id, quantity }` HOẶC `{ bin_location_id, platform, shop_id, seller_sku, quantity }` (SKU phải đã gán vào ô đó) |
+| GET | `/warehouse/warehouses/:warehouseId/receipts?limit=` | Admin, Warehouse, Store Owner | Danh sách phiếu nhập (mới nhất trước, tối đa 200) |
+| GET | `/warehouse/warehouses/:warehouseId/receipts/:receiptId` | Admin, Warehouse, Store Owner | Chi tiết phiếu nhập |
+| GET | `/warehouse/warehouses/:warehouseId/lots?master_sku=&seller_sku=&lot_code=&include_empty=` | Admin, Warehouse, Store Owner | Tồn theo lô của kho, lô cũ nhất trước (tối đa 500) |
+| GET | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/lots?include_empty=` | Admin, Warehouse, Store Owner | Các lô của 1 SKU trên 1 ô theo đúng thứ tự sẽ xuất |
+| 🔄 POST | `/warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` | Admin, Warehouse | Nhận thêm `received_at?`, `lot_code?`; mỗi lần nhập tạo 1 phiếu nhập 1 dòng |
+
+**Response lô** (`StockLotResponse`): `id`, `assignmentId`, `binLocationId`, `platform`, `shopId`, `sellerSku`, `masterSku`, `lotCode`, `receivedAt`, `quantityReceived`, `quantityRemaining`, `source` (`receipt`/`initial`/`opening`/`count_found`/`return`/`transfer`), `receiptId`.
+
+**Response phiếu nhập**: `id`, `receiptCode`, `warehouseId`, `lotCode`, `receivedAt`, `supplier`, `note`, `totalQuantity`, `createdBy`, `createdAt`, `lines[]` (`assignmentId`, `binLocationId`, `lotId`, `platform`, `shopId`, `sellerSku`, `masterSku`, `quantity`).
+
+**Thay đổi ở route có sẵn (chỉ thêm trường)**
+- Picking List (`GET /warehouse/:warehouseId/picking-list...`): ô chính (`bin_location_id`) nay là ô còn hàng có **lô cũ nhất** (hoà thì theo lộ trình); thêm `oldest_lot { lot_code, received_at, quantity_remaining }` (null khi chưa gán ô), `other_bins[].oldest_lot`.
+- `pick-item` không gửi `bin_location_id` → hệ thống tự lấy ở ô có lô cũ nhất (trước đây là ô bất kỳ đủ hàng).
+- Sổ cái (`GET .../movements`): thêm `lots[] { lotId, lotCode, receivedAt, quantity }`.
+
+**Mã lỗi mới**: `WH_RECEIPT_DATE_IN_FUTURE` (400), `WH_RECEIPT_LINE_INVALID` (400), `WH_RECEIPT_LINE_NOT_ASSIGNED` (422), `WH_RECEIPT_NOT_FOUND` (404). Vượt sức chứa vẫn `WH_BIN_OVER_CAPACITY` (409).
+
+**Dữ liệu cũ**: tồn có trước ngày 15/10 được coi là lô `TON-DAU-KY` (ngày nhập = lần nhập/gán sớm nhất trong sổ cái) và luôn xuất trước. Hệ thống tự tạo lô này khi dòng tồn bị đụng tới; chạy `npx ts-node -r dotenv/config scripts/backfill-stock-lots.ts` (thêm `--apply` để ghi) để thấy ngay trên màn hình. Chi tiết: **`INTEGRATION_GUIDE_WAREHOUSE.md` PHẦN B7**.
+
+## 19. 🆕 Tiêu chí đồng bộ & gom đơn do Admin cấu hình (`/order-sync-settings`) — 15/10/2026
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/order-sync-settings` | Admin, Store Owner | Tiêu chí đang hiệu lực + `options` (danh sách lựa chọn có nhãn tiếng Việt để dựng form) |
+| PUT | `/order-sync-settings` | Admin | Lưu phiên bản mới; trường không gửi giữ nguyên; gửi `expected_version` để không ghi đè người khác |
+| GET | `/order-sync-settings/history?limit=` | Admin, Store Owner | Lịch sử phiên bản (ai đổi, lúc nào, ghi chú) |
+
+**Body PUT** (mọi trường tùy chọn): `expected_version`, `platforms[] { platform: lazada|aurelle, auto_sync_enabled }`, `interval_minutes` (5–1440), `first_sync_lookback_days` (1–90), `sync_failed_cooldown_minutes` (5–1440), `consolidation_enabled`, `consolidation_key_fields` (tập con `phone`, `address_line1`, `city`, `full_name`; bắt buộc có `phone` hoặc `address_line1`), `consolidation_time_window_hours` (1–720 hoặc `null`), `open_group_statuses` (tập con `awaiting_packaging`, `picking`), `consolidatable_statuses` (tập con 6 trạng thái chờ xử lý), `not_packable_statuses` (phải có `canceled`, không được chứa trạng thái luồng giao bình thường), `note`.
+
+**Mặc định = giá trị cũ trong code**: tự đồng bộ cả 2 sàn, 5 phút, lần đầu lùi 30 ngày, báo lỗi cách 20 phút; gom theo SĐT + địa chỉ + tỉnh/phường, không giới hạn thời gian, nhóm `awaiting_packaging`/`picking` còn nhận đơn; trạng thái như cũ. Response PUT thêm `recomputingKeys: true` khi đổi trường gom (hệ thống tính lại khoá gom cho đơn chưa xử lý xong, chạy nền).
+
+**Mã lỗi**: `ORD_SYNC_SETTINGS_INVALID` (400), `ORD_SYNC_SETTINGS_CONFLICT` (409).
+
+**Luôn cố định (không cấu hình)**: chỉ gom đơn **cùng sàn + cùng shop** — nhóm đơn trừ tồn và tra hồ sơ SKU theo đúng 1 shop. Muốn giao chung đơn khác shop/khác sàn dùng liên kết nhóm (`POST /order-groups/:id/link`) và giao chung chuyến. Chi tiết: **`INTEGRATION_GUIDE_ORDERS.md`** mục "Cấu hình tiêu chí đồng bộ & gom đơn".
+
+**Sửa kèm**: đồng bộ đơn nay **lấy theo trang** (100 đơn/trang, tối đa 50 trang/lượt). Trước đây chỉ lấy 100 đơn đầu nên shop có hơn 100 đơn thay đổi giữa 2 lượt bị sót.

@@ -501,7 +501,7 @@ export class PackingPlanController {
 
   @Post('approve')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Duyệt kế hoạch → nhóm approved_for_packing. Mọi đơn phải xếp hết món.' })
+  @ApiOperation({ summary: 'Chấp nhận và bắt đầu đóng ngay (ready → packing); nhóm → approved_for_packing. Mọi đơn phải xếp hết món.' })
   async approve(
     @Param('groupId') groupId: string,
     @Body() dto: ApprovePlanDto,
@@ -625,7 +625,7 @@ export class PackingPlanController {
 
   @Post('start')
   @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Bắt đầu đóng (approved → packing), ghi người + giờ bắt đầu. Quét món đầu tiên cũng tự bắt đầu.' })
+  @ApiOperation({ summary: 'Tương thích kế hoạch approved cũ → packing. Luồng mới approve đã bắt đầu đóng; gọi lại khi packing không thay đổi dữ liệu.' })
   async start(
     @Param('groupId') groupId: string,
     @Body() dto: StartPackingDto,

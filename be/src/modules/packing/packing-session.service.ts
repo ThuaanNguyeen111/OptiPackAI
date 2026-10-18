@@ -73,7 +73,8 @@ function normalizeCode(code: string): string {
  * ===================================================================
  * Trước đây "đóng gói" chỉ là 1 lần gửi cân cho cả nhóm, kiện lệch cân vẫn
  * thành packed ngay và không ai kiểm món nào đã vào thùng nào. Giờ:
- *   approved ──start/quét──► packing ──(mọi kiện còn giao đều sealed)──► packed
+ *   ready ──approve──► packing ──(mọi kiện còn giao đều sealed)──► packed
+ * Kế hoạch approved cũ vẫn bắt đầu được qua start/quét.
  * Mỗi kiện: pending (quét từng món, sai kiện/thừa bị chặn) → niêm phong + cân
  * (trừ thùng + vật tư ĐÚNG lúc này) → sealed, hoặc held khi lệch cân quá ngưỡng
  * → người KHÁC người niêm phong xem lại (chấp nhận / cân lại / mở ra đóng lại).
