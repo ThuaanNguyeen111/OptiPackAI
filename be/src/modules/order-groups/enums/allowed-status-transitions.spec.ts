@@ -41,6 +41,12 @@ describe('allowed-status-transitions', () => {
     ).toBe(true);
   });
 
+  it('Hoàn tác chấp nhận: APPROVED_FOR_PACKING -> PENDING_APPROVAL hợp lệ', () => {
+    expect(isValidStatusTransition(
+      GroupFulfillmentStatus.APPROVED_FOR_PACKING, GroupFulfillmentStatus.PENDING_APPROVAL,
+    )).toBe(true);
+  });
+
   it('Thiếu hàng lúc lấy, duyệt tiếp partial: PARTIAL_NEEDS_REVIEW -> PICKED hợp lệ', () => {
     expect(
       isValidStatusTransition(

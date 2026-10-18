@@ -25,6 +25,7 @@ const STORE_OWNER_PREFIXES = [
   '/app/orders',
   '/app/order-groups',
   '/app/returns',
+  '/app/order-sync',
   '/app/packaging-rules',
   '/app/packaging-materials',
   '/app/staff',

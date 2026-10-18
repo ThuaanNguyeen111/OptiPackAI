@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Store,
   Sun,
@@ -55,6 +56,14 @@ const navItems = [
     labelVi: 'Đơn hàng',
     labelEn: 'Orders',
     icon: Package,
+    section: 'marketplace' as NavSection,
+  },
+  {
+    to: '/app/admin/order-sync',
+    end: false,
+    labelVi: 'Đồng bộ đơn',
+    labelEn: 'Order sync',
+    icon: SlidersHorizontal,
     section: 'marketplace' as NavSection,
   },
   {

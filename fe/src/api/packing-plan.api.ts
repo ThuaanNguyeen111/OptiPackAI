@@ -52,6 +52,18 @@ export async function approvePackingPlan(
   return res.plan
 }
 
+export async function undoApprovePackingPlan(
+  groupId: string,
+  expectedVersion: number,
+): Promise<PackingPlan> {
+  const res = await apiRequest<{ plan: PackingPlan }>(groupPath(groupId, '/undo-approve'), {
+    method: 'POST',
+    auth: true,
+    body: { expected_version: expectedVersion },
+  })
+  return res.plan
+}
+
 export async function changeParcelBox(
   groupId: string,
   parcelNo: number,

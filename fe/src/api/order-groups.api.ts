@@ -318,6 +318,10 @@ export async function listOrderGroups(
     fulfillment_status: params.fulfillment_status,
     platform: params.platform,
     order_priority: params.order_priority,
+    assigned_staff_id: params.assigned_staff_id,
+    assigned_packer_id: params.assigned_packer_id,
+    before: params.before,
+    limit: params.limit === undefined ? undefined : String(params.limit),
     stock_shortage:
       params.stock_shortage === undefined
         ? undefined

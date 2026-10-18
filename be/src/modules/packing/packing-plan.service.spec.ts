@@ -100,7 +100,7 @@ function fakePlanModel() {
         sort: () => chain,
         select: () => chain,
         lean: () => Promise.resolve(result),
-        session: () => Promise.resolve(result),
+        session: jest.fn(() => Promise.resolve(result)),
         then: (r: (v: unknown) => unknown, e?: (x: unknown) => unknown) => Promise.resolve(result).then(r, e),
       };
       return chain;
@@ -161,6 +161,7 @@ describe('PackingPlanService', () => {
   let materialsService: { recoverFromUnpack: jest.Mock };
   let bagService: { consumeForParcels: jest.Mock };
   let stock: Map<string, number>;
+  let transactionSession: { withTransaction: jest.Mock; endSession: jest.Mock };
 
   beforeEach(() => {
     group = { _id: new Types.ObjectId(), fulfillment_status: GroupFulfillmentStatus.PICKED, __v: 3 };
@@ -225,13 +226,11 @@ describe('PackingPlanService', () => {
         Promise.resolve({ source: 'template', model: null, fallback_reason: 'no_api_key', summary: 's', steps: [] }),
       ),
     };
-    const connection = {
-      startSession: () =>
-        Promise.resolve({
-          withTransaction: (fn: () => Promise<unknown>) => fn(),
-          endSession: () => Promise.resolve(),
-        }),
+    transactionSession = {
+      withTransaction: jest.fn((fn: () => Promise<unknown>) => fn()),
+      endSession: jest.fn(() => Promise.resolve()),
     };
+    const connection = { startSession: () => Promise.resolve(transactionSession) };
     service = new PackingPlanService(
       planModel as never,
       connection as never,
@@ -355,6 +354,179 @@ describe('PackingPlanService', () => {
       const { plan } = await service.compute(groupId, { exclude_box_codes: ['SAMPLE-M', 'SAMPLE-S'] });
       expect(plan.parcels.every((p) => p.box.code === 'SAMPLE-L')).toBe(true);
       expect(plan.solver.options.exclude_box_codes).toEqual(['SAMPLE-M', 'SAMPLE-S']);
+    });
+  });
+
+  describe('hoàn tác chấp nhận', () => {
+    async function approved(): Promise<PackingPlanDocument> {
+      const plan = await computed();
+      return service.approve(groupId, plan.version, userId);
+    }
+
+    it('giữ kế hoạch, phân công và hao hụt; xóa phiên hiện tại rồi chấp nhận lại được', async () => {
+      const packerId = new Types.ObjectId();
+      const assignedAt = new Date('2026-10-18T01:00:00Z');
+      let plan = await approved();
+      await planModel.updateOne({ _id: plan._id }, {
+        $set: { assigned_packer_id: packerId, assigned_packer_at: assignedAt, approve_override_reason: 'Đã duyệt vượt số kiện' },
+      });
+      const parcel = plan.parcels[0];
+      if (!parcel) throw new Error('thiếu kiện');
+      plan = await service.changeBoxInSession(groupId, parcel.parcel_no, {
+        expected_version: plan.version, box_code: parcel.box.code, old_box_outcome: 'damaged', reason: 'BOX_SPEC_WRONG',
+      }, userId);
+      const groupVersion = group.__v;
+      const undone = await service.undoApprove(groupId, plan.version, userId);
+      expect(undone).toMatchObject({
+        _id: plan._id, revision: plan.revision, is_active: true, status: 'ready', version: plan.version + 1,
+        assigned_packer_id: packerId, assigned_packer_at: assignedAt,
+        approved_by: null, approved_at: null, packing_started_by: null, packing_started_at: null,
+        approve_override_reason: null, pack_mode: null,
+      });
+      expect(undone.parcels).toEqual(plan.parcels);
+      expect(undone.orders).toEqual(plan.orders);
+      expect(undone.adjustments).toEqual(plan.adjustments);
+      expect(undone.issues).toEqual(plan.issues);
+      expect(undone.activity).toEqual([...plan.activity, expect.objectContaining({
+        kind: 'undo_approve', by: new Types.ObjectId(userId), at: expect.any(Date) as unknown,
+      })]);
+      expect(group).toMatchObject({ fulfillment_status: GroupFulfillmentStatus.PENDING_APPROVAL, __v: groupVersion + 1 });
+      expect(boxService.recordWaste).toHaveBeenCalledTimes(1);
+      const reaccepted = await service.approve(groupId, undone.version, packerId.toString());
+      expect(reaccepted.status).toBe('packing');
+      expect(reaccepted.version).toBe(undone.version + 1);
+      expect(reaccepted.packing_started_by).toEqual(packerId);
+      expect(reaccepted.packing_started_at).toEqual(reaccepted.approved_at);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      expect(boxService.consumeForPack).not.toHaveBeenCalled();
+      expect(materialService.consumeForPack).not.toHaveBeenCalled();
+    });
+
+    it('xóa lượt quét ở mọi kiện, chặn quét tới khi chấp nhận lại', async () => {
+      let plan = await approved();
+      for (const p of plan.parcels) {
+        const placement = p.placements[0];
+        if (!placement) throw new Error('thiếu món');
+        plan = (await session.scan(groupId, p.parcel_no, {
+          code: placement.sku, scan_method: 'barcode', client_event_id: `scan-${String(p.parcel_no)}`,
+        }, userId)).plan;
+      }
+      const count = plan.parcels.reduce((n, p) => n + p.scans.length, 0);
+      const undone = await service.undoApprove(groupId, plan.version, userId);
+      expect(undone.parcels.every((p) => p.scans.length === 0)).toBe(true);
+      expect(undone.activity.at(-1)?.detail).toContain(`xóa ${String(count)} lượt quét`);
+      const placement = plan.parcels[0]?.placements[0];
+      if (!placement) throw new Error('thiếu món');
+      const dto = { code: placement.sku, scan_method: 'barcode' as const, client_event_id: 'scan-1' };
+      await expect(session.scan(groupId, 1, dto, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+      await service.approve(groupId, undone.version, userId);
+      const rescan = await session.scan(groupId, 1, dto, userId);
+      expect(rescan.scan.duplicate).toBe(false);
+      expect(rescan.plan.parcels[0]?.scans).toHaveLength(1);
+    });
+
+    it('hỗ trợ kế hoạch approved cũ', async () => {
+      const plan = await approved();
+      await planModel.updateOne({ _id: plan._id }, { $set: { status: 'approved', packing_started_by: null, packing_started_at: null } });
+      const undone = await service.undoApprove(groupId, plan.version, userId);
+      expect(undone.status).toBe('ready');
+      expect(undone.approved_at).toBeNull();
+    });
+
+    it.each(['sealed', 'held', 'to_unpack', 'voided'] as const)('chặn khi có kiện %s', async (status) => {
+      const plan = await approved();
+      await planModel.updateOne({ _id: plan._id }, { $set: { 'parcels.0.status': status } });
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.UNDO_APPROVE_NOT_ALLOWED,
+      });
+      expect((await service.requireActivePlan(groupId)).version).toBe(plan.version);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+    });
+
+    it('chặn sau niêm phong rồi mở lại bằng thùng hỏng dù box_consumed và sealed_at đã xóa', async () => {
+      let plan = await approved();
+      const parcel = plan.parcels[0];
+      if (!parcel) throw new Error('thiếu kiện');
+      for (const q of parcel.placements) {
+        plan = (await session.scan(groupId, parcel.parcel_no, { code: q.sku, scan_method: 'barcode' }, userId)).plan;
+      }
+      plan = (await session.seal(groupId, parcel.parcel_no, {
+        expected_version: plan.version, weight_kg: parcel.estimated_weight_g / 1000,
+      }, userId)).plan;
+      plan = (await session.unseal(groupId, parcel.parcel_no, {
+        expected_version: plan.version, reason: 'OTHER', note: 'Thùng rách', box_condition: 'damaged', rescan: true,
+      }, userId, UserRole.ADMIN)).plan;
+      expect(plan.parcels[0]).toMatchObject({ status: 'pending', box_consumed: false, sealed_at: null });
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.UNDO_APPROVE_NOT_ALLOWED,
+      });
+    });
+
+    it('chặn phiên bản cũ và gửi lặp, không ghi thêm lịch sử', async () => {
+      const plan = await approved();
+      await expect(service.undoApprove(groupId, plan.version - 1, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });
+      const undone = await service.undoApprove(groupId, plan.version, userId);
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });
+      await expect(service.undoApprove(groupId, undone.version, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+      expect((await service.requireActivePlan(groupId)).activity).toEqual(undone.activity);
+    });
+
+    it.each(['packed', 'rejected'] as const)('chặn kế hoạch %s', async (status) => {
+      const plan = await approved();
+      await planModel.updateOne({ _id: plan._id }, { $set: { status } });
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+    });
+
+    it('chặn nhóm sai trạng thái hoặc không còn đơn hoạt động', async () => {
+      const plan = await approved();
+      group.fulfillment_status = GroupFulfillmentStatus.CANCELED;
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
+      group.fulfillment_status = GroupFulfillmentStatus.APPROVED_FOR_PACKING;
+      orderGroupsService.assertHasActiveOrders.mockRejectedValueOnce(new Error('Đã hủy hết đơn'));
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toThrow('Đã hủy hết đơn');
+      expect((await service.requireActivePlan(groupId)).version).toBe(plan.version);
+    });
+
+    it('đọc và cập nhật kế hoạch/nhóm bằng cùng session', async () => {
+      const plan = await approved();
+      await service.undoApprove(groupId, plan.version, userId);
+      const query = planModel.findOne.mock.results.at(-1)?.value as { session: jest.Mock };
+      expect(query.session).toHaveBeenCalledWith(transactionSession);
+      expect(orderGroupsService.findOrderGroupById).toHaveBeenLastCalledWith(groupId, transactionSession);
+      expect(planModel.findOneAndUpdate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ version: plan.version, status: 'packing', is_active: true }), expect.anything(),
+        { session: transactionSession, returnDocument: 'after' },
+      );
+      expect(orderGroupsService.transitionFulfillmentStatus).toHaveBeenLastCalledWith(
+        groupId, GroupFulfillmentStatus.PENDING_APPROVAL, group.__v - 1, transactionSession,
+      );
+    });
+
+    it('khóa phiên bản chặn ghi khi quét/niêm phong khác vừa cập nhật kế hoạch', async () => {
+      const plan = await approved();
+      planModel.findOneAndUpdate.mockResolvedValueOnce(null);
+      orderGroupsService.transitionFulfillmentStatus.mockClear();
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });
+      expect(orderGroupsService.transitionFulfillmentStatus).not.toHaveBeenCalled();
+    });
+
+    it('transaction hủy thay đổi kế hoạch nếu chuyển nhóm thất bại', async () => {
+      const plan = await approved();
+      const before = plan.toObject();
+      transactionSession.withTransaction.mockImplementationOnce(async (work: () => Promise<unknown>) => {
+        const snapshot = planModel.docs.map((d) => ({ ...d }));
+        try {
+          return await work();
+        } catch (error) {
+          planModel.docs.splice(0, planModel.docs.length, ...snapshot);
+          throw error;
+        }
+      });
+      orderGroupsService.transitionFulfillmentStatus.mockRejectedValueOnce(new Error('Xung đột nhóm'));
+      await expect(service.undoApprove(groupId, plan.version, userId)).rejects.toThrow('Xung đột nhóm');
+      expect((await service.requireActivePlan(groupId)).toObject()).toEqual(before);
+      expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.APPROVED_FOR_PACKING);
+      expect(transactionSession.endSession).toHaveBeenCalled();
     });
   });
 
