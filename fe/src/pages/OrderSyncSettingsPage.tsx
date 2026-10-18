@@ -174,7 +174,7 @@ export function OrderSyncSettingsPage() {
   }
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <PortalTopBar
         variant={adminShell ? 'admin' : 'ops'}
         breadcrumbs={[
@@ -185,6 +185,7 @@ export function OrderSyncSettingsPage() {
           { label: vi ? 'Đồng bộ đơn' : 'Order sync' },
         ]}
       />
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto max-w-3xl space-y-4 p-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-ink-muted">
@@ -381,6 +382,7 @@ export function OrderSyncSettingsPage() {
           )}
         </section>
       </div>
-    </>
+      </div>
+    </div>
   )
 }
