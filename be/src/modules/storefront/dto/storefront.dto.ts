@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class RegisterCustomerDto {
   @IsString() @IsNotEmpty() name!: string;
@@ -27,3 +27,5 @@ export class CheckoutDto {
   @IsOptional() @IsString() customer_note?: string;
   @IsOptional() @IsString() @IsNotEmpty() client_order_id?: string;
 }
+
+export class CancelOrderDto { @IsOptional() @IsString() @MaxLength(300) reason?: string; }

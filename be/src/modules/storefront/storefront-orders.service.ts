@@ -1,5 +1,5 @@
 import { SF_ERROR_CODES, sfError } from './storefront.errors';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -179,6 +179,60 @@ export class StorefrontOrdersService {
         source: event.source,
       })),
     };
+  }
+
+  /**
+   * Khách tự hủy đơn (20/10/2026). Chỉ khi đơn còn `pending` và CHƯA đóng gói
+   * (`fulfillment_status = awaiting_packaging`) — sau đó hàng đã ra khỏi kho, phải
+   * dùng luồng trả hàng. Cổng chuyển trạng thái là 1 lệnh nguyên tử có điều kiện nên
+   * 2 lần bấm cùng lúc chỉ trả tồn đúng 1 lần. Hủy xong báo OptiPack bằng webhook;
+   * OptiPack đồng bộ lại thấy `canceled` → nhả giữ chỗ, hủy nhóm nếu hết đơn.
+   */
+  async cancel(customerId: string, id: string, reason?: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
+    }
+    const filter = { _id: new Types.ObjectId(id), customer_id: new Types.ObjectId(customerId) };
+    const cancelled = await this.orderModel.findOneAndUpdate(
+      { ...filter, status: 'pending', fulfillment_status: 'awaiting_packaging' },
+      { $set: { status: 'cancelled' } },
+      { returnDocument: 'after' },
+    );
+    if (!cancelled) {
+      const exists = await this.orderModel.exists(filter);
+      if (!exists) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
+      throw new ConflictException(
+        sfError(SF_ERROR_CODES.ORDER_NOT_CANCELLABLE, 'Đơn hàng đã được xử lý nên không thể hủy. Bạn có thể yêu cầu trả hàng sau khi nhận hàng.'),
+      );
+    }
+
+    // Trả lại phần tồn đã giữ lúc đặt (cổng nguyên tử ở trên bảo đảm chỉ chạy 1 lần).
+    const items = await this.itemModel.find({ order_id: cancelled._id }).lean();
+    for (const item of items) {
+      await this.stockModel.updateOne(
+        { variant_id: item.variant_id },
+        { $inc: { reserved_quantity: -item.quantity } },
+      );
+    }
+    await this.paymentModel.updateOne(
+      { order_id: cancelled._id, status: 'pending' },
+      { $set: { status: 'failed', failure_reason: 'Khách hủy đơn' } },
+    );
+    await this.eventModel.create({
+      order_id: cancelled._id,
+      public_order_id: cancelled.public_order_id,
+      status: 'canceled',
+      label: 'Bạn đã hủy đơn hàng',
+      reason: reason?.trim() ? reason.trim() : null,
+      occurred_at: new Date(),
+      source: 'customer',
+      idempotency_key: null,
+    });
+
+    if (cancelled.public_order_id !== null) {
+      this.webhookPublisher.notifyOrderChanged(cancelled.public_order_id, toOpenApiStatus(cancelled));
+    }
+    return this.toResponse(cancelled);
   }
 
   private toResponse(order: StorefrontOrderDocument) {

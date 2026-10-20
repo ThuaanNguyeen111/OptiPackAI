@@ -286,5 +286,9 @@ export type StorefrontOrderEventDocument = HydratedDocument<StorefrontOrderEvent
 export const StorefrontOrderEventSchema = SchemaFactory.createForClass(StorefrontOrderEvent);
 // Phục vụ: hành trình đơn của khách (GET /storefront/orders/:id) — sắp theo thời điểm xảy ra.
 StorefrontOrderEventSchema.index({ order_id: 1, occurred_at: 1 });
-// Chống ghi trùng khi đối tác gửi lại cùng sự kiện; sparse vì sự kiện do khách tự tạo không có khóa.
-StorefrontOrderEventSchema.index({ idempotency_key: 1 }, { unique: true, sparse: true });
+// Chống ghi trùng khi đối tác gửi lại cùng sự kiện. PARTIAL (không phải sparse): sự kiện do khách
+// tự tạo lưu `idempotency_key: null` và sparse vẫn lập chỉ mục null → đụng unique ở sự kiện thứ 2.
+StorefrontOrderEventSchema.index(
+  { idempotency_key: 1 },
+  { unique: true, partialFilterExpression: { idempotency_key: { $type: 'string' } } },
+);

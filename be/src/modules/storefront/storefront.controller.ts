@@ -4,7 +4,7 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CatalogService } from './catalog.service';
 import { StorefrontOrdersService } from './storefront-orders.service';
-import { AddCartItemDto, CheckoutDto, SyncCartDto } from './dto/storefront.dto';
+import { AddCartItemDto, CancelOrderDto, CheckoutDto, SyncCartDto } from './dto/storefront.dto';
 import { CustomerJwtGuard } from './customer-jwt.guard';
 import { StorefrontCartService } from './storefront-cart.service';
 
@@ -34,5 +34,6 @@ export class StorefrontController {
   @Post('cart/sync') @UseGuards(CustomerJwtGuard) syncCart(@Req() req: CustomerRequest, @Body() dto: SyncCartDto) { return this.cart.sync(req.user.customerId, dto); }
   @Post('orders/checkout') @UseGuards(CustomerJwtGuard) checkout(@Req() req: CustomerRequest, @Body() dto: CheckoutDto) { return this.orders.checkout(req.user.customerId, dto); }
   @Get('orders') @UseGuards(CustomerJwtGuard) listOrders(@Req() req: CustomerRequest) { return this.orders.list(req.user.customerId); }
+  @Post('orders/:id/cancel') @UseGuards(CustomerJwtGuard) cancelOrder(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CancelOrderDto) { return this.orders.cancel(req.user.customerId, id, dto.reason); }
   @Get('orders/:id') @UseGuards(CustomerJwtGuard) order(@Req() req: CustomerRequest, @Param('id') id: string) { return this.orders.findOne(req.user.customerId, id); }
 }
