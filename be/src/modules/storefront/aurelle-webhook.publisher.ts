@@ -25,6 +25,23 @@ export class AurelleWebhookPublisher {
   constructor(private readonly configService: ConfigService) {}
 
   notifyOrderChanged(publicOrderId: number, orderStatus: string): void {
+    this.send('order_status_changed', publicOrderId, {
+      trade_order_id: String(publicOrderId),
+      order_status: orderStatus,
+      status_update_time: Math.floor(Date.now() / 1000),
+    });
+  }
+
+  /** 20/10/2026 — khách gửi yêu cầu trả hàng: OptiPack kéo phiếu qua Open API (`/reverse/orders/get`). */
+  notifyReturnRequested(publicOrderId: number, returnId: string): void {
+    this.send('return_requested', publicOrderId, {
+      trade_order_id: String(publicOrderId),
+      return_id: returnId,
+      status_update_time: Math.floor(Date.now() / 1000),
+    });
+  }
+
+  private send(messageType: string, publicOrderId: number, data: Record<string, unknown>): void {
     const config = this.configService.get<AurelleWebhookConfig>('storefront.aurelleWebhook');
     if (!config?.url || !config.appKey || !config.appSecret) {
       this.logger.debug('Bỏ qua webhook AURELLE — thiếu URL hoặc app key/secret.');
@@ -33,13 +50,9 @@ export class AurelleWebhookPublisher {
     const body = JSON.stringify({
       message_id: randomUUID(),
       seller_id: config.sellerId,
-      message_type: 'order_status_changed',
+      message_type: messageType,
       timestamp: Date.now(),
-      data: {
-        trade_order_id: String(publicOrderId),
-        order_status: orderStatus,
-        status_update_time: Math.floor(Date.now() / 1000),
-      },
+      data,
     });
     const signature = signAurelleWebhook(config.appKey, config.appSecret, body);
 
@@ -51,7 +64,7 @@ export class AurelleWebhookPublisher {
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.warn(
-          `Gửi webhook đơn ${String(publicOrderId)} thất bại (${message}) — cron 10 phút sẽ đồng bộ bù.`,
+          `Gửi webhook ${messageType} đơn ${String(publicOrderId)} thất bại (${message}) — cron sẽ đồng bộ bù.`,
         );
       });
   }

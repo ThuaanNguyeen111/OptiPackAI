@@ -4,7 +4,8 @@ import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CatalogService } from './catalog.service';
 import { StorefrontOrdersService } from './storefront-orders.service';
-import { AddCartItemDto, CancelOrderDto, CheckoutDto, SyncCartDto } from './dto/storefront.dto';
+import { AddCartItemDto, CancelOrderDto, CheckoutDto, CreateStorefrontReturnDto, SyncCartDto } from './dto/storefront.dto';
+import { StorefrontReturnsService } from './storefront-returns.service';
 import { CustomerJwtGuard } from './customer-jwt.guard';
 import { StorefrontCartService } from './storefront-cart.service';
 
@@ -16,6 +17,7 @@ export class StorefrontController {
     private readonly catalog: CatalogService,
     private readonly orders: StorefrontOrdersService,
     private readonly cart: StorefrontCartService,
+    private readonly returns: StorefrontReturnsService,
     private readonly configService: ConfigService,
   ) {}
   @Get('settings') settings() {
@@ -35,5 +37,8 @@ export class StorefrontController {
   @Post('orders/checkout') @UseGuards(CustomerJwtGuard) checkout(@Req() req: CustomerRequest, @Body() dto: CheckoutDto) { return this.orders.checkout(req.user.customerId, dto); }
   @Get('orders') @UseGuards(CustomerJwtGuard) listOrders(@Req() req: CustomerRequest) { return this.orders.list(req.user.customerId); }
   @Post('orders/:id/cancel') @UseGuards(CustomerJwtGuard) cancelOrder(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CancelOrderDto) { return this.orders.cancel(req.user.customerId, id, dto.reason); }
+  @Post('orders/:id/returns') @UseGuards(CustomerJwtGuard) createReturn(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CreateStorefrontReturnDto) { return this.returns.create(req.user.customerId, id, dto); }
+  @Get('returns') @UseGuards(CustomerJwtGuard) listReturns(@Req() req: CustomerRequest) { return this.returns.list(req.user.customerId); }
+  @Get('returns/:id') @UseGuards(CustomerJwtGuard) returnDetail(@Req() req: CustomerRequest, @Param('id') id: string) { return this.returns.findOne(req.user.customerId, id); }
   @Get('orders/:id') @UseGuards(CustomerJwtGuard) order(@Req() req: CustomerRequest, @Param('id') id: string) { return this.orders.findOne(req.user.customerId, id); }
 }

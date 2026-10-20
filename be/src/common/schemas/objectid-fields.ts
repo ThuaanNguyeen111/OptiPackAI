@@ -180,6 +180,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   { collection: 'storefront_payments', fields: ['order_id'] },
   { collection: 'storefront_shipments', fields: ['order_id'] },
   { collection: 'storefront_order_events', fields: ['order_id'] }, // 20/10/2026 — hành trình đơn
+  { collection: 'storefront_return_requests', fields: ['customer_id', 'order_id'] }, // 20/10/2026 — khách trả hàng
 ];
 
 /** Chuỗi id hợp lệ để đổi sang ObjectId: đúng 24 ký tự hex. */

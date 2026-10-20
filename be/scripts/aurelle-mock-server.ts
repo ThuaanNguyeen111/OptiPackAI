@@ -3,13 +3,16 @@ import { LazadaProtocolClient } from '../src/modules/marketplace-integration/ada
 import { findDeveloperApp, mountDeveloperPortal, secretsMatch } from './aurelle-developer-portal';
 import {
   connectStorefrontStore,
+  applyReturnUpdate,
   applyStatusUpdate,
   getOrderItems,
   listOrders,
+  listReturns,
   listProducts,
   setSellableQuantity,
 } from './aurelle-portal/storefront-store';
 import { isPartnerStatus } from '../src/modules/storefront/aurelle-status-update';
+import { isPartnerReturnStatus } from '../src/modules/storefront/aurelle-return-api';
 import { DEFAULT_AURELLE_SELLER_ID } from '../src/modules/storefront/aurelle-open-api.mapper';
 
 /**
@@ -316,6 +319,59 @@ app.post('/rest/order/status/update', async (req: Request, res: Response) => {
       return;
     }
     res.json(envelope({ order_id: result.order_id, status: result.status, updated_at: result.updated_at }));
+  } catch (error) {
+    sendServerError(res, error);
+  }
+});
+
+// 20/10/2026 — Trả hàng do khách khởi tạo trên website (mục 13 #4). OptiPack kéo yêu cầu
+// (thường lọc status=requested) rồi báo kết quả bằng /reverse/order/update.
+app.get('/rest/reverse/orders/get', async (req: Request, res: Response) => {
+  if (!requireValidSignature(req, res)) return;
+  if (!requireValidAccessToken(req, res)) return;
+  const after = queryString(req, 'update_after');
+  if (after && Number.isNaN(Date.parse(after))) {
+    res.status(400).json(errorEnvelope('InvalidParameter', 'update_after phải là ISO 8601.'));
+    return;
+  }
+  try {
+    const data = await listReturns({
+      status: queryString(req, 'status'),
+      updateAfter: after ? new Date(after) : undefined,
+      offset: queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER),
+      limit: queryInt(req, 'limit', 50, 100) || 50,
+    });
+    res.json(envelope(data));
+  } catch (error) {
+    sendServerError(res, error);
+  }
+});
+
+app.post('/rest/reverse/order/update', async (req: Request, res: Response) => {
+  if (!requireValidSignature(req, res)) return;
+  if (!requireValidAccessToken(req, res)) return;
+  const body = req.body as Record<string, unknown>;
+  const returnId = typeof body.return_id === 'string' ? body.return_id : '';
+  const eventTime = typeof body.event_time === 'string' ? new Date(body.event_time) : null;
+  const idempotencyKey = typeof body.idempotency_key === 'string' ? body.idempotency_key : '';
+  if (!returnId || !isPartnerReturnStatus(body.status) || !eventTime || Number.isNaN(eventTime.getTime()) || !idempotencyKey) {
+    res.status(400).json(errorEnvelope('InvalidParameter', 'Thiếu/sai return_id, status, event_time (ISO 8601) hoặc idempotency_key.'));
+    return;
+  }
+  try {
+    const result = await applyReturnUpdate({
+      returnId,
+      status: body.status,
+      eventTime,
+      rmaCode: typeof body.rma_code === 'string' ? body.rma_code : null,
+      decisionNote: typeof body.decision_note === 'string' ? body.decision_note : null,
+      idempotencyKey,
+    });
+    if (!result) {
+      res.status(404).json(errorEnvelope('ResourceNotFound', `Không có yêu cầu trả hàng "${returnId}".`));
+      return;
+    }
+    res.json(envelope({ return_id: result.return_id, status: result.status, updated_at: result.updated_at }));
   } catch (error) {
     sendServerError(res, error);
   }

@@ -76,7 +76,7 @@ describe('Schema — field id phải là ObjectId thật, không phải Mixed', 
       .filter((p) => !p.startsWith('(sub:'))
       .sort();
     expect(actualTopLevel).toEqual([...expected].sort());
-    expect(expected.size).toBe(94); // +1 storefront_order_events.order_id, +2 marketplace_status_outbox.order_group_id/shipment_id (20/10/2026)
+    expect(expected.size).toBe(96); // +2 storefront_return_requests.customer_id/order_id, +1 storefront_order_events.order_id, +2 marketplace_status_outbox.order_group_id/shipment_id (20/10/2026)
     // 91 trước đó: // +10 lô hàng/phiếu nhập, +1 order_sync_settings.updated_by (15/10/2026); // +1 order_groups.manual_link_id (13/10/2026); +2 shipments.carrier_parcels.order_id, carrier_webhook_events.shipment_id (14/10/2026)
   });
 });
