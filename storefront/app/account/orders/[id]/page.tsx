@@ -7,9 +7,11 @@ import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import { OrderTimeline } from '@/components/order/order-timeline'
-import { ApiError, cancelOrder, getOrder } from '@/lib/api-client'
+import { ReturnRequestForm } from '@/components/order/return-request-form'
+import { ApiError, cancelOrder, getOrder, getReturns } from '@/lib/api-client'
 import { getFulfillmentStatusLabel, getOrderStatusLabel, getPaymentMethodLabel, getPaymentStatusLabel } from '@/lib/order-labels'
-import type { StorefrontOrderDetail } from '@/types/storefront'
+import { OPEN_RETURN_STATUSES } from '@/lib/order-labels'
+import type { StorefrontOrderDetail, StorefrontReturn } from '@/types/storefront'
 
 function formatVnd(value: number) {
   return `${value.toLocaleString('vi-VN')}₫`
@@ -29,6 +31,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       }))
   }, [params, router])
 
+  const [orderReturns, setOrderReturns] = useState<StorefrontReturn[]>([])
+  const [showReturnForm, setShowReturnForm] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [cancelError, setCancelError] = useState('')
   // Chỉ hủy được khi đơn chưa đóng gói — sau đó hàng đã rời kho, phải dùng luồng trả hàng.
@@ -47,6 +51,18 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
       setCancelling(false)
     }
   }
+
+  // Yêu cầu trả hàng đã gửi cho đơn này (nếu có) — chỉ cần khi đơn đã giao.
+  const orderId = order?.id
+  const delivered = order?.fulfillmentStatus === 'delivered'
+  useEffect(() => {
+    if (!orderId || !delivered) return
+    getReturns()
+      .then((all) => setOrderReturns(all.filter((item) => item.orderId === orderId)))
+      .catch(() => setOrderReturns([]))
+  }, [orderId, delivered])
+  const openReturn = orderReturns.find((item) => OPEN_RETURN_STATUSES.includes(item.status))
+  const canReturn = delivered && !openReturn
 
   const subtotal = order?.subtotal ?? order?.items.reduce((sum, item) => sum + item.line_total, 0) ?? 0
   const discount = order?.discountAmount ?? 0
@@ -110,6 +126,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <button className="button order-cancel-button" disabled={cancelling} onClick={() => void handleCancel()} type="button">{cancelling ? 'Đang hủy...' : 'Hủy đơn hàng'}</button>
             {cancelError && <p className="error" role="alert">{cancelError}</p>}
           </div>}
+
+          {delivered && <div className="order-cancel-box">
+            {openReturn
+              ? <p className="return-hint">Bạn đã gửi yêu cầu trả hàng cho đơn này — <Link href={`/account/returns/${openReturn.id}`}>{openReturn.statusLabel}</Link></p>
+              : canReturn && !showReturnForm && <button className="button order-cancel-button" onClick={() => setShowReturnForm(true)} type="button">Yêu cầu trả hàng</button>}
+            {!openReturn && orderReturns.length > 0 && <Link href="/account/returns">Xem các yêu cầu trả hàng trước đây →</Link>}
+          </div>}
+          {canReturn && showReturnForm && <ReturnRequestForm
+            orderId={order.id}
+            items={order.items}
+            onCancel={() => setShowReturnForm(false)}
+            onCreated={(created) => { setShowReturnForm(false); router.push(`/account/returns/${created.id}`) }}
+          />}
 
           <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} />
 

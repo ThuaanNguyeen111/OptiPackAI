@@ -39,3 +39,20 @@ export function getPaymentMethodLabel(method: string | null | undefined) {
 export function getFulfillmentStatusLabel(status: string) {
   return fulfillmentStatusLabels[status] ?? status
 }
+
+export const RETURN_REASON_OPTIONS = [
+  { value: 'size_not_fit', label: 'Không vừa size' },
+  { value: 'defective', label: 'Hàng lỗi / hư hỏng' },
+  { value: 'wrong_item', label: 'Giao sai sản phẩm' },
+  { value: 'not_as_described', label: 'Không đúng mô tả' },
+  { value: 'changed_mind', label: 'Đổi ý, không muốn mua nữa' },
+  { value: 'other', label: 'Lý do khác' },
+] as const
+
+export const RETURN_TYPE_LABELS: Record<string, string> = {
+  return_refund: 'Trả hàng và hoàn tiền',
+  refund_only: 'Hoàn tiền, không cần trả hàng',
+}
+
+/** Yêu cầu còn đang xử lý — đơn chưa gửi thêm yêu cầu mới được. */
+export const OPEN_RETURN_STATUSES = ['requested', 'approved', 'received']

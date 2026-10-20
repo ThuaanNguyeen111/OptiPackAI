@@ -115,3 +115,33 @@ export type StorefrontOrderDetail = StorefrontOrder & {
   }
   items: StorefrontOrderItem[]
 }
+
+export type StorefrontReturnType = 'return_refund' | 'refund_only'
+
+export type StorefrontReturnStatus = 'requested' | 'approved' | 'rejected' | 'received' | 'closed' | 'canceled'
+
+export type StorefrontReturnItem = {
+  sku: string
+  quantity: number
+  reasonCode: string
+  reasonLabel: string
+}
+
+export type StorefrontReturn = {
+  id: string
+  orderId: string
+  orderNumber: string
+  type: StorefrontReturnType
+  status: StorefrontReturnStatus
+  statusLabel: string
+  items: StorefrontReturnItem[]
+  customerNote: string
+  rmaCode: string | null
+  decisionNote: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type StorefrontReturnDetail = StorefrontReturn & {
+  events: { label: string; reason: string | null; occurredAt: string; source: 'partner' | 'customer' | 'system' }[]
+}

@@ -1,4 +1,4 @@
-import type { AdminProduct, Category, Customer, Product, SaveAdminProduct, StorefrontOrder, StorefrontOrderDetail } from '@/types/storefront'
+import type { AdminProduct, Category, Customer, Product, SaveAdminProduct, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -82,6 +82,18 @@ export async function getOrder(id: string) {
 
 export async function cancelOrder(id: string, reason?: string) {
   return request<StorefrontOrder>(`/storefront/orders/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason?.trim() || undefined }) })
+}
+
+export async function createReturn(orderId: string, input: { type: StorefrontReturnType; items: { sku: string; quantity: number; reason_code: string }[]; customerNote?: string }) {
+  return request<StorefrontReturn>(`/storefront/orders/${encodeURIComponent(orderId)}/returns`, { method: 'POST', body: JSON.stringify({ type: input.type, items: input.items, customer_note: input.customerNote?.trim() || undefined }) })
+}
+
+export async function getReturns() {
+  return request<StorefrontReturn[]>('/storefront/returns')
+}
+
+export async function getReturn(id: string) {
+  return request<StorefrontReturnDetail>(`/storefront/returns/${encodeURIComponent(id)}`)
 }
 
 export async function getCart() {
