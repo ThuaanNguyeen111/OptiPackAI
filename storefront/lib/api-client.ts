@@ -80,6 +80,10 @@ export async function getOrder(id: string) {
   return request<StorefrontOrderDetail>(`/storefront/orders/${encodeURIComponent(id)}`)
 }
 
+export async function cancelOrder(id: string, reason?: string) {
+  return request<StorefrontOrder>(`/storefront/orders/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason?.trim() || undefined }) })
+}
+
 export async function getCart() {
   return request<{ items: import('@/types/storefront').CartItem[] }>('/storefront/cart')
 }

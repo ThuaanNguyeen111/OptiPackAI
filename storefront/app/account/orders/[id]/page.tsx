@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import { OrderTimeline } from '@/components/order/order-timeline'
-import { ApiError, getOrder } from '@/lib/api-client'
+import { ApiError, cancelOrder, getOrder } from '@/lib/api-client'
 import { getFulfillmentStatusLabel, getOrderStatusLabel, getPaymentMethodLabel, getPaymentStatusLabel } from '@/lib/order-labels'
 import type { StorefrontOrderDetail } from '@/types/storefront'
 
@@ -28,6 +28,25 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
         setError(err instanceof Error ? err.message : 'Không thể tải chi tiết đơn hàng')
       }))
   }, [params, router])
+
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelError, setCancelError] = useState('')
+  // Chỉ hủy được khi đơn chưa đóng gói — sau đó hàng đã rời kho, phải dùng luồng trả hàng.
+  const canCancel = order?.status === 'pending' && order.fulfillmentStatus === 'awaiting_packaging'
+
+  async function handleCancel() {
+    if (!order || !window.confirm('Bạn chắc chắn muốn hủy đơn hàng này?')) return
+    setCancelling(true)
+    setCancelError('')
+    try {
+      await cancelOrder(order.id)
+      setOrder(await getOrder(order.id)) // tải lại để thấy hành trình mới
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Không thể hủy đơn hàng')
+    } finally {
+      setCancelling(false)
+    }
+  }
 
   const subtotal = order?.subtotal ?? order?.items.reduce((sum, item) => sum + item.line_total, 0) ?? 0
   const discount = order?.discountAmount ?? 0
@@ -86,6 +105,11 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <div><span>Trạng thái thanh toán</span><strong>{getPaymentStatusLabel(order.paymentStatus)}</strong></div>
             <div><span>Giao hàng</span><strong>{getFulfillmentStatusLabel(order.fulfillmentStatus)}</strong></div>
           </div>
+
+          {canCancel && <div className="order-cancel-box">
+            <button className="button order-cancel-button" disabled={cancelling} onClick={() => void handleCancel()} type="button">{cancelling ? 'Đang hủy...' : 'Hủy đơn hàng'}</button>
+            {cancelError && <p className="error" role="alert">{cancelError}</p>}
+          </div>}
 
           <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} />
 

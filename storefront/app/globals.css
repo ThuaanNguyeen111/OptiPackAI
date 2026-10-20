@@ -266,3 +266,7 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 .order-timeline strong { font-size:14px; font-weight:500; }
 .order-timeline p { margin:4px 0 0; color:var(--muted); font-size:12px; }
 .order-timeline time { display:block; margin-top:4px; color:var(--muted); font-size:11px; letter-spacing:.04em; }
+
+.order-cancel-box { margin-top:24px; display:grid; gap:10px; justify-items:start; }
+.order-cancel-button { background:transparent; color:var(--ink); border:1px solid var(--ink); }
+.order-cancel-button:disabled { opacity:.5; cursor:not-allowed; }
