@@ -33,6 +33,7 @@ import { MasterSkusModule } from './modules/master-skus/master-skus.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { StorefrontModule } from './modules/storefront/storefront.module';
 import { MarketplaceWebhooksModule } from './modules/marketplace-webhooks/marketplace-webhooks.module';
+import { MarketplaceWritebackModule } from './modules/marketplace-writeback/marketplace-writeback.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CarriersModule } from './modules/carriers/carriers.module';
@@ -83,6 +84,7 @@ import { CarriersModule } from './modules/carriers/carriers.module';
     StorefrontModule,
     // MỚI (29/09/2026) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
     MarketplaceWebhooksModule,
+    MarketplaceWritebackModule,
     ShippingModule,
     DocumentsModule,
     CarriersModule, // C2 (08/10/2026) — đơn vị vận chuyển (GHN / mock)

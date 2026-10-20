@@ -7,6 +7,10 @@ import {
   StorefrontCounterDocument,
   StorefrontInventoryStock,
   StorefrontInventoryStockDocument,
+  StorefrontOrderEvent,
+  StorefrontOrderEventDocument,
+  StorefrontShipment,
+  StorefrontShipmentDocument,
   StorefrontOrder,
   StorefrontOrderDocument,
   StorefrontOrderItem,
@@ -34,6 +38,8 @@ export class StorefrontOrdersService {
     @InjectModel(StorefrontProduct.name) private readonly productModel: Model<StorefrontProductDocument>,
     @InjectModel(StorefrontInventoryStock.name) private readonly stockModel: Model<StorefrontInventoryStockDocument>,
     @InjectModel(StorefrontCounter.name) private readonly counterModel: Model<StorefrontCounterDocument>,
+    @InjectModel(StorefrontOrderEvent.name) private readonly eventModel: Model<StorefrontOrderEventDocument>,
+    @InjectModel(StorefrontShipment.name) private readonly shipmentModel: Model<StorefrontShipmentDocument>,
     private readonly webhookPublisher: AurelleWebhookPublisher,
   ) {}
 
@@ -151,15 +157,27 @@ export class StorefrontOrdersService {
       ? await this.orderModel.findOne({ _id: id, customer_id: new Types.ObjectId(customerId) })
       : null;
     if (!order) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
-    const [items, payment] = await Promise.all([
+    const [items, payment, shipment, events] = await Promise.all([
       this.itemModel.find({ order_id: order._id }).lean(),
       this.paymentModel.findOne({ order_id: order._id }).lean(),
+      this.shipmentModel.findOne({ order_id: order._id }).lean(),
+      // Hành trình: sự kiện đối tác (đóng gói, giao...) theo thứ tự thời gian.
+      this.eventModel.find({ order_id: order._id }).sort({ occurred_at: 1 }).limit(100).lean(),
     ]);
     return {
       ...this.toResponse(order),
       shippingAddress: order.shipping_address_snapshot,
       paymentMethod: payment?.payment_method ?? null,
       items,
+      trackingCode: shipment?.tracking_number && shipment.tracking_number.length > 0 ? shipment.tracking_number : null,
+      tripCode: shipment?.trip_code ?? null,
+      events: events.map((event) => ({
+        status: event.status,
+        label: event.label,
+        reason: event.reason,
+        occurredAt: event.occurred_at,
+        source: event.source,
+      })),
     };
   }
 

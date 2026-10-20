@@ -122,6 +122,10 @@ export function toOpenApiStatus(order: Pick<StorefrontOrderLike, 'status' | 'pay
       return 'shipped';
     case 'delivered':
       return 'delivered';
+    case 'failed_delivery':
+      return 'failed_delivery';
+    case 'shipped_back':
+      return 'shipped_back';
     case 'returned':
       return 'returned';
     default:

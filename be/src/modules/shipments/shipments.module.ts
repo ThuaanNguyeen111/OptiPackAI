@@ -20,6 +20,10 @@ import { ReturnsController } from './returns.controller';
 import { ShippingModule } from '../shipping/shipping.module';
 import { CarrierWebhookEvent, CarrierWebhookEventSchema } from './schemas/carrier-webhook-event.schema';
 import { CarrierWebhookController } from './carrier-webhook.controller';
+import {
+  MarketplaceStatusOutbox,
+  MarketplaceStatusOutboxSchema,
+} from '../marketplace-writeback/schemas/status-outbox.schema';
 
 // G1 (27/09/2026). Phụ thuộc 1 chiều: shipments -> order-groups. OrderGroupsModule
 // KHÔNG import module này (tránh vòng).
@@ -34,6 +38,7 @@ import { CarrierWebhookController } from './carrier-webhook.controller';
       { name: OrderGroup.name, schema: OrderGroupSchema }, // đổi hàng — gắn nhãn nhóm đơn thay thế
       { name: ProductMaster.name, schema: ProductMasterSchema }, // đổi hàng — kiểm hàng đổi sang
       { name: CarrierWebhookEvent.name, schema: CarrierWebhookEventSchema }, // C5 — chống xử lý trùng sự kiện hãng
+      { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
     ]),
     OrderGroupsModule,
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)

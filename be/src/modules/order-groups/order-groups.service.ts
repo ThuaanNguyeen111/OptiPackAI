@@ -16,6 +16,14 @@ import { Injectable, Logger, HttpStatus, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
+import {
+  MarketplaceStatusOutbox,
+  MarketplaceStatusOutboxDocument,
+} from '../marketplace-writeback/schemas/status-outbox.schema';
+import {
+  enqueueStatusPush,
+  writebackStatusForGroup,
+} from '../marketplace-writeback/status-outbox.util';
 import { notPackableStatuses, orderSyncPolicy } from '../orders/order-sync-policy';
 import { StockLotLedger, fifoDateOf, netLotsInHand, takeFromLots } from '../warehouse/stock-lot.ledger';
 import { OrderGroup, OrderGroupDocument } from './schemas/order-group.schema';
@@ -166,6 +174,9 @@ export class OrderGroupsService {
     // @Optional: unit test cũ không đăng ký model → sổ lô no-op, hành vi như trước.
     @Optional() @InjectModel(StockLot.name)
     stockLotModel?: Model<StockLotDocument>,
+    // 20/10/2026 — hàng đợi ghi ngược trạng thái lên sàn (AURELLE). @Optional: spec cũ không cần.
+    @Optional() @InjectModel(MarketplaceStatusOutbox.name)
+    private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
   ) {
     this.lots = new StockLotLedger(stockLotModel);
   }
@@ -1060,6 +1071,15 @@ export class OrderGroupsService {
     this.logger.log(
       `Order Group ${groupId}: ${group.fulfillment_status} -> ${targetStatus} (version ${String(expectedVersion)} -> ${String(expectedVersion + 1)}).`,
     );
+    // 20/10/2026 — đóng gói xong: xếp hàng báo sàn (cùng transaction nếu có session).
+    const writebackStatus = writebackStatusForGroup(targetStatus);
+    if (writebackStatus) {
+      await enqueueStatusPush(
+        this.statusOutboxModel,
+        { orderGroupId: updated._id, status: writebackStatus, discriminator: updated.__v },
+        session,
+      );
+    }
     // K5 — lấy hàng xong: phần giữ chỗ chưa quét tới (thiếu hàng/bỏ bớt) được nhả cho đơn khác.
     if (targetStatus === GroupFulfillmentStatus.PICKED && !session)
       await this.releaseReservation(groupId);

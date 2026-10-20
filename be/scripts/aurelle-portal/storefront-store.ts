@@ -13,6 +13,12 @@ import {
   nextPublicOrderId,
   type CounterCollection,
 } from '../../src/modules/storefront/storefront-counter.util';
+import {
+  applyPartnerStatusUpdate,
+  type MinimalCollection,
+  type StatusUpdateInput,
+  type StatusUpdateResult,
+} from '../../src/modules/storefront/aurelle-status-update';
 import type {
   LazadaOrderItemRaw,
   LazadaOrderRaw,
@@ -193,4 +199,20 @@ export async function setSellableQuantity(sellerSku: string, sellable: number): 
     { upsert: true },
   );
   return true;
+}
+
+/**
+ * Đối tác (OptiPack) báo trạng thái đơn: ghi `fulfillment_status`, mã vận đơn và
+ * hành trình (`storefront_order_events`) — khách thấy ngay ở trang "Đơn của tôi".
+ * null = không có đơn với `public_order_id` đó.
+ */
+export async function applyStatusUpdate(input: StatusUpdateInput): Promise<StatusUpdateResult | null> {
+  return applyPartnerStatusUpdate(
+    {
+      orders: db().collection('storefront_orders') as unknown as MinimalCollection,
+      shipments: db().collection('storefront_shipments') as unknown as MinimalCollection,
+      events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+    },
+    input,
+  );
 }

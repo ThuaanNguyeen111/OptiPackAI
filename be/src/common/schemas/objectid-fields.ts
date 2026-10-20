@@ -79,6 +79,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   { collection: 'carrier_webhook_events', fields: ['shipment_id'] }, // C5 (14/10/2026)
   { collection: 'shipment_events', fields: ['shipment_id', 'order_group_id'] },
+  { collection: 'marketplace_status_outbox', fields: ['order_group_id', 'shipment_id'] }, // 20/10/2026 — ghi ngược trạng thái
   {
     collection: 'return_requests',
     fields: [
@@ -178,6 +179,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   { collection: 'storefront_payments', fields: ['order_id'] },
   { collection: 'storefront_shipments', fields: ['order_id'] },
+  { collection: 'storefront_order_events', fields: ['order_id'] }, // 20/10/2026 — hành trình đơn
 ];
 
 /** Chuỗi id hợp lệ để đổi sang ObjectId: đúng 24 ký tự hex. */
