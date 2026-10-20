@@ -18,14 +18,26 @@ export type StatusOutboxState = 'pending' | 'sent' | 'failed' | 'skipped';
   timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' },
 })
 export class MarketplaceStatusOutbox {
+  /** `order_status` (mặc định, cả dòng cũ) hoặc `return_status` (kết quả xử lý phiếu trả hàng của khách). */
+  @Prop({ type: String, enum: ['order_status', 'return_status'], default: 'order_status' })
+  kind!: 'order_status' | 'return_status';
+
   @Prop({ type: SchemaTypes.ObjectId, required: true })
   order_group_id!: Types.ObjectId;
+
+  /** Phiếu trả hàng gây ra sự kiện (chỉ `kind = return_status`). */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  return_request_id!: Types.ObjectId | null;
+
+  /** Ghi chú kèm theo (lý do từ chối/hủy phiếu trả hàng). */
+  @Prop({ type: String, default: null })
+  note!: string | null;
 
   /** Vận đơn gây ra sự kiện (null với sự kiện chỉ ở mức nhóm, VD đóng gói xong). */
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   shipment_id!: Types.ObjectId | null;
 
-  /** Trạng thái theo từ vựng API AURELLE: packed|shipped|delivered|failed_delivery|shipped_back|returned. */
+  /** order_status: packed|shipped|delivered|failed_delivery|shipped_back|returned. return_status: approved|rejected|received|closed|canceled. */
   @Prop({ type: String, required: true })
   status!: string;
 

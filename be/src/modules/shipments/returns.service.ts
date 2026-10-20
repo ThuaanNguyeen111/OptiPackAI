@@ -3,7 +3,7 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -21,6 +21,40 @@ import { OrderStatus } from '../orders/enums/order-status.enum';
 import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-group.schema';
 import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { RETURN_ERROR_CODES } from './returns.errors';
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
+import type { MarketplaceReturnRaw } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
+import {
+  MarketplaceStatusOutbox,
+  MarketplaceStatusOutboxDocument,
+} from '../marketplace-writeback/schemas/status-outbox.schema';
+import { enqueueStatusPush, writebackStatusForReturn } from '../marketplace-writeback/status-outbox.util';
+
+/** Tham số riêng khi phiếu do KHÁCH gửi trên sàn (không phải Admin đóng vai khách). */
+export interface MarketplaceReturnExtra {
+  source?: 'simulated' | 'marketplace';
+  /** Id yêu cầu bên sàn — chống tạo trùng phiếu. */
+  externalRef?: string;
+  /** Đơn gốc của khách: số lượng được trả tính theo ĐƠN này, không phải cả nhóm gộp nhiều đơn. */
+  orderId?: Types.ObjectId;
+  /** Số lượng đã mua theo SKU của đơn gốc (bỏ qua việc đọc cả nhóm, vốn đòi hồ sơ đóng gói). */
+  bought?: Map<string, number>;
+}
+
+export type MarketplaceReturnOutcome =
+  | { outcome: 'created'; rma: ReturnRequestDocument }
+  | { outcome: 'exists' }
+  | { outcome: 'order_not_ready' }
+  | { outcome: 'busy'; reason: string }
+  | { outcome: 'rejected'; reason: string };
+
+const KNOWN_REASONS: readonly string[] = Object.values(ReturnReason);
+
+/** Lỗi nghiệp vụ khiến yêu cầu của khách KHÔNG BAO GIỜ hợp lệ → tự từ chối kèm lý do. Lỗi khác (dữ liệu/hạ tầng) thử lại sau. */
+const AUTO_REJECT_CODES: readonly string[] = [
+  RETURN_ERROR_CODES.ORDER_NOT_DELIVERED,
+  RETURN_ERROR_CODES.WINDOW_EXPIRED,
+  RETURN_ERROR_CODES.INVALID_ITEMS,
+];
 
 /** (09/10/2026) Số phiếu tối đa đọc cho danh sách cách ly. */
 const QUARANTINE_MAX_RETURNS = 200;
@@ -54,6 +88,8 @@ export class ReturnsService {
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     @InjectModel(OrderGroup.name) private readonly orderGroupModel: Model<OrderGroupDocument>,
     @InjectModel(ProductMaster.name) private readonly productMasterModel: Model<ProductMasterDocument>,
+    // 20/10/2026 — báo ngược kết quả xử lý phiếu cho khách trên sàn (AURELLE).
+    @Optional() @InjectModel(MarketplaceStatusOutbox.name) private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
   ) {}
 
   async get(id: string): Promise<ReturnRequestDocument> {
@@ -113,7 +149,7 @@ export class ReturnsService {
   }
 
   /** [Admin — đóng vai khách] Giả lập khách yêu cầu trả hàng. */
-  async createSimulated(dto: CreateReturnDto, actorId: string): Promise<ReturnRequestDocument> {
+  async createSimulated(dto: CreateReturnDto, actorId: string, extra: MarketplaceReturnExtra = {}): Promise<ReturnRequestDocument> {
     const group = await this.orderGroupsService.findOrderGroupById(dto.order_group_id);
     if (group.fulfillment_status !== GroupFulfillmentStatus.DELIVERED) {
       this.fail(RETURN_ERROR_CODES.ORDER_NOT_DELIVERED, `Nhóm đơn đang "${group.fulfillment_status}" — chỉ trả hàng được khi đã giao thành công.`, HttpStatus.CONFLICT);
@@ -124,7 +160,7 @@ export class ReturnsService {
     const shipment = await this.shipmentModel.findOne({ order_group_id: group._id, direction: 'forward' });
     const earlier = await this.returnModel
       .find({ order_group_id: group._id })
-      .select('items status delivered_at_snapshot')
+      .select('items status delivered_at_snapshot source_order_id')
       .lean();
     const deliveredAt = shipment?.delivered_at
       ?? earlier.find((r) => r.delivered_at_snapshot)?.delivered_at_snapshot
@@ -134,11 +170,15 @@ export class ReturnsService {
       this.fail(RETURN_ERROR_CODES.WINDOW_EXPIRED, `Đã quá ${String(RETURN_WINDOW_DAYS)} ngày kể từ khi giao — hết hạn trả hàng.`, HttpStatus.CONFLICT, { deliveredAt });
     }
 
-    const bought = new Map((await this.orderGroupsService.getPackableItemsForGroup(dto.order_group_id)).items.map((i) => [i.sku, i.quantity]));
+    const bought = extra.bought
+      ? new Map(extra.bought)
+      : new Map((await this.orderGroupsService.getPackableItemsForGroup(dto.order_group_id)).items.map((i) => [i.sku, i.quantity]));
     // (09/10/2026) Trừ số đã trả/hoàn ở các phiếu trước (trừ phiếu bị từ chối/hủy) —
     // trước đây so với toàn bộ số đã mua nên cùng 1 món trả được nhiều lần.
     for (const r of earlier) {
       if (r.status === ReturnStatus.REJECTED || r.status === ReturnStatus.CANCELED) continue;
+      // Phiếu của khách theo từng ĐƠN: chỉ trừ số đã trả của chính đơn đó (nhóm có thể gộp nhiều đơn).
+      if (extra.orderId && !r.source_order_id?.equals(extra.orderId)) continue;
       for (const it of r.items) bought.set(it.seller_sku, (bought.get(it.seller_sku) ?? 0) - it.quantity);
     }
     const seen = new Set<string>();
@@ -169,7 +209,9 @@ export class ReturnsService {
         order_group_id: group._id,
         type: dto.type,
         exchange_items: dto.type === ReturnType.EXCHANGE ? exchangeItems : [],
-        source: 'simulated',
+        source: extra.source ?? 'simulated',
+        external_ref: extra.externalRef ?? null,
+        source_order_id: extra.orderId ?? null,
         status: ReturnStatus.REQUESTED,
         platform: group.platform,
         shop_id: group.shop_id,
@@ -193,6 +235,63 @@ export class ReturnsService {
       this.logger.warn('Gửi thông báo yêu cầu trả hàng thất bại (không ảnh hưởng phiếu).', error);
     }
     return doc;
+  }
+
+  /**
+   * 20/10/2026 — Khách gửi yêu cầu trả hàng trên sàn (AURELLE): đổi yêu cầu bên sàn thành phiếu RMA.
+   * Số lượng được trả tính theo ĐƠN gốc của khách (không phải cả nhóm gộp nhiều đơn).
+   * Kết quả: `exists` (đã có phiếu), `order_not_ready` (đơn chưa về OptiPack — thử lại lượt sau),
+   * `busy` (nhóm đang có phiếu khác chưa xong — thử lại lượt sau), `rejected` (không đủ điều kiện —
+   * caller báo từ chối kèm lý do để khách không kẹt ở "đang chờ"), `created`.
+   */
+  async createFromMarketplace(
+    platform: MarketplacePlatform,
+    shopId: string,
+    raw: MarketplaceReturnRaw,
+  ): Promise<MarketplaceReturnOutcome> {
+    const externalRef = raw.return_id;
+    if (await this.returnModel.exists({ platform, external_ref: externalRef })) return { outcome: 'exists' };
+
+    const order = await this.orderModel
+      .findOne({ platform, shop_id: shopId, platform_order_id: String(raw.order_id) })
+      .select('items consolidated_group_id')
+      .lean();
+    if (!order?.consolidated_group_id) return { outcome: 'order_not_ready' };
+
+    const bought = new Map<string, number>();
+    for (const item of order.items) {
+      if (item.status === OrderStatus.CANCELED) continue;
+      bought.set(item.sku, (bought.get(item.sku) ?? 0) + item.quantity);
+    }
+
+    const dto: CreateReturnDto = {
+      order_group_id: order.consolidated_group_id.toString(),
+      type: raw.type === 'refund_only' ? ReturnType.REFUND_ONLY : ReturnType.RETURN_REFUND,
+      items: raw.items.map((item) => ({
+        seller_sku: item.seller_sku,
+        quantity: item.quantity,
+        reason_code: (KNOWN_REASONS.includes(item.reason_code) ? item.reason_code : ReturnReason.OTHER) as ReturnReason,
+      })),
+      customer_note: raw.customer_note ? raw.customer_note : undefined,
+    };
+    try {
+      const rma = await this.createSimulated(dto, `${platform}:${externalRef}`, {
+        source: 'marketplace',
+        externalRef,
+        orderId: order._id,
+        bought,
+      });
+      return { outcome: 'created', rma };
+    } catch (error: unknown) {
+      if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 11000) {
+        return { outcome: 'exists' }; // webhook và cron kéo bù chạy trùng nhau
+      }
+      if (error instanceof AppException) {
+        if (error.errorCode === RETURN_ERROR_CODES.OPEN_EXISTS) return { outcome: 'busy', reason: error.message };
+        if (AUTO_REJECT_CODES.includes(error.errorCode)) return { outcome: 'rejected', reason: error.message };
+      }
+      throw error;
+    }
   }
 
   /** [Store Owner] Duyệt. Hoàn tiền không cần trả hàng -> đóng luôn. Người tạo phiếu không tự duyệt. */
@@ -243,7 +342,7 @@ export class ReturnsService {
     const rma = await this.get(id);
     return this.runTx(async (session) => {
       const updated = await this.move(rma, expectedVersion, ReturnStatus.AWAITING_RECEIPT, ReturnStatus.RECEIVED, { received_by: actorId }, session);
-      if (rma.type === ReturnType.RETURN_REFUND && rma.source === 'simulated') {
+      if (rma.type === ReturnType.RETURN_REFUND && rma.source !== 'failed_delivery') {
         await this.updateReturnGroup(rma, GroupFulfillmentStatus.RETURNED, session);
       } else {
         const bought = (await this.orderGroupsService.getPackableItemsForGroup(rma.order_group_id.toString())).items;
@@ -446,14 +545,14 @@ export class ReturnsService {
     target: GroupFulfillmentStatus,
     session: ClientSession,
   ): Promise<void> {
-    if (rma.type !== ReturnType.RETURN_REFUND || rma.source !== 'simulated') return;
+    if (rma.type !== ReturnType.RETURN_REFUND || rma.source === 'failed_delivery') return;
     const groupId = rma.order_group_id.toString();
     const bought = (await this.orderGroupsService.getPackableItemsForGroup(groupId)).items;
     const earlier = await this.returnModel.find({
       order_group_id: rma.order_group_id,
       _id: { $ne: rma._id },
       type: ReturnType.RETURN_REFUND,
-      source: 'simulated',
+      source: { $ne: 'failed_delivery' },
       status: ReturnStatus.CLOSED,
     }).select('items').session(session).lean();
     const quantities = new Map<string, number>();
@@ -500,6 +599,23 @@ export class ReturnsService {
       { returnDocument: 'after', session },
     );
     if (!updated) this.fail(RETURN_ERROR_CODES.STATE_CONFLICT, 'Phiếu vừa được người khác thay đổi — tải lại rồi thử lại.', HttpStatus.CONFLICT, { expectedVersion });
+    // 20/10/2026 — phiếu do khách gửi trên sàn: xếp hàng báo kết quả (cùng transaction nếu có session).
+    if (updated.source === 'marketplace') {
+      const writebackStatus = writebackStatusForReturn(to);
+      if (writebackStatus) {
+        await enqueueStatusPush(
+          this.statusOutboxModel,
+          {
+            orderGroupId: updated.order_group_id,
+            returnRequestId: updated._id,
+            status: writebackStatus,
+            note: typeof set.decision_note === 'string' ? set.decision_note : null,
+            discriminator: updated.__v,
+          },
+          session,
+        );
+      }
+    }
     return updated;
   }
 

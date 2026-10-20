@@ -7,6 +7,7 @@ import {
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { OrdersModule } from '../orders/orders.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { ShipmentsModule } from '../shipments/shipments.module';
 import { MarketplaceWebhooksController } from './marketplace-webhooks.controller';
 import { MarketplaceWebhooksService } from './marketplace-webhooks.service';
 
@@ -28,6 +29,7 @@ import { MarketplaceWebhooksService } from './marketplace-webhooks.service';
     MarketplaceIntegrationModule,
     OrdersModule,
     NotificationsModule,
+    ShipmentsModule, // 20/10/2026 — kéo yêu cầu trả hàng khi webhook return_requested tới
   ],
   controllers: [MarketplaceWebhooksController],
   providers: [MarketplaceWebhooksService],

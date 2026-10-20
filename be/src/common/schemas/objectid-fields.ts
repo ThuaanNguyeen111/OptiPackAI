@@ -79,7 +79,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   { collection: 'carrier_webhook_events', fields: ['shipment_id'] }, // C5 (14/10/2026)
   { collection: 'shipment_events', fields: ['shipment_id', 'order_group_id'] },
-  { collection: 'marketplace_status_outbox', fields: ['order_group_id', 'shipment_id'] }, // 20/10/2026 — ghi ngược trạng thái
+  { collection: 'marketplace_status_outbox', fields: ['order_group_id', 'shipment_id', 'return_request_id'] }, // 20/10/2026 — ghi ngược trạng thái
   {
     collection: 'return_requests',
     fields: [
@@ -87,6 +87,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'shipment_id',
       'replacement_order_id',
       'replacement_group_id',
+      'source_order_id', // 20/10/2026 — đơn gốc của khách (phiếu nguồn marketplace)
     ],
     arrayPath: {
       array: 'inspection',

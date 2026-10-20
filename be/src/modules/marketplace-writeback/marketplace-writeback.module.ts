@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { Shipment, ShipmentSchema } from '../shipments/schemas/shipment.schema';
+import { ReturnRequest, ReturnRequestSchema } from '../shipments/schemas/return-request.schema';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import {
   MarketplaceStatusOutbox,
@@ -18,6 +19,7 @@ import { MarketplaceWritebackScheduler } from './marketplace-writeback.scheduler
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema },
       { name: Order.name, schema: OrderSchema },
       { name: Shipment.name, schema: ShipmentSchema },
+      { name: ReturnRequest.name, schema: ReturnRequestSchema },
     ]),
     MarketplaceIntegrationModule,
   ],

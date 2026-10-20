@@ -13,6 +13,7 @@ import {
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import { MKT_ERROR_CODES } from '../marketplace-integration/marketplace-integration.errors';
 import { OrdersService } from '../orders/orders.service';
+import { ReturnsMarketplaceSyncService } from '../shipments/returns-marketplace-sync.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -55,6 +56,7 @@ export class MarketplaceWebhooksService {
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     private readonly ordersService: OrdersService,
     private readonly notificationsService: NotificationsService,
+    private readonly returnsSyncService: ReturnsMarketplaceSyncService,
   ) {}
 
   async handleWebhook(
@@ -116,6 +118,9 @@ export class MarketplaceWebhooksService {
       case 'authorization_revoked':
         await this.handleAuthorizationRevoked(platform, body);
         return;
+      case 'return_requested':
+        await this.handleReturnRequested(platform, body);
+        return;
       default:
         // Tương thích ngược — AURELLE có thể thêm message_type mới sau
         // này, ack bình thường thay vì fail cả webhook.
@@ -145,6 +150,23 @@ export class MarketplaceWebhooksService {
     }
 
     await this.ordersService.syncSingleOrder(platform, shopId, body.data.trade_order_id);
+  }
+
+  /** Khách gửi yêu cầu trả hàng: kéo ngay các yêu cầu mới của shop (cron 2 phút vẫn bù nếu webhook mất). */
+  private async handleReturnRequested(
+    platform: MarketplacePlatform,
+    body: MarketplaceWebhookPayload,
+  ): Promise<void> {
+    const shopId = body.seller_id;
+    try {
+      await this.returnsSyncService.syncShop(platform, shopId);
+    } catch (error) {
+      if (error instanceof AppException && error.errorCode === MKT_ERROR_CODES.SHOP_NOT_CONNECTED) {
+        this.logger.warn(`Webhook ${platform}: shop ${shopId} không kết nối — ack, bỏ qua yêu cầu trả hàng.`);
+        return;
+      }
+      throw error;
+    }
   }
 
   private async handleAuthorizationRevoked(

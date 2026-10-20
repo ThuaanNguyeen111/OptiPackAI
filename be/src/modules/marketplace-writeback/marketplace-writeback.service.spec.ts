@@ -42,6 +42,8 @@ function build(options: {
   orders?: { platform_order_id: string; shop_id: string }[];
   shipment?: { tracking_code: string | null; trip_code: string | null } | null;
   updateOrderStatus?: jest.Mock<Promise<void>, [string, Record<string, unknown>]>;
+  rma?: Record<string, unknown> | null;
+  updateReturnStatus?: jest.Mock<Promise<void>, [string, Record<string, unknown>]>;
 }) {
   const outboxUpdate = jest.fn<Promise<object>, [Record<string, unknown>, { $set: Record<string, unknown> }]>().mockResolvedValue({});
   const outboxModel = {
@@ -53,14 +55,18 @@ function build(options: {
   const updateOrderStatus: jest.Mock<Promise<void>, [string, Record<string, unknown>]> =
     options.updateOrderStatus ?? jest.fn<Promise<void>, [string, Record<string, unknown>]>().mockResolvedValue(undefined);
   const integration = { getValidAccessToken: jest.fn().mockResolvedValue('tok') };
+  const updateReturnStatus: jest.Mock<Promise<void>, [string, Record<string, unknown>]> =
+    options.updateReturnStatus ?? jest.fn<Promise<void>, [string, Record<string, unknown>]>().mockResolvedValue(undefined);
+  const returnModel = { findById: jest.fn(() => chain(options.rma ?? null)) };
   const service = new MarketplaceWritebackService(
     outboxModel as never,
     orderModel as never,
     shipmentModel as never,
     integration as never,
-    { [MarketplacePlatform.AURELLE]: { updateOrderStatus } } as never,
+    { [MarketplacePlatform.AURELLE]: { updateOrderStatus, updateReturnStatus } } as never,
+    returnModel as never,
   );
-  return { service, outboxUpdate, updateOrderStatus, integration, orderModel };
+  return { service, outboxUpdate, updateOrderStatus, updateReturnStatus, integration, orderModel };
 }
 
 describe('MarketplaceWritebackService.processPending', () => {
@@ -137,6 +143,48 @@ describe('MarketplaceWritebackService.processPending', () => {
     });
     await service.processPending();
     expect(integration.getValidAccessToken).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MarketplaceWritebackService — kết quả phiếu trả hàng của khách', () => {
+  const returnRow = (overrides: Record<string, unknown> = {}) =>
+    makeRow({ kind: 'return_status', return_request_id: new Types.ObjectId(), status: 'approved', note: null, idempotency_key: 'ret:r1:approved:1', ...overrides });
+  const marketplaceRma = { source: 'marketplace', external_ref: 'sf-return-1', shop_id: 'S1', rma_code: 'RMA-261020-AAA111' };
+
+  it('báo duyệt/từ chối ngược cho sàn với id yêu cầu của sàn, mã RMA và ghi chú', async () => {
+    const { service, updateReturnStatus, updateOrderStatus, outboxUpdate } = build({
+      rows: [returnRow({ status: 'rejected', note: 'Quá hạn' })],
+      rma: marketplaceRma,
+    });
+    const result = await service.processPending();
+    expect(result.sent).toBe(1);
+    expect(updateOrderStatus).not.toHaveBeenCalled();
+    expect(updateReturnStatus.mock.calls[0]?.[1]).toMatchObject({
+      returnId: 'sf-return-1',
+      status: 'rejected',
+      rmaCode: 'RMA-261020-AAA111',
+      decisionNote: 'Quá hạn',
+      idempotencyKey: 'ret:r1:approved:1',
+    });
+    expect(outboxUpdate.mock.calls.at(-1)?.[1]).toMatchObject({ $set: { state: 'sent' } });
+  });
+
+  it('phiếu không phải do khách gửi trên sàn (Admin tạo / giao thất bại) thì bỏ qua, không gọi sàn', async () => {
+    const { service, updateReturnStatus } = build({ rows: [returnRow()], rma: { ...marketplaceRma, source: 'simulated' } });
+    const result = await service.processPending();
+    expect(result.skipped).toBe(1);
+    expect(updateReturnStatus).not.toHaveBeenCalled();
+  });
+
+  it('sàn từ chối cập nhật: hẹn thử lại, không mất dòng', async () => {
+    const { service, outboxUpdate } = build({
+      rows: [returnRow()],
+      rma: marketplaceRma,
+      updateReturnStatus: jest.fn<Promise<void>, [string, Record<string, unknown>]>().mockRejectedValue(new Error('502')),
+    });
+    const result = await service.processPending();
+    expect(result.retrying).toBe(1);
+    expect(outboxUpdate.mock.calls[0]?.[1]).toMatchObject({ $set: { state: 'pending', attempts: 1 } });
   });
 });
 

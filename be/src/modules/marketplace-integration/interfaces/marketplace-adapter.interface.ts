@@ -141,6 +141,38 @@ export interface MarketplaceAdapter {
     accessToken: string,
     updates: { itemId: string; skuId: string; sellerSku: string; sellableQuantity: number }[],
   ): Promise<{ sellerSku: string; success: boolean }[]>;
+  /**
+   * 20/10/2026 — Trả hàng do KHÁCH khởi tạo trên sàn (chỉ AURELLE có): kéo yêu cầu và báo ngược
+   * kết quả xử lý (duyệt/từ chối/nhận hàng/xong). Lazada KHÔNG có (không gọi API reverse của Lazada).
+   */
+  listReturns?(
+    accessToken: string,
+    params: { status?: string; updateAfter?: Date; offset: number; limit: number },
+  ): Promise<{ returns: MarketplaceReturnRaw[]; count: number }>;
+  updateReturnStatus?(
+    accessToken: string,
+    input: {
+      returnId: string;
+      status: string;
+      eventTime: Date;
+      rmaCode?: string | null;
+      decisionNote?: string | null;
+      idempotencyKey: string;
+    },
+  ): Promise<void>;
+}
+
+/** Yêu cầu trả hàng của khách như sàn trả về (`/reverse/orders/get`). */
+export interface MarketplaceReturnRaw {
+  return_id: string;
+  order_id: number;
+  type: string;
+  status: string;
+  customer_note: string;
+  rma_code: string | null;
+  items: { seller_sku: string; quantity: number; reason_code: string }[];
+  created_at: string;
+  updated_at: string;
 }
 
 // DI token — dùng để inject đúng adapter theo platform trong service,

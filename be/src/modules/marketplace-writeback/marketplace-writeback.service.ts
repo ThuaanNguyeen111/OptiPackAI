@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { Shipment, ShipmentDocument } from '../shipments/schemas/shipment.schema';
+import { ReturnRequest, ReturnRequestDocument } from '../shipments/schemas/return-request.schema';
 import { MarketplaceIntegrationService } from '../marketplace-integration/marketplace-integration.service';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import {
@@ -51,6 +52,7 @@ export class MarketplaceWritebackService {
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     @Inject(MARKETPLACE_ADAPTERS)
     private readonly adapters: Partial<Record<MarketplacePlatform, MarketplaceAdapter>>,
+    @InjectModel(ReturnRequest.name) private readonly returnModel: Model<ReturnRequestDocument>,
   ) {}
 
   async processPending(now: Date = new Date()): Promise<WritebackRunResult> {
@@ -100,6 +102,7 @@ export class MarketplaceWritebackService {
     row: MarketplaceStatusOutboxDocument,
     tokens: Map<string, string>,
   ): Promise<'sent' | 'skipped'> {
+    if (row.kind === 'return_status') return this.processReturn(row, tokens);
     const adapter = this.adapters[MarketplacePlatform.AURELLE];
     if (!adapter?.updateOrderStatus) {
       await this.markDone(row, 'skipped', 'Adapter AURELLE chưa hỗ trợ updateOrderStatus.');
@@ -136,6 +139,32 @@ export class MarketplaceWritebackService {
         idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
       });
     }
+    await this.markDone(row, 'sent', null);
+    return 'sent';
+  }
+
+  /** Kết quả xử lý phiếu trả hàng của khách → báo ngược cho sàn (duyệt/từ chối/nhận hàng/xong/hủy). */
+  private async processReturn(
+    row: MarketplaceStatusOutboxDocument,
+    tokens: Map<string, string>,
+  ): Promise<'sent' | 'skipped'> {
+    const adapter = this.adapters[MarketplacePlatform.AURELLE];
+    const rma = row.return_request_id ? await this.returnModel.findById(row.return_request_id).lean() : null;
+    // Chỉ phiếu do khách gửi trên sàn mới có đích để báo.
+    const target = rma?.source === 'marketplace' ? rma : null;
+    if (!adapter?.updateReturnStatus || !target?.external_ref) {
+      await this.markDone(row, 'skipped', 'Không có phiếu trả hàng của sàn để báo ngược.');
+      return 'skipped';
+    }
+    const token = await this.tokenFor(target.shop_id, tokens);
+    await adapter.updateReturnStatus(token, {
+      returnId: target.external_ref,
+      status: row.status,
+      eventTime: row.event_time,
+      rmaCode: target.rma_code,
+      decisionNote: row.note,
+      idempotencyKey: row.idempotency_key,
+    });
     await this.markDone(row, 'sent', null);
     return 'sent';
   }
