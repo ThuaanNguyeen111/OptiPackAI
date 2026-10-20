@@ -1,4 +1,4 @@
-import type { AdminProduct, Category, Customer, Product, SaveAdminProduct, StorefrontOrder } from '@/types/storefront'
+import type { AdminProduct, Category, Customer, Product, SaveAdminProduct, StorefrontOrder, StorefrontOrderDetail } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -70,6 +70,14 @@ export async function logoutCustomer() {
 
 export async function checkout(input: { items: { variant_id: string; quantity: number }[]; shippingAddress: Record<string, string>; paymentMethod: 'cod'; customerNote?: string; clientOrderId?: string }) {
   return request<StorefrontOrder>('/storefront/orders/checkout', { method: 'POST', body: JSON.stringify({ items: input.items, shipping_address: input.shippingAddress, payment_method: input.paymentMethod, customer_note: input.customerNote, client_order_id: input.clientOrderId }) })
+}
+
+export async function getOrders() {
+  return request<StorefrontOrder[]>('/storefront/orders')
+}
+
+export async function getOrder(id: string) {
+  return request<StorefrontOrderDetail>(`/storefront/orders/${encodeURIComponent(id)}`)
 }
 
 export async function getCart() {

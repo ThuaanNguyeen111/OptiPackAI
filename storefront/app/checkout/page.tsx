@@ -57,6 +57,7 @@ export default function CheckoutPage() {
   const paymentMethod = 'cod' as const
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  const [placedOrderId, setPlacedOrderId] = useState('')
   const [clientOrderId] = useState(() => crypto.randomUUID())
 
   useEffect(() => {
@@ -188,12 +189,13 @@ export default function CheckoutPage() {
       })
       clear()
       setDone(`Đặt hàng thành công: ${order.orderNumber}`)
+      setPlacedOrderId(order.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Không thể tạo đơn hàng')
     }
   }
 
-  if (done) return <><Header /><main className="page-shell"><div className="success"><h1>Cảm ơn bạn!</h1><p>{done}</p><Link className="button" href="/shop">Tiếp tục mua sắm</Link></div></main><Footer /></>
+  if (done) return <><Header /><main className="page-shell"><div className="success"><h1>Cảm ơn bạn!</h1><p>{done}</p>{placedOrderId && <Link className="button" href={`/account/orders/${placedOrderId}`}>Theo dõi đơn hàng</Link>} <Link className="button" href="/shop">Tiếp tục mua sắm</Link></div></main><Footer /></>
   if (!items.length) return <><Header /><main className="page-shell"><div className="empty">Giỏ hàng đang trống. <Link href="/shop">Quay lại cửa hàng →</Link></div></main><Footer /></>
 
   const provinces = addressMode === 'pre-merger' ? oldProvinces : newProvinces

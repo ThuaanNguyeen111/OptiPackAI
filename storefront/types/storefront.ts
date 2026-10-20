@@ -92,7 +92,18 @@ export type StorefrontOrderItem = {
   line_total: number
 }
 
+export type StorefrontOrderEvent = {
+  status: string
+  label: string
+  reason: string | null
+  occurredAt: string
+  source: 'partner' | 'customer' | 'system'
+}
+
 export type StorefrontOrderDetail = StorefrontOrder & {
+  trackingCode?: string | null
+  tripCode?: string | null
+  events?: StorefrontOrderEvent[]
   paymentMethod?: 'cod' | 'bank_transfer' | null
   shippingAddress?: {
     recipient_name: string

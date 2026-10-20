@@ -2,9 +2,12 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
+import { OrderTimeline } from '@/components/order/order-timeline'
+import { ApiError, getOrder } from '@/lib/api-client'
 import { getFulfillmentStatusLabel, getOrderStatusLabel, getPaymentMethodLabel, getPaymentStatusLabel } from '@/lib/order-labels'
 import type { StorefrontOrderDetail } from '@/types/storefront'
 
@@ -13,21 +16,18 @@ function formatVnd(value: number) {
 }
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter()
   const [order, setOrder] = useState<StorefrontOrderDetail | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    void params.then(({ id }) => {
-      if (!localStorage.getItem('kaira-customer')) return
-      fetch(`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'}/storefront/orders/${id}`, { credentials: 'include' })
-        .then(async (response) => {
-          if (!response.ok) throw new Error('Không thể tải chi tiết đơn hàng')
-          return response.json() as Promise<StorefrontOrderDetail>
-        })
-        .then(setOrder)
-        .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Không thể tải chi tiết đơn hàng'))
-    })
-  }, [params])
+    void params.then(({ id }) => getOrder(id)
+      .then(setOrder)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) return router.push(`/auth/login?returnTo=/account/orders/${id}`)
+        setError(err instanceof Error ? err.message : 'Không thể tải chi tiết đơn hàng')
+      }))
+  }, [params, router])
 
   const subtotal = order?.subtotal ?? order?.items.reduce((sum, item) => sum + item.line_total, 0) ?? 0
   const discount = order?.discountAmount ?? 0
@@ -86,6 +86,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             <div><span>Trạng thái thanh toán</span><strong>{getPaymentStatusLabel(order.paymentStatus)}</strong></div>
             <div><span>Giao hàng</span><strong>{getFulfillmentStatusLabel(order.fulfillmentStatus)}</strong></div>
           </div>
+
+          <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} />
 
           {order.shippingAddress && <section className="order-address-panel" aria-labelledby="order-address-title">
             <span className="eyebrow">Giao đến</span>
