@@ -20,6 +20,8 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
     shipmentId: d.shipment_id?.toString() ?? null,
     type: d.type,
     source: d.source,
+    externalRef: d.external_ref ?? null, // 21/10/2026 — id yêu cầu trả bên sàn (AURELLE) khi source = marketplace
+    sourceOrderId: d.source_order_id?.toString() ?? null,
     status: d.status,
     items: d.items.map((i) => ({ sellerSku: i.seller_sku, quantity: i.quantity, reasonCode: i.reason_code, reasonLabel: RETURN_REASON_LABELS[i.reason_code] })),
     inspection: d.inspection.map((l) => ({

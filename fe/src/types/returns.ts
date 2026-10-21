@@ -46,6 +46,9 @@ export type ReturnRequest = {
   shipmentId: string | null
   type: ReturnType | string
   source: string
+  /** 21/10/2026 — phiếu do khách tạo trên AURELLE (source = 'marketplace'). */
+  externalRef: string | null
+  sourceOrderId: string | null
   status: ReturnStatus | string
   items: ReturnItem[]
   exchangeItems: ExchangeItem[]

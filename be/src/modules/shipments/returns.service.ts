@@ -2,7 +2,6 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackagingMaterialsService } from '../packaging-materials/packaging-materials.service';
-import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -47,6 +46,9 @@ export type MarketplaceReturnOutcome =
   | { outcome: 'busy'; reason: string }
   | { outcome: 'rejected'; reason: string };
 
+/** 21/10/2026 — kết quả khi khách hủy yêu cầu trả hàng trên sàn. */
+export type MarketplaceReturnCancelOutcome = 'canceled' | 'not_found' | 'already_closed' | 'too_late' | 'busy';
+
 const KNOWN_REASONS: readonly string[] = Object.values(ReturnReason);
 
 /** Lỗi nghiệp vụ khiến yêu cầu của khách KHÔNG BAO GIỜ hợp lệ → tự từ chối kèm lý do. Lỗi khác (dữ liệu/hạ tầng) thử lại sau. */
@@ -54,7 +56,16 @@ const AUTO_REJECT_CODES: readonly string[] = [
   RETURN_ERROR_CODES.ORDER_NOT_DELIVERED,
   RETURN_ERROR_CODES.WINDOW_EXPIRED,
   RETURN_ERROR_CODES.INVALID_ITEMS,
+  RETURN_ERROR_CODES.EXCHANGE_ITEMS_REQUIRED, // 21/10/2026 — đổi hàng từ website
+  RETURN_ERROR_CODES.INVALID_EXCHANGE_ITEMS,
 ];
+
+/** Lỗi trùng khóa có thuộc index chặn phiếu mở thứ 2 (khác index chống tạo trùng theo id yêu cầu)? */
+function isOpenReturnDuplicate(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error) || (error as { code?: unknown }).code !== 11000) return false;
+  const pattern = (error as { keyPattern?: Record<string, unknown> }).keyPattern;
+  return pattern !== undefined && 'order_group_id' in pattern;
+}
 
 /** (09/10/2026) Số phiếu tối đa đọc cho danh sách cách ly. */
 const QUARANTINE_MAX_RETURNS = 200;
@@ -82,7 +93,6 @@ export class ReturnsService {
     private readonly warehouseService: WarehouseService,
     @InjectConnection() private readonly connection: Connection,
     private readonly packagingMaterialsService: PackagingMaterialsService, // G4
-    @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>, // G4
     private readonly notificationsService: NotificationsService,
     // Đổi hàng: tạo đơn + nhóm đơn thay thế; kiểm hàng đổi sang có trong danh mục shop
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
@@ -114,20 +124,19 @@ export class ReturnsService {
   async createFromFailedDelivery(orderGroupId: string, shipmentId: string, actorId: string, session: ClientSession): Promise<void> {
     const group = await this.orderGroupsService.findOrderGroupById(orderGroupId);
     let items: { seller_sku: string; quantity: number; reason_code: ReturnReason }[] = [];
-    // 🔄 G4 (27/09/2026) — SỬA ĐIỂM YẾU G3: lấy số lượng ĐÃ QUÉT THẬT (sổ cái K3,
-    // type "pick") thay vì số lượng đặt — lúc lấy hàng bị thiếu thì kiện về kho cũng
-    // chỉ có đúng số đã lấy. Nhóm đơn lấy hàng trước K3 (chưa có sổ cái) -> dùng số đặt.
-    const picked = await this.movementModel.aggregate<{ _id: string; qty: number }>([
-      { $match: { type: 'pick', ref_type: 'order_group', ref_id: orderGroupId } },
-      { $group: { _id: '$seller_sku', qty: { $sum: { $multiply: ['$delta', -1] } } } },
-    ]);
+    // G4 (27/09/2026) — lấy số lượng ĐÃ QUÉT THẬT thay vì số đặt (lấy thiếu thì kiện cũng chỉ có số đã lấy).
+    // 🔄 21/10/2026 — đọc từ pick_events (mã SKU của ĐƠN, đã trừ món rút ra khi đóng gói), không đọc
+    // sổ cái kho nữa: dòng tồn gộp chung SKU nội bộ ghi mã SKU của sàn đã tạo dòng đó, nên phiếu hoàn
+    // từng mang mã sàn khác → nhập lại kệ không tìm ra SKU nội bộ, hàng bị tách thành dòng tồn lạc.
+    // Chưa quét gì (dữ liệu rất cũ) → dùng số đặt.
     try {
-      if (picked.length > 0) {
-        items = picked.filter((p) => p.qty > 0).map((p) => ({ seller_sku: p._id, quantity: p.qty, reason_code: ReturnReason.FAILED_DELIVERY }));
-      } else {
-        const packable = await this.orderGroupsService.getPackableItemsForGroup(orderGroupId);
-        items = packable.items.map((i) => ({ seller_sku: i.sku, quantity: i.quantity, reason_code: ReturnReason.FAILED_DELIVERY }));
-      }
+      const picked = await this.orderGroupsService.getPickedQuantitiesForGroup(orderGroupId);
+      const source = [...picked.values()].some((q) => q > 0)
+        ? picked
+        : await this.orderGroupsService.getOrderedQuantitiesForGroup(orderGroupId);
+      items = [...source]
+        .filter(([, quantity]) => quantity > 0)
+        .map(([sku, quantity]) => ({ seller_sku: sku, quantity, reason_code: ReturnReason.FAILED_DELIVERY }));
     } catch (error: unknown) {
       // VD toàn bộ đơn trong nhóm đã hủy -> không đọc được danh sách hàng. Vẫn tạo phiếu
       // (rỗng) để kho biết có kiện về, ghi log để kiểm tra tay.
@@ -151,11 +160,29 @@ export class ReturnsService {
   /** [Admin — đóng vai khách] Giả lập khách yêu cầu trả hàng. */
   async createSimulated(dto: CreateReturnDto, actorId: string, extra: MarketplaceReturnExtra = {}): Promise<ReturnRequestDocument> {
     const group = await this.orderGroupsService.findOrderGroupById(dto.order_group_id);
+    // 21/10/2026 — đơn AURELLE: khách tự gửi yêu cầu trên website, hệ thống tự nhận
+    // phiếu (createFromMarketplace). Chặn Admin giả lập để không ra 2 phiếu cho 1 lần trả.
+    if (extra.source !== 'marketplace' && group.platform === MarketplacePlatform.AURELLE) {
+      this.fail(RETURN_ERROR_CODES.MARKETPLACE_MANAGED, 'Đơn AURELLE: khách tự yêu cầu trả hàng trên website, phiếu tự hiện ở danh sách — không tạo giả lập.', HttpStatus.CONFLICT);
+    }
     if (group.fulfillment_status !== GroupFulfillmentStatus.DELIVERED) {
       this.fail(RETURN_ERROR_CODES.ORDER_NOT_DELIVERED, `Nhóm đơn đang "${group.fulfillment_status}" — chỉ trả hàng được khi đã giao thành công.`, HttpStatus.CONFLICT);
     }
-    const open = await this.returnModel.exists({ order_group_id: group._id, status: { $in: OPEN_RETURN_STATUSES } });
-    if (open) this.fail(RETURN_ERROR_CODES.OPEN_EXISTS, 'Nhóm đơn đang có phiếu trả hàng chưa xử lý xong.', HttpStatus.CONFLICT, { returnId: open._id.toString() });
+    // 21/10/2026 — phiếu của khách trên sàn tính theo ĐƠN: 2 đơn trong cùng nhóm gộp trả song song
+    // được; chỉ chặn khi chính đơn đó đang có phiếu mở (hoặc nhóm có phiếu chung không theo đơn).
+    const open = await this.returnModel.exists(
+      extra.orderId
+        ? { order_group_id: group._id, status: { $in: OPEN_RETURN_STATUSES }, source_order_id: { $in: [extra.orderId, null] } }
+        : { order_group_id: group._id, status: { $in: OPEN_RETURN_STATUSES } },
+    );
+    if (open) {
+      this.fail(
+        RETURN_ERROR_CODES.OPEN_EXISTS,
+        extra.orderId ? 'Đơn này đang có phiếu trả hàng chưa xử lý xong.' : 'Nhóm đơn đang có phiếu trả hàng chưa xử lý xong.',
+        HttpStatus.CONFLICT,
+        { returnId: open._id.toString() },
+      );
+    }
 
     const shipment = await this.shipmentModel.findOne({ order_group_id: group._id, direction: 'forward' });
     const earlier = await this.returnModel
@@ -204,6 +231,7 @@ export class ReturnsService {
     }
 
     const doc = await this.runTx(async (session) => {
+      // Index duy nhất có điều kiện (1 phiếu mở / đơn, phiếu chung: 1 / nhóm) chặn 2 lần gọi đồng thời.
       const [created] = await this.returnModel.create([{
         rma_code: this.newCode(),
         order_group_id: group._id,
@@ -223,6 +251,11 @@ export class ReturnsService {
       if (!created) throw new Error('Tạo phiếu trả hàng không trả về document');
       await this.updateReturnGroup(created, GroupFulfillmentStatus.RETURNING, session);
       return created;
+    }).catch((error: unknown) => {
+      if (isOpenReturnDuplicate(error)) {
+        this.fail(RETURN_ERROR_CODES.OPEN_EXISTS, 'Vừa có phiếu trả hàng khác được tạo cho đơn này — tải lại danh sách.', HttpStatus.CONFLICT);
+      }
+      throw error;
     });
     try {
       await this.notificationsService.notify({
@@ -266,7 +299,13 @@ export class ReturnsService {
 
     const dto: CreateReturnDto = {
       order_group_id: order.consolidated_group_id.toString(),
-      type: raw.type === 'refund_only' ? ReturnType.REFUND_ONLY : ReturnType.RETURN_REFUND,
+      type: raw.type === 'refund_only'
+        ? ReturnType.REFUND_ONLY
+        : raw.type === 'exchange' ? ReturnType.EXCHANGE : ReturnType.RETURN_REFUND,
+      // 21/10/2026 — đổi hàng từ website: hàng khách muốn đổi sang.
+      exchange_items: raw.type === 'exchange'
+        ? (raw.exchange_items ?? []).map((item) => ({ seller_sku: item.seller_sku, quantity: item.quantity }))
+        : undefined,
       items: raw.items.map((item) => ({
         seller_sku: item.seller_sku,
         quantity: item.quantity,
@@ -284,7 +323,7 @@ export class ReturnsService {
       return { outcome: 'created', rma };
     } catch (error: unknown) {
       if (typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 11000) {
-        return { outcome: 'exists' }; // webhook và cron kéo bù chạy trùng nhau
+        return { outcome: 'exists' }; // webhook và cron kéo bù chạy trùng nhau (index theo id yêu cầu)
       }
       if (error instanceof AppException) {
         if (error.errorCode === RETURN_ERROR_CODES.OPEN_EXISTS) return { outcome: 'busy', reason: error.message };
@@ -292,6 +331,32 @@ export class ReturnsService {
       }
       throw error;
     }
+  }
+
+  /**
+   * 21/10/2026 — Khách tự hủy yêu cầu trả hàng trên sàn (AURELLE). Website chỉ cho hủy khi bên đó
+   * còn "requested"; phía kho phiếu có thể đã duyệt (kết quả chưa kịp báo ngược) → vẫn hủy được
+   * khi hàng CHƯA về kho. Hàng đã về kho → `too_late`, giữ phiếu để kho xử lý tiếp.
+   */
+  async cancelFromMarketplace(platform: MarketplacePlatform, externalRef: string): Promise<MarketplaceReturnCancelOutcome> {
+    const rma = await this.returnModel.findOne({ platform, external_ref: externalRef });
+    if (!rma) return 'not_found';
+    if (rma.status === ReturnStatus.REJECTED || rma.status === ReturnStatus.CLOSED || rma.status === ReturnStatus.CANCELED) return 'already_closed';
+    if (rma.status === ReturnStatus.RECEIVED) return 'too_late';
+    try {
+      await this.runTx(async (session) => {
+        await this.move(rma, rma.__v, rma.status, ReturnStatus.CANCELED, {
+          decided_by: `${platform}:customer`,
+          decision_note: 'Khách đã hủy yêu cầu trả hàng trên website.',
+          closed_at: new Date(),
+        }, session);
+        await this.updateReturnGroup(rma, GroupFulfillmentStatus.DELIVERED, session);
+      });
+    } catch (error: unknown) {
+      if (error instanceof AppException && error.errorCode === RETURN_ERROR_CODES.STATE_CONFLICT) return 'busy';
+      throw error;
+    }
+    return 'canceled';
   }
 
   /** [Store Owner] Duyệt. Hoàn tiền không cần trả hàng -> đóng luôn. Người tạo phiếu không tự duyệt. */
