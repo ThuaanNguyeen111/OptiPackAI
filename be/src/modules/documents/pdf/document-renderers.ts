@@ -143,6 +143,8 @@ export async function renderPackingSlip(data: PackingSlipData): Promise<Buffer> 
 
 export interface ShippingLabelData {
   shopName: string;
+  /** (21/10/2026) Người gửi — kiện không giao được hoàn về đây. */
+  sender: { name: string; phone: string | null; address: string | null };
   carrierName: string;
   serviceName: string;
   trackingCode: string;
@@ -200,10 +202,23 @@ export async function renderShippingLabels(data: ShippingLabelData): Promise<Buf
     doc.font('vn').fontSize(10).text(data.recipient.phone, { width });
     doc.font('vn').fontSize(10).text(data.recipient.address, { width });
 
+    // (21/10/2026) Người gửi — nhỏ hơn người nhận, ngay dưới, có kẻ ngăn.
+    const senderY = doc.y + mm(2);
+    doc.moveTo(left, senderY - 2).lineTo(left + width, senderY - 2).strokeColor('#000000').stroke();
+    doc.font('vn-bold').fontSize(7).text('NGƯỜI GỬI', left, senderY);
+    doc.font('vn-bold').fontSize(8).text(
+      data.sender.phone ? `${data.sender.name} · ${data.sender.phone}` : data.sender.name,
+      left,
+      doc.y,
+      { width },
+    );
+    // Giới hạn 2 dòng để không đè lên QR/chân nhãn khi địa chỉ dài.
+    if (data.sender.address) doc.font('vn').fontSize(8).text(data.sender.address, { width, height: mm(7), ellipsis: true });
+
     const footerY = doc.page.height - doc.page.margins.bottom - mm(30);
     doc.image(qr, left, footerY, { width: mm(26), height: mm(26) });
     doc.font('vn').fontSize(8);
-    doc.text(`Từ: ${data.shopName}`, left + mm(30), footerY, { width: width - mm(30) });
+    doc.text(`Shop: ${data.shopName}`, left + mm(30), footerY, { width: width - mm(30) });
     doc.text(`Chuyến: ${data.tripCode}`, left + mm(30), doc.y, { width: width - mm(30) });
     if (parcel.trackingCode) doc.text(`Vận đơn OptiPack: ${data.trackingCode}`, left + mm(30), doc.y, { width: width - mm(30) });
     doc.text(`Thùng: ${parcel.boxCode}`, left + mm(30), doc.y, { width: width - mm(30) });
@@ -317,6 +332,255 @@ export async function renderManifest(data: ManifestData): Promise<Buffer> {
   doc.text('Người nhận (hãng vận chuyển)', left + width / 2, signY, { width: width / 2, align: 'center' });
   doc.fontSize(8).fillColor('#777777').text('(ký, ghi rõ họ tên)', left, signY + 12, { width: width / 2, align: 'center' });
   doc.text('(ký, ghi rõ họ tên)', left + width / 2, signY + 12, { width: width / 2, align: 'center' });
+  doc.end();
+  return done;
+}
+
+// ---------------------------------------------------------------------------
+// (21/10/2026) BẢNG IN DÙNG CHUNG cho picking list + phiếu nhập
+// ---------------------------------------------------------------------------
+
+interface TableCol {
+  title: string;
+  w: number;
+}
+
+/** Vẽ bảng đơn giản, tự sang trang (lặp lại dòng tiêu đề) khi chạm `bottomReserve`. */
+function drawTable(
+  doc: InstanceType<typeof PDFDocument>,
+  cols: TableCol[],
+  rows: string[][],
+  bottomReserve: number,
+): void {
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  const drawRow = (cells: string[], bold: boolean): void => {
+    const y = doc.y;
+    let x = left;
+    let rowHeight = 12;
+    cells.forEach((cell, i) => {
+      const col = cols[i];
+      if (!col) return;
+      doc.font(bold ? 'vn-bold' : 'vn').fontSize(8.5);
+      rowHeight = Math.max(rowHeight, doc.heightOfString(cell, { width: col.w - 4 }));
+      doc.text(cell, x, y, { width: col.w - 4 });
+      x += col.w;
+    });
+    doc.y = y + rowHeight + 3;
+    doc.moveTo(left, doc.y - 1).lineTo(left + width, doc.y - 1).strokeColor('#cccccc').stroke();
+  };
+  drawRow(cols.map((c) => c.title), true);
+  for (const row of rows) {
+    if (doc.y > doc.page.height - bottomReserve) {
+      doc.addPage();
+      drawRow(cols.map((c) => c.title), true);
+    }
+    drawRow(row, false);
+  }
+}
+
+function drawSignatures(doc: InstanceType<typeof PDFDocument>, titles: string[]): void {
+  const left = doc.page.margins.left;
+  const width = doc.page.width - left - doc.page.margins.right;
+  if (doc.y > doc.page.height - mm(45)) doc.addPage();
+  const signY = doc.page.height - doc.page.margins.bottom - mm(28);
+  const w = width / titles.length;
+  titles.forEach((t, i) => {
+    doc.font('vn').fontSize(9).fillColor('#000000').text(t, left + w * i, signY, { width: w, align: 'center' });
+    doc.fontSize(8).fillColor('#777777').text('(ký, ghi rõ họ tên)', left + w * i, signY + 12, { width: w, align: 'center' });
+  });
+  doc.fillColor('#000000');
+}
+
+// ---------------------------------------------------------------------------
+// (21/10/2026) TEM Ô KỆ — dán lên ô để nhân viên quét khi lấy/cất hàng
+// ---------------------------------------------------------------------------
+
+export interface BinLabelData {
+  warehouseCode: string;
+  bins: { binCode: string; zoneCode: string; zoneName: string; copies: number }[];
+}
+
+/** Tem 70 × 40 mm: mã ô cỡ lớn + Code128 (mã quét = đúng `bin_code`) + khu. */
+export async function renderBinLabels(data: BinLabelData): Promise<Buffer> {
+  const { doc, done } = createDoc({ size: [mm(70), mm(40)], margin: mm(3), autoFirstPage: false });
+  for (const bin of data.bins) {
+    const barcode = await barcodePng(bin.binCode);
+    for (let c = 0; c < bin.copies; c += 1) {
+      doc.addPage();
+      const left = doc.page.margins.left;
+      const width = doc.page.width - left - doc.page.margins.right;
+      doc.font('vn').fontSize(6.5).fillColor('#444444').text(
+        `${data.warehouseCode} · Khu ${bin.zoneCode} — ${bin.zoneName}`,
+        left,
+        doc.page.margins.top,
+        { width, height: mm(3.5), ellipsis: true },
+      );
+      doc.fillColor('#000000').font('vn-bold').fontSize(20).text(bin.binCode, left, doc.page.margins.top + mm(3.5), {
+        width,
+        align: 'center',
+      });
+      doc.image(barcode, left + mm(2), doc.page.margins.top + mm(14), { width: width - mm(4), height: mm(16) });
+    }
+  }
+  if (data.bins.length === 0) {
+    doc.addPage();
+    doc.font('vn').fontSize(8).text('Không có ô nào để in tem.');
+  }
+  doc.end();
+  return done;
+}
+
+// ---------------------------------------------------------------------------
+// (21/10/2026) TEM SKU — dán lên hàng/thùng hàng chưa có mã vạch
+// ---------------------------------------------------------------------------
+
+export interface SkuLabelData {
+  items: { code: string; name: string; detail: string | null; copies: number }[];
+}
+
+/** Tem 50 × 30 mm: tên ngắn, Code128 của SKU (quét được ở lấy hàng + đóng gói), màu/size. */
+export async function renderSkuLabels(data: SkuLabelData): Promise<Buffer> {
+  const { doc, done } = createDoc({ size: [mm(50), mm(30)], margin: mm(2), autoFirstPage: false });
+  for (const item of data.items) {
+    const barcode = await barcodePng(item.code);
+    for (let c = 0; c < item.copies; c += 1) {
+      doc.addPage();
+      const left = doc.page.margins.left;
+      const width = doc.page.width - left - doc.page.margins.right;
+      doc.font('vn-bold').fontSize(6.5).text(item.name, left, doc.page.margins.top, { width, height: mm(5), ellipsis: true });
+      doc.image(barcode, left, doc.page.margins.top + mm(5.5), { width, height: mm(13) });
+      doc.font('vn-bold').fontSize(7.5).text(item.code, left, doc.page.margins.top + mm(19), { width, align: 'center' });
+      if (item.detail) doc.font('vn').fontSize(6).text(item.detail, left, doc.y, { width, align: 'center', height: mm(3), ellipsis: true });
+    }
+  }
+  if (data.items.length === 0) {
+    doc.addPage();
+    doc.font('vn').fontSize(7).text('Không có SKU nào để in tem.');
+  }
+  doc.end();
+  return done;
+}
+
+// ---------------------------------------------------------------------------
+// (21/10/2026) DANH SÁCH LẤY HÀNG (picking list) — theo lộ trình ô kệ
+// ---------------------------------------------------------------------------
+
+export interface PickingListPrintData {
+  groupId: string;
+  shopName: string;
+  warehouseName: string;
+  generatedAt: Date;
+  lines: {
+    binCode: string;
+    zoneCode: string;
+    sku: string;
+    masterSku: string | null;
+    name: string | null;
+    lot: { code: string; receivedAt: Date } | null;
+    quantity: number;
+    pickedQuantity: number;
+    otherBins: string[];
+  }[];
+}
+
+/** A4: thứ tự đi lấy theo ô kệ, lô cũ nhất cần xuất trước (FIFO), số cần lấy, ô tích. */
+export async function renderPickingList(data: PickingListPrintData): Promise<Buffer> {
+  const { doc, done } = createDoc({ size: 'A4', margin: mm(15) });
+  const left = doc.page.margins.left;
+  const barcode = await barcodePng(data.groupId);
+  doc.font('vn-bold').fontSize(16).text('DANH SÁCH LẤY HÀNG', left, doc.page.margins.top);
+  doc.font('vn').fontSize(9).fillColor('#555555').text(`${data.shopName} · ${data.warehouseName} · in lúc ${formatDate(data.generatedAt)}`);
+  doc.fillColor('#000000');
+  doc.image(barcode, doc.page.width - doc.page.margins.right - mm(55), doc.page.margins.top, { width: mm(55) });
+  doc.moveDown(0.6);
+  doc.font('vn-bold').fontSize(10).text(`Nhóm đơn: ${data.groupId}`);
+  const totalUnits = data.lines.reduce((s, l) => s + l.quantity, 0);
+  doc.font('vn').fontSize(9).text(`${String(data.lines.length)} dòng · ${String(totalUnits)} món · đi theo đúng thứ tự dưới đây`);
+  doc.moveDown(0.6);
+
+  drawTable(
+    doc,
+    [
+      { title: '#', w: 18 },
+      { title: 'Ô kệ', w: 62 },
+      { title: 'SKU / tên', w: 175 },
+      { title: 'Lô xuất trước', w: 85 },
+      { title: 'Cần', w: 34 },
+      { title: 'Đã lấy', w: 40 },
+      { title: '✓', w: 20 },
+    ],
+    data.lines.map((l, i) => [
+      String(i + 1),
+      `${l.binCode}\nKhu ${l.zoneCode}${l.otherBins.length > 0 ? `\nhoặc: ${l.otherBins.join(', ')}` : ''}`,
+      `${l.sku}${l.masterSku && l.masterSku !== l.sku ? ` (${l.masterSku})` : ''}${l.name ? `\n${l.name}` : ''}`,
+      l.lot ? `${l.lot.code}\n${formatDate(l.lot.receivedAt).split(' ').at(-1) ?? ''}` : '—',
+      String(l.quantity),
+      l.pickedQuantity > 0 ? String(l.pickedQuantity) : '',
+      '☐',
+    ]),
+    mm(25),
+  );
+  doc.moveDown(0.8);
+  doc.font('vn').fontSize(8).fillColor('#555555').text(
+    'Quét mã ô rồi quét mã hàng khi lấy. Thiếu hàng ở ô chính → lấy ở ô "hoặc", vẫn thiếu thì báo thiếu trên máy.',
+    left,
+    doc.y,
+  );
+  doc.fillColor('#000000');
+  doc.end();
+  return done;
+}
+
+// ---------------------------------------------------------------------------
+// (21/10/2026) PHIẾU NHẬP KHO — thủ kho + người giao ký
+// ---------------------------------------------------------------------------
+
+export interface StockReceiptPrintData {
+  receiptCode: string;
+  warehouseName: string;
+  warehouseAddress: string;
+  lotCode: string;
+  receivedAt: Date;
+  supplier: string | null;
+  note: string | null;
+  createdAt: Date | null;
+  lines: { sellerSku: string; masterSku: string | null; platform: string; binCode: string; quantity: number }[];
+  totalQuantity: number;
+}
+
+export async function renderStockReceipt(data: StockReceiptPrintData): Promise<Buffer> {
+  const { doc, done } = createDoc({ size: 'A4', margin: mm(15) });
+  const left = doc.page.margins.left;
+  const barcode = await barcodePng(data.receiptCode);
+  doc.font('vn-bold').fontSize(16).text('PHIẾU NHẬP KHO', left, doc.page.margins.top);
+  doc.font('vn').fontSize(9).fillColor('#555555').text(`${data.warehouseName} · ${data.warehouseAddress}`);
+  doc.fillColor('#000000');
+  doc.image(barcode, doc.page.width - doc.page.margins.right - mm(55), doc.page.margins.top, { width: mm(55) });
+  doc.moveDown(0.8);
+  doc.font('vn-bold').fontSize(11).text(`Số phiếu: ${data.receiptCode}`);
+  doc.font('vn').fontSize(10).text(`Mã lô: ${data.lotCode} · Ngày nhập: ${formatDate(data.receivedAt)}`);
+  doc.text(`Nhà cung cấp: ${data.supplier ?? '—'}`);
+  if (data.note) doc.text(`Ghi chú: ${data.note}`);
+  if (data.createdAt) doc.fontSize(8).fillColor('#555555').text(`Lập trên hệ thống lúc ${formatDate(data.createdAt)}`);
+  doc.fillColor('#000000');
+  doc.moveDown(0.6);
+  drawTable(
+    doc,
+    [
+      { title: '#', w: 20 },
+      { title: 'SKU sàn', w: 140 },
+      { title: 'SKU nội bộ', w: 110 },
+      { title: 'Sàn', w: 55 },
+      { title: 'Ô kệ', w: 70 },
+      { title: 'Số lượng', w: 50 },
+    ],
+    data.lines.map((l, i) => [String(i + 1), l.sellerSku, l.masterSku ?? '—', l.platform, l.binCode, String(l.quantity)]),
+    mm(50),
+  );
+  doc.moveDown(0.6);
+  doc.font('vn-bold').fontSize(10).text(`Tổng: ${String(data.lines.length)} dòng · ${String(data.totalQuantity)} món`, left, doc.y);
+  drawSignatures(doc, ['Người giao hàng', 'Thủ kho', 'Người lập phiếu']);
   doc.end();
   return done;
 }

@@ -76,6 +76,6 @@ describe('Schema — field id phải là ObjectId thật, không phải Mixed', 
       .filter((p) => !p.startsWith('(sub:'))
       .sort();
     expect(actualTopLevel).toEqual([...expected].sort());
-    expect(expected.size).toBe(91); // +10 lô hàng/phiếu nhập, +1 order_sync_settings.updated_by (15/10/2026); // +1 order_groups.manual_link_id (13/10/2026); +2 shipments.carrier_parcels.order_id, carrier_webhook_events.shipment_id (14/10/2026)
+    expect(expected.size).toBe(92); // +1 packing_plans.parcels.box_source_override.by (21/10/2026); +10 lô hàng/phiếu nhập, +1 order_sync_settings.updated_by (15/10/2026); // +1 order_groups.manual_link_id (13/10/2026); +2 shipments.carrier_parcels.order_id, carrier_webhook_events.shipment_id (14/10/2026)
   });
 });

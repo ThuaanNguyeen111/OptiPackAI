@@ -143,18 +143,6 @@ const modules: Array<{
       [Role.ADMIN]: 'full',
     },
   },
-  {
-    key: 'templates',
-    labelVi: 'Mẫu đóng gói',
-    labelEn: 'Packaging templates',
-    access: {
-      [Role.STORE_OWNER]: 'none',
-      [Role.WAREHOUSE_STAFF]: 'none',
-      [Role.PACKAGING_STAFF]: 'none',
-      [Role.SHIPPING_COORDINATOR]: 'none',
-      [Role.ADMIN]: 'full',
-    },
-  },
 ]
 
 function Cell({ access }: { access: Access }) {

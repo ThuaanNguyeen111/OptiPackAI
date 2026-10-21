@@ -1152,8 +1152,8 @@ export function WarehousePage() {
                                         )}
                                       >
                                         {vi ? '· một phần hủy' : '· partial cancel'}
-                                      </span>
-                                    ) : null}
+          </span>
+        ) : null}
                                     {isFullyInactiveGroup(row) ? (
                                       <span
                                         className={cn(
@@ -1177,7 +1177,7 @@ export function WarehousePage() {
                         })
                       )}
                     </ul>
-                  </div>
+      </div>
         ) : null}
       </div>
               </>

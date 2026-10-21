@@ -738,7 +738,22 @@ html.dark .owner-shell .owner-sidebar nav a.owner-nav-active:hover {
 }
 
 .pack-bench-detail .pack-bench-scroll {
-  padding: 16px 18px 20px;
+  padding: 16px 18px 3rem;
+}
+
+.pack-action-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  border-top: 1px solid var(--ls-card-border);
+  background: #fff;
+  padding: 0.75rem 1.125rem;
+}
+
+html.dark .pack-action-bar {
+  background: var(--ls-panel);
 }
 
 .pack-bench-guide .pack-bench-scroll {
@@ -765,30 +780,41 @@ html.dark .owner-shell .owner-sidebar nav a.owner-nav-active:hover {
 
 .ship-bench {
   display: grid;
-  grid-template-columns: 1fr;
-  overflow: hidden;
-  border: 1px solid rgb(0 0 0 / 0.08);
-  border-radius: 24px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1.5rem;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 html.dark .ship-bench {
-  border-color: var(--ls-card-border);
-  background: var(--ls-panel);
+  background: transparent;
   box-shadow: none;
 }
 
 @media (min-width: 1024px) {
   .ship-bench {
-    grid-template-columns: minmax(0, 1fr) 20rem;
-    min-height: 28rem;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 1.5rem;
+    align-items: start;
+  }
+
+  .ship-bench-main {
+    grid-column: span 8;
+  }
+
+  .ship-bench-side {
+    grid-column: span 4;
+    border-top: 0;
+    border-left: 0;
   }
 }
 
 .ship-bench-main {
   min-width: 0;
-  padding: 16px 18px 18px;
+  padding: 0;
 }
 
 .ship-bench-side {
@@ -796,9 +822,9 @@ html.dark .ship-bench {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  overflow: hidden;
-  border-top: 1px solid rgb(0 0 0 / 0.08);
-  background: #fff;
+  overflow: visible;
+  border-top: 0;
+  background: transparent;
 }
 
 html.dark .ship-bench-side {
@@ -809,49 +835,190 @@ html.dark .ship-bench-side {
 @media (min-width: 1024px) {
   .ship-bench-side {
     border-top: 0;
-    border-left: 1px solid rgb(0 0 0 / 0.08);
+    border-left: 0;
   }
 
   html.dark .ship-bench-side {
-    border-left-color: var(--ls-card-border);
+    border-left-color: transparent;
   }
 }
 
-/* Header cột phải: Deep Teal đặc — nổi khỏi thân trắng, không còn xám nhạt. */
-.ship-bench-side .pack-bench-head {
-  border-bottom: 1px solid rgb(15 34 40 / 0.45);
-  background: linear-gradient(165deg, #1a3a44 0%, #152d35 55%, #0f2228 100%);
-  box-shadow: inset 0 -1px 0 rgb(212 236 221 / 0.14);
+.owner-stage .ship-bench-side .pack-bench-head {
+  border-bottom: 1px solid rgb(226 232 240 / 0.6);
+  border-top-left-radius: 0.75rem;
+  border-top-right-radius: 0.75rem;
+  background: rgb(248 250 252 / 0.8);
+  box-shadow: none;
+  padding: 0.75rem;
 }
 
 .ship-bench-side .pack-bench-kicker {
-  color: #b8dcc8;
-  letter-spacing: 0.1em;
+  color: var(--ls-muted);
+  letter-spacing: 0.08em;
 }
 
 .ship-bench-side .pack-bench-head h2 {
-  color: #f4faf6;
+  color: var(--ls-ink);
 }
 
-.ship-bench-side .pack-bench-head .text-\[var\(--ls-muted\)\] {
-  color: #a8c4b8 !important;
+.ship-bench-side .rounded-xl {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
 }
 
-.ship-bench-side .pack-bench-head .text-\[var\(--ls-ink\)\] {
-  color: #d4ecdd !important;
+.ship-bench-side .ship-summary-card {
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240 / 0.8);
+  border-radius: 0.75rem;
+  background: #fff;
+  padding: 1.25rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.05);
 }
 
-html.dark .ship-bench-side .pack-bench-head {
-  border-bottom-color: rgb(212 236 221 / 0.16);
-  background: linear-gradient(165deg, #1e3d47 0%, #152d35 60%, #0c1c22 100%);
+html.dark .ship-bench-side .ship-summary-card {
+  border-color: var(--ls-card-border);
+  background: var(--ls-panel);
+}
+
+.ship-status-bar {
+  display: flex;
+  gap: 2px;
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 2px;
+  border: 1px solid var(--ls-card-border);
+  border-radius: 999px;
+  background: #fff;
+}
+
+.ship-status-bar--seg {
+  flex: 1 1 0%;
+  width: 0;
+  min-width: 0;
+  max-width: 100%;
+  justify-content: flex-start;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  padding-right: 0.5rem;
+  cursor: grab;
+}
+
+.ship-status-bar--seg:active {
+  cursor: grabbing;
+}
+
+.ship-status-bar--seg::-webkit-scrollbar {
+  display: none;
+  height: 0;
+}
+
+.ship-status-bar button {
+  display: inline-flex;
+  min-width: max-content;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--ls-ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ship-status-bar button.px-2 {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.ship-status-bar button:hover {
+  border-color: color-mix(in srgb, var(--ls-cta) 40%, transparent);
+}
+
+.ship-status-bar button[aria-current='true'] {
+  border-color: color-mix(in srgb, var(--ls-cta) 45%, transparent);
+  background: color-mix(in srgb, var(--ls-cta) 14%, transparent);
+  color: var(--ls-cta);
+}
+
+.ship-status-bar button span {
+  display: inline-flex;
+  min-width: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ls-cta) 12%, transparent);
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ship-foot-btn {
+  display: inline-flex;
+  height: 2.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid rgb(203 213 225);
+  border-radius: 999px;
+  background: transparent;
+  padding: 0 0.875rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  color: rgb(51 65 85);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ship-foot-btn:hover {
+  background: rgb(248 250 252);
+}
+
+.ship-foot-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.ship-foot-btn--danger {
+  border-color: rgb(252 165 165);
+  color: rgb(220 38 38);
+}
+
+.ship-foot-btn--danger:hover {
+  background: rgb(254 242 242);
+}
+
+html.dark .ship-foot-btn {
+  border-color: rgb(71 85 105);
+  color: rgb(226 232 240);
+}
+
+html.dark .ship-foot-btn:hover {
+  background: rgb(30 41 59);
 }
 
 .ship-foot {
+  position: relative;
+  z-index: 30;
+  display: flex;
   flex-shrink: 0;
-  border-top: 1px solid rgb(0 0 0 / 0.08);
+  align-items: center;
+  width: 100%;
+  border-top: 1px solid rgb(226 232 240);
   background: #fff;
-  padding: 12px 16px;
-  box-shadow: 0 -1px 2px rgb(0 0 0 / 0.04);
+  padding: 12px 24px;
+  box-shadow: none;
 }
 
 html.dark .ship-foot {

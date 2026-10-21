@@ -10,8 +10,14 @@ import type {
   CreateZoneInput,
   GenerateBinsInput,
   InventoryMovementRecord,
+  MoveAssignmentInput,
   OtherBin,
+  PurgeRackQuery,
+  PurgeResult,
   SkuBinAssignmentRecord,
+  StockLotRecord,
+  StockReceiptRecord,
+  CreateStockReceiptInput,
   TransferStockInput,
   UnassignedSku,
   UpdateWarehouseInput,
@@ -154,6 +160,75 @@ function inactiveQuery(includeInactive?: boolean): string {
   return includeInactive ? '?include_inactive=true' : ''
 }
 
+export async function getWarehouse(
+  warehouseId: string,
+): Promise<WarehouseRecord | null> {
+  return mapWarehouse(
+    await apiRequest<unknown>(`/warehouse/warehouses/${warehouseId}`, {
+      auth: true,
+    }),
+  )
+}
+
+export type UpdateBinInput = {
+  capacity?: number | null
+  designated_category_code?: string
+  designated_size?: string
+  designated_color_code?: string | null
+}
+
+export async function updateBin(
+  binId: string,
+  input: UpdateBinInput,
+): Promise<BinLocationRecord> {
+  const saved = mapBin(
+    await apiRequest<unknown>(`/warehouse/bin-locations/${binId}`, {
+      method: 'PATCH',
+      body: input,
+      auth: true,
+    }),
+  )
+  if (!saved) throw new Error('Sửa ô thành công nhưng server không trả mã ô.')
+  return saved
+}
+
+export type BinSuggestion = {
+  bin: BinLocationRecord
+  matchLevel: 1 | 2 | 3
+  usedUnits: number
+  freeCapacity: number | null
+}
+
+export async function suggestBins(
+  warehouseId: string,
+  query: { category_code: string; size?: string; color_code?: string },
+): Promise<BinSuggestion[]> {
+  const qs = new URLSearchParams({ category_code: query.category_code })
+  if (query.size) qs.set('size', query.size)
+  if (query.color_code) qs.set('color_code', query.color_code)
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/bin-suggestions?${qs.toString()}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const bin = mapBin(row.bin)
+    if (!bin) return []
+    const level = row.matchLevel
+    return [
+      {
+        bin,
+        matchLevel: level === 1 || level === 2 || level === 3 ? level : 3,
+        usedUnits: typeof row.usedUnits === 'number' ? row.usedUnits : 0,
+        freeCapacity:
+          typeof row.freeCapacity === 'number' ? row.freeCapacity : null,
+      },
+    ]
+  })
+}
+
 export async function listWarehouses(options?: {
   includeInactive?: boolean
 }): Promise<WarehouseRecord[]> {
@@ -207,6 +282,62 @@ export async function deactivateWarehouse(
   )
   if (!updated) throw new Error('Tắt kho thành công nhưng server không trả dữ liệu.')
   return updated
+}
+
+function mapPurge(raw: unknown): PurgeResult {
+  const row = asRecord(raw)
+  const count = (key: string): number => {
+    const value = row?.[key]
+    return typeof value === 'number' && Number.isFinite(value) ? value : 0
+  }
+  return {
+    warehouses: count('warehouses'),
+    zones: count('zones'),
+    bins: count('bins'),
+    assignments: count('assignments'),
+  }
+}
+
+export async function purgeWarehouse(warehouseId: string): Promise<PurgeResult> {
+  return mapPurge(
+    await apiRequest<unknown>(`/warehouse/warehouses/${warehouseId}/permanent`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+  )
+}
+
+export async function purgeWarehouseZone(zoneId: string): Promise<PurgeResult> {
+  return mapPurge(
+    await apiRequest<unknown>(`/warehouse/zones/${zoneId}/permanent`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+  )
+}
+
+export async function purgeBin(binId: string): Promise<PurgeResult> {
+  return mapPurge(
+    await apiRequest<unknown>(`/warehouse/bin-locations/${binId}/permanent`, {
+      method: 'DELETE',
+      auth: true,
+    }),
+  )
+}
+
+export async function purgeRack(
+  zoneId: string,
+  query: PurgeRackQuery,
+): Promise<PurgeResult> {
+  const params = new URLSearchParams({ aisle: query.aisle })
+  if (query.side) params.set('side', query.side)
+  if (query.bay != null) params.set('bay', String(query.bay))
+  return mapPurge(
+    await apiRequest<unknown>(
+      `/warehouse/zones/${zoneId}/racks/permanent?${params.toString()}`,
+      { method: 'DELETE', auth: true },
+    ),
+  )
 }
 
 export async function reactivateWarehouse(
@@ -496,6 +627,21 @@ export async function transferStockAssignment(
   return { from, to }
 }
 
+export async function moveSkuAssignment(
+  warehouseId: string,
+  assignmentId: string,
+  input: MoveAssignmentInput,
+): Promise<SkuBinAssignmentRecord> {
+  const updated = mapAssignment(
+    await apiRequest<unknown>(
+      `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}`,
+      { method: 'PATCH', body: input, auth: true },
+    ),
+  )
+  if (!updated) throw new Error('Sửa gán thành công nhưng server không trả dữ liệu.')
+  return updated
+}
+
 export async function unassignSkuFromBin(
   warehouseId: string,
   assignmentId: string,
@@ -524,6 +670,23 @@ function mapMovement(raw: unknown): InventoryMovementRecord | null {
     refId: pickString(row.refId, row.ref_id) || null,
     actorId: pickString(row.actorId, row.actor_id) || null,
     createdAt: pickString(row.createdAt, row.created_at),
+    lots: Array.isArray(row.lots)
+      ? row.lots.flatMap((item) => {
+          const lot = asRecord(item)
+          if (!lot) return []
+          const lotId = pickString(lot.lotId, lot.lot_id)
+          const lotCode = pickString(lot.lotCode, lot.lot_code)
+          if (!lotId && !lotCode) return []
+          return [
+            {
+              lotId,
+              lotCode,
+              receivedAt: pickString(lot.receivedAt, lot.received_at),
+              quantity: pickNumber(lot.quantity),
+            },
+          ]
+        })
+      : [],
   }
 }
 
@@ -539,6 +702,121 @@ export async function listStockMovements(
   return res
     .map(mapMovement)
     .filter((row): row is InventoryMovementRecord => row !== null)
+}
+
+function mapStockLot(raw: unknown): StockLotRecord | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const id = pickString(row.id, row._id)
+  if (!id) return null
+  return {
+    id,
+    assignmentId: pickString(row.assignmentId, row.assignment_id),
+    binLocationId: pickString(row.binLocationId, row.bin_location_id),
+    platform: pickString(row.platform),
+    shopId: pickString(row.shopId, row.shop_id),
+    sellerSku: pickString(row.sellerSku, row.seller_sku),
+    masterSku: pickString(row.masterSku, row.master_sku) || null,
+    lotCode: pickString(row.lotCode, row.lot_code),
+    receivedAt: pickString(row.receivedAt, row.received_at),
+    quantityReceived: pickNumber(row.quantityReceived, row.quantity_received),
+    quantityRemaining: pickNumber(row.quantityRemaining, row.quantity_remaining),
+    source: pickString(row.source),
+    receiptId: pickString(row.receiptId, row.receipt_id) || null,
+  }
+}
+
+export async function listAssignmentLots(
+  warehouseId: string,
+  assignmentId: string,
+  includeEmpty = false,
+): Promise<StockLotRecord[]> {
+  const query = includeEmpty ? '?include_empty=true' : ''
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}/lots${query}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.map(mapStockLot).filter((row): row is StockLotRecord => row !== null)
+}
+
+export async function listStockLots(
+  warehouseId: string,
+  params: { seller_sku?: string; lot_code?: string; include_empty?: boolean } = {},
+): Promise<StockLotRecord[]> {
+  const search = new URLSearchParams()
+  if (params.seller_sku) search.set('seller_sku', params.seller_sku)
+  if (params.lot_code) search.set('lot_code', params.lot_code)
+  if (params.include_empty) search.set('include_empty', 'true')
+  const query = search.size > 0 ? `?${search.toString()}` : ''
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/lots${query}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.map(mapStockLot).filter((row): row is StockLotRecord => row !== null)
+}
+
+function mapStockReceipt(raw: unknown): StockReceiptRecord | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const id = pickString(row.id, row._id)
+  if (!id) return null
+  const linesRaw = Array.isArray(row.lines) ? row.lines : []
+  return {
+    id,
+    receiptCode: pickString(row.receiptCode, row.receipt_code),
+    warehouseId: pickString(row.warehouseId, row.warehouse_id),
+    lotCode: pickString(row.lotCode, row.lot_code),
+    receivedAt: pickString(row.receivedAt, row.received_at),
+    supplier: pickString(row.supplier) || null,
+    note: pickString(row.note) || null,
+    totalQuantity: pickNumber(row.totalQuantity, row.total_quantity),
+    createdBy: pickString(row.createdBy, row.created_by),
+    createdAt: pickString(row.createdAt, row.created_at),
+    lines: linesRaw.flatMap((item) => {
+      const line = asRecord(item)
+      if (!line) return []
+      return [
+        {
+          assignmentId: pickString(line.assignmentId, line.assignment_id),
+          binLocationId: pickString(line.binLocationId, line.bin_location_id),
+          lotId: pickString(line.lotId, line.lot_id),
+          platform: pickString(line.platform),
+          shopId: pickString(line.shopId, line.shop_id),
+          sellerSku: pickString(line.sellerSku, line.seller_sku),
+          masterSku: pickString(line.masterSku, line.master_sku) || null,
+          quantity: pickNumber(line.quantity),
+        },
+      ]
+    }),
+  }
+}
+
+export async function listStockReceipts(
+  warehouseId: string,
+): Promise<StockReceiptRecord[]> {
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/receipts`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res
+    .map(mapStockReceipt)
+    .filter((row): row is StockReceiptRecord => row !== null)
+}
+
+export async function createStockReceipt(
+  warehouseId: string,
+  input: CreateStockReceiptInput,
+): Promise<StockReceiptRecord> {
+  const res = await apiRequest<unknown>(
+    `/warehouse/warehouses/${warehouseId}/receipts`,
+    { method: 'POST', auth: true, body: input },
+  )
+  const receipt = mapStockReceipt(res)
+  if (!receipt) throw new Error('Phiếu nhập không đúng định dạng.')
+  return receipt
 }
 
 function mapCategory(raw: unknown): CategoryRecord | null {
@@ -661,6 +939,21 @@ function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
     bin_location_id: pickString(row.bin_location_id) || null,
     other_bins: mapOtherBins(row.other_bins),
   }
+}
+
+export async function getWarehousePickingListForGroups(
+  warehouseId: string,
+  groupIds: string[],
+): Promise<WarehousePickingListItem[]> {
+  const qs = new URLSearchParams({ group_ids: groupIds.join(',') })
+  const res = await apiRequest<unknown>(
+    `/warehouse/${encodeURIComponent(warehouseId)}/picking-list?${qs.toString()}`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res
+    .map(mapPickingListItem)
+    .filter((row): row is WarehousePickingListItem => row !== null)
 }
 
 export async function getWarehousePickingList(

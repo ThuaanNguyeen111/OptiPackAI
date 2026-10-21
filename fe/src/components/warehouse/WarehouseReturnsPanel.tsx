@@ -6,7 +6,10 @@ import {
   listReturns,
   receiveReturn,
   resolveQuarantine,
+  type PackagingInspectInput,
 } from '../../api/returns.api'
+import { listShipments, receiveReturnedShipment } from '../../api/shipments.api'
+import type { Shipment } from '../../types/shipments'
 import { listWarehouseBinLocations } from '../../api/warehouse.api'
 import { formatApiError } from '../../lib/api'
 import type { BinLocationRecord, WarehouseRecord } from '../../types/warehouse-admin'
@@ -47,6 +50,7 @@ export function WarehouseReturnsPanel({
   const [receiptSlips, setReceiptSlips] = useState<ReturnRequest[]>([])
   const [receivedSlips, setReceivedSlips] = useState<ReturnRequest[]>([])
   const [quarantine, setQuarantine] = useState<QuarantineLine[]>([])
+  const [returning, setReturning] = useState<Shipment[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [bins, setBins] = useState<BinLocationRecord[]>([])
   const [busy, setBusy] = useState(false)
@@ -57,15 +61,22 @@ export function WarehouseReturnsPanel({
     setLoading(true)
     setError(null)
     try {
-      const [receipt, received, held] = await Promise.all([
+      const [receipt, received, held, inbound] = await Promise.all([
         listReturns({ status: 'awaiting_receipt', limit: 100 }),
         listReturns({ status: 'received', limit: 100 }),
         listQuarantine(),
+        listShipments({ status: 'returning_to_warehouse', limit: 50 }).catch(() => ({
+          items: [] as Shipment[],
+          total: 0,
+          page: 1,
+          limit: 50,
+        })),
       ])
       void refreshToken
       setReceiptSlips(receipt.items)
       setReceivedSlips(received.items)
       setQuarantine(held)
+      setReturning(inbound.items)
       onCounts(receipt.total + received.total + held.length)
       const next = mode === 'received' ? received.items : receipt.items
       setSelectedId((prev) => {
@@ -120,7 +131,10 @@ export function WarehouseReturnsPanel({
     }
   }
 
-  async function onInspect(drafts: InspectDraft[]): Promise<void> {
+  async function onInspect(
+    drafts: InspectDraft[],
+    packaging?: PackagingInspectInput[],
+  ): Promise<void> {
     if (!selected) return
     setBusy(true)
     setError(null)
@@ -135,7 +149,21 @@ export function WarehouseReturnsPanel({
             ? { warehouse_id: warehouseId, bin_location_id: line.binLocationId }
             : {}),
         })),
+        ...(packaging && packaging.length > 0 ? { packaging } : {}),
       })
+      await load()
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function onReceiveShipment(shipment: Shipment): Promise<void> {
+    setBusy(true)
+    setError(null)
+    try {
+      await receiveReturnedShipment(shipment.id, shipment.version)
       await load()
     } catch (err: unknown) {
       setError(formatApiError(err))
@@ -240,7 +268,28 @@ export function WarehouseReturnsPanel({
           <Loader2 className="h-4 w-4 animate-spin" />
           {vi ? 'Đang tải phiếu…' : 'Loading slips…'}
         </p>
-      ) : mode === 'quarantine' ? (
+      ) : null}
+      {returning.length > 0 ? (
+        <ul className="mt-3 space-y-1">
+          {returning.map((shipment) => (
+            <li
+              key={shipment.id}
+              className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700"
+            >
+              <span className="font-mono">{shipment.shipmentCode || shortId(shipment.id)}</span>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onReceiveShipment(shipment)}
+                className="h-8 rounded-lg bg-slate-900 px-2 font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-slate-900"
+              >
+                {vi ? 'Nhận hàng hoàn' : 'Receive return'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {loading ? null : mode === 'quarantine' ? (
         <ul className="mt-4 space-y-2">
           {quarantine.length === 0 ? (
             <li className="text-sm text-slate-500">
@@ -355,8 +404,13 @@ function InspectForm({
   bins: BinLocationRecord[]
   busy: boolean
   onError: (message: string) => void
-  onSubmit: (drafts: InspectDraft[]) => Promise<void>
+  onSubmit: (drafts: InspectDraft[], packaging?: PackagingInspectInput[]) => Promise<void>
 }) {
+  const [materialCode, setMaterialCode] = useState('')
+  const [materialQty, setMaterialQty] = useState(1)
+  const [materialGrade, setMaterialGrade] = useState<'A' | 'B' | 'C'>('A')
+  const [labelRemoved, setLabelRemoved] = useState(false)
+  const [reuseCycle, setReuseCycle] = useState(0)
   const [drafts, setDrafts] = useState<InspectDraft[]>(() =>
     items.map((item) => ({
       sellerSku: item.sellerSku,
@@ -417,6 +471,49 @@ function InspectForm({
           )}
         </div>
       ))}
+      <div className="grid gap-2 rounded-lg border border-slate-200 p-2 text-xs dark:border-slate-700">
+        <p className="font-semibold">{vi ? 'Thùng / vật tư hoàn (tuỳ chọn)' : 'Returned packaging (optional)'}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={materialCode}
+            onChange={(event) => setMaterialCode(event.target.value.toUpperCase())}
+            placeholder="BOX-M"
+            className="h-8 w-24 rounded-lg border border-slate-200 px-2 font-mono dark:border-slate-700 dark:bg-surface-2"
+          />
+          <input
+            type="number"
+            min={1}
+            value={materialQty}
+            onChange={(event) => setMaterialQty(Number(event.target.value) || 1)}
+            className="h-8 w-16 rounded-lg border border-slate-200 px-2 dark:border-slate-700 dark:bg-surface-2"
+          />
+          <select
+            value={materialGrade}
+            onChange={(event) => setMaterialGrade(event.target.value as 'A' | 'B' | 'C')}
+            className="h-8 rounded-lg border border-slate-200 px-2 dark:border-slate-700 dark:bg-surface-2"
+          >
+            <option value="A">A</option>
+            <option value="B">B</option>
+            <option value="C">C</option>
+          </select>
+          <label className="inline-flex items-center gap-1">
+            <input
+              type="checkbox"
+              checked={labelRemoved}
+              onChange={(event) => setLabelRemoved(event.target.checked)}
+            />
+            {vi ? 'Đã gỡ nhãn cũ' : 'Old label removed'}
+          </label>
+          <input
+            type="number"
+            min={0}
+            value={reuseCycle}
+            onChange={(event) => setReuseCycle(Number(event.target.value) || 0)}
+            className="h-8 w-16 rounded-lg border border-slate-200 px-2 dark:border-slate-700 dark:bg-surface-2"
+            title={vi ? 'Số lần tái sử dụng trên nắp' : 'Reuse cycle on the lid'}
+          />
+        </div>
+      </div>
       <button
         type="button"
         disabled={busy}
@@ -425,7 +522,23 @@ function InspectForm({
             onError(vi ? 'Nhập lại kho phải chọn ô.' : 'Restock needs a bin.')
             return
           }
-          void onSubmit(drafts)
+          const code = materialCode.trim()
+          if (code && materialGrade === 'A' && !labelRemoved) {
+            onError(vi ? 'Hạng A phải xác nhận đã gỡ nhãn cũ.' : 'Grade A needs the old label removed.')
+            return
+          }
+          const packaging = code
+            ? [
+                {
+                  material_code: code,
+                  quantity: materialQty,
+                  grade: materialGrade,
+                  reuse_cycle_seen: reuseCycle,
+                  ...(materialGrade === 'A' ? { old_label_removed: true } : {}),
+                },
+              ]
+            : undefined
+          void onSubmit(drafts, packaging)
         }}
         className="inline-flex h-9 items-center rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-white dark:text-slate-900"
       >

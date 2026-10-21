@@ -26,6 +26,20 @@ export interface ParcelMaterialNeed {
    * cho dùng thùng tái sử dụng). Không gửi = được dùng hàng tái sử dụng.
    */
   allowReused?: boolean;
+  /**
+   * (21/10/2026) Nhân viên chọn nguồn thùng: `new` = chỉ lấy hàng MỚI; `reused` = chỉ lấy
+   * hàng TÁI SỬ DỤNG (thiếu → coi như hết hàng). Không gửi = tự động (tái sử dụng trước).
+   */
+  source?: 'new' | 'reused';
+  /** Ghi vào sổ kho cho dòng trừ tồn này (VD lý do chọn thùng mới thay tái sử dụng). */
+  note?: string | null;
+}
+
+/** (21/10/2026) Kiện nào đã lấy từ ngăn nào (mới / tái sử dụng) và bao nhiêu. */
+export interface ParcelSourceTaken {
+  parcelNo: number;
+  source: 'new' | 'reused';
+  quantity: number;
 }
 
 /** Tồn trước/sau của 1 mã sau khi trừ (để báo sắp hết). */
@@ -36,6 +50,8 @@ export interface ParcelConsumed {
   after: number;
   reorderLevel: number;
   savingVnd: number;
+  /** (21/10/2026) Chi tiết từng kiện lấy từ ngăn nào. */
+  sources: ParcelSourceTaken[];
 }
 
 export interface ParcelConsumption {
@@ -217,20 +233,26 @@ export class PackagingMaterialsService {
       if (need.quantity <= 0) continue;
       const m = await this.materialModel.findOne({ code: need.code }).session(session);
       const available = m ? usableStock(m) : 0;
-      // Kiện không được dùng hàng tái sử dụng: chỉ tính phần hàng MỚI là "còn".
-      const usable = m && need.allowReused === false ? Math.min(available, m.qty_new) : available;
+      // Ngăn được phép lấy: kiện cấm tái sử dụng hoặc nhân viên chọn "mới" → chỉ hàng MỚI;
+      // nhân viên chọn "tái sử dụng" → chỉ hàng TÁI SỬ DỤNG (21/10/2026).
+      const reusedAllowed = need.allowReused !== false && need.source !== 'new';
+      const reusedPool = m && m.reusable && reusedAllowed ? m.qty_reused : 0;
+      const newPool = m && need.source !== 'reused' ? m.qty_new : 0;
+      const usable = Math.min(available, reusedPool + newPool);
+      const sources: ParcelSourceTaken[] = [];
       if (options.strict && (!m || usable < need.quantity)) {
         if (options.onShortage) options.onShortage(need, usable);
         this.fail(E.INSUFFICIENT_STOCK, `Kho chỉ còn ${String(usable)} "${need.code}", cần ${String(need.quantity)}.`, HttpStatus.CONFLICT);
       }
       let remaining = m ? Math.min(need.quantity, usable) : 0;
       let saving = 0;
-      if (m && remaining > 0 && m.reusable && m.qty_reused > 0 && need.allowReused !== false) {
-        const take = Math.min(remaining, m.qty_reused);
+      if (m && remaining > 0 && reusedPool > 0) {
+        const take = Math.min(remaining, reusedPool);
         const ok = await this.materialModel.updateOne({ _id: m._id, qty_reused: { $gte: take } }, { $inc: { qty_reused: -take } }, { session });
         if (ok.modifiedCount === 1) {
           saving = take * m.unit_cost_vnd;
           await this.recordParcel(m, 'reused', -take, saving, groupId, need, available - take, actorId, session);
+          sources.push({ parcelNo: need.parcelNo, source: 'reused', quantity: take });
           remaining -= take;
         }
       }
@@ -239,6 +261,7 @@ export class PackagingMaterialsService {
         const ok = await this.materialModel.updateOne({ _id: m._id, qty_new: { $gte: remaining } }, { $inc: { qty_new: -remaining } }, { session });
         if (ok.modifiedCount === 1) {
           await this.recordParcel(m, 'new', -remaining, 0, groupId, need, available - taken - remaining, actorId, session);
+          sources.push({ parcelNo: need.parcelNo, source: 'new', quantity: remaining });
           taken += remaining;
         } else if (options.strict) {
           if (options.onShortage) options.onShortage(need, available - taken);
@@ -254,6 +277,7 @@ export class PackagingMaterialsService {
           after: available - taken,
           reorderLevel: m.reorder_level,
           savingVnd: (previous?.savingVnd ?? 0) + saving,
+          sources: [...(previous?.sources ?? []), ...sources],
         });
       }
       if (taken < need.quantity) {
@@ -363,7 +387,7 @@ export class PackagingMaterialsService {
   ): Promise<void> {
     await this.movementModel.create([{
       material_code: m.code, condition, type: 'consume', delta, saving_vnd: saving,
-      ref_type: 'order_group', ref_id: groupId.toString(), note: null, actor_id: actorId,
+      ref_type: 'order_group', ref_id: groupId.toString(), note: need.note ?? null, actor_id: actorId,
       packing_plan_id: need.planId, parcel_no: need.parcelNo, balance_after: balanceAfter, created_at: new Date(),
     }], { session });
   }

@@ -30,7 +30,7 @@ import {
   UpdateShippingSettingsDto,
 } from './dto/shipping.dto';
 import type { ShippingCarrierDocument } from './schemas/shipping-carrier.schema';
-import { ShippingService, type GroupQuote, type PackagingOptionsResult } from './shipping.service';
+import { ShippingService, type GroupQuote, type PackagingOptionsResult, type ShippingSettingsView } from './shipping.service';
 import type { ToLocationInput } from './live-carrier.service';
 
 /** Query địa chỉ → ToLocationInput (bỏ field không gửi). */
@@ -42,7 +42,6 @@ function toLocationOf(q: ToLocationDto): ToLocationInput | null {
   if (q.phone) out.phone = q.phone;
   return Object.keys(out).length > 0 ? out : null;
 }
-import type { ShippingStrategy } from './utils/shipping-cost.util';
 
 export interface CarrierResponse {
   id: string;
@@ -172,11 +171,7 @@ export class ShippingController {
     summary:
       'Tùy chọn vận chuyển của Store Owner (chiến lược đề xuất, dịch vụ mặc định).',
   })
-  async getSettings(): Promise<{
-    strategy: ShippingStrategy;
-    defaultCarrierCode: string | null;
-    defaultServiceCode: string | null;
-  }> {
+  async getSettings(): Promise<ShippingSettingsView> {
     return this.shippingService.getSettings();
   }
 
@@ -184,16 +179,12 @@ export class ShippingController {
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Cấu hình tùy chọn vận chuyển: cheapest / fastest / fixed (+ dịch vụ mặc định).',
+      'Cấu hình tùy chọn vận chuyển: cheapest / fastest / fixed (+ dịch vụ mặc định) và người gửi in trên nhãn vận đơn (sender_*).',
   })
   async updateSettings(
     @Body() body: UpdateShippingSettingsDto,
     @CurrentUser() user: AuthenticatedUser,
-  ): Promise<{
-    strategy: ShippingStrategy;
-    defaultCarrierCode: string | null;
-    defaultServiceCode: string | null;
-  }> {
+  ): Promise<ShippingSettingsView> {
     return this.shippingService.updateSettings(body, user.userId);
   }
 }

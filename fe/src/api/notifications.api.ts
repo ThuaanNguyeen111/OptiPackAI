@@ -29,6 +29,14 @@ export async function fetchUnreadNotificationCount(): Promise<number> {
   return typeof res.count === 'number' ? res.count : 0
 }
 
+export async function markAllNotificationsRead(): Promise<number> {
+  const res = await apiRequest<{ updated?: number }>('/notifications/read-all', {
+    method: 'PATCH',
+    auth: true,
+  })
+  return typeof res.updated === 'number' ? res.updated : 0
+}
+
 export async function markNotificationRead(
   id: string,
 ): Promise<AppNotification | null> {

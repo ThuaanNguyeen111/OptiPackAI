@@ -11,15 +11,31 @@ import {
   Shipment,
   ShipmentDocument,
 } from '../shipments/schemas/shipment.schema';
+import {
+  ShippingSettings,
+  ShippingSettingsDocument,
+} from '../shipping/schemas/shipping-settings.schema';
+import { Warehouse, WarehouseDocument } from '../warehouse/schemas/warehouse.schema';
 import { DOC_ERROR_CODES } from './documents.errors';
 import {
   ManifestData,
   PackingSlipData,
   ShippingLabelData,
+  renderBinLabels,
   renderManifest,
   renderPackingSlip,
+  renderPickingList,
   renderShippingLabels,
+  renderSkuLabels,
+  renderStockReceipt,
 } from './pdf/document-renderers';
+import { BinLocation, BinLocationDocument } from '../warehouse/schemas/bin-location.schema';
+import { WarehouseZone, WarehouseZoneDocument } from '../warehouse/schemas/warehouse-zone.schema';
+import { WarehouseService } from '../warehouse/warehouse.service';
+import { MasterSku, MasterSkuDocument } from '../master-skus/schemas/master-sku.schema';
+
+/** (21/10/2026) Giới hạn tem mỗi lần in — tránh dựng PDF hàng nghìn trang làm treo máy chủ. */
+const MAX_LABELS = 500;
 
 interface RecipientLike {
   full_name: string;
@@ -46,8 +62,161 @@ export class DocumentsService {
     private readonly planModel: Model<PackingPlanDocument>,
     @InjectModel(Shipment.name)
     private readonly shipmentModel: Model<ShipmentDocument>,
+    @InjectModel(ShippingSettings.name)
+    private readonly shippingSettingsModel: Model<ShippingSettingsDocument>,
+    @InjectModel(Warehouse.name)
+    private readonly warehouseModel: Model<WarehouseDocument>,
+    @InjectModel(BinLocation.name)
+    private readonly binModel: Model<BinLocationDocument>,
+    @InjectModel(WarehouseZone.name)
+    private readonly zoneModel: Model<WarehouseZoneDocument>,
+    @InjectModel(MasterSku.name)
+    private readonly masterSkuModel: Model<MasterSkuDocument>,
     private readonly orderGroupsService: OrderGroupsService,
+    private readonly warehouseService: WarehouseService,
   ) {}
+
+  private assertId(id: string, field: string): Types.ObjectId {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppException(DOC_ERROR_CODES.INVALID_ID, `${field} không hợp lệ.`, HttpStatus.BAD_REQUEST, { [field]: id });
+    }
+    return new Types.ObjectId(id);
+  }
+
+  private async requireWarehouse(warehouseId: string): Promise<WarehouseDocument> {
+    const warehouse = await this.warehouseModel.findById(this.assertId(warehouseId, 'warehouseId'));
+    if (!warehouse) {
+      throw new AppException(DOC_ERROR_CODES.WAREHOUSE_NOT_FOUND, 'Không tìm thấy kho.', HttpStatus.NOT_FOUND, { warehouseId });
+    }
+    return warehouse;
+  }
+
+  private assertLabelCount(count: number): void {
+    if (count > MAX_LABELS) {
+      throw new AppException(
+        DOC_ERROR_CODES.TOO_MANY_LABELS,
+        `Một lần chỉ in tối đa ${String(MAX_LABELS)} tem (đang yêu cầu ${String(count)}) — lọc theo khu hoặc giảm số bản.`,
+        HttpStatus.BAD_REQUEST,
+        { requested: count, max: MAX_LABELS },
+      );
+    }
+  }
+
+  /**
+   * (21/10/2026) Tem ô kệ: mã quét = đúng `bin_code` (đã dùng ở lấy hàng/nhập kho). Lọc theo
+   * khu hoặc danh sách ô; không lọc = cả kho. Sắp theo lộ trình lấy hàng để dán cho nhanh.
+   */
+  async buildBinLabels(warehouseId: string, opts: { zoneId?: string; binIds?: string[]; copies: number }): Promise<Buffer> {
+    const warehouse = await this.requireWarehouse(warehouseId);
+    const filter: Record<string, unknown> = { warehouse_id: warehouse._id, is_active: { $ne: false } };
+    if (opts.zoneId) filter.zone_id = this.assertId(opts.zoneId, 'zone_id');
+    if (opts.binIds && opts.binIds.length > 0) filter._id = { $in: opts.binIds.map((id) => this.assertId(id, 'bin_ids')) };
+    const bins = await this.binModel.find(filter).sort({ pick_sequence: 1, bin_code: 1 }).lean();
+    if (bins.length === 0) {
+      throw new AppException(DOC_ERROR_CODES.NO_BINS, 'Không có ô nào khớp để in tem.', HttpStatus.NOT_FOUND, { warehouseId, ...opts });
+    }
+    this.assertLabelCount(bins.length * opts.copies);
+    const zones = await this.zoneModel.find({ _id: { $in: [...new Set(bins.map((b) => b.zone_id.toString()))].map((id) => new Types.ObjectId(id)) } }).lean();
+    const zoneOf = new Map(zones.map((z) => [z._id.toString(), z]));
+    return renderBinLabels({
+      warehouseCode: warehouse.warehouse_code,
+      bins: bins.map((b) => {
+        const zone = zoneOf.get(b.zone_id.toString());
+        return { binCode: b.bin_code, zoneCode: zone?.zone_code ?? '?', zoneName: zone?.zone_name ?? '', copies: opts.copies };
+      }),
+    });
+  }
+
+  /**
+   * (21/10/2026) Tem SKU: mã vạch = mã SKU (quét được ở lấy hàng + đóng gói — cả hai đều nhận
+   * SKU nội bộ lẫn SKU sàn). Mã không có trong danh mục SKU nội bộ vẫn in (coi là SKU sàn).
+   */
+  async buildSkuLabels(codes: string[], copies: number): Promise<Buffer> {
+    const unique = [...new Set(codes.map((c) => c.trim()).filter((c) => c.length > 0))];
+    if (unique.length === 0) {
+      throw new AppException(DOC_ERROR_CODES.NO_CODES, 'Cần ít nhất 1 mã SKU để in tem.', HttpStatus.BAD_REQUEST);
+    }
+    this.assertLabelCount(unique.length * copies);
+    const masters = await this.masterSkuModel.find({ master_sku: { $in: unique } }).lean();
+    const byCode = new Map(masters.map((m) => [m.master_sku, m]));
+    return renderSkuLabels({
+      items: unique.map((code) => {
+        const m = byCode.get(code);
+        return m
+          ? { code, name: m.name, detail: `Màu ${m.color_code} · Size ${m.size}`, copies }
+          : { code, name: 'SKU sàn', detail: null, copies };
+      }),
+    });
+  }
+
+  /** (21/10/2026) Picking list in giấy — cùng dữ liệu + thứ tự với GET /warehouse/:id/picking-list/:groupId. */
+  async buildPickingList(warehouseId: string, groupId: string): Promise<Buffer> {
+    const warehouse = await this.requireWarehouse(warehouseId);
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
+    const lines = await this.warehouseService.getEnrichedPickingList(warehouseId, groupId);
+    const orders = await this.loadActiveOrders(group._id);
+    const nameOf = new Map<string, string>();
+    for (const o of orders) for (const item of o.items) if (!nameOf.has(item.sku)) nameOf.set(item.sku, item.name);
+    return renderPickingList({
+      groupId,
+      shopName: group.shop_name_snapshot,
+      warehouseName: warehouse.warehouse_name,
+      generatedAt: new Date(),
+      lines: lines.map((l) => ({
+        binCode: l.bin_code,
+        zoneCode: l.zone_code,
+        sku: l.sku,
+        masterSku: l.master_sku,
+        name: nameOf.get(l.sku) ?? null,
+        lot: l.oldest_lot ? { code: l.oldest_lot.lot_code, receivedAt: l.oldest_lot.received_at } : null,
+        quantity: l.quantity,
+        pickedQuantity: l.picked_quantity,
+        otherBins: l.other_bins.map((b) => b.bin_code),
+      })),
+    });
+  }
+
+  /** (21/10/2026) Phiếu nhập kho in giấy để người giao + thủ kho ký. */
+  async buildStockReceipt(warehouseId: string, receiptId: string): Promise<Buffer> {
+    const warehouse = await this.requireWarehouse(warehouseId);
+    const receipt = await this.warehouseService.getReceipt(warehouseId, receiptId);
+    const binCodes = await this.warehouseService.binCodesByIds(receipt.lines.map((l) => l.bin_location_id));
+    return renderStockReceipt({
+      receiptCode: receipt.receipt_code,
+      warehouseName: warehouse.warehouse_name,
+      warehouseAddress: warehouse.address,
+      lotCode: receipt.lot_code,
+      receivedAt: receipt.received_at,
+      supplier: receipt.supplier,
+      note: receipt.note,
+      createdAt: receipt.created_at ?? null,
+      lines: receipt.lines.map((l) => ({
+        sellerSku: l.seller_sku,
+        masterSku: l.master_sku,
+        platform: l.platform,
+        binCode: binCodes.get(l.bin_location_id.toString()) ?? '(ô đã xoá)',
+        quantity: l.quantity,
+      })),
+      totalQuantity: receipt.total_quantity,
+    });
+  }
+
+  /**
+   * (21/10/2026) Người gửi trên nhãn: cấu hình ở tùy chọn vận chuyển (sender_*); field nào
+   * bỏ trống thì lấy tên + địa chỉ kho đang hoạt động đầu tiên; không có kho → tên shop.
+   */
+  private async resolveSender(shopName: string): Promise<ShippingLabelData['sender']> {
+    const settings = await this.shippingSettingsModel.findOne({ key: 'default' }).lean();
+    const needWarehouse = !settings?.sender_name || !settings.sender_address;
+    const warehouse = needWarehouse
+      ? await this.warehouseModel.findOne({ is_active: true }).sort({ created_at: 1 }).lean()
+      : null;
+    return {
+      name: settings?.sender_name ?? warehouse?.warehouse_name ?? shopName,
+      phone: settings?.sender_phone ?? null,
+      address: settings?.sender_address ?? warehouse?.address ?? null,
+    };
+  }
 
   private async loadActiveOrders(groupId: Types.ObjectId): Promise<OrderDocument[]> {
     return this.orderModel
@@ -185,6 +354,7 @@ export class DocumentsService {
 
     return renderShippingLabels({
       shopName: group.shop_name_snapshot,
+      sender: await this.resolveSender(group.shop_name_snapshot),
       carrierName: shipment.carrier_name ?? 'Chưa chọn hãng',
       serviceName: shipment.service_name ?? '',
       // Mã chung = mã vận đơn OptiPack (SHP-...); kiện có mã hãng thì in mã hãng (xem trên).

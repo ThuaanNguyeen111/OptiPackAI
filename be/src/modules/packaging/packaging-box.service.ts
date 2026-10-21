@@ -35,6 +35,8 @@ export interface ConsumedBox {
   before: number;
   after: number;
   reorderLevel: number;
+  /** (21/10/2026) Kiện nào lấy thùng từ ngăn nào (mới / tái sử dụng). */
+  sources?: { parcelNo: number; source: 'new' | 'reused' }[];
 }
 
 interface DimensionsMm {
@@ -150,7 +152,14 @@ export class PackagingBoxService {
    */
   async consumeForPack(
     session: ClientSession,
-    packages: { boxCode: string; planId: Types.ObjectId; parcelNo: number; allowReused?: boolean }[],
+    packages: {
+      boxCode: string;
+      planId: Types.ObjectId;
+      parcelNo: number;
+      allowReused?: boolean;
+      source?: 'new' | 'reused';
+      note?: string | null;
+    }[],
     groupId: Types.ObjectId,
     userId: string,
   ): Promise<ConsumedBox[]> {
@@ -162,12 +171,22 @@ export class PackagingBoxService {
         planId: p.planId,
         parcelNo: p.parcelNo,
         allowReused: p.allowReused,
+        source: p.source,
+        note: p.note ?? null,
       })),
       groupId,
       userId,
       {
         strict: true,
-        onShortage: (need) => {
+        onShortage: (need, available) => {
+          if (need.source === 'reused') {
+            throw new AppException(
+              PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
+              `Ngăn thùng tái sử dụng "${need.code}" chỉ còn ${String(available)} — chọn "tự động" hoặc "thùng mới" cho kiện ${String(need.parcelNo)}.`,
+              HttpStatus.CONFLICT,
+              { boxCode: need.code, source: 'reused', available },
+            );
+          }
           throw new AppException(
             PACKAGING_ERROR_CODES.BOX_OUT_OF_STOCK,
             `Kho đã hết thùng "${need.code}" — nhập thêm thùng hoặc đổi thùng cho kiện ${String(need.parcelNo)} trước khi xác nhận đóng.`,
@@ -177,7 +196,13 @@ export class PackagingBoxService {
         },
       },
     );
-    return result.consumed.map((c) => ({ code: c.code, before: c.before, after: c.after, reorderLevel: c.reorderLevel }));
+    return result.consumed.map((c) => ({
+      code: c.code,
+      before: c.before,
+      after: c.after,
+      reorderLevel: c.reorderLevel,
+      sources: c.sources.map((s) => ({ parcelNo: s.parcelNo, source: s.source })),
+    }));
   }
 
   /** Thùng hỏng trước khi niêm phong (đổi thùng lúc đóng): trừ tồn + ghi sổ hao hụt. */

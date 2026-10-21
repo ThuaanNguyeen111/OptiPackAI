@@ -30,6 +30,39 @@ export function resolveNotificationPath(
       ? '/app/admin/packing-plans'
       : '/app/packing'
   }
+  if (type === 'low_box_stock' || type === 'low_material_stock') {
+    const tab = type === 'low_box_stock' ? 'boxes' : 'cushions'
+    return role === UserRole.ADMIN
+      ? `/app/admin/packaging-materials?tab=${tab}`
+      : `/app/packaging-materials?tab=${tab}`
+  }
+  if (
+    type === 'delivery_failed' ||
+    type === 'delivery_returning' ||
+    type === 'delivery_overdue'
+  ) {
+    return '/app/shipping'
+  }
+  if (type === 'return_requested') {
+    return role === UserRole.ADMIN ? '/app/admin/returns' : '/app/returns'
+  }
+  if (
+    type === 'group_auto_canceled' ||
+    type === 'packaging_plan_invalidated' ||
+    type === 'stock_shortage' ||
+    type === 'return_to_shelf' ||
+    type === 'unpack_required' ||
+    type === 'packing_assigned' ||
+    type === 'packing_parcel_held' ||
+    type === 'packing_issue'
+  ) {
+    if (role === UserRole.WAREHOUSE_STAFF) {
+      return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'
+    }
+    if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
+    if (role === UserRole.SHIPPING_COORDINATOR) return '/app/shipping'
+    return '/app/order-groups'
+  }
   if (type === 'missing_item') {
     if (role === UserRole.WAREHOUSE_STAFF) {
       return entityId ? `/app/warehouse?groupId=${entityId}` : '/app/warehouse'

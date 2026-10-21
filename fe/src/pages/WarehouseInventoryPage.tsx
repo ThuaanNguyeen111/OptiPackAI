@@ -4,6 +4,8 @@ import {
   adjustStockAssignment,
   listSkuBinAssignments,
   listStockMovements,
+  listAssignmentLots,
+  createStockReceipt,
   listWarehouseBinLocations,
   listWarehouseZones,
   listWarehouses,
@@ -33,6 +35,7 @@ import type {
   InventoryMovementRecord,
   SkuBinAssignmentRecord,
   StockAdjustReason,
+  StockLotRecord,
   WarehouseRecord,
   WarehouseZoneRecord,
 } from '../types/warehouse-admin'
@@ -41,7 +44,7 @@ const fieldClass =
   'h-9 w-full rounded-md border border-hairline bg-surface-1 px-3 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
 type StockFilter = 'all' | 'in_stock' | 'empty'
-type ActionId = 'receive' | 'count' | 'move' | 'ledger'
+type ActionId = 'receive' | 'count' | 'move' | 'lots' | 'ledger'
 
 type WarehouseData = {
   key: string
@@ -461,6 +464,10 @@ function ActionPanel({
   const [targetBin, setTargetBin] = useState('')
   const [moveQty, setMoveQty] = useState(1)
   const [movements, setMovements] = useState<InventoryMovementRecord[] | null>(null)
+  const [lots, setLots] = useState<StockLotRecord[] | null>(null)
+  const [lotCode, setLotCode] = useState('')
+  const [supplier, setSupplier] = useState('')
+  const [receiptQty, setReceiptQty] = useState(1)
 
   async function run(task: () => Promise<string>) {
     setBusy(true)
@@ -531,8 +538,46 @@ function ActionPanel({
       .catch((err: unknown) => setError(formatApiError(err)))
   }
 
+  function openLots() {
+    setAction('lots')
+    setLots(null)
+    setError(null)
+    listAssignmentLots(warehouseId, row.id)
+      .then(setLots)
+      .catch((err: unknown) => setError(formatApiError(err)))
+  }
+
+  function saveReceipt() {
+    void run(async () => {
+      const code = lotCode.trim()
+      try {
+        await createStockReceipt(warehouseId, {
+          lot_code: code || undefined,
+          supplier: supplier.trim() || undefined,
+          note: note.trim() || undefined,
+          lines: [{ assignment_id: row.id, quantity: receiptQty }],
+        })
+      } catch (err: unknown) {
+        if (!confirmOverCapacity(err, vi ? 'Vẫn nhập phiếu?' : 'Save the receipt anyway?')) {
+          throw err
+        }
+        await createStockReceipt(warehouseId, {
+          lot_code: code || undefined,
+          supplier: supplier.trim() || undefined,
+          note: note.trim() || undefined,
+          force: true,
+          lines: [{ assignment_id: row.id, quantity: receiptQty }],
+        })
+      }
+      return vi
+        ? `Đã lập phiếu nhập ${receiptQty} cái ${row.sellerSku}${code ? ` · lô ${code}` : ''}.`
+        : `Receipt saved for ${receiptQty} × ${row.sellerSku}${code ? ` · lot ${code}` : ''}.`
+    })
+  }
+
   const tabs: [ActionId, string][] = [
     ['receive', vi ? 'Nhập hàng' : 'Receive'],
+    ['lots', vi ? 'Phiếu nhập / lô' : 'Receipt / lots'],
     ['count', vi ? 'Kiểm kê' : 'Count'],
     ['move', vi ? 'Chuyển ô' : 'Move'],
     ['ledger', vi ? 'Sổ cái' : 'Ledger'],
@@ -572,6 +617,7 @@ function ActionPanel({
             )}
             onClick={() => {
               if (id === 'ledger') openLedger()
+              else if (id === 'lots') openLots()
               else {
                 setAction(id)
                 setError(null)
@@ -597,6 +643,61 @@ function ActionPanel({
               {vi ? 'Sau khi nhập' : 'After'}: {row.quantityOnHand + receiveQty}
             </p>
           </Field>
+        ) : null}
+
+        {action === 'lots' ? (
+          <>
+            <Field label={vi ? 'Mã lô (để trống thì hệ thống tự đặt)' : 'Lot code (blank = system)'}>
+              <Input
+                className={fieldClass}
+                value={lotCode}
+                maxLength={40}
+                onChange={(e) => setLotCode(e.target.value)}
+              />
+            </Field>
+            <Field label={vi ? 'Số lượng trên phiếu' : 'Receipt quantity'}>
+              <Input
+                className={fieldClass}
+                type="number"
+                min={1}
+                value={receiptQty}
+                onChange={(e) => setReceiptQty(Math.max(1, Number(e.target.value) || 1))}
+              />
+            </Field>
+            <Field label={vi ? 'Nhà cung cấp' : 'Supplier'}>
+              <Input
+                className={fieldClass}
+                value={supplier}
+                maxLength={120}
+                onChange={(e) => setSupplier(e.target.value)}
+              />
+            </Field>
+            <Field label={vi ? 'Ghi chú' : 'Note'}>
+              <Input className={fieldClass} value={note} onChange={(e) => setNote(e.target.value)} />
+            </Field>
+            {lots === null && !error ? (
+              <div className="flex items-center gap-2 text-xs text-ink-muted">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                {vi ? 'Đang tải lô…' : 'Loading lots…'}
+              </div>
+            ) : lots && lots.length === 0 ? (
+              <p className="text-xs text-ink-muted">
+                {vi ? 'Ô này chưa có lô còn hàng.' : 'No remaining lots in this bin.'}
+              </p>
+            ) : (
+              <ul className="max-h-40 divide-y divide-hairline overflow-y-auto text-xs">
+                {(lots ?? []).map((lot) => (
+                  <li key={lot.id} className="flex items-center justify-between py-1.5">
+                    <span className="font-mono text-ink">{lot.lotCode}</span>
+                    <span className="text-ink-muted">
+                      {lot.quantityRemaining}/{lot.quantityReceived}
+                      {lot.receivedAt ? ` · ${formatDateTime(lot.receivedAt)}` : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
         ) : null}
 
         {action === 'count' ? (
@@ -692,6 +793,9 @@ function ActionPanel({
                     {move.quantityBefore} → {move.quantityAfter}
                     {move.createdAt ? ` · ${formatDateTime(move.createdAt)}` : ''}
                     {move.note ? ` · ${move.note}` : ''}
+                    {move.lots.length > 0
+                      ? ` · ${move.lots.map((lot) => `${lot.lotCode}×${lot.quantity}`).join(', ')}`
+                      : ''}
                   </p>
                 </li>
               ))}
@@ -713,6 +817,7 @@ function ActionPanel({
               onClick={() => {
                 if (action === 'receive') receive()
                 else if (action === 'count') count()
+                else if (action === 'lots') saveReceipt()
                 else move()
               }}
             >
@@ -721,13 +826,17 @@ function ActionPanel({
                 ? vi
                   ? 'Nhập hàng'
                   : 'Receive'
-                : action === 'count'
+                : action === 'lots'
                   ? vi
-                    ? 'Lưu kiểm kê'
-                    : 'Save count'
-                  : vi
-                    ? 'Chuyển ô'
-                    : 'Move'}
+                    ? 'Lưu phiếu nhập'
+                    : 'Save receipt'
+                  : action === 'count'
+                    ? vi
+                      ? 'Lưu kiểm kê'
+                      : 'Save count'
+                    : vi
+                      ? 'Chuyển ô'
+                      : 'Move'}
             </Button>
           </div>
         ) : null}

@@ -134,6 +134,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'parcels.weighings.by',
       'parcels.reviews.by',
       'parcels.unpack.by',
+      'parcels.box_source_override.by', // 21/10/2026 — chọn nguồn thùng khác gợi ý
     ],
   },
   {
