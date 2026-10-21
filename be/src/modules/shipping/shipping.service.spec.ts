@@ -316,7 +316,19 @@ describe('ShippingService', () => {
         strategy: 'cheapest',
         defaultCarrierCode: null,
         defaultServiceCode: null,
+        sender: { name: null, phone: null, address: null },
       });
+    });
+
+    // (21/10/2026) người gửi in trên nhãn vận đơn.
+    it('người gửi: chỉ ghi field có gửi lên; chuỗi rỗng = xóa; không gửi = giữ nguyên', async () => {
+      await service.updateSettings(
+        { strategy: 'cheapest', sender_name: '  Kho Thủ Đức ', sender_phone: '' } as never,
+        new Types.ObjectId().toString(),
+      );
+      const [, update] = settingsModel.updateOne.mock.calls[0] as [unknown, { $set: Record<string, unknown> }];
+      expect(update.$set).toMatchObject({ sender_name: 'Kho Thủ Đức', sender_phone: null });
+      expect(update.$set).not.toHaveProperty('sender_address');
     });
 
     it('fixed mà thiếu carrier/service → SHIP_SETTINGS_SERVICE_INVALID', async () => {
