@@ -17,7 +17,13 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-import { ADJUSTMENT_REASONS, VersionedDto, type AdjustmentReason } from './packing-plan.dto';
+import {
+  ADJUSTMENT_REASONS,
+  BOX_SOURCE_REASONS,
+  VersionedDto,
+  type AdjustmentReason,
+  type BoxSourceReason,
+} from './packing-plan.dto';
 
 /** Lý do khi xem lại kiện lệch cân / gỡ lần quét. */
 export const PARCEL_REVIEW_REASONS = [
@@ -77,6 +83,27 @@ export class SealParcelDto extends VersionedDto {
   @Min(0.001, { message: 'weight_kg phải lớn hơn 0' })
   @Max(100, { message: 'weight_kg không vượt quá 100 kg' })
   weight_kg!: number;
+
+  @ApiProperty({
+    required: false,
+    enum: ['auto', 'new', 'reused'],
+    description:
+      '(21/10/2026) Nguồn thùng: auto (mặc định — tái sử dụng trước, dễ vỡ chỉ thùng mới) | new | reused. Chọn khác gợi ý (GET .../box-sources) → bắt buộc box_source_reason.',
+  })
+  @IsOptional()
+  @IsIn(['auto', 'new', 'reused'], { message: 'box_source chỉ nhận auto, new hoặc reused' })
+  box_source?: 'auto' | 'new' | 'reused';
+
+  @ApiProperty({ required: false, enum: BOX_SOURCE_REASONS })
+  @IsOptional()
+  @IsIn(BOX_SOURCE_REASONS, { message: 'box_source_reason không hợp lệ' })
+  box_source_reason?: BoxSourceReason;
+
+  @ApiProperty({ required: false, description: 'Bắt buộc khi box_source_reason = OTHER.' })
+  @IsOptional()
+  @IsString({ message: 'box_source_note phải là chuỗi' })
+  @MaxLength(300, { message: 'box_source_note tối đa 300 ký tự' })
+  box_source_note?: string;
 }
 
 export class ReviewParcelDto extends VersionedDto {

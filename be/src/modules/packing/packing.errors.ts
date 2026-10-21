@@ -38,4 +38,8 @@ export const PACKING_ERROR_CODES = {
   MANUAL_PACK_INVALID: 'PACKING_MANUAL_PACK_INVALID', // đóng thủ công: thiếu/trùng/sai món, quá tải thùng
   BACK_TO_PICKING_INVALID: 'PACKING_BACK_TO_PICKING_INVALID', // trả về lấy hàng: SKU không thuộc nhóm / vượt số đã lấy
   RECOVER_MATERIAL_INVALID: 'PACKING_RECOVER_MATERIAL_INVALID', // thu hồi vật tư không có trong kiện / vượt số lượng
+  // ---- nguồn thùng (21/10/2026)
+  BOX_SOURCE_NOT_ALLOWED: 'PACKING_BOX_SOURCE_NOT_ALLOWED', // chọn thùng tái sử dụng cho kiện dễ vỡ khi cài đặt không cho
+  BOX_SOURCE_REASON_REQUIRED: 'PACKING_BOX_SOURCE_REASON_REQUIRED', // chọn nguồn thùng khác gợi ý mà không có lý do
+  BOX_ALREADY_CONSUMED: 'PACKING_BOX_ALREADY_CONSUMED', // chọn nguồn thùng cho kiện đã trừ thùng (mở ra đóng lại)
 } as const;

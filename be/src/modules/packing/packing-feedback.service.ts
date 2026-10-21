@@ -2,7 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
-import { PackingPlan, PackingPlanDocument } from './schemas/packing-plan.schema';
+import { PackingPlan, PackingPlanDocument, type PlanBoxSourceOverride } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
 
 /**
@@ -49,6 +49,15 @@ export interface FeedbackReport {
   };
   /** Thùng hỏng khi đang đóng (đổi thùng, thùng cũ damaged) — hao hụt thật đã trừ tồn. */
   waste: { events: number; costVnd: number; byBox: { boxCode: string; count: number; costVnd: number }[] };
+  /**
+   * (21/10/2026) Nhân viên lấy thùng khác nguồn gợi ý (thường: gợi ý thùng tái sử dụng
+   * nhưng dùng thùng mới vì móp/bẩn/còn nhãn) — đo chất lượng khâu xếp hạng A hàng hoàn.
+   */
+  boxSource: {
+    overrides: number;
+    byReason: { reason: string; count: number }[];
+    byBox: { boxCode: string; reason: string; count: number }[];
+  };
   suggestions: FeedbackSuggestion[];
 }
 
@@ -125,6 +134,26 @@ const SETTINGS_REASONS: Record<string, { label: string; message: (n: number) => 
   },
 };
 
+/** (21/10/2026) Thùng tái sử dụng bị thay bằng thùng mới — gắn với khâu nhận hàng hoàn. */
+const BOX_SOURCE_SUGGESTIONS: Record<string, { label: string; message: (box: string, n: number) => string }> = {
+  REUSED_BOX_WORN: {
+    label: 'Siết xếp hạng A khi kiểm hàng hoàn',
+    message: (box, n) => `Thùng tái sử dụng ${box} bị thay bằng thùng mới ${String(n)} lần vì móp/yếu — thùng như vậy nên xếp hạng B.`,
+  },
+  REUSED_BOX_DIRTY: {
+    label: 'Siết xếp hạng A khi kiểm hàng hoàn',
+    message: (box, n) => `Thùng tái sử dụng ${box} bị thay ${String(n)} lần vì bẩn/ẩm — kiểm kỹ trước khi xếp hạng A.`,
+  },
+  OLD_LABEL_NOT_CLEAN: {
+    label: 'Siết bước gỡ nhãn cũ',
+    message: (box, n) => `Thùng tái sử dụng ${box} còn vết nhãn cũ ${String(n)} lần — bước "đã gỡ nhãn" khi kiểm hàng hoàn chưa làm kỹ.`,
+  },
+  REUSED_NOT_ON_SHELF: {
+    label: 'Kiểm kê ngăn tái sử dụng',
+    message: (box, n) => `Kệ thùng tái sử dụng ${box} lệch số với hệ thống ${String(n)} lần — kiểm kê lại ngăn tái sử dụng.`,
+  },
+};
+
 const ratio = (part: number, whole: number): number | null =>
   whole === 0 ? null : Math.round((part / whole) * 1000) / 1000;
 
@@ -151,6 +180,8 @@ export function buildFeedback(
   const settingsMap = new Map<string, number>();
   const rejectionReasons = new Map<string, number>();
   const wasteByBox = new Map<string, { count: number; costVnd: number }>();
+  const sourceReasons = new Map<string, number>();
+  const sourceByBox = new Map<string, { key: { boxCode: string; reason: string }; count: number }>();
   let adjustedPlans = 0;
   let rejectedPlans = 0;
   let planCount = 0;
@@ -197,6 +228,18 @@ export function buildFeedback(
       else if (plan.status === 'rejected') {
         rejections.open += 1;
         if (plan.rejection_due_at && plan.rejection_due_at < now) rejections.overdue += 1;
+      }
+    }
+
+    // (21/10/2026) Chọn nguồn thùng khác gợi ý.
+    for (const parcel of plan.parcels) {
+      const override = parcel.box_source_override as PlanBoxSourceOverride | null | undefined;
+      if (!override || !inRange(override.at)) continue;
+      sourceReasons.set(override.reason, (sourceReasons.get(override.reason) ?? 0) + 1);
+      // Chỉ trường hợp gợi ý tái sử dụng mà dùng thùng mới mới nói lên chất lượng ngăn tái sử dụng.
+      if (override.planned === 'reused' && override.source === 'new') {
+        const boxCode = (parcel.box as { code?: string } | undefined)?.code ?? 'unknown';
+        bump(sourceByBox, `${boxCode}|${override.reason}`, { boxCode, reason: override.reason });
       }
     }
 
@@ -247,6 +290,17 @@ export function buildFeedback(
       action: { label: def.label, method: 'PUT', route: '/packing/settings' },
     });
   }
+  for (const { key, count: n } of sourceByBox.values()) {
+    const def = BOX_SOURCE_SUGGESTIONS[key.reason];
+    if (!def || n < minCount) continue;
+    suggestions.push({
+      target: { type: 'box', code: key.boxCode },
+      reason: key.reason,
+      count: n,
+      message: def.message(key.boxCode, n),
+      action: { label: def.label, method: 'GET', route: '/packaging-materials/:code' },
+    });
+  }
   suggestions.sort((a, b) => b.count - a.count);
 
   const sortDesc = <T extends { count: number }>(rows: T[]): T[] => rows.sort((a, b) => b.count - a.count);
@@ -272,6 +326,11 @@ export function buildFeedback(
       events: [...wasteByBox.values()].reduce((s, w) => s + w.count, 0),
       costVnd: [...wasteByBox.values()].reduce((s, w) => s + w.costVnd, 0),
       byBox: sortDesc([...wasteByBox].map(([boxCode, w]) => ({ boxCode, ...w }))),
+    },
+    boxSource: {
+      overrides: [...sourceReasons.values()].reduce((s, n) => s + n, 0),
+      byReason: sortDesc([...sourceReasons].map(([reason, n]) => ({ reason, count: n }))),
+      byBox: sortDesc([...sourceByBox.values()].map((e) => ({ ...e.key, count: e.count }))),
     },
     suggestions,
   };
@@ -303,10 +362,11 @@ export class PackingFeedbackService {
           { 'adjustments.at': { $gte: from, $lt: to } },
           { rejected_at: { $gte: from, $lt: to } },
           { 'parcels.reviews.at': { $gte: from, $lt: to } },
+          { 'parcels.box_source_override.at': { $gte: from, $lt: to } },
         ],
       })
       .select(
-        'adjustments parcels.reviews parcels.placements.sku status created_at rejected_at rejection_reason_code rejection_due_at rejection_resolution',
+        'adjustments parcels.reviews parcels.placements.sku parcels.box.code parcels.box_source_override status created_at rejected_at rejection_reason_code rejection_due_at rejection_resolution',
       )
       .limit(MAX_PLANS)
       .lean();
