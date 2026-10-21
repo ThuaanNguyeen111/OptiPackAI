@@ -16,6 +16,26 @@ import {
   MarketplaceStatusOutboxDocument,
 } from './schemas/status-outbox.schema';
 
+/**
+ * 21/10/2026 — Mã vận đơn cho đúng đơn của khách: nhóm gộp nhiều đơn / nhiều kiện thì
+ * mỗi kiện có mã hãng riêng (`carrier_parcels`); ưu tiên kiện của chính đơn đó, rồi
+ * mọi kiện có mã, cuối cùng mới tới mã vận đơn chung (`tracking_code`, có thể là mã nội bộ).
+ */
+export function trackingCodeForOrder(
+  shipment: {
+    tracking_code?: string | null;
+    carrier_parcels?: { order_id?: unknown; carrier_order_code?: string | null }[] | null;
+  },
+  orderId: unknown,
+): string | undefined {
+  const parcels = (shipment.carrier_parcels ?? []).flatMap((p) =>
+    p.carrier_order_code ? [{ orderId: String(p.order_id), code: p.carrier_order_code }] : []);
+  const own = parcels.filter((p) => p.orderId === String(orderId));
+  const codes = [...new Set((own.length > 0 ? own : parcels).map((p) => p.code))];
+  if (codes.length > 0) return codes.join(', ');
+  return shipment.tracking_code ?? undefined;
+}
+
 /** Sau chừng này lần lỗi thì thôi, đánh dấu failed để người xem lại (không thử mãi). */
 export const MAX_WRITEBACK_ATTEMPTS = 8;
 const BATCH_SIZE = 50;
@@ -115,8 +135,10 @@ export class MarketplaceWritebackService {
         consolidated_group_id: row.order_group_id,
         platform: MarketplacePlatform.AURELLE,
         status: { $ne: OrderStatus.CANCELED },
+        // 21/10/2026 — đơn thay thế khi đổi hàng (mã EXC-...) không có trên website → không báo.
+        origin: { $ne: 'replacement' },
       })
-      .select('platform_order_id shop_id')
+      .select('_id platform_order_id shop_id')
       .lean();
     if (orders.length === 0) {
       await this.markDone(row, 'skipped', null);
@@ -124,8 +146,22 @@ export class MarketplaceWritebackService {
     }
 
     const shipment = row.shipment_id
-      ? await this.shipmentModel.findById(row.shipment_id).select('tracking_code trip_code').lean()
+      ? await this.shipmentModel
+        .findById(row.shipment_id)
+        .select('tracking_code trip_code carrier_name carrier_kind carrier_parcels carrier_booking_error')
+        .lean()
       : null;
+    // 21/10/2026 — vận đơn qua hãng thật (GHN) được đặt NGOÀI transaction, ngay sau dòng
+    // "shipped" này. Chưa có mã hãng và chưa báo lỗi đặt → hẹn lượt sau (backoff 30 s),
+    // để khách thấy mã GHN thay vì mã nội bộ.
+    if (
+      row.status === 'shipped'
+      && shipment?.carrier_kind === 'live'
+      && !shipment.carrier_booking_error
+      && !(shipment.carrier_parcels ?? []).some((p) => p.carrier_order_code)
+    ) {
+      throw new Error('Đang chờ mã vận đơn của hãng vận chuyển.');
+    }
 
     for (const order of orders) {
       const token = await this.tokenFor(order.shop_id, tokens);
@@ -133,8 +169,9 @@ export class MarketplaceWritebackService {
         orderId: order.platform_order_id,
         status: row.status,
         eventTime: row.event_time,
-        trackingCode: shipment?.tracking_code ?? undefined,
+        trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
         tripCode: shipment?.trip_code ?? undefined,
+        carrier: shipment?.carrier_name ?? undefined,
         reason: row.status === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
         idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
       });

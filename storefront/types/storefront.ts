@@ -49,7 +49,8 @@ export type CartItem = {
 export type Category = { id: string; name: string; slug: string }
 
 export type AdminProduct = Omit<Product, 'variants'> & {
-  variants: (ProductVariant & { quantityOnHand: number; reservedQuantity: number })[]
+  // stockSource 'optipack' (21/10/2026) = tồn do kho OptiPack đẩy sang, Admin chỉ xem.
+  variants: (ProductVariant & { quantityOnHand: number; reservedQuantity: number; stockSource?: 'storefront' | 'optipack'; stockSyncedAt?: string | null })[]
 }
 
 export type SaveAdminProduct = Pick<Product, 'name' | 'description' | 'thumbnailUrl' | 'galleryImages' | 'status' | 'isFeatured'> & {
@@ -105,6 +106,8 @@ export type StorefrontOrderEvent = {
 export type StorefrontOrderDetail = StorefrontOrder & {
   trackingCode?: string | null
   tripCode?: string | null
+  /** 21/10/2026 — tên hãng vận chuyển (GHN...), null khi chưa giao cho hãng */
+  carrier?: string | null
   events?: StorefrontOrderEvent[]
   paymentMethod?: 'cod' | 'bank_transfer' | null
   shippingAddress?: {
@@ -118,7 +121,7 @@ export type StorefrontOrderDetail = StorefrontOrder & {
   items: StorefrontOrderItem[]
 }
 
-export type StorefrontReturnType = 'return_refund' | 'refund_only'
+export type StorefrontReturnType = 'return_refund' | 'refund_only' | 'exchange'
 
 export type StorefrontReturnStatus = 'requested' | 'approved' | 'rejected' | 'received' | 'closed' | 'canceled'
 
@@ -137,11 +140,18 @@ export type StorefrontReturn = {
   status: StorefrontReturnStatus
   statusLabel: string
   items: StorefrontReturnItem[]
+  exchangeItems: { sku: string; quantity: number }[]
   customerNote: string
   rmaCode: string | null
   decisionNote: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** Biến thể có thể đổi sang cho 1 sản phẩm trong đơn (cùng sản phẩm, đang bán). */
+export type ExchangeOption = {
+  sku: string
+  options: { sku: string; variantName: string; color: string | null; size: string | null; available: number }[]
 }
 
 export type StorefrontReturnDetail = StorefrontReturn & {

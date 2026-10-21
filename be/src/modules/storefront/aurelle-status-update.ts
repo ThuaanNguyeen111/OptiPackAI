@@ -11,6 +11,8 @@
  *  - KHÔNG phát webhook ngược về OptiPack (tránh vòng lặp — mục 8.1).
  */
 
+import { deductOrderStock, type StockSettleCollections } from './storefront-stock.util';
+
 export type PartnerStatus =
   | 'packed'
   | 'shipped'
@@ -48,6 +50,8 @@ export interface StatusUpdateInput {
   eventTime: Date;
   trackingCode?: string | null;
   tripCode?: string | null;
+  /** (21/10/2026) Tên hãng vận chuyển (GHN...) — trước đây website luôn ghi "OptiPack". */
+  carrier?: string | null;
   reason?: string | null;
   idempotencyKey: string;
 }
@@ -75,7 +79,12 @@ export interface StatusUpdateCollections {
   orders: MinimalCollection;
   shipments: MinimalCollection;
   events: MinimalCollection;
+  /** (21/10/2026) Có thì trừ giữ chỗ tồn website khi hàng rời kho; thiếu (test cũ) thì bỏ qua. */
+  stock?: StockSettleCollections;
 }
+
+/** Trạng thái nghĩa là hàng đã rời kho OptiPack — trừ hẳn phần giữ chỗ trên website. */
+const LEFT_WAREHOUSE: readonly PartnerStatus[] = ['shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'];
 
 /** Trạng thái vận đơn nội bộ của website tương ứng. */
 function shipmentStatusFor(status: PartnerStatus): string | null {
@@ -153,11 +162,17 @@ export async function applyPartnerStatusUpdate(
   }
   await cols.orders.updateOne({ _id: order._id }, { $set: set });
 
+  // 3b) (21/10/2026) Hàng đã rời kho → trừ hẳn giữ chỗ tồn (đúng 1 lần, xem storefront-stock.util.ts).
+  if (cols.stock && LEFT_WAREHOUSE.includes(input.status)) {
+    await deductOrderStock(cols.stock, order._id);
+  }
+
   // 4) Mã vận đơn / chuyến cho khách xem (vận đơn nội bộ của website).
   if (input.trackingCode || input.status === 'shipped' || input.status === 'delivered') {
     const shipSet: Doc = { updated_at: new Date() };
     if (input.trackingCode) shipSet.tracking_number = input.trackingCode;
     if (input.tripCode) shipSet.trip_code = input.tripCode;
+    if (input.carrier) shipSet.carrier = input.carrier;
     const shipStatus = shipmentStatusFor(input.status);
     if (shipStatus) shipSet.status = shipStatus;
     if (input.status === 'shipped') shipSet.shipped_at = input.eventTime;
@@ -168,7 +183,9 @@ export async function applyPartnerStatusUpdate(
         $set: shipSet,
         $setOnInsert: {
           order_id: order._id,
-          carrier: 'OptiPack',
+          // Không có tên hãng (tự giao / bản gửi cũ) → "OptiPack". Có thì nằm ở $set
+          // (một field không được vừa $set vừa $setOnInsert).
+          ...(input.carrier ? {} : { carrier: 'OptiPack' }),
           recipient_snapshot: order.shipping_address_snapshot ?? {},
           created_at: new Date(),
         },

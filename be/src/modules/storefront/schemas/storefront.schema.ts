@@ -76,6 +76,13 @@ export class StorefrontProductVariant {
   @Prop({ type: Number, default: null, min: 0 }) height_cm!: number | null;
   @Prop({ default: false }) is_default!: boolean;
   @Prop({ default: true }) is_active!: boolean;
+  /**
+   * (21/10/2026, phương án A) 'optipack' = tồn do kho OptiPack đẩy sang qua
+   * Open API `/product/stock/sellable/update` → Admin website chỉ xem, không sửa.
+   * Biến thể cũ không có field = 'storefront' (Admin tự quản).
+   */
+  @Prop({ type: String, enum: ['storefront', 'optipack'], default: 'storefront' }) stock_source?: 'storefront' | 'optipack';
+  @Prop({ type: Date, default: null }) stock_synced_at?: Date | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -173,6 +180,8 @@ export class StorefrontOrder {
   @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
   // 20/10/2026 — thời điểm sự kiện giao hàng mới nhất đối tác báo (chống sự kiện cũ kéo trạng thái lùi).
   @Prop({ type: Date, default: null }) fulfillment_updated_at!: Date | null;
+  /** (21/10/2026) Giữ chỗ tồn của đơn — xem storefront-stock.util.ts. Đơn cũ không có field = reserved. */
+  @Prop({ type: String, enum: ['reserved', 'deducted', 'released'], default: 'reserved' }) stock_state?: 'reserved' | 'deducted' | 'released';
   @Prop({ required: true, min: 0 }) subtotal!: number;
   @Prop({ required: true, min: 0, default: 0 }) discount_amount!: number;
   @Prop({ required: true, min: 0, default: 0 }) shipping_fee!: number;
@@ -301,6 +310,14 @@ export class StorefrontReturnItem {
 }
 export const StorefrontReturnItemSchema = SchemaFactory.createForClass(StorefrontReturnItem);
 
+/** 21/10/2026 — Đổi hàng: biến thể khách muốn đổi SANG (cùng sản phẩm, khác size/màu). */
+@Schema({ _id: false })
+export class StorefrontExchangeItem {
+  @Prop({ required: true }) sku!: string;
+  @Prop({ required: true, min: 1 }) quantity!: number;
+}
+export const StorefrontExchangeItemSchema = SchemaFactory.createForClass(StorefrontExchangeItem);
+
 /**
  * 20/10/2026 — Yêu cầu trả hàng do KHÁCH gửi trên website. OptiPack kéo qua Open API
  * (`/reverse/orders/get`) rồi tạo phiếu RMA phía kho; kết quả báo ngược qua
@@ -313,9 +330,10 @@ export class StorefrontReturnRequest {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Customer', required: true }) customer_id!: Types.ObjectId;
   @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true }) order_id!: Types.ObjectId;
   @Prop({ type: Number, default: null }) public_order_id!: number | null;
-  @Prop({ type: String, enum: ['return_refund', 'refund_only'], required: true }) type!: 'return_refund' | 'refund_only';
+  @Prop({ type: String, enum: ['return_refund', 'refund_only', 'exchange'], required: true }) type!: 'return_refund' | 'refund_only' | 'exchange';
   @Prop({ type: String, enum: ['requested', 'approved', 'rejected', 'received', 'closed', 'canceled'], default: 'requested' }) status!: string;
   @Prop({ type: [StorefrontReturnItemSchema], default: [] }) items!: StorefrontReturnItem[];
+  @Prop({ type: [StorefrontExchangeItemSchema], default: [] }) exchange_items!: StorefrontExchangeItem[]; // 21/10/2026
   @Prop({ type: String, default: '' }) customer_note!: string;
   @Prop({ type: String, default: null }) rma_code!: string | null;
   @Prop({ type: String, default: null }) decision_note!: string | null;

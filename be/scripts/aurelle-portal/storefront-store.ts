@@ -206,6 +206,11 @@ export async function setSellableQuantity(sellerSku: string, sellable: number): 
     },
     { upsert: true },
   );
+  // (21/10/2026, phương án A) Kho OptiPack là nguồn tồn của SKU này → Admin website chỉ xem.
+  await db().collection('storefront_product_variants').updateOne(
+    { _id: variant._id },
+    { $set: { stock_source: 'optipack', stock_synced_at: new Date() } },
+  );
   return true;
 }
 
@@ -220,6 +225,12 @@ export async function applyStatusUpdate(input: StatusUpdateInput): Promise<Statu
       orders: db().collection('storefront_orders') as unknown as MinimalCollection,
       shipments: db().collection('storefront_shipments') as unknown as MinimalCollection,
       events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+      // (21/10/2026) trừ giữ chỗ tồn khi hàng rời kho
+      stock: {
+        orders: db().collection('storefront_orders'),
+        items: db().collection('storefront_order_items'),
+        stocks: db().collection('storefront_inventory_stocks'),
+      },
     },
     input,
   );

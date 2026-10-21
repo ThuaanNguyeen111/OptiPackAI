@@ -140,7 +140,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             onCreated={(created) => { setShowReturnForm(false); router.push(`/account/returns/${created.id}`) }}
           />}
 
-          <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} />
+          <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} carrier={order.carrier} />
 
           {order.shippingAddress && <section className="order-address-panel" aria-labelledby="order-address-title">
             <span className="eyebrow">Giao đến</span>

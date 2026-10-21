@@ -208,6 +208,8 @@ export class AurelleAdapter implements MarketplaceAdapter {
       eventTime: Date;
       trackingCode?: string;
       tripCode?: string;
+      /** (21/10/2026) Tên hãng vận chuyển hiển thị cho khách (GHN...). */
+      carrier?: string;
       reason?: string;
       idempotencyKey: string;
     },
@@ -221,6 +223,7 @@ export class AurelleAdapter implements MarketplaceAdapter {
     };
     if (input.trackingCode) params.tracking_code = input.trackingCode;
     if (input.tripCode) params.trip_code = input.tripCode;
+    if (input.carrier) params.carrier = input.carrier;
     if (input.reason) params.reason = input.reason;
 
     const data = await this.client.callSignedApiPost<AurelleEnvelope<{ order_id: number; status: string }>>(

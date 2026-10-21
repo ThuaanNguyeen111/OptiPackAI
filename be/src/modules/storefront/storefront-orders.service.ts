@@ -194,6 +194,8 @@ export class StorefrontOrdersService {
       items,
       trackingCode: shipment?.tracking_number && shipment.tracking_number.length > 0 ? shipment.tracking_number : null,
       tripCode: shipment?.trip_code ?? null,
+      // 21/10/2026 — tên hãng OptiPack báo về; bản ghi cũ ghi sẵn "OptiPack" → coi như chưa biết.
+      carrier: shipment?.carrier && shipment.carrier !== 'OptiPack' ? shipment.carrier : null,
       events: events.map((event) => ({
         status: event.status,
         label: event.label,
@@ -218,7 +220,9 @@ export class StorefrontOrdersService {
     const filter = { _id: new Types.ObjectId(id), customer_id: new Types.ObjectId(customerId) };
     const cancelled = await this.orderModel.findOneAndUpdate(
       { ...filter, status: 'pending', fulfillment_status: 'awaiting_packaging' },
-      { $set: { status: 'cancelled' } },
+      // stock_state released (21/10/2026): đơn còn chờ đóng gói chắc chắn chưa trừ tồn
+      // thực → chỉ trả giữ chỗ (vòng $inc bên dưới) và đánh dấu để bước "rời kho" không trừ nữa.
+      { $set: { status: 'cancelled', stock_state: 'released' } },
       { returnDocument: 'after' },
     );
     if (!cancelled) {

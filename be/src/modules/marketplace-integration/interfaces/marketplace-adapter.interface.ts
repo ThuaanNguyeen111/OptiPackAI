@@ -133,6 +133,7 @@ export interface MarketplaceAdapter {
       eventTime: Date;
       trackingCode?: string;
       tripCode?: string;
+      carrier?: string; // (21/10/2026) tên hãng vận chuyển cho khách xem
       reason?: string;
       idempotencyKey: string;
     },
@@ -171,6 +172,8 @@ export interface MarketplaceReturnRaw {
   customer_note: string;
   rma_code: string | null;
   items: { seller_sku: string; quantity: number; reason_code: string }[];
+  /** 21/10/2026 — chỉ khi `type = exchange`: hàng khách muốn đổi sang. */
+  exchange_items?: { seller_sku: string; quantity: number }[];
   created_at: string;
   updated_at: string;
 }

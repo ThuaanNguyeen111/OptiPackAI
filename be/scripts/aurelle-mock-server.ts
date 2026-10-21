@@ -311,6 +311,7 @@ app.post('/rest/order/status/update', async (req: Request, res: Response) => {
       eventTime,
       trackingCode: typeof body.tracking_code === 'string' ? body.tracking_code : null,
       tripCode: typeof body.trip_code === 'string' ? body.trip_code : null,
+      carrier: typeof body.carrier === 'string' ? body.carrier : null,
       reason: typeof body.reason === 'string' ? body.reason : null,
       idempotencyKey,
     });
