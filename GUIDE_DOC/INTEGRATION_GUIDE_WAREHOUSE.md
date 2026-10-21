@@ -2,6 +2,8 @@
 
 **Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.** **v1.4 (01/10/2026): mở quyền vận hành kho cho Warehouse Staff — xem danh sách khu, danh sách ô, tồn theo ô và nhập thêm hàng — xem PHẦN B5.** **v1.5 (07/10/2026): sửa lỗi kiểu id khiến Picking List báo "CHƯA GÁN VỊ TRÍ", quét hàng báo thiếu tồn và nhập thêm hàng luôn 404 dù dữ liệu kho đúng; gộp bản sửa tìm tồn của nhánh `feature/viet_befe`; script chuyển dữ liệu id cũ — xem PHẦN B6.**
 
+**🆕 Cập nhật 21/10/2026:** PHẦN B9 — in **tem ô kệ**, **tem SKU**, **danh sách lấy hàng** và **phiếu nhập kho** ra PDF (module `/documents`).
+
 **🆕 Cập nhật 15/10/2026:** PHẦN B8 — phiếu nhập kho theo **lô** (nhiều SKU, có ngày nhập) và lấy hàng **lô cũ nhất trước** (FIFO theo ngày nhập); Picking List thêm `oldest_lot`.
 
 **🆕 Cập nhật 10/10/2026:** PHẦN B7 — xoá hẳn kho/khu/ô/SKU nội bộ chưa từng dùng (`DELETE .../permanent`) và sửa gán nhầm ô (`PATCH .../sku-bin-assignments/:assignmentId`).
@@ -1296,3 +1298,63 @@ Mỗi bước khi xong sẽ cập nhật file này với đầy đủ phần "T�
 - [ ] Nhập thêm hàng → `201` (trước đây `404`)
 - [ ] Quét thiếu so với đơn rồi tạo gợi ý đóng gói → số lượng theo số đã quét
 - [ ] Kiểm hàng hoàn `restock` vào ô chưa từng chứa SKU đó → dòng tồn mới có `masterSku` (SKU đã nối) hoặc `sellerSku` (SKU chưa nối)
+
+---
+
+# PHẦN B9 — IN TEM VÀ PHIẾU KHO (PDF) 🆕 (21/10/2026)
+
+Cả 4 route trả **file PDF** (`Content-Type: application/pdf`, mở `inline`). FE gọi bằng `apiRequestBlob(path)` (đã có trong `fe/src/lib/api.ts`) → `URL.createObjectURL(blob)` → mở tab mới hoặc `iframe` rồi `print()`. Lỗi vẫn là JSON như mọi route (`DOC_*`, `WH_*`, `ORD_GROUP_*`).
+
+## B9.1. Tem ô kệ (70 × 40 mm)
+
+```
+GET /documents/bin-labels/:warehouseId?zone_id=&bin_ids=&copies=1     Role: Warehouse, Store Owner, Admin
+```
+
+| Query | Bắt buộc | Ý nghĩa |
+|---|---|---|
+| `zone_id` | không | Chỉ in các ô của 1 khu |
+| `bin_ids` | không | Danh sách id ô cách nhau dấu phẩy — in lại vài tem bị mất |
+| `copies` | không | Số bản mỗi tem, 1–10 (mặc định 1) |
+
+- Không lọc = mọi ô đang hoạt động của kho. Thứ tự in = lộ trình lấy hàng (`pick_sequence`) → dán theo đúng đường đi.
+- Mỗi tem: `mã kho · Khu A — tên khu`, **mã ô cỡ lớn**, mã vạch Code128 = đúng `bin_code` (mã nhân viên quét khi lấy hàng / nhập kho).
+- Lỗi: `400 DOC_INVALID_ID`, `404 DOC_WAREHOUSE_NOT_FOUND`, `404 DOC_NO_BINS` (không ô nào khớp), `400 DOC_TOO_MANY_LABELS` (> 500 tem/lần — lọc theo khu).
+
+## B9.2. Tem SKU (50 × 30 mm)
+
+```
+GET /documents/sku-labels?codes=AOT-001-DEN-M,QUAN-002-XANH-L&copies=2    Role: Warehouse, Packaging, Store Owner, Admin
+```
+
+- `codes`: mã SKU nội bộ (hoặc SKU sàn) cách nhau dấu phẩy. Mã có trong danh mục SKU nội bộ in tên + `Màu … · Size …`; mã không có vẫn in (ghi "SKU sàn").
+- Mã vạch = mã SKU → **quét được ở cả lấy hàng và đóng gói** (cả hai đều nhận SKU nội bộ lẫn SKU sàn).
+- `copies` 1–50. Lỗi: `400 DOC_NO_CODES`, `400 DOC_TOO_MANY_LABELS`.
+
+## B9.3. Danh sách lấy hàng in giấy (A4)
+
+```
+GET /documents/picking-list/:warehouseId/:groupId       Role: Warehouse, Store Owner, Admin
+```
+
+- **Cùng dữ liệu và thứ tự** với `GET /warehouse/:warehouseId/picking-list/:groupId` (B2.7, B8): mỗi dòng có ô kệ + khu, ô thay thế ("hoặc: B-02-01"), SKU sàn (SKU nội bộ), tên hàng, **lô cần xuất trước** + ngày nhập, số cần lấy, đã lấy, ô tích.
+- Đầu trang có mã vạch id nhóm đơn. Lỗi: như route Picking List (`WH_WAREHOUSE_INACTIVE`, nhóm không tồn tại…).
+
+## B9.4. Phiếu nhập kho (A4)
+
+```
+GET /documents/stock-receipt/:warehouseId/:receiptId    Role: Warehouse, Store Owner, Admin
+```
+
+- In phiếu đã tạo bằng `POST /warehouse/warehouses/:warehouseId/receipts` (B8): số phiếu (mã vạch), mã lô, ngày nhập, nhà cung cấp, ghi chú, bảng SKU sàn / SKU nội bộ / sàn / ô kệ / số lượng, tổng, **3 chỗ ký** (người giao hàng, thủ kho, người lập phiếu).
+- Lỗi: `404 WH_RECEIPT_NOT_FOUND`, `404 DOC_WAREHOUSE_NOT_FOUND`.
+
+## B9.5. Gắn nút ở FE
+
+| Màn | Nút | Route |
+|---|---|---|
+| Quản lý kho → khu | **In tem ô của khu** | `bin-labels/:warehouseId?zone_id=` |
+| Quản lý kho → 1 ô | **In lại tem** | `bin-labels/:warehouseId?bin_ids=<id>` |
+| SKU nội bộ (danh sách, chọn nhiều) | **In tem SKU** (ô số bản) | `sku-labels?codes=…&copies=` |
+| Lấy hàng (Warehouse Staff) | **In danh sách lấy hàng** | `picking-list/:warehouseId/:groupId` |
+| Phiếu nhập (sau khi tạo + trong chi tiết) | **In phiếu nhập** | `stock-receipt/:warehouseId/:receiptId` |

@@ -438,6 +438,56 @@ POST …/packing-plan/parcels/:parcelNo/seal     Role: Packaging, Warehouse, Adm
 - **Lệch cân** vượt ngưỡng (mặc định 20% so với `estimatedWeightG`) ⇒ kiện thành **`held`**, `isAbnormal: true` → chờ người khác xem (3.6).
 - Kiện cuối cùng niêm phong xong ⇒ `completed: true`, kế hoạch + nhóm sang `packed`. `lazadaPackSync` cho biết kết quả báo "Đã đóng gói" lên Lazada (xem 3.8).
 
+### 3.4.1 Nguồn thùng: thùng mới hay thùng tái sử dụng (21/10/2026)
+
+Kho mỗi mã thùng có 2 ngăn **giao hàng được**: `qtyNew` (mới) và `qtyReused` (tái sử dụng hạng A, thu hồi từ hàng hoàn). Hạng B (`qtyInternal`) chỉ dùng nội bộ, **không bao giờ** dùng để giao. Lúc niêm phong BE tự lấy **tái sử dụng trước**, trừ khi kiện có hàng dễ vỡ mà cài đặt `allowReusedBoxForFragile = false`.
+
+**Bước 1 — trước khi niêm phong, hỏi BE mỗi kiện sẽ lấy ở ngăn nào:**
+
+```
+GET …/packing-plan/box-sources      Role: Packaging, Warehouse, Store Owner, Admin   (chỉ đọc)
+→ { "orderGroupId": "…", "version": 9, "allowReusedForFragile": false,
+    "parcels": [
+      { "parcelNo": 1, "boxCode": "BOX-M", "state": "to_consume", "reusedAllowed": true,
+        "planned": "reused", "forcedNewReason": null, "outOfStock": false, "used": null, "boxSourceOverride": null },
+      { "parcelNo": 2, "boxCode": "BOX-S", "state": "to_consume", "reusedAllowed": false,
+        "planned": "new", "forcedNewReason": "FRAGILE", "outOfStock": false, "used": null, "boxSourceOverride": null },
+      { "parcelNo": 3, "boxCode": "BOX-M", "state": "consumed", "planned": null, "used": "reused", … } ],
+    "stock": [ { "code": "BOX-M", "name": "Thùng M", "qtyNew": 20, "qtyReused": 1, "reusable": true }, … ] }
+```
+
+| Trường | Ý nghĩa — FE hiện gì |
+|---|---|
+| `state` | `to_consume` = niêm phong sẽ trừ thùng · `consumed` = đã trừ (mở ra đóng lại không trừ lần 2) · `inactive` = kiện hủy/phải tháo |
+| `planned` | `reused` → "Lấy thùng **BOX-M ở kệ tái sử dụng**" · `new` → "Lấy thùng **mới**" · `null` + `outOfStock: true` → "Hết thùng" (đổi thùng bằng 4.1 hoặc nhập thêm) |
+| `forcedNewReason` | Vì sao phải dùng thùng mới: `FRAGILE` (hàng dễ vỡ) · `NOT_REUSABLE` (loại thùng không tái sử dụng) · `NO_REUSED_STOCK` (ngăn tái sử dụng hết) |
+| `used` | Kiện đã niêm phong: thùng thật đã lấy từ ngăn nào |
+| `stock` | Tồn 2 ngăn của từng mã thùng trong kế hoạch |
+
+Mô phỏng theo thứ tự kiện: 2 kiện cùng BOX-M mà ngăn tái sử dụng còn 1 → kiện 1 `reused`, kiện 2 `new` (`NO_REUSED_STOCK`). Gọi lại sau mỗi lần niêm phong (tồn đã đổi).
+
+**Bước 2 — niêm phong, kèm lựa chọn nguồn thùng (tùy chọn):**
+
+```
+POST …/packing-plan/parcels/:parcelNo/seal
+{ "expected_version": 9, "weight_kg": 0.46,
+  "box_source": "new",                         // auto (mặc định) | new | reused
+  "box_source_reason": "REUSED_BOX_WORN",      // BẮT BUỘC khi khác `planned`
+  "box_source_note": "" }                      // BẮT BUỘC khi reason = OTHER
+```
+
+`box_source_reason`: `REUSED_BOX_WORN` (móp/rách/yếu) · `REUSED_BOX_DIRTY` (bẩn/ẩm/mùi) · `OLD_LABEL_NOT_CLEAN` (còn vết nhãn khách cũ) · `REUSED_NOT_ON_SHELF` (hệ thống báo còn nhưng kệ không có) · `HIGH_VALUE_ORDER` (đơn giá trị cao/quà tặng) · `OTHER`.
+
+- Không gửi `box_source` hoặc gửi `auto` = như trước (tái sử dụng trước).
+- Chọn **đúng** `planned` → không cần lý do, không ghi gì thêm.
+- Chọn **khác** `planned` mà thiếu lý do → `400 PACKING_BOX_SOURCE_REASON_REQUIRED` (`details.planned`, `details.chosen`).
+- Chọn `reused` cho kiện dễ vỡ khi cài đặt không cho → `409 PACKING_BOX_SOURCE_NOT_ALLOWED`.
+- Chọn `reused` mà ngăn tái sử dụng hết → `409 PKG_BOX_OUT_OF_STOCK` (`details.source = "reused"`) — BE **không** âm thầm lấy thùng mới.
+- Kiện đã trừ thùng (mở ra đóng lại) mà gửi `new`/`reused` → `409 PACKING_BOX_ALREADY_CONSUMED`.
+- Lối tắt `POST …/pack` (3.9): mỗi phần tử `parcels[]` nhận đúng 3 trường trên.
+
+Sau khi niêm phong, mỗi kiện trong response kế hoạch có thêm `boxSourceUsed` (`new`/`reused`/`null`) và `boxSourceOverride` (`{ source, planned, reason, note, by, at }` hoặc `null`). Lần chọn khác gợi ý được ghi vào `activity` (`kind: "box_source"`), sổ kho vật tư (`note`) và báo cáo feedback (6.2, `boxSource`).
+
 ### 3.5 Báo sự cố lúc đóng (món hỏng / thiếu / sai)
 
 ```
@@ -610,6 +660,10 @@ GET /packing/reports/feedback?from&to&min_count=3
       "byBox":   [{ "boxCode": "SAMPLE-M", "reason": "RECOMMENDED_BOX_NOT_IN_STOCK", "count": 5 }],
       "rejections": { "total": 4, "open": 1, "overdue": 0, "byReason": […], "resolvedBy": { "recompute": 2, "manual": 1, "backToPicking": 0 } },
       "waste": { "events": 2, "costVnd": 6000, "byBox": [{ "boxCode": "SAMPLE-M", "count": 2, "costVnd": 6000 }] },
+      "boxSource": {                                // (21/10/2026) chọn nguồn thùng khác gợi ý (3.4.1)
+        "overrides": 5,
+        "byReason": [{ "reason": "REUSED_BOX_WORN", "count": 4 }],
+        "byBox": [{ "boxCode": "BOX-M", "reason": "REUSED_BOX_WORN", "count": 4 }] },
       "suggestions": [{
         "target": { "type": "sku", "code": "TEE-M-WHITE" },     // sku | box | settings
         "reason": "ITEM_DIMENSION_WRONG", "count": 4,
@@ -617,6 +671,8 @@ GET /packing/reports/feedback?from&to&min_count=3
         "action": { "label": "Đo lại hồ sơ SKU", "method": "PUT", "route": "/product-master/:id/packaging-profile" } }]
 } }
 ```
+
+Từ 21/10/2026 `suggestions` có thêm loại `box` cho thùng tái sử dụng hay bị thay bằng thùng mới (VD "Thùng tái sử dụng BOX-M bị thay 4 lần vì móp — thùng như vậy nên xếp hạng B") → Admin siết khâu xếp hạng A khi kiểm hàng hoàn.
 
 `suggestions` chỉ là **đề xuất** — FE hiện thành thẻ và đặt nút dẫn tới màn sửa tương ứng (`action.label`); không tự gọi `action.route`. Khi trình bày: "gợi ý tốt lên nhờ dữ liệu đầu vào đúng hơn", không phải hệ thống tự học.
 
@@ -661,6 +717,9 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `PACKING_PACKER_INVALID`              | 422  | Người được giao không phải Packaging Staff đang hoạt động                |
 | `PACKING_NO_PACKER_AVAILABLE`         | 409  | Không có Packaging Staff nào để tự giao                                  |
 | `PACKING_RECOVER_MATERIAL_INVALID`    | 400  | Thu hồi vật tư không có trong kiện / vượt số lượng                       |
+| `PACKING_BOX_SOURCE_REASON_REQUIRED`  | 400  | Chọn nguồn thùng khác gợi ý mà không có `box_source_reason` (3.4.1)     |
+| `PACKING_BOX_SOURCE_NOT_ALLOWED`      | 409  | Chọn thùng tái sử dụng cho kiện dễ vỡ khi cài đặt không cho (3.4.1)     |
+| `PACKING_BOX_ALREADY_CONSUMED`        | 409  | Kiện đã trừ thùng (mở ra đóng lại) — không chọn lại nguồn thùng         |
 | `PACKING_SETTINGS_CONFLICT`           | 409  | Cài đặt vừa bị người khác lưu                                            |
 | `PACKING_INVALID_DATE_RANGE`          | 400  | `from`/`to` báo cáo sai                                                  |
 | `PACKING_BACK_TO_PICKING_INVALID`     | 400  | 🆕 09/10 — `back-to-picking`: SKU không có trong hàng đã lấy / khai vượt số đã lấy (`details: {sku, requested, picked}`) |

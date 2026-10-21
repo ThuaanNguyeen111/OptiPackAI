@@ -231,6 +231,7 @@ Trả `{ "linkedGroups": OrderGroupResponse[] }` — các nhóm đang liên kế
 1. Tạo hãng mẫu: trong thư mục `be` chạy `npx ts-node -r dotenv/config scripts/seed-shipping-carriers.ts` (chạy lại không tạo trùng).
 2. Kiểm tra: `GET /shipping/carriers` → thấy `SAMPLE-EXPRESS` (dịch vụ `FAST`, 1–2 ngày) và `SAMPLE-ECONOMY` (`STANDARD` 3–5 ngày, `BULK` 4–7 ngày).
 3. (Tuỳ chọn) Store Owner đặt chiến lược: `PUT /shipping/settings` `{ "strategy": "cheapest" | "fastest" | "fixed", "default_carrier_code": "...", "default_service_code": "..." }`.
+4. 🆕 (21/10/2026) **Người gửi in trên nhãn:** cùng `PUT /shipping/settings`, thêm `sender_name`, `sender_phone`, `sender_address` (tuỳ chọn). Field **không gửi = giữ nguyên**; gửi `""` hoặc `null` = xoá. `GET /shipping/settings` trả thêm `sender: { name, phone, address }`. Bỏ trống thì nhãn tự lấy **tên + địa chỉ kho đang hoạt động đầu tiên**; không có kho thì in tên shop.
 
 Thêm/sửa hãng: `POST /shipping/carriers`, `PATCH /shipping/carriers/:id` (Admin) — bảng cước theo bậc khối lượng `bands[{ up_to_g, price_vnd }]` tăng dần, `extra_price_vnd_per_500g`, `volumetric_divisor`, ETA. Sai bảng cước → `400 SHIP_INVALID_RATE_TABLE`.
 
@@ -292,10 +293,12 @@ POST /shipments/batch
 | Route | Nội dung | Điều kiện |
 |---|---|---|
 | `GET /documents/packing-slip/:groupId` | Phiếu đóng gói A5, mỗi đơn 1 trang: người nhận, danh sách hàng có ô tích, các kiện/thùng, mã vạch nhóm | Nhóm còn đơn (`DOC_NO_ORDERS`) |
-| `GET /documents/shipping-label/:groupId` | Nhãn 100×150 mm, **mỗi kiện 1 nhãn** (k/n), Code128 + QR của mã vận đơn, hãng, dịch vụ, ETA, mã chuyến | Đã có vận đơn (`DOC_SHIPMENT_NOT_FOUND`) |
+| `GET /documents/shipping-label/:groupId` | Nhãn 100×150 mm, **mỗi kiện 1 nhãn** (k/n), Code128 + QR của mã vận đơn, hãng, dịch vụ, ETA, mã chuyến; 🆕 21/10: khối **NGƯỜI GỬI** (tên · SĐT, địa chỉ — B.7.1 bước 4) dưới người nhận | Đã có vận đơn (`DOC_SHIPMENT_NOT_FOUND`) |
 | `GET /documents/manifest/:tripCode` | Bảng kê chuyến A4: mọi vận đơn cùng mã chuyến, tổng kiện/cân/cước, chỗ ký giao nhận | Có vận đơn thuộc chuyến (`DOC_TRIP_NOT_FOUND`) |
 
 FE mở bằng `fetch` kèm token rồi tạo `blob:` URL để xem/in. Đơn Lazada bị che dữ liệu sẽ in tên/SĐT/địa chỉ dạng `***` — đây là giới hạn của Lazada.
+
+🆕 21/10/2026 — chứng từ phía **kho** (tem ô kệ, tem SKU, danh sách lấy hàng, phiếu nhập kho) nằm cùng module `/documents`, xem [INTEGRATION_GUIDE_WAREHOUSE.md — PHẦN B9](INTEGRATION_GUIDE_WAREHOUSE.md).
 
 ### B.7.7. Kịch bản demo từng bước
 
