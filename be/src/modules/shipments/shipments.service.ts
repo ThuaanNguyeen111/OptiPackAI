@@ -631,7 +631,9 @@ export class ShipmentsService {
           status: writebackStatus,
           reason: step.reasonCode ?? step.note ?? null,
           // Cùng 1 lần giao: awaiting_pickup/in_transit/out_for_delivery gộp thành 1 dòng `shipped`.
-          discriminator: shipment.attempt_count,
+          // Đặt lại vận đơn sau khi huỷ ở hãng (booking_round >= 2) là một lượt giao MỚI → khóa khác,
+          // nếu không sự kiện `shipped` của lượt mới bị coi là trùng và website kẹt ở "đã đóng gói".
+          discriminator: (shipment.booking_round ?? 1) > 1 ? `${String(shipment.attempt_count)}.r${String(shipment.booking_round)}` : shipment.attempt_count,
         },
         session,
       );
