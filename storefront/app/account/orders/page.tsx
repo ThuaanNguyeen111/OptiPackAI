@@ -41,7 +41,10 @@ export default function OrdersPage() {
             <h3>{order.orderNumber}</h3>
             <p>{new Date(order.createdAt).toLocaleDateString('vi-VN')}</p>
           </div>
-          <span className="order-status">{getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
+          <div className="order-status-group">
+            <span className="order-status">{getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
+            {order.activeReturn && <span className="order-status order-status-return">Đang yêu cầu trả hàng</span>}
+          </div>
           <div className="order-total">
             <span>Tổng thanh toán</span>
             <strong>{order.totalAmount.toLocaleString('vi-VN')}₫</strong>

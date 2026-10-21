@@ -195,6 +195,8 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 .order-row h3 { margin:5px 0 5px; color:var(--ink); font:24px 'Cormorant Garamond', Georgia, serif; font-weight:600; letter-spacing:.02em; white-space:nowrap; }
 .order-row p { margin:0; color:var(--muted); font-size:13px; }
 .order-status { padding:8px 11px; color:#83674f; border:1px solid #d8c5b1; background:#fbf7f2; font-size:11px; letter-spacing:.04em; white-space:nowrap; }
+.order-status-group { display:grid; gap:6px; justify-items:start; }
+.order-status-return { color:#8a4b2a; border-color:#e0b79c; background:#fbefe6; }
 .order-total { display:grid; gap:5px; justify-items:end; }
 .order-total strong { font-size:18px; font-weight:600; white-space:nowrap; }
 .order-arrow { color:var(--muted); font-size:22px; transition:color .3s ease, transform .3s ease; }
@@ -202,7 +204,7 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 @media (max-width:800px) {
   .order-row { grid-template-columns:minmax(0,1fr) auto; gap:16px; padding:20px 4px; }
   .order-row:hover { padding-right:10px; padding-left:10px; }
-  .order-status { grid-column:2; grid-row:1; }
+  .order-status-group { grid-column:2; grid-row:1; justify-items:end; }
   .order-total { grid-column:1; grid-row:2; justify-items:start; }
   .order-arrow { grid-column:2; grid-row:2; justify-self:end; }
 }

@@ -119,7 +119,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           <div className="order-detail-facts">
             <div><span>Phương thức thanh toán</span><strong>{getPaymentMethodLabel(order.paymentMethod)}</strong></div>
             <div><span>Trạng thái thanh toán</span><strong>{getPaymentStatusLabel(order.paymentStatus)}</strong></div>
-            <div><span>Giao hàng</span><strong>{getFulfillmentStatusLabel(order.fulfillmentStatus)}</strong></div>
+            <div><span>Giao hàng</span><strong>{getFulfillmentStatusLabel(order.fulfillmentStatus)}</strong>{order.activeReturn && <em className="order-status order-status-return">Đang yêu cầu trả hàng</em>}</div>
           </div>
 
           {canCancel && <div className="order-cancel-box">

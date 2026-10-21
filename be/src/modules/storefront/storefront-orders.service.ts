@@ -1,5 +1,5 @@
 import { SF_ERROR_CODES, sfError } from './storefront.errors';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -9,6 +9,9 @@ import {
   StorefrontInventoryStockDocument,
   StorefrontOrderEvent,
   StorefrontOrderEventDocument,
+  StorefrontReturnRequest,
+  StorefrontReturnRequestDocument,
+  OPEN_RETURN_STATUS_VALUES,
   StorefrontShipment,
   StorefrontShipmentDocument,
   StorefrontOrder,
@@ -25,6 +28,7 @@ import {
 import { CheckoutDto } from './dto/storefront.dto';
 import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
 import { toOpenApiStatus } from './aurelle-open-api.mapper';
+import { STOREFRONT_RETURN_LABELS } from './aurelle-return-api';
 import { nextPublicOrderId, type CounterCollection } from './storefront-counter.util';
 import { calculateOrderTotal } from './storefront-pricing';
 
@@ -41,7 +45,24 @@ export class StorefrontOrdersService {
     @InjectModel(StorefrontOrderEvent.name) private readonly eventModel: Model<StorefrontOrderEventDocument>,
     @InjectModel(StorefrontShipment.name) private readonly shipmentModel: Model<StorefrontShipmentDocument>,
     private readonly webhookPublisher: AurelleWebhookPublisher,
+    // 21/10/2026 — để danh sách/chi tiết đơn biết đơn đang có yêu cầu trả hàng chưa xong (Optional: spec cũ dựng service bằng new).
+    @Optional() @InjectModel(StorefrontReturnRequest.name) private readonly returnModel?: Model<StorefrontReturnRequestDocument>,
   ) {}
+
+  /** Yêu cầu trả hàng CHƯA xử lý xong của từng đơn (1 truy vấn cho cả danh sách). Mỗi đơn tối đa 1 phiếu mở (index duy nhất). */
+  private async openReturnsByOrder(orderIds: Types.ObjectId[]): Promise<Map<string, { id: string; status: string; statusLabel: string }>> {
+    const result = new Map<string, { id: string; status: string; statusLabel: string }>();
+    if (!this.returnModel || orderIds.length === 0) return result;
+    const rows = await this.returnModel
+      .find({ order_id: { $in: orderIds }, status: { $in: [...OPEN_RETURN_STATUS_VALUES] } })
+      .select('order_id status')
+      .lean();
+    for (const row of rows) {
+      const status = row.status as keyof typeof STOREFRONT_RETURN_LABELS;
+      result.set(String(row.order_id), { id: String(row._id), status, statusLabel: STOREFRONT_RETURN_LABELS[status] });
+    }
+    return result;
+  }
 
   async checkout(customerId: string, dto: CheckoutDto) {
     if (!dto.items.length) throw new BadRequestException(sfError(SF_ERROR_CODES.CART_EMPTY, 'Giỏ hàng đang trống'));
@@ -148,7 +169,8 @@ export class StorefrontOrdersService {
       .find({ customer_id: new Types.ObjectId(customerId) })
       .sort({ created_at: -1 })
       .limit(50);
-    return orders.map((order) => this.toResponse(order));
+    const openReturns = await this.openReturnsByOrder(orders.map((order) => order._id));
+    return orders.map((order) => this.toResponse(order, openReturns.get(String(order._id)) ?? null));
   }
 
   async findOne(customerId: string, id: string) {
@@ -157,15 +179,16 @@ export class StorefrontOrdersService {
       ? await this.orderModel.findOne({ _id: id, customer_id: new Types.ObjectId(customerId) })
       : null;
     if (!order) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
-    const [items, payment, shipment, events] = await Promise.all([
+    const [items, payment, shipment, events, openReturns] = await Promise.all([
       this.itemModel.find({ order_id: order._id }).lean(),
       this.paymentModel.findOne({ order_id: order._id }).lean(),
       this.shipmentModel.findOne({ order_id: order._id }).lean(),
       // Hành trình: sự kiện đối tác (đóng gói, giao...) theo thứ tự thời gian.
       this.eventModel.find({ order_id: order._id }).sort({ occurred_at: 1 }).limit(100).lean(),
+      this.openReturnsByOrder([order._id]),
     ]);
     return {
-      ...this.toResponse(order),
+      ...this.toResponse(order, openReturns.get(String(order._id)) ?? null),
       shippingAddress: order.shipping_address_snapshot,
       paymentMethod: payment?.payment_method ?? null,
       items,
@@ -235,8 +258,9 @@ export class StorefrontOrdersService {
     return this.toResponse(cancelled);
   }
 
-  private toResponse(order: StorefrontOrderDocument) {
+  private toResponse(order: StorefrontOrderDocument, activeReturn: { id: string; status: string; statusLabel: string } | null = null) {
     return {
+      activeReturn,
       id: order.id,
       orderNumber: order.order_number,
       status: order.status,

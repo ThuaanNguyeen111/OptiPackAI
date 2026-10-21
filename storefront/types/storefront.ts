@@ -77,6 +77,8 @@ export type StorefrontOrder = {
   currency: string
   createdAt: string
   publicOrderId: number | null
+  /** Yêu cầu trả hàng chưa xử lý xong của đơn (null nếu không có). */
+  activeReturn?: { id: string; status: string; statusLabel: string } | null
 }
 
 export type StorefrontOrderItem = {
