@@ -43,9 +43,9 @@ function pickString(...values: unknown[]): string {
   return ''
 }
 
-function parseMarketplacePlatform(value: string): 'tiktok' | 'lazada' | 'tiki' {
+function parseMarketplacePlatform(value: string): 'tiktok' | 'lazada' | 'tiki' | 'aurelle' {
   const normalized = value.trim().toLowerCase()
-  if (normalized === 'tiktok' || normalized === 'lazada' || normalized === 'tiki') {
+  if (normalized === 'tiktok' || normalized === 'lazada' || normalized === 'tiki' || normalized === 'aurelle') {
     return normalized
   }
   return 'lazada'
