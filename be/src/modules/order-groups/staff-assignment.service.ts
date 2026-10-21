@@ -8,7 +8,17 @@ import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { STAFF_ASSIGNMENT_ERROR_CODES } from './staff-assignment.errors';
 import { AppException } from '../../common/exceptions/app-exception';
 
-const COMPLETED_STATUSES = [GroupFulfillmentStatus.DELIVERED, GroupFulfillmentStatus.RETURNING, GroupFulfillmentStatus.RETURNED, GroupFulfillmentStatus.CANCELED];
+/**
+ * 🔄 ĐÃ ĐỔI (21/10/2026): "việc" của người LẤY HÀNG = nhóm còn ở bước lấy hàng.
+ * Trước đây đếm mọi nhóm chưa giao xong (gồm cả picked / chờ chấp nhận / đang đóng /
+ * packed / shipped) → người lấy nhanh bị coi là bận nhất dù đã rảnh tay. Nhóm bị trả
+ * về lấy hàng (`back-to-picking` → `picking`) tự được tính lại cho đúng người.
+ */
+export const PICKING_WORKLOAD_STATUSES: GroupFulfillmentStatus[] = [
+  GroupFulfillmentStatus.AWAITING_PACKAGING,
+  GroupFulfillmentStatus.PICKING,
+  GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+];
 
 /**
  * ===================================================================
@@ -57,7 +67,7 @@ export class StaffAssignmentService {
 
     const staffIds = staffList.map((s) => s._id);
     const workloads = await this.orderGroupModel.aggregate<{ _id: Types.ObjectId; count: number }>([
-      { $match: { assigned_staff_id: { $in: staffIds }, fulfillment_status: { $nin: COMPLETED_STATUSES } } },
+      { $match: { assigned_staff_id: { $in: staffIds }, fulfillment_status: { $in: PICKING_WORKLOAD_STATUSES } } },
       { $group: { _id: '$assigned_staff_id', count: { $sum: 1 } } },
     ]);
     const workloadMap = new Map(workloads.map((w) => [w._id.toString(), w.count]));
@@ -87,8 +97,16 @@ export class StaffAssignmentService {
       count: number;
       lastAssignedAt: Date;
     }>([
-      { $match: { assigned_staff_id: { $in: staffIds }, fulfillment_status: { $nin: COMPLETED_STATUSES } } },
-      { $group: { _id: '$assigned_staff_id', count: { $sum: 1 }, lastAssignedAt: { $max: '$assigned_at' } } },
+      // Đếm việc = nhóm còn ở bước lấy hàng; nhưng "lần được giao gần nhất" lấy trên MỌI
+      // nhóm — để 2 người cùng 0 việc vẫn xoay vòng đúng (người vừa lấy xong không bị chọn lại ngay).
+      { $match: { assigned_staff_id: { $in: staffIds } } },
+      {
+        $group: {
+          _id: '$assigned_staff_id',
+          count: { $sum: { $cond: [{ $in: ['$fulfillment_status', PICKING_WORKLOAD_STATUSES] }, 1, 0] } },
+          lastAssignedAt: { $max: '$assigned_at' },
+        },
+      },
     ]);
     const workloadMap = new Map(workloads.map((w) => [w._id.toString(), w]));
 
