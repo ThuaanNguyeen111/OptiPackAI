@@ -1,12 +1,8 @@
 # OptiPackAI Backend — Integration Guide: Quản lý Kho (Warehouse Management)
 
-**Phiên bản v1.1 — 26/09/2026 (K1 + K2 của đợt làm lại kho).** v1.0: vòng đời kho/khu/kệ + Product Master (K1). v1.1: danh mục 2 cấp, kệ chuẩn mới 5 phần, sức chứa ô, gợi ý ô, lộ trình lấy hàng hình rắn (K2). Tài liệu RIÊNG cho toàn bộ vòng đời dữ liệu kho: kho → khu → kệ → sản phẩm trên kệ, cùng dữ liệu kích thước sản phẩm (Product Master). Trước đây phần kho chỉ được nhắc trong `INTEGRATION_GUIDE_FULFILLMENT.md` mục "Nghiệp vụ 2b" (4 bước TẠO kho) — file này thay thế và mở rộng phần đó, vì kho giờ là 1 luồng nghiệp vụ đầy đủ, không chỉ là bước chuẩn bị cho lấy hàng. **v1.2 (27/09/2026): bước K3 — sổ cái kho, kiểm kê, chuyển ô, 1 SKU nhiều ô — xem PHẦN B3.** **v1.3 (27/09/2026): K4a — SKU nội bộ, danh mục màu, nối SKU sàn, sửa lỗi lọc sàn/shop khi trừ tồn — xem PHẦN B4.** **v1.4 (01/10/2026): mở quyền vận hành kho cho Warehouse Staff — xem danh sách khu, danh sách ô, tồn theo ô và nhập thêm hàng — xem PHẦN B5.** **v1.5 (07/10/2026): sửa lỗi kiểu id khiến Picking List báo "CHƯA GÁN VỊ TRÍ", quét hàng báo thiếu tồn và nhập thêm hàng luôn 404 dù dữ liệu kho đúng; gộp bản sửa tìm tồn của nhánh `feature/viet_befe`; script chuyển dữ liệu id cũ — xem PHẦN B6.**
-
-**🆕 Cập nhật 21/10/2026:** PHẦN B9 — in **tem ô kệ**, **tem SKU**, **danh sách lấy hàng** và **phiếu nhập kho** ra PDF (module `/documents`).
-
-**🆕 Cập nhật 15/10/2026:** PHẦN B8 — phiếu nhập kho theo **lô** (nhiều SKU, có ngày nhập) và lấy hàng **lô cũ nhất trước** (FIFO theo ngày nhập); Picking List thêm `oldest_lot`.
-
-**🆕 Cập nhật 10/10/2026:** PHẦN B7 — xoá hẳn kho/khu/ô/SKU nội bộ chưa từng dùng (`DELETE .../permanent`) và sửa gán nhầm ô (`PATCH .../sku-bin-assignments/:assignmentId`).
+> **Trạng thái FE (21/10/2026):** ✅ đã nối gần đủ (kho/khu/ô/kệ, sửa/tắt/xoá hẳn, gán/chuyển/kiểm kê, lịch sử, Picking List, phiếu nhập, lô của 1 dòng). ❗ Còn thiếu: Picking List hiện **lô xuất trước**, màn **Tồn theo lô** + **danh sách phiếu nhập** (PHẦN B8) — `FE_UPDATE_CHECKLIST.md` mục 2; **in tem/phiếu** (PHẦN B9) — mục 1.3.
+> **Thay đổi gần nhất:** 21/10 — B9 in tem ô kệ, tem SKU, danh sách lấy hàng, phiếu nhập. 15/10 — B8 nhập kho theo lô, FIFO. 10/10 — B7 xoá hẳn mục tạo nhầm.
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 Đọc kèm: `API_LIST.md` (bảng route/role), `INTEGRATION_GUIDE_FULFILLMENT.md` (luồng lấy hàng dùng dữ liệu kho).
 
@@ -386,11 +382,9 @@ Kệ 3   [T][P]    ↓           ↑    [T][P]
 
 ---
 
-## B2.8. ~~Product Master — bỏ sửa tay~~ 🔄 ĐÃ GỠ (gộp 04/10/2026, sửa tài liệu 09/10/2026)
+## B2.8. ~~Product Master — bỏ sửa tay~~ — ĐÃ GỠ (04/10/2026)
 
-`DELETE /product-master/:id/manual-override` **không còn tồn tại** (gọi → 404). Số đo dùng cho đóng gói do kho xác nhận qua `PUT /product-master/:id/packaging-profile`; số liệu sàn nằm riêng ở `marketplaceDimension` nên không cần "trả về số liệu Lazada". Xem B.6.
-
----
+Kích thước đóng gói nhập qua `PUT /product-master/:id/packaging-profile` (B.6).
 
 # PHẦN B3 — BƯỚC K3: SỔ CÁI KHO, KIỂM KÊ, CHUYỂN Ô 🆕 (27/09/2026)
 

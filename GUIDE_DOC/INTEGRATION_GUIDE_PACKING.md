@@ -1,9 +1,10 @@
 # Hướng dẫn FE tích hợp API Đóng gói (Packing)
 
-> **Cập nhật:** 18/10/2026 — bỏ bước chốt riêng ở Admin; tự tính và tự gán; lọc việc bằng `assigned_packer_id`; **chấp nhận là bắt đầu đóng ngay** (`ready → packing`). `/start` chỉ còn dùng cho dữ liệu `approved` cũ. **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
-> Tài liệu này gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Phần lấy hàng, giao hàng, kho vẫn ở `INTEGRATION_GUIDE_FULFILLMENT.md` / `INTEGRATION_GUIDE_WAREHOUSE.md`; bảng tra route ngắn ở `API_LIST.md` mục 8.
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ mọi route trong tài liệu này (màn đóng gói dùng `packing-plan`). ❗ Còn thiếu: **3.4.1 Nguồn thùng** (`box-sources`, `box_source` khi niêm phong) — xem `FE_UPDATE_CHECKLIST.md` mục 1.1.
+> **Thay đổi gần nhất:** 21/10 — 3.4.1 nguồn thùng mới/tái sử dụng, 6.2 báo cáo thêm `boxSource`. 18/10 — chấp nhận là bắt đầu đóng ngay; `undo-approve` (2.3.1).
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
-> **18/10/2026 — Quay lại sau khi chấp nhận:** thêm `POST …/packing-plan/undo-approve` để trở về chờ chấp nhận, giữ kế hoạch và phân công, xóa lượt quét. Chỉ dùng trước khi từng niêm phong kiện nào; xem mục 2.3.1.
+Tài liệu gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Lấy hàng: `INTEGRATION_GUIDE_FULFILLMENT.md`; giao/hoàn: `INTEGRATION_GUIDE_SHIPPING.md`; kho: `INTEGRATION_GUIDE_WAREHOUSE.md`.
 
 ---
 
@@ -529,7 +530,7 @@ Chỉ dùng khi mọi kiện còn giao đã `sealed` mà kế hoạch chưa tự
 
 ### 3.8 ~~Báo "Đã đóng gói" lên Lazada~~ — ĐÃ BỎ (10/10/2026)
 
-`seal` / `review` / `finish` / `pack` **không còn** trả `lazadaPackSync`; route `POST /order-groups/:id/lazada-pack/retry` đã xoá. Trạng thái `packed` chỉ ghi trong OptiPack, không ghi ngược lên Lazada. FE bỏ cảnh báo và nút "thử lại" liên quan.
+`seal`/`review`/`finish`/`pack` không còn trả `lazadaPackSync`; `packed` chỉ ghi trong OptiPack.
 
 ### 3.9 Lối tắt: cân cả nhóm một lần (không quét)
 
@@ -789,22 +790,9 @@ FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt
 
 ---
 
-## 9. Thay đổi so với FE bản `main` (đang gọi route cũ)
+## 9. Thay đổi so với FE bản `main` (route cũ)
 
-| FE đang gọi (đã gỡ)               | Thay bằng                                                                           |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `GET /order-groups/:id/packaging` | `GET /order-groups/:id/packing-plan` (1 kế hoạch cho cả nhóm, `parcels[]`)          |
-| `POST …/packaging/generate`       | Không còn — tự tính khi nhóm `picked`; muốn tính lại: `…/packing-plan/recompute`    |
-| `POST …/packaging/approve`        | `POST …/packing-plan/approve`                                                       |
-| `POST …/packaging/adjust`         | `…/parcels/:no/change-box` hoặc `…/move-item`                                       |
-| `POST …/packaging/reject`         | `…/packing-plan/reject` (**`reason` là mã**) rồi `recompute` / `manual` / `back-to-picking` |
-| `POST …/fulfillment/pack`         | Chấp nhận: `approve` → `packing`; có quét: `scan` → `seal`. Đóng nhanh: `…/packing-plan/pack` |
-| Khóa `expected_group_version`     | Khóa `expected_version` = `plan.version`                                            |
-
-Thay đổi gây gãy từ 08/10/2026: `reject.reason` đổi từ chuỗi tự do sang **mã lý do** (kèm `note`).
-
-
----
+✅ Đã xong (21/10/2026): FE không còn gọi route `/packaging*`, `/fulfillment/pack`. Chỉ còn mã chết cần xoá — `FE_UPDATE_CHECKLIST.md` mục 3. Lưu ý từ 08/10: `reject.reason` là **mã lý do** (kèm `note`).
 
 ## Phụ lục — Ví dụ body & response (số liệu minh hoạ)
 

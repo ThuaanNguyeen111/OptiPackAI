@@ -1,6 +1,8 @@
 # OptiPackAI Backend — Integration Guide cho Frontend
 
-Tài liệu này dành cho FE tích hợp với module **Auth/Users** — phần backend duy nhất đã hoàn thiện tại thời điểm này. Đọc tài liệu này **trước khi** đọc Swagger — Swagger cho biết "API nhận/trả gì", tài liệu này giải thích "vì sao nó hoạt động vậy, và FE cần xử lý gì thêm".
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ Auth/Users (đăng nhập Google là tuỳ chọn, chưa làm).
+
+Tài liệu này dành cho FE tích hợp với module **Auth/Users** . Đọc tài liệu này **trước khi** đọc Swagger — Swagger cho biết "API nhận/trả gì", tài liệu này giải thích "vì sao nó hoạt động vậy, và FE cần xử lý gì thêm".
 
 **Swagger UI (nguồn API chính thức, luôn cập nhật)**: `http://localhost:3000/api/docs`
 

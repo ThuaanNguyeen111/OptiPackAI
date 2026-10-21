@@ -1,14 +1,12 @@
 # OptiPackAI Backend — Integration Guide: Giao hàng & Trả hàng (Shipping & Returns)
 
-> **18/10/2026 — Tiến độ nhóm đơn khi khách trả đủ hàng:** Admin tạo phiếu → `returning` (Đang hoàn); Store duyệt → `returned` (Đã hoàn hàng); kho kiểm và xử lý tồn xong → `canceled` (Đã hủy). Xem **C.0** để nối FE; trạng thái phiếu và trạng thái hãng vận chuyển vẫn có ý nghĩa riêng.
-
-**Phiên bản v1.4 — 14/10/2026 (chiều)** (C4–C6: giao qua GHN thật — Phần B.8; F.1/F.2/F.3 bổ sung). **v1.3 — 14/10/2026** (thêm Phần B.7: báo giá theo kiện, chọn hãng, giao chung chuyến, lịch lấy hàng, in phiếu/nhãn/manifest — các route của module `shipping`/`documents` gộp từ thi_dev 04/10 trước đây chỉ có ở `API_LIST.md`; bổ sung bảng route F.1, mã lỗi F.2, checklist F.3; Phần E thêm hạn chế 14–16 về GHN). **v1.2 — 07/10/2026** (sửa lỗi nhập lại hàng hoàn vào ô chưa có dòng tồn — mục C.5; ghi nhận hạn chế phiếu hoàn có thể mang SKU của sàn khác — Phần E mục 13). **v1.1 — 27/09/2026 (G1 + G3; v1.1: G4 — kiểm vật liệu đóng gói khi kiểm hàng hoàn, phiếu hoàn lấy số đã quét thật).** Tài liệu RIÊNG cho luồng sau khi đóng gói: giao hàng do shop tự giao, tracking dạng dòng thời gian, giao thất bại / giao lại / hoàn về kho, và trả hàng – hoàn tiền (giả lập). Đọc kèm `INTEGRATION_GUIDE_WAREHOUSE.md` (phần sổ cái kho K3 — hàng trả được nhập lại qua đó).
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ giao hàng, GHN, giao chung chuyến, chứng từ PDF, hoàn hàng (kể cả huỷ phiếu, nhận kiện hoàn theo vận đơn, thu hồi vật tư A/B/C). ❗ Còn thiếu: **người gửi trên nhãn** (B.7.1 bước 4) — xem `FE_UPDATE_CHECKLIST.md` mục 1.2.
+> **Thay đổi gần nhất:** 21/10 — nhãn có khối NGƯỜI GỬI. 18/10 — tiến độ nhóm đơn khi khách trả đủ hàng (C.0). 14/10 — giao qua GHN (B.8).
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 **Phạm vi bản gọn (đã chốt):** mọi bước là **bấm nút đổi trạng thái**. Tracking = lịch sử các lần bấm (ai, lúc nào, lý do). **Chưa có:** bản đồ/GPS, ảnh bằng chứng giao hàng, chuyến giao nhiều điểm, role shipper riêng, đổi hàng — xem Phần E.
 
 Quy ước: 🆕 mới · 🔄 route cũ đổi hành vi · ⏳ chưa có.
-
-> 📌 **Cập nhật 27/09/2026:** các tiện ích vận hành (khoảng cách giao lại, quá hạn giao, thông báo, hàng cách ly, đổi hàng, vật liệu thực tế, kho vật liệu nội bộ) được mô tả tại **`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`**. Kịch bản trình diễn toàn hệ thống: **`DEMO_PLAYBOOK.md`**.
 
 ---
 
