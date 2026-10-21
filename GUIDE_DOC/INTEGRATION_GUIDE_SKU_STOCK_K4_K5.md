@@ -1,6 +1,7 @@
 # OptiPackAI — Hướng dẫn FE & Demo: SKU nội bộ, Tồn kho chung, Chống bán lố (K4a · K4b · K5)
 
-**Phiên bản v1.2 — 07/10/2026** (sửa lỗi BE khiến Picking List báo "CHƯA GÁN VỊ TRÍ" và quét hàng báo thiếu tồn dù cấu hình đúng; Picking List / quét hàng tìm thêm tồn chưa gộp và không phân biệt hoa thường; bước 1.5 chạy script chuyển dữ liệu id; cập nhật mục 0b.2, 0b.4, 4.7, 5.4, 8.3, 8.4). **v1.1 — 04/10/2026** (thêm Phần 0b: quy trình cấu hình chuẩn, cách đặt SKU trên Lazada, xử lý sự cố "CHƯA GÁN VỊ TRÍ"; sửa bước 1.3 theo cơ chế đồng bộ sản phẩm mới). **v1.0 — 27/09/2026.** Tài liệu này dành cho FE ghép giao diện **và** cho người thuyết trình chạy demo. Đi đúng thứ tự từ trên xuống: mỗi bước đều có _làm gì → gọi API nào → body mẫu → kết quả phải thấy → nếu sai thì lỗi gì_.
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ (SKU nội bộ, màu, nối SKU sàn, gộp tồn, tồn khả dụng, giữ chỗ tồn).
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 Đọc kèm (đã có trước): `INTEGRATION_GUIDE_WAREHOUSE.md` (kho, kệ, sổ cái K3), `INTEGRATION_GUIDE_SHIPPING.md`, `INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`.
 

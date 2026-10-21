@@ -1,8 +1,7 @@
 # Tích hợp Giao Hàng Nhanh (GHN) vào OptiPack AI
 
-> Phiên bản 1.3 — 14/10/2026 (v1.0 07/10 thiết kế · v1.1 10/10 địa chỉ 2 cấp C3 · v1.2 12/10 staging 404 · **v1.3 14/10: hiện trạng code, kết hợp với module `shipping`/`documents` của Thi, danh sách đầy đủ API GHN, kết quả test thật 13/10, kế hoạch C4–C6 chỉnh lại**).
-> Nguồn: tài liệu chính thức GHN tại `https://developer.ghn.vn/en/docs/...` (đọc từng trang 07/10/2026, đọc lại mục lục + webhook + Create Order + Order Status 13/10/2026).
-> Trạng thái: **C1–C6 ĐÃ CODE** (C1–C3: AOFP-66, 67, 70; C4–C6: 14/10/2026). **Hướng dẫn FE + kịch bản demo đầy đủ: mục 11.** Hiện trạng/kết hợp với module của Thi: mục 9. Kết quả test thật: mục 10.
+> **Trạng thái (21/10/2026):** C1–C6 đã code; ✅ FE đã nối đủ. Hướng dẫn FE + kịch bản demo: **mục 11**. Nguồn: tài liệu chính thức GHN `https://developer.ghn.vn/en/docs/...`.
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 ---
 
@@ -613,7 +612,6 @@ Số AOFP gán lúc commit (tăng dần). Mỗi đợt kiểm tra đủ `npx tsc
 3. Mọi đơn (Lazada và AURELLE) đều gửi qua GHN — **đã chốt**.
 4. Demo chỉ trên web: Coordinator bấm các nút trạng thái giả lập; nút đi qua cùng hàm xử lý với webhook GHN thật — **đã chốt**.
 
-
 ---
 
 ## 9. Hiện trạng 14/10/2026 và cách kết hợp với module của Thi
@@ -695,7 +693,6 @@ npx jest src/modules/carriers src/modules/shipments
 ```
 
 Các dòng `ERROR`/`WARN` của `GhnAdapter` khi chạy jest (`PROVINCE_NAME_NOT_VALID`, `PHONE_INVALID`, cancel không phản hồi…) là lỗi giả lập có chủ đích trong test.
-
 
 ---
 
