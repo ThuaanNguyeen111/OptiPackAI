@@ -92,10 +92,13 @@ Toàn bộ request/response, trạng thái, lỗi của kế hoạch đóng gói
 ### Cơ chế tự động — thuật toán "Ít việc nhất" (Least-Busy)
 ```
 Hệ thống đếm: mỗi Warehouse Staff đang active có bao nhiêu Order Group
-              ĐANG XỬ LÝ DỞ (fulfillment_status CHƯA tới delivered/returned)
+              CÒN Ở BƯỚC LẤY HÀNG (awaiting_packaging, picking, partial_needs_review)
+              🔄 21/10/2026: trước đây đếm mọi nhóm chưa giao xong → người lấy xong
+              nhiều nhóm (đã sang đóng gói/giao) bị coi là bận nhất dù đã rảnh tay
 → Chọn người có số ít nhất
-→ Hòa nhau → chọn người được gán việc lần GẦN NHẤT LÂU HƠN (ai "nghỉ tay"
-  lâu nhất trong số đang hòa điểm được ưu tiên) — round-robin theo thời
+→ Hòa nhau → chọn người được gán việc lần GẦN NHẤT LÂU HƠN (tính trên MỌI
+  nhóm từng giao, ai "nghỉ tay" lâu nhất được ưu tiên; chưa từng được giao
+  thì ưu tiên nhất) — round-robin theo thời
   gian, KHÔNG phải theo `_id` (đã sửa mô tả 16/09/2026 cho khớp code
   thật — cách này công bằng hơn `_id` cố định, tránh việc hòa điểm luôn
   ưu tiên đúng 1 người)
