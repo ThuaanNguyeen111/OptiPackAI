@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import { useCart } from '@/components/cart/cart-provider'
-import { checkout, getCurrentCustomer } from '@/lib/api-client'
+import { ApiError, checkout, getCurrentCustomer } from '@/lib/api-client'
 import { FREE_SHIPPING_THRESHOLD, getShippingFee } from '@/lib/order-pricing'
 import { getAllProvince, getDistrictsByProvinceId } from 'vietnam-divisions-js/provinces'
 import { getCommunesByDistrictId } from 'vietnam-divisions-js/districts'
@@ -191,6 +191,12 @@ export default function CheckoutPage() {
       setDone(`Đặt hàng thành công: ${order.orderNumber}`)
       setPlacedOrderId(order.id)
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        localStorage.removeItem('kaira-customer')
+        window.dispatchEvent(new Event('kaira-auth-changed'))
+        router.push('/auth/login?returnTo=/checkout')
+        return
+      }
       setError(err instanceof Error ? err.message : 'Không thể tạo đơn hàng')
     }
   }

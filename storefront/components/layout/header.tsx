@@ -17,7 +17,7 @@ export function Header({ cartCount: fallbackCount = 0 }: { cartCount?: number })
       <nav className={menuOpen ? 'main-nav open' : 'main-nav'}>
         <Link href="/">Trang chủ</Link><Link href="/shop">Sản phẩm</Link><Link href="/shop?category=new">Hàng mới</Link><Link href="/shop?category=featured">Nổi bật</Link><Link href="/developer">Nhà phát triển</Link>
       </nav>
-      <div className="header-actions"><Link href="/auth/login" aria-label="Tài khoản">♙</Link><Link href="/cart" aria-label="Giỏ hàng">🛍 <span className="cart-count">{cartCount}</span></Link></div>
+      <div className="header-actions"><Link href="/account" aria-label="Tài khoản">♙</Link><Link href="/cart" aria-label="Giỏ hàng">🛍 <span className="cart-count">{cartCount}</span></Link></div>
     </header>
   </>
 }
