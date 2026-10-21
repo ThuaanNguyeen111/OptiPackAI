@@ -10,12 +10,16 @@ import { ReturnsService } from './returns.service';
 
 const PAGE_SIZE = 50;
 const MAX_PAGES = 5;
+/** 21/10/2026 — chỉ quét các yêu cầu khách đã hủy trong khoảng này (đủ bù webhook mất / app tắt). */
+const CANCELED_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
 
 export interface ReturnsSyncResult {
   pulled: number;
   created: number;
   rejected: number;
   pending: number;
+  /** 21/10/2026 — phiếu bên kho được hủy theo yêu cầu khách đã hủy trên sàn. */
+  canceled: number;
 }
 
 /**
@@ -37,7 +41,7 @@ export class ReturnsMarketplaceSyncService {
   ) {}
 
   async syncShop(platform: MarketplacePlatform, shopId: string): Promise<ReturnsSyncResult> {
-    const result: ReturnsSyncResult = { pulled: 0, created: 0, rejected: 0, pending: 0 };
+    const result: ReturnsSyncResult = { pulled: 0, created: 0, rejected: 0, pending: 0, canceled: 0 };
     const adapter = this.adapters[platform];
     if (!adapter?.listReturns) return result;
 
@@ -71,7 +75,30 @@ export class ReturnsMarketplaceSyncService {
       if (returns.length < PAGE_SIZE) break;
       offset += returns.length - removedFromQueue;
     }
+    result.canceled = await this.syncCanceled(adapter, token, platform);
     return result;
+  }
+
+  /**
+   * 21/10/2026 — Khách tự hủy yêu cầu trả hàng trên website: hủy phiếu bên kho nếu hàng chưa
+   * về. Gọi lặp an toàn (phiếu đã hủy → bỏ qua). Hàng đã về kho → giữ phiếu, ghi cảnh báo.
+   */
+  private async syncCanceled(adapter: MarketplaceAdapter, token: string, platform: MarketplacePlatform): Promise<number> {
+    if (!adapter.listReturns) return 0;
+    const updateAfter = new Date(Date.now() - CANCELED_LOOKBACK_MS);
+    let canceled = 0;
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const { returns } = await adapter.listReturns(token, { status: 'canceled', updateAfter, offset: page * PAGE_SIZE, limit: PAGE_SIZE });
+      for (const raw of returns) {
+        const outcome = await this.returnsService.cancelFromMarketplace(platform, raw.return_id);
+        if (outcome === 'canceled') canceled += 1;
+        if (outcome === 'too_late') {
+          this.logger.warn(`Khách đã hủy yêu cầu trả hàng ${raw.return_id} nhưng hàng đã về kho — giữ phiếu để kho xử lý tiếp.`);
+        }
+      }
+      if (returns.length < PAGE_SIZE) break;
+    }
+    return canceled;
   }
 
   /** Cron 2 phút: quét mọi shop AURELLE đã kết nối. Lỗi 1 shop không chặn shop khác. */
@@ -84,9 +111,9 @@ export class ReturnsMarketplaceSyncService {
       for (const shop of shops) {
         try {
           const result = await this.syncShop(MarketplacePlatform.AURELLE, shop.shop_id);
-          if (result.created > 0 || result.rejected > 0) {
+          if (result.created > 0 || result.rejected > 0 || result.canceled > 0) {
             this.logger.log(
-              `Trả hàng ${shop.shop_id}: ${String(result.created)} phiếu mới, ${String(result.rejected)} bị từ chối, ${String(result.pending)} chờ thử lại.`,
+              `Trả hàng ${shop.shop_id}: ${String(result.created)} phiếu mới, ${String(result.rejected)} bị từ chối, ${String(result.canceled)} khách hủy, ${String(result.pending)} chờ thử lại.`,
             );
           }
         } catch (error: unknown) {

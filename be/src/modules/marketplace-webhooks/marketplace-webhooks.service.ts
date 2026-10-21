@@ -119,6 +119,7 @@ export class MarketplaceWebhooksService {
         await this.handleAuthorizationRevoked(platform, body);
         return;
       case 'return_requested':
+      case 'return_canceled': // 21/10/2026 — khách tự hủy yêu cầu trả hàng: cùng 1 lượt kéo
         await this.handleReturnRequested(platform, body);
         return;
       default:

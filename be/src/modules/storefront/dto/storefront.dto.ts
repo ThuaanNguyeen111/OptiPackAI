@@ -35,8 +35,14 @@ export class StorefrontReturnItemDto {
   @IsInt() @Min(1) quantity!: number;
   @IsIn(['defective', 'wrong_item', 'not_as_described', 'size_not_fit', 'changed_mind', 'other']) reason_code!: string;
 }
+/** 21/10/2026 — biến thể khách muốn đổi sang (chỉ khi type = exchange). */
+export class StorefrontExchangeItemDto {
+  @IsString() @IsNotEmpty() sku!: string;
+  @IsInt() @Min(1) quantity!: number;
+}
 export class CreateStorefrontReturnDto {
-  @IsIn(['return_refund', 'refund_only']) type!: 'return_refund' | 'refund_only';
+  @IsIn(['return_refund', 'refund_only', 'exchange']) type!: 'return_refund' | 'refund_only' | 'exchange';
   @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => StorefrontReturnItemDto) items!: StorefrontReturnItemDto[];
+  @IsOptional() @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => StorefrontExchangeItemDto) exchange_items?: StorefrontExchangeItemDto[];
   @IsOptional() @IsString() @MaxLength(500) customer_note?: string;
 }

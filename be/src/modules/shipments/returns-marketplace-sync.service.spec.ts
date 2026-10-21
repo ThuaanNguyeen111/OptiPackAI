@@ -15,13 +15,14 @@ const raw = (id: string): MarketplaceReturnRaw => ({
 });
 
 function build(pages: MarketplaceReturnRaw[][], outcomes: Record<string, { outcome: string; reason?: string }>) {
-  const listReturns = jest.fn<Promise<{ returns: MarketplaceReturnRaw[]; count: number }>, [string, { status?: string; offset: number; limit: number }]>();
+  const listReturns = jest.fn<Promise<{ returns: MarketplaceReturnRaw[]; count: number }>, [string, { status?: string; updateAfter?: Date; offset: number; limit: number }]>();
   pages.forEach((page) => listReturns.mockResolvedValueOnce({ returns: page, count: page.length }));
   listReturns.mockResolvedValue({ returns: [], count: 0 });
   const updateReturnStatus = jest.fn<Promise<void>, [string, Record<string, unknown>]>().mockResolvedValue(undefined);
   const createFromMarketplace = jest.fn((_p: MarketplacePlatform, _s: string, r: MarketplaceReturnRaw) =>
     Promise.resolve(outcomes[r.return_id] ?? { outcome: 'created' }),
   );
+  const cancelFromMarketplace = jest.fn().mockResolvedValue('canceled');
   const integration = {
     getValidAccessToken: jest.fn().mockResolvedValue('tok'),
     listConnectedShops: jest.fn().mockResolvedValue([{ shop_id: 'S1' }, { shop_id: 'S2' }]),
@@ -29,15 +30,15 @@ function build(pages: MarketplaceReturnRaw[][], outcomes: Record<string, { outco
   const service = new ReturnsMarketplaceSyncService(
     { [MarketplacePlatform.AURELLE]: { listReturns, updateReturnStatus } } as never,
     integration as never,
-    { createFromMarketplace } as never,
+    { createFromMarketplace, cancelFromMarketplace } as never,
   );
-  return { service, listReturns, updateReturnStatus, createFromMarketplace, integration };
+  return { service, listReturns, updateReturnStatus, createFromMarketplace, cancelFromMarketplace, integration };
 }
 
 describe('ReturnsMarketplaceSyncService.syncShop', () => {
   it('sàn không hỗ trợ trả hàng (Lazada) → không làm gì', async () => {
     const service = new ReturnsMarketplaceSyncService({ [MarketplacePlatform.LAZADA]: {} } as never, {} as never, {} as never);
-    expect(await service.syncShop(MarketplacePlatform.LAZADA, 'S1')).toEqual({ pulled: 0, created: 0, rejected: 0, pending: 0 });
+    expect(await service.syncShop(MarketplacePlatform.LAZADA, 'S1')).toEqual({ pulled: 0, created: 0, rejected: 0, pending: 0, canceled: 0 });
   });
 
   it('chỉ kéo yêu cầu đang "requested" và đếm đúng từng kết quả', async () => {
@@ -47,7 +48,7 @@ describe('ReturnsMarketplaceSyncService.syncShop', () => {
       r4: { outcome: 'order_not_ready' },
     });
     const result = await service.syncShop(MarketplacePlatform.AURELLE, 'S1');
-    expect(result).toEqual({ pulled: 4, created: 1, rejected: 0, pending: 2 });
+    expect(result).toEqual({ pulled: 4, created: 1, rejected: 0, pending: 2, canceled: 0 });
     expect(listReturns.mock.calls[0]?.[1]).toMatchObject({ status: 'requested', offset: 0 });
   });
 
@@ -74,8 +75,19 @@ describe('ReturnsMarketplaceSyncService.syncShop', () => {
     const outcomes: Record<string, { outcome: string; reason?: string }> = { a0: { outcome: 'rejected', reason: 'x' } };
     const { service, listReturns } = build([page1, [raw('b0')]], outcomes);
     await service.syncShop(MarketplacePlatform.AURELLE, 'S1');
-    expect(listReturns).toHaveBeenCalledTimes(2);
+    expect(listReturns).toHaveBeenCalledTimes(3); // 2 trang "requested" + 1 lượt "canceled"
     expect(listReturns.mock.calls[1]?.[1].offset).toBe(49);
+  });
+
+  it('21/10/2026 — kéo thêm yêu cầu khách đã HỦY (3 ngày gần nhất) và hủy phiếu bên kho', async () => {
+    const { service, listReturns, cancelFromMarketplace } = build([[], [{ ...raw('c1'), status: 'canceled' }, { ...raw('c2'), status: 'canceled' }]], {});
+    cancelFromMarketplace.mockResolvedValueOnce('canceled').mockResolvedValueOnce('too_late');
+    const result = await service.syncShop(MarketplacePlatform.AURELLE, 'S1');
+    expect(result.canceled).toBe(1);
+    const params = listReturns.mock.calls[1]?.[1];
+    expect(params?.status).toBe('canceled');
+    expect(params?.updateAfter).toBeInstanceOf(Date);
+    expect(cancelFromMarketplace).toHaveBeenCalledWith(MarketplacePlatform.AURELLE, 'c1');
   });
 });
 
@@ -84,6 +96,6 @@ describe('ReturnsMarketplaceSyncService.syncAllShops', () => {
     const { service, integration, listReturns } = build([], {});
     integration.getValidAccessToken.mockRejectedValueOnce(new Error('token hết hạn')).mockResolvedValue('tok');
     await service.syncAllShops();
-    expect(listReturns).toHaveBeenCalledTimes(1); // chỉ shop thứ 2 gọi tới sàn
+    expect(listReturns).toHaveBeenCalledTimes(2); // chỉ shop thứ 2 gọi tới sàn (requested + canceled)
   });
 });

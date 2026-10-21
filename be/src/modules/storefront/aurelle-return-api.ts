@@ -54,9 +54,10 @@ export const STOREFRONT_RETURN_REASON_LABELS: Record<StorefrontReturnReason, str
 export interface StorefrontReturnLike {
   _id: { toString(): string };
   public_order_id: number | null;
-  type: 'return_refund' | 'refund_only';
+  type: 'return_refund' | 'refund_only' | 'exchange';
   status: StorefrontReturnStatus;
   customer_note?: string | null;
+  exchange_items?: { sku: string; quantity: number }[];
   rma_code?: string | null;
   decision_note?: string | null;
   items: { sku: string; quantity: number; reason_code: string }[];
@@ -72,6 +73,8 @@ export interface OpenApiReturn {
   customer_note: string;
   rma_code: string | null;
   items: { seller_sku: string; quantity: number; reason_code: string }[];
+  /** 21/10/2026 — chỉ có khi `type = exchange`. */
+  exchange_items?: { seller_sku: string; quantity: number }[];
   created_at: string;
   updated_at: string;
 }
@@ -91,6 +94,9 @@ export function toOpenApiReturn(doc: StorefrontReturnLike): OpenApiReturn {
       quantity: item.quantity,
       reason_code: item.reason_code,
     })),
+    ...(doc.type === 'exchange'
+      ? { exchange_items: (doc.exchange_items ?? []).map((item) => ({ seller_sku: item.sku, quantity: item.quantity })) }
+      : {}),
     created_at: created.toISOString(),
     updated_at: (doc.updated_at ?? created).toISOString(),
   };

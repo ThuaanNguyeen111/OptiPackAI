@@ -41,6 +41,15 @@ export class AurelleWebhookPublisher {
     });
   }
 
+  /** 21/10/2026 — khách tự hủy yêu cầu trả hàng: OptiPack kéo lại để hủy phiếu bên kho. */
+  notifyReturnCanceled(publicOrderId: number, returnId: string): void {
+    this.send('return_canceled', publicOrderId, {
+      trade_order_id: String(publicOrderId),
+      return_id: returnId,
+      status_update_time: Math.floor(Date.now() / 1000),
+    });
+  }
+
   private send(messageType: string, publicOrderId: number, data: Record<string, unknown>): void {
     const config = this.configService.get<AurelleWebhookConfig>('storefront.aurelleWebhook');
     if (!config?.url || !config.appKey || !config.appSecret) {

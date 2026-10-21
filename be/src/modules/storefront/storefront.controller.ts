@@ -39,6 +39,8 @@ export class StorefrontController {
   @Post('orders/:id/cancel') @UseGuards(CustomerJwtGuard) cancelOrder(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CancelOrderDto) { return this.orders.cancel(req.user.customerId, id, dto.reason); }
   @Post('orders/:id/returns') @UseGuards(CustomerJwtGuard) createReturn(@Req() req: CustomerRequest, @Param('id') id: string, @Body() dto: CreateStorefrontReturnDto) { return this.returns.create(req.user.customerId, id, dto); }
   @Get('returns') @UseGuards(CustomerJwtGuard) listReturns(@Req() req: CustomerRequest) { return this.returns.list(req.user.customerId); }
+  @Post('returns/:id/cancel') @UseGuards(CustomerJwtGuard) cancelReturn(@Req() req: CustomerRequest, @Param('id') id: string) { return this.returns.cancel(req.user.customerId, id); }
+  @Get('orders/:id/exchange-options') @UseGuards(CustomerJwtGuard) exchangeOptions(@Req() req: CustomerRequest, @Param('id') id: string) { return this.returns.exchangeOptions(req.user.customerId, id); }
   @Get('returns/:id') @UseGuards(CustomerJwtGuard) returnDetail(@Req() req: CustomerRequest, @Param('id') id: string) { return this.returns.findOne(req.user.customerId, id); }
   @Get('orders/:id') @UseGuards(CustomerJwtGuard) order(@Req() req: CustomerRequest, @Param('id') id: string) { return this.orders.findOne(req.user.customerId, id); }
 }

@@ -1,4 +1,4 @@
-import type { AdminProduct, Category, Customer, Product, SaveAdminProduct, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
+import type { AdminProduct, Category, Customer, ExchangeOption, Product, SaveAdminProduct, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -84,8 +84,18 @@ export async function cancelOrder(id: string, reason?: string) {
   return request<StorefrontOrder>(`/storefront/orders/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason?.trim() || undefined }) })
 }
 
-export async function createReturn(orderId: string, input: { type: StorefrontReturnType; items: { sku: string; quantity: number; reason_code: string }[]; customerNote?: string }) {
-  return request<StorefrontReturn>(`/storefront/orders/${encodeURIComponent(orderId)}/returns`, { method: 'POST', body: JSON.stringify({ type: input.type, items: input.items, customer_note: input.customerNote?.trim() || undefined }) })
+export async function createReturn(orderId: string, input: { type: StorefrontReturnType; items: { sku: string; quantity: number; reason_code: string }[]; exchangeItems?: { sku: string; quantity: number }[]; customerNote?: string }) {
+  return request<StorefrontReturn>(`/storefront/orders/${encodeURIComponent(orderId)}/returns`, { method: 'POST', body: JSON.stringify({ type: input.type, items: input.items, exchange_items: input.type === 'exchange' ? input.exchangeItems : undefined, customer_note: input.customerNote?.trim() || undefined }) })
+}
+
+/** Khách tự hủy yêu cầu trả hàng khi cửa hàng chưa xử lý. */
+export async function cancelReturn(id: string) {
+  return request<StorefrontReturn>(`/storefront/returns/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+}
+
+/** Biến thể có thể đổi sang cho từng sản phẩm trong đơn. */
+export async function getExchangeOptions(orderId: string) {
+  return request<ExchangeOption[]>(`/storefront/orders/${encodeURIComponent(orderId)}/exchange-options`)
 }
 
 export async function getReturns() {

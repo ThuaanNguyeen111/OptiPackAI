@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
-import { ApiError, getReturn } from '@/lib/api-client'
+import { ApiError, cancelReturn, getReturn } from '@/lib/api-client'
 import { RETURN_TYPE_LABELS } from '@/lib/order-labels'
 import type { StorefrontReturnDetail } from '@/types/storefront'
 
@@ -17,6 +17,21 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
   const router = useRouter()
   const [data, setData] = useState<StorefrontReturnDetail | null>(null)
   const [error, setError] = useState('')
+  const [canceling, setCanceling] = useState(false)
+
+  async function cancel() {
+    if (!data || !window.confirm('Hủy yêu cầu trả hàng này?')) return
+    setCanceling(true)
+    setError('')
+    try {
+      await cancelReturn(data.id)
+      setData(await getReturn(data.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể hủy yêu cầu')
+    } finally {
+      setCanceling(false)
+    }
+  }
 
   useEffect(() => {
     void params.then(({ id }) => getReturn(id)
@@ -47,6 +62,9 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
           </div>
 
           {data.status === 'rejected' && data.decisionNote && <p className="error" role="status">Lý do từ chối: {data.decisionNote}</p>}
+          {data.status === 'requested' && <div className="return-form-actions">
+            <button className="button light" disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? 'Đang hủy...' : 'Hủy yêu cầu'}</button>
+          </div>}
           {data.status === 'approved' && <p className="return-hint">Cửa hàng đã duyệt. Vui lòng đóng gói và gửi sản phẩm về cửa hàng; chúng tôi sẽ cập nhật khi nhận được hàng.</p>}
 
           <section aria-labelledby="return-items-title">
@@ -57,6 +75,7 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
                 <strong className="order-detail-item-price">× {item.quantity}</strong>
               </div>)}
             </div>
+            {data.exchangeItems.length > 0 && <p className="order-timeline-tracking">Đổi sang: {data.exchangeItems.map((item) => `${item.sku} × ${String(item.quantity)}`).join(', ')}</p>}
             {data.customerNote && <p className="order-timeline-tracking">Ghi chú của bạn: {data.customerNote}</p>}
           </section>
 

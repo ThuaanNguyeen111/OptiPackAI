@@ -52,6 +52,7 @@ export const RETURN_REASON_OPTIONS = [
 export const RETURN_TYPE_LABELS: Record<string, string> = {
   return_refund: 'Trả hàng và hoàn tiền',
   refund_only: 'Hoàn tiền, không cần trả hàng',
+  exchange: 'Đổi sang size / màu khác',
 }
 
 /** Yêu cầu còn đang xử lý — đơn chưa gửi thêm yêu cầu mới được. */
