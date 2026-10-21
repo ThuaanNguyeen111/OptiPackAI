@@ -17,6 +17,7 @@
 | 4 | Lô hàng: Picking List hiện **lô xuất trước**; màn **Tồn theo lô** của kho; **danh sách + chi tiết phiếu nhập** | 2 | ~nửa ngày |
 | 5 | Dọn mã chết (gọi route BE đã gỡ, không màn nào dùng) | 3 | ~1 giờ |
 | 6 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master; số liệu giả còn lại ở Bảng điều khiển | 4 | Tuỳ |
+| 7 | 🆕 21/10 (tối) — nhóm đơn có `warehouseId`: màn lấy hàng mở đúng kho của nhóm; bắt 409 `ORD_GROUP_WRONG_WAREHOUSE` (hiện "Nhóm đang lấy ở kho khác"); màn Trả hàng: phiếu của khách có thể 2 phiếu mở / nhóm (mỗi đơn 1), lọc theo `sourceOrderId` | — | ~1 giờ |
 
 Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ thêm, chưa làm thì màn cũ vẫn chạy.
 
@@ -136,5 +137,6 @@ Sau khi xoá: tìm trong `fe/src` không còn `/packaging/`, `/fulfillment/pack`
 | **Đóng gói** | Chuyển hết sang `packing-plan` (22 route): chấp nhận & đóng, quay lại chờ chấp nhận, quét/niêm phong/xem lại kiện lệch cân, sự cố, trả về lấy hàng, tháo kiện, đổi thùng khi đang đóng, hướng dẫn AI, gán người đóng, tóm tắt hàng chờ, cài đặt + báo cáo + feedback |
 | Danh mục thùng/túi/vật tư | `/packaging/boxes|bags|materials` (+ quy tắc), `/packaging-materials` (mua, dùng nội bộ, lịch sử, khôi phục, tiết kiệm) |
 | Giao hàng + GHN | Hãng, báo giá, so phương án đóng gói, chiến lược, tạo vận đơn có chọn hãng, giao chung chuyến, lịch lấy hàng, đặt/huỷ/đồng bộ/nhãn A5/sửa địa chỉ GHN, nút mô phỏng GHN, quét quá hạn; 8/8 trạng thái vận đơn; ẩn nút giao tay khi `carrierManaged`; in phiếu đóng gói / nhãn / bảng kê |
-| Hoàn hàng | Đủ 12 route: tạo, duyệt/từ chối, **huỷ phiếu**, nhận, kiểm hàng **có thu hồi vật tư A/B/C**, cách ly, đơn đổi; kho nhận kiện hoàn theo vận đơn (`receive-return`) |
+| Hoàn hàng | Đủ 12 route: tạo, duyệt/từ chối, **huỷ phiếu**, nhận, kiểm hàng **có thu hồi vật tư A/B/C**, cách ly, đơn đổi; kho nhận kiện hoàn theo vận đơn (`receive-return`). 21/10: form giả lập ẩn nhóm AURELLE (BE chặn `RMA_MARKETPLACE_MANAGED`), chi tiết phiếu hiện "Khách tự yêu cầu trên AURELLE · #`externalRef`" |
+| Website AURELLE (storefront) | 21/10: trang đơn hiện tên hãng vận chuyển (`carrier`); Admin sản phẩm khóa ô tồn của biến thể `stockSource = optipack` (nhãn "Kho OptiPack") |
 | Kho, SKU nội bộ, Product Master | Kho/khu/ô/kệ + sửa/tắt/xoá hẳn (cả dãy kệ), gợi ý ô, gán/sửa gán/chuyển/kiểm kê/lịch sử, Picking List; SKU nội bộ (sửa, xoá hẳn, thay mã, nối SKU sàn, gộp tồn); màu; danh mục; Product Master (danh sách, đồng bộ, lọc chưa đo, lưu kích thước đóng gói); tồn khả dụng |

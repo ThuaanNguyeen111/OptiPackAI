@@ -4277,3 +4277,69 @@ Gọi HTTP vào BE đang chạy (cổng 3000, Atlas dev, token Admin + Store Own
 - **Sửa:** `StaffAssignmentService` — việc của Warehouse Staff = nhóm `awaiting_packaging | picking | partial_needs_review` (`PICKING_WORKLOAD_STATUSES`), trước là mọi nhóm chưa `delivered/returning/returned/canceled`. Tie-break "giao lâu nhất" tính `assigned_at` trên **mọi** nhóm (1 aggregate, `$cond` cho phần đếm) để 2 người cùng 0 việc vẫn xoay vòng. `listStaffWithWorkload` (`activeWorkload`) đếm cùng tập trạng thái.
 - Test mới `staff-assignment.service.spec.ts` (4). tsc 0, eslint 0, jest order-groups 12 suite / 140 test.
 - **Tác động (5 câu):** (1) không đổi schema/dữ liệu; (2) đổi hành vi: người vừa lấy xong được giao việc mới sớm hơn; số `activeWorkload` nhỏ hơn trước; (3) không xung đột — đếm tại chỗ, có index `{assigned_staff_id, fulfillment_status}`; (4) không ảnh hưởng gán người đóng gói, gán tay, cron cứu nhóm kẹt; (5) còn thiếu: chưa có trạng thái "đang nghỉ/không nhận việc" cho nhân viên còn hoạt động.
+
+### Rà code hoàn hàng của bạn cùng nhóm + bổ sung 4 phần còn thiếu (21/10/2026 tối, AOFP-146..148 + tài liệu AOFP-151)
+
+**Bối cảnh:** đang làm 7 mục đồng bộ AURELLE ↔ OptiPack thì Thuận báo bạn cùng nhóm (thimao12) đã làm phần hoàn hàng và đẩy lên `main` (AOFP-133..145 của bạn ấy, nhật ký 20/10). Phần code dở của mình trùng gần hết → Thuận cất vào stash `thuan-aurelle-7muc-ban-cu` (KHÔNG pop), pull `main` (9b4504d), rồi làm tiếp trên code của bạn ấy. Đã có: ghi ngược trạng thái qua outbox, hành trình đơn, khách hủy, khách trả hàng, OptiPack kéo phiếu + báo ngược. **Còn thiếu/chưa đúng** → làm 4 phần:
+
+1. **AOFP-146 (cùng commit với mục 4) — trừ giữ chỗ tồn website khi hàng rời kho.** Bạn ấy chỉ trả giữ chỗ khi khách hủy; đơn đã gửi/giao thì `reserved_quantity` không bao giờ giảm. Thêm `storefront_orders.stock_state` (`reserved|deducted|released`), `storefront-stock.util.ts` `deductOrderStock` (đổi state có điều kiện rồi trừ cả giữ chỗ lẫn tồn thực bằng pipeline `$max 0`, đúng 1 lần), `applyPartnerStatusUpdate` nhận `cols.stock?` (tùy chọn → spec cũ không vỡ) và trừ khi `shipped|delivered|failed_delivery|shipped_back|returned`; cổng hủy đặt luôn `stock_state: released`. Script `scripts/fix-storefront-reservations.ts` (chạy thử mặc định, `--apply`) cho dữ liệu cũ — đơn cũ đã giao chỉ đánh dấu, không trừ tồn thực.
+2. **AOFP-147 — đẩy tồn OptiPack → AURELLE (phương án A).** `MarketplaceStockPushService` (trong `marketplace-writeback/`, import `OrderGroupsModule` — không vòng) + cron giây 30 mỗi phút + `POST /marketplace-writeback/stock/push` (Admin/Store Owner, `force`). Số đẩy = `availability().available`; chỉ SKU `managed` (thêm vào `StockReservationService.availability`: có dòng tồn, kể cả 0). Nhớ số đã đẩy trong bộ nhớ, chỉ gửi khi đổi. Mock `setSellableQuantity` đánh dấu biến thể `stock_source: optipack`; `StorefrontAdminService.save` bỏ qua tồn của biến thể đó; catalog admin trả `stockSource/stockSyncedAt`; Admin website khóa ô tồn.
+3. **AOFP-148 — chặn giả lập trả hàng cho đơn AURELLE.** `createSimulated` ném 409 `RMA_MARKETPLACE_MANAGED` khi nhóm AURELLE và `extra.source !== 'marketplace'` (đường của bạn ấy `createFromMarketplace` gọi lại `createSimulated` với `source: marketplace` nên không bị chặn). Response phiếu thêm `externalRef`, `sourceOrderId`. FE OptiPack: form giả lập ẩn nhóm AURELLE + ghi chú; chi tiết phiếu hiện nguồn AURELLE.
+4. **AOFP-146 — tên hãng + mã GHN đúng kiện** (chung commit với mục 1 vì sửa cùng các file `aurelle-status-update.ts`, `storefront-store.ts`, `storefront-orders.service.ts`). Website trước luôn ghi `carrier: 'OptiPack'`; mã gửi là `shipment.tracking_code` (nội bộ khi nhiều kiện). Nay `trackingCodeForOrder()` lấy mã kiện của chính đơn (rồi mọi kiện có mã, rồi mã chung), gửi thêm `carrier = carrier_name`; vận đơn `carrier_kind: live` chưa có mã và chưa báo lỗi đặt → ném lỗi để outbox hẹn lượt sau (30 s). Adapter/interface/mock/`applyPartnerStatusUpdate` nhận `carrier` (có thì `$set`, không thì `$setOnInsert` "OptiPack" — một field không được ở cả 2). `GET /storefront/orders/:id` trả `carrier` ("OptiPack" cũ → null), timeline hiện "Đơn vị vận chuyển".
+
+**Kiểm chứng:** BE `tsc` 0, eslint file đụng 0 (lỗi còn lại ở `scripts/aurelle-mock-server.ts` dòng 94/97/139 và `storefront-store.ts` 226–228/265–266 là của code có sẵn, `scripts/` không nằm trong `lint:ci`), jest 10 shard **1.110 test** đạt (7 skip có sẵn); storefront `tsc` 0; FE eslint 4 file sửa 0 (FE `tsc -b` còn 2 lỗi CÓ SẴN ở `AdminWarehousePage.tsx` 194/250 — không do lượt này). Chưa gọi HTTP thật.
+
+**Tác động (5 câu):** (1) không migration bắt buộc, field mới có mặc định; chạy script 8.1 một lần cho dữ liệu cũ. (2) Đổi hành vi: website trừ tồn khi hàng rời kho; Admin website không sửa tồn SKU kho quản; `POST /returns` chặn nhóm AURELLE; `stock-availability` thêm `managed`; dòng outbox `shipped` của vận đơn GHN chờ có mã mới gửi. (3) Xung đột: trừ tồn chống trùng bằng `stock_state`; đẩy tồn là ghi đè nên gửi lại an toàn. (4) Không ảnh hưởng Lazada, kế hoạch đóng gói, giữ chỗ OptiPack. (5) Hạn chế: bộ nhớ "đã đẩy" mất khi khởi động lại (gửi lại 1 lượt); hàng hoàn của SKU website tự quản không tự cộng lại tồn.
+
+**Bài học:** (1) Máy ảo nhìn repo Windows thấy MỌI file vừa pull là "modified" vì thiếu `core.autocrlf=true` → dùng `git -c core.autocrlf=true status`. (2) Trước khi làm tiếp việc lớn, kiểm `git log origin/main` xem đồng đội đã làm chưa — lần này phát hiện muộn, phải bỏ phần đã code. (3) Số AOFP của đồng đội chạy song song (133..145) → của mình tiếp từ 146.
+
+Tài liệu (AOFP-151): `GUIDE_DOC/Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 8, `API_LIST.md` mục 11/16/16b, `FE_UPDATE_CHECKLIST.md` phụ lục.
+
+### Sửa 7 điểm yếu tồn kho / trả hàng (21–22/10/2026, AOFP-149..150 + tài liệu AOFP-151)
+
+**[stated] Thuận yêu cầu** làm mục C (5–8) và F (17–19) của danh sách việc còn lại; chốt: **giao hàng giả lập cả 2 sàn, trả hàng chỉ còn phía AURELLE** (bỏ giả lập trả hàng cho mọi sàn — việc riêng, CHƯA làm).
+
+- **Mục 5 — giữ chỗ đổi khóa:** `order-groups/reservation-key.util.ts` (`reservationTotalId`, `moveReservations`, hàm thuần nhận model). `MasterSkusService` (2 model `@Optional` cuối) gọi trong cùng transaction của `createMapping` (S:→M:), `deleteMapping` (chỉ dòng của đúng SKU sàn, M:→S:), `replace` (M:cũ→M:mới); có dòng ở khóa đích thì gộp số lượng.
+- **Mục 8 — giữ chỗ theo kho:** `order_groups.warehouse_id`, `stock_reservations.warehouse_id`, `stock_reservation_totals.{stock_key, warehouse_id}` (+index `stock_key`); id tổng = `"<kho>|<khóa>"`, dữ liệu cũ id = khóa (không migration). `reconcile` tự chọn kho (`ensureWarehouse`: 1 kho / kho giữ được nhiều nhất), tồn đếm trong kho, giữ chỗ cũ chưa kho được dời sang ở lần tính lại; gom SKU cùng khóa; nhả khóa không còn trong nhóm. `pickItem` → `ensurePickWarehouse` (chưa quét → đổi kho + reconcile; đã quét → 409 `ORD_GROUP_WRONG_WAREHOUSE`). `availability()` vẫn cộng mọi kho (đẩy tồn sang sàn). Response nhóm đơn thêm `warehouseId`. `OBJECT_ID_FIELDS` 99 → 102.
+- **Mục 6:** `createFromFailedDelivery` đọc `OrderGroupsService.getPickedQuantitiesForGroup` (pick_events, mã SKU của đơn) thay sổ cái kho; chưa quét → số đặt. Bỏ inject `InventoryMovement` khỏi `ReturnsService`.
+- **Mục 7 + 19:** index `uniq_open_return_per_order` `{order_group_id, source_order_id}` partial status mở + source simulated/marketplace; kiểm tra trong code theo đơn (`source_order_id ∈ [đơn, null]`); E11000 trên index này → `RMA_OPEN_EXISTS` (phiếu khách → `busy`). Script chỉ đọc `scripts/check-open-return-duplicates.ts` (chạy trước deploy). VM không tới được Atlas nên CHƯA chạy.
+- **Mục 18:** website `POST /storefront/returns/:id/cancel` (chỉ `requested`, cổng nguyên tử) + webhook `return_canceled`; OptiPack `ReturnsService.cancelFromMarketplace` (requested/awaiting_receipt → canceled; received → `too_late`), sync kéo thêm `status=canceled` 3 ngày gần nhất; webhook `return_canceled` dùng chung handler `return_requested`. UI: nút "Hủy yêu cầu".
+- **Mục 17:** website `type: exchange` + `exchange_items` (cùng sản phẩm, tổng = số trả, còn hàng; lỗi `SF_EXCHANGE_INVALID`/`SF_OUT_OF_STOCK`), `GET /storefront/orders/:id/exchange-options`; Open API trả `exchange_items`; OptiPack map sang `ReturnType.EXCHANGE`, lỗi hàng đổi sang được tự từ chối. Writeback bỏ đơn `origin: replacement` (EXC- không có trên website). UI: chọn biến thể đổi sang.
+- Verify: BE tsc 0, eslint `src` 0 lỗi (72 cảnh báo có sẵn), jest 8 shard đạt (~1.150 test); storefront tsc 0. Chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) không migration bắt buộc; dữ liệu cũ đọc đúng (giữ chỗ không kho, yêu cầu không `exchange_items`); nếu DB có 2 phiếu mở trùng thì index không tạo được. (2) Đổi hành vi: pick-item có thể 409 sai kho; phiếu khách 1 mở/đơn; 2 route khách mới. (3) Xung đột: đổi khóa giữ chỗ cùng transaction với nối SKU; hủy yêu cầu đua với duyệt → cổng điều kiện + `STATE_CONFLICT` → `busy`. (4) Không ảnh hưởng: đóng gói, giao hàng, đẩy tồn sang sàn. (5) Hạn chế: 1 nhóm chỉ lấy ở 1 kho; khách chưa thấy hành trình giao hàng đổi; dòng giữ chỗ đã gộp từ 2 SKU sàn không tách được khi bỏ nối.
+
+**Tài liệu:** `AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 7 + 9, `API_LIST.md` (đầu file, mục 16, mã lỗi), `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` 8.3, `FE_UPDATE_CHECKLIST.md` mục 0, `BE_SPEC/07` (đánh dấu đã sửa).
+
+## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
+
+**[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
+
+### A. Làm ngay (người dùng tự chạy)
+1. Commit AOFP-146..150 (code) + AOFP-151 (tài liệu) trên `feature/thuan_be`, push, mở PR vào `main`. Lệnh pathspec đã gửi trong chat 22/10.
+2. Trước khi khởi động backend bản mới: `npx ts-node -r dotenv/config scripts/check-open-return-duplicates.ts` (chỉ đọc). Có phiếu trả mở trùng → hủy/từ chối phiếu thừa, nếu không index `uniq_open_return_per_order` không tạo được.
+3. Script dữ liệu chưa ghi nhận đã chạy trên DB thật (chạy thử trước, rồi `--apply`): `fix-storefront-reservations.ts`, `migrate-objectid-fields.ts` (bắt buộc), `recompute-consolidation-keys.ts`, `migrate-unify-packaging-materials.ts`.
+4. Chạy thử trọn 1 đơn AURELLE thật: BE 3000 + mock 4000 + storefront 3001 → đặt hàng → lấy → đóng → giao (GHN giả lập) → khách trả/đổi/hủy yêu cầu.
+
+### B. Sẽ làm tiếp (đã chốt hướng)
+5. **Bỏ giả lập trả hàng cho mọi sàn:** chặn `POST /returns` với mọi nền tảng, bỏ form giả lập trên FE OptiPack, giữ phiếu hoàn khi giao thất bại, sửa tài liệu + `DEMO_PLAYBOOK.md` (demo trả hàng chỉ bằng đơn AURELLE). ~1 commit.
+6. **Khách xem hành trình giao hàng đổi trên website:** khi đơn thay thế `EXC-…` đổi trạng thái (đã đóng gói / đang giao / đã giao), OptiPack báo về đúng yêu cầu đổi hàng trên website (kèm mã vận đơn GHN); website hiện thêm mốc "Hàng đổi đang được giao · Mã vận đơn …". Làm cả 2 phía.
+
+### C. Lỗi / thiếu đã biết trong BE (chưa sửa)
+7. Index `orders.consolidated_group_id` vẫn partial `is_consolidated: true` → truy vấn theo nhóm quét toàn bảng. Đổi sang index thường (partial `$type: 'objectId'`).
+8. Nhập hàng không tự tính lại các nhóm đơn đang `stock_shortage` của đúng SKU vừa nhập.
+9. Chưa có API ngắt kết nối shop sàn (`POST /marketplace/:platform/shops/:id/disconnect`, chỉ đổi trạng thái).
+10. Chưa có trạng thái "đang nghỉ / không nhận việc" cho nhân viên → tự phân công vẫn giao cho người vắng.
+11. Còn 7 chỗ so SKU bằng regex → thêm `seller_sku_normalized` có index.
+12. Bảo mật: `ForcePasswordChangeGuard` chỉ ở `/users` (đưa thành guard toàn cục); `users.mfa_secret` lưu rõ (mã hóa AES-256-GCM + script cho dữ liệu cũ); đổi mật khẩu MongoDB Atlas nếu chưa đổi (từng lộ 16/09 và 29/09).
+13. Toàn bộ test dùng model giả lập → thêm test e2e với MongoDB replica set thật cho lấy → đóng → giao → hoàn.
+14. (Chỉ khi vận hành nhiều kho) 1 nhóm đơn chỉ lấy ở 1 kho; thiếu thì phải chuyển hàng giữa kho tay → tự tạo phiếu chuyển kho.
+15. Bỏ nối 1 SKU sàn khỏi dòng giữ chỗ đã gộp từ 2 SKU sàn thì dòng đó không tách được (hiếm).
+
+### D. Hoãn có chủ đích
+16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. API tổng hợp cho Dashboard (FE còn khối số liệu giả).
+
+### E. Cấu hình
+21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
+
+### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
+22. Nguồn thùng mới/tái sử dụng khi đóng gói; người gửi trên nhãn; 5 nút in PDF; lô cũ nhất trên Picking List; màn lô + phiếu nhập; mở đúng `warehouseId` của nhóm + bắt `ORD_GROUP_WRONG_WAREHOUSE`; dọn mã chết; 2 lỗi tsc có sẵn ở `AdminWarehousePage.tsx`.

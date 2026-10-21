@@ -416,7 +416,7 @@ Mục tiêu trước khi chạy thật: `notMapped` rỗng (hoặc chấp nhận
 **Khái niệm:**
 
 ```
-Tồn thực     = hàng thật đang trên kệ (mọi kho, mọi ô) của khóa tồn
+Tồn thực     = hàng thật đang trên kệ (🔄 21/10: trong KHO của nhóm đơn, mọi ô) của khóa tồn
 Đã giữ       = tổng các nhóm đơn đang giữ chỗ nhưng chưa quét
 Tồn khả dụng = Tồn thực − Đã giữ        ← con số quyết định có nhận thêm đơn được không
 ```
@@ -601,13 +601,14 @@ Field mới trong response: nhóm đơn `stockShortage`, `stockShortageItems`; d
 
 1. **Nhập hàng không tự tính lại** nhóm đơn đang thiếu — phải bấm "Tính lại". → Nên tự quét các nhóm đơn `stockShortage` của khóa tồn đó sau mỗi lần nhập.
 2. **Đơn hủy trên Lazada không tự nhả giữ chỗ** — phải nhả tay (5.6). Giữ chỗ chỉ được tính lại khi số đơn trong nhóm đổi; hủy đơn không đổi số đơn. → Tính lại khi số đơn còn hiệu lực / đã hủy đổi; nhóm hủy hết thì nhả toàn bộ (rà soát 06/10/2026, chưa làm).
-3. **Giữ chỗ tính trên TỔNG mọi kho**, chưa theo từng kho (đúng với shop 1 kho). → Khi có nhiều kho cần chọn kho lúc giữ chỗ.
+3. ~~**Giữ chỗ tính trên TỔNG mọi kho**~~ — ✅ 21/10/2026: nhóm đơn gắn 1 kho (`warehouseId`, tự chọn lúc giữ chỗ lần đầu: 1 kho → kho đó; nhiều kho → kho đủ hàng nhất, hòa thì mã kho nhỏ hơn). Tồn thực và phần đang giữ chỉ tính trong kho đó (tổng giữ chỗ lưu theo `"<kho>|<khóa tồn>"`). Quét ở kho khác: lượt chưa quét gì → đổi kho + tính lại; đã quét → 409 `ORD_GROUP_WRONG_WAREHOUSE`. Giữ chỗ cũ chưa có kho tự chuyển sang kho của nhóm ở lần tính lại kế tiếp. Riêng `GET /stock-availability` (và đẩy tồn sang sàn) vẫn cộng mọi kho — đó là số bán được của cả shop. Hạn chế còn lại: 1 nhóm đơn chỉ lấy ở 1 kho (không chia lấy 2 kho).
 4. **Không đẩy tồn khả dụng lên Lazada** — seller vẫn phải tự chỉnh số tồn trên Seller Center; K5 chỉ phát hiện sớm, không ngăn khách đặt.
 5. **Giữ chỗ tính theo số lượng ĐẶT** — nếu kiểm hàng sau đó phát hiện nhầm, phải "Tính lại".
 6. **Bỏ nối khi tồn = 0 mới được** — muốn tách listing đã gộp phải kiểm kê/chuyển ô về 0 trước; chưa có thao tác "tách tồn".
 7. **Màu trên kệ (K2) chưa bị ép theo danh mục màu** — FE phải dùng dropdown `/colors`.
 8. ~~**Thiếu hàng chưa có thông báo (chuông)**~~ — đã có thông báo `stock_shortage` cho Store Owner.
-9. **Khóa giữ chỗ không đổi theo khi nối / bỏ nối / thay SKU nội bộ** (rà soát 06/10/2026, chưa làm) — nhóm đơn đang giữ chỗ dưới khóa SKU sàn, sau khi nối thì quét hàng không trừ được phần đã giữ và "Tính lại" sẽ giữ thêm lần nữa; thay SKU nội bộ có thể cho giữ vượt tồn. → Trước khi sửa: chỉ nối/thay SKU khi không có nhóm đơn đang giữ chỗ SKU đó, hoặc bấm "Nhả giữ chỗ" rồi "Tính lại" cho các nhóm liên quan ngay sau khi nối.
+9. ~~**Khóa giữ chỗ không đổi theo khi nối / bỏ nối / thay SKU nội bộ**~~ — ✅ 21/10/2026: nối SKU sàn, bỏ nối và Thay thế SKU chuyển luôn các dòng giữ chỗ (kể cả phần đang giữ trong tổng) sang khóa mới **trong cùng transaction**; nhóm đơn đã có giữ chỗ ở khóa mới thì gộp số lượng. Không cần nhả/tính lại tay nữa. Còn lại: bỏ nối 1 SKU sàn khỏi dòng giữ chỗ đã gộp từ 2 SKU sàn thì dòng đó giữ nguyên ở khóa SKU nội bộ (không tách được).
+11. ✅ 21/10/2026 — "Tính lại" gom các SKU sàn cùng nối 1 SKU nội bộ thành 1 dòng giữ chỗ (trước đây mỗi SKU ghi đè số cần của nhau), và nhả phần giữ của món không còn trong nhóm (đơn hủy một phần).
 10. **Tìm tồn có nhánh dự phòng dòng chưa gắn nhãn** (từ 07/10/2026) — giúp không bị kẹt khi quên `sync-stock`, nhưng che việc chưa gộp tồn. → Tự gắn nhãn khi nối SKU / gán ô.
 
 ## 8.4. Checklist test (đánh dấu khi chạy xong)
