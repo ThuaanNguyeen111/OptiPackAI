@@ -99,7 +99,8 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
     collection: 'notifications',
     fields: ['recipient_user_id', 'related_entity_id'],
   },
-  { collection: 'stock_reservations', fields: ['order_group_id'] },
+  { collection: 'stock_reservations', fields: ['order_group_id', 'warehouse_id'] }, // warehouse_id: 21/10/2026
+  { collection: 'stock_reservation_totals', fields: ['warehouse_id'] }, // 21/10/2026
   {
     collection: 'pick_events',
     fields: ['order_group_id', 'warehouse_id', 'bin_location_id'],
@@ -107,8 +108,8 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   {
     collection: 'order_groups',
-    fields: ['assigned_staff_id', 'source_return_id', 'manual_link_id'],
-  }, // manual_link_id: 13/10/2026
+    fields: ['assigned_staff_id', 'source_return_id', 'manual_link_id', 'warehouse_id'],
+  }, // manual_link_id: 13/10/2026, warehouse_id: 21/10/2026
   // 10/10/2026 — các collection của thi_dev (đóng gói 3D, cài đặt, storefront) khai `Types.ObjectId`
   // (bị hiểu là Mixed) cho tới lúc gộp main; nay đã đổi sang SchemaTypes.ObjectId.
   { collection: 'packaging_material_rules', fields: ['updated_by'] },

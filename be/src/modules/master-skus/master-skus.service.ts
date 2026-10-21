@@ -16,6 +16,14 @@ import { SkuBinAssignment, SkuBinAssignmentDocument } from '../warehouse/schemas
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
 import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
 import { StockLotLedger } from '../warehouse/stock-lot.ledger';
+import {
+  StockReservation,
+  StockReservationDocument,
+  StockReservationTotal,
+  StockReservationTotalDocument,
+} from '../order-groups/schemas/stock-reservation.schema';
+import { moveReservations } from '../order-groups/reservation-key.util';
+import { stockKeyOf } from './stock-key.util';
 
 export function buildMasterSkuCode(p: { category_code: string; model_no: number; color_code: string; size: string }): string {
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
@@ -49,6 +57,9 @@ export class MasterSkusService {
     @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>,
     // 15/10/2026 — lô hàng đi theo dòng tồn khi gộp/đổi nhãn SKU nội bộ.
     @Optional() @InjectModel(StockLot.name) stockLotModel?: Model<StockLotDocument>,
+    // 21/10/2026 — giữ chỗ đi theo khóa tồn khi nối / bỏ nối / thay SKU nội bộ.
+    @Optional() @InjectModel(StockReservation.name) private readonly reservationModel?: Model<StockReservationDocument>,
+    @Optional() @InjectModel(StockReservationTotal.name) private readonly reservationTotalModel?: Model<StockReservationTotalDocument>,
   ) {
     this.lots = new StockLotLedger(stockLotModel);
   }
@@ -225,6 +236,7 @@ export class MasterSkusService {
       // K4b — tồn đang gắn nhãn SKU cũ chuyển sang SKU mới (không đổi số lượng).
       await this.assignmentModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
       await this.lots.relabel({ master_sku: code }, newSku.master_sku, session);
+      await this.moveReservationKey({ stock_key: stockKeyOf(code, '', '', '') }, null, newSku.master_sku, session);
       const oldSku = await this.skuModel.findOneAndUpdate(
         { master_sku: code, is_active: true },
         { $set: { is_active: false, replaced_by: newSku.master_sku } },
@@ -256,6 +268,7 @@ export class MasterSkusService {
         const [mapping] = await this.mappingModel.create([{ platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku, seller_sku_normalized: normalized, master_sku: code, created_by: actorId }], { session });
         if (!mapping) throw new Error('Tạo liên kết không trả về document');
         await this.tagStockForMapping(dto.platform, dto.shop_id, dto.seller_sku, code, actorId, session);
+        await this.moveReservationKey({ stock_key: stockKeyOf(undefined, dto.platform, dto.shop_id, dto.seller_sku) }, null, code, session);
         return mapping;
       });
     } catch (error: unknown) {
@@ -284,6 +297,14 @@ export class MasterSkusService {
     }
     await this.runTx(async (session) => {
       await this.mappingModel.deleteOne({ _id: mapping._id }, { session });
+      // Giữ chỗ của đúng SKU sàn này quay về khóa theo SKU sàn.
+      await this.moveReservationKey(
+        { stock_key: stockKeyOf(mapping.master_sku, '', '', ''), platform: mapping.platform, shop_id: mapping.shop_id },
+        mapping.seller_sku_normalized,
+        null,
+        session,
+        stockKeyOf(undefined, mapping.platform, mapping.shop_id, mapping.seller_sku),
+      );
       const left = await this.mappingModel.countDocuments({ master_sku: mapping.master_sku }).session(session);
       if (left === 0) {
         await this.assignmentModel.updateMany({ master_sku: mapping.master_sku }, { $set: { master_sku: null } }, { session });
@@ -382,6 +403,31 @@ export class MasterSkusService {
   }
 
   // ------------------------------------------------------------ nội bộ
+
+  /**
+   * 21/10/2026 — Chuyển giữ chỗ (K5) sang khóa tồn mới trong CÙNG transaction đổi khóa.
+   * `sellerSkuNormalized` khác null → chỉ lấy giữ chỗ của đúng SKU sàn đó (bỏ nối).
+   * Đích: SKU nội bộ `toMaster` (khóa "M:...") hoặc khóa SKU sàn `toKeyOverride`.
+   */
+  private async moveReservationKey(
+    filter: Record<string, unknown>,
+    sellerSkuNormalized: string | null,
+    toMaster: string | null,
+    session: ClientSession,
+    toKeyOverride?: string,
+  ): Promise<number> {
+    if (!this.reservationModel || !this.reservationTotalModel) return 0;
+    const toKey = toKeyOverride ?? stockKeyOf(toMaster ?? undefined, '', '', '');
+    const rows = (await this.reservationModel.find(filter).session(session))
+      .filter((r) => sellerSkuNormalized === null || normalizeSellerSku(r.seller_sku) === sellerSkuNormalized);
+    return moveReservations(
+      { reservationModel: this.reservationModel, totalModel: this.reservationTotalModel },
+      rows,
+      toKey,
+      toMaster,
+      session,
+    );
+  }
 
   private isDup(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;

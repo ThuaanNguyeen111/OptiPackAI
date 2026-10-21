@@ -1228,6 +1228,9 @@ export class OrderGroupsService {
       );
     }
 
+    // 21/10/2026 — giữ chỗ theo kho: quét phải đúng kho của nhóm đơn (đổi kho chỉ khi chưa quét gì).
+    await this.ensurePickWarehouse(group, warehouseId);
+
     // K4b (main) — SKU đã nối SKU nội bộ: trừ vào tồn CHUNG; chưa nối: theo sàn+shop+SKU.
     const masterSku = (
       await resolveMasterSkus(this.mappingModel, group.platform, group.shop_id, [sku])
@@ -1821,6 +1824,15 @@ export class OrderGroupsService {
     return { binLocationId: doc.bin_location_id.toString(), remainingStock: doc.quantity_on_hand };
   }
 
+  /**
+   * 21/10/2026 — Số đã lấy THẬT theo SKU của đơn (lượt hiện tại, đã trừ món rút ra khi đóng
+   * gói / trả kệ) — cho phiếu hoàn khi giao thất bại. Đọc pick_events nên mang đúng mã SKU
+   * trong đơn, không phải mã SKU của dòng tồn gộp chung.
+   */
+  async getPickedQuantitiesForGroup(groupId: string): Promise<Map<string, number>> {
+    return this.getPickedSkuQuantities(await this.loadGroupOrThrow(groupId));
+  }
+
   /** Số lượng ĐẶT theo SKU của group (đã loại đơn/món hủy) — cho luồng nhận hàng hoàn. */
   async getOrderedQuantitiesForGroup(groupId: string): Promise<Map<string, number>> {
     return this.getOrderedSkuQuantities(await this.loadGroupOrThrow(groupId));
@@ -2049,6 +2061,33 @@ export class OrderGroupsService {
       );
     }
     return this.transitionFulfillmentStatus(groupId, GroupFulfillmentStatus.PICKED, expectedVersion);
+  }
+
+  /**
+   * 21/10/2026 — Giữ chỗ tính trong kho của nhóm đơn, nên quét phải ở đúng kho đó.
+   * Nhóm đơn chưa gắn kho (dữ liệu cũ) → gắn kho đang quét. Kho khác kho đã gắn:
+   * lượt lấy chưa quét món nào → đổi kho + tính lại giữ chỗ; đã quét → 409, vì giữ
+   * chỗ và tồn đã trừ đều nằm ở kho cũ.
+   */
+  private async ensurePickWarehouse(group: OrderGroupDocument, warehouseId: string): Promise<void> {
+    if (!Types.ObjectId.isValid(warehouseId)) return;
+    const wid = new Types.ObjectId(warehouseId);
+    const current = group.warehouse_id ?? null;
+    if (current?.equals(wid)) return;
+    if (current) {
+      const scanned = await this.pickEventModel.exists({ order_group_id: group._id, ...this.roundFilter(group.pick_round) });
+      if (scanned) {
+        throw new AppException(
+          ORD_GROUP_ERROR_CODES.WRONG_WAREHOUSE,
+          'Nhóm đơn đang lấy hàng ở kho khác (đã quét món trong lượt này) — quét tiếp ở đúng kho đó.',
+          HttpStatus.CONFLICT,
+          { groupId: group._id.toString(), expectedWarehouseId: current.toString(), warehouseId },
+        );
+      }
+    }
+    await this.stockReservationService.setGroupWarehouse(group._id, wid);
+    group.warehouse_id = wid;
+    await this.reconcileReservation(group._id.toString());
   }
 
   private roundFilter(round: number): Record<string, unknown> {

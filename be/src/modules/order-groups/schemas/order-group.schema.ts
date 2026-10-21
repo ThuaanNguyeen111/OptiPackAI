@@ -128,6 +128,14 @@ export class OrderGroup {
 
   @Prop({ type: String, default: null })
   manual_link_note!: string | null;
+
+  /**
+   * 21/10/2026 — Kho nhóm đơn lấy hàng. Hệ thống tự chọn lúc giữ chỗ lần đầu (1 kho →
+   * kho đó; nhiều kho → kho có đủ hàng nhất). Giữ chỗ và quét hàng tính trên đúng kho
+   * này. null = nhóm đơn cũ, giữ chỗ tính trên tồn mọi kho như trước.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  warehouse_id?: Types.ObjectId | null;
   // K5 (27/09/2026) — thiếu hàng NGAY lúc tạo nhóm đơn (tồn khả dụng không đủ giữ chỗ).
   @Prop({ type: Boolean, default: false })
   stock_shortage?: boolean;

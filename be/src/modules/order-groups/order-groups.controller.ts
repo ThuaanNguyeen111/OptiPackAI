@@ -43,6 +43,7 @@ export interface OrderGroupResponse {
   // 13/10/2026 — liên kết tay (null = không có). Liên kết tự động xem linkedGroupCount.
   manualLink: { linkId: string; linkedBy: string | null; linkedAt: Date | null; note: string | null } | null;
   stockShortage: boolean; // K5
+  warehouseId: string | null; // 21/10/2026 — kho lấy hàng (giữ chỗ tính trong kho này)
   origin: 'marketplace' | 'replacement'; // đơn thay thế do đổi hàng
   sourceReturnId: string | null;
   stockShortageItems: {
@@ -97,6 +98,7 @@ export function toResponse(
         }
       : null,
     stockShortage: group.stock_shortage === true, // K5
+    warehouseId: group.warehouse_id?.toString() ?? null,
     origin: group.origin ?? 'marketplace',
     sourceReturnId: group.source_return_id?.toString() ?? null,
     stockShortageItems: group.stock_shortage_items ?? [], // K5

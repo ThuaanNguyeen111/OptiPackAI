@@ -18,6 +18,8 @@ export class StockReservation {
   @Prop({ type: Number, default: 0, min: 0 }) quantity_picked!: number;
   @Prop({ type: Number, default: 0, min: 0 }) quantity_reserved!: number; // đang giữ (chưa quét)
   @Prop({ type: String, enum: ['active', 'released'], default: 'active' }) status!: 'active' | 'released';
+  // 21/10/2026 — kho nhóm đơn sẽ lấy hàng. null = giữ chỗ cũ, tính trên tồn mọi kho.
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) warehouse_id!: Types.ObjectId | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -33,9 +35,15 @@ StockReservationSchema.index({ order_group_id: 1, stock_key: 1 }, { unique: true
  */
 @Schema({ collection: 'stock_reservation_totals', timestamps: false })
 export class StockReservationTotal {
-  @Prop({ type: String, required: true }) _id!: string; // = stock_key
+  // = "<warehouse_id>|<stock_key>" (21/10/2026, giữ chỗ theo kho); dòng cũ = stock_key.
+  @Prop({ type: String, required: true }) _id!: string;
   @Prop({ type: Number, default: 0 }) reserved!: number;
   @Prop({ type: Date, default: null }) touched_at!: Date | null;
+  // 21/10/2026 — tra tổng đang giữ của 1 khóa tồn trên mọi kho (đẩy tồn sang sàn).
+  @Prop({ type: String, default: null }) stock_key!: string | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) warehouse_id!: Types.ObjectId | null;
 }
 export type StockReservationTotalDocument = HydratedDocument<StockReservationTotal>;
 export const StockReservationTotalSchema = SchemaFactory.createForClass(StockReservationTotal);
+// Phục vụ: StockReservationService.availability() cộng phần giữ chỗ của 1 khóa trên mọi kho.
+StockReservationTotalSchema.index({ stock_key: 1 }, { partialFilterExpression: { stock_key: { $type: 'string' } } });

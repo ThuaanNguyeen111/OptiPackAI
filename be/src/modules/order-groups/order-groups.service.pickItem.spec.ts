@@ -119,7 +119,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       connection as never,
       inventoryMovementModel as never, // K3
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never, // K4b mappingModel (chưa nối gì -> đường lùi)
-      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0) } as never, // K5
+      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0), setGroupWarehouse: jest.fn().mockResolvedValue(undefined) } as never, // K5 (+ 21/10/2026 gắn kho cho nhóm đơn)
       {} as never, // binLocationModel
     );
   });
@@ -228,7 +228,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       connection as never,
       inventoryMovementModel as never,
       { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) } as never,
-      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0) } as never,
+      { reconcile: jest.fn().mockResolvedValue([]), consume: jest.fn().mockResolvedValue(undefined), releaseGroup: jest.fn().mockResolvedValue(0), setGroupWarehouse: jest.fn().mockResolvedValue(undefined) } as never,
       {} as never,
       lotModel as never,
     );
@@ -513,6 +513,14 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
   // Mixed (không tự ép kiểu). (1) lọc tồn bằng chuỗi id kho -> 0 dòng -> 409 dù còn hàng;
   // (2) pick_events lưu order_group_id dạng CHUỖI trong khi chỗ đọc dùng ObjectId.
   //!=============================================
+  it('21/10/2026 — nhóm đơn đã gắn kho khác và lượt này đã quét → 409 ORD_GROUP_WRONG_WAREHOUSE, không trừ tồn', async () => {
+    mockGroup({ warehouse_id: new Types.ObjectId() });
+    mockOrderedItems([{ sku: 'ABC-123', quantity: 3 }]);
+    (pickEventModel as unknown as { exists: jest.Mock }).exists = jest.fn().mockResolvedValue({ _id: new Types.ObjectId() });
+    await expect(service.pickItem(groupId, warehouseId, 'ABC-123', 1, 'barcode')).rejects.toMatchObject({ errorCode: 'ORD_GROUP_WRONG_WAREHOUSE' });
+    expect(skuBinAssignmentModel.findOneAndUpdate).not.toHaveBeenCalled();
+  });
+
   it('ObjectId — lọc tồn bằng warehouse_id kiểu ObjectId và ghi pick_events.order_group_id kiểu ObjectId', async () => {
     mockGroup();
     mockOrderedItems([{ sku: 'ABC-123', quantity: 5 }]);
