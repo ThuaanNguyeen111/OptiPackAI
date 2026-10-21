@@ -742,7 +742,7 @@ Giai đoạn 5 phía OptiPack **độc lập** với AURELLE — có thể làm 
 | 1 | Công nghệ AURELLE BE | NestJS + MongoDB |
 | 2 | Mã nguồn `/storefront/*` hiện có | Cung cấp nhánh chứa code để chuyển sang AURELLE BE |
 | 3 | Thanh toán chuyển khoản | Giả lập bằng nút "Tôi đã thanh toán" |
-| 4 | Trả hàng do khách khởi tạo trên sàn | Sau khi luồng chính ổn định |
+| 4 | Trả hàng do khách khởi tạo trên sàn | ✅ Đã làm 20/10/2026 (`return_refund`, `refund_only`; chưa có đổi hàng) — xem `AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` |
 
 ---
 

@@ -8,7 +8,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { PackingPlanService } from './packing-plan.service';
-import { PackingSessionService, type ScanOutcome, type SessionResult } from './packing-session.service';
+import { PackingSessionService, type BoxSourcePreview, type ScanOutcome, type SessionResult } from './packing-session.service';
+import type { BoxSourcePlan } from './utils/box-source.util';
 import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
 import { PackingReportService, type PackingReport } from './packing-report.service';
 import { PackingFeedbackService, type FeedbackReport } from './packing-feedback.service';
@@ -48,6 +49,23 @@ interface DimsResponse {
   lengthMm: number;
   widthMm: number;
   heightMm: number;
+}
+
+export interface BoxSourceOverrideResponse {
+  source: 'new' | 'reused';
+  planned: 'new' | 'reused';
+  reason: string;
+  note: string | null;
+  by: string;
+  at: Date;
+}
+
+export interface BoxSourcesResponse {
+  orderGroupId: string;
+  version: number;
+  allowReusedForFragile: boolean;
+  parcels: (BoxSourcePlan & { boxSourceOverride: BoxSourceOverrideResponse | null })[];
+  stock: BoxSourcePreview['stock'];
 }
 
 export interface PackingPlanResponse {
@@ -141,6 +159,10 @@ export interface PackingPlanResponse {
     status: string;
     hasFragile: boolean;
     boxConsumed: boolean;
+    /** (21/10/2026) Thùng đã lấy từ ngăn nào lúc trừ tồn: new | reused | null (chưa trừ / dữ liệu cũ). */
+    boxSourceUsed: 'new' | 'reused' | null;
+    /** (21/10/2026) Nhân viên chọn khác nguồn gợi ý — null = theo gợi ý. */
+    boxSourceOverride: BoxSourceOverrideResponse | null;
     scannedCount: number;
     itemCount: number;
     scans: { itemKey: string; sku: string; method: string; by: string | null; at: Date }[];
@@ -326,6 +348,17 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       status: effectiveParcelStatus(plan.status, p),
       hasFragile: p.has_fragile,
       boxConsumed: p.box_consumed || plan.status === 'packed',
+      boxSourceUsed: p.box_source_used ?? null,
+      boxSourceOverride: p.box_source_override
+        ? {
+            source: p.box_source_override.source,
+            planned: p.box_source_override.planned,
+            reason: p.box_source_override.reason,
+            note: p.box_source_override.note,
+            by: p.box_source_override.by.toString(),
+            at: p.box_source_override.at,
+          }
+        : null,
       scannedCount: p.scans.length,
       itemCount: p.placements.length,
       scans: p.scans.map((x) => ({ itemKey: x.item_key, sku: x.sku, method: x.method, by: x.by?.toString() ?? null, at: x.at })),
@@ -483,6 +516,25 @@ export class PackingPlanController {
   async get(@Param('groupId') groupId: string): Promise<{ plan: PackingPlanResponse | null }> {
     const plan = await this.planService.getActivePlan(groupId);
     return { plan: plan ? toPlanResponse(plan) : null };
+  }
+
+  @Get('box-sources')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '(21/10/2026) Mỗi kiện sẽ lấy thùng từ ngăn nào nếu niêm phong ngay (tái sử dụng trước, dễ vỡ chỉ thùng mới), kiện đã niêm phong lấy từ ngăn nào, tồn mới/tái sử dụng của từng mã thùng. Chỉ đọc.',
+  })
+  async boxSources(@Param('groupId') groupId: string): Promise<BoxSourcesResponse> {
+    const preview = await this.sessionService.boxSourcePreview(groupId);
+    const full = toPlanResponse(preview.plan);
+    const overrideOf = new Map(full.parcels.map((p) => [p.parcelNo, p.boxSourceOverride]));
+    return {
+      orderGroupId: full.orderGroupId,
+      version: full.version,
+      allowReusedForFragile: preview.allowReusedForFragile,
+      parcels: preview.parcels.map((p) => ({ ...p, boxSourceOverride: overrideOf.get(p.parcelNo) ?? null })),
+      stock: preview.stock,
+    };
   }
 
   @Post('recompute')

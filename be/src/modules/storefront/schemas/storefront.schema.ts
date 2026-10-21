@@ -170,7 +170,9 @@ export class StorefrontOrder {
   @Prop({ type: Number, default: null }) public_order_id!: number | null;
   @Prop({ type: String, enum: ['pending', 'confirmed', 'cancelled', 'completed'], default: 'pending' }) status!: string;
   @Prop({ type: String, enum: ['unpaid', 'paid', 'failed', 'refunded'], default: 'unpaid' }) payment_status!: string;
-  @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
+  @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
+  // 20/10/2026 — thời điểm sự kiện giao hàng mới nhất đối tác báo (chống sự kiện cũ kéo trạng thái lùi).
+  @Prop({ type: Date, default: null }) fulfillment_updated_at!: Date | null;
   @Prop({ required: true, min: 0 }) subtotal!: number;
   @Prop({ required: true, min: 0, default: 0 }) discount_amount!: number;
   @Prop({ required: true, min: 0, default: 0 }) shipping_fee!: number;
@@ -251,6 +253,7 @@ export class StorefrontShipment {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true, unique: true }) order_id!: Types.ObjectId;
   @Prop({ default: '' }) carrier!: string;
   @Prop({ default: '' }) tracking_number!: string;
+  @Prop({ type: String, default: null }) trip_code!: string | null; // 20/10/2026 — mã chuyến giao chung
   @Prop({ type: String, enum: ['pending', 'picked_up', 'in_transit', 'delivered', 'returned'], default: 'pending' }) status!: string;
   @Prop({ type: CustomerAddressSnapshotSchema, required: true }) recipient_snapshot!: CustomerAddressSnapshot;
   @Prop({ type: Date, default: null }) shipped_at!: Date | null;
@@ -260,3 +263,75 @@ export class StorefrontShipment {
 }
 export type StorefrontShipmentDocument = HydratedDocument<StorefrontShipment>;
 export const StorefrontShipmentSchema = SchemaFactory.createForClass(StorefrontShipment);
+
+/**
+ * 20/10/2026 — Hành trình đơn cho khách (đóng gói → giao → hoàn...). APPEND-ONLY.
+ * Ghi khi đối tác (OptiPack) gọi `/order/status/update` hoặc khi khách tự hủy/trả hàng.
+ */
+@Schema({ collection: 'storefront_order_events', timestamps: false })
+export class StorefrontOrderEvent {
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true }) order_id!: Types.ObjectId;
+  @Prop({ type: Number, default: null }) public_order_id!: number | null;
+  @Prop({ type: String, required: true }) status!: string;
+  @Prop({ type: String, required: true }) label!: string;
+  @Prop({ type: String, default: null }) tracking_code!: string | null;
+  @Prop({ type: String, default: null }) trip_code!: string | null;
+  @Prop({ type: String, default: null }) reason!: string | null;
+  @Prop({ type: Date, required: true }) occurred_at!: Date;
+  @Prop({ type: String, enum: ['partner', 'customer', 'system'], default: 'partner' }) source!: string;
+  @Prop({ type: String, default: null }) idempotency_key!: string | null;
+  @Prop({ type: Date, default: () => new Date() }) created_at!: Date;
+}
+export type StorefrontOrderEventDocument = HydratedDocument<StorefrontOrderEvent>;
+export const StorefrontOrderEventSchema = SchemaFactory.createForClass(StorefrontOrderEvent);
+// Phục vụ: hành trình đơn của khách (GET /storefront/orders/:id) — sắp theo thời điểm xảy ra.
+StorefrontOrderEventSchema.index({ order_id: 1, occurred_at: 1 });
+// Chống ghi trùng khi đối tác gửi lại cùng sự kiện. PARTIAL (không phải sparse): sự kiện do khách
+// tự tạo lưu `idempotency_key: null` và sparse vẫn lập chỉ mục null → đụng unique ở sự kiện thứ 2.
+StorefrontOrderEventSchema.index(
+  { idempotency_key: 1 },
+  { unique: true, partialFilterExpression: { idempotency_key: { $type: 'string' } } },
+);
+
+@Schema({ _id: false })
+export class StorefrontReturnItem {
+  @Prop({ required: true }) sku!: string;
+  @Prop({ required: true, min: 1 }) quantity!: number;
+  @Prop({ required: true }) reason_code!: string;
+}
+export const StorefrontReturnItemSchema = SchemaFactory.createForClass(StorefrontReturnItem);
+
+/**
+ * 20/10/2026 — Yêu cầu trả hàng do KHÁCH gửi trên website. OptiPack kéo qua Open API
+ * (`/reverse/orders/get`) rồi tạo phiếu RMA phía kho; kết quả báo ngược qua
+ * `/reverse/order/update`. Website không tự quyết duyệt/từ chối.
+ */
+export const OPEN_RETURN_STATUS_VALUES = ['requested', 'approved', 'received'] as const;
+
+@Schema({ collection: 'storefront_return_requests', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
+export class StorefrontReturnRequest {
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'Customer', required: true }) customer_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true }) order_id!: Types.ObjectId;
+  @Prop({ type: Number, default: null }) public_order_id!: number | null;
+  @Prop({ type: String, enum: ['return_refund', 'refund_only'], required: true }) type!: 'return_refund' | 'refund_only';
+  @Prop({ type: String, enum: ['requested', 'approved', 'rejected', 'received', 'closed', 'canceled'], default: 'requested' }) status!: string;
+  @Prop({ type: [StorefrontReturnItemSchema], default: [] }) items!: StorefrontReturnItem[];
+  @Prop({ type: String, default: '' }) customer_note!: string;
+  @Prop({ type: String, default: null }) rma_code!: string | null;
+  @Prop({ type: String, default: null }) decision_note!: string | null;
+  @Prop({ type: Date, default: null }) status_updated_at!: Date | null;
+  created_at?: Date;
+  updated_at?: Date;
+}
+export type StorefrontReturnRequestDocument = HydratedDocument<StorefrontReturnRequest>;
+export const StorefrontReturnRequestSchema = SchemaFactory.createForClass(StorefrontReturnRequest);
+// Phục vụ: danh sách yêu cầu của khách.
+StorefrontReturnRequestSchema.index({ customer_id: 1, created_at: -1 });
+// Phục vụ: Open API kéo theo thời gian cập nhật / theo trạng thái 'requested'.
+StorefrontReturnRequestSchema.index({ updated_at: 1 });
+StorefrontReturnRequestSchema.index({ status: 1, created_at: 1 });
+// Mỗi đơn chỉ có 1 yêu cầu đang xử lý — chặn ở tầng DB để 2 lần bấm cùng lúc không tạo 2 phiếu.
+StorefrontReturnRequestSchema.index(
+  { order_id: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: [...OPEN_RETURN_STATUS_VALUES] } } },
+);

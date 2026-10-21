@@ -16,6 +16,7 @@ describe('MarketplaceWebhooksService', () => {
   let adapter: { verifyWebhookSignature: jest.Mock };
   let marketplaceIntegrationService: { getConnectedShop: jest.Mock };
   let ordersService: { syncSingleOrder: jest.Mock };
+  let returnsSyncService: { syncShop: jest.Mock };
   let notificationsService: { notify: jest.Mock<Promise<unknown>, [{ type: NotificationType }]> };
 
   function makePayload(overrides: Partial<MarketplaceWebhookPayload> = {}): MarketplaceWebhookPayload {
@@ -36,6 +37,7 @@ describe('MarketplaceWebhooksService', () => {
       getConnectedShop: jest.fn().mockResolvedValue({}),
     };
     ordersService = { syncSingleOrder: jest.fn().mockResolvedValue({}) };
+    returnsSyncService = { syncShop: jest.fn().mockResolvedValue({ pulled: 0, created: 0, rejected: 0, pending: 0 }) };
     notificationsService = {
       notify: jest.fn<Promise<unknown>, [{ type: NotificationType }]>().mockResolvedValue({}),
     };
@@ -46,6 +48,7 @@ describe('MarketplaceWebhooksService', () => {
       marketplaceIntegrationService as never,
       ordersService as never,
       notificationsService as never,
+      returnsSyncService as never,
     );
   });
 
@@ -141,6 +144,14 @@ describe('MarketplaceWebhooksService', () => {
     expect(notificationsService.notify).toHaveBeenCalledTimes(2);
     const [firstCallArg] = notificationsService.notify.mock.calls[0] ?? [];
     expect(firstCallArg?.type).toBe(NotificationType.CONNECTION_LOST);
+  });
+
+  it('return_requested -> kéo yêu cầu trả hàng của đúng shop, KHÔNG sync đơn', async () => {
+    const body = makePayload({ message_type: 'return_requested' });
+    const result = await service.handleWebhook(MarketplacePlatform.AURELLE, Buffer.from('{}'), 'chu-ky-dung', body);
+    expect(result).toEqual({ received: true });
+    expect(returnsSyncService.syncShop).toHaveBeenCalledWith(MarketplacePlatform.AURELLE, body.seller_id);
+    expect(ordersService.syncSingleOrder).not.toHaveBeenCalled();
   });
 
   it('message_type lạ (chưa biết) -> vẫn ack 200, không throw', async () => {

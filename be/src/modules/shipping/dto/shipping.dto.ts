@@ -139,6 +139,29 @@ export class UpdateShippingSettingsDto {
   @IsOptional()
   @IsString()
   default_service_code?: string | null;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    example: 'Kho OptiPack Thủ Đức',
+    description: '(21/10/2026) Người gửi in trên nhãn vận đơn. Không gửi = giữ nguyên; "" hoặc null = xóa (dùng tên kho).',
+  })
+  @IsOptional()
+  @IsString({ message: 'sender_name phải là chuỗi' })
+  @MaxLength(120, { message: 'sender_name tối đa 120 ký tự' })
+  sender_name?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: '0901234567' })
+  @IsOptional()
+  @IsString({ message: 'sender_phone phải là chuỗi' })
+  @MaxLength(20, { message: 'sender_phone tối đa 20 ký tự' })
+  sender_phone?: string | null;
+
+  @ApiProperty({ required: false, nullable: true, example: '12 Võ Văn Ngân, P. Linh Chiểu, TP. Thủ Đức, TP.HCM' })
+  @IsOptional()
+  @IsString({ message: 'sender_address phải là chuỗi' })
+  @MaxLength(300, { message: 'sender_address tối đa 300 ký tự' })
+  sender_address?: string | null;
 }
 
 /**

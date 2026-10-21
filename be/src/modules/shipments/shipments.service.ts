@@ -9,6 +9,11 @@ import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-
 import { Shipment, ShipmentDocument } from './schemas/shipment.schema';
 import { ShipmentEvent, ShipmentEventDocument } from './schemas/shipment-event.schema';
 import { ShipmentStatus } from './enums/shipment-status.enum';
+import {
+  MarketplaceStatusOutbox,
+  MarketplaceStatusOutboxDocument,
+} from '../marketplace-writeback/schemas/status-outbox.schema';
+import { enqueueStatusPush, writebackStatusForShipment } from '../marketplace-writeback/status-outbox.util';
 import { ShipmentEventType } from './enums/shipment-event-type.enum';
 import { DeliveryFailureReason } from './enums/delivery-failure-reason.enum';
 import { MAX_DELIVERY_ATTEMPTS, isValidShipmentTransition } from './shipment-transitions';
@@ -164,6 +169,8 @@ export class ShipmentsService {
     @Optional() private readonly liveCarrier?: LiveCarrierService,
     @Optional() @InjectModel(CarrierWebhookEvent.name) private readonly webhookEventModel?: Model<CarrierWebhookEventDocument>,
     @Optional() private readonly configService?: ConfigService,
+    // 20/10/2026 — hàng đợi ghi ngược trạng thái lên sàn (AURELLE).
+    @Optional() @InjectModel(MarketplaceStatusOutbox.name) private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
   ) {}
 
   /** (05/10/2026) Nhóm còn kiện của đơn đã hủy chưa tháo → chưa được giao. */
@@ -612,6 +619,25 @@ export class ShipmentsService {
       note: step.note ?? null,
       occurred_at: new Date(),
     }], { session });
+
+    // 20/10/2026 — báo sàn (AURELLE) cùng transaction: shipped/delivered/failed_delivery/...
+    const writebackStatus = writebackStatusForShipment(step.to);
+    if (writebackStatus) {
+      await enqueueStatusPush(
+        this.statusOutboxModel,
+        {
+          orderGroupId: shipment.order_group_id,
+          shipmentId: shipment._id,
+          status: writebackStatus,
+          reason: step.reasonCode ?? step.note ?? null,
+          // Cùng 1 lần giao: awaiting_pickup/in_transit/out_for_delivery gộp thành 1 dòng `shipped`.
+          // Đặt lại vận đơn sau khi huỷ ở hãng (booking_round >= 2) là một lượt giao MỚI → khóa khác,
+          // nếu không sự kiện `shipped` của lượt mới bị coi là trùng và website kẹt ở "đã đóng gói".
+          discriminator: (shipment.booking_round ?? 1) > 1 ? `${String(shipment.attempt_count)}.r${String(shipment.booking_round)}` : shipment.attempt_count,
+        },
+        session,
+      );
+    }
   }
 
   private throwConflict(shipmentId: string, expectedVersion: number): never {

@@ -77,6 +77,37 @@ describe('PackagingMaterialsService', () => {
       expect(r.shortfalls).toEqual([{ planId, parcelNo: 1, code: 'BUBBLE', missing: 2 }]);
     });
 
+    // (21/10/2026) Nhân viên chọn nguồn thùng.
+    it('source=new -> bỏ qua ngăn tái sử dụng dù còn, chỉ lấy hàng mới; ghi lý do vào sổ; trả nguồn theo kiện', async () => {
+      materialModel.findOne.mockReturnValue(q(boxM));
+      const r = await service.consumeForParcels(
+        session,
+        [{ code: 'BOX-M', quantity: 1, planId, parcelNo: 3, source: 'new', note: 'Kiện 3: chọn thùng mới — REUSED_BOX_WORN' }],
+        gid,
+        'pk-1',
+        { strict: true },
+      );
+      expect(moves().map((m) => [m.condition, m.delta, m.saving_vnd, m.note])).toEqual([
+        ['new', -1, 0, 'Kiện 3: chọn thùng mới — REUSED_BOX_WORN'],
+      ]);
+      expect(r.consumed[0]?.sources).toEqual([{ parcelNo: 3, source: 'new', quantity: 1 }]);
+    });
+
+    it('source=reused mà ngăn tái sử dụng hết -> strict báo thiếu, KHÔNG âm thầm lấy hàng mới', async () => {
+      materialModel.findOne.mockReturnValue(q({ ...boxM, qty_reused: 0 }));
+      await expect(
+        service.consumeForParcels(session, [{ code: 'BOX-M', quantity: 1, planId, parcelNo: 1, source: 'reused' }], gid, 'pk-1', { strict: true }),
+      ).rejects.toMatchObject({ errorCode: E.INSUFFICIENT_STOCK });
+      expect(materialModel.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('thùng không bật reusable -> không lấy từ ngăn tái sử dụng (dù số liệu cũ còn), lấy hàng mới', async () => {
+      materialModel.findOne.mockReturnValue(q({ ...boxM, reusable: false, qty_reused: 4 }));
+      const r = await service.consumeForParcels(session, [{ code: 'BOX-M', quantity: 1, planId, parcelNo: 1 }], gid, 'pk-1', { strict: true });
+      expect(moves().map((m) => m.condition)).toEqual(['new']);
+      expect(r.consumed[0]?.sources).toEqual([{ parcelNo: 1, source: 'new', quantity: 1 }]);
+    });
+
     it('mã không có trong kho (không strict) -> toàn bộ là shortfall', async () => {
       materialModel.findOne.mockReturnValue(q(null));
       const r = await service.consumeForParcels(session, [{ code: 'X', quantity: 2, planId, parcelNo: 1 }], gid, 'pk-1', { strict: false });

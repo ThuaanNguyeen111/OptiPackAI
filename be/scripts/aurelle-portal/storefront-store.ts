@@ -13,6 +13,20 @@ import {
   nextPublicOrderId,
   type CounterCollection,
 } from '../../src/modules/storefront/storefront-counter.util';
+import {
+  applyPartnerStatusUpdate,
+  type MinimalCollection,
+  type StatusUpdateInput,
+  type StatusUpdateResult,
+} from '../../src/modules/storefront/aurelle-status-update';
+import {
+  applyPartnerReturnUpdate,
+  toOpenApiReturn,
+  type OpenApiReturn,
+  type ReturnUpdateInput,
+  type ReturnUpdateResult,
+  type StorefrontReturnLike,
+} from '../../src/modules/storefront/aurelle-return-api';
 import type {
   LazadaOrderItemRaw,
   LazadaOrderRaw,
@@ -193,4 +207,53 @@ export async function setSellableQuantity(sellerSku: string, sellable: number): 
     { upsert: true },
   );
   return true;
+}
+
+/**
+ * Đối tác (OptiPack) báo trạng thái đơn: ghi `fulfillment_status`, mã vận đơn và
+ * hành trình (`storefront_order_events`) — khách thấy ngay ở trang "Đơn của tôi".
+ * null = không có đơn với `public_order_id` đó.
+ */
+export async function applyStatusUpdate(input: StatusUpdateInput): Promise<StatusUpdateResult | null> {
+  return applyPartnerStatusUpdate(
+    {
+      orders: db().collection('storefront_orders') as unknown as MinimalCollection,
+      shipments: db().collection('storefront_shipments') as unknown as MinimalCollection,
+      events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+    },
+    input,
+  );
+}
+
+export interface ListReturnsQuery {
+  status?: string;
+  updateAfter?: Date;
+  offset: number;
+  limit: number;
+}
+
+/** Yêu cầu trả hàng của khách (đã sắp theo thời điểm cập nhật cũ → mới) cho Open API `/reverse/orders/get`. */
+export async function listReturns(query: ListReturnsQuery): Promise<{ returns: OpenApiReturn[]; count: number }> {
+  const filter: Record<string, unknown> = {};
+  if (query.status) filter.status = query.status;
+  if (query.updateAfter) filter.updated_at = { $gte: query.updateAfter };
+  const col = db().collection('storefront_return_requests');
+  const [docs, count] = await Promise.all([
+    col.find(filter).sort({ updated_at: 1 }).skip(query.offset).limit(query.limit).toArray(),
+    col.countDocuments(filter),
+  ]);
+  return { returns: docs.map((doc) => toOpenApiReturn(doc as unknown as StorefrontReturnLike)), count };
+}
+
+/** Đối tác báo kết quả xử lý yêu cầu trả hàng. null = không có yêu cầu với `return_id` đó. */
+export async function applyReturnUpdate(input: ReturnUpdateInput): Promise<ReturnUpdateResult | null> {
+  if (!mongoose.Types.ObjectId.isValid(input.returnId)) return null;
+  return applyPartnerReturnUpdate(
+    {
+      returns: db().collection('storefront_return_requests') as unknown as MinimalCollection,
+      events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+      castId: (id) => new mongoose.Types.ObjectId(id),
+    },
+    input,
+  );
 }

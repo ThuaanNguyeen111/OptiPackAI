@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { MarketplacePlatform } from '../enums/platform.enum';
 import {
   MarketplaceAdapter,
+  MarketplaceReturnRaw,
   OAuthTokenResult,
 } from '../interfaces/marketplace-adapter.interface';
 import { requireEnv, envOrDefault } from '../../../common/utils/env.util';
@@ -235,6 +236,73 @@ export class AurelleAdapter implements MarketplaceAdapter {
         `AURELLE từ chối cập nhật trạng thái đơn ${input.orderId}: ${data.message ?? 'không rõ lý do'}`,
         HttpStatus.BAD_GATEWAY,
         { orderId: input.orderId, status: input.status },
+      );
+    }
+  }
+
+  /**
+   * 20/10/2026 — kéo yêu cầu trả hàng của khách (`GET /reverse/orders/get`). Lọc `status=requested`
+   * để chỉ lấy phiếu chưa được OptiPack tiếp nhận.
+   */
+  async listReturns(
+    accessToken: string,
+    params: { status?: string; updateAfter?: Date; offset: number; limit: number },
+  ): Promise<{ returns: MarketplaceReturnRaw[]; count: number }> {
+    const query: Record<string, string | number> = {
+      access_token: accessToken,
+      offset: params.offset,
+      limit: params.limit,
+    };
+    if (params.status) query.status = params.status;
+    if (params.updateAfter) query.update_after = params.updateAfter.toISOString();
+    const data = await this.client.callSignedGet<
+      AurelleEnvelope<{ returns?: MarketplaceReturnRaw[]; count?: number }>
+    >('/reverse/orders/get', query);
+    if (data.code !== '0') {
+      throw new AppException(
+        MKT_ERROR_CODES.SERVER_ERROR,
+        `AURELLE từ chối trả danh sách yêu cầu trả hàng: ${data.message ?? 'không rõ lý do'}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+    return { returns: data.data.returns ?? [], count: data.data.count ?? 0 };
+  }
+
+  /**
+   * 20/10/2026 — báo kết quả xử lý yêu cầu trả hàng ngược lên AURELLE
+   * (`POST /reverse/order/update`): approved | rejected | received | closed | canceled.
+   * Throw khi AURELLE từ chối để outbox thử lại (idempotent theo `idempotency_key`).
+   */
+  async updateReturnStatus(
+    accessToken: string,
+    input: {
+      returnId: string;
+      status: string;
+      eventTime: Date;
+      rmaCode?: string | null;
+      decisionNote?: string | null;
+      idempotencyKey: string;
+    },
+  ): Promise<void> {
+    const params: Record<string, string | number> = {
+      access_token: accessToken,
+      return_id: input.returnId,
+      status: input.status,
+      event_time: input.eventTime.toISOString(),
+      idempotency_key: input.idempotencyKey,
+    };
+    if (input.rmaCode) params.rma_code = input.rmaCode;
+    if (input.decisionNote) params.decision_note = input.decisionNote;
+    const data = await this.client.callSignedApiPost<AurelleEnvelope<{ return_id: string }>>(
+      '/reverse/order/update',
+      params,
+    );
+    if (data.code !== '0') {
+      throw new AppException(
+        MKT_ERROR_CODES.SERVER_ERROR,
+        `AURELLE từ chối cập nhật yêu cầu trả hàng ${input.returnId}: ${data.message ?? 'không rõ lý do'}`,
+        HttpStatus.BAD_GATEWAY,
+        { returnId: input.returnId, status: input.status },
       );
     }
   }

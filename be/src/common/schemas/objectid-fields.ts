@@ -79,6 +79,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   { collection: 'carrier_webhook_events', fields: ['shipment_id'] }, // C5 (14/10/2026)
   { collection: 'shipment_events', fields: ['shipment_id', 'order_group_id'] },
+  { collection: 'marketplace_status_outbox', fields: ['order_group_id', 'shipment_id', 'return_request_id'] }, // 20/10/2026 — ghi ngược trạng thái
   {
     collection: 'return_requests',
     fields: [
@@ -86,6 +87,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'shipment_id',
       'replacement_order_id',
       'replacement_group_id',
+      'source_order_id', // 20/10/2026 — đơn gốc của khách (phiếu nguồn marketplace)
     ],
     arrayPath: {
       array: 'inspection',
@@ -134,6 +136,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'parcels.weighings.by',
       'parcels.reviews.by',
       'parcels.unpack.by',
+      'parcels.box_source_override.by', // 21/10/2026 — chọn nguồn thùng khác gợi ý
     ],
   },
   {
@@ -178,6 +181,8 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   { collection: 'storefront_payments', fields: ['order_id'] },
   { collection: 'storefront_shipments', fields: ['order_id'] },
+  { collection: 'storefront_order_events', fields: ['order_id'] }, // 20/10/2026 — hành trình đơn
+  { collection: 'storefront_return_requests', fields: ['customer_id', 'order_id'] }, // 20/10/2026 — khách trả hàng
 ];
 
 /** Chuỗi id hợp lệ để đổi sang ObjectId: đúng 24 ký tự hex. */

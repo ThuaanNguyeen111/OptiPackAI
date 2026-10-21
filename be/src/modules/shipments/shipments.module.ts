@@ -16,10 +16,16 @@ import { OrderGroupsModule } from '../order-groups/order-groups.module';
 import { WarehouseModule } from '../warehouse/warehouse.module';
 import { ReturnRequest, ReturnRequestSchema } from './schemas/return-request.schema';
 import { ReturnsService } from './returns.service';
+import { ReturnsMarketplaceSyncService } from './returns-marketplace-sync.service';
+import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { ReturnsController } from './returns.controller';
 import { ShippingModule } from '../shipping/shipping.module';
 import { CarrierWebhookEvent, CarrierWebhookEventSchema } from './schemas/carrier-webhook-event.schema';
 import { CarrierWebhookController } from './carrier-webhook.controller';
+import {
+  MarketplaceStatusOutbox,
+  MarketplaceStatusOutboxSchema,
+} from '../marketplace-writeback/schemas/status-outbox.schema';
 
 // G1 (27/09/2026). Phụ thuộc 1 chiều: shipments -> order-groups. OrderGroupsModule
 // KHÔNG import module này (tránh vòng).
@@ -34,15 +40,17 @@ import { CarrierWebhookController } from './carrier-webhook.controller';
       { name: OrderGroup.name, schema: OrderGroupSchema }, // đổi hàng — gắn nhãn nhóm đơn thay thế
       { name: ProductMaster.name, schema: ProductMasterSchema }, // đổi hàng — kiểm hàng đổi sang
       { name: CarrierWebhookEvent.name, schema: CarrierWebhookEventSchema }, // C5 — chống xử lý trùng sự kiện hãng
+      { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
     ]),
     OrderGroupsModule,
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)
     PackagingMaterialsModule, // G4 — thu hồi vật liệu khi kiểm hàng hoàn
     NotificationsModule, // thông báo giao thất bại / hoàn về / trễ hạn / yêu cầu trả hàng
     ShippingModule, // gộp thi_dev — báo giá hãng/dịch vụ + ghi cước lên kế hoạch đóng gói
+    MarketplaceIntegrationModule, // 20/10/2026 — kéo yêu cầu trả hàng của khách từ sàn (AURELLE)
   ],
   controllers: [ShipmentsController, LegacyFulfillmentController, ReturnsController, CarrierWebhookController],
-  providers: [ShipmentsService, ReturnsService, ShipmentSlaScheduler],
-  exports: [ShipmentsService],
+  providers: [ShipmentsService, ReturnsService, ReturnsMarketplaceSyncService, ShipmentSlaScheduler],
+  exports: [ShipmentsService, ReturnsMarketplaceSyncService],
 })
 export class ShipmentsModule {}

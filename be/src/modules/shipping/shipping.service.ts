@@ -34,7 +34,13 @@ export interface ShippingSettingsView {
   strategy: ShippingStrategy;
   defaultCarrierCode: string | null;
   defaultServiceCode: string | null;
+  /** (21/10/2026) Người gửi in trên nhãn vận đơn tự in. */
+  sender: { name: string | null; phone: string | null; address: string | null };
 }
+
+/** "" hoặc khoảng trắng → null (xóa); undefined → giữ nguyên. */
+const cleanOptional = (value: string | null | undefined): string | null | undefined =>
+  value === undefined ? undefined : value === null || value.trim() === '' ? null : value.trim();
 
 /** C6 (14/10/2026) — 1 phương án đóng gói của 1 kiện kèm TỔNG chi phí. */
 export interface PackagingOptionCost {
@@ -252,6 +258,11 @@ export class ShippingService {
       strategy: doc?.strategy ?? 'cheapest',
       defaultCarrierCode: doc?.default_carrier_code ?? null,
       defaultServiceCode: doc?.default_service_code ?? null,
+      sender: {
+        name: doc?.sender_name ?? null,
+        phone: doc?.sender_phone ?? null,
+        address: doc?.sender_address ?? null,
+      },
     };
   }
 
@@ -275,6 +286,14 @@ export class ShippingService {
       }
       await this.resolveService(carrierCode, serviceCode); // ném SHIP_SERVICE_NOT_FOUND nếu không có
     }
+    // (21/10/2026) Người gửi: chỉ ghi field có gửi lên (không gửi = giữ nguyên).
+    const sender: Record<string, string | null> = {};
+    const senderName = cleanOptional(dto.sender_name);
+    const senderPhone = cleanOptional(dto.sender_phone);
+    const senderAddress = cleanOptional(dto.sender_address);
+    if (senderName !== undefined) sender.sender_name = senderName;
+    if (senderPhone !== undefined) sender.sender_phone = senderPhone;
+    if (senderAddress !== undefined) sender.sender_address = senderAddress;
     await this.settingsModel.updateOne(
       { key: 'default' },
       {
@@ -282,6 +301,7 @@ export class ShippingService {
           strategy: dto.strategy,
           default_carrier_code: carrierCode,
           default_service_code: serviceCode,
+          ...sender,
           updated_by: new Types.ObjectId(userId),
         },
         $setOnInsert: { key: 'default' },

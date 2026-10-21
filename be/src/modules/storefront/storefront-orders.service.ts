@@ -1,5 +1,5 @@
 import { SF_ERROR_CODES, sfError } from './storefront.errors';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -7,6 +7,13 @@ import {
   StorefrontCounterDocument,
   StorefrontInventoryStock,
   StorefrontInventoryStockDocument,
+  StorefrontOrderEvent,
+  StorefrontOrderEventDocument,
+  StorefrontReturnRequest,
+  StorefrontReturnRequestDocument,
+  OPEN_RETURN_STATUS_VALUES,
+  StorefrontShipment,
+  StorefrontShipmentDocument,
   StorefrontOrder,
   StorefrontOrderDocument,
   StorefrontOrderItem,
@@ -21,6 +28,7 @@ import {
 import { CheckoutDto } from './dto/storefront.dto';
 import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
 import { toOpenApiStatus } from './aurelle-open-api.mapper';
+import { STOREFRONT_RETURN_LABELS } from './aurelle-return-api';
 import { nextPublicOrderId, type CounterCollection } from './storefront-counter.util';
 import { calculateOrderTotal } from './storefront-pricing';
 
@@ -34,8 +42,27 @@ export class StorefrontOrdersService {
     @InjectModel(StorefrontProduct.name) private readonly productModel: Model<StorefrontProductDocument>,
     @InjectModel(StorefrontInventoryStock.name) private readonly stockModel: Model<StorefrontInventoryStockDocument>,
     @InjectModel(StorefrontCounter.name) private readonly counterModel: Model<StorefrontCounterDocument>,
+    @InjectModel(StorefrontOrderEvent.name) private readonly eventModel: Model<StorefrontOrderEventDocument>,
+    @InjectModel(StorefrontShipment.name) private readonly shipmentModel: Model<StorefrontShipmentDocument>,
     private readonly webhookPublisher: AurelleWebhookPublisher,
+    // 21/10/2026 — để danh sách/chi tiết đơn biết đơn đang có yêu cầu trả hàng chưa xong (Optional: spec cũ dựng service bằng new).
+    @Optional() @InjectModel(StorefrontReturnRequest.name) private readonly returnModel?: Model<StorefrontReturnRequestDocument>,
   ) {}
+
+  /** Yêu cầu trả hàng CHƯA xử lý xong của từng đơn (1 truy vấn cho cả danh sách). Mỗi đơn tối đa 1 phiếu mở (index duy nhất). */
+  private async openReturnsByOrder(orderIds: Types.ObjectId[]): Promise<Map<string, { id: string; status: string; statusLabel: string }>> {
+    const result = new Map<string, { id: string; status: string; statusLabel: string }>();
+    if (!this.returnModel || orderIds.length === 0) return result;
+    const rows = await this.returnModel
+      .find({ order_id: { $in: orderIds }, status: { $in: [...OPEN_RETURN_STATUS_VALUES] } })
+      .select('order_id status')
+      .lean();
+    for (const row of rows) {
+      const status = row.status as keyof typeof STOREFRONT_RETURN_LABELS;
+      result.set(String(row.order_id), { id: String(row._id), status, statusLabel: STOREFRONT_RETURN_LABELS[status] });
+    }
+    return result;
+  }
 
   async checkout(customerId: string, dto: CheckoutDto) {
     if (!dto.items.length) throw new BadRequestException(sfError(SF_ERROR_CODES.CART_EMPTY, 'Giỏ hàng đang trống'));
@@ -142,7 +169,8 @@ export class StorefrontOrdersService {
       .find({ customer_id: new Types.ObjectId(customerId) })
       .sort({ created_at: -1 })
       .limit(50);
-    return orders.map((order) => this.toResponse(order));
+    const openReturns = await this.openReturnsByOrder(orders.map((order) => order._id));
+    return orders.map((order) => this.toResponse(order, openReturns.get(String(order._id)) ?? null));
   }
 
   async findOne(customerId: string, id: string) {
@@ -151,20 +179,88 @@ export class StorefrontOrdersService {
       ? await this.orderModel.findOne({ _id: id, customer_id: new Types.ObjectId(customerId) })
       : null;
     if (!order) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
-    const [items, payment] = await Promise.all([
+    const [items, payment, shipment, events, openReturns] = await Promise.all([
       this.itemModel.find({ order_id: order._id }).lean(),
       this.paymentModel.findOne({ order_id: order._id }).lean(),
+      this.shipmentModel.findOne({ order_id: order._id }).lean(),
+      // Hành trình: sự kiện đối tác (đóng gói, giao...) theo thứ tự thời gian.
+      this.eventModel.find({ order_id: order._id }).sort({ occurred_at: 1 }).limit(100).lean(),
+      this.openReturnsByOrder([order._id]),
     ]);
     return {
-      ...this.toResponse(order),
+      ...this.toResponse(order, openReturns.get(String(order._id)) ?? null),
       shippingAddress: order.shipping_address_snapshot,
       paymentMethod: payment?.payment_method ?? null,
       items,
+      trackingCode: shipment?.tracking_number && shipment.tracking_number.length > 0 ? shipment.tracking_number : null,
+      tripCode: shipment?.trip_code ?? null,
+      events: events.map((event) => ({
+        status: event.status,
+        label: event.label,
+        reason: event.reason,
+        occurredAt: event.occurred_at,
+        source: event.source,
+      })),
     };
   }
 
-  private toResponse(order: StorefrontOrderDocument) {
+  /**
+   * Khách tự hủy đơn (20/10/2026). Chỉ khi đơn còn `pending` và CHƯA đóng gói
+   * (`fulfillment_status = awaiting_packaging`) — sau đó hàng đã ra khỏi kho, phải
+   * dùng luồng trả hàng. Cổng chuyển trạng thái là 1 lệnh nguyên tử có điều kiện nên
+   * 2 lần bấm cùng lúc chỉ trả tồn đúng 1 lần. Hủy xong báo OptiPack bằng webhook;
+   * OptiPack đồng bộ lại thấy `canceled` → nhả giữ chỗ, hủy nhóm nếu hết đơn.
+   */
+  async cancel(customerId: string, id: string, reason?: string) {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
+    }
+    const filter = { _id: new Types.ObjectId(id), customer_id: new Types.ObjectId(customerId) };
+    const cancelled = await this.orderModel.findOneAndUpdate(
+      { ...filter, status: 'pending', fulfillment_status: 'awaiting_packaging' },
+      { $set: { status: 'cancelled' } },
+      { returnDocument: 'after' },
+    );
+    if (!cancelled) {
+      const exists = await this.orderModel.exists(filter);
+      if (!exists) throw new NotFoundException(sfError(SF_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng'));
+      throw new ConflictException(
+        sfError(SF_ERROR_CODES.ORDER_NOT_CANCELLABLE, 'Đơn hàng đã được xử lý nên không thể hủy. Bạn có thể yêu cầu trả hàng sau khi nhận hàng.'),
+      );
+    }
+
+    // Trả lại phần tồn đã giữ lúc đặt (cổng nguyên tử ở trên bảo đảm chỉ chạy 1 lần).
+    const items = await this.itemModel.find({ order_id: cancelled._id }).lean();
+    for (const item of items) {
+      await this.stockModel.updateOne(
+        { variant_id: item.variant_id },
+        { $inc: { reserved_quantity: -item.quantity } },
+      );
+    }
+    await this.paymentModel.updateOne(
+      { order_id: cancelled._id, status: 'pending' },
+      { $set: { status: 'failed', failure_reason: 'Khách hủy đơn' } },
+    );
+    await this.eventModel.create({
+      order_id: cancelled._id,
+      public_order_id: cancelled.public_order_id,
+      status: 'canceled',
+      label: 'Bạn đã hủy đơn hàng',
+      reason: reason?.trim() ? reason.trim() : null,
+      occurred_at: new Date(),
+      source: 'customer',
+      idempotency_key: null,
+    });
+
+    if (cancelled.public_order_id !== null) {
+      this.webhookPublisher.notifyOrderChanged(cancelled.public_order_id, toOpenApiStatus(cancelled));
+    }
+    return this.toResponse(cancelled);
+  }
+
+  private toResponse(order: StorefrontOrderDocument, activeReturn: { id: string; status: string; statusLabel: string } | null = null) {
     return {
+      activeReturn,
       id: order.id,
       orderNumber: order.order_number,
       status: order.status,

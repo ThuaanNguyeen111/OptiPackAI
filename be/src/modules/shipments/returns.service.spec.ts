@@ -253,14 +253,15 @@ describe('ReturnsService — G3', () => {
         group = { ...group, fulfillment_status: target, __v: expected + 1, updated_at: new Date() };
         return Promise.resolve({ ...group });
       });
-      returnModel.find.mockImplementation((filter: { status?: ReturnStatus; _id?: { $ne: Types.ObjectId }; type?: ReturnType; source?: string }) => {
+      returnModel.find.mockImplementation((filter: { status?: ReturnStatus; _id?: { $ne: Types.ObjectId }; type?: ReturnType; source?: string | { $ne: string } }) => {
         const chain: ReturnQuery = {
           select: () => chain,
           session: () => chain,
           lean: (): Promise<ReturnRequestDocument[]> => Promise.resolve(requests.filter((r) =>
             (!filter.status || r.status === filter.status) &&
             (!filter._id || !r._id.equals(filter._id.$ne)) &&
-            (!filter.type || r.type === filter.type) && (!filter.source || r.source === filter.source),
+            (!filter.type || r.type === filter.type) &&
+            (!filter.source || (typeof filter.source === 'string' ? r.source === filter.source : r.source !== filter.source.$ne)),
           )),
         };
         return chain;

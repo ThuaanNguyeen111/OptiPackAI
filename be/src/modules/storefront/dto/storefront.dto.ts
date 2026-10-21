@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class RegisterCustomerDto {
   @IsString() @IsNotEmpty() name!: string;
@@ -26,4 +26,17 @@ export class CheckoutDto {
   @IsIn(['cod']) payment_method!: 'cod';
   @IsOptional() @IsString() customer_note?: string;
   @IsOptional() @IsString() @IsNotEmpty() client_order_id?: string;
+}
+
+export class CancelOrderDto { @IsOptional() @IsString() @MaxLength(300) reason?: string; }
+
+export class StorefrontReturnItemDto {
+  @IsString() @IsNotEmpty() sku!: string;
+  @IsInt() @Min(1) quantity!: number;
+  @IsIn(['defective', 'wrong_item', 'not_as_described', 'size_not_fit', 'changed_mind', 'other']) reason_code!: string;
+}
+export class CreateStorefrontReturnDto {
+  @IsIn(['return_refund', 'refund_only']) type!: 'return_refund' | 'refund_only';
+  @ArrayMinSize(1) @ArrayMaxSize(50) @ValidateNested({ each: true }) @Type(() => StorefrontReturnItemDto) items!: StorefrontReturnItemDto[];
+  @IsOptional() @IsString() @MaxLength(500) customer_note?: string;
 }

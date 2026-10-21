@@ -12,6 +12,12 @@ export const SF_ERROR_CODES = {
   CART_ITEM_NOT_FOUND: 'SF_CART_ITEM_NOT_FOUND', // 404
   CART_EMPTY: 'SF_CART_EMPTY', // 400
   ORDER_NOT_FOUND: 'SF_ORDER_NOT_FOUND', // 404 (cả khi id sai định dạng)
+  ORDER_NOT_CANCELLABLE: 'SF_ORDER_NOT_CANCELLABLE', // 409 đơn đã đóng gói/giao/đã hủy — không tự hủy được nữa
+  RETURN_NOT_FOUND: 'SF_RETURN_NOT_FOUND', // 404
+  RETURN_ORDER_NOT_DELIVERED: 'SF_RETURN_ORDER_NOT_DELIVERED', // 409 chỉ trả hàng sau khi đã nhận hàng
+  RETURN_WINDOW_EXPIRED: 'SF_RETURN_WINDOW_EXPIRED', // 409 quá hạn trả hàng
+  RETURN_INVALID_ITEMS: 'SF_RETURN_INVALID_ITEMS', // 400 món không thuộc đơn / vượt số lượng còn được trả
+  RETURN_OPEN_EXISTS: 'SF_RETURN_OPEN_EXISTS', // 409 đơn đang có yêu cầu trả hàng chưa xử lý xong
   EMAIL_IN_USE: 'SF_EMAIL_IN_USE', // 409
   INVALID_CREDENTIALS: 'SF_INVALID_CREDENTIALS', // 401
   ACCOUNT_INACTIVE: 'SF_ACCOUNT_INACTIVE', // 401

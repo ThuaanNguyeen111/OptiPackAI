@@ -50,7 +50,10 @@ export class ReturnRequest {
   @Prop({ type: SchemaTypes.ObjectId, required: true, ref: 'OrderGroup', index: true }) order_group_id!: Types.ObjectId;
   @Prop({ type: SchemaTypes.ObjectId, default: null, ref: 'Shipment' }) shipment_id!: Types.ObjectId | null;
   @Prop({ type: String, enum: ReturnType, required: true }) type!: ReturnType;
-  @Prop({ type: String, enum: ['simulated', 'failed_delivery'], required: true }) source!: 'simulated' | 'failed_delivery';
+  @Prop({ type: String, enum: ['simulated', 'failed_delivery', 'marketplace'], required: true }) source!: 'simulated' | 'failed_delivery' | 'marketplace';
+  // 20/10/2026 — phiếu do KHÁCH gửi trên sàn (AURELLE): id yêu cầu bên sàn (chống tạo trùng) + đơn gốc của khách.
+  @Prop({ type: String, default: null }) external_ref!: string | null;
+  @Prop({ type: SchemaTypes.ObjectId, default: null, ref: 'Order' }) source_order_id!: Types.ObjectId | null;
   @Prop({ type: String, enum: ReturnStatus, required: true, index: true }) status!: ReturnStatus;
   @Prop({ type: String, enum: MarketplacePlatform, required: true }) platform!: MarketplacePlatform;
   @Prop({ required: true }) shop_id!: string;
@@ -78,3 +81,9 @@ export class ReturnRequest {
 
 export type ReturnRequestDocument = HydratedDocument<ReturnRequest>;
 export const ReturnRequestSchema = SchemaFactory.createForClass(ReturnRequest);
+
+// Mỗi yêu cầu trả hàng của sàn chỉ ra 1 phiếu (webhook + cron kéo bù chạy đồng thời vẫn an toàn).
+ReturnRequestSchema.index(
+  { platform: 1, external_ref: 1 },
+  { unique: true, partialFilterExpression: { external_ref: { $type: 'string' } } },
+);

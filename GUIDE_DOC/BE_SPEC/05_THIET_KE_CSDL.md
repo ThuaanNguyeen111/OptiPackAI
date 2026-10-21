@@ -832,7 +832,7 @@ Schema `PackingPlanSchema` · `be/src/modules/packing/schemas/packing-plan.schem
 | `issues[].by` | ObjectId | req |  |
 | `issues[].at` | Date | req |  |
 | `activity` | Array<Sub> | mặc định [] |  |
-| `activity[].kind` | String | req | enum: start, unscan, assign, finish, unseal |
+| `activity[].kind` | String | req | enum: start, unscan, assign, finish, unseal, undo_approve |
 | `activity[].parcel_no` | Number |  |  |
 | `activity[].detail` | String | req |  |
 | `activity[].reason` | String |  |  |

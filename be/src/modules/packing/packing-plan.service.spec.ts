@@ -158,7 +158,7 @@ describe('PackingPlanService', () => {
   let service: PackingPlanService;
   let session: PackingSessionService;
   let settings: ActivePackingSettings;
-  let materialsService: { recoverFromUnpack: jest.Mock };
+  let materialsService: { recoverFromUnpack: jest.Mock; list: jest.Mock };
   let bagService: { consumeForParcels: jest.Mock };
   let stock: Map<string, number>;
   let transactionSession: { withTransaction: jest.Mock; endSession: jest.Mock };
@@ -194,6 +194,12 @@ describe('PackingPlanService', () => {
     materialsService = {
       recoverFromUnpack: jest.fn((lines: { code: string; quantity: number }[]) =>
         Promise.resolve(lines.map((l) => ({ code: l.code, quantity: l.quantity, outcome: 'reused' }))),
+      ),
+      // (21/10/2026) nguồn thùng: mỗi mã thùng mẫu có 5 mới + 2 tái sử dụng.
+      list: jest.fn(() =>
+        Promise.resolve(
+          ['SAMPLE-S', 'SAMPLE-M', 'SAMPLE-L'].map((code) => ({ code, name: code, qty_new: 5, qty_reused: 2, reusable: true })),
+        ),
       ),
     };
     boxService = {
@@ -1266,6 +1272,61 @@ describe('PackingPlanService', () => {
       );
       const packages = (boxService.consumeForPack.mock.calls[0] as unknown as [unknown, { allowReused?: boolean }[]])[1];
       expect(packages.every((p) => p.allowReused === false)).toBe(true);
+    });
+
+    // (21/10/2026) Nhân viên chọn nguồn thùng.
+    it('gợi ý thùng tái sử dụng mà chọn thùng mới: thiếu lý do → 400; có lý do → trừ hàng mới, ghi lý do vào kiện + sổ', async () => {
+      const plan = await approvedPlan();
+      const weights = plan.parcels.map((p) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no) }));
+      const first = weights[0];
+      if (!first) throw new Error('thiếu kiện');
+      const preview = await session.boxSourcePreview(groupId);
+      expect(preview.parcels[0]).toMatchObject({ state: 'to_consume', planned: 'reused' });
+      await expect(
+        session.quickPack(groupId, { parcels: [{ ...first, box_source: 'new' }, ...weights.slice(1)], expected_version: plan.version }, userId),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.BOX_SOURCE_REASON_REQUIRED });
+      boxService.consumeForPack.mockImplementationOnce((_s: unknown, packages: { parcelNo: number; source?: string }[]) =>
+        Promise.resolve([
+          {
+            code: 'SAMPLE-M',
+            before: 7,
+            after: 6,
+            reorderLevel: 1,
+            sources: packages.map((p) => ({ parcelNo: p.parcelNo, source: p.source ?? 'reused' })),
+          },
+        ]),
+      );
+      const result = await session.quickPack(
+        groupId,
+        {
+          parcels: [{ ...first, box_source: 'new', box_source_reason: 'REUSED_BOX_WORN' }, ...weights.slice(1)],
+          expected_version: plan.version,
+        },
+        userId,
+      );
+      const packages = (boxService.consumeForPack.mock.calls.at(-1) as unknown as [unknown, { parcelNo: number; source?: string; note?: string | null }[]])[1];
+      expect(packages[0]).toMatchObject({ parcelNo: first.parcel_no, source: 'new' });
+      expect(packages[0]?.note).toContain('REUSED_BOX_WORN');
+      expect(packages.slice(1).every((p) => p.source === undefined)).toBe(true);
+      const sealed = result.plan.parcels.find((p) => p.parcel_no === first.parcel_no);
+      expect(sealed?.box_source_used).toBe('new');
+      expect(sealed?.box_source_override).toMatchObject({ source: 'new', planned: 'reused', reason: 'REUSED_BOX_WORN' });
+      expect(result.plan.activity.some((a) => a.kind === 'box_source')).toBe(true);
+    });
+
+    it('chọn thùng tái sử dụng cho kiện dễ vỡ khi cài đặt không cho → 409 BOX_SOURCE_NOT_ALLOWED', async () => {
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'F-2', items: [sunglasses(1)] }];
+      const plan = await approvedPlan();
+      await expect(
+        session.quickPack(
+          groupId,
+          {
+            parcels: plan.parcels.map((p) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no), box_source: 'reused' as const })),
+            expected_version: plan.version,
+          },
+          userId,
+        ),
+      ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.BOX_SOURCE_NOT_ALLOWED });
     });
 
     it('chưa duyệt thì không quét/đóng được', async () => {

@@ -1,24 +1,8 @@
 # OptiPackAI Backend — Integration Guide: Fulfillment & Warehouse (Package 3/4)
 
-**18/10/2026 — trả đủ hàng:** Admin tạo phiếu `return_refund` → nhóm `returning` (Đang hoàn); Store duyệt → `returned` (Đã hoàn hàng); kho kiểm/xử lý tồn xong → `canceled` (Đã hủy). Nhận kiện chưa hủy nhóm. Trả một phần giữ `delivered`; tính cộng dồn phiếu cùng loại đã đóng và phiếu hiện tại. Từ chối/hủy phiếu trước nhận hàng khôi phục `delivered`. Hướng dẫn FE và tương thích dữ liệu cũ: [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
-
-**Cập nhật 18/10/2026 — đóng gói một bước chấp nhận:** BE tự tính và tự gán người sau khi kho lấy xong; không cần Admin chốt. `GET /order-groups?assigned_packer_id=<userId>` lọc theo người đóng trên kế hoạch active trước phân trang (`assigned_staff_id` vẫn là người lấy). Sau khi gán thành công, lần đọc kế tiếp có việc; thăm dò 10 giây hoặc tải lại khi nhận thông báo. `/packing-plan/approve` chuyển thẳng `ready → packing`, ghi người/giờ duyệt và bắt đầu, version +1 trong cùng transaction. FE mở quét/cân/niêm phong ngay, bỏ màn Approved trung gian và nút bắt đầu riêng; `/start` giữ tương thích `approved` cũ. Chi tiết: [INTEGRATION_GUIDE_PACKING.md](INTEGRATION_GUIDE_PACKING.md).
-
-**🔄 Cập nhật 10/10/2026 (v7.4 — gộp sửa kiểu id của `main` 07/10):** Picking List hết báo "CHƯA GÁN VỊ TRÍ" sai, `pick-item` hết báo thiếu tồn sai khi kho đã gán đúng, khớp SKU không phân biệt hoa/thường (Nghiệp vụ 3); `related_entity_id` của thông báo `sync_failed` là id shop đã kết nối (Nghiệp vụ 6). FE không phải sửa request/response.
-
-**🔄 Cập nhật 09/10/2026 (v7.3 — rà soát trước khi giao FE):** `GET /order-groups` thêm lọc `assigned_staff_id`, `stock_shortage`, `is_overdue` và phân trang con trỏ `before` + `limit` (1–200); `GET /order-groups/:id` trả thêm `orders[]` (đơn, người nhận, món đã gộp) cho mọi role vận hành; `POST /order-groups/:id/assign` trả response camelCase chuẩn; nhóm tự hủy **nhả giữ chỗ tồn** ngay, hủy một phần tính lại giữ chỗ; `report-missing` báo thêm Packaging Staff; kế hoạch bị từ chối có lối `back-to-picking`; thông báo đọc riêng từng người + `PATCH /notifications/read-all` + response đã map; rate limit 600/phút/IP. Các route `fulfillment/ship|deliver|return` là **legacy — FE không gọi** (dùng `/shipments`, `/returns`). Xem Nghiệp vụ 3, 6, sơ đồ C.1 và `API_LIST.md` mục 5–7, 10.
-
-**🆕 Cập nhật 05/10/2026 tối (v7.2):** đơn bị hủy **trước khi bắt đầu đóng** (nhóm đang lấy hàng, đã lấy xong, hoặc kế hoạch mới tính/duyệt) → hàng đã lấy của đơn đó **tự trả về đúng ô** + thông báo `return_to_shelf` cho kho (Nghiệp vụ 1b, 3, 6); tháo kiện thu hồi được **vật tư chèn** (`recovered_materials`, vật tư phải bật `reusable`); giữ chỗ tồn kho khớp hàng thật khi loại món hỏng. Xem D.3, D.4.
-
-**🆕 Cập nhật 05/10/2026 chiều (v7.1 — PHIÊN ĐÓNG GÓI):** đóng gói giờ theo **từng kiện**: quét từng món vào đúng kiện (sai kiện/thừa bị chặn), niêm phong + cân từng kiện (trừ thùng + vật tư lúc này), kiện lệch cân **bị giữ** chờ người KHÁC xem lại (không còn thành packed ngay), báo món hỏng/thiếu/sai lúc đóng, **tháo kiện** khi đơn bị hủy sau khi đã bắt đầu đóng (hàng về đúng ô, thùng tốt vào kho tái sử dụng, chặn giao tới khi tháo xong), cài đặt đóng gói có phiên bản (`/packing/settings`), tự giao người đóng (Packaging Staff), báo cáo hiệu suất (`/packing/reports/summary`). `POST .../packing-plan/pack` vẫn giữ làm **lối tắt**. Xem **Nghiệp vụ 1b** (mới), Nghiệp vụ 4, 6, D.3, D.4. **Lưu ý FE:** nhánh `thi_dev` đã khôi phục FE về bản `main`; màn đóng gói của `main` còn gọi `/packaging/*` + `fulfillment/pack` (đã gỡ) — bảng ánh xạ route cũ → mới ở `API_LIST.md` mục 8a.7.
-
-**🔄 Cập nhật 05/10/2026 (v7.0 — GỘP `main` + `thi_dev`):** giữ kế hoạch đóng gói `packing_plans` (mục Nghiệp vụ 1) thay luồng `/packaging/*` cũ; `POST .../fulfillment/pack` đã gỡ — đóng gói qua `POST /order-groups/:groupId/packing-plan/pack`, 🔄 cập nhật 10/10/2026: trạng thái đóng gói chỉ ghi trong OptiPack, không ghi ngược lên Lazada; đã bỏ `lazadaPackSync` và route gửi lại. Kho vật tư **chung** `packaging_materials` (thùng + vật tư chèn, tồn mới/tái sử dụng). Lấy hàng theo kho K1–K5 của main (SKU nội bộ, ô, giữ chỗ tồn) cộng lượt lấy + chặn quét vượt số đặt; `decide-partial(false)` vào lại `picking` lượt mới và **tự nhập lại tồn đúng ô**. Giao hàng dùng `shipments` (G1) + chọn hãng/cước + giao chung chuyến (`POST /shipments/batch`); hoàn hàng dùng `/returns` (G3) — đã bỏ `return-receive`. Chi tiết route: `GUIDE_DOC/API_LIST.md`.
-
-**🔄 Cập nhật 04/10/2026 (v6.0 — LÀM LẠI KẾ HOẠCH ĐÓNG GÓI):** gỡ toàn bộ `/order-groups/:groupId/packaging/*` (generate/approve/adjust/reject/guide/cartonization-preview) và `POST .../fulfillment/pack`; thay bằng **1 kế hoạch/nhóm** `packing_plans` ở `/order-groups/:groupId/packing-plan` — **tự tính khi lấy hàng xong** (không còn nút generate), bộ giải BRKGA + CP-SAT có **nhãn chứng minh tối ưu** (`optimal_global`/`optimal_in_model`/`heuristic`), **chỉnh tay** (đổi thùng 1 kiện, chuyển món giữa kiện) + tính lại có điều kiện thay cho "từ chối, tính lại", khoá lạc quan bằng `version` của kế hoạch, `pack` cân theo `parcel_no`. FE mới: `/app/packing` (hàng chờ) + `/app/packing/:groupId` (màn làm việc + chế độ đóng gói toàn màn hình). Xem Nghiệp vụ 1, 4 và sơ đồ C.1. Các đoạn bên dưới còn nhắc `generate`/`adjust`/`PKG_*` là lịch sử. **🆕 Cập nhật 30/09/2026 (v5.0 — ĐA KIỆN + engine đóng gói mới):** quyết định "mỗi đơn một kiện" được **thay bằng mỗi đơn N kiện** — đơn vừa 1 thùng vẫn 1 kiện (không đổi gì), đơn quá lớn/quá nặng/nhiều món được chia nhiều kiện; mỗi kiện có thùng, tọa độ 3D, cân ước tính, vật tư, hướng dẫn và **cân thật riêng**. Response phương án thêm `cartons[]` + `cartonCount` (field cấp phương án phản chiếu kiện 0 nên client cũ chạy nguyên); `adjust`, `guide`, `pack` nhận thêm `carton_index`; mỗi kiện giữ và trừ 1 thùng; `noFitReasons[]` có `code` + `itemKey`; engine `ep-3d-v2` bỏ trần 30 món/thùng (xem Nghiệp vụ 1, 4). **🆕 Cập nhật 30/09/2026 (rà business rule, Phase 1–3):** `pick-item` trừ tồn theo đúng phạm vi kho + sàn + shop + SKU; `POST .../fulfillment/pick` chỉ dùng khi nhóm đang `picking` (nhóm `partial_needs_review` phải đi qua `decide-partial`, không thể bỏ qua bước duyệt); `decide-partial {approve:false}` đưa nhóm về **`picking`** (lượt mới, `pick_round + 1`) thay vì `awaiting_packaging`; `packaging/adjust` **tăng version của nhóm** — FE phải tải lại nhóm rồi mới `approve` (nếu không sẽ 409), và 2 người cùng đổi thùng thì người sau bị 409; đơn mới chỉ được gộp vào nhóm còn ở `awaiting_packaging`/`picking` (từ `picked` trở đi tự lập nhóm mới), và chỉ gộp đơn cùng sàn + shop; khi hủy nhóm (N1) mọi phương án đóng gói active đều được nhả; khi một đơn bị hủy mà nhóm còn đơn khác và đã có phương án (`pending_approval`/`approved_for_packing`), phương án bị vô hiệu, nhóm quay về `picked` và bắn thông báo `packaging_plan_invalidated` cho Packaging Staff + Admin. **🆕 Cập nhật 29/09/2026 (Mục 9.5 + N1 — `AURELLE_MARKETPLACE_DESIGN.md`):** Order Group có thêm trạng thái tự động **`canceled`** (N1 — hệ thống TỰ hủy khi mọi đơn trong nhóm không còn fulfill được, KHÔNG cần người xác nhận riêng, chỉ áp dụng cho nhóm CHƯA `packed`); `GET /order-groups/:id` thêm `linkedGroupCount`, `GET /order-groups/:id/linked` (mới) trả danh sách nhóm khác — có thể khác sàn — cùng người nhận thật, chưa giao xong; `POST .../fulfillment/ship` thêm `linkedPending[]` (cảnh báo, không chặn); module `shipments/` mới (`POST /shipments/batch`) tạo vận đơn thật (mã chuyến + mã theo dõi) cho 1 hoặc nhiều group "giao chung chuyến" — xem Nghiệp vụ 7. **Cập nhật 28/09/2026 (vật tư chèn):** phương án đóng gói trả `materials[]` đầy đủ (mã/tên/đơn vị/khối lượng/giá) theo danh mục + bộ luật ở `/packaging/materials` (xem `API_LIST.md` mục 8e); `estimatedPackageWeightG` đã cộng vật tư; thiếu vật tư lúc `pack` **không chặn** đóng gói (ghi `materialsShortfall` + Notification `low_material_stock`). Số lượng vật tư là ước lượng theo luật, không tính từ hình học. **Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 12/09/2026 — phân biệt API đang chạy với flow mục tiêu.** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **🆕 Cập nhật 23/09/2026 (v4.2 — gộp nhánh `main`)**: `reject` **bắt buộc** `rejection_reason` (3–500 ký tự) và tự thông báo Admin; `generate` tự thông báo Packaging Staff có kế hoạch chờ duyệt; `pack` mở thêm role Packaging Staff; response phương án có thêm `rejectionReason`. **🆕 Cập nhật 22/09/2026 (v3.8)**: engine đọc **tồn kho thùng** (chỉ chọn thùng còn trống, ghi thùng vừa hơn đã hết), multi-start 4 thứ tự xếp, `pack` trừ tồn + sổ xuất/nhập, cảnh báo sắp hết thùng; gỡ module `materials` (gộp vào `/packaging/boxes`). **🆕 Cập nhật 21/09/2026 lần 4 (v3.7)**: túi zip bọc từng món (danh mục `/packaging/bags`, hồ sơ SKU chọn túi + gập đôi, bước "cho vào túi" trong hướng dẫn) và hình 3D đại diện theo loại sản phẩm (`product_category`). **🆕 Cập nhật 21/09/2026 lần 3 (v3.6)**: hướng dẫn đóng gói từng bước cho animation 3D — engine quyết định vị trí/thứ tự, AI viết lời (Groq, bậc miễn phí), tự quay về câu mẫu khi thiếu cấu hình hoặc AI trả sai (`POST .../packaging/:recommendationId/guide`, field `packingGuide`). **🆕 Cập nhật 21/09/2026 lần 2 (v3.5)**: engine đóng gói 3D thật (greedy + validator, **mỗi đơn 1 kiện**, tọa độ xếp cho animation 3D), danh mục thùng `/packaging/boxes`, hồ sơ SKU `/product-master`, `pick-item`/`pick` đối soát số lượng theo lượt lấy, `pack` nhận cân thật từng kiện; FE có trang `/app/packing/groups` + animation — xem Nghiệp vụ 0, 1, 3, 4. **🔄 Cập nhật 21/09/2026 (v3.4)**: đồng bộ theo luồng **lấy hàng trước, đóng gói sau** (code AOFP-35 đã merge 20/09) — phân công diễn ra ngay lúc tạo group, `generate` chỉ gọi được khi group ở `picked`, `reject` quay về `picked` (không còn `awaiting_packaging`); sửa sơ đồ C.1/C.2 và thứ tự A.1. Phạm vi kiện mục tiêu vẫn là mỗi đơn một kiện (chưa triển khai). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
-
-**🆕 Cập nhật 30/09/2026 (v5.1):** thêm Nghiệp vụ 8 — vận chuyển thật (hãng/cước/ETA/lịch lấy hàng), chứng từ PDF, nhận hàng hoàn, tự nhập lại tồn khi hủy lượt lấy. `POST /shipments/batch` nay **bắt buộc** `carrier_code` + `service_code`.
-
-**Cập nhật 2026-09-11 (v3 — mở rộng đầy đủ nghiệp vụ + thiết kế DB).** **Cập nhật 16/09/2026 (v3.1)**: sửa mô tả sai quy tắc tie-break auto-assign (Nghiệp vụ 2); thêm 2 loại Notification mới + hành vi đổi của `markAsRead` (Nghiệp vụ 6); thêm mã lỗi `ORD_GROUP_ALL_ORDERS_CANCELED` (D.3). **Cập nhật thêm 16/09/2026 (v3.2)**: bổ sung hẳn mục **Nghiệp vụ 2b — Thiết lập kho** (4 bước Admin tạo kho→khu→kệ→gán SKU, trước đây CHƯA từng có hướng dẫn dù file có chữ "Warehouse" trong tên) + 3 API GET mới để xem lại + sửa lỗi `GET .../zones` + 2 mã lỗi mới (`WH_WAREHOUSE_CODE_IN_USE`, `WH_ZONE_CODE_IN_USE` — map lỗi trùng mã từ 500 thô sang 409 rõ ràng, thêm 19/09/2026). **Cập nhật 19/09/2026 (v3.3)**: mở role Warehouse Staff cho `GET /warehouse/warehouses` (trước chỉ Admin, khiến Warehouse Staff không có cách biết `warehouse_id` để gọi picking-list/pick-item/report-missing); `pick-item` giờ validate SKU thuộc group TRƯỚC khi trừ tồn kho (trước đây quét nhầm SKU vẫn trừ tồn thật) — cả 2 phát hiện từ báo cáo thật Hải Phượng. **Cập nhật 20-21/09/2026 (v4.0 — ĐẢO LUỒNG CỐT LÕI)**: viết lại toàn bộ Nghiệp vụ 1/2/3/4 + sơ đồ PHẦN C theo đúng thứ tự MỚI (Lấy hàng làm TRƯỚC, Đóng gói làm SAU — trước đây ngược lại); thêm ghi chú `GET .../packaging` trả `null` không phải `404`. **Cập nhật 21-22/09/2026 (v4.1)**: hoàn tất toàn bộ phần FE báo còn thiếu ở v4.0 — `generate`/`approve`/`adjust` fallback an toàn khi thiếu `pick_events` (không còn 409 khi Warehouse xác nhận hàng loạt); `generate` + `reject` tự động notify (Packaging Staff / Admin); `reject` bắt buộc `rejection_reason`; `pack` mở thêm role Packaging Staff; group tạo NGAY sau sync (không chờ cron, trước đây tối đa 15 phút); sửa bug `recipient_role` lưu sai kiểu dữ liệu khiến thông báo broadcast-theo-role có thể không tới nơi. **Cập nhật 02/10/2026 (v4.3)**: nút `pack` tự báo "đã đóng gói" lên Lazada, chặn đóng gói nhóm hủy hết, thêm route gửi lại (Nghiệp vụ 4). **Cập nhật 01/10/2026 (v4.2)**: mở quyền vận hành kho cho Warehouse Staff (Nghiệp vụ 2b); response nhóm đơn thêm `activeOrderCount`/`canceledOrderCount` để phân biệt nhóm hủy một phần/hủy hết trên danh sách (Nghiệp vụ 3). Đây là tài liệu tham chiếu ĐẦY ĐỦ NHẤT cho FE hiểu **concept hệ thống**, không chỉ danh sách endpoint. Đọc kèm `API_LIST.md` (bảng route/role) và `INTEGRATION_GUIDE_ORDERS.md` (nền tảng "gộp đơn").
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ (nhóm đơn, lọc/phân trang, lấy hàng, báo thiếu, liên kết tay, giữ chỗ tồn). Chi tiết **đóng gói** nay ở `INTEGRATION_GUIDE_PACKING.md`; **giao/hoàn** ở `INTEGRATION_GUIDE_SHIPPING.md` — các mục tương ứng trong file này chỉ còn để tham khảo luồng tổng.
+> **Thay đổi gần nhất:** 18/10 — khách trả đủ hàng: nhóm `returning` → `returned` → `canceled`; đóng gói một bước chấp nhận, lọc việc bằng `assigned_packer_id`.
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 **Swagger UI**: `http://localhost:3000/api/docs`
 
@@ -96,228 +80,9 @@ Bộ giải chỉ tính được khi có **số đo thật**. Thiếu → kế h
 >
 > **Màn FE**: Admin quản lý thùng ở `/app/admin/boxes`; kho đo SKU ở `/app/inventory/packaging-profiles` (tab "Cần đo" / "Đã xác nhận", số Lazada khai chỉ hiện để tham khảo).
 
-## Nghiệp vụ 1 — Kế hoạch đóng gói: tự tính, duyệt, chỉnh tay (UC-04) — 🔄 LÀM LẠI 04/10/2026
+## Nghiệp vụ 1 + 1b — Kế hoạch đóng gói & phiên đóng gói → đã chuyển sang `INTEGRATION_GUIDE_PACKING.md`
 
-> 🔄 **ĐÃ THAY ĐỔI 04/10/2026 — đọc kỹ nếu đã quen bản cũ.** Bản cũ (1 phương án/đơn ở `packaging_recommendations`, Admin bấm `generate`, Packaging Staff `approve`/`adjust`/`reject`, đóng gói qua `fulfillment/pack`) **đã gỡ toàn bộ**. Giờ mỗi nhóm có **đúng 1 kế hoạch** (`packing_plans`) chứa mọi đơn và mọi kiện; kế hoạch **tự tính** khi lấy hàng xong; sai thì **chỉnh tay** chứ không "từ chối rồi tính lại". Route mới ở `API_LIST.md` mục 8.
-
-### Bối cảnh xảy ra
-Lấy hàng xong (group `picked`, Nghiệp vụ 3) thì hệ thống biết chính xác từng đơn có những món gì. Việc còn lại: quyết định **dùng thùng nào, bao nhiêu kiện, món nào đặt ở đâu, theo thứ tự nào**, sao cho ít kiện nhất và rẻ nhất, rồi để người duyệt kiểm tra trước khi đóng thật.
-
-### Ai làm gì
-```
-[HỆ THỐNG — job nền mỗi 10 giây]
-  nhóm `picked` chưa có kế hoạch → tính kế hoạch (status `computing` → `ready`)
-  → nhóm `pending_approval` + thông báo Packaging Staff (`pending_approval`)
-  → (nền) CP-SAT kiểm tra thêm đơn ≤ 12 món, có thể nâng nhãn chứng minh
-
-[PACKAGING STAFF / ADMIN] — màn /app/packing/:groupId
-  GET  .../packing-plan                     xem mọi kiện + 3D + "Vì sao phương án này?"
-  POST .../packing-plan/approve             chấp nhận & bắt đầu → kế hoạch `packing`, nhóm `approved_for_packing`
-  POST .../parcels/:no/change-box           đổi thùng 1 kiện (xếp lại + validator)
-  POST .../parcels/:no/move-item            chuyển 1 món sang kiện khác cùng đơn / tách kiện mới
-  POST .../packing-plan/recompute           tính lại có điều kiện (loại thùng, ưu tiên rẻ)
-  POST .../packing-plan/reject              từ chối: lý do theo mã, có người xử lý + hạn
-  POST .../packing-plan/manual              đóng gói thủ công sau khi từ chối (người khác duyệt)
-```
-
-### Thuật toán — nói đúng khi trình bày
-- Hàng đã quét được **chia về từng đơn** (đơn tạo trước ưu tiên, không vượt số đặt). Mỗi đơn được giải riêng; một đơn có thể ra **N kiện**.
-- Mỗi đơn vị hàng là 1 khối riêng (`itemKey = sku#n`), số đo mm/g lấy từ hồ sơ SKU đã xác nhận (Nghiệp vụ 0). Hàng dễ vỡ được chừa đệm 5 mm mỗi phía; quần áo luôn nằm phẳng; hàng mềm chỉ gập đôi khi dạng gốc không còn chỗ.
-- **Bộ giải BRKGA** (thuật toán di truyền khóa ngẫu nhiên, Gonçalves & Resende 2013) chạy trên TypeScript, xếp bằng không gian trống cực đại (EMS); đơn ≤ 3 món thì vét cạn. Ngân sách đếm theo số lần thử, **không theo đồng hồ** → cùng đầu vào luôn ra cùng kết quả.
-- Mục tiêu so theo thứ tự: **số kiện → chi phí thùng + vật tư → cân quy đổi → số món phải gập → ổn định**.
-- Mọi kết quả phải qua **validator độc lập** (đủ mỗi món 1 lần, trong lòng thùng, không chồng lấn, đỡ đáy đủ, không vượt tải chồng/tải thùng, không vượt tồn thùng) trước khi lưu.
-- **Nhãn chứng minh** từng đơn (`orders[].proof`), không nói "tối ưu" chung chung:
-  - `optimal_global` — số kiện bằng cận dưới và mọi tổ hợp thùng rẻ hơn đều bị loại bằng điều kiện cần (thể tích, cân, kích thước, diện tích đáy). Đúng với **mọi** cách xếp.
-  - `optimal_in_model` — service CP-SAT (Google OR-Tools, `packer/`) chứng minh mọi tổ hợp tốt hơn **không xếp được** theo luật chồng hàng **chặt hơn** thực tế (vd chỉ cho tối đa 2 vật đỡ). Không phải tối ưu tuyệt đối.
-  - `heuristic` — phương án tốt nhất tìm được, chưa chứng minh; xem `lowerBoundParcels` để biết còn cách cận dưới bao xa.
-- `orders[].explanation[]` ghi lời giải thích từng tổ hợp thùng ("SAMPLE-S: không thể — món JEAN#1 không vừa…") để trả lời câu "vì sao không dùng thùng nhỏ hơn". `cpSatPending: true` = CP-SAT còn đang chạy (FE nên thăm dò lại vài giây).
-- Đây là **tối ưu tổ hợp có chứng minh**, không phải học máy. Hướng dẫn bằng chữ (Groq) chỉ **viết lời** từ toạ độ bộ giải đã tính.
-
-### `approve` — chốt kế hoạch
-Body `{ "expected_version": 3 }`. Kế hoạch `ready → packing`, nhóm `pending_approval → approved_for_packing` trong cùng transaction; version tăng 1, ghi người/giờ duyệt và bắt đầu. FE mở quét/cân ngay từ `{ plan }` trả về, không gọi thêm `/start`. Còn đơn `partial`/`no_fit` → 409 `PACKING_HAS_UNPLACED` — chuyển món/đổi thùng/tính lại trước. Nhóm đã hủy hết đơn → 409 `ORD_GROUP_ALL_ORDERS_CANCELED`.
-
-### Chỉnh tay — thay cho "từ chối, tính lại"
-- **Đổi thùng 1 kiện** `POST .../parcels/:parcelNo/change-box` `{ expected_version, box_code, reason, note? }`: xếp lại đúng các món của kiện đó vào thùng mới; không vừa → 422 `PACKING_BOX_DOES_NOT_FIT` (kèm `details.violations`); thùng không còn trống → 409 `PKG_BOX_OUT_OF_STOCK`. Kế hoạch giữ nguyên các kiện khác.
-- **Chuyển món** `POST .../parcels/:parcelNo/move-item` `{ expected_version, item_key, to_parcel_no?, reason, note? }`: sang kiện khác **cùng đơn**, hoặc bỏ trống `to_parcel_no` để tách kiện mới (hệ thống chọn thùng). Cả 2 kiện bị ảnh hưởng xếp lại và qua validator. Sang kiện của đơn khác → 400 `PACKING_MOVE_ACROSS_ORDERS` (một đơn nguồn là một phạm vi đóng).
-- `reason` (🔄 mở rộng 08/10/2026): `PRODUCT_MORE_FRAGILE_THAN_EXPECTED`, `RECOMMENDED_BOX_NOT_IN_STOCK`, `ITEM_DIMENSION_WRONG`, `ITEM_WEIGHT_WRONG`, `BOX_TOO_TIGHT`, `BOX_TOO_LOOSE`, `BOX_SPEC_WRONG`, `TOO_MANY_PARCELS`, `ITEM_DAMAGED`, `OTHER` (bắt buộc `note`, thiếu → 400 `PACKING_NOTE_REQUIRED`). Lý do là dữ liệu để Admin cải thiện gợi ý — xem "Vòng phản hồi" bên dưới. Mỗi lần chỉnh ghi 1 dòng `adjustments[]` (ai, lúc nào, vì sao) và **tăng `version`** — FE dùng `plan` trả về cho thao tác kế tiếp.
-- **Tính lại có điều kiện** `POST .../packing-plan/recompute` `{ expected_version, exclude_box_codes?, prefer? }`: dùng khi thực tế khác dữ liệu (thùng hỏng → loại thùng; muốn rẻ hơn → `prefer: "cheapest"`, chế độ này không chạy chứng minh). Kế hoạch cũ chuyển `superseded`, tính mới ngay (đồng bộ, vài trăm ms tới vài giây).
-- **`reject`** (🔄 ĐÃ ĐỔI 08/10/2026) `{ expected_version, reason, note?, owner_id? }`: `reason` là **mã** (không còn chữ tự do). Kế hoạch `rejected` vẫn giữ để job không tự tính lại; nhóm về `picked`. Có **hạn xử lý 2 giờ làm việc** (`rejection.dueAt`); quá hạn hệ thống nhắc 1 lần (Admin, Store Owner, người được giao). Thông báo `packaging_rejected` gửi Admin + Store Owner, hoặc đích danh `owner_id`. **Từ chối không còn là ngõ cụt** — phải kết thúc bằng một trong 3 cách:
-  1. **Sửa dữ liệu rồi tính lại** `POST .../recompute` (ghi `rejection.resolution = 'recompute'`).
-  2. **Đóng gói thủ công** `POST .../packing-plan/manual` `{ expected_version, parcels: [{ order_id, box_code, item_keys[] }], note }`: người xử lý nhập kiện thật (thùng nhân viên thực tế dùng + các món trong từng kiện). Hệ thống kiểm: mỗi món đúng 1 kiện, thùng còn tồn, không quá tải thùng (không kiểm hình học). Cố gắng xếp 3D vào thùng đó; không xếp được thì kiện `manualLayout: true` (không có tọa độ thật). Tạo kế hoạch mới `source: 'manual'` ở `ready` → người **khác** duyệt (hai cặp mắt) → quét, niêm phong, trừ thùng/vật tư, cân, báo sàn như luồng thường.
-  3. **Trả về lấy hàng** khi hàng hỏng: `POST .../packing-plan/report-issue` (đã có).
-
-### 🆕 Đổi thùng khác có tốn vật liệu không? (08/10/2026)
-| Thời điểm | Đổi thùng | Tốn gì |
-| --------- | --------- | ------ |
-| Chưa duyệt (`ready`) | `POST .../parcels/:no/change-box` | **Không tốn gì** — chỉ giữ chỗ mềm, chưa trừ tồn |
-| Đang đóng, kiện chưa niêm phong (`approved`/`packing`) | `POST .../parcels/:no/change-box-in-session` + `old_box_outcome` | `unused`: không tốn (thùng cũ về kệ). `damaged`: trừ 1 thùng cũ khỏi tồn, ghi sổ `waste` + chi phí hao hụt |
-| Đã niêm phong | Hoàn tác niêm phong trước (`POST .../parcels/:no/unseal`), rồi đổi thùng | Thùng đã trừ tồn lúc niêm phong: `reusable` dùng lại không tốn; `damaged` coi như mất (đã trừ), niêm phong lại trừ cái mới |
-Thùng chỉ bị trừ **lúc niêm phong**, theo thùng ghi trên kiện — nên đổi thùng trước khi niêm phong thì hệ thống trừ đúng thùng thật. Hệ thống xếp lại các món vào thùng mới qua validator và **giữ nguyên các lần quét đã có**. Thùng mới không xếp vừa → 422; hết tồn → 409. Hao hụt hiện trong `GET /packing/reports/feedback` (`waste`).
-
-### 🆕 Túi zip theo size món + tồn túi (08/10/2026)
-- **Chọn túi khi đo hồ sơ SKU** (`PUT /product-master/:id/packaging-profile`): hệ thống kiểm túi có **vừa** gói đã đo không; quá nhỏ → 422 `PM_ZIP_BAG_TOO_SMALL` kèm túi gợi ý. Response PUT có `suggestedZipBagCode` — FE nên **tự điền gợi ý** khi người dùng chưa chọn túi (hệ thống không tự gán; hàng không cần túi vẫn để trống). Công thức: gói sắp 3 cạnh a ≥ b ≥ t (mm), túi W×L vừa khi `b + t + 10 ≤ W` và `a + t + 30 ≤ L` (thử cả hai chiều xoay) — lề là số khởi đầu, chưa hiệu chỉnh.
-- **Tồn túi:** `POST /packaging/bags/:id/stock-in` (Warehouse/Admin). Mỗi món có túi trừ **1 túi lúc niêm phong kiện** (cùng lúc thùng). Thiếu túi không chặn đóng — ghi `materialsShortfall` + báo Admin/Store Owner.
-- Giới hạn: túi **chưa** tính vào chi phí kiện hay phí vận chuyển (giá túi chỉ để tham khảo/báo cáo sổ kho).
-
-### 🆕 Hoàn tác xác nhận đóng gói (08/10/2026)
-`POST .../packing-plan/parcels/:parcelNo/unseal` `{ expected_version, reason, note?, box_condition, rescan? }` — mở lại 1 kiện đã niêm phong (hoặc đang bị giữ vì lệch cân) để đóng lại.
-| Tình huống | Ai làm được | Kết quả |
-| ---------- | ----------- | ------- |
-| Kế hoạch còn `packing` (các kiện khác chưa xong) | Packaging, Warehouse, Store Owner, Admin | Kiện về `pending`; có thể quét lại / đổi thùng / niêm phong lại |
-| Nhóm đã `packed`, chưa giao | **Chỉ Admin / Store Owner** | Kế hoạch `packed → packing`, nhóm `packed → approved_for_packing`; đóng lại kiện đó thì tự `packed` lần nữa |
-| Đã giao (`shipped` trở đi) | Không ai | 409 — dùng luồng hoàn hàng |
-`box_condition`: `reusable` (thùng còn tốt, niêm phong lại **không trừ tồn lần 2**) hoặc `damaged` (thùng + vật tư lần trước coi như mất vì đã trừ lúc niêm phong; niêm phong lại sẽ trừ cái mới; ghi hao hụt vào báo cáo feedback). `rescan: true` = xóa các lần quét, quét lại từ đầu. Mỗi lần ghi 1 dòng `adjustments[]` (`kind: "unseal"`) + `activity[]`, và tính vào `GET /packing/reports/feedback`.
-**Lazada:** API Pack của Lazada không có hoàn tác. Nếu nhóm đã báo "Đã đóng gói" lên Lazada, response có `warnings[]`; trạng thái trên sàn giữ nguyên, niêm phong lại không báo lại (món đã `packed` bị bỏ qua). Hiển thị cảnh báo này cho người bấm.
-
-### 🆕 Vòng phản hồi — nhân viên làm khác gợi ý thì Admin cải thiện gì (08/10/2026)
-Gợi ý chỉ là gợi ý: nhân viên có thể đổi thùng, chuyển món, từ chối. Mỗi lần làm khác đều có **mã lý do** + SKU + thùng bị chạm. `GET /packing/reports/feedback?from&to&min_count` (Store Owner, Admin) gom theo lý do × SKU × thùng và sinh **đề xuất**, ví dụ:
-| Lặp lại | Admin làm gì |
-| ------- | ------------ |
-| `ITEM_DIMENSION_WRONG`, `BOX_TOO_TIGHT/LOOSE` trên 1 SKU | Đo lại hồ sơ SKU (`PUT /product-master/:id/packaging-profile`) |
-| `ITEM_WEIGHT_WRONG`, lệch cân vì `PRODUCT_WEIGHT_WRONG` | Sửa cân nặng SKU |
-| `PRODUCT_MORE_FRAGILE_THAN_EXPECTED`, `ITEM_DAMAGED` | Bật dễ vỡ / giảm tải chồng của SKU, hoặc tăng đệm trong `/packing/settings` |
-| `RECOMMENDED_BOX_NOT_IN_STOCK` trên 1 thùng | Nhập thùng, tăng `reorder_level` |
-| `BOX_SPEC_WRONG` | Sửa số đo thùng trong danh mục |
-| `TOO_MANY_PARCELS`, `SPECIAL_PACKING_NEEDED`, `PLAN_UNREALISTIC` | Xem cài đặt đóng gói, thêm cỡ thùng |
-Hệ thống **chỉ đề xuất**, Admin tự quyết. "AI" tốt lên nhờ dữ liệu đầu vào và tham số đúng hơn — không tự học máy; dùng `followedRate` (tỷ lệ kế hoạch được làm đúng gợi ý) so trước/sau mỗi lần sửa để chứng minh.
-
-**Tác động (08/10/2026):** (1) Dữ liệu cũ: không migration; kế hoạch cũ `source = solver`, `rejection_reason` chữ tự do đọc bình thường (`rejection.reasonCode = null`). (2) Đổi hành vi: `reject` đổi `reason` từ chữ tự do sang **mã** (FE phải gửi mã + `note`), thông báo từ chối giờ gửi cả Store Owner; `recompute` từ kế hoạch `rejected` ghi `resolution`. (3) Xung đột: `manual` thay kế hoạch `rejected` bằng kế hoạch mới trong 1 transaction, khóa `version`. (4) Không ảnh hưởng: tính kế hoạch, quét/niêm phong, giữ chỗ thùng (kế hoạch `rejected` không giữ chỗ). (5) Giới hạn: kiện `manualLayout` không dựng được 3D/hướng dẫn từng bước; báo cáo feedback tính trực tiếp (tối đa 5.000 kế hoạch).
-
-**Tác động bước 2 (đổi thùng lúc đóng, 08/10/2026):** (1) Dữ liệu cũ: không migration; `adjustments[]` cũ không có `oldBoxOutcome` (null), sổ vật tư thêm loại `waste`. (2) Route mới, route cũ không đổi. (3) Xung đột: trừ hao hụt + cập nhật kế hoạch cùng transaction, khóa `version` của kế hoạch; kiện đã niêm phong/đã trừ thùng bị chặn nên không trừ trùng. (4) Không ảnh hưởng: niêm phong, trừ thùng, giữ chỗ thùng (kiện đổi sang thùng mới thì giữ chỗ chuyển theo). (5) Giới hạn: tồn thùng cũ không đủ để trừ hết hao hụt thì chỉ trừ phần có (ghi chú trong sổ); đổi thùng kiện đã niêm phong phải hoàn tác niêm phong trước.
-
-**Tác động bước 3 (hoàn tác niêm phong, 08/10/2026):** (1) Dữ liệu cũ: không migration; thêm loại `adjustments.kind = unseal` và `activity.kind = unseal`; bảng chuyển trạng thái nhóm thêm cạnh `packed → approved_for_packing` (các cạnh cũ không đổi). (2) Route mới, route cũ không đổi. (3) Xung đột: cập nhật kế hoạch + chuyển trạng thái nhóm cùng transaction, khóa `version`; `reusable` giữ `box_consumed` nên không trừ trùng; giữ chỗ thùng chỉ tính kiện chưa trừ nên `damaged` (box_consumed=false) giữ chỗ lại đúng. (4) Không ảnh hưởng: giao hàng (nhóm phải `packed` mới bắt đầu giao; về `approved_for_packing` thì chưa giao được cho tới khi đóng lại), tháo kiện do đơn hủy, quét/niêm phong thường. (5) Giới hạn: Lazada không hoàn tác Pack; vật tư chèn của lần niêm phong trước KHÔNG tự thu hồi khi `damaged` (coi mất) — muốn thu hồi dùng luồng tháo kiện.
-
-**Tác động bước 4 (túi zip theo size, 08/10/2026):** (1) Dữ liệu cũ: túi cũ chưa có tồn → `quantityOnHand = 0` (mặc định), `reorderLevel = 20`; không migration. Hồ sơ SKU đã `ready` với túi KHÔNG vừa vẫn giữ nguyên — chỉ kiểm lại khi xác nhận hồ sơ lần sau (có thể bị 422 nếu gửi lại cùng túi). (2) Đổi hành vi: `PUT packaging-profile` có thêm lỗi 422 `PM_ZIP_BAG_TOO_SMALL`, response thêm `suggestedZipBagCode`; niêm phong kiện giờ trừ túi và có thể thêm thông báo thiếu/sắp hết túi. (3) Xung đột: trừ túi nằm CÙNG transaction niêm phong; mở lại kiện `reusable` giữ `box_consumed` nên không trừ lần 2, `damaged` trừ túi mới. (4) Không ảnh hưởng: engine tính kế hoạch (không dùng kích thước túi), giữ chỗ thùng. (5) Giới hạn: không có sổ riêng 'túi hỏng' — túi dùng dở khi `damaged` coi như mất (đã trừ lần niêm phong trước).
-
-### 🆕 Gợi ý kho thùng, chia đều kiện, đơn lớn (04/10/2026)
-- **Gợi ý kho thùng** (`orders[].stockSuggestion`): khi kho hết thùng vừa hơn nên đơn phải dùng thùng to/nhiều kiện, lúc tính hệ thống giải thêm 1 lần "giả định kho đủ thùng". Nếu cách đó tốt hơn (theo đúng thứ tự mục tiêu), kế hoạch ghi thùng nào thiếu (`needed` vs `available` — `available` đã trừ thùng nhóm khác đang giữ chỗ), số kiện và lấp đầy TB trước/sau, tiền chênh (`savingVnd`). Kèm 1 dòng trong `explanation`. Màn `/app/packing/:groupId` hiện thẻ "Gợi ý kho thùng" (Admin có link tới danh mục thùng). Nhãn chứng minh vẫn đúng: phương án là tối ưu **với thùng đang có**; gợi ý cho biết nhập thêm thùng thì tốt hơn bao nhiêu. Nhập thùng xong bấm "Tính lại…" để dùng.
-- **Chia đều kiện** (bộ giải `brkga-ems-v2`): sau khi chọn số kiện/thùng, bộ giải thử xếp lại cặp kiện lệch tải nhất với **đúng các thùng đó** — không bao giờ thêm kiện, đổi sang thùng đắt hơn hay gập thêm món chỉ để chia đều. Hiệu quả vừa phải: trên 300 đơn mẫu, chênh cân TB giữa kiện nặng nhất và nhẹ nhất giảm 1,40 → 1,30 kg.
-- **Đơn lớn hơn giới hạn CP-SAT (12 món)** mà chưa chứng minh được: `explanation` ghi rõ cận dưới chỉ tính theo thể tích/cân/diện tích đáy nên có thể thấp hơn mức xếp được thật. Chứng minh số kiện tối thiểu cho đơn lớn (gập + xoay) chưa làm được bằng cận dưới thông thường — đã thử cận Fekete–Schepers, không đủ mạnh.
-- `totals.avgFill` (header màn làm việc: "lấp đầy x%"). Ví dụ đơn sỉ 40 áo + 12 quần: chỉ có thùng L → 5 kiện, 63%; thêm thùng `SAMPLE-LT` 50×40×20 → 3 L + 2 L thấp, 76%, rẻ hơn 4.000 đ.
-
-### Khi nào kế hoạch bị thay
-- Một đơn trong nhóm bị hủy sau khi đã có kế hoạch → kế hoạch `superseded`, nhóm về `picked`, thông báo `packaging_plan_invalidated` (Packaging Staff + Admin) → job tự tính lại cho phần còn lại.
-- Cả nhóm bị hủy (N1, Nghiệp vụ 7) → kế hoạch `superseded`, nhả giữ chỗ thùng.
-- Lỗi dữ liệu lúc tính (vd hồ sơ SKU chưa `ready`) → kế hoạch `failed` + `failureReason`, **không tự tính lặp**; kho sửa dữ liệu rồi bấm "Tính lại".
-
-### Hướng dẫn đóng gói từng bước — `POST .../parcels/:parcelNo/guide`
-**Chia việc**: bộ giải quyết định hình học (thùng, vị trí, hướng, thứ tự `placements[].step`); hệ thống đổi toạ độ thành dữ kiện dễ hiểu ("góc trái – phía trước", "đặt lên trên GIAY#1"); **Groq** chỉ viết lại thành câu tiếng Việt. Server kiểm lời AI (đủ bước, đúng thứ tự, đúng SKU từng bước); sai/lỗi mạng/chưa cấu hình → **câu mẫu** (`source: "template"`). Mô hình không thấy thông tin khách hàng.
-
-Role: Packaging, Warehouse, Admin; 10 lần/phút. Body `{ "regenerate": false }`; đã có thì trả bản đã lưu. Không cần `expected_version`, không đổi `version`. Response = `{ plan }`, hướng dẫn ở `parcels[i].guide`:
-```json
-{
-  "source": "ai",
-  "model": "groq/openai/gpt-oss-120b",
-  "fallbackReason": null,
-  "summary": "Dùng thùng M (SAMPLE-M) cho 3 món ...",
-  "steps": [
-    { "step": 1, "instruction": "Đặt hộp GIAY-42 nằm ngang sát đáy, góc trái – phía trước.", "tip": "Không đặt món nào đè lên hộp này." }
-  ],
-  "generatedAt": "2026-10-04T10:00:00.000Z"
-}
-```
-`fallbackReason`: `null` | `no_api_key` | `ai_error` | `ai_invalid_output`. Đổi thùng/chuyển món làm hướng dẫn của kiện đó về `null` — FE gọi lại. Đơn chưa xếp được → 409 `PACKING_GUIDE_NOT_AVAILABLE`.
-
-### Màn FE (18/10/2026)
-
-- `/app/packing` — một danh sách việc được giao (`GET /order-groups?assigned_packer_id=<userId>` + summary), chọn dòng để xem chi tiết và 3D. `ready`: **Chấp nhận & đóng gói**; nhận `packing` thì mở quét/cân ngay. Tự làm mới 10 giây, không màn Approved trung gian; lỗi/từ chối hiện khi cần xử lý.
-- `/app/packing/:groupId` nếu có liên kết trực tiếp thì mở lại cùng phần chi tiết, không thêm bước xác nhận. Dữ liệu `approved` cũ có thể tự gọi `/start` rồi dùng cùng phần đóng gói.
-- **Đóng từng kiện** ngay sau chấp nhận: quét → cân/niêm phong, giữ 3D bên cạnh. Kiện cuối hoàn tất thì BE tự chuyển nhóm `packed`; kiện lệch cân hiện việc xem lại. Gán/đổi người là thao tác quản lý của Admin, không phải khối bắt buộc trên màn nhân viên.
-
-### DB liên quan — `packing_plans` (1 bản hoạt động / nhóm)
-
-| Field | Kiểu | Ý nghĩa |
-|---|---|---|
-| `order_group_id`, `is_active` | ObjectId, Boolean | Unique có điều kiện: mỗi nhóm đúng 1 kế hoạch `is_active: true` — đồng thời là khoá chống 2 job cùng tính |
-| `revision` | Number | Lần tính thứ mấy của nhóm (tăng mỗi lần `recompute`/tính lại) |
-| `version` | Number | Khoá lạc quan cho mọi thao tác ghi (khác `__v` của nhóm) |
-| `status` | String | `computing` / `ready` / `approved` / 🆕 `packing` (05/10 — đang đóng) / `packed` / `rejected` / `failed` / `superseded` |
-| `failure_reason` | String\|null | Lý do khi `failed` |
-| `orders[]` | sub-doc | Mỗi đơn: `order_id`, `platform_order_id`, `status` (`ok`/`partial`/`no_fit`), `unplaced[]` `{item_key, code, reason}`, `proof`, `lower_bound_parcels`, `explanation[]`, `strategy`, `cp_sat` |
-| `parcels[]` | sub-doc | Mỗi kiện: `parcel_no` (1..N trong cả nhóm), `order_id`, `box` (chụp `code`, `name`, `inner_mm`, `outer_mm`, `tare_g`, `max_load_g`, `price_vnd` lúc tính), `placements[]`, `fill_ratio`, `items_weight_g`, `estimated_weight_g` (hàng + bì + vật tư), `volumetric_weight_g`, `materials[]`, `materials_weight_g`, `materials_cost_vnd`, `shipping_cost_vnd` (ghi khi tạo vận đơn), `guide`, `actual_weight_kg`, `is_abnormal`, `materials_shortfall[]` |
-| `item_profiles[]` | sub-doc | Loại hàng + túi zip theo SKU (cho 3D và lời hướng dẫn) |
-| `adjustments[]` | sub-doc | Lịch sử chỉnh tay: `kind`, `detail`, `reason`, `note`, `by`, `at` |
-| `solver` | sub-doc | `engine_version`, `computation_ms`, `options` (`exclude_box_codes`, `prefer`) |
-| `approved_by/at`, `rejected_by/at`, `rejection_reason`, `packed_by/at` | | Audit |
-
-`packaging_recommendations` (bản cũ) giữ nguyên làm lịch sử, không còn API. Nhóm đang `pending_approval`/`approved_for_packing` mà chỉ có phương án cũ: chạy `scripts/migrate-to-packing-plans.ts` (mặc định chỉ in kết quả; `--apply` mới ghi; nhãn luôn `heuristic`).
-
-🆕 **Trường thêm 05/10/2026** (tất cả có mặc định, bản ghi cũ đọc bình thường, không cần migration): `orders[].over_parcel_limit`, `orders[].status` thêm `canceled`; mỗi `parcels[]` thêm `status` (`pending`/`sealed`/`held`/`to_unpack`/`voided`), `has_fragile`, `scans[]`, `box_consumed`, `sealed_by/at`, `weighings[]`, `reviews[]`, `unpack`; cấp kế hoạch thêm `approve_override_reason`, `assigned_packer_id/at`, `packing_started_by/at`, `pack_mode`, `issues[]`, `activity[]`, `solver.options.fragile_cushion_mm`. Kế hoạch `packed` cũ không có `parcels[].status` → API trả `sealed`. Index mới `{status, packed_at}` (báo cáo) và `{assigned_packer_id, is_active, status}` (giao việc).
-
----
-
-## 🆕 Nghiệp vụ 1b — Phiên đóng gói: quét, niêm phong, kiện lệch cân, sự cố, tháo kiện (05/10/2026)
-
-### Bối cảnh xảy ra
-Trước đây "đóng gói" chỉ là 1 lần gửi cân cho cả nhóm. Không ai kiểm món nào đã vào thùng nào, kiện lệch cân vẫn thành `packed` ngay (chỉ báo Store Owner), món hỏng phát hiện lúc đóng không có cách báo, và đơn bị hủy sau khi đã đóng thì hàng nằm trong thùng không ai trả về kệ.
-
-### Ai làm gì
-
-| Bước | Ai | Route | Kết quả |
-|---|---|---|---|
-| 0. Được giao việc | Hệ thống | (tự động khi kế hoạch `ready`) | `session.assignedPackerId` = Packaging Staff ít việc nhất; tính lại giữ người cũ; người được giao nhận `packing_assigned` |
-| 0b. Đổi người | Packaging, Admin | `POST .../packing-plan/assign` | `{mode: auto}` hoặc `{mode: manual, staff_id}` |
-| 1. Chấp nhận & đóng gói | Packaging, Admin | `POST .../packing-plan/approve` | Kế hoạch `ready → packing`, ghi người/giờ duyệt và bắt đầu trong một transaction, version +1. `/start` chỉ cần cho `approved` cũ; không có bước bắt đầu riêng trên UI mới |
-| 2. Quét món | như trên | `POST .../parcels/:no/scan` | Mỗi lần quét gắn 1 món (`item_key`) chưa quét của kiện. Sai kiện → 409 kèm kiện đúng |
-| 3. Niêm phong + cân | như trên | `POST .../parcels/:no/seal` | Quét đủ mới cho niêm phong. Trừ thùng + vật tư của kiện. Trong ngưỡng → `sealed`; lệch → `held` |
-| 4. Xem lại kiện lệch | Packaging (người KHÁC), Admin | `POST .../parcels/:no/review` | `accept` / `reweigh` / `reopen` |
-| 5. Hoàn tất | Hệ thống | (cùng transaction với kiện cuối) | Mọi kiện còn giao `sealed` → kế hoạch + nhóm `packed`, báo Lazada |
-
-**Ví dụ** — nhóm có 2 kiện: kiện 1 (2 áo TEE-M, 1 quần JEAN-30), kiện 2 (1 hộp giày SHOE-40):
-1. Quét `TEE-M` ở kiện 2 → 409 `PACKING_SCAN_WRONG_PARCEL`, `details.belongsToParcels: [1]` — màn hình báo "món này của kiện 1".
-2. Quét `tee-m` (chữ thường) 2 lần, `JEAN-30` 1 lần vào kiện 1 → `remainingInParcel: 0`. Quét `TEE-M` lần 3 → 409 `PACKING_SCAN_OVER`.
-3. `seal` kiện 1 với 0,93 kg (ước tính 0,90 kg) → `sealed`. `seal` kiện 2 với 1,6 kg (ước tính 1,1 kg, lệch 45%) → `held`, Packaging Staff + Store Owner nhận `packing_parcel_held`; nhóm **chưa** `packed`.
-4. Người niêm phong bấm `accept` → 403 `PACKING_SELF_REVIEW_FORBIDDEN`. Đồng nghiệp mở kiện, thấy dư 1 túi khí lớn → `review {action: "accept", reason: "MATERIALS_HEAVIER"}` → kiện `sealed`, response `completed: true`, nhóm `packed`.
-
-### Lối tắt `POST .../packing-plan/pack`
-Vẫn dùng được (demo nhanh, hoặc FE chưa làm màn quét): cân cho **đủ các kiện chưa niêm phong**, món chưa quét ghi `method: "bypass"`, kế hoạch ghi `packMode: "quick"` (báo cáo thấy được tỷ lệ đóng không quét). **Đổi hành vi:** kiện lệch cân **không còn thành packed** — vào `held` như đường quét. Bật cài đặt `require_scan` → 409 `PACKING_SCAN_REQUIRED`.
-
-### Sự cố lúc đóng — `POST .../packing-plan/report-issue`
-Kiện phải đang `pending` (kiện `held` thì `review {action: "reopen"}` trước).
-- **`resolution: "replace"`** — lấy 1 món thay từ kệ ngay tại bàn đóng: cần `warehouse_id` (tùy chọn `bin_location_id`). Hệ thống: bớt món cũ khỏi số "đã lấy" (món hỏng không trả kệ), trừ tồn 1 món mới (sổ kho `pack_replace`), xóa lần quét của món đó — **quét lại** rồi niêm phong. Kho hết → 409 `ORD_GROUP_INSUFFICIENT_STOCK` → dùng cách dưới.
-- **`resolution: "back_to_picking"`** — kế hoạch bị thay, nhóm `approved_for_packing → picking`, Warehouse lấy món thay bằng `pick-item` như bình thường; lấy đủ → `pick` → hệ thống tự tính lại kế hoạch. Chỉ khi **chưa niêm phong kiện nào** (409 `PACKING_ISSUE_HAS_SEALED_PARCELS`) — vì thùng đã trừ tồn.
-- Mỗi sự cố ghi `issues[]` + thông báo `packing_issue` (Store Owner; `back_to_picking` thêm Warehouse Staff).
-
-### Đơn hủy sau khi đã bắt đầu đóng — tháo kiện
-- Đồng bộ đơn thấy 1 đơn chuyển hủy/sự cố khi kế hoạch đang `packing`/`packed`: đơn đó `orders[].status = "canceled"`, **mọi kiện của đơn** → `to_unpack` (kể cả kiện chưa niêm phong — hàng đã lấy khỏi kệ). Kiện đơn khác giữ nguyên, không tính lại. Thông báo `unpack_required`.
-- Tất cả đơn đều hủy → nhóm `canceled` (kể cả từ `packed`), kế hoạch giữ tới khi tháo xong.
-- `POST .../parcels/:no/unpack {box_condition: "reusable"|"damaged", recovered_materials?: [{code, quantity}]}`: hàng về **đúng ô đã lấy** (sổ kho `cancel_unpack`), thùng `reusable` → kho tái sử dụng, `damaged` → ghi bỏ; kiện `voided`. 🆕 Vật tư chèn còn dùng được khai trong `recovered_materials` → cộng kho tái sử dụng (ví dụ kiện có 4 góc xốp, 3 cái còn nguyên → `[{"code": "FOAM-CORNER", "quantity": 3}]`; 1 cái còn lại coi như đã dùng). Vật tư phải bật `reusable` ở `/packaging/materials` (400 `PKG_MATERIAL_NOT_REUSABLE`); mã không có trong kiện hoặc vượt số → 400 `PACKING_RECOVER_MATERIAL_INVALID`. `withoutLocation > 0` = có món lấy từ lần quét cũ không lưu ô — kho phải tự đặt lại và đối soát.
-- Còn kiện `to_unpack` → **không giao được** (409 `SHP_PARCELS_TO_UNPACK`). Kiện đã tháo không xuất hiện trong báo giá, phiếu, nhãn, tổng kiện.
-- Nếu đơn cuối cùng còn kiện chưa đóng bị hủy khiến các kiện còn lại đều đã `sealed` nhưng kế hoạch chưa tự `packed` → gọi `POST .../packing-plan/finish`.
-
-### 🆕 Đơn hủy TRƯỚC khi bắt đầu đóng — hàng đã lấy tự trả kệ (05/10/2026 tối)
-Áp dụng khi nhóm đang `picking`, `picked`, `pending_approval` hoặc kế hoạch `approved` cũ chưa bắt đầu. Từ 18/10/2026, chấp nhận đã chuyển kế hoạch sang `packing`; đơn hủy sau thời điểm đó đi qua luồng tháo kiện ở trên, kể cả kiện chưa niêm phong.
-- Hệ thống tính **hàng dư** = đã lấy (lượt hiện tại) − số đặt của các đơn còn lại, theo từng SKU. Phần dư **tự cộng lại tồn** đúng ô đã lấy (ô lấy sau cùng trả trước), sổ kho loại `cancel_return`.
-- Warehouse Staff + người lấy hàng được giao nhận `return_to_shelf`: *"Đem hàng đã lấy trong giỏ trả về kệ: TEE-M ×2 → ô KA-D1-P01-T03-2; …"*. Thuận chốt cách này (tự cộng tồn + báo kho), không có bước xác nhận — giống `decide-partial` từ chối.
-- Hủy hết nhóm → mọi món đã lấy được trả. Lần quét cũ không lưu ô → thông báo ghi "không rõ ô, đối soát tay".
-- Kế hoạch đã tính/duyệt vẫn bị thay và tính lại như trước; khi tính lại chỉ còn hàng của đơn còn lại.
-- Đang `picking` mà chưa lấy vượt nhu cầu còn lại → không trả gì.
-
-### Cài đặt đóng gói — `GET/PUT /packing/settings`
-| Cài đặt | Mặc định | Có hiệu lực |
-|---|---|---|
-| `abnormal_weight_threshold` | 0.2 (20%) | Lần niêm phong/cân lại kế tiếp |
-| `fragile_cushion_mm` | 5 | Lần tính kế hoạch kế tiếp (kế hoạch đã tính giữ số đã chụp) |
-| `default_prefer` | `fewest_parcels` | Lần tính kế tiếp |
-| `max_parcels_per_order` | không giới hạn | Lần tính kế tiếp — vượt thì đơn `overParcelLimit: true`, duyệt phải gửi `override_reason` |
-| `allow_reused_box_for_fragile` | false | Lần niêm phong kế tiếp — false: kiện có hàng dễ vỡ chỉ lấy thùng mới |
-| `require_scan` | false | Ngay — true thì lối tắt `pack` bị chặn |
-
-Mỗi lần lưu = 1 version mới (giữ lịch sử); 2 người lưu cùng lúc → người sau 409 `PACKING_SETTINGS_CONFLICT`.
-
-### Báo cáo — `GET /packing/reports/summary?from&to&staff_id`
-Store Owner, Admin. Thời gian chờ đóng, thời gian đóng, tỷ lệ kiện lệch cân, số kiện được chấp nhận dù lệch, tỷ lệ duyệt nguyên vẹn (không chỉnh tay), tỷ lệ đơn đạt đúng số kiện tối thiểu, tỷ lệ quét kiểm, chi phí thùng + vật tư, số sự cố theo loại, bảng theo nhân viên. Từ 18/10/2026, chấp nhận đã ghi giờ bắt đầu: `avgWaitMinutes` dữ liệu mới bằng 0, `avgPackMinutes` tính từ chấp nhận tới hoàn tất, kể cả sau đó dùng lối tắt `pack`. Bản ghi cũ thiếu giờ bắt đầu không tính thời gian.
-
-### Tác động tới dữ liệu và luồng đã có
-1. **Dữ liệu cũ:** không migration. Kế hoạch `packed` trước 05/10 trả kiện `sealed`; kế hoạch `ready`/`approved` cũ có kiện `pending`, đóng bằng quét hoặc lối tắt đều được.
-2. **Route đổi hành vi:** `pack` (kiện lệch bị giữ, response thêm `completed`; 🔄 10/10/2026 đã bỏ `lazadaPackSync`), `approve` (vượt số kiện tối đa cần lý do), `POST /order-groups/:id/assign` gán tay chỉ nhận Warehouse Staff (422 `ORD_GROUP_STAFF_WRONG_ROLE` — trước đây gán được cho bất kỳ ai), bắt đầu giao/`shipments/batch` (chặn khi còn kiện phải tháo).
-3. **Giữ chỗ thùng:** kiện đã niêm phong không còn tính giữ chỗ (thùng đã trừ thật — trước đây có thể tính 2 lần trong lúc đóng dở); kế hoạch `packing` vẫn giữ chỗ cho kiện chưa niêm phong.
-4. **Không ảnh hưởng:** tính kế hoạch, CP-SAT, chỉnh tay, hướng dẫn AI, lấy hàng, báo Lazada (vẫn chỉ gửi khi nhóm sang `packed`).
-5. **Giới hạn:** ảnh/bằng chứng kiện chưa có; quét theo SKU (chưa có mã từng món); báo cáo tính trực tiếp, chưa có bảng tổng hợp định kỳ. ~~Hàng đã lấy của đơn hủy trước khi đóng chưa tự trả kệ; vật tư chèn không thu hồi~~ — 🔄 đã sửa tối 05/10/2026 (xem trên). Trả kệ tự động nghĩa là tồn trên hệ thống có trước khi hàng thật về kệ vài phút (cho tới khi kho làm theo thông báo).
-
-**Tác động của bản sửa tối 05/10:** (1) Dữ liệu cũ: không migration; `unpack.recovered_materials` mặc định rỗng; vật tư cũ `reusable: false`. (2) Đổi hành vi: hủy đơn trước khi đóng giờ cộng tồn + bắn thông báo; `unpack` nhận thêm `recovered_materials`; response vật tư thêm 3 trường. (3) Xung đột: trả kệ chạy trong transaction, gọi lặp không cộng 2 lần; lỗi trả kệ không chặn việc hủy đơn (chỉ log). (4) Không ảnh hưởng: phiên đóng gói, tính kế hoạch, lấy hàng bình thường. (5) Phát hiện + sửa: bộ đếm "đã lấy" của giữ chỗ trước đây không giảm khi loại món hỏng → món thay không được giữ chỗ.
-
----
+Toàn bộ request/response, trạng thái, lỗi của kế hoạch đóng gói (tự tính, chấp nhận & đóng, chỉnh tay, từ chối, quét, niêm phong, kiện lệch cân, sự cố, tháo kiện, nguồn thùng) nằm ở **`INTEGRATION_GUIDE_PACKING.md`** — đọc ở đó. FE đã nối đủ (21/10/2026), riêng mục 3.4.1 nguồn thùng còn chờ làm.
 
 ## Nghiệp vụ 2 — Phân công nhân viên (Staff Assignment)
 
@@ -327,10 +92,13 @@ Store Owner, Admin. Thời gian chờ đóng, thời gian đóng, tỷ lệ ki�
 ### Cơ chế tự động — thuật toán "Ít việc nhất" (Least-Busy)
 ```
 Hệ thống đếm: mỗi Warehouse Staff đang active có bao nhiêu Order Group
-              ĐANG XỬ LÝ DỞ (fulfillment_status CHƯA tới delivered/returned)
+              CÒN Ở BƯỚC LẤY HÀNG (awaiting_packaging, picking, partial_needs_review)
+              🔄 21/10/2026: trước đây đếm mọi nhóm chưa giao xong → người lấy xong
+              nhiều nhóm (đã sang đóng gói/giao) bị coi là bận nhất dù đã rảnh tay
 → Chọn người có số ít nhất
-→ Hòa nhau → chọn người được gán việc lần GẦN NHẤT LÂU HƠN (ai "nghỉ tay"
-  lâu nhất trong số đang hòa điểm được ưu tiên) — round-robin theo thời
+→ Hòa nhau → chọn người được gán việc lần GẦN NHẤT LÂU HƠN (tính trên MỌI
+  nhóm từng giao, ai "nghỉ tay" lâu nhất được ưu tiên; chưa từng được giao
+  thì ưu tiên nhất) — round-robin theo thời
   gian, KHÔNG phải theo `_id` (đã sửa mô tả 16/09/2026 cho khớp code
   thật — cách này công bằng hơn `_id` cố định, tránh việc hòa điểm luôn
   ưu tiên đúng 1 người)
@@ -628,108 +396,7 @@ Kế hoạch đã duyệt (nhóm `approved_for_packing`) → nhân viên đóng 
 
 ### ❌ ĐÃ BỎ (10/10/2026) — Báo "đã đóng gói" lên Lazada
 
-Quyết định của nhóm: trạng thái `packed` **chỉ ghi trong OptiPack, không ghi ngược lên Lazada**.
-
-| Trước (02/10/2026) | Từ 10/10/2026 |
-|---|---|
-| Bấm `pack` → OptiPack `packed` rồi tự gọi Lazada Pack | Bấm `pack` → chỉ OptiPack `packed` |
-| Response `pack` có `lazadaPackSync` | **Không còn** `lazadaPackSync` |
-| Mọi response nhóm đơn có `lazadaPack` | **Không còn** `lazadaPack` |
-| Route `POST /order-groups/:id/lazada-pack/retry` | **Đã xoá** (gọi vào sẽ 404) |
-| Mã lỗi `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED` | **Đã xoá** |
-
-**FE cần làm:** bỏ mọi chỗ hiển thị `lazadaPack` / `lazadaPackSync` và nút "Gửi lại lên Lazada" (nếu đã làm). Response `packing-plan/pack` còn lại: `{ plan, completed }`; route `fulfillment/pack` cũ vẫn đã gỡ. Nếu cần đánh dấu đóng gói trên Lazada, người bán tự thao tác trên Seller Center.
-
-<details><summary>Nội dung cũ (02/10/2026) — chỉ để tham khảo lịch sử</summary>
-
-**Báo "đã đóng gói" lên Lazada (02/10/2026)**
-
-**Mục đích:** nhân viên đóng gói chỉ bấm **đúng nút "pack" hiện có**, không cần mở Seller Center. Sau khi OptiPack chuyển nhóm sang `packed`, BE tự gọi API **Pack** của Lazada để đơn trên shop cũng chuyển "Đã đóng gói". FE không cần gọi Lazada (FE không giữ token của shop).
-
-**Không có nút mới, không đổi request.** 🔄 Gộp 05/10/2026: chạy ở `POST /order-groups/:groupId/packing-plan/pack` (route `fulfillment/pack` cũ đã gỡ). Thứ tự xử lý:
-
-```
-1. Kiểm tra nhóm còn đơn cần xử lý — hủy hết → 409 ORD_GROUP_ALL_ORDERS_CANCELED (MỚI)
-2. OptiPack: kế hoạch + nhóm "packed", trừ thùng/vật tư theo từng kiện (1 transaction)
-3. Gửi Pack lên Lazada cho các món của đơn Lazada còn hiệu lực (MỚI)
-4. Trả response kèm kết quả gửi Lazada
-```
-
-Bước 3 **không bao giờ làm hỏng bước 2**: Lazada lỗi, mất mạng hay token hết hạn thì nhóm vẫn `packed` (thùng đã đóng thật, luồng giao hàng chạy tiếp), kết quả lỗi được ghi lại để gửi lại sau.
-
-**Món nào được gửi lên Lazada:**
-
-| Trường hợp                                                            | Gửi Pack?                           |
-| --------------------------------------------------------------------- | ----------------------------------- |
-| Đơn Lazada còn hiệu lực, món đang `pending` / `topack`                | Có                                  |
-| Đơn đã hủy / gặp sự cố vận chuyển                                     | Không                               |
-| Đơn đổi hàng `EXC-...` (OptiPack tự tạo, không tồn tại trên Lazada)   | Không                               |
-| Món đã `packed` trở đi trên Lazada (seller tự bấm trên Seller Center) | Không gửi lại — ghi nhận là đã xong |
-| Nhóm không thuộc Lazada                                               | Không                               |
-
-**Response `pack` có thêm `lazadaPackSync`**, và **mọi response nhóm đơn có thêm `lazadaPack`** (cùng nội dung, lưu trên nhóm đơn):
-
-```json
-"lazadaPack": {
-  "status": "success",
-  "attemptedAt": "2026-10-02T09:15:00.000Z",
-  "error": null,
-  "items": [
-    { "orderId": "560694402192001", "orderItemId": "560694402292001", "ok": true, "errorCode": "0",
-      "message": "success", "packageId": "FP022511752246001", "trackingNumber": "TH340231JV0W0A", "shipmentProvider": "Flash Express" }
-  ]
-}
-```
-
-| `status`   | Ý nghĩa                                                                        | FE hiển thị                                         |
-| ---------- | ------------------------------------------------------------------------------ | --------------------------------------------------- |
-| `null`     | Nhóm chưa từng qua bước này (dữ liệu cũ, hoặc chưa đóng gói)                   | Không hiển thị                                      |
-| `disabled` | Cầu dao `LAZADA_WRITE_APIS_ENABLED` đang tắt — **chưa gửi**                    | Nhãn xám "Chưa gửi Lazada" + nút **Gửi lên Lazada** |
-| `skipped`  | Không có gì cần gửi (nhóm không thuộc Lazada, chỉ có đơn đổi hàng, đơn đã hủy) | Không hiển thị hoặc ghi chú nhỏ                     |
-| `success`  | Lazada đã nhận mọi món                                                         | Nhãn xanh "Đã báo Lazada"                           |
-| `partial`  | Một số món lỗi (xem `items[].ok = false`, `message`)                           | Nhãn vàng + danh sách món lỗi + nút **Gửi lại**     |
-| `failed`   | Không món nào thành công (`error` ghi lý do)                                   | Nhãn đỏ + `error` + nút **Gửi lại**                 |
-
-**Gửi lại:** `POST /order-groups/:id/lazada-pack/retry` (Packaging Staff, Warehouse Staff, Admin), không cần body. Chỉ dùng khi nhóm đang `packed` và `status` khác `success`; không đổi trạng thái OptiPack. Response: nhóm đơn + `lazadaPackSync`.
-
-| Mã lỗi                                         | HTTP      | Nguyên nhân                                                   |
-| ---------------------------------------------- | --------- | ------------------------------------------------------------- |
-| `ORD_GROUP_ALL_ORDERS_CANCELED`                | 409       | (route `pack`) Mọi đơn trong nhóm đã hủy — không cho đóng gói |
-| `ORD_GROUP_LAZADA_PACK_NOT_ALLOWED`            | 409       | (route `retry`) Nhóm chưa `packed`, hoặc đã gửi thành công    |
-| `ORD_GROUP_NOT_FOUND` / `ORD_GROUP_INVALID_ID` | 404 / 400 | Sai id nhóm                                                   |
-
-Lỗi trả về **trong từng món** (`items[].errorCode`) là mã của Lazada. Hay gặp: `700026` / `700000` / `700031` — trạng thái món trên Lazada không cho đóng gói (đã đóng gói hoặc đã hủy trên Seller Center); `700004` — sai tham số (thường do `LAZADA_SHIPPING_ALLOCATE_TYPE` sai); `6` / `40011` / `700024` — Lazada đang bận, bấm gửi lại sau.
-
-**Cấu hình (`be/.env`):**
-
-| Biến                            | Mặc định | Ý nghĩa                                                                                                   |
-| ------------------------------- | -------- | --------------------------------------------------------------------------------------------------------- |
-| `LAZADA_WRITE_APIS_ENABLED`     | `false`  | Cầu dao. Chỉ đúng `true` mới gọi Lazada. Lazada không có môi trường thử — mọi lệnh đi thẳng vào shop thật |
-| `LAZADA_SHIPPING_ALLOCATE_TYPE` | `TFS`    | Tham số bắt buộc của Pack. Shop nội địa: `TFS`                                                            |
-
-**Cách test lần đầu (bắt buộc trước khi demo):**
-
-1. Đặt 1 đơn nhỏ trên shop Lazada để làm đơn test; chờ đồng bộ về OptiPack.
-2. Để cầu dao **tắt**, đi hết luồng tới bấm "pack" → `lazadaPack.status = "disabled"`; Seller Center **không** thay đổi.
-3. Trên **đúng 1 máy**: đặt `LAZADA_WRITE_APIS_ENABLED=true`, khởi động lại BE, bấm **Gửi lên Lazada** (`retry`) cho nhóm đó.
-4. Kết quả `success` + có `packageId` → mở Seller Center, đơn đã chuyển "Đã đóng gói". Kết quả lỗi → chụp `lazadaPack` gửi BE để xử lý.
-
-**Cách demo:** bật cầu dao trên máy demo → Packaging Staff bấm "Đã đóng gói" → màn hình hiện nhãn "Đã báo Lazada" → mở Seller Center cho thấy đơn đã chuyển trạng thái → lần đồng bộ sau, đơn trong OptiPack cũng mang trạng thái `packed`.
-
-**Dữ liệu cũ:** không cần script. Nhóm đơn cũ có `lazadaPack.status = null`; nhóm đã đóng gói trước 02/10/2026 không tự gửi lên Lazada (có thể bấm **Gửi lên Lazada** nếu muốn).
-
-**Hạn chế hiện tại và hướng khắc phục:**
-
-| Hạn chế                                                                                            | Ảnh hưởng                                                       | Hướng khắc phục                                       |
-| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- |
-| Chưa test trên đơn thật của shop tự giao (SOF)                                                     | Lazada có thể xử lý Pack khác với tài liệu chung                | Làm đúng mục "Cách test lần đầu" trước khi demo       |
-| Chỉ báo "đã đóng gói"; giao hàng, giao thất bại, hoàn hàng trong OptiPack **không** báo lên Lazada | Đơn trên Lazada dừng ở "Đã đóng gói" tới khi seller tự cập nhật | Bổ sung ReadyToShip và nhóm API giao hàng khi mở rộng |
-| 1 thùng OptiPack gồm nhiều đơn Lazada → nhiều `packageId`                                          | Không ảnh hưởng shop tự giao (không có nhãn Lazada)             | Cần xử lý nếu chuyển sang vận chuyển của Lazada       |
-| Gửi lại phải bấm tay                                                                               | Lỗi tạm thời không tự khắc phục                                 | Thêm tác vụ định kỳ gửi lại cho nhóm `failed`         |
-| Không có thông báo khi gửi lỗi                                                                     | Chỉ thấy khi mở nhóm đơn                                        | Gửi thông báo cho Store Owner khi `failed`/`partial`  |
-
-
-</details>
+Trạng thái `packed` chỉ ghi trong OptiPack, không ghi ngược lên Lazada. Response không còn `lazadaPackSync`/`lazadaPack`; route `POST /order-groups/:id/lazada-pack/retry` đã xoá. FE xoá mã còn sót (`FE_UPDATE_CHECKLIST.md` mục 3).
 
 ### Hoàn hàng — có thể xảy ra ở 2 thời điểm khác nhau
 
@@ -1000,23 +667,9 @@ Cước là bảng mẫu; chưa gọi API hãng vận chuyển thật; chưa có
 
 ---
 
-## C.2. Flow mục tiêu — chưa triển khai
+## C.2. Flow mục tiêu (12/09/2026) — đã triển khai
 
-```text
-Sync đơn/catalog sàn → Gộp nhóm lấy hàng → Tự phân công → picking
-→ Quét từng SKU, không vượt số đặt; đủ theo lượt lấy hiện tại → picked
-  Thiếu → partial_needs_review → tiếp tục với phần có / mở lượt lấy mới
-→ Chia hàng đã lấy về TỪNG ĐƠN → Hồ sơ kho đã xác nhận
-  Thiếu dữ liệu → chặn, kho bổ sung → tính lại
-  Đủ dữ liệu → Tính thùng/túi mỗi đơn → Validator
-    Không có phương án hợp lệ → ngoại lệ (adjust qua validator)
-    Hợp lệ → pending_approval → approve/adjust (không cân) → approved_for_packing
-→ Đóng từng đơn → pack nhận cân kiện thật từng đơn
-  Lệch cân ước tính (hàng + bì + vật tư) → đánh dấu bất thường + thông báo
-→ packed → Bàn giao vận chuyển nội bộ
-```
-
-Cân ước tính phải gồm hàng + bao bì + vật tư đúng một lần. Chưa có giá/cước phù hợp thì ghi chưa biết, không dùng 15.000 đồng/kg như cước thực. Đổi hộp phải validate và tính lại; không chấp nhận chỉ vì nhân viên nhập kích thước mới.
+Flow mục tiêu viết ngày 12/09 (BE-1 → BE-5) đã được làm và thay thế bởi luồng hiện tại: sơ đồ C.1, kế hoạch đóng gói (`INTEGRATION_GUIDE_PACKING.md`), giao/hoàn qua vận đơn (`INTEGRATION_GUIDE_SHIPPING.md`).
 
 # PHẦN D — THAM CHIẾU KỸ THUẬT (API, lỗi, test)
 
@@ -1117,19 +770,8 @@ Các mục dưới đây kiểm tra route/flow legacy đang có trong code. Chec
 
 ## D.5. Checklist FE trước khi bắt đầu code
 
-- [ ] Đã đọc PHẦN A — hiểu 6 câu hỏi nghiệp vụ hệ thống trả lời, không chỉ học thuộc endpoint
-- [ ] Đã hiểu rõ SƠ ĐỒ TỔNG THỂ (Phần C) — biết chính xác nút nào bấm được ở trạng thái nào
-- [ ] Đã implement đầy đủ nhánh `partial_needs_review`, không chỉ happy path
-- [ ] Đã tích hợp polling `unread-count`
-- [ ] Đã đối chiếu `API_LIST.md` đúng role cho từng màn hình đang build
-- [ ] 🔄 **ĐÃ ĐỔI (19/09)** — Warehouse Staff giờ gọi được `GET /warehouse/warehouses` (trước chỉ Admin) — màn hình Warehouse Staff nên tự lấy `warehouse_id` từ đây, không hardcode tay
-- [ ] 🔄 **ĐÃ SỬA (07/10)** — Picking List có ô và `pick-item` trừ được tồn khi kho đã gán đúng (trước đây có thể "CHƯA GÁN VỊ TRÍ" / 409 sai); gợi ý đóng gói theo số đã quét
-- [ ] 🔄 **ĐÃ ĐỔI (19/09)** — `pick-item` có thể trả `ORD_GROUP_ITEM_NOT_IN_GROUP` (404) khi quét nhầm SKU — FE cần bắt riêng, khác với lỗi hết hàng (`ORD_GROUP_INSUFFICIENT_STOCK`)
-- [ ] 🆕 **MỚI (16/09)** — Đã xử lý 2 loại Notification mới (`cancel_confirmation_required`, `sync_failed`) trong UI chuông thông báo (Nghiệp vụ 6)
-- [ ] 🔄 **ĐÃ ĐỔI (16/09)** — Đã biết `PATCH /notifications/:id/read` trả 404 nếu gọi nhầm ID không thuộc về mình (không phải bug khi test chéo role)
-- [ ] 🆕 **MỚI (29/09)** — Đã hiểu `canceled` là trạng thái TỰ ĐỘNG (không có nút bấm nào tạo ra nó) — không cần build UI cho hành động "hủy nhóm", chỉ cần hiển thị đúng badge khi gặp trạng thái này
-- [ ] 🆕 **MỚI (29/09)** — Đã cân nhắc hiện `linkedGroupCount`/cảnh báo `linkedPending` ở màn chi tiết Order Group và màn ship (Nghiệp vụ 7) — không bắt buộc build ngay `POST /shipments/batch` nếu chưa cần giao chung chuyến, nhưng nên hiểu để không bỏ sót khi FE sau này cần
+✅ FE đã làm xong các mục của checklist này (đối chiếu 21/10/2026). Việc còn lại: `FE_UPDATE_CHECKLIST.md`.
 
 ## D.6. Nghiệm thu flow mục tiêu (BE-1 → BE-5)
 
-Áo trong zip dùng số đo gói áo; giày giữ hộp gốc; trang sức thiếu quy cách chống sốc bị chặn; canceled không vào tập hàng. Thiếu số đo không được mặc định; quá cỡ không trả hộp giả. Quét sai/quá lượng bị server chặn; retry cạnh tranh không trừ trùng. Partial phải xử lý lại tập hàng; chọn kế hoạch không bắt cân, pack mới cân/đo kiện. Recommendation stale/legacy chưa được xác minh không tự đi tiếp.
+Đã thay bằng nghiệm thu trong `INTEGRATION_GUIDE_PACKING.md` (checklist cuối file) và `FE_UPDATE_CHECKLIST.md` mục 5.

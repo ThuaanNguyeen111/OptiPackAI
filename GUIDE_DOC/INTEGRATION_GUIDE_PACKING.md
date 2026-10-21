@@ -1,7 +1,10 @@
 # Hướng dẫn FE tích hợp API Đóng gói (Packing)
 
-> **Cập nhật:** 18/10/2026 — bỏ bước chốt riêng ở Admin; tự tính và tự gán; lọc việc bằng `assigned_packer_id`; **chấp nhận là bắt đầu đóng ngay** (`ready → packing`). `/start` chỉ còn dùng cho dữ liệu `approved` cũ. **Backend:** `be/src/modules/packing/` · **Swagger:** `/api/docs` (tag _Packing plan_, _Packing settings & reports_)
-> Tài liệu này gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Phần lấy hàng, giao hàng, kho vẫn ở `INTEGRATION_GUIDE_FULFILLMENT.md` / `INTEGRATION_GUIDE_WAREHOUSE.md`; bảng tra route ngắn ở `API_LIST.md` mục 8.
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ mọi route trong tài liệu này (màn đóng gói dùng `packing-plan`). ❗ Còn thiếu: **3.4.1 Nguồn thùng** (`box-sources`, `box_source` khi niêm phong) — xem `FE_UPDATE_CHECKLIST.md` mục 1.1.
+> **Thay đổi gần nhất:** 21/10 — 3.4.1 nguồn thùng mới/tái sử dụng, 6.2 báo cáo thêm `boxSource`. 18/10 — chấp nhận là bắt đầu đóng ngay; `undo-approve` (2.3.1).
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
+
+Tài liệu gom **mọi API đóng gói** vào một chỗ, theo thứ tự màn hình FE cần dựng. Lấy hàng: `INTEGRATION_GUIDE_FULFILLMENT.md`; giao/hoàn: `INTEGRATION_GUIDE_SHIPPING.md`; kho: `INTEGRATION_GUIDE_WAREHOUSE.md`.
 
 ---
 
@@ -59,6 +62,8 @@ Kiện:      pending ─(niêm phong + cân)→ sealed | held (lệch cân, ch�
 - `plan.cpSatPending === true` → kế hoạch dùng được ngay; nhãn "tối ưu" sẽ cập nhật sau → thăm dò thưa (10 s) nếu muốn hiện nhãn mới.
 
 `approved` chỉ còn là trạng thái tương thích cho dữ liệu cũ; không cần migration. FE phải chấp nhận `/approve` trả `packing` trước khi dùng backend mới.
+
+Nhánh quay lại: kế hoạch `packing` (hoặc `approved` cũ) → `ready`, nhóm `approved_for_packing` → `pending_approval` bằng `undo-approve`, chỉ trước khi từng niêm phong. Sau đó vẫn chấp nhận và bắt đầu đóng ngay bằng `approve`.
 
 ### 0.4 Phân quyền theo vai trò
 
@@ -231,6 +236,25 @@ Ví dụ với `expected_version: 3` (trích response; BE trả toàn bộ kế 
 ```
 
 FE đặt nhãn nút **"Chấp nhận & đóng gói"**, thay state bằng `plan` trả về rồi mở ngay phần quét/cân/niêm phong cùng hướng dẫn 3D. **Không gọi `/start` sau `/approve`, không hiện màn Approved trung gian.** Bấm lặp sau thành công trả `409 PACKING_WRONG_PLAN_STATUS`; xung đột version trả `409 PACKING_VERSION_CONFLICT` — tải lại kế hoạch, không tự gửi lại mù. Nhóm đã hủy hết đơn bị chặn bởi `409 ORD_GROUP_ALL_ORDERS_CANCELED`.
+
+### 2.3.1 Quay lại chờ chấp nhận
+
+```http
+POST /order-groups/:groupId/packing-plan/undo-approve
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{ "expected_version": 4 }
+```
+
+**Quyền:** Packaging Staff, Admin. Dùng `plan.version`, không dùng version nhóm. Response `{ "plan": { ... } }` giữ cấu trúc hiện tại:
+
+- Kế hoạch `packing` hoặc `approved` cũ → `ready`; nhóm `approved_for_packing` → `pending_approval` trong cùng transaction. `plan.version` tăng 1, `revision` giữ nguyên.
+- Giữ cách xếp, thùng đã chọn, người được giao, chỉnh sửa và sự cố. **Xóa lượt quét ở mọi kiện**, người/giờ chấp nhận, người/giờ bắt đầu và lý do duyệt vượt số kiện. Lịch sử thêm `activity.kind = undo_approve` ghi người, giờ và số lượt quét bị xóa. Không hoàn tồn hoặc xóa hao hụt đã ghi nhận.
+- Chỉ được quay lại nếu mọi kiện còn `pending`, chưa trừ thùng và chưa từng niêm phong/cân. Kiện `sealed`, `held`, `to_unpack`, `voided`, hoặc đã mở niêm phong lại đều bị chặn bởi `409 PACKING_UNDO_APPROVE_NOT_ALLOWED` (`details.parcelNos` là các kiện đang chặn).
+- Sai version hoặc gửi lại request cũ → `409 PACKING_VERSION_CONFLICT`; sai trạng thái kế hoạch/nhóm → `409 PACKING_WRONG_PLAN_STATUS`. Nhóm hết đơn hoạt động → `409 ORD_GROUP_ALL_ORDERS_CANCELED`.
+
+FE đặt nút **“Quay lại chờ chấp nhận”** tại phiên đang đóng, báo rõ tiến độ quét sẽ bị xóa. Sau thành công, thay kế hoạch bằng response, tải lại nhóm và hiển thị “Chờ chấp nhận” trong danh sách của người được giao. Khi chấp nhận lại, gọi `/approve` và quét lại từ đầu; giờ bắt đầu tính theo lần chấp nhận mới. Không gọi `/start` khi kế hoạch đang `ready`, không dùng `back-to-picking` cho thao tác này.
 
 ### 2.4 Chỉnh tay trước khi duyệt (kế hoạch `ready`)
 
@@ -415,6 +439,56 @@ POST …/packing-plan/parcels/:parcelNo/seal     Role: Packaging, Warehouse, Adm
 - **Lệch cân** vượt ngưỡng (mặc định 20% so với `estimatedWeightG`) ⇒ kiện thành **`held`**, `isAbnormal: true` → chờ người khác xem (3.6).
 - Kiện cuối cùng niêm phong xong ⇒ `completed: true`, kế hoạch + nhóm sang `packed`. `lazadaPackSync` cho biết kết quả báo "Đã đóng gói" lên Lazada (xem 3.8).
 
+### 3.4.1 Nguồn thùng: thùng mới hay thùng tái sử dụng (21/10/2026)
+
+Kho mỗi mã thùng có 2 ngăn **giao hàng được**: `qtyNew` (mới) và `qtyReused` (tái sử dụng hạng A, thu hồi từ hàng hoàn). Hạng B (`qtyInternal`) chỉ dùng nội bộ, **không bao giờ** dùng để giao. Lúc niêm phong BE tự lấy **tái sử dụng trước**, trừ khi kiện có hàng dễ vỡ mà cài đặt `allowReusedBoxForFragile = false`.
+
+**Bước 1 — trước khi niêm phong, hỏi BE mỗi kiện sẽ lấy ở ngăn nào:**
+
+```
+GET …/packing-plan/box-sources      Role: Packaging, Warehouse, Store Owner, Admin   (chỉ đọc)
+→ { "orderGroupId": "…", "version": 9, "allowReusedForFragile": false,
+    "parcels": [
+      { "parcelNo": 1, "boxCode": "BOX-M", "state": "to_consume", "reusedAllowed": true,
+        "planned": "reused", "forcedNewReason": null, "outOfStock": false, "used": null, "boxSourceOverride": null },
+      { "parcelNo": 2, "boxCode": "BOX-S", "state": "to_consume", "reusedAllowed": false,
+        "planned": "new", "forcedNewReason": "FRAGILE", "outOfStock": false, "used": null, "boxSourceOverride": null },
+      { "parcelNo": 3, "boxCode": "BOX-M", "state": "consumed", "planned": null, "used": "reused", … } ],
+    "stock": [ { "code": "BOX-M", "name": "Thùng M", "qtyNew": 20, "qtyReused": 1, "reusable": true }, … ] }
+```
+
+| Trường | Ý nghĩa — FE hiện gì |
+|---|---|
+| `state` | `to_consume` = niêm phong sẽ trừ thùng · `consumed` = đã trừ (mở ra đóng lại không trừ lần 2) · `inactive` = kiện hủy/phải tháo |
+| `planned` | `reused` → "Lấy thùng **BOX-M ở kệ tái sử dụng**" · `new` → "Lấy thùng **mới**" · `null` + `outOfStock: true` → "Hết thùng" (đổi thùng bằng 4.1 hoặc nhập thêm) |
+| `forcedNewReason` | Vì sao phải dùng thùng mới: `FRAGILE` (hàng dễ vỡ) · `NOT_REUSABLE` (loại thùng không tái sử dụng) · `NO_REUSED_STOCK` (ngăn tái sử dụng hết) |
+| `used` | Kiện đã niêm phong: thùng thật đã lấy từ ngăn nào |
+| `stock` | Tồn 2 ngăn của từng mã thùng trong kế hoạch |
+
+Mô phỏng theo thứ tự kiện: 2 kiện cùng BOX-M mà ngăn tái sử dụng còn 1 → kiện 1 `reused`, kiện 2 `new` (`NO_REUSED_STOCK`). Gọi lại sau mỗi lần niêm phong (tồn đã đổi).
+
+**Bước 2 — niêm phong, kèm lựa chọn nguồn thùng (tùy chọn):**
+
+```
+POST …/packing-plan/parcels/:parcelNo/seal
+{ "expected_version": 9, "weight_kg": 0.46,
+  "box_source": "new",                         // auto (mặc định) | new | reused
+  "box_source_reason": "REUSED_BOX_WORN",      // BẮT BUỘC khi khác `planned`
+  "box_source_note": "" }                      // BẮT BUỘC khi reason = OTHER
+```
+
+`box_source_reason`: `REUSED_BOX_WORN` (móp/rách/yếu) · `REUSED_BOX_DIRTY` (bẩn/ẩm/mùi) · `OLD_LABEL_NOT_CLEAN` (còn vết nhãn khách cũ) · `REUSED_NOT_ON_SHELF` (hệ thống báo còn nhưng kệ không có) · `HIGH_VALUE_ORDER` (đơn giá trị cao/quà tặng) · `OTHER`.
+
+- Không gửi `box_source` hoặc gửi `auto` = như trước (tái sử dụng trước).
+- Chọn **đúng** `planned` → không cần lý do, không ghi gì thêm.
+- Chọn **khác** `planned` mà thiếu lý do → `400 PACKING_BOX_SOURCE_REASON_REQUIRED` (`details.planned`, `details.chosen`).
+- Chọn `reused` cho kiện dễ vỡ khi cài đặt không cho → `409 PACKING_BOX_SOURCE_NOT_ALLOWED`.
+- Chọn `reused` mà ngăn tái sử dụng hết → `409 PKG_BOX_OUT_OF_STOCK` (`details.source = "reused"`) — BE **không** âm thầm lấy thùng mới.
+- Kiện đã trừ thùng (mở ra đóng lại) mà gửi `new`/`reused` → `409 PACKING_BOX_ALREADY_CONSUMED`.
+- Lối tắt `POST …/pack` (3.9): mỗi phần tử `parcels[]` nhận đúng 3 trường trên.
+
+Sau khi niêm phong, mỗi kiện trong response kế hoạch có thêm `boxSourceUsed` (`new`/`reused`/`null`) và `boxSourceOverride` (`{ source, planned, reason, note, by, at }` hoặc `null`). Lần chọn khác gợi ý được ghi vào `activity` (`kind: "box_source"`), sổ kho vật tư (`note`) và báo cáo feedback (6.2, `boxSource`).
+
 ### 3.5 Báo sự cố lúc đóng (món hỏng / thiếu / sai)
 
 ```
@@ -456,7 +530,7 @@ Chỉ dùng khi mọi kiện còn giao đã `sealed` mà kế hoạch chưa tự
 
 ### 3.8 ~~Báo "Đã đóng gói" lên Lazada~~ — ĐÃ BỎ (10/10/2026)
 
-`seal` / `review` / `finish` / `pack` **không còn** trả `lazadaPackSync`; route `POST /order-groups/:id/lazada-pack/retry` đã xoá. Trạng thái `packed` chỉ ghi trong OptiPack, không ghi ngược lên Lazada. FE bỏ cảnh báo và nút "thử lại" liên quan.
+`seal`/`review`/`finish`/`pack` không còn trả `lazadaPackSync`; `packed` chỉ ghi trong OptiPack.
 
 ### 3.9 Lối tắt: cân cả nhóm một lần (không quét)
 
@@ -587,6 +661,10 @@ GET /packing/reports/feedback?from&to&min_count=3
       "byBox":   [{ "boxCode": "SAMPLE-M", "reason": "RECOMMENDED_BOX_NOT_IN_STOCK", "count": 5 }],
       "rejections": { "total": 4, "open": 1, "overdue": 0, "byReason": […], "resolvedBy": { "recompute": 2, "manual": 1, "backToPicking": 0 } },
       "waste": { "events": 2, "costVnd": 6000, "byBox": [{ "boxCode": "SAMPLE-M", "count": 2, "costVnd": 6000 }] },
+      "boxSource": {                                // (21/10/2026) chọn nguồn thùng khác gợi ý (3.4.1)
+        "overrides": 5,
+        "byReason": [{ "reason": "REUSED_BOX_WORN", "count": 4 }],
+        "byBox": [{ "boxCode": "BOX-M", "reason": "REUSED_BOX_WORN", "count": 4 }] },
       "suggestions": [{
         "target": { "type": "sku", "code": "TEE-M-WHITE" },     // sku | box | settings
         "reason": "ITEM_DIMENSION_WRONG", "count": 4,
@@ -594,6 +672,8 @@ GET /packing/reports/feedback?from&to&min_count=3
         "action": { "label": "Đo lại hồ sơ SKU", "method": "PUT", "route": "/product-master/:id/packaging-profile" } }]
 } }
 ```
+
+Từ 21/10/2026 `suggestions` có thêm loại `box` cho thùng tái sử dụng hay bị thay bằng thùng mới (VD "Thùng tái sử dụng BOX-M bị thay 4 lần vì móp — thùng như vậy nên xếp hạng B") → Admin siết khâu xếp hạng A khi kiểm hàng hoàn.
 
 `suggestions` chỉ là **đề xuất** — FE hiện thành thẻ và đặt nút dẫn tới màn sửa tương ứng (`action.label`); không tự gọi `action.route`. Khi trình bày: "gợi ý tốt lên nhờ dữ liệu đầu vào đúng hơn", không phải hệ thống tự học.
 
@@ -631,12 +711,16 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `PACKING_PACK_WEIGHTS_MISMATCH`       | 400  | Danh sách cân của `pack` không khớp đúng các kiện chưa niêm phong        |
 | `PACKING_SELF_REVIEW_FORBIDDEN`       | 403  | Tự chấp nhận kiện mình niêm phong                                        |
 | `PACKING_UNSEAL_NOT_ALLOWED`          | 403  | Nhóm đã `packed`: chỉ Admin/Store Owner hoàn tác                         |
+| `PACKING_UNDO_APPROVE_NOT_ALLOWED`    | 409  | Không thể quay lại chờ chấp nhận: có kiện đã/từng niêm phong hoặc phải tháo |
 | `PACKING_NOT_COMPLETE`                | 409  | `finish` khi còn kiện chưa niêm phong/đang giữ                           |
 | `PACKING_ISSUE_HAS_SEALED_PARCELS`    | 409  | `back_to_picking` khi đã niêm phong kiện                                 |
 | `PACKING_REPLACEMENT_WAREHOUSE_REQUIRED` | 400 | `replace` thiếu `warehouse_id`                                         |
 | `PACKING_PACKER_INVALID`              | 422  | Người được giao không phải Packaging Staff đang hoạt động                |
 | `PACKING_NO_PACKER_AVAILABLE`         | 409  | Không có Packaging Staff nào để tự giao                                  |
 | `PACKING_RECOVER_MATERIAL_INVALID`    | 400  | Thu hồi vật tư không có trong kiện / vượt số lượng                       |
+| `PACKING_BOX_SOURCE_REASON_REQUIRED`  | 400  | Chọn nguồn thùng khác gợi ý mà không có `box_source_reason` (3.4.1)     |
+| `PACKING_BOX_SOURCE_NOT_ALLOWED`      | 409  | Chọn thùng tái sử dụng cho kiện dễ vỡ khi cài đặt không cho (3.4.1)     |
+| `PACKING_BOX_ALREADY_CONSUMED`        | 409  | Kiện đã trừ thùng (mở ra đóng lại) — không chọn lại nguồn thùng         |
 | `PACKING_SETTINGS_CONFLICT`           | 409  | Cài đặt vừa bị người khác lưu                                            |
 | `PACKING_INVALID_DATE_RANGE`          | 400  | `from`/`to` báo cáo sai                                                  |
 | `PACKING_BACK_TO_PICKING_INVALID`     | 400  | 🆕 09/10 — `back-to-picking`: SKU không có trong hàng đã lấy / khai vượt số đã lấy (`details: {sku, requested, picked}`) |
@@ -660,7 +744,7 @@ Mã bắt đầu `PACKING_` thuộc module này; `PKG_` / `PM_` / `SHP_` của m
 | `ready`       | 3D + danh sách kiện; nút chính **Chấp nhận & đóng gói**, **Từ chối**; chỉnh phương án để trong phần phụ khi cần |
 | `rejected`    | Banner đỏ + hạn (`rejection.dueAt`) + 3 nút **Tính lại / Đóng thủ công / Trả về lấy hàng**                      |
 | `approved`    | Dữ liệu cũ: gọi `/start` rồi mở cùng phần đóng gói, không thêm bước xác nhận trên UI                         |
-| `packing`     | Chế độ đóng: từng kiện → quét → cân; kiện `held` có nút xem lại; kiện `to_unpack` có nút Tháo                   |
+| `packing`     | Chế độ đóng: từng kiện → quét → cân; kiện `held` có nút xem lại; kiện `to_unpack` có nút Tháo; **Quay lại chờ chấp nhận** chỉ trước khi từng niêm phong |
 | `packed`      | Tóm tắt + nút **Hoàn tác niêm phong** (chỉ Admin/Store Owner)                                                   |
 
 FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt riêng ở Admin, không khối gán người trong luồng nhân viên, không màn Approved trung gian. Hướng dẫn 3D giữ bên cạnh trong lúc quét/cân.
@@ -687,6 +771,8 @@ FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt
 - [ ] Gán lại → đơn rời danh sách người cũ và hiện ở người mới sau lần tải lại
 - [ ] Chấp nhận một lần → response `packing`, version tăng 1 → quét/cân ngay, không có nút "Bắt đầu đóng"
 - [ ] Tải lại kế hoạch đang `packing` giữ nguyên người/giờ bắt đầu; dữ liệu `approved` cũ vẫn dùng được
+- [ ] Chấp nhận → quét một số món → `undo-approve`: kế hoạch `ready`, nhóm `pending_approval`, lượt quét rỗng, vẫn nằm trong danh sách người được giao; chấp nhận lại rồi quét lại được
+- [ ] Đã niêm phong/giữ cân lệch hoặc đã mở niêm phong lại → `undo-approve` trả 409 `PACKING_UNDO_APPROVE_NOT_ALLOWED`; gửi version cũ → 409 `PACKING_VERSION_CONFLICT`
 
 - [ ] Nhóm `picked` → ≤ 10 s sau có `plan` `ready`
 - [ ] Duyệt khi còn đơn `no_fit` → 409 `PACKING_HAS_UNPLACED`
@@ -704,22 +790,9 @@ FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt
 
 ---
 
-## 9. Thay đổi so với FE bản `main` (đang gọi route cũ)
+## 9. Thay đổi so với FE bản `main` (route cũ)
 
-| FE đang gọi (đã gỡ)               | Thay bằng                                                                           |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| `GET /order-groups/:id/packaging` | `GET /order-groups/:id/packing-plan` (1 kế hoạch cho cả nhóm, `parcels[]`)          |
-| `POST …/packaging/generate`       | Không còn — tự tính khi nhóm `picked`; muốn tính lại: `…/packing-plan/recompute`    |
-| `POST …/packaging/approve`        | `POST …/packing-plan/approve`                                                       |
-| `POST …/packaging/adjust`         | `…/parcels/:no/change-box` hoặc `…/move-item`                                       |
-| `POST …/packaging/reject`         | `…/packing-plan/reject` (**`reason` là mã**) rồi `recompute` / `manual` / `back-to-picking` |
-| `POST …/fulfillment/pack`         | Chấp nhận: `approve` → `packing`; có quét: `scan` → `seal`. Đóng nhanh: `…/packing-plan/pack` |
-| Khóa `expected_group_version`     | Khóa `expected_version` = `plan.version`                                            |
-
-Thay đổi gây gãy từ 08/10/2026: `reject.reason` đổi từ chuỗi tự do sang **mã lý do** (kèm `note`).
-
-
----
+✅ Đã xong (21/10/2026): FE không còn gọi route `/packaging*`, `/fulfillment/pack`. Chỉ còn mã chết cần xoá — `FE_UPDATE_CHECKLIST.md` mục 3. Lưu ý từ 08/10: `reject.reason` là **mã lý do** (kèm `note`).
 
 ## Phụ lục — Ví dụ body & response (số liệu minh hoạ)
 

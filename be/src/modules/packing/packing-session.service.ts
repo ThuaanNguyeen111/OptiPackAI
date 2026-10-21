@@ -23,9 +23,18 @@ import { resolveMasterSkus } from '../master-skus/stock-key.util';
 import {
   PackingPlan,
   PackingPlanDocument,
+  type PlanBoxSourceOverride,
   type PlanParcel,
   type PlanScan,
 } from './schemas/packing-plan.schema';
+import {
+  planBoxSources,
+  reusedAllowedFor,
+  type BoxSource,
+  type BoxSourcePlan,
+  type BoxStock,
+} from './utils/box-source.util';
+import type { BoxSourceReason } from './dto/packing-plan.dto';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { PackingPlanService } from './packing-plan.service';
 import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
@@ -58,6 +67,34 @@ export interface SessionResult {
   plan: PackingPlanDocument;
   /** true = vừa chuyển cả kế hoạch + nhóm sang packed (controller báo Lazada). */
   completed: boolean;
+}
+
+/** (21/10/2026) Nhân viên chọn nguồn thùng khi niêm phong. */
+export interface BoxChoice {
+  source: 'auto' | 'new' | 'reused';
+  reason?: BoxSourceReason;
+  note?: string;
+}
+
+interface ResolvedBoxChoice {
+  source: BoxSource;
+  /** Ghi vào sổ kho khi chọn khác gợi ý. */
+  ledgerNote: string | null;
+  override: PlanBoxSourceOverride | null;
+}
+
+export interface BoxSourcePreview {
+  plan: PackingPlanDocument;
+  parcels: BoxSourcePlan[];
+  stock: { code: string; name: string; qtyNew: number; qtyReused: number; reusable: boolean }[];
+  allowReusedForFragile: boolean;
+}
+
+const SOURCE_LABEL: Record<BoxSource, string> = { new: 'mới', reused: 'tái sử dụng' };
+
+function choiceOf(dto: { box_source?: BoxChoice['source']; box_source_reason?: BoxSourceReason; box_source_note?: string }): BoxChoice | null {
+  if (!dto.box_source) return null;
+  return { source: dto.box_source, reason: dto.box_source_reason, note: dto.box_source_note };
 }
 
 /** Trạng thái kế hoạch cho phép làm việc với kiện. */
@@ -262,7 +299,103 @@ export class PackingSessionService {
       );
     }
     const settings = await this.settingsService.get();
-    return this.sealParcels(plan, new Map([[parcelNo, dto.weight_kg]]), settings, userId, false);
+    const choice = choiceOf(dto);
+    const choices = new Map<number, BoxChoice>(choice ? [[parcelNo, choice]] : []);
+    return this.sealParcels(plan, new Map([[parcelNo, dto.weight_kg]]), settings, userId, false, choices);
+  }
+
+  /**
+   * (21/10/2026) CHỈ ĐỌC — mỗi kiện sẽ lấy thùng từ ngăn nào nếu niêm phong ngay (tái sử
+   * dụng trước, dễ vỡ chỉ thùng mới), kiện đã niêm phong lấy từ ngăn nào, tồn từng ngăn.
+   */
+  async boxSourcePreview(groupId: string): Promise<BoxSourcePreview> {
+    const plan = await this.planService.requireActivePlan(groupId);
+    const settings = await this.settingsService.get();
+    const data = this.data(plan);
+    const { plans, stock } = await this.boxSourcePlans(data, settings);
+    return {
+      plan,
+      parcels: plans,
+      stock: [...stock.values()],
+      allowReusedForFragile: settings.allowReusedBoxForFragile,
+    };
+  }
+
+  private async boxSourcePlans(
+    data: PlanData,
+    settings: ActivePackingSettings,
+  ): Promise<{ plans: BoxSourcePlan[]; stock: Map<string, BoxSourcePreview['stock'][number]> }> {
+    const codes = new Set(data.parcels.map((p) => p.box.code));
+    const stock = new Map<string, BoxSourcePreview['stock'][number]>();
+    for (const m of await this.materialsService.list(true)) {
+      if (!codes.has(m.code)) continue;
+      stock.set(m.code, { code: m.code, name: m.name, qtyNew: m.qty_new, qtyReused: m.qty_reused, reusable: m.reusable });
+    }
+    const pools = new Map<string, BoxStock>([...stock].map(([code, s]) => [code, s]));
+    return { plans: planBoxSources(data.parcels, pools, settings.allowReusedBoxForFragile), stock };
+  }
+
+  /**
+   * (21/10/2026) Kiểm lựa chọn nguồn thùng của các kiện sắp niêm phong. Chọn đúng gợi ý →
+   * không ghi gì thêm; chọn KHÁC gợi ý → bắt buộc mã lý do, ghi vào kiện + sổ kho.
+   */
+  private async resolveBoxChoices(
+    data: PlanData,
+    targets: ParcelData[],
+    choices: Map<number, BoxChoice>,
+    settings: ActivePackingSettings,
+    userId: string,
+  ): Promise<Map<number, ResolvedBoxChoice>> {
+    const out = new Map<number, ResolvedBoxChoice>();
+    const explicit = targets.flatMap((p) => {
+      const c = choices.get(p.parcel_no);
+      return c && c.source !== 'auto' ? [{ parcel: p, choice: c, source: c.source }] : [];
+    });
+    if (explicit.length === 0) return out;
+    const { plans } = await this.boxSourcePlans(data, settings);
+    const planned = new Map(plans.map((p) => [p.parcelNo, p.planned]));
+    for (const { parcel, choice, source } of explicit) {
+      const no = parcel.parcel_no;
+      if (parcel.box_consumed) {
+        throw new AppException(
+          PACKING_ERROR_CODES.BOX_ALREADY_CONSUMED,
+          `Kiện ${String(no)} đã trừ thùng ở lần niêm phong trước (mở ra đóng lại) — không chọn lại nguồn thùng.`,
+          HttpStatus.CONFLICT,
+          { parcelNo: no },
+        );
+      }
+      if (source === 'reused' && !reusedAllowedFor(parcel, settings.allowReusedBoxForFragile)) {
+        throw new AppException(
+          PACKING_ERROR_CODES.BOX_SOURCE_NOT_ALLOWED,
+          `Kiện ${String(no)} có hàng dễ vỡ — cài đặt đóng gói chỉ cho dùng thùng mới.`,
+          HttpStatus.CONFLICT,
+          { parcelNo: no },
+        );
+      }
+      const suggested = planned.get(no) ?? null;
+      if (suggested === null || suggested === source) {
+        out.set(no, { source, ledgerNote: null, override: null });
+        continue;
+      }
+      if (!choice.reason) {
+        throw new AppException(
+          PACKING_ERROR_CODES.BOX_SOURCE_REASON_REQUIRED,
+          `Kiện ${String(no)}: hệ thống gợi ý thùng ${SOURCE_LABEL[suggested]} — chọn thùng ${SOURCE_LABEL[source]} thì phải chọn lý do.`,
+          HttpStatus.BAD_REQUEST,
+          { parcelNo: no, planned: suggested, chosen: source },
+        );
+      }
+      const note = choice.note?.trim() ? choice.note.trim() : null;
+      if (choice.reason === 'OTHER' && !note) {
+        throw new AppException(PACKING_ERROR_CODES.NOTE_REQUIRED, 'Chọn lý do "Khác" thì phải ghi chú cụ thể.', HttpStatus.BAD_REQUEST);
+      }
+      out.set(no, {
+        source,
+        ledgerNote: `Kiện ${String(no)}: chọn thùng ${SOURCE_LABEL[source]} thay ${SOURCE_LABEL[suggested]} — ${choice.reason}${note ? `: ${note}` : ''}`,
+        override: { source, planned: suggested, reason: choice.reason, note, by: new Types.ObjectId(userId), at: new Date() },
+      });
+    }
+    return out;
   }
 
   /**
@@ -286,7 +419,10 @@ export class PackingSessionService {
     }
     const pending = this.data(plan).parcels.filter((p) => p.status === 'pending');
     const weights = new Map<number, number>();
+    const choices = new Map<number, BoxChoice>();
     for (const w of dto.parcels) {
+      const choice = choiceOf(w);
+      if (choice) choices.set(w.parcel_no, choice);
       if (!pending.some((p) => p.parcel_no === w.parcel_no) || weights.has(w.parcel_no)) {
         throw new AppException(
           PACKING_ERROR_CODES.PACK_WEIGHTS_MISMATCH,
@@ -305,7 +441,7 @@ export class PackingSessionService {
         { expected: pending.length, received: weights.size, pending: pending.map((p) => p.parcel_no) },
       );
     }
-    return this.sealParcels(plan, weights, settings, userId, true);
+    return this.sealParcels(plan, weights, settings, userId, true, choices);
   }
 
   private async sealParcels(
@@ -314,13 +450,15 @@ export class PackingSessionService {
     settings: ActivePackingSettings,
     userId: string,
     bypassScan: boolean,
+    choices = new Map<number, BoxChoice>(),
   ): Promise<SessionResult> {
     const groupId = plan.order_group_id.toString();
     const data = this.data(plan);
     const by = new Types.ObjectId(userId);
     const now = new Date();
     const targets = data.parcels.filter((p) => weights.has(p.parcel_no));
-    const allowReused = (p: ParcelData): boolean => !(p.has_fragile && !settings.allowReusedBoxForFragile);
+    const allowReused = (p: ParcelData): boolean => reusedAllowedFor(p, settings.allowReusedBoxForFragile);
+    const resolved = await this.resolveBoxChoices(data, targets, choices, settings, userId);
 
     let consumed: ConsumedBox[] = [];
     let consumedMaterials: ConsumedMaterial[] = [];
@@ -329,7 +467,14 @@ export class PackingSessionService {
       const toConsume = targets.filter((p) => !p.box_consumed);
       consumed = await this.boxService.consumeForPack(
         session,
-        toConsume.map((p) => ({ boxCode: p.box.code, planId: plan._id, parcelNo: p.parcel_no, allowReused: allowReused(p) })),
+        toConsume.map((p) => ({
+          boxCode: p.box.code,
+          planId: plan._id,
+          parcelNo: p.parcel_no,
+          allowReused: allowReused(p),
+          source: resolved.get(p.parcel_no)?.source,
+          note: resolved.get(p.parcel_no)?.ledgerNote ?? null,
+        })),
         plan.order_group_id,
         userId,
       );
@@ -370,6 +515,7 @@ export class PackingSessionService {
         shortfalls = [...shortfalls, ...bags.shortfalls.map((s) => ({ ...s, planId: plan._id }))];
       }
 
+      const usedSource = new Map(consumed.flatMap((c) => (c.sources ?? []).map((s) => [s.parcelNo, s.source] as const)));
       const parcels = data.parcels.map((p): ParcelData => {
         const weight = weights.get(p.parcel_no);
         if (weight === undefined) return p;
@@ -385,6 +531,8 @@ export class PackingSessionService {
           scans: [...p.scans, ...bypass],
           status: abnormal ? 'held' : 'sealed',
           box_consumed: true,
+          box_source_used: p.box_consumed ? p.box_source_used : (usedSource.get(p.parcel_no) ?? null),
+          box_source_override: p.box_consumed ? p.box_source_override : (resolved.get(p.parcel_no)?.override ?? null),
           sealed_by: by,
           sealed_at: now,
           actual_weight_kg: weight,
@@ -395,9 +543,19 @@ export class PackingSessionService {
             : shortfalls.filter((s) => s.parcelNo === p.parcel_no).map((s) => ({ code: s.code, missing: s.missing })),
         };
       });
+      const overrideLog = [...resolved].flatMap(([no, r]) =>
+        r.override ? [this.activity('box_source', userId, r.ledgerNote ?? `Kiện ${String(no)}: đổi nguồn thùng`, no, r.override.reason)] : [],
+      );
       const updated = await this.planModel.findOneAndUpdate(
         { _id: plan._id, version: plan.version, is_active: true },
-        { $set: { parcels, ...this.startFields(plan, userId) }, $inc: { version: 1 } },
+        {
+          $set: {
+            parcels,
+            ...this.startFields(plan, userId),
+            ...(overrideLog.length > 0 ? { activity: [...data.activity, ...overrideLog] } : {}),
+          },
+          $inc: { version: 1 },
+        },
         { session, returnDocument: 'after' },
       );
       if (!updated) throw this.planService.versionConflict(groupId);
@@ -538,6 +696,9 @@ export class PackingSessionService {
       scans: dto.rescan === true ? [] : parcel.scans,
       // Thùng hỏng: lần niêm phong trước đã trừ thùng + vật tư → mất; đóng lại phải trừ cái mới.
       box_consumed: damaged ? false : parcel.box_consumed,
+      // Thùng hỏng → niêm phong lại sẽ lấy thùng khác, nguồn thùng chọn lại từ đầu.
+      box_source_used: damaged ? null : parcel.box_source_used,
+      box_source_override: damaged ? null : parcel.box_source_override,
       materials_shortfall: damaged ? [] : parcel.materials_shortfall,
     };
     const parcels = data.parcels.map((p) => (p.parcel_no === parcelNo ? next : p));
@@ -890,7 +1051,7 @@ export class PackingSessionService {
   }
 
   private activity(
-    kind: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal',
+    kind: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal' | 'box_source',
     userId: string,
     detail: string,
     parcelNo: number | null = null,
