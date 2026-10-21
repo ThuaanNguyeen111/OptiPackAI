@@ -1,72 +1,41 @@
-import { useMemo, useState } from 'react'
-import { Download, FileSpreadsheet, FileText, Loader2 } from 'lucide-react'
-import { PortalTopBar } from '../components/portal/PortalTopBar'
-import { Button } from '../components/ui/Button'
-import { usePortal } from '../context/use-portal'
+import { useEffect, useState } from 'react'
 import {
-  consolidatedSummary,
-  formatVnd,
-  platformCostBreakdown,
-  staffEfficiency,
-  type AnalyticsRange,
-} from '../data/analytics-mock'
+  getPackagingMaterialsSavings,
+  type PackagingMaterialsSavings,
+} from '../api/packaging-materials.api'
+import { getPackingReport } from '../api/packing-plan.api'
+import { PackingReportsPanel, PackingSettingsForm } from '../components/packing/PackingSettingsReports'
+import { PortalTopBar } from '../components/portal/PortalTopBar'
+import { usePortal } from '../context/use-portal'
+import { formatApiError } from '../lib/api'
+import type { PackingReport } from '../types/packing-plan'
+
+function formatVnd(amount: number): string {
+  return new Intl.NumberFormat('vi-VN', {
+    style: 'currency',
+    currency: 'VND',
+    maximumFractionDigits: 0,
+  }).format(amount)
+}
 
 export function AnalyticsReportPage() {
   const { locale } = usePortal()
   const vi = locale === 'vi'
-  const [range, setRange] = useState<AnalyticsRange>('7d')
-  const [exportingPdf, setExportingPdf] = useState(false)
-  const [exportingCsv, setExportingCsv] = useState(false)
+  const [report, setReport] = useState<PackingReport | null>(null)
+  const [savings, setSavings] = useState<PackagingMaterialsSavings | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
-  const totals = useMemo(() => {
-    const cost = platformCostBreakdown.reduce(
-      (s, r) => s + r.material_cost_vnd,
-      0,
-    )
-    const savings = platformCostBreakdown.reduce(
-      (s, r) => s + r.savings_vnd,
-      0,
-    )
-    return { cost, savings, pct: Math.round((savings / cost) * 1000) / 10 }
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void Promise.all([getPackingReport(), getPackagingMaterialsSavings()])
+        .then(([summary, saved]) => {
+          setReport(summary)
+          setSavings(saved)
+        })
+        .catch((err: unknown) => setError(formatApiError(err)))
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [])
-
-  const avgOph = useMemo(() => {
-    const sum = staffEfficiency.reduce((s, r) => s + r.orders_per_hour, 0)
-    return Math.round((sum / staffEfficiency.length) * 10) / 10
-  }, [])
-
-  async function exportPdf() {
-    setExportingPdf(true)
-    await new Promise((r) => setTimeout(r, 1200))
-    setExportingPdf(false)
-  }
-
-  async function exportCsv() {
-    setExportingCsv(true)
-    await new Promise((r) => setTimeout(r, 800))
-    const header =
-      'date,platform,packages,material_cost_vnd,ai_savings_vnd,avg_fill_pct,courier'
-    const rows = consolidatedSummary.map(
-      (r) =>
-        `${r.date},${r.platform},${r.packages},${r.material_cost_vnd},${r.ai_savings_vnd},${r.avg_fill_pct},${r.courier}`,
-    )
-    const blob = new Blob([[header, ...rows].join('\n')], {
-      type: 'text/csv;charset=utf-8',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `optipack-analytics-${range}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    setExportingCsv(false)
-  }
-
-  const rangeTabs: Array<{ key: AnalyticsRange; label: string }> = [
-    { key: '7d', label: vi ? '7 ngày qua' : 'Last 7 days' },
-    { key: 'month', label: vi ? 'Tháng này' : 'This month' },
-    { key: 'custom', label: vi ? 'Tùy chỉnh' : 'Custom' },
-  ]
 
   return (
     <>
@@ -78,227 +47,96 @@ export function AnalyticsReportPage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-semibold tracking-tight text-ink">
-                  {vi
-                    ? 'Báo cáo Vận hành & Chi phí AI'
-                    : 'Operational Analytics & AI Cost Reports'}
-                </h1>
-                <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                  Demo
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-ink-muted">
-                {vi
-                  ? 'Minh họa UI — chưa có API báo cáo/dashboard trên BE. Số liệu không lấy từ đơn thật.'
-                  : 'UI mock — no analytics/dashboard API on BE yet. Figures are not from live orders.'}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-1 rounded-xl border border-hairline bg-surface-1 p-1">
-              {rangeTabs.map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setRange(t.key)}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    range === t.key
-                      ? 'bg-primary/15 text-primary-hover'
-                      : 'text-ink-subtle hover:bg-surface-2 hover:text-ink'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+          <PackingReportsPanel vi={vi} />
+          <PackingSettingsForm vi={vi} canEdit />
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-ink">
+              {vi ? 'Báo cáo đóng gói' : 'Packing report'}
+            </h1>
+            <p className="mt-1 text-sm text-ink-muted">
+              {vi
+                ? 'Số liệu 30 ngày gần nhất từ báo cáo đóng gói và sổ tiết kiệm bao bì. Không còn bảng theo sàn.'
+                : 'Last 30 days from the packing report and packaging savings. No per-channel table.'}
+            </p>
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={exportingPdf}
-              onClick={() => void exportPdf()}
-            >
-              {exportingPdf ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <FileText className="mr-1.5 h-4 w-4" />
-              )}
-              {vi ? 'Xuất Báo Cáo PDF' : 'Export PDF Report'}
-            </Button>
-            <Button
-              variant="ghost"
-              disabled={exportingCsv}
-              onClick={() => void exportCsv()}
-            >
-              {exportingCsv ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <FileSpreadsheet className="mr-1.5 h-4 w-4" />
-              )}
-              {vi ? 'Xuất Dữ Liệu CSV / Excel' : 'Export CSV / Excel'}
-            </Button>
-          </div>
+          {error ? <p className="text-xs text-rose-600">{error}</p> : null}
 
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-xl border border-hairline bg-surface-1 p-4">
               <p className="text-xs text-ink-subtle">
-                {vi ? 'Tổng chi phí vật liệu' : 'Total material cost'}
+                {vi ? 'Chi phí đóng gói' : 'Packaging cost'}
               </p>
               <p className="mt-1 font-mono text-2xl font-semibold text-ink">
-                {formatVnd(totals.cost)}
-              </p>
-            </div>
-            <div className="rounded-xl border border-hairline bg-surface-1 p-4">
-              <p className="text-xs text-ink-subtle">
-                {vi ? 'Tiết kiệm nhờ AI' : 'AI packaging savings'}
-              </p>
-              <p className="mt-1 font-mono text-2xl font-semibold text-[#10B981]">
-                {formatVnd(totals.savings)}
-              </p>
-              <p className="mt-0.5 font-mono text-xs text-ink-tertiary">
-                −{totals.pct}%
-              </p>
-            </div>
-            <div className="rounded-xl border border-hairline bg-surface-1 p-4">
-              <p className="text-xs text-ink-subtle">
-                Hiệu suất kho (Trung bình)
-              </p>
-              <p className="mt-1 font-mono text-2xl font-semibold text-ink">
-                {avgOph}
+                {report ? formatVnd(report.packagingCostVnd) : '…'}
               </p>
               <p className="mt-0.5 text-xs text-ink-tertiary">
-                đơn / giờ / nhân sự
+                {report
+                  ? vi
+                    ? `${report.groups} nhóm · ${report.parcels} kiện`
+                    : `${report.groups} groups · ${report.parcels} parcels`
+                  : null}
+              </p>
+            </div>
+            <div className="rounded-xl border border-hairline bg-surface-1 p-4">
+              <p className="text-xs text-ink-subtle">
+                {vi ? 'Tiết kiệm bao bì' : 'Packaging savings'}
+              </p>
+              <p className="mt-1 font-mono text-2xl font-semibold text-[#10B981]">
+                {savings ? formatVnd(savings.totalSavingVnd) : '…'}
+              </p>
+              <p className="mt-0.5 font-mono text-xs text-ink-tertiary">
+                {savings
+                  ? vi
+                    ? `Tái sử dụng ${Math.round(savings.reuseRate * 100)}%`
+                    : `Reuse ${Math.round(savings.reuseRate * 100)}%`
+                  : null}
+              </p>
+            </div>
+            <div className="rounded-xl border border-hairline bg-surface-1 p-4">
+              <p className="text-xs text-ink-subtle">
+                {vi ? 'Thời gian đóng trung bình' : 'Average pack time'}
+              </p>
+              <p className="mt-1 font-mono text-2xl font-semibold text-ink">
+                {report?.avgPackMinutes != null
+                  ? `${Math.round(report.avgPackMinutes)}`
+                  : '—'}
+              </p>
+              <p className="mt-0.5 text-xs text-ink-tertiary">
+                {vi ? 'phút / nhóm' : 'minutes / group'}
               </p>
             </div>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-xl border border-hairline bg-surface-1 p-4">
-              <h2 className="mb-3 text-sm font-medium text-ink">
-                Chi phí vs Tiết kiệm theo sàn
-              </h2>
-              <ul className="space-y-3">
-                {platformCostBreakdown.map((row) => (
-                  <li
-                    key={row.platform}
-                    className="rounded-lg border border-hairline bg-canvas px-3 py-3"
-                    style={{ borderLeftWidth: 3, borderLeftColor: row.accent }}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <p
-                        className="text-sm font-semibold"
-                        style={{ color: row.accent }}
-                      >
-                        {row.platform}
-                      </p>
-                      <span className="font-mono text-[11px] text-ink-subtle">
-                        {row.orders} đơn
-                      </span>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-4 text-xs">
-                      <span className="text-ink-muted">
-                        Chi phí:{' '}
-                        <span className="font-mono text-ink">
-                          {formatVnd(row.material_cost_vnd)}
-                        </span>
-                      </span>
-                      <span className="text-[#10B981]">
-                        Tiết kiệm:{' '}
-                        <span className="font-mono">
-                          {formatVnd(row.savings_vnd)}
-                        </span>{' '}
-                        <span className="font-mono">({row.savings_pct}%)</span>
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-
-            <section className="rounded-xl border border-hairline bg-surface-1 p-4">
-              <h2 className="mb-3 text-sm font-medium text-ink">
-                Hiệu suất nhân viên kho
-              </h2>
+          <section className="rounded-xl border border-hairline bg-surface-1 p-4">
+            <h2 className="mb-3 text-sm font-medium text-ink">
+              {vi ? 'Theo nhân viên đóng gói' : 'By packer'}
+            </h2>
+            {report && report.byStaff.length === 0 ? (
+              <p className="text-sm text-ink-muted">
+                {vi ? 'Chưa có nhóm đã đóng trong 30 ngày.' : 'No packed groups in the last 30 days.'}
+              </p>
+            ) : (
               <ul className="space-y-2">
-                {staffEfficiency.map((op) => (
+                {(report?.byStaff ?? []).map((row) => (
                   <li
-                    key={op.operator}
+                    key={row.staffId}
                     className="flex items-center justify-between gap-3 rounded-lg border border-hairline bg-canvas px-3 py-2.5"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-ink">
-                        {op.operator}
-                      </p>
-                      <p className="text-[11px] text-ink-subtle">{op.role}</p>
-                    </div>
-                    <div className="text-right font-mono text-xs">
-                      <p className="text-ink">
-                        {op.orders_per_hour}{' '}
-                        <span className="text-ink-tertiary">đơn/giờ</span>
-                      </p>
-                      <p className="text-ink-muted">
-                        {op.packed_today} hôm nay · {op.accuracy_pct}% chính xác
-                      </p>
-                    </div>
+                    <p className="truncate text-sm font-medium text-ink">
+                      {row.name ?? row.staffId}
+                    </p>
+                    <p className="text-right font-mono text-xs text-ink-muted">
+                      {vi
+                        ? `${row.groups} nhóm · ${row.parcels} kiện`
+                        : `${row.groups} groups · ${row.parcels} parcels`}
+                      {row.avgPackMinutes != null
+                        ? ` · ${Math.round(row.avgPackMinutes)} ${vi ? 'phút' : 'min'}`
+                        : ''}
+                    </p>
                   </li>
                 ))}
               </ul>
-            </section>
-          </div>
-
-          <section className="overflow-hidden rounded-xl border border-hairline bg-surface-1">
-            <div className="flex items-center justify-between border-b border-hairline px-4 py-3">
-              <h2 className="text-sm font-medium text-ink">
-                Bảng tổng hợp chi tiết
-              </h2>
-              <span className="inline-flex items-center gap-1 text-[11px] text-ink-subtle">
-                <Download className="h-3 w-3" />
-                Sẵn sàng in / xuất file
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[800px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-hairline text-ink-subtle">
-                    <th className="px-4 py-3 font-medium">Ngày</th>
-                    <th className="px-4 py-3 font-medium">Kênh bán lẻ</th>
-                    <th className="px-4 py-3 font-medium">Số kiện</th>
-                    <th className="px-4 py-3 font-medium">Chi phí vật liệu</th>
-                    <th className="px-4 py-3 font-medium">Tiết kiệm AI</th>
-                    <th className="px-4 py-3 font-medium">Lấp đầy TB</th>
-                    <th className="px-4 py-3 font-medium">Hãng vận chuyển</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {consolidatedSummary.map((row, i) => (
-                    <tr
-                      key={`${row.date}-${row.platform}-${i}`}
-                      className="border-b border-hairline/70 last:border-0"
-                    >
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {row.date}
-                      </td>
-                      <td className="px-4 py-3 text-ink">{row.platform}</td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {row.packages}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {formatVnd(row.material_cost_vnd)}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-[#10B981]">
-                        {formatVnd(row.ai_savings_vnd)}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-ink-muted">
-                        {row.avg_fill_pct}%
-                      </td>
-                      <td className="px-4 py-3 text-ink-muted">{row.courier}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            )}
           </section>
         </div>
       </main>

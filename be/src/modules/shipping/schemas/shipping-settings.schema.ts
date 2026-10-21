@@ -32,6 +32,19 @@ export class ShippingSettings {
   @Prop({ type: String, default: null })
   default_service_code!: string | null;
 
+  /**
+   * (21/10/2026) Người gửi in trên nhãn vận đơn tự in (tên, SĐT, địa chỉ kho gửi) — để
+   * kiện không giao được biết hoàn về đâu. Bỏ trống → lấy tên + địa chỉ kho đang hoạt động.
+   */
+  @Prop({ type: String, default: null })
+  sender_name!: string | null;
+
+  @Prop({ type: String, default: null })
+  sender_phone!: string | null;
+
+  @Prop({ type: String, default: null })
+  sender_address!: string | null;
+
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   updated_by!: Types.ObjectId | null;
 

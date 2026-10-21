@@ -4,11 +4,14 @@ import {
   CheckCircle2,
   Loader2,
   PackageX,
+  Printer,
   RefreshCw,
+  Search,
   XCircle,
 } from 'lucide-react'
 import {
   approveReturn,
+  cancelReturn,
   createReplacementReturn,
   listReturns,
   rejectReturn,
@@ -50,10 +53,68 @@ const STATUS_FILTERS = [
   'received',
   'closed',
   'rejected',
+  'canceled',
   'all',
 ] as const
 
 type StatusFilter = (typeof STATUS_FILTERS)[number]
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function openPrintDocument(title: string, body: string): boolean {
+  const frame = document.createElement('iframe')
+  frame.setAttribute('aria-hidden', 'true')
+  frame.style.position = 'fixed'
+  frame.style.right = '0'
+  frame.style.bottom = '0'
+  frame.style.width = '0'
+  frame.style.height = '0'
+  frame.style.border = '0'
+  document.body.appendChild(frame)
+  const doc = frame.contentDocument
+  if (!doc) {
+    frame.remove()
+    return false
+  }
+  doc.open()
+  doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(title)}</title>
+<style>
+  body{font-family:system-ui,sans-serif;color:#152d35;padding:24px}
+  h1{font-size:20px;margin:0 0 4px}
+  p{margin:0 0 8px;font-size:13px}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{border:1px solid #d5dde0;padding:6px 8px;font-size:12px;text-align:left}
+</style></head><body>${body}</body></html>`)
+  doc.close()
+  const win = frame.contentWindow
+  if (!win) {
+    frame.remove()
+    return false
+  }
+  win.focus()
+  win.print()
+  window.setTimeout(() => frame.remove(), 1000)
+  return true
+}
+
+function slipMatchesQuery(row: ReturnRequest, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const parts = [
+    row.rmaCode,
+    row.id,
+    row.orderGroupId,
+    ...row.items.flatMap((item) => [item.sellerSku, item.reasonLabel]),
+    ...row.exchangeItems.map((item) => item.sellerSku),
+  ]
+  return parts.some((part) => part.toLowerCase().includes(q))
+}
 
 export function ReturnsPage({
   shell = 'portal',
@@ -64,11 +125,14 @@ export function ReturnsPage({
   const { session } = useAuth()
   const vi = locale === 'vi'
   const isAdmin = session?.role === UserRole.ADMIN
+  const canCancelSlip =
+    session?.role === UserRole.ADMIN || session?.role === UserRole.STORE_OWNER
 
   const [items, setItems] = useState<ReturnRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('requested')
+  const [query, setQuery] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -80,7 +144,7 @@ export function ReturnsPage({
     setError(null)
     try {
       const res = await listReturns({
-        status: statusFilter === 'requested' ? 'requested' : undefined,
+        status: statusFilter === 'all' ? undefined : statusFilter,
         limit: 100,
       })
       setItems(res.items)
@@ -109,13 +173,64 @@ export function ReturnsPage({
     return () => window.clearTimeout(t)
   }, [toast])
 
-  const selected = useMemo(
-    () => items.find((r) => r.id === selectedId) ?? null,
-    [items, selectedId],
+  const visibleItems = useMemo(
+    () => items.filter((row) => slipMatchesQuery(row, query)),
+    [items, query],
   )
 
-  // Hook tự về trang 1 khi danh sách đổi (đổi bộ lọc trạng thái nạp lại items).
-  const queuePaging = useLocalQueuePagination(items)
+  const selected = useMemo(
+    () =>
+      visibleItems.find((row) => row.id === selectedId) ??
+      visibleItems[0] ??
+      null,
+    [visibleItems, selectedId],
+  )
+
+  const queuePaging = useLocalQueuePagination(visibleItems)
+
+  function printCurrentSlip(kind: 'slip' | 'label'): void {
+    if (!selected) return
+    const typeLabel = RETURN_TYPE_LABELS[selected.type]
+    const statusLabel = RETURN_STATUS_LABELS[selected.status]
+    const typeText = typeLabel ? (vi ? typeLabel.vi : typeLabel.en) : selected.type
+    const statusText = statusLabel
+      ? vi
+        ? statusLabel.vi
+        : statusLabel.en
+      : selected.status
+    const rows = selected.items
+      .map(
+        (item) =>
+          `<tr><td>${escapeHtml(item.sellerSku)}</td><td>${String(item.quantity)}</td><td>${escapeHtml(item.reasonLabel || item.reasonCode)}</td></tr>`,
+      )
+      .join('')
+    const printed =
+      kind === 'slip'
+        ? openPrintDocument(
+            selected.rmaCode,
+            `<h1>${escapeHtml(selected.rmaCode)}</h1>
+             <p>${escapeHtml(vi ? 'Phiếu hoàn hàng' : 'Return slip')}</p>
+             <p>${escapeHtml(vi ? 'Trạng thái' : 'Status')}: ${escapeHtml(statusText)}</p>
+             <p>${escapeHtml(vi ? 'Loại' : 'Type')}: ${escapeHtml(typeText)}</p>
+             <p>${escapeHtml(vi ? 'Nhóm đơn' : 'Group')}: ${escapeHtml(selected.orderGroupId)}</p>
+             <table><thead><tr><th>SKU</th><th>${escapeHtml(vi ? 'Số lượng' : 'Qty')}</th><th>${escapeHtml(vi ? 'Lý do' : 'Reason')}</th></tr></thead><tbody>${rows}</tbody></table>`,
+          )
+        : openPrintDocument(
+            selected.rmaCode,
+            `<h1>${escapeHtml(selected.rmaCode)}</h1>
+             <p>${escapeHtml(vi ? 'Nhãn hoàn hàng' : 'Return label')}</p>
+             <p>${escapeHtml(statusText)} · ${escapeHtml(typeText)}</p>
+             <table><thead><tr><th>SKU</th><th>${escapeHtml(vi ? 'Số lượng' : 'Qty')}</th></tr></thead><tbody>${selected.items
+               .map(
+                 (item) =>
+                   `<tr><td>${escapeHtml(item.sellerSku)}</td><td>${String(item.quantity)}</td></tr>`,
+               )
+               .join('')}</tbody></table>`,
+          )
+    if (!printed) {
+      setToast(vi ? 'Không mở được hộp thoại in.' : 'Could not open the print dialog.')
+    }
+  }
 
   async function onApprove(): Promise<void> {
     if (!selected || selected.status !== 'requested') return
@@ -162,6 +277,29 @@ export function ReturnsPage({
     }
   }
 
+  async function onCancelSlip(): Promise<void> {
+    if (!selected || selected.status !== 'awaiting_receipt') return
+    const note = actionNote.trim()
+    if (!note) {
+      setToast(vi ? 'Hủy phiếu phải ghi lý do.' : 'Cancel requires a reason.')
+      return
+    }
+    setBusy(true)
+    try {
+      await cancelReturn(selected.id, {
+        expected_version: selected.version,
+        note,
+      })
+      setToast(vi ? 'Đã hủy phiếu.' : 'Slip canceled.')
+      setActionNote('')
+      await load()
+    } catch (err: unknown) {
+      setToast(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function onRecreateReplacement(): Promise<void> {
     if (!selected) return
     setBusy(true)
@@ -198,65 +336,25 @@ export function ReturnsPage({
         }
       />
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:flex-row lg:items-start">
-          <section className="owner-panel min-w-0 flex-1 overflow-hidden rounded-2xl">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline px-4 py-3">
-              <div>
-                <h1 className="text-base font-bold text-ink">
-                  {vi ? 'Phiếu trả / hoàn hàng' : 'Return requests'}
-                </h1>
-                <p className="text-xs text-ink-muted">
-                  {vi
-                    ? 'Store Owner duyệt hoặc từ chối. Admin tạo phiếu giả lập khách.'
-                    : 'Store Owner approves or rejects. Admin creates a simulated request.'}
-                </p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {isAdmin ? (
-                  <Button
-                    type="button"
-                    className="h-8 px-2.5 text-xs"
-                    onClick={() => setCreateOpen((open) => !open)}
-                  >
-                    {vi ? 'Tạo phiếu' : 'New request'}
-                  </Button>
-                ) : null}
-                <div className="flex flex-wrap rounded-lg bg-surface-2 p-0.5">
-                  {STATUS_FILTERS.map((id) => {
-                    const label =
-                      id === 'all'
-                        ? { vi: 'Tất cả', en: 'All' }
-                        : RETURN_STATUS_LABELS[id]
-                    return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => setStatusFilter(id)}
-                      className={cn(
-                        'rounded-md px-2.5 py-1 text-xs font-semibold cursor-pointer',
-                        statusFilter === id
-                          ? 'bg-white text-ink shadow-xs dark:bg-zinc-800'
-                          : 'text-ink-muted',
-                      )}
-                    >
-                      {label ? (vi ? label.vi : label.en) : id}
-                    </button>
-                    )
-                  })}
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  className="h-8 gap-1.5 px-2.5 text-xs"
-                  onClick={() => void load()}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  {vi ? 'Tải lại' : 'Refresh'}
-                </Button>
-              </div>
-            </div>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 sm:p-6">
+        <div className="mx-auto flex h-full w-full max-w-7xl flex-col">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h1 className="text-lg font-bold text-ink">
+              {vi ? 'Phiếu hoàn hàng' : 'Return requests'}
+            </h1>
+            {isAdmin ? (
+              <button
+                type="button"
+                className="rounded-lg bg-[#152d35] px-4 py-2 text-sm font-semibold text-white"
+                onClick={() => setCreateOpen((open) => !open)}
+              >
+                {vi ? '+ Tạo phiếu RMA' : '+ New RMA'}
+              </button>
+            ) : null}
+          </div>
 
+          <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:items-stretch">
+          <section className="owner-panel flex h-full min-h-[550px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
             {isAdmin && createOpen ? (
               <CreateReturnForm
                 vi={vi}
@@ -273,8 +371,89 @@ export function ReturnsPage({
                 onError={(message) => setToast(message)}
               />
             ) : null}
+            <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-hidden border-b border-hairline px-4 py-3">
+              <div
+                className="flex w-0 min-w-0 max-w-full flex-1 cursor-grab touch-pan-x flex-nowrap overflow-x-auto overflow-y-hidden rounded-lg bg-surface-2 p-0.5 [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden"
+                onWheel={(event) => {
+                  const row = event.currentTarget
+                  if (row.scrollWidth <= row.clientWidth) return
+                  if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+                  row.scrollLeft += event.deltaY
+                }}
+                onPointerDown={(event) => {
+                  if (event.button !== 0) return
+                  const row = event.currentTarget
+                  if (row.scrollWidth <= row.clientWidth) return
+                  const startX = event.clientX
+                  const startScroll = row.scrollLeft
+                  let dragged = false
+                  const move = (ev: PointerEvent) => {
+                    const dx = ev.clientX - startX
+                    if (Math.abs(dx) > 3) dragged = true
+                    row.scrollLeft = startScroll - dx
+                  }
+                  const up = () => {
+                    window.removeEventListener('pointermove', move)
+                    window.removeEventListener('pointerup', up)
+                    if (!dragged) return
+                    const swallow = (ev: Event) => {
+                      ev.preventDefault()
+                      ev.stopPropagation()
+                      row.removeEventListener('click', swallow, true)
+                    }
+                    row.addEventListener('click', swallow, true)
+                  }
+                  window.addEventListener('pointermove', move)
+                  window.addEventListener('pointerup', up)
+                }}
+              >
+                {STATUS_FILTERS.map((id) => {
+                  const label =
+                    id === 'all'
+                      ? { vi: 'Tất cả', en: 'All' }
+                      : RETURN_STATUS_LABELS[id]
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setStatusFilter(id)}
+                      className={cn(
+                        'shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-semibold whitespace-nowrap',
+                        statusFilter === id
+                          ? 'bg-white text-ink shadow-xs dark:bg-zinc-800'
+                          : 'text-ink-muted',
+                      )}
+                    >
+                      {label ? (vi ? label.vi : label.en) : id}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <div className="relative w-44 lg:w-64">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-muted" />
+                  <input
+                    type="search"
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={vi ? 'Tìm mã RMA / SKU...' : 'Search RMA / SKU...'}
+                    aria-label={vi ? 'Tìm mã RMA hoặc SKU' : 'Search RMA or SKU'}
+                    className="h-9 w-full rounded-lg border border-hairline bg-canvas pr-3 pl-8 text-xs text-ink"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-9 shrink-0 gap-1.5 px-2.5 text-xs"
+                  onClick={() => void load()}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  {vi ? 'Tải lại' : 'Refresh'}
+                </Button>
+              </div>
+            </div>
 
-            <div className="min-h-0 max-h-[min(70vh,640px)] overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               {loading ? (
                 <div className="flex items-center justify-center gap-2 py-16 text-sm text-ink-muted">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -284,16 +463,17 @@ export function ReturnsPage({
                 <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
                   {error}
                 </div>
-              ) : items.length === 0 ? (
+              ) : visibleItems.length === 0 ? (
                 <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
                   <PackageX className="h-8 w-8 text-ink-subtle" />
                   <p className="text-sm font-medium text-ink">
-                    {vi ? 'Không có phiếu trả' : 'No return requests'}
-                  </p>
-                  <p className="max-w-sm text-xs text-ink-subtle">
-                    {vi
-                      ? 'Admin tạo phiếu khi đơn đã giao. Store Owner duyệt tại đây.'
-                      : 'Admin creates a request after delivery. Store Owner approves it here.'}
+                    {query.trim()
+                      ? vi
+                        ? `Không có phiếu khớp «${query.trim()}».`
+                        : `No slip matches “${query.trim()}”.`
+                      : vi
+                        ? 'Không có phiếu trả'
+                        : 'No return requests'}
                   </p>
                 </div>
               ) : (
@@ -309,7 +489,7 @@ export function ReturnsPage({
                   </thead>
                   <tbody className="divide-y divide-hairline">
                     {queuePaging.pagedItems.map((row) => {
-                      const selectedRow = selectedId === row.id
+                      const selectedRow = selected?.id === row.id
                       const typeLabel = RETURN_TYPE_LABELS[row.type]
                       const statusLabel = RETURN_STATUS_LABELS[row.status]
                       return (
@@ -357,7 +537,7 @@ export function ReturnsPage({
                 </table>
               )}
             </div>
-            {!loading && items.length > 0 ? (
+            {!loading && visibleItems.length > 0 ? (
               <QueuePaginationBar
                 vi={vi}
                 className="border-t border-hairline px-4 py-2"
@@ -376,16 +556,15 @@ export function ReturnsPage({
             ) : null}
           </section>
 
-          <aside className="owner-panel w-full shrink-0 rounded-2xl p-4 lg:w-80">
+          <aside className="owner-panel flex h-full min-h-[550px] w-full shrink-0 flex-col overflow-hidden rounded-2xl lg:w-80">
             {!selected ? (
-              <p className="text-sm text-ink-muted">
-                {vi
-                  ? 'Chọn một phiếu bên trái để duyệt hoặc từ chối.'
-                  : 'Select a request on the left to approve or reject.'}
-              </p>
+              <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-ink-muted">
+                {vi ? 'Chọn một phiếu để xem chi tiết.' : 'Select a slip to see details.'}
+              </div>
             ) : (
-              <div className="space-y-3">
-                <div>
+              <>
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+                <div className="-mx-4 -mt-4 mb-4 rounded-t-xl border-b border-slate-200/60 bg-slate-50/60 p-4">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--ls-cta)]">
                     {vi ? 'Chi tiết phiếu' : 'Request detail'}
                   </p>
@@ -499,6 +678,30 @@ export function ReturnsPage({
                   </ul>
                 </div>
 
+                {canCancelSlip && selected.status === 'awaiting_receipt' ? (
+                  <div className="space-y-2 border-t border-hairline pt-3">
+                    <label className="block text-xs font-medium text-ink">
+                      {vi ? 'Lý do hủy phiếu' : 'Cancel reason'}
+                    </label>
+                    <textarea
+                      value={actionNote}
+                      onChange={(e) => setActionNote(e.target.value)}
+                      rows={3}
+                      className="w-full rounded-lg border border-hairline bg-white px-3 py-2 text-sm dark:bg-zinc-900"
+                    />
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="w-full gap-1.5 border-rose-300 text-rose-700 hover:bg-rose-50"
+                      disabled={busy}
+                      onClick={() => void onCancelSlip()}
+                    >
+                      <XCircle className="h-3.5 w-3.5" />
+                      {vi ? 'Hủy phiếu' : 'Cancel slip'}
+                    </Button>
+                  </div>
+                ) : null}
+
                 {selected.status === 'requested' ? (
                   <div className="space-y-2 border-t border-hairline pt-3">
                     <label className="block text-xs font-medium text-ink">
@@ -556,8 +759,29 @@ export function ReturnsPage({
                   </p>
                 ) : null}
               </div>
+              <div className="flex flex-col gap-2 border-t border-hairline p-4">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full gap-1.5"
+                  onClick={() => printCurrentSlip('slip')}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  {vi ? 'In phiếu RMA' : 'Print RMA slip'}
+                </Button>
+                <button
+                  type="button"
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-[#152d35] px-4 py-2 text-sm font-semibold text-white"
+                  onClick={() => printCurrentSlip('label')}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  {vi ? 'In nhãn hoàn hàng' : 'Print return label'}
+                </button>
+              </div>
+              </>
             )}
           </aside>
+          </div>
         </div>
       </div>
 

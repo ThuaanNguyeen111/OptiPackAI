@@ -3,8 +3,6 @@ import type {
   CreateReturnInput,
   ExchangeItem,
   InspectReturnLineInput,
-  InspectReturnPackagingInput,
-  ReturnPackagingInspectionLine,
   QuarantineLine,
   ReturnActionInput,
   ReturnInspectionLine,
@@ -89,28 +87,6 @@ function mapItem(raw: unknown): ReturnItem | null {
 }
 
 
-function mapPackagingInspection(raw: unknown): ReturnPackagingInspectionLine[] {
-  if (!Array.isArray(raw)) return []
-  return raw.flatMap((item) => {
-    const row = asRecord(item)
-    if (!row) return []
-    const materialCode = pickString(row.materialCode, row.material_code)
-    if (!materialCode) return []
-    return [
-      {
-        materialCode,
-        quantity: pickNumber(row.quantity),
-        grade: pickString(row.grade),
-        reuseCycleSeen: pickNumber(row.reuseCycleSeen, row.reuse_cycle_seen),
-        oldLabelRemoved:
-          row.oldLabelRemoved === true || row.old_label_removed === true,
-        recoveredToReuse:
-          row.recoveredToReuse === true || row.recovered_to_reuse === true,
-        outcome: pickString(row.outcome) || null,
-      },
-    ]
-  })
-}
 export function mapReturnRequest(raw: unknown): ReturnRequest | null {
   const row = asRecord(raw)
   if (!row) return null
@@ -140,9 +116,6 @@ export function mapReturnRequest(raw: unknown): ReturnRequest | null {
     inspection: rawInspection
       .map(mapInspection)
       .filter((item): item is ReturnInspectionLine => item !== null),
-    packagingInspection: mapPackagingInspection(
-      row.packagingInspection ?? row.packaging_inspection,
-    ),
     replacementStatus:
       pickString(row.replacementStatus, row.replacement_status) || null,
     replacementGroupId:
@@ -262,17 +235,43 @@ export async function receiveReturn(
   )
 }
 
+export type PackagingInspectInput = {
+  material_code: string
+  quantity: number
+  grade: 'A' | 'B' | 'C'
+  reuse_cycle_seen?: number
+  old_label_removed?: boolean
+}
+
 export async function inspectReturn(
   id: string,
   input: {
     expected_version: number
     lines: InspectReturnLineInput[]
-    /** (14/10/2026) Tuỳ chọn — thu hồi thùng/vật tư (G4). */
-    packaging?: InspectReturnPackagingInput[]
+    packaging?: PackagingInspectInput[]
   },
 ): Promise<ReturnRequest> {
   return requireReturn(
     await apiRequest<unknown>(`/returns/${encodeURIComponent(id)}/inspect`, {
+      method: 'POST',
+      body: {
+        expected_version: input.expected_version,
+        lines: input.lines,
+        ...(input.packaging && input.packaging.length > 0
+          ? { packaging: input.packaging }
+          : {}),
+      },
+      auth: true,
+    }),
+  )
+}
+
+export async function cancelReturn(
+  id: string,
+  input: ReturnActionInput,
+): Promise<ReturnRequest> {
+  return requireReturn(
+    await apiRequest<unknown>(`/returns/${encodeURIComponent(id)}/cancel`, {
       method: 'POST',
       body: input,
       auth: true,

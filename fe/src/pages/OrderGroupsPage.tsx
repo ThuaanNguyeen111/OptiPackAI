@@ -9,6 +9,7 @@ import {
   Zap,
 } from 'lucide-react'
 import {
+  getOrderGroupById,
   listOrderGroups,
   setOrderGroupPriority,
 } from '../api/order-groups.api'
@@ -19,6 +20,7 @@ import {
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
+import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
 import { cn } from '../lib/cn'
 import { formatApiError } from '../lib/api'
@@ -26,13 +28,14 @@ import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   isFullyInactiveGroup,
   isPartiallyCanceledGroup,
-  LAZADA_PACK_STATUS_LABELS,
   type OrderGroup,
   type OrderPriority,
 } from '../types/order-groups'
 import { formatDateTime } from '../utils/format'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
+import { GroupOpsPanel } from './order-groups/GroupOpsPanel'
+import { UserRole } from '../types/auth'
 
 function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
@@ -51,6 +54,7 @@ function statusTone(
     return 'success'
   }
   if (
+    status === 'returning' ||
     status === 'partial_needs_review' ||
     status === 'pending_approval' ||
     status === 'awaiting_packaging'
@@ -83,11 +87,23 @@ function platformLabel(platform: string): string {
 
 export function OrderGroupsPage() {
   const { locale } = usePortal()
+  const { session } = useAuth()
   const vi = locale === 'vi'
+  const role = session?.role
+  const canLink =
+    role === UserRole.ADMIN || role === UserRole.SHIPPING_COORDINATOR
+  const canSeeStock =
+    role === UserRole.ADMIN ||
+    role === UserRole.STORE_OWNER ||
+    role === UserRole.WAREHOUSE_STAFF
+  const canRecheck =
+    role === UserRole.ADMIN || role === UserRole.STORE_OWNER
+  const canRelease = role === UserRole.ADMIN
 
   const [priorityFilter, setPriorityFilter] = useState<
     'all' | OrderPriority
   >('all')
+  const [shortageOnly, setShortageOnly] = useState(false)
   const [groups, setGroups] = useState<OrderGroup[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -103,11 +119,12 @@ export function OrderGroupsPage() {
     setLoading(true)
     setError(null)
     try {
-      const rows = await listOrderGroups(
-        priorityFilter === 'all'
+      const rows = await listOrderGroups({
+        ...(priorityFilter === 'all'
           ? {}
-          : { order_priority: priorityFilter },
-      )
+          : { order_priority: priorityFilter }),
+        ...(shortageOnly ? { stock_shortage: true } : {}),
+      })
       setGroups(rows)
       setSelectedId((prev) => {
         if (prev && rows.some((g) => g.id === prev)) return prev
@@ -119,7 +136,7 @@ export function OrderGroupsPage() {
     } finally {
       setLoading(false)
     }
-  }, [priorityFilter])
+  }, [priorityFilter, shortageOnly])
 
   useEffect(() => {
     let cancelled = false
@@ -148,10 +165,21 @@ export function OrderGroupsPage() {
       return () => window.clearTimeout(clearId)
     }
     const fromList = groups.find((g) => g.id === selectedId) ?? null
+    let cancelled = false
+    let gotFull = false
     const timer = window.setTimeout(() => {
-      setDetail(fromList)
+      if (!cancelled && !gotFull) setDetail(fromList)
     }, 0)
-    return () => window.clearTimeout(timer)
+    void getOrderGroupById(selectedId)
+      .then((full) => {
+        gotFull = true
+        if (!cancelled) setDetail(full)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
   }, [selectedId, groups])
 
   const stats = useMemo(() => {
@@ -286,6 +314,18 @@ export function OrderGroupsPage() {
                 {vi ? `${stats.overdue} quá hạn` : `${stats.overdue} overdue`}
               </span>
             ) : null}
+            <button
+              type="button"
+              onClick={() => setShortageOnly((current) => !current)}
+              className={cn(
+                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                shortageOnly
+                  ? 'border-orange-400 bg-orange-100 text-orange-900'
+                  : 'border-hairline bg-surface text-ink-muted',
+              )}
+            >
+              {vi ? 'Chỉ nhóm thiếu hàng' : 'Shortage only'}
+            </button>
             {stats.shortage > 0 ? (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-orange-200/70 bg-orange-50 px-2.5 py-1 text-[11px] font-medium text-orange-800 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-200">
                 <AlertTriangle className="h-3 w-3" />
@@ -481,6 +521,11 @@ export function OrderGroupsPage() {
                           </td>
                           <td className="px-3 py-3 font-mono text-xs tabular-nums text-ink">
                             <span title={vi ? 'Còn xử lý / Tổng / Đã hủy' : 'Active / Total / Canceled'}>
+                              {g.manualLink ? (
+                                <span className="mr-1 rounded bg-primary/10 px-1 text-[10px] text-primary-hover">
+                                  {vi ? 'tay' : 'link'}
+                                </span>
+                              ) : null}
                               {g.activeOrderCount}/{g.orderCount}
                               {g.canceledOrderCount > 0
                                 ? ` (−${g.canceledOrderCount})`
@@ -629,33 +674,6 @@ export function OrderGroupsPage() {
                         </div>
                       </dd>
                     </div>
-                    {detail.platform === 'lazada' ? (
-                      <div className="flex items-start justify-between gap-2">
-                        <dt className="text-ink-subtle">
-                          {vi ? 'Báo Lazada (pack)' : 'Lazada pack report'}
-                        </dt>
-                        <dd className="max-w-[16rem] text-right text-xs text-ink">
-                          <div className="font-medium">
-                            {detail.lazadaPack.status
-                              ? vi
-                                ? LAZADA_PACK_STATUS_LABELS[
-                                    detail.lazadaPack.status
-                                  ].vi
-                                : LAZADA_PACK_STATUS_LABELS[
-                                    detail.lazadaPack.status
-                                  ].en
-                              : vi
-                                ? 'Chưa gửi'
-                                : 'Not sent'}
-                          </div>
-                          {detail.lazadaPack.error ? (
-                            <p className="mt-0.5 text-[11px] text-rose-700 dark:text-rose-300">
-                              {detail.lazadaPack.error}
-                            </p>
-                          ) : null}
-                        </dd>
-                      </div>
-                    ) : null}
                     {detail.stockShortage ? (
                       <div className="col-span-full rounded-md border border-orange-200 bg-orange-50/80 px-2.5 py-2 text-xs text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100">
                         <p className="font-semibold">
@@ -674,6 +692,23 @@ export function OrderGroupsPage() {
                         ) : null}
                       </div>
                     ) : null}
+                  </dl>
+
+                  <GroupOpsPanel
+                    detail={detail}
+                    vi={vi}
+                    canLink={canLink}
+                    canSeeStock={canSeeStock}
+                    canRecheck={canRecheck}
+                    canRelease={canRelease}
+                    onChanged={async () => {
+                      await load()
+                      const full = await getOrderGroupById(detail.id)
+                      setDetail(full)
+                    }}
+                  />
+
+                  <dl className="grid gap-3 rounded-lg border border-hairline bg-canvas/60 p-3 text-sm">
                     <div className="flex items-start justify-between gap-2">
                       <dt className="inline-flex items-center gap-1 text-ink-subtle">
                         <Clock3 className="h-3.5 w-3.5" />

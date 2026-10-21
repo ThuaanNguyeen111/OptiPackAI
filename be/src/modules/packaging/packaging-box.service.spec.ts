@@ -188,7 +188,20 @@ describe('PackagingBoxService', () => {
 
   it('pack trừ 1 thùng/kiện qua kho chung ở chế độ strict', async () => {
     materialsService.consumeForParcels.mockResolvedValue({
-      consumed: [{ code: 'M', name: 'M', before: 3, after: 1, reorderLevel: 2, savingVnd: 0 }],
+      consumed: [
+        {
+          code: 'M',
+          name: 'M',
+          before: 3,
+          after: 1,
+          reorderLevel: 2,
+          savingVnd: 6500,
+          sources: [
+            { parcelNo: 1, source: 'reused', quantity: 1 },
+            { parcelNo: 2, source: 'new', quantity: 1 },
+          ],
+        },
+      ],
       shortfalls: [],
     });
     const planId = new Types.ObjectId();
@@ -210,7 +223,18 @@ describe('PackagingBoxService', () => {
     ];
     expect(needs.map((n) => [n.code, n.quantity, n.parcelNo])).toEqual([['M', 1, 1], ['M', 1, 2]]);
     expect(options.strict).toBe(true);
-    expect(result).toEqual([{ code: 'M', before: 3, after: 1, reorderLevel: 2 }]);
+    expect(result).toEqual([
+      {
+        code: 'M',
+        before: 3,
+        after: 1,
+        reorderLevel: 2,
+        sources: [
+          { parcelNo: 1, source: 'reused' },
+          { parcelNo: 2, source: 'new' },
+        ],
+      },
+    ]);
   });
 
   it('pack khi kho đã hết thùng → PKG_BOX_OUT_OF_STOCK', async () => {

@@ -1,7 +1,11 @@
 import {
+  renderBinLabels,
   renderManifest,
   renderPackingSlip,
+  renderPickingList,
   renderShippingLabels,
+  renderSkuLabels,
+  renderStockReceipt,
 } from './document-renderers';
 
 const pageCount = (pdf: Buffer): number =>
@@ -50,6 +54,7 @@ describe('document-renderers', () => {
   it('nhãn vận chuyển: mỗi kiện một trang', async () => {
     const pdf = await renderShippingLabels({
       shopName: 'Shop A',
+      sender: { name: 'Kho OptiPack Thủ Đức', phone: '0901234567', address: '12 Võ Văn Ngân, Phường Linh Chiểu, TP. Thủ Đức, TP. Hồ Chí Minh — cổng sau, gọi trước khi hoàn hàng' },
       carrierName: 'Hãng mẫu',
       serviceName: 'Giao nhanh',
       trackingCode: 'OPK-ABCDEF1234',
@@ -71,6 +76,7 @@ describe('document-renderers', () => {
   it('C4 (14/10/2026) — nhãn vận đơn GHN: mỗi kiện in mã hãng riêng (mã vạch khác nhau), vẫn 1 trang/kiện', async () => {
     const pdf = await renderShippingLabels({
       shopName: 'Shop A',
+      sender: { name: 'Kho Thủ Đức', phone: null, address: null },
       carrierName: 'Giao Hàng Nhanh (GHN)',
       serviceName: 'Hàng nhẹ',
       trackingCode: 'SHP-261014-ABCDEF',
@@ -89,6 +95,71 @@ describe('document-renderers', () => {
     });
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
     expect(pageCount(pdf)).toBe(2);
+  });
+
+  // (21/10/2026) tem + phiếu in kho
+  it('tem ô kệ: mỗi ô × số bản = 1 trang 70×40 mm; không có ô vẫn ra PDF 1 trang báo trống', async () => {
+    const pdf = await renderBinLabels({
+      warehouseCode: 'WH-HCM',
+      bins: [
+        { binCode: 'A-01-01', zoneCode: 'A', zoneName: 'Áo thun', copies: 2 },
+        { binCode: 'A-01-02', zoneCode: 'A', zoneName: 'Áo thun', copies: 1 },
+      ],
+    });
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(pageCount(pdf)).toBe(3);
+    expect(pageCount(await renderBinLabels({ warehouseCode: 'WH', bins: [] }))).toBe(1);
+  });
+
+  it('tem SKU: mỗi mã × số bản = 1 trang; SKU sàn không có chi tiết vẫn in', async () => {
+    const pdf = await renderSkuLabels({
+      items: [
+        { code: 'AOT-001-DEN-M', name: 'Áo thun cổ tròn basic', detail: 'Màu DEN · Size M', copies: 3 },
+        { code: 'LZ-SKU-9', name: 'SKU sàn', detail: null, copies: 1 },
+      ],
+    });
+    expect(pageCount(pdf)).toBe(4);
+  });
+
+  it('picking list: A4, sang trang khi nhiều dòng', async () => {
+    const line = (n: number): Parameters<typeof renderPickingList>[0]['lines'][number] => ({
+      binCode: `A-01-${String(n).padStart(2, '0')}`,
+      zoneCode: 'A',
+      sku: `SKU-${String(n)}`,
+      masterSku: n % 2 === 0 ? `AOT-00${String(n)}-DEN-M` : null,
+      name: 'Áo thun cổ tròn',
+      lot: n % 3 === 0 ? { code: 'LO-2610', receivedAt: new Date('2026-10-01') } : null,
+      quantity: 2,
+      pickedQuantity: 0,
+      otherBins: n === 1 ? ['B-02-01'] : [],
+    });
+    const small = await renderPickingList({ groupId: '6a8000000000000000000001', shopName: 'Shop', warehouseName: 'Kho HCM', generatedAt: new Date(), lines: [1, 2, 3].map(line) });
+    expect(pageCount(small)).toBe(1);
+    const big = await renderPickingList({
+      groupId: '6a8000000000000000000001',
+      shopName: 'Shop',
+      warehouseName: 'Kho HCM',
+      generatedAt: new Date(),
+      lines: Array.from({ length: 60 }, (_, i) => line(i + 1)),
+    });
+    expect(pageCount(big)).toBeGreaterThan(1);
+  });
+
+  it('phiếu nhập kho: PDF hợp lệ có chỗ ký', async () => {
+    const pdf = await renderStockReceipt({
+      receiptCode: 'PN-261021-0001',
+      warehouseName: 'Kho HCM',
+      warehouseAddress: '12 Võ Văn Ngân, Thủ Đức',
+      lotCode: 'LO-2610',
+      receivedAt: new Date(),
+      supplier: 'Xưởng may A',
+      note: null,
+      createdAt: new Date(),
+      lines: [{ sellerSku: 'LZ-1', masterSku: 'AOT-001-DEN-M', platform: 'lazada', binCode: 'A-01-01', quantity: 20 }],
+      totalQuantity: 20,
+    });
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+    expect(pageCount(pdf)).toBe(1);
   });
 
   it('bảng kê: 1 trang cho vài vận đơn, sang trang khi nhiều', async () => {

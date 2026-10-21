@@ -220,6 +220,7 @@ export function Packing3DBoxViewer({
   boxSub,
   className,
   autoRotate = false,
+  onOpenDetail,
 }: {
   boxLabel?: string
   boxSub?: string
@@ -227,6 +228,8 @@ export function Packing3DBoxViewer({
   className?: string
   /** Xoay tự động sau khi Packaging Staff chấp nhận kế hoạch */
   autoRotate?: boolean
+  /** Nút phóng to mở màn chi tiết thay vì chỉ kéo camera */
+  onOpenDetail?: () => void
 }) {
   const { locale } = usePortal()
   const vi = locale === 'vi'
@@ -247,6 +250,10 @@ export function Packing3DBoxViewer({
   }
 
   const handleToggleZoom = () => {
+    if (onOpenDetail) {
+      onOpenDetail()
+      return
+    }
     setZoomed((z) => !z)
   }
 
@@ -299,10 +306,34 @@ export function Packing3DBoxViewer({
           type="button"
           onClick={handleToggleZoom}
           className="h-9 w-9 rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 active:bg-slate-100 flex items-center justify-center transition-colors cursor-pointer dark:border-slate-800 dark:bg-surface-1/95 dark:text-slate-300"
-          title={zoomed ? (vi ? 'Thu nhỏ' : 'Zoom out') : (vi ? 'Phóng to kiểm tra' : 'Zoom in')}
-          aria-label={zoomed ? (vi ? 'Thu nhỏ' : 'Zoom out') : (vi ? 'Phóng to kiểm tra' : 'Zoom in')}
+          title={
+            onOpenDetail
+              ? vi
+                ? 'Xem chi tiết'
+                : 'View details'
+              : zoomed
+                ? vi
+                  ? 'Thu nhỏ'
+                  : 'Zoom out'
+                : vi
+                  ? 'Phóng to kiểm tra'
+                  : 'Zoom in'
+          }
+          aria-label={
+            onOpenDetail
+              ? vi
+                ? 'Xem chi tiết'
+                : 'View details'
+              : zoomed
+                ? vi
+                  ? 'Thu nhỏ'
+                  : 'Zoom out'
+                : vi
+                  ? 'Phóng to kiểm tra'
+                  : 'Zoom in'
+          }
         >
-          {zoomed ? <ZoomOut className="h-4 w-4" /> : <ZoomIn className="h-4 w-4" />}
+          {onOpenDetail || !zoomed ? <ZoomIn className="h-4 w-4" /> : <ZoomOut className="h-4 w-4" />}
         </button>
 
         <button

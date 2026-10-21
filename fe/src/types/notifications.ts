@@ -11,6 +11,20 @@ export const NOTIFICATION_TYPES = [
   'cancel_confirmation_required',
   'mfa_disabled',
   'packaging_rejected',
+  'low_box_stock',
+  'low_material_stock',
+  'group_auto_canceled',
+  'packaging_plan_invalidated',
+  'delivery_failed',
+  'delivery_returning',
+  'delivery_overdue',
+  'return_requested',
+  'stock_shortage',
+  'packing_assigned',
+  'packing_parcel_held',
+  'packing_issue',
+  'unpack_required',
+  'return_to_shelf',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -63,6 +77,23 @@ export const NOTIFICATION_TYPE_LABELS: Record<
     vi: 'Kế hoạch đóng gói bị từ chối',
     en: 'Packaging plan rejected',
   },
+  low_box_stock: { vi: 'Thùng sắp hết', en: 'Low box stock' },
+  low_material_stock: { vi: 'Vật tư sắp hết', en: 'Low material stock' },
+  group_auto_canceled: { vi: 'Nhóm đơn đã huỷ', en: 'Group canceled' },
+  packaging_plan_invalidated: {
+    vi: 'Kế hoạch đóng gói hết hiệu lực',
+    en: 'Packing plan invalidated',
+  },
+  delivery_failed: { vi: 'Giao thất bại', en: 'Delivery failed' },
+  delivery_returning: { vi: 'Đang hoàn về kho', en: 'Returning to warehouse' },
+  delivery_overdue: { vi: 'Giao quá hạn', en: 'Delivery overdue' },
+  return_requested: { vi: 'Yêu cầu trả hàng', en: 'Return requested' },
+  stock_shortage: { vi: 'Thiếu tồn để giữ chỗ', en: 'Stock shortage' },
+  packing_assigned: { vi: 'Được giao đóng gói', en: 'Packing assigned' },
+  packing_parcel_held: { vi: 'Kiện lệch cân', en: 'Parcel held' },
+  packing_issue: { vi: 'Sự cố lúc đóng', en: 'Packing issue' },
+  unpack_required: { vi: 'Cần tháo kiện', en: 'Unpack required' },
+  return_to_shelf: { vi: 'Trả hàng về ô', en: 'Return to shelf' },
 }
 
 export function mapNotificationRaw(raw: NotificationApiRaw): AppNotification | null {

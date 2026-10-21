@@ -16,7 +16,6 @@ import { AdminOrdersPage } from './pages/AdminOrdersPage'
 import AdminPage from './pages/AdminPage'
 import { AdminRolesPage } from './pages/AdminRolesPage'
 import { AdminPackingPlansPage } from './pages/AdminPackingPlansPage'
-import { AdminTemplatesPage } from './pages/AdminTemplatesPage'
 import { AdminWarehousePage } from './pages/AdminWarehousePage'
 import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
@@ -29,12 +28,14 @@ import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { OrderGroupsPage } from './pages/OrderGroupsPage'
 import { OrdersPage } from './pages/OrdersPage'
+import { PackagingMaterialsPage } from './pages/PackagingMaterialsPage'
 import { PackagingRulesPage } from './pages/PackagingRulesPage'
 import { PackingPage } from './pages/PackingPage'
 import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
 import { ReturnsPage } from './pages/ReturnsPage'
+import { OrderSyncSettingsPage } from './pages/OrderSyncSettingsPage'
 import { ShippingPage } from './pages/ShippingPage'
 import { StaffManagementPage } from './pages/StaffManagementPage'
 import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
@@ -80,11 +81,13 @@ function App() {
                 <Route path="orders/:id" element={<OrderDetailPage />} />
                 <Route path="order-groups" element={<OrderGroupsPage />} />
                 <Route path="returns" element={<ReturnsPage />} />
+                <Route path="order-sync" element={<OrderSyncSettingsPage />} />
                 <Route path="warehouse" element={<WarehousePage />} />
                 <Route path="inventory" element={<WarehouseInventoryPage />} />
                 <Route path="packing" element={<PackingPage />} />
                 <Route path="shipping" element={<ShippingPage />} />
                 <Route path="packaging-rules" element={<PackagingRulesPage />} />
+                <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
                 <Route path="staff" element={<StaffManagementPage />} />
                 <Route path="analytics" element={<AnalyticsReportPage />} />
                 <Route path="profile" element={<ProfilePage />} />
@@ -96,10 +99,11 @@ function App() {
                 <Route path="marketplace" element={<AdminMarketplacePage />} />
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
+                <Route path="order-sync" element={<OrderSyncSettingsPage />} />
                 <Route path="ai" element={<AdminAiPage />} />
                 <Route path="packing-plans" element={<AdminPackingPlansPage />} />
-                <Route path="templates" element={<AdminTemplatesPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />
+                <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
                 <Route path="returns" element={<ReturnsPage shell="admin" />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />

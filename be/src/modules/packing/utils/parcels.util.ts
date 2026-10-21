@@ -30,13 +30,25 @@ export interface ParcelView {
 /** Trường phiên đóng gói của 1 kiện MỚI (chưa quét, chưa niêm phong). */
 export function freshParcelSession(hasFragile: boolean): Pick<
   PlanParcel,
-  'status' | 'has_fragile' | 'scans' | 'box_consumed' | 'sealed_by' | 'sealed_at' | 'weighings' | 'reviews' | 'unpack'
+  | 'status'
+  | 'has_fragile'
+  | 'scans'
+  | 'box_consumed'
+  | 'box_source_used'
+  | 'box_source_override'
+  | 'sealed_by'
+  | 'sealed_at'
+  | 'weighings'
+  | 'reviews'
+  | 'unpack'
 > {
   return {
     status: 'pending',
     has_fragile: hasFragile,
     scans: [],
     box_consumed: false,
+    box_source_used: null,
+    box_source_override: null,
     sealed_by: null,
     sealed_at: null,
     weighings: [],

@@ -30,6 +30,18 @@ export type LazadaConnectResponse = {
   authUrl: string
 }
 
+/** `GET /marketplace/:platform/shops` — không kèm token. */
+export type ConnectedMarketplaceShop = {
+  shopId: string
+  shopName: string | null
+  environment: 'sandbox' | 'production' | string
+  isActive: boolean
+  accessTokenExpiresAt: string | null
+  refreshTokenExpiresAt: string | null
+  lastPolledAt: string | null
+  connectedAt: string | null
+}
+
 export type LazadaCallbackResult = {
   platform: string
   shopId: string
@@ -41,6 +53,13 @@ export type StoredLazadaShop = {
   shopId: string
   shopName: string | null
   connectedAt: string
+  /** Có khi danh sách lấy từ GET /marketplace/lazada/shops. */
+  isActive?: boolean
+  environment?: string
+  accessTokenExpiresAt?: string | null
+  refreshTokenExpiresAt?: string | null
+  lastPolledAt?: string | null
+  fromServer?: boolean
 }
 
 export type MarketplaceOrderListItem = {

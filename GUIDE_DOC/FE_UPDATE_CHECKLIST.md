@@ -1,5 +1,7 @@
 # FE — Danh sách việc cần chỉnh để khớp Backend mới nhất
 
+> 🆕 **21/10/2026 — xem mục 12:** (1) màn đóng gói báo trước lấy thùng ở **kệ mới hay kệ tái sử dụng**, cho chọn **"Dùng thùng mới thay"** kèm lý do; (2) cài đặt **người gửi** in trên nhãn vận đơn; (3) nút **in tem ô kệ, tem SKU, danh sách lấy hàng, phiếu nhập kho**. BE đã xong, FE chưa làm; không có gì hỏng nếu chưa làm.
+
 > **18/10/2026 — Quay lại sau khi chấp nhận đóng gói:** xem [Packing, mục 2.3.1](INTEGRATION_GUIDE_PACKING.md#231-quay-lại-chờ-chấp-nhận).
 
 - Thêm nút **Quay lại chờ chấp nhận** cho Packaging Staff/Admin, gọi `POST /order-groups/:groupId/packing-plan/undo-approve` với `{ expected_version: plan.version }`; nhận `{ plan }` rồi tải lại nhóm.
@@ -92,6 +94,7 @@
 | 9 | Kết nối AURELLE + danh sách shop; "đọc hết thông báo" | 7 | Vài giờ |
 | 10 | Màn dùng dữ liệu giả, mã chết | 8 | Tuỳ |
 | 11 | 🆕 Phiếu nhập theo lô + tồn theo lô + `oldest_lot` trên Picking List; màn cấu hình đồng bộ & gom đơn | 11 | ~1 ngày |
+| 12 | 🆕 21/10: nguồn thùng mới/tái sử dụng trên màn đóng gói; người gửi trên nhãn; 5 nút in tem/phiếu kho | 12 | ~1 ngày |
 
 ---
 
@@ -307,3 +310,64 @@ Chi tiết: `INTEGRATION_GUIDE_WAREHOUSE.md`, `INTEGRATION_GUIDE_SKU_STOCK_K4_K5
 | Lịch sử thay đổi | `GET /order-sync-settings/history` |
 | Store Owner xem (không sửa) | GET ở trên |
 | Bắt lỗi | `ORD_SYNC_SETTINGS_INVALID` (hiện `details`), `ORD_SYNC_SETTINGS_CONFLICT` |
+
+## 12. 🆕 Nguồn thùng khi đóng gói + in tem/phiếu kho (21/10/2026)
+
+**BE đã làm (AOFP-134..137):** thêm API, không đổi/bỏ trường cũ → FE hiện tại **không hỏng**. FE **chưa** sửa gì. Mọi việc dưới đây là **thêm nút/khối mới**.
+
+### 12.1 Màn đóng gói — báo trước lấy thùng ở kệ nào, cho chọn "dùng thùng mới thay"
+
+Đọc: [INTEGRATION_GUIDE_PACKING.md mục 3.4.1](INTEGRATION_GUIDE_PACKING.md).
+
+**Bước 1 — tầng API** (`fe/src/api/packing-plan.api.ts`, `fe/src/types/packing-plan.ts`):
+1. Thêm type `BoxSourcePlan` = `{ parcelNo, boxCode, state: 'to_consume'|'consumed'|'inactive', reusedAllowed, planned: 'new'|'reused'|null, forcedNewReason: 'FRAGILE'|'NOT_REUSABLE'|'NO_REUSED_STOCK'|null, outOfStock, used: 'new'|'reused'|null, boxSourceOverride }` và `BoxSourcesResponse = { orderGroupId, version, allowReusedForFragile, parcels: BoxSourcePlan[], stock: { code, name, qtyNew, qtyReused, reusable }[] }`.
+2. Thêm hàm `getBoxSources(groupId)` → `GET /order-groups/:groupId/packing-plan/box-sources`.
+3. `PackingPlanParcel` thêm 2 trường tuỳ chọn: `boxSourceUsed?: 'new'|'reused'|null`, `boxSourceOverride?: { source, planned, reason, note, by, at } | null`.
+4. `sealParcel(groupId, parcelNo, expectedVersion, weightKg, choice?)`: thêm tham số tuỳ chọn `choice?: { box_source: 'auto'|'new'|'reused'; box_source_reason?: string; box_source_note?: string }`, trải vào body. Không truyền → gửi như cũ.
+5. `packPlan(...)`: kiểu phần tử `parcels` thêm 3 trường tuỳ chọn trên.
+6. Hằng nhãn lý do: `REUSED_BOX_WORN` "Thùng tái sử dụng móp/rách" · `REUSED_BOX_DIRTY` "Bẩn/ẩm" · `OLD_LABEL_NOT_CLEAN` "Còn vết nhãn cũ" · `REUSED_NOT_ON_SHELF` "Kệ không còn thùng" · `HIGH_VALUE_ORDER` "Đơn giá trị cao" · `OTHER` "Khác (ghi chú)".
+
+**Bước 2 — màn** (`fe/src/components/packing/PackingSessionPanel.tsx`):
+1. Khi mở phiên đóng và sau mỗi lần niêm phong thành công: gọi `getBoxSources(groupId)`, lưu theo `parcelNo`.
+2. Trên mỗi kiện `pending`, cạnh tên thùng, hiện 1 dòng:
+   - `planned = 'reused'` → chip xanh **"Lấy ở kệ tái sử dụng · còn {qtyReused}"**.
+   - `planned = 'new'` → chip xám **"Lấy thùng mới · còn {qtyNew}"** + lý do nhỏ theo `forcedNewReason` (`FRAGILE` "hàng dễ vỡ", `NO_REUSED_STOCK` "kệ tái sử dụng hết", `NOT_REUSABLE` "loại thùng không tái sử dụng").
+   - `outOfStock = true` → chip đỏ **"Hết thùng"** + gợi ý nút đổi thùng (đã có).
+3. Khi `planned = 'reused'`: thêm nút nhỏ **"Dùng thùng mới thay"** → mở popup chọn lý do (bắt buộc; "Khác" bắt buộc ghi chú) → lưu lựa chọn tạm cho kiện đó. Hiện chip "Sẽ dùng thùng mới — {lý do}" + nút "Bỏ chọn".
+4. Nút **Niêm phong** của kiện: có lựa chọn tạm → gọi `sealParcel(..., { box_source: 'new', box_source_reason, box_source_note })`; không có → gọi như cũ.
+5. Kiện đã niêm phong: hiện "Thùng: mới" hoặc "Thùng: tái sử dụng" từ `boxSourceUsed`; có `boxSourceOverride` thì thêm "(đổi từ tái sử dụng — {lý do})".
+6. Đóng nhanh (`PackagingWorkbench.tsx`, chỗ gọi `packPlan`): chỉ cần gửi như cũ; nếu muốn, cho chọn tương tự từng dòng cân.
+
+**Bước 3 — bắt lỗi:** `400 PACKING_BOX_SOURCE_REASON_REQUIRED` (thiếu lý do) · `409 PACKING_BOX_SOURCE_NOT_ALLOWED` (tái sử dụng cho hàng dễ vỡ) · `409 PKG_BOX_OUT_OF_STOCK` có `details.source = 'reused'` (kệ tái sử dụng vừa hết → tải lại `box-sources`) · `409 PACKING_BOX_ALREADY_CONSUMED` (kiện mở ra đóng lại — ẩn nút chọn khi `state = 'consumed'`).
+
+**Bước 4 — báo cáo** (`PackingSettingsReports.tsx`, phần feedback): thêm thẻ **"Thùng tái sử dụng bị thay"** đọc `report.boxSource.overrides`, bảng `byReason`, `byBox`. `suggestions` có thể có thêm loại `box` (đã hiện chung với các đề xuất khác).
+
+### 12.2 Người gửi trên nhãn vận đơn
+
+Đọc: [INTEGRATION_GUIDE_SHIPPING.md B.7.1 bước 4](INTEGRATION_GUIDE_SHIPPING.md).
+
+1. `fe/src/api/shipping.api.ts`: type `ShippingSettings` thêm `sender: { name: string|null; phone: string|null; address: string|null }`; `updateShippingSettings` nhận thêm `sender_name?`, `sender_phone?`, `sender_address?`.
+2. Màn cài đặt vận chuyển (Store Owner/Admin): thêm 3 ô **Tên người gửi / SĐT / Địa chỉ kho gửi**, điền sẵn từ `GET`. Ghi chú dưới form: "Bỏ trống → nhãn dùng tên + địa chỉ kho".
+3. Nhãn in ra đã có khối NGƯỜI GỬI — nút in nhãn hiện tại không phải sửa.
+
+### 12.3 In tem và phiếu kho
+
+Đọc: [INTEGRATION_GUIDE_WAREHOUSE.md PHẦN B9](INTEGRATION_GUIDE_WAREHOUSE.md). Dùng lại `openShippingDocument(path)` trong `fe/src/api/shipping.api.ts` (nó gọi `apiRequestBlob` rồi mở tab mới) — có thể đổi tên thành `openPdfDocument` cho đúng nghĩa.
+
+| # | Màn | Thêm nút | Gọi |
+|---|---|---|---|
+| 1 | Quản lý kho → danh sách khu | **In tem ô** (mỗi khu) | `/documents/bin-labels/{warehouseId}?zone_id={zoneId}` |
+| 2 | Quản lý kho → dòng 1 ô | **In lại tem** | `/documents/bin-labels/{warehouseId}?bin_ids={binId}` |
+| 3 | SKU nội bộ (chọn nhiều dòng) | **In tem SKU** + ô "số bản" (1–50) | `/documents/sku-labels?codes={mã1,mã2}&copies={n}` (nhớ `encodeURIComponent` từng mã) |
+| 4 | Lấy hàng (Warehouse Staff, màn Picking List) | **In danh sách lấy hàng** | `/documents/picking-list/{warehouseId}/{groupId}` |
+| 5 | Phiếu nhập: sau khi tạo + trong chi tiết phiếu | **In phiếu nhập** | `/documents/stock-receipt/{warehouseId}/{receiptId}` |
+
+Bắt lỗi (JSON như mọi route): `DOC_NO_BINS` "Khu chưa có ô nào", `DOC_TOO_MANY_LABELS` "Quá 500 tem — in theo từng khu", `DOC_NO_CODES`, `WH_RECEIPT_NOT_FOUND`.
+
+### 12.4 Nghiệm thu
+
+- [ ] Kiện thường, kệ tái sử dụng còn → chip "Lấy ở kệ tái sử dụng"; niêm phong → `boxSourceUsed = 'reused'`, trang Vật tư: ô "Tái sử dụng" giảm 1.
+- [ ] Bấm "Dùng thùng mới thay" không chọn lý do → không cho gửi; chọn lý do → niêm phong → "Tái sử dụng" giữ nguyên, "Mới" giảm 1, kiện hiện "(đổi từ tái sử dụng — …)".
+- [ ] Kiện có hàng dễ vỡ → chip "Lấy thùng mới · hàng dễ vỡ", không có nút đổi.
+- [ ] Lưu người gửi → in nhãn thấy khối NGƯỜI GỬI đúng; xoá trắng → nhãn lấy tên + địa chỉ kho.
+- [ ] In tem ô của 1 khu, in tem SKU 2 bản, in danh sách lấy hàng, in phiếu nhập → PDF mở tab mới, quét thử mã vạch tem ô ra đúng `bin_code`.

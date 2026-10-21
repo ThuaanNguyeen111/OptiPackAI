@@ -181,6 +181,22 @@ export class PlanUnpack {
 }
 export const PlanUnpackSchema = SchemaFactory.createForClass(PlanUnpack);
 
+/**
+ * (21/10/2026) Nhân viên KHÔNG theo nguồn thùng hệ thống gợi ý (VD gợi ý thùng tái sử
+ * dụng nhưng thùng ngoài kệ móp/bẩn → chọn thùng mới). Lý do vào báo cáo feedback.
+ */
+@Schema({ _id: false })
+export class PlanBoxSourceOverride {
+  @Prop({ type: String, required: true, enum: ['new', 'reused'] }) source!: 'new' | 'reused';
+  /** Nguồn hệ thống gợi ý lúc đó. */
+  @Prop({ type: String, required: true, enum: ['new', 'reused'] }) planned!: 'new' | 'reused';
+  @Prop({ required: true }) reason!: string;
+  @Prop({ type: String, default: null }) note!: string | null;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const PlanBoxSourceOverrideSchema = SchemaFactory.createForClass(PlanBoxSourceOverride);
+
 @Schema({ _id: false })
 export class PlanParcel {
   /** Số kiện 1..N trong cả nhóm (đánh lại sau mỗi lần chỉnh tay). */
@@ -212,6 +228,10 @@ export class PlanParcel {
   @Prop({ type: [PlanScanSchema], default: [] }) scans!: PlanScan[];
   /** Thùng + vật tư của kiện ĐÃ trừ tồn (lúc niêm phong lần đầu) — mở ra đóng lại không trừ lần 2. */
   @Prop({ type: Boolean, default: false }) box_consumed!: boolean;
+  /** (21/10/2026) Thùng THẬT đã lấy từ ngăn nào lúc trừ tồn (null = chưa trừ / dữ liệu cũ). */
+  @Prop({ type: String, default: null, enum: ['new', 'reused', null] }) box_source_used!: 'new' | 'reused' | null;
+  /** (21/10/2026) Nhân viên chọn khác gợi ý — null = theo gợi ý. */
+  @Prop({ type: PlanBoxSourceOverrideSchema, default: null }) box_source_override!: PlanBoxSourceOverride | null;
   @Prop({ type: SchemaTypes.ObjectId, default: null }) sealed_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) sealed_at!: Date | null;
   @Prop({ type: [PlanWeighingSchema], default: [] }) weighings!: PlanWeighing[];
@@ -327,8 +347,8 @@ export const PlanIssueSchema = SchemaFactory.createForClass(PlanIssue);
 /** Nhật ký thao tác phiên đóng gói không thuộc kiện/sự cố riêng (05/10/2026). */
 @Schema({ _id: false })
 export class PlanActivity {
-  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish', 'unseal', 'undo_approve'] })
-  kind!: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal' | 'undo_approve';
+  @Prop({ type: String, required: true, enum: ['start', 'unscan', 'assign', 'finish', 'unseal', 'undo_approve', 'box_source'] })
+  kind!: 'start' | 'unscan' | 'assign' | 'finish' | 'unseal' | 'undo_approve' | 'box_source';
   @Prop({ type: Number, default: null }) parcel_no!: number | null;
   @Prop({ required: true }) detail!: string;
   @Prop({ type: String, default: null }) reason!: string | null;

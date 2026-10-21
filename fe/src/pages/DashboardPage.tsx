@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -11,8 +11,15 @@ import {
   Users,
   Wallet,
 } from 'lucide-react'
+import {
+  getPackagingMaterialsSavings,
+  type PackagingMaterialsSavings,
+} from '../api/packaging-materials.api'
+import { getPackingReport } from '../api/packing-plan.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
+import { formatApiError } from '../lib/api'
+import type { PackingReport } from '../types/packing-plan'
 import {
   DASHBOARD_KANBAN_COLUMNS,
   OWNER_FINANCE_SUMMARY,
@@ -182,6 +189,21 @@ export function DashboardPage() {
   const vi = locale === 'vi'
 
   const [columns] = useState<DashboardKanbanColumn[]>(DASHBOARD_KANBAN_COLUMNS)
+  const [packReport, setPackReport] = useState<PackingReport | null>(null)
+  const [savings, setSavings] = useState<PackagingMaterialsSavings | null>(null)
+  const [liveError, setLiveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void Promise.all([getPackingReport(), getPackagingMaterialsSavings()])
+        .then(([report, saved]) => {
+          setPackReport(report)
+          setSavings(saved)
+        })
+        .catch((err: unknown) => setLiveError(formatApiError(err)))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const handleNavigate = (route: string) => {
     navigate(route)
@@ -206,8 +228,8 @@ export function DashboardPage() {
               </h1>
               <p className="owner-hero-lead">
                 {vi
-                  ? 'Giám sát đơn & nhân viên trong phạm vi Owner — không thao tác lấy/đóng/giao hàng. Số liệu tài chính bên dưới là minh họa UI.'
-                  : 'Oversee orders & staff within Owner scope — no floor pick/pack/ship. Finance figures below are UI mock.'}
+                  ? 'Giám sát đơn và nhân viên. Chi phí đóng gói và tiết kiệm lấy từ 30 ngày gần nhất. Doanh thu và luồng đơn vẫn là minh họa.'
+                  : 'Oversee orders and staff. Pack cost and savings are the last 30 days. Revenue and the pipeline stay illustrative.'}
               </p>
               <div className="owner-hero-ctas">
                 <button
@@ -228,13 +250,8 @@ export function DashboardPage() {
                   type="button"
                   onClick={() => navigate('/app/analytics')}
                   className="owner-btn-link"
-                  title={
-                    vi
-                      ? 'Minh họa UI — chưa có API báo cáo'
-                      : 'UI mock — no analytics API yet'
-                  }
                 >
-                  {vi ? 'Báo cáo (demo) →' : 'Analytics (demo) →'}
+                  {vi ? 'Báo cáo →' : 'Analytics →'}
                 </button>
               </div>
             </div>
@@ -289,32 +306,35 @@ export function DashboardPage() {
               <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Chi phí đóng gói / tuần' : 'Pack cost / week'}
+                    {vi ? 'Chi phí đóng gói (30 ngày)' : 'Pack cost (30 days)'}
                   </span>
                   <FileText className="h-4 w-4 text-amber-600" />
                 </div>
                 <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                  {formatVndShort(OWNER_FINANCE_SUMMARY.packagingCostWeekVnd)}
+                  {packReport ? formatVndShort(packReport.packagingCostVnd) : '…'}
                 </p>
                 <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
                   <ArrowDown className="h-3 w-3" />
-                  AI tiết kiệm {formatVndShort(OWNER_FINANCE_SUMMARY.aiSavingsWeekVnd)}₫
+                  {vi ? 'Tiết kiệm bao bì ' : 'Pack savings '}
+                  {savings ? `${formatVndShort(savings.totalSavingVnd)}₫` : '…'}
                 </p>
               </div>
               <div className="owner-panel rounded-2xl p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Gộp đơn hôm nay' : 'Consolidated groups'}
+                    {vi ? 'Nhóm đã đóng (30 ngày)' : 'Packed groups (30 days)'}
                   </span>
                   <TrendingUp className="h-4 w-4 text-[var(--ls-cta,#152D35)]" />
                 </div>
                 <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                  {OWNER_FINANCE_SUMMARY.multiPlatformGroupsToday}
+                  {packReport ? packReport.groups : '…'}
                 </p>
                 <p className="mt-1 text-[11px] text-slate-400">
-                  {vi
-                    ? `${OWNER_FINANCE_SUMMARY.cancelDetachToday} đơn gỡ khỏi nhóm (hủy 1 sàn)`
-                    : `${OWNER_FINANCE_SUMMARY.cancelDetachToday} detached after single-platform cancel`}
+                  {packReport
+                    ? vi
+                      ? `${packReport.orders} đơn · ${packReport.parcels} kiện`
+                      : `${packReport.orders} orders · ${packReport.parcels} parcels`
+                    : '…'}
                 </p>
               </div>
               <div className="owner-panel rounded-2xl p-4">
@@ -332,6 +352,9 @@ export function DashboardPage() {
                 </p>
               </div>
             </div>
+            {liveError ? (
+              <p className="text-xs text-rose-600">{liveError}</p>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="owner-panel rounded-2xl p-4">
@@ -482,7 +505,7 @@ export function DashboardPage() {
               <div className="owner-panel rounded-2xl p-5">
                 <div className="flex items-start justify-between">
                   <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    {vi ? 'Chi phí đóng gói tiết kiệm nhờ AI' : 'AI Packaging Cost Savings'}
+                    {vi ? 'Tiết kiệm bao bì tái sử dụng' : 'Reused packaging savings'}
                   </span>
                   <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
                     <FileText className="h-4 w-4" />
@@ -492,10 +515,16 @@ export function DashboardPage() {
                 <div className="mt-3 flex items-end justify-between">
                   <div>
                     <p className="font-mono text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                      $1,284
+                      {savings ? formatVndShort(savings.totalSavingVnd) : '…'}
                     </p>
                     <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                      {vi ? 'Tổng tiết kiệm tuần này' : 'Total saved this week'}
+                      {savings
+                        ? vi
+                          ? `Tái sử dụng ${Math.round(savings.reuseRate * 100)}%`
+                          : `Reuse ${Math.round(savings.reuseRate * 100)}%`
+                        : vi
+                          ? 'Đang tải'
+                          : 'Loading'}
                     </p>
                   </div>
 

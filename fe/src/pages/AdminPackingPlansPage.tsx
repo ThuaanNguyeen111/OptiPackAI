@@ -4,13 +4,15 @@ import {
   getOrderGroupPickingList,
   listOrderGroups,
 } from '../api/order-groups.api'
-import { generatePackaging } from '../api/packaging.api'
+import { getPackingPlan, recomputePackingPlan } from '../api/packing-plan.api'
+import { PackingReportsPanel, PackingSettingsForm } from '../components/packing/PackingSettingsReports'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
 import { AdminToast } from '../modules/admin/components/AdminToast'
 import type { OrderGroup, PackableItem } from '../types/order-groups'
+import type { PackingPlan } from '../types/packing-plan'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
 } from '../types/order-groups'
@@ -34,6 +36,8 @@ export function AdminPackingPlansPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [view, setView] = useState<'picked' | 'sent'>('picked')
+  const [plan, setPlan] = useState<PackingPlan | null>(null)
+  const [planLoading, setPlanLoading] = useState(false)
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -119,6 +123,34 @@ export function AdminPackingPlansPage() {
     }
   }, [selectedId, view])
 
+  useEffect(() => {
+    if (!selectedId) {
+      const clearId = window.setTimeout(() => {
+        setPlan(null)
+        setPlanLoading(false)
+      }, 0)
+      return () => window.clearTimeout(clearId)
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setPlanLoading(true)
+      void getPackingPlan(selectedId)
+        .then((next) => {
+          if (!cancelled) setPlan(next)
+        })
+        .catch(() => {
+          if (!cancelled) setPlan(null)
+        })
+        .finally(() => {
+          if (!cancelled) setPlanLoading(false)
+        })
+    }, 150)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [selectedId])
+
   const canConfirm =
     Boolean(selected) &&
     selected?.fulfillmentStatus === 'picked' &&
@@ -131,7 +163,8 @@ export function AdminPackingPlansPage() {
     setActionBusy(true)
     setActionError(null)
     try {
-      await generatePackaging(selected.id)
+      const current = plan ?? (await getPackingPlan(selected.id))
+      await recomputePackingPlan(selected.id, current?.version)
       setToast(
         vi
           ? 'Đã chốt kế hoạch — đã gửi thông báo cho nhân viên đóng gói.'
@@ -168,6 +201,8 @@ export function AdminPackingPlansPage() {
       />
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-5xl space-y-4">
+          <PackingReportsPanel vi={vi} />
+          <PackingSettingsForm vi={vi} canEdit />
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h1 className="text-xl font-semibold tracking-tight text-ink">
@@ -329,9 +364,17 @@ export function AdminPackingPlansPage() {
                             : 'Confirm creates a packing plan (from picked SKUs) and notifies Packaging Staff.'}
                         </p>
                         <p className="mt-1 text-xs text-ink-subtle">
-                          {vi
-                            ? 'Chưa gắn AI đầy đủ — dùng thuật toán fallback; dữ liệu đơn/SKU lấy từ hệ thống thật.'
-                            : 'Full AI not wired yet — fallback algorithm; order/SKU data stays accurate.'}
+                          {planLoading
+                            ? vi
+                              ? 'Đang đọc kế hoạch…'
+                              : 'Loading plan…'
+                            : plan
+                              ? vi
+                                ? `Kế hoạch: ${plan.status}${plan.failureReason ? ` — ${plan.failureReason}` : ''} · ${String(plan.totals.parcels)} kiện`
+                                : `Plan: ${plan.status}${plan.failureReason ? ` — ${plan.failureReason}` : ''} · ${String(plan.totals.parcels)} parcels`
+                              : vi
+                                ? 'Chưa có kế hoạch — xác nhận sẽ tính ngay.'
+                                : 'No plan yet — confirm computes it now.'}
                         </p>
                         {(actionError ?? itemsError) ? (
                           <p className="mt-2 text-sm text-rose-600">

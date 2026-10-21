@@ -35,6 +35,20 @@ export const ADJUSTMENT_REASONS = [
 ] as const;
 export type AdjustmentReason = (typeof ADJUSTMENT_REASONS)[number];
 
+/**
+ * (21/10/2026) Lý do nhân viên KHÔNG lấy thùng theo nguồn hệ thống gợi ý (thường là gợi ý
+ * thùng tái sử dụng nhưng chọn thùng mới). Vào báo cáo feedback để siết khâu xếp hạng A.
+ */
+export const BOX_SOURCE_REASONS = [
+  'REUSED_BOX_WORN', // thùng tái sử dụng móp/rách/yếu
+  'REUSED_BOX_DIRTY', // bẩn, ẩm, có mùi
+  'OLD_LABEL_NOT_CLEAN', // còn vết nhãn/thông tin khách cũ
+  'REUSED_NOT_ON_SHELF', // hệ thống báo còn nhưng kệ tái sử dụng không có
+  'HIGH_VALUE_ORDER', // đơn giá trị cao/quà tặng — dùng thùng mới
+  'OTHER',
+] as const;
+export type BoxSourceReason = (typeof BOX_SOURCE_REASONS)[number];
+
 export class VersionedDto {
   @ApiProperty({ example: 3, description: 'Giá trị `version` của kế hoạch lúc người dùng xem (khóa lạc quan).' })
   @IsInt({ message: 'expected_version phải là số nguyên' })
@@ -244,6 +258,26 @@ export class ParcelWeightDto {
   @Min(0.001, { message: 'weight_kg phải lớn hơn 0' })
   @Max(100, { message: 'weight_kg không vượt quá 100 kg' })
   weight_kg!: number;
+
+  @ApiProperty({
+    required: false,
+    enum: ['auto', 'new', 'reused'],
+    description: '(21/10/2026) Nguồn thùng: auto (mặc định, tái sử dụng trước) | new | reused. Khác gợi ý → bắt buộc box_source_reason.',
+  })
+  @IsOptional()
+  @IsIn(['auto', 'new', 'reused'], { message: 'box_source chỉ nhận auto, new hoặc reused' })
+  box_source?: 'auto' | 'new' | 'reused';
+
+  @ApiProperty({ required: false, enum: BOX_SOURCE_REASONS })
+  @IsOptional()
+  @IsIn(BOX_SOURCE_REASONS, { message: 'box_source_reason không hợp lệ' })
+  box_source_reason?: BoxSourceReason;
+
+  @ApiProperty({ required: false, description: 'Bắt buộc khi box_source_reason = OTHER.' })
+  @IsOptional()
+  @IsString({ message: 'box_source_note phải là chuỗi' })
+  @MaxLength(300, { message: 'box_source_note tối đa 300 ký tự' })
+  box_source_note?: string;
 }
 
 export class PackPlanDto extends VersionedDto {

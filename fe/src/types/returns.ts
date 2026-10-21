@@ -50,8 +50,6 @@ export type ReturnRequest = {
   items: ReturnItem[]
   exchangeItems: ExchangeItem[]
   inspection: ReturnInspectionLine[]
-  /** (14/10/2026) Kết quả thu hồi thùng/vật tư khi kiểm hàng (G4). */
-  packagingInspection?: ReturnPackagingInspectionLine[]
   replacementStatus: string | null
   replacementGroupId: string | null
   replacementError: string | null
@@ -89,33 +87,6 @@ export type CreateReturnInput = {
   customer_note?: string
 }
 
-/** (14/10/2026) 1 dòng thu hồi vật tư đã ghi nhận (BE `packagingInspection`). */
-export type ReturnPackagingInspectionLine = {
-  materialCode: string
-  quantity: number
-  grade: 'A' | 'B' | 'C' | string
-  reuseCycleSeen: number
-  oldLabelRemoved: boolean
-  recoveredToReuse: boolean
-  outcome: string | null
-}
-
-/**
- * (14/10/2026) Thu hồi thùng/vật tư khi kiểm hàng hoàn — gửi trong `packaging[]` của
- * `POST /returns/:id/inspect`. Hạng A (giao lại được) BẮT BUỘC `old_label_removed: true`
- * và chưa quá số lần tái sử dụng → cộng kho tái sử dụng (lần đóng gói sau dùng trước);
- * B → kho dùng nội bộ; C → loại bỏ.
- */
-export type InspectReturnPackagingInput = {
-  /** Mã vật liệu trong danh mục `/packaging-materials` (VD `BOX-M`). */
-  material_code: string
-  quantity: number
-  grade: 'A' | 'B' | 'C'
-  /** Số lần đã tái sử dụng ghi trên nắp thùng (R1, R2…). Không ghi = 0. */
-  reuse_cycle_seen?: number
-  old_label_removed?: boolean
-}
-
 export type InspectReturnLineInput = {
   seller_sku: string
   quantity: number
@@ -143,6 +114,7 @@ export const RETURN_STATUS_LABELS: Record<string, { vi: string; en: string }> = 
   awaiting_receipt: { vi: 'Chờ hàng về kho', en: 'Awaiting receipt' },
   received: { vi: 'Kho đã nhận', en: 'Received' },
   closed: { vi: 'Đã đóng', en: 'Closed' },
+  canceled: { vi: 'Đã hủy phiếu', en: 'Canceled' },
 }
 
 export const RETURN_TYPE_LABELS: Record<string, { vi: string; en: string }> = {
