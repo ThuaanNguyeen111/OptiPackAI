@@ -1,11 +1,14 @@
 /** Khớp `ShipmentResponse` / events camelCase từ `shipments.controller.ts`. */
 
 export const SHIPMENT_STATUSES = [
+  'awaiting_pickup',
+  'in_transit',
   'out_for_delivery',
   'delivery_failed',
   'returning_to_warehouse',
   'delivered',
   'returned_to_warehouse',
+  'cancelled',
 ] as const
 
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number]
@@ -39,6 +42,33 @@ export type Shipment = {
   isOverdue?: boolean
   /** (14/10/2026) Mã vận đơn hiển thị (`SHP-…`, GHN thì là mã nội bộ — mã GHN ở từng kiện). */
   trackingCode?: string | null
+  carrierCode?: string | null
+  carrierName?: string | null
+  serviceCode?: string | null
+  serviceName?: string | null
+  /** true khi hãng là API (GHN). Nút giao nội bộ bị backend từ chối. */
+  carrierManaged?: boolean
+  carrierStatus?: string | null
+  carrierStatusLabel?: string | null
+  carrierBookingError?: string | null
+  carrierIncident?: string | null
+  estimatedCostVnd?: number | null
+  tripCode?: string | null
+  pickupAt?: string | null
+  toLocation?: {
+    street: string | null
+    wardName: string | null
+    provinceName: string | null
+    phone: string | null
+  } | null
+  carrierParcels?: {
+    parcelNo: number
+    carrierOrderCode: string | null
+    sortCode: string | null
+    feeTotalVnd: number | null
+    carrierStatusLabel: string | null
+    bookingError: string | null
+  }[]
   version: number
   createdAt: string | null
   updatedAt: string | null
@@ -49,7 +79,8 @@ export function isShipmentDeliveryOverdue(shipment: Shipment): boolean {
   if (!shipment.dueAt) return false
   if (
     shipment.status === 'delivered' ||
-    shipment.status === 'returned_to_warehouse'
+    shipment.status === 'returned_to_warehouse' ||
+    shipment.status === 'cancelled'
   ) {
     return false
   }
@@ -85,11 +116,14 @@ export type ShipmentListResult = {
 
 export const SHIPMENT_STATUS_LABELS: Record<string, { vi: string; en: string }> = {
   packed: { vi: 'Chờ giao', en: 'Ready to ship' },
+  awaiting_pickup: { vi: 'Chờ hãng lấy', en: 'Awaiting pickup' },
+  in_transit: { vi: 'Đang trung chuyển', en: 'In transit' },
   out_for_delivery: { vi: 'Đang giao', en: 'Out for delivery' },
   delivery_failed: { vi: 'Giao thất bại', en: 'Delivery failed' },
   returning_to_warehouse: { vi: 'Đang hoàn về', en: 'Returning' },
   delivered: { vi: 'Đã giao', en: 'Delivered' },
   returned_to_warehouse: { vi: 'Đã về kho', en: 'Returned to WH' },
+  cancelled: { vi: 'Đã huỷ ở hãng', en: 'Cancelled at carrier' },
 }
 
 export const SHIPMENT_ERROR_MESSAGES: Record<string, string> = {
@@ -100,4 +134,13 @@ export const SHIPMENT_ERROR_MESSAGES: Record<string, string> = {
   SHP_NOTE_REQUIRED: 'Chọn «Lý do khác» thì bắt buộc ghi chú.',
   SHP_NOT_FOUND: 'Không tìm thấy vận đơn.',
   SHP_INVALID_ID: 'Mã vận đơn không hợp lệ.',
+  SHP_MANAGED_BY_CARRIER:
+    'Vận đơn do hãng quản lý. Dùng nút mô phỏng GHN, không bấm giao thành công / thất bại / giao lại.',
+  SHP_NOT_CARRIER_SHIPMENT: 'Thao tác hãng chỉ dùng cho vận đơn GHN.',
+  SHP_CARRIER_NOT_BOOKED: 'Chưa có kiện nào nhận mã hãng.',
+  SHP_CARRIER_CANCEL_NOT_ALLOWED: 'Chỉ huỷ được khi vận đơn còn chờ hãng lấy hàng.',
+  SHP_CARRIER_CANCEL_REJECTED: 'Hãng từ chối huỷ vận đơn.',
+  SHP_CARRIER_SIMULATION_DISABLED: 'Nút mô phỏng GHN đang tắt trên máy chủ.',
+  SHP_CARRIER_STATUS_INVALID: 'Trạng thái mô phỏng không hợp lệ.',
+  SHP_TO_LOCATION_LOCKED: 'Mọi kiện đã có mã hãng — không sửa địa chỉ được nữa.',
 }

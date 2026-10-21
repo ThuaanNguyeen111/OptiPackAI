@@ -30,7 +30,6 @@ import {
 } from '../ui/table'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { cn } from '../../lib/cn'
-import { getDemoOrderDetail } from '../../data/demo-multi-platform-orders'
 import {
   ORDER_STATUSES,
   ORDER_STATUS_LABELS,
@@ -142,12 +141,7 @@ function PlatformPillsCell({
 }
 
 function memberItemSummary(member: MarketplaceOrderListItem): string {
-  const detail = getDemoOrderDetail(member.id)
-  if (!detail?.items.length) {
-    return `${member.itemCount} SP`
-  }
-  const names = detail.items.map((i) => i.name).join(' + ')
-  return `${member.itemCount} SP (${names})`
+  return `${member.itemCount} SP`
 }
 
 /** Cột Mã đơn — không chứa chevron (chevron ở cột riêng sát trái). */
@@ -360,7 +354,6 @@ export type MarketplaceOrdersViewProps = {
       members?: MarketplaceOrderListItem[]
     }
   >
-  showDemoBanner?: boolean
   loading: boolean
   loadingMore: boolean
   nextCursor: string | null
@@ -409,7 +402,6 @@ export function MarketplaceOrdersView({
   needsConnect,
   visibleOrders,
   groupMetaById,
-  showDemoBanner = false,
   loading,
   loadingMore,
   nextCursor,
@@ -766,14 +758,6 @@ export function MarketplaceOrdersView({
                     {visibleOrders.length}
                   </Badge>
                 </h2>
-            </div>
-          ) : null}
-
-          {ops && showDemoBanner ? (
-            <div className="rounded-xl border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_55%,white)] px-3.5 py-2.5 text-[13px] font-normal leading-relaxed text-[var(--ls-ink,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_30%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-ink,#D4ECDD)]">
-              {vi
-                ? 'Demo gộp đa sàn (FE): BE live chỉ gộp cùng sàn. Dòng Lazada + TikTok (Trần Văn An) là DEMO FE — mở chi tiết hoặc tab 「Đơn gộp」. Không phải dữ liệu sync thật.'
-                : 'Multi-platform demo (FE): Live BE consolidates same-platform only. The Lazada + TikTok row is FE DEMO — open detail or the Grouped tab. Not from live sync.'}
             </div>
           ) : null}
 

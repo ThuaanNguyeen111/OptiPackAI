@@ -6,8 +6,12 @@ const STAFF_PREFIXES: Record<
   | typeof UserRole.SHIPPING_COORDINATOR,
   string[]
 > = {
-  [UserRole.WAREHOUSE_STAFF]: ['/app/warehouse', '/app/inventory'],
-  [UserRole.PACKAGING_STAFF]: ['/app/packing'],
+  [UserRole.WAREHOUSE_STAFF]: [
+    '/app/warehouse',
+    '/app/inventory',
+    '/app/packaging-materials',
+  ],
+  [UserRole.PACKAGING_STAFF]: ['/app/packing', '/app/packaging-materials'],
   [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping'],
 }
 
@@ -21,7 +25,9 @@ const STORE_OWNER_PREFIXES = [
   '/app/orders',
   '/app/order-groups',
   '/app/returns',
+  '/app/order-sync',
   '/app/packaging-rules',
+  '/app/packaging-materials',
   '/app/staff',
   '/app/analytics',
   '/app/profile',

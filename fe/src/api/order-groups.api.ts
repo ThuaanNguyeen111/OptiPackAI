@@ -1,7 +1,10 @@
 import { apiRequest } from '../lib/api'
 import type {
   DecidePartialInput,
+  GroupOrderLine,
+  GroupOrderView,
   LazadaPackInfo,
+  ManualLink,
   LazadaPackItem,
   LazadaPackStatus,
   ListOrderGroupsParams,
@@ -15,6 +18,8 @@ import type {
   ReportMissingInput,
   RetryLazadaPackResult,
   SetPriorityInput,
+  StockAvailability,
+  StockReservationLine,
   TransitionOrderGroupInput,
 } from '../types/order-groups'
 import {
@@ -176,19 +181,22 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
       row.stockShortageItems ?? row.stock_shortage_items,
     ),
     manualLink: mapManualLink(row.manualLink ?? row.manual_link),
+    linkedGroupCount: pickNumber(
+      row.linkedGroupCount,
+      row.linked_group_count,
+    ),
     origin: pickString(row.origin) || 'marketplace',
-    sourceReturnId:
-      pickString(row.sourceReturnId, row.source_return_id) || null,
+    orders: mapGroupOrders(row.orders),
     version: pickNumber(row.version, row.__v),
     createdAt,
     updatedAt,
   }
 }
 
-function mapManualLink(raw: unknown): OrderGroup['manualLink'] {
+function mapManualLink(raw: unknown): ManualLink | null {
   const row = asRecord(raw)
   if (!row) return null
-  const linkId = pickString(row.linkId, row.link_id)
+  const linkId = pickString(row.linkId, row.link_id, row.manual_link_id)
   if (!linkId) return null
   return {
     linkId,
@@ -196,6 +204,53 @@ function mapManualLink(raw: unknown): OrderGroup['manualLink'] {
     linkedAt: toIso(row.linkedAt) ?? toIso(row.linked_at),
     note: pickString(row.note) || null,
   }
+}
+
+function mapGroupOrders(raw: unknown): GroupOrderView[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const id = pickString(row.id, row._id)
+    if (!id) return []
+    const recipient = asRecord(row.recipient)
+    return [
+      {
+        id,
+        platform: pickString(row.platform) || 'lazada',
+        platformOrderId: pickString(
+          row.platformOrderId,
+          row.platform_order_id,
+        ),
+        status: pickString(row.status),
+        recipientName: pickString(
+          recipient?.fullName,
+          recipient?.full_name,
+        ),
+        recipientPhone: pickString(recipient?.phone),
+        recipientCity: pickString(recipient?.city),
+        items: mapGroupOrderLines(row.items),
+      },
+    ]
+  })
+}
+
+function mapGroupOrderLines(raw: unknown): GroupOrderLine[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const sku = pickString(row.sku)
+    if (!sku) return []
+    return [
+      {
+        sku,
+        name: pickString(row.name),
+        quantity: pickNumber(row.quantity),
+        status: pickString(row.status),
+      },
+    ]
+  })
 }
 
 function mapShortageItems(raw: unknown): OrderGroup['stockShortageItems'] {
@@ -264,12 +319,15 @@ export async function listOrderGroups(
     platform: params.platform,
     order_priority: params.order_priority,
     assigned_staff_id: params.assigned_staff_id,
-    stock_shortage:
-      params.stock_shortage === undefined ? undefined : String(params.stock_shortage),
-    is_overdue:
-      params.is_overdue === undefined ? undefined : String(params.is_overdue),
+    assigned_packer_id: params.assigned_packer_id,
     before: params.before,
     limit: params.limit === undefined ? undefined : String(params.limit),
+    stock_shortage:
+      params.stock_shortage === undefined
+        ? undefined
+        : String(params.stock_shortage),
+    is_overdue:
+      params.is_overdue === undefined ? undefined : String(params.is_overdue),
   })
   const res = await apiRequest<unknown>(`/order-groups${query}`, {
     auth: true,
@@ -588,4 +646,122 @@ export async function searchOrderGroupStaff(
   return res
     .map(mapStaffSearchItem)
     .filter((row): row is StaffSearchItem => row !== null)
+}
+
+export async function listLinkedOrderGroups(id: string): Promise<OrderGroup[]> {
+  const res = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(id)}/linked`,
+    { auth: true },
+  )
+  const row = asRecord(res)
+  const raw = row?.linkedGroups ?? row?.linked_groups
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(mapOrderGroup)
+    .filter((group): group is OrderGroup => group !== null)
+}
+
+export async function linkOrderGroups(
+  id: string,
+  targetGroupId: string,
+  note?: string,
+): Promise<OrderGroup[]> {
+  const res = await apiRequest<unknown>(`/order-groups/${encodeURIComponent(id)}/link`, {
+    method: 'POST',
+    auth: true,
+    body: {
+      target_group_id: targetGroupId,
+      ...(note?.trim() ? { note: note.trim() } : {}),
+    },
+  })
+  const row = asRecord(res)
+  const raw = row?.linkedGroups ?? row?.linked_groups
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(mapOrderGroup)
+    .filter((group): group is OrderGroup => group !== null)
+}
+
+export async function unlinkOrderGroup(id: string): Promise<void> {
+  await apiRequest(`/order-groups/${encodeURIComponent(id)}/link`, {
+    method: 'DELETE',
+    auth: true,
+  })
+}
+
+export async function listStockReservation(
+  id: string,
+): Promise<StockReservationLine[]> {
+  const res = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(id)}/stock-reservation`,
+    { auth: true },
+  )
+  if (!Array.isArray(res)) return []
+  return res.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const sellerSku = pickString(row.sellerSku, row.seller_sku)
+    if (!sellerSku) return []
+    return [
+      {
+        sellerSku,
+        masterSku: pickString(row.masterSku, row.master_sku) || null,
+        stockKey: pickString(row.stockKey, row.stock_key),
+        status: pickString(row.status),
+        quantityNeeded: pickNumber(row.quantityNeeded, row.quantity_needed),
+        quantityPicked: pickNumber(row.quantityPicked, row.quantity_picked),
+        quantityReserved: pickNumber(
+          row.quantityReserved,
+          row.quantity_reserved,
+        ),
+        shortage: pickNumber(row.shortage),
+      },
+    ]
+  })
+}
+
+export async function recheckStockReservation(id: string): Promise<{
+  stockShortage: boolean
+}> {
+  const res = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(id)}/stock-reservation/recheck`,
+    { method: 'POST', auth: true },
+  )
+  const row = asRecord(res)
+  return {
+    stockShortage:
+      row?.stockShortage === true || row?.stock_shortage === true,
+  }
+}
+
+export async function releaseStockReservation(
+  id: string,
+): Promise<{ releasedUnits: number }> {
+  const res = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(id)}/stock-reservation/release`,
+    { method: 'POST', auth: true },
+  )
+  const row = asRecord(res)
+  return {
+    releasedUnits: pickNumber(row?.releasedUnits, row?.released_units),
+  }
+}
+
+export async function getStockAvailability(params: {
+  platform: string
+  shop_id: string
+  seller_sku: string
+}): Promise<StockAvailability> {
+  const query = toQuery(params)
+  const res = await apiRequest<unknown>(`/stock-availability${query}`, {
+    auth: true,
+  })
+  const row = asRecord(res)
+  return {
+    stockKey: pickString(row?.stockKey, row?.stock_key),
+    masterSku: pickString(row?.masterSku, row?.master_sku) || null,
+    onHand: pickNumber(row?.onHand, row?.on_hand),
+    reserved: pickNumber(row?.reserved),
+    available: pickNumber(row?.available),
+  }
 }

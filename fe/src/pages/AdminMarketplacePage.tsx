@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Package, Store } from 'lucide-react'
+import { AurelleConnectPanel } from '../components/marketplace/AurelleConnectPanel'
 import { LazadaConnectPanel } from '../components/marketplace/LazadaConnectPanel'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { useLazadaConnection } from '../hooks/useLazadaConnection'
@@ -39,6 +40,10 @@ export function AdminMarketplacePage() {
 
           <section className="rounded-xl border border-hairline bg-surface-1 p-4">
             <LazadaConnectPanel api={connection} locale={locale} />
+          </section>
+
+          <section className="rounded-xl border border-hairline bg-surface-1 p-4">
+            <AurelleConnectPanel locale={locale} />
           </section>
 
           <section className="grid gap-3 sm:grid-cols-2">

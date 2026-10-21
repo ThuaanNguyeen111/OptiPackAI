@@ -120,11 +120,6 @@ export function CreateReturnForm({
       {loadError ? (
         <p className="text-xs text-rose-700">{loadError}</p>
       ) : null}
-      <p className="text-xs font-semibold text-ink">
-        {vi
-          ? 'Admin đóng vai khách. Chỉ nhóm đơn đã giao, trong 15 ngày.'
-          : 'Admin acts as the customer. Delivered groups only, within 15 days.'}
-      </p>
       <label className="block text-xs">
         <span className="text-ink-muted">{vi ? 'Nhóm đơn đã giao' : 'Delivered group'}</span>
         {groups.length > 0 ? (
