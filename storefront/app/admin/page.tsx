@@ -167,7 +167,7 @@ export default function AdminPage() {
             }}>Bỏ ảnh</button>
           </div>)}</div>
           <h3>Size, màu, giá và tồn kho</h3>
-          <p className="admin-hint">Để trống size/màu nếu sản phẩm chỉ có một loại. SKU được tạo tự động.</p>
+          <p className="admin-hint">Để trống size/màu nếu sản phẩm chỉ có một loại. SKU được tạo tự động. Ô tồn kho ghi &quot;Kho OptiPack&quot; do kho OptiPack quản lý — chỉ xem, nhập/kiểm kê ở OptiPack.</p>
           <div className="admin-table-wrap"><table className="admin-variants"><thead><tr><th>SKU</th><th>Màu</th><th>Size</th><th>Giá (₫)</th><th>Tồn kho</th><th>Giữ chỗ</th><th><span className="admin-sr-only">Thao tác</span></th></tr></thead>
             <tbody>{draft.variants.map((variant, index) => {
               const original = editing?.variants.find((item) => item.id === variant.id)
@@ -179,7 +179,10 @@ export default function AdminPage() {
                 <td><input aria-label={`Màu biến thể ${index + 1}`} maxLength={100} value={variant.color} onChange={(event) => change({ color: event.target.value })} /></td>
                 <td><input aria-label={`Size biến thể ${index + 1}`} maxLength={100} value={variant.size} onChange={(event) => change({ size: event.target.value })} /></td>
                 <td><input aria-label={`Giá biến thể ${index + 1}`} required type="number" min={0} step={1} value={variant.price} onChange={(event) => change({ price: Number(event.target.value) })} /></td>
-                <td><input aria-label={`Tồn kho biến thể ${index + 1}`} required type="number" min={original?.reservedQuantity ?? 0} step={1} value={variant.quantityOnHand} onChange={(event) => change({ quantityOnHand: Number(event.target.value) })} /></td>
+                <td>{original?.stockSource === 'optipack'
+                  // 21/10/2026 (phương án A) — tồn do kho OptiPack đẩy sang; BE bỏ qua số nhập ở đây.
+                  ? <span className="admin-stock-managed" title={original.stockSyncedAt ? `Cập nhật ${new Date(original.stockSyncedAt).toLocaleString('vi-VN')}` : undefined}>{original.quantityOnHand}<small>Kho OptiPack</small></span>
+                  : <input aria-label={`Tồn kho biến thể ${index + 1}`} required type="number" min={original?.reservedQuantity ?? 0} step={1} value={variant.quantityOnHand} onChange={(event) => change({ quantityOnHand: Number(event.target.value) })} />}</td>
                 <td>{original?.reservedQuantity ?? 0}</td>
                 <td><button type="button" className="admin-danger" disabled={draft.variants.length === 1} aria-label={`Bỏ biến thể ${index + 1}`} onClick={() => updateDraft({ variants: draft.variants.filter((_, row) => row !== index) })}>Bỏ</button></td>
               </tr>

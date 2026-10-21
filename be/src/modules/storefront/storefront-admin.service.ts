@@ -103,6 +103,9 @@ export class StorefrontAdminService {
             price: input.price, is_default: defaultId ? variant.id === defaultId : index === 0,
           });
           await variant.save({ session });
+          // (21/10/2026, phương án A) Tồn của SKU đã nối kho OptiPack do OptiPack đẩy sang —
+          // bỏ qua số Admin nhập, tránh 2 nơi cùng sửa rồi ghi đè lẫn nhau.
+          if (variant.stock_source === 'optipack') continue;
           const stock = await this.stocks.findOne({ variant_id: variant._id, warehouse_id: null }).session(session);
           if (input.quantityOnHand < (stock?.reserved_quantity ?? 0)) {
             throw new BadRequestException(`Tồn kho ${variant.sku} không được thấp hơn số lượng đang giữ chỗ`);

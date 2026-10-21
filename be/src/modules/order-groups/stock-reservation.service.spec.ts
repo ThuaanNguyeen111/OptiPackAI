@@ -8,9 +8,9 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 //!=============================================
 describe('StockReservationService — K5', () => {
   const g1 = { _id: new Types.ObjectId(), platform: MarketplacePlatform.LAZADA, shop_id: 's1' };
-  let totalModel: { findOneAndUpdate: jest.Mock; updateOne: jest.Mock; findById: jest.Mock };
+  let totalModel: { findOneAndUpdate: jest.Mock; updateOne: jest.Mock; findById: jest.Mock; find: jest.Mock };
   let reservationModel: { findOne: jest.Mock; updateOne: jest.Mock; find: jest.Mock; findOneAndUpdate: jest.Mock };
-  let groupModel: { updateOne: jest.Mock; findOneAndUpdate: jest.Mock };
+  let groupModel: { updateOne: jest.Mock; findOneAndUpdate: jest.Mock; findById: jest.Mock };
   let assignmentModel: { aggregate: jest.Mock };
   let mappingModel: { find: jest.Mock };
   let service: StockReservationService;
@@ -18,11 +18,12 @@ describe('StockReservationService — K5', () => {
   const agg = (total: number): Promise<{ total: number }[]> & { session: jest.Mock } =>
     Object.assign(Promise.resolve([{ total }]), { session: jest.fn() });
   const existing = (doc: Record<string, unknown> | null): { session: jest.Mock } => ({ session: jest.fn().mockResolvedValue(doc) });
+  const chain = (value: unknown): { select: () => { lean: () => Promise<unknown> } } => ({ select: () => ({ lean: () => Promise.resolve(value) }) });
 
   beforeEach(() => {
-    totalModel = { findOneAndUpdate: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), findById: jest.fn() };
-    reservationModel = { findOne: jest.fn().mockReturnValue(existing(null)), updateOne: jest.fn().mockResolvedValue({}), find: jest.fn(), findOneAndUpdate: jest.fn() };
-    groupModel = { updateOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({ stock_shortage: false }) };
+    totalModel = { findOneAndUpdate: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), findById: jest.fn(), find: jest.fn() };
+    reservationModel = { findOne: jest.fn().mockReturnValue(existing(null)), updateOne: jest.fn().mockResolvedValue({}), find: jest.fn().mockReturnValue(chain([])), findOneAndUpdate: jest.fn() };
+    groupModel = { updateOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({ stock_shortage: false }), findById: jest.fn().mockReturnValue(chain({ warehouse_id: null })) };
     assignmentModel = { aggregate: jest.fn() };
     mappingModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
@@ -89,8 +90,10 @@ describe('StockReservationService — K5', () => {
 
   it('tồn khả dụng = tồn thực − đã giữ', async () => {
     assignmentModel.aggregate.mockReturnValue(agg(10));
-    totalModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ reserved: 4 }) });
+    // Tổng cũ (chưa theo kho) 1 + tổng theo kho 3 → đang giữ 4 trên mọi kho.
+    totalModel.find.mockReturnValue(chain([{ reserved: 1 }, { reserved: 3 }]));
     await expect(service.availability(MarketplacePlatform.LAZADA, 's1', 'ATD-M-01')).resolves.toMatchObject({ onHand: 10, reserved: 4, available: 6 });
+    expect(totalModel.find).toHaveBeenCalledWith({ $or: [{ _id: 'S:lazada|s1|ATD-M-01' }, { stock_key: 'S:lazada|s1|ATD-M-01' }] });
   });
   describe('(05/10/2026) bộ đếm "đã lấy" theo hàng thật', () => {
     it('unconsume: giảm quantity_picked, không xuống dưới 0 (pipeline $max)', async () => {

@@ -68,6 +68,9 @@ export class CatalogService {
         ...(admin ? {
           quantityOnHand: stockMap.get(variant._id.toString())?.quantity_on_hand ?? 0,
           reservedQuantity: stockMap.get(variant._id.toString())?.reserved_quantity ?? 0,
+          // (21/10/2026) 'optipack' = tồn do kho OptiPack quản lý, Admin chỉ xem.
+          stockSource: variant.stock_source ?? 'storefront',
+          stockSyncedAt: variant.stock_synced_at ?? null,
         } : {}),
       })),
     };
