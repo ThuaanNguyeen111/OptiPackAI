@@ -1,10 +1,8 @@
 # OptiPackAI Backend — Integration Guide: Orders & Marketplace Integration (FE-01, FE-02)
 
-**🆕 Cập nhật 15/10/2026** — Admin tự cấu hình tiêu chí đồng bộ và gom đơn (chu kỳ, số ngày lấy lần đầu, bật/tắt theo sàn, trường dùng để gom, giới hạn thời gian gom, trạng thái được gom / bị loại) qua `/order-sync-settings` — mục 7c. Sửa kèm: đồng bộ nay lấy theo trang, không còn sót đơn khi > 100 đơn thay đổi giữa 2 lượt.
-
-**🆕 Cập nhật 29/09/2026** — thêm sàn thứ 2 **AURELLE** (tự dựng, cố ý tương thích byte-for-byte với khung Lazada — xem `AURELLE_MARKETPLACE_DESIGN.md`): `POST /orders/lazada/sync` giờ chỉ là alias của route tổng quát mới `POST /orders/:platform/sync` (nhận cả `lazada` lẫn `aurelle`); **AURELLE có webhook thật** (`POST /marketplace/webhooks/:platform`, mục 4b) — khác Lazada (vẫn polling, webhook hoãn tới lúc deploy có domain thật, xem CLAUDE.md); Order Group giờ có thêm trạng thái tự động `canceled` khi mọi đơn trong nhóm không còn fulfill được (N1) — không có endpoint ghi riêng, xem `INTEGRATION_GUIDE_FULFILLMENT.md`.
-
-**Cập nhật 16/09/2026** — callback OAuth Lazada đổi từ trả JSON thô sang redirect thật về FE; xác nhận gộp nhiều đơn hoạt động đúng bằng dữ liệu thật; bổ sung đầy đủ 19 giá trị `status` (trước đây tài liệu ngầm hiểu ít hơn); thêm mã lỗi `MKT_SERVER_ERROR`.
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ: kết nối Lazada + AURELLE, danh sách shop, đồng bộ theo sàn, màn cấu hình đồng bộ & gom đơn (mục 7c).
+> **Thay đổi gần nhất:** 15/10 — Admin cấu hình tiêu chí đồng bộ và gom đơn (mục 7c). 29/09 — thêm sàn AURELLE.
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 Tài liệu này dành cho FE tích hợp 2 module **Marketplace Integration** (kết nối sàn qua OAuth) và **Orders** (đồng bộ + gộp đơn hàng). Đọc tài liệu này **trước khi** đọc Swagger — Swagger cho biết "API nhận/trả gì", tài liệu này giải thích "vì sao nó hoạt động vậy, và FE cần xử lý gì thêm". Cùng cấp với `INTEGRATION_GUIDE.md` (Auth/Users) — đọc file đó trước nếu FE chưa quen cách BE trả lỗi và cách gắn Bearer token.
 

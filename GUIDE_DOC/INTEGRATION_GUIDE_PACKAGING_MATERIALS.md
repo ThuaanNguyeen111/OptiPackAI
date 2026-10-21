@@ -1,10 +1,9 @@
 # OptiPackAI Backend — Integration Guide: Vật liệu đóng gói & Tái sử dụng (G4)
 
-**Phiên bản v1.0 — 27/09/2026.** Trước G4, thùng/xốp **không được quản lý như tồn kho**: thuật toán chỉ chọn 1 trong 3 cỡ thùng cố định (Small 20×15×10, Medium 35×25×20, Large 50×40×35), không có đơn giá, không trừ số lượng khi đóng gói → không có con số nào chứng minh "tối ưu chi phí". G4 thêm: danh mục vật liệu có đơn giá, tồn tách **MỚI / TÁI SỬ DỤNG**, tự trừ khi đóng gói, tự thu hồi khi kiểm hàng hoàn, và số tiền tiết kiệm cho Dashboard.
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ. **Lưu ý:** từ 04–05/10 vật liệu bị trừ **lúc niêm phong từng kiện** của kế hoạch đóng gói (không còn nút `pack` trừ theo gợi ý như sơ đồ phần A); nhân viên chọn được thùng mới hay tái sử dụng — xem `INTEGRATION_GUIDE_PACKING.md` 3.4 và 3.4.1. Phần nhập vật liệu, thu hồi A/B/C, dùng nội bộ, tiết kiệm vẫn đúng.
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 Đọc kèm: `INTEGRATION_GUIDE_SHIPPING.md` (form kiểm hàng hoàn — mục C.5).
-
-> 📌 **Cập nhật 27/09/2026:** các tiện ích vận hành (khoảng cách giao lại, quá hạn giao, thông báo, hàng cách ly, đổi hàng, vật liệu thực tế, kho vật liệu nội bộ) được mô tả tại **`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`**. Kịch bản trình diễn toàn hệ thống: **`DEMO_PLAYBOOK.md`**.
 
 ---
 

@@ -35,7 +35,7 @@ Mức ưu tiên: **P0** sửa trước khi demo/bảo vệ · **P1** nên sửa 
 |---|---|---|---|
 | **P0** | **Sync Lazada chỉ lấy 100 đơn đầu** | `lazada-protocol.client.getOrders` dùng `limit 100`, không lặp offset, nhưng `last_polled_at` vẫn tiến → hơn 100 đơn đổi trong một cửa sổ thì phần dư bị bỏ sót vĩnh viễn | Lặp offset tới khi trang < limit; chỉ tiến `last_polled_at` khi đọc hết |
 | **P0** | **Index `orders.consolidated_group_id` không dùng được** | Index partial `is_consolidated: true`, nhưng nhóm 1 đơn có `consolidated_group_id` mà `is_consolidated=false`, và mọi truy vấn (đếm đơn, documents, packing-queue, returns, order-groups) không lọc `is_consolidated` → quét toàn collection | Index thường `{ consolidated_group_id: 1 }` (partial `$type: 'objectId'`), bỏ index cũ |
-| **P0** | **FE gọi route đã gỡ** | `fe/src/api/packaging.api.ts` (5 hàm `/order-groups/:id/packaging*`), `packOrderGroup`, `postFulfillmentTransition('pack')` → màn đóng gói lỗi 404 | Làm theo `GUIDE_DOC/FE_UPDATE_CHECKLIST.md` mục 1 |
+| ~~P0~~ ✅ 21/10 | ~~FE gọi route đã gỡ~~ | Màn đóng gói đã chuyển hết sang `packing-plan` (FE nhánh Việt, AOFP-133). Còn sót **mã chết không màn nào gọi**: `api/packaging.api.ts`, `packOrderGroup`, `retryLazadaPack` | Xoá theo `GUIDE_DOC/FE_UPDATE_CHECKLIST.md` mục 3 |
 | P1 | Khóa giữ chỗ không đổi khi nối/bỏ nối/thay SKU nội bộ (06/10 #1) | `stock_reservations.stock_key` treo khóa cũ | Chuyển giữ chỗ sang khóa mới trong cùng transaction |
 | P1 | Phiếu hoàn lấy `seller_sku` từ sổ cái pick (06/10 #3) | Có thể là SKU của sàn khác → nhập lại tạo dòng tồn lạc | Lấy từ `pick_events` (đúng SKU đơn) |
 | P1 | Giữ chỗ cộng mọi kho, quét chỉ trừ 1 kho (06/10 #4) | Nhóm đơn không gắn kho | Lưu `warehouse_id` trên nhóm, giữ chỗ theo kho |

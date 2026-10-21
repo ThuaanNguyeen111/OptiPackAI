@@ -1,6 +1,8 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
-> 🆕 **21/10/2026 — Nguồn thùng + in chứng từ kho:** (1) `GET /order-groups/:groupId/packing-plan/box-sources` (mỗi kiện sẽ lấy thùng mới hay tái sử dụng); `seal` và `pack` nhận thêm `box_source`, `box_source_reason`, `box_source_note`; kiện trả thêm `boxSourceUsed`, `boxSourceOverride`; báo cáo feedback thêm `boxSource` — [Packing 3.4.1](INTEGRATION_GUIDE_PACKING.md). (2) `PUT /shipping/settings` nhận thêm `sender_name|phone|address`, nhãn vận đơn in khối **NGƯỜI GỬI**. (3) 4 route PDF mới: `GET /documents/bin-labels/:warehouseId`, `/documents/sku-labels`, `/documents/picking-list/:warehouseId/:groupId`, `/documents/stock-receipt/:warehouseId/:receiptId` — [Warehouse PHẦN B9](INTEGRATION_GUIDE_WAREHOUSE.md). Không bỏ trường/route nào.
+> **Bản đồ route theo role** — quét từ `@Controller`/`@Roles` trong code. Việc FE còn thiếu: **`FE_UPDATE_CHECKLIST.md`**.
+> **Thay đổi gần nhất:** 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
+> Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
 > **18/10/2026 — Trả đủ hàng:** với `return_refund` do Admin tạo, nhóm đơn đi `delivered → returning` khi tạo phiếu, `→ returned` khi Store duyệt, `→ canceled` sau kho kiểm/xử lý tồn. Trả một phần giữ `delivered`; cộng dồn các phiếu cùng loại đã đóng để xét trả đủ. Từ chối/hủy phiếu khôi phục `delivered`. FE đọc `OrderGroup.fulfillmentStatus`; xem [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
 

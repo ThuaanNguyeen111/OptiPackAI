@@ -1,5 +1,7 @@
 # OptiPackAI — Hướng dẫn tích hợp: Tiện ích vận hành (Giao hàng · Trả hàng · Vật liệu đóng gói)
 
+> **Trạng thái FE (21/10/2026):** ✅ đã nối đủ.
+
 | Thông tin | Giá trị |
 |---|---|
 | Phiên bản | 1.1 (07/10/2026 — mục 3 và 4: id điều hướng của thông báo, nhập lại hàng cách ly vào ô mới) |
