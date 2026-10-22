@@ -1,4 +1,5 @@
 import { SF_ERROR_CODES, sfError } from './storefront.errors';
+import { sellableQuantity } from './storefront-stock.util';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -49,6 +50,8 @@ export class CatalogService {
       sizeGuideNote: product.size_guide_note,
       status: product.status,
       isFeatured: product.is_featured,
+      // 22/10/2026 — phần SKU theo quy tắc OptiPack (chỉ trang quản trị).
+      ...(admin ? { skuCategoryCode: product.sku_category_code ?? null, skuModelNo: product.sku_model_no ?? null } : {}),
       variants: variants.map((variant) => ({
         id: variant._id.toString(),
         productId: product.id,
@@ -59,15 +62,21 @@ export class CatalogService {
         imageUrl: variant.image_url,
         price: variant.price,
         compareAtPrice: variant.compare_at_price,
-        availableQuantity: Math.max(
-          0,
-          (stockMap.get(variant._id.toString())?.quantity_on_hand ?? 0)
-            - (stockMap.get(variant._id.toString())?.reserved_quantity ?? 0),
-        ),
+        // 22/10/2026 — 0 khi SKU chưa do kho OptiPack quản (STOREFRONT_REQUIRE_OPTIPACK_STOCK)
+        availableQuantity: sellableQuantity(variant, stockMap.get(variant._id.toString())),
         isDefault: variant.is_default,
         ...(admin ? {
           quantityOnHand: stockMap.get(variant._id.toString())?.quantity_on_hand ?? 0,
           reservedQuantity: stockMap.get(variant._id.toString())?.reserved_quantity ?? 0,
+          // (21/10/2026) 'optipack' = tồn do kho OptiPack quản lý, Admin chỉ xem.
+          stockSource: variant.stock_source ?? 'storefront',
+          colorCode: variant.sku_color_code ?? null, // 22/10/2026 — null = biến thể cũ
+          // 22/10/2026 — kích thước kiện (null = chưa nhập)
+          weightKg: variant.weight_kg ?? null,
+          lengthCm: variant.length_cm ?? null,
+          widthCm: variant.width_cm ?? null,
+          heightCm: variant.height_cm ?? null,
+          stockSyncedAt: variant.stock_synced_at ?? null,
         } : {}),
       })),
     };

@@ -1,4 +1,5 @@
 import { SF_ERROR_CODES, sfError } from './storefront.errors';
+import { sellableQuantity } from './storefront-stock.util';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -55,12 +56,12 @@ export class StorefrontCartService {
   }
 
   private async getAvailableQuantity(variantId: Types.ObjectId) {
-    const stock = await this.stockModel.findOne({ variant_id: variantId }).lean();
-
-    return Math.max(
-      0,
-      (stock?.quantity_on_hand ?? 0) - (stock?.reserved_quantity ?? 0),
-    );
+    const [stock, variant] = await Promise.all([
+      this.stockModel.findOne({ variant_id: variantId }).lean(),
+      this.variantModel.findById(variantId).select('stock_source').lean(),
+    ]);
+    // 22/10/2026 — chỉ bán SKU có tồn do kho OptiPack quản
+    return sellableQuantity(variant, stock);
   }
 
   async get(customerId: string) {
@@ -91,10 +92,7 @@ export class StorefrontCartService {
         if (!variant || !product) return [];
 
         const stock = stockMap.get(variant._id.toString());
-        const availableQuantity = Math.max(
-          0,
-          (stock?.quantity_on_hand ?? 0) - (stock?.reserved_quantity ?? 0),
-        );
+        const availableQuantity = sellableQuantity(variant, stock);
 
         return [
           {

@@ -82,6 +82,25 @@ export class ReturnRequest {
 export type ReturnRequestDocument = HydratedDocument<ReturnRequest>;
 export const ReturnRequestSchema = SchemaFactory.createForClass(ReturnRequest);
 
+/**
+ * 21/10/2026 — Phiếu MỞ: chặn ở tầng DB (trước đây chỉ kiểm trong code, 2 lần gọi đồng thời
+ * tạo được 2 phiếu → hàng nhập lại kệ 2 lần). Phiếu của khách trên sàn: 1 phiếu mở / ĐƠN
+ * (`source_order_id`), nên 2 đơn trong cùng nhóm gộp trả song song được. Phiếu giả lập
+ * không gắn đơn (`source_order_id` null): 1 phiếu mở / nhóm. Phiếu hoàn do giao thất bại
+ * không thuộc index (hệ thống tạo theo từng lần kho nhận kiện).
+ */
+ReturnRequestSchema.index(
+  { order_group_id: 1, source_order_id: 1 },
+  {
+    unique: true,
+    name: 'uniq_open_return_per_order',
+    partialFilterExpression: {
+      status: { $in: ['requested', 'awaiting_receipt', 'received'] },
+      source: { $in: ['simulated', 'marketplace'] },
+    },
+  },
+);
+
 // Mỗi yêu cầu trả hàng của sàn chỉ ra 1 phiếu (webhook + cron kéo bù chạy đồng thời vẫn an toàn).
 ReturnRequestSchema.index(
   { platform: 1, external_ref: 1 },

@@ -31,6 +31,7 @@ function build(options: {
     type: 'return_refund',
     status: 'requested',
     items: [],
+    exchange_items: [],
     customer_note: '',
     rma_code: null,
     decision_note: null,

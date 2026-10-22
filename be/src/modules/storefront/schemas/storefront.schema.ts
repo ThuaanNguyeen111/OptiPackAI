@@ -10,6 +10,11 @@ export class StorefrontCategory {
   @Prop({ default: '' }) image_url!: string;
   @Prop({ default: 0 }) sort_order!: number;
   @Prop({ default: true }) is_active!: boolean;
+  /**
+   * 22/10/2026 — danh mục CẤP 2 của OptiPack tương ứng (VD ATHUN). Sản phẩm thuộc danh mục này
+   * phải dùng đúng mã này làm phần đầu SKU → hiển thị và kho không lệch nhau. null = chưa nối.
+   */
+  @Prop({ type: String, default: null }) sku_category_code!: string | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -43,6 +48,13 @@ export class StorefrontProduct {
   @Prop({ default: 0 }) view_count!: number;
   @Prop({ default: 0 }) sold_count!: number;
   @Prop({ type: Date, default: null }) deleted_at!: Date | null;
+  /**
+   * 22/10/2026 — SKU biến thể theo QUY TẮC OPTIPACK `{danh mục cấp 2}-{số mẫu 3 số}-{màu}-{size}`
+   * (VD ATHUN-005-DEN-M): danh mục + số mẫu đặt ở sản phẩm, màu + size ở biến thể. Khoá khi
+   * sản phẩm đã có biến thể theo quy tắc. null = sản phẩm cũ (SKU tự sinh SF-…/mã mẫu).
+   */
+  @Prop({ type: String, default: null }) sku_category_code!: string | null;
+  @Prop({ type: Number, default: null }) sku_model_no!: number | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -76,6 +88,15 @@ export class StorefrontProductVariant {
   @Prop({ type: Number, default: null, min: 0 }) height_cm!: number | null;
   @Prop({ default: false }) is_default!: boolean;
   @Prop({ default: true }) is_active!: boolean;
+  /** 22/10/2026 — mã màu OptiPack của biến thể theo quy tắc (null = biến thể cũ, màu/size tự do). */
+  @Prop({ type: String, default: null }) sku_color_code!: string | null;
+  /**
+   * (21/10/2026, phương án A) 'optipack' = tồn do kho OptiPack đẩy sang qua
+   * Open API `/product/stock/sellable/update` → Admin website chỉ xem, không sửa.
+   * Biến thể cũ không có field = 'storefront' (Admin tự quản).
+   */
+  @Prop({ type: String, enum: ['storefront', 'optipack'], default: 'storefront' }) stock_source?: 'storefront' | 'optipack';
+  @Prop({ type: Date, default: null }) stock_synced_at?: Date | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -169,10 +190,18 @@ export class StorefrontOrder {
   // Đơn cũ (trước 04/10/2026) không có — mock Open API cấp bù khi cần.
   @Prop({ type: Number, default: null }) public_order_id!: number | null;
   @Prop({ type: String, enum: ['pending', 'confirmed', 'cancelled', 'completed'], default: 'pending' }) status!: string;
-  @Prop({ type: String, enum: ['unpaid', 'paid', 'failed', 'refunded'], default: 'unpaid' }) payment_status!: string;
+  @Prop({ type: String, enum: ['unpaid', 'paid', 'failed', 'refunded', 'partially_refunded'], default: 'unpaid' }) payment_status!: string;
+  /** 22/10/2026 — ai hủy đơn: khách (customer) hay người bán/kho (seller); lý do người bán hủy. */
+  @Prop({ type: String, enum: ['customer', 'seller', null], default: null }) cancel_source!: 'customer' | 'seller' | null;
+  @Prop({ type: String, default: null }) cancel_reason!: string | null;
+  /** 22/10/2026 — tiền giảm trừ do kho giao thiếu (đơn vị × đơn giá) và tổng tiền đã hoàn qua phiếu trả. */
+  @Prop({ type: Number, min: 0, default: 0 }) short_refund_amount!: number;
+  @Prop({ type: Number, min: 0, default: 0 }) refunded_amount!: number;
   @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
   // 20/10/2026 — thời điểm sự kiện giao hàng mới nhất đối tác báo (chống sự kiện cũ kéo trạng thái lùi).
   @Prop({ type: Date, default: null }) fulfillment_updated_at!: Date | null;
+  /** (21/10/2026) Giữ chỗ tồn của đơn — xem storefront-stock.util.ts. Đơn cũ không có field = reserved. */
+  @Prop({ type: String, enum: ['reserved', 'deducted', 'released', 'restocked'], default: 'reserved' }) stock_state?: 'reserved' | 'deducted' | 'released' | 'restocked';
   @Prop({ required: true, min: 0 }) subtotal!: number;
   @Prop({ required: true, min: 0, default: 0 }) discount_amount!: number;
   @Prop({ required: true, min: 0, default: 0 }) shipping_fee!: number;
@@ -222,6 +251,8 @@ export class StorefrontOrderItemSnapshot {
   @Prop({ required: true, min: 1 }) quantity!: number;
   @Prop({ required: true, min: 0, default: 0 }) discount_amount!: number;
   @Prop({ required: true, min: 0 }) line_total!: number;
+  /** 22/10/2026 — số đơn vị kho OptiPack KHÔNG giao được (người bán báo giao thiếu). */
+  @Prop({ type: Number, min: 0, default: 0 }) short_quantity!: number;
 }
 export const StorefrontOrderItemSnapshotSchema = SchemaFactory.createForClass(StorefrontOrderItemSnapshot);
 
@@ -301,6 +332,14 @@ export class StorefrontReturnItem {
 }
 export const StorefrontReturnItemSchema = SchemaFactory.createForClass(StorefrontReturnItem);
 
+/** 21/10/2026 — Đổi hàng: biến thể khách muốn đổi SANG (cùng sản phẩm, khác size/màu). */
+@Schema({ _id: false })
+export class StorefrontExchangeItem {
+  @Prop({ required: true }) sku!: string;
+  @Prop({ required: true, min: 1 }) quantity!: number;
+}
+export const StorefrontExchangeItemSchema = SchemaFactory.createForClass(StorefrontExchangeItem);
+
 /**
  * 20/10/2026 — Yêu cầu trả hàng do KHÁCH gửi trên website. OptiPack kéo qua Open API
  * (`/reverse/orders/get`) rồi tạo phiếu RMA phía kho; kết quả báo ngược qua
@@ -313,13 +352,34 @@ export class StorefrontReturnRequest {
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Customer', required: true }) customer_id!: Types.ObjectId;
   @Prop({ type: SchemaTypes.ObjectId, ref: 'StorefrontOrder', required: true }) order_id!: Types.ObjectId;
   @Prop({ type: Number, default: null }) public_order_id!: number | null;
-  @Prop({ type: String, enum: ['return_refund', 'refund_only'], required: true }) type!: 'return_refund' | 'refund_only';
+  @Prop({ type: String, enum: ['return_refund', 'refund_only', 'exchange'], required: true }) type!: 'return_refund' | 'refund_only' | 'exchange';
   @Prop({ type: String, enum: ['requested', 'approved', 'rejected', 'received', 'closed', 'canceled'], default: 'requested' }) status!: string;
   @Prop({ type: [StorefrontReturnItemSchema], default: [] }) items!: StorefrontReturnItem[];
+  @Prop({ type: [StorefrontExchangeItemSchema], default: [] }) exchange_items!: StorefrontExchangeItem[]; // 21/10/2026
+  /** 22/10/2026 — mốc giao HÀNG ĐỔI mới nhất (OptiPack báo qua Open API). null = chưa gửi hàng đổi. */
+  @Prop({
+    type: {
+      status: { type: String, enum: ['packed', 'shipped', 'delivered', 'failed_delivery'] },
+      carrier: { type: String, default: null },
+      tracking_code: { type: String, default: null },
+      updated_at: { type: Date, default: null },
+      _id: false,
+    },
+    default: null,
+  })
+  exchange_shipment!: {
+    status: 'packed' | 'shipped' | 'delivered' | 'failed_delivery';
+    carrier: string | null;
+    tracking_code: string | null;
+    updated_at: Date | null;
+  } | null;
   @Prop({ type: String, default: '' }) customer_note!: string;
   @Prop({ type: String, default: null }) rma_code!: string | null;
   @Prop({ type: String, default: null }) decision_note!: string | null;
   @Prop({ type: Date, default: null }) status_updated_at!: Date | null;
+  /** 22/10/2026 — số tiền hoàn khi phiếu đóng (đơn giá × số lượng trả; đổi hàng = 0) và thời điểm. */
+  @Prop({ type: Number, min: 0, default: null }) refund_amount!: number | null;
+  @Prop({ type: Date, default: null }) refunded_at!: Date | null;
   created_at?: Date;
   updated_at?: Date;
 }

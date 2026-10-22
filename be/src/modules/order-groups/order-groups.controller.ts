@@ -17,6 +17,7 @@ import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
 import { PickItemDto } from './dto/pick-item.dto';
 import { ReportMissingDto } from './dto/report-missing.dto';
 import { DecidePartialDto } from './dto/decide-partial.dto';
+import { SellerCancelOrderDto } from './dto/seller-cancel-order.dto';
 import { SetPriorityDto } from './dto/set-priority.dto';
 import { LinkOrderGroupDto } from './dto/link-order-group.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -43,6 +44,15 @@ export interface OrderGroupResponse {
   // 13/10/2026 — liên kết tay (null = không có). Liên kết tự động xem linkedGroupCount.
   manualLink: { linkId: string; linkedBy: string | null; linkedAt: Date | null; note: string | null } | null;
   stockShortage: boolean; // K5
+  /**
+   * 22/10/2026 — nhóm đã lấy xong nhưng kẹt đóng gói vì SKU chưa đo (null = không kẹt).
+   * reason: needs_measurement (có hồ sơ, chưa đo) | missing_product_master (chưa có hồ sơ).
+   */
+  packingBlocked: { reason: string; skus: string[]; at: Date | null } | null;
+  /** 22/10/2026 — người đóng gói đang giữ nhóm (theo kế hoạch đang hoạt động). */
+  assignedPackerId: string | null;
+  assignedPackerName: string | null;
+  warehouseId: string | null; // 21/10/2026 — kho lấy hàng (giữ chỗ tính trong kho này)
   origin: 'marketplace' | 'replacement'; // đơn thay thế do đổi hàng
   sourceReturnId: string | null;
   stockShortageItems: {
@@ -86,6 +96,7 @@ export const PACKED_OR_LATER_STATUSES: GroupFulfillmentStatus[] = [
 export function toResponse(
   group: OrderGroupDocument,
   counts: GroupOrderCounts,
+  packer: { id: string; name: string | null } | null = null,
 ): OrderGroupResponse {
   return {
     manualLink: group.manual_link_id
@@ -97,6 +108,16 @@ export function toResponse(
         }
       : null,
     stockShortage: group.stock_shortage === true, // K5
+    packingBlocked: group.packing_blocked_reason
+      ? {
+          reason: group.packing_blocked_reason,
+          skus: group.packing_blocked_skus ?? [],
+          at: group.packing_blocked_at ?? null,
+        }
+      : null,
+    assignedPackerId: packer?.id ?? null,
+    assignedPackerName: packer?.name ?? null,
+    warehouseId: group.warehouse_id?.toString() ?? null,
     origin: group.origin ?? 'marketplace',
     sourceReturnId: group.source_return_id?.toString() ?? null,
     stockShortageItems: group.stock_shortage_items ?? [], // K5
@@ -129,8 +150,24 @@ export async function buildOrderGroupResponse(
   service: OrderGroupsService,
   group: OrderGroupDocument,
 ): Promise<OrderGroupResponse> {
-  const counts = await service.getOrderCountsForGroups([group._id]);
-  return toResponse(group, counts.get(group._id.toString()) ?? NO_ORDERS);
+  const [counts, packers] = await Promise.all([
+    service.getOrderCountsForGroups([group._id]),
+    safePackers(service, [group._id]),
+  ]);
+  const key = group._id.toString();
+  return toResponse(group, counts.get(key) ?? NO_ORDERS, packers.get(key) ?? null);
+}
+
+/** 22/10/2026 — tên người đóng là thông tin phụ: lỗi tra cứu không làm hỏng danh sách. */
+async function safePackers(
+  service: OrderGroupsService,
+  groupIds: OrderGroupDocument['_id'][],
+): Promise<Map<string, { id: string; name: string | null }>> {
+  try {
+    return await service.getPackersForGroups(groupIds);
+  } catch {
+    return new Map();
+  }
 }
 
 /** 01/10/2026 — response danh sách nhóm đơn: đếm cho cả danh sách trong 1 truy vấn. */
@@ -138,11 +175,13 @@ export async function buildOrderGroupResponses(
   service: OrderGroupsService,
   groups: OrderGroupDocument[],
 ): Promise<OrderGroupResponse[]> {
-  const counts = await service.getOrderCountsForGroups(
-    groups.map((g) => g._id),
-  );
+  const ids = groups.map((g) => g._id);
+  const [counts, packers] = await Promise.all([
+    service.getOrderCountsForGroups(ids),
+    safePackers(service, ids),
+  ]);
   return groups.map((g) =>
-    toResponse(g, counts.get(g._id.toString()) ?? NO_ORDERS),
+    toResponse(g, counts.get(g._id.toString()) ?? NO_ORDERS, packers.get(g._id.toString()) ?? null),
   );
 }
 
@@ -190,7 +229,7 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng) / stock_shortage / is_overdue. Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
+      'Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng) / stock_shortage / is_overdue / packing_blocked (22/10: kẹt đóng gói vì SKU chưa đo) / q (22/10: đuôi mã nhóm hoặc mã đơn sàn). Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
   })
   async list(
     @Query() query: ListOrderGroupsQueryDto,
@@ -203,6 +242,8 @@ export class OrderGroupsController {
       assignedPackerId: query.assigned_packer_id,
       stockShortage: query.stock_shortage === undefined ? undefined : query.stock_shortage === 'true',
       isOverdue: query.is_overdue === undefined ? undefined : query.is_overdue === 'true',
+      packingBlocked: query.packing_blocked === undefined ? undefined : query.packing_blocked === 'true',
+      q: query.q,
       before: query.before ? new Date(query.before) : undefined,
       limit: query.limit,
     });
@@ -364,6 +405,19 @@ export class OrderGroupsController {
       body.expected_version,
     );
     return buildOrderGroupResponse(this.orderGroupsService, group);
+  }
+
+  @Post('orders/:orderId/seller-cancel')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '22/10/2026 — Người bán hủy 1 đơn AURELLE khi hàng chưa rời kho (hết hàng, sai địa chỉ…). Nhóm tự trả hàng dư/tháo kiện/nhả giữ chỗ; website hiện "Người bán đã hủy đơn" + lý do, đơn đã thanh toán chuyển "đã hoàn tiền". 409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED: không phải đơn AURELLE / đã giao vận chuyển / đã hủy.',
+  })
+  async sellerCancel(
+    @Param('orderId') orderId: string,
+    @Body() body: SellerCancelOrderDto,
+  ) {
+    return this.orderGroupsService.sellerCancelOrder(orderId, body.reason);
   }
 
   @Post(':id/fulfillment/pick')

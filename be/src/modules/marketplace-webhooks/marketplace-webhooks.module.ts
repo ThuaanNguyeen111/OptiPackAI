@@ -8,6 +8,7 @@ import { MarketplaceIntegrationModule } from '../marketplace-integration/marketp
 import { OrdersModule } from '../orders/orders.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ShipmentsModule } from '../shipments/shipments.module';
+import { ProductMasterModule } from '../product-master/product-master.module';
 import { MarketplaceWebhooksController } from './marketplace-webhooks.controller';
 import { MarketplaceWebhooksService } from './marketplace-webhooks.service';
 
@@ -30,6 +31,7 @@ import { MarketplaceWebhooksService } from './marketplace-webhooks.service';
     OrdersModule,
     NotificationsModule,
     ShipmentsModule, // 20/10/2026 — kéo yêu cầu trả hàng khi webhook return_requested tới
+    ProductMasterModule, // 22/10/2026 — product_updated: kéo hồ sơ SKU mới + tự nối SKU nội bộ
   ],
   controllers: [MarketplaceWebhooksController],
   providers: [MarketplaceWebhooksService],

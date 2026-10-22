@@ -3,6 +3,7 @@ import { LazadaProtocolClient } from '../src/modules/marketplace-integration/ada
 import { findDeveloperApp, mountDeveloperPortal, secretsMatch } from './aurelle-developer-portal';
 import {
   connectStorefrontStore,
+  applyExchangeShipment,
   applyReturnUpdate,
   applyStatusUpdate,
   getOrderItems,
@@ -12,7 +13,7 @@ import {
   setSellableQuantity,
 } from './aurelle-portal/storefront-store';
 import { isPartnerStatus } from '../src/modules/storefront/aurelle-status-update';
-import { isPartnerReturnStatus } from '../src/modules/storefront/aurelle-return-api';
+import { isExchangeShipmentStatus, isPartnerReturnStatus } from '../src/modules/storefront/aurelle-return-api';
 import { DEFAULT_AURELLE_SELLER_ID } from '../src/modules/storefront/aurelle-open-api.mapper';
 
 /**
@@ -270,7 +271,14 @@ app.get('/rest/products/get', async (req: Request, res: Response) => {
     }
   }
   try {
-    res.json(envelope(await listProducts(skus, queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER), queryInt(req, 'limit', 50, 50) || 50)));
+    // 22/10/2026 — `update_after` (ISO 8601) như Lazada: chỉ trả sản phẩm sửa từ thời điểm đó.
+    const rawAfter = queryString(req, 'update_after');
+    const updateAfter = rawAfter ? new Date(rawAfter) : null;
+    if (updateAfter && Number.isNaN(updateAfter.getTime())) {
+      res.status(400).json(errorEnvelope('InvalidParameter', 'update_after phải là ISO 8601.'));
+      return;
+    }
+    res.json(envelope(await listProducts(skus, queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER), queryInt(req, 'limit', 50, 50) || 50, updateAfter)));
   } catch (error) {
     sendServerError(res, error);
   }
@@ -285,6 +293,22 @@ app.post('/rest/order/acknowledge', (req: Request, res: Response) => {
 
 // Mục 7.8 — GHI THẬT từ 20/10/2026: cập nhật `storefront_orders`/`storefront_shipments` và
 // thêm hành trình vào `storefront_order_events`. Idempotent theo `idempotency_key`.
+/** 22/10/2026 — `items` (giao thiếu) có thể là chuỗi JSON (form) hoặc mảng (JSON body). */
+function parseShippedItems(raw: unknown): { sku: string; shipped_quantity: number }[] | undefined {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .filter((i): i is { sku: string; shipped_quantity: unknown } => typeof (i as { sku?: unknown }).sku === 'string')
+    .map((i) => ({ sku: i.sku, shipped_quantity: Number(i.shipped_quantity) || 0 }));
+}
+
 app.post('/rest/order/status/update', async (req: Request, res: Response) => {
   if (!requireValidSignature(req, res)) return;
   if (!requireValidAccessToken(req, res)) return;
@@ -311,8 +335,10 @@ app.post('/rest/order/status/update', async (req: Request, res: Response) => {
       eventTime,
       trackingCode: typeof body.tracking_code === 'string' ? body.tracking_code : null,
       tripCode: typeof body.trip_code === 'string' ? body.trip_code : null,
+      carrier: typeof body.carrier === 'string' ? body.carrier : null,
       reason: typeof body.reason === 'string' ? body.reason : null,
       idempotencyKey,
+      items: parseShippedItems(body.items),
     });
     if (!result) {
       res.status(404).json(errorEnvelope('ResourceNotFound', `Không có đơn "${String(orderId)}".`));
@@ -369,6 +395,42 @@ app.post('/rest/reverse/order/update', async (req: Request, res: Response) => {
     });
     if (!result) {
       res.status(404).json(errorEnvelope('ResourceNotFound', `Không có yêu cầu trả hàng "${returnId}".`));
+      return;
+    }
+    res.json(envelope({ return_id: result.return_id, status: result.status, updated_at: result.updated_at }));
+  } catch (error) {
+    sendServerError(res, error);
+  }
+});
+
+// 22/10/2026 — OptiPack báo mốc giao HÀNG ĐỔI (đơn thay thế EXC-…) cho yêu cầu đổi hàng của khách.
+app.post('/rest/reverse/exchange/shipment/update', async (req: Request, res: Response) => {
+  if (!requireValidSignature(req, res)) return;
+  if (!requireValidAccessToken(req, res)) return;
+  const body = req.body as Record<string, unknown>;
+  const returnId = typeof body.return_id === 'string' ? body.return_id : '';
+  const eventTime = typeof body.event_time === 'string' ? new Date(body.event_time) : null;
+  const idempotencyKey = typeof body.idempotency_key === 'string' ? body.idempotency_key : '';
+  if (!returnId || !isExchangeShipmentStatus(body.status) || !eventTime || Number.isNaN(eventTime.getTime()) || !idempotencyKey) {
+    res.status(400).json(errorEnvelope('InvalidParameter', 'Thiếu/sai return_id, status (packed|shipped|delivered|failed_delivery), event_time (ISO 8601) hoặc idempotency_key.'));
+    return;
+  }
+  try {
+    const result = await applyExchangeShipment({
+      returnId,
+      status: body.status,
+      eventTime,
+      carrier: typeof body.carrier === 'string' ? body.carrier : null,
+      trackingCode: typeof body.tracking_code === 'string' ? body.tracking_code : null,
+      reason: typeof body.reason === 'string' ? body.reason : null,
+      idempotencyKey,
+    });
+    if (result === null) {
+      res.status(404).json(errorEnvelope('ResourceNotFound', `Không có yêu cầu trả hàng "${returnId}".`));
+      return;
+    }
+    if (result === 'not_exchange') {
+      res.status(400).json(errorEnvelope('InvalidParameter', `Yêu cầu "${returnId}" không phải đổi hàng.`));
       return;
     }
     res.json(envelope({ return_id: result.return_id, status: result.status, updated_at: result.updated_at }));

@@ -13,6 +13,7 @@ import { TokenService } from '../../auth/services/token.service';
 import { AdminUpdateUserDto } from '../dto/admin-update-user.dto';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateProfileDto } from '../dto/update-profile.dto';
+import { SetLeaveDto } from '../dto/set-leave.dto';
 import { User, UserDocument } from '../schemas/user.schema';
 import { USER_ERROR_CODES } from '../users.errors';
 
@@ -34,6 +35,8 @@ export interface PaginatedUsers {
 
 // hạn đổi mật khẩu — 72 giờ kể từ lúc must_change_password bật lên
 const MUST_CHANGE_PASSWORD_WINDOW_MS = 72 * 60 * 60 * 1000;
+/** 22/10/2026 — vai trò được bật nghỉ phép (người được hệ thống giao việc vận hành). */
+const LEAVE_ROLES: UserRole[] = [UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR];
 
 @Injectable()
 export class UsersService {
@@ -455,6 +458,51 @@ export class UsersService {
     });
     if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
     await this.redisCache.invalidateUserAuthState(userId);
+  }
+
+  //!=============================================
+  // 22/10/2026 — NGHỈ PHÉP: không xóa mềm, không thu hồi phiên đăng nhập; chỉ
+  // để hệ thống KHÔNG giao việc lấy hàng/đóng gói (order-groups, packing đọc field).
+  // Việc đang giữ KHÔNG tự chuyển người — Admin/kho dùng "Đổi người" nếu cần.
+  //!=============================================
+  async setLeave(userId: string, dto: SetLeaveDto): Promise<UserDocument> {
+    if (!Types.ObjectId.isValid(userId)) {
+      throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
+    }
+    const user = await this.userModel.findById(userId);
+    if (!user) throw new NotFoundException({ error_code: USER_ERROR_CODES.NOT_FOUND, message: 'Không tìm thấy người dùng' });
+    if (!LEAVE_ROLES.includes(user.role)) {
+      throw new AppException(
+        USER_ERROR_CODES.LEAVE_NOT_STAFF,
+        'Nghỉ phép chỉ áp dụng cho nhân viên kho, đóng gói và điều phối vận chuyển.',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { userId, role: user.role },
+      );
+    }
+    let until: Date | null = null;
+    if (dto.on_leave && dto.until) {
+      until = new Date(dto.until);
+      if (until.getTime() <= Date.now()) {
+        throw new AppException(
+          USER_ERROR_CODES.LEAVE_UNTIL_PAST,
+          'Hạn nghỉ phép phải ở tương lai.',
+          HttpStatus.BAD_REQUEST,
+          { until: dto.until },
+        );
+      }
+    }
+    user.on_leave = dto.on_leave;
+    user.on_leave_until = dto.on_leave ? until : null;
+    const note = dto.note?.trim();
+    user.on_leave_note = dto.on_leave && note ? note : null;
+    user.on_leave_since = dto.on_leave ? (user.on_leave_since ?? new Date()) : null;
+    await user.save();
+    this.logger.log(
+      dto.on_leave
+        ? `Nhân viên ${user.email} bắt đầu nghỉ phép${until ? ` đến ${until.toISOString()}` : ''}.`
+        : `Nhân viên ${user.email} đi làm lại.`,
+    );
+    return user;
   }
 
   private generateTemporaryPassword(): string {

@@ -201,6 +201,8 @@ export interface PackingPlanResponse {
   activity: { kind: string; parcelNo: number | null; detail: string; reason: string | null; by: string | null; at: Date }[];
   session: {
     assignedPackerId: string | null;
+    /** 22/10/2026 — tên người đóng (null với kế hoạch giao trước 22/10). */
+    assignedPackerName: string | null;
     assignedPackerAt: Date | null;
     startedBy: string | null;
     startedAt: Date | null;
@@ -426,6 +428,7 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
     })),
     session: {
       assignedPackerId: plan.assigned_packer_id?.toString() ?? null,
+      assignedPackerName: plan.assigned_packer_name ?? null,
       assignedPackerAt: plan.assigned_packer_at,
       startedBy: plan.packing_started_by?.toString() ?? null,
       startedAt: plan.packing_started_at,
@@ -860,6 +863,7 @@ export interface PackingPlanSummary {
   packagingCostVnd: number;
   failureReason: string | null;
   assignedPackerId: string | null;
+  assignedPackerName: string | null; // 22/10/2026
   /** Số kiện theo trạng thái (pending/sealed/held/to_unpack/voided). */
   parcelCounts: Record<string, number>;
 }
@@ -910,6 +914,7 @@ export class PackingPlansController {
           packagingCostVnd: full.totals.packagingCostVnd,
           failureReason: full.failureReason,
           assignedPackerId: full.session.assignedPackerId,
+          assignedPackerName: full.session.assignedPackerName,
           parcelCounts: full.session.parcelCounts,
         };
       }),

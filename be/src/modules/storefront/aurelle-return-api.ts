@@ -54,9 +54,10 @@ export const STOREFRONT_RETURN_REASON_LABELS: Record<StorefrontReturnReason, str
 export interface StorefrontReturnLike {
   _id: { toString(): string };
   public_order_id: number | null;
-  type: 'return_refund' | 'refund_only';
+  type: 'return_refund' | 'refund_only' | 'exchange';
   status: StorefrontReturnStatus;
   customer_note?: string | null;
+  exchange_items?: { sku: string; quantity: number }[];
   rma_code?: string | null;
   decision_note?: string | null;
   items: { sku: string; quantity: number; reason_code: string }[];
@@ -72,6 +73,8 @@ export interface OpenApiReturn {
   customer_note: string;
   rma_code: string | null;
   items: { seller_sku: string; quantity: number; reason_code: string }[];
+  /** 21/10/2026 — chỉ có khi `type = exchange`. */
+  exchange_items?: { seller_sku: string; quantity: number }[];
   created_at: string;
   updated_at: string;
 }
@@ -91,6 +94,9 @@ export function toOpenApiReturn(doc: StorefrontReturnLike): OpenApiReturn {
       quantity: item.quantity,
       reason_code: item.reason_code,
     })),
+    ...(doc.type === 'exchange'
+      ? { exchange_items: (doc.exchange_items ?? []).map((item) => ({ seller_sku: item.sku, quantity: item.quantity })) }
+      : {}),
     created_at: created.toISOString(),
     updated_at: (doc.updated_at ?? created).toISOString(),
   };
@@ -117,6 +123,61 @@ export interface ReturnUpdateCollections {
   events: MinimalCollection;
   /** Đổi chuỗi id thành khóa của collection (collection thô cần ObjectId). Mặc định giữ nguyên. */
   castId?: (id: string) => unknown;
+  /** 22/10/2026 — có thì `closed` ghi số tiền hoàn vào yêu cầu + cập nhật thanh toán của đơn. */
+  orders?: MinimalCollection;
+  orderItems?: { find(filter: Record<string, unknown>): { toArray(): Promise<unknown[]> } };
+}
+
+interface RefundLine {
+  sku_snapshot: string;
+  quantity: number;
+  line_total: number;
+}
+
+/**
+ * 22/10/2026 — Tiền hoàn của 1 yêu cầu = đơn giá thực từng dòng (line_total / quantity) × số trả.
+ * Đổi hàng → 0 (khách nhận hàng thay thế, không hoàn tiền).
+ */
+export function computeReturnRefund(
+  type: StorefrontReturnLike['type'],
+  items: { sku: string; quantity: number }[],
+  lines: RefundLine[],
+): number {
+  if (type === 'exchange') return 0;
+  let total = 0;
+  for (const item of items) {
+    const line = lines.find((l) => l.sku_snapshot.trim().toUpperCase() === item.sku.trim().toUpperCase());
+    if (!line || line.quantity <= 0) continue;
+    total += Math.round((line.line_total / line.quantity) * Math.min(item.quantity, line.quantity));
+  }
+  return total;
+}
+
+async function settleRefund(cols: ReturnUpdateCollections, doc: Record<string, unknown>, set: Record<string, unknown>): Promise<void> {
+  if (!cols.orders || !cols.orderItems || !doc.order_id) return;
+  const lines = (await cols.orderItems.find({ order_id: doc.order_id }).toArray()) as RefundLine[];
+  const amount = computeReturnRefund(
+    doc.type as StorefrontReturnLike['type'],
+    (doc.items as { sku: string; quantity: number }[] | undefined) ?? [],
+    lines,
+  );
+  set.refund_amount = amount;
+  if (amount <= 0) return;
+  set.refunded_at = new Date();
+  const order = await cols.orders.findOne({ _id: doc.order_id });
+  if (!order) return;
+  const refunded = Number(order.refunded_amount ?? 0) + amount;
+  const total = Number(order.total_amount ?? order.grand_total ?? 0);
+  await cols.orders.updateOne(
+    { _id: doc.order_id },
+    {
+      $set: {
+        refunded_amount: refunded,
+        payment_status: total > 0 && refunded >= total ? 'refunded' : 'partially_refunded',
+        updated_at: new Date(),
+      },
+    },
+  );
 }
 
 /** Trạng thái hợp lệ kế tiếp — chặn sự kiện sai thứ tự (VD `received` khi đã `closed`). */
@@ -180,6 +241,110 @@ export async function applyPartnerReturnUpdate(
   };
   if (input.rmaCode) set.rma_code = input.rmaCode;
   if (input.decisionNote) set.decision_note = input.decisionNote;
+  if (input.status === 'closed') await settleRefund(cols, doc, set);
   await cols.returns.updateOne({ _id: doc._id }, { $set: set });
+  return result(true);
+}
+
+// ---------------------------------------------------------------- hàng đổi (22/10/2026)
+
+/**
+ * 22/10/2026 — Hành trình giao HÀNG ĐỔI cho yêu cầu `type = exchange`. Sau khi kiểm
+ * hàng khách gửi về, OptiPack tạo đơn thay thế (EXC-…) và giao như đơn thường; mỗi
+ * mốc của đơn đó báo về qua `POST /rest/reverse/exchange/shipment/update`.
+ */
+export type ExchangeShipmentStatus = 'packed' | 'shipped' | 'delivered' | 'failed_delivery';
+
+export const EXCHANGE_SHIPMENT_STATUSES: readonly ExchangeShipmentStatus[] = ['packed', 'shipped', 'delivered', 'failed_delivery'];
+
+export const EXCHANGE_SHIPMENT_LABELS: Record<ExchangeShipmentStatus, string> = {
+  packed: 'Hàng đổi đã đóng gói',
+  shipped: 'Hàng đổi đang giao',
+  delivered: 'Đã giao hàng đổi',
+  failed_delivery: 'Giao hàng đổi không thành công',
+};
+
+export function isExchangeShipmentStatus(value: unknown): value is ExchangeShipmentStatus {
+  return typeof value === 'string' && (EXCHANGE_SHIPMENT_STATUSES as readonly string[]).includes(value);
+}
+
+export interface ExchangeShipmentUpdateInput {
+  returnId: string;
+  status: ExchangeShipmentStatus;
+  eventTime: Date;
+  carrier?: string | null;
+  trackingCode?: string | null;
+  reason?: string | null;
+  idempotencyKey: string;
+}
+
+export interface ExchangeShipmentUpdateResult {
+  return_id: string;
+  status: ExchangeShipmentStatus;
+  updated_at: string;
+  applied: boolean;
+}
+
+/**
+ * null = không có yêu cầu đó; 'not_exchange' = yêu cầu không phải đổi hàng. Idempotent theo
+ * `idempotency_key` (ghi 1 dòng lịch sử `return_exchange_<status>` — trang chi tiết yêu cầu tự
+ * hiện vì cùng tiền tố `return_`). Trạng thái hiện tại (`exchange_shipment`) chỉ đổi khi sự
+ * kiện không cũ hơn mốc đang có và chưa "đã giao" (giao thất bại rồi giao lại vẫn nhận).
+ */
+export async function applyExchangeShipmentUpdate(
+  cols: ReturnUpdateCollections,
+  input: ExchangeShipmentUpdateInput,
+): Promise<ExchangeShipmentUpdateResult | 'not_exchange' | null> {
+  const doc = await cols.returns.findOne({ _id: cols.castId ? cols.castId(input.returnId) : input.returnId });
+  if (!doc) return null;
+  if (doc.type !== 'exchange') return 'not_exchange';
+
+  const result = (applied: boolean): ExchangeShipmentUpdateResult => ({
+    return_id: input.returnId,
+    status: input.status,
+    updated_at: new Date().toISOString(),
+    applied,
+  });
+
+  const inserted = await cols.events.updateOne(
+    { idempotency_key: input.idempotencyKey },
+    {
+      $setOnInsert: {
+        order_id: doc.order_id,
+        public_order_id: doc.public_order_id ?? null,
+        status: `return_exchange_${input.status}`,
+        label: EXCHANGE_SHIPMENT_LABELS[input.status],
+        tracking_code: input.trackingCode ?? null,
+        trip_code: null,
+        reason: input.reason ?? null,
+        occurred_at: input.eventTime,
+        source: 'partner',
+        idempotency_key: input.idempotencyKey,
+        created_at: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  if ((inserted.upsertedCount ?? 0) === 0) return result(false);
+
+  const raw: unknown = doc.exchange_shipment;
+  const current = typeof raw === 'object' && raw !== null ? (raw as { status?: unknown; updated_at?: unknown }) : null;
+  const lastAt = current?.updated_at instanceof Date ? current.updated_at : null;
+  if (current?.status === 'delivered' || (lastAt && input.eventTime.getTime() < lastAt.getTime())) return result(false);
+
+  await cols.returns.updateOne(
+    { _id: doc._id },
+    {
+      $set: {
+        exchange_shipment: {
+          status: input.status,
+          carrier: input.carrier ?? null,
+          tracking_code: input.trackingCode ?? null,
+          updated_at: input.eventTime,
+        },
+        updated_at: new Date(),
+      },
+    },
+  );
   return result(true);
 }

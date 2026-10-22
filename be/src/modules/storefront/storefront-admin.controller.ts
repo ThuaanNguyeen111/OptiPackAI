@@ -3,7 +3,7 @@ import { ApiTags } from '@nestjs/swagger';
 import { SaveAdminProductDto } from './dto/storefront-admin.dto';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
 import { StorefrontAdminService } from './storefront-admin.service';
-import type { AdminCatalogProduct } from './storefront-admin.service';
+import type { AdminCatalogProduct, SkuOptions } from './storefront-admin.service';
 
 @ApiTags('Storefront Admin')
 @Controller('storefront/admin/products')
@@ -12,6 +12,9 @@ export class StorefrontAdminController {
   constructor(private readonly products: StorefrontAdminService) {}
   @Get() @Header('Cache-Control', 'no-store')
   list(): Promise<AdminCatalogProduct[]> { return this.products.list(); }
+  /** 22/10/2026 — danh mục cấp 2 (kèm thang size) + màu của OptiPack để ghép SKU theo quy tắc. Khai TRƯỚC ':id'. */
+  @Get('sku-options') @Header('Cache-Control', 'no-store')
+  skuOptions(): Promise<SkuOptions> { return this.products.skuOptions(); }
   @Get(':id') @Header('Cache-Control', 'no-store')
   findOne(@Param('id') id: string): Promise<AdminCatalogProduct> { return this.products.findOne(id); }
   @Post() @Header('Cache-Control', 'no-store')

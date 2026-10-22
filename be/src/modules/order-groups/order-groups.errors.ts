@@ -20,6 +20,7 @@ export const ORD_GROUP_ERROR_CODES = {
   ALL_ORDERS_CANCELED: 'ORD_GROUP_ALL_ORDERS_CANCELED', // toàn bộ đơn trong group đã bị hủy, không còn gì để đóng gói/lấy hàng
   // BỔ SUNG (21/09/2026, BE-4a) — luồng lấy hàng
   PICK_NOT_ALLOWED: 'ORD_GROUP_PICK_NOT_ALLOWED', // quét khi group không ở trạng thái picking
+  WRONG_WAREHOUSE: 'ORD_GROUP_WRONG_WAREHOUSE', // 21/10/2026 — 409: lượt lấy đã quét ở kho khác, không đổi kho giữa chừng
   PICK_EXCEEDS_ORDERED: 'ORD_GROUP_PICK_EXCEEDS_ORDERED', // tổng đã quét trong lượt vượt số lượng đặt
   PICK_INCOMPLETE: 'ORD_GROUP_PICK_INCOMPLETE', // bấm "đã lấy xong" khi còn SKU chưa đủ — dùng report-missing
   NO_PICK_EVENTS: 'ORD_GROUP_NO_PICK_EVENTS', // chưa có lần quét nào trong lượt hiện tại
@@ -27,6 +28,9 @@ export const ORD_GROUP_ERROR_CODES = {
   LINK_SELF: 'ORD_GROUP_LINK_SELF', // liên kết nhóm với chính nó
   LINK_NOT_ALLOWED: 'ORD_GROUP_LINK_NOT_ALLOWED', // nhóm đã giao/đã xong — không đổi liên kết
   NOT_MANUALLY_LINKED: 'ORD_GROUP_NOT_MANUALLY_LINKED', // bỏ liên kết khi nhóm không có liên kết tay
+  // 22/10/2026 — người bán hủy đơn AURELLE
+  ORDER_NOT_FOUND: 'ORD_GROUP_ORDER_NOT_FOUND', // 404: không có đơn
+  SELLER_CANCEL_NOT_ALLOWED: 'ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED', // 409: không phải đơn AURELLE / đã đóng gói xong / đã hủy
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,

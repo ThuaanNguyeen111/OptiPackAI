@@ -81,6 +81,14 @@ export class MarketplaceShop {
   @Prop({ type: Boolean, default: true })
   is_active!: boolean;
 
+  // 22/10/2026 — Admin bấm "Ngắt kết nối" (DELETE /marketplace/:platform/shops/:shopId).
+  // Kết nối lại qua OAuth sẽ xoá 2 field này. Token hết hạn tự tắt thì vẫn null.
+  @Prop({ type: Date, default: null })
+  disconnected_at!: Date | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, ref: 'User', default: null })
+  disconnected_by!: Types.ObjectId | null;
+
   // Mongoose tự sinh qua timestamps — chỉ khai kiểu, không @Prop() (Rule #7)
   created_at?: Date;
   updated_at?: Date;

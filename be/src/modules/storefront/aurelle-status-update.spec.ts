@@ -146,3 +146,17 @@ describe('isPartnerStatus', () => {
     expect(isPartnerStatus(undefined)).toBe(false);
   });
 });
+
+describe('applyPartnerStatusUpdate — tên hãng vận chuyển (21/10/2026)', () => {
+  it('có carrier → vận đơn website ghi đúng tên hãng thay cho "OptiPack"', async () => {
+    const { cols, shipments } = setup({ fulfillment_status: 'packed' });
+    await applyPartnerStatusUpdate(cols, { ...base, status: 'shipped', idempotencyKey: 'k-carrier', trackingCode: 'L88K7P', carrier: 'Giao Hàng Nhanh' });
+    expect(shipments.docs[0]).toMatchObject({ carrier: 'Giao Hàng Nhanh', tracking_number: 'L88K7P' });
+  });
+
+  it('không có carrier (bản gửi cũ) → giữ "OptiPack"', async () => {
+    const { cols, shipments } = setup({ fulfillment_status: 'packed' });
+    await applyPartnerStatusUpdate(cols, { ...base, status: 'shipped', idempotencyKey: 'k-nocarrier', trackingCode: 'SHP-1' });
+    expect(shipments.docs[0]).toMatchObject({ carrier: 'OptiPack' });
+  });
+});
