@@ -66,6 +66,15 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
             <button className="button light" disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? 'Đang hủy...' : 'Hủy yêu cầu'}</button>
           </div>}
           {data.status === 'approved' && <p className="return-hint">Cửa hàng đã duyệt. Vui lòng đóng gói và gửi sản phẩm về cửa hàng; chúng tôi sẽ cập nhật khi nhận được hàng.</p>}
+          {data.type === 'exchange' && data.status === 'closed' && !data.exchangeShipment && <p className="return-hint">Cửa hàng đã nhận và kiểm hàng của bạn. Hàng đổi đang được chuẩn bị để gửi đi.</p>}
+
+          {data.exchangeShipment && <section className="order-timeline-panel" aria-labelledby="exchange-shipment-title">
+            <span className="eyebrow">Hàng đổi</span>
+            <h2 id="exchange-shipment-title">{data.exchangeShipment.statusLabel}</h2>
+            {data.exchangeShipment.carrier && <p className="order-timeline-tracking">Đơn vị vận chuyển: {data.exchangeShipment.carrier}</p>}
+            {data.exchangeShipment.trackingCode && <p className="order-timeline-tracking">Mã vận đơn: {data.exchangeShipment.trackingCode}</p>}
+            {data.exchangeShipment.updatedAt && <p className="order-detail-date">Cập nhật {formatTime(data.exchangeShipment.updatedAt)}</p>}
+          </section>}
 
           <section aria-labelledby="return-items-title">
             <div className="order-section-heading"><h2 id="return-items-title">Sản phẩm trả</h2></div>
@@ -85,7 +94,7 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
             <ol className="order-timeline">
               {events.map((event, index) => <li className={index === 0 ? 'is-current' : ''} key={`${event.occurredAt}-${index}`}>
                 <span className="order-timeline-dot" aria-hidden="true" />
-                <div><strong>{event.label}</strong>{event.reason && <p>{event.reason}</p>}<time dateTime={event.occurredAt}>{formatTime(event.occurredAt)}</time></div>
+                <div><strong>{event.label}</strong>{event.reason && <p>{event.reason}</p>}{event.trackingCode && <p className="order-timeline-tracking">Mã vận đơn: {event.trackingCode}</p>}<time dateTime={event.occurredAt}>{formatTime(event.occurredAt)}</time></div>
               </li>)}
             </ol>
           </section>

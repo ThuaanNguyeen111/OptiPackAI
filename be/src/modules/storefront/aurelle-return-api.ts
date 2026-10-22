@@ -189,3 +189,106 @@ export async function applyPartnerReturnUpdate(
   await cols.returns.updateOne({ _id: doc._id }, { $set: set });
   return result(true);
 }
+
+// ---------------------------------------------------------------- hàng đổi (22/10/2026)
+
+/**
+ * 22/10/2026 — Hành trình giao HÀNG ĐỔI cho yêu cầu `type = exchange`. Sau khi kiểm
+ * hàng khách gửi về, OptiPack tạo đơn thay thế (EXC-…) và giao như đơn thường; mỗi
+ * mốc của đơn đó báo về qua `POST /rest/reverse/exchange/shipment/update`.
+ */
+export type ExchangeShipmentStatus = 'packed' | 'shipped' | 'delivered' | 'failed_delivery';
+
+export const EXCHANGE_SHIPMENT_STATUSES: readonly ExchangeShipmentStatus[] = ['packed', 'shipped', 'delivered', 'failed_delivery'];
+
+export const EXCHANGE_SHIPMENT_LABELS: Record<ExchangeShipmentStatus, string> = {
+  packed: 'Hàng đổi đã đóng gói',
+  shipped: 'Hàng đổi đang giao',
+  delivered: 'Đã giao hàng đổi',
+  failed_delivery: 'Giao hàng đổi không thành công',
+};
+
+export function isExchangeShipmentStatus(value: unknown): value is ExchangeShipmentStatus {
+  return typeof value === 'string' && (EXCHANGE_SHIPMENT_STATUSES as readonly string[]).includes(value);
+}
+
+export interface ExchangeShipmentUpdateInput {
+  returnId: string;
+  status: ExchangeShipmentStatus;
+  eventTime: Date;
+  carrier?: string | null;
+  trackingCode?: string | null;
+  reason?: string | null;
+  idempotencyKey: string;
+}
+
+export interface ExchangeShipmentUpdateResult {
+  return_id: string;
+  status: ExchangeShipmentStatus;
+  updated_at: string;
+  applied: boolean;
+}
+
+/**
+ * null = không có yêu cầu đó; 'not_exchange' = yêu cầu không phải đổi hàng. Idempotent theo
+ * `idempotency_key` (ghi 1 dòng lịch sử `return_exchange_<status>` — trang chi tiết yêu cầu tự
+ * hiện vì cùng tiền tố `return_`). Trạng thái hiện tại (`exchange_shipment`) chỉ đổi khi sự
+ * kiện không cũ hơn mốc đang có và chưa "đã giao" (giao thất bại rồi giao lại vẫn nhận).
+ */
+export async function applyExchangeShipmentUpdate(
+  cols: ReturnUpdateCollections,
+  input: ExchangeShipmentUpdateInput,
+): Promise<ExchangeShipmentUpdateResult | 'not_exchange' | null> {
+  const doc = await cols.returns.findOne({ _id: cols.castId ? cols.castId(input.returnId) : input.returnId });
+  if (!doc) return null;
+  if (doc.type !== 'exchange') return 'not_exchange';
+
+  const result = (applied: boolean): ExchangeShipmentUpdateResult => ({
+    return_id: input.returnId,
+    status: input.status,
+    updated_at: new Date().toISOString(),
+    applied,
+  });
+
+  const inserted = await cols.events.updateOne(
+    { idempotency_key: input.idempotencyKey },
+    {
+      $setOnInsert: {
+        order_id: doc.order_id,
+        public_order_id: doc.public_order_id ?? null,
+        status: `return_exchange_${input.status}`,
+        label: EXCHANGE_SHIPMENT_LABELS[input.status],
+        tracking_code: input.trackingCode ?? null,
+        trip_code: null,
+        reason: input.reason ?? null,
+        occurred_at: input.eventTime,
+        source: 'partner',
+        idempotency_key: input.idempotencyKey,
+        created_at: new Date(),
+      },
+    },
+    { upsert: true },
+  );
+  if ((inserted.upsertedCount ?? 0) === 0) return result(false);
+
+  const raw: unknown = doc.exchange_shipment;
+  const current = typeof raw === 'object' && raw !== null ? (raw as { status?: unknown; updated_at?: unknown }) : null;
+  const lastAt = current?.updated_at instanceof Date ? current.updated_at : null;
+  if (current?.status === 'delivered' || (lastAt && input.eventTime.getTime() < lastAt.getTime())) return result(false);
+
+  await cols.returns.updateOne(
+    { _id: doc._id },
+    {
+      $set: {
+        exchange_shipment: {
+          status: input.status,
+          carrier: input.carrier ?? null,
+          tracking_code: input.trackingCode ?? null,
+          updated_at: input.eventTime,
+        },
+        updated_at: new Date(),
+      },
+    },
+  );
+  return result(true);
+}

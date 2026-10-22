@@ -11,6 +11,8 @@ import {
   MarketplaceAdapter,
 } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
 import { OrderStatus } from '../orders/enums/order-status.enum';
+import { ReturnType } from '../shipments/enums/return.enums';
+import { isExchangeShipmentStatus } from '../storefront/aurelle-return-api';
 import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxDocument,
@@ -140,7 +142,22 @@ export class MarketplaceWritebackService {
       })
       .select('_id platform_order_id shop_id')
       .lean();
-    if (orders.length === 0) {
+    // 22/10/2026 — đơn thay thế (EXC-…) của yêu cầu ĐỔI HÀNG khách gửi trên AURELLE: không
+    // có đơn trên website, nên báo mốc giao về đúng yêu cầu đổi hàng (khách xem hàng đổi đi đâu).
+    const exchangeStatus = isExchangeShipmentStatus(row.status) ? row.status : null;
+    const replacements = exchangeStatus && adapter.updateExchangeShipment
+      ? await this.orderModel
+        .find({
+          consolidated_group_id: row.order_group_id,
+          platform: MarketplacePlatform.AURELLE,
+          status: { $ne: OrderStatus.CANCELED },
+          origin: 'replacement',
+          source_return_id: { $ne: null },
+        })
+        .select('_id shop_id source_return_id')
+        .lean()
+      : [];
+    if (orders.length === 0 && replacements.length === 0) {
       await this.markDone(row, 'skipped', null);
       return 'skipped';
     }
@@ -175,6 +192,30 @@ export class MarketplaceWritebackService {
         reason: row.status === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
         idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
       });
+    }
+    let exchangeSent = 0;
+    for (const order of replacements) {
+      if (!exchangeStatus || !adapter.updateExchangeShipment || !order.source_return_id) continue;
+      const rma = await this.returnModel
+        .findById(order.source_return_id)
+        .select('source external_ref type shop_id')
+        .lean();
+      if (rma?.source !== 'marketplace' || !rma.external_ref || rma.type !== ReturnType.EXCHANGE) continue;
+      const token = await this.tokenFor(rma.shop_id, tokens);
+      await adapter.updateExchangeShipment(token, {
+        returnId: rma.external_ref,
+        status: exchangeStatus,
+        eventTime: row.event_time,
+        carrier: shipment?.carrier_name ?? undefined,
+        trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
+        reason: exchangeStatus === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
+        idempotencyKey: `${row.idempotency_key}:exchange:${rma.external_ref}`,
+      });
+      exchangeSent += 1;
+    }
+    if (orders.length === 0 && exchangeSent === 0) {
+      await this.markDone(row, 'skipped', 'Đơn thay thế không gắn yêu cầu đổi hàng của khách trên sàn.');
+      return 'skipped';
     }
     await this.markDone(row, 'sent', null);
     return 'sent';

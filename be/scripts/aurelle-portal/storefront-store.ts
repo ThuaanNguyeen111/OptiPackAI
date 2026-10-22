@@ -20,8 +20,11 @@ import {
   type StatusUpdateResult,
 } from '../../src/modules/storefront/aurelle-status-update';
 import {
+  applyExchangeShipmentUpdate,
   applyPartnerReturnUpdate,
   toOpenApiReturn,
+  type ExchangeShipmentUpdateInput,
+  type ExchangeShipmentUpdateResult,
   type OpenApiReturn,
   type ReturnUpdateInput,
   type ReturnUpdateResult,
@@ -254,6 +257,24 @@ export async function listReturns(query: ListReturnsQuery): Promise<{ returns: O
     col.countDocuments(filter),
   ]);
   return { returns: docs.map((doc) => toOpenApiReturn(doc as unknown as StorefrontReturnLike)), count };
+}
+
+/**
+ * 22/10/2026 — Đối tác báo mốc giao HÀNG ĐỔI. null = không có yêu cầu; 'not_exchange' = yêu cầu
+ * không phải đổi hàng.
+ */
+export async function applyExchangeShipment(
+  input: ExchangeShipmentUpdateInput,
+): Promise<ExchangeShipmentUpdateResult | 'not_exchange' | null> {
+  if (!mongoose.Types.ObjectId.isValid(input.returnId)) return null;
+  return applyExchangeShipmentUpdate(
+    {
+      returns: db().collection('storefront_return_requests') as unknown as MinimalCollection,
+      events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+      castId: (id) => new mongoose.Types.ObjectId(id),
+    },
+    input,
+  );
 }
 
 /** Đối tác báo kết quả xử lý yêu cầu trả hàng. null = không có yêu cầu với `return_id` đó. */

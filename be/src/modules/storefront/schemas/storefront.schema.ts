@@ -43,6 +43,13 @@ export class StorefrontProduct {
   @Prop({ default: 0 }) view_count!: number;
   @Prop({ default: 0 }) sold_count!: number;
   @Prop({ type: Date, default: null }) deleted_at!: Date | null;
+  /**
+   * 22/10/2026 — SKU biến thể theo QUY TẮC OPTIPACK `{danh mục cấp 2}-{số mẫu 3 số}-{màu}-{size}`
+   * (VD ATHUN-005-DEN-M): danh mục + số mẫu đặt ở sản phẩm, màu + size ở biến thể. Khoá khi
+   * sản phẩm đã có biến thể theo quy tắc. null = sản phẩm cũ (SKU tự sinh SF-…/mã mẫu).
+   */
+  @Prop({ type: String, default: null }) sku_category_code!: string | null;
+  @Prop({ type: Number, default: null }) sku_model_no!: number | null;
   created_at?: Date;
   updated_at?: Date;
 }
@@ -76,6 +83,8 @@ export class StorefrontProductVariant {
   @Prop({ type: Number, default: null, min: 0 }) height_cm!: number | null;
   @Prop({ default: false }) is_default!: boolean;
   @Prop({ default: true }) is_active!: boolean;
+  /** 22/10/2026 — mã màu OptiPack của biến thể theo quy tắc (null = biến thể cũ, màu/size tự do). */
+  @Prop({ type: String, default: null }) sku_color_code!: string | null;
   /**
    * (21/10/2026, phương án A) 'optipack' = tồn do kho OptiPack đẩy sang qua
    * Open API `/product/stock/sellable/update` → Admin website chỉ xem, không sửa.
@@ -334,6 +343,23 @@ export class StorefrontReturnRequest {
   @Prop({ type: String, enum: ['requested', 'approved', 'rejected', 'received', 'closed', 'canceled'], default: 'requested' }) status!: string;
   @Prop({ type: [StorefrontReturnItemSchema], default: [] }) items!: StorefrontReturnItem[];
   @Prop({ type: [StorefrontExchangeItemSchema], default: [] }) exchange_items!: StorefrontExchangeItem[]; // 21/10/2026
+  /** 22/10/2026 — mốc giao HÀNG ĐỔI mới nhất (OptiPack báo qua Open API). null = chưa gửi hàng đổi. */
+  @Prop({
+    type: {
+      status: { type: String, enum: ['packed', 'shipped', 'delivered', 'failed_delivery'] },
+      carrier: { type: String, default: null },
+      tracking_code: { type: String, default: null },
+      updated_at: { type: Date, default: null },
+      _id: false,
+    },
+    default: null,
+  })
+  exchange_shipment!: {
+    status: 'packed' | 'shipped' | 'delivered' | 'failed_delivery';
+    carrier: string | null;
+    tracking_code: string | null;
+    updated_at: Date | null;
+  } | null;
   @Prop({ type: String, default: '' }) customer_note!: string;
   @Prop({ type: String, default: null }) rma_code!: string | null;
   @Prop({ type: String, default: null }) decision_note!: string | null;

@@ -19,7 +19,7 @@ import {
 } from './schemas/storefront.schema';
 import { CreateStorefrontReturnDto } from './dto/storefront.dto';
 import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
-import { STOREFRONT_RETURN_LABELS, STOREFRONT_RETURN_REASON_LABELS } from './aurelle-return-api';
+import { EXCHANGE_SHIPMENT_LABELS, STOREFRONT_RETURN_LABELS, STOREFRONT_RETURN_REASON_LABELS } from './aurelle-return-api';
 
 /** Cùng hạn với phía kho (RETURN_WINDOW_DAYS = 15 ngày kể từ khi nhận hàng). */
 export const STOREFRONT_RETURN_WINDOW_DAYS = 15;
@@ -135,7 +135,13 @@ export class StorefrontReturnsService {
       .lean();
     return {
       ...this.toResponse(doc, order?.order_number ?? ''),
-      events: events.map((event) => ({ label: event.label, reason: event.reason, occurredAt: event.occurred_at, source: event.source })),
+      events: events.map((event) => ({
+        label: event.label,
+        reason: event.reason,
+        occurredAt: event.occurred_at,
+        source: event.source,
+        trackingCode: event.tracking_code, // 22/10/2026 — mã vận đơn hàng đổi
+      })),
     };
   }
 
@@ -306,6 +312,16 @@ export class StorefrontReturnsService {
         reasonLabel: lookup(STOREFRONT_RETURN_REASON_LABELS, item.reason_code),
       })),
       exchangeItems: doc.exchange_items.map((item) => ({ sku: item.sku, quantity: item.quantity })),
+      // 22/10/2026 — hàng đổi đang được giao tới khách (null = chưa gửi).
+      exchangeShipment: doc.exchange_shipment
+        ? {
+            status: doc.exchange_shipment.status,
+            statusLabel: lookup(EXCHANGE_SHIPMENT_LABELS, doc.exchange_shipment.status),
+            carrier: doc.exchange_shipment.carrier,
+            trackingCode: doc.exchange_shipment.tracking_code,
+            updatedAt: doc.exchange_shipment.updated_at,
+          }
+        : null,
       customerNote: doc.customer_note,
       rmaCode: doc.rma_code,
       decisionNote: doc.decision_note,

@@ -49,13 +49,27 @@ export type CartItem = {
 export type Category = { id: string; name: string; slug: string }
 
 export type AdminProduct = Omit<Product, 'variants'> & {
+  /** 22/10/2026 — phần đầu SKU theo quy tắc OptiPack (null = sản phẩm cũ). */
+  skuCategoryCode?: string | null
+  skuModelNo?: number | null
   // stockSource 'optipack' (21/10/2026) = tồn do kho OptiPack đẩy sang, Admin chỉ xem.
-  variants: (ProductVariant & { quantityOnHand: number; reservedQuantity: number; stockSource?: 'storefront' | 'optipack'; stockSyncedAt?: string | null })[]
+  // colorCode (22/10/2026) = mã màu OptiPack của biến thể theo quy tắc; null = biến thể cũ.
+  variants: (ProductVariant & { quantityOnHand: number; reservedQuantity: number; stockSource?: 'storefront' | 'optipack'; stockSyncedAt?: string | null; colorCode?: string | null })[]
+}
+
+/** 22/10/2026 — danh mục cấp 2 + màu của OptiPack để ghép SKU (`GET /storefront/admin/products/sku-options`). */
+export type SkuOptions = {
+  rule: string
+  categories: { code: string; name: string; parentCode: string | null; sizes: string[] }[]
+  colors: { code: string; name: string; hex: string | null }[]
 }
 
 export type SaveAdminProduct = Pick<Product, 'name' | 'description' | 'thumbnailUrl' | 'galleryImages' | 'status' | 'isFeatured'> & {
   categoryId: string | null
-  variants: { id?: string; color: string; size: string; price: number; quantityOnHand: number }[]
+  /** 22/10/2026 — bắt buộc khi có biến thể mới (SKU theo quy tắc OptiPack). */
+  skuCategoryCode?: string
+  skuModelNo?: number
+  variants: { id?: string; color: string; size: string; colorCode?: string; price: number; quantityOnHand: number }[]
 }
 
 export type Customer = {
@@ -141,6 +155,14 @@ export type StorefrontReturn = {
   statusLabel: string
   items: StorefrontReturnItem[]
   exchangeItems: { sku: string; quantity: number }[]
+  /** 22/10/2026 — hàng đổi đang được giao tới khách (null = cửa hàng chưa gửi hàng đổi). */
+  exchangeShipment: {
+    status: 'packed' | 'shipped' | 'delivered' | 'failed_delivery'
+    statusLabel: string
+    carrier: string | null
+    trackingCode: string | null
+    updatedAt: string | null
+  } | null
   customerNote: string
   rmaCode: string | null
   decisionNote: string | null
@@ -155,5 +177,5 @@ export type ExchangeOption = {
 }
 
 export type StorefrontReturnDetail = StorefrontReturn & {
-  events: { label: string; reason: string | null; occurredAt: string; source: 'partner' | 'customer' | 'system' }[]
+  events: { label: string; reason: string | null; occurredAt: string; source: 'partner' | 'customer' | 'system'; trackingCode?: string | null }[]
 }

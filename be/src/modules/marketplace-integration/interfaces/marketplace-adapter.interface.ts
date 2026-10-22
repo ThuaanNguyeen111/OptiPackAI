@@ -161,6 +161,23 @@ export interface MarketplaceAdapter {
       idempotencyKey: string;
     },
   ): Promise<void>;
+
+  /**
+   * 22/10/2026 — Báo mốc giao HÀNG ĐỔI (đơn thay thế EXC-… của OptiPack) về đúng yêu cầu
+   * đổi hàng của khách trên sàn (`returnId` = mã yêu cầu của sàn). Chỉ AURELLE có.
+   */
+  updateExchangeShipment?(
+    accessToken: string,
+    input: {
+      returnId: string;
+      status: 'packed' | 'shipped' | 'delivered' | 'failed_delivery';
+      eventTime: Date;
+      carrier?: string;
+      trackingCode?: string;
+      reason?: string;
+      idempotencyKey: string;
+    },
+  ): Promise<void>;
 }
 
 /** Yêu cầu trả hàng của khách như sàn trả về (`/reverse/orders/get`). */
