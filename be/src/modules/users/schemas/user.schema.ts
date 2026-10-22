@@ -39,6 +39,20 @@ export class User {
   @Prop({ default: true })
   is_active!: boolean;
 
+  // 22/10/2026 — nghỉ phép: vẫn đăng nhập được, nhưng không được giao việc lấy hàng/đóng gói.
+  // on_leave_until (tùy chọn) qua hạn thì tự tính là đi làm lại — xem users/utils/on-leave.util.ts.
+  @Prop({ type: Boolean, default: false })
+  on_leave!: boolean;
+
+  @Prop({ type: Date, default: null })
+  on_leave_until!: Date | null;
+
+  @Prop({ type: String, default: null })
+  on_leave_note!: string | null;
+
+  @Prop({ type: Date, default: null })
+  on_leave_since!: Date | null;
+
   @Prop({ type: SchemaTypes.ObjectId, ref: 'User' })
   created_by?: Types.ObjectId;
 

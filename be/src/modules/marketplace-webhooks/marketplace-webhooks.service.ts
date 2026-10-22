@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
@@ -13,6 +13,7 @@ import {
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import { MKT_ERROR_CODES } from '../marketplace-integration/marketplace-integration.errors';
 import { OrdersService } from '../orders/orders.service';
+import { ProductMasterService } from '../product-master/product-master.service';
 import { ReturnsMarketplaceSyncService } from '../shipments/returns-marketplace-sync.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
@@ -26,9 +27,11 @@ export interface MarketplaceWebhookPayload {
   message_type: string;
   timestamp: number;
   data: {
-    trade_order_id: string;
+    trade_order_id?: string;
     order_status?: string;
     status_update_time?: number;
+    /** 22/10/2026 — `product_updated`: các SKU sàn vừa tạo/đổi trên website. */
+    seller_skus?: string[];
   };
 }
 
@@ -57,6 +60,8 @@ export class MarketplaceWebhooksService {
     private readonly ordersService: OrdersService,
     private readonly notificationsService: NotificationsService,
     private readonly returnsSyncService: ReturnsMarketplaceSyncService,
+    // 22/10/2026 — `product_updated`. @Optional: test cũ không truyền.
+    @Optional() private readonly productMasterService?: ProductMasterService,
   ) {}
 
   async handleWebhook(
@@ -119,7 +124,11 @@ export class MarketplaceWebhooksService {
         await this.handleAuthorizationRevoked(platform, body);
         return;
       case 'return_requested':
+      case 'return_canceled': // 21/10/2026 — khách tự hủy yêu cầu trả hàng: cùng 1 lượt kéo
         await this.handleReturnRequested(platform, body);
+        return;
+      case 'product_updated': // 22/10/2026 — website vừa tạo/đổi biến thể: đồng bộ ngay để tự nối SKU
+        await this.handleProductUpdated(platform, body);
         return;
       default:
         // Tương thích ngược — AURELLE có thể thêm message_type mới sau
@@ -149,7 +158,34 @@ export class MarketplaceWebhooksService {
       throw error;
     }
 
-    await this.ordersService.syncSingleOrder(platform, shopId, body.data.trade_order_id);
+    const tradeOrderId = body.data.trade_order_id;
+    if (!tradeOrderId) {
+      this.logger.warn(`Webhook ${platform} ${body.message_type}: thiếu trade_order_id — ack, bỏ qua.`);
+      return;
+    }
+    await this.ordersService.syncSingleOrder(platform, shopId, tradeOrderId);
+  }
+
+  /**
+   * 22/10/2026 — Website vừa thêm/đổi sản phẩm: kéo ngay hồ sơ các SKU đó (Product Master).
+   * Bước ghi hồ sơ tự nối SKU trùng mã SKU nội bộ → tồn 2 bên tính chung, lượt đẩy tồn
+   * kế tiếp (≤ 1 phút) đưa số của kho OptiPack sang website. Cron catalog mỗi giờ vẫn bù.
+   */
+  private async handleProductUpdated(
+    platform: MarketplacePlatform,
+    body: MarketplaceWebhookPayload,
+  ): Promise<void> {
+    const skus = (body.data.seller_skus ?? []).filter((s) => typeof s === 'string' && s.trim().length > 0).slice(0, 200);
+    if (skus.length === 0 || !this.productMasterService) return;
+    try {
+      await this.productMasterService.syncProductsForShop(platform, body.seller_id, skus);
+    } catch (error) {
+      if (error instanceof AppException && error.errorCode === MKT_ERROR_CODES.SHOP_NOT_CONNECTED) {
+        this.logger.warn(`Webhook ${platform}: shop ${body.seller_id} không kết nối — ack, bỏ qua sản phẩm.`);
+        return;
+      }
+      throw error;
+    }
   }
 
   /** Khách gửi yêu cầu trả hàng: kéo ngay các yêu cầu mới của shop (cron 2 phút vẫn bù nếu webhook mất). */

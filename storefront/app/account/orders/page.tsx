@@ -7,7 +7,7 @@ import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import type { StorefrontOrder } from '@/types/storefront'
 import { ApiError, getOrders } from '@/lib/api-client'
-import { getFulfillmentStatusLabel } from '@/lib/order-labels'
+import { getFulfillmentStatusLabel, getOrderStatusLabel } from '@/lib/order-labels'
 
 export default function OrdersPage() {
   const router = useRouter()
@@ -42,7 +42,8 @@ export default function OrdersPage() {
             <p>{new Date(order.createdAt).toLocaleDateString('vi-VN')}</p>
           </div>
           <div className="order-status-group">
-            <span className="order-status">{getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
+            {/* 22/10/2026 — đơn đã hủy hiện "Đã hủy" / "Người bán đã hủy" thay vì mốc giao hàng cũ */}
+            <span className="order-status">{order.status === 'cancelled' ? getOrderStatusLabel(order.status, order.cancelSource) : getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
             {order.activeReturn && <span className="order-status order-status-return">Đang yêu cầu trả hàng</span>}
           </div>
           <div className="order-total">

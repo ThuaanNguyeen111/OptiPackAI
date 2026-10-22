@@ -41,8 +41,9 @@ import { listColors, type ColorRecord } from '../api/catalog.api'
 import { useAdminWarehouse } from '../hooks/useAdminWarehouse'
 import {
   ColorsTab,
+  LinkSkuTab,
   MasterSkuTab,
-  ProductCatalogTab,
+  ReconcileTab,
 } from './admin-warehouse/CatalogPanels'
 import { cn } from '../lib/cn'
 import { formatApiError, getApiErrorCode } from '../lib/api'
@@ -84,7 +85,7 @@ const fieldClass =
   'w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
 type AreaId = 'catalog' | 'warehouse'
-type CatalogTabId = 'categories' | 'master' | 'products'
+type CatalogTabId = 'categories' | 'master' | 'link'
 type WarehouseTabId = 'layout' | 'assign' | 'stock' | 'picking'
 
 export function AdminWarehousePage() {
@@ -115,7 +116,7 @@ export function AdminWarehousePage() {
   const catalogTabs: Array<{ id: CatalogTabId; labelVi: string; labelEn: string }> = [
     { id: 'categories', labelVi: 'Danh mục & màu', labelEn: 'Categories & colors' },
     { id: 'master', labelVi: 'SKU nội bộ', labelEn: 'Internal SKUs' },
-    { id: 'products', labelVi: 'Sản phẩm từ sàn', labelEn: 'Marketplace products' },
+    { id: 'link', labelVi: 'Nối SKU Lazada', labelEn: 'Map Lazada SKUs' },
   ]
 
   const warehouseTabs: Array<{ id: WarehouseTabId; labelVi: string; labelEn: string }> = [
@@ -208,10 +209,15 @@ export function AdminWarehousePage() {
                   </div>
                 ) : null}
                 {catalogTab === 'master' ? <MasterSkuTab vi={vi} onNotice={showToast} /> : null}
-                {catalogTab === 'products' ? (
-                  <PanelSection title={vi ? 'Đồng bộ sản phẩm và hồ sơ đóng gói' : 'Sync products and packaging profiles'}>
-                    <ProductCatalogTab vi={vi} onNotice={showToast} />
-                  </PanelSection>
+                {catalogTab === 'link' ? (
+                  <div className="space-y-6">
+                    <PanelSection title={vi ? 'Đồng bộ và nối SKU sàn' : 'Sync and map seller SKUs'}>
+                      <LinkSkuTab vi={vi} onNotice={showToast} />
+                    </PanelSection>
+                    <PanelSection title={vi ? 'Gộp tồn' : 'Pool stock'}>
+                      <ReconcileTab vi={vi} onNotice={showToast} />
+                    </PanelSection>
+                  </div>
                 ) : null}
               </div>
             </section>

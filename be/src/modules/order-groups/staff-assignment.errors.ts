@@ -2,5 +2,6 @@ export const STAFF_ASSIGNMENT_ERROR_CODES = {
   NO_STAFF_AVAILABLE: 'ORD_GROUP_NO_STAFF_AVAILABLE',
   STAFF_NOT_FOUND: 'ORD_GROUP_STAFF_NOT_FOUND',
   STAFF_INACTIVE: 'ORD_GROUP_STAFF_INACTIVE',
+  STAFF_ON_LEAVE: 'ORD_GROUP_STAFF_ON_LEAVE', // 22/10/2026 — 409 nhân viên đang nghỉ phép, không giao việc
   STAFF_WRONG_ROLE: 'ORD_GROUP_STAFF_WRONG_ROLE', // (05/10/2026) gán lấy hàng cho người không phải Warehouse Staff
 } as const;

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import {
   ProductMasterService,
@@ -6,7 +6,7 @@ import {
 } from './product-master.service';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
-import { ListProductMasterQueryDto } from './dto/list-product-master-query.dto';
+import { ListProductMasterQueryDto, RetireProductMasterDto } from './dto/list-product-master-query.dto';
 import { ProductMaster } from './schemas/product-master.schema';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -35,6 +35,9 @@ export interface ProductMasterResponse {
   profileConfirmedBy: string | null;
   profileConfirmedAt: Date | null;
   lastSyncedAt: Date;
+  /** 22/10/2026 — sàn báo ngừng bán ('inactive') / Admin đánh dấu ngừng dùng. */
+  marketplaceStatus: 'active' | 'inactive' | null;
+  retired: boolean;
 }
 
 type ProductMasterLike = ProductMaster & { _id: { toString(): string } };
@@ -70,6 +73,8 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
     profileConfirmedBy: doc.profile_confirmed_by ? doc.profile_confirmed_by.toString() : null,
     profileConfirmedAt: doc.profile_confirmed_at ?? null,
     lastSyncedAt: doc.last_synced_at,
+    marketplaceStatus: doc.marketplace_status ?? null,
+    retired: doc.retired === true,
   };
 }
 
@@ -98,8 +103,20 @@ export class ProductMasterController {
       status: query.status,
       shopId: query.shop_id,
       search: query.search,
+      includeRetired: query.include_retired === 'true',
     });
     return docs.map((d) => toResponse(d as ProductMasterLike));
+  }
+
+  @Patch(':id/retire')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '22/10/2026 — Đánh dấu SKU sàn NGỪNG DÙNG (retired=true) hoặc dùng lại (false). Ẩn khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối", đẩy tồn; không xoá hồ sơ.',
+  })
+  async retire(@Param('id') id: string, @Body() dto: RetireProductMasterDto): Promise<ProductMasterResponse> {
+    const doc = await this.productMasterService.setRetired(id, dto.retired);
+    return toResponse(doc.toObject());
   }
 
   @Post('sync')

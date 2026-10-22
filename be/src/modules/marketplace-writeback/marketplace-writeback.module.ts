@@ -4,6 +4,11 @@ import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { Shipment, ShipmentSchema } from '../shipments/schemas/shipment.schema';
 import { ReturnRequest, ReturnRequestSchema } from '../shipments/schemas/return-request.schema';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
+import { OrderGroupsModule } from '../order-groups/order-groups.module';
+import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/product-master.schema';
+import { MasterSku, MasterSkuSchema } from '../master-skus/schemas/master-sku.schema';
+import { MarketplaceStockPushService } from './marketplace-stock-push.service';
+import { MarketplaceStockPushController } from './marketplace-stock-push.controller';
 import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxSchema,
@@ -20,10 +25,14 @@ import { MarketplaceWritebackScheduler } from './marketplace-writeback.scheduler
       { name: Order.name, schema: OrderSchema },
       { name: Shipment.name, schema: ShipmentSchema },
       { name: ReturnRequest.name, schema: ReturnRequestSchema },
+      { name: ProductMaster.name, schema: ProductMasterSchema }, // 21/10/2026 — danh sách SKU để đẩy tồn
+      { name: MasterSku.name, schema: MasterSkuSchema }, // 22/10/2026 — SKU nội bộ vô hiệu → đẩy 0
     ]),
     MarketplaceIntegrationModule,
+    OrderGroupsModule, // 21/10/2026 — StockReservationService (tồn khả dụng); order-groups không import ngược module này
   ],
-  providers: [MarketplaceWritebackService, MarketplaceWritebackScheduler],
+  controllers: [MarketplaceStockPushController],
+  providers: [MarketplaceWritebackService, MarketplaceWritebackScheduler, MarketplaceStockPushService],
   exports: [MarketplaceWritebackService],
 })
 export class MarketplaceWritebackModule {}

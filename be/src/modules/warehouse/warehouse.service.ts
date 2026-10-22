@@ -6,7 +6,7 @@ import {
   stockUpsertFilterFor,
 } from '../master-skus/stock-key.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
-import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { Warehouse, WarehouseDocument } from './schemas/warehouse.schema';
@@ -23,6 +23,7 @@ import {
   SkuBinAssignmentDocument,
 } from './schemas/sku-bin-assignment.schema';
 import {
+  ACTIVE_SELLER_SKU_FILTER,
   ProductMaster,
   ProductMasterDocument,
 } from '../product-master/schemas/product-master.schema';
@@ -98,6 +99,8 @@ export interface PickingListItem extends PickableItem {
  */
 @Injectable()
 export class WarehouseService {
+  private readonly logger = new Logger(WarehouseService.name);
+
   constructor(
     @InjectModel(Warehouse.name)
     private readonly warehouseModel: Model<WarehouseDocument>,
@@ -421,8 +424,9 @@ export class WarehouseService {
     const pooledMaps = await this.mappingModel.find({ master_sku: { $in: pooledMasters } }).select('platform shop_id seller_sku_normalized').lean();
     const pooledKeys = new Set(pooledMaps.map((m) => `${m.platform}|${m.shop_id}|${m.seller_sku_normalized}`));
 
+    // 22/10/2026 — bỏ SKU sàn đã ngừng bán / Admin đánh dấu ngừng dùng.
     const allProducts = await this.productMasterModel
-      .find()
+      .find(ACTIVE_SELLER_SKU_FILTER)
       .select('platform shop_id seller_sku')
       .lean();
 
@@ -601,6 +605,7 @@ export class WarehouseService {
       group.platform,
       group.shop_id,
       skus,
+      masters,
     );
     const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
       ? new Types.ObjectId(warehouseId)
@@ -1501,6 +1506,18 @@ export class WarehouseService {
    * G3 (dùng chung) — nhập lại hàng trả/hoàn đạt kiểm tra vào 1 ô, có sổ cái.
    * Chạy trong session của bên gọi để cùng transaction với phiếu trả hàng.
    */
+  /**
+   * 22/10/2026 — kho vừa có thêm hàng: xếp 1 lượt tính lại giữ chỗ cho các nhóm đang
+   * thiếu hàng (chạy nền, không chặn request; lỗi chỉ log).
+   */
+  notifyStockIn(trigger: string): void {
+    try {
+      this.orderGroupsService.scheduleShortageRecheck(trigger);
+    } catch (error) {
+      this.logger.warn(`Không xếp được lượt tính lại thiếu hàng (${trigger}).`, error);
+    }
+  }
+
   async restockReturnedItem(
     params: { warehouseId: string; binLocationId: string; platform: MarketplacePlatform; shopId: string; sellerSku: string; quantity: number; returnRequestId: string; actorId: string },
     session: ClientSession,

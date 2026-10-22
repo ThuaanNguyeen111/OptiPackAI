@@ -25,6 +25,7 @@ export function CreateReturnForm({
   onError: (message: string) => void
 }) {
   const [groups, setGroups] = useState<{ id: string }[]>([])
+  const [skippedAurelle, setSkippedAurelle] = useState(0)
   const [reasons, setReasons] = useState<{ code: string; label: string }[]>([])
   const [orderGroupId, setOrderGroupId] = useState('')
   const [type, setType] = useState<(typeof CUSTOMER_TYPES)[number]>('return_refund')
@@ -44,11 +45,15 @@ export function CreateReturnForm({
     ])
       .then(([delivered, reasonRows]) => {
         if (cancelled) return
-        setGroups(delivered.map((row) => ({ id: row.id })))
+        // 21/10/2026 — đơn AURELLE: khách tự yêu cầu trả trên website, hệ thống tự
+        // nhận phiếu; BE chặn giả lập (RMA_MARKETPLACE_MANAGED) nên ẩn khỏi danh sách.
+        const simulatable = delivered.filter((row) => row.platform !== 'aurelle')
+        setSkippedAurelle(delivered.length - simulatable.length)
+        setGroups(simulatable.map((row) => ({ id: row.id })))
         setReasons(reasonRows)
         const firstReason = reasonRows[0]?.code ?? 'changed_mind'
         setItems([blankItem(firstReason)])
-        setOrderGroupId((current) => current || delivered[0]?.id || '')
+        setOrderGroupId((current) => current || simulatable[0]?.id || '')
       })
       .catch((err: unknown) => {
         if (!cancelled) setLoadError(formatApiError(err))
@@ -120,6 +125,11 @@ export function CreateReturnForm({
       {loadError ? (
         <p className="text-xs text-rose-700">{loadError}</p>
       ) : null}
+      <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200">
+        {vi
+          ? `Chỉ giả lập cho đơn Lazada. Đơn AURELLE: khách bấm "Yêu cầu trả hàng" trên website, phiếu tự hiện ở đây.${skippedAurelle ? ` (đã ẩn ${String(skippedAurelle)} nhóm AURELLE)` : ''}`
+          : `Simulation is for Lazada orders only. AURELLE customers request returns on the website and the request appears here automatically.${skippedAurelle ? ` (${String(skippedAurelle)} AURELLE groups hidden)` : ''}`}
+      </p>
       <label className="block text-xs">
         <span className="text-ink-muted">{vi ? 'Nhóm đơn đã giao' : 'Delivered group'}</span>
         {groups.length > 0 ? (

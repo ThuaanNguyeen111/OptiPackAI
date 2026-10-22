@@ -38,6 +38,7 @@ export interface ConnectedShopSummary {
   refresh_token_expires_at: Date;
   last_polled_at: Date | null;
   connected_at: Date | null;
+  disconnected_at: Date | null; // 22/10/2026 — Admin ngắt kết nối lúc nào (null = không do Admin ngắt)
 }
 
 @Injectable()
@@ -140,6 +141,9 @@ export class MarketplaceIntegrationService {
       refresh_token_expires_at: tokenResult.refreshTokenExpiresAt,
       connected_by: new Types.ObjectId(stateRecord.admin_user_id),
       is_active: true,
+      // 22/10/2026 — kết nối lại sau khi Admin ngắt: xoá dấu ngắt kết nối.
+      disconnected_at: null,
+      disconnected_by: null,
     };
 
     // upsert theo unique index (platform, shop_id, environment) —
@@ -285,13 +289,48 @@ export class MarketplaceIntegrationService {
    * `select: false`). Gồm cả shop đã ngắt (is_active=false) để Admin thấy
    * cần kết nối lại.
    */
+  /**
+   * 22/10/2026 — Admin ngắt kết nối 1 shop: CHỈ đặt is_active=false (mọi môi trường của
+   * shop đó), KHÔNG xoá shop, token, đơn, sản phẩm hay tồn kho. Mọi cron (kéo đơn, catalog,
+   * đẩy tồn, kéo yêu cầu trả hàng, gia hạn token) chỉ quét shop is_active=true nên tự dừng;
+   * getValidAccessToken từ chối shop đã ngắt. Kết nối lại bằng OAuth như lần đầu.
+   */
+  async disconnectShop(
+    platform: MarketplacePlatform,
+    shopId: string,
+    actorId: string,
+  ): Promise<{ shopId: string; platform: MarketplacePlatform; isActive: false; wasActive: boolean; disconnectedAt: Date }> {
+    const existing = await this.marketplaceShopModel
+      .find({ platform, shop_id: shopId })
+      .select('is_active')
+      .lean();
+    if (existing.length === 0) {
+      throw new AppException(
+        MKT_ERROR_CODES.SHOP_NOT_FOUND,
+        `Không có shop ${shopId} (${platform}) nào đã kết nối.`,
+        HttpStatus.NOT_FOUND,
+        { shopId, platform },
+      );
+    }
+    const wasActive = existing.some((s) => s.is_active);
+    const disconnectedAt = new Date();
+    if (wasActive) {
+      await this.marketplaceShopModel.updateMany(
+        { platform, shop_id: shopId, is_active: true },
+        { $set: { is_active: false, disconnected_at: disconnectedAt, disconnected_by: new Types.ObjectId(actorId) } },
+      );
+      this.logger.warn(`Admin ${actorId} ngắt kết nối shop ${shopId} (${platform}).`);
+    }
+    return { shopId, platform, isActive: false, wasActive, disconnectedAt };
+  }
+
   async listShopsForDisplay(
     platform: MarketplacePlatform,
   ): Promise<ConnectedShopSummary[]> {
     const shops = await this.marketplaceShopModel
       .find({ platform })
       .select(
-        'shop_id shop_name environment access_token_expires_at refresh_token_expires_at last_polled_at is_active created_at',
+        'shop_id shop_name environment access_token_expires_at refresh_token_expires_at last_polled_at is_active created_at disconnected_at',
       )
       .sort({ is_active: -1, created_at: -1 })
       .lean();
@@ -305,6 +344,7 @@ export class MarketplaceIntegrationService {
       refresh_token_expires_at: shop.refresh_token_expires_at,
       last_polled_at: shop.last_polled_at,
       connected_at: shop.created_at ?? null,
+      disconnected_at: shop.disconnected_at ?? null,
     }));
   }
 

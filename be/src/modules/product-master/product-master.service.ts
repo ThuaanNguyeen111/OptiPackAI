@@ -1,13 +1,17 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { PRODUCT_MASTER_ERROR_CODES } from './product-master.errors';
 import { ProductCategory } from '../../common/enums/product-category.enum';
 import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
-import { ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
+import { ACTIVE_SELLER_SKU_FILTER, ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
+import { MasterSkusService } from '../master-skus/master-skus.service';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import { PackagingBag, PackagingBagDocument } from '../packaging/schemas/packaging-bag.schema';
+import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-group.schema';
+import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
+import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
 import { bagFits, suggestSmallestBag } from '../packaging/bag-fit.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
@@ -65,6 +69,11 @@ export class ProductMasterService {
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     @Inject(MARKETPLACE_ADAPTERS)
     private readonly adapters: Partial<Record<MarketplacePlatform, MarketplaceAdapter>>,
+    // 22/10/2026 — gỡ cờ kẹt đóng gói khi đo xong SKU. @Optional: test cũ không đăng ký.
+    @Optional() @InjectModel(OrderGroup.name) private readonly orderGroupModel?: Model<OrderGroupDocument>,
+    @Optional() @InjectModel(PackingPlan.name) private readonly packingPlanModel?: Model<PackingPlanDocument>,
+    // 22/10/2026 — SKU sàn trùng mã SKU nội bộ → tự nối khi vừa đồng bộ về. @Optional: test cũ.
+    @Optional() private readonly masterSkusService?: MasterSkusService,
   ) {}
 
   /**
@@ -230,14 +239,15 @@ export class ProductMasterService {
     rawProducts: LazadaProductRaw[],
     now: Date,
   ): Promise<number> {
-    const bulkOps = rawProducts
-      .flatMap((product) => product.skus)
-      .filter((sku) => Boolean(sku.SellerSku))
+    const skus = rawProducts.flatMap((product) => product.skus).filter((sku) => Boolean(sku.SellerSku));
+    const bulkOps = skus
       .map((sku) => ({
         updateOne: {
           filter: { platform, shop_id: shopId, seller_sku: sku.SellerSku },
           update: {
             $set: {
+              // 22/10/2026 — sàn báo ngừng bán thì ẩn SKU khỏi các danh sách vận hành.
+              marketplace_status: sku.Status === 'inactive' ? ('inactive' as const) : sku.Status === 'active' ? ('active' as const) : null,
               marketplace_dimension: {
                 // Sàn trả STRING — parse về number. Thiếu/lỗi giữ undefined để
                 // hồ sơ ở needs_measurement thay vì bịa kích thước.
@@ -256,7 +266,57 @@ export class ProductMasterService {
       }));
     if (bulkOps.length === 0) return 0;
     const result = await this.productMasterModel.bulkWrite(bulkOps);
+    // 22/10/2026 — AURELLE đặt SKU đúng quy tắc mà OptiPack chưa có SKU nội bộ → tự tạo trước khi nối.
+    if (platform === MarketplacePlatform.AURELLE) {
+      await this.autoCreateMasters(rawProducts);
+    }
+    await this.autoMap(platform, shopId, skus.filter((sku) => sku.Status !== 'inactive').map((sku) => sku.SellerSku));
     return result.upsertedCount + result.modifiedCount;
+  }
+
+  private async autoCreateMasters(rawProducts: LazadaProductRaw[]): Promise<void> {
+    if (!this.masterSkusService) return;
+    try {
+      await this.masterSkusService.autoCreateFromSellerSkus(
+        rawProducts.flatMap((product) =>
+          product.skus
+            .filter((sku) => Boolean(sku.SellerSku) && sku.Status !== 'inactive')
+            .map((sku) => ({ sellerSku: sku.SellerSku, name: product.attributes?.name ?? null }))),
+      );
+    } catch (error: unknown) {
+      this.logger.warn(`Tự tạo SKU nội bộ từ AURELLE thất bại: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /** 22/10/2026 — tự nối SKU sàn với SKU nội bộ cùng mã (best-effort, không chặn đồng bộ). */
+  private async autoMap(platform: MarketplacePlatform, shopId: string, sellerSkus: string[]): Promise<void> {
+    if (!this.masterSkusService || sellerSkus.length === 0) return;
+    try {
+      await this.masterSkusService.autoMapSellerSkus(platform, shopId, sellerSkus);
+    } catch (error: unknown) {
+      this.logger.warn(`Tự nối SKU shop ${shopId} (${platform}) thất bại: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * 22/10/2026 — Admin đánh dấu SKU sàn NGỪNG DÙNG (VD mã cũ của sản phẩm đã xoá/tạo lại):
+   * ẩn khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối", đẩy tồn. Không xoá hồ sơ (đơn cũ
+   * vẫn tra được). retired=false để dùng lại.
+   */
+  async setRetired(id: string, retired: boolean): Promise<ProductMasterDocument> {
+    if (!Types.ObjectId.isValid(id)) {
+      throw new AppException(PRODUCT_MASTER_ERROR_CODES.INVALID_ID, `"${id}" không đúng định dạng ObjectId hợp lệ.`, HttpStatus.BAD_REQUEST, { id });
+    }
+    const updated = await this.productMasterModel.findByIdAndUpdate(
+      id,
+      { $set: { retired, retired_at: retired ? new Date() : null } },
+      { returnDocument: 'after' },
+    );
+    if (!updated) {
+      throw new AppException(PRODUCT_MASTER_ERROR_CODES.NOT_FOUND, `Không tìm thấy hồ sơ sản phẩm "${id}".`, HttpStatus.NOT_FOUND, { id });
+    }
+    this.logger.log(`SKU ${updated.seller_sku} (shop ${updated.shop_id}) ${retired ? 'ngừng dùng' : 'dùng lại'}.`);
+    return updated;
   }
 
   /**
@@ -267,8 +327,10 @@ export class ProductMasterService {
     status?: 'needs_measurement' | 'ready';
     shopId?: string;
     search?: string;
+    includeRetired?: boolean;
   }): Promise<ProductMaster[]> {
-    const query: Record<string, unknown> = {};
+    // 22/10/2026 — mặc định bỏ SKU sàn đã ngừng bán / ngừng dùng.
+    const query: Record<string, unknown> = filter.includeRetired ? {} : { ...ACTIVE_SELLER_SKU_FILTER };
     if (filter.status) query.packaging_profile_status = filter.status;
     if (filter.shopId) query.shop_id = filter.shopId;
     if (filter.search) {
@@ -385,7 +447,48 @@ export class ProductMasterService {
       );
     }
     this.logger.log(`Xác nhận hồ sơ đóng gói SKU ${updated.seller_sku} (shop ${updated.shop_id}).`);
+    await this.releasePackingBlocks(updated);
     return updated;
+  }
+
+  /**
+   * 22/10/2026 — nhóm đã lấy xong nhưng kẹt đóng gói vì chờ đúng SKU này: gỡ kế hoạch
+   * `failed` (thành superseded) + xoá cờ kẹt → cron đóng gói tự tính lại trong ~10 s.
+   * Nhóm còn SKU khác chưa đo sẽ kẹt lại với danh sách SKU mới. Best-effort: lỗi chỉ log,
+   * KHÔNG làm hỏng việc lưu số đo.
+   */
+  private async releasePackingBlocks(product: ProductMasterDocument): Promise<number> {
+    if (!this.orderGroupModel || !this.packingPlanModel) return 0;
+    try {
+      const groups = await this.orderGroupModel
+        .find({
+          platform: product.platform,
+          shop_id: product.shop_id,
+          packing_blocked_skus: product.seller_sku,
+          fulfillment_status: GroupFulfillmentStatus.PICKED,
+        })
+        .select('_id')
+        .lean();
+      if (groups.length === 0) return 0;
+      const ids = groups.map((g) => g._id);
+      await this.packingPlanModel.updateMany(
+        { order_group_id: { $in: ids }, is_active: true, status: 'failed' },
+        { $set: { is_active: false, status: 'superseded' } },
+      );
+      await this.orderGroupModel.updateMany(
+        { _id: { $in: ids } },
+        { $set: { packing_blocked_reason: null, packing_blocked_skus: [], packing_blocked_at: null } },
+      );
+      this.logger.log(
+        `SKU ${product.seller_sku} đã đo — gỡ kẹt ${String(ids.length)} nhóm đơn, chờ tính lại kế hoạch đóng gói.`,
+      );
+      return ids.length;
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Gỡ kẹt đóng gói sau khi đo SKU ${product.seller_sku} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return 0;
+    }
   }
 
   /** Mã túi zip nhỏ nhất (theo diện tích) còn vừa gói đã đo (cm); null nếu không túi nào vừa. */

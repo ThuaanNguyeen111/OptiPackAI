@@ -128,6 +128,14 @@ export class OrderGroup {
 
   @Prop({ type: String, default: null })
   manual_link_note!: string | null;
+
+  /**
+   * 21/10/2026 — Kho nhóm đơn lấy hàng. Hệ thống tự chọn lúc giữ chỗ lần đầu (1 kho →
+   * kho đó; nhiều kho → kho có đủ hàng nhất). Giữ chỗ và quét hàng tính trên đúng kho
+   * này. null = nhóm đơn cũ, giữ chỗ tính trên tồn mọi kho như trước.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  warehouse_id?: Types.ObjectId | null;
   // K5 (27/09/2026) — thiếu hàng NGAY lúc tạo nhóm đơn (tồn khả dụng không đủ giữ chỗ).
   @Prop({ type: Boolean, default: false })
   stock_shortage?: boolean;
@@ -150,6 +158,20 @@ export class OrderGroup {
     reserved: number;
     shortage: number;
   }[];
+
+  /**
+   * 22/10/2026 — Nhóm đã lấy xong nhưng KHÔNG tính được kế hoạch đóng gói vì có SKU
+   * chưa có hồ sơ đóng gói kho xác nhận (chưa đo / chưa có Product Master). null = không kẹt.
+   * Kho xác nhận số đo SKU đó → tự xoá cờ + kế hoạch failed, cron tự tính lại (~10 s).
+   */
+  @Prop({ type: String, enum: ['needs_measurement', 'missing_product_master'], default: null })
+  packing_blocked_reason?: 'needs_measurement' | 'missing_product_master' | null;
+
+  @Prop({ type: [String], default: [] })
+  packing_blocked_skus?: string[];
+
+  @Prop({ type: Date, default: null })
+  packing_blocked_at?: Date | null;
 
   // Nhóm đơn THAY THẾ sinh ra từ phiếu đổi hàng.
   @Prop({
@@ -201,6 +223,11 @@ OrderGroupSchema.index({ platform: 1, fulfillment_status: 1, created_at: -1 });
 // staff (Rule #3 ESR: assigned_staff_id equality trước, fulfillment_status
 // range/set sau) — dùng trong autoAssignStaff() để chọn người ít việc nhất.
 OrderGroupSchema.index({ assigned_staff_id: 1, fulfillment_status: 1 });
+// 22/10/2026 — tìm nhóm kẹt đóng gói theo SKU khi kho vừa đo xong SKU đó.
+OrderGroupSchema.index(
+  { packing_blocked_skus: 1 },
+  { partialFilterExpression: { packing_blocked_reason: { $type: 'string' } } },
+);
 
 // BỔ SUNG (2026-09-10) — phục vụ cron cảnh báo SLA (quét đơn hỏa tốc
 // sắp/đã quá hạn) — Rule #3 ESR, equality (order_priority) trước.

@@ -1,4 +1,10 @@
 import { StockLot, StockLotSchema } from '../warehouse/schemas/stock-lot.schema';
+import {
+  StockReservation,
+  StockReservationSchema,
+  StockReservationTotal,
+  StockReservationTotalSchema,
+} from '../order-groups/schemas/stock-reservation.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { Color, ColorSchema } from './schemas/color.schema';
@@ -22,6 +28,8 @@ import { ColorsController, MasterSkusController } from './master-skus.controller
       { name: SkuBinAssignment.name, schema: SkuBinAssignmentSchema }, // K4b
       { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K4b
       { name: StockLot.name, schema: StockLotSchema }, // 15/10/2026 — lô đi theo dòng tồn khi gộp
+      { name: StockReservation.name, schema: StockReservationSchema }, // 21/10/2026 — giữ chỗ đi theo khóa tồn
+      { name: StockReservationTotal.name, schema: StockReservationTotalSchema },
     ]),
     CategoriesModule,
   ],

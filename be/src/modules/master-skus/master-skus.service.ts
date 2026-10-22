@@ -1,23 +1,48 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Model } from 'mongoose';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { InjectConnection, InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { CategoriesService } from '../categories/categories.service';
-import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
+import { ACTIVE_SELLER_SKU_FILTER, ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { Color, ColorDocument } from './schemas/color.schema';
 import { MasterSku, MasterSkuDocument } from './schemas/master-sku.schema';
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from './schemas/marketplace-sku-mapping.schema';
 import {
-  CreateColorDto, CreateMasterSkuDto, UpdateColorDto, UpdateMasterSkuDto,
+  CreateColorDto, CreateMappingDto, CreateMasterSkuDto, ReplaceMasterSkuDto, UpdateColorDto, UpdateMasterSkuDto,
 } from './dto/master-sku.dto';
 import { MASTER_SKU_ERROR_CODES as E } from './master-skus.errors';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { SkuBinAssignment, SkuBinAssignmentDocument } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
+import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
+import { StockLotLedger } from '../warehouse/stock-lot.ledger';
+import {
+  StockReservation,
+  StockReservationDocument,
+  StockReservationTotal,
+  StockReservationTotalDocument,
+} from '../order-groups/schemas/stock-reservation.schema';
+import { moveReservations } from '../order-groups/reservation-key.util';
+import { stockKeyOf } from './stock-key.util';
 
 export function buildMasterSkuCode(p: { category_code: string; model_no: number; color_code: string; size: string }): string {
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
 }
+
+/** 22/10/2026 — tách mã theo quy tắc `{DANH MỤC}-{3 số mẫu}-{MÀU}-{SIZE}`; sai dạng → null. */
+export function parseMasterSkuCode(code: string): { category_code: string; model_no: number; color_code: string; size: string } | null {
+  const m = /^([A-Z0-9]{2,12})-(\d{3})-([A-Z]{2,10})-([A-Z0-9.]{1,6})$/.exec(code.trim().toUpperCase());
+  if (!m) return null;
+  const modelNo = Number(m[2]);
+  if (modelNo < 1) return null;
+  return { category_code: m[1] ?? '', model_no: modelNo, color_code: m[3] ?? '', size: m[4] ?? '' };
+}
+
+/** 22/10/2026 — người tạo của SKU nội bộ tự sinh từ SKU AURELLE đúng quy tắc. */
+export const AUTO_CREATE_ACTOR = 'system:auto-create';
+
+/** 22/10/2026 — người tạo của liên kết SKU tự nối (sổ cái ghi actor này). */
+export const AUTO_MAP_ACTOR = 'system:auto-map';
 
 export function normalizeSellerSku(sku: string): string {
   return sku.trim().toUpperCase();
@@ -35,16 +60,28 @@ export function normalizeSellerSku(sku: string): string {
  */
 @Injectable()
 export class MasterSkusService {
+  private readonly logger = new Logger(MasterSkusService.name);
+
   constructor(
     @InjectModel(Color.name) private readonly colorModel: Model<ColorDocument>,
     @InjectModel(MasterSku.name) private readonly skuModel: Model<MasterSkuDocument>,
     @InjectModel(MarketplaceSkuMapping.name) private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
     @InjectModel(ProductMaster.name) private readonly productMasterModel: Model<ProductMasterDocument>,
     private readonly categoriesService: CategoriesService,
+    @InjectConnection() private readonly connection: Connection,
     // K4b — gắn nhãn / gộp tồn khi nối SKU
     @InjectModel(SkuBinAssignment.name) private readonly assignmentModel: Model<SkuBinAssignmentDocument>,
     @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>,
-  ) {}
+    // 15/10/2026 — lô hàng đi theo dòng tồn khi gộp/đổi nhãn SKU nội bộ.
+    @Optional() @InjectModel(StockLot.name) stockLotModel?: Model<StockLotDocument>,
+    // 21/10/2026 — giữ chỗ đi theo khóa tồn khi nối / bỏ nối / thay SKU nội bộ.
+    @Optional() @InjectModel(StockReservation.name) private readonly reservationModel?: Model<StockReservationDocument>,
+    @Optional() @InjectModel(StockReservationTotal.name) private readonly reservationTotalModel?: Model<StockReservationTotalDocument>,
+  ) {
+    this.lots = new StockLotLedger(stockLotModel);
+  }
+
+  private readonly lots: StockLotLedger;
 
   // ------------------------------------------------------------ màu
 
@@ -113,10 +150,109 @@ export class MasterSkusService {
         created_by: actorId,
       }], { session });
       if (!doc) throw new Error('Tạo SKU nội bộ không trả về document');
+      // 22/10/2026 — SKU sàn trùng đúng mã vừa tạo (VD AURELLE đặt theo quy tắc OptiPack) → tự nối.
+      if (!session) await this.autoMapForMaster(code);
       return doc;
     } catch (error: unknown) {
       if (this.isDup(error)) this.fail(E.ALREADY_EXISTS, `SKU nội bộ "${code}" đã tồn tại.`, HttpStatus.CONFLICT);
       throw error;
+    }
+  }
+
+  /**
+   * 22/10/2026 — TỰ NỐI SKU sàn với SKU nội bộ CÙNG MÃ (không phân biệt hoa thường).
+   * AURELLE đặt SKU theo đúng quy tắc OptiPack ({danh mục}-{mẫu}-{màu}-{size}) nên trùng mã
+   * = cùng 1 sản phẩm → tồn gộp chung, giữ chỗ chuyển khóa, đẩy tồn sang sàn theo SKU nội bộ.
+   * Gọi khi SKU sàn vừa đồng bộ về (Product Master) và khi Admin vừa tạo SKU nội bộ.
+   * Best-effort: lỗi 1 SKU chỉ log, không chặn đồng bộ. Trả số liên kết đã tạo.
+   */
+  async autoMapSellerSkus(platform: MarketplacePlatform, shopId: string, sellerSkus: string[]): Promise<number> {
+    const byCode = new Map<string, string>();
+    for (const sku of sellerSkus) if (sku.trim()) byCode.set(normalizeSellerSku(sku), sku);
+    if (byCode.size === 0) return 0;
+    const [masters, mapped] = await Promise.all([
+      this.skuModel.find({ master_sku: { $in: [...byCode.keys()] }, is_active: true }).select('master_sku').lean(),
+      this.mappingModel
+        .find({ platform, shop_id: shopId, seller_sku_normalized: { $in: [...byCode.keys()] } })
+        .select('seller_sku_normalized')
+        .lean(),
+    ]);
+    const already = new Set(mapped.map((m) => m.seller_sku_normalized));
+    let created = 0;
+    for (const master of masters) {
+      const sellerSku = byCode.get(master.master_sku);
+      if (!sellerSku || already.has(master.master_sku)) continue;
+      try {
+        await this.createMapping(master.master_sku, { platform, shop_id: shopId, seller_sku: sellerSku }, AUTO_MAP_ACTOR);
+        created += 1;
+        this.logger.log(`Tự nối SKU ${platform}/${shopId} "${sellerSku}" → SKU nội bộ ${master.master_sku} (trùng mã).`);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `Tự nối SKU "${sellerSku}" → ${master.master_sku} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return created;
+  }
+
+  /**
+   * 22/10/2026 — SKU AURELLE đặt ĐÚNG quy tắc OptiPack mà OptiPack chưa có SKU nội bộ cùng mã
+   * → tự tạo SKU nội bộ (danh mục/màu/size phải hợp lệ như tạo tay; sai thì chỉ log, để Admin
+   * tạo/nối tay). Sau đó `autoMapSellerSkus` nối như thường. Trả số SKU nội bộ đã tạo.
+   */
+  async autoCreateFromSellerSkus(items: { sellerSku: string; name?: string | null }[]): Promise<number> {
+    const wanted = new Map<string, { parsed: NonNullable<ReturnType<typeof parseMasterSkuCode>>; name: string }>();
+    for (const item of items) {
+      const parsed = parseMasterSkuCode(item.sellerSku);
+      if (parsed) wanted.set(buildMasterSkuCode(parsed), { parsed, name: item.name?.trim() ? item.name.trim() : item.sellerSku });
+    }
+    if (wanted.size === 0) return 0;
+    const existing = await this.skuModel.find({ master_sku: { $in: [...wanted.keys()] } }).select('master_sku').lean();
+    for (const row of existing) wanted.delete(row.master_sku);
+    let created = 0;
+    for (const [code, { parsed, name }] of wanted) {
+      try {
+        await this.assertRuleParts(parsed); // cùng luật với create(): danh mục/size/màu hợp lệ
+        await this.skuModel.create({
+          master_sku: code,
+          ...parsed,
+          name,
+          gender: 'unisex',
+          is_fragile: false,
+          created_by: AUTO_CREATE_ACTOR,
+        });
+        created += 1;
+        this.logger.log(`Tự tạo SKU nội bộ ${code} từ SKU AURELLE đúng quy tắc.`);
+      } catch (error: unknown) {
+        if (this.isDup(error)) continue;
+        this.logger.warn(`Không tự tạo được SKU nội bộ ${code}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return created;
+  }
+
+  /** Danh mục cấp 2 còn hoạt động, size thuộc thang size, màu còn hoạt động (luật của `create`). */
+  private async assertRuleParts(p: { category_code: string; color_code: string; size: string }): Promise<void> {
+    const category = await this.categoriesService.getActiveLevel2(p.category_code);
+    if (!category.size_scale.includes(p.size)) {
+      this.fail(E.SIZE_NOT_IN_SCALE, `Size "${p.size}" không thuộc thang size của "${category.code}".`, HttpStatus.BAD_REQUEST);
+    }
+    await this.assertActiveColor(p.color_code);
+  }
+
+  /** 22/10/2026 — SKU nội bộ vừa tạo: nối mọi SKU sàn đã đồng bộ về có CÙNG mã. */
+  async autoMapForMaster(code: string): Promise<number> {
+    try {
+      const rows = await this.productMasterModel
+        .find({ seller_sku: { $in: [...new Set([code, code.toLowerCase()])] } })
+        .select('platform shop_id seller_sku')
+        .lean();
+      let created = 0;
+      for (const row of rows) created += await this.autoMapSellerSkus(row.platform, row.shop_id, [row.seller_sku]);
+      return created;
+    } catch (error: unknown) {
+      this.logger.warn(`Tự nối SKU sàn cho ${code} thất bại: ${error instanceof Error ? error.message : String(error)}`);
+      return 0;
     }
   }
 
@@ -185,11 +321,169 @@ export class MasterSkusService {
   }
 
 
+  /**
+   * THAY THẾ SKU — cách duy nhất để "sửa" mã đã đặt sai: tạo SKU mới (giữ tên/kích
+   * thước), chuyển mọi liên kết SKU sàn sang SKU mới, khóa SKU cũ + replaced_by.
+   * 1 transaction. Lịch sử cũ nguyên vẹn, tra SKU cũ vẫn biết đã thay bằng gì.
+   */
+  async replace(code: string, dto: ReplaceMasterSkuDto, actorId: string): Promise<{ oldSku: MasterSkuDocument; newSku: MasterSkuDocument; movedMappings: number }> {
+    const old = await this.get(code);
+    if (!old.is_active) this.fail(E.INACTIVE, `SKU "${code}" đã bị vô hiệu hóa/thay thế.`, HttpStatus.CONFLICT);
+    const next = {
+      category_code: dto.category_code ?? old.category_code,
+      model_no: dto.model_no ?? old.model_no,
+      color_code: dto.color_code ?? old.color_code,
+      size: dto.size ?? old.size,
+    };
+    if (buildMasterSkuCode(next) === code) this.fail(E.REPLACE_SAME, 'SKU mới trùng SKU cũ — phải đổi ít nhất 1 thành phần.', HttpStatus.BAD_REQUEST);
+
+    return this.runTx(async (session) => {
+      const newSku = await this.create({
+        ...next,
+        name: old.name,
+        gender: old.gender,
+        length_cm: old.length_cm ?? undefined,
+        width_cm: old.width_cm ?? undefined,
+        height_cm: old.height_cm ?? undefined,
+        weight_kg: old.weight_kg ?? undefined,
+        is_fragile: old.is_fragile,
+      }, actorId, session);
+      const moved = await this.mappingModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
+      // K4b — tồn đang gắn nhãn SKU cũ chuyển sang SKU mới (không đổi số lượng).
+      await this.assignmentModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
+      await this.lots.relabel({ master_sku: code }, newSku.master_sku, session);
+      await this.moveReservationKey({ stock_key: stockKeyOf(code, '', '', '') }, null, newSku.master_sku, session);
+      const oldSku = await this.skuModel.findOneAndUpdate(
+        { master_sku: code, is_active: true },
+        { $set: { is_active: false, replaced_by: newSku.master_sku } },
+        { returnDocument: 'after', session },
+      );
+      if (!oldSku) this.fail(E.INACTIVE, `SKU "${code}" vừa bị người khác thay đổi.`, HttpStatus.CONFLICT);
+      return { oldSku, newSku, movedMappings: moved.modifiedCount };
+    });
+  }
+
   // ------------------------------------------------------- nối SKU sàn
+
+  async createMapping(code: string, dto: CreateMappingDto, actorId: string): Promise<MarketplaceSkuMappingDocument> {
+    const sku = await this.get(code);
+    if (!sku.is_active) this.fail(E.INACTIVE, `SKU nội bộ "${code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT);
+    // Chỉ nối SKU sàn ĐÃ ĐỒNG BỘ về — không cho gõ tay mã chưa từng thấy.
+    const synced = await this.productMasterModel.findOne({ platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku }).select('_id').lean();
+    if (!synced) {
+      this.fail(E.SELLER_SKU_UNKNOWN, `SKU "${dto.seller_sku}" chưa từng đồng bộ về từ ${dto.platform}/${dto.shop_id} — kiểm tra lại mã hoặc chờ đồng bộ.`, HttpStatus.BAD_REQUEST);
+    }
+    const normalized = normalizeSellerSku(dto.seller_sku);
+    const existing = await this.mappingModel.findOne({ platform: dto.platform, shop_id: dto.shop_id, seller_sku_normalized: normalized });
+    if (existing) {
+      this.fail(E.ALREADY_MAPPED, `SKU sàn "${dto.seller_sku}" đã nối với "${existing.master_sku}" — bỏ nối trước nếu muốn đổi.`, HttpStatus.CONFLICT);
+    }
+    try {
+      // K4b — nối + gắn nhãn/gộp tồn trong CÙNG transaction: hoặc cả 2 xong, hoặc không gì.
+      return await this.runTx(async (session) => {
+        const [mapping] = await this.mappingModel.create([{ platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku, seller_sku_normalized: normalized, master_sku: code, created_by: actorId }], { session });
+        if (!mapping) throw new Error('Tạo liên kết không trả về document');
+        await this.tagStockForMapping(dto.platform, dto.shop_id, dto.seller_sku, code, actorId, session);
+        await this.moveReservationKey({ stock_key: stockKeyOf(undefined, dto.platform, dto.shop_id, dto.seller_sku) }, null, code, session);
+        return mapping;
+      });
+    } catch (error: unknown) {
+      if (this.isDup(error)) this.fail(E.ALREADY_MAPPED, `SKU sàn "${dto.seller_sku}" vừa được nối.`, HttpStatus.CONFLICT);
+      throw error;
+    }
+  }
 
   async listMappings(code: string): Promise<MarketplaceSkuMappingDocument[]> {
     await this.get(code);
     return this.mappingModel.find({ master_sku: code }).sort({ platform: 1, shop_id: 1 });
+  }
+
+  /**
+   * K4b — Bỏ nối. Tồn đã GỘP CHUNG dưới SKU nội bộ thì không tách ngược được (không
+   * biết cái nào của sàn nào) -> chặn khi SKU nội bộ còn hàng. Bỏ liên kết CUỐI CÙNG
+   * thì gỡ nhãn các dòng tồn (đều đã = 0) để quay về cách tính theo SKU sàn.
+   */
+  async deleteMapping(id: string): Promise<void> {
+    if (!Types.ObjectId.isValid(id)) this.fail(E.MAPPING_NOT_FOUND, `"${id}" không đúng định dạng ObjectId.`, HttpStatus.BAD_REQUEST);
+    const mapping = await this.mappingModel.findById(id);
+    if (!mapping) this.fail(E.MAPPING_NOT_FOUND, 'Không tìm thấy liên kết.', HttpStatus.NOT_FOUND);
+    const pooled = await this.pooledUnits(mapping.master_sku);
+    if (pooled > 0) {
+      this.fail(E.HAS_POOLED_STOCK, `SKU nội bộ "${mapping.master_sku}" đang giữ ${String(pooled)} đơn vị tồn gộp chung — chuyển/kiểm kê về 0 trước khi bỏ nối.`, HttpStatus.CONFLICT);
+    }
+    await this.runTx(async (session) => {
+      await this.mappingModel.deleteOne({ _id: mapping._id }, { session });
+      // Giữ chỗ của đúng SKU sàn này quay về khóa theo SKU sàn.
+      await this.moveReservationKey(
+        { stock_key: stockKeyOf(mapping.master_sku, '', '', ''), platform: mapping.platform, shop_id: mapping.shop_id },
+        mapping.seller_sku_normalized,
+        null,
+        session,
+        stockKeyOf(undefined, mapping.platform, mapping.shop_id, mapping.seller_sku),
+      );
+      const left = await this.mappingModel.countDocuments({ master_sku: mapping.master_sku }).session(session);
+      if (left === 0) {
+        await this.assignmentModel.updateMany({ master_sku: mapping.master_sku }, { $set: { master_sku: null } }, { session });
+        await this.lots.relabel({ master_sku: mapping.master_sku }, null, session);
+      }
+    });
+  }
+
+  /** K4b — tổng tồn đang gắn nhãn 1 SKU nội bộ (mọi kho, mọi ô). */
+  async pooledUnits(masterSku: string): Promise<number> {
+    const [row] = await this.assignmentModel.aggregate<{ total: number }>([
+      { $match: { master_sku: masterSku } },
+      { $group: { _id: null, total: { $sum: '$quantity_on_hand' } } },
+    ]);
+    return row?.total ?? 0;
+  }
+
+  /**
+   * K4b — gắn nhãn SKU nội bộ cho các dòng tồn của 1 SKU sàn vừa nối. Nếu ô đó ĐÃ có
+   * dòng tồn của SKU nội bộ này (từ sàn khác) -> GỘP số lượng vào dòng đó, ghi 2 dòng
+   * sổ cái (ref "sku_merge") rồi xóa dòng cũ. Idempotent: dòng đã gắn nhãn bị bỏ qua.
+   */
+  private async tagStockForMapping(platform: MarketplacePlatform, shopId: string, sellerSku: string, masterSku: string, actorId: string, session: ClientSession): Promise<{ tagged: number; merged: number }> {
+    const exact = new RegExp(`^${sellerSku.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
+    const rows = await this.assignmentModel.find({ platform, shop_id: shopId, seller_sku: exact, master_sku: null }).session(session);
+    let tagged = 0;
+    let merged = 0;
+    for (const row of rows) {
+      const pooled = await this.assignmentModel.findOne({ warehouse_id: row.warehouse_id, bin_location_id: row.bin_location_id, master_sku: masterSku }).session(session);
+      if (!pooled) {
+        await this.assignmentModel.updateOne({ _id: row._id }, { $set: { master_sku: masterSku } }, { session });
+        await this.lots.relabel({ assignment_id: row._id }, masterSku, session);
+        tagged++;
+        continue;
+      }
+      const qty = row.quantity_on_hand;
+      // 15/10/2026 — lô của dòng cũ chuyển sang dòng gộp, giữ ngày nhập (FIFO không đổi).
+      await this.lots.moveAll(row, qty, pooled, pooled.quantity_on_hand, session);
+      if (qty > 0) {
+        await this.assignmentModel.updateOne({ _id: pooled._id }, { $inc: { quantity_on_hand: qty } }, { session });
+        const base = { warehouse_id: row.warehouse_id, bin_location_id: row.bin_location_id, master_sku: masterSku, reason_code: null, ref_type: 'sku_merge', ref_id: masterSku, actor_id: actorId, created_at: new Date() };
+        await this.movementModel.create([
+          { ...base, assignment_id: row._id, platform: row.platform, shop_id: row.shop_id, seller_sku: row.seller_sku, type: 'transfer_out', delta: -qty, quantity_before: qty, quantity_after: 0, note: `Gộp tồn vào SKU nội bộ ${masterSku}` },
+          { ...base, assignment_id: pooled._id, platform: pooled.platform, shop_id: pooled.shop_id, seller_sku: pooled.seller_sku, type: 'transfer_in', delta: qty, quantity_before: pooled.quantity_on_hand, quantity_after: pooled.quantity_on_hand + qty, note: `Gộp từ ${row.platform}/${row.shop_id}/${row.seller_sku}` },
+        ], { session, ordered: true });
+      }
+      await this.assignmentModel.deleteOne({ _id: row._id }, { session });
+      merged++;
+    }
+    return { tagged, merged };
+  }
+
+  /** K4b — chạy lại gắn nhãn cho MỌI liên kết (dành cho liên kết tạo trước K4b). Idempotent. */
+  async syncStockForAllMappings(actorId: string): Promise<{ mappings: number; tagged: number; merged: number }> {
+    const all = await this.mappingModel.find().lean();
+    let tagged = 0;
+    let merged = 0;
+    for (const m of all) {
+      const r = await this.runTx((session) => this.tagStockForMapping(m.platform, m.shop_id, m.seller_sku, m.master_sku, actorId, session));
+      tagged += r.tagged;
+      merged += r.merged;
+    }
+    return { mappings: all.length, tagged, merged };
   }
 
   /** K4b — dòng tồn > 0 CHƯA tính theo SKU nội bộ: chưa nối, hoặc đã nối mà chưa đồng bộ. */
@@ -212,7 +506,7 @@ export class MasterSkusService {
   async listUnmappedSellerSkus(): Promise<{ platform: MarketplacePlatform; shop_id: string; seller_sku: string }[]> {
     const mapped = await this.mappingModel.find().select('platform shop_id seller_sku_normalized').lean();
     const keys = new Set(mapped.map((m) => `${m.platform}|${m.shop_id}|${m.seller_sku_normalized}`));
-    const all = await this.productMasterModel.find().select('platform shop_id seller_sku').lean();
+    const all = await this.productMasterModel.find(ACTIVE_SELLER_SKU_FILTER).select('platform shop_id seller_sku').lean(); // 22/10 bỏ SKU ngừng dùng
     return all
       .filter((p) => !keys.has(`${p.platform}|${p.shop_id}|${normalizeSellerSku(p.seller_sku)}`))
       .map((p) => ({ platform: p.platform, shop_id: p.shop_id, seller_sku: p.seller_sku }));
@@ -226,11 +520,49 @@ export class MasterSkusService {
 
   // ------------------------------------------------------------ nội bộ
 
+  /**
+   * 21/10/2026 — Chuyển giữ chỗ (K5) sang khóa tồn mới trong CÙNG transaction đổi khóa.
+   * `sellerSkuNormalized` khác null → chỉ lấy giữ chỗ của đúng SKU sàn đó (bỏ nối).
+   * Đích: SKU nội bộ `toMaster` (khóa "M:...") hoặc khóa SKU sàn `toKeyOverride`.
+   */
+  private async moveReservationKey(
+    filter: Record<string, unknown>,
+    sellerSkuNormalized: string | null,
+    toMaster: string | null,
+    session: ClientSession,
+    toKeyOverride?: string,
+  ): Promise<number> {
+    if (!this.reservationModel || !this.reservationTotalModel) return 0;
+    const toKey = toKeyOverride ?? stockKeyOf(toMaster ?? undefined, '', '', '');
+    const rows = (await this.reservationModel.find(filter).session(session))
+      .filter((r) => sellerSkuNormalized === null || normalizeSellerSku(r.seller_sku) === sellerSkuNormalized);
+    return moveReservations(
+      { reservationModel: this.reservationModel, totalModel: this.reservationTotalModel },
+      rows,
+      toKey,
+      toMaster,
+      session,
+    );
+  }
+
   private isDup(error: unknown): boolean {
     return typeof error === 'object' && error !== null && 'code' in error && error.code === 11000;
   }
 
   private fail(code: string, message: string, status: HttpStatus): never {
     throw new AppException(code, message, status);
+  }
+
+  private async runTx<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
+    const session = await this.connection.startSession();
+    try {
+      let result: T | undefined;
+      await session.withTransaction(async () => {
+        result = await work(session);
+      });
+      return result as T;
+    } finally {
+      await session.endSession();
+    }
   }
 }

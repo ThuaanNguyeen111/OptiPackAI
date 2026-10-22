@@ -18,6 +18,8 @@ export const SF_ERROR_CODES = {
   RETURN_WINDOW_EXPIRED: 'SF_RETURN_WINDOW_EXPIRED', // 409 quá hạn trả hàng
   RETURN_INVALID_ITEMS: 'SF_RETURN_INVALID_ITEMS', // 400 món không thuộc đơn / vượt số lượng còn được trả
   RETURN_OPEN_EXISTS: 'SF_RETURN_OPEN_EXISTS', // 409 đơn đang có yêu cầu trả hàng chưa xử lý xong
+  RETURN_NOT_CANCELLABLE: 'SF_RETURN_NOT_CANCELLABLE', // 21/10/2026 — 409 cửa hàng đã xử lý yêu cầu, không tự hủy được nữa
+  EXCHANGE_INVALID: 'SF_EXCHANGE_INVALID', // 21/10/2026 — 400 hàng đổi sang không hợp lệ (thiếu / khác sản phẩm / lệch số lượng)
   EMAIL_IN_USE: 'SF_EMAIL_IN_USE', // 409
   INVALID_CREDENTIALS: 'SF_INVALID_CREDENTIALS', // 401
   ACCOUNT_INACTIVE: 'SF_ACCOUNT_INACTIVE', // 401

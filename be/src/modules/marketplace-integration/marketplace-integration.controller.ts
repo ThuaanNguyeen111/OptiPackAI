@@ -1,5 +1,6 @@
 import {
   Controller,
+  Delete,
   Get,
   Logger,
   Param,
@@ -36,6 +37,7 @@ export interface ShopResponse {
   refreshTokenExpiresAt: string;
   lastPolledAt: string | null;
   connectedAt: string | null;
+  disconnectedAt: string | null; // 22/10/2026
 }
 
 @ApiTags('Marketplace Integration')
@@ -95,8 +97,29 @@ export class MarketplaceIntegrationController {
         refreshTokenExpiresAt: shop.refresh_token_expires_at.toISOString(),
         lastPolledAt: shop.last_polled_at?.toISOString() ?? null,
         connectedAt: shop.connected_at?.toISOString() ?? null,
+        disconnectedAt: shop.disconnected_at?.toISOString() ?? null,
       })),
     };
+  }
+
+  @Delete(':platform/shops/:shopId')
+  @ApiBearerAuth('JWT-auth')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '22/10/2026 — Ngắt kết nối 1 shop: chỉ đặt is_active=false, dừng mọi đồng bộ (đơn, catalog, tồn, trả hàng) của shop. KHÔNG xoá dữ liệu; kết nối lại bằng OAuth như lần đầu. Gọi lại khi đã ngắt vẫn 200 (wasActive=false).',
+  })
+  @ApiParam({ name: 'platform', enum: MarketplacePlatform })
+  @ApiParam({ name: 'shopId', description: 'shop_id của sàn (VD 200000000101)' })
+  async disconnectShop(
+    @Param('platform', new ParseEnumPipe(MarketplacePlatform))
+    platform: MarketplacePlatform,
+    @Param('shopId') shopId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ shopId: string; platform: MarketplacePlatform; isActive: false; wasActive: boolean; disconnectedAt: string }> {
+    const result = await this.marketplaceIntegrationService.disconnectShop(platform, shopId, user.userId);
+    return { ...result, disconnectedAt: result.disconnectedAt.toISOString() };
   }
 
   @Get(':platform/callback')

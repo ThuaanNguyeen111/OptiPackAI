@@ -1,27 +1,40 @@
+import { Model } from 'mongoose';
+import { MarketplaceSkuMappingDocument } from './schemas/marketplace-sku-mapping.schema';
 import { normalizeSellerSku } from './master-skus.service';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 
 /**
  * ===================================================================
- * 21/10/2026 — TỒN KHO KHOÁ THEO MÃ SKU, KHÔNG PHÂN BIỆT SÀN/SHOP.
+ * K4b (27/09/2026) — "ĐƯỜNG LÙI": tra SKU sàn -> SKU nội bộ (nếu đã nối).
  * ===================================================================
- * Quy ước: mọi sàn dùng CHUNG một mã SKU cho cùng một món (Lazada, AURELLE,
- * sàn khác...). Tồn tính chung theo mã đã chuẩn hóa (cắt khoảng trắng + chữ HOA).
- * Không còn bảng quy đổi SKU sàn -> SKU nội bộ: `master_sku` của dòng tồn luôn
- * bằng chính mã SKU đã chuẩn hóa, nên toàn bộ logic gộp tồn/giữ chỗ/chọn ô có
- * sẵn vẫn chạy nguyên, chỉ thay nguồn của khoá.
- * Sàn nào bắt buộc đặt mã khác thì phải đặt lại mã trên sàn cho trùng.
- * Hàm thuần nhận model (giữ chữ ký cũ cho các nơi gọi) — dùng được ở warehouse lẫn
- * order-groups mà KHÔNG phải import module của nhau.
+ * Mọi chỗ đụng tới tồn kho (quét hàng, Picking List, gán ô, chuyển ô, nhập
+ * lại hàng hoàn, giữ chỗ K5) đều đi qua đây:
+ *   - SKU sàn ĐÃ NỐI  -> tìm tồn theo { master_sku }  (chung mọi sàn/shop)
+ *   - SKU sàn CHƯA NỐI -> tìm tồn theo { platform, shop_id, seller_sku } như trước K4b
+ * Nhờ vậy bật K4b lúc nào cũng an toàn: nối tới đâu, tồn gộp tới đó.
+ * Hàm thuần nhận model — dùng được ở cả warehouse lẫn order-groups mà KHÔNG
+ * phải import module của nhau (tránh phụ thuộc vòng).
  * ===================================================================
  */
-export function resolveMasterSkus(
-  _mappingModel: unknown,
-  _platform: MarketplacePlatform,
-  _shopId: string,
+export async function resolveMasterSkus(
+  mappingModel: Model<MarketplaceSkuMappingDocument>,
+  platform: MarketplacePlatform,
+  shopId: string,
   sellerSkus: string[],
 ): Promise<Map<string, string>> {
-  return Promise.resolve(new Map(sellerSkus.map((sku) => [sku, normalizeSellerSku(sku)])));
+  if (sellerSkus.length === 0) return new Map();
+  const normalized = sellerSkus.map(normalizeSellerSku);
+  const rows = await mappingModel
+    .find({ platform, shop_id: shopId, seller_sku_normalized: { $in: normalized } })
+    .select('seller_sku_normalized master_sku')
+    .lean();
+  const byNorm = new Map(rows.map((r) => [r.seller_sku_normalized, r.master_sku]));
+  const out = new Map<string, string>();
+  for (const sku of sellerSkus) {
+    const m = byNorm.get(normalizeSellerSku(sku));
+    if (m) out.set(sku, m);
+  }
+  return out;
 }
 
 /** Khớp seller_sku không phân biệt hoa/thường (tránh lệch chuỗi lúc gán ô vs đơn sàn). */
@@ -31,50 +44,102 @@ export function sellerSkuEqualsIgnoreCase(sellerSku: string): RegExp {
 }
 
 /**
- * Bộ lọc KHỚP CHÍNH XÁC dùng cho `findOneAndUpdate(..., { upsert: true })` — chỉ gồm
- * điều kiện so sánh bằng (MongoDB chỉ chép điều kiện bằng cấp trên vào dòng mới;
- * `$or`/regex không được chép). Dòng mới luôn mang `master_sku` = mã SKU chuẩn hóa.
+ * 07/10/2026 — Bộ lọc KHỚP CHÍNH XÁC, chỉ gồm điều kiện so sánh bằng, dùng cho
+ * `findOneAndUpdate(..., { upsert: true })`.
+ * Khi upsert không tìm thấy dòng nào, MongoDB tạo dòng mới bằng cách chép các điều
+ * kiện so sánh bằng ở cấp trên của bộ lọc. Điều kiện trong `$or` và điều kiện regex
+ * KHÔNG được chép -> nếu upsert bằng `stockFilterFor` (có `$or`/regex), dòng mới sẽ
+ * thiếu `master_sku` hoặc thiếu `seller_sku`. Vì vậy mọi lệnh upsert dòng tồn phải
+ * dùng hàm này, không dùng `stockFilterFor`.
+ * - Đã nối: { master_sku } -> dòng mới mang đúng nhãn SKU nội bộ.
+ * - Chưa nối: { platform, shop_id, seller_sku, master_sku: null } (seller_sku đã trim).
  */
 export function stockUpsertFilterFor(
-  _masterSku: string | undefined,
-  _platform: string,
-  _shopId: string,
+  masterSku: string | undefined,
+  platform: string,
+  shopId: string,
   sellerSku: string,
 ): Record<string, unknown> {
-  return { master_sku: normalizeSellerSku(sellerSku) };
+  return masterSku
+    ? { master_sku: masterSku }
+    : { platform, shop_id: shopId, seller_sku: sellerSku.trim(), master_sku: null };
 }
 
 /**
- * Bộ lọc tồn kho cho 1 SKU — CHỈ dùng để TÌM / TRỪ / CỘNG dòng đã có (không upsert).
- * Dòng đã gắn nhãn theo mã SKU, hoặc dòng cũ chưa gắn nhãn (master_sku null) cùng mã SKU
- * — không phân biệt sàn/shop.
+ * Bộ lọc tồn kho cho 1 SKU sàn — CHỈ dùng để TÌM / TRỪ / CỘNG dòng đã có, không dùng
+ * để upsert (xem `stockUpsertFilterFor`).
+ * - Chưa nối: theo platform + shop_id + seller_sku (master_sku null).
+ * - Đã nối: ưu tiên dòng gộp { master_sku }, ĐỒNG THỜI fallback dòng chưa gắn nhãn
+ *   (master_sku null, đúng shop) — case Admin nhập tồn trước khi sync-stock / tạo mapping.
+ *   Không fallback = Picking List «CHƯA GÁN» + pick-item 409 dù Admin thấy còn hàng.
  */
 export function stockFilterFor(
-  _masterSku: string | undefined,
-  _platform: string,
-  _shopId: string,
+  masterSku: string | undefined,
+  platform: string,
+  shopId: string,
   sellerSku: string,
 ): Record<string, unknown> {
+  const unpooled: Record<string, unknown> = {
+    platform,
+    shop_id: shopId,
+    seller_sku: sellerSkuEqualsIgnoreCase(sellerSku),
+    master_sku: null, // null khớp cả dòng cũ không có field
+  };
+  if (!masterSku) return unpooled;
   return {
-    $or: [{ master_sku: normalizeSellerSku(sellerSku) }, { seller_sku: sellerSkuEqualsIgnoreCase(sellerSku), master_sku: null }],
+    $or: [{ master_sku: masterSku }, unpooled],
   };
 }
 
-/** Các nhánh $or để lấy dòng tồn cho Picking List (1 query cho nhiều SKU). */
+/**
+ * Các nhánh $or để lấy assignment cho Picking List (1 query cho nhiều SKU).
+ * Gồm: (1) SKU chưa nối theo seller_sku, (2) tồn đã gộp theo master_sku,
+ * (3) SKU đã nối nhưng tồn còn unpooled (chưa sync-stock).
+ */
 export function stockAssignmentOrBranches(
-  _platform: string,
-  _shopId: string,
+  platform: string,
+  shopId: string,
   sellerSkus: string[],
+  masters: Map<string, string>,
 ): Record<string, unknown>[] {
-  const norms = [...new Set(sellerSkus.map(normalizeSellerSku))];
   const branches: Record<string, unknown>[] = [];
-  if (norms.length > 0) branches.push({ master_sku: { $in: norms } });
-  // Dòng cũ chưa gắn nhãn (trước khi chạy script chuyển) — vẫn tìm được theo mã SKU.
-  for (const sku of sellerSkus) branches.push({ seller_sku: sellerSkuEqualsIgnoreCase(sku), master_sku: null });
+  const unmapped = sellerSkus.filter((s) => !masters.has(s));
+  const mapped = sellerSkus.filter((s) => masters.has(s));
+  const masterValues = [...new Set(masters.values())];
+
+  if (unmapped.length > 0) {
+    branches.push({
+      platform,
+      shop_id: shopId,
+      seller_sku: { $in: unmapped },
+      master_sku: null,
+    });
+    // Case-insensitive: từng SKU (tránh lệch hoa/thường so với $in exact).
+    for (const sku of unmapped) {
+      branches.push({
+        platform,
+        shop_id: shopId,
+        seller_sku: sellerSkuEqualsIgnoreCase(sku),
+        master_sku: null,
+      });
+    }
+  }
+  if (masterValues.length > 0) {
+    branches.push({ master_sku: { $in: masterValues } });
+  }
+  // Fallback unpooled cho SKU đã nối (Admin nhập tồn trước khi gắn nhãn master).
+  for (const sku of mapped) {
+    branches.push({
+      platform,
+      shop_id: shopId,
+      seller_sku: sellerSkuEqualsIgnoreCase(sku),
+      master_sku: null,
+    });
+  }
   return branches;
 }
 
 /** Khóa tồn kho dạng chuỗi — dùng cho giữ chỗ (K5) và gom nhóm. */
-export function stockKeyOf(_masterSku: string | undefined, _platform: string, _shopId: string, sellerSku: string): string {
-  return `M:${normalizeSellerSku(sellerSku)}`;
+export function stockKeyOf(masterSku: string | undefined, platform: string, shopId: string, sellerSku: string): string {
+  return masterSku ? `M:${masterSku}` : `S:${platform}|${shopId}|${normalizeSellerSku(sellerSku)}`;
 }

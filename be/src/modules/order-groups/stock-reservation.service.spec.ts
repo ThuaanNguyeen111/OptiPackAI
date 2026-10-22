@@ -8,9 +8,9 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 //!=============================================
 describe('StockReservationService — K5', () => {
   const g1 = { _id: new Types.ObjectId(), platform: MarketplacePlatform.LAZADA, shop_id: 's1' };
-  let totalModel: { findOneAndUpdate: jest.Mock; updateOne: jest.Mock; findById: jest.Mock };
+  let totalModel: { findOneAndUpdate: jest.Mock; updateOne: jest.Mock; findById: jest.Mock; find: jest.Mock };
   let reservationModel: { findOne: jest.Mock; updateOne: jest.Mock; find: jest.Mock; findOneAndUpdate: jest.Mock };
-  let groupModel: { updateOne: jest.Mock; findOneAndUpdate: jest.Mock };
+  let groupModel: { updateOne: jest.Mock; findOneAndUpdate: jest.Mock; findById: jest.Mock };
   let assignmentModel: { aggregate: jest.Mock };
   let mappingModel: { find: jest.Mock };
   let service: StockReservationService;
@@ -18,11 +18,12 @@ describe('StockReservationService — K5', () => {
   const agg = (total: number): Promise<{ total: number }[]> & { session: jest.Mock } =>
     Object.assign(Promise.resolve([{ total }]), { session: jest.fn() });
   const existing = (doc: Record<string, unknown> | null): { session: jest.Mock } => ({ session: jest.fn().mockResolvedValue(doc) });
+  const chain = (value: unknown): { select: () => { lean: () => Promise<unknown> } } => ({ select: () => ({ lean: () => Promise.resolve(value) }) });
 
   beforeEach(() => {
-    totalModel = { findOneAndUpdate: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), findById: jest.fn() };
-    reservationModel = { findOne: jest.fn().mockReturnValue(existing(null)), updateOne: jest.fn().mockResolvedValue({}), find: jest.fn(), findOneAndUpdate: jest.fn() };
-    groupModel = { updateOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({ stock_shortage: false }) };
+    totalModel = { findOneAndUpdate: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), findById: jest.fn(), find: jest.fn() };
+    reservationModel = { findOne: jest.fn().mockReturnValue(existing(null)), updateOne: jest.fn().mockResolvedValue({}), find: jest.fn().mockReturnValue(chain([])), findOneAndUpdate: jest.fn() };
+    groupModel = { updateOne: jest.fn().mockResolvedValue({}), findOneAndUpdate: jest.fn().mockResolvedValue({ stock_shortage: false }), findById: jest.fn().mockReturnValue(chain({ warehouse_id: null })) };
     assignmentModel = { aggregate: jest.fn() };
     mappingModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
@@ -36,7 +37,7 @@ describe('StockReservationService — K5', () => {
     const shortages = await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 1 }]);
 
     expect(shortages).toEqual([]);
-    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
+    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
     expect(groupModel.findOneAndUpdate).toHaveBeenCalledWith({ _id: g1._id }, { $set: { stock_shortage: false, stock_shortage_items: [] } });
   });
 
@@ -69,34 +70,36 @@ describe('StockReservationService — K5', () => {
 
     await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 2 }]);
 
-    expect((totalModel.findOneAndUpdate.mock.calls[0] as [unknown])[0]).toEqual({ _id: 'M:ATD-M-01' });
+    expect((totalModel.findOneAndUpdate.mock.calls[0] as [unknown])[0]).toEqual({ _id: 'M:ATHUN-005-DEN-M' });
   });
 
   it('quét hàng tiêu phần đã giữ + giảm tổng đã giữ', async () => {
     reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', quantity_reserved: 2 }));
-    await service.consume(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
+    await service.consume(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
     expect(reservationModel.updateOne).toHaveBeenCalledWith({ _id: 'r1' }, { $inc: { quantity_reserved: -1, quantity_picked: 1 } }, expect.anything());
-    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
+    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
   });
 
   it('nhả giữ chỗ: trả phần còn giữ về tồn khả dụng, xóa cờ thiếu hàng', async () => {
     reservationModel.find.mockResolvedValue([{ _id: 'r1' }]);
-    reservationModel.findOneAndUpdate.mockResolvedValue({ stock_key: 'M:ATD-M-01', quantity_reserved: 3 });
+    reservationModel.findOneAndUpdate.mockResolvedValue({ stock_key: 'S:lazada|s1|ATD-M-01', quantity_reserved: 3 });
 
     await expect(service.releaseGroup(g1._id.toString())).resolves.toBe(3);
-    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: -3 } }, expect.anything());
+    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -3 } }, expect.anything());
   });
 
   it('tồn khả dụng = tồn thực − đã giữ', async () => {
     assignmentModel.aggregate.mockReturnValue(agg(10));
-    totalModel.findById.mockReturnValue({ lean: jest.fn().mockResolvedValue({ reserved: 4 }) });
+    // Tổng cũ (chưa theo kho) 1 + tổng theo kho 3 → đang giữ 4 trên mọi kho.
+    totalModel.find.mockReturnValue(chain([{ reserved: 1 }, { reserved: 3 }]));
     await expect(service.availability(MarketplacePlatform.LAZADA, 's1', 'ATD-M-01')).resolves.toMatchObject({ onHand: 10, reserved: 4, available: 6 });
+    expect(totalModel.find).toHaveBeenCalledWith({ $or: [{ _id: 'S:lazada|s1|ATD-M-01' }, { stock_key: 'S:lazada|s1|ATD-M-01' }] });
   });
   describe('(05/10/2026) bộ đếm "đã lấy" theo hàng thật', () => {
     it('unconsume: giảm quantity_picked, không xuống dưới 0 (pipeline $max)', async () => {
-      await service.unconsume(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
+      await service.unconsume(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
       const [filter, update] = reservationModel.updateOne.mock.calls[0] as [Record<string, unknown>, unknown[]];
-      expect(filter).toMatchObject({ stock_key: 'M:ATD-M-01' });
+      expect(filter).toMatchObject({ stock_key: 'S:lazada|s1|ATD-M-01' });
       expect(JSON.stringify(update)).toContain('$max');
     });
 
@@ -107,20 +110,20 @@ describe('StockReservationService — K5', () => {
       assignmentModel.aggregate.mockReturnValue(agg(5));
       const shortages = await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 3 }]);
       expect(shortages).toEqual([]);
-      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
+      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
     });
 
     it('recordPicked: giữ chỗ đã nhả → chỉ cộng bộ đếm, không đụng tổng đã giữ', async () => {
       reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', status: 'released', quantity_reserved: 0 }));
-      await service.recordPicked(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
+      await service.recordPicked(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
       expect(reservationModel.updateOne).toHaveBeenCalledWith({ _id: 'r1' }, { $inc: { quantity_picked: 1 } }, expect.anything());
       expect(totalModel.updateOne).not.toHaveBeenCalled();
     });
 
     it('recordPicked: giữ chỗ còn hoạt động → tiêu như quét thường', async () => {
       reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', status: 'active', quantity_reserved: 2 }));
-      await service.recordPicked(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
-      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
+      await service.recordPicked(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
     });
   });
 });

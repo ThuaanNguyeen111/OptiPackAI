@@ -26,6 +26,7 @@ describe('MasterSkusService.purge (10/10/2026)', () => {
       mappingModel as never,
       {} as never,
       {} as never,
+      {} as never,
       assignmentModel as never,
       movementModel as never,
     );

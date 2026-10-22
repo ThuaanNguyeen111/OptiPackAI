@@ -38,6 +38,8 @@ export enum NotificationType {
   DELIVERY_OVERDUE = 'delivery_overdue',
   RETURN_REQUESTED = 'return_requested',
   STOCK_SHORTAGE = 'stock_shortage',
+  // 22/10/2026 — nhóm đã lấy xong nhưng không tính được kế hoạch đóng gói vì SKU chưa đo.
+  PACKING_BLOCKED = 'packing_blocked',
   // ---- đóng gói (05/10/2026)
   PACKING_ASSIGNED = 'packing_assigned', // được giao đóng 1 nhóm
   PACKING_PARCEL_HELD = 'packing_parcel_held', // kiện lệch cân đang chờ người khác xem lại

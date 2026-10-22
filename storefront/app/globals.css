@@ -283,3 +283,12 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 .return-form-line-copy small { color:var(--muted); font-size:12px; }
 .return-form-line select { padding:8px 10px; border:1px solid var(--line); background:#fff; }
 .return-form-actions { display:flex; gap:12px; flex-wrap:wrap; }
+/* 22/10/2026 — người bán hủy / giao thiếu, danh mục Admin */
+.order-seller-notice { margin:18px 0; padding:14px 16px; border:1px solid #e0b79c; background:#fbefe6; color:#6b3a20; font-size:13px; line-height:1.6; }
+.order-seller-notice p { margin:4px 0 0; }
+.order-item-short { color:#a2482a !important; font-size:12px; }
+.admin-warning { margin:6px 0 0; color:#a2482a; font-size:12px; line-height:1.5; }
+.admin-dim-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+.admin-categories { margin-top:32px; }
+.admin-category-row { display:grid; grid-template-columns:2fr 1.4fr 80px 1fr auto; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line, #e6e1db); font-size:13px; }
+@media (max-width: 720px) { .admin-dim-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } .admin-category-row { grid-template-columns:1fr 1fr; } }

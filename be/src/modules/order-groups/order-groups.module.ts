@@ -39,6 +39,7 @@ import { PickEvent, PickEventSchema } from './schemas/pick-event.schema';
 // (05/10/2026) tra mã ô cho thông báo "trả hàng về kệ".
 import { BinLocation, BinLocationSchema } from '../warehouse/schemas/bin-location.schema';
 import { StockLot, StockLotSchema } from '../warehouse/schemas/stock-lot.schema';
+import { Warehouse, WarehouseSchema } from '../warehouse/schemas/warehouse.schema';
 import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxSchema,
@@ -67,6 +68,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: StockReservation.name, schema: StockReservationSchema }, // K5
       { name: StockReservationTotal.name, schema: StockReservationTotalSchema }, // K5
       { name: StockLot.name, schema: StockLotSchema }, // 15/10/2026 — lô hàng FIFO
+      { name: Warehouse.name, schema: WarehouseSchema }, // 21/10/2026 — chọn kho giữ chỗ cho nhóm đơn
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
     ]),
     NotificationsModule,
@@ -83,6 +85,6 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
     ExpressOrderSlaScheduler,
     StockReservationService,
   ],
-  exports: [OrderGroupsService, StaffAssignmentService],
+  exports: [OrderGroupsService, StaffAssignmentService, StockReservationService], // 21/10/2026 — đẩy tồn sang AURELLE
 })
 export class OrderGroupsModule {}
