@@ -106,6 +106,8 @@ export function mapReturnRequest(raw: unknown): ReturnRequest | null {
     shipmentId: pickString(row.shipmentId, row.shipment_id) || null,
     type: pickString(row.type) || 'return_refund',
     source: pickString(row.source),
+    externalRef: pickString(row.externalRef, row.external_ref) || null,
+    sourceOrderId: pickString(row.sourceOrderId, row.source_order_id) || null,
     status: pickString(row.status) || 'requested',
     items: rawItems
       .map(mapItem)

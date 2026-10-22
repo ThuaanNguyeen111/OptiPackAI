@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { createReturn } from '@/lib/api-client'
+import { useEffect, useState } from 'react'
+import { createReturn, getExchangeOptions } from '@/lib/api-client'
 import { RETURN_REASON_OPTIONS, RETURN_TYPE_LABELS } from '@/lib/order-labels'
-import type { StorefrontOrderItem, StorefrontReturn, StorefrontReturnType } from '@/types/storefront'
+import type { ExchangeOption, StorefrontOrderItem, StorefrontReturn, StorefrontReturnType } from '@/types/storefront'
 
 type Props = {
   orderId: string
@@ -31,8 +31,17 @@ export function ReturnRequestForm({ orderId, items, onCreated, onCancel }: Props
   const [note, setNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // Đổi hàng: mỗi món trả chọn 1 biến thể đổi sang (cùng sản phẩm).
+  const [exchangeOptions, setExchangeOptions] = useState<ExchangeOption[]>([])
+  const [exchangeTo, setExchangeTo] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (type !== 'exchange' || exchangeOptions.length > 0) return
+    getExchangeOptions(orderId).then(setExchangeOptions).catch(() => setExchangeOptions([]))
+  }, [type, orderId, exchangeOptions.length])
 
   const chosen = lines.filter((line) => (selected[line.sku] ?? 0) > 0)
+  const optionsFor = (sku: string) => exchangeOptions.find((option) => option.sku === sku)?.options ?? []
 
   function toggle(sku: string, checked: boolean) {
     setSelected((current) => ({ ...current, [sku]: checked ? 1 : 0 }))
@@ -40,12 +49,14 @@ export function ReturnRequestForm({ orderId, items, onCreated, onCancel }: Props
 
   async function submit() {
     if (!chosen.length) { setError('Vui lòng chọn ít nhất một sản phẩm để trả.'); return }
+    if (type === 'exchange' && chosen.some((line) => !exchangeTo[line.sku])) { setError('Vui lòng chọn size / màu muốn đổi sang cho từng sản phẩm.'); return }
     setSubmitting(true)
     setError('')
     try {
       const created = await createReturn(orderId, {
         type,
         items: chosen.map((line) => ({ sku: line.sku, quantity: selected[line.sku] ?? 1, reason_code: reason })),
+        exchangeItems: chosen.map((line) => ({ sku: exchangeTo[line.sku] ?? '', quantity: selected[line.sku] ?? 1 })),
         customerNote: note,
       })
       onCreated(created)
@@ -58,8 +69,8 @@ export function ReturnRequestForm({ orderId, items, onCreated, onCancel }: Props
 
   return <section className="return-form" aria-labelledby="return-form-title">
     <span className="eyebrow">Trả hàng</span>
-    <h2 id="return-form-title">Yêu cầu trả hàng</h2>
-    <p className="return-form-hint">Chọn sản phẩm muốn trả. Yêu cầu được gửi tới cửa hàng và chỉ áp dụng trong 15 ngày kể từ khi bạn nhận hàng.</p>
+    <h2 id="return-form-title">Yêu cầu trả / đổi hàng</h2>
+    <p className="return-form-hint">Chọn sản phẩm muốn trả hoặc đổi. Yêu cầu được gửi tới cửa hàng và chỉ áp dụng trong 15 ngày kể từ khi bạn nhận hàng.</p>
 
     <div className="return-form-lines">
       {lines.map((line) => <label className="return-form-line" key={line.sku}>
@@ -70,6 +81,18 @@ export function ReturnRequestForm({ orderId, items, onCreated, onCancel }: Props
         </select>}
       </label>)}
     </div>
+
+    {type === 'exchange' && chosen.length > 0 && <div className="return-form-lines">
+      {chosen.map((line) => <div className="form-field" key={`ex-${line.sku}`}>
+        <label htmlFor={`exchange-${line.sku}`}>Đổi {line.name} ({line.variant}) sang</label>
+        <select id={`exchange-${line.sku}`} value={exchangeTo[line.sku] ?? ''} onChange={(event) => setExchangeTo((current) => ({ ...current, [line.sku]: event.target.value }))}>
+          <option value="">Chọn size / màu</option>
+          {optionsFor(line.sku).map((option) => <option disabled={option.available < (selected[line.sku] ?? 1)} key={option.sku} value={option.sku}>
+            {option.variantName}{option.available < (selected[line.sku] ?? 1) ? ' — hết hàng' : ''}
+          </option>)}
+        </select>
+      </div>)}
+    </div>}
 
     <div className="form-field">
       <label htmlFor="return-type">Hình thức</label>

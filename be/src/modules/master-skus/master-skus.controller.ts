@@ -21,9 +21,11 @@ const skuRes = (s: MasterSkuDocument): Record<string, unknown> => ({
   masterSku: s.master_sku, categoryCode: s.category_code, modelNo: s.model_no, colorCode: s.color_code, size: s.size,
   name: s.name, gender: s.gender, lengthCm: s.length_cm, widthCm: s.width_cm, heightCm: s.height_cm, weightKg: s.weight_kg,
   isFragile: s.is_fragile, isActive: s.is_active, replacedBy: s.replaced_by,
+  createdBy: s.created_by, // 22/10/2026 — 'system:auto-create' = tự tạo từ SKU AURELLE đúng quy tắc
 });
 const mapRes = (m: MarketplaceSkuMappingDocument): Record<string, unknown> => ({
   id: m._id.toString(), platform: m.platform, shopId: m.shop_id, sellerSku: m.seller_sku, masterSku: m.master_sku, createdAt: m.created_at ?? null,
+  createdBy: m.created_by, // 22/10/2026 — 'system:auto-map' = tự nối vì trùng mã
 });
 
 @ApiTags('Colors')

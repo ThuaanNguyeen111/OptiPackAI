@@ -67,6 +67,9 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
   const subtotal = order?.subtotal ?? order?.items.reduce((sum, item) => sum + item.line_total, 0) ?? 0
   const discount = order?.discountAmount ?? 0
   const shippingFee = order?.shippingFee ?? 0
+  const shortUnits = order?.items.reduce((sum, item) => sum + (item.short_quantity ?? 0), 0) ?? 0
+  const shortRefund = order?.shortRefundAmount ?? 0
+  const refunded = order?.refundedAmount ?? 0
 
   return <>
     <Header />
@@ -82,8 +85,20 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <h1>{order.orderNumber}</h1>
               <p className="order-detail-date">Đặt ngày {new Date(order.createdAt).toLocaleDateString('vi-VN')}</p>
             </div>
-            <span className="order-detail-status">{getOrderStatusLabel(order.status)}</span>
+            <span className="order-detail-status">{getOrderStatusLabel(order.status, order.cancelSource)}</span>
           </div>
+
+          {/* 22/10/2026 — người bán hủy / giao thiếu: nói rõ cho khách vì sao và tiền được xử lý ra sao */}
+          {order.cancelSource === 'seller' && <div className="order-seller-notice" role="status">
+            <strong>Người bán đã hủy đơn hàng này</strong>
+            <p>Lý do: {order.cancelReason ?? 'Người bán không thể giao đơn này'}.</p>
+            {(order.paymentStatus === 'refunded' || order.paymentStatus === 'partially_refunded')
+              && <p>Số tiền bạn đã thanh toán sẽ được hoàn lại theo phương thức thanh toán ban đầu.</p>}
+          </div>}
+          {order.cancelSource !== 'seller' && shortUnits > 0 && <div className="order-seller-notice" role="status">
+            <strong>Kho giao thiếu {shortUnits} sản phẩm</strong>
+            <p>Những sản phẩm thiếu không được tính tiền{shortRefund ? ` — giảm trừ ${formatVnd(shortRefund)}` : ''}.</p>
+          </div>}
 
           <div className="order-detail-layout">
             <section aria-labelledby="order-items-title">
@@ -100,6 +115,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
                     <h3>{item.product_name_snapshot}</h3>
                     <p>{item.variant_snapshot}</p>
                     <p>{formatVnd(item.unit_price)} × {item.quantity}</p>
+                    {(item.short_quantity ?? 0) > 0 && <p className="order-item-short">Giao thiếu {item.short_quantity} — không tính tiền</p>}
                   </div>
                   <strong className="order-detail-item-price">{formatVnd(item.line_total)}</strong>
                 </div>)}
@@ -113,6 +129,8 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
               <div className="order-cost-line"><span>Giảm giá</span><strong>{discount ? `− ${formatVnd(discount)}` : '—'}</strong></div>
               <div className="order-cost-line"><span>Phí vận chuyển</span><strong>{shippingFee ? formatVnd(shippingFee) : 'Miễn phí'}</strong></div>
               <div className="order-cost-total"><span>Tổng thanh toán</span><strong>{formatVnd(order.totalAmount)}</strong></div>
+              {shortRefund > 0 && <div className="order-cost-line"><span>Giảm trừ do giao thiếu</span><strong>− {formatVnd(shortRefund)}</strong></div>}
+              {refunded > 0 && <div className="order-cost-line"><span>Đã hoàn tiền</span><strong>{formatVnd(refunded)}</strong></div>}
             </aside>
           </div>
 
@@ -140,7 +158,7 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
             onCreated={(created) => { setShowReturnForm(false); router.push(`/account/returns/${created.id}`) }}
           />}
 
-          <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} />
+          <OrderTimeline events={order.events ?? []} trackingCode={order.trackingCode} tripCode={order.tripCode} carrier={order.carrier} />
 
           {order.shippingAddress && <section className="order-address-panel" aria-labelledby="order-address-title">
             <span className="eyebrow">Giao đến</span>

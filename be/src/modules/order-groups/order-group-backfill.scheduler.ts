@@ -40,6 +40,12 @@ export class OrderGroupBackfillScheduler {
       // (09/10/2026) Cứu nhóm kẹt awaiting_packaging (bước chuyển sang picking lúc tạo bị lỗi).
       const resumed = await this.orderGroupsService.resumeStuckAwaitingGroups();
       if (resumed > 0) this.logger.warn(`Đã đưa ${String(resumed)} nhóm kẹt awaiting_packaging sang picking.`);
+      // 22/10/2026 — lưới an toàn: nhóm thiếu hàng tự tính lại (đường chính: ngay sau khi nhập hàng).
+      try {
+        await this.orderGroupsService.recheckShortageGroups('cron 5 phút');
+      } catch (error) {
+        this.logger.warn('Tính lại thiếu hàng định kỳ thất bại.', error);
+      }
 
       // Giới hạn 200 đơn/lượt — tránh 1 lượt cron ôm quá nhiều việc nếu
       // có backlog lớn (VD lần đầu bật tính năng này, đơn cũ dồn lại).

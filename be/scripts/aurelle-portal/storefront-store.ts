@@ -20,8 +20,11 @@ import {
   type StatusUpdateResult,
 } from '../../src/modules/storefront/aurelle-status-update';
 import {
+  applyExchangeShipmentUpdate,
   applyPartnerReturnUpdate,
   toOpenApiReturn,
+  type ExchangeShipmentUpdateInput,
+  type ExchangeShipmentUpdateResult,
   type OpenApiReturn,
   type ReturnUpdateInput,
   type ReturnUpdateResult,
@@ -161,6 +164,8 @@ export async function listProducts(
   sellerSkus: string[] | null,
   offset: number,
   limit: number,
+  /** 22/10/2026 — như Lazada `update_after`: chỉ sản phẩm (hoặc biến thể) sửa từ thời điểm này. */
+  updateAfter: Date | null = null,
 ): Promise<{ total_products: string; products: OpenApiProduct[] }> {
   const variantFilter = sellerSkus && sellerSkus.length > 0
     ? { sku: { $in: sellerSkus.map((sku) => sku.toUpperCase()) } }
@@ -172,9 +177,20 @@ export async function listProducts(
   const productIds = [...new Set(allVariants.map((v) => v.product_id.toString()))]
     .map((id) => new mongoose.Types.ObjectId(id));
   const productCollection = db().collection('storefront_products');
-  const total = productIds.length;
+  let productFilter: Record<string, unknown> = { _id: { $in: productIds } };
+  if (updateAfter) {
+    const changedByVariant = [...new Set(allVariants
+      .filter((v) => (v as { updated_at?: Date }).updated_at instanceof Date
+        && ((v as { updated_at?: Date }).updated_at as Date).getTime() >= updateAfter.getTime())
+      .map((v) => v.product_id.toString()))].map((id) => new mongoose.Types.ObjectId(id));
+    productFilter = {
+      _id: { $in: productIds },
+      $or: [{ updated_at: { $gte: updateAfter } }, { _id: { $in: changedByVariant } }],
+    };
+  }
+  const total = await productCollection.countDocuments(productFilter);
   const products = (await productCollection
-    .find({ _id: { $in: productIds } })
+    .find(productFilter)
     .sort({ _id: 1 })
     .skip(offset)
     .limit(limit)
@@ -206,6 +222,11 @@ export async function setSellableQuantity(sellerSku: string, sellable: number): 
     },
     { upsert: true },
   );
+  // (21/10/2026, phương án A) Kho OptiPack là nguồn tồn của SKU này → Admin website chỉ xem.
+  await db().collection('storefront_product_variants').updateOne(
+    { _id: variant._id },
+    { $set: { stock_source: 'optipack', stock_synced_at: new Date() } },
+  );
   return true;
 }
 
@@ -220,6 +241,14 @@ export async function applyStatusUpdate(input: StatusUpdateInput): Promise<Statu
       orders: db().collection('storefront_orders') as unknown as MinimalCollection,
       shipments: db().collection('storefront_shipments') as unknown as MinimalCollection,
       events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+      // (21/10/2026) trừ giữ chỗ tồn khi hàng rời kho
+      stock: {
+        orders: db().collection('storefront_orders'),
+        items: db().collection('storefront_order_items'),
+        stocks: db().collection('storefront_inventory_stocks'),
+      },
+      // 22/10/2026 — giao thiếu ghi `short_quantity` từng dòng
+      orderItems: db().collection('storefront_order_items'),
     },
     input,
   );
@@ -245,6 +274,24 @@ export async function listReturns(query: ListReturnsQuery): Promise<{ returns: O
   return { returns: docs.map((doc) => toOpenApiReturn(doc as unknown as StorefrontReturnLike)), count };
 }
 
+/**
+ * 22/10/2026 — Đối tác báo mốc giao HÀNG ĐỔI. null = không có yêu cầu; 'not_exchange' = yêu cầu
+ * không phải đổi hàng.
+ */
+export async function applyExchangeShipment(
+  input: ExchangeShipmentUpdateInput,
+): Promise<ExchangeShipmentUpdateResult | 'not_exchange' | null> {
+  if (!mongoose.Types.ObjectId.isValid(input.returnId)) return null;
+  return applyExchangeShipmentUpdate(
+    {
+      returns: db().collection('storefront_return_requests') as unknown as MinimalCollection,
+      events: db().collection('storefront_order_events') as unknown as MinimalCollection,
+      castId: (id) => new mongoose.Types.ObjectId(id),
+    },
+    input,
+  );
+}
+
 /** Đối tác báo kết quả xử lý yêu cầu trả hàng. null = không có yêu cầu với `return_id` đó. */
 export async function applyReturnUpdate(input: ReturnUpdateInput): Promise<ReturnUpdateResult | null> {
   if (!mongoose.Types.ObjectId.isValid(input.returnId)) return null;
@@ -253,6 +300,9 @@ export async function applyReturnUpdate(input: ReturnUpdateInput): Promise<Retur
       returns: db().collection('storefront_return_requests') as unknown as MinimalCollection,
       events: db().collection('storefront_order_events') as unknown as MinimalCollection,
       castId: (id) => new mongoose.Types.ObjectId(id),
+      // 22/10/2026 — `closed` ghi tiền hoàn + trạng thái thanh toán của đơn
+      orders: db().collection('storefront_orders') as unknown as MinimalCollection,
+      orderItems: db().collection('storefront_order_items'),
     },
     input,
   );

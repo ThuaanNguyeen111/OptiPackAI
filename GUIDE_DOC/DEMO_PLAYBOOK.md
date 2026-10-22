@@ -38,7 +38,7 @@ npm run start:dev                                                              #
 
 | Vai trò              | Dùng cho                                                                                                              |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Admin                | Cấu hình kho, SKU, vật liệu; giả lập khách yêu cầu trả/đổi hàng                                                       |
+| Admin                | Cấu hình kho, SKU, vật liệu (🔄 22/10: không còn giả lập trả/đổi hàng — khách gửi trên website AURELLE)            |
 | Store Owner          | Duyệt trả/đổi hàng, nhận thông báo                                                                                    |
 | Warehouse Staff      | Xem tồn theo ô, nhập thêm hàng, lấy hàng, kiểm kê, nhận và kiểm hàng hoàn (quyền xem ô và nhập hàng có từ 01/10/2026) |
 | Packaging Staff      | Duyệt gợi ý đóng gói, đóng gói                                                                                        |
@@ -165,19 +165,40 @@ Thông điệp: các quy tắc nghiệp vụ được hệ thống thực thi �
 
 ---
 
-## 8. Phần F — Trả hàng và đổi hàng (~4 phút)
+## 8. Phần F — Trả hàng và đổi hàng qua website AURELLE (~5 phút)
 
-Chuẩn bị: nhóm đơn G1 đã `delivered` ở Phần D.
+> 🔄 **22/10/2026:** đã **bỏ giả lập trả hàng** cho mọi sàn (`POST /returns` trả `410 RMA_SIMULATION_DISABLED`). Demo trả/đổi hàng **chỉ bằng đơn AURELLE**: khách tự gửi yêu cầu trên website, phiếu tự về OptiPack. Phiếu hoàn khi giao thất bại (Phần D-2, E) vẫn tự tạo như cũ, cả Lazada lẫn AURELLE.
 
-| #   | Vai trò     | Thao tác                                                               | API                                         | Kết quả cần thấy                                                     |
-| --- | ----------- | ---------------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------------------- |
-| F1  | Admin       | G1 → "Yêu cầu đổi hàng": trả size L, đổi sang size M                   | `POST /returns` (`type: exchange`)          | Phiếu `requested`; Store Owner nhận thông báo `return_requested`     |
-| F2  | Admin       | Tự bấm "Duyệt"                                                         | `POST /returns/:id/approve`                 | `403 RMA_SELF_APPROVAL`                                              |
-| F3  | Store Owner | "Duyệt"                                                                | `POST .../approve`                          | `awaiting_receipt`                                                   |
-| F4  | Warehouse   | "Nhận hàng trả" → "Kiểm hàng" (nhập lại kho)                           | `POST .../receive` → `POST .../inspect`     | Phiếu `closed`, `replacementStatus: created`                         |
-| F5  | Warehouse   | Danh sách lấy hàng                                                     | `GET /order-groups`                         | Nhóm đơn mới nhãn **Đơn đổi hàng**, mã đơn `EXC-...`, đã giữ chỗ tồn |
-| F6  | —           | (Tùy thời gian) đưa đơn thay thế qua lấy hàng → đóng gói → giao        | Các bước C, D-1                             | Đơn thay thế giao thành công                                         |
-| F7  | Admin       | Nhóm đơn khác → "Yêu cầu hoàn tiền không trả hàng" → Store Owner duyệt | `POST /returns` (`refund_only`) → `approve` | Phiếu đóng ngay, tồn không đổi                                       |
+Chuẩn bị: chạy BE :3000, mock AURELLE :4000 (`npm run dev:aurelle`), website :3001. Một đơn AURELLE đã **giao thành công** (đặt trên :3001 → lấy → đóng → giao ở Phần C, D-1). Biến thể đổi sang (cùng sản phẩm, khác size) còn hàng trên website.
+
+| #   | Vai trò                 | Thao tác                                                                                   | API                                                                  | Kết quả cần thấy                                                                                 |
+| --- | ----------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| F1  | Khách (:3001)           | Tài khoản → Đơn hàng → đơn đã giao → **Đổi hàng**: trả size L, chọn đổi sang size M         | `GET /storefront/orders/:id/exchange-options` → `POST /storefront/orders/:id/returns` (`type: exchange`) | Yêu cầu "Chờ cửa hàng duyệt"                                                     |
+| F2  | —                       | Chờ ≤ 2 phút (hoặc webhook ngay)                                                           | Cron `marketplace-returns-sync`                                      | OptiPack màn **Trả hàng** có phiếu mới, ghi "Khách tự yêu cầu trên AURELLE · #mã"; Store Owner nhận `return_requested` |
+| F3  | Store Owner             | **Duyệt**                                                                                  | `POST /returns/:id/approve`                                          | `awaiting_receipt`; website hiện "Đã duyệt — gửi hàng về cửa hàng"                               |
+| F4  | Warehouse               | "Nhận hàng trả" → "Kiểm hàng" (nhập lại kho)                                               | `POST .../receive` → `POST .../inspect`                              | Phiếu `closed`, `replacementStatus: created`; nhóm đơn mới **Đơn đổi hàng** `EXC-...` đã giữ chỗ |
+| F5  | Kho → Đóng gói → Vận chuyển | Đưa đơn thay thế qua lấy hàng → đóng gói → giao                                       | Các bước C, D-1                                                      | 🆕 Website: trang yêu cầu đổi hiện khối **Hàng đổi** (đã đóng gói → đang giao → đã giao) kèm hãng + mã vận đơn |
+| F6  | Khách (:3001)           | Gửi 1 yêu cầu trả hàng khác rồi **Hủy yêu cầu** khi chưa duyệt                             | `POST /storefront/returns/:id/cancel`                                | Phiếu OptiPack tự chuyển `canceled`                                                              |
+| F7  | Admin                   | Màn Trả hàng không còn nút "Tạo phiếu"; thử `POST /returns` qua Swagger                     | `POST /returns`                                                      | `410 RMA_SIMULATION_DISABLED`                                                                    |
+
+Thông điệp: trả/đổi hàng đi đúng luồng thật — khách khởi tạo, cửa hàng duyệt, kho nhận và kiểm, hàng đổi được giao lại và khách theo dõi được trên website.
+
+---
+
+## 8b. Phần G — Người bán hủy đơn, giao thiếu, tồn khớp 2 bên (~4 phút)
+
+Chuẩn bị: như Phần F. 1 sản phẩm AURELLE có SKU đúng quy tắc, kho OptiPack còn **1** đơn vị của 1 SKU.
+
+| #  | Vai trò            | Thao tác | API | Kết quả cần thấy |
+| -- | ------------------ | -------- | --- | ---------------- |
+| G1 | Admin website (:3001/admin) | Thêm biến thể **chưa** có ở kho | `POST /storefront/admin/products` | Ô tồn có cảnh báo đỏ; trang sản phẩm hiện "Hết hàng" |
+| G2 | — | Chờ ≤ 1 phút | Đồng bộ catalog + đẩy tồn | OptiPack tự tạo SKU nội bộ cùng mã (nếu danh mục/màu hợp lệ), website hiện tồn kho OptiPack |
+| G3 | Khách | Đặt 2 đơn, mỗi đơn 1 cái SKU chỉ còn 1 | `POST /storefront/orders` | Đơn thứ 2 bị chặn `OUT_OF_STOCK` hoặc vào nhóm thiếu hàng |
+| G4 | Store Owner OptiPack | Chi tiết đơn AURELLE chưa giao → **Hủy đơn (người bán)** "Sản phẩm đã hết hàng" | `POST /order-groups/orders/:id/seller-cancel` | ≤ 1 phút website: "Người bán đã hủy" + lý do; tồn website trả lại |
+| G5 | Warehouse → Packaging | Đơn 2 sản phẩm, kho chỉ có 1 → báo thiếu → **Giao phần có sẵn** | `report-missing` → `decide-partial approve` | Website: dòng "Giao thiếu 1 — không tính tiền", "Giảm trừ do giao thiếu" |
+| G6 | Khách → Store/Kho | Trả hàng 1 sản phẩm → duyệt → nhận → kiểm | Luồng Phần F | Trang yêu cầu "Đã hoàn …₫"; đơn "Đã hoàn tiền một phần" |
+
+Thông điệp: website không bao giờ bán quá số kho OptiPack có; mọi quyết định của kho (hủy, giao thiếu, hoàn tiền) hiện lại cho khách đúng lý do và đúng số tiền.
 
 ---
 

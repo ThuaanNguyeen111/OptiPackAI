@@ -8,6 +8,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { PackingPlan, PackingPlanDocument } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
+import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
 
 /** Kế hoạch còn là "việc đang làm" của người đóng. */
 const OPEN_PLAN_STATUSES = ['ready', 'approved', 'packing'];
@@ -59,13 +60,16 @@ export class PackerAssignmentService {
     if (mode === 'manual') {
       if (!staffId || !Types.ObjectId.isValid(staffId)) throw this.invalid(staffId ?? '');
       packerId = new Types.ObjectId(staffId);
-      if (!(await this.isActivePacker(packerId))) throw this.invalid(staffId);
+      if (!(await this.isActivePacker(packerId))) {
+        await this.assertNotOnLeave(packerId); // 22/10/2026 — lý do là nghỉ phép → báo đúng lý do
+        throw this.invalid(staffId);
+      }
     } else {
       packerId = await this.pickLeastBusy(plan._id);
       if (!packerId) {
         throw new AppException(
           PACKING_ERROR_CODES.NO_PACKER_AVAILABLE,
-          'Không có Packaging Staff nào đang hoạt động để giao việc.',
+          'Không có Packaging Staff nào đang hoạt động (không nghỉ phép) để giao việc.',
           HttpStatus.CONFLICT,
         );
       }
@@ -88,7 +92,7 @@ export class PackerAssignmentService {
    */
   async listPackers(
     search?: string,
-  ): Promise<{ staffId: string; fullName: string; email: string; activeWorkload: number }[]> {
+  ): Promise<{ staffId: string; fullName: string; email: string; activeWorkload: number; onLeave: boolean; onLeaveUntil: Date | null }[]> {
     const filter: Record<string, unknown> = { role: UserRole.PACKAGING_STAFF, is_active: true };
     const q = search?.trim();
     if (q) {
@@ -98,7 +102,7 @@ export class PackerAssignmentService {
         { email: { $regex: escaped, $options: 'i' } },
       ];
     }
-    const staff = await this.userModel.find(filter).select('_id name email').sort({ name: 1 }).lean();
+    const staff = await this.userModel.find(filter).select('_id name email on_leave on_leave_until').sort({ name: 1 }).lean();
     if (staff.length === 0) return [];
     const rows = await this.planModel.aggregate<{ _id: Types.ObjectId; count: number }>([
       {
@@ -116,14 +120,19 @@ export class PackerAssignmentService {
       fullName: s.name,
       email: s.email,
       activeWorkload: load.get(s._id.toString()) ?? 0,
+      // 22/10/2026 — người đang nghỉ vẫn hiện (thấy việc đang giữ) nhưng FE khoá chọn.
+      onLeave: isOnLeave(s),
+      onLeaveUntil: isOnLeave(s) ? (s.on_leave_until ?? null) : null,
     }));
   }
 
   private async apply(planId: Types.ObjectId, packerId: Types.ObjectId): Promise<PackingPlanDocument | null> {
     // Không tăng version: giao việc không đổi phương án, không làm hỏng màn người khác đang xem.
+    // 22/10/2026 — lưu sẵn tên người đóng để màn hình hiện tên (không chỉ đuôi mã).
+    const packerName = await this.packerName(packerId);
     const updated = await this.planModel.findOneAndUpdate(
       { _id: planId, is_active: true },
-      { $set: { assigned_packer_id: packerId, assigned_packer_at: new Date() } },
+      { $set: { assigned_packer_id: packerId, assigned_packer_at: new Date(), assigned_packer_name: packerName } },
       { returnDocument: 'after' },
     );
     if (updated) {
@@ -144,13 +153,49 @@ export class PackerAssignmentService {
     return updated;
   }
 
+  /** Tên hiển thị của người đóng; lỗi tra cứu → null (không chặn giao việc). */
+  private async packerName(id: Types.ObjectId): Promise<string | null> {
+    try {
+      const user = await this.userModel.findById(id).select('name').lean();
+      return user?.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 22/10/2026 — đang nghỉ phép thì không nhận việc mới (cả giữ người cũ khi tính lại). */
   private async isActivePacker(id: Types.ObjectId): Promise<boolean> {
-    return (await this.userModel.exists({ _id: id, role: UserRole.PACKAGING_STAFF, is_active: true })) !== null;
+    return (
+      (await this.userModel.exists({
+        _id: id,
+        role: UserRole.PACKAGING_STAFF,
+        is_active: true,
+        $and: [notOnLeaveFilter()],
+      })) !== null
+    );
+  }
+
+  /** 22/10/2026 — giao tay cho người đang nghỉ phép → lỗi rõ ràng (không gộp vào "không hợp lệ"). */
+  private async assertNotOnLeave(id: Types.ObjectId): Promise<void> {
+    let user: { name: string; on_leave?: boolean; on_leave_until?: Date | null } | null = null;
+    try {
+      user = await this.userModel.findById(id).select('name on_leave on_leave_until').lean();
+    } catch {
+      return; // tra cứu lỗi → để lỗi "không hợp lệ" chung xử lý
+    }
+    if (user && isOnLeave(user)) {
+      throw new AppException(
+        PACKING_ERROR_CODES.PACKER_ON_LEAVE,
+        `Nhân viên "${user.name}" đang nghỉ phép${user.on_leave_until ? ` đến ${user.on_leave_until.toISOString()}` : ''} — chọn người khác.`,
+        HttpStatus.CONFLICT,
+        { staffId: id.toString(), onLeaveUntil: user.on_leave_until ?? null },
+      );
+    }
   }
 
   private async pickLeastBusy(excludePlanId?: Types.ObjectId): Promise<Types.ObjectId | null> {
     const staff = await this.userModel
-      .find({ role: UserRole.PACKAGING_STAFF, is_active: true })
+      .find({ role: UserRole.PACKAGING_STAFF, is_active: true, $and: [notOnLeaveFilter()] })
       .select('_id')
       .sort({ _id: 1 })
       .lean();

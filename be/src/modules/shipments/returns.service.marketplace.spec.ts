@@ -40,7 +40,7 @@ describe('ReturnsService — trả hàng của khách trên sàn', () => {
     ],
   };
 
-  let returnModel: Record<'findById' | 'exists' | 'create' | 'findOneAndUpdate' | 'find', jest.Mock>;
+  let returnModel: Record<'findById' | 'exists' | 'create' | 'findOneAndUpdate' | 'find' | 'findOne', jest.Mock>;
   let orderModel: { findOne: jest.Mock };
   let orderGroupsService: Record<'findOrderGroupById' | 'getPackableItemsForGroup' | 'transitionFulfillmentStatus', jest.Mock>;
   let outboxUpdate: jest.Mock<Promise<object>, [Record<string, unknown>, { $setOnInsert: Record<string, unknown> }]>;
@@ -56,6 +56,7 @@ describe('ReturnsService — trả hàng của khách trên sàn', () => {
       create: jest.fn().mockResolvedValue([{ _id: rmaId, rma_code: 'RMA-1', type: ReturnType.RETURN_REFUND, source: 'marketplace', order_group_id: groupId, items: [] }]),
       findOneAndUpdate: jest.fn(),
       find: jest.fn(() => ({ select: () => ({ lean: () => Promise.resolve([]), session: () => ({ lean: () => Promise.resolve([]) }) }) })),
+      findOne: jest.fn(),
     };
     orderModel = { findOne: jest.fn(() => lean(orderDoc)) };
     orderGroupsService = {
@@ -71,7 +72,6 @@ describe('ReturnsService — trả hàng của khách trên sàn', () => {
       orderGroupsService as never,
       {} as never,
       { startSession: jest.fn().mockResolvedValue(session) } as never,
-      {} as never,
       {} as never,
       { notify: jest.fn().mockResolvedValue({}) } as never,
       orderModel as never,
@@ -156,6 +156,40 @@ describe('ReturnsService — trả hàng của khách trên sàn', () => {
       await expect(service.createFromMarketplace(MarketplacePlatform.AURELLE, 'S1', raw())).rejects.toBeInstanceOf(AppException);
     });
 
+    it('21/10/2026 — phiếu mở tính theo ĐƠN: chỉ chặn phiếu mở của chính đơn đó (hoặc phiếu chung của nhóm)', async () => {
+      await service.createFromMarketplace(MarketplacePlatform.AURELLE, 'S1', raw());
+      const openQuery = (returnModel.exists.mock.calls as [Record<string, unknown>][])[1]?.[0];
+      expect(openQuery?.source_order_id).toEqual({ $in: [orderId, null] });
+    });
+
+    it('2 lần tạo đồng thời đụng index phiếu mở (E11000 trên order_group_id) → busy, không coi là đã có', async () => {
+      returnModel.create.mockRejectedValue({ code: 11000, keyPattern: { order_group_id: 1, source_order_id: 1 } });
+      expect((await service.createFromMarketplace(MarketplacePlatform.AURELLE, 'S1', raw())).outcome).toBe('busy');
+    });
+
+    it('21/10/2026 — đổi hàng từ website → phiếu exchange mang hàng đổi sang', async () => {
+      const productMasterFind = jest.fn().mockReturnValue(lean([{ seller_sku: 'ATD-L' }]));
+      (service as unknown as { productMasterModel: { find: jest.Mock } }).productMasterModel = { find: productMasterFind };
+      const result = await service.createFromMarketplace(
+        MarketplacePlatform.AURELLE,
+        'S1',
+        raw({ type: 'exchange', exchange_items: [{ seller_sku: 'ATD-L', quantity: 1 }] }),
+      );
+      expect(result.outcome).toBe('created');
+      const created = (returnModel.create.mock.calls[0] as [[Record<string, unknown>]])[0][0];
+      expect(created).toMatchObject({ type: ReturnType.EXCHANGE, exchange_items: [{ seller_sku: 'ATD-L', quantity: 1 }] });
+    });
+
+    it('đổi sang SKU shop không có → rejected kèm lý do (không treo yêu cầu)', async () => {
+      (service as unknown as { productMasterModel: { find: jest.Mock } }).productMasterModel = { find: jest.fn().mockReturnValue(lean([])) };
+      const result = await service.createFromMarketplace(
+        MarketplacePlatform.AURELLE,
+        'S1',
+        raw({ type: 'exchange', exchange_items: [{ seller_sku: 'KHONG-CO', quantity: 1 }] }),
+      );
+      expect(result.outcome).toBe('rejected');
+    });
+
     it('lý do lạ được chuyển thành "other"', async () => {
       await service.createFromMarketplace(MarketplacePlatform.AURELLE, 'S1', raw({ items: [{ seller_sku: 'ATD-M', quantity: 1, reason_code: 'kỳ-lạ' }] }));
       const created = (returnModel.create.mock.calls[0] as [[{ items: { reason_code: string }[] }]])[0][0];
@@ -192,6 +226,32 @@ describe('ReturnsService — trả hàng của khách trên sàn', () => {
       returnModel.findOneAndUpdate.mockResolvedValue(marketplaceRma({ status: ReturnStatus.REJECTED, __v: 1 }));
       await service.reject(rmaId.toString(), 0, 'owner-1', 'Hàng đã qua sử dụng');
       expect(outboxUpdate.mock.calls[0]?.[1].$setOnInsert).toMatchObject({ status: 'rejected', note: 'Hàng đã qua sử dụng' });
+    });
+
+    it('21/10/2026 — khách hủy trên website khi phiếu còn chờ duyệt → phiếu hủy, báo "canceled"', async () => {
+      returnModel.findOne.mockResolvedValue(marketplaceRma());
+      returnModel.findOneAndUpdate.mockResolvedValue(marketplaceRma({ status: ReturnStatus.CANCELED, __v: 1 }));
+      expect(await service.cancelFromMarketplace(MarketplacePlatform.AURELLE, 'sf-ret-1')).toBe('canceled');
+      const [filter, update] = returnModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>, { $set: Record<string, unknown> }];
+      expect(filter).toMatchObject({ status: ReturnStatus.REQUESTED });
+      expect(update.$set).toMatchObject({ status: ReturnStatus.CANCELED, decided_by: 'aurelle:customer' });
+      expect(outboxUpdate.mock.calls[0]?.[1].$setOnInsert).toMatchObject({ status: 'canceled' });
+    });
+
+    it('khách hủy khi phiếu đã duyệt nhưng hàng chưa về kho → vẫn hủy được', async () => {
+      returnModel.findOne.mockResolvedValue(marketplaceRma({ status: ReturnStatus.AWAITING_RECEIPT }));
+      returnModel.findOneAndUpdate.mockResolvedValue(marketplaceRma({ status: ReturnStatus.CANCELED, __v: 1 }));
+      expect(await service.cancelFromMarketplace(MarketplacePlatform.AURELLE, 'sf-ret-1')).toBe('canceled');
+    });
+
+    it('hàng đã về kho → too_late (giữ phiếu); phiếu đã kết thúc → already_closed; không có → not_found', async () => {
+      returnModel.findOne.mockResolvedValueOnce(marketplaceRma({ status: ReturnStatus.RECEIVED }));
+      expect(await service.cancelFromMarketplace(MarketplacePlatform.AURELLE, 'sf-ret-1')).toBe('too_late');
+      returnModel.findOne.mockResolvedValueOnce(marketplaceRma({ status: ReturnStatus.CLOSED }));
+      expect(await service.cancelFromMarketplace(MarketplacePlatform.AURELLE, 'sf-ret-1')).toBe('already_closed');
+      returnModel.findOne.mockResolvedValueOnce(null);
+      expect(await service.cancelFromMarketplace(MarketplacePlatform.AURELLE, 'sf-ret-1')).toBe('not_found');
+      expect(returnModel.findOneAndUpdate).not.toHaveBeenCalled();
     });
 
     it('phiếu Admin tạo (simulated) hoặc giao thất bại thì KHÔNG báo ngược', async () => {

@@ -33,19 +33,19 @@ Mức ưu tiên: **P0** sửa trước khi demo/bảo vệ · **P1** nên sửa 
 
 | Ưu tiên | Vấn đề | Chi tiết | Đề xuất |
 |---|---|---|---|
-| **P0** | **Sync Lazada chỉ lấy 100 đơn đầu** | `lazada-protocol.client.getOrders` dùng `limit 100`, không lặp offset, nhưng `last_polled_at` vẫn tiến → hơn 100 đơn đổi trong một cửa sổ thì phần dư bị bỏ sót vĩnh viễn | Lặp offset tới khi trang < limit; chỉ tiến `last_polled_at` khi đọc hết |
+| ~~P0~~ ✅ 15/10 | ~~Sync Lazada chỉ lấy 100 đơn đầu~~ | Đã lặp trang 100, tối đa 50 trang/lượt; quá thì giữ mốc cũ | — |
 | **P0** | **Index `orders.consolidated_group_id` không dùng được** | Index partial `is_consolidated: true`, nhưng nhóm 1 đơn có `consolidated_group_id` mà `is_consolidated=false`, và mọi truy vấn (đếm đơn, documents, packing-queue, returns, order-groups) không lọc `is_consolidated` → quét toàn collection | Index thường `{ consolidated_group_id: 1 }` (partial `$type: 'objectId'`), bỏ index cũ |
 | ~~P0~~ ✅ 21/10 | ~~FE gọi route đã gỡ~~ | Màn đóng gói đã chuyển hết sang `packing-plan` (FE nhánh Việt, AOFP-133). Còn sót **mã chết không màn nào gọi**: `api/packaging.api.ts`, `packOrderGroup`, `retryLazadaPack` | Xoá theo `GUIDE_DOC/FE_UPDATE_CHECKLIST.md` mục 3 |
-| P1 | Khóa giữ chỗ không đổi khi nối/bỏ nối/thay SKU nội bộ (06/10 #1) | `stock_reservations.stock_key` treo khóa cũ | Chuyển giữ chỗ sang khóa mới trong cùng transaction |
-| P1 | Phiếu hoàn lấy `seller_sku` từ sổ cái pick (06/10 #3) | Có thể là SKU của sàn khác → nhập lại tạo dòng tồn lạc | Lấy từ `pick_events` (đúng SKU đơn) |
-| P1 | Giữ chỗ cộng mọi kho, quét chỉ trừ 1 kho (06/10 #4) | Nhóm đơn không gắn kho | Lưu `warehouse_id` trên nhóm, giữ chỗ theo kho |
+| ~~P1~~ ✅ 21/10 | ~~Khóa giữ chỗ không đổi khi nối/bỏ nối/thay SKU nội bộ~~ | Chuyển giữ chỗ sang khóa mới cùng transaction (`reservation-key.util.ts`) | — |
+| ~~P1~~ ✅ 21/10 | ~~Phiếu hoàn lấy `seller_sku` từ sổ cái pick~~ | Lấy từ `pick_events` (mã SKU của đơn) | — |
+| ~~P1~~ ✅ 21/10 | ~~Giữ chỗ cộng mọi kho~~ | Nhóm đơn có `warehouse_id`, giữ chỗ theo kho; quét sai kho → 409 `ORD_GROUP_WRONG_WAREHOUSE` | Còn: 1 nhóm chỉ lấy ở 1 kho |
 | P1 | So SKU còn dùng regex (06/10 #6, một phần) | 7 chỗ `$regex`/`RegExp` không dùng index | Cột `seller_sku_normalized` có index |
-| P1 | AURELLE không nhận trạng thái ngược | Khách không thấy "đang giao/đã giao", không có mã vận đơn; trái quyết định 28/09 | Outbox ghi `storefront_orders.fulfillment_status` khi nhóm đổi trạng thái (adapter đã có `updateOrderStatus`) |
-| P1 | Tồn storefront tách rời tồn OptiPack | 2 nguồn tồn không đồng bộ | Đẩy tồn khả dụng sang storefront (adapter đã có `updateSellableQuantity`) |
+| ~~P1~~ ✅ 20/10 | ~~AURELLE không nhận trạng thái ngược~~ | Outbox `marketplace_status_outbox` (AOFP-133) | — |
+| ~~P1~~ ✅ 21/10 | ~~Tồn storefront tách rời tồn OptiPack~~ | Đẩy tồn mỗi phút (AOFP-147) | — |
 | P1 | Không có API ngắt kết nối shop | Chỉ kết nối mới → shop cũ `inactive` | Thêm `POST /marketplace/:platform/shops/:id/disconnect` (đổi trạng thái, không xóa) |
 | P1 | Xác nhận lấy xong không bắt quét | `fulfillment/pick` cho `picked` dù chưa quét | Bắt quét đủ hoặc ghi rõ người xác nhận |
 | P1 | Nhập hàng không tự tính lại nhóm thiếu hàng | Cờ `stock_shortage` giữ tới khi bấm tính lại | Tự chạy cho nhóm thiếu đúng SKU vừa nhập |
-| P1 | Có thể tạo 2 phiếu trả mở cho 1 nhóm khi gọi đồng thời | Chỉ kiểm ở service | Index duy nhất có điều kiện trên trạng thái mở |
+| ~~P1~~ ✅ 21/10 | ~~2 phiếu trả mở cho 1 nhóm khi gọi đồng thời~~ | Index duy nhất `uniq_open_return_per_order` (phiếu của khách: 1 / đơn) | Chạy `check-open-return-duplicates.ts` trước deploy |
 | P2 | `abnormal_package` khai báo nhưng chưa gửi | Lệch cân chỉ gắn cờ | Gửi thông báo khi niêm phong lệch ngưỡng |
 | P2 | Không có cron đồng bộ trạng thái GHN | Mất webhook thì phải bấm "Đồng bộ" | Cron quét vận đơn `awaiting_pickup`/`in_transit` quá X giờ chưa có sự kiện |
 | P2 | Hằng số nghiệp vụ trong mã | Ngưỡng lệch cân, 15 ngày đổi trả, 2 lần giao | Gom vào cấu hình |

@@ -4,6 +4,7 @@ import {
   MAX_WRITEBACK_ATTEMPTS,
   MarketplaceWritebackService,
   backoffMs,
+  trackingCodeForOrder,
 } from './marketplace-writeback.service';
 
 interface QueryChain<T> {
@@ -193,5 +194,56 @@ describe('backoffMs', () => {
     expect(backoffMs(1)).toBe(30_000);
     expect(backoffMs(2)).toBe(60_000);
     expect(backoffMs(20)).toBe(30 * 60 * 1000);
+  });
+});
+
+describe('Vận đơn qua hãng thật (21/10/2026)', () => {
+  const orderA = new Types.ObjectId();
+  const orderB = new Types.ObjectId();
+  const orders = [
+    { _id: orderA, platform_order_id: '720000001', shop_id: 'S1' },
+    { _id: orderB, platform_order_id: '720000002', shop_id: 'S1' },
+  ];
+
+  it('GHN chưa trả mã vận đơn → chưa gửi, hẹn lượt sau', async () => {
+    const { service, updateOrderStatus, outboxUpdate } = build({
+      rows: [makeRow({ status: 'shipped', shipment_id: new Types.ObjectId() })],
+      orders,
+      shipment: { tracking_code: 'SHP-1', trip_code: null, carrier_kind: 'live', carrier_parcels: [], carrier_booking_error: null } as never,
+    });
+    const result = await service.processPending();
+    expect(result.retrying).toBe(1);
+    expect(updateOrderStatus).not.toHaveBeenCalled();
+    expect(outboxUpdate.mock.calls[0]?.[1]).toMatchObject({ $set: { state: 'pending', attempts: 1 } });
+  });
+
+  it('gửi mã GHN của đúng kiện từng đơn + tên hãng', async () => {
+    const { service, updateOrderStatus } = build({
+      rows: [makeRow({ status: 'shipped', shipment_id: new Types.ObjectId() })],
+      orders,
+      shipment: {
+        tracking_code: 'SHP-1',
+        trip_code: null,
+        carrier_name: 'Giao Hàng Nhanh',
+        carrier_kind: 'live',
+        carrier_booking_error: null,
+        carrier_parcels: [
+          { order_id: orderA, carrier_order_code: 'L88K7P' },
+          { order_id: orderB, carrier_order_code: 'L88K7Q' },
+        ],
+      } as never,
+    });
+    await service.processPending();
+    expect(updateOrderStatus.mock.calls[0]?.[1]).toMatchObject({ orderId: '720000001', trackingCode: 'L88K7P', carrier: 'Giao Hàng Nhanh' });
+    expect(updateOrderStatus.mock.calls[1]?.[1]).toMatchObject({ orderId: '720000002', trackingCode: 'L88K7Q' });
+  });
+});
+
+describe('trackingCodeForOrder', () => {
+  it('kiện của đơn → mọi kiện có mã → mã vận đơn chung', () => {
+    const a = new Types.ObjectId();
+    expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: a, carrier_order_code: 'X1' }, { order_id: new Types.ObjectId(), carrier_order_code: 'X2' }] }, a)).toBe('X1');
+    expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: new Types.ObjectId(), carrier_order_code: 'X2' }, { order_id: null, carrier_order_code: 'X3' }] }, a)).toBe('X2, X3');
+    expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: a, carrier_order_code: null }] }, a)).toBe('SHP-1');
   });
 });

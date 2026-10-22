@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
-import { ApiError, getReturn } from '@/lib/api-client'
+import { ApiError, cancelReturn, getReturn } from '@/lib/api-client'
 import { RETURN_TYPE_LABELS } from '@/lib/order-labels'
 import type { StorefrontReturnDetail } from '@/types/storefront'
 
@@ -17,6 +17,21 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
   const router = useRouter()
   const [data, setData] = useState<StorefrontReturnDetail | null>(null)
   const [error, setError] = useState('')
+  const [canceling, setCanceling] = useState(false)
+
+  async function cancel() {
+    if (!data || !window.confirm('Hủy yêu cầu trả hàng này?')) return
+    setCanceling(true)
+    setError('')
+    try {
+      await cancelReturn(data.id)
+      setData(await getReturn(data.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Không thể hủy yêu cầu')
+    } finally {
+      setCanceling(false)
+    }
+  }
 
   useEffect(() => {
     void params.then(({ id }) => getReturn(id)
@@ -47,7 +62,24 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
           </div>
 
           {data.status === 'rejected' && data.decisionNote && <p className="error" role="status">Lý do từ chối: {data.decisionNote}</p>}
+          {data.status === 'requested' && <div className="return-form-actions">
+            <button className="button light" disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? 'Đang hủy...' : 'Hủy yêu cầu'}</button>
+          </div>}
           {data.status === 'approved' && <p className="return-hint">Cửa hàng đã duyệt. Vui lòng đóng gói và gửi sản phẩm về cửa hàng; chúng tôi sẽ cập nhật khi nhận được hàng.</p>}
+          {/* 22/10/2026 — số tiền hoàn khi yêu cầu hoàn tất (đổi hàng không hoàn tiền) */}
+          {data.status === 'closed' && data.type !== 'exchange' && <div className="order-seller-notice" role="status">
+            <strong>{data.refundAmount ? `Đã hoàn ${data.refundAmount.toLocaleString('vi-VN')}₫` : 'Yêu cầu đã hoàn tất'}</strong>
+            {data.refundAmount ? <p>Tiền được hoàn theo phương thức thanh toán ban đầu{data.refundedAt ? ` — ngày ${new Date(data.refundedAt).toLocaleDateString('vi-VN')}` : ''}.</p> : null}
+          </div>}
+          {data.type === 'exchange' && data.status === 'closed' && !data.exchangeShipment && <p className="return-hint">Cửa hàng đã nhận và kiểm hàng của bạn. Hàng đổi đang được chuẩn bị để gửi đi.</p>}
+
+          {data.exchangeShipment && <section className="order-timeline-panel" aria-labelledby="exchange-shipment-title">
+            <span className="eyebrow">Hàng đổi</span>
+            <h2 id="exchange-shipment-title">{data.exchangeShipment.statusLabel}</h2>
+            {data.exchangeShipment.carrier && <p className="order-timeline-tracking">Đơn vị vận chuyển: {data.exchangeShipment.carrier}</p>}
+            {data.exchangeShipment.trackingCode && <p className="order-timeline-tracking">Mã vận đơn: {data.exchangeShipment.trackingCode}</p>}
+            {data.exchangeShipment.updatedAt && <p className="order-detail-date">Cập nhật {formatTime(data.exchangeShipment.updatedAt)}</p>}
+          </section>}
 
           <section aria-labelledby="return-items-title">
             <div className="order-section-heading"><h2 id="return-items-title">Sản phẩm trả</h2></div>
@@ -57,6 +89,7 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
                 <strong className="order-detail-item-price">× {item.quantity}</strong>
               </div>)}
             </div>
+            {data.exchangeItems.length > 0 && <p className="order-timeline-tracking">Đổi sang: {data.exchangeItems.map((item) => `${item.sku} × ${String(item.quantity)}`).join(', ')}</p>}
             {data.customerNote && <p className="order-timeline-tracking">Ghi chú của bạn: {data.customerNote}</p>}
           </section>
 
@@ -66,7 +99,7 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
             <ol className="order-timeline">
               {events.map((event, index) => <li className={index === 0 ? 'is-current' : ''} key={`${event.occurredAt}-${index}`}>
                 <span className="order-timeline-dot" aria-hidden="true" />
-                <div><strong>{event.label}</strong>{event.reason && <p>{event.reason}</p>}<time dateTime={event.occurredAt}>{formatTime(event.occurredAt)}</time></div>
+                <div><strong>{event.label}</strong>{event.reason && <p>{event.reason}</p>}{event.trackingCode && <p className="order-timeline-tracking">Mã vận đơn: {event.trackingCode}</p>}<time dateTime={event.occurredAt}>{formatTime(event.occurredAt)}</time></div>
               </li>)}
             </ol>
           </section>

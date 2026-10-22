@@ -196,8 +196,15 @@ export class OrdersService {
             shop_id: shopId,
             platform_order_id: mapped.platform_order_id,
           })
-          .select('need_cancel_confirm')
+          .select('need_cancel_confirm raw_statuses')
           .lean();
+        // 22/10/2026 — người bán đã hủy trong OptiPack (sellerCancelOrder) mà website chưa kịp
+        // nhận ghi ngược → lượt sync không được "hồi sinh" đơn về pending.
+        if (previous?.raw_statuses.includes('seller_canceled')) {
+          mapped.status = OrderStatus.CANCELED;
+          mapped.raw_statuses = [...new Set([...mapped.raw_statuses, 'seller_canceled'])];
+          mapped.items = mapped.items.map((item) => ({ ...item, status: OrderStatus.CANCELED }));
+        }
 
         const orderDoc = await this.orderModel.findOneAndUpdate(
           {

@@ -138,11 +138,15 @@ interface LazadaProductSkuRaw {
   package_weight?: string;
   product_weight?: string;
   quantity?: number;
+  /** 22/10/2026 — 'active' | 'inactive' (Lazada GetProducts và AURELLE Open API đều có). */
+  Status?: string;
 }
 
 export interface LazadaProductRaw {
   item_id: string;
   skus: LazadaProductSkuRaw[];
+  /** 22/10/2026 — tên sản phẩm (dùng đặt tên SKU nội bộ tự tạo từ AURELLE). */
+  attributes?: { name?: string };
 }
 
 interface LazadaGetProductsResponse {

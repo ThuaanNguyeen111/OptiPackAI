@@ -21,10 +21,9 @@ describe('ReturnsService — G3', () => {
 
   let returnModel: { findById: jest.Mock; exists: jest.Mock; create: jest.Mock; findOneAndUpdate: jest.Mock; findByIdAndUpdate: jest.Mock; find: jest.Mock };
   let shipmentModel: { findOne: jest.Mock };
-  let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock; getOrCreateGroupForOrder: jest.Mock };
+  let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock; getOrCreateGroupForOrder: jest.Mock; getPickedQuantitiesForGroup: jest.Mock; getOrderedQuantitiesForGroup: jest.Mock };
   let warehouseService: { restockReturnedItem: jest.Mock };
   let packagingMaterialsService: { recoverFromReturn: jest.Mock };
-  let movementModel: { aggregate: jest.Mock };
   let orderModel: { findOne: jest.Mock; create: jest.Mock };
   let orderGroupModel: { updateOne: jest.Mock };
   let productMasterModel: { find: jest.Mock };
@@ -44,21 +43,28 @@ describe('ReturnsService — G3', () => {
       getPackableItemsForGroup: jest.fn().mockResolvedValue({ items: [{ sku: 'A', quantity: 2 }, { sku: 'B', quantity: 1 }] }),
       transitionFulfillmentStatus: jest.fn().mockResolvedValue({}),
       getOrCreateGroupForOrder: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
+      getPickedQuantitiesForGroup: jest.fn().mockResolvedValue(new Map()),
+      getOrderedQuantitiesForGroup: jest.fn().mockResolvedValue(new Map([['A', 2]])),
     };
     warehouseService = { restockReturnedItem: jest.fn().mockResolvedValue(undefined) };
     packagingMaterialsService = { recoverFromReturn: jest.fn().mockResolvedValue([]) };
-    movementModel = { aggregate: jest.fn().mockResolvedValue([]) };
     orderModel = { findOne: jest.fn(), create: jest.fn() };
     orderGroupModel = { updateOne: jest.fn().mockResolvedValue({}) };
     productMasterModel = { find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([]) }) }) };
     session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
-    service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, packagingMaterialsService as never, movementModel as never, { notify: jest.fn().mockResolvedValue({}) } as never, orderModel as never, orderGroupModel as never, productMasterModel as never);
+    service = new ReturnsService(returnModel as never, shipmentModel as never, orderGroupsService as never, warehouseService as never, { startSession: jest.fn().mockResolvedValue(session) } as never, packagingMaterialsService as never, { notify: jest.fn().mockResolvedValue({}) } as never, orderModel as never, orderGroupModel as never, productMasterModel as never);
   });
 
   const createDto = (items: { seller_sku: string; quantity: number }[]): never =>
     ({ order_group_id: groupId.toString(), type: ReturnType.RETURN_REFUND, items: items.map((i) => ({ ...i, reason_code: ReturnReason.DEFECTIVE })) }) as never;
 
   describe('createSimulated', () => {
+    it('21/10/2026 — nhóm AURELLE: Admin không giả lập được (409 RMA_MARKETPLACE_MANAGED)', async () => {
+      orderGroupsService.findOrderGroupById.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.DELIVERED, platform: 'aurelle', shop_id: 's1', __v: 4, updated_at: new Date() });
+      await expect(service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.MARKETPLACE_MANAGED });
+      expect(returnModel.create).not.toHaveBeenCalled();
+    });
+
     it('nhóm đơn chưa giao -> 409 RMA_ORDER_NOT_DELIVERED', async () => {
       orderGroupsService.findOrderGroupById.mockResolvedValue({ _id: groupId, fulfillment_status: GroupFulfillmentStatus.SHIPPED });
       await expect(service.createSimulated(createDto([{ seller_sku: 'A', quantity: 1 }]), 'admin-1')).rejects.toMatchObject({ errorCode: RETURN_ERROR_CODES.ORDER_NOT_DELIVERED });
@@ -173,12 +179,25 @@ describe('ReturnsService — G3', () => {
     });
   });
   describe('G4 — sửa điểm yếu + thu hồi vật liệu', () => {
-    it('phiếu hoàn giao thất bại lấy SỐ LƯỢNG ĐÃ QUÉT THẬT (sổ cái), không phải số đặt', async () => {
-      movementModel.aggregate.mockResolvedValue([{ _id: 'A', qty: 1 }]); // đặt 2 nhưng chỉ lấy được 1
+    it('phiếu hoàn giao thất bại lấy SỐ LƯỢNG ĐÃ QUÉT THẬT, không phải số đặt', async () => {
+      orderGroupsService.getPickedQuantitiesForGroup.mockResolvedValue(new Map([['A', 1]])); // đặt 2 nhưng chỉ lấy được 1
       await service.createFromFailedDelivery(groupId.toString(), new Types.ObjectId().toString(), 'wh-1', {} as never);
       const created = (returnModel.create.mock.calls[0] as [[{ items: { seller_sku: string; quantity: number }[] }]])[0][0];
       expect(created.items).toEqual([expect.objectContaining({ seller_sku: 'A', quantity: 1 })]);
       expect(orderGroupsService.getPackableItemsForGroup).not.toHaveBeenCalled();
+    });
+
+    it('21/10/2026 — mã SKU lấy theo ĐƠN (pick_events), không theo dòng tồn gộp của sàn khác; món đã rút (0) bỏ qua', async () => {
+      orderGroupsService.getPickedQuantitiesForGroup.mockResolvedValue(new Map([['LZ-GIAY-01', 2], ['LZ-AO-01', 0]]));
+      await service.createFromFailedDelivery(groupId.toString(), new Types.ObjectId().toString(), 'wh-1', {} as never);
+      const created = (returnModel.create.mock.calls[0] as [[{ items: { seller_sku: string; quantity: number }[] }]])[0][0];
+      expect(created.items).toEqual([expect.objectContaining({ seller_sku: 'LZ-GIAY-01', quantity: 2 })]);
+    });
+
+    it('chưa quét gì (dữ liệu cũ) → dùng số lượng đặt', async () => {
+      await service.createFromFailedDelivery(groupId.toString(), new Types.ObjectId().toString(), 'wh-1', {} as never);
+      const created = (returnModel.create.mock.calls[0] as [[{ items: { seller_sku: string; quantity: number }[] }]])[0][0];
+      expect(created.items).toEqual([expect.objectContaining({ seller_sku: 'A', quantity: 2 })]);
     });
 
     it('kiểm hàng kèm vật liệu -> gọi thu hồi vật liệu TRONG cùng transaction, lưu kết quả vào phiếu', async () => {

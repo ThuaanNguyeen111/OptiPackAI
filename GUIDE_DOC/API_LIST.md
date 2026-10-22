@@ -1,8 +1,11 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
 > **Bản đồ route theo role** — quét từ `@Controller`/`@Roles` trong code. Việc FE còn thiếu: **`FE_UPDATE_CHECKLIST.md`**.
-> **Thay đổi gần nhất:** 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
+> **Thay đổi gần nhất:** 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
+> **Trước đó:** 21/10 (tối) — giữ chỗ tồn **theo kho** (nhóm đơn có `warehouseId`, quét sai kho → 409 `ORD_GROUP_WRONG_WAREHOUSE`); website: đổi hàng (`type: exchange`, `GET /storefront/orders/:id/exchange-options`), khách tự hủy yêu cầu trả (`POST /storefront/returns/:id/cancel`); phiếu trả mở 1 / đơn. 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
 > Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
+
+> **21/10/2026 (tối) — Giữ chỗ tồn theo kho (K5):** mọi response nhóm đơn có `warehouseId` (kho hệ thống tự chọn khi giữ chỗ lần đầu: 1 kho → kho đó; nhiều kho → kho đủ hàng nhất). Tồn và phần đang giữ chỉ tính trong kho này. `pick-item` ở kho khác: lượt chưa quét gì → nhóm đổi sang kho đó và tính lại giữ chỗ; đã quét → 409 `ORD_GROUP_WRONG_WAREHOUSE` (`details.expectedWarehouseId`). FE Picking/quét nên mở đúng `warehouseId` của nhóm. Nối / bỏ nối / thay SKU nội bộ tự chuyển giữ chỗ sang khóa mới (không đổi request/response). Phiếu trả hàng: phiếu của khách trên sàn **1 phiếu mở / đơn**; phiếu Admin giả lập vẫn 1 / nhóm; trùng → 409 `RMA_OPEN_EXISTS`. Phiếu hoàn khi giao thất bại ghi đúng mã SKU của đơn.
 
 > **18/10/2026 — Trả đủ hàng:** với `return_refund` do Admin tạo, nhóm đơn đi `delivered → returning` khi tạo phiếu, `→ returned` khi Store duyệt, `→ canceled` sau kho kiểm/xử lý tồn. Trả một phần giữ `delivered`; cộng dồn các phiếu cùng loại đã đóng để xét trả đủ. Từ chối/hủy phiếu khôi phục `delivered`. FE đọc `OrderGroup.fulfillmentStatus`; xem [Shipping & Returns, C.0](INTEGRATION_GUIDE_SHIPPING.md).
 
@@ -10,7 +13,7 @@
 
 > 🆕 14/10/2026 — FE cần chỉnh gì để khớp danh sách này (route đã bỏ mà FE còn gọi, route mới FE chưa gọi): **`FE_UPDATE_CHECKLIST.md`**.
 
-Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-20 (🆕 website AURELLE: hành trình đơn + mã vận đơn, khách tự hủy đơn, khách gửi yêu cầu trả hàng; OptiPack ghi ngược trạng thái qua hàng đợi `marketplace_status_outbox`; Open API `/reverse/orders/get`, `/reverse/order/update`, `/order/status/update` ghi thật — mục 16 và `GUIDE_DOC/Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md`). Trước đó: 2026-10-09 (🔄 rà soát BE trước khi giao FE, AOFP-87..97: rate limit 600/phút, mã lỗi `AUTH_*`/`USER_NOT_FOUND`/`SF_*`, `back-to-picking` sau từ chối, `GET /packing/staff`, chặn tự duyệt kế hoạch thủ công, phân trang + bộ lọc `GET /order-groups`, chi tiết nhóm đơn kèm `orders`, thông báo đọc riêng từng người + `read-all`, `POST /returns/:id/cancel`, validate query, response `GET /users`/`assign`/`storefront/categories` đã map, thêm route storefront, sửa ma trận role — xem các mục đánh dấu 09/10/2026). Trước đó: 2026-10-05 (tối — 🆕 đơn hủy **trước** khi đóng: hàng đã lấy tự trả về đúng ô + thông báo `return_to_shelf`; tháo kiện thu hồi vật tư chèn `recovered_materials`; vật tư chèn có `reusable`; sửa giữ chỗ tồn sau khi loại món hỏng — mục 8a.4, 8a.2, 8e). Trước đó: 2026-10-05 (chiều — 🆕 **phiên đóng gói**: quét từng món vào kiện, niêm phong + cân từng kiện, kiện lệch cân chờ người khác xem lại, báo sự cố lúc đóng, tháo kiện khi đơn hủy sau khi đóng, cài đặt đóng gói, giao người đóng, báo cáo hiệu suất — mục 8a; FE quay về bản `main` nên có bảng ánh xạ route cũ → mới ở mục 8a.7). Trước đó: 2026-10-05 (GỘP `main` + `thi_dev`: kế hoạch đóng gói `packing_plans` thay luồng `packaging` cũ, kho vật tư chung, vận chuyển có hãng/cước + chứng từ PDF, sàn AURELLE). Trước đó: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
+Tài liệu này liệt kê **toàn bộ** route thật đang tồn tại trong code (đã quét trực tiếp từ `@Controller`/`@Roles` decorator, không phải từ trí nhớ/thiết kế) — dùng làm nguồn tham chiếu DUY NHẤT khi cần biết "route này ai gọi được, dùng để làm gì". Cập nhật lần cuối: 2026-10-21 (🆕 website AURELLE bổ sung: trừ giữ chỗ tồn khi hàng rời kho, tên hãng vận chuyển trên trang đơn của khách, đẩy tồn OptiPack → AURELLE `POST /marketplace-writeback/stock/push` + cron 1 phút, Admin website chỉ xem tồn của SKU kho quản, chặn giả lập trả hàng cho đơn AURELLE `RMA_MARKETPLACE_MANAGED` — mục 11, 16, 16b). Trước đó: 2026-10-20 (🆕 website AURELLE: hành trình đơn + mã vận đơn, khách tự hủy đơn, khách gửi yêu cầu trả hàng; OptiPack ghi ngược trạng thái qua hàng đợi `marketplace_status_outbox`; Open API `/reverse/orders/get`, `/reverse/order/update`, `/order/status/update` ghi thật — mục 16 và `GUIDE_DOC/Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md`). Trước đó: 2026-10-09 (🔄 rà soát BE trước khi giao FE, AOFP-87..97: rate limit 600/phút, mã lỗi `AUTH_*`/`USER_NOT_FOUND`/`SF_*`, `back-to-picking` sau từ chối, `GET /packing/staff`, chặn tự duyệt kế hoạch thủ công, phân trang + bộ lọc `GET /order-groups`, chi tiết nhóm đơn kèm `orders`, thông báo đọc riêng từng người + `read-all`, `POST /returns/:id/cancel`, validate query, response `GET /users`/`assign`/`storefront/categories` đã map, thêm route storefront, sửa ma trận role — xem các mục đánh dấu 09/10/2026). Trước đó: 2026-10-05 (tối — 🆕 đơn hủy **trước** khi đóng: hàng đã lấy tự trả về đúng ô + thông báo `return_to_shelf`; tháo kiện thu hồi vật tư chèn `recovered_materials`; vật tư chèn có `reusable`; sửa giữ chỗ tồn sau khi loại món hỏng — mục 8a.4, 8a.2, 8e). Trước đó: 2026-10-05 (chiều — 🆕 **phiên đóng gói**: quét từng món vào kiện, niêm phong + cân từng kiện, kiện lệch cân chờ người khác xem lại, báo sự cố lúc đóng, tháo kiện khi đơn hủy sau khi đóng, cài đặt đóng gói, giao người đóng, báo cáo hiệu suất — mục 8a; FE quay về bản `main` nên có bảng ánh xạ route cũ → mới ở mục 8a.7). Trước đó: 2026-10-05 (GỘP `main` + `thi_dev`: kế hoạch đóng gói `packing_plans` thay luồng `packaging` cũ, kho vật tư chung, vận chuyển có hãng/cước + chứng từ PDF, sàn AURELLE). Trước đó: 2026-10-04 (Product Master đồng bộ theo danh sách sản phẩm của shop + `POST /product-master/sync`). Trước đó: 2026-10-02 (nút pack báo "đã đóng gói" lên Lazada + route gửi lại). Trước đó: 2026-10-01 (mở quyền vận hành kho cho Warehouse Staff — mục 9; nhóm đơn trả thêm `activeOrderCount`/`canceledOrderCount` — mục 5). Trước đó: 2026-09-27 (K1–K5, G1, G3, G4 và tiện ích vận hành).
 
 > 🔄 10/10/2026: gộp bản sửa kiểu id của `main` (07/10) — xem **mục 17**. Không route nào thêm/bớt.
 
@@ -559,7 +562,7 @@ Bảng tra nhanh theo module (chi tiết "khi nào xảy ra" vẫn ở guide tr�
 | Vật liệu đóng gói (`/packaging-materials`) | `PKG_MATERIAL_INACTIVE` (409), `PKG_MATERIAL_NOTHING_TO_UPDATE` (400), `PKG_MATERIAL_INSUFFICIENT_STOCK` (409 — không đủ thùng khi niêm phong/đóng gói) (🆕 09/10 bổ sung) |
 | Marketplace | `MKT_OAUTH_STATE_INVALID`, `MKT_ADAPTER_NOT_REGISTERED`, `MKT_SHOP_NOT_CONNECTED`, `MKT_TOKEN_EXCHANGE_FAILED`, `MKT_TOKEN_REFRESH_FAILED`, `MKT_TOKEN_DECRYPT_FAILED`, `MKT_WEBHOOK_SIGNATURE_INVALID`, `MKT_SHOP_LOOKUP_FAILED`, `MKT_SERVER_ERROR` |
 | Orders | `ORD_SYNC_FAILED`, `ORD_UNSUPPORTED_PLATFORM`, `ORD_INVALID_ORDER_ID`, `ORD_ORDER_NOT_FOUND` |
-| Order Groups | `ORD_GROUP_INVALID_ID`, `ORD_GROUP_NOT_FOUND`, `ORD_GROUP_STATE_CONFLICT`, `ORD_GROUP_INVALID_TRANSITION`, `ORD_GROUP_INSUFFICIENT_STOCK`, `ORD_GROUP_ITEM_NOT_IN_GROUP`, `ORD_GROUP_PACKAGING_PROFILE_NOT_READY`, `ORD_GROUP_ALL_ORDERS_CANCELED`, 🆕 21/09: `ORD_GROUP_PICK_NOT_ALLOWED`, `ORD_GROUP_PICK_EXCEEDS_ORDERED`, `ORD_GROUP_PICK_INCOMPLETE`, `ORD_GROUP_NO_PICK_EVENTS` |
+| Order Groups | `ORD_GROUP_INVALID_ID`, `ORD_GROUP_NOT_FOUND`, `ORD_GROUP_STATE_CONFLICT`, `ORD_GROUP_INVALID_TRANSITION`, `ORD_GROUP_INSUFFICIENT_STOCK`, `ORD_GROUP_ITEM_NOT_IN_GROUP`, `ORD_GROUP_PACKAGING_PROFILE_NOT_READY`, `ORD_GROUP_ALL_ORDERS_CANCELED`, 🆕 21/09: `ORD_GROUP_PICK_NOT_ALLOWED`, 🆕 21/10: `ORD_GROUP_WRONG_WAREHOUSE`, `ORD_GROUP_PICK_EXCEEDS_ORDERED`, `ORD_GROUP_PICK_INCOMPLETE`, `ORD_GROUP_NO_PICK_EVENTS` |
 | Staff assignment | `ORD_GROUP_NO_STAFF_AVAILABLE`, `ORD_GROUP_STAFF_NOT_FOUND`, `ORD_GROUP_STAFF_INACTIVE`, 🆕 05/10 `ORD_GROUP_STAFF_WRONG_ROLE` (422 — gán tay lấy hàng cho người không phải Warehouse Staff) |
 | Shipping 🆕 30/09 | `SHIP_INVALID_CARRIER_ID`, `SHIP_CARRIER_NOT_FOUND`, `SHIP_CARRIER_CODE_IN_USE`, `SHIP_SERVICE_NOT_FOUND`, `SHIP_INVALID_RATE_TABLE`, `SHIP_NO_PARCELS`, `SHIP_SETTINGS_SERVICE_INVALID` |
 | Documents 🆕 30/09 | `DOC_NO_ORDERS`, `DOC_SHIPMENT_NOT_FOUND`, `DOC_TRIP_NOT_FOUND` |
@@ -643,7 +646,7 @@ Lỗi: `DOC_NO_ORDERS` (409, nhóm không còn đơn hợp lệ), `DOC_SHIPMENT_
 | Method | Route                                                 | Role                                       | Mô tả                                                        |
 | ------ | ----------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------ |
 | GET    | `/returns/reason-codes` · `/returns` · `/returns/:id` | Admin, Store Owner, Warehouse, Coordinator |                                                              |
-| POST   | `/returns`                                            | Admin (đóng vai khách)                     | Phiếu requested; return_refund trả đủ nhóm → nhóm returning. Hạn 15 ngày từ ngày giao gốc |
+| ~~POST~~ | `/returns` — **ĐÃ TẮT 22/10/2026** → `410 RMA_SIMULATION_DISABLED` (xem mục 20.5) | Admin (đóng vai khách)                     | Phiếu requested; return_refund trả đủ nhóm → nhóm returning. Hạn 15 ngày từ ngày giao gốc. 🔄 21/10: nhóm đơn **AURELLE** → 409 `RMA_MARKETPLACE_MANAGED` (khách tự gửi yêu cầu trên website, phiếu tự về với `source = marketplace`); Lazada vẫn giả lập như cũ. Response phiếu thêm `externalRef`, `sourceOrderId` |
 | POST   | `/returns/:id/approve`                                | Store Owner, Admin                         | Người tạo không tự duyệt; return_refund trả đủ nhóm → nhóm returned, phiếu awaiting_receipt |
 | POST   | `/returns/:id/reject`                                 | Store Owner, Admin                         | Bắt buộc lý do; return_refund trả đủ nhóm khôi phục delivered |
 | 🆕 POST | `/returns/:id/cancel`                                | Store Owner, Admin                         | **MỚI (09/10/2026)** — hủy phiếu đã duyệt mà hàng không bao giờ về (khách không gửi). Body `{ expected_version, note }` (`note` bắt buộc → thiếu 400 `RMA_NOTE_REQUIRED`). `awaiting_receipt → canceled` (trạng thái cuối mới); phiếu khác trạng thái → 409 `RMA_INVALID_STATUS`. Trước đây phiếu này không có lối ra và chặn mọi phiếu mới của nhóm đơn |
@@ -733,9 +736,11 @@ Không dùng JWT nhân viên. "Khách" = token khách hàng (`type: customer`) l
 | POST | `/storefront/cart/sync` | Khách | Gộp giỏ của khách vãng lai sau khi đăng nhập |
 | POST | `/storefront/orders/checkout` | Khách | Đặt đơn (giữ tồn, cấp `public_order_id`, báo webhook cho OptiPack) |
 | GET | `/storefront/orders` | Khách | 50 đơn gần nhất của khách |
-| GET | `/storefront/orders/:id` | Khách | Chi tiết đơn; không phải của mình / id sai định dạng → 404 `SF_ORDER_NOT_FOUND`. 🔄 20/10: thêm `trackingCode`, `tripCode`, `events[]` (hành trình đơn) |
+| GET | `/storefront/orders/:id` | Khách | Chi tiết đơn; không phải của mình / id sai định dạng → 404 `SF_ORDER_NOT_FOUND`. 🔄 20/10: thêm `trackingCode`, `tripCode`, `events[]` (hành trình đơn). 🔄 21/10: thêm `carrier` (tên hãng, VD "Giao Hàng Nhanh"; `null` khi tự giao/chưa biết); `trackingCode` là mã GHN của đúng kiện chứa đơn |
 | POST | `/storefront/orders/:id/cancel` | Khách | 🆕 20/10 — hủy đơn khi `pending` + chưa đóng gói; trả lại tồn đã giữ, báo OptiPack qua webhook. Đã xử lý → 409 `SF_ORDER_NOT_CANCELLABLE` |
-| POST | `/storefront/orders/:id/returns` | Khách | 🆕 20/10 — gửi yêu cầu trả hàng (`return_refund`/`refund_only`); chỉ khi đã giao, ≤ 15 ngày, không vượt số lượng; mã `SF_RETURN_*` |
+| POST | `/storefront/orders/:id/returns` | Khách | 🆕 20/10 — gửi yêu cầu trả hàng (`return_refund`/`refund_only`); chỉ khi đã giao, ≤ 15 ngày, không vượt số lượng; mã `SF_RETURN_*`. 🆕 21/10: thêm `type: "exchange"` + `exchange_items: [{ sku, quantity }]` (cùng sản phẩm, tổng = số trả, còn hàng) → sai 400 `SF_EXCHANGE_INVALID` / `SF_OUT_OF_STOCK`; response thêm `exchangeItems` |
+| 🆕 GET | `/storefront/orders/:id/exchange-options` | Khách | 21/10 — biến thể có thể đổi sang cho từng sản phẩm trong đơn: `[{ sku, options: [{ sku, variantName, color, size, available }] }]` |
+| 🆕 POST | `/storefront/returns/:id/cancel` | Khách | 21/10 — khách tự hủy yêu cầu khi còn `requested`; đã xử lý → 409 `SF_RETURN_NOT_CANCELLABLE`; báo OptiPack webhook `return_canceled` |
 | GET | `/storefront/returns` · `/storefront/returns/:id` | Khách | 🆕 20/10 — danh sách / chi tiết yêu cầu trả hàng kèm hành trình xử lý |
 | POST | `/customer-auth/register` | Public | Đăng ký, đặt cookie; email trùng → 409 `SF_EMAIL_IN_USE` |
 | POST | `/customer-auth/login` | Public | Đăng nhập, đặt cookie; sai → 401 `SF_INVALID_CREDENTIALS` |
@@ -743,6 +748,19 @@ Không dùng JWT nhân viên. "Khách" = token khách hàng (`type: customer`) l
 | GET | `/customer-auth/me` | Khách | Hồ sơ khách |
 
 Mã lỗi `SF_*`: xem "Bảng mã lỗi".
+
+**🔄 21/10/2026 — Admin website (`/storefront/admin/products`):** mỗi biến thể thêm `stockSource` (`storefront` | `optipack`) và `stockSyncedAt`. `optipack` = SKU đã có ô trong kho OptiPack, tồn do OptiPack đẩy sang → BE **bỏ qua** `quantityOnHand` gửi lên khi lưu sản phẩm; FE hiện số + nhãn "Kho OptiPack", không cho sửa.
+
+## 16b. 🆕 Đẩy tồn OptiPack → AURELLE (phương án A) — 21/10/2026
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| POST | `/marketplace-writeback/stock/push` | Admin, Store Owner | Đẩy ngay tồn bán được của kho OptiPack sang website AURELLE (khỏi chờ cron). Query `force=true` gửi lại mọi SKU kể cả số không đổi. Response `{ checked, pushed, unchanged, unmanaged, failed }` |
+
+- Cron mỗi phút (giây 30) chạy cùng logic, chỉ gửi SKU có số đổi.
+- Số đẩy = tồn thực OptiPack − đang giữ chỗ (mọi kênh). Website đặt `quantity_on_hand = số đẩy + giữ chỗ của website` nên đơn đặt giữa 2 lượt vẫn bị trừ đúng 1 lần.
+- Chỉ SKU kho đã có ô (`managed`, kể cả đang 0); SKU kho chưa từng nhập để website tự quản (`unmanaged`). Lazada không đẩy.
+- `GET /order-groups/stock-availability` trả thêm `managed`.
 
 ## 17. 🔄 Sửa lỗi kiểu id (07/10/2026, gộp vào thi_dev 10/10/2026)
 
@@ -801,3 +819,79 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 **Luôn cố định (không cấu hình)**: chỉ gom đơn **cùng sàn + cùng shop** — nhóm đơn trừ tồn và tra hồ sơ SKU theo đúng 1 shop. Muốn giao chung đơn khác shop/khác sàn dùng liên kết nhóm (`POST /order-groups/:id/link`) và giao chung chuyến. Chi tiết: **`INTEGRATION_GUIDE_ORDERS.md`** mục "Cấu hình tiêu chí đồng bộ & gom đơn".
 
 **Sửa kèm**: đồng bộ đơn nay **lấy theo trang** (100 đơn/trang, tối đa 50 trang/lượt). Trước đây chỉ lấy 100 đơn đầu nên shop có hơn 100 đơn thay đổi giữa 2 lượt bị sót.
+
+## 20. 🆕 22/10/2026 — Kẹt đóng gói, tên người đóng, tìm nhóm, thiếu hàng tự tính lại, bỏ giả lập trả hàng, hàng đổi, ngắt shop, nghỉ phép
+
+### 20.1 Nhóm kẹt đóng gói vì SKU chưa đo (AOFP-152)
+- Response nhóm đơn (`GET /order-groups`, `GET /order-groups/:id`, mọi route trả nhóm) thêm `packingBlocked: { reason: 'needs_measurement' | 'missing_product_master', skus: string[], at } | null`.
+- `GET /order-groups?packing_blocked=true|false` — lọc nhóm kẹt.
+- Khi tính kế hoạch thất bại vì `ORD_GROUP_PACKAGING_PROFILE_NOT_READY`: BE ghi cờ lên nhóm (liệt kê **mọi** SKU thiếu trong 1 lần, `details.skus`), giữ kế hoạch `failed` (cron không tính lặp), gửi thông báo mới **`packing_blocked`** (warning) cho Admin + Store Owner **1 lần** mỗi lần nhóm chuyển sang kẹt.
+- `PUT /product-master/:id/packaging-profile` (xác nhận số đo) → tự gỡ kế hoạch `failed` (thành `superseded`) + xoá cờ của các nhóm `picked` đang chờ đúng SKU đó → cron tự tính lại trong ~10 s. Cron mới `packing-blocked-recheck` (giây 15 mỗi phút) làm lưới an toàn, kể cả cho kế hoạch hỏng trước 22/10 (đọc SKU từ `failure_reason`).
+
+### 20.2 Tên người đóng gói (AOFP-153)
+- Response nhóm đơn thêm `assignedPackerId`, `assignedPackerName` (theo kế hoạch đang hoạt động; null = chưa có).
+- Kế hoạch: `session.assignedPackerName`; `GET /packing-plans/summary` thêm `assignedPackerName`. Tên được lưu sẵn lúc giao việc (`packing_plans.assigned_packer_name`); kế hoạch cũ chưa có thì danh sách nhóm tự tra `users`.
+
+### 20.3 Tự tính lại thiếu hàng (AOFP-154) — không có route mới
+- Sau `POST .../sku-bin-assignments` (có `initial_quantity` > 0), `.../restock`, `.../adjust`, `POST .../receipts`, kiểm hàng hoàn / nhập lại hàng cách ly: BE chạy nền 1 lượt tính lại giữ chỗ cho nhóm đang `stockShortage` (cũ nhất trước, tối đa 50/lượt; đang chạy thì xếp đúng 1 lượt nữa). Cron backfill 5 phút gọi lại làm lưới an toàn.
+- Nhóm đã lấy xong trở đi mà còn nhãn thiếu hàng cũ → tự xoá nhãn. `POST /order-groups/:id/stock-reservation/recheck` giữ nguyên.
+
+### 20.4 Tìm nhóm (AOFP-152, cùng commit 20.1)
+- `GET /order-groups?q=` (≤ 64 ký tự): mã nhóm 24 ký tự · đuôi mã nhóm 4–23 ký tự hex · mã đơn sàn / số đơn (`platform_order_id` / `platform_order_number`, khớp chính xác, thử cả chữ hoa). Không khớp gì → `[]`. Ghép được với mọi bộ lọc khác.
+
+### 20.5 Bỏ giả lập trả hàng cho mọi sàn (AOFP-155)
+- `POST /returns` → **`410 RMA_SIMULATION_DISABLED`** (mọi sàn). Phiếu trả/đổi chỉ đến từ: khách gửi trên AURELLE (`source = marketplace`, đồng bộ mỗi 2 phút + webhook) và phiếu hoàn tự tạo khi giao thất bại (`source = failed_delivery`). Mọi route duyệt/nhận/kiểm/hủy giữ nguyên.
+
+### 20.6 Hành trình hàng đổi gửi về AURELLE (AOFP-156)
+- Đơn thay thế `EXC-…` của phiếu đổi hàng **do khách gửi trên AURELLE** đổi trạng thái `packed | shipped | delivered | failed_delivery` → hàng đợi ghi ngược gọi Open API mới **`POST /rest/reverse/exchange/shipment/update`** (mock `be/scripts/aurelle-mock-server.ts`) với `return_id` (mã yêu cầu trên website), `status`, `event_time`, `carrier`, `tracking_code`, `reason`, `idempotency_key`. 400 nếu yêu cầu không phải đổi hàng, 404 nếu không có.
+- Website: `GET /storefront/returns/:id` thêm `exchangeShipment: { status, statusLabel, carrier, trackingCode, updatedAt } | null`; `events[]` thêm `trackingCode` và các mốc `return_exchange_*` ("Hàng đổi đã đóng gói / đang giao / Đã giao hàng đổi / Giao hàng đổi không thành công").
+
+### 20.7 Ngắt kết nối shop (AOFP-157)
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 DELETE | `/marketplace/:platform/shops/:shopId` | Admin | Chỉ đặt `is_active=false` (mọi môi trường của shop), ghi `disconnected_at/by`. Dừng mọi đồng bộ của shop; KHÔNG xoá dữ liệu. Gọi lại → 200 `wasActive: false`. Kết nối lại bằng OAuth. `404 MKT_SHOP_NOT_FOUND` |
+- `GET /marketplace/:platform/shops` thêm `disconnectedAt`.
+
+### 20.8 Nghỉ phép nhân viên (AOFP-158)
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 PATCH | `/users/:id/leave` | Admin, Store Owner | Body `{ on_leave, until?, note? }`. Chỉ Warehouse/Packaging/Shipping. Trả dòng nhân viên (có `on_leave`, `on_leave_until`, `on_leave_note`) |
+- `GET /users` thêm `on_leave` (đã tính hạn), `on_leave_until`, `on_leave_note`. `GET /order-groups/staff/search`, `GET /packing/staff` thêm `onLeave`, `onLeaveUntil`.
+- Tự giao lấy hàng / đóng gói bỏ qua người đang nghỉ (kể cả "giữ người cũ" khi tính lại kế hoạch). Việc đang giữ không tự chuyển.
+
+**Mã lỗi mới 22/10:** `RMA_SIMULATION_DISABLED` (410), `MKT_SHOP_NOT_FOUND` (404), `ORD_GROUP_STAFF_ON_LEAVE` (409), `PACKING_PACKER_ON_LEAVE` (409), `USER_LEAVE_NOT_STAFF` (422), `USER_LEAVE_UNTIL_PAST` (400). Loại thông báo mới: `packing_blocked`.
+
+## 21. 🆕 22/10/2026 (trưa) — SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, SKU sàn ngừng dùng
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 GET | `/storefront/admin/products/sku-options` | Admin website AURELLE | Danh mục **cấp 2** đang dùng của OptiPack (`code`, `name`, `parentCode`, `sizes`) + màu đang dùng (`code`, `name`, `hex`) + chuỗi quy tắc |
+| 🔄 POST/PATCH | `/storefront/admin/products[/:id]` | Admin website AURELLE | Body thêm `skuCategoryCode`, `skuModelNo` (sản phẩm), `variants[].colorCode`. **Biến thể mới** bắt buộc đủ 4 phần → SKU `{danh mục}-{3 số}-{màu}-{size}`; size phải thuộc thang size. Lỗi 400 (thiếu/sai phần, trùng trong form, đổi danh mục/số mẫu khi đã khoá, đổi màu/size biến thể theo mã), 409 (SKU đã dùng cho sản phẩm khác). Response admin thêm `skuCategoryCode`, `skuModelNo`, `variants[].colorCode` |
+| 🆕 PATCH | `/product-master/:id/retire` | Admin | `{ retired: boolean }` — ngừng dùng / dùng lại 1 SKU sàn |
+
+- **Tự nối SKU:** SKU sàn (mọi sàn) trùng mã 1 SKU nội bộ đang dùng → tự tạo liên kết (`created_by = system:auto-map`, gộp tồn + chuyển giữ chỗ như nối tay) khi: ghi hồ sơ SKU (đồng bộ catalog / theo đơn / webhook) hoặc Admin vừa tạo SKU nội bộ (`POST /master-skus`).
+- **Webhook mới** `POST /marketplace/webhooks/aurelle` `message_type = product_updated`, `data.seller_skus[]` — website phát sau khi lưu biến thể mới; OptiPack kéo hồ sơ các SKU đó ngay.
+- **Đẩy tồn:** SKU AURELLE đã nối SKU nội bộ luôn được đẩy (kể cả kho = 0) → website và kho cùng số.
+- `GET /product-master`: thêm `marketplaceStatus`, `retired`; mặc định ẩn SKU sàn ngừng bán/ngừng dùng, `?include_retired=true` để xem hết. Cũng ẩn ở "SKU chưa gán", "SKU chưa nối", không đẩy tồn.
+
+## 22. 🆕 22/10/2026 (chiều) — Đồng bộ AURELLE ↔ OptiPack: người bán hủy, giao thiếu, hoàn tiền, danh mục, tồn chỉ từ kho
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 POST | `/order-groups/orders/:orderId/seller-cancel` | Store Owner, Admin | `{ reason }` — người bán hủy 1 đơn **AURELLE** chưa giao vận chuyển. Đơn `canceled` (raw `seller_canceled`), nhóm xử lý như đơn bị hủy, xếp hàng báo website `canceled_by_seller`. `404 ORD_GROUP_ORDER_NOT_FOUND`, `409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED` |
+| 🔄 GET | `/orders/:id` | Admin, Store Owner | Thêm `sellerCanceled`, `origin` |
+| 🔄 POST | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin | `approve: true` → thêm: chia số đã lấy cho từng đơn (đơn cũ trước), mỗi đơn AURELLE bị thiếu được xếp hàng báo website `short_shipped` kèm `items[{ sku, shipped_quantity }]` |
+| 🆕 GET/POST | `/storefront/admin/categories` | Admin website AURELLE | Danh sách (kèm `skuCategoryCode`, `productCount`) / tạo danh mục website. Body `{ name, description?, parentId?, sortOrder?, isActive?, skuCategoryCode? }` — `skuCategoryCode` phải là danh mục cấp 2 đang dùng của OptiPack |
+| 🆕 PATCH | `/storefront/admin/categories/:id` | Admin website AURELLE | Sửa; đổi `skuCategoryCode` khi danh mục có sản phẩm mang mã khác → 409 |
+| 🆕 DELETE | `/storefront/admin/categories/:id` | Admin website AURELLE | **Ẩn** (soft). Còn sản phẩm đang bán → 409 |
+| 🔄 POST/PATCH | `/storefront/admin/products[/:id]` | Admin website AURELLE | `variants[]` thêm `weightKg`, `lengthCm`, `widthCm`, `heightCm` (null = xoá). Chọn danh mục website đã nối OptiPack → tự điền `skuCategoryCode`; khác mã → 400 |
+| 🔄 GET | `/storefront/products`, `/storefront/cart`, POST `/storefront/orders` | Khách | `availableQuantity` = **0** với SKU chưa do kho OptiPack quản (env `STOREFRONT_REQUIRE_OPTIPACK_STOCK`, mặc định `true`) → đặt hàng trả `OUT_OF_STOCK` |
+| 🔄 GET | `/storefront/orders[/:id]` | Khách | Thêm `cancelSource` (`customer`/`seller`), `cancelReason`, `shortRefundAmount`, `refundedAmount`; dòng hàng thêm `short_quantity`; `paymentStatus` thêm `partially_refunded` |
+| 🔄 GET | `/storefront/returns[/:id]` | Khách | Thêm `refundAmount`, `refundedAt` (ghi khi yêu cầu `closed`; đổi hàng = 0) |
+| 🔄 POST | mock `/rest/order/status/update` | Đối tác (OptiPack) | `status` thêm `short_shipped` (kèm `items` JSON) và `canceled_by_seller` (kèm `reason`) |
+| 🔄 GET | mock `/rest/products/get` | Đối tác | Nhận `update_after` (ISO 8601) — chỉ trả sản phẩm/biến thể sửa từ thời điểm đó |
+
+- **Tự tạo SKU nội bộ:** SKU AURELLE đúng quy tắc (`ATHUN-005-DEN-M`) mà OptiPack chưa có SKU nội bộ cùng mã → lúc đồng bộ catalog BE tự tạo (kiểm danh mục cấp 2 / thang size / màu như tạo tay; `created_by = system:auto-create`) rồi tự nối.
+- **SKU nội bộ bị vô hiệu** (`is_active = false`) → lượt đẩy tồn gửi **0** cho mọi SKU AURELLE nối với nó.
+- **Hoàn hàng về kho** (`returned`) → website cộng lại tồn phần đã trừ (1 lần, `stock_state: restocked`).
+- Script `be/scripts/normalize-storefront-variants.ts` (chạy thử mặc định, `--apply` để ghi): đổi biến thể cũ **chưa có đơn** sang SKU theo quy tắc.
