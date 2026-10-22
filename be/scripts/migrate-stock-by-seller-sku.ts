@@ -80,26 +80,46 @@ async function run(): Promise<void> {
   }
 
   // 3) Khóa giữ chỗ + tổng giữ chỗ
-  const reservations = db.collection<{ _id: Types.ObjectId; seller_sku: string; stock_key: string; status: string; quantity_reserved: number; order_group_id: Types.ObjectId }>('stock_reservations');
+  interface Res { _id: Types.ObjectId; seller_sku: string; stock_key: string; status: string; quantity_reserved: number; order_group_id: Types.ObjectId }
+  const reservations = db.collection<Res>('stock_reservations');
   const all = await reservations.find({}).toArray();
-  const wrongKey = all.filter((r) => r.stock_key !== `M:${normalize(r.seller_sku)}`);
-  const seen = new Set<string>();
-  const dupes: string[] = [];
+
+  // 3a) Cùng nhóm đơn + cùng SKU chuẩn hóa mà có nhiều dòng giữ chỗ (khóa cũ S:... / khóa nối cũ M:<mã nội bộ> / M:<SKU>).
+  //     Dòng 'released' chỉ là vết cũ -> bỏ đi nếu còn một dòng 'active' giữ phần thật. Nhiều dòng 'active' -> xử lý tay.
+  const byGroupSku = new Map<string, Res[]>();
   for (const r of all) {
-    const k = `${String(r.order_group_id)}|M:${normalize(r.seller_sku)}`;
-    if (seen.has(k)) dupes.push(k);
-    seen.add(k);
+    const k = `${String(r.order_group_id)}|${normalize(r.seller_sku)}`;
+    const list = byGroupSku.get(k) ?? [];
+    list.push(r);
+    byGroupSku.set(k, list);
   }
-  console.log(`Giữ chỗ: ${String(all.length)} — cần đổi khóa: ${String(wrongKey.length)} — sẽ trùng khóa trong cùng nhóm đơn: ${String(dupes.length)}`);
-  if (dupes.length > 0) {
-    console.log('  Có giữ chỗ trùng khóa trong cùng nhóm đơn — KHÔNG đổi khóa phần giữ chỗ, xử lý tay:', dupes.join(', '));
-  } else if (APPLY && wrongKey.length > 0) {
-    await reservations.bulkWrite(
-      wrongKey.map((r) => ({ updateOne: { filter: { _id: r._id }, update: { $set: { stock_key: `M:${normalize(r.seller_sku)}` } } } })),
-    );
+  const staleIds: Types.ObjectId[] = [];
+  const manual: string[] = [];
+  for (const [k, rows] of byGroupSku) {
+    if (rows.length < 2) continue;
+    const active = rows.filter((r) => r.status === 'active');
+    if (active.length === 1) staleIds.push(...rows.filter((r) => r.status !== 'active').map((r) => r._id));
+    else manual.push(k);
+  }
+  console.log(`Giữ chỗ: ${String(all.length)} — dòng 'released' dư cùng nhóm đơn + SKU (sẽ xóa): ${String(staleIds.length)} — cần xử lý tay: ${String(manual.length)}`);
+  if (manual.length > 0) console.log('  Nhiều dòng giữ chỗ ĐANG HOẠT ĐỘNG cho cùng SKU — xử lý tay:', manual.join(', '));
+  const staleSet = new Set(staleIds.map(String));
+  if (APPLY && staleIds.length > 0) await reservations.deleteMany({ _id: { $in: staleIds } });
+
+  // 3b) Đổi khóa các dòng còn lại (trừ nhóm cần xử lý tay) rồi tính lại tổng.
+  const manualSet = new Set(manual);
+  const remaining = all.filter((r) => !staleSet.has(String(r._id)) && !manualSet.has(`${String(r.order_group_id)}|${normalize(r.seller_sku)}`));
+  const wrongKey = remaining.filter((r) => r.stock_key !== `M:${normalize(r.seller_sku)}`);
+  console.log(`  cần đổi khóa: ${String(wrongKey.length)}`);
+  if (APPLY) {
+    if (wrongKey.length > 0) {
+      await reservations.bulkWrite(
+        wrongKey.map((r) => ({ updateOne: { filter: { _id: r._id }, update: { $set: { stock_key: `M:${normalize(r.seller_sku)}` } } } })),
+      );
+    }
     const sums = new Map<string, number>();
     for (const r of await reservations.find({ status: 'active' }).toArray()) {
-      const k = `M:${normalize(r.seller_sku)}`;
+      const k = r.stock_key;
       sums.set(k, (sums.get(k) ?? 0) + r.quantity_reserved);
     }
     const totals = db.collection<{ _id: string; reserved: number; touched_at: Date | null }>('stock_reservation_totals');
