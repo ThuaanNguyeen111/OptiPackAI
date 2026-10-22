@@ -192,13 +192,19 @@ export class StockReservationService {
    * Tồn thực / đã giữ / khả dụng cho 1 SKU sàn (tự tra K4b) — MỌI kho (dùng để đẩy tồn sang sàn).
    * (21/10/2026) `managed` = kho OptiPack đã có ít nhất 1 dòng tồn (ô) cho SKU này,
    * kể cả đang 0 — chỉ SKU managed mới được đẩy tồn sang sàn (tránh xoá về 0 tồn
-   * của SKU mà kho chưa từng nhập, website vẫn đang tự quản).
+   * của SKU mà kho chưa từng nhập, website vẫn đang tự quản). 22/10/2026: SKU đã nối
+   * SKU nội bộ cũng managed.
    */
   async availability(platform: MarketplacePlatform, shopId: string, sellerSku: string): Promise<{ stockKey: string; masterSku: string | null; onHand: number; reserved: number; available: number; managed: boolean }> {
     const master = (await resolveMasterSkus(this.mappingModel, platform, shopId, [sellerSku])).get(sellerSku);
     const key = stockKeyOf(master, platform, shopId, sellerSku);
     const onHand = await this.onHand(master, platform, shopId, sellerSku, null);
-    const managed = onHand > 0 || (await this.assignmentModel.exists(stockFilterFor(master, platform, shopId, sellerSku))) !== null;
+    // 22/10/2026 — SKU sàn đã nối SKU nội bộ cũng là "kho quản" (kể cả kho chưa nhập = 0):
+    // 2 bên cùng mã phải luôn cùng số lượng, kể cả khi OptiPack đang hết hàng.
+    const managed =
+      Boolean(master) ||
+      onHand > 0 ||
+      (await this.assignmentModel.exists(stockFilterFor(master, platform, shopId, sellerSku))) !== null;
     // Tổng theo kho (`stock_key`) + tổng cũ chưa có kho (`_id` = khóa).
     const totals = await this.totalModel.find({ $or: [{ _id: key }, { stock_key: key }] }).select('reserved').lean();
     const reserved = totals.reduce((sum, t) => sum + t.reserved, 0);

@@ -1,9 +1,9 @@
-import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { CategoriesService } from '../categories/categories.service';
-import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
+import { ACTIVE_SELLER_SKU_FILTER, ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { Color, ColorDocument } from './schemas/color.schema';
 import { MasterSku, MasterSkuDocument } from './schemas/master-sku.schema';
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from './schemas/marketplace-sku-mapping.schema';
@@ -29,6 +29,9 @@ export function buildMasterSkuCode(p: { category_code: string; model_no: number;
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
 }
 
+/** 22/10/2026 — người tạo của liên kết SKU tự nối (sổ cái ghi actor này). */
+export const AUTO_MAP_ACTOR = 'system:auto-map';
+
 export function normalizeSellerSku(sku: string): string {
   return sku.trim().toUpperCase();
 }
@@ -45,6 +48,8 @@ export function normalizeSellerSku(sku: string): string {
  */
 @Injectable()
 export class MasterSkusService {
+  private readonly logger = new Logger(MasterSkusService.name);
+
   constructor(
     @InjectModel(Color.name) private readonly colorModel: Model<ColorDocument>,
     @InjectModel(MasterSku.name) private readonly skuModel: Model<MasterSkuDocument>,
@@ -133,10 +138,64 @@ export class MasterSkusService {
         created_by: actorId,
       }], { session });
       if (!doc) throw new Error('Tạo SKU nội bộ không trả về document');
+      // 22/10/2026 — SKU sàn trùng đúng mã vừa tạo (VD AURELLE đặt theo quy tắc OptiPack) → tự nối.
+      if (!session) await this.autoMapForMaster(code);
       return doc;
     } catch (error: unknown) {
       if (this.isDup(error)) this.fail(E.ALREADY_EXISTS, `SKU nội bộ "${code}" đã tồn tại.`, HttpStatus.CONFLICT);
       throw error;
+    }
+  }
+
+  /**
+   * 22/10/2026 — TỰ NỐI SKU sàn với SKU nội bộ CÙNG MÃ (không phân biệt hoa thường).
+   * AURELLE đặt SKU theo đúng quy tắc OptiPack ({danh mục}-{mẫu}-{màu}-{size}) nên trùng mã
+   * = cùng 1 sản phẩm → tồn gộp chung, giữ chỗ chuyển khóa, đẩy tồn sang sàn theo SKU nội bộ.
+   * Gọi khi SKU sàn vừa đồng bộ về (Product Master) và khi Admin vừa tạo SKU nội bộ.
+   * Best-effort: lỗi 1 SKU chỉ log, không chặn đồng bộ. Trả số liên kết đã tạo.
+   */
+  async autoMapSellerSkus(platform: MarketplacePlatform, shopId: string, sellerSkus: string[]): Promise<number> {
+    const byCode = new Map<string, string>();
+    for (const sku of sellerSkus) if (sku.trim()) byCode.set(normalizeSellerSku(sku), sku);
+    if (byCode.size === 0) return 0;
+    const [masters, mapped] = await Promise.all([
+      this.skuModel.find({ master_sku: { $in: [...byCode.keys()] }, is_active: true }).select('master_sku').lean(),
+      this.mappingModel
+        .find({ platform, shop_id: shopId, seller_sku_normalized: { $in: [...byCode.keys()] } })
+        .select('seller_sku_normalized')
+        .lean(),
+    ]);
+    const already = new Set(mapped.map((m) => m.seller_sku_normalized));
+    let created = 0;
+    for (const master of masters) {
+      const sellerSku = byCode.get(master.master_sku);
+      if (!sellerSku || already.has(master.master_sku)) continue;
+      try {
+        await this.createMapping(master.master_sku, { platform, shop_id: shopId, seller_sku: sellerSku }, AUTO_MAP_ACTOR);
+        created += 1;
+        this.logger.log(`Tự nối SKU ${platform}/${shopId} "${sellerSku}" → SKU nội bộ ${master.master_sku} (trùng mã).`);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `Tự nối SKU "${sellerSku}" → ${master.master_sku} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    return created;
+  }
+
+  /** 22/10/2026 — SKU nội bộ vừa tạo: nối mọi SKU sàn đã đồng bộ về có CÙNG mã. */
+  async autoMapForMaster(code: string): Promise<number> {
+    try {
+      const rows = await this.productMasterModel
+        .find({ seller_sku: { $in: [...new Set([code, code.toLowerCase()])] } })
+        .select('platform shop_id seller_sku')
+        .lean();
+      let created = 0;
+      for (const row of rows) created += await this.autoMapSellerSkus(row.platform, row.shop_id, [row.seller_sku]);
+      return created;
+    } catch (error: unknown) {
+      this.logger.warn(`Tự nối SKU sàn cho ${code} thất bại: ${error instanceof Error ? error.message : String(error)}`);
+      return 0;
     }
   }
 
@@ -390,7 +449,7 @@ export class MasterSkusService {
   async listUnmappedSellerSkus(): Promise<{ platform: MarketplacePlatform; shop_id: string; seller_sku: string }[]> {
     const mapped = await this.mappingModel.find().select('platform shop_id seller_sku_normalized').lean();
     const keys = new Set(mapped.map((m) => `${m.platform}|${m.shop_id}|${m.seller_sku_normalized}`));
-    const all = await this.productMasterModel.find().select('platform shop_id seller_sku').lean();
+    const all = await this.productMasterModel.find(ACTIVE_SELLER_SKU_FILTER).select('platform shop_id seller_sku').lean(); // 22/10 bỏ SKU ngừng dùng
     return all
       .filter((p) => !keys.has(`${p.platform}|${p.shop_id}|${normalizeSellerSku(p.seller_sku)}`))
       .map((p) => ({ platform: p.platform, shop_id: p.shop_id, seller_sku: p.seller_sku }));
