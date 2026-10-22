@@ -38,6 +38,7 @@ import { MarketplacePlatform } from '../marketplace-integration/enums/platform.e
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
 import {
     OrderStatus,
+    UNFULFILLED_ORDER_STATUSES,
 } from '../orders/enums/order-status.enum';
 import {
   aggregateOrderItems,
@@ -2321,6 +2322,106 @@ export class OrderGroupsService {
   }
 
   /**
+   * 22/10/2026 — Chia số ĐÃ LẤY của từng SKU cho các đơn trong nhóm, đơn cũ trước. Trả về
+   * đơn nào bị thiếu: `{ orderId, items: [{ sku, ordered, shipped }] }` (chỉ đơn có thiếu).
+   */
+  static allocateShortage(
+    orders: { _id: unknown; items: { sku: string; quantity: number; status?: string }[] }[],
+    picked: Map<string, number>,
+  ): { orderId: string; items: { sku: string; ordered: number; shipped: number }[] }[] {
+    const remaining = new Map(picked);
+    const out: { orderId: string; items: { sku: string; ordered: number; shipped: number }[] }[] = [];
+    for (const order of orders) {
+      const perSku = new Map<string, { ordered: number; shipped: number }>();
+      for (const item of order.items) {
+        if (item.status === OrderStatus.CANCELED) continue;
+        const left = remaining.get(item.sku) ?? 0;
+        const shipped = Math.min(item.quantity, left);
+        remaining.set(item.sku, left - shipped);
+        const row = perSku.get(item.sku) ?? { ordered: 0, shipped: 0 };
+        row.ordered += item.quantity;
+        row.shipped += shipped;
+        perSku.set(item.sku, row);
+      }
+      const items = [...perSku].map(([sku, r]) => ({ sku, ...r }));
+      if (items.some((i) => i.shipped < i.ordered)) out.push({ orderId: String(order._id), items });
+    }
+    return out;
+  }
+
+  private async enqueueShortShipments(group: OrderGroupDocument): Promise<void> {
+    if (!this.statusOutboxModel) return;
+    const orders = await this.orderModel
+      .find({ consolidated_group_id: group._id, status: { $nin: notPackableStatuses() } })
+      .sort({ created_at: 1, _id: 1 })
+      .select('_id items platform origin')
+      .lean();
+    const picked = await this.getPickedSkuQuantities(group);
+    const shortages = OrderGroupsService.allocateShortage(orders, picked);
+    for (const short of shortages) {
+      const order = orders.find((o) => String(o._id) === short.orderId);
+      if (order?.platform !== MarketplacePlatform.AURELLE || order.origin === 'replacement') continue;
+      await enqueueStatusPush(this.statusOutboxModel, {
+        orderGroupId: group._id,
+        orderId: order._id,
+        status: 'short_shipped',
+        reason: 'Kho không đủ hàng — giao phần có sẵn',
+        shippedItems: short.items.map((i) => ({ sku: i.sku, shipped_quantity: i.shipped })),
+        discriminator: `round${String(group.pick_round)}`,
+      });
+    }
+  }
+
+  /**
+   * 22/10/2026 — NGƯỜI BÁN hủy 1 đơn AURELLE (hết hàng, sai địa chỉ…) khi hàng chưa rời kho.
+   * Đơn thành `canceled` (raw `seller_canceled`), nhóm xử lý như đơn bị hủy (trả hàng dư về kệ,
+   * tháo kiện nếu đang đóng, nhả giữ chỗ) và xếp hàng báo website: khách thấy "Người bán đã hủy đơn".
+   */
+  async sellerCancelOrder(orderId: string, reason: string): Promise<{ order_id: string; status: OrderStatus }> {
+    if (!Types.ObjectId.isValid(orderId)) {
+      throw new AppException(ORD_GROUP_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng.', HttpStatus.NOT_FOUND, { orderId });
+    }
+    const order = await this.orderModel.findById(orderId).select('_id platform origin status consolidated_group_id').lean();
+    if (!order) {
+      throw new AppException(ORD_GROUP_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng.', HttpStatus.NOT_FOUND, { orderId });
+    }
+    const notAllowed = (why: string): never => {
+      throw new AppException(ORD_GROUP_ERROR_CODES.SELLER_CANCEL_NOT_ALLOWED, why, HttpStatus.CONFLICT, { orderId });
+    };
+    if (order.platform !== MarketplacePlatform.AURELLE || order.origin === 'replacement') {
+      notAllowed('Chỉ hủy được đơn của website AURELLE (Lazada hủy trên Seller Center).');
+    }
+    if (!UNFULFILLED_ORDER_STATUSES.includes(order.status)) notAllowed('Đơn đã hủy hoặc đã giao cho vận chuyển.');
+    const group = order.consolidated_group_id ? await this.orderGroupModel.findById(order.consolidated_group_id).lean() : null;
+    const locked: GroupFulfillmentStatus[] = [
+      GroupFulfillmentStatus.SHIPPED,
+      GroupFulfillmentStatus.DELIVERED,
+      GroupFulfillmentStatus.RETURNING,
+      GroupFulfillmentStatus.RETURNED,
+    ];
+    if (group && locked.includes(group.fulfillment_status)) notAllowed('Nhóm đơn đã giao cho vận chuyển — không hủy được nữa.');
+
+    const updated = await this.orderModel.updateOne(
+      { _id: order._id, status: { $in: UNFULFILLED_ORDER_STATUSES } },
+      {
+        $set: { status: OrderStatus.CANCELED, 'items.$[].status': OrderStatus.CANCELED },
+        $push: { raw_statuses: 'seller_canceled' },
+      },
+    );
+    if (updated.modifiedCount === 0) notAllowed('Đơn vừa đổi trạng thái — tải lại rồi thử lại.');
+    await enqueueStatusPush(this.statusOutboxModel, {
+      orderGroupId: order.consolidated_group_id ?? order._id,
+      orderId: order._id,
+      status: 'canceled_by_seller',
+      reason: reason.trim() || 'Người bán không thể giao đơn này',
+      discriminator: 'seller',
+    });
+    if (group) await this.handleOrderBecameUnfulfillable(String(group._id));
+    this.logger.warn(`Người bán hủy đơn AURELLE ${orderId}: ${reason}`);
+    return { order_id: String(order._id), status: OrderStatus.CANCELED };
+  }
+
+  /**
    * Packaging Staff/Admin quyết định group đang PARTIAL_NEEDS_REVIEW —
    * approve=true: tiếp tục với phần có sẵn (PICKED). approve=false:
    * hủy, quay lại AWAITING_PACKAGING làm lại từ đầu.
@@ -2331,11 +2432,18 @@ export class OrderGroupsService {
     expectedVersion: number,
   ): Promise<OrderGroupDocument> {
     if (approve) {
-      return this.transitionFulfillmentStatus(
+      const picked = await this.transitionFulfillmentStatus(
         groupId,
         GroupFulfillmentStatus.PICKED,
         expectedVersion,
       );
+      // 22/10/2026 — đi tiếp với phần có sẵn = giao thiếu → báo từng đơn AURELLE bị thiếu.
+      await this.enqueueShortShipments(picked).catch((error: unknown) => {
+        this.logger.error(
+          `Báo giao thiếu cho nhóm ${groupId} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+      return picked;
     }
 
     // SỬA (21/09/2026, BE-4a): hủy lượt lấy hiện tại → mở LƯỢT MỚI
@@ -2536,9 +2644,18 @@ export class OrderGroupsService {
         .limit(SHORTAGE_RECHECK_BATCH)
         .select('_id')
         .lean();
+      // Nhóm mà mọi đơn đã hủy: không còn gì để giữ chỗ → xoá nhãn + nhả giữ chỗ, không tính lại
+      // (trước đây reconcile ném ORD_GROUP_ALL_ORDERS_CANCELED và in stack mỗi 5 phút).
+      const counts = await this.getOrderCountsForGroups(groups.map((g) => g._id));
       for (const g of groups) {
         const groupId = g._id.toString();
         stats.checked += 1;
+        if ((counts.get(groupId)?.activeOrderCount ?? 0) === 0) {
+          await this.orderGroupModel.updateOne({ _id: g._id }, { $set: { stock_shortage: false, stock_shortage_items: [] } });
+          await this.releaseReservation(groupId);
+          stats.cleared += 1;
+          continue;
+        }
         await this.reconcileReservation(groupId);
         const fresh = await this.orderGroupModel.findById(g._id).select('stock_shortage').lean();
         if (fresh?.stock_shortage !== true) stats.resolved += 1;

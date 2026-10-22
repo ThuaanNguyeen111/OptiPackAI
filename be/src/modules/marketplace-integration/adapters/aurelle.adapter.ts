@@ -212,6 +212,8 @@ export class AurelleAdapter implements MarketplaceAdapter {
       carrier?: string;
       reason?: string;
       idempotencyKey: string;
+      /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU (gửi dạng chuỗi JSON). */
+      items?: { sku: string; shipped_quantity: number }[];
     },
   ): Promise<void> {
     const params: Record<string, string | number> = {
@@ -225,6 +227,7 @@ export class AurelleAdapter implements MarketplaceAdapter {
     if (input.tripCode) params.trip_code = input.tripCode;
     if (input.carrier) params.carrier = input.carrier;
     if (input.reason) params.reason = input.reason;
+    if (input.items?.length) params.items = JSON.stringify(input.items);
 
     const data = await this.client.callSignedApiPost<AurelleEnvelope<{ order_id: number; status: string }>>(
       '/order/status/update',

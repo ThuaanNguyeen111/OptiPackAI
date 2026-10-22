@@ -25,6 +25,20 @@ export class MarketplaceStatusOutbox {
   @Prop({ type: SchemaTypes.ObjectId, required: true })
   order_group_id!: Types.ObjectId;
 
+  /**
+   * 22/10/2026 — Sự kiện của RIÊNG 1 đơn (người bán hủy / giao thiếu) thay vì cả nhóm.
+   * null = gửi cho mọi đơn AURELLE còn hiệu lực trong nhóm (như cũ).
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  order_id!: Types.ObjectId | null;
+
+  /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU (SKU không có = giao đủ). */
+  @Prop({
+    type: [{ _id: false, sku: { type: String, required: true }, shipped_quantity: { type: Number, required: true, min: 0 } }],
+    default: undefined,
+  })
+  shipped_items?: { sku: string; shipped_quantity: number }[];
+
   /** Phiếu trả hàng gây ra sự kiện (chỉ `kind = return_status`). */
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   return_request_id!: Types.ObjectId | null;
@@ -37,7 +51,7 @@ export class MarketplaceStatusOutbox {
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   shipment_id!: Types.ObjectId | null;
 
-  /** order_status: packed|shipped|delivered|failed_delivery|shipped_back|returned. return_status: approved|rejected|received|closed|canceled. */
+  /** order_status: packed|shipped|delivered|failed_delivery|shipped_back|returned|short_shipped|canceled_by_seller. return_status: approved|rejected|received|closed|canceled. */
   @Prop({ type: String, required: true })
   status!: string;
 

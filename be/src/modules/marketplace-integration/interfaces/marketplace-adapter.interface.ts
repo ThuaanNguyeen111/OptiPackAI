@@ -136,6 +136,8 @@ export interface MarketplaceAdapter {
       carrier?: string; // (21/10/2026) tên hãng vận chuyển cho khách xem
       reason?: string;
       idempotencyKey: string;
+      /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU. */
+      items?: { sku: string; shipped_quantity: number }[];
     },
   ): Promise<void>;
   updateSellableQuantity?(

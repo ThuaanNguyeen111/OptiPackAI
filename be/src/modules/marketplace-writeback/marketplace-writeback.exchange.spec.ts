@@ -102,3 +102,45 @@ describe('MarketplaceWritebackService — hành trình hàng đổi (22/10/2026)
     expect(lastState(outboxUpdate)).toBe('skipped');
   });
 });
+
+describe('MarketplaceWritebackService — sự kiện riêng 1 đơn (22/10/2026)', () => {
+  it('short_shipped: gửi đúng đơn kèm items, kể cả đơn không lọc theo nhóm', async () => {
+    const orderId = new Types.ObjectId();
+    const row = {
+      _id: new Types.ObjectId(),
+      order_group_id: new Types.ObjectId(),
+      order_id: orderId,
+      shipment_id: null,
+      status: 'short_shipped',
+      reason: 'Kho không đủ hàng',
+      shipped_items: [{ sku: 'ATHUN-005-DEN-M', shipped_quantity: 1 }],
+      event_time: new Date('2026-10-22T03:00:00Z'),
+      idempotency_key: `ord:${orderId.toHexString()}:short_shipped:round1`,
+      attempts: 0,
+    };
+    const outboxUpdate: OutboxUpdate = jest.fn<Promise<object>, [unknown, { $set: Record<string, unknown> }]>().mockResolvedValue({});
+    const updateOrderStatus = jest.fn().mockResolvedValue(undefined);
+    const orderModel = {
+      find: jest.fn(),
+      findOne: jest.fn(() => chain({ _id: orderId, platform_order_id: '720000009', shop_id: 'S1' })),
+    };
+    const service = new MarketplaceWritebackService(
+      { find: jest.fn(() => chain([row])), updateOne: outboxUpdate } as never,
+      orderModel as never,
+      { findById: jest.fn() } as never,
+      { getValidAccessToken: jest.fn().mockResolvedValue('tok') } as never,
+      { [MarketplacePlatform.AURELLE]: { updateOrderStatus } } as never,
+      { findById: jest.fn() } as never,
+    );
+    const result = await service.processPending();
+    expect(result.sent).toBe(1);
+    expect(orderModel.find).not.toHaveBeenCalled();
+    expect(updateOrderStatus).toHaveBeenCalledWith('tok', expect.objectContaining({
+      orderId: '720000009',
+      status: 'short_shipped',
+      reason: 'Kho không đủ hàng',
+      items: [{ sku: 'ATHUN-005-DEN-M', shipped_quantity: 1 }],
+    }));
+    expect(lastState(outboxUpdate)).toBe('sent');
+  });
+});

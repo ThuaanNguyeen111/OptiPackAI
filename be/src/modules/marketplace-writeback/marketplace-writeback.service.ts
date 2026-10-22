@@ -131,6 +131,7 @@ export class MarketplaceWritebackService {
       return 'skipped';
     }
 
+    if (row.order_id) return this.processSingleOrder(row, adapter, tokens);
     // Chỉ đơn AURELLE còn hiệu lực — đơn đã hủy không cần báo "đã đóng gói/giao".
     const orders = await this.orderModel
       .find({
@@ -217,6 +218,36 @@ export class MarketplaceWritebackService {
       await this.markDone(row, 'skipped', 'Đơn thay thế không gắn yêu cầu đổi hàng của khách trên sàn.');
       return 'skipped';
     }
+    await this.markDone(row, 'sent', null);
+    return 'sent';
+  }
+
+  /**
+   * 22/10/2026 — Sự kiện của RIÊNG 1 đơn (người bán hủy / giao thiếu): gửi đúng đơn đó, kể cả
+   * khi đơn đã ở trạng thái hủy (chính sự kiện hủy cần báo cho khách).
+   */
+  private async processSingleOrder(
+    row: MarketplaceStatusOutboxDocument,
+    adapter: MarketplaceAdapter,
+    tokens: Map<string, string>,
+  ): Promise<'sent' | 'skipped'> {
+    const order = await this.orderModel
+      .findOne({ _id: row.order_id, platform: MarketplacePlatform.AURELLE, origin: { $ne: 'replacement' } })
+      .select('_id platform_order_id shop_id')
+      .lean();
+    if (!order || !adapter.updateOrderStatus) {
+      await this.markDone(row, 'skipped', 'Không phải đơn AURELLE để báo ngược.');
+      return 'skipped';
+    }
+    const token = await this.tokenFor(order.shop_id, tokens);
+    await adapter.updateOrderStatus(token, {
+      orderId: order.platform_order_id,
+      status: row.status,
+      eventTime: row.event_time,
+      reason: row.reason ?? undefined,
+      idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
+      items: row.shipped_items?.length ? row.shipped_items.map((i) => ({ sku: i.sku, shipped_quantity: i.shipped_quantity })) : undefined,
+    });
     await this.markDone(row, 'sent', null);
     return 'sent';
   }

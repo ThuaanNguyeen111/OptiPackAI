@@ -17,6 +17,7 @@ import { TransitionOrderGroupDto } from './dto/transition-order-group.dto';
 import { PickItemDto } from './dto/pick-item.dto';
 import { ReportMissingDto } from './dto/report-missing.dto';
 import { DecidePartialDto } from './dto/decide-partial.dto';
+import { SellerCancelOrderDto } from './dto/seller-cancel-order.dto';
 import { SetPriorityDto } from './dto/set-priority.dto';
 import { LinkOrderGroupDto } from './dto/link-order-group.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -404,6 +405,19 @@ export class OrderGroupsController {
       body.expected_version,
     );
     return buildOrderGroupResponse(this.orderGroupsService, group);
+  }
+
+  @Post('orders/:orderId/seller-cancel')
+  @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '22/10/2026 — Người bán hủy 1 đơn AURELLE khi hàng chưa rời kho (hết hàng, sai địa chỉ…). Nhóm tự trả hàng dư/tháo kiện/nhả giữ chỗ; website hiện "Người bán đã hủy đơn" + lý do, đơn đã thanh toán chuyển "đã hoàn tiền". 409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED: không phải đơn AURELLE / đã giao vận chuyển / đã hủy.',
+  })
+  async sellerCancel(
+    @Param('orderId') orderId: string,
+    @Body() body: SellerCancelOrderDto,
+  ) {
+    return this.orderGroupsService.sellerCancelOrder(orderId, body.reason);
   }
 
   @Post(':id/fulfillment/pick')

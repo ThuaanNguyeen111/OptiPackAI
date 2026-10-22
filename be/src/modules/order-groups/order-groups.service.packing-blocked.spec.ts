@@ -202,6 +202,10 @@ describe('Tự tính lại thiếu hàng khi có hàng về', () => {
     const findById = jest.fn((id: Types.ObjectId) => chain({ stock_shortage: id.equals(b) }));
     const service = makeService({ groupModel: { find, updateMany, findById } });
     const reconcile = jest.spyOn(service, 'reconcileReservation').mockResolvedValue(undefined);
+    jest.spyOn(service, 'getOrderCountsForGroups').mockResolvedValue(new Map([
+      [a.toString(), { activeOrderCount: 1, canceledOrderCount: 0 }],
+      [b.toString(), { activeOrderCount: 2, canceledOrderCount: 0 }],
+    ]));
 
     const stats = await service.recheckShortageGroups('test');
     expect(stats).toEqual({ checked: 2, resolved: 1, cleared: 2 });
@@ -212,6 +216,26 @@ describe('Tự tính lại thiếu hàng khi có hàng về', () => {
     expect(reconcile.mock.calls.map((c) => c[0])).toEqual([a.toString(), b.toString()]);
     const sorted = find.mock.results[0]?.value as { sort: jest.Mock };
     expect(sorted.sort).toHaveBeenCalledWith({ created_at: 1 });
+  });
+
+  it('nhóm mà mọi đơn đã hủy → xoá nhãn + nhả giữ chỗ, không tính lại', async () => {
+    const dead = new Types.ObjectId();
+    const updateOne = jest.fn().mockResolvedValue({});
+    const service = makeService({
+      groupModel: {
+        find: jest.fn(() => chain([{ _id: dead }])),
+        updateMany: jest.fn().mockResolvedValue({ modifiedCount: 0 }),
+        updateOne,
+      },
+    });
+    const reconcile = jest.spyOn(service, 'reconcileReservation').mockResolvedValue(undefined);
+    const release = jest.spyOn(service, 'releaseReservation').mockResolvedValue(0);
+    jest.spyOn(service, 'getOrderCountsForGroups').mockResolvedValue(new Map([[dead.toString(), { activeOrderCount: 0, canceledOrderCount: 1 }]]));
+    const stats = await service.recheckShortageGroups('test');
+    expect(stats).toEqual({ checked: 1, resolved: 0, cleared: 1 });
+    expect(reconcile).not.toHaveBeenCalled();
+    expect(release).toHaveBeenCalledWith(dead.toString());
+    expect(updateOne).toHaveBeenCalledWith({ _id: dead }, { $set: { stock_shortage: false, stock_shortage_items: [] } });
   });
 
   it('scheduleShortageRecheck: đang chạy thì xếp đúng 1 lượt nữa, không chạy chồng', async () => {
