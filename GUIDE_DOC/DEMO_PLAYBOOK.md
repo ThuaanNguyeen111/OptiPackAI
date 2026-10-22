@@ -185,6 +185,23 @@ Thông điệp: trả/đổi hàng đi đúng luồng thật — khách khởi t
 
 ---
 
+## 8b. Phần G — Người bán hủy đơn, giao thiếu, tồn khớp 2 bên (~4 phút)
+
+Chuẩn bị: như Phần F. 1 sản phẩm AURELLE có SKU đúng quy tắc, kho OptiPack còn **1** đơn vị của 1 SKU.
+
+| #  | Vai trò            | Thao tác | API | Kết quả cần thấy |
+| -- | ------------------ | -------- | --- | ---------------- |
+| G1 | Admin website (:3001/admin) | Thêm biến thể **chưa** có ở kho | `POST /storefront/admin/products` | Ô tồn có cảnh báo đỏ; trang sản phẩm hiện "Hết hàng" |
+| G2 | — | Chờ ≤ 1 phút | Đồng bộ catalog + đẩy tồn | OptiPack tự tạo SKU nội bộ cùng mã (nếu danh mục/màu hợp lệ), website hiện tồn kho OptiPack |
+| G3 | Khách | Đặt 2 đơn, mỗi đơn 1 cái SKU chỉ còn 1 | `POST /storefront/orders` | Đơn thứ 2 bị chặn `OUT_OF_STOCK` hoặc vào nhóm thiếu hàng |
+| G4 | Store Owner OptiPack | Chi tiết đơn AURELLE chưa giao → **Hủy đơn (người bán)** "Sản phẩm đã hết hàng" | `POST /order-groups/orders/:id/seller-cancel` | ≤ 1 phút website: "Người bán đã hủy" + lý do; tồn website trả lại |
+| G5 | Warehouse → Packaging | Đơn 2 sản phẩm, kho chỉ có 1 → báo thiếu → **Giao phần có sẵn** | `report-missing` → `decide-partial approve` | Website: dòng "Giao thiếu 1 — không tính tiền", "Giảm trừ do giao thiếu" |
+| G6 | Khách → Store/Kho | Trả hàng 1 sản phẩm → duyệt → nhận → kiểm | Luồng Phần F | Trang yêu cầu "Đã hoàn …₫"; đơn "Đã hoàn tiền một phần" |
+
+Thông điệp: website không bao giờ bán quá số kho OptiPack có; mọi quyết định của kho (hủy, giao thiếu, hoàn tiền) hiện lại cho khách đúng lý do và đúng số tiền.
+
+---
+
 ## 9. Kịch bản rút gọn trước hội đồng (~12 phút)
 
 | Thời gian     | Nội dung                                        | Các bước                                      |

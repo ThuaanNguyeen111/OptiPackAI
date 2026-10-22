@@ -216,3 +216,39 @@ Hàm dùng chung: `be/src/modules/storefront/aurelle-return-api.ts` (`applyExcha
 ### 11.3 Mã cũ / sản phẩm đã xoá
 - Xoá sản phẩm hoặc bỏ biến thể trên website = xoá mềm; Open API báo `Status: inactive` → OptiPack tự ẩn SKU đó khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối" và không đẩy tồn.
 - Dọn mã cũ ở kho: kiểm kê ô về 0 → bỏ gán khỏi kệ → (nếu cần) bấm "Ngừng dùng" SKU sàn (`PATCH /product-master/:id/retire`).
+
+## 12. Bổ sung 22/10/2026 (chiều) — 2 bên luôn khớp: tồn, hủy, giao thiếu, hoàn tiền, danh mục
+
+### 12.1 Tồn website chỉ lấy từ kho OptiPack
+- Website **chỉ bán** biến thể có tồn do kho OptiPack quản (`stock_source = optipack`: đã nối SKU nội bộ hoặc kho đã nhập). Biến thể website tự quản hiện **"Hết hàng"**, nút "Thêm vào giỏ" tắt, đặt hàng/đổi hàng trả `OUT_OF_STOCK`.
+- Admin website thấy cảnh báo đỏ dưới ô tồn: "Chưa nối kho OptiPack — khách thấy Hết hàng".
+- Tắt quy tắc (demo cũ): `STOREFRONT_REQUIRE_OPTIPACK_STOCK=false` trong `be/.env`.
+- SKU AURELLE đúng quy tắc mà OptiPack chưa có SKU nội bộ → OptiPack **tự tạo** SKU nội bộ (nếu danh mục/màu/size hợp lệ) rồi tự nối → lượt đẩy tồn kế tiếp mở bán.
+- SKU nội bộ bị vô hiệu ở OptiPack → website nhận tồn 0.
+
+### 12.2 Người bán hủy đơn
+1. Store Owner/Admin OptiPack mở chi tiết đơn AURELLE (chưa giao vận chuyển) → **Hủy đơn (người bán)** + lý do.
+2. OptiPack xử lý nhóm như đơn bị hủy; hàng đợi ghi ngược gửi `canceled_by_seller` (≤ 1 phút).
+3. Website: đơn "Người bán đã hủy", khung cam ghi lý do; đã thanh toán → "Đã hoàn tiền"; giữ chỗ tồn được nhả.
+4. Lượt đồng bộ đơn chạy trước khi website nhận tin cũng **không hồi sinh** đơn (nhận raw `seller_canceled`).
+
+### 12.3 Giao thiếu
+1. Kho báo thiếu → Packaging bấm "Giao phần có sẵn".
+2. OptiPack chia số đã lấy cho các đơn trong nhóm (đơn cũ trước); mỗi đơn AURELLE thiếu nhận `short_shipped` với số giao được theo SKU.
+3. Website: dòng hàng ghi "Giao thiếu N — không tính tiền", tóm tắt thanh toán có "Giảm trừ do giao thiếu"; giữ chỗ phần thiếu được nhả, lúc hàng rời kho chỉ trừ phần giao thật. Thiếu toàn bộ → coi như người bán hủy.
+
+### 12.4 Hoàn tiền khi trả hàng
+- Yêu cầu trả hàng `closed` → website tính tiền hoàn = đơn giá thực × số trả (đổi hàng = 0), ghi `refundAmount`, `refundedAt`; đơn cộng `refundedAmount`, trạng thái thanh toán "Đã hoàn tiền" / "Đã hoàn tiền một phần".
+- Trang yêu cầu hiện "Đã hoàn …₫".
+- Giao thất bại, kiện về kho (`returned`) → website cộng lại tồn đã trừ (1 lần).
+
+### 12.5 Danh mục website nối danh mục OptiPack
+- Admin website → cuối trang **Danh mục**: thêm/sửa/ẩn danh mục, chọn **Danh mục OptiPack (cấp 2)** cho từng danh mục.
+- Chọn danh mục đã nối khi tạo sản phẩm → mã danh mục SKU tự điền; chọn sai mã → báo lỗi.
+- Biến thể có thêm **kích thước kiện** (nặng/dài/rộng/cao) → OptiPack nhận làm số đo tham khảo của sàn.
+- Biến thể cũ chưa có đơn: chạy `npx ts-node -r dotenv/config scripts/normalize-storefront-variants.ts` (thêm `--apply` để ghi) → đổi sang SKU quy tắc. Sau đó ở OptiPack: SKU sàn cũ (nếu đã gán kệ) kiểm kê về 0 → bỏ gán → "Ngừng dùng".
+
+### 12.6 Ghi chú kiến trúc — website và OptiPack dùng chung 1 database
+- Website AURELLE (`storefront_*`) và OptiPack nằm **chung 1 MongoDB** và chung tiến trình BE (module `storefront`). Lý do: đồ án demo, 1 máy chủ.
+- Ranh giới vẫn giữ như 2 hệ thống thật: OptiPack **chỉ** đọc/ghi website qua Open API mock (`:4000`, ký HMAC) + webhook; website **chỉ đọc** 2 bảng tra cứu của OptiPack (`categories` cấp 2, `colors`) để dựng form SKU.
+- Ngoại lệ có chủ đích: khi tách 2 hệ thống thật, 2 bảng tra cứu trên phải chuyển thành API của OptiPack (VD `GET /open/sku-options`) và form Admin website gọi qua đó. Mọi luồng còn lại không đổi.

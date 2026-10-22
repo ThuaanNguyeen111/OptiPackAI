@@ -873,3 +873,25 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Webhook mới** `POST /marketplace/webhooks/aurelle` `message_type = product_updated`, `data.seller_skus[]` — website phát sau khi lưu biến thể mới; OptiPack kéo hồ sơ các SKU đó ngay.
 - **Đẩy tồn:** SKU AURELLE đã nối SKU nội bộ luôn được đẩy (kể cả kho = 0) → website và kho cùng số.
 - `GET /product-master`: thêm `marketplaceStatus`, `retired`; mặc định ẩn SKU sàn ngừng bán/ngừng dùng, `?include_retired=true` để xem hết. Cũng ẩn ở "SKU chưa gán", "SKU chưa nối", không đẩy tồn.
+
+## 22. 🆕 22/10/2026 (chiều) — Đồng bộ AURELLE ↔ OptiPack: người bán hủy, giao thiếu, hoàn tiền, danh mục, tồn chỉ từ kho
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 POST | `/order-groups/orders/:orderId/seller-cancel` | Store Owner, Admin | `{ reason }` — người bán hủy 1 đơn **AURELLE** chưa giao vận chuyển. Đơn `canceled` (raw `seller_canceled`), nhóm xử lý như đơn bị hủy, xếp hàng báo website `canceled_by_seller`. `404 ORD_GROUP_ORDER_NOT_FOUND`, `409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED` |
+| 🔄 GET | `/orders/:id` | Admin, Store Owner | Thêm `sellerCanceled`, `origin` |
+| 🔄 POST | `/order-groups/:id/fulfillment/decide-partial` | Packaging, Admin | `approve: true` → thêm: chia số đã lấy cho từng đơn (đơn cũ trước), mỗi đơn AURELLE bị thiếu được xếp hàng báo website `short_shipped` kèm `items[{ sku, shipped_quantity }]` |
+| 🆕 GET/POST | `/storefront/admin/categories` | Admin website AURELLE | Danh sách (kèm `skuCategoryCode`, `productCount`) / tạo danh mục website. Body `{ name, description?, parentId?, sortOrder?, isActive?, skuCategoryCode? }` — `skuCategoryCode` phải là danh mục cấp 2 đang dùng của OptiPack |
+| 🆕 PATCH | `/storefront/admin/categories/:id` | Admin website AURELLE | Sửa; đổi `skuCategoryCode` khi danh mục có sản phẩm mang mã khác → 409 |
+| 🆕 DELETE | `/storefront/admin/categories/:id` | Admin website AURELLE | **Ẩn** (soft). Còn sản phẩm đang bán → 409 |
+| 🔄 POST/PATCH | `/storefront/admin/products[/:id]` | Admin website AURELLE | `variants[]` thêm `weightKg`, `lengthCm`, `widthCm`, `heightCm` (null = xoá). Chọn danh mục website đã nối OptiPack → tự điền `skuCategoryCode`; khác mã → 400 |
+| 🔄 GET | `/storefront/products`, `/storefront/cart`, POST `/storefront/orders` | Khách | `availableQuantity` = **0** với SKU chưa do kho OptiPack quản (env `STOREFRONT_REQUIRE_OPTIPACK_STOCK`, mặc định `true`) → đặt hàng trả `OUT_OF_STOCK` |
+| 🔄 GET | `/storefront/orders[/:id]` | Khách | Thêm `cancelSource` (`customer`/`seller`), `cancelReason`, `shortRefundAmount`, `refundedAmount`; dòng hàng thêm `short_quantity`; `paymentStatus` thêm `partially_refunded` |
+| 🔄 GET | `/storefront/returns[/:id]` | Khách | Thêm `refundAmount`, `refundedAt` (ghi khi yêu cầu `closed`; đổi hàng = 0) |
+| 🔄 POST | mock `/rest/order/status/update` | Đối tác (OptiPack) | `status` thêm `short_shipped` (kèm `items` JSON) và `canceled_by_seller` (kèm `reason`) |
+| 🔄 GET | mock `/rest/products/get` | Đối tác | Nhận `update_after` (ISO 8601) — chỉ trả sản phẩm/biến thể sửa từ thời điểm đó |
+
+- **Tự tạo SKU nội bộ:** SKU AURELLE đúng quy tắc (`ATHUN-005-DEN-M`) mà OptiPack chưa có SKU nội bộ cùng mã → lúc đồng bộ catalog BE tự tạo (kiểm danh mục cấp 2 / thang size / màu như tạo tay; `created_by = system:auto-create`) rồi tự nối.
+- **SKU nội bộ bị vô hiệu** (`is_active = false`) → lượt đẩy tồn gửi **0** cho mọi SKU AURELLE nối với nó.
+- **Hoàn hàng về kho** (`returned`) → website cộng lại tồn phần đã trừ (1 lần, `stock_state: restocked`).
+- Script `be/scripts/normalize-storefront-variants.ts` (chạy thử mặc định, `--apply` để ghi): đổi biến thể cũ **chưa có đơn** sang SKU theo quy tắc.

@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 3.1 — 22/10/2026** (thêm mục 1b). **Phiên bản 3.0 — 21/10/2026.** Đối chiếu code FE trên `feature/thuan_be` (FE = `feature/viet_ui` commit `b00830e`, gộp ở AOFP-133) với **253 route BE**. Cách rà: so mọi đường dẫn FE gọi với route BE (cả 2 chiều), tìm hàm API khai báo mà không màn nào dùng, so danh sách trạng thái/loại thông báo FE với enum BE.
+> **Phiên bản 3.2 — 22/10/2026 chiều** (thêm mục 1d). **Phiên bản 3.1 — 22/10/2026** (thêm mục 1b). **Phiên bản 3.0 — 21/10/2026.** Đối chiếu code FE trên `feature/thuan_be` (FE = `feature/viet_ui` commit `b00830e`, gộp ở AOFP-133) với **253 route BE**. Cách rà: so mọi đường dẫn FE gọi với route BE (cả 2 chiều), tìm hàm API khai báo mà không màn nào dùng, so danh sách trạng thái/loại thông báo FE với enum BE.
 > File này **chỉ giữ việc chưa làm**. Việc đã xong gom ở [phụ lục ✅](#phụ-lục--đã-hoàn-thành-tóm-tắt) cuối file, mỗi việc 1 dòng.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -26,6 +26,9 @@
 | 13 | 🆕 22/10 — **Nghỉ phép nhân viên**: bật/tắt ở màn Nhân viên, khoá chọn người nghỉ khi phân công | 1b.6 | ~1 giờ |
 | 14 | 🆕 22/10 — Loại thông báo mới `packing_blocked` (nhãn + điều hướng) | 1b.7 | ~15 phút |
 | 15 | 🆕 22/10 — SKU sàn **ngừng bán / ngừng dùng**: nhãn + nút "Ngừng dùng" ở màn Sản phẩm, SKU tự nối | 1c | ~45 phút |
+| 16 | 🆕 22/10 (chiều) — Nút **"Hủy đơn (người bán)"** cho đơn AURELLE + chip "Người bán hủy" ở chi tiết đơn | 1d | ~1 giờ |
+| 17 | 🆕 22/10 (chiều) — Đổi chữ hộp **giao thiếu** ở màn đóng gói ("Giao phần có sẵn" + dòng giải thích) | 1d | ~10 phút |
+| 18 | 🆕 22/10 (chiều) — Chip **"Tự tạo từ AURELLE"** (SKU nội bộ) + **"Tự nối"** (liên kết) dùng `createdBy` mới; cảnh báo khi vô hiệu SKU nội bộ | 1d | ~30 phút |
 
 Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ thêm, chưa làm thì màn cũ vẫn chạy.
 
@@ -158,6 +161,51 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 2. Dòng có `marketplaceStatus = 'inactive'` → chip xám **"Sàn ngừng bán"**; `retired = true` → chip **"Ngừng dùng"**.
 3. Mỗi dòng có nút **"Ngừng dùng"** (khi `retired = false`) / **"Dùng lại"** (khi `true`) → gọi API → tải lại. Gợi ý cho mã cũ `SF-…` / mã mẫu của sản phẩm đã xoá bên AURELLE: gỡ khỏi kệ (kiểm kê ô về 0 → bỏ gán) rồi bấm "Ngừng dùng".
 4. Màn "Nối SKU": dòng liên kết `createdBy = 'system:auto-map'` hiện nhãn **"Tự nối (trùng mã)"**.
+
+---
+
+## 1d. 🆕 Mới 22/10/2026 (chiều) — Người bán hủy đơn AURELLE, giao thiếu, đồng bộ 2 bên
+
+> BE đã xong (AOFP-163..169). Website AURELLE (khách + Admin website) đã sửa — **không thuộc FE OptiPack**. FE OptiPack chỉ cần 2 việc dưới.
+
+**BE đổi gì (ảnh hưởng màn OptiPack):**
+- 🆕 `POST /order-groups/orders/:orderId/seller-cancel` (Store Owner, Admin), body `{ reason: string }` (1–300 ký tự, **khách thấy lý do này**). Chỉ đơn **AURELLE**, chưa giao cho vận chuyển. Trả `{ order_id, status: 'canceled' }`. Lỗi:
+  - `404 ORD_GROUP_ORDER_NOT_FOUND` — không có đơn.
+  - `409 ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED` — đơn Lazada / đơn thay thế đổi hàng / đã hủy / nhóm đã `shipped` trở đi. Hiện `message`.
+- Sau khi hủy: nhóm tự xử lý như đơn bị hủy (trả hàng dư về kệ, tháo kiện nếu đang đóng, nhả giữ chỗ — giống khách hủy). Website hiện **"Người bán đã hủy đơn" + lý do**, đơn đã thanh toán chuyển "Đã hoàn tiền".
+- `GET /orders/:id` thêm `sellerCanceled: boolean` và `origin: 'marketplace' | 'replacement'`.
+- **Giao thiếu:** khi Packaging Staff bấm **"Đồng ý đi tiếp với phần có sẵn"** (decide-partial `approve: true`), BE tự chia số đã lấy cho từng đơn (đơn cũ trước) và báo từng đơn AURELLE bị thiếu → website hiện "Kho giao thiếu N sản phẩm — không tính tiền". **Không đổi API**, chỉ cần đổi chữ cảnh báo.
+
+**Bước 1 — API** (`fe/src/api/orders.api.ts`, file đang gọi `GET /orders/:id`):
+1. Kiểu chi tiết đơn thêm `sellerCanceled: boolean`, `origin: 'marketplace' | 'replacement'`.
+2. Hàm mới:
+   ```ts
+   export async function sellerCancelOrder(orderId: string, reason: string) {
+     return apiRequest<{ order_id: string; status: 'canceled' }>(
+       `/order-groups/orders/${encodeURIComponent(orderId)}/seller-cancel`,
+       { method: 'POST', body: { reason }, auth: true },
+     )
+   }
+   ```
+
+**Bước 2 — màn chi tiết đơn** (`fe/src/pages/OrderDetailPage.tsx` và `fe/src/pages/AdminOrderDetailPage.tsx`):
+1. Hiện nút **"Hủy đơn (người bán)"** khi **đủ cả 4**: `platform === 'aurelle'`, `origin !== 'replacement'`, `status` thuộc `pending | unpaid | packed | ready_to_ship | topack | toship`, và vai trò là Store Owner / Admin.
+2. Bấm nút → mở hộp thoại: ô **"Lý do (khách sẽ thấy)"** bắt buộc, gợi ý sẵn 3 lựa chọn bấm nhanh: "Sản phẩm đã hết hàng", "Không liên hệ được người nhận", "Sai thông tin địa chỉ". Dòng cảnh báo: *"Khách sẽ nhận thông báo đơn bị người bán hủy. Không hoàn tác được."*
+3. Xác nhận → gọi `sellerCancelOrder` → thành công: toast "Đã hủy đơn, website đã được báo" → tải lại chi tiết đơn. 409 → hiện `message` trong hộp thoại.
+4. Đơn có `sellerCanceled = true` → chip đỏ **"Người bán hủy"** cạnh trạng thái (thay cho chip "Đã hủy" thường).
+5. (Tuỳ chọn) Danh sách đơn: chip giống bước 4 — cần `GET /orders` trả thêm field, hiện **chưa có**; bỏ qua.
+
+**Bước 3 — màn đóng gói, hộp quyết định giao thiếu** (`fe/src/components/packing/PackagingWorkbench.tsx`, chỗ gọi `decidePartialOrderGroup`):
+1. Đổi chữ nút "Đồng ý" thành **"Giao phần có sẵn"**.
+2. Thêm 1 dòng dưới nút: *"Đơn AURELLE bị thiếu sẽ được báo cho khách và không tính tiền phần thiếu. Đơn Lazada xử lý trên Seller Center."*
+
+**Bước 4 — màn SKU nội bộ / Nối SKU** (`fe/src/pages/admin-warehouse/CatalogPanels.tsx`, phần "SKU nội bộ" và "Nối SKU"):
+1. API `GET /master-skus` và danh sách liên kết nay trả thêm `createdBy` (BE sửa 22/10 chiều — trước đó **chưa trả**, nên việc 1c bước 2.4 chỉ làm được từ bản này). Thêm `createdBy: string` vào 2 kiểu dữ liệu.
+2. SKU nội bộ có `createdBy = 'system:auto-create'` → chip xanh **"Tự tạo từ AURELLE"**. Tên của SKU đó là tên sản phẩm bên website, kích thước để trống → nhắc kho bấm "Sửa" để đo bổ sung.
+3. Liên kết có `createdBy = 'system:auto-map'` → nhãn **"Tự nối (trùng mã)"** (chính là việc 1c bước 2.4).
+4. Nút **"Vô hiệu"** SKU nội bộ: thêm câu xác nhận *"Website AURELLE sẽ hiện Hết hàng cho mọi SKU nối với mã này (tồn đẩy sang = 0)."*
+
+**Bước 5 — (biết để giải thích, không cần sửa màn):** website AURELLE chỉ bán SKU do kho OptiPack quản. Store Owner hỏi "sao trên web hết hàng" → kiểm tra SKU sàn đó đã nối SKU nội bộ hoặc đã gán kệ/nhập kho chưa (màn "SKU chưa nối", "SKU chưa gán").
 
 ---
 

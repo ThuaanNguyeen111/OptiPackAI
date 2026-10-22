@@ -4340,12 +4340,28 @@ Tài liệu (AOFP-162): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 8–14) + mục 
 
 Tài liệu (AOFP-162): `FE_UPDATE_CHECKLIST.md` mục 1c, `API_LIST.md` mục 21, `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 11.
 
+### Đồng bộ AURELLE ↔ OptiPack — 11 việc từ đợt rà lệch (22/10/2026 chiều, AOFP-163..169 + tài liệu AOFP-170)
+
+**[stated] Thuận yêu cầu:** làm 12 mục rà lệch AURELLE–OptiPack **trừ mục 2** (chuyển 14 SKU cũ đã có đơn), sửa luôn FE website AURELLE cho đồng bộ. Quy tắc mới [stated]: Claude chỉ sửa BE + website AURELLE; FE OptiPack ghi vào `FE_UPDATE_CHECKLIST.md`.
+
+- **AOFP-163 (fix):** log "thiếu hàng" chỉ khi nhóm chuyển từ không thiếu → thiếu. Kèm theo (commit chung AOFP-166 vì cùng file `order-groups.service.ts`): dò lại thiếu hàng bỏ qua nhóm đã hủy hết đơn (xoá cờ + nhả giữ chỗ, không ném `ORD_GROUP_ALL_ORDERS_CANCELED`).
+- **AOFP-164 — phía website:** `sellableQuantity` (env `STOREFRONT_REQUIRE_OPTIPACK_STOCK`, mặc định true) → catalog/giỏ/đặt hàng/đổi hàng chỉ bán SKU `stock_source = optipack`. `applyPartnerStatusUpdate` nhận `canceled_by_seller` (hủy, `cancel_source/cancel_reason`, paid→refunded, nhả giữ chỗ) và `short_shipped` (`items[]` số giao được; `short_quantity` tuyệt đối từng dòng, nhả giữ chỗ phần thiếu, `short_refund_amount`; thiếu hết = hủy); `returned` → `restockReturnedOrder` (deducted→restocked). `deductOrderStock` chỉ trừ phần giao thật. Trả hàng `closed` → `refund_amount/refunded_at`, đơn `refunded_amount` + `refunded`/`partially_refunded`. Khách hủy ghi `cancel_source: customer`. Mock: `items` ở `/rest/order/status/update`, `update_after` ở `/rest/products/get`.
+- **AOFP-166 — phía OptiPack:** outbox thêm `order_id` + `shipped_items` (sự kiện riêng 1 đơn, khóa `ord:<id>:…`); writeback `processSingleOrder` gửi đúng đơn (kể cả đơn đã hủy) kèm `items`. `POST /order-groups/orders/:orderId/seller-cancel` (Store Owner/Admin, chỉ AURELLE, chưa giao vận chuyển) → đơn `canceled` + raw `seller_canceled` → `handleOrderBecameUnfulfillable`. Sync đơn không hồi sinh đơn có raw `seller_canceled`. `decidePartial(approve)` → `allocateShortage` (đơn cũ trước) → `short_shipped` cho đơn AURELLE thiếu. `GET /orders/:id` thêm `sellerCanceled`, `origin`. objectid-fields 104. `GET /master-skus` + danh sách liên kết trả thêm `createdBy` (trước đó checklist 1c dựa vào field này nhưng API chưa trả).
+- **AOFP-165:** `parseMasterSkuCode` + `autoCreateFromSellerSkus` — SKU AURELLE đúng quy tắc chưa có SKU nội bộ → tự tạo (kiểm danh mục cấp 2/thang size/màu, actor `system:auto-create`) trước khi tự nối. Đẩy tồn gửi 0 cho SKU nối SKU nội bộ `is_active=false`.
+- **AOFP-167 — website:** CRUD `/storefront/admin/categories` (ẩn = soft, nối `sku_category_code`, chặn đổi mã khi có sản phẩm mã khác); lưu sản phẩm theo danh mục đã nối → tự điền/kiểm `skuCategoryCode`; biến thể nhận kích thước kiện `weightKg/lengthCm/widthCm/heightCm`.
+- **AOFP-168 — FE website AURELLE:** chi tiết đơn (khung "Người bán đã hủy" + lý do, "Giao thiếu N — không tính tiền", giảm trừ, đã hoàn tiền), danh sách đơn hiện "Đã hủy/Người bán đã hủy", yêu cầu trả hiện "Đã hoàn …₫", trang sản phẩm "Hết hàng" + tắt nút, Admin: cảnh báo SKU chưa nối kho, ô kích thước kiện, quản lý danh mục (`components/admin/category-manager.tsx`), chọn danh mục tự điền mã SKU.
+- **AOFP-169:** `be/scripts/normalize-storefront-variants.ts` (chạy thử / `--apply`) — biến thể cũ chưa có đơn → SKU quy tắc (màu khớp tên bỏ dấu, size trong thang, cấp số mẫu kế tiếp).
+- **Verify:** BE tsc 0, eslint file đụng 0 lỗi, jest 8 shard đạt (+2 spec mới 14 test, +1 test writeback); storefront tsc 0; scripts tsc 0. Chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) Không migration bắt buộc; field mới có default; script chuẩn hoá biến thể là tuỳ chọn. (2) Đổi hành vi lớn: website **không bán** SKU chưa do kho OptiPack quản (đặt `STOREFRONT_REQUIRE_OPTIPACK_STOCK=false` để quay lại cách cũ). (3) FE OptiPack: checklist 1d (nút hủy đơn người bán, chip, chữ hộp giao thiếu). (4) Cần mock :4000 bản mới (status `short_shipped`/`canceled_by_seller`); mock cũ trả 400 → outbox thử lại rồi `failed`. (5) Rủi ro: AURELLE vẫn đọc chung DB `categories`/`colors` (ghi chú kiến trúc ở tài liệu AURELLE mục 12.6); chia giao thiếu theo đơn cũ trước có thể khác cách kho thật chọn.
+
+Tài liệu (AOFP-170): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 16–17) + 1d, `API_LIST.md` mục 22, `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 12, `DEMO_PLAYBOOK.md` Phần G, `be/.env.example`.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
 ### A. Làm ngay (người dùng tự chạy)
-1. AOFP-146..151 đã commit (22/10, chưa push). Commit tiếp AOFP-152..161 (code, mỗi việc 1 commit) + AOFP-162 (tài liệu) — lệnh pathspec gửi trong chat 22/10 — rồi push `feature/thuan_be`, mở PR vào `main`.
+1. AOFP-146..162 đã commit (22/10, chưa push). Commit tiếp AOFP-163..169 (code) + AOFP-170 (tài liệu) — lệnh gửi trong chat 22/10 chiều — rồi push `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại mock :4000.
 2. Trước khi khởi động backend bản mới: `npx ts-node -r dotenv/config scripts/check-open-return-duplicates.ts` (chỉ đọc). Có phiếu trả mở trùng → hủy/từ chối phiếu thừa, nếu không index `uniq_open_return_per_order` không tạo được.
 3. Script dữ liệu chưa ghi nhận đã chạy trên DB thật (chạy thử trước, rồi `--apply`): `fix-storefront-reservations.ts`, `migrate-objectid-fields.ts` (bắt buộc), `recompute-consolidation-keys.ts`, `migrate-unify-packaging-materials.ts`.
 4. Chạy thử trọn 1 đơn AURELLE thật: BE 3000 + mock 4000 + storefront 3001 → đặt hàng → lấy → đóng → giao (GHN giả lập) → khách trả/đổi/hủy yêu cầu.
