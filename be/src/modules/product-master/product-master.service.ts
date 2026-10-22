@@ -266,8 +266,26 @@ export class ProductMasterService {
       }));
     if (bulkOps.length === 0) return 0;
     const result = await this.productMasterModel.bulkWrite(bulkOps);
+    // 22/10/2026 — AURELLE đặt SKU đúng quy tắc mà OptiPack chưa có SKU nội bộ → tự tạo trước khi nối.
+    if (platform === MarketplacePlatform.AURELLE) {
+      await this.autoCreateMasters(rawProducts);
+    }
     await this.autoMap(platform, shopId, skus.filter((sku) => sku.Status !== 'inactive').map((sku) => sku.SellerSku));
     return result.upsertedCount + result.modifiedCount;
+  }
+
+  private async autoCreateMasters(rawProducts: LazadaProductRaw[]): Promise<void> {
+    if (!this.masterSkusService) return;
+    try {
+      await this.masterSkusService.autoCreateFromSellerSkus(
+        rawProducts.flatMap((product) =>
+          product.skus
+            .filter((sku) => Boolean(sku.SellerSku) && sku.Status !== 'inactive')
+            .map((sku) => ({ sellerSku: sku.SellerSku, name: product.attributes?.name ?? null }))),
+      );
+    } catch (error: unknown) {
+      this.logger.warn(`Tự tạo SKU nội bộ từ AURELLE thất bại: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** 22/10/2026 — tự nối SKU sàn với SKU nội bộ cùng mã (best-effort, không chặn đồng bộ). */

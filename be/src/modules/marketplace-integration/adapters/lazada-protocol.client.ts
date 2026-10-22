@@ -145,6 +145,8 @@ interface LazadaProductSkuRaw {
 export interface LazadaProductRaw {
   item_id: string;
   skus: LazadaProductSkuRaw[];
+  /** 22/10/2026 — tên sản phẩm (dùng đặt tên SKU nội bộ tự tạo từ AURELLE). */
+  attributes?: { name?: string };
 }
 
 interface LazadaGetProductsResponse {

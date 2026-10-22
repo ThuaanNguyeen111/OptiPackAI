@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { MarketplaceIntegrationService } from '../marketplace-integration/marketplace-integration.service';
@@ -9,6 +9,7 @@ import {
 } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
 import { ACTIVE_SELLER_SKU_FILTER, ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { StockReservationService } from '../order-groups/stock-reservation.service';
+import { MasterSku, MasterSkuDocument } from '../master-skus/schemas/master-sku.schema';
 
 /** Số SKU mỗi lần gọi `/product/stock/sellable/update` (Lazada khuyến nghị ≤ 20). */
 const PUSH_CHUNK = 20;
@@ -49,6 +50,8 @@ export class MarketplaceStockPushService {
     private readonly adapters: Partial<Record<MarketplacePlatform, MarketplaceAdapter>>,
     private readonly marketplaceIntegrationService: MarketplaceIntegrationService,
     private readonly stockReservationService: StockReservationService,
+    // 22/10/2026 — SKU nội bộ bị vô hiệu → đẩy 0 để website ngừng bán. @Optional cho spec cũ.
+    @Optional() @InjectModel(MasterSku.name) private readonly masterSkuModel?: Model<MasterSkuDocument>,
   ) {}
 
   /** `force` = bỏ qua bộ nhớ "đã đẩy", gửi lại mọi SKU managed (nút đồng bộ ngay). */
@@ -59,6 +62,11 @@ export class MarketplaceStockPushService {
     if (!adapter?.updateSellableQuantity) return result;
 
     const shops = await this.marketplaceIntegrationService.listConnectedShops(platform);
+    const inactiveMasters = new Set(
+      this.masterSkuModel
+        ? (await this.masterSkuModel.find({ is_active: false }).select('master_sku').lean()).map((m) => m.master_sku)
+        : [],
+    );
     for (const shop of shops) {
       try {
         const skus = await this.productMasterModel
@@ -73,11 +81,13 @@ export class MarketplaceStockPushService {
             result.unmanaged += 1;
             continue;
           }
-          if (!options.force && this.lastPushed.get(`${shop.shop_id}|${sellerSku}`) === stock.available) {
+          // 22/10/2026 — SKU nội bộ đã vô hiệu (ngừng kinh doanh) → website bán được 0.
+          const quantity = stock.masterSku && inactiveMasters.has(stock.masterSku) ? 0 : stock.available;
+          if (!options.force && this.lastPushed.get(`${shop.shop_id}|${sellerSku}`) === quantity) {
             result.unchanged += 1;
             continue;
           }
-          changes.push({ sellerSku, quantity: stock.available });
+          changes.push({ sellerSku, quantity });
         }
         if (changes.length === 0) continue;
 

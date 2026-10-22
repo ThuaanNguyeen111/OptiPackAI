@@ -29,6 +29,18 @@ export function buildMasterSkuCode(p: { category_code: string; model_no: number;
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
 }
 
+/** 22/10/2026 — tách mã theo quy tắc `{DANH MỤC}-{3 số mẫu}-{MÀU}-{SIZE}`; sai dạng → null. */
+export function parseMasterSkuCode(code: string): { category_code: string; model_no: number; color_code: string; size: string } | null {
+  const m = /^([A-Z0-9]{2,12})-(\d{3})-([A-Z]{2,10})-([A-Z0-9.]{1,6})$/.exec(code.trim().toUpperCase());
+  if (!m) return null;
+  const modelNo = Number(m[2]);
+  if (modelNo < 1) return null;
+  return { category_code: m[1] ?? '', model_no: modelNo, color_code: m[3] ?? '', size: m[4] ?? '' };
+}
+
+/** 22/10/2026 — người tạo của SKU nội bộ tự sinh từ SKU AURELLE đúng quy tắc. */
+export const AUTO_CREATE_ACTOR = 'system:auto-create';
+
 /** 22/10/2026 — người tạo của liên kết SKU tự nối (sổ cái ghi actor này). */
 export const AUTO_MAP_ACTOR = 'system:auto-map';
 
@@ -181,6 +193,51 @@ export class MasterSkusService {
       }
     }
     return created;
+  }
+
+  /**
+   * 22/10/2026 — SKU AURELLE đặt ĐÚNG quy tắc OptiPack mà OptiPack chưa có SKU nội bộ cùng mã
+   * → tự tạo SKU nội bộ (danh mục/màu/size phải hợp lệ như tạo tay; sai thì chỉ log, để Admin
+   * tạo/nối tay). Sau đó `autoMapSellerSkus` nối như thường. Trả số SKU nội bộ đã tạo.
+   */
+  async autoCreateFromSellerSkus(items: { sellerSku: string; name?: string | null }[]): Promise<number> {
+    const wanted = new Map<string, { parsed: NonNullable<ReturnType<typeof parseMasterSkuCode>>; name: string }>();
+    for (const item of items) {
+      const parsed = parseMasterSkuCode(item.sellerSku);
+      if (parsed) wanted.set(buildMasterSkuCode(parsed), { parsed, name: item.name?.trim() ? item.name.trim() : item.sellerSku });
+    }
+    if (wanted.size === 0) return 0;
+    const existing = await this.skuModel.find({ master_sku: { $in: [...wanted.keys()] } }).select('master_sku').lean();
+    for (const row of existing) wanted.delete(row.master_sku);
+    let created = 0;
+    for (const [code, { parsed, name }] of wanted) {
+      try {
+        await this.assertRuleParts(parsed); // cùng luật với create(): danh mục/size/màu hợp lệ
+        await this.skuModel.create({
+          master_sku: code,
+          ...parsed,
+          name,
+          gender: 'unisex',
+          is_fragile: false,
+          created_by: AUTO_CREATE_ACTOR,
+        });
+        created += 1;
+        this.logger.log(`Tự tạo SKU nội bộ ${code} từ SKU AURELLE đúng quy tắc.`);
+      } catch (error: unknown) {
+        if (this.isDup(error)) continue;
+        this.logger.warn(`Không tự tạo được SKU nội bộ ${code}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return created;
+  }
+
+  /** Danh mục cấp 2 còn hoạt động, size thuộc thang size, màu còn hoạt động (luật của `create`). */
+  private async assertRuleParts(p: { category_code: string; color_code: string; size: string }): Promise<void> {
+    const category = await this.categoriesService.getActiveLevel2(p.category_code);
+    if (!category.size_scale.includes(p.size)) {
+      this.fail(E.SIZE_NOT_IN_SCALE, `Size "${p.size}" không thuộc thang size của "${category.code}".`, HttpStatus.BAD_REQUEST);
+    }
+    await this.assertActiveColor(p.color_code);
   }
 
   /** 22/10/2026 — SKU nội bộ vừa tạo: nối mọi SKU sàn đã đồng bộ về có CÙNG mã. */
