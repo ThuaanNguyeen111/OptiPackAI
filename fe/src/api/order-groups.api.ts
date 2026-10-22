@@ -186,6 +186,7 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
       row.linked_group_count,
     ),
     origin: pickString(row.origin) || 'marketplace',
+    warehouseId: pickString(row.warehouseId, row.warehouse_id) || null,
     orders: mapGroupOrders(row.orders),
     version: pickNumber(row.version, row.__v),
     createdAt,
