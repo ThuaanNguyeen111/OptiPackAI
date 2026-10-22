@@ -6,7 +6,7 @@ import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
 import { Category, CategoryDocument } from '../categories/schemas/category.schema';
 import { Color, ColorDocument } from '../master-skus/schemas/color.schema';
 import { buildMasterSkuCode } from '../master-skus/master-skus.service';
-import { SaveAdminProductDto } from './dto/storefront-admin.dto';
+import { SaveAdminCategoryDto, SaveAdminProductDto } from './dto/storefront-admin.dto';
 import {
   StorefrontCategory, StorefrontCategoryDocument, StorefrontInventoryStock, StorefrontInventoryStockDocument,
   StorefrontProduct, StorefrontProductDocument, StorefrontProductVariant, StorefrontProductVariantDocument,
@@ -15,6 +15,18 @@ import {
 export type AdminCatalogProduct = Awaited<ReturnType<CatalogService['shape']>>;
 
 /** 22/10/2026 — lựa chọn để ghép SKU theo quy tắc OptiPack trên form Admin website. */
+export interface AdminCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  parentId: string | null;
+  sortOrder: number;
+  isActive: boolean;
+  skuCategoryCode: string | null;
+  productCount: number;
+}
+
 export interface SkuOptions {
   rule: string;
   categories: { code: string; name: string; parentCode: string | null; sizes: string[] }[];
@@ -100,8 +112,16 @@ export class StorefrontAdminService {
               .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 100) || 'san-pham'}-${productId.toHexString()}`,
           });
         if (!product) throw new NotFoundException('Không tìm thấy sản phẩm');
-        if (dto.categoryId && !await this.categories.exists({ _id: dto.categoryId, is_active: true }).session(session)) {
-          throw new BadRequestException('Danh mục không tồn tại hoặc đã bị ẩn');
+        if (dto.categoryId) {
+          const category = await this.categories.findOne({ _id: dto.categoryId, is_active: true }).session(session).lean();
+          if (!category) throw new BadRequestException('Danh mục không tồn tại hoặc đã bị ẩn');
+          // 22/10/2026 — danh mục website đã nối danh mục OptiPack → phần đầu SKU phải trùng.
+          const linked = category.sku_category_code;
+          if (linked && !dto.skuCategoryCode && !product.sku_category_code) dto.skuCategoryCode = linked;
+          const effective = dto.skuCategoryCode ?? product.sku_category_code ?? null;
+          if (linked && effective && effective !== linked) {
+            throw new BadRequestException(`Danh mục "${category.name}" ứng với mã OptiPack ${linked} — mã SKU của sản phẩm đang là ${effective}. Chọn đúng danh mục hoặc đúng mã.`);
+          }
         }
 
         const existing = await this.variants.find({ product_id: productId, is_active: true }).session(session);
@@ -164,6 +184,11 @@ export class StorefrontAdminService {
             variant_name: [color, size].filter(Boolean).join(' / ') || 'Mặc định',
             price: input.price, is_default: defaultId ? variant.id === defaultId : index === 0,
           });
+          // 22/10/2026 — kích thước kiện (undefined = giữ nguyên, null = xoá).
+          if (input.weightKg !== undefined) variant.set('weight_kg', input.weightKg);
+          if (input.lengthCm !== undefined) variant.set('length_cm', input.lengthCm);
+          if (input.widthCm !== undefined) variant.set('width_cm', input.widthCm);
+          if (input.heightCm !== undefined) variant.set('height_cm', input.heightCm);
           await variant.save({ session });
           // (21/10/2026, phương án A) Tồn của SKU đã nối kho OptiPack do OptiPack đẩy sang —
           // bỏ qua số Admin nhập, tránh 2 nơi cùng sửa rồi ghi đè lẫn nhau.
@@ -246,6 +271,83 @@ export class StorefrontAdminService {
       colorName,
       size,
     };
+  }
+
+  // ------------------------------------------------ danh mục website (22/10/2026)
+
+  async listCategories(): Promise<AdminCategory[]> {
+    const [rows, counts] = await Promise.all([
+      this.categories.find().sort({ sort_order: 1, name: 1 }).lean(),
+      this.products.aggregate<{ _id: Types.ObjectId | null; n: number }>([
+        { $match: { deleted_at: null } },
+        { $group: { _id: '$category_id', n: { $sum: 1 } } },
+      ]),
+    ]);
+    const countBy = new Map(counts.map((c) => [String(c._id), c.n]));
+    return rows.map((c) => ({
+      id: c._id.toString(),
+      name: c.name,
+      slug: c.slug,
+      description: c.description,
+      parentId: c.parent_id?.toString() ?? null,
+      sortOrder: c.sort_order,
+      isActive: c.is_active,
+      skuCategoryCode: c.sku_category_code ?? null,
+      productCount: countBy.get(c._id.toString()) ?? 0,
+    }));
+  }
+
+  async saveCategory(dto: SaveAdminCategoryDto, id?: string): Promise<AdminCategory> {
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Tên danh mục không được để trống');
+    const categoryId = id ? this.objectId(id) : new Types.ObjectId();
+    const doc = id
+      ? await this.categories.findById(categoryId)
+      : new this.categories({
+        _id: categoryId,
+        slug: `${name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[đĐ]/g, 'd')
+          .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'danh-muc'}-${categoryId.toHexString().slice(-6)}`,
+      });
+    if (!doc) throw new NotFoundException('Không tìm thấy danh mục');
+    if (dto.parentId !== undefined && dto.parentId !== null) {
+      if (dto.parentId === categoryId.toHexString()) throw new BadRequestException('Danh mục không thể là cha của chính nó');
+      if (!await this.categories.exists({ _id: dto.parentId })) throw new BadRequestException('Danh mục cha không tồn tại');
+    }
+    if (dto.skuCategoryCode !== undefined && dto.skuCategoryCode !== null) {
+      const ok = await this.skuCategories.exists({ code: dto.skuCategoryCode, level: 2, is_active: true });
+      if (!ok) throw new BadRequestException(`"${dto.skuCategoryCode}" không phải danh mục cấp 2 đang dùng của OptiPack.`);
+      // Đổi liên kết khi đã có sản phẩm mang mã khác → lệch SKU, chặn.
+      if (id) {
+        const clash = await this.products.exists({
+          category_id: categoryId, deleted_at: null,
+          sku_category_code: { $nin: [null, dto.skuCategoryCode] },
+        });
+        if (clash) throw new ConflictException('Danh mục đang có sản phẩm mang mã OptiPack khác — chuyển các sản phẩm đó sang danh mục khác trước.');
+      }
+    }
+    doc.set({
+      name,
+      ...(dto.description !== undefined && { description: dto.description }),
+      ...(dto.parentId !== undefined && { parent_id: dto.parentId ? new Types.ObjectId(dto.parentId) : null }),
+      ...(dto.sortOrder !== undefined && { sort_order: dto.sortOrder }),
+      ...(dto.isActive !== undefined && { is_active: dto.isActive }),
+      ...(dto.skuCategoryCode !== undefined && { sku_category_code: dto.skuCategoryCode }),
+    });
+    await doc.save();
+    const all = await this.listCategories();
+    const saved = all.find((c) => c.id === categoryId.toHexString());
+    if (!saved) throw new NotFoundException('Không tìm thấy danh mục');
+    return saved;
+  }
+
+  /** Ẩn danh mục (không xoá cứng — đơn/sản phẩm cũ vẫn tham chiếu). Còn sản phẩm đang bán thì chặn. */
+  async removeCategory(id: string): Promise<{ message: string }> {
+    const categoryId = this.objectId(id);
+    const used = await this.products.exists({ category_id: categoryId, deleted_at: null, status: 'active' });
+    if (used) throw new ConflictException('Danh mục còn sản phẩm đang bán — chuyển hoặc ẩn sản phẩm trước.');
+    const updated = await this.categories.updateOne({ _id: categoryId }, { $set: { is_active: false } });
+    if (updated.matchedCount === 0) throw new NotFoundException('Không tìm thấy danh mục');
+    return { message: 'Đã ẩn danh mục' };
   }
 
   async remove(id: string): Promise<{ message: string }> {

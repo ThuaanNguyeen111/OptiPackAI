@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt,
-  IsMongoId, IsOptional, IsString, Matches, Max, MaxLength, Min, ValidateNested,
+  IsMongoId, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested,
 } from 'class-validator';
 
 export class AdminVariantDto {
@@ -12,6 +12,22 @@ export class AdminVariantDto {
   @IsOptional() @Matches(/^[A-Z]{2,10}$/, { message: 'colorCode là mã màu OptiPack 2-10 chữ hoa' }) colorCode?: string;
   @IsInt() @Min(0) price!: number;
   @IsInt() @Min(0) quantityOnHand!: number;
+  /** 22/10/2026 — kích thước/khối lượng kiện (OptiPack kéo về làm số đo tham khảo). null = xoá. */
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsNumber({ maxDecimalPlaces: 3 }) @Min(0) @Max(1000) weightKg?: number | null;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(500) lengthCm?: number | null;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(500) widthCm?: number | null;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(500) heightCm?: number | null;
+}
+
+/** 22/10/2026 — danh mục hiển thị của website; nối danh mục cấp 2 OptiPack để SKU không lệch. */
+export class SaveAdminCategoryDto {
+  @IsString() @MinLength(1) @MaxLength(100) name!: string;
+  @IsOptional() @IsString() @MaxLength(1000) description?: string;
+  @IsOptional() @ValidateIf((_o, v) => v !== null) @IsMongoId() parentId?: string | null;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(9999) sortOrder?: number;
+  @IsOptional() @IsBoolean() isActive?: boolean;
+  @IsOptional() @ValidateIf((_o, v) => v !== null)
+  @Matches(/^[A-Z0-9]{2,12}$/, { message: 'skuCategoryCode là mã danh mục cấp 2 OptiPack' }) skuCategoryCode?: string | null;
 }
 
 export class SaveAdminProductDto {

@@ -16,6 +16,7 @@ import { AurelleWebhookPublisher } from './aurelle-webhook.publisher';
 import { StorefrontAdminAuthController } from './storefront-admin-auth.controller';
 import { StorefrontAdminAuthService } from './storefront-admin-auth.service';
 import { StorefrontAdminController } from './storefront-admin.controller';
+import { StorefrontAdminCategoriesController } from './storefront-admin-categories.controller';
 import { StorefrontAdminGuard, StorefrontAdminOriginGuard } from './storefront-admin.guard';
 import { StorefrontAdminService } from './storefront-admin.service';
 import { StorefrontImagesController } from './storefront-images.controller';
@@ -35,7 +36,7 @@ import { Color, ColorSchema } from '../master-skus/schemas/color.schema';
     { name: Category.name, schema: CategorySchema },
     { name: Color.name, schema: ColorSchema },
   ])],
-  controllers: [StorefrontController, CustomerAuthController, StorefrontAdminAuthController, StorefrontAdminController, StorefrontImagesController],
+  controllers: [StorefrontController, CustomerAuthController, StorefrontAdminAuthController, StorefrontAdminController, StorefrontAdminCategoriesController, StorefrontImagesController],
   providers: [CatalogService, CustomerAuthService, CustomerJwtStrategy, StorefrontOrdersService, StorefrontReturnsService, StorefrontCartService, StorefrontSeedService, AurelleWebhookPublisher, StorefrontAdminAuthService, StorefrontAdminGuard, StorefrontAdminOriginGuard, StorefrontAdminService],
 })
 export class StorefrontModule {}
