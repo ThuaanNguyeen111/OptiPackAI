@@ -94,7 +94,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       fields: ['warehouse_id', 'bin_location_id'],
     },
   },
-  { collection: 'marketplace_shops', fields: ['connected_by'] },
+  { collection: 'marketplace_shops', fields: ['connected_by', 'disconnected_by'] }, // disconnected_by: 22/10/2026
   {
     collection: 'notifications',
     fields: ['recipient_user_id', 'related_entity_id'],
