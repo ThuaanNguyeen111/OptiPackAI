@@ -488,6 +488,7 @@ export class ReturnsService {
       await this.updateReturnGroup(rma, GroupFulfillmentStatus.CANCELED, session);
       return updated;
     });
+    this.recheckShortagesSoon('kiểm hàng hoàn');
     // Đổi hàng: kiểm hàng xong -> tạo đơn thay thế. Lỗi ở bước này KHÔNG hủy kết quả
     // kiểm hàng (đã lưu) — phiếu ghi replacement_status "failed", bấm tạo lại được.
     if (closed.type === ReturnType.EXCHANGE) {
@@ -586,7 +587,7 @@ export class ReturnsService {
       this.fail(RETURN_ERROR_CODES.BIN_REQUIRED, 'Nhập lại kho phải chọn kho và ô.', HttpStatus.BAD_REQUEST);
     }
     const key = `inspection.${String(lineIndex)}`;
-    return this.runTx(async (session) => {
+    const resolved = await this.runTx(async (session) => {
       if (dto.action === 'restock' && dto.warehouse_id && dto.bin_location_id) {
         await this.warehouseService.restockReturnedItem({
           warehouseId: dto.warehouse_id, binLocationId: dto.bin_location_id, platform: rma.platform, shopId: rma.shop_id,
@@ -601,6 +602,17 @@ export class ReturnsService {
       if (!updated) this.fail(RETURN_ERROR_CODES.QUARANTINE_ALREADY_RESOLVED, 'Dòng cách ly vừa được người khác xử lý.', HttpStatus.CONFLICT);
       return updated;
     });
+    if (dto.action === 'restock') this.recheckShortagesSoon('hàng cách ly nhập lại kho');
+    return resolved;
+  }
+
+  /** 22/10/2026 — hàng hoàn vừa vào kệ → nhóm đang thiếu đúng hàng đó tự tính lại giữ chỗ (không chặn). */
+  private recheckShortagesSoon(trigger: string): void {
+    try {
+      this.orderGroupsService.scheduleShortageRecheck(trigger);
+    } catch (error) {
+      this.logger.warn(`Không xếp được lượt tính lại thiếu hàng (${trigger}).`, error);
+    }
   }
 
   // ------------------------------------------------------------ nội bộ
