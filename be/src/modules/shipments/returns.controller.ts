@@ -1,16 +1,18 @@
 import { ListReturnsQueryDto } from './dto/list-query.dto';
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpStatus, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { ReturnsService } from './returns.service';
 import { ReturnRequestDocument } from './schemas/return-request.schema';
 import { InspectionResult, RETURN_REASON_LABELS, ReturnReason, ReturnStatus } from './enums/return.enums';
-import { CreateReturnDto, InspectReturnDto, ResolveQuarantineDto, ReturnActionDto } from './dto/return.dto';
+import { InspectReturnDto, ResolveQuarantineDto, ReturnActionDto } from './dto/return.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { AppException } from '../../common/exceptions/app-exception';
+import { RETURN_ERROR_CODES } from './returns.errors';
 
 function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
   return {
@@ -124,11 +126,24 @@ export class ReturnsController {
     return toReturnResponse(await this.returnsService.get(id));
   }
 
+  /**
+   * 22/10/2026 — BỎ giả lập trả hàng cho MỌI sàn (Lazada lẫn AURELLE). Phiếu trả/đổi
+   * chỉ còn 2 nguồn: (1) khách tự gửi trên website AURELLE → tự đồng bộ về
+   * (createFromMarketplace), (2) giao thất bại → hệ thống tự tạo phiếu hoàn
+   * (createFromFailedDelivery). Route giữ lại để FE cũ nhận lỗi rõ ràng thay vì 404.
+   */
   @Post()
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '[Admin] Tạo phiếu trong 15 ngày từ lúc giao. return_refund trả đủ nhóm (cộng dồn phiếu đã đóng) → nhóm returning, phiếu requested.' })
-  async create(@Body() dto: CreateReturnDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
-    return toReturnResponse(await this.returnsService.createSimulated(dto, user.userId));
+  @ApiOperation({
+    summary:
+      '[ĐÃ TẮT 22/10/2026] 410 RMA_SIMULATION_DISABLED — không còn giả lập trả hàng. Phiếu trả/đổi chỉ đến từ khách trên AURELLE hoặc tự tạo khi giao thất bại.',
+  })
+  create(): never {
+    throw new AppException(
+      RETURN_ERROR_CODES.SIMULATION_DISABLED,
+      'Đã bỏ giả lập trả hàng. Khách tự gửi yêu cầu trả/đổi trên website AURELLE, phiếu tự hiện ở danh sách; giao thất bại thì hệ thống tự tạo phiếu hoàn.',
+      HttpStatus.GONE,
+    );
   }
 
   @Post(':id/approve')
