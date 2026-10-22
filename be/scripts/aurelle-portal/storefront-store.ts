@@ -164,6 +164,8 @@ export async function listProducts(
   sellerSkus: string[] | null,
   offset: number,
   limit: number,
+  /** 22/10/2026 — như Lazada `update_after`: chỉ sản phẩm (hoặc biến thể) sửa từ thời điểm này. */
+  updateAfter: Date | null = null,
 ): Promise<{ total_products: string; products: OpenApiProduct[] }> {
   const variantFilter = sellerSkus && sellerSkus.length > 0
     ? { sku: { $in: sellerSkus.map((sku) => sku.toUpperCase()) } }
@@ -175,9 +177,20 @@ export async function listProducts(
   const productIds = [...new Set(allVariants.map((v) => v.product_id.toString()))]
     .map((id) => new mongoose.Types.ObjectId(id));
   const productCollection = db().collection('storefront_products');
-  const total = productIds.length;
+  let productFilter: Record<string, unknown> = { _id: { $in: productIds } };
+  if (updateAfter) {
+    const changedByVariant = [...new Set(allVariants
+      .filter((v) => (v as { updated_at?: Date }).updated_at instanceof Date
+        && ((v as { updated_at?: Date }).updated_at as Date).getTime() >= updateAfter.getTime())
+      .map((v) => v.product_id.toString()))].map((id) => new mongoose.Types.ObjectId(id));
+    productFilter = {
+      _id: { $in: productIds },
+      $or: [{ updated_at: { $gte: updateAfter } }, { _id: { $in: changedByVariant } }],
+    };
+  }
+  const total = await productCollection.countDocuments(productFilter);
   const products = (await productCollection
-    .find({ _id: { $in: productIds } })
+    .find(productFilter)
     .sort({ _id: 1 })
     .skip(offset)
     .limit(limit)
@@ -234,6 +247,8 @@ export async function applyStatusUpdate(input: StatusUpdateInput): Promise<Statu
         items: db().collection('storefront_order_items'),
         stocks: db().collection('storefront_inventory_stocks'),
       },
+      // 22/10/2026 — giao thiếu ghi `short_quantity` từng dòng
+      orderItems: db().collection('storefront_order_items'),
     },
     input,
   );
@@ -285,6 +300,9 @@ export async function applyReturnUpdate(input: ReturnUpdateInput): Promise<Retur
       returns: db().collection('storefront_return_requests') as unknown as MinimalCollection,
       events: db().collection('storefront_order_events') as unknown as MinimalCollection,
       castId: (id) => new mongoose.Types.ObjectId(id),
+      // 22/10/2026 — `closed` ghi tiền hoàn + trạng thái thanh toán của đơn
+      orders: db().collection('storefront_orders') as unknown as MinimalCollection,
+      orderItems: db().collection('storefront_order_items'),
     },
     input,
   );

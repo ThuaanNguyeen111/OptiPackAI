@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { requireOptipackStock } from './storefront-stock.util';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { SF_ERROR_CODES, sfError } from './storefront.errors';
@@ -245,7 +246,9 @@ export class StorefrontReturnsService {
       if (!variant?.is_active || !products.has(variant.product_id.toString())) {
         return this.exchangeInvalid(`Không đổi sang "${sku}" được — chỉ đổi sang size/màu khác của chính sản phẩm bạn trả.`);
       }
-      if ((available.get(variant._id.toString()) ?? 0) < quantity) {
+      // 22/10/2026 — hàng đổi giao từ kho OptiPack → SKU phải do OptiPack quản
+      const unmanaged = requireOptipackStock() && variant.stock_source !== 'optipack';
+      if (unmanaged || (available.get(variant._id.toString()) ?? 0) < quantity) {
         throw new BadRequestException(sfError(SF_ERROR_CODES.OUT_OF_STOCK, `"${variant.variant_name}" (${sku}) không còn đủ hàng để đổi.`));
       }
     }
@@ -325,6 +328,9 @@ export class StorefrontReturnsService {
       customerNote: doc.customer_note,
       rmaCode: doc.rma_code,
       decisionNote: doc.decision_note,
+      // 22/10/2026 — số tiền hoàn khi yêu cầu hoàn tất (null = chưa hoàn tất / đổi hàng = 0)
+      refundAmount: doc.refund_amount ?? null,
+      refundedAt: doc.refunded_at ?? null,
       createdAt: doc.created_at ?? new Date(0),
       updatedAt: doc.updated_at ?? new Date(0),
     };

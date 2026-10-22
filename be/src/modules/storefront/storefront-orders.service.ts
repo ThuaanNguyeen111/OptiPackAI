@@ -31,6 +31,7 @@ import { toOpenApiStatus } from './aurelle-open-api.mapper';
 import { STOREFRONT_RETURN_LABELS } from './aurelle-return-api';
 import { nextPublicOrderId, type CounterCollection } from './storefront-counter.util';
 import { calculateOrderTotal } from './storefront-pricing';
+import { sellableQuantity } from './storefront-stock.util';
 
 @Injectable()
 export class StorefrontOrdersService {
@@ -94,7 +95,8 @@ export class StorefrontOrdersService {
       const variant = variants.find((candidate) => candidate.id === input.variant_id);
       if (!variant) throw new NotFoundException(sfError(SF_ERROR_CODES.VARIANT_NOT_FOUND, 'Không tìm thấy biến thể'));
       const stock = stockMap.get(variant.id);
-      const available = (stock?.quantity_on_hand ?? 0) - (stock?.reserved_quantity ?? 0);
+      // 22/10/2026 — chỉ bán SKU có tồn do kho OptiPack quản (xem `sellableQuantity`).
+      const available = sellableQuantity(variant, stock);
       if (available < input.quantity) throw new BadRequestException(sfError(SF_ERROR_CODES.OUT_OF_STOCK, `SKU ${variant.sku} không đủ tồn kho`));
       const product = productMap.get(variant.product_id.toString());
       if (!product) throw new NotFoundException(sfError(SF_ERROR_CODES.PRODUCT_NOT_FOUND, 'Không tìm thấy sản phẩm'));
@@ -222,7 +224,7 @@ export class StorefrontOrdersService {
       { ...filter, status: 'pending', fulfillment_status: 'awaiting_packaging' },
       // stock_state released (21/10/2026): đơn còn chờ đóng gói chắc chắn chưa trừ tồn
       // thực → chỉ trả giữ chỗ (vòng $inc bên dưới) và đánh dấu để bước "rời kho" không trừ nữa.
-      { $set: { status: 'cancelled', stock_state: 'released' } },
+      { $set: { status: 'cancelled', stock_state: 'released', cancel_source: 'customer' } },
       { returnDocument: 'after' },
     );
     if (!cancelled) {
@@ -277,6 +279,12 @@ export class StorefrontOrdersService {
       currency: order.currency,
       createdAt: order.created_at ?? new Date(0),
       publicOrderId: order.public_order_id,
+      // 22/10/2026 — ai hủy (khách / người bán), lý do, tiền giảm trừ do giao thiếu, tiền đã hoàn
+      cancelSource: order.cancel_source ?? null,
+      cancelReason: order.cancel_reason ?? null,
+      // `as` — đơn cũ chưa có field (schema có default nhưng document cũ thì không)
+      shortRefundAmount: (order.short_refund_amount as number | undefined) ?? 0,
+      refundedAmount: (order.refunded_amount as number | undefined) ?? 0,
     };
   }
 

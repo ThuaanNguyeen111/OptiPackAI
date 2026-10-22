@@ -41,8 +41,8 @@ function build(options: { cancelled?: Record<string, unknown> | null; exists?: b
   const publisher = { notifyReturnRequested: jest.fn(), notifyReturnCanceled: jest.fn() };
   const variantModel = {
     find: jest.fn(() => lean([
-      { _id: variantAoL, sku: 'AO-L', product_id: productAo, is_active: options.variantActive ?? true, variant_name: 'Áo size L', color: null, size: 'L' },
-      { _id: variantQuan, sku: 'QUAN-31', product_id: productQuan, is_active: true, variant_name: 'Quần 31', color: null, size: '31' },
+      { _id: variantAoL, sku: 'AO-L', product_id: productAo, is_active: options.variantActive ?? true, variant_name: 'Áo size L', color: null, size: 'L', stock_source: 'optipack' },
+      { _id: variantQuan, sku: 'QUAN-31', product_id: productQuan, is_active: true, variant_name: 'Quần 31', color: null, size: '31', stock_source: 'optipack' },
     ])),
   };
   const stockModel = { find: jest.fn(() => lean([{ variant_id: variantAoL, quantity_on_hand: options.stock ?? 5, reserved_quantity: 1 }])) };

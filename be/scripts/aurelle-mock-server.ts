@@ -271,7 +271,14 @@ app.get('/rest/products/get', async (req: Request, res: Response) => {
     }
   }
   try {
-    res.json(envelope(await listProducts(skus, queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER), queryInt(req, 'limit', 50, 50) || 50)));
+    // 22/10/2026 — `update_after` (ISO 8601) như Lazada: chỉ trả sản phẩm sửa từ thời điểm đó.
+    const rawAfter = queryString(req, 'update_after');
+    const updateAfter = rawAfter ? new Date(rawAfter) : null;
+    if (updateAfter && Number.isNaN(updateAfter.getTime())) {
+      res.status(400).json(errorEnvelope('InvalidParameter', 'update_after phải là ISO 8601.'));
+      return;
+    }
+    res.json(envelope(await listProducts(skus, queryInt(req, 'offset', 0, Number.MAX_SAFE_INTEGER), queryInt(req, 'limit', 50, 50) || 50, updateAfter)));
   } catch (error) {
     sendServerError(res, error);
   }
@@ -286,6 +293,22 @@ app.post('/rest/order/acknowledge', (req: Request, res: Response) => {
 
 // Mục 7.8 — GHI THẬT từ 20/10/2026: cập nhật `storefront_orders`/`storefront_shipments` và
 // thêm hành trình vào `storefront_order_events`. Idempotent theo `idempotency_key`.
+/** 22/10/2026 — `items` (giao thiếu) có thể là chuỗi JSON (form) hoặc mảng (JSON body). */
+function parseShippedItems(raw: unknown): { sku: string; shipped_quantity: number }[] | undefined {
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!Array.isArray(value)) return undefined;
+  return value
+    .filter((i): i is { sku: string; shipped_quantity: unknown } => typeof (i as { sku?: unknown }).sku === 'string')
+    .map((i) => ({ sku: i.sku, shipped_quantity: Number(i.shipped_quantity) || 0 }));
+}
+
 app.post('/rest/order/status/update', async (req: Request, res: Response) => {
   if (!requireValidSignature(req, res)) return;
   if (!requireValidAccessToken(req, res)) return;
@@ -315,6 +338,7 @@ app.post('/rest/order/status/update', async (req: Request, res: Response) => {
       carrier: typeof body.carrier === 'string' ? body.carrier : null,
       reason: typeof body.reason === 'string' ? body.reason : null,
       idempotencyKey,
+      items: parseShippedItems(body.items),
     });
     if (!result) {
       res.status(404).json(errorEnvelope('ResourceNotFound', `Không có đơn "${String(orderId)}".`));

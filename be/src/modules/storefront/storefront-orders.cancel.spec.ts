@@ -56,7 +56,7 @@ describe('StorefrontOrdersService.cancel', () => {
     const [filter, update] = findOneAndUpdate.mock.calls[0] as [Record<string, unknown>, { $set: Record<string, unknown> }];
     expect(filter).toMatchObject({ status: 'pending', fulfillment_status: 'awaiting_packaging' });
     expect(String(filter.customer_id)).toBe(customerId);
-    expect(update.$set).toEqual({ status: 'cancelled', stock_state: 'released' });
+    expect(update.$set).toEqual({ status: 'cancelled', stock_state: 'released', cancel_source: 'customer' });
   });
 
   it('trả lại đúng số tồn đã giữ của từng món, ghi hành trình của khách, báo OptiPack', async () => {

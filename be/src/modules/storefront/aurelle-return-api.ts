@@ -123,6 +123,61 @@ export interface ReturnUpdateCollections {
   events: MinimalCollection;
   /** Đổi chuỗi id thành khóa của collection (collection thô cần ObjectId). Mặc định giữ nguyên. */
   castId?: (id: string) => unknown;
+  /** 22/10/2026 — có thì `closed` ghi số tiền hoàn vào yêu cầu + cập nhật thanh toán của đơn. */
+  orders?: MinimalCollection;
+  orderItems?: { find(filter: Record<string, unknown>): { toArray(): Promise<unknown[]> } };
+}
+
+interface RefundLine {
+  sku_snapshot: string;
+  quantity: number;
+  line_total: number;
+}
+
+/**
+ * 22/10/2026 — Tiền hoàn của 1 yêu cầu = đơn giá thực từng dòng (line_total / quantity) × số trả.
+ * Đổi hàng → 0 (khách nhận hàng thay thế, không hoàn tiền).
+ */
+export function computeReturnRefund(
+  type: StorefrontReturnLike['type'],
+  items: { sku: string; quantity: number }[],
+  lines: RefundLine[],
+): number {
+  if (type === 'exchange') return 0;
+  let total = 0;
+  for (const item of items) {
+    const line = lines.find((l) => l.sku_snapshot.trim().toUpperCase() === item.sku.trim().toUpperCase());
+    if (!line || line.quantity <= 0) continue;
+    total += Math.round((line.line_total / line.quantity) * Math.min(item.quantity, line.quantity));
+  }
+  return total;
+}
+
+async function settleRefund(cols: ReturnUpdateCollections, doc: Record<string, unknown>, set: Record<string, unknown>): Promise<void> {
+  if (!cols.orders || !cols.orderItems || !doc.order_id) return;
+  const lines = (await cols.orderItems.find({ order_id: doc.order_id }).toArray()) as RefundLine[];
+  const amount = computeReturnRefund(
+    doc.type as StorefrontReturnLike['type'],
+    (doc.items as { sku: string; quantity: number }[] | undefined) ?? [],
+    lines,
+  );
+  set.refund_amount = amount;
+  if (amount <= 0) return;
+  set.refunded_at = new Date();
+  const order = await cols.orders.findOne({ _id: doc.order_id });
+  if (!order) return;
+  const refunded = Number(order.refunded_amount ?? 0) + amount;
+  const total = Number(order.total_amount ?? order.grand_total ?? 0);
+  await cols.orders.updateOne(
+    { _id: doc.order_id },
+    {
+      $set: {
+        refunded_amount: refunded,
+        payment_status: total > 0 && refunded >= total ? 'refunded' : 'partially_refunded',
+        updated_at: new Date(),
+      },
+    },
+  );
 }
 
 /** Trạng thái hợp lệ kế tiếp — chặn sự kiện sai thứ tự (VD `received` khi đã `closed`). */
@@ -186,6 +241,7 @@ export async function applyPartnerReturnUpdate(
   };
   if (input.rmaCode) set.rma_code = input.rmaCode;
   if (input.decisionNote) set.decision_note = input.decisionNote;
+  if (input.status === 'closed') await settleRefund(cols, doc, set);
   await cols.returns.updateOne({ _id: doc._id }, { $set: set });
   return result(true);
 }
