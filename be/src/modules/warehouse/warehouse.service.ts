@@ -601,7 +601,6 @@ export class WarehouseService {
       group.platform,
       group.shop_id,
       skus,
-      masters,
     );
     const warehouseObjectId = Types.ObjectId.isValid(warehouseId)
       ? new Types.ObjectId(warehouseId)

@@ -58,21 +58,6 @@ export type SkuMappingRecord = {
   masterSku: string
 }
 
-export type UnmappedSellerSku = {
-  platform: string
-  shop_id: string
-  seller_sku: string
-}
-
-export type UnpooledStockRow = {
-  assignmentId: string
-  sellerSku: string
-  shopId: string
-  platform: string
-  quantityOnHand: number
-  binLocationId: string
-}
-
 export type ProductMasterRow = {
   id: string
   platform: string
@@ -146,20 +131,6 @@ function mapMasterSku(raw: unknown): MasterSkuRecord | null {
     isFragile: row.isFragile === true || row.is_fragile === true,
     isActive: row.isActive !== false && row.is_active !== false,
     replacedBy: pickString(row.replacedBy, row.replaced_by) || null,
-  }
-}
-
-function mapMapping(raw: unknown): SkuMappingRecord | null {
-  const row = asRecord(raw)
-  if (!row) return null
-  const id = pickString(row.id, row._id)
-  if (!id) return null
-  return {
-    id,
-    platform: pickString(row.platform),
-    shopId: pickString(row.shopId, row.shop_id),
-    sellerSku: pickString(row.sellerSku, row.seller_sku),
-    masterSku: pickString(row.masterSku, row.master_sku),
   }
 }
 
@@ -281,30 +252,6 @@ export async function updateMasterSku(
   return saved
 }
 
-export async function replaceMasterSku(
-  code: string,
-  input: {
-    category_code?: string
-    model_no?: number
-    color_code?: string
-    size?: string
-    reason: string
-  },
-): Promise<{ newSku: string; movedMappings: number }> {
-  const res = asRecord(
-    await apiRequest<unknown>(`/master-skus/${encodeURIComponent(code)}/replace`, {
-      method: 'POST',
-      body: input,
-      auth: true,
-    }),
-  )
-  const next = mapMasterSku(res?.newSku)
-  return {
-    newSku: next?.masterSku ?? '',
-    movedMappings: pickNumber(res?.movedMappings) ?? 0,
-  }
-}
-
 export async function purgeMasterSku(code: string): Promise<void> {
   await apiRequest<unknown>(`/master-skus/${encodeURIComponent(code)}/permanent`, {
     method: 'DELETE',
@@ -319,89 +266,6 @@ export async function setMasterSkuActive(code: string, active: boolean): Promise
       : `/master-skus/${encodeURIComponent(code)}`,
     { method: active ? 'POST' : 'DELETE', auth: true },
   )
-}
-
-export async function listSkuMappings(code: string): Promise<SkuMappingRecord[]> {
-  const res = await apiRequest<unknown>(
-    `/master-skus/${encodeURIComponent(code)}/mappings`,
-    { auth: true },
-  )
-  if (!Array.isArray(res)) return []
-  return res.map(mapMapping).filter((row): row is SkuMappingRecord => row !== null)
-}
-
-export async function createSkuMapping(
-  code: string,
-  input: { platform: string; shop_id: string; seller_sku: string },
-): Promise<void> {
-  await apiRequest<unknown>(`/master-skus/${encodeURIComponent(code)}/mappings`, {
-    method: 'POST',
-    body: input,
-    auth: true,
-  })
-}
-
-export async function deleteSkuMapping(id: string): Promise<void> {
-  await apiRequest<unknown>(`/master-skus/mappings/${id}`, {
-    method: 'DELETE',
-    auth: true,
-  })
-}
-
-export async function listUnmappedSellerSkus(): Promise<UnmappedSellerSku[]> {
-  const res = await apiRequest<unknown>('/master-skus/unmapped-seller-skus', { auth: true })
-  if (!Array.isArray(res)) return []
-  return res.flatMap((raw) => {
-    const row = asRecord(raw)
-    if (!row) return []
-    const seller_sku = pickString(row.seller_sku, row.sellerSku)
-    const shop_id = pickString(row.shop_id, row.shopId)
-    if (!seller_sku || !shop_id) return []
-    return [{ platform: pickString(row.platform) || 'lazada', shop_id, seller_sku }]
-  })
-}
-
-export async function listUnpooledStock(): Promise<{
-  notMapped: UnpooledStockRow[]
-  mappedNotSynced: UnpooledStockRow[]
-}> {
-  const res = asRecord(await apiRequest<unknown>('/master-skus/unpooled-stock', { auth: true }))
-  const mapRows = (value: unknown): UnpooledStockRow[] => {
-    if (!Array.isArray(value)) return []
-    return value.flatMap((raw) => {
-      const row = asRecord(raw)
-      if (!row) return []
-      return [
-        {
-          assignmentId: pickString(row.assignmentId, row.assignment_id),
-          sellerSku: pickString(row.sellerSku, row.seller_sku),
-          shopId: pickString(row.shopId, row.shop_id),
-          platform: pickString(row.platform),
-          quantityOnHand: pickNumber(row.quantityOnHand, row.quantity_on_hand) ?? 0,
-          binLocationId: pickString(row.binLocationId, row.bin_location_id),
-        },
-      ]
-    })
-  }
-  return {
-    notMapped: mapRows(res?.notMapped),
-    mappedNotSynced: mapRows(res?.mappedNotSynced),
-  }
-}
-
-export async function syncPooledStock(): Promise<{
-  mappings: number
-  tagged: number
-  merged: number
-}> {
-  const res = asRecord(
-    await apiRequest<unknown>('/master-skus/sync-stock', { method: 'POST', auth: true }),
-  )
-  return {
-    mappings: pickNumber(res?.mappings) ?? 0,
-    tagged: pickNumber(res?.tagged) ?? 0,
-    merged: pickNumber(res?.merged) ?? 0,
-  }
 }
 
 export async function syncProductCatalog(input: {

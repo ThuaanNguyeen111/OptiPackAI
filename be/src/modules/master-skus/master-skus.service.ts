@@ -1,6 +1,6 @@
-import { HttpStatus, Injectable, Optional } from '@nestjs/common';
-import { InjectConnection, InjectModel } from '@nestjs/mongoose';
-import { ClientSession, Connection, Model, Types } from 'mongoose';
+import { HttpStatus, Injectable } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { ClientSession, Model } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { CategoriesService } from '../categories/categories.service';
 import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
@@ -8,14 +8,12 @@ import { Color, ColorDocument } from './schemas/color.schema';
 import { MasterSku, MasterSkuDocument } from './schemas/master-sku.schema';
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from './schemas/marketplace-sku-mapping.schema';
 import {
-  CreateColorDto, CreateMappingDto, CreateMasterSkuDto, ReplaceMasterSkuDto, UpdateColorDto, UpdateMasterSkuDto,
+  CreateColorDto, CreateMasterSkuDto, UpdateColorDto, UpdateMasterSkuDto,
 } from './dto/master-sku.dto';
 import { MASTER_SKU_ERROR_CODES as E } from './master-skus.errors';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { SkuBinAssignment, SkuBinAssignmentDocument } from '../warehouse/schemas/sku-bin-assignment.schema';
 import { InventoryMovement, InventoryMovementDocument } from '../warehouse/schemas/inventory-movement.schema';
-import { StockLot, StockLotDocument } from '../warehouse/schemas/stock-lot.schema';
-import { StockLotLedger } from '../warehouse/stock-lot.ledger';
 
 export function buildMasterSkuCode(p: { category_code: string; model_no: number; color_code: string; size: string }): string {
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
@@ -43,17 +41,10 @@ export class MasterSkusService {
     @InjectModel(MarketplaceSkuMapping.name) private readonly mappingModel: Model<MarketplaceSkuMappingDocument>,
     @InjectModel(ProductMaster.name) private readonly productMasterModel: Model<ProductMasterDocument>,
     private readonly categoriesService: CategoriesService,
-    @InjectConnection() private readonly connection: Connection,
     // K4b — gắn nhãn / gộp tồn khi nối SKU
     @InjectModel(SkuBinAssignment.name) private readonly assignmentModel: Model<SkuBinAssignmentDocument>,
     @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>,
-    // 15/10/2026 — lô hàng đi theo dòng tồn khi gộp/đổi nhãn SKU nội bộ.
-    @Optional() @InjectModel(StockLot.name) stockLotModel?: Model<StockLotDocument>,
-  ) {
-    this.lots = new StockLotLedger(stockLotModel);
-  }
-
-  private readonly lots: StockLotLedger;
+  ) {}
 
   // ------------------------------------------------------------ màu
 
@@ -194,159 +185,11 @@ export class MasterSkusService {
   }
 
 
-  /**
-   * THAY THẾ SKU — cách duy nhất để "sửa" mã đã đặt sai: tạo SKU mới (giữ tên/kích
-   * thước), chuyển mọi liên kết SKU sàn sang SKU mới, khóa SKU cũ + replaced_by.
-   * 1 transaction. Lịch sử cũ nguyên vẹn, tra SKU cũ vẫn biết đã thay bằng gì.
-   */
-  async replace(code: string, dto: ReplaceMasterSkuDto, actorId: string): Promise<{ oldSku: MasterSkuDocument; newSku: MasterSkuDocument; movedMappings: number }> {
-    const old = await this.get(code);
-    if (!old.is_active) this.fail(E.INACTIVE, `SKU "${code}" đã bị vô hiệu hóa/thay thế.`, HttpStatus.CONFLICT);
-    const next = {
-      category_code: dto.category_code ?? old.category_code,
-      model_no: dto.model_no ?? old.model_no,
-      color_code: dto.color_code ?? old.color_code,
-      size: dto.size ?? old.size,
-    };
-    if (buildMasterSkuCode(next) === code) this.fail(E.REPLACE_SAME, 'SKU mới trùng SKU cũ — phải đổi ít nhất 1 thành phần.', HttpStatus.BAD_REQUEST);
-
-    return this.runTx(async (session) => {
-      const newSku = await this.create({
-        ...next,
-        name: old.name,
-        gender: old.gender,
-        length_cm: old.length_cm ?? undefined,
-        width_cm: old.width_cm ?? undefined,
-        height_cm: old.height_cm ?? undefined,
-        weight_kg: old.weight_kg ?? undefined,
-        is_fragile: old.is_fragile,
-      }, actorId, session);
-      const moved = await this.mappingModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
-      // K4b — tồn đang gắn nhãn SKU cũ chuyển sang SKU mới (không đổi số lượng).
-      await this.assignmentModel.updateMany({ master_sku: code }, { $set: { master_sku: newSku.master_sku } }, { session });
-      await this.lots.relabel({ master_sku: code }, newSku.master_sku, session);
-      const oldSku = await this.skuModel.findOneAndUpdate(
-        { master_sku: code, is_active: true },
-        { $set: { is_active: false, replaced_by: newSku.master_sku } },
-        { returnDocument: 'after', session },
-      );
-      if (!oldSku) this.fail(E.INACTIVE, `SKU "${code}" vừa bị người khác thay đổi.`, HttpStatus.CONFLICT);
-      return { oldSku, newSku, movedMappings: moved.modifiedCount };
-    });
-  }
-
   // ------------------------------------------------------- nối SKU sàn
-
-  async createMapping(code: string, dto: CreateMappingDto, actorId: string): Promise<MarketplaceSkuMappingDocument> {
-    const sku = await this.get(code);
-    if (!sku.is_active) this.fail(E.INACTIVE, `SKU nội bộ "${code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT);
-    // Chỉ nối SKU sàn ĐÃ ĐỒNG BỘ về — không cho gõ tay mã chưa từng thấy.
-    const synced = await this.productMasterModel.findOne({ platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku }).select('_id').lean();
-    if (!synced) {
-      this.fail(E.SELLER_SKU_UNKNOWN, `SKU "${dto.seller_sku}" chưa từng đồng bộ về từ ${dto.platform}/${dto.shop_id} — kiểm tra lại mã hoặc chờ đồng bộ.`, HttpStatus.BAD_REQUEST);
-    }
-    const normalized = normalizeSellerSku(dto.seller_sku);
-    const existing = await this.mappingModel.findOne({ platform: dto.platform, shop_id: dto.shop_id, seller_sku_normalized: normalized });
-    if (existing) {
-      this.fail(E.ALREADY_MAPPED, `SKU sàn "${dto.seller_sku}" đã nối với "${existing.master_sku}" — bỏ nối trước nếu muốn đổi.`, HttpStatus.CONFLICT);
-    }
-    try {
-      // K4b — nối + gắn nhãn/gộp tồn trong CÙNG transaction: hoặc cả 2 xong, hoặc không gì.
-      return await this.runTx(async (session) => {
-        const [mapping] = await this.mappingModel.create([{ platform: dto.platform, shop_id: dto.shop_id, seller_sku: dto.seller_sku, seller_sku_normalized: normalized, master_sku: code, created_by: actorId }], { session });
-        if (!mapping) throw new Error('Tạo liên kết không trả về document');
-        await this.tagStockForMapping(dto.platform, dto.shop_id, dto.seller_sku, code, actorId, session);
-        return mapping;
-      });
-    } catch (error: unknown) {
-      if (this.isDup(error)) this.fail(E.ALREADY_MAPPED, `SKU sàn "${dto.seller_sku}" vừa được nối.`, HttpStatus.CONFLICT);
-      throw error;
-    }
-  }
 
   async listMappings(code: string): Promise<MarketplaceSkuMappingDocument[]> {
     await this.get(code);
     return this.mappingModel.find({ master_sku: code }).sort({ platform: 1, shop_id: 1 });
-  }
-
-  /**
-   * K4b — Bỏ nối. Tồn đã GỘP CHUNG dưới SKU nội bộ thì không tách ngược được (không
-   * biết cái nào của sàn nào) -> chặn khi SKU nội bộ còn hàng. Bỏ liên kết CUỐI CÙNG
-   * thì gỡ nhãn các dòng tồn (đều đã = 0) để quay về cách tính theo SKU sàn.
-   */
-  async deleteMapping(id: string): Promise<void> {
-    if (!Types.ObjectId.isValid(id)) this.fail(E.MAPPING_NOT_FOUND, `"${id}" không đúng định dạng ObjectId.`, HttpStatus.BAD_REQUEST);
-    const mapping = await this.mappingModel.findById(id);
-    if (!mapping) this.fail(E.MAPPING_NOT_FOUND, 'Không tìm thấy liên kết.', HttpStatus.NOT_FOUND);
-    const pooled = await this.pooledUnits(mapping.master_sku);
-    if (pooled > 0) {
-      this.fail(E.HAS_POOLED_STOCK, `SKU nội bộ "${mapping.master_sku}" đang giữ ${String(pooled)} đơn vị tồn gộp chung — chuyển/kiểm kê về 0 trước khi bỏ nối.`, HttpStatus.CONFLICT);
-    }
-    await this.runTx(async (session) => {
-      await this.mappingModel.deleteOne({ _id: mapping._id }, { session });
-      const left = await this.mappingModel.countDocuments({ master_sku: mapping.master_sku }).session(session);
-      if (left === 0) {
-        await this.assignmentModel.updateMany({ master_sku: mapping.master_sku }, { $set: { master_sku: null } }, { session });
-        await this.lots.relabel({ master_sku: mapping.master_sku }, null, session);
-      }
-    });
-  }
-
-  /** K4b — tổng tồn đang gắn nhãn 1 SKU nội bộ (mọi kho, mọi ô). */
-  async pooledUnits(masterSku: string): Promise<number> {
-    const [row] = await this.assignmentModel.aggregate<{ total: number }>([
-      { $match: { master_sku: masterSku } },
-      { $group: { _id: null, total: { $sum: '$quantity_on_hand' } } },
-    ]);
-    return row?.total ?? 0;
-  }
-
-  /**
-   * K4b — gắn nhãn SKU nội bộ cho các dòng tồn của 1 SKU sàn vừa nối. Nếu ô đó ĐÃ có
-   * dòng tồn của SKU nội bộ này (từ sàn khác) -> GỘP số lượng vào dòng đó, ghi 2 dòng
-   * sổ cái (ref "sku_merge") rồi xóa dòng cũ. Idempotent: dòng đã gắn nhãn bị bỏ qua.
-   */
-  private async tagStockForMapping(platform: MarketplacePlatform, shopId: string, sellerSku: string, masterSku: string, actorId: string, session: ClientSession): Promise<{ tagged: number; merged: number }> {
-    const exact = new RegExp(`^${sellerSku.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-    const rows = await this.assignmentModel.find({ platform, shop_id: shopId, seller_sku: exact, master_sku: null }).session(session);
-    let tagged = 0;
-    let merged = 0;
-    for (const row of rows) {
-      const pooled = await this.assignmentModel.findOne({ warehouse_id: row.warehouse_id, bin_location_id: row.bin_location_id, master_sku: masterSku }).session(session);
-      if (!pooled) {
-        await this.assignmentModel.updateOne({ _id: row._id }, { $set: { master_sku: masterSku } }, { session });
-        await this.lots.relabel({ assignment_id: row._id }, masterSku, session);
-        tagged++;
-        continue;
-      }
-      const qty = row.quantity_on_hand;
-      // 15/10/2026 — lô của dòng cũ chuyển sang dòng gộp, giữ ngày nhập (FIFO không đổi).
-      await this.lots.moveAll(row, qty, pooled, pooled.quantity_on_hand, session);
-      if (qty > 0) {
-        await this.assignmentModel.updateOne({ _id: pooled._id }, { $inc: { quantity_on_hand: qty } }, { session });
-        const base = { warehouse_id: row.warehouse_id, bin_location_id: row.bin_location_id, master_sku: masterSku, reason_code: null, ref_type: 'sku_merge', ref_id: masterSku, actor_id: actorId, created_at: new Date() };
-        await this.movementModel.create([
-          { ...base, assignment_id: row._id, platform: row.platform, shop_id: row.shop_id, seller_sku: row.seller_sku, type: 'transfer_out', delta: -qty, quantity_before: qty, quantity_after: 0, note: `Gộp tồn vào SKU nội bộ ${masterSku}` },
-          { ...base, assignment_id: pooled._id, platform: pooled.platform, shop_id: pooled.shop_id, seller_sku: pooled.seller_sku, type: 'transfer_in', delta: qty, quantity_before: pooled.quantity_on_hand, quantity_after: pooled.quantity_on_hand + qty, note: `Gộp từ ${row.platform}/${row.shop_id}/${row.seller_sku}` },
-        ], { session, ordered: true });
-      }
-      await this.assignmentModel.deleteOne({ _id: row._id }, { session });
-      merged++;
-    }
-    return { tagged, merged };
-  }
-
-  /** K4b — chạy lại gắn nhãn cho MỌI liên kết (dành cho liên kết tạo trước K4b). Idempotent. */
-  async syncStockForAllMappings(actorId: string): Promise<{ mappings: number; tagged: number; merged: number }> {
-    const all = await this.mappingModel.find().lean();
-    let tagged = 0;
-    let merged = 0;
-    for (const m of all) {
-      const r = await this.runTx((session) => this.tagStockForMapping(m.platform, m.shop_id, m.seller_sku, m.master_sku, actorId, session));
-      tagged += r.tagged;
-      merged += r.merged;
-    }
-    return { mappings: all.length, tagged, merged };
   }
 
   /** K4b — dòng tồn > 0 CHƯA tính theo SKU nội bộ: chưa nối, hoặc đã nối mà chưa đồng bộ. */
@@ -389,18 +232,5 @@ export class MasterSkusService {
 
   private fail(code: string, message: string, status: HttpStatus): never {
     throw new AppException(code, message, status);
-  }
-
-  private async runTx<T>(work: (session: ClientSession) => Promise<T>): Promise<T> {
-    const session = await this.connection.startSession();
-    try {
-      let result: T | undefined;
-      await session.withTransaction(async () => {
-        result = await work(session);
-      });
-      return result as T;
-    } finally {
-      await session.endSession();
-    }
   }
 }

@@ -5,7 +5,7 @@ import { ColorDocument } from './schemas/color.schema';
 import { MasterSkuDocument } from './schemas/master-sku.schema';
 import { MarketplaceSkuMappingDocument } from './schemas/marketplace-sku-mapping.schema';
 import {
-  CreateColorDto, CreateMappingDto, CreateMasterSkuDto, ReplaceMasterSkuDto, UpdateColorDto, UpdateMasterSkuDto,
+  CreateColorDto, CreateMasterSkuDto, UpdateColorDto, UpdateMasterSkuDto,
 } from './dto/master-sku.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -66,13 +66,6 @@ export class MasterSkusController {
   @ApiOperation({ summary: '🆕 K4b — Dòng tồn > 0 CHƯA tính theo SKU nội bộ: notMapped (cần nối) + mappedNotSynced (cần bấm đồng bộ).' })
   unpooled(): ReturnType<MasterSkusService['listUnpooledStock']> { return this.service.listUnpooledStock(); }
 
-  @Post('sync-stock') @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K4b — Gắn nhãn/gộp tồn cho MỌI liên kết (liên kết tạo trước K4b). Chạy lại nhiều lần an toàn.' })
-  syncStock(@CurrentUser() user: AuthenticatedUser): ReturnType<MasterSkusService['syncStockForAllMappings']> { return this.service.syncStockForAllMappings(user.userId); }
-
-  @Delete('mappings/:id') @Roles(UserRole.ADMIN) @ApiOperation({ summary: 'Bỏ nối 1 SKU sàn. 🔄 K4b: chặn nếu SKU nội bộ còn tồn gộp chung (MAP_HAS_POOLED_STOCK).' })
-  async deleteMapping(@Param('id') id: string): Promise<{ success: true }> { await this.service.deleteMapping(id); return { success: true }; }
-
   @Get() @Roles(...READERS)
   @ApiOperation({ summary: '🆕 K4a — Danh sách SKU nội bộ. ?category_code&color_code&search&include_inactive&page&limit' })
   async list(
@@ -110,19 +103,6 @@ export class MasterSkusController {
   @Post(':code/reactivate') @Roles(UserRole.ADMIN)
   async reactivate(@Param('code') code: string): Promise<Record<string, unknown>> { return skuRes(await this.service.setActive(code, true)); }
 
-  @Post(':code/replace') @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K4a — THAY THẾ SKU đặt sai: tạo SKU mới + chuyển liên kết sàn + khóa SKU cũ (replaced_by), 1 transaction.' })
-  async replace(@Param('code') code: string, @Body() dto: ReplaceMasterSkuDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
-    const r = await this.service.replace(code, dto, user.userId);
-    return { oldSku: skuRes(r.oldSku), newSku: skuRes(r.newSku), movedMappings: r.movedMappings };
-  }
-
   @Get(':code/mappings') @Roles(...READERS)
   async listMappings(@Param('code') code: string): Promise<Record<string, unknown>[]> { return (await this.service.listMappings(code)).map(mapRes); }
-
-  @Post(':code/mappings') @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: '🆕 K4a — Nối 1 SKU sàn (phải đã đồng bộ về) vào SKU nội bộ này.' })
-  async createMapping(@Param('code') code: string, @Body() dto: CreateMappingDto, @CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
-    return mapRes(await this.service.createMapping(code, dto, user.userId));
-  }
 }

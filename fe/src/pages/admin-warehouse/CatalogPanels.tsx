@@ -4,32 +4,20 @@ import {
   confirmPackagingProfile,
   createColor,
   createMasterSku,
-  createSkuMapping,
-  deleteSkuMapping,
   listColors,
   listMasterSkus,
   listProductMaster,
-  listSkuMappings,
-  listUnmappedSellerSkus,
-  listUnpooledStock,
-  lookupStockAvailability,
   previewMasterSku,
   purgeMasterSku,
-  replaceMasterSku,
   updateMasterSku,
   setColorActive,
   setMasterSkuActive,
-  syncPooledStock,
   syncProductCatalog,
   updateColor,
   type ColorRecord,
   type ConfirmPackagingProfileInput,
   type MasterSkuRecord,
   type ProductMasterRow,
-  type SkuMappingRecord,
-  type StockAvailability,
-  type UnmappedSellerSku,
-  type UnpooledStockRow,
 } from '../../api/catalog.api'
 import { listCategories } from '../../api/warehouse.api'
 import { Badge } from '../../components/ui/Badge'
@@ -505,7 +493,6 @@ export function MasterSkuTab({
           code={selected}
           sku={selectedRow ?? null}
           isActive={selectedRow?.isActive === true}
-          colors={activeColors}
           onNotice={onNotice}
           onChanged={() => void reload()}
           onDeleted={() => setSelected('')}
@@ -520,7 +507,6 @@ function MasterSkuDetail({
   code,
   sku,
   isActive,
-  colors,
   onNotice,
   onChanged,
   onDeleted,
@@ -529,7 +515,6 @@ function MasterSkuDetail({
   code: string
   sku: MasterSkuRecord | null
   isActive: boolean
-  colors: ColorRecord[]
   onNotice: (message: string) => void
   onChanged: () => void
   onDeleted: () => void
@@ -542,34 +527,7 @@ function MasterSkuDetail({
   const [editWeight, setEditWeight] = useState(
     sku?.weightKg == null ? '' : String(sku.weightKg),
   )
-  const [mappings, setMappings] = useState<SkuMappingRecord[]>([])
-  const [unmapped, setUnmapped] = useState<UnmappedSellerSku[]>([])
-  const [linkKey, setLinkKey] = useState('')
-  const [color, setColor] = useState('')
-  const [reason, setReason] = useState('')
   const [error, setError] = useState<string | null>(null)
-
-  async function reload() {
-    const [links, pending] = await Promise.all([listSkuMappings(code), listUnmappedSellerSkus()])
-    setMappings(links)
-    setUnmapped(pending)
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    void Promise.all([listSkuMappings(code), listUnmappedSellerSkus()])
-      .then(([links, pending]) => {
-        if (cancelled) return
-        setMappings(links)
-        setUnmapped(pending)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(formatApiError(err))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [code])
 
   return (
     <div className="space-y-3 rounded-lg border border-hairline p-3">
@@ -578,65 +536,6 @@ function MasterSkuDetail({
         {isActive ? <CopySkuButton code={code} vi={vi} /> : null}
       </div>
       <PanelError message={error} />
-      <p className="text-[11px] text-ink-muted">{vi ? 'SKU sàn đã nối' : 'Mapped seller SKUs'}</p>
-      {mappings.length === 0 ? (
-        <p className="text-xs text-ink-muted">{vi ? 'Chưa nối SKU sàn nào.' : 'No seller SKU mapped yet.'}</p>
-      ) : (
-        <ul className="space-y-1 text-xs">
-          {mappings.map((row) => (
-            <li key={row.id} className="flex items-center justify-between gap-2">
-              <span>
-                {row.platform} · {row.shopId} · {row.sellerSku}
-              </span>
-              <button
-                type="button"
-                className={rowActionClass}
-                onClick={() => {
-                  void deleteSkuMapping(row.id)
-                    .then(async () => {
-                      await reload()
-                      onNotice(vi ? 'Đã bỏ nối.' : 'Mapping removed.')
-                    })
-                    .catch((err: unknown) => setError(formatApiError(err)))
-                }}
-              >
-                {vi ? 'Bỏ nối' : 'Unmap'}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <select className={fieldClass} value={linkKey} onChange={(e) => setLinkKey(e.target.value)}>
-          <option value="">{vi ? 'Nối thêm từ SKU chưa nối' : 'Map an unmapped seller SKU'}</option>
-          {unmapped.map((row) => {
-            const key = `${row.platform}|${row.shop_id}|${row.seller_sku}`
-            return (
-              <option key={key} value={key}>
-                {row.seller_sku} · {row.shop_id}
-              </option>
-            )
-          })}
-        </select>
-        <Button
-          className="h-9 text-xs"
-          disabled={!linkKey}
-          onClick={() => {
-            const [platform, shopId, sellerSku] = linkKey.split('|')
-            if (!platform || !shopId || !sellerSku) return
-            void createSkuMapping(code, { platform, shop_id: shopId, seller_sku: sellerSku })
-              .then(async () => {
-                setLinkKey('')
-                await reload()
-                onChanged()
-                onNotice(vi ? 'Đã nối SKU sàn.' : 'Seller SKU mapped.')
-              })
-              .catch((err: unknown) => setError(formatApiError(err)))
-          }}
-        >
-          {vi ? 'Nối' : 'Map'}
-        </Button>
-      </div>
       <form
         className="grid gap-2 sm:grid-cols-4"
         onSubmit={(e) => {
@@ -694,41 +593,6 @@ function MasterSkuDetail({
           {vi ? 'Lưu thông tin SKU' : 'Save SKU details'}
         </Button>
       </form>
-      <form
-        className="grid gap-2 sm:grid-cols-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!color || reason.trim().length < 3) return
-          void replaceMasterSku(code, { color_code: color, reason: reason.trim() })
-            .then((result) => {
-              onNotice(
-                vi
-                  ? `Đã thay bằng ${result.newSku}, chuyển ${result.movedMappings} liên kết.`
-                  : `Replaced by ${result.newSku}.`,
-              )
-              onChanged()
-            })
-            .catch((err: unknown) => setError(formatApiError(err)))
-        }}
-      >
-        <select className={fieldClass} value={color} onChange={(e) => setColor(e.target.value)}>
-          <option value="">{vi ? 'Đổi màu (thay thế SKU)' : 'New color'}</option>
-          {colors.map((row) => (
-            <option key={row.code} value={row.code}>
-              {row.code} · {row.name}
-            </option>
-          ))}
-        </select>
-        <Input
-          className={fieldClass}
-          placeholder={vi ? 'Lý do, ví dụ đặt nhầm màu' : 'Reason'}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-        />
-        <Button type="submit" variant="secondary" className="h-9 text-xs" disabled={!color || reason.trim().length < 3}>
-          {vi ? 'Thay thế SKU' : 'Replace SKU'}
-        </Button>
-      </form>
       <button
         type="button"
         className={rowActionClass}
@@ -749,7 +613,7 @@ function MasterSkuDetail({
         onClick={() => {
           const ok = window.confirm(
             vi
-              ? `Xoá hẳn SKU ${code}? Không hoàn tác. Chỉ khi chưa nối sàn, chưa nằm trên ô và chưa có nhập–xuất. Đã dùng thì tắt hoặc thay thế.`
+              ? `Xoá hẳn SKU ${code}? Không hoàn tác. Chỉ khi chưa nằm trên ô và chưa có nhập–xuất. Đã dùng thì chỉ tắt.`
               : `Permanently delete SKU ${code}? This cannot be undone.`,
           )
           if (!ok) return
@@ -907,7 +771,7 @@ function PackagingProfileForm({
   )
 }
 
-export function LinkSkuTab({
+export function ProductCatalogTab({
   vi,
   onNotice,
 }: {
@@ -916,9 +780,6 @@ export function LinkSkuTab({
 }) {
   const [shopId, setShopId] = useState('')
   const [full, setFull] = useState(false)
-  const [pending, setPending] = useState<UnmappedSellerSku[]>([])
-  const [masters, setMasters] = useState<MasterSkuRecord[]>([])
-  const [targetByKey, setTargetByKey] = useState<Record<string, string>>({})
   const [products, setProducts] = useState<ProductMasterRow[]>([])
   const [measuringId, setMeasuringId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -926,40 +787,20 @@ export function LinkSkuTab({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    if (!needle) return pending
-    return pending.filter((row) =>
-      `${row.seller_sku} ${row.shop_id} ${row.platform}`.toLowerCase().includes(needle),
-    )
-  }, [pending, query])
-
   async function reload() {
-    const [unmapped, skuPage, catalog] = await Promise.all([
-      listUnmappedSellerSkus(),
-      listMasterSkus({ limit: 100 }),
-      listProductMaster({
-        shopId: shopId.trim() || undefined,
-        search: query.trim() || undefined,
-        status: profileStatus || undefined,
-      }),
-    ])
-    setPending(unmapped)
-    setMasters(skuPage.items.filter((row) => row.isActive))
+    const catalog = await listProductMaster({
+      shopId: shopId.trim() || undefined,
+      search: query.trim() || undefined,
+      status: profileStatus || undefined,
+    })
     setProducts(catalog.items)
   }
 
   useEffect(() => {
     let cancelled = false
-    void Promise.all([
-      listUnmappedSellerSkus(),
-      listMasterSkus({ limit: 100 }),
-      listProductMaster({}),
-    ])
-      .then(([unmapped, skuPage, catalog]) => {
+    void listProductMaster({})
+      .then((catalog) => {
         if (cancelled) return
-        setPending(unmapped)
-        setMasters(skuPage.items.filter((row) => row.isActive))
         setProducts(catalog.items)
       })
       .catch((err: unknown) => {
@@ -1009,79 +850,6 @@ export function LinkSkuTab({
         </Button>
       </form>
       <PanelError message={error} />
-      {pending.length > 0 ? (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-          {vi
-            ? `${pending.length} SKU sàn chưa nối SKU nội bộ.`
-            : `${pending.length} seller SKUs are not mapped to an internal SKU.`}
-        </div>
-      ) : null}
-      <Input
-        className={fieldClass}
-        placeholder={vi ? 'Lọc SKU chưa nối' : 'Filter unmapped SKUs'}
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>SKU sàn</TableHead>
-            <TableHead>Shop</TableHead>
-            <TableHead>{vi ? 'Nối vào' : 'Map to'}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {filtered.map((row) => {
-            const key = `${row.platform}|${row.shop_id}|${row.seller_sku}`
-            return (
-              <TableRow key={key}>
-                <TableCell className="font-medium text-ink">{row.seller_sku}</TableCell>
-                <TableCell className="text-xs text-ink-muted">
-                  {row.platform} · {row.shop_id}
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-1">
-                    <select
-                      className={fieldClass}
-                      value={targetByKey[key] ?? ''}
-                      onChange={(e) =>
-                        setTargetByKey((prev) => ({ ...prev, [key]: e.target.value }))
-                      }
-                    >
-                      <option value="">{vi ? 'Chọn SKU nội bộ' : 'Internal SKU'}</option>
-                      {masters.map((sku) => (
-                        <option key={sku.masterSku} value={sku.masterSku}>
-                          {sku.masterSku}
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      className="h-9 text-xs"
-                      disabled={!targetByKey[key]}
-                      onClick={() => {
-                        const target = targetByKey[key]
-                        if (!target) return
-                        void createSkuMapping(target, {
-                          platform: row.platform,
-                          shop_id: row.shop_id,
-                          seller_sku: row.seller_sku,
-                        })
-                          .then(async () => {
-                            await reload()
-                            onNotice(vi ? `Đã nối ${row.seller_sku}.` : `Mapped ${row.seller_sku}.`)
-                          })
-                          .catch((err: unknown) => setError(formatApiError(err)))
-                      }}
-                    >
-                      {vi ? 'Nối' : 'Map'}
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            )
-          })}
-        </TableBody>
-      </Table>
       <form
         className="flex flex-wrap items-center gap-2"
         onSubmit={(e) => {
@@ -1092,6 +860,12 @@ export function LinkSkuTab({
             .finally(() => setBusy(false))
         }}
       >
+        <Input
+          className={fieldClass}
+          placeholder={vi ? 'Tìm theo mã SKU' : 'Search by SKU'}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         <select
           className={fieldClass}
           value={profileStatus}
@@ -1192,154 +966,6 @@ export function LinkSkuTab({
           }}
         />
       ) : null}
-    </div>
-  )
-}
-
-export function ReconcileTab({
-  vi,
-  onNotice,
-}: {
-  vi: boolean
-  onNotice: (message: string) => void
-}) {
-  const [notMapped, setNotMapped] = useState<UnpooledStockRow[]>([])
-  const [mappedNotSynced, setMappedNotSynced] = useState<UnpooledStockRow[]>([])
-  const [shopId, setShopId] = useState('')
-  const [sellerSku, setSellerSku] = useState('')
-  const [availability, setAvailability] = useState<StockAvailability | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  async function reload() {
-    const report = await listUnpooledStock()
-    setNotMapped(report.notMapped)
-    setMappedNotSynced(report.mappedNotSynced)
-  }
-
-  useEffect(() => {
-    let cancelled = false
-    void listUnpooledStock()
-      .then((report) => {
-        if (cancelled) return
-        setNotMapped(report.notMapped)
-        setMappedNotSynced(report.mappedNotSynced)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(formatApiError(err))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          className="h-9 text-xs"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true)
-            setError(null)
-            void syncPooledStock()
-              .then(async (result) => {
-                await reload()
-                onNotice(
-                  vi
-                    ? `Gộp tồn: ${result.mappings} liên kết, gắn nhãn ${result.tagged}, gộp ${result.merged}.`
-                    : `Stock sync: tagged ${result.tagged}, merged ${result.merged}.`,
-                )
-              })
-              .catch((err: unknown) => setError(formatApiError(err)))
-              .finally(() => setBusy(false))
-          }}
-        >
-          {vi ? 'Đồng bộ tồn' : 'Sync stock'}
-        </Button>
-        <span className="text-xs text-ink-muted">
-          {vi
-            ? 'Gắn nhãn và gộp các liên kết đã nối. Bấm lại nhiều lần vẫn an toàn.'
-            : 'Tags and merges mapped stock. Safe to run again.'}
-        </span>
-      </div>
-      <PanelError message={error} />
-      <StockTable vi={vi} title={vi ? 'Chưa nối' : 'Not mapped'} rows={notMapped} />
-      <StockTable
-        vi={vi}
-        title={vi ? 'Đã nối, chưa đồng bộ tồn' : 'Mapped, stock not synced'}
-        rows={mappedNotSynced}
-      />
-      <form
-        className="grid gap-2 rounded-lg border border-hairline bg-surface-2/40 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"
-        onSubmit={(e) => {
-          e.preventDefault()
-          setError(null)
-          void lookupStockAvailability({
-            platform: 'lazada',
-            shop_id: shopId.trim(),
-            seller_sku: sellerSku.trim(),
-          })
-            .then(setAvailability)
-            .catch((err: unknown) => setError(formatApiError(err)))
-        }}
-      >
-        <p className="text-xs font-medium text-ink sm:col-span-3">
-          {vi ? 'Tra tồn khả dụng' : 'Available stock'}
-        </p>
-        <Input className={fieldClass} placeholder="shop_id" value={shopId} onChange={(e) => setShopId(e.target.value)} />
-        <Input className={fieldClass} placeholder="seller SKU" value={sellerSku} onChange={(e) => setSellerSku(e.target.value)} />
-        <Button type="submit" variant="secondary" className="h-9 text-xs" disabled={!shopId.trim() || !sellerSku.trim()}>
-          {vi ? 'Tra' : 'Look up'}
-        </Button>
-        {availability ? (
-          <p className="text-sm text-ink sm:col-span-3">
-            {vi ? 'Tồn thực' : 'On hand'} {availability.onHand} · {vi ? 'Đã giữ' : 'Reserved'}{' '}
-            {availability.reserved} · {vi ? 'Khả dụng' : 'Available'} {availability.available}
-            {availability.masterSku ? ` · ${availability.masterSku}` : ''}
-          </p>
-        ) : null}
-      </form>
-    </div>
-  )
-}
-
-function StockTable({
-  vi,
-  title,
-  rows,
-}: {
-  vi: boolean
-  title: string
-  rows: UnpooledStockRow[]
-}) {
-  return (
-    <div className="space-y-1">
-      <p className="text-xs font-medium text-ink">
-        {title} ({rows.length})
-      </p>
-      {rows.length === 0 ? (
-        <p className="text-xs text-ink-muted">{vi ? 'Không có dòng nào.' : 'None.'}</p>
-      ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>SKU</TableHead>
-              <TableHead>Shop</TableHead>
-              <TableHead>{vi ? 'Tồn' : 'Qty'}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((row) => (
-              <TableRow key={row.assignmentId || `${row.sellerSku}-${row.binLocationId}`}>
-                <TableCell className="font-medium text-ink">{row.sellerSku}</TableCell>
-                <TableCell className="text-xs">{row.shopId}</TableCell>
-                <TableCell>{row.quantityOnHand}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
     </div>
   )
 }

@@ -36,7 +36,7 @@ describe('StockReservationService — K5', () => {
     const shortages = await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 1 }]);
 
     expect(shortages).toEqual([]);
-    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
+    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
     expect(groupModel.findOneAndUpdate).toHaveBeenCalledWith({ _id: g1._id }, { $set: { stock_shortage: false, stock_shortage_items: [] } });
   });
 
@@ -69,22 +69,22 @@ describe('StockReservationService — K5', () => {
 
     await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 2 }]);
 
-    expect((totalModel.findOneAndUpdate.mock.calls[0] as [unknown])[0]).toEqual({ _id: 'M:ATHUN-005-DEN-M' });
+    expect((totalModel.findOneAndUpdate.mock.calls[0] as [unknown])[0]).toEqual({ _id: 'M:ATD-M-01' });
   });
 
   it('quét hàng tiêu phần đã giữ + giảm tổng đã giữ', async () => {
     reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', quantity_reserved: 2 }));
-    await service.consume(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+    await service.consume(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
     expect(reservationModel.updateOne).toHaveBeenCalledWith({ _id: 'r1' }, { $inc: { quantity_reserved: -1, quantity_picked: 1 } }, expect.anything());
-    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
+    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
   });
 
   it('nhả giữ chỗ: trả phần còn giữ về tồn khả dụng, xóa cờ thiếu hàng', async () => {
     reservationModel.find.mockResolvedValue([{ _id: 'r1' }]);
-    reservationModel.findOneAndUpdate.mockResolvedValue({ stock_key: 'S:lazada|s1|ATD-M-01', quantity_reserved: 3 });
+    reservationModel.findOneAndUpdate.mockResolvedValue({ stock_key: 'M:ATD-M-01', quantity_reserved: 3 });
 
     await expect(service.releaseGroup(g1._id.toString())).resolves.toBe(3);
-    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -3 } }, expect.anything());
+    expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: -3 } }, expect.anything());
   });
 
   it('tồn khả dụng = tồn thực − đã giữ', async () => {
@@ -94,9 +94,9 @@ describe('StockReservationService — K5', () => {
   });
   describe('(05/10/2026) bộ đếm "đã lấy" theo hàng thật', () => {
     it('unconsume: giảm quantity_picked, không xuống dưới 0 (pipeline $max)', async () => {
-      await service.unconsume(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+      await service.unconsume(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
       const [filter, update] = reservationModel.updateOne.mock.calls[0] as [Record<string, unknown>, unknown[]];
-      expect(filter).toMatchObject({ stock_key: 'S:lazada|s1|ATD-M-01' });
+      expect(filter).toMatchObject({ stock_key: 'M:ATD-M-01' });
       expect(JSON.stringify(update)).toContain('$max');
     });
 
@@ -107,20 +107,20 @@ describe('StockReservationService — K5', () => {
       assignmentModel.aggregate.mockReturnValue(agg(5));
       const shortages = await service.reconcile(g1, [{ sku: 'ATD-M-01', quantity: 3 }]);
       expect(shortages).toEqual([]);
-      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
+      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: 1 } }, expect.anything());
     });
 
     it('recordPicked: giữ chỗ đã nhả → chỉ cộng bộ đếm, không đụng tổng đã giữ', async () => {
       reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', status: 'released', quantity_reserved: 0 }));
-      await service.recordPicked(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
+      await service.recordPicked(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
       expect(reservationModel.updateOne).toHaveBeenCalledWith({ _id: 'r1' }, { $inc: { quantity_picked: 1 } }, expect.anything());
       expect(totalModel.updateOne).not.toHaveBeenCalled();
     });
 
     it('recordPicked: giữ chỗ còn hoạt động → tiêu như quét thường', async () => {
       reservationModel.findOne.mockReturnValue(existing({ _id: 'r1', status: 'active', quantity_reserved: 2 }));
-      await service.recordPicked(g1._id.toString(), 'S:lazada|s1|ATD-M-01', 1, {} as never);
-      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'S:lazada|s1|ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
+      await service.recordPicked(g1._id.toString(), 'M:ATD-M-01', 1, {} as never);
+      expect(totalModel.updateOne).toHaveBeenCalledWith({ _id: 'M:ATD-M-01' }, { $inc: { reserved: -1 } }, expect.anything());
     });
   });
 });

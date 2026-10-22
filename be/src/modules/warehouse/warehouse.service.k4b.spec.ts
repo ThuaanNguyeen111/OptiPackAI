@@ -2,19 +2,18 @@ import { Types } from 'mongoose';
 import { WarehouseService } from './warehouse.service';
 
 //!=============================================
-// K4b (27/09/2026) — nhánh SKU ĐÃ NỐI: tồn tính theo SKU nội bộ, chung mọi sàn.
-// (Nhánh chưa nối = đường lùi, đã được toàn bộ test cũ bao phủ.)
+// 21/10/2026 — tồn khoá theo mã SKU (chuẩn hóa), chung mọi sàn/shop, không còn bảng quy đổi.
 //!=============================================
-describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
+describe('WarehouseService — tồn theo mã SKU, không phân biệt sàn', () => {
   const warehouseId = new Types.ObjectId();
   const binId = new Types.ObjectId();
   const mapped = (rows: { seller_sku_normalized: string; master_sku: string }[]): { find: jest.Mock } => ({
     find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(rows) }) }),
   });
 
-  it('Picking List: SKU Lazada đã nối -> lấy tồn ở dòng gộp theo SKU nội bộ, trả kèm master_sku', async () => {
+  it('Picking List: đơn Lazada lấy được dòng tồn đứng tên sàn khác nếu cùng mã SKU', async () => {
     const rowFind = jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([
-      { _id: new Types.ObjectId(), warehouse_id: warehouseId, bin_location_id: binId, platform: 'tiki', shop_id: 't1', seller_sku: 'AO-THUN-DEN-M', master_sku: 'ATHUN-005-DEN-M', quantity_on_hand: 10 },
+      { _id: new Types.ObjectId(), warehouse_id: warehouseId, bin_location_id: binId, platform: 'tiki', shop_id: 't1', seller_sku: 'ATD-M-01', master_sku: 'ATD-M-01', quantity_on_hand: 10 },
     ]) });
     const service = new WarehouseService(
       { findById: jest.fn().mockResolvedValue({ _id: warehouseId, is_active: true }) } as never,
@@ -29,12 +28,12 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
     const list = await service.getEnrichedPickingList(warehouseId.toString(), new Types.ObjectId().toString());
 
     // Đơn Lazada lấy được hàng dù dòng tồn đứng tên SKU Tiki — vì cùng 1 SKU nội bộ.
-    expect(list[0]).toMatchObject({ sku: 'ATD-M-01', master_sku: 'ATHUN-005-DEN-M', bin_code: 'KA-D1-P02-T03-1' });
-    expect((rowFind.mock.calls[0] as [{ $or: unknown[] }])[0].$or).toContainEqual({ master_sku: { $in: ['ATHUN-005-DEN-M'] } });
+    expect(list[0]).toMatchObject({ sku: 'ATD-M-01', master_sku: 'ATD-M-01', bin_code: 'KA-D1-P02-T03-1' });
+    expect((rowFind.mock.calls[0] as [{ $or: unknown[] }])[0].$or).toContainEqual({ master_sku: { $in: ['ATD-M-01'] } });
     // Có thêm nhánh fallback unpooled (master_sku null) cho SKU đã nối.
     expect((rowFind.mock.calls[0] as [{ $or: unknown[] }])[0].$or).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ platform: 'lazada', shop_id: 's1', master_sku: null }),
+        expect.objectContaining({ master_sku: null }),
       ]),
     );
   });
@@ -87,13 +86,13 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
 
     expect(list[0]).toMatchObject({
       sku: 'KA-D1-P03-T01-3',
-      master_sku: 'ATHUN-005-DEN-M',
+      master_sku: 'KA-D1-P03-T01-3',
       bin_code: 'KA-D1-P03-T01-3',
       bin_location_id: binId.toString(),
     });
   });
 
-  it('Gán SKU đã nối vào ô -> tìm/tạo dòng theo SKU nội bộ, gắn nhãn master_sku', async () => {
+  it('Gán SKU vào ô -> tìm/tạo dòng theo mã SKU chuẩn hóa, gắn nhãn master_sku', async () => {
     const assignmentModel = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]) };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     const service = new WarehouseService(
@@ -106,8 +105,8 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
 
     await service.assignSkuToBin(warehouseId.toString(), { platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01', bin_location_id: binId.toString() } as never, 'u1');
 
-    expect(assignmentModel.findOne).toHaveBeenCalledWith({ warehouse_id: warehouseId, bin_location_id: binId, master_sku: 'ATHUN-005-DEN-M' });
-    expect((assignmentModel.create.mock.calls[0] as [[Record<string, unknown>]])[0][0]).toMatchObject({ master_sku: 'ATHUN-005-DEN-M' });
+    expect(assignmentModel.findOne).toHaveBeenCalledWith({ warehouse_id: warehouseId, bin_location_id: binId, master_sku: 'ATD-M-01' });
+    expect((assignmentModel.create.mock.calls[0] as [[Record<string, unknown>]])[0][0]).toMatchObject({ master_sku: 'ATD-M-01' });
   });
   //!=============================================
   // 07/10/2026 — Nhập lại hàng hoàn vào ô chưa có dòng tồn (upsert). Bộ lọc upsert phải khớp
@@ -129,20 +128,20 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
     };
     const params = { warehouseId: warehouseId.toString(), binLocationId: binId.toString(), platform: 'lazada', shopId: 's1', sellerSku: 'ATD-M-01', quantity: 1, returnRequestId: 'rma-1', actorId: 'u1' } as never;
 
-    it('SKU đã nối -> lọc { master_sku } (dòng mới mang nhãn SKU nội bộ), không có $or', async () => {
+    it('Lọc upsert chỉ gồm { master_sku } chuẩn hóa (dòng mới mang đúng nhãn), không có $or', async () => {
       const { service, assignmentModel } = build([{ seller_sku_normalized: 'ATD-M-01', master_sku: 'ATHUN-005-DEN-M' }]);
       await service.restockReturnedItem(params, {} as never);
       const [filter, update, options] = assignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
-      expect(filter).toEqual({ warehouse_id: warehouseId, bin_location_id: binId, master_sku: 'ATHUN-005-DEN-M' });
+      expect(filter).toEqual({ warehouse_id: warehouseId, bin_location_id: binId, master_sku: 'ATD-M-01' });
       expect(update.$setOnInsert).toEqual({ platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01' });
       expect(options).toMatchObject({ upsert: true });
     });
 
-    it('SKU chưa nối -> lọc so sánh bằng { platform, shop_id, seller_sku, master_sku: null }, không regex', async () => {
+    it('Mã SKU viết thường/thừa khoảng trắng vẫn ra cùng bộ lọc chuẩn hóa', async () => {
       const { service, assignmentModel } = build([]);
-      await service.restockReturnedItem(params, {} as never);
+      await service.restockReturnedItem({ ...(params as object), sellerSku: ' atd-m-01 ' } as never, {} as never);
       const [filter] = assignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>];
-      expect(filter).toEqual({ warehouse_id: warehouseId, bin_location_id: binId, platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01', master_sku: null });
+      expect(filter).toEqual({ warehouse_id: warehouseId, bin_location_id: binId, master_sku: 'ATD-M-01' });
     });
   });
 

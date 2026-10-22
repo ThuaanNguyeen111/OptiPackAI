@@ -30,7 +30,7 @@ import {
   updateWarehouseZone,
 } from '../api/warehouse.api'
 import type { UpdateBinInput } from '../api/warehouse.api'
-import { listAllProductMaster, listSkuMappings } from '../api/catalog.api'
+import { listAllProductMaster } from '../api/catalog.api'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import type {
   AdjustStockInput,
@@ -69,8 +69,9 @@ function formatWarehouseWriteError(
   return formatApiError(err)
 }
 
-function sellerSkuKey(platform: string, shopId: string, sellerSku: string): string {
-  return `${platform}|${shopId}|${sellerSku.trim().toUpperCase()}`
+// Tồn khoá theo mã SKU (chuẩn hóa), không phân biệt sàn/shop.
+function sellerSkuKey(sellerSku: string): string {
+  return sellerSku.trim().toUpperCase()
 }
 
 async function loadCatalogSkus(): Promise<UnassignedSku[]> {
@@ -95,9 +96,6 @@ export function useAdminWarehouse() {
   // (gán ở kho A thì SKU biến mất khỏi danh sách của kho B). FE tự tính theo
   // kho đang chọn: catalog − dòng tồn của chính kho đó.
   const [catalog, setCatalog] = useState<UnassignedSku[]>([])
-  const [pooledSellerKeys, setPooledSellerKeys] = useState<Set<string>>(
-    () => new Set(),
-  )
   const [showInactive, setShowInactive] = useState(false)
 
   const [loading, setLoading] = useState(true)
@@ -128,45 +126,14 @@ export function useAdminWarehouse() {
     }))
   }, [assignments, allBins])
 
-  // SKU sàn đã nối: 1 dòng tồn gộp theo SKU nội bộ chỉ mang seller_sku của sàn
-  // tạo ra nó — tra liên kết của các SKU nội bộ có mặt trong kho này.
-  useEffect(() => {
-    const masters = Array.from(
-      new Set(
-        assignments
-          .map((row) => row.masterSku)
-          .filter((code): code is string => Boolean(code)),
-      ),
-    )
-    let cancelled = false
-    void Promise.all(
-      masters.map((code) => listSkuMappings(code).catch(() => [])),
-    ).then((lists) => {
-      if (cancelled) return
-      setPooledSellerKeys(
-        new Set(
-          lists
-            .flat()
-            .map((row) => sellerSkuKey(row.platform, row.shopId, row.sellerSku)),
-        ),
-      )
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [assignments])
-
   const unassigned = useMemo(() => {
     const assigned = new Set(
-      assignments.map((row) =>
-        sellerSkuKey(row.platform, row.shopId, row.sellerSku),
-      ),
+      assignments.map((row) => sellerSkuKey(row.sellerSku)),
     )
     return catalog.filter((row) => {
-      const key = sellerSkuKey(row.platform, row.shop_id, row.seller_sku)
-      return !assigned.has(key) && !pooledSellerKeys.has(key)
+      return !assigned.has(sellerSkuKey(row.seller_sku))
     })
-  }, [catalog, assignments, pooledSellerKeys])
+  }, [catalog, assignments])
 
   const reloadBins = useCallback(
     async (

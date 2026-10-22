@@ -146,7 +146,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
       ['cancel_unpack', 1],
     ]);
     // Bộ đếm "đã lấy" của giữ chỗ giảm đúng số món rời giỏ.
-    expect(reservation.unconsume).toHaveBeenCalledWith(groupId.toString(), 'S:lazada|shop-1|TEE', 2, session);
+    expect(reservation.unconsume).toHaveBeenCalledWith(groupId.toString(), 'M:TEE', 2, session);
   });
 
   it('món hỏng (restock = false): không cộng tồn, vẫn ghi pick_event âm theo ô', async () => {
@@ -183,7 +183,7 @@ describe('OrderGroupsService — điều chỉnh hàng đã lấy từ khâu đ�
     expect(filter.quantity_on_hand).toEqual({ $gte: 1 });
     expect(update.$inc.quantity_on_hand).toBe(-1);
     expect(createdEvents()[0]).toMatchObject({ scanned_quantity: 1, kind: 'pack_replace' });
-    expect(reservation.recordPicked).toHaveBeenCalledWith(groupId.toString(), 'S:lazada|shop-1|TEE', 1, session);
+    expect(reservation.recordPicked).toHaveBeenCalledWith(groupId.toString(), 'M:TEE', 1, session);
   });
 
   it('lấy món thay khi kho hết → ORD_GROUP_INSUFFICIENT_STOCK', async () => {

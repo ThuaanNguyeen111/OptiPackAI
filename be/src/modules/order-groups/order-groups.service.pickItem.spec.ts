@@ -167,7 +167,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     expect(productMasterModel.find).not.toHaveBeenCalled();
   });
 
-  it('trừ tồn CHỈ trong đúng phạm vi platform + shop của group (2 shop trùng SKU không trừ nhầm nhau)', async () => {
+  it('21/10/2026 — trừ tồn theo mã SKU chuẩn hóa, KHÔNG lọc theo sàn/shop (mọi sàn dùng chung một mã)', async () => {
     mockGroup();
     mockOrderedItems([{ sku: 'SKU-TRUNG', quantity: 1 }]);
     mockPickedEvents([]);
@@ -181,12 +181,10 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     const [filter] = skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [
       Record<string, unknown>,
     ];
-    expect(filter).toMatchObject({
-      warehouse_id: new Types.ObjectId(warehouseId),
-      platform: 'lazada',
-      shop_id: 'shop-1',
-      seller_sku: /^SKU-TRUNG$/i,
-    });
+    expect(filter).toMatchObject({ warehouse_id: new Types.ObjectId(warehouseId) });
+    expect(filter).not.toHaveProperty('platform');
+    expect(filter).not.toHaveProperty('shop_id');
+    expect(filter.$or).toEqual(expect.arrayContaining([{ master_sku: 'SKU-TRUNG' }]));
   });
 
   it('15/10/2026 — không chỉ định ô: lấy ở ô có LÔ CŨ NHẤT, trừ lô theo FIFO, lưu lô vào pick_event', async () => {
@@ -389,7 +387,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     expect(update.$inc).toEqual({ __v: 1, pick_round: 1 });
   });
 
-  it('decidePartial(false) -> nhập lại tồn của lượt bị hủy, đúng kho + sàn + shop + SKU, đánh dấu đã nhập', async () => {
+  it('decidePartial(false) -> nhập lại tồn của lượt bị hủy, đúng kho + mã SKU, đánh dấu đã nhập', async () => {
     mockGroup({
       fulfillment_status: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
     });
@@ -418,12 +416,8 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       Record<string, unknown>,
       { $inc: { quantity_on_hand: number } },
     ];
-    expect(filter).toMatchObject({
-      warehouse_id: wh,
-      platform: 'lazada',
-      shop_id: 'shop-1',
-      seller_sku: /^AO$/i,
-    });
+    expect(filter).toMatchObject({ warehouse_id: wh });
+    expect(filter.$or).toEqual(expect.arrayContaining([{ master_sku: 'AO' }]));
     expect(update.$inc.quantity_on_hand).toBe(3); // 2 + 1 gộp theo SKU
     // Gộp main (K3): ghi sổ tồn loại pick_cancel cho phần trả về kệ.
     const [movements] = inventoryMovementModel.create.mock.calls[0] as [{ type: string; delta: number }[]];
@@ -475,7 +469,7 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     expect(docs[0]?.warehouse_id.toString()).toBe(warehouseId);
   });
 
-  it('K4a — trừ tồn LỌC ĐÚNG sàn + shop của nhóm đơn (không trừ nhầm SKU trùng chuỗi của sàn/shop khác)', async () => {
+  it('21/10/2026 — cùng mã SKU ở sàn/shop khác vẫn trừ chung một dòng tồn', async () => {
     mockGroup();
     mockOrderedItems([{ sku: 'ABC-123', quantity: 5 }]);
     mockPickedEvents([]);
@@ -484,17 +478,16 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
 
     await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
 
-    expect((skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0]).toMatchObject({ platform: 'lazada', shop_id: 'shop-1' });
+    const filter = (skuBinAssignmentModel.findOneAndUpdate.mock.calls[0] as [Record<string, unknown>])[0];
+    expect(filter).not.toHaveProperty('platform');
+    expect(filter.$or).toEqual(expect.arrayContaining([{ master_sku: 'ABC-123' }]));
   });
 
-  it('K4b — SKU đã nối: trừ vào tồn CHUNG theo SKU nội bộ (không lọc theo sàn/shop nữa)', async () => {
+  it('21/10/2026 — mã SKU viết khác hoa/thường vẫn ra cùng khoá tồn chung', async () => {
     mockGroup();
     mockOrderedItems([{ sku: 'ABC-123', quantity: 5 }]);
     mockPickedEvents([]);
-    (service as unknown as { mappingModel: unknown }).mappingModel = {
-      find: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue([{ seller_sku_normalized: 'ABC-123', master_sku: 'ATHUN-005-DEN-M' }]) }) }),
-    };
-    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 9, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'tiki', shop_id: 't1', seller_sku: 'X', master_sku: 'ATHUN-005-DEN-M' });
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ _id: new Types.ObjectId(), quantity_on_hand: 9, warehouse_id: new Types.ObjectId(), bin_location_id: new Types.ObjectId(), platform: 'tiki', shop_id: 't1', seller_sku: 'X', master_sku: 'ABC-123' });
     pickEventModel.create.mockResolvedValue([{}]);
 
     await service.pickItem(groupId, new Types.ObjectId().toString(), 'ABC-123', 1, 'barcode');
@@ -503,8 +496,8 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     // Đã nối: $or [tồn gộp master_sku | unpooled đúng shop] — vẫn lấy được hàng Admin nhập trước sync-stock.
     expect(filter.$or).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ master_sku: 'ATHUN-005-DEN-M' }),
-        expect.objectContaining({ platform: 'lazada', shop_id: 'shop-1', master_sku: null }),
+        expect.objectContaining({ master_sku: 'ABC-123' }),
+        expect.objectContaining({ master_sku: null }),
       ]),
     );
   });
