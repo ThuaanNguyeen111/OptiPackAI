@@ -7,7 +7,7 @@ import {
   MARKETPLACE_ADAPTERS,
   MarketplaceAdapter,
 } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
-import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
+import { ACTIVE_SELLER_SKU_FILTER, ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { StockReservationService } from '../order-groups/stock-reservation.service';
 
 /** Số SKU mỗi lần gọi `/product/stock/sellable/update` (Lazada khuyến nghị ≤ 20). */
@@ -62,7 +62,7 @@ export class MarketplaceStockPushService {
     for (const shop of shops) {
       try {
         const skus = await this.productMasterModel
-          .find({ platform, shop_id: shop.shop_id })
+          .find({ platform, shop_id: shop.shop_id, ...ACTIVE_SELLER_SKU_FILTER }) // 22/10 bỏ SKU ngừng bán
           .select('seller_sku')
           .lean();
         const changes: { sellerSku: string; quantity: number }[] = [];

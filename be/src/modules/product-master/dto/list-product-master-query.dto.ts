@@ -1,5 +1,5 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 
 export class ListProductMasterQueryDto {
   @ApiPropertyOptional({ enum: ['needs_measurement', 'ready'] })
@@ -16,4 +16,16 @@ export class ListProductMasterQueryDto {
   @IsOptional()
   @IsString({ message: 'search phải là chuỗi' })
   search?: string;
+
+  @ApiPropertyOptional({ enum: ['true', 'false'], description: '22/10/2026 — true = gồm cả SKU sàn đã ngừng bán / ngừng dùng (mặc định ẩn).' })
+  @IsOptional()
+  @IsIn(['true', 'false'], { message: 'include_retired chỉ nhận true/false' })
+  include_retired?: 'true' | 'false';
+}
+
+/** 22/10/2026 — `PATCH /product-master/:id/retire`. */
+export class RetireProductMasterDto {
+  @ApiProperty({ description: 'true = ngừng dùng SKU sàn này, false = dùng lại.' })
+  @IsBoolean({ message: 'retired phải là true/false' })
+  retired!: boolean;
 }

@@ -94,6 +94,20 @@ export class ProductMaster {
   @Prop({ type: Date, required: true })
   last_synced_at!: Date; // mốc cho chiến lược cache 1 lần/ngày
 
+  /**
+   * 22/10/2026 — trạng thái SKU trên sàn (`Status` của GetProducts): 'inactive' = sàn đã
+   * ngừng bán / xoá biến thể. null = sàn không báo (dữ liệu cũ). SKU inactive hoặc Admin
+   * đánh dấu `retired` bị ẩn khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối", đẩy tồn.
+   */
+  @Prop({ type: String, enum: ['active', 'inactive'], default: null })
+  marketplace_status?: 'active' | 'inactive' | null;
+
+  @Prop({ type: Boolean, default: false })
+  retired?: boolean;
+
+  @Prop({ type: Date, default: null })
+  retired_at?: Date | null;
+
   created_at?: Date;
   updated_at?: Date;
 }
@@ -113,3 +127,12 @@ ProductMasterSchema.index({ platform: 1, shop_id: 1, seller_sku: 1 }, { unique: 
 // Phục vụ: GET /product-master?status=needs_measurement (ProductMasterController.list)
 // — ESR: lọc bằng status trước, rồi sắp theo seller_sku.
 ProductMasterSchema.index({ packaging_profile_status: 1, seller_sku: 1 });
+
+/**
+ * 22/10/2026 — điều kiện "SKU sàn còn dùng": sàn không báo ngừng bán và Admin chưa đánh
+ * dấu ngừng dùng. Ghép vào bộ lọc các danh sách vận hành (chưa gán ô, chưa đo, chưa nối, đẩy tồn).
+ */
+export const ACTIVE_SELLER_SKU_FILTER = {
+  marketplace_status: { $ne: 'inactive' },
+  retired: { $ne: true },
+} as const;

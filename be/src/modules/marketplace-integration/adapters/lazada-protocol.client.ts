@@ -138,6 +138,8 @@ interface LazadaProductSkuRaw {
   package_weight?: string;
   product_weight?: string;
   quantity?: number;
+  /** 22/10/2026 — 'active' | 'inactive' (Lazada GetProducts và AURELLE Open API đều có). */
+  Status?: string;
 }
 
 export interface LazadaProductRaw {
