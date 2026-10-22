@@ -4310,25 +4310,55 @@ Tài liệu (AOFP-151): `GUIDE_DOC/Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKI
 
 **Tài liệu:** `AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 7 + 9, `API_LIST.md` (đầu file, mục 16, mã lỗi), `INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md` 8.3, `FE_UPDATE_CHECKLIST.md` mục 0, `BE_SPEC/07` (đánh dấu đã sửa).
 
+### Chạy thử AURELLE + 8 việc BE (22/10/2026, AOFP-152..158 + tài liệu AOFP-162)
+
+**Bối cảnh:** Thuận chạy thử trọn 1 đơn AURELLE (`5beca05d93`, SKU `SLL-BRN-37`) → kẹt ở đóng gói: nhóm đã lấy xong nhưng SKU chưa đo nên không tính được kế hoạch, nhóm biến khỏi mọi tab màn Đóng gói; nhãn "Thiếu hàng" cũ không tự tắt; màn đóng gói chỉ hiện 6 ký tự cuối mã người đóng. **[stated] Quy ước mới:** Claude chỉ sửa **BE** và **website AURELLE** (`storefront/`, mock `be/scripts/aurelle-*`); **FE OptiPack (`fe/`) KHÔNG sửa code** — ghi việc vào `FE_UPDATE_CHECKLIST.md` (AOFP-148 là commit cuối có đụng `fe/`).
+
+- **AOFP-152 — nhóm kẹt vì SKU chưa đo:** `order_groups.packing_blocked_{reason,skus,at}` (+index partial); `mapSkuQuantitiesToPackableItems` báo MỌI SKU thiếu (`details.skus`); `PackingPlanService.compute` catch → `markPackingBlocked` (true khi vừa chuyển sang kẹt → thông báo mới `packing_blocked` cho Admin + Store Owner 1 lần), thành công → `clearPackingBlocked`. `ProductMasterService.confirmPackagingProfile` → `releasePackingBlocks` (kế hoạch `failed` → `superseded`, xoá cờ; 2 model `@Optional`, đăng ký schema trong ProductMasterModule). Cron `packing-blocked-recheck` (giây 15) lưới an toàn + ghi cờ cho kế hoạch hỏng trước 22/10 (`skusFromProfileFailure`). `GET /order-groups?packing_blocked=`.
+- **AOFP-153 — tên người đóng:** `packing_plans.assigned_packer_name` lưu lúc giao; response nhóm `assignedPackerId/Name` (`getPackersForGroups`, kế hoạch cũ tra users), `session.assignedPackerName`, summary.
+- **AOFP-154 — tự tính lại thiếu hàng:** `OrderGroupsService.recheckShortageGroups` (xoá nhãn cũ của nhóm đã lấy xong; nhóm awaiting/picking/partial cũ nhất trước, 50/lượt) + `scheduleShortageRecheck` (bắn rồi quên, xếp đúng 1 lượt). Gọi sau gán ô có tồn ban đầu / nhập thêm / kiểm kê / phiếu nhập (WarehouseController → `WarehouseService.notifyStockIn`), kiểm hàng hoàn + nhập lại hàng cách ly (ReturnsService), cron backfill 5'.
+- **AOFP-152 (cùng commit kẹt đóng gói) — `GET /order-groups?q=`:** id 24 ký tự / đuôi hex 4–23 (`$regexMatch` trên `$toString _id`, chỉ hex nên an toàn) / `platform_order_id|platform_order_number` khớp chính xác.
+- **AOFP-155 — bỏ giả lập trả hàng mọi sàn:** `POST /returns` → `410 RMA_SIMULATION_DISABLED` (chặn ở controller, `createSimulated` giữ làm khối dựng cho `createFromMarketplace`).
+- **AOFP-156 — hành trình hàng đổi:** writeback tìm đơn `origin: replacement` của nhóm (chỉ 4 trạng thái `isExchangeShipmentStatus`) → `adapter.updateExchangeShipment` → mock `POST /rest/reverse/exchange/shipment/update` → `applyExchangeShipmentUpdate` (aurelle-return-api.ts, idempotent, lịch sử `return_exchange_*`, `exchange_shipment` chỉ tiến). Website: `exchangeShipment` + khối "Hàng đổi" ở `/account/returns/[id]`.
+- **AOFP-157 — `DELETE /marketplace/:platform/shops/:shopId`** (Admin): `is_active=false` + `disconnected_at/by` (objectid-fields +1 → 103), OAuth lại xoá 2 field; `listShops` trả `disconnectedAt`.
+- **AOFP-158 — nghỉ phép:** `users.on_leave/on_leave_until/on_leave_note/on_leave_since`, `users/utils/on-leave.util.ts` (`isOnLeave`, `notOnLeaveFilter` — hết hạn tự đi làm lại), `PATCH /users/:id/leave` (Admin, Store Owner; chỉ 3 vai trò vận hành). Tự giao lấy hàng/đóng gói bỏ qua người nghỉ; giao tay → 409 `ORD_GROUP_STAFF_ON_LEAVE` / `PACKING_PACKER_ON_LEAVE`; danh sách chọn người trả `onLeave`.
+- **Verify:** BE tsc 0, eslint file đụng 0 lỗi, jest 8 shard **1.169 test** đạt (7 skip có sẵn), 4 spec mới (27 test); mock AURELLE tsc 0; storefront tsc 0. Chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) không migration; cờ kẹt cho nhóm cũ tự ghi trong ≤1 phút. (2) Đổi hành vi: `POST /returns` luôn 410 — FE còn form giả lập sẽ báo lỗi (checklist 1b.4); người nghỉ phép không được giao việc. (3) FE OptiPack phải làm checklist mục 1b (1b.1–1b.7). (4) Phải chạy lại mock AURELLE bản mới để có route hàng đổi. (5) Rủi ro: tính lại thiếu hàng chạy nền tối đa 50 nhóm/lượt — kho rất nhiều nhóm thiếu thì phần còn lại chờ cron 5'.
+- **Bài học:** lỗi "không tìm thấy nhóm ở màn Đóng gói" lần này là do nhóm còn ở bước lấy hàng (chưa bấm "Hoàn tất lấy hàng") rồi tới SKU chưa đo — cả 2 đều là trạng thái hợp lệ nhưng màn không nói lý do; ưu tiên làm hiện lý do kẹt thay vì để nhóm "biến mất".
+
+Tài liệu (AOFP-162): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 8–14) + mục 1b, `API_LIST.md` mục 20 + đầu file + dòng `POST /returns`, `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 10, `DEMO_PLAYBOOK.md` Phần F (trả/đổi qua website).
+
+### SKU AURELLE theo quy tắc OptiPack + tự nối SKU cùng mã (22/10/2026 trưa, AOFP-159..161 + tài liệu AOFP-162)
+
+**[stated] Thuận yêu cầu:** tạo sản phẩm mới bên AURELLE luôn phải đặt SKU theo quy tắc OptiPack; SKU trùng mã thì tự đồng bộ với kho OptiPack để 2 bên luôn cùng số lượng. Chọn: chọn danh mục/màu/size từ danh mục OptiPack (không gõ tự do), tự nối khi trùng SKU nội bộ. Hỏi thêm: AURELLE đã có xoá sản phẩm (có — xoá mềm), OptiPack đã có gỡ kệ / xoá-đổi SKU (có cho kệ + SKU nội bộ; CHƯA có cho SKU sàn → làm AOFP-161).
+
+- **AOFP-159 — SKU AURELLE theo quy tắc:** `storefront_products.sku_category_code/sku_model_no`, `storefront_product_variants.sku_color_code`; `GET /storefront/admin/products/sku-options` (danh mục cấp 2 + thang size + màu đọc thẳng collection `categories`/`colors` của OptiPack — StorefrontModule đăng ký 2 schema). Biến thể MỚI bắt buộc danh mục + số mẫu + mã màu + size trong thang → `buildMasterSkuCode` (`ATHUN-005-DEN-M`), trùng trong form 400, trùng sản phẩm khác 409, biến thể đã bỏ cùng mã thì dùng lại; đã có biến thể theo mã thì khoá danh mục/số mẫu và màu/size của biến thể đó. Biến thể cũ (`SF-…`, mã mẫu) giữ nguyên, sửa tự do như trước. Lưu xong phát webhook `product_updated` {seller_skus}. Form Admin website: chọn danh mục OptiPack, số mẫu, màu/size bằng dropdown, xem trước SKU.
+- **AOFP-160 — tự nối SKU cùng mã:** `MasterSkusService.autoMapSellerSkus` (khớp `master_sku` không phân biệt hoa thường, bỏ SKU đã nối, gọi `createMapping` với actor `system:auto-map` → gộp tồn + chuyển giữ chỗ) — gọi sau mỗi lần ghi Product Master (`upsertProducts`) và sau `create` SKU nội bộ (`autoMapForMaster`). Webhook `product_updated` → `syncProductsForShop` ngay. `availability().managed` thêm điều kiện "đã nối SKU nội bộ" → đẩy tồn cả khi kho = 0 (2 bên luôn cùng số).
+- **AOFP-161 — SKU sàn ngừng bán / ngừng dùng:** `product_master.marketplace_status` (từ `Status` GetProducts/Open API) + `retired/retired_at`; `ACTIVE_SELLER_SKU_FILTER` áp cho "SKU chưa gán" (warehouse), `GET /product-master` (mặc định, `include_retired=true` để xem hết), "SKU chưa nối", đẩy tồn; `PATCH /product-master/:id/retire` (Admin).
+- **Verify:** BE tsc 0, eslint file đụng 0 lỗi, jest 8 shard **1.179 test** đạt (+1 spec mới 10 test); storefront tsc 0. Chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) không migration; sản phẩm/biến thể cũ giữ mã. (2) Đổi hành vi: Admin website không thêm biến thể mới được nếu chưa chọn danh mục OptiPack + số mẫu; SKU đã nối SKU nội bộ bị đẩy tồn (kể cả 0) → website có thể về 0 nếu kho OptiPack chưa nhập. (3) FE OptiPack: checklist 1c (nút ngừng dùng SKU sàn, nhãn "Sàn ngừng bán"). (4) Cần có danh mục cấp 2 + màu trong OptiPack trước khi tạo sản phẩm AURELLE. (5) Rủi ro: AURELLE đọc chung DB danh mục OptiPack — tách hệ thống thật thì phải đổi sang API.
+
+Tài liệu (AOFP-162): `FE_UPDATE_CHECKLIST.md` mục 1c, `API_LIST.md` mục 21, `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 11.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
 ### A. Làm ngay (người dùng tự chạy)
-1. Commit AOFP-146..150 (code) + AOFP-151 (tài liệu) trên `feature/thuan_be`, push, mở PR vào `main`. Lệnh pathspec đã gửi trong chat 22/10.
+1. AOFP-146..151 đã commit (22/10, chưa push). Commit tiếp AOFP-152..161 (code, mỗi việc 1 commit) + AOFP-162 (tài liệu) — lệnh pathspec gửi trong chat 22/10 — rồi push `feature/thuan_be`, mở PR vào `main`.
 2. Trước khi khởi động backend bản mới: `npx ts-node -r dotenv/config scripts/check-open-return-duplicates.ts` (chỉ đọc). Có phiếu trả mở trùng → hủy/từ chối phiếu thừa, nếu không index `uniq_open_return_per_order` không tạo được.
 3. Script dữ liệu chưa ghi nhận đã chạy trên DB thật (chạy thử trước, rồi `--apply`): `fix-storefront-reservations.ts`, `migrate-objectid-fields.ts` (bắt buộc), `recompute-consolidation-keys.ts`, `migrate-unify-packaging-materials.ts`.
 4. Chạy thử trọn 1 đơn AURELLE thật: BE 3000 + mock 4000 + storefront 3001 → đặt hàng → lấy → đóng → giao (GHN giả lập) → khách trả/đổi/hủy yêu cầu.
 
 ### B. Sẽ làm tiếp (đã chốt hướng)
-5. **Bỏ giả lập trả hàng cho mọi sàn:** chặn `POST /returns` với mọi nền tảng, bỏ form giả lập trên FE OptiPack, giữ phiếu hoàn khi giao thất bại, sửa tài liệu + `DEMO_PLAYBOOK.md` (demo trả hàng chỉ bằng đơn AURELLE). ~1 commit.
-6. **Khách xem hành trình giao hàng đổi trên website:** khi đơn thay thế `EXC-…` đổi trạng thái (đã đóng gói / đang giao / đã giao), OptiPack báo về đúng yêu cầu đổi hàng trên website (kèm mã vận đơn GHN); website hiện thêm mốc "Hàng đổi đang được giao · Mã vận đơn …". Làm cả 2 phía.
+5. ✅ (22/10, AOFP-155 — BE + tài liệu; phần FE ở checklist 1b.4) **Bỏ giả lập trả hàng cho mọi sàn:** chặn `POST /returns` với mọi nền tảng, bỏ form giả lập trên FE OptiPack, giữ phiếu hoàn khi giao thất bại, sửa tài liệu + `DEMO_PLAYBOOK.md` (demo trả hàng chỉ bằng đơn AURELLE). ~1 commit.
+6. ✅ (22/10, AOFP-156) **Khách xem hành trình giao hàng đổi trên website:** khi đơn thay thế `EXC-…` đổi trạng thái (đã đóng gói / đang giao / đã giao), OptiPack báo về đúng yêu cầu đổi hàng trên website (kèm mã vận đơn GHN); website hiện thêm mốc "Hàng đổi đang được giao · Mã vận đơn …". Làm cả 2 phía.
 
 ### C. Lỗi / thiếu đã biết trong BE (chưa sửa)
 7. Index `orders.consolidated_group_id` vẫn partial `is_consolidated: true` → truy vấn theo nhóm quét toàn bảng. Đổi sang index thường (partial `$type: 'objectId'`).
-8. Nhập hàng không tự tính lại các nhóm đơn đang `stock_shortage` của đúng SKU vừa nhập.
-9. Chưa có API ngắt kết nối shop sàn (`POST /marketplace/:platform/shops/:id/disconnect`, chỉ đổi trạng thái).
-10. Chưa có trạng thái "đang nghỉ / không nhận việc" cho nhân viên → tự phân công vẫn giao cho người vắng.
+8. ✅ (22/10, AOFP-154) Nhập hàng không tự tính lại các nhóm đơn đang `stock_shortage` của đúng SKU vừa nhập.
+9. ✅ (22/10, AOFP-157 — `DELETE /marketplace/:platform/shops/:shopId`) Chưa có API ngắt kết nối shop sàn (`POST /marketplace/:platform/shops/:id/disconnect`, chỉ đổi trạng thái).
+10. ✅ (22/10, AOFP-158) Chưa có trạng thái "đang nghỉ / không nhận việc" cho nhân viên → tự phân công vẫn giao cho người vắng.
 11. Còn 7 chỗ so SKU bằng regex → thêm `seller_sku_normalized` có index.
 12. Bảo mật: `ForcePasswordChangeGuard` chỉ ở `/users` (đưa thành guard toàn cục); `users.mfa_secret` lưu rõ (mã hóa AES-256-GCM + script cho dữ liệu cũ); đổi mật khẩu MongoDB Atlas nếu chưa đổi (từng lộ 16/09 và 29/09).
 13. Toàn bộ test dùng model giả lập → thêm test e2e với MongoDB replica set thật cho lấy → đóng → giao → hoàn.
@@ -4342,4 +4372,5 @@ Tài liệu (AOFP-151): `GUIDE_DOC/Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKI
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
 
 ### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
+22b. 🆕 22/10 (mục 1b): tab "Kẹt — SKU chưa đo", tên người đóng, tìm `?q=`, **bỏ form giả lập trả hàng (làm sớm — BE trả 410)**, nút ngắt kết nối shop, nghỉ phép + khoá chọn người nghỉ, thông báo `packing_blocked`.
 22. Nguồn thùng mới/tái sử dụng khi đóng gói; người gửi trên nhãn; 5 nút in PDF; lô cũ nhất trên Picking List; màn lô + phiếu nhập; mở đúng `warehouseId` của nhóm + bắt `ORD_GROUP_WRONG_WAREHOUSE`; dọn mã chết; 2 lỗi tsc có sẵn ở `AdminWarehousePage.tsx`.

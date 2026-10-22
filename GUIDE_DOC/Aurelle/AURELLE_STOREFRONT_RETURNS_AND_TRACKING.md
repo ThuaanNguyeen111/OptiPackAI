@@ -175,3 +175,44 @@ Trước đây website chỉ **trả lại** phần giữ chỗ khi khách hủy
 2. Đổi hành vi: thêm 2 route khách, 1 loại webhook, 1 loại phiếu từ website; OptiPack kéo thêm yêu cầu `canceled`.
 3. Không ảnh hưởng: trả hàng Lazada (giả lập), phiếu giao thất bại, giữ chỗ, đóng gói, giao hàng.
 4. Hạn chế: khách chưa thấy hành trình giao hàng đổi (mục 7).
+
+## 10. Bổ sung 22/10/2026 — hành trình hàng đổi, bỏ giả lập trả hàng
+
+### 10.1 Khách theo dõi hàng đổi trên website
+Trước đây: kiểm hàng xong, OptiPack tạo đơn thay thế `EXC-<mã phiếu>` và giao như đơn thường, nhưng đơn này không có trên website (hàng đợi ghi ngược bỏ qua `origin: replacement`) → khách chỉ thấy yêu cầu "Đã xong", không biết hàng đổi đang ở đâu.
+
+Nay:
+1. Đơn thay thế đổi trạng thái `packed | shipped | delivered | failed_delivery` → dòng `marketplace_status_outbox` của nhóm đơn thay thế được gửi qua Open API mới **`POST /rest/reverse/exchange/shipment/update`** (ký như mọi API khác) với `return_id` = mã yêu cầu trên website (`external_ref` của phiếu OptiPack), `status`, `event_time`, `carrier`, `tracking_code`, `reason` (khi giao thất bại), `idempotency_key` = `<khóa dòng outbox>:exchange:<return_id>`.
+2. Chỉ gửi cho phiếu **đổi hàng do khách gửi trên AURELLE** (`source = marketplace`, `type = exchange`). Phiếu không phải đổi hàng → mock trả 400; không có → 404; vận đơn hãng thật chưa có mã → hẹn lượt sau như đơn thường.
+3. Website lưu `storefront_return_requests.exchange_shipment = { status, carrier, tracking_code, updated_at }` (chỉ tiến, "đã giao" rồi thì không lùi; giao thất bại rồi giao lại vẫn nhận) và 1 dòng lịch sử `return_exchange_<status>` trong `storefront_order_events` (cùng tiền tố `return_` nên tự hiện ở "Hành trình yêu cầu").
+4. `GET /storefront/returns/:id` trả thêm `exchangeShipment` + `events[].trackingCode`; trang `/account/returns/[id]` hiện khối **Hàng đổi** (trạng thái, hãng, mã vận đơn) và câu "Hàng đổi đang được chuẩn bị" khi yêu cầu đã xong mà chưa gửi.
+
+Hàm dùng chung: `be/src/modules/storefront/aurelle-return-api.ts` (`applyExchangeShipmentUpdate`, `EXCHANGE_SHIPMENT_LABELS`); mock: `be/scripts/aurelle-mock-server.ts`, `be/scripts/aurelle-portal/storefront-store.ts` (`applyExchangeShipment`).
+
+### 10.2 Bỏ giả lập trả hàng cho mọi sàn
+`POST /returns` (OptiPack) trả `410 RMA_SIMULATION_DISABLED` cho cả Lazada lẫn AURELLE. Nguồn phiếu còn lại: khách gửi trên website (mục 9) và phiếu hoàn tự tạo khi giao thất bại. Mục 8.4 (chỉ chặn đơn AURELLE) nay áp cho mọi sàn. Demo: `DEMO_PLAYBOOK.md` Phần F.
+
+### 10.3 Tác động
+- Không migration: yêu cầu cũ không có `exchange_shipment` = null.
+- Cần chạy lại mock AURELLE (:4000) bản mới để có route `/reverse/exchange/shipment/update`; mock cũ trả 404 → dòng outbox thử lại rồi `failed` sau 8 lần, không ảnh hưởng đơn thường.
+
+## 11. Bổ sung 22/10/2026 (trưa) — SKU theo quy tắc OptiPack, tự nối, luôn cùng số tồn
+
+### 11.1 Tạo sản phẩm trên Admin website
+1. Form có mục **"Mã SKU theo quy tắc OptiPack"**: chọn **danh mục cấp 2** (lấy từ OptiPack, kèm thang size) và nhập **số mẫu** (1–999).
+2. Mỗi biến thể mới chọn **màu** (danh mục màu OptiPack) và **size** (thang size của danh mục) bằng dropdown; cột SKU hiện trước mã sẽ tạo, VD `ATHUN-005-DEN-M`.
+3. Lưu: BE kiểm lại toàn bộ (không tin form) — thiếu phần nào, size ngoài thang, màu không có, trùng mã → báo lỗi, không lưu.
+4. Đã có biến thể theo mã: danh mục + số mẫu của sản phẩm và màu/size của biến thể đó bị khoá (đổi = SKU khác). Muốn bán màu/size khác → thêm biến thể mới.
+5. Biến thể cũ (`SF-…`, mã mẫu như `SLL-BRN-37`) giữ nguyên mã và cách sửa cũ.
+
+Điều kiện: OptiPack phải có sẵn danh mục cấp 2 (có thang size) và màu — tạo ở OptiPack **Cấu hình kho → Sản phẩm → Danh mục & màu**.
+
+### 11.2 Tự đồng bộ với kho OptiPack
+1. Lưu xong, website phát webhook `product_updated` → OptiPack kéo hồ sơ SKU mới ngay (cron catalog mỗi giờ vẫn bù).
+2. SKU trùng mã **SKU nội bộ** đang dùng của OptiPack → **tự nối**: tồn tính chung theo SKU nội bộ (gộp với listing Lazada cùng sản phẩm nếu có).
+3. Lượt đẩy tồn kế tiếp (≤ 1 phút) đưa số **bán được** của kho OptiPack sang website và khoá ô tồn trên Admin website → 2 bên luôn cùng số (kể cả khi kho = 0).
+4. Chưa có SKU nội bộ cùng mã: SKU vẫn về OptiPack như SKU sàn thường (gán kệ, đo); tạo SKU nội bộ cùng mã sau này thì cũng tự nối.
+
+### 11.3 Mã cũ / sản phẩm đã xoá
+- Xoá sản phẩm hoặc bỏ biến thể trên website = xoá mềm; Open API báo `Status: inactive` → OptiPack tự ẩn SKU đó khỏi "SKU chưa gán", "Chưa đo", "SKU chưa nối" và không đẩy tồn.
+- Dọn mã cũ ở kho: kiểm kê ô về 0 → bỏ gán khỏi kệ → (nếu cần) bấm "Ngừng dùng" SKU sàn (`PATCH /product-master/:id/retire`).
