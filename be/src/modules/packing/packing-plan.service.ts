@@ -9,6 +9,7 @@ import type { PackerConfig } from '../../config/packer.config';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
+import { ORD_GROUP_ERROR_CODES } from '../order-groups/order-groups.errors';
 import { addBusinessHours } from '../order-groups/utils/add-business-hours.util';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { PackagingBoxService } from '../packaging/packaging-box.service';
@@ -416,6 +417,7 @@ export class PackingPlanService {
         return updated;
       });
 
+      await this.clearPackingBlock(groupId);
       // Giao người đóng: giữ người của lần tính trước (tính lại), không thì người ít việc nhất.
       const assigned = await this.packerAssignment.assignOnReady(saved._id, last?.assigned_packer_id ?? null);
       await this.notifyPendingPlan(groupId, assigned ?? saved);
@@ -433,7 +435,57 @@ export class PackingPlanService {
         { $set: { status: 'failed', failure_reason: message } },
       );
       this.logger.warn(`Tính kế hoạch nhóm ${groupId} thất bại: ${message}`);
+      if (error instanceof AppException && error.errorCode === ORD_GROUP_ERROR_CODES.PACKAGING_PROFILE_NOT_READY) {
+        await this.recordPackingBlock(groupId, error.details ?? {});
+      }
       throw error;
+    }
+  }
+
+  /**
+   * 22/10/2026 — nhóm kẹt vì SKU chưa đo: ghi lên nhóm đơn (FE hiện đúng nhóm + SKU cần đo)
+   * và báo Admin + Store Owner MỘT lần. Kế hoạch `failed` giữ nguyên nên cron không tính
+   * lặp; kho đo xong SKU → ProductMasterService tự gỡ kế hoạch failed để cron tính lại.
+   */
+  private async recordPackingBlock(groupId: string, details: Record<string, unknown>): Promise<void> {
+    try {
+      const skus = Array.isArray(details.skus)
+        ? details.skus.filter((s): s is string => typeof s === 'string')
+        : typeof details.sku === 'string'
+          ? [details.sku]
+          : [];
+      const reason = details.reason === 'missing_product_master' ? 'missing_product_master' : 'needs_measurement';
+      const newlyBlocked = await this.orderGroupsService.markPackingBlocked(groupId, reason, skus);
+      if (!newlyBlocked) return;
+      const list = skus.join(', ') || 'không rõ';
+      const common = {
+        type: NotificationType.PACKING_BLOCKED,
+        severity: 'warning' as const,
+        title: `Nhóm đơn #${groupId} chưa đóng gói được: SKU chưa đo`,
+        message:
+          reason === 'missing_product_master'
+            ? `SKU ${list} chưa có hồ sơ sản phẩm. Đồng bộ catalog rồi xác nhận số đo ở Cấu hình kho → Sản phẩm.`
+            : `SKU ${list} chưa có số đo kho xác nhận. Vào Cấu hình kho → Sản phẩm → lọc "Chưa đo" → Xác nhận số đo; hệ thống tự tính lại kế hoạch.`,
+        relatedEntityType: 'order_group',
+        relatedEntityId: groupId,
+      };
+      await this.safeNotify({ ...common, recipientRole: UserRole.ADMIN });
+      await this.safeNotify({ ...common, recipientRole: UserRole.STORE_OWNER });
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Ghi nhóm ${groupId} kẹt đóng gói thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  /** 22/10/2026 — kế hoạch đã tính được → xoá cờ kẹt (best-effort). */
+  private async clearPackingBlock(groupId: string): Promise<void> {
+    try {
+      await this.orderGroupsService.clearPackingBlocked(groupId);
+    } catch (error: unknown) {
+      this.logger.warn(
+        `Xoá cờ kẹt đóng gói nhóm ${groupId} thất bại: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 

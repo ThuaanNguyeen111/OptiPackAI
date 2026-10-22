@@ -429,6 +429,8 @@ export class PackingPlan {
   @Prop({ type: String, default: null }) approve_override_reason!: string | null;
   @Prop({ type: SchemaTypes.ObjectId, default: null }) assigned_packer_id!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) assigned_packer_at!: Date | null;
+  /** 22/10/2026 — tên người đóng lúc giao việc (bản lưu sẵn để màn hình hiện tên, không tra lại). */
+  @Prop({ type: String, default: null }) assigned_packer_name!: string | null;
   @Prop({ type: SchemaTypes.ObjectId, default: null }) packing_started_by!: Types.ObjectId | null;
   @Prop({ type: Date, default: null }) packing_started_at!: Date | null;
   /** scan = mọi kiện quét kiểm; quick = có kiện đi lối tắt POST pack (không quét). */

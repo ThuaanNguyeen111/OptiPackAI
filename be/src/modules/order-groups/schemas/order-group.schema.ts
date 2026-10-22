@@ -159,6 +159,20 @@ export class OrderGroup {
     shortage: number;
   }[];
 
+  /**
+   * 22/10/2026 — Nhóm đã lấy xong nhưng KHÔNG tính được kế hoạch đóng gói vì có SKU
+   * chưa có hồ sơ đóng gói kho xác nhận (chưa đo / chưa có Product Master). null = không kẹt.
+   * Kho xác nhận số đo SKU đó → tự xoá cờ + kế hoạch failed, cron tự tính lại (~10 s).
+   */
+  @Prop({ type: String, enum: ['needs_measurement', 'missing_product_master'], default: null })
+  packing_blocked_reason?: 'needs_measurement' | 'missing_product_master' | null;
+
+  @Prop({ type: [String], default: [] })
+  packing_blocked_skus?: string[];
+
+  @Prop({ type: Date, default: null })
+  packing_blocked_at?: Date | null;
+
   // Nhóm đơn THAY THẾ sinh ra từ phiếu đổi hàng.
   @Prop({
     type: String,
@@ -209,6 +223,11 @@ OrderGroupSchema.index({ platform: 1, fulfillment_status: 1, created_at: -1 });
 // staff (Rule #3 ESR: assigned_staff_id equality trước, fulfillment_status
 // range/set sau) — dùng trong autoAssignStaff() để chọn người ít việc nhất.
 OrderGroupSchema.index({ assigned_staff_id: 1, fulfillment_status: 1 });
+// 22/10/2026 — tìm nhóm kẹt đóng gói theo SKU khi kho vừa đo xong SKU đó.
+OrderGroupSchema.index(
+  { packing_blocked_skus: 1 },
+  { partialFilterExpression: { packing_blocked_reason: { $type: 'string' } } },
+);
 
 // BỔ SUNG (2026-09-10) — phục vụ cron cảnh báo SLA (quét đơn hỏa tốc
 // sắp/đã quá hạn) — Rule #3 ESR, equality (order_priority) trước.
