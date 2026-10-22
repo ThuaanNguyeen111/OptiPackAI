@@ -125,8 +125,8 @@ describe('PackerAssignmentService', () => {
     });
     const list = await service.listPackers('a.(');
     expect(list).toEqual([
-      { staffId: String(packerA), fullName: 'An', email: 'an@x.vn', activeWorkload: 3 },
-      { staffId: String(packerB), fullName: 'Bình', email: 'binh@x.vn', activeWorkload: 0 },
+      { staffId: String(packerA), fullName: 'An', email: 'an@x.vn', activeWorkload: 3, onLeave: false, onLeaveUntil: null },
+      { staffId: String(packerB), fullName: 'Bình', email: 'binh@x.vn', activeWorkload: 0, onLeave: false, onLeaveUntil: null },
     ]);
     const [filter] = userModel.find.mock.calls[0] as [{ role: UserRole; $or: { name: { $regex: string } }[] }];
     expect(filter.role).toBe(UserRole.PACKAGING_STAFF);

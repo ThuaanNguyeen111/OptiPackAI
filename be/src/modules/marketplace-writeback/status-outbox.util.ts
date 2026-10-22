@@ -14,7 +14,10 @@ export type AurelleWritebackStatus =
   | 'delivered'
   | 'failed_delivery'
   | 'shipped_back'
-  | 'returned';
+  | 'returned'
+  // 22/10/2026 — hành động người bán ở mức 1 đơn (outbox có `order_id`)
+  | 'short_shipped'
+  | 'canceled_by_seller';
 
 /** Nhóm đơn đổi trạng thái → trạng thái gửi sàn (chỉ mức nhóm cần gửi: đóng gói xong). */
 export function writebackStatusForGroup(status: GroupFulfillmentStatus): AurelleWritebackStatus | null {
@@ -67,6 +70,10 @@ export function writebackStatusForReturn(status: ReturnStatus): string | null {
 export interface EnqueueStatusPushInput {
   orderGroupId: Types.ObjectId | string;
   shipmentId?: Types.ObjectId | string | null;
+  /** 22/10/2026 — có = sự kiện của riêng đơn này (người bán hủy / giao thiếu). */
+  orderId?: Types.ObjectId | string | null;
+  /** 22/10/2026 — chỉ `short_shipped`. */
+  shippedItems?: { sku: string; shipped_quantity: number }[];
   /** Có giá trị = sự kiện của phiếu trả hàng (kind = return_status), nếu không là trạng thái đơn. */
   returnRequestId?: Types.ObjectId | string | null;
   /** Trạng thái đơn (AurelleWritebackStatus) hoặc trạng thái phiếu trả hàng (approved|rejected|received|closed|canceled). */
@@ -92,9 +99,11 @@ export async function enqueueStatusPush(
   const groupId = String(input.orderGroupId);
   const scope = input.returnRequestId
     ? `ret:${String(input.returnRequestId)}`
-    : input.shipmentId
-      ? `ship:${String(input.shipmentId)}`
-      : `grp:${groupId}`;
+    : input.orderId
+      ? `ord:${String(input.orderId)}`
+      : input.shipmentId
+        ? `ship:${String(input.shipmentId)}`
+        : `grp:${groupId}`;
   const key = `${scope}:${input.status}:${String(input.discriminator)}`;
   // Upsert thay vì create + bắt E11000: lỗi trùng khóa BÊN TRONG transaction làm
   // hỏng cả transaction, còn upsert với $setOnInsert thì gọi lặp vẫn êm.
@@ -105,6 +114,8 @@ export async function enqueueStatusPush(
         kind: input.returnRequestId ? 'return_status' : 'order_status',
         order_group_id: input.orderGroupId,
         return_request_id: input.returnRequestId ?? null,
+        order_id: input.orderId ?? null,
+        ...(input.shippedItems && { shipped_items: input.shippedItems }),
         note: input.note ?? null,
         shipment_id: input.shipmentId ?? null,
         status: input.status,

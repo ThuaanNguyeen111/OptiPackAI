@@ -571,6 +571,12 @@ export function ReturnsPage({
                   <h2 className="mt-1 font-mono text-lg font-bold text-ink">
                     {selected.rmaCode}
                   </h2>
+                  {selected.source === 'marketplace' ? (
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {vi ? 'Khách tự yêu cầu trên AURELLE' : 'Requested by the customer on AURELLE'}
+                      {selected.externalRef ? ` · #${selected.externalRef}` : ''}
+                    </p>
+                  ) : null}
                 </div>
 
                 <dl className="space-y-2 rounded-lg border border-hairline bg-canvas/50 p-3 text-sm">

@@ -20,6 +20,8 @@ import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { SetLeaveDto } from './dto/set-leave.dto';
+import { isOnLeave } from './utils/on-leave.util';
 import { UsersService } from './services/users.service';
 import { UserDocument } from './schemas/user.schema';
 
@@ -73,6 +75,10 @@ export interface AdminUserListItem {
   employee_code?: string;
   department?: string;
   is_active: boolean;
+  /** 22/10/2026 — đang nghỉ phép (đã tính hạn nghỉ): không được giao việc lấy hàng/đóng gói. */
+  on_leave: boolean;
+  on_leave_until: Date | null;
+  on_leave_note: string | null;
   mfa_enabled: boolean;
   login_type: string;
   must_change_password: boolean;
@@ -101,6 +107,9 @@ function toAdminListItem(user: UserDocument): AdminUserListItem {
     employee_code: user.employee_code,
     department: user.department,
     is_active: user.is_active,
+    on_leave: isOnLeave(user),
+    on_leave_until: user.on_leave_until ?? null,
+    on_leave_note: user.on_leave_note ?? null,
     mfa_enabled: user.mfa_enabled,
     login_type: user.login_type,
     must_change_password: user.must_change_password,
@@ -213,6 +222,16 @@ export class UsersController {
   ): Promise<ReturnType<typeof toPublicProfile>> {
     const updated = await this.usersService.adminUpdateUser(id, dto);
     return toPublicProfile(updated);
+  }
+
+  @ApiOperation({
+    summary:
+      '22/10/2026 — Bật/tắt NGHỈ PHÉP cho nhân viên kho / đóng gói / điều phối vận chuyển. Đang nghỉ: hệ thống không tự giao việc, giao tay bị từ chối (409); vẫn đăng nhập được. until (tùy chọn) qua hạn thì tự tính đi làm lại.',
+  })
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
+  @Patch(':id/leave')
+  async setLeave(@Param('id') id: string, @Body() dto: SetLeaveDto): Promise<AdminUserListItem> {
+    return toAdminListItem(await this.usersService.setLeave(id, dto));
   }
 
   @ApiOperation({ summary: 'Vô hiệu hóa tài khoản nhân viên (xóa mềm)' })

@@ -208,8 +208,12 @@ export class AurelleAdapter implements MarketplaceAdapter {
       eventTime: Date;
       trackingCode?: string;
       tripCode?: string;
+      /** (21/10/2026) Tên hãng vận chuyển hiển thị cho khách (GHN...). */
+      carrier?: string;
       reason?: string;
       idempotencyKey: string;
+      /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU (gửi dạng chuỗi JSON). */
+      items?: { sku: string; shipped_quantity: number }[];
     },
   ): Promise<void> {
     const params: Record<string, string | number> = {
@@ -221,7 +225,9 @@ export class AurelleAdapter implements MarketplaceAdapter {
     };
     if (input.trackingCode) params.tracking_code = input.trackingCode;
     if (input.tripCode) params.trip_code = input.tripCode;
+    if (input.carrier) params.carrier = input.carrier;
     if (input.reason) params.reason = input.reason;
+    if (input.items?.length) params.items = JSON.stringify(input.items);
 
     const data = await this.client.callSignedApiPost<AurelleEnvelope<{ order_id: number; status: string }>>(
       '/order/status/update',
@@ -301,6 +307,43 @@ export class AurelleAdapter implements MarketplaceAdapter {
       throw new AppException(
         MKT_ERROR_CODES.SERVER_ERROR,
         `AURELLE từ chối cập nhật yêu cầu trả hàng ${input.returnId}: ${data.message ?? 'không rõ lý do'}`,
+        HttpStatus.BAD_GATEWAY,
+        { returnId: input.returnId, status: input.status },
+      );
+    }
+  }
+
+  /** 22/10/2026 — mốc giao hàng đổi → `POST /reverse/exchange/shipment/update`. */
+  async updateExchangeShipment(
+    accessToken: string,
+    input: {
+      returnId: string;
+      status: 'packed' | 'shipped' | 'delivered' | 'failed_delivery';
+      eventTime: Date;
+      carrier?: string;
+      trackingCode?: string;
+      reason?: string;
+      idempotencyKey: string;
+    },
+  ): Promise<void> {
+    const params: Record<string, string | number> = {
+      access_token: accessToken,
+      return_id: input.returnId,
+      status: input.status,
+      event_time: input.eventTime.toISOString(),
+      idempotency_key: input.idempotencyKey,
+    };
+    if (input.carrier) params.carrier = input.carrier;
+    if (input.trackingCode) params.tracking_code = input.trackingCode;
+    if (input.reason) params.reason = input.reason;
+    const data = await this.client.callSignedApiPost<AurelleEnvelope<{ return_id: string }>>(
+      '/reverse/exchange/shipment/update',
+      params,
+    );
+    if (data.code !== '0') {
+      throw new AppException(
+        MKT_ERROR_CODES.SERVER_ERROR,
+        `AURELLE từ chối cập nhật giao hàng đổi cho yêu cầu ${input.returnId}: ${data.message ?? 'không rõ lý do'}`,
         HttpStatus.BAD_GATEWAY,
         { returnId: input.returnId, status: input.status },
       );

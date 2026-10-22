@@ -252,3 +252,41 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
   .order-detail-item-price { grid-column:2; padding-top:0; }
   .order-detail-facts { grid-template-columns:1fr; gap:14px; }
 }
+
+/* 20/10/2026 — hành trình đơn hàng */
+.order-timeline-panel { padding-top:28px; margin-top:28px; border-top:1px solid var(--line); }
+.order-timeline-panel h2 { margin:8px 0 12px; font:28px 'Cormorant Garamond', Georgia, serif; font-weight:600; }
+.order-timeline-tracking { margin:0 0 18px; color:var(--muted); font-size:13px; }
+.order-timeline-tracking strong { color:var(--ink); font-weight:500; }
+.order-timeline { list-style:none; margin:0; padding:0; display:grid; gap:0; }
+.order-timeline li { position:relative; display:grid; grid-template-columns:18px 1fr; gap:14px; padding-bottom:20px; }
+.order-timeline li:not(:last-child)::before { content:''; position:absolute; left:5px; top:14px; bottom:0; width:1px; background:var(--line); }
+.order-timeline-dot { width:11px; height:11px; margin-top:4px; border:1px solid #bba58f; border-radius:50%; background:var(--paper); }
+.order-timeline li.is-current .order-timeline-dot { background:var(--accent); border-color:var(--accent); }
+.order-timeline strong { font-size:14px; font-weight:500; }
+.order-timeline p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+.order-timeline time { display:block; margin-top:4px; color:var(--muted); font-size:11px; letter-spacing:.04em; }
+
+.order-cancel-box { margin-top:24px; display:grid; gap:10px; justify-items:start; }
+.order-cancel-button { background:transparent; color:var(--ink); border:1px solid var(--ink); }
+.order-cancel-button:disabled { opacity:.5; cursor:not-allowed; }
+
+/* 20/10/2026 — yêu cầu trả hàng */
+.return-form { padding-top:28px; margin-top:28px; border-top:1px solid var(--line); }
+.return-form h2 { margin:8px 0 8px; font:28px 'Cormorant Garamond', Georgia, serif; font-weight:600; }
+.return-form-hint, .return-hint { margin:0 0 18px; color:var(--muted); font-size:13px; line-height:1.6; }
+.return-form-lines { display:grid; gap:10px; margin-bottom:22px; }
+.return-form-line { display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; padding:12px 14px; border:1px solid var(--line); cursor:pointer; }
+.return-form-line-copy { display:grid; gap:3px; }
+.return-form-line-copy small { color:var(--muted); font-size:12px; }
+.return-form-line select { padding:8px 10px; border:1px solid var(--line); background:#fff; }
+.return-form-actions { display:flex; gap:12px; flex-wrap:wrap; }
+/* 22/10/2026 — người bán hủy / giao thiếu, danh mục Admin */
+.order-seller-notice { margin:18px 0; padding:14px 16px; border:1px solid #e0b79c; background:#fbefe6; color:#6b3a20; font-size:13px; line-height:1.6; }
+.order-seller-notice p { margin:4px 0 0; }
+.order-item-short { color:#a2482a !important; font-size:12px; }
+.admin-warning { margin:6px 0 0; color:#a2482a; font-size:12px; line-height:1.5; }
+.admin-dim-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:8px; }
+.admin-categories { margin-top:32px; }
+.admin-category-row { display:grid; grid-template-columns:2fr 1.4fr 80px 1fr auto; gap:10px; align-items:center; padding:10px 0; border-bottom:1px solid var(--line, #e6e1db); font-size:13px; }
+@media (max-width: 720px) { .admin-dim-grid { grid-template-columns:repeat(2, minmax(0,1fr)); } .admin-category-row { grid-template-columns:1fr 1fr; } }

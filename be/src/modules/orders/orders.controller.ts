@@ -64,6 +64,10 @@ interface OrderDetailResponse extends OrderResponse {
   isCancelPending: boolean;
   cancelTriggerTime: Date | null;
   reverseOrderId: string | null;
+  /** 22/10/2026 — người bán đã hủy đơn này trong OptiPack (`POST /order-groups/orders/:id/seller-cancel`). */
+  sellerCanceled: boolean;
+  /** 22/10/2026 — 'replacement' = đơn thay thế do đổi hàng (không hủy kiểu người bán được). */
+  origin: 'marketplace' | 'replacement';
 }
 
 @ApiTags('Orders')
@@ -187,6 +191,8 @@ export class OrdersController {
       isCancelPending: order.is_cancel_pending,
       cancelTriggerTime: order.cancel_trigger_time,
       reverseOrderId: order.reverse_order_id,
+      sellerCanceled: order.raw_statuses.includes('seller_canceled'),
+      origin: order.origin ?? 'marketplace',
       createdAt: order.created_at ?? new Date(0),
     };
   }

@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import type { StorefrontOrder } from '@/types/storefront'
-import { getFulfillmentStatusLabel } from '@/lib/order-labels'
+import { ApiError, getOrders } from '@/lib/api-client'
+import { getFulfillmentStatusLabel, getOrderStatusLabel } from '@/lib/order-labels'
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<StorefrontOrder[]>([])
@@ -37,7 +38,11 @@ export default function OrdersPage() {
             <h3>{order.orderNumber}</h3>
             <p>{new Date(order.createdAt).toLocaleDateString('vi-VN')}</p>
           </div>
-          <span className="order-status">{getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
+          <div className="order-status-group">
+            {/* 22/10/2026 — đơn đã hủy hiện "Đã hủy" / "Người bán đã hủy" thay vì mốc giao hàng cũ */}
+            <span className="order-status">{order.status === 'cancelled' ? getOrderStatusLabel(order.status, order.cancelSource) : getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
+            {order.activeReturn && <span className="order-status order-status-return">Đang yêu cầu trả hàng</span>}
+          </div>
           <div className="order-total">
             <span>Tổng thanh toán</span>
             <strong>{order.totalAmount.toLocaleString('vi-VN')}₫</strong>

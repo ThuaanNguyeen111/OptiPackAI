@@ -46,6 +46,9 @@
 .admin-variants input { width:100%; min-width:70px; padding:9px; border:1px solid var(--line); border-radius:4px; }
 .admin-variants td:first-child { max-width:175px; overflow-wrap:anywhere; }
 .admin-sku { font-size:11px; color:var(--muted); }
+/* 21/10/2026 — tồn do kho OptiPack quản lý (chỉ xem) */
+.admin-stock-managed { display:inline-grid; gap:2px; font-weight:600; }
+.admin-stock-managed small { font-size:10px; font-weight:400; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
 .admin-status { display:inline-block; padding:6px 9px; border-radius:4px; background:#eee; white-space:nowrap; font-size:11px; }
 .admin-status.active { color:#326442; background:#edf6ee; }
 .admin-status.draft { color:#8e7028; background:#faf1d7; }

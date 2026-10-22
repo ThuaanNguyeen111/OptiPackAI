@@ -392,6 +392,8 @@ export class WarehouseController {
       dto,
       user.userId,
     );
+    // 22/10/2026 — gán kèm tồn ban đầu = có hàng mới → nhóm đang thiếu tự tính lại.
+    if ((dto.initial_quantity ?? 0) > 0) this.warehouseService.notifyStockIn('gán SKU vào ô');
     return toAssignmentResponse(doc);
   }
 
@@ -415,6 +417,7 @@ export class WarehouseController {
       user.userId, // K3 — sổ cái
       { receivedAt: dto.received_at, lotCode: dto.lot_code }, // 15/10/2026 — lô hàng
     );
+    this.warehouseService.notifyStockIn('nhập thêm hàng'); // 22/10/2026
     return toAssignmentResponse(doc);
   }
 
@@ -710,14 +713,14 @@ export class WarehouseController {
     @Body() dto: AdjustStockDto,
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<SkuBinAssignmentResponse> {
-    return toAssignmentResponse(
-      await this.warehouseService.adjustStock(
-        warehouseId,
-        assignmentId,
-        dto,
-        user.userId,
-      ),
+    const adjusted = await this.warehouseService.adjustStock(
+      warehouseId,
+      assignmentId,
+      dto,
+      user.userId,
     );
+    this.warehouseService.notifyStockIn('kiểm kê'); // 22/10/2026 — kiểm kê tăng có thể đủ hàng
+    return toAssignmentResponse(adjusted);
   }
 
   @Post('warehouses/:warehouseId/sku-bin-assignments/:assignmentId/transfer')
@@ -827,7 +830,9 @@ export class WarehouseController {
     @CurrentUser() user: AuthenticatedUser,
   ): Promise<StockReceiptResponse> {
     this.assertObjectId(warehouseId, 'warehouseId');
-    return toReceiptResponse(await this.warehouseService.createReceipt(warehouseId, dto, user.userId));
+    const receipt = await this.warehouseService.createReceipt(warehouseId, dto, user.userId);
+    this.warehouseService.notifyStockIn('phiếu nhập kho'); // 22/10/2026
+    return toReceiptResponse(receipt);
   }
 
   @Get('warehouses/:warehouseId/receipts')
