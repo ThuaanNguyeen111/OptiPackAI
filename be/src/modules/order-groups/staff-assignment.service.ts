@@ -7,6 +7,7 @@ import { UserRole } from '../../common/enums/user-role.enum';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
 import { STAFF_ASSIGNMENT_ERROR_CODES } from './staff-assignment.errors';
 import { AppException } from '../../common/exceptions/app-exception';
+import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
 
 /**
  * 🔄 ĐÃ ĐỔI (21/10/2026): "việc" của người LẤY HÀNG = nhóm còn ở bước lấy hàng.
@@ -46,7 +47,7 @@ export class StaffAssignmentService {
   async listStaffWithWorkload(
     role: UserRole = UserRole.WAREHOUSE_STAFF,
     search?: string,
-  ): Promise<{ staffId: string; fullName: string; email: string; activeWorkload: number }[]> {
+  ): Promise<{ staffId: string; fullName: string; email: string; activeWorkload: number; onLeave: boolean; onLeaveUntil: Date | null }[]> {
     const filter: Record<string, unknown> = { role, is_active: true };
     // Tìm theo tên/email — user yêu cầu "search staff" (2026-09-10).
     // Regex escape ký tự đặc biệt để tránh lỗi/ReDoS nếu user gõ ký tự lạ.
@@ -60,7 +61,7 @@ export class StaffAssignmentService {
 
     const staffList = await this.userModel
       .find(filter)
-      .select('_id name email')
+      .select('_id name email on_leave on_leave_until')
       .lean();
 
     if (staffList.length === 0) return [];
@@ -77,15 +78,22 @@ export class StaffAssignmentService {
       fullName: s.name,
       email: s.email,
       activeWorkload: workloadMap.get(s._id.toString()) ?? 0,
+      // 22/10/2026 — vẫn liệt kê người đang nghỉ (để thấy việc họ đang giữ) nhưng FE phải khoá chọn.
+      onLeave: isOnLeave(s),
+      onLeaveUntil: isOnLeave(s) ? (s.on_leave_until ?? null) : null,
     }));
   }
 
   async autoAssign(groupId: string, role: UserRole = UserRole.WAREHOUSE_STAFF): Promise<OrderGroupDocument> {
-    const staffList = await this.userModel.find({ role, is_active: true }).select('_id').lean();
+    // 22/10/2026 — bỏ qua người đang nghỉ phép.
+    const staffList = await this.userModel
+      .find({ role, is_active: true, $and: [notOnLeaveFilter()] })
+      .select('_id')
+      .lean();
     if (staffList.length === 0) {
       throw new AppException(
         STAFF_ASSIGNMENT_ERROR_CODES.NO_STAFF_AVAILABLE,
-        `Không có nhân viên role "${String(role)}" nào đang active để gán việc.`,
+        `Không có nhân viên role "${String(role)}" nào đang active (không nghỉ phép) để gán việc.`,
         HttpStatus.CONFLICT,
         { role },
       );
@@ -114,7 +122,7 @@ export class StaffAssignmentService {
     if (!firstId) {
       throw new AppException(
         STAFF_ASSIGNMENT_ERROR_CODES.NO_STAFF_AVAILABLE,
-        `Không có nhân viên role "${String(role)}" nào đang active để gán việc.`,
+        `Không có nhân viên role "${String(role)}" nào đang active (không nghỉ phép) để gán việc.`,
         HttpStatus.CONFLICT,
         { role },
       );
@@ -165,6 +173,14 @@ export class StaffAssignmentService {
     }
     // SỬA (05/10/2026): trước đây gán tay được cho BẤT KỲ ai (kể cả Admin, Shipping
     // Coordinator) — việc lấy hàng chỉ dành cho Warehouse Staff, giống auto-assign.
+    if (isOnLeave(staff)) {
+      throw new AppException(
+        STAFF_ASSIGNMENT_ERROR_CODES.STAFF_ON_LEAVE,
+        `Nhân viên "${staff.name}" đang nghỉ phép${staff.on_leave_until ? ` đến ${staff.on_leave_until.toISOString()}` : ''} — chọn người khác.`,
+        HttpStatus.CONFLICT,
+        { staffId, onLeaveUntil: staff.on_leave_until ?? null },
+      );
+    }
     if (staff.role !== UserRole.WAREHOUSE_STAFF) {
       throw new AppException(
         STAFF_ASSIGNMENT_ERROR_CODES.STAFF_WRONG_ROLE,
