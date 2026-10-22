@@ -1,4 +1,4 @@
-import type { AdminProduct, Category, Customer, ExchangeOption, Product, SaveAdminProduct, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
+import type { AdminProduct, Category, Customer, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -36,6 +36,8 @@ export function loginAdmin(input: { email: string; password: string }) {
 export function getCurrentAdmin() { return request<{ email: string }>('/storefront/admin/auth/me') }
 export function logoutAdmin() { return request<{ message: string }>('/storefront/admin/auth/logout', { method: 'POST' }) }
 export function getAdminProducts() { return request<AdminProduct[]>('/storefront/admin/products') }
+/** 22/10/2026 — danh mục cấp 2 + màu OptiPack để ghép SKU theo quy tắc. */
+export function getAdminSkuOptions() { return request<SkuOptions>('/storefront/admin/products/sku-options') }
 export function getAdminProduct(id: string) { return request<AdminProduct>(`/storefront/admin/products/${encodeURIComponent(id)}`) }
 export function saveAdminProduct(input: SaveAdminProduct, id?: string) {
   return request<AdminProduct>(`/storefront/admin/products${id ? `/${encodeURIComponent(id)}` : ''}`, {

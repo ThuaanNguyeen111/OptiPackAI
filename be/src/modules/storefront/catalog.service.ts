@@ -49,6 +49,8 @@ export class CatalogService {
       sizeGuideNote: product.size_guide_note,
       status: product.status,
       isFeatured: product.is_featured,
+      // 22/10/2026 — phần SKU theo quy tắc OptiPack (chỉ trang quản trị).
+      ...(admin ? { skuCategoryCode: product.sku_category_code ?? null, skuModelNo: product.sku_model_no ?? null } : {}),
       variants: variants.map((variant) => ({
         id: variant._id.toString(),
         productId: product.id,
@@ -70,6 +72,7 @@ export class CatalogService {
           reservedQuantity: stockMap.get(variant._id.toString())?.reserved_quantity ?? 0,
           // (21/10/2026) 'optipack' = tồn do kho OptiPack quản lý, Admin chỉ xem.
           stockSource: variant.stock_source ?? 'storefront',
+          colorCode: variant.sku_color_code ?? null, // 22/10/2026 — null = biến thể cũ
           stockSyncedAt: variant.stock_synced_at ?? null,
         } : {}),
       })),
