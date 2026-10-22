@@ -121,7 +121,8 @@ export class StockReservationService {
         this.logger.warn('Gửi thông báo thiếu hàng thất bại.', error);
       }
     }
-    if (shortages.length > 0) this.logger.warn(`Nhóm đơn ${group._id.toString()} THIẾU HÀNG ngay khi tạo: ${shortages.map((s) => `${s.sku} thiếu ${String(s.shortage)}`).join(', ')}`);
+    // 22/10/2026 — chỉ in khi VỪA chuyển sang thiếu hàng (cron tính lại 5' không in lặp).
+    if (shortages.length > 0 && before?.stock_shortage !== true) this.logger.warn(`Nhóm đơn ${group._id.toString()} THIẾU HÀNG ngay khi tạo: ${shortages.map((s) => `${s.sku} thiếu ${String(s.shortage)}`).join(', ')}`);
     return shortages;
   }
 
