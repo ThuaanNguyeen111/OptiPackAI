@@ -66,6 +66,11 @@ export default function ReturnDetailPage({ params }: { params: Promise<{ id: str
             <button className="button light" disabled={canceling} onClick={() => void cancel()} type="button">{canceling ? 'Đang hủy...' : 'Hủy yêu cầu'}</button>
           </div>}
           {data.status === 'approved' && <p className="return-hint">Cửa hàng đã duyệt. Vui lòng đóng gói và gửi sản phẩm về cửa hàng; chúng tôi sẽ cập nhật khi nhận được hàng.</p>}
+          {/* 22/10/2026 — số tiền hoàn khi yêu cầu hoàn tất (đổi hàng không hoàn tiền) */}
+          {data.status === 'closed' && data.type !== 'exchange' && <div className="order-seller-notice" role="status">
+            <strong>{data.refundAmount ? `Đã hoàn ${data.refundAmount.toLocaleString('vi-VN')}₫` : 'Yêu cầu đã hoàn tất'}</strong>
+            {data.refundAmount ? <p>Tiền được hoàn theo phương thức thanh toán ban đầu{data.refundedAt ? ` — ngày ${new Date(data.refundedAt).toLocaleDateString('vi-VN')}` : ''}.</p> : null}
+          </div>}
           {data.type === 'exchange' && data.status === 'closed' && !data.exchangeShipment && <p className="return-hint">Cửa hàng đã nhận và kiểm hàng của bạn. Hàng đổi đang được chuẩn bị để gửi đi.</p>}
 
           {data.exchangeShipment && <section className="order-timeline-panel" aria-labelledby="exchange-shipment-title">

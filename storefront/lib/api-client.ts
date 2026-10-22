@@ -1,4 +1,4 @@
-import type { AdminProduct, Category, Customer, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
+import type { AdminCategory, AdminProduct, Category, Customer, SaveAdminCategory, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -43,6 +43,17 @@ export function saveAdminProduct(input: SaveAdminProduct, id?: string) {
   return request<AdminProduct>(`/storefront/admin/products${id ? `/${encodeURIComponent(id)}` : ''}`, {
     method: id ? 'PATCH' : 'POST', body: JSON.stringify(input),
   })
+}
+/** 22/10/2026 — danh mục website (Admin), kèm danh mục OptiPack đã nối + số sản phẩm. */
+export function getAdminCategories() { return request<AdminCategory[]>('/storefront/admin/categories') }
+export function saveAdminCategory(input: SaveAdminCategory, id?: string) {
+  return request<AdminCategory>(`/storefront/admin/categories${id ? `/${encodeURIComponent(id)}` : ''}`, {
+    method: id ? 'PATCH' : 'POST', body: JSON.stringify(input),
+  })
+}
+/** Ẩn danh mục (không xoá cứng). 409 khi còn sản phẩm đang bán. */
+export function hideAdminCategory(id: string) {
+  return request<{ message: string }>(`/storefront/admin/categories/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 export function deleteAdminProduct(id: string) {
   return request<{ message: string }>(`/storefront/admin/products/${encodeURIComponent(id)}`, { method: 'DELETE' })

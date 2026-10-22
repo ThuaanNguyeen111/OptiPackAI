@@ -10,6 +10,7 @@ const paymentStatusLabels: Record<string, string> = {
   paid: 'Đã thanh toán',
   failed: 'Thanh toán thất bại',
   refunded: 'Đã hoàn tiền',
+  partially_refunded: 'Đã hoàn tiền một phần',
 }
 
 const fulfillmentStatusLabels: Record<string, string> = {
@@ -22,7 +23,9 @@ const fulfillmentStatusLabels: Record<string, string> = {
   returned: 'Đã hoàn hàng',
 }
 
-export function getOrderStatusLabel(status: string) {
+export function getOrderStatusLabel(status: string, cancelSource?: string | null) {
+  // 22/10/2026 — phân biệt người bán hủy với khách tự hủy
+  if (status === 'cancelled' && cancelSource === 'seller') return 'Người bán đã hủy'
   return orderStatusLabels[status] ?? status
 }
 

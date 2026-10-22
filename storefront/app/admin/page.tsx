@@ -4,14 +4,23 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  ApiError, deleteAdminProduct, getAdminProduct, getAdminProducts, getAdminSkuOptions, getCategories,
+  ApiError, deleteAdminProduct, getAdminCategories, getAdminProduct, getAdminProducts, getAdminSkuOptions,
   getCurrentAdmin, logoutAdmin, saveAdminProduct, uploadAdminImage,
 } from '@/lib/api-client'
 import { siteConfig } from '@/lib/site-config'
-import type { AdminProduct, Category, SaveAdminProduct, SkuOptions } from '@/types/storefront'
+import { CategoryManager } from '@/components/admin/category-manager'
+import type { AdminCategory, AdminProduct, SaveAdminProduct, SkuOptions } from '@/types/storefront'
 
 const statusLabels = { active: 'Đang bán', draft: 'Bản nháp', hidden: 'Đã ẩn' }
-const newVariant = () => ({ color: '', size: '', colorCode: '', price: 0, quantityOnHand: 0 })
+const newVariant = (): SaveAdminProduct['variants'][number] => ({ color: '', size: '', colorCode: '', price: 0, quantityOnHand: 0 })
+/** 22/10/2026 — ô số trống = null (xoá kích thước). */
+const numOrNull = (value: string): number | null => (value.trim() === '' ? null : Number(value))
+const DIMENSIONS = [
+  { key: 'weightKg', label: 'Nặng (kg)', step: 0.001 },
+  { key: 'lengthCm', label: 'Dài (cm)', step: 0.1 },
+  { key: 'widthCm', label: 'Rộng (cm)', step: 0.1 },
+  { key: 'heightCm', label: 'Cao (cm)', step: 0.1 },
+] as const
 
 /** 22/10/2026 — SKU theo quy tắc OptiPack: {danh mục cấp 2}-{số mẫu 3 số}-{màu}-{size}. */
 function previewSku(categoryCode?: string, modelNo?: number, colorCode?: string, size?: string): string {
@@ -27,7 +36,7 @@ export default function AdminPage() {
   const router = useRouter()
   const [email, setEmail] = useState<string | null>(null)
   const [products, setProducts] = useState<AdminProduct[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
+  const [categories, setCategories] = useState<AdminCategory[]>([])
   const [skuOptions, setSkuOptions] = useState<SkuOptions | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
@@ -50,7 +59,7 @@ export default function AdminPage() {
     try {
       const admin = await getCurrentAdmin()
       setEmail(admin.email)
-      const [items, categories, options] = await Promise.all([getAdminProducts(), getCategories(), getAdminSkuOptions()])
+      const [items, categories, options] = await Promise.all([getAdminProducts(), getAdminCategories(), getAdminSkuOptions()])
       setProducts(items); setCategories(categories); setSkuOptions(options)
     } catch (error) { report(error) }
     finally { setLoading(false) }
@@ -76,6 +85,8 @@ export default function AdminPage() {
         variants: current.variants.map((variant) => ({
           id: variant.id, color: variant.color ?? '', size: variant.size ?? '', colorCode: variant.colorCode ?? undefined,
           price: variant.price, quantityOnHand: variant.quantityOnHand,
+          weightKg: variant.weightKg ?? null, lengthCm: variant.lengthCm ?? null,
+          widthCm: variant.widthCm ?? null, heightCm: variant.heightCm ?? null,
         })),
       })
       window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -160,7 +171,17 @@ export default function AdminPage() {
         <fieldset disabled={locked}>
           <div className="form-grid">
             <label className="form-field full">Tên sản phẩm<input required maxLength={200} value={draft.name} onChange={(event) => updateDraft({ name: event.target.value })} /></label>
-            <label className="form-field">Danh mục<select value={draft.categoryId ?? ''} onChange={(event) => updateDraft({ categoryId: event.target.value || null })}><option value="">Chưa phân loại</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+            <label className="form-field">Danh mục<select value={draft.categoryId ?? ''} onChange={(event) => {
+              // 22/10/2026 — danh mục đã nối OptiPack → tự điền danh mục SKU (khi chưa khoá)
+              const picked = categories.find((category) => category.id === event.target.value)
+              const lockedRule = Boolean(editing?.variants.some((item) => item.colorCode))
+              updateDraft({
+                categoryId: event.target.value || null,
+                ...(picked?.skuCategoryCode && !lockedRule && picked.skuCategoryCode !== draft.skuCategoryCode
+                  ? { skuCategoryCode: picked.skuCategoryCode, variants: draft.variants.map((item) => item.id ? item : { ...item, size: '' }) }
+                  : {}),
+              })
+            }}><option value="">Chưa phân loại</option>{categories.filter((category) => category.isActive || category.id === draft.categoryId).map((category) => <option key={category.id} value={category.id}>{category.name}{category.skuCategoryCode ? ` (${category.skuCategoryCode})` : ''}</option>)}</select></label>
             <label className="form-field">Trạng thái<select value={draft.status} onChange={(event) => updateDraft({ status: event.target.value as SaveAdminProduct['status'] })}>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label className="form-field full">Mô tả<textarea maxLength={10000} value={draft.description} onChange={(event) => updateDraft({ description: event.target.value })} /></label>
           </div>
@@ -189,7 +210,8 @@ export default function AdminPage() {
           })()}
           <h3>Size, màu, giá và tồn kho</h3>
           <p className="admin-hint">Biến thể mới: chọn màu và size trong danh mục OptiPack, SKU tự ghép theo quy tắc. Biến thể đã tạo giữ nguyên SKU. Ô tồn kho ghi &quot;Kho OptiPack&quot; do kho OptiPack quản lý — chỉ xem, nhập/kiểm kê ở OptiPack.</p>
-          <div className="admin-table-wrap"><table className="admin-variants"><thead><tr><th>SKU</th><th>Màu</th><th>Size</th><th>Giá (₫)</th><th>Tồn kho</th><th>Giữ chỗ</th><th><span className="admin-sr-only">Thao tác</span></th></tr></thead>
+          <p className="admin-hint">Chỉ biến thể có ô &quot;Kho OptiPack&quot; mới bán được trên website: SKU chưa nối kho OptiPack hiện &quot;Hết hàng&quot; cho khách cho tới khi OptiPack đồng bộ sản phẩm (thường trong 1 phút sau khi lưu). Kích thước kiện giúp kho OptiPack đóng gói — có thể bỏ trống.</p>
+          <div className="admin-table-wrap"><table className="admin-variants"><thead><tr><th>SKU</th><th>Màu</th><th>Size</th><th>Giá (₫)</th><th>Tồn kho</th><th>Giữ chỗ</th><th>Kích thước kiện</th><th><span className="admin-sr-only">Thao tác</span></th></tr></thead>
             <tbody>{draft.variants.map((variant, index) => {
               const original = editing?.variants.find((item) => item.id === variant.id)
               const sizes = skuOptions?.categories.find((category) => category.code === draft.skuCategoryCode)?.sizes ?? []
@@ -218,8 +240,21 @@ export default function AdminPage() {
                 <td>{original?.stockSource === 'optipack'
                   // 21/10/2026 (phương án A) — tồn do kho OptiPack đẩy sang; BE bỏ qua số nhập ở đây.
                   ? <span className="admin-stock-managed" title={original.stockSyncedAt ? `Cập nhật ${new Date(original.stockSyncedAt).toLocaleString('vi-VN')}` : undefined}>{original.quantityOnHand}<small>Kho OptiPack</small></span>
-                  : <input aria-label={`Tồn kho biến thể ${index + 1}`} required type="number" min={original?.reservedQuantity ?? 0} step={1} value={variant.quantityOnHand} onChange={(event) => change({ quantityOnHand: Number(event.target.value) })} />}</td>
+                  : <>
+                    <input aria-label={`Tồn kho biến thể ${index + 1}`} required type="number" min={original?.reservedQuantity ?? 0} step={1} value={variant.quantityOnHand} onChange={(event) => change({ quantityOnHand: Number(event.target.value) })} />
+                    {/* 22/10/2026 — website chỉ bán SKU do kho OptiPack quản */}
+                    <p className="admin-warning">{original ? 'Chưa nối kho OptiPack — khách thấy Hết hàng' : 'Bán được sau khi OptiPack nối SKU'}</p>
+                  </>}</td>
                 <td>{original?.reservedQuantity ?? 0}</td>
+                <td><div className="admin-dim-grid">{DIMENSIONS.map((dim) => <input
+                  key={dim.key}
+                  aria-label={`${dim.label} biến thể ${index + 1}`}
+                  placeholder={dim.label}
+                  title={dim.label}
+                  type="number" min={0} step={dim.step}
+                  value={variant[dim.key] ?? ''}
+                  onChange={(event) => change({ [dim.key]: numOrNull(event.target.value) })}
+                />)}</div></td>
                 <td><button type="button" className="admin-danger" disabled={draft.variants.length === 1} aria-label={`Bỏ biến thể ${index + 1}`} onClick={() => updateDraft({ variants: draft.variants.filter((_, row) => row !== index) })}>Bỏ</button></td>
               </tr>
             })}</tbody></table></div>
@@ -249,6 +284,7 @@ export default function AdminPage() {
           </tr>)}
           {!visible.length && <tr><td colSpan={5} className="empty">{products.length ? 'Không tìm thấy sản phẩm phù hợp.' : 'Chưa có sản phẩm. Bấm Thêm sản phẩm để bắt đầu.'}</td></tr>}
         </tbody></table></div>}
+        <CategoryManager categories={categories} skuOptions={skuOptions} onChanged={setCategories} onUnauthorized={() => router.replace('/admin/login')} />
       </>}
     </main>
   </>
