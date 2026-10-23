@@ -94,7 +94,11 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
   });
 
   it('Gán SKU đã nối vào ô -> tìm/tạo dòng theo SKU nội bộ, gắn nhãn master_sku', async () => {
-    const assignmentModel = { findOne: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]) };
+    const assignmentModel = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]),
+      find: jest.fn(() => ({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) })), // 22/10 — không có ô khác
+    };
     const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
     const service = new WarehouseService(
       { findById: jest.fn().mockResolvedValue({ _id: warehouseId, is_active: true }) } as never, {} as never,
@@ -109,6 +113,35 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
     expect(assignmentModel.findOne).toHaveBeenCalledWith({ warehouse_id: warehouseId, bin_location_id: binId, master_sku: 'ATHUN-005-DEN-M' });
     expect((assignmentModel.create.mock.calls[0] as [[Record<string, unknown>]])[0][0]).toMatchObject({ master_sku: 'ATHUN-005-DEN-M' });
   });
+
+  it('22/10 — mã đã ở ô khác: 409 WH_SKU_IN_OTHER_BIN kèm mã ô; confirm_other_bin=true thì gán được', async () => {
+    const otherBin = new Types.ObjectId();
+    const assignmentModel = {
+      findOne: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue([{ _id: new Types.ObjectId() }]),
+      find: jest.fn(() => ({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ bin_location_id: otherBin }]) }) }) })),
+    };
+    const session = { withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()), endSession: jest.fn() };
+    const service = new WarehouseService(
+      { findById: jest.fn().mockResolvedValue({ _id: warehouseId, is_active: true }) } as never, {} as never,
+      {
+        findById: jest.fn().mockResolvedValue({ _id: binId, warehouse_id: warehouseId, bin_code: 'X', capacity: null }),
+        find: jest.fn(() => ({ select: () => ({ session: () => ({ lean: () => Promise.resolve([{ bin_code: 'KA-D1-T01-T01-1' }]) }) }) })),
+      } as never,
+      assignmentModel as never, {} as never, {} as never, { startSession: jest.fn().mockResolvedValue(session) } as never, {} as never,
+      { create: jest.fn() } as never,
+      mapped([]) as never,
+    );
+    const dto = { platform: 'aurelle', shop_id: 's1', seller_sku: 'AOPOLO-030-BE-L', bin_location_id: binId.toString() };
+
+    await expect(service.assignSkuToBin(warehouseId.toString(), dto as never, 'u1')).rejects.toMatchObject({
+      response: expect.objectContaining({ error_code: 'WH_SKU_IN_OTHER_BIN' }) as unknown,
+    });
+    expect(assignmentModel.create).not.toHaveBeenCalled();
+
+    await service.assignSkuToBin(warehouseId.toString(), { ...dto, confirm_other_bin: true } as never, 'u1');
+    expect(assignmentModel.create).toHaveBeenCalledTimes(1);
+  });
   //!=============================================
   // 07/10/2026 — Nhập lại hàng hoàn vào ô chưa có dòng tồn (upsert). Bộ lọc upsert phải khớp
   // chính xác: MongoDB không chép điều kiện trong $or / regex vào dòng mới tạo ra.
@@ -117,6 +150,7 @@ describe('WarehouseService — K4b tồn theo SKU nội bộ', () => {
     const build = (mappingRows: { seller_sku_normalized: string; master_sku: string }[]): { service: WarehouseService; assignmentModel: { findOneAndUpdate: jest.Mock } } => {
       const assignmentModel = {
         findOneAndUpdate: jest.fn().mockResolvedValue({ _id: new Types.ObjectId(), warehouse_id: warehouseId, bin_location_id: binId, platform: 'lazada', shop_id: 's1', seller_sku: 'ATD-M-01', master_sku: null, quantity_on_hand: 1 }),
+        exists: jest.fn(() => ({ session: () => Promise.resolve({ _id: 'x' }) })), // 22/10 — ô đã có mã này
       };
       const service = new WarehouseService(
         {} as never, {} as never,

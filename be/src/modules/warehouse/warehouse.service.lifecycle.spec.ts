@@ -27,7 +27,8 @@ describe('WarehouseService — vòng đời K1', () => {
     warehouseModel = { findById: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), find: jest.fn() };
     zoneModel = { findById: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({}), find: jest.fn() };
     binModel = { findById: jest.fn(), updateOne: jest.fn().mockResolvedValue({}), updateMany: jest.fn().mockResolvedValue({}), find: jest.fn() };
-    assignmentModel = { aggregate: jest.fn(), findOneAndUpdate: jest.fn() };
+    // find: 22/10/2026 — kiểm "mã đã ở ô khác" (không có ô khác)
+    assignmentModel = { aggregate: jest.fn(), findOneAndUpdate: jest.fn(), find: jest.fn(() => ({ select: () => ({ session: () => ({ lean: () => Promise.resolve([]) }) }) })) } as never;
     session = {
       withTransaction: jest.fn(async (fn: () => Promise<void>) => fn()),
       endSession: jest.fn().mockResolvedValue(undefined),
