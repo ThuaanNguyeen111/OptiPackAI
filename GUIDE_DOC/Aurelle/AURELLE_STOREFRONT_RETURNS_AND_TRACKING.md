@@ -71,8 +71,11 @@ Webhook mới `return_requested` (cùng khuôn `order_status_changed`, `data: { 
 
 | Sự kiện OptiPack | Gửi AURELLE |
 |---|---|
+| 🆕 23/10 — Lần quét lấy hàng đầu tiên của nhóm | `processing` ("Kho đang chuẩn bị hàng") — 1 lần/nhóm |
 | Nhóm đóng gói xong | `packed` |
-| Vận đơn tạo (chờ lấy / đang đi / đang giao) | `shipped` (+ `tracking_code`, `trip_code`) — một lần mỗi lượt giao |
+| Vận đơn tạo, chờ hãng lấy (`awaiting_pickup`) | `shipped` (+ `tracking_code`, `trip_code`) — một lần mỗi lượt giao |
+| 🆕 23/10 — Hãng đã lấy / trung chuyển (`in_transit`) | `in_transit` (trước 23/10 gộp vào `shipped`) |
+| 🆕 23/10 — Shipper đang giao (`out_for_delivery`) | `out_for_delivery` (trước 23/10 gộp vào `shipped`) |
 | Giao thành công | `delivered` |
 | Giao thất bại | `failed_delivery` (+ lý do) |
 | Tự hoàn về kho | `shipped_back` |
@@ -252,3 +255,25 @@ Hàm dùng chung: `be/src/modules/storefront/aurelle-return-api.ts` (`applyExcha
 - Website AURELLE (`storefront_*`) và OptiPack nằm **chung 1 MongoDB** và chung tiến trình BE (module `storefront`). Lý do: đồ án demo, 1 máy chủ.
 - Ranh giới vẫn giữ như 2 hệ thống thật: OptiPack **chỉ** đọc/ghi website qua Open API mock (`:4000`, ký HMAC) + webhook; website **chỉ đọc** 2 bảng tra cứu của OptiPack (`categories` cấp 2, `colors`) để dựng form SKU.
 - Ngoại lệ có chủ đích: khi tách 2 hệ thống thật, 2 bảng tra cứu trên phải chuyển thành API của OptiPack (VD `GET /open/sku-options`) và form Admin website gọi qua đó. Mọi luồng còn lại không đổi.
+
+## 13. Bổ sung 23/10/2026 — Thanh tiến trình đơn cho khách (7 bước cố định)
+
+**Vấn đề:** trang "Chi tiết đơn" chỉ liệt kê mốc đã xảy ra. Mới đặt thì không có khối hành trình (mốc đầu tiên là "Đã đóng gói"), đóng gói xong mới hiện, giao rồi mới có mã vận đơn → khách thấy mỗi giai đoạn như một màn khác. Cả chặng vận chuyển gộp 1 dòng "Đang giao hàng"; nhãn đầu trang (trạng thái đơn) lệch nhãn ô "Giao hàng" (trạng thái giao); trang không tự cập nhật.
+
+**Sửa:**
+1. **Mốc mới OptiPack gửi sang** (`POST /rest/order/status/update`, từ vựng `PARTNER_STATUSES`): `processing` (lần quét lấy hàng đầu tiên của nhóm — ghi outbox trong transaction của `pickItem`, khóa `grp:<id>:processing:first_pick`), `in_transit`, `out_for_delivery` (tách từ `shipped`; khóa idempotency gồm status nên mỗi chặng 1 dòng). `shipped` nay chỉ còn nghĩa "đã tạo vận đơn, chờ hãng lấy". Hàng ĐỔI (EXC-…) vẫn chỉ nhận `packed|shipped|delivered|failed_delivery` (2 chặng mới bị bỏ qua, không báo trùng).
+2. **Website ghi nhận:** `storefront_orders.tracking_stage` = chặng mới nhất (mọi mốc giao + `processing`). `fulfillment_status` giữ enum cũ để không vỡ luật hủy/trả: `processing` không đổi (vẫn `awaiting_packaging` → khách còn tự hủy), `in_transit`/`out_for_delivery` → `shipped`. Vận đơn website: `status = in_transit`, `shipped_at` = mốc "đang đi" đầu tiên. Trừ giữ chỗ tồn: thêm 2 chặng mới vào nhóm "đã rời kho".
+3. **API khách** (`GET /storefront/orders`, `GET /storefront/orders/:id`): mỗi đơn có `trackingStage` + `displayStatus { label, tone: info|success|warning|danger, isFinal }` — **1 nhãn chung** cho danh sách và chi tiết. Chi tiết có thêm `progress { steps[7] { key, label, state: done|current|upcoming|problem|skipped, at }, branch { key: canceled|failed_delivery|shipped_back|returned, label, reason, at } | null, hint, displayStatus }`. Hàm thuần `storefront/storefront-order-progress.ts`; mốc "Đặt hàng" lấy `placed_at` (đơn cũ: `created_at`).
+4. **Website:** component `OrderProgressBar` ngay dưới tiêu đề đơn — 7 bước ngang (điện thoại: dọc), bước đã qua có giờ, bước hiện tại nổi bật, nhánh hủy/giao thất bại/hoàn hàng hiện ô lý do; dòng hãng + mã vận đơn. Danh sách mốc bên dưới đổi tên "Chi tiết từng mốc". Tự tải lại 30 giây/lần khi đơn chưa xong và tab đang mở.
+
+| Bước | Đạt khi |
+|---|---|
+| Đặt hàng | khách đặt xong |
+| Đang chuẩn bị | `processing` |
+| Đã đóng gói | `packed` |
+| Chờ hãng lấy hàng | `shipped` |
+| Đang vận chuyển | `in_transit` |
+| Đang giao tới bạn | `out_for_delivery` (giao thất bại → bước này báo lỗi) |
+| Đã nhận hàng | `delivered` |
+
+**Tác động:** không migration — đơn cũ không có `tracking_stage` thì suy từ `fulfillment_status` + mốc hành trình. Hàng đợi ghi ngược có thêm tối đa 3 dòng/đơn. Nhãn `shipped` trong hành trình đổi thành "Đã tạo vận đơn — chờ đơn vị vận chuyển lấy hàng" cho mốc mới (mốc cũ giữ nhãn đã lưu).

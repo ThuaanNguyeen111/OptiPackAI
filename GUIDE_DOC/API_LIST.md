@@ -927,3 +927,13 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
 - **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
 - So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
+
+## 25. 🆕 23/10/2026 — AURELLE: thanh tiến trình đơn cho khách
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🔄 GET | `/storefront/orders` | Khách (cookie) | Mỗi đơn thêm `trackingStage` (chặng chi tiết, null với đơn cũ) và `displayStatus { label, tone, isFinal }` — nhãn trạng thái dùng chung cho danh sách và chi tiết |
+| 🔄 GET | `/storefront/orders/:id` | Khách (cookie) | Thêm `progress { steps[7], branch, hint, displayStatus }`: 7 bước cố định Đặt hàng → Đang chuẩn bị → Đã đóng gói → Chờ hãng lấy hàng → Đang vận chuyển → Đang giao tới bạn → Đã nhận hàng; `state` = `done/current/upcoming/problem/skipped`; nhánh `canceled/failed_delivery/shipped_back/returned` kèm lý do |
+| 🔄 POST | `/rest/order/status/update` (mock AURELLE :4000) | Ứng dụng đối tác (HMAC) | `status` nhận thêm `processing`, `in_transit`, `out_for_delivery`. `processing` không đổi `fulfillment_status`; 2 chặng sau → `shipped`. Ghi `storefront_orders.tracking_stage` |
+
+- **OptiPack gửi:** `processing` ở lần quét lấy hàng đầu tiên của nhóm đơn (1 lần/nhóm); vận đơn `awaiting_pickup → shipped`, `in_transit → in_transit`, `out_for_delivery → out_for_delivery` (trước 23/10 cả 3 đều là `shipped`). Hàng đổi vẫn chỉ nhận `shipped`.
