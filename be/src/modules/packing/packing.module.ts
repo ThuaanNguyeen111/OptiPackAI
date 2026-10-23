@@ -21,6 +21,7 @@ import { PackingFeedbackService } from './packing-feedback.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 import { PackingSettings, PackingSettingsSchema } from './schemas/packing-settings.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
+import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/product-master.schema';
 import {
   MarketplaceSkuMapping,
   MarketplaceSkuMappingSchema,
@@ -42,6 +43,8 @@ import { PackagingMaterialsModule } from '../packaging-materials/packaging-mater
       { name: PackingSettings.name, schema: PackingSettingsSchema },
       { name: User.name, schema: UserSchema },
       { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema },
+      // (23/10/2026) đọc profile_confirmed_at để báo kế hoạch cũ (profileStale).
+      { name: ProductMaster.name, schema: ProductMasterSchema },
     ]),
     OrderGroupsModule,
     PackagingModule,

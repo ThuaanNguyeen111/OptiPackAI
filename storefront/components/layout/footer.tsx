@@ -27,7 +27,7 @@ export function Footer() {
         <h4>Đăng ký nhận tin</h4>
         <p>Nhận thông tin sản phẩm mới và ưu đãi.</p>
         <div className="newsletter">
-          <input placeholder="Email của bạn" type="email" />
+          <input id="newsletter-email" name="email" aria-label="Email nhận tin" autoComplete="email" placeholder="Email của bạn" type="email" />
           <button aria-label="Đăng ký nhận tin">→</button>
         </div>
       </div>
