@@ -35,4 +35,10 @@ export class AssignSkuBinDto {
   @IsOptional()
   @IsBoolean()
   force?: boolean;
+
+  // 22/10/2026 — mã đã gán ở ô khác trong kho → 409 WH_SKU_IN_OTHER_BIN; gửi true để xác nhận đặt thêm ô này.
+  @ApiPropertyOptional({ example: false, description: 'Xác nhận gán thêm ô khi mã đã nằm ở ô khác (409 WH_SKU_IN_OTHER_BIN)' })
+  @IsOptional()
+  @IsBoolean()
+  confirm_other_bin?: boolean;
 }

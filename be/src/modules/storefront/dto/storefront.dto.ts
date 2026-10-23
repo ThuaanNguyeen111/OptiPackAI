@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 
 export class RegisterCustomerDto {
   @IsString() @IsNotEmpty() name!: string;
@@ -11,14 +11,16 @@ export class LoginCustomerDto { @IsEmail() email!: string; @IsString() password!
 export class AddCartItemDto { @IsString() @IsNotEmpty() variant_id!: string; @IsInt() @Min(1) quantity!: number; }
 export class SyncCartDto { @ValidateNested({ each: true }) @Type(() => AddCartItemDto) items!: AddCartItemDto[]; }
 export class CheckoutItemDto { @IsString() @IsNotEmpty() variant_id!: string; @IsInt() @Min(1) quantity!: number; }
+// 22/10/2026 — khớp yêu cầu GHN (tạo vận đơn): tên ≤ 100 ký tự, SĐT di động VN 10 số bắt đầu bằng 0,
+// địa chỉ ≤ 255 ký tự. Website chỉ còn địa chỉ MỚI 2 cấp (tỉnh + phường) — GHN nhận `is_new_to_address`.
 export class ShippingAddressDto {
-  @IsString() @IsNotEmpty() recipient_name!: string;
-  @IsString() @IsNotEmpty() phone!: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) recipient_name!: string;
+  @Matches(/^0\d{9}$/, { message: 'Số điện thoại phải gồm 10 số và bắt đầu bằng 0 (VD 0912345678).' }) phone!: string;
   @IsString() @IsNotEmpty() province!: string;
   // Hệ thống mới sau sáp nhập bỏ cấp quận/huyện; địa chỉ cũ vẫn gửi field này.
   @IsOptional() @IsString() district?: string;
   @IsString() @IsNotEmpty() ward!: string;
-  @IsString() @IsNotEmpty() address_line!: string;
+  @IsString() @IsNotEmpty() @MaxLength(255) address_line!: string;
 }
 export class CheckoutDto {
   @ValidateNested({ each: true }) @Type(() => CheckoutItemDto) items!: CheckoutItemDto[];

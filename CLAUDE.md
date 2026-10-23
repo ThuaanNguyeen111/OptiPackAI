@@ -4356,12 +4356,34 @@ Tài liệu (AOFP-162): `FE_UPDATE_CHECKLIST.md` mục 1c, `API_LIST.md` mục 2
 
 Tài liệu (AOFP-170): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 16–17) + 1d, `API_LIST.md` mục 22, `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 12, `DEMO_PLAYBOOK.md` Phần G, `be/.env.example`.
 
+### Chạy thử AURELLE ↔ OptiPack tối 22/10 — sửa lỗi phát hiện khi demo (AOFP-171..174 + tài liệu AOFP-175)
+
+- **AOFP-171 — website:** nút Hiện/Ẩn mật khẩu (`components/ui/password-input.tsx`) ở đăng nhập, đăng ký, đăng nhập Admin; trang `/auth/login` thử tài khoản khách trước, sai thì thử tài khoản Admin web → vào `/admin` (trang `/admin/login` vẫn giữ).
+- **AOFP-172 — webhook sản phẩm + giỏ + dùng lại SKU:** `AURELLE_WEBHOOK_URL=` để trống trong .env trước đây làm website bỏ qua MỌI webhook (`??` không bắt chuỗi rỗng) → dùng mặc định `localhost:$PORT/marketplace/webhooks/aurelle`. Lưu sản phẩm báo MỌI SKU đang bán (trước chỉ biến thể mới). Log `Báo đối tác N SKU…` / `Webhook aurelle product_updated: kéo N SKU`. `/storefront/cart/sync` bỏ qua dòng biến thể đã xoá/hết hàng thay vì 404 cả giỏ. Sản phẩm mới dùng lại được SKU của sản phẩm ĐÃ XOÁ (chuyển biến thể sang, giữ tồn + liên kết OptiPack); sản phẩm cũ còn bán thì vẫn 409.
+- **AOFP-173 — kho:** gán kệ / nhập hàng hoàn: SKU sàn trùng ĐÚNG mã 1 SKU nội bộ đang dùng → gộp tồn theo SKU nội bộ dù chọn nhầm dòng sàn (lỗi thật: dòng "lazada · 200000000101" nhận 10 cái, website vẫn 0). Ô chọn chưa có mã mà mã đang ở ô khác cùng kho → `409 WH_SKU_IN_OTHER_BIN` (details.binCodes); gửi `confirm_other_bin: true` để xác nhận — áp cho gán ô, `inspect` (từng dòng), quarantine resolve.
+- **AOFP-174 — địa chỉ GHN:** checkout AURELLE chỉ còn địa chỉ MỚI 2 cấp (tỉnh + phường) — GHN nhận `is_new_to_address`; địa chỉ cũ "Phường 5" không kèm mã quận bị GHN trả "Sai thông tin đầu vào". BE `ShippingAddressDto`: SĐT `^0\d{9}$`, tên ≤ 100, địa chỉ ≤ 255. Màn Vận chuyển OptiPack vốn tự điền từ đơn.
+- **Verify:** BE tsc 0, eslint file đụng 0 lỗi; jest storefront 100, warehouse+returns 143 (+1 test `WH_SKU_IN_OTHER_BIN`), master-skus 27, webhooks 25 — đạt; storefront tsc 0.
+- **Tác động (5 câu):** (1) Không migration; dòng kệ gán nhầm sàn phải kiểm kê 0 → bỏ gán → gán lại. (2) FE OptiPack chưa xử lý `WH_SKU_IN_OTHER_BIN` → tạm thời KHÔNG gán được ô thứ 2 qua màn (Swagger kèm cờ) — checklist dòng 20 làm sớm. (3) Đơn cũ địa chỉ kiểu cũ vẫn lỗi GHN → đặt đơn mới hoặc Coordinator sửa phường. (4) Demo không cần GHN thật thì `CARRIER_MODE=mock`. (5) Danh mục website nối 1 loại OptiPack ép mã cho mọi sản phẩm mới của danh mục — đừng nối danh mục rộng (Tops).
+
+Tài liệu (AOFP-175): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 18–20) + 1d bước 4, 6, 7; CLAUDE.md mục này.
+
+### Lịch sử thao tác cho mọi vai trò (23/10/2026, AOFP-176..177 + tài liệu AOFP-178)
+
+**[stated] Thuận yêu cầu:** mọi role xem lại được lịch sử các lần thao tác (đóng gói, nhập lô, vận chuyển — giao cho ai, giao thế nào, hoàn hàng…). Làm cả 4 phần: sổ hoạt động, dòng thời gian 1 đơn, trang lịch sử tổng (lọc + CSV), đọc dữ liệu đã lưu sẵn.
+
+- **AOFP-176 — sổ hoạt động `activity_logs`:** module `activity-log/` (schema + `recordActivity(model, entry, session?)` — có session thì ghi cùng transaction, không thì best-effort). Ghi: `transitionFulfillmentStatus` (mọi đổi trạng thái nhóm đơn), `decidePartial` (giao phần có sẵn / lấy lại, kèm người quyết định — controller truyền `user.userId`), `sellerCancelOrder` (kèm người hủy), giao thiếu từng đơn, `ReturnsService.move()` (mọi bước phiếu trả: duyệt/từ chối/nhận/kiểm/hủy, người làm lấy từ decided_by/received_by/inspected_by). objectid-fields 106.
+- **AOFP-177 — API `/history`:** module `history/` chỉ đọc 12 collection; gộp sổ cái kho (theo loại → picking/packing/warehouse/returns), phiếu nhập, mốc vận đơn + vận đơn + người nhận (đơn đầu của nhóm), kế hoạch đóng gói (mốc + niêm phong từng kiện + `activity[]` trừ start/finish), phiếu trả (tạo + xử lý cách ly), vật liệu, đăng nhập, sổ hoạt động. Phân trang k-way theo `before`; cửa sổ mặc định 30 ngày. `ROLE_HISTORY_CATEGORIES` chặn 403. Timeline gồm nhóm thay thế (đổi hàng) + đơn về. CSV có BOM.
+- **Verify:** BE tsc 0, eslint 0 lỗi; jest 8 shard **1.200 đạt** (+4 test history); chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) Collection mới `activity_logs` (3 index), không migration. (2) Ghi sổ trong transaction của thao tác gốc → nếu insert lỗi thì thao tác đó lỗi theo (đổi lại: không có lịch sử "ma"). (3) FE: checklist 1e (trang Lịch sử + tab Dòng thời gian), dòng 21–22. (4) Lịch sử lấy hàng dựa sổ cái kho (`pick` có actor); `pick_events` không có người quét nên không dùng. (5) Kế hoạch đóng gói lọc theo `updated_at ≥ from` (tối đa 300 kế hoạch/lượt) — khoảng ngày rất rộng có thể thiếu mốc đóng gói cũ, thu hẹp `from`/`to` là đủ.
+
+Tài liệu (AOFP-178): `FE_UPDATE_CHECKLIST.md` mục 1e + dòng 21–22, `API_LIST.md` mục 23.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
 ### A. Làm ngay (người dùng tự chạy)
-1. AOFP-146..162 đã commit (22/10, chưa push). Commit tiếp AOFP-163..169 (code) + AOFP-170 (tài liệu) — lệnh gửi trong chat 22/10 chiều — rồi push `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại mock :4000.
+1. AOFP-146..175 đã commit (chưa push). Commit tiếp AOFP-176..177 + AOFP-178 (lịch sử) — lệnh gửi trong chat 23/10 — rồi push `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại BE + mock :4000.
 2. Trước khi khởi động backend bản mới: `npx ts-node -r dotenv/config scripts/check-open-return-duplicates.ts` (chỉ đọc). Có phiếu trả mở trùng → hủy/từ chối phiếu thừa, nếu không index `uniq_open_return_per_order` không tạo được.
 3. Script dữ liệu chưa ghi nhận đã chạy trên DB thật (chạy thử trước, rồi `--apply`): `fix-storefront-reservations.ts`, `migrate-objectid-fields.ts` (bắt buộc), `recompute-consolidation-keys.ts`, `migrate-unify-packaging-materials.ts`.
 4. Chạy thử trọn 1 đơn AURELLE thật: BE 3000 + mock 4000 + storefront 3001 → đặt hàng → lấy → đóng → giao (GHN giả lập) → khách trả/đổi/hủy yêu cầu.
