@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { loginAdmin } from '@/lib/api-client'
 import { siteConfig } from '@/lib/site-config'
+import { PasswordInput } from '@/components/ui/password-input'
 
 export default function AdminLoginPage() {
   const router = useRouter()
@@ -25,7 +26,7 @@ export default function AdminLoginPage() {
     <div className="page-title"><span className="eyebrow">Quản trị cửa hàng</span><h1>Đăng nhập admin</h1></div>
     <form onSubmit={submit}>
       <label className="form-field">Email<input type="email" autoComplete="username" required maxLength={200} value={email} onChange={(event) => setEmail(event.target.value)} disabled={busy} /></label>
-      <label className="form-field">Mật khẩu<input type="password" autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} /></label>
+      <label className="form-field">Mật khẩu<PasswordInput autoComplete="current-password" required value={password} onChange={(event) => setPassword(event.target.value)} disabled={busy} /></label>
       {error && <p className="error" role="alert">{error}</p>}
       <button className="button" disabled={busy}>{busy ? 'Đang đăng nhập…' : 'Đăng nhập'}</button>
     </form>
