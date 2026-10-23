@@ -32,6 +32,7 @@ import { STOREFRONT_RETURN_LABELS } from './aurelle-return-api';
 import { nextPublicOrderId, type CounterCollection } from './storefront-counter.util';
 import { calculateOrderTotal } from './storefront-pricing';
 import { sellableQuantity } from './storefront-stock.util';
+import { buildOrderProgress, orderDisplayStatus, type ProgressInput } from './storefront-order-progress';
 
 @Injectable()
 export class StorefrontOrdersService {
@@ -205,6 +206,11 @@ export class StorefrontOrdersService {
         occurredAt: event.occurred_at,
         source: event.source,
       })),
+      // 23/10/2026 — thanh tiến trình 7 bước + nhánh hủy/giao thất bại/hoàn (storefront-order-progress.ts).
+      progress: buildOrderProgress({
+        ...this.progressInput(order),
+        events: events.map((event) => ({ status: event.status, reason: event.reason, occurredAt: event.occurred_at })),
+      }),
     };
   }
 
@@ -285,6 +291,20 @@ export class StorefrontOrdersService {
       // `as` — đơn cũ chưa có field (schema có default nhưng document cũ thì không)
       shortRefundAmount: (order.short_refund_amount as number | undefined) ?? 0,
       refundedAmount: (order.refunded_amount as number | undefined) ?? 0,
+      // 23/10/2026 — chặng chi tiết + nhãn trạng thái DUY NHẤT cho cả danh sách lẫn chi tiết đơn.
+      trackingStage: (order.tracking_stage as string | null | undefined) ?? null,
+      displayStatus: orderDisplayStatus(this.progressInput(order)),
+    };
+  }
+
+  private progressInput(order: StorefrontOrderDocument): Omit<ProgressInput, 'events'> {
+    return {
+      status: order.status,
+      cancelSource: order.cancel_source ?? null,
+      cancelReason: order.cancel_reason ?? null,
+      fulfillmentStatus: order.fulfillment_status,
+      trackingStage: order.tracking_stage,
+      placedAt: order.placed_at ?? order.created_at ?? null,
     };
   }
 

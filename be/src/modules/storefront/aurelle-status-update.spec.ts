@@ -160,3 +160,35 @@ describe('applyPartnerStatusUpdate — tên hãng vận chuyển (21/10/2026)', 
     expect(shipments.docs[0]).toMatchObject({ carrier: 'OptiPack' });
   });
 });
+
+describe('applyPartnerStatusUpdate — chặng chi tiết (23/10/2026)', () => {
+  it('processing: ghi hành trình "Kho đang chuẩn bị hàng", KHÔNG đổi fulfillment_status (khách còn tự hủy được)', async () => {
+    const { cols, orders, events } = setup();
+    const result = await applyPartnerStatusUpdate(cols, { ...base, status: 'processing', idempotencyKey: 'p1' });
+    expect(result?.applied).toBe(true);
+    expect(orders.docs[0]).toMatchObject({ fulfillment_status: 'awaiting_packaging', tracking_stage: 'processing' });
+    expect(events.docs[0]).toMatchObject({ status: 'processing', label: 'Kho đang chuẩn bị hàng' });
+  });
+
+  it('shipped → in_transit → out_for_delivery: fulfillment giữ "shipped", tracking_stage đi theo chặng, shipped_at giữ mốc đầu', async () => {
+    const { cols, orders, shipments, events } = setup({ fulfillment_status: 'packed' });
+    const t1 = new Date('2026-10-20T04:00:00Z');
+    const t2 = new Date('2026-10-20T06:00:00Z');
+    const t3 = new Date('2026-10-21T01:00:00Z');
+    await applyPartnerStatusUpdate(cols, { ...base, status: 'shipped', eventTime: t1, trackingCode: 'GHN1', carrier: 'GHN', idempotencyKey: 's1' });
+    await applyPartnerStatusUpdate(cols, { ...base, status: 'in_transit', eventTime: t2, trackingCode: 'GHN1', idempotencyKey: 's2' });
+    expect(orders.docs[0]).toMatchObject({ fulfillment_status: 'shipped', tracking_stage: 'in_transit' });
+    await applyPartnerStatusUpdate(cols, { ...base, status: 'out_for_delivery', eventTime: t3, idempotencyKey: 's3' });
+    expect(orders.docs[0]).toMatchObject({ fulfillment_status: 'shipped', tracking_stage: 'out_for_delivery' });
+    expect(shipments.docs[0]).toMatchObject({ status: 'in_transit', shipped_at: t1, tracking_number: 'GHN1', carrier: 'GHN' });
+    expect(events.docs.map((e) => e.label)).toEqual([
+      'Đã tạo vận đơn — chờ đơn vị vận chuyển lấy hàng',
+      'Đơn vị vận chuyển đã lấy hàng — đang trung chuyển',
+      'Đang giao tới bạn',
+    ]);
+  });
+
+  it('isPartnerStatus nhận 3 chặng mới', () => {
+    expect(['processing', 'in_transit', 'out_for_delivery'].every((s) => isPartnerStatus(s))).toBe(true);
+  });
+});

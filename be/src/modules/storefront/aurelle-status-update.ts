@@ -20,8 +20,12 @@ import {
 } from './storefront-stock.util';
 
 export type PartnerStatus =
+  // 23/10/2026 — chia nhỏ hành trình cho khách: kho bắt đầu lấy hàng; hãng đã lấy / đang giao tới khách.
+  | 'processing'
   | 'packed'
   | 'shipped'
+  | 'in_transit'
+  | 'out_for_delivery'
   | 'delivered'
   | 'failed_delivery'
   | 'shipped_back'
@@ -31,8 +35,11 @@ export type PartnerStatus =
   | 'canceled_by_seller'; // người bán hủy đơn trước khi giao
 
 export const PARTNER_STATUSES: readonly PartnerStatus[] = [
+  'processing',
   'packed',
   'shipped',
+  'in_transit',
+  'out_for_delivery',
   'delivered',
   'failed_delivery',
   'shipped_back',
@@ -43,8 +50,12 @@ export const PARTNER_STATUSES: readonly PartnerStatus[] = [
 
 /** Nhãn tiếng Việt hiện cho khách trong hành trình đơn. */
 export const PARTNER_STATUS_LABELS: Record<PartnerStatus, string> = {
+  processing: 'Kho đang chuẩn bị hàng',
   packed: 'Đã đóng gói',
-  shipped: 'Đang giao hàng',
+  // 23/10/2026 — `shipped` nay chỉ là "đã tạo vận đơn, chờ hãng lấy" (trước gộp cả chặng vận chuyển).
+  shipped: 'Đã tạo vận đơn — chờ đơn vị vận chuyển lấy hàng',
+  in_transit: 'Đơn vị vận chuyển đã lấy hàng — đang trung chuyển',
+  out_for_delivery: 'Đang giao tới bạn',
   delivered: 'Đã giao hàng',
   failed_delivery: 'Giao hàng không thành công',
   shipped_back: 'Đang hoàn trả về người bán',
@@ -107,12 +118,36 @@ export interface StatusUpdateCollections {
 const SELLER_ACTIONS: readonly PartnerStatus[] = ['short_shipped', 'canceled_by_seller'];
 
 /** Trạng thái nghĩa là hàng đã rời kho OptiPack — trừ hẳn phần giữ chỗ trên website. */
-const LEFT_WAREHOUSE: readonly PartnerStatus[] = ['shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'];
+const LEFT_WAREHOUSE: readonly PartnerStatus[] = [
+  'shipped',
+  'in_transit',
+  'out_for_delivery',
+  'delivered',
+  'failed_delivery',
+  'shipped_back',
+  'returned',
+];
+
+/** 23/10/2026 — các chặng "đang đi" (hàng đã giao cho hãng, chưa tới tay khách). */
+const ON_THE_WAY: readonly PartnerStatus[] = ['shipped', 'in_transit', 'out_for_delivery'];
+
+/**
+ * 23/10/2026 — `fulfillment_status` của đơn website tương ứng (enum cũ giữ nguyên để không vỡ luật
+ * hủy/trả hàng): chặng vận chuyển chi tiết đều là `shipped`; `processing` không đổi trạng thái giao
+ * (vẫn `awaiting_packaging` — khách còn tự hủy được). Chi tiết chặng nằm ở `tracking_stage`.
+ */
+function fulfillmentStatusFor(status: PartnerStatus): string | null {
+  if (status === 'processing') return null;
+  if (status === 'in_transit' || status === 'out_for_delivery') return 'shipped';
+  return status;
+}
 
 /** Trạng thái vận đơn nội bộ của website tương ứng. */
 function shipmentStatusFor(status: PartnerStatus): string | null {
   switch (status) {
     case 'shipped':
+    case 'in_transit':
+    case 'out_for_delivery':
       return 'in_transit';
     case 'delivered':
       return 'delivered';
@@ -182,8 +217,11 @@ export async function applyPartnerStatusUpdate(
   }
 
   // 3) Cập nhật đơn. Giao thành công = COD đã thu tiền → hoàn tất đơn.
+  const fulfillment = fulfillmentStatusFor(input.status);
   const set: Doc = {
-    fulfillment_status: input.status,
+    ...(fulfillment ? { fulfillment_status: fulfillment } : {}),
+    // 23/10/2026 — chặng mới nhất cho thanh tiến trình (storefront-order-progress.ts).
+    tracking_stage: input.status,
     fulfillment_updated_at: input.eventTime,
     updated_at: new Date(),
   };
@@ -203,15 +241,20 @@ export async function applyPartnerStatusUpdate(
   }
 
   // 4) Mã vận đơn / chuyến cho khách xem (vận đơn nội bộ của website).
-  if (input.trackingCode || input.status === 'shipped' || input.status === 'delivered') {
+  if (input.trackingCode || ON_THE_WAY.includes(input.status) || input.status === 'delivered') {
     const shipSet: Doc = { updated_at: new Date() };
     if (input.trackingCode) shipSet.tracking_number = input.trackingCode;
     if (input.tripCode) shipSet.trip_code = input.tripCode;
     if (input.carrier) shipSet.carrier = input.carrier;
     const shipStatus = shipmentStatusFor(input.status);
     if (shipStatus) shipSet.status = shipStatus;
-    if (input.status === 'shipped') shipSet.shipped_at = input.eventTime;
     if (input.status === 'delivered') shipSet.delivered_at = input.eventTime;
+    // Lúc hàng bắt đầu đi = mốc "đang đi" ĐẦU TIÊN nhận được (không dùng $min: shipped_at null
+    // sẵn có trong document nhỏ hơn mọi ngày theo thứ tự BSON nên $min sẽ không ghi).
+    if (ON_THE_WAY.includes(input.status)) {
+      const existing = await cols.shipments.findOne({ order_id: order._id });
+      if (!(existing?.shipped_at instanceof Date)) shipSet.shipped_at = input.eventTime;
+    }
     await cols.shipments.updateOne(
       { order_id: order._id },
       {

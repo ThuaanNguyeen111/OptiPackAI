@@ -200,6 +200,12 @@ export class StorefrontOrder {
   @Prop({ type: String, enum: ['awaiting_packaging', 'packed', 'shipped', 'delivered', 'failed_delivery', 'shipped_back', 'returned'], default: 'awaiting_packaging' }) fulfillment_status!: string;
   // 20/10/2026 — thời điểm sự kiện giao hàng mới nhất đối tác báo (chống sự kiện cũ kéo trạng thái lùi).
   @Prop({ type: Date, default: null }) fulfillment_updated_at!: Date | null;
+  /**
+   * 23/10/2026 — chặng giao mới nhất đối tác báo (processing | packed | shipped | in_transit |
+   * out_for_delivery | delivered | failed_delivery | shipped_back | returned) — chi tiết hơn
+   * `fulfillment_status`, dùng cho thanh tiến trình. Đơn cũ null → suy từ fulfillment_status.
+   */
+  @Prop({ type: String, default: null }) tracking_stage!: string | null;
   /** (21/10/2026) Giữ chỗ tồn của đơn — xem storefront-stock.util.ts. Đơn cũ không có field = reserved. */
   @Prop({ type: String, enum: ['reserved', 'deducted', 'released', 'restocked'], default: 'reserved' }) stock_state?: 'reserved' | 'deducted' | 'released' | 'restocked';
   @Prop({ required: true, min: 0 }) subtotal!: number;

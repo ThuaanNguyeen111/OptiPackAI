@@ -1762,6 +1762,15 @@ export class OrderGroupsService {
             { groupId },
           );
         }
+        // 23/10/2026 — lần quét ĐẦU TIÊN của nhóm: báo website "Kho đang chuẩn bị hàng" (cùng
+        // transaction; khóa cố định `first_pick` nên quét lại / lượt lấy sau không báo trùng).
+        if (!group.last_picked_at) {
+          await enqueueStatusPush(
+            this.statusOutboxModel,
+            { orderGroupId: group._id, status: 'processing', discriminator: 'first_pick' },
+            session,
+          );
+        }
 
         const pickedRows = await this.pickEventModel
           .find({ order_group_id: group._id, seller_sku: sku, ...this.roundFilter(round) })

@@ -171,6 +171,26 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     expect(productMasterModel.find).not.toHaveBeenCalled();
   });
 
+  it('23/10/2026 — lần quét ĐẦU TIÊN của nhóm báo website "đang chuẩn bị hàng" (1 lần, cùng transaction)', async () => {
+    const outbox = { updateOne: jest.fn().mockResolvedValue({}) };
+    Object.assign(service, { statusOutboxModel: outbox });
+    mockOrderedItems([{ sku: 'SKU-DUNG', quantity: 2 }]);
+    mockPickedEvents([]);
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ quantity_on_hand: 9 });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    mockGroup({ last_picked_at: null });
+    await service.pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
+    expect(outbox.updateOne).toHaveBeenCalledTimes(1);
+    const [filter, , options] = outbox.updateOne.mock.calls[0] as [{ idempotency_key: string }, unknown, { session: unknown }];
+    expect(filter.idempotency_key).toBe(`grp:${groupId}:processing:first_pick`);
+    expect(options.session).toBeDefined();
+
+    mockGroup({ last_picked_at: new Date() });
+    await service.pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
+    expect(outbox.updateOne).toHaveBeenCalledTimes(1); // đã quét trước đó → không báo lại
+  });
+
   it('trừ tồn CHỈ trong đúng phạm vi platform + shop của group (2 shop trùng SKU không trừ nhầm nhau)', async () => {
     mockGroup();
     mockOrderedItems([{ sku: 'SKU-TRUNG', quantity: 1 }]);
