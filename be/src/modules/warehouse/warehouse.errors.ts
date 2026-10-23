@@ -42,4 +42,6 @@ export const WAREHOUSE_ERROR_CODES = {
   RECEIPT_LINE_INVALID: 'WH_RECEIPT_LINE_INVALID', // dòng thiếu assignment_id lẫn (ô + sàn + shop + SKU)
   RECEIPT_LINE_NOT_ASSIGNED: 'WH_RECEIPT_LINE_NOT_ASSIGNED', // SKU chưa được gán vào ô đó
   RECEIPT_NOT_FOUND: 'WH_RECEIPT_NOT_FOUND',
+  // 22/10/2026 — mã đã nằm ở ô khác trong kho: phải xác nhận (confirm_other_bin=true) mới gán/nhập thêm ô mới
+  SKU_IN_OTHER_BIN: 'WH_SKU_IN_OTHER_BIN', // 409
 } as const;

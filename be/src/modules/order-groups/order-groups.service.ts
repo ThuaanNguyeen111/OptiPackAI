@@ -20,6 +20,8 @@ import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxDocument,
 } from '../marketplace-writeback/schemas/status-outbox.schema';
+import { ActivityLog, ActivityLogDocument } from '../activity-log/schemas/activity-log.schema';
+import { GROUP_STATUS_LABELS, recordActivity } from '../activity-log/activity-log.util';
 import {
   enqueueStatusPush,
   writebackStatusForGroup,
@@ -213,6 +215,9 @@ export class OrderGroupsService {
     // 20/10/2026 — hàng đợi ghi ngược trạng thái lên sàn (AURELLE). @Optional: spec cũ không cần.
     @Optional() @InjectModel(MarketplaceStatusOutbox.name)
     private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
+    // 23/10/2026 — sổ hoạt động: lịch sử đổi trạng thái nhóm đơn, hủy đơn, quyết định thiếu hàng.
+    @Optional() @InjectModel(ActivityLog.name)
+    private readonly activityLogModel?: Model<ActivityLogDocument>,
   ) {
     this.lots = new StockLotLedger(stockLotModel);
   }
@@ -1224,6 +1229,17 @@ export class OrderGroupsService {
     this.logger.log(
       `Order Group ${groupId}: ${group.fulfillment_status} -> ${targetStatus} (version ${String(expectedVersion)} -> ${String(expectedVersion + 1)}).`,
     );
+    // 23/10/2026 — lịch sử: nhóm đơn đổi trạng thái (cùng transaction nếu có session).
+    await recordActivity(this.activityLogModel, {
+      category: 'orders',
+      action: 'order_group.status_changed',
+      summary: `Nhóm đơn …${groupId.slice(-10)}: ${GROUP_STATUS_LABELS[group.fulfillment_status] ?? group.fulfillment_status} → ${GROUP_STATUS_LABELS[targetStatus] ?? targetStatus}`,
+      orderGroupId: updated._id,
+      entityType: 'order_group',
+      entityId: updated._id,
+      fromStatus: group.fulfillment_status,
+      toStatus: targetStatus,
+    }, session);
     // 20/10/2026 — đóng gói xong: xếp hàng báo sàn (cùng transaction nếu có session).
     const writebackStatus = writebackStatusForGroup(targetStatus);
     if (writebackStatus) {
@@ -2361,6 +2377,15 @@ export class OrderGroupsService {
     for (const short of shortages) {
       const order = orders.find((o) => String(o._id) === short.orderId);
       if (order?.platform !== MarketplacePlatform.AURELLE || order.origin === 'replacement') continue;
+      await recordActivity(this.activityLogModel, {
+        category: 'orders',
+        action: 'order.short_shipped',
+        summary: `Giao thiếu đơn ${String(order._id).slice(-8)}: ${short.items.filter((i) => i.shipped < i.ordered).map((i) => `${i.sku} giao ${String(i.shipped)}/${String(i.ordered)}`).join(', ')}`,
+        orderGroupId: group._id,
+        entityType: 'order',
+        entityId: order._id,
+        skus: short.items.map((i) => i.sku),
+      });
       await enqueueStatusPush(this.statusOutboxModel, {
         orderGroupId: group._id,
         orderId: order._id,
@@ -2377,7 +2402,7 @@ export class OrderGroupsService {
    * Đơn thành `canceled` (raw `seller_canceled`), nhóm xử lý như đơn bị hủy (trả hàng dư về kệ,
    * tháo kiện nếu đang đóng, nhả giữ chỗ) và xếp hàng báo website: khách thấy "Người bán đã hủy đơn".
    */
-  async sellerCancelOrder(orderId: string, reason: string): Promise<{ order_id: string; status: OrderStatus }> {
+  async sellerCancelOrder(orderId: string, reason: string, actorId: string | null = null): Promise<{ order_id: string; status: OrderStatus }> {
     if (!Types.ObjectId.isValid(orderId)) {
       throw new AppException(ORD_GROUP_ERROR_CODES.ORDER_NOT_FOUND, 'Không tìm thấy đơn hàng.', HttpStatus.NOT_FOUND, { orderId });
     }
@@ -2417,6 +2442,18 @@ export class OrderGroupsService {
       discriminator: 'seller',
     });
     if (group) await this.handleOrderBecameUnfulfillable(String(group._id));
+    await recordActivity(this.activityLogModel, {
+      category: 'orders',
+      action: 'order.seller_canceled',
+      summary: `Người bán hủy đơn AURELLE ${orderId.slice(-8)} — lý do: ${reason.trim() || 'không ghi'}`,
+      actorId,
+      orderGroupId: order.consolidated_group_id ?? null,
+      entityType: 'order',
+      entityId: order._id,
+      fromStatus: order.status,
+      toStatus: OrderStatus.CANCELED,
+      note: reason.trim() || null,
+    });
     this.logger.warn(`Người bán hủy đơn AURELLE ${orderId}: ${reason}`);
     return { order_id: String(order._id), status: OrderStatus.CANCELED };
   }
@@ -2430,6 +2467,7 @@ export class OrderGroupsService {
     groupId: string,
     approve: boolean,
     expectedVersion: number,
+    actorId: string | null = null,
   ): Promise<OrderGroupDocument> {
     if (approve) {
       const picked = await this.transitionFulfillmentStatus(
@@ -2437,6 +2475,17 @@ export class OrderGroupsService {
         GroupFulfillmentStatus.PICKED,
         expectedVersion,
       );
+      await recordActivity(this.activityLogModel, {
+        category: 'picking',
+        action: 'order_group.partial_approved',
+        summary: 'Thiếu hàng — chọn GIAO PHẦN CÓ SẴN',
+        actorId,
+        orderGroupId: picked._id,
+        entityType: 'order_group',
+        entityId: picked._id,
+        fromStatus: GroupFulfillmentStatus.PARTIAL_NEEDS_REVIEW,
+        toStatus: GroupFulfillmentStatus.PICKED,
+      });
       // 22/10/2026 — đi tiếp với phần có sẵn = giao thiếu → báo từng đơn AURELLE bị thiếu.
       await this.enqueueShortShipments(picked).catch((error: unknown) => {
         this.logger.error(
@@ -2498,6 +2547,18 @@ export class OrderGroupsService {
     }
     // K5 (main) — lượt mới cần giữ chỗ lại phần đã tiêu ở lượt bị hủy.
     await this.reconcileReservation(groupId);
+    await recordActivity(this.activityLogModel, {
+      actorId,
+      category: 'picking',
+      action: 'order_group.pick_round_restarted',
+      summary: `Thiếu hàng — chọn LẤY LẠI: hủy lượt ${String(group.pick_round)}, mở lượt ${String(result.pick_round)}; nhập lại ${String(restocked.units)} sản phẩm về kệ`,
+      orderGroupId: group._id,
+      entityType: 'order_group',
+      entityId: group._id,
+      fromStatus: group.fulfillment_status,
+      toStatus: GroupFulfillmentStatus.PICKING,
+      quantity: restocked.units,
+    });
     this.logger.warn(
       `Group ${groupId} hủy lượt lấy ${String(group.pick_round)} → lượt ${String(result.pick_round)}: đã nhập lại ${String(restocked.units)} sản phẩm vào kho` +
         (restocked.skipped > 0

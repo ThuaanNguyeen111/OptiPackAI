@@ -29,6 +29,10 @@
 | 16 | 🆕 22/10 (chiều) — Nút **"Hủy đơn (người bán)"** cho đơn AURELLE + chip "Người bán hủy" ở chi tiết đơn | 1d | ~1 giờ |
 | 17 | 🆕 22/10 (chiều) — Đổi chữ hộp **giao thiếu** ở màn đóng gói ("Giao phần có sẵn" + dòng giải thích) | 1d | ~10 phút |
 | 18 | 🆕 22/10 (chiều) — Chip **"Tự tạo từ AURELLE"** (SKU nội bộ) + **"Tự nối"** (liên kết) dùng `createdBy` mới; cảnh báo khi vô hiệu SKU nội bộ | 1d | ~30 phút |
+| 19 | 🆕 22/10 (tối) — Hết log rác `MSKU_NOT_FOUND`: chỉ tra liên kết cho mã SKU nội bộ có thật | 1d | ~15 phút |
+| 20 | 🆕 22/10 (tối) — **Làm sớm:** hỏi xác nhận khi đặt 1 mã vào ô thứ 2 (`409 WH_SKU_IN_OTHER_BIN` → gửi lại `confirm_other_bin: true`) ở gán ô, kiểm hàng hoàn, nhập lại hàng cách ly | 1d | ~1 giờ |
+| 21 | 🆕 23/10 — Trang **"Lịch sử"** cho mọi vai trò (lọc loại/ngày/SKU/đơn/"việc của tôi", tải thêm, xuất Excel) | 1e | ~nửa ngày |
+| 22 | 🆕 23/10 — Tab **"Dòng thời gian"** ở chi tiết nhóm đơn | 1e | ~2 giờ |
 
 Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ thêm, chưa làm thì màn cũ vẫn chạy.
 
@@ -205,7 +209,71 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 3. Liên kết có `createdBy = 'system:auto-map'` → nhãn **"Tự nối (trùng mã)"** (chính là việc 1c bước 2.4).
 4. Nút **"Vô hiệu"** SKU nội bộ: thêm câu xác nhận *"Website AURELLE sẽ hiện Hết hàng cho mọi SKU nối với mã này (tồn đẩy sang = 0)."*
 
+**Bước 6 — sửa log rác `MSKU_NOT_FOUND`** (`fe/src/hooks/useAdminWarehouse.ts`, `useEffect` tra `listSkuMappings`, khoảng dòng 133):
+1. Hiện hook gọi `GET /master-skus/:code/mappings` cho **mọi** `row.masterSku` của dòng gán kệ. Với SKU sàn **chưa nối**, `masterSku` là chính mã SKU sàn (VD `SLL-BRN-37`) → BE trả 404 `MSKU_NOT_FOUND` mỗi lần mở màn (6 dòng WARN/lần trong log 22/10).
+2. Sửa: chỉ gọi cho mã **có thật** trong danh sách SKU nội bộ — lấy `GET /master-skus` một lần (đã có trong `catalog.api.ts`), lọc `masters` theo tập mã đó trước khi `Promise.all`.
+3. Không đổi hành vi màn (lỗi đang bị `.catch(() => [])` nuốt), chỉ hết log rác.
+
+**Bước 7 — hỏi xác nhận khi đặt 1 mã vào ô thứ 2** (BE sửa 22/10 tối — **làm sớm**, chưa làm thì màn hiện lỗi và KHÔNG gán được ô thứ 2):
+- BE: gán SKU vào ô (`POST /warehouse/warehouses/:id/sku-bin-assignments`), nhập hàng hoàn sau kiểm (`POST /returns/:id/inspect`, từng dòng `restock`) và nhập lại hàng cách ly (`POST /returns/:id/quarantine/:line/resolve`) — nếu **ô chọn chưa có mã đó** mà mã **đang nằm ở ô khác cùng kho** → `409 WH_SKU_IN_OTHER_BIN`, `details: { sellerSku, masterSku, binCodes: ['KA-D1-T01-T01-1'] }`. Gửi lại kèm `confirm_other_bin: true` (gán ô: ở body; inspect: ở **từng dòng** `lines[i]`; quarantine: ở body) để xác nhận.
+1. `fe/src/pages/AdminWarehousePage.tsx`, hàm `submit` của `AssignTab` (khoảng dòng 2071): trong `.catch`, nếu `getApiErrorCode(err) === 'WH_SKU_IN_OTHER_BIN'` → `window.confirm(`${formatApiError(err)}\n\nVẫn đặt thêm vào ô này?`)` → đồng ý thì gọi lại `api.assignSku({ ...input, confirm_other_bin: true })`. Làm giống nhánh `WH_BIN_OVER_CAPACITY` đang có (giữ cả 2 cờ nếu đã xác nhận cả 2). Thêm `confirm_other_bin?: boolean` vào kiểu `AssignSkuInput` (`fe/src/api/warehouse.api.ts`).
+2. Màn kiểm hàng hoàn (`fe/src/components/warehouse/WarehouseReturnsPanel.tsx` / `fe/src/pages/ReturnsPage.tsx`, chỗ gửi `inspect`): bắt 409 trên → hỏi xác nhận, đồng ý thì gửi lại với `confirm_other_bin: true` ở **dòng có ô bị hỏi** (hoặc mọi dòng restock cho đơn giản). Kiểu `InspectionLine` thêm field.
+3. Nút "Nhập lại kho" của hàng cách ly: tương tự, cờ ở body.
+4. (Gợi ý) Ở ô chọn kệ, hiện sẵn dòng phụ "Mã này đang ở: KA-…" lấy từ danh sách dòng tồn đã tải — người dùng biết trước khi bấm.
+
 **Bước 5 — (biết để giải thích, không cần sửa màn):** website AURELLE chỉ bán SKU do kho OptiPack quản. Store Owner hỏi "sao trên web hết hàng" → kiểm tra SKU sàn đó đã nối SKU nội bộ hoặc đã gán kệ/nhập kho chưa (màn "SKU chưa nối", "SKU chưa gán").
+
+---
+
+## 1e. 🆕 Mới 23/10/2026 — Lịch sử thao tác (mọi vai trò xem lại được)
+
+> BE đã xong (AOFP-176..177). FE OptiPack cần 1 trang mới + 1 tab ở chi tiết nhóm đơn. Không đụng màn cũ.
+
+**BE có gì:**
+- `GET /history` — lịch sử **mới → cũ**, mọi vai trò dùng được, mỗi vai trò chỉ thấy loại việc của mình:
+
+  | Vai trò | Loại xem được (`category`) |
+  |---|---|
+  | Admin | tất cả: `orders, picking, packing, shipping, returns, warehouse, packaging_materials, auth` |
+  | Store Owner | tất cả trừ `auth` |
+  | Nhân viên kho | `orders, picking, warehouse, returns, packaging_materials` |
+  | Nhân viên đóng gói | `orders, picking, packing, packaging_materials` |
+  | Điều phối vận chuyển | `orders, shipping, returns` |
+
+  Query (đều tuỳ chọn): `category` (nhiều loại cách nhau dấu phẩy), `from`, `to` (ISO 8601; mặc định 30 ngày gần nhất), `before` (con trỏ trang sau), `limit` (1–100, mặc định 50), `actor_id`, `mine=true` (chỉ việc của tôi), `sku`, `order_group_id`, `order_code` (mã đơn sàn). Lọc loại không được phép → `403`.
+  Trả `{ items: HistoryItem[], nextBefore: string | null, categories: [{ code, label }] }`.
+- `HistoryItem`: `{ id, occurredAt, category, categoryLabel, action, summary, actor: { id, name, role } | null, orderGroupId, entity: { type, id, code } | null, skus, quantity, fromStatus, toStatus, details }`. **`summary` là câu tiếng Việt hiển thị thẳng**, VD *"Bắt đầu giao SHP-1 qua GHN · Hàng nhẹ → Nguyễn Văn A (12 Lê Lợi, …) — mã GHN123"*, *"Niêm phong kiện 1: thùng SAMPLE-S, 0.4 kg — đơn 720000001"*, *"Nhập lô LOT-… (phiếu PN-…): 30 sản phẩm, 2 mã"*. `details` là các field phụ (vận chuyển: `carrier, service, trackingCode, recipientName, recipientPhone, recipientAddress, costVnd, attempt, reason`; kho: `bin, quantityBefore, quantityAfter, reason, note`; phiếu nhập: `lotCode, receivedAt, supplier, lines`…).
+- `GET /history/categories` — mảng loại vai trò hiện tại được xem.
+- `GET /history/order-groups/:id/timeline` — dòng thời gian **cũ → mới** của 1 nhóm đơn: đơn về → đổi trạng thái → từng lần lấy hàng (ô, số lượng, ai lấy) → tính/duyệt/phân công/bắt đầu/niêm phong từng kiện/xong → vận chuyển (hãng, mã, người nhận, giao thất bại/lại/hoàn) → trả hàng (từng bước) → nhập lại kệ. Mọi vai trò. `{ orderGroupId, items }`.
+- `GET /history/export` — CSV mở bằng Excel, cùng bộ lọc, tối đa 5.000 dòng (Admin, Store Owner).
+
+**Bước 1 — API** (tạo `fe/src/api/history.api.ts`):
+1. Kiểu `HistoryItem`, `HistoryPage = { items, nextBefore, categories }`.
+2. `listHistory(params)` → `GET /history?…` (dựng query bằng `URLSearchParams`, bỏ field rỗng).
+3. `getGroupTimeline(groupId)` → `GET /history/order-groups/${groupId}/timeline`.
+4. `downloadHistoryCsv(params)` → dùng `apiRequestBlob` (đã có trong `fe/src/lib/api.ts`) gọi `GET /history/export?…`, tạo link tải file `lich-su-thao-tac.csv`.
+
+**Bước 2 — trang "Lịch sử"** (tạo `fe/src/pages/HistoryPage.tsx`):
+1. Route: thêm `<Route path="history" element={<HistoryPage />} />` vào **cả 2** nhóm route trong `fe/src/App.tsx` (nhóm `/app/...` cho nhân viên và nhóm `/app/admin/...`).
+2. Menu: thêm mục **"Lịch sử"** (icon đồng hồ/`History` của lucide) vào `fe/src/components/portal/PortalSidebar.tsx` (mọi vai trò) và `fe/src/modules/admin/components/AdminSidebar.tsx`.
+3. Thanh lọc trên cùng:
+   - Chip **loại** lấy từ `categories` của response đầu tiên (chọn nhiều; không chọn = tất cả được phép).
+   - Ô **Từ ngày / Đến ngày** (mặc định 7 ngày gần nhất → gửi `from`, `to`).
+   - Ô tìm **SKU**, ô **Mã đơn sàn** (`order_code`).
+   - Công tắc **"Chỉ việc của tôi"** (`mine=true`).
+   - Admin/Store Owner: ô chọn **nhân viên** (`actor_id`, lấy danh sách từ `GET /users`) + nút **"Xuất Excel"**.
+4. Danh sách: nhóm theo **ngày** (tiêu đề "Thứ Năm, 23/10/2026"). Mỗi dòng: giờ `HH:mm` · chip loại (màu riêng mỗi loại) · **`summary`** · tên + vai trò người làm (`actor.name`, `actor.role`; null → "—"). Bấm dòng → mở khung chi tiết hiện `details` dạng bảng 2 cột (ẩn giá trị null) + nút **"Xem cả đơn"** nếu có `orderGroupId` (mở tab Dòng thời gian bên dưới).
+5. Cuối danh sách: nút **"Tải thêm"** khi `nextBefore` khác null → gọi lại với `before = nextBefore`, nối vào danh sách.
+6. Trống: "Chưa có thao tác nào trong khoảng thời gian này."
+
+**Bước 3 — tab "Dòng thời gian" ở chi tiết nhóm đơn** (`fe/src/pages/OrderGroupsPage.tsx`, khung chi tiết nhóm; và `fe/src/pages/order-groups/GroupOpsPanel.tsx` nếu màn đóng gói/kho mở chi tiết ở đó):
+1. Thêm tab **"Dòng thời gian"** → gọi `getGroupTimeline(group.id)` khi mở tab.
+2. Hiển thị dạng trục dọc (cũ ở trên, mới ở dưới): chấm màu theo `category`, giờ + ngày, `summary`, người làm. Dòng `shipping` hiện thêm 1 dòng nhỏ: `details.carrier · details.service · mã details.trackingCode`.
+3. Nút "Tải lại" (lịch sử có thể vừa thêm dòng mới).
+
+**Lưu ý hiển thị:**
+- Sổ hoạt động mới (đổi trạng thái nhóm đơn, từng bước phiếu trả hàng, người bán hủy, giao thiếu) chỉ có **từ 23/10/2026**. Đơn cũ vẫn có lịch sử lấy hàng, đóng gói, vận chuyển, nhập kho (ghép từ dữ liệu sẵn có).
+- `actor.id` bắt đầu bằng `system` → hiện "Hệ thống" (icon máy), không phải người.
 
 ---
 
