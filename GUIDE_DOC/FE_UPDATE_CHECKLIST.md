@@ -33,6 +33,11 @@
 | 20 | 🆕 22/10 (tối) — **Làm sớm:** hỏi xác nhận khi đặt 1 mã vào ô thứ 2 (`409 WH_SKU_IN_OTHER_BIN` → gửi lại `confirm_other_bin: true`) ở gán ô, kiểm hàng hoàn, nhập lại hàng cách ly | 1d | ~1 giờ |
 | 21 | 🆕 23/10 — Trang **"Lịch sử"** cho mọi vai trò (lọc loại/ngày/SKU/đơn/"việc của tôi", tải thêm, xuất Excel) | 1e | ~nửa ngày |
 | 22 | 🆕 23/10 — Tab **"Dòng thời gian"** ở chi tiết nhóm đơn | 1e | ~2 giờ |
+| 23 | 🆕 23/10 — **Làm sớm:** khoá nút "Đóng nhanh" khi nhóm gộp nhiều người nhận (BE trả `409 PACKING_SCAN_REQUIRED`) + hiện tên người nhận trên từng kiện / tem kiện | 1f.4 | ~1 giờ |
+| 24 | 🆕 23/10 — Chip **"Gộp N người nhận"**, tên người nhận trong danh sách đơn của nhóm, thông báo `consolidation_name_mismatch` | 1f.2, 1f.6 | ~45 phút |
+| 25 | 🆕 23/10 — **"Chia theo đơn"** ở màn lấy hàng (`order_allocations`) | 1f.3 | ~1 giờ |
+| 26 | 🆕 23/10 — Nút **"Tách ra nhóm riêng"** + **"Gộp với nhóm khác"** (kèm "Liên kết thay thế" khi bị từ chối) | 1f.2 | ~2 giờ |
+| 27 | 🆕 23/10 — Màn vận chuyển: tên người nhận theo từng kiện + câu "địa chỉ sửa áp dụng mọi kiện" | 1f.5 | ~30 phút |
 
 Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ thêm, chưa làm thì màn cũ vẫn chạy.
 
@@ -274,6 +279,132 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 **Lưu ý hiển thị:**
 - Sổ hoạt động mới (đổi trạng thái nhóm đơn, từng bước phiếu trả hàng, người bán hủy, giao thiếu) chỉ có **từ 23/10/2026**. Đơn cũ vẫn có lịch sử lấy hàng, đóng gói, vận chuyển, nhập kho (ghép từ dữ liệu sẵn có).
 - `actor.id` bắt đầu bằng `system` → hiện "Hệ thống" (icon máy), không phải người.
+
+---
+
+## 1f. 🆕 Mới 23/10/2026 — Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm
+
+> BE đã xong (AOFP-183). FE OptiPack sửa 5 màn: danh sách/chi tiết nhóm đơn, lấy hàng, đóng gói, vận chuyển, thông báo. Mọi field mới đều **thêm**, chưa làm thì màn cũ vẫn chạy — riêng nút "Đóng nhanh" sẽ nhận `409` với nhóm nhiều người nhận (xem bước 4).
+
+### 1f.0 Nghiệp vụ — FE cần hiểu trước khi làm
+
+**Khi nào hệ thống tự gộp đơn?** Đơn mới về được gộp vào nhóm của đơn cũ khi **cùng sàn + cùng shop + cùng khoá gộp** và nhóm cũ còn "mở":
+- Khoá gộp mặc định = **SĐT + địa chỉ (dòng 1) + tỉnh/thành** — **không gồm tên**. Admin đổi được ở `/order-sync-settings` (`consolidation_key_fields`); thêm `full_name` thì 2 người khác tên **không bao giờ** tự gộp.
+- Nhóm "mở" = đang `awaiting_packaging` / `picking` (Admin cấu hình `openGroupStatuses`) và **không** phải nhóm vừa tách tay (`consolidationClosed = true`). Nhóm đã lấy xong trở đi → đơn đến muộn tự lập nhóm mới.
+
+**Cái gì làm CHUNG, cái gì làm RIÊNG từng đơn?**
+
+| Bước | Chung cả nhóm | Riêng từng đơn |
+|---|---|---|
+| Lấy hàng | Danh sách gom theo SKU (đi kệ 1 lần), số đã quét tính cho cả nhóm | `order_allocations` cho biết mỗi SKU của đơn nào, người nhận nào |
+| Đóng gói | 1 kế hoạch, 1 người đóng | **Mỗi kiện thuộc đúng 1 đơn** (`parcels[].orderId`) — không bao giờ có kiện chứa hàng của 2 đơn |
+| Vận chuyển | 1 vận đơn nội bộ (`shipmentCode`), 1 địa chỉ sửa tay (`toLocation`) | **Mỗi kiện 1 mã vận đơn hãng**, tên người nhận = tên trên đơn sở hữu kiện |
+
+→ 2 người khác tên cùng địa chỉ (vợ/chồng, đồng nghiệp chung văn phòng) gộp chung **là bình thường**: kho lấy 1 lượt, mỗi người vẫn nhận kiện + nhãn mang tên mình. Rủi ro duy nhất là **bỏ nhầm hàng / dán nhầm nhãn** → BE thêm cảnh báo + bắt quét từng món + in tên lên kiện.
+
+**Khi nào cho tách / gộp tay?** Chỉ khi nhóm đang **chờ / đang lấy hàng** và **chưa quét món nào** ở lượt hiện tại. Đã quét rồi thì không tách/gộp được (hàng đã quét tính chung cho cả nhóm) — cứ lấy + đóng theo nhóm hiện tại, mỗi đơn vẫn ra kiện + vận đơn riêng.
+
+**Hủy 1 đơn trong nhóm gộp** (đã có từ trước, không đổi): hủy trước khi đóng → thông báo `return_to_shelf` (đem hàng của đơn đó về kệ); hủy sau khi đóng → `unpack_required` (tháo kiện của đơn đó); các đơn còn lại vẫn đi tiếp.
+
+### 1f.1 Kiểu dữ liệu + API (làm trước)
+
+1. `fe/src/types/order-groups.ts` — thêm vào kiểu nhóm đơn (response của `GET /order-groups`, `GET /order-groups/:id`, …):
+   ```ts
+   recipientNames: string[]          // tên người nhận khác nhau của đơn còn hiệu lực (không gồm tên bị che)
+   recipientNamesDiffer: boolean     // true = nhóm gộp ≥ 2 người nhận khác tên
+   hasMaskedRecipientName: boolean   // có đơn bị sàn che tên (không kiểm chứng được)
+   splitFromGroupId: string | null   // nhóm này tách ra từ nhóm nào
+   mergedIntoGroupId: string | null  // nhóm này đã bị gộp vào nhóm nào (khi đó fulfillmentStatus = 'canceled')
+   consolidationClosed: boolean      // true = không tự nhận thêm đơn gom đến muộn
+   ```
+   So sánh tên không phân biệt hoa thường / dấu / khoảng trắng: "Nguyễn Văn A" và "nguyen van a" là **1** người.
+2. Kiểu món lấy hàng (`PackableItem` trong `fe/src/types/order-groups.ts` và `WarehousePickingListItem` trong `fe/src/types/warehouse-admin.ts`) — thêm optional:
+   ```ts
+   order_allocations?: { order_id: string; platform_order_id: string; recipient_name: string | null; quantity: number }[]
+   ```
+   Tổng `quantity` các dòng = `quantity` của món. Có ở cả `GET /order-groups/:id/picking-list` lẫn `GET /warehouse/:warehouseId/picking-list/:groupId`.
+3. `fe/src/api/packing-plan.api.ts` — kiểu kế hoạch: thêm `recipientName: string | null` vào **từng phần tử `orders[]`** và **từng phần tử `parcels[]`** (null với kế hoạch tính trước 23/10/2026).
+4. `fe/src/types/notifications.ts` — thêm `'consolidation_name_mismatch'` vào danh sách loại.
+5. `fe/src/api/order-groups.api.ts` — thêm 2 hàm:
+   ```ts
+   splitOrderFromGroup(groupId, orderId, body: { expected_version: number; note: string })
+     → POST /order-groups/${groupId}/orders/${orderId}/split
+     → { sourceGroup: OrderGroup; newGroup: OrderGroup }
+   mergeOrderGroups(groupId, body: { source_group_id: string; expected_version: number; note: string })
+     → POST /order-groups/${groupId}/merge
+     → OrderGroup (nhóm đích sau khi gộp)
+   ```
+   `note` bắt buộc 3–300 ký tự. Quyền: **Store Owner, Điều phối vận chuyển, Admin** — ẩn nút với vai trò khác.
+
+### 1f.2 Danh sách + chi tiết nhóm đơn (`fe/src/pages/OrderGroupsPage.tsx`, `fe/src/pages/order-groups/GroupOpsPanel.tsx`)
+
+1. **Chip cảnh báo** ở thẻ/dòng nhóm khi `recipientNamesDiffer`: nền vàng, chữ **"Gộp {recipientNames.length} người nhận"**; di chuột/bấm → hiện danh sách tên. Khi `hasMaskedRecipientName`: chip xám **"Có tên bị che"** (tooltip: "Sàn che tên — đối chiếu nhãn từng kiện khi đóng").
+2. **Danh sách đơn trong chi tiết nhóm** (đang hiện `platformOrderId · status`, khoảng dòng 357 của `GroupOpsPanel.tsx`): thêm **tên người nhận** (`order.recipient.fullName`) và SĐT rút gọn. Khi nhóm có ≥ 2 tên, tô mỗi người 1 màu (dùng lại đúng màu đó ở màn lấy hàng + đóng gói — gợi ý: màu theo thứ tự xuất hiện trong `recipientNames`, so tên đã bỏ dấu/viết thường).
+3. **Nút "Tách ra nhóm riêng"** cạnh từng đơn — chỉ hiện khi đủ cả 4 điều kiện:
+   - vai trò Store Owner / Điều phối / Admin;
+   - `fulfillmentStatus` là `awaiting_packaging` hoặc `picking`;
+   - `activeOrderCount ≥ 2`;
+   - đơn đó còn hiệu lực (không `canceled` / sự cố).
+   Bấm → hộp thoại: "Tách đơn {platformOrderId} ({tên}) ra nhóm riêng? Nhóm mới sẽ được giao nhân viên kho và giữ hàng riêng, không tự nhận thêm đơn." + ô **Lý do** (bắt buộc) → gọi `splitOrderFromGroup(group.id, order.id, { expected_version: group.version, note })`.
+   - Thành công: toast "Đã tách — nhóm mới {newGroup.id cuối 6 ký tự}", tải lại danh sách, cho nút "Mở nhóm mới".
+   - Lỗi (đọc `error_code`):
+     | Mã | Hiện cho người dùng |
+     |---|---|
+     | `ORD_GROUP_REGROUP_HAS_PICKS` | "Nhóm đã quét lấy hàng — không tách được nữa. Cứ lấy + đóng theo nhóm: mỗi đơn vẫn có kiện và vận đơn riêng." |
+     | `ORD_GROUP_REGROUP_NOT_ALLOWED` | hiện `message` của BE (sai trạng thái / chỉ còn 1 đơn / đơn đã hủy) |
+     | `ORD_GROUP_STATE_CONFLICT` | "Nhóm vừa được cập nhật — đã tải lại, thử lại." → tải lại nhóm |
+     | `ORD_GROUP_ORDER_NOT_FOUND` | "Đơn không còn thuộc nhóm này." → tải lại |
+4. **Nút "Gộp với nhóm khác"** ở đầu chi tiết nhóm — cùng điều kiện vai trò + trạng thái như trên.
+   - Hộp thoại gợi ý nhóm nguồn: lấy `GET /order-groups/:id/linked` (nhóm cùng người nhận) **và** ô tìm nhóm (`GET /order-groups?q=` — mục 1b.3). Chỉ cho chọn nhóm **cùng `platform` + `shopId`**, trạng thái `awaiting_packaging`/`picking`. Hiện mỗi nhóm: mã cuối, số đơn, tên người nhận, trạng thái.
+   - Ô **Lý do** bắt buộc. Câu xác nhận: "Chuyển toàn bộ đơn của nhóm {nguồn} sang nhóm này. Nhóm {nguồn} sẽ đóng lại."
+   - Gọi `mergeOrderGroups(group.id, { source_group_id, expected_version: group.version, note })`.
+   - Lỗi riêng: `ORD_GROUP_MERGE_SCOPE_MISMATCH` (khác sàn/shop) và `ORD_GROUP_MERGE_RECIPIENT_MISMATCH` (SĐT thật khác nhau) → hiện `message` + nút **"Liên kết thay thế"** (gọi `POST /order-groups/:id/link` đã có — 2 nhóm vẫn riêng nhưng lấy chung danh sách và giao chung chuyến). `ORD_GROUP_MERGE_SELF`, `REGROUP_HAS_PICKS`, `REGROUP_NOT_ALLOWED`, `STATE_CONFLICT` như bảng trên.
+5. **Nhóm đã bị gộp** (`mergedIntoGroupId` khác null): thay chip "Đã hủy" bằng **"Đã gộp vào nhóm …{6 ký tự cuối}"** (bấm để mở nhóm đích). Mặc định ẩn các nhóm này khỏi danh sách đang làm (chúng có `activeOrderCount = 0`).
+6. **Nhóm tách ra** (`splitFromGroupId` khác null): chip nhỏ "Tách từ nhóm …" (bấm mở nhóm gốc).
+
+### 1f.3 Màn lấy hàng (`fe/src/pages/WarehousePage.tsx`)
+
+1. Đầu danh sách lấy hàng của nhóm: nếu `recipientNamesDiffer` → băng vàng **"Nhóm giao cho {n} người: A, B. Chia hàng vào khay riêng theo từng người khi lấy."**
+2. Mỗi dòng SKU (khoảng dòng 234–242, hàm dựng danh sách từ `PackableItem | WarehousePickingListItem`): khi `order_allocations` có **≥ 2 dòng** hoặc nhóm `recipientNamesDiffer` → thêm phần mở rộng **"Chia theo đơn"**:
+   ```
+   AOPOLO-030-BE-L   cần 3 · đã lấy 1
+     ├ 2 cái → Đơn AUR-0001 · Trần Thị B   (chấm màu của B)
+     └ 1 cái → Đơn AUR-0002 · Lê Văn C     (chấm màu của C)
+   ```
+   `recipient_name` null hoặc có dấu `*` → hiện "Tên bị che". Nhóm 1 đơn → không hiện phần này (giữ màn gọn).
+3. Không đổi cách quét: vẫn quét theo SKU như cũ (`picked_quantity` chung). Phần chia theo đơn chỉ để nhân viên chia khay.
+
+### 1f.4 Màn đóng gói (`fe/src/components/packing/PackagingWorkbench.tsx`, `fe/src/components/packing/PackingSessionPanel.tsx`)
+
+1. **Đầu kiện** (`PackingSessionPanel.tsx` dòng ~111–113, đang hiện `#{parcelNo} {box.code}`): thêm dòng **"Đơn {platformOrderId} · Người nhận: {recipientName}"** (`recipientName` null → bỏ phần người nhận). Viền trái kiện tô màu của người nhận (cùng màu 1f.2).
+2. Khi kế hoạch có **≥ 2 `orders[]` khác `recipientName`**: nhóm các kiện theo đơn, mỗi nhóm có tiêu đề "Đơn AUR-0001 — Trần Thị B ({k} kiện)".
+3. **Nút "Đóng nhanh"** (gọi `packPlan(...)`, `PackagingWorkbench.tsx` dòng ~692): khi nhóm `recipientNamesDiffer` → **ẩn hoặc khoá** nút, ghi chú "Nhóm nhiều người nhận — quét từng món vào đúng kiện rồi niêm phong". Nếu vẫn gọi, BE trả `409 PACKING_SCAN_REQUIRED` với `details.reason = 'recipient_names_differ'`, `details.recipientNames` → hiện đúng `message` của BE.
+4. Hướng dẫn trong lúc quét: món quét vào kiện nào thì chỉ thuộc đơn của kiện đó (BE đã kiểm món thuộc kiện) — chỉ cần hiện rõ tên người nhận của kiện đang mở để nhân viên không lấy nhầm khay.
+5. **In tem kiện** (mục 1.3 — nút in tem/phiếu): thêm dòng **"Người nhận: {recipientName}"** + mã đơn lên mỗi tem để dán đúng.
+
+### 1f.5 Màn vận chuyển (`fe/src/pages/ShippingPage.tsx`)
+
+1. Danh sách kiện của vận đơn (`carrierParcels[]`): mỗi kiện có `orderId`. Lấy tên người nhận bằng cách khớp `orderId` với `orders[]` trong `GET /order-groups/:id` (`order.recipient.fullName`, `order.recipient.phone`) → hiện "Kiện {parcelNo} · Đơn {platformOrderId} · {tên} · mã hãng {carrierOrderCode}".
+2. Nhóm `recipientNamesDiffer`: băng nhắc "Vận đơn gồm kiện của {n} người nhận — mỗi kiện có mã vận đơn hãng riêng mang đúng tên người nhận."
+3. **Sửa địa chỉ** (`toLocation`): áp dụng cho **mọi kiện** của vận đơn. Vì vậy BE không cho gộp 2 nhóm có SĐT thật khác nhau. Thêm câu dưới form: "Địa chỉ sửa áp dụng cho tất cả kiện của nhóm này."
+
+### 1f.6 Thông báo `consolidation_name_mismatch`
+
+1. `fe/src/lib/notification-nav.ts` + `fe/src/components/portal/PortalTopBar.tsx`: nhãn **"Đơn gộp nhiều người nhận"**, mức `warning`, bấm → mở chi tiết nhóm (`relatedEntityId` = id nhóm).
+2. Người nhận thông báo: Store Owner, Điều phối vận chuyển, và nhân viên kho đang giữ nhóm. Gửi khi đơn gom đến muộn hoặc gộp tay làm nhóm có ≥ 2 tên khác nhau.
+
+### 1f.7 Lịch sử (mục 1e) — nhãn hành động mới
+
+Sổ hoạt động có thêm 3 `action` (loại `orders`): `order_group.split` (tách đơn), `order_group.merged` (gộp nhóm — nhóm nguồn có `fromStatus → canceled`), `order_group.recipient_names_differ` (cảnh báo khác tên). `summary` đã là câu tiếng Việt, `note` là lý do người dùng nhập.
+
+### 1f.8 Nghiệm thu
+
+1. Đặt 2 đơn AURELLE cùng SĐT + địa chỉ, khác tên → 1 nhóm, chip "Gộp 2 người nhận", Store Owner nhận thông báo.
+2. Màn lấy hàng: mỗi SKU có "Chia theo đơn" đúng số lượng từng người.
+3. Lấy xong → kế hoạch đóng gói: mỗi kiện hiện đúng người nhận; "Đóng nhanh" bị khoá; quét + niêm phong từng kiện được.
+4. Giao: mỗi kiện 1 mã GHN, tên người nhận đúng từng đơn.
+5. Đơn thứ 3 khác tên vào nhóm đang `picking` chưa quét → "Tách ra nhóm riêng" → nhóm mới có nhân viên, nhóm cũ còn 2 đơn. Quét 1 món rồi thử tách → báo `REGROUP_HAS_PICKS`.
+6. Gộp 2 nhóm cùng SĐT → nhóm nguồn hiện "Đã gộp vào nhóm …"; gộp 2 nhóm khác SĐT → báo lỗi + nút "Liên kết thay thế".
 
 ---
 

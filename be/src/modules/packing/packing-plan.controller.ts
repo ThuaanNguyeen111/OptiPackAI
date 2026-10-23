@@ -87,6 +87,8 @@ export interface PackingPlanResponse {
   orders: {
     orderId: string;
     platformOrderId: string | null;
+    /** Tên người nhận (null với kế hoạch tạo trước 23/10/2026). */
+    recipientName: string | null;
     status: string;
     unplaced: { itemKey: string; code: string; reason: string }[];
     proof: PlanProofLabel;
@@ -109,6 +111,8 @@ export interface PackingPlanResponse {
     parcelNo: number;
     orderId: string;
     platformOrderId: string | null;
+    /** Tên người nhận của đơn sở hữu kiện — in lên kiện để không dán nhầm trong đơn gộp. */
+    recipientName: string | null;
     box: {
       code: string;
       name: string;
@@ -258,6 +262,7 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
     (acc, o) => (acc === null || PROOF_RANK[o.proof] < PROOF_RANK[acc] ? o.proof : acc),
     null,
   );
+  const recipientByOrder = new Map(plan.orders.map((o) => [o.order_id.toString(), o.recipient_name ?? null]));
   return {
     id: plan._id.toString(),
     orderGroupId: plan.order_group_id.toString(),
@@ -271,6 +276,7 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
     orders: plan.orders.map((o) => ({
       orderId: o.order_id.toString(),
       platformOrderId: o.platform_order_id,
+      recipientName: o.recipient_name ?? null,
       status: o.status,
       unplaced: o.unplaced.map((u) => ({ itemKey: u.item_key, code: u.code, reason: u.reason })),
       proof: o.proof,
@@ -301,6 +307,7 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
       parcelNo: p.parcel_no,
       orderId: p.order_id.toString(),
       platformOrderId: p.platform_order_id,
+      recipientName: recipientByOrder.get(p.order_id.toString()) ?? null,
       box: {
         code: p.box.code,
         name: p.box.name,

@@ -182,6 +182,10 @@ export const MARKETPLACE_ORDERS_ERROR_MESSAGES: Record<string, string> = {
   ORD_UNSUPPORTED_PLATFORM: 'Sàn này chưa hỗ trợ đồng bộ đơn.',
   ORD_INVALID_ORDER_ID: 'Mã đơn không đúng định dạng.',
   ORD_ORDER_NOT_FOUND: 'Không tìm thấy đơn hàng.',
+  ORD_SYNC_SETTINGS_INVALID:
+    'Luật chưa hợp lệ. Gộp đơn phải có số điện thoại hoặc địa chỉ. Danh sách không đóng gói phải có trạng thái đã hủy, và không được gồm đơn đang giao bình thường.',
+  ORD_SYNC_SETTINGS_CONFLICT:
+    'Người khác vừa lưu luật này. Trang đã tải bản mới — xem lại rồi lưu.',
 }
 
 export function formatMarketplaceOAuthError(code: string | null): string {

@@ -10,6 +10,7 @@ import { DEFAULT_PACKING_SETTINGS, type ActivePackingSettings } from './packing-
 import { sunglasses } from '../packaging/engine/scenarios/order-scenarios';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import type { PackingPlanDocument } from './schemas/packing-plan.schema';
+import { toPlanResponse } from './packing-plan.controller';
 
 jest.setTimeout(60_000);
 
@@ -129,7 +130,7 @@ describe('PackingPlanService', () => {
   const userId = new Types.ObjectId().toString();
   let groupId: string;
   let group: { _id: Types.ObjectId; fulfillment_status: GroupFulfillmentStatus; __v: number };
-  let allocations: { order_id: string; platform_order_id: string; items: PackableItem[] }[];
+  let allocations: { order_id: string; platform_order_id: string; recipient_name?: string | null; items: PackableItem[] }[];
   let planModel: ReturnType<typeof fakePlanModel>;
   let orderGroupsService: {
     findOrderGroupById: jest.Mock;
@@ -1242,6 +1243,24 @@ describe('PackingPlanService', () => {
       function unsealParcel(no: number, dto: never, role: UserRole): ReturnType<PackingSessionService['unseal']> {
         return session.unseal(groupId, no, dto, userId, role);
       }
+    });
+
+    it('23/10/2026 — đơn gộp khác tên: kế hoạch chụp tên người nhận từng đơn/kiện, chặn "đóng nhanh"', async () => {
+      allocations = [
+        { ...allocations[0], recipient_name: 'Trần Thị B' } as (typeof allocations)[number],
+        { ...allocations[1], recipient_name: 'Lê Văn C' } as (typeof allocations)[number],
+      ];
+      const plan = await approvedPlan();
+      const response = toPlanResponse(plan);
+      expect(response.orders.map((o) => o.recipientName)).toEqual(['Trần Thị B', 'Lê Văn C']);
+      for (const parcel of response.parcels) {
+        const owner = response.orders.find((o) => o.orderId === parcel.orderId);
+        expect(parcel.recipientName).toBe(owner?.recipientName);
+      }
+      const weights = plan.parcels.map((p) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no, 1) }));
+      await expect(session.quickPack(groupId, { parcels: weights, expected_version: plan.version }, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.SCAN_REQUIRED,
+      });
     });
 
     it('lối tắt pack: ghi quét "bypass", kiện lệch vẫn bị giữ; cài đặt bắt buộc quét thì chặn', async () => {

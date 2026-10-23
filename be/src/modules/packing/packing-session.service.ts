@@ -39,6 +39,7 @@ import { PACKING_ERROR_CODES } from './packing.errors';
 import { PackingPlanService } from './packing-plan.service';
 import { PackingSettingsService, type ActivePackingSettings } from './packing-settings.service';
 import { isLiveParcel, type Plain } from './utils/parcels.util';
+import { summarizeRecipientNames } from '../order-groups/utils/recipient-name.util';
 import type { PackPlanDto } from './dto/packing-plan.dto';
 import type {
   UnsealParcelDto,
@@ -415,6 +416,19 @@ export class PackingSessionService {
         'Cài đặt đóng gói đang bắt buộc quét từng món — dùng quét + niêm phong từng kiện.',
         HttpStatus.CONFLICT,
         { groupId },
+      );
+    }
+    // 23/10/2026 — nhóm gộp nhiều người nhận khác tên: bắt quét từng món vào đúng kiện
+    // (quick pack ghi "bypass" cho mọi món → không có gì chứng minh món đúng người).
+    const names = summarizeRecipientNames(
+      plan.orders.filter((o) => o.status !== 'canceled').map((o) => o.recipient_name ?? null),
+    );
+    if (names.differ) {
+      throw new AppException(
+        PACKING_ERROR_CODES.SCAN_REQUIRED,
+        `Nhóm đơn gộp ${String(names.names.length)} người nhận khác tên (${names.names.join(', ')}) — phải quét từng món vào đúng kiện rồi niêm phong, không dùng "đóng nhanh".`,
+        HttpStatus.CONFLICT,
+        { groupId, reason: 'recipient_names_differ', recipientNames: names.names },
       );
     }
     const pending = this.data(plan).parcels.filter((p) => p.status === 'pending');

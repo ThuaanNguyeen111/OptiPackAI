@@ -5,6 +5,9 @@ import {
   listSkuBinAssignments,
   listStockMovements,
   listAssignmentLots,
+  listStockLots,
+  listStockReceipts,
+  getStockReceipt,
   createStockReceipt,
   listWarehouseBinLocations,
   listWarehouseZones,
@@ -36,6 +39,7 @@ import type {
   SkuBinAssignmentRecord,
   StockAdjustReason,
   StockLotRecord,
+  StockReceiptRecord,
   WarehouseRecord,
   WarehouseZoneRecord,
 } from '../types/warehouse-admin'
@@ -91,6 +95,7 @@ export function WarehouseInventoryPage() {
   const [search, setSearch] = useState('')
   const [zoneFilter, setZoneFilter] = useState('')
   const [stockFilter, setStockFilter] = useState<StockFilter>('all')
+  const [stockView, setStockView] = useState<'bins' | 'lots' | 'receipts'>('bins')
   const [selectedId, setSelectedId] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -251,6 +256,27 @@ export function WarehouseInventoryPage() {
                   </option>
                 ))}
               </select>
+              <div className="inline-flex rounded-lg border border-hairline bg-canvas p-0.5">
+                {(
+                  [
+                    ['bins', vi ? 'Theo ô' : 'By bin'],
+                    ['lots', vi ? 'Theo lô' : 'By lot'],
+                    ['receipts', vi ? 'Phiếu nhập' : 'Receipts'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={cn(
+                      'cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium',
+                      stockView === id ? 'bg-surface-1 text-ink shadow-sm' : 'text-ink-muted',
+                    )}
+                    onClick={() => setStockView(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <Button
                 variant="secondary"
                 className="h-9 min-h-0 px-3 text-xs"
@@ -281,7 +307,25 @@ export function WarehouseInventoryPage() {
           ) : null}
           {loadError ? <ErrorBox message={loadError} /> : null}
 
-          {activeWarehouseId && !loadError ? (
+          {activeWarehouseId && !loadError && stockView === 'lots' ? (
+            <LotCatalog
+              key={activeWarehouseId}
+              warehouseId={activeWarehouseId}
+              vi={vi}
+              binCodeOf={(id) => binById.get(id)?.binCode ?? ''}
+            />
+          ) : null}
+
+          {activeWarehouseId && !loadError && stockView === 'receipts' ? (
+            <ReceiptCatalog
+              key={activeWarehouseId}
+              warehouseId={activeWarehouseId}
+              vi={vi}
+              binCodeOf={(id) => binById.get(id)?.binCode ?? ''}
+            />
+          ) : null}
+
+          {activeWarehouseId && !loadError && stockView === 'bins' ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
               <section className="rounded-xl border border-hairline bg-surface-1">
                 <div className="flex flex-col gap-2 border-b border-hairline p-3 lg:flex-row lg:items-center">
@@ -465,6 +509,7 @@ function ActionPanel({
   const [moveQty, setMoveQty] = useState(1)
   const [movements, setMovements] = useState<InventoryMovementRecord[] | null>(null)
   const [lots, setLots] = useState<StockLotRecord[] | null>(null)
+  const [receivedAt, setReceivedAt] = useState('')
   const [lotCode, setLotCode] = useState('')
   const [supplier, setSupplier] = useState('')
   const [receiptQty, setReceiptQty] = useState(1)
@@ -487,12 +532,13 @@ function ActionPanel({
   }
 
   function receive() {
+    const extra = { received_at: toReceivedAtIso(receivedAt), lot_code: lotCode.trim() || undefined }
     void run(async () => {
       try {
-        await restockSkuAssignment(warehouseId, row.id, receiveQty)
+        await restockSkuAssignment(warehouseId, row.id, receiveQty, false, extra)
       } catch (err: unknown) {
         if (!confirmOverCapacity(err, vi ? 'Vẫn nhập?' : 'Receive anyway?')) throw err
-        await restockSkuAssignment(warehouseId, row.id, receiveQty, true)
+        await restockSkuAssignment(warehouseId, row.id, receiveQty, true, extra)
       }
       return vi
         ? `Đã nhập ${receiveQty} cái ${row.sellerSku} vào ô ${row.binLabel}.`
@@ -552,6 +598,7 @@ function ActionPanel({
       const code = lotCode.trim()
       try {
         await createStockReceipt(warehouseId, {
+          received_at: toReceivedAtIso(receivedAt),
           lot_code: code || undefined,
           supplier: supplier.trim() || undefined,
           note: note.trim() || undefined,
@@ -562,6 +609,7 @@ function ActionPanel({
           throw err
         }
         await createStockReceipt(warehouseId, {
+          received_at: toReceivedAtIso(receivedAt),
           lot_code: code || undefined,
           supplier: supplier.trim() || undefined,
           note: note.trim() || undefined,
@@ -630,19 +678,40 @@ function ActionPanel({
       </div>
 
       <div className="space-y-3 p-4">
-        {action === 'receive' ? (
-          <Field label={vi ? 'Số lượng nhập thêm' : 'Quantity to add'}>
+        {action === 'receive' || action === 'lots' ? (
+          <Field label={vi ? 'Ngày nhập (để trống = bây giờ)' : 'Received at (blank = now)'}>
             <Input
               className={fieldClass}
-              type="number"
-              min={1}
-              value={receiveQty}
-              onChange={(e) => setReceiveQty(Math.max(1, Number(e.target.value) || 1))}
+              type="datetime-local"
+              value={receivedAt}
+              onChange={(e) => setReceivedAt(e.target.value)}
             />
-            <p className="text-[11px] text-ink-muted">
-              {vi ? 'Sau khi nhập' : 'After'}: {row.quantityOnHand + receiveQty}
-            </p>
           </Field>
+        ) : null}
+
+        {action === 'receive' ? (
+          <>
+            <Field label={vi ? 'Mã lô (để trống thì hệ thống tự đặt)' : 'Lot code (blank = system)'}>
+              <Input
+                className={fieldClass}
+                value={lotCode}
+                maxLength={40}
+                onChange={(e) => setLotCode(e.target.value)}
+              />
+            </Field>
+            <Field label={vi ? 'Số lượng nhập thêm' : 'Quantity to add'}>
+              <Input
+                className={fieldClass}
+                type="number"
+                min={1}
+                value={receiveQty}
+                onChange={(e) => setReceiveQty(Math.max(1, Number(e.target.value) || 1))}
+              />
+              <p className="text-[11px] text-ink-muted">
+                {vi ? 'Sau khi nhập' : 'After'}: {row.quantityOnHand + receiveQty}
+              </p>
+            </Field>
+          </>
         ) : null}
 
         {action === 'lots' ? (
@@ -851,6 +920,274 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <span className="text-[11px] text-ink-muted">{label}</span>
       {children}
     </label>
+  )
+}
+
+function toReceivedAtIso(value: string): string | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const date = new Date(trimmed)
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString()
+}
+
+const LOT_SOURCE: Record<string, [string, string]> = {
+  receipt: ['Phiếu nhập', 'Receipt'],
+  initial: ['Tồn đầu', 'Opening'],
+  opening: ['Tồn đầu kỳ', 'Opening lot'],
+  count_found: ['Kiểm kê thừa', 'Count surplus'],
+  return: ['Hàng hoàn', 'Return'],
+  transfer: ['Chuyển ô', 'Transfer'],
+}
+
+function LotCatalog({
+  warehouseId,
+  vi,
+  binCodeOf,
+}: {
+  warehouseId: string
+  vi: boolean
+  binCodeOf: (binId: string) => string
+}) {
+  const [sellerSku, setSellerSku] = useState('')
+  const [masterSku, setMasterSku] = useState('')
+  const [lotCode, setLotCode] = useState('')
+  const [includeEmpty, setIncludeEmpty] = useState(false)
+  const [query, setQuery] = useState({ seller: '', master: '', lot: '', empty: false })
+  const [rows, setRows] = useState<StockLotRecord[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    listStockLots(warehouseId, {
+      seller_sku: query.seller || undefined,
+      master_sku: query.master || undefined,
+      lot_code: query.lot || undefined,
+      include_empty: query.empty,
+    })
+      .then((next) => {
+        if (alive) setRows(next)
+      })
+      .catch((err: unknown) => {
+        if (!alive) return
+        setRows([])
+        setError(formatApiError(err))
+      })
+    return () => {
+      alive = false
+    }
+  }, [warehouseId, query])
+
+  return (
+    <section className="rounded-xl border border-hairline bg-surface-1">
+      <div className="flex flex-col gap-2 border-b border-hairline p-3 sm:flex-row sm:items-end">
+        <Field label={vi ? 'SKU sàn' : 'Seller SKU'}>
+          <Input className={fieldClass} value={sellerSku} onChange={(e) => setSellerSku(e.target.value)} />
+        </Field>
+        <Field label={vi ? 'SKU nội bộ' : 'Master SKU'}>
+          <Input className={fieldClass} value={masterSku} onChange={(e) => setMasterSku(e.target.value)} />
+        </Field>
+        <Field label={vi ? 'Mã lô' : 'Lot code'}>
+          <Input className={fieldClass} value={lotCode} onChange={(e) => setLotCode(e.target.value)} />
+        </Field>
+        <label className="flex items-center gap-2 pb-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={includeEmpty}
+            onChange={(e) => setIncludeEmpty(e.target.checked)}
+          />
+          {vi ? 'Kể cả lô đã hết' : 'Include empty lots'}
+        </label>
+        <Button
+          className="h-9 px-3 text-xs"
+          onClick={() => {
+            setRows(null)
+            setQuery({
+              seller: sellerSku.trim(),
+              master: masterSku.trim(),
+              lot: lotCode.trim(),
+              empty: includeEmpty,
+            })
+          }}
+        >
+          {vi ? 'Lọc' : 'Filter'}
+        </Button>
+      </div>
+      {error ? <ErrorBox message={error} /> : null}
+      {rows === null ? (
+        <div className="flex items-center gap-2 p-6 text-xs text-ink-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {vi ? 'Đang tải lô…' : 'Loading lots…'}
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{vi ? 'Mã lô' : 'Lot'}</TableHead>
+                <TableHead>{vi ? 'Ngày nhập' : 'Received'}</TableHead>
+                <TableHead>SKU</TableHead>
+                <TableHead>{vi ? 'Ô' : 'Bin'}</TableHead>
+                <TableHead className="text-right">{vi ? 'Còn / nhập' : 'Left / in'}</TableHead>
+                <TableHead>{vi ? 'Nguồn' : 'Source'}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((lot) => {
+                const source = LOT_SOURCE[lot.source]
+                return (
+                  <TableRow key={lot.id}>
+                    <TableCell className="font-mono text-xs">{lot.lotCode}</TableCell>
+                    <TableCell className="text-xs">
+                      {lot.receivedAt ? formatDateTime(lot.receivedAt) : '—'}
+                    </TableCell>
+                    <TableCell>
+                      <p className="text-xs font-medium text-ink">{lot.sellerSku}</p>
+                      {lot.masterSku ? (
+                        <p className="text-[11px] text-ink-muted">{lot.masterSku}</p>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {binCodeOf(lot.binLocationId) || lot.binLocationId.slice(-8)}
+                    </TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {lot.quantityRemaining}/{lot.quantityReceived}
+                    </TableCell>
+                    <TableCell className="text-xs text-ink-muted">
+                      {source ? (vi ? source[0] : source[1]) : lot.source}
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+          {rows.length === 0 ? (
+            <p className="py-6 text-center text-xs text-ink-muted">
+              {vi ? 'Không có lô nào khớp bộ lọc.' : 'No lots match the filter.'}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function ReceiptCatalog({
+  warehouseId,
+  vi,
+  binCodeOf,
+}: {
+  warehouseId: string
+  vi: boolean
+  binCodeOf: (binId: string) => string
+}) {
+  const [rows, setRows] = useState<StockReceiptRecord[] | null>(null)
+  const [detail, setDetail] = useState<StockReceiptRecord | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    listStockReceipts(warehouseId, 50)
+      .then((next) => {
+        if (alive) setRows(next)
+      })
+      .catch((err: unknown) => {
+        if (!alive) return
+        setRows([])
+        setError(formatApiError(err))
+      })
+    return () => {
+      alive = false
+    }
+  }, [warehouseId])
+
+  async function open(receiptId: string) {
+    setError(null)
+    try {
+      setDetail(await getStockReceipt(warehouseId, receiptId))
+    } catch (err: unknown) {
+      setError(formatApiError(err))
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <section className="rounded-xl border border-hairline bg-surface-1">
+        {error ? <ErrorBox message={error} /> : null}
+        {rows === null ? (
+          <div className="flex items-center gap-2 p-6 text-xs text-ink-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {vi ? 'Đang tải phiếu nhập…' : 'Loading receipts…'}
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{vi ? 'Phiếu' : 'Receipt'}</TableHead>
+                  <TableHead>{vi ? 'Ngày nhập' : 'Received'}</TableHead>
+                  <TableHead>{vi ? 'Nhà cung cấp' : 'Supplier'}</TableHead>
+                  <TableHead className="text-right">{vi ? 'Số lượng' : 'Qty'}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((receipt) => (
+                  <TableRow
+                    key={receipt.id}
+                    className="cursor-pointer"
+                    onClick={() => void open(receipt.id)}
+                  >
+                    <TableCell className="font-mono text-xs">{receipt.receiptCode}</TableCell>
+                    <TableCell className="text-xs">
+                      {receipt.receivedAt ? formatDateTime(receipt.receivedAt) : '—'}
+                    </TableCell>
+                    <TableCell className="text-xs">{receipt.supplier || '—'}</TableCell>
+                    <TableCell className="text-right text-xs tabular-nums">
+                      {receipt.totalQuantity}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {rows.length === 0 ? (
+              <p className="py-6 text-center text-xs text-ink-muted">
+                {vi ? 'Kho này chưa có phiếu nhập.' : 'This warehouse has no receipts yet.'}
+              </p>
+            ) : null}
+          </div>
+        )}
+      </section>
+      <aside className="rounded-xl border border-hairline bg-surface-1 p-4">
+        {detail ? (
+          <div className="space-y-3">
+            <div>
+              <p className="font-mono text-sm font-semibold text-ink">{detail.receiptCode}</p>
+              <p className="text-xs text-ink-muted">
+                {vi ? 'Lô' : 'Lot'} {detail.lotCode}
+                {detail.receivedAt ? ` · ${formatDateTime(detail.receivedAt)}` : ''}
+              </p>
+              {detail.note ? <p className="mt-1 text-xs text-ink">{detail.note}</p> : null}
+            </div>
+            <ul className="divide-y divide-hairline text-xs">
+              {detail.lines.map((line) => (
+                <li key={line.lotId} className="flex items-center justify-between py-2">
+                  <span>
+                    <span className="font-medium text-ink">{line.sellerSku}</span>
+                    <span className="block font-mono text-[11px] text-ink-muted">
+                      {binCodeOf(line.binLocationId) || line.binLocationId.slice(-8)}
+                    </span>
+                  </span>
+                  <span className="tabular-nums text-ink">{line.quantity}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <p className="text-xs text-ink-muted">
+            {vi ? 'Chọn một phiếu để xem từng dòng.' : 'Select a receipt to see its lines.'}
+          </p>
+        )}
+      </aside>
+    </div>
   )
 }
 

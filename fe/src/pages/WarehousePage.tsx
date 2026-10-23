@@ -63,7 +63,7 @@ import {
   type ScanMethod,
 } from '../types/order-groups'
 import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
-import { formatDateTime } from '../utils/format'
+import { formatDateTime, formatLotReceived } from '../utils/format'
 
 type QueueTab =
   | 'to_pick'
@@ -86,6 +86,7 @@ type PickLine = {
   bin_location_id: string | null
   master_sku: string | null
   other_bins: WarehousePickingListItem['other_bins']
+  oldest_lot: WarehousePickingListItem['oldest_lot']
   qtyPicked: number
   remainingStock: number | null
 }
@@ -251,6 +252,7 @@ function mergeLines(
         typeof enriched.bin_location_id === 'string' ? enriched.bin_location_id : null,
       master_sku: typeof enriched.master_sku === 'string' ? enriched.master_sku : null,
       other_bins: Array.isArray(enriched.other_bins) ? enriched.other_bins : [],
+      oldest_lot: enriched.oldest_lot ?? null,
       qtyPicked: saved?.qtyPicked ?? 0,
       remainingStock: saved?.remainingStock ?? null,
     }
@@ -1240,44 +1242,6 @@ export function WarehousePage() {
                 <RefreshCw className="h-3.5 w-3.5" />
               </button>
         </div>
-
-            {(group && canCompletePick(status)) || (group && canReturn(status)) ? (
-              <div className="flex flex-row flex-wrap items-center gap-2 text-xs">
-                {group && canCompletePick(status) ? (
-                  <button
-                    type="button"
-                    onClick={() => setCompleteOpen(true)}
-                    disabled={busy || lines.length === 0 || !group.assignedStaffId}
-                    title={
-                      !group.assignedStaffId
-                        ? vi
-                          ? 'Nhận việc trước khi hoàn tất lấy hàng'
-                          : 'Claim the batch before completing pick'
-                        : undefined
-                    }
-                    className={cn(
-                      'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 font-bold shadow-xs',
-                      group.assignedStaffId
-                        ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
-                        : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
-                    )}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
-                  </button>
-                ) : null}
-                {group && canReturn(status) ? (
-                  <button
-                    type="button"
-                    onClick={() => setReturnOpen(true)}
-                    disabled={busy}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 font-bold text-amber-900 cursor-pointer hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-                  >
-                    {vi ? 'Ghi nhận hoàn hàng' : 'Record return'}
-                  </button>
-                ) : null}
-              </div>
-            ) : null}
           </div>
 
           {warehouseListBlocked || !warehouseId ? (
@@ -1468,6 +1432,16 @@ export function WarehousePage() {
                         {vi ? 'Báo thiếu hàng' : 'Report missing'}
                       </button>
                     ) : null}
+                    {group && canReturn(status) ? (
+                      <button
+                        type="button"
+                        onClick={() => setReturnOpen(true)}
+                        disabled={busy}
+                        className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 cursor-pointer hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+                      >
+                        {vi ? 'Ghi nhận hoàn hàng' : 'Record return'}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
           </div>
@@ -1535,6 +1509,15 @@ export function WarehousePage() {
                                 binCode={activeLine.bin_code}
                                 zoneCode={activeLine.zone_code}
                               />
+                              {activeLine.oldest_lot ? (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {formatLotReceived(
+                                    activeLine.oldest_lot.lot_code,
+                                    activeLine.oldest_lot.received_at,
+                                    vi,
+                                  )}
+                                </p>
+                              ) : null}
                             </div>
                             <p className="mt-1.5 text-[11px] text-slate-500">
                               {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
@@ -1736,7 +1719,16 @@ export function WarehousePage() {
                                     binCode={line.bin_code}
                                     zoneCode={line.zone_code}
                                   />
-          </div>
+                                </div>
+                                {line.oldest_lot ? (
+                                  <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                                    {formatLotReceived(
+                                      line.oldest_lot.lot_code,
+                                      line.oldest_lot.received_at,
+                                      vi,
+                                    )}
+                                  </p>
+                                ) : null}
                                 {line.other_bins.length > 0 ? (
                                   <p className="mt-0.5 truncate text-[10px] text-slate-500">
                                     {vi ? 'Ô khác' : 'Also at'}{' '}
@@ -1753,6 +1745,49 @@ export function WarehousePage() {
                           )
                         })}
                       </div>
+                      {group && canCompletePick(status) ? (
+                        <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => setCompleteOpen(true)}
+                            disabled={
+                              busy ||
+                              lines.length === 0 ||
+                              !group.assignedStaffId ||
+                              (status === 'picking' && !allScanned)
+                            }
+                            title={
+                              !group.assignedStaffId
+                                ? vi
+                                  ? 'Nhận việc trước khi hoàn tất lấy hàng'
+                                  : 'Claim the batch before completing pick'
+                                : undefined
+                            }
+                            className={cn(
+                              'flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold shadow-xs',
+                              group.assignedStaffId
+                                ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
+                                : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
+                            )}
+                          >
+                            <CheckCircle2 className="h-4 w-4 shrink-0" />
+                            {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
+                          </button>
+                          <p className="mt-2 text-center text-[11px] leading-4 text-slate-500">
+                            {!group.assignedStaffId
+                              ? vi
+                                ? 'Nhận việc trước, rồi bấm nút này để chuyển đơn sang đóng gói.'
+                                : 'Claim the batch, then use this button to hand the order to packing.'
+                              : allScanned
+                                ? vi
+                                  ? 'Đã quét đủ. Bấm để chuyển đơn sang bàn đóng gói.'
+                                  : 'Every SKU is scanned. Hand this order to packing.'
+                                : vi
+                                  ? `Quét đủ ${lines.length} SKU rồi bấm nút này. Hiện còn ${lines.length - pickedCount} SKU.`
+                                  : `Scan all ${lines.length} SKUs, then use this button. ${lines.length - pickedCount} left.`}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>

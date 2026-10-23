@@ -622,6 +622,7 @@ export function useAdminWarehouse() {
     assignmentId: string,
     quantity: number,
     force = false,
+    extra?: { received_at?: string; lot_code?: string },
   ): Promise<void> {
     if (!selectedWarehouseId) return
     setMutating(true)
@@ -632,6 +633,7 @@ export function useAdminWarehouse() {
         assignmentId,
         quantity,
         force,
+        extra,
       )
       replaceAssignment(updated)
     } catch (err: unknown) {
