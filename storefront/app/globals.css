@@ -297,3 +297,44 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
 .password-field input { width:100%; padding-right:64px; }
 .password-toggle { position:absolute; top:50%; right:10px; transform:translateY(-50%); border:0; background:transparent; color:var(--muted, #6f6a64); font-size:12px; letter-spacing:.04em; text-transform:uppercase; cursor:pointer; padding:6px; }
 .password-toggle:hover { color:var(--ink, #1f1d1b); }
+
+/* 23/10/2026 — thanh tiến trình đơn hàng (7 bước cố định + nhánh hủy / giao thất bại / hoàn) */
+.order-progress { margin:28px 0 8px; padding:26px 26px 22px; border:1px solid var(--line); background:var(--paper); }
+.order-progress-head h2 { margin:8px 0 6px; font:30px 'Cormorant Garamond', Georgia, serif; font-weight:600; }
+.order-progress-hint { margin:0; color:var(--muted); font-size:13px; line-height:1.6; }
+.order-progress-tracking { margin:8px 0 0; color:var(--muted); font-size:12px; letter-spacing:.02em; }
+.order-progress-tracking strong { color:var(--ink); font-weight:500; }
+.order-progress-steps { list-style:none; margin:26px 0 0; padding:0; display:grid; grid-template-columns:repeat(7, minmax(0,1fr)); }
+.order-progress-step { position:relative; display:grid; justify-items:center; align-content:start; gap:8px; text-align:center; padding:0 4px; }
+.order-progress-step::before { content:''; position:absolute; top:13px; left:-50%; width:100%; height:2px; background:var(--line); z-index:0; }
+.order-progress-step:first-child::before { display:none; }
+.order-progress-step.is-done::before, .order-progress-step.is-current::before, .order-progress-step.is-problem::before { background:var(--accent); }
+.order-progress-marker { position:relative; z-index:1; display:grid; place-items:center; width:28px; height:28px; border:1px solid #cdbfb1; border-radius:50%; background:#fff; color:#fff; font-size:13px; transition:background-color .3s ease, border-color .3s ease, box-shadow .3s ease; }
+.order-progress-step.is-done .order-progress-marker { background:var(--accent); border-color:var(--accent); }
+.order-progress-step.is-current .order-progress-marker { border:2px solid var(--accent); box-shadow:0 0 0 5px rgba(181,139,101,.16); }
+.order-progress-step.is-current .order-progress-marker::after { content:''; width:10px; height:10px; border-radius:50%; background:var(--accent); }
+.order-progress-step.is-problem .order-progress-marker { background:#b5543a; border-color:#b5543a; }
+.order-progress-step.is-skipped .order-progress-marker { border-style:dashed; background:transparent; }
+.order-progress-label { font-size:12px; line-height:1.35; color:var(--muted); }
+.order-progress-step.is-done .order-progress-label { color:var(--ink); }
+.order-progress-step.is-current .order-progress-label { color:var(--ink); font-weight:600; }
+.order-progress-step.is-problem .order-progress-label { color:#a2482a; font-weight:600; }
+.order-progress-step.is-skipped .order-progress-label { text-decoration:line-through; opacity:.6; }
+.order-progress-step time { color:var(--muted); font-size:10.5px; letter-spacing:.02em; }
+.order-progress-branch { display:flex; flex-wrap:wrap; gap:4px 14px; align-items:baseline; margin-top:22px; padding:12px 14px; border:1px solid #e0b79c; background:#fbefe6; color:#6b3a20; font-size:13px; }
+.order-progress-branch time { margin-left:auto; color:#8a5a3e; font-size:11px; }
+.order-progress-success .order-progress-head h2 { color:#4c6b45; }
+.order-progress-danger .order-progress-head h2, .order-progress-warning .order-progress-head h2 { color:#a2482a; }
+.order-status-tone-success { color:#4c6b45; border-color:#bcd0b4; background:#f1f6ee; }
+.order-status-tone-warning { color:#8a4b2a; border-color:#e0b79c; background:#fbefe6; }
+.order-status-tone-danger { color:#9b3b2b; border-color:#e3b2a7; background:#fbeeeb; }
+@media (max-width: 720px) {
+  .order-progress { padding:20px 16px; }
+  .order-progress-steps { grid-template-columns:1fr; gap:0; margin-top:20px; }
+  .order-progress-step { grid-template-columns:28px 1fr auto; justify-items:start; align-items:start; gap:12px; text-align:left; padding:0 0 18px; }
+  .order-progress-label, .order-progress-step time { padding-top:6px; }
+  .order-progress-step::before { top:-18px; left:13px; width:2px; height:18px; }
+  .order-progress-step:first-child::before { display:none; }
+  .order-progress-step:last-child { padding-bottom:0; }
+  .order-progress-step time { justify-self:end; }
+}
