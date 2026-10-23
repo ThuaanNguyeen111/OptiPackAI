@@ -10,8 +10,9 @@ import {
 describe('writebackStatusForShipment', () => {
   it.each([
     [ShipmentStatus.AWAITING_PICKUP, 'shipped'],
-    [ShipmentStatus.IN_TRANSIT, 'shipped'],
-    [ShipmentStatus.OUT_FOR_DELIVERY, 'shipped'],
+    // 23/10/2026 — tách chặng cho khách theo dõi
+    [ShipmentStatus.IN_TRANSIT, 'in_transit'],
+    [ShipmentStatus.OUT_FOR_DELIVERY, 'out_for_delivery'],
     [ShipmentStatus.DELIVERY_FAILED, 'failed_delivery'],
     [ShipmentStatus.RETURNING_TO_WAREHOUSE, 'shipped_back'],
     [ShipmentStatus.RETURNED_TO_WAREHOUSE, 'returned'],

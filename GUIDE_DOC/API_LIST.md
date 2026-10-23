@@ -911,3 +911,29 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Quyền theo vai trò:** Admin tất cả (cả `auth` — nhật ký đăng nhập); Store Owner tất cả trừ `auth`; Kho `orders, picking, warehouse, returns, packaging_materials`; Đóng gói `orders, picking, packing, packaging_materials`; Điều phối `orders, shipping, returns`.
 - **Nguồn gộp:** sổ cái kho, phiếu nhập lô, mốc vận đơn (+ hãng, dịch vụ, mã, người nhận, phí), kế hoạch đóng gói (tính, duyệt, từ chối, phân công, bắt đầu, niêm phong từng kiện, xong, nhật ký phiên), phiếu trả hàng (tạo, xử lý cách ly), vật liệu đóng gói, nhật ký đăng nhập, **sổ hoạt động mới `activity_logs`** (đổi trạng thái nhóm đơn, từng bước phiếu trả hàng, người bán hủy, giao thiếu, quyết định thiếu hàng — ghi cùng transaction với thao tác gốc).
 - Sổ hoạt động có dữ liệu từ 23/10/2026; các nguồn còn lại có sẵn từ trước.
+
+## 24. 🆕 23/10/2026 — Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 POST | `/order-groups/:id/orders/:orderId/split` | Store Owner, Shipping Coordinator, Admin | Tách 1 đơn ra nhóm riêng. Body `{ expected_version, note }` (note 3–300). Chỉ khi nhóm `awaiting_packaging`/`picking` **và chưa quét món nào** ở lượt hiện tại, nhóm còn ≥ 2 đơn hiệu lực. Nhóm mới: `split_from_group_id`, `consolidation_closed = true` (không tự nhận đơn gom đến muộn), được gán nhân viên kho + giữ chỗ + chuyển `picking`. Trả `{ sourceGroup, newGroup }` |
+| 🆕 POST | `/order-groups/:id/merge` | Store Owner, Shipping Coordinator, Admin | Gộp nhóm `source_group_id` VÀO nhóm `:id`. Body `{ source_group_id, expected_version, note }`. Cùng sàn + shop, cả 2 nhóm chờ/đang lấy + chưa quét, SĐT thật (không bị che) phải trùng. Đơn chuyển sang `:id`; nhóm nguồn → `canceled` + `merged_into_group_id`, nhả giữ chỗ; nhóm đích giữ chỗ lại. Trả nhóm đích |
+| 🔄 GET | `/order-groups`, `/order-groups/:id`, … (mọi response nhóm đơn) | như cũ | Thêm `recipientNames[]`, `recipientNamesDiffer`, `hasMaskedRecipientName`, `splitFromGroupId`, `mergedIntoGroupId`, `consolidationClosed` |
+| 🔄 GET | `/order-groups/:id/picking-list`, `/warehouse/:warehouseId/picking-list/:groupId` | như cũ | Mỗi món thêm `order_allocations[] { order_id, platform_order_id, recipient_name, quantity }` ("chia theo đơn") |
+| 🔄 GET/POST | `/order-groups/:groupId/packing-plan/...` (mọi response kế hoạch) | như cũ | `orders[].recipientName`, `parcels[].recipientName` (ảnh chụp lúc tính kế hoạch; kế hoạch cũ → null) |
+| 🔄 POST | `/order-groups/:groupId/packing-plan/pack` ("đóng nhanh") | như cũ | Nhóm có ≥ 2 người nhận khác tên → `409 PACKING_SCAN_REQUIRED`, `details.reason = 'recipient_names_differ'` |
+
+- **Mã lỗi mới:** `ORD_GROUP_REGROUP_NOT_ALLOWED` (409 sai trạng thái / chỉ còn 1 đơn / đơn đã hủy), `ORD_GROUP_REGROUP_HAS_PICKS` (409 đã quét), `ORD_GROUP_MERGE_SELF` (400), `ORD_GROUP_MERGE_SCOPE_MISMATCH` (409 khác sàn/shop), `ORD_GROUP_MERGE_RECIPIENT_MISMATCH` (409 SĐT khác nhau). Version cũ → `ORD_GROUP_STATE_CONFLICT`.
+- **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
+- **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
+- So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
+
+## 25. 🆕 23/10/2026 — AURELLE: thanh tiến trình đơn cho khách
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🔄 GET | `/storefront/orders` | Khách (cookie) | Mỗi đơn thêm `trackingStage` (chặng chi tiết, null với đơn cũ) và `displayStatus { label, tone, isFinal }` — nhãn trạng thái dùng chung cho danh sách và chi tiết |
+| 🔄 GET | `/storefront/orders/:id` | Khách (cookie) | Thêm `progress { steps[7], branch, hint, displayStatus }`: 7 bước cố định Đặt hàng → Đang chuẩn bị → Đã đóng gói → Chờ hãng lấy hàng → Đang vận chuyển → Đang giao tới bạn → Đã nhận hàng; `state` = `done/current/upcoming/problem/skipped`; nhánh `canceled/failed_delivery/shipped_back/returned` kèm lý do |
+| 🔄 POST | `/rest/order/status/update` (mock AURELLE :4000) | Ứng dụng đối tác (HMAC) | `status` nhận thêm `processing`, `in_transit`, `out_for_delivery`. `processing` không đổi `fulfillment_status`; 2 chặng sau → `shipped`. Ghi `storefront_orders.tracking_stage` |
+
+- **OptiPack gửi:** `processing` ở lần quét lấy hàng đầu tiên của nhóm đơn (1 lần/nhóm); vận đơn `awaiting_pickup → shipped`, `in_transit → in_transit`, `out_for_delivery → out_for_delivery` (trước 23/10 cả 3 đều là `shipped`). Hàng đổi vẫn chỉ nhận `shipped`.

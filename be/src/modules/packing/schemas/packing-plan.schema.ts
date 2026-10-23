@@ -281,6 +281,12 @@ export const PlanStockSuggestionSchema = SchemaFactory.createForClass(PlanStockS
 export class PlanOrder {
   @Prop({ type: SchemaTypes.ObjectId, required: true }) order_id!: Types.ObjectId;
   @Prop({ type: String, default: null }) platform_order_id!: string | null;
+  /**
+   * 23/10/2026 — ảnh chụp tên người nhận lúc tính kế hoạch. Đơn gộp có thể chứa
+   * nhiều người nhận khác tên (cùng SĐT + địa chỉ) — FE in tên lên từng kiện để
+   * không dán nhầm. Kế hoạch cũ không có field → null.
+   */
+  @Prop({ type: String, default: null }) recipient_name?: string | null;
   /** ok = mọi món có kiện; partial/no_fit = còn món chưa xếp (phải xử lý trước khi duyệt). */
   /** canceled (05/10/2026) = đơn bị hủy sau khi đã bắt đầu đóng — kiện của đơn phải tháo. */
   @Prop({ type: String, required: true, enum: ['ok', 'partial', 'no_fit', 'canceled'] })

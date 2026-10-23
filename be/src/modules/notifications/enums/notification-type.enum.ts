@@ -46,4 +46,6 @@ export enum NotificationType {
   PACKING_ISSUE = 'packing_issue', // báo món hỏng/thiếu/sai lúc đóng
   UNPACK_REQUIRED = 'unpack_required', // đơn hủy sau khi đóng — phải tháo kiện trả hàng về kệ
   RETURN_TO_SHELF = 'return_to_shelf', // đơn hủy trước khi đóng — đem hàng đã lấy trả về đúng ô
+  // 23/10/2026 — đơn gộp: nhóm có ≥ 2 người nhận KHÁC TÊN (cùng SĐT + địa chỉ)
+  CONSOLIDATION_NAME_MISMATCH = 'consolidation_name_mismatch',
 }
