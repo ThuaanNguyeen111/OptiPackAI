@@ -21,6 +21,7 @@ import {
 } from '../src/modules/packaging-materials/schemas/packaging-material.schema';
 import { PackagingBag, PackagingBagDocument } from '../src/modules/packaging/schemas/packaging-bag.schema';
 import { ProductCategory } from '../src/common/enums/product-category.enum';
+import { FLAT_CATEGORIES } from '../src/modules/packaging/engine/units';
 import { MarketplacePlatform } from '../src/modules/marketplace-integration/enums/platform.enum';
 import { OrderStatus } from '../src/modules/orders/enums/order-status.enum';
 import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-fulfillment-status.enum';
@@ -237,8 +238,8 @@ async function main(): Promise<void> {
       product_category: p.category,
       zip_bag_code: p.bag?.code ?? null,
       zip_bag_folded: p.bag?.folded ?? false,
-      // (22/09/2026) Hàng mềm trong túi zip gập đôi thêm được; giày/kính (hộp cứng) thì không.
-      can_fold_in_half: p.bag !== null,
+      // (22/09/2026) Chỉ quần áo trong túi zip gập đôi được; giày/dép/kính thì không (FE không có clip gập).
+      can_fold_in_half: p.bag !== null && FLAT_CATEGORIES.has(p.category),
       profile_confirmed_at: now,
       last_synced_at: now,
     })),

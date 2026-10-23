@@ -178,6 +178,7 @@ export class MarketplaceWebhooksService {
     const skus = (body.data.seller_skus ?? []).filter((s) => typeof s === 'string' && s.trim().length > 0).slice(0, 200);
     if (skus.length === 0 || !this.productMasterService) return;
     try {
+      this.logger.log(`Webhook ${platform} product_updated: kéo ${String(skus.length)} SKU (${skus.slice(0, 5).join(', ')}${skus.length > 5 ? ', …' : ''}).`);
       await this.productMasterService.syncProductsForShop(platform, body.seller_id, skus);
     } catch (error) {
       if (error instanceof AppException && error.errorCode === MKT_ERROR_CODES.SHOP_NOT_CONNECTED) {

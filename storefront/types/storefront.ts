@@ -129,6 +129,31 @@ export type StorefrontOrder = {
   shortRefundAmount?: number
   /** 22/10/2026 — tổng tiền đã hoàn (trả hàng / hủy). */
   refundedAmount?: number
+  /** 23/10/2026 — chặng giao chi tiết (processing, in_transit, out_for_delivery...), null với đơn cũ. */
+  trackingStage?: string | null
+  /** 23/10/2026 — nhãn trạng thái DUY NHẤT (dùng chung danh sách + chi tiết đơn). */
+  displayStatus?: OrderDisplayStatus
+}
+
+export type OrderDisplayStatus = {
+  label: string
+  tone: 'info' | 'success' | 'warning' | 'danger'
+  /** true = đơn đã xong (giao xong / hủy / hoàn xong) — ngừng tự tải lại. */
+  isFinal: boolean
+}
+
+export type OrderProgressStep = {
+  key: 'placed' | 'processing' | 'packed' | 'shipped' | 'in_transit' | 'out_for_delivery' | 'delivered'
+  label: string
+  state: 'done' | 'current' | 'upcoming' | 'problem' | 'skipped'
+  at: string | null
+}
+
+export type OrderProgress = {
+  steps: OrderProgressStep[]
+  branch: { key: 'canceled' | 'failed_delivery' | 'shipped_back' | 'returned'; label: string; reason: string | null; at: string | null } | null
+  hint: string
+  displayStatus: OrderDisplayStatus
 }
 
 export type StorefrontOrderItem = {
@@ -152,6 +177,8 @@ export type StorefrontOrderDetail = StorefrontOrder & {
   /** 21/10/2026 — tên hãng vận chuyển (GHN...), null khi chưa giao cho hãng */
   carrier?: string | null
   events?: StorefrontOrderEvent[]
+  /** 23/10/2026 — thanh tiến trình 7 bước (BE dựng sẵn). */
+  progress?: OrderProgress
   paymentMethod?: 'cod' | 'bank_transfer' | null
   shippingAddress?: {
     recipient_name: string

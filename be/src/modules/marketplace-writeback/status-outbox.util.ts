@@ -9,8 +9,12 @@ import type { MarketplaceStatusOutboxDocument } from './schemas/status-outbox.sc
  * AURELLE_MARKETPLACE_DESIGN.md mục 7.8 + 9.4).
  */
 export type AurelleWritebackStatus =
+  // 23/10/2026 — hành trình chi tiết cho khách: kho bắt đầu lấy; hãng đã lấy hàng; đang giao tới khách.
+  | 'processing'
   | 'packed'
   | 'shipped'
+  | 'in_transit'
+  | 'out_for_delivery'
   | 'delivered'
   | 'failed_delivery'
   | 'shipped_back'
@@ -25,17 +29,21 @@ export function writebackStatusForGroup(status: GroupFulfillmentStatus): Aurelle
 }
 
 /**
- * Vận đơn đổi trạng thái → trạng thái gửi sàn. Ba trạng thái "đã giao cho
- * đơn vị vận chuyển / đang đi" gộp thành `shipped` (khách không cần phân biệt
- * chờ lấy / trung chuyển / đang giao). `cancelled` (huỷ ở hãng trước khi lấy)
- * không gửi gì — nhóm đơn quay về `packed` và tự có dòng `packed` mới.
+ * Vận đơn đổi trạng thái → trạng thái gửi sàn. 🔄 23/10/2026 — tách 3 chặng (trước gộp hết thành
+ * `shipped`, khách không biết hàng đang ở đâu): chờ hãng lấy = `shipped`, hãng đã lấy/trung chuyển =
+ * `in_transit`, shipper đang giao = `out_for_delivery`. Khóa idempotency gồm cả status nên 3 chặng
+ * là 3 dòng riêng; hàng ĐỔI (EXC-…) vẫn chỉ nhận `shipped` (in_transit/out_for_delivery không thuộc
+ * từ vựng `/reverse/exchange/shipment/update` → bỏ qua, không báo trùng).
+ * `cancelled` (huỷ ở hãng trước khi lấy) không gửi gì — nhóm đơn quay về `packed` và tự có dòng `packed` mới.
  */
 export function writebackStatusForShipment(status: ShipmentStatus): AurelleWritebackStatus | null {
   switch (status) {
     case ShipmentStatus.AWAITING_PICKUP:
-    case ShipmentStatus.IN_TRANSIT:
-    case ShipmentStatus.OUT_FOR_DELIVERY:
       return 'shipped';
+    case ShipmentStatus.IN_TRANSIT:
+      return 'in_transit';
+    case ShipmentStatus.OUT_FOR_DELIVERY:
+      return 'out_for_delivery';
     case ShipmentStatus.DELIVERY_FAILED:
       return 'failed_delivery';
     case ShipmentStatus.RETURNING_TO_WAREHOUSE:

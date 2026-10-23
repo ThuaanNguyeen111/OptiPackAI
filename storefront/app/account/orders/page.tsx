@@ -39,8 +39,8 @@ export default function OrdersPage() {
             <p>{new Date(order.createdAt).toLocaleDateString('vi-VN')}</p>
           </div>
           <div className="order-status-group">
-            {/* 22/10/2026 — đơn đã hủy hiện "Đã hủy" / "Người bán đã hủy" thay vì mốc giao hàng cũ */}
-            <span className="order-status">{order.status === 'cancelled' ? getOrderStatusLabel(order.status, order.cancelSource) : getFulfillmentStatusLabel(order.fulfillmentStatus)}</span>
+            {/* 23/10/2026 — cùng 1 nhãn với trang chi tiết (BE trả displayStatus); bản cũ không có thì dùng cách cũ */}
+            <span className={`order-status order-status-tone-${order.displayStatus?.tone ?? 'info'}`}>{order.displayStatus?.label ?? (order.status === 'cancelled' ? getOrderStatusLabel(order.status, order.cancelSource) : getFulfillmentStatusLabel(order.fulfillmentStatus))}</span>
             {order.activeReturn && <span className="order-status order-status-return">Đang yêu cầu trả hàng</span>}
           </div>
           <div className="order-total">

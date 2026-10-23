@@ -214,7 +214,7 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
-| GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ plan }` — kế hoạch đang hoạt động, `null` nếu chưa có (nhóm chưa lấy xong hoặc job chưa chạy tới) |
+| GET | `/order-groups/:groupId/packing-plan` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ plan }` — kế hoạch đang hoạt động, `null` nếu chưa có (nhóm chưa lấy xong hoặc job chưa chạy tới). 🆕 23/10: `plan.profileStale` |
 | POST | `/order-groups/:groupId/packing-plan/undo-approve` | Packaging, Admin | Quay lại chờ chấp nhận trước khi từng niêm phong. Body `{ expected_version }`, response `{ plan }`. Kế hoạch `packing`/`approved` → `ready`, nhóm → `pending_approval`; version +1, giữ kế hoạch/phân công, xóa lượt quét và người/giờ chấp nhận/bắt đầu, ghi `activity.kind = undo_approve`. Không hoàn tồn/hao hụt. Đã/từng niêm phong hoặc có kiện phải tháo → 409 `PACKING_UNDO_APPROVE_NOT_ALLOWED`; version cũ → 409 `PACKING_VERSION_CONFLICT`; sai trạng thái → 409 `PACKING_WRONG_PLAN_STATUS`. Chi tiết: guide Packing mục 2.3.1 |
 | GET | `/packing-plans/summary?group_ids=a,b,c` | Packaging, Warehouse, Shipping, Store Owner, Admin | `{ summaries[] }` tóm tắt tối đa 200 nhóm (trạng thái, version, nhãn, `cpSatPending`, số kiện, chi phí đóng gói, `failureReason`) — dùng cho bảng hàng chờ |
 | POST | `/order-groups/:groupId/packing-plan/recompute` | Packaging, Admin | Tính lại, thay kế hoạch `ready`/`failed`/`rejected` hiện tại (nhóm `pending_approval` tạm về `picked` rồi tính ngay). Body `{ expected_version?, exclude_box_codes?: string[], prefer?: 'fewest_parcels' \| 'cheapest' }` — `expected_version` bắt buộc khi đã có kế hoạch |
@@ -232,7 +232,9 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 
 `reason` của chỉnh tay: `PRODUCT_MORE_FRAGILE_THAN_EXPECTED` / `RECOMMENDED_BOX_NOT_IN_STOCK` / `OTHER` (`OTHER` bắt buộc `note`, thiếu → 400 `PACKING_NOTE_REQUIRED`). Mọi chỉnh tay ghi vào `adjustments[]`.
 
-**Response `plan`** (camelCase, đơn vị mm và gram, trục z hướng lên): `id`, `orderGroupId`, `revision` (lần tính thứ mấy), `version`, `status`, `failureReason`, `proof`, `cpSatPending`, `orders[]` (`orderId`, `platformOrderId`, `status` `ok|partial|no_fit`, `unplaced[]` `{itemKey, code, reason}`, `proof`, `lowerBoundParcels`, `explanation[]`, `strategy`, `cpSat` `pending|done|skipped|unavailable`, 🆕 04/10 `stockSuggestion` — `null` hoặc `{parcels, packagingCostVnd, avgFill, currentParcels, currentAvgFill, savingVnd, missing[] {boxCode, boxName, needed, available}}`: nếu kho đủ các thùng ở `missing` thì đơn đóng được như vậy; chụp lúc tính, đổi thùng/chuyển món không tính lại), `parcels[]` (`parcelNo` 1..N trong cả nhóm, `orderId`, `platformOrderId`, `box` `{code, name, innerMm, outerMm, tareG, maxLoadG, priceVnd}`, `placements[]` `{itemKey, sku, step, x, y, z, dx, dy, dz, orientation, folded}`, `fillRatio`, `itemsWeightG`, `estimatedWeightG`, `volumetricWeightG`, `materials[]`, `materialsWeightG`, `materialsCostVnd`, `shippingCostVnd`, `guide`, `actualWeightKg`, `isAbnormal`, `materialsShortfall[]`), `itemProfiles[]`, `adjustments[]`, `solver` `{engineVersion, computationMs, options}`, `totals` `{parcels, packagingCostVnd, estimatedWeightG, avgFill}` (🆕 04/10 `avgFill` = tổng thể tích hàng ÷ tổng lòng thùng, 0..1), `approvedAt`, `rejectedAt`, `rejectionReason`, `packedAt`, `createdAt`, `updatedAt`.
+🆕 **23/10/2026 — `plan.profileStale`** (boolean): `true` khi có hồ sơ SKU của kế hoạch được kho xác nhận lại SAU lúc tính, tức `itemProfiles` (loại hàng, túi zip) và số đo đã cũ. Chỉ tính cho kế hoạch `ready`/`approved`; `computing`, `packing`, `packed`, `failed`, `rejected` luôn `false` (đã niêm phong kiện thì không tính lại được). **Chỉ `GET .../packing-plan` tính cờ này**; mọi route ghi (approve, change-box, move-item, recompute, ...) trả `false` — FE đọc cờ từ GET, đừng lấy từ response của route ghi. Có thể báo nhầm khi kho xác nhận lại hồ sơ mà không đổi giá trị. Cách xử lý ở FE: hiện banner "Hồ sơ SKU đã đổi sau khi tính kế hoạch, nên tính lại" và nút Tính lại (`POST .../recompute`, đã có). Không có migration, không route mới.
+
+**Response `plan`** (camelCase, đơn vị mm và gram, trục z hướng lên): `id`, `orderGroupId`, `revision` (lần tính thứ mấy), `version`, 🆕 23/10 `profileStale` (xem dưới), `status`, `failureReason`, `proof`, `cpSatPending`, `orders[]` (`orderId`, `platformOrderId`, `status` `ok|partial|no_fit`, `unplaced[]` `{itemKey, code, reason}`, `proof`, `lowerBoundParcels`, `explanation[]`, `strategy`, `cpSat` `pending|done|skipped|unavailable`, 🆕 04/10 `stockSuggestion` — `null` hoặc `{parcels, packagingCostVnd, avgFill, currentParcels, currentAvgFill, savingVnd, missing[] {boxCode, boxName, needed, available}}`: nếu kho đủ các thùng ở `missing` thì đơn đóng được như vậy; chụp lúc tính, đổi thùng/chuyển món không tính lại), `parcels[]` (`parcelNo` 1..N trong cả nhóm, `orderId`, `platformOrderId`, `box` `{code, name, innerMm, outerMm, tareG, maxLoadG, priceVnd}`, `placements[]` `{itemKey, sku, step, x, y, z, dx, dy, dz, orientation, folded}`, `fillRatio`, `itemsWeightG`, `estimatedWeightG`, `volumetricWeightG`, `materials[]`, `materialsWeightG`, `materialsCostVnd`, `shippingCostVnd`, `guide`, `actualWeightKg`, `isAbnormal`, `materialsShortfall[]`), `itemProfiles[]`, `adjustments[]`, `solver` `{engineVersion, computationMs, options}`, `totals` `{parcels, packagingCostVnd, estimatedWeightG, avgFill}` (🆕 04/10 `avgFill` = tổng thể tích hàng ÷ tổng lòng thùng, 0..1), `approvedAt`, `rejectedAt`, `rejectionReason`, `packedAt`, `createdAt`, `updatedAt`.
 
 🆕 **Response `plan` thêm (05/10/2026)**: `orders[].overParcelLimit`, `orders[].status` có thêm `canceled` (đơn hủy sau khi đã bắt đầu đóng); mỗi `parcels[]` thêm `status` (`pending|sealed|held|to_unpack|voided`), `hasFragile`, `boxConsumed`, `scannedCount`, `itemCount`, `scans[]` `{itemKey, sku, method: barcode|manual|bypass, by, at}`, `sealedBy`, `sealedAt`, `weighings[]` `{weightKg, kind: seal|reweigh, isAbnormal, by, at}`, `reviews[]` `{action, reason, note, by, at}`, `unpack` (`null` hoặc `{reason, requestedAt, boxCondition, unitsRestocked, note, by, doneAt}`); cấp kế hoạch thêm `issues[]`, `activity[]`, `session` `{assignedPackerId, assignedPackerAt, startedBy, startedAt, packMode: scan|quick|null, approveOverrideReason, parcelCounts}`, `solver.options.fragileCushionMm`. `status` kế hoạch có thêm `packing`. `totals` chỉ tính kiện còn giao (bỏ `to_unpack`/`voided`). `GET /packing-plans/summary` thêm `assignedPackerId`, `parcelCounts`.
 
@@ -895,3 +897,43 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **SKU nội bộ bị vô hiệu** (`is_active = false`) → lượt đẩy tồn gửi **0** cho mọi SKU AURELLE nối với nó.
 - **Hoàn hàng về kho** (`returned`) → website cộng lại tồn phần đã trừ (1 lần, `stock_state: restocked`).
 - Script `be/scripts/normalize-storefront-variants.ts` (chạy thử mặc định, `--apply` để ghi): đổi biến thể cũ **chưa có đơn** sang SKU theo quy tắc.
+
+## 23. 🆕 23/10/2026 — Lịch sử thao tác (mọi vai trò)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 GET | `/history` | Mọi vai trò | Lịch sử mới → cũ. Query: `category` (phẩy), `from`, `to`, `before`, `limit` ≤ 100, `actor_id`, `mine=true`, `sku`, `order_group_id`, `order_code`. Trả `{ items, nextBefore, categories }`. Lọc loại vai trò không được xem → 403 |
+| 🆕 GET | `/history/categories` | Mọi vai trò | Loại lịch sử vai trò hiện tại được xem |
+| 🆕 GET | `/history/order-groups/:id/timeline` | Mọi vai trò | Dòng thời gian cũ → mới của 1 nhóm đơn (gồm cả nhóm đơn thay thế khi đổi hàng) |
+| 🆕 GET | `/history/export` | Admin, Store Owner | CSV (Excel, UTF-8 BOM), cùng bộ lọc, tối đa 5.000 dòng |
+| 🔄 POST | `/order-groups/:id/fulfillment/decide-partial`, `/order-groups/orders/:orderId/seller-cancel` | như cũ | Ghi thêm người quyết định vào lịch sử |
+
+- **Quyền theo vai trò:** Admin tất cả (cả `auth` — nhật ký đăng nhập); Store Owner tất cả trừ `auth`; Kho `orders, picking, warehouse, returns, packaging_materials`; Đóng gói `orders, picking, packing, packaging_materials`; Điều phối `orders, shipping, returns`.
+- **Nguồn gộp:** sổ cái kho, phiếu nhập lô, mốc vận đơn (+ hãng, dịch vụ, mã, người nhận, phí), kế hoạch đóng gói (tính, duyệt, từ chối, phân công, bắt đầu, niêm phong từng kiện, xong, nhật ký phiên), phiếu trả hàng (tạo, xử lý cách ly), vật liệu đóng gói, nhật ký đăng nhập, **sổ hoạt động mới `activity_logs`** (đổi trạng thái nhóm đơn, từng bước phiếu trả hàng, người bán hủy, giao thiếu, quyết định thiếu hàng — ghi cùng transaction với thao tác gốc).
+- Sổ hoạt động có dữ liệu từ 23/10/2026; các nguồn còn lại có sẵn từ trước.
+
+## 24. 🆕 23/10/2026 — Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 POST | `/order-groups/:id/orders/:orderId/split` | Store Owner, Shipping Coordinator, Admin | Tách 1 đơn ra nhóm riêng. Body `{ expected_version, note }` (note 3–300). Chỉ khi nhóm `awaiting_packaging`/`picking` **và chưa quét món nào** ở lượt hiện tại, nhóm còn ≥ 2 đơn hiệu lực. Nhóm mới: `split_from_group_id`, `consolidation_closed = true` (không tự nhận đơn gom đến muộn), được gán nhân viên kho + giữ chỗ + chuyển `picking`. Trả `{ sourceGroup, newGroup }` |
+| 🆕 POST | `/order-groups/:id/merge` | Store Owner, Shipping Coordinator, Admin | Gộp nhóm `source_group_id` VÀO nhóm `:id`. Body `{ source_group_id, expected_version, note }`. Cùng sàn + shop, cả 2 nhóm chờ/đang lấy + chưa quét, SĐT thật (không bị che) phải trùng. Đơn chuyển sang `:id`; nhóm nguồn → `canceled` + `merged_into_group_id`, nhả giữ chỗ; nhóm đích giữ chỗ lại. Trả nhóm đích |
+| 🔄 GET | `/order-groups`, `/order-groups/:id`, … (mọi response nhóm đơn) | như cũ | Thêm `recipientNames[]`, `recipientNamesDiffer`, `hasMaskedRecipientName`, `splitFromGroupId`, `mergedIntoGroupId`, `consolidationClosed` |
+| 🔄 GET | `/order-groups/:id/picking-list`, `/warehouse/:warehouseId/picking-list/:groupId` | như cũ | Mỗi món thêm `order_allocations[] { order_id, platform_order_id, recipient_name, quantity }` ("chia theo đơn") |
+| 🔄 GET/POST | `/order-groups/:groupId/packing-plan/...` (mọi response kế hoạch) | như cũ | `orders[].recipientName`, `parcels[].recipientName` (ảnh chụp lúc tính kế hoạch; kế hoạch cũ → null) |
+| 🔄 POST | `/order-groups/:groupId/packing-plan/pack` ("đóng nhanh") | như cũ | Nhóm có ≥ 2 người nhận khác tên → `409 PACKING_SCAN_REQUIRED`, `details.reason = 'recipient_names_differ'` |
+
+- **Mã lỗi mới:** `ORD_GROUP_REGROUP_NOT_ALLOWED` (409 sai trạng thái / chỉ còn 1 đơn / đơn đã hủy), `ORD_GROUP_REGROUP_HAS_PICKS` (409 đã quét), `ORD_GROUP_MERGE_SELF` (400), `ORD_GROUP_MERGE_SCOPE_MISMATCH` (409 khác sàn/shop), `ORD_GROUP_MERGE_RECIPIENT_MISMATCH` (409 SĐT khác nhau). Version cũ → `ORD_GROUP_STATE_CONFLICT`.
+- **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
+- **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
+- So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
+
+## 25. 🆕 23/10/2026 — AURELLE: thanh tiến trình đơn cho khách
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🔄 GET | `/storefront/orders` | Khách (cookie) | Mỗi đơn thêm `trackingStage` (chặng chi tiết, null với đơn cũ) và `displayStatus { label, tone, isFinal }` — nhãn trạng thái dùng chung cho danh sách và chi tiết |
+| 🔄 GET | `/storefront/orders/:id` | Khách (cookie) | Thêm `progress { steps[7], branch, hint, displayStatus }`: 7 bước cố định Đặt hàng → Đang chuẩn bị → Đã đóng gói → Chờ hãng lấy hàng → Đang vận chuyển → Đang giao tới bạn → Đã nhận hàng; `state` = `done/current/upcoming/problem/skipped`; nhánh `canceled/failed_delivery/shipped_back/returned` kèm lý do |
+| 🔄 POST | `/rest/order/status/update` (mock AURELLE :4000) | Ứng dụng đối tác (HMAC) | `status` nhận thêm `processing`, `in_transit`, `out_for_delivery`. `processing` không đổi `fulfillment_status`; 2 chặng sau → `shipped`. Ghi `storefront_orders.tracking_stage` |
+
+- **OptiPack gửi:** `processing` ở lần quét lấy hàng đầu tiên của nhóm đơn (1 lần/nhóm); vận đơn `awaiting_pickup → shipped`, `in_transit → in_transit`, `out_for_delivery → out_for_delivery` (trước 23/10 cả 3 đều là `shipped`). Hàng đổi vẫn chỉ nhận `shipped`.

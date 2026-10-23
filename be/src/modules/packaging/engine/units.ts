@@ -47,7 +47,7 @@ export function orientedDims(
  * gói vải trên cạnh mỏng — áp theo loại sản phẩm, bỏ qua `orientation_rule`
  * đã lưu (kể cả hồ sơ cũ để "xoay tự do"). User chốt 22/09/2026.
  */
-const FLAT_CATEGORIES: ReadonlySet<string> = new Set([
+export const FLAT_CATEGORIES: ReadonlySet<string> = new Set([
   ProductCategory.T_SHIRT,
   ProductCategory.SHIRT,
   ProductCategory.JACKET,
@@ -117,7 +117,8 @@ export function expandToUnits(
         is_fragile: item.is_fragile,
         orientations,
         max_stack_load_g: maxStack,
-        foldable: item.can_fold_in_half === true,
+        // Chỉ quần áo mới gập được (FE chỉ có clip gập cho 6 loại này); chặn cả hồ sơ cũ lỡ đánh dấu.
+        foldable: lieFlat && item.can_fold_in_half === true,
         product_category: item.product_category ?? null,
       });
     }

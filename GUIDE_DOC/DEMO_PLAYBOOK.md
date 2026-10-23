@@ -129,6 +129,8 @@ Chuẩn bị: 3 nhóm đơn đã `packed` (G1 từ Phần C, và G3, G4).
 | D2  | Coordinator | "Giao thành công"                        | `POST /shipments/:id/deliver` | `delivered`; nhóm đơn `delivered`                 |
 | D3  | Coordinator | Mở tab "Hành trình"                      | `GET /shipments/:id/events`   | Dòng thời gian đầy đủ người thao tác và thời điểm |
 
+> 🆕 **23/10/2026 — khách AURELLE theo dõi đơn:** mở song song trang **Đơn của tôi → chi tiết đơn** trên website :3001 khi làm Phần C–D với 1 đơn AURELLE. Thanh 7 bước tự cập nhật (≤ 30 giây, cộng ≤ 1 phút hàng đợi ghi ngược): đặt xong → **Đặt hàng**; quét món đầu tiên → **Đang chuẩn bị**; đóng gói xong → **Đã đóng gói**; tạo vận đơn → **Chờ hãng lấy hàng** (có hãng + mã); GHN mô phỏng "đã lấy hàng" → **Đang vận chuyển**; "đang giao" → **Đang giao tới bạn**; giao xong → **Đã nhận hàng**. Giao thất bại (D-2) → bước "Đang giao tới bạn" báo đỏ kèm lý do.
+
 ### D-2. Giao thất bại, giao lại, hoàn về kho
 
 | #   | Vai trò     | Thao tác                                                                 | API                                  | Kết quả cần thấy                                                                       |

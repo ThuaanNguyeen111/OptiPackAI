@@ -20,6 +20,7 @@ import { DecidePartialDto } from './dto/decide-partial.dto';
 import { SellerCancelOrderDto } from './dto/seller-cancel-order.dto';
 import { SetPriorityDto } from './dto/set-priority.dto';
 import { LinkOrderGroupDto } from './dto/link-order-group.dto';
+import { MergeOrderGroupsDto, SplitOrderFromGroupDto } from './dto/regroup-order-group.dto';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { GroupFulfillmentStatus } from './enums/group-fulfillment-status.enum';
@@ -67,6 +68,19 @@ export interface OrderGroupResponse {
   orderCount: number;
   activeOrderCount: number; // 01/10/2026 — đơn còn phải xử lý (cùng quy tắc Picking List)
   canceledOrderCount: number; // 01/10/2026 — đơn đã hủy (status canceled)
+  /**
+   * 23/10/2026 — ĐƠN GỘP NHIỀU NGƯỜI NHẬN. recipientNames: tên khác nhau của các đơn còn
+   * hiệu lực (không gồm tên bị che). recipientNamesDiffer = true → hiện chip cảnh báo,
+   * bắt quét từng món khi đóng (quick pack bị chặn). hasMaskedRecipientName: có đơn bị che tên.
+   */
+  recipientNames: string[];
+  recipientNamesDiffer: boolean;
+  hasMaskedRecipientName: boolean;
+  /** 23/10/2026 — tách/gộp tay: nhóm sinh ra từ nhóm nào / đã gộp vào nhóm nào. */
+  splitFromGroupId: string | null;
+  mergedIntoGroupId: string | null;
+  /** true = nhóm không tự nhận thêm đơn gom đến muộn (nhóm tách ra). */
+  consolidationClosed: boolean;
   fulfillmentStatus: string;
   assignedStaffId: string | null;
   orderPriority: string;
@@ -127,6 +141,12 @@ export function toResponse(
     orderCount: group.order_count,
     activeOrderCount: counts.activeOrderCount,
     canceledOrderCount: counts.canceledOrderCount,
+    recipientNames: counts.recipientNames ?? [],
+    recipientNamesDiffer: counts.recipientNamesDiffer === true,
+    hasMaskedRecipientName: counts.hasMaskedRecipientName === true,
+    splitFromGroupId: group.split_from_group_id?.toString() ?? null,
+    mergedIntoGroupId: group.merged_into_group_id?.toString() ?? null,
+    consolidationClosed: group.consolidation_closed === true,
     fulfillmentStatus: group.fulfillment_status,
     assignedStaffId: group.assigned_staff_id
       ? group.assigned_staff_id.toString()
@@ -320,6 +340,53 @@ export class OrderGroupsController {
     return { message: 'Đã bỏ liên kết tay.' };
   }
 
+  @Post(':id/orders/:orderId/split')
+  @Roles(UserRole.STORE_OWNER, UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 23/10/2026 — TÁCH 1 đơn ra khỏi nhóm gộp thành nhóm riêng (gộp nhầm 2 khách cùng SĐT + địa chỉ). Chỉ khi nhóm đang chờ/đang lấy hàng và CHƯA quét món nào. Nhóm mới không tự nhận đơn gom đến muộn, được gán nhân viên kho + giữ chỗ như nhóm mới. 409 ORD_GROUP_REGROUP_HAS_PICKS nếu đã quét; ORD_GROUP_REGROUP_NOT_ALLOWED nếu sai trạng thái / chỉ còn 1 đơn; ORD_GROUP_STATE_CONFLICT nếu version cũ.',
+  })
+  async splitOrder(
+    @Param('id') id: string,
+    @Param('orderId') orderId: string,
+    @Body() dto: SplitOrderFromGroupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ sourceGroup: OrderGroupResponse; newGroup: OrderGroupResponse }> {
+    const { sourceGroup, newGroup } = await this.orderGroupsService.splitOrderFromGroup(
+      id,
+      orderId,
+      dto.expected_version,
+      dto.note.trim(),
+      user.userId,
+    );
+    const [source, created] = await Promise.all([
+      buildOrderGroupResponse(this.orderGroupsService, sourceGroup),
+      buildOrderGroupResponse(this.orderGroupsService, newGroup),
+    ]);
+    return { sourceGroup: source, newGroup: created };
+  }
+
+  @Post(':id/merge')
+  @Roles(UserRole.STORE_OWNER, UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '🆕 23/10/2026 — GỘP nhóm `source_group_id` VÀO nhóm này (cùng khách nhưng hệ thống không tự gộp, VD đơn bị che SĐT). Cùng sàn + cùng shop (khác shop → dùng POST :id/link). Cả 2 nhóm đang chờ/đang lấy và chưa quét món nào. Đơn chuyển sang nhóm này, nhóm nguồn → canceled (mergedIntoGroupId), giữ chỗ tính lại.',
+  })
+  async merge(
+    @Param('id') id: string,
+    @Body() dto: MergeOrderGroupsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<OrderGroupResponse> {
+    const group = await this.orderGroupsService.mergeGroups(
+      id,
+      dto.source_group_id,
+      dto.expected_version,
+      dto.note.trim(),
+      user.userId,
+    );
+    return buildOrderGroupResponse(this.orderGroupsService, group);
+  }
+
   @Get(':id/picking-list')
   @Roles(UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
   @ApiOperation({
@@ -398,11 +465,13 @@ export class OrderGroupsController {
   async decidePartial(
     @Param('id') id: string,
     @Body() body: DecidePartialDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.decidePartial(
       id,
       body.approve,
       body.expected_version,
+      user.userId,
     );
     return buildOrderGroupResponse(this.orderGroupsService, group);
   }
@@ -416,8 +485,9 @@ export class OrderGroupsController {
   async sellerCancel(
     @Param('orderId') orderId: string,
     @Body() body: SellerCancelOrderDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.orderGroupsService.sellerCancelOrder(orderId, body.reason);
+    return this.orderGroupsService.sellerCancelOrder(orderId, body.reason, user.userId);
   }
 
   @Post(':id/fulfillment/pick')

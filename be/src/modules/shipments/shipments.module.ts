@@ -26,6 +26,7 @@ import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxSchema,
 } from '../marketplace-writeback/schemas/status-outbox.schema';
+import { ActivityLog, ActivityLogSchema } from '../activity-log/schemas/activity-log.schema';
 
 // G1 (27/09/2026). Phụ thuộc 1 chiều: shipments -> order-groups. OrderGroupsModule
 // KHÔNG import module này (tránh vòng).
@@ -41,6 +42,7 @@ import {
       { name: ProductMaster.name, schema: ProductMasterSchema }, // đổi hàng — kiểm hàng đổi sang
       { name: CarrierWebhookEvent.name, schema: CarrierWebhookEventSchema }, // C5 — chống xử lý trùng sự kiện hãng
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
+      { name: ActivityLog.name, schema: ActivityLogSchema }, // 23/10/2026 — sổ hoạt động (lịch sử phiếu trả hàng)
     ]),
     OrderGroupsModule,
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)

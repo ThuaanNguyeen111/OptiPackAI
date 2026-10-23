@@ -45,6 +45,17 @@ export interface PickableItem {
   height_cm: number | null;
   weight_kg: number | null;
   is_fragile: boolean | null;
+  /**
+   * 23/10/2026 — "Chia theo đơn": SKU này thuộc những đơn nào trong nhóm gộp, mỗi đơn bao
+   * nhiêu cái, người nhận là ai (để chia rổ ngay lúc lấy). Tổng quantity = `quantity` ở trên.
+   * Optional để các chỗ dựng PickableItem cũ (test, picking list liên kết) không phải đổi.
+   */
+  order_allocations?: {
+    order_id: string;
+    platform_order_id: string;
+    recipient_name: string | null;
+    quantity: number;
+  }[];
 }
 
 export interface OrderGroupForPicking {

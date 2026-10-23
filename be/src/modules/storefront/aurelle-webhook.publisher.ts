@@ -56,6 +56,7 @@ export class AurelleWebhookPublisher {
    */
   notifyProductsChanged(sellerSkus: string[]): void {
     if (sellerSkus.length === 0) return;
+    this.logger.log(`Báo đối tác ${String(sellerSkus.length)} SKU vừa lưu: ${sellerSkus.slice(0, 5).join(', ')}${sellerSkus.length > 5 ? ', …' : ''}`);
     this.send('product_updated', 0, { seller_skus: sellerSkus, status_update_time: Math.floor(Date.now() / 1000) });
   }
 

@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
+import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { ConfigService } from '@nestjs/config';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -69,6 +70,8 @@ export const REJECTION_DUE_BUSINESS_HOURS = 2;
 interface Allocation {
   order_id: string;
   platform_order_id: string;
+  /** Tên người nhận của đơn (đơn gộp có thể khác tên nhau). */
+  recipient_name?: string | null;
   items: PackableItem[];
 }
 
@@ -225,9 +228,34 @@ export class PackingPlanService {
     private readonly configService: ConfigService,
     private readonly settingsService: PackingSettingsService,
     private readonly packerAssignment: PackerAssignmentService,
+    // (23/10/2026) tham số cuối + @Optional để spec cũ dựng service bằng `new` không vỡ.
+    @Optional() @InjectModel(ProductMaster.name) private readonly productMasterModel?: Model<ProductMasterDocument>,
   ) {}
 
   // ------------------------------------------------------------------ đọc
+
+  /**
+   * (23/10/2026) Hồ sơ SKU được xác nhận lại SAU khi kế hoạch được tính → loại hàng/túi trong
+   * `itemProfiles` đã cũ. Chỉ xét kế hoạch chưa niêm phong kiện nào (`ready`, `approved`);
+   * kế hoạch đang đóng/đã đóng luôn false vì không tính lại được. Chấp nhận báo nhầm khi kho
+   * xác nhận lại hồ sơ mà không đổi giá trị. Một truy vấn `$in` cho cả kế hoạch (Rule #16).
+   */
+  async isProfileStale(plan: PackingPlanDocument): Promise<boolean> {
+    if (!this.productMasterModel) return false;
+    if (plan.status !== 'ready' && plan.status !== 'approved') return false;
+    const skus = plan.item_profiles.map((p) => p.sku);
+    if (skus.length === 0 || !plan.created_at) return false;
+    const group = await this.orderGroupsService.findOrderGroupById(plan.order_group_id.toString());
+    const newer = await this.productMasterModel
+      .exists({
+        platform: group.platform,
+        shop_id: group.shop_id,
+        seller_sku: { $in: skus },
+        profile_confirmed_at: { $gt: plan.created_at },
+      })
+      .lean();
+    return newer !== null;
+  }
 
   async getActivePlan(groupId: string, session?: ClientSession): Promise<PackingPlanDocument | null> {
     const id = this.objectId(groupId);
@@ -378,6 +406,7 @@ export class PackingPlanService {
         orders.push({
           order_id: orderId,
           platform_order_id: allocation.platform_order_id,
+          recipient_name: allocation.recipient_name ?? null,
           status: result.status,
           unplaced: result.unplaced.map((u) => ({ item_key: u.item_key, code: u.code, reason: u.reason })),
           proof: result.proof,

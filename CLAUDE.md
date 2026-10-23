@@ -4359,12 +4359,72 @@ Tài liệu (AOFP-162): `FE_UPDATE_CHECKLIST.md` mục 1c, `API_LIST.md` mục 2
 
 Tài liệu (AOFP-170): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 16–17) + 1d, `API_LIST.md` mục 22, `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 12, `DEMO_PLAYBOOK.md` Phần G, `be/.env.example`.
 
+### Chạy thử AURELLE ↔ OptiPack tối 22/10 — sửa lỗi phát hiện khi demo (AOFP-171..174 + tài liệu AOFP-175)
+
+- **AOFP-171 — website:** nút Hiện/Ẩn mật khẩu (`components/ui/password-input.tsx`) ở đăng nhập, đăng ký, đăng nhập Admin; trang `/auth/login` thử tài khoản khách trước, sai thì thử tài khoản Admin web → vào `/admin` (trang `/admin/login` vẫn giữ).
+- **AOFP-172 — webhook sản phẩm + giỏ + dùng lại SKU:** `AURELLE_WEBHOOK_URL=` để trống trong .env trước đây làm website bỏ qua MỌI webhook (`??` không bắt chuỗi rỗng) → dùng mặc định `localhost:$PORT/marketplace/webhooks/aurelle`. Lưu sản phẩm báo MỌI SKU đang bán (trước chỉ biến thể mới). Log `Báo đối tác N SKU…` / `Webhook aurelle product_updated: kéo N SKU`. `/storefront/cart/sync` bỏ qua dòng biến thể đã xoá/hết hàng thay vì 404 cả giỏ. Sản phẩm mới dùng lại được SKU của sản phẩm ĐÃ XOÁ (chuyển biến thể sang, giữ tồn + liên kết OptiPack); sản phẩm cũ còn bán thì vẫn 409.
+- **AOFP-173 — kho:** gán kệ / nhập hàng hoàn: SKU sàn trùng ĐÚNG mã 1 SKU nội bộ đang dùng → gộp tồn theo SKU nội bộ dù chọn nhầm dòng sàn (lỗi thật: dòng "lazada · 200000000101" nhận 10 cái, website vẫn 0). Ô chọn chưa có mã mà mã đang ở ô khác cùng kho → `409 WH_SKU_IN_OTHER_BIN` (details.binCodes); gửi `confirm_other_bin: true` để xác nhận — áp cho gán ô, `inspect` (từng dòng), quarantine resolve.
+- **AOFP-174 — địa chỉ GHN:** checkout AURELLE chỉ còn địa chỉ MỚI 2 cấp (tỉnh + phường) — GHN nhận `is_new_to_address`; địa chỉ cũ "Phường 5" không kèm mã quận bị GHN trả "Sai thông tin đầu vào". BE `ShippingAddressDto`: SĐT `^0\d{9}$`, tên ≤ 100, địa chỉ ≤ 255. Màn Vận chuyển OptiPack vốn tự điền từ đơn.
+- **Verify:** BE tsc 0, eslint file đụng 0 lỗi; jest storefront 100, warehouse+returns 143 (+1 test `WH_SKU_IN_OTHER_BIN`), master-skus 27, webhooks 25 — đạt; storefront tsc 0.
+- **Tác động (5 câu):** (1) Không migration; dòng kệ gán nhầm sàn phải kiểm kê 0 → bỏ gán → gán lại. (2) FE OptiPack chưa xử lý `WH_SKU_IN_OTHER_BIN` → tạm thời KHÔNG gán được ô thứ 2 qua màn (Swagger kèm cờ) — checklist dòng 20 làm sớm. (3) Đơn cũ địa chỉ kiểu cũ vẫn lỗi GHN → đặt đơn mới hoặc Coordinator sửa phường. (4) Demo không cần GHN thật thì `CARRIER_MODE=mock`. (5) Danh mục website nối 1 loại OptiPack ép mã cho mọi sản phẩm mới của danh mục — đừng nối danh mục rộng (Tops).
+
+Tài liệu (AOFP-175): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 18–20) + 1d bước 4, 6, 7; CLAUDE.md mục này.
+
+### Lịch sử thao tác cho mọi vai trò (23/10/2026, AOFP-176..177 + tài liệu AOFP-178)
+
+**[stated] Thuận yêu cầu:** mọi role xem lại được lịch sử các lần thao tác (đóng gói, nhập lô, vận chuyển — giao cho ai, giao thế nào, hoàn hàng…). Làm cả 4 phần: sổ hoạt động, dòng thời gian 1 đơn, trang lịch sử tổng (lọc + CSV), đọc dữ liệu đã lưu sẵn.
+
+- **AOFP-176 — sổ hoạt động `activity_logs`:** module `activity-log/` (schema + `recordActivity(model, entry, session?)` — có session thì ghi cùng transaction, không thì best-effort). Ghi: `transitionFulfillmentStatus` (mọi đổi trạng thái nhóm đơn), `decidePartial` (giao phần có sẵn / lấy lại, kèm người quyết định — controller truyền `user.userId`), `sellerCancelOrder` (kèm người hủy), giao thiếu từng đơn, `ReturnsService.move()` (mọi bước phiếu trả: duyệt/từ chối/nhận/kiểm/hủy, người làm lấy từ decided_by/received_by/inspected_by). objectid-fields 106.
+- **AOFP-177 — API `/history`:** module `history/` chỉ đọc 12 collection; gộp sổ cái kho (theo loại → picking/packing/warehouse/returns), phiếu nhập, mốc vận đơn + vận đơn + người nhận (đơn đầu của nhóm), kế hoạch đóng gói (mốc + niêm phong từng kiện + `activity[]` trừ start/finish), phiếu trả (tạo + xử lý cách ly), vật liệu, đăng nhập, sổ hoạt động. Phân trang k-way theo `before`; cửa sổ mặc định 30 ngày. `ROLE_HISTORY_CATEGORIES` chặn 403. Timeline gồm nhóm thay thế (đổi hàng) + đơn về. CSV có BOM.
+- **Verify:** BE tsc 0, eslint 0 lỗi; jest 8 shard **1.200 đạt** (+4 test history); chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) Collection mới `activity_logs` (3 index), không migration. (2) Ghi sổ trong transaction của thao tác gốc → nếu insert lỗi thì thao tác đó lỗi theo (đổi lại: không có lịch sử "ma"). (3) FE: checklist 1e (trang Lịch sử + tab Dòng thời gian), dòng 21–22. (4) Lịch sử lấy hàng dựa sổ cái kho (`pick` có actor); `pick_events` không có người quét nên không dùng. (5) Kế hoạch đóng gói lọc theo `updated_at ≥ from` (tối đa 300 kế hoạch/lượt) — khoảng ngày rất rộng có thể thiếu mốc đóng gói cũ, thu hẹp `from`/`to` là đủ.
+
+Tài liệu (AOFP-178): `FE_UPDATE_CHECKLIST.md` mục 1e + dòng 21–22, `API_LIST.md` mục 23.
+
+### Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm (23/10/2026, AOFP-183 + tài liệu AOFP-184)
+
+**[stated] Thuận yêu cầu:** rà toàn bộ luồng gộp đơn → lấy hàng → đóng gói → giao cho đơn gộp (cùng SĐT + địa chỉ, khác tên, nhất là đơn AURELLE); làm gói: cảnh báo khác tên, tách đơn, gộp tay 2 nhóm, bắt quét khi nhóm nhiều tên, "chia theo đơn" ở picking list, in tên người nhận lên kiện, tài liệu FE chi tiết cho màn lấy/đóng/giao.
+
+**Kết quả rà soát (giữ nguyên, đã đúng):** khoá gộp mặc định `phone + address_line1 + city` (không tên, Admin thêm `full_name` được); đơn đến muộn chỉ vào nhóm `awaiting_packaging/picking`; lấy hàng gom theo SKU; **mỗi kiện thuộc 1 đơn** (`allocatePickedItemsToOrders` chia hàng đã lấy theo đơn đặt trước); mỗi kiện 1 vận đơn hãng với người nhận của đúng đơn đó (`parcelsOfGroup` → `buildCarrierRecipient`); hủy 1 đơn giữa chừng đã có luồng trả kệ / tháo kiện. **Lỗ hổng đã vá:** không cảnh báo khác tên, không tách/gộp được, "đóng nhanh" ghi `bypass` không chứng minh món đúng người, picking list chỉ có tổng SKU, kế hoạch không có tên người nhận, `to_location` (địa chỉ sửa tay) dùng chung mọi kiện của vận đơn.
+
+- **AOFP-183 — BE:**
+  - `order-groups/utils/recipient-name.util.ts`: chuẩn hoá tên (bỏ dấu, hoa thường, khoảng trắng), bỏ tên có `*`; `summarizeRecipientNames` → `{ names, differ, hasMasked }`.
+  - `getOrderCountsForGroups` gom thêm tên đơn còn hiệu lực → response nhóm đơn có `recipientNames`, `recipientNamesDiffer`, `hasMaskedRecipientName` (+ `splitFromGroupId`, `mergedIntoGroupId`, `consolidationClosed`).
+  - `resolveGroupForOrder`: số đơn **tăng** → `warnIfRecipientNamesDiffer` (thông báo `consolidation_name_mismatch` cho Store Owner, Coordinator, nhân viên kho giữ nhóm + sổ hoạt động `order_group.recipient_names_differ`). Best-effort. Không tự tách.
+  - Picking list: `PickableItem.order_allocations[]` (đơn, mã, người nhận, số lượng) — `getOrderAllocationsBySku`; warehouse picking list tự có qua spread.
+  - Kế hoạch đóng gói: `PlanOrder.recipient_name` (ảnh chụp từ `allocatePickedItemsToOrders`); `toPlanResponse` trả `orders[].recipientName`, `parcels[].recipientName` (tra theo `order_id`).
+  - `quickPack`: kế hoạch có ≥ 2 tên khác nhau (đơn chưa hủy) → `409 PACKING_SCAN_REQUIRED` `details.reason='recipient_names_differ'`.
+  - `POST /order-groups/:id/orders/:orderId/split` + `POST /order-groups/:id/merge` (Store Owner, Coordinator, Admin; body có `expected_version` + `note` bắt buộc). Điều kiện chung: nhóm `awaiting_packaging/picking` + **không có pick_event ở lượt hiện tại** (kiểm lại trong transaction). Tách: nhóm mới `split_from_group_id`, `consolidation_closed=true` (`isGroupOpenForNewOrders` trả false → không tự gom lại), `startPickingPhase` (gán người + giữ chỗ + picking), nhóm gốc giữ chỗ lại. Gộp: cùng sàn + shop, **SĐT thật không trùng → `MERGE_RECIPIENT_MISMATCH`** (vì `to_location` áp mọi kiện), đơn chuyển nhóm, nhóm nguồn → `canceled` + `merged_into_group_id` (cập nhật thẳng có điều kiện `__v`, không qua `transitionFulfillmentStatus`), nhả giữ chỗ nguồn, giữ chỗ lại đích, cảnh báo tên. Cả 2 ghi sổ hoạt động trong transaction. Mã lỗi mới `ORD_GROUP_REGROUP_NOT_ALLOWED/REGROUP_HAS_PICKS/MERGE_SELF/MERGE_SCOPE_MISMATCH/MERGE_RECIPIENT_MISMATCH`.
+  - Schema `order_groups`: `split_from_group_id`, `merged_into_group_id` (ObjectId), `consolidation_closed`. objectid-fields **108**.
+- **Verify:** BE tsc 0, eslint 0 lỗi; jest 8 shard **1.217 đạt** (+12 test tách/gộp/cảnh báo, +4 util, +1 kế hoạch/đóng nhanh); chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) 3 field mới trên `order_groups` + 1 trên `packing_plans.orders[]`, đều có default → không migration; kế hoạch cũ `recipientName = null`. (2) Danh sách nhóm đơn thêm 1 `$push` trong aggregation đếm đơn (cùng 1 truy vấn, không thêm round-trip); picking list thêm 1 truy vấn đơn. (3) Nhóm nhiều người nhận **không còn "đóng nhanh" được** — FE phải khoá nút (checklist 1f.4, dòng 23). (4) Nhóm bị gộp thành `canceled` nhưng **không** phát thông báo `group_auto_canceled` / không đẩy trạng thái lên sàn (đơn vẫn sống ở nhóm đích); FE hiện "Đã gộp vào …" theo `mergedIntoGroupId`. (5) Không tách/gộp khi đã quét — chủ ý: pick_events không gắn đơn, chuyển đơn sẽ lệch hàng thật với "đã lấy" và giữ chỗ.
+
+Tài liệu (AOFP-184): `FE_UPDATE_CHECKLIST.md` mục 1f (nghiệp vụ + 8 bước theo màn) + dòng 23–27, `API_LIST.md` mục 24, CLAUDE.md mục này.
+
+### AURELLE — thanh tiến trình đơn cho khách (23/10/2026, AOFP-186..187 + tài liệu AOFP-188)
+
+**[stated] Thuận hỏi:** khách AURELLE không biết hàng đang vận chuyển tới đâu, mỗi bước (đặt hàng, đóng gói, giao) trông như một màn khác, không liền 1 mạch "đang lấy hàng → … → đã nhận / đã hoàn". Đồng ý làm: thanh tiến trình cố định + mốc chi tiết + 1 nhãn chung + tự tải lại.
+
+**Nguyên nhân (đã kiểm code):** trang chi tiết chỉ liệt kê mốc đã có; mốc đầu tiên là `packed` (không có "đặt hàng"/"đang chuẩn bị") nên lúc mới đặt khối hành trình không hiện; `writebackStatusForShipment` gộp `awaiting_pickup/in_transit/out_for_delivery` thành 1 `shipped`; đầu trang dùng `status` đơn còn ô "Giao hàng" dùng `fulfillment_status`; không tự tải lại.
+
+- **AOFP-186 — BE:**
+  - Từ vựng gửi AURELLE (`AurelleWritebackStatus`, `PARTNER_STATUSES`): thêm `processing`, `in_transit`, `out_for_delivery`; nhãn `shipped` đổi thành "Đã tạo vận đơn — chờ đơn vị vận chuyển lấy hàng".
+  - `pickItem`: lần quét đầu tiên của nhóm (`last_picked_at` null) → outbox `processing` trong transaction, khóa `grp:<id>:processing:first_pick`.
+  - `writebackStatusForShipment`: `AWAITING_PICKUP → shipped`, `IN_TRANSIT → in_transit`, `OUT_FOR_DELIVERY → out_for_delivery`. Hàng đổi không đổi (2 chặng mới không thuộc từ vựng exchange → bỏ qua).
+  - `applyPartnerStatusUpdate`: ghi `storefront_orders.tracking_stage`; `fulfillment_status` qua `fulfillmentStatusFor` (`processing` giữ nguyên, 2 chặng mới → `shipped`); vận đơn website `in_transit`, `shipped_at` = mốc "đang đi" đầu tiên (đọc trước, không dùng `$min` vì null < Date); trừ giữ chỗ gồm 2 chặng mới.
+  - `storefront-order-progress.ts` (hàm thuần): 7 bước + nhánh `canceled/failed_delivery/shipped_back/returned` + `hint` + `displayStatus`. `GET /storefront/orders[/:id]` trả `trackingStage`, `displayStatus`, chi tiết có `progress`. Đơn cũ suy từ `fulfillment_status` + mốc hành trình.
+- **AOFP-187 — website:** `components/order/order-progress.tsx` (7 bước ngang, điện thoại dọc; ✓ / chấm hiện tại / ! lỗi / gạch bước bỏ qua; ô nhánh có lý do; hãng + mã vận đơn); trang chi tiết dùng `displayStatus` cho đầu trang + ô "Giao hàng", danh sách mốc đổi "Chi tiết từng mốc", tự tải lại 30 s khi `!isFinal` và tab đang mở; trang danh sách dùng `displayStatus` + màu theo `tone`. CSS cuối `globals.css`.
+- **Verify:** BE tsc 0, eslint 0 lỗi; jest 8 shard **1.251 đạt** (+8 thanh tiến trình, +3 chặng mới website, +1 `processing` khi quét đầu); storefront tsc 0; scripts tsc 0; đã chụp giao diện 4 trạng thái (máy tính + điện thoại); chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) Field mới `storefront_orders.tracking_stage` (default null), không migration. (2) Hàng đợi ghi ngược thêm ≤ 3 dòng/đơn (processing, in_transit, out_for_delivery). (3) `fulfillment_status` giữ enum cũ → luật khách tự hủy (`awaiting_packaging`) và trả hàng (`delivered`) không đổi; khách vẫn hủy được khi kho đang lấy hàng (OptiPack đã có luồng trả kệ). (4) `processing` gửi 1 lần/nhóm — đơn gom đến muộn sau lần quét đầu không nhận mốc này (thanh tiến trình vẫn đúng khi tới `packed`). (5) FE OptiPack không đổi.
+
+Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 5 + 13, `API_LIST.md` mục 25, `DEMO_PLAYBOOK.md` Phần D, CLAUDE.md mục này.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
 ### A. Làm ngay (người dùng tự chạy)
-1. AOFP-146..162 đã commit (22/10, chưa push). Commit tiếp AOFP-163..169 (code) + AOFP-170 (tài liệu) — lệnh gửi trong chat 22/10 chiều — rồi push `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại mock :4000.
+1. AOFP-146..178 đã vào `main` (PR #17); AOFP-179..182 là của thimao12. Đơn gộp = AOFP-183 (code) + AOFP-184 (tài liệu), gộp `origin/main`, `fe/` từ `feature/viet_ui` = AOFP-185; thanh tiến trình AURELLE = AOFP-186..188 — tất cả trên `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại BE + mock :4000.
 2. Trước khi khởi động backend bản mới: `npx ts-node -r dotenv/config scripts/check-open-return-duplicates.ts` (chỉ đọc). Có phiếu trả mở trùng → hủy/từ chối phiếu thừa, nếu không index `uniq_open_return_per_order` không tạo được.
 3. Script dữ liệu chưa ghi nhận đã chạy trên DB thật (chạy thử trước, rồi `--apply`): `fix-storefront-reservations.ts`, `migrate-objectid-fields.ts` (bắt buộc), `recompute-consolidation-keys.ts`, `migrate-unify-packaging-materials.ts`.
 4. Chạy thử trọn 1 đơn AURELLE thật: BE 3000 + mock 4000 + storefront 3001 → đặt hàng → lấy → đóng → giao (GHN giả lập) → khách trả/đổi/hủy yêu cầu.
@@ -4391,5 +4451,6 @@ Tài liệu (AOFP-170): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 16–17) + 1d, `
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
 
 ### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
+22c. 🆕 23/10 (mục 1e, 1f): trang Lịch sử + tab Dòng thời gian; đơn gộp — **khoá "Đóng nhanh" với nhóm nhiều người nhận (làm sớm)**, tên người nhận trên kiện/tem, chip "Gộp N người nhận", "Chia theo đơn" ở lấy hàng, nút tách/gộp nhóm, thông báo `consolidation_name_mismatch`.
 22b. 🆕 22/10 (mục 1b): tab "Kẹt — SKU chưa đo", tên người đóng, tìm `?q=`, **bỏ form giả lập trả hàng (làm sớm — BE trả 410)**, nút ngắt kết nối shop, nghỉ phép + khoá chọn người nghỉ, thông báo `packing_blocked`.
 22. Nguồn thùng mới/tái sử dụng khi đóng gói; người gửi trên nhãn; 5 nút in PDF; lô cũ nhất trên Picking List; màn lô + phiếu nhập; mở đúng `warehouseId` của nhóm + bắt `ORD_GROUP_WRONG_WAREHOUSE`; dọn mã chết; 2 lỗi tsc có sẵn ở `AdminWarehousePage.tsx`.

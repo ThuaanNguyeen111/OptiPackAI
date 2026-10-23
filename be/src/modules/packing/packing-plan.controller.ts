@@ -73,6 +73,11 @@ export interface PackingPlanResponse {
   orderGroupId: string;
   revision: number;
   version: number;
+  /**
+   * 23/10/2026 — true khi hồ sơ SKU được xác nhận lại SAU lúc tính kế hoạch (kế hoạch `ready`/`approved`).
+   * CHỈ `GET .../packing-plan` tính cờ này; mọi route ghi trả false — FE lấy cờ từ GET.
+   */
+  profileStale: boolean;
   status: string;
   failureReason: string | null;
   /** Nhãn YẾU NHẤT trong các đơn (cả nhóm chỉ "tối ưu" khi mọi đơn tối ưu). */
@@ -82,6 +87,8 @@ export interface PackingPlanResponse {
   orders: {
     orderId: string;
     platformOrderId: string | null;
+    /** Tên người nhận (null với kế hoạch tạo trước 23/10/2026). */
+    recipientName: string | null;
     status: string;
     unplaced: { itemKey: string; code: string; reason: string }[];
     proof: PlanProofLabel;
@@ -104,6 +111,8 @@ export interface PackingPlanResponse {
     parcelNo: number;
     orderId: string;
     platformOrderId: string | null;
+    /** Tên người nhận của đơn sở hữu kiện — in lên kiện để không dán nhầm trong đơn gộp. */
+    recipientName: string | null;
     box: {
       code: string;
       name: string;
@@ -248,16 +257,18 @@ const dims = (d: { length_mm: number; width_mm: number; height_mm: number }): Di
   heightMm: d.height_mm,
 });
 
-export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
+export function toPlanResponse(plan: PackingPlanDocument, profileStale = false): PackingPlanResponse {
   const weakest = plan.orders.reduce<PlanProofLabel | null>(
     (acc, o) => (acc === null || PROOF_RANK[o.proof] < PROOF_RANK[acc] ? o.proof : acc),
     null,
   );
+  const recipientByOrder = new Map(plan.orders.map((o) => [o.order_id.toString(), o.recipient_name ?? null]));
   return {
     id: plan._id.toString(),
     orderGroupId: plan.order_group_id.toString(),
     revision: plan.revision,
     version: plan.version,
+    profileStale,
     status: plan.status,
     failureReason: plan.failure_reason,
     proof: weakest,
@@ -265,6 +276,7 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
     orders: plan.orders.map((o) => ({
       orderId: o.order_id.toString(),
       platformOrderId: o.platform_order_id,
+      recipientName: o.recipient_name ?? null,
       status: o.status,
       unplaced: o.unplaced.map((u) => ({ itemKey: u.item_key, code: u.code, reason: u.reason })),
       proof: o.proof,
@@ -295,6 +307,7 @@ export function toPlanResponse(plan: PackingPlanDocument): PackingPlanResponse {
       parcelNo: p.parcel_no,
       orderId: p.order_id.toString(),
       platformOrderId: p.platform_order_id,
+      recipientName: recipientByOrder.get(p.order_id.toString()) ?? null,
       box: {
         code: p.box.code,
         name: p.box.name,
@@ -518,7 +531,8 @@ export class PackingPlanController {
   @ApiOperation({ summary: 'Kế hoạch đóng gói đang hoạt động của nhóm (null nếu chưa có).' })
   async get(@Param('groupId') groupId: string): Promise<{ plan: PackingPlanResponse | null }> {
     const plan = await this.planService.getActivePlan(groupId);
-    return { plan: plan ? toPlanResponse(plan) : null };
+    if (!plan) return { plan: null };
+    return { plan: toPlanResponse(plan, await this.planService.isProfileStale(plan)) };
   }
 
   @Get('box-sources')

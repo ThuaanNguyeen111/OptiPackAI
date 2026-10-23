@@ -55,6 +55,10 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       select: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue([
           {
+            // 23/10/2026 — picking list có thêm "chia theo đơn" → cần _id/mã đơn/người nhận.
+            _id: new Types.ObjectId(),
+            platform_order_id: 'LZ-1',
+            recipient: { full_name: 'Nguyễn Văn A' },
             items: items.map((i) => ({
               ...i,
               name: 'SP',
@@ -165,6 +169,26 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
     expect(docs[0]?.pick_round).toBe(0);
     expect(options.session).toBeDefined();
     expect(productMasterModel.find).not.toHaveBeenCalled();
+  });
+
+  it('23/10/2026 — lần quét ĐẦU TIÊN của nhóm báo website "đang chuẩn bị hàng" (1 lần, cùng transaction)', async () => {
+    const outbox = { updateOne: jest.fn().mockResolvedValue({}) };
+    Object.assign(service, { statusOutboxModel: outbox });
+    mockOrderedItems([{ sku: 'SKU-DUNG', quantity: 2 }]);
+    mockPickedEvents([]);
+    skuBinAssignmentModel.findOneAndUpdate.mockResolvedValue({ quantity_on_hand: 9 });
+    pickEventModel.create.mockResolvedValue([{}]);
+
+    mockGroup({ last_picked_at: null });
+    await service.pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
+    expect(outbox.updateOne).toHaveBeenCalledTimes(1);
+    const [filter, , options] = outbox.updateOne.mock.calls[0] as [{ idempotency_key: string }, unknown, { session: unknown }];
+    expect(filter.idempotency_key).toBe(`grp:${groupId}:processing:first_pick`);
+    expect(options.session).toBeDefined();
+
+    mockGroup({ last_picked_at: new Date() });
+    await service.pickItem(groupId, warehouseId, 'SKU-DUNG', 1, 'barcode');
+    expect(outbox.updateOne).toHaveBeenCalledTimes(1); // đã quét trước đó → không báo lại
   });
 
   it('trừ tồn CHỈ trong đúng phạm vi platform + shop của group (2 shop trùng SKU không trừ nhầm nhau)', async () => {
@@ -345,6 +369,9 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
 
     const { items } = await service.getPickableItemsForGroup(groupId);
 
+    expect(items[0]?.order_allocations).toEqual([
+      expect.objectContaining({ platform_order_id: 'LZ-1', recipient_name: 'Nguyễn Văn A', quantity: 2 }),
+    ]);
     expect(items).toEqual([
       expect.objectContaining({
         sku: 'AO',
