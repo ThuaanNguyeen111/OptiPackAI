@@ -44,6 +44,7 @@ import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxSchema,
 } from '../marketplace-writeback/schemas/status-outbox.schema';
+import { ActivityLog, ActivityLogSchema } from '../activity-log/schemas/activity-log.schema';
 import { OrderGroupsService } from './order-groups.service';
 import { OrderGroupBackfillScheduler } from './order-group-backfill.scheduler';
 import { OrderGroupsController } from './order-groups.controller';
@@ -70,6 +71,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: StockLot.name, schema: StockLotSchema }, // 15/10/2026 — lô hàng FIFO
       { name: Warehouse.name, schema: WarehouseSchema }, // 21/10/2026 — chọn kho giữ chỗ cho nhóm đơn
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
+      { name: ActivityLog.name, schema: ActivityLogSchema }, // 23/10/2026 — sổ hoạt động (lịch sử)
     ]),
     NotificationsModule,
   ],
