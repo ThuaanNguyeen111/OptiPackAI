@@ -398,11 +398,13 @@ export class OrderGroupsController {
   async decidePartial(
     @Param('id') id: string,
     @Body() body: DecidePartialDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<OrderGroupResponse> {
     const group = await this.orderGroupsService.decidePartial(
       id,
       body.approve,
       body.expected_version,
+      user.userId,
     );
     return buildOrderGroupResponse(this.orderGroupsService, group);
   }
@@ -416,8 +418,9 @@ export class OrderGroupsController {
   async sellerCancel(
     @Param('orderId') orderId: string,
     @Body() body: SellerCancelOrderDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.orderGroupsService.sellerCancelOrder(orderId, body.reason);
+    return this.orderGroupsService.sellerCancelOrder(orderId, body.reason, user.userId);
   }
 
   @Post(':id/fulfillment/pick')

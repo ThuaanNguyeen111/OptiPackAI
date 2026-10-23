@@ -95,6 +95,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
     },
   },
   { collection: 'marketplace_shops', fields: ['connected_by', 'disconnected_by'] }, // disconnected_by: 22/10/2026
+  { collection: 'activity_logs', fields: ['order_group_id', 'entity_id'] }, // 23/10/2026 — sổ hoạt động (lịch sử)
   {
     collection: 'notifications',
     fields: ['recipient_user_id', 'related_entity_id'],

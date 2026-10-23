@@ -27,6 +27,8 @@ import {
   MarketplaceStatusOutboxDocument,
 } from '../marketplace-writeback/schemas/status-outbox.schema';
 import { enqueueStatusPush, writebackStatusForReturn } from '../marketplace-writeback/status-outbox.util';
+import { ActivityLog, ActivityLogDocument } from '../activity-log/schemas/activity-log.schema';
+import { RETURN_STATUS_LABELS, recordActivity } from '../activity-log/activity-log.util';
 
 /** Tham số riêng khi phiếu do KHÁCH gửi trên sàn (không phải Admin đóng vai khách). */
 export interface MarketplaceReturnExtra {
@@ -100,6 +102,8 @@ export class ReturnsService {
     @InjectModel(ProductMaster.name) private readonly productMasterModel: Model<ProductMasterDocument>,
     // 20/10/2026 — báo ngược kết quả xử lý phiếu cho khách trên sàn (AURELLE).
     @Optional() @InjectModel(MarketplaceStatusOutbox.name) private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
+    // 23/10/2026 — sổ hoạt động (lịch sử từng bước của phiếu trả hàng).
+    @Optional() @InjectModel(ActivityLog.name) private readonly activityLogModel?: Model<ActivityLogDocument>,
   ) {}
 
   async get(id: string): Promise<ReturnRequestDocument> {
@@ -678,6 +682,24 @@ export class ReturnsService {
       { returnDocument: 'after', session },
     );
     if (!updated) this.fail(RETURN_ERROR_CODES.STATE_CONFLICT, 'Phiếu vừa được người khác thay đổi — tải lại rồi thử lại.', HttpStatus.CONFLICT, { expectedVersion });
+    // 23/10/2026 — lịch sử: từng bước của phiếu trả hàng (ai duyệt/nhận/kiểm/hủy, lúc nào), cùng transaction.
+    const actor = [set.inspected_by, set.received_by, set.decided_by].find((v): v is string => typeof v === 'string') ?? null;
+    const note = typeof set.decision_note === 'string' ? set.decision_note : null;
+    await recordActivity(this.activityLogModel, {
+      category: 'returns',
+      action: `return.${to}`,
+      summary: `Phiếu trả ${updated.rma_code}: ${RETURN_STATUS_LABELS[from] ?? from} → ${RETURN_STATUS_LABELS[to] ?? to}${note ? ` — ${note}` : ''}`,
+      actorId: actor,
+      orderGroupId: updated.order_group_id,
+      entityType: 'return_request',
+      entityId: updated._id,
+      entityCode: updated.rma_code,
+      fromStatus: from,
+      toStatus: to,
+      skus: updated.items.map((i) => i.seller_sku),
+      quantity: updated.items.reduce((sum, i) => sum + i.quantity, 0),
+      note,
+    }, session);
     // 20/10/2026 — phiếu do khách gửi trên sàn: xếp hàng báo kết quả (cùng transaction nếu có session).
     if (updated.source === 'marketplace') {
       const writebackStatus = writebackStatusForReturn(to);
