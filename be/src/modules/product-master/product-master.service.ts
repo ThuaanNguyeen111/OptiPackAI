@@ -3,7 +3,6 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { PRODUCT_MASTER_ERROR_CODES } from './product-master.errors';
-import { ProductCategory } from '../../common/enums/product-category.enum';
 import { ConfirmPackagingProfileDto } from './dto/confirm-packaging-profile.dto';
 import { ACTIVE_SELLER_SKU_FILTER, ProductMaster, ProductMasterDocument } from './schemas/product-master.schema';
 import { MasterSkusService } from '../master-skus/master-skus.service';
@@ -13,6 +12,7 @@ import { OrderGroup, OrderGroupDocument } from '../order-groups/schemas/order-gr
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
 import { PackingPlan, PackingPlanDocument } from '../packing/schemas/packing-plan.schema';
 import { bagFits, suggestSmallestBag } from '../packaging/bag-fit.util';
+import { FLAT_CATEGORIES } from '../packaging/engine/units';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 // 🔄 ĐÃ ĐỔI (29/09/2026, AURELLE_MARKETPLACE_DESIGN.md Mục 9.3 #7) —
@@ -381,10 +381,10 @@ export class ProductMasterService {
       );
     }
 
-    if (dto.can_fold_in_half === true && dto.product_category === ProductCategory.SHOES) {
+    if (dto.can_fold_in_half === true && !FLAT_CATEGORIES.has(dto.product_category)) {
       throw new AppException(
         PRODUCT_MASTER_ERROR_CODES.FOLD_NOT_ALLOWED,
-        'Giày đựng trong hộp cứng không gập được — bỏ chọn "có thể gập đôi".',
+        'Chỉ quần áo mới gập đôi được — giày, dép, phụ kiện và hàng khác không gập: bỏ chọn "có thể gập đôi".',
         HttpStatus.UNPROCESSABLE_ENTITY,
         { productCategory: dto.product_category },
       );

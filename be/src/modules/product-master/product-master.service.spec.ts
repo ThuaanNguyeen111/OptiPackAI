@@ -162,6 +162,19 @@ describe('ProductMasterService', () => {
     expect(productMasterModel.findByIdAndUpdate.mock.calls).toHaveLength(0);
   });
 
+  it.each([ProductCategory.SANDALS, ProductCategory.ACCESSORY, ProductCategory.OTHER])(
+    '%s đánh dấu gập đôi → PM_FOLD_NOT_ALLOWED',
+    async (category) => {
+      await expect(
+        service.confirmPackagingProfile(
+          new Types.ObjectId().toString(),
+          new Types.ObjectId().toString(),
+          makeDto({ can_fold_in_half: true, product_category: category }),
+        ),
+      ).rejects.toMatchObject({ errorCode: PRODUCT_MASTER_ERROR_CODES.FOLD_NOT_ALLOWED });
+    },
+  );
+
   it('id sai định dạng → PM_INVALID_ID', async () => {
     await expect(service.confirmPackagingProfile('abc', 'u', dto)).rejects.toMatchObject({
       errorCode: PRODUCT_MASTER_ERROR_CODES.INVALID_ID,
