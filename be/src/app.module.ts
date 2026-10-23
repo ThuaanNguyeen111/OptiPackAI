@@ -37,6 +37,7 @@ import { MarketplaceWritebackModule } from './modules/marketplace-writeback/mark
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CarriersModule } from './modules/carriers/carriers.module';
+import { HistoryModule } from './modules/history/history.module';
 
 @Module({
   imports: [
@@ -81,6 +82,7 @@ import { CarriersModule } from './modules/carriers/carriers.module';
     PackagingMaterialsModule, // G4 (27/09/2026)
     MasterSkusModule, // K4a (27/09/2026)
     NotificationsModule,
+    HistoryModule, // 23/10/2026 — lịch sử thao tác
     StorefrontModule,
     // MỚI (29/09/2026) — additive thuần túy, KHÔNG sửa dòng nào ở trên.
     MarketplaceWebhooksModule,
