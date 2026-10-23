@@ -895,3 +895,17 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **SKU nội bộ bị vô hiệu** (`is_active = false`) → lượt đẩy tồn gửi **0** cho mọi SKU AURELLE nối với nó.
 - **Hoàn hàng về kho** (`returned`) → website cộng lại tồn phần đã trừ (1 lần, `stock_state: restocked`).
 - Script `be/scripts/normalize-storefront-variants.ts` (chạy thử mặc định, `--apply` để ghi): đổi biến thể cũ **chưa có đơn** sang SKU theo quy tắc.
+
+## 23. 🆕 23/10/2026 — Lịch sử thao tác (mọi vai trò)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 GET | `/history` | Mọi vai trò | Lịch sử mới → cũ. Query: `category` (phẩy), `from`, `to`, `before`, `limit` ≤ 100, `actor_id`, `mine=true`, `sku`, `order_group_id`, `order_code`. Trả `{ items, nextBefore, categories }`. Lọc loại vai trò không được xem → 403 |
+| 🆕 GET | `/history/categories` | Mọi vai trò | Loại lịch sử vai trò hiện tại được xem |
+| 🆕 GET | `/history/order-groups/:id/timeline` | Mọi vai trò | Dòng thời gian cũ → mới của 1 nhóm đơn (gồm cả nhóm đơn thay thế khi đổi hàng) |
+| 🆕 GET | `/history/export` | Admin, Store Owner | CSV (Excel, UTF-8 BOM), cùng bộ lọc, tối đa 5.000 dòng |
+| 🔄 POST | `/order-groups/:id/fulfillment/decide-partial`, `/order-groups/orders/:orderId/seller-cancel` | như cũ | Ghi thêm người quyết định vào lịch sử |
+
+- **Quyền theo vai trò:** Admin tất cả (cả `auth` — nhật ký đăng nhập); Store Owner tất cả trừ `auth`; Kho `orders, picking, warehouse, returns, packaging_materials`; Đóng gói `orders, picking, packing, packaging_materials`; Điều phối `orders, shipping, returns`.
+- **Nguồn gộp:** sổ cái kho, phiếu nhập lô, mốc vận đơn (+ hãng, dịch vụ, mã, người nhận, phí), kế hoạch đóng gói (tính, duyệt, từ chối, phân công, bắt đầu, niêm phong từng kiện, xong, nhật ký phiên), phiếu trả hàng (tạo, xử lý cách ly), vật liệu đóng gói, nhật ký đăng nhập, **sổ hoạt động mới `activity_logs`** (đổi trạng thái nhóm đơn, từng bước phiếu trả hàng, người bán hủy, giao thiếu, quyết định thiếu hàng — ghi cùng transaction với thao tác gốc).
+- Sổ hoạt động có dữ liệu từ 23/10/2026; các nguồn còn lại có sẵn từ trước.

@@ -4367,12 +4367,23 @@ Tài liệu (AOFP-170): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 16–17) + 1d, `
 
 Tài liệu (AOFP-175): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 18–20) + 1d bước 4, 6, 7; CLAUDE.md mục này.
 
+### Lịch sử thao tác cho mọi vai trò (23/10/2026, AOFP-176..177 + tài liệu AOFP-178)
+
+**[stated] Thuận yêu cầu:** mọi role xem lại được lịch sử các lần thao tác (đóng gói, nhập lô, vận chuyển — giao cho ai, giao thế nào, hoàn hàng…). Làm cả 4 phần: sổ hoạt động, dòng thời gian 1 đơn, trang lịch sử tổng (lọc + CSV), đọc dữ liệu đã lưu sẵn.
+
+- **AOFP-176 — sổ hoạt động `activity_logs`:** module `activity-log/` (schema + `recordActivity(model, entry, session?)` — có session thì ghi cùng transaction, không thì best-effort). Ghi: `transitionFulfillmentStatus` (mọi đổi trạng thái nhóm đơn), `decidePartial` (giao phần có sẵn / lấy lại, kèm người quyết định — controller truyền `user.userId`), `sellerCancelOrder` (kèm người hủy), giao thiếu từng đơn, `ReturnsService.move()` (mọi bước phiếu trả: duyệt/từ chối/nhận/kiểm/hủy, người làm lấy từ decided_by/received_by/inspected_by). objectid-fields 106.
+- **AOFP-177 — API `/history`:** module `history/` chỉ đọc 12 collection; gộp sổ cái kho (theo loại → picking/packing/warehouse/returns), phiếu nhập, mốc vận đơn + vận đơn + người nhận (đơn đầu của nhóm), kế hoạch đóng gói (mốc + niêm phong từng kiện + `activity[]` trừ start/finish), phiếu trả (tạo + xử lý cách ly), vật liệu, đăng nhập, sổ hoạt động. Phân trang k-way theo `before`; cửa sổ mặc định 30 ngày. `ROLE_HISTORY_CATEGORIES` chặn 403. Timeline gồm nhóm thay thế (đổi hàng) + đơn về. CSV có BOM.
+- **Verify:** BE tsc 0, eslint 0 lỗi; jest 8 shard **1.200 đạt** (+4 test history); chưa chạy HTTP thật.
+- **Tác động (5 câu):** (1) Collection mới `activity_logs` (3 index), không migration. (2) Ghi sổ trong transaction của thao tác gốc → nếu insert lỗi thì thao tác đó lỗi theo (đổi lại: không có lịch sử "ma"). (3) FE: checklist 1e (trang Lịch sử + tab Dòng thời gian), dòng 21–22. (4) Lịch sử lấy hàng dựa sổ cái kho (`pick` có actor); `pick_events` không có người quét nên không dùng. (5) Kế hoạch đóng gói lọc theo `updated_at ≥ from` (tối đa 300 kế hoạch/lượt) — khoảng ngày rất rộng có thể thiếu mốc đóng gói cũ, thu hẹp `from`/`to` là đủ.
+
+Tài liệu (AOFP-178): `FE_UPDATE_CHECKLIST.md` mục 1e + dòng 21–22, `API_LIST.md` mục 23.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
 ### A. Làm ngay (người dùng tự chạy)
-1. AOFP-146..170 đã commit (chưa push). Commit tiếp AOFP-171..174 (code) + AOFP-175 (tài liệu) — lệnh gửi trong chat 23/10 — rồi push `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại BE + mock :4000.
+1. AOFP-146..175 đã commit (chưa push). Commit tiếp AOFP-176..177 + AOFP-178 (lịch sử) — lệnh gửi trong chat 23/10 — rồi push `feature/thuan_be`, mở PR vào `main`. Sau khi pull: khởi động lại BE + mock :4000.
 2. Trước khi khởi động backend bản mới: `npx ts-node -r dotenv/config scripts/check-open-return-duplicates.ts` (chỉ đọc). Có phiếu trả mở trùng → hủy/từ chối phiếu thừa, nếu không index `uniq_open_return_per_order` không tạo được.
 3. Script dữ liệu chưa ghi nhận đã chạy trên DB thật (chạy thử trước, rồi `--apply`): `fix-storefront-reservations.ts`, `migrate-objectid-fields.ts` (bắt buộc), `recompute-consolidation-keys.ts`, `migrate-unify-packaging-materials.ts`.
 4. Chạy thử trọn 1 đơn AURELLE thật: BE 3000 + mock 4000 + storefront 3001 → đặt hàng → lấy → đóng → giao (GHN giả lập) → khách trả/đổi/hủy yêu cầu.
