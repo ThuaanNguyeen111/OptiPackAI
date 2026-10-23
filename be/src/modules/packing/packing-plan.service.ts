@@ -69,6 +69,8 @@ export const REJECTION_DUE_BUSINESS_HOURS = 2;
 interface Allocation {
   order_id: string;
   platform_order_id: string;
+  /** Tên người nhận của đơn (đơn gộp có thể khác tên nhau). */
+  recipient_name?: string | null;
   items: PackableItem[];
 }
 
@@ -378,6 +380,7 @@ export class PackingPlanService {
         orders.push({
           order_id: orderId,
           platform_order_id: allocation.platform_order_id,
+          recipient_name: allocation.recipient_name ?? null,
           status: result.status,
           unplaced: result.unplaced.map((u) => ({ item_key: u.item_key, code: u.code, reason: u.reason })),
           proof: result.proof,

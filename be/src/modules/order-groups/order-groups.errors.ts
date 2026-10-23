@@ -31,6 +31,12 @@ export const ORD_GROUP_ERROR_CODES = {
   // 22/10/2026 — người bán hủy đơn AURELLE
   ORDER_NOT_FOUND: 'ORD_GROUP_ORDER_NOT_FOUND', // 404: không có đơn
   SELLER_CANCEL_NOT_ALLOWED: 'ORD_GROUP_SELLER_CANCEL_NOT_ALLOWED', // 409: không phải đơn AURELLE / đã đóng gói xong / đã hủy
+  // 23/10/2026 — tách / gộp nhóm đơn tay
+  REGROUP_NOT_ALLOWED: 'ORD_GROUP_REGROUP_NOT_ALLOWED', // 409: nhóm không còn ở chờ/đang lấy, hoặc chỉ còn 1 đơn, hoặc đơn đã hủy
+  REGROUP_HAS_PICKS: 'ORD_GROUP_REGROUP_HAS_PICKS', // 409: nhóm đã quét lấy hàng ở lượt hiện tại — tách/gộp sẽ lệch hàng đã lấy
+  MERGE_SELF: 'ORD_GROUP_MERGE_SELF', // 400: gộp nhóm với chính nó
+  MERGE_SCOPE_MISMATCH: 'ORD_GROUP_MERGE_SCOPE_MISMATCH', // 409: 2 nhóm khác sàn/khác shop (tồn kho + hồ sơ SKU theo shop)
+  MERGE_RECIPIENT_MISMATCH: 'ORD_GROUP_MERGE_RECIPIENT_MISMATCH', // 409: 2 nhóm có SĐT người nhận thật khác nhau (vận đơn dùng chung địa chỉ)
 } as const;
 // Mã lỗi Phân công nhân viên (NO_STAFF_AVAILABLE, STAFF_NOT_FOUND,
 // STAFF_INACTIVE) khai ở staff-assignment.errors.ts — module riêng,

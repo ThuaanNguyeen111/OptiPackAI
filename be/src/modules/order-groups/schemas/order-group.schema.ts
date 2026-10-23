@@ -126,6 +126,23 @@ export class OrderGroup {
   @Prop({ type: Date, default: null })
   manual_linked_at!: Date | null;
 
+  /**
+   * 23/10/2026 — TÁCH / GỘP NHÓM ĐƠN TAY (đơn gộp nhầm, hoặc cùng khách nhưng hệ thống
+   * không tự gộp). Lịch sử thao tác ghi ở activity_logs (action order_group.split / order_group.merged).
+   * - split_from_group_id: nhóm này sinh ra do tách 1 đơn khỏi nhóm kia.
+   * - merged_into_group_id: nhóm này đã bị gộp vào nhóm kia (đơn đã chuyển hết, nhóm → canceled).
+   * - consolidation_closed: true = KHÔNG tự nhận thêm đơn gom đến muộn (nhóm tách ra phải
+   *   đứng riêng, nếu không lượt đồng bộ sau lại gom đơn cùng địa chỉ vào đúng nhóm vừa tách).
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  split_from_group_id?: Types.ObjectId | null;
+
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  merged_into_group_id?: Types.ObjectId | null;
+
+  @Prop({ type: Boolean, default: false })
+  consolidation_closed?: boolean;
+
   @Prop({ type: String, default: null })
   manual_link_note!: string | null;
 

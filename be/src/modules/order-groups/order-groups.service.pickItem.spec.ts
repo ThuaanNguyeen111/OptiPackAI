@@ -55,6 +55,10 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
       select: jest.fn().mockReturnValue({
         lean: jest.fn().mockResolvedValue([
           {
+            // 23/10/2026 — picking list có thêm "chia theo đơn" → cần _id/mã đơn/người nhận.
+            _id: new Types.ObjectId(),
+            platform_order_id: 'LZ-1',
+            recipient: { full_name: 'Nguyễn Văn A' },
             items: items.map((i) => ({
               ...i,
               name: 'SP',
@@ -345,6 +349,9 @@ describe('OrderGroupsService — luồng lấy hàng', () => {
 
     const { items } = await service.getPickableItemsForGroup(groupId);
 
+    expect(items[0]?.order_allocations).toEqual([
+      expect.objectContaining({ platform_order_id: 'LZ-1', recipient_name: 'Nguyễn Văn A', quantity: 2 }),
+    ]);
     expect(items).toEqual([
       expect.objectContaining({
         sku: 'AO',
