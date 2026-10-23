@@ -460,6 +460,7 @@ export class ReturnsService {
             quantity: line.quantity,
             returnRequestId: rma._id.toString(),
             actorId,
+            confirmOtherBin: line.confirm_other_bin === true,
           }, session);
         }
       }
@@ -592,6 +593,7 @@ export class ReturnsService {
         await this.warehouseService.restockReturnedItem({
           warehouseId: dto.warehouse_id, binLocationId: dto.bin_location_id, platform: rma.platform, shopId: rma.shop_id,
           sellerSku: line.seller_sku, quantity: line.quantity, returnRequestId: rma._id.toString(), actorId,
+          confirmOtherBin: dto.confirm_other_bin === true,
         }, session);
       }
       const updated = await this.returnModel.findOneAndUpdate(

@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
-import { getCurrentCustomer, loginCustomer } from '@/lib/api-client'
+import { ApiError, getCurrentCustomer, loginAdmin, loginCustomer } from '@/lib/api-client'
+import { PasswordInput } from '@/components/ui/password-input'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -22,6 +23,22 @@ export default function LoginPage() {
       .catch(() => { localStorage.removeItem('kaira-customer'); window.dispatchEvent(new Event('kaira-auth-changed')) })
     return () => { active = false }
   }, [router])
-  async function submit(event: React.FormEvent) { event.preventDefault(); setBusy(true); setError(''); try { const result = await loginCustomer({ email, password }); localStorage.setItem('kaira-customer', JSON.stringify(result.customer)); window.dispatchEvent(new Event('kaira-auth-changed')); router.push('/account') } catch (err) { setError(err instanceof Error ? err.message : 'Đăng nhập thất bại') } finally { setBusy(false) } }
-  return <><Header /><main className="page-shell"><div className="form-card"><div className="page-title"><span className="eyebrow">Welcome back</span><h1>Đăng nhập</h1></div><form onSubmit={submit}><label className="form-field">Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="form-field">Mật khẩu<input required type="password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="error">{error}</p>}<button className="button" disabled={busy}>{busy ? 'Đang xử lý...' : 'Đăng nhập'}</button></form><p>Chưa có tài khoản? <Link href="/auth/register">Đăng ký ngay</Link></p></div></main><Footer /></>
+  // 22/10/2026 — 1 trang đăng nhập chung: thử tài khoản khách trước; sai thì thử tài khoản Admin web
+  // (email/mật khẩu trong be/.env) → đúng thì vào trang quản trị. Trang /admin/login vẫn giữ.
+  async function submit(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError('')
+    try {
+      const result = await loginCustomer({ email, password })
+      localStorage.setItem('kaira-customer', JSON.stringify(result.customer))
+      window.dispatchEvent(new Event('kaira-auth-changed'))
+      router.push('/account')
+    } catch (err) {
+      const wrongCredentials = err instanceof ApiError && (err.status === 400 || err.status === 401)
+      if (wrongCredentials) {
+        try { await loginAdmin({ email, password }); router.replace('/admin'); return } catch { /* không phải Admin → báo lỗi khách */ }
+      }
+      setError(err instanceof Error ? err.message : 'Đăng nhập thất bại')
+    } finally { setBusy(false) }
+  }
+  return <><Header /><main className="page-shell"><div className="form-card"><div className="page-title"><span className="eyebrow">Welcome back</span><h1>Đăng nhập</h1></div><form onSubmit={submit}><label className="form-field">Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label><label className="form-field">Mật khẩu<PasswordInput required autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>{error && <p className="error">{error}</p>}<button className="button" disabled={busy}>{busy ? 'Đang xử lý...' : 'Đăng nhập'}</button></form><p>Chưa có tài khoản? <Link href="/auth/register">Đăng ký ngay</Link></p></div></main><Footer /></>
 }

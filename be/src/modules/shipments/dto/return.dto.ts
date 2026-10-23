@@ -2,7 +2,7 @@ import { PackagingInspectionLineDto } from '../../packaging-materials/dto/packag
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsIn, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min, ValidateNested,
+  ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min, ValidateNested,
 } from 'class-validator';
 import { InspectionResult, ReturnReason, ReturnType } from '../enums/return.enums';
 
@@ -22,6 +22,8 @@ export class ResolveQuarantineDto {
   @ApiPropertyOptional({ description: 'Bắt buộc khi action = restock' }) @IsOptional() @IsMongoId() warehouse_id?: string;
   @ApiPropertyOptional({ description: 'Bắt buộc khi action = restock' }) @IsOptional() @IsMongoId() bin_location_id?: string;
   @ApiPropertyOptional({ example: 'Đã kiểm lại, đường may không lỗi' }) @IsOptional() @IsString() @MaxLength(500) note?: string;
+  /** 22/10/2026 — xem InspectionLineDto.confirm_other_bin. */
+  @ApiPropertyOptional({ example: false }) @IsOptional() @IsBoolean() confirm_other_bin?: boolean;
 }
 
 /** [Admin — đóng vai khách] Giả lập khách yêu cầu trả hàng / hoàn tiền / đổi hàng. */
@@ -56,6 +58,8 @@ export class InspectionLineDto {
   @ApiPropertyOptional({ description: 'Bắt buộc khi result = restock' }) @IsOptional() @IsMongoId() warehouse_id?: string;
   @ApiPropertyOptional({ description: 'Bắt buộc khi result = restock — ô nhập lại' }) @IsOptional() @IsMongoId() bin_location_id?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(500) note?: string;
+  /** 22/10/2026 — ô chọn chưa có mã này mà mã đang ở ô khác → 409 WH_SKU_IN_OTHER_BIN; true = xác nhận. */
+  @ApiPropertyOptional({ example: false }) @IsOptional() @IsBoolean() confirm_other_bin?: boolean;
 }
 
 export class InspectReturnDto {

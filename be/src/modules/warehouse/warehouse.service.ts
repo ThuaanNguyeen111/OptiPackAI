@@ -1,8 +1,10 @@
 import { MarketplaceSkuMapping, MarketplaceSkuMappingDocument } from '../master-skus/schemas/marketplace-sku-mapping.schema';
 import { normalizeSellerSku } from '../master-skus/master-skus.service';
+import { MasterSku, MasterSkuDocument } from '../master-skus/schemas/master-sku.schema';
 import {
   resolveMasterSkus,
   stockAssignmentOrBranches,
+  stockFilterFor,
   stockUpsertFilterFor,
 } from '../master-skus/stock-key.util';
 import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
@@ -129,6 +131,9 @@ export class WarehouseService {
     private readonly lotModel?: Model<StockLotDocument>,
     @Optional() @InjectModel(StockReceipt.name)
     private readonly receiptModel?: Model<StockReceiptDocument>,
+    // 22/10/2026 — gán kệ: SKU sàn trùng ĐÚNG mã 1 SKU nội bộ đang dùng → gộp tồn theo SKU nội bộ đó.
+    @Optional() @InjectModel(MasterSku.name)
+    private readonly masterSkuModel?: Model<MasterSkuDocument>,
   ) {
     this.lots = new StockLotLedger(lotModel);
   }
@@ -441,6 +446,54 @@ export class WarehouseService {
       }));
   }
 
+  /**
+   * 22/10/2026 — SKU sàn chưa có liên kết (VD chọn nhầm dòng sàn khác cùng mã) nhưng trùng ĐÚNG mã
+   * 1 SKU nội bộ đang dùng → coi là SKU nội bộ đó, để tồn của ô được tính chung cho mọi sàn
+   * (website AURELLE đã nối mã này mới thấy số tồn). Không có model (test cũ) → undefined.
+   */
+  /**
+   * 22/10/2026 — Mã (theo SKU nội bộ nếu đã nối, không thì theo SKU sàn) đã có dòng tồn ở Ô KHÁC
+   * trong cùng kho → 409 WH_SKU_IN_OTHER_BIN kèm danh sách mã ô. `confirmed` = người dùng đã đồng ý
+   * đặt thêm ô mới (1 SKU nhiều ô vẫn hợp lệ — chỉ không cho xảy ra "lỡ tay").
+   */
+  private async assertNotInOtherBin(
+    warehouseId: Types.ObjectId,
+    binId: Types.ObjectId,
+    master: string | undefined,
+    platform: string,
+    shopId: string,
+    sellerSku: string,
+    confirmed: boolean,
+    session?: ClientSession,
+  ): Promise<void> {
+    if (confirmed) return;
+    const others = await this.assignmentModel
+      .find({ warehouse_id: warehouseId, bin_location_id: { $ne: binId }, ...stockFilterFor(master, platform, shopId, sellerSku) })
+      .select('bin_location_id')
+      .session(session ?? null)
+      .lean();
+    if (others.length === 0) return;
+    const bins = await this.binModel
+      .find({ _id: { $in: others.map((o) => o.bin_location_id) } })
+      .select('bin_code')
+      .session(session ?? null)
+      .lean();
+    const binCodes = bins.map((b) => b.bin_code);
+    throw new AppException(
+      WAREHOUSE_ERROR_CODES.SKU_IN_OTHER_BIN,
+      `Mã "${master ?? sellerSku}" đã được gán ở ô ${binCodes.join(', ')}. Muốn đặt thêm vào ô này thì bấm xác nhận.`,
+      HttpStatus.CONFLICT,
+      { sellerSku, masterSku: master ?? null, binCodes },
+    );
+  }
+
+  private async masterByExactCode(sellerSku: string): Promise<string | undefined> {
+    if (!this.masterSkuModel) return undefined;
+    const code = normalizeSellerSku(sellerSku);
+    const found = await this.masterSkuModel.findOne({ master_sku: code, is_active: true }).select('master_sku').lean();
+    return found?.master_sku;
+  }
+
   async assignSkuToBin(
     warehouseId: string,
     dto: AssignSkuBinDto,
@@ -479,12 +532,15 @@ export class WarehouseService {
       bin_location_id: bin._id,
     };
     // 🔄 K4b — SKU sàn đã nối: 1 dòng tồn cho SKU nội bộ trên mỗi ô (chung mọi sàn).
-    const master = (await resolveMasterSkus(this.mappingModel, dto.platform, dto.shop_id, [dto.seller_sku])).get(dto.seller_sku);
+    const master = (await resolveMasterSkus(this.mappingModel, dto.platform, dto.shop_id, [dto.seller_sku])).get(dto.seller_sku)
+      ?? (await this.masterByExactCode(dto.seller_sku));
     const lookup = master
       ? { warehouse_id: filter.warehouse_id, bin_location_id: bin._id, master_sku: master }
       : { ...filter, master_sku: null };
     const existing = await this.assignmentModel.findOne(lookup);
     if (existing) return existing;
+    // 22/10/2026 — mã đã ở ô khác: báo để người dùng xác nhận (tránh gán nhầm 2 ô).
+    await this.assertNotInOtherBin(filter.warehouse_id, bin._id, master, dto.platform, dto.shop_id, dto.seller_sku, dto.confirm_other_bin === true);
 
     const initial = dto.initial_quantity ?? 0;
     // K2 — sức chứa ô tính trên TỔNG hàng của mọi SKU đang nằm trong ô.
@@ -1519,7 +1575,7 @@ export class WarehouseService {
   }
 
   async restockReturnedItem(
-    params: { warehouseId: string; binLocationId: string; platform: MarketplacePlatform; shopId: string; sellerSku: string; quantity: number; returnRequestId: string; actorId: string },
+    params: { warehouseId: string; binLocationId: string; platform: MarketplacePlatform; shopId: string; sellerSku: string; quantity: number; returnRequestId: string; actorId: string; confirmOtherBin?: boolean },
     session: ClientSession,
   ): Promise<void> {
     const bin = await this.assertBinExists(params.binLocationId);
@@ -1530,7 +1586,15 @@ export class WarehouseService {
       throw new AppException(WAREHOUSE_ERROR_CODES.BIN_INACTIVE, `Ô "${bin.bin_code}" đã bị vô hiệu hóa.`, HttpStatus.CONFLICT, { binId: params.binLocationId });
     }
     // 🔄 K4b — SKU đã nối thì hàng hoàn nhập lại vào tồn chung của SKU nội bộ.
-    const master = (await resolveMasterSkus(this.mappingModel, params.platform, params.shopId, [params.sellerSku])).get(params.sellerSku);
+    const master = (await resolveMasterSkus(this.mappingModel, params.platform, params.shopId, [params.sellerSku])).get(params.sellerSku)
+      ?? (await this.masterByExactCode(params.sellerSku));
+    // 22/10/2026 — ô này chưa có mã đó mà mã đang nằm ở ô khác → bắt xác nhận trước khi tạo dòng mới.
+    const inThisBin = await this.assignmentModel
+      .exists({ warehouse_id: bin.warehouse_id, bin_location_id: bin._id, ...stockUpsertFilterFor(master, params.platform, params.shopId, params.sellerSku) })
+      .session(session);
+    if (!inThisBin) {
+      await this.assertNotInOtherBin(bin.warehouse_id, bin._id, master, params.platform, params.shopId, params.sellerSku, params.confirmOtherBin === true, session);
+    }
     // 🔄 07/10/2026 — upsert phải dùng bộ lọc KHỚP CHÍNH XÁC (stockUpsertFilterFor).
     // Dùng stockFilterFor (có $or + regex) thì khi ô chưa có dòng tồn, dòng mới tạo ra
     // thiếu master_sku (SKU đã nối) hoặc thiếu seller_sku (SKU chưa nối).

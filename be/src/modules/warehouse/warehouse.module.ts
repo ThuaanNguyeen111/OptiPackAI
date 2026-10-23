@@ -1,4 +1,5 @@
 import { MarketplaceSkuMapping, MarketplaceSkuMappingSchema } from '../master-skus/schemas/marketplace-sku-mapping.schema';
+import { MasterSku, MasterSkuSchema } from '../master-skus/schemas/master-sku.schema';
 import { InventoryMovement, InventoryMovementSchema } from './schemas/inventory-movement.schema';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
@@ -19,6 +20,7 @@ import { CategoriesModule } from '../categories/categories.module';
     MongooseModule.forFeature([
       { name: InventoryMovement.name, schema: InventoryMovementSchema }, // K3
       { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema }, // K4b
+      { name: MasterSku.name, schema: MasterSkuSchema }, // 22/10/2026 — gán kệ theo mã SKU nội bộ trùng
       { name: Warehouse.name, schema: WarehouseSchema },
       { name: WarehouseZone.name, schema: WarehouseZoneSchema },
       { name: BinLocation.name, schema: BinLocationSchema },
