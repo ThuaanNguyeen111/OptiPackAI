@@ -74,12 +74,21 @@ export type WarehousePickingListItem = {
   master_sku: string | null
   bin_location_id: string | null
   other_bins: OtherBin[]
+  oldest_lot: OldestLot | null
+}
+
+/** Lô cũ nhất còn hàng trên ô — picking list trừ lô này trước. */
+export type OldestLot = {
+  lot_code: string
+  received_at: string
+  quantity_remaining: number
 }
 
 export type OtherBin = {
   bin_location_id: string
   bin_code: string
   quantity_on_hand: number
+  oldest_lot: OldestLot | null
 }
 
 export type CreateWarehouseInput = {
@@ -316,4 +325,8 @@ export const WAREHOUSE_ERROR_MESSAGES: Record<string, string> = {
   MAP_ALREADY_MAPPED: 'SKU sàn đã nối với một SKU nội bộ khác.',
   MAP_NOT_FOUND: 'Không tìm thấy liên kết SKU sàn.',
   MAP_HAS_POOLED_STOCK: 'SKU nội bộ còn tồn gộp chung — đưa tồn về 0 trước khi bỏ nối.',
+  WH_RECEIPT_DATE_IN_FUTURE: 'Ngày nhập không được ở tương lai.',
+  WH_RECEIPT_LINE_INVALID: 'Mỗi dòng phiếu phải chọn một dòng tồn, hoặc đủ ô, sàn, shop và SKU.',
+  WH_RECEIPT_LINE_NOT_ASSIGNED: 'SKU chưa được gán vào ô đó. Gán SKU trước khi lập phiếu nhập.',
+  WH_RECEIPT_NOT_FOUND: 'Không tìm thấy phiếu nhập.',
 }

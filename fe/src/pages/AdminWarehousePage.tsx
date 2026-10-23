@@ -28,6 +28,7 @@ import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/input'
+import { formatLotReceived } from '../utils/format'
 import {
   Table,
   TableBody,
@@ -77,9 +78,12 @@ function purgeDoneMessage(
   return vi ? `Đã xoá hẳn ${list}.` : `Permanently deleted ${list}.`
 }
 
-const stockActionLabelClass = 'w-16 shrink-0 text-[11px] text-ink-muted'
-
 const formCardClass = 'rounded-lg border border-hairline bg-surface-2/40 p-3'
+
+type StockActionId = 'receive' | 'count' | 'move' | 'retarget'
+
+const stockControlClass =
+  'h-9 rounded-lg border border-hairline bg-surface-1 px-2.5 text-xs text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
 
 const fieldClass =
   'w-full rounded-md border border-hairline bg-surface-1 px-3 py-2 text-sm text-ink placeholder:text-ink-tertiary focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
@@ -2345,6 +2349,70 @@ function AssignTab({
   )
 }
 
+function stockActionMeta(vi: boolean): Array<{
+  id: StockActionId
+  label: string
+  hint: string
+}> {
+  return [
+    {
+      id: 'receive',
+      label: vi ? 'Nhập thêm' : 'Receive',
+      hint: vi
+        ? 'Cộng thêm vào số đang có trên ô này.'
+        : 'Add to the quantity already in this bin.',
+    },
+    {
+      id: 'count',
+      label: vi ? 'Kiểm kê' : 'Count',
+      hint: vi
+        ? 'Ghi số đếm được trên kệ. Chênh lệch hiện bên cạnh.'
+        : 'Save the counted quantity. The difference is shown beside it.',
+    },
+    {
+      id: 'move',
+      label: vi ? 'Chuyển ô' : 'Move',
+      hint: vi
+        ? 'Chuyển một phần hàng sang ô khác.'
+        : 'Move part of the quantity to another bin.',
+    },
+    {
+      id: 'retarget',
+      label: vi ? 'Sửa gán' : 'Retarget',
+      hint: vi
+        ? 'Đổi ô của cả dòng. Hàng còn lại đi theo.'
+        : 'Point the whole line at another bin. Remaining stock moves with it.',
+    },
+  ]
+}
+
+function BinPick({
+  bins,
+  value,
+  emptyLabel,
+  onChange,
+}: {
+  bins: BinLocationRecord[]
+  value: string
+  emptyLabel: string
+  onChange: (binId: string) => void
+}) {
+  return (
+    <select
+      className={cn(stockControlClass, 'min-w-[10rem] flex-1')}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value="">{emptyLabel}</option>
+      {bins.map((bin) => (
+        <option key={bin.id} value={bin.id}>
+          {bin.binCode}
+        </option>
+      ))}
+    </select>
+  )
+}
+
 function StockTab({
   vi,
   api,
@@ -2355,20 +2423,31 @@ function StockTab({
   onRestocked: () => void
 }) {
   const [qtyById, setQtyById] = useState<Record<string, number>>({})
+  const [receivedAtById, setReceivedAtById] = useState<Record<string, string>>({})
+  const [lotCodeById, setLotCodeById] = useState<Record<string, string>>({})
   const [countedById, setCountedById] = useState<Record<string, number>>({})
   const [reasonById, setReasonById] = useState<Record<string, StockAdjustReason>>({})
   const [noteById, setNoteById] = useState<Record<string, string>>({})
   const [transferBinById, setTransferBinById] = useState<Record<string, string>>({})
   const [transferQtyById, setTransferQtyById] = useState<Record<string, number>>({})
   const [moveBinById, setMoveBinById] = useState<Record<string, string>>({})
+  const [actionById, setActionById] = useState<Record<string, StockActionId>>({})
   const [ledgerId, setLedgerId] = useState('')
   const [movements, setMovements] = useState<InventoryMovementRecord[]>([])
 
   async function submit(assignmentId: string, force = false) {
     const qty = qtyById[assignmentId] ?? 0
     if (qty < 1) return
+    const received = receivedAtById[assignmentId]?.trim()
+    const parsed = received ? new Date(received) : null
+    const lot = lotCodeById[assignmentId]?.trim()
+    const extra = {
+      received_at:
+        parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : undefined,
+      lot_code: lot || undefined,
+    }
     try {
-      await api.restock(assignmentId, qty, force)
+      await api.restock(assignmentId, qty, force, extra)
       setQtyById((prev) => ({ ...prev, [assignmentId]: 1 }))
       onRestocked()
     } catch (err: unknown) {
@@ -2408,255 +2487,355 @@ function StockTab({
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>SKU</TableHead>
-          <TableHead>{vi ? 'Kệ' : 'Bin'}</TableHead>
-          <TableHead>{vi ? 'Tồn hiện tại' : 'On hand'}</TableHead>
-          <TableHead>{vi ? 'Thao tác' : 'Actions'}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {api.assignments.map((row) => (
-          <TableRow key={row.id}>
-            <TableCell>
-              <p className="font-medium text-ink">{row.sellerSku}</p>
-              <p className="text-[11px] text-ink-muted">
-                {row.platform} · {row.shopId}
-              </p>
-              {row.masterSku ? (
-                <p className="text-[11px] font-medium text-primary-hover">
-                  {vi ? 'Tồn chung' : 'Pooled'}: {row.masterSku}
+    <div className="space-y-3">
+      {api.assignments.map((row) => {
+        const actions = stockActionMeta(vi)
+        const action = actionById[row.id] ?? 'receive'
+        const active = actions.find((item) => item.id === action)
+        const addQty = qtyById[row.id] ?? 1
+        const counted = countedById[row.id] ?? row.quantityOnHand
+        const delta = counted - row.quantityOnHand
+        const destinations = api.allBins.filter(
+          (bin) => bin.id !== row.binLocationId && bin.isActive,
+        )
+        const binLabel = row.binCode || row.binLocationId.slice(-8)
+        return (
+          <article
+            key={row.id}
+            className="overflow-hidden rounded-xl border border-hairline bg-surface-1"
+          >
+            <div className="grid gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(8rem,1fr)_auto] sm:items-center">
+              <div className="min-w-0">
+                <p className="truncate font-medium text-ink" title={row.sellerSku}>
+                  {row.sellerSku}
                 </p>
-              ) : null}
-            </TableCell>
-            <TableCell>{row.binCode || row.binLocationId.slice(-8)}</TableCell>
-            <TableCell>
-              <Badge tone={row.quantityOnHand > 0 ? 'success' : 'warning'}>
-                {row.quantityOnHand}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              <div className="flex items-center gap-2">
-                <span className={stockActionLabelClass}>{vi ? 'Nhập thêm' : 'Receive'}</span>
-                <Input
-                  className="h-8 w-16"
-                  type="number"
-                  min={1}
-                  value={qtyById[row.id] ?? 1}
-                  onChange={(e) =>
-                    setQtyById((prev) => ({
-                      ...prev,
-                      [row.id]: Number(e.target.value),
-                    }))
-                  }
-                />
-                <Button
-                  className="h-8 px-2.5 text-xs"
-                  disabled={api.mutating}
-                  onClick={() => void submit(row.id)}
-                >
-                  {vi ? 'Nhập' : 'Add'}
-                </Button>
+                <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+                  {row.platform} · {row.shopId}
+                  {row.masterSku
+                    ? ` · ${vi ? 'Tồn chung' : 'Pooled'} ${row.masterSku}`
+                    : ''}
+                </p>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className={stockActionLabelClass}>{vi ? 'Kiểm kê' : 'Count'}</span>
-                <Input
-                  className="h-8 w-16"
-                  type="number"
-                  min={0}
-                  value={countedById[row.id] ?? row.quantityOnHand}
-                  onChange={(e) =>
-                    setCountedById((prev) => ({
-                      ...prev,
-                      [row.id]: Number(e.target.value),
-                    }))
-                  }
-                />
-                <select
-                  className="h-8 rounded-md border border-hairline bg-surface-1 px-2 text-xs"
-                  value={reasonById[row.id] ?? 'count_correction'}
-                  onChange={(e) =>
-                    setReasonById((prev) => ({
-                      ...prev,
-                      [row.id]: e.target.value as StockAdjustReason,
-                    }))
-                  }
-                >
-                  <option value="count_correction">{vi ? 'Đếm lại' : 'Recount'}</option>
-                  <option value="damaged">{vi ? 'Hư' : 'Damaged'}</option>
-                  <option value="lost">{vi ? 'Mất' : 'Lost'}</option>
-                  <option value="found">{vi ? 'Tìm thấy' : 'Found'}</option>
-                  <option value="other">{vi ? 'Khác' : 'Other'}</option>
-                </select>
-                <Input
-                  className="h-8 w-28"
-                  placeholder={vi ? 'Ghi chú' : 'Note'}
-                  value={noteById[row.id] ?? ''}
-                  onChange={(e) =>
-                    setNoteById((prev) => ({ ...prev, [row.id]: e.target.value }))
-                  }
-                />
-                <Button
-                  variant="secondary"
-                  className="h-8 px-2.5 text-xs"
-                  disabled={api.mutating}
-                  onClick={() =>
-                    void api.adjustStock(row.id, {
-                      counted_quantity: countedById[row.id] ?? row.quantityOnHand,
-                      reason_code: reasonById[row.id] ?? 'count_correction',
-                      note: noteById[row.id]?.trim() || undefined,
-                    })
-                  }
-                >
-                  {vi ? 'Lưu' : 'Save'}
-                </Button>
+              <div className="min-w-0">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+                  {vi ? 'Kệ' : 'Bin'}
+                </p>
+                <p className="truncate text-sm font-medium text-ink" title={binLabel}>
+                  {binLabel}
+                </p>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className={stockActionLabelClass}>{vi ? 'Chuyển ô' : 'Move'}</span>
-                <select
-                  className="h-8 max-w-[180px] rounded-md border border-hairline bg-surface-1 px-2 text-xs"
-                  value={transferBinById[row.id] ?? ''}
-                  onChange={(e) =>
-                    setTransferBinById((prev) => ({
-                      ...prev,
-                      [row.id]: e.target.value,
-                    }))
-                  }
-                >
-                  <option value="">{vi ? 'Ô đích' : 'Destination bin'}</option>
-                  {api.allBins
-                    .filter((bin) => bin.id !== row.binLocationId && bin.isActive)
-                    .map((bin) => (
-                      <option key={bin.id} value={bin.id}>
-                        {bin.binCode}
-                      </option>
-                    ))}
-                </select>
-                <Input
-                  className="h-8 w-16"
-                  type="number"
-                  min={1}
-                  value={transferQtyById[row.id] ?? 1}
-                  onChange={(e) =>
-                    setTransferQtyById((prev) => ({
-                      ...prev,
-                      [row.id]: Number(e.target.value),
-                    }))
-                  }
-                />
-                <Button
-                  variant="secondary"
-                  className="h-8 px-2.5 text-xs"
-                  disabled={api.mutating || !transferBinById[row.id]}
-                  onClick={() => {
-                    const input = {
-                      to_bin_location_id: transferBinById[row.id] ?? '',
-                      quantity: transferQtyById[row.id] ?? 1,
-                    }
-                    void api.transferStock(row.id, input).catch((err: unknown) => {
-                      if (getApiErrorCode(err) !== 'WH_BIN_OVER_CAPACITY') return
-                      const ok = window.confirm(
-                        `${formatApiError(err)}\n\n${vi ? 'Vẫn chuyển?' : 'Move anyway?'}`,
-                      )
-                      if (ok) void api.transferStock(row.id, { ...input, force: true })
-                    })
-                  }}
-                >
-                  {vi ? 'Chuyển' : 'Move'}
-                </Button>
+              <div className="sm:text-right">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
+                  {vi ? 'Tồn' : 'On hand'}
+                </p>
+                <Badge tone={row.quantityOnHand > 0 ? 'success' : 'warning'}>
+                  {row.quantityOnHand}
+                </Badge>
               </div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className={stockActionLabelClass}>{vi ? 'Sửa gán' : 'Retarget'}</span>
-                <select
-                  className="h-8 max-w-[180px] rounded-md border border-hairline bg-surface-1 px-2 text-xs"
-                  value={moveBinById[row.id] ?? ''}
-                  onChange={(e) =>
-                    setMoveBinById((prev) => ({
-                      ...prev,
-                      [row.id]: e.target.value,
-                    }))
-                  }
-                >
-                  <option value="">{vi ? 'Ô đúng' : 'Correct bin'}</option>
-                  {api.allBins
-                    .filter((bin) => bin.id !== row.binLocationId && bin.isActive)
-                    .map((bin) => (
-                      <option key={bin.id} value={bin.id}>
-                        {bin.binCode}
-                      </option>
-                    ))}
-                </select>
-                <Button
-                  variant="secondary"
-                  className="h-8 px-2.5 text-xs"
-                  disabled={api.mutating || !moveBinById[row.id]}
-                  onClick={() => {
-                    const destId = moveBinById[row.id] ?? ''
-                    const dest = api.allBins.find((bin) => bin.id === destId)
-                    const ok = window.confirm(
-                      vi
-                        ? `Sửa gán: chuyển cả dòng sang ô ${dest?.binCode ?? ''}? Hàng còn lại cũng đi theo.`
-                        : `Move the whole assignment to ${dest?.binCode ?? ''}?`,
+            </div>
+
+            <div className="border-t border-hairline px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                <div className="inline-flex flex-wrap rounded-lg border border-hairline bg-canvas p-0.5">
+                  {actions.map((item) => {
+                    const selected = item.id === action
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        aria-pressed={selected}
+                        className={cn(
+                          'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                          selected
+                            ? 'bg-surface-1 text-ink shadow-sm'
+                            : 'text-ink-muted hover:text-ink',
+                        )}
+                        onClick={() =>
+                          setActionById((prev) => ({ ...prev, [row.id]: item.id }))
+                        }
+                      >
+                        {item.label}
+                      </button>
                     )
-                    if (!ok) return
-                    const input = { to_bin_location_id: destId }
-                    void api.moveAssignment(row.id, input).catch((err: unknown) => {
-                      if (getApiErrorCode(err) !== 'WH_BIN_OVER_CAPACITY') return
-                      const force = window.confirm(
-                        `${formatApiError(err)}\n\n${vi ? 'Vẫn chuyển?' : 'Move anyway?'}`,
-                      )
-                      if (force) void api.moveAssignment(row.id, { ...input, force: true })
-                    })
-                  }}
-                >
-                  {vi ? 'Chuyển cả dòng' : 'Move all'}
-                </Button>
-              </div>
-              <div className="mt-2 flex items-center gap-3 pl-[4.5rem]">
-                <button
-                  type="button"
-                  className="text-[11px] text-primary-hover"
-                  onClick={() => void openLedger(row.id)}
-                >
-                  {vi ? 'Sổ cái' : 'Ledger'}
-                </button>
-                {row.quantityOnHand === 0 ? (
+                  })}
+                </div>
+                <div className="flex items-center gap-3">
                   <button
                     type="button"
-                    className="text-[11px] text-ink-muted"
-                    onClick={() => void api.unassignSku(row.id)}
+                    className="text-xs font-medium text-ink-muted hover:text-ink"
+                    onClick={() => void openLedger(row.id)}
                   >
-                    {vi ? 'Bỏ gán' : 'Unassign'}
+                    {ledgerId === row.id
+                      ? vi
+                        ? 'Ẩn sổ cái'
+                        : 'Hide ledger'
+                      : vi
+                        ? 'Sổ cái'
+                        : 'Ledger'}
                   </button>
+                  {row.quantityOnHand === 0 ? (
+                    <button
+                      type="button"
+                      className="text-xs text-ink-muted hover:text-red-700"
+                      onClick={() => void api.unassignSku(row.id)}
+                    >
+                      {vi ? 'Bỏ gán' : 'Unassign'}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {active ? (
+                <p className="mt-2 text-[11px] leading-5 text-ink-muted">{active.hint}</p>
+              ) : null}
+
+              <div className="mt-2">
+                {action === 'receive' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      className="h-9 w-24"
+                      type="number"
+                      min={1}
+                      aria-label={vi ? 'Số lượng nhập thêm' : 'Quantity to add'}
+                      value={addQty}
+                      onChange={(e) =>
+                        setQtyById((prev) => ({
+                          ...prev,
+                          [row.id]: Number(e.target.value),
+                        }))
+                      }
+                    />
+                    <span className="text-[11px] text-ink-muted">
+                      {vi ? 'Sau nhập' : 'After'}{' '}
+                      <span className="tabular-nums text-ink">
+                        {row.quantityOnHand + (Number.isFinite(addQty) ? addQty : 0)}
+                      </span>
+                    </span>
+                    <Input
+                      className="h-9 w-44"
+                      type="datetime-local"
+                      aria-label={vi ? 'Ngày nhập' : 'Received at'}
+                      value={receivedAtById[row.id] ?? ''}
+                      onChange={(e) =>
+                        setReceivedAtById((prev) => ({ ...prev, [row.id]: e.target.value }))
+                      }
+                    />
+                    <Input
+                      className="h-9 w-28"
+                      aria-label={vi ? 'Mã lô' : 'Lot code'}
+                      placeholder={vi ? 'Mã lô' : 'Lot'}
+                      maxLength={40}
+                      value={lotCodeById[row.id] ?? ''}
+                      onChange={(e) =>
+                        setLotCodeById((prev) => ({ ...prev, [row.id]: e.target.value }))
+                      }
+                    />
+                    <Button
+                      className="h-9 px-3 text-xs sm:ml-auto"
+                      disabled={api.mutating}
+                      onClick={() => void submit(row.id)}
+                    >
+                      {vi ? 'Nhập' : 'Add'}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {action === 'count' ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Input
+                      className="h-9 w-24"
+                      type="number"
+                      min={0}
+                      aria-label={vi ? 'Số đếm thực tế' : 'Counted quantity'}
+                      value={counted}
+                      onChange={(e) =>
+                        setCountedById((prev) => ({
+                          ...prev,
+                          [row.id]: Number(e.target.value),
+                        }))
+                      }
+                    />
+                    <select
+                      className={cn(stockControlClass, 'w-32')}
+                      aria-label={vi ? 'Lý do kiểm kê' : 'Count reason'}
+                      value={reasonById[row.id] ?? 'count_correction'}
+                      onChange={(e) =>
+                        setReasonById((prev) => ({
+                          ...prev,
+                          [row.id]: e.target.value as StockAdjustReason,
+                        }))
+                      }
+                    >
+                      <option value="count_correction">{vi ? 'Đếm lại' : 'Recount'}</option>
+                      <option value="damaged">{vi ? 'Hư' : 'Damaged'}</option>
+                      <option value="lost">{vi ? 'Mất' : 'Lost'}</option>
+                      <option value="found">{vi ? 'Tìm thấy' : 'Found'}</option>
+                      <option value="other">{vi ? 'Khác' : 'Other'}</option>
+                    </select>
+                    <Input
+                      className="h-9 min-w-36 flex-1"
+                      placeholder={vi ? 'Ghi chú' : 'Note'}
+                      value={noteById[row.id] ?? ''}
+                      onChange={(e) =>
+                        setNoteById((prev) => ({ ...prev, [row.id]: e.target.value }))
+                      }
+                    />
+                    <span className="text-[11px] tabular-nums text-ink-muted">
+                      {delta > 0 ? '+' : ''}
+                      {Number.isFinite(delta) ? delta : 0}
+                    </span>
+                    <Button
+                      variant="secondary"
+                      className="h-9 px-3 text-xs"
+                      disabled={api.mutating}
+                      onClick={() =>
+                        void api.adjustStock(row.id, {
+                          counted_quantity: countedById[row.id] ?? row.quantityOnHand,
+                          reason_code: reasonById[row.id] ?? 'count_correction',
+                          note: noteById[row.id]?.trim() || undefined,
+                        })
+                      }
+                    >
+                      {vi ? 'Lưu' : 'Save'}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {action === 'move' ? (
+                  destinations.length === 0 ? (
+                    <p className="text-xs text-ink-muted">
+                      {vi ? 'Không còn ô khác để chuyển.' : 'No other active bin to move to.'}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <BinPick
+                        bins={destinations}
+                        value={transferBinById[row.id] ?? ''}
+                        emptyLabel={vi ? 'Ô đích' : 'Destination bin'}
+                        onChange={(binId) =>
+                          setTransferBinById((prev) => ({ ...prev, [row.id]: binId }))
+                        }
+                      />
+                      <Input
+                        className="h-9 w-24"
+                        type="number"
+                        min={1}
+                        aria-label={vi ? 'Số lượng chuyển' : 'Quantity to move'}
+                        value={transferQtyById[row.id] ?? 1}
+                        onChange={(e) =>
+                          setTransferQtyById((prev) => ({
+                            ...prev,
+                            [row.id]: Number(e.target.value),
+                          }))
+                        }
+                      />
+                      <Button
+                        variant="secondary"
+                        className="h-9 px-3 text-xs"
+                        disabled={api.mutating || !transferBinById[row.id]}
+                        onClick={() => {
+                          const input = {
+                            to_bin_location_id: transferBinById[row.id] ?? '',
+                            quantity: transferQtyById[row.id] ?? 1,
+                          }
+                          void api.transferStock(row.id, input).catch((err: unknown) => {
+                            if (getApiErrorCode(err) !== 'WH_BIN_OVER_CAPACITY') return
+                            const ok = window.confirm(
+                              `${formatApiError(err)}\n\n${vi ? 'Vẫn chuyển?' : 'Move anyway?'}`,
+                            )
+                            if (ok) void api.transferStock(row.id, { ...input, force: true })
+                          })
+                        }}
+                      >
+                        {vi ? 'Chuyển' : 'Move'}
+                      </Button>
+                    </div>
+                  )
+                ) : null}
+
+                {action === 'retarget' ? (
+                  destinations.length === 0 ? (
+                    <p className="text-xs text-ink-muted">
+                      {vi ? 'Không còn ô khác để sửa gán.' : 'No other active bin to retarget.'}
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <BinPick
+                        bins={destinations}
+                        value={moveBinById[row.id] ?? ''}
+                        emptyLabel={vi ? 'Ô đúng' : 'Correct bin'}
+                        onChange={(binId) =>
+                          setMoveBinById((prev) => ({ ...prev, [row.id]: binId }))
+                        }
+                      />
+                      <Button
+                        variant="secondary"
+                        className="h-9 px-3 text-xs"
+                        disabled={api.mutating || !moveBinById[row.id]}
+                        onClick={() => {
+                          const destId = moveBinById[row.id] ?? ''
+                          const dest = api.allBins.find((bin) => bin.id === destId)
+                          const ok = window.confirm(
+                            vi
+                              ? `Sửa gán: chuyển cả dòng sang ô ${dest?.binCode ?? ''}? Hàng còn lại cũng đi theo.`
+                              : `Move the whole assignment to ${dest?.binCode ?? ''}?`,
+                          )
+                          if (!ok) return
+                          const input = { to_bin_location_id: destId }
+                          void api.moveAssignment(row.id, input).catch((err: unknown) => {
+                            if (getApiErrorCode(err) !== 'WH_BIN_OVER_CAPACITY') return
+                            const force = window.confirm(
+                              `${formatApiError(err)}\n\n${vi ? 'Vẫn chuyển?' : 'Move anyway?'}`,
+                            )
+                            if (force) void api.moveAssignment(row.id, { ...input, force: true })
+                          })
+                        }}
+                      >
+                        {vi ? 'Chuyển cả dòng' : 'Move all'}
+                      </Button>
+                    </div>
+                  )
                 ) : null}
               </div>
+
               {ledgerId === row.id ? (
-                <ul className="mt-2 space-y-1 text-[11px] text-ink-muted">
+                <ul className="mt-3 divide-y divide-hairline rounded-lg border border-hairline text-xs">
                   {movements.length === 0 ? (
-                    <li>{vi ? 'Chưa có dòng sổ.' : 'No movements yet.'}</li>
+                    <li className="px-3 py-2 text-ink-muted">
+                      {vi ? 'Chưa có dòng sổ.' : 'No movements yet.'}
+                    </li>
                   ) : (
                     movements.map((move) => (
-                      <li key={move.id}>
-                        {move.type}
-                        {move.refType === 'sku_merge' || move.type === 'sku_merge'
-                          ? vi
-                            ? ' · Gộp tồn'
-                            : ' · Stock merge'
-                          : ''}
-                        {move.masterSku ? ` · ${move.masterSku}` : ''} · {move.delta > 0 ? '+' : ''}
-                        {move.delta} ({move.quantityBefore}→{move.quantityAfter})
+                      <li
+                        key={move.id}
+                        className="flex items-baseline justify-between gap-3 px-3 py-2"
+                      >
+                        <span className="min-w-0 text-ink">
+                          {move.type}
+                          {move.refType === 'sku_merge' || move.type === 'sku_merge'
+                            ? vi
+                              ? ' · Gộp tồn'
+                              : ' · Stock merge'
+                            : ''}
+                          {move.masterSku ? ` · ${move.masterSku}` : ''}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-ink-muted">
+                          {move.delta > 0 ? '+' : ''}
+                          {move.delta}
+                          <span className="ml-2">
+                            {move.quantityBefore}→{move.quantityAfter}
+                          </span>
+                        </span>
                       </li>
                     ))
                   )}
                 </ul>
               ) : null}
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+            </div>
+          </article>
+        )
+      })}
+    </div>
   )
 }
 
@@ -2777,6 +2956,15 @@ function PickingTab({
                   ) : (
                     item.bin_code
                   )}
+                  {item.oldest_lot ? (
+                    <p className="mt-0.5 text-[11px] text-ink-muted">
+                      {formatLotReceived(
+                        item.oldest_lot.lot_code,
+                        item.oldest_lot.received_at,
+                        vi,
+                      )}
+                    </p>
+                  ) : null}
                 </TableCell>
                 <TableCell className="text-[11px] text-ink-muted">
                   {item.other_bins.length === 0
