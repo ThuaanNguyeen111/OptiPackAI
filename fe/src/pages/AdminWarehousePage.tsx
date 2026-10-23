@@ -8,6 +8,7 @@ import {
   MapPin,
   PackagePlus,
   Plus,
+  Printer,
   RefreshCw,
   ScanLine,
   Search,
@@ -19,6 +20,9 @@ import {
   getWarehousePickingList,
   getWarehousePickingListForGroups,
   listCategories,
+  openWarehouseDocument,
+  binLabelsDocumentPath,
+  pickingListDocumentPath,
   suggestBins,
   listStockMovements,
   reactivateCategory,
@@ -867,6 +871,20 @@ function ZonesTab({
                       onClick={() => void toggleZone(zone, index)}
                     >
                       {zone.isActive ? (vi ? 'Tắt' : 'Off') : vi ? 'Bật lại' : 'Turn on'}
+                    </button>
+                    <button
+                      type="button"
+                      className={rowActionClass}
+                      disabled={!api.selectedWarehouse}
+                      onClick={() => {
+                        const warehouseId = api.selectedWarehouse?.id
+                        if (!warehouseId) return
+                        void openWarehouseDocument(
+                          binLabelsDocumentPath(warehouseId, { zoneId: zone.id }),
+                        ).catch((err: unknown) => onNotice(formatApiError(err)))
+                      }}
+                    >
+                      {vi ? 'In tem ô' : 'Print bin labels'}
                     </button>
                     <button
                       type="button"
@@ -1996,6 +2014,20 @@ function BinsTab({
                     </button>
                     <button
                       type="button"
+                      className={rowActionClass}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const warehouseId = api.selectedWarehouse?.id
+                        if (!warehouseId) return
+                        void openWarehouseDocument(
+                          binLabelsDocumentPath(warehouseId, { binId: bin.id }),
+                        ).catch((err: unknown) => onNotice(formatApiError(err)))
+                      }}
+                    >
+                      {vi ? 'In lại tem' : 'Reprint label'}
+                    </button>
+                    <button
+                      type="button"
                       className={rowOffClass}
                       disabled={api.mutating}
                       onClick={(e) => {
@@ -2884,6 +2916,20 @@ function PickingTab({
         <Button type="submit" className="h-9 text-xs" disabled={loading || !groupId.trim()}>
           <ScanLine className="h-3.5 w-3.5" />
           {vi ? 'Xem lộ trình' : 'Load route'}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-9 text-xs"
+          disabled={!groupId.trim()}
+          onClick={() => {
+            void openWarehouseDocument(
+              pickingListDocumentPath(warehouseId, groupId.trim()),
+            ).catch((err: unknown) => setError(formatApiError(err)))
+          }}
+        >
+          <Printer className="h-3.5 w-3.5" />
+          {vi ? 'In danh sách lấy hàng' : 'Print picking list'}
         </Button>
         <Input
           className={cn(fieldClass, 'min-w-64 flex-1')}

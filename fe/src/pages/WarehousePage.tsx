@@ -11,6 +11,7 @@ import {
   Minus,
   PackageOpen,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   UserCheck,
@@ -46,6 +47,8 @@ import {
 import {
   getWarehousePickingList,
   listWarehouses,
+  openWarehouseDocument,
+  pickingListDocumentPath,
   readStoredWarehouseId,
   writeStoredWarehouseId,
 } from '../api/warehouse.api'
@@ -591,9 +594,15 @@ export function WarehousePage() {
           prev.map((row) => (row.id === latest.id ? latest : row)),
         )
         const progress = readProgress(id)
-        if (currentWarehouseId) {
+        const pickWarehouseId = latest.warehouseId || currentWarehouseId
+        if (latest.warehouseId && latest.warehouseId !== currentWarehouseId) {
+          setWarehouseId(latest.warehouseId)
+          setWarehouseDraft(latest.warehouseId)
+          writeStoredWarehouseId(latest.warehouseId)
+        }
+        if (pickWarehouseId) {
           try {
-            const enriched = await getWarehousePickingList(currentWarehouseId, id)
+            const enriched = await getWarehousePickingList(pickWarehouseId, id)
             setLines(mergeLines(enriched, progress))
             setHasBinRoute(true)
             return
@@ -812,6 +821,15 @@ export function WarehousePage() {
             ? 'Mã này không thuộc nhóm đơn đang lấy. Kiểm tra lại kệ/SKU.'
             : 'This code is not in the current order group. Check the bin or SKU.',
         )
+      } else if (code === 'ORD_GROUP_WRONG_WAREHOUSE') {
+        setActionError(
+          vi ? 'Nhóm đang lấy ở kho khác.' : 'This group is being picked in another warehouse.',
+        )
+        if (group.warehouseId) {
+          setWarehouseId(group.warehouseId)
+          setWarehouseDraft(group.warehouseId)
+          writeStoredWarehouseId(group.warehouseId)
+        }
       } else {
         setActionError(formatApiError(err))
       }
@@ -1745,6 +1763,22 @@ export function WarehousePage() {
                           )
                         })}
                       </div>
+                      {group && warehouseId ? (
+                        <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void openWarehouseDocument(
+                                pickingListDocumentPath(warehouseId, group.id),
+                              ).catch((err: unknown) => setActionError(formatApiError(err)))
+                            }}
+                            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 cursor-pointer hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
+                          >
+                            <Printer className="h-4 w-4 shrink-0" />
+                            {vi ? 'In danh sách lấy hàng' : 'Print picking list'}
+                          </button>
+                        </div>
+                      ) : null}
                       {group && canCompletePick(status) ? (
                         <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                           <button

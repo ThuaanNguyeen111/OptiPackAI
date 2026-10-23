@@ -133,6 +133,8 @@ export type OrderGroup = {
   /** Chỉ có ở chi tiết nhóm. Danh sách trả 0. */
   linkedGroupCount: number
   origin: string
+  /** Kho nhóm đang lấy hàng. null = chưa gắn (chưa quét). */
+  warehouseId: string | null
   orders: GroupOrderView[]
   version: number
   createdAt: string
@@ -342,6 +344,7 @@ export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_STATE_CONFLICT:
     'Dữ liệu nhóm đơn đã đổi. Tải lại rồi thao tác tiếp.',
   ORD_GROUP_INSUFFICIENT_STOCK: 'Không đủ tồn kho cho SKU này.',
+  ORD_GROUP_WRONG_WAREHOUSE: 'Nhóm đang lấy ở kho khác.',
   ORD_GROUP_ITEM_NOT_IN_GROUP: 'SKU không thuộc nhóm đơn này.',
   ORD_GROUP_NO_STAFF_AVAILABLE: 'Không còn nhân viên trống để gán.',
   ORD_GROUP_STAFF_NOT_FOUND: 'Không tìm thấy nhân viên.',
