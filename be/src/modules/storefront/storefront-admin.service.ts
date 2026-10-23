@@ -169,7 +169,13 @@ export class StorefrontAdminService {
             seenSkus.add(built.sku);
             const taken = await this.variants.findOne({ sku: built.sku }).session(session);
             if (taken && !taken.product_id.equals(productId)) {
-              throw new ConflictException(`SKU ${built.sku} đã dùng cho sản phẩm khác — đổi số mẫu.`);
+              // 22/10/2026 — SKU thuộc sản phẩm ĐÃ XOÁ → cho sản phẩm mới dùng lại (chuyển biến thể sang):
+              // giữ nguyên tồn và liên kết kho bên OptiPack (cùng mã). Sản phẩm cũ còn bán → vẫn chặn.
+              const ownerAlive = await this.products.exists({ _id: taken.product_id, deleted_at: null }).session(session);
+              if (ownerAlive || taken.is_active) {
+                throw new ConflictException(`SKU ${built.sku} đang dùng cho sản phẩm khác — sửa sản phẩm đó hoặc đổi số mẫu.`);
+              }
+              taken.set({ product_id: productId });
             }
             if (taken?.is_active) throw new ConflictException(`SKU ${built.sku} đã có trong sản phẩm này.`);
             // Biến thể đã bỏ trước đó cùng mã → dùng lại (giữ liên kết tồn/kệ bên OptiPack).
@@ -215,7 +221,11 @@ export class StorefrontAdminService {
       throw error;
     }
     // 22/10/2026 — báo đối tác (OptiPack) kéo hồ sơ SKU mới ngay → tự nối SKU nội bộ cùng mã.
-    if (createdSkus.length > 0) this.publisher?.notifyProductsChanged(createdSkus);
+    // 22/10/2026 (tối) — báo MỌI SKU đang bán của sản phẩm mỗi lần lưu (không chỉ biến thể mới):
+    // bấm Lưu lại là cách đồng bộ lại với OptiPack khi lần trước webhook bị lỡ.
+    const activeSkus = (await this.variants.find({ product_id: productId, is_active: true }).select('sku').lean()).map((v) => v.sku);
+    const toNotify = [...new Set([...createdSkus, ...activeSkus])];
+    if (toNotify.length > 0) this.publisher?.notifyProductsChanged(toNotify);
     return this.findOne(productId.toHexString());
   }
 

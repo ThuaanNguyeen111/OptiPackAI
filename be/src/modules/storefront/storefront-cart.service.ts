@@ -199,7 +199,14 @@ export class StorefrontCartService {
 
   async sync(customerId: string, dto: SyncCartDto) {
     for (const item of dto.items) {
-      await this.add(customerId, item);
+      // 22/10/2026 — giỏ trong trình duyệt có thể còn biến thể đã xoá / đã hết hàng: bỏ qua dòng đó
+      // thay vì làm hỏng cả lần đồng bộ (trước đây 404 → khách mất cả giỏ).
+      try {
+        await this.add(customerId, item);
+      } catch (error: unknown) {
+        if (error instanceof NotFoundException || error instanceof BadRequestException) continue;
+        throw error;
+      }
     }
 
     return this.get(customerId);

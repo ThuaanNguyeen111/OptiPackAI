@@ -14,9 +14,11 @@ export default registerAs('storefront', () => ({
   // — cùng cặp OptiPack dùng để gọi Open API (AURELLE_APP_KEY/SECRET).
   // Để trống AURELLE_WEBHOOK_URL = tắt webhook, chỉ còn cron 10 phút.
   aurelleWebhook: {
-    url:
-      process.env.AURELLE_WEBHOOK_URL ??
-      `http://localhost:${process.env.PORT ?? '3000'}/marketplace/webhooks/aurelle`,
+    // 22/10/2026 — `AURELLE_WEBHOOK_URL=` để trống trong .env cũng dùng mặc định (trước đây
+    // chuỗi rỗng lọt qua `??` → website bỏ qua mọi webhook: đơn mới, trả hàng, SKU mới).
+    url: process.env.AURELLE_WEBHOOK_URL?.trim()
+      ? process.env.AURELLE_WEBHOOK_URL.trim()
+      : `http://localhost:${process.env.PORT ?? '3000'}/marketplace/webhooks/aurelle`,
     appKey: process.env.AURELLE_APP_KEY,
     appSecret: process.env.AURELLE_APP_SECRET,
     sellerId: process.env.AURELLE_SELLER_ID ?? '200000000101',
