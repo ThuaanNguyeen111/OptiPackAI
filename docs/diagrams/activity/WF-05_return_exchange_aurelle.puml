@@ -1,0 +1,132 @@
+@startuml WF-05_return_exchange_aurelle
+' ============================================================
+' WF-05 - Return / Exchange requested on AURELLE
+' Source of truth: be/src/modules/storefront/storefront-returns.service.ts (customer request, cancel)
+'                  be/src/modules/shipments/returns.service.ts
+'                  (createFromMarketplace, approve, reject, cancel, receive, inspect, createReplacement)
+'                  be/src/modules/marketplace-writeback (return status sent back to AURELLE)
+' Main entity state: Return Request  requested -> awaiting_receipt -> received -> closed
+'                                    (rejected / canceled; refund_only: requested -> closed)
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title WF-05 Return / Exchange via AURELLE
+
+|Customer|
+|AURELLE Website|
+|OptiPack System|
+|Store Owner|
+|Warehouse Staff|
+
+|Customer|
+start
+:Open a delivered order;
+:Submit return request
+(type, items, reason; exchange: target size / colour);
+
+|AURELLE Website|
+if (Request valid?) then (no)
+  :Show error;
+  note right
+    Order not delivered, past 15 days,
+    another request still open, or
+    exchange variant out of stock.
+  end note
+  stop
+else (yes)
+endif
+:Save request (status **requested**)
+and send return-requested webhook;
+
+|OptiPack System|
+:Pull request and create return ticket
+(status **requested**);
+:Notify Store Owner;
+note right
+  Customer may cancel the request on the
+  website while it is still "requested".
+end note
+
+|Store Owner|
+:Review return ticket;
+if (Approve?) then (no)
+  :Reject with reason;
+  |OptiPack System|
+  :Ticket status **rejected**;
+  :Send result to AURELLE;
+  |AURELLE Website|
+  :Show "rejected" with reason;
+  stop
+else (yes)
+endif
+
+|OptiPack System|
+if (Type = refund only?) then (yes)
+  :Ticket status **closed**
+  (no goods returned);
+else (no)
+  :Ticket status **awaiting_receipt**;
+  :Send "approved" to AURELLE;
+  |Customer|
+  :Send items back to warehouse;
+  note right
+    If goods never arrive, Store Owner
+    cancels the ticket (status canceled).
+  end note
+  |Warehouse Staff|
+  :Receive returned package;
+  |OptiPack System|
+  :Ticket status **received**;
+  :Send "received" to AURELLE;
+  |Warehouse Staff|
+  :Inspect each SKU;
+  |OptiPack System|
+  :Apply inspection result;
+  note right
+    restock: back to bin, stock increased
+    quarantine: held, not sellable
+    discard: written off
+  end note
+  :Ticket status **closed**;
+  :Re-check groups waiting for stock;
+endif
+:Send "closed" to AURELLE;
+
+if (Type = exchange?) then (yes)
+  :Create replacement order EXC-...
+  (price 0) and a new order group;
+  note right
+    The replacement goes through WF-02 to WF-04;
+    the customer follows its delivery on the
+    exchange request page.
+  end note
+  |AURELLE Website|
+  :Show exchange shipment progress;
+else (no)
+  |AURELLE Website|
+  :Record refund amount and
+  update payment status;
+endif
+|Customer|
+:See final result of the request;
+stop
+
+legend right
+  A full-order return & refund also moves the order group
+  delivered -> returning -> returned -> canceled.
+  Failed-delivery tickets from WF-04 start at "received"
+  and only go through the inspection steps.
+endlegend
+@enduml

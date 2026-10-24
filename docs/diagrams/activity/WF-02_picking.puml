@@ -1,0 +1,98 @@
+@startuml WF-02_picking
+' ============================================================
+' WF-02 - Picking (with shortage decision)
+' Source of truth: be/src/modules/order-groups/order-groups.service.ts
+'                  (getPickableItemsForGroup, pickItem, confirmPicked, reportMissing, decidePartial)
+'                  be/src/modules/warehouse/warehouse.service.ts (getEnrichedPickingList)
+' Main entity state: Order Group  picking -> picked | partial_needs_review -> picked | picking
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title WF-02 Picking
+
+|Warehouse Staff|
+|OptiPack System|
+|Packaging Staff|
+
+|Warehouse Staff|
+start
+:Open picking list of assigned group;
+note right
+  Per SKU: quantity, bin, oldest lot (FIFO),
+  other bins, and split per order / recipient
+  for consolidated groups.
+end note
+
+repeat
+  :Go to bin and scan item
+  (barcode or manual entry);
+  |OptiPack System|
+  if (Scan valid?) then (yes)
+    :Deduct bin stock from oldest lot
+    and record pick event;
+    if (First scan of this group?) then (yes)
+      :Notify AURELLE customer
+      "warehouse is preparing order";
+    else (no)
+    endif
+  else (no)
+    :Reject scan with reason;
+    note right
+      SKU not in group, quantity over ordered,
+      wrong warehouse, or not enough stock.
+    end note
+  endif
+  |Warehouse Staff|
+repeat while (More items to pick?) is (yes) not (no)
+
+if (All SKUs fully picked?) then (yes)
+  :Confirm picking completed;
+  |OptiPack System|
+  :Set group status **picked**;
+  :Release reservation not consumed;
+else (items missing)
+  |Warehouse Staff|
+  :Report missing item
+  (SKU, missing quantity, note);
+  |OptiPack System|
+  :Set group status **partial_needs_review**;
+  :Notify Store Owner and Packaging Staff;
+  |Packaging Staff|
+  :Review shortage;
+  if (Decision?) then (ship available items)
+    |OptiPack System|
+    :Set group status **picked**;
+    :Allocate shortage to orders
+    (oldest order first);
+    :Notify AURELLE customers of
+    short-shipped items (not charged);
+  else (re-pick)
+    |OptiPack System|
+    :Start a new pick round and return
+    already-picked items to their bins;
+    :Set group status **picking**
+    and re-reserve stock;
+    |Warehouse Staff|
+    :Pick the group again
+    (restart WF-02);
+    stop
+  endif
+endif
+
+|OptiPack System|
+:Queue group for packing-plan
+computation (continues in WF-03);
+stop
+@enduml

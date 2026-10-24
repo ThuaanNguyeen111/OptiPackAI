@@ -1,0 +1,81 @@
+@startuml WF-00_end_to_end_overview
+' ============================================================
+' WF-00 - End-to-end overview (context diagram for WF-01..WF-06, not a main workflow itself)
+' Main entity: Order Group  awaiting_packaging -> picking -> picked -> pending_approval
+'              -> approved_for_packing -> packed -> shipped -> delivered | returned
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title OptiPack AI - End-to-End Fulfillment Overview
+
+|Customer|
+|Marketplace (Lazada / AURELLE)|
+|OptiPack System|
+|Warehouse Staff|
+|Packaging Staff|
+|Shipping Coordinator|
+|GHN (Carrier)|
+
+|Warehouse Staff|
+start
+:Receive stock by lot into bins
+**[WF-06]**;
+|Customer|
+:Place order;
+|Marketplace (Lazada / AURELLE)|
+:Record order
+(AURELLE: webhook, Lazada: polled);
+|OptiPack System|
+:Import order, consolidate into group,
+reserve stock, assign picker
+**[WF-01]**;
+|Warehouse Staff|
+:Pick items by bin and lot
+**[WF-02]**;
+|OptiPack System|
+:Compute 3D packing plan **[WF-03]**;
+|Packaging Staff|
+:Approve plan, scan and seal parcels
+**[WF-03]**;
+|Shipping Coordinator|
+:Choose carrier and create shipment
+**[WF-04]**;
+|GHN (Carrier)|
+:Pick up and deliver parcels **[WF-04]**;
+if (Delivered?) then (yes)
+  |Customer|
+  :Receive order;
+  if (Request return / exchange
+  within 15 days?) then (yes)
+    :Submit request on AURELLE
+    **[WF-05]**;
+    |Warehouse Staff|
+    :Receive and inspect returned items
+    **[WF-05]**;
+  else (no)
+  endif
+else (no)
+  |GHN (Carrier)|
+  :Return parcels to warehouse
+  **[WF-04]**;
+  |Warehouse Staff|
+  :Receive and inspect returned parcels
+  **[WF-05]**;
+endif
+|OptiPack System|
+:Send status changes back to AURELLE
+(customer tracking page; Lazada is not written back);
+stop
+@enduml
