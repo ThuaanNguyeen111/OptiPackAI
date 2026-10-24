@@ -263,6 +263,9 @@ export function ShippingPage() {
   const [batchIds, setBatchIds] = useState<string[]>([])
   const [compareText, setCompareText] = useState<string | null>(null)
   const [shipStrategy, setShipStrategy] = useState<'cheapest' | 'fastest' | 'fixed'>('cheapest')
+  const [senderName, setSenderName] = useState('')
+  const [senderPhone, setSenderPhone] = useState('')
+  const [senderAddress, setSenderAddress] = useState('')
   const [pickupAt, setPickupAt] = useState('')
   const [sampleCode, setSampleCode] = useState('')
   const [sampleName, setSampleName] = useState('')
@@ -324,7 +327,12 @@ export function ShippingPage() {
         })
         .catch(() => setGhnStatuses([]))
       void getShippingSettings()
-        .then((settings) => setShipStrategy(settings.strategy))
+        .then((settings) => {
+          setShipStrategy(settings.strategy)
+          setSenderName(settings.sender?.name ?? '')
+          setSenderPhone(settings.sender?.phone ?? '')
+          setSenderAddress(settings.sender?.address ?? '')
+        })
         .catch(() => undefined)
     }, 0)
     return () => window.clearTimeout(timer)
@@ -377,6 +385,14 @@ export function ShippingPage() {
   )
 
   const packedGroupId = selected?.kind === 'packed' ? selected.group.id : null
+  const selectedGroup =
+    selected?.kind === 'packed'
+      ? selected.group
+      : selected
+        ? (packedGroups.find((group) => group.id === selected.shipment.orderGroupId) ??
+          null)
+        : null
+  const namesDiffer = Boolean(selectedGroup?.recipientNamesDiffer)
 
   useEffect(() => {
     if (carrierChoice === 'own' || !packedGroupId) return
@@ -1093,6 +1109,18 @@ export function ShippingPage() {
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
                       />
                     </div>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-200">
+                      {vi
+                        ? 'Địa chỉ sửa tay áp dụng cho mọi kiện của vận đơn này.'
+                        : 'This address override applies to every parcel on this shipment.'}
+                    </p>
+                    {namesDiffer ? (
+                      <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                        {vi
+                          ? `Nhóm gộp nhiều người nhận — địa chỉ sửa áp dụng mọi kiện. Vận đơn có kiện của ${String(selectedGroup?.recipientNames.length ?? 0)} người nhận — mỗi kiện một mã hãng riêng.`
+                          : `Merged group has multiple recipients — this address override applies to every parcel. This shipment has parcels for ${String(selectedGroup?.recipientNames.length ?? 0)} recipients — each parcel has its own carrier code.`}
+                      </p>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setQuoteTick((n) => n + 1)}
@@ -1178,6 +1206,25 @@ export function ShippingPage() {
                           {vi ? 'Lưu chiến lược' : 'Save strategy'}
                         </button>
                       ) : null}
+                      <div className="w-full space-y-1 border-t border-slate-200 pt-3 text-xs dark:border-slate-700">
+                        <p className="font-semibold text-slate-700 dark:text-slate-200">
+                          {vi ? 'Người gửi trên nhãn' : 'Sender on label'}
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          {vi ? 'Tên' : 'Name'}: {senderName || '—'}
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          {vi ? 'SĐT' : 'Phone'}: {senderPhone || '—'}
+                        </p>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          {vi ? 'Địa chỉ' : 'Address'}: {senderAddress || '—'}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {vi
+                            ? 'Sửa người gửi ở Quy tắc bao bì (chủ shop / Admin).'
+                            : 'Edit sender on Packaging Rules (Store Owner / Admin).'}
+                        </p>
+                      </div>
                       {isAdmin && chosenCarrier && chosenCarrier.kind !== 'live' ? (
                         <button
                           type="button"
@@ -1580,13 +1627,49 @@ export function ShippingPage() {
                       {selected.shipment.carrierBookingError ? (
                         <p className="text-xs text-red-600">{selected.shipment.carrierBookingError}</p>
                       ) : null}
-                      {(selected.shipment.carrierParcels ?? []).map((parcel) => (
-                        <p key={parcel.parcelNo} className="font-mono text-[11px] text-[var(--ls-muted)]">
-                          #{parcel.parcelNo} {parcel.carrierOrderCode ?? (vi ? 'chưa có mã' : 'no code')}
-                          {parcel.sortCode ? ` · ${parcel.sortCode}` : ''}
-                          {parcel.bookingError ? ` · ${parcel.bookingError}` : ''}
+                      {namesDiffer ? (
+                        <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                          {vi
+                            ? `Nhóm gộp nhiều người nhận — địa chỉ sửa áp dụng mọi kiện. Vận đơn có kiện của ${String(selectedGroup?.recipientNames.length ?? 0)} người nhận — mỗi kiện một mã hãng riêng.`
+                            : `Merged group has multiple recipients — this address override applies to every parcel. This shipment has parcels for ${String(selectedGroup?.recipientNames.length ?? 0)} recipients — each parcel has its own carrier code.`}
                         </p>
-                      ))}
+                      ) : null}
+                      {(selected.shipment.carrierParcels ?? []).map((parcel) => {
+                        const planParcel = packRec?.parcels.find(
+                          (row) => row.parcelNo === parcel.parcelNo,
+                        )
+                        const groupOrder = selectedGroup?.orders.find(
+                          (order) => order.id === (parcel.orderId || planParcel?.orderId),
+                        )
+                        const platformOrderId =
+                          groupOrder?.platformOrderId || planParcel?.platformOrderId
+                        const recipientName =
+                          parcel.recipientName ||
+                          planParcel?.recipientName ||
+                          groupOrder?.recipientName
+                        const carrierCode =
+                          parcel.carrierOrderCode ?? (vi ? 'chưa có mã' : 'no code')
+                        const orderLabel = platformOrderId
+                          ? vi
+                            ? `Đơn ${platformOrderId}`
+                            : `Order ${platformOrderId}`
+                          : null
+                        const line = [
+                          vi ? `Kiện ${String(parcel.parcelNo)}` : `Parcel ${String(parcel.parcelNo)}`,
+                          orderLabel,
+                          recipientName,
+                          vi ? `mã hãng ${carrierCode}` : `carrier ${carrierCode}`,
+                        ]
+                          .filter((part): part is string => Boolean(part))
+                          .join(' · ')
+                        return (
+                          <p key={parcel.parcelNo} className="font-mono text-[11px] text-[var(--ls-muted)]">
+                            {line}
+                            {parcel.sortCode ? ` · ${parcel.sortCode}` : ''}
+                            {parcel.bookingError ? ` · ${parcel.bookingError}` : ''}
+                          </p>
+                        )
+                      })}
                       <div className="flex flex-wrap gap-2 pt-1">
                         <select
                           value={simulateStatus}

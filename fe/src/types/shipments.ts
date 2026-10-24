@@ -68,6 +68,8 @@ export type Shipment = {
     feeTotalVnd: number | null
     carrierStatusLabel: string | null
     bookingError: string | null
+    recipientName?: string | null
+    orderId?: string | null
   }[]
   version: number
   createdAt: string | null

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Clock3,
@@ -6,6 +7,7 @@ import {
   Loader2,
   Package,
   RefreshCw,
+  Search,
   Zap,
 } from 'lucide-react'
 import {
@@ -13,6 +15,11 @@ import {
   listOrderGroups,
   setOrderGroupPriority,
 } from '../api/order-groups.api'
+import {
+  getOrderGroupTimeline,
+  historyShippingLine,
+  type HistoryItem,
+} from '../api/history.api'
 import {
   getPackagingMaterialsSavings,
   type PackagingMaterialsSavings,
@@ -77,6 +84,73 @@ function shortId(id: string): string {
   return id.length > 10 ? id.slice(-10) : id
 }
 
+function groupMatchesSearch(group: OrderGroup, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const parts = [
+    group.id,
+    group.id.slice(-8),
+    group.platform,
+    group.shopId,
+    ...group.recipientNames,
+    ...group.orders.flatMap((order) => [
+      order.id,
+      order.platformOrderId,
+      order.recipientName,
+      order.recipientPhone,
+    ]),
+  ]
+  return parts.some((part) => part.toLowerCase().includes(q))
+}
+
+function RegroupLinkChips({
+  group,
+  vi,
+  onOpen,
+}: {
+  group: OrderGroup
+  vi: boolean
+  onOpen: (id: string) => void
+}) {
+  return (
+    <>
+      {group.hasMaskedRecipientName ? (
+        <span className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
+          {vi ? 'Tên bị che' : 'Masked name'}
+        </span>
+      ) : null}
+      {group.mergedIntoGroupId ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpen(group.mergedIntoGroupId as string)
+          }}
+          className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+        >
+          {vi
+            ? `Đã gộp vào ${group.mergedIntoGroupId.slice(-8)}`
+            : `Merged into ${group.mergedIntoGroupId.slice(-8)}`}
+        </button>
+      ) : null}
+      {group.splitFromGroupId ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpen(group.splitFromGroupId as string)
+          }}
+          className="rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200"
+        >
+          {vi
+            ? `Tách từ ${group.splitFromGroupId.slice(-8)}`
+            : `Split from ${group.splitFromGroupId.slice(-8)}`}
+        </button>
+      ) : null}
+    </>
+  )
+}
+
 function platformLabel(platform: string): string {
   const p = platform.toLowerCase()
   if (p === 'lazada') return 'Lazada'
@@ -92,6 +166,10 @@ export function OrderGroupsPage() {
   const role = session?.role
   const canLink =
     role === UserRole.ADMIN || role === UserRole.SHIPPING_COORDINATOR
+  const canRegroupRoles =
+    role === UserRole.ADMIN ||
+    role === UserRole.SHIPPING_COORDINATOR ||
+    role === UserRole.STORE_OWNER
   const canSeeStock =
     role === UserRole.ADMIN ||
     role === UserRole.STORE_OWNER ||
@@ -114,6 +192,13 @@ export function OrderGroupsPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [deadlineHours, setDeadlineHours] = useState('4')
   const [savings, setSavings] = useState<PackagingMaterialsSavings | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [remoteGroups, setRemoteGroups] = useState<OrderGroup[] | null>(null)
+  const [remoteSearching, setRemoteSearching] = useState(false)
+  const [inlineTimeline, setInlineTimeline] = useState<HistoryItem[]>([])
+  const [inlineTimelineLoading, setInlineTimelineLoading] = useState(false)
+  const [inlineTimelineOpen, setInlineTimelineOpen] = useState(false)
+  const [timelineTick, setTimelineTick] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -164,7 +249,10 @@ export function OrderGroupsPage() {
       const clearId = window.setTimeout(() => setDetail(null), 0)
       return () => window.clearTimeout(clearId)
     }
-    const fromList = groups.find((g) => g.id === selectedId) ?? null
+    const fromList =
+      groups.find((g) => g.id === selectedId) ??
+      remoteGroups?.find((g) => g.id === selectedId) ??
+      null
     let cancelled = false
     let gotFull = false
     const timer = window.setTimeout(() => {
@@ -180,7 +268,32 @@ export function OrderGroupsPage() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [selectedId, groups])
+  }, [selectedId, groups, remoteGroups])
+
+  useEffect(() => {
+    if (!inlineTimelineOpen || !selectedId) {
+      const clear = window.setTimeout(() => setInlineTimeline([]), 0)
+      return () => window.clearTimeout(clear)
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setInlineTimelineLoading(true)
+      void getOrderGroupTimeline(selectedId)
+        .then((res) => {
+          if (!cancelled) setInlineTimeline(res.items)
+        })
+        .catch(() => {
+          if (!cancelled) setInlineTimeline([])
+        })
+        .finally(() => {
+          if (!cancelled) setInlineTimelineLoading(false)
+        })
+    }, 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [inlineTimelineOpen, selectedId, timelineTick])
 
   const stats = useMemo(() => {
     const express = groups.filter((g) => g.orderPriority === 'express').length
@@ -192,7 +305,10 @@ export function OrderGroupsPage() {
 
   /** Chỉ sắp xếp hiển thị: quá hạn / thiếu hàng / hỏa tốc lên đầu — không đổi state `groups`. */
   const displayGroups = useMemo(() => {
-    return [...groups].sort((a, b) => {
+    const base = searchQuery.trim()
+      ? groups
+      : groups.filter((group) => !group.mergedIntoGroupId)
+    return [...base].sort((a, b) => {
       if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1
       if (a.stockShortage !== b.stockShortage) return a.stockShortage ? -1 : 1
       const aExpress = a.orderPriority === 'express' ? 1 : 0
@@ -200,9 +316,49 @@ export function OrderGroupsPage() {
       if (aExpress !== bExpress) return bExpress - aExpress
       return 0
     })
-  }, [groups])
+  }, [groups, searchQuery])
 
-  const queuePaging = useLocalQueuePagination(displayGroups)
+  const localVisibleGroups = useMemo(() => {
+    if (!searchQuery.trim()) return displayGroups
+    return displayGroups.filter((g) => groupMatchesSearch(g, searchQuery))
+  }, [displayGroups, searchQuery])
+  const visibleGroups =
+    remoteGroups && localVisibleGroups.length === 0
+      ? remoteGroups
+      : localVisibleGroups
+  const queuePaging = useLocalQueuePagination(visibleGroups)
+
+  useEffect(() => {
+    const query = searchQuery.trim()
+    if (query.length < 4 || localVisibleGroups.length > 0) {
+      const clear = window.setTimeout(() => setRemoteGroups(null), 0)
+      return () => window.clearTimeout(clear)
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setRemoteSearching(true)
+      void listOrderGroups({
+        q: query,
+        ...(priorityFilter === 'all'
+          ? {}
+          : { order_priority: priorityFilter }),
+        ...(shortageOnly ? { stock_shortage: true } : {}),
+      })
+        .then((rows) => {
+          if (!cancelled) setRemoteGroups(rows)
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteGroups([])
+        })
+        .finally(() => {
+          if (!cancelled) setRemoteSearching(false)
+        })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [searchQuery, localVisibleGroups.length, priorityFilter, shortageOnly])
 
   async function applyPriority(priority: OrderPriority): Promise<void> {
     if (!detail) return
@@ -374,6 +530,23 @@ export function OrderGroupsPage() {
           </div>
         </div>
 
+        <div className="relative max-w-md">
+          <Search className="pointer-events-none absolute top-1/2 left-3 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={
+              vi
+                ? 'Tìm mã nhóm, mã đơn, người nhận…'
+                : 'Search group, order, recipient…'
+            }
+            className="h-9 w-full rounded-lg border border-hairline bg-surface pr-9 pl-9 text-sm text-ink"
+          />
+          {remoteSearching ? (
+            <Loader2 className="absolute top-1/2 right-3 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-ink-muted" />
+          ) : null}
+        </div>
+
         <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)]">
           {/* Table */}
           <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-hairline bg-surface shadow-sm">
@@ -396,7 +569,7 @@ export function OrderGroupsPage() {
                 <div className="m-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
                   {error}
                 </div>
-              ) : groups.length === 0 ? (
+              ) : groups.length === 0 && !searchQuery.trim() ? (
                 <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
                   <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-ink-subtle">
                     <Package className="h-5 w-5" />
@@ -409,6 +582,16 @@ export function OrderGroupsPage() {
                       ? 'Nhóm được tạo khi hệ thống backfill/gộp đơn. Đổi bộ lọc hoặc tải lại sau khi sync đơn Lazada.'
                       : 'Groups appear after backfill/consolidation. Change filter or refresh after Lazada sync.'}
                   </p>
+                </div>
+              ) : visibleGroups.length === 0 ? (
+                <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+                  {remoteSearching ? (
+                    <Loader2 className="h-5 w-5 animate-spin text-ink-muted" />
+                  ) : (
+                    <p className="text-sm font-medium text-ink">
+                      {vi ? 'Không tìm thấy nhóm đơn' : 'No matching groups'}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <table className="w-full min-w-[640px] text-center text-sm">
@@ -493,6 +676,18 @@ export function OrderGroupsPage() {
                                   {vi ? 'Đã hủy hết' : 'All canceled'}
                                 </span>
                               ) : null}
+                              {g.recipientNamesDiffer ? (
+                                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800/50 dark:bg-indigo-950/40 dark:text-indigo-200">
+                                  {vi
+                                    ? `Gộp ${g.recipientNames.length} người nhận`
+                                    : `Merged ${g.recipientNames.length} recipients`}
+                                </span>
+                              ) : null}
+                              <RegroupLinkChips
+                                group={g}
+                                vi={vi}
+                                onOpen={setSelectedId}
+                              />
                             </div>
                           </td>
                           <td className="px-3 py-3">
@@ -600,6 +795,68 @@ export function OrderGroupsPage() {
                     <p className="mt-1 select-all rounded border border-slate-200 bg-slate-100 p-1.5 font-mono text-xs break-all text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200">
                       {detail.id}
                     </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInlineTimelineOpen((open) => !open)}
+                        className="text-[11px] text-primary-hover underline-offset-2 hover:underline"
+                      >
+                        {inlineTimelineOpen
+                          ? vi
+                            ? 'Ẩn dòng thời gian'
+                            : 'Hide timeline'
+                          : vi
+                            ? 'Dòng thời gian'
+                            : 'Timeline'}
+                      </button>
+                      {inlineTimelineOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => setTimelineTick((tick) => tick + 1)}
+                          className="text-[11px] text-primary-hover underline-offset-2 hover:underline"
+                        >
+                          {vi ? 'Tải lại' : 'Reload'}
+                        </button>
+                      ) : null}
+                      <Link
+                        to={
+                          role === UserRole.ADMIN
+                            ? `/app/admin/history?group=${encodeURIComponent(detail.id)}`
+                            : `/app/history?group=${encodeURIComponent(detail.id)}`
+                        }
+                        className="text-[11px] text-primary-hover underline-offset-2 hover:underline"
+                      >
+                        {vi ? 'Xem dòng thời gian' : 'View timeline'}
+                      </Link>
+                    </div>
+                    {inlineTimelineOpen ? (
+                      <div className="mt-2 max-h-48 overflow-auto rounded-lg border border-hairline bg-surface-2/60 p-2">
+                        {inlineTimelineLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-ink-muted" />
+                        ) : inlineTimeline.length === 0 ? (
+                          <p className="text-[11px] text-ink-subtle">
+                            {vi ? 'Chưa có mốc.' : 'No events yet.'}
+                          </p>
+                        ) : (
+                          <ol className="space-y-1.5">
+                            {inlineTimeline.map((item) => (
+                              <li key={item.id} className="text-[11px] text-ink">
+                                <p className="font-medium">
+                                  {item.summary || item.action}
+                                </p>
+                                <p className="text-ink-muted">
+                                  {formatDateTime(item.occurredAt)}
+                                  {item.actor?.name ? ` · ${item.actor.name}` : ''}
+                                </p>
+                                {historyShippingLine(item) ? (
+                                  <p className="text-ink-subtle">{historyShippingLine(item)}</p>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
 
                   {detail.isOverdue ? (
@@ -674,6 +931,30 @@ export function OrderGroupsPage() {
                         </div>
                       </dd>
                     </div>
+                    {detail.recipientNames.length > 0 ? (
+                      <div className="flex items-start justify-between gap-2">
+                        <dt className="text-ink-subtle">
+                          {vi ? 'Người nhận' : 'Recipients'}
+                        </dt>
+                        <dd className="text-right text-xs text-ink">
+                          {detail.recipientNames.join(' · ')}
+                          {detail.recipientNamesDiffer ? (
+                            <p className="mt-1 font-medium text-indigo-700 dark:text-indigo-300">
+                              {vi
+                                ? `Gộp ${detail.recipientNames.length} người nhận`
+                                : `Merged ${detail.recipientNames.length} recipients`}
+                            </p>
+                          ) : null}
+                          <div className="mt-1 flex flex-wrap justify-end gap-1">
+                            <RegroupLinkChips
+                              group={detail}
+                              vi={vi}
+                              onOpen={setSelectedId}
+                            />
+                          </div>
+                        </dd>
+                      </div>
+                    ) : null}
                     {detail.stockShortage ? (
                       <div className="col-span-full rounded-md border border-orange-200 bg-orange-50/80 px-2.5 py-2 text-xs text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-100">
                         <p className="font-semibold">
@@ -698,9 +979,11 @@ export function OrderGroupsPage() {
                     detail={detail}
                     vi={vi}
                     canLink={canLink}
+                    canRegroup={canRegroupRoles}
                     canSeeStock={canSeeStock}
                     canRecheck={canRecheck}
                     canRelease={canRelease}
+                    onOpenGroup={setSelectedId}
                     onChanged={async () => {
                       await load()
                       const full = await getOrderGroupById(detail.id)

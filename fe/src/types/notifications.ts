@@ -25,6 +25,8 @@ export const NOTIFICATION_TYPES = [
   'packing_issue',
   'unpack_required',
   'return_to_shelf',
+  'packing_blocked',
+  'consolidation_name_mismatch',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -94,6 +96,11 @@ export const NOTIFICATION_TYPE_LABELS: Record<
   packing_issue: { vi: 'Sự cố lúc đóng', en: 'Packing issue' },
   unpack_required: { vi: 'Cần tháo kiện', en: 'Unpack required' },
   return_to_shelf: { vi: 'Trả hàng về ô', en: 'Return to shelf' },
+  packing_blocked: { vi: 'Kẹt đóng gói — SKU chưa đo', en: 'Packing blocked — unmeasured SKU' },
+  consolidation_name_mismatch: {
+    vi: 'Nhóm gộp khác tên người nhận',
+    en: 'Consolidated group has different recipient names',
+  },
 }
 
 export function mapNotificationRaw(raw: NotificationApiRaw): AppNotification | null {
