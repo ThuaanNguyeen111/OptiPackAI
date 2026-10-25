@@ -45,10 +45,22 @@ interface RecipientLike {
   city: string;
 }
 
-const addressOf = (r: RecipientLike): string =>
-  [r.address_line1, r.address_line2, r.city]
-    .filter((p): p is string => !!p)
-    .join(', ');
+/**
+ * Địa chỉ in trên chứng từ. Bỏ đoạn lặp: đơn AURELLE có `address_line1` = số nhà + phường,
+ * khách lại hay gõ cả phường/tỉnh vào ô số nhà → trước 25/10/2026 nhãn in "Phường X, Tỉnh Y, Phường X, Tỉnh Y".
+ */
+const addressOf = (r: RecipientLike): string => {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const part of [r.address_line1, r.address_line2, r.city].flatMap((v) => (v ? v.split(',') : []))) {
+    const text = part.trim();
+    const key = text.normalize('NFC').toLowerCase();
+    if (!text || seen.has(key)) continue;
+    seen.add(key);
+    parts.push(text);
+  }
+  return parts.join(', ');
+};
 
 /**
  * Dựng dữ liệu chứng từ từ DB rồi giao cho renderer thuần (pdf/document-renderers).

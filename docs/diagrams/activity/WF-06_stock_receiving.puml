@@ -1,0 +1,100 @@
+@startuml WF-06_stock_receiving
+' ============================================================
+' WF-06 - Stock Receiving by Lot & Bin Assignment
+' Source of truth: be/src/modules/warehouse/warehouse.service.ts
+'                  (assignSkuToBin, createReceipt, receiveIntoLot, notifyStockIn)
+'                  be/src/modules/order-groups/order-groups.service.ts (recheckShortageGroups)
+'                  be/src/modules/marketplace-writeback/marketplace-stock-push.service.ts (pushAurelle)
+' Main entity state: Stock Lot created (FIFO by received date);
+'                    Order Group stock_shortage flag cleared when stock becomes sufficient
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title WF-06 Stock Receiving by Lot
+
+|Warehouse Staff|
+|OptiPack System|
+|AURELLE Website|
+
+|Warehouse Staff|
+start
+:Receive goods from supplier;
+:Check whether each SKU already
+has a bin in this warehouse;
+
+if (SKU assigned to a bin?) then (no)
+  :Choose bin for the SKU
+  (system suggests a bin);
+  |OptiPack System|
+  if (Same SKU already in another
+  bin of this warehouse?) then (yes)
+    :Ask for confirmation
+    before using a second bin;
+    |Warehouse Staff|
+    if (Confirm second bin?) then (no)
+      :Choose the existing bin instead;
+    else (yes)
+    endif
+    |OptiPack System|
+  else (no)
+  endif
+  :Create bin assignment
+  (stock merged under internal SKU
+  when the seller SKU is mapped);
+else (yes)
+endif
+
+|Warehouse Staff|
+:Create stock receipt
+(lot code, received date, supplier, lines);
+|OptiPack System|
+if (Bin capacity exceeded?) then (yes)
+  :Reject receipt with over-capacity detail;
+  note right
+    Staff can reduce quantities or
+    force the receipt deliberately.
+  end note
+  stop
+else (no)
+endif
+:Create one lot per line
+(FIFO by received date);
+:Increase bin stock and write
+inventory ledger entries;
+:Generate receipt code (PN-...);
+
+fork
+  |Warehouse Staff|
+  :Print receipt / labels if needed;
+fork again
+  |OptiPack System|
+  :Re-check order groups flagged
+  with stock shortage (background);
+  if (Stock now sufficient?) then (yes)
+    :Clear shortage flag and
+    reserve stock for the group;
+  else (no)
+    :Keep shortage flag;
+  endif
+fork again
+  :Push available stock of mapped
+  SKUs to AURELLE (every minute);
+  |AURELLE Website|
+  :Update sellable quantity
+  of product variants;
+  |OptiPack System|
+end fork
+stop
+@enduml
