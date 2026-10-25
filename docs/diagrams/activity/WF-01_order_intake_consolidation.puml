@@ -87,22 +87,20 @@ endif
 
 |Store Owner / Coordinator|
 :Review consolidated groups;
+note right
+  Split / merge allowed only while the group is
+  awaiting_packaging or picking and no item
+  has been scanned yet.
+end note
 if (Grouping correct?) then (yes)
 else (no)
-  if (Issue?) then (different customers
-in one group)
+  if (Issue?) then (different customers)
     :Split order into its own group
     (reason required);
-  else (same customer
-in two groups)
+  else (same customer)
     :Merge source group into target group
     (same shop, same phone, reason required);
   endif
-  note right
-    Allowed only while the group is
-    awaiting_packaging or picking and
-    no item has been scanned yet.
-  end note
   |OptiPack System|
   :Update affected groups:
   assign staff to new group,
