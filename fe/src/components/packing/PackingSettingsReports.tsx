@@ -7,7 +7,21 @@ import {
   updatePackingSettings,
 } from '../../api/packing-plan.api'
 import { formatApiError } from '../../lib/api'
-import type { PackingFeedbackReport, PackingReport, PackingSettings } from '../../types/packing-plan'
+import {
+  BOX_SOURCE_REASON_LABELS,
+  type BoxSourceReason,
+  type PackingFeedbackReport,
+  type PackingReport,
+  type PackingSettings,
+} from '../../types/packing-plan'
+
+function boxSourceReasonLabel(reason: string, vi: boolean): string {
+  if (reason in BOX_SOURCE_REASON_LABELS) {
+    const label = BOX_SOURCE_REASON_LABELS[reason as BoxSourceReason]
+    return vi ? label.vi : label.en
+  }
+  return reason
+}
 
 function pct(value: number | null): string {
   if (value == null) return '—'
@@ -225,6 +239,42 @@ export function PackingReportsPanel({ vi }: { vi: boolean }) {
             ? `Làm theo gợi ý ${pct(feedback.followedRate)} · chỉnh ${String(feedback.adjustedPlans)} · từ chối ${String(feedback.rejectedPlans)} · hao hụt ${feedback.waste.costVnd.toLocaleString('vi-VN')} đ`
             : `Followed ${pct(feedback.followedRate)} · adjusted ${String(feedback.adjustedPlans)} · rejected ${String(feedback.rejectedPlans)}`}
         </p>
+      ) : null}
+      {feedback?.boxSource ? (
+        <div className="space-y-2 rounded-xl border border-[var(--ls-card-border)] px-3 py-2">
+          <p className="text-xs font-semibold text-ink">
+            {vi ? 'Thùng tái sử dụng bị thay' : 'Reused boxes swapped'}
+          </p>
+          <p className="text-xs text-ink-muted">
+            {vi
+              ? `${String(feedback.boxSource.overrides)} lần chọn nguồn thùng khác gợi ý`
+              : `${String(feedback.boxSource.overrides)} times a box source differed from the suggestion`}
+          </p>
+          {feedback.boxSource.byReason.length > 0 ? (
+            <ul className="space-y-1 text-xs text-ink">
+              {feedback.boxSource.byReason.map((row) => (
+                <li key={row.reason} className="flex justify-between gap-3">
+                  <span>{boxSourceReasonLabel(row.reason, vi)}</span>
+                  <span className="font-semibold">{row.count}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {feedback.boxSource.byBox.length > 0 ? (
+            <ul className="space-y-1 text-xs text-ink">
+              {feedback.boxSource.byBox.map((row) => (
+                <li key={`${row.boxCode}-${row.reason}`} className="flex justify-between gap-3">
+                  <span>
+                    {row.boxCode}
+                    {' · '}
+                    {boxSourceReasonLabel(row.reason, vi)}
+                  </span>
+                  <span className="font-semibold">{row.count}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
       {feedback && feedback.suggestions.length > 0 ? (
         <ul className="space-y-1 text-xs text-ink">

@@ -9,6 +9,8 @@ import {
   listStockReceipts,
   getStockReceipt,
   createStockReceipt,
+  openWarehouseDocument,
+  stockReceiptDocumentPath,
   listWarehouseBinLocations,
   listWarehouseZones,
   listWarehouses,
@@ -596,8 +598,9 @@ function ActionPanel({
   function saveReceipt() {
     void run(async () => {
       const code = lotCode.trim()
+      let receipt: Awaited<ReturnType<typeof createStockReceipt>>
       try {
-        await createStockReceipt(warehouseId, {
+        receipt = await createStockReceipt(warehouseId, {
           received_at: toReceivedAtIso(receivedAt),
           lot_code: code || undefined,
           supplier: supplier.trim() || undefined,
@@ -608,7 +611,7 @@ function ActionPanel({
         if (!confirmOverCapacity(err, vi ? 'Vẫn nhập phiếu?' : 'Save the receipt anyway?')) {
           throw err
         }
-        await createStockReceipt(warehouseId, {
+        receipt = await createStockReceipt(warehouseId, {
           received_at: toReceivedAtIso(receivedAt),
           lot_code: code || undefined,
           supplier: supplier.trim() || undefined,
@@ -617,9 +620,12 @@ function ActionPanel({
           lines: [{ assignment_id: row.id, quantity: receiptQty }],
         })
       }
+      await openWarehouseDocument(stockReceiptDocumentPath(warehouseId, receipt.id)).catch(() => {
+        // Phiếu đã lưu. In lại được ở tab Phiếu nhập.
+      })
       return vi
-        ? `Đã lập phiếu nhập ${receiptQty} cái ${row.sellerSku}${code ? ` · lô ${code}` : ''}.`
-        : `Receipt saved for ${receiptQty} × ${row.sellerSku}${code ? ` · lot ${code}` : ''}.`
+        ? `Đã lập phiếu nhập ${receipt.receiptCode} · ${receiptQty} cái ${row.sellerSku}${code ? ` · lô ${code}` : ''}.`
+        : `Receipt ${receipt.receiptCode} saved for ${receiptQty} × ${row.sellerSku}${code ? ` · lot ${code}` : ''}.`
     })
   }
 
@@ -1167,6 +1173,17 @@ function ReceiptCatalog({
               </p>
               {detail.note ? <p className="mt-1 text-xs text-ink">{detail.note}</p> : null}
             </div>
+            <button
+              type="button"
+              className="inline-flex h-8 items-center rounded-md border border-hairline bg-surface px-2.5 text-xs font-semibold text-ink hover:bg-surface-sunken"
+              onClick={() => {
+                void openWarehouseDocument(
+                  stockReceiptDocumentPath(warehouseId, detail.id),
+                ).catch((err: unknown) => setError(formatApiError(err)))
+              }}
+            >
+              {vi ? 'In phiếu nhập' : 'Print receipt'}
+            </button>
             <ul className="divide-y divide-hairline text-xs">
               {detail.lines.map((line) => (
                 <li key={line.lotId} className="flex items-center justify-between py-2">

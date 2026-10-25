@@ -11,6 +11,7 @@ import {
   Minus,
   PackageOpen,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   UserCheck,
@@ -46,6 +47,8 @@ import {
 import {
   getWarehousePickingList,
   listWarehouses,
+  openWarehouseDocument,
+  pickingListDocumentPath,
   readStoredWarehouseId,
   writeStoredWarehouseId,
 } from '../api/warehouse.api'
@@ -591,9 +594,15 @@ export function WarehousePage() {
           prev.map((row) => (row.id === latest.id ? latest : row)),
         )
         const progress = readProgress(id)
-        if (currentWarehouseId) {
+        const pickWarehouseId = latest.warehouseId || currentWarehouseId
+        if (latest.warehouseId && latest.warehouseId !== currentWarehouseId) {
+          setWarehouseId(latest.warehouseId)
+          setWarehouseDraft(latest.warehouseId)
+          writeStoredWarehouseId(latest.warehouseId)
+        }
+        if (pickWarehouseId) {
           try {
-            const enriched = await getWarehousePickingList(currentWarehouseId, id)
+            const enriched = await getWarehousePickingList(pickWarehouseId, id)
             setLines(mergeLines(enriched, progress))
             setHasBinRoute(true)
             return
@@ -812,6 +821,15 @@ export function WarehousePage() {
             ? 'Mã này không thuộc nhóm đơn đang lấy. Kiểm tra lại kệ/SKU.'
             : 'This code is not in the current order group. Check the bin or SKU.',
         )
+      } else if (code === 'ORD_GROUP_WRONG_WAREHOUSE') {
+        setActionError(
+          vi ? 'Nhóm đang lấy ở kho khác.' : 'This group is being picked in another warehouse.',
+        )
+        if (group.warehouseId) {
+          setWarehouseId(group.warehouseId)
+          setWarehouseDraft(group.warehouseId)
+          writeStoredWarehouseId(group.warehouseId)
+        }
       } else {
         setActionError(formatApiError(err))
       }
@@ -1095,8 +1113,8 @@ export function WarehousePage() {
                         {vi
                           ? `${filteredTabGroups.length}/${tabGroups.length} nhóm`
                           : `${filteredTabGroups.length}/${tabGroups.length} groups`}
-                      </p>
-                    </div>
+          </p>
+        </div>
                     <ul className="max-h-64 overflow-y-auto p-1">
                       {filteredTabGroups.length === 0 ? (
                         <li className="px-3 py-4 text-center text-xs text-slate-500">
@@ -1122,17 +1140,17 @@ export function WarehousePage() {
                                 )}
                               >
                                 <span className="min-w-0 flex-1">
-                                  <span
+        <span
                                     className={cn(
                                       'block truncate font-mono text-xs font-bold',
                                       !active && 'text-slate-800 dark:text-slate-100',
                                     )}
-                                  >
+        >
                                     {row.stockShortage ? '⚠ ' : ''}
                                     {row.orderPriority === 'express' ? '⚡ ' : ''}
                                     {meId && row.assignedStaffId === meId ? '● ' : ''}
                                     {shortId(row.id)}
-          </span>
+        </span>
                                   <span
                                     className={cn(
                                       'mt-0.5 block text-[10px]',
@@ -1296,10 +1314,10 @@ export function WarehousePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                         {shortId(group?.id ?? selectedId)}
-                      </span>
+        </span>
                       <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
                         {platformLabel(group?.platform ?? '')}
-                      </span>
+        </span>
                       <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         {statusLabel(status, vi)}
                       </span>
@@ -1339,7 +1357,7 @@ export function WarehousePage() {
                             .join('\n')}
                         >
                           {vi ? 'Thiếu hàng' : 'Short stock'}
-                        </span>
+          </span>
                       ) : null}
                     </div>
                     <p className="text-xs text-slate-500">
@@ -1379,8 +1397,8 @@ export function WarehousePage() {
                           ? 'Đang chờ duyệt phần thiếu — kho không tiếp tục được.'
                           : 'Waiting on shortage review — warehouse cannot continue.'}
                       </p>
-                    ) : null}
-            </div>
+        ) : null}
+      </div>
 
                   <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                     <div className="flex min-w-[12rem] flex-1 items-center gap-2.5 rounded-xl bg-slate-50/80 px-3 py-2 dark:bg-surface-2/50 sm:flex-none">
@@ -1436,13 +1454,13 @@ export function WarehousePage() {
                       <button
                         type="button"
                         onClick={() => setReturnOpen(true)}
-                        disabled={busy}
+            disabled={busy}
                         className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 cursor-pointer hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
-                      >
+          >
                         {vi ? 'Ghi nhận hoàn hàng' : 'Record return'}
                       </button>
                     ) : null}
-                  </div>
+        </div>
                 </div>
           </div>
 
@@ -1521,13 +1539,13 @@ export function WarehousePage() {
                             </div>
                             <p className="mt-1.5 text-[11px] text-slate-500">
                               {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
-                              {' · '}
+                {' · '}
                               {activeLine.weight_kg} kg
                               {activeLine.remainingStock != null
                                 ? ` · ${vi ? 'Tồn kệ còn' : 'Bin left'} ${activeLine.remainingStock}`
                                 : ''}
-                </p>
-              </div>
+              </p>
+            </div>
           </div>
 
                         {activeLine.bin_location_id && isBinAssigned(activeLine.bin_code) ? (
@@ -1584,7 +1602,7 @@ export function WarehousePage() {
                               ) : (
               <button
                 type="button"
-                                  onClick={() => {
+              onClick={() => {
                                     setScanInput(activeLine.sku)
                                     setScanMethod('manual')
                                   }}
@@ -1609,7 +1627,7 @@ export function WarehousePage() {
                               </button>
                               <div className="flex h-10 min-w-[84px] items-center justify-center rounded-lg border border-slate-200 bg-white px-3 font-mono text-sm font-bold dark:border-slate-700 dark:bg-surface-1">
                                 {currentQty}/{remainingForActive}
-                              </div>
+            </div>
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1660,7 +1678,7 @@ export function WarehousePage() {
                                     : 'This SKU is already fully picked in this session.'
                                   : null}
                           </p>
-                        ) : null}
+          ) : null}
                       </div>
                     ) : (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-surface-1">
@@ -1737,7 +1755,7 @@ export function WarehousePage() {
                                       .join(', ')}
                                   </p>
                                 ) : null}
-        </div>
+              </div>
                               <span className="shrink-0 font-mono text-xs font-bold text-slate-700 dark:text-slate-200">
                                 {line.qtyPicked}/{line.quantity}
                               </span>
@@ -1745,6 +1763,22 @@ export function WarehousePage() {
                           )
                         })}
                       </div>
+                      {group && warehouseId ? (
+                        <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void openWarehouseDocument(
+                                pickingListDocumentPath(warehouseId, group.id),
+                              ).catch((err: unknown) => setActionError(formatApiError(err)))
+                            }}
+                            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 cursor-pointer hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
+                          >
+                            <Printer className="h-4 w-4 shrink-0" />
+                            {vi ? 'In danh sách lấy hàng' : 'Print picking list'}
+                          </button>
+                        </div>
+                      ) : null}
                       {group && canCompletePick(status) ? (
                         <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                           <button
@@ -1795,7 +1829,7 @@ export function WarehousePage() {
             </>
           )}
         </div>
-      </div>
+          </div>
 
       {toast ? (
         <div className="fixed bottom-5 right-5 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg dark:bg-white dark:text-slate-900">
@@ -1870,13 +1904,13 @@ export function WarehousePage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <button
-              type="button"
+              <button
+                type="button"
               onClick={() => setCompleteOpen(false)}
               className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
             >
               {vi ? 'Hủy' : 'Cancel'}
-            </button>
+              </button>
             <button
               type="button"
               onClick={() => void handleCompletePick()}
@@ -1933,7 +1967,7 @@ export function WarehousePage() {
               >
                 <X className="h-4 w-4" />
               </button>
-            </div>
+          </div>
             <div className="mt-3 flex gap-2">
               <button
                 type="button"
@@ -1959,7 +1993,7 @@ export function WarehousePage() {
               >
                 {vi ? 'Chọn tay' : 'Manual'}
               </button>
-            </div>
+        </div>
             {assignMode === 'manual' ? (
               <div className="mt-3 space-y-2">
                 <input

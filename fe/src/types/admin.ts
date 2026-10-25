@@ -66,6 +66,9 @@ export type AdminUser = {
   lockedUntil?: string
   lastLoginAt?: string
   createdAt: string
+  onLeave?: boolean
+  onLeaveUntil?: string
+  onLeaveNote?: string
 }
 
 export type CreateUserInput = {

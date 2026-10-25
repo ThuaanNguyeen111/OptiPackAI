@@ -9,17 +9,19 @@ export function AppLayout() {
   const location = useLocation()
   const tealChrome = usesTealAppChrome(session?.role)
 
-  if (
-    session?.role === UserRole.ADMIN &&
-    (location.pathname === '/app/returns' ||
-      location.pathname.startsWith('/app/returns/'))
-  ) {
-    return (
-      <Navigate
-        to={`/app/admin/returns${location.search}`}
-        replace
-      />
-    )
+  if (session?.role === UserRole.ADMIN) {
+    if (
+      location.pathname === '/app/returns' ||
+      location.pathname.startsWith('/app/returns/')
+    ) {
+      return <Navigate to={`/app/admin/returns${location.search}`} replace />
+    }
+    if (
+      location.pathname === '/app/history' ||
+      location.pathname.startsWith('/app/history/')
+    ) {
+      return <Navigate to={`/app/admin/history${location.search}`} replace />
+    }
   }
 
   return (

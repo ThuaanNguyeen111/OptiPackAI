@@ -10,9 +10,14 @@ const STAFF_PREFIXES: Record<
     '/app/warehouse',
     '/app/inventory',
     '/app/packaging-materials',
+    '/app/history',
   ],
-  [UserRole.PACKAGING_STAFF]: ['/app/packing', '/app/packaging-materials'],
-  [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping'],
+  [UserRole.PACKAGING_STAFF]: [
+    '/app/packing',
+    '/app/packaging-materials',
+    '/app/history',
+  ],
+  [UserRole.SHIPPING_COORDINATOR]: ['/app/shipping', '/app/history'],
 }
 
 /**
@@ -30,6 +35,7 @@ const STORE_OWNER_PREFIXES = [
   '/app/packaging-materials',
   '/app/staff',
   '/app/analytics',
+  '/app/history',
   '/app/profile',
   '/app/settings',
 ] as const

@@ -28,6 +28,16 @@ export type PackingPlanParcel = {
   isAbnormal?: boolean
   scans?: PackingPlanScan[]
   guide?: PackingGuide | null
+  orderId?: string | null
+  recipientName?: string | null
+  platformOrderId?: string | null
+  boxSourceUsed?: 'new' | 'reused' | null
+  boxSourceOverride?: {
+    source: 'new' | 'reused'
+    planned: 'new' | 'reused' | null
+    reason: string
+    note: string | null
+  } | null
 }
 
 export type PackingPlan = {
@@ -35,8 +45,15 @@ export type PackingPlan = {
   orderGroupId: string
   version: number
   status: string
+  /** true khi hồ sơ SKU được đo lại sau lúc tính kế hoạch (chỉ GET trả đúng). */
+  profileStale?: boolean
   failureReason: string | null
-  orders: { overParcelLimit: boolean }[]
+  orders: {
+    overParcelLimit: boolean
+    orderId?: string
+    platformOrderId?: string | null
+    recipientName?: string | null
+  }[]
   parcels: PackingPlanParcel[]
   totals: {
     parcels: number
@@ -45,6 +62,74 @@ export type PackingPlan = {
   }
   session?: {
     assignedPackerId: string | null
+    assignedPackerName?: string | null
+  }
+}
+
+export const BOX_SOURCE_REASONS = [
+  'REUSED_BOX_WORN',
+  'REUSED_BOX_DIRTY',
+  'OLD_LABEL_NOT_CLEAN',
+  'REUSED_NOT_ON_SHELF',
+  'HIGH_VALUE_ORDER',
+  'OTHER',
+] as const
+
+export type BoxSourceReason = (typeof BOX_SOURCE_REASONS)[number]
+
+export const BOX_SOURCE_REASON_LABELS: Record<BoxSourceReason, { vi: string; en: string }> = {
+  REUSED_BOX_WORN: { vi: 'Thùng tái sử dụng đã sờn', en: 'Reused box is worn' },
+  REUSED_BOX_DIRTY: { vi: 'Thùng tái sử dụng bẩn', en: 'Reused box is dirty' },
+  OLD_LABEL_NOT_CLEAN: { vi: 'Nhãn cũ chưa gỡ sạch', en: 'Old label not removed' },
+  REUSED_NOT_ON_SHELF: { vi: 'Không thấy thùng tái sử dụng trên kệ', en: 'Reused box not on shelf' },
+  HIGH_VALUE_ORDER: { vi: 'Đơn giá trị cao', en: 'High-value order' },
+  OTHER: { vi: 'Khác', en: 'Other' },
+}
+
+export type BoxSourceChoice = 'auto' | 'new' | 'reused'
+
+export type BoxSourceInput = {
+  source: BoxSourceChoice
+  reason?: BoxSourceReason
+  note?: string
+}
+
+export type PackingBoxSourceParcel = {
+  parcelNo: number
+  boxCode: string
+  state: string
+  reusedAllowed: boolean
+  planned: 'new' | 'reused' | null
+  forcedNewReason: string | null
+  outOfStock: boolean
+  used: 'new' | 'reused' | null
+}
+
+export type PackingBoxSources = {
+  orderGroupId: string
+  version: number
+  allowReusedForFragile: boolean
+  parcels: PackingBoxSourceParcel[]
+  stock: { code: string; name: string; qtyNew: number; qtyReused: number; reusable: boolean }[]
+}
+
+/** Lựa chọn khác gợi ý (`planned`) thì cần lý do; `auto` luôn theo gợi ý. */
+export function boxSourceNeedsReason(
+  choice: BoxSourceChoice,
+  planned: 'new' | 'reused' | null | undefined,
+): boolean {
+  if (choice === 'auto') return false
+  return planned != null && choice !== planned
+}
+
+export function boxSourceBody(input?: BoxSourceInput): Record<string, unknown> {
+  if (!input || input.source === 'auto') return {}
+  return {
+    box_source: input.source,
+    ...(input.reason ? { box_source_reason: input.reason } : {}),
+    ...(input.reason === 'OTHER' && input.note?.trim()
+      ? { box_source_note: input.note.trim().slice(0, 300) }
+      : {}),
   }
 }
 
@@ -64,6 +149,7 @@ export type PackingPlanSummary = {
   packagingCostVnd: number
   failureReason: string | null
   assignedPackerId: string | null
+  assignedPackerName?: string | null
 }
 
 export type PackingStaffMember = {
@@ -71,6 +157,8 @@ export type PackingStaffMember = {
   fullName: string
   email: string
   activeWorkload: number
+  onLeave?: boolean
+  onLeaveUntil?: string | null
 }
 
 export type PackingSettings = {
@@ -116,6 +204,11 @@ export type PackingFeedbackReport = {
   rejectedPlans: number
   suggestions: { reason: string; count: number; message: string }[]
   waste: { events: number; costVnd: number }
+  boxSource?: {
+    overrides: number
+    byReason: { reason: string; count: number }[]
+    byBox: { boxCode: string; reason: string; count: number }[]
+  }
 }
 
 export const ADJUSTMENT_REASONS = [

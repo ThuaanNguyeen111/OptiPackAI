@@ -125,6 +125,8 @@ function mapCarrierParcels(raw: unknown): Shipment['carrierParcels'] {
               : null,
         carrierStatusLabel: pickString(row.carrierStatusLabel, row.carrier_status_label) || null,
         bookingError: pickString(row.bookingError, row.booking_error) || null,
+        recipientName: pickString(row.recipientName, row.recipient_name) || null,
+        orderId: pickString(row.orderId, row.order_id) || null,
       },
     ]
   })

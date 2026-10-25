@@ -8,6 +8,7 @@ import {
   MapPin,
   PackagePlus,
   Plus,
+  Printer,
   RefreshCw,
   ScanLine,
   Search,
@@ -19,6 +20,9 @@ import {
   getWarehousePickingList,
   getWarehousePickingListForGroups,
   listCategories,
+  openWarehouseDocument,
+  binLabelsDocumentPath,
+  pickingListDocumentPath,
   suggestBins,
   listStockMovements,
   reactivateCategory,
@@ -143,9 +147,9 @@ export function AdminWarehousePage() {
       <main className="flex-1 overflow-auto bg-canvas p-4 sm:p-6">
         <div className="mx-auto max-w-6xl space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-tight text-ink">
-              {vi ? 'Cấu hình kho' : 'Warehouse configuration'}
-            </h1>
+              <h1 className="text-xl font-semibold tracking-tight text-ink">
+                {vi ? 'Cấu hình kho' : 'Warehouse configuration'}
+              </h1>
             <div className="inline-flex rounded-lg border border-hairline bg-surface-1 p-1">
               {(
                 [
@@ -227,25 +231,25 @@ export function AdminWarehousePage() {
             </section>
           ) : (
             <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-              <WarehouseListPanel
-                vi={vi}
-                api={api}
-                onCreated={() => {
-                  showToast(vi ? 'Đã tạo kho.' : 'Warehouse created.')
+            <WarehouseListPanel
+              vi={vi}
+              api={api}
+              onCreated={() => {
+                showToast(vi ? 'Đã tạo kho.' : 'Warehouse created.')
                   setWarehouseTab('layout')
-                }}
-              />
+              }}
+            />
 
-              <section className="min-w-0 rounded-xl border border-hairline bg-surface-1">
-                {!api.selectedWarehouse ? (
-                  <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
-                    <Boxes className="h-8 w-8 text-ink-tertiary" />
-                    <p className="text-sm font-medium text-ink">
-                      {vi ? 'Chưa có kho nào' : 'No warehouse yet'}
-                    </p>
-                  </div>
-                ) : (
-                  <>
+            <section className="min-w-0 rounded-xl border border-hairline bg-surface-1">
+              {!api.selectedWarehouse ? (
+                <div className="flex flex-col items-center justify-center gap-2 px-6 py-16 text-center">
+                  <Boxes className="h-8 w-8 text-ink-tertiary" />
+                  <p className="text-sm font-medium text-ink">
+                    {vi ? 'Chưa có kho nào' : 'No warehouse yet'}
+                  </p>
+                </div>
+              ) : (
+                <>
                     <WarehouseHeader vi={vi} api={api} onNotice={showToast} />
                     <TabBar
                       tabs={warehouseTabs}
@@ -253,16 +257,16 @@ export function AdminWarehousePage() {
                       vi={vi}
                       onChange={setWarehouseTab}
                     />
-                    <div className="p-4">
+                  <div className="p-4">
                       {warehouseTab === 'layout' ? (
                         <div className="space-y-6">
                           <PanelSection
                             title={vi ? 'Khu' : 'Zones'}
                             hint={vi ? 'Bấm một khu để xem và tạo kệ trong khu đó.' : 'Click a zone to manage its racks.'}
                           >
-                            <ZonesTab
-                              vi={vi}
-                              api={api}
+                      <ZonesTab
+                        vi={vi}
+                        api={api}
                               onNotice={showToast}
                               onCreated={() => showToast(vi ? 'Đã tạo khu.' : 'Zone created.')}
                             />
@@ -278,48 +282,48 @@ export function AdminWarehousePage() {
                                   : 'Racks'
                             }
                           >
-                            <BinsTab
-                              vi={vi}
-                              api={api}
+                      <BinsTab
+                        vi={vi}
+                        api={api}
                               onNotice={showToast}
                               onOpenCategories={() => openCatalog('categories')}
-                              onGenerated={(created) =>
-                                showToast(
+                        onGenerated={(created) =>
+                          showToast(
                                   vi ? `Đã tạo ${created} ô mới.` : `Created ${created} new bins.`,
-                                )
-                              }
-                            />
+                          )
+                        }
+                      />
                           </PanelSection>
                         </div>
-                      ) : null}
+                    ) : null}
                       {warehouseTab === 'assign' ? (
-                        <AssignTab
-                          vi={vi}
-                          api={api}
-                          binId={pickedBinId}
-                          onBinIdChange={setPickedBinId}
-                          onAssigned={() =>
+                      <AssignTab
+                        vi={vi}
+                        api={api}
+                        binId={pickedBinId}
+                        onBinIdChange={setPickedBinId}
+                        onAssigned={() =>
                             showToast(vi ? 'Đã gán SKU vào ô.' : 'SKU assigned to bin.')
-                          }
-                        />
-                      ) : null}
+                        }
+                      />
+                    ) : null}
                       {warehouseTab === 'stock' ? (
-                        <StockTab
-                          vi={vi}
-                          api={api}
-                          onRestocked={() =>
-                            showToast(vi ? 'Đã nhập thêm hàng.' : 'Stock added.')
-                          }
-                        />
-                      ) : null}
+                      <StockTab
+                        vi={vi}
+                        api={api}
+                        onRestocked={() =>
+                          showToast(vi ? 'Đã nhập thêm hàng.' : 'Stock added.')
+                        }
+                      />
+                    ) : null}
                       {warehouseTab === 'picking' ? (
-                        <PickingTab vi={vi} warehouseId={api.selectedWarehouse.id} />
-                      ) : null}
-                    </div>
-                  </>
-                )}
-              </section>
-            </div>
+                      <PickingTab vi={vi} warehouseId={api.selectedWarehouse.id} />
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
           )}
         </div>
       </main>
@@ -867,6 +871,20 @@ function ZonesTab({
                       onClick={() => void toggleZone(zone, index)}
                     >
                       {zone.isActive ? (vi ? 'Tắt' : 'Off') : vi ? 'Bật lại' : 'Turn on'}
+                    </button>
+                    <button
+                      type="button"
+                      className={rowActionClass}
+                      disabled={!api.selectedWarehouse}
+                      onClick={() => {
+                        const warehouseId = api.selectedWarehouse?.id
+                        if (!warehouseId) return
+                        void openWarehouseDocument(
+                          binLabelsDocumentPath(warehouseId, { zoneId: zone.id }),
+                        ).catch((err: unknown) => onNotice(formatApiError(err)))
+                      }}
+                    >
+                      {vi ? 'In tem ô' : 'Print bin labels'}
                     </button>
                     <button
                       type="button"
@@ -1544,37 +1562,37 @@ function BinsTab({
         </p>
 
         <div className="grid gap-2 sm:grid-cols-[90px_130px_90px_minmax(0,1fr)]">
-          <label className="space-y-1">
-            <span className="text-[11px] text-ink-muted">{vi ? 'Dãy' : 'Aisle'}</span>
-            <Input
-              className={fieldClass}
+        <label className="space-y-1">
+          <span className="text-[11px] text-ink-muted">{vi ? 'Dãy' : 'Aisle'}</span>
+          <Input
+            className={fieldClass}
               placeholder="D1"
               value={rackAisle}
               onChange={(e) => setRackAisle(e.target.value.toUpperCase())}
-            />
-          </label>
-          <label className="space-y-1">
+          />
+        </label>
+        <label className="space-y-1">
             <span className="text-[11px] text-ink-muted">{vi ? 'Bên' : 'Side'}</span>
             <select
-              className={fieldClass}
+            className={fieldClass}
               value={rackSide}
               onChange={(e) => setRackSide(e.target.value === 'T' ? 'T' : 'P')}
             >
               <option value="T">{vi ? 'Trái (T)' : 'Left (T)'}</option>
               <option value="P">{vi ? 'Phải (P)' : 'Right (P)'}</option>
             </select>
-          </label>
-          <label className="space-y-1">
+        </label>
+        <label className="space-y-1">
             <span className="text-[11px] text-ink-muted">{vi ? 'Số kệ' : 'Bay'}</span>
-            <Input
-              className={fieldClass}
-              type="number"
-              min={1}
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
               value={rackBay}
               onChange={(e) => setRackBay(Number(e.target.value))}
-            />
-          </label>
-          <label className="space-y-1">
+          />
+        </label>
+        <label className="space-y-1">
             <span className="text-[11px] text-ink-muted">{vi ? 'Loại hàng' : 'Product type'}</span>
             {level2Categories.length === 0 ? (
               <div className="flex h-9 items-center gap-2">
@@ -1665,10 +1683,10 @@ function BinsTab({
                 <span className="text-[11px] text-ink-muted">
                   {vi ? 'Số ô mỗi tầng' : 'Cells per tier'}
                 </span>
-                <Input
-                  className={fieldClass}
-                  type="number"
-                  min={1}
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
                   max={9}
                   value={rackCells}
                   onChange={(e) => {
@@ -1680,21 +1698,21 @@ function BinsTab({
                       return next
                     })
                   }}
-                />
-              </label>
-              <label className="space-y-1">
+          />
+        </label>
+        <label className="space-y-1">
                 <span className="text-[11px] text-ink-muted">
                   {vi ? 'Sức chứa mỗi ô' : 'Capacity per cell'}
                 </span>
-                <Input
-                  className={fieldClass}
-                  type="number"
-                  min={1}
+          <Input
+            className={fieldClass}
+            type="number"
+            min={1}
                   placeholder={vi ? 'Không giới hạn' : 'No limit'}
                   value={rackCapacity}
                   onChange={(e) => setRackCapacity(e.target.value)}
-                />
-              </label>
+          />
+        </label>
             </div>
             {colors.length > 0 ? (
               <>
@@ -1736,8 +1754,8 @@ function BinsTab({
               {String(Math.max(1, Math.trunc(rackBay) || 1)).padStart(2, '0')}-T01-1
             </span>
           </p>
-          <Button
-            type="submit"
+        <Button
+          type="submit"
             className="h-9 text-xs"
             disabled={
               api.mutating ||
@@ -1749,7 +1767,7 @@ function BinsTab({
             }
           >
             {vi ? 'Tạo kệ' : 'Create rack'}
-          </Button>
+        </Button>
         </div>
       </form>
       )}
@@ -1924,8 +1942,8 @@ function BinsTab({
               const stock = assignmentByBinId.get(bin.id)
               const justOff = binGhosts.some((ghost) => ghost.bin.id === bin.id)
               return (
-                <TableRow
-                  key={bin.id}
+              <TableRow
+                key={bin.id}
                   className={justOff ? 'bg-amber-50 dark:bg-amber-950/30' : undefined}
                 >
                   <TableCell className="font-medium text-ink">
@@ -1996,6 +2014,20 @@ function BinsTab({
                     </button>
                     <button
                       type="button"
+                      className={rowActionClass}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        const warehouseId = api.selectedWarehouse?.id
+                        if (!warehouseId) return
+                        void openWarehouseDocument(
+                          binLabelsDocumentPath(warehouseId, { binId: bin.id }),
+                        ).catch((err: unknown) => onNotice(formatApiError(err)))
+                      }}
+                    >
+                      {vi ? 'In lại tem' : 'Reprint label'}
+                    </button>
+                    <button
+                      type="button"
                       className={rowOffClass}
                       disabled={api.mutating}
                       onClick={(e) => {
@@ -2017,7 +2049,7 @@ function BinsTab({
                       {vi ? 'Xoá hẳn' : 'Delete'}
                     </button>
                   </TableCell>
-                </TableRow>
+              </TableRow>
               )
             })}
           </TableBody>
@@ -2074,17 +2106,17 @@ function AssignTab({
   async function submit(force = false) {
     if (!sku || !binId) return
     try {
-      await api.assignSku({
-        platform: sku.platform,
-        shop_id: sku.shop_id,
-        seller_sku: sku.seller_sku,
-        bin_location_id: binId,
-        initial_quantity: qty > 0 ? qty : undefined,
+    await api.assignSku({
+      platform: sku.platform,
+      shop_id: sku.shop_id,
+      seller_sku: sku.seller_sku,
+      bin_location_id: binId,
+      initial_quantity: qty > 0 ? qty : undefined,
         force,
-      })
-      setSku(null)
-      setQty(0)
-      onAssigned()
+    })
+    setSku(null)
+    setQty(0)
+    onAssigned()
     } catch (err: unknown) {
       if (!force && getApiErrorCode(err) === 'WH_BIN_OVER_CAPACITY') {
         const ok = window.confirm(
@@ -2205,40 +2237,40 @@ function AssignTab({
                 : `${filteredUnassigned.length} / ${api.unassigned.length} matching`}
             </p>
           ) : null}
-          <div className="max-h-72 overflow-auto rounded-lg border border-hairline">
-            <Table containerClassName="overflow-visible">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>SKU</TableHead>
-                  <TableHead>Shop</TableHead>
-                  <TableHead>{vi ? 'Sàn' : 'Platform'}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+        <div className="max-h-72 overflow-auto rounded-lg border border-hairline">
+          <Table containerClassName="overflow-visible">
+            <TableHeader>
+              <TableRow>
+                <TableHead>SKU</TableHead>
+                <TableHead>Shop</TableHead>
+                <TableHead>{vi ? 'Sàn' : 'Platform'}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
                 {filteredUnassigned.map((row) => {
-                  const key = `${row.platform}|${row.shop_id}|${row.seller_sku}`
-                  const selected =
-                    sku?.seller_sku === row.seller_sku &&
-                    sku.shop_id === row.shop_id &&
-                    sku.platform === row.platform
-                  return (
-                    <TableRow
-                      key={key}
-                      className={cn('cursor-pointer', selected ? 'bg-primary/10' : '')}
-                      onClick={() => setSku(row)}
-                    >
-                      <TableCell className="font-medium text-ink">
-                        {row.seller_sku}
-                      </TableCell>
-                      <TableCell className="text-ink-muted">{row.shop_id}</TableCell>
-                      <TableCell>{row.platform}</TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-            {api.unassigned.length === 0 ? (
-              <p className="px-4 py-6 text-center text-xs text-ink-muted">
+                const key = `${row.platform}|${row.shop_id}|${row.seller_sku}`
+                const selected =
+                  sku?.seller_sku === row.seller_sku &&
+                  sku.shop_id === row.shop_id &&
+                  sku.platform === row.platform
+                return (
+                  <TableRow
+                    key={key}
+                    className={cn('cursor-pointer', selected ? 'bg-primary/10' : '')}
+                    onClick={() => setSku(row)}
+                  >
+                    <TableCell className="font-medium text-ink">
+                      {row.seller_sku}
+                    </TableCell>
+                    <TableCell className="text-ink-muted">{row.shop_id}</TableCell>
+                    <TableCell>{row.platform}</TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+          {api.unassigned.length === 0 ? (
+            <p className="px-4 py-6 text-center text-xs text-ink-muted">
                 {vi ? 'Không còn SKU chưa gán trong kho này.' : 'No unassigned SKUs in this warehouse.'}
               </p>
             ) : filteredUnassigned.length === 0 ? (
@@ -2246,8 +2278,8 @@ function AssignTab({
                 {vi
                   ? `Không có SKU khớp «${skuQuery.trim()}».`
                   : `No SKU matches “${skuQuery.trim()}”.`}
-              </p>
-            ) : null}
+            </p>
+          ) : null}
           </div>
         </div>
 
@@ -2292,10 +2324,10 @@ function AssignTab({
                         ? ` · ${stock.sellerSku} × ${stock.quantityOnHand}`
                         : ''
                       return (
-                        <option key={bin.id} value={bin.id}>
-                          {bin.binCode}
+                      <option key={bin.id} value={bin.id}>
+                        {bin.binCode}
                           {stockLabel}
-                        </option>
+                      </option>
                       )
                     })}
                   </optgroup>
@@ -2311,10 +2343,10 @@ function AssignTab({
                       ? ` · ${stock.sellerSku} × ${stock.quantityOnHand}`
                       : ''
                     return (
-                      <option key={bin.id} value={bin.id}>
-                        {bin.binCode || bin.id}
+                    <option key={bin.id} value={bin.id}>
+                      {bin.binCode || bin.id}
                         {stockLabel}
-                      </option>
+                    </option>
                     )
                   })}
                 </optgroup>
@@ -2448,8 +2480,8 @@ function StockTab({
     }
     try {
       await api.restock(assignmentId, qty, force, extra)
-      setQtyById((prev) => ({ ...prev, [assignmentId]: 1 }))
-      onRestocked()
+    setQtyById((prev) => ({ ...prev, [assignmentId]: 1 }))
+    onRestocked()
     } catch (err: unknown) {
       if (!force && getApiErrorCode(err) === 'WH_BIN_OVER_CAPACITY') {
         const ok = window.confirm(
@@ -2510,7 +2542,7 @@ function StockTab({
                   {row.sellerSku}
                 </p>
                 <p className="mt-0.5 truncate text-[11px] text-ink-muted">
-                  {row.platform} · {row.shopId}
+                {row.platform} · {row.shopId}
                   {row.masterSku
                     ? ` · ${vi ? 'Tồn chung' : 'Pooled'} ${row.masterSku}`
                     : ''}
@@ -2528,9 +2560,9 @@ function StockTab({
                 <p className="text-[10px] font-medium uppercase tracking-wide text-ink-muted">
                   {vi ? 'Tồn' : 'On hand'}
                 </p>
-                <Badge tone={row.quantityOnHand > 0 ? 'success' : 'warning'}>
-                  {row.quantityOnHand}
-                </Badge>
+              <Badge tone={row.quantityOnHand > 0 ? 'success' : 'warning'}>
+                {row.quantityOnHand}
+              </Badge>
               </div>
             </div>
 
@@ -2592,19 +2624,19 @@ function StockTab({
               <div className="mt-2">
                 {action === 'receive' ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <Input
+                <Input
                       className="h-9 w-24"
-                      type="number"
-                      min={1}
+                  type="number"
+                  min={1}
                       aria-label={vi ? 'Số lượng nhập thêm' : 'Quantity to add'}
                       value={addQty}
-                      onChange={(e) =>
-                        setQtyById((prev) => ({
-                          ...prev,
-                          [row.id]: Number(e.target.value),
-                        }))
-                      }
-                    />
+                  onChange={(e) =>
+                    setQtyById((prev) => ({
+                      ...prev,
+                      [row.id]: Number(e.target.value),
+                    }))
+                  }
+                />
                     <span className="text-[11px] text-ink-muted">
                       {vi ? 'Sau nhập' : 'After'}{' '}
                       <span className="tabular-nums text-ink">
@@ -2630,14 +2662,14 @@ function StockTab({
                         setLotCodeById((prev) => ({ ...prev, [row.id]: e.target.value }))
                       }
                     />
-                    <Button
+                <Button
                       className="h-9 px-3 text-xs sm:ml-auto"
-                      disabled={api.mutating}
-                      onClick={() => void submit(row.id)}
-                    >
-                      {vi ? 'Nhập' : 'Add'}
-                    </Button>
-                  </div>
+                  disabled={api.mutating}
+                  onClick={() => void submit(row.id)}
+                >
+                  {vi ? 'Nhập' : 'Add'}
+                </Button>
+              </div>
                 ) : null}
 
                 {action === 'count' ? (
@@ -2884,6 +2916,20 @@ function PickingTab({
         <Button type="submit" className="h-9 text-xs" disabled={loading || !groupId.trim()}>
           <ScanLine className="h-3.5 w-3.5" />
           {vi ? 'Xem lộ trình' : 'Load route'}
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-9 text-xs"
+          disabled={!groupId.trim()}
+          onClick={() => {
+            void openWarehouseDocument(
+              pickingListDocumentPath(warehouseId, groupId.trim()),
+            ).catch((err: unknown) => setError(formatApiError(err)))
+          }}
+        >
+          <Printer className="h-3.5 w-3.5" />
+          {vi ? 'In danh sách lấy hàng' : 'Print picking list'}
         </Button>
         <Input
           className={cn(fieldClass, 'min-w-64 flex-1')}

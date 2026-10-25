@@ -1,4 +1,4 @@
-import { apiRequest } from '../lib/api'
+import { apiRequest, apiRequestBlob } from '../lib/api'
 import type {
   AdjustStockInput,
   AssignSkuInput,
@@ -1033,4 +1033,42 @@ export function writeStoredWarehouseId(id: string): void {
   } catch {
     // ignore quota / private mode
   }
+}
+
+/** Mở PDF kho (`GET /documents/bin-labels|sku-labels|picking-list|stock-receipt`) ở tab mới. */
+export async function openWarehouseDocument(path: string): Promise<void> {
+  const blob = await apiRequestBlob(path)
+  const url = URL.createObjectURL(blob)
+  const opened = window.open(url, '_blank', 'noopener')
+  if (!opened) {
+    URL.revokeObjectURL(url)
+    throw new Error('Trình duyệt đang chặn cửa sổ mới. Cho phép popup rồi in lại.')
+  }
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
+export function binLabelsDocumentPath(
+  warehouseId: string,
+  opts: { zoneId?: string; binId?: string },
+): string {
+  const qs = new URLSearchParams()
+  if (opts.zoneId) qs.set('zone_id', opts.zoneId)
+  if (opts.binId) qs.set('bin_ids', opts.binId)
+  const query = qs.toString()
+  return `/documents/bin-labels/${encodeURIComponent(warehouseId)}${query ? `?${query}` : ''}`
+}
+
+export function skuLabelsDocumentPath(codes: string[], copies: number): string {
+  const qs = new URLSearchParams()
+  qs.set('codes', codes.join(','))
+  if (copies > 1) qs.set('copies', String(copies))
+  return `/documents/sku-labels?${qs.toString()}`
+}
+
+export function pickingListDocumentPath(warehouseId: string, groupId: string): string {
+  return `/documents/picking-list/${encodeURIComponent(warehouseId)}/${encodeURIComponent(groupId)}`
+}
+
+export function stockReceiptDocumentPath(warehouseId: string, receiptId: string): string {
+  return `/documents/stock-receipt/${encodeURIComponent(warehouseId)}/${encodeURIComponent(receiptId)}`
 }

@@ -4,6 +4,7 @@ import {
   Box,
   Boxes,
   ClipboardList,
+  Clock,
   ChevronDown,
   Database,
   LayoutDashboard,
@@ -137,6 +138,14 @@ const navItems = [
     section: 'analytics' as NavSection,
   },
   {
+    to: '/app/history',
+    end: false,
+    labelVi: 'Lịch sử thao tác',
+    labelEn: 'Activity history',
+    icon: Clock,
+    section: 'analytics' as NavSection,
+  },
+  {
     to: '/app/profile',
     end: false,
     labelVi: 'Hồ sơ & Cài đặt',
@@ -186,7 +195,9 @@ export function PortalSidebar() {
     .map((item) =>
       item.to === '/app/returns' && role === UserRole.ADMIN
         ? { ...item, to: '/app/admin/returns' }
-        : item,
+        : item.to === '/app/history' && role === UserRole.ADMIN
+          ? { ...item, to: '/app/admin/history' }
+          : item,
     )
     .filter((item) => canSeeNavItem(role, item.to))
   const roleLabel =

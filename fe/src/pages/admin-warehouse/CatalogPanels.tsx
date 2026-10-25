@@ -31,7 +31,7 @@ import {
   type UnmappedSellerSku,
   type UnpooledStockRow,
 } from '../../api/catalog.api'
-import { listCategories } from '../../api/warehouse.api'
+import { listCategories, openWarehouseDocument, skuLabelsDocumentPath } from '../../api/warehouse.api'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/input'
@@ -280,6 +280,8 @@ export function MasterSkuTab({
   const [createdCode, setCreatedCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [printCodes, setPrintCodes] = useState<string[]>([])
+  const [labelCopies, setLabelCopies] = useState(1)
 
   const types = useMemo(() => level2Categories(categories), [categories])
   const chosen = types.find((row) => row.code === category)
@@ -461,10 +463,33 @@ export function MasterSkuTab({
         <Button type="submit" variant="secondary" className="h-9 text-xs">
           {vi ? 'Tìm' : 'Search'}
         </Button>
+        <Input
+          className={`${fieldClass} w-20`}
+          type="number"
+          min={1}
+          max={50}
+          value={labelCopies}
+          onChange={(e) => setLabelCopies(Math.min(50, Math.max(1, Number(e.target.value) || 1)))}
+          aria-label={vi ? 'Số bản tem' : 'Label copies'}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-9 text-xs"
+          disabled={printCodes.length === 0}
+          onClick={() => {
+            void openWarehouseDocument(skuLabelsDocumentPath(printCodes, labelCopies)).catch(
+              (err: unknown) => setError(formatApiError(err)),
+            )
+          }}
+        >
+          {vi ? `In tem SKU (${printCodes.length})` : `Print SKU labels (${printCodes.length})`}
+        </Button>
       </form>
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8" />
             <TableHead>SKU</TableHead>
             <TableHead>{vi ? 'Tên' : 'Name'}</TableHead>
             <TableHead />
@@ -473,6 +498,20 @@ export function MasterSkuTab({
         <TableBody>
           {items.map((row) => (
             <TableRow key={row.masterSku}>
+              <TableCell>
+                <input
+                  type="checkbox"
+                  checked={printCodes.includes(row.masterSku)}
+                  aria-label={row.masterSku}
+                  onChange={() => {
+                    setPrintCodes((prev) =>
+                      prev.includes(row.masterSku)
+                        ? prev.filter((code) => code !== row.masterSku)
+                        : [...prev, row.masterSku],
+                    )
+                  }}
+                />
+              </TableCell>
               <TableCell className="font-medium text-ink">
                 <span className="inline-flex flex-wrap items-center gap-2">
                   {row.masterSku}
