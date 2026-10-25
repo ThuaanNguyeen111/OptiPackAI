@@ -5,6 +5,7 @@ import { siteConfig } from '@/lib/site-config'
 
 export const metadata: Metadata = { title: siteConfig.title, description: siteConfig.description }
 
+// suppressHydrationWarning: tiện ích trình duyệt (Grammarly…) tự gắn thuộc tính vào <body> trước khi React chạy → cảnh báo hydration giả.
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="vi"><body><CartProvider>{children}</CartProvider></body></html>
+  return <html lang="vi"><body suppressHydrationWarning><CartProvider>{children}</CartProvider></body></html>
 }
