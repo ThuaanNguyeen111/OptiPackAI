@@ -531,10 +531,10 @@ Sau khi xoá: tìm trong `fe/src` không còn `/packaging/`, `/fulfillment/pack`
 
 - [ ] Kiện thường, kệ tái sử dụng còn hàng → chip "Lấy ở kệ tái sử dụng"; niêm phong → kiện hiện "Thùng: tái sử dụng", trang Vật tư: cột Tái sử dụng giảm 1.
 - [ ] "Dùng thùng mới thay" mà không chọn lý do → không gửi được; có lý do → cột Mới giảm 1, kiện hiện "(đổi từ tái sử dụng — …)".
-- [ ] Kiện có hàng dễ vỡ → chip "Lấy thùng mới · hàng dễ vỡ", không có nút đổi.
+- [x] Kiện có hàng dễ vỡ → chip "Lấy thùng mới · hàng dễ vỡ", không có nút đổi.
 - [ ] Lưu người gửi → nhãn có khối NGƯỜI GỬI; xoá trắng → nhãn lấy tên + địa chỉ kho.
 - [ ] In tem ô 1 khu, tem SKU 2 bản, danh sách lấy hàng, phiếu nhập → PDF mở tab mới; quét thử tem ô ra đúng `bin_code`.
-- [x] Picking List hiện lô xuất trước; màn Tồn theo lô + danh sách phiếu nhập có dữ liệu (đã có từ FE của Việt, AOFP-185).
+- [ ] Picking List hiện lô xuất trước; màn Tồn theo lô + danh sách phiếu nhập có dữ liệu (đã có từ FE của Việt, AOFP-185).
 - [ ] Tìm trong `fe/src` không còn `/fulfillment/pack`, `/lazada-pack`, `api/packaging.api.ts`.
 
 ---

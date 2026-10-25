@@ -4378,6 +4378,8 @@ Tài liệu (AOFP-175): `FE_UPDATE_CHECKLIST.md` mục 0 (dòng 18–20) + 1d b�
 
 Tài liệu (AOFP-178): `FE_UPDATE_CHECKLIST.md` mục 1e + dòng 21–22, `API_LIST.md` mục 23.
 
+**Sửa 25/10/2026 (AOFP-191) — trang Lịch sử báo "Đã có lỗi xảy ra ở hệ thống" (500):** `GET /history` đọc 12 collection bằng `.lean()` — lean **không điền default** nên document cũ thiếu mảng (`packing_plans.activity/item_profiles/parcels`, `return_requests.items/inspection`, `stock_receipts.lines`, `orders.items`) hoặc có `ref_id`/`actor_id` lưu dạng ObjectId làm `forEach/map/slice/startsWith` ném TypeError → cả trang 500. Sửa: helper `arr()`/`num()`/`labelOf()`, chuẩn hoá `actorId` + `ref_id` bằng `idStr`, `box?.code`, và **mỗi nguồn chạy trong `safe()`** — nguồn lỗi chỉ ghi log `Lịch sử: nguồn "<tên>" lỗi — bỏ qua` + stack, các nguồn khác vẫn trả. Không đổi request/response, không migration. Chưa xác định nguồn nào gây lỗi trên DB thật (VM không tới được Atlas) — đọc log BE sau khi khởi động lại. Bài học: mọi truy vấn `.lean()` đọc dữ liệu nhiều đời schema phải phòng thủ mảng/kiểu.
+
 ### Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm (23/10/2026, AOFP-183 + tài liệu AOFP-184)
 
 **[stated] Thuận yêu cầu:** rà toàn bộ luồng gộp đơn → lấy hàng → đóng gói → giao cho đơn gộp (cùng SĐT + địa chỉ, khác tên, nhất là đơn AURELLE); làm gói: cảnh báo khác tên, tách đơn, gộp tay 2 nhóm, bắt quét khi nhóm nhiều tên, "chia theo đơn" ở picking list, in tên người nhận lên kiện, tài liệu FE chi tiết cho màn lấy/đóng/giao.
