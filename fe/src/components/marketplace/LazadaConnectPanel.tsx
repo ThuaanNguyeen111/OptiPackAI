@@ -1,5 +1,9 @@
-import { Loader2, Plus, RefreshCw, Store, Trash2 } from 'lucide-react'
+import { Loader2, Plus, RefreshCw, Store, Trash2, Unplug } from 'lucide-react'
+import { useState } from 'react'
+import { useAuth } from '../../context/use-auth'
 import type { useLazadaConnection } from '../../hooks/useLazadaConnection'
+import { formatApiError } from '../../lib/api'
+import { UserRole } from '../../types/auth'
 import { Button } from '../ui/Button'
 
 type ConnectionApi = ReturnType<typeof useLazadaConnection>
@@ -11,8 +15,26 @@ type LazadaConnectPanelProps = {
 
 export function LazadaConnectPanel({ api, locale }: LazadaConnectPanelProps) {
   const vi = locale === 'vi'
+  const { session } = useAuth()
+  const isAdmin = session?.role === UserRole.ADMIN
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
   const waiting = api.phase === 'waiting'
   const opening = api.phase === 'opening'
+
+  function disconnect(shopId: string, shopName: string | null) {
+    const label = shopName || shopId
+    const ok = window.confirm(
+      vi
+        ? `Ngắt kết nối shop ${label}? Token hết hiệu lực, đơn đã kéo vẫn giữ. Kết nối lại bằng OAuth.`
+        : `Disconnect ${label}? The token stops working. Orders already pulled stay. Reconnect with OAuth.`,
+    )
+    if (!ok) return
+    setDisconnectingId(shopId)
+    void api
+      .disconnectShop(shopId)
+      .catch((err: unknown) => api.setError(formatApiError(err)))
+      .finally(() => setDisconnectingId(null))
+  }
 
   return (
     <div className="space-y-4">
@@ -126,11 +148,14 @@ export function LazadaConnectPanel({ api, locale }: LazadaConnectPanelProps) {
                   >
                     {shop.isActive === false
                       ? vi
-                        ? 'Đã ngắt trên máy chủ'
-                        : 'Disconnected on the server'
+                        ? 'Đã ngắt'
+                        : 'Disconnected'
                       : vi
                         ? 'Đang kết nối'
                         : 'Connected'}
+                    {shop.isActive === false && shop.disconnectedAt
+                      ? ` ${shop.disconnectedAt.slice(0, 16).replace('T', ' ')}`
+                      : ''}
                     {shop.lastPolledAt
                       ? ` · ${vi ? 'đồng bộ' : 'synced'} ${shop.lastPolledAt.slice(0, 16).replace('T', ' ')}`
                       : ''}
@@ -149,20 +174,38 @@ export function LazadaConnectPanel({ api, locale }: LazadaConnectPanelProps) {
                     </span>
                   ) : null}
                   {shop.fromServer ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      className="h-8 min-h-8 text-xs"
-                      disabled={api.syncingShopId === shop.shopId || shop.isActive === false}
-                      onClick={() => void api.syncShop(shop.shopId)}
-                    >
-                      {api.syncingShopId === shop.shopId ? (
-                        <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      {vi ? 'Đồng bộ ngay' : 'Sync now'}
-                    </Button>
+                    <>
+                      {isAdmin && shop.isActive !== false ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-8 min-h-8 text-xs text-error hover:text-error"
+                          disabled={disconnectingId === shop.shopId}
+                          onClick={() => disconnect(shop.shopId, shop.shopName)}
+                        >
+                          {disconnectingId === shop.shopId ? (
+                            <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Unplug className="mr-1 h-3.5 w-3.5" />
+                          )}
+                          {vi ? 'Ngắt kết nối' : 'Disconnect'}
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-8 min-h-8 text-xs"
+                        disabled={api.syncingShopId === shop.shopId || shop.isActive === false}
+                        onClick={() => void api.syncShop(shop.shopId)}
+                      >
+                        {api.syncingShopId === shop.shopId ? (
+                          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-1 h-3.5 w-3.5" />
+                        )}
+                        {vi ? 'Đồng bộ ngay' : 'Sync now'}
+                      </Button>
+                    </>
                   ) : (
                     <Button
                       type="button"
@@ -171,8 +214,8 @@ export function LazadaConnectPanel({ api, locale }: LazadaConnectPanelProps) {
                       onClick={() => api.forgetShop(shop.shopId)}
                       title={
                         vi
-                          ? 'Chỉ ẩn shop trên trình duyệt này — máy chủ không có nút ngắt kết nối'
-                          : 'Hides the shop in this browser only — the server has no disconnect action'
+                          ? 'Chỉ ẩn shop lưu trên trình duyệt này'
+                          : 'Hides the shop saved in this browser only'
                       }
                     >
                       <Trash2 className="mr-1 h-3.5 w-3.5" />

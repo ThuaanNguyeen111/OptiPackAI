@@ -90,6 +90,7 @@ type PickLine = {
   master_sku: string | null
   other_bins: WarehousePickingListItem['other_bins']
   oldest_lot: WarehousePickingListItem['oldest_lot']
+  order_allocations: WarehousePickingListItem['order_allocations']
   qtyPicked: number
   remainingStock: number | null
 }
@@ -256,10 +257,24 @@ function mergeLines(
       master_sku: typeof enriched.master_sku === 'string' ? enriched.master_sku : null,
       other_bins: Array.isArray(enriched.other_bins) ? enriched.other_bins : [],
       oldest_lot: enriched.oldest_lot ?? null,
+      order_allocations: Array.isArray(enriched.order_allocations)
+        ? enriched.order_allocations
+        : [],
       qtyPicked: saved?.qtyPicked ?? 0,
       remainingStock: saved?.remainingStock ?? null,
     }
   })
+}
+
+function allocationText(line: PickLine, vi: boolean): string | null {
+  const rows = line.order_allocations
+  if (!rows || rows.length < 2) return null
+  const parts = rows.map((row) => {
+    const name = row.recipient_name.trim() || (vi ? 'Không tên' : 'No name')
+    const code = row.platform_order_id.trim() || row.order_id.slice(-6)
+    return `${name} · ${code} ×${row.quantity}`
+  })
+  return `${vi ? 'Chia theo đơn' : 'Split by order'}: ${parts.join(' · ')}`
 }
 
 function normalizeScan(value: string): string {
@@ -1536,6 +1551,11 @@ export function WarehousePage() {
                                   )}
                                 </p>
                               ) : null}
+                              {allocationText(activeLine, vi) ? (
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {allocationText(activeLine, vi)}
+                                </p>
+                              ) : null}
                             </div>
                             <p className="mt-1.5 text-[11px] text-slate-500">
                               {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
@@ -1745,6 +1765,11 @@ export function WarehousePage() {
                                       line.oldest_lot.received_at,
                                       vi,
                                     )}
+                                  </p>
+                                ) : null}
+                                {allocationText(line, vi) ? (
+                                  <p className="mt-0.5 text-[10px] text-slate-500">
+                                    {allocationText(line, vi)}
                                   </p>
                                 ) : null}
                                 {line.other_bins.length > 0 ? (
