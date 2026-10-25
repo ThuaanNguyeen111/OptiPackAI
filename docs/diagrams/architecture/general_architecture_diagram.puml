@@ -1,0 +1,48 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' Layout config
+LAYOUT_LEFT_RIGHT()
+skinparam linetype polyline
+skinparam nodesep 50
+skinparam ranksep 60
+skinparam roundCorner 10
+
+' 1. CLIENTS
+Boundary(c_front, "Frontend") {
+    Container(FE_WEB, "Web App", "React / Vite")
+    Container(FE_APP, "Mobile App", "Flutter")
+}
+
+' 2. BACKEND
+Boundary(c_back, "Backend") {
+    Container(API, "API Server", "NestJS")
+    Container(WORKER, "Optimization Worker", "Python / FastAPI")
+}
+
+' 3. STORAGE
+Boundary(c_data, "Database & Cache") {
+    ContainerDb(DB, "Database", "MongoDB Atlas")
+    ContainerDb(CACHE, "Cache", "Redis")
+}
+
+' 4. EXTERNAL
+Boundary(c_ext, "External Services") {
+    System_Ext(EXT_SHIP, "Shipping / 3PL")
+    System_Ext(EXT_MKT, "Marketplaces")
+    System_Ext(EXT_AI, "AI Services")
+}
+
+' RELATIONS & PROTOCOLS
+Rel(FE_WEB, API, "HTTPS / REST")
+Rel(FE_APP, API, "HTTPS / REST")
+
+Rel_Neighbor(API, WORKER, "gRPC / HTTP2")
+
+Rel(API, DB, "MongoDB Wire / TLS")
+Rel(API, CACHE, "RESP / TCP")
+
+Rel(API, EXT_SHIP, "Webhook / REST")
+Rel(API, EXT_MKT, "Webhook / REST")
+Rel(API, EXT_AI, "HTTPS / SSE")
+@enduml
