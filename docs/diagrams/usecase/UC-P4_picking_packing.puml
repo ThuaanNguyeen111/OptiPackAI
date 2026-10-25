@@ -1,0 +1,102 @@
+@startuml UC26-36_Packing
+left to right direction
+skinparam packageStyle rectangle
+
+actor "System\nAdministrator" as Admin
+actor "System\nScheduler" as Scheduler
+actor "Warehouse\nStaff" as Warehouse
+actor "Packaging\nStaff" as Packaging
+actor "Store\nOwner" as Owner
+
+rectangle "AOFP System" {
+  ' --- Catalog & settings ---
+  usecase "Manage box/material/zip bag catalog" as UC_Catalog
+  usecase "Stock-in packaging materials" as UC_StockInMat
+  usecase "Configure packing settings" as UC_Settings
+  usecase "View packing reports & feedback" as UC_Reports
+
+  ' --- Packing plan ---
+  usecase "Generate packing plan" as UC_GenPlan
+  usecase "Review packing plan" as UC_ReviewPlan
+  usecase "Approve plan" as UC_Approve
+  usecase "Adjust plan" as UC_Adjust
+  usecase "Reject plan" as UC_Reject
+  usecase "Recompute plan" as UC_Recompute
+  usecase "Send back to picking" as UC_SendBack
+  usecase "Create manual plan" as UC_ManualPlan
+  usecase "Undo approve" as UC_UndoApprove
+
+  ' --- Picking ---
+  usecase "Assign picker" as UC_AssignPicker
+  usecase "Pick item" as UC_Pick
+  usecase "Report missing item" as UC_ReportMissing
+  usecase "Decide partial pick" as UC_PartialPick
+  usecase "Scan item" as UC_Scan
+
+  ' --- Packing ---
+  usecase "Pack parcels" as UC_Pack
+  usecase "Seal & weigh parcel" as UC_SealWeigh
+  usecase "Review held parcel" as UC_ReviewHeld
+  usecase "Report packing issue" as UC_ReportIssue
+  usecase "Change box during packing" as UC_ChangeBox
+  usecase "Generate AI packing guide" as UC_AIGuide
+  usecase "Unseal parcel" as UC_Unseal
+  usecase "Unpack canceled parcel" as UC_Unpack
+}
+
+' --- Generalization: Admin kế thừa Warehouse, Packaging, Owner ---
+Admin --|> Warehouse
+Admin --|> Packaging
+Admin --|> Owner
+
+' --- System Administrator ---
+Admin -- UC_Catalog
+Admin -- UC_StockInMat
+
+' --- System Scheduler ---
+Scheduler -- UC_GenPlan
+Scheduler -- UC_AssignPicker
+
+' --- Warehouse Staff ---
+Warehouse -- UC_AssignPicker
+Warehouse -- UC_Pick
+Warehouse -- UC_Pack
+Warehouse -- UC_Unseal
+Warehouse -- UC_Unpack
+
+' --- Packaging Staff ---
+Packaging -- UC_Recompute
+Packaging -- UC_ReviewPlan
+Packaging -- UC_UndoApprove
+Packaging -- UC_PartialPick
+Packaging -- UC_ReviewHeld
+Packaging -- UC_Unseal
+Packaging -- UC_Unpack
+
+' --- Store Owner ---
+Owner -- UC_Settings
+Owner -- UC_Reports
+Owner -- UC_Unseal
+
+' --- Include ---
+UC_Pack .> UC_SealWeigh : <<include>>
+UC_Pack .> UC_Scan : <<include>>
+UC_Pick .> UC_Scan : <<include>>
+
+' --- Extend ---
+UC_Recompute .> UC_Reject : <<extend>>
+UC_SendBack .> UC_Reject : <<extend>>
+UC_ManualPlan .> UC_Reject : <<extend>>
+UC_Reject .> UC_ReviewPlan : <<extend>>
+UC_Adjust .> UC_ReviewPlan : <<extend>>
+UC_Approve .> UC_ReviewPlan : <<extend>>
+
+UC_PartialPick .> UC_ReportMissing : <<extend>>
+UC_ReportMissing .> UC_Pick : <<extend>>
+
+UC_ReviewHeld .> UC_Pack : <<extend>>
+UC_ReportIssue .> UC_Pack : <<extend>>
+UC_ChangeBox .> UC_Pack : <<extend>>
+UC_AIGuide .> UC_Pack : <<extend>>
+
+@enduml

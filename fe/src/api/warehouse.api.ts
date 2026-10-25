@@ -23,6 +23,7 @@ import type {
   UnassignedSku,
   UpdateWarehouseInput,
   UpdateZoneInput,
+  OrderAllocation,
   WarehousePickingListItem,
   WarehouseRecord,
   WarehouseZoneRecord,
@@ -965,6 +966,24 @@ function mapOtherBins(raw: unknown): OtherBin[] {
   })
 }
 
+function mapOrderAllocations(raw: unknown): OrderAllocation[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const orderId = pickString(row.order_id, row.orderId)
+    if (!orderId) return []
+    return [
+      {
+        order_id: orderId,
+        platform_order_id: pickString(row.platform_order_id, row.platformOrderId),
+        recipient_name: pickString(row.recipient_name, row.recipientName),
+        quantity: pickNumber(row.quantity),
+      },
+    ]
+  })
+}
+
 function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
   const row = asRecord(raw)
   const sku = pickString(row?.sku)
@@ -984,6 +1003,9 @@ function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
     bin_location_id: pickString(row.bin_location_id) || null,
     other_bins: mapOtherBins(row.other_bins),
     oldest_lot: mapOldestLot(row.oldest_lot),
+    order_allocations: mapOrderAllocations(
+      row.order_allocations ?? row.orderAllocations,
+    ),
   }
 }
 

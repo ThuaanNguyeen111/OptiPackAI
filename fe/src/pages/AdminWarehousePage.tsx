@@ -51,7 +51,7 @@ import {
   ReconcileTab,
 } from './admin-warehouse/CatalogPanels'
 import { cn } from '../lib/cn'
-import { formatApiError, getApiErrorCode } from '../lib/api'
+import { formatApiError, getApiErrorCode, getApiErrorDetailList } from '../lib/api'
 import { AdminToast } from '../modules/admin/components/AdminToast'
 import type {
   BinLocationRecord,
@@ -2103,26 +2103,43 @@ function AssignTab({
     return { grouped, leftover }
   }, [api.zones, api.allBins])
 
-  async function submit(force = false) {
+  async function submit(force = false, confirmOtherBin = false) {
     if (!sku || !binId) return
     try {
-    await api.assignSku({
-      platform: sku.platform,
-      shop_id: sku.shop_id,
-      seller_sku: sku.seller_sku,
-      bin_location_id: binId,
-      initial_quantity: qty > 0 ? qty : undefined,
+      await api.assignSku({
+        platform: sku.platform,
+        shop_id: sku.shop_id,
+        seller_sku: sku.seller_sku,
+        bin_location_id: binId,
+        initial_quantity: qty > 0 ? qty : undefined,
         force,
-    })
-    setSku(null)
-    setQty(0)
-    onAssigned()
+        confirm_other_bin: confirmOtherBin || undefined,
+      })
+      setSku(null)
+      setQty(0)
+      onAssigned()
     } catch (err: unknown) {
       if (!force && getApiErrorCode(err) === 'WH_BIN_OVER_CAPACITY') {
         const ok = window.confirm(
           `${formatApiError(err)}\n\n${vi ? 'Vẫn xếp vào ô này?' : 'Assign anyway?'}`,
         )
-        if (ok) await submit(true)
+        if (ok) await submit(true, confirmOtherBin)
+        return
+      }
+      if (!confirmOtherBin && getApiErrorCode(err) === 'WH_SKU_IN_OTHER_BIN') {
+        const codes = [
+          ...getApiErrorDetailList(err, 'binCodes'),
+          ...getApiErrorDetailList(err, 'bin_codes'),
+        ]
+        const listed = codes.length > 0 ? ` (${codes.join(', ')})` : ''
+        const ok = window.confirm(
+          `${formatApiError(err)}\n\n${
+            vi
+              ? `SKU đã ở ô khác${listed}. Vẫn gán vào ô này?`
+              : `SKU is in another bin${listed}. Assign here anyway?`
+          }`,
+        )
+        if (ok) await submit(force, true)
       }
     }
   }

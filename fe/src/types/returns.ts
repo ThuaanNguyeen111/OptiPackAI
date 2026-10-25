@@ -76,20 +76,6 @@ export type QuarantineLine = {
   since: string | null
 }
 
-export type CreateReturnItemInput = {
-  seller_sku: string
-  quantity: number
-  reason_code: string
-}
-
-export type CreateReturnInput = {
-  order_group_id: string
-  type: 'return_refund' | 'refund_only' | 'exchange'
-  items: CreateReturnItemInput[]
-  exchange_items?: { seller_sku: string; quantity: number }[]
-  customer_note?: string
-}
-
 export type InspectReturnLineInput = {
   seller_sku: string
   quantity: number
@@ -97,6 +83,8 @@ export type InspectReturnLineInput = {
   warehouse_id?: string
   bin_location_id?: string
   note?: string
+  /** Xác nhận nhập vào ô khi SKU đã nằm ở ô khác (WH_SKU_IN_OTHER_BIN). */
+  confirm_other_bin?: boolean
 }
 
 export type ReturnListResult = {

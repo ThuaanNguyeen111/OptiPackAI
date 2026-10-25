@@ -60,6 +60,13 @@ export type UnassignedSku = {
 }
 
 /** `GET /warehouse/:warehouseId/picking-list/:groupId` — giữ snake_case (PackableItem). */
+export type OrderAllocation = {
+  order_id: string
+  platform_order_id: string
+  recipient_name: string
+  quantity: number
+}
+
 export type WarehousePickingListItem = {
   sku: string
   quantity: number
@@ -75,6 +82,7 @@ export type WarehousePickingListItem = {
   bin_location_id: string | null
   other_bins: OtherBin[]
   oldest_lot: OldestLot | null
+  order_allocations: OrderAllocation[]
 }
 
 /** Lô cũ nhất còn hàng trên ô — picking list trừ lô này trước. */
@@ -118,6 +126,8 @@ export type AssignSkuInput = {
   bin_location_id: string
   initial_quantity?: number
   force?: boolean
+  /** Xác nhận SKU đã nằm ở ô khác trong cùng kho (WH_SKU_IN_OTHER_BIN). */
+  confirm_other_bin?: boolean
 }
 
 export type UpdateWarehouseInput = {
