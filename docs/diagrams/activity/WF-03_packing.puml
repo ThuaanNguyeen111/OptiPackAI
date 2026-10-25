@@ -60,22 +60,25 @@ if (Plan acceptable?) then (no)
   :Notify Admin and Store Owner
   (handling deadline: 2 working hours);
   |Packaging Staff|
-  if (Recovery option?) then (recompute)
-    :Request recompute
-    (exclude boxes / prefer cheaper);
-  elseif (manual packing) then
+  if (Back to picking?) then (yes)
+    :Declare items to re-pick;
+    |OptiPack System|
+    :Group status **picking**
+    (continues in WF-02);
+    stop
+  else (no)
+  endif
+  |Packaging Staff|
+  if (Manual packing?) then (yes)
     :Enter actual parcels
     (boxes and items);
     note right
       A manual plan must be
       approved by another person.
     end note
-  else (back to picking)
-    :Declare items to re-pick;
-    |OptiPack System|
-    :Group status **picking**
-    (continues in WF-02);
-    stop
+  else (no, recompute)
+    :Request recompute
+    (exclude boxes / prefer cheaper);
   endif
   |OptiPack System|
   :Produce new plan (status **ready**)

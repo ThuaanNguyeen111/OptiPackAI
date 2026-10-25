@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { UserRole } from '../../common/enums/user-role.enum';
@@ -66,6 +66,10 @@ const EXPORT_CAP = 5000;
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const idStr = (v: unknown): string | null => (v === null || v === undefined ? null : (v as { toString(): string }).toString());
+/** Document đọc bằng `.lean()` không được Mongoose điền default — dữ liệu cũ có thể thiếu mảng. */
+const arr = <T>(v: T[] | null | undefined): T[] => (Array.isArray(v) ? v : []);
+const num = (v: number | null | undefined): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+const labelOf = (c: string): string => (CATEGORY_LABELS as Record<string, string | undefined>)[c] ?? c;
 
 /**
  * ===================================================================
@@ -85,6 +89,8 @@ const idStr = (v: unknown): string | null => (v === null || v === undefined ? nu
  */
 @Injectable()
 export class HistoryService {
+  private readonly logger = new Logger(HistoryService.name);
+
   constructor(
     @InjectModel(ActivityLog.name) private readonly activityModel: Model<ActivityLogDocument>,
     @InjectModel(InventoryMovement.name) private readonly movementModel: Model<InventoryMovementDocument>,
@@ -196,18 +202,30 @@ export class HistoryService {
 
   private async collect(ctx: Ctx): Promise<HistoryItem[]> {
     const has = (c: ActivityCategory): boolean => ctx.categories.has(c);
+    // Mỗi nguồn chạy độc lập: 1 nguồn có dữ liệu lỗi chỉ thiếu phần của nó, không làm hỏng cả trang.
+    const safe = async (name: string, run: () => Promise<RawItem[]>): Promise<RawItem[]> => {
+      try {
+        return await run();
+      } catch (err: unknown) {
+        this.logger.error(`Lịch sử: nguồn "${name}" lỗi — bỏ qua`, err instanceof Error ? err.stack : String(err));
+        return [];
+      }
+    };
+    const none = (): Promise<RawItem[]> => Promise.resolve([]);
     const batches = await Promise.all([
-      this.fromActivity(ctx),
-      has('warehouse') || has('picking') || has('packing') || has('returns') ? this.fromMovements(ctx) : [],
-      has('warehouse') ? this.fromReceipts(ctx) : [],
-      has('shipping') ? this.fromShipments(ctx) : [],
-      has('packing') ? this.fromPackingPlans(ctx) : [],
-      has('returns') ? this.fromReturns(ctx) : [],
-      has('packaging_materials') ? this.fromPackaging(ctx) : [],
-      has('auth') ? this.fromLogins(ctx) : [],
+      safe('activity_logs', () => this.fromActivity(ctx)),
+      safe('inventory_movements', has('warehouse') || has('picking') || has('packing') || has('returns') ? () => this.fromMovements(ctx) : none),
+      safe('stock_receipts', has('warehouse') ? () => this.fromReceipts(ctx) : none),
+      safe('shipment_events', has('shipping') ? () => this.fromShipments(ctx) : none),
+      safe('packing_plans', has('packing') ? () => this.fromPackingPlans(ctx) : none),
+      safe('return_requests', has('returns') ? () => this.fromReturns(ctx) : none),
+      safe('packaging_movements', has('packaging_materials') ? () => this.fromPackaging(ctx) : none),
+      safe('login_audit_logs', has('auth') ? () => this.fromLogins(ctx) : none),
     ]);
     const merged = batches
       .flat()
+      .map((i) => ({ ...i, actorId: idStr(i.actorId), occurredAt: new Date(i.occurredAt) }))
+      .filter((i) => !Number.isNaN(i.occurredAt.getTime()))
       .filter((i) => i.occurredAt >= ctx.from && i.occurredAt < ctx.before)
       .filter((i) => !ctx.actorId || i.actorId === ctx.actorId)
       .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
@@ -265,8 +283,8 @@ export class HistoryService {
     return rows.map((r) => {
       const sku = r.master_sku ?? r.seller_sku;
       const bin = bins.get(String(r.bin_location_id)) ?? '?';
-      const n = Math.abs(r.delta);
-      const group = r.ref_type === 'order_group' ? r.ref_id : null;
+      const n = Math.abs(num(r.delta));
+      const group = r.ref_type === 'order_group' ? idStr(r.ref_id) : null;
       const forGroup = group ? ` cho nhóm đơn …${group.slice(-10)}` : '';
       const summaries: Record<string, string> = {
         assign_initial: `Gán ${sku} vào ô ${bin} — tồn ban đầu ${String(n)}`,
@@ -291,7 +309,7 @@ export class HistoryService {
         actorId: r.actor_id,
         orderGroupId: group,
         entity: { type: 'sku_bin_assignment', id: idStr(r.assignment_id), code: bin },
-        skus: [sku],
+        skus: sku ? [sku] : [],
         quantity: r.delta,
         fromStatus: null,
         toStatus: null,
@@ -307,7 +325,8 @@ export class HistoryService {
     if (ctx.sku) filter.$or = [{ 'lines.seller_sku': ctx.sku }, { 'lines.master_sku': ctx.sku }];
     const rows = await this.receiptModel.find(filter).sort({ created_at: -1 }).limit(ctx.limit).lean();
     return rows.map((r) => {
-      const skus = [...new Set(r.lines.map((l) => l.master_sku ?? l.seller_sku))];
+      const lines = arr(r.lines);
+      const skus = [...new Set(lines.map((l) => l.master_sku ?? l.seller_sku))];
       return {
         id: `rc:${String(r._id)}`,
         occurredAt: r.created_at ?? r.received_at,
@@ -323,10 +342,10 @@ export class HistoryService {
         toStatus: null,
         details: {
           lotCode: r.lot_code,
-          receivedAt: r.received_at.toISOString(),
+          receivedAt: idStr(r.received_at),
           supplier: r.supplier,
           note: r.note,
-          lines: r.lines.map((l) => `${l.master_sku ?? l.seller_sku}×${String(l.quantity)}`).join(', '),
+          lines: lines.map((l) => `${l.master_sku ?? l.seller_sku}×${String(l.quantity)}`).join(', '),
         },
       };
     });
@@ -409,7 +428,8 @@ export class HistoryService {
     const out: RawItem[] = [];
     for (const p of plans) {
       const gid = String(p.order_group_id);
-      const skus = p.item_profiles.map((i) => i.sku);
+      const skus = arr(p.item_profiles).map((i) => i.sku);
+      const parcels = arr(p.parcels);
       const base = (key: string, at: Date, action: string, summary: string, actor: unknown, details: Record<string, Detail> = {}): RawItem => ({
         id: `pp:${String(p._id)}:${key}`,
         occurredAt: at,
@@ -426,21 +446,22 @@ export class HistoryService {
         details: { revision: p.revision, ...details },
       });
       if (p.created_at) {
-        out.push(base('gen', p.created_at, 'packing.plan_generated', `${p.source === 'manual' ? 'Lập tay' : 'Hệ thống tính'} kế hoạch đóng gói lần ${String(p.revision)}: ${String(p.parcels.length)} kiện`, p.source === 'manual' ? null : 'system'));
+        out.push(base('gen', p.created_at, 'packing.plan_generated', `${p.source === 'manual' ? 'Lập tay' : 'Hệ thống tính'} kế hoạch đóng gói lần ${String(p.revision)}: ${String(parcels.length)} kiện`, p.source === 'manual' ? null : 'system'));
       }
       if (p.approved_at) out.push(base('approve', p.approved_at, 'packing.plan_approved', `Duyệt kế hoạch đóng gói${p.approve_override_reason ? ` (bỏ qua cảnh báo: ${p.approve_override_reason})` : ''}`, p.approved_by));
       if (p.rejected_at) out.push(base('reject', p.rejected_at, 'packing.plan_rejected', `Từ chối kế hoạch — ${p.rejection_reason ?? 'không ghi lý do'}`, p.rejected_by));
       if (p.assigned_packer_at) out.push(base('assign', p.assigned_packer_at, 'packing.packer_assigned', `Giao cho ${p.assigned_packer_name ?? 'nhân viên'} đóng gói`, null, { packerId: idStr(p.assigned_packer_id) }));
       if (p.packing_started_at) out.push(base('start', p.packing_started_at, 'packing.started', `Bắt đầu đóng gói${p.pack_mode ? ` (chế độ ${p.pack_mode === 'scan' ? 'quét từng món' : 'nhanh'})` : ''}`, p.packing_started_by));
-      for (const parcel of p.parcels) {
+      for (const parcel of parcels) {
         if (!parcel.sealed_at) continue;
-        const kg = parcel.actual_weight_kg ?? Math.round(parcel.estimated_weight_g / 10) / 100;
+        const kg = parcel.actual_weight_kg ?? Math.round(num(parcel.estimated_weight_g) / 10) / 100;
+        const boxCode = (parcel.box as { code?: string } | null | undefined)?.code ?? '?';
         out.push(base(`seal:${String(parcel.parcel_no)}`, parcel.sealed_at, 'packing.parcel_sealed',
-          `Niêm phong kiện ${String(parcel.parcel_no)}: thùng ${parcel.box.code}, ${String(kg)} kg${parcel.platform_order_id ? ` — đơn ${parcel.platform_order_id}` : ''}`,
-          parcel.sealed_by, { parcelNo: parcel.parcel_no, box: parcel.box.code, weightKg: kg }));
+          `Niêm phong kiện ${String(parcel.parcel_no)}: thùng ${boxCode}, ${String(kg)} kg${parcel.platform_order_id ? ` — đơn ${parcel.platform_order_id}` : ''}`,
+          parcel.sealed_by, { parcelNo: parcel.parcel_no, box: boxCode, weightKg: kg }));
       }
-      if (p.packed_at) out.push(base('packed', p.packed_at, 'packing.packed', `Đóng gói xong ${String(p.parcels.length)} kiện`, p.packed_by));
-      p.activity.forEach((a, index) => {
+      if (p.packed_at) out.push(base('packed', p.packed_at, 'packing.packed', `Đóng gói xong ${String(parcels.length)} kiện`, p.packed_by));
+      arr(p.activity).forEach((a, index) => {
         if (a.kind === 'start' || a.kind === 'finish') return; // đã có mốc bắt đầu / xong ở trên
         out.push(base(`act:${String(index)}`, a.at, `packing.${a.kind}`, `${PLAN_ACTIVITY_LABELS[a.kind] ?? a.kind}: ${a.detail}${a.reason ? ` — ${a.reason}` : ''}`, a.by, { parcelNo: a.parcel_no }));
       });
@@ -457,23 +478,26 @@ export class HistoryService {
         .sort({ created_at: -1 }).limit(ctx.limit).lean(),
       this.returnModel.find({ ...base, 'inspection.disposed_at': this.timeFilter(ctx) }).limit(ctx.limit).lean(),
     ]);
-    const out: RawItem[] = created.map((r) => ({
+    const out: RawItem[] = created.map((r) => {
+      const items = arr(r.items);
+      return {
       id: `rt:${String(r._id)}`,
       occurredAt: r.created_at ?? new Date(0),
       category: 'returns' as const,
       action: 'return.created',
-      summary: `Tạo phiếu trả ${r.rma_code}: ${RETURN_TYPE_LABELS[r.type] ?? r.type} (${RETURN_SOURCE_LABELS[r.source] ?? r.source}) — ${r.items.map((i) => `${i.seller_sku}×${String(i.quantity)}`).join(', ')}`,
+      summary: `Tạo phiếu trả ${r.rma_code}: ${RETURN_TYPE_LABELS[r.type] ?? r.type} (${RETURN_SOURCE_LABELS[r.source] ?? r.source}) — ${items.map((i) => `${i.seller_sku}×${String(i.quantity)}`).join(', ')}`,
       actorId: r.created_by,
       orderGroupId: String(r.order_group_id),
       entity: { type: 'return_request', id: String(r._id), code: r.rma_code },
-      skus: r.items.map((i) => i.seller_sku),
-      quantity: r.items.reduce((s, i) => s + i.quantity, 0),
+      skus: items.map((i) => i.seller_sku),
+      quantity: items.reduce((s, i) => s + i.quantity, 0),
       fromStatus: null,
       toStatus: r.source === 'failed_delivery' ? 'received' : 'requested',
       details: { type: r.type, source: r.source, customerNote: r.customer_note, externalRef: r.external_ref },
-    }));
+      };
+    });
     for (const r of disposed) {
-      r.inspection.forEach((line, index) => {
+      arr(r.inspection).forEach((line, index) => {
         if (!line.disposed_at || (line.disposition !== 'restocked' && line.disposition !== 'discarded')) return;
         out.push({
           id: `rq:${String(r._id)}:${String(index)}`,
@@ -554,21 +578,24 @@ export class HistoryService {
       .find({ consolidated_group_id: { $in: groupIds } })
       .select('platform platform_order_id items created_at consolidated_group_id origin')
       .lean();
-    return orders.map((o) => ({
+    return orders.map((o) => {
+      const items = arr(o.items);
+      return {
       id: `od:${String(o._id)}`,
       occurredAt: (o as { created_at?: Date }).created_at ?? new Date(0),
       category: 'orders' as const,
       action: 'order.received',
-      summary: `${o.origin === 'replacement' ? 'Tạo đơn thay thế (đổi hàng)' : `Đơn ${o.platform_order_id} từ ${o.platform.toUpperCase()} về hệ thống`}: ${o.items.map((i) => `${i.sku}×${String(i.quantity)}`).join(', ')}`,
+      summary: `${o.origin === 'replacement' ? 'Tạo đơn thay thế (đổi hàng)' : `Đơn ${o.platform_order_id} từ ${o.platform.toUpperCase()} về hệ thống`}: ${items.map((i) => `${i.sku}×${String(i.quantity)}`).join(', ')}`,
       actorId: 'system',
       orderGroupId: idStr(o.consolidated_group_id),
       entity: { type: 'order', id: String(o._id), code: o.platform_order_id },
-      skus: o.items.map((i) => i.sku),
-      quantity: o.items.reduce((s, i) => s + i.quantity, 0),
+      skus: items.map((i) => i.sku),
+      quantity: items.reduce((s, i) => s + i.quantity, 0),
       fromStatus: null,
       toStatus: null,
       details: { platform: o.platform },
-    }));
+      };
+    });
   }
 
   // ------------------------------------------------------------ tra cứu phụ
@@ -602,19 +629,20 @@ export class HistoryService {
   }
 
   private async resolveActors(items: RawItem[]): Promise<HistoryItem[]> {
-    const ids = [...new Set(items.map((i) => i.actorId).filter((v): v is string => typeof v === 'string' && Types.ObjectId.isValid(v)))];
+    const ids = [...new Set(items.map((i) => idStr(i.actorId)).filter((v): v is string => typeof v === 'string' && Types.ObjectId.isValid(v)))];
     const users = ids.length
       ? await this.userModel.find({ _id: { $in: ids.map((id) => new Types.ObjectId(id)) } }).select('name role').lean()
       : [];
     const byId = new Map(users.map((u) => [String(u._id), u]));
-    return items.map(({ actorId, ...rest }) => {
+    return items.map(({ actorId: rawActor, ...rest }) => {
+      const actorId = idStr(rawActor);
       let actor: HistoryActor | null = null;
       if (actorId?.startsWith('system')) actor = { id: actorId, name: actorId === 'system' ? 'Hệ thống' : `Hệ thống (${actorId.slice(7)})`, role: null };
       else if (actorId) {
         const u = byId.get(actorId);
         actor = { id: actorId, name: u?.name ?? 'Người dùng đã xoá', role: u ? (ROLE_LABELS[u.role] ?? null) : null };
       }
-      return { ...rest, categoryLabel: CATEGORY_LABELS[rest.category], actor };
+      return { ...rest, categoryLabel: labelOf(rest.category), actor };
     });
   }
 }
