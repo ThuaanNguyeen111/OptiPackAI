@@ -1,0 +1,66 @@
+@startuml UC01-08_User_Account_Management
+left to right direction
+skinparam packageStyle rectangle
+
+actor "System\nAdministrator" as Admin
+actor "Authenticated\nUser" as AuthUser
+actor "Warehouse\nStaff" as Warehouse
+actor "Packaging\nStaff" as Packaging
+actor "Shipping\nCoordinator" as Shipping
+actor "Store\nOwner" as Owner
+actor "Email Service" as Email
+
+rectangle "AOFP System" {
+  usecase "Log in" as UC_Login
+  usecase "Reset forgotten password" as UC_ResetForgot
+  usecase "Change password" as UC_ChangePwd
+  usecase "Set up 2FA" as UC_Setup2FA
+  usecase "Manage own profile" as UC_Profile
+  usecase "View notifications" as UC_ViewNotif
+
+  usecase "Create user" as UC_CreateUser
+  usecase "Edit user" as UC_EditUser
+  usecase "Deactivate/Reactivate user" as UC_Deactivate
+  usecase "Disable user MFA" as UC_DisableMFA
+  usecase "Reset user password" as UC_ResetUserPwd
+  usecase "View user list" as UC_ViewUsers
+  usecase "Set staff on leave" as UC_SetLeave
+}
+
+' --- Generalization: các actor kế thừa Authenticated User ---
+Admin --|> AuthUser
+Warehouse --|> AuthUser
+Packaging --|> AuthUser
+Shipping --|> AuthUser
+Owner --|> AuthUser
+
+' --- System Administrator ---
+Admin -- UC_CreateUser
+Admin -- UC_EditUser
+Admin -- UC_Deactivate
+Admin -- UC_DisableMFA
+Admin -- UC_ResetUserPwd
+Admin -- UC_ViewUsers
+Admin -- UC_SetLeave
+
+' --- Store Owner ---
+Owner -- UC_ViewUsers
+Owner -- UC_SetLeave
+
+' --- Authenticated User ---
+AuthUser -- UC_ResetForgot
+AuthUser -- UC_ChangePwd
+AuthUser -- UC_Setup2FA
+AuthUser -- UC_ViewNotif
+AuthUser -- UC_Profile
+
+' --- Email Service ---
+Email -- UC_CreateUser
+Email -- UC_DisableMFA
+Email -- UC_ResetForgot
+
+' --- Extend ---
+UC_ChangePwd .> UC_Login : <<extend>>
+UC_Setup2FA .> UC_Login : <<extend>>
+
+@enduml
