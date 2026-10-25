@@ -1,0 +1,73 @@
+@startuml UC09-19_Order_Sync_And_Consolidation
+left to right direction
+skinparam packageStyle rectangle
+
+actor "System\nAdministrator" as Admin
+actor "System\nScheduler" as Scheduler
+actor "Marketplace\nPlatform" as Marketplace
+actor "Warehouse\nStaff" as Warehouse
+actor "Packaging\nStaff" as Packaging
+actor "Shipping\nCoordinator" as Shipping
+actor "Store\nOwner" as Owner
+
+rectangle "AOFP System" {
+  usecase "Connect shop" as UC_Connect
+  usecase "Disconnect shop" as UC_Disconnect
+  usecase "Configure sync & consolidation settings" as UC_Config
+  usecase "Sync orders automatically" as UC_SyncAuto
+  usecase "Sync orders manually" as UC_SyncManual
+  usecase "Consolidate orders into group" as UC_Consolidate
+
+  usecase "View order groups" as UC_ViewGroups
+  usecase "Link/Unlink groups manually" as UC_LinkUnlink
+  usecase "Merge order group" as UC_Merge
+  usecase "Split order groups" as UC_Split
+  usecase "Seller-cancel order" as UC_SellerCancel
+  usecase "Set express priority" as UC_Express
+  usecase "View orders" as UC_ViewOrders
+}
+
+' --- Generalization: Admin kế thừa Store Owner và Shipping Coordinator ---
+Admin --|> Owner
+Admin --|> Shipping
+
+' --- System Administrator ---
+Admin -- UC_Connect
+Admin -- UC_Disconnect
+Admin -- UC_Config
+Admin -- UC_SyncManual
+
+' --- System Scheduler ---
+Scheduler -- UC_SyncAuto
+
+' --- Marketplace Platform ---
+Marketplace -- UC_Connect
+Marketplace -- UC_SyncAuto
+Marketplace -- UC_SyncManual
+Marketplace -- UC_SellerCancel
+
+' --- Warehouse Staff ---
+Warehouse -- UC_ViewGroups
+
+' --- Packaging Staff ---
+Packaging -- UC_ViewGroups
+
+' --- Shipping Coordinator ---
+Shipping -- UC_ViewGroups
+Shipping -- UC_LinkUnlink
+Shipping -- UC_Merge
+Shipping -- UC_Split
+
+' --- Store Owner ---
+Owner -- UC_ViewGroups
+Owner -- UC_Merge
+Owner -- UC_Split
+Owner -- UC_SellerCancel
+Owner -- UC_Express
+Owner -- UC_ViewOrders
+
+' --- Include ---
+UC_SyncAuto .> UC_Consolidate : <<include>>
+UC_SyncManual .> UC_Consolidate : <<include>>
+
+@enduml

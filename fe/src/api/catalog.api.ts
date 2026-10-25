@@ -48,6 +48,7 @@ export type MasterSkuRecord = {
   isFragile: boolean
   isActive: boolean
   replacedBy: string | null
+  createdBy: string | null
 }
 
 export type SkuMappingRecord = {
@@ -56,6 +57,7 @@ export type SkuMappingRecord = {
   shopId: string
   sellerSku: string
   masterSku: string
+  createdBy: string | null
 }
 
 export type UnmappedSellerSku = {
@@ -91,6 +93,8 @@ export type ProductMasterRow = {
   zipBagFolded: boolean
   canFoldInHalf: boolean
   suggestedZipBagCode?: string | null
+  marketplaceStatus: string | null
+  retired: boolean
 }
 
 export type ConfirmPackagingProfileInput = {
@@ -146,7 +150,20 @@ function mapMasterSku(raw: unknown): MasterSkuRecord | null {
     isFragile: row.isFragile === true || row.is_fragile === true,
     isActive: row.isActive !== false && row.is_active !== false,
     replacedBy: pickString(row.replacedBy, row.replaced_by) || null,
+    createdBy: pickString(row.createdBy, row.created_by) || null,
   }
+}
+
+export function autoActorChip(
+  createdBy: string | null | undefined,
+  vi: boolean,
+): string | null {
+  if (!createdBy) return null
+  if (createdBy.startsWith('system:auto-create')) {
+    return vi ? 'Tự tạo từ AURELLE' : 'Auto-created from AURELLE'
+  }
+  if (createdBy.startsWith('system:auto-map')) return vi ? 'Tự nối' : 'Auto-mapped'
+  return null
 }
 
 function mapMapping(raw: unknown): SkuMappingRecord | null {
@@ -160,6 +177,7 @@ function mapMapping(raw: unknown): SkuMappingRecord | null {
     shopId: pickString(row.shopId, row.shop_id),
     sellerSku: pickString(row.sellerSku, row.seller_sku),
     masterSku: pickString(row.masterSku, row.master_sku),
+    createdBy: pickString(row.createdBy, row.created_by) || null,
   }
 }
 
@@ -460,6 +478,9 @@ function mapProductMaster(raw: unknown): ProductMasterRow | null {
     zipBagFolded: row.zipBagFolded === true || row.zip_bag_folded === true,
     canFoldInHalf: row.canFoldInHalf === true || row.can_fold_in_half === true,
     suggestedZipBagCode: pickString(row.suggestedZipBagCode, row.suggested_zip_bag_code) || null,
+    marketplaceStatus:
+      pickString(row.marketplaceStatus, row.marketplace_status) || null,
+    retired: row.retired === true,
   }
 }
 
@@ -474,12 +495,14 @@ export async function listProductMaster(query: {
   shopId?: string
   search?: string
   status?: 'needs_measurement' | 'ready'
+  includeRetired?: boolean
 }): Promise<{ items: ProductMasterRow[]; total: number }> {
   const res = await apiRequest<unknown>(
     `/product-master${qs({
       shop_id: query.shopId,
       search: query.search,
       status: query.status,
+      include_retired: query.includeRetired ? true : undefined,
     })}`,
     { auth: true },
   )
@@ -508,6 +531,14 @@ export async function confirmPackagingProfile(
   )
   if (!saved) throw new Error('Đã lưu hồ sơ nhưng server không trả SKU.')
   return saved
+}
+
+export async function retireProductMaster(id: string, retired: boolean): Promise<void> {
+  await apiRequest<unknown>(`/product-master/${encodeURIComponent(id)}/retire`, {
+    method: 'PATCH',
+    body: { retired },
+    auth: true,
+  })
 }
 
 export async function lookupStockAvailability(input: {

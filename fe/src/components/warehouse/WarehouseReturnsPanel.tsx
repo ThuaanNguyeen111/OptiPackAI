@@ -11,7 +11,7 @@ import {
 import { listShipments, receiveReturnedShipment } from '../../api/shipments.api'
 import type { Shipment } from '../../types/shipments'
 import { listWarehouseBinLocations } from '../../api/warehouse.api'
-import { formatApiError } from '../../lib/api'
+import { formatApiError, getApiErrorCode, getApiErrorDetailList } from '../../lib/api'
 import type { BinLocationRecord, WarehouseRecord } from '../../types/warehouse-admin'
 import {
   RETURN_STATUS_LABELS,
@@ -31,6 +31,18 @@ type QueueMode = 'awaiting_receipt' | 'received' | 'quarantine'
 
 function shortId(id: string): string {
   return id.length > 10 ? id.slice(-10) : id
+}
+
+function otherBinMessage(err: unknown, vi: boolean): string | null {
+  if (getApiErrorCode(err) !== 'WH_SKU_IN_OTHER_BIN') return null
+  const codes = [
+    ...getApiErrorDetailList(err, 'binCodes'),
+    ...getApiErrorDetailList(err, 'bin_codes'),
+  ]
+  const listed = codes.length > 0 ? ` (${codes.join(', ')})` : ''
+  return vi
+    ? `SKU này đã nằm ở ô khác${listed}. Vẫn nhập vào ô đã chọn?`
+    : `This SKU is already in another bin${listed}. Stock this bin anyway?`
 }
 
 export function WarehouseReturnsPanel({
@@ -136,9 +148,8 @@ export function WarehouseReturnsPanel({
     packaging?: PackagingInspectInput[],
   ): Promise<void> {
     if (!selected) return
-    setBusy(true)
-    setError(null)
-    try {
+    async function send(confirmOtherBin: boolean) {
+      if (!selected) return
       await inspectReturn(selected.id, {
         expected_version: selected.version,
         lines: drafts.map((line) => ({
@@ -146,14 +157,33 @@ export function WarehouseReturnsPanel({
           quantity: line.quantity,
           result: line.result,
           ...(line.result === 'restock'
-            ? { warehouse_id: warehouseId, bin_location_id: line.binLocationId }
+            ? {
+                warehouse_id: warehouseId,
+                bin_location_id: line.binLocationId,
+                confirm_other_bin: confirmOtherBin || undefined,
+              }
             : {}),
         })),
         ...(packaging && packaging.length > 0 ? { packaging } : {}),
       })
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await send(false)
       await load()
     } catch (err: unknown) {
-      setError(formatApiError(err))
+      const prompt = otherBinMessage(err, vi)
+      if (prompt && window.confirm(`${formatApiError(err)}\n\n${prompt}`)) {
+        try {
+          await send(true)
+          await load()
+        } catch (retryErr: unknown) {
+          setError(formatApiError(retryErr))
+        }
+      } else {
+        setError(formatApiError(err))
+      }
     } finally {
       setBusy(false)
     }
@@ -181,18 +211,35 @@ export function WarehouseReturnsPanel({
       setError(vi ? 'Nhập lại kho phải chọn ô.' : 'Restock needs a bin.')
       return
     }
-    setBusy(true)
-    setError(null)
-    try {
+    async function send(confirmOtherBin: boolean) {
       await resolveQuarantine(line.returnId, line.lineIndex, {
         action,
         ...(action === 'restock'
-          ? { warehouse_id: warehouseId, bin_location_id: binLocationId }
+          ? {
+              warehouse_id: warehouseId,
+              bin_location_id: binLocationId,
+              confirm_other_bin: confirmOtherBin || undefined,
+            }
           : {}),
       })
+    }
+    setBusy(true)
+    setError(null)
+    try {
+      await send(false)
       await load()
     } catch (err: unknown) {
-      setError(formatApiError(err))
+      const prompt = otherBinMessage(err, vi)
+      if (prompt && window.confirm(`${formatApiError(err)}\n\n${prompt}`)) {
+        try {
+          await send(true)
+          await load()
+        } catch (retryErr: unknown) {
+          setError(formatApiError(retryErr))
+        }
+      } else {
+        setError(formatApiError(err))
+      }
     } finally {
       setBusy(false)
     }

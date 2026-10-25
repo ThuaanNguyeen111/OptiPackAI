@@ -20,39 +20,6 @@ export type GroupFulfillmentStatus =
 
 export type OrderPriority = 'normal' | 'express'
 
-/** Khớp `LazadaPackStatus` BE — kết quả báo đóng gói lên Lazada (AOFP-56). */
-export type LazadaPackStatus =
-  | 'disabled'
-  | 'skipped'
-  | 'success'
-  | 'partial'
-  | 'failed'
-
-export type LazadaPackItem = {
-  orderId: string
-  orderItemId: string
-  ok: boolean
-  errorCode: string | null
-  message: string | null
-  packageId: string | null
-  trackingNumber: string | null
-  shipmentProvider: string | null
-}
-
-export type LazadaPackInfo = {
-  status: LazadaPackStatus | null
-  attemptedAt: string | null
-  error: string | null
-  items: LazadaPackItem[]
-}
-
-export const EMPTY_LAZADA_PACK: LazadaPackInfo = {
-  status: null,
-  attemptedAt: null,
-  error: null,
-  items: [],
-}
-
 export type ManualLink = {
   linkId: string
   linkedBy: string | null
@@ -118,10 +85,7 @@ export type OrderGroup = {
   activeOrderCount: number
   /** Đơn status canceled — từ BE AOFP-52. */
   canceledOrderCount: number
-  /** Kết quả báo pack lên Lazada — null status = chưa từng gửi. */
-  lazadaPack: LazadaPackInfo
   fulfillmentStatus: GroupFulfillmentStatus | string
-  activePackagingRecommendationId: string | null
   assignedStaffId: string | null
   orderPriority: OrderPriority | string
   packagingDeadline: string | null
@@ -194,27 +158,6 @@ export function isFullyInactiveGroup(
   return group.activeOrderCount === 0
 }
 
-/** Có thể gọi POST .../lazada-pack/retry (BE chỉ cho group packed và chưa success). */
-export function canRetryLazadaPack(
-  group: Pick<OrderGroup, 'platform' | 'fulfillmentStatus' | 'lazadaPack'>,
-): boolean {
-  if (group.platform !== 'lazada') return false
-  if (group.fulfillmentStatus !== 'packed') return false
-  const status = group.lazadaPack.status
-  return status !== 'success' && status !== 'skipped'
-}
-
-export const LAZADA_PACK_STATUS_LABELS: Record<
-  LazadaPackStatus,
-  { vi: string; en: string }
-> = {
-  success: { vi: 'Đã báo Lazada', en: 'Reported to Lazada' },
-  partial: { vi: 'Lazada một phần', en: 'Lazada partial' },
-  failed: { vi: 'Lazada thất bại', en: 'Lazada failed' },
-  disabled: { vi: 'Chưa gửi sàn (cầu dao tắt)', en: 'Write API disabled' },
-  skipped: { vi: 'Bỏ qua Lazada', en: 'Skipped Lazada' },
-}
-
 export type StockShortageItem = {
   sku: string
   needed: number
@@ -285,32 +228,6 @@ export type ReportMissingInput = {
 
 export type TransitionOrderGroupInput = {
   expected_version: number
-}
-
-/** Khớp `ConsumptionResult` từ BE khi POST .../fulfillment/pack. */
-export type PackagingConsumptionLine = {
-  materialCode: string
-  condition: 'new' | 'reused' | string
-  quantity: number
-  savingVnd: number
-}
-
-export type PackagingConsumption = {
-  consumed: PackagingConsumptionLine[]
-  warnings: string[]
-  recommendedBoxCode: string | null
-  followedRecommendation: boolean | null
-}
-
-export type PackOrderGroupResult = {
-  group: OrderGroup
-  packagingConsumption: PackagingConsumption | null
-  lazadaPackSync: LazadaPackInfo
-}
-
-export type RetryLazadaPackResult = {
-  group: OrderGroup
-  lazadaPackSync: LazadaPackInfo
 }
 
 /** Kho lấy hàng trước — không đợi duyệt gợi ý thùng. */

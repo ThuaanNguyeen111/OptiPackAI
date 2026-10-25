@@ -1,6 +1,5 @@
 import { apiRequest } from '../lib/api'
 import type {
-  CreateReturnInput,
   ExchangeItem,
   InspectReturnLineInput,
   QuarantineLine,
@@ -198,32 +197,6 @@ export async function approveReturn(
   )
 }
 
-export async function listReturnReasonCodes(): Promise<
-  { code: string; label: string }[]
-> {
-  const res = await apiRequest<unknown>('/returns/reason-codes', { auth: true })
-  if (!Array.isArray(res)) return []
-  return res.flatMap((raw) => {
-    const row = asRecord(raw)
-    if (!row) return []
-    const code = pickString(row.code)
-    if (!code) return []
-    return [{ code, label: pickString(row.label) || code }]
-  })
-}
-
-export async function createReturn(
-  input: CreateReturnInput,
-): Promise<ReturnRequest> {
-  return requireReturn(
-    await apiRequest<unknown>('/returns', {
-      method: 'POST',
-      body: input,
-      auth: true,
-    }),
-  )
-}
-
 export async function receiveReturn(
   id: string,
   input: ReturnActionInput,
@@ -322,6 +295,7 @@ export async function resolveQuarantine(
     warehouse_id?: string
     bin_location_id?: string
     note?: string
+    confirm_other_bin?: boolean
   },
 ): Promise<ReturnRequest> {
   return requireReturn(

@@ -30,7 +30,7 @@ import {
   updateWarehouseZone,
 } from '../api/warehouse.api'
 import type { UpdateBinInput } from '../api/warehouse.api'
-import { listAllProductMaster, listSkuMappings } from '../api/catalog.api'
+import { listAllProductMaster, listMasterSkus, listSkuMappings } from '../api/catalog.api'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import type {
   AdjustStockInput,
@@ -139,9 +139,24 @@ export function useAdminWarehouse() {
       ),
     )
     let cancelled = false
-    void Promise.all(
-      masters.map((code) => listSkuMappings(code).catch(() => [])),
-    ).then((lists) => {
+    void (async () => {
+      const known = new Set<string>()
+      const limit = 200
+      try {
+        for (let page = 1; page <= 10; page += 1) {
+          const listed = await listMasterSkus({ includeInactive: true, page, limit })
+          for (const row of listed.items) known.add(row.masterSku)
+          if (listed.items.length < limit) break
+        }
+      } catch {
+        if (!cancelled) setPooledSellerKeys(new Set())
+        return
+      }
+      if (cancelled) return
+      const present = masters.filter((code) => known.has(code))
+      const lists = await Promise.all(
+        present.map((code) => listSkuMappings(code).catch(() => [])),
+      )
       if (cancelled) return
       setPooledSellerKeys(
         new Set(
@@ -150,7 +165,7 @@ export function useAdminWarehouse() {
             .map((row) => sellerSkuKey(row.platform, row.shopId, row.sellerSku)),
         ),
       )
-    })
+    })()
     return () => {
       cancelled = true
     }

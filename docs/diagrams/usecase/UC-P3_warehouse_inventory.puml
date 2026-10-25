@@ -1,0 +1,72 @@
+@startuml UC20-25_Inventory_And_Warehouse
+left to right direction
+skinparam packageStyle rectangle
+
+actor "System\nAdministrator" as Admin
+actor "System\nScheduler" as Scheduler
+actor "Marketplace\nPlatform" as Marketplace
+actor "Warehouse\nStaff" as Warehouse
+actor "Shipping\nCoordinator" as Shipping
+actor "Store\nOwner" as Owner
+
+rectangle "AOFP System" {
+  usecase "Configure warehouse" as UC_ConfigWh
+  usecase "Manage categories & colors" as UC_Categories
+  usecase "Manage internal SKUs and mappings" as UC_SKUs
+  usecase "Merge stock" as UC_MergeStock
+  usecase "Assign SKU to bin" as UC_AssignBin
+  usecase "Sync product catalog" as UC_SyncCatalog
+
+  usecase "Receive stock" as UC_Receive
+  usecase "Create stock lot" as UC_CreateLot
+  usecase "Print stock receipt" as UC_PrintReceipt
+  usecase "Adjust stock" as UC_Adjust
+  usecase "Transfer stock between bins" as UC_Transfer
+  usecase "View stock by bin/lots/ledger" as UC_ViewLedger
+  usecase "View stock availability & reservations" as UC_ViewAvail
+  usecase "Confirm SKU packaging profile" as UC_ConfirmPkg
+  usecase "Print SKU labels" as UC_PrintSKU
+  usecase "Print bin labels/picking list/stock receipt" as UC_PrintBin
+}
+
+' --- Generalization: Admin kế thừa Warehouse Staff và Store Owner ---
+Admin --|> Warehouse
+Admin --|> Owner
+
+' --- System Administrator ---
+Admin -- UC_ConfigWh
+Admin -- UC_Categories
+Admin -- UC_SKUs
+Admin -- UC_AssignBin
+Admin -- UC_SyncCatalog
+
+' --- System Scheduler & Marketplace Platform ---
+Scheduler -- UC_SyncCatalog
+Marketplace -- UC_SyncCatalog
+
+' --- Warehouse Staff ---
+Warehouse -- UC_Receive
+Warehouse -- UC_Adjust
+Warehouse -- UC_Transfer
+Warehouse -- UC_ViewLedger
+Warehouse -- UC_ViewAvail
+Warehouse -- UC_ConfirmPkg
+Warehouse -- UC_PrintSKU
+Warehouse -- UC_PrintBin
+
+' --- Shipping Coordinator ---
+Shipping -- UC_PrintSKU
+
+' --- Store Owner ---
+Owner -- UC_PrintSKU
+Owner -- UC_PrintBin
+Owner -- UC_ViewAvail
+
+' --- Include ---
+UC_Receive .> UC_CreateLot : <<include>>
+UC_SKUs .> UC_MergeStock : <<include>>
+
+' --- Extend ---
+UC_PrintReceipt .> UC_Receive : <<extend>>
+
+@enduml

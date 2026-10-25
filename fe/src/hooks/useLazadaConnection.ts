@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchLazadaConnectUrl, listMarketplaceShops } from '../api/marketplace.api'
+import {
+  disconnectMarketplaceShop,
+  fetchLazadaConnectUrl,
+  listMarketplaceShops,
+} from '../api/marketplace.api'
 import { syncLazadaOrders } from '../api/orders.api'
 import { formatApiError } from '../lib/api'
 import {
@@ -53,6 +57,7 @@ export function useLazadaConnection() {
         accessTokenExpiresAt: shop.accessTokenExpiresAt,
         refreshTokenExpiresAt: shop.refreshTokenExpiresAt,
         lastPolledAt: shop.lastPolledAt,
+        disconnectedAt: shop.disconnectedAt,
         fromServer: true,
       }))
       setShops(mapped)
@@ -216,6 +221,15 @@ export function useLazadaConnection() {
     setActiveShopIdState(getActiveLazadaShopId())
   }, [])
 
+  const disconnectShop = useCallback(
+    async (shopId: string) => {
+      setError(null)
+      await disconnectMarketplaceShop('lazada', shopId)
+      await refreshServerShops()
+    },
+    [refreshServerShops],
+  )
+
   const hydrateFromOrderShopIds = useCallback((shopIds: string[]) => {
     if (shopIds.length === 0) return
     let next = loadLazadaShops()
@@ -248,6 +262,7 @@ export function useLazadaConnection() {
     cancelWaiting,
     selectShop,
     forgetShop,
+    disconnectShop,
     shopsLoading,
     syncingShopId,
     lastSync,

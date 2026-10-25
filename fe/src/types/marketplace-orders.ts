@@ -42,6 +42,7 @@ export type ConnectedMarketplaceShop = {
   refreshTokenExpiresAt: string | null
   lastPolledAt: string | null
   connectedAt: string | null
+  disconnectedAt: string | null
 }
 
 export type LazadaCallbackResult = {
@@ -61,6 +62,7 @@ export type StoredLazadaShop = {
   accessTokenExpiresAt?: string | null
   refreshTokenExpiresAt?: string | null
   lastPolledAt?: string | null
+  disconnectedAt?: string | null
   fromServer?: boolean
 }
 
