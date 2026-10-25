@@ -1,0 +1,120 @@
+@startuml WF-04_shipping_ghn
+' ============================================================
+' WF-04 - Shipping via GHN (carrier API)
+' Source of truth: be/src/modules/shipping (quotes), be/src/modules/shipments/shipments.service.ts
+'                  (create, bookCarrierParcels, applyCarrierEvent, receiveReturn),
+'                  shipments/carrier-status.util.ts (GHN status mapping),
+'                  marketplace-writeback/status-outbox.util.ts (status sent to AURELLE)
+' Main entity state: Shipment  awaiting_pickup -> in_transit -> out_for_delivery -> delivered
+'                              delivery_failed -> returning_to_warehouse -> returned_to_warehouse
+'                    Order Group packed -> shipped -> delivered | returned
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title WF-04 Shipping via GHN
+
+|Shipping Coordinator|
+|OptiPack System|
+|GHN (Carrier)|
+|Customer|
+|Warehouse Staff|
+
+|Shipping Coordinator|
+start
+:Open packed groups ready to ship;
+:Compare shipping quotes
+(carrier, service, fee);
+:Create shipment with chosen
+carrier and service;
+note right
+  Several groups of the same recipient
+  can be shipped together as one trip.
+end note
+
+|OptiPack System|
+:Create shipment (status **awaiting_pickup**),
+group status **shipped**;
+:Book one GHN order per parcel
+(recipient of the parcel's own order);
+while (Any parcel rejected by GHN?) is (yes)
+  |Shipping Coordinator|
+  :Correct delivery address
+  (street / ward / province / phone);
+  |OptiPack System|
+  :Re-book parcels without tracking code;
+endwhile (no)
+:Store GHN tracking codes;
+:Notify AURELLE customers
+"waiting for carrier pickup" + tracking code;
+
+|GHN (Carrier)|
+:Pick up parcels at warehouse;
+|OptiPack System|
+:Receive GHN status (webhook or sync),
+shipment status **in_transit**;
+:Notify AURELLE customers "in transit";
+
+|GHN (Carrier)|
+:Deliver parcel to customer;
+|OptiPack System|
+:Shipment status **out_for_delivery**;
+:Notify AURELLE customers "out for delivery";
+|Customer|
+while (Parcel received?) is (no)
+  |GHN (Carrier)|
+  :Report delivery failure with reason;
+  |OptiPack System|
+  :Shipment status **delivery_failed**;
+  :Notify Coordinator and
+  AURELLE customers (with reason);
+  |GHN (Carrier)|
+  if (Redeliver per carrier policy?) then (yes)
+    :Deliver parcel again;
+    |OptiPack System|
+    :Shipment status **out_for_delivery**;
+  else (no, return to sender)
+    |OptiPack System|
+    :Shipment status **returning_to_warehouse**;
+    :Notify Store Owner, Warehouse Staff
+    and AURELLE customers "returning";
+    |GHN (Carrier)|
+    :Return parcels to warehouse;
+    |Warehouse Staff|
+    :Scan "receive returned parcel";
+    |OptiPack System|
+    :Shipment status **returned_to_warehouse**,
+    group status **returned**;
+    :Create failed-delivery return ticket
+    for inspection (see WF-05);
+    :Notify AURELLE customers "returned";
+    stop
+  endif
+  |Customer|
+endwhile (yes)
+
+|OptiPack System|
+:Shipment status **delivered**,
+group status **delivered**;
+:Notify AURELLE customers "delivered"
+(COD order marked paid);
+stop
+
+legend right
+  Without carrier API (own fleet / mock mode) the Coordinator records
+  delivered / failed manually; a 2nd failure or customer refusal
+  automatically sends the shipment back to the warehouse.
+  Cancelling a GHN order before pickup returns the group to packed.
+endlegend
+@enduml
