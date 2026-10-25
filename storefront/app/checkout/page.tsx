@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import { useCart } from '@/components/cart/cart-provider'
-import { checkout, getCurrentCustomer } from '@/lib/api-client'
+import { ApiError, checkout, getCurrentCustomer } from '@/lib/api-client'
 import { FREE_SHIPPING_THRESHOLD, getShippingFee } from '@/lib/order-pricing'
 import { getAllProvince, getDistrictsByProvinceId } from 'vietnam-divisions-js/provinces'
 import { getCommunesByDistrictId } from 'vietnam-divisions-js/districts'
@@ -47,7 +47,9 @@ export default function CheckoutPage() {
   const router = useRouter()
   const { items, total, clear } = useCart()
   const [address, setAddress] = useState<ShippingAddress>(emptyAddress)
-  const [addressMode, setAddressMode] = useState<AddressMode>('post-merger')
+  // 22/10/2026 — chỉ dùng địa chỉ MỚI 2 cấp (tỉnh + phường): GHN nhận kiểu này khi tạo vận đơn;
+  // địa chỉ cũ (phường không kèm mã quận) GHN báo "Sai thông tin đầu vào".
+  const [addressMode] = useState<AddressMode>('post-merger')
   const [oldProvinces, setOldProvinces] = useState<OldProvince[]>([])
   const [oldDistricts, setOldDistricts] = useState<OldDistrict[]>([])
   const [oldCommunes, setOldCommunes] = useState<OldCommune[]>([])
@@ -57,6 +59,7 @@ export default function CheckoutPage() {
   const paymentMethod = 'cod' as const
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  const [placedOrderId, setPlacedOrderId] = useState('')
   const [clientOrderId] = useState(() => crypto.randomUUID())
 
   useEffect(() => {
@@ -122,17 +125,6 @@ export default function CheckoutPage() {
     }
   }, [address.district, addressMode])
 
-  function changeMode(mode: AddressMode) {
-    setAddressMode(mode)
-    setAddress((current) => ({
-      ...current,
-      province: '',
-      district: '',
-      ward: '',
-    }))
-    setError('')
-  }
-
   function changeAddress(field: keyof ShippingAddress, value: string) {
     setAddress((current) => {
       const next = { ...current, [field]: value }
@@ -168,8 +160,8 @@ export default function CheckoutPage() {
         : oldCommunes.find((commune) => commune.idCommune === address.ward)
       const shippingAddress = addressMode === 'post-merger'
         ? {
-            recipient_name: address.recipient_name,
-            phone: address.phone,
+            recipient_name: address.recipient_name.trim(),
+            phone: address.phone.replace(/[\s.-]/g, ''),
             province: selectedProvince?.name ?? address.province,
             ward: selectedWard?.name ?? address.ward,
             address_line: address.address_line,
@@ -188,12 +180,19 @@ export default function CheckoutPage() {
       })
       clear()
       setDone(`Đặt hàng thành công: ${order.orderNumber}`)
+      setPlacedOrderId(order.id)
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        localStorage.removeItem('kaira-customer')
+        window.dispatchEvent(new Event('kaira-auth-changed'))
+        router.push('/auth/login?returnTo=/checkout')
+        return
+      }
       setError(err instanceof Error ? err.message : 'Không thể tạo đơn hàng')
     }
   }
 
-  if (done) return <><Header /><main className="page-shell"><div className="success"><h1>Cảm ơn bạn!</h1><p>{done}</p><Link className="button" href="/shop">Tiếp tục mua sắm</Link></div></main><Footer /></>
+  if (done) return <><Header /><main className="page-shell"><div className="success"><h1>Cảm ơn bạn!</h1><p>{done}</p>{placedOrderId && <Link className="button" href={`/account/orders/${placedOrderId}`}>Theo dõi đơn hàng</Link>} <Link className="button" href="/shop">Tiếp tục mua sắm</Link></div></main><Footer /></>
   if (!items.length) return <><Header /><main className="page-shell"><div className="empty">Giỏ hàng đang trống. <Link href="/shop">Quay lại cửa hàng →</Link></div></main><Footer /></>
 
   const provinces = addressMode === 'pre-merger' ? oldProvinces : newProvinces
@@ -211,32 +210,18 @@ export default function CheckoutPage() {
           <div className="form-grid">
             <label className="form-field">
               Họ và tên người nhận
-              <input required value={address.recipient_name} placeholder="Nhập họ và tên" onChange={(event) => changeAddress('recipient_name', event.target.value)} />
+              <input required maxLength={100} value={address.recipient_name} placeholder="Nhập họ và tên" onChange={(event) => changeAddress('recipient_name', event.target.value)} />
             </label>
             <label className="form-field">
               Số điện thoại
-              <input required type="tel" inputMode="tel" value={address.phone} placeholder="Nhập số điện thoại" onChange={(event) => changeAddress('phone', event.target.value)} />
+              <input required type="tel" inputMode="tel" maxLength={13} pattern="0[0-9\s.\-]{9,12}" title="10 số, bắt đầu bằng 0" value={address.phone} placeholder="VD 0912345678" onChange={(event) => changeAddress('phone', event.target.value)} />
             </label>
           </div>
 
-          <fieldset className="address-mode">
-            <legend>Phiên bản địa chỉ</legend>
-            <div className="address-mode-options">
-              <label className={addressMode === 'pre-merger' ? 'address-mode-option selected' : 'address-mode-option'}>
-                <input type="radio" name="address-mode" checked={addressMode === 'pre-merger'} onChange={() => changeMode('pre-merger')} />
-                <span><strong>Trước sáp nhập</strong><small>63 tỉnh · 3 cấp</small></span>
-              </label>
-              <label className={addressMode === 'post-merger' ? 'address-mode-option selected' : 'address-mode-option'}>
-                <input type="radio" name="address-mode" checked={addressMode === 'post-merger'} onChange={() => changeMode('post-merger')} />
-                <span><strong>Sau sáp nhập</strong><small>34 tỉnh · 2 cấp</small></span>
-              </label>
-            </div>
-            <p className="form-hint">
-              {addressMode === 'post-merger'
-                ? 'Địa chỉ mới không còn cấp quận/huyện.'
-                : 'Dùng khi địa chỉ của bạn vẫn theo hệ thống cũ.'}
-            </p>
-          </fieldset>
+          <p className="form-hint">
+            Địa chỉ theo đơn vị hành chính <strong>mới</strong> (tỉnh/thành + phường/xã, không còn quận/huyện).
+            Chọn đúng phường của số nhà — đơn vị vận chuyển đối chiếu số nhà với phường, chọn sai sẽ không giao được.
+          </p>
 
           <div className="form-grid">
             <label className="form-field">
@@ -272,7 +257,7 @@ export default function CheckoutPage() {
 
             <label className="form-field full">
               Số nhà, tên đường
-              <input required value={address.address_line} placeholder="Ví dụ: 12 Nguyễn Huệ" onChange={(event) => changeAddress('address_line', event.target.value)} />
+              <input required maxLength={255} value={address.address_line} placeholder="Ví dụ: 12 Nguyễn Huệ" onChange={(event) => changeAddress('address_line', event.target.value)} />
             </label>
           </div>
 

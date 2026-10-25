@@ -67,7 +67,7 @@ export default function AccountPage() {
         {ready && customer ? <>
           <p className="account-email">{customer.email}</p>
           <div className="account-actions">
-            <Link className="button" href="/account/orders">Xem đơn hàng</Link>
+            <Link className="button" href="/account/orders">Xem đơn hàng</Link> <Link className="button light" href="/account/returns">Yêu cầu trả hàng</Link>
             <button className="button light" type="button" onClick={handleLogout}>Đăng xuất</button>
           </div>
         </> : ready ? <Link className="button" href="/auth/login">Đăng nhập</Link> : null}

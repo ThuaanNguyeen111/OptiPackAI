@@ -55,14 +55,15 @@ export function ProductDetail({ product }: { product: Product }) {
           type="button"
           aria-pressed={item.id === variant.id}
           onClick={() => selectVariant(item.id)}
-        >{item.variantName}</button>)}
+        >{item.variantName}{item.availableQuantity <= 0 ? ' · Hết hàng' : ''}</button>)}
       </div>
 
       <div className="quantity-row">
         <label>Số lượng <input min={1} max={variant.availableQuantity} type="number" value={quantity} onChange={(event) => setQuantity(Math.max(1, Math.min(variant.availableQuantity, Number(event.target.value))))} /></label>
-        <button className="button" type="button" onClick={() => add(product, variant, quantity)}>Thêm vào giỏ</button>
+        {/* 22/10/2026 — hết hàng (kể cả SKU chưa do kho OptiPack quản) → không cho thêm vào giỏ */}
+        <button className="button" type="button" disabled={variant.availableQuantity <= 0} onClick={() => add(product, variant, quantity)}>{variant.availableQuantity > 0 ? 'Thêm vào giỏ' : 'Hết hàng'}</button>
       </div>
-      <p className="detail-description">Còn {variant.availableQuantity} sản phẩm. Đóng gói theo hồ sơ SKU đã được kho xác nhận.</p>
+      <p className="detail-description">{variant.availableQuantity > 0 ? `Còn ${variant.availableQuantity} sản phẩm.` : 'Phiên bản này tạm hết hàng.'} Đóng gói theo hồ sơ SKU đã được kho xác nhận.</p>
 
       {product.sizeChart?.length > 0 && <section className="size-guide" aria-labelledby="size-guide-title">
         <div className="size-guide-heading"><div><span className="eyebrow">Fit & measurements</span><h2 id="size-guide-title">Bảng size</h2></div><span>cm</span></div>

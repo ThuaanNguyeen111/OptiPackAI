@@ -1,4 +1,4 @@
-import type { AdminProduct, Category, Customer, Product, SaveAdminProduct, StorefrontOrder } from '@/types/storefront'
+import type { AdminCategory, AdminProduct, Category, Customer, SaveAdminCategory, ExchangeOption, Product, SaveAdminProduct, SkuOptions, StorefrontOrder, StorefrontOrderDetail, StorefrontReturn, StorefrontReturnDetail, StorefrontReturnType } from '@/types/storefront'
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000'
 
@@ -36,11 +36,24 @@ export function loginAdmin(input: { email: string; password: string }) {
 export function getCurrentAdmin() { return request<{ email: string }>('/storefront/admin/auth/me') }
 export function logoutAdmin() { return request<{ message: string }>('/storefront/admin/auth/logout', { method: 'POST' }) }
 export function getAdminProducts() { return request<AdminProduct[]>('/storefront/admin/products') }
+/** 22/10/2026 — danh mục cấp 2 + màu OptiPack để ghép SKU theo quy tắc. */
+export function getAdminSkuOptions() { return request<SkuOptions>('/storefront/admin/products/sku-options') }
 export function getAdminProduct(id: string) { return request<AdminProduct>(`/storefront/admin/products/${encodeURIComponent(id)}`) }
 export function saveAdminProduct(input: SaveAdminProduct, id?: string) {
   return request<AdminProduct>(`/storefront/admin/products${id ? `/${encodeURIComponent(id)}` : ''}`, {
     method: id ? 'PATCH' : 'POST', body: JSON.stringify(input),
   })
+}
+/** 22/10/2026 — danh mục website (Admin), kèm danh mục OptiPack đã nối + số sản phẩm. */
+export function getAdminCategories() { return request<AdminCategory[]>('/storefront/admin/categories') }
+export function saveAdminCategory(input: SaveAdminCategory, id?: string) {
+  return request<AdminCategory>(`/storefront/admin/categories${id ? `/${encodeURIComponent(id)}` : ''}`, {
+    method: id ? 'PATCH' : 'POST', body: JSON.stringify(input),
+  })
+}
+/** Ẩn danh mục (không xoá cứng). 409 khi còn sản phẩm đang bán. */
+export function hideAdminCategory(id: string) {
+  return request<{ message: string }>(`/storefront/admin/categories/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 export function deleteAdminProduct(id: string) {
   return request<{ message: string }>(`/storefront/admin/products/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -70,6 +83,40 @@ export async function logoutCustomer() {
 
 export async function checkout(input: { items: { variant_id: string; quantity: number }[]; shippingAddress: Record<string, string>; paymentMethod: 'cod'; customerNote?: string; clientOrderId?: string }) {
   return request<StorefrontOrder>('/storefront/orders/checkout', { method: 'POST', body: JSON.stringify({ items: input.items, shipping_address: input.shippingAddress, payment_method: input.paymentMethod, customer_note: input.customerNote, client_order_id: input.clientOrderId }) })
+}
+
+export async function getOrders() {
+  return request<StorefrontOrder[]>('/storefront/orders')
+}
+
+export async function getOrder(id: string) {
+  return request<StorefrontOrderDetail>(`/storefront/orders/${encodeURIComponent(id)}`)
+}
+
+export async function cancelOrder(id: string, reason?: string) {
+  return request<StorefrontOrder>(`/storefront/orders/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ reason: reason?.trim() || undefined }) })
+}
+
+export async function createReturn(orderId: string, input: { type: StorefrontReturnType; items: { sku: string; quantity: number; reason_code: string }[]; exchangeItems?: { sku: string; quantity: number }[]; customerNote?: string }) {
+  return request<StorefrontReturn>(`/storefront/orders/${encodeURIComponent(orderId)}/returns`, { method: 'POST', body: JSON.stringify({ type: input.type, items: input.items, exchange_items: input.type === 'exchange' ? input.exchangeItems : undefined, customer_note: input.customerNote?.trim() || undefined }) })
+}
+
+/** Khách tự hủy yêu cầu trả hàng khi cửa hàng chưa xử lý. */
+export async function cancelReturn(id: string) {
+  return request<StorefrontReturn>(`/storefront/returns/${encodeURIComponent(id)}/cancel`, { method: 'POST' })
+}
+
+/** Biến thể có thể đổi sang cho từng sản phẩm trong đơn. */
+export async function getExchangeOptions(orderId: string) {
+  return request<ExchangeOption[]>(`/storefront/orders/${encodeURIComponent(orderId)}/exchange-options`)
+}
+
+export async function getReturns() {
+  return request<StorefrontReturn[]>('/storefront/returns')
+}
+
+export async function getReturn(id: string) {
+  return request<StorefrontReturnDetail>(`/storefront/returns/${encodeURIComponent(id)}`)
 }
 
 export async function getCart() {
