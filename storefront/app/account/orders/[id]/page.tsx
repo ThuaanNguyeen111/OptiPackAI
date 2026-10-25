@@ -2,6 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
@@ -10,13 +11,15 @@ import { OrderTimeline } from '@/components/order/order-timeline'
 import { ReturnRequestForm } from '@/components/order/return-request-form'
 import { ApiError, cancelOrder, getOrder, getReturns } from '@/lib/api-client'
 import { getFulfillmentStatusLabel, getOrderStatusLabel, getPaymentMethodLabel, getPaymentStatusLabel } from '@/lib/order-labels'
-import type { StorefrontOrderDetail } from '@/types/storefront'
+import { OPEN_RETURN_STATUSES } from '@/lib/order-labels'
+import type { StorefrontOrderDetail, StorefrontReturn } from '@/types/storefront'
 
 function formatVnd(value: number) {
   return `${value.toLocaleString('vi-VN')}₫`
 }
 
 export default function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter()
   const [order, setOrder] = useState<StorefrontOrderDetail | null>(null)
   const [error, setError] = useState('')
 

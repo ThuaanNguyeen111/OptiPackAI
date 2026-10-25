@@ -10,6 +10,7 @@ import type {
   ListOrderGroupsParams,
   OrderGroup,
   PackableItem,
+  PackingBlocked,
   PackagingConsumption,
   PackagingConsumptionLine,
   PackOrderGroupResult,
@@ -188,9 +189,43 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     origin: pickString(row.origin) || 'marketplace',
     warehouseId: pickString(row.warehouseId, row.warehouse_id) || null,
     orders: mapGroupOrders(row.orders),
+    packingBlocked: mapPackingBlocked(row.packingBlocked ?? row.packing_blocked),
+    assignedPackerId:
+      pickString(row.assignedPackerId, row.assigned_packer_id) || null,
+    assignedPackerName:
+      pickString(row.assignedPackerName, row.assigned_packer_name) || null,
+    recipientNames: pickStringList(row.recipientNames ?? row.recipient_names),
+    recipientNamesDiffer:
+      row.recipientNamesDiffer === true || row.recipient_names_differ === true,
+    hasMaskedRecipientName:
+      row.hasMaskedRecipientName === true ||
+      row.has_masked_recipient_name === true,
+    splitFromGroupId:
+      pickString(row.splitFromGroupId, row.split_from_group_id) || null,
+    mergedIntoGroupId:
+      pickString(row.mergedIntoGroupId, row.merged_into_group_id) || null,
+    consolidationClosed:
+      row.consolidationClosed === true || row.consolidation_closed === true,
     version: pickNumber(row.version, row.__v),
     createdAt,
     updatedAt,
+  }
+}
+
+function pickStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  )
+}
+
+function mapPackingBlocked(raw: unknown): PackingBlocked | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  return {
+    reason: pickString(row.reason),
+    skus: pickStringList(row.skus),
+    at: toIso(row.at),
   }
 }
 
@@ -329,6 +364,11 @@ export async function listOrderGroups(
         : String(params.stock_shortage),
     is_overdue:
       params.is_overdue === undefined ? undefined : String(params.is_overdue),
+    packing_blocked:
+      params.packing_blocked === undefined
+        ? undefined
+        : String(params.packing_blocked),
+    q: params.q?.trim() || undefined,
   })
   const res = await apiRequest<unknown>(`/order-groups${query}`, {
     auth: true,
@@ -620,6 +660,8 @@ export type StaffSearchItem = {
   fullName: string
   email: string
   activeWorkload: number
+  onLeave: boolean
+  onLeaveUntil: string | null
 }
 
 function mapStaffSearchItem(raw: unknown): StaffSearchItem | null {
@@ -632,6 +674,8 @@ function mapStaffSearchItem(raw: unknown): StaffSearchItem | null {
     fullName: pickString(row.fullName, row.full_name, row.name) || staffId,
     email: pickString(row.email),
     activeWorkload: pickNumber(row.activeWorkload, row.active_workload),
+    onLeave: row.onLeave === true || row.on_leave === true,
+    onLeaveUntil: toIso(row.onLeaveUntil ?? row.on_leave_until),
   }
 }
 
@@ -681,6 +725,47 @@ export async function linkOrderGroups(
   return raw
     .map(mapOrderGroup)
     .filter((group): group is OrderGroup => group !== null)
+}
+
+export async function splitOrderFromGroup(
+  groupId: string,
+  orderId: string,
+  input: { expected_version: number; note: string },
+): Promise<{ sourceGroup: OrderGroup; newGroup: OrderGroup }> {
+  const res = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(groupId)}/orders/${encodeURIComponent(orderId)}/split`,
+    { method: 'POST', auth: true, body: { expected_version: input.expected_version, note: input.note.trim() } },
+  )
+  const row = asRecord(res)
+  return {
+    sourceGroup: requireOrderGroup(row?.sourceGroup ?? row?.source_group),
+    newGroup: requireOrderGroup(row?.newGroup ?? row?.new_group),
+  }
+}
+
+export async function mergeOrderGroups(
+  targetGroupId: string,
+  input: { source_group_id: string; expected_version: number; note: string },
+): Promise<OrderGroup> {
+  return requireOrderGroup(
+    await apiRequest<unknown>(`/order-groups/${encodeURIComponent(targetGroupId)}/merge`, {
+      method: 'POST',
+      auth: true,
+      body: {
+        source_group_id: input.source_group_id,
+        expected_version: input.expected_version,
+        note: input.note.trim(),
+      },
+    }),
+  )
+}
+
+export async function sellerCancelOrder(orderId: string, reason: string): Promise<void> {
+  await apiRequest(`/order-groups/orders/${encodeURIComponent(orderId)}/seller-cancel`, {
+    method: 'POST',
+    auth: true,
+    body: { reason: reason.trim() },
+  })
 }
 
 export async function unlinkOrderGroup(id: string): Promise<void> {

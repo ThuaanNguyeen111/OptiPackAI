@@ -1,0 +1,54 @@
+@startuml
+left to right direction
+
+skinparam nodesep 60
+skinparam ranksep 50
+
+[*] -right-> WAREHOUSE_PICKING
+
+state "1. PICKING & INVENTORY" as WAREHOUSE_PICKING {
+    AWAITING_PACKAGING -down-> PICKING : Assign
+    PICKING -down-> PARTIAL_NEEDS_REVIEW : Missing
+    
+    PARTIAL_NEEDS_REVIEW -up-> PICKING : Re-pick
+    PARTIAL_NEEDS_REVIEW -up-> AWAITING_PACKAGING : Re-queue
+}
+
+state "2. 3D OPTIMIZATION & PACKING" as PACKING_EXECUTION {
+    PICKED -down-> PENDING_APPROVAL : Solved 3D
+    PENDING_APPROVAL -down-> APPROVED_FOR_PACKING : Approve
+    APPROVED_FOR_PACKING -down-> PACKED : Sealed
+    
+    PENDING_APPROVAL -up-> PICKED : Retry 3D
+    APPROVED_FOR_PACKING -up-> PENDING_APPROVAL : Undo
+    PACKED -up-> APPROVED_FOR_PACKING : Repack
+}
+
+state "3. DISPATCH & LOGISTICS" as LOGISTICS_RETURNS {
+    SHIPPED -down-> DELIVERED : Delivered
+    
+    ' Failed delivery return (WF-04)
+    SHIPPED -down-> RETURNED : Failed (GHN)
+    
+    ' Customer return & exchange (WF-05)
+    DELIVERED -down-> RETURNING : Claim (15 days)
+    RETURNING -up-> DELIVERED : Reject / Cancel
+    RETURNING -down-> RETURNED : Received pkg
+    
+    ' Inspection & Ticket cancellation
+    RETURNED -up-> DELIVERED : Cancel ticket
+    RETURNED : Inspect: restock / quarantine / discard
+}
+
+' Inter-frame connections (Left to Right)
+WAREHOUSE_PICKING -right-> PACKING_EXECUTION : Picked / Defect
+PACKING_EXECUTION -right-> LOGISTICS_RETURNS : Dispatch / Void
+
+' Termination paths
+WAREHOUSE_PICKING -down-> CANCELED : Cancel
+PACKING_EXECUTION -down-> CANCELED : Cancel
+LOGISTICS_RETURNS -down-> CANCELED : Restocked / Closed
+
+DELIVERED -right-> [*]
+CANCELED -right-> [*]
+@enduml

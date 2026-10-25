@@ -46,6 +46,14 @@ export function resolveNotificationPath(
   if (type === 'return_requested') {
     return role === UserRole.ADMIN ? '/app/admin/returns' : '/app/returns'
   }
+  if (type === 'packing_blocked') {
+    if (role === UserRole.ADMIN) return '/app/admin/warehouse'
+    if (role === UserRole.PACKAGING_STAFF) return '/app/packing'
+    return '/app/order-groups'
+  }
+  if (type === 'consolidation_name_mismatch') {
+    return '/app/order-groups'
+  }
   if (
     type === 'group_auto_canceled' ||
     type === 'packaging_plan_invalidated' ||

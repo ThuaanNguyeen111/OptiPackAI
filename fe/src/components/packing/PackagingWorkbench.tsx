@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
 import {
   AlertTriangle,
@@ -24,6 +25,8 @@ import {
   packPlan,
   rejectPackingPlan,
   requestParcelGuide,
+  recomputePackingPlan,
+  getPackingBoxSources,
 } from '../../api/packing-plan.api'
 import { decidePartialOrderGroup, listOrderGroups } from '../../api/order-groups.api'
 import { fetchMyProfile } from '../../api/users.api'
@@ -36,6 +39,12 @@ import { usePortal } from '../../context/use-portal'
 import { UserRole } from '../../types/auth'
 import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
 import {
+  groupParcelsByOrder,
+  parcelBorderClass,
+  parcelOrderCaption,
+  parcelOrderHeading,
+} from '../../lib/parcel-order-display'
+import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
   isPartiallyCanceledGroup,
@@ -46,7 +55,10 @@ import {
   outerCm,
   PACKING_REASON_LABELS,
   REJECT_REASONS,
+  boxSourceBody,
   type AdjustmentReason,
+  type BoxSourceInput,
+  type PackingBoxSources,
   type PackingPlan,
   type PackingPlanSummary,
   type PackingStaffMember,
@@ -58,6 +70,7 @@ import { Badge } from '../ui/Badge'
 import { QueuePaginationBar } from '../ui/QueuePaginationBar'
 import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 import { PackingSessionPanel } from './PackingSessionPanel'
+import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -70,6 +83,7 @@ type QueueTab =
   | 'approved_for_packing'
   | 'awaiting_packaging'
   | 'pending_approval'
+  | 'blocked'
 
 function groupMatchesSearch(group: OrderGroup, query: string): boolean {
   const q = query.trim().toLowerCase()
@@ -150,6 +164,17 @@ function emptyCopy(
           body: 'After you accept a plan, groups appear here — tap «Confirm packed» when packing is done.',
         }
   }
+  if (tab === 'blocked') {
+    return vi
+      ? {
+          title: 'Không có nhóm kẹt',
+          body: 'Nhóm đã lấy xong nhưng SKU chưa có hồ sơ đóng gói sẽ hiện ở đây. Đo SKU xong, hệ thống tự tính lại kế hoạch.',
+        }
+      : {
+          title: 'No blocked groups',
+          body: 'Picked groups whose SKUs have no packing profile appear here. Once SKUs are measured, the plan is recomputed automatically.',
+        }
+  }
   return vi
     ? {
         title: 'Không có đơn đang lấy',
@@ -159,6 +184,19 @@ function emptyCopy(
         title: 'No groups in warehouse pick',
         body: 'View-only: awaiting_packaging is Warehouse work. Packaging cannot act here.',
       }
+}
+
+/** Route ghi trả profileStale=false. Giữ cờ từ lần GET khi kế hoạch vẫn chờ duyệt hoặc đã duyệt. */
+function retainProfileStale(
+  previous: PackingPlan | null,
+  next: PackingPlan,
+): PackingPlan {
+  if (next.status !== 'ready' && next.status !== 'approved') return next
+  if (next.profileStale === true) return next
+  if (previous?.profileStale === true && previous.id === next.id) {
+    return { ...next, profileStale: true }
+  }
+  return next
 }
 
 function boxViewerLabel(plan: PackingPlan | null, vi: boolean): string {
@@ -284,6 +322,31 @@ export function PackagingWorkbench() {
   const [returnRestock, setReturnRestock] = useState(false)
   const [returnNote, setReturnNote] = useState('')
   const [requireScan, setRequireScan] = useState(false)
+  const [blockedGroups, setBlockedGroups] = useState<OrderGroup[]>([])
+  const [remoteGroups, setRemoteGroups] = useState<OrderGroup[] | null>(null)
+  const [remoteSearching, setRemoteSearching] = useState(false)
+  const [boxSources, setBoxSources] = useState<PackingBoxSources | null>(null)
+  const [boxSourceInputs, setBoxSourceInputs] = useState<
+    Record<number, BoxSourceInput>
+  >({})
+  const [recomputing, setRecomputing] = useState(false)
+
+  const loadBlocked = useCallback(async () => {
+    try {
+      setBlockedGroups(await listOrderGroups({ packing_blocked: true }))
+    } catch {
+      setBlockedGroups([])
+    }
+  }, [])
+
+  useEffect(() => {
+    const first = window.setTimeout(() => void loadBlocked(), 0)
+    const interval = window.setInterval(() => void loadBlocked(), 15000)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(interval)
+    }
+  }, [loadBlocked])
 
   const loadList = useCallback(async () => {
     setListLoading(true)
@@ -360,20 +423,57 @@ export function PackagingWorkbench() {
       else if (g.fulfillmentStatus === 'picked') picked += 1
       else if (g.fulfillmentStatus === 'approved_for_packing') approved += 1
     }
-    return { pending, partial, awaiting, picked, approved }
-  }, [allGroups])
+    return {
+      pending,
+      partial,
+      awaiting,
+      picked,
+      approved,
+      blocked: blockedGroups.length,
+    }
+  }, [allGroups, blockedGroups])
 
-  const groups = useMemo(
-    () =>
-      allGroups.filter(
-        (g) => g.fulfillmentStatus === tab && hasPackableOrders(g),
-      ),
-    [allGroups, tab],
-  )
-  const visibleGroups = useMemo(() => {
-    if (tab !== 'pending_approval') return groups
+  const groups = useMemo(() => {
+    if (tab === 'blocked') return blockedGroups
+    return allGroups.filter(
+      (g) => g.fulfillmentStatus === tab && hasPackableOrders(g),
+    )
+  }, [allGroups, blockedGroups, tab])
+  const localVisibleGroups = useMemo(() => {
+    if (!queueQuery.trim()) return groups
     return groups.filter((group) => groupMatchesSearch(group, queueQuery))
-  }, [groups, tab, queueQuery])
+  }, [groups, queueQuery])
+  const visibleGroups =
+    remoteGroups && localVisibleGroups.length === 0
+      ? remoteGroups
+      : localVisibleGroups
+
+  // Tìm trên BE khi lọc tại chỗ không ra kết quả (mã đơn sàn / đuôi mã nhóm).
+  useEffect(() => {
+    const query = queueQuery.trim()
+    if (query.length < 4 || localVisibleGroups.length > 0) {
+      const clear = window.setTimeout(() => setRemoteGroups(null), 0)
+      return () => window.clearTimeout(clear)
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setRemoteSearching(true)
+      void listOrderGroups({ q: query })
+        .then((rows) => {
+          if (!cancelled) setRemoteGroups(rows)
+        })
+        .catch(() => {
+          if (!cancelled) setRemoteGroups([])
+        })
+        .finally(() => {
+          if (!cancelled) setRemoteSearching(false)
+        })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [queueQuery, localVisibleGroups.length])
 
   // Chỉ nhảy tới tab thao tác được.
   useEffect(() => {
@@ -402,11 +502,12 @@ export function PackagingWorkbench() {
   useEffect(() => {
     setSelectedId((prev) => {
       if (prev && groups.some((g) => g.id === prev)) return prev
+      if (prev && remoteGroups?.some((g) => g.id === prev)) return prev
       // Tab chỉ xem: không tự chọn group — tránh màn «đầy việc» nhưng không làm gì được.
-      if (tab === 'awaiting_packaging') return null
+      if (tab === 'awaiting_packaging' || tab === 'blocked') return null
       return groups[0]?.id ?? null
     })
-  }, [groups, tab])
+  }, [groups, remoteGroups, tab])
 
   const lastPackagingKeyRef = useRef<string | null>(null)
 
@@ -420,7 +521,10 @@ export function PackagingWorkbench() {
       return () => window.clearTimeout(clearId)
     }
 
-    const fromList = groups.find((g) => g.id === selectedId) ?? null
+    const fromList =
+      groups.find((g) => g.id === selectedId) ??
+      remoteGroups?.find((g) => g.id === selectedId) ??
+      null
     const syncId = window.setTimeout(() => {
       setGroup(fromList)
       setDetailError(null)
@@ -431,7 +535,8 @@ export function PackagingWorkbench() {
     if (
       !fromList ||
       tab === 'partial_needs_review' ||
-      tab === 'awaiting_packaging'
+      tab === 'awaiting_packaging' ||
+      tab === 'blocked'
     ) {
       lastPackagingKeyRef.current = null
       const clearRec = window.setTimeout(() => setPlan(null), 0)
@@ -476,7 +581,35 @@ export function PackagingWorkbench() {
       window.clearTimeout(syncId)
       window.clearTimeout(timer)
     }
-  }, [selectedId, groups, tab])
+  }, [selectedId, groups, remoteGroups, tab])
+
+  const planIdForSources = plan?.id ?? null
+  const planVersionForSources = plan?.version ?? null
+  const groupIdForSources = group?.id ?? null
+  useEffect(() => {
+    if (!groupIdForSources || !planIdForSources) {
+      const clearId = window.setTimeout(() => {
+        setBoxSources(null)
+        setBoxSourceInputs({})
+      }, 0)
+      return () => window.clearTimeout(clearId)
+    }
+    let cancelled = false
+    const timer = window.setTimeout(() => {
+      setBoxSourceInputs({})
+      void getPackingBoxSources(groupIdForSources)
+        .then((next) => {
+          if (!cancelled) setBoxSources(next)
+        })
+        .catch(() => {
+          if (!cancelled) setBoxSources(null)
+        })
+    }, 0)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [groupIdForSources, planIdForSources, planVersionForSources])
 
   function showToast(msg: string) {
     setToast(msg)
@@ -615,7 +748,7 @@ export function PackagingWorkbench() {
         reason: adjustReason,
         ...(adjustReason === 'OTHER' ? { note: adjustNote.trim() } : {}),
       })
-      setPlan(next)
+      setPlan((current) => retainProfileStale(current, next))
       setParcelWeights(weightPrefill(next))
       showToast(vi ? 'Đã đổi thùng.' : 'Box changed.')
       setPlanDialog(null)
@@ -686,10 +819,27 @@ export function PackagingWorkbench() {
       )
       return
     }
+    for (const parcel of plan.parcels) {
+      const info = boxSources?.parcels.find((row) => row.parcelNo === parcel.parcelNo)
+      const value = boxSourceInputs[parcel.parcelNo] ?? { source: 'auto' as const }
+      const message = boxSourceError(value, info, vi)
+      if (message) {
+        setActionError(`#${String(parcel.parcelNo)}: ${message}`)
+        return
+      }
+    }
+    const parcelsWithSource = parcels.map((row) => ({
+      ...row,
+      ...(boxSourceBody(boxSourceInputs[row.parcel_no]) as {
+        box_source?: string
+        box_source_reason?: string
+        box_source_note?: string
+      }),
+    }))
     setActionBusy(true)
     setActionError(null)
     try {
-      const result = await packPlan(group.id, plan.version, parcels)
+      const result = await packPlan(group.id, plan.version, parcelsWithSource)
       showToast(
         result.completed
           ? vi
@@ -728,6 +878,22 @@ export function PackagingWorkbench() {
     await submitPack()
   }
 
+  async function onRecompute(): Promise<void> {
+    if (!group || !plan) return
+    setRecomputing(true)
+    setActionError(null)
+    try {
+      const next = await recomputePackingPlan(group.id, plan.version)
+      setPlan((current) => retainProfileStale(current, next))
+      showToast(vi ? 'Đã gửi tính lại kế hoạch.' : 'Recompute requested.')
+      await refreshAfterAction()
+    } catch (err: unknown) {
+      reloadPlanAfterConflict(err)
+    } finally {
+      setRecomputing(false)
+    }
+  }
+
   async function onPack(): Promise<void> {
     await submitPack()
   }
@@ -738,7 +904,7 @@ export function PackagingWorkbench() {
     setActionError(null)
     try {
       const next = await assignPacker(group.id, mode, staffId || undefined)
-      setPlan(next)
+      setPlan((current) => retainProfileStale(current, next))
       setToast(vi ? 'Đã gán người đóng gói.' : 'Packer assigned.')
     } catch (err: unknown) {
       setActionError(formatApiError(err))
@@ -762,7 +928,7 @@ export function PackagingWorkbench() {
         items: [{ sku: returnSku.trim(), quantity, restock: returnRestock }],
         note: returnNote.trim() || undefined,
       })
-      setPlan(next)
+      setPlan((current) => retainProfileStale(current, next))
       setToast(vi ? 'Đã trả về lấy hàng.' : 'Sent back to picking.')
     } catch (err: unknown) {
       reloadPlanAfterConflict(err)
@@ -779,7 +945,7 @@ export function PackagingWorkbench() {
     setActionError(null)
     try {
       const next = await requestParcelGuide(group.id, no, true)
-      setPlan(next)
+      setPlan((current) => retainProfileStale(current, next))
       setToast(vi ? 'Đã lấy hướng dẫn.' : 'Guide ready.')
     } catch (err: unknown) {
       setActionError(formatApiError(err))
@@ -800,8 +966,8 @@ export function PackagingWorkbench() {
       showToast(
         approve
           ? vi
-            ? 'Đã duyệt tiếp (→ picked).'
-            : 'Approved to continue (→ picked).'
+            ? 'Đã giao phần có sẵn.'
+            : 'Shipped available items.'
           : vi
             ? 'Đã hủy — nhóm về awaiting_packaging.'
             : 'Cancelled — group back to awaiting_packaging.',
@@ -823,7 +989,11 @@ export function PackagingWorkbench() {
     Boolean(plan) &&
     group?.fulfillmentStatus === 'pending_approval'
   const actionableCount = counts.pending + counts.partial
-  const isViewOnlyTab = tab === 'awaiting_packaging'
+  const isViewOnlyTab = tab === 'awaiting_packaging' || tab === 'blocked'
+  const scanLocked = requireScan || Boolean(group?.recipientNamesDiffer)
+  const selectedStaffOnLeave = Boolean(
+    staff.find((person) => person.staffId === staffId)?.onLeave,
+  )
   const queueTabs = useMemo(
     () =>
       [
@@ -832,6 +1002,12 @@ export function PackagingWorkbench() {
           vi ? 'Chờ duyệt kế hoạch' : 'Pending plan',
           counts.pending,
           false,
+        ],
+        [
+          'blocked',
+          vi ? 'Kẹt — SKU chưa đo' : 'Blocked — unmeasured SKU',
+          counts.blocked,
+          true,
         ],
         [
           'partial_needs_review',
@@ -852,7 +1028,14 @@ export function PackagingWorkbench() {
           true,
         ],
       ] as const,
-    [vi, counts.pending, counts.partial, counts.approved, counts.awaiting],
+    [
+      vi,
+      counts.pending,
+      counts.blocked,
+      counts.partial,
+      counts.approved,
+      counts.awaiting,
+    ],
   )
   const currentTabLabel =
     queueTabs.find((row) => row[0] === tab)?.[1] ??
@@ -864,35 +1047,61 @@ export function PackagingWorkbench() {
 
   function parcelWeightFields(): ReactNode {
     if (!plan || plan.parcels.length === 0) return null
+    const layout = groupParcelsByOrder(plan.parcels)
     return (
       <div className="mt-3 space-y-2">
         <p className="text-xs font-medium text-ink-muted">
           {vi ? 'Cân từng kiện (kg)' : 'Weight per parcel (kg)'}
         </p>
-        {plan.parcels.map((parcel) => (
-          <label
+        {layout.groups.map((bucket) => (
+          <div key={bucket.key} className="space-y-2">
+            {layout.multi ? (
+              <p className="text-[11px] font-semibold text-ink">
+                {parcelOrderHeading(bucket, vi)}
+              </p>
+            ) : null}
+            {bucket.parcels.map((parcel) => {
+              const caption = parcelOrderCaption(parcel, vi)
+              return (
+          <div
             key={parcel.parcelNo}
-            className="flex items-center gap-2 text-sm text-ink"
+            className={`space-y-1.5 ${parcelBorderClass(parcel.recipientName, layout.multi)} pl-2`}
           >
-            <span className="w-28 font-mono text-xs">
-              #{String(parcel.parcelNo)} {parcel.box.code}
-            </span>
-            <input
-              type="number"
-              min={0.001}
-              max={100}
-              step="0.001"
-              value={parcelWeights[parcel.parcelNo] ?? ''}
-              onChange={(event) =>
-                setParcelWeights((prev) => ({
-                  ...prev,
-                  [parcel.parcelNo]: event.target.value,
-                }))
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <span className="w-28 font-mono text-xs">
+                #{String(parcel.parcelNo)} {parcel.box.code}
+              </span>
+              <input
+                type="number"
+                min={0.001}
+                max={100}
+                step="0.001"
+                value={parcelWeights[parcel.parcelNo] ?? ''}
+                onChange={(event) =>
+                  setParcelWeights((prev) => ({
+                    ...prev,
+                    [parcel.parcelNo]: event.target.value,
+                  }))
+                }
+                className="w-28 rounded-lg border border-hairline bg-canvas px-2 py-1.5"
+              />
+              <span className="text-xs text-ink-muted">kg</span>
+            </label>
+            {caption ? (
+              <p className="pl-1 text-[11px] text-ink-muted">{caption}</p>
+            ) : null}
+            <BoxSourceFields
+              vi={vi}
+              info={boxSources?.parcels.find((row) => row.parcelNo === parcel.parcelNo)}
+              value={boxSourceInputs[parcel.parcelNo] ?? { source: 'auto' }}
+              onChange={(next) =>
+                setBoxSourceInputs((prev) => ({ ...prev, [parcel.parcelNo]: next }))
               }
-              className="w-28 rounded-lg border border-hairline bg-canvas px-2 py-1.5"
             />
-            <span className="text-xs text-ink-muted">kg</span>
-          </label>
+          </div>
+              )
+            })}
+          </div>
         ))}
       </div>
     )
@@ -979,19 +1188,20 @@ export function PackagingWorkbench() {
                   {vi ? 'Chỉ xem' : 'View only'}
                 </p>
               ) : null}
-              {tab === 'pending_approval' ? (
-                <label className="relative mt-2 block">
+              <label className="relative mt-2 block">
                   <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-subtle" />
                   <input
                     type="search"
                     value={queueQuery}
                     onChange={(event) => setQueueQuery(event.target.value)}
                     placeholder={vi ? 'Tìm mã đơn…' : 'Search order…'}
-                    aria-label={vi ? 'Tìm đơn chờ duyệt' : 'Search pending orders'}
+                    aria-label={vi ? 'Tìm mã đơn' : 'Search order'}
                     className="h-8 w-full rounded-lg border border-hairline bg-canvas pl-7 pr-2 text-xs text-ink"
                   />
+                  {remoteSearching ? (
+                    <Loader2 className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-ink-subtle" />
+                  ) : null}
                 </label>
-              ) : null}
             </div>
             <span className="pack-bench-count">{String(visibleGroups.length)}</span>
           </div>
@@ -1055,6 +1265,16 @@ export function PackagingWorkbench() {
                           {String(summaries[g.id]?.parcels ?? 0)} {vi ? 'kiện' : 'parcels'}
                         </p>
                       ) : null}
+                      {g.packingBlocked?.skus.length ? (
+                        <p className="mt-0.5 truncate text-[10px] font-medium text-rose-700 dark:text-rose-300">
+                          {vi ? 'Chưa đo: ' : 'Unmeasured: '}
+                          {g.packingBlocked.skus.join(', ')}
+                        </p>
+                      ) : null}
+                      <p className="mt-0.5 truncate text-[10px] text-ink-subtle">
+                        {vi ? 'Người đóng: ' : 'Packer: '}
+                        {g.assignedPackerName ?? (vi ? 'chưa giao' : 'unassigned')}
+                      </p>
                     </button>
                   </li>
                 ))}
@@ -1191,6 +1411,39 @@ export function PackagingWorkbench() {
                 </div>
               ) : null}
 
+              {tab === 'blocked' ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-100">
+                  <p className="font-medium">
+                    {group?.packingBlocked?.reason === 'missing_product_master'
+                      ? vi
+                        ? 'Không tính được kế hoạch vì SKU chưa có trên Product Master.'
+                        : 'Plan cannot be computed because the SKU is missing from Product Master.'
+                      : vi
+                        ? 'Không tính được kế hoạch vì SKU chưa đo hồ sơ đóng gói.'
+                        : 'Plan cannot be computed because SKU packaging profiles are missing.'}
+                  </p>
+                  {(group?.packingBlocked?.skus ?? []).length > 0 ? (
+                    <p className="mt-2 font-mono text-xs">
+                      {(group?.packingBlocked?.skus ?? []).join(', ')}
+                    </p>
+                  ) : null}
+                  {session?.role === UserRole.ADMIN ? (
+                    <Link
+                      to="/app/admin/warehouse"
+                      className="mt-3 inline-block text-sm font-medium underline"
+                    >
+                      {vi ? 'Mở hồ sơ kho / SKU' : 'Open warehouse / SKU profiles'}
+                    </Link>
+                  ) : (
+                    <p className="mt-2 text-xs">
+                      {vi
+                        ? 'Nhờ Admin hoặc kho đo hồ sơ SKU rồi tính lại kế hoạch.'
+                        : 'Ask Admin or warehouse to measure the SKU profile, then recompute.'}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
               {tab === 'approved_for_packing' ? (
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
                   <p className="font-medium">
@@ -1216,9 +1469,11 @@ export function PackagingWorkbench() {
                         <div className="mt-3 space-y-2 rounded-lg border border-hairline bg-surface p-3 text-xs">
                           <p className="font-semibold text-ink">
                             {vi ? 'Gán người đóng' : 'Assign packer'}
-                            {plan.session?.assignedPackerId
-                              ? ` · ${plan.session.assignedPackerId.slice(-6)}`
-                              : ''}
+                            {plan.session?.assignedPackerName
+                              ? ` · ${plan.session.assignedPackerName}`
+                              : plan.session?.assignedPackerId
+                                ? ` · ${plan.session.assignedPackerId.slice(-6)}`
+                                : ''}
                           </p>
                           <div className="flex flex-wrap gap-2">
                             <button
@@ -1236,14 +1491,23 @@ export function PackagingWorkbench() {
                             >
                               <option value="">{vi ? 'Chọn nhân viên' : 'Pick staff'}</option>
                               {staff.map((person) => (
-                                <option key={person.staffId} value={person.staffId}>
+                                <option
+                                  key={person.staffId}
+                                  value={person.staffId}
+                                  disabled={Boolean(person.onLeave)}
+                                >
                                   {person.fullName} ({String(person.activeWorkload)})
+                                  {person.onLeave
+                                    ? vi
+                                      ? ' — nghỉ phép'
+                                      : ' — on leave'
+                                    : ''}
                                 </option>
                               ))}
                             </select>
                             <button
                               type="button"
-                              disabled={actionBusy || !staffId}
+                              disabled={actionBusy || !staffId || selectedStaffOnLeave}
                               onClick={() => void onAssign('manual')}
                               className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
                             >
@@ -1296,24 +1560,28 @@ export function PackagingWorkbench() {
                           boxes={boxStock.map((row) => ({ code: row.code, name: row.name }))}
                           vi={vi}
                           onPlan={(next) => {
-                            setPlan(next)
+                            setPlan((current) => retainProfileStale(current, next))
                             setParcelWeights(weightPrefill(next))
                           }}
                           onError={(err) => reloadPlanAfterConflict(err)}
                         />
                       ) : null}
-                      {requireScan ? (
+                      {scanLocked ? (
                         <p className="mt-3 text-xs text-ink-muted">
-                          {vi
-                            ? 'Cài đặt đang bắt buộc quét từng món. Dùng phiên đóng gói phía trên, không bấm đóng nhanh.'
-                            : 'Scan is required. Use the packing session above.'}
+                          {group?.recipientNamesDiffer
+                            ? vi
+                              ? 'Nhóm gộp nhiều người nhận — phải quét từng món, không đóng nhanh.'
+                              : 'This group has different recipient names — scan each item, do not quick-pack.'
+                            : vi
+                              ? 'Cài đặt đang bắt buộc quét từng món. Dùng phiên đóng gói phía trên, không bấm đóng nhanh.'
+                              : 'Scan is required. Use the packing session above.'}
                         </p>
                       ) : (
                         <>
                           {parcelWeightFields()}
                           <button
                             type="button"
-                            disabled={actionBusy}
+                            disabled={actionBusy || Boolean(group?.recipientNamesDiffer)}
                             onClick={() => void onConfirmPacked()}
                             className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                           >
@@ -1351,7 +1619,7 @@ export function PackagingWorkbench() {
                       className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                     >
                       <CheckCircle2 className="h-4 w-4" />
-                      {vi ? 'Duyệt tiếp (→ picked)' : 'Approve continue (→ picked)'}
+                      {vi ? 'Giao phần có sẵn' : 'Ship available items'}
                     </button>
                     <button
                       type="button"
@@ -1363,6 +1631,11 @@ export function PackagingWorkbench() {
                       {vi ? 'Hủy làm lại' : 'Cancel & restart'}
                     </button>
                   </div>
+                  <p className="mt-2 text-xs text-amber-900 dark:text-amber-200">
+                    {vi
+                      ? 'Đơn AURELLE thiếu hàng sẽ được báo giao thiếu (short_shipped) về website.'
+                      : 'Short AURELLE orders are reported as short_shipped to the website.'}
+                  </p>
                 </div>
               ) : tab !== 'awaiting_packaging' ? (
                 <>
@@ -1431,19 +1704,58 @@ export function PackagingWorkbench() {
                             {plan.failureReason}
                           </p>
                         ) : null}
+                        {plan.profileStale ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-xs text-amber-800 dark:text-amber-200">
+                              {vi
+                                ? 'Hồ sơ SKU đã được đo lại sau khi tính kế hoạch. Số đo trên kế hoạch này có thể cũ.'
+                                : 'A SKU profile was remeasured after this plan was calculated. Sizes on this plan may be out of date.'}
+                            </p>
+                            <button
+                              type="button"
+                              disabled={recomputing || actionBusy}
+                              onClick={() => void onRecompute()}
+                              className="rounded-lg border border-amber-700/40 bg-white px-2 py-1 text-xs font-medium text-amber-950 disabled:opacity-50 dark:bg-transparent dark:text-amber-100"
+                            >
+                              {recomputing
+                                ? vi
+                                  ? 'Đang tính lại…'
+                                  : 'Recomputing…'
+                                : vi
+                                  ? 'Tính lại kế hoạch'
+                                  : 'Recompute plan'}
+                            </button>
+                          </div>
+                        ) : null}
                         <ul className="space-y-2">
-                          {plan.parcels.map((parcel) => {
+                          {groupParcelsByOrder(plan.parcels).groups.flatMap((bucket) => {
+                            const layout = groupParcelsByOrder(plan.parcels)
+                            const heading = layout.multi ? (
+                              <li
+                                key={`head-${bucket.key}`}
+                                className="px-1 text-[11px] font-semibold text-ink"
+                              >
+                                {parcelOrderHeading(bucket, vi)}
+                              </li>
+                            ) : null
+                            const rows = bucket.parcels.map((parcel) => {
                             const size = outerCm(parcel.box)
+                            const caption = parcelOrderCaption(parcel, vi)
                             return (
                               <li
                                 key={parcel.parcelNo}
-                                className="rounded-lg border border-hairline px-3 py-2"
+                                className={`rounded-lg border border-hairline px-3 py-2 ${parcelBorderClass(parcel.recipientName, layout.multi)}`}
                               >
                                 <p className="font-medium text-ink">
                                   #{String(parcel.parcelNo)} {parcel.box.name}{' '}
                                   <span className="font-mono text-xs text-ink-muted">
                                     {parcel.box.code}
                                   </span>
+                                  {caption ? (
+                                    <span className="ml-1 text-xs font-normal text-ink-muted">
+                                      · {caption}
+                                    </span>
+                                  ) : null}
                                 </p>
                                 <p className="font-mono text-xs text-ink-muted">
                                   {size.lengthCm} × {size.widthCm} × {size.heightCm} cm
@@ -1456,6 +1768,8 @@ export function PackagingWorkbench() {
                                 <MaterialTags materials={parcel.materials} />
                               </li>
                             )
+                            })
+                            return heading ? [heading, ...rows] : rows
                           })}
                         </ul>
                       </div>
@@ -1515,18 +1829,22 @@ export function PackagingWorkbench() {
                           ? 'Kho đã lấy xong. Nhập cân từng kiện rồi xác nhận.'
                           : 'Warehouse finished picking. Enter each parcel weight, then confirm.'}
                       </p>
-                      {requireScan ? (
+                      {scanLocked ? (
                         <p className="text-xs text-emerald-900 dark:text-emerald-100">
-                          {vi
-                            ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
-                            : 'Scan is required. Open the approved tab and use the session.'}
+                          {group?.recipientNamesDiffer
+                            ? vi
+                              ? 'Nhóm gộp nhiều người nhận — phải quét từng món, không đóng nhanh.'
+                              : 'This group has different recipient names — scan each item, do not quick-pack.'
+                            : vi
+                              ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
+                              : 'Scan is required. Open the approved tab and use the session.'}
                         </p>
                       ) : (
                         <>
                           {parcelWeightFields()}
                           <button
                             type="button"
-                            disabled={actionBusy}
+                            disabled={actionBusy || Boolean(group?.recipientNamesDiffer)}
                             onClick={() => void onPack()}
                             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                           >

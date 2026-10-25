@@ -4451,6 +4451,6 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
 
 ### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
-22c. 🆕 23/10 (mục 1e, 1f): trang Lịch sử + tab Dòng thời gian; đơn gộp — **khoá "Đóng nhanh" với nhóm nhiều người nhận (làm sớm)**, tên người nhận trên kiện/tem, chip "Gộp N người nhận", "Chia theo đơn" ở lấy hàng, nút tách/gộp nhóm, thông báo `consolidation_name_mismatch`.
+22c. 🆕 23/10 (mục 1e, 1f): trang Lịch sử + tab Dòng thời gian; đơn gộp — **khoá "Đóng nhanh" với nhóm nhiều người nhận (làm sớm)**, tên người nhận trên kiện/tem, chip "Gộp N người nhận", "Chia theo đơn" ở lấy hàng, nút tách/gộp nhóm, thông báo `consolidation_name_mismatch`. 🆕 mục 1g (AOFP-179..182 của Thi): banner `plan.profileStale` + Tính lại, ô gập đôi chỉ cho 6 loại quần áo (`PM_FOLD_NOT_ALLOWED`), lưu ý dựng hình 3D.
 22b. 🆕 22/10 (mục 1b): tab "Kẹt — SKU chưa đo", tên người đóng, tìm `?q=`, **bỏ form giả lập trả hàng (làm sớm — BE trả 410)**, nút ngắt kết nối shop, nghỉ phép + khoá chọn người nghỉ, thông báo `packing_blocked`.
-22. Nguồn thùng mới/tái sử dụng khi đóng gói; người gửi trên nhãn; 5 nút in PDF; lô cũ nhất trên Picking List; màn lô + phiếu nhập; mở đúng `warehouseId` của nhóm + bắt `ORD_GROUP_WRONG_WAREHOUSE`; dọn mã chết; 2 lỗi tsc có sẵn ở `AdminWarehousePage.tsx`.
+22. Nguồn thùng mới/tái sử dụng khi đóng gói; người gửi trên nhãn; 5 nút in PDF; mở đúng `warehouseId` của nhóm + bắt `ORD_GROUP_WRONG_WAREHOUSE`; dọn mã chết. (Lô hàng FIFO + 2 lỗi tsc cũ ở `AdminWarehousePage.tsx`: đã xong sau khi đồng bộ FE của Việt — AOFP-185.)

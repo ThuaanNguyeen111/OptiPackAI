@@ -1,0 +1,122 @@
+@startuml WF-01_order_intake_consolidation
+' ============================================================
+' WF-01 - Order Intake & Consolidation
+' Source of truth: be/src/modules/orders/orders.service.ts (syncShopOrders, tryConsolidate)
+'                  be/src/modules/order-groups/order-groups.service.ts
+'                  (getOrCreateGroupForOrder, startPickingPhase, splitOrderFromGroup, mergeGroups)
+' Main entity state: Order Group  awaiting_packaging -> picking
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title WF-01 Order Intake & Consolidation
+
+|Customer|
+|Marketplace (Lazada / AURELLE)|
+|OptiPack System|
+|Store Owner / Coordinator|
+|Warehouse Staff|
+
+|Customer|
+start
+:Place order on marketplace;
+
+|Marketplace (Lazada / AURELLE)|
+:Record order;
+if (Marketplace?) then (AURELLE)
+  :Send order-changed webhook;
+else (Lazada)
+  :Expose order via Open API;
+endif
+
+|OptiPack System|
+:Pull new / changed orders
+(webhook or scheduled sync every minute);
+:Save order and acknowledge
+receipt to marketplace;
+
+if (Order cancelled or
+no longer fulfillable?) then (yes)
+  :Re-check its order group;
+  note right
+    Group is auto-cancelled and
+    reserved stock released when
+    no fulfillable order remains.
+  end note
+  stop
+else (no)
+endif
+
+if (Open group with same
+consolidation key exists?) then (yes)
+  :Add order to existing group;
+  :Recalculate stock reservation
+  for the group;
+  if (Recipient names
+  in group differ?) then (yes)
+    :Notify Store Owner, Coordinator
+    and assigned Warehouse Staff;
+  else (no)
+  endif
+else (no)
+  :Create order group
+  (status **awaiting_packaging**);
+  :Auto-assign least-busy
+  Warehouse Staff (not on leave);
+  :Reserve stock for the group;
+  :Set group status **picking**;
+endif
+
+if (Available stock covers
+all ordered items?) then (no)
+  :Flag stock shortage and
+  notify Store Owner;
+else (yes)
+endif
+
+|Store Owner / Coordinator|
+:Review consolidated groups;
+if (Grouping correct?) then (yes)
+else (no)
+  if (Issue?) then (different customers
+in one group)
+    :Split order into its own group
+    (reason required);
+  else (same customer
+in two groups)
+    :Merge source group into target group
+    (same shop, same phone, reason required);
+  endif
+  note right
+    Allowed only while the group is
+    awaiting_packaging or picking and
+    no item has been scanned yet.
+  end note
+  |OptiPack System|
+  :Update affected groups:
+  assign staff to new group,
+  close merged group,
+  re-reserve stock;
+endif
+
+|Warehouse Staff|
+:See assigned group in picking queue
+(continues in WF-02);
+stop
+
+legend right
+  Consolidation key (default) = platform + phone + address + city.
+  Admin can add recipient name in Order Sync Settings.
+endlegend
+@enduml

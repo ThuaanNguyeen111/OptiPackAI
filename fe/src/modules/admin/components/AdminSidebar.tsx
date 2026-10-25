@@ -3,6 +3,7 @@ import { useState } from 'react'
 import {
   Box,
   Boxes,
+  Clock,
   Cpu,
   LogOut,
   Moon,
@@ -72,6 +73,14 @@ const navItems = [
     labelVi: 'Trả hàng',
     labelEn: 'Returns',
     icon: PackageX,
+    section: 'marketplace' as NavSection,
+  },
+  {
+    to: '/app/admin/history',
+    end: false,
+    labelVi: 'Lịch sử thao tác',
+    labelEn: 'Activity history',
+    icon: Clock,
     section: 'marketplace' as NavSection,
   },
   {

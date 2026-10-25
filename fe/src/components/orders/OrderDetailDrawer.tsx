@@ -21,6 +21,7 @@ import {
 import { formatCurrency, formatDateTime } from '../../utils/format'
 import { MarketplaceConsolidationBadge } from '../marketplace/MarketplaceConsolidationBadge'
 import { MarketplaceOrderStatusBadge } from '../marketplace/MarketplaceOrderStatusBadge'
+import { SellerCancelPanel } from './SellerCancelPanel'
 
 type OrderDetailDrawerProps = {
   orderId: string | null
@@ -206,6 +207,14 @@ export function OrderDetailDrawer({
                   />
                 </div>
               </div>
+              <SellerCancelPanel
+                order={order}
+                vi={vi}
+                onDone={async () => {
+                  const next = await getOrderById(order.id)
+                  setOrder(next)
+                }}
+              />
 
               <div>
                 <div className="mb-3 flex items-center justify-between">

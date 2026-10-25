@@ -171,6 +171,14 @@ export type StorefrontOrderItem = {
   short_quantity?: number
 }
 
+export type StorefrontOrderEvent = {
+  status: string
+  label: string
+  reason: string | null
+  occurredAt: string
+  source: 'partner' | 'customer' | 'system'
+}
+
 export type StorefrontOrderDetail = StorefrontOrder & {
   trackingCode?: string | null
   tripCode?: string | null

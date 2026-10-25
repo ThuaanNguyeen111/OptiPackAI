@@ -1,0 +1,139 @@
+@startuml WF-03_packing
+' ============================================================
+' WF-03 - Packing (3D packing plan, approval, scan & seal)
+' Source of truth: be/src/modules/packing/packing-job.service.ts, packing-plan.service.ts,
+'                  packing-session.service.ts, packing-plan.controller.ts
+' Main entity state: Packing Plan  computing -> ready -> packing -> packed  (rejected / failed)
+'                    Order Group   picked -> pending_approval -> approved_for_packing -> packed
+' ============================================================
+skinparam defaultFontName Arial
+skinparam defaultFontSize 12
+skinparam shadowing false
+skinparam ArrowColor #333333
+skinparam ActivityBorderColor #333333
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #333333
+skinparam ActivityDiamondBackgroundColor #F5F5F5
+skinparam SwimlaneBorderColor #9E9E9E
+skinparam SwimlaneTitleFontStyle bold
+skinparam NoteBackgroundColor #FFF8E1
+skinparam NoteBorderColor #BFA76A
+skinparam TitleFontSize 16
+
+title WF-03 Packing
+
+|OptiPack System|
+|Packaging Staff|
+|Reviewer (other staff / Admin)|
+
+|OptiPack System|
+start
+:Detect picked group without plan
+(background job);
+:Compute 3D packing plan for each order
+(box choice, item placement, materials);
+if (All SKU packaging profiles confirmed?) then (no)
+  :Mark group packing-blocked
+  (SKU needs measurement);
+  :Notify Admin and Store Owner;
+  note right
+    Plan is recomputed automatically
+    once the SKU is measured.
+  end note
+  stop
+else (yes)
+endif
+:Plan status **ready**,
+group status **pending_approval**;
+:Auto-assign packer (least workload,
+not on leave) and notify;
+
+|Packaging Staff|
+(R)
+:Review proposed plan
+(3D layout, boxes, materials, cost);
+if (Plan acceptable?) then (no)
+  :Reject plan with reason code;
+  |OptiPack System|
+  :Plan status **rejected**,
+  group status **picked**;
+  :Notify Admin and Store Owner
+  (handling deadline: 2 working hours);
+  |Packaging Staff|
+  if (Recovery option?) then (recompute)
+    :Request recompute
+    (exclude boxes / prefer cheaper);
+  elseif (manual packing) then
+    :Enter actual parcels
+    (boxes and items);
+    note right
+      A manual plan must be
+      approved by another person.
+    end note
+  else (back to picking)
+    :Declare items to re-pick;
+    |OptiPack System|
+    :Group status **picking**
+    (continues in WF-02);
+    stop
+  endif
+  |OptiPack System|
+  :Produce new plan (status **ready**)
+  and return to plan review;
+  (R)
+  detach
+else (yes)
+endif
+
+|Packaging Staff|
+:Approve plan;
+|OptiPack System|
+:Plan status **packing**,
+group status **approved_for_packing**;
+:Show box source for each parcel
+(reused shelf first, fragile = new box);
+
+repeat
+  |Packaging Staff|
+  :Take box shown for the parcel;
+  repeat
+    :Scan item into parcel;
+    |OptiPack System|
+    if (Item belongs to this parcel?) then (yes)
+      :Record scan;
+    else (no)
+      :Block scan;
+    endif
+    |Packaging Staff|
+  repeat while (Parcel complete?) is (no) not (yes)
+  :Seal and weigh parcel;
+  note right
+    "Quick pack" (weigh all parcels without scanning)
+    is blocked when scanning is mandatory or the
+    group has several recipients with different names.
+  end note
+  |OptiPack System|
+  :Deduct box and materials;
+  if (Weight within tolerance?) then (yes)
+    :Parcel status **sealed**;
+  else (no)
+    :Parcel status **held**,
+    notify reviewer;
+    |Reviewer (other staff / Admin)|
+    :Review held parcel
+    (accept / reweigh / reopen);
+    note right
+      Reviewer must be a different person
+      from the one who sealed the parcel.
+    end note
+  endif
+  |Packaging Staff|
+repeat while (More parcels?) is (yes) not (no)
+
+|OptiPack System|
+:Plan status **packed**,
+group status **packed**;
+:Notify AURELLE customers "packed";
+:Group ready to ship (continues in WF-04);
+stop
+@enduml

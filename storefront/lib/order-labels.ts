@@ -18,6 +18,8 @@ const fulfillmentStatusLabels: Record<string, string> = {
   packed: 'Đã đóng gói',
   shipped: 'Đang giao hàng',
   delivered: 'Đã giao hàng',
+  failed_delivery: 'Giao hàng không thành công',
+  shipped_back: 'Đang hoàn trả về người bán',
   returned: 'Đã hoàn hàng',
 }
 
