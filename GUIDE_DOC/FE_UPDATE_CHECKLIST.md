@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Thuận xác nhận toàn bộ việc FE ở bản 3.x (mục 1–5, 1b–1g, dòng 1–30, kể cả khung 3D và mục tuỳ chọn) **đã làm xong** → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -12,8 +12,12 @@
 | # | Việc | Mục | Ước lượng | Trạng thái |
 |---|---|---|---|---|
 | 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
+| 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ☐ Chưa làm (code 3D của Việt/Thi) |
+| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm); khối doanh thu / tài chính / nhân viên ở Bảng điều khiển vẫn đọc `data/dashboard-mock.ts` (BE chưa có API) | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
 
-Việc mới không làm hỏng màn hiện tại: chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn như trước.
+Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
+
+**Cách đối chiếu 28/10:** với từng dòng, tìm route/field/mã lỗi BE trong `fe/src` và kiểm hàm API có màn nào gọi (VD `splitOrderFromGroup` → `GroupOpsPanel.tsx`, `sellerCancelOrder` → `SellerCancelPanel.tsx`, `getPackingBoxSources` → `PackagingWorkbench.tsx`, 4 hàm in PDF → màn kho, `recipientNamesDiffer` khoá "Đóng nhanh"). Chưa bấm thử trên dữ liệu thật — ô nghiệm thu ở phụ lục vẫn là việc của người test.
 
 ---
 
@@ -66,12 +70,28 @@ Việc mới không làm hỏng màn hiện tại: chưa nối thì 4 ô vẫn r
 
 ---
 
+## 2. Khung 3D dựng theo kế hoạch thật (dòng 2)
+
+**Hiện trạng (đọc code 28/10):** `fe/src/components/packing/Packing3DBoxViewer.tsx` nhận `boxLabel` rồi đoán kích thước thùng theo chuỗi tên ("Hộp A2", "CARTON-M1"…) và vẽ vài món quần áo/phụ kiện cố định. Không file FE nào đọc `placements`; kiểu `PackingPlan` ở `fe/src/types/packing-plan.ts` chưa có trường này.
+
+**BE đã có sẵn** (`GET /order-groups/:groupId/packing-plan`, mỗi `parcels[i]`): `box.innerMm` / `box.outerMm` (`{ lengthMm, widthMm, heightMm }`), `placements[]` = `{ itemKey, sku, step, x, y, z, dx, dy, dz, orientation, folded }` (mm, gốc tọa độ ở góc trong thùng), `fillRatio`, `manualLayout` (true = kiện nhập tay, không có tọa độ → hiện thông báo thay vì vẽ).
+
+**FE cần làm:**
+1. Thêm `placements` + `manualLayout` vào kiểu `PackingPlan`/parcel và hàm đọc response.
+2. `Packing3DBoxViewer` nhận `parcel` thay cho `boxLabel`: thùng = `box.innerMm`; mỗi món = 1 khối tại `(x + dx/2, z + dz/2, y + dy/2)` cỡ `dx × dz × dy` (đổi mm → đơn vị cảnh bằng 1 hệ số chung cho cả thùng).
+3. Các yêu cầu của mục 1g bước 3 (phụ lục): scale đều không kéo giãn mesh, túi zip vẽ trong ô, `folded` chỉ ở 6 loại quần áo, món đỡ = món có `z + dz` bằng `z` của món trên và hình chiếu XY giao nhau.
+4. Đánh số theo `step` (thứ tự xếp) để khớp hướng dẫn đóng gói.
+
+**Nghiệm thu:** mở 1 kế hoạch có 2 món → khung 3D hiện đúng 2 khối, đúng vị trí so với bảng số đo; kiện `manualLayout: true` → hiện "Kiện nhập tay, không có hình 3D".
+
+---
+
 ## Phụ lục ✅ — đã hoàn thành
 
 Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại chi tiết request/response và cách làm cũ.
 
 <details>
-<summary>✅ Bảng việc 21–25/10 (dòng 1–30) — tất cả đã xong</summary>
+<summary>✅ Bảng việc 21–25/10 (dòng 1–30) — 28/30 đã xong (dòng 6 và 30 chuyển lên trên)</summary>
 
 ##### Bảng việc cũ (dòng 1–30)
 
@@ -82,7 +102,7 @@ Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại c
 | 3 | Cài đặt **người gửi** in trên nhãn vận đơn | 1.2 | ✅ Đã nối |
 | 4 | Lô hàng: Picking List hiện lô xuất trước; màn Tồn theo lô; danh sách + chi tiết phiếu nhập | 2 | ✅ Việt (AOFP-185). In phiếu nhập nằm ở dòng 2 |
 | 5 | Dọn mã chết (gọi route BE đã gỡ, không màn nào dùng) | 3 | ✅ Đã xoá |
-| 6 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master; số liệu giả còn lại ở Bảng điều khiển | 4 | ✅ Xong (Thuận xác nhận 28/10) |
+| 6 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master; số liệu giả còn lại ở Bảng điều khiển | 4 | ☐ Chưa làm — chuyển lên bảng trên (dòng 3) |
 | 7 | Nhóm đơn có `warehouseId`: màn lấy hàng mở đúng kho; bắt 409 `ORD_GROUP_WRONG_WAREHOUSE` | — | ✅ Đã nối |
 | 8 | Tab **"Kẹt — SKU chưa đo"** (`packingBlocked`) | 1b.1 | ✅ Đã nối |
 | 9 | Tên người đóng gói (`assignedPackerName`) | 1b.2 | ✅ Đã nối |
@@ -106,7 +126,7 @@ Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại c
 | 27 | Tên người nhận từng kiện + câu địa chỉ sửa áp mọi kiện | 1f.5 | ✅ Đã nối |
 | 28 | Banner `plan.profileStale` + Tính lại | 1g bước 1 | ✅ Đã nối |
 | 29 | Ô **Gập đôi** chỉ 6 loại quần áo | 1g bước 2 | ✅ Đã nối |
-| 30 | Khung 3D: scale đều, túi zip, nhiều món đỡ | 1g bước 3 | ✅ Xong (Thuận xác nhận 28/10) |
+| 30 | Khung 3D: scale đều, túi zip, nhiều món đỡ | 1g bước 3 | ☐ Chưa làm — chuyển lên bảng trên (dòng 2) |
 
 Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ thêm, chưa làm thì màn cũ vẫn chạy. Ngoại lệ đã ghi rõ: "Đóng nhanh" nhóm nhiều người nhận (dòng 23), ô gập đôi cho loại không phải quần áo (dòng 29), form giả lập trả hàng (dòng 11), đặt mã vào ô thứ 2 (dòng 20) sẽ nhận lỗi từ BE.
 
@@ -117,7 +137,7 @@ Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ 
 </details>
 
 <details>
-<summary>✅ 1b–1g (22–23/10): kẹt đóng gói, tên người đóng, tìm nhóm, ngắt shop, nghỉ phép, SKU ngừng dùng, người bán hủy đơn, lịch sử, đơn gộp, khung 3D</summary>
+<summary>✅ 1b–1g (22–23/10): kẹt đóng gói, tên người đóng, tìm nhóm, ngắt shop, nghỉ phép, SKU ngừng dùng, người bán hủy đơn, lịch sử, đơn gộp, cờ hồ sơ đổi, gập đôi (trừ 1g bước 3 — khung 3D, xem mục 2)</summary>
 
 #### 1b. 🆕 Mới 22/10/2026 — kẹt đóng gói, tên người đóng, tìm nhóm, bỏ giả lập trả hàng, ngắt shop, nghỉ phép
 

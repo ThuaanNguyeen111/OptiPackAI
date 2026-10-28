@@ -4481,7 +4481,7 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 
 ### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
 22c. ✅ **25/10 — FE checklist đã nối** (trừ 1g bước 3 và mục 4 tuỳ chọn). Đã có từ trước hoặc Việt: lịch sử, dòng thời gian, tách/gộp, khoá đóng nhanh nhiều người nhận, chip tên người nhận, `profileStale`, nguồn thùng, người gửi, in PDF, nghỉ phép, kẹt SKU chưa đo, hủy đơn người bán. **Nối nốt 25/10:** ngừng dùng/dùng lại SKU sàn (`PATCH .../retire` body `{retired}`), chip tự nối, gập đôi chỉ 6 loại quần áo, xác nhận `WH_SKU_IN_OTHER_BIN` (gán ô, kiểm hoàn, cách ly), "Chia theo đơn", ngắt kết nối Lazada + AURELLE, xoá `CreateReturnForm` + `packaging.api.ts` + `types/packaging.ts`. `npx tsc -b` trong `fe/` sạch. **Chưa đụng** khung 3D (code Việt/Thi). Chưa bấm thử niêm phong/PDF với dữ liệu thật.
-22c+. ✅ 28/10 — Thuận xác nhận nốt 1g bước 3 (khung 3D) và mục 4 (tuỳ chọn) đã xong → `FE_UPDATE_CHECKLIST.md` bản 4.0 thu gọn toàn bộ việc cũ thành ✅ (khối `<details>` ở phụ lục), phần trên chỉ còn việc FE mới.
+22c+. 28/10 — `FE_UPDATE_CHECKLIST.md` bản 4.0 thu gọn việc cũ thành ✅ (khối `<details>` ở phụ lục). 🔄 ĐÃ SỬA cùng ngày sau khi đối chiếu code FE trên `main`: 28/30 dòng đã nối thật; **chưa làm** 1g bước 3 — `Packing3DBoxViewer.tsx` chỉ vẽ cảnh mẫu cố định, không đọc `parcels[].placements` BE đã trả (checklist mục 2) — và mục tuỳ chọn (chi tiết Product Master, khối số liệu giả ở Dashboard).
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
 22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.
