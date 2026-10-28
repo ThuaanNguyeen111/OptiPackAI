@@ -1,7 +1,7 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
 > **Bản đồ route theo role** — quét từ `@Controller`/`@Roles` trong code. Việc FE còn thiếu: **`FE_UPDATE_CHECKLIST.md`**.
-> **Thay đổi gần nhất:** 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
+> **Thay đổi gần nhất:** 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
 > **Trước đó:** 21/10 (tối) — giữ chỗ tồn **theo kho** (nhóm đơn có `warehouseId`, quét sai kho → 409 `ORD_GROUP_WRONG_WAREHOUSE`); website: đổi hàng (`type: exchange`, `GET /storefront/orders/:id/exchange-options`), khách tự hủy yêu cầu trả (`POST /storefront/returns/:id/cancel`); phiếu trả mở 1 / đơn. 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
 > Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
@@ -482,6 +482,7 @@ GET   /order-groups/:groupId/packing-plan, /packing-plans/summary   Xem kế ho�
 POST  .../packing-plan/parcels/:no/unseal                       Hoàn tác niêm phong (kể cả nhóm đã packed)
 GET   /packing/settings, PUT /packing/settings                  Cài đặt đóng gói
 GET   /packing/reports/summary, /packing/reports/feedback       Báo cáo hiệu suất, vòng phản hồi
+GET   /dashboard/summary                                        🆕 28/10 Số liệu Bảng điều khiển (cả Admin)
 GET   /packing/staff                                            🆕 09/10 Danh sách Packaging Staff
 GET   /product-master, /:id, /categories*, /colors, /master-skus*, /master-skus/unmapped-seller-skus, /unpooled-stock
 GET   /packaging/boxes|bags|materials, /packaging-materials*, /packaging-materials/savings
@@ -929,6 +930,17 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
 - **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
 - So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
+
+## 26. 🆕 28/10/2026 — Bảng điều khiển (`/dashboard`)
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 GET | `/dashboard/summary?from&to&platform` | Store Owner, Admin | Trả `{ summary }` gồm 8 khối: `range`, `actionQueue` (việc chờ xử lý **ngay lúc gọi**), `sales` (kỳ này + kỳ trước + % thay đổi + theo sàn + theo ngày giờ VN), `delivery`, `costs`, `returns`, `express`, `warehouse`. `from`/`to` ISO, mặc định 30 ngày gần nhất, tối đa 366 ngày; kỳ trước = cùng độ dài ngay trước `from`. `platform` = 1 giá trị `MarketplacePlatform` (`lazada`, `aurelle`, …), bỏ trống = mọi sàn. Chỉ đọc |
+
+- **Mã lỗi:** `DASH_INVALID_DATE_RANGE` (400 — sai ISO, `from >= to`, > 366 ngày), `DASH_INVALID_PLATFORM` (400).
+- **Định nghĩa số** (đầy đủ ở `FE_UPDATE_CHECKLIST.md` mục 4): doanh thu đặt hàng = tổng `total_amount` đơn **nhận trong kỳ** (theo thời điểm OptiPack đồng bộ về), trừ đơn hủy; doanh thu đã giao = đơn trong nhóm có vận đơn **giao thành công trong kỳ** (theo vận đơn OptiPack, không theo trạng thái đơn Lazada); phí ship = phí thật từng kiện GHN, không có thì báo giá lúc tạo vận đơn; chi phí bao bì = cùng số `GET /packing/reports/summary`. Không gồm đơn thay thế khi đổi hàng.
+- Hiệu suất đóng gói, theo nhân viên đóng gói, AI đóng gói: vẫn dùng `GET /packing/reports/summary`, `/packing/reports/feedback`, `/packaging-materials/savings` (không lặp lại).
+- 🔄 `PackingReportService.summary` nhận thêm `groupIds` (nội bộ, để lọc theo sàn) — route `/packing/reports/summary` **không đổi**.
 
 ## 25. 🆕 23/10/2026 — AURELLE: thanh tiến trình đơn cho khách
 

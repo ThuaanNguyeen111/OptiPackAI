@@ -878,7 +878,7 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
    - **Verify cuối cùng, TOÀN BỘ project**: `tsc --noEmit` 0 lỗi, `eslint src` 0 lỗi/warning, **`jest` chạy hết 11 test suite / 108 test — 100% pass**, không suite nào cũ bị vỡ.
 6. ✅ ~~`GET /order-groups/:id/packaging`~~ — xong, trả full `PackagingRecommendation` bất kể `approval_status` (khác `findActiveRecommendationForGroup` nội bộ chỉ chấp nhận PENDING) — role xem: `PACKAGING_STAFF`, `WAREHOUSE_STAFF`, `SHIPPING_COORDINATOR`, `ADMIN` (cả 3 role fulfillment đều cần xem chi tiết ở bước của mình).
 7. 🔴 **Xóa route TẠM** `POST .../packaging/generate` khi AI thật (Package 3) xong — chưa đổi.
-8. 🔴 Package 5 (Dashboard) — vẫn chưa bắt đầu.
+8. 🔴 Package 5 (Dashboard) — vẫn chưa bắt đầu. 🔄 28/10/2026: BE đã có `GET /dashboard/summary` (nhật ký 28/10 khuya); FE còn bỏ số giả.
 9. 🟢 **MỚI — `TESTING_GUIDE.md`** (file riêng, đã giao) — hướng dẫn test tay 7 bước qua Swagger, từ sync đơn thật tới `delivered`/`returned`, kèm 3 test-case cố ý test lỗi (Optimistic Concurrency conflict, invalid transition, Reject) để tự xác nhận từng cơ chế bảo vệ hoạt động đúng — dùng khi cần demo hoặc trước khi tin tưởng 1 lượt code mới không phá luồng cũ.
 10. ✅ **MỚI — `INTEGRATION_GUIDE_FULFILLMENT.md`** (file riêng, đã giao) — tài liệu FE tích hợp 3 module `order-groups`/`packaging`/`warehouse`, cùng chuẩn với `INTEGRATION_GUIDE.md`/`INTEGRATION_GUIDE_ORDERS.md` đã có (route + role + response mẫu + bảng mã lỗi + danh sách test case bắt buộc FE tự chạy). Xem mục "Điểm yếu #9" bên dưới về phát hiện quan trọng nhất khi viết tài liệu này.
 11. 🔴 **MỚI phát hiện khi viết `INTEGRATION_GUIDE_FULFILLMENT.md`** — `packaging/`, `warehouse/` trả RAW Mongoose document (snake_case, `_id`, `__v`), KHÁC hẳn `order-groups/` đã map cẩn thận sang camelCase — xem Điểm yếu #9 bên dưới để biết cách khắc phục.
@@ -985,7 +985,7 @@ Các nhãn hoàn tất dưới đây ghi nhận API đã được thêm ở lư�
 
 ### Tầng 3 — NICE-TO-HAVE (hoãn được)
 
-14. Package 5 Dashboard — cần dữ liệu thật chạy qua hệ thống trước
+14. Package 5 Dashboard — cần dữ liệu thật chạy qua hệ thống trước. 🔄 28/10/2026: BE xong `GET /dashboard/summary`.
 15. Validate 2 SKU trùng 1 kệ (data integrity, tần suất thấp)
 16. Return-to-stock khi hoàn hàng — tự động trở thành việc cần làm SAU KHI mục 1 (Tầng 1) xong
 17. Vá double-query `getConnectedShop`+`getValidAccessToken`
@@ -1527,6 +1527,8 @@ Luôn dùng `HydratedDocument<T>` (khuyến nghị từ Mongoose 8 trở lên, p
 ### 10. Dashboard/Analytics (FE-07) không query trực tiếp aggregation nặng mỗi lần load
 
 Với các con số tổng hợp tính toán tốn kém (tổng chi phí đóng gói theo tháng, hiệu suất kho...), dùng **scheduled job tính trước** (cron ghi vào collection `dashboard_snapshots`) thay vì chạy `aggregate()` phức tạp mỗi lần user mở dashboard.
+
+> 🔄 28/10/2026: `GET /dashboard/summary` hiện **tính trực tiếp** (dữ liệu đồ án nhỏ, khoảng ngày ≤ 366) — ngoại lệ có chủ đích, ghi ở nhật ký 28/10 (khuya). Chuyển sang `dashboard_snapshots` khi thời gian phản hồi bắt đầu chậm.
 
 ### 11. Property Mongoose PHẢI đặt TÊN TRỰC TIẾP bằng snake_case, không map riêng tên khác
 
@@ -4473,7 +4475,22 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 
 Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Group" là thiết kế 29/09).
 
- (đọc mục này trước khi bắt đầu phiên mới)
+## 📊 Nhật ký 28/10/2026 (khuya) — API Bảng điều khiển `GET /dashboard/summary` (AOFP-212, docs AOFP-213)
+
+**[stated] Thuận yêu cầu:** chỉ làm phía BE cho Bảng điều khiển; việc hiển thị (thư viện, sơ đồ, bố cục) để FE tự chọn, ghi vào checklist. Trước đó đã rà `DashboardPage.tsx`: chỉ 4 số thật, còn lại là số giả trong `data/dashboard-mock.ts` + viết cứng JSX (có cả Shopee/TikTok). Doanh thu "đặt hàng hay đã giao" chưa chốt → API trả **cả hai**.
+
+**Đã làm:** module mới `be/src/modules/dashboard/` (controller, service, errors, `utils/dashboard-metrics.util.ts`, 2 file test). `GET /dashboard/summary?from&to&platform` (Store Owner, Admin), chỉ đọc, 8 khối: `actionQueue` (19 bộ đếm việc chờ lúc gọi), `sales` (kỳ này/kỳ trước/% đổi, theo sàn, theo ngày giờ VN), `delivery`, `costs`, `returns`, `express`, `warehouse`. Định nghĩa từng số: `FE_UPDATE_CHECKLIST.md` mục 4, API_LIST mục 26. `PackingReportService.summary` thêm tham số `groupIds` (lọc sàn) và được export từ `PackingModule`.
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* Thêm module `dashboard` + đăng ký ở `app.module.ts`; `packing-report.service.ts` (tham số tuỳ chọn), `packing.module.ts` (export). Không đổi route cũ.
+2. *DB/migration?* Không. Chỉ đọc 8 collection có sẵn; không thêm index (truy vấn `orders.created_at` không có index riêng — chấp nhận ở quy mô đồ án).
+3. *API/FE?* Thêm 1 route; FE checklist dòng 7 (mục 4) — bỏ số giả, FE tự chọn biểu đồ.
+4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Quy tắc DB #10 ("dashboard không chạy tổng hợp nặng mỗi lần mở, dùng `dashboard_snapshots`") — lần này **cố ý tính trực tiếp** mỗi lần gọi (giới hạn 366 ngày, đọc `select` tối thiểu) vì dữ liệu đồ án nhỏ; khi dữ liệu lớn mới chuyển sang bảng tổng hợp chạy định kỳ — quy tắc #10 vẫn là hướng đích. Thời điểm "nhận đơn" = `created_at` (lúc OptiPack đồng bộ về), không phải giờ khách đặt trên sàn. Doanh thu đã giao dựa vào vận đơn OptiPack (Lazada không được ghi ngược trạng thái).
+5. *Kiểm chứng?* `tsc` 0 lỗi; eslint module mới 0 lỗi; jest module dashboard + packing đạt; toàn bộ jest đạt. Chưa gọi thử trên dữ liệu thật.
+
+**Còn thiếu (chưa làm, cần thì báo):** thời gian lấy hàng trung bình, hiệu suất nhân viên kho / điều phối (chưa kiểm BE lưu đủ mốc thời gian).
+
+## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
@@ -4500,7 +4517,7 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 15b. 🆕 28/10 — Đơn gộp (chi tiết `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 9.4) — 🔄 ĐÃ XỬ LÝ cùng tối: G1 chốt đúng thiết kế (mỗi đơn 1 vận đơn); ✅ G2 báo trạng thái giao theo từng đơn, ✅ G3 nhãn in người nhận từng kiện, ✅ G4 SĐT bị che không tự gộp, ✅ G7 nhóm ≥ 2 đơn bắt quét khi đóng. Còn lại: G5 (tách sau khi quét) — giữ nguyên, chấp nhận được.
 
 ### D. Hoãn có chủ đích
-16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. API tổng hợp cho Dashboard (FE còn khối số liệu giả).
+16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. ~~API tổng hợp cho Dashboard~~ — ✅ BE xong 28/10 (`GET /dashboard/summary`); FE checklist dòng 7.
 
 ### E. Cấu hình
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
