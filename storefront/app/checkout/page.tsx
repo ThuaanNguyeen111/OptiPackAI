@@ -7,8 +7,9 @@ import { useRouter } from 'next/navigation'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import { useCart } from '@/components/cart/cart-provider'
-import { ApiError, checkout, getCurrentCustomer } from '@/lib/api-client'
-import { FREE_SHIPPING_THRESHOLD, getShippingFee } from '@/lib/order-pricing'
+import { ApiError, checkout, getCurrentCustomer, getDeliveryOptions } from '@/lib/api-client'
+import { FREE_SHIPPING_THRESHOLD, getShippingFee, type DeliveryOption } from '@/lib/order-pricing'
+import type { DeliveryOptionView } from '@/types/storefront'
 import { getAllProvince, getDistrictsByProvinceId } from 'vietnam-divisions-js/provinces'
 import { getCommunesByDistrictId } from 'vietnam-divisions-js/districts'
 import { getAllProvinces, getCommunesByProvinceId } from 'vietnam-divisions-js/v3'
@@ -43,6 +44,10 @@ function formatVnd(value: number) {
   return `${value.toLocaleString('vi-VN')}₫`
 }
 
+function formatClock(iso: string) {
+  return new Date(iso).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' })
+}
+
 export default function CheckoutPage() {
   const router = useRouter()
   const { items, total, clear } = useCart()
@@ -61,6 +66,10 @@ export default function CheckoutPage() {
   const [done, setDone] = useState('')
   const [placedOrderId, setPlacedOrderId] = useState('')
   const [clientOrderId] = useState(() => crypto.randomUUID())
+  // 29/10/2026 — giao tiêu chuẩn / hỏa tốc: BE báo phí + hỏa tốc có chọn được không (vùng, giờ 8:00–14:00 T2–T7).
+  const [deliveryOption, setDeliveryOption] = useState<DeliveryOption>('standard')
+  const [deliveryOptions, setDeliveryOptions] = useState<DeliveryOptionView[]>([])
+  const [optionsTick, setOptionsTick] = useState(0)
 
   useEffect(() => {
     let current = true
@@ -125,6 +134,28 @@ export default function CheckoutPage() {
     }
   }, [address.district, addressMode])
 
+  const provinceName = newProvinces.find((province) => province.idProvince === address.province)?.name ?? ''
+  const wardName = newCommunes.find((commune) => commune.idCommune === address.ward)?.name ?? ''
+
+  useEffect(() => {
+    let current = true
+    getDeliveryOptions({ province: provinceName || undefined, ward: wardName || undefined, subtotal: total })
+      .then((result) => { if (current) setDeliveryOptions(result.options) })
+      .catch(() => { if (current) setDeliveryOptions([]) })
+    return () => { current = false }
+  }, [provinceName, wardName, total, optionsTick])
+
+  // Khung giờ hỏa tốc đóng lúc 14:00 — tải lại mỗi phút để nút không còn chọn được khi hết giờ.
+  useEffect(() => {
+    const timer = window.setInterval(() => setOptionsTick((tick) => tick + 1), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const expressView = deliveryOptions.find((option) => option.code === 'express')
+  useEffect(() => {
+    if (deliveryOption === 'express' && expressView && !expressView.available) setDeliveryOption('standard')
+  }, [deliveryOption, expressView])
+
   function changeAddress(field: keyof ShippingAddress, value: string) {
     setAddress((current) => {
       const next = { ...current, [field]: value }
@@ -177,6 +208,7 @@ export default function CheckoutPage() {
         shippingAddress,
         paymentMethod,
         clientOrderId,
+        deliveryOption,
       })
       clear()
       setDone(`Đặt hàng thành công: ${order.orderNumber}`)
@@ -188,6 +220,7 @@ export default function CheckoutPage() {
         router.push('/auth/login?returnTo=/checkout')
         return
       }
+      if (deliveryOption === 'express') setOptionsTick((tick) => tick + 1) // hỏa tốc vừa đóng (quá 14:00...) → tải lại lựa chọn
       setError(err instanceof Error ? err.message : 'Không thể tạo đơn hàng')
     }
   }
@@ -196,7 +229,7 @@ export default function CheckoutPage() {
   if (!items.length) return <><Header /><main className="page-shell"><div className="empty">Giỏ hàng đang trống. <Link href="/shop">Quay lại cửa hàng →</Link></div></main><Footer /></>
 
   const provinces = addressMode === 'pre-merger' ? oldProvinces : newProvinces
-  const shippingFee = getShippingFee(total)
+  const shippingFee = deliveryOptions.find((option) => option.code === deliveryOption)?.feeVnd ?? getShippingFee(total, deliveryOption)
   const grandTotal = total + shippingFee
   const freeShippingRemaining = FREE_SHIPPING_THRESHOLD - total
 
@@ -261,6 +294,29 @@ export default function CheckoutPage() {
             </label>
           </div>
 
+          <h3>Cách giao hàng</h3>
+          <div className="radio-list delivery-options">
+            {(deliveryOptions.length ? deliveryOptions : [
+              { code: 'standard', label: 'Giao tiêu chuẩn', feeVnd: getShippingFee(total), listFeeVnd: getShippingFee(0), available: true, unavailableReason: null, unavailableText: null, promise: '', promisedDeliveryAt: null } satisfies DeliveryOptionView,
+            ]).map((option) => <label key={option.code} className={option.available ? 'delivery-option' : 'delivery-option disabled'}>
+              <input
+                type="radio"
+                name="delivery_option"
+                value={option.code}
+                checked={deliveryOption === option.code}
+                disabled={!option.available}
+                onChange={() => setDeliveryOption(option.code)}
+              />
+              <span>
+                <strong>{option.label}</strong>{' — '}
+                {option.feeVnd ? formatVnd(option.feeVnd) : <>Miễn phí <s>{formatVnd(option.listFeeVnd)}</s></>}
+                {option.promise && <small className="delivery-option-note">{option.promise}</small>}
+                {option.available && option.promisedDeliveryAt && <small className="delivery-option-note">Đặt ngay: dự kiến giao trước {formatClock(option.promisedDeliveryAt)} hôm nay.</small>}
+                {!option.available && option.unavailableText && <small className="delivery-option-note">{option.unavailableText}</small>}
+              </span>
+            </label>)}
+          </div>
+
           <h3>Phương thức thanh toán</h3>
           <div className="radio-list">
             <label><input type="radio" checked readOnly /> Thanh toán khi nhận hàng (COD)</label>
@@ -289,7 +345,7 @@ export default function CheckoutPage() {
           })}
         </div>
         <div className="checkout-summary-line"><span>Tạm tính</span><strong>{formatVnd(total)}</strong></div>
-        <div className="checkout-summary-line"><span>Vận chuyển</span><strong>{shippingFee ? formatVnd(shippingFee) : 'Miễn phí'}</strong></div>
+        <div className="checkout-summary-line"><span>Vận chuyển{deliveryOption === 'express' ? ' (hỏa tốc 3 giờ)' : ''}</span><strong>{shippingFee ? formatVnd(shippingFee) : 'Miễn phí'}</strong></div>
         <p className="checkout-shipping-note">
           {shippingFee
             ? `Mua thêm ${formatVnd(freeShippingRemaining)} để được miễn phí vận chuyển.`

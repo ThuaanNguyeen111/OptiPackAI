@@ -133,6 +133,44 @@ export type StorefrontOrder = {
   trackingStage?: string | null
   /** 23/10/2026 — nhãn trạng thái DUY NHẤT (dùng chung danh sách + chi tiết đơn). */
   displayStatus?: OrderDisplayStatus
+  /** 29/10/2026 — cách giao khách chọn. */
+  deliveryOption?: 'standard' | 'express'
+  /** 29/10/2026 — hỏa tốc: giờ hẹn giao (giờ đặt + 3 giờ). */
+  promisedDeliveryAt?: string | null
+  /** 29/10/2026 — hỏa tốc trễ hẹn (chưa giao mà quá giờ, hoặc giao sau giờ hẹn). */
+  isLate?: boolean
+}
+
+/** 29/10/2026 — GET /storefront/delivery-options */
+export type DeliveryOptionView = {
+  code: 'standard' | 'express'
+  label: string
+  feeVnd: number
+  listFeeVnd: number
+  available: boolean
+  unavailableReason: 'missing_address' | 'outside_area' | 'outside_hours' | null
+  unavailableText: string | null
+  promise: string
+  promisedDeliveryAt: string | null
+}
+
+/** 29/10/2026 — Admin: đơn hỏa tốc gần đây. */
+export type AdminExpressOrder = {
+  id: string
+  orderNumber: string
+  publicOrderId: number | null
+  recipientName: string
+  phone: string
+  ward: string
+  placedAt: string | null
+  promisedDeliveryAt: string | null
+  status: string
+  fulfillmentStatus: string
+  trackingStage: string | null
+  deliveredAt: string | null
+  shipperName: string | null
+  shipperPhone: string | null
+  isLate: boolean
 }
 
 export type OrderDisplayStatus = {
@@ -184,6 +222,9 @@ export type StorefrontOrderDetail = StorefrontOrder & {
   tripCode?: string | null
   /** 21/10/2026 — tên hãng vận chuyển (GHN...), null khi chưa giao cho hãng */
   carrier?: string | null
+  /** 29/10/2026 — hỏa tốc: người của shop đi giao. */
+  shipperName?: string | null
+  shipperPhone?: string | null
   events?: StorefrontOrderEvent[]
   /** 23/10/2026 — thanh tiến trình 7 bước (BE dựng sẵn). */
   progress?: OrderProgress
