@@ -63,7 +63,20 @@ export async function listMarketplaceShops(
         lastPolledAt:
           pickString(shop.lastPolledAt, shop.last_polled_at) || null,
         connectedAt: pickString(shop.connectedAt, shop.connected_at) || null,
+        disconnectedAt:
+          pickString(shop.disconnectedAt, shop.disconnected_at) || null,
       },
     ]
   })
+}
+
+/** Ngắt OAuth của shop. Chỉ Admin. Đơn đã kéo vẫn giữ. */
+export async function disconnectMarketplaceShop(
+  platform: 'lazada' | 'aurelle',
+  shopId: string,
+): Promise<void> {
+  await apiRequest<unknown>(
+    `/marketplace/${platform}/shops/${encodeURIComponent(shopId)}`,
+    { method: 'DELETE', auth: true },
+  )
 }

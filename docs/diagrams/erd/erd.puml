@@ -1,0 +1,138 @@
+@startchen erd
+
+' Conceptual Chen ERD. This file is the source of
+' https://drive.google.com/file/d/1-3tipOe1VMrd3ARNdyPH0gsK2IVJ3GJX/view
+' PlantUML places the shapes; names, relationships and cardinalities match that diagram.
+left to right direction
+
+entity Customer {
+}
+entity Website {
+}
+entity "Store Owner" as StoreOwner {
+}
+entity "Marketplace Shop" as MarketplaceShop {
+}
+entity Order {
+}
+entity Shipment {
+}
+entity "Delivery Service" as DeliveryService {
+}
+entity Carrier {
+}
+entity "Shipping Coordinator" as ShippingCoordinator {
+}
+entity "Order Group" as OrderGroup {
+}
+entity "Warehouse Staff" as WarehouseStaff {
+}
+entity "Packing Plan" as PackingPlan {
+}
+entity "Packaging Staff" as PackagingStaff {
+}
+entity "Packaging Material" as PackagingMaterial {
+}
+entity Carton {
+}
+entity Cushioning {
+}
+entity "Zip Bag" as ZipBag {
+}
+entity "Return Request" as ReturnRequest {
+}
+entity Product {
+}
+entity "Variant (SKU)" as Variant {
+}
+entity "Stock Lot" as StockLot {
+}
+entity "Stock Receipt" as StockReceipt {
+}
+
+relationship places {
+}
+relationship "sold via" as soldVia {
+}
+relationship connects {
+}
+relationship supplies {
+}
+relationship "ships on" as shipsOn {
+}
+relationship "booked on" as bookedOn {
+}
+relationship offers {
+}
+relationship dispatches {
+}
+relationship requests {
+}
+relationship concerns {
+}
+relationship "assigned to" as assignedTo {
+}
+relationship "belongs to" as belongsTo {
+}
+relationship packs {
+}
+relationship "has" as groupHas {
+}
+relationship consumes {
+}
+relationship "contains" as orderContains {
+}
+relationship "has" as productHas {
+}
+relationship tracks {
+}
+relationship "contains" as receiptContains {
+}
+relationship records {
+}
+
+Customer -1- places
+places -N- Order
+Website -(0,1)- soldVia
+soldVia -N- Order
+StoreOwner -1- connects
+connects -N- MarketplaceShop
+MarketplaceShop -1- supplies
+supplies -N- Order
+Order -N- shipsOn
+shipsOn -(0,1)- Shipment
+Shipment -N- bookedOn
+bookedOn -1- DeliveryService
+DeliveryService -N- offers
+offers -1- Carrier
+ShippingCoordinator -1- dispatches
+dispatches -N- Shipment
+Customer -1- requests
+requests -N- ReturnRequest
+ReturnRequest -N- concerns
+concerns -1- Order
+WarehouseStaff -(0,1)- assignedTo
+assignedTo -N- OrderGroup
+Order -N- belongsTo
+belongsTo -1- OrderGroup
+PackagingStaff -(0,1)- packs
+packs -N- PackingPlan
+OrderGroup -1- groupHas
+groupHas -(0,1)- PackingPlan
+PackingPlan -N- consumes
+consumes -N- PackagingMaterial
+PackagingMaterial ->- Carton
+PackagingMaterial ->- Cushioning
+PackagingMaterial ->- ZipBag
+Order -N- orderContains
+orderContains -N- Variant
+Product -1- productHas
+productHas -N- Variant
+Variant -1- tracks
+tracks -N- StockLot
+StockLot -N- receiptContains
+receiptContains -1- StockReceipt
+WarehouseStaff -1- records
+records -N- StockReceipt
+
+@endchen

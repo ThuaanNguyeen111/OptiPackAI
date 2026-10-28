@@ -20,39 +20,6 @@ export type GroupFulfillmentStatus =
 
 export type OrderPriority = 'normal' | 'express'
 
-/** Khớp `LazadaPackStatus` BE — kết quả báo đóng gói lên Lazada (AOFP-56). */
-export type LazadaPackStatus =
-  | 'disabled'
-  | 'skipped'
-  | 'success'
-  | 'partial'
-  | 'failed'
-
-export type LazadaPackItem = {
-  orderId: string
-  orderItemId: string
-  ok: boolean
-  errorCode: string | null
-  message: string | null
-  packageId: string | null
-  trackingNumber: string | null
-  shipmentProvider: string | null
-}
-
-export type LazadaPackInfo = {
-  status: LazadaPackStatus | null
-  attemptedAt: string | null
-  error: string | null
-  items: LazadaPackItem[]
-}
-
-export const EMPTY_LAZADA_PACK: LazadaPackInfo = {
-  status: null,
-  attemptedAt: null,
-  error: null,
-  items: [],
-}
-
 export type ManualLink = {
   linkId: string
   linkedBy: string | null
@@ -118,10 +85,7 @@ export type OrderGroup = {
   activeOrderCount: number
   /** Đơn status canceled — từ BE AOFP-52. */
   canceledOrderCount: number
-  /** Kết quả báo pack lên Lazada — null status = chưa từng gửi. */
-  lazadaPack: LazadaPackInfo
   fulfillmentStatus: GroupFulfillmentStatus | string
-  activePackagingRecommendationId: string | null
   assignedStaffId: string | null
   orderPriority: OrderPriority | string
   packagingDeadline: string | null
@@ -133,10 +97,36 @@ export type OrderGroup = {
   /** Chỉ có ở chi tiết nhóm. Danh sách trả 0. */
   linkedGroupCount: number
   origin: string
+  /** Kho nhóm đang lấy hàng. null = chưa gắn (chưa quét). */
+  warehouseId: string | null
   orders: GroupOrderView[]
+  /** Nhóm kẹt vì SKU chưa có hồ sơ đóng gói (null = không kẹt). */
+  packingBlocked: PackingBlocked | null
+  assignedPackerId: string | null
+  assignedPackerName: string | null
+  /** Tên người nhận khác nhau của các đơn còn hiệu lực. */
+  recipientNames: string[]
+  recipientNamesDiffer: boolean
+  hasMaskedRecipientName: boolean
+  splitFromGroupId: string | null
+  mergedIntoGroupId: string | null
+  consolidationClosed: boolean
   version: number
   createdAt: string
   updatedAt: string
+}
+
+export type PackingBlocked = {
+  reason: string
+  skus: string[]
+  at: string | null
+}
+
+/** Tách/gộp nhóm chỉ khi nhóm còn ở bước này và chưa quét món nào (BE kiểm lại). */
+export const REGROUP_ALLOWED_STATUSES = ['awaiting_packaging', 'picking']
+
+export function canRegroup(status: string): boolean {
+  return REGROUP_ALLOWED_STATUSES.includes(status)
 }
 
 /** (14/10/2026) Thông tin liên kết tay (`POST /order-groups/:id/link`). */
@@ -168,27 +158,6 @@ export function isFullyInactiveGroup(
   return group.activeOrderCount === 0
 }
 
-/** Có thể gọi POST .../lazada-pack/retry (BE chỉ cho group packed và chưa success). */
-export function canRetryLazadaPack(
-  group: Pick<OrderGroup, 'platform' | 'fulfillmentStatus' | 'lazadaPack'>,
-): boolean {
-  if (group.platform !== 'lazada') return false
-  if (group.fulfillmentStatus !== 'packed') return false
-  const status = group.lazadaPack.status
-  return status !== 'success' && status !== 'skipped'
-}
-
-export const LAZADA_PACK_STATUS_LABELS: Record<
-  LazadaPackStatus,
-  { vi: string; en: string }
-> = {
-  success: { vi: 'Đã báo Lazada', en: 'Reported to Lazada' },
-  partial: { vi: 'Lazada một phần', en: 'Lazada partial' },
-  failed: { vi: 'Lazada thất bại', en: 'Lazada failed' },
-  disabled: { vi: 'Chưa gửi sàn (cầu dao tắt)', en: 'Write API disabled' },
-  skipped: { vi: 'Bỏ qua Lazada', en: 'Skipped Lazada' },
-}
-
 export type StockShortageItem = {
   sku: string
   needed: number
@@ -204,6 +173,9 @@ export type ListOrderGroupsParams = {
   assigned_packer_id?: string
   stock_shortage?: boolean
   is_overdue?: boolean
+  packing_blocked?: boolean
+  /** Mã nhóm (24 ký tự / đuôi hex) hoặc mã đơn sàn. */
+  q?: string
   before?: string
   limit?: number
 }
@@ -256,32 +228,6 @@ export type ReportMissingInput = {
 
 export type TransitionOrderGroupInput = {
   expected_version: number
-}
-
-/** Khớp `ConsumptionResult` từ BE khi POST .../fulfillment/pack. */
-export type PackagingConsumptionLine = {
-  materialCode: string
-  condition: 'new' | 'reused' | string
-  quantity: number
-  savingVnd: number
-}
-
-export type PackagingConsumption = {
-  consumed: PackagingConsumptionLine[]
-  warnings: string[]
-  recommendedBoxCode: string | null
-  followedRecommendation: boolean | null
-}
-
-export type PackOrderGroupResult = {
-  group: OrderGroup
-  packagingConsumption: PackagingConsumption | null
-  lazadaPackSync: LazadaPackInfo
-}
-
-export type RetryLazadaPackResult = {
-  group: OrderGroup
-  lazadaPackSync: LazadaPackInfo
 }
 
 /** Kho lấy hàng trước — không đợi duyệt gợi ý thùng. */
@@ -342,6 +288,7 @@ export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_STATE_CONFLICT:
     'Dữ liệu nhóm đơn đã đổi. Tải lại rồi thao tác tiếp.',
   ORD_GROUP_INSUFFICIENT_STOCK: 'Không đủ tồn kho cho SKU này.',
+  ORD_GROUP_WRONG_WAREHOUSE: 'Nhóm đang lấy ở kho khác.',
   ORD_GROUP_ITEM_NOT_IN_GROUP: 'SKU không thuộc nhóm đơn này.',
   ORD_GROUP_NO_STAFF_AVAILABLE: 'Không còn nhân viên trống để gán.',
   ORD_GROUP_STAFF_NOT_FOUND: 'Không tìm thấy nhân viên.',
@@ -354,4 +301,13 @@ export const ORDER_GROUPS_ERROR_MESSAGES: Record<string, string> = {
   ORD_GROUP_LINK_NOT_ALLOWED:
     'Không liên kết được — một trong hai nhóm đã giao, đã hoàn hoặc đã hủy.',
   ORD_GROUP_NOT_MANUALLY_LINKED: 'Nhóm này không có liên kết tay để bỏ.',
+  ORD_GROUP_STAFF_ON_LEAVE: 'Nhân viên này đang nghỉ phép, không giao việc được.',
+  ORD_GROUP_REGROUP_NOT_ALLOWED:
+    'Chỉ tách/gộp được khi nhóm còn ở bước chờ lấy hoặc đang lấy hàng.',
+  ORD_GROUP_REGROUP_HAS_PICKS:
+    'Nhóm đã có món được quét — không tách/gộp được nữa.',
+  ORD_GROUP_MERGE_SELF: 'Không gộp một nhóm vào chính nó.',
+  ORD_GROUP_MERGE_SCOPE_MISMATCH: 'Chỉ gộp được hai nhóm cùng sàn và cùng shop.',
+  ORD_GROUP_MERGE_RECIPIENT_MISMATCH:
+    'Hai nhóm khác số điện thoại người nhận — không gộp được.',
 }

@@ -21,6 +21,7 @@ import {
 } from '../../types/marketplace-orders'
 import type { AppNotification } from '../../types/notifications'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import { SellerCancelPanel } from '../orders/SellerCancelPanel'
 
 function recipientSummary(order: MarketplaceOrderDetail, vi: boolean): string {
   const parts = [
@@ -419,6 +420,17 @@ export function MarketplaceOrderDetailScreen({
                       </div>
                     </div>
                   ) : null}
+
+                  <SellerCancelPanel
+                    order={order}
+                    vi={vi}
+                    onDone={async () => {
+                      const detail = await getOrderById(order.id)
+                      setLoaded((current) =>
+                        current ? { ...current, order: detail } : current,
+                      )
+                    }}
+                  />
 
                   <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
                     <div>

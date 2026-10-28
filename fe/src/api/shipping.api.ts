@@ -85,6 +85,7 @@ export type ShippingSettings = {
   strategy: 'cheapest' | 'fastest' | 'fixed'
   defaultCarrierCode: string | null
   defaultServiceCode: string | null
+  sender: { name: string; phone: string; address: string }
 }
 
 export type PackagingOptionsView = {
@@ -94,36 +95,51 @@ export type PackagingOptionsView = {
   lines: string[]
 }
 
-export async function getShippingSettings(): Promise<ShippingSettings> {
-  const res = await apiRequest<unknown>('/shipping/settings', { auth: true })
+function mapShippingSettings(
+  res: unknown,
+  fallbackStrategy?: ShippingSettings['strategy'],
+): ShippingSettings {
   const row = asRecord(res)
   const strategy = pickString(row?.strategy)
+  const senderRow = asRecord(row?.sender)
   return {
     strategy:
-      strategy === 'fastest' || strategy === 'fixed' ? strategy : 'cheapest',
-    defaultCarrierCode: pickString(row?.defaultCarrierCode) || null,
-    defaultServiceCode: pickString(row?.defaultServiceCode) || null,
+      strategy === 'fastest' || strategy === 'fixed'
+        ? strategy
+        : fallbackStrategy === 'fastest' || fallbackStrategy === 'fixed'
+          ? fallbackStrategy
+          : 'cheapest',
+    defaultCarrierCode:
+      pickString(row?.defaultCarrierCode, row?.default_carrier_code) || null,
+    defaultServiceCode:
+      pickString(row?.defaultServiceCode, row?.default_service_code) || null,
+    sender: {
+      name: pickString(senderRow?.name, row?.sender_name),
+      phone: pickString(senderRow?.phone, row?.sender_phone),
+      address: pickString(senderRow?.address, row?.sender_address),
+    },
   }
 }
 
+export async function getShippingSettings(): Promise<ShippingSettings> {
+  const res = await apiRequest<unknown>('/shipping/settings', { auth: true })
+  return mapShippingSettings(res)
+}
+
 export async function updateShippingSettings(input: {
-  strategy: ShippingSettings['strategy']
+  strategy?: ShippingSettings['strategy']
   default_carrier_code?: string
   default_service_code?: string
+  sender_name?: string
+  sender_phone?: string
+  sender_address?: string
 }): Promise<ShippingSettings> {
   const res = await apiRequest<unknown>('/shipping/settings', {
     method: 'PUT',
     auth: true,
     body: input,
   })
-  const row = asRecord(res)
-  const strategy = pickString(row?.strategy)
-  return {
-    strategy:
-      strategy === 'fastest' || strategy === 'fixed' ? strategy : input.strategy,
-    defaultCarrierCode: pickString(row?.defaultCarrierCode) || null,
-    defaultServiceCode: pickString(row?.defaultServiceCode) || null,
-  }
+  return mapShippingSettings(res, input.strategy)
 }
 
 export async function createShippingCarrier(input: {

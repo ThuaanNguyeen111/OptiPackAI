@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Loader2, Plus, RefreshCw, Store } from 'lucide-react'
-import { fetchMarketplaceConnectUrl, listMarketplaceShops } from '../../api/marketplace.api'
+import { Loader2, Plus, RefreshCw, Store, Unplug } from 'lucide-react'
+import {
+  disconnectMarketplaceShop,
+  fetchMarketplaceConnectUrl,
+  listMarketplaceShops,
+} from '../../api/marketplace.api'
 import { syncPlatformOrders } from '../../api/orders.api'
 import { useAuth } from '../../context/use-auth'
 import { formatApiError } from '../../lib/api'
@@ -21,6 +25,7 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
 
   async function refresh() {
     const rows = await listMarketplaceShops('aurelle')
@@ -64,6 +69,22 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
       })
       .catch((err: unknown) => setError(formatApiError(err)))
       .finally(() => setBusy(false))
+  }
+
+  function disconnect(shopId: string, shopName: string | null) {
+    const label = shopName || shopId
+    const ok = window.confirm(
+      vi
+        ? `Ngắt kết nối shop ${label}? Token hết hiệu lực, đơn đã kéo vẫn giữ. Kết nối lại bằng OAuth.`
+        : `Disconnect ${label}? The token stops working. Orders already pulled stay. Reconnect with OAuth.`,
+    )
+    if (!ok) return
+    setDisconnectingId(shopId)
+    setError(null)
+    void disconnectMarketplaceShop('aurelle', shopId)
+      .then(() => refresh())
+      .catch((err: unknown) => setError(formatApiError(err)))
+      .finally(() => setDisconnectingId(null))
   }
 
   function syncShop(shopId: string) {
@@ -132,13 +153,34 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
                 </p>
                 <p className="text-[11px] text-ink-muted">
                   {shop.shopId}
-                  {shop.isActive ? '' : vi ? ' · đã ngắt' : ' · disconnected'}
+                  {shop.isActive
+                    ? ''
+                    : vi
+                      ? ` · Đã ngắt${shop.disconnectedAt ? ` ${shop.disconnectedAt.slice(0, 16).replace('T', ' ')}` : ''}`
+                      : ` · Disconnected${shop.disconnectedAt ? ` ${shop.disconnectedAt.slice(0, 16).replace('T', ' ')}` : ''}`}
                   {shop.lastPolledAt
                     ? ` · ${vi ? 'đồng bộ' : 'synced'} ${shop.lastPolledAt}`
                     : ''}
                 </p>
               </div>
               {isAdmin ? (
+                <div className="flex items-center gap-2">
+                  {shop.isActive !== false ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="h-8 text-xs text-error hover:text-error"
+                      disabled={disconnectingId === shop.shopId}
+                      onClick={() => disconnect(shop.shopId, shop.shopName)}
+                    >
+                      {disconnectingId === shop.shopId ? (
+                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Unplug className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {vi ? 'Ngắt kết nối' : 'Disconnect'}
+                    </Button>
+                  ) : null}
                 <Button
                   type="button"
                   variant="secondary"
@@ -153,6 +195,7 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
                   )}
                   {vi ? 'Đồng bộ ngay' : 'Sync now'}
                 </Button>
+                </div>
               ) : null}
             </li>
           ))}

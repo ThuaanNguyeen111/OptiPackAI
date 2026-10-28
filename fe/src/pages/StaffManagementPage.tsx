@@ -1,12 +1,33 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, RefreshCw, Search, Users } from 'lucide-react'
-import { fetchUsers } from '../api/users.api'
+import { fetchUsers, setUserLeave } from '../api/users.api'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
 import type { AdminUser } from '../types/admin'
 import { USER_ROLE_LABELS, UserRole, type UserRole as Role } from '../types/auth'
 import { formatDateTime } from '../utils/format'
+
+const OPERATIONAL_LEAVE_ROLES = new Set<Role>([
+  UserRole.WAREHOUSE_STAFF,
+  UserRole.PACKAGING_STAFF,
+  UserRole.SHIPPING_COORDINATOR,
+])
+
+function toLocalInput(iso?: string): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function localInputToIso(value: string): string | undefined {
+  if (!value.trim()) return undefined
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return undefined
+  return date.toISOString()
+}
 
 const ROLE_FILTERS: Array<{ value: 'all' | Role; labelVi: string; labelEn: string }> = [
   { value: 'all', labelVi: 'Tất cả vai trò', labelEn: 'All roles' },
@@ -52,6 +73,10 @@ export function StaffManagementPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all')
+  const [leaveId, setLeaveId] = useState<string | null>(null)
+  const [leaveUntil, setLeaveUntil] = useState('')
+  const [leaveNote, setLeaveNote] = useState('')
+  const [leaveBusy, setLeaveBusy] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -109,8 +134,8 @@ export function StaffManagementPage() {
             </h1>
             <p className="mt-1 max-w-xl text-sm text-ink-subtle">
               {vi
-                ? 'Chỉ xem (GET /users). Tạo/sửa/xóa tài khoản do Admin thực hiện.'
-                : 'Read-only (GET /users). Create/edit/deactivate is Admin-only.'}
+                ? 'Xem danh sách nhân viên. Nghỉ phép kho / đóng gói / vận chuyển qua PATCH /users/:id/leave. Tạo/sửa/xóa tài khoản do Admin thực hiện.'
+                : 'Staff directory. Mark warehouse / packing / shipping staff on leave via PATCH /users/:id/leave. Create/edit/deactivate is Admin-only.'}
             </p>
           </div>
           <button
@@ -177,6 +202,9 @@ export function StaffManagementPage() {
                   <th className="px-4 py-2.5 font-medium">
                     {vi ? 'Đăng nhập gần nhất' : 'Last login'}
                   </th>
+                  <th className="px-4 py-2.5 font-medium">
+                    {vi ? 'Nghỉ phép' : 'Leave'}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
@@ -213,6 +241,117 @@ export function StaffManagementPage() {
                     </td>
                     <td className="px-4 py-2.5 text-xs text-ink-muted">
                       {u.lastLoginAt ? formatDateTime(u.lastLoginAt) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs">
+                      {OPERATIONAL_LEAVE_ROLES.has(u.role as Role) ? (
+                        <div className="space-y-1.5">
+                          {u.onLeave ? (
+                            <p className="text-amber-800 dark:text-amber-200">
+                              {vi ? 'Đang nghỉ' : 'On leave'}
+                              {u.onLeaveUntil
+                                ? ` · ${formatDateTime(u.onLeaveUntil)}`
+                                : ''}
+                              {u.onLeaveNote ? ` · ${u.onLeaveNote}` : ''}
+                            </p>
+                          ) : (
+                            <p className="text-ink-muted">
+                              {vi ? 'Đi làm' : 'Working'}
+                            </p>
+                          )}
+                          {leaveId === u.id ? (
+                            <div className="space-y-1.5">
+                              <input
+                                type="datetime-local"
+                                value={leaveUntil}
+                                onChange={(e) => setLeaveUntil(e.target.value)}
+                                className="w-full rounded border border-hairline bg-surface px-2 py-1"
+                              />
+                              <input
+                                value={leaveNote}
+                                onChange={(e) => setLeaveNote(e.target.value)}
+                                placeholder={vi ? 'Ghi chú (tuỳ chọn)' : 'Note (optional)'}
+                                className="w-full rounded border border-hairline bg-surface px-2 py-1"
+                              />
+                              <div className="flex flex-wrap gap-1">
+                                <button
+                                  type="button"
+                                  disabled={leaveBusy}
+                                  onClick={() => {
+                                    setLeaveBusy(true)
+                                    void setUserLeave(u.id, {
+                                      on_leave: true,
+                                      until: localInputToIso(leaveUntil),
+                                      note: leaveNote.trim() || undefined,
+                                    })
+                                      .then((next) => {
+                                        setUsers((rows) =>
+                                          rows.map((row) => (row.id === next.id ? next : row)),
+                                        )
+                                        setLeaveId(null)
+                                      })
+                                      .catch((err: unknown) => setError(formatApiError(err)))
+                                      .finally(() => setLeaveBusy(false))
+                                  }}
+                                  className="rounded border border-hairline px-2 py-1"
+                                >
+                                  {vi ? 'Xác nhận nghỉ' : 'Confirm leave'}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={leaveBusy}
+                                  onClick={() => setLeaveId(null)}
+                                  className="rounded border border-hairline px-2 py-1"
+                                >
+                                  {vi ? 'Hủy' : 'Cancel'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              <button
+                                type="button"
+                                disabled={leaveBusy}
+                                onClick={() => {
+                                  setLeaveId(u.id)
+                                  setLeaveUntil(toLocalInput(u.onLeaveUntil))
+                                  setLeaveNote(u.onLeaveNote ?? '')
+                                }}
+                                className="rounded border border-hairline px-2 py-1"
+                              >
+                                {u.onLeave
+                                  ? vi
+                                    ? 'Sửa nghỉ'
+                                    : 'Edit leave'
+                                  : vi
+                                    ? 'Bắt đầu nghỉ'
+                                    : 'Start leave'}
+                              </button>
+                              {u.onLeave ? (
+                                <button
+                                  type="button"
+                                  disabled={leaveBusy}
+                                  onClick={() => {
+                                    setLeaveBusy(true)
+                                    void setUserLeave(u.id, { on_leave: false })
+                                      .then((next) => {
+                                        setUsers((rows) =>
+                                          rows.map((row) => (row.id === next.id ? next : row)),
+                                        )
+                                      })
+                                      .catch((err: unknown) => setError(formatApiError(err)))
+                                      .finally(() => setLeaveBusy(false))
+                                  }}
+                                  className="rounded border border-hairline px-2 py-1"
+                                >
+                                  {vi ? 'Kết thúc nghỉ' : 'End leave'}
+                                </button>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-ink-subtle">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}

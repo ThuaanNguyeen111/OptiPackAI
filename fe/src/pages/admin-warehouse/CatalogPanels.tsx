@@ -19,6 +19,8 @@ import {
   updateMasterSku,
   setColorActive,
   setMasterSkuActive,
+  autoActorChip,
+  retireProductMaster,
   syncPooledStock,
   syncProductCatalog,
   updateColor,
@@ -31,7 +33,7 @@ import {
   type UnmappedSellerSku,
   type UnpooledStockRow,
 } from '../../api/catalog.api'
-import { listCategories } from '../../api/warehouse.api'
+import { listCategories, openWarehouseDocument, skuLabelsDocumentPath } from '../../api/warehouse.api'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/input'
@@ -43,7 +45,7 @@ import {
   TableHeader,
   TableRow,
 } from '../../components/ui/table'
-import { formatApiError } from '../../lib/api'
+import { formatApiError, getApiErrorCode } from '../../lib/api'
 import type { CategoryRecord } from '../../types/warehouse-admin'
 
 const fieldClass =
@@ -280,6 +282,8 @@ export function MasterSkuTab({
   const [createdCode, setCreatedCode] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [printCodes, setPrintCodes] = useState<string[]>([])
+  const [labelCopies, setLabelCopies] = useState(1)
 
   const types = useMemo(() => level2Categories(categories), [categories])
   const chosen = types.find((row) => row.code === category)
@@ -461,10 +465,33 @@ export function MasterSkuTab({
         <Button type="submit" variant="secondary" className="h-9 text-xs">
           {vi ? 'Tìm' : 'Search'}
         </Button>
+        <Input
+          className={`${fieldClass} w-20`}
+          type="number"
+          min={1}
+          max={50}
+          value={labelCopies}
+          onChange={(e) => setLabelCopies(Math.min(50, Math.max(1, Number(e.target.value) || 1)))}
+          aria-label={vi ? 'Số bản tem' : 'Label copies'}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-9 text-xs"
+          disabled={printCodes.length === 0}
+          onClick={() => {
+            void openWarehouseDocument(skuLabelsDocumentPath(printCodes, labelCopies)).catch(
+              (err: unknown) => setError(formatApiError(err)),
+            )
+          }}
+        >
+          {vi ? `In tem SKU (${printCodes.length})` : `Print SKU labels (${printCodes.length})`}
+        </Button>
       </form>
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-8" />
             <TableHead>SKU</TableHead>
             <TableHead>{vi ? 'Tên' : 'Name'}</TableHead>
             <TableHead />
@@ -473,10 +500,29 @@ export function MasterSkuTab({
         <TableBody>
           {items.map((row) => (
             <TableRow key={row.masterSku}>
+              <TableCell>
+                <input
+                  type="checkbox"
+                  checked={printCodes.includes(row.masterSku)}
+                  aria-label={row.masterSku}
+                  onChange={() => {
+                    setPrintCodes((prev) =>
+                      prev.includes(row.masterSku)
+                        ? prev.filter((code) => code !== row.masterSku)
+                        : [...prev, row.masterSku],
+                    )
+                  }}
+                />
+              </TableCell>
               <TableCell className="font-medium text-ink">
                 <span className="inline-flex flex-wrap items-center gap-2">
                   {row.masterSku}
                   {row.isActive ? <CopySkuButton code={row.masterSku} vi={vi} /> : null}
+                  {autoActorChip(row.createdBy, vi) ? (
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">
+                      {autoActorChip(row.createdBy, vi)}
+                    </span>
+                  ) : null}
                 </span>
                 {!row.isActive ? (
                   <span className="ml-1 text-[11px] text-ink-muted">
@@ -585,8 +631,13 @@ function MasterSkuDetail({
         <ul className="space-y-1 text-xs">
           {mappings.map((row) => (
             <li key={row.id} className="flex items-center justify-between gap-2">
-              <span>
+              <span className="inline-flex flex-wrap items-center gap-1">
                 {row.platform} · {row.shopId} · {row.sellerSku}
+                {autoActorChip(row.createdBy, vi) ? (
+                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">
+                    {autoActorChip(row.createdBy, vi)}
+                  </span>
+                ) : null}
               </span>
               <button
                 type="button"
@@ -733,6 +784,12 @@ function MasterSkuDetail({
         type="button"
         className={rowActionClass}
         onClick={() => {
+          const ok = window.confirm(
+            vi
+              ? 'Tắt SKU này? SKU AURELLE đã nối sẽ bị đẩy tồn 0 — website hết hàng.'
+              : 'Deactivate this SKU? Linked AURELLE SKUs are pushed to stock 0 and the website shows them as sold out.',
+          )
+          if (!ok) return
           void setMasterSkuActive(code, false)
             .then(() => {
               onNotice(vi ? 'Đã tắt SKU nội bộ.' : 'Internal SKU deactivated.')
@@ -766,6 +823,21 @@ function MasterSkuDetail({
       </button>
     </div>
   )
+}
+
+const FOLDABLE_CATEGORIES = new Set([
+  't_shirt',
+  'shirt',
+  'jacket',
+  'shorts',
+  'trousers',
+  'dress',
+])
+
+function marketplaceOffSale(status: string | null): boolean {
+  if (!status) return false
+  const normalized = status.trim().toLowerCase()
+  return normalized !== 'live' && normalized !== 'active'
 }
 
 const PRODUCT_CATEGORIES: Array<[string, string]> = [
@@ -803,7 +875,7 @@ function PackagingProfileForm({
   const [zipBag, setZipBag] = useState(row?.zipBagCode ?? '')
   const [zipFolded, setZipFolded] = useState(row?.zipBagFolded ?? false)
   const [fold, setFold] = useState(row?.canFoldInHalf ?? false)
-  const shoes = category === 'shoes'
+  const canFold = FOLDABLE_CATEGORIES.has(category)
 
   if (!row) return null
 
@@ -830,7 +902,7 @@ function PackagingProfileForm({
           max_stack_load_kg: stack.trim() === '' ? null : Number(stack),
           zip_bag_code: zipBag.trim() === '' ? null : zipBag.trim(),
           zip_bag_folded: zipBag.trim() !== '' && zipFolded,
-          can_fold_in_half: shoes ? false : fold,
+          can_fold_in_half: canFold ? fold : false,
         })
       }}
     >
@@ -855,7 +927,15 @@ function PackagingProfileForm({
       </label>
       <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
         {vi ? 'Loại hàng' : 'Category'}
-        <select className={fieldClass} value={category} onChange={(e) => setCategory(e.target.value)}>
+        <select
+          className={fieldClass}
+          value={category}
+          onChange={(e) => {
+            const next = e.target.value
+            setCategory(next)
+            if (!FOLDABLE_CATEGORIES.has(next)) setFold(false)
+          }}
+        >
           {PRODUCT_CATEGORIES.map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -893,11 +973,16 @@ function PackagingProfileForm({
       <label className="flex items-center gap-2 text-xs text-ink">
         <input
           type="checkbox"
-          checked={shoes ? false : fold}
-          disabled={shoes}
+          checked={canFold ? fold : false}
+          disabled={!canFold}
           onChange={(e) => setFold(e.target.checked)}
         />
         {vi ? 'Có thể gập đôi hàng' : 'Can fold item'}
+        {canFold ? null : (
+          <span className="text-[11px] text-ink-muted">
+            {vi ? 'Chỉ quần áo mới gập đôi được' : 'Only clothing can be folded'}
+          </span>
+        )}
       </label>
       <Button type="submit" className="h-9 text-xs" disabled={busy}>
         {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
@@ -923,6 +1008,7 @@ export function LinkSkuTab({
   const [measuringId, setMeasuringId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [profileStatus, setProfileStatus] = useState<'' | 'needs_measurement' | 'ready'>('')
+  const [includeRetired, setIncludeRetired] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -942,6 +1028,7 @@ export function LinkSkuTab({
         shopId: shopId.trim() || undefined,
         search: query.trim() || undefined,
         status: profileStatus || undefined,
+        includeRetired,
       }),
     ])
     setPending(unmapped)
@@ -1108,6 +1195,14 @@ export function LinkSkuTab({
           </option>
           <option value="ready">{vi ? 'Đã xác nhận' : 'Ready'}</option>
         </select>
+        <label className="flex items-center gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            checked={includeRetired}
+            onChange={(e) => setIncludeRetired(e.target.checked)}
+          />
+          {vi ? 'Hiện cả SKU ngừng dùng' : 'Include retired SKUs'}
+        </label>
         <Button type="submit" variant="secondary" className="h-9 text-xs" disabled={busy}>
           {vi ? 'Lọc catalog' : 'Filter catalog'}
         </Button>
@@ -1130,7 +1225,21 @@ export function LinkSkuTab({
         <TableBody>
           {products.map((row) => (
             <TableRow key={row.id}>
-              <TableCell className="font-medium text-ink">{row.sellerSku}</TableCell>
+              <TableCell className="font-medium text-ink">
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  {row.sellerSku}
+                  {marketplaceOffSale(row.marketplaceStatus) ? (
+                    <span className="rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-ink">
+                      {vi ? 'Sàn ngừng bán' : 'Off sale'}
+                    </span>
+                  ) : null}
+                  {row.retired ? (
+                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">
+                      {vi ? 'Ngừng dùng' : 'Retired'}
+                    </span>
+                  ) : null}
+                </span>
+              </TableCell>
               <TableCell>
                 <Badge tone={row.packagingProfileStatus === 'ready' ? 'primary' : 'warning'}>
                   {row.packagingProfileStatus === 'ready'
@@ -1151,13 +1260,54 @@ export function LinkSkuTab({
               </TableCell>
               <TableCell>{row.weightKg ?? '—'}</TableCell>
               <TableCell>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-primary"
-                  onClick={() => setMeasuringId((current) => (current === row.id ? null : row.id))}
-                >
-                  {vi ? 'Xác nhận số đo' : 'Confirm size'}
-                </button>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-primary"
+                    onClick={() => setMeasuringId((current) => (current === row.id ? null : row.id))}
+                  >
+                    {vi ? 'Xác nhận số đo' : 'Confirm size'}
+                  </button>
+                  {row.retired ? (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-primary"
+                      onClick={() => {
+                        setBusy(true)
+                        setError(null)
+                        void retireProductMaster(row.id, false)
+                          .then(() => reload())
+                          .then(() => onNotice(vi ? 'Đã dùng lại SKU.' : 'SKU restored.'))
+                          .catch((err: unknown) => setError(formatApiError(err)))
+                          .finally(() => setBusy(false))
+                      }}
+                    >
+                      {vi ? 'Dùng lại' : 'Restore'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-error"
+                      onClick={() => {
+                        const ok = window.confirm(
+                          vi
+                            ? `Ngừng dùng SKU ${row.sellerSku}? SKU biến mất khỏi danh sách gán ô và đẩy tồn.`
+                            : `Retire ${row.sellerSku}? It leaves the assign list and stock push.`,
+                        )
+                        if (!ok) return
+                        setBusy(true)
+                        setError(null)
+                        void retireProductMaster(row.id, true)
+                          .then(() => reload())
+                          .then(() => onNotice(vi ? 'Đã ngừng dùng SKU.' : 'SKU retired.'))
+                          .catch((err: unknown) => setError(formatApiError(err)))
+                          .finally(() => setBusy(false))
+                      }}
+                    >
+                      {vi ? 'Ngừng dùng' : 'Retire'}
+                    </button>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -1185,7 +1335,13 @@ export function LinkSkuTab({
               )
               setMeasuringId(null)
             } catch (err: unknown) {
-              setError(formatApiError(err))
+              setError(
+                getApiErrorCode(err) === 'PM_FOLD_NOT_ALLOWED'
+                  ? vi
+                    ? 'Chỉ quần áo (áo, quần, váy) mới gập đôi được. Bỏ chọn "Có thể gập đôi hàng" rồi lưu lại.'
+                    : 'Only clothing can be folded in half. Clear the fold option and save again.'
+                  : formatApiError(err),
+              )
             } finally {
               setBusy(false)
             }

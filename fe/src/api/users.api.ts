@@ -47,6 +47,9 @@ export type BeUserRecord = {
   locked_until?: string
   last_login_at?: string
   created_at?: string
+  on_leave?: boolean
+  on_leave_until?: string
+  on_leave_note?: string
 }
 
 type PaginatedUsersResponse = {
@@ -129,6 +132,9 @@ export function mapBeUserToAdminUser(record: BeUserRecord): AdminUser {
     lockedUntil: toIso(record.locked_until),
     lastLoginAt: toIso(record.last_login_at),
     createdAt: toIso(record.created_at) ?? new Date().toISOString(),
+    onLeave: Boolean(record.on_leave),
+    onLeaveUntil: toIso(record.on_leave_until),
+    onLeaveNote: record.on_leave_note,
   }
 }
 
@@ -274,4 +280,16 @@ export async function disableMfaApi(id: string): Promise<void> {
     method: 'POST',
     auth: true,
   })
+}
+
+export async function setUserLeave(
+  id: string,
+  input: { on_leave: boolean; until?: string; note?: string },
+): Promise<AdminUser> {
+  const res = await apiRequest<BeUserRecord>(`/users/${id}/leave`, {
+    method: 'PATCH',
+    auth: true,
+    body: input,
+  })
+  return mapBeUserToAdminUser(res)
 }

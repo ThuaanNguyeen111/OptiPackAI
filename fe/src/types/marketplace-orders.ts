@@ -1,3 +1,5 @@
+import { UserRole, type UserRole as Role } from './auth'
+
 export const MARKETPLACE_PLATFORMS = ['lazada'] as const
 export type MarketplacePlatform = (typeof MARKETPLACE_PLATFORMS)[number]
 
@@ -40,6 +42,7 @@ export type ConnectedMarketplaceShop = {
   refreshTokenExpiresAt: string | null
   lastPolledAt: string | null
   connectedAt: string | null
+  disconnectedAt: string | null
 }
 
 export type LazadaCallbackResult = {
@@ -59,6 +62,7 @@ export type StoredLazadaShop = {
   accessTokenExpiresAt?: string | null
   refreshTokenExpiresAt?: string | null
   lastPolledAt?: string | null
+  disconnectedAt?: string | null
   fromServer?: boolean
 }
 
@@ -102,6 +106,28 @@ export type MarketplaceOrderDetail = MarketplaceOrderListItem & {
   isCancelPending?: boolean
   cancelTriggerTime?: string | null
   reverseOrderId?: string | null
+  sellerCanceled?: boolean
+  origin?: 'marketplace' | 'replacement'
+}
+
+export const SELLER_CANCEL_STATUSES = [
+  'pending',
+  'unpaid',
+  'packed',
+  'ready_to_ship',
+  'topack',
+  'toship',
+] as const
+
+export function canSellerCancelOrder(
+  order: Pick<MarketplaceOrderDetail, 'platform' | 'status' | 'origin' | 'sellerCanceled'>,
+  role: Role | null | undefined,
+): boolean {
+  if (role !== UserRole.ADMIN && role !== UserRole.STORE_OWNER) return false
+  if (order.platform !== 'aurelle') return false
+  if (order.origin === 'replacement') return false
+  if (order.sellerCanceled) return false
+  return (SELLER_CANCEL_STATUSES as readonly string[]).includes(order.status)
 }
 
 export type ListOrdersResponse = {

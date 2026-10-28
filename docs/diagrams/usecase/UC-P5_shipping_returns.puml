@@ -1,0 +1,94 @@
+@startuml UC37-44_Shipping_And_Returns
+left to right direction
+skinparam packageStyle rectangle
+
+actor "System\nAdministrator" as Admin
+actor "Shipping\nCoordinator" as Shipping
+actor "Store\nOwner" as Owner
+actor "Warehouse\nStaff" as Warehouse
+actor "Carrier" as Carrier
+actor "Marketplace\nPlatform" as Marketplace
+
+rectangle "AOFP System" {
+  ' --- Carrier & shipping setup ---
+  usecase "Manage carriers" as UC_Carriers
+  usecase "Configure shipping settings" as UC_Settings
+  usecase "Sync carrier order" as UC_SyncCarrier
+  usecase "Receive carrier status" as UC_CarrierStatus
+
+  ' --- Shipment ---
+  usecase "Compare carrier quotes" as UC_Compare
+  usecase "Create shipment" as UC_Shipment
+  usecase "Book carrier order" as UC_Book
+  usecase "Print shipping label" as UC_Label
+  usecase "Create batch trip" as UC_BatchTrip
+  usecase "Print trip manifest" as UC_Manifest
+  usecase "Schedule pickup" as UC_Pickup
+  usecase "Edit delivery address" as UC_EditAddr
+  usecase "Update self-delivery status" as UC_SelfDelivery
+
+  ' --- Returns ---
+  usecase "Review return request" as UC_ReviewReturn
+  usecase "Receive returned parcel" as UC_RecvParcel
+  usecase "Create failed-delivery return" as UC_FailedReturn
+  usecase "Inspect return" as UC_Inspect
+  usecase "Receive return" as UC_RecvReturn
+  usecase "Recover packaging material" as UC_Recover
+  usecase "Create replacement order" as UC_Replacement
+  usecase "Resolve quarantine" as UC_Quarantine
+}
+
+' --- Generalization: Admin kế thừa Warehouse, Owner, Shipping ---
+Admin --|> Warehouse
+Admin --|> Owner
+Admin --|> Shipping
+
+' --- System Administrator ---
+Admin -- UC_Carriers
+Admin -- UC_SyncCarrier
+
+' --- Shipping Coordinator ---
+Shipping -- UC_SelfDelivery
+Shipping -- UC_Pickup
+Shipping -- UC_EditAddr
+Shipping -- UC_Inspect
+Shipping -- UC_BatchTrip
+Shipping -- UC_Compare
+Shipping -- UC_Shipment
+
+' --- Store Owner ---
+Owner -- UC_Settings
+Owner -- UC_Manifest
+Owner -- UC_Replacement
+Owner -- UC_ReviewReturn
+Owner -- UC_Compare
+
+' --- Warehouse Staff ---
+Warehouse -- UC_Inspect
+Warehouse -- UC_RecvReturn
+Warehouse -- UC_Quarantine
+Warehouse -- UC_RecvParcel
+
+' --- Carrier ---
+Carrier -- UC_SyncCarrier
+Carrier -- UC_CarrierStatus
+Carrier -- UC_Compare
+Carrier -- UC_Book
+
+' --- Marketplace Platform ---
+Marketplace -- UC_ReviewReturn
+
+' --- Include ---
+UC_BatchTrip .> UC_Compare : <<include>>
+UC_Shipment .> UC_Compare : <<include>>
+UC_RecvParcel .> UC_FailedReturn : <<include>>
+UC_Inspect .> UC_RecvReturn : <<include>>
+
+' --- Extend ---
+UC_Manifest .> UC_BatchTrip : <<extend>>
+UC_Book .> UC_Shipment : <<extend>>
+UC_Label .> UC_Shipment : <<extend>>
+UC_Recover .> UC_Inspect : <<extend>>
+UC_Replacement .> UC_Inspect : <<extend>>
+
+@enduml

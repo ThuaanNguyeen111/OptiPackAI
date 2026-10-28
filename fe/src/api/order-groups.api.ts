@@ -3,29 +3,20 @@ import type {
   DecidePartialInput,
   GroupOrderLine,
   GroupOrderView,
-  LazadaPackInfo,
   ManualLink,
-  LazadaPackItem,
-  LazadaPackStatus,
   ListOrderGroupsParams,
   OrderGroup,
   PackableItem,
-  PackagingConsumption,
-  PackagingConsumptionLine,
-  PackOrderGroupResult,
+  PackingBlocked,
   PickItemInput,
   PickItemResult,
   ReportMissingInput,
-  RetryLazadaPackResult,
   SetPriorityInput,
   StockAvailability,
   StockReservationLine,
   TransitionOrderGroupInput,
 } from '../types/order-groups'
-import {
-  EMPTY_LAZADA_PACK,
-  WAREHOUSE_STAFF_QUEUE_STATUSES,
-} from '../types/order-groups'
+import { WAREHOUSE_STAFF_QUEUE_STATUSES } from '../types/order-groups'
 
 function toQuery(params: Record<string, string | undefined>): string {
   const qs = new URLSearchParams()
@@ -75,55 +66,6 @@ function toIso(value: unknown): string | null {
   return null
 }
 
-const LAZADA_PACK_STATUSES: readonly LazadaPackStatus[] = [
-  'disabled',
-  'skipped',
-  'success',
-  'partial',
-  'failed',
-]
-
-function asLazadaPackStatus(value: unknown): LazadaPackStatus | null {
-  if (typeof value !== 'string') return null
-  return (LAZADA_PACK_STATUSES as readonly string[]).includes(value)
-    ? (value as LazadaPackStatus)
-    : null
-}
-
-/** Map `lazadaPack` (camelCase từ toResponse) hoặc `lazadaPackSync` (items snake_case từ service). */
-export function mapLazadaPackInfo(raw: unknown): LazadaPackInfo {
-  const row = asRecord(raw)
-  if (!row) return { ...EMPTY_LAZADA_PACK }
-  const rawItems = Array.isArray(row.items) ? row.items : []
-  const items: LazadaPackItem[] = []
-  for (const item of rawItems) {
-    const line = asRecord(item)
-    if (!line) continue
-    const orderId = pickString(line.orderId, line.order_id)
-    const orderItemId = pickString(line.orderItemId, line.order_item_id)
-    if (!orderId || !orderItemId) continue
-    items.push({
-      orderId,
-      orderItemId,
-      ok: line.ok === true,
-      errorCode:
-        pickString(line.errorCode, line.item_err_code) || null,
-      message: pickString(line.message, line.msg) || null,
-      packageId: pickString(line.packageId, line.package_id) || null,
-      trackingNumber:
-        pickString(line.trackingNumber, line.tracking_number) || null,
-      shipmentProvider:
-        pickString(line.shipmentProvider, line.shipment_provider) || null,
-    })
-  }
-  return {
-    status: asLazadaPackStatus(row.status),
-    attemptedAt: toIso(row.attemptedAt) ?? toIso(row.attempted_at),
-    error: pickString(row.error) || null,
-    items,
-  }
-}
-
 /**
  * `GET /order-groups*` trả camelCase (`toResponse`).
  * `POST /order-groups/:id/assign` hiện trả raw Mongoose (snake_case).
@@ -136,17 +78,6 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
   if (!id) return null
   const createdAt = toIso(row.createdAt) ?? toIso(row.created_at) ?? ''
   const updatedAt = toIso(row.updatedAt) ?? toIso(row.updated_at) ?? createdAt
-  const lazadaPackRaw =
-    row.lazadaPack ??
-    row.lazada_pack ??
-    (row.lazada_pack_status !== undefined
-      ? {
-          status: row.lazada_pack_status,
-          attemptedAt: row.lazada_pack_attempted_at,
-          error: row.lazada_pack_error,
-          items: row.lazada_pack_items,
-        }
-      : null)
   return {
     id,
     platform: pickString(row.platform) || 'lazada',
@@ -162,13 +93,7 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
       row.canceledOrderCount,
       row.canceled_order_count,
     ),
-    lazadaPack: mapLazadaPackInfo(lazadaPackRaw),
     fulfillmentStatus: pickString(row.fulfillmentStatus, row.fulfillment_status),
-    activePackagingRecommendationId:
-      pickString(
-        row.activePackagingRecommendationId,
-        row.active_packaging_recommendation,
-      ) || null,
     assignedStaffId:
       pickString(row.assignedStaffId, row.assigned_staff_id) || null,
     orderPriority: pickString(row.orderPriority, row.order_priority) || 'normal',
@@ -186,10 +111,45 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
       row.linked_group_count,
     ),
     origin: pickString(row.origin) || 'marketplace',
+    warehouseId: pickString(row.warehouseId, row.warehouse_id) || null,
     orders: mapGroupOrders(row.orders),
+    packingBlocked: mapPackingBlocked(row.packingBlocked ?? row.packing_blocked),
+    assignedPackerId:
+      pickString(row.assignedPackerId, row.assigned_packer_id) || null,
+    assignedPackerName:
+      pickString(row.assignedPackerName, row.assigned_packer_name) || null,
+    recipientNames: pickStringList(row.recipientNames ?? row.recipient_names),
+    recipientNamesDiffer:
+      row.recipientNamesDiffer === true || row.recipient_names_differ === true,
+    hasMaskedRecipientName:
+      row.hasMaskedRecipientName === true ||
+      row.has_masked_recipient_name === true,
+    splitFromGroupId:
+      pickString(row.splitFromGroupId, row.split_from_group_id) || null,
+    mergedIntoGroupId:
+      pickString(row.mergedIntoGroupId, row.merged_into_group_id) || null,
+    consolidationClosed:
+      row.consolidationClosed === true || row.consolidation_closed === true,
     version: pickNumber(row.version, row.__v),
     createdAt,
     updatedAt,
+  }
+}
+
+function pickStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  )
+}
+
+function mapPackingBlocked(raw: unknown): PackingBlocked | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  return {
+    reason: pickString(row.reason),
+    skus: pickStringList(row.skus),
+    at: toIso(row.at),
   }
 }
 
@@ -328,6 +288,11 @@ export async function listOrderGroups(
         : String(params.stock_shortage),
     is_overdue:
       params.is_overdue === undefined ? undefined : String(params.is_overdue),
+    packing_blocked:
+      params.packing_blocked === undefined
+        ? undefined
+        : String(params.packing_blocked),
+    q: params.q?.trim() || undefined,
   })
   const res = await apiRequest<unknown>(`/order-groups${query}`, {
     auth: true,
@@ -442,7 +407,7 @@ export async function reportMissingOrderGroupItem(
 
 async function postFulfillmentTransition(
   id: string,
-  action: 'pick' | 'pack' | 'ship' | 'deliver' | 'return',
+  action: 'pick' | 'return',
   input: TransitionOrderGroupInput,
 ): Promise<OrderGroup> {
   return requireOrderGroup(
@@ -462,93 +427,6 @@ export async function completeOrderGroupPick(
   input: TransitionOrderGroupInput,
 ): Promise<OrderGroup> {
   return postFulfillmentTransition(id, 'pick', input)
-}
-
-function mapPackagingConsumption(raw: unknown): PackagingConsumption | null {
-  const row = asRecord(raw)
-  if (!row) return null
-  const rawConsumed = Array.isArray(row.consumed) ? row.consumed : []
-  const consumed: PackagingConsumptionLine[] = []
-  for (const item of rawConsumed) {
-    const line = asRecord(item)
-    if (!line) continue
-    const materialCode = pickString(line.materialCode, line.material_code)
-    if (!materialCode) continue
-    consumed.push({
-      materialCode,
-      condition: pickString(line.condition) || 'new',
-      quantity: pickNumber(line.quantity) || 1,
-      savingVnd: pickNumber(line.savingVnd, line.saving_vnd),
-    })
-  }
-  const rawWarnings = Array.isArray(row.warnings) ? row.warnings : []
-  const warnings = rawWarnings.filter(
-    (w): w is string => typeof w === 'string' && w.length > 0,
-  )
-  const followed = row.followedRecommendation ?? row.followed_recommendation
-  return {
-    consumed,
-    warnings,
-    recommendedBoxCode:
-      pickString(row.recommendedBoxCode, row.recommended_box_code) || null,
-    followedRecommendation:
-      typeof followed === 'boolean' ? followed : null,
-  }
-}
-
-export async function packOrderGroup(
-  id: string,
-  input: TransitionOrderGroupInput,
-): Promise<PackOrderGroupResult> {
-  const raw = await apiRequest<unknown>(
-    `/order-groups/${encodeURIComponent(id)}/fulfillment/pack`,
-    {
-      method: 'POST',
-      body: { expected_version: input.expected_version },
-      auth: true,
-    },
-  )
-  const row = asRecord(raw)
-  const group = requireOrderGroup(raw)
-  const lazadaPackSync = mapLazadaPackInfo(
-    row?.lazadaPackSync ?? row?.lazada_pack_sync,
-  )
-  return {
-    group: {
-      ...group,
-      lazadaPack:
-        lazadaPackSync.status != null ? lazadaPackSync : group.lazadaPack,
-    },
-    packagingConsumption: mapPackagingConsumption(
-      row?.packagingConsumption ?? row?.packaging_consumption,
-    ),
-    lazadaPackSync,
-  }
-}
-
-export async function retryLazadaPack(
-  id: string,
-): Promise<RetryLazadaPackResult> {
-  const raw = await apiRequest<unknown>(
-    `/order-groups/${encodeURIComponent(id)}/lazada-pack/retry`,
-    {
-      method: 'POST',
-      auth: true,
-    },
-  )
-  const row = asRecord(raw)
-  const group = requireOrderGroup(raw)
-  const lazadaPackSync = mapLazadaPackInfo(
-    row?.lazadaPackSync ?? row?.lazada_pack_sync,
-  )
-  return {
-    group: {
-      ...group,
-      lazadaPack:
-        lazadaPackSync.status != null ? lazadaPackSync : group.lazadaPack,
-    },
-    lazadaPackSync,
-  }
 }
 
 export async function returnOrderGroup(
@@ -619,6 +497,8 @@ export type StaffSearchItem = {
   fullName: string
   email: string
   activeWorkload: number
+  onLeave: boolean
+  onLeaveUntil: string | null
 }
 
 function mapStaffSearchItem(raw: unknown): StaffSearchItem | null {
@@ -631,6 +511,8 @@ function mapStaffSearchItem(raw: unknown): StaffSearchItem | null {
     fullName: pickString(row.fullName, row.full_name, row.name) || staffId,
     email: pickString(row.email),
     activeWorkload: pickNumber(row.activeWorkload, row.active_workload),
+    onLeave: row.onLeave === true || row.on_leave === true,
+    onLeaveUntil: toIso(row.onLeaveUntil ?? row.on_leave_until),
   }
 }
 
@@ -680,6 +562,47 @@ export async function linkOrderGroups(
   return raw
     .map(mapOrderGroup)
     .filter((group): group is OrderGroup => group !== null)
+}
+
+export async function splitOrderFromGroup(
+  groupId: string,
+  orderId: string,
+  input: { expected_version: number; note: string },
+): Promise<{ sourceGroup: OrderGroup; newGroup: OrderGroup }> {
+  const res = await apiRequest<unknown>(
+    `/order-groups/${encodeURIComponent(groupId)}/orders/${encodeURIComponent(orderId)}/split`,
+    { method: 'POST', auth: true, body: { expected_version: input.expected_version, note: input.note.trim() } },
+  )
+  const row = asRecord(res)
+  return {
+    sourceGroup: requireOrderGroup(row?.sourceGroup ?? row?.source_group),
+    newGroup: requireOrderGroup(row?.newGroup ?? row?.new_group),
+  }
+}
+
+export async function mergeOrderGroups(
+  targetGroupId: string,
+  input: { source_group_id: string; expected_version: number; note: string },
+): Promise<OrderGroup> {
+  return requireOrderGroup(
+    await apiRequest<unknown>(`/order-groups/${encodeURIComponent(targetGroupId)}/merge`, {
+      method: 'POST',
+      auth: true,
+      body: {
+        source_group_id: input.source_group_id,
+        expected_version: input.expected_version,
+        note: input.note.trim(),
+      },
+    }),
+  )
+}
+
+export async function sellerCancelOrder(orderId: string, reason: string): Promise<void> {
+  await apiRequest(`/order-groups/orders/${encodeURIComponent(orderId)}/seller-cancel`, {
+    method: 'POST',
+    auth: true,
+    body: { reason: reason.trim() },
+  })
 }
 
 export async function unlinkOrderGroup(id: string): Promise<void> {

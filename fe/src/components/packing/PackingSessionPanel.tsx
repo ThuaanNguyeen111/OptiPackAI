@@ -1,8 +1,10 @@
-import { useState, type ReactElement } from 'react'
+import { useEffect, useState, type ReactElement } from 'react'
 import { Loader2 } from 'lucide-react'
+import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 import {
   changeParcelBoxInSession,
   finishPackingSession,
+  getPackingBoxSources,
   reportPackingIssue,
   reviewParcel,
   scanParcelItem,
@@ -18,9 +20,17 @@ import {
   PARCEL_REVIEW_LABELS,
   PARCEL_REVIEW_REASONS,
   type AdjustmentReason,
+  type BoxSourceInput,
+  type PackingBoxSources,
   type PackingPlan,
   type ParcelReviewReason,
 } from '../../types/packing-plan'
+import {
+  groupParcelsByOrder,
+  parcelBorderClass,
+  parcelOrderCaption,
+  parcelOrderHeading,
+} from '../../lib/parcel-order-display'
 
 type BoxOption = { code: string; name: string }
 
@@ -65,6 +75,23 @@ export function PackingSessionPanel({
   const [resolution, setResolution] = useState<'replace' | 'back_to_picking'>('back_to_picking')
   const [warehouseId, setWarehouseId] = useState('')
   const [boxCondition, setBoxCondition] = useState<'reusable' | 'damaged'>('reusable')
+  const [sources, setSources] = useState<PackingBoxSources | null>(null)
+  const [boxChoice, setBoxChoice] = useState<Record<number, BoxSourceInput>>({})
+
+  useEffect(() => {
+    if (plan.status !== 'packing') return
+    let cancelled = false
+    getPackingBoxSources(groupId)
+      .then((data) => {
+        if (!cancelled) window.setTimeout(() => setSources(data), 0)
+      })
+      .catch(() => {
+        if (!cancelled) window.setTimeout(() => setSources(null), 0)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [groupId, plan.status, plan.version])
 
   const canStart = plan.status === 'approved'
   const canFinish =
@@ -102,15 +129,31 @@ export function PackingSessionPanel({
           {vi ? 'Bắt đầu đóng' : 'Start packing'}
         </button>
       ) : null}
-      {plan.parcels.map((parcel) => {
+      {groupParcelsByOrder(plan.parcels).groups.map((bucket) => {
+        const layout = groupParcelsByOrder(plan.parcels)
+        return (
+          <div key={bucket.key} className="space-y-2">
+            {layout.multi ? (
+              <p className="text-xs font-semibold text-ink">{parcelOrderHeading(bucket, vi)}</p>
+            ) : null}
+            {bucket.parcels.map((parcel) => {
         const pending = parcel.status === 'pending'
         const held = parcel.status === 'held'
         const sealed = parcel.status === 'sealed' || held
         const toUnpack = parcel.status === 'to_unpack'
+        const sourceInfo = sources?.parcels.find((p) => p.parcelNo === parcel.parcelNo)
+        const choice: BoxSourceInput = boxChoice[parcel.parcelNo] ?? { source: 'auto' }
+        const caption = parcelOrderCaption(parcel, vi)
         return (
-          <div key={parcel.parcelNo} className="rounded-lg border border-hairline p-3 text-sm">
+          <div
+            key={parcel.parcelNo}
+            className={`rounded-lg border border-hairline p-3 text-sm ${parcelBorderClass(parcel.recipientName, layout.multi)}`}
+          >
             <p className="font-medium text-ink">
               #{String(parcel.parcelNo)} {parcel.box.code}
+              {caption ? (
+                <span className="ml-2 text-xs font-semibold text-sky-700">{caption}</span>
+              ) : null}
               <span className="ml-2 text-xs capitalize text-ink-muted">{parcel.status}</span>
               <span className="ml-2 text-xs text-ink-muted">
                 {String(parcel.scannedCount ?? parcel.scans?.length ?? 0)}/
@@ -181,6 +224,14 @@ export function PackingSessionPanel({
                 ))}
               </ul>
             ) : null}
+            {pending && plan.status === 'packing' && sourceInfo ? (
+              <BoxSourceFields
+                vi={vi}
+                info={sourceInfo}
+                value={choice}
+                onChange={(next) => setBoxChoice((prev) => ({ ...prev, [parcel.parcelNo]: next }))}
+              />
+            ) : null}
             {pending && plan.status === 'packing' ? (
               <div className="mt-2 flex flex-wrap items-end gap-2">
                 <label className="text-xs text-ink-muted">
@@ -198,7 +249,20 @@ export function PackingSessionPanel({
                   onClick={() => {
                     const weight = weightOk(sealWeight)
                     if (weight == null) return
-                    void run(() => sealParcel(groupId, parcel.parcelNo, plan.version, weight))
+                    const msg = boxSourceError(choice, sourceInfo, vi)
+                    if (msg) {
+                      onError(new Error(msg))
+                      return
+                    }
+                    void run(() =>
+                      sealParcel(
+                        groupId,
+                        parcel.parcelNo,
+                        plan.version,
+                        weight,
+                        sourceInfo ? choice : undefined,
+                      ),
+                    )
                   }}
                   className="rounded-lg bg-emerald-700 px-3 py-2 text-sm text-white disabled:opacity-50"
                 >
@@ -432,6 +496,9 @@ export function PackingSessionPanel({
                 </button>
               </div>
             ) : null}
+          </div>
+        )
+            })}
           </div>
         )
       })}

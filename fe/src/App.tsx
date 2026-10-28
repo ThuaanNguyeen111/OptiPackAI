@@ -21,6 +21,7 @@ import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
+import { HistoryPage } from './pages/HistoryPage'
 import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { MarketplaceOAuthSuccessPage } from './pages/MarketplaceOAuthSuccessPage'
@@ -90,6 +91,7 @@ function App() {
                 <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
                 <Route path="staff" element={<StaffManagementPage />} />
                 <Route path="analytics" element={<AnalyticsReportPage />} />
+                <Route path="history" element={<HistoryPage />} />
                 <Route path="profile" element={<ProfilePage />} />
                 <Route path="settings" element={<ProfilePage />} />
               </Route>
@@ -105,6 +107,7 @@ function App() {
                 <Route path="warehouse" element={<AdminWarehousePage />} />
                 <Route path="packaging-materials" element={<PackagingMaterialsPage />} />
                 <Route path="returns" element={<ReturnsPage shell="admin" />} />
+                <Route path="history" element={<HistoryPage shell="admin" />} />
               </Route>
               <Route path="*" element={<Navigate to="/app" replace />} />
             </Route>

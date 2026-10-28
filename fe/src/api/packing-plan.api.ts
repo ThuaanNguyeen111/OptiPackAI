@@ -1,6 +1,9 @@
 import { apiRequest } from '../lib/api'
+import { boxSourceBody } from '../types/packing-plan'
 import type {
   AdjustmentReason,
+  BoxSourceInput,
+  PackingBoxSources,
   PackingFeedbackReport,
   PackingPlan,
   PackingPlanSummary,
@@ -160,11 +163,17 @@ export function sealParcel(
   parcelNo: number,
   expectedVersion: number,
   weightKg: number,
+  boxSource?: BoxSourceInput,
 ): Promise<PackingPlan> {
   return readPlan(groupId, `/parcels/${String(parcelNo)}/seal`, {
     expected_version: expectedVersion,
     weight_kg: weightKg,
+    ...boxSourceBody(boxSource),
   })
+}
+
+export async function getPackingBoxSources(groupId: string): Promise<PackingBoxSources> {
+  return apiRequest<PackingBoxSources>(groupPath(groupId, '/box-sources'), { auth: true })
 }
 
 export function reviewParcel(
@@ -274,7 +283,13 @@ export function unpackParcel(
 export async function packPlan(
   groupId: string,
   expectedVersion: number,
-  parcels: { parcel_no: number; weight_kg: number }[],
+  parcels: {
+    parcel_no: number
+    weight_kg: number
+    box_source?: string
+    box_source_reason?: string
+    box_source_note?: string
+  }[],
 ): Promise<{ plan: PackingPlan; completed: boolean }> {
   return apiRequest<{ plan: PackingPlan; completed: boolean }>(
     groupPath(groupId, '/pack'),

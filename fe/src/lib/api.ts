@@ -255,6 +255,15 @@ export function getApiErrorDetailString(
   return typeof value === 'string' && value.length > 0 ? value : null
 }
 
+export function getApiErrorDetailList(err: unknown, key: string): string[] {
+  if (!(err instanceof ApiError) || !err.details) return []
+  const value = err.details[key]
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (item): item is string => typeof item === 'string' && item.length > 0,
+  )
+}
+
 export function formatApiError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.errorCode && MARKETPLACE_ORDERS_ERROR_MESSAGES[err.errorCode]) {

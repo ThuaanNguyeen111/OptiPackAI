@@ -1,0 +1,56 @@
+@startuml UC45-52_Background_Jobs_And_Alerts
+left to right direction
+skinparam packageStyle rectangle
+
+actor "System\nAdministrator" as Admin
+actor "Store\nOwner" as Owner
+actor "System\nScheduler" as Scheduler
+actor "Marketplace\nPlatform" as Marketplace
+
+rectangle "AOFP System" {
+  ' --- Sync jobs ---
+  usecase "Auto sync product catalog" as UC_SyncCatalog
+  usecase "Auto sync orders" as UC_SyncOrders
+  usecase "Write back order status" as UC_WriteBack
+  usecase "Push sellable stock" as UC_PushStock
+  usecase "Pull return requests" as UC_PullReturns
+
+  ' --- Fulfillment jobs ---
+  usecase "Auto assign picker" as UC_AutoPicker
+  usecase "Auto compute packing plans" as UC_AutoPlans
+  usecase "Recheck stock shortage/blocked packing" as UC_Recheck
+
+  ' --- Alerts ---
+  usecase "Express SLA alert" as UC_SLA
+  usecase "Shipment overdue alert" as UC_Overdue
+  usecase "Send notification" as UC_Notify
+}
+
+' --- System Scheduler ---
+Scheduler -- UC_SyncCatalog
+Scheduler -- UC_SyncOrders
+Scheduler -- UC_WriteBack
+Scheduler -- UC_PushStock
+Scheduler -- UC_PullReturns
+Scheduler -- UC_AutoPicker
+Scheduler -- UC_AutoPlans
+Scheduler -- UC_Recheck
+Scheduler -- UC_SLA
+Scheduler -- UC_Overdue
+
+' --- Marketplace Platform ---
+Marketplace -- UC_SyncCatalog
+Marketplace -- UC_SyncOrders
+Marketplace -- UC_WriteBack
+Marketplace -- UC_PushStock
+Marketplace -- UC_PullReturns
+
+' --- Notification recipients ---
+Owner -- UC_Notify
+Admin -- UC_Notify
+
+' --- Include ---
+UC_SLA .> UC_Notify : <<include>>
+UC_Overdue .> UC_Notify : <<include>>
+
+@enduml

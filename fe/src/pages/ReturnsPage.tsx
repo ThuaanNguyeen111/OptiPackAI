@@ -16,7 +16,6 @@ import {
   listReturns,
   rejectReturn,
 } from '../api/returns.api'
-import { CreateReturnForm } from '../components/returns/CreateReturnForm'
 import { useAuth } from '../context/use-auth'
 import { UserRole } from '../types/auth'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
@@ -124,7 +123,6 @@ export function ReturnsPage({
   const { locale } = usePortal()
   const { session } = useAuth()
   const vi = locale === 'vi'
-  const isAdmin = session?.role === UserRole.ADMIN
   const canCancelSlip =
     session?.role === UserRole.ADMIN || session?.role === UserRole.STORE_OWNER
 
@@ -133,7 +131,6 @@ export function ReturnsPage({
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('requested')
   const [query, setQuery] = useState('')
-  const [createOpen, setCreateOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [actionNote, setActionNote] = useState('')
@@ -342,35 +339,15 @@ export function ReturnsPage({
             <h1 className="text-lg font-bold text-ink">
               {vi ? 'Phiếu hoàn hàng' : 'Return requests'}
             </h1>
-            {isAdmin ? (
-              <button
-                type="button"
-                className="rounded-lg bg-[#152d35] px-4 py-2 text-sm font-semibold text-white"
-                onClick={() => setCreateOpen((open) => !open)}
-              >
-                {vi ? '+ Tạo phiếu RMA' : '+ New RMA'}
-              </button>
-            ) : null}
           </div>
+          <p className="mb-4 rounded-xl border border-hairline bg-surface-2 px-4 py-3 text-sm text-ink-soft">
+            {vi
+              ? 'Phiếu trả/đổi do khách gửi trên website AURELLE và tự hiện ở đây. Giao thất bại thì hệ thống tự tạo phiếu hoàn.'
+              : 'Return/exchange requests are submitted by customers on the AURELLE website and appear here automatically. Failed deliveries create a return slip automatically.'}
+          </p>
 
           <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row lg:items-stretch">
           <section className="owner-panel flex h-full min-h-[550px] min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
-            {isAdmin && createOpen ? (
-              <CreateReturnForm
-                vi={vi}
-                onCreated={() => {
-                  setCreateOpen(false)
-                  setToast(
-                    vi
-                      ? 'Đã tạo phiếu, chờ Store Owner duyệt.'
-                      : 'Request created, waiting for Store Owner.',
-                  )
-                  if (statusFilter === 'requested') void load()
-                  else setStatusFilter('requested')
-                }}
-                onError={(message) => setToast(message)}
-              />
-            ) : null}
             <div className="flex w-full min-w-0 flex-nowrap items-center gap-3 overflow-hidden border-b border-hairline px-4 py-3">
               <div
                 className="flex w-0 min-w-0 max-w-full flex-1 cursor-grab touch-pan-x flex-nowrap overflow-x-auto overflow-y-hidden rounded-lg bg-surface-2 p-0.5 [scrollbar-width:none] active:cursor-grabbing [&::-webkit-scrollbar]:hidden"
