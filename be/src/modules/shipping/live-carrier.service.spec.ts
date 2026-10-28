@@ -1,4 +1,7 @@
+import { HttpStatus } from '@nestjs/common';
 import { Types } from 'mongoose';
+import { AppException } from '../../common/exceptions/app-exception';
+import { CARRIER_ERROR_CODES } from '../carriers/carriers.errors';
 import { LiveCarrierService, QUOTE_CONCURRENCY } from './live-carrier.service';
 import { MockCarrierAdapter } from '../carriers/adapters/mock.adapter';
 import { OrderStatus } from '../orders/enums/order-status.enum';
@@ -133,5 +136,82 @@ describe('LiveCarrierService', () => {
     const b = await service.bookParcel(input);
     expect(a.result.carrier_order_code).toBeTruthy();
     expect(b.result.carrier_order_code).toBe(a.result.carrier_order_code);
+  });
+
+  //!=============================================
+  // 28/10/2026 — địa chỉ mô phỏng cho đơn bị che (CARRIER_DEMO_RECIPIENT_ENABLED). Tính lại từ
+  // dữ liệu (DemoRecipientService, KHÔNG ghi DB); GHN báo lệch phường với số nhà MÔ PHỎNG →
+  // tự gửi lại chỉ phường + tỉnh; địa chỉ thật thì báo lỗi như cũ.
+  //!=============================================
+  describe('địa chỉ mô phỏng (demo)', () => {
+    const service = { carrierCode: 'GHN', carrierName: 'GHN', volumetricDivisor: 5000, serviceCode: 'LIGHT', serviceName: 'Hàng nhẹ', serviceTypeId: 2 };
+    const parcel = { orderId: orderId.toString(), cartonIndex: 0, parcelNo: 1, actualG: 300, outer: { length_mm: 300, width_mm: 250, height_mm: 40 } };
+    const demo = { seq: 10, street: '47/10 Nguyễn Văn Đậu', ward_name: 'Phường Gia Định', province_name: 'Hồ Chí Minh', phone: '0377168254' };
+    const conflict = (): AppException =>
+      new AppException(CARRIER_ERROR_CODES.ADDRESS_CONFLICT, 'To address conflict', HttpStatus.UNPROCESSABLE_ENTITY);
+
+    let demoRecipients: { resolve: jest.Mock };
+    let svc: LiveCarrierService;
+
+    beforeEach(() => {
+      demoRecipients = { resolve: jest.fn((o: { recipient: { phone: string } }) => Promise.resolve(o.recipient.phone.includes('*') ? demo : null)) };
+      svc = new LiveCarrierService(new MockCarrierAdapter(), orderModel as never, configService as never, demoRecipients as never);
+    });
+
+    it('dựng địa chỉ gửi hãng từ bản mô phỏng: giữ tên của sàn, Coordinator nhập vẫn ưu tiên', () => {
+      const a = svc.resolveRecipient(maskedOrder as never, null, demo);
+      expect(a.recipient).toMatchObject({ name: 'V**h', phone: '0377168254', ward_name: 'Phường Gia Định', province_name: 'Hồ Chí Minh' });
+      expect(a.recipient.address).toBe('47/10 Nguyễn Văn Đậu, Phường Gia Định, Hồ Chí Minh');
+      expect(a.isDemo).toBe(true);
+      expect(a.demoStreetUsed).toBe(true);
+      expect(a.assumptions[0]).toContain('mô phỏng #10');
+      const b = svc.resolveRecipient(maskedOrder as never, { street: '', phone: '0911111111' }, demo);
+      expect(b.recipient.address).toBe('Phường Gia Định, Hồ Chí Minh');
+      expect(b.recipient.phone).toBe('0911111111');
+      expect(b.demoStreetUsed).toBe(false);
+    });
+
+    it('đơn bị che → báo giá dùng địa chỉ mô phỏng; đơn AURELLE giữ địa chỉ thật', async () => {
+      orderModel.findById.mockResolvedValue(maskedOrder);
+      const q = await svc.quoteParcels(service, [parcel]);
+      expect(q.assumptions?.some((x) => x.includes('mô phỏng #10'))).toBe(true);
+      orderModel.findById.mockResolvedValue(fullOrder);
+      const q2 = await svc.quoteParcels(service, [parcel]);
+      expect(q2.assumptions).toEqual([]);
+    });
+
+    it('GHN báo lệch phường với số nhà mô phỏng → tự gửi lại chỉ phường + tỉnh, ghi assumption', async () => {
+      const adapter = {
+        code: 'GHN',
+        previewShipment: jest.fn((input: { recipient: { address: string } }) =>
+          input.recipient.address.startsWith('47/')
+            ? Promise.reject(conflict())
+            : Promise.resolve({ fee: { total: 20_900 }, expected_delivery_at: null }),
+        ),
+      };
+      orderModel.findById.mockResolvedValue(maskedOrder);
+      const s2 = new LiveCarrierService(adapter as never, orderModel as never, configService as never, demoRecipients as never);
+      const quote = await s2.quoteParcels(service, [parcel]);
+      expect(quote.totalCostVnd).toBe(20_900);
+      expect(adapter.previewShipment).toHaveBeenCalledTimes(2);
+      expect(quote.assumptions?.some((x) => x.includes('chỉ phường + tỉnh'))).toBe(true);
+    });
+
+    it('địa chỉ THẬT bị GHN báo lệch → không tự bỏ số nhà, báo lỗi như cũ', async () => {
+      const adapter = { code: 'GHN', previewShipment: jest.fn(() => Promise.reject(conflict())) };
+      orderModel.findById.mockResolvedValue(fullOrder);
+      const s2 = new LiveCarrierService(adapter as never, orderModel as never, configService as never, demoRecipients as never);
+      await expect(s2.quoteParcels(service, [parcel])).rejects.toMatchObject({ errorCode: CARRIER_ERROR_CODES.ADDRESS_CONFLICT });
+      expect(adapter.previewShipment).toHaveBeenCalledTimes(1);
+    });
+
+    it('xem trước địa chỉ: đơn mô phỏng isDemo=true; đơn thiếu phường (không demo) trả errorCode thay vì lỗi cả nhóm', async () => {
+      const [demoRow] = await svc.previewRecipients([maskedOrder as never]);
+      expect(demoRow).toMatchObject({ isDemo: true, demoSeq: 10, street: '47/10 Nguyễn Văn Đậu', phone: '0377168254', errorCode: null });
+      const off = new LiveCarrierService(new MockCarrierAdapter(), orderModel as never, { get: jest.fn(() => undefined) } as never);
+      const [row] = await off.previewRecipients([{ ...maskedOrder, recipient: { ...maskedOrder.recipient, city: 'S**e' } } as never]);
+      expect(row?.errorCode).toBe(CARRIER_ERROR_CODES.ADDRESS_INCOMPLETE);
+      expect(row?.isDemo).toBe(false);
+    });
   });
 });
