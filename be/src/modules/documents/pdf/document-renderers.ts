@@ -149,9 +149,12 @@ export interface ShippingLabelData {
   serviceName: string;
   trackingCode: string;
   tripCode: string;
+  /** Người nhận chung — chỉ dùng cho kiện không có `recipient` riêng. */
   recipient: { fullName: string; phone: string; address: string };
   parcels: {
     orderId: string;
+    /** 28/10/2026 (G3) — người nhận của ĐÚNG đơn có kiện này (nhóm gộp có thể khác tên). */
+    recipient?: { fullName: string; phone: string; address: string };
     index: number;
     total: number;
     boxCode: string;
@@ -197,10 +200,11 @@ export async function renderShippingLabels(data: ShippingLabelData): Promise<Buf
 
     const recipientY = barcodeY + mm(31);
     doc.moveTo(left, recipientY - 4).lineTo(left + width, recipientY - 4).strokeColor('#000000').stroke();
+    const recipient = parcel.recipient ?? data.recipient;
     doc.font('vn-bold').fontSize(8).text('NGƯỜI NHẬN', left, recipientY);
-    doc.font('vn-bold').fontSize(12).text(data.recipient.fullName, left, doc.y, { width });
-    doc.font('vn').fontSize(10).text(data.recipient.phone, { width });
-    doc.font('vn').fontSize(10).text(data.recipient.address, { width });
+    doc.font('vn-bold').fontSize(12).text(recipient.fullName, left, doc.y, { width });
+    doc.font('vn').fontSize(10).text(recipient.phone, { width });
+    doc.font('vn').fontSize(10).text(recipient.address, { width });
 
     // (21/10/2026) Người gửi — nhỏ hơn người nhận, ngay dưới, có kẻ ngăn.
     const senderY = doc.y + mm(2);

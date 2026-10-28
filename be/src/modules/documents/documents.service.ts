@@ -364,10 +364,17 @@ export class DocumentsService {
     );
     const parcels: ShippingLabelData['parcels'] = [];
     for (const order of orders) {
-      for (const p of parcelsByOrder.get(String(order._id)) ?? []) {
+      const own = parcelsByOrder.get(String(order._id)) ?? [];
+      // 28/10/2026 (G3) — mỗi kiện in người nhận của CHÍNH đơn đó (khớp đơn GHN của kiện),
+      // không lấy đơn đầu tiên cho cả nhóm: nhóm gộp cùng SĐT + địa chỉ vẫn có thể khác tên.
+      const orderRecipient = own.length > 0
+        ? (order === recipientOrder ? recipient : printRecipientOf(order, await this.demoOf(order)))
+        : recipient;
+      for (const p of own) {
         const cp = carrierByParcel.get(p.parcelNo);
         parcels.push({
           orderId: order.platform_order_id,
+          recipient: orderRecipient,
           index: 0,
           total: 0,
           boxCode: p.boxCode,
