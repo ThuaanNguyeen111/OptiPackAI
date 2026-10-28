@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -14,6 +14,9 @@
 | 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
 | 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ☐ Chưa làm (code 3D của Việt/Thi) |
 | 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm); khối doanh thu / tài chính / nhân viên ở Bảng điều khiển vẫn đọc `data/dashboard-mock.ts` (BE chưa có API) | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
+| 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ☐ Chưa làm |
+| 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ☐ Chưa làm |
+| 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -83,6 +86,55 @@ Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô 
 4. Đánh số theo `step` (thứ tự xếp) để khớp hướng dẫn đóng gói.
 
 **Nghiệm thu:** mở 1 kế hoạch có 2 món → khung 3D hiện đúng 2 khối, đúng vị trí so với bảng số đo; kiện `manualLayout: true` → hiện "Kiện nhập tay, không có hình 3D".
+
+---
+
+## 3. 🆕 28/10/2026 — Màn lấy hàng cho đơn gộp (dòng 4, 5)
+
+**Hiện trạng (đọc code `main` 28/10):** `WarehousePage.tsx` đã gom theo SKU và hiện 1 dòng chữ "Chia theo đơn: Chị Lan · 5329… ×2 · Anh Tuấn · 5330… ×1" (`allocationText`, chỉ khi SKU thuộc ≥ 2 đơn). Chưa có khay/màu theo đơn, quét xong không biết món đã vào khay nào. Lấy chung nhiều nhóm (khác sàn, liên kết tay) chỉ có ở `AdminWarehousePage.tsx` (`getWarehousePickingListForGroups`), Warehouse Staff không dùng được dù BE đã cho quyền. Luồng đơn gộp đầy đủ + giới hạn BE: `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9**.
+
+### 3.1 Chia khay theo đơn (dòng 4) — chỉ FE
+
+Dữ liệu đã có: mỗi dòng picking list có `order_allocations: [{ order_id, platform_order_id, recipient_name, quantity }]` (tổng = `quantity` của dòng); nhóm có `orders[]` (xếp theo thời gian tạo) và `recipientNamesDiffer`.
+
+1. **Gán khay cố định cho từng đơn của nhóm:** đơn còn hiệu lực xếp theo `orders[]` → khay **A, B, C…**; màu lấy từ `fe/src/lib/recipient-color.ts` (đang dùng ở màn đóng gói qua `parcel-order-display.ts`) để **cùng 1 đơn cùng 1 màu** ở lấy hàng và đóng gói. Nhóm chỉ 1 đơn → không hiện gì thêm (giữ màn như cũ).
+2. **Bảng "Khay của nhóm"** đầu màn lấy hàng: mỗi khay 1 dòng — nhãn khay + màu, mã đơn sàn, người nhận, tổng số món phải bỏ vào, số đã bỏ (đếm tạm ở bước 4).
+3. **Mỗi dòng SKU:** thay dòng chữ "Chia theo đơn" bằng các chip màu `A ×2`, `B ×1` (tooltip: tên người nhận + mã đơn). Giữ nguyên cách quét theo SKU.
+4. **Quét / bấm "+1" một SKU có ≥ 2 đơn:** sau khi `pick-item` thành công, hiện hộp chọn khay (nút màu A/B/C, gợi ý khay còn thiếu nhiều nhất trước). Đếm tạm trong state của màn (khoá theo `groupId + sku + order_id`), **không gửi BE** — BE chưa có API ghi "món vào khay nào". Tải lại màn thì đếm tạm mất; ghi rõ "đếm khay chỉ để chia tay, không lưu".
+5. Khay đã đủ món → chip khay đổi dấu ✓. Bấm "Hoàn tất lấy hàng" khi còn khay chưa đủ (theo đếm tạm) → hỏi xác nhận, không chặn (BE đã đối soát theo SKU).
+6. Nhóm `recipientNamesDiffer = true` → banner vàng "Nhóm có nhiều người nhận — chia đúng khay, khi đóng gói phải quét từng món".
+
+**Nghiệm thu:** nhóm 2 đơn (A: áo ×2, B: áo ×1 + quần ×1) → bảng khay A=2, B=2; quét áo 3 lần, chọn A, A, B → A ✓, B còn 1; quét quần → không hỏi (chỉ thuộc B) → B ✓; màu khay A ở màn lấy hàng trùng màu kiện của đơn A ở màn đóng gói.
+
+### 3.2 Lấy chung các nhóm cùng người nhận (dòng 5) — BE đã có
+
+API (quyền **Warehouse Staff**, Admin): `GET /warehouse/:warehouseId/picking-list?group_ids=G1,G2` → mảng dòng như picking list thường, **mỗi dòng có `order_group_id`** (cùng 1 SKU của 2 nhóm là 2 dòng), đã xếp theo thứ tự đi kệ. Danh sách nhóm cùng người nhận: `GET /order-groups/:id/linked` (nhóm có `linkedGroupCount > 0` hoặc `manualLink` khác null).
+
+1. Ở thẻ/nhóm trên màn lấy hàng: `linkedGroupCount > 0` → nút **"Lấy chung N nhóm cùng người nhận"**.
+2. Bấm → gọi `/linked`, chỉ giữ nhóm đang chờ lấy / đang lấy (`awaiting_packaging`, `picking`) **cùng kho** (`warehouseId` trùng hoặc null) → gọi picking list gộp với các id đó (cả nhóm hiện tại).
+3. Hiện danh sách theo thứ tự đi kệ; mỗi dòng có nhãn nhóm (đuôi mã nhóm + sàn + màu nhóm). Kết hợp được với khay ở 3.1 (khay = đơn, nhãn = `nhóm·khay`).
+4. Quét/`pick-item` gửi đúng `POST /order-groups/{line.order_group_id}/fulfillment/pick-item`. Báo thiếu: `report-missing` của **đúng nhóm** với `expected_version` của nhóm đó. Hoàn tất: gọi `POST /order-groups/:id/fulfillment/pick` **từng nhóm** (nhóm nào đủ thì xong nhóm đó; 409 `ORD_GROUP_PICK_INCOMPLETE` của 1 nhóm không chặn nhóm khác).
+5. In PDF dùng chung: `GET /documents/picking-list/:warehouseId/:groupId` vẫn theo từng nhóm — in lần lượt hoặc ẩn nút in ở chế độ lấy chung.
+6. Lỗi `ORD_GROUP_WRONG_WAREHOUSE` của 1 nhóm → bỏ nhóm đó khỏi lượt lấy chung, báo "Nhóm … đang lấy ở kho khác".
+
+**Nghiệm thu:** 1 nhóm Lazada + 1 nhóm AURELLE liên kết tay → nút lấy chung hiện ở cả 2; danh sách gộp đúng thứ tự kệ; quét món của nhóm AURELLE chỉ trừ nhóm AURELLE; hoàn tất nhóm Lazada khi nhóm AURELLE còn thiếu vẫn thành công.
+
+### 3.3 Khoá "Đóng nhanh" cho nhóm ≥ 2 đơn (dòng 6) — 🆕 tối 28/10
+
+**BE đổi (AOFP-210):** mỗi đơn có vận đơn riêng, nên món bỏ nhầm sang kiện của đơn kia sẽ lệch sổ khi khách trả hàng. Trước đây chỉ nhóm **khác tên** người nhận mới bị chặn "đóng nhanh"; giờ nhóm còn **≥ 2 đơn hiệu lực** (kể cả cùng tên) cũng bị chặn.
+
+- Response nhóm đơn (`GET /order-groups`, `GET /order-groups/:id`) có thêm `packScanRequired: boolean` = nhóm ≥ 2 đơn hiệu lực **hoặc** `recipientNamesDiffer`. Chưa gồm cài đặt chung `require_scan` của kho (FE vẫn kết hợp như đang làm).
+- `POST /order-groups/:groupId/packing-plan/pack` với nhóm ≥ 2 đơn → `409 PACKING_SCAN_REQUIRED`, `details: { reason: 'multi_order_group', orderCount }`. Nhóm khác tên vẫn trả `reason: 'recipient_names_differ'` như cũ.
+
+Việc FE (`PackagingWorkbench.tsx`):
+
+1. `scanLocked = requireScan || Boolean(group?.packScanRequired)` (thay `recipientNamesDiffer` ở dòng ~993); thêm field vào `fe/src/types/order-groups.ts` và map trong `order-groups.api.ts` (`row.packScanRequired === true || row.pack_scan_required === true`).
+2. Hai chỗ nút "Đóng nhanh" (dòng ~1571, ~1834): `disabled` theo `packScanRequired`; ghi chú: khác tên → giữ câu cũ; cùng tên → "Nhóm gộp N đơn — mỗi đơn 1 vận đơn, quét từng món vào đúng kiện rồi niêm phong".
+3. Nếu vẫn gọi mà nhận `409` → hiện đúng `message` của BE.
+
+**Nghiệm thu:** nhóm 1 đơn → "Đóng nhanh" bấm được; nhóm 2 đơn cùng tên → nút khoá, ghi chú "Nhóm gộp 2 đơn…"; gọi thẳng API → 409 `multi_order_group`.
+
+**Không cần đổi FE cho G2, G3, G4:** trạng thái giao theo từng đơn là việc BE gửi AURELLE; nhãn PDF do BE in; khoá gộp tính lúc đồng bộ.
 
 ---
 

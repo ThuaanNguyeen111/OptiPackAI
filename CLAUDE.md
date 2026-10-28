@@ -4448,7 +4448,32 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 4. Không ảnh hưởng: đơn AURELLE/đơn đủ địa chỉ, gộp đơn (`consolidation_key`), giữ chỗ, lấy hàng, đóng gói, hoàn hàng, write-back AURELLE, hãng mock theo bảng cước.
 5. Hạn chế: xoá bớt đơn bị che cũ khỏi DB → số nhà các đơn sau lùi lại (đã nói với Thuận); đơn tách khỏi nhóm sau khi đã gửi hãng sẽ tính lại theo đơn neo mới (vận đơn đã tạo giữ địa chỉ cũ ở GHN); số nhà từ `47/13` trở đi chưa gọi GHN thử (47/10–47/12 đã ✅ với Gia Định, xem trên) — lệch thì BE tự gửi lại không số nhà; FE chưa điền sẵn 4 ô — `FE_UPDATE_CHECKLIST.md` mục 1 (bản 4.0 — mọi việc FE cũ đã thu gọn thành ✅ theo xác nhận của Thuận 28/10).
 
-## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
+## 🔎 Nhật ký 28/10/2026 (tối) — Rà luồng đơn gộp từ đồng bộ tới giao hàng, sửa G2/G3/G4/G7 (AOFP-207 → 211)
+
+**[stated] Thuận yêu cầu:** thêm 2 việc FE cho màn lấy hàng đơn gộp (chia khay theo đơn; lấy chung nhóm liên kết cho Warehouse Staff), rà toàn bộ luồng đơn gộp tới phần ship xem BE/FE còn thiếu gì, cập nhật tài liệu kỹ.
+
+**Cách rà:** đọc code BE `feature/thuan_be` (964080c+) và FE `main` theo 12 bước (đồng bộ, tách/gộp, giữ chỗ, lấy hàng, lấy chung, thiếu hàng, kế hoạch, đóng gói, vận đơn, nhãn, giao/hoàn, hủy, trả). Kết quả ghi ở `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9** (bảng từng bước + bảng hủy theo giai đoạn + bảng giới hạn G1–G6); việc FE ở `FE_UPDATE_CHECKLIST.md` dòng 4–5, mục 3.
+
+**Phát hiện chính (BE)** — 🔄 ĐÃ THAY ĐỔI cùng tối: Thuận chốt G1, duyệt sửa G2/G3/G4 và thêm G7 (bảng đầy đủ: guide Nghiệp vụ 9.4):
+- **G1 — gộp đơn không gộp kiện:** `PlanParcel.order_id` bắt buộc, `PACKING_MOVE_ACROSS_ORDERS`, GHN 1 kiện = 1 vận đơn. **[stated] Thuận chốt: đúng thiết kế — mỗi đơn 1 vận đơn dù cùng người nhận, để trả hàng theo đúng đơn.** Gộp đơn chỉ tiết kiệm lượt lấy hàng, không tiết kiệm phí ship; tình huống 5 của tài liệu nghiên cứu phí ship (Claude Doc) đã sửa ghi chú theo quyết định này.
+- **G2 (đã sửa, AOFP-207):** trước đây `aggregateCarrierStatus` + `enqueueStatusPush` theo `shipmentId` báo AURELLE 1 trạng thái cho cả nhóm. Giờ `applyCarrierEvent` tính trạng thái của riêng đơn có kiện (`carrierStatusOfOrder`, `orderWritebackChange` trong `shipments.service.ts`), đổi thì xếp outbox có `order_id` + `shipment_id`; `writeEvent` bỏ push gộp khi do hãng báo (`skipWriteback`); `MarketplaceWritebackService.processShipmentOrder` gửi đúng đơn kèm mã GHN, đơn đổi hàng → `sendExchange`; dòng cả vận đơn bỏ qua đơn đã giao xong.
+- **G3 (đã sửa, AOFP-208):** `buildShippingLabels` gắn `parcels[].recipient` theo đơn của kiện; renderer dùng `parcel.recipient ?? data.recipient`.
+- **G4 (đã sửa, AOFP-209):** `isUnusablePhone` + tham số `orderRef` của `computeConsolidationKeyFor` (gọi từ `syncOrders` và `recomputeConsolidationKeys`) → SĐT bị che không dùng để tự gộp.
+- **G7 (mới, AOFP-210):** `quickPack` chặn nhóm ≥ 2 đơn (`reason: 'multi_order_group'`); response nhóm thêm `packScanRequired`. Thay cho G6 (không lưu khay ở BE — Thuận đồng ý).
+- G5 giữ nguyên (tách đơn chỉ trước khi quét).
+
+**FE:** đủ cho bước 1–3, 5, 7, 11–12; còn khay theo đơn (lấy hàng chỉ có dòng chữ), lấy chung nhóm liên kết chỉ ở màn Admin, điền sẵn địa chỉ (dòng 1 từ trước).
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* G2 `shipments.service.ts`, `carrier-status.util.ts`, `marketplace-writeback.service.ts`; G3 `documents.service.ts`, `pdf/document-renderers.ts`; G4 `consolidation-key.util.ts`, `orders.service.ts`, `order-sync-settings.service.ts`; G7 `packing-session.service.ts`, `order-groups.controller.ts`. Test mới/sửa: `shipments.service.carrier.spec.ts`, `marketplace-writeback.service.spec.ts`, `documents.service.labels.spec.ts`, `consolidation-key.util.spec.ts`, `packing-plan.service.spec.ts` (2 test đóng nhanh dùng nhóm 1 đơn + test G7).
+2. *DB/migration?* Không đổi schema. Outbox ghi thêm dòng có cả `order_id` và `shipment_id` (field đã có). Khoá gộp của đơn Lazada bị che đổi từ lần đồng bộ tiếp theo; nhóm đã gộp giữ nguyên.
+3. *API/FE?* Thêm field `packScanRequired` ở response nhóm; `pack` có thêm `409 … multi_order_group` → FE checklist dòng 6 (mục 3.3). G2/G3/G4 không đổi FE.
+4. *Rủi ro?* Nhóm ≥ 2 đơn không còn "đóng nhanh" được (cố ý). Dòng outbox gộp cũ đang chờ gửi (trước khi deploy) vẫn gửi theo cách cũ. AURELLE nhận nhiều lần gọi hơn (mỗi đơn 1 lần mỗi khi trạng thái đơn đó đổi).
+5. *Kiểm chứng?* `tsc --noEmit` 0 lỗi; eslint file đổi 0 lỗi (3 cảnh báo có sẵn); `jest` 123 suite / 1283 test đạt (7 skip có sẵn). Chưa chạy thử với GHN thật cho nhóm 2 đơn.
+
+Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Group" là thiết kế 29/09).
+
+ (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
 
@@ -4472,6 +4497,7 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 13. Toàn bộ test dùng model giả lập → thêm test e2e với MongoDB replica set thật cho lấy → đóng → giao → hoàn.
 14. (Chỉ khi vận hành nhiều kho) 1 nhóm đơn chỉ lấy ở 1 kho; thiếu thì phải chuyển hàng giữa kho tay → tự tạo phiếu chuyển kho.
 15. Bỏ nối 1 SKU sàn khỏi dòng giữ chỗ đã gộp từ 2 SKU sàn thì dòng đó không tách được (hiếm).
+15b. 🆕 28/10 — Đơn gộp (chi tiết `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 9.4) — 🔄 ĐÃ XỬ LÝ cùng tối: G1 chốt đúng thiết kế (mỗi đơn 1 vận đơn); ✅ G2 báo trạng thái giao theo từng đơn, ✅ G3 nhãn in người nhận từng kiện, ✅ G4 SĐT bị che không tự gộp, ✅ G7 nhóm ≥ 2 đơn bắt quét khi đóng. Còn lại: G5 (tách sau khi quét) — giữ nguyên, chấp nhận được.
 
 ### D. Hoãn có chủ đích
 16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. API tổng hợp cho Dashboard (FE còn khối số liệu giả).
@@ -4484,4 +4510,5 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 22c+. 28/10 — `FE_UPDATE_CHECKLIST.md` bản 4.0 thu gọn việc cũ thành ✅ (khối `<details>` ở phụ lục). 🔄 ĐÃ SỬA cùng ngày sau khi đối chiếu code FE trên `main`: 28/30 dòng đã nối thật; **chưa làm** 1g bước 3 — `Packing3DBoxViewer.tsx` chỉ vẽ cảnh mẫu cố định, không đọc `parcels[].placements` BE đã trả (checklist mục 2) — và mục tuỳ chọn (chi tiết Product Master, khối số liệu giả ở Dashboard).
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
+22e. 🆕 28/10 (tối): màn lấy hàng đơn gộp — chia khay theo đơn (checklist dòng 4, mục 3.1), lấy chung nhóm liên kết cho Warehouse Staff (dòng 5, mục 3.2); màn đóng gói khoá "Đóng nhanh" theo `packScanRequired` (dòng 6, mục 3.3).
 22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.

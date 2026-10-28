@@ -922,7 +922,8 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 | 🔄 GET | `/order-groups`, `/order-groups/:id`, … (mọi response nhóm đơn) | như cũ | Thêm `recipientNames[]`, `recipientNamesDiffer`, `hasMaskedRecipientName`, `splitFromGroupId`, `mergedIntoGroupId`, `consolidationClosed` |
 | 🔄 GET | `/order-groups/:id/picking-list`, `/warehouse/:warehouseId/picking-list/:groupId` | như cũ | Mỗi món thêm `order_allocations[] { order_id, platform_order_id, recipient_name, quantity }` ("chia theo đơn") |
 | 🔄 GET/POST | `/order-groups/:groupId/packing-plan/...` (mọi response kế hoạch) | như cũ | `orders[].recipientName`, `parcels[].recipientName` (ảnh chụp lúc tính kế hoạch; kế hoạch cũ → null) |
-| 🔄 POST | `/order-groups/:groupId/packing-plan/pack` ("đóng nhanh") | như cũ | Nhóm có ≥ 2 người nhận khác tên → `409 PACKING_SCAN_REQUIRED`, `details.reason = 'recipient_names_differ'` |
+| 🔄 POST | `/order-groups/:groupId/packing-plan/pack` ("đóng nhanh") | như cũ | Nhóm có ≥ 2 người nhận khác tên → `409 PACKING_SCAN_REQUIRED`, `details.reason = 'recipient_names_differ'`. 🔄 28/10/2026 (G7): nhóm còn **≥ 2 đơn** (kể cả cùng tên) → `409 PACKING_SCAN_REQUIRED`, `details: { reason: 'multi_order_group', orderCount }` |
+| 🔄 GET | `/order-groups`, `/order-groups/:id` | như cũ | 🆕 28/10/2026: thêm `packScanRequired` (nhóm ≥ 2 đơn hiệu lực hoặc khác tên → đóng gói phải quét từng món) |
 
 - **Mã lỗi mới:** `ORD_GROUP_REGROUP_NOT_ALLOWED` (409 sai trạng thái / chỉ còn 1 đơn / đơn đã hủy), `ORD_GROUP_REGROUP_HAS_PICKS` (409 đã quét), `ORD_GROUP_MERGE_SELF` (400), `ORD_GROUP_MERGE_SCOPE_MISMATCH` (409 khác sàn/shop), `ORD_GROUP_MERGE_RECIPIENT_MISMATCH` (409 SĐT khác nhau). Version cũ → `ORD_GROUP_STATE_CONFLICT`.
 - **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
