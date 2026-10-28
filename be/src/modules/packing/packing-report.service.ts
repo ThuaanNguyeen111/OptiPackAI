@@ -63,7 +63,10 @@ export class PackingReportService {
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
   ) {}
 
-  async summary(fromIso?: string, toIso?: string, staffId?: string): Promise<PackingReport> {
+  /**
+   * @param groupIds 28/10/2026 — chỉ tính các nhóm này (Bảng điều khiển lọc theo sàn). Không truyền = mọi nhóm.
+   */
+  async summary(fromIso?: string, toIso?: string, staffId?: string, groupIds?: readonly Types.ObjectId[]): Promise<PackingReport> {
     const to = toIso ? new Date(toIso) : new Date();
     const from = fromIso ? new Date(fromIso) : new Date(to.getTime() - 30 * 24 * 60 * MINUTE);
     if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
@@ -81,6 +84,7 @@ export class PackingReportService {
       }
       filter.packed_by = new Types.ObjectId(staffId);
     }
+    if (groupIds) filter.order_group_id = { $in: groupIds };
     const plans = await this.planModel
       .find(filter)
       .select('orders parcels adjustments approved_at packing_started_at packed_at packed_by pack_mode')
@@ -147,6 +151,7 @@ export class PackingReportService {
     // Sự cố đếm theo THỜI ĐIỂM BÁO trên mọi kế hoạch — "trả về lấy hàng" làm kế
     // hoạch bị thay (superseded) nên không nằm trong các kế hoạch packed ở trên.
     const issueFilter: Record<string, unknown> = { 'issues.at': { $gte: from, $lt: to } };
+    if (groupIds) issueFilter.order_group_id = { $in: groupIds };
     const issuePlans = await this.planModel.find(issueFilter).select('issues').lean();
     for (const plan of issuePlans) {
       for (const i of plan.issues) {
