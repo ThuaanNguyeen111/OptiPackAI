@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master. Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -13,10 +13,11 @@
 |---|---|---|---|---|
 | 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
 | 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ☐ Chưa làm (code 3D của Việt/Thi) |
-| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm); khối doanh thu / tài chính / nhân viên ở Bảng điều khiển vẫn đọc `data/dashboard-mock.ts` (BE chưa có API) | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
+| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm). 🔄 28/10: phần Bảng điều khiển chuyển sang dòng 7 | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
 | 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ☐ Chưa làm |
 | 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ☐ Chưa làm |
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
+| 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -135,6 +136,38 @@ Việc FE (`PackagingWorkbench.tsx`):
 **Nghiệm thu:** nhóm 1 đơn → "Đóng nhanh" bấm được; nhóm 2 đơn cùng tên → nút khoá, ghi chú "Nhóm gộp 2 đơn…"; gọi thẳng API → 409 `multi_order_group`.
 
 **Không cần đổi FE cho G2, G3, G4:** trạng thái giao theo từng đơn là việc BE gửi AURELLE; nhãn PDF do BE in; khoá gộp tính lúc đồng bộ.
+
+---
+
+## 4. 🆕 28/10/2026 (khuya) — Bảng điều khiển dùng số thật (dòng 7)
+
+**Hiện trạng (`DashboardPage.tsx` trên `main`):** chỉ 4 số là thật (chi phí đóng gói 30 ngày, tiết kiệm bao bì, nhóm đã đóng, % tái sử dụng). Còn lại là số giả: doanh thu hôm nay/tuần (`OWNER_FINANCE_SUMMARY`), doanh thu theo nền tảng có **Shopee, TikTok Shop** (hệ thống không tích hợp 2 sàn này), bảng nhân viên tên giả, 4 cột "Luồng đơn" mã đơn giả, "4m 32s / -12%", "94.7% / SLA 92%" viết cứng trong JSX.
+
+**Việc FE:** xoá `fe/src/data/dashboard-mock.ts` và mọi số viết cứng; khối nào chưa có số thì **ẩn hoặc ghi "Chưa có dữ liệu"**, không hiện số mẫu. Thư viện biểu đồ, bố cục, màu, kiểu thẻ — **FE tự chọn**. Bảng dưới chỉ là gợi ý cách hiển thị thường gặp ở hệ thống vận hành doanh nghiệp.
+
+**API:** `GET /dashboard/summary?from=<ISO>&to=<ISO>&platform=<lazada|aurelle>` (Store Owner, Admin) → `{ summary }`. Mặc định 30 ngày gần nhất; tối đa 366 ngày; sai → 400 `DASH_INVALID_DATE_RANGE` / `DASH_INVALID_PLATFORM`. Gợi ý bộ lọc trên đầu trang: Hôm nay / 7 ngày / 30 ngày / Tuỳ chọn + chọn sàn. "Hôm nay" theo giờ Việt Nam: `from` = 00:00 hôm nay (UTC+7) đổi sang ISO.
+
+| Khối trong response | Field chính | Ý nghĩa | Gợi ý hiển thị (FE tự quyết) |
+|---|---|---|---|
+| `range` | `from`, `to`, `previousFrom`, `previousTo`, `platform`, `generatedAt` | Kỳ đang xem và kỳ so sánh | Dòng nhỏ "So với 30 ngày trước", giờ cập nhật |
+| `actionQueue` | `expressDueSoon`, `expressOverdue`, `awaitingPick`, `picking`, `partialNeedsReview`, `stockShortageGroups`, `plansAwaitingApproval`, `plansAwaitingPacking`, `plansWithHeldParcels`, `readyToShip`, `shipmentsInFlight`, `deliveryFailed`, `returningToWarehouse`, `carrierBookingErrors`, `ordersAwaitingCancelConfirm`, `returnsToReview`, `returnsToReceive`, `returnsToInspect`, `marketplaceWritebackFailed` | Số việc đang chờ **ngay lúc gọi** (không theo `from/to`, có theo `platform`) | Hàng thẻ số đặt **trên cùng**, thay cho 4 cột kanban giả; thẻ đỏ: `expressOverdue`, `deliveryFailed`, `carrierBookingErrors`, `marketplaceWritebackFailed`; vàng: `expressDueSoon`, `partialNeedsReview`, `plansWithHeldParcels`, `stockShortageGroups`; số 0 làm mờ. Bấm thẻ → mở màn danh sách đã lọc tương ứng |
+| `sales.current` / `sales.previous` | `ordersReceived`, `ordersCanceled`, `revenuePlacedVnd`, `ordersDelivered`, `revenueDeliveredVnd`, `avgOrderValueVnd`, `cancelRate` | Doanh thu **đặt hàng** (đơn nhận trong kỳ, trừ hủy) và doanh thu **đã giao** (đơn có vận đơn giao xong trong kỳ) | Thẻ số lớn + mũi tên % từ `sales.change` (`null` = kỳ trước bằng 0 → không hiện %). Ghi rõ nhãn "Đặt hàng" và "Đã giao" để không nhầm |
+| `sales.byPlatform[]` | `platform`, `ordersReceived`, `ordersCanceled`, `revenuePlacedVnd`, `ordersDelivered`, `revenueDeliveredVnd` | Chỉ các sàn có đơn trong kỳ | Bảng hoặc cột ngang theo sàn |
+| `sales.daily[]` | `date` (YYYY-MM-DD giờ VN), `ordersReceived`, `revenuePlacedVnd`, `ordersDelivered`, `revenueDeliveredVnd` | Đủ mọi ngày trong kỳ, ngày không có đơn = 0 | Biểu đồ đường / cột theo ngày (2 đường: đặt hàng, đã giao) |
+| `delivery` | `shipmentsCreated`, `shipmentsDelivered`, `firstAttemptSuccessRate`, `avgDeliveryHours`, `returnedToWarehouse` | Vận đơn tạo / giao xong trong kỳ; tỷ lệ giao được ngay lần 1; giờ trung bình từ tạo vận đơn → giao xong | Thẻ số; tỷ lệ dạng % hoặc vòng tròn |
+| `costs` | `shippingCostVnd`, `ordersShipped`, `shippingCostPerOrderVnd`, `packagingCostVnd`, `ordersPacked`, `packagingCostPerOrderVnd`, `fulfillmentCostRate` | Phí ship (phí thật từng kiện GHN, không có thì báo giá lúc tạo vận đơn) + bao bì; tỷ lệ (ship + bao bì) / doanh thu đặt hàng | Thẻ số + cột chồng ship / bao bì; giữ thẻ "Tiết kiệm bao bì" từ `/packaging-materials/savings` |
+| `returns` | `customerRequests`, `byType[] { type, count }`, `returnRate` | Phiếu khách yêu cầu trong kỳ (`return_refund`, `refund_only`, `exchange`); tỷ lệ ≈ phiếu / đơn đã giao | Thẻ số + chia theo loại |
+| `express` | `total`, `onTime`, `late`, `pending`, `onTimeRate` | Đơn hỏa tốc có hạn đóng gói trong kỳ: đóng xong trước hạn = đúng hạn; quá hạn chưa đóng / đóng sau hạn = trễ | Thẻ "Hỏa tốc đúng hạn x%" (thay "94.7% / SLA 92%" giả) |
+| `warehouse` | `shortageSkus[] { sku, shortage, groups }`, `shortageSkuCount`, `outOfStockSkus[]`, `outOfStockSkuCount`, `materialsBelowReorder[] { code, name, kind, usable, reorderLevel }` | SKU thiếu so với đơn chờ lấy (top 10); SKU có vị trí kệ nhưng tồn = 0 (top 10); thùng/vật tư dùng được ≤ mức đặt lại | Danh sách ngắn có link sang màn kho / vật tư |
+
+**Không có trong `/dashboard/summary` — dùng API có sẵn:**
+
+- Hiệu suất đóng gói + **theo nhân viên đóng gói** (thay bảng nhân viên giả): `GET /packing/reports/summary?from&to` → `avgWaitMinutes`, `avgPackMinutes`, `heldRate`, `approvedIntactRate`, `scanRate`, `byStaff[]`.
+- AI đóng gói (nhân viên làm khác gợi ý): `GET /packing/reports/feedback`.
+- Tiết kiệm bao bì: `GET /packaging-materials/savings` (đang dùng).
+- **Chưa có số thật, BE chưa làm** (ẩn đi, đừng hiện số mẫu): thời gian lấy hàng trung bình ("4m 32s"), hiệu suất nhân viên kho và điều phối. Muốn có thì báo BE.
+
+**Nghiệm thu:** không còn chữ Shopee/TikTok và không còn số viết cứng trên Bảng điều khiển; đổi bộ lọc 7 ngày ↔ 30 ngày thì số đổi theo; lọc `platform=aurelle` chỉ còn đơn AURELLE; tạo 1 đơn AURELLE mới → `ordersReceived` tăng 1, `actionQueue.awaitingPick` tăng khi nhóm vào hàng chờ lấy; Packaging/Warehouse Staff gọi API → 403.
 
 ---
 
