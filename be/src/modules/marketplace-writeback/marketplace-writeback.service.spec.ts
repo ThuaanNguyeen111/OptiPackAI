@@ -41,7 +41,7 @@ function makeRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 function build(options: {
   rows: Record<string, unknown>[];
   orders?: { platform_order_id: string; shop_id: string }[];
-  shipment?: { tracking_code: string | null; trip_code: string | null } | null;
+  shipment?: { tracking_code: string | null; trip_code: string | null; shipper_name?: string; shipper_phone?: string } | null;
   updateOrderStatus?: jest.Mock<Promise<void>, [string, Record<string, unknown>]>;
   rma?: Record<string, unknown> | null;
   single?: Record<string, unknown> | null;
@@ -94,6 +94,16 @@ describe('MarketplaceWritebackService.processPending', () => {
       idempotencyKey: 'grp:g1:packed:3:720000001',
     });
     expect(outboxUpdate.mock.calls.at(-1)?.[1]).toMatchObject({ $set: { state: 'sent' } });
+  });
+
+  it('hỏa tốc (shop tự giao): gửi kèm tên + SĐT shipper cho website', async () => {
+    const { service, updateOrderStatus } = build({
+      rows: [makeRow({ status: 'shipped', shipment_id: new Types.ObjectId() })],
+      orders: [{ platform_order_id: '720000001', shop_id: 'S1' }],
+      shipment: { tracking_code: 'SHP-H', trip_code: null, shipper_name: 'Cường', shipper_phone: '0901000111' },
+    });
+    await service.processPending();
+    expect(updateOrderStatus.mock.calls[0]?.[1]).toMatchObject({ shipperName: 'Cường', shipperPhone: '0901000111' });
   });
 
   it('nhóm không còn đơn AURELLE hiệu lực thì bỏ qua, không gọi sàn', async () => {

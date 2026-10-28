@@ -188,6 +188,20 @@ export class Shipment {
   @Prop({ type: Date, default: null })
   cancelled_at?: Date | null;
 
+  /**
+   * 29/10/2026 — shipper của shop (hỏa tốc tự giao): 1 tài khoản Shipping Coordinator. Có giá trị thì
+   * chỉ CHÍNH người này (hoặc Admin) bấm Giao thành công / Thất bại / Giao lại. Tên + SĐT là ảnh chụp
+   * lúc giao việc, gửi sang AURELLE để khách liên hệ.
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null })
+  shipper_id?: Types.ObjectId | null;
+
+  @Prop({ type: String, default: null })
+  shipper_name?: string | null;
+
+  @Prop({ type: String, default: null })
+  shipper_phone?: string | null;
+
   created_at?: Date;
   updated_at?: Date;
 }

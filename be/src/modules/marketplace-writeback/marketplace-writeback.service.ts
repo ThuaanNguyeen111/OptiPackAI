@@ -30,6 +30,8 @@ interface ShipmentForWriteback {
   tracking_code?: string | null;
   trip_code?: string | null;
   carrier_name?: string | null;
+  shipper_name?: string | null;
+  shipper_phone?: string | null;
   carrier_parcels?: { order_id?: unknown; carrier_order_code?: string | null; carrier_status?: string | null }[] | null;
 }
 
@@ -178,7 +180,7 @@ export class MarketplaceWritebackService {
     const shipment = row.shipment_id
       ? await this.shipmentModel
         .findById(row.shipment_id)
-        .select('tracking_code trip_code carrier_name carrier_kind carrier_parcels carrier_booking_error')
+        .select('tracking_code trip_code carrier_name carrier_kind carrier_parcels carrier_booking_error shipper_name shipper_phone')
         .lean()
       : null;
     // 21/10/2026 — vận đơn qua hãng thật (GHN) được đặt NGOÀI transaction, ngay sau dòng
@@ -210,6 +212,9 @@ export class MarketplaceWritebackService {
         trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
         tripCode: shipment?.trip_code ?? undefined,
         carrier: shipment?.carrier_name ?? undefined,
+        // 29/10/2026 — hỏa tốc (shop tự giao): shipper cho khách liên hệ.
+        shipperName: shipment?.shipper_name ?? undefined,
+        shipperPhone: shipment?.shipper_phone ?? undefined,
         reason: row.status === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
         idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
       });
@@ -277,7 +282,7 @@ export class MarketplaceWritebackService {
     }
     const shipment = await this.shipmentModel
       .findById(row.shipment_id)
-      .select('tracking_code trip_code carrier_name carrier_kind carrier_parcels carrier_booking_error')
+      .select('tracking_code trip_code carrier_name carrier_kind carrier_parcels carrier_booking_error shipper_name shipper_phone')
       .lean();
     if (order.origin === 'replacement') {
       const sent = await this.sendExchange(row, adapter, tokens, shipment, order);
@@ -296,6 +301,8 @@ export class MarketplaceWritebackService {
       trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
       tripCode: shipment?.trip_code ?? undefined,
       carrier: shipment?.carrier_name ?? undefined,
+      shipperName: shipment?.shipper_name ?? undefined,
+      shipperPhone: shipment?.shipper_phone ?? undefined,
       reason: row.status === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
       idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
     });

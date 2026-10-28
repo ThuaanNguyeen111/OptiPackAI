@@ -1,3 +1,4 @@
+import { User, UserSchema } from '../users/schemas/user.schema';
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { OrderGroup, OrderGroupSchema } from '../order-groups/schemas/order-group.schema';
 import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/product-master.schema';
@@ -43,6 +44,7 @@ import { ActivityLog, ActivityLogSchema } from '../activity-log/schemas/activity
       { name: CarrierWebhookEvent.name, schema: CarrierWebhookEventSchema }, // C5 — chống xử lý trùng sự kiện hãng
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
       { name: ActivityLog.name, schema: ActivityLogSchema }, // 23/10/2026 — sổ hoạt động (lịch sử phiếu trả hàng)
+      { name: User.name, schema: UserSchema }, // 29/10/2026 — shipper của shop (hỏa tốc tự giao), chỉ đọc
     ]),
     OrderGroupsModule,
     WarehouseModule, // G3 — nhập lại hàng trả qua sổ cái (restockReturnedItem)

@@ -24,4 +24,9 @@ export const SHIPMENT_ERROR_CODES = {
   CARRIER_STATUS_INVALID: 'SHP_CARRIER_STATUS_INVALID', // trạng thái mô phỏng không hợp lệ
   TO_LOCATION_LOCKED: 'SHP_TO_LOCATION_LOCKED', // mọi kiện đã có mã hãng — không sửa địa chỉ được nữa
   WEBHOOK_UNAUTHORIZED: 'SHP_WEBHOOK_UNAUTHORIZED', // webhook hãng sai khoá bí mật / sai shop
+  // 29/10/2026 — giao hỏa tốc (AURELLE): shop tự giao bằng 1 shipper (tài khoản Shipping Coordinator)
+  EXPRESS_SELF_DELIVERY_REQUIRED: 'SHP_EXPRESS_SELF_DELIVERY_REQUIRED', // 409 nhóm hỏa tốc không đi hãng / không giao chung chuyến — dùng POST /shipments + shipper_id
+  SHIPPER_REQUIRED: 'SHP_SHIPPER_REQUIRED', // 400 nhóm hỏa tốc phải chọn shipper
+  SHIPPER_INVALID: 'SHP_SHIPPER_INVALID', // 422 shipper không phải Shipping Coordinator đang làm việc
+  NOT_ASSIGNED_SHIPPER: 'SHP_NOT_ASSIGNED_SHIPPER', // 403 vận đơn đã giao cho shipper khác — chỉ shipper đó hoặc Admin bấm
 } as const;
