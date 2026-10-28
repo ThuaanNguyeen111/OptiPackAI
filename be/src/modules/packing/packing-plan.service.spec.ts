@@ -1263,7 +1263,18 @@ describe('PackingPlanService', () => {
       });
     });
 
+    // 28/10/2026 (G7) — nhóm gộp ≥ 2 đơn (cùng tên) cũng phải quét từng món: mỗi đơn 1 vận đơn riêng.
+    it('G7: nhóm gộp 2 đơn cùng tên → "đóng nhanh" bị chặn (reason multi_order_group)', async () => {
+      const plan = await approvedPlan();
+      const weights = plan.parcels.map((p) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no) }));
+      await expect(session.quickPack(groupId, { parcels: weights, expected_version: plan.version }, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.SCAN_REQUIRED,
+        details: { reason: 'multi_order_group', orderCount: 2 },
+      });
+    });
+
     it('lối tắt pack: ghi quét "bypass", kiện lệch vẫn bị giữ; cài đặt bắt buộc quét thì chặn', async () => {
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'DEMO-1', items: [tee(2), jean(1), shoebox(2)] }]; // G7: nhóm 1 đơn
       const plan = await approvedPlan();
       const weights = plan.parcels.map((p, i) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no, i === 0 ? 2 : 1) }));
       settings = { ...settings, requireScan: true };
@@ -1295,6 +1306,7 @@ describe('PackingPlanService', () => {
 
     // (21/10/2026) Nhân viên chọn nguồn thùng.
     it('gợi ý thùng tái sử dụng mà chọn thùng mới: thiếu lý do → 400; có lý do → trừ hàng mới, ghi lý do vào kiện + sổ', async () => {
+      allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'DEMO-1', items: [tee(2), jean(1), shoebox(2)] }]; // G7: nhóm 1 đơn
       const plan = await approvedPlan();
       const weights = plan.parcels.map((p) => ({ parcel_no: p.parcel_no, weight_kg: weightOf(plan, p.parcel_no) }));
       const first = weights[0];

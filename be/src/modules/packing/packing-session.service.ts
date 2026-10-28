@@ -420,15 +420,24 @@ export class PackingSessionService {
     }
     // 23/10/2026 — nhóm gộp nhiều người nhận khác tên: bắt quét từng món vào đúng kiện
     // (quick pack ghi "bypass" cho mọi món → không có gì chứng minh món đúng người).
-    const names = summarizeRecipientNames(
-      plan.orders.filter((o) => o.status !== 'canceled').map((o) => o.recipient_name ?? null),
-    );
+    const liveOrders = plan.orders.filter((o) => o.status !== 'canceled');
+    const names = summarizeRecipientNames(liveOrders.map((o) => o.recipient_name ?? null));
     if (names.differ) {
       throw new AppException(
         PACKING_ERROR_CODES.SCAN_REQUIRED,
         `Nhóm đơn gộp ${String(names.names.length)} người nhận khác tên (${names.names.join(', ')}) — phải quét từng món vào đúng kiện rồi niêm phong, không dùng "đóng nhanh".`,
         HttpStatus.CONFLICT,
         { groupId, reason: 'recipient_names_differ', recipientNames: names.names },
+      );
+    }
+    // 28/10/2026 (G7) — nhóm gộp ≥ 2 đơn (kể cả cùng tên): mỗi đơn là 1 vận đơn riêng, món bỏ
+    // nhầm sang kiện của đơn kia thì khi khách trả hàng sẽ lệch sổ → cũng phải quét từng món.
+    if (liveOrders.length >= 2) {
+      throw new AppException(
+        PACKING_ERROR_CODES.SCAN_REQUIRED,
+        `Nhóm đơn gộp ${String(liveOrders.length)} đơn — mỗi đơn một vận đơn riêng, phải quét từng món vào đúng kiện của đơn đó rồi niêm phong, không dùng "đóng nhanh".`,
+        HttpStatus.CONFLICT,
+        { groupId, reason: 'multi_order_group', orderCount: liveOrders.length },
       );
     }
     const pending = this.data(plan).parcels.filter((p) => p.status === 'pending');
