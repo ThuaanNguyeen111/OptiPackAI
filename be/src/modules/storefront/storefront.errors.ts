@@ -20,6 +20,8 @@ export const SF_ERROR_CODES = {
   RETURN_OPEN_EXISTS: 'SF_RETURN_OPEN_EXISTS', // 409 đơn đang có yêu cầu trả hàng chưa xử lý xong
   RETURN_NOT_CANCELLABLE: 'SF_RETURN_NOT_CANCELLABLE', // 21/10/2026 — 409 cửa hàng đã xử lý yêu cầu, không tự hủy được nữa
   EXCHANGE_INVALID: 'SF_EXCHANGE_INVALID', // 21/10/2026 — 400 hàng đổi sang không hợp lệ (thiếu / khác sản phẩm / lệch số lượng)
+  EXPRESS_UNAVAILABLE: 'SF_EXPRESS_UNAVAILABLE', // 29/10/2026 — 400 chọn giao hỏa tốc nhưng phường ngoài danh sách / ngoài 8:00–14:00 thứ 2–7
+  EXPRESS_WARDS_INVALID: 'SF_EXPRESS_WARDS_INVALID', // 29/10/2026 — 400 Admin lưu danh sách phường hỏa tốc rỗng / sai
   EMAIL_IN_USE: 'SF_EMAIL_IN_USE', // 409
   INVALID_CREDENTIALS: 'SF_INVALID_CREDENTIALS', // 401
   ACCOUNT_INACTIVE: 'SF_ACCOUNT_INACTIVE', // 401

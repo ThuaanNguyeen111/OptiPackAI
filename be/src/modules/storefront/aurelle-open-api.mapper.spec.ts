@@ -130,3 +130,14 @@ describe('chữ ký webhook website → OptiPack', () => {
     expect(adapter.verifyWebhookSignature(Buffer.from(body + ' ', 'utf8'), signature)).toBe(false);
   });
 });
+
+describe('toOpenApiOrder — giao hỏa tốc (29/10/2026)', () => {
+  it('đơn hỏa tốc gửi kèm delivery_option + promised_delivery_time; đơn cũ = standard', () => {
+    const promised = new Date('2026-10-29T05:00:00.000Z');
+    const express = toOpenApiOrder({ ...ORDER, delivery_option: 'express', promised_delivery_at: promised }, 1);
+    expect(express).toMatchObject({ delivery_option: 'express', promised_delivery_time: '2026-10-29T05:00:00.000Z' });
+    const legacy = toOpenApiOrder(ORDER, 1);
+    expect(legacy.delivery_option).toBe('standard');
+    expect(legacy.promised_delivery_time).toBeUndefined();
+  });
+});

@@ -216,6 +216,14 @@ export class StorefrontOrder {
   @Prop({ type: CustomerAddressSnapshotSchema, required: true }) shipping_address_snapshot!: CustomerAddressSnapshot;
   @Prop({ default: '' }) customer_note!: string;
   @Prop({ type: Date, default: null }) placed_at!: Date | null;
+  /**
+   * 29/10/2026 — cách giao khách chọn lúc đặt: `standard` (GHN, 30.000đ) | `express` (shop tự giao
+   * trong 3 giờ, 45.000đ; chỉ phường trong danh sách + 8:00–14:00 thứ 2–7 — express-delivery.policy.ts).
+   * Đơn cũ không có field = standard.
+   */
+  @Prop({ type: String, enum: ['standard', 'express'], default: 'standard' }) delivery_option!: 'standard' | 'express';
+  /** 29/10/2026 — hỏa tốc: hẹn giao trước mốc này (giờ đặt + 3 giờ). Giao thường = null. */
+  @Prop({ type: Date, default: null }) promised_delivery_at!: Date | null;
   @Prop({ type: SchemaTypes.ObjectId, ref: 'Order', default: null }) canonical_order_id!: Types.ObjectId | null;
   @Prop({ type: String, enum: ['pending', 'synced', 'failed'], default: 'pending', index: true }) canonical_sync_status!: 'pending' | 'synced' | 'failed';
   @Prop({ type: String, default: null }) canonical_sync_error!: string | null;
@@ -235,6 +243,21 @@ StorefrontOrderSchema.index(
 );
 // Phục vụ Open API GetOrders (update_after) — mock aurelle-mock-server.ts
 StorefrontOrderSchema.index({ updated_at: 1 });
+
+/**
+ * 29/10/2026 — Cấu hình website do Admin AURELLE chỉnh (1 document / khóa). Hiện có:
+ * `_id = 'express_delivery'` → `express_wards` (phường được giao hỏa tốc). Chưa có document →
+ * dùng danh sách mặc định `DEFAULT_EXPRESS_WARDS`.
+ */
+@Schema({ collection: 'storefront_settings', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
+export class StorefrontSetting {
+  @Prop({ type: String, required: true }) _id!: string;
+  @Prop({ type: [String], default: undefined }) express_wards?: string[];
+  created_at?: Date;
+  updated_at?: Date;
+}
+export type StorefrontSettingDocument = HydratedDocument<StorefrontSetting>;
+export const StorefrontSettingSchema = SchemaFactory.createForClass(StorefrontSetting);
 
 /** Bộ đếm tăng dần (atomic $inc) — hiện chỉ dùng cấp public_order_id. */
 @Schema({ collection: 'storefront_counters', versionKey: false })
@@ -291,6 +314,9 @@ export class StorefrontShipment {
   @Prop({ default: '' }) carrier!: string;
   @Prop({ default: '' }) tracking_number!: string;
   @Prop({ type: String, default: null }) trip_code!: string | null; // 20/10/2026 — mã chuyến giao chung
+  /** 29/10/2026 — hỏa tốc (shop tự giao): shipper OptiPack báo về để khách gọi khi cần. */
+  @Prop({ type: String, default: null }) shipper_name!: string | null;
+  @Prop({ type: String, default: null }) shipper_phone!: string | null;
   @Prop({ type: String, enum: ['pending', 'picked_up', 'in_transit', 'delivered', 'returned'], default: 'pending' }) status!: string;
   @Prop({ type: CustomerAddressSnapshotSchema, required: true }) recipient_snapshot!: CustomerAddressSnapshot;
   @Prop({ type: Date, default: null }) shipped_at!: Date | null;

@@ -336,6 +336,9 @@ app.post('/rest/order/status/update', async (req: Request, res: Response) => {
       trackingCode: typeof body.tracking_code === 'string' ? body.tracking_code : null,
       tripCode: typeof body.trip_code === 'string' ? body.trip_code : null,
       carrier: typeof body.carrier === 'string' ? body.carrier : null,
+      // 29/10/2026 — hỏa tốc: shipper của shop
+      shipperName: typeof body.shipper_name === 'string' ? body.shipper_name : null,
+      shipperPhone: typeof body.shipper_phone === 'string' ? body.shipper_phone : null,
       reason: typeof body.reason === 'string' ? body.reason : null,
       idempotencyKey,
       items: parseShippedItems(body.items),

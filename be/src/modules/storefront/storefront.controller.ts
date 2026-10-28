@@ -1,10 +1,11 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CatalogService } from './catalog.service';
 import { StorefrontOrdersService } from './storefront-orders.service';
-import { AddCartItemDto, CancelOrderDto, CheckoutDto, CreateStorefrontReturnDto, SyncCartDto } from './dto/storefront.dto';
+import { AddCartItemDto, CancelOrderDto, CheckoutDto, CreateStorefrontReturnDto, DeliveryOptionsQueryDto, SyncCartDto } from './dto/storefront.dto';
+import { StorefrontExpressService } from './storefront-express.service';
 import { StorefrontReturnsService } from './storefront-returns.service';
 import { CustomerJwtGuard } from './customer-jwt.guard';
 import { StorefrontCartService } from './storefront-cart.service';
@@ -19,6 +20,7 @@ export class StorefrontController {
     private readonly cart: StorefrontCartService,
     private readonly returns: StorefrontReturnsService,
     private readonly configService: ConfigService,
+    private readonly express: StorefrontExpressService,
   ) {}
   @Get('settings') settings() {
     return {
@@ -26,6 +28,8 @@ export class StorefrontController {
     };
   }
   @Get('categories') categories() { return this.catalog.categories(); }
+  /** 29/10/2026 — các cách giao (tiêu chuẩn / hỏa tốc) + phí cho địa chỉ và giá trị giỏ; hỏa tốc kèm lý do nếu không chọn được. */
+  @Get('delivery-options') deliveryOptions(@Query() query: DeliveryOptionsQueryDto) { return this.express.options(query); }
   @Get('products') products() { return this.catalog.list(); }
   @Get('products/:slug') product(@Param('slug') slug: string) { return this.catalog.findBySlug(slug); }
   @Get('cart') @UseGuards(CustomerJwtGuard) getCart(@Req() req: CustomerRequest) { return this.cart.get(req.user.customerId); }
