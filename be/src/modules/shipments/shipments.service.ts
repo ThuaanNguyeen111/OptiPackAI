@@ -13,7 +13,7 @@ import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxDocument,
 } from '../marketplace-writeback/schemas/status-outbox.schema';
-import { enqueueStatusPush, writebackStatusForShipment } from '../marketplace-writeback/status-outbox.util';
+import { type AurelleWritebackStatus, enqueueStatusPush, writebackStatusForShipment } from '../marketplace-writeback/status-outbox.util';
 import { ShipmentEventType } from './enums/shipment-event-type.enum';
 import { DeliveryFailureReason } from './enums/delivery-failure-reason.enum';
 import { MAX_DELIVERY_ATTEMPTS, isValidShipmentTransition } from './shipment-transitions';
@@ -36,10 +36,35 @@ import {
   SIMULATABLE_GHN_STATUSES,
   aggregateCarrierStatus,
   canCarrierMove,
+  carrierStatusOfOrder,
   mapGhnFailureReason,
 } from './carrier-status.util';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 28/10/2026 (G2) — Kiện `orderCode` vừa đổi sang `newStatus`: trạng thái báo sàn của ĐƠN có kiện
+ * đó có đổi không? Chỉ xét các kiện của chính đơn đó; không cho lùi (đã giao rồi mà sự kiện cũ
+ * "đang giao" tới muộn thì bỏ qua — cùng luật `canCarrierMove` của vận đơn). Trả null nếu không đổi.
+ */
+export function orderWritebackChange(
+  parcels: readonly CarrierParcel[],
+  orderCode: string,
+  newStatus: string,
+): { orderId: Types.ObjectId; status: AurelleWritebackStatus } | null {
+  const hit = parcels.find((p) => p.carrier_order_code === orderCode);
+  if (!hit) return null;
+  const orderId = String(hit.order_id);
+  const before = carrierStatusOfOrder(parcels, orderId) ?? ShipmentStatus.AWAITING_PICKUP;
+  const after = carrierStatusOfOrder(
+    parcels.map((p) => ({ order_id: p.order_id, carrier_status: p.carrier_order_code === orderCode ? newStatus : p.carrier_status })),
+    orderId,
+  );
+  if (!after || after === before || !canCarrierMove(before, after)) return null;
+  const status = writebackStatusForShipment(after);
+  if (!status || status === writebackStatusForShipment(before)) return null;
+  return { orderId: hit.order_id, status };
+}
 
 /** Hãng/dịch vụ chọn khi tạo vận đơn (gộp thi_dev 04/10/2026). */
 export interface CarrierChoice {
@@ -602,7 +627,7 @@ export class ShipmentsService {
     from: ShipmentStatus | null,
     step: TransitionStep,
     session: ClientSession,
-    meta: { source?: string | null; carrierStatus?: string | null } = {},
+    meta: { source?: string | null; carrierStatus?: string | null; skipWriteback?: boolean } = {},
   ): Promise<void> {
     await this.eventModel.create([{
       ...(meta.source ? { source: meta.source } : {}),
@@ -621,7 +646,9 @@ export class ShipmentsService {
     }], { session });
 
     // 20/10/2026 — báo sàn (AURELLE) cùng transaction: shipped/delivered/failed_delivery/...
-    const writebackStatus = writebackStatusForShipment(step.to);
+    // 28/10/2026 (G2) — sự kiện hãng của vận đơn có kiện theo đơn: báo sàn theo TỪNG đơn
+    // (applyCarrierEvent → enqueueOrderPush), không báo trạng thái gộp của cả vận đơn.
+    const writebackStatus = meta.skipWriteback ? null : writebackStatusForShipment(step.to);
     if (writebackStatus) {
       await enqueueStatusPush(
         this.statusOutboxModel,
@@ -1365,10 +1392,21 @@ export class ShipmentsService {
       const from = shipment.status;
       const extraSet: Record<string, unknown> = { carrier_status: status };
       if (status === 'returned') extraSet.carrier_returned_at = at;
+      // 28/10/2026 (G2) — trạng thái báo sàn của RIÊNG đơn có kiện này (null = đơn đó không đổi).
+      const orderPush = orderWritebackChange(shipment.carrier_parcels ?? [], orderCode, status);
+      const pushReason = reasonCode ?? reasonText;
 
       if (!target || !canCarrierMove(from, target)) {
         // Không đổi trạng thái vận đơn (đến lệch thứ tự / trùng / đã kết thúc) — vẫn lưu trạng thái kiện.
-        await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters });
+        if (!orderPush) {
+          await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters });
+        } else {
+          // Vận đơn giữ nguyên nhưng đơn của kiện này đã đổi (VD kiện A giao xong, kiện B còn chạy) → báo sàn cho đơn A.
+          await this.runInTransaction(async (session) => {
+            await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters, session });
+            await this.enqueueOrderPush(shipment, orderPush, at, pushReason, session);
+          });
+        }
         return { result: `recorded:${from}${target ? `->${target}(bỏ qua)` : ''}`, shipmentId: shipment._id };
       }
 
@@ -1394,7 +1432,8 @@ export class ShipmentsService {
           actor,
           reasonCode,
           note: `${doc.carrier_name ?? 'Hãng'}: ${label} (mã ${orderCode}, ${sourceLabel})${reasonText ? ` — ${reasonText}` : ''}`,
-        }, session, { source, carrierStatus: status });
+        }, session, { source, carrierStatus: status, skipWriteback: true });
+        if (orderPush) await this.enqueueOrderPush(doc, orderPush, at, pushReason, session);
         await this.moveGroupForCarrier(doc, target, session);
         return doc;
       });
@@ -1416,6 +1455,34 @@ export class ShipmentsService {
       return { result: `applied:${from}->${target}`, shipmentId: updated._id };
     }
     throw new AppException(SHIPMENT_ERROR_CODES.STATE_CONFLICT, `Vận đơn có mã hãng ${orderCode} đổi liên tục — thử lại sau.`, HttpStatus.CONFLICT);
+  }
+
+  /**
+   * 28/10/2026 (G2) — Xếp hàng báo sàn trạng thái giao của RIÊNG 1 đơn (cùng transaction với
+   * việc lưu trạng thái kiện). Khóa gồm thời điểm sự kiện: mỗi lần đơn đổi trạng thái thật là 1
+   * dòng riêng (giao lại sau thất bại vẫn báo được), sự kiện hãng gửi lại không tạo dòng mới vì
+   * `orderWritebackChange` chỉ trả kết quả khi trạng thái của đơn thật sự đổi.
+   */
+  private async enqueueOrderPush(
+    shipment: ShipmentDocument,
+    push: { orderId: Types.ObjectId; status: AurelleWritebackStatus },
+    at: Date,
+    reason: string | null,
+    session: ClientSession,
+  ): Promise<void> {
+    await enqueueStatusPush(
+      this.statusOutboxModel,
+      {
+        orderGroupId: shipment.order_group_id,
+        shipmentId: shipment._id,
+        orderId: push.orderId,
+        status: push.status,
+        reason,
+        eventTime: at,
+        discriminator: `${String(shipment.booking_round ?? 1)}.${String(at.getTime())}`,
+      },
+      session,
+    );
   }
 
   /**

@@ -13,6 +13,8 @@ import {
 import { OrderStatus } from '../orders/enums/order-status.enum';
 import { ReturnType } from '../shipments/enums/return.enums';
 import { isExchangeShipmentStatus } from '../storefront/aurelle-return-api';
+import { carrierStatusOfOrder } from '../shipments/carrier-status.util';
+import { ShipmentStatus } from '../shipments/enums/shipment-status.enum';
 import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxDocument,
@@ -23,6 +25,14 @@ import {
  * mỗi kiện có mã hãng riêng (`carrier_parcels`); ưu tiên kiện của chính đơn đó, rồi
  * mọi kiện có mã, cuối cùng mới tới mã vận đơn chung (`tracking_code`, có thể là mã nội bộ).
  */
+/** Phần vận đơn mà bước ghi ngược đọc (mã vận đơn từng kiện, tên hãng, mã chuyến). */
+interface ShipmentForWriteback {
+  tracking_code?: string | null;
+  trip_code?: string | null;
+  carrier_name?: string | null;
+  carrier_parcels?: { order_id?: unknown; carrier_order_code?: string | null; carrier_status?: string | null }[] | null;
+}
+
 export function trackingCodeForOrder(
   shipment: {
     tracking_code?: string | null;
@@ -131,6 +141,8 @@ export class MarketplaceWritebackService {
       return 'skipped';
     }
 
+    // 28/10/2026 (G2) — trạng thái giao của RIÊNG 1 đơn (sự kiện hãng theo kiện của đơn đó).
+    if (row.order_id && row.shipment_id) return this.processShipmentOrder(row, adapter, tokens);
     if (row.order_id) return this.processSingleOrder(row, adapter, tokens);
     // Chỉ đơn AURELLE còn hiệu lực — đơn đã hủy không cần báo "đã đóng gói/giao".
     const orders = await this.orderModel
@@ -181,7 +193,15 @@ export class MarketplaceWritebackService {
       throw new Error('Đang chờ mã vận đơn của hãng vận chuyển.');
     }
 
+    // 28/10/2026 (G2) — vận đơn hãng có kiện theo đơn: đơn mà các kiện của nó đã giao xong
+    // không nhận trạng thái gộp khác "đã giao" (VD kho quét nhận hàng hoàn của kiện đơn B
+    // thì đơn A đã giao không bị báo "đã hoàn").
+    const deliveredAlready = (orderId: unknown): boolean =>
+      row.status !== 'delivered'
+      && (shipment?.carrier_parcels?.length ?? 0) > 0
+      && carrierStatusOfOrder(shipment?.carrier_parcels ?? [], String(orderId)) === ShipmentStatus.DELIVERED;
     for (const order of orders) {
+      if (deliveredAlready(order._id)) continue;
       const token = await this.tokenFor(order.shop_id, tokens);
       await adapter.updateOrderStatus(token, {
         orderId: order.platform_order_id,
@@ -196,28 +216,89 @@ export class MarketplaceWritebackService {
     }
     let exchangeSent = 0;
     for (const order of replacements) {
-      if (!exchangeStatus || !adapter.updateExchangeShipment || !order.source_return_id) continue;
-      const rma = await this.returnModel
-        .findById(order.source_return_id)
-        .select('source external_ref type shop_id')
-        .lean();
-      if (rma?.source !== 'marketplace' || !rma.external_ref || rma.type !== ReturnType.EXCHANGE) continue;
-      const token = await this.tokenFor(rma.shop_id, tokens);
-      await adapter.updateExchangeShipment(token, {
-        returnId: rma.external_ref,
-        status: exchangeStatus,
-        eventTime: row.event_time,
-        carrier: shipment?.carrier_name ?? undefined,
-        trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
-        reason: exchangeStatus === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
-        idempotencyKey: `${row.idempotency_key}:exchange:${rma.external_ref}`,
-      });
-      exchangeSent += 1;
+      if (deliveredAlready(order._id)) continue;
+      if (await this.sendExchange(row, adapter, tokens, shipment, order)) exchangeSent += 1;
     }
     if (orders.length === 0 && exchangeSent === 0) {
       await this.markDone(row, 'skipped', 'Đơn thay thế không gắn yêu cầu đổi hàng của khách trên sàn.');
       return 'skipped';
     }
+    await this.markDone(row, 'sent', null);
+    return 'sent';
+  }
+
+  /**
+   * Báo hành trình giao hàng ĐỔI (đơn thay thế EXC-…) về đúng yêu cầu đổi hàng khách gửi trên sàn.
+   * Trả false khi không có gì để báo (trạng thái không thuộc từ vựng đổi hàng / phiếu không phải của sàn).
+   */
+  private async sendExchange(
+    row: MarketplaceStatusOutboxDocument,
+    adapter: MarketplaceAdapter,
+    tokens: Map<string, string>,
+    shipment: ShipmentForWriteback | null,
+    order: { _id: unknown; source_return_id?: unknown },
+  ): Promise<boolean> {
+    const exchangeStatus = isExchangeShipmentStatus(row.status) ? row.status : null;
+    if (!exchangeStatus || !adapter.updateExchangeShipment || !order.source_return_id) return false;
+    const rma = await this.returnModel
+      .findById(order.source_return_id)
+      .select('source external_ref type shop_id')
+      .lean();
+    if (rma?.source !== 'marketplace' || !rma.external_ref || rma.type !== ReturnType.EXCHANGE) return false;
+    const token = await this.tokenFor(rma.shop_id, tokens);
+    await adapter.updateExchangeShipment(token, {
+      returnId: rma.external_ref,
+      status: exchangeStatus,
+      eventTime: row.event_time,
+      carrier: shipment?.carrier_name ?? undefined,
+      trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
+      reason: exchangeStatus === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
+      idempotencyKey: `${row.idempotency_key}:exchange:${rma.external_ref}`,
+    });
+    return true;
+  }
+
+  /**
+   * 28/10/2026 (G2) — Trạng thái giao của RIÊNG 1 đơn trong vận đơn hãng (mỗi đơn 1 vận đơn hãng):
+   * gửi kèm mã vận đơn của đúng đơn đó. Đơn thay thế (đổi hàng) báo về yêu cầu đổi hàng.
+   */
+  private async processShipmentOrder(
+    row: MarketplaceStatusOutboxDocument,
+    adapter: MarketplaceAdapter,
+    tokens: Map<string, string>,
+  ): Promise<'sent' | 'skipped'> {
+    const order = await this.orderModel
+      .findOne({ _id: row.order_id, platform: MarketplacePlatform.AURELLE, status: { $ne: OrderStatus.CANCELED } })
+      .select('_id platform_order_id shop_id origin source_return_id')
+      .lean();
+    if (!order) {
+      await this.markDone(row, 'skipped', 'Không phải đơn AURELLE còn hiệu lực để báo ngược.');
+      return 'skipped';
+    }
+    const shipment = await this.shipmentModel
+      .findById(row.shipment_id)
+      .select('tracking_code trip_code carrier_name carrier_kind carrier_parcels carrier_booking_error')
+      .lean();
+    if (order.origin === 'replacement') {
+      const sent = await this.sendExchange(row, adapter, tokens, shipment, order);
+      await this.markDone(row, sent ? 'sent' : 'skipped', sent ? null : 'Đơn thay thế không có yêu cầu đổi hàng của sàn để báo.');
+      return sent ? 'sent' : 'skipped';
+    }
+    if (!adapter.updateOrderStatus) {
+      await this.markDone(row, 'skipped', 'Adapter AURELLE chưa hỗ trợ updateOrderStatus.');
+      return 'skipped';
+    }
+    const token = await this.tokenFor(order.shop_id, tokens);
+    await adapter.updateOrderStatus(token, {
+      orderId: order.platform_order_id,
+      status: row.status,
+      eventTime: row.event_time,
+      trackingCode: shipment ? trackingCodeForOrder(shipment, order._id) : undefined,
+      tripCode: shipment?.trip_code ?? undefined,
+      carrier: shipment?.carrier_name ?? undefined,
+      reason: row.status === 'failed_delivery' ? (row.reason ?? 'Giao không thành công') : undefined,
+      idempotencyKey: `${row.idempotency_key}:${order.platform_order_id}`,
+    });
     await this.markDone(row, 'sent', null);
     return 'sent';
   }
