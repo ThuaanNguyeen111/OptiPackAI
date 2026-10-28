@@ -1,6 +1,8 @@
 import {
   computeConsolidationKey,
+  computeConsolidationKeyFor,
   computeRecipientKey,
+  isUnusablePhone,
   normalizePhoneNumber,
 } from './consolidation-key.util';
 
@@ -134,5 +136,41 @@ describe('computeRecipientKey (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.
         'da nang',
       ),
     );
+  });
+});
+
+//!=============================================
+// G4 (28/10/2026) — SĐT bị sàn che không được dùng để tự gom đơn.
+//!=============================================
+describe('G4 — SĐT bị che (Lazada "8**5")', () => {
+  const fields = ['phone', 'address_line1', 'city'];
+  const recipient = (phone: string): { phone: string; address_line1: string; city: string } => ({ phone, address_line1: '12 Lê Lợi', city: 'Hồ Chí Minh' });
+
+  it('isUnusablePhone: có dấu * hoặc ít hơn 9 chữ số', () => {
+    expect(isUnusablePhone('8**5')).toBe(true);
+    expect(isUnusablePhone('84*******85')).toBe(true);
+    expect(isUnusablePhone('085')).toBe(true);
+    expect(isUnusablePhone('')).toBe(true);
+    expect(isUnusablePhone('0901234567')).toBe(false);
+    expect(isUnusablePhone('+84 901 234 567')).toBe(false);
+  });
+
+  it('2 khách khác nhau cùng bị che "8**5", cùng địa chỉ → khoá KHÁC nhau (không gom nhầm)', () => {
+    const a = computeConsolidationKeyFor('lazada', recipient('8**5'), fields, 'S1:1001');
+    const b = computeConsolidationKeyFor('lazada', recipient('8**5'), fields, 'S1:1002');
+    expect(a).not.toBe(b);
+  });
+
+  it('SĐT đầy đủ → vẫn gom như cũ, mã đơn không ảnh hưởng khoá', () => {
+    const a = computeConsolidationKeyFor('aurelle', recipient('0901234567'), fields, 'S1:1001');
+    const b = computeConsolidationKeyFor('aurelle', recipient('0901234567'), fields, 'S1:1002');
+    expect(a).toBe(b);
+    expect(a).toBe(computeConsolidationKeyFor('aurelle', recipient('0901234567'), fields));
+  });
+
+  it('không gom theo SĐT (Admin chọn chỉ địa chỉ) → SĐT bị che không ảnh hưởng', () => {
+    const a = computeConsolidationKeyFor('lazada', recipient('8**5'), ['address_line1', 'city'], 'S1:1001');
+    const b = computeConsolidationKeyFor('lazada', recipient('8**5'), ['address_line1', 'city'], 'S1:1002');
+    expect(a).toBe(b);
   });
 });

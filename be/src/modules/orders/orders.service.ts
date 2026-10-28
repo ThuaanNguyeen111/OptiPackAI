@@ -183,7 +183,13 @@ export class OrdersService {
         const rawItems = await adapter.getOrderItems(accessToken, rawOrder.order_id);
         const mapped = mapLazadaOrder(rawOrder, rawItems, platform);
         // 15/10/2026 — khoá gom theo trường Admin chọn (mặc định trùng công thức cũ).
-        mapped.consolidation_key = computeConsolidationKeyFor(platform, mapped.recipient, policy.consolidation.keyFields);
+        // 28/10/2026 (G4) — SĐT bị sàn che (VD "8**5") → không tự gom (khoá riêng của đơn).
+        mapped.consolidation_key = computeConsolidationKeyFor(
+          platform,
+          mapped.recipient,
+          policy.consolidation.keyFields,
+          `${shopId}:${mapped.platform_order_id}`,
+        );
 
         // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
         // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không

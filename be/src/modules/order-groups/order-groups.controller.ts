@@ -76,6 +76,12 @@ export interface OrderGroupResponse {
   recipientNames: string[];
   recipientNamesDiffer: boolean;
   hasMaskedRecipientName: boolean;
+  /**
+   * 28/10/2026 (G7) — đóng gói nhóm này BẮT BUỘC quét từng món vào đúng kiện ("đóng nhanh" bị
+   * chặn): nhóm còn ≥ 2 đơn hiệu lực (mỗi đơn 1 vận đơn riêng — món sai kiện = sai đơn khi trả
+   * hàng) hoặc khác tên người nhận. Chưa gồm cài đặt `require_scan` chung của kho.
+   */
+  packScanRequired: boolean;
   /** 23/10/2026 — tách/gộp tay: nhóm sinh ra từ nhóm nào / đã gộp vào nhóm nào. */
   splitFromGroupId: string | null;
   mergedIntoGroupId: string | null;
@@ -144,6 +150,7 @@ export function toResponse(
     recipientNames: counts.recipientNames ?? [],
     recipientNamesDiffer: counts.recipientNamesDiffer === true,
     hasMaskedRecipientName: counts.hasMaskedRecipientName === true,
+    packScanRequired: counts.activeOrderCount >= 2 || counts.recipientNamesDiffer === true,
     splitFromGroupId: group.split_from_group_id?.toString() ?? null,
     mergedIntoGroupId: group.merged_into_group_id?.toString() ?? null,
     consolidationClosed: group.consolidation_closed === true,

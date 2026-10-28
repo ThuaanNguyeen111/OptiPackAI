@@ -511,6 +511,8 @@ Mỗi thông báo có `related_entity_type`/`related_entity_id` (snake_case) —
 
 ### Bối cảnh xảy ra
 
+> 🔄 **28/10/2026:** câu "1 đơn = 1 Order Group" bên dưới là thiết kế 29/09. Hiện nay đơn **cùng sàn** cùng người nhận được **gộp vào 1 Order Group** (`consolidation_key`, có tách/gộp tay); mỗi đơn vẫn có **kiện riêng** khi đóng gói. Liên kết ở mục này dùng cho nhóm **khác sàn** hoặc dữ liệu bị che. Toàn bộ luồng đơn gộp: **Nghiệp vụ 9**.
+
 OptiPackAI giờ đồng bộ đơn từ **2 sàn** (Lazada + AURELLE, xem `INTEGRATION_GUIDE_ORDERS.md`). Vì mỗi đơn nguồn vẫn giữ phạm vi đóng gói RIÊNG (1 đơn = 1 Order Group, không tự gộp kiện — xem A.1/quyết định roadmap), một khách hàng THẬT mua ở cả 2 sàn cùng lúc sẽ có 2 Order Group HOÀN TOÀN tách biệt, dù cùng 1 người nhận/1 địa chỉ. Đây là 2 nhu cầu nghiệp vụ khác nhau nảy sinh từ đó:
 
 1. **Biết được** 2 group đó là cùng 1 người (để Shipping Coordinator chủ động cân nhắc giao chung 1 chuyến, tiết kiệm chi phí/thời gian) — nhưng KHÔNG được tự động gộp/ép giao chung (an toàn — có thể 2 đơn cần giao khác thời điểm).
@@ -571,6 +573,67 @@ Khi tự hủy, hệ thống đồng thời:
 **Nếu nhóm ĐÃ `packed`/`shipped`/`delivered`** khi đơn bị hủy muộn — hệ thống KHÔNG tự hủy (hàng đã đóng/giao vật lý, không thể "hủy ngầm") — trường hợp này cần xử lý qua luồng `return` thủ công (Nghiệp vụ 4) như bình thường.
 
 FE chỉ cần: (1) hiển thị đúng badge cho `fulfillmentStatus: "canceled"` (trạng thái cuối, không còn hành động nào gọi được — `getAllowedNextStatuses` trả `[]`), (2) xử lý đúng Notification `group_auto_canceled` trong chuông thông báo (Nghiệp vụ 6).
+
+---
+
+## Nghiệp vụ 9 — 🆕 Đơn gộp từ đầu đến cuối (rà soát code BE + FE ngày 28/10/2026)
+
+**Kết luận ngắn:** BE đã chạy đủ luồng đơn gộp từ đồng bộ → lấy hàng → đóng gói → giao → hủy/hoàn. **Gộp đơn là gộp lượt lấy hàng, không gộp kiện**: mỗi đơn có kiện và vận đơn GHN riêng — **đúng thiết kế, Thuận chốt 28/10/2026** (khách trả 1 đơn thì xử lý theo đúng vận đơn của đơn đó). Vì vậy gộp đơn **không** giảm phí ship. 🔄 Cùng ngày đã sửa G2, G3, G4 và thêm G7 (9.4); còn 3 việc FE (9.5).
+
+### 9.1 Hai cơ chế — đừng nhầm
+
+| | Gộp nhóm (`consolidation_key`) | Liên kết (`recipient_key` / liên kết tay) |
+|---|---|---|
+| Phạm vi | Đơn **cùng sàn, cùng shop** | Nhóm **khác sàn**, hoặc cùng sàn mà hệ thống không tự nhận ra (dữ liệu bị che) |
+| Khoá | `sha256(sàn | SĐT | address_line1 | city)` — trường do Admin chọn ở cấu hình đồng bộ (mặc định SĐT, địa chỉ, phường/thành phố; tuỳ chọn thêm tên); có cửa sổ thời gian | `sha256(tên | SĐT | địa chỉ | tỉnh)` không kèm sàn; hoặc `POST /order-groups/:id/link` |
+| Kết quả | Nhiều đơn trong **1 Order Group**: 1 giữ chỗ, 1 nhân viên, 1 lượt lấy | Các nhóm **riêng** nhưng hiện "Đi cùng", lấy chung được, giao chung chuyến (`POST /shipments/batch`) |
+| Sửa tay | Tách `POST /:id/orders/:orderId/split`, gộp `POST /:id/merge` (chỉ khi **chưa quét món nào**, bắt buộc lý do) | Bỏ liên kết `DELETE /:id/link` |
+
+Đơn đến muộn chỉ vào nhóm **chưa bắt đầu quét**; nhóm đã quét thì đơn mới tạo nhóm mới; nếu cùng tên + SĐT + địa chỉ (`recipient_key`) thì 2 nhóm tự hiện **liên kết** ("Đi cùng"), không thì liên kết tay. Cùng khoá mà khác tên người nhận → vẫn gộp, `recipientNamesDiffer = true`, gửi thông báo `consolidation_name_mismatch`.
+
+### 9.2 Từng bước — BE làm gì, màn nào dùng
+
+| Bước | BE | Màn FE (`main` 28/10) | Tình trạng |
+|---|---|---|---|
+| 1. Đồng bộ + gộp | `tryConsolidate` → `getOrCreateGroupForOrder` ngay trong lượt sync; `orders[]`, `recipientNamesDiffer`, `linkedGroupCount`, `manualLink` trong response nhóm | `OrderGroupsPage.tsx`: chip "Gộp N người nhận", danh sách đơn + người nhận | ✅ |
+| 2. Tách / gộp / liên kết | 3 route trên + sổ hoạt động `order_group.split`, `order_group.merged` | `GroupOpsPanel.tsx` (tách, gộp, liên kết thay thế khi bị từ chối) | ✅ |
+| 3. Giữ chỗ + phân công | Giữ chỗ theo **tổng số đặt của mọi đơn** trong nhóm, thiếu → `stock_shortage`; tự giao người ít việc nhất | Màn kho / nhóm đơn | ✅ |
+| 4. Lấy hàng | Picking list gom theo SKU + `order_allocations`; quét theo SKU; đủ cả nhóm mới `pick` | `WarehousePage.tsx`: dòng chữ "Chia theo đơn" | 🟡 chưa có khay theo đơn (9.5) |
+| 4b. Lấy chung nhóm liên kết | `GET /warehouse/:warehouseId/picking-list?group_ids=` (Warehouse Staff, Admin) | Chỉ `AdminWarehousePage.tsx` | 🟡 Warehouse Staff chưa dùng được (9.5) |
+| 5. Thiếu hàng | `report-missing` → `partial_needs_review` → `decide-partial`; duyệt giao thiếu: phần thiếu trừ vào **đơn cũ nhất trước**, AURELLE nhận `short_shipped` | Màn lấy hàng + hộp "Giao phần có sẵn" ở đóng gói | ✅ |
+| 6. Kế hoạch đóng gói | Mỗi **đơn** N kiện (kiện không chứa món của đơn khác — `PACKING_MOVE_ACROSS_ORDERS`) | Màn đóng gói: tên người nhận trên từng kiện / tem kiện | ✅ (đúng thiết kế 12/09, xem G1) |
+| 7. Đóng gói | 🔄 28/10 (G7): nhóm **≥ 2 đơn** hoặc khác tên người nhận → bắt quét từng món (`409 PACKING_SCAN_REQUIRED`, `details.reason` = `multi_order_group` / `recipient_names_differ`); response nhóm có `packScanRequired` | Khoá "Đóng nhanh" đang theo `recipientNamesDiffer` | 🟡 FE đổi sang `packScanRequired` (checklist dòng 6) |
+| 8. Báo giá + tạo vận đơn | 1 Shipment / nhóm, **mỗi kiện 1 vận đơn GHN** (địa chỉ, SĐT từng đơn; đơn bị che dùng địa chỉ mô phỏng chung cho cả nhóm); giao chung chuyến nhiều nhóm bằng `/shipments/batch` (cùng `recipient_key`) | `ShippingPage.tsx`: tên người nhận từng kiện, "Giao chung chuyến (N)"; địa chỉ sửa áp mọi kiện | 🟡 chưa điền sẵn địa chỉ (checklist dòng 1) |
+| 9. Nhãn + chứng từ | Nhãn PDF 100×150 mỗi kiện 1 nhãn, mã GHN đúng kiện; 🔄 28/10 (G3) **người nhận in theo đơn của từng kiện** | Nút in | ✅ |
+| 10. Giao / thất bại / hoàn | Trạng thái Shipment vẫn gộp từ mọi kiện (để điều phối); 🔄 28/10 (G2) **báo AURELLE theo từng đơn** từ kiện của đơn đó | Màn giao hàng, trả hàng | ✅ (không đổi FE) |
+| 11. Hủy 1 đơn | Theo giai đoạn (9.3) | Thông báo + trạng thái nhóm | ✅ |
+| 12. Trả hàng | Phiếu trả **theo từng đơn** (mở 1 phiếu / đơn) | `ReturnsPage.tsx` | ✅ |
+
+### 9.3 Một đơn trong nhóm bị hủy (khách hủy trên sàn, webhook AURELLE, hoặc người bán hủy AURELLE)
+
+| Nhóm đang ở | Hệ thống tự làm |
+|---|---|
+| Chờ lấy / đang lấy, chưa quét | Tính lại giữ chỗ theo các đơn còn lại, bỏ kế hoạch đóng gói cũ |
+| Đã quét một phần / lấy xong, chưa đóng | **Trả hàng dư về kệ**, bỏ kế hoạch cũ, tính lại cho đơn còn lại |
+| Đang đóng / đã đóng | Kiện của đơn bị hủy → **"phải tháo"**, báo Packaging Staff tháo kiện, trả hàng, ghi tình trạng thùng; kiện đơn khác giữ nguyên |
+| Đã giao cho vận chuyển | Không hủy được — đi luồng hoàn hàng |
+| Mọi đơn đều hủy | Nhóm tự `canceled`, nhả giữ chỗ, báo Store Owner + Admin + người phụ trách |
+
+### 9.4 Các điểm đã rà — 🔄 cập nhật 28/10/2026 (tối)
+
+| # | Điểm | Quyết định / đã làm | Hành vi bây giờ |
+|---|---|---|---|
+| G1 | Không gộp kiện giữa các đơn của cùng nhóm (`PlanParcel.order_id` bắt buộc, `PACKING_MOVE_ACROSS_ORDERS`); mỗi kiện = 1 vận đơn GHN | ✅ **Đúng thiết kế — Thuận chốt 28/10:** mỗi đơn 1 vận đơn, dù cùng người nhận; trả hàng xử lý theo vận đơn của đúng đơn đó. Không làm "đóng chung 1 kiện" | Gộp đơn tiết kiệm **lượt lấy hàng**, không tiết kiệm phí ship — không trình bày "gộp đơn giảm phí ship" khi demo |
+| G2 | Báo AURELLE 1 trạng thái gộp cho cả nhóm | ✅ **Đã sửa (AOFP-207).** Sự kiện GHN của 1 kiện → tính trạng thái của **riêng đơn có kiện đó** (`carrierStatusOfOrder`, chỉ các kiện của đơn) → đổi thì xếp hàng báo sàn cho đúng đơn (outbox có `order_id` + `shipment_id`, khoá `ord:<orderId>:<status>:<lượt đặt>.<thời điểm>`). Không báo lùi (luật `canCarrierMove`). Trạng thái gộp của Shipment không còn gửi sàn khi do hãng báo. Dòng của cả vận đơn (VD kho quét nhận hàng hoàn → `returned`) **bỏ qua đơn mà các kiện đã giao xong** | Kiện A giao xong, kiện B còn chạy → website: A "đã giao", B "đang vận chuyển". Kiện B thất bại → chỉ B "giao thất bại". Mỗi đơn kèm mã GHN của chính nó |
+| G3 | Nhãn PDF in người nhận của đơn đầu cho mọi kiện | ✅ **Đã sửa (AOFP-208).** `ShippingLabelData.parcels[].recipient` = người nhận của đơn có kiện đó (đơn bị che vẫn in địa chỉ mô phỏng đã gửi hãng) | Nhóm cùng SĐT + địa chỉ, khác tên (Lan, Hùng) → nhãn kiện đơn B in "Hùng", khớp đơn GHN của kiện |
+| G4 | Khoá gộp dùng SĐT Lazada bị che (`8**5` → `085`) | ✅ **Đã sửa (AOFP-209).** `isUnusablePhone` (có `*` hoặc < 9 chữ số) → khi Admin gộp theo SĐT, khoá dùng `unusable-phone:<shop>:<mã đơn>` thay cho SĐT → đơn **không tự gộp**; vẫn liên kết tay được. Áp cả khi Admin đổi trường gộp (tính lại khoá) | Đơn Lazada bị che không còn tự vào chung nhóm với khách khác. Nhóm đã gộp từ trước giữ nguyên (tách tay nếu chưa quét). Chưa kiểm chứng Lazada che địa chỉ theo kiểu nào — nếu Admin bỏ SĐT khỏi trường gộp thì chỉ còn địa chỉ quyết định |
+| G5 | Tách / nhập đơn chỉ khi nhóm **chưa quét món nào** | Giữ nguyên — chấp nhận được | Sau khi quét đã trừ tồn và ghi lượt quét theo nhóm; gộp nhầm thường thấy trước khi đi lấy |
+| G6 | BE không ghi món nào vào khay đơn nào | Không làm — FE đếm tạm (checklist dòng 4); thay bằng G7 | Tải lại trang thì mất số đếm khay, tổng đã lấy vẫn ở BE |
+| G7 | 🆕 Nhóm ≥ 2 đơn **cùng tên** vẫn "đóng nhanh" được (chỉ khác tên mới bắt quét) → món có thể vào nhầm kiện đơn khác, trả hàng sẽ lệch | ✅ **Đã thêm (AOFP-210).** `quickPack` chặn khi nhóm còn ≥ 2 đơn: `409 PACKING_SCAN_REQUIRED`, `details: { reason: 'multi_order_group', orderCount }`. Response nhóm thêm `packScanRequired` (= ≥ 2 đơn hiệu lực **hoặc** khác tên) | Nhóm 1 đơn đóng nhanh như cũ; nhóm 2+ đơn phải quét từng món vào đúng kiện rồi niêm phong |
+
+### 9.5 Việc FE còn lại cho đơn gộp
+
+`FE_UPDATE_CHECKLIST.md` dòng 4 (chia khay theo đơn, mục 3.1), dòng 5 (lấy chung nhóm liên kết cho Warehouse Staff, mục 3.2), dòng 6 (khoá "Đóng nhanh" theo `packScanRequired`, mục 3.3), dòng 1 (điền sẵn địa chỉ ở màn Giao hàng). G2, G3, G4 không cần đổi FE.
 
 ---
 
