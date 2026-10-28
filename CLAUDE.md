@@ -1109,7 +1109,7 @@ Thêm `toResponse()` cho `PackagingRecommendationDocument` (4 route: `getCurrent
 - Field mới `OrderGroup`: `order_priority` ('normal'|'express'), `packaging_deadline`, `is_overdue` + index ESR phục vụ cron.
 - **`addBusinessHours()`** (module mới `order-groups/utils/`) — 8h-17h, TÍNH CẢ THỨ 7, KHÔNG tính Chủ Nhật (đã xác nhận với user). Xử lý đủ case biên: tạo đơn ngoài giờ hành chính (nhảy tới 8h ngày làm việc tiếp theo), tràn giờ trong ngày (cộng dồn sang hôm sau), tràn qua cuối tuần (bỏ qua Chủ Nhật). **8 test case cover đủ các case biên này.**
 - `PATCH /order-groups/:id/priority` (role `STORE_OWNER`, `ADMIN`) — đánh dấu tay, đúng kết luận đã xác minh 2 lần độc lập (Lazada không hỗ trợ tự động).
-- `ExpressOrderSlaScheduler` (cron 10 phút/lần) — quét đơn hỏa tốc sắp/đã quá hạn, gọi `NotificationsService` đúng "cổng thông báo chung" đã có (Nhóm 1: còn <1h → cảnh báo staff phụ trách; Nhóm 2: đã quá hạn → escalate Store Owner, tự đánh `is_overdue: true`, không cảnh báo lặp lại nhiều lần cho cùng 1 lần quá hạn).
+- `ExpressOrderSlaScheduler` (cron 10 phút/lần) — quét đơn hỏa tốc sắp/đã quá hạn, gọi `NotificationsService` đúng "cổng thông báo chung" đã có (Nhóm 1: còn <1h → cảnh báo staff phụ trách; Nhóm 2: đã quá hạn → escalate Store Owner, tự đánh `is_overdue: true`, không cảnh báo lặp lại nhiều lần cho cùng 1 lần quá hạn). 🔄 ĐÃ THAY ĐỔI 29/10/2026: chạy mỗi phút, 4 mốc (đóng gói + giao), mỗi mốc ghi `sla_*_at` riêng, chỉ xét nhóm chưa đóng / chưa giao xong (sửa lỗi nhóm đã xong vẫn báo "QUÁ HẠN") — xem nhật ký 29/10/2026 cuối file.
 
 ### 2 bug thật tự phát hiện + tự sửa khi verify — đều là bài học đã có sẵn trong CLAUDE.md, áp dụng lại đúng lúc
 
@@ -4490,6 +4490,25 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **Còn thiếu (chưa làm, cần thì báo):** thời gian lấy hàng trung bình, hiệu suất nhân viên kho / điều phối (chưa kiểm BE lưu đủ mốc thời gian).
 
+## 🚀 Nhật ký 29/10/2026 — Giao hỏa tốc AURELLE 3 giờ, shop tự giao (AOFP-214 → 219)
+
+**[stated] Thuận chốt:** website AURELLE có 2 cách giao — Tiêu chuẩn 30.000₫ (GHN) và Hỏa tốc 45.000₫; đơn từ 1 triệu miễn phí cả hai. Hỏa tốc chỉ khi phường thuộc danh sách (16 quận nội thành cũ + TP Thủ Đức + Thủ Dầu Một/Thuận An/Dĩ An, Admin AURELLE sửa được; bỏ phương án tính theo khoảng cách tới kho) và đặt 8:00–14:00 thứ 2 – thứ 7. Hẹn khách giao trước giờ đặt + 3 giờ; đóng gói xong trong 1 giờ, giao trong 2 giờ. Shop tự giao; shipper là 1 tài khoản Shipping Coordinator được chọn đích danh, chỉ người đó (hoặc Admin) bấm giao; tên + SĐT shipper gửi về website. Đơn hỏa tốc không gộp. Khách thấy giờ hẹn trên trang đơn + danh sách đơn; trễ thì hiện cảnh báo, không hoàn tiền. Cảnh báo cả 2 phía. Đơn Lazada hỏa tốc tay giữ nguyên. FE OptiPack ghi vào checklist; FE AURELLE sửa trực tiếp.
+
+**Nghiên cứu trước khi làm:** GHN chỉ nhận `service_type_id` 2 (Hàng nhẹ) và 5 (Hàng nặng), 1 và 3 bị từ chối; nội tỉnh giao trong ngày, không có gói 2–3 giờ (script `be/scripts/ghn-check-services.ts`, Thuận chạy trên Windows vì máy ảo/container không gọi được GHN) → hỏa tốc 3 giờ phải tự giao.
+
+**Đã làm:**
+- *AURELLE BE:* `express-delivery.policy.ts` (hàm thuần: vùng, giờ, phí, giờ hẹn, trễ), `express-delivery-wards.ts` (91 phường mặc định, sinh từ bảng chuyển đổi phường cũ → mới của `vietnam-divisions-js@3`), `StorefrontExpressService` + `StorefrontAdminExpressController` (`/storefront/admin/express/wards|orders`), `GET /storefront/delivery-options`, checkout nhận `delivery_option` + kiểm lại, đơn lưu `delivery_option`/`promised_delivery_at`, response `deliveryOption`/`promisedDeliveryAt`/`isLate`/`shipperName`/`shipperPhone`; Open API gửi `delivery_option`, `promised_delivery_time`; nhận `shipper_name`/`shipper_phone`. Collection mới `storefront_settings`.
+- *AURELLE FE (`storefront/`):* trang thanh toán chọn cách giao (khoá + lý do, tải lại mỗi phút), trang đơn "dự kiến giao trước HH:mm" + shipper + khung "Giao chậm hơn dự kiến", danh sách đơn nhãn "Hỏa tốc"/"Trễ", Admin website mục "Giao hỏa tốc" (chọn phường, bảng đơn có "Trễ").
+- *OptiPack:* đơn mang `delivery_option`/`promised_delivery_at`; đơn hỏa tốc có khoá gom riêng `sha256(platform|express|mã đơn)` (kể cả khi tính lại khoá); nhóm tự gắn `order_priority: express`, `requires_self_delivery`, `packaging_deadline` = hẹn − 2 giờ, `delivery_deadline`; chặn gộp (`ORD_GROUP_MERGE_EXPRESS`) và đổi ưu tiên tay (`ORD_GROUP_PRIORITY_LOCKED`); `GET /order-groups` trang 1 ghim nhóm hỏa tốc chưa xong lên đầu; `GET /shipments/shippers`; `POST /shipments` nhận `shipper_id`, nhóm hỏa tốc không qua hãng, không gộp chuyến; chỉ shipper được giao (hoặc Admin) bấm giao/thất bại/giao lại; writeback gửi tên + SĐT shipper; Bảng điều khiển `express` dùng hạn giao khi có.
+- *Sửa lỗi:* cron SLA trước đây không xét trạng thái nhóm nên nhóm đã đóng/giao xong vẫn bị báo "QUÁ HẠN" — giờ 4 mốc, mỗi mốc chỉ xét nhóm chưa xong bước đó, báo 1 lần.
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* BE `storefront` module (sửa + 5 file mới), `be/scripts/aurelle-mock-server.ts`, OptiPack `orders/`, `order-groups/`, `shipments/`, `marketplace-writeback/`, `marketplace-integration/` (Lazada-shape + AURELLE adapter), `dashboard.service.ts`, `objectid-fields.ts`; `storefront/` (Next). Không đụng `fe/`.
+2. *DB/migration?* Field mới đều có mặc định / null: `storefront_orders.delivery_option` (standard), `promised_delivery_at`; `storefront_shipments.shipper_name|phone`; `orders.delivery_option`, `promised_delivery_at`; `order_groups.requires_self_delivery`, `delivery_deadline`, `sla_*_at`; `shipments.shipper_id` (ObjectId, đã thêm vào danh sách `objectid-fields`), `shipper_name|phone`; collection `storefront_settings`. Không cần script chuyển đổi. Sau khi triển khai, nhóm hỏa tốc Lazada tay **đang quá hạn mà chưa đóng** có thể nhận lại 1 lần báo (mốc mới còn null).
+3. *API/FE?* API_LIST mục 27; FE OptiPack checklist dòng 8 (mục 5): nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper, 6 mã lỗi mới.
+4. *Rủi ro / mâu thuẫn quy tắc?* Chưa có vai trò "Shipper" riêng — dùng Shipping Coordinator (như đã ghi ở `shipments.controller.ts`). Giờ hẹn tính từ lúc **đặt trên website**; nếu Open API chậm đồng bộ thì OptiPack mất bớt thời gian. Giới hạn ghim 50 nhóm/trang 1. Bảo đảm "trong 3 giờ" là cam kết vận hành, hệ thống chỉ cảnh báo + hiện trễ, không tự đổi sang GHN.
+5. *Kiểm chứng?* `tsc` BE 0 lỗi; eslint các file đổi 0 lỗi (3 lỗi cũ có sẵn trong `aurelle-mock-server.ts` không do lần này); jest toàn bộ 130 suite / 1324 test đạt (thêm test chính sách hỏa tốc, checkout, gom nhóm + ghim, cron 4 mốc, shipper, writeback); `storefront` `tsc` + `next build` đạt. Chưa chạy thử đầu-cuối trên dữ liệu thật (cần BE 3000 + mock 4000 + storefront 3001, đặt trong 8:00–14:00).
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4528,4 +4547,5 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
 22e. 🆕 28/10 (tối): màn lấy hàng đơn gộp — chia khay theo đơn (checklist dòng 4, mục 3.1), lấy chung nhóm liên kết cho Warehouse Staff (dòng 5, mục 3.2); màn đóng gói khoá "Đóng nhanh" theo `packScanRequired` (dòng 6, mục 3.3).
+22f. 🆕 29/10: đơn hỏa tốc AURELLE trên FE OptiPack — nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper (`FE_UPDATE_CHECKLIST.md` dòng 8, mục 5), chưa làm. Chạy thử đầu-cuối 1 đơn hỏa tốc (A.4) trong 8:00–14:00.
 22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.

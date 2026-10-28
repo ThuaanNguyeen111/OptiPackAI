@@ -277,3 +277,13 @@ Hàm dùng chung: `be/src/modules/storefront/aurelle-return-api.ts` (`applyExcha
 | Đã nhận hàng | `delivered` |
 
 **Tác động:** không migration — đơn cũ không có `tracking_stage` thì suy từ `fulfillment_status` + mốc hành trình. Hàng đợi ghi ngược có thêm tối đa 3 dòng/đơn. Nhãn `shipped` trong hành trình đổi thành "Đã tạo vận đơn — chờ đơn vị vận chuyển lấy hàng" cho mốc mới (mốc cũ giữ nhãn đã lưu).
+
+## 14. Bổ sung 29/10/2026 — Giao hỏa tốc 3 giờ (shop tự giao)
+
+**Khách:** trang thanh toán có 2 lựa chọn lấy từ `GET /storefront/delivery-options` (tên tỉnh, tên phường, tạm tính): Giao tiêu chuẩn 30.000₫ (GHN) và Giao hỏa tốc 45.000₫ (shop giao trong 3 giờ); đơn từ 1 triệu miễn phí cả hai. Hỏa tốc bị khoá kèm lý do khi thiếu địa chỉ, phường ngoài danh sách, hoặc ngoài 8:00–14:00 thứ 2 – thứ 7 (giờ VN); trang tải lại lựa chọn mỗi phút. Checkout gửi `delivery_option`; BE kiểm lại, không đạt → 400 `SF_EXPRESS_UNAVAILABLE`.
+
+**Theo dõi đơn:** đơn hỏa tốc lưu `promised_delivery_at` = giờ đặt + 3 giờ. Trang chi tiết hiện "Giao hỏa tốc — dự kiến giao trước HH:mm", tên + SĐT người giao (OptiPack gửi `shipper_name`, `shipper_phone` cùng cập nhật trạng thái). Quá giờ hẹn mà chưa giao (hoặc giao sau giờ hẹn) → `isLate: true`: khung vàng "Giao chậm hơn dự kiến", danh sách đơn có nhãn "Trễ". Không hoàn tiền khi trễ.
+
+**Admin website:** mục "Giao hỏa tốc" dưới Danh mục — chọn phường TP.HCM được giao hỏa tốc (mặc định 91 phường: 16 quận nội thành cũ, TP Thủ Đức, Thủ Dầu Một, Thuận An, Dĩ An — suy từ bảng chuyển đổi phường cũ → mới của `vietnam-divisions-js@3`; Phường Bình Dương và Phường Phú An gồm cả phần ngoài vùng cũ), lưu/quay về mặc định, và bảng đơn hỏa tốc 7 ngày có nhãn "Trễ".
+
+**OptiPack:** mỗi đơn hỏa tốc thành 1 nhóm riêng, ghim đầu hàng chờ, đóng gói trước giờ đặt + 1 giờ, giao bởi 1 Shipping Coordinator được chọn làm shipper (không qua GHN). Chi tiết: `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 5, `API_LIST.md` mục 27.

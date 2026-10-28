@@ -425,13 +425,34 @@ PATCH /order-groups/:id/priority
    đơn giản kiểu "16h + 4h = 20h")
 ```
 
-### Cron cảnh báo — chạy ngầm, không cần FE gọi gì
+### 🆕 29/10/2026 — Hỏa tốc do khách AURELLE chọn (shop tự giao 3 giờ)
+
+Khác đơn Lazada đánh dấu tay ở trên (vẫn giữ nguyên): khách tự chọn "Giao hỏa tốc" trên website khi phường thuộc danh sách và đặt 8:00–14:00 thứ 2 – thứ 7.
+
 ```
-Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
-  - Còn DƯỚI 1 GIỜ tới hạn  → cảnh báo (severity: warning) TỚI ĐÚNG người đang phụ trách
-  - ĐÃ QUÁ HẠN               → escalate (severity: critical) TỚI Store Owner,
-                                tự đánh dấu is_overdue: true (chỉ báo 1 LẦN DUY NHẤT
-                                cho mỗi lần quá hạn, không spam lặp lại mỗi 10 phút)
+Khách đặt lúc T  →  website lưu promised_delivery_at = T + 3h, gửi sang OptiPack qua Open API
+OptiPack nhận đơn → 1 đơn = 1 nhóm (không gộp với đơn khác), tự gắn:
+    order_priority = express, requires_self_delivery = true,
+    packaging_deadline = T + 1h, delivery_deadline = T + 3h
+→ nhóm ghim đầu mọi hàng chờ (lấy, đóng, tạo vận đơn)
+→ đóng xong → Coordinator tạo vận đơn TỰ GIAO, chọn shipper (tài khoản Shipping Coordinator)
+    POST /shipments { order_group_id, shipper_id }   (không chọn hãng, không gộp chuyến)
+→ chỉ shipper đó (hoặc Admin) bấm giao thành công / thất bại / giao lại
+→ tên + SĐT shipper gửi về website cùng trạng thái giao
+```
+
+Vì sao tự giao: GHN chỉ nhận dịch vụ Hàng nhẹ (2) và Hàng nặng (5), nội tỉnh giao trong ngày, không có gói 2–3 giờ (kiểm 28–29/10 bằng `be/scripts/ghn-check-services.ts`).
+
+### Cron cảnh báo — 🔄 ĐÃ THAY ĐỔI 29/10/2026 (trước: 10 phút/lần, 2 mốc, không xét trạng thái nhóm → nhóm đã đóng/giao xong vẫn bị báo "QUÁ HẠN")
+```
+Mỗi PHÚT, mỗi mốc chỉ báo 1 lần (ghi mốc sla_*_at có điều kiện):
+  1. Sắp hết hạn đóng gói (hỏa tốc AURELLE: còn ≤ 15 phút; Lazada tay: còn ≤ 1 giờ),
+     nhóm CHƯA đóng xong          → nhân viên lấy hàng + người đóng gói (chưa giao ai → cả 2 vai trò)
+  2. Quá hạn đóng gói, chưa đóng   → Store Owner + Shipping Coordinator, is_overdue = true
+  3. Còn ≤ 15 phút tới giờ hẹn giao, chưa giao xong (chỉ nhóm có delivery_deadline)
+                                   → shipper của vận đơn + Shipping Coordinator
+  4. Quá giờ hẹn giao, chưa giao   → Store Owner + Admin + shipper, is_overdue = true
+Website tự hiện "Trễ" theo giờ hẹn đã lưu trên đơn — không cần OptiPack báo.
 ```
 
 ### DB liên quan — field trên `OrderGroup`
@@ -439,8 +460,13 @@ Mỗi 10 phút, hệ thống tự quét toàn bộ đơn "express":
 | Field | Kiểu | Ý nghĩa |
 |---|---|---|
 | `order_priority` | `'normal'\|'express'` | Loại đơn |
-| `packaging_deadline` | Date\|null | Hạn chót đóng gói — CHỈ có giá trị nếu `express` |
-| `is_overdue` | Boolean | Đã quá hạn chưa — dùng để tránh cảnh báo lặp lại |
+| `packaging_deadline` | Date\|null | Hạn chót đóng gói — CHỈ có giá trị nếu `express` (AURELLE: giờ đặt + 1 giờ) |
+| `is_overdue` | Boolean | Đã quá hạn (đóng gói hoặc giao) — 🔄 29/10 không còn dùng làm cờ "đã báo" |
+| 🆕 `requires_self_delivery` | Boolean | Hỏa tốc AURELLE: shop tự giao, bắt buộc chọn shipper, không gộp |
+| 🆕 `delivery_deadline` | Date\|null | Giờ hẹn giao khách (giờ đặt + 3 giờ) |
+| 🆕 `sla_pack_warned_at`, `sla_pack_breached_at`, `sla_delivery_warned_at`, `sla_delivery_breached_at` | Date\|null | Mốc đã báo — chống báo lặp. Đổi ưu tiên tay thì xoá về null |
+
+Trên vận đơn (`shipments`): 🆕 `shipper_id`, `shipper_name`, `shipper_phone`. Trên đơn (`orders`): 🆕 `delivery_option`, `promised_delivery_at`.
 
 ---
 
@@ -794,6 +820,8 @@ Luôn đọc `version` từ `GET /order-groups/:id` gần nhất trước khi g�
 | 🆕 `PACKING_PACKER_INVALID` / `PACKING_NO_PACKER_AVAILABLE` / `PACKING_INVALID_DATE_RANGE` | 422/409/400 | 05/10 — giao người đóng; báo cáo |
 | 🆕 `SHP_PARCELS_TO_UNPACK` / `ORD_GROUP_STAFF_WRONG_ROLE` | 409/422 | 05/10 — còn kiện phải tháo khi giao; gán tay lấy hàng cho người không phải Warehouse Staff |
 | 🆕 `PACKING_RECOVER_MATERIAL_INVALID` / `PKG_MATERIAL_NOT_REUSABLE` | 400/400 | 05/10 tối — thu hồi vật tư chèn không có trong kiện/vượt số; vật tư chưa bật `reusable` |
+
+🆕 29/10/2026 — `ORD_GROUP_MERGE_EXPRESS` (409, gộp nhóm hỏa tốc AURELLE), `ORD_GROUP_PRIORITY_LOCKED` (409, đổi ưu tiên nhóm hỏa tốc AURELLE), `SHP_SHIPPER_REQUIRED` (400), `SHP_EXPRESS_SELF_DELIVERY_REQUIRED` (409), `SHP_SHIPPER_INVALID` (422), `SHP_NOT_ASSIGNED_SHIPPER` (403).
 
 ## D.4. Checklist test bắt buộc cho FE — theo từng nghiệp vụ
 
