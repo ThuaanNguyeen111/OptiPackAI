@@ -31,6 +31,12 @@ export class StartShipmentDto {
   @ApiPropertyOptional({ type: () => ToLocationDto })
   @IsOptional() @ValidateNested() @Type(() => ToLocationDto)
   to_location?: ToLocationDto;
+
+  // 29/10/2026 — shipper của shop (GET /shipments/shippers). BẮT BUỘC với nhóm giao hỏa tốc
+  // (`requiresSelfDelivery`); nhóm thường tự giao thì tùy chọn.
+  @ApiPropertyOptional({ example: '66f0...', description: 'Shipping Coordinator đi giao (hỏa tốc: bắt buộc)' })
+  @IsOptional() @IsMongoId()
+  shipper_id?: string;
 }
 
 /** C4 (14/10/2026) — PATCH /shipments/:id/to-location. */

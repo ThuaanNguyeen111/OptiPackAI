@@ -138,7 +138,7 @@ export interface DashboardSummary {
     returnRate: number | null;
   };
   express: {
-    /** Đơn hỏa tốc có hạn đóng gói rơi vào kỳ. */
+    /** Đơn hỏa tốc có hạn rơi vào kỳ: hỏa tốc AURELLE theo hạn GIAO (giờ hẹn khách), đánh dấu tay theo hạn đóng gói. */
     total: number;
     onTime: number;
     late: number;
@@ -442,32 +442,52 @@ export class DashboardService {
 
   // ------------------------------------------------------------------ đơn hỏa tốc
 
+  /**
+   * 🔄 29/10/2026 — đơn hỏa tốc AURELLE (có `delivery_deadline` = giờ hẹn khách) tính đúng hạn theo
+   * GIỜ GIAO XONG (vận đơn `delivered_at`); đơn Lazada đánh dấu tay (không có hạn giao) vẫn tính
+   * theo giờ đóng gói xong so với hạn đóng gói. Kỳ xét = hạn (giao, hoặc đóng gói) rơi vào kỳ.
+   */
   private async express(range: DashboardRange, now: Date, platform: MarketplacePlatform | null): Promise<DashboardSummary['express']> {
+    const inRange = { $gte: range.from, $lt: range.to };
     const groups = await this.groupModel
-      .find({ ...(platform ? { platform } : {}), order_priority: 'express', packaging_deadline: { $gte: range.from, $lt: range.to } })
-      .select('_id packaging_deadline fulfillment_status')
-      .lean<{ _id: Types.ObjectId; packaging_deadline: Date; fulfillment_status: GroupFulfillmentStatus }[]>();
+      .find({
+        ...(platform ? { platform } : {}),
+        order_priority: 'express',
+        $or: [{ delivery_deadline: inRange }, { delivery_deadline: null, packaging_deadline: inRange }],
+      })
+      .select('_id packaging_deadline delivery_deadline fulfillment_status')
+      .lean<{ _id: Types.ObjectId; packaging_deadline: Date | null; delivery_deadline?: Date | null; fulfillment_status: GroupFulfillmentStatus }[]>();
     if (groups.length === 0) return { total: 0, onTime: 0, late: 0, pending: 0, onTimeRate: null };
-    const packed = await this.planModel
-      .find({ order_group_id: { $in: groups.map((g) => g._id) }, status: 'packed', packed_at: { $ne: null } })
-      .select('order_group_id packed_at')
-      .lean<{ order_group_id: Types.ObjectId; packed_at: Date }[]>();
+    const ids = groups.map((g) => g._id);
+    const [packed, delivered] = await Promise.all([
+      this.planModel
+        .find({ order_group_id: { $in: ids }, status: 'packed', packed_at: { $ne: null } })
+        .select('order_group_id packed_at')
+        .lean<{ order_group_id: Types.ObjectId; packed_at: Date }[]>(),
+      this.shipmentModel
+        .find({ order_group_id: { $in: ids }, status: ShipmentStatus.DELIVERED, delivered_at: { $ne: null } })
+        .select('order_group_id delivered_at')
+        .lean<{ order_group_id: Types.ObjectId; delivered_at: Date }[]>(),
+    ]);
     const packedAt = new Map<string, Date>();
     for (const p of packed) {
       const key = String(p.order_group_id);
       const prev = packedAt.get(key);
       if (!prev || p.packed_at < prev) packedAt.set(key, p.packed_at);
     }
+    const deliveredAt = new Map(delivered.map((d) => [String(d.order_group_id), d.delivered_at]));
     let onTime = 0;
     let late = 0;
     let pending = 0;
     for (const g of groups) {
       if (g.fulfillment_status === GroupFulfillmentStatus.CANCELED) continue;
-      const at = packedAt.get(String(g._id));
+      const deadline = g.delivery_deadline ?? g.packaging_deadline;
+      if (!deadline) continue;
+      const at = g.delivery_deadline ? deliveredAt.get(String(g._id)) : packedAt.get(String(g._id));
       if (at) {
-        if (at <= g.packaging_deadline) onTime += 1;
+        if (at <= deadline) onTime += 1;
         else late += 1;
-      } else if (g.packaging_deadline < now) late += 1;
+      } else if (deadline < now) late += 1;
       else pending += 1;
     }
     return { total: onTime + late + pending, onTime, late, pending, onTimeRate: ratio(onTime, onTime + late) };

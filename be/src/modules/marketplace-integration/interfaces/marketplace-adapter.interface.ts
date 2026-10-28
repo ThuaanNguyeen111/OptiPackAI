@@ -134,6 +134,8 @@ export interface MarketplaceAdapter {
       trackingCode?: string;
       tripCode?: string;
       carrier?: string; // (21/10/2026) tên hãng vận chuyển cho khách xem
+      shipperName?: string; // 29/10/2026 — hỏa tốc (shop tự giao)
+      shipperPhone?: string;
       reason?: string;
       idempotencyKey: string;
       /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU. */

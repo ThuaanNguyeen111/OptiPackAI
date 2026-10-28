@@ -131,6 +131,14 @@ export function computeConsolidationKeyFor(
 }
 
 /**
+ * 29/10/2026 — đơn GIAO HỎA TỐC luôn có nhóm riêng (Thuận chốt): khoá gộp duy nhất theo đơn nên
+ * không đơn nào tự gộp vào được (vẫn hiện liên kết "Đi cùng" qua recipient_key).
+ */
+export function expressConsolidationKey(platform: string, orderRef: string): string {
+  return createHash('sha256').update(`${platform}|express|${orderRef}`).digest('hex');
+}
+
+/**
  * ===================================================================
  * RECIPIENT KEY — MỚI (29/09/2026, Mục 9.5 AURELLE_MARKETPLACE_DESIGN.md)
  * ===================================================================

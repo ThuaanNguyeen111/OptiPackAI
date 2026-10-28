@@ -182,7 +182,8 @@ describe('Tìm nhóm theo ?q=', () => {
     }));
 
     expect(await service.listOrderGroups({ q: 'KHONG-CO' })).toEqual([]);
-    expect(groupFind).toHaveBeenCalledTimes(1);
+    // 2 lần = danh sách thường + nhóm hỏa tốc ghim đầu trang (29/10/2026); lần tìm không khớp không truy vấn nhóm.
+    expect(groupFind).toHaveBeenCalledTimes(2);
   });
 
   it('packingBlocked=true lọc nhóm có lý do kẹt', async () => {

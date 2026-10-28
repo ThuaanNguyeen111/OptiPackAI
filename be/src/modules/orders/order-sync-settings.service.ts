@@ -16,7 +16,7 @@ import {
 } from './order-sync-policy';
 import { UpdateOrderSyncSettingsDto } from './dto/order-sync-settings.dto';
 import { ORD_ERROR_CODES } from './orders.errors';
-import { computeConsolidationKeyFor } from './utils/consolidation-key.util';
+import { computeConsolidationKeyFor, expressConsolidationKey } from './utils/consolidation-key.util';
 
 /** Bản tiêu chí được nạp lại từ DB định kỳ — các instance khác thấy thay đổi trong ≤ 30 giây. */
 const REFRESH_INTERVAL_MS = 30_000;
@@ -30,6 +30,7 @@ interface RecomputeRow {
   platform_order_id: string;
   recipient: Order['recipient'];
   consolidation_key: string;
+  delivery_option?: 'standard' | 'express';
 }
 
 export interface OrderSyncSettingsHistoryItem {
@@ -170,13 +171,17 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
         .find({ status: { $in: UNFULFILLED_ORDER_STATUSES }, ...(lastId ? { _id: { $gt: lastId } } : {}) })
         .sort({ _id: 1 })
         .limit(RECOMPUTE_BATCH)
-        .select('platform shop_id platform_order_id recipient consolidation_key')
+        .select('platform shop_id platform_order_id recipient consolidation_key delivery_option')
         .lean<RecomputeRow[]>();
       if (orders.length === 0) break;
       lastId = orders[orders.length - 1]?._id ?? null;
       const ops: AnyBulkWriteOperation<OrderDocument>[] = [];
       for (const o of orders) {
-        const key = computeConsolidationKeyFor(o.platform, o.recipient, keyFields, `${o.shop_id}:${o.platform_order_id}`);
+        const ref = `${o.shop_id}:${o.platform_order_id}`;
+        // 29/10/2026 — đơn hỏa tốc giữ khoá riêng (không gộp) dù Admin đổi trường gom.
+        const key = o.delivery_option === 'express'
+          ? expressConsolidationKey(o.platform, ref)
+          : computeConsolidationKeyFor(o.platform, o.recipient, keyFields, ref);
         if (key !== o.consolidation_key) ops.push({ updateOne: { filter: { _id: o._id }, update: { $set: { consolidation_key: key } } } });
       }
       if (ops.length > 0) {

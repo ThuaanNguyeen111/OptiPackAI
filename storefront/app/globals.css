@@ -338,3 +338,19 @@ body { font-family:'Be Vietnam Pro', Arial, sans-serif; font-weight:400; letter-
   .order-progress-step:last-child { padding-bottom:0; }
   .order-progress-step time { justify-self:end; }
 }
+
+/* 29/10/2026 — giao hỏa tốc */
+.delivery-option { display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+.delivery-option input { margin-top:4px; }
+.delivery-option.disabled { cursor:not-allowed; color:var(--muted); background:#f6f3ef; }
+.delivery-option-note { display:block; margin-top:4px; color:var(--muted); font-size:12px; line-height:1.5; }
+.order-status-express { color:#7a4b12; border-color:#e6c98f; background:#fdf5e4; }
+.order-status-late { color:#8a5a00; border-color:#e8c766; background:#fff6d6; }
+.order-express-box { margin:0 0 22px; padding:14px 16px; border:1px solid var(--line); background:#fff; font-size:14px; }
+.order-express-box p { margin:6px 0 0; }
+.order-express-box.late { border-color:#e8c766; background:#fff8dd; }
+.order-express-late { display:block; color:#8a5a00; }
+.admin-express table { width:100%; border-collapse:collapse; font-size:13px; }
+.admin-express th, .admin-express td { padding:8px 6px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+.admin-express textarea { width:100%; min-height:180px; padding:10px; border:1px solid var(--line); font:13px/1.5 inherit; }
+.admin-express-actions { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px; }

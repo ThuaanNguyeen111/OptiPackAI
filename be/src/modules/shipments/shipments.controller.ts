@@ -51,6 +51,10 @@ export interface ShipmentResponse {
   note: string | null;
   carrierCode: string | null;
   carrierName: string | null;
+  /** 29/10/2026 — shipper của shop (hỏa tốc tự giao). */
+  shipperId: string | null;
+  shipperName: string | null;
+  shipperPhone: string | null;
   serviceCode: string | null;
   serviceName: string | null;
   parcelCount: number | null;
@@ -110,6 +114,9 @@ export function toShipmentResponse(doc: ShipmentDocument): ShipmentResponse {
     note: doc.note ?? null,
     carrierCode: doc.carrier_code ?? null,
     carrierName: doc.carrier_name ?? null,
+    shipperId: doc.shipper_id ? doc.shipper_id.toString() : null,
+    shipperName: doc.shipper_name ?? null,
+    shipperPhone: doc.shipper_phone ?? null,
     serviceCode: doc.service_code ?? null,
     serviceName: doc.service_name ?? null,
     parcelCount: doc.parcel_count ?? null,
@@ -288,6 +295,13 @@ export class ShipmentsController {
     );
   }
 
+  @Get('shippers')
+  @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER)
+  @ApiOperation({ summary: '29/10/2026 — Shipper của shop (Shipping Coordinator đang làm việc) để chọn khi giao hỏa tốc.' })
+  async shippers(): Promise<{ id: string; name: string; phone: string | null; email: string }[]> {
+    return this.shipmentsService.listShippers();
+  }
+
   @Get('carrier/statuses')
   @Roles(UserRole.ADMIN, UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF)
   @ApiOperation({ summary: 'C5 — Trạng thái hãng (GHN) mô phỏng được + nhãn tiếng Việt (dropdown nút mô phỏng).' })
@@ -311,10 +325,10 @@ export class ShipmentsController {
 
   @Post()
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Bắt đầu giao] Tạo vận đơn cho nhóm đơn đã đóng gói (packed) -> out_for_delivery; nhóm đơn -> shipped.' })
+  @ApiOperation({ summary: '[Bắt đầu giao] Tạo vận đơn cho nhóm đơn đã đóng gói (packed) -> out_for_delivery; nhóm đơn -> shipped. 🆕 29/10: nhóm hỏa tốc (requiresSelfDelivery) BẮT BUỘC shipper_id, không chọn hãng.' })
   async start(@Body() dto: StartShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
     return toShipmentResponse(
-      await this.shipmentsService.startDelivery(dto.order_group_id, actorOf(user), dto.note, undefined, carrierChoiceOf(dto)),
+      await this.shipmentsService.startDelivery(dto.order_group_id, actorOf(user), dto.note, undefined, carrierChoiceOf(dto), dto.shipper_id),
     );
   }
 

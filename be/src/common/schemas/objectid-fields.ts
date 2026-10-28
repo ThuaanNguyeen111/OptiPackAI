@@ -74,7 +74,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
   },
   {
     collection: 'shipments',
-    fields: ['order_group_id'],
+    fields: ['order_group_id', 'shipper_id'], // shipper_id 29/10/2026 — hỏa tốc tự giao
     arrayPath: { array: 'carrier_parcels', fields: ['order_id'] }, // C4 (14/10/2026) — kiện gửi hãng
   },
   { collection: 'carrier_webhook_events', fields: ['shipment_id'] }, // C5 (14/10/2026)

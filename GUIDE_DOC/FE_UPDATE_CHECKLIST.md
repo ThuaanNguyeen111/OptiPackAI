@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master. Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -18,6 +18,7 @@
 | 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ☐ Chưa làm |
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
+| 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -168,6 +169,27 @@ Việc FE (`PackagingWorkbench.tsx`):
 - **Chưa có số thật, BE chưa làm** (ẩn đi, đừng hiện số mẫu): thời gian lấy hàng trung bình ("4m 32s"), hiệu suất nhân viên kho và điều phối. Muốn có thì báo BE.
 
 **Nghiệm thu:** không còn chữ Shopee/TikTok và không còn số viết cứng trên Bảng điều khiển; đổi bộ lọc 7 ngày ↔ 30 ngày thì số đổi theo; lọc `platform=aurelle` chỉ còn đơn AURELLE; tạo 1 đơn AURELLE mới → `ordersReceived` tăng 1, `actionQueue.awaitingPick` tăng khi nhóm vào hàng chờ lấy; Packaging/Warehouse Staff gọi API → 403.
+
+---
+
+## 5. 🆕 29/10/2026 — Đơn hỏa tốc AURELLE, shop tự giao (dòng 8)
+
+**Nghiệp vụ:** khách AURELLE chọn "Giao hỏa tốc" (45.000₫, nội thành TP.HCM + Thủ Dầu Một/Thuận An/Dĩ An, đặt 8:00–14:00 T2–T7). Hẹn khách giao trước **giờ đặt + 3 giờ**; kho phải đóng gói xong trước **giờ đặt + 1 giờ**. Shop tự giao (GHN không có dịch vụ 2–3 giờ), người giao là 1 tài khoản **Shipping Coordinator**. Website (AURELLE) đã làm xong phần khách và Admin website; việc dưới đây là FE **OptiPack** (`fe/`). Đơn Lazada đánh dấu hỏa tốc tay không đổi.
+
+**Field mới trên nhóm đơn** (`GET /order-groups`, `/order-groups/:id`): `requiresSelfDelivery` (true = hỏa tốc AURELLE), `deliveryDeadline` (giờ hẹn khách, ISO), `packagingDeadline` (= giờ đặt + 1 giờ), `orderPriority: 'express'`, `isOverdue`.
+
+| # | Màn | Việc FE |
+|---|---|---|
+| 5.1 | Mọi hàng chờ nhóm đơn (lấy hàng, đóng gói, tạo vận đơn) | BE **đã ghim** nhóm hỏa tốc chưa giao xong lên đầu trang 1 (sắp theo `packagingDeadline`) — FE **không sắp lại** làm mất thứ tự. Nhãn "Hỏa tốc" + đếm ngược: trước khi đóng gói xong đếm tới `packagingDeadline`, sau đó tới `deliveryDeadline`. Gợi ý màu: còn ≤ 15 phút vàng, quá hạn đỏ. Nút "Gộp nhóm" và "Đổi ưu tiên" ẩn/khoá khi `requiresSelfDelivery` |
+| 5.2 | Màn Giao hàng — tạo vận đơn 1 nhóm | `requiresSelfDelivery = true` → **ẩn** chọn hãng/dịch vụ/báo giá/lịch lấy hàng, hiện ô chọn **shipper** từ `GET /shipments/shippers` (`[{ id, name, phone, email }]`), gửi `POST /shipments` với `{ order_group_id, shipper_id, ... }` (không gửi `carrier_code`, `service_code`). Danh sách rỗng → báo "Chưa có Shipping Coordinator nào đang làm" |
+| 5.3 | Màn Giao hàng — giao chung chuyến | Không cho chọn nhóm `requiresSelfDelivery` vào `POST /shipments/batch` |
+| 5.4 | Chi tiết vận đơn | Hiện `shipperName`, `shipperPhone`, `dueAt` (= giờ hẹn khách). Nút "Giao thành công / Giao thất bại / Giao lại": nếu vận đơn có `shipperId` và người đăng nhập **không phải** shipper đó (và không phải Admin) → ẩn/khoá, ghi "Đơn do {shipperName} giao" |
+| 5.5 | Thông báo | Loại `sla_warning` / `sla_breach` mới cho hỏa tốc: sắp hết hạn đóng gói (nhân viên lấy + đóng), quá hạn đóng gói (Store Owner + Coordinator), sắp tới giờ hẹn giao (shipper + Coordinator), trễ giao (Store Owner + Admin + shipper). Bấm thông báo → mở nhóm đơn (`relatedEntityType: 'order_group'`) |
+| 5.6 | Bảng điều khiển (dòng 7) | Khối `express`: với hỏa tốc AURELLE "đúng hạn" = **giao tới khách** trước giờ hẹn (không còn là đóng gói trước hạn) — đổi nhãn thành "Hỏa tốc đúng hẹn" |
+
+**Mã lỗi mới:** `SHP_SHIPPER_REQUIRED` (400), `SHP_EXPRESS_SELF_DELIVERY_REQUIRED` (409 — gửi hãng hoặc gộp chuyến cho nhóm hỏa tốc), `SHP_SHIPPER_INVALID` (422 — người chọn không phải Coordinator đang làm, chọn lại), `SHP_NOT_ASSIGNED_SHIPPER` (403), `ORD_GROUP_MERGE_EXPRESS` (409), `ORD_GROUP_PRIORITY_LOCKED` (409).
+
+**Nghiệm thu:** đặt 1 đơn hỏa tốc trên website (8:00–14:00, phường nội thành) → nhóm hiện đầu hàng chờ lấy hàng có đếm ngược; đóng xong → màn Giao hàng chỉ có ô chọn shipper; tài khoản Coordinator khác không bấm được "Giao thành công"; giao xong → website hiện tên + SĐT shipper; để quá giờ hẹn → website hiện "Giao chậm hơn dự kiến" / "Trễ".
 
 ---
 

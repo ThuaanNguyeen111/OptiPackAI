@@ -187,6 +187,9 @@ export interface MappedOrderFields {
   total_amount: number;
   currency: string;
   synced_at: Date;
+  /** 29/10/2026 — chỉ AURELLE: giao hỏa tốc + giờ hẹn giao (Lazada thật không có → standard/null). */
+  delivery_option: 'standard' | 'express';
+  promised_delivery_at: Date | null;
 }
 
 /**
@@ -277,7 +280,23 @@ export function mapLazadaOrder(
       status: mapLazadaStatus(item.status),
     })),
     total_amount: parseMoneyString(raw.price, 'price'),
+    ...deliveryOptionOf(raw),
     currency: 'VND',
     synced_at: new Date(),
   };
+}
+
+/**
+ * 29/10/2026 — cách giao của đơn (phần mở rộng Open API AURELLE). Hỏa tốc mà thiếu / sai giờ hẹn →
+ * coi như giao thường (không tự đặt hạn khi không biết khách được hẹn mấy giờ).
+ */
+export function deliveryOptionOf(raw: Pick<LazadaOrderRaw, 'delivery_option' | 'promised_delivery_time'>): {
+  delivery_option: 'standard' | 'express';
+  promised_delivery_at: Date | null;
+} {
+  const promised = raw.promised_delivery_time ? new Date(raw.promised_delivery_time) : null;
+  if (raw.delivery_option === 'express' && promised && !Number.isNaN(promised.getTime())) {
+    return { delivery_option: 'express', promised_delivery_at: promised };
+  }
+  return { delivery_option: 'standard', promised_delivery_at: null };
 }

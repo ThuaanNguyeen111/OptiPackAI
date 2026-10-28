@@ -1,3 +1,4 @@
+import { Shipment, ShipmentSchema } from '../shipments/schemas/shipment.schema';
 import {
   StockReservation,
   StockReservationSchema,
@@ -72,6 +73,7 @@ import { ExpressOrderSlaScheduler } from './express-order-sla.scheduler';
       { name: Warehouse.name, schema: WarehouseSchema }, // 21/10/2026 — chọn kho giữ chỗ cho nhóm đơn
       { name: MarketplaceStatusOutbox.name, schema: MarketplaceStatusOutboxSchema }, // 20/10/2026 — ghi ngược trạng thái
       { name: ActivityLog.name, schema: ActivityLogSchema }, // 23/10/2026 — sổ hoạt động (lịch sử)
+      { name: Shipment.name, schema: ShipmentSchema }, // 29/10/2026 — SLA hỏa tốc: báo đúng shipper của vận đơn (chỉ đọc)
     ]),
     NotificationsModule,
   ],

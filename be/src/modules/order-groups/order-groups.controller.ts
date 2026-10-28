@@ -92,6 +92,9 @@ export interface OrderGroupResponse {
   orderPriority: string;
   packagingDeadline: Date | null;
   isOverdue: boolean;
+  /** 29/10/2026 — hỏa tốc khách chọn trên AURELLE: shop tự giao (POST /shipments + shipper_id), hẹn giao `deliveryDeadline`. */
+  requiresSelfDelivery: boolean;
+  deliveryDeadline: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -161,6 +164,9 @@ export function toResponse(
     orderPriority: group.order_priority,
     packagingDeadline: group.packaging_deadline,
     isOverdue: group.is_overdue,
+    // Nhóm tạo trước 29/10/2026 chưa có field (lean) → coi như false.
+    requiresSelfDelivery: (group.requires_self_delivery as boolean | undefined) === true,
+    deliveryDeadline: group.delivery_deadline ?? null,
     version: group.__v,
     createdAt: group.created_at ?? new Date(0),
     updatedAt: group.updated_at ?? new Date(0),
@@ -256,7 +262,7 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng) / stock_shortage / is_overdue / packing_blocked (22/10: kẹt đóng gói vì SKU chưa đo) / q (22/10: đuôi mã nhóm hoặc mã đơn sàn). Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
+      'Danh sách Order Group, mới nhất trước (🆕 29/10: nhóm hỏa tốc chưa giao xong được ghim đầu trang đầu, sắp theo hạn đóng gói; ?order_priority=normal thì không ghim) — lọc theo fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng) / stock_shortage / is_overdue / packing_blocked (22/10: kẹt đóng gói vì SKU chưa đo) / q (22/10: đuôi mã nhóm hoặc mã đơn sàn). Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
   })
   async list(
     @Query() query: ListOrderGroupsQueryDto,

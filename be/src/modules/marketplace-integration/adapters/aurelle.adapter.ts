@@ -210,6 +210,9 @@ export class AurelleAdapter implements MarketplaceAdapter {
       tripCode?: string;
       /** (21/10/2026) Tên hãng vận chuyển hiển thị cho khách (GHN...). */
       carrier?: string;
+      /** 29/10/2026 — hỏa tốc (shop tự giao): shipper cho khách liên hệ. */
+      shipperName?: string;
+      shipperPhone?: string;
       reason?: string;
       idempotencyKey: string;
       /** 22/10/2026 — chỉ `short_shipped`: số giao được theo SKU (gửi dạng chuỗi JSON). */
@@ -226,6 +229,8 @@ export class AurelleAdapter implements MarketplaceAdapter {
     if (input.trackingCode) params.tracking_code = input.trackingCode;
     if (input.tripCode) params.trip_code = input.tripCode;
     if (input.carrier) params.carrier = input.carrier;
+    if (input.shipperName) params.shipper_name = input.shipperName;
+    if (input.shipperPhone) params.shipper_phone = input.shipperPhone;
     if (input.reason) params.reason = input.reason;
     if (input.items?.length) params.items = JSON.stringify(input.items);
 

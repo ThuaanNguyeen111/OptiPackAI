@@ -76,6 +76,9 @@ export interface StatusUpdateInput {
   tripCode?: string | null;
   /** (21/10/2026) Tên hãng vận chuyển (GHN...) — trước đây website luôn ghi "OptiPack". */
   carrier?: string | null;
+  /** 29/10/2026 — hỏa tốc (shop tự giao): tên + SĐT shipper cho khách liên hệ. */
+  shipperName?: string | null;
+  shipperPhone?: string | null;
   reason?: string | null;
   idempotencyKey: string;
   /** 22/10/2026 — chỉ `short_shipped`: số đơn vị kho GIAO ĐƯỢC theo SKU (SKU không có = giao đủ). */
@@ -241,9 +244,11 @@ export async function applyPartnerStatusUpdate(
   }
 
   // 4) Mã vận đơn / chuyến cho khách xem (vận đơn nội bộ của website).
-  if (input.trackingCode || ON_THE_WAY.includes(input.status) || input.status === 'delivered') {
+  if (input.trackingCode || input.shipperName || ON_THE_WAY.includes(input.status) || input.status === 'delivered') {
     const shipSet: Doc = { updated_at: new Date() };
     if (input.trackingCode) shipSet.tracking_number = input.trackingCode;
+    if (input.shipperName) shipSet.shipper_name = input.shipperName;
+    if (input.shipperPhone) shipSet.shipper_phone = input.shipperPhone;
     if (input.tripCode) shipSet.trip_code = input.tripCode;
     if (input.carrier) shipSet.carrier = input.carrier;
     const shipStatus = shipmentStatusFor(input.status);

@@ -1,7 +1,7 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
 > **Bản đồ route theo role** — quét từ `@Controller`/`@Roles` trong code. Việc FE còn thiếu: **`FE_UPDATE_CHECKLIST.md`**.
-> **Thay đổi gần nhất:** 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
+> **Thay đổi gần nhất:** 29/10 — mục **27**: giao hỏa tốc AURELLE 3 giờ (shop tự giao): `GET /storefront/delivery-options`, checkout `delivery_option`, Admin website `/storefront/admin/express/*`, `GET /shipments/shippers`, `POST /shipments` thêm `shipper_id`, nhóm hỏa tốc ghim đầu danh sách. 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
 > **Trước đó:** 21/10 (tối) — giữ chỗ tồn **theo kho** (nhóm đơn có `warehouseId`, quét sai kho → 409 `ORD_GROUP_WRONG_WAREHOUSE`); website: đổi hàng (`type: exchange`, `GET /storefront/orders/:id/exchange-options`), khách tự hủy yêu cầu trả (`POST /storefront/returns/:id/cancel`); phiếu trả mở 1 / đơn. 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
 > Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
@@ -186,7 +186,7 @@ Giá trị sai kiểu → 400 `VALIDATION_ERROR`.
 | POST    | `/order-groups/:id/fulfillment/return`         | Shipping, Warehouse, Admin     | ⚠️ **LEGACY — FE KHÔNG gọi**. Bỏ qua luồng kiểm tra (đặt thẳng `returned_to_warehouse`/`returned`, không có hạn trả, không kiểm hàng, không nhập lại tồn). Dùng `/shipments/:id/fail` + `/receive-return` (giao thất bại) hoặc `/returns` (khách trả, mục 11) |
 
 > 🆕 MỚI (09/10/2026) — Nhóm kẹt `awaiting_packaging` (bước chuyển sang `picking` lúc tạo nhóm bị lỗi) được cron 5 phút tự đưa sang `picking`; hết đơn hợp lệ thì đi đường hủy tự động. Khi nhóm tự hủy, **giữ chỗ tồn kho (K5) được nhả ngay**; khi chỉ một phần đơn bị hủy, giữ chỗ tính lại theo số đặt của đơn còn lại (trước đây phải gọi tay `stock-reservation/release`).
-| PATCH   | `/order-groups/:id/priority`                   | **Store Owner**, Admin         | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói                                                                                                                                                    |
+| PATCH   | `/order-groups/:id/priority`                   | **Store Owner**, Admin         | Đánh dấu đơn Hỏa Tốc/Bình thường, tự tính hạn đóng gói. 🔄 29/10/2026: nhóm hỏa tốc do khách AURELLE chọn (`requiresSelfDelivery: true`) → 409 `ORD_GROUP_PRIORITY_LOCKED` (mục 27) |
 
 **🆕 Trạng thái mới `canceled` (29/09/2026, N1 — Mục 9.6)**: KHÔNG có endpoint ghi riêng — hệ thống **tự động** chuyển 1 Order Group sang `canceled` khi MỌI đơn bên trong không còn fulfill được (đơn bị khách/sàn hủy, hoặc sự cố logistics `lost`/`damaged_by_3pl`/`package_scrapped`...), miễn nhóm đó **chưa** tới `packed`/`shipped`/`delivered` (hàng đã đóng/giao vật lý thì không tự hủy ngầm, cần luồng `return` thủ công). Trigger: mỗi lần `syncShopOrders()`/webhook cập nhật 1 đơn sang trạng thái không-fulfill-được, hệ thống tự kiểm tra và hủy nhóm nếu đủ điều kiện — không cần Warehouse/Packaging Staff xác nhận riêng (ngoại lệ có chủ đích so với nguyên tắc "người xác nhận thay đổi quan trọng" thường dùng, vì rủi ro thấp khi nhóm chưa đóng gói). Khi hủy: tự nhả giữ chỗ đóng gói (🔄 04/10: kế hoạch `packing_plans` đang hoạt động chuyển `superseded`) + bắn Notification `group_auto_canceled` cho Store Owner, Admin và người phụ trách (nếu có).
 
@@ -596,10 +596,10 @@ Bảng tra nhanh theo module (chi tiết "khi nào xảy ra" vẫn ở guide tr�
 | GET    | `/shipments/reason-codes`       | Admin, Coordinator, Store Owner, Warehouse | Lý do giao thất bại                              |
 | GET    | `/shipments` · `/shipments/:id` | Admin, Coordinator, Store Owner, Warehouse | Danh sách / chi tiết vận đơn                     |
 | GET    | `/shipments/:id/events`         | Admin, Coordinator, Store Owner, Warehouse | Tracking dạng dòng thời gian                     |
-| POST   | `/shipments`                    | Coordinator, Admin                         | Bắt đầu giao (nhóm đơn packed). 🆕 tùy chọn `carrier_code` + `service_code` (+ `pickup_at`) → ghi cước/ETA lên vận đơn và từng kiện |
-| POST   | `/shipments/:id/deliver`        | Coordinator, Admin                         | Giao thành công                                  |
-| POST   | `/shipments/:id/fail`           | Coordinator, Admin                         | Giao thất bại (lần 2 / khách từ chối -> tự hoàn) |
-| POST   | `/shipments/:id/retry`          | Coordinator, Admin                         | Giao lại                                         |
+| POST   | `/shipments`                    | Coordinator, Admin                         | Bắt đầu giao (nhóm đơn packed). 🆕 tùy chọn `carrier_code` + `service_code` (+ `pickup_at`) → ghi cước/ETA lên vận đơn và từng kiện. 🔄 29/10/2026: nhóm hỏa tốc **bắt buộc** `shipper_id`, **không** gửi hãng (mục 27) |
+| POST   | `/shipments/:id/deliver`        | Coordinator, Admin                         | Giao thành công. 🔄 29/10: vận đơn có shipper → chỉ shipper đó hoặc Admin (403 `SHP_NOT_ASSIGNED_SHIPPER`) |
+| POST   | `/shipments/:id/fail`           | Coordinator, Admin                         | Giao thất bại (lần 2 / khách từ chối -> tự hoàn). 🔄 29/10: như `deliver` |
+| POST   | `/shipments/:id/retry`          | Coordinator, Admin                         | Giao lại. 🔄 29/10: như `deliver`                |
 | POST   | `/shipments/:id/receive-return` | Warehouse, Admin                           | Kho nhận kiện hoàn (tự tạo phiếu hoàn)           |
 | 🆕 POST | `/shipments/batch` | Coordinator, Admin | **Gộp từ thi_dev** — giao chung chuyến 1..N nhóm `packed` trong 1 transaction, chung `tripCode`; ≥2 nhóm phải cùng `recipient_key` 🔄 **hoặc cùng liên kết tay (13/10/2026)**. **Bắt buộc** `carrier_code` + `service_code`. Mỗi vận đơn đi đúng vòng đời G1 (`out_for_delivery`, có lịch sử + SLA) |
 | 🆕 GET | `/shipments/group/:groupId` | Admin, Coordinator, Store Owner, Warehouse | Vận đơn của 1 nhóm (`null` nếu chưa có) |
@@ -930,6 +930,36 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
 - **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
 - So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
+
+## 27. 🆕 29/10/2026 — Giao hỏa tốc AURELLE 3 giờ (shop tự giao)
+
+**Nghiệp vụ (Thuận chốt 29/10):** website có 2 cách giao — Tiêu chuẩn 30.000₫ (GHN) và Hỏa tốc 45.000₫ (shop tự giao trong 3 giờ); đơn từ 1 triệu miễn phí cả hai. Hỏa tốc chỉ chọn được khi phường nhận hàng thuộc danh sách (mặc định 91 phường TP.HCM mới, tương ứng 16 quận nội thành cũ + TP Thủ Đức + Thủ Dầu Một/Thuận An/Dĩ An; Admin website sửa được) **và** đặt trong 8:00–14:00, thứ 2 – thứ 7 (giờ VN). Hẹn khách: giao trước giờ đặt + 3 giờ; kho: đóng gói xong trước giờ đặt + 1 giờ. Trễ không hoàn tiền. Đơn Lazada đánh dấu hỏa tốc tay **giữ nguyên** (4 giờ làm việc, vẫn giao GHN).
+
+**Website AURELLE (BE storefront):**
+
+| Method | Route | Auth | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🆕 GET | `/storefront/delivery-options?province&ward&subtotal` | Public | Tên tỉnh + tên phường (địa chỉ mới) + tạm tính → `{ options: [{ code: standard\|express, label, feeVnd, listFeeVnd, available, unavailableReason: missing_address\|outside_area\|outside_hours\|null, unavailableText, promise, promisedDeliveryAt }], freeShippingThreshold }` |
+| 🔄 POST | `/storefront/orders/checkout` | Khách | Body thêm `delivery_option` (`standard` mặc định \| `express`). BE kiểm lại vùng + giờ; không đạt → 400 `SF_EXPRESS_UNAVAILABLE`. Phí ship tính theo cách giao |
+| 🔄 GET | `/storefront/orders`, `/storefront/orders/:id` | Khách | Thêm `deliveryOption`, `promisedDeliveryAt`, `isLate` (hỏa tốc chưa giao mà quá giờ hẹn, hoặc giao sau giờ hẹn). Chi tiết thêm `shipperName`, `shipperPhone` |
+| 🆕 GET · PUT · DELETE | `/storefront/admin/express/wards` | Admin website | Xem / lưu (`{ wards: string[] }`, ≥ 1 phường, rỗng → 400 `SF_EXPRESS_WARDS_INVALID`) / quay về mặc định. Trả `{ wards, isDefault }`. Lưu ở collection mới `storefront_settings` (`_id: express_delivery`) |
+| 🆕 GET | `/storefront/admin/express/orders?days=7` | Admin website | Đơn hỏa tốc 1–90 ngày gần nhất (tối đa 500): người nhận, phường, giờ đặt, giờ hẹn, giờ giao, shipper, `isLate` |
+
+Open API (đơn sang OptiPack) thêm `delivery_option`, `promised_delivery_time` (ISO). Cập nhật trạng thái từ OptiPack (`/rest/order/status/update`) thêm `shipper_name`, `shipper_phone` → lưu trên vận đơn website.
+
+**OptiPack:**
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🔄 GET | `/order-groups`, `/order-groups/:id` | như cũ | Thêm `requiresSelfDelivery` (nhóm hỏa tốc AURELLE), `deliveryDeadline` (giờ hẹn khách). `packagingDeadline` = giờ đặt + 1 giờ. **Trang đầu** `GET /order-groups` ghim nhóm hỏa tốc chưa giao xong lên đầu (sắp theo hạn đóng gói, tối đa 50), rồi mới tới danh sách thường; không ghim khi `order_priority=normal`, khi có `before`, hoặc lọc trạng thái đã giao/hoàn/hủy |
+| 🔄 POST | `/order-groups/:id/merge` | như cũ | Nhóm hỏa tốc AURELLE → 409 `ORD_GROUP_MERGE_EXPRESS` (luôn đi riêng) |
+| 🆕 GET | `/shipments/shippers` | Coordinator, Store Owner, Admin | Shipper chọn được: tài khoản **Shipping Coordinator** đang hoạt động, không nghỉ phép → `[{ id, name, phone, email }]` |
+| 🔄 POST | `/shipments` | Coordinator, Admin | Body thêm `shipper_id`. Nhóm hỏa tốc: thiếu → 400 `SHP_SHIPPER_REQUIRED`; có `carrier_code`/`service_code` → 409 `SHP_EXPRESS_SELF_DELIVERY_REQUIRED`; shipper sai vai trò / khoá / nghỉ phép → 422 `SHP_SHIPPER_INVALID`. Vận đơn: `carrierName` "Shop tự giao (hỏa tốc)", `dueAt` = giờ hẹn khách. Response vận đơn thêm `shipperId`, `shipperName`, `shipperPhone` |
+| 🔄 POST | `/shipments/batch` | Coordinator, Admin | Có nhóm hỏa tốc → 409 `SHP_EXPRESS_SELF_DELIVERY_REQUIRED` |
+
+- Đơn hỏa tốc AURELLE luôn **1 đơn = 1 nhóm** (khoá gom riêng theo mã đơn), tự gắn `order_priority: express`; không gộp, không đổi tay mức ưu tiên.
+- Cảnh báo (cron **mỗi phút**, mỗi mốc báo 1 lần): còn 15 phút tới hạn đóng gói → nhân viên lấy hàng + người đóng gói; quá hạn đóng gói → Store Owner + Shipping Coordinator; còn 15 phút tới giờ hẹn giao → shipper + Shipping Coordinator; quá giờ hẹn → Store Owner + Admin + shipper. Mốc đóng gói chỉ xét nhóm **chưa đóng xong**, mốc giao bỏ nhóm đã giao/hoàn/hủy.
+- `GET /dashboard/summary` khối `express`: nhóm có `deliveryDeadline` → đúng hạn = vận đơn giao xong trước giờ hẹn; nhóm cũ / Lazada tay → như cũ (đóng gói trước hạn).
 
 ## 26. 🆕 28/10/2026 — Bảng điều khiển (`/dashboard`)
 

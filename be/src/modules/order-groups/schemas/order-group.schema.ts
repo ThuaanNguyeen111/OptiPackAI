@@ -84,6 +84,35 @@ export class OrderGroup {
   is_overdue!: boolean;
 
   /**
+   * 29/10/2026 — GIAO HỎA TỐC do khách chọn trên AURELLE (Thuận chốt): nhóm riêng 1 đơn, shop TỰ
+   * GIAO (không qua GHN), hạn đóng gói = giờ đặt + 1 giờ (`packaging_deadline`), hạn giao tới khách
+   * = giờ đặt + 3 giờ (`delivery_deadline`, đúng giờ hẹn hiện trên website). Đơn Lazada đánh dấu
+   * hỏa tốc tay: `requires_self_delivery = false`, `delivery_deadline = null` (như trước).
+   */
+  @Prop({ type: Boolean, default: false })
+  requires_self_delivery!: boolean;
+
+  @Prop({ type: Date, default: null })
+  delivery_deadline!: Date | null;
+
+  /**
+   * 29/10/2026 — mốc đã báo của tác vụ SLA hỏa tốc (mỗi mốc báo đúng 1 lần): sắp/quá hạn đóng gói,
+   * sắp/quá hạn giao. Trước đây dùng `is_overdue` kiêm cờ "đã cảnh báo" và không xét trạng thái
+   * nhóm → nhóm đã đóng/giao xong vẫn bị báo "QUÁ HẠN".
+   */
+  @Prop({ type: Date, default: null })
+  sla_pack_warned_at!: Date | null;
+
+  @Prop({ type: Date, default: null })
+  sla_pack_breached_at!: Date | null;
+
+  @Prop({ type: Date, default: null })
+  sla_delivery_warned_at!: Date | null;
+
+  @Prop({ type: Date, default: null })
+  sla_delivery_breached_at!: Date | null;
+
+  /**
    * BỔ SUNG (21/09/2026, BE-4a) — lượt lấy hàng hiện tại. Chỉ pick_events
    * cùng lượt mới được cộng vào "đã lấy"; decide-partial(false) mở lượt
    * mới để lấy lại mà không đếm gấp đôi lượt cũ.
