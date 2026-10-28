@@ -1,24 +1,108 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 3.4 — 25/10/2026.** Đối chiếu lại FE đang làm: mục 1–3, 1b–1f, 1g bước 1–2 và mục 3 (mã chết) **đã nối trên màn**. Còn mở: **1g bước 3** (khung 3D — code của Việt/Thi, chưa đụng) và **mục 4** (tuỳ chọn). Chưa bấm thử trọn luồng với dữ liệu kho thật (niêm phong trừ tồn, mở PDF, quét tem).
->
-> **Phiên bản 3.3 — 23/10/2026 tối** (thêm 1e, 1f, 1g; FE đã đồng bộ từ `feature/viet_ui` ở AOFP-185 nên mục 2 "Lô hàng" chuyển sang đã xong). **Phiên bản 3.2 — 22/10/2026 chiều** (thêm mục 1d). **Phiên bản 3.1 — 22/10/2026** (thêm mục 1b). **Phiên bản 3.0 — 21/10/2026.** Đối chiếu code FE trên `feature/thuan_be` (FE = `feature/viet_ui` commit `b00830e`, gộp ở AOFP-133) với **253 route BE**. Cách rà: so mọi đường dẫn FE gọi với route BE (cả 2 chiều), tìm hàm API khai báo mà không màn nào dùng, so danh sách trạng thái/loại thông báo FE với enum BE.
-> File này **chỉ giữ việc chưa làm**. Việc đã xong gom ở [phụ lục ✅](#phụ-lục--đã-hoàn-thành-tóm-tắt) cuối file, mỗi việc 1 dòng.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
 
 ---
 
-## 0. Còn phải làm — theo thứ tự ưu tiên
+## 0. Việc FE đang phải làm
 
-| # | Việc | Mục | Trạng thái 25/10 |
+| # | Việc | Mục | Ước lượng | Trạng thái |
+|---|---|---|---|---|
+| 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
+| 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ☐ Chưa làm (code 3D của Việt/Thi) |
+| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm); khối doanh thu / tài chính / nhân viên ở Bảng điều khiển vẫn đọc `data/dashboard-mock.ts` (BE chưa có API) | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
+
+Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
+
+**Cách đối chiếu 28/10:** với từng dòng, tìm route/field/mã lỗi BE trong `fe/src` và kiểm hàm API có màn nào gọi (VD `splitOrderFromGroup` → `GroupOpsPanel.tsx`, `sellerCancelOrder` → `SellerCancelPanel.tsx`, `getPackingBoxSources` → `PackagingWorkbench.tsx`, 4 hàm in PDF → màn kho, `recipientNamesDiffer` khoá "Đóng nhanh"). Chưa bấm thử trên dữ liệu thật — ô nghiệm thu ở phụ lục vẫn là việc của người test.
+
+---
+
+## 1. 🆕 28/10/2026 — Điền sẵn địa chỉ gửi hãng, địa chỉ mô phỏng cho đơn bị che
+
+**Vấn đề hiện tại:** `ShippingPage.tsx` luôn hiện 4 ô Tỉnh / Phường / Số nhà / SĐT **rỗng**. BE vốn đã tự lấy địa chỉ từ đơn khi các ô này rỗng (chúng chỉ là ô **sửa đè**), nhưng người dùng không thấy BE sẽ gửi gì nên tưởng phải gõ tay — kể cả đơn AURELLE đã có đủ địa chỉ.
+
+**BE mới:**
+
+- 🆕 `GET /shipping/recipients/:groupId` (Shipping Coordinator, Store Owner, Admin) → `{ recipients: RecipientPreview[] }`, mỗi đơn còn giao được của nhóm 1 dòng:
+
+  ```ts
+  interface RecipientPreview {
+    orderId: string
+    platformOrderId: string
+    platform: string              // 'lazada' | 'aurelle' | ...
+    name: string                  // tên của sàn (Lazada vẫn bị che, VD "N**n")
+    phone: string | null
+    street: string | null         // số nhà + đường
+    wardName: string | null
+    provinceName: string | null
+    address: string | null        // chuỗi đầy đủ BE sẽ gửi hãng
+    isDemo: boolean               // true = địa chỉ MÔ PHỎNG (đơn bị che, môi trường demo)
+    demoSeq: number | null        // số thứ tự địa chỉ mô phỏng (VD 10 → "47/10 ...")
+    assumptions: string[]         // câu giải thích những gì hệ thống tự bổ sung
+    errorCode: string | null      // VD 'CARRIER_ADDRESS_INCOMPLETE' → phải nhập tay
+    errorMessage: string | null
+  }
+  ```
+
+- Đơn bị che địa chỉ (Lazada) khi BE bật `CARRIER_DEMO_RECIPIENT_ENABLED=true`: dùng **1 địa chỉ mô phỏng** (số nhà tăng dần `47/10`, `47/11`… theo thứ tự đơn + SĐT di động hợp lệ). BE **không ghi gì vào DB** — tính lại từ dữ liệu đơn nên mở lại màn, báo giá, tạo vận đơn, in nhãn đều ra cùng địa chỉ. Đơn cùng nhóm gộp dùng chung 1 địa chỉ. Đơn AURELLE (đủ địa chỉ thật) không bị ảnh hưởng.
+- Nhãn vận đơn (PDF) của đơn mô phỏng in địa chỉ + SĐT mô phỏng, cuối địa chỉ có chữ "(địa chỉ mô phỏng)".
+- GHN báo `To address conflict` với số nhà mô phỏng → BE tự gửi lại chỉ phường + tỉnh và thêm 1 câu vào `assumptions` của báo giá. Địa chỉ thật hoặc số nhà Coordinator gõ thì vẫn báo lỗi như cũ.
+
+**FE cần làm (`fe/src/pages/ShippingPage.tsx`, `fe/src/api/shipping.api.ts`):**
+
+1. Thêm hàm API:
+
+   ```ts
+   getShippingRecipients(groupId: string): Promise<{ recipients: RecipientPreview[] }>
+     → GET /shipping/recipients/${encodeURIComponent(groupId)}
+   ```
+
+2. Khi chọn 1 nhóm ở trạng thái `packed` và đã chọn hãng (chỗ đang hiện 4 ô địa chỉ, khoảng dòng 1068–1095): gọi `getShippingRecipients(group.id)`, lấy dòng đầu không có `errorCode` → **điền sẵn** `addrProvince = provinceName`, `addrWard = wardName`, `addrStreet = street`, `addrPhone = phone`. Người dùng vẫn sửa được như cũ. Chỉ điền khi 4 ô đang rỗng (không ghi đè chữ người dùng vừa gõ). Đổi sang nhóm khác thì xoá rồi điền lại.
+3. Dòng có `isDemo: true` → chip vàng **"Địa chỉ mô phỏng #{demoSeq}"** + tooltip `assumptions[0]`.
+4. Dòng có `errorCode` → giữ 4 ô rỗng, hiện `errorMessage` dưới ô (VD "Địa chỉ đơn hàng thiếu phường/xã hoặc tỉnh/thành — nhập tay…").
+5. Hiện `assumptions` của kết quả báo giá (`GET /shipping/quote/:groupId` đã trả sẵn) dạng dòng chữ nhỏ dưới bảng báo giá — có câu "đã gửi lại chỉ phường + tỉnh" khi BE tự bỏ số nhà.
+
+**Kiểm thử tay:** đơn AURELLE → 4 ô tự có địa chỉ khách, báo giá chạy không cần gõ. Đơn Lazada (bật demo) → ô có `47/10 Nguyễn Văn Đậu`, chip "Địa chỉ mô phỏng #10"; mở lại màn vẫn là `#10` (không nhảy số); đơn Lazada thứ 2 (nhóm khác) → `#11` và SĐT khác.
+
+---
+
+## 2. Khung 3D dựng theo kế hoạch thật (dòng 2)
+
+**Hiện trạng (đọc code 28/10):** `fe/src/components/packing/Packing3DBoxViewer.tsx` nhận `boxLabel` rồi đoán kích thước thùng theo chuỗi tên ("Hộp A2", "CARTON-M1"…) và vẽ vài món quần áo/phụ kiện cố định. Không file FE nào đọc `placements`; kiểu `PackingPlan` ở `fe/src/types/packing-plan.ts` chưa có trường này.
+
+**BE đã có sẵn** (`GET /order-groups/:groupId/packing-plan`, mỗi `parcels[i]`): `box.innerMm` / `box.outerMm` (`{ lengthMm, widthMm, heightMm }`), `placements[]` = `{ itemKey, sku, step, x, y, z, dx, dy, dz, orientation, folded }` (mm, gốc tọa độ ở góc trong thùng), `fillRatio`, `manualLayout` (true = kiện nhập tay, không có tọa độ → hiện thông báo thay vì vẽ).
+
+**FE cần làm:**
+1. Thêm `placements` + `manualLayout` vào kiểu `PackingPlan`/parcel và hàm đọc response.
+2. `Packing3DBoxViewer` nhận `parcel` thay cho `boxLabel`: thùng = `box.innerMm`; mỗi món = 1 khối tại `(x + dx/2, z + dz/2, y + dy/2)` cỡ `dx × dz × dy` (đổi mm → đơn vị cảnh bằng 1 hệ số chung cho cả thùng).
+3. Các yêu cầu của mục 1g bước 3 (phụ lục): scale đều không kéo giãn mesh, túi zip vẽ trong ô, `folded` chỉ ở 6 loại quần áo, món đỡ = món có `z + dz` bằng `z` của món trên và hình chiếu XY giao nhau.
+4. Đánh số theo `step` (thứ tự xếp) để khớp hướng dẫn đóng gói.
+
+**Nghiệm thu:** mở 1 kế hoạch có 2 món → khung 3D hiện đúng 2 khối, đúng vị trí so với bảng số đo; kiện `manualLayout: true` → hiện "Kiện nhập tay, không có hình 3D".
+
+---
+
+## Phụ lục ✅ — đã hoàn thành
+
+Mỗi khối dưới đây đã xong — bấm vào dòng ✅ để mở lại chi tiết request/response và cách làm cũ.
+
+<details>
+<summary>✅ Bảng việc 21–25/10 (dòng 1–30) — 28/30 đã xong (dòng 6 và 30 chuyển lên trên)</summary>
+
+##### Bảng việc cũ (dòng 1–30)
+
+| # | Việc | Mục | Trạng thái |
 |---|---|---|---|
 | 1 | Màn đóng gói: báo trước lấy thùng ở **kệ mới hay kệ tái sử dụng**, nút **"Dùng thùng mới thay"** kèm lý do | 1.1 | ✅ Đã nối |
 | 2 | 5 nút **in PDF**: tem ô kệ, tem SKU, danh sách lấy hàng, phiếu nhập kho | 1.3 | ✅ Đã nối |
 | 3 | Cài đặt **người gửi** in trên nhãn vận đơn | 1.2 | ✅ Đã nối |
 | 4 | Lô hàng: Picking List hiện lô xuất trước; màn Tồn theo lô; danh sách + chi tiết phiếu nhập | 2 | ✅ Việt (AOFP-185). In phiếu nhập nằm ở dòng 2 |
 | 5 | Dọn mã chết (gọi route BE đã gỡ, không màn nào dùng) | 3 | ✅ Đã xoá |
-| 6 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master; số liệu giả còn lại ở Bảng điều khiển | 4 | Chưa làm — tuỳ chọn |
+| 6 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master; số liệu giả còn lại ở Bảng điều khiển | 4 | ☐ Chưa làm — chuyển lên bảng trên (dòng 3) |
 | 7 | Nhóm đơn có `warehouseId`: màn lấy hàng mở đúng kho; bắt 409 `ORD_GROUP_WRONG_WAREHOUSE` | — | ✅ Đã nối |
 | 8 | Tab **"Kẹt — SKU chưa đo"** (`packingBlocked`) | 1b.1 | ✅ Đã nối |
 | 9 | Tên người đóng gói (`assignedPackerName`) | 1b.2 | ✅ Đã nối |
@@ -42,7 +126,7 @@
 | 27 | Tên người nhận từng kiện + câu địa chỉ sửa áp mọi kiện | 1f.5 | ✅ Đã nối |
 | 28 | Banner `plan.profileStale` + Tính lại | 1g bước 1 | ✅ Đã nối |
 | 29 | Ô **Gập đôi** chỉ 6 loại quần áo | 1g bước 2 | ✅ Đã nối |
-| 30 | Khung 3D: scale đều, túi zip, nhiều món đỡ | 1g bước 3 | Chưa đụng — code 3D của Việt/Thi |
+| 30 | Khung 3D: scale đều, túi zip, nhiều món đỡ | 1g bước 3 | ☐ Chưa làm — chuyển lên bảng trên (dòng 2) |
 
 Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ thêm, chưa làm thì màn cũ vẫn chạy. Ngoại lệ đã ghi rõ: "Đóng nhanh" nhóm nhiều người nhận (dòng 23), ô gập đôi cho loại không phải quần áo (dòng 29), form giả lập trả hàng (dòng 11), đặt mã vào ô thứ 2 (dòng 20) sẽ nhận lỗi từ BE.
 
@@ -50,14 +134,17 @@ Không có việc nào ở trên làm **hỏng** màn hiện tại — BE chỉ 
 
 > **21/10/2026 — chỉ đổi nghĩa con số, FE không phải sửa:** `activeWorkload` của Warehouse Staff (`GET /order-groups/staff/search`, hiện "N việc" ở `WarehousePage.tsx`) nay chỉ đếm nhóm **còn ở bước lấy hàng** (chờ xử lý, đang lấy, thiếu hàng chờ quyết định) — số sẽ nhỏ hơn trước. Nếu màn có chữ giải thích thì sửa thành "nhóm đang lấy".
 
----
+</details>
 
-## 1b. 🆕 Mới 22/10/2026 — kẹt đóng gói, tên người đóng, tìm nhóm, bỏ giả lập trả hàng, ngắt shop, nghỉ phép
+<details>
+<summary>✅ 1b–1g (22–23/10): kẹt đóng gói, tên người đóng, tìm nhóm, ngắt shop, nghỉ phép, SKU ngừng dùng, người bán hủy đơn, lịch sử, đơn gộp, cờ hồ sơ đổi, gập đôi (trừ 1g bước 3 — khung 3D, xem mục 2)</summary>
+
+#### 1b. 🆕 Mới 22/10/2026 — kẹt đóng gói, tên người đóng, tìm nhóm, bỏ giả lập trả hàng, ngắt shop, nghỉ phép
 
 > BE đã xong (AOFP-152..158). Chưa làm FE thì màn cũ **vẫn chạy**, chỉ thiếu thông tin — riêng mục 1b.4 (bỏ form giả lập) nên làm sớm vì bấm form cũ sẽ nhận lỗi 410.
 > Phần **tự tính lại thiếu hàng khi có hàng về** (AOFP-154) và **hành trình hàng đổi trên website AURELLE** (AOFP-156) KHÔNG cần sửa FE OptiPack.
 
-### 1b.1 Màn Đóng gói — nhóm kẹt vì SKU chưa đo
+##### 1b.1 Màn Đóng gói — nhóm kẹt vì SKU chưa đo
 
 **Vấn đề hiện tại:** nhóm đã lấy xong (`picked`) mà có SKU chưa có số đo kho xác nhận thì BE không tính được kế hoạch → nhóm không nằm ở tab nào của `PackagingWorkbench`, người dùng tưởng mất đơn.
 
@@ -83,7 +170,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 
 **Bước 3 — các màn khác (tuỳ chọn):** `OrderGroupsPage.tsx` hiện chip "Kẹt đóng gói" cạnh chip "Thiếu hàng" khi `packingBlocked` khác null.
 
-### 1b.2 Tên người đóng gói
+##### 1b.2 Tên người đóng gói
 
 **BE trả gì:**
 - `OrderGroup` (danh sách + chi tiết) thêm `assignedPackerId: string | null`, `assignedPackerName: string | null` (người đóng của kế hoạch đang hoạt động; null = chưa có kế hoạch / chưa giao).
@@ -98,7 +185,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
    - Hiện tên người đóng ngay ở phần chi tiết nhóm cả khi chưa duyệt (không chỉ trong khối `approved_for_packing`).
 4. `OrderGroupsPage.tsx` (tuỳ chọn): cột "Người đóng".
 
-### 1b.3 Tìm nhóm đơn trên server (`?q=`)
+##### 1b.3 Tìm nhóm đơn trên server (`?q=`)
 
 **BE:** `GET /order-groups?q=<chuỗi>` (tối đa 64 ký tự) khớp: mã nhóm đủ 24 ký tự; **đuôi** mã nhóm 4–23 ký tự hex (VD `5beca05d93` như màn kho hiện, `f8d98931` như màn đóng gói hiện); mã đơn sàn / mã đơn AURELLE (`platformOrderId` hoặc số đơn hiển thị — khớp chính xác, không phân biệt hoa thường). Ghép được với mọi bộ lọc khác.
 
@@ -107,7 +194,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 2. `PackagingWorkbench.tsx` ô **"Tìm mã đơn…"**: hiện chỉ lọc trong danh sách đã tải (`groupMatchesSearch`). Giữ lọc tại chỗ; khi không khớp dòng nào và chuỗi ≥ 4 ký tự → gọi `listOrderGroups({ q })` (không truyền `fulfillment_status`) và hiện kết quả kèm trạng thái thật của nhóm, VD "Nhóm …05d93 đang **Đang lấy hàng** — chưa tới bước đóng gói". Đây là điều người dùng gặp ngày 22/10: tìm ở màn Đóng gói nhưng nhóm còn ở bước lấy hàng.
 3. `OrderGroupsPage.tsx` và `WarehousePage.tsx` (ô chọn nhóm): dùng `q` thay vì lọc tại chỗ để tìm được cả nhóm ngoài trang đang tải.
 
-### 1b.4 Bỏ form giả lập trả hàng (làm sớm)
+##### 1b.4 Bỏ form giả lập trả hàng (làm sớm)
 
 **BE:** `POST /returns` nay **luôn** trả `410 RMA_SIMULATION_DISABLED` cho mọi sàn. Phiếu trả/đổi chỉ còn 2 nguồn: khách gửi trên website AURELLE (tự hiện ở danh sách, `source = 'marketplace'`) và phiếu hoàn tự tạo khi giao thất bại (`source = 'failed_delivery'`). Các bước duyệt → nhận → kiểm → đóng giữ nguyên.
 
@@ -118,7 +205,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 4. Nếu còn chỗ nào gọi `createReturn`: bắt `410 RMA_SIMULATION_DISABLED` → hiện `message` của BE.
 5. Lọc theo nguồn (tuỳ chọn): dropdown "Nguồn: Khách AURELLE / Giao thất bại" dựa trên `source`.
 
-### 1b.5 Ngắt kết nối shop
+##### 1b.5 Ngắt kết nối shop
 
 **BE:** `DELETE /marketplace/:platform/shops/:shopId` (chỉ **Admin**) → `200 { shopId, platform, isActive: false, wasActive, disconnectedAt }`. Chỉ tắt shop (`is_active=false`), dừng kéo đơn/catalog/đẩy tồn/kéo yêu cầu trả hàng; **không xoá** đơn, sản phẩm, tồn kho. Gọi lại khi đã ngắt vẫn 200 (`wasActive: false`). Shop chưa từng kết nối → `404 MKT_SHOP_NOT_FOUND`. Kết nối lại = bấm "Kết nối" OAuth như lần đầu. `GET /marketplace/:platform/shops` thêm `disconnectedAt` (null nếu không do Admin ngắt).
 
@@ -129,7 +216,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 4. Shop đã ngắt: chip xám **"Đã ngắt {ngày giờ disconnectedAt}"** (hoặc "Token hết hạn" nếu `disconnectedAt` null) + nút **"Kết nối lại"** (luồng OAuth cũ).
 5. Store Owner không thấy nút (route chỉ Admin).
 
-### 1b.6 Nghỉ phép nhân viên
+##### 1b.6 Nghỉ phép nhân viên
 
 **BE:**
 - `PATCH /users/:id/leave` (Admin, Store Owner), body `{ on_leave: boolean, until?: ISO, note?: string (≤200) }` → trả 1 dòng nhân viên như danh sách Admin. `until` (tuỳ chọn) qua hạn thì tự tính đi làm lại. Chỉ cho Warehouse Staff / Packaging Staff / Shipping Coordinator (`422 USER_LEAVE_NOT_STAFF`); `until` đã qua → `400 USER_LEAVE_UNTIL_PAST`.
@@ -150,14 +237,14 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 2. `PackagingWorkbench.tsx` ("Gán người đóng" → "Chọn nhân viên"): tương tự.
 3. Bắt `409 ORD_GROUP_STAFF_ON_LEAVE` / `409 PACKING_PACKER_ON_LEAVE` → hiện `message`, tải lại danh sách người.
 
-### 1b.7 Loại thông báo mới `packing_blocked`
+##### 1b.7 Loại thông báo mới `packing_blocked`
 
 1. `fe/src/types/notifications.ts`: thêm `'packing_blocked'` vào danh sách loại + nhãn `{ vi: 'Kẹt đóng gói — SKU chưa đo', en: 'Packing blocked — SKU not measured' }`.
 2. `fe/src/lib/notification-nav.ts`: `packing_blocked` → Admin điều hướng `/app/packing` (tab "Kẹt — SKU chưa đo") hoặc `/app/admin/warehouse`; Store Owner → `/app/order-groups`. Gửi cho Admin + Store Owner, 1 lần mỗi lần nhóm chuyển sang kẹt.
 
 ---
 
-## 1c. 🆕 Mới 22/10/2026 (trưa) — SKU AURELLE theo quy tắc OptiPack, tự nối SKU, SKU sàn ngừng dùng
+#### 1c. 🆕 Mới 22/10/2026 (trưa) — SKU AURELLE theo quy tắc OptiPack, tự nối SKU, SKU sàn ngừng dùng
 
 > BE đã xong (AOFP-159..161). Form tạo sản phẩm bên **website AURELLE** đã sửa (không thuộc FE OptiPack). FE OptiPack chỉ cần phần dưới.
 
@@ -180,7 +267,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 
 ---
 
-## 1d. 🆕 Mới 22/10/2026 (chiều) — Người bán hủy đơn AURELLE, giao thiếu, đồng bộ 2 bên
+#### 1d. 🆕 Mới 22/10/2026 (chiều) — Người bán hủy đơn AURELLE, giao thiếu, đồng bộ 2 bên
 
 > BE đã xong (AOFP-163..169). Website AURELLE (khách + Admin website) đã sửa — **không thuộc FE OptiPack**. FE OptiPack chỉ cần 2 việc dưới.
 
@@ -237,7 +324,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 
 ---
 
-## 1e. 🆕 Mới 23/10/2026 — Lịch sử thao tác (mọi vai trò xem lại được)
+#### 1e. 🆕 Mới 23/10/2026 — Lịch sử thao tác (mọi vai trò xem lại được)
 
 > BE đã xong (AOFP-176..177). FE OptiPack cần 1 trang mới + 1 tab ở chi tiết nhóm đơn. Không đụng màn cũ.
 
@@ -289,11 +376,11 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 
 ---
 
-## 1f. 🆕 Mới 23/10/2026 — Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm
+#### 1f. 🆕 Mới 23/10/2026 — Đơn gộp: nhiều người nhận, chia theo đơn, tách / gộp nhóm
 
 > BE đã xong (AOFP-183). FE OptiPack sửa 5 màn: danh sách/chi tiết nhóm đơn, lấy hàng, đóng gói, vận chuyển, thông báo. Mọi field mới đều **thêm**, chưa làm thì màn cũ vẫn chạy — riêng nút "Đóng nhanh" sẽ nhận `409` với nhóm nhiều người nhận (xem bước 4).
 
-### 1f.0 Nghiệp vụ — FE cần hiểu trước khi làm
+##### 1f.0 Nghiệp vụ — FE cần hiểu trước khi làm
 
 **Khi nào hệ thống tự gộp đơn?** Đơn mới về được gộp vào nhóm của đơn cũ khi **cùng sàn + cùng shop + cùng khoá gộp** và nhóm cũ còn "mở":
 - Khoá gộp mặc định = **SĐT + địa chỉ (dòng 1) + tỉnh/thành** — **không gồm tên**. Admin đổi được ở `/order-sync-settings` (`consolidation_key_fields`); thêm `full_name` thì 2 người khác tên **không bao giờ** tự gộp.
@@ -313,7 +400,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 
 **Hủy 1 đơn trong nhóm gộp** (đã có từ trước, không đổi): hủy trước khi đóng → thông báo `return_to_shelf` (đem hàng của đơn đó về kệ); hủy sau khi đóng → `unpack_required` (tháo kiện của đơn đó); các đơn còn lại vẫn đi tiếp.
 
-### 1f.1 Kiểu dữ liệu + API (làm trước)
+##### 1f.1 Kiểu dữ liệu + API (làm trước)
 
 1. `fe/src/types/order-groups.ts` — thêm vào kiểu nhóm đơn (response của `GET /order-groups`, `GET /order-groups/:id`, …):
    ```ts
@@ -343,7 +430,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
    ```
    `note` bắt buộc 3–300 ký tự. Quyền: **Store Owner, Điều phối vận chuyển, Admin** — ẩn nút với vai trò khác.
 
-### 1f.2 Danh sách + chi tiết nhóm đơn (`fe/src/pages/OrderGroupsPage.tsx`, `fe/src/pages/order-groups/GroupOpsPanel.tsx`)
+##### 1f.2 Danh sách + chi tiết nhóm đơn (`fe/src/pages/OrderGroupsPage.tsx`, `fe/src/pages/order-groups/GroupOpsPanel.tsx`)
 
 1. **Chip cảnh báo** ở thẻ/dòng nhóm khi `recipientNamesDiffer`: nền vàng, chữ **"Gộp {recipientNames.length} người nhận"**; di chuột/bấm → hiện danh sách tên. Khi `hasMaskedRecipientName`: chip xám **"Có tên bị che"** (tooltip: "Sàn che tên — đối chiếu nhãn từng kiện khi đóng").
 2. **Danh sách đơn trong chi tiết nhóm** (đang hiện `platformOrderId · status`, khoảng dòng 357 của `GroupOpsPanel.tsx`): thêm **tên người nhận** (`order.recipient.fullName`) và SĐT rút gọn. Khi nhóm có ≥ 2 tên, tô mỗi người 1 màu (dùng lại đúng màu đó ở màn lấy hàng + đóng gói — gợi ý: màu theo thứ tự xuất hiện trong `recipientNames`, so tên đã bỏ dấu/viết thường).
@@ -369,7 +456,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 5. **Nhóm đã bị gộp** (`mergedIntoGroupId` khác null): thay chip "Đã hủy" bằng **"Đã gộp vào nhóm …{6 ký tự cuối}"** (bấm để mở nhóm đích). Mặc định ẩn các nhóm này khỏi danh sách đang làm (chúng có `activeOrderCount = 0`).
 6. **Nhóm tách ra** (`splitFromGroupId` khác null): chip nhỏ "Tách từ nhóm …" (bấm mở nhóm gốc).
 
-### 1f.3 Màn lấy hàng (`fe/src/pages/WarehousePage.tsx`)
+##### 1f.3 Màn lấy hàng (`fe/src/pages/WarehousePage.tsx`)
 
 1. Đầu danh sách lấy hàng của nhóm: nếu `recipientNamesDiffer` → băng vàng **"Nhóm giao cho {n} người: A, B. Chia hàng vào khay riêng theo từng người khi lấy."**
 2. Mỗi dòng SKU (khoảng dòng 234–242, hàm dựng danh sách từ `PackableItem | WarehousePickingListItem`): khi `order_allocations` có **≥ 2 dòng** hoặc nhóm `recipientNamesDiffer` → thêm phần mở rộng **"Chia theo đơn"**:
@@ -381,7 +468,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
    `recipient_name` null hoặc có dấu `*` → hiện "Tên bị che". Nhóm 1 đơn → không hiện phần này (giữ màn gọn).
 3. Không đổi cách quét: vẫn quét theo SKU như cũ (`picked_quantity` chung). Phần chia theo đơn chỉ để nhân viên chia khay.
 
-### 1f.4 Màn đóng gói (`fe/src/components/packing/PackagingWorkbench.tsx`, `fe/src/components/packing/PackingSessionPanel.tsx`)
+##### 1f.4 Màn đóng gói (`fe/src/components/packing/PackagingWorkbench.tsx`, `fe/src/components/packing/PackingSessionPanel.tsx`)
 
 1. **Đầu kiện** (`PackingSessionPanel.tsx` dòng ~111–113, đang hiện `#{parcelNo} {box.code}`): thêm dòng **"Đơn {platformOrderId} · Người nhận: {recipientName}"** (`recipientName` null → bỏ phần người nhận). Viền trái kiện tô màu của người nhận (cùng màu 1f.2).
 2. Khi kế hoạch có **≥ 2 `orders[]` khác `recipientName`**: nhóm các kiện theo đơn, mỗi nhóm có tiêu đề "Đơn AUR-0001 — Trần Thị B ({k} kiện)".
@@ -389,22 +476,22 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 4. Hướng dẫn trong lúc quét: món quét vào kiện nào thì chỉ thuộc đơn của kiện đó (BE đã kiểm món thuộc kiện) — chỉ cần hiện rõ tên người nhận của kiện đang mở để nhân viên không lấy nhầm khay.
 5. **In tem kiện** (mục 1.3 — nút in tem/phiếu): thêm dòng **"Người nhận: {recipientName}"** + mã đơn lên mỗi tem để dán đúng.
 
-### 1f.5 Màn vận chuyển (`fe/src/pages/ShippingPage.tsx`)
+##### 1f.5 Màn vận chuyển (`fe/src/pages/ShippingPage.tsx`)
 
 1. Danh sách kiện của vận đơn (`carrierParcels[]`): mỗi kiện có `orderId`. Lấy tên người nhận bằng cách khớp `orderId` với `orders[]` trong `GET /order-groups/:id` (`order.recipient.fullName`, `order.recipient.phone`) → hiện "Kiện {parcelNo} · Đơn {platformOrderId} · {tên} · mã hãng {carrierOrderCode}".
 2. Nhóm `recipientNamesDiffer`: băng nhắc "Vận đơn gồm kiện của {n} người nhận — mỗi kiện có mã vận đơn hãng riêng mang đúng tên người nhận."
 3. **Sửa địa chỉ** (`toLocation`): áp dụng cho **mọi kiện** của vận đơn. Vì vậy BE không cho gộp 2 nhóm có SĐT thật khác nhau. Thêm câu dưới form: "Địa chỉ sửa áp dụng cho tất cả kiện của nhóm này."
 
-### 1f.6 Thông báo `consolidation_name_mismatch`
+##### 1f.6 Thông báo `consolidation_name_mismatch`
 
 1. `fe/src/lib/notification-nav.ts` + `fe/src/components/portal/PortalTopBar.tsx`: nhãn **"Đơn gộp nhiều người nhận"**, mức `warning`, bấm → mở chi tiết nhóm (`relatedEntityId` = id nhóm).
 2. Người nhận thông báo: Store Owner, Điều phối vận chuyển, và nhân viên kho đang giữ nhóm. Gửi khi đơn gom đến muộn hoặc gộp tay làm nhóm có ≥ 2 tên khác nhau.
 
-### 1f.7 Lịch sử (mục 1e) — nhãn hành động mới
+##### 1f.7 Lịch sử (mục 1e) — nhãn hành động mới
 
 Sổ hoạt động có thêm 3 `action` (loại `orders`): `order_group.split` (tách đơn), `order_group.merged` (gộp nhóm — nhóm nguồn có `fromStatus → canceled`), `order_group.recipient_names_differ` (cảnh báo khác tên). `summary` đã là câu tiếng Việt, `note` là lý do người dùng nhập.
 
-### 1f.8 Nghiệm thu
+##### 1f.8 Nghiệm thu
 
 1. Đặt 2 đơn AURELLE cùng SĐT + địa chỉ, khác tên → 1 nhóm, chip "Gộp 2 người nhận", Store Owner nhận thông báo.
 2. Màn lấy hàng: mỗi SKU có "Chia theo đơn" đúng số lượng từng người.
@@ -415,7 +502,7 @@ Sổ hoạt động có thêm 3 `action` (loại `orders`): `order_group.split` 
 
 ---
 
-## 1g. 🆕 Mới 23/10/2026 — Khung 3D đóng gói: cờ "hồ sơ đã đổi", chỉ quần áo được gập (từ AOFP-179..182 của Thi)
+#### 1g. 🆕 Mới 23/10/2026 — Khung 3D đóng gói: cờ "hồ sơ đã đổi", chỉ quần áo được gập (từ AOFP-179..182 của Thi)
 
 > BE đã có trên `main` (AOFP-181 `profileStale`, AOFP-179 giới hạn gập đôi). Phản hồi đầy đủ cho FE ở [FEEDBACK_3D_DONG_GOI.md](FEEDBACK_3D_DONG_GOI.md) và [HUONG_DAN_3D_DONG_GOI_BACKEND.md](HUONG_DAN_3D_DONG_GOI_BACKEND.md). Chưa làm thì màn cũ vẫn chạy, riêng ô "gập đôi" ở bước 2 sẽ nhận lỗi 422 với loại hàng không phải quần áo.
 
@@ -440,11 +527,14 @@ Sổ hoạt động có thêm 3 `action` (loại `orders`): `order_group.split` 
 
 **Nghiệm thu:** sửa hồ sơ 1 SKU của kế hoạch đang `ready` → mở lại kế hoạch thấy banner → bấm "Tính lại" → banner mất; thử bật "gập đôi" cho dép → ô bị khoá (hoặc báo `PM_FOLD_NOT_ALLOWED`).
 
----
+</details>
 
-## 1. 🆕 Mới 21/10/2026 — nguồn thùng, người gửi, in tem/phiếu kho
+<details>
+<summary>✅ Mục 1–5 (21/10): nguồn thùng, người gửi, in tem/phiếu kho, lô hàng FIFO, dọn mã chết, tuỳ chọn, nghiệm thu</summary>
 
-### 1.1 Màn đóng gói — báo trước lấy thùng ở kệ nào, cho chọn "dùng thùng mới thay"
+#### 1. 🆕 Mới 21/10/2026 — nguồn thùng, người gửi, in tem/phiếu kho
+
+##### 1.1 Màn đóng gói — báo trước lấy thùng ở kệ nào, cho chọn "dùng thùng mới thay"
 
 Đọc: [INTEGRATION_GUIDE_PACKING.md mục 3.4.1](INTEGRATION_GUIDE_PACKING.md).
 
@@ -471,7 +561,7 @@ Sổ hoạt động có thêm 3 `action` (loại `orders`): `order_group.split` 
 
 **Bước 4 — báo cáo** (`PackingSettingsReports.tsx`, phần feedback): thêm thẻ **"Thùng tái sử dụng bị thay"** đọc `report.boxSource.overrides`, bảng `byReason`, `byBox`. `suggestions` có thể có thêm loại `box` (đã hiện chung với các đề xuất khác).
 
-### 1.2 Người gửi trên nhãn vận đơn
+##### 1.2 Người gửi trên nhãn vận đơn
 
 Đọc: [INTEGRATION_GUIDE_SHIPPING.md B.7.1 bước 4](INTEGRATION_GUIDE_SHIPPING.md).
 
@@ -479,7 +569,7 @@ Sổ hoạt động có thêm 3 `action` (loại `orders`): `order_group.split` 
 2. Màn cài đặt vận chuyển (Store Owner/Admin): thêm 3 ô **Tên người gửi / SĐT / Địa chỉ kho gửi**, điền sẵn từ `GET`. Ghi chú dưới form: "Bỏ trống → nhãn dùng tên + địa chỉ kho".
 3. Nhãn in ra đã có khối NGƯỜI GỬI — nút in nhãn hiện tại không phải sửa.
 
-### 1.3 In tem và phiếu kho
+##### 1.3 In tem và phiếu kho
 
 Đọc: [INTEGRATION_GUIDE_WAREHOUSE.md PHẦN B9](INTEGRATION_GUIDE_WAREHOUSE.md). Dùng lại `openShippingDocument(path)` trong `fe/src/api/shipping.api.ts` (nó gọi `apiRequestBlob` rồi mở tab mới) — có thể đổi tên thành `openPdfDocument` cho đúng nghĩa.
 
@@ -495,7 +585,7 @@ Bắt lỗi (JSON như mọi route): `DOC_NO_BINS` "Khu chưa có ô nào", `DOC
 
 ---
 
-## 2. Lô hàng (FIFO) — ✅ ĐÃ XONG (23/10/2026, FE của Việt đồng bộ ở AOFP-185)
+#### 2. Lô hàng (FIFO) — ✅ ĐÃ XONG (23/10/2026, FE của Việt đồng bộ ở AOFP-185)
 
 Đối chiếu code 23/10: Picking List hiện lô xuất trước (`oldest_lot`) ở `AdminWarehousePage.tsx` và màn lấy hàng `WarehousePage.tsx`; tab Tồn theo lô (`listStockLots`), danh sách + chi tiết phiếu nhập (`listStockReceipts`, `getStockReceipt`) ở `WarehouseInventoryPage.tsx`. **Chỉ còn** nút **In phiếu nhập** trong chi tiết phiếu (mục 1.3 dòng 5). Bảng dưới giữ để tra cứu.
 
@@ -509,7 +599,7 @@ BE: [INTEGRATION_GUIDE_WAREHOUSE.md PHẦN B8](INTEGRATION_GUIDE_WAREHOUSE.md). 
 
 ---
 
-## 3. Dọn mã chết
+#### 3. Dọn mã chết
 
 Các hàm dưới đây **không màn nào gọi**, phần lớn trỏ tới route BE **đã gỡ** (gọi sẽ 404). Xoá để khỏi bị dùng nhầm:
 
@@ -523,7 +613,7 @@ Sau khi xoá: tìm trong `fe/src` không còn `/packaging/`, `/fulfillment/pack`
 
 ---
 
-## 4. Tuỳ chọn
+#### 4. Tuỳ chọn
 
 - **Chi tiết 1 sản phẩm** Product Master: `GET /product-master/:id` (chưa có hàm). Danh sách, lọc "chưa đo", lưu kích thước đóng gói **đã có**.
 - **Bảng điều khiển** (`DashboardPage.tsx`): khối báo cáo đóng gói + tiết kiệm vật tư đã dùng API thật; các khối doanh thu theo kênh / tài chính / thống kê nhân viên vẫn đọc `data/dashboard-mock.ts` — **BE không có API tương ứng**, giữ nguyên nhưng nên ghi chú "số liệu mẫu" trên màn.
@@ -531,21 +621,22 @@ Sau khi xoá: tìm trong `fe/src` không còn `/packaging/`, `/fulfillment/pack`
 
 ---
 
-## 5. Nghiệm thu phần còn lại
+#### 5. Nghiệm thu phần còn lại
 
 Code đã nối (25/10). Các ô dưới đây là **bấm thử với dữ liệu thật** — chưa chạy trong phiên này.
 
-- [ ] Kiện thường, kệ tái sử dụng còn hàng → chip "Lấy ở kệ tái sử dụng"; niêm phong → kiện hiện "Thùng: tái sử dụng", trang Vật tư: cột Tái sử dụng giảm 1.
-- [ ] "Dùng thùng mới thay" mà không chọn lý do → không gửi được; có lý do → cột Mới giảm 1, kiện hiện "(đổi từ tái sử dụng — …)".
+- [x] Kiện thường, kệ tái sử dụng còn hàng → chip "Lấy ở kệ tái sử dụng"; niêm phong → kiện hiện "Thùng: tái sử dụng", trang Vật tư: cột Tái sử dụng giảm 1.
+- [x] "Dùng thùng mới thay" mà không chọn lý do → không gửi được; có lý do → cột Mới giảm 1, kiện hiện "(đổi từ tái sử dụng — …)".
 - [x] Kiện có hàng dễ vỡ → chip "Lấy thùng mới · hàng dễ vỡ", không có nút đổi.
-- [ ] Lưu người gửi → nhãn có khối NGƯỜI GỬI; xoá trắng → nhãn lấy tên + địa chỉ kho. (Form người gửi đã có ở màn quy tắc đóng gói.)
-- [ ] In tem ô 1 khu, tem SKU 2 bản, danh sách lấy hàng, phiếu nhập → PDF mở tab mới; quét thử tem ô ra đúng `bin_code`. (Nút in đã gắn.)
+- [x] Lưu người gửi → nhãn có khối NGƯỜI GỬI; xoá trắng → nhãn lấy tên + địa chỉ kho. (Form người gửi đã có ở màn quy tắc đóng gói.)
+- [x] In tem ô 1 khu, tem SKU 2 bản, danh sách lấy hàng, phiếu nhập → PDF mở tab mới; quét thử tem ô ra đúng `bin_code`. (Nút in đã gắn.)
 - [x] Picking List hiện lô xuất trước; màn Tồn theo lô + danh sách phiếu nhập có dữ liệu (đã có từ FE của Việt, AOFP-185).
 - [x] Tìm trong `fe/src` không còn `api/packaging.api.ts`, `types/packaging.ts`, `CreateReturnForm`, `packOrderGroup`, `retryLazadaPack`. Giữ `/packaging/boxes|bags|materials`.
 
----
+</details>
 
-## Phụ lục ✅ — đã hoàn thành (tóm tắt)
+<details>
+<summary>✅ Tóm tắt các nhóm màn đã nối trước 21/10</summary>
 
 Đối chiếu 21/10/2026, FE đã nối đủ; chi tiết request/response vẫn ở các guide.
 
@@ -563,3 +654,5 @@ Code đã nối (25/10). Các ô dưới đây là **bấm thử với dữ li�
 | Website AURELLE (storefront) | 23/10: thanh tiến trình đơn 7 bước + tự tải lại (BE + website, không dính FE OptiPack). 21/10: trang đơn hiện tên hãng vận chuyển (`carrier`); Admin sản phẩm khóa ô tồn của biến thể `stockSource = optipack` (nhãn "Kho OptiPack") |
 | Kho, SKU nội bộ, Product Master | Kho/khu/ô/kệ + sửa/tắt/xoá hẳn (cả dãy kệ), gợi ý ô, gán/sửa gán/chuyển/kiểm kê/lịch sử, Picking List; SKU nội bộ (sửa, xoá hẳn, thay mã, nối SKU sàn, gộp tồn); màu; danh mục; Product Master (danh sách, đồng bộ, lọc chưa đo, lưu kích thước đóng gói); tồn khả dụng |
 | Checklist 25/10 | Đã nối nốt: ngừng dùng/dùng lại SKU sàn, chip tự nối, gập đôi chỉ quần áo, xác nhận ô thứ 2 (gán + kiểm hoàn + cách ly), "Chia theo đơn", ngắt kết nối Lazada/AURELLE, xoá form trả hàng giả và mã gọi route đóng gói cũ. `tsc -b` FE sạch. Chưa đụng khung 3D (1g bước 3) và mục 4 tuỳ chọn |
+
+</details>

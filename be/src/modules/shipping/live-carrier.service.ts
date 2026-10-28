@@ -1,4 +1,4 @@
-import { HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,6 +12,9 @@ import type {
   CreateShipmentResult,
 } from '../carriers/carrier.types';
 import { buildCarrierRecipient } from '../carriers/utils/recipient-address.util';
+import { CARRIER_ERROR_CODES } from '../carriers/carriers.errors';
+import type { DemoRecipientValue } from '../carriers/utils/demo-recipient.util';
+import { DemoRecipientService } from '../carriers/demo-recipient.service';
 import { isMaskedValue } from '../orders/utils/vn-administrative-area.util';
 import { notPackableStatuses } from '../orders/order-sync-policy';
 import { Order, OrderDocument } from '../orders/schemas/order.schema';
@@ -44,7 +47,38 @@ export interface ResolvedRecipient {
   recipient: CarrierRecipient;
   /** Giá trị hệ thống tự bổ sung (tỉnh mặc định, SĐT demo) — hiện cho Coordinator thấy. */
   assumptions: string[];
+  /** 28/10/2026 — true khi địa chỉ là địa chỉ MÔ PHỎNG (đơn bị che, môi trường demo). */
+  isDemo?: boolean;
+  /** Số nhà gửi hãng lấy từ địa chỉ mô phỏng (không phải Coordinator nhập) → được tự bỏ khi GHN báo lệch phường. */
+  demoStreetUsed?: boolean;
+  /** Bản mô phỏng đã dùng (null khi địa chỉ thật). */
+  demo?: DemoRecipientValue | null;
 }
+
+/** 28/10/2026 — địa chỉ gửi hãng của 1 đơn, để màn Giao hàng điền sẵn (GET /shipping/recipients/:groupId). */
+export interface RecipientPreview {
+  orderId: string;
+  platformOrderId: string;
+  platform: string;
+  name: string;
+  phone: string | null;
+  street: string | null;
+  wardName: string | null;
+  provinceName: string | null;
+  address: string | null;
+  isDemo: boolean;
+  demoSeq: number | null;
+  assumptions: string[];
+  /** Mã lỗi khi chưa dựng được địa chỉ (VD CARRIER_ADDRESS_INCOMPLETE) — Coordinator nhập tay. */
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+/** Chuỗi có nội dung và không bị sàn che (`*`) → trả lại; ngược lại null. */
+const usableText = (value: string | null | undefined): string | null => {
+  const text = value?.trim();
+  return text && !isMaskedValue(text) ? text : null;
+};
 
 export interface ParcelBookingInput {
   clientOrderCode: string;
@@ -85,6 +119,8 @@ export class LiveCarrierService {
     @Inject(CARRIER_ADAPTER) private readonly adapter: CarrierAdapter,
     @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
     private readonly configService: ConfigService,
+    // 28/10/2026 — địa chỉ mô phỏng (chỉ đọc DB); optional để test cũ dựng service không cần.
+    @Optional() private readonly demoRecipients?: DemoRecipientService,
   ) {}
 
   /** 'ghn' | 'mock' — ghi lên vận đơn để biết đơn được tạo ở đâu. */
@@ -108,6 +144,43 @@ export class LiveCarrierService {
     return v;
   }
 
+  /** 28/10/2026 — địa chỉ mô phỏng của đơn (tính lại từ dữ liệu, KHÔNG ghi DB), null nếu không dùng. */
+  async demoRecipientOf(order: OrderDocument): Promise<DemoRecipientValue | null> {
+    return this.demoRecipients ? this.demoRecipients.resolve(order) : null;
+  }
+
+  /** Báo giá / tạo vận đơn / xem trước đều đi qua đây: tính địa chỉ mô phỏng nếu cần rồi dựng địa chỉ. */
+  async prepareRecipient(order: OrderDocument, toLocation?: ToLocationInput | null): Promise<ResolvedRecipient> {
+    const demo = await this.demoRecipientOf(order);
+    return this.resolveRecipient(order, toLocation, demo);
+  }
+
+  /**
+   * GHN báo "To address conflict" (số nhà nằm ở phường khác) với địa chỉ MÔ PHỎNG → tự gửi lại
+   * chỉ phường + tỉnh (dạng GHN đã nhận, kiểm 10/10/2026). Địa chỉ thật hoặc số nhà Coordinator
+   * nhập thì KHÔNG tự bỏ — báo lỗi như cũ để người dùng sửa.
+   */
+  private async withDemoStreetFallback<T>(
+    resolved: ResolvedRecipient,
+    call: (recipient: CarrierRecipient) => Promise<T>,
+  ): Promise<{ value: T; assumptions: string[] }> {
+    try {
+      return { value: await call(resolved.recipient), assumptions: resolved.assumptions };
+    } catch (error: unknown) {
+      const conflict = error instanceof AppException && error.errorCode === CARRIER_ERROR_CODES.ADDRESS_CONFLICT;
+      if (!conflict || !resolved.demoStreetUsed) throw error;
+      const r = resolved.recipient;
+      const withoutStreet: CarrierRecipient = { ...r, address: [r.ward_name, r.province_name].join(', ') };
+      return {
+        value: await call(withoutStreet),
+        assumptions: [
+          ...resolved.assumptions,
+          `GHN báo số nhà mô phỏng không thuộc ${r.ward_name} — đã gửi lại chỉ phường + tỉnh.`,
+        ],
+      };
+    }
+  }
+
   async loadOrder(orderId: string): Promise<OrderDocument> {
     const order = Types.ObjectId.isValid(orderId) ? await this.orderModel.findById(orderId) : null;
     if (!order) {
@@ -117,7 +190,12 @@ export class LiveCarrierService {
   }
 
   /** Địa chỉ gửi hãng cho 1 đơn: ưu tiên giá trị Coordinator nhập → dữ liệu đơn → mặc định demo. */
-  resolveRecipient(order: OrderDocument, toLocation?: ToLocationInput | null): ResolvedRecipient {
+  resolveRecipient(
+    order: OrderDocument,
+    toLocation?: ToLocationInput | null,
+    demo?: DemoRecipientValue | null,
+  ): ResolvedRecipient {
+    if (demo) return this.resolveDemoRecipient(order, demo, toLocation);
     const assumptions: string[] = [];
     const r = order.recipient;
     const usable = (v: string | null | undefined): boolean => !!v?.trim() && !isMaskedValue(v);
@@ -162,6 +240,102 @@ export class LiveCarrierService {
     return { recipient, assumptions };
   }
 
+  /**
+   * 28/10/2026 — dựng địa chỉ từ bản MÔ PHỎNG (cả bộ: số nhà + phường + tỉnh + SĐT, không trộn
+   * với phường thật của sàn để tránh GHN báo lệch). Giá trị Coordinator nhập vẫn được ưu tiên.
+   * Tên người nhận giữ nguyên tên (bị che) của sàn.
+   */
+  private resolveDemoRecipient(
+    order: OrderDocument,
+    demo: DemoRecipientValue,
+    toLocation?: ToLocationInput | null,
+  ): ResolvedRecipient {
+    const streetOverride = toLocation?.street !== undefined && toLocation.street !== null;
+    const recipient = buildCarrierRecipient(
+      {
+        full_name: order.recipient.full_name,
+        phone: demo.phone,
+        address_line1: demo.street,
+        province_name: demo.province_name,
+        district_name: null,
+        ward_name: demo.ward_name,
+      },
+      {
+        ...(streetOverride ? { street: toLocation.street ?? '' } : {}),
+        ...(toLocation?.ward_name ? { ward_name: toLocation.ward_name } : {}),
+        ...(toLocation?.province_name ? { province_name: toLocation.province_name } : {}),
+      },
+    );
+    const overridePhone = toLocation?.phone?.trim();
+    if (overridePhone) recipient.phone = overridePhone;
+    if (!recipient.name.trim()) recipient.name = 'Khách hàng';
+    return {
+      recipient,
+      assumptions: [
+        `Đơn bị che địa chỉ — dùng địa chỉ mô phỏng #${String(demo.seq)}: ${demo.street}, ${demo.ward_name}, ${demo.province_name}, SĐT ${demo.phone} (chỉ môi trường demo).`,
+      ],
+      isDemo: true,
+      demoStreetUsed: !streetOverride,
+      demo,
+    };
+  }
+
+  /** 28/10/2026 — các đơn còn giao được của nhóm (bỏ đơn đã hủy/không đóng được), cũ trước. */
+  async previewRecipientsForGroup(groupId: Types.ObjectId): Promise<RecipientPreview[]> {
+    const orders = await this.orderModel
+      .find({ consolidated_group_id: groupId, status: { $nin: notPackableStatuses() } })
+      .sort({ created_at: 1 });
+    return this.previewRecipients(orders);
+  }
+
+  /** 28/10/2026 — địa chỉ gửi hãng của từng đơn trong nhóm, để màn Giao hàng điền sẵn. */
+  async previewRecipients(orders: OrderDocument[]): Promise<RecipientPreview[]> {
+    const out: RecipientPreview[] = [];
+    for (const order of orders) {
+      const base = {
+        orderId: String(order._id),
+        platformOrderId: order.platform_order_id,
+        platform: order.platform,
+      };
+      try {
+        const resolved = await this.prepareRecipient(order);
+        const r = resolved.recipient;
+        const demo = resolved.demo ?? null;
+        out.push({
+          ...base,
+          name: r.name,
+          phone: r.phone,
+          street: demo ? demo.street : usableText(order.recipient.address_line1),
+          wardName: r.ward_name,
+          provinceName: r.province_name,
+          address: r.address,
+          isDemo: resolved.isDemo === true,
+          demoSeq: demo?.seq ?? null,
+          assumptions: resolved.assumptions,
+          errorCode: null,
+          errorMessage: null,
+        });
+      } catch (error: unknown) {
+        if (!(error instanceof AppException)) throw error;
+        out.push({
+          ...base,
+          name: order.recipient.full_name,
+          phone: null,
+          street: null,
+          wardName: null,
+          provinceName: null,
+          address: null,
+          isDemo: false,
+          demoSeq: null,
+          assumptions: [],
+          errorCode: error.errorCode,
+          errorMessage: error.message,
+        });
+      }
+    }
+    return out;
+  }
+
   /** Kiện của kế hoạch đóng gói → kích thước/cân gửi hãng (cm làm tròn lên, g nguyên dương). */
   toCarrierParcel(p: ParcelInput): CarrierParcel {
     const cm = (mm: number): number => Math.max(1, Math.ceil(mm / 10));
@@ -193,20 +367,26 @@ export class LiveCarrierService {
       const o = loaded[i];
       if (o) orders.set(id, o);
     });
+    // 28/10/2026 — dựng địa chỉ MỖI ĐƠN 1 lần (địa chỉ mô phỏng cần đọc DB) trước khi hỏi
+    // hãng song song, để các kiện cùng đơn không đọc lại nhiều lần.
+    const recipients = new Map<string, ResolvedRecipient>();
+    for (const [id, order] of orders) recipients.set(id, await this.prepareRecipient(order, toLocation));
     const assumptions = new Set<string>();
     const results = await mapWithConcurrency(parcels, QUOTE_CONCURRENCY, async (p) => {
       const order = orders.get(p.orderId ?? '') ?? (await this.loadOrder(p.orderId ?? ''));
-      const { recipient, assumptions: a } = this.resolveRecipient(order, toLocation);
+      const resolved = recipients.get(p.orderId ?? '') ?? (await this.prepareRecipient(order, toLocation));
       const carrierParcel = this.toCarrierParcel(p);
-      const preview = await this.adapter.previewShipment({
-        client_order_code: `Q-${order.platform_order_id}-${String(p.cartonIndex)}`.slice(0, 50),
-        recipient,
-        parcel: carrierParcel,
-        items: this.itemsOf(order),
-        content: `Đơn ${order.platform_order_id}`.slice(0, 200),
-        cod_amount: 0,
-        ...(service.serviceTypeId !== null ? { service_type_id: service.serviceTypeId } : {}),
-      });
+      const { value: preview, assumptions: a } = await this.withDemoStreetFallback(resolved, (recipient) =>
+        this.adapter.previewShipment({
+          client_order_code: `Q-${order.platform_order_id}-${String(p.cartonIndex)}`.slice(0, 50),
+          recipient,
+          parcel: carrierParcel,
+          items: this.itemsOf(order),
+          content: `Đơn ${order.platform_order_id}`.slice(0, 200),
+          cod_amount: 0,
+          ...(service.serviceTypeId !== null ? { service_type_id: service.serviceTypeId } : {}),
+        }),
+      );
       const volumetricG = volumetricWeightG(p.outer, service.volumetricDivisor);
       const quote: ParcelQuote = {
         orderId: p.orderId,
@@ -243,18 +423,20 @@ export class LiveCarrierService {
   /** Tạo vận đơn ở hãng cho 1 kiện (gọi lại cùng clientOrderCode an toàn — hãng trả đơn cũ). */
   async bookParcel(input: ParcelBookingInput): Promise<ParcelBookingResult> {
     const order = await this.loadOrder(input.parcel.orderId ?? '');
-    const { recipient, assumptions } = this.resolveRecipient(order, input.toLocation);
+    const resolved = await this.prepareRecipient(order, input.toLocation);
     const carrierParcel = this.toCarrierParcel(input.parcel);
-    const result = await this.adapter.createShipment({
-      client_order_code: input.clientOrderCode,
-      recipient,
-      parcel: carrierParcel,
-      items: this.itemsOf(order),
-      content: `Đơn ${order.platform_order_id}`.slice(0, 200),
-      cod_amount: 0,
-      ...(input.note ? { note: input.note.slice(0, 500) } : {}),
-      ...(input.service.serviceTypeId !== null ? { service_type_id: input.service.serviceTypeId } : {}),
-    });
+    const { value: result, assumptions } = await this.withDemoStreetFallback(resolved, (recipient) =>
+      this.adapter.createShipment({
+        client_order_code: input.clientOrderCode,
+        recipient,
+        parcel: carrierParcel,
+        items: this.itemsOf(order),
+        content: `Đơn ${order.platform_order_id}`.slice(0, 200),
+        cod_amount: 0,
+        ...(input.note ? { note: input.note.slice(0, 500) } : {}),
+        ...(input.service.serviceTypeId !== null ? { service_type_id: input.service.serviceTypeId } : {}),
+      }),
+    );
     this.logger.log(`Đã tạo vận đơn hãng ${this.adapter.code} ${result.carrier_order_code} cho ${input.clientOrderCode}.`);
     return { carrierParcel, result, assumptions };
   }

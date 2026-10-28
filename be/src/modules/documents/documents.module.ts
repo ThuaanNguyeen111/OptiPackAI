@@ -12,6 +12,7 @@ import { MasterSku, MasterSkuSchema } from '../master-skus/schemas/master-sku.sc
 import { WarehouseModule } from '../warehouse/warehouse.module';
 import { DocumentsController } from './documents.controller';
 import { DocumentsService } from './documents.service';
+import { DemoRecipientService } from '../carriers/demo-recipient.service';
 
 /** Module lá: đăng ký lại schema cần đọc; chỉ import module không phụ thuộc ngược lại Documents. */
 @Module({
@@ -30,6 +31,6 @@ import { DocumentsService } from './documents.service';
     WarehouseModule, // (21/10/2026) picking list in + phiếu nhập dùng lại WarehouseService (không vòng: Warehouse không import Documents)
   ],
   controllers: [DocumentsController],
-  providers: [DocumentsService],
+  providers: [DocumentsService, DemoRecipientService], // 28/10 — địa chỉ mô phỏng (chỉ đọc DB)
 })
 export class DocumentsModule {}
