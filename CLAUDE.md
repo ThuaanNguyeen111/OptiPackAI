@@ -4110,7 +4110,7 @@ Kiểm chứng: TypeScript không lỗi; Jest 75 suite / 840 test đều pass; `
 
 **Thiết kế (không làm luồng song song, chỉ THÊM vào code của Thi):**
 - `shipping_carriers`: `kind: 'table' | 'live'` (mặc định table), `services[].carrier_service_type_id`. Seed `be/scripts/seed-ghn-carrier.ts` (GHN, LIGHT=2, HEAVY=5). PATCH services của hãng live → 400 `SHIP_LIVE_CARRIER_SERVICES_LOCKED`.
-- `shipping/live-carrier.service.ts` (mới): cầu nối shipping ↔ carriers — `resolveRecipient` (bỏ `***`, phường từ `city` khi bị che, tỉnh mặc định `CARRIER_DEFAULT_PROVINCE`, SĐT demo `CARRIER_DEMO_RECIPIENT_PHONE`, trả `assumptions`), `toCarrierParcel` (mm→cm làm tròn lên), `quoteParcels` (Preview từng kiện → `ServiceQuote` khuôn của Thi), `bookParcel` (Create Order).
+- `shipping/live-carrier.service.ts` (mới): cầu nối shipping ↔ carriers — `resolveRecipient` (bỏ `***`, phường từ `city` khi bị che, tỉnh mặc định `CARRIER_DEFAULT_PROVINCE`, SĐT demo `CARRIER_DEMO_RECIPIENT_PHONE`, trả `assumptions`) — 🔄 MỞ RỘNG 28/10/2026: thêm địa chỉ mô phỏng cho đơn bị che (số nhà tăng dần + SĐT ngẫu nhiên, chỉ đọc DB), xem nhật ký 28/10, `toCarrierParcel` (mm→cm làm tròn lên), `quoteParcels` (Preview từng kiện → `ServiceQuote` khuôn của Thi), `bookParcel` (Create Order).
 - `ShippingService`: 2 tham số `@Optional()` cuối (LiveCarrierService, PackingPlanService); `quoteForGroup(groupId, toLocation?)` hãng live → `safeLiveQuote` (lỗi → `unavailableReason`, không được đề xuất); `quoteChosenService(..., toLocation?)` live → báo giá CHẶT; `resolveLiveService`, `isLiveCarrier`; `packagingOptions` (C6). `ParcelInput/ParcelQuote.parcelNo?`, `ServiceQuote.isLive?/unavailableReason?/assumptions?` (optional). Module import thêm `CarriersModule`, `PackingModule`, schema Order.
 - `PackingPlanService.boxOptionsForGroup` (C6, chỉ đọc): mỗi kiện thử mọi thùng bằng `solveOrder` (cùng solver/validator với change-box), trả cân ước tính, giá thùng, vật tư, tồn khả dụng.
 - `shipments` schema: `carrier_kind`, `carrier_adapter`, `booking_round`, `carrier_parcels[]` (parcel_no, order_id ObjectId, client_order_code, carrier_order_code, sort_code, cân/kích thước, fee subdoc, expected_delivery_at, carrier_status, booking_error), `to_location`, `carrier_status`, `carrier_booking_error`, `carrier_incident`, `picked_up_at`, `carrier_returned_at`, `cancelled_at`; index partial `carrier_parcels.carrier_order_code`. `shipment_events` + `source`, `carrier_status`. Collection mới `carrier_webhook_events` (unique `dedupe_key` = `OrderCode|Type|Status|Time`, payload lưu chuỗi JSON — KHÔNG Mixed).
@@ -4421,6 +4421,33 @@ Tài liệu (AOFP-184): `FE_UPDATE_CHECKLIST.md` mục 1f (nghiệp vụ + 8 bư
 
 Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 5 + 13, `API_LIST.md` mục 25, `DEMO_PLAYBOOK.md` Phần D, CLAUDE.md mục này.
 
+## 🚚 Nhật ký 28/10/2026 — Điền sẵn địa chỉ gửi hãng + địa chỉ mô phỏng cho đơn bị che (AOFP-203, 204)
+
+**[stated] Thuận hỏi/chốt:** AURELLE đã sửa thông tin người nhận khớp GHN nhưng màn Giao hàng vẫn bắt gõ tay — BE hay FE? Không muốn code cứng cho 1 sàn. Đơn Lazada (bị che) khi tới bước giao hàng hiện địa chỉ mock: số nhà tăng dần (`47/10 Nguyễn Văn Đậu`, `47/11`…), SĐT đơn đầu `0377168254`, đơn sau ngẫu nhiên đầu 09/03. Chốt qua câu hỏi: (1) dùng mock khi **đơn bị che/thiếu** (theo dữ liệu, không theo tên sàn); (2) GHN báo lệch phường → **tự gửi lại không số nhà**; (3) **giữ tên bị che** của Lazada trên nhãn; (4) phường: Thuận chọn "chạy thử GHN rồi chốt" — dùng kết quả GHN staging đã có (xem dưới); (5) **🔄 ĐÃ THAY ĐỔI cùng ngày: KHÔNG ghi DB, chỉ đọc** (bản đầu thêm `orders.demo_recipient` + collection `demo_recipient_counters` — đã bỏ trước khi commit, chưa chạy trên DB thật).
+
+**Nguyên nhân gõ tay:** BE (`resolveRecipient`) vốn đã lấy địa chỉ từ đơn khi 4 ô rỗng — 4 ô chỉ là ô sửa đè. FE `ShippingPage.tsx` luôn hiện 4 ô RỖNG nên người dùng tưởng phải nhập. Lỗi thật chỉ xảy ra khi đơn bị che (thiếu phường/tỉnh → `CARRIER_ADDRESS_INCOMPLETE`) hoặc số nhà lệch phường (`To address conflict`).
+
+**Code (chỉ BE, không đổi schema):**
+- `carriers/utils/demo-recipient.util.ts` (MỚI, hàm thuần): `needsDemoRecipient` (SĐT không phải di động 10 số / số nhà bị che / thiếu tỉnh / không có phường — phường lấy `ward_name` hoặc `city`), `formatDemoStreet` (`{n}`), `randomVietnamMobile` (15 đầu số 032–039, 090/091/093/094/096/097/098), `seededRandom` (FNV-1a + mulberry32 — cùng hạt giống ra cùng dãy), `buildDemoRecipient` (đơn số đầu = `CARRIER_DEMO_RECIPIENT_PHONE`; thiếu phường/tỉnh cấu hình → null, không đoán).
+- `carriers/demo-recipient.service.ts` (MỚI, chỉ đọc `orders`): đơn **neo** = đơn cũ nhất cần mô phỏng trong cùng `consolidated_group_id` (không có nhóm → chính nó); số thứ tự = `CARRIER_DEMO_START_NUMBER` + `countDocuments` đơn có `*` ở SĐT hoặc số nhà, tạo trước đơn neo (`created_at`, rồi `_id`); SĐT = `seededRandom(_id đơn neo)`. Provider ở `ShippingModule` + `DocumentsModule` (cả 2 đã đăng ký schema `Order`).
+- `live-carrier.service.ts`: `demoRecipientOf` → `prepareRecipient` → `resolveDemoRecipient` (dùng cả bộ số nhà + phường + tỉnh + SĐT mô phỏng, không trộn phường thật của sàn; Coordinator nhập vẫn ưu tiên; tên giữ của sàn), `withDemoStreetFallback` (chỉ địa chỉ MÔ PHỎNG + số nhà không do Coordinator gõ mới tự bỏ số nhà khi `CARRIER_ADDRESS_CONFLICT`), `previewRecipients(ForGroup)`. `quoteParcels` dựng địa chỉ mỗi đơn 1 lần trước khi hỏi hãng song song.
+- 🆕 `GET /shipping/recipients/:groupId` (Shipping, Store Owner, Admin) → `{ recipients: RecipientPreview[] }`; đơn lỗi trả `errorCode` từng dòng, không làm hỏng cả nhóm.
+- `documents.service.ts`: nhãn + phiếu đóng gói in địa chỉ/SĐT mô phỏng (+ "(địa chỉ mô phỏng)") cho đơn bị che khi bật demo, để nhãn khớp vận đơn GHN.
+- 🆕 `scripts/ghn-check-demo-address.ts` (chỉ đọc, GHN Preview): thử 3 số nhà mô phỏng đầu × các phường ứng viên để chốt `CARRIER_DEMO_WARD`.
+- Config `carrier.demoRecipient` + env `CARRIER_DEMO_RECIPIENT_ENABLED` (mặc định false), `CARRIER_DEMO_STREET_TEMPLATE`, `CARRIER_DEMO_START_NUMBER`, `CARRIER_DEMO_WARD`, `CARRIER_DEMO_PROVINCE` (`.env.example`).
+
+**Phát hiện khi làm:** "Phường 6, Quận Bình Thạnh" không còn từ 01/07/2025 — Phường 6 cũ chia vào **Bình Lợi Trung** (cùng P.5, 11, 13 cũ) và **Gia Định** (cùng P.1, 2, 7, 17 cũ). Chọn **Phường Gia Định** cho `.env.example` vì đã có kết quả GHN staging thật (10/10 và 13/10, `ghn-preview-new-address.ts`): "47/88 Nguyễn Văn Đậu" chỉ được nhận với Phường Gia Định, Bình Lợi Trung và Bình Thạnh đều `To address conflict`. Số nhà `47/10`… chưa test riêng — nếu GHN báo lệch, BE tự gửi lại không số nhà. Bug tự bắt bằng test ở bản ghi DB (xem trước cấp số 2 lần cho cùng đơn) — không còn ở bản chỉ đọc.
+
+### Kiểm chứng
+- tsc 0; eslint các file đụng 0 lỗi/0 cảnh báo; jest **toàn bộ** 122 suite đạt, 1.270 test đạt (7 skip có sẵn) — `demo-recipient.util.spec.ts` (10), `demo-recipient.service.spec.ts` (4, model giả chỉ có hàm đọc — gọi hàm ghi sẽ lỗi), 5 test mô phỏng trong `live-carrier.service.spec.ts`. **Chưa** gọi GHN thật (container không có token).
+
+### Tác động (5 câu)
+1. Dữ liệu cũ: **không đổi schema, không ghi DB, không migration**. Tắt `CARRIER_DEMO_RECIPIENT_ENABLED` → hành vi y như trước (tỉnh mặc định + SĐT demo cũ).
+2. Route đổi hành vi: khi BẬT demo, `GET /shipping/quote/:groupId`, `POST /shipments`, `/shipments/batch`, `/shipments/:id/carrier/book` gửi địa chỉ mô phỏng cho đơn bị che; `assumptions` của báo giá có câu "địa chỉ mô phỏng #n" / "đã gửi lại chỉ phường + tỉnh". Nhãn PDF in địa chỉ mô phỏng. Không mã lỗi mới. Mỗi lần dựng địa chỉ thêm 1–2 truy vấn đọc (`countDocuments` theo regex — không index, chấp nhận ở quy mô demo).
+3. Luồng đọc: báo giá, tạo vận đơn, in nhãn/phiếu đóng gói, route xem trước mới. Không ghi nên không xung đột với đồng bộ Lazada.
+4. Không ảnh hưởng: đơn AURELLE/đơn đủ địa chỉ, gộp đơn (`consolidation_key`), giữ chỗ, lấy hàng, đóng gói, hoàn hàng, write-back AURELLE, hãng mock theo bảng cước.
+5. Hạn chế: xoá bớt đơn bị che cũ khỏi DB → số nhà các đơn sau lùi lại (đã nói với Thuận); đơn tách khỏi nhóm sau khi đã gửi hãng sẽ tính lại theo đơn neo mới (vận đơn đã tạo giữ địa chỉ cũ ở GHN); số nhà `47/10`, `47/11`… chưa gọi GHN thử riêng; FE chưa điền sẵn 4 ô — `FE_UPDATE_CHECKLIST.md` mục 1 (bản 4.0 — mọi việc FE cũ đã thu gọn thành ✅ theo xác nhận của Thuận 28/10).
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4454,5 +4481,7 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 
 ### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
 22c. ✅ **25/10 — FE checklist đã nối** (trừ 1g bước 3 và mục 4 tuỳ chọn). Đã có từ trước hoặc Việt: lịch sử, dòng thời gian, tách/gộp, khoá đóng nhanh nhiều người nhận, chip tên người nhận, `profileStale`, nguồn thùng, người gửi, in PDF, nghỉ phép, kẹt SKU chưa đo, hủy đơn người bán. **Nối nốt 25/10:** ngừng dùng/dùng lại SKU sàn (`PATCH .../retire` body `{retired}`), chip tự nối, gập đôi chỉ 6 loại quần áo, xác nhận `WH_SKU_IN_OTHER_BIN` (gán ô, kiểm hoàn, cách ly), "Chia theo đơn", ngắt kết nối Lazada + AURELLE, xoá `CreateReturnForm` + `packaging.api.ts` + `types/packaging.ts`. `npx tsc -b` trong `fe/` sạch. **Chưa đụng** khung 3D (code Việt/Thi). Chưa bấm thử niêm phong/PDF với dữ liệu thật.
+22c+. ✅ 28/10 — Thuận xác nhận nốt 1g bước 3 (khung 3D) và mục 4 (tuỳ chọn) đã xong → `FE_UPDATE_CHECKLIST.md` bản 4.0 thu gọn toàn bộ việc cũ thành ✅ (khối `<details>` ở phụ lục), phần trên chỉ còn việc FE mới.
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
+22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.
