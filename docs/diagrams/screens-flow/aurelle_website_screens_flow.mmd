@@ -1,0 +1,36 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":14,"rankSpacing":40,"htmlLabels":true,"wrappingWidth":420},"themeVariables":{"fontFamily":"Arial","fontSize":"15px","primaryColor":"#FFFFFF","primaryBorderColor":"#000000","primaryTextColor":"#000000","lineColor":"#000000","clusterBkg":"#FFFFFF","clusterBorder":"#000000","edgeLabelBackground":"#FFFFFF"}}}%%
+%% Figure 9 – Screens Flow of the AURELLE website (customer, web admin, developer portal)
+%% Source of truth: storefront/app (Next.js routes) and storefront/components/layout/header.tsx
+%% Notation (same as the Report 3 template sample):
+%%   yellow box  = public screen (before login)      white box   = screen after login
+%%   rounded box = pop-up dialog                     thick box   = screen with several tabs (tabs in italics)
+flowchart TB
+  classDef pub fill:#FFF2CC,stroke:#000,stroke-width:1px,color:#0000CC
+  classDef scr fill:#FFFFFF,stroke:#000,stroke-width:1px,color:#000
+  classDef tab fill:#FFFFFF,stroke:#000,stroke-width:3px,color:#000
+  classDef pop fill:#FFFFFF,stroke:#000,stroke-width:1px,color:#000
+
+  HOME[Home Page<br/><i>header: Shop · Account · Cart</i>]:::pub
+  HOME --> SHOP[Shop<br/><i>product list, category filter</i>]:::pub
+  HOME --> ACC[My Account]:::scr
+  HOME --> CART
+  HOME -. footer link .-> DEV[Developer Portal<br/><i>Open Platform apps:<br/>app key / secret, rotate, revoke</i>]:::pub
+  SHOP --> PDP[Product Detail<br/><i>colour / size, sellable stock</i>]:::pub
+  PDP --> CART[Cart]:::pub
+  CART --> CHK[Checkout<br/><i>recipient, province / ward, COD</i>]:::scr
+  CHK -- not logged in --> CLOGIN[Customer Login]:::pub
+  ACC -- not logged in --> CLOGIN
+  CLOGIN <--> CREG[Customer Register]:::pub
+  CHK --> DONE[Order placed]:::scr
+  ACC --> ORDS[My Orders]:::scr
+  ACC --> RETS[My Returns]:::scr
+  DONE --> OD
+  ORDS --> OD[Order Detail<br/><i>7-step progress bar, events</i>]:::scr
+  OD --> CANCEL([Confirm cancel order]):::pop
+  OD --> RFORM[Return / exchange<br/>request form]:::scr
+  RFORM --> RD
+  RETS --> RD[Return Detail<br/><i>status, exchange shipment</i>]:::scr
+
+  CLOGIN -- web admin account --> WADM
+  ALOGIN[Admin Login]:::pub --> WADM[Web Admin<br/><i>product list, categories</i>]:::scr
+  WADM --> PFORM[Add / edit product<br/><i>variants, SKU from<br/>OptiPack categories</i>]:::scr

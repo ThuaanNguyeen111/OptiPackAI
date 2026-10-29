@@ -12,6 +12,7 @@ import { ReturnRequestForm } from '@/components/order/return-request-form'
 import { ApiError, cancelOrder, getOrder, getReturns } from '@/lib/api-client'
 import { getFulfillmentStatusLabel, getOrderStatusLabel, getPaymentMethodLabel, getPaymentStatusLabel } from '@/lib/order-labels'
 import { OPEN_RETURN_STATUSES } from '@/lib/order-labels'
+import { formatPromisedTime } from '@/lib/express-delivery'
 import type { StorefrontOrderDetail, StorefrontReturn } from '@/types/storefront'
 
 function formatVnd(value: number) {
@@ -112,6 +113,19 @@ export default function OrderDetailPage({ params }: { params: Promise<{ id: stri
           {order.cancelSource !== 'seller' && shortUnits > 0 && <div className="order-seller-notice" role="status">
             <strong>Kho giao thiếu {shortUnits} sản phẩm</strong>
             <p>Những sản phẩm thiếu không được tính tiền{shortRefund ? ` — giảm trừ ${formatVnd(shortRefund)}` : ''}.</p>
+          </div>}
+
+          {/* 29/10/2026 — hỏa tốc: giờ hẹn giao, shipper của shop, cảnh báo khi trễ hẹn */}
+          {order.deliveryOption === 'express' && order.status !== 'cancelled' && <div className={order.isLate ? 'order-express-box late' : 'order-express-box'} role="status">
+            {order.isLate && <strong className="order-express-late">Giao chậm hơn dự kiến</strong>}
+            <p>
+              <strong>Giao hỏa tốc</strong>
+              {order.promisedDeliveryAt && <> — dự kiến giao trước <strong>{formatPromisedTime(order.promisedDeliveryAt)}</strong></>}
+            </p>
+            {order.isLate && order.fulfillmentStatus !== 'delivered' && <p>Đơn của bạn đang được giao chậm hơn giờ hẹn. Shop đã được báo và đang ưu tiên giao sớm nhất; bạn có thể liên hệ người giao bên dưới.</p>}
+            {order.shipperName
+              ? <p>Người giao: <strong>{order.shipperName}</strong>{order.shipperPhone && <> — <a href={`tel:${order.shipperPhone}`}>{order.shipperPhone}</a></>}</p>
+              : order.fulfillmentStatus !== 'delivered' && <p>Shop sẽ cập nhật tên và số điện thoại người giao khi đơn bắt đầu đi giao.</p>}
           </div>}
 
           {order.progress && <OrderProgressBar progress={order.progress} carrier={order.carrier} trackingCode={order.trackingCode} />}

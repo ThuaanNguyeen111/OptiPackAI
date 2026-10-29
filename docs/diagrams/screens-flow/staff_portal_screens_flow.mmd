@@ -1,0 +1,66 @@
+%%{init: {"theme":"base","flowchart":{"curve":"basis","nodeSpacing":10,"rankSpacing":28,"htmlLabels":true,"wrappingWidth":420},"themeVariables":{"fontFamily":"Arial","fontSize":"17px","primaryColor":"#FFFFFF","primaryBorderColor":"#000000","primaryTextColor":"#000000","lineColor":"#000000","clusterBkg":"#FFFFFF","clusterBorder":"#000000","edgeLabelBackground":"#FFFFFF"}}}%%
+%% Figure 8 – Screens Flow of the OptiPack AI staff portal
+%% Source of truth: fe/src/App.tsx (routes) and fe/src/lib/rbac.ts (home screen and menu per role)
+%% Notation (same as the Report 3 template sample):
+%%   yellow box  = public screen (before login)      white box   = screen after login
+%%   rounded box = pop-up dialog                     thick box   = screen with several tabs (tabs in italics)
+flowchart LR
+  classDef pub fill:#FFF2CC,stroke:#000,stroke-width:1px,color:#0000CC
+  classDef scr fill:#FFFFFF,stroke:#000,stroke-width:1px,color:#000
+  classDef tab fill:#FFFFFF,stroke:#000,stroke-width:3px,color:#000
+  classDef pop fill:#FFFFFF,stroke:#000,stroke-width:1px,color:#000
+  classDef hub fill:#E8E8E8,stroke:#000,stroke-width:1px,color:#000
+
+  LAND[Landing Page]:::pub --> LOGIN[Login<br/><i>e-mail / password, Google</i>]:::pub
+  LOGIN --> FORGOT[Forgot Password]:::pub
+  FORGOT -. e-mailed link .-> RESET[Reset Password]:::pub
+  RESET --> LOGIN
+  LOGIN --> MFA([Two-factor verification<br/><i>when enabled</i>]):::pop
+  LOGIN -- first login --> CHPW[Change Password]:::scr
+  LOGIN --> HOME
+  MFA --> HOME
+  CHPW --> HOME
+  HOME{{Home screen by role}}:::hub
+
+
+  HOME -- Store Owner --> DASH[Dashboard Overview]:::scr
+    DASH --> ORD[Omnichannel Orders]:::scr --> ORDD[Order Detail]:::scr
+    DASH --> GRP[Groups & Express]:::scr
+    DASH --> SYNC[Order Sync Settings]:::scr
+    DASH --> RET[Returns]:::scr
+    DASH --> RULE[Packaging Rules]:::scr
+    DASH --> MAT[Packaging Materials]:::scr
+    DASH --> STAFF[Staff Directory]:::scr
+    DASH --> ANA[Analytics]:::scr
+
+  HOME -- Admin --> ADM[Admin Home<br/><i>user accounts</i>]:::scr
+    ADM --> TMP([Temporary password]):::pop
+    ADM --> ROLES[Roles & Permissions]:::scr
+    ADM --> MKT[Marketplace Connections]:::scr --> OAUTH[Marketplace OAuth result]:::scr
+    ADM --> AORD[Admin Orders]:::scr --> AORDD[Admin Order Detail]:::scr
+    ADM --> ASYNC[Order Sync Settings]:::scr
+    ADM --> AI[AI & Packing Settings]:::scr
+    ADM --> PLANS[Admin Packing Plans]:::scr
+    ADM --> AWH[Admin Warehouse<br/><i>Products: Categories & colours ·<br/>Internal SKUs · Map Lazada SKUs<br/>Warehouses: Zones & racks ·<br/>Assign SKU to bin · Stock · Picking route</i>]:::tab
+    ADM --> AMAT[Packaging Materials]:::scr
+    ADM --> ARET[Returns]:::scr
+
+  HOME -- Warehouse Staff --> PICK[Warehouse Picking<br/><i>To pick · Missing<br/>Picked – to pack · Packed<br/>Returns · Canceled</i>]:::tab
+    PICK --> MISS([Report missing item]):::pop
+    PICK --> DONE([Complete picking]):::pop
+    PICK --> RECV([Receive returned parcel]):::pop
+    PICK --> INV[Warehouse Inventory]:::scr
+    PICK --> WMAT[Packaging Materials]:::scr
+
+  HOME -- Packaging Staff --> PACK[Packing Station<br/><i>3D packing viewer</i>]:::scr
+    PACK --> GUIDE([Packing guide detail]):::pop
+    PACK --> REJ([Reject plan]):::pop
+    PACK --> PMAT[Packaging Materials]:::scr
+
+  HOME -- Shipping Coordinator --> SHIP[Shipping & Fulfillment<br/><i>Ready to ship · Awaiting pickup<br/>In transit · Out for delivery<br/>Failed · Returning · Delivered<br/>Back at warehouse · Cancelled</i>]:::tab
+
+  HOME -- every role --> TOPB[Top bar on every screen<br/><i>Notifications · Profile & Settings · Action History</i>]:::scr
+  TOPB --> NOTI([Notifications panel]):::pop
+  TOPB --> PROF[Profile & Settings<br/><i>two-factor setup</i>]:::scr
+  TOPB --> HIST[Action History]:::scr
+

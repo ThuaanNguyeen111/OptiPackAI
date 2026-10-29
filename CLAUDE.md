@@ -878,7 +878,7 @@ GET  /warehouse/:warehouseId/picking-list/:groupId             @Roles(WAREHOUSE_
    - **Verify cuối cùng, TOÀN BỘ project**: `tsc --noEmit` 0 lỗi, `eslint src` 0 lỗi/warning, **`jest` chạy hết 11 test suite / 108 test — 100% pass**, không suite nào cũ bị vỡ.
 6. ✅ ~~`GET /order-groups/:id/packaging`~~ — xong, trả full `PackagingRecommendation` bất kể `approval_status` (khác `findActiveRecommendationForGroup` nội bộ chỉ chấp nhận PENDING) — role xem: `PACKAGING_STAFF`, `WAREHOUSE_STAFF`, `SHIPPING_COORDINATOR`, `ADMIN` (cả 3 role fulfillment đều cần xem chi tiết ở bước của mình).
 7. 🔴 **Xóa route TẠM** `POST .../packaging/generate` khi AI thật (Package 3) xong — chưa đổi.
-8. 🔴 Package 5 (Dashboard) — vẫn chưa bắt đầu.
+8. 🔴 Package 5 (Dashboard) — vẫn chưa bắt đầu. 🔄 28/10/2026: BE đã có `GET /dashboard/summary` (nhật ký 28/10 khuya); FE còn bỏ số giả.
 9. 🟢 **MỚI — `TESTING_GUIDE.md`** (file riêng, đã giao) — hướng dẫn test tay 7 bước qua Swagger, từ sync đơn thật tới `delivered`/`returned`, kèm 3 test-case cố ý test lỗi (Optimistic Concurrency conflict, invalid transition, Reject) để tự xác nhận từng cơ chế bảo vệ hoạt động đúng — dùng khi cần demo hoặc trước khi tin tưởng 1 lượt code mới không phá luồng cũ.
 10. ✅ **MỚI — `INTEGRATION_GUIDE_FULFILLMENT.md`** (file riêng, đã giao) — tài liệu FE tích hợp 3 module `order-groups`/`packaging`/`warehouse`, cùng chuẩn với `INTEGRATION_GUIDE.md`/`INTEGRATION_GUIDE_ORDERS.md` đã có (route + role + response mẫu + bảng mã lỗi + danh sách test case bắt buộc FE tự chạy). Xem mục "Điểm yếu #9" bên dưới về phát hiện quan trọng nhất khi viết tài liệu này.
 11. 🔴 **MỚI phát hiện khi viết `INTEGRATION_GUIDE_FULFILLMENT.md`** — `packaging/`, `warehouse/` trả RAW Mongoose document (snake_case, `_id`, `__v`), KHÁC hẳn `order-groups/` đã map cẩn thận sang camelCase — xem Điểm yếu #9 bên dưới để biết cách khắc phục.
@@ -985,7 +985,7 @@ Các nhãn hoàn tất dưới đây ghi nhận API đã được thêm ở lư�
 
 ### Tầng 3 — NICE-TO-HAVE (hoãn được)
 
-14. Package 5 Dashboard — cần dữ liệu thật chạy qua hệ thống trước
+14. Package 5 Dashboard — cần dữ liệu thật chạy qua hệ thống trước. 🔄 28/10/2026: BE xong `GET /dashboard/summary`.
 15. Validate 2 SKU trùng 1 kệ (data integrity, tần suất thấp)
 16. Return-to-stock khi hoàn hàng — tự động trở thành việc cần làm SAU KHI mục 1 (Tầng 1) xong
 17. Vá double-query `getConnectedShop`+`getValidAccessToken`
@@ -1109,7 +1109,7 @@ Thêm `toResponse()` cho `PackagingRecommendationDocument` (4 route: `getCurrent
 - Field mới `OrderGroup`: `order_priority` ('normal'|'express'), `packaging_deadline`, `is_overdue` + index ESR phục vụ cron.
 - **`addBusinessHours()`** (module mới `order-groups/utils/`) — 8h-17h, TÍNH CẢ THỨ 7, KHÔNG tính Chủ Nhật (đã xác nhận với user). Xử lý đủ case biên: tạo đơn ngoài giờ hành chính (nhảy tới 8h ngày làm việc tiếp theo), tràn giờ trong ngày (cộng dồn sang hôm sau), tràn qua cuối tuần (bỏ qua Chủ Nhật). **8 test case cover đủ các case biên này.**
 - `PATCH /order-groups/:id/priority` (role `STORE_OWNER`, `ADMIN`) — đánh dấu tay, đúng kết luận đã xác minh 2 lần độc lập (Lazada không hỗ trợ tự động).
-- `ExpressOrderSlaScheduler` (cron 10 phút/lần) — quét đơn hỏa tốc sắp/đã quá hạn, gọi `NotificationsService` đúng "cổng thông báo chung" đã có (Nhóm 1: còn <1h → cảnh báo staff phụ trách; Nhóm 2: đã quá hạn → escalate Store Owner, tự đánh `is_overdue: true`, không cảnh báo lặp lại nhiều lần cho cùng 1 lần quá hạn).
+- `ExpressOrderSlaScheduler` (cron 10 phút/lần) — quét đơn hỏa tốc sắp/đã quá hạn, gọi `NotificationsService` đúng "cổng thông báo chung" đã có (Nhóm 1: còn <1h → cảnh báo staff phụ trách; Nhóm 2: đã quá hạn → escalate Store Owner, tự đánh `is_overdue: true`, không cảnh báo lặp lại nhiều lần cho cùng 1 lần quá hạn). 🔄 ĐÃ THAY ĐỔI 29/10/2026: chạy mỗi phút, 4 mốc (đóng gói + giao), mỗi mốc ghi `sla_*_at` riêng, chỉ xét nhóm chưa đóng / chưa giao xong (sửa lỗi nhóm đã xong vẫn báo "QUÁ HẠN") — xem nhật ký 29/10/2026 cuối file.
 
 ### 2 bug thật tự phát hiện + tự sửa khi verify — đều là bài học đã có sẵn trong CLAUDE.md, áp dụng lại đúng lúc
 
@@ -1527,6 +1527,8 @@ Luôn dùng `HydratedDocument<T>` (khuyến nghị từ Mongoose 8 trở lên, p
 ### 10. Dashboard/Analytics (FE-07) không query trực tiếp aggregation nặng mỗi lần load
 
 Với các con số tổng hợp tính toán tốn kém (tổng chi phí đóng gói theo tháng, hiệu suất kho...), dùng **scheduled job tính trước** (cron ghi vào collection `dashboard_snapshots`) thay vì chạy `aggregate()` phức tạp mỗi lần user mở dashboard.
+
+> 🔄 28/10/2026: `GET /dashboard/summary` hiện **tính trực tiếp** (dữ liệu đồ án nhỏ, khoảng ngày ≤ 366) — ngoại lệ có chủ đích, ghi ở nhật ký 28/10 (khuya). Chuyển sang `dashboard_snapshots` khi thời gian phản hồi bắt đầu chậm.
 
 ### 11. Property Mongoose PHẢI đặt TÊN TRỰC TIẾP bằng snake_case, không map riêng tên khác
 
@@ -4110,7 +4112,7 @@ Kiểm chứng: TypeScript không lỗi; Jest 75 suite / 840 test đều pass; `
 
 **Thiết kế (không làm luồng song song, chỉ THÊM vào code của Thi):**
 - `shipping_carriers`: `kind: 'table' | 'live'` (mặc định table), `services[].carrier_service_type_id`. Seed `be/scripts/seed-ghn-carrier.ts` (GHN, LIGHT=2, HEAVY=5). PATCH services của hãng live → 400 `SHIP_LIVE_CARRIER_SERVICES_LOCKED`.
-- `shipping/live-carrier.service.ts` (mới): cầu nối shipping ↔ carriers — `resolveRecipient` (bỏ `***`, phường từ `city` khi bị che, tỉnh mặc định `CARRIER_DEFAULT_PROVINCE`, SĐT demo `CARRIER_DEMO_RECIPIENT_PHONE`, trả `assumptions`), `toCarrierParcel` (mm→cm làm tròn lên), `quoteParcels` (Preview từng kiện → `ServiceQuote` khuôn của Thi), `bookParcel` (Create Order).
+- `shipping/live-carrier.service.ts` (mới): cầu nối shipping ↔ carriers — `resolveRecipient` (bỏ `***`, phường từ `city` khi bị che, tỉnh mặc định `CARRIER_DEFAULT_PROVINCE`, SĐT demo `CARRIER_DEMO_RECIPIENT_PHONE`, trả `assumptions`) — 🔄 MỞ RỘNG 28/10/2026: thêm địa chỉ mô phỏng cho đơn bị che (số nhà tăng dần + SĐT ngẫu nhiên, chỉ đọc DB), xem nhật ký 28/10, `toCarrierParcel` (mm→cm làm tròn lên), `quoteParcels` (Preview từng kiện → `ServiceQuote` khuôn của Thi), `bookParcel` (Create Order).
 - `ShippingService`: 2 tham số `@Optional()` cuối (LiveCarrierService, PackingPlanService); `quoteForGroup(groupId, toLocation?)` hãng live → `safeLiveQuote` (lỗi → `unavailableReason`, không được đề xuất); `quoteChosenService(..., toLocation?)` live → báo giá CHẶT; `resolveLiveService`, `isLiveCarrier`; `packagingOptions` (C6). `ParcelInput/ParcelQuote.parcelNo?`, `ServiceQuote.isLive?/unavailableReason?/assumptions?` (optional). Module import thêm `CarriersModule`, `PackingModule`, schema Order.
 - `PackingPlanService.boxOptionsForGroup` (C6, chỉ đọc): mỗi kiện thử mọi thùng bằng `solveOrder` (cùng solver/validator với change-box), trả cân ước tính, giá thùng, vật tư, tồn khả dụng.
 - `shipments` schema: `carrier_kind`, `carrier_adapter`, `booking_round`, `carrier_parcels[]` (parcel_no, order_id ObjectId, client_order_code, carrier_order_code, sort_code, cân/kích thước, fee subdoc, expected_delivery_at, carrier_status, booking_error), `to_location`, `carrier_status`, `carrier_booking_error`, `carrier_incident`, `picked_up_at`, `carrier_returned_at`, `cancelled_at`; index partial `carrier_parcels.carrier_order_code`. `shipment_events` + `source`, `carrier_status`. Collection mới `carrier_webhook_events` (unique `dedupe_key` = `OrderCode|Type|Status|Time`, payload lưu chuỗi JSON — KHÔNG Mixed).
@@ -4421,6 +4423,92 @@ Tài liệu (AOFP-184): `FE_UPDATE_CHECKLIST.md` mục 1f (nghiệp vụ + 8 bư
 
 Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` mục 5 + 13, `API_LIST.md` mục 25, `DEMO_PLAYBOOK.md` Phần D, CLAUDE.md mục này.
 
+## 🚚 Nhật ký 28/10/2026 — Điền sẵn địa chỉ gửi hãng + địa chỉ mô phỏng cho đơn bị che (AOFP-203, 204)
+
+**[stated] Thuận hỏi/chốt:** AURELLE đã sửa thông tin người nhận khớp GHN nhưng màn Giao hàng vẫn bắt gõ tay — BE hay FE? Không muốn code cứng cho 1 sàn. Đơn Lazada (bị che) khi tới bước giao hàng hiện địa chỉ mock: số nhà tăng dần (`47/10 Nguyễn Văn Đậu`, `47/11`…), SĐT đơn đầu `0377168254`, đơn sau ngẫu nhiên đầu 09/03. Chốt qua câu hỏi: (1) dùng mock khi **đơn bị che/thiếu** (theo dữ liệu, không theo tên sàn); (2) GHN báo lệch phường → **tự gửi lại không số nhà**; (3) **giữ tên bị che** của Lazada trên nhãn; (4) phường: Thuận chọn "chạy thử GHN rồi chốt" — dùng kết quả GHN staging đã có (xem dưới); (5) **🔄 ĐÃ THAY ĐỔI cùng ngày: KHÔNG ghi DB, chỉ đọc** (bản đầu thêm `orders.demo_recipient` + collection `demo_recipient_counters` — đã bỏ trước khi commit, chưa chạy trên DB thật).
+
+**Nguyên nhân gõ tay:** BE (`resolveRecipient`) vốn đã lấy địa chỉ từ đơn khi 4 ô rỗng — 4 ô chỉ là ô sửa đè. FE `ShippingPage.tsx` luôn hiện 4 ô RỖNG nên người dùng tưởng phải nhập. Lỗi thật chỉ xảy ra khi đơn bị che (thiếu phường/tỉnh → `CARRIER_ADDRESS_INCOMPLETE`) hoặc số nhà lệch phường (`To address conflict`).
+
+**Code (chỉ BE, không đổi schema):**
+- `carriers/utils/demo-recipient.util.ts` (MỚI, hàm thuần): `needsDemoRecipient` (SĐT không phải di động 10 số / số nhà bị che / thiếu tỉnh / không có phường — phường lấy `ward_name` hoặc `city`), `formatDemoStreet` (`{n}`), `randomVietnamMobile` (15 đầu số 032–039, 090/091/093/094/096/097/098), `seededRandom` (FNV-1a + mulberry32 — cùng hạt giống ra cùng dãy), `buildDemoRecipient` (đơn số đầu = `CARRIER_DEMO_RECIPIENT_PHONE`; thiếu phường/tỉnh cấu hình → null, không đoán).
+- `carriers/demo-recipient.service.ts` (MỚI, chỉ đọc `orders`): đơn **neo** = đơn cũ nhất cần mô phỏng trong cùng `consolidated_group_id` (không có nhóm → chính nó); số thứ tự = `CARRIER_DEMO_START_NUMBER` + `countDocuments` đơn có `*` ở SĐT hoặc số nhà, tạo trước đơn neo (`created_at`, rồi `_id`); SĐT = `seededRandom(_id đơn neo)`. Provider ở `ShippingModule` + `DocumentsModule` (cả 2 đã đăng ký schema `Order`).
+- `live-carrier.service.ts`: `demoRecipientOf` → `prepareRecipient` → `resolveDemoRecipient` (dùng cả bộ số nhà + phường + tỉnh + SĐT mô phỏng, không trộn phường thật của sàn; Coordinator nhập vẫn ưu tiên; tên giữ của sàn), `withDemoStreetFallback` (chỉ địa chỉ MÔ PHỎNG + số nhà không do Coordinator gõ mới tự bỏ số nhà khi `CARRIER_ADDRESS_CONFLICT`), `previewRecipients(ForGroup)`. `quoteParcels` dựng địa chỉ mỗi đơn 1 lần trước khi hỏi hãng song song.
+- 🆕 `GET /shipping/recipients/:groupId` (Shipping, Store Owner, Admin) → `{ recipients: RecipientPreview[] }`; đơn lỗi trả `errorCode` từng dòng, không làm hỏng cả nhóm.
+- `documents.service.ts`: nhãn + phiếu đóng gói in địa chỉ/SĐT mô phỏng (+ "(địa chỉ mô phỏng)") cho đơn bị che khi bật demo, để nhãn khớp vận đơn GHN.
+- 🆕 `scripts/ghn-check-demo-address.ts` (chỉ đọc, GHN Preview): thử 3 số nhà mô phỏng đầu × các phường ứng viên để chốt `CARRIER_DEMO_WARD`.
+- Config `carrier.demoRecipient` + env `CARRIER_DEMO_RECIPIENT_ENABLED` (mặc định false), `CARRIER_DEMO_STREET_TEMPLATE`, `CARRIER_DEMO_START_NUMBER`, `CARRIER_DEMO_WARD`, `CARRIER_DEMO_PROVINCE` (`.env.example`).
+
+**Phát hiện khi làm:** "Phường 6, Quận Bình Thạnh" không còn — 🔄 ĐÃ SỬA 28/10 (bản đầu ghi sai "P.6 chia đôi" theo 1 bài báo): theo NQ 1278/NQ-UBTVQH15 (2024) P.6 nhập vào P.5, rồi NQ 1685/NQ-UBTVQH15 (từ 01/07/2025) P.5 + P.11 + P.13 → **Bình Lợi Trung**; **Gia Định** = P.1, 2, 7, 17 cũ. GHN lại chỉ nhận "47/x Nguyễn Văn Đậu" với Gia Định → nhiều khả năng số 47 nằm ở P.7 cũ chứ không phải P.6 (chưa kiểm bằng mã phường cũ của GHN). Chọn **Phường Gia Định** cho `.env.example` vì đã có kết quả GHN staging thật (10/10 và 13/10, `ghn-preview-new-address.ts`): "47/88 Nguyễn Văn Đậu" chỉ được nhận với Phường Gia Định, Bình Lợi Trung và Bình Thạnh đều `To address conflict`. **Đã kiểm 28/10 (Thuận chạy `ghn-check-demo-address.ts`, GHN staging):** `47/10`, `47/11`, `47/12` Nguyễn Văn Đậu + Phường Gia Định → ✅ cả 3 (20.900đ); + Phường Bình Lợi Trung → ❌ `To address conflict` cả 3. Giữ `CARRIER_DEMO_WARD=Phường Gia Định`. Bug tự bắt bằng test ở bản ghi DB (xem trước cấp số 2 lần cho cùng đơn) — không còn ở bản chỉ đọc.
+
+### Kiểm chứng
+- tsc 0; eslint các file đụng 0 lỗi/0 cảnh báo; jest **toàn bộ** 122 suite đạt, 1.270 test đạt (7 skip có sẵn) — `demo-recipient.util.spec.ts` (10), `demo-recipient.service.spec.ts` (4, model giả chỉ có hàm đọc — gọi hàm ghi sẽ lỗi), 5 test mô phỏng trong `live-carrier.service.spec.ts`. **Chưa** gọi GHN thật (container không có token).
+
+### Tác động (5 câu)
+1. Dữ liệu cũ: **không đổi schema, không ghi DB, không migration**. Tắt `CARRIER_DEMO_RECIPIENT_ENABLED` → hành vi y như trước (tỉnh mặc định + SĐT demo cũ).
+2. Route đổi hành vi: khi BẬT demo, `GET /shipping/quote/:groupId`, `POST /shipments`, `/shipments/batch`, `/shipments/:id/carrier/book` gửi địa chỉ mô phỏng cho đơn bị che; `assumptions` của báo giá có câu "địa chỉ mô phỏng #n" / "đã gửi lại chỉ phường + tỉnh". Nhãn PDF in địa chỉ mô phỏng. Không mã lỗi mới. Mỗi lần dựng địa chỉ thêm 1–2 truy vấn đọc (`countDocuments` theo regex — không index, chấp nhận ở quy mô demo).
+3. Luồng đọc: báo giá, tạo vận đơn, in nhãn/phiếu đóng gói, route xem trước mới. Không ghi nên không xung đột với đồng bộ Lazada.
+4. Không ảnh hưởng: đơn AURELLE/đơn đủ địa chỉ, gộp đơn (`consolidation_key`), giữ chỗ, lấy hàng, đóng gói, hoàn hàng, write-back AURELLE, hãng mock theo bảng cước.
+5. Hạn chế: xoá bớt đơn bị che cũ khỏi DB → số nhà các đơn sau lùi lại (đã nói với Thuận); đơn tách khỏi nhóm sau khi đã gửi hãng sẽ tính lại theo đơn neo mới (vận đơn đã tạo giữ địa chỉ cũ ở GHN); số nhà từ `47/13` trở đi chưa gọi GHN thử (47/10–47/12 đã ✅ với Gia Định, xem trên) — lệch thì BE tự gửi lại không số nhà; FE chưa điền sẵn 4 ô — `FE_UPDATE_CHECKLIST.md` mục 1 (bản 4.0 — mọi việc FE cũ đã thu gọn thành ✅ theo xác nhận của Thuận 28/10).
+
+## 🔎 Nhật ký 28/10/2026 (tối) — Rà luồng đơn gộp từ đồng bộ tới giao hàng, sửa G2/G3/G4/G7 (AOFP-207 → 211)
+
+**[stated] Thuận yêu cầu:** thêm 2 việc FE cho màn lấy hàng đơn gộp (chia khay theo đơn; lấy chung nhóm liên kết cho Warehouse Staff), rà toàn bộ luồng đơn gộp tới phần ship xem BE/FE còn thiếu gì, cập nhật tài liệu kỹ.
+
+**Cách rà:** đọc code BE `feature/thuan_be` (964080c+) và FE `main` theo 12 bước (đồng bộ, tách/gộp, giữ chỗ, lấy hàng, lấy chung, thiếu hàng, kế hoạch, đóng gói, vận đơn, nhãn, giao/hoàn, hủy, trả). Kết quả ghi ở `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9** (bảng từng bước + bảng hủy theo giai đoạn + bảng giới hạn G1–G6); việc FE ở `FE_UPDATE_CHECKLIST.md` dòng 4–5, mục 3.
+
+**Phát hiện chính (BE)** — 🔄 ĐÃ THAY ĐỔI cùng tối: Thuận chốt G1, duyệt sửa G2/G3/G4 và thêm G7 (bảng đầy đủ: guide Nghiệp vụ 9.4):
+- **G1 — gộp đơn không gộp kiện:** `PlanParcel.order_id` bắt buộc, `PACKING_MOVE_ACROSS_ORDERS`, GHN 1 kiện = 1 vận đơn. **[stated] Thuận chốt: đúng thiết kế — mỗi đơn 1 vận đơn dù cùng người nhận, để trả hàng theo đúng đơn.** Gộp đơn chỉ tiết kiệm lượt lấy hàng, không tiết kiệm phí ship; tình huống 5 của tài liệu nghiên cứu phí ship (Claude Doc) đã sửa ghi chú theo quyết định này.
+- **G2 (đã sửa, AOFP-207):** trước đây `aggregateCarrierStatus` + `enqueueStatusPush` theo `shipmentId` báo AURELLE 1 trạng thái cho cả nhóm. Giờ `applyCarrierEvent` tính trạng thái của riêng đơn có kiện (`carrierStatusOfOrder`, `orderWritebackChange` trong `shipments.service.ts`), đổi thì xếp outbox có `order_id` + `shipment_id`; `writeEvent` bỏ push gộp khi do hãng báo (`skipWriteback`); `MarketplaceWritebackService.processShipmentOrder` gửi đúng đơn kèm mã GHN, đơn đổi hàng → `sendExchange`; dòng cả vận đơn bỏ qua đơn đã giao xong.
+- **G3 (đã sửa, AOFP-208):** `buildShippingLabels` gắn `parcels[].recipient` theo đơn của kiện; renderer dùng `parcel.recipient ?? data.recipient`.
+- **G4 (đã sửa, AOFP-209):** `isUnusablePhone` + tham số `orderRef` của `computeConsolidationKeyFor` (gọi từ `syncOrders` và `recomputeConsolidationKeys`) → SĐT bị che không dùng để tự gộp.
+- **G7 (mới, AOFP-210):** `quickPack` chặn nhóm ≥ 2 đơn (`reason: 'multi_order_group'`); response nhóm thêm `packScanRequired`. Thay cho G6 (không lưu khay ở BE — Thuận đồng ý).
+- G5 giữ nguyên (tách đơn chỉ trước khi quét).
+
+**FE:** đủ cho bước 1–3, 5, 7, 11–12; còn khay theo đơn (lấy hàng chỉ có dòng chữ), lấy chung nhóm liên kết chỉ ở màn Admin, điền sẵn địa chỉ (dòng 1 từ trước).
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* G2 `shipments.service.ts`, `carrier-status.util.ts`, `marketplace-writeback.service.ts`; G3 `documents.service.ts`, `pdf/document-renderers.ts`; G4 `consolidation-key.util.ts`, `orders.service.ts`, `order-sync-settings.service.ts`; G7 `packing-session.service.ts`, `order-groups.controller.ts`. Test mới/sửa: `shipments.service.carrier.spec.ts`, `marketplace-writeback.service.spec.ts`, `documents.service.labels.spec.ts`, `consolidation-key.util.spec.ts`, `packing-plan.service.spec.ts` (2 test đóng nhanh dùng nhóm 1 đơn + test G7).
+2. *DB/migration?* Không đổi schema. Outbox ghi thêm dòng có cả `order_id` và `shipment_id` (field đã có). Khoá gộp của đơn Lazada bị che đổi từ lần đồng bộ tiếp theo; nhóm đã gộp giữ nguyên.
+3. *API/FE?* Thêm field `packScanRequired` ở response nhóm; `pack` có thêm `409 … multi_order_group` → FE checklist dòng 6 (mục 3.3). G2/G3/G4 không đổi FE.
+4. *Rủi ro?* Nhóm ≥ 2 đơn không còn "đóng nhanh" được (cố ý). Dòng outbox gộp cũ đang chờ gửi (trước khi deploy) vẫn gửi theo cách cũ. AURELLE nhận nhiều lần gọi hơn (mỗi đơn 1 lần mỗi khi trạng thái đơn đó đổi).
+5. *Kiểm chứng?* `tsc --noEmit` 0 lỗi; eslint file đổi 0 lỗi (3 cảnh báo có sẵn); `jest` 123 suite / 1283 test đạt (7 skip có sẵn). Chưa chạy thử với GHN thật cho nhóm 2 đơn.
+
+Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Group" là thiết kế 29/09).
+
+## 📊 Nhật ký 28/10/2026 (khuya) — API Bảng điều khiển `GET /dashboard/summary` (AOFP-212, docs AOFP-213)
+
+**[stated] Thuận yêu cầu:** chỉ làm phía BE cho Bảng điều khiển; việc hiển thị (thư viện, sơ đồ, bố cục) để FE tự chọn, ghi vào checklist. Trước đó đã rà `DashboardPage.tsx`: chỉ 4 số thật, còn lại là số giả trong `data/dashboard-mock.ts` + viết cứng JSX (có cả Shopee/TikTok). Doanh thu "đặt hàng hay đã giao" chưa chốt → API trả **cả hai**.
+
+**Đã làm:** module mới `be/src/modules/dashboard/` (controller, service, errors, `utils/dashboard-metrics.util.ts`, 2 file test). `GET /dashboard/summary?from&to&platform` (Store Owner, Admin), chỉ đọc, 8 khối: `actionQueue` (19 bộ đếm việc chờ lúc gọi), `sales` (kỳ này/kỳ trước/% đổi, theo sàn, theo ngày giờ VN), `delivery`, `costs`, `returns`, `express`, `warehouse`. Định nghĩa từng số: `FE_UPDATE_CHECKLIST.md` mục 4, API_LIST mục 26. `PackingReportService.summary` thêm tham số `groupIds` (lọc sàn) và được export từ `PackingModule`.
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* Thêm module `dashboard` + đăng ký ở `app.module.ts`; `packing-report.service.ts` (tham số tuỳ chọn), `packing.module.ts` (export). Không đổi route cũ.
+2. *DB/migration?* Không. Chỉ đọc 8 collection có sẵn; không thêm index (truy vấn `orders.created_at` không có index riêng — chấp nhận ở quy mô đồ án).
+3. *API/FE?* Thêm 1 route; FE checklist dòng 7 (mục 4) — bỏ số giả, FE tự chọn biểu đồ.
+4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Quy tắc DB #10 ("dashboard không chạy tổng hợp nặng mỗi lần mở, dùng `dashboard_snapshots`") — lần này **cố ý tính trực tiếp** mỗi lần gọi (giới hạn 366 ngày, đọc `select` tối thiểu) vì dữ liệu đồ án nhỏ; khi dữ liệu lớn mới chuyển sang bảng tổng hợp chạy định kỳ — quy tắc #10 vẫn là hướng đích. Thời điểm "nhận đơn" = `created_at` (lúc OptiPack đồng bộ về), không phải giờ khách đặt trên sàn. Doanh thu đã giao dựa vào vận đơn OptiPack (Lazada không được ghi ngược trạng thái).
+5. *Kiểm chứng?* `tsc` 0 lỗi; eslint module mới 0 lỗi; jest module dashboard + packing đạt; toàn bộ jest đạt. Chưa gọi thử trên dữ liệu thật.
+
+**Còn thiếu (chưa làm, cần thì báo):** thời gian lấy hàng trung bình, hiệu suất nhân viên kho / điều phối (chưa kiểm BE lưu đủ mốc thời gian).
+
+## 🚀 Nhật ký 29/10/2026 — Giao hỏa tốc AURELLE 3 giờ, shop tự giao (AOFP-214 → 219)
+
+**[stated] Thuận chốt:** website AURELLE có 2 cách giao — Tiêu chuẩn 30.000₫ (GHN) và Hỏa tốc 45.000₫; đơn từ 1 triệu miễn phí cả hai. Hỏa tốc chỉ khi phường thuộc danh sách (16 quận nội thành cũ + TP Thủ Đức + Thủ Dầu Một/Thuận An/Dĩ An, Admin AURELLE sửa được; bỏ phương án tính theo khoảng cách tới kho) và đặt 8:00–14:00 thứ 2 – thứ 7. Hẹn khách giao trước giờ đặt + 3 giờ; đóng gói xong trong 1 giờ, giao trong 2 giờ. Shop tự giao; shipper là 1 tài khoản Shipping Coordinator được chọn đích danh, chỉ người đó (hoặc Admin) bấm giao; tên + SĐT shipper gửi về website. Đơn hỏa tốc không gộp. Khách thấy giờ hẹn trên trang đơn + danh sách đơn; trễ thì hiện cảnh báo, không hoàn tiền. Cảnh báo cả 2 phía. Đơn Lazada hỏa tốc tay giữ nguyên. FE OptiPack ghi vào checklist; FE AURELLE sửa trực tiếp.
+
+**Nghiên cứu trước khi làm:** GHN chỉ nhận `service_type_id` 2 (Hàng nhẹ) và 5 (Hàng nặng), 1 và 3 bị từ chối; nội tỉnh giao trong ngày, không có gói 2–3 giờ (script `be/scripts/ghn-check-services.ts`, Thuận chạy trên Windows vì máy ảo/container không gọi được GHN) → hỏa tốc 3 giờ phải tự giao.
+
+**Đã làm:**
+- *AURELLE BE:* `express-delivery.policy.ts` (hàm thuần: vùng, giờ, phí, giờ hẹn, trễ), `express-delivery-wards.ts` (91 phường mặc định, sinh từ bảng chuyển đổi phường cũ → mới của `vietnam-divisions-js@3`), `StorefrontExpressService` + `StorefrontAdminExpressController` (`/storefront/admin/express/wards|orders`), `GET /storefront/delivery-options`, checkout nhận `delivery_option` + kiểm lại, đơn lưu `delivery_option`/`promised_delivery_at`, response `deliveryOption`/`promisedDeliveryAt`/`isLate`/`shipperName`/`shipperPhone`; Open API gửi `delivery_option`, `promised_delivery_time`; nhận `shipper_name`/`shipper_phone`. Collection mới `storefront_settings`.
+- *AURELLE FE (`storefront/`):* trang thanh toán chọn cách giao (khoá + lý do, tải lại mỗi phút), trang đơn "dự kiến giao trước HH:mm" + shipper + khung "Giao chậm hơn dự kiến", danh sách đơn nhãn "Hỏa tốc"/"Trễ", Admin website mục "Giao hỏa tốc" (chọn phường, bảng đơn có "Trễ").
+- *OptiPack:* đơn mang `delivery_option`/`promised_delivery_at`; đơn hỏa tốc có khoá gom riêng `sha256(platform|express|mã đơn)` (kể cả khi tính lại khoá); nhóm tự gắn `order_priority: express`, `requires_self_delivery`, `packaging_deadline` = hẹn − 2 giờ, `delivery_deadline`; chặn gộp (`ORD_GROUP_MERGE_EXPRESS`) và đổi ưu tiên tay (`ORD_GROUP_PRIORITY_LOCKED`); `GET /order-groups` trang 1 ghim nhóm hỏa tốc chưa xong lên đầu; `GET /shipments/shippers`; `POST /shipments` nhận `shipper_id`, nhóm hỏa tốc không qua hãng, không gộp chuyến; chỉ shipper được giao (hoặc Admin) bấm giao/thất bại/giao lại; writeback gửi tên + SĐT shipper; Bảng điều khiển `express` dùng hạn giao khi có.
+- *Sửa lỗi:* cron SLA trước đây không xét trạng thái nhóm nên nhóm đã đóng/giao xong vẫn bị báo "QUÁ HẠN" — giờ 4 mốc, mỗi mốc chỉ xét nhóm chưa xong bước đó, báo 1 lần.
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* BE `storefront` module (sửa + 5 file mới), `be/scripts/aurelle-mock-server.ts`, OptiPack `orders/`, `order-groups/`, `shipments/`, `marketplace-writeback/`, `marketplace-integration/` (Lazada-shape + AURELLE adapter), `dashboard.service.ts`, `objectid-fields.ts`; `storefront/` (Next). Không đụng `fe/`.
+2. *DB/migration?* Field mới đều có mặc định / null: `storefront_orders.delivery_option` (standard), `promised_delivery_at`; `storefront_shipments.shipper_name|phone`; `orders.delivery_option`, `promised_delivery_at`; `order_groups.requires_self_delivery`, `delivery_deadline`, `sla_*_at`; `shipments.shipper_id` (ObjectId, đã thêm vào danh sách `objectid-fields`), `shipper_name|phone`; collection `storefront_settings`. Không cần script chuyển đổi. Sau khi triển khai, nhóm hỏa tốc Lazada tay **đang quá hạn mà chưa đóng** có thể nhận lại 1 lần báo (mốc mới còn null).
+3. *API/FE?* API_LIST mục 27; FE OptiPack checklist dòng 8 (mục 5): nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper, 6 mã lỗi mới.
+4. *Rủi ro / mâu thuẫn quy tắc?* Chưa có vai trò "Shipper" riêng — dùng Shipping Coordinator (như đã ghi ở `shipments.controller.ts`). Giờ hẹn tính từ lúc **đặt trên website**; nếu Open API chậm đồng bộ thì OptiPack mất bớt thời gian. Giới hạn ghim 50 nhóm/trang 1. Bảo đảm "trong 3 giờ" là cam kết vận hành, hệ thống chỉ cảnh báo + hiện trễ, không tự đổi sang GHN.
+5. *Kiểm chứng?* `tsc` BE 0 lỗi; eslint các file đổi 0 lỗi (3 lỗi cũ có sẵn trong `aurelle-mock-server.ts` không do lần này); jest toàn bộ 130 suite / 1324 test đạt (thêm test chính sách hỏa tốc, checkout, gom nhóm + ghim, cron 4 mốc, shipper, writeback); `storefront` `tsc` + `next build` đạt. Chưa chạy thử đầu-cuối trên dữ liệu thật (cần BE 3000 + mock 4000 + storefront 3001, đặt trong 8:00–14:00).
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4445,14 +4533,19 @@ Tài liệu (AOFP-188): `Aurelle/AURELLE_STOREFRONT_RETURNS_AND_TRACKING.md` m�
 13. Toàn bộ test dùng model giả lập → thêm test e2e với MongoDB replica set thật cho lấy → đóng → giao → hoàn.
 14. (Chỉ khi vận hành nhiều kho) 1 nhóm đơn chỉ lấy ở 1 kho; thiếu thì phải chuyển hàng giữa kho tay → tự tạo phiếu chuyển kho.
 15. Bỏ nối 1 SKU sàn khỏi dòng giữ chỗ đã gộp từ 2 SKU sàn thì dòng đó không tách được (hiếm).
+15b. 🆕 28/10 — Đơn gộp (chi tiết `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 9.4) — 🔄 ĐÃ XỬ LÝ cùng tối: G1 chốt đúng thiết kế (mỗi đơn 1 vận đơn); ✅ G2 báo trạng thái giao theo từng đơn, ✅ G3 nhãn in người nhận từng kiện, ✅ G4 SĐT bị che không tự gộp, ✅ G7 nhóm ≥ 2 đơn bắt quét khi đóng. Còn lại: G5 (tách sau khi quét) — giữ nguyên, chấp nhận được.
 
 ### D. Hoãn có chủ đích
-16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. API tổng hợp cho Dashboard (FE còn khối số liệu giả).
+16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. ~~API tổng hợp cho Dashboard~~ — ✅ BE xong 28/10 (`GET /dashboard/summary`); FE checklist dòng 7.
 
 ### E. Cấu hình
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
 
 ### F. Phần nhóm FE (`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`)
 22c. ✅ **25/10 — FE checklist đã nối** (trừ 1g bước 3 và mục 4 tuỳ chọn). Đã có từ trước hoặc Việt: lịch sử, dòng thời gian, tách/gộp, khoá đóng nhanh nhiều người nhận, chip tên người nhận, `profileStale`, nguồn thùng, người gửi, in PDF, nghỉ phép, kẹt SKU chưa đo, hủy đơn người bán. **Nối nốt 25/10:** ngừng dùng/dùng lại SKU sàn (`PATCH .../retire` body `{retired}`), chip tự nối, gập đôi chỉ 6 loại quần áo, xác nhận `WH_SKU_IN_OTHER_BIN` (gán ô, kiểm hoàn, cách ly), "Chia theo đơn", ngắt kết nối Lazada + AURELLE, xoá `CreateReturnForm` + `packaging.api.ts` + `types/packaging.ts`. `npx tsc -b` trong `fe/` sạch. **Chưa đụng** khung 3D (code Việt/Thi). Chưa bấm thử niêm phong/PDF với dữ liệu thật.
+22c+. 28/10 — `FE_UPDATE_CHECKLIST.md` bản 4.0 thu gọn việc cũ thành ✅ (khối `<details>` ở phụ lục). 🔄 ĐÃ SỬA cùng ngày sau khi đối chiếu code FE trên `main`: 28/30 dòng đã nối thật; **chưa làm** 1g bước 3 — `Packing3DBoxViewer.tsx` chỉ vẽ cảnh mẫu cố định, không đọc `parcels[].placements` BE đã trả (checklist mục 2) — và mục tuỳ chọn (chi tiết Product Master, khối số liệu giả ở Dashboard).
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
+22e. 🆕 28/10 (tối): màn lấy hàng đơn gộp — chia khay theo đơn (checklist dòng 4, mục 3.1), lấy chung nhóm liên kết cho Warehouse Staff (dòng 5, mục 3.2); màn đóng gói khoá "Đóng nhanh" theo `packScanRequired` (dòng 6, mục 3.3).
+22f. 🆕 29/10: đơn hỏa tốc AURELLE trên FE OptiPack — nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper (`FE_UPDATE_CHECKLIST.md` dòng 8, mục 5), chưa làm. Chạy thử đầu-cuối 1 đơn hỏa tốc (A.4) trong 8:00–14:00.
+22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.
