@@ -13,7 +13,7 @@ import {
   MarketplaceStatusOutbox,
   MarketplaceStatusOutboxDocument,
 } from '../marketplace-writeback/schemas/status-outbox.schema';
-import { enqueueStatusPush, writebackStatusForShipment } from '../marketplace-writeback/status-outbox.util';
+import { type AurelleWritebackStatus, enqueueStatusPush, writebackStatusForShipment } from '../marketplace-writeback/status-outbox.util';
 import { ShipmentEventType } from './enums/shipment-event-type.enum';
 import { DeliveryFailureReason } from './enums/delivery-failure-reason.enum';
 import { MAX_DELIVERY_ATTEMPTS, isValidShipmentTransition } from './shipment-transitions';
@@ -29,6 +29,8 @@ import { ShippingService } from '../shipping/shipping.service';
 import type { ServiceQuote } from '../shipping/utils/shipping-cost.util';
 import { LiveCarrierService, type ToLocationInput } from '../shipping/live-carrier.service';
 import { CarrierWebhookEvent, CarrierWebhookEventDocument } from './schemas/carrier-webhook-event.schema';
+import { User, UserDocument } from '../users/schemas/user.schema';
+import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
 import type { CarrierParcel } from './schemas/shipment.schema';
 import {
   GHN_INCIDENT_STATUSES,
@@ -36,10 +38,35 @@ import {
   SIMULATABLE_GHN_STATUSES,
   aggregateCarrierStatus,
   canCarrierMove,
+  carrierStatusOfOrder,
   mapGhnFailureReason,
 } from './carrier-status.util';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 28/10/2026 (G2) — Kiện `orderCode` vừa đổi sang `newStatus`: trạng thái báo sàn của ĐƠN có kiện
+ * đó có đổi không? Chỉ xét các kiện của chính đơn đó; không cho lùi (đã giao rồi mà sự kiện cũ
+ * "đang giao" tới muộn thì bỏ qua — cùng luật `canCarrierMove` của vận đơn). Trả null nếu không đổi.
+ */
+export function orderWritebackChange(
+  parcels: readonly CarrierParcel[],
+  orderCode: string,
+  newStatus: string,
+): { orderId: Types.ObjectId; status: AurelleWritebackStatus } | null {
+  const hit = parcels.find((p) => p.carrier_order_code === orderCode);
+  if (!hit) return null;
+  const orderId = String(hit.order_id);
+  const before = carrierStatusOfOrder(parcels, orderId) ?? ShipmentStatus.AWAITING_PICKUP;
+  const after = carrierStatusOfOrder(
+    parcels.map((p) => ({ order_id: p.order_id, carrier_status: p.carrier_order_code === orderCode ? newStatus : p.carrier_status })),
+    orderId,
+  );
+  if (!after || after === before || !canCarrierMove(before, after)) return null;
+  const status = writebackStatusForShipment(after);
+  if (!status || status === writebackStatusForShipment(before)) return null;
+  return { orderId: hit.order_id, status };
+}
 
 /** Hãng/dịch vụ chọn khi tạo vận đơn (gộp thi_dev 04/10/2026). */
 export interface CarrierChoice {
@@ -111,6 +138,9 @@ type ShipmentExtras = Partial<
     | 'carrier_adapter'
     | 'to_location'
     | 'due_at'
+    | 'shipper_id'
+    | 'shipper_name'
+    | 'shipper_phone'
   >
 >;
 
@@ -171,7 +201,46 @@ export class ShipmentsService {
     @Optional() private readonly configService?: ConfigService,
     // 20/10/2026 — hàng đợi ghi ngược trạng thái lên sàn (AURELLE).
     @Optional() @InjectModel(MarketplaceStatusOutbox.name) private readonly statusOutboxModel?: Model<MarketplaceStatusOutboxDocument>,
+    // 29/10/2026 — shipper của shop (hỏa tốc tự giao). Optional: test cũ dựng service bằng tay.
+    @Optional() @InjectModel(User.name) private readonly userModel?: Model<UserDocument>,
   ) {}
+
+  /** 29/10/2026 — người đi giao được: Shipping Coordinator đang hoạt động, không nghỉ phép. */
+  async listShippers(now: Date = new Date()): Promise<{ id: string; name: string; phone: string | null; email: string }[]> {
+    if (!this.userModel) return [];
+    const users = await this.userModel
+      .find({ role: UserRole.SHIPPING_COORDINATOR, is_active: true, $and: [notOnLeaveFilter(now)] })
+      .select('name phone email')
+      .sort({ name: 1 })
+      .lean();
+    return users.map((u) => ({ id: String(u._id), name: u.name, phone: u.phone?.trim() ? u.phone : null, email: u.email }));
+  }
+
+  private async resolveShipper(shipperId: string): Promise<{ shipper_id: Types.ObjectId; shipper_name: string; shipper_phone: string | null }> {
+    const user = this.userModel !== undefined && Types.ObjectId.isValid(shipperId)
+      ? await this.userModel.findById(shipperId).select('name phone role is_active on_leave on_leave_until').lean()
+      : null;
+    if (user?.role !== UserRole.SHIPPING_COORDINATOR || !user.is_active || isOnLeave(user)) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.SHIPPER_INVALID,
+        'Shipper phải là tài khoản Shipping Coordinator đang làm việc (không nghỉ phép, chưa bị khoá).',
+        HttpStatus.UNPROCESSABLE_ENTITY,
+        { shipperId },
+      );
+    }
+    return { shipper_id: user._id, shipper_name: user.name, shipper_phone: user.phone?.trim() ? user.phone : null };
+  }
+
+  /** 29/10/2026 — vận đơn đã giao cho 1 shipper: chỉ người đó (hoặc Admin) bấm các mốc giao. */
+  private assertShipperActor(shipment: ShipmentDocument, actor: ShipmentActor): void {
+    if (!shipment.shipper_id || actor.role === UserRole.ADMIN || String(shipment.shipper_id) === actor.userId) return;
+    throw new AppException(
+      SHIPMENT_ERROR_CODES.NOT_ASSIGNED_SHIPPER,
+      `Vận đơn ${shipment.shipment_code} đang do ${shipment.shipper_name ?? 'shipper khác'} giao — chỉ người đó hoặc Admin cập nhật được.`,
+      HttpStatus.FORBIDDEN,
+      { shipmentId: shipment._id.toString(), shipperId: String(shipment.shipper_id) },
+    );
+  }
 
   /** (05/10/2026) Nhóm còn kiện của đơn đã hủy chưa tháo → chưa được giao. */
   private async assertNothingToUnpack(orderGroupId: string): Promise<void> {
@@ -237,8 +306,22 @@ export class ShipmentsService {
     note?: string,
     groupExpectedVersion?: number,
     carrier?: CarrierChoice,
+    shipperId?: string,
   ): Promise<ShipmentDocument> {
     const group = await this.orderGroupsService.findOrderGroupById(orderGroupId);
+    // 29/10/2026 — hỏa tốc (khách AURELLE trả phí, hẹn 3 giờ): shop tự giao, bắt buộc chọn shipper.
+    if (group.requires_self_delivery && carrier) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.EXPRESS_SELF_DELIVERY_REQUIRED,
+        'Nhóm giao hỏa tốc do shop tự giao — không chọn hãng vận chuyển. Bỏ carrier_code/service_code, chọn shipper_id.',
+        HttpStatus.CONFLICT,
+        { orderGroupId },
+      );
+    }
+    if (group.requires_self_delivery && !shipperId) {
+      throw new AppException(SHIPMENT_ERROR_CODES.SHIPPER_REQUIRED, 'Nhóm giao hỏa tốc phải chọn shipper (shipper_id).', HttpStatus.BAD_REQUEST, { orderGroupId });
+    }
+    const shipper = shipperId ? await this.resolveShipper(shipperId) : null;
     const reusable = await this.assertNoShipment(group);
     if (carrier?.pickupAt) this.assertPickupNotPast(carrier.pickupAt);
 
@@ -263,6 +346,11 @@ export class ShipmentsService {
 
     const created = await this.runInTransaction(async (session) => {
       const extras: ShipmentExtras = { note: note ?? null };
+      if (shipper) Object.assign(extras, shipper);
+      if (group.requires_self_delivery) {
+        // Hạn giao = giờ hẹn khách trên website (giờ đặt + 3 giờ), không theo giờ hành chính.
+        Object.assign(extras, { carrier_name: 'Shop tự giao (hỏa tốc)', service_name: 'Hỏa tốc 3 giờ', due_at: group.delivery_deadline ?? undefined });
+      }
       if (quote) Object.assign(extras, this.quoteExtras(quote, new Date(), carrier?.pickupAt));
       if (live) Object.assign(extras, this.liveExtras(carrier?.toLocation));
       const shipment = await this.createShipmentDoc(group, actor, session, extras, {
@@ -299,6 +387,7 @@ export class ShipmentsService {
   async markDelivered(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, groupExpectedVersion?: number): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
     this.assertNotCarrierManaged(shipment);
+    this.assertShipperActor(shipment, actor);
     return this.applyTransition(shipment, expectedVersion, [
       { to: ShipmentStatus.DELIVERED, eventType: ShipmentEventType.DELIVERED, actor, note },
     ], { delivered_at: new Date() }, { target: GroupFulfillmentStatus.DELIVERED, expectedVersion: groupExpectedVersion });
@@ -315,6 +404,7 @@ export class ShipmentsService {
     }
     const shipment = await this.getShipment(shipmentId);
     this.assertNotCarrierManaged(shipment);
+    this.assertShipperActor(shipment, actor);
     const autoReturn = reason === DeliveryFailureReason.CUSTOMER_REFUSED || shipment.attempt_count >= shipment.max_attempts;
 
     const steps: TransitionStep[] = [
@@ -355,6 +445,7 @@ export class ShipmentsService {
   async retryDelivery(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, overrideReason?: string): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
     this.assertNotCarrierManaged(shipment);
+    this.assertShipperActor(shipment, actor);
     const notBefore = shipment.next_attempt_not_before ?? null;
     const tooEarly = notBefore !== null && notBefore.getTime() > Date.now();
     if (tooEarly && !overrideReason?.trim()) {
@@ -602,7 +693,7 @@ export class ShipmentsService {
     from: ShipmentStatus | null,
     step: TransitionStep,
     session: ClientSession,
-    meta: { source?: string | null; carrierStatus?: string | null } = {},
+    meta: { source?: string | null; carrierStatus?: string | null; skipWriteback?: boolean } = {},
   ): Promise<void> {
     await this.eventModel.create([{
       ...(meta.source ? { source: meta.source } : {}),
@@ -621,7 +712,9 @@ export class ShipmentsService {
     }], { session });
 
     // 20/10/2026 — báo sàn (AURELLE) cùng transaction: shipped/delivered/failed_delivery/...
-    const writebackStatus = writebackStatusForShipment(step.to);
+    // 28/10/2026 (G2) — sự kiện hãng của vận đơn có kiện theo đơn: báo sàn theo TỪNG đơn
+    // (applyCarrierEvent → enqueueOrderPush), không báo trạng thái gộp của cả vận đơn.
+    const writebackStatus = meta.skipWriteback ? null : writebackStatusForShipment(step.to);
     if (writebackStatus) {
       await enqueueStatusPush(
         this.statusOutboxModel,
@@ -689,6 +782,15 @@ export class ShipmentsService {
     const reusable = new Map<string, ShipmentDocument | null>();
     for (const id of uniqueIds) {
       const group = await this.orderGroupsService.findOrderGroupById(id);
+      // 29/10/2026 — nhóm hỏa tốc không đi hãng, không giao chung chuyến.
+      if (group.requires_self_delivery) {
+        throw new AppException(
+          SHIPMENT_ERROR_CODES.EXPRESS_SELF_DELIVERY_REQUIRED,
+          `Nhóm ${id} giao hỏa tốc do shop tự giao — tạo vận đơn riêng bằng POST /shipments (kèm shipper_id), không qua hãng / chuyến chung.`,
+          HttpStatus.CONFLICT,
+          { orderGroupId: id },
+        );
+      }
       if (group.fulfillment_status !== GroupFulfillmentStatus.PACKED) {
         throw new AppException(
           SHIPMENT_ERROR_CODES.GROUP_NOT_READY,
@@ -1365,10 +1467,21 @@ export class ShipmentsService {
       const from = shipment.status;
       const extraSet: Record<string, unknown> = { carrier_status: status };
       if (status === 'returned') extraSet.carrier_returned_at = at;
+      // 28/10/2026 (G2) — trạng thái báo sàn của RIÊNG đơn có kiện này (null = đơn đó không đổi).
+      const orderPush = orderWritebackChange(shipment.carrier_parcels ?? [], orderCode, status);
+      const pushReason = reasonCode ?? reasonText;
 
       if (!target || !canCarrierMove(from, target)) {
         // Không đổi trạng thái vận đơn (đến lệch thứ tự / trùng / đã kết thúc) — vẫn lưu trạng thái kiện.
-        await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters });
+        if (!orderPush) {
+          await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters });
+        } else {
+          // Vận đơn giữ nguyên nhưng đơn của kiện này đã đổi (VD kiện A giao xong, kiện B còn chạy) → báo sàn cho đơn A.
+          await this.runInTransaction(async (session) => {
+            await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters, session });
+            await this.enqueueOrderPush(shipment, orderPush, at, pushReason, session);
+          });
+        }
         return { result: `recorded:${from}${target ? `->${target}(bỏ qua)` : ''}`, shipmentId: shipment._id };
       }
 
@@ -1394,7 +1507,8 @@ export class ShipmentsService {
           actor,
           reasonCode,
           note: `${doc.carrier_name ?? 'Hãng'}: ${label} (mã ${orderCode}, ${sourceLabel})${reasonText ? ` — ${reasonText}` : ''}`,
-        }, session, { source, carrierStatus: status });
+        }, session, { source, carrierStatus: status, skipWriteback: true });
+        if (orderPush) await this.enqueueOrderPush(doc, orderPush, at, pushReason, session);
         await this.moveGroupForCarrier(doc, target, session);
         return doc;
       });
@@ -1416,6 +1530,34 @@ export class ShipmentsService {
       return { result: `applied:${from}->${target}`, shipmentId: updated._id };
     }
     throw new AppException(SHIPMENT_ERROR_CODES.STATE_CONFLICT, `Vận đơn có mã hãng ${orderCode} đổi liên tục — thử lại sau.`, HttpStatus.CONFLICT);
+  }
+
+  /**
+   * 28/10/2026 (G2) — Xếp hàng báo sàn trạng thái giao của RIÊNG 1 đơn (cùng transaction với
+   * việc lưu trạng thái kiện). Khóa gồm thời điểm sự kiện: mỗi lần đơn đổi trạng thái thật là 1
+   * dòng riêng (giao lại sau thất bại vẫn báo được), sự kiện hãng gửi lại không tạo dòng mới vì
+   * `orderWritebackChange` chỉ trả kết quả khi trạng thái của đơn thật sự đổi.
+   */
+  private async enqueueOrderPush(
+    shipment: ShipmentDocument,
+    push: { orderId: Types.ObjectId; status: AurelleWritebackStatus },
+    at: Date,
+    reason: string | null,
+    session: ClientSession,
+  ): Promise<void> {
+    await enqueueStatusPush(
+      this.statusOutboxModel,
+      {
+        orderGroupId: shipment.order_group_id,
+        shipmentId: shipment._id,
+        orderId: push.orderId,
+        status: push.status,
+        reason,
+        eventTime: at,
+        discriminator: `${String(shipment.booking_round ?? 1)}.${String(at.getTime())}`,
+      },
+      session,
+    );
   }
 
   /**

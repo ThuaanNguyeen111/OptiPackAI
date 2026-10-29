@@ -31,7 +31,7 @@ import {
 } from './dto/shipping.dto';
 import type { ShippingCarrierDocument } from './schemas/shipping-carrier.schema';
 import { ShippingService, type GroupQuote, type PackagingOptionsResult, type ShippingSettingsView } from './shipping.service';
-import type { ToLocationInput } from './live-carrier.service';
+import type { RecipientPreview, ToLocationInput } from './live-carrier.service';
 
 /** Query địa chỉ → ToLocationInput (bỏ field không gửi). */
 function toLocationOf(q: ToLocationDto): ToLocationInput | null {
@@ -150,6 +150,16 @@ export class ShippingController {
   async quote(@Param('groupId') groupId: string, @Query() q: QuoteQueryDto): Promise<GroupQuote> {
     // C4 (14/10/2026) — query địa chỉ (street/ward_name/province_name/phone) chỉ dùng cho hãng API.
     return this.shippingService.quoteForGroup(groupId, toLocationOf(q));
+  }
+
+  @Get('recipients/:groupId')
+  @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '28/10/2026 — Địa chỉ hệ thống SẼ gửi hãng cho từng đơn của nhóm (lấy từ đơn; đơn bị che + bật CARRIER_DEMO_RECIPIENT_ENABLED → địa chỉ mô phỏng, isDemo=true). FE điền sẵn 4 ô địa chỉ ở màn Giao hàng; đơn chưa dựng được địa chỉ trả errorCode (VD CARRIER_ADDRESS_INCOMPLETE) để Coordinator nhập tay. Chỉ đọc — không ghi DB; gọi lại ra cùng địa chỉ.',
+  })
+  async recipients(@Param('groupId') groupId: string): Promise<{ recipients: RecipientPreview[] }> {
+    return { recipients: await this.shippingService.recipientsForGroup(groupId) };
   }
 
   @Get('packaging-options/:groupId')

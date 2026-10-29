@@ -33,6 +33,9 @@ import { nextPublicOrderId, type CounterCollection } from './storefront-counter.
 import { calculateOrderTotal } from './storefront-pricing';
 import { sellableQuantity } from './storefront-stock.util';
 import { buildOrderProgress, orderDisplayStatus, type ProgressInput } from './storefront-order-progress';
+import { StorefrontExpressService } from './storefront-express.service';
+import { DEFAULT_EXPRESS_WARDS } from './express-delivery-wards';
+import { EXPRESS_UNAVAILABLE_TEXT, expressUnavailableReason, isExpressLate, promisedDeliveryAt } from './express-delivery.policy';
 
 @Injectable()
 export class StorefrontOrdersService {
@@ -49,6 +52,8 @@ export class StorefrontOrdersService {
     private readonly webhookPublisher: AurelleWebhookPublisher,
     // 21/10/2026 — để danh sách/chi tiết đơn biết đơn đang có yêu cầu trả hàng chưa xong (Optional: spec cũ dựng service bằng new).
     @Optional() @InjectModel(StorefrontReturnRequest.name) private readonly returnModel?: Model<StorefrontReturnRequestDocument>,
+    // 29/10/2026 — danh sách phường giao hỏa tốc (Optional: spec cũ dựng service bằng new → dùng danh sách mặc định).
+    @Optional() private readonly express?: StorefrontExpressService,
   ) {}
 
   /** Yêu cầu trả hàng CHƯA xử lý xong của từng đơn (1 truy vấn cho cả danh sách). Mỗi đơn tối đa 1 phiếu mở (index duy nhất). */
@@ -115,9 +120,18 @@ export class StorefrontOrdersService {
       };
     });
 
+    // 29/10/2026 — giao hỏa tốc: kiểm lại ở BE (phường trong danh sách + 8:00–14:00 thứ 2–7), không tin trình duyệt.
+    const deliveryOption = dto.delivery_option ?? 'standard';
+    const placedAt = new Date();
+    if (deliveryOption === 'express') {
+      const wards = this.express ? (await this.express.wards()).wards : [...DEFAULT_EXPRESS_WARDS];
+      const reason = expressUnavailableReason(dto.shipping_address.province, dto.shipping_address.ward, placedAt, wards);
+      if (reason) throw new BadRequestException(sfError(SF_ERROR_CODES.EXPRESS_UNAVAILABLE, EXPRESS_UNAVAILABLE_TEXT[reason]));
+    }
+
     const subtotal = itemDocs.reduce((sum, item) => sum + item.line_total, 0);
     const discountAmount = 0;
-    const { shippingFee, total } = calculateOrderTotal(subtotal, discountAmount);
+    const { shippingFee, total } = calculateOrderTotal(subtotal, discountAmount, deliveryOption);
     let order: StorefrontOrderDocument;
     try {
       order = await this.orderModel.create({
@@ -134,7 +148,9 @@ export class StorefrontOrdersService {
         currency: 'VND',
         shipping_address_snapshot: dto.shipping_address,
         customer_note: dto.customer_note ?? '',
-        placed_at: new Date(),
+        placed_at: placedAt,
+        delivery_option: deliveryOption,
+        promised_delivery_at: deliveryOption === 'express' ? promisedDeliveryAt(placedAt) : null,
       });
     } catch (error) {
       if (!dto.client_order_id || !this.isDuplicateKeyError(error)) throw error;
@@ -197,6 +213,9 @@ export class StorefrontOrdersService {
       items,
       trackingCode: shipment?.tracking_number && shipment.tracking_number.length > 0 ? shipment.tracking_number : null,
       tripCode: shipment?.trip_code ?? null,
+      // 29/10/2026 — hỏa tốc (shop tự giao): shipper OptiPack báo về.
+      shipperName: shipment?.shipper_name ?? null,
+      shipperPhone: shipment?.shipper_phone ?? null,
       // 21/10/2026 — tên hãng OptiPack báo về; bản ghi cũ ghi sẵn "OptiPack" → coi như chưa biết.
       carrier: shipment?.carrier && shipment.carrier !== 'OptiPack' ? shipment.carrier : null,
       events: events.map((event) => ({
@@ -294,6 +313,15 @@ export class StorefrontOrdersService {
       // 23/10/2026 — chặng chi tiết + nhãn trạng thái DUY NHẤT cho cả danh sách lẫn chi tiết đơn.
       trackingStage: (order.tracking_stage as string | null | undefined) ?? null,
       displayStatus: orderDisplayStatus(this.progressInput(order)),
+      // 29/10/2026 — cách giao + giờ hẹn (hỏa tốc) + trễ hẹn (chưa giao mà quá giờ, hoặc giao sau giờ hẹn).
+      deliveryOption: (order.delivery_option as 'standard' | 'express' | undefined) ?? 'standard',
+      promisedDeliveryAt: (order.promised_delivery_at as Date | null | undefined) ?? null,
+      isLate: isExpressLate({
+        delivery_option: order.delivery_option,
+        promised_delivery_at: order.promised_delivery_at,
+        status: order.status,
+        delivered_at: order.fulfillment_status === 'delivered' ? order.fulfillment_updated_at : null,
+      }, new Date()),
     };
   }
 

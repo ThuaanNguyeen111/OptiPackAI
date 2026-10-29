@@ -41,9 +41,10 @@ function makeRow(overrides: Record<string, unknown> = {}): Record<string, unknow
 function build(options: {
   rows: Record<string, unknown>[];
   orders?: { platform_order_id: string; shop_id: string }[];
-  shipment?: { tracking_code: string | null; trip_code: string | null } | null;
+  shipment?: { tracking_code: string | null; trip_code: string | null; shipper_name?: string; shipper_phone?: string } | null;
   updateOrderStatus?: jest.Mock<Promise<void>, [string, Record<string, unknown>]>;
   rma?: Record<string, unknown> | null;
+  single?: Record<string, unknown> | null;
   updateReturnStatus?: jest.Mock<Promise<void>, [string, Record<string, unknown>]>;
 }) {
   const outboxUpdate = jest.fn<Promise<object>, [Record<string, unknown>, { $set: Record<string, unknown> }]>().mockResolvedValue({});
@@ -51,7 +52,7 @@ function build(options: {
     find: jest.fn(() => chain(options.rows)),
     updateOne: outboxUpdate,
   };
-  const orderModel = { find: jest.fn(() => chain(options.orders ?? [])) };
+  const orderModel = { find: jest.fn(() => chain(options.orders ?? [])), findOne: jest.fn(() => chain(options.single ?? null)) };
   const shipmentModel = { findById: jest.fn(() => chain(options.shipment ?? null)) };
   const updateOrderStatus: jest.Mock<Promise<void>, [string, Record<string, unknown>]> =
     options.updateOrderStatus ?? jest.fn<Promise<void>, [string, Record<string, unknown>]>().mockResolvedValue(undefined);
@@ -93,6 +94,16 @@ describe('MarketplaceWritebackService.processPending', () => {
       idempotencyKey: 'grp:g1:packed:3:720000001',
     });
     expect(outboxUpdate.mock.calls.at(-1)?.[1]).toMatchObject({ $set: { state: 'sent' } });
+  });
+
+  it('hỏa tốc (shop tự giao): gửi kèm tên + SĐT shipper cho website', async () => {
+    const { service, updateOrderStatus } = build({
+      rows: [makeRow({ status: 'shipped', shipment_id: new Types.ObjectId() })],
+      orders: [{ platform_order_id: '720000001', shop_id: 'S1' }],
+      shipment: { tracking_code: 'SHP-H', trip_code: null, shipper_name: 'Cường', shipper_phone: '0901000111' },
+    });
+    await service.processPending();
+    expect(updateOrderStatus.mock.calls[0]?.[1]).toMatchObject({ shipperName: 'Cường', shipperPhone: '0901000111' });
   });
 
   it('nhóm không còn đơn AURELLE hiệu lực thì bỏ qua, không gọi sàn', async () => {
@@ -236,6 +247,62 @@ describe('Vận đơn qua hãng thật (21/10/2026)', () => {
     await service.processPending();
     expect(updateOrderStatus.mock.calls[0]?.[1]).toMatchObject({ orderId: '720000001', trackingCode: 'L88K7P', carrier: 'Giao Hàng Nhanh' });
     expect(updateOrderStatus.mock.calls[1]?.[1]).toMatchObject({ orderId: '720000002', trackingCode: 'L88K7Q' });
+  });
+});
+
+//!=============================================
+// G2 (28/10/2026) — mỗi đơn 1 vận đơn hãng: trạng thái giao báo về sàn theo TỪNG đơn.
+//!=============================================
+describe('G2 — trạng thái giao theo từng đơn của nhóm gộp', () => {
+  const orderA = new Types.ObjectId();
+  const orderB = new Types.ObjectId();
+  const shipment = {
+    tracking_code: 'SHP-1',
+    trip_code: null,
+    carrier_name: 'Giao Hàng Nhanh',
+    carrier_kind: 'live',
+    carrier_booking_error: null,
+    carrier_parcels: [
+      { order_id: orderA, carrier_order_code: 'L88K7P', carrier_status: 'delivered' },
+      { order_id: orderB, carrier_order_code: 'L88K7Q', carrier_status: 'returned' },
+    ],
+  };
+
+  it('dòng của riêng 1 đơn → chỉ gửi đơn đó, kèm mã GHN của đơn đó', async () => {
+    const { service, updateOrderStatus } = build({
+      rows: [makeRow({ status: 'delivered', order_id: orderA, shipment_id: new Types.ObjectId(), idempotency_key: `ord:${orderA.toString()}:delivered:1.1` })],
+      single: { _id: orderA, platform_order_id: '720000001', shop_id: 'S1', origin: 'marketplace' },
+      shipment,
+    });
+    const result = await service.processPending();
+    expect(result.sent).toBe(1);
+    expect(updateOrderStatus).toHaveBeenCalledTimes(1);
+    expect(updateOrderStatus.mock.calls[0]?.[1]).toMatchObject({ orderId: '720000001', status: 'delivered', trackingCode: 'L88K7P', carrier: 'Giao Hàng Nhanh' });
+  });
+
+  it('kho quét nhận hàng hoàn (dòng của cả vận đơn) → đơn A đã giao KHÔNG bị báo "returned"', async () => {
+    const { service, updateOrderStatus } = build({
+      rows: [makeRow({ status: 'returned', shipment_id: new Types.ObjectId() })],
+      orders: [
+        { _id: orderA, platform_order_id: '720000001', shop_id: 'S1' },
+        { _id: orderB, platform_order_id: '720000002', shop_id: 'S1' },
+      ] as never,
+      shipment,
+    });
+    await service.processPending();
+    expect(updateOrderStatus).toHaveBeenCalledTimes(1);
+    expect(updateOrderStatus.mock.calls[0]?.[1]).toMatchObject({ orderId: '720000002', status: 'returned' });
+  });
+
+  it('đơn đã hủy / không phải AURELLE → bỏ qua, không gọi sàn', async () => {
+    const { service, updateOrderStatus } = build({
+      rows: [makeRow({ status: 'delivered', order_id: orderA, shipment_id: new Types.ObjectId() })],
+      single: null,
+      shipment,
+    });
+    const result = await service.processPending();
+    expect(result.skipped).toBe(1);
+    expect(updateOrderStatus).not.toHaveBeenCalled();
   });
 });
 

@@ -76,6 +76,12 @@ export interface OrderGroupResponse {
   recipientNames: string[];
   recipientNamesDiffer: boolean;
   hasMaskedRecipientName: boolean;
+  /**
+   * 28/10/2026 (G7) — đóng gói nhóm này BẮT BUỘC quét từng món vào đúng kiện ("đóng nhanh" bị
+   * chặn): nhóm còn ≥ 2 đơn hiệu lực (mỗi đơn 1 vận đơn riêng — món sai kiện = sai đơn khi trả
+   * hàng) hoặc khác tên người nhận. Chưa gồm cài đặt `require_scan` chung của kho.
+   */
+  packScanRequired: boolean;
   /** 23/10/2026 — tách/gộp tay: nhóm sinh ra từ nhóm nào / đã gộp vào nhóm nào. */
   splitFromGroupId: string | null;
   mergedIntoGroupId: string | null;
@@ -86,6 +92,9 @@ export interface OrderGroupResponse {
   orderPriority: string;
   packagingDeadline: Date | null;
   isOverdue: boolean;
+  /** 29/10/2026 — hỏa tốc khách chọn trên AURELLE: shop tự giao (POST /shipments + shipper_id), hẹn giao `deliveryDeadline`. */
+  requiresSelfDelivery: boolean;
+  deliveryDeadline: Date | null;
   version: number;
   createdAt: Date;
   updatedAt: Date;
@@ -144,6 +153,7 @@ export function toResponse(
     recipientNames: counts.recipientNames ?? [],
     recipientNamesDiffer: counts.recipientNamesDiffer === true,
     hasMaskedRecipientName: counts.hasMaskedRecipientName === true,
+    packScanRequired: counts.activeOrderCount >= 2 || counts.recipientNamesDiffer === true,
     splitFromGroupId: group.split_from_group_id?.toString() ?? null,
     mergedIntoGroupId: group.merged_into_group_id?.toString() ?? null,
     consolidationClosed: group.consolidation_closed === true,
@@ -154,6 +164,9 @@ export function toResponse(
     orderPriority: group.order_priority,
     packagingDeadline: group.packaging_deadline,
     isOverdue: group.is_overdue,
+    // Nhóm tạo trước 29/10/2026 chưa có field (lean) → coi như false.
+    requiresSelfDelivery: (group.requires_self_delivery as boolean | undefined) === true,
+    deliveryDeadline: group.delivery_deadline ?? null,
     version: group.__v,
     createdAt: group.created_at ?? new Date(0),
     updatedAt: group.updated_at ?? new Date(0),
@@ -249,7 +262,7 @@ export class OrderGroupsController {
   )
   @ApiOperation({
     summary:
-      'Danh sách Order Group, mới nhất trước — lọc theo fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng) / stock_shortage / is_overdue / packing_blocked (22/10: kẹt đóng gói vì SKU chưa đo) / q (22/10: đuôi mã nhóm hoặc mã đơn sàn). Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
+      'Danh sách Order Group, mới nhất trước (🆕 29/10: nhóm hỏa tốc chưa giao xong được ghim đầu trang đầu, sắp theo hạn đóng gói; ?order_priority=normal thì không ghim) — lọc theo fulfillment_status / assigned_staff_id (người lấy) / assigned_packer_id (người đóng) / stock_shortage / is_overdue / packing_blocked (22/10: kẹt đóng gói vì SKU chưa đo) / q (22/10: đuôi mã nhóm hoặc mã đơn sàn). Mặc định 100 dòng (tối đa 200); trang kế: ?before=<createdAt dòng cuối>.',
   })
   async list(
     @Query() query: ListOrderGroupsQueryDto,

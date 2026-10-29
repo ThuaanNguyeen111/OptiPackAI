@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -33,6 +33,8 @@ import { BinLocation, BinLocationDocument } from '../warehouse/schemas/bin-locat
 import { WarehouseZone, WarehouseZoneDocument } from '../warehouse/schemas/warehouse-zone.schema';
 import { WarehouseService } from '../warehouse/warehouse.service';
 import { MasterSku, MasterSkuDocument } from '../master-skus/schemas/master-sku.schema';
+import { DemoRecipientService } from '../carriers/demo-recipient.service';
+import type { DemoRecipientValue } from '../carriers/utils/demo-recipient.util';
 
 /** (21/10/2026) Giới hạn tem mỗi lần in — tránh dựng PDF hàng nghìn trang làm treo máy chủ. */
 const MAX_LABELS = 500;
@@ -63,6 +65,25 @@ const addressOf = (r: RecipientLike): string => {
 };
 
 /**
+ * 28/10/2026 — người nhận in trên chứng từ: đơn dùng địa chỉ MÔ PHỎNG (demo, đơn bị che — tính
+ * lại từ dữ liệu, không lưu DB) thì in đúng địa chỉ + SĐT đã gửi hãng, để nhãn khớp vận đơn GHN;
+ * tên giữ nguyên tên của sàn.
+ */
+const printRecipientOf = (
+  order: Pick<OrderDocument, 'recipient'>,
+  demo: DemoRecipientValue | null,
+): { fullName: string; phone: string; address: string } => {
+  if (demo) {
+    return {
+      fullName: order.recipient.full_name,
+      phone: demo.phone,
+      address: `${demo.street}, ${demo.ward_name}, ${demo.province_name} (địa chỉ mô phỏng)`,
+    };
+  }
+  return { fullName: order.recipient.full_name, phone: order.recipient.phone, address: addressOf(order.recipient) };
+};
+
+/**
  * Dựng dữ liệu chứng từ từ DB rồi giao cho renderer thuần (pdf/document-renderers).
  * Chỉ ĐỌC — không đổi trạng thái nào.
  */
@@ -86,6 +107,8 @@ export class DocumentsService {
     private readonly masterSkuModel: Model<MasterSkuDocument>,
     private readonly orderGroupsService: OrderGroupsService,
     private readonly warehouseService: WarehouseService,
+    // 28/10/2026 — địa chỉ mô phỏng cho đơn bị che (chỉ đọc). Optional để test cũ dựng service không cần.
+    @Optional() private readonly demoRecipients?: DemoRecipientService,
   ) {}
 
   private assertId(id: string, field: string): Types.ObjectId {
@@ -230,6 +253,10 @@ export class DocumentsService {
     };
   }
 
+  private async demoOf(order: OrderDocument): Promise<DemoRecipientValue | null> {
+    return this.demoRecipients ? this.demoRecipients.resolve(order) : null;
+  }
+
   private async loadActiveOrders(groupId: Types.ObjectId): Promise<OrderDocument[]> {
     return this.orderModel
       .find({
@@ -263,12 +290,13 @@ export class DocumentsService {
       );
     }
     const parcelsByOrder = await this.parcelsByOrder(group._id);
+    const demos = await Promise.all(orders.map((o) => this.demoOf(o)));
 
     const data: PackingSlipData = {
       groupId,
       shopName: group.shop_name_snapshot,
       generatedAt: new Date(),
-      orders: orders.map((order) => {
+      orders: orders.map((order, orderIndex) => {
         const merged = new Map<
           string,
           {
@@ -294,11 +322,7 @@ export class DocumentsService {
         const parcels = parcelsByOrder.get(String(order._id)) ?? [];
         return {
           platformOrderId: order.platform_order_id,
-          recipient: {
-            fullName: order.recipient.full_name,
-            phone: order.recipient.phone,
-            address: addressOf(order.recipient),
-          },
+          recipient: printRecipientOf(order, demos.at(orderIndex) ?? null),
           items: [...merged.values()],
           parcels: parcels.map((p) => ({
             index: p.parcelNo - 1,
@@ -329,11 +353,7 @@ export class DocumentsService {
     const parcelsByOrder = await this.parcelsByOrder(group._id);
     const recipientOrder = orders[0];
     const recipient = recipientOrder
-      ? {
-          fullName: recipientOrder.recipient.full_name,
-          phone: recipientOrder.recipient.phone,
-          address: addressOf(recipientOrder.recipient),
-        }
+      ? printRecipientOf(recipientOrder, await this.demoOf(recipientOrder))
       : { fullName: '—', phone: '—', address: '—' };
 
     // C4 (14/10/2026) — vận đơn qua hãng API: mỗi kiện in mã vận đơn của hãng (GHN) cho đúng kiện.
@@ -344,10 +364,17 @@ export class DocumentsService {
     );
     const parcels: ShippingLabelData['parcels'] = [];
     for (const order of orders) {
-      for (const p of parcelsByOrder.get(String(order._id)) ?? []) {
+      const own = parcelsByOrder.get(String(order._id)) ?? [];
+      // 28/10/2026 (G3) — mỗi kiện in người nhận của CHÍNH đơn đó (khớp đơn GHN của kiện),
+      // không lấy đơn đầu tiên cho cả nhóm: nhóm gộp cùng SĐT + địa chỉ vẫn có thể khác tên.
+      const orderRecipient = own.length > 0
+        ? (order === recipientOrder ? recipient : printRecipientOf(order, await this.demoOf(order)))
+        : recipient;
+      for (const p of own) {
         const cp = carrierByParcel.get(p.parcelNo);
         parcels.push({
           orderId: order.platform_order_id,
+          recipient: orderRecipient,
           index: 0,
           total: 0,
           boxCode: p.boxCode,

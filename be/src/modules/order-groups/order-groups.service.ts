@@ -175,6 +175,35 @@ function isPackagingProfileReady(
   );
 }
 
+/**
+ * 29/10/2026 — Đơn GIAO HỎA TỐC (AURELLE): giờ hẹn khách = giờ đặt + 3 giờ (`promised_delivery_at`
+ * do website tính). Kho phải đóng gói xong trước giờ đặt + 1 giờ = giờ hẹn − 2 giờ (2 giờ còn lại
+ * cho shipper của shop). Nhóm tạo ra: ưu tiên hỏa tốc, bắt buộc tự giao.
+ */
+const EXPRESS_DELIVERY_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+export function expressGroupFields(order: { delivery_option?: string | null; promised_delivery_at?: Date | null }): Record<string, unknown> {
+  if (order.delivery_option !== 'express' || !order.promised_delivery_at) return {};
+  return {
+    order_priority: 'express',
+    requires_self_delivery: true,
+    delivery_deadline: order.promised_delivery_at,
+    packaging_deadline: new Date(order.promised_delivery_at.getTime() - EXPRESS_DELIVERY_WINDOW_MS),
+    is_overdue: false,
+  };
+}
+
+/**
+ * 29/10/2026 — nhóm hỏa tốc CÒN PHẢI XỬ LÝ (chưa giao xong / chưa hủy) được ghim lên ĐẦU danh sách
+ * nhóm đơn (mọi màn chờ: lấy hàng, đóng gói, tạo vận đơn, đang giao).
+ */
+export const EXPRESS_PINNED_EXCLUDED_STATUSES: GroupFulfillmentStatus[] = [
+  GroupFulfillmentStatus.DELIVERED,
+  GroupFulfillmentStatus.RETURNING,
+  GroupFulfillmentStatus.RETURNED,
+  GroupFulfillmentStatus.CANCELED,
+];
+
 @Injectable()
 export class OrderGroupsService {
   private readonly logger = new Logger(OrderGroupsService.name);
@@ -306,6 +335,7 @@ export class OrderGroupsService {
       // order, không sinh id mới, không cần ghi lại field trên Order.
       return this.startPickingPhase(
         await this.orderGroupModel.create({
+          ...expressGroupFields(order),
           _id: order.consolidated_group_id,
           platform: order.platform,
           shop_id: order.shop_id,
@@ -331,6 +361,7 @@ export class OrderGroupsService {
     // Đơn chưa từng có group (chưa gộp với ai) — tạo group-of-1 mới,
     // rồi ghi NGƯỢC id đó vào field consolidated_group_id vốn đang null.
     const newGroup = await this.orderGroupModel.create({
+      ...expressGroupFields(order),
       platform: order.platform,
       shop_id: order.shop_id,
       order_count: 1,
@@ -620,6 +651,15 @@ export class OrderGroupsService {
       });
     }
     const [target, source] = await Promise.all([this.loadGroupOrThrow(groupId), this.loadGroupOrThrow(sourceGroupId)]);
+    // 29/10/2026 — nhóm giao hỏa tốc (khách AURELLE trả phí, shop tự giao trong 3 giờ) luôn đi riêng.
+    if (target.requires_self_delivery || source.requires_self_delivery) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.MERGE_EXPRESS,
+        'Nhóm giao hỏa tốc luôn đi riêng (shop tự giao trong 3 giờ) — không gộp với nhóm khác.',
+        HttpStatus.CONFLICT,
+        { groupId, sourceGroupId },
+      );
+    }
     if (target.platform !== source.platform || target.shop_id !== source.shop_id) {
       throw new AppException(
         ORD_GROUP_ERROR_CODES.MERGE_SCOPE_MISMATCH,
@@ -1237,17 +1277,38 @@ export class OrderGroupsService {
     }
     if (filter.stockShortage !== undefined) query.stock_shortage = filter.stockShortage ? true : { $ne: true };
     if (filter.isOverdue !== undefined) query.is_overdue = filter.isOverdue ? true : { $ne: true };
+    const limit = Math.min(Math.max(filter.limit ?? 100, 1), 200);
+    const pinBase = { ...query };
     if (filter.before) query.created_at = { $lt: filter.before };
 
     // .lean() (Rule #12) — endpoint chỉ đọc để trả JSON, không cần
     // Document đầy đủ. Sort theo created_at mới nhất trước, tận dụng
     // ĐÚNG compound index { platform, fulfillment_status, created_at }
     // đã khai ở order-group.schema.ts (Rule #3, ESR).
-    return this.orderGroupModel
+    const regular = await this.orderGroupModel
       .find(query)
       .sort({ created_at: -1 })
-      .limit(Math.min(Math.max(filter.limit ?? 100, 1), 200))
+      .limit(limit)
       .lean();
+
+    // 29/10/2026 — nhóm HỎA TỐC còn phải xử lý được GHIM lên đầu TRANG ĐẦU (sắp theo hạn đóng gói
+    // gần nhất), cùng bộ lọc với danh sách; lọc riêng `order_priority=normal` hoặc trạng thái đã
+    // kết thúc thì không ghim. Trang sau giữ thứ tự thời gian bình thường.
+    const status = filter.fulfillmentStatus;
+    if (filter.before || filter.orderPriority === 'normal' || (status && EXPRESS_PINNED_EXCLUDED_STATUSES.includes(status))) return regular;
+    const pinnedGroups = (await this.orderGroupModel
+      .find({
+        ...pinBase,
+        order_priority: 'express',
+        ...(status ? {} : { fulfillment_status: { $nin: EXPRESS_PINNED_EXCLUDED_STATUSES } }),
+      })
+      .sort({ packaging_deadline: 1, created_at: 1 })
+      .limit(50)
+      .lean())
+      .filter((g) => g.order_priority === 'express');
+    if (pinnedGroups.length === 0) return regular;
+    const pinnedIds = new Set(pinnedGroups.map((g) => String(g._id)));
+    return [...pinnedGroups, ...regular.filter((g) => !pinnedIds.has(String(g._id)))];
   }
 
   /**
@@ -3076,7 +3137,24 @@ export class OrderGroupsService {
     priority: 'normal' | 'express',
     deadlineHours = 4,
   ): Promise<OrderGroupDocument> {
-    const update: Record<string, unknown> = { order_priority: priority };
+    // 29/10/2026 — hỏa tốc khách chọn + trả phí trên AURELLE: hạn theo giờ đặt, không đổi tay.
+    const current = await this.orderGroupModel.findById(groupId).select('requires_self_delivery').lean();
+    if (current?.requires_self_delivery) {
+      throw new AppException(
+        ORD_GROUP_ERROR_CODES.PRIORITY_LOCKED,
+        'Đơn giao hỏa tốc do khách chọn trên website (đã trả phí, hẹn giao trong 3 giờ) — không đổi mức ưu tiên được.',
+        HttpStatus.CONFLICT,
+        { groupId },
+      );
+    }
+    // Đặt lại mốc cảnh báo để mốc mới được báo lại từ đầu.
+    const update: Record<string, unknown> = {
+      order_priority: priority,
+      sla_pack_warned_at: null,
+      sla_pack_breached_at: null,
+      sla_delivery_warned_at: null,
+      sla_delivery_breached_at: null,
+    };
     if (priority === 'express') {
       update.packaging_deadline = addBusinessHours(new Date(), deadlineHours);
       update.is_overdue = false;

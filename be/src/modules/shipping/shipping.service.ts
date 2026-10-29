@@ -20,7 +20,13 @@ import {
   ShippingSettingsDocument,
 } from './schemas/shipping-settings.schema';
 import { SHIP_ERROR_CODES } from './shipping.errors';
-import { LiveCarrierService, QUOTE_CONCURRENCY, type LiveServiceRef, type ToLocationInput } from './live-carrier.service';
+import {
+  LiveCarrierService,
+  QUOTE_CONCURRENCY,
+  type LiveServiceRef,
+  type RecipientPreview,
+  type ToLocationInput,
+} from './live-carrier.service';
 import { PackingPlanService } from '../packing/packing-plan.service';
 import {
   pickRecommended,
@@ -432,6 +438,16 @@ export class ShippingService {
   async isLiveCarrier(carrierCode: string): Promise<boolean> {
     const carrier = await this.carrierModel.findOne({ code: carrierCode, is_active: true }).select('kind').lean();
     return carrier?.kind === 'live';
+  }
+
+  /**
+   * 28/10/2026 — địa chỉ hệ thống SẼ gửi hãng cho từng đơn của nhóm (từ đơn, hoặc địa chỉ mô
+   * phỏng khi đơn bị che và đang bật demo). FE dùng để điền sẵn 4 ô địa chỉ ở màn Giao hàng.
+   * Chỉ đọc: địa chỉ mô phỏng tính lại từ dữ liệu đơn, gọi nhiều lần vẫn ra cùng kết quả.
+   */
+  async recipientsForGroup(groupId: string): Promise<RecipientPreview[]> {
+    const group = await this.orderGroupsService.findOrderGroupById(groupId);
+    return this.requireLive().previewRecipientsForGroup(group._id);
   }
 
   requireLive(): LiveCarrierService {

@@ -18,6 +18,7 @@ import { CarriersModule } from '../carriers/carriers.module';
 import { PackingModule } from '../packing/packing.module';
 import { Order, OrderSchema } from '../orders/schemas/order.schema';
 import { LiveCarrierService } from './live-carrier.service';
+import { DemoRecipientService } from '../carriers/demo-recipient.service';
 
 @Module({
   imports: [
@@ -32,7 +33,7 @@ import { LiveCarrierService } from './live-carrier.service';
     PackingModule, // C6 (14/10/2026) — phương án thùng xếp vừa từng kiện (chỉ đọc)
   ],
   controllers: [ShippingController],
-  providers: [ShippingService, LiveCarrierService],
+  providers: [ShippingService, LiveCarrierService, DemoRecipientService], // 28/10 — địa chỉ mô phỏng (chỉ đọc DB)
   exports: [ShippingService, LiveCarrierService],
 })
 export class ShippingModule {}

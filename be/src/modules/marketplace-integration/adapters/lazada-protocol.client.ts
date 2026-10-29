@@ -96,6 +96,12 @@ export interface LazadaOrderRaw {
   is_cancel_pending?: string;
   cancel_trigger_time?: number;
   reverse_order_id?: string;
+  /**
+   * 29/10/2026 — CHỈ AURELLE (Lazada thật không trả): `standard` | `express` (giao hỏa tốc, shop tự
+   * giao) và giờ hẹn giao ISO 8601. Thiếu = giao thường.
+   */
+  delivery_option?: string;
+  promised_delivery_time?: string;
 }
 
 interface LazadaGetOrdersResponse {

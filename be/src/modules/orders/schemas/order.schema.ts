@@ -170,6 +170,17 @@ export class Order {
   @Prop({ type: Boolean, default: false })
   is_cancel_pending!: boolean;
 
+  /**
+   * 29/10/2026 — cách giao khách chọn trên sàn. Chỉ AURELLE có (`delivery_option` của Open API):
+   * `express` = giao hỏa tốc, shop tự giao, hẹn khách `promised_delivery_at` (giờ đặt + 3 giờ).
+   * Lazada và đơn cũ = `standard` (đơn Lazada vẫn đánh dấu hỏa tốc tay ở cấp nhóm như trước).
+   */
+  @Prop({ type: String, enum: ['standard', 'express'], default: 'standard' })
+  delivery_option!: 'standard' | 'express';
+
+  @Prop({ type: Date, default: null })
+  promised_delivery_at!: Date | null;
+
   @Prop({ type: Date, default: null })
   cancel_trigger_time!: Date | null;
 

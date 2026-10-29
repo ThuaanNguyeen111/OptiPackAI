@@ -4,7 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Order, OrderDocument } from './schemas/order.schema';
 import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
 import { notPackableStatuses, orderSyncPolicy } from './order-sync-policy';
-import { computeConsolidationKeyFor } from './utils/consolidation-key.util';
+import { computeConsolidationKeyFor, expressConsolidationKey } from './utils/consolidation-key.util';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import {
@@ -183,7 +183,17 @@ export class OrdersService {
         const rawItems = await adapter.getOrderItems(accessToken, rawOrder.order_id);
         const mapped = mapLazadaOrder(rawOrder, rawItems, platform);
         // 15/10/2026 — khoá gom theo trường Admin chọn (mặc định trùng công thức cũ).
-        mapped.consolidation_key = computeConsolidationKeyFor(platform, mapped.recipient, policy.consolidation.keyFields);
+        // 28/10/2026 (G4) — SĐT bị sàn che (VD "8**5") → không tự gom (khoá riêng của đơn).
+        mapped.consolidation_key = computeConsolidationKeyFor(
+          platform,
+          mapped.recipient,
+          policy.consolidation.keyFields,
+          `${shopId}:${mapped.platform_order_id}`,
+        );
+        // 29/10/2026 — đơn giao hỏa tốc (AURELLE) không gộp với đơn nào: nhóm riêng, shop tự giao.
+        if (mapped.delivery_option === 'express') {
+          mapped.consolidation_key = expressConsolidationKey(platform, `${shopId}:${mapped.platform_order_id}`);
+        }
 
         // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
         // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không

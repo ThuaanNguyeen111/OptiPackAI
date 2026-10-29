@@ -62,6 +62,6 @@ import { PackagingMaterialsModule } from '../packaging-materials/packaging-mater
     PackingFeedbackService,
     PackerAssignmentService,
   ],
-  exports: [PackingPlanService],
+  exports: [PackingPlanService, PackingReportService], // 28/10/2026 — Bảng điều khiển đọc chi phí bao bì
 })
 export class PackingModule {}

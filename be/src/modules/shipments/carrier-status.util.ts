@@ -92,6 +92,19 @@ export function aggregateCarrierStatus(parcelStatuses: (string | null)[]): Shipm
 }
 
 /**
+ * 28/10/2026 (G2) — Trạng thái hãng của RIÊNG 1 đơn trong vận đơn: chỉ gộp các kiện của đơn đó
+ * (mỗi đơn có vận đơn hãng riêng). Nhóm gộp 2 đơn: kiện A giao xong thì đơn A là "đã giao" dù
+ * kiện B còn đang chạy. Đơn không có kiện nào trong vận đơn → null.
+ */
+export function carrierStatusOfOrder(
+  parcels: readonly { order_id?: unknown; carrier_status?: string | null }[],
+  orderId: string,
+): ShipmentStatus | null {
+  const own = parcels.filter((p) => String(p.order_id) === orderId);
+  return aggregateCarrierStatus(own.map((p) => p.carrier_status ?? null));
+}
+
+/**
  * Luật chuyển trạng thái cho vận đơn do HÃNG quản lý (khác bảng chặt của G1):
  * webhook có thể mất hoặc đến lệch thứ tự nên được phép "nhảy" (VD chờ lấy →
  * giao thành công), nhưng:

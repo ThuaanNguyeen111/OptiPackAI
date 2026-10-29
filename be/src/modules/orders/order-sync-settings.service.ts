@@ -16,11 +16,22 @@ import {
 } from './order-sync-policy';
 import { UpdateOrderSyncSettingsDto } from './dto/order-sync-settings.dto';
 import { ORD_ERROR_CODES } from './orders.errors';
-import { computeConsolidationKeyFor } from './utils/consolidation-key.util';
+import { computeConsolidationKeyFor, expressConsolidationKey } from './utils/consolidation-key.util';
 
 /** Bản tiêu chí được nạp lại từ DB định kỳ — các instance khác thấy thay đổi trong ≤ 30 giây. */
 const REFRESH_INTERVAL_MS = 30_000;
 const RECOMPUTE_BATCH = 500;
+
+/** Đơn đọc ra để tính lại khoá gom (28/10/2026 — thêm shop + mã đơn cho G4: SĐT bị che). */
+interface RecomputeRow {
+  _id: Types.ObjectId;
+  platform: string;
+  shop_id: string;
+  platform_order_id: string;
+  recipient: Order['recipient'];
+  consolidation_key: string;
+  delivery_option?: 'standard' | 'express';
+}
 
 export interface OrderSyncSettingsHistoryItem {
   version: number;
@@ -156,17 +167,21 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     let lastId: Types.ObjectId | null = null;
     let updated = 0;
     for (;;) {
-      const orders: { _id: Types.ObjectId; platform: string; recipient: Order['recipient']; consolidation_key: string }[] = await this.orderModel
+      const orders: RecomputeRow[] = await this.orderModel
         .find({ status: { $in: UNFULFILLED_ORDER_STATUSES }, ...(lastId ? { _id: { $gt: lastId } } : {}) })
         .sort({ _id: 1 })
         .limit(RECOMPUTE_BATCH)
-        .select('platform recipient consolidation_key')
-        .lean<{ _id: Types.ObjectId; platform: string; recipient: Order['recipient']; consolidation_key: string }[]>();
+        .select('platform shop_id platform_order_id recipient consolidation_key delivery_option')
+        .lean<RecomputeRow[]>();
       if (orders.length === 0) break;
       lastId = orders[orders.length - 1]?._id ?? null;
       const ops: AnyBulkWriteOperation<OrderDocument>[] = [];
       for (const o of orders) {
-        const key = computeConsolidationKeyFor(o.platform, o.recipient, keyFields);
+        const ref = `${o.shop_id}:${o.platform_order_id}`;
+        // 29/10/2026 — đơn hỏa tốc giữ khoá riêng (không gộp) dù Admin đổi trường gom.
+        const key = o.delivery_option === 'express'
+          ? expressConsolidationKey(o.platform, ref)
+          : computeConsolidationKeyFor(o.platform, o.recipient, keyFields, ref);
         if (key !== o.consolidation_key) ops.push({ updateOne: { filter: { _id: o._id }, update: { $set: { consolidation_key: key } } } });
       }
       if (ops.length > 0) {

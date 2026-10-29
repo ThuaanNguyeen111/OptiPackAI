@@ -28,6 +28,20 @@ export class CheckoutDto {
   @IsIn(['cod']) payment_method!: 'cod';
   @IsOptional() @IsString() customer_note?: string;
   @IsOptional() @IsString() @IsNotEmpty() client_order_id?: string;
+  /** 29/10/2026 — `standard` (mặc định) | `express` (giao hỏa tốc, chỉ khi đủ điều kiện — xem GET /storefront/delivery-options). */
+  @IsOptional() @IsIn(['standard', 'express']) delivery_option?: 'standard' | 'express';
+}
+
+/** 29/10/2026 — hỏi các cách giao + phí cho địa chỉ + giá trị giỏ hiện tại. */
+export class DeliveryOptionsQueryDto {
+  @IsOptional() @IsString() @MaxLength(100) province?: string;
+  @IsOptional() @IsString() @MaxLength(120) ward?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) subtotal?: number;
+}
+
+/** 29/10/2026 — Admin AURELLE lưu danh sách phường được giao hỏa tốc (tên phường kiểu mới, TP.HCM). */
+export class UpdateExpressWardsDto {
+  @ArrayMinSize(1) @ArrayMaxSize(500) @IsString({ each: true }) @IsNotEmpty({ each: true }) @MaxLength(120, { each: true }) wards!: string[];
 }
 
 export class CancelOrderDto { @IsOptional() @IsString() @MaxLength(300) reason?: string; }

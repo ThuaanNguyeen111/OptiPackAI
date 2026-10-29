@@ -94,6 +94,16 @@ export function computeConsolidationKey(
 }
 
 /**
+ * 28/10/2026 (G4) — SĐT không dùng được để gom: sàn che bớt số (Lazada trả "8**5") hoặc quá
+ * ngắn (< 9 chữ số). `normalizePhoneNumber("8**5")` = "085" → mọi khách bị che giống nhau
+ * thành CÙNG 1 số, dễ gom nhầm 2 người khác nhau vào 1 nhóm.
+ */
+export function isUnusablePhone(phoneRaw: string | null | undefined): boolean {
+  const raw = phoneRaw ?? '';
+  return raw.includes('*') || raw.replace(/\D/g, '').length < 9;
+}
+
+/**
  * 15/10/2026 — khoá gom theo TRƯỜNG ADMIN CHỌN (order_sync_settings). Thứ tự
  * ghép cố định phone → address_line1 → city → full_name, nên với bộ mặc định
  * (phone, address_line1, city) ra ĐÚNG chuỗi của `computeConsolidationKey` cũ
@@ -103,13 +113,29 @@ export function computeConsolidationKeyFor(
   platform: string,
   recipient: { full_name?: string | null; phone?: string | null; address_line1?: string | null; city?: string | null },
   keyFields: readonly string[],
+  /**
+   * 28/10/2026 (G4) — mã riêng của đơn (shop + mã đơn sàn). Khi gom theo SĐT mà SĐT bị che /
+   * thiếu (`isUnusablePhone`), khoá nhận mã này thay cho SĐT → đơn KHÔNG tự gom với đơn nào
+   * (vẫn liên kết tay được). Không truyền → giữ hành vi cũ.
+   */
+  orderRef?: string,
 ): string {
   const parts: string[] = [platform];
-  if (keyFields.includes('phone')) parts.push(normalizePhoneNumber(recipient.phone ?? ''));
+  if (keyFields.includes('phone')) {
+    parts.push(orderRef && isUnusablePhone(recipient.phone) ? `unusable-phone:${orderRef}` : normalizePhoneNumber(recipient.phone ?? ''));
+  }
   if (keyFields.includes('address_line1')) parts.push(normalizeAddressFragment(recipient.address_line1 ?? ''));
   if (keyFields.includes('city')) parts.push(normalizeAddressFragment(recipient.city ?? ''));
   if (keyFields.includes('full_name')) parts.push(normalizeAddressFragment(recipient.full_name ?? ''));
   return createHash('sha256').update(parts.join('|')).digest('hex');
+}
+
+/**
+ * 29/10/2026 — đơn GIAO HỎA TỐC luôn có nhóm riêng (Thuận chốt): khoá gộp duy nhất theo đơn nên
+ * không đơn nào tự gộp vào được (vẫn hiện liên kết "Đi cùng" qua recipient_key).
+ */
+export function expressConsolidationKey(platform: string, orderRef: string): string {
+  return createHash('sha256').update(`${platform}|express|${orderRef}`).digest('hex');
 }
 
 /**

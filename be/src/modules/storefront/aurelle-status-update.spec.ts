@@ -192,3 +192,21 @@ describe('applyPartnerStatusUpdate — chặng chi tiết (23/10/2026)', () => {
     expect(['processing', 'in_transit', 'out_for_delivery'].every((s) => isPartnerStatus(s))).toBe(true);
   });
 });
+
+//!=============================================
+// 29/10/2026 — hỏa tốc (shop tự giao): OptiPack gửi tên + SĐT shipper, website lưu để khách liên hệ.
+//!=============================================
+describe('applyPartnerStatusUpdate — shipper hỏa tốc', () => {
+  it('out_for_delivery kèm shipper → lưu tên + SĐT vào vận đơn website', async () => {
+    const { cols, shipments } = setup();
+    await applyPartnerStatusUpdate(cols, {
+      ...base,
+      status: 'out_for_delivery',
+      carrier: 'Shop tự giao (hỏa tốc)',
+      shipperName: 'Minh',
+      shipperPhone: '0909000111',
+      idempotencyKey: 'k-ship',
+    });
+    expect(shipments.docs[0]).toMatchObject({ shipper_name: 'Minh', shipper_phone: '0909000111', carrier: 'Shop tự giao (hỏa tốc)' });
+  });
+});

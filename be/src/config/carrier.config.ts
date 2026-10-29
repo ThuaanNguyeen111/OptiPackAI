@@ -1,5 +1,12 @@
 import { registerAs } from '@nestjs/config';
 
+/** Biến môi trường rỗng/chỉ khoảng trắng coi như chưa đặt. */
+const textOrNull = (value: string | undefined): string | null => {
+  const text = value?.trim();
+  if (!text) return null;
+  return text;
+};
+
 /**
  * ===================================================================
  * CONFIG NAMESPACE "carrier" — đơn vị vận chuyển (08/10/2026, C2 — GHN)
@@ -21,6 +28,16 @@ export default registerAs('carrier', () => ({
   // Thiếu tỉnh → dùng tỉnh này; SĐT bị che/sai → dùng SĐT này khi gửi hãng.
   defaultProvince: process.env.CARRIER_DEFAULT_PROVINCE,
   demoRecipientPhone: process.env.CARRIER_DEMO_RECIPIENT_PHONE,
+  // 28/10/2026 — CHỈ MÔI TRƯỜNG DEMO: đơn bị che/thiếu địa chỉ (Lazada) được cấp 1 địa chỉ
+  // mô phỏng, lưu trên đơn: số nhà tăng dần theo mẫu + SĐT di động hợp lệ (đơn đầu tiên
+  // dùng CARRIER_DEMO_RECIPIENT_PHONE). Thiếu phường/tỉnh → tắt, không đoán.
+  demoRecipient: {
+    enabled: process.env.CARRIER_DEMO_RECIPIENT_ENABLED === 'true',
+    streetTemplate: textOrNull(process.env.CARRIER_DEMO_STREET_TEMPLATE) ?? '47/{n} Nguyễn Văn Đậu',
+    startNumber: Number.parseInt(process.env.CARRIER_DEMO_START_NUMBER ?? '10', 10),
+    wardName: textOrNull(process.env.CARRIER_DEMO_WARD),
+    provinceName: textOrNull(process.env.CARRIER_DEMO_PROVINCE) ?? textOrNull(process.env.CARRIER_DEFAULT_PROVINCE),
+  },
   ghn: {
     baseUrl: process.env.GHN_BASE_URL,
     token: process.env.GHN_TOKEN,
