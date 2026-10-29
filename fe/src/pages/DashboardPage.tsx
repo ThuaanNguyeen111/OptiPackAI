@@ -1,16 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ArrowDown, ArrowUp, FileText, TrendingUp, Wallet } from 'lucide-react'
 import {
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  Clock,
-  FileText,
-  GripVertical,
-  TrendingUp,
-  Users,
-  Wallet,
-} from 'lucide-react'
+  getDashboardSummary,
+  type DashboardActionQueue,
+  type DashboardPlatform,
+  type DashboardSummary,
+} from '../api/dashboard.api'
 import {
   getPackagingMaterialsSavings,
   type PackagingMaterialsSavings,
@@ -20,165 +16,136 @@ import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
 import type { PackingReport } from '../types/packing-plan'
-import {
-  DASHBOARD_KANBAN_COLUMNS,
-  OWNER_FINANCE_SUMMARY,
-  OWNER_REVENUE_BY_CHANNEL,
-  OWNER_STAFF_STATS,
-  type DashboardChannel,
-  type DashboardKanbanColumn,
-  type DashboardKanbanItem,
-} from '../data/dashboard-mock'
 
-function formatVndShort(amount: number): string {
-  if (amount >= 1_000_000) {
-    return `${(amount / 1_000_000).toFixed(1)}tr`
-  }
-  return new Intl.NumberFormat('vi-VN').format(amount)
+type Preset = 'today' | '7' | '30' | 'custom'
+type QueueTone = 'rose' | 'amber' | 'slate'
+
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const QUEUE_ITEMS: {
+  key: keyof DashboardActionQueue
+  vi: string
+  en: string
+  to: string
+  tone: QueueTone
+}[] = [
+  { key: 'expressOverdue', vi: 'Hỏa tốc quá hạn', en: 'Express overdue', to: '/app/order-groups', tone: 'rose' },
+  { key: 'deliveryFailed', vi: 'Giao thất bại', en: 'Delivery failed', to: '/app/shipping', tone: 'rose' },
+  { key: 'carrierBookingErrors', vi: 'Lỗi đặt vận đơn', en: 'Booking errors', to: '/app/shipping', tone: 'rose' },
+  { key: 'marketplaceWritebackFailed', vi: 'Ghi ngược sàn lỗi', en: 'Write-back failed', to: '/app/orders', tone: 'rose' },
+  { key: 'expressDueSoon', vi: 'Hỏa tốc sắp hạn', en: 'Express due soon', to: '/app/order-groups', tone: 'amber' },
+  { key: 'partialNeedsReview', vi: 'Thiếu hàng cần duyệt', en: 'Partial review', to: '/app/order-groups', tone: 'amber' },
+  { key: 'plansWithHeldParcels', vi: 'Kiện lệch cân', en: 'Held parcels', to: '/app/packing', tone: 'amber' },
+  { key: 'stockShortageGroups', vi: 'Nhóm thiếu tồn', en: 'Stock shortage', to: '/app/order-groups', tone: 'amber' },
+  { key: 'awaitingPick', vi: 'Chờ lấy hàng', en: 'Awaiting pick', to: '/app/order-groups', tone: 'slate' },
+  { key: 'picking', vi: 'Đang lấy hàng', en: 'Picking', to: '/app/order-groups', tone: 'slate' },
+  { key: 'plansAwaitingApproval', vi: 'Kế hoạch chờ duyệt', en: 'Plans to approve', to: '/app/packing', tone: 'slate' },
+  { key: 'plansAwaitingPacking', vi: 'Chờ đóng gói', en: 'Awaiting pack', to: '/app/packing', tone: 'slate' },
+  { key: 'readyToShip', vi: 'Chờ giao', en: 'Ready to ship', to: '/app/shipping', tone: 'slate' },
+  { key: 'shipmentsInFlight', vi: 'Đang giao', en: 'In transit', to: '/app/shipping', tone: 'slate' },
+  { key: 'returningToWarehouse', vi: 'Đang hoàn kho', en: 'Returning', to: '/app/shipping', tone: 'slate' },
+  { key: 'ordersAwaitingCancelConfirm', vi: 'Chờ xác nhận hủy', en: 'Cancel confirm', to: '/app/orders', tone: 'slate' },
+  { key: 'returnsToReview', vi: 'Phiếu trả chờ duyệt', en: 'Returns to review', to: '/app/returns', tone: 'slate' },
+  { key: 'returnsToReceive', vi: 'Phiếu chờ nhận', en: 'Returns to receive', to: '/app/returns', tone: 'slate' },
+  { key: 'returnsToInspect', vi: 'Phiếu chờ kiểm', en: 'Returns to inspect', to: '/app/returns', tone: 'slate' },
+]
+
+const RETURN_TYPE_LABELS: Record<string, { vi: string; en: string }> = {
+  return_refund: { vi: 'Trả hàng hoàn tiền', en: 'Return & refund' },
+  refund_only: { vi: 'Chỉ hoàn tiền', en: 'Refund only' },
+  exchange: { vi: 'Đổi hàng', en: 'Exchange' },
 }
 
-/** Channel Pill Badge */
-function ChannelBadge({ channel }: { channel: DashboardChannel }) {
-  if (channel === 'Shopee') {
-    return (
-      <span className="rounded-md border border-[#fed7aa] bg-[#fff7ed] px-2 py-0.5 text-[11px] font-bold text-[#ea580c] dark:border-orange-900/40 dark:bg-orange-950/30 dark:text-orange-400 select-none">
-        Shopee
-      </span>
-    )
-  }
-  if (channel === 'TikTok Shop') {
-    return (
-      <span className="rounded-md border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 select-none">
-        TikTok Shop
-      </span>
-    )
-  }
-  return (
-    <span className="rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-2 py-0.5 text-[11px] font-bold text-[#2563eb] dark:border-blue-900/40 dark:bg-blue-950/30 dark:text-blue-400 select-none">
-      Lazada
-    </span>
-  )
+function vnTodayKey(now = new Date()): string {
+  return new Date(now.getTime() + VN_OFFSET_MS).toISOString().slice(0, 10)
 }
 
-/** Individual Order Card in Kanban Column */
-function KanbanOrderCard({
-  item,
-  vi,
-  onClick,
+function addCalendarDays(dateKey: string, days: number): string {
+  return new Date(Date.parse(`${dateKey}T00:00:00.000Z`) + days * DAY_MS)
+    .toISOString()
+    .slice(0, 10)
+}
+
+function rangeFor(
+  preset: Preset,
+  customFrom: string,
+  customTo: string,
+  now = new Date(),
+): { from: string; to: string } | null {
+  if (preset === 'today') {
+    const key = vnTodayKey(now)
+    return {
+      from: new Date(`${key}T00:00:00.000+07:00`).toISOString(),
+      to: now.toISOString(),
+    }
+  }
+  if (preset === '7' || preset === '30') {
+    const days = preset === '7' ? 7 : 30
+    return {
+      from: new Date(now.getTime() - days * DAY_MS).toISOString(),
+      to: now.toISOString(),
+    }
+  }
+  if (!customFrom || !customTo || customFrom > customTo) return null
+  const from = new Date(`${customFrom}T00:00:00.000+07:00`)
+  const to = new Date(`${addCalendarDays(customTo, 1)}T00:00:00.000+07:00`)
+  if (to.getTime() - from.getTime() > 366 * DAY_MS) return null
+  return { from: from.toISOString(), to: to.toISOString() }
+}
+
+function formatVnd(amount: number): string {
+  return new Intl.NumberFormat('vi-VN').format(Math.round(amount))
+}
+
+function formatPct(rate: number | null): string {
+  if (rate === null) return '—'
+  return `${(rate * 100).toFixed(1)}%`
+}
+
+function formatWhen(iso: string, vi: boolean): string {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return '—'
+  return new Intl.DateTimeFormat(vi ? 'vi-VN' : 'en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(at)
+}
+
+function platformLabel(platform: string): string {
+  if (platform === 'lazada') return 'Lazada'
+  if (platform === 'aurelle') return 'AURELLE'
+  return platform
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  change,
 }: {
-  item: DashboardKanbanItem
-  vi: boolean
-  onClick: () => void
+  label: string
+  value: string
+  hint?: string
+  change?: number | null
 }) {
+  const up = change !== undefined && change !== null && change >= 0
   return (
-    <div
-      onClick={onClick}
-      className="owner-panel group rounded-xl p-3 transition-all cursor-pointer"
-      title={vi ? `Xem chi tiết đơn #${item.id}` : `View details for #${item.id}`}
-    >
-      {/* Top row: Drag Grip + Order Code + Channel Pill */}
-      <div className="flex items-center justify-between gap-1.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <GripVertical className="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600 dark:text-slate-500 shrink-0" />
-          <span className="font-mono text-xs font-bold text-slate-900 dark:text-slate-100 truncate">
-            #{item.id}
-          </span>
-        </div>
-        <ChannelBadge channel={item.channel} />
-      </div>
-
-      {/* Middle row: Items count + Optional SLA Warning */}
-      <div className="mt-2 flex items-center justify-between gap-1 text-xs">
-        <span className="text-slate-500 dark:text-slate-400">
-          {item.itemsCount} {vi ? 'mặt hàng' : 'items'}
-        </span>
-
-        {item.slaWarning && (
-          <span className="inline-flex items-center gap-1 rounded bg-[#fef2f2] px-1.5 py-0.5 text-[10px] font-bold text-[#dc2626] border border-[#fecaca] dark:bg-rose-950/30 dark:border-rose-900/40 dark:text-rose-400 select-none">
-            <AlertTriangle className="h-3 w-3 shrink-0" />
-            <span>{item.slaWarning}</span>
-          </span>
-        )}
-      </div>
-
-      {/* Bottom row: Time ago + Optional Picker Staff */}
-      <div className="mt-2.5 flex items-center justify-between gap-2 pt-1 border-t border-slate-50 dark:border-slate-800/60">
-        <span className="text-[11px] text-slate-400 dark:text-slate-500">
-          {vi ? item.timeAgoVi : item.timeAgoEn}
-        </span>
-
-        {item.pickerStaff && (
-          <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
-            <span className="text-[10px]">{vi ? 'Nhân viên lấy hàng:' : 'Picker:'}</span>
-            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-amber-100 font-mono text-[10px] font-bold text-amber-800 dark:bg-amber-950/60 dark:text-amber-300">
-              {item.pickerStaff}
-            </span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/** Kanban Column Component */
-function KanbanColumn({
-  col,
-  vi,
-  onNavigate,
-}: {
-  col: DashboardKanbanColumn
-  vi: boolean
-  onNavigate: (route: string) => void
-}) {
-  // Border vertical bar color
-  const barColorClass =
-    col.color === 'blue'
-      ? 'bg-blue-600'
-      : col.color === 'amber'
-        ? 'bg-amber-500'
-        : col.color === 'emerald'
-          ? 'bg-emerald-600'
-          : 'bg-slate-700 dark:bg-slate-300'
-
-  return (
-    <div className="owner-panel flex flex-col rounded-2xl p-3 sm:p-3.5">
-      {/* Column Header */}
-      <div className="flex items-center justify-between gap-2 pb-2.5">
-        <div className="flex items-center gap-2 min-w-0">
-          <span className={`h-4 w-1 rounded-full shrink-0 ${barColorClass}`} />
-          <h3 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-slate-100 truncate">
-            {vi ? col.titleVi : col.titleEn}
-          </h3>
-        </div>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300 shrink-0">
-          {col.count}
-        </span>
-      </div>
-
-      {/* Cards List */}
-      <div className="space-y-2.5 flex-1 py-1">
-        {col.items.map((item) => (
-          <KanbanOrderCard
-            key={item.id}
-            item={item}
-            vi={vi}
-            onClick={() => onNavigate(col.route)}
-          />
-        ))}
-      </div>
-
-      {/* Footer "More orders" link */}
-      {col.moreCount ? (
-        <button
-          type="button"
-          onClick={() => onNavigate(col.route)}
-          className="mt-2 text-center text-xs font-medium text-blue-600 hover:text-blue-700 py-1 transition-colors cursor-pointer dark:text-blue-400 dark:hover:text-blue-300"
+    <div className="owner-panel rounded-2xl p-4">
+      <span className="text-[11px] font-semibold text-slate-500">{label}</span>
+      <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+      {change !== undefined && change !== null ? (
+        <p
+          className={`mt-1 inline-flex items-center gap-1 text-[11px] font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}
         >
-          {vi ? `+ ${col.moreCount} đơn hàng khác` : `+ ${col.moreCount} more orders`}
-        </button>
-      ) : (
-        <div className="h-5" />
-      )}
+          {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+          {(change * 100).toFixed(1)}%
+        </p>
+      ) : null}
+      {hint ? <p className="mt-1 text-[11px] text-slate-400">{hint}</p> : null}
     </div>
   )
 }
@@ -187,27 +154,55 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const { locale } = usePortal()
   const vi = locale === 'vi'
+  const today = vnTodayKey()
 
-  const [columns] = useState<DashboardKanbanColumn[]>(DASHBOARD_KANBAN_COLUMNS)
+  const [preset, setPreset] = useState<Preset>('30')
+  const [customFrom, setCustomFrom] = useState(addCalendarDays(today, -29))
+  const [customTo, setCustomTo] = useState(today)
+  const [platform, setPlatform] = useState<DashboardPlatform | ''>('')
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [packReport, setPackReport] = useState<PackingReport | null>(null)
   const [savings, setSavings] = useState<PackagingMaterialsSavings | null>(null)
-  const [liveError, setLiveError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const range = useMemo(
+    () => rangeFor(preset, customFrom, customTo),
+    [preset, customFrom, customTo],
+  )
+  const rangeError =
+    preset === 'custom' && range === null
+      ? vi
+        ? 'Chọn ngày bắt đầu trước ngày kết thúc, trong vòng 366 ngày.'
+        : 'Start must be before end, within 366 days.'
+      : null
 
   useEffect(() => {
+    if (!range) return
     const timer = window.setTimeout(() => {
-      void Promise.all([getPackingReport(), getPackagingMaterialsSavings()])
-        .then(([report, saved]) => {
+      setLoading(true)
+      setError(null)
+      void Promise.all([
+        getDashboardSummary({ from: range.from, to: range.to, platform }),
+        getPackingReport({ from: range.from, to: range.to }),
+        getPackagingMaterialsSavings(),
+      ])
+        .then(([nextSummary, report, saved]) => {
+          setSummary(nextSummary)
           setPackReport(report)
           setSavings(saved)
         })
-        .catch((err: unknown) => setLiveError(formatApiError(err)))
+        .catch((err: unknown) => setError(formatApiError(err)))
+        .finally(() => setLoading(false))
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [])
+  }, [range, platform])
 
-  const handleNavigate = (route: string) => {
-    navigate(route)
-  }
+  const sales = summary?.sales
+  const maxDaily = Math.max(
+    1,
+    ...(sales?.daily.map((day) => Math.max(day.revenuePlacedVnd, day.revenueDeliveredVnd)) ?? [1]),
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
@@ -223,379 +218,401 @@ export function DashboardPage() {
           <section className="owner-hero">
             <div>
               <p className="owner-hero-kicker">Store Owner</p>
-              <h1>
-                {vi ? 'Giám sát đơn hàng đa kênh' : 'Omnichannel order oversight'}
-              </h1>
+              <h1>{vi ? 'Bảng điều khiển cửa hàng' : 'Store dashboard'}</h1>
               <p className="owner-hero-lead">
                 {vi
-                  ? 'Giám sát đơn và nhân viên. Chi phí đóng gói và tiết kiệm lấy từ 30 ngày gần nhất. Doanh thu và luồng đơn vẫn là minh họa.'
-                  : 'Oversee orders and staff. Pack cost and savings are the last 30 days. Revenue and the pipeline stay illustrative.'}
+                  ? 'Doanh thu đặt hàng và doanh thu đã giao lấy từ đơn thật. Việc cần làm là số hiện tại, không theo khoảng ngày.'
+                  : 'Placed and delivered revenue come from live orders. The action queue is the current count, not the date range.'}
               </p>
-              <div className="owner-hero-ctas">
-                <button
-                  type="button"
-                  onClick={() => navigate('/app/orders')}
-                  className="owner-btn-primary"
-                >
-                  {vi ? 'Đơn đa kênh' : 'Orders'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/app/order-groups')}
-                  className="owner-btn-ghost"
-                >
-                  {vi ? 'Nhóm đơn & Hỏa tốc' : 'Groups & Express'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/app/analytics')}
-                  className="owner-btn-link"
-                >
-                  {vi ? 'Báo cáo →' : 'Analytics →'}
-                </button>
-              </div>
             </div>
-            <ol className="owner-steps">
-              <li>
-                <button type="button" onClick={() => navigate('/app/orders')}>
-                  <span>01</span>
-                  {vi ? 'Đồng bộ đơn' : 'Sync orders'}
-                </button>
-              </li>
-              <li>
-                <button
-                  type="button"
-                  onClick={() => navigate('/app/order-groups')}
-                >
-                  <span>02</span>
-                  {vi ? 'Gộp & hỏa tốc' : 'Groups & express'}
-                </button>
-              </li>
-              <li>
-                <button type="button" onClick={() => navigate('/app/staff')}>
-                  <span>03</span>
-                  {vi ? 'Nhân viên' : 'Staff'}
-                </button>
-              </li>
-            </ol>
           </section>
 
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                {vi ? 'Thống kê chủ cửa hàng' : 'Store Owner overview'}
-              </h2>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <div className="owner-panel rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Doanh thu hôm nay' : 'Revenue today'}
-                  </span>
-                  <Wallet className="h-4 w-4 text-emerald-600" />
-                </div>
-                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                  {formatVndShort(OWNER_FINANCE_SUMMARY.revenueTodayVnd)}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  {vi ? 'Tuần này: ' : 'Week: '}
-                  {formatVndShort(OWNER_FINANCE_SUMMARY.revenueWeekVnd)}₫
-                </p>
-              </div>
-              <div className="owner-panel rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Chi phí đóng gói (30 ngày)' : 'Pack cost (30 days)'}
-                  </span>
-                  <FileText className="h-4 w-4 text-amber-600" />
-                </div>
-                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                  {packReport ? formatVndShort(packReport.packagingCostVnd) : '…'}
-                </p>
-                <p className="mt-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                  <ArrowDown className="h-3 w-3" />
-                  {vi ? 'Tiết kiệm bao bì ' : 'Pack savings '}
-                  {savings ? `${formatVndShort(savings.totalSavingVnd)}₫` : '…'}
-                </p>
-              </div>
-              <div className="owner-panel rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Nhóm đã đóng (30 ngày)' : 'Packed groups (30 days)'}
-                  </span>
-                  <TrendingUp className="h-4 w-4 text-[var(--ls-cta,#152D35)]" />
-                </div>
-                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                  {packReport ? packReport.groups : '…'}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  {packReport
-                    ? vi
-                      ? `${packReport.orders} đơn · ${packReport.parcels} kiện`
-                      : `${packReport.orders} orders · ${packReport.parcels} parcels`
-                    : '…'}
-                </p>
-              </div>
-              <div className="owner-panel rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-semibold text-slate-500">
-                    {vi ? 'Nhân viên đang hoạt động' : 'Active staff'}
-                  </span>
-                  <Users className="h-4 w-4 text-blue-600" />
-                </div>
-                <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">
-                  {OWNER_STAFF_STATS.length}
-                </p>
-                <p className="mt-1 text-[11px] text-slate-400">
-                  {vi ? 'Kho · Đóng gói · Giao hàng' : 'Warehouse · Pack · Ship'}
-                </p>
-              </div>
-            </div>
-            {liveError ? (
-              <p className="text-xs text-rose-600">{liveError}</p>
+          <section className="flex flex-wrap items-end gap-2">
+            {(
+              [
+                ['today', vi ? 'Hôm nay' : 'Today'],
+                ['7', vi ? '7 ngày' : '7 days'],
+                ['30', vi ? '30 ngày' : '30 days'],
+                ['custom', vi ? 'Tuỳ chọn' : 'Custom'],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPreset(id)}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                  preset === id
+                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                    : 'border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+            {preset === 'custom' ? (
+              <>
+                <label className="text-xs text-slate-500">
+                  {vi ? 'Từ' : 'From'}
+                  <input
+                    type="date"
+                    value={customFrom}
+                    onChange={(event) => setCustomFrom(event.target.value)}
+                    className="ml-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+                  />
+                </label>
+                <label className="text-xs text-slate-500">
+                  {vi ? 'Đến' : 'To'}
+                  <input
+                    type="date"
+                    value={customTo}
+                    onChange={(event) => setCustomTo(event.target.value)}
+                    className="ml-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+                  />
+                </label>
+              </>
             ) : null}
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div className="owner-panel rounded-2xl p-4">
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                  {vi ? 'Doanh thu theo nền tảng (7 ngày)' : 'Revenue by channel (7d)'}
-                </h3>
-                <ul className="mt-3 space-y-2.5">
-                  {OWNER_REVENUE_BY_CHANNEL.map((row) => (
-                    <li
-                      key={row.channel}
-                      className="flex items-center justify-between gap-3 rounded-xl border border-[var(--ls-card-border)] bg-[var(--ls-panel)] px-3 py-2.5"
-                    >
-                      <div className="min-w-0">
-                        <ChannelBadge channel={row.channel} />
-                        <p className="mt-1 text-[11px] text-slate-500">
-                          {row.orders} {vi ? 'đơn' : 'orders'}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono text-sm font-bold text-slate-900 dark:text-slate-100">
-                          {formatVndShort(row.revenueVnd)}₫
-                        </p>
-                        <p className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-semibold text-emerald-600">
-                          <ArrowUp className="h-3 w-3" />
-                          {row.growthPct}%
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-
-              <div className="owner-panel rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {vi ? 'Hiệu suất nhân viên hôm nay' : 'Staff performance today'}
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => navigate('/app/staff')}
-                    className="owner-btn-link text-[11px] font-semibold cursor-pointer"
-                  >
-                    {vi ? 'Quản lý →' : 'Manage →'}
-                  </button>
-                </div>
-                <div className="mt-3 overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-slate-500 dark:border-slate-800">
-                        <th className="pb-2 font-semibold">{vi ? 'Nhân viên' : 'Staff'}</th>
-                        <th className="pb-2 font-semibold">{vi ? 'Vai trò' : 'Role'}</th>
-                        <th className="pb-2 font-semibold text-right">{vi ? 'Đơn' : 'Orders'}</th>
-                        <th className="pb-2 font-semibold text-right">{vi ? 'TB (phút)' : 'Avg min'}</th>
-                        <th className="pb-2 font-semibold text-right">%</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {OWNER_STAFF_STATS.map((s) => (
-                        <tr
-                          key={s.name}
-                          className="border-b border-slate-50 last:border-0 dark:border-slate-800/60"
-                        >
-                          <td className="py-2 font-semibold text-slate-800 dark:text-slate-200">
-                            {s.name}
-                          </td>
-                          <td className="py-2 text-slate-500">
-                            {vi ? s.roleVi : s.roleEn}
-                          </td>
-                          <td className="py-2 text-right font-mono">{s.ordersToday}</td>
-                          <td className="py-2 text-right font-mono">{s.avgMinutes}</td>
-                          <td className="py-2 text-right font-mono font-semibold text-emerald-600">
-                            {s.accuracyPct}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
+            <label className="text-xs text-slate-500">
+              {vi ? 'Sàn' : 'Platform'}
+              <select
+                value={platform}
+                onChange={(event) => setPlatform(event.target.value as DashboardPlatform | '')}
+                className="ml-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+              >
+                <option value="">{vi ? 'Tất cả' : 'All'}</option>
+                <option value="lazada">Lazada</option>
+                <option value="aurelle">AURELLE</option>
+              </select>
+            </label>
+            {summary ? (
+              <p className="text-[11px] text-slate-400">
+                {vi ? 'So với ' : 'Vs '}
+                {formatWhen(summary.range.previousFrom, vi)} – {formatWhen(summary.range.previousTo, vi)}
+                {' · '}
+                {formatWhen(summary.range.generatedAt, vi)}
+              </p>
+            ) : null}
           </section>
 
-          {/* ========================================================= */}
-          {/* 2. PIPELINE TỔNG QUAN — click → Đơn đa kênh (không vào kho) */}
-          {/* ========================================================= */}
-          <section className="space-y-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                {vi ? 'Luồng đơn (xem tổng quan)' : 'Order pipeline (overview)'}
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                {vi
-                  ? 'Bấm thẻ để mở Đơn đa kênh — không vào màn hình lấy/đóng/giao hàng.'
-                  : 'Cards open Omnichannel Orders — not warehouse/packing/shipping screens.'}
-              </p>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 items-start">
-              {columns.map((col) => (
-                <KanbanColumn
-                  key={col.id}
-                  col={col}
-                  vi={vi}
-                  onNavigate={handleNavigate}
+          {rangeError ? <p className="text-xs text-rose-600">{rangeError}</p> : null}
+          {error ? <p className="text-xs text-rose-600">{error}</p> : null}
+          {loading && !summary ? (
+            <p className="text-xs text-slate-500">{vi ? 'Đang tải số liệu…' : 'Loading…'}</p>
+          ) : null}
+
+          {summary ? (
+            <>
+              <section className="space-y-3">
+                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
+                  {vi ? 'Việc cần xử lý' : 'Needs attention'}
+                </h2>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                  {QUEUE_ITEMS.map((item) => {
+                    const count = summary.actionQueue[item.key]
+                    const hot = count > 0
+                    const tone =
+                      !hot
+                        ? 'border-slate-200 text-slate-400 dark:border-slate-800'
+                        : item.tone === 'rose'
+                          ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200'
+                          : item.tone === 'amber'
+                            ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
+                            : 'border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => navigate(item.to)}
+                        className={`rounded-xl border px-3 py-2 text-left ${tone} ${hot ? '' : 'opacity-50'}`}
+                      >
+                        <p className="font-mono text-xl font-bold">{count}</p>
+                        <p className="text-[11px] font-semibold">{vi ? item.vi : item.en}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              </section>
+
+              <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Metric
+                  label={vi ? 'Đặt hàng' : 'Placed'}
+                  value={`${formatVnd(sales?.current.revenuePlacedVnd ?? 0)}₫`}
+                  change={sales?.change.revenuePlacedVnd}
+                  hint={`${sales?.current.ordersReceived ?? 0} ${vi ? 'đơn nhận' : 'orders'}`}
                 />
-              ))}
-            </div>
-          </section>
+                <Metric
+                  label={vi ? 'Đã giao' : 'Delivered'}
+                  value={`${formatVnd(sales?.current.revenueDeliveredVnd ?? 0)}₫`}
+                  change={sales?.change.revenueDeliveredVnd}
+                  hint={`${sales?.current.ordersDelivered ?? 0} ${vi ? 'đơn' : 'orders'}`}
+                />
+                <Metric
+                  label={vi ? 'Giá trị đơn trung bình' : 'Avg order'}
+                  value={
+                    sales?.current.avgOrderValueVnd === null || sales?.current.avgOrderValueVnd === undefined
+                      ? '—'
+                      : `${formatVnd(sales.current.avgOrderValueVnd)}₫`
+                  }
+                  change={sales?.change.avgOrderValueVnd}
+                  hint={`${vi ? 'Hủy' : 'Cancel'} ${formatPct(sales?.current.cancelRate ?? null)}`}
+                />
+                <Metric
+                  label={vi ? 'Hỏa tốc đúng hẹn' : 'Express on time'}
+                  value={formatPct(summary.express.onTimeRate)}
+                  hint={
+                    summary.express.total === 0
+                      ? vi
+                        ? 'Chưa có đơn hỏa tốc trong kỳ'
+                        : 'No express orders in range'
+                      : vi
+                        ? `${summary.express.onTime} đúng · ${summary.express.late} trễ · ${summary.express.pending} chưa tới hạn`
+                        : `${summary.express.onTime} on time · ${summary.express.late} late · ${summary.express.pending} pending`
+                  }
+                />
+              </section>
 
-          {/* ========================================================= */}
-          {/* 3. CHỈ SỐ XỬ LÝ (LIVE METRICS)                              */}
-          {/* ========================================================= */}
-          <section className="space-y-3 pt-2">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                {vi ? 'Chỉ số xử lý (minh họa)' : 'Processing metrics (mock)'}
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                {vi
-                  ? 'Số liệu demo để bố cục dashboard — không gọi API KPI.'
-                  : 'Demo figures for layout only — no KPI API yet.'}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-              {/* Card 1: Thời gian lấy hàng trung bình */}
-              <div className="owner-panel rounded-2xl p-5">
-                <div className="flex items-start justify-between">
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    {vi ? 'Thời gian lấy hàng trung bình' : 'Avg. Picking Time'}
-                  </span>
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-                    <Clock className="h-4 w-4" />
-                  </div>
-                </div>
-
-                <div className="mt-3">
-                  <p className="font-mono text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                    4m 32s
+              <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="owner-panel rounded-2xl p-4">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Doanh thu theo ngày' : 'Revenue by day'}
+                  </h3>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    {vi ? 'Cột đậm: đặt hàng. Cột nhạt: đã giao. Ngày không có đơn = 0.' : 'Solid: placed. Pale: delivered. Empty days are 0.'}
                   </p>
-                  <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                    <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" />
-                    <span>{vi ? '-12% so với hôm qua' : '-12% vs yesterday'}</span>
+                  <div className="mt-3 flex h-36 items-end gap-px overflow-x-auto">
+                    {sales?.daily.map((day) => (
+                      <div key={day.date} className="flex h-full min-w-[8px] flex-1 items-end gap-px" title={day.date}>
+                        <span
+                          className="w-1/2 rounded-t bg-slate-800 dark:bg-slate-200"
+                          style={{ height: `${(day.revenuePlacedVnd / maxDaily) * 100}%` }}
+                        />
+                        <span
+                          className="w-1/2 rounded-t bg-emerald-400"
+                          style={{ height: `${(day.revenueDeliveredVnd / maxDaily) * 100}%` }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="owner-panel rounded-2xl p-4">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Theo sàn' : 'By platform'}
+                  </h3>
+                  {sales && sales.byPlatform.length === 0 ? (
+                    <p className="mt-3 text-xs text-slate-400">{vi ? 'Chưa có đơn trong kỳ.' : 'No orders in range.'}</p>
+                  ) : (
+                    <ul className="mt-3 space-y-2">
+                      {sales?.byPlatform.map((row) => (
+                        <li
+                          key={row.platform}
+                          className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2 dark:border-slate-800"
+                        >
+                          <div>
+                            <p className="text-sm font-semibold">{platformLabel(row.platform)}</p>
+                            <p className="text-[11px] text-slate-500">
+                              {row.ordersReceived} {vi ? 'đơn' : 'orders'} · {vi ? 'hủy' : 'canceled'} {row.ordersCanceled}
+                            </p>
+                          </div>
+                          <div className="text-right text-xs">
+                            <p className="font-mono font-bold">{formatVnd(row.revenuePlacedVnd)}₫</p>
+                            <p className="text-slate-400">
+                              {vi ? 'Đã giao ' : 'Delivered '}
+                              {formatVnd(row.revenueDeliveredVnd)}₫
+                            </p>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </section>
+
+              <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <Metric
+                  label={vi ? 'Phí ship' : 'Shipping cost'}
+                  value={`${formatVnd(summary.costs.shippingCostVnd)}₫`}
+                  hint={`${summary.costs.ordersShipped} ${vi ? 'đơn đã gửi' : 'orders shipped'}${
+                    summary.costs.shippingCostPerOrderVnd === null
+                      ? ''
+                      : ` · ${formatVnd(summary.costs.shippingCostPerOrderVnd)}₫/${vi ? 'đơn' : 'order'}`
+                  }`}
+                />
+                <Metric
+                  label={vi ? 'Chi phí đóng gói' : 'Pack cost'}
+                  value={`${formatVnd(summary.costs.packagingCostVnd)}₫`}
+                  hint={
+                    vi
+                      ? `${summary.costs.ordersPacked} đơn đã đóng${
+                          summary.costs.packagingCostPerOrderVnd === null
+                            ? ''
+                            : ` · ${formatVnd(summary.costs.packagingCostPerOrderVnd)}₫/đơn`
+                        }${
+                          summary.costs.fulfillmentCostRate === null
+                            ? ''
+                            : ` · chi phí/doanh thu ${formatPct(summary.costs.fulfillmentCostRate)}`
+                        }`
+                      : `${summary.costs.ordersPacked} packed${
+                          summary.costs.packagingCostPerOrderVnd === null
+                            ? ''
+                            : ` · ${formatVnd(summary.costs.packagingCostPerOrderVnd)}₫/order`
+                        }${
+                          summary.costs.fulfillmentCostRate === null
+                            ? ''
+                            : ` · cost/revenue ${formatPct(summary.costs.fulfillmentCostRate)}`
+                        }`
+                  }
+                />
+                <Metric
+                  label={vi ? 'Tiết kiệm bao bì' : 'Pack savings'}
+                  value={savings ? `${formatVnd(savings.totalSavingVnd)}₫` : '…'}
+                  hint={
+                    savings
+                      ? vi
+                        ? `Tái sử dụng ${Math.round(savings.reuseRate * 100)}%`
+                        : `Reuse ${Math.round(savings.reuseRate * 100)}%`
+                      : undefined
+                  }
+                />
+                <Metric
+                  label={vi ? 'Giao lần đầu' : 'First attempt'}
+                  value={formatPct(summary.delivery.firstAttemptSuccessRate)}
+                  hint={
+                    summary.delivery.avgDeliveryHours === null
+                      ? `${summary.delivery.shipmentsDelivered}/${summary.delivery.shipmentsCreated}`
+                      : vi
+                        ? `TB ${summary.delivery.avgDeliveryHours} giờ · hoàn kho ${summary.delivery.returnedToWarehouse}`
+                        : `Avg ${summary.delivery.avgDeliveryHours}h · returned ${summary.delivery.returnedToWarehouse}`
+                  }
+                />
+              </section>
+
+              <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <div className="owner-panel rounded-2xl p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold">{vi ? 'Trả hàng' : 'Returns'}</h3>
+                    <button type="button" onClick={() => navigate('/app/returns')} className="text-[11px] font-semibold text-blue-600">
+                      {vi ? 'Mở phiếu →' : 'Open →'}
+                    </button>
+                  </div>
+                  <p className="mt-2 font-mono text-2xl font-bold">{summary.returns.customerRequests}</p>
+                  <p className="text-[11px] text-slate-400">
+                    {vi ? 'Tỷ lệ trả ' : 'Return rate '}
+                    {formatPct(summary.returns.returnRate)}
                   </p>
+                  <ul className="mt-3 space-y-1 text-xs">
+                    {summary.returns.byType.length === 0 ? (
+                      <li className="text-slate-400">{vi ? 'Không có phiếu trong kỳ.' : 'No requests in range.'}</li>
+                    ) : (
+                      summary.returns.byType.map((row) => (
+                        <li key={row.type} className="flex justify-between">
+                          <span>{RETURN_TYPE_LABELS[row.type]?.[vi ? 'vi' : 'en'] ?? row.type}</span>
+                          <span className="font-mono">{row.count}</span>
+                        </li>
+                      ))
+                    )}
+                  </ul>
                 </div>
-              </div>
-
-              {/* Card 2: Chi phí đóng gói tiết kiệm nhờ AI */}
-              <div className="owner-panel rounded-2xl p-5">
-                <div className="flex items-start justify-between">
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    {vi ? 'Tiết kiệm bao bì tái sử dụng' : 'Reused packaging savings'}
-                  </span>
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
-                    <FileText className="h-4 w-4" />
+                <div className="owner-panel rounded-2xl p-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-bold">{vi ? 'Kho và vật tư' : 'Stock and materials'}</h3>
+                    <button type="button" onClick={() => navigate('/app/inventory')} className="text-[11px] font-semibold text-blue-600">
+                      {vi ? 'Tồn kho →' : 'Inventory →'}
+                    </button>
                   </div>
-                </div>
-
-                <div className="mt-3 flex items-end justify-between">
-                  <div>
-                    <p className="font-mono text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                      {savings ? formatVndShort(savings.totalSavingVnd) : '…'}
-                    </p>
-                    <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                      {savings
-                        ? vi
-                          ? `Tái sử dụng ${Math.round(savings.reuseRate * 100)}%`
-                          : `Reuse ${Math.round(savings.reuseRate * 100)}%`
-                        : vi
-                          ? 'Đang tải'
-                          : 'Loading'}
-                    </p>
-                  </div>
-
-                  <div className="pb-1">
-                    <svg
-                      className="h-9 w-24 text-emerald-500 dark:text-emerald-400 overflow-visible"
-                      viewBox="0 0 80 30"
-                      fill="none"
+                  <p className="mt-2 text-xs text-slate-500">
+                    {vi
+                      ? `${summary.warehouse.shortageSkuCount} SKU thiếu · ${summary.warehouse.outOfStockSkuCount} SKU hết hàng`
+                      : `${summary.warehouse.shortageSkuCount} short · ${summary.warehouse.outOfStockSkuCount} out of stock`}
+                  </p>
+                  <ul className="mt-2 space-y-1 text-xs">
+                    {summary.warehouse.shortageSkus.slice(0, 5).map((row) => (
+                      <li key={row.sku} className="flex justify-between font-mono">
+                        <span>{row.sku}</span>
+                        <span>
+                          −{row.shortage} · {row.groups}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {summary.warehouse.materialsBelowReorder.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => navigate('/app/packaging-materials')}
+                      className="mt-3 text-left text-xs text-amber-800 dark:text-amber-200"
                     >
-                      <path
-                        d="M 2 26 L 16 23 L 28 20 L 40 22 L 52 14 L 66 12 L 78 4"
-                        stroke="currentColor"
-                        strokeWidth="2.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </div>
+                      {vi ? 'Vật tư dưới mức đặt lại: ' : 'Below reorder: '}
+                      {summary.warehouse.materialsBelowReorder.map((item) => item.code).join(', ')}
+                    </button>
+                  ) : (
+                    <p className="mt-3 text-xs text-slate-400">
+                      {vi ? 'Không có vật tư dưới mức đặt lại.' : 'No materials below reorder.'}
+                    </p>
+                  )}
                 </div>
-              </div>
+              </section>
 
-              {/* Card 3: Tỷ lệ hoàn thành xử lý hàng ngày */}
-              <div className="owner-panel rounded-2xl p-5">
-                <div className="flex items-start justify-between">
-                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                    {vi ? 'Tỷ lệ hoàn thành xử lý hàng ngày' : 'Daily Completion Rate'}
+              <section className="owner-panel rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-bold">
+                    {vi ? 'Nhân viên đóng gói' : 'Packing staff'}
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    {packReport
+                      ? vi
+                        ? `Chờ ${packReport.avgWaitMinutes ?? '—'} phút · đóng ${packReport.avgPackMinutes ?? '—'} phút · quét ${formatPct(packReport.scanRate)}`
+                        : `Wait ${packReport.avgWaitMinutes ?? '—'} min · pack ${packReport.avgPackMinutes ?? '—'} min · scan ${formatPct(packReport.scanRate)}`
+                      : '…'}
                   </span>
-                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
-                    <TrendingUp className="h-4 w-4" />
-                  </div>
                 </div>
-
-                <div className="mt-3 flex items-end justify-between">
-                  <div>
-                    <p className="font-mono text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                      94.7%
-                    </p>
-                    <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
-                      {vi ? 'Ngưỡng SLA mục tiêu: 92%' : 'Target SLA threshold: 92%'}
-                    </p>
+                {!packReport || packReport.byStaff.length === 0 ? (
+                  <p className="mt-3 text-xs text-slate-400">
+                    {vi ? 'Chưa có dữ liệu đóng gói trong kỳ.' : 'No packing data in this range.'}
+                  </p>
+                ) : (
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-500 dark:border-slate-800">
+                          <th className="pb-2 font-semibold">{vi ? 'Nhân viên' : 'Staff'}</th>
+                          <th className="pb-2 text-right font-semibold">{vi ? 'Nhóm' : 'Groups'}</th>
+                          <th className="pb-2 text-right font-semibold">{vi ? 'Kiện' : 'Parcels'}</th>
+                          <th className="pb-2 text-right font-semibold">{vi ? 'TB đóng (phút)' : 'Avg pack min'}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {packReport.byStaff.map((row) => (
+                          <tr key={row.staffId} className="border-b border-slate-50 last:border-0 dark:border-slate-800/60">
+                            <td className="py-2 font-semibold">{row.name ?? row.staffId}</td>
+                            <td className="py-2 text-right font-mono">{row.groups}</td>
+                            <td className="py-2 text-right font-mono">{row.parcels}</td>
+                            <td className="py-2 text-right font-mono">{row.avgPackMinutes ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
+                )}
+                <p className="mt-3 text-[11px] text-slate-400">
+                  {vi
+                    ? 'Thời gian lấy hàng trung bình và hiệu suất nhân viên kho / điều phối chưa có trên hệ thống. Bảng đóng gói không lọc theo sàn.'
+                    : 'Average pick time and warehouse or coordinator efficiency are not available yet. The packing table is not filtered by platform.'}
+                </p>
+              </section>
+            </>
+          ) : null}
 
-                  <div className="relative flex h-12 w-12 items-center justify-center">
-                    <svg className="h-full w-full -rotate-90" viewBox="0 0 36 36">
-                      <circle
-                        cx="18"
-                        cy="18"
-                        r="15"
-                        fill="none"
-                        className="stroke-emerald-100 dark:stroke-emerald-950/60"
-                        strokeWidth="3.2"
-                      />
-                      <circle
-                        cx="18"
-                        cy="18"
-                        r="15"
-                        fill="none"
-                        className="stroke-emerald-600 dark:stroke-emerald-400"
-                        strokeWidth="3.2"
-                        strokeDasharray="94.25"
-                        strokeDashoffset="5.6"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <span className="absolute font-mono text-[10.5px] font-bold text-slate-800 dark:text-slate-200">
-                      94%
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <button type="button" onClick={() => navigate('/app/orders')} className="owner-panel flex items-center gap-2 rounded-2xl p-4 text-left text-sm font-semibold">
+              <Wallet className="h-4 w-4" />
+              {vi ? 'Đơn đa kênh' : 'Orders'}
+            </button>
+            <button type="button" onClick={() => navigate('/app/order-groups')} className="owner-panel flex items-center gap-2 rounded-2xl p-4 text-left text-sm font-semibold">
+              <TrendingUp className="h-4 w-4" />
+              {vi ? 'Nhóm đơn' : 'Groups'}
+            </button>
+            <button type="button" onClick={() => navigate('/app/analytics')} className="owner-panel flex items-center gap-2 rounded-2xl p-4 text-left text-sm font-semibold">
+              <FileText className="h-4 w-4" />
+              {vi ? 'Báo cáo đóng gói' : 'Packing report'}
+            </button>
           </section>
         </div>
       </main>

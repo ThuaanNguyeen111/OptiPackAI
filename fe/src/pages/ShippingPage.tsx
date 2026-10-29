@@ -34,6 +34,7 @@ import {
   listFailureReasonCodes,
   listShipmentEvents,
   listShipments,
+  listShippers,
   receiveReturnedShipment,
   retryShipment,
   scanOverdueShipments,
@@ -44,9 +45,11 @@ import {
   updateShipmentLocation,
   createShipmentBatch,
   getShipmentByGroup,
+  type ShipmentShipper,
 } from '../api/shipments.api'
 import {
   createShippingCarrier,
+  getShippingRecipients,
   getShippingSettings,
   listShippingCarriers,
   openShippingDocument,
@@ -146,6 +149,58 @@ function StylusSignatureGraphic() {
 
 function shortId(id: string): string {
   return id.length > 10 ? `${id.slice(0, 6)}…${id.slice(-4)}` : id
+}
+
+/** `sub` trong access token là id người đang đăng nhập. */
+function sessionUserId(token: string | undefined): string | null {
+  if (!token) return null
+  const part = token.split('.')[1]
+  if (!part) return null
+  try {
+    const padded = part.replace(/-/g, '+').replace(/_/g, '/')
+    const json: unknown = JSON.parse(atob(padded))
+    if (typeof json !== 'object' || json === null || !('sub' in json)) return null
+    const sub = (json as { sub?: unknown }).sub
+    return typeof sub === 'string' && sub.length > 0 ? sub : null
+  } catch {
+    return null
+  }
+}
+
+type ExpressClock = { label: string; tone: 'ok' | 'soon' | 'late' }
+
+function formatRemain(ms: number, vi: boolean): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 60) return vi ? `${String(minutes)} phút` : `${String(minutes)} min`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (rest === 0) return vi ? `${String(hours)} giờ` : `${String(hours)}h`
+  return vi ? `${String(hours)} giờ ${String(rest)} phút` : `${String(hours)}h ${String(rest)}m`
+}
+
+/** Đếm ngược hạn giao. Còn ≤ 15 phút thì vàng, quá hạn thì đỏ. */
+function deliveryCountdown(iso: string | null, nowMs: number, vi: boolean): ExpressClock | null {
+  if (!iso) return null
+  const remainMs = new Date(iso).getTime() - nowMs
+  if (!Number.isFinite(remainMs)) return null
+  const late = remainMs <= 0
+  const soon = !late && remainMs <= 15 * 60 * 1000
+  const amount = formatRemain(Math.abs(remainMs), vi)
+  const label = late
+    ? vi
+      ? `Quá hạn giao ${amount}`
+      : `${amount} past delivery`
+    : vi
+      ? `Còn ${amount} để giao`
+      : `${amount} left to deliver`
+  return { label, tone: late ? 'late' : soon ? 'soon' : 'ok' }
+}
+
+function expressChipClass(tone: ExpressClock['tone'] | 'idle'): string {
+  if (tone === 'late') return 'border-rose-300 bg-rose-50 text-rose-700'
+  if (tone === 'soon') return 'border-amber-300 bg-amber-50 text-amber-800'
+  if (tone === 'ok') return 'border-orange-200 bg-orange-50 text-orange-800'
+  return 'border-orange-200 bg-orange-50 text-orange-800'
 }
 
 /** Nhãn SLA còn lại / quá hạn cạnh mã kiện (chỉ khi có dueAt). */
@@ -258,6 +313,16 @@ export function ShippingPage() {
   const [addrWard, setAddrWard] = useState('')
   const [addrProvince, setAddrProvince] = useState('')
   const [addrPhone, setAddrPhone] = useState('')
+  const [recipientHint, setRecipientHint] = useState<{
+    isDemo: boolean
+    demoSeq: number | null
+    errorMessage: string | null
+  } | null>(null)
+  const locationOverrideRef = useRef<Record<string, string>>({})
+  const addrEditedRef = useRef(false)
+  const [shippers, setShippers] = useState<ShipmentShipper[]>([])
+  const [shipperId, setShipperId] = useState('')
+  const [nowMs, setNowMs] = useState(() => Date.now())
   const [ghnStatuses, setGhnStatuses] = useState<{ status: string; label: string }[]>([])
   const [simulateStatus, setSimulateStatus] = useState('')
   const [batchIds, setBatchIds] = useState<string[]>([])
@@ -316,6 +381,11 @@ export function ShippingPage() {
   }, [])
 
   useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
     const timer = window.setTimeout(() => {
       void listShippingCarriers()
         .then(setCarriers)
@@ -334,6 +404,9 @@ export function ShippingPage() {
           setSenderAddress(settings.sender?.address ?? '')
         })
         .catch(() => undefined)
+      void listShippers()
+        .then(setShippers)
+        .catch(() => setShippers([]))
     }, 0)
     return () => window.clearTimeout(timer)
   }, [])
@@ -393,16 +466,71 @@ export function ShippingPage() {
           null)
         : null
   const namesDiffer = Boolean(selectedGroup?.recipientNamesDiffer)
+  const expressSelf =
+    selected?.kind === 'packed' && selected.group.requiresSelfDelivery === true
 
   useEffect(() => {
+    addrEditedRef.current = false
+    locationOverrideRef.current = {}
+    setAddrStreet('')
+    setAddrWard('')
+    setAddrProvince('')
+    setAddrPhone('')
+    setRecipientHint(null)
+    if (!packedGroupId || expressSelf || carrierChoice === 'own') return
+    let cancelled = false
+    void getShippingRecipients(packedGroupId)
+      .then((res) => {
+        if (cancelled || addrEditedRef.current) return
+        const ok = res.recipients.find((row) => !row.errorCode)
+        const bad = res.recipients.find((row) => row.errorCode)
+        const shown = ok ?? bad
+        if (!shown) return
+        setRecipientHint({
+          isDemo: shown.isDemo,
+          demoSeq: shown.demoSeq,
+          errorMessage: shown.errorCode ? shown.errorMessage : null,
+        })
+        if (!ok) return
+        const street = ok.street ?? ''
+        const ward = ok.wardName ?? ''
+        const province = ok.provinceName ?? ''
+        const phone = ok.phone ?? ''
+        setAddrStreet(street)
+        setAddrWard(ward)
+        setAddrProvince(province)
+        setAddrPhone(phone)
+        locationOverrideRef.current = {
+          ...(street ? { street } : {}),
+          ...(ward ? { ward_name: ward } : {}),
+          ...(province ? { province_name: province } : {}),
+          ...(phone ? { phone } : {}),
+        }
+        setQuoteTick((tick) => tick + 1)
+      })
+      .catch(() => {
+        if (!cancelled) setRecipientHint(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [packedGroupId, carrierChoice, expressSelf])
+
+  useEffect(() => {
+    if (expressSelf) {
+      setQuotes([])
+      setQuoteError(null)
+      return
+    }
     if (carrierChoice === 'own' || !packedGroupId) return
     let cancelled = false
     const timer = window.setTimeout(() => {
+      const override = locationOverrideRef.current
       const location = {
-        ...(addrStreet.trim() ? { street: addrStreet.trim() } : {}),
-        ...(addrWard.trim() ? { ward_name: addrWard.trim() } : {}),
-        ...(addrProvince.trim() ? { province_name: addrProvince.trim() } : {}),
-        ...(addrPhone.trim() ? { phone: addrPhone.trim() } : {}),
+        ...(override.street ? { street: override.street } : {}),
+        ...(override.ward_name ? { ward_name: override.ward_name } : {}),
+        ...(override.province_name ? { province_name: override.province_name } : {}),
+        ...(override.phone ? { phone: override.phone } : {}),
       }
       void quoteShippingGroup(packedGroupId, location)
         .then((quote) => {
@@ -427,9 +555,9 @@ export function ShippingPage() {
       cancelled = true
       window.clearTimeout(timer)
     }
-    // Địa chỉ chỉ gửi khi đổi hãng, đổi nhóm, hoặc bấm "Cập nhật báo giá".
+    // Địa chỉ chỉ gửi khi đổi hãng, đổi nhóm, điền sẵn xong, hoặc bấm "Cập nhật báo giá".
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carrierChoice, packedGroupId, quoteTick])
+  }, [carrierChoice, packedGroupId, quoteTick, expressSelf])
 
   useEffect(() => {
     const groupId = searchParams.get('groupId')
@@ -561,30 +689,36 @@ export function ShippingPage() {
     if (!selected) return null
     if (selected.kind === 'packed') return 'start'
     if (selected.shipment.carrierManaged) return null
+    const assigned = selected.shipment.shipperId
+    if (assigned && !isAdmin && assigned !== sessionUserId(session?.accessToken)) return null
     if (selected.shipment.status === 'out_for_delivery') return 'deliver'
     if (selected.shipment.status === 'delivery_failed') return 'retry'
     return null
-  }, [selected])
+  }, [selected, isAdmin, session?.accessToken])
 
   const runAction = async () => {
     if (!selected || !modalMode) return
     setActionBusy(true)
     try {
       if (modalMode === 'start' && selected.kind === 'packed') {
-        const chosen = carriers.find((carrier) => carrier.code === carrierChoice)
+        const chosen = expressSelf
+          ? undefined
+          : carriers.find((carrier) => carrier.code === carrierChoice)
         const created = await startShipment(selected.group.id, actionNote, {
-          ...(chosen
-            ? {
-                carrierCode: chosen.code,
-                serviceCode,
-                toLocation: {
-                  ...(addrStreet.trim() ? { street: addrStreet.trim() } : {}),
-                  ...(addrWard.trim() ? { ward_name: addrWard.trim() } : {}),
-                  ...(addrProvince.trim() ? { province_name: addrProvince.trim() } : {}),
-                  ...(addrPhone.trim() ? { phone: addrPhone.trim() } : {}),
-                },
-              }
-            : {}),
+          ...(expressSelf
+            ? { shipperId }
+            : chosen
+              ? {
+                  carrierCode: chosen.code,
+                  serviceCode,
+                  toLocation: {
+                    ...(addrStreet.trim() ? { street: addrStreet.trim() } : {}),
+                    ...(addrWard.trim() ? { ward_name: addrWard.trim() } : {}),
+                    ...(addrProvince.trim() ? { province_name: addrProvince.trim() } : {}),
+                    ...(addrPhone.trim() ? { phone: addrPhone.trim() } : {}),
+                  },
+                }
+              : {}),
         })
         showToast(
           vi
@@ -681,9 +815,19 @@ export function ShippingPage() {
 
   const chosenCarrier = carriers.find((carrier) => carrier.code === carrierChoice) ?? null
   const chosenQuote = quotes.find((row) => row.serviceCode === serviceCode) ?? null
-  const startBlocked =
-    chosenCarrier !== null &&
-    (!chosenQuote || Boolean(chosenQuote.unavailableReason))
+  const actorId = sessionUserId(session?.accessToken)
+  const shipperLocked =
+    selected?.kind === 'shipment' &&
+    Boolean(selected.shipment.shipperId) &&
+    !isAdmin &&
+    selected.shipment.shipperId !== actorId
+  const startBlocked = expressSelf
+    ? shipperId.trim() === ''
+    : chosenCarrier !== null && (!chosenQuote || Boolean(chosenQuote.unavailableReason))
+  const batchableCount = batchIds.filter((id) => {
+    const group = packedGroups.find((item) => item.id === id)
+    return Boolean(group) && group?.requiresSelfDelivery !== true
+  }).length
   const carrierManaged = selected?.kind === 'shipment' && selected.shipment.carrierManaged === true
   const documentGroupId =
     selected?.kind === 'packed'
@@ -710,12 +854,16 @@ export function ShippingPage() {
   const currentLocation = () => locationBody()
 
   const runBatch = async () => {
-    if (!chosenCarrier || !serviceCode) return
+    const ids = batchIds.filter((id) => {
+      const group = packedGroups.find((item) => item.id === id)
+      return Boolean(group) && group?.requiresSelfDelivery !== true
+    })
+    if (!chosenCarrier || !serviceCode || ids.length === 0) return
     setActionBusy(true)
     try {
       const location = currentLocation()
       const result = await createShipmentBatch({
-        order_group_ids: batchIds,
+        order_group_ids: ids,
         carrier_code: chosenCarrier.code,
         service_code: serviceCode,
         note: actionNote.trim() || undefined,
@@ -1012,6 +1160,40 @@ export function ShippingPage() {
 
           <div className="ship-bench grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="ship-bench-main space-y-3 lg:col-span-8">
+                {expressSelf ? (
+                  <div className="max-w-sm space-y-2 rounded-xl border border-orange-200 bg-orange-50 p-3 dark:border-orange-900 dark:bg-orange-950/30">
+                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">
+                      {vi ? 'Shipper tự giao' : 'Self-delivery shipper'}
+                    </label>
+                    {shippers.length === 0 ? (
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-200">
+                        {vi
+                          ? 'Chưa có Shipping Coordinator nào đang làm'
+                          : 'No Shipping Coordinator is on duty'}
+                      </p>
+                    ) : (
+                      <select
+                        value={shipperId}
+                        onChange={(event) => setShipperId(event.target.value)}
+                        className="h-12 w-full rounded-xl border border-black/10 bg-white px-3 text-sm font-semibold dark:border-[var(--ls-card-border)] dark:bg-[var(--ls-panel)]"
+                      >
+                        <option value="">{vi ? 'Chọn shipper' : 'Choose a shipper'}</option>
+                        {shippers.map((person) => (
+                          <option key={person.id} value={person.id}>
+                            {person.name}
+                            {person.phone ? ` · ${person.phone}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <p className="text-[11px] text-orange-900 dark:text-orange-100">
+                      {vi
+                        ? 'Đơn hỏa tốc do shop tự giao — không chọn hãng, không gộp chuyến.'
+                        : 'Express orders are delivered by the shop — no carrier, no shared trip.'}
+                    </p>
+                  </div>
+                ) : (
+                <>
                 <div className="max-w-xs">
                   <div className="flex min-w-0 flex-col">
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">
@@ -1086,29 +1268,70 @@ export function ShippingPage() {
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <input
                         value={addrProvince}
-                        onChange={(e) => setAddrProvince(e.target.value)}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            province_name: e.target.value,
+                          }
+                          setAddrProvince(e.target.value)
+                        }}
                         placeholder={vi ? 'Tỉnh / thành (nếu địa chỉ bị che)' : 'Province if masked'}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
                       />
                       <input
                         value={addrWard}
-                        onChange={(e) => setAddrWard(e.target.value)}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            ward_name: e.target.value,
+                          }
+                          setAddrWard(e.target.value)
+                        }}
                         placeholder={vi ? 'Phường' : 'Ward'}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
                       />
                       <input
                         value={addrStreet}
-                        onChange={(e) => setAddrStreet(e.target.value)}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            street: e.target.value,
+                          }
+                          setAddrStreet(e.target.value)
+                        }}
                         placeholder={vi ? 'Số nhà, đường' : 'Street'}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
                       />
                       <input
                         value={addrPhone}
-                        onChange={(e) => setAddrPhone(e.target.value)}
+                        onChange={(e) => {
+                          addrEditedRef.current = true
+                          locationOverrideRef.current = {
+                            ...locationOverrideRef.current,
+                            phone: e.target.value,
+                          }
+                          setAddrPhone(e.target.value)
+                        }}
                         placeholder={vi ? 'SĐT 10–11 số, bắt đầu bằng 0' : 'Phone starting with 0'}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-xs dark:border-slate-700 dark:bg-transparent"
                       />
                     </div>
+                    {recipientHint?.errorMessage ? (
+                      <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-medium text-rose-800">
+                        {recipientHint.errorMessage}
+                      </p>
+                    ) : null}
+                    {recipientHint?.isDemo ? (
+                      <p className="inline-flex rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+                        {vi ? 'Địa chỉ mô phỏng' : 'Demo address'}
+                        {recipientHint.demoSeq !== null
+                          ? ` #${String(recipientHint.demoSeq)}`
+                          : ''}
+                      </p>
+                    ) : null}
                     <p className="text-[11px] text-amber-800 dark:text-amber-200">
                       {vi
                         ? 'Địa chỉ sửa tay áp dụng cho mọi kiện của vận đơn này.'
@@ -1167,6 +1390,8 @@ export function ShippingPage() {
                     </div>
                   </div>
                 ) : null}
+                </>
+                )}
 
                 <details className="rounded-xl border border-black/[0.08] bg-slate-50 px-3 py-2 text-xs dark:border-slate-800 dark:bg-transparent">
                     <summary className="cursor-pointer font-semibold text-slate-800 dark:text-slate-100">
@@ -1375,9 +1600,18 @@ export function ShippingPage() {
                                     <input
                                       type="checkbox"
                                       checked={batchIds.includes(row.group.id)}
+                                      disabled={row.group.requiresSelfDelivery}
                                       aria-label={vi ? 'Chọn giao chung chuyến' : 'Select for shared trip'}
+                                      title={
+                                        row.group.requiresSelfDelivery
+                                          ? vi
+                                            ? 'Đơn hỏa tốc không gộp chuyến'
+                                            : 'Express orders cannot join a shared trip'
+                                          : undefined
+                                      }
                                       onClick={(event) => event.stopPropagation()}
                                       onChange={() => {
+                                        if (row.group.requiresSelfDelivery) return
                                         const id = row.group.id
                                         setBatchIds((current) =>
                                           current.includes(id)
@@ -1435,6 +1669,40 @@ export function ShippingPage() {
                                 isShipmentDeliveryOverdue(row.shipment) ? (
                                   <span className="inline-flex rounded border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
                                     {vi ? 'Quá hạn' : 'Overdue'}
+                                  </span>
+                                ) : null}
+                                {row.kind === 'packed' && row.group.orderPriority === 'express' ? (
+                                  <span
+                                    className={expressChipClass(
+                                      deliveryCountdown(
+                                        row.group.deliveryDeadline ?? row.group.packagingDeadline,
+                                        nowMs,
+                                        vi,
+                                      )?.tone ?? 'ok',
+                                    )}
+                                  >
+                                    {vi ? 'Hỏa tốc' : 'Express'}
+                                    {(() => {
+                                      const clock = deliveryCountdown(
+                                        row.group.deliveryDeadline ?? row.group.packagingDeadline,
+                                        nowMs,
+                                        vi,
+                                      )
+                                      return clock ? ` · ${clock.label}` : ''
+                                    })()}
+                                  </span>
+                                ) : null}
+                                {row.kind === 'shipment' && row.shipment.shipperId ? (
+                                  <span
+                                    className={expressChipClass(
+                                      deliveryCountdown(row.shipment.dueAt, nowMs, vi)?.tone ?? 'ok',
+                                    )}
+                                  >
+                                    {vi ? 'Hỏa tốc' : 'Express'}
+                                    {(() => {
+                                      const clock = deliveryCountdown(row.shipment.dueAt, nowMs, vi)
+                                      return clock ? ` · ${clock.label}` : ''
+                                    })()}
                                   </span>
                                 ) : null}
                                 </div>
@@ -1504,6 +1772,24 @@ export function ShippingPage() {
                       <span className="font-medium text-[var(--ls-ink)]">
                         {formatDateTime(selectedDueAt)}
                       </span>
+                    </p>
+                  ) : null}
+                  {selected?.kind === 'shipment' && selected.shipment.shipperId ? (
+                    <p className="mt-1 text-[11px] text-[var(--ls-muted)]">
+                      {vi ? 'Shipper' : 'Shipper'}:{' '}
+                      <span className="font-medium text-[var(--ls-ink)]">
+                        {selected.shipment.shipperName ?? (vi ? 'shipper' : 'shipper')}
+                        {selected.shipment.shipperPhone
+                          ? ` · ${selected.shipment.shipperPhone}`
+                          : ''}
+                      </span>
+                    </p>
+                  ) : null}
+                  {shipperLocked && selected?.kind === 'shipment' ? (
+                    <p className="mt-1 text-[11px] font-semibold text-amber-800">
+                      {vi
+                        ? `Đơn do ${selected.shipment.shipperName ?? 'shipper'} giao`
+                        : `Assigned to ${selected.shipment.shipperName ?? 'the shipper'}`}
                     </p>
                   ) : null}
                 </div>
@@ -1827,17 +2113,17 @@ export function ShippingPage() {
                 {vi ? 'Bảng kê chuyến' : 'Trip manifest'}
               </button>
             ) : null}
-            {tab === 'packed' && batchIds.length > 0 && chosenCarrier && serviceCode ? (
+            {tab === 'packed' && batchableCount > 0 && chosenCarrier && serviceCode ? (
               <button
                 type="button"
                 disabled={actionBusy || startBlocked}
                 onClick={() => void runBatch()}
                 className="ship-foot-btn"
               >
-                {vi ? `Giao chung chuyến (${batchIds.length})` : `Shared trip (${batchIds.length})`}
+                {vi ? `Giao chung chuyến (${String(batchableCount)})` : `Shared trip (${String(batchableCount)})`}
               </button>
             ) : null}
-            {packedGroupId && chosenCarrier && serviceCode ? (
+            {packedGroupId && !expressSelf && chosenCarrier && serviceCode ? (
               <button
                 type="button"
                 disabled={actionBusy}
@@ -1858,7 +2144,7 @@ export function ShippingPage() {
                 {vi ? 'Vận đơn của nhóm' : 'Group shipment'}
               </button>
             ) : null}
-            {selected?.kind === 'shipment' ? (
+            {selected?.kind === 'shipment' && !selected.shipment.shipperId ? (
               <label className="inline-flex items-center gap-2 text-xs">
                 <input
                   type="datetime-local"
@@ -1912,6 +2198,7 @@ export function ShippingPage() {
 
             {selected?.kind === 'shipment' &&
             !selected.shipment.carrierManaged &&
+            !shipperLocked &&
             selected.shipment.status === 'out_for_delivery' ? (
               <button
                 type="button"
@@ -2012,7 +2299,11 @@ export function ShippingPage() {
             <div className="mt-4 space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
               <p>
                 {modalMode === 'start'
-                  ? chosenCarrier
+                  ? expressSelf
+                    ? vi
+                      ? `Shop tự giao. Shipper: ${shippers.find((person) => person.id === shipperId)?.name ?? '—'}. Không chọn hãng.`
+                      : 'Shop self-delivery. No carrier.'
+                    : chosenCarrier
                     ? vi
                       ? `Tạo vận đơn qua ${chosenCarrier.name}${chosenQuote ? ` · ${formatCurrency(chosenQuote.totalCostVnd)}` : ''}.`
                       : `Create a shipment with ${chosenCarrier.name}.`
@@ -2036,7 +2327,10 @@ export function ShippingPage() {
                 <div className="flex justify-between">
                   <span className="text-slate-400">{vi ? 'Hình thức:' : 'Model:'}</span>
                   <span className="font-bold text-slate-800 dark:text-slate-100">
-                    {chosenCarrier?.name ?? (vi ? 'Giao của shop' : 'Shop fleet')}
+                    {expressSelf
+                      ? shippers.find((person) => person.id === shipperId)?.name ??
+                        (vi ? 'Shipper' : 'Shipper')
+                      : chosenCarrier?.name ?? (vi ? 'Giao của shop' : 'Shop fleet')}
                   </span>
                 </div>
               </div>
