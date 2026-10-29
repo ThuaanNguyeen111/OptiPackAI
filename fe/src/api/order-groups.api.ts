@@ -99,6 +99,10 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     orderPriority: pickString(row.orderPriority, row.order_priority) || 'normal',
     packagingDeadline:
       toIso(row.packagingDeadline) ?? toIso(row.packaging_deadline),
+    requiresSelfDelivery:
+      row.requiresSelfDelivery === true || row.requires_self_delivery === true,
+    deliveryDeadline:
+      toIso(row.deliveryDeadline) ?? toIso(row.delivery_deadline),
     isOverdue: pickBool(row.isOverdue) || pickBool(row.is_overdue),
     stockShortage:
       row.stockShortage === true || row.stock_shortage === true,
@@ -121,6 +125,8 @@ export function mapOrderGroup(raw: unknown): OrderGroup | null {
     recipientNames: pickStringList(row.recipientNames ?? row.recipient_names),
     recipientNamesDiffer:
       row.recipientNamesDiffer === true || row.recipient_names_differ === true,
+    packScanRequired:
+      row.packScanRequired === true || row.pack_scan_required === true,
     hasMaskedRecipientName:
       row.hasMaskedRecipientName === true ||
       row.has_masked_recipient_name === true,

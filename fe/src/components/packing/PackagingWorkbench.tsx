@@ -77,6 +77,102 @@ import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
  * Admin chốt kế hoạch ở `/app/admin/packing-plans` (không dùng trang này).
  * Demo 3D chỉ hướng dẫn, không ghi trạng thái lên BE.
  */
+
+const AFTER_PACK_STATUSES = new Set([
+  'packed',
+  'shipped',
+  'delivered',
+  'returning',
+  'returned',
+])
+
+type ExpressClock = {
+  label: string
+  tone: 'ok' | 'soon' | 'late'
+}
+
+function formatRemain(ms: number, vi: boolean): string {
+  const minutes = Math.max(1, Math.ceil(ms / 60_000))
+  if (minutes < 60) return vi ? `${String(minutes)} phút` : `${String(minutes)} min`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (rest === 0) return vi ? `${String(hours)} giờ` : `${String(hours)}h`
+  return vi
+    ? `${String(hours)} giờ ${String(rest)} phút`
+    : `${String(hours)}h ${String(rest)}m`
+}
+
+/** Trước khi đóng xong đếm tới hạn đóng; sau đó đếm tới hạn giao khách. */
+function expressClock(
+  group: OrderGroup,
+  nowMs: number,
+  vi: boolean,
+): ExpressClock | null {
+  if (group.orderPriority !== 'express') return null
+  if (group.fulfillmentStatus === 'canceled') return null
+  const afterPack = AFTER_PACK_STATUSES.has(group.fulfillmentStatus)
+  const iso = afterPack ? group.deliveryDeadline : group.packagingDeadline
+  if (!iso) return null
+  const remainMs = new Date(iso).getTime() - nowMs
+  if (!Number.isFinite(remainMs)) return null
+  const late = remainMs <= 0
+  const soon = !late && remainMs <= 15 * 60 * 1000
+  const amount = formatRemain(Math.abs(remainMs), vi)
+  const what = afterPack
+    ? vi
+      ? 'giao khách'
+      : 'deliver'
+    : vi
+      ? 'đóng gói'
+      : 'pack'
+  const label = late
+    ? vi
+      ? `Quá hạn ${what} ${amount}`
+      : `${amount} past the ${what} deadline`
+    : vi
+      ? `Còn ${amount} để ${what}`
+      : `${amount} left to ${what}`
+  return { label, tone: late ? 'late' : soon ? 'soon' : 'ok' }
+}
+
+function expressRemainClass(tone: ExpressClock['tone']): string {
+  if (tone === 'late') return 'text-rose-700 dark:text-rose-300'
+  if (tone === 'soon') return 'text-amber-700 dark:text-amber-200'
+  return 'text-ink-muted'
+}
+
+function ExpressRemain({
+  group,
+  nowMs,
+  vi,
+  className = 'text-[10px]',
+}: {
+  group: OrderGroup
+  nowMs: number
+  vi: boolean
+  className?: string
+}): ReactNode {
+  const clock = expressClock(group, nowMs, vi)
+  if (!clock) return null
+  return (
+    <span className={`font-medium leading-tight ${className} ${expressRemainClass(clock.tone)}`}>
+      {clock.label}
+    </span>
+  )
+}
+
+function quickPackBlockedCopy(group: OrderGroup, vi: boolean): string {
+  if (group.recipientNamesDiffer) {
+    return vi
+      ? 'Nhóm gộp nhiều người nhận — phải quét từng món, không đóng nhanh.'
+      : 'This group has different recipient names — scan each item, do not quick-pack.'
+  }
+  const count = group.activeOrderCount > 0 ? group.activeOrderCount : 2
+  return vi
+    ? `Nhóm gộp ${String(count)} đơn — mỗi đơn 1 vận đơn, quét từng món vào đúng kiện rồi niêm phong.`
+    : `Consolidated group of ${String(count)} orders — one shipment per order. Scan each item into the right parcel, then seal.`
+}
+
 type QueueTab =
   | 'picked'
   | 'partial_needs_review'
@@ -330,6 +426,12 @@ export function PackagingWorkbench() {
     Record<number, BoxSourceInput>
   >({})
   const [recomputing, setRecomputing] = useState(false)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const loadBlocked = useCallback(async () => {
     try {
@@ -836,6 +938,10 @@ export function PackagingWorkbench() {
         box_source_note?: string
       }),
     }))
+    if (group.packScanRequired) {
+      setActionError(quickPackBlockedCopy(group, vi))
+      return
+    }
     setActionBusy(true)
     setActionError(null)
     try {
@@ -865,6 +971,8 @@ export function PackagingWorkbench() {
             ? 'Nhóm không còn đơn để đóng gói (đã hủy / sự cố).'
             : 'No active orders left to pack (canceled / exception).',
         )
+      } else if (getApiErrorCode(err) === 'PACKING_SCAN_REQUIRED') {
+        setActionError(formatApiError(err))
       } else {
         reloadPlanAfterConflict(err)
       }
@@ -990,7 +1098,7 @@ export function PackagingWorkbench() {
     group?.fulfillmentStatus === 'pending_approval'
   const actionableCount = counts.pending + counts.partial
   const isViewOnlyTab = tab === 'awaiting_packaging' || tab === 'blocked'
-  const scanLocked = requireScan || Boolean(group?.recipientNamesDiffer)
+  const scanLocked = requireScan || Boolean(group?.packScanRequired)
   const selectedStaffOnLeave = Boolean(
     staff.find((person) => person.staffId === staffId)?.onLeave,
   )
@@ -1241,8 +1349,11 @@ export function PackagingWorkbench() {
                           {g.id.slice(-8)}
                         </span>
                         {g.orderPriority === 'express' ? (
-                          <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
-                            Express
+                          <span className="flex flex-col items-end gap-0.5">
+                            <span className="rounded bg-amber-100 px-1 py-px text-[9px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                              {vi ? 'Hỏa tốc' : 'Express'}
+                            </span>
+                            <ExpressRemain group={g} nowMs={nowMs} vi={vi} />
                           </span>
                         ) : null}
                       </div>
@@ -1358,10 +1469,22 @@ export function PackagingWorkbench() {
                   <h2 className="font-mono text-sm font-semibold text-ink">
                     {group.id}
                   </h2>
-                  {group.isOverdue ? (
+                  {group.orderPriority === 'express' ? (
+                    <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+                      {vi ? 'Hỏa tốc' : 'Express'}
+                    </span>
+                  ) : null}
+                  {expressClock(group, nowMs, vi) ? (
+                    <ExpressRemain
+                      group={group}
+                      nowMs={nowMs}
+                      vi={vi}
+                      className="text-[11px]"
+                    />
+                  ) : group.isOverdue ? (
                     <span className="inline-flex items-center gap-1 rounded bg-rose-100 px-2 py-0.5 text-[11px] font-medium text-rose-800 dark:bg-rose-950 dark:text-rose-100">
                       <AlertTriangle className="h-3 w-3" />
-                      Overdue
+                      {vi ? 'Quá hạn' : 'Overdue'}
                     </span>
                   ) : null}
                 </div>
@@ -1382,7 +1505,15 @@ export function PackagingWorkbench() {
                     <dt className="text-ink-subtle">
                       {vi ? 'Ưu tiên' : 'Priority'}
                     </dt>
-                    <dd className="capitalize text-ink">{group.orderPriority}</dd>
+                    <dd className="text-ink">
+                      {group.orderPriority === 'express'
+                        ? vi
+                          ? 'Hỏa tốc'
+                          : 'Express'
+                        : vi
+                          ? 'Thường'
+                          : 'Normal'}
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-ink-subtle">
@@ -1390,15 +1521,28 @@ export function PackagingWorkbench() {
                     </dt>
                     <dd className="text-ink">
                       {group.packagingDeadline
-                        ? formatDateTime(
-                            typeof group.packagingDeadline === 'string'
-                              ? group.packagingDeadline
-                              : new Date(group.packagingDeadline).toISOString(),
-                          )
+                        ? formatDateTime(group.packagingDeadline)
                         : '—'}
                     </dd>
                   </div>
+                  {group.deliveryDeadline ? (
+                    <div>
+                      <dt className="text-ink-subtle">
+                        {vi ? 'Hạn giao khách' : 'Delivery deadline'}
+                      </dt>
+                      <dd className="text-ink">
+                        {formatDateTime(group.deliveryDeadline)}
+                      </dd>
+                    </div>
+                  ) : null}
                 </dl>
+                {group.requiresSelfDelivery ? (
+                  <p className="mt-2 text-xs text-ink-muted">
+                    {vi
+                      ? 'Shop tự giao — không tạo vận đơn hãng ở bước đóng gói.'
+                      : 'Shop delivers this order itself — no carrier booking at pack time.'}
+                  </p>
+                ) : null}
               </div>
 
               {tab === 'awaiting_packaging' ? (
@@ -1568,10 +1712,8 @@ export function PackagingWorkbench() {
                       ) : null}
                       {scanLocked ? (
                         <p className="mt-3 text-xs text-ink-muted">
-                          {group?.recipientNamesDiffer
-                            ? vi
-                              ? 'Nhóm gộp nhiều người nhận — phải quét từng món, không đóng nhanh.'
-                              : 'This group has different recipient names — scan each item, do not quick-pack.'
+                          {group?.packScanRequired
+                            ? quickPackBlockedCopy(group, vi)
                             : vi
                               ? 'Cài đặt đang bắt buộc quét từng món. Dùng phiên đóng gói phía trên, không bấm đóng nhanh.'
                               : 'Scan is required. Use the packing session above.'}
@@ -1581,7 +1723,7 @@ export function PackagingWorkbench() {
                           {parcelWeightFields()}
                           <button
                             type="button"
-                            disabled={actionBusy || Boolean(group?.recipientNamesDiffer)}
+                            disabled={actionBusy || Boolean(group?.packScanRequired)}
                             onClick={() => void onConfirmPacked()}
                             className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                           >
@@ -1831,10 +1973,8 @@ export function PackagingWorkbench() {
                       </p>
                       {scanLocked ? (
                         <p className="text-xs text-emerald-900 dark:text-emerald-100">
-                          {group?.recipientNamesDiffer
-                            ? vi
-                              ? 'Nhóm gộp nhiều người nhận — phải quét từng món, không đóng nhanh.'
-                              : 'This group has different recipient names — scan each item, do not quick-pack.'
+                          {group?.packScanRequired
+                            ? quickPackBlockedCopy(group, vi)
                             : vi
                               ? 'Cài đặt bắt buộc quét. Chuyển sang tab đã duyệt để đóng theo phiên.'
                               : 'Scan is required. Open the approved tab and use the session.'}
@@ -1844,7 +1984,7 @@ export function PackagingWorkbench() {
                           {parcelWeightFields()}
                           <button
                             type="button"
-                            disabled={actionBusy || Boolean(group?.recipientNamesDiffer)}
+                            disabled={actionBusy || Boolean(group?.packScanRequired)}
                             onClick={() => void onPack()}
                             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50"
                           >

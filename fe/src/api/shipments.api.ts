@@ -73,6 +73,9 @@ export function mapShipment(raw: unknown): Shipment | null {
     trackingCode: pickString(row.trackingCode, row.tracking_code) || null,
     carrierCode: pickString(row.carrierCode, row.carrier_code) || null,
     carrierName: pickString(row.carrierName, row.carrier_name) || null,
+    shipperId: pickString(row.shipperId, row.shipper_id) || null,
+    shipperName: pickString(row.shipperName, row.shipper_name) || null,
+    shipperPhone: pickString(row.shipperPhone, row.shipper_phone) || null,
     serviceCode: pickString(row.serviceCode, row.service_code) || null,
     serviceName: pickString(row.serviceName, row.service_name) || null,
     carrierManaged: row.carrierManaged === true || row.carrier_managed === true,
@@ -232,16 +235,45 @@ export type ShipmentToLocation = {
   phone?: string
 }
 
+export type ShipmentShipper = {
+  id: string
+  name: string
+  phone: string | null
+  email: string
+}
+
+export async function listShippers(): Promise<ShipmentShipper[]> {
+  const res = await apiRequest<unknown>('/shipments/shippers', { auth: true })
+  if (!Array.isArray(res)) return []
+  return res.flatMap((item) => {
+    const row = asRecord(item)
+    if (!row) return []
+    const id = pickString(row.id)
+    const name = pickString(row.name)
+    if (!id || !name) return []
+    return [
+      {
+        id,
+        name,
+        phone: pickString(row.phone) || null,
+        email: pickString(row.email),
+      },
+    ]
+  })
+}
+
 export async function startShipment(
   orderGroupId: string,
   note?: string,
   choice?: {
     carrierCode?: string
     serviceCode?: string
+    shipperId?: string
     toLocation?: ShipmentToLocation
   },
 ): Promise<Shipment> {
   const toLocation = compactLocation(choice?.toLocation)
+  const shipperId = choice?.shipperId?.trim()
   return requireShipment(
     await apiRequest<unknown>('/shipments', {
       method: 'POST',
@@ -249,9 +281,13 @@ export async function startShipment(
       body: {
         order_group_id: orderGroupId,
         ...(note?.trim() ? { note: note.trim() } : {}),
-        ...(choice?.carrierCode ? { carrier_code: choice.carrierCode } : {}),
-        ...(choice?.serviceCode ? { service_code: choice.serviceCode } : {}),
-        ...(toLocation ? { to_location: toLocation } : {}),
+        ...(shipperId
+          ? { shipper_id: shipperId }
+          : {
+              ...(choice?.carrierCode ? { carrier_code: choice.carrierCode } : {}),
+              ...(choice?.serviceCode ? { service_code: choice.serviceCode } : {}),
+              ...(toLocation ? { to_location: toLocation } : {}),
+            }),
       },
     }),
   )

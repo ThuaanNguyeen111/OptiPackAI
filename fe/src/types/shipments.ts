@@ -44,6 +44,10 @@ export type Shipment = {
   trackingCode?: string | null
   carrierCode?: string | null
   carrierName?: string | null
+  /** Đơn hỏa tốc AURELLE do shop tự giao — người được giao đích danh. */
+  shipperId?: string | null
+  shipperName?: string | null
+  shipperPhone?: string | null
   serviceCode?: string | null
   serviceName?: string | null
   /** true khi hãng là API (GHN). Nút giao nội bộ bị backend từ chối. */
@@ -145,4 +149,10 @@ export const SHIPMENT_ERROR_MESSAGES: Record<string, string> = {
   SHP_CARRIER_SIMULATION_DISABLED: 'Nút mô phỏng GHN đang tắt trên máy chủ.',
   SHP_CARRIER_STATUS_INVALID: 'Trạng thái mô phỏng không hợp lệ.',
   SHP_TO_LOCATION_LOCKED: 'Mọi kiện đã có mã hãng — không sửa địa chỉ được nữa.',
+  SHP_SHIPPER_REQUIRED: 'Đơn hỏa tốc phải chọn shipper.',
+  SHP_EXPRESS_SELF_DELIVERY_REQUIRED:
+    'Đơn hỏa tốc do shop tự giao — không chọn hãng và không gộp chuyến.',
+  SHP_SHIPPER_INVALID: 'Người được chọn không phải điều phối đang làm việc.',
+  SHP_NOT_ASSIGNED_SHIPPER:
+    'Chỉ shipper được giao hoặc Admin mới bấm giao, thất bại, giao lại.',
 }
