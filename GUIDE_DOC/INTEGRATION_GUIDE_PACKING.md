@@ -341,6 +341,8 @@ POST …/packing-plan/reject                     Role: Packaging, Admin
 
 ### 2.6 Hướng dẫn đóng gói từng bước (AI)
 
+Cách dựng hình 3D từ `placements` và bảng file model: `KE_HOACH_3D_HUONG_DAN_DONG_GOI.md` (30/10/2026). Mục này chỉ là API câu chữ.
+
 ```
 POST …/packing-plan/parcels/:parcelNo/guide     Role: Packaging, Warehouse, Admin
 { "regenerate": false }                         // true = viết lại dù đã có

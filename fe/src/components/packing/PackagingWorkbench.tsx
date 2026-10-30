@@ -69,13 +69,14 @@ import { useLocalQueuePagination } from '../../hooks/useLocalQueuePagination'
 import { Badge } from '../ui/Badge'
 import { QueuePaginationBar } from '../ui/QueuePaginationBar'
 import { Packing3DBoxViewer } from './Packing3DBoxViewer'
+import { selectParcel } from '../../utils/packing-layout'
 import { PackingSessionPanel } from './PackingSessionPanel'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
  * Admin chốt kế hoạch ở `/app/admin/packing-plans` (không dùng trang này).
- * Demo 3D chỉ hướng dẫn, không ghi trạng thái lên BE.
+ * Khung 3D dựng từ kế hoạch thật (placements + itemProfiles); chỉ xem, không ghi trạng thái lên BE.
  */
 
 const AFTER_PACK_STATUSES = new Set([
@@ -295,31 +296,32 @@ function retainProfileStale(
   return next
 }
 
-function boxViewerLabel(plan: PackingPlan | null, vi: boolean): string {
-  const first = plan?.parcels[0]
-  if (!plan || !first) {
-    return vi ? 'Demo thùng — chưa có kế hoạch' : 'Demo box — no plan yet'
+function boxViewerLabel(plan: PackingPlan | null, parcelNo: number | null, vi: boolean): string {
+  const parcel = selectParcel(plan, parcelNo)
+  if (!plan || !parcel) {
+    return vi ? 'Chưa có kế hoạch đóng gói' : 'No packing plan yet'
   }
-  const { lengthCm, widthCm, heightCm } = outerCm(first.box)
+  const { lengthCm, widthCm, heightCm } = outerCm(parcel.box)
   const extra =
     plan.parcels.length > 1
       ? vi
-        ? ` · ${String(plan.parcels.length)} kiện`
-        : ` · ${String(plan.parcels.length)} parcels`
+        ? ` · kiện ${String(parcel.parcelNo)}/${String(plan.parcels.length)}`
+        : ` · parcel ${String(parcel.parcelNo)}/${String(plan.parcels.length)}`
       : ''
-  return vi
-    ? `${first.box.name}: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm${extra}`
-    : `${first.box.name}: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm${extra}`
+  return `${parcel.box.name}: ${String(lengthCm)} × ${String(widthCm)} × ${String(heightCm)} cm${extra}`
 }
 
-function boxViewerSub(plan: PackingPlan | null, vi: boolean): string {
-  const first = plan?.parcels[0]
-  if (!plan || !first) {
+function boxViewerSub(plan: PackingPlan | null, parcelNo: number | null, vi: boolean): string {
+  const parcel = selectParcel(plan, parcelNo)
+  if (!plan || !parcel) {
     return vi
-      ? 'Hướng dẫn 3D (demo) — không ghi trạng thái lên hệ thống'
-      : '3D guide (demo) — does not write fulfillment status'
+      ? 'Hướng dẫn 3D hiện khi kế hoạch đã tính xong'
+      : 'The 3D guide appears once the plan is computed'
   }
-  return vi ? 'Demo hướng dẫn đóng gói' : 'Packing guide demo'
+  const count = parcel.placements?.length ?? parcel.itemCount ?? 0
+  return vi
+    ? `${String(count)} món · làm theo từng bước trong khung 3D`
+    : `${String(count)} items · follow the steps in the 3D view`
 }
 
 function MaterialTags({
@@ -432,6 +434,49 @@ export function PackagingWorkbench() {
     const timer = window.setInterval(() => setNowMs(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  // Kế hoạch đang tính: tải lại mỗi 3 giây tới khi có kết quả (khung 3D hiện "Đang tính").
+  const computingGroupId = plan?.status === 'computing' ? plan.orderGroupId : null
+  useEffect(() => {
+    if (!computingGroupId) return
+    const timer = window.setInterval(() => {
+      void getPackingPlan(computingGroupId)
+        .then((next) => {
+          if (!next) return
+          setPlan((current) =>
+            current && current.orderGroupId === next.orderGroupId ? next : current,
+          )
+        })
+        .catch(() => undefined)
+    }, 3000)
+    return () => window.clearInterval(timer)
+  }, [computingGroupId])
+
+  // Mở kiện chưa có câu hướng dẫn: xin 1 lần (AI hoặc câu mẫu). Kiện xếp tay thì không gọi (BE trả 409).
+  const guideRequestedRef = useRef<Set<string>>(new Set())
+  const guideParcel = selectParcel(plan, parcelNo)
+  const autoGuideKey =
+    plan &&
+    guideParcel &&
+    !guideParcel.guide &&
+    guideParcel.manualLayout !== true &&
+    (guideParcel.placements?.length ?? 0) > 0 &&
+    ['ready', 'approved', 'packing'].includes(plan.status)
+      ? `${plan.orderGroupId}:${plan.id}:${String(guideParcel.parcelNo)}`
+      : null
+  useEffect(() => {
+    if (!autoGuideKey || guideRequestedRef.current.has(autoGuideKey)) return
+    guideRequestedRef.current.add(autoGuideKey)
+    const [groupId, , no] = autoGuideKey.split(':')
+    if (!groupId || !no) return
+    void requestParcelGuide(groupId, Number(no))
+      .then((next) => {
+        setPlan((current) =>
+          current && current.id === next.id ? retainProfileStale(current, next) : current,
+        )
+      })
+      .catch(() => undefined)
+  }, [autoGuideKey])
 
   const loadBlocked = useCallback(async () => {
     try {
@@ -2017,14 +2062,15 @@ export function PackagingWorkbench() {
                     : '3D preview'}
               </p>
               <Packing3DBoxViewer
-                boxLabel={boxViewerLabel(plan, vi)}
-                boxSub={boxViewerSub(plan, vi)}
+                plan={plan}
+                parcelNo={parcelNo}
+                onParcelChange={setParcelNo}
                 autoRotate={
                   guide3dActive || tab === 'approved_for_packing'
                 }
                 onOpenDetail={() => setGuideDetailOpen(true)}
               />
-              <MaterialTags materials={plan?.parcels[0]?.materials ?? []} />
+              <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
               <button
                 type="button"
                 onClick={() => setGuideDetailOpen(true)}
@@ -2094,15 +2140,16 @@ export function PackagingWorkbench() {
           </div>
           <div className="pack-bench-scroll p-3">
             <Packing3DBoxViewer
-              boxLabel={boxViewerLabel(plan, vi)}
-              boxSub={boxViewerSub(plan, vi)}
+              plan={plan}
+              parcelNo={parcelNo}
+              onParcelChange={setParcelNo}
               autoRotate={
                 guide3dActive || tab === 'approved_for_packing'
               }
               className="relative h-full w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40"
               onOpenDetail={() => setGuideDetailOpen(true)}
             />
-            <MaterialTags materials={plan?.parcels[0]?.materials ?? []} />
+            <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
             {plan && plan.parcels.length > 0 ? (
               <div className="mt-3 space-y-2 text-xs text-ink">
                 <button
@@ -2111,7 +2158,13 @@ export function PackagingWorkbench() {
                   onClick={() => void onWriteGuide()}
                   className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
                 >
-                  {vi ? 'Viết hướng dẫn kiện' : 'Write parcel guide'}
+                  {selectParcel(plan, parcelNo)?.guide
+                    ? vi
+                      ? 'Viết lại hướng dẫn'
+                      : 'Rewrite guide'
+                    : vi
+                      ? 'Viết hướng dẫn kiện'
+                      : 'Write parcel guide'}
                 </button>
                 {(plan.parcels.find((row) => row.parcelNo === parcelNo) ?? plan.parcels[0])?.guide
                   ?.steps.map((step) => (
@@ -2154,8 +2207,9 @@ export function PackagingWorkbench() {
             <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.6fr)_22rem]">
               <div className="min-h-[360px] bg-[#f8faff] p-3">
                 <Packing3DBoxViewer
-                  boxLabel={boxViewerLabel(plan, vi)}
-                  boxSub={boxViewerSub(plan, vi)}
+                  plan={plan}
+                  parcelNo={parcelNo}
+                  onParcelChange={setParcelNo}
                   autoRotate={guide3dActive || tab === 'approved_for_packing'}
                   className="relative h-full min-h-[340px] w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff]"
                 />
@@ -2164,10 +2218,10 @@ export function PackagingWorkbench() {
                 <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
                   {vi ? 'Mô tả' : 'Description'}
                 </p>
-                <p className="mt-2 text-sm font-medium text-slate-900">{boxViewerLabel(plan, vi)}</p>
-                <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, vi)}</p>
+                <p className="mt-2 text-sm font-medium text-slate-900">{boxViewerLabel(plan, parcelNo, vi)}</p>
+                <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, parcelNo, vi)}</p>
                 <div className="mt-3">
-                  <MaterialTags materials={plan?.parcels[0]?.materials ?? []} />
+                  <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
                 </div>
                 {(() => {
                   const guide = (
@@ -2211,7 +2265,13 @@ export function PackagingWorkbench() {
                           onClick={() => void onWriteGuide()}
                           className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
                         >
-                          {vi ? 'Viết hướng dẫn kiện' : 'Write parcel guide'}
+                          {selectParcel(plan, parcelNo)?.guide
+                    ? vi
+                      ? 'Viết lại hướng dẫn'
+                      : 'Rewrite guide'
+                    : vi
+                      ? 'Viết hướng dẫn kiện'
+                      : 'Write parcel guide'}
                         </button>
                       ) : null}
                     </div>
