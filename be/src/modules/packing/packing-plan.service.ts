@@ -35,7 +35,9 @@ import {
   SOLVER_VERSION,
   httpCpSatChecker,
   solveOrder,
+  solveWithMailers,
   upgradeWithCpSat,
+  type MailerSolveOptions,
   type ChargeRule,
   type SolveResult,
   type SolvedParcel,
@@ -144,6 +146,7 @@ function toPlanParcel(
     box: {
       code: p.box.code,
       name: p.box.name,
+      kind: p.box.kind ?? 'box',
       inner_mm: { ...p.box.inner },
       outer_mm: { ...p.box.outer },
       tare_g: p.box.tare_g,
@@ -191,6 +194,7 @@ function boxSpecOf(parcel: PlanParcel): BoxSpec {
   return {
     code: parcel.box.code,
     name: parcel.box.name,
+    kind: parcel.box.kind ?? 'box',
     inner: dimsOf(parcel.box.inner_mm),
     outer: dimsOf(parcel.box.outer_mm),
     tare_g: parcel.box.tare_g,
@@ -392,12 +396,24 @@ export class PackingPlanService {
     const started = Date.now();
     try {
       const allocations: Allocation[] = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
-      const [boxes, availability, materials, charge] = await Promise.all([
+      const [boxes, availability, materials, charge, mailers] = await Promise.all([
         this.boxService.listActiveSpecs(),
         this.boxService.listAvailability({ groupId }),
         this.materialService.planningData(),
         this.resolveChargeRule(),
+        // AOFP-224 — túi niêm phong chỉ vào bài khi Store Owner/Admin bật trong packing_settings.
+        settings.mailerEnabled ? this.boxService.listActiveMailerSpecs() : Promise.resolve([]),
       ]);
+      const mailerOptions: MailerSolveOptions = {
+        mailers,
+        fit: {
+          widthMarginMm: settings.mailerMarginWidthMm,
+          lengthMarginMm: settings.mailerMarginLengthMm,
+          maxThicknessMm: settings.mailerMaxThicknessMm,
+        },
+        splitMinSavingVnd: settings.splitMinSavingVnd,
+        fee: { firstStepVnd: settings.estFeeFirstStepVnd, perExtraStepVnd: settings.estFeePerExtraStepVnd },
+      };
       // Giải TUẦN TỰ từng đơn, trừ dần thùng còn trống — 2 đơn không giành 1 thùng cuối.
       const remaining = new Map([...availability].map(([code, a]) => [code, a.available]));
       const orders: PlanOrder[] = [];
@@ -409,13 +425,12 @@ export class PackingPlanService {
         const units = expandToUnits(allocation.items, unitOptions);
         const fragileKeys = new Set(units.filter((u) => u.is_fragile).map((u) => u.item_key));
         const stockForOrder = new Map(remaining);
-        const result = solveOrder(units, boxes, {
-          availability: stockForOrder,
-          materials,
-          excludeBoxCodes: exclude,
-          prefer,
-          charge,
-        });
+        const result = solveWithMailers(
+          units,
+          boxes,
+          { availability: stockForOrder, materials, excludeBoxCodes: exclude, prefer, charge },
+          mailerOptions,
+        );
         for (const p of result.parcels) remaining.set(p.box.code, (remaining.get(p.box.code) ?? 0) - 1);
         const orderId = new Types.ObjectId(allocation.order_id);
         for (const p of result.parcels)

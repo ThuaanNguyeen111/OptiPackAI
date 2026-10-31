@@ -61,6 +61,8 @@ export type CpSatState = (typeof CP_SAT_STATES)[number];
 export class PlanBox {
   @Prop({ required: true }) code!: string;
   @Prop({ required: true }) name!: string;
+  /** AOFP-224 (31/10/2026) — 'mailer' = túi niêm phong (inner = outer = kích thước túi đã nhồi). */
+  @Prop({ type: String, enum: ['box', 'mailer'], default: 'box' }) kind?: 'box' | 'mailer';
   @Prop({ type: BoxDimensionsMmSchema, required: true }) inner_mm!: BoxDimensionsMm;
   @Prop({ type: BoxDimensionsMmSchema, required: true }) outer_mm!: BoxDimensionsMm;
   @Prop({ type: Number, required: true }) tare_g!: number;

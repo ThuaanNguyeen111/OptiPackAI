@@ -14,6 +14,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-request.interface';
 import { UserRole } from '../../common/enums/user-role.enum';
+import { resolveOuterRequirement, type OuterRequirement } from '../../common/enums/outer-requirement.enum';
 
 export interface ProductMasterResponse {
   id: string;
@@ -31,6 +32,9 @@ export interface ProductMasterResponse {
   zipBagFolded: boolean;
   /** (08/10/2026) Chỉ có ở PUT packaging-profile: túi zip nhỏ nhất còn vừa gói vừa đo (null = không túi nào vừa). */
   suggestedZipBagCode?: string | null;
+  /** AOFP-224 — giá trị kho đặt (null = theo loại) và giá trị engine áp thật. */
+  outerRequirement: OuterRequirement | null;
+  effectiveOuterRequirement: OuterRequirement;
   canFoldInHalf: boolean;
   profileConfirmedBy: string | null;
   profileConfirmedAt: Date | null;
@@ -70,6 +74,12 @@ function toResponse(doc: ProductMasterLike): ProductMasterResponse {
     zipBagCode: doc.zip_bag_code ?? null,
     zipBagFolded: doc.zip_bag_folded ?? false,
     canFoldInHalf: doc.can_fold_in_half ?? false,
+    outerRequirement: doc.outer_requirement ?? null,
+    effectiveOuterRequirement: resolveOuterRequirement({
+      is_fragile: doc.is_fragile ?? false,
+      outer_requirement: doc.outer_requirement ?? null,
+      product_category: doc.product_category ?? null,
+    }),
     profileConfirmedBy: doc.profile_confirmed_by ? doc.profile_confirmed_by.toString() : null,
     profileConfirmedAt: doc.profile_confirmed_at ?? null,
     lastSyncedAt: doc.last_synced_at,

@@ -69,7 +69,7 @@ Các món `mailer_ok` trong túi được **xếp chồng phẳng** (mặt lớn
 | `mailer_margin_width_mm` | 20 **(giả định)** |
 | `mailer_margin_length_mm` | 30 **(giả định)** |
 | `mailer_max_thickness_mm` | 80 **(giả định)** |
-| `mailer_max_weight_g` | 3000 **(giả định)** |
+| Tải tối đa mỗi túi (`max_load_g` của từng túi trong kho vật tư) | 3000 **(giả định)** |
 
 **Kích thước tính cước của túi đã nhồi:** dài `= a + 1`, rộng `= b + 1`, cao `= t + 0,5` (cm, làm tròn lên) **(giả định)** — túi ôm sát hàng, không tính phần túi thừa. Lazada yêu cầu kiện tối thiểu 12 × 18 × 2,5 cm; GHN đo lại tại chỗ mọi kiện có cạnh > 30 cm. Khi niêm phong, nhân viên cân/đo lại như kiện thùng (luồng `reweigh` có sẵn).
 
@@ -77,10 +77,12 @@ Các món `mailer_ok` trong túi được **xếp chồng phẳng** (mặt lớn
 
 | Mã | Rộng × Dài (cm, không gồm nắp) | Dùng cho (gợi ý) |
 |---|---|---|
-| `MAILER-20x30` | 20 × 30 | 1 áo thun / quần short / phụ kiện mềm |
-| `MAILER-25x35` | 25 × 35 | 1–2 áo, 1 quần dài, 1 đầm ngắn |
-| `MAILER-32x45` | 32 × 45 | 2–4 món, áo khoác mỏng |
-| `MAILER-38x52` | 38 × 52 | Đơn gộp nhiều món mềm, áo khoác dày |
+| `MAILER-20X30` | 20 × 30 | Phụ kiện mềm, quần short gập nhỏ (gói rộng ≤ ~15 cm) |
+| `MAILER-25X35` | 25 × 35 | 1 áo **gập đôi** (gói ~15×24×5) |
+| `MAILER-32X45` | 32 × 45 | 1–2 áo nguyên khuôn gấp, 1 quần dài, đầm |
+| `MAILER-38X52` | 38 × 52 | Đơn gộp nhiều món mềm, áo khoác dày |
+
+Lưu ý luật nửa chu vi (4.3): túi rộng W chỉ chứa gói rộng tối đa `W − t − lề`. Áo gấp khuôn rộng 24 cm, dày 2,5 cm cần túi rộng ≥ 28,5 cm → 32×45; gập đôi thêm thì vừa 25×35.
 
 Bốn cỡ trên là cỡ **có sẵn** trên thị trường VN (nhà sản xuất liệt kê 17×30, 20×30, 25×35, 28×42, 32×45, 38×52, 40×60); 32×43 và 40×50 ban đầu dự kiến không có hàng sẵn nên đã đổi. Túi PE 2 lớp (ngoài trắng/in logo, trong đen chống nhìn xuyên), băng keo dán sẵn kiểu rách khi bóc (lộ dấu mở). Độ dày màng nhà sản xuất không công bố — ước tính ~45–50 µm/mặt **(giả định)**. Chưa xác minh kích thước in trên túi có gồm nắp dán hay không → kho đo 1 túi thật khi nhập.
 
@@ -144,6 +146,8 @@ Chọn **B** chỉ khi `tổng_chi_phí(B) ≤ tổng_chi_phí(A) − split_min_
 | Cài đặt | Mặc định |
 |---|---|
 | `split_min_saving_vnd` | 5000 |
+| `est_fee_first_step_vnd` — cước ước tính bậc đầu, chỉ để so tách/gộp | 22000 **(giả định)** |
+| `est_fee_per_extra_step_vnd` — cước ước tính mỗi bậc 0,5 kg thêm | 2500 **(giả định)** |
 
 Giới hạn số kiện mỗi đơn (`max_parcels_per_order`) giữ nguyên.
 
@@ -182,6 +186,8 @@ Mỗi đơn Lazada có mã vận đơn riêng; giữ nguyên hành vi hiện t�
 
 ## 9. Thay đổi kỹ thuật cần làm (sau khi duyệt)
 
+> Tiến độ (31/10/2026): **T1–T5 xong** (nhánh `feature/packaging-standard`). Túi niêm phong mặc định **tắt** (`packing_settings.mailer_enabled = false`) tới khi xác nhận GHN nhận túi làm lớp ngoài; bật bằng `PUT /packing/settings` `{ "mailer_enabled": true }` sau khi chạy `npx ts-node scripts/seed-packaging-mailers.ts`. Còn T6–T9.
+
 | # | Thay đổi | Phạm vi |
 |---|---|---|
 | T1 | Solver lấy `volumetric_divisor` từ hãng vận chuyển (GHN 5000) thay vì mặc định 6000, và so **cước theo bậc làm tròn** (bảng bậc trong cấu hình hãng) trước khối lượng quy đổi | `packing-plan.service.ts`, `solver/objective.ts` |
@@ -215,10 +221,10 @@ Phía FE cần dựng mô hình túi niêm phong (trạng thái trải phẳng �
 
 | Đơn | Trước | Sau |
 |---|---|---|
-| 1 áo thun M (24×30×2,5) | Thùng S 20,6×15,6×10,6 = 3.406 cm³ → 0,68 kg → **bậc 1 kg** | Túi `MAILER-25x35`, nhồi 25×31×3 = 2.325 cm³ → 0,47 kg → **bậc 0,5 kg** — giảm 1 bậc cước, bao bì rẻ hơn |
-| 1 áo thun L (25×32×3) | Thùng S → bậc 1 kg | Túi `MAILER-25x35`, nhồi 26×33×3,5 = 3.003 cm³ → 0,60 kg → vẫn **bậc 1 kg**; lợi ở giá bao bì và kiện nhẹ. Nếu gập đôi lọt bậc 0,5 kg thì engine chọn gập |
+| 1 áo thun M (24×30×2,5) | Không vừa thùng S (24 > 20 cm, gập đôi 24×15 vẫn > 20) → thùng M 35,6×25,6×20,6 = 18.774 cm³ → 3,75 kg → **bậc 4 kg** | Gập đôi (24×15×5) → `MAILER-25X35`, nhồi 25×16×5,5 = 2.200 cm³ → 0,44 kg → **bậc 0,5 kg** |
+| 1 áo thun L (25×32×3) | Thùng M → **bậc 4 kg** | Nguyên dạng cần `MAILER-32X45` (nhồi 33×26×3,5 → 0,60 kg); gập đôi vừa `MAILER-25X35` (nhồi 26×17×6,5 → 0,57 kg) — cùng **bậc 1 kg**, engine chọn túi rẻ hơn (25×35, gập đôi) |
 | 2 áo thun + 1 quần dài | Thùng M | Chồng dày t = 3 + 3 + 3.5 = 9.5 cm > 8 cm → không vừa 1 túi; engine so 2 túi niêm phong với 1 thùng, chọn theo mục 2 + 6 |
 | 1 áo + 1 đôi giày | Thùng M | So A/B mục 6 — thường A (1 thùng) |
-| 2 đơn AURELLE cùng người nhận, mỗi đơn 1 áo | 2 thùng S, 2 vận đơn | 1 túi `MAILER-25x35`, 1 vận đơn, 2 phiếu đóng gói |
+| 2 đơn AURELLE cùng người nhận, mỗi đơn 1 áo M | 2 thùng M, 2 vận đơn | Chồng dày 5 cm → 1 túi `MAILER-32X45` (nhồi 31×25×5,5 → 0,85 kg, bậc 1 kg), 1 vận đơn, 2 phiếu đóng gói (cần T6–T7) |
 
 > Số trong mục 11 là minh hoạ, dùng khuôn gấp giả định ở 5.2; số chính xác do engine tính sau khi code xong.

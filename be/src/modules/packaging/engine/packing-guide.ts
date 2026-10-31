@@ -174,6 +174,42 @@ export function describePackingSteps(
   });
 }
 
+/**
+ * AOFP-224 — kiện túi niêm phong (PACKAGING_STANDARD §10): chồng phẳng các gói
+ * zip, món lớn dưới cùng, rồi cho vào túi, ép khí, dán nắp, dán tem. Không có
+ * vị trí trong lòng thùng nên không nói "góc/giữa thùng".
+ */
+function buildMailerGuide(facts: GuideStepFacts[], box: BoxSpec): GuideText {
+  const steps = facts.map((f) => {
+    const itemName = f.product_type ? `${f.product_type} ${f.sku}` : `món ${f.sku}`;
+    const actions: string[] = [];
+    if (f.zip_bag) {
+      actions.push(
+        `Cho ${itemName} (${f.item_key}) vào túi zip ${f.zip_bag.name}${f.zip_bag.folded ? ', gập đôi túi' : ''}`,
+      );
+    }
+    if (f.folded_in_half) {
+      actions.push(f.zip_bag ? 'gập đôi cả gói theo chiều dài' : `Gập đôi ${itemName} (${f.item_key}) theo chiều dài`);
+    }
+    if (actions.length === 0) actions.push(`Lấy ${itemName} (${f.item_key})`);
+    const where =
+      f.step === 1 ? 'nằm phẳng làm lớp dưới cùng' : `nằm phẳng chồng lên ${f.rests_on.join(', ') || 'gói trước'}`;
+    return {
+      step: f.step,
+      instruction: `${actions.join(', ')}, đặt ${where}.`,
+      tip: f.zip_bag ? 'Vuốt hết không khí và kéo kín miệng túi zip trước khi chồng.' : null,
+    };
+  });
+  return {
+    summary:
+      `Dùng túi niêm phong ${box.name} (${box.code}) cho ${String(facts.length)} món, không cần thùng. ` +
+      'Xếp chồng phẳng theo thứ tự dưới đây (món lớn nằm dưới), cho cả chồng vào túi, đặt phiếu đóng gói lên trên, ' +
+      'ép bớt không khí, bóc lớp giấy bảo vệ keo, gập nắp dán kín rồi dán tem vận đơn lên mặt phẳng lớn của túi. ' +
+      `Đếm lại đủ ${String(facts.length)} món trước khi dán túi.`,
+    steps,
+  };
+}
+
 /** Câu hướng dẫn mẫu — dùng khi không có AI hoặc AI trả sai. */
 export function buildTemplateGuide(
   facts: GuideStepFacts[],
@@ -181,6 +217,7 @@ export function buildTemplateGuide(
   fillRatio: number | null,
   materials: GuideMaterial[] = [],
 ): GuideText {
+  if (box.kind === 'mailer') return buildMailerGuide(facts, box);
   const steps = facts.map((f) => {
     const where =
       f.rests_on.length === 0

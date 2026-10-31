@@ -296,4 +296,51 @@ export class UpdatePackingSettingsDto {
   @IsOptional()
   @IsBoolean({ message: 'require_scan phải là true/false' })
   require_scan?: boolean;
+
+  @ApiProperty({ required: false, description: 'AOFP-224 — bật phương án túi niêm phong cho hàng mềm.' })
+  @IsOptional()
+  @IsBoolean({ message: 'mailer_enabled phải là true/false' })
+  mailer_enabled?: boolean;
+
+  @ApiProperty({ required: false, example: 20, description: 'Lề rộng túi niêm phong (mm).' })
+  @IsOptional()
+  @IsInt({ message: 'mailer_margin_width_mm phải là số nguyên' })
+  @Min(0, { message: 'mailer_margin_width_mm tối thiểu 0' })
+  @Max(100, { message: 'mailer_margin_width_mm tối đa 100' })
+  mailer_margin_width_mm?: number;
+
+  @ApiProperty({ required: false, example: 30, description: 'Lề dài túi niêm phong gồm nắp dán (mm).' })
+  @IsOptional()
+  @IsInt({ message: 'mailer_margin_length_mm phải là số nguyên' })
+  @Min(0, { message: 'mailer_margin_length_mm tối thiểu 0' })
+  @Max(150, { message: 'mailer_margin_length_mm tối đa 150' })
+  mailer_margin_length_mm?: number;
+
+  @ApiProperty({ required: false, example: 80, description: 'Chồng hàng dày tối đa trong túi (mm).' })
+  @IsOptional()
+  @IsInt({ message: 'mailer_max_thickness_mm phải là số nguyên' })
+  @Min(5, { message: 'mailer_max_thickness_mm tối thiểu 5' })
+  @Max(300, { message: 'mailer_max_thickness_mm tối đa 300' })
+  mailer_max_thickness_mm?: number;
+
+  @ApiProperty({ required: false, example: 5000, description: 'Đơn trộn mềm + cứng: chỉ tách túi + thùng khi rẻ hơn ít nhất (VND).' })
+  @IsOptional()
+  @IsInt({ message: 'split_min_saving_vnd phải là số nguyên' })
+  @Min(0, { message: 'split_min_saving_vnd tối thiểu 0' })
+  @Max(1000000, { message: 'split_min_saving_vnd tối đa 1000000' })
+  split_min_saving_vnd?: number;
+
+  @ApiProperty({ required: false, example: 22000, description: 'Cước ước tính bậc đầu (VND, giả định).' })
+  @IsOptional()
+  @IsInt({ message: 'est_fee_first_step_vnd phải là số nguyên' })
+  @Min(0, { message: 'est_fee_first_step_vnd tối thiểu 0' })
+  @Max(1000000, { message: 'est_fee_first_step_vnd tối đa 1000000' })
+  est_fee_first_step_vnd?: number;
+
+  @ApiProperty({ required: false, example: 2500, description: 'Cước ước tính mỗi bậc thêm (VND, giả định).' })
+  @IsOptional()
+  @IsInt({ message: 'est_fee_per_extra_step_vnd phải là số nguyên' })
+  @Min(0, { message: 'est_fee_per_extra_step_vnd tối thiểu 0' })
+  @Max(1000000, { message: 'est_fee_per_extra_step_vnd tối đa 1000000' })
+  est_fee_per_extra_step_vnd?: number;
 }

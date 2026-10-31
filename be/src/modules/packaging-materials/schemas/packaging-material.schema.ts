@@ -1,7 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument } from 'mongoose';
 import { MATERIAL_TYPES, type MaterialType } from '../../packaging/engine/types';
-import { BoxDimensionsMm, BoxDimensionsMmSchema } from './box-dimensions.schema';
+import { BoxDimensionsMm, BoxDimensionsMmSchema, MailerFlatMm, MailerFlatMmSchema } from './box-dimensions.schema';
 
 /**
  * G4 (27/09/2026) — danh mục + tồn vật liệu đóng gói. Tồn tách 2 loại: MỚI và
@@ -15,12 +15,18 @@ import { BoxDimensionsMm, BoxDimensionsMmSchema } from './box-dimensions.schema'
  *   thùng tái sử dụng (ghi tiết kiệm).
  * - Vật tư chèn (`kind: cushioning`): engine chỉ dùng loại có `material_type`
  *   (xốp góc, giấy chèn...) kèm `weight_g_per_unit`.
+ * - Túi niêm phong (`kind: mailer`, AOFP-224 31/10/2026): lớp vận chuyển cho hàng
+ *   mềm (docs/PACKAGING_STANDARD.md §4). Engine dùng túi có `flat` + `tare_g`
+ *   (khối lượng túi) + `max_load_g`. Không tái sử dụng.
  */
+export const PACKAGING_MATERIAL_KINDS = ['box', 'cushioning', 'mailer'] as const;
+export type PackagingMaterialKind = (typeof PACKAGING_MATERIAL_KINDS)[number];
+
 @Schema({ collection: 'packaging_materials', timestamps: { createdAt: 'created_at', updatedAt: 'updated_at' } })
 export class PackagingMaterial {
   @Prop({ required: true, unique: true }) code!: string; // VD BOX-M — KHÓA sau khi tạo
   @Prop({ required: true }) name!: string;
-  @Prop({ type: String, enum: ['box', 'cushioning'], required: true }) kind!: 'box' | 'cushioning';
+  @Prop({ type: String, enum: PACKAGING_MATERIAL_KINDS, required: true }) kind!: PackagingMaterialKind;
 
   @Prop({ type: Number, default: null }) length_cm!: number | null;
   @Prop({ type: Number, default: null }) width_cm!: number | null;
@@ -41,6 +47,8 @@ export class PackagingMaterial {
   @Prop({ type: BoxDimensionsMmSchema, default: null }) outer!: BoxDimensionsMm | null;
   @Prop({ type: Number, default: null, min: 0 }) tare_g!: number | null;
   @Prop({ type: Number, default: null, min: 1 }) max_load_g!: number | null;
+  // Túi niêm phong: rộng × dài trải phẳng (mm). Dùng chung tare_g/max_load_g ở trên.
+  @Prop({ type: MailerFlatMmSchema, default: null }) flat!: MailerFlatMm | null;
   // Vật tư chèn: loại theo luật chọn vật tư + khối lượng mỗi đơn vị.
   @Prop({ type: String, enum: [...MATERIAL_TYPES, null], default: null }) material_type!: MaterialType | null;
   @Prop({ type: String, default: null }) unit!: string | null; // VD "cái", "tấm"

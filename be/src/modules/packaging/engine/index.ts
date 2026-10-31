@@ -12,6 +12,17 @@ export { validateCandidate } from './validator';
 export { consolidateCartons } from './improve';
 export { selectMaterials, DEFAULT_MATERIAL_RULES } from './material-selector';
 export {
+  DEFAULT_MAILER_FIT,
+  filledMailerDims,
+  flattest,
+  mailerFits,
+  stackOf,
+  stackPlacements,
+  type FlatUnit,
+  type MailerFitOptions,
+  type MailerStack,
+} from './mailer-fit';
+export {
   packOrder,
   packIntoBox,
   buildOk,

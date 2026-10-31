@@ -49,15 +49,42 @@ export interface PackingUnit {
    * chèn theo luật; hình học không dùng.
    */
   product_category?: string | null;
+  /**
+   * AOFP-224 (31/10/2026) — true = món đi được trong túi niêm phong (đã gộp luật
+   * dễ vỡ + mặc định theo loại, xem resolveOuterRequirement). Thiếu = false.
+   */
+  mailer_ok?: boolean;
 }
 
 export interface BoxSpec {
   code: string;
   name: string;
+  /**
+   * AOFP-224 — lớp vận chuyển. 'mailer' = túi niêm phong đã nhồi: inner = outer =
+   * kích thước ôm chồng hàng (filledMailerDims). Thiếu = 'box' (dữ liệu cũ).
+   */
+  kind?: 'box' | 'mailer';
   inner: DimensionsMm;
   outer: DimensionsMm;
   tare_g: number;
   /** Tải HÀNG tối đa (không gồm bì). */
+  max_load_g: number;
+  price_vnd: number | null;
+}
+
+/**
+ * AOFP-224 (31/10/2026) — túi niêm phong (lớp vận chuyển cho hàng mềm). Không có
+ * lòng cố định: vừa hay không do `mailerFits` quyết định (PACKAGING_STANDARD §4.3).
+ */
+export interface MailerSpec {
+  code: string;
+  name: string;
+  /** Rộng × dài trải phẳng (mm, không gồm nắp dán). */
+  width_mm: number;
+  length_mm: number;
+  /** Khối lượng 1 túi (g). */
+  tare_g: number;
+  /** Tải hàng tối đa (g). */
   max_load_g: number;
   price_vnd: number | null;
 }

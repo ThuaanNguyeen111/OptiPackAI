@@ -1225,6 +1225,7 @@ export class OrderGroupsService {
         zip_bag_code: product.zip_bag_code ?? null,
         zip_bag_folded: product.zip_bag_folded ?? false,
         can_fold_in_half: product.can_fold_in_half ?? false,
+        outer_requirement: product.outer_requirement ?? null,
       };
     });
   }
