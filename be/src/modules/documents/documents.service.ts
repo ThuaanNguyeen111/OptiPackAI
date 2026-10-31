@@ -266,14 +266,20 @@ export class DocumentsService {
       .sort({ _id: 1 });
   }
 
-  /** Kiện của kế hoạch đang hoạt động, gom theo đơn (hợp đồng parcelsOfPlan). */
-  private async parcelsByOrder(groupId: Types.ObjectId): Promise<Map<string, ParcelView[]>> {
+  /**
+   * Kiện của kế hoạch đang hoạt động, gom theo đơn (hợp đồng parcelsOfPlan).
+   * AOFP-224 — `all`: kiện gộp nhiều đơn xuất hiện dưới MỌI đơn có hàng trong kiện
+   * (phiếu đóng gói từng đơn); `primary`: chỉ dưới đơn chủ (nhãn — 1 nhãn mỗi kiện).
+   */
+  private async parcelsByOrder(groupId: Types.ObjectId, mode: 'primary' | 'all' = 'primary'): Promise<Map<string, ParcelView[]>> {
     const plan = await this.planModel.findOne({ order_group_id: groupId, is_active: true });
     const byOrder = new Map<string, ParcelView[]>();
     for (const p of plan ? parcelsOfPlan(plan) : []) {
-      const list = byOrder.get(p.orderId) ?? [];
-      list.push(p);
-      byOrder.set(p.orderId, list);
+      for (const orderId of mode === 'all' ? p.orderIds : [p.orderId]) {
+        const list = byOrder.get(orderId) ?? [];
+        list.push(p);
+        byOrder.set(orderId, list);
+      }
     }
     return byOrder;
   }
@@ -289,7 +295,7 @@ export class DocumentsService {
         { groupId },
       );
     }
-    const parcelsByOrder = await this.parcelsByOrder(group._id);
+    const parcelsByOrder = await this.parcelsByOrder(group._id, 'all');
     const demos = await Promise.all(orders.map((o) => this.demoOf(o)));
 
     const data: PackingSlipData = {
@@ -372,8 +378,12 @@ export class DocumentsService {
         : recipient;
       for (const p of own) {
         const cp = carrierByParcel.get(p.parcelNo);
+        // AOFP-224 — kiện gộp nhiều đơn: in đủ mã các đơn có hàng trong kiện.
+        const platformIds = p.orderIds
+          .map((id) => orders.find((o) => String(o._id) === id)?.platform_order_id)
+          .filter((v): v is string => typeof v === 'string');
         parcels.push({
-          orderId: order.platform_order_id,
+          orderId: platformIds.length > 1 ? platformIds.join(' + ') : order.platform_order_id,
           recipient: orderRecipient,
           index: 0,
           total: 0,

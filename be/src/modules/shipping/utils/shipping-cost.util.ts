@@ -66,6 +66,8 @@ export function priceForWeight(service: RateService, weightG: number): number {
 
 export interface ParcelInput {
   orderId: string | null;
+  /** AOFP-224 — mọi đơn có hàng trong kiện (kiện gộp cùng người nhận); bỏ trống = [orderId]. */
+  orderIds?: string[];
   cartonIndex: number;
   /** C4 (14/10/2026) — số kiện trong kế hoạch (dùng khi tạo vận đơn hãng theo kiện). */
   parcelNo?: number;
@@ -75,6 +77,7 @@ export interface ParcelInput {
 
 export interface ParcelQuote {
   orderId: string | null;
+  orderIds?: string[];
   cartonIndex: number;
   parcelNo?: number;
   actualG: number;
@@ -120,6 +123,7 @@ export function quoteService(
     const chargeableG = Math.max(Math.ceil(parcel.actualG), volumetricG);
     return {
       orderId: parcel.orderId,
+      ...(parcel.orderIds ? { orderIds: parcel.orderIds } : {}),
       cartonIndex: parcel.cartonIndex,
       ...(parcel.parcelNo !== undefined ? { parcelNo: parcel.parcelNo } : {}),
       actualG: parcel.actualG,

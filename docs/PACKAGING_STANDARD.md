@@ -169,8 +169,8 @@ Túi niêm phong **không** dùng vật liệu chèn (trừ `tissue_paper` theo 
 ### 8.1. AURELLE — đóng chung kiện
 
 - Các đơn AURELLE trong cùng nhóm gộp (cùng `consolidation_key`, tức cùng người nhận) được **giải chung một bài đóng gói**: engine gom toàn bộ hàng rồi áp mục 4–6.
-- Một kiện có thể chứa hàng của nhiều đơn → kiện mang `order_ids[]`.
-- **Một vận đơn GHN cho một kiện**; tiền thu hộ (COD) = tổng COD các đơn có hàng trong kiện (kiện đầu tiên mang COD nếu nhiều kiện). Mã vận đơn ghi ngược về **từng đơn** AURELLE (outbox writeback).
+- Một kiện có thể chứa hàng của nhiều đơn → kiện mang `order_ids[]` (đơn chủ `order_id` = đơn sớm nhất có hàng trong kiện), mỗi món ghi `order_id` của đơn sở hữu, và mã món có tiền tố mã đơn sàn: `AUR-A/TEE#1` (2 đơn cùng SKU không trùng mã khi quét/chuyển món/tháo kiện). Các kiện cùng bài gộp có chung `share_group`; chuyển món được giữa các kiện cùng `share_group`.
+- **Một vận đơn GHN cho một kiện** (hệ thống vốn đã tạo mỗi kiện một đơn GHN qua `shipment.carrier_parcels`, nên không cần `service_type_id = 5`). Kiện vận đơn mang `order_ids[]`; mã vận đơn và trạng thái giao của kiện ghi ngược về **mọi đơn** trong kiện (outbox writeback). Thu hộ (COD) hiện luôn = 0 (thanh toán trước), nên chưa phải cộng COD.
 - Trong kiện: mỗi món vẫn có túi zip riêng (định danh SKU); **mỗi đơn một phiếu đóng gói** (mã đơn + danh sách món) kẹp trong kiện chứa hàng của đơn đó.
 - Đơn Hỏa tốc 3h, đơn đổi hàng `EXC-`, đơn bị che thông tin — vốn không sinh khóa gộp → không bao giờ đóng chung.
 
@@ -186,7 +186,7 @@ Mỗi đơn Lazada có mã vận đơn riêng; giữ nguyên hành vi hiện t�
 
 ## 9. Thay đổi kỹ thuật cần làm (sau khi duyệt)
 
-> Tiến độ (31/10/2026): **T1–T5 xong** (nhánh `feature/packaging-standard`). Túi niêm phong mặc định **tắt** (`packing_settings.mailer_enabled = false`) tới khi xác nhận GHN nhận túi làm lớp ngoài; bật bằng `PUT /packing/settings` `{ "mailer_enabled": true }` sau khi chạy `npx ts-node scripts/seed-packaging-mailers.ts`. Còn T6–T9.
+> Tiến độ (31/10/2026): **T1–T8 xong ở backend** (nhánh `feature/packaging-standard`); T9 (FE) chưa làm. Túi niêm phong mặc định **tắt** (`packing_settings.mailer_enabled = false`) tới khi xác nhận GHN nhận túi làm lớp ngoài; bật bằng `PUT /packing/settings` `{ "mailer_enabled": true }` sau khi chạy `npx ts-node scripts/seed-packaging-mailers.ts`. Kiện gộp (T6–T7) chưa qua bước chứng minh CP-SAT (chỉ BRKGA), và chỉ áp cho kế hoạch tính mới — kế hoạch cũ đọc `order_ids` rỗng như `[order_id]`, không cần migrate.
 
 | # | Thay đổi | Phạm vi |
 |---|---|---|
@@ -195,8 +195,8 @@ Mỗi đơn Lazada có mã vận đơn riêng; giữ nguyên hành vi hiện t�
 | T3 | `product_masters.outer_requirement` + mặc định theo loại; thêm `ProductCategory.bag` (đăng ký FLAT/không FLAT, mô hình 3D) | `product-master`, `common/enums` |
 | T4 | Hàm thuần `mailerFits(stack, mailer, settings)` + kích thước tính cước túi đã nhồi; có unit test | `packaging/` |
 | T5 | Solver: sinh phương án túi niêm phong + so sánh A/B (mục 6) theo tổng chi phí | `packing/solver/` |
-| T6 | `PlanParcel`: `box` → thêm `outer.kind: 'box' \| 'mailer'`; `order_id` → `order_ids[]` (giữ `order_id` = đơn đầu để tương thích, migrate dữ liệu cũ) | `packing-plan.schema.ts`, `shipments` |
-| T7 | Gộp bài toán theo nhóm AURELLE cùng khóa gộp; COD cộng, writeback mã vận đơn từng đơn. Lưu ý API GHN: một vận đơn nhiều kiện phải dùng `service_type_id = 5` với kích thước/khối lượng từng kiện trong `items[]`; kiện gộp COD ≥ 2.000.000đ phải cho xem hàng + niêm phong đúng chuẩn | `packing`, `shipments`, `marketplaces/aurelle` |
+| T6 | `PlanParcel.box.kind: 'box' \| 'mailer'`; thêm `order_ids[]`, `share_group`, `placements[].order_id` (giữ `order_id` = đơn chủ để tương thích; dữ liệu cũ `order_ids` rỗng = `[order_id]`) | `packing-plan.schema.ts`, `utils/shared-parcel.util.ts` |
+| T7 | Gộp bài toán theo nhóm AURELLE cùng khóa gộp (Lazada giữ mỗi đơn một bài); `carrier_parcels[].order_ids`; mã vận đơn + trạng thái giao ghi ngược cho mọi đơn trong kiện; phiếu đóng gói in cho mọi đơn có hàng trong kiện, tem vận đơn in "A + B"; hủy 1 đơn → tháo cả kiện gộp | `packing`, `shipments`, `marketplace-writeback`, `documents`, `order-groups` |
 | T8 | Vật liệu `kraft_paper`, `tissue_paper` + luật chèn mới | `material-selector.ts`, seed |
 | T9 | Cài đặt mới mục 4.3, 6 trong `packing_settings` | `packing` |
 
@@ -225,6 +225,6 @@ Phía FE cần dựng mô hình túi niêm phong (trạng thái trải phẳng �
 | 1 áo thun L (25×32×3) | Thùng M → **bậc 4 kg** | Nguyên dạng cần `MAILER-32X45` (nhồi 33×26×3,5 → 0,60 kg); gập đôi vừa `MAILER-25X35` (nhồi 26×17×6,5 → 0,57 kg) — cùng **bậc 1 kg**, engine chọn túi rẻ hơn (25×35, gập đôi) |
 | 2 áo thun + 1 quần dài | Thùng M | Chồng dày t = 3 + 3 + 3.5 = 9.5 cm > 8 cm → không vừa 1 túi; engine so 2 túi niêm phong với 1 thùng, chọn theo mục 2 + 6 |
 | 1 áo + 1 đôi giày | Thùng M | So A/B mục 6 — thường A (1 thùng) |
-| 2 đơn AURELLE cùng người nhận, mỗi đơn 1 áo M | 2 thùng M, 2 vận đơn | Chồng dày 5 cm → 1 túi `MAILER-32X45` (nhồi 31×25×5,5 → 0,85 kg, bậc 1 kg), 1 vận đơn, 2 phiếu đóng gói (cần T6–T7) |
+| 2 đơn AURELLE cùng người nhận, mỗi đơn 1 áo M | 2 thùng M, 2 vận đơn | Chồng dày 5 cm → 1 túi `MAILER-32X45` (nhồi 31×25×5,5 → 0,85 kg, bậc 1 kg), 1 vận đơn, 2 phiếu đóng gói |
 
 > Số trong mục 11 là minh hoạ, dùng khuôn gấp giả định ở 5.2; số chính xác do engine tính sau khi code xong.

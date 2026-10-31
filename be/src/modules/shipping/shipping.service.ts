@@ -344,6 +344,7 @@ export class ShippingService {
     if (!plan) return [];
     return parcelsOfPlan(plan).map((p) => ({
       orderId: p.orderId,
+      orderIds: p.orderIds,
       cartonIndex: p.indexInOrder,
       parcelNo: p.parcelNo,
       // Cân thật lúc pack nếu có (kg → g); chưa pack thì cân ước tính (hàng + bì + vật tư).

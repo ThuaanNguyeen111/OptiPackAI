@@ -16,6 +16,8 @@ export type Plain<T> = { [K in keyof T]: T[K] };
 export interface ParcelView {
   parcelNo: number;
   orderId: string;
+  /** AOFP-224 — mọi đơn có hàng trong kiện (gồm đơn chủ `orderId`). */
+  orderIds: string[];
   platformOrderId: string | null;
   /** Thứ tự kiện trong CÙNG đơn (0, 1, …). */
   indexInOrder: number;
@@ -84,6 +86,7 @@ export function parcelsOfPlan(plan: { parcels: PlanParcel[] }): ParcelView[] {
       return {
         parcelNo: p.parcel_no,
         orderId,
+        orderIds: (p.order_ids && p.order_ids.length > 0 ? p.order_ids : [p.order_id]).map((id) => id.toString()),
         platformOrderId: p.platform_order_id,
         indexInOrder,
         boxCode: p.box.code,

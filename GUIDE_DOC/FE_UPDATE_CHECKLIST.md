@@ -19,6 +19,7 @@
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
+| 9 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 6 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -192,6 +193,22 @@ Việc FE (`PackagingWorkbench.tsx`):
 **Mã lỗi mới:** `SHP_SHIPPER_REQUIRED` (400), `SHP_EXPRESS_SELF_DELIVERY_REQUIRED` (409 — gửi hãng hoặc gộp chuyến cho nhóm hỏa tốc), `SHP_SHIPPER_INVALID` (422 — người chọn không phải Coordinator đang làm, chọn lại), `SHP_NOT_ASSIGNED_SHIPPER` (403), `ORD_GROUP_MERGE_EXPRESS` (409), `ORD_GROUP_PRIORITY_LOCKED` (409).
 
 **Nghiệm thu:** đặt 1 đơn hỏa tốc trên website (8:00–14:00, phường nội thành) → nhóm hiện đầu hàng chờ lấy hàng có đếm ngược; đóng xong → màn Giao hàng chỉ có ô chọn shipper; tài khoản Coordinator khác không bấm được "Giao thành công"; giao xong → website hiện tên + SĐT shipper; để quá giờ hẹn → website hiện "Giao chậm hơn dự kiến" / "Trễ".
+
+---
+
+## 6. 🆕 31/10/2026 — Quy chuẩn đóng gói thời trang (dòng 9, AOFP-224)
+
+**Nghiệp vụ:** [`docs/PACKAGING_STANDARD.md`](../docs/PACKAGING_STANDARD.md). Hàng mềm (áo, quần, đầm) không bắt buộc thùng — engine có thể chọn **túi niêm phong** (cước GHN thấp hơn); hàng cứng/dễ vỡ luôn vào thùng; đơn AURELLE cùng người nhận được **đóng chung kiện**. Lazada không đổi.
+
+| # | Màn | Việc FE |
+|---|---|---|
+| 6.1 | Product Master (`CatalogPanels.tsx`) | Thêm loại `bag` (túi xách) vào ô danh mục. Ô **"Lớp ngoài"** `outerRequirement`: `mailer_ok` (được dùng túi niêm phong) / `box_required` (bắt buộc thùng) / để trống = theo loại; hiện `effectiveOuterRequirement` (giá trị đang áp) |
+| 6.2 | Cài đặt đóng gói (`PUT /packing/settings`) | Công tắc `mailer_enabled` (mặc định tắt) + các ô `mailer_margin_width_mm`, `mailer_margin_length_mm`, `mailer_max_thickness_mm`, `split_min_saving_vnd`, `est_fee_first_step_vnd`, `est_fee_per_extra_step_vnd` |
+| 6.3 | Danh mục vật tư | Tạo vật tư `kind: 'mailer'` (túi niêm phong): nhập `width_cm`, `length_cm` (kích thước túi phẳng, không có cao), `tare_g` (bắt buộc), `max_load_g`; vật liệu chèn mới `kraft_paper`, `tissue_paper` (seed `scripts/seed-packaging-materials.ts`) |
+| 6.4 | Khung 3D (`Packing3DBoxViewer.tsx`) | `parcels[].box.kind === 'mailer'` → vẽ túi dẹt (không vẽ nắp thùng, bỏ chữ "nắp" viết cứng); hướng dẫn đóng gói của túi là câu mẫu (không qua AI) |
+| 6.5 | Màn đóng gói — kiện gộp | Kiện có `orderIds.length ≥ 2`: hiện "Kiện chung đơn A + B" (`platformOrderIds`), tô màu món theo `placements[].orderId`. Mã món dạng `AUR-A/TEE#1`. Chuyển món được giữa các kiện cùng `shareGroup`. Tem vận đơn in "A + B"; phiếu đóng gói in cho từng đơn |
+
+**Nghiệm thu:** bật `mailer_enabled`, seed túi (`npx ts-node scripts/seed-packaging-mailers.ts`) → đơn 1 áo ra 1 túi niêm phong, khung 3D vẽ túi; đặt 2 đơn AURELLE cùng người nhận (cùng nhóm gộp) → 1 kiện chung 2 đơn, 2 phiếu đóng gói, 1 vận đơn GHN, mã vận đơn hiện ở cả 2 đơn trên website.
 
 ---
 

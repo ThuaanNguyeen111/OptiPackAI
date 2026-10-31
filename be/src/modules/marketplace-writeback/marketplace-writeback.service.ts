@@ -13,7 +13,7 @@ import {
 import { OrderStatus } from '../orders/enums/order-status.enum';
 import { ReturnType } from '../shipments/enums/return.enums';
 import { isExchangeShipmentStatus } from '../storefront/aurelle-return-api';
-import { carrierStatusOfOrder } from '../shipments/carrier-status.util';
+import { carrierParcelHasOrder, carrierStatusOfOrder } from '../shipments/carrier-status.util';
 import { ShipmentStatus } from '../shipments/enums/shipment-status.enum';
 import {
   MarketplaceStatusOutbox,
@@ -32,19 +32,25 @@ interface ShipmentForWriteback {
   carrier_name?: string | null;
   shipper_name?: string | null;
   shipper_phone?: string | null;
-  carrier_parcels?: { order_id?: unknown; carrier_order_code?: string | null; carrier_status?: string | null }[] | null;
+  carrier_parcels?: {
+    order_id?: unknown;
+    order_ids?: unknown[] | null;
+    carrier_order_code?: string | null;
+    carrier_status?: string | null;
+  }[] | null;
 }
 
 export function trackingCodeForOrder(
   shipment: {
     tracking_code?: string | null;
-    carrier_parcels?: { order_id?: unknown; carrier_order_code?: string | null }[] | null;
+    carrier_parcels?: { order_id?: unknown; order_ids?: unknown[] | null; carrier_order_code?: string | null }[] | null;
   },
   orderId: unknown,
 ): string | undefined {
   const parcels = (shipment.carrier_parcels ?? []).flatMap((p) =>
-    p.carrier_order_code ? [{ orderId: String(p.order_id), code: p.carrier_order_code }] : []);
-  const own = parcels.filter((p) => p.orderId === String(orderId));
+    p.carrier_order_code ? [{ parcel: p, code: p.carrier_order_code }] : []);
+  // AOFP-224 — kiện gộp nhiều đơn cùng người nhận: mã kiện là mã của mọi đơn trong kiện.
+  const own = parcels.filter((p) => carrierParcelHasOrder(p.parcel, orderId));
   const codes = [...new Set((own.length > 0 ? own : parcels).map((p) => p.code))];
   if (codes.length > 0) return codes.join(', ');
   return shipment.tracking_code ?? undefined;
