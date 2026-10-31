@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -14,7 +15,13 @@ import {
   SYNC_PLATFORMS,
 } from './order-sync-policy';
 import { ConsolidationRulesPreview, ConsolidationRulesService, ConsolidationRulesState } from './consolidation-rules.service';
-import { DeleteConsolidationRuleQueryDto, PreviewConsolidationRulesDto, SaveConsolidationRuleDto } from './dto/consolidation-rule.dto';
+import {
+  DeleteConsolidationRuleQueryDto,
+  PreviewConsolidationRulesDto,
+  SaveConsolidationRuleDto,
+  TranslateConsolidationRuleDto,
+} from './dto/consolidation-rule.dto';
+import { ConsolidationRuleAiService, ConsolidationRuleTranslation } from './consolidation-rule-ai.service';
 
 export const RULE_FIELD_LABELS: Record<string, string> = {
   phone: 'Số điện thoại',
@@ -61,7 +68,10 @@ function toResponse(state: ConsolidationRulesState): ConsolidationRulesResponse 
 @Controller('order-sync-settings/rules')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ConsolidationRulesController {
-  constructor(private readonly rulesService: ConsolidationRulesService) {}
+  constructor(
+    private readonly rulesService: ConsolidationRulesService,
+    private readonly ruleAiService: ConsolidationRuleAiService,
+  ) {}
 
   @Get()
   @Roles(UserRole.ADMIN, UserRole.STORE_OWNER)
@@ -87,6 +97,18 @@ export class ConsolidationRulesController {
   })
   async preview(@Body() dto: PreviewConsolidationRulesDto): Promise<ConsolidationRulesPreview> {
     return this.rulesService.preview(dto);
+  }
+
+  @Post('translate')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({
+    summary:
+      'Dịch câu chữ thành quy tắc nháp bằng AI (chỉ gửi câu chữ, không gửi dữ liệu khách). Không lưu — FE cho Admin xem trước rồi POST /rules. AI không dùng được → 503 ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE kèm details.suggestions.',
+  })
+  async translate(@Body() dto: TranslateConsolidationRuleDto): Promise<ConsolidationRuleTranslation> {
+    return this.ruleAiService.translate(dto.text);
   }
 
   @Put(':ruleId')

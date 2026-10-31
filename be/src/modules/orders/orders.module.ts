@@ -12,6 +12,7 @@ import { OrderSyncSettingsService } from './order-sync-settings.service';
 import { OrderSyncSettingsController } from './order-sync-settings.controller';
 import { ConsolidationRulesService } from './consolidation-rules.service';
 import { ConsolidationRulesController } from './consolidation-rules.controller';
+import { ConsolidationRuleAiService } from './consolidation-rule-ai.service';
 
 /**
  * ===================================================================
@@ -44,7 +45,7 @@ import { ConsolidationRulesController } from './consolidation-rules.controller';
     OrderGroupsModule,
   ],
   controllers: [OrdersController, OrderSyncSettingsController, ConsolidationRulesController],
-  providers: [OrdersService, LazadaOrderSyncScheduler, OrderSyncSettingsService, ConsolidationRulesService],
+  providers: [OrdersService, LazadaOrderSyncScheduler, OrderSyncSettingsService, ConsolidationRulesService, ConsolidationRuleAiService],
   exports: [OrdersService],
 })
 export class OrdersModule {}
