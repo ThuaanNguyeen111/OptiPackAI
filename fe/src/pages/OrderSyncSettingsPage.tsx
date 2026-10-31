@@ -16,6 +16,7 @@ import { usePortal } from '../context/use-portal'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import { UserRole } from '../types/auth'
 import { formatDateTime } from '../utils/format'
+import { ConsolidationRulesPanel } from './order-sync/ConsolidationRulesPanel'
 
 const fieldClass =
   'h-9 w-full rounded-md border border-hairline bg-canvas px-3 text-sm text-ink focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary'
@@ -202,6 +203,12 @@ export function OrderSyncSettingsPage() {
 
   const issues = draft ? issuesOf(draft, vi) : []
 
+  // 31/10/2026 — quy tắc gộp bổ sung lưu chung phiên bản với cấu hình này: nhận version mới
+  // để nút "Lưu" bên dưới gửi đúng expected_version (không đụng các ô đang sửa dở).
+  const syncVersion = useCallback((version: number | null) => {
+    setSettings((prev) => (prev && prev.version !== version ? { ...prev, version, isDefault: version === null } : prev))
+  }, [])
+
   async function save() {
     if (!settings || !draft || !canSave || issues.length > 0) return
     const windowHours = draft.timeWindowHours.trim()
@@ -384,6 +391,10 @@ export function OrderSyncSettingsPage() {
                   </>
                 ) : null}
               </section>
+
+              {draft.consolidationEnabled ? (
+                <ConsolidationRulesPanel vi={vi} canSave={canSave} version={settings.version} onVersionChange={syncVersion} />
+              ) : null}
 
               <section className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">
                 <h2 className="text-sm font-semibold text-ink">{vi ? 'Trạng thái' : 'Statuses'}</h2>
