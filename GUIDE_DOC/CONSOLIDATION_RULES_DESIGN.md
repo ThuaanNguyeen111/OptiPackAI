@@ -1,6 +1,7 @@
 # Thiết kế: Quy tắc gộp đơn do Admin mô tả bằng câu chữ (AI dịch, hệ thống áp cố định)
 
-> Trạng thái: **Thiết kế đã chốt (31/10/2026)**, đang code trên nhánh `feature/consolidation-rules`.
+> Trạng thái: **Đã code xong BE (31/10/2026, AOFP-223)** trên nhánh `feature/consolidation-rules`. FE chưa làm (`FE_UPDATE_CHECKLIST.md` mục 6).
+> Hợp đồng API chi tiết cho FE: `INTEGRATION_GUIDE_ORDERS.md` mục 7c, `API_LIST.md` mục 28.
 > Liên quan: `be/src/modules/orders/utils/consolidation-key.util.ts`, `order-sync-policy.ts`,
 > `order-sync-settings.service.ts`, `orders.service.ts#tryConsolidate`, mục 7c của
 > [`INTEGRATION_GUIDE_ORDERS.md`](./INTEGRATION_GUIDE_ORDERS.md).
@@ -158,15 +159,19 @@ Quyền: **Admin** sửa; **Store Owner** chỉ xem (`GET`). Tất cả nằm d�
   bị 400 thì thử lại `json_object`; BE **luôn tự kiểm lại** kết quả bằng cùng hàm validate của form.
 - Prompt chỉ chứa câu chữ của Admin và danh sách trường được phép. **Không** gửi dữ liệu đơn/khách.
 - Yêu cầu không làm được (theo giá trị đơn, theo SKU, theo sàn khác nhau...) → AI trả `unsupported`.
-- Thiếu `GROQ_API_KEY`, AI lỗi hoặc trả quy tắc không hợp lệ → `503 ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE`
-  kèm `details.suggestions`: vài quy tắc mẫu dựng sẵn để Admin chọn hoặc dùng form.
+- Thiếu `AI_API_KEY`, AI lỗi hoặc trả sai định dạng → `503 ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE`
+  kèm `details.suggestions`: 4 quy tắc mẫu dựng sẵn để Admin chọn hoặc dùng form.
+- AI trả đúng định dạng nhưng vi phạm giới hạn an toàn (VD chỉ cùng tỉnh) → `200` với `rule: null` và
+  `unsupported` = lý do từ `validateConsolidationRule` (đây là yêu cầu không làm được, không phải AI hỏng).
 
 ### 6.2. Xem trước (`/rules/preview`)
 
 - Đọc tối đa 5.000 đơn chưa xong (`.lean()`, `.select()` tối thiểu), mô phỏng gộp trong bộ nhớ theo
   đúng thuật toán `tryConsolidate` (theo thứ tự `created_at`), **không ghi DB**.
-- Trả: `current_groups`, `projected_groups`, `orders_scanned`, `truncated`, `skipped_missing_data`
-  (theo từng quy tắc), `examples[]` tối đa 10: `{ rule_name, platform_order_ids[], phone_last3 }`.
+- Trả: `currentGroups` (thực tế), `baselineGroups` (mô phỏng không quy tắc), `projectedGroups` (mô phỏng có quy tắc),
+  `groupsMergedByRules`, `ordersScanned`, `truncated`, `skippedMissingData[]` (theo từng quy tắc),
+  `examples[]` tối đa 10: `{ ruleNames, platformOrderIds, phoneLast3 }`.
+  Có `baselineGroups` vì `currentGroups` chứa cả lịch sử gộp tay/tách tay, không so trực tiếp với mô phỏng được.
 - Mô phỏng tính từ đầu trên tập đơn hiện có nên là **ước lượng**: thực tế nhóm cũ không bị đổi.
 
 ## 7. Kế hoạch triển khai (mỗi bước 1 commit, chạy tsc + lint + jest)
