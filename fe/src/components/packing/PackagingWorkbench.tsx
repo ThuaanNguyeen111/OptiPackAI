@@ -415,6 +415,10 @@ export function PackagingWorkbench() {
   const [summaries, setSummaries] = useState<Record<string, PackingPlanSummary>>({})
   const [staff, setStaff] = useState<PackingStaffMember[]>([])
   const [staffId, setStaffId] = useState('')
+  // Packaging Staff: "Việc của tôi" (mặc định — kế hoạch giao cho mình) hoặc "Tất cả" hàng chờ.
+  const isPackagingStaff = session?.role === UserRole.PACKAGING_STAFF
+  const [queueScope, setQueueScope] = useState<'mine' | 'all'>('mine')
+  const [myUserId, setMyUserId] = useState<string | null>(null)
   const [returnSku, setReturnSku] = useState('')
   const [returnQty, setReturnQty] = useState('1')
   const [returnRestock, setReturnRestock] = useState(false)
@@ -503,8 +507,9 @@ export function PackagingWorkbench() {
         session?.role === UserRole.PACKAGING_STAFF
           ? (await fetchMyProfile()).id
           : ''
+      if (packerId) setMyUserId(packerId)
       const rows = await listOrderGroups(
-        packerId ? { assigned_packer_id: packerId } : {},
+        packerId && queueScope === 'mine' ? { assigned_packer_id: packerId } : {},
       )
       setAllGroups(rows)
       const ids = rows.map((row) => row.id)
@@ -522,7 +527,7 @@ export function PackagingWorkbench() {
     } finally {
       setListLoading(false)
     }
-  }, [session])
+  }, [session, queueScope])
 
   const loadBoxStock = useCallback(async () => {
     try {
@@ -1059,6 +1064,28 @@ export function PackagingWorkbench() {
       const next = await assignPacker(group.id, mode, staffId || undefined)
       setPlan((current) => retainProfileStale(current, next))
       setToast(vi ? 'Đã gán người đóng gói.' : 'Packer assigned.')
+      // Cột "Người đóng" ở hàng chờ + số việc trong dropdown lấy từ danh sách — tải lại.
+      void loadList()
+      void listPackingStaff()
+        .then(setStaff)
+        .catch(() => undefined)
+    } catch (err: unknown) {
+      setActionError(formatApiError(err))
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  /** Packaging Staff tự nhận kế hoạch đang giao cho người khác / chưa giao. */
+  async function onClaim(): Promise<void> {
+    if (!group || !myUserId) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const next = await assignPacker(group.id, 'manual', myUserId)
+      setPlan((current) => retainProfileStale(current, next))
+      setToast(vi ? 'Đã nhận việc đóng gói nhóm này.' : 'You now own this packing job.')
+      void loadList()
     } catch (err: unknown) {
       setActionError(formatApiError(err))
     } finally {
@@ -1355,6 +1382,33 @@ export function PackagingWorkbench() {
                     <Loader2 className="pointer-events-none absolute right-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-ink-subtle" />
                   ) : null}
                 </label>
+              {isPackagingStaff ? (
+                <div
+                  role="group"
+                  aria-label={vi ? 'Phạm vi hàng chờ' : 'Queue scope'}
+                  className="mt-2 inline-flex rounded-lg border border-hairline bg-surface p-0.5 text-[11px]"
+                >
+                  {(['mine', 'all'] as const).map((scope) => (
+                    <button
+                      key={scope}
+                      type="button"
+                      onClick={() => setQueueScope(scope)}
+                      aria-pressed={queueScope === scope}
+                      className={`rounded-md px-2.5 py-1 font-medium ${
+                        queueScope === scope ? 'bg-primary text-white' : 'text-ink'
+                      }`}
+                    >
+                      {scope === 'mine'
+                        ? vi
+                          ? 'Việc của tôi'
+                          : 'My jobs'
+                        : vi
+                          ? 'Tất cả'
+                          : 'All'}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
             <span className="pack-bench-count">{String(visibleGroups.length)}</span>
           </div>
@@ -1430,6 +1484,11 @@ export function PackagingWorkbench() {
                       <p className="mt-0.5 truncate text-[10px] text-ink-subtle">
                         {vi ? 'Người đóng: ' : 'Packer: '}
                         {g.assignedPackerName ?? (vi ? 'chưa giao' : 'unassigned')}
+                        {myUserId && g.assignedPackerId === myUserId ? (
+                          <span className="font-semibold text-primary">
+                            {vi ? ' (bạn)' : ' (you)'}
+                          </span>
+                        ) : null}
                       </p>
                     </button>
                   </li>
@@ -1590,6 +1649,76 @@ export function PackagingWorkbench() {
                 ) : null}
               </div>
 
+              {canAssign &&
+              plan &&
+              ['ready', 'approved', 'packing'].includes(plan.status) &&
+              (group.fulfillmentStatus === 'pending_approval' ||
+                group.fulfillmentStatus === 'approved_for_packing') ? (
+                <div className="space-y-2 rounded-lg border border-hairline bg-surface p-3 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-semibold text-ink">
+                      {vi ? 'Người đóng gói: ' : 'Packer: '}
+                      {plan.session?.assignedPackerName ??
+                        (plan.session?.assignedPackerId
+                          ? plan.session.assignedPackerId.slice(-6)
+                          : vi
+                            ? 'chưa giao'
+                            : 'unassigned')}
+                      {myUserId && plan.session?.assignedPackerId === myUserId ? (
+                        <span className="text-primary">{vi ? ' (bạn)' : ' (you)'}</span>
+                      ) : null}
+                    </p>
+                    {isPackagingStaff &&
+                    myUserId &&
+                    plan.session?.assignedPackerId !== myUserId ? (
+                      <button
+                        type="button"
+                        disabled={actionBusy}
+                        onClick={() => void onClaim()}
+                        className="rounded-lg bg-primary px-2.5 py-1 font-semibold text-white disabled:opacity-50"
+                      >
+                        {vi ? 'Giao cho tôi' : 'Assign to me'}
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={actionBusy}
+                      onClick={() => void onAssign('auto')}
+                      className="rounded-lg border border-hairline px-2 py-1"
+                    >
+                      {vi ? 'Tự gán' : 'Auto'}
+                    </button>
+                    <select
+                      value={staffId}
+                      onChange={(e) => setStaffId(e.target.value)}
+                      className="rounded-lg border border-hairline bg-canvas px-2 py-1"
+                    >
+                      <option value="">{vi ? 'Chọn nhân viên' : 'Pick staff'}</option>
+                      {staff.map((person) => (
+                        <option
+                          key={person.staffId}
+                          value={person.staffId}
+                          disabled={Boolean(person.onLeave)}
+                        >
+                          {person.fullName} ({String(person.activeWorkload)})
+                          {person.onLeave ? (vi ? ' — nghỉ phép' : ' — on leave') : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={actionBusy || !staffId || selectedStaffOnLeave}
+                      onClick={() => void onAssign('manual')}
+                      className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
+                    >
+                      {vi ? 'Gán tay' : 'Assign'}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {tab === 'awaiting_packaging' ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
                   <p className="font-medium">
@@ -1657,52 +1786,8 @@ export function PackagingWorkbench() {
                       {canAssign && plan ? (
                         <div className="mt-3 space-y-2 rounded-lg border border-hairline bg-surface p-3 text-xs">
                           <p className="font-semibold text-ink">
-                            {vi ? 'Gán người đóng' : 'Assign packer'}
-                            {plan.session?.assignedPackerName
-                              ? ` · ${plan.session.assignedPackerName}`
-                              : plan.session?.assignedPackerId
-                                ? ` · ${plan.session.assignedPackerId.slice(-6)}`
-                                : ''}
+                            {vi ? 'Trả món về bước lấy hàng' : 'Return items to picking'}
                           </p>
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              disabled={actionBusy}
-                              onClick={() => void onAssign('auto')}
-                              className="rounded-lg border border-hairline px-2 py-1"
-                            >
-                              {vi ? 'Tự gán' : 'Auto'}
-                            </button>
-                            <select
-                              value={staffId}
-                              onChange={(e) => setStaffId(e.target.value)}
-                              className="rounded-lg border border-hairline bg-canvas px-2 py-1"
-                            >
-                              <option value="">{vi ? 'Chọn nhân viên' : 'Pick staff'}</option>
-                              {staff.map((person) => (
-                                <option
-                                  key={person.staffId}
-                                  value={person.staffId}
-                                  disabled={Boolean(person.onLeave)}
-                                >
-                                  {person.fullName} ({String(person.activeWorkload)})
-                                  {person.onLeave
-                                    ? vi
-                                      ? ' — nghỉ phép'
-                                      : ' — on leave'
-                                    : ''}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              type="button"
-                              disabled={actionBusy || !staffId || selectedStaffOnLeave}
-                              onClick={() => void onAssign('manual')}
-                              className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
-                            >
-                              {vi ? 'Gán tay' : 'Assign'}
-                            </button>
-                          </div>
                           <div className="grid gap-2 sm:grid-cols-2">
                             <input
                               value={returnSku}

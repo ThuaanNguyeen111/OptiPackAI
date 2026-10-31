@@ -1,5 +1,5 @@
 import { NavLink, Link, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Box,
   Boxes,
@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react'
 import { useAuth } from '../../../context/use-auth'
+import { fetchMyProfile } from '../../../api/users.api'
 import { usePortal } from '../../../context/use-portal'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
@@ -133,11 +134,29 @@ export function AdminSidebar() {
     setMobileNavOpen,
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
-  const { logout } = useAuth()
+  const { logout, session } = useAuth()
   const navigate = useNavigate()
   const vi = locale === 'vi'
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  // Tên tài khoản đang đăng nhập (trước đây viết cứng 'Alice Nguyễn').
+  const [profileName, setProfileName] = useState<string | null>(null)
+  const accessToken = session?.accessToken
+
+  useEffect(() => {
+    if (!accessToken) return
+    let cancelled = false
+    void fetchMyProfile()
+      .then((profile) => {
+        if (!cancelled) setProfileName(profile.name)
+      })
+      .catch(() => {
+        if (!cancelled) setProfileName(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [accessToken])
 
   async function handleConfirmLogout() {
     setLoggingOut(true)
@@ -254,7 +273,9 @@ export function AdminSidebar() {
         {!sidebarCollapsed ? (
           <>
             <div className="mb-3 rounded-lg border border-hairline bg-surface-2 p-2.5">
-              <p className="text-sm font-medium text-ink">Alice Nguyễn</p>
+              <p className="text-sm font-medium text-ink">
+                {profileName ?? (vi ? 'Đang tải…' : 'Loading…')}
+              </p>
               <span className="mt-1 inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary-hover">
                 <Shield className="h-3 w-3" strokeWidth={2} />
                 Admin
