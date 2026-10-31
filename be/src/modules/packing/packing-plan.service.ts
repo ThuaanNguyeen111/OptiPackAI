@@ -1,5 +1,7 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
+import { ShippingCarrier, ShippingCarrierDocument } from '../shipping/schemas/shipping-carrier.schema';
+import { ShippingSettings, ShippingSettingsDocument } from '../shipping/schemas/shipping-settings.schema';
 import { ConfigService } from '@nestjs/config';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -29,10 +31,12 @@ import {
 } from '../packaging/engine';
 import {
   CP_SAT_MAX_UNITS,
+  DEFAULT_CHARGE_RULE,
   SOLVER_VERSION,
   httpCpSatChecker,
   solveOrder,
   upgradeWithCpSat,
+  type ChargeRule,
   type SolveResult,
   type SolvedParcel,
 } from './solver';
@@ -75,6 +79,12 @@ interface Allocation {
   items: PackableItem[];
 }
 
+/** `.lean()` không áp default của schema → hãng tạo trước AOFP-224 thiếu weight_step_g. */
+interface CarrierChargeFields {
+  volumetric_divisor: number;
+  weight_step_g?: number;
+}
+
 /** Việc CP-SAT chạy nền cho 1 đơn sau khi BRKGA đã ghi kết quả. */
 export interface CpSatTask {
   planId: Types.ObjectId;
@@ -83,6 +93,9 @@ export interface CpSatTask {
   units: PackingUnit[];
   result: SolveResult;
   availability: Map<string, number>;
+  /** AOFP-224 — cùng luật cước + ưu tiên với lúc giải BRKGA (bỏ qua = mặc định). */
+  charge?: ChargeRule;
+  prefer?: 'fewest_parcels' | 'cheapest';
 }
 
 /** C6 (14/10/2026) — phương án thùng xếp vừa cho 1 kiện (chưa có phí ship). */
@@ -230,7 +243,42 @@ export class PackingPlanService {
     private readonly packerAssignment: PackerAssignmentService,
     // (23/10/2026) tham số cuối + @Optional để spec cũ dựng service bằng `new` không vỡ.
     @Optional() @InjectModel(ProductMaster.name) private readonly productMasterModel?: Model<ProductMasterDocument>,
+    // AOFP-224 (31/10/2026) — đọc luật cân tính cước của hãng mặc định (chỉ đọc; không
+    // import ShippingModule vì ShippingModule đã import PackingModule).
+    @Optional() @InjectModel(ShippingCarrier.name) private readonly carrierModel?: Model<ShippingCarrierDocument>,
+    @Optional()
+    @InjectModel(ShippingSettings.name)
+    private readonly shippingSettingsModel?: Model<ShippingSettingsDocument>,
   ) {}
+
+  /**
+   * AOFP-224 — luật cân tính cước cho bộ giải: hãng mặc định trong shipping_settings,
+   * không có thì hãng API (GHN) đang bật, không có nữa thì mặc định GHN (5000 / 500 g).
+   */
+  async resolveChargeRule(): Promise<ChargeRule> {
+    if (!this.carrierModel) return DEFAULT_CHARGE_RULE;
+    const settings = this.shippingSettingsModel
+      ? await this.shippingSettingsModel.findOne({ key: 'default' }).select('default_carrier_code').lean()
+      : null;
+    const code = settings?.default_carrier_code ?? null;
+    const carrier =
+      (code
+        ? await this.carrierModel
+            .findOne({ code, is_active: true })
+            .select('volumetric_divisor weight_step_g')
+            .lean<CarrierChargeFields>()
+        : null) ??
+      (await this.carrierModel
+        .findOne({ kind: 'live', is_active: true })
+        .sort({ code: 1 })
+        .select('volumetric_divisor weight_step_g')
+        .lean<CarrierChargeFields>());
+    if (!carrier) return DEFAULT_CHARGE_RULE;
+    return {
+      volumetricDivisor: carrier.volumetric_divisor,
+      billingStepG: carrier.weight_step_g ?? DEFAULT_CHARGE_RULE.billingStepG,
+    };
+  }
 
   // ------------------------------------------------------------------ đọc
 
@@ -344,10 +392,11 @@ export class PackingPlanService {
     const started = Date.now();
     try {
       const allocations: Allocation[] = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
-      const [boxes, availability, materials] = await Promise.all([
+      const [boxes, availability, materials, charge] = await Promise.all([
         this.boxService.listActiveSpecs(),
         this.boxService.listAvailability({ groupId }),
         this.materialService.planningData(),
+        this.resolveChargeRule(),
       ]);
       // Giải TUẦN TỰ từng đơn, trừ dần thùng còn trống — 2 đơn không giành 1 thùng cuối.
       const remaining = new Map([...availability].map(([code, a]) => [code, a.available]));
@@ -365,6 +414,7 @@ export class PackingPlanService {
           materials,
           excludeBoxCodes: exclude,
           prefer,
+          charge,
         });
         for (const p of result.parcels) remaining.set(p.box.code, (remaining.get(p.box.code) ?? 0) - 1);
         const orderId = new Types.ObjectId(allocation.order_id);
@@ -382,6 +432,7 @@ export class PackingPlanService {
           materials,
           excludeBoxCodes: exclude,
           prefer,
+          charge,
         });
         const explanation = [...result.explanation];
         if (suggestion) explanation.push(describeSuggestion(suggestion));
@@ -418,7 +469,7 @@ export class PackingPlanService {
           over_parcel_limit: overParcelLimit,
         });
         if (cpSat === 'pending')
-          pending.push({ orderId: allocation.order_id, units, result, availability: stockForOrder });
+          pending.push({ orderId: allocation.order_id, units, result, availability: stockForOrder, charge, prefer });
       }
 
       const saved = await this.runInTransaction(async (session) => {
@@ -1536,6 +1587,8 @@ export class PackingPlanService {
         {
           availability: task.availability,
           materials,
+          charge: task.charge,
+          prefer: task.prefer,
           maxUnits: packer.maxUnits,
           deterministicTimePerCombo: packer.deterministicTimePerCombo,
           wallTimeLimitS: packer.wallTimeLimitS,

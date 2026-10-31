@@ -133,6 +133,7 @@ export class ShippingService {
         code: dto.code,
         name: dto.name,
         volumetric_divisor: dto.volumetric_divisor ?? 5000,
+        weight_step_g: dto.weight_step_g ?? 500,
         services: dto.services.map((s) => this.toServiceDoc(s)),
         is_sample: dto.is_sample ?? false,
       });
@@ -173,6 +174,7 @@ export class ShippingService {
     if (dto.name !== undefined) set.name = dto.name;
     if (dto.volumetric_divisor !== undefined)
       set.volumetric_divisor = dto.volumetric_divisor;
+    if (dto.weight_step_g !== undefined) set.weight_step_g = dto.weight_step_g;
     if (dto.services !== undefined)
       set.services = dto.services.map((s) => this.toServiceDoc(s));
     if (dto.is_sample !== undefined) set.is_sample = dto.is_sample;
