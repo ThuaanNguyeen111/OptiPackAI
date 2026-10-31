@@ -842,7 +842,7 @@ function marketplaceOffSale(status: string | null): boolean {
 
 const PRODUCT_CATEGORIES: Array<[string, string]> = [
   ['t_shirt', 'Áo thun'],
-  ['shirt', 'Áo sơ mi'],
+  ['shirt', 'Áo sơ mi / polo'],
   ['jacket', 'Áo khoác'],
   ['shorts', 'Quần đùi'],
   ['trousers', 'Quần dài'],

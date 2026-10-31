@@ -11,16 +11,50 @@ export type PackingPlanScan = {
   sku: string
 }
 
+export type PackingOrientation = 'LWH' | 'WLH' | 'LHW' | 'HLW' | 'WHL' | 'HWL'
+
+/** Một món đã xếp trong kiện. Hệ trục BE: x dài, y rộng, z hướng lên; mm. */
+export type PackingPlacement = {
+  itemKey: string
+  sku: string
+  /** Thứ tự đặt vào thùng, bắt đầu từ 1. */
+  step: number
+  x: number
+  y: number
+  z: number
+  /** Kích thước khối chiếm chỗ SAU khi xoay / gập đôi. */
+  dx: number
+  dy: number
+  dz: number
+  orientation: PackingOrientation
+  /** true = thuật toán đã gập đôi món để vừa thùng nhỏ hơn. */
+  folded: boolean
+}
+
+/** Hồ sơ SKU chụp lúc tính kế hoạch — nối với placement theo `sku`. */
+export type PackingItemProfile = {
+  sku: string
+  productCategory: string | null
+  zipBagCode: string | null
+  zipBagFolded: boolean
+}
+
 export type PackingPlanParcel = {
   parcelNo: number
   box: {
     code: string
     name: string
     outerMm: PackingMm
+    /** Lòng thùng — món đặt theo kích thước này. */
+    innerMm?: PackingMm
   }
+  placements?: PackingPlacement[]
+  /** true = kiện nhập tay, không có tọa độ xếp thật — không dựng cảnh 3D. */
+  manualLayout?: boolean
+  fillRatio?: number
   estimatedWeightG: number
   actualWeightKg: number | null
-  materials: { name: string; quantity: number; code?: string | null }[]
+  materials: { name: string; quantity: number; code?: string | null; unit?: string }[]
   shippingCostVnd: number | null
   status: string
   scannedCount?: number
@@ -55,6 +89,7 @@ export type PackingPlan = {
     recipientName?: string | null
   }[]
   parcels: PackingPlanParcel[]
+  itemProfiles?: PackingItemProfile[]
   totals: {
     parcels: number
     packagingCostVnd: number

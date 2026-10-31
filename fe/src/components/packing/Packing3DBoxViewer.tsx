@@ -1,351 +1,386 @@
-import { Suspense, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { Edges, OrbitControls } from '@react-three/drei'
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
-import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react'
+import { OrbitControls } from '@react-three/drei'
+import {
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Package,
+  Pause,
+  Play,
+  RotateCcw,
+  ZoomIn,
+} from 'lucide-react'
 import { usePortal } from '../../context/use-portal'
+import type { PackingPlan, PackingPlanParcel } from '../../types/packing-plan'
+import {
+  STEP_SECONDS,
+  buildPackSteps,
+  innerOf,
+  profileFor,
+  sceneMode,
+  selectParcel,
+  sortedPlacements,
+  stepLabel,
+  type SceneMode,
+} from '../../utils/packing-layout'
+import { categoryLabel } from './product-models'
+import { PackingScene } from './scene/PackingScene'
 
-// Box & Fashion Items Geometry Scene (Quần áo & Phụ kiện đi kèm)
-function Box3DScene({ zoomed, boxLabel }: { zoomed: boolean; boxLabel?: string }) {
-  // Compute dynamic dimensions based on selected carton label
-  const { boxW, boxH, boxD } = (() => {
-    const label = boxLabel ?? ''
-    if (label.includes('25 x 18') || label.includes('Hộp A2') || label.includes('CARTON-A2')) {
-      return { boxW: 3.0, boxH: 1.35, boxD: 2.2 }
-    }
-    if (label.includes('30 x 20 x 10') || label.includes('Hộp M1') || label.includes('CARTON-M1')) {
-      return { boxW: 3.3, boxH: 1.1, boxD: 2.3 }
-    }
-    if (label.includes('30 x 20 x 15') || label.includes('Hộp B1') || label.includes('CARTON-B1')) {
-      return { boxW: 3.3, boxH: 1.65, boxD: 2.3 }
-    }
-    if (label.includes('35 x 25') || label.includes('Hộp C3') || label.includes('CARTON-C3')) {
-      return { boxW: 3.8, boxH: 1.95, boxD: 2.7 }
-    }
-    if (label.includes('40 x 30 x 25') || label.includes('Thùng HD') || label.includes('CARTON-HD')) {
-      return { boxW: 4.2, boxH: 2.5, boxD: 3.2 }
-    }
-    // Default to Hộp S: 40 x 30 x 12 cm
-    return { boxW: 4.0, boxH: 1.25, boxD: 3.0 }
-  })()
+function hasWebGL(): boolean {
+  try {
+    const canvas = document.createElement('canvas')
+    return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'))
+  } catch {
+    return false
+  }
+}
 
+function cm(mm: number): string {
+  return String(Math.round(mm / 10))
+}
+
+function ModeMessage({
+  mode,
+  parcel,
+  vi,
+}: {
+  mode: Exclude<SceneMode, 'scene'>
+  parcel: PackingPlanParcel | undefined
+  vi: boolean
+}): ReactNode {
+  const items = parcel ? sortedPlacements(parcel) : []
+  const title =
+    mode === 'no-plan'
+      ? vi
+        ? 'Chưa có kế hoạch đóng gói'
+        : 'No packing plan yet'
+      : mode === 'computing'
+        ? vi
+          ? 'Đang tính phương án đóng gói…'
+          : 'Computing the packing plan…'
+        : mode === 'failed'
+          ? vi
+            ? 'Không tính được phương án — kiểm tra hồ sơ SKU'
+            : 'Plan failed — check SKU profiles'
+          : vi
+            ? 'Kiện xếp tay — không có hình 3D'
+            : 'Manual parcel — no 3D layout'
   return (
-    <>
-      <ambientLight intensity={1.8} />
-      <directionalLight position={[6, 10, 8]} intensity={2.0} />
-      <directionalLight position={[-6, -4, -6]} intensity={0.6} color="#93c5fd" />
-
-      <group position={[0, zoomed ? -0.1 : -0.2, 0]}>
-        {/* 1. Translucent Blue Carton Shell */}
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[boxW, boxH, boxD]} />
-          <meshPhysicalMaterial
-            color="#bfdbfe"
-            transparent
-            opacity={0.22}
-            roughness={0.1}
-            transmission={0.65}
-            thickness={0.8}
-            depthWrite={false}
-          />
-          <Edges color="#3b82f6" threshold={15} />
-        </mesh>
-
-        {/* 2. Item 1: Áo Blazer Nam Slim Fit (Gấp phẳng ở đáy bên trái) */}
-        <group position={[-0.6, -boxH / 2 + 0.16, -0.15]}>
-          <mesh>
-            <boxGeometry args={[2.3, 0.24, 2.2]} />
-            <meshStandardMaterial color="#94a3b8" transparent opacity={0.65} />
-            <Edges color="#334155" />
-          </mesh>
-          {/* Collar & Lapel crease lines */}
-          <mesh position={[0, 0.13, -0.3]}>
-            <boxGeometry args={[1.1, 0.04, 0.6]} />
-            <meshStandardMaterial color="#cbd5e1" transparent opacity={0.75} />
-            <Edges color="#475569" />
-          </mesh>
-          {/* Seam line */}
-          <mesh position={[0, 0.13, 0.4]}>
-            <boxGeometry args={[0.06, 0.03, 1.2]} />
-            <meshStandardMaterial color="#64748b" />
-          </mesh>
-        </group>
-
-        {/* 3. Item 2: Khăn Choàng Cashmere (Xếp gọn gàng bên phải) */}
-        <group position={[1.05, -boxH / 2 + 0.16, -0.55]} rotation={[0, 0.05, 0]}>
-          <mesh>
-            <boxGeometry args={[1.35, 0.22, 1.4]} />
-            <meshStandardMaterial color="#cbd5e1" transparent opacity={0.7} />
-            <Edges color="#475569" />
-          </mesh>
-          {/* Folded textile rib layers */}
-          {[-0.35, 0, 0.35].map((fz) => (
-            <mesh key={fz} position={[0, 0.12, fz]}>
-              <boxGeometry args={[1.25, 0.03, 0.28]} />
-              <meshStandardMaterial color="#94a3b8" transparent opacity={0.6} />
-              <Edges color="#64748b" />
-            </mesh>
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center">
+      {mode === 'computing' ? (
+        <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
+      ) : mode === 'failed' ? (
+        <AlertTriangle className="h-8 w-8 text-amber-500" />
+      ) : (
+        <Package className="h-8 w-8 text-slate-400" />
+      )}
+      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
+      {mode === 'list' && items.length > 0 ? (
+        <ul className="max-h-40 w-full max-w-xs overflow-y-auto text-left text-xs text-slate-600 dark:text-slate-300">
+          {items.map((p) => (
+            <li key={p.itemKey} className="border-b border-slate-100 py-1 font-mono dark:border-slate-800">
+              {p.sku}
+            </li>
           ))}
-        </group>
-
-        {/* 4. Item 3: Ví Cầm Tay Da Nữ (Clutch góc trước bên phải) */}
-        <group position={[1.05, -boxH / 2 + 0.18, 0.75]} rotation={[0, -0.05, 0]}>
-          <mesh>
-            <boxGeometry args={[1.35, 0.26, 0.75]} />
-            <meshStandardMaterial color="#94a3b8" transparent opacity={0.75} />
-            <Edges color="#334155" />
-          </mesh>
-          {/* Metallic Clasp / Khóa kim loại sang trọng */}
-          <mesh position={[0, 0.14, 0.38]}>
-            <boxGeometry args={[0.22, 0.06, 0.08]} />
-            <meshStandardMaterial color="#f59e0b" metalness={0.9} roughness={0.2} />
-          </mesh>
-        </group>
-
-        {/* 5. Item 4: Dây Chuyền Bạc (Hộp quà trang sức vuông vức) */}
-        <group position={[-0.85, -boxH / 2 + 0.38, 0.65]}>
-          <mesh>
-            <boxGeometry args={[0.85, 0.2, 0.85]} />
-            <meshStandardMaterial color="#cbd5e1" transparent opacity={0.8} />
-            <Edges color="#0284c7" />
-          </mesh>
-          {/* Ribbon cross accent / Ruy-băng trang trí hộp quà */}
-          <mesh position={[0, 0.11, 0]}>
-            <boxGeometry args={[0.12, 0.03, 0.86]} />
-            <meshStandardMaterial color="#38bdf8" />
-          </mesh>
-          <mesh position={[0, 0.11, 0]}>
-            <boxGeometry args={[0.86, 0.03, 0.12]} />
-            <meshStandardMaterial color="#38bdf8" />
-          </mesh>
-        </group>
-
-        {/* 6. Subtly styled dimension guides */}
-        <group position={[0, -boxH / 2 - 0.15, 0]}>
-          <gridHelper args={[5, 10, '#94a3b8', '#e2e8f0']} />
-        </group>
-      </group>
-    </>
+        </ul>
+      ) : null}
+    </div>
   )
 }
 
-// Fallback technical blueprint illustration if WebGL is loading or unavailable
-function BlueprintSvgFallback() {
+/** Trình phát hướng dẫn cho 1 kiện — đặt lại về bước đầu khi đổi kiện / kế hoạch (qua `key`). */
+function ParcelGuidePlayer({
+  plan,
+  parcel,
+  autoRotate,
+  vi,
+  onOpenDetail,
+}: {
+  plan: PackingPlan
+  parcel: PackingPlanParcel
+  autoRotate: boolean
+  vi: boolean
+  onOpenDetail?: () => void
+}): ReactNode {
+  const placements = useMemo(() => sortedPlacements(parcel), [parcel])
+  const steps = useMemo(
+    () => buildPackSteps(placements, plan.itemProfiles),
+    [placements, plan.itemProfiles],
+  )
+  const [index, setIndex] = useState(0)
+  const [playing, setPlaying] = useState(false)
+  const [viewKey, setViewKey] = useState(0)
+
+  const last = steps.length - 1
+  const current = steps[index]
+
+  useEffect(() => {
+    if (!playing || !current) return
+    if (index >= last) {
+      const stop = window.setTimeout(() => setPlaying(false), 0)
+      return () => window.clearTimeout(stop)
+    }
+    const wait = (STEP_SECONDS[current.kind] + 1.2) * 1000
+    const timer = window.setTimeout(() => setIndex((i) => Math.min(last, i + 1)), wait)
+    return () => window.clearTimeout(timer)
+  }, [playing, index, last, current])
+
+  const placement = current?.item != null ? placements[current.item] : undefined
+  const profile = placement ? profileFor(plan.itemProfiles, placement.sku) : undefined
+  const guideStep = placement ? parcel.guide?.steps.find((s) => s.step === placement.step) : undefined
+  const inner = innerOf(parcel)
+  const outer = parcel.box.outerMm
+  const span = Math.max(outer.lengthMm, outer.widthMm, outer.heightMm) / 1000
+  const camera: [number, number, number] = [span * 1.35, span * 1.45, span * 1.75]
+  const target: [number, number, number] = [0, (outer.heightMm / 1000) * 0.85, 0]
+
+  const go = (delta: number): void => {
+    setPlaying(false)
+    setIndex((i) => Math.min(last, Math.max(0, i + delta)))
+  }
+
   return (
-    <div className="relative w-full h-full flex items-center justify-center p-6">
-      <svg
-        viewBox="0 0 500 320"
-        className="w-full max-w-[420px] h-auto drop-shadow-md"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-      >
-        {/* Isometric outer box */}
-        <polygon
-          points="250,50 430,130 250,210 70,130"
-          className="fill-blue-100/40 stroke-blue-500 stroke-[1.8]"
-        />
-        <polygon
-          points="70,130 250,210 250,280 70,200"
-          className="fill-blue-200/30 stroke-blue-500 stroke-[1.8]"
-        />
-        <polygon
-          points="250,210 430,130 430,200 250,280"
-          className="fill-blue-300/30 stroke-blue-500 stroke-[1.8]"
-        />
+    <div
+      className="relative h-full w-full outline-none"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'ArrowRight') go(1)
+        if (event.key === 'ArrowLeft') go(-1)
+      }}
+    >
+      <div className="h-full w-full cursor-grab active:cursor-grabbing">
+        <Canvas camera={{ position: camera, fov: 40, near: 0.01, far: 50 }}>
+          <Suspense fallback={null}>
+            <PackingScene
+              boxCode={parcel.box.code}
+              innerMm={inner}
+              outerMm={outer}
+              placements={placements}
+              profiles={plan.itemProfiles}
+              steps={steps}
+              index={index}
+            />
+          </Suspense>
+          <OrbitControls
+            key={viewKey}
+            target={target}
+            enablePan={false}
+            minDistance={span * 0.8}
+            maxDistance={span * 5}
+            maxPolarAngle={Math.PI / 2.05}
+            autoRotate={autoRotate && !playing && (current?.kind === 'prepare' || current?.kind === 'close')}
+            autoRotateSpeed={1.2}
+          />
+        </Canvas>
+      </div>
 
-        {/* Item 1: Áo Blazer Nam xếp phẳng ở đáy */}
-        <polygon
-          points="180,120 310,175 220,215 90,160"
-          className="fill-slate-300/40 stroke-slate-600 stroke-[1.2]"
-        />
-        <line x1="90" y1="160" x2="90" y2="175" className="stroke-slate-600 stroke-1" />
-        <line x1="220" y1="215" x2="220" y2="230" className="stroke-slate-600 stroke-1" />
-        <line x1="310" y1="175" x2="310" y2="190" className="stroke-slate-600 stroke-1" />
-        <polygon
-          points="90,175 220,230 310,190 180,135"
-          className="fill-slate-400/20 stroke-slate-600 stroke-1"
-        />
-        {/* Blazer Lapel Crease Line */}
-        <line x1="180" y1="140" x2="220" y2="195" className="stroke-blue-600 stroke-1 stroke-dasharray-[3,2]" />
+      <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+        {onOpenDetail ? (
+          <button
+            type="button"
+            onClick={onOpenDetail}
+            className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:text-blue-600"
+            title={vi ? 'Xem chi tiết' : 'View details'}
+            aria-label={vi ? 'Xem chi tiết' : 'View details'}
+          >
+            <ZoomIn className="h-4 w-4" />
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setViewKey((k) => k + 1)}
+          className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:text-blue-600"
+          title={vi ? 'Đặt lại góc nhìn' : 'Reset view'}
+          aria-label={vi ? 'Đặt lại góc nhìn' : 'Reset view'}
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+      </div>
 
-        {/* Item 2: Khăn Choàng Cashmere xếp bên phải */}
-        <polygon
-          points="315,145 395,180 345,205 265,170"
-          className="fill-amber-100/40 stroke-amber-700 stroke-1"
-        />
-        <line x1="265" y1="170" x2="265" y2="182" className="stroke-amber-700 stroke-1" />
-        <line x1="345" y1="205" x2="345" y2="217" className="stroke-amber-700 stroke-1" />
-        <line x1="395" y1="180" x2="395" y2="192" className="stroke-amber-700 stroke-1" />
-
-        {/* Item 3: Ví Cầm Tay Da Nữ (Clutch góc trước) */}
-        <polygon
-          points="275,190 355,225 325,242 245,207"
-          className="fill-slate-300/50 stroke-slate-700 stroke-[1.3]"
-        />
-        <line x1="245" y1="207" x2="245" y2="222" className="stroke-slate-700 stroke-1" />
-        <line x1="325" y1="242" x2="325" y2="257" className="stroke-slate-700 stroke-1" />
-        <line x1="355" y1="225" x2="355" y2="240" className="stroke-slate-700 stroke-1" />
-        {/* Clasp */}
-        <circle cx="300" cy="225" r="3.5" className="fill-amber-500 stroke-amber-700 stroke-1" />
-
-        {/* Item 4: Hộp Đựng Dây Chuyền Bạc (Jewelry Gift Box) */}
-        <polygon
-          points="155,175 205,198 180,212 130,189"
-          className="fill-sky-100/60 stroke-sky-600 stroke-1"
-        />
-        <line x1="130" y1="189" x2="130" y2="202" className="stroke-sky-600 stroke-1" />
-        <line x1="180" y1="212" x2="180" y2="225" className="stroke-sky-600 stroke-1" />
-        <line x1="205" y1="198" x2="205" y2="211" className="stroke-sky-600 stroke-1" />
-        {/* Ribbon cross */}
-        <line x1="142" y1="182" x2="192" y2="205" className="stroke-sky-500 stroke-1" />
-        <line x1="180" y1="186" x2="155" y2="200" className="stroke-sky-500 stroke-1" />
-
-        {/* Dimension labels */}
-        <text x="130" y="255" className="fill-blue-600 font-mono text-[11px] font-semibold">
-          40 cm
-        </text>
-        <text x="355" y="255" className="fill-blue-600 font-mono text-[11px] font-semibold">
-          30 cm
-        </text>
-        <text x="445" y="170" className="fill-blue-600 font-mono text-[11px] font-semibold">
-          12 cm
-        </text>
-      </svg>
+      <div className="absolute right-3 bottom-3 left-3 z-20 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+              {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
+              {current ? ` · ${stepLabel(current.kind, vi)}` : ''}
+            </p>
+            {current?.kind === 'prepare' ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                {parcel.box.name} ({parcel.box.code}) — {cm(inner.lengthMm)} × {cm(inner.widthMm)} ×{' '}
+                {cm(inner.heightMm)} cm
+                {parcel.materials.length > 0
+                  ? ` · ${parcel.materials.map((m) => `${m.name} × ${String(m.quantity)}`).join(', ')}`
+                  : ''}
+              </p>
+            ) : current?.kind === 'close' ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                {vi
+                  ? 'Chèn vật tư vào khoảng trống, gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
+                  : 'Fill gaps with materials, fold short flaps then long flaps, tape the box.'}
+              </p>
+            ) : placement ? (
+              <>
+                <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                  <span className="font-mono font-semibold">{placement.sku}</span>
+                  {' · '}
+                  {categoryLabel(profile?.productCategory, vi)}
+                  {placement.folded ? (vi ? ' · gập đôi' : ' · folded in half') : ''}
+                  {profile?.zipBagCode ? ` · ${vi ? 'túi' : 'bag'} ${profile.zipBagCode}` : ''}
+                </p>
+                {guideStep ? (
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                    {guideStep.instruction}
+                    {guideStep.tip ? ` — ${guideStep.tip}` : ''}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {parcel.guide ? (
+              <p className="mt-1 text-[10px] text-slate-400">
+                {parcel.guide.source === 'ai'
+                  ? `AI · ${parcel.guide.model ?? ''}`
+                  : vi
+                    ? 'Câu mẫu'
+                    : 'Template text'}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              onClick={() => go(-1)}
+              disabled={index === 0}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40"
+              aria-label={vi ? 'Bước trước' : 'Previous step'}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (index >= last) setIndex(0)
+                setPlaying((p) => !p)
+              }}
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#152d35] text-white"
+              aria-label={playing ? (vi ? 'Tạm dừng' : 'Pause') : vi ? 'Tự chạy' : 'Play'}
+            >
+              {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => go(1)}
+              disabled={index >= last}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-700 disabled:opacity-40"
+              aria-label={vi ? 'Bước sau' : 'Next step'}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
 
 export function Packing3DBoxViewer({
-  boxLabel,
-  boxSub,
+  plan,
+  parcelNo,
+  onParcelChange,
   className,
   autoRotate = false,
   onOpenDetail,
 }: {
-  boxLabel?: string
-  boxSub?: string
+  plan: PackingPlan | null
+  /** Kiện đang xem; không truyền = kiện đầu tiên. */
+  parcelNo?: number | null
+  onParcelChange?: (parcelNo: number) => void
   /** Override chiều cao mặc định — dùng `h-full` khi đồng bộ với ô Hàng đợi */
   className?: string
-  /** Xoay tự động sau khi Packaging Staff chấp nhận kế hoạch */
+  /** Xoay tự động ở bước chuẩn bị / gập nắp khi không tự chạy */
   autoRotate?: boolean
-  /** Nút phóng to mở màn chi tiết thay vì chỉ kéo camera */
+  /** Nút phóng to mở màn chi tiết */
   onOpenDetail?: () => void
-}) {
+}): ReactNode {
   const { locale } = usePortal()
   const vi = locale === 'vi'
+  const [localNo, setLocalNo] = useState<number | null>(null)
+  const webgl = useMemo(() => hasWebGL(), [])
 
-  const activeBoxLabel = boxLabel ?? (vi ? 'Hộp S: 40 x 30 x 12 cm' : 'Box S: 40 x 30 x 12 cm')
-  const activeBoxSub = boxSub ?? (vi ? 'Tối ưu thể tích đóng gói' : 'Volumetric packing optimized')
+  const activeNo = onParcelChange ? parcelNo : (localNo ?? parcelNo)
+  const parcel = selectParcel(plan, activeNo)
+  const mode = sceneMode(plan, parcel)
+  const parcels = plan?.parcels ?? []
 
-  const [zoomed, setZoomed] = useState(false)
-  const [orbitKey, setOrbitKey] = useState(0)
-  const controlsRef = useRef<OrbitControlsImpl>(null)
-
-  const handleReset = () => {
-    setZoomed(false)
-    setOrbitKey((k) => k + 1)
-    if (controlsRef.current) {
-      controlsRef.current.reset()
-    }
+  const pick = (no: number): void => {
+    if (onParcelChange) onParcelChange(no)
+    else setLocalNo(no)
   }
 
-  const handleToggleZoom = () => {
-    if (onOpenDetail) {
-      onOpenDetail()
-      return
-    }
-    setZoomed((z) => !z)
-  }
+  const inner = parcel ? innerOf(parcel) : null
+  const label = parcel
+    ? `${parcel.box.name}${inner ? ` · ${cm(inner.lengthMm)} × ${cm(inner.widthMm)} × ${cm(inner.heightMm)} cm` : ''}`
+    : vi
+      ? 'Hướng dẫn đóng gói 3D'
+      : '3D packing guide'
+  const sub = parcel
+    ? `${vi ? 'Kiện' : 'Parcel'} ${String(parcel.parcelNo)}/${String(parcels.length)}${
+        parcel.fillRatio != null ? ` · ${vi ? 'lấp đầy' : 'fill'} ${String(Math.round(parcel.fillRatio * 100))}%` : ''
+      }`
+    : ''
 
   return (
     <div
       className={
         className ??
-        'relative h-[340px] w-full select-none overflow-hidden rounded-2xl border border-slate-100 bg-[#f8faff] sm:h-[380px] dark:border-slate-800 dark:bg-slate-900/40'
+        'relative h-[380px] w-full select-none overflow-hidden rounded-2xl border border-slate-100 bg-[#f8faff] sm:h-[420px] dark:border-slate-800 dark:bg-slate-900/40'
       }
     >
-      {/* Floating Tag (Top-left) matching screenshot */}
-      <div className="absolute top-4 left-4 z-20 pointer-events-none rounded-xl border border-slate-200/90 bg-white/95 px-3.5 py-2.5 shadow-sm dark:border-slate-800 dark:bg-surface-1/95 backdrop-blur-xs">
-        <p className="font-bold text-xs sm:text-sm text-slate-800 dark:text-slate-100 tracking-tight">
-          {activeBoxLabel}
-        </p>
-        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-          {activeBoxSub}
-        </p>
+      <div className="pointer-events-none absolute top-3 left-3 z-20 max-w-[60%] rounded-xl border border-slate-200/90 bg-white/95 px-3 py-2 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
+        <p className="truncate text-xs font-bold text-slate-800 sm:text-sm dark:text-slate-100">{label}</p>
+        {sub ? <p className="mt-0.5 text-[11px] text-slate-500">{sub}</p> : null}
       </div>
 
-      {/* Interactive 3D Canvas with WebGL */}
-      <div className="w-full h-full cursor-grab active:cursor-grabbing">
-        <Suspense fallback={<BlueprintSvgFallback />}>
-          <Canvas
-            camera={{
-              position: zoomed ? [3.2, 2.4, 3.8] : [4.5, 3.4, 5.0],
-              fov: 42,
-            }}
-          >
-            <Box3DScene zoomed={zoomed} boxLabel={activeBoxLabel} />
-            <OrbitControls
-              key={orbitKey}
-              ref={controlsRef}
-              enableZoom={false}
-              enablePan={false}
-              autoRotate={autoRotate}
-              autoRotateSpeed={1.2}
-              minDistance={3.0}
-              maxDistance={8.5}
-              minPolarAngle={Math.PI / 6}
-              maxPolarAngle={Math.PI / 2.1}
-            />
-          </Canvas>
-        </Suspense>
-      </div>
+      {parcels.length > 1 ? (
+        <div className="absolute top-[4.25rem] left-3 z-20 flex flex-wrap gap-1">
+          {parcels.map((p) => (
+            <button
+              key={p.parcelNo}
+              type="button"
+              onClick={() => pick(p.parcelNo)}
+              className={`rounded-lg border px-2 py-1 text-[11px] font-medium shadow-sm ${
+                p.parcelNo === parcel?.parcelNo
+                  ? 'border-[#152d35] bg-[#152d35] text-white'
+                  : 'border-slate-200 bg-white/95 text-slate-700'
+              }`}
+            >
+              {vi ? 'Kiện' : 'Parcel'} {p.parcelNo}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      {/* Floating Tool Buttons (Bottom-right) matching screenshot: [ 🔍 ] [ 🔄 ] */}
-      <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={handleToggleZoom}
-          className="h-9 w-9 rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 active:bg-slate-100 flex items-center justify-center transition-colors cursor-pointer dark:border-slate-800 dark:bg-surface-1/95 dark:text-slate-300"
-          title={
-            onOpenDetail
-              ? vi
-                ? 'Xem chi tiết'
-                : 'View details'
-              : zoomed
-                ? vi
-                  ? 'Thu nhỏ'
-                  : 'Zoom out'
-                : vi
-                  ? 'Phóng to kiểm tra'
-                  : 'Zoom in'
-          }
-          aria-label={
-            onOpenDetail
-              ? vi
-                ? 'Xem chi tiết'
-                : 'View details'
-              : zoomed
-                ? vi
-                  ? 'Thu nhỏ'
-                  : 'Zoom out'
-                : vi
-                  ? 'Phóng to kiểm tra'
-                  : 'Zoom in'
-          }
-        >
-          {onOpenDetail || !zoomed ? <ZoomIn className="h-4 w-4" /> : <ZoomOut className="h-4 w-4" />}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleReset}
-          className="h-9 w-9 rounded-xl border border-slate-200/90 bg-white/95 text-slate-700 shadow-sm hover:bg-slate-50 hover:text-blue-600 active:bg-slate-100 flex items-center justify-center transition-colors cursor-pointer dark:border-slate-800 dark:bg-surface-1/95 dark:text-slate-300"
-          title={vi ? 'Đặt lại góc nhìn 3D' : 'Reset 3D view'}
-          aria-label={vi ? 'Đặt lại góc nhìn 3D' : 'Reset 3D view'}
-        >
-          <RotateCcw className="h-4 w-4" />
-        </button>
-      </div>
+      {mode === 'scene' && plan && parcel ? (
+        webgl ? (
+          <ParcelGuidePlayer
+            key={`${plan.id}:${String(plan.version)}:${String(parcel.parcelNo)}`}
+            plan={plan}
+            parcel={parcel}
+            autoRotate={autoRotate}
+            vi={vi}
+            onOpenDetail={onOpenDetail}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center p-6 text-center text-sm text-slate-600">
+            {vi
+              ? 'Trình duyệt không hỗ trợ WebGL — xem các bước ở danh sách hướng dẫn.'
+              : 'WebGL is not available — use the step list instead.'}
+          </div>
+        )
+      ) : (
+        <ModeMessage mode={mode === 'scene' ? 'list' : mode} parcel={parcel} vi={vi} />
+      )}
     </div>
   )
 }
