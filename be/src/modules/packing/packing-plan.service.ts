@@ -1,5 +1,7 @@
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
+import { ShippingCarrier, ShippingCarrierDocument } from '../shipping/schemas/shipping-carrier.schema';
+import { ShippingSettings, ShippingSettingsDocument } from '../shipping/schemas/shipping-settings.schema';
 import { ConfigService } from '@nestjs/config';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
@@ -23,16 +25,21 @@ import {
   describePackingSteps,
   expandToUnits,
   type BoxSpec,
+  type ExpandOptions,
   type Orientation,
   type PackingUnit,
   type Placement,
 } from '../packaging/engine';
 import {
   CP_SAT_MAX_UNITS,
+  DEFAULT_CHARGE_RULE,
   SOLVER_VERSION,
   httpCpSatChecker,
   solveOrder,
+  solveWithMailers,
   upgradeWithCpSat,
+  type MailerSolveOptions,
+  type ChargeRule,
   type SolveResult,
   type SolvedParcel,
 } from './solver';
@@ -46,6 +53,13 @@ import {
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { freshParcelSession, renumberParcels, type Plain } from './utils/parcels.util';
 import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
+import {
+  bucketAllocations,
+  orderIdsOf,
+  parcelHasOrder,
+  prefixUnits,
+  unitsOfParcelFrom,
+} from './utils/shared-parcel.util';
 import type {
   BackToPickingDto,
   ChangeBoxDto,
@@ -72,7 +86,15 @@ interface Allocation {
   platform_order_id: string;
   /** Tên người nhận của đơn (đơn gộp có thể khác tên nhau). */
   recipient_name?: string | null;
+  /** AOFP-224 — đơn AURELLE cùng khóa gộp được đóng chung kiện. */
+  consolidation_key?: string | null;
   items: PackableItem[];
+}
+
+/** `.lean()` không áp default của schema → hãng tạo trước AOFP-224 thiếu weight_step_g. */
+interface CarrierChargeFields {
+  volumetric_divisor: number;
+  weight_step_g?: number;
 }
 
 /** Việc CP-SAT chạy nền cho 1 đơn sau khi BRKGA đã ghi kết quả. */
@@ -83,6 +105,9 @@ export interface CpSatTask {
   units: PackingUnit[];
   result: SolveResult;
   availability: Map<string, number>;
+  /** AOFP-224 — cùng luật cước + ưu tiên với lúc giải BRKGA (bỏ qua = mặc định). */
+  charge?: ChargeRule;
+  prefer?: 'fewest_parcels' | 'cheapest';
 }
 
 /** C6 (14/10/2026) — phương án thùng xếp vừa cho 1 kiện (chưa có phí ship). */
@@ -116,28 +141,89 @@ export interface ComputeOutcome {
   tasks: CpSatTask[];
 }
 
+/** AOFP-224 — món đúng dạng của từng đơn (để dựng lại món của 1 kiện, kể cả kiện gộp). */
+function expandAllocations(
+  allocations: Allocation[],
+  options: ExpandOptions,
+): { order_id: string; platform_order_id: string; units: PackingUnit[] }[] {
+  return allocations.map((a) => ({
+    order_id: a.order_id,
+    platform_order_id: a.platform_order_id,
+    units: expandToUnits(a.items, options),
+  }));
+}
+
+/** AOFP-224 — kiện gộp nhiều đơn: các đơn trong kiện + chủ từng món (bỏ trống = kiện 1 đơn). */
+interface SharedParcelInfo {
+  orderIds?: Types.ObjectId[];
+  placementOwner?: (itemKey: string) => Types.ObjectId | null;
+  shareGroup?: string | null;
+}
+
+/** Chủ từng món theo các kiện hiện có: order_id ghi ở món (kiện gộp), không thì đơn chủ của kiện. */
+function ownerMapOf(parcels: readonly PlanParcel[]): Map<string, Types.ObjectId> {
+  const owners = new Map<string, Types.ObjectId>();
+  for (const p of parcels) for (const q of p.placements) owners.set(q.item_key, q.order_id ?? p.order_id);
+  return owners;
+}
+
+/**
+ * AOFP-224 — dựng lại 1 kiện sau khi chỉnh tay (đổi thùng / chuyển món), giữ đúng chủ
+ * từng món, danh sách đơn và bài gộp. Đơn chủ = đơn đứng trước trong kế hoạch.
+ */
+function rebuildParcel(
+  solved: SolvedParcel,
+  parcelNo: number,
+  fragileKeys: ReadonlySet<string>,
+  ctx: {
+    owners: Map<string, Types.ObjectId>;
+    planOrders: readonly { order_id: Types.ObjectId; platform_order_id: string | null }[];
+    shareGroup: string | null;
+    fallbackOrderId: Types.ObjectId;
+  },
+): PlanParcel {
+  const ownersInParcel = new Set(
+    solved.placements.map((q) => (ctx.owners.get(q.item_key) ?? ctx.fallbackOrderId).toString()),
+  );
+  const ordered = ctx.planOrders.filter((o) => ownersInParcel.has(o.order_id.toString()));
+  const primary = ordered[0] ?? { order_id: ctx.fallbackOrderId, platform_order_id: null };
+  return toPlanParcel(solved, primary.order_id, primary.platform_order_id, parcelNo, fragileKeys, {
+    orderIds: ordered.map((o) => o.order_id),
+    placementOwner: ctx.shareGroup !== null ? (key) => ctx.owners.get(key) ?? null : undefined,
+    shareGroup: ctx.shareGroup,
+  });
+}
+
 function toPlanParcel(
   p: SolvedParcel,
   orderId: Types.ObjectId,
   platformOrderId: string | null,
   parcelNo: number,
   fragileKeys: ReadonlySet<string> = new Set(),
+  shared: SharedParcelInfo = {},
 ): PlanParcel {
   return {
     ...freshParcelSession(p.placements.some((q) => fragileKeys.has(q.item_key))),
     parcel_no: parcelNo,
     order_id: orderId,
+    order_ids: shared.orderIds && shared.orderIds.length > 0 ? shared.orderIds : [orderId],
+    share_group: shared.shareGroup ?? null,
     platform_order_id: platformOrderId,
     box: {
       code: p.box.code,
       name: p.box.name,
+      kind: p.box.kind ?? 'box',
       inner_mm: { ...p.box.inner },
       outer_mm: { ...p.box.outer },
       tare_g: p.box.tare_g,
       max_load_g: p.box.max_load_g,
       price_vnd: p.box.price_vnd,
     },
-    placements: p.placements.map((q) => ({ ...q, folded: q.folded === true })),
+    placements: p.placements.map((q) => ({
+      ...q,
+      folded: q.folded === true,
+      order_id: shared.placementOwner ? shared.placementOwner(q.item_key) : null,
+    })),
     fill_ratio: p.fill_ratio,
     manual_layout: false,
     items_weight_g: p.items_weight_g,
@@ -178,6 +264,7 @@ function boxSpecOf(parcel: PlanParcel): BoxSpec {
   return {
     code: parcel.box.code,
     name: parcel.box.name,
+    kind: parcel.box.kind ?? 'box',
     inner: dimsOf(parcel.box.inner_mm),
     outer: dimsOf(parcel.box.outer_mm),
     tare_g: parcel.box.tare_g,
@@ -230,7 +317,42 @@ export class PackingPlanService {
     private readonly packerAssignment: PackerAssignmentService,
     // (23/10/2026) tham số cuối + @Optional để spec cũ dựng service bằng `new` không vỡ.
     @Optional() @InjectModel(ProductMaster.name) private readonly productMasterModel?: Model<ProductMasterDocument>,
+    // AOFP-224 (31/10/2026) — đọc luật cân tính cước của hãng mặc định (chỉ đọc; không
+    // import ShippingModule vì ShippingModule đã import PackingModule).
+    @Optional() @InjectModel(ShippingCarrier.name) private readonly carrierModel?: Model<ShippingCarrierDocument>,
+    @Optional()
+    @InjectModel(ShippingSettings.name)
+    private readonly shippingSettingsModel?: Model<ShippingSettingsDocument>,
   ) {}
+
+  /**
+   * AOFP-224 — luật cân tính cước cho bộ giải: hãng mặc định trong shipping_settings,
+   * không có thì hãng API (GHN) đang bật, không có nữa thì mặc định GHN (5000 / 500 g).
+   */
+  async resolveChargeRule(): Promise<ChargeRule> {
+    if (!this.carrierModel) return DEFAULT_CHARGE_RULE;
+    const settings = this.shippingSettingsModel
+      ? await this.shippingSettingsModel.findOne({ key: 'default' }).select('default_carrier_code').lean()
+      : null;
+    const code = settings?.default_carrier_code ?? null;
+    const carrier =
+      (code
+        ? await this.carrierModel
+            .findOne({ code, is_active: true })
+            .select('volumetric_divisor weight_step_g')
+            .lean<CarrierChargeFields>()
+        : null) ??
+      (await this.carrierModel
+        .findOne({ kind: 'live', is_active: true })
+        .sort({ code: 1 })
+        .select('volumetric_divisor weight_step_g')
+        .lean<CarrierChargeFields>());
+    if (!carrier) return DEFAULT_CHARGE_RULE;
+    return {
+      volumetricDivisor: carrier.volumetric_divisor,
+      billingStepG: carrier.weight_step_g ?? DEFAULT_CHARGE_RULE.billingStepG,
+    };
+  }
 
   // ------------------------------------------------------------------ đọc
 
@@ -344,11 +466,24 @@ export class PackingPlanService {
     const started = Date.now();
     try {
       const allocations: Allocation[] = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
-      const [boxes, availability, materials] = await Promise.all([
+      const [boxes, availability, materials, charge, mailers] = await Promise.all([
         this.boxService.listActiveSpecs(),
         this.boxService.listAvailability({ groupId }),
         this.materialService.planningData(),
+        this.resolveChargeRule(),
+        // AOFP-224 — túi niêm phong chỉ vào bài khi Store Owner/Admin bật trong packing_settings.
+        settings.mailerEnabled ? this.boxService.listActiveMailerSpecs() : Promise.resolve([]),
       ]);
+      const mailerOptions: MailerSolveOptions = {
+        mailers,
+        fit: {
+          widthMarginMm: settings.mailerMarginWidthMm,
+          lengthMarginMm: settings.mailerMarginLengthMm,
+          maxThicknessMm: settings.mailerMaxThicknessMm,
+        },
+        splitMinSavingVnd: settings.splitMinSavingVnd,
+        fee: { firstStepVnd: settings.estFeeFirstStepVnd, perExtraStepVnd: settings.estFeePerExtraStepVnd },
+      };
       // Giải TUẦN TỰ từng đơn, trừ dần thùng còn trống — 2 đơn không giành 1 thùng cuối.
       const remaining = new Map([...availability].map(([code, a]) => [code, a.available]));
       const orders: PlanOrder[] = [];
@@ -356,22 +491,49 @@ export class PackingPlanService {
       const pending: Omit<CpSatTask, 'planId' | 'revision'>[] = [];
       const packer = this.packerConfig();
 
-      for (const allocation of allocations) {
-        const units = expandToUnits(allocation.items, unitOptions);
+      // AOFP-224 — đơn AURELLE cùng người nhận giải CHUNG 1 bài (PACKAGING_STANDARD §8); còn lại mỗi đơn 1 bài.
+      for (const bucket of bucketAllocations(allocations, group.platform)) {
+        const shared = bucket.length > 1;
+        const ownerByKey = new Map<string, Allocation>();
+        const units = bucket.flatMap((allocation) => {
+          const own = expandToUnits(allocation.items, unitOptions);
+          const keyed = shared ? prefixUnits(own, allocation.platform_order_id) : own;
+          for (const u of keyed) ownerByKey.set(u.item_key, allocation);
+          return keyed;
+        });
         const fragileKeys = new Set(units.filter((u) => u.is_fragile).map((u) => u.item_key));
         const stockForOrder = new Map(remaining);
-        const result = solveOrder(units, boxes, {
-          availability: stockForOrder,
-          materials,
-          excludeBoxCodes: exclude,
-          prefer,
-        });
+        const result = solveWithMailers(
+          units,
+          boxes,
+          { availability: stockForOrder, materials, excludeBoxCodes: exclude, prefer, charge },
+          mailerOptions,
+        );
         for (const p of result.parcels) remaining.set(p.box.code, (remaining.get(p.box.code) ?? 0) - 1);
-        const orderId = new Types.ObjectId(allocation.order_id);
-        for (const p of result.parcels)
-          parcels.push(toPlanParcel(p, orderId, allocation.platform_order_id, parcels.length + 1, fragileKeys));
+        const [head] = bucket;
+        if (!head) continue;
+        const parcelsOfOrder = new Map<string, number>();
+        for (const p of result.parcels) {
+          // Đơn chủ = đơn sớm nhất (thứ tự bài) có hàng trong kiện.
+          const owners = bucket.filter((a) => p.placements.some((q) => ownerByKey.get(q.item_key) === a));
+          const primary = owners[0] ?? head;
+          for (const o of owners) parcelsOfOrder.set(o.order_id, (parcelsOfOrder.get(o.order_id) ?? 0) + 1);
+          parcels.push(
+            toPlanParcel(p, new Types.ObjectId(primary.order_id), primary.platform_order_id, parcels.length + 1, fragileKeys, {
+              orderIds: owners.map((o) => new Types.ObjectId(o.order_id)),
+              shareGroup: shared ? head.order_id : null,
+              placementOwner: shared
+                ? (key) => {
+                    const owner = ownerByKey.get(key);
+                    return owner ? new Types.ObjectId(owner.order_id) : null;
+                  }
+                : undefined,
+            }),
+          );
+        }
 
         const wantsCpSat =
+          !shared &&
           result.proof === 'heuristic' &&
           result.unplaced.length === 0 &&
           result.open_candidates.length > 0 &&
@@ -382,9 +544,16 @@ export class PackingPlanService {
           materials,
           excludeBoxCodes: exclude,
           prefer,
+          charge,
         });
         const explanation = [...result.explanation];
         if (suggestion) explanation.push(describeSuggestion(suggestion));
+        if (shared) {
+          explanation.push(
+            `Đóng chung kiện ${String(bucket.length)} đơn cùng người nhận (${bucket.map((a) => a.platform_order_id).join(', ')}) — ` +
+              'mỗi đơn có phiếu đóng gói riêng trong kiện (PACKAGING_STANDARD §8). Kiện gộp chưa qua bước chứng minh CP-SAT.',
+          );
+        }
         const maxUnits = packer?.maxUnits ?? CP_SAT_MAX_UNITS;
         if (result.proof === 'heuristic' && result.unplaced.length === 0 && units.length > maxUnits) {
           explanation.push(
@@ -396,29 +565,40 @@ export class PackingPlanService {
         if (cpSat === 'unavailable') {
           explanation.push('Service CP-SAT chưa được bật nên chưa kiểm chứng thêm các tổ hợp thùng còn mở.');
         }
-        const overParcelLimit =
-          settings.maxParcelsPerOrder !== null && result.parcels.length > settings.maxParcelsPerOrder;
-        if (overParcelLimit) {
-          explanation.push(
-            `Đơn cần ${String(result.parcels.length)} kiện, vượt mức tối đa ${String(settings.maxParcelsPerOrder)} kiện/đơn trong cài đặt — duyệt phải ghi lý do.`,
-          );
+        for (const allocation of bucket) {
+          const parcelCount = parcelsOfOrder.get(allocation.order_id) ?? 0;
+          const overParcelLimit = settings.maxParcelsPerOrder !== null && parcelCount > settings.maxParcelsPerOrder;
+          const orderExplanation = [...explanation];
+          if (overParcelLimit) {
+            orderExplanation.push(
+              `Đơn cần ${String(parcelCount)} kiện, vượt mức tối đa ${String(settings.maxParcelsPerOrder)} kiện/đơn trong cài đặt — duyệt phải ghi lý do.`,
+            );
+          }
+          const unplaced = result.unplaced.filter((u) => ownerByKey.get(u.item_key) === allocation);
+          const status: PlanOrder['status'] = !shared
+            ? result.status
+            : unplaced.length === 0
+              ? 'ok'
+              : parcelCount > 0
+                ? 'partial'
+                : 'no_fit';
+          orders.push({
+            order_id: new Types.ObjectId(allocation.order_id),
+            platform_order_id: allocation.platform_order_id,
+            recipient_name: allocation.recipient_name ?? null,
+            status,
+            unplaced: unplaced.map((u) => ({ item_key: u.item_key, code: u.code, reason: u.reason })),
+            proof: result.proof,
+            lower_bound_parcels: shared ? Math.min(result.lower_bound_parcels, parcelCount) : result.lower_bound_parcels,
+            explanation: orderExplanation,
+            strategy: result.strategy,
+            cp_sat: cpSat,
+            stock_suggestion: suggestion,
+            over_parcel_limit: overParcelLimit,
+          });
         }
-        orders.push({
-          order_id: orderId,
-          platform_order_id: allocation.platform_order_id,
-          recipient_name: allocation.recipient_name ?? null,
-          status: result.status,
-          unplaced: result.unplaced.map((u) => ({ item_key: u.item_key, code: u.code, reason: u.reason })),
-          proof: result.proof,
-          lower_bound_parcels: result.lower_bound_parcels,
-          explanation,
-          strategy: result.strategy,
-          cp_sat: cpSat,
-          stock_suggestion: suggestion,
-          over_parcel_limit: overParcelLimit,
-        });
         if (cpSat === 'pending')
-          pending.push({ orderId: allocation.order_id, units, result, availability: stockForOrder });
+          pending.push({ orderId: head.order_id, units, result, availability: stockForOrder, charge, prefer });
       }
 
       const saved = await this.runInTransaction(async (session) => {
@@ -1109,9 +1289,14 @@ export class PackingPlanService {
         { boxCode: box.code, parcelNo },
       );
     }
-    const replaced = toPlanParcel(only, parcel.order_id, parcel.platform_order_id, parcel.parcel_no, fragileKeysOf(units));
+    const replaced = rebuildParcel(only, parcel.parcel_no, fragileKeysOf(units), {
+      owners: ownerMapOf([parcel]),
+      planOrders: plan.orders,
+      shareGroup: parcel.share_group ?? null,
+      fallbackOrderId: parcel.order_id,
+    });
     const parcels = plan.parcels.map((p) => (p.parcel_no === parcelNo ? replaced : this.plain(p)));
-    return this.saveManualEdit(plan, dto.expected_version, parcels, parcel.order_id, {
+    return this.saveManualEdit(plan, dto.expected_version, parcels, orderIdsOf(parcel), {
       kind: 'change_box',
       detail: `Kiện ${String(parcelNo)}: ${parcel.box.code} → ${box.code}`,
       skus: [...new Set(units.map((u) => u.sku))],
@@ -1139,9 +1324,8 @@ export class PackingPlanService {
     const out: BoxOptionsOfParcel[] = [];
     for (const parcel of plan.parcels) {
       if (parcel.status === 'to_unpack' || parcel.status === 'voided') continue;
-      const allocation = allocations.find((a) => a.order_id === parcel.order_id.toString());
       const keys = new Set(parcel.placements.map((q) => q.item_key));
-      const units = allocation ? expandToUnits(allocation.items, unitOptionsOf(plan)).filter((u) => keys.has(u.item_key)) : [];
+      const units = unitsOfParcelFrom(parcel, expandAllocations(allocations, unitOptionsOf(plan)));
       const options: BoxOptionsOfParcel['options'] = [];
       if (units.length === keys.size && units.length > 0) {
         for (const box of boxes) {
@@ -1242,7 +1426,12 @@ export class PackingPlanService {
       const kept = this.plain(parcel);
       replaced = Object.assign(
         {},
-        toPlanParcel(only, parcel.order_id, parcel.platform_order_id, parcel.parcel_no, fragileKeysOf(units)),
+        rebuildParcel(only, parcel.parcel_no, fragileKeysOf(units), {
+          owners: ownerMapOf([parcel]),
+          planOrders: plan.orders,
+          shareGroup: parcel.share_group ?? null,
+          fallbackOrderId: parcel.order_id,
+        }),
         { status: parcel.status, scans: kept.scans, weighings: kept.weighings, reviews: kept.reviews },
       );
     }
@@ -1264,7 +1453,7 @@ export class PackingPlanService {
         plan,
         dto.expected_version,
         parcels,
-        parcel.order_id,
+        orderIdsOf(parcel),
         {
           kind: 'change_box_in_session',
           detail: `Kiện ${String(parcelNo)}: ${oldCode} → ${box.code} (thùng cũ: ${damaged ? 'đã hỏng, ghi hao hụt' : 'chưa dùng'})`,
@@ -1308,10 +1497,14 @@ export class PackingPlanService {
       dto.to_parcel_no === undefined || dto.to_parcel_no === null
         ? null
         : this.findParcel(plan, dto.to_parcel_no);
-    if (target && !target.order_id.equals(source.order_id)) {
+    // AOFP-224 — chuyển được khi kiện đích đã có đơn của món, hoặc 2 kiện cùng bài gộp (cùng người nhận).
+    const owners = ownerMapOf([source, ...(target ? [target] : [])]);
+    const movingOwner = owners.get(dto.item_key) ?? source.order_id;
+    const sameShareGroup = target !== null && (source.share_group ?? null) !== null && source.share_group === target.share_group;
+    if (target && !sameShareGroup && !parcelHasOrder(target, movingOwner.toString())) {
       throw new AppException(
         PACKING_ERROR_CODES.MOVE_ACROSS_ORDERS,
-        'Chỉ chuyển món giữa các kiện của CÙNG một đơn.',
+        'Chỉ chuyển món giữa các kiện của CÙNG một đơn (hoặc cùng kiện gộp của một người nhận).',
         HttpStatus.BAD_REQUEST,
         { from: parcelNo, to: target.parcel_no },
       );
@@ -1343,23 +1536,21 @@ export class PackingPlanService {
       if (p.parcel_no === source.parcel_no) {
         if (rest.length > 0)
           next.push(
-            toPlanParcel(
-              repack(rest, [boxSpecOf(p)], `Kiện ${String(p.parcel_no)}`),
-              p.order_id,
-              p.platform_order_id,
-              p.parcel_no,
-              fragileKeysOf(rest),
-            ),
+            rebuildParcel(repack(rest, [boxSpecOf(p)], `Kiện ${String(p.parcel_no)}`), p.parcel_no, fragileKeysOf(rest), {
+              owners,
+              planOrders: plan.orders,
+              shareGroup: p.share_group ?? null,
+              fallbackOrderId: p.order_id,
+            }),
           );
       } else if (p.parcel_no === target?.parcel_no) {
         const targetUnits = await this.unitsOfParcel(groupId, p, plan);
         next.push(
-          toPlanParcel(
+          rebuildParcel(
             repack([...targetUnits, moving], [boxSpecOf(p)], `Kiện ${String(p.parcel_no)}`),
-            p.order_id,
-            p.platform_order_id,
             p.parcel_no,
             fragileKeysOf([...targetUnits, moving]),
+            { owners, planOrders: plan.orders, shareGroup: p.share_group ?? null, fallbackOrderId: p.order_id },
           ),
         );
       } else {
@@ -1375,17 +1566,16 @@ export class PackingPlanService {
       const stock = new Map([...availability].map(([code, a]) => [code, a.available]));
       for (const p of next) stock.set(p.box.code, (stock.get(p.box.code) ?? 0) - 1);
       next.push(
-        toPlanParcel(
+        rebuildParcel(
           repack([moving], boxes, 'Kiện mới', stock),
-          source.order_id,
-          source.platform_order_id,
           Math.max(...plan.parcels.map((p) => p.parcel_no)) + 1,
           fragileKeysOf([moving]),
+          { owners, planOrders: plan.orders, shareGroup: source.share_group ?? null, fallbackOrderId: movingOwner },
         ),
       );
     }
 
-    return this.saveManualEdit(plan, dto.expected_version, next, source.order_id, {
+    return this.saveManualEdit(plan, dto.expected_version, next, [...orderIdsOf(source), ...(target ? orderIdsOf(target) : [])], {
       kind: 'move_item',
       detail: `${dto.item_key}: kiện ${String(parcelNo)} → ${target ? `kiện ${String(target.parcel_no)}` : 'kiện mới'}`,
       skus: [moving.sku],
@@ -1401,14 +1591,15 @@ export class PackingPlanService {
     plan: PackingPlanDocument,
     expectedVersion: number,
     parcels: PlanParcel[],
-    orderId: Types.ObjectId,
+    orderId: Types.ObjectId | Types.ObjectId[],
     adjustment: PackingPlan['adjustments'][number],
     opts: { statuses?: PackingPlan['status'][]; session?: ClientSession } = {},
   ): Promise<PackingPlanDocument> {
     const orderIds = plan.orders.map((o) => o.order_id);
     // Chỉnh tay = không còn là lời giải của bộ tối ưu → nhãn heuristic cho đơn đó.
+    const touched = Array.isArray(orderId) ? orderId : [orderId];
     const orders = plan.orders.map((o) =>
-      o.order_id.equals(orderId)
+      touched.some((id) => o.order_id.equals(id))
         ? {
             ...this.plain(o),
             proof: 'heuristic' as const,
@@ -1536,6 +1727,8 @@ export class PackingPlanService {
         {
           availability: task.availability,
           materials,
+          charge: task.charge,
+          prefer: task.prefer,
           maxUnits: packer.maxUnits,
           deterministicTimePerCombo: packer.deterministicTimePerCombo,
           wallTimeLimitS: packer.wallTimeLimitS,
@@ -1619,14 +1812,9 @@ export class PackingPlanService {
 
   /** Món (đúng dạng gốc, đã đệm dễ vỡ) của 1 kiện — dựng lại từ hàng đã lấy của đơn. */
   private async unitsOfParcel(groupId: string, parcel: PlanParcel, plan: PackingPlanDocument): Promise<PackingUnit[]> {
-    const allocation = (await this.orderGroupsService.allocatePickedItemsToOrders(groupId)).find(
-      (a) => a.order_id === parcel.order_id.toString(),
-    );
-    const keys = new Set(parcel.placements.map((p) => p.item_key));
-    const units = allocation
-      ? expandToUnits(allocation.items, unitOptionsOf(plan)).filter((u) => keys.has(u.item_key))
-      : [];
-    if (units.length !== keys.size) throw this.versionConflict(groupId);
+    const allocations = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
+    const units = unitsOfParcelFrom(parcel, expandAllocations(allocations, unitOptionsOf(plan)));
+    if (units.length !== new Set(parcel.placements.map((p) => p.item_key)).size) throw this.versionConflict(groupId);
     return units;
   }
 

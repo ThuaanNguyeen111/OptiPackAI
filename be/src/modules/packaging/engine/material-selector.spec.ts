@@ -113,11 +113,35 @@ describe('selectMaterials (28/09/2026)', () => {
     expect(qty([shirt(1), shirt(2)], 0.8)).toEqual({});
   });
 
-  it('thùng trống nhiều: gối hơi theo dải độ trống, lấy dải CAO NHẤT thỏa', () => {
+  it('thùng trống nhiều (danh mục chưa có giấy): gối hơi chỉ còn dự phòng khi trống ≥ 70% (AOFP-224)', () => {
     const shirts = [shirt(1)];
-    expect(qty(shirts, 0.6)).toEqual({}); // trống 40% < 50%
-    expect(qty(shirts, 0.45)).toEqual({ PILLOW: 2 }); // trống 55% ≥ 50%
-    expect(qty(shirts, 0.2)).toEqual({ PILLOW: 4 }); // trống 80% ≥ 70%
+    expect(qty(shirts, 0.6)).toEqual({}); // trống 40%
+    expect(qty(shirts, 0.45)).toEqual({}); // trống 55% — giấy kraft lo, danh mục không có giấy
+    expect(qty(shirts, 0.2)).toEqual({ PILLOW: 2 }); // trống 80% ≥ 70%
+  });
+
+  describe('giấy kraft / giấy pelure (AOFP-224, PACKAGING_STANDARD §7)', () => {
+    const paper: MaterialPlanning = {
+      catalog: [
+        ...catalog,
+        { code: 'KRAFT', name: 'Giấy kraft', type: 'kraft_paper', unit: 'tờ', weight_g_per_unit: 15, price_vnd_per_unit: 300 },
+        { code: 'TISSUE', name: 'Giấy pelure', type: 'tissue_paper', unit: 'tờ', weight_g_per_unit: 5, price_vnd_per_unit: 200 },
+      ],
+      rules: DEFAULT_MATERIAL_RULES,
+    };
+    const dress = unit('DAM#1', { product_category: 'dress', height_mm: 30, weight_g: 300 });
+    const bag = unit('TUI#1', { product_category: 'bag', weight_g: 600 });
+
+    it('giấy kraft lấp trống theo dải, trước gối hơi', () => {
+      expect(qty([shirt(1)], 0.65, paper)).toEqual({ KRAFT: 1 }); // trống 35%
+      expect(qty([shirt(1)], 0.45, paper)).toEqual({ KRAFT: 2 }); // trống 55%
+      expect(qty([shirt(1)], 0.2, paper)).toEqual({ KRAFT: 3, PILLOW: 2 }); // trống 80%
+    });
+
+    it('đầm được lót giấy pelure; túi xách thêm giấy kraft nhồi giữ form', () => {
+      expect(qty([dress], 0.9, paper)).toEqual({ TISSUE: 1 });
+      expect(qty([bag], 0.9, paper)).toEqual({ KRAFT: 1, TISSUE: 1 });
+    });
   });
 
   it('danh mục thiếu loại vật tư mà luật cần → bỏ qua luật đó, không lỗi', () => {
@@ -197,10 +221,10 @@ describe('packOrder + vật tư (28/09/2026)', () => {
     const result = packOrder([shoe(1)], [box], { materials: planning });
     expect(result.status).toBe('ok');
     if (result.status !== 'ok') return;
-    // Hộp giày lấp 20% thùng (trống 80%): 4 góc xốp (20 g, 1200đ) + 4 gối hơi
-    // (12 g, 1600đ) + 1 tem (1 g, 200đ) = 33 g, 3000đ.
-    expect(result.materials_weight_g).toBe(33);
-    expect(result.materials_cost_vnd).toBe(3000);
-    expect(result.estimated_package_weight_g).toBe(500 + 200 + 33);
+    // Hộp giày lấp 20% thùng (trống 80%): 4 góc xốp (20 g, 1200đ) + 2 gối hơi dự phòng
+    // (6 g, 800đ — AOFP-224: danh mục test chưa có giấy kraft) + 1 tem (1 g, 200đ) = 27 g, 2200đ.
+    expect(result.materials_weight_g).toBe(27);
+    expect(result.materials_cost_vnd).toBe(2200);
+    expect(result.estimated_package_weight_g).toBe(500 + 200 + 27);
   });
 });

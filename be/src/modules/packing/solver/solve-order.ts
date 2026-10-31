@@ -6,7 +6,7 @@ import type { BoxSpec, PackingUnit } from '../../packaging/engine/types';
 import { runBrkga, DEFAULT_BRKGA } from './brkga';
 import { cheaper, decode, nKeys, type DecodeContext } from './decoder';
 import {
-  DEFAULT_VOLUMETRIC_DIVISOR,
+  DEFAULT_CHARGE_RULE,
   compareObjective,
   objectiveOf,
   summarizeParcel,
@@ -208,11 +208,11 @@ export function solveOrder(
     minDim,
   };
 
-  const divisor = options.volumetricDivisor ?? DEFAULT_VOLUMETRIC_DIVISOR;
+  const charge = options.charge ?? DEFAULT_CHARGE_RULE;
   const evaluateWith = (c: DecodeContext) => (keys: Float64Array): Evaluated => {
     const decoded = decode(keys, c);
     const parcels = decoded.parcels.map((s) =>
-      summarizeParcel(s, options.materials, divisor),
+      summarizeParcel(s, options.materials, charge),
     );
     return {
       parcels,

@@ -6,9 +6,9 @@ import type {
   PackingUnit,
   Placement,
 } from '../../packaging/engine/types';
-import { compareObjective, objectiveOf, summarizePlacements } from './objective';
+import { compareObjective, objectiveOf, summarizePlacements, type ChargeRule } from './objective';
 import { validatePlan, variantsOf } from './solve-order';
-import type { SolveResult, SolvedParcel } from './types';
+import type { SolvePreference, SolveResult, SolvedParcel } from './types';
 
 /**
  * ===================================================================
@@ -104,7 +104,9 @@ export function httpCpSatChecker(baseUrl: string, timeoutMs: number): CpSatCheck
 export interface CpSatUpgradeOptions {
   availability?: Map<string, number>;
   materials?: Parameters<typeof summarizePlacements>[3];
-  volumetricDivisor?: number;
+  charge?: ChargeRule;
+  /** Ưu tiên giống lúc giải BRKGA — so phương án CP-SAT cùng thước đo. */
+  prefer?: SolvePreference;
   maxUnits?: number;
   deterministicTimePerCombo?: number;
   wallTimeLimitS?: number;
@@ -187,7 +189,7 @@ function parcelsFromPlacements(
       });
     }
     parcels.push(
-      summarizePlacements(box, units, placed, options.materials, options.volumetricDivisor),
+      summarizePlacements(box, units, placed, options.materials, options.charge),
     );
   }
   return parcels;
@@ -250,7 +252,7 @@ export async function upgradeWithCpSat(
         ? validatePlan(parcels, placedKeys, options.availability)
         : ['món lạ trong lời giải CP-SAT'];
       const candidate = parcels ? objectiveOf(parcels, 0) : null;
-      if (parcels && candidate && problems.length === 0 && compareObjective(candidate, result.objective) < 0) {
+      if (parcels && candidate && problems.length === 0 && compareObjective(candidate, result.objective, options.prefer) < 0) {
         return {
           ...result,
           parcels,

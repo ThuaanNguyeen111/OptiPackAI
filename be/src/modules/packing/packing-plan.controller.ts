@@ -15,6 +15,7 @@ import { PackingReportService, type PackingReport } from './packing-report.servi
 import { PackingFeedbackService, type FeedbackReport } from './packing-feedback.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 import { effectiveParcelStatus } from './utils/parcels.util';
+import { orderIdsOf } from './utils/shared-parcel.util';
 import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
 import { averageFill } from './utils/stock-suggestion.util';
 import type { PackingPlanDocument, PlanProofLabel } from './schemas/packing-plan.schema';
@@ -113,9 +114,15 @@ export interface PackingPlanResponse {
     platformOrderId: string | null;
     /** Tên người nhận của đơn sở hữu kiện — in lên kiện để không dán nhầm trong đơn gộp. */
     recipientName: string | null;
+    /** AOFP-224 — mọi đơn có hàng trong kiện (kiện gộp nhiều đơn cùng người nhận có ≥ 2). */
+    orderIds: string[];
+    platformOrderIds: (string | null)[];
+    shareGroup: string | null;
     box: {
       code: string;
       name: string;
+      /** AOFP-224 — 'mailer' = túi niêm phong. */
+      kind: 'box' | 'mailer';
       innerMm: DimsResponse;
       outerMm: DimsResponse;
       tareG: number;
@@ -134,6 +141,8 @@ export interface PackingPlanResponse {
       dz: number;
       orientation: string;
       folded: boolean;
+      /** AOFP-224 — đơn sở hữu món (kiện gộp); kiện 1 đơn = orderId của kiện. */
+      orderId: string;
     }[];
     fillRatio: number;
     /** true = kiện nhập tay, không có tọa độ xếp thật (3D không dựng được). */
@@ -308,9 +317,15 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
       orderId: p.order_id.toString(),
       platformOrderId: p.platform_order_id,
       recipientName: recipientByOrder.get(p.order_id.toString()) ?? null,
+      orderIds: orderIdsOf(p).map((id) => id.toString()),
+      platformOrderIds: orderIdsOf(p).map(
+        (id) => plan.orders.find((o) => o.order_id.equals(id))?.platform_order_id ?? null,
+      ),
+      shareGroup: p.share_group ?? null,
       box: {
         code: p.box.code,
         name: p.box.name,
+        kind: p.box.kind ?? 'box',
         innerMm: dims(p.box.inner_mm),
         outerMm: dims(p.box.outer_mm),
         tareG: p.box.tare_g,
@@ -329,6 +344,7 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
         dz: q.dz,
         orientation: q.orientation,
         folded: q.folded,
+        orderId: (q.order_id ?? p.order_id).toString(),
       })),
       fillRatio: p.fill_ratio,
       manualLayout: p.manual_layout,

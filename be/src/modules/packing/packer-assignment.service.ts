@@ -1,17 +1,25 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { Cron } from '@nestjs/schedule';
 import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
-import { PackingPlan, PackingPlanDocument } from './schemas/packing-plan.schema';
+import { PackingPlan, PackingPlanDocument, type PackingPlanStatus } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { isOnLeave, notOnLeaveFilter } from '../users/utils/on-leave.util';
 
 /** Kế hoạch còn là "việc đang làm" của người đóng. */
 const OPEN_PLAN_STATUSES = ['ready', 'approved', 'packing'];
+/**
+ * 31/10/2026 — Kế hoạch CHƯA bắt đầu đóng (đang `packing` thì đã có người cầm hàng trên bàn,
+ * đổi người giữa chừng gây nhầm) được giao lại khi mồ côi.
+ */
+const REASSIGNABLE_PLAN_STATUSES: PackingPlanStatus[] = ['ready', 'approved'];
+/** Số kế hoạch tối đa xét mỗi lượt quét giao lại. */
+const REASSIGN_BATCH = 200;
 
 /**
  * ===================================================================
@@ -24,6 +32,10 @@ const OPEN_PLAN_STATUSES = ['ready', 'approved', 'packing'];
  *   hòa thì người được giao lâu nhất trước (cùng thuật toán Least-Busy của
  *   staff-assignment).
  * - Không có Packaging Staff nào → để trống, không chặn luồng (ai cũng nhận được).
+ * - 31/10/2026 — quét mỗi phút (`reassignOrphans`): kế hoạch chưa bắt đầu đóng mà
+ *   chưa có người, hoặc người được giao đã nghỉ phép / bị khoá / không còn role
+ *   Packaging Staff → giao lại cho người ít việc nhất. Trước đây chỉ giao 1 lần lúc
+ *   `ready` nên các kế hoạch đó nằm mồ côi mãi.
  * ===================================================================
  */
 @Injectable()
@@ -52,6 +64,44 @@ export class PackerAssignmentService {
         `Tự giao người đóng cho kế hoạch ${planId.toString()} thất bại: ${error instanceof Error ? error.message : String(error)}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * 31/10/2026 — Giao lại kế hoạch mồ côi (xem đầu file). Chỉ ghi khi người giữ kế hoạch
+   * vẫn đúng như lúc đọc (không đè người vừa bấm "Giao cho tôi" / Admin vừa giao tay).
+   * Trả số kế hoạch đã giao lại.
+   */
+  @Cron('45 * * * * *', { name: 'packing-packer-reassign' })
+  async reassignOrphans(): Promise<number> {
+    try {
+      const plans = await this.planModel
+        .find({ is_active: true, status: { $in: REASSIGNABLE_PLAN_STATUSES } })
+        .select('_id assigned_packer_id')
+        .sort({ created_at: 1 })
+        .limit(REASSIGN_BATCH)
+        .lean();
+      if (plans.length === 0) return 0;
+      const available = await this.userModel
+        .find({ role: UserRole.PACKAGING_STAFF, is_active: true, $and: [notOnLeaveFilter()] })
+        .select('_id')
+        .lean();
+      if (available.length === 0) return 0;
+      const ok = new Set(available.map((u) => u._id.toString()));
+      let reassigned = 0;
+      for (const plan of plans) {
+        const current = plan.assigned_packer_id ?? null;
+        if (current && ok.has(current.toString())) continue;
+        const packerId = await this.pickLeastBusy(plan._id);
+        if (!packerId) break;
+        const updated = await this.apply(plan._id, packerId, current);
+        if (updated) reassigned += 1;
+      }
+      if (reassigned > 0) this.logger.log(`Giao lại ${String(reassigned)} kế hoạch đóng gói chưa có người / người cũ không còn nhận việc.`);
+      return reassigned;
+    } catch (error: unknown) {
+      this.logger.warn(`Quét giao lại người đóng thất bại: ${error instanceof Error ? error.message : String(error)}`);
+      return 0;
     }
   }
 
@@ -126,12 +176,21 @@ export class PackerAssignmentService {
     }));
   }
 
-  private async apply(planId: Types.ObjectId, packerId: Types.ObjectId): Promise<PackingPlanDocument | null> {
+  /** `expectedPrevious` (khi có) = chỉ ghi nếu người đang giữ kế hoạch chưa đổi (null = chưa có ai). */
+  private async apply(
+    planId: Types.ObjectId,
+    packerId: Types.ObjectId,
+    expectedPrevious?: Types.ObjectId | null,
+  ): Promise<PackingPlanDocument | null> {
     // Không tăng version: giao việc không đổi phương án, không làm hỏng màn người khác đang xem.
     // 22/10/2026 — lưu sẵn tên người đóng để màn hình hiện tên (không chỉ đuôi mã).
     const packerName = await this.packerName(packerId);
     const updated = await this.planModel.findOneAndUpdate(
-      { _id: planId, is_active: true },
+      {
+        _id: planId,
+        is_active: true,
+        ...(expectedPrevious !== undefined ? { assigned_packer_id: expectedPrevious } : {}),
+      },
       { $set: { assigned_packer_id: packerId, assigned_packer_at: new Date(), assigned_packer_name: packerName } },
       { returnDocument: 'after' },
     );

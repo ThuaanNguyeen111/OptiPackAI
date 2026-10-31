@@ -96,6 +96,8 @@ GET /order-groups?assigned_packer_id=<userId>&fulfillment_status=packed
 - Sau khi gán/đổi người thành công, lần GET kế tiếp phản ánh ngay người mới; không cần chốt hoặc chấp nhận trước để xuất hiện trong danh sách. FE không tải danh sách chung rồi lọc người đóng sau khi đã phân trang.
 - Mở trang/nhận thông báo giao việc thì tải lại; khi còn ở trang, thăm dò mỗi 10 giây. Đây là cập nhật bằng GET, không có push thời gian thực mới.
 - Không có Packaging Staff hoạt động thì kế hoạch vẫn `ready`, chưa có người nhận; Admin xem danh sách không truyền `assigned_packer_id` và gán khi có nhân viên. Không truyền bộ lọc giữ hành vi danh sách chung hiện tại.
+- 🆕 31/10/2026 — **Giao lại tự động mỗi phút** (giây 45): kế hoạch `ready`/`approved` chưa có người, hoặc người được giao đang nghỉ phép / bị khoá / không còn role Packaging Staff (role `2`) → giao cho Packaging Staff ít việc nhất và gửi thông báo `packing_assigned`. Kế hoạch đang `packing` giữ nguyên người. Chỉ ghi khi người giữ kế hoạch chưa đổi, nên không đè lượt "Giao cho tôi" hay giao tay vừa làm.
+- Nhóm còn ở `picked` **chưa có người đóng** (kế hoạch đang tính, `failed` vì SKU chưa đo, hoặc `rejected`) → lọc `assigned_packer_id` không ra nhóm này. Tab "Đã lấy hàng" của Packaging Staff phải xem phạm vi **Tất cả**, không phải "Của tôi".
 
 (Chi tiết bộ lọc khác: `INTEGRATION_GUIDE_FULFILLMENT.md`.)
 
@@ -378,7 +380,7 @@ POST …/packing-plan/assign        Role: Packaging, Admin
 { "mode": "manual", "staff_id": "<packagingStaffId>" }
 ```
 
-Backend tự giao khi kế hoạch `ready` và báo người đó. API này dùng khi Admin muốn gán/đổi người, trả `{ plan }`, không tăng `version` và không thay trạng thái kế hoạch. Không đặt khối "Tự gán / Gán tay" trong màn nhân viên như một bước bắt buộc; quyền API hiện có vẫn giữ. Lỗi: `409 PACKING_NO_PACKER_AVAILABLE`, `422 PACKING_PACKER_INVALID`.
+Backend tự giao khi kế hoạch `ready` và báo người đó (🆕 31/10: cùng lượt quét giao lại mỗi phút cho kế hoạch mồ côi — xem quy định bên dưới). API này dùng khi Admin muốn gán/đổi người, trả `{ plan }`, không tăng `version` và không thay trạng thái kế hoạch. Không đặt khối "Tự gán / Gán tay" trong màn nhân viên như một bước bắt buộc; quyền API hiện có vẫn giữ. Lỗi: `409 PACKING_NO_PACKER_AVAILABLE`, `422 PACKING_PACKER_INVALID`.
 
 🆕 **Danh sách để chọn `staff_id` (09/10/2026):**
 
@@ -388,6 +390,23 @@ GET /packing/staff?q=an                 Role: Packaging, Store Owner, Admin
 ```
 
 Packaging Staff đang hoạt động, tìm theo tên/email (không phân biệt hoa thường), `activeWorkload` = số kế hoạch `ready`/`approved`/`packing` đang giao cho người đó. Dùng chung cho dropdown người xử lý khi từ chối (`reject.owner_id`). (`GET /order-groups/staff/search` chỉ trả **Warehouse Staff** — không dùng cho đóng gói.)
+
+🆕 **Quy định phân công người đóng (31/10/2026, AOFP-222)**
+
+| Lúc nào | Ai được giao | Ghi chú |
+|---|---|---|
+| Kho lấy xong (`picked`) | — chưa ai | Cron 10 giây tự tính kế hoạch. Nhóm còn `picked` (đang tính, `failed`, `rejected`) **không có người đóng** |
+| Kế hoạch vừa `ready` | Người đóng của lần tính trước (nếu còn nhận việc), không thì người **ít kế hoạch đang mở nhất** (`ready`/`approved`/`packing`); hoà → người được giao lâu nhất | Thông báo `packing_assigned` |
+| Mỗi phút (giây 45) | Kế hoạch `ready`/`approved` chưa có người, hoặc người giữ đang nghỉ phép / bị khoá / không còn role `2` → giao lại cho người ít việc nhất | Kế hoạch `packing` giữ nguyên người. Ghi có điều kiện (người giữ chưa đổi) nên không đè "Giao cho tôi" / giao tay |
+| Bất kỳ lúc nào trước khi đóng | Nhân viên bấm "Giao cho tôi" (`assign` manual với `staff_id` của mình) hoặc Admin giao tay / tự gán | Người nghỉ phép → `409 PACKING_PACKER_ON_LEAVE` |
+
+"Người nhận việc" = tài khoản `role = 2` (`PACKAGING_STAFF`), `is_active = true`, không nghỉ phép. Tài khoản đặt tên "đóng gói" nhưng role khác (VD `1` Nhân viên kho) **không bao giờ** được giao — đổi role qua `PATCH /users/:id`.
+
+**Khi Packaging Staff không thấy việc — kiểm theo thứ tự:**
+1. Role tài khoản có đúng `2` không, có đang nghỉ phép / bị khoá không.
+2. Đang xem tab nào: việc đã giao nằm ở `pending_approval` / `approved_for_packing` với `assigned_packer_id=<mình>`; tab `picked` phải xem phạm vi "Tất cả".
+3. Kế hoạch của nhóm: `failed` vì SKU chưa đo (`packing_blocked_reason = needs_measurement`, kho đo xong là tự tính lại); `failed` vì "chưa có lần quét lấy hàng nào" (nhóm bị chuyển trạng thái tay, không qua quét — trả về lấy hàng hoặc hủy); `rejected` (bấm Tính lại).
+4. Không có Packaging Staff nào nhận việc → kế hoạch `ready` để trống; có người lại là lượt quét mỗi phút tự giao.
 
 ### 3.2 Tương thích kế hoạch `approved` cũ
 

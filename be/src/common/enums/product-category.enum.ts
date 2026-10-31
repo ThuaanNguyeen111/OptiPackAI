@@ -12,6 +12,8 @@ export enum ProductCategory {
   DRESS = 'dress',
   SHOES = 'shoes',
   SANDALS = 'sandals',
+  /** AOFP-224 (31/10/2026) — túi xách. Không nằm phẳng/gập như quần áo. */
+  BAG = 'bag',
   ACCESSORY = 'accessory',
   OTHER = 'other',
 }
@@ -28,6 +30,7 @@ export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
   [ProductCategory.DRESS]: 'váy/đầm',
   [ProductCategory.SHOES]: 'giày (hộp)',
   [ProductCategory.SANDALS]: 'dép/sandal',
+  [ProductCategory.BAG]: 'túi xách',
   [ProductCategory.ACCESSORY]: 'phụ kiện',
   [ProductCategory.OTHER]: 'sản phẩm',
 };

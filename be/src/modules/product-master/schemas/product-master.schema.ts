@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { PRODUCT_CATEGORY_VALUES, ProductCategory } from '../../../common/enums/product-category.enum';
+import { OUTER_REQUIREMENTS, type OuterRequirement } from '../../../common/enums/outer-requirement.enum';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MarketplacePlatform } from '../../marketplace-integration/enums/platform.enum';
 
@@ -84,6 +85,14 @@ export class ProductMaster {
    */
   @Prop({ type: Boolean, default: false })
   can_fold_in_half?: boolean;
+
+  /**
+   * AOFP-224 (31/10/2026) — lớp vận chuyển kho chốt cho SKU (túi niêm phong được /
+   * bắt buộc thùng). null = theo loại sản phẩm (DEFAULT_OUTER_REQUIREMENT). Hàng
+   * dễ vỡ luôn vào thùng dù đặt gì. Xem docs/PACKAGING_STANDARD.md §4.1.
+   */
+  @Prop({ type: String, enum: [...OUTER_REQUIREMENTS, null], default: null })
+  outer_requirement?: OuterRequirement | null;
 
   @Prop({ type: SchemaTypes.ObjectId, default: null })
   profile_confirmed_by?: Types.ObjectId | null;

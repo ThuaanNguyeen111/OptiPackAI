@@ -382,6 +382,12 @@ Trước đây chu kỳ đồng bộ, số ngày lấy lần đầu, cách gom �
 | GET | `/order-sync-settings` | Admin, Store Owner (xem) |
 | PUT | `/order-sync-settings` | Admin |
 | GET | `/order-sync-settings/history?limit=20` | Admin, Store Owner |
+| 🆕 GET | `/order-sync-settings/rules` | Admin, Store Owner (xem) |
+| 🆕 POST | `/order-sync-settings/rules` | Admin |
+| 🆕 PUT | `/order-sync-settings/rules/:ruleId` | Admin |
+| 🆕 DELETE | `/order-sync-settings/rules/:ruleId?expected_version=N` | Admin |
+| 🆕 POST | `/order-sync-settings/rules/preview` | Admin |
+| 🆕 POST | `/order-sync-settings/rules/translate` | Admin (10 lần/phút) |
 
 ### Các tiêu chí
 
@@ -418,6 +424,96 @@ Trước đây chu kỳ đồng bộ, số ngày lấy lần đầu, cách gom �
 - Vi phạm ràng buộc → `400 ORD_SYNC_SETTINGS_INVALID`, `details` chỉ rõ giá trị sai. Ví dụ: gom chỉ theo tên + tỉnh, bỏ `canceled` khỏi danh sách không đóng gói, coi `pending` là không đóng gói được.
 - `note` (tuỳ chọn): lý do thay đổi, hiện trong lịch sử.
 - Response giống GET, thêm `recomputingKeys: true` nếu vừa đổi trường gom. Khi đó BE chạy nền việc tính lại khoá gom cho các đơn **chưa xử lý xong**. **Nhóm đã tạo không bị tách/gộp lại**; tiêu chí mới chỉ áp cho lần gom tiếp theo.
+
+### 🆕 31/10/2026 — Quy tắc gộp bổ sung (Admin gõ câu chữ, AI dịch, hệ thống áp cố định)
+
+Ngoài khoá gom cơ bản ở trên, Admin thêm được tối đa **10 quy tắc**. Đơn mới gộp vào nhóm khi trùng khoá cơ bản **HOẶC** trùng 1 quy tắc đang bật. Chưa có quy tắc thì hệ thống chạy y như trước. Thiết kế đầy đủ: [`CONSOLIDATION_RULES_DESIGN.md`](./CONSOLIDATION_RULES_DESIGN.md).
+
+**AI chỉ dịch câu chữ, không quyết định đơn nào gộp.** Màn soạn quy tắc gọi AI đúng 1 lần (chỉ gửi câu Admin gõ, không gửi dữ liệu khách). Lúc đồng bộ đơn, hệ thống áp quy tắc đã lưu, không gọi AI, cùng dữ liệu luôn ra cùng kết quả.
+
+**Luồng màn hình (gợi ý):**
+
+```
+1. Admin gõ câu ──► POST /rules/translate { text }
+      ├─ 200, rule ≠ null  → điền form bằng rule, hiện warnings
+      ├─ 200, rule = null  → hiện unsupported[] (lý do không làm được)
+      └─ 503 ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE → mở form trống + cho chọn details.suggestions[]
+2. Admin chỉnh form (ô tích trường, cách so khớp, sàn, giới hạn giờ)
+3. POST /rules/preview { rules: [...các quy tắc đang có (đã đổi sang body)..., quy tắc mới] }
+      → "Không quy tắc: 120 nhóm → áp bộ này: 104 nhóm", số đơn bị bỏ qua do thiếu dữ liệu, ví dụ
+4. Admin bấm Xác nhận ──► POST /rules (hoặc PUT /rules/:id) kèm expected_version
+```
+
+**Quy tắc** — form dựng từ `options` của `GET /rules`:
+
+| Trường body | Ý nghĩa |
+|---|---|
+| `name` | Tên ngắn (1–80) |
+| `source_text` | Câu Admin gõ (lưu để tra lại). Dựng bằng form thì gửi `null` |
+| `fields[] { field, match }` | Các trường phải **trùng**. `match`: `normalized` (bỏ dấu, không phân biệt hoa thường) hoặc `exact`. SĐT luôn chuẩn hoá số (`+84 901…` = `0901…`). **Phải có `phone` hoặc `address_line1`** |
+| `platforms` | `[]` = mọi sàn; hoặc `['aurelle']`, `['lazada']` |
+| `max_window_hours` | Chỉ gộp với đơn đặt trong N giờ trước (1–720). `null` = dùng `consolidation_time_window_hours` chung |
+| `enabled` | Tắt tạm mà không xoá |
+
+Ví dụ "Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp":
+
+```json
+POST /order-sync-settings/rules
+{
+  "expected_version": 7,
+  "name": "Cùng SĐT + phường",
+  "source_text": "Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp",
+  "fields": [{ "field": "phone", "match": "normalized" }, { "field": "ward_name", "match": "normalized" }],
+  "platforms": [],
+  "max_window_hours": null
+}
+→ 201 { "version": 8, "recomputingKeys": true,
+        "rules": [{ "id": "6723…", "name": "Cùng SĐT + phường", "sourceText": "…", "fields": [...], "platforms": [], "maxWindowHours": null, "enabled": true }],
+        "limits": { "maxRules": 10, "requiredOneOf": ["phone", "address_line1"] },
+        "options": { "fields": [{ "value": "phone", "label": "Số điện thoại" }, ...], "matches": [...], "platforms": [...] } }
+```
+
+Sửa (`PUT /rules/:ruleId`) gửi **đủ** các trường như POST (thay toàn bộ, giữ nguyên `id`). Xoá gửi `?expected_version=`. Lệch phiên bản → `409 ORD_SYNC_SETTINGS_CONFLICT`, FE tải lại `GET /rules`.
+
+**Xem trước** chỉ đọc, không lưu:
+
+```json
+POST /order-sync-settings/rules/preview
+{ "rules": [{ "name": "Cùng SĐT + phường", "fields": [{ "field": "phone", "match": "normalized" }, { "field": "ward_name", "match": "normalized" }] }] }
+→ 200 {
+  "ordersScanned": 342, "truncated": false,
+  "currentGroups": 120, "baselineGroups": 121, "projectedGroups": 104, "groupsMergedByRules": 15,
+  "skippedMissingData": [{ "ruleName": "Cùng SĐT + phường", "orders": 87 }],
+  "examples": [{ "ruleNames": ["Cùng SĐT + phường"], "platformOrderIds": ["AU-1029", "AU-1033"], "phoneLast3": ["567"] }]
+}
+```
+
+- Gửi **cả bộ** quy tắc muốn có (kể cả quy tắc đã lưu), không chỉ quy tắc mới.
+- Nên hiển thị `baselineGroups → projectedGroups` (cùng cách tính nên so được với nhau). `currentGroups` là số nhóm thực tế hiện nay, có thể lệch vì nhóm cũ không bị đổi.
+- `skippedMissingData`: số đơn mà quy tắc **bỏ qua** vì trường bị trống hoặc bị sàn che (đơn Lazada thường bị che SĐT/tỉnh/quận). Đây là chủ ý, không phải lỗi.
+- `truncated: true` → chỉ tính 5.000 đơn chưa xong mới nhất.
+
+**Dịch câu chữ:**
+
+```json
+POST /order-sync-settings/rules/translate   { "text": "Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp" }
+→ 200 { "source": "ai", "model": "groq/openai/gpt-oss-120b",
+        "rule": { "name": "Cùng SĐT + phường", "source_text": "…", "fields": [...], "platforms": [], "max_window_hours": null, "enabled": true },
+        "unsupported": [], "warnings": ["Đơn Lazada thường bị che tỉnh/quận …"] }
+
+{ "text": "Gộp đơn trên 500 nghìn" }
+→ 200 { "rule": null, "unsupported": ["Không gộp theo giá trị đơn."], "warnings": [] }
+```
+
+`rule` có đúng dạng body của `POST /rules` (snake_case), nên FE điền thẳng vào form. Không có `AI_API_KEY`, AI lỗi hoặc trả sai định dạng → `503 ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE`, `details = { reason: 'no_api_key' | 'ai_error' | 'ai_invalid_output', suggestions: [4 quy tắc mẫu] }`. Quá 10 lần/phút → `429`.
+
+**Luôn giữ, không cấu hình được:**
+- Trường của quy tắc bị trống hoặc chứa `*` (bị sàn che), SĐT dưới 9 số → quy tắc **không áp** cho đơn đó. Đơn Lazada bị che vì vậy không bị gộp nhầm.
+- Đơn hỏa tốc và đơn đổi hàng (`EXC-…`) không dùng quy tắc bổ sung (đã có nhóm riêng).
+- Đơn khớp 2 nhóm còn mở qua 2 quy tắc khác nhau → vào nhóm **cũ nhất**; 2 nhóm đó không tự gộp với nhau (Admin gộp tay được).
+- Thêm/sửa/xoá quy tắc chỉ ảnh hưởng đơn **mới vào**; nhóm đã tạo giữ nguyên.
+
+**Mã lỗi:** `ORD_CONSOLIDATION_RULE_INVALID` (400, `details.errors[]` tiếng Việt), `ORD_CONSOLIDATION_RULE_LIMIT` (400), `ORD_CONSOLIDATION_RULE_NOT_FOUND` (404), `ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE` (503), `ORD_SYNC_SETTINGS_CONFLICT` (409).
 
 ### Có hiệu lực khi nào
 
