@@ -433,7 +433,7 @@ export function OrderGroupsPage() {
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-ink-subtle">
               {vi
-                ? 'Xem tiến độ xử lý theo từng nhóm đơn. Đánh dấu Hỏa tốc để hệ thống tính hạn đóng gói theo giờ hành chính (8h–17h).'
+                ? 'Tiến độ từng nhóm đơn. Đơn đánh dấu Hỏa tốc có hạn đóng gói tính theo giờ hành chính 8h–17h.'
                 : 'Track processing progress by order group. Mark Express so the system sets a packaging deadline in business hours (8–17).'}
             </p>
           </div>

@@ -4,7 +4,6 @@ import { useAuth } from '../../context/use-auth'
 import {
   AlertTriangle,
   CheckCircle2,
-  Info,
   Loader2,
   Package,
   RefreshCw,
@@ -1294,11 +1293,21 @@ export function PackagingWorkbench() {
           <p className="owner-hero-kicker">
             {vi ? 'Nhân viên đóng gói' : 'Packaging Staff'}
           </p>
-          <h1>{vi ? 'Bàn đóng gói' : 'Packing station'}</h1>
-          <p className="owner-hero-lead">
-            {vi
-              ? 'Chấp nhận kế hoạch → xem hướng dẫn 3D. Từ chối kèm lý do → gửi Admin.'
-              : 'Accept plan → 3D guide. Reject with reason → Admin notified.'}
+          <h1>{vi ? 'Đóng gói' : 'Packing'}</h1>
+          <p
+            className={`owner-hero-lead ${actionableCount > 0 ? 'font-medium text-[var(--ls-ink)]' : ''}`}
+          >
+          {actionableCount > 0
+            ? vi
+              ? `Bạn có ${String(actionableCount)} việc cần xử lý (${String(counts.pending)} chờ duyệt · ${String(counts.partial)} thiếu hàng).`
+              : `You have ${String(actionableCount)} task(s) (${String(counts.pending)} pending plan · ${String(counts.partial)} shortage).`
+            : vi
+              ? counts.awaiting > 0 || counts.picked > 0
+                ? `Chưa có việc duyệt. ${counts.picked > 0 ? `${String(counts.picked)} nhóm đã lấy — chờ Admin chốt kế hoạch. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} nhóm kho đang lấy (tab «Chỉ xem»). ` : ''}Bấm Tải lại khi có gợi ý.`
+                : 'Chưa có việc. Khi có gợi ý thùng, đơn sẽ hiện ở «Chờ duyệt kế hoạch».'
+              : counts.awaiting > 0 || counts.picked > 0
+                ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked — wait for Admin to confirm a plan. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
+                : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
           </p>
           <div className="owner-hero-ctas">
             <button
@@ -1331,29 +1340,6 @@ export function PackagingWorkbench() {
           ))}
         </ol>
       </section>
-
-      <div
-        className={`owner-panel flex items-start gap-2 rounded-2xl px-4 py-3 text-xs ${
-          actionableCount > 0
-            ? 'text-[var(--ls-ink)]'
-            : 'text-[var(--ls-muted)]'
-        }`}
-      >
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <p>
-          {actionableCount > 0
-            ? vi
-              ? `Bạn có ${String(actionableCount)} việc cần xử lý (${String(counts.pending)} chờ duyệt · ${String(counts.partial)} thiếu hàng).`
-              : `You have ${String(actionableCount)} task(s) (${String(counts.pending)} pending plan · ${String(counts.partial)} shortage).`
-            : vi
-              ? counts.awaiting > 0 || counts.picked > 0
-                ? `Chưa có việc duyệt. ${counts.picked > 0 ? `${String(counts.picked)} nhóm đã lấy — chờ Admin chốt kế hoạch. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} nhóm kho đang lấy (tab «Chỉ xem»). ` : ''}Bấm Tải lại khi có gợi ý.`
-                : 'Chưa có việc. Khi có gợi ý thùng, đơn sẽ hiện ở «Chờ duyệt kế hoạch».'
-              : counts.awaiting > 0 || counts.picked > 0
-                ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked — wait for Admin to confirm a plan. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
-                : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
-        </p>
-      </div>
 
       <div className="pack-bench">
         <section className="pack-bench-col">

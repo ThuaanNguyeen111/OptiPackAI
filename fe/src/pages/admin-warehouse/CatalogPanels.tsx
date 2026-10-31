@@ -1040,8 +1040,8 @@ function ProductMasterDetailDialog({
           <DialogTitle>{vi ? 'Chi tiết Product Master' : 'Product Master detail'}</DialogTitle>
           <DialogDescription>
             {vi
-              ? 'Đọc từ GET /product-master/:id — không sửa tại đây.'
-              : 'Loaded from GET /product-master/:id — read only.'}
+              ? 'Thông tin đồng bộ từ sàn — chỉ xem.'
+              : 'Synced from the marketplace — read only.'}
           </DialogDescription>
         </DialogHeader>
         {loading ? (

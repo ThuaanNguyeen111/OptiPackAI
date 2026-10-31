@@ -520,12 +520,12 @@ function canReturn(status: string): boolean {
 function bePickGateMessage(vi: boolean, action: 'complete' | 'missing'): string {
   if (action === 'missing') {
     return vi
-      ? 'BE chưa cho báo thiếu từ đơn mới. Cần mở transition awaiting_packaging / pending_approval → partial_needs_review (hiện chỉ từ approved_for_packing / picking).'
-      : 'BE still blocks report-missing on new groups. Allow awaiting_packaging / pending_approval → partial_needs_review (today only approved_for_packing / picking).'
+      ? 'Nhóm này chưa ở bước lấy hàng nên chưa báo thiếu được. Tải lại rồi thử lại.'
+      : 'This group is not in picking yet, so missing items cannot be reported. Refresh and try again.'
   }
   return vi
-    ? 'BE chưa cho «Hoàn tất lấy hàng» từ đơn mới. pick-item (trừ tồn) đã chạy được. Cần mở awaiting_packaging / pending_approval / picking → picked.'
-    : 'BE still blocks Complete pick on new groups. pick-item (stock decrement) already works. Allow awaiting_packaging / pending_approval / picking → picked.'
+    ? 'Nhóm này chưa ở bước lấy hàng nên chưa hoàn tất được. Tải lại rồi thử lại.'
+    : 'This group is not in picking yet, so it cannot be completed. Refresh and try again.'
 }
 
 export function WarehousePage() {
@@ -1641,8 +1641,8 @@ export function WarehousePage() {
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {warehouseListBlocked
                 ? vi
-                  ? 'Không lấy danh sách kho (403). Dán ObjectId kho, hoặc mở GET /warehouse/warehouses cho Warehouse Staff.'
-                  : 'Could not list warehouses (403). Paste a warehouse ObjectId, or allow GET /warehouse/warehouses for staff.'
+                  ? 'Không tải được danh sách kho. Nhờ Admin kiểm tra quyền của tài khoản này.'
+                  : 'Could not load warehouses. Ask an Admin to check this account’s access.'
                 : vi
                   ? 'Chưa chọn kho: vẫn xem SKU, nhưng quét trừ tồn / báo thiếu cần warehouse_id.'
                   : 'No warehouse selected: you can view SKUs, but pick/report-missing need warehouse_id.'}

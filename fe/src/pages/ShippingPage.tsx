@@ -7,7 +7,6 @@ import {
   Printer,
   Download,
   MapPin,
-  Eye,
   Check,
   X,
   Loader2,
@@ -281,7 +280,6 @@ export function ShippingPage() {
   const [scanInput, setScanInput] = useState('')
   const scanInputRef = useRef<HTMLInputElement>(null)
   const [filterQuery, setFilterQuery] = useState('')
-  const [autoScanActive, setAutoScanActive] = useState(false)
 
   const [packedGroups, setPackedGroups] = useState<OrderGroup[]>([])
   const [shipments, setShipments] = useState<Shipment[]>([])
@@ -1003,7 +1001,11 @@ export function ShippingPage() {
     }
   }
 
-  const progressPct = selected ? 100 : 0
+  // Thanh "Lượt giao" = số lần đã giao / số lần tối đa (trước đây luôn 100% khi chọn kiện).
+  const progressPct =
+    selected?.kind === 'shipment' && selected.shipment.maxAttempts > 0
+      ? Math.min(100, (selected.shipment.attemptCount / selected.shipment.maxAttempts) * 100)
+      : 0
 
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-[#EAEEEC] dark:bg-transparent">
@@ -1020,7 +1022,7 @@ export function ShippingPage() {
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex shrink-0 items-center gap-2">
               <h1 className="shrink-0 text-xl font-semibold tracking-tight text-[var(--ls-ink)]">
-                {vi ? 'Vận chuyển & bàn giao' : 'Shipping & handover'}
+                {vi ? 'Giao hàng' : 'Shipping'}
               </h1>
               <button
                 type="button"
@@ -1089,7 +1091,7 @@ export function ShippingPage() {
           </div>
 
           <form onSubmit={handleScanSubmit} className="relative">
-            <div className="flex h-12 w-full items-center rounded-xl border border-slate-300 bg-white px-4 transition-colors focus-within:border-[var(--app-teal-dark,#152d35)] focus-within:ring-2 focus-within:ring-[var(--app-teal-dark,#152d35)]/20 dark:border-slate-600 dark:bg-[var(--ls-panel)]">
+            <div className="flex h-11 w-full items-center rounded-lg border border-slate-300 bg-white px-4 transition-colors focus-within:border-[var(--app-teal-dark,#152d35)] focus-within:ring-2 focus-within:ring-[var(--app-teal-dark,#152d35)]/20 dark:border-slate-600 dark:bg-[var(--ls-panel)]">
               <BarcodeLineIcon className="text-slate-700 dark:text-slate-300" />
               <input
                 ref={scanInputRef}
@@ -1105,29 +1107,6 @@ export function ShippingPage() {
                 autoComplete="off"
                 spellCheck={false}
               />
-              <button
-                type="button"
-                onClick={() => {
-                  setAutoScanActive((v) => !v)
-                  showToast(
-                    !autoScanActive
-                      ? vi
-                        ? 'Ô tìm sẽ lọc bảng khi gõ xong (Enter).'
-                        : 'Search filters the table on Enter.'
-                      : vi
-                        ? 'Đã tắt gợi ý lọc nhanh.'
-                        : 'Quick filter hint off.',
-                  )
-                }}
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold select-none transition-colors ${
-                  autoScanActive
-                    ? 'bg-[var(--ls-cta)] text-white'
-                    : 'bg-[color-mix(in_srgb,var(--ls-cta)_16%,transparent)] text-[var(--ls-cta)]'
-                }`}
-              >
-                <span>AUTO</span>
-                <Eye className="h-3.5 w-3.5" />
-              </button>
             </div>
           </form>
         </div>
@@ -2312,8 +2291,8 @@ export function ShippingPage() {
                       : 'Create a shipment for this packed group. Own fleet — no 3PL.'
                   : modalMode === 'fail'
                     ? vi
-                      ? 'Chọn lý do. Khách từ chối hoặc hết 2 lần → hệ thống tự chuyển hoàn về kho.'
-                      : 'Pick a reason. Customer refused or 2 attempts → auto return.'
+                      ? 'Chọn lý do. Khách từ chối nhận hoặc đã giao thất bại 2 lần thì hàng tự chuyển hoàn về kho.'
+                      : 'Pick a reason. If the customer refused or this is the 2nd failed attempt, the parcel returns to the warehouse.'
                     : vi
                       ? 'Thao tác ghi lên vận đơn (có kiểm tra version để tránh ghi đè).'
                       : 'This writes the shipment (version-checked).'}
