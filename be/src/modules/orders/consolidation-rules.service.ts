@@ -1,12 +1,34 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
-import { Types } from 'mongoose';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { ORD_ERROR_CODES } from './orders.errors';
 import { MAX_CONSOLIDATION_RULES } from './order-sync-policy';
 import type { ConsolidationRule, OrderSyncPolicy } from './order-sync-policy';
 import { OrderSyncSettingsService } from './order-sync-settings.service';
-import { ConsolidationRuleBodyDto, SaveConsolidationRuleDto } from './dto/consolidation-rule.dto';
+import { ConsolidationRuleBodyDto, PreviewConsolidationRulesDto, SaveConsolidationRuleDto } from './dto/consolidation-rule.dto';
 import { validateConsolidationRule } from './utils/consolidation-rule.util';
+import { PreviewExample, PreviewOrderInput, simulateConsolidation } from './utils/consolidation-preview.util';
+import { Order, OrderDocument } from './schemas/order.schema';
+import { UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
+
+/** Số đơn chưa xong tối đa đọc ra để xem trước (mới nhất trước). */
+export const PREVIEW_ORDER_LIMIT = 5_000;
+
+export interface ConsolidationRulesPreview {
+  ordersScanned: number;
+  /** true khi còn đơn chưa xong ngoài 5.000 đơn mới nhất đã đọc. */
+  truncated: boolean;
+  /** Số nhóm THỰC TẾ hiện nay của các đơn đã đọc (đơn lẻ = 1 nhóm). */
+  currentGroups: number;
+  /** Mô phỏng từ đầu KHÔNG có quy tắc bổ sung — so với projectedGroups để thấy đúng tác dụng của quy tắc. */
+  baselineGroups: number;
+  /** Mô phỏng từ đầu VỚI bộ quy tắc gửi lên. */
+  projectedGroups: number;
+  groupsMergedByRules: number;
+  skippedMissingData: { ruleName: string; orders: number }[];
+  examples: PreviewExample[];
+}
 
 export interface ConsolidationRulesState {
   /** Version cấu hình đang hiệu lực — gửi lại làm `expected_version` ở lần ghi sau. */
@@ -49,7 +71,58 @@ export function assertValidRule(rule: ConsolidationRule): void {
  */
 @Injectable()
 export class ConsolidationRulesService {
-  constructor(private readonly settingsService: OrderSyncSettingsService) {}
+  constructor(
+    private readonly settingsService: OrderSyncSettingsService,
+    @InjectModel(Order.name) private readonly orderModel: Model<OrderDocument>,
+  ) {}
+
+  /**
+   * Xem trước bộ quy tắc NHÁP trên tối đa 5.000 đơn chưa xong (chỉ đọc, `.lean()` +
+   * `.select()` tối thiểu). Không gửi dữ liệu khách ra ngoài; ví dụ chỉ có mã đơn và 3 số cuối SĐT.
+   */
+  async preview(dto: PreviewConsolidationRulesDto): Promise<ConsolidationRulesPreview> {
+    const rules = dto.rules.map((body, i) => ruleFromBody(`draft-${String(i)}`, body));
+    rules.forEach(assertValidRule);
+    const policy = await this.settingsService.get();
+    const { consolidation, statuses } = policy;
+
+    const rows = await this.orderModel
+      .find({
+        status: { $in: UNFULFILLED_ORDER_STATUSES },
+        $and: [{ status: { $in: statuses.consolidatable } }],
+        is_active: true,
+      })
+      .sort({ created_at: -1 })
+      .limit(PREVIEW_ORDER_LIMIT + 1)
+      .select('platform shop_id platform_order_id recipient consolidation_key delivery_option created_at consolidated_group_id')
+      .lean<(PreviewOrderInput & { consolidated_group_id?: Types.ObjectId | null })[]>();
+    const truncated = rows.length > PREVIEW_ORDER_LIMIT;
+    const orders = rows.slice(0, PREVIEW_ORDER_LIMIT).filter((o) => o.created_at instanceof Date);
+
+    const groupIds = new Set<string>();
+    let standalone = 0;
+    for (const o of orders) {
+      if (o.consolidated_group_id) groupIds.add(o.consolidated_group_id.toString());
+      else standalone += 1;
+    }
+
+    const base = { enabled: consolidation.enabled, timeWindowHours: consolidation.timeWindowHours };
+    const baseline = simulateConsolidation(orders, { ...base, rules: [] });
+    const projected = simulateConsolidation(orders, { ...base, rules });
+
+    return {
+      ordersScanned: orders.length,
+      truncated,
+      currentGroups: groupIds.size + standalone,
+      baselineGroups: baseline.groups,
+      projectedGroups: projected.groups,
+      groupsMergedByRules: projected.groupsMergedByRules,
+      skippedMissingData: rules
+        .filter((r) => r.enabled)
+        .map((r) => ({ ruleName: r.name, orders: projected.skippedMissingData[r.id] ?? 0 })),
+      examples: projected.examples,
+    };
+  }
 
   async list(): Promise<ConsolidationRulesState> {
     const current = await this.settingsService.get();

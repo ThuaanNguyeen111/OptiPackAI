@@ -1,4 +1,6 @@
-import { ConsolidationRulesService } from './consolidation-rules.service';
+import { Types } from 'mongoose';
+import { ConsolidationRulesService, PREVIEW_ORDER_LIMIT } from './consolidation-rules.service';
+import { UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
 import { OrderSyncSettingsService } from './order-sync-settings.service';
 import { DEFAULT_ORDER_SYNC_POLICY, MAX_CONSOLIDATION_RULES, OrderSyncPolicy } from './order-sync-policy';
 import type { ConsolidationRule } from './order-sync-policy';
@@ -60,7 +62,7 @@ describe('ConsolidationRulesService', () => {
       conflict: (v: number | null) => real.conflict(v),
       saveVersion,
     };
-    service = new ConsolidationRulesService(settings as never);
+    service = new ConsolidationRulesService(settings as never, {} as never);
   });
 
   it('thêm quy tắc → id mới, câu gốc được trim, mặc định bật + mọi sàn, lưu phiên bản mới', async () => {
@@ -107,5 +109,50 @@ describe('ConsolidationRulesService', () => {
     expect(res.rules).toEqual([]);
     const [, , note] = saveVersion.mock.calls[0] as [unknown, unknown, string];
     expect(note).toContain(RULE.name);
+  });
+});
+
+describe('ConsolidationRulesService.preview', () => {
+  function makeService(rows: unknown[]): { service: ConsolidationRulesService; find: jest.Mock } {
+    const chain = { sort: () => chain, limit: () => chain, select: () => chain, lean: () => Promise.resolve(rows) };
+    const find = jest.fn(() => chain);
+    const settings = { get: jest.fn(() => Promise.resolve(JSON.parse(JSON.stringify(DEFAULT_ORDER_SYNC_POLICY)) as OrderSyncPolicy)) };
+    return { service: new ConsolidationRulesService(settings as never, { find } as never), find };
+  }
+  const row = (id: string, key: string, group: Types.ObjectId | null, phone = '0901234567'): unknown => ({
+    platform: 'aurelle',
+    shop_id: 's',
+    platform_order_id: id,
+    delivery_option: 'standard',
+    consolidation_key: key,
+    consolidated_group_id: group,
+    created_at: new Date(`2026-10-31T0${id.slice(-1)}:00:00Z`),
+    recipient: { phone, address_line1: id, full_name: 'An' },
+  });
+
+  it('so sánh nhóm hiện tại / không quy tắc / có quy tắc; chỉ đọc đơn chưa xong', async () => {
+    const g = new Types.ObjectId();
+    const { service, find } = makeService([row('AU-1', 'k1', g), row('AU-2', 'k1', g), row('AU-3', 'k3', null), row('AU-4', 'k4', null, '0907777777')]);
+    const res = await service.preview({ rules: [{ name: 'Chỉ cùng SĐT', fields: [{ field: 'phone', match: 'normalized' }] }] });
+    expect(res).toMatchObject({ ordersScanned: 4, truncated: false, currentGroups: 3, baselineGroups: 3, projectedGroups: 2, groupsMergedByRules: 1 });
+    expect(res.skippedMissingData).toEqual([{ ruleName: 'Chỉ cùng SĐT', orders: 0 }]);
+    const [filter] = find.mock.calls[0] as unknown as [{ status: unknown; is_active: boolean }];
+    expect(filter).toMatchObject({ status: { $in: UNFULFILLED_ORDER_STATUSES }, is_active: true });
+  });
+
+  it('quá 5.000 đơn → truncated, chỉ mô phỏng 5.000 đơn', async () => {
+    const rows = Array.from({ length: PREVIEW_ORDER_LIMIT + 1 }, (_, i) => ({ ...(row('AU-1', `k${String(i)}`, null) as object) }));
+    const { service } = makeService(rows);
+    const res = await service.preview({ rules: [] });
+    expect(res.truncated).toBe(true);
+    expect(res.ordersScanned).toBe(PREVIEW_ORDER_LIMIT);
+  });
+
+  it('quy tắc nháp không hợp lệ → 400, không đọc DB', async () => {
+    const { service, find } = makeService([]);
+    expect(await errorCode(service.preview({ rules: [{ name: 'Tỉnh', fields: [{ field: 'province_name', match: 'normalized' }] }] }))).toBe(
+      ORD_ERROR_CODES.CONSOLIDATION_RULE_INVALID,
+    );
+    expect(find).not.toHaveBeenCalled();
   });
 });

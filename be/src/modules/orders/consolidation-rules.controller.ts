@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -13,8 +13,8 @@ import {
   MAX_CONSOLIDATION_RULES,
   SYNC_PLATFORMS,
 } from './order-sync-policy';
-import { ConsolidationRulesService, ConsolidationRulesState } from './consolidation-rules.service';
-import { DeleteConsolidationRuleQueryDto, SaveConsolidationRuleDto } from './dto/consolidation-rule.dto';
+import { ConsolidationRulesPreview, ConsolidationRulesService, ConsolidationRulesState } from './consolidation-rules.service';
+import { DeleteConsolidationRuleQueryDto, PreviewConsolidationRulesDto, SaveConsolidationRuleDto } from './dto/consolidation-rule.dto';
 
 export const RULE_FIELD_LABELS: Record<string, string> = {
   phone: 'Số điện thoại',
@@ -75,6 +75,18 @@ export class ConsolidationRulesController {
   @ApiOperation({ summary: 'Thêm quy tắc (tạo phiên bản cấu hình mới). Lệch expected_version → 409.' })
   async create(@Body() dto: SaveConsolidationRuleDto, @CurrentUser() user: AuthenticatedUser): Promise<ConsolidationRulesResponse> {
     return toResponse(await this.rulesService.create(dto, user.userId));
+  }
+
+  // Khai TRƯỚC ':ruleId' — route tĩnh phải đứng trước route có tham số.
+  @Post('preview')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Xem trước bộ quy tắc nháp trên ≤ 5.000 đơn chưa xong: số nhóm hiện tại / không quy tắc / có quy tắc, số đơn bị bỏ qua do thiếu dữ liệu, ≤ 10 ví dụ. Không ghi DB.',
+  })
+  async preview(@Body() dto: PreviewConsolidationRulesDto): Promise<ConsolidationRulesPreview> {
+    return this.rulesService.preview(dto);
   }
 
   @Put(':ruleId')
