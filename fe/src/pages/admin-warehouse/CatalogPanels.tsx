@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import {
   confirmPackagingProfile,
@@ -61,6 +61,22 @@ const fieldClass =
 
 const rowActionClass =
   'inline-flex h-7 cursor-pointer items-center rounded-md border border-hairline bg-surface-1 px-2 text-[11px] font-medium text-ink transition-colors hover:bg-surface-2'
+
+function matchesMasterSkuSearch(row: MasterSkuRecord, needle: string): boolean {
+  if (!needle) return true
+  const hay = [row.masterSku, row.name, row.categoryCode, row.colorCode, row.size]
+    .join(' ')
+    .toLowerCase()
+  return hay.includes(needle)
+}
+
+function matchesProductSearch(row: ProductMasterRow, needle: string): boolean {
+  if (!needle) return true
+  const hay = [row.sellerSku, row.shopId, row.platform, row.packagingProfileStatus]
+    .join(' ')
+    .toLowerCase()
+  return hay.includes(needle)
+}
 
 function PanelError({ message }: { message: string | null }) {
   if (!message) return null
@@ -292,6 +308,8 @@ export function MasterSkuTab({
   const [busy, setBusy] = useState(false)
   const [printCodes, setPrintCodes] = useState<string[]>([])
   const [labelCopies, setLabelCopies] = useState(1)
+  const detailRef = useRef<HTMLDivElement | null>(null)
+  const skipSearchDebounce = useRef(true)
 
   const types = useMemo(() => level2Categories(categories), [categories])
   const chosen = types.find((row) => row.code === category)
@@ -299,6 +317,11 @@ export function MasterSkuTab({
   const preview = previewMasterSku(category, modelNo, color, size)
   const createdRow = items.find((row) => row.masterSku === createdCode)
   const selectedRow = items.find((row) => row.masterSku === selected)
+  const visibleItems = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    if (!needle) return items
+    return items.filter((row) => matchesMasterSkuSearch(row, needle))
+  }, [items, search])
   const canCopyCreated = createdRow === undefined || createdRow.isActive
 
   async function reload(query = search) {
@@ -332,6 +355,36 @@ export function MasterSkuTab({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (skipSearchDebounce.current) {
+      skipSearchDebounce.current = false
+      return
+    }
+    let cancelled = false
+    const handle = window.setTimeout(() => {
+      void listMasterSkus({
+        search: search.trim() || undefined,
+        includeInactive: true,
+        limit: 50,
+      })
+        .then((next) => {
+          if (!cancelled) setItems(next.items)
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setError(formatApiError(err))
+        })
+    }, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [search])
+
+  useEffect(() => {
+    if (!selected) return
+    detailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [selected])
 
   return (
     <div className="space-y-4">
@@ -506,65 +559,87 @@ export function MasterSkuTab({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((row) => (
-            <TableRow key={row.masterSku}>
-              <TableCell>
-                <input
-                  type="checkbox"
-                  checked={printCodes.includes(row.masterSku)}
-                  aria-label={row.masterSku}
-                  onChange={() => {
-                    setPrintCodes((prev) =>
-                      prev.includes(row.masterSku)
-                        ? prev.filter((code) => code !== row.masterSku)
-                        : [...prev, row.masterSku],
-                    )
-                  }}
-                />
-              </TableCell>
-              <TableCell className="font-medium text-ink">
-                <span className="inline-flex flex-wrap items-center gap-2">
-                  {row.masterSku}
-                  {row.isActive ? <CopySkuButton code={row.masterSku} vi={vi} /> : null}
-                  {autoActorChip(row.createdBy, vi) ? (
-                    <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">
-                      {autoActorChip(row.createdBy, vi)}
-                    </span>
-                  ) : null}
-                </span>
-                {!row.isActive ? (
-                  <span className="ml-1 text-[11px] text-ink-muted">
-                    {row.replacedBy
-                      ? `${vi ? 'thay bằng' : 'replaced by'} ${row.replacedBy}`
-                      : vi
-                        ? 'tắt'
-                        : 'off'}
-                  </span>
-                ) : null}
-              </TableCell>
-              <TableCell>{row.name}</TableCell>
-              <TableCell>
-                <button type="button" className={rowActionClass} onClick={() => setSelected(row.masterSku)}>
-                  {vi ? 'Chi tiết' : 'Details'}
-                </button>
+          {visibleItems.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={4} className="text-xs text-ink-muted">
+                {vi ? 'Không có SKU khớp.' : 'No matching SKUs.'}
               </TableCell>
             </TableRow>
-          ))}
+          ) : (
+            visibleItems.map((row) => (
+              <Fragment key={row.masterSku}>
+                <TableRow>
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      checked={printCodes.includes(row.masterSku)}
+                      aria-label={row.masterSku}
+                      onChange={() => {
+                        setPrintCodes((prev) =>
+                          prev.includes(row.masterSku)
+                            ? prev.filter((code) => code !== row.masterSku)
+                            : [...prev, row.masterSku],
+                        )
+                      }}
+                    />
+                  </TableCell>
+                  <TableCell className="font-medium text-ink">
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      {row.masterSku}
+                      {row.isActive ? <CopySkuButton code={row.masterSku} vi={vi} /> : null}
+                      {autoActorChip(row.createdBy, vi) ? (
+                        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-ink-muted">
+                          {autoActorChip(row.createdBy, vi)}
+                        </span>
+                      ) : null}
+                    </span>
+                    {!row.isActive ? (
+                      <span className="ml-1 text-[11px] text-ink-muted">
+                        {row.replacedBy
+                          ? `${vi ? 'thay bằng' : 'replaced by'} ${row.replacedBy}`
+                          : vi
+                            ? 'tắt'
+                            : 'off'}
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>{row.name}</TableCell>
+                  <TableCell>
+                    <button
+                      type="button"
+                      className={rowActionClass}
+                      onClick={() =>
+                        setSelected((current) => (current === row.masterSku ? '' : row.masterSku))
+                      }
+                    >
+                      {vi ? 'Chi tiết' : 'Details'}
+                    </button>
+                  </TableCell>
+                </TableRow>
+                {selected === row.masterSku ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="bg-surface-2/40 p-3">
+                      <div ref={detailRef}>
+                        <MasterSkuDetail
+                          key={selected}
+                          vi={vi}
+                          code={selected}
+                          sku={selectedRow ?? null}
+                          isActive={selectedRow?.isActive === true}
+                          colors={activeColors}
+                          onNotice={onNotice}
+                          onChanged={() => void reload()}
+                          onDeleted={() => setSelected('')}
+                        />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </Fragment>
+            ))
+          )}
         </TableBody>
       </Table>
-      {selected ? (
-        <MasterSkuDetail
-          key={selected}
-          vi={vi}
-          code={selected}
-          sku={selectedRow ?? null}
-          isActive={selectedRow?.isActive === true}
-          colors={activeColors}
-          onNotice={onNotice}
-          onChanged={() => void reload()}
-          onDeleted={() => setSelected('')}
-        />
-      ) : null}
     </div>
   )
 }
@@ -1150,6 +1225,7 @@ export function LinkSkuTab({
   const [includeRetired, setIncludeRetired] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const skipCatalogDebounce = useRef(true)
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -1158,6 +1234,12 @@ export function LinkSkuTab({
       `${row.seller_sku} ${row.shop_id} ${row.platform}`.toLowerCase().includes(needle),
     )
   }, [pending, query])
+
+  const visibleProducts = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return products
+    return products.filter((row) => matchesProductSearch(row, needle))
+  }, [products, query])
 
   async function reload() {
     const [unmapped, skuPage, catalog] = await Promise.all([
@@ -1195,6 +1277,32 @@ export function LinkSkuTab({
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (skipCatalogDebounce.current) {
+      skipCatalogDebounce.current = false
+      return
+    }
+    let cancelled = false
+    const handle = window.setTimeout(() => {
+      void listProductMaster({
+        shopId: shopId.trim() || undefined,
+        search: query.trim() || undefined,
+        status: profileStatus || undefined,
+        includeRetired,
+      })
+        .then((catalog) => {
+          if (!cancelled) setProducts(catalog.items)
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setError(formatApiError(err))
+        })
+    }, 280)
+    return () => {
+      cancelled = true
+      window.clearTimeout(handle)
+    }
+  }, [query, profileStatus, includeRetired, shopId])
 
   return (
     <div className="space-y-4">
@@ -1318,6 +1426,12 @@ export function LinkSkuTab({
             .finally(() => setBusy(false))
         }}
       >
+        <Input
+          className={fieldClass}
+          placeholder={vi ? 'Tìm SKU catalog' : 'Search catalog SKU'}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
         <select
           className={fieldClass}
           value={profileStatus}
@@ -1362,7 +1476,14 @@ export function LinkSkuTab({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {products.map((row) => (
+          {visibleProducts.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={5} className="text-xs text-ink-muted">
+                {vi ? 'Không có SKU catalog khớp.' : 'No matching catalog SKUs.'}
+              </TableCell>
+            </TableRow>
+          ) : null}
+          {visibleProducts.map((row) => (
             <TableRow key={row.id}>
               <TableCell className="font-medium text-ink">
                 <span className="inline-flex flex-wrap items-center gap-1">
