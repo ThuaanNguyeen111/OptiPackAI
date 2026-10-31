@@ -13,9 +13,9 @@
 |---|---|---|---|---|
 | 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
 | 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ✅ 30/10 — đã làm, chưa thử với kế hoạch thật trên trình duyệt (xem mục 2) |
-| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm). 🔄 28/10: phần Bảng điều khiển chuyển sang dòng 7 | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
-| 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ☐ Chưa làm |
-| 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ☐ Chưa làm |
+| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm). 🔄 28/10: phần Bảng điều khiển chuyển sang dòng 7 | 3 | Tuỳ | ✅ 31/10 — `getProductMaster` + nút Chi tiết ở tab Nối SKU |
+| 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ✅ 31/10 — `WarehousePage` (đếm tạm, không lưu BE) |
+| 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ✅ 31/10 — nút lấy chung trên `WarehousePage` |
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
@@ -95,7 +95,7 @@ Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô 
 
 ## 3. 🆕 28/10/2026 — Màn lấy hàng cho đơn gộp (dòng 4, 5)
 
-**Hiện trạng (đọc code `main` 28/10):** `WarehousePage.tsx` đã gom theo SKU và hiện 1 dòng chữ "Chia theo đơn: Chị Lan · 5329… ×2 · Anh Tuấn · 5330… ×1" (`allocationText`, chỉ khi SKU thuộc ≥ 2 đơn). Chưa có khay/màu theo đơn, quét xong không biết món đã vào khay nào. Lấy chung nhiều nhóm (khác sàn, liên kết tay) chỉ có ở `AdminWarehousePage.tsx` (`getWarehousePickingListForGroups`), Warehouse Staff không dùng được dù BE đã cho quyền. Luồng đơn gộp đầy đủ + giới hạn BE: `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9**.
+**Hiện trạng (31/10):** `WarehousePage.tsx` đã có khay A/B/C + màu theo người nhận, bảng "Khay của nhóm", hộp chọn khay khi SKU thuộc ≥ 2 đơn, banner khác tên, và nút lấy chung nhóm liên kết (`listLinkedOrderGroups` + `getWarehousePickingListForGroups`). Đếm khay chỉ ở FE. Luồng đơn gộp đầy đủ + giới hạn BE: `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9**.
 
 ### 3.1 Chia khay theo đơn (dòng 4) — chỉ FE
 

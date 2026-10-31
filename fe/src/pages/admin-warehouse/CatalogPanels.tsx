@@ -8,6 +8,7 @@ import {
   deleteSkuMapping,
   listColors,
   listMasterSkus,
+  getProductMaster,
   listProductMaster,
   listSkuMappings,
   listUnmappedSellerSkus,
@@ -36,6 +37,13 @@ import {
 import { listCategories, openWarehouseDocument, skuLabelsDocumentPath } from '../../api/warehouse.api'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
 import {
   Table,
@@ -853,6 +861,136 @@ const PRODUCT_CATEGORIES: Array<[string, string]> = [
   ['other', 'Khác'],
 ]
 
+function formatTs(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('vi-VN')
+}
+
+function ProductMasterDetailDialog({
+  vi,
+  productId,
+  onClose,
+}: {
+  vi: boolean
+  productId: string | null
+  onClose: () => void
+}) {
+  const [row, setRow] = useState<ProductMasterRow | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!productId) {
+      setRow(null)
+      setError(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    void getProductMaster(productId)
+      .then((data) => {
+        if (!cancelled) setRow(data)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(formatApiError(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [productId])
+
+  const categoryLabel =
+    PRODUCT_CATEGORIES.find(([code]) => code === row?.productCategory)?.[1] ??
+    row?.productCategory ??
+    '—'
+
+  const rows: Array<[string, string]> = row
+    ? [
+        [vi ? 'Sàn' : 'Platform', row.platform || '—'],
+        [vi ? 'Shop' : 'Shop', row.shopId || '—'],
+        ['SKU', row.sellerSku],
+        [vi ? 'Hồ sơ đóng gói' : 'Profile', row.packagingProfileStatus || '—'],
+        [
+          vi ? 'Số đo (cm)' : 'Size (cm)',
+          row.lengthCm != null && row.widthCm != null && row.heightCm != null
+            ? `${row.lengthCm} × ${row.widthCm} × ${row.heightCm}`
+            : '—',
+        ],
+        [vi ? 'Khối lượng (kg)' : 'Weight (kg)', row.weightKg != null ? String(row.weightKg) : '—'],
+        [vi ? 'Dễ vỡ' : 'Fragile', row.isFragile ? (vi ? 'Có' : 'Yes') : vi ? 'Không' : 'No'],
+        [vi ? 'Loại hàng' : 'Category', categoryLabel],
+        [vi ? 'Hướng xếp' : 'Orientation', row.orientationRule || '—'],
+        [
+          vi ? 'Tải chồng (kg)' : 'Stack load (kg)',
+          row.maxStackLoadKg != null ? String(row.maxStackLoadKg) : '—',
+        ],
+        [vi ? 'Túi zip' : 'Zip bag', row.zipBagCode || '—'],
+        [
+          vi ? 'Gập túi' : 'Bag folded',
+          row.zipBagFolded ? (vi ? 'Có' : 'Yes') : vi ? 'Không' : 'No',
+        ],
+        [
+          vi ? 'Gập đôi hàng' : 'Fold in half',
+          row.canFoldInHalf ? (vi ? 'Có' : 'Yes') : vi ? 'Không' : 'No',
+        ],
+        [vi ? 'Túi vừa nhất' : 'Suggested bag', row.suggestedZipBagCode || '—'],
+        [vi ? 'Trạng thái sàn' : 'Marketplace', row.marketplaceStatus || '—'],
+        [vi ? 'Ngừng dùng' : 'Retired', row.retired ? (vi ? 'Có' : 'Yes') : vi ? 'Không' : 'No'],
+        [
+          vi ? 'Số đo sàn' : 'Marketplace size',
+          row.marketplaceDimension
+            ? `${row.marketplaceDimension.lengthCm} × ${row.marketplaceDimension.widthCm} × ${row.marketplaceDimension.heightCm} cm · ${row.marketplaceDimension.weightKg} kg`
+            : '—',
+        ],
+        [vi ? 'Người xác nhận' : 'Confirmed by', row.profileConfirmedBy || '—'],
+        [vi ? 'Lúc xác nhận' : 'Confirmed at', formatTs(row.profileConfirmedAt)],
+        [vi ? 'Đồng bộ gần nhất' : 'Last synced', formatTs(row.lastSyncedAt)],
+      ]
+    : []
+
+  return (
+    <Dialog
+      open={Boolean(productId)}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{vi ? 'Chi tiết Product Master' : 'Product Master detail'}</DialogTitle>
+          <DialogDescription>
+            {vi
+              ? 'Đọc từ GET /product-master/:id — không sửa tại đây.'
+              : 'Loaded from GET /product-master/:id — read only.'}
+          </DialogDescription>
+        </DialogHeader>
+        {loading ? (
+          <p className="flex items-center gap-2 text-sm text-slate-500">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {vi ? 'Đang tải…' : 'Loading…'}
+          </p>
+        ) : error ? (
+          <p className="text-sm text-error">{error}</p>
+        ) : (
+          <dl className="grid max-h-[60vh] grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 overflow-auto text-sm">
+            {rows.map(([label, value]) => (
+              <div key={label} className="contents">
+                <dt className="text-slate-500">{label}</dt>
+                <dd className="font-medium text-slate-800 dark:text-slate-100">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function PackagingProfileForm({
   vi,
   row,
@@ -1006,6 +1144,7 @@ export function LinkSkuTab({
   const [targetByKey, setTargetByKey] = useState<Record<string, string>>({})
   const [products, setProducts] = useState<ProductMasterRow[]>([])
   const [measuringId, setMeasuringId] = useState<string | null>(null)
+  const [detailId, setDetailId] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [profileStatus, setProfileStatus] = useState<'' | 'needs_measurement' | 'ready'>('')
   const [includeRetired, setIncludeRetired] = useState(false)
@@ -1264,6 +1403,13 @@ export function LinkSkuTab({
                   <button
                     type="button"
                     className="text-xs font-medium text-primary"
+                    onClick={() => setDetailId(row.id)}
+                  >
+                    {vi ? 'Chi tiết' : 'Details'}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-primary"
                     onClick={() => setMeasuringId((current) => (current === row.id ? null : row.id))}
                   >
                     {vi ? 'Xác nhận số đo' : 'Confirm size'}
@@ -1348,6 +1494,11 @@ export function LinkSkuTab({
           }}
         />
       ) : null}
+      <ProductMasterDetailDialog
+        vi={vi}
+        productId={detailId}
+        onClose={() => setDetailId(null)}
+      />
     </div>
   )
 }
