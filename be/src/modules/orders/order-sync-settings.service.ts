@@ -7,6 +7,9 @@ import { OrderSyncSettings, OrderSyncSettingsDocument } from './schemas/order-sy
 import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
 import {
   ConsolidationKeyField,
+  ConsolidationRule,
+  ConsolidationRuleField,
+  ConsolidationRuleMatch,
   DEFAULT_ORDER_SYNC_POLICY,
   NORMAL_FLOW_ORDER_STATUSES,
   OpenGroupStatus,
@@ -17,6 +20,7 @@ import {
 import { UpdateOrderSyncSettingsDto } from './dto/order-sync-settings.dto';
 import { ORD_ERROR_CODES } from './orders.errors';
 import { computeConsolidationKeyFor, expressConsolidationKey } from './utils/consolidation-key.util';
+import { computeRuleKeys, ruleKeySignature, validateConsolidationRules } from './utils/consolidation-rule.util';
 
 /** Bản tiêu chí được nạp lại từ DB định kỳ — các instance khác thấy thay đổi trong ≤ 30 giây. */
 const REFRESH_INTERVAL_MS = 30_000;
@@ -30,6 +34,7 @@ interface RecomputeRow {
   platform_order_id: string;
   recipient: Order['recipient'];
   consolidation_key: string;
+  consolidation_keys?: string[];
   delivery_option?: 'standard' | 'express';
 }
 
@@ -109,7 +114,20 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     if (dto.expected_version !== undefined && dto.expected_version !== current.version) {
       throw this.conflict(current.version);
     }
-    const next = this.merge(current, dto);
+    return this.saveVersion(current, this.merge(current, dto), dto.note, userId);
+  }
+
+  /**
+   * Lưu `next` thành phiên bản mới (bản cũ tắt is_active), rồi tính lại khoá gom nền nếu
+   * trường gom cơ bản hoặc phần quy tắc ảnh hưởng tới khoá thay đổi. Dùng chung cho
+   * PUT /order-sync-settings và các API quy tắc gộp (31/10/2026).
+   */
+  async saveVersion(
+    current: OrderSyncPolicy,
+    next: OrderSyncPolicy,
+    note: string | null | undefined,
+    userId: string,
+  ): Promise<{ settings: OrderSyncPolicy; recomputingKeys: boolean }> {
     this.validate(next);
 
     const latest = await this.settingsModel.findOne().sort({ version: -1 }).select('version').lean();
@@ -129,9 +147,18 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
               consolidation_key_fields: next.consolidation.keyFields,
               consolidation_time_window_hours: next.consolidation.timeWindowHours,
               open_group_statuses: next.consolidation.openGroupStatuses,
+              consolidation_rules: next.consolidation.rules.map((r) => ({
+                rule_id: r.id,
+                name: r.name.trim(),
+                source_text: r.sourceText,
+                fields: r.fields.map((f) => ({ field: f.field, match: f.match })),
+                platforms: r.platforms,
+                max_window_hours: r.maxWindowHours,
+                enabled: r.enabled,
+              })),
               consolidatable_statuses: next.statuses.consolidatable,
               not_packable_statuses: next.statuses.notPackable,
-              note: dto.note?.trim() ? dto.note.trim() : null,
+              note: note?.trim() ? note.trim() : null,
               updated_by: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : null,
               is_active: true,
             },
@@ -150,20 +177,22 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     }
 
     const saved = await this.refresh();
-    const keysChanged = !sameSet(current.consolidation.keyFields, saved.consolidation.keyFields);
+    const keysChanged =
+      !sameSet(current.consolidation.keyFields, saved.consolidation.keyFields) ||
+      ruleKeySignature(current.consolidation.rules) !== ruleKeySignature(saved.consolidation.rules);
     if (keysChanged) {
-      void this.recomputeConsolidationKeys(saved.consolidation.keyFields)
-        .then((n) => { this.logger.log(`Đã tính lại khoá gom cho ${String(n)} đơn chưa xử lý xong (trường gom: ${saved.consolidation.keyFields.join(', ')}).`); })
+      void this.recomputeConsolidationKeys(saved.consolidation.keyFields, saved.consolidation.rules)
+        .then((n) => { this.logger.log(`Đã tính lại khoá gom cho ${String(n)} đơn chưa xử lý xong (trường gom: ${saved.consolidation.keyFields.join(', ')}; ${String(saved.consolidation.rules.filter((r) => r.enabled).length)} quy tắc bổ sung).`); })
         .catch((error: unknown) => { this.logger.error('Tính lại khoá gom thất bại', error); });
     }
     return { settings: saved, recomputingKeys: keysChanged };
   }
 
   /**
-   * Tính lại `consolidation_key` của đơn CHƯA xử lý xong theo trường gom mới.
-   * Chỉ ảnh hưởng việc gom đơn MỚI về sau; nhóm đã tạo giữ nguyên.
+   * Tính lại `consolidation_key` + `consolidation_keys` (quy tắc bổ sung, 31/10/2026) của đơn
+   * CHƯA xử lý xong. Chỉ ảnh hưởng việc gom đơn MỚI về sau; nhóm đã tạo giữ nguyên.
    */
-  async recomputeConsolidationKeys(keyFields: ConsolidationKeyField[]): Promise<number> {
+  async recomputeConsolidationKeys(keyFields: ConsolidationKeyField[], rules: readonly ConsolidationRule[] = []): Promise<number> {
     let lastId: Types.ObjectId | null = null;
     let updated = 0;
     for (;;) {
@@ -171,7 +200,7 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
         .find({ status: { $in: UNFULFILLED_ORDER_STATUSES }, ...(lastId ? { _id: { $gt: lastId } } : {}) })
         .sort({ _id: 1 })
         .limit(RECOMPUTE_BATCH)
-        .select('platform shop_id platform_order_id recipient consolidation_key delivery_option')
+        .select('platform shop_id platform_order_id recipient consolidation_key consolidation_keys delivery_option')
         .lean<RecomputeRow[]>();
       if (orders.length === 0) break;
       lastId = orders[orders.length - 1]?._id ?? null;
@@ -182,7 +211,12 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
         const key = o.delivery_option === 'express'
           ? expressConsolidationKey(o.platform, ref)
           : computeConsolidationKeyFor(o.platform, o.recipient, keyFields, ref);
-        if (key !== o.consolidation_key) ops.push({ updateOne: { filter: { _id: o._id }, update: { $set: { consolidation_key: key } } } });
+        const ruleKeys = computeRuleKeys(o, rules);
+        const oldRuleKeys = o.consolidation_keys ?? [];
+        const ruleKeysChanged = ruleKeys.length !== oldRuleKeys.length || ruleKeys.some((k, i) => k !== oldRuleKeys[i]);
+        if (key !== o.consolidation_key || ruleKeysChanged) {
+          ops.push({ updateOne: { filter: { _id: o._id }, update: { $set: { consolidation_key: key, consolidation_keys: ruleKeys } } } });
+        }
       }
       if (ops.length > 0) {
         await this.orderModel.bulkWrite(ops);
@@ -218,6 +252,10 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     if (!keys.includes('phone') && !keys.includes('address_line1')) {
       fail('Trường gom đơn phải có ít nhất Số điện thoại hoặc Địa chỉ — chỉ dùng tên/thành phố sẽ gom nhầm người khác.', { consolidation_key_fields: keys });
     }
+    const ruleErrors = validateConsolidationRules(p.consolidation.rules);
+    if (ruleErrors.length > 0) {
+      fail('Quy tắc gộp đơn không hợp lệ.', { rule_errors: ruleErrors });
+    }
     const outside = p.statuses.consolidatable.filter((s) => !UNFULFILLED_ORDER_STATUSES.includes(s));
     if (outside.length > 0) {
       fail('Chỉ được gom đơn đang chờ xử lý (unpaid, pending, packed, ready_to_ship, topack, toship).', { invalid: outside });
@@ -247,6 +285,15 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
         keyFields: doc.consolidation_key_fields as ConsolidationKeyField[],
         timeWindowHours: doc.consolidation_time_window_hours,
         openGroupStatuses: doc.open_group_statuses as OpenGroupStatus[],
+        rules: (doc.consolidation_rules ?? []).map((r) => ({
+          id: r.rule_id,
+          name: r.name,
+          sourceText: r.source_text ?? null,
+          fields: r.fields.map((f) => ({ field: f.field as ConsolidationRuleField, match: f.match as ConsolidationRuleMatch })),
+          platforms: [...r.platforms],
+          maxWindowHours: r.max_window_hours ?? null,
+          enabled: r.enabled,
+        })),
       },
       statuses: {
         consolidatable: [...doc.consolidatable_statuses],
@@ -261,7 +308,12 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     return {
       version: p.version,
       sync: { ...p.sync, autoSyncEnabled: { ...p.sync.autoSyncEnabled } },
-      consolidation: { ...p.consolidation, keyFields: [...p.consolidation.keyFields], openGroupStatuses: [...p.consolidation.openGroupStatuses] },
+      consolidation: {
+        ...p.consolidation,
+        keyFields: [...p.consolidation.keyFields],
+        openGroupStatuses: [...p.consolidation.openGroupStatuses],
+        rules: p.consolidation.rules.map((r) => ({ ...r, fields: r.fields.map((f) => ({ ...f })), platforms: [...r.platforms] })),
+      },
       statuses: { consolidatable: [...p.statuses.consolidatable], notPackable: [...p.statuses.notPackable] },
       updatedBy: p.updatedBy,
       updatedAt: p.updatedAt,

@@ -53,7 +53,7 @@ export function normalizePhoneNumber(phoneRaw: string): string {
  * loại bỏ hoàn toàn) khả năng lệch key do khác nhau về CÁCH GÕ, không
  * phải khác nhau về NỘI DUNG địa chỉ.
  */
-function normalizeAddressFragment(text: string): string {
+export function normalizeAddressFragment(text: string): string {
   return text
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '') // bỏ dấu
