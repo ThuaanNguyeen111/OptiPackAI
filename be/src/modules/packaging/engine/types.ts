@@ -137,7 +137,10 @@ export type MaterialType =
   | 'corrugated_divider'
   | 'air_pillow'
   | 'bubble_wrap'
-  | 'fragile_tape';
+  | 'fragile_tape'
+  // AOFP-224 (31/10/2026) — PACKAGING_STANDARD §7.
+  | 'kraft_paper'
+  | 'tissue_paper';
 
 export const MATERIAL_TYPES: readonly MaterialType[] = [
   'foam_corner',
@@ -145,6 +148,8 @@ export const MATERIAL_TYPES: readonly MaterialType[] = [
   'air_pillow',
   'bubble_wrap',
   'fragile_tape',
+  'kraft_paper',
+  'tissue_paper',
 ];
 
 /** 1 vật tư trong danh mục (đã đổi sang đơn vị lõi: g, VND). */
@@ -158,9 +163,12 @@ export interface MaterialSpec {
   price_vnd_per_unit: number;
 }
 
-/** Nhóm món luật xét: dễ vỡ, giày (hộp cứng), một trong hai, hoặc tất cả. */
+/**
+ * Nhóm món luật xét: dễ vỡ, giày (hộp cứng), một trong hai, tất cả; AOFP-224 thêm
+ * `bag` (túi xách — nhồi giữ form) và `dress_or_bag` (lót giấy pelure chống nhăn/trầy).
+ */
 export type MaterialRuleScope =
-  'fragile' | 'shoes' | 'fragile_or_shoes' | 'any';
+  'fragile' | 'shoes' | 'fragile_or_shoes' | 'any' | 'bag' | 'dress_or_bag';
 
 /**
  * Cách tính số lượng:

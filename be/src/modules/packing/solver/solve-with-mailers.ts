@@ -8,7 +8,7 @@ import {
   type MailerFitOptions,
   type MailerStack,
 } from '../../packaging/engine/mailer-fit';
-import type { BoxSpec, MailerSpec, PackingUnit } from '../../packaging/engine/types';
+import type { BoxSpec, MailerSpec, MaterialPlanning, PackingUnit } from '../../packaging/engine/types';
 import {
   compareObjective,
   DEFAULT_CHARGE_RULE,
@@ -84,13 +84,27 @@ function mailerAsBox(mailer: MailerSpec, stack: MailerStack): BoxSpec {
   };
 }
 
-function mailerParcel(mailer: MailerSpec, stack: MailerStack, charge: ChargeRule): SolvedParcel {
+/**
+ * Túi niêm phong không lấp khoảng trống (§7) — chỉ giữ luật giấy pelure (lớp sản
+ * phẩm của đầm/túi xách).
+ */
+function mailerMaterials(planning: MaterialPlanning | undefined): MaterialPlanning | undefined {
+  if (!planning) return undefined;
+  return { ...planning, rules: planning.rules.filter((r) => r.material_type === 'tissue_paper') };
+}
+
+function mailerParcel(
+  mailer: MailerSpec,
+  stack: MailerStack,
+  charge: ChargeRule,
+  materials: MaterialPlanning | undefined,
+): SolvedParcel {
   const placements = stackPlacements(stack);
   return summarizePlacements(
     mailerAsBox(mailer, stack),
     stack.items.map((f) => f.unit),
     placements,
-    undefined,
+    mailerMaterials(materials),
     charge,
   );
 }
@@ -102,6 +116,7 @@ function bestMailerFor(
   fit: MailerFitOptions,
   charge: ChargeRule,
   stockLeft: (code: string) => number,
+  materials: MaterialPlanning | undefined,
 ): SolvedParcel | null {
   let best: SolvedParcel | null = null;
   // Duyệt từ túi nhỏ → lớn; chỉ thay khi TỐT HƠN hẳn nên hòa thì giữ túi nhỏ.
@@ -110,7 +125,7 @@ function bestMailerFor(
   );
   for (const m of bySize) {
     if (stockLeft(m.code) <= 0 || !mailerFits(stack, m, fit)) continue;
-    const parcel = mailerParcel(m, stack, charge);
+    const parcel = mailerParcel(m, stack, charge, materials);
     const price = parcel.box.price_vnd ?? 0;
     if (
       best === null ||
@@ -135,7 +150,12 @@ const foldedIfAllowed = (u: PackingUnit): PackingUnit => (u.foldable === true ? 
 export function packIntoMailers(
   units: PackingUnit[],
   mailers: MailerSpec[],
-  options: { fit?: MailerFitOptions; charge?: ChargeRule; availability?: Map<string, number> } = {},
+  options: {
+    fit?: MailerFitOptions;
+    charge?: ChargeRule;
+    availability?: Map<string, number>;
+    materials?: MaterialPlanning;
+  } = {},
 ): SolvedParcel[] | null {
   if (units.length === 0 || mailers.length === 0) return null;
   const fit = options.fit ?? DEFAULT_MAILER_FIT;
@@ -146,7 +166,7 @@ export function packIntoMailers(
 
   // 1 túi cho cả chồng.
   const singles = [units, units.map(foldedIfAllowed)]
-    .map((us) => bestMailerFor(stackOf(us), mailers, fit, charge, stockLeft))
+    .map((us) => bestMailerFor(stackOf(us), mailers, fit, charge, stockLeft, options.materials))
     .filter((p): p is SolvedParcel => p !== null)
     .sort((p, q) => compareObjective(objectiveOf([p], 0), objectiveOf([q], 0)));
   const [single] = singles;
@@ -171,7 +191,7 @@ export function packIntoMailers(
   }
   const parcels: SolvedParcel[] = [];
   for (const bin of bins) {
-    const parcel = bestMailerFor(stackOf(bin), mailers, fit, charge, stockLeft);
+    const parcel = bestMailerFor(stackOf(bin), mailers, fit, charge, stockLeft, options.materials);
     if (!parcel) return null;
     used.set(parcel.box.code, (used.get(parcel.box.code) ?? 0) + 1);
     parcels.push(parcel);
@@ -217,6 +237,7 @@ export function solveWithMailers(
     fit: mailerOptions.fit,
     charge,
     availability: options.availability,
+    materials: options.materials,
   });
   if (!softParcels) return boxResult;
   const mailerCodes = softParcels.map((p) => p.box.code).join(', ');

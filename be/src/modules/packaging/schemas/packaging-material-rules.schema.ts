@@ -2,7 +2,7 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 import { MATERIAL_TYPES, type MaterialType } from '../engine/types';
 
-export const MATERIAL_RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any'] as const;
+export const MATERIAL_RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any', 'bag', 'dress_or_bag'] as const;
 export const MATERIAL_RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band'] as const;
 
 @Schema({ _id: false })
