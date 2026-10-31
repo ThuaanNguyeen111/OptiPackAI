@@ -10,6 +10,8 @@ import { OrderGroupsModule } from '../order-groups/order-groups.module';
 import { OrderSyncSettings, OrderSyncSettingsSchema } from './schemas/order-sync-settings.schema';
 import { OrderSyncSettingsService } from './order-sync-settings.service';
 import { OrderSyncSettingsController } from './order-sync-settings.controller';
+import { ConsolidationRulesService } from './consolidation-rules.service';
+import { ConsolidationRulesController } from './consolidation-rules.controller';
 
 /**
  * ===================================================================
@@ -41,8 +43,8 @@ import { OrderSyncSettingsController } from './order-sync-settings.controller';
     // ngược lại (đã dự đoán trước, xem comment trong order-groups.module.ts).
     OrderGroupsModule,
   ],
-  controllers: [OrdersController, OrderSyncSettingsController],
-  providers: [OrdersService, LazadaOrderSyncScheduler, OrderSyncSettingsService],
+  controllers: [OrdersController, OrderSyncSettingsController, ConsolidationRulesController],
+  providers: [OrdersService, LazadaOrderSyncScheduler, OrderSyncSettingsService, ConsolidationRulesService],
   exports: [OrdersService],
 })
 export class OrdersModule {}

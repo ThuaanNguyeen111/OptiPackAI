@@ -304,7 +304,7 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private clonePolicy(p: OrderSyncPolicy): OrderSyncPolicy {
+  clonePolicy(p: OrderSyncPolicy): OrderSyncPolicy {
     return {
       version: p.version,
       sync: { ...p.sync, autoSyncEnabled: { ...p.sync.autoSyncEnabled } },
@@ -320,7 +320,7 @@ export class OrderSyncSettingsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private conflict(version: number | null): AppException {
+  conflict(version: number | null): AppException {
     return new AppException(
       ORD_ERROR_CODES.SYNC_SETTINGS_CONFLICT,
       'Tiêu chí đồng bộ vừa được người khác lưu — tải lại rồi lưu lại.',
