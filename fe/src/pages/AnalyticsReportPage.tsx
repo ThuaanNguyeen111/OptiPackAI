@@ -55,8 +55,8 @@ export function AnalyticsReportPage() {
             </h1>
             <p className="mt-1 text-sm text-ink-muted">
               {vi
-                ? 'Số liệu 30 ngày gần nhất từ báo cáo đóng gói và sổ tiết kiệm bao bì. Không còn bảng theo sàn.'
-                : 'Last 30 days from the packing report and packaging savings. No per-channel table.'}
+                ? '30 ngày gần nhất.'
+                : 'Last 30 days.'}
             </p>
           </div>
           {error ? <p className="text-xs text-rose-600">{error}</p> : null}

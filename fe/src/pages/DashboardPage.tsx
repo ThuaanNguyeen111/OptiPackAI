@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowDown, ArrowUp, FileText, TrendingUp, Wallet } from 'lucide-react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import {
   getDashboardSummary,
   type DashboardActionQueue,
@@ -135,8 +135,8 @@ function Metric({
   const up = change !== undefined && change !== null && change >= 0
   return (
     <div className="owner-panel rounded-2xl p-4">
-      <span className="text-[11px] font-semibold text-slate-500">{label}</span>
-      <p className="mt-2 font-mono text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
+      <span className="text-xs text-slate-500">{label}</span>
+      <p className="mt-1.5 font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{value}</p>
       {change !== undefined && change !== null ? (
         <p
           className={`mt-1 inline-flex items-center gap-1 text-[11px] font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}
@@ -199,6 +199,12 @@ export function DashboardPage() {
   }, [range, platform])
 
   const sales = summary?.sales
+  const toneRank: Record<QueueTone, number> = { rose: 0, amber: 1, slate: 2 }
+  const openQueue = summary
+    ? QUEUE_ITEMS.map((item) => ({ item, count: summary.actionQueue[item.key] }))
+        .filter((row) => row.count > 0)
+        .sort((x, y) => toneRank[x.item.tone] - toneRank[y.item.tone])
+    : []
   const maxDaily = Math.max(
     1,
     ...(sales?.daily.map((day) => Math.max(day.revenuePlacedVnd, day.revenueDeliveredVnd)) ?? [1]),
@@ -217,13 +223,15 @@ export function DashboardPage() {
         <div className="mx-auto max-w-7xl space-y-6">
           <section className="owner-hero">
             <div>
-              <p className="owner-hero-kicker">Store Owner</p>
-              <h1>{vi ? 'Bảng điều khiển cửa hàng' : 'Store dashboard'}</h1>
-              <p className="owner-hero-lead">
-                {vi
-                  ? 'Doanh thu đặt hàng và doanh thu đã giao lấy từ đơn thật. Việc cần làm là số hiện tại, không theo khoảng ngày.'
-                  : 'Placed and delivered revenue come from live orders. The action queue is the current count, not the date range.'}
+              <p className="owner-hero-kicker">
+                {new Intl.DateTimeFormat(vi ? 'vi-VN' : 'en-GB', {
+                  timeZone: 'Asia/Ho_Chi_Minh',
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                }).format(new Date())}
               </p>
+              <h1>{vi ? 'Tổng quan cửa hàng' : 'Store overview'}</h1>
             </div>
           </section>
 
@@ -240,10 +248,10 @@ export function DashboardPage() {
                 key={id}
                 type="button"
                 onClick={() => setPreset(id)}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
+                className={`rounded-md px-3 py-1.5 text-xs font-medium ${
                   preset === id
                     ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                    : 'border border-slate-200 text-slate-600 dark:border-slate-700 dark:text-slate-300'
+                    : 'text-slate-600 hover:bg-white dark:text-slate-300'
                 }`}
               >
                 {label}
@@ -301,35 +309,49 @@ export function DashboardPage() {
 
           {summary ? (
             <>
-              <section className="space-y-3">
-                <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">
-                  {vi ? 'Việc cần xử lý' : 'Needs attention'}
-                </h2>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-                  {QUEUE_ITEMS.map((item) => {
-                    const count = summary.actionQueue[item.key]
-                    const hot = count > 0
-                    const tone =
-                      !hot
-                        ? 'border-slate-200 text-slate-400 dark:border-slate-800'
-                        : item.tone === 'rose'
-                          ? 'border-rose-300 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200'
-                          : item.tone === 'amber'
-                            ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100'
-                            : 'border-slate-200 bg-white text-slate-800 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100'
-                    return (
-                      <button
-                        key={item.key}
-                        type="button"
-                        onClick={() => navigate(item.to)}
-                        className={`rounded-xl border px-3 py-2 text-left ${tone} ${hot ? '' : 'opacity-50'}`}
-                      >
-                        <p className="font-mono text-xl font-bold">{count}</p>
-                        <p className="text-[11px] font-semibold">{vi ? item.vi : item.en}</p>
-                      </button>
-                    )
-                  })}
+              <section className="owner-panel rounded-2xl">
+                <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--ls-card-border)] px-4 py-3">
+                  <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Việc đang chờ' : 'Waiting on you'}
+                  </h2>
+                  <span className="text-[11px] text-slate-400">
+                    {vi ? 'Số hiện tại, không theo khoảng ngày' : 'Live count, ignores the date range'}
+                  </span>
                 </div>
+                {openQueue.length === 0 ? (
+                  <p className="px-4 py-4 text-sm text-slate-500">
+                    {vi ? 'Không có việc nào đang tồn.' : 'Nothing is waiting.'}
+                  </p>
+                ) : (
+                  <ul className="m-0 grid list-none grid-cols-1 p-0 sm:grid-cols-2 lg:grid-cols-3">
+                    {openQueue.map(({ item, count }) => (
+                      <li key={item.key} className="border-b border-[var(--ls-card-border)] last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 lg:[&:nth-last-child(-n+3)]:border-b-0">
+                        <button
+                          type="button"
+                          onClick={() => navigate(item.to)}
+                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--ls-subtle)]"
+                        >
+                          <span
+                            aria-hidden
+                            className={`h-2 w-2 shrink-0 rounded-full ${
+                              item.tone === 'rose'
+                                ? 'bg-rose-500'
+                                : item.tone === 'amber'
+                                  ? 'bg-amber-500'
+                                  : 'bg-slate-400'
+                            }`}
+                          />
+                          <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
+                            {vi ? item.vi : item.en}
+                          </span>
+                          <span className="font-mono text-base font-semibold tabular-nums text-slate-900 dark:text-white">
+                            {count}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -600,20 +622,6 @@ export function DashboardPage() {
             </>
           ) : null}
 
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <button type="button" onClick={() => navigate('/app/orders')} className="owner-panel flex items-center gap-2 rounded-2xl p-4 text-left text-sm font-semibold">
-              <Wallet className="h-4 w-4" />
-              {vi ? 'Đơn đa kênh' : 'Orders'}
-            </button>
-            <button type="button" onClick={() => navigate('/app/order-groups')} className="owner-panel flex items-center gap-2 rounded-2xl p-4 text-left text-sm font-semibold">
-              <TrendingUp className="h-4 w-4" />
-              {vi ? 'Nhóm đơn' : 'Groups'}
-            </button>
-            <button type="button" onClick={() => navigate('/app/analytics')} className="owner-panel flex items-center gap-2 rounded-2xl p-4 text-left text-sm font-semibold">
-              <FileText className="h-4 w-4" />
-              {vi ? 'Báo cáo đóng gói' : 'Packing report'}
-            </button>
-          </section>
         </div>
       </main>
     </div>

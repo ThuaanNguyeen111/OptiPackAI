@@ -31,8 +31,8 @@ export function SettingsPage() {
             </h1>
             <p className="mt-1 text-sm text-ink-muted">
               {vi
-                ? 'API keys OAuth · quy tắc đóng gói'
-                : 'Marketplace API OAuth · packaging rules'}
+                ? 'Kết nối sàn và quy tắc đóng gói'
+                : 'Marketplace connections and packaging rules'}
             </p>
           </div>
 

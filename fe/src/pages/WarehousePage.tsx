@@ -14,6 +14,7 @@ import {
   Printer,
   RefreshCw,
   Search,
+  Layers,
   UserCheck,
   Users,
   Warehouse,
@@ -37,6 +38,7 @@ import {
   completeOrderGroupPick,
   getOrderGroupById,
   getOrderGroupPickingList,
+  listLinkedOrderGroups,
   listWarehouseStaffQueue,
   pickOrderGroupItem,
   reportMissingOrderGroupItem,
@@ -46,6 +48,7 @@ import {
 } from '../api/order-groups.api'
 import {
   getWarehousePickingList,
+  getWarehousePickingListForGroups,
   listWarehouses,
   openWarehouseDocument,
   pickingListDocumentPath,
@@ -55,6 +58,7 @@ import {
 import { fetchMyProfile } from '../api/users.api'
 import { ApiError, formatApiError, getApiErrorCode } from '../lib/api'
 import { cn } from '../lib/cn'
+import { recipientBorderClass, recipientChipClass } from '../lib/recipient-color'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
@@ -77,6 +81,9 @@ type QueueTab =
   | 'canceled'
 
 type PickLine = {
+  /** `${group_id}|${sku}` — duy nhất cả khi lấy chung nhiều nhóm. */
+  key: string
+  group_id: string
   sku: string
   quantity: number
   length_cm: number
@@ -227,6 +234,26 @@ function writeProgress(groupId: string, progress: PickProgress): void {
   }
 }
 
+function persistLinesProgress(nextLines: PickLine[]): void {
+  const byGroup = new Map<string, PickProgress>()
+  for (const line of nextLines) {
+    let progress = byGroup.get(line.group_id)
+    if (!progress) {
+      progress = {}
+      byGroup.set(line.group_id, progress)
+    }
+    if (line.qtyPicked > 0 || line.remainingStock != null) {
+      progress[line.sku] = {
+        qtyPicked: line.qtyPicked,
+        remainingStock: line.remainingStock,
+      }
+    }
+  }
+  for (const [groupId, progress] of byGroup) {
+    writeProgress(groupId, progress)
+  }
+}
+
 function clearProgress(groupId: string): void {
   try {
     sessionStorage.removeItem(PICK_PROGRESS_PREFIX + groupId)
@@ -237,12 +264,25 @@ function clearProgress(groupId: string): void {
 
 function mergeLines(
   items: Array<PackableItem | WarehousePickingListItem>,
-  progress: PickProgress,
+  progressFor: (groupId: string) => PickProgress,
+  fallbackGroupId: string,
 ): PickLine[] {
+  const cache = new Map<string, PickProgress>()
   return items.map((item) => {
     const enriched = item as WarehousePickingListItem
+    const groupId =
+      typeof enriched.order_group_id === 'string' && enriched.order_group_id
+        ? enriched.order_group_id
+        : fallbackGroupId
+    let progress = cache.get(groupId)
+    if (!progress) {
+      progress = progressFor(groupId)
+      cache.set(groupId, progress)
+    }
     const saved = progress[item.sku]
     return {
+      key: `${groupId}|${item.sku}`,
+      group_id: groupId,
       sku: item.sku,
       quantity: item.quantity,
       length_cm: item.length_cm,
@@ -266,15 +306,141 @@ function mergeLines(
   })
 }
 
-function allocationText(line: PickLine, vi: boolean): string | null {
-  const rows = line.order_allocations
-  if (!rows || rows.length < 2) return null
-  const parts = rows.map((row) => {
-    const name = row.recipient_name.trim() || (vi ? 'Không tên' : 'No name')
-    const code = row.platform_order_id.trim() || row.order_id.slice(-6)
-    return `${name} · ${code} ×${row.quantity}`
-  })
-  return `${vi ? 'Chia theo đơn' : 'Split by order'}: ${parts.join(' · ')}`
+/** Trạng thái đơn không còn phải lấy hàng (khớp NOT_PACKABLE mặc định của BE). */
+const COMBINED_PICKABLE = new Set(['awaiting_packaging', 'picking'])
+
+const INACTIVE_ORDER_STATUSES = new Set([
+  'canceled',
+  'failed',
+  'lost',
+  'lost_by_3pl',
+  'damaged_by_3pl',
+  'failed_delivery',
+  'shipped_back_failed',
+  'package_scrapped',
+])
+
+type PickTray = {
+  /** `${groupId}|${orderId}` */
+  key: string
+  groupId: string
+  orderId: string
+  label: string
+  recipientName: string
+  orderCode: string
+}
+
+/** Khay theo đơn: A, B, C… — mỗi đơn còn hiệu lực một khay. */
+function buildTrays(groups: OrderGroup[], lines: PickLine[]): PickTray[] {
+  const trays: PickTray[] = []
+  const seen = new Set<string>()
+  const push = (groupId: string, orderId: string, name: string, code: string) => {
+    const key = `${groupId}|${orderId}`
+    if (seen.has(key)) return
+    seen.add(key)
+    trays.push({ key, groupId, orderId, label: '', recipientName: name, orderCode: code })
+  }
+  for (const group of groups) {
+    for (const order of group.orders ?? []) {
+      if (INACTIVE_ORDER_STATUSES.has(order.status)) continue
+      push(group.id, order.id, order.recipientName ?? '', order.platformOrderId ?? '')
+    }
+  }
+  for (const line of lines) {
+    for (const row of line.order_allocations ?? []) {
+      push(line.group_id, row.order_id, row.recipient_name, row.platform_order_id)
+    }
+  }
+  return trays.map((tray, index) => ({
+    ...tray,
+    label: index < 26 ? String.fromCharCode(65 + index) : `K${index + 1}`,
+  }))
+}
+
+function trayCountKey(line: PickLine, orderId: string): string {
+  return `${line.group_id}|${line.sku}|${orderId}`
+}
+
+/** Khay thiếu nhiều nhất (tham lam) để điền sẵn khi một SKU chia nhiều đơn. */
+function suggestTray(
+  line: PickLine,
+  counts: Record<string, number>,
+): string | null {
+  let best: string | null = null
+  let bestMissing = 0
+  for (const row of line.order_allocations ?? []) {
+    const missing = row.quantity - (counts[trayCountKey(line, row.order_id)] ?? 0)
+    if (missing > bestMissing) {
+      bestMissing = missing
+      best = row.order_id
+    }
+  }
+  return best
+}
+
+function trayNeeded(tray: PickTray, nextLines: PickLine[]): number {
+  let total = 0
+  for (const line of nextLines) {
+    if (line.group_id !== tray.groupId) continue
+    for (const row of line.order_allocations ?? []) {
+      if (row.order_id === tray.orderId) total += row.quantity
+    }
+  }
+  return total
+}
+
+function trayPlaced(
+  tray: PickTray,
+  counts: Record<string, number>,
+  nextLines: PickLine[],
+): number {
+  let total = 0
+  for (const line of nextLines) {
+    if (line.group_id !== tray.groupId) continue
+    total += counts[trayCountKey(line, tray.orderId)] ?? 0
+  }
+  return total
+}
+
+function AllocationChips({
+  line,
+  trays,
+  counts,
+  combined,
+}: {
+  line: PickLine
+  trays: PickTray[]
+  counts: Record<string, number>
+  combined: boolean
+}) {
+  const rows = line.order_allocations ?? []
+  if (rows.length === 0) return null
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {rows.map((row) => {
+        const tray = trays.find(
+          (item) => item.groupId === line.group_id && item.orderId === row.order_id,
+        )
+        const placed = counts[trayCountKey(line, row.order_id)] ?? 0
+        const done = placed >= row.quantity
+        const prefix = combined ? `${shortId(line.group_id)}·` : ''
+        return (
+          <span
+            key={row.order_id}
+            title={`${row.recipient_name || '—'} · ${row.platform_order_id}`}
+            className={cn(
+              'inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold',
+              recipientChipClass(row.recipient_name),
+            )}
+          >
+            {done ? '✓ ' : ''}
+            {prefix}
+            {tray?.label ?? '?'} ×{row.quantity}
+          </span>
+        )
+      })}
+    </div>
+  )
 }
 
 function normalizeScan(value: string): string {
@@ -354,12 +520,12 @@ function canReturn(status: string): boolean {
 function bePickGateMessage(vi: boolean, action: 'complete' | 'missing'): string {
   if (action === 'missing') {
     return vi
-      ? 'BE chưa cho báo thiếu từ đơn mới. Cần mở transition awaiting_packaging / pending_approval → partial_needs_review (hiện chỉ từ approved_for_packing / picking).'
-      : 'BE still blocks report-missing on new groups. Allow awaiting_packaging / pending_approval → partial_needs_review (today only approved_for_packing / picking).'
+      ? 'Nhóm này chưa ở bước lấy hàng nên chưa báo thiếu được. Tải lại rồi thử lại.'
+      : 'This group is not in picking yet, so missing items cannot be reported. Refresh and try again.'
   }
   return vi
-    ? 'BE chưa cho «Hoàn tất lấy hàng» từ đơn mới. pick-item (trừ tồn) đã chạy được. Cần mở awaiting_packaging / pending_approval / picking → picked.'
-    : 'BE still blocks Complete pick on new groups. pick-item (stock decrement) already works. Allow awaiting_packaging / pending_approval / picking → picked.'
+    ? 'Nhóm này chưa ở bước lấy hàng nên chưa hoàn tất được. Tải lại rồi thử lại.'
+    : 'This group is not in picking yet, so it cannot be completed. Refresh and try again.'
 }
 
 export function WarehousePage() {
@@ -414,6 +580,19 @@ export function WarehousePage() {
   const [groupPickerOpen, setGroupPickerOpen] = useState(false)
   const [groupSearch, setGroupSearch] = useState('')
   const groupPickerRef = useRef<HTMLDivElement>(null)
+
+  const [activeKey, setActiveKey] = useState('')
+  const [combinedIds, setCombinedIds] = useState<string[] | null>(null)
+  const combinedIdsRef = useRef<string[] | null>(null)
+  const [combinedGroups, setCombinedGroups] = useState<OrderGroup[]>([])
+  const [trayCounts, setTrayCounts] = useState<Record<string, number>>({})
+  const [trayPickOpen, setTrayPickOpen] = useState(false)
+  const [pendingTray, setPendingTray] = useState<{
+    lineKey: string
+    qty: number
+    suggestedOrderId: string | null
+  } | null>(null)
+  const [selectedTrayOrderId, setSelectedTrayOrderId] = useState('')
 
   const showToast = useCallback((message: string) => {
     setToast(message)
@@ -608,17 +787,59 @@ export function WarehousePage() {
         setGroups((prev) =>
           prev.map((row) => (row.id === latest.id ? latest : row)),
         )
-        const progress = readProgress(id)
+        const together =
+          combinedIdsRef.current?.includes(id) && (combinedIdsRef.current?.length ?? 0) >= 2
+            ? combinedIdsRef.current
+            : null
+        if (!together) {
+          combinedIdsRef.current = null
+          setCombinedIds(null)
+          setCombinedGroups([latest])
+          setTrayCounts({})
+        }
+        const progressFor = (groupId: string): PickProgress => readProgress(groupId)
         const pickWarehouseId = latest.warehouseId || currentWarehouseId
         if (latest.warehouseId && latest.warehouseId !== currentWarehouseId) {
           setWarehouseId(latest.warehouseId)
           setWarehouseDraft(latest.warehouseId)
           writeStoredWarehouseId(latest.warehouseId)
         }
+        if (together && together.length >= 2) {
+          if (!pickWarehouseId) {
+            setLines([])
+            setHasBinRoute(false)
+            setDetailError(
+              vi
+                ? 'Chọn kho trước khi lấy chung nhiều nhóm.'
+                : 'Choose a warehouse before combined picking.',
+            )
+            return
+          }
+          try {
+            const enriched = await getWarehousePickingListForGroups(pickWarehouseId, together)
+            setLines(mergeLines(enriched, progressFor, latest.id))
+            setHasBinRoute(true)
+            const extras = await Promise.all(
+              together
+                .filter((gid) => gid !== latest.id)
+                .map((gid) => getOrderGroupById(gid).catch(() => null)),
+            )
+            setCombinedGroups([
+              latest,
+              ...extras.filter((row): row is OrderGroup => row != null),
+            ])
+            return
+          } catch (err: unknown) {
+            setLines([])
+            setHasBinRoute(false)
+            setDetailError(formatApiError(err))
+            return
+          }
+        }
         if (pickWarehouseId) {
           try {
             const enriched = await getWarehousePickingList(pickWarehouseId, id)
-            setLines(mergeLines(enriched, progress))
+            setLines(mergeLines(enriched, progressFor, latest.id))
             setHasBinRoute(true)
             return
           } catch (err: unknown) {
@@ -631,7 +852,7 @@ export function WarehousePage() {
           }
         }
         const packable = await getOrderGroupPickingList(id)
-        setLines(mergeLines(packable, progress))
+        setLines(mergeLines(packable, progressFor, id))
         setHasBinRoute(false)
       } catch (err: unknown) {
         setGroup(null)
@@ -642,7 +863,7 @@ export function WarehousePage() {
         setDetailLoading(false)
       }
     },
-    [],
+    [vi],
   )
 
   useEffect(() => {
@@ -651,6 +872,11 @@ export function WarehousePage() {
         setGroup(null)
         setLines([])
         setActiveSku('')
+        setActiveKey('')
+        combinedIdsRef.current = null
+        setCombinedIds(null)
+        setCombinedGroups([])
+        setTrayCounts({})
       }, 0)
       return () => window.clearTimeout(clearId)
     }
@@ -661,15 +887,44 @@ export function WarehousePage() {
   }, [selectedId, warehouseId, loadDetail])
 
   const activeLine = useMemo(() => {
-    return lines.find((line) => line.sku === activeSku) ?? lines[0] ?? null
-  }, [lines, activeSku])
+    return (
+      lines.find((line) => line.key === activeKey) ??
+      lines.find((line) => line.sku === activeSku) ??
+      lines[0] ??
+      null
+    )
+  }, [lines, activeKey, activeSku])
 
-  const skuKey = useMemo(() => lines.map((line) => line.sku).join('|'), [lines])
+  const skuKey = useMemo(() => lines.map((line) => line.key).join('|'), [lines])
+
+  const pickGroups = useMemo(() => {
+    if (combinedIds && combinedIds.length >= 2 && combinedGroups.length > 0) {
+      return combinedGroups
+    }
+    return group ? [group] : []
+  }, [combinedIds, combinedGroups, group])
+
+  const trays = useMemo(() => buildTrays(pickGroups, lines), [pickGroups, lines])
+  const trayShortfalls = useMemo(
+    () =>
+      trays.filter((tray) => trayPlaced(tray, trayCounts, lines) < trayNeeded(tray, lines)),
+    [trays, trayCounts, lines],
+  )
+  const namesDiffer = pickGroups.some((row) => row.recipientNamesDiffer)
+  const linkedHint =
+    (group?.linkedGroupCount ?? 0) > 0 || Boolean(group?.manualLink)
+  const combinedMode = Boolean(combinedIds && combinedIds.length >= 2)
+  const activeGroup =
+    pickGroups.find((row) => row.id === activeLine?.group_id) ?? group
+  const completeTargets = pickGroups.filter((row) =>
+    canCompletePick(row.fulfillmentStatus),
+  )
 
   useEffect(() => {
     if (!skuKey) {
       const clearId = window.setTimeout(() => {
         setActiveSku('')
+        setActiveKey('')
         setScanInput('')
         setCurrentQty(1)
       }, 0)
@@ -677,12 +932,12 @@ export function WarehousePage() {
     }
     const preferred =
       lines.find((line) => line.qtyPicked < line.quantity) ?? lines[0]
-    const nextSku = preferred?.sku ?? ''
     const remaining = preferred
       ? Math.max(1, preferred.quantity - preferred.qtyPicked)
       : 1
     const syncId = window.setTimeout(() => {
-      setActiveSku(nextSku)
+      setActiveSku(preferred?.sku ?? '')
+      setActiveKey(preferred?.key ?? '')
       setScanInput('')
       setScanMethod('barcode')
       setCurrentQty(remaining)
@@ -697,8 +952,8 @@ export function WarehousePage() {
     ? Math.max(0, activeLine.quantity - activeLine.qtyPicked)
     : 0
   const canConfirmItem = Boolean(
-    group &&
-      canPickItems(group.fulfillmentStatus) &&
+    activeGroup &&
+      canPickItems(activeGroup.fulfillmentStatus) &&
       warehouseId &&
       activeLine &&
       isVerified &&
@@ -722,6 +977,7 @@ export function WarehousePage() {
 
   function selectLine(line: PickLine) {
     setActiveSku(line.sku)
+    setActiveKey(line.key)
     setScanInput('')
     setScanMethod('barcode')
     setCurrentQty(Math.max(1, line.quantity - line.qtyPicked))
@@ -754,8 +1010,92 @@ export function WarehousePage() {
     showToast(vi ? 'Đã gắn mã kho cho phiên lấy hàng.' : 'Warehouse id saved for picking.')
   }
 
+  function applyPickedQtyToTrays(line: PickLine, qty: number) {
+    const allocations = line.order_allocations ?? []
+    if (allocations.length >= 2) {
+      const suggested = suggestTray(line, trayCounts)
+      setPendingTray({
+        lineKey: line.key,
+        qty,
+        suggestedOrderId: suggested ?? allocations[0]?.order_id ?? '',
+      })
+      setSelectedTrayOrderId(suggested ?? allocations[0]?.order_id ?? '')
+      setTrayPickOpen(true)
+      return
+    }
+    const only = allocations[0]
+    if (!only) return
+    const key = trayCountKey(line, only.order_id)
+    setTrayCounts((prev) => ({ ...prev, [key]: (prev[key] ?? 0) + qty }))
+  }
+
+  function confirmTrayPick() {
+    if (!pendingTray || !selectedTrayOrderId) {
+      setTrayPickOpen(false)
+      setPendingTray(null)
+      return
+    }
+    const line = lines.find((row) => row.key === pendingTray.lineKey)
+    if (line) {
+      const key = trayCountKey(line, selectedTrayOrderId)
+      setTrayCounts((prev) => ({
+        ...prev,
+        [key]: (prev[key] ?? 0) + pendingTray.qty,
+      }))
+    }
+    setTrayPickOpen(false)
+    setPendingTray(null)
+  }
+
+  async function startCombinedPick() {
+    if (!group) return
+    setBusy(true)
+    setActionError(null)
+    try {
+      const linked = await listLinkedOrderGroups(group.id)
+      const homeWarehouse = group.warehouseId ?? warehouseId
+      const eligible = [group, ...linked].filter((row) => {
+        if (!COMBINED_PICKABLE.has(row.fulfillmentStatus)) return false
+        if (!row.warehouseId || !homeWarehouse) return true
+        return row.warehouseId === homeWarehouse
+      })
+      const unique = [...new Map(eligible.map((row) => [row.id, row])).values()]
+      if (unique.length < 2) {
+        setActionError(
+          vi
+            ? 'Chưa có nhóm liên kết nào cùng đang lấy hàng (và cùng kho).'
+            : 'No other linked group is still picking in this warehouse.',
+        )
+        return
+      }
+      const ids = unique.map((row) => row.id)
+      combinedIdsRef.current = ids
+      setCombinedIds(ids)
+      setCombinedGroups(unique)
+      setTrayCounts({})
+      await loadDetail(group.id, warehouseId)
+      showToast(
+        vi
+          ? `Đã mở lấy chung ${unique.length} nhóm.`
+          : `Combined picking for ${unique.length} groups.`,
+      )
+    } catch (err: unknown) {
+      setActionError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function stopCombinedPick() {
+    combinedIdsRef.current = null
+    setCombinedIds(null)
+    setCombinedGroups(group ? [group] : [])
+    setTrayCounts({})
+    if (group) await loadDetail(group.id, warehouseId)
+  }
+
   async function handlePickItem() {
-    if (!group || !activeLine || !warehouseId) return
+    if (!activeLine || !warehouseId) return
     if (!activeLine.bin_location_id) {
       setActionError(
         vi
@@ -775,7 +1115,7 @@ export function WarehousePage() {
     setBusy(true)
     setActionError(null)
     try {
-      const result = await pickOrderGroupItem(group.id, {
+      const result = await pickOrderGroupItem(activeLine.group_id, {
         sku: activeLine.sku,
         scanned_quantity: currentQty,
         scan_method: scanMethod,
@@ -786,7 +1126,7 @@ export function WarehousePage() {
         client_event_id: newClientEventId(),
       })
       const nextLines = lines.map((line) =>
-        line.sku === result.sku
+        line.key === activeLine.key
           ? {
               ...line,
               qtyPicked: line.qtyPicked + result.decrementedBy,
@@ -795,19 +1135,11 @@ export function WarehousePage() {
           : line,
       )
       setLines(nextLines)
-      const progress: PickProgress = {}
-      for (const line of nextLines) {
-        if (line.qtyPicked > 0 || line.remainingStock != null) {
-          progress[line.sku] = {
-            qtyPicked: line.qtyPicked,
-            remainingStock: line.remainingStock,
-          }
-        }
-      }
-      writeProgress(group.id, progress)
-      const updated = nextLines.find((line) => line.sku === result.sku)
+      persistLinesProgress(nextLines)
+      applyPickedQtyToTrays(activeLine, result.decrementedBy)
+      const updated = nextLines.find((line) => line.key === activeLine.key)
       const nextPending = nextLines.find(
-        (line) => line.sku !== result.sku && line.qtyPicked < line.quantity,
+        (line) => line.key !== activeLine.key && line.qtyPicked < line.quantity,
       )
       if (updated && updated.qtyPicked >= updated.quantity && nextPending) {
         selectLine(nextPending)
@@ -840,7 +1172,15 @@ export function WarehousePage() {
         setActionError(
           vi ? 'Nhóm đang lấy ở kho khác.' : 'This group is being picked in another warehouse.',
         )
-        if (group.warehouseId) {
+        if (combinedIds?.includes(activeLine.group_id)) {
+          const nextIds = combinedIds.filter((id) => id !== activeLine.group_id)
+          combinedIdsRef.current = nextIds.length >= 2 ? nextIds : null
+          setCombinedIds(combinedIdsRef.current)
+          setCombinedGroups((prev) =>
+            prev.filter((row) => row.id !== activeLine.group_id),
+          )
+          if (group) await loadDetail(group.id, warehouseId)
+        } else if (group?.warehouseId) {
           setWarehouseId(group.warehouseId)
           setWarehouseDraft(group.warehouseId)
           writeStoredWarehouseId(group.warehouseId)
@@ -865,19 +1205,24 @@ export function WarehousePage() {
   }
 
   async function handleReportMissing() {
-    if (!group || !activeLine || !warehouseId) return
+    if (!activeLine || !warehouseId) return
+    const target = pickGroups.find((row) => row.id === activeLine.group_id) ?? group
+    if (!target) return
     setBusy(true)
     setActionError(null)
     try {
-      const latest = await reportMissingOrderGroupItem(group.id, {
+      const latest = await reportMissingOrderGroupItem(target.id, {
         sku: activeLine.sku,
         missing_quantity: missingQty,
         warehouse_id: warehouseId,
         note: missingNote.trim() || undefined,
-        expected_version: group.version,
+        expected_version: target.version,
       })
-      setGroup(latest)
+      setGroup((current) => (current?.id === latest.id ? latest : current))
       setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      setCombinedGroups((prev) =>
+        prev.map((row) => (row.id === latest.id ? latest : row)),
+      )
       setMissingOpen(false)
       setMissingNote('')
       showToast(
@@ -889,7 +1234,7 @@ export function WarehousePage() {
       await loadGroups()
     } catch (err: unknown) {
       if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
-        await refreshGroupAfterWrite(group.id)
+        await refreshGroupAfterWrite(target.id)
       }
       if (getApiErrorCode(err) === 'ORD_GROUP_INVALID_TRANSITION') {
         setMissingOpen(false)
@@ -903,23 +1248,38 @@ export function WarehousePage() {
   }
 
   async function handleCompletePick() {
-    if (!group) return
+    if (completeTargets.length === 0) return
     setBusy(true)
     setActionError(null)
     try {
-      const latest = await completeOrderGroupPick(group.id, {
-        expected_version: group.version,
-      })
-      clearProgress(group.id)
-      setGroup(latest)
-      setGroups((prev) => prev.map((row) => (row.id === latest.id ? latest : row)))
+      let last: OrderGroup | null = null
+      for (const target of completeTargets) {
+        last = await completeOrderGroupPick(target.id, {
+          expected_version: target.version,
+        })
+        clearProgress(target.id)
+        setGroups((prev) => prev.map((row) => (row.id === last!.id ? last! : row)))
+        setCombinedGroups((prev) =>
+          prev.map((row) => (row.id === last!.id ? last! : row)),
+        )
+        if (group?.id === last.id) setGroup(last)
+      }
       setCompleteOpen(false)
-      showToast(vi ? 'Đã xác nhận lấy xong cả nhóm. Đưa khay sang bàn đóng gói.' : 'Group marked as picked. Hand off to packing.')
-      navigate(`/app/warehouse?groupId=${latest.id}`)
+      showToast(
+        vi
+          ? completeTargets.length > 1
+            ? `Đã xác nhận lấy xong ${completeTargets.length} nhóm. Đưa khay sang bàn đóng gói.`
+            : 'Đã xác nhận lấy xong cả nhóm. Đưa khay sang bàn đóng gói.'
+          : completeTargets.length > 1
+            ? `Marked ${completeTargets.length} groups as picked. Hand off to packing.`
+            : 'Group marked as picked. Hand off to packing.',
+      )
+      if (last) navigate(`/app/warehouse?groupId=${last.id}`)
       await loadGroups()
     } catch (err: unknown) {
-      if (getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
-        await refreshGroupAfterWrite(group.id)
+      const first = completeTargets[0]
+      if (first && getApiErrorCode(err) === 'ORD_GROUP_STATE_CONFLICT') {
+        await refreshGroupAfterWrite(first.id)
       }
       if (getApiErrorCode(err) === 'ORD_GROUP_INVALID_TRANSITION') {
         setCompleteOpen(false)
@@ -1281,8 +1641,8 @@ export function WarehousePage() {
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
               {warehouseListBlocked
                 ? vi
-                  ? 'Không lấy danh sách kho (403). Dán ObjectId kho, hoặc mở GET /warehouse/warehouses cho Warehouse Staff.'
-                  : 'Could not list warehouses (403). Paste a warehouse ObjectId, or allow GET /warehouse/warehouses for staff.'
+                  ? 'Không tải được danh sách kho. Nhờ Admin kiểm tra quyền của tài khoản này.'
+                  : 'Could not load warehouses. Ask an Admin to check this account’s access.'
                 : vi
                   ? 'Chưa chọn kho: vẫn xem SKU, nhưng quét trừ tồn / báo thiếu cần warehouse_id.'
                   : 'No warehouse selected: you can view SKUs, but pick/report-missing need warehouse_id.'}
@@ -1396,6 +1756,21 @@ export function WarehousePage() {
                           : 'Picking done — hand tote to packing (/app/packing).'}
                       </p>
                     ) : null}
+                    {namesDiffer ? (
+                      <p className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-200">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {vi
+                          ? 'Nhóm có nhiều người nhận khác tên — chia hàng vào đúng khay A/B/C, không trộn khay.'
+                          : 'This group has different recipient names — put items in the matching A/B/C tray.'}
+                      </p>
+                    ) : null}
+                    {linkedHint && !combinedMode ? (
+                      <p className="text-[11px] text-slate-500">
+                        {vi
+                          ? `Có ${group?.linkedGroupCount ?? 0} nhóm liên kết — có thể lấy chung một vòng kho.`
+                          : `${group?.linkedGroupCount ?? 0} linked groups — you can pick them in one warehouse walk.`}
+                      </p>
+                    ) : null}
                     {canPickItems(status) &&
                     (status === 'awaiting_packaging' || status === 'pending_approval') ? (
                       <p className="flex items-start gap-1.5 text-xs text-sky-800 dark:text-sky-200">
@@ -1451,6 +1826,30 @@ export function WarehousePage() {
                           ? 'Nhận việc'
                           : 'Claim'}
                     </button>
+                    {linkedHint && canPickItems(status) ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void (combinedMode ? stopCombinedPick() : startCombinedPick())
+                        }}
+                        disabled={busy}
+                        className={cn(
+                          'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold cursor-pointer',
+                          combinedMode
+                            ? 'border border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200'
+                            : 'border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1',
+                        )}
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                        {combinedMode
+                          ? vi
+                            ? `Đang lấy chung ${combinedIds?.length} nhóm`
+                            : `Combined ${combinedIds?.length} groups`
+                          : vi
+                            ? 'Lấy chung nhóm liên kết'
+                            : 'Pick linked groups together'}
+                      </button>
+                    ) : null}
                     {canPickItems(status) ? (
                       <button
                         type="button"
@@ -1478,6 +1877,72 @@ export function WarehousePage() {
         </div>
                 </div>
           </div>
+
+              {trays.length >= 2 ? (
+                <div className="rounded-2xl border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-surface-1">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
+                    {vi ? 'Khay của nhóm' : 'Group trays'}
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    {vi
+                      ? 'Mỗi đơn còn hiệu lực một khay. Số đã xếp là đếm tay trên phiên này, không lưu lên máy chủ.'
+                      : 'One tray per active order. Counts stay on this session only.'}
+                  </p>
+                  <div className="mt-3 overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="text-[11px] uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="pb-1.5 pr-3 font-semibold">{vi ? 'Khay' : 'Tray'}</th>
+                          <th className="pb-1.5 pr-3 font-semibold">{vi ? 'Người nhận' : 'Recipient'}</th>
+                          <th className="pb-1.5 pr-3 font-semibold">{vi ? 'Đơn' : 'Order'}</th>
+                          <th className="pb-1.5 text-right font-semibold">{vi ? 'Đã xếp / cần' : 'Placed / need'}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trays.map((tray) => {
+                          const needed = trayNeeded(tray, lines)
+                          const placed = trayPlaced(tray, trayCounts, lines)
+                          return (
+                            <tr
+                              key={tray.key}
+                              className={cn(
+                                'border-t border-l-4 border-slate-100 dark:border-slate-800',
+                                recipientBorderClass(tray.recipientName),
+                              )}
+                            >
+                              <td className="py-1.5 pr-3">
+                                <span
+                                  className={cn(
+                                    'inline-flex min-w-6 justify-center rounded border px-1.5 py-0.5 font-bold',
+                                    recipientChipClass(tray.recipientName),
+                                  )}
+                                >
+                                  {tray.label}
+                                </span>
+                              </td>
+                              <td className="py-1.5 pr-3 font-medium text-slate-800 dark:text-slate-100">
+                                {tray.recipientName || '—'}
+                              </td>
+                              <td className="py-1.5 pr-3 font-mono text-slate-600 dark:text-slate-300">
+                                {combinedMode ? `${shortId(tray.groupId)} · ` : ''}
+                                {tray.orderCode || shortId(tray.orderId)}
+                              </td>
+                              <td
+                                className={cn(
+                                  'py-1.5 text-right font-mono font-semibold',
+                                  placed < needed ? 'text-amber-700 dark:text-amber-300' : 'text-emerald-700 dark:text-emerald-300',
+                                )}
+                              >
+                                {placed}/{needed}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : null}
 
               {actionError ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/30 dark:text-red-200">
@@ -1551,11 +2016,12 @@ export function WarehousePage() {
                                   )}
                                 </p>
                               ) : null}
-                              {allocationText(activeLine, vi) ? (
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  {allocationText(activeLine, vi)}
-                                </p>
-                              ) : null}
+                              <AllocationChips
+                                line={activeLine}
+                                trays={trays}
+                                counts={trayCounts}
+                                combined={combinedMode}
+                              />
                             </div>
                             <p className="mt-1.5 text-[11px] text-slate-500">
                               {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
@@ -1723,10 +2189,10 @@ export function WarehousePage() {
                       <div className="mt-3 space-y-2">
                         {lines.map((line) => {
                           const done = line.qtyPicked >= line.quantity
-                          const selected = line.sku === activeLine?.sku
+                          const selected = line.key === activeLine?.key
                           return (
                             <button
-                              key={line.sku}
+                              key={line.key}
                               type="button"
                               onClick={() => selectLine(line)}
                               className={cn(
@@ -1767,11 +2233,12 @@ export function WarehousePage() {
                                     )}
                                   </p>
                                 ) : null}
-                                {allocationText(line, vi) ? (
-                                  <p className="mt-0.5 text-[10px] text-slate-500">
-                                    {allocationText(line, vi)}
-                                  </p>
-                                ) : null}
+                                <AllocationChips
+                                  line={line}
+                                  trays={trays}
+                                  counts={trayCounts}
+                                  combined={combinedMode}
+                                />
                                 {line.other_bins.length > 0 ? (
                                   <p className="mt-0.5 truncate text-[10px] text-slate-500">
                                     {vi ? 'Ô khác' : 'Also at'}{' '}
@@ -1793,18 +2260,35 @@ export function WarehousePage() {
                           <button
                             type="button"
                             onClick={() => {
-                              void openWarehouseDocument(
-                                pickingListDocumentPath(warehouseId, group.id),
-                              ).catch((err: unknown) => setActionError(formatApiError(err)))
+                              const ids = combinedMode
+                                ? (combinedIds ?? [group.id])
+                                : [group.id]
+                              void (async () => {
+                                try {
+                                  for (const id of ids) {
+                                    await openWarehouseDocument(
+                                      pickingListDocumentPath(warehouseId, id),
+                                    )
+                                  }
+                                } catch (err: unknown) {
+                                  setActionError(formatApiError(err))
+                                }
+                              })()
                             }}
                             className="flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-800 cursor-pointer hover:bg-slate-50 dark:border-slate-700 dark:bg-surface-2 dark:text-slate-100"
                           >
                             <Printer className="h-4 w-4 shrink-0" />
-                            {vi ? 'In danh sách lấy hàng' : 'Print picking list'}
+                            {combinedMode
+                              ? vi
+                                ? `In lần lượt ${combinedIds?.length} nhóm`
+                                : `Print ${combinedIds?.length} lists`
+                              : vi
+                                ? 'In danh sách lấy hàng'
+                                : 'Print picking list'}
                           </button>
                         </div>
                       ) : null}
-                      {group && canCompletePick(status) ? (
+                      {completeTargets.length > 0 ? (
                         <div className="mt-4 border-t border-slate-100 pt-4 dark:border-slate-800">
                           <button
                             type="button"
@@ -1812,11 +2296,12 @@ export function WarehousePage() {
                             disabled={
                               busy ||
                               lines.length === 0 ||
-                              !group.assignedStaffId ||
-                              (status === 'picking' && !allScanned)
+                              completeTargets.some((row) => !row.assignedStaffId) ||
+                              (completeTargets.some((row) => row.fulfillmentStatus === 'picking') &&
+                                !allScanned)
                             }
                             title={
-                              !group.assignedStaffId
+                              completeTargets.some((row) => !row.assignedStaffId)
                                 ? vi
                                   ? 'Nhận việc trước khi hoàn tất lấy hàng'
                                   : 'Claim the batch before completing pick'
@@ -1824,16 +2309,22 @@ export function WarehousePage() {
                             }
                             className={cn(
                               'flex h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold shadow-xs',
-                              group.assignedStaffId
+                              completeTargets.every((row) => row.assignedStaffId)
                                 ? 'bg-blue-600 text-white cursor-pointer hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50'
                                 : 'cursor-not-allowed border border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500',
                             )}
                           >
                             <CheckCircle2 className="h-4 w-4 shrink-0" />
-                            {vi ? 'Hoàn tất lấy hàng' : 'Complete picking'}
+                            {completeTargets.length > 1
+                              ? vi
+                                ? `Hoàn tất ${completeTargets.length} nhóm`
+                                : `Complete ${completeTargets.length} groups`
+                              : vi
+                                ? 'Hoàn tất lấy hàng'
+                                : 'Complete picking'}
                           </button>
                           <p className="mt-2 text-center text-[11px] leading-4 text-slate-500">
-                            {!group.assignedStaffId
+                            {completeTargets.some((row) => !row.assignedStaffId)
                               ? vi
                                 ? 'Nhận việc trước, rồi bấm nút này để chuyển đơn sang đóng gói.'
                                 : 'Claim the batch, then use this button to hand the order to packing.'
@@ -1928,6 +2419,17 @@ export function WarehousePage() {
                   : `${pickedCount}/${lines.length} SKUs scanned. You can still complete the whole group (simple path).`}
             </DialogDescription>
           </DialogHeader>
+          {trayShortfalls.length > 0 ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+              {vi
+                ? `Còn ${trayShortfalls.length} khay chưa xếp đủ (${trayShortfalls
+                    .map((tray) => tray.label)
+                    .join(', ')}). Đây chỉ là đếm tay trên phiên — vẫn có thể hoàn tất.`
+                : `${trayShortfalls.length} tray(s) still short (${trayShortfalls
+                    .map((tray) => tray.label)
+                    .join(', ')}). Session-only counts — you can still complete.`}
+            </div>
+          ) : null}
           <DialogFooter>
               <button
                 type="button"
@@ -1943,6 +2445,96 @@ export function WarehousePage() {
               className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-blue-700 disabled:opacity-50"
             >
               {vi ? 'Xác nhận đã lấy xong' : 'Mark picked'}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={trayPickOpen}
+        onOpenChange={(open) => {
+          setTrayPickOpen(open)
+          if (!open) setPendingTray(null)
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{vi ? 'Xếp vào khay nào?' : 'Which tray?'}</DialogTitle>
+            <DialogDescription>
+              {vi
+                ? 'SKU này thuộc nhiều đơn. Chọn khay (đơn) vừa lấy, rồi đếm sẽ cộng vào khay đó. Không gửi lên máy chủ.'
+                : 'This SKU belongs to more than one order. Pick the tray you just filled. Counts stay on this session.'}
+            </DialogDescription>
+          </DialogHeader>
+          {(() => {
+            const line = lines.find((row) => row.key === pendingTray?.lineKey)
+            const allocations = line?.order_allocations ?? []
+            return (
+              <div className="space-y-2">
+                <p className="font-mono text-sm font-semibold">{line?.sku}</p>
+                <p className="text-xs text-slate-500">
+                  {vi
+                    ? `Vừa quét ${pendingTray?.qty ?? 0} cái.`
+                    : `Just scanned ${pendingTray?.qty ?? 0}.`}
+                </p>
+                {allocations.map((row) => {
+                  const tray = trays.find(
+                    (item) =>
+                      item.groupId === line?.group_id && item.orderId === row.order_id,
+                  )
+                  const placed = line
+                    ? (trayCounts[trayCountKey(line, row.order_id)] ?? 0)
+                    : 0
+                  const selected = selectedTrayOrderId === row.order_id
+                  return (
+                    <button
+                      key={row.order_id}
+                      type="button"
+                      onClick={() => setSelectedTrayOrderId(row.order_id)}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm cursor-pointer',
+                        selected
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/40'
+                          : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
+                        recipientChipClass(row.recipient_name),
+                      )}
+                    >
+                      <span>
+                        <span className="font-bold">{tray?.label ?? '?'}</span>
+                        {' · '}
+                        {row.recipient_name || '—'}
+                        <span className="mt-0.5 block font-mono text-[11px] text-slate-500">
+                          {combinedMode && line ? `${shortId(line.group_id)} · ` : ''}
+                          {row.platform_order_id}
+                        </span>
+                      </span>
+                      <span className="font-mono text-xs font-semibold">
+                        {placed}/{row.quantity}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })()}
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setTrayPickOpen(false)
+                setPendingTray(null)
+              }}
+              className="h-9 rounded-lg border border-slate-200 px-3 text-sm font-semibold cursor-pointer dark:border-slate-700"
+            >
+              {vi ? 'Bỏ qua' : 'Skip'}
+            </button>
+            <button
+              type="button"
+              onClick={confirmTrayPick}
+              disabled={!selectedTrayOrderId}
+              className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white cursor-pointer hover:bg-blue-700 disabled:opacity-50"
+            >
+              {vi ? 'Xếp vào khay' : 'Assign tray'}
             </button>
           </DialogFooter>
         </DialogContent>

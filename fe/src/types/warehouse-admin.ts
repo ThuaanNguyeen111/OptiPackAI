@@ -83,6 +83,8 @@ export type WarehousePickingListItem = {
   other_bins: OtherBin[]
   oldest_lot: OldestLot | null
   order_allocations: OrderAllocation[]
+  /** Chỉ có khi lấy chung nhiều nhóm (`?group_ids=`). */
+  order_group_id?: string | null
 }
 
 /** Lô cũ nhất còn hàng trên ô — picking list trừ lô này trước. */

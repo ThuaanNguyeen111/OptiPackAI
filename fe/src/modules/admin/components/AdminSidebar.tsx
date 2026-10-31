@@ -4,7 +4,6 @@ import {
   Box,
   Boxes,
   Clock,
-  Cpu,
   LogOut,
   Moon,
   Package,
@@ -99,14 +98,6 @@ const navItems = [
     labelEn: 'Warehouse',
     icon: Boxes,
     section: 'warehouse' as NavSection,
-  },
-  {
-    to: '/app/admin/ai',
-    end: false,
-    labelVi: 'Tham số AI',
-    labelEn: 'AI parameters',
-    icon: Cpu,
-    section: 'ai' as NavSection,
   },
   {
     to: '/app/admin/packing-plans',

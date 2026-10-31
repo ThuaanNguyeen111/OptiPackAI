@@ -11,6 +11,10 @@
   --ed-line: color-mix(in srgb, #152d35 12%, transparent);
   --ed-cta: #152d35;
   --ed-cta-fg: #d4ecdd;
+  /* .landing-cta trong teal-shell.css đọc --ls-cta (chỉ khai ở .landing-shell) — khai lại để nút có nền */
+  --ls-cta: var(--ed-cta);
+  --ls-cta-fg: var(--ed-cta-fg);
+  --ls-cta-hover: #0f2228;
   --font-ed-sans: 'DM Sans', 'Be Vietnam Pro', 'Segoe UI', ui-sans-serif, system-ui, sans-serif;
   /* Lora (VN glyphs) → Be Vietnam Pro (designed for Vietnamese diacritics) */
   --font-ed-display: 'Lora', 'Be Vietnam Pro', 'Segoe UI', Georgia, serif;

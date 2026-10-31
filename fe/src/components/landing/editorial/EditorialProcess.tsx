@@ -5,35 +5,27 @@ import { motion, useInView } from 'framer-motion'
 const STEPS = [
   {
     id: '01',
-    title: 'Đồng bộ & gộp',
-    meta: 'Cron · OAuth · Mongo',
-    body: 'Shop kết nối Lazada. Hệ thống kéo đơn, chuẩn hóa, gộp nhóm theo consolidation key — không Kafka giả.',
-    image:
-      'https://images.unsplash.com/photo-1553413077-190dd305871c?auto=format&fit=crop&w=1200&q=80',
+    title: 'Đơn về và được gom',
+    meta: 'Store Owner',
+    body: 'Khách đặt trên Lazada hoặc AURELLE. Đơn về OptiPack, đơn cùng người nhận vào chung một nhóm và được giao cho một nhân viên kho.',
   },
   {
     id: '02',
-    title: 'Gợi ý đóng gói',
-    meta: 'AI · Fallback · Duyệt',
-    body: 'Packaging Staff nhận recommendation, cân thật, duyệt/adjust/reject. Transaction ghi đồng thời recommendation + trạng thái nhóm.',
-    image:
-      'https://images.unsplash.com/photo-1600880292203-757bb62b4baf?auto=format&fit=crop&w=1200&q=80',
+    title: 'Lấy hàng theo kệ',
+    meta: 'Warehouse Staff',
+    body: 'Picking list xếp theo lộ trình đi trong kho, chia sẵn món nào của đơn nào. Nhân viên quét từng món; thiếu thì báo để người khác duyệt.',
   },
   {
     id: '03',
-    title: 'Lấy & đóng',
-    meta: 'Scan · Tồn · Wave',
-    body: 'Warehouse quét kệ/SKU, trừ tồn atomic. Packaging đóng kiện — có thể ưu tiên thùng tái sử dụng nếu còn hạng A.',
-    image:
-      'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80',
+    title: 'Xếp thùng và đóng',
+    meta: 'Packaging Staff',
+    body: 'Hệ thống tính cách xếp, nhân viên xem hướng dẫn 3D từng bước, quét món vào kiện, cân và niêm phong. Kiện lệch cân bị giữ lại.',
   },
   {
     id: '04',
-    title: 'Giao & theo dõi',
-    meta: 'Shipment · Events',
-    body: 'Coordinator gán chuyến. Shipper cập nhật giao/thất bại. Hai lần thất bại → tự hoàn về kho kiểm QC.',
-    image:
-      'https://images.unsplash.com/photo-1578574577315-3fbeb0cecdc2?auto=format&fit=crop&w=1200&q=80',
+    title: 'Giao và theo dõi',
+    meta: 'Shipping Coordinator',
+    body: 'Báo giá GHN theo từng kiện, tạo vận đơn, in nhãn. Khách AURELLE thấy đơn đi tới đâu ngay trên trang đơn hàng.',
   },
 ] as const
 
@@ -57,26 +49,15 @@ function StepCard({
     <article
       ref={ref}
       id={`process-${step.id}`}
-      className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-[var(--ed-line)] bg-white shadow-[0_16px_48px_rgba(21,45,53,0.06)]"
+      className="scroll-mt-28 border-l-2 border-[var(--ed-line)] pl-6"
     >
-      <div className="relative aspect-[16/10] overflow-hidden">
-        <img
-          src={step.image}
-          alt=""
-          className="h-full w-full object-cover"
-          loading="lazy"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-[var(--ed-ink)]/55 to-transparent" />
-        <span className="ed-display absolute bottom-4 left-5 text-4xl text-white/90">
-          {step.id}
-        </span>
-      </div>
-      <div className="p-6 sm:p-8">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="py-2">
+        <p className="ed-display m-0 mb-1 text-sm tabular-nums text-[var(--ed-muted)]">{step.id}</p>
+        <div className="mb-3 flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <h3 className="m-0 text-2xl font-semibold tracking-tight text-[var(--ed-ink)]">
             {step.title}
           </h3>
-          <span className="rounded-full bg-[color-mix(in_srgb,var(--ed-sage)_55%,white)] px-2.5 py-0.5 text-[10px] font-semibold tracking-wide text-[var(--ed-ink)] uppercase">
+          <span className="text-sm text-[var(--ed-muted)]">
             {step.meta}
           </span>
         </div>
@@ -93,10 +74,9 @@ export function EditorialProcess(): ReactNode {
 
   return (
     <section id="process" className="ed-section">
-      <p className="ed-kicker">Quy trình</p>
-      <h2 className="ed-title">Bốn nhịp từ đơn tới cửa khách</h2>
+      <h2 className="ed-title">Một đơn đi qua bốn người</h2>
       <p className="ed-lead">
-        Bên trái sticky theo bước đang trong viewport — bên phải cuộn từng card.
+        Mỗi bước có một vai trò chịu trách nhiệm và một màn hình riêng.
       </p>
 
       <div className="mt-8 grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)] lg:gap-10">
@@ -134,7 +114,7 @@ export function EditorialProcess(): ReactNode {
           </ol>
         </aside>
 
-        <div className="flex flex-col gap-8">
+        <div className="flex flex-col gap-10">
           {STEPS.map((step, i) => (
             <motion.div
               key={step.id}
