@@ -19,7 +19,7 @@
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
-| 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ☐ Chưa làm |
+| 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ✅ Đã nối (31/10) |
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
@@ -199,7 +199,7 @@ Việc FE (`PackagingWorkbench.tsx`):
 
 ## 6. 🆕 31/10/2026 — Màn quản lý quy tắc gộp đơn (dòng 9)
 
-**Nghiệp vụ:** Admin mô tả bằng câu chữ ("Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp"), AI dịch thành quy tắc, Admin xem trước rồi xác nhận. Lúc đồng bộ đơn hệ thống áp quy tắc đã lưu, **không gọi AI**. Tối đa 10 quy tắc, kết hợp với khoá gom cơ bản (`consolidation_key_fields`) theo kiểu **hoặc**. API, body, response: [`INTEGRATION_GUIDE_ORDERS.md` mục 7c](INTEGRATION_GUIDE_ORDERS.md), bảng route `API_LIST.md` mục 28. BE đã xong (AOFP-223); FE chưa làm thì hệ thống chạy y như trước.
+**Nghiệp vụ:** Admin mô tả bằng câu chữ ("Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp"), AI dịch thành quy tắc, Admin xem trước rồi xác nhận. Lúc đồng bộ đơn hệ thống áp quy tắc đã lưu, **không gọi AI**. Tối đa 10 quy tắc, kết hợp với khoá gom cơ bản (`consolidation_key_fields`) theo kiểu **hoặc**. API, body, response: [`INTEGRATION_GUIDE_ORDERS.md` mục 7c](INTEGRATION_GUIDE_ORDERS.md), bảng route `API_LIST.md` mục 28. BE và FE đã xong (AOFP-223) — khối "Quy tắc gộp bổ sung" trong `fe/src/pages/order-sync/ConsolidationRulesPanel.tsx`, gọi API qua `fe/src/api/consolidation-rules.api.ts`.
 
 Đặt màn trong trang **Cấu hình đồng bộ & gom đơn** đang có (cùng chỗ form `/order-sync-settings`), thêm 1 tab/khối "Quy tắc gộp bổ sung".
 
