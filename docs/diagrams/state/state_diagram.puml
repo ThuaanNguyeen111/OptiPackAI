@@ -1,54 +1,58 @@
-@startuml
-left to right direction
+@startuml state_diagram
+' Source of truth: be/src/modules/orders/enums/order-status.enum.ts
+' Sync and mapping: be/src/modules/orders/orders.service.ts (syncShopOrders)
+'                   be/src/modules/orders/mappers/lazada-order.mapper.ts
+'                   be/src/modules/storefront/aurelle-open-api.mapper.ts (toOpenApiStatus)
+' Seller cancellation: be/src/modules/order-groups/order-groups.service.ts (sellerCancelOrder)
+' Presentation overview: TO_SHIP and logistics incident states are omitted.
+top to bottom direction
 
-skinparam nodesep 60
-skinparam ranksep 50
+title Order Lifecycle
 
-[*] -right-> WAREHOUSE_PICKING
+skinparam defaultFontName Arial
+skinparam defaultFontSize 13
+skinparam ArrowFontSize 11
+skinparam shadowing false
+skinparam nodesep 25
+skinparam ranksep 30
+skinparam ArrowColor Black
+skinparam stateBorderColor Black
+skinparam stateBackgroundColor White
+hide empty description
 
-state "1. PICKING & INVENTORY" as WAREHOUSE_PICKING {
-    AWAITING_PACKAGING -down-> PICKING : Assign
-    PICKING -down-> PARTIAL_NEEDS_REVIEW : Missing
-    
-    PARTIAL_NEEDS_REVIEW -up-> PICKING : Re-pick
-    PARTIAL_NEEDS_REVIEW -up-> AWAITING_PACKAGING : Re-queue
-}
+state "unpaid" as UNPAID
+state "pending" as PENDING
+state "topack" as TO_PACK
+state "packed" as PACKED
+state "ready_to_ship" as READY_TO_SHIP
+state "shipped" as SHIPPED
+state "delivered" as DELIVERED
+state "failed_delivery" as FAILED_DELIVERY
+state "shipped_back" as SHIPPED_BACK
+state "shipped_back_success" as SHIPPED_BACK_SUCCESS
+state "returned" as RETURNED
+state "canceled" as CANCELED
+state "failed" as FAILED
 
-state "2. 3D OPTIMIZATION & PACKING" as PACKING_EXECUTION {
-    PICKED -down-> PENDING_APPROVAL : Solved 3D
-    PENDING_APPROVAL -down-> APPROVED_FOR_PACKING : Approve
-    APPROVED_FOR_PACKING -down-> PACKED : Sealed
-    
-    PENDING_APPROVAL -up-> PICKED : Retry 3D
-    APPROVED_FOR_PACKING -up-> PENDING_APPROVAL : Undo
-    PACKED -up-> APPROVED_FOR_PACKING : Repack
-}
+[*] --> UNPAID
+[*] --> PENDING : COD
+UNPAID -down-> PENDING : Paid
+PENDING -down-> TO_PACK
+TO_PACK -down-> PACKED
+PACKED -down-> READY_TO_SHIP
+READY_TO_SHIP -down-> SHIPPED
+SHIPPED -down-> DELIVERED
+DELIVERED --> [*] : Complete
 
-state "3. DISPATCH & LOGISTICS" as LOGISTICS_RETURNS {
-    SHIPPED -down-> DELIVERED : Delivered
-    
-    ' Failed delivery return (WF-04)
-    SHIPPED -down-> RETURNED : Failed (GHN)
-    
-    ' Customer return & exchange (WF-05)
-    DELIVERED -down-> RETURNING : Claim (15 days)
-    RETURNING -up-> DELIVERED : Reject / Cancel
-    RETURNING -down-> RETURNED : Received pkg
-    
-    ' Inspection & Ticket cancellation
-    RETURNED -up-> DELIVERED : Cancel ticket
-    RETURNED : Inspect: restock / quarantine / discard
-}
+PENDING -left-> CANCELED : Cancel
+UNPAID -right-> FAILED
 
-' Inter-frame connections (Left to Right)
-WAREHOUSE_PICKING -right-> PACKING_EXECUTION : Picked / Defect
-PACKING_EXECUTION -right-> LOGISTICS_RETURNS : Dispatch / Void
+SHIPPED -left-> FAILED_DELIVERY
+FAILED_DELIVERY --> SHIPPED : Retry
+FAILED_DELIVERY -down-> SHIPPED_BACK
+SHIPPED_BACK -down-> SHIPPED_BACK_SUCCESS
+SHIPPED_BACK_SUCCESS --> RETURNED
+DELIVERED --> RETURNED : Customer return
+RETURNED --> [*]
 
-' Termination paths
-WAREHOUSE_PICKING -down-> CANCELED : Cancel
-PACKING_EXECUTION -down-> CANCELED : Cancel
-LOGISTICS_RETURNS -down-> CANCELED : Restocked / Closed
-
-DELIVERED -right-> [*]
-CANCELED -right-> [*]
 @enduml

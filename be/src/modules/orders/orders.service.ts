@@ -5,6 +5,7 @@ import { Order, OrderDocument } from './schemas/order.schema';
 import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from './enums/order-status.enum';
 import { notPackableStatuses, orderSyncPolicy } from './order-sync-policy';
 import { computeConsolidationKeyFor, expressConsolidationKey } from './utils/consolidation-key.util';
+import { computeRuleKeys, ruleIdOfKey } from './utils/consolidation-rule.util';
 import { mapLazadaOrder } from './mappers/lazada-order.mapper';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import {
@@ -194,6 +195,11 @@ export class OrdersService {
         if (mapped.delivery_option === 'express') {
           mapped.consolidation_key = expressConsolidationKey(platform, `${shopId}:${mapped.platform_order_id}`);
         }
+        // 31/10/2026 — khoá theo quy tắc gộp bổ sung (rỗng khi chưa có quy tắc / đơn hỏa tốc / bị che).
+        const consolidationKeys = computeRuleKeys(
+          { platform, platform_order_id: mapped.platform_order_id, delivery_option: mapped.delivery_option, recipient: mapped.recipient },
+          policy.consolidation.rules,
+        );
 
         // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
         // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không
@@ -225,6 +231,7 @@ export class OrdersService {
           {
             $set: {
               ...mapped,
+              consolidation_keys: consolidationKeys,
               platform,
               shop_id: shopId,
               marketplace_shop: shopDoc._id,
@@ -423,20 +430,32 @@ export class OrdersService {
 
     // Cùng platform + shop: nhóm mang platform/shop_id của MỘT shop, gộp
     // đơn khác shop vào sẽ trừ tồn/tra hồ sơ SKU sai phạm vi.
+    // 31/10/2026 — gộp theo khoá cơ bản HOẶC khoá của bất kỳ quy tắc bổ sung nào đang bật
+    // (GUIDE_DOC/CONSOLIDATION_RULES_DESIGN.md mục 5.2). Mỗi nhánh $or mang giới hạn thời
+    // gian riêng và dùng 1 partial index riêng (consolidation_key / consolidation_keys).
+    const sinceFor = (hours: number | null): Record<string, unknown> =>
+      hours !== null && order.created_at
+        ? { created_at: { $gte: new Date(order.created_at.getTime() - hours * 3_600_000) } }
+        : {};
+    const rulesById = new Map(consolidation.rules.filter((r) => r.enabled).map((r) => [r.id, r]));
+    const orBranches: Record<string, unknown>[] = [
+      { consolidation_key: order.consolidation_key, ...sinceFor(consolidation.timeWindowHours) },
+    ];
+    for (const key of order.consolidation_keys ?? []) {
+      const rule = rulesById.get(ruleIdOfKey(key));
+      if (!rule) continue; // khoá của quy tắc đã tắt/xoá (chưa kịp tính lại) → bỏ qua
+      orBranches.push({ consolidation_keys: key, ...sinceFor(rule.maxWindowHours ?? consolidation.timeWindowHours) });
+    }
+
     const candidates = await this.orderModel
       .find({
-        consolidation_key: order.consolidation_key,
         platform: order.platform,
         shop_id: order.shop_id,
         // Giữ nguyên điều kiện của partial index (đủ 6 trạng thái) để Mongo dùng index;
         // điều kiện thứ 2 lọc theo tập con Admin chọn.
         status: { $in: UNFULFILLED_ORDER_STATUSES },
-        $and: [
-          { status: { $in: statuses.consolidatable } },
-          ...(consolidation.timeWindowHours !== null && order.created_at
-            ? [{ created_at: { $gte: new Date(order.created_at.getTime() - consolidation.timeWindowHours * 3_600_000) } }]
-            : []),
-        ],
+        $and: [{ status: { $in: statuses.consolidatable } }],
+        $or: orBranches,
         _id: { $ne: order._id },
         is_active: true,
       })
@@ -479,8 +498,13 @@ export class OrdersService {
       );
     }
 
+    const viaRule =
+      sibling.consolidation_key === order.consolidation_key
+        ? null
+        : (order.consolidation_keys ?? []).find((k) => (sibling.consolidation_keys ?? []).includes(k));
+    const reason = viaRule ? `quy tắc "${rulesById.get(ruleIdOfKey(viaRule))?.name ?? ruleIdOfKey(viaRule)}"` : 'consolidation_key';
     this.logger.log(
-      `Gộp đơn ${order.platform_order_id} vào nhóm ${groupId.toString()} (cùng consolidation_key với đơn ${sibling.platform_order_id}).`,
+      `Gộp đơn ${order.platform_order_id} vào nhóm ${groupId.toString()} (cùng ${reason} với đơn ${sibling.platform_order_id}).`,
     );
 
     return true;

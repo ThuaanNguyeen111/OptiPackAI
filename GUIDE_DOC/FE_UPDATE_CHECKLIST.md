@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -19,7 +19,8 @@
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
-| 9 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 6 | ~1 ngày | ☐ Chưa làm |
+| 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ☐ Chưa làm |
+| 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -196,17 +197,36 @@ Việc FE (`PackagingWorkbench.tsx`):
 
 ---
 
-## 6. 🆕 31/10/2026 — Quy chuẩn đóng gói thời trang (dòng 9, AOFP-224)
+## 6. 🆕 31/10/2026 — Màn quản lý quy tắc gộp đơn (dòng 9)
+
+**Nghiệp vụ:** Admin mô tả bằng câu chữ ("Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp"), AI dịch thành quy tắc, Admin xem trước rồi xác nhận. Lúc đồng bộ đơn hệ thống áp quy tắc đã lưu, **không gọi AI**. Tối đa 10 quy tắc, kết hợp với khoá gom cơ bản (`consolidation_key_fields`) theo kiểu **hoặc**. API, body, response: [`INTEGRATION_GUIDE_ORDERS.md` mục 7c](INTEGRATION_GUIDE_ORDERS.md), bảng route `API_LIST.md` mục 28. BE đã xong (AOFP-223); FE chưa làm thì hệ thống chạy y như trước.
+
+Đặt màn trong trang **Cấu hình đồng bộ & gom đơn** đang có (cùng chỗ form `/order-sync-settings`), thêm 1 tab/khối "Quy tắc gộp bổ sung".
+
+| # | Phần | Việc FE |
+|---|---|---|
+| 6.1 | Danh sách | `GET /order-sync-settings/rules`. Mỗi dòng: tên, các trường (nhãn lấy từ `options.fields`), sàn, giới hạn giờ, công tắc bật/tắt (gọi `PUT` đủ body với `enabled` đổi), nút Sửa / Xoá. Giữ `version` để gửi `expected_version`. Store Owner: chỉ xem, ẩn mọi nút ghi. Đủ `limits.maxRules` → khoá nút Thêm |
+| 6.2 | Gõ câu chữ | Ô nhập (≤ 500 ký tự) + nút "Dịch thành quy tắc" → `POST /rules/translate`. `rule ≠ null` → điền form, hiện `warnings` (màu vàng). `rule = null` → hiện `unsupported[]`, không mở form. `503 ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE` → báo "AI chưa dùng được", mở form trống và cho chọn 1 trong `details.suggestions[]`. `429` → "Thử lại sau 1 phút" |
+| 6.3 | Form (thêm/sửa) | Ô tích từ `options.fields`, mỗi trường chọn cách so khớp từ `options.matches` (ẩn với `phone`); sàn từ `options.platforms` (không tích = mọi sàn); giới hạn giờ (trống = dùng giới hạn chung). Chặn nút lưu khi chưa tích `phone` hoặc `address_line1` (`limits.requiredOneOf`). Hiện `source_text` (câu gốc) dạng chữ xám |
+| 6.4 | Xem trước | Trước khi lưu **bắt buộc** gọi `POST /rules/preview` với **cả bộ** quy tắc sẽ có (quy tắc đã lưu đổi sang body snake_case + quy tắc đang soạn). Hiện "Không quy tắc: `baselineGroups` nhóm → áp bộ này: `projectedGroups` nhóm", `groupsMergedByRules`, bảng `skippedMissingData` ("87 đơn bị bỏ qua vì thiếu/bị che dữ liệu"), tối đa 10 ví dụ (mã đơn + `…567`). `truncated` → ghi "tính trên 5.000 đơn mới nhất" |
+| 6.5 | Xác nhận | `POST /rules` hoặc `PUT /rules/:id` kèm `expected_version`. `recomputingKeys: true` → toast "Đang tính lại khoá gom cho đơn chưa xử lý (chạy nền)". Ghi chú rõ "Nhóm đã tạo không bị đổi" |
+| 6.6 | Lỗi | `400 ORD_CONSOLIDATION_RULE_INVALID` → hiện `details.errors[]` dưới form; `400 ORD_CONSOLIDATION_RULE_LIMIT`; `404 ORD_CONSOLIDATION_RULE_NOT_FOUND` → tải lại; `409 ORD_SYNC_SETTINGS_CONFLICT` → "Người khác vừa lưu", tải lại rồi cho bấm lại |
+
+**Nghiệm thu:** (1) Gõ "Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp" → form tích SĐT + Phường; xem trước có số nhóm giảm và ví dụ; lưu → `version` tăng. (2) Đặt 2 đơn AURELLE cùng SĐT, cùng phường, khác tên, khác số nhà → 2 đơn vào chung 1 nhóm. (3) Gõ "gộp đơn cùng tỉnh" → báo không hỗ trợ. (4) Tắt `AI_API_KEY` → nút dịch báo lỗi và hiện quy tắc mẫu. (5) Mở 2 tab cùng lưu → tab sau nhận 409.
+
+---
+
+## 7. 🆕 31/10/2026 — Quy chuẩn đóng gói thời trang (dòng 10, AOFP-224)
 
 **Nghiệp vụ:** [`docs/PACKAGING_STANDARD.md`](../docs/PACKAGING_STANDARD.md). Hàng mềm (áo, quần, đầm) không bắt buộc thùng — engine có thể chọn **túi niêm phong** (cước GHN thấp hơn); hàng cứng/dễ vỡ luôn vào thùng; đơn AURELLE cùng người nhận được **đóng chung kiện**. Lazada không đổi.
 
 | # | Màn | Việc FE |
 |---|---|---|
-| 6.1 | Product Master (`CatalogPanels.tsx`) | Thêm loại `bag` (túi xách) vào ô danh mục. Ô **"Lớp ngoài"** `outerRequirement`: `mailer_ok` (được dùng túi niêm phong) / `box_required` (bắt buộc thùng) / để trống = theo loại; hiện `effectiveOuterRequirement` (giá trị đang áp) |
-| 6.2 | Cài đặt đóng gói (`PUT /packing/settings`) | Công tắc `mailer_enabled` (mặc định tắt) + các ô `mailer_margin_width_mm`, `mailer_margin_length_mm`, `mailer_max_thickness_mm`, `split_min_saving_vnd`, `est_fee_first_step_vnd`, `est_fee_per_extra_step_vnd` |
-| 6.3 | Danh mục vật tư | Tạo vật tư `kind: 'mailer'` (túi niêm phong): nhập `width_cm`, `length_cm` (kích thước túi phẳng, không có cao), `tare_g` (bắt buộc), `max_load_g`; vật liệu chèn mới `kraft_paper`, `tissue_paper` (seed `scripts/seed-packaging-materials.ts`) |
-| 6.4 | Khung 3D (`Packing3DBoxViewer.tsx`) | `parcels[].box.kind === 'mailer'` → vẽ túi dẹt (không vẽ nắp thùng, bỏ chữ "nắp" viết cứng); hướng dẫn đóng gói của túi là câu mẫu (không qua AI) |
-| 6.5 | Màn đóng gói — kiện gộp | Kiện có `orderIds.length ≥ 2`: hiện "Kiện chung đơn A + B" (`platformOrderIds`), tô màu món theo `placements[].orderId`. Mã món dạng `AUR-A/TEE#1`. Chuyển món được giữa các kiện cùng `shareGroup`. Tem vận đơn in "A + B"; phiếu đóng gói in cho từng đơn |
+| 7.1 | Product Master (`CatalogPanels.tsx`) | Thêm loại `bag` (túi xách) vào ô danh mục. Ô **"Lớp ngoài"** `outerRequirement`: `mailer_ok` (được dùng túi niêm phong) / `box_required` (bắt buộc thùng) / để trống = theo loại; hiện `effectiveOuterRequirement` (giá trị đang áp) |
+| 7.2 | Cài đặt đóng gói (`PUT /packing/settings`) | Công tắc `mailer_enabled` (mặc định tắt) + các ô `mailer_margin_width_mm`, `mailer_margin_length_mm`, `mailer_max_thickness_mm`, `split_min_saving_vnd`, `est_fee_first_step_vnd`, `est_fee_per_extra_step_vnd` |
+| 7.3 | Danh mục vật tư | Tạo vật tư `kind: 'mailer'` (túi niêm phong): nhập `width_cm`, `length_cm` (kích thước túi phẳng, không có cao), `tare_g` (bắt buộc), `max_load_g`; vật liệu chèn mới `kraft_paper`, `tissue_paper` (seed `scripts/seed-packaging-materials.ts`) |
+| 7.4 | Khung 3D (`Packing3DBoxViewer.tsx`) | `parcels[].box.kind === 'mailer'` → vẽ túi dẹt (không vẽ nắp thùng, bỏ chữ "nắp" viết cứng); hướng dẫn đóng gói của túi là câu mẫu (không qua AI) |
+| 7.5 | Màn đóng gói — kiện gộp | Kiện có `orderIds.length ≥ 2`: hiện "Kiện chung đơn A + B" (`platformOrderIds`), tô màu món theo `placements[].orderId`. Mã món dạng `AUR-A/TEE#1`. Chuyển món được giữa các kiện cùng `shareGroup`. Tem vận đơn in "A + B"; phiếu đóng gói in cho từng đơn |
 
 **Nghiệm thu:** bật `mailer_enabled`, seed túi (`npx ts-node scripts/seed-packaging-mailers.ts`) → đơn 1 áo ra 1 túi niêm phong, khung 3D vẽ túi; đặt 2 đơn AURELLE cùng người nhận (cùng nhóm gộp) → 1 kiện chung 2 đơn, 2 phiếu đóng gói, 1 vận đơn GHN, mã vận đơn hiện ở cả 2 đơn trên website.
 

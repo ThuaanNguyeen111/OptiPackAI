@@ -194,6 +194,12 @@ export class Order {
   @Prop({ type: String, required: true })
   consolidation_key!: string;
 
+  // 31/10/2026 — khoá theo QUY TẮC GỘP BỔ SUNG do Admin tạo ("<rule_id>:<sha256>", mỗi quy tắc
+  // tối đa 1 khoá, ≤ 10 quy tắc). Gộp được khi trùng consolidation_key HOẶC trùng 1 khoá ở đây.
+  // Xem utils/consolidation-rule.util.ts. Đơn cũ không có trường → coi như [].
+  @Prop({ type: [String], default: [] })
+  consolidation_keys?: string[];
+
   @Prop({ type: [OrderItem], required: true, default: [] })
   items!: OrderItem[];
 
@@ -289,6 +295,11 @@ OrderSchema.index({ shop_id: 1, status: 1, created_at: -1 });
  */
 OrderSchema.index(
   { consolidation_key: 1 },
+  { partialFilterExpression: { status: { $in: UNFULFILLED_ORDER_STATUSES } } },
+);
+// 31/10/2026 — multikey, cùng điều kiện partial: mỗi nhánh $or của tryConsolidate dùng 1 IXSCAN.
+OrderSchema.index(
+  { consolidation_keys: 1 },
   { partialFilterExpression: { status: { $in: UNFULFILLED_ORDER_STATUSES } } },
 );
 
