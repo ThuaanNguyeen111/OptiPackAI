@@ -227,6 +227,7 @@ Việc FE (`PackagingWorkbench.tsx`):
 | 7.3 | Danh mục vật tư | Tạo vật tư `kind: 'mailer'` (túi niêm phong): nhập `width_cm`, `length_cm` (kích thước túi phẳng, không có cao), `tare_g` (bắt buộc), `max_load_g`; vật liệu chèn mới `kraft_paper`, `tissue_paper` (seed `scripts/seed-packaging-materials.ts`) |
 | 7.4 | Khung 3D (`Packing3DBoxViewer.tsx`) | `parcels[].box.kind === 'mailer'` → vẽ túi dẹt (không vẽ nắp thùng, bỏ chữ "nắp" viết cứng); hướng dẫn đóng gói của túi là câu mẫu (không qua AI) |
 | 7.5 | Màn đóng gói — kiện gộp | Kiện có `orderIds.length ≥ 2`: hiện "Kiện chung đơn A + B" (`platformOrderIds`), tô màu món theo `placements[].orderId`. Mã món dạng `AUR-A/TEE#1`. Chuyển món được giữa các kiện cùng `shareGroup`. Tem vận đơn in "A + B"; phiếu đóng gói in cho từng đơn |
+| 7.6 | Hàng chờ đóng gói (`PackagingWorkbench.tsx`) — 🆕 31/10 | Packaging Staff mở trang mặc định ở tab **"Đã lấy hàng" (`picked`) + phạm vi "Của tôi"** → luôn rỗng, vì nhóm `picked` chưa có kế hoạch `ready` nên chưa có người đóng. Sửa: mặc định tab `pending_approval` (việc đã giao cho mình), hoặc tab `picked` thì tự chuyển phạm vi "Tất cả". BE nay giao lại kế hoạch mồ côi mỗi phút (`INTEGRATION_GUIDE_PACKING.md` mục 1.1) |
 
 **Nghiệm thu:** bật `mailer_enabled`, seed túi (`npx ts-node scripts/seed-packaging-mailers.ts`) → đơn 1 áo ra 1 túi niêm phong, khung 3D vẽ túi; đặt 2 đơn AURELLE cùng người nhận (cùng nhóm gộp) → 1 kiện chung 2 đơn, 2 phiếu đóng gói, 1 vận đơn GHN, mã vận đơn hiện ở cả 2 đơn trên website.
 

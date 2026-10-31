@@ -96,6 +96,8 @@ GET /order-groups?assigned_packer_id=<userId>&fulfillment_status=packed
 - Sau khi gán/đổi người thành công, lần GET kế tiếp phản ánh ngay người mới; không cần chốt hoặc chấp nhận trước để xuất hiện trong danh sách. FE không tải danh sách chung rồi lọc người đóng sau khi đã phân trang.
 - Mở trang/nhận thông báo giao việc thì tải lại; khi còn ở trang, thăm dò mỗi 10 giây. Đây là cập nhật bằng GET, không có push thời gian thực mới.
 - Không có Packaging Staff hoạt động thì kế hoạch vẫn `ready`, chưa có người nhận; Admin xem danh sách không truyền `assigned_packer_id` và gán khi có nhân viên. Không truyền bộ lọc giữ hành vi danh sách chung hiện tại.
+- 🆕 31/10/2026 — **Giao lại tự động mỗi phút** (giây 45): kế hoạch `ready`/`approved` chưa có người, hoặc người được giao đang nghỉ phép / bị khoá / không còn role Packaging Staff (role `2`) → giao cho Packaging Staff ít việc nhất và gửi thông báo `packing_assigned`. Kế hoạch đang `packing` giữ nguyên người. Chỉ ghi khi người giữ kế hoạch chưa đổi, nên không đè lượt "Giao cho tôi" hay giao tay vừa làm.
+- Nhóm còn ở `picked` **chưa có người đóng** (kế hoạch đang tính, `failed` vì SKU chưa đo, hoặc `rejected`) → lọc `assigned_packer_id` không ra nhóm này. Tab "Đã lấy hàng" của Packaging Staff phải xem phạm vi **Tất cả**, không phải "Của tôi".
 
 (Chi tiết bộ lọc khác: `INTEGRATION_GUIDE_FULFILLMENT.md`.)
 
