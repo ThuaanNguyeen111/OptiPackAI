@@ -61,6 +61,13 @@ export function PackingSettingsForm({
         max_parcels_per_order: settings.maxParcelsPerOrder,
         allow_reused_box_for_fragile: settings.allowReusedBoxForFragile,
         require_scan: settings.requireScan,
+        mailer_enabled: settings.mailerEnabled,
+        mailer_margin_width_mm: settings.mailerMarginWidthMm,
+        mailer_margin_length_mm: settings.mailerMarginLengthMm,
+        mailer_max_thickness_mm: settings.mailerMaxThicknessMm,
+        split_min_saving_vnd: settings.splitMinSavingVnd,
+        est_fee_first_step_vnd: settings.estFeeFirstStepVnd,
+        est_fee_per_extra_step_vnd: settings.estFeePerExtraStepVnd,
       })
       setSettings(next)
     } catch (err: unknown) {
@@ -164,6 +171,50 @@ export function PackingSettingsForm({
             />
             {vi ? 'Bắt buộc quét từng món' : 'Require scan'}
           </label>
+          <div className="space-y-3 border-t border-hairline pt-3 sm:col-span-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-ink">
+              <input
+                type="checkbox"
+                disabled={!canEdit}
+                checked={settings.mailerEnabled}
+                onChange={(e) => setSettings({ ...settings, mailerEnabled: e.target.checked })}
+              />
+              {vi ? 'Cho phép dùng túi niêm phong với hàng mềm' : 'Allow mailers for soft goods'}
+            </label>
+            {settings.mailerEnabled ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    ['mailerMarginWidthMm', vi ? 'Lề rộng túi (mm)' : 'Width margin (mm)', 0, 100],
+                    ['mailerMarginLengthMm', vi ? 'Lề dài túi, gồm nắp dán (mm)' : 'Length margin, incl. flap (mm)', 0, 150],
+                    ['mailerMaxThicknessMm', vi ? 'Chồng hàng dày tối đa (mm)' : 'Max stack thickness (mm)', 5, 300],
+                    ['splitMinSavingVnd', vi ? 'Chỉ tách túi + thùng khi rẻ hơn ít nhất (đ)' : 'Split only if it saves at least (VND)', 0, 1000000],
+                    ['estFeeFirstStepVnd', vi ? 'Cước ước tính bậc đầu (đ)' : 'Estimated first-step fee (VND)', 0, 1000000],
+                    ['estFeePerExtraStepVnd', vi ? 'Cước ước tính mỗi bậc thêm (đ)' : 'Estimated fee per extra step (VND)', 0, 1000000],
+                  ] as const
+                ).map(([key, label, min, max]) => (
+                  <label key={key} className="text-xs text-ink-muted">
+                    {label}
+                    <input
+                      type="number"
+                      min={min}
+                      max={max}
+                      step={1}
+                      disabled={!canEdit}
+                      value={settings[key]}
+                      onChange={(e) => setSettings({ ...settings, [key]: Number(e.target.value) })}
+                      className="mt-1 w-full rounded-lg border border-hairline bg-surface px-2 py-1.5 text-sm text-ink"
+                    />
+                  </label>
+                ))}
+                <p className="text-[11px] text-ink-subtle sm:col-span-2">
+                  {vi
+                    ? 'Hai ô cước chỉ dùng để so phương án lúc tính kế hoạch, là số giả định. Phí thật do GHN báo khi tạo vận đơn. Cần có ít nhất 1 túi niêm phong trong danh mục vật tư.'
+                    : 'The two fee fields only rank options while planning and are assumptions. GHN quotes the real fee. At least one mailer must exist in the materials catalog.'}
+                </p>
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
       {canEdit ? (

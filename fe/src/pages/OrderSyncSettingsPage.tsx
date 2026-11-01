@@ -7,6 +7,7 @@ import {
   type OrderSyncSettings,
   type SyncOption,
 } from '../api/order-sync-settings.api'
+import { ConsolidationRulesPanel } from '../components/order-sync/ConsolidationRulesPanel'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
@@ -408,6 +409,15 @@ export function OrderSyncSettingsPage() {
                   </div>
                 </div>
               </section>
+
+              <ConsolidationRulesPanel
+                vi={vi}
+                canEdit={canSave}
+                settingsVersion={settings.version}
+                onVersionChange={(version) =>
+                  setSettings((current) => (current ? { ...current, version } : current))
+                }
+              />
 
               {canSave ? (
                 <section className="space-y-3 rounded-xl border border-hairline bg-surface-1 p-4">

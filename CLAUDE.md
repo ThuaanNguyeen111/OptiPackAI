@@ -4509,6 +4509,62 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 4. *Rủi ro / mâu thuẫn quy tắc?* Chưa có vai trò "Shipper" riêng — dùng Shipping Coordinator (như đã ghi ở `shipments.controller.ts`). Giờ hẹn tính từ lúc **đặt trên website**; nếu Open API chậm đồng bộ thì OptiPack mất bớt thời gian. Giới hạn ghim 50 nhóm/trang 1. Bảo đảm "trong 3 giờ" là cam kết vận hành, hệ thống chỉ cảnh báo + hiện trễ, không tự đổi sang GHN.
 5. *Kiểm chứng?* `tsc` BE 0 lỗi; eslint các file đổi 0 lỗi (3 lỗi cũ có sẵn trong `aurelle-mock-server.ts` không do lần này); jest toàn bộ 130 suite / 1324 test đạt (thêm test chính sách hỏa tốc, checkout, gom nhóm + ghim, cron 4 mốc, shipper, writeback); `storefront` `tsc` + `next build` đạt. Chưa chạy thử đầu-cuối trên dữ liệu thật (cần BE 3000 + mock 4000 + storefront 3001, đặt trong 8:00–14:00).
 
+## 🖥️ Nhật ký 01/11/2026 — FE: quy tắc gộp đơn, đóng gói thời trang, hàng chờ (dòng 9, 10 checklist)
+
+**[stated] Việt yêu cầu:** làm các phần FE của AOFP-222/223/224, **chừa phần 3D** (vẽ túi niêm phong, tô màu món theo đơn trong khung 3D) để làm sau. Chỉ sửa `fe/` và tài liệu.
+
+- **Quy tắc gộp:** `api/consolidation-rules.api.ts`, `components/order-sync/ConsolidationRulesPanel.tsx` đặt trong `OrderSyncSettingsPage`. Bắt buộc xem trước đúng nội dung form rồi mới lưu được (sửa form là phải xem lại). Rule ghi xong bump version cấu hình → panel báo lên trang để form chính không dính 409.
+- **Kiện gộp:** `parcel-order-display.ts` gom theo `orderIds`, hiện "Kiện chung đơn A + B"; `SharedParcelOrders` liệt kê món từng đơn theo `placements[].orderId` (màn duyệt, cân, phiên đóng gói). **Phát hiện:** `bucketAllocations` ở BE không kiểm `mailer_enabled` nên kiện gộp AURELLE có thể xảy ra cả khi tắt túi — trái câu "tắt thì chạy như cũ", chưa hỏi lại bên BE.
+- **Hồ sơ SKU:** thêm `bag`, ô Lớp ngoài. **Lỗi đã sửa:** BE ghi `outer_requirement: dto ?? null` nên FE không gửi là xoá mất giá trị — nay luôn gửi.
+- **Cài đặt + vật tư:** công tắc `mailer_enabled` + 6 ô; tạo vật tư `kind: 'mailer'`; thêm `kraft_paper`, `tissue_paper`, phạm vi luật `bag`, `dress_or_bag` (thiếu thì ô chọn của luật mặc định BE bị trống).
+- **Hàng chờ:** phạm vi "Việc của tôi" lấy thêm `awaiting_packaging`, `picked`, `partial_needs_review` (các bước chưa có người đóng). **Lỗi đã sửa ngoài checklist:** trước đây lọc theo người đóng làm Packaging Staff không bao giờ thấy nhóm thiếu hàng cần duyệt. Bỏ câu "chờ Admin chốt kế hoạch" (BE tự tính).
+
+**Tác động (5 câu):** (1) không đổi DB. (2) Không đổi route; FE gọi thêm 6 route rules; "Việc của tôi" gọi 4 request thay vì 1. (3) Lưu hồ sơ SKU giờ luôn ghi `outer_requirement` theo ô chọn. (4) Không ảnh hưởng lấy hàng, giao hàng, khung 3D (kiện túi vẫn bị vẽ như thùng dẹt và ghi "gập nắp" cho tới khi làm 7.4). (5) Chưa có UI chuyển món giữa kiện (`move-item`) ở FE, nên phần "chuyển món cùng `shareGroup`" của 7.5 chưa dùng được.
+
+**Kiểm chứng:** `tsc -b`, `vite build`, eslint các file mới sạch. **Chưa bấm thử trên trình duyệt** với dữ liệu thật.
+
+## 👕 Nhật ký 01/11/2026 (tối) — Loại `shirt` dùng `somi.glb` có bìa cứng, kiểm chứng model 3D bằng code FE
+
+**[stated] Việt chốt:** loại `shirt` dùng `somi.glb` (đúng là áo sơ mi) thay `polo.glb`, giảm lưới và thêm bìa cứng như `docs/PACKAGING_STANDARD.md` mục 5.2.
+
+**Đã làm:** `somi.glb` giảm từ 125.688 xuống 17.999 tam giác áo (Blender CLI, giữ đỉnh ở biên nhóm xương và nút áo, chép lại trọng số theo đỉnh gốc gần nhất), thêm node `shirt_card` 210×247 mm là con của `shirt_rig`, không có keyframe. `product-models.ts`: `shirt` → `/models/somi.glb`. `polo.glb` không còn được dùng.
+
+**Kiểm chứng (Edge headless, trang tạm dùng đúng `PackingScene`, `ItemRig`, `fitToBlock` với dữ liệu giả, đã xoá trang tạm):**
+- 7 loại hàng khớp đúng khối được giao, Console không có lỗi (chỉ cảnh báo `THREE.Clock` deprecated).
+- Fps 120 (đạt trần) với 10 và 16 món, tới 337 nghìn tam giác, GPU Intel Arc qua D3D11.
+- So với bản trước khi giảm lưới: hộp bao gấp bằng nhau, lệch trung bình 0,09–0,22 mm, lớn nhất 3 mm (shirt, shorts, pants, polo, bomber). Viền `shorts` không có gai ở 2,3–3,75 s.
+- Bìa nằm trong áo sau khi gấp, không lộ từ trên, dưới, cạnh.
+
+**Tác động (5 câu):** (1) Không đổi DB, không đổi API. (2) Không đổi route. (3) Luồng đọc: hồ sơ SKU loại `shirt` hiện áo dài tay thay vì polo. (4) Không ảnh hưởng 6 loại khác, thùng, trang giới thiệu. (5) Phát hiện chưa sửa: bước gấp có hàng hiển thị lệch khỏi khung dây vì `fitToBlock` tính offset từ hộp bao ở `bagEnd` (gói đã di chuyển theo `parcel`), nhìn rõ ở `trousers`, `dress`; 260 đỉnh vạt áo nằm trong độ dày bìa, không lộ ra ngoài.
+
+**Chưa kiểm chứng:** luồng trên màn đóng gói thật với tài khoản và dữ liệu thật; `handbag.glb`, `mailer.glb` chưa nối FE; `dress.glb` chưa có nếp xếp; `CREDITS.md` còn trống nguồn và giấy phép.
+
+## 📬 Nhật ký 01/11/2026 (khuya) — Khung 3D: túi niêm phong, túi xách, kiện gộp, sửa lệch ở bước gấp (checklist 7.4, 7.5)
+
+**[stated] Việt yêu cầu** làm Việc 2 sau khi model đã xong. Chỉ sửa FE, không đổi BE.
+
+**Code:** `product-models.ts` (`bag` → `handbag.glb`, cờ `prepClip`, `MAILER_MODEL`); `packing-layout.ts` (`buildPackSteps` nhận `{ mailer, shared }`; bỏ `shoeBox`, thêm `bagPrep`, `slip`, `bagIn`, `seal`, `label`; `orderColor`); `model-rigs.ts` (`MailerRig`, `ItemRig.driftInto`); `PackingScene.tsx` (`MailerFromModel`, `MailerStack`, `PackingSlips`, tô màu theo đơn); `Packing3DBoxViewer.tsx` (lời từng bước, chú giải mã đơn, camera riêng cho túi).
+
+**Quyết định:**
+- Giày bỏ bước "đóng hộp": `PACKAGING_STANDARD.md` 5.1 yêu cầu giữ hộp gốc, chỉ hiện hộp đã đóng. Clip `PackShoes` không còn được phát.
+- Túi trải phẳng chưa có khổ trong API (`box` chỉ có kích thước sau nhồi), nên dựng theo kích thước sau nhồi + lề cố định 24/50/8 mm. Đây là hình minh hoạ, không phải khổ túi thật.
+- Thân túi phồng dạng gối, mép mỏng, nên chồng hàng được ẩn ở 72% bước `bagIn`, không dựng va chạm.
+- Sửa lỗi lệch khung ở bước gấp: `fit.offset` tính theo hộp bao cuối (gói đã di chuyển theo node `parcel`), nay trừ độ lệch `parcel` mỗi khung.
+
+**Kiểm chứng:** chạy đúng `Packing3DBoxViewer` trong Edge headless với 3 kế hoạch giả (túi gộp 2 đơn, túi dài ngang, thùng có giày + túi xách + quần), bấm hết các bước, xem hình từng bước; Console không lỗi; `tsc -b`, ESLint 5 file, `vite build` đạt. **Chưa** chạy với tài khoản và dữ liệu thật, chưa thử trên màn `PackingSessionPanel`.
+
+**Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route. (3) Kiện `mailer`, kiện gộp, loại `bag`, loại `shoes` đổi chuỗi bước hiển thị; số bước giày giảm 1. (4) Không ảnh hưởng tính kế hoạch, quét, niêm phong, cân. (5) Còn thiếu: chưa có UI chuyển món giữa kiện cùng `shareGroup`; nắp túi có góc vuông nhô hơn thân bo tròn ở góc xa (do `mailer.glb`); BE nên trả khổ túi trải phẳng để hình khớp thật; `bagPrep` chạy với túi vải đặt bên cạnh trong clip.
+
+## 🧭 Nhật ký 01/11/2026 (khuya, sau khi Việt xem đơn demo) — Bố cục khung 3D: khu chuẩn bị cạnh thùng
+
+**Vấn đề Việt báo:** áo trải phẳng xuyên qua thùng ở bước gấp. Nguyên nhân: món được gấp ngay trên miệng thùng, mà áo trải phẳng lớn hơn thùng; các nếp gấp của clip lại gập về phía sau lưng (xuống dưới), nên nâng hạ đơn thuần không hết xuyên.
+
+**Sửa (chỉ FE):** `workAreaFor()` trong `packing-layout.ts` đặt khu chuẩn bị cạnh thùng (cạnh túi thì vuông góc hướng túi trượt). Bước gấp: món úp mặt, gấp trong 72% đầu bước, lật lên ở phần còn lại (`FOLD_CLIP_SHARE`); hàng trải phẳng rộng hơn khu thì co lại, gấp xong về đúng cỡ. Bước đặt: nhấc theo đường vòng cao hơn đầu nắp. Khung dây chỉ hiện từ sau bước gấp. Camera tính theo cả thùng/túi và khu chuẩn bị. Thùng tô màu bìa `#b98a55` trong `CartonRig` vì `sampleS/M/L/LT.glb` không khai màu nên hiện trắng xám.
+
+**Kiểm chứng:** chạy đúng `Packing3DBoxViewer` với kế hoạch giả, xem hình ở đầu gấp, giữa gấp, lật, nhấc, đặt xong; Console không lỗi; `tsc -b`, ESLint, `vite build` đạt. Chưa xem lại với đơn thật trên màn `/app/packing` (Việt tự xem bằng đơn `DEMO-3D-1`).
+
+**Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route. (3) Chỉ đổi hiển thị 3D; bước gấp dài 3,4 s, bước đặt 1,5 s. (4) Không ảnh hưởng tính kế hoạch, toạ độ xếp, quét, niêm phong. (5) Hạn chế: co hàng trải phẳng là thủ thuật hình ảnh; lúc lật món hàng không chạm va chạm thật với sàn; món xếp trong thùng nhìn qua vách bị ám màu bìa.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.

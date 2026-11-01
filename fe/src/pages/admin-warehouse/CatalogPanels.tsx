@@ -27,6 +27,7 @@ import {
   updateColor,
   type ColorRecord,
   type ConfirmPackagingProfileInput,
+  type OuterRequirement,
   type MasterSkuRecord,
   type ProductMasterRow,
   type SkuMappingRecord,
@@ -930,11 +931,18 @@ const PRODUCT_CATEGORIES: Array<[string, string]> = [
   ['shorts', 'Quần đùi'],
   ['trousers', 'Quần dài'],
   ['dress', 'Váy/đầm'],
+  ['bag', 'Túi xách'],
   ['shoes', 'Giày (hộp)'],
   ['sandals', 'Dép/sandal'],
   ['accessory', 'Phụ kiện'],
   ['other', 'Khác'],
 ]
+
+function outerRequirementLabel(value: string | null, vi: boolean): string {
+  if (value === 'mailer_ok') return vi ? 'Được dùng túi niêm phong' : 'Mailer allowed'
+  if (value === 'box_required') return vi ? 'Bắt buộc thùng' : 'Box required'
+  return vi ? 'Theo loại hàng' : 'By category'
+}
 
 function formatTs(value: string | null | undefined): string {
   if (!value) return '—'
@@ -998,6 +1006,11 @@ function ProductMasterDetailDialog({
         ],
         [vi ? 'Khối lượng (kg)' : 'Weight (kg)', row.weightKg != null ? String(row.weightKg) : '—'],
         [vi ? 'Dễ vỡ' : 'Fragile', row.isFragile ? (vi ? 'Có' : 'Yes') : vi ? 'Không' : 'No'],
+        [vi ? 'Lớp ngoài kho đặt' : 'Outer layer set', outerRequirementLabel(row.outerRequirement, vi)],
+        [
+          vi ? 'Lớp ngoài đang áp' : 'Outer layer applied',
+          row.effectiveOuterRequirement ? outerRequirementLabel(row.effectiveOuterRequirement, vi) : '—',
+        ],
         [vi ? 'Loại hàng' : 'Category', categoryLabel],
         [vi ? 'Hướng xếp' : 'Orientation', row.orientationRule || '—'],
         [
@@ -1088,6 +1101,7 @@ function PackagingProfileForm({
   const [zipBag, setZipBag] = useState(row?.zipBagCode ?? '')
   const [zipFolded, setZipFolded] = useState(row?.zipBagFolded ?? false)
   const [fold, setFold] = useState(row?.canFoldInHalf ?? false)
+  const [outer, setOuter] = useState<OuterRequirement | ''>(row?.outerRequirement ?? '')
   const canFold = FOLDABLE_CATEGORIES.has(category)
 
   if (!row) return null
@@ -1116,6 +1130,7 @@ function PackagingProfileForm({
           zip_bag_code: zipBag.trim() === '' ? null : zipBag.trim(),
           zip_bag_folded: zipBag.trim() !== '' && zipFolded,
           can_fold_in_half: canFold ? fold : false,
+          outer_requirement: outer === '' ? null : outer,
         })
       }}
     >
@@ -1155,6 +1170,30 @@ function PackagingProfileForm({
             </option>
           ))}
         </select>
+      </label>
+      <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
+        {vi ? 'Lớp ngoài' : 'Outer layer'}
+        <select
+          className={fieldClass}
+          value={outer}
+          onChange={(e) => {
+            const next = e.target.value
+            setOuter(next === 'mailer_ok' || next === 'box_required' ? next : '')
+          }}
+        >
+          <option value="">{outerRequirementLabel(null, vi)}</option>
+          <option value="mailer_ok">{outerRequirementLabel('mailer_ok', vi)}</option>
+          <option value="box_required">{outerRequirementLabel('box_required', vi)}</option>
+        </select>
+        <span className="block">
+          {fragile
+            ? vi
+              ? 'Hàng dễ vỡ luôn vào thùng.'
+              : 'Fragile items always go in a box.'
+            : row.effectiveOuterRequirement && category === row.productCategory
+              ? `${vi ? 'Đang áp' : 'Applied'}: ${outerRequirementLabel(row.effectiveOuterRequirement, vi)}`
+              : null}
+        </span>
       </label>
       <label className="space-y-1 text-[11px] text-ink-muted sm:col-span-2">
         {vi ? 'Hướng xếp' : 'Orientation'}

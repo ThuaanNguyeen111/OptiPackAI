@@ -43,6 +43,7 @@ import {
   parcelOrderCaption,
   parcelOrderHeading,
 } from '../../lib/parcel-order-display'
+import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
   hasPackableOrders,
@@ -205,6 +206,13 @@ function statusLabel(status: string, vi: boolean): string {
   return vi ? known.vi : known.en
 }
 
+/** Các bước chưa có người đóng gói được giao — vẫn hiện ở phạm vi "Việc của tôi". */
+const UNASSIGNED_QUEUE_STATUSES = [
+  'awaiting_packaging',
+  'picked',
+  'partial_needs_review',
+] as const
+
 function emptyCopy(
   tab: QueueTab,
   vi: boolean,
@@ -217,15 +225,15 @@ function emptyCopy(
             title: 'Chưa có việc duyệt ngay',
             body:
               counts.picked > 0
-                ? `Có ${String(counts.picked)} nhóm đã lấy xong — chờ Admin chốt kế hoạch. Sau đó đơn sẽ hiện tại đây để bạn duyệt.`
-                : `Kho đang lấy ${String(counts.awaiting)} nhóm. Khi lấy xong và Admin chốt kế hoạch, đơn sẽ hiện tại đây để duyệt.`,
+                ? `Có ${String(counts.picked)} nhóm đã lấy xong, hệ thống đang tính kế hoạch. Có kế hoạch là đơn hiện tại đây để bạn duyệt.`
+                : `Kho đang lấy ${String(counts.awaiting)} nhóm. Lấy xong, hệ thống tự tính kế hoạch rồi đơn sẽ hiện tại đây để duyệt.`,
           }
         : {
             title: 'Nothing to approve yet',
             body:
               counts.picked > 0
-                ? `${String(counts.picked)} group(s) picked — wait for Admin to confirm a packing plan. They will appear here for approval.`
-                : `Warehouse is picking ${String(counts.awaiting)} group(s). After pick and Admin confirm, approve here.`,
+                ? `${String(counts.picked)} group(s) picked, plans are being computed. They appear here once a plan is ready.`
+                : `Warehouse is picking ${String(counts.awaiting)} group(s). A plan is computed automatically after picking.`,
           }
     }
     return vi
@@ -507,9 +515,20 @@ export function PackagingWorkbench() {
           ? (await fetchMyProfile()).id
           : ''
       if (packerId) setMyUserId(packerId)
-      const rows = await listOrderGroups(
-        packerId && queueScope === 'mine' ? { assigned_packer_id: packerId } : {},
-      )
+      let rows: OrderGroup[]
+      if (packerId && queueScope === 'mine') {
+        // Nhóm chưa có kế hoạch thì chưa có người đóng: lọc theo người sẽ làm các tab này luôn trống.
+        const lists = await Promise.all([
+          listOrderGroups({ assigned_packer_id: packerId }),
+          ...UNASSIGNED_QUEUE_STATUSES.map((status) =>
+            listOrderGroups({ fulfillment_status: status }),
+          ),
+        ])
+        const byId = new Map(lists.flat().map((row) => [row.id, row]))
+        rows = [...byId.values()]
+      } else {
+        rows = await listOrderGroups({})
+      }
       setAllGroups(rows)
       const ids = rows.map((row) => row.id)
       if (ids.length > 0) {
@@ -1269,6 +1288,7 @@ export function PackagingWorkbench() {
             {caption ? (
               <p className="pl-1 text-[11px] text-ink-muted">{caption}</p>
             ) : null}
+            <SharedParcelOrders parcel={parcel} orders={plan.orders} vi={vi} />
             <BoxSourceFields
               vi={vi}
               info={boxSources?.parcels.find((row) => row.parcelNo === parcel.parcelNo)}
@@ -1303,10 +1323,10 @@ export function PackagingWorkbench() {
               : `You have ${String(actionableCount)} task(s) (${String(counts.pending)} pending plan · ${String(counts.partial)} shortage).`
             : vi
               ? counts.awaiting > 0 || counts.picked > 0
-                ? `Chưa có việc duyệt. ${counts.picked > 0 ? `${String(counts.picked)} nhóm đã lấy — chờ Admin chốt kế hoạch. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} nhóm kho đang lấy (tab «Chỉ xem»). ` : ''}Bấm Tải lại khi có gợi ý.`
+                ? `Chưa có việc duyệt. ${counts.picked > 0 ? `${String(counts.picked)} nhóm đã lấy, đang tính kế hoạch. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} nhóm kho đang lấy (tab «Chỉ xem»). ` : ''}Bấm Tải lại khi có gợi ý.`
                 : 'Chưa có việc. Khi có gợi ý thùng, đơn sẽ hiện ở «Chờ duyệt kế hoạch».'
               : counts.awaiting > 0 || counts.picked > 0
-                ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked — wait for Admin to confirm a plan. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
+                ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked, plans are being computed. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
                 : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
           </p>
           <div className="owner-hero-ctas">
@@ -2009,6 +2029,7 @@ export function PackagingWorkbench() {
                                   <span className="font-mono text-xs text-ink-muted">
                                     {parcel.box.code}
                                   </span>
+                                  <MailerBadge parcel={parcel} vi={vi} />
                                   {caption ? (
                                     <span className="ml-1 text-xs font-normal text-ink-muted">
                                       · {caption}
@@ -2023,6 +2044,7 @@ export function PackagingWorkbench() {
                                     ? ` · ${formatCurrency(parcel.shippingCostVnd)}`
                                     : ''}
                                 </p>
+                                <SharedParcelOrders parcel={parcel} orders={plan.orders} vi={vi} />
                                 <MaterialTags materials={parcel.materials} />
                               </li>
                             )

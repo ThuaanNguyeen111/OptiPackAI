@@ -29,6 +29,8 @@ export type PackingPlacement = {
   orientation: PackingOrientation
   /** true = thuật toán đã gập đôi món để vừa thùng nhỏ hơn. */
   folded: boolean
+  /** Kiện gộp nhiều đơn: món này thuộc đơn nào. Kiện 1 đơn = null. */
+  orderId?: string | null
 }
 
 /** Hồ sơ SKU chụp lúc tính kế hoạch — nối với placement theo `sku`. */
@@ -44,6 +46,8 @@ export type PackingPlanParcel = {
   box: {
     code: string
     name: string
+    /** 'mailer' = túi niêm phong. Bản ghi cũ không có = thùng. */
+    kind?: 'box' | 'mailer'
     outerMm: PackingMm
     /** Lòng thùng — món đặt theo kích thước này. */
     innerMm?: PackingMm
@@ -65,6 +69,10 @@ export type PackingPlanParcel = {
   orderId?: string | null
   recipientName?: string | null
   platformOrderId?: string | null
+  /** Kiện gộp: ≥ 2 đơn cùng người nhận trong 1 kiện. Kiện thường có đúng 1 phần tử. */
+  orderIds?: string[]
+  platformOrderIds?: (string | null)[]
+  shareGroup?: string | null
   boxSourceUsed?: 'new' | 'reused' | null
   boxSourceOverride?: {
     source: 'new' | 'reused'
@@ -204,6 +212,13 @@ export type PackingSettings = {
   maxParcelsPerOrder: number | null
   allowReusedBoxForFragile: boolean
   requireScan: boolean
+  mailerEnabled: boolean
+  mailerMarginWidthMm: number
+  mailerMarginLengthMm: number
+  mailerMaxThicknessMm: number
+  splitMinSavingVnd: number
+  estFeeFirstStepVnd: number
+  estFeePerExtraStepVnd: number
 }
 
 export type PackingReport = {

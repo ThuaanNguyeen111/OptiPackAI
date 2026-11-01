@@ -13,18 +13,21 @@ import {
   ZoomIn,
 } from 'lucide-react'
 import { usePortal } from '../../context/use-portal'
-import type { PackingPlan, PackingPlanParcel } from '../../types/packing-plan'
+import type { PackingPlacement, PackingPlan, PackingPlanParcel } from '../../types/packing-plan'
 import {
   STEP_SECONDS,
   buildPackSteps,
   innerOf,
+  orderColor,
   profileFor,
   sceneMode,
   selectParcel,
   sortedPlacements,
   stepLabel,
+  workAreaFor,
   type SceneMode,
 } from '../../utils/packing-layout'
+import { sharedOrderCodes } from '../../lib/parcel-order-display'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
 
@@ -105,10 +108,22 @@ function ParcelGuidePlayer({
   onOpenDetail?: () => void
 }): ReactNode {
   const placements = useMemo(() => sortedPlacements(parcel), [parcel])
+  const mailer = parcel.box.kind === 'mailer'
+  const orderIds = parcel.orderIds
+  const shared = (orderIds?.length ?? 0) >= 2
+  const orderCodes = sharedOrderCodes(parcel)
   const steps = useMemo(
-    () => buildPackSteps(placements, plan.itemProfiles),
-    [placements, plan.itemProfiles],
+    () => buildPackSteps(placements, plan.itemProfiles, { mailer, shared }),
+    [placements, plan.itemProfiles, mailer, shared],
   )
+  const slipColors = useMemo(() => (orderIds ?? []).map((_, i) => orderColor(i)), [orderIds])
+  const tintOf = useMemo(() => {
+    if (!shared) return undefined
+    return (p: PackingPlacement): string | undefined => {
+      const at = orderIds?.indexOf(p.orderId ?? parcel.orderId ?? '') ?? -1
+      return at >= 0 ? orderColor(at) : undefined
+    }
+  }, [shared, orderIds, parcel.orderId])
   const [index, setIndex] = useState(0)
   const [playing, setPlaying] = useState(false)
   const [viewKey, setViewKey] = useState(0)
@@ -133,8 +148,22 @@ function ParcelGuidePlayer({
   const inner = innerOf(parcel)
   const outer = parcel.box.outerMm
   const span = Math.max(outer.lengthMm, outer.widthMm, outer.heightMm) / 1000
-  const camera: [number, number, number] = [span * 1.35, span * 1.45, span * 1.75]
-  const target: [number, number, number] = [0, (outer.heightMm / 1000) * 0.85, 0]
+  // Khung hình gồm thùng/túi + khu chuẩn bị (túi còn nằm ở phía kia trước khi trượt vào).
+  const area = workAreaFor(outer, inner, mailer)
+  const alongX = inner.lengthMm > inner.widthMm
+  // Túi trải phẳng chừa thêm lề trái để không chạm mép khung ở góc gần camera.
+  const minX = -outer.lengthMm / 2000 - (mailer ? 0.16 : 0)
+  const maxX = Math.max(area.center[0] + area.size / 2, mailer && alongX ? (outer.lengthMm * 1.5) / 1000 : outer.lengthMm / 2000)
+  const minZ = -Math.max(outer.widthMm / 2000, area.size / 2)
+  const maxZ = Math.max(area.center[1] + area.size / 2, mailer && !alongX ? (outer.widthMm * 1.5) / 1000 : outer.widthMm / 2000)
+  const reach = Math.max(maxX - minX, maxZ - minZ)
+  // Bảng hướng dẫn che phần dưới khung: nhìn lệch về phía người xem để cảnh nằm cao hơn.
+  const target: [number, number, number] = [(minX + maxX) / 2, 0.06, (minZ + maxZ) / 2 + reach * 0.14]
+  const camera: [number, number, number] = [target[0] + reach * 0.3, reach * 1.05, target[2] + reach * 1.05]
+  const placementOrder = placement && shared ? tintOf?.(placement) : undefined
+  const placementOrderCode = placement
+    ? orderCodes[orderIds?.indexOf(placement.orderId ?? parcel.orderId ?? '') ?? -1]
+    : undefined
 
   const go = (delta: number): void => {
     setPlaying(false)
@@ -161,6 +190,9 @@ function ParcelGuidePlayer({
               profiles={plan.itemProfiles}
               steps={steps}
               index={index}
+              mailer={mailer}
+              tintOf={tintOf}
+              slipColors={shared ? slipColors : undefined}
             />
           </Suspense>
           <OrbitControls
@@ -168,9 +200,9 @@ function ParcelGuidePlayer({
             target={target}
             enablePan={false}
             minDistance={span * 0.8}
-            maxDistance={span * 5}
+            maxDistance={reach * 3}
             maxPolarAngle={Math.PI / 2.05}
-            autoRotate={autoRotate && !playing && (current?.kind === 'prepare' || current?.kind === 'close')}
+            autoRotate={autoRotate && !playing && (current?.kind === 'prepare' || current?.kind === 'close' || current?.kind === 'label')}
             autoRotateSpeed={1.2}
           />
         </Canvas>
@@ -204,12 +236,12 @@ function ParcelGuidePlayer({
           <div className="min-w-0">
             <p className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
               {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
-              {current ? ` · ${stepLabel(current.kind, vi)}` : ''}
+              {current ? ` · ${stepLabel(current.kind, vi, mailer)}` : ''}
             </p>
             {current?.kind === 'prepare' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
                 {parcel.box.name} ({parcel.box.code}) — {cm(inner.lengthMm)} × {cm(inner.widthMm)} ×{' '}
-                {cm(inner.heightMm)} cm
+                {cm(inner.heightMm)} cm{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}
                 {parcel.materials.length > 0
                   ? ` · ${parcel.materials.map((m) => `${m.name} × ${String(m.quantity)}`).join(', ')}`
                   : ''}
@@ -220,6 +252,27 @@ function ParcelGuidePlayer({
                   ? 'Chèn vật tư vào khoảng trống, gập 2 nắp ngắn rồi 2 nắp dài, dán băng keo.'
                   : 'Fill gaps with materials, fold short flaps then long flaps, tape the box.'}
               </p>
+            ) : current?.kind === 'slip' ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                {vi ? 'Đặt phiếu đóng gói của từng đơn lên chồng hàng' : 'Place each order\'s packing slip on the stack'}
+                {orderCodes.length > 0 ? `: ${orderCodes.join(', ')}` : ''}
+              </p>
+            ) : current?.kind === 'bagIn' ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                {vi
+                  ? 'Cho cả chồng hàng vào túi, món lớn và nặng nằm dưới.'
+                  : 'Slide the whole stack into the mailer, large and heavy items at the bottom.'}
+              </p>
+            ) : current?.kind === 'seal' ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                {vi
+                  ? 'Ép bớt không khí, bóc lớp giấy bảo vệ keo, gập nắp dán kín. Không cần băng keo.'
+                  : 'Press out the air, peel the adhesive strip and seal the flap. No tape needed.'}
+              </p>
+            ) : current?.kind === 'label' ? (
+              <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
+                {vi ? 'Dán tem vận đơn lên mặt phẳng lớn của túi.' : 'Apply the shipping label on the large flat side.'}
+              </p>
             ) : placement ? (
               <>
                 <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
@@ -228,6 +281,12 @@ function ParcelGuidePlayer({
                   {categoryLabel(profile?.productCategory, vi)}
                   {placement.folded ? (vi ? ' · gập đôi' : ' · folded in half') : ''}
                   {profile?.zipBagCode ? ` · ${vi ? 'túi' : 'bag'} ${profile.zipBagCode}` : ''}
+                  {placementOrderCode ? (
+                    <span className="font-semibold" style={{ color: placementOrder }}>
+                      {' · '}
+                      {vi ? 'đơn' : 'order'} {placementOrderCode}
+                    </span>
+                  ) : null}
                 </p>
                 {guideStep ? (
                   <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
@@ -236,6 +295,16 @@ function ParcelGuidePlayer({
                   </p>
                 ) : null}
               </>
+            ) : null}
+            {shared && orderCodes.length > 0 ? (
+              <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600 dark:text-slate-300">
+                {orderCodes.map((code, i) => (
+                  <span key={code} className="inline-flex items-center gap-1 font-mono">
+                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: orderColor(i) }} />
+                    {code}
+                  </span>
+                ))}
+              </p>
             ) : null}
             {parcel.guide ? (
               <p className="mt-1 text-[10px] text-slate-400">

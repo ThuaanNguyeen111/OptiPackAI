@@ -4,6 +4,7 @@ import {
   DoubleSide,
   Matrix4,
   Mesh,
+  MeshStandardMaterial,
   Quaternion,
   SkinnedMesh,
   Vector3,
@@ -172,9 +173,13 @@ export class ItemRig {
   /** Trạng thái cuối khi nằm trong thùng (đã gấp, đã vào túi nếu có). */
   readonly finalTime: number
   readonly finalBox: Box3
+  /** Hàng mềm lúc trải phẳng (đầu clip), để co cho vừa khu chuẩn bị. */
+  readonly flatBox: Box3
   private readonly mixer: AnimationMixer | null
   private readonly duration: number
   private lastTime = Number.NaN
+  private readonly parcelNode: Object3D | null
+  private readonly parcelFinal = new Vector3()
 
   constructor(scene: Object3D, clip: AnimationClip | undefined, kind: ItemModelKind, withZip: boolean) {
     this.root = cloneSkinned(scene)
@@ -197,8 +202,25 @@ export class ItemRig {
     } else {
       this.mixer = null
     }
+    if (kind === 'garment') {
+      this.setTime(0)
+      this.flatBox = measureVisible(this.root)
+    } else {
+      this.flatBox = new Box3()
+    }
     this.setTime(this.finalTime)
     this.finalBox = measureVisible(this.root)
+    this.parcelNode = this.root.getObjectByName('parcel') ?? null
+    if (this.parcelNode) this.parcelFinal.copy(this.parcelNode.position)
+  }
+
+  /**
+   * Gói hàng di chuyển theo node `parcel` khi vào túi zip, nên lúc đang gấp nó ở chỗ khác
+   * so với hộp bao cuối. Trừ độ lệch này để món luôn nằm trong khung của bước.
+   */
+  driftInto(target: Vector3): Vector3 {
+    if (!this.parcelNode) return target.set(0, 0, 0)
+    return target.copy(this.parcelNode.position).sub(this.parcelFinal)
   }
 
   setTime(t: number): void {
@@ -211,8 +233,76 @@ export class ItemRig {
   }
 }
 
+/** Túi niêm phong từ file GLB. Mốc đọc từ track: phồng lên → nắp gập (mailer_flap) → tem (shipping_label). */
+export class MailerRig {
+  readonly root: Object3D
+  readonly flapStart: number
+  readonly flapEnd: number
+  readonly labelStart: number
+  readonly end: number
+  /** Kích thước gốc của thân túi: rộng, dày khi phồng hết, dài. */
+  readonly size: Vector3
+  private readonly flatThickness: number
+  private readonly body: Mesh | null
+  private readonly mixer: AnimationMixer | null
+  private readonly duration: number
+  private lastTime = Number.NaN
+
+  constructor(scene: Object3D, clip: AnimationClip | undefined) {
+    this.root = cloneSkinned(scene)
+    const duration = clip?.duration ?? 0
+    this.duration = duration
+    let flap: [number, number] | null = null
+    let label: [number, number] | null = null
+    let end = 0
+    for (const track of clip?.tracks ?? []) {
+      const range = changeRange(track)
+      if (!range) continue
+      end = Math.max(end, range[1])
+      if (track.name === 'mailer_flap.quaternion') flap = range
+      if (track.name === 'shipping_label.scale') label = range
+    }
+    this.flapStart = flap?.[0] ?? duration
+    this.flapEnd = flap?.[1] ?? duration
+    this.labelStart = label?.[0] ?? duration
+    this.end = end
+    this.mixer = clip ? new AnimationMixer(this.root) : null
+    if (clip) this.mixer?.clipAction(clip).play()
+
+    const peak = new Box3()
+    const flat = new Box3()
+    let body: Mesh | null = null
+    this.root.getObjectByName('mailer_body')?.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return
+      body ??= obj
+      if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox()
+      if (obj.geometry.boundingBox) peak.union(obj.geometry.boundingBox)
+      flat.union(new Box3().setFromBufferAttribute(obj.geometry.attributes.position))
+    })
+    this.body = body
+    this.size = peak.isEmpty() ? new Vector3(0.32, 0.05, 0.45) : peak.getSize(new Vector3())
+    this.flatThickness = flat.isEmpty() ? this.size.y : flat.getSize(new Vector3()).y
+    this.setTime(0)
+  }
+
+  setTime(t: number): void {
+    if (!this.mixer) return
+    const time = Math.min(Math.max(0, t), Math.max(0, this.duration - 1e-3))
+    if (Math.abs(time - this.lastTime) < 1e-4) return
+    this.lastTime = time
+    this.mixer.setTime(time)
+  }
+
+  /** Độ dày thân túi lúc này (theo morph), đơn vị gốc của file. */
+  thickness(): number {
+    const weight = this.body?.morphTargetInfluences?.[0] ?? 0
+    return this.flatThickness + (this.size.y - this.flatThickness) * weight
+  }
+}
+
 type Flap = { node: Object3D; rest: Quaternion; closed: Quaternion; short: boolean }
 
+const CARTON_COLOR = '#b98a55'
 const _axisX = new Vector3(1, 0, 0)
 const _axisZ = new Vector3(0, 0, 1)
 
@@ -230,6 +320,8 @@ export class CartonRig {
       if (!(obj instanceof Mesh)) return
       const apply = (mat: Material): Material => {
         const next = mat.clone()
+        // Thùng trong suốt trên nền sáng bị nhạt thành xám: tô màu bìa rõ hơn. File có texture thì giữ nguyên.
+        if (next instanceof MeshStandardMaterial && !next.map) next.color.set(CARTON_COLOR)
         next.transparent = true
         next.opacity = opacity
         next.depthWrite = false

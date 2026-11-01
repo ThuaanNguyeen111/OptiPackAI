@@ -17,21 +17,27 @@ export const BOX_MODELS: Record<string, string> = {
 
 /**
  * garment: hàng mềm, có clip gấp áo + cho vào túi zip; kéo giãn từng trục cho khít khối.
- * rigid: hàng cứng (hộp giày), thu phóng đều, không méo.
+ * rigid: hàng cứng (hộp giày, túi xách), thu phóng đều, không méo.
+ * prepClip: clip trong file là thao tác nhân viên phải làm (túi xách: nhồi giấy, túi chống bụi).
+ * Giày không có: quy chuẩn giữ nguyên hộp gốc, chỉ hiện hộp đã đóng.
  */
 export type ItemModelKind = 'garment' | 'rigid'
 
-export type ItemModel = { path: string; kind: ItemModelKind }
+export type ItemModel = { path: string; kind: ItemModelKind; prepClip?: boolean }
 
 export const ITEM_MODELS: Record<string, ItemModel> = {
-  shirt: { path: '/models/polo.glb', kind: 'garment' },
+  shirt: { path: '/models/somi.glb', kind: 'garment' },
   t_shirt: { path: '/models/tshirt.glb', kind: 'garment' },
   trousers: { path: '/models/pants.glb', kind: 'garment' },
   shorts: { path: '/models/shorts.glb', kind: 'garment' },
   dress: { path: '/models/dress.glb', kind: 'garment' },
   jacket: { path: '/models/bomber.glb', kind: 'garment' },
   shoes: { path: '/models/shoepack.glb', kind: 'rigid' },
+  bag: { path: '/models/handbag.glb', kind: 'rigid', prepClip: true },
 }
+
+/** Túi niêm phong (`box.kind = 'mailer'`): trải phẳng → phồng → dán nắp → dán tem. */
+export const MAILER_MODEL = '/models/mailer.glb'
 
 /**
  * Node có trong file quần áo nhưng không được hiện trong thùng:
@@ -58,6 +64,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   shorts: '#a78bfa',
   dress: '#f472b6',
   jacket: '#64748b',
+  bag: '#b45309',
   shoes: '#d97706',
   sandals: '#c08457',
   accessory: '#8b5cf6',
@@ -84,6 +91,7 @@ const CATEGORY_LABELS: Record<string, { vi: string; en: string }> = {
   shorts: { vi: 'Quần short', en: 'Shorts' },
   dress: { vi: 'Váy / đầm', en: 'Dress' },
   jacket: { vi: 'Áo khoác', en: 'Jacket' },
+  bag: { vi: 'Túi xách', en: 'Bag' },
   shoes: { vi: 'Giày (hộp)', en: 'Shoes (box)' },
   sandals: { vi: 'Dép / sandal', en: 'Sandals' },
   accessory: { vi: 'Phụ kiện', en: 'Accessory' },

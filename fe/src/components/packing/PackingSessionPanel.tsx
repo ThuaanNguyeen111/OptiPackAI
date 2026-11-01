@@ -31,6 +31,7 @@ import {
   parcelOrderCaption,
   parcelOrderHeading,
 } from '../../lib/parcel-order-display'
+import { MailerBadge, SharedParcelOrders } from './SharedParcelOrders'
 
 type BoxOption = { code: string; name: string }
 
@@ -151,6 +152,7 @@ export function PackingSessionPanel({
           >
             <p className="font-medium text-ink">
               #{String(parcel.parcelNo)} {parcel.box.code}
+              <MailerBadge parcel={parcel} vi={vi} />
               {caption ? (
                 <span className="ml-2 text-xs font-semibold text-sky-700">{caption}</span>
               ) : null}
@@ -160,6 +162,7 @@ export function PackingSessionPanel({
                 {String(parcel.itemCount ?? '—')}
               </span>
             </p>
+            <SharedParcelOrders parcel={parcel} orders={plan.orders} vi={vi} />
             {pending && plan.status === 'packing' ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <input
