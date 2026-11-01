@@ -38,6 +38,7 @@ import {
   SIMULATABLE_GHN_STATUSES,
   aggregateCarrierStatus,
   canCarrierMove,
+  carrierParcelOrderIds,
   carrierStatusOfOrder,
   mapGhnFailureReason,
 } from './carrier-status.util';
@@ -53,19 +54,24 @@ export function orderWritebackChange(
   parcels: readonly CarrierParcel[],
   orderCode: string,
   newStatus: string,
-): { orderId: Types.ObjectId; status: AurelleWritebackStatus } | null {
+): { orderId: Types.ObjectId; status: AurelleWritebackStatus }[] {
   const hit = parcels.find((p) => p.carrier_order_code === orderCode);
-  if (!hit) return null;
-  const orderId = String(hit.order_id);
-  const before = carrierStatusOfOrder(parcels, orderId) ?? ShipmentStatus.AWAITING_PICKUP;
-  const after = carrierStatusOfOrder(
-    parcels.map((p) => ({ order_id: p.order_id, carrier_status: p.carrier_order_code === orderCode ? newStatus : p.carrier_status })),
-    orderId,
-  );
-  if (!after || after === before || !canCarrierMove(before, after)) return null;
-  const status = writebackStatusForShipment(after);
-  if (!status || status === writebackStatusForShipment(before)) return null;
-  return { orderId: hit.order_id, status };
+  if (!hit) return [];
+  const next = parcels.map((p) => ({
+    order_id: p.order_id,
+    order_ids: p.order_ids,
+    carrier_status: p.carrier_order_code === orderCode ? newStatus : p.carrier_status,
+  }));
+  // AOFP-224 — kiện gộp nhiều đơn cùng người nhận: mọi đơn trong kiện cùng đổi trạng thái.
+  return carrierParcelOrderIds(hit).flatMap((id) => {
+    const orderId = String(id);
+    const before = carrierStatusOfOrder(parcels, orderId) ?? ShipmentStatus.AWAITING_PICKUP;
+    const after = carrierStatusOfOrder(next, orderId);
+    if (!after || after === before || !canCarrierMove(before, after)) return [];
+    const status = writebackStatusForShipment(after);
+    if (!status || status === writebackStatusForShipment(before)) return [];
+    return [{ orderId: id, status }];
+  });
 }
 
 /** Hãng/dịch vụ chọn khi tạo vận đơn (gộp thi_dev 04/10/2026). */
@@ -148,6 +154,7 @@ type ShipmentExtras = Partial<
 interface PlannedCarrierParcel {
   parcel_no: number;
   order_id: string;
+  order_ids: string[];
 }
 
 /** client_order_code gửi hãng: lần đặt 1 = SHP-...-<kiện>; đặt lại sau khi huỷ = SHP-...-R2-<kiện>. */
@@ -1006,13 +1013,18 @@ export class ShipmentsService {
   private plannedParcelsOf(quote: ServiceQuote): PlannedCarrierParcel[] {
     return quote.parcels
       .filter((p) => p.parcelNo !== undefined && p.orderId !== null)
-      .map((p) => ({ parcel_no: p.parcelNo ?? 0, order_id: p.orderId ?? '' }));
+      .map((p) => ({
+        parcel_no: p.parcelNo ?? 0,
+        order_id: p.orderId ?? '',
+        order_ids: p.orderIds && p.orderIds.length > 0 ? p.orderIds : [p.orderId ?? ''],
+      }));
   }
 
   private buildCarrierParcels(shipmentCode: string, round: number, planned: PlannedCarrierParcel[]): CarrierParcel[] {
     return planned.map((p) => ({
       parcel_no: p.parcel_no,
       order_id: new Types.ObjectId(p.order_id),
+      order_ids: p.order_ids.map((id) => new Types.ObjectId(id)),
       platform_order_id: null,
       client_order_code: carrierClientCode(shipmentCode, round, p.parcel_no),
       carrier_order_code: null,
@@ -1079,6 +1091,7 @@ export class ShipmentsService {
       const plain: CarrierParcel = {
         parcel_no: cp.parcel_no,
         order_id: cp.order_id,
+        order_ids: carrierParcelOrderIds(cp),
         platform_order_id: cp.platform_order_id ?? null,
         client_order_code: cp.client_order_code,
         carrier_order_code: cp.carrier_order_code ?? null,
@@ -1468,18 +1481,18 @@ export class ShipmentsService {
       const extraSet: Record<string, unknown> = { carrier_status: status };
       if (status === 'returned') extraSet.carrier_returned_at = at;
       // 28/10/2026 (G2) — trạng thái báo sàn của RIÊNG đơn có kiện này (null = đơn đó không đổi).
-      const orderPush = orderWritebackChange(shipment.carrier_parcels ?? [], orderCode, status);
+      const orderPushes = orderWritebackChange(shipment.carrier_parcels ?? [], orderCode, status);
       const pushReason = reasonCode ?? reasonText;
 
       if (!target || !canCarrierMove(from, target)) {
         // Không đổi trạng thái vận đơn (đến lệch thứ tự / trùng / đã kết thúc) — vẫn lưu trạng thái kiện.
-        if (!orderPush) {
+        if (orderPushes.length === 0) {
           await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters });
         } else {
           // Vận đơn giữ nguyên nhưng đơn của kiện này đã đổi (VD kiện A giao xong, kiện B còn chạy) → báo sàn cho đơn A.
           await this.runInTransaction(async (session) => {
             await this.shipmentModel.updateOne({ _id: shipment._id }, { $set: { ...parcelSet, ...extraSet } }, { arrayFilters, session });
-            await this.enqueueOrderPush(shipment, orderPush, at, pushReason, session);
+            for (const push of orderPushes) await this.enqueueOrderPush(shipment, push, at, pushReason, session);
           });
         }
         return { result: `recorded:${from}${target ? `->${target}(bỏ qua)` : ''}`, shipmentId: shipment._id };
@@ -1508,7 +1521,7 @@ export class ShipmentsService {
           reasonCode,
           note: `${doc.carrier_name ?? 'Hãng'}: ${label} (mã ${orderCode}, ${sourceLabel})${reasonText ? ` — ${reasonText}` : ''}`,
         }, session, { source, carrierStatus: status, skipWriteback: true });
-        if (orderPush) await this.enqueueOrderPush(doc, orderPush, at, pushReason, session);
+        for (const push of orderPushes) await this.enqueueOrderPush(doc, push, at, pushReason, session);
         await this.moveGroupForCarrier(doc, target, session);
         return doc;
       });

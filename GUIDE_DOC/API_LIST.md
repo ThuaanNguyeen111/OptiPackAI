@@ -1,7 +1,7 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
 > **Bản đồ route theo role** — quét từ `@Controller`/`@Roles` trong code. Việc FE còn thiếu: **`FE_UPDATE_CHECKLIST.md`**.
-> **Thay đổi gần nhất:** 29/10 — mục **27**: giao hỏa tốc AURELLE 3 giờ (shop tự giao): `GET /storefront/delivery-options`, checkout `delivery_option`, Admin website `/storefront/admin/express/*`, `GET /shipments/shippers`, `POST /shipments` thêm `shipper_id`, nhóm hỏa tốc ghim đầu danh sách. 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
+> **Thay đổi gần nhất:** 31/10 — mục **28**: **quy tắc gộp đơn bổ sung** `/order-sync-settings/rules` (thêm/sửa/xoá, xem trước, AI dịch câu chữ thành quy tắc). 29/10 — mục **27**: giao hỏa tốc AURELLE 3 giờ (shop tự giao): `GET /storefront/delivery-options`, checkout `delivery_option`, Admin website `/storefront/admin/express/*`, `GET /shipments/shippers`, `POST /shipments` thêm `shipper_id`, nhóm hỏa tốc ghim đầu danh sách. 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
 > **Trước đó:** 21/10 (tối) — giữ chỗ tồn **theo kho** (nhóm đơn có `warehouseId`, quét sai kho → 409 `ORD_GROUP_WRONG_WAREHOUSE`); website: đổi hàng (`type: exchange`, `GET /storefront/orders/:id/exchange-options`), khách tự hủy yêu cầu trả (`POST /storefront/returns/:id/cancel`); phiếu trả mở 1 / đơn. 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
 > Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
@@ -960,6 +960,29 @@ Open API (đơn sang OptiPack) thêm `delivery_option`, `promised_delivery_time`
 - Đơn hỏa tốc AURELLE luôn **1 đơn = 1 nhóm** (khoá gom riêng theo mã đơn), tự gắn `order_priority: express`; không gộp, không đổi tay mức ưu tiên.
 - Cảnh báo (cron **mỗi phút**, mỗi mốc báo 1 lần): còn 15 phút tới hạn đóng gói → nhân viên lấy hàng + người đóng gói; quá hạn đóng gói → Store Owner + Shipping Coordinator; còn 15 phút tới giờ hẹn giao → shipper + Shipping Coordinator; quá giờ hẹn → Store Owner + Admin + shipper. Mốc đóng gói chỉ xét nhóm **chưa đóng xong**, mốc giao bỏ nhóm đã giao/hoàn/hủy.
 - `GET /dashboard/summary` khối `express`: nhóm có `deliveryDeadline` → đúng hạn = vận đơn giao xong trước giờ hẹn; nhóm cũ / Lazada tay → như cũ (đóng gói trước hạn).
+
+## 28. 🆕 31/10/2026 — Quy tắc gộp đơn bổ sung (`/order-sync-settings/rules`)
+
+Admin thêm tối đa **10 quy tắc** gộp đơn bên cạnh khoá gom cơ bản (`consolidation_key_fields`, mục 19). Đơn mới gộp được khi trùng khoá cơ bản **hoặc** trùng 1 quy tắc đang bật (luôn cùng sàn + cùng shop, chỉ vào nhóm còn mở). AI chỉ **dịch câu chữ** thành quy tắc lúc Admin soạn; lúc đồng bộ hệ thống áp quy tắc đã lưu, không gọi AI. Thiết kế: `GUIDE_DOC/CONSOLIDATION_RULES_DESIGN.md`. Hướng dẫn FE: `INTEGRATION_GUIDE_ORDERS.md` mục 7c, `FE_UPDATE_CHECKLIST.md` mục 6.
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| GET | `/order-sync-settings/rules` | Admin, Store Owner | `{ version, rules[], recomputingKeys: false, limits, options }` — `options.fields/matches/platforms` có nhãn tiếng Việt để dựng form ô tích |
+| POST | `/order-sync-settings/rules` | Admin | Thêm quy tắc → phiên bản cấu hình mới. Body: quy tắc + `expected_version` |
+| PUT | `/order-sync-settings/rules/:ruleId` | Admin | Sửa **toàn bộ** 1 quy tắc (giữ `id`). Body như POST |
+| DELETE | `/order-sync-settings/rules/:ruleId?expected_version=N` | Admin | Xoá quy tắc |
+| POST | `/order-sync-settings/rules/preview` | Admin | `{ rules: [...] }` (bộ quy tắc nháp) → ước lượng số nhóm trên ≤ 5.000 đơn chưa xong. Không ghi DB |
+| POST | `/order-sync-settings/rules/translate` | Admin | `{ text }` → quy tắc nháp do AI dịch (không lưu). **10 lần/phút** |
+
+**Body quy tắc** (POST/PUT, và mỗi phần tử `rules[]` của preview — preview không cần `expected_version`): `name` (1–80), `source_text?` (≤ 500, câu Admin gõ), `fields[] { field, match }` (field ∈ `phone`, `full_name`, `address_line1`, `city`, `province_name`, `district_name`, `ward_name`; match ∈ `normalized`, `exact`; **bắt buộc có `phone` hoặc `address_line1`**), `platforms?` (`lazada`/`aurelle`, rỗng = mọi sàn), `max_window_hours?` (1–720, `null` = dùng giới hạn chung), `enabled?` (mặc định `true`), `expected_version` (bắt buộc với POST/PUT, `null` khi cấu hình đang mặc định).
+
+**Response POST/PUT/DELETE**: giống GET, `version` là phiên bản mới, `recomputingKeys: true` khi phần ảnh hưởng tới khoá đổi (BE tính lại khoá cho đơn chưa xong, chạy nền). Mỗi `rules[]` dạng `{ id, name, sourceText, fields, platforms, maxWindowHours, enabled }`.
+
+**Response preview**: `{ ordersScanned, truncated, currentGroups, baselineGroups, projectedGroups, groupsMergedByRules, skippedMissingData: [{ ruleName, orders }], examples: [{ ruleNames, platformOrderIds, phoneLast3 }] }` (≤ 10 ví dụ, chỉ mã đơn + 3 số cuối SĐT). So `baselineGroups` (mô phỏng không quy tắc) với `projectedGroups` để thấy đúng tác dụng của quy tắc; `currentGroups` là số nhóm thực tế.
+
+**Response translate**: `{ source: 'ai', model, rule: <body quy tắc> | null, unsupported: string[], warnings: string[] }`. `rule = null` khi yêu cầu không làm được (theo giá trị đơn, theo SKU, khác sàn, chỉ cùng tỉnh...).
+
+**Mã lỗi mới**: `ORD_CONSOLIDATION_RULE_INVALID` (400, `details.errors[]`), `ORD_CONSOLIDATION_RULE_LIMIT` (400, đã đủ 10 quy tắc), `ORD_CONSOLIDATION_RULE_NOT_FOUND` (404), `ORD_CONSOLIDATION_RULE_AI_UNAVAILABLE` (503 — thiếu `AI_API_KEY` / AI lỗi / AI trả sai; `details.reason` + `details.suggestions[]` là quy tắc mẫu dùng ngay được). Lệch phiên bản dùng lại `ORD_SYNC_SETTINGS_CONFLICT` (409). `GET /order-sync-settings` (mục 19) nay có thêm `consolidation.rules`.
 
 ## 26. 🆕 28/10/2026 — Bảng điều khiển (`/dashboard`)
 

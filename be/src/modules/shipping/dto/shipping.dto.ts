@@ -99,6 +99,17 @@ export class CreateCarrierDto {
   @Max(20000)
   volumetric_divisor?: number;
 
+  @ApiProperty({
+    required: false,
+    example: 500,
+    description: 'Bước làm tròn cân tính cước (g) — GHN 500',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5000)
+  weight_step_g?: number;
+
   @ApiProperty({ type: [CarrierServiceDto] })
   @IsArray()
   @ArrayMinSize(1, { message: 'Cần ít nhất 1 dịch vụ' })

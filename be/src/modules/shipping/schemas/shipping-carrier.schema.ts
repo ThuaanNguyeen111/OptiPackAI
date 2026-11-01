@@ -47,6 +47,12 @@ export class ShippingCarrier {
   @Prop({ type: String, required: true }) name!: string;
   @Prop({ type: Number, required: true, default: 5000, min: 1000 })
   volumetric_divisor!: number;
+  /**
+   * AOFP-224 (31/10/2026) — bước làm tròn cân tính cước (g). GHN: phần lẻ làm
+   * tròn lên 0,5 kg → 500. Bộ giải đóng gói so cước theo bậc này.
+   */
+  @Prop({ type: Number, required: true, default: 500, min: 1 })
+  weight_step_g!: number;
   @Prop({ type: [ShippingCarrierServiceSchema], default: [] })
   services!: ShippingCarrierService[];
   @Prop({ type: Boolean, default: false }) is_sample!: boolean;

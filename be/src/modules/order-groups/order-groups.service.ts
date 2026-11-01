@@ -988,6 +988,8 @@ export class OrderGroupsService {
       order_id: string;
       platform_order_id: string;
       recipient_name: string | null;
+      /** AOFP-224 — khóa gộp của đơn: đơn AURELLE cùng khóa được đóng chung kiện. */
+      consolidation_key: string | null;
       items: PackableItem[];
     }[]
   > {
@@ -1007,7 +1009,7 @@ export class OrderGroupsService {
         consolidated_group_id: group._id,
         status: { $nin: notPackableStatuses() },
       })
-      .select('_id platform_order_id items created_at recipient.full_name')
+      .select('_id platform_order_id items created_at recipient.full_name consolidation_key')
       .sort({ created_at: 1, _id: 1 })
       .lean();
 
@@ -1015,6 +1017,8 @@ export class OrderGroupsService {
       order_id: string;
       platform_order_id: string;
       recipient_name: string | null;
+      /** AOFP-224 — khóa gộp của đơn: đơn AURELLE cùng khóa được đóng chung kiện. */
+      consolidation_key: string | null;
       items: PackableItem[];
     }[] = [];
     for (const order of orders) {
@@ -1040,6 +1044,7 @@ export class OrderGroupsService {
         order_id: order._id.toString(),
         platform_order_id: order.platform_order_id,
         recipient_name: (order.recipient as { full_name?: string } | undefined)?.full_name ?? null,
+        consolidation_key: order.consolidation_key,
         items: await this.mapSkuQuantitiesToPackableItems(
           group.platform,
           group.shop_id,
@@ -1225,6 +1230,7 @@ export class OrderGroupsService {
         zip_bag_code: product.zip_bag_code ?? null,
         zip_bag_folded: product.zip_bag_folded ?? false,
         can_fold_in_half: product.can_fold_in_half ?? false,
+        outer_requirement: product.outer_requirement ?? null,
       };
     });
   }
@@ -2482,7 +2488,9 @@ export class OrderGroupsService {
         });
       });
       const parcels = plan.parcels.map((p) => {
-        if (!deadIds.has(p.order_id.toString()) || p.status === 'to_unpack' || p.status === 'voided') return p;
+        // AOFP-224 — kiện gộp nhiều đơn: 1 đơn trong kiện bị hủy là phải tháo cả kiện (đóng lại phần còn lại).
+        const ids = p.order_ids && p.order_ids.length > 0 ? p.order_ids : [p.order_id];
+        if (!ids.some((id) => deadIds.has(id.toString())) || p.status === 'to_unpack' || p.status === 'voided') return p;
         changed += 1;
         return Object.assign({}, p, {
           status: 'to_unpack' as const,

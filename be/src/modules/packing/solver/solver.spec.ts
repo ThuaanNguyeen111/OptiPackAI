@@ -150,11 +150,15 @@ describe('Bộ giải BRKGA + EMS', () => {
       expect(solve([heavy]).unplaced[0]?.code).toBe('ITEM_TOO_HEAVY');
     });
 
-    it('ưu tiên rẻ nhất không bao giờ đắt hơn ưu tiên ít kiện', () => {
+    it('ưu tiên rẻ nhất không bao giờ đắt hơn ưu tiên ít kiện (cước theo bậc trước, rồi bao bì)', () => {
+      // AOFP-224: "rẻ nhất" = bậc cân tính cước trước, giá bao bì sau (PACKAGING_STANDARD §2).
       const items = [tee(10), shoebox(3)];
       const fewest = solve(items, { maxEvaluations: 800 });
       const cheapest = solve(items, { maxEvaluations: 800, prefer: 'cheapest' });
-      expect(cost(cheapest)).toBeLessThanOrEqual(cost(fewest));
+      expect(cheapest.objective.billable_g).toBeLessThanOrEqual(fewest.objective.billable_g);
+      if (cheapest.objective.billable_g === fewest.objective.billable_g) {
+        expect(cost(cheapest)).toBeLessThanOrEqual(cost(fewest));
+      }
     });
   });
 

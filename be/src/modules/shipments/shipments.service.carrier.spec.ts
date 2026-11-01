@@ -336,9 +336,20 @@ describe('ShipmentsService — C4/C5 hãng API', () => {
 
     it('orderWritebackChange: chỉ trả khi trạng thái của đơn thật sự đổi', () => {
       const parcels = (twoOrders('transporting', 'transporting').carrier_parcels) as never;
-      expect(orderWritebackChange(parcels, 'GHN1', 'delivery_fail')).toEqual({ orderId, status: 'failed_delivery' });
-      expect(orderWritebackChange(parcels, 'GHN1', 'sorting')).toBeNull(); // vẫn trung chuyển
-      expect(orderWritebackChange(parcels, 'KHONG_CO', 'delivered')).toBeNull();
+      expect(orderWritebackChange(parcels, 'GHN1', 'delivery_fail')).toEqual([{ orderId, status: 'failed_delivery' }]);
+      expect(orderWritebackChange(parcels, 'GHN1', 'sorting')).toEqual([]); // vẫn trung chuyển
+      expect(orderWritebackChange(parcels, 'KHONG_CO', 'delivered')).toEqual([]);
+    });
+
+    it('AOFP-224: kiện gộp 2 đơn giao xong → báo sàn cho cả 2 đơn', () => {
+      const [a, b] = [new Types.ObjectId(), new Types.ObjectId()];
+      const parcels = [
+        { order_id: a, order_ids: [a, b], carrier_order_code: 'GHN9', carrier_status: 'delivering' },
+      ] as never;
+      expect(orderWritebackChange(parcels, 'GHN9', 'delivered')).toEqual([
+        { orderId: a, status: 'delivered' },
+        { orderId: b, status: 'delivered' },
+      ]);
     });
   });
 });

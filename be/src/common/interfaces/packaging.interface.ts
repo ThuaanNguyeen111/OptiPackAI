@@ -26,6 +26,8 @@ export interface PackableItem {
   zip_bag_folded?: boolean;
   /** (22/09/2026) Hàng mềm được gập đôi thêm khi cần — engine tự tính số đo gập. */
   can_fold_in_half?: boolean;
+  /** AOFP-224 — lớp vận chuyển kho đặt cho SKU; null/thiếu = theo loại (resolveOuterRequirement). */
+  outer_requirement?: 'mailer_ok' | 'box_required' | null;
 }
 
 /**

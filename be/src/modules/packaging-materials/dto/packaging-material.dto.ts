@@ -1,11 +1,12 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { PACKAGING_MATERIAL_KINDS, type PackagingMaterialKind } from '../schemas/packaging-material.schema';
 import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsInt, ValidateNested, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class CreatePackagingMaterialDto {
   @ApiProperty({ example: 'BOX-M' }) @Matches(/^[A-Z0-9-]{2,20}$/, { message: 'code 2-20 ký tự CHỮ HOA/số/gạch ngang' }) code!: string;
   @ApiProperty({ example: 'Thùng carton Medium 35x25x20' }) @IsString() @MinLength(2) @MaxLength(120) name!: string;
-  @ApiProperty({ enum: ['box', 'cushioning'] }) @IsIn(['box', 'cushioning']) kind!: 'box' | 'cushioning';
+  @ApiProperty({ enum: PACKAGING_MATERIAL_KINDS }) @IsIn(PACKAGING_MATERIAL_KINDS) kind!: PackagingMaterialKind;
   @ApiPropertyOptional({ example: 35 }) @IsOptional() @IsNumber() @Min(1) @Max(500) length_cm?: number;
   @ApiPropertyOptional({ example: 25 }) @IsOptional() @IsNumber() @Min(1) @Max(500) width_cm?: number;
   @ApiPropertyOptional({ example: 20 }) @IsOptional() @IsNumber() @Min(1) @Max(500) height_cm?: number;
@@ -14,6 +15,10 @@ export class CreatePackagingMaterialDto {
   @ApiProperty({ example: 6500 }) @IsInt() @Min(0) @Max(10_000_000) unit_cost_vnd!: number;
   @ApiPropertyOptional({ example: true }) @IsOptional() @IsBoolean() reusable?: boolean;
   @ApiPropertyOptional({ example: 3 }) @IsOptional() @IsInt() @Min(1) @Max(20) max_reuse_cycles?: number;
+  @ApiPropertyOptional({ example: 8, description: 'Túi niêm phong: khối lượng 1 túi (g) — bắt buộc khi kind = mailer' })
+  @IsOptional() @IsInt() @Min(0) @Max(2000) tare_g?: number;
+  @ApiPropertyOptional({ example: 3000, description: 'Túi niêm phong: tải hàng tối đa (g), mặc định 3000' })
+  @IsOptional() @IsInt() @Min(1) @Max(30_000) max_load_g?: number;
 }
 
 /** Không sửa được code/kind/kích thước (đã gắn với gợi ý đóng gói và lịch sử). */

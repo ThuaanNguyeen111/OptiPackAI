@@ -28,6 +28,8 @@ const GHN_CARRIER = {
   kind: 'live' as const,
   // Chỉ dùng để HIỂN THỊ cân quy đổi trên báo giá — phí thật luôn do GHN tính.
   volumetric_divisor: 5000,
+  // AOFP-224 — GHN làm tròn phần lẻ lên 0,5 kg; bộ giải đóng gói so cước theo bậc này.
+  weight_step_g: 500,
   is_sample: false,
   is_active: true,
   services: [
@@ -59,7 +61,7 @@ async function main(): Promise<void> {
   if (existing) {
     await model.updateOne(
       { _id: existing._id },
-      { $set: { name: GHN_CARRIER.name, kind: GHN_CARRIER.kind, services: GHN_CARRIER.services, is_sample: false } },
+      { $set: { name: GHN_CARRIER.name, kind: GHN_CARRIER.kind, services: GHN_CARRIER.services, is_sample: false, weight_step_g: GHN_CARRIER.weight_step_g } },
     );
     console.log(`= ${GHN_CARRIER.code} đã có — cập nhật dịch vụ LIGHT/HEAVY, kind=live`);
   } else {

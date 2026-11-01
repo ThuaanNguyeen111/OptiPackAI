@@ -43,15 +43,37 @@ export const DEFAULT_MATERIAL_RULES: MaterialRule[] = [
     basis: 'per_unit',
     quantity: 1,
   },
-  // Thùng trống nhiều: gối hơi lấp khoảng trống chống xê dịch (áp cả đơn chỉ có quần áo).
+  // AOFP-224 (PACKAGING_STANDARD §7): giấy kraft vò lấp khoảng trống — ưu tiên trước gối hơi.
+  {
+    material_type: 'kraft_paper',
+    applies_to: 'any',
+    basis: 'void_band',
+    void_bands: [
+      { min_void_ratio: 0.3, quantity: 1 },
+      { min_void_ratio: 0.5, quantity: 2 },
+      { min_void_ratio: 0.7, quantity: 3 },
+    ],
+  },
+  // Gối hơi chỉ còn là dự phòng khi thùng trống rất nhiều.
   {
     material_type: 'air_pillow',
     applies_to: 'any',
     basis: 'void_band',
-    void_bands: [
-      { min_void_ratio: 0.5, quantity: 2 },
-      { min_void_ratio: 0.7, quantity: 4 },
-    ],
+    void_bands: [{ min_void_ratio: 0.7, quantity: 2 }],
+  },
+  // Túi xách: nhồi giấy kraft bên trong giữ form.
+  {
+    material_type: 'kraft_paper',
+    applies_to: 'bag',
+    basis: 'per_unit',
+    quantity: 1,
+  },
+  // Đầm, túi xách: lót/bọc giấy pelure chống nhăn, chống trầy (lớp sản phẩm — áp cả trong túi niêm phong).
+  {
+    material_type: 'tissue_paper',
+    applies_to: 'dress_or_bag',
+    basis: 'per_unit',
+    quantity: 1,
   },
   // Kiện có hộp giày hoặc hàng dễ vỡ: dán tem cảnh báo bên ngoài.
   {
@@ -67,7 +89,12 @@ function inScope(
   scope: MaterialRule['applies_to'],
 ): boolean {
   const isShoes = unit.product_category === ProductCategory.SHOES;
+  const isBag = unit.product_category === ProductCategory.BAG;
   switch (scope) {
+    case 'bag':
+      return isBag;
+    case 'dress_or_bag':
+      return isBag || unit.product_category === ProductCategory.DRESS;
     case 'fragile':
       return unit.is_fragile;
     case 'shoes':

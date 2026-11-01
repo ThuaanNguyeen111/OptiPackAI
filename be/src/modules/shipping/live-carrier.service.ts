@@ -390,6 +390,7 @@ export class LiveCarrierService {
       const volumetricG = volumetricWeightG(p.outer, service.volumetricDivisor);
       const quote: ParcelQuote = {
         orderId: p.orderId,
+        ...(p.orderIds ? { orderIds: p.orderIds } : {}),
         cartonIndex: p.cartonIndex,
         ...(p.parcelNo !== undefined ? { parcelNo: p.parcelNo } : {}),
         actualG: p.actualG,

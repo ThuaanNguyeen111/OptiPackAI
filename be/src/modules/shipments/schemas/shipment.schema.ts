@@ -22,7 +22,9 @@ export const CarrierParcelFeeSchema = SchemaFactory.createForClass(CarrierParcel
 @Schema({ _id: false })
 export class CarrierParcel {
   @Prop({ type: Number, required: true }) parcel_no!: number; // số kiện trong kế hoạch đóng gói
-  @Prop({ type: SchemaTypes.ObjectId, required: true }) order_id!: Types.ObjectId;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) order_id!: Types.ObjectId; // đơn chủ của kiện
+  /** AOFP-224 — mọi đơn có hàng trong kiện (kiện gộp cùng người nhận); vận đơn cũ không có = [order_id]. */
+  @Prop({ type: [SchemaTypes.ObjectId], default: [] }) order_ids?: Types.ObjectId[];
   @Prop({ type: String, default: null }) platform_order_id!: string | null;
   @Prop({ type: String, required: true }) client_order_code!: string;
   @Prop({ type: String, default: null }) carrier_order_code!: string | null; // null = chưa tạo được ở hãng
