@@ -28,7 +28,7 @@ function pickNumber(...values: unknown[]): number {
   return 0
 }
 
-export type PackagingMaterialKind = 'box' | 'cushioning'
+export type PackagingMaterialKind = 'box' | 'cushioning' | 'mailer'
 
 export type PackagingMaterialStock = {
   code: string
@@ -68,6 +68,10 @@ export type CreatePackagingMaterialInput = {
   widthCm?: number
   heightCm?: number
   matchMaterialType?: string
+  /** Túi niêm phong: khối lượng túi (g), bắt buộc. */
+  tareG?: number
+  /** Túi niêm phong: tải hàng tối đa (g). Trống = mặc định của BE. */
+  maxLoadG?: number
   unitCostVnd: number
   reusable?: boolean
   maxReuseCycles?: number
@@ -186,6 +190,12 @@ export async function createPackagingMaterial(
     body.length_cm = input.lengthCm
     body.width_cm = input.widthCm
     body.height_cm = input.heightCm
+  } else if (input.kind === 'mailer') {
+    body.length_cm = input.lengthCm
+    body.width_cm = input.widthCm
+    body.tare_g = input.tareG
+    if (input.maxLoadG !== undefined) body.max_load_g = input.maxLoadG
+    body.reusable = false
   } else if (input.matchMaterialType) {
     body.match_material_type = input.matchMaterialType.trim()
   }

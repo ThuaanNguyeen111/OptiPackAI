@@ -64,9 +64,11 @@ const CUSHION_TYPES: CushionMaterialType[] = [
   'air_pillow',
   'bubble_wrap',
   'fragile_tape',
+  'kraft_paper',
+  'tissue_paper',
 ]
 
-const RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any'] as const
+const RULE_SCOPES = ['fragile', 'shoes', 'fragile_or_shoes', 'any', 'bag', 'dress_or_bag'] as const
 const RULE_BASES = ['per_unit', 'per_extra_unit', 'per_carton', 'void_band'] as const
 
 const fieldClass =
@@ -105,6 +107,7 @@ function stockLabel(status: StockStatus, vi: boolean): string {
 function kindLabel(kind: string, vi: boolean): string {
   if (kind === 'box') return tx(vi, 'Thùng', 'Box')
   if (kind === 'cushioning') return tx(vi, 'Vật liệu chống sốc', 'Shock protection')
+  if (kind === 'mailer') return tx(vi, 'Túi niêm phong', 'Mailer')
   return kind
 }
 
@@ -677,6 +680,19 @@ function CreateMaterialDialog({
       setError(tx(vi, 'Vật liệu chống sốc cần mã loại khớp luật.', 'Shock protection needs a matching material type.'))
       return
     }
+    const tareG = nonNegativeInt(String(data.get('tare') ?? ''))
+    const maxLoadText = String(data.get('maxLoad') ?? '').trim()
+    const maxLoadG = maxLoadText === '' ? null : positiveInt(maxLoadText)
+    if (kind === 'mailer') {
+      if (lengthCm === null || widthCm === null || tareG === null) {
+        setError(tx(vi, 'Túi niêm phong cần rộng, dài (cm) và khối lượng túi (g).', 'A mailer needs width, length (cm) and bag weight (g).'))
+        return
+      }
+      if (maxLoadText !== '' && maxLoadG === null) {
+        setError(tx(vi, 'Tải tối đa phải là số nguyên dương.', 'Max load must be a positive whole number.'))
+        return
+      }
+    }
     setBusy(true)
     void createPackagingMaterial({
       code,
@@ -689,6 +705,8 @@ function CreateMaterialDialog({
       widthCm: widthCm ?? undefined,
       heightCm: heightCm ?? undefined,
       matchMaterialType: match || undefined,
+      tareG: tareG ?? undefined,
+      maxLoadG: maxLoadG ?? undefined,
     })
       .then(() => onDone(tx(vi, 'Đã thêm vật liệu.', 'Material added.')))
       .catch((err: unknown) => setError(formatApiError(err)))
@@ -714,6 +732,7 @@ function CreateMaterialDialog({
           >
             <option value="box">{tx(vi, 'Thùng', 'Box')}</option>
             <option value="cushioning">{tx(vi, 'Vật liệu chống sốc', 'Shock protection')}</option>
+            <option value="mailer">{tx(vi, 'Túi niêm phong', 'Mailer')}</option>
           </select>
         </Field>
         <Field label={tx(vi, 'Mã', 'Code')}>
@@ -734,6 +753,21 @@ function CreateMaterialDialog({
               <Input name="height" className={fieldClass} inputMode="numeric" />
             </Field>
           </div>
+        ) : kind === 'mailer' ? (
+          <div className="grid grid-cols-2 gap-2">
+            <Field label={tx(vi, 'Rộng cm (trải phẳng)', 'Flat width cm')}>
+              <Input name="width" className={fieldClass} inputMode="numeric" />
+            </Field>
+            <Field label={tx(vi, 'Dài cm (trải phẳng)', 'Flat length cm')}>
+              <Input name="length" className={fieldClass} inputMode="numeric" />
+            </Field>
+            <Field label={tx(vi, 'Khối lượng túi (g)', 'Bag weight (g)')}>
+              <Input name="tare" className={fieldClass} inputMode="numeric" />
+            </Field>
+            <Field label={tx(vi, 'Tải tối đa (g, có thể trống)', 'Max load (g, optional)')}>
+              <Input name="maxLoad" className={fieldClass} inputMode="numeric" />
+            </Field>
+          </div>
         ) : (
           <Field label={tx(vi, 'Mã loại khớp luật', 'Match type')}>
             <select name="match" className={fieldClass} defaultValue="bubble_wrap">
@@ -748,13 +782,19 @@ function CreateMaterialDialog({
         <Field label={tx(vi, 'Đơn giá (đ)', 'Unit cost')}>
           <Input name="unitCost" className={fieldClass} inputMode="numeric" defaultValue="0" />
         </Field>
-        <Field label={tx(vi, 'Số lần dùng lại tối đa', 'Max reuse cycles')}>
-          <Input name="cycles" className={fieldClass} inputMode="numeric" defaultValue="3" />
-        </Field>
-        <label className="flex items-center gap-2 text-sm text-ink">
-          <input type="checkbox" name="reusable" defaultChecked />
-          {tx(vi, 'Cho phép tái sử dụng', 'Reusable')}
-        </label>
+        {kind === 'mailer' ? (
+          <input type="hidden" name="cycles" value="1" />
+        ) : (
+          <>
+            <Field label={tx(vi, 'Số lần dùng lại tối đa', 'Max reuse cycles')}>
+              <Input name="cycles" className={fieldClass} inputMode="numeric" defaultValue="3" />
+            </Field>
+            <label className="flex items-center gap-2 text-sm text-ink">
+              <input type="checkbox" name="reusable" defaultChecked />
+              {tx(vi, 'Cho phép tái sử dụng', 'Reusable')}
+            </label>
+          </>
+        )}
         <Button type="submit" disabled={busy}>
           {tx(vi, 'Lưu', 'Save')}
         </Button>
