@@ -130,7 +130,13 @@ describe('PackingPlanService', () => {
   const userId = new Types.ObjectId().toString();
   let groupId: string;
   let group: { _id: Types.ObjectId; fulfillment_status: GroupFulfillmentStatus; __v: number };
-  let allocations: { order_id: string; platform_order_id: string; recipient_name?: string | null; items: PackableItem[] }[];
+  let allocations: {
+    order_id: string;
+    platform_order_id: string;
+    recipient_name?: string | null;
+    consolidation_key?: string | null;
+    items: PackableItem[];
+  }[];
   let planModel: ReturnType<typeof fakePlanModel>;
   let orderGroupsService: {
     findOrderGroupById: jest.Mock;
@@ -355,6 +361,37 @@ describe('PackingPlanService', () => {
       const order = plan.orders[0];
       expect(order?.proof).toBe('heuristic');
       expect(order?.explanation.some((l) => l.includes('vượt giới hạn 12 món'))).toBe(true);
+    });
+
+    it('AOFP-224: 2 đơn AURELLE cùng người nhận → chung 1 kiện, mã món có tiền tố đơn, món ghi đúng chủ', async () => {
+      const [a, b] = [new Types.ObjectId(), new Types.ObjectId()];
+      orderGroupsService.findOrderGroupById.mockImplementation(() => Promise.resolve({ ...group, platform: 'aurelle' }));
+      allocations = [
+        { order_id: a.toString(), platform_order_id: 'AUR-A', consolidation_key: 'k1', items: [tee(1)] },
+        { order_id: b.toString(), platform_order_id: 'AUR-B', consolidation_key: 'k1', items: [tee(1)] },
+      ];
+      const plan = await computed();
+      expect(plan.parcels).toHaveLength(1);
+      const [p] = plan.parcels;
+      expect(p?.order_id.toString()).toBe(a.toString());
+      expect(p?.order_ids?.map(String)).toEqual([a.toString(), b.toString()]);
+      expect(p?.share_group).toBe(a.toString());
+      expect(p?.placements.map((q) => q.item_key).sort()).toEqual(['AUR-A/TEE#1', 'AUR-B/TEE#1']);
+      const ownerOf = new Map(p?.placements.map((q) => [q.item_key, q.order_id?.toString()]));
+      expect(ownerOf.get('AUR-B/TEE#1')).toBe(b.toString());
+      expect(plan.orders.map((o) => o.status)).toEqual(['ok', 'ok']);
+      expect(plan.orders[0]?.explanation.some((l) => l.includes('§8'))).toBe(true);
+    });
+
+    it('AOFP-224: Lazada cùng khóa gộp vẫn mỗi đơn kiện riêng', async () => {
+      orderGroupsService.findOrderGroupById.mockImplementation(() => Promise.resolve({ ...group, platform: 'lazada' }));
+      allocations = [
+        { order_id: new Types.ObjectId().toString(), platform_order_id: 'LZ-A', consolidation_key: 'k1', items: [tee(1)] },
+        { order_id: new Types.ObjectId().toString(), platform_order_id: 'LZ-B', consolidation_key: 'k1', items: [tee(1)] },
+      ];
+      const plan = await computed();
+      expect(plan.parcels).toHaveLength(2);
+      expect(plan.parcels.every((p) => (p.order_ids ?? []).length === 1 && p.share_group === null)).toBe(true);
     });
 
     it('tôn trọng loại trừ thùng khi tính lại có điều kiện', async () => {

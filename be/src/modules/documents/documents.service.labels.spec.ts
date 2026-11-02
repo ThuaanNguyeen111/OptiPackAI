@@ -22,7 +22,7 @@ describe('DocumentsService.buildShippingLabels — người nhận theo từng k
       { findOrderGroupById: jest.fn().mockResolvedValue({ _id: groupId, shop_name_snapshot: 'AURELLE' }) } as never,
       {} as never,
     );
-    const parcel = (orderId: string, parcelNo: number): Record<string, unknown> => ({ orderId, parcelNo, boxCode: 'B1', actualWeightKg: null, estimatedWeightG: 500 });
+    const parcel = (orderId: string, parcelNo: number): Record<string, unknown> => ({ orderId, orderIds: [orderId], parcelNo, boxCode: 'B1', actualWeightKg: null, estimatedWeightG: 500 });
     jest.spyOn(service as unknown as { parcelsByOrder: () => Promise<unknown> }, 'parcelsByOrder').mockResolvedValue(new Map([
       [orderA._id.toString(), [parcel(orderA._id.toString(), 1)]],
       [orderB._id.toString(), [parcel(orderB._id.toString(), 2)]],

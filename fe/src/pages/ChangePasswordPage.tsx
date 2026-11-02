@@ -58,7 +58,7 @@ export function ChangePasswordPage() {
       night={night}
       closeTo="/login"
       artTitle="Bảo mật tài khoản"
-      artDescription="Đổi mật khẩu tạm trước khi sử dụng hệ thống quản lý công việc."
+      artDescription="Mật khẩu tạm do Admin cấp phải được đổi trong 72 giờ, sau đó tài khoản bị khóa."
     >
       <h1 className="login-title">Đổi mật khẩu</h1>
       <p className="login-lead">

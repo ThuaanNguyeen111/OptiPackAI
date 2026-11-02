@@ -141,9 +141,10 @@ describe('OrdersService.tryConsolidate theo tiêu chí', () => {
   it('giới hạn 24 giờ → chỉ tìm đơn vào hệ thống từ 24 giờ trước; vẫn giữ điều kiện của partial index', async () => {
     setOrderSyncPolicy(policyWith((p) => (p.consolidation.timeWindowHours = 24)));
     await run();
-    const [filter] = orderModel.find.mock.calls[0] as [{ status: unknown; $and: Record<string, unknown>[] }];
+    const [filter] = orderModel.find.mock.calls[0] as [{ status: unknown; $or: Record<string, unknown>[] }];
     expect(filter.status).toEqual({ $in: UNFULFILLED_ORDER_STATUSES });
-    expect(filter.$and).toContainEqual({ created_at: { $gte: new Date('2026-10-14T10:00:00Z') } });
+    // 31/10/2026 — giới hạn thời gian chung nằm trong nhánh $or của khoá cơ bản.
+    expect(filter.$or[0]).toMatchObject({ created_at: { $gte: new Date('2026-10-14T10:00:00Z') } });
   });
 });
 

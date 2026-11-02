@@ -6,6 +6,7 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { PackingPlan, PackingPlanDocument } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import { isLiveParcel } from './utils/parcels.util';
+import { orderIdsOf } from './utils/shared-parcel.util';
 
 export interface PackingStaffStats {
   staffId: string;
@@ -129,7 +130,8 @@ export class PackingReportService {
       for (const o of plan.orders) {
         if (o.status === 'canceled') continue;
         orders += 1;
-        const count = live.filter((p) => p.order_id.equals(o.order_id)).length;
+        // AOFP-224 — kiện gộp tính cho mọi đơn có hàng trong kiện.
+        const count = live.filter((p) => orderIdsOf(p).some((id) => id.equals(o.order_id))).length;
         if (o.lower_bound_parcels > 0 && count === o.lower_bound_parcels) minimal += 1;
       }
       if (plan.pack_mode) {

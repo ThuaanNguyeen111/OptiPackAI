@@ -313,7 +313,7 @@ export function LoginPage() {
                   name="email"
                   type="email"
                   autoComplete="username"
-                  placeholder="info@drakele.com"
+                  placeholder="ten@congty.vn"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onFocus={() => setEmailFocused(true)}

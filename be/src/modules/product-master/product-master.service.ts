@@ -430,6 +430,7 @@ export class ProductMasterService {
           zip_bag_code: zipBagCode,
           zip_bag_folded: zipBagCode !== null && dto.zip_bag_folded === true,
           can_fold_in_half: dto.can_fold_in_half === true,
+          outer_requirement: dto.outer_requirement ?? null,
           packaging_profile_status: 'ready',
           profile_confirmed_by: new Types.ObjectId(userId),
           profile_confirmed_at: new Date(),

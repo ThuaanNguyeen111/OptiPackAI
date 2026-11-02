@@ -1,5 +1,6 @@
 import type { PackableItem } from '../../../common/interfaces/packaging.interface';
 import { ProductCategory } from '../../../common/enums/product-category.enum';
+import { resolveOuterRequirement } from '../../../common/enums/outer-requirement.enum';
 import {
   ALL_ORIENTATIONS,
   UPRIGHT_ORIENTATIONS,
@@ -120,6 +121,7 @@ export function expandToUnits(
         // Chỉ quần áo mới gập được (FE chỉ có clip gập cho 6 loại này); chặn cả hồ sơ cũ lỡ đánh dấu.
         foldable: lieFlat && item.can_fold_in_half === true,
         product_category: item.product_category ?? null,
+        mailer_ok: resolveOuterRequirement(item) === 'mailer_ok',
       });
     }
   }

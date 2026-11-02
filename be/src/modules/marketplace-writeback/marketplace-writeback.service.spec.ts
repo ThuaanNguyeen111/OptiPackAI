@@ -312,5 +312,8 @@ describe('trackingCodeForOrder', () => {
     expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: a, carrier_order_code: 'X1' }, { order_id: new Types.ObjectId(), carrier_order_code: 'X2' }] }, a)).toBe('X1');
     expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: new Types.ObjectId(), carrier_order_code: 'X2' }, { order_id: null, carrier_order_code: 'X3' }] }, a)).toBe('X2, X3');
     expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: a, carrier_order_code: null }] }, a)).toBe('SHP-1');
+    // AOFP-224 — kiện gộp: đơn phụ (không phải đơn chủ) vẫn nhận đúng mã kiện của mình.
+    const b = new Types.ObjectId();
+    expect(trackingCodeForOrder({ tracking_code: 'SHP-1', carrier_parcels: [{ order_id: a, order_ids: [a, b], carrier_order_code: 'X9' }, { order_id: new Types.ObjectId(), carrier_order_code: 'X2' }] }, b)).toBe('X9');
   });
 });

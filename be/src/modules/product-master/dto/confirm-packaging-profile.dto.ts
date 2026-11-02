@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { PRODUCT_CATEGORY_VALUES, ProductCategory } from '../../../common/enums/product-category.enum';
+import { OUTER_REQUIREMENTS, type OuterRequirement } from '../../../common/enums/outer-requirement.enum';
 
 /**
  * Kho/Admin nhập số đo THẬT sau khi gấp/bọc (giày đo nguyên hộp). Nếu
@@ -87,4 +88,15 @@ export class ConfirmPackagingProfileDto {
   @IsOptional()
   @IsBoolean({ message: 'can_fold_in_half phải là true/false' })
   can_fold_in_half?: boolean;
+
+  @ApiProperty({
+    required: false,
+    enum: OUTER_REQUIREMENTS,
+    nullable: true,
+    description:
+      'Lớp vận chuyển: mailer_ok = đi túi niêm phong được, box_required = bắt buộc thùng. Bỏ trống/null = theo loại sản phẩm. Hàng dễ vỡ luôn vào thùng.',
+  })
+  @IsOptional()
+  @IsIn(OUTER_REQUIREMENTS, { message: 'outer_requirement phải là mailer_ok hoặc box_required' })
+  outer_requirement?: OuterRequirement | null;
 }

@@ -5,7 +5,8 @@ import type { AiProviderConfig } from '../../config/ai.config';
 import type { BoxSpec, GuideMaterial, GuideStepFacts, GuideText } from './engine';
 import { buildTemplateGuide } from './engine';
 
-export type GuideFallbackReason = 'no_api_key' | 'ai_error' | 'ai_invalid_output';
+/** `mailer_template` (AOFP-224) = kiện túi niêm phong luôn dùng câu mẫu — lời AI viết cho thùng. */
+export type GuideFallbackReason = 'no_api_key' | 'ai_error' | 'ai_invalid_output' | 'mailer_template';
 
 export interface PackingGuideResult extends GuideText {
   source: 'ai' | 'template';
@@ -90,6 +91,9 @@ export class PackingGuideAiService {
 
   async writeGuide(input: PackingGuideInput): Promise<PackingGuideResult> {
     const template = buildTemplateGuide(input.facts, input.box, input.fill_ratio, input.materials);
+    if (input.box.kind === 'mailer') {
+      return { ...template, source: 'template', model: null, fallback_reason: 'mailer_template' };
+    }
     const provider = this.configService.get<AiProviderConfig | null>('ai.provider', null);
     if (!provider) return { ...template, source: 'template', model: null, fallback_reason: 'no_api_key' };
 

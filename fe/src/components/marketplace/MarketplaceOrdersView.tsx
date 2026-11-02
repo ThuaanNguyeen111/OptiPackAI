@@ -543,8 +543,8 @@ export function MarketplaceOrdersView({
                 </h1>
                 <p className="mt-1 text-xs text-ink-subtle">
                   {vi
-                    ? 'Đơn đã đồng bộ từ sàn · GET /orders'
-                    : 'Synced marketplace orders · GET /orders'}
+                    ? 'Đơn đã đồng bộ từ sàn'
+                    : 'Synced marketplace orders'}
                 </p>
               </div>
               {canSync ? (

@@ -1083,3 +1083,269 @@ html.dark .ship-foot {
 .owner-shell .dark\:text-slate-400 {
   color: var(--ls-muted);
 }
+
+/* ===================================================================
+   01/11/2026 — Vỏ app phẳng (Owner / Đóng gói / Giao hàng / Kho / Admin)
+   Bỏ kính mờ + gradient + bo 28px + nhãn in hoa. Nền đặc, viền mảnh,
+   bo 10–12px, tab gạch chân. Khối này đứng cuối file để ghi đè các luật trên.
+   =================================================================== */
+
+:where(.owner-shell) {
+  --ls-card: #ffffff;
+  --ls-card-solid: #ffffff;
+  --ls-card-border: #dfe5e3;
+  --ls-panel: #ffffff;
+  --ls-muted: #5b6f72;
+  --ls-shadow: 0 1px 2px rgba(21, 45, 53, 0.06);
+  --ls-subtle: #f4f6f5;
+}
+
+html.dark :where(.owner-shell) {
+  --ls-card: #13252b;
+  --ls-card-solid: #12232a;
+  --ls-card-border: #24393f;
+  --ls-panel: #162b31;
+  --ls-shadow: none;
+  --ls-subtle: #0f1f24;
+}
+
+.owner-shell {
+  background: #eef1f0;
+  gap: 0;
+  padding: 0;
+}
+
+html.dark .owner-shell {
+  background: #0c191d;
+}
+
+.owner-sidebar,
+.owner-stage {
+  border-radius: 0;
+  border: 0 !important;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.owner-sidebar {
+  border-right: 1px solid var(--ls-card-border) !important;
+}
+
+.owner-stage {
+  background: #eef1f0;
+}
+
+html.dark .owner-stage {
+  background: #0c191d;
+}
+
+.owner-topbar {
+  background: #ffffff;
+}
+
+html.dark .owner-topbar {
+  background: var(--ls-card-solid);
+}
+
+.owner-shell .owner-sidebar nav a {
+  border-width: 0;
+  border-radius: 8px;
+}
+
+.owner-shell .owner-nav-active {
+  background: var(--ls-subtle) !important;
+  box-shadow: inset 3px 0 0 var(--ls-cta);
+}
+
+.owner-shell .owner-sidebar nav a:hover,
+.owner-shell .owner-sidebar nav a.owner-nav-active:hover {
+  background: var(--ls-subtle) !important;
+}
+
+/* Tiêu đề trang */
+.owner-hero {
+  gap: 16px;
+  margin-bottom: 0;
+}
+
+.owner-hero h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.owner-hero-kicker,
+.pack-bench-kicker,
+.ship-bench-side .pack-bench-kicker {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ls-muted);
+}
+
+.owner-hero-lead {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.owner-hero-ctas {
+  margin-top: 12px;
+}
+
+.owner-hero-ctas button {
+  height: 34px;
+  border-radius: 8px;
+}
+
+/* Tab: gạch chân thay cho nút viên thuốc có số 01, 02 */
+.owner-steps {
+  gap: 0;
+  border-bottom: 1px solid var(--ls-card-border);
+  align-self: stretch;
+}
+
+@media (min-width: 900px) {
+  .owner-steps {
+    align-self: flex-end;
+  }
+}
+
+.owner-steps button {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 12px;
+  margin-bottom: -1px;
+  color: var(--ls-muted);
+  font-weight: 500;
+}
+
+.owner-steps button:hover {
+  color: var(--ls-ink);
+  border-bottom-color: var(--ls-card-border);
+}
+
+.owner-steps button[aria-current='true'] {
+  background: transparent;
+  color: var(--ls-ink);
+  border-bottom-color: var(--ls-cta);
+  font-weight: 600;
+}
+
+.owner-steps span {
+  display: none;
+}
+
+/* Khung làm việc 3 cột của trang Đóng gói */
+.pack-bench {
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: var(--ls-shadow);
+}
+
+html.dark .pack-bench {
+  background: var(--ls-card-solid);
+}
+
+.pack-bench-head {
+  background: transparent;
+  padding: 12px 16px 10px;
+}
+
+.pack-bench-head h2 {
+  font-size: 15px;
+}
+
+.pack-bench-count {
+  border-radius: 6px;
+  background: var(--ls-subtle);
+  color: var(--ls-ink);
+}
+
+.pack-bench-viewonly {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.pack-queue-item {
+  border-bottom: 1px solid var(--ls-card-border);
+}
+
+.pack-queue-item:hover {
+  background: var(--ls-subtle);
+}
+
+.pack-queue-item[aria-current='true'] {
+  background: var(--ls-subtle);
+}
+
+/* Thẻ, khung thông tin */
+.owner-panel {
+  background: #ffffff;
+  box-shadow: var(--ls-shadow);
+}
+
+html.dark .owner-panel {
+  background: var(--ls-card-solid);
+}
+
+.owner-stage .rounded-2xl,
+.owner-stage .rounded-3xl {
+  border-radius: 12px;
+}
+
+/* Thanh trạng thái của trang Giao hàng: tab chữ, số đếm nhạt */
+.ship-status-bar {
+  border-radius: 8px;
+  padding: 3px;
+  background: var(--ls-subtle);
+}
+
+html.dark .ship-status-bar {
+  background: var(--ls-card-solid);
+}
+
+.ship-status-bar button {
+  border-radius: 6px;
+  color: var(--ls-muted);
+  padding: 5px 10px;
+}
+
+.ship-status-bar button[aria-current='true'] {
+  background: #ffffff;
+  color: var(--ls-ink);
+  box-shadow: 0 1px 2px rgba(21, 45, 53, 0.1);
+}
+
+html.dark .ship-status-bar button[aria-current='true'] {
+  background: var(--ls-panel);
+}
+
+.ship-status-bar button span {
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.75;
+}
+
+.ship-foot-btn {
+  border-radius: 8px;
+}
+
+.ship-foot {
+  backdrop-filter: none;
+}
+
+/* Nhãn nhỏ in hoa giãn chữ → chữ thường. Giữ nguyên chữ mã (font-mono). */
+.owner-stage .uppercase:not(.font-mono),
+.owner-sidebar .uppercase:not(.font-mono) {
+  text-transform: none;
+  letter-spacing: 0;
+}

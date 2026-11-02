@@ -19,7 +19,7 @@ import {
 import { CreatePackagingBoxDto, UpdatePackagingBoxDto } from './dto/packaging-box.dto';
 import { AppException } from '../../common/exceptions/app-exception';
 import { PACKAGING_ERROR_CODES } from './packaging.errors';
-import type { BoxSpec } from './engine';
+import type { BoxSpec, MailerSpec } from './engine';
 
 /** Tồn một loại thùng: `available` = `onHand` − `reserved` (không âm). */
 export interface BoxAvailability {
@@ -54,6 +54,30 @@ const PLANNABLE_BOX_FILTER: Record<string, unknown> = {
   tare_g: { $ne: null },
   max_load_g: { $ne: null },
 };
+
+/** AOFP-224 — túi niêm phong engine dùng được: đang dùng + đủ số đo trải phẳng/khối lượng/tải. */
+const PLANNABLE_MAILER_FILTER: Record<string, unknown> = {
+  kind: 'mailer',
+  is_active: true,
+  flat: { $ne: null },
+  tare_g: { $ne: null },
+  max_load_g: { $ne: null },
+};
+
+function toMailerSpec(m: PackagingMaterial): MailerSpec {
+  if (!m.flat || m.tare_g === null || m.max_load_g === null) {
+    throw new Error(`Túi niêm phong ${m.code} thiếu số đo cho engine.`);
+  }
+  return {
+    code: m.code,
+    name: m.name,
+    width_mm: m.flat.width_mm,
+    length_mm: m.flat.length_mm,
+    tare_g: m.tare_g,
+    max_load_g: m.max_load_g,
+    price_vnd: m.unit_cost_vnd,
+  };
+}
 
 function toBoxSpec(box: PackagingMaterial): BoxSpec {
   if (!box.inner || !box.outer || box.tare_g === null || box.max_load_g === null) {
@@ -112,7 +136,11 @@ export class PackagingBoxService {
     if (exclude.groupId) match.order_group_id = { $ne: new Types.ObjectId(exclude.groupId) };
     if (exclude.planId) match._id = { $ne: exclude.planId };
     const [boxes, reservedRows] = await Promise.all([
-      this.materialModel.find({ kind: 'box', is_active: true }).select('code qty_new qty_reused reorder_level').lean(),
+      // AOFP-224 — túi niêm phong giữ chỗ/trừ tồn theo mã giống thùng.
+      this.materialModel
+        .find({ kind: { $in: ['box', 'mailer'] }, is_active: true })
+        .select('code qty_new qty_reused reorder_level')
+        .lean(),
       this.planModel.aggregate<{ _id: string; count: number }>([
         { $match: match },
         { $unwind: '$parcels' },
@@ -226,6 +254,12 @@ export class PackagingBoxService {
   async listActiveSpecs(): Promise<BoxSpec[]> {
     const boxes = await this.materialModel.find(PLANNABLE_BOX_FILTER).lean();
     return boxes.map(toBoxSpec);
+  }
+
+  /** AOFP-224 — túi niêm phong đang dùng có đủ số đo, đổi sang kiểu lõi của engine. */
+  async listActiveMailerSpecs(): Promise<MailerSpec[]> {
+    const mailers = await this.materialModel.find(PLANNABLE_MAILER_FILTER).lean();
+    return mailers.map(toMailerSpec);
   }
 
   async findActiveSpecByCode(code: string): Promise<BoxSpec> {

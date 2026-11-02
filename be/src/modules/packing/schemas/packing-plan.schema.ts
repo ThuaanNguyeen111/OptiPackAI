@@ -61,6 +61,8 @@ export type CpSatState = (typeof CP_SAT_STATES)[number];
 export class PlanBox {
   @Prop({ required: true }) code!: string;
   @Prop({ required: true }) name!: string;
+  /** AOFP-224 (31/10/2026) — 'mailer' = túi niêm phong (inner = outer = kích thước túi đã nhồi). */
+  @Prop({ type: String, enum: ['box', 'mailer'], default: 'box' }) kind?: 'box' | 'mailer';
   @Prop({ type: BoxDimensionsMmSchema, required: true }) inner_mm!: BoxDimensionsMm;
   @Prop({ type: BoxDimensionsMmSchema, required: true }) outer_mm!: BoxDimensionsMm;
   @Prop({ type: Number, required: true }) tare_g!: number;
@@ -82,6 +84,11 @@ export class PlanPlacement {
   @Prop({ type: Number, required: true }) dz!: number;
   @Prop({ required: true }) orientation!: string;
   @Prop({ type: Boolean, default: false }) folded!: boolean;
+  /**
+   * AOFP-224 (31/10/2026) — đơn sở hữu món này. Chỉ ghi ở kiện GỘP nhiều đơn
+   * (PACKAGING_STANDARD §8); kiện 1 đơn để null (món thuộc `parcel.order_id`).
+   */
+  @Prop({ type: SchemaTypes.ObjectId, default: null }) order_id?: Types.ObjectId | null;
 }
 export const PlanPlacementSchema = SchemaFactory.createForClass(PlanPlacement);
 
@@ -201,7 +208,20 @@ export const PlanBoxSourceOverrideSchema = SchemaFactory.createForClass(PlanBoxS
 export class PlanParcel {
   /** Số kiện 1..N trong cả nhóm (đánh lại sau mỗi lần chỉnh tay). */
   @Prop({ type: Number, required: true }) parcel_no!: number;
+  /** Đơn CHỦ của kiện: người nhận, vận đơn hãng, thứ tự kiện. Kiện gộp = đơn sớm nhất có hàng trong kiện. */
   @Prop({ type: SchemaTypes.ObjectId, required: true }) order_id!: Types.ObjectId;
+  /**
+   * AOFP-224 (31/10/2026) — mọi đơn có hàng trong kiện (gồm đơn chủ). Kiện gộp nhiều đơn
+   * AURELLE cùng người nhận (PACKAGING_STANDARD §8). Rỗng = dữ liệu cũ, coi như [order_id];
+   * đọc qua `orderIdsOf()`.
+   */
+  @Prop({ type: [SchemaTypes.ObjectId], default: [] }) order_ids?: Types.ObjectId[];
+  /**
+   * AOFP-224 — mã bài giải gộp (order_id đơn đầu bài, dạng chuỗi) khi kiện thuộc bài
+   * nhiều đơn cùng người nhận; null = bài 1 đơn. Chuyển món chỉ được giữa 2 kiện cùng
+   * đơn hoặc cùng `share_group` (cùng người nhận).
+   */
+  @Prop({ type: String, default: null }) share_group?: string | null;
   @Prop({ type: String, default: null }) platform_order_id!: string | null;
   @Prop({ type: PlanBoxSchema, required: true }) box!: PlanBox;
   @Prop({ type: [PlanPlacementSchema], default: [] }) placements!: PlanPlacement[];

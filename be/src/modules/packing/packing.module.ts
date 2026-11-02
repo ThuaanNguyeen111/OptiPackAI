@@ -22,6 +22,8 @@ import { PackerAssignmentService } from './packer-assignment.service';
 import { PackingSettings, PackingSettingsSchema } from './schemas/packing-settings.schema';
 import { User, UserSchema } from '../users/schemas/user.schema';
 import { ProductMaster, ProductMasterSchema } from '../product-master/schemas/product-master.schema';
+import { ShippingCarrier, ShippingCarrierSchema } from '../shipping/schemas/shipping-carrier.schema';
+import { ShippingSettings, ShippingSettingsSchema } from '../shipping/schemas/shipping-settings.schema';
 import {
   MarketplaceSkuMapping,
   MarketplaceSkuMappingSchema,
@@ -45,6 +47,9 @@ import { PackagingMaterialsModule } from '../packaging-materials/packaging-mater
       { name: MarketplaceSkuMapping.name, schema: MarketplaceSkuMappingSchema },
       // (23/10/2026) đọc profile_confirmed_at để báo kế hoạch cũ (profileStale).
       { name: ProductMaster.name, schema: ProductMasterSchema },
+      // AOFP-224 (31/10/2026) — chỉ đọc luật cân tính cước của hãng mặc định.
+      { name: ShippingCarrier.name, schema: ShippingCarrierSchema },
+      { name: ShippingSettings.name, schema: ShippingSettingsSchema },
     ]),
     OrderGroupsModule,
     PackagingModule,

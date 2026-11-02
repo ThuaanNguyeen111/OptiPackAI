@@ -1,116 +1,33 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import {
-  motion,
-  useInView,
-  useMotionValueEvent,
-  useSpring,
-} from 'framer-motion'
+import type { ReactNode } from 'react'
+import { motion } from 'framer-motion'
 import { ArrowRight, Check, Package, Store, Warehouse } from 'lucide-react'
 
 const STORY_POINTS = [
-  'Đồng bộ, gộp đơn & lấy hàng tối ưu theo kệ',
-  'Mỗi bước có người xác nhận & ghi nhận dấu vết',
-  'Vận hành đi đúng đường, giảm thiểu sai sót',
+  'Đơn của cùng một người nhận được lấy chung một lượt, kể cả khi đặt ở hai sàn khác nhau.',
+  'Kho quét từng món; thiếu hàng thì dừng lại cho người duyệt thay vì đóng thiếu.',
+  'Mỗi lần đổi trạng thái đều ghi lại ai làm, lúc nào — xem lại được ở trang Lịch sử.',
 ] as const
 
 const FLOW_STEPS = [
   {
     key: 'marketplace',
     label: 'Sàn TMĐT',
-    hint: 'Lazada · TikTok · Tiki',
+    hint: 'Lazada · AURELLE',
     icon: Store,
   },
   {
     key: 'system',
     label: 'Hệ thống OptiPackAI',
-    hint: 'Gộp · Phân công · Theo dõi',
+    hint: 'Gom đơn cùng người nhận · giao việc',
     icon: Package,
   },
   {
     key: 'warehouse',
     label: 'Kho & Đóng gói',
-    hint: 'Lấy hàng · Kiểm chứng',
+    hint: 'Quét kệ · xếp thùng · vận đơn GHN',
     icon: Warehouse,
   },
 ] as const
-
-const STATS = [
-  {
-    value: 1400,
-    suffix: '+',
-    pad: 0,
-    unit: '',
-    label: 'Đơn đã xử lý qua hệ thống',
-  },
-  {
-    value: 5,
-    suffix: 's',
-    pad: 2,
-    unit: '',
-    label: 'Mục tiêu gợi ý đóng gói',
-  },
-  {
-    value: 3,
-    suffix: '',
-    pad: 2,
-    unit: 'Sàn',
-    label: 'Trong lộ trình tích hợp',
-  },
-  {
-    value: 19,
-    suffix: '',
-    pad: 2,
-    unit: 'Status',
-    label: 'Trạng thái Lazada đã map',
-  },
-] as const
-
-function formatStatValue(value: number, pad: number): string {
-  if (pad <= 0) return String(value)
-  return String(value).padStart(pad, '0')
-}
-
-function AnimatedNumber({
-  value,
-  suffix,
-  pad,
-  unit,
-}: {
-  value: number
-  suffix: string
-  pad: number
-  unit: string
-}): ReactNode {
-  const ref = useRef<HTMLSpanElement>(null)
-  const inView = useInView(ref, { once: true, margin: '-10% 0px' })
-  const spring = useSpring(0, { stiffness: 70, damping: 22 })
-  const [display, setDisplay] = useState(0)
-
-  useEffect(() => {
-    if (inView) spring.set(value)
-  }, [inView, spring, value])
-
-  useMotionValueEvent(spring, 'change', (latest) => {
-    setDisplay(Math.round(latest))
-  })
-
-  return (
-    <span
-      ref={ref}
-      className="inline-flex min-h-[1.15em] items-baseline gap-1.5 tabular-nums"
-    >
-      <span>
-        {formatStatValue(display, pad)}
-        {suffix}
-      </span>
-      {unit ? (
-        <span className="text-[0.42em] font-semibold tracking-wide text-[var(--ed-muted)] uppercase">
-          {unit}
-        </span>
-      ) : null}
-    </span>
-  )
-}
 
 function WorkflowMockup(): ReactNode {
   return (
@@ -148,14 +65,7 @@ function WorkflowMockup(): ReactNode {
                     ease: [0.22, 1, 0.36, 1],
                   }}
                 >
-                  <motion.div
-                    animate={{ y: [0, -4, 0] }}
-                    transition={{
-                      duration: 3.4,
-                      repeat: Infinity,
-                      ease: 'easeInOut',
-                      delay: index * 0.45,
-                    }}
+                  <div
                     className="flex items-center gap-3 rounded-2xl border border-[var(--ed-line)] bg-white/85 px-3.5 py-3 shadow-[0_4px_16px_rgba(21,45,53,0.04)]"
                   >
                     <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--ed-sage)_70%,white)] text-[var(--ed-ink)]">
@@ -169,7 +79,7 @@ function WorkflowMockup(): ReactNode {
                         {step.hint}
                       </span>
                     </span>
-                  </motion.div>
+                  </div>
                 </motion.div>
                 {index < FLOW_STEPS.length - 1 ? (
                   <div
@@ -200,9 +110,8 @@ export function EditorialScrollStats(): ReactNode {
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
           className="min-w-0"
         >
-          <p className="ed-kicker">Câu chuyện vận hành</p>
           <h2 className="ed-title m-0 max-w-xl text-[clamp(1.55rem,3vw,2.35rem)] text-[var(--ed-ink)]">
-            OptiPackAI biến đơn rời thành luồng kho thống nhất.
+            Một luồng thay cho ba bảng tính và hai trang quản lý sàn.
           </h2>
 
           <ul className="mt-8 flex list-none flex-col gap-3.5 p-0">
@@ -242,31 +151,6 @@ export function EditorialScrollStats(): ReactNode {
         </div>
       </div>
 
-      {/* Stats — full width below */}
-      <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {STATS.map((stat) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 18 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-8%' }}
-            transition={{ duration: 0.45 }}
-            className="flex h-full min-h-[9.5rem] flex-col justify-between rounded-3xl border border-[var(--ed-line)] bg-white/70 px-5 py-6 text-left shadow-[0_8px_30px_rgba(21,45,53,0.04)]"
-          >
-            <p className="m-0 text-left text-[clamp(2rem,4vw,2.75rem)] font-semibold tracking-normal text-[var(--ed-ink)]">
-              <AnimatedNumber
-                value={stat.value}
-                suffix={stat.suffix}
-                pad={stat.pad}
-                unit={stat.unit}
-              />
-            </p>
-            <p className="m-0 mt-3 text-left text-sm leading-snug text-[var(--ed-ink-soft)]">
-              {stat.label}
-            </p>
-          </motion.div>
-        ))}
-      </div>
     </section>
   )
 }

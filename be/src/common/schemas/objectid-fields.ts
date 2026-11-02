@@ -146,6 +146,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'parcels.reviews.by',
       'parcels.unpack.by',
       'parcels.box_source_override.by', // 21/10/2026 — chọn nguồn thùng khác gợi ý
+      'parcels.placements.order_id', // AOFP-224 (31/10/2026) — chủ món trong kiện gộp nhiều đơn
     ],
   },
   {

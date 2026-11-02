@@ -210,8 +210,8 @@ export function AdminPackingPlansPage() {
               </h1>
               <p className="mt-1 text-sm text-ink-subtle">
                 {vi
-                  ? 'Danh sách «Chờ chốt» = nhóm đơn kho đã xác nhận lấy xong (picked). Chọn nhóm còn hàng → Xác nhận → NV đóng gói nhận thông báo.'
-                  : '«To confirm» = order groups warehouse marked picked. Pick a group that still has items → Confirm → staff notified.'}
+                  ? 'Nhóm đã lấy xong hàng sẽ hiện ở «Chờ chốt». Xác nhận kế hoạch thì nhân viên đóng gói nhận được thông báo.'
+                  : 'Picked groups appear under «To confirm». Confirming a plan notifies the packing staff.'}
               </p>
             </div>
             <Button

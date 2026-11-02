@@ -92,6 +92,54 @@ describe('PackerAssignmentService', () => {
     expect(notify).toHaveBeenCalledWith(expect.objectContaining({ recipientUserId: String(packerA) }));
   });
 
+  describe('reassignOrphans (31/10/2026)', () => {
+    const orphan = new Types.ObjectId();
+    const onLeave = new Types.ObjectId();
+    const kept = new Types.ObjectId();
+    function setup(plans: { _id: Types.ObjectId; assigned_packer_id: Types.ObjectId | null }[], available: Types.ObjectId[]): void {
+      const lean = (v: unknown): { lean: () => Promise<unknown> } => ({ lean: () => Promise.resolve(v) });
+      (planModel as unknown as { find: jest.Mock }).find = jest.fn(() => ({
+        select: () => ({ sort: () => ({ limit: () => lean(plans) }) }),
+      }));
+      userModel.find = jest.fn((filter: { $and?: unknown }) =>
+        filter.$and
+          ? { select: () => ({ lean: () => Promise.resolve(available.map((_id) => ({ _id }))), sort: () => lean(available.map((_id) => ({ _id }))) }) }
+          : { select: () => lean([]) },
+      );
+      (userModel as unknown as { findById: jest.Mock }).findById = jest.fn(() => ({ select: () => lean({ name: 'B' }) }));
+      planModel.aggregate = jest.fn().mockResolvedValue([]);
+    }
+
+    it('giao lại kế hoạch chưa có người và kế hoạch của người nghỉ phép; giữ người còn nhận việc', async () => {
+      setup(
+        [
+          { _id: orphan, assigned_packer_id: null },
+          { _id: planId, assigned_packer_id: onLeave },
+          { _id: new Types.ObjectId(), assigned_packer_id: kept },
+        ],
+        [kept, packerB],
+      );
+      expect(await service.reassignOrphans()).toBe(2);
+      const filters = (planModel.findOneAndUpdate.mock.calls as unknown[][]).map((c) => c[0] as Record<string, unknown>);
+      expect(filters).toEqual([
+        expect.objectContaining({ _id: orphan, assigned_packer_id: null }),
+        expect.objectContaining({ _id: planId, assigned_packer_id: onLeave }),
+      ]);
+    });
+
+    it('không có Packaging Staff nào nhận việc → không đổi gì', async () => {
+      setup([{ _id: orphan, assigned_packer_id: null }], []);
+      expect(await service.reassignOrphans()).toBe(0);
+      expect(planModel.findOneAndUpdate).not.toHaveBeenCalled();
+    });
+
+    it('người khác vừa nhận kế hoạch (ghi có điều kiện không khớp) → không đếm', async () => {
+      setup([{ _id: orphan, assigned_packer_id: null }], [packerB]);
+      planModel.findOneAndUpdate.mockResolvedValue(null);
+      expect(await service.reassignOrphans()).toBe(0);
+    });
+  });
+
   it('lần đầu: chọn Packaging Staff ít kế hoạch đang mở nhất', async () => {
     const plan = await service.assignOnReady(planId, null);
     expect(String(plan?.assigned_packer_id)).toBe(String(packerB));

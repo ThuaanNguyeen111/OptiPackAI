@@ -1,5 +1,6 @@
 # OptiPackAI — Sổ tay trình diễn hệ thống (Demo Playbook)
 
+> 🆕 31/10/2026 — **Quy chuẩn đóng gói thời trang** (túi niêm phong, giày luôn vào thùng, kiện gộp nhiều đơn AURELLE): Phần H, mục 8c.
 > 🆕 14/10/2026 — Giao hàng qua **GHN** (báo giá phí thật, vận đơn GHN, nút mô phỏng trạng thái, hoàn hàng + thu hồi vật tư): kịch bản 5 phút ở `GHN_INTEGRATION_GUIDE.md` mục 11.6. Cài đặt: chạy `scripts/seed-ghn-carrier.ts`, đặt `CARRIER_MANUAL_STATUS_ENABLED=true`.
 
 | Thông tin         | Giá trị                                                                                                                                                                                            |
@@ -201,6 +202,56 @@ Chuẩn bị: như Phần F. 1 sản phẩm AURELLE có SKU đúng quy tắc, kh
 | G6 | Khách → Store/Kho | Trả hàng 1 sản phẩm → duyệt → nhận → kiểm | Luồng Phần F | Trang yêu cầu "Đã hoàn …₫"; đơn "Đã hoàn tiền một phần" |
 
 Thông điệp: website không bao giờ bán quá số kho OptiPack có; mọi quyết định của kho (hủy, giao thiếu, hoàn tiền) hiện lại cho khách đúng lý do và đúng số tiền.
+
+---
+
+## 8c. Phần H — Quy chuẩn đóng gói thời trang (AOFP-224, ~6 phút)
+
+> 🆕 31/10/2026. Quy chuẩn: [`docs/PACKAGING_STANDARD.md`](../docs/PACKAGING_STANDARD.md). **FE chưa có màn cho phần này** (checklist FE mục 7) → thao tác bằng Swagger (`http://localhost:3000/api/docs`) hoặc Postman; màn Packaging hiện kế hoạch như cũ, khung 3D chưa vẽ túi niêm phong (hiện như thùng dẹt).
+
+**Thông điệp:** "Không phải lúc nào cũng cần thùng." Engine chọn lớp ngoài theo **bảo vệ hàng → cước GHN theo bậc → vật liệu**: áo vào túi niêm phong, giày luôn vào thùng, đơn AURELLE cùng người nhận đóng chung 1 kiện.
+
+### H.0. Chuẩn bị (trước buổi demo)
+
+1. Chạy BE **từ nhánh `feature/packaging-standard`** (PR #29). Nếu đang ở worktree `OptiPackAI-packaging`: chép `be/.env` từ thư mục chính sang `OptiPackAI-packaging/be/.env`, rồi `npm run dev:be` trong worktree (tắt BE ở thư mục chính để khỏi trùng cổng 3000).
+2. Seed túi niêm phong + giấy chèn (chạy 1 lần, trong `be/`):
+   ```bash
+   npx ts-node -r dotenv/config scripts/seed-packaging-mailers.ts      # MAILER-20X30 / 25X35 / 32X45 / 38X52
+   npx ts-node -r dotenv/config scripts/seed-packaging-materials.ts    # thêm SAMPLE-KRAFT-PAPER, SAMPLE-TISSUE-PAPER
+   ```
+3. Bật túi niêm phong (Admin): `PUT /packing/settings` body `{ "mailer_enabled": true }` → response `mailerEnabled: true`. **Chỉ bật cho demo** — chưa xác nhận GHN nhận túi làm lớp ngoài duy nhất.
+4. Hồ sơ SKU (Warehouse/Admin, `PUT /product-master/:id/packaging-profile`) — có sẵn 3 SKU đã `ready`:
+   - **SKU-AO**: `product_category: "t_shirt"`, size M ~ `24 × 30 × 2.5` cm, `0.2` kg, `can_fold_in_half: true` (`outer_requirement` để trống = mặc định `mailer_ok`).
+   - **SKU-GIAY**: `product_category: "shoes"` (mặc định `box_required`), hộp ~ `33 × 22 × 12` cm.
+   - **SKU-TUI**: `product_category: "bag"`, `outer_requirement: "box_required"` (túi xách form cứng).
+5. Có 1 tài khoản **Packaging Staff role 2** (kiểm `GET /packing/staff` có tên) để kế hoạch tự giao người đóng.
+
+### H.1. Các tình huống
+
+| #  | Vai trò | Thao tác | API | Kết quả cần thấy |
+|----|---------|----------|-----|------------------|
+| H1 | Khách → Warehouse | Đặt 1 đơn AURELLE **1 SKU-AO**; kho lấy xong | Website AURELLE → `POST .../fulfillment/pick` | ~10 giây sau nhóm `pending_approval`, kế hoạch tự giao người đóng |
+| H2 | Packaging | Mở kế hoạch | `GET /order-groups/:groupId/packing-plan` | `parcels[0].box.kind = "mailer"`, `box.code = "MAILER-25X35"`, món `folded: true`, không có vật liệu chèn |
+| H3 | (giải thích) | So với thùng | — | Cân tính cước = `max(estimatedWeightG, volumetricWeightG)` làm tròn lên bậc 500 g → **0,5 kg**. Cùng áo vào thùng mẫu phải dùng `SAMPLE-M` → bậc **4 kg** (khối lượng quy đổi = D×R×C/**5000**, đúng công thức GHN) |
+| H4 | Khách → Warehouse → Packaging | Đơn **1 SKU-AO + 1 SKU-GIAY** | như H1–H2 | Mặc định **1 thùng chung** (giày dưới, áo nằm phẳng trên); `orders[0].explanation` có dòng nhắc **§6** — tách túi + thùng không rẻ hơn đủ **5.000đ** |
+| H5 | Khách → … → Packaging | Đơn **1 SKU-TUI** | như H1–H2 | Vào **thùng** (`box_required`), vật liệu có `kraft_paper` (nhồi giữ form) |
+| H6 | Khách → Warehouse | Cùng 1 người nhận đặt **2 đơn AURELLE** (A: 1 SKU-AO, B: 1 SKU-AO) → 2 đơn vào chung 1 nhóm → kho lấy xong | `GET /order-groups/:groupId` (`orders` có 2 đơn) | Nhóm 2 đơn |
+| H7 | Packaging | Mở kế hoạch nhóm H6 | `GET .../packing-plan` | **1 kiện** cho cả 2 đơn: `orderIds` có 2 id, `platformOrderIds` = [A, B], `shareGroup` ≠ null; mã món dạng `A/SKU-AO#1`, `B/SKU-AO#1`, mỗi món có `orderId` riêng; `explanation` có dòng **§8** |
+| H8 | Packaging | Đóng kiện, in giấy tờ | `POST .../packing-plan/start` → `scan` → `seal`; `GET /documents/...` phiếu đóng gói + tem | **2 phiếu đóng gói** (mỗi đơn 1 tờ, kẹp chung kiện); tem vận đơn ghi mã đơn **"A + B"** |
+| H9 | Shipping | Tạo vận đơn GHN → mô phỏng giao xong | `POST /shipments` (`carrier_code: "GHN"`) → `POST /shipments/:id/carrier/simulate` `{ "status": "delivered" }` | 1 mã GHN; website AURELLE hiện **cùng mã vận đơn và "Đã giao" ở cả đơn A và B** |
+| H10 | So sánh | Lặp H6 với **2 đơn Lazada** cùng người nhận | — | Lazada **vẫn mỗi đơn 1 kiện** (sàn quản lý vận đơn theo đơn) |
+
+### H.2. Câu hỏi hay gặp
+
+- **Vì sao không bật túi niêm phong mặc định?** Văn bản GHN hướng dẫn quần áo "bọc nylon rồi cho vào thùng", chưa nói rõ nhận túi niêm phong là lớp ngoài duy nhất → gửi thử 1 đơn thật rồi mới bật.
+- **Kích thước gấp lấy ở đâu?** Khuôn gấp chuẩn theo size (PACKAGING_STANDARD §5.2) là **giả định**; kho đo món thật và ghi đè vào hồ sơ SKU.
+- **Đơn gộp nhờ quy tắc bổ sung (AOFP-223), khác tên người nhận, có đóng chung không?** Không — chỉ đơn cùng khoá gộp cơ bản mới chung kiện, để mỗi tem có đúng 1 người nhận.
+- **Hủy 1 đơn trong kiện gộp sau khi đã niêm phong?** Kiện chuyển `to_unpack` → tháo, lấy hàng đơn hủy ra, tính lại, niêm phong lại.
+- **Kiện gộp có chứng minh tối ưu bằng CP-SAT không?** Chưa — chỉ BRKGA; giải thích ghi rõ điều này.
+
+### H.3. Sau demo
+
+`PUT /packing/settings` `{ "mailer_enabled": false }` nếu chưa xác nhận với GHN.
 
 ---
 

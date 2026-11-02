@@ -78,6 +78,22 @@ export interface RecoveryResult {
  *   vào qty_reused, CÙNG transaction với phiếu hoàn.
  * ===================================================================
  */
+/** AOFP-224 — trường riêng của túi niêm phong (cm trên form → mm cho engine). */
+function mailerFields(dto: CreatePackagingMaterialDto): Record<string, unknown> {
+  const mm = (cm: number | undefined): number => Math.round((cm ?? 0) * 10);
+  return {
+    length_cm: dto.length_cm ?? null,
+    width_cm: dto.width_cm ?? null,
+    height_cm: null,
+    flat: { width_mm: mm(dto.width_cm), length_mm: mm(dto.length_cm) },
+    tare_g: dto.tare_g ?? null,
+    max_load_g: dto.max_load_g ?? DEFAULT_MAILER_MAX_LOAD_G,
+  };
+}
+
+/** Tải hàng tối đa mặc định của 1 túi niêm phong (giả định — PACKAGING_STANDARD §4.3). */
+export const DEFAULT_MAILER_MAX_LOAD_G = 3000;
+
 @Injectable()
 export class PackagingMaterialsService {
   constructor(
@@ -92,6 +108,13 @@ export class PackagingMaterialsService {
     if (dto.kind === 'box' && (!dto.length_cm || !dto.width_cm || !dto.height_cm)) {
       this.fail(E.INVALID_DEFINITION, 'Thùng phải khai đủ 3 kích thước (dài, rộng, cao).', HttpStatus.BAD_REQUEST);
     }
+    if (dto.kind === 'mailer' && (!dto.length_cm || !dto.width_cm || dto.tare_g === undefined)) {
+      this.fail(
+        E.INVALID_DEFINITION,
+        'Túi niêm phong phải khai rộng (width_cm), dài (length_cm) trải phẳng và khối lượng túi (tare_g).',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
     if (dto.kind === 'cushioning' && !dto.match_material_type) {
       this.fail(E.INVALID_DEFINITION, 'Vật liệu đệm phải khai match_material_type (VD "Bubble Wrap").', HttpStatus.BAD_REQUEST);
     }
@@ -101,12 +124,13 @@ export class PackagingMaterialsService {
         name: dto.name,
         kind: dto.kind,
         unit_cost_vnd: dto.unit_cost_vnd,
-        reusable: dto.reusable ?? true,
+        reusable: dto.kind === 'mailer' ? false : (dto.reusable ?? true),
         max_reuse_cycles: dto.max_reuse_cycles ?? 3,
         length_cm: dto.kind === 'box' ? dto.length_cm : null,
         width_cm: dto.kind === 'box' ? dto.width_cm : null,
         height_cm: dto.kind === 'box' ? dto.height_cm : null,
         match_material_type: dto.kind === 'cushioning' ? dto.match_material_type : null,
+        ...(dto.kind === 'mailer' ? mailerFields(dto) : {}),
       });
     } catch (error: unknown) {
       if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) {

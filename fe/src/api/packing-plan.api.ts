@@ -379,10 +379,18 @@ export async function updatePackingSettings(
   return res.settings
 }
 
-export async function getPackingReport(): Promise<PackingReport> {
-  const res = await apiRequest<{ report: PackingReport }>('/packing/reports/summary', {
-    auth: true,
-  })
+export async function getPackingReport(range?: {
+  from?: string
+  to?: string
+}): Promise<PackingReport> {
+  const qs = new URLSearchParams()
+  if (range?.from) qs.set('from', range.from)
+  if (range?.to) qs.set('to', range.to)
+  const query = qs.toString()
+  const res = await apiRequest<{ report: PackingReport }>(
+    `/packing/reports/summary${query ? `?${query}` : ''}`,
+    { auth: true },
+  )
   return res.report
 }
 

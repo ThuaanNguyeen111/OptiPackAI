@@ -8,7 +8,29 @@ import type {
 import type { ParcelState } from './parcel-state';
 import type { Objective, SolvePreference, SolvedParcel } from './types';
 
-export const DEFAULT_VOLUMETRIC_DIVISOR = 6000;
+/**
+ * Luật tính cân tính cước của hãng (AOFP-224, docs/PACKAGING_STANDARD.md §2):
+ * cân tính cước = max(cân thật, thể tích ngoài cm³ / divisor) rồi làm tròn LÊN
+ * bội số `billingStepG`. Mặc định theo GHN: divisor 5000, bước 500 g.
+ */
+export interface ChargeRule {
+  volumetricDivisor: number;
+  billingStepG: number;
+}
+
+export const DEFAULT_VOLUMETRIC_DIVISOR = 5000;
+export const DEFAULT_BILLING_STEP_G = 500;
+export const DEFAULT_CHARGE_RULE: ChargeRule = {
+  volumetricDivisor: DEFAULT_VOLUMETRIC_DIVISOR,
+  billingStepG: DEFAULT_BILLING_STEP_G,
+};
+
+/** Cân tính cước (g): max(thật, quy đổi) làm tròn lên bội số bước; bước ≤ 0 = không làm tròn. */
+export function billableWeightG(actualG: number, volumetricG: number, stepG: number): number {
+  const raw = Math.max(actualG, volumetricG);
+  if (stepG <= 0) return Math.ceil(raw);
+  return Math.max(stepG, Math.ceil(raw / stepG) * stepG);
+}
 
 const innerVolume = (b: BoxSpec): number =>
   b.inner.length_mm * b.inner.width_mm * b.inner.height_mm;
@@ -17,14 +39,14 @@ const innerVolume = (b: BoxSpec): number =>
 export function summarizeParcel(
   state: ParcelState,
   materials: MaterialPlanning | undefined,
-  volumetricDivisor = DEFAULT_VOLUMETRIC_DIVISOR,
+  charge: ChargeRule = DEFAULT_CHARGE_RULE,
 ): SolvedParcel {
   return summarizePlacements(
     state.box,
     state.units,
     state.placements,
     materials,
-    volumetricDivisor,
+    charge,
   );
 }
 
@@ -34,7 +56,7 @@ export function summarizePlacements(
   units: PackingUnit[],
   placements: Placement[],
   materials: MaterialPlanning | undefined,
-  volumetricDivisor = DEFAULT_VOLUMETRIC_DIVISOR,
+  charge: ChargeRule = DEFAULT_CHARGE_RULE,
 ): SolvedParcel {
   const itemsWeight = units.reduce((s, u) => s + u.weight_g, 0);
   const itemsVolume = placements.reduce((s, p) => s + p.dx * p.dy * p.dz, 0);
@@ -44,6 +66,8 @@ export function summarizePlacements(
   const materialsCost = lines.reduce((s, m) => s + m.cost_vnd, 0);
   const outerCm3 =
     (box.outer.length_mm * box.outer.width_mm * box.outer.height_mm) / 1000;
+  const packageWeight = itemsWeight + box.tare_g + materialsWeight;
+  const volumetricWeight = Math.ceil((outerCm3 / charge.volumetricDivisor) * 1000);
   return {
     box,
     units: [...units],
@@ -53,8 +77,9 @@ export function summarizePlacements(
     materials: lines,
     materials_weight_g: materialsWeight,
     materials_cost_vnd: materialsCost,
-    estimated_package_weight_g: itemsWeight + box.tare_g + materialsWeight,
-    volumetric_weight_g: Math.ceil((outerCm3 / volumetricDivisor) * 1000),
+    estimated_package_weight_g: packageWeight,
+    volumetric_weight_g: volumetricWeight,
+    billable_weight_g: billableWeightG(packageWeight, volumetricWeight, charge.billingStepG),
   };
 }
 
@@ -90,6 +115,7 @@ export function objectiveOf(
       (s, p) => s + (p.box.price_vnd ?? 0) + p.materials_cost_vnd,
       0,
     ),
+    billable_g: parcels.reduce((s, p) => s + p.billable_weight_g, 0),
     volumetric_g: parcels.reduce((s, p) => s + p.volumetric_weight_g, 0),
     folds: parcels.reduce(
       (s, p) => s + p.placements.filter((q) => q.folded === true).length,
@@ -103,7 +129,11 @@ export function objectiveOf(
 /** Làm tròn số thực trước khi so (tránh nhiễu dấu phẩy động làm kết quả không ổn định). */
 const r3 = (n: number): number => Math.round(n * 1000);
 
-/** < 0 nếu `a` tốt hơn `b`. So theo bậc; `prefer` đổi chỗ bậc số kiện và chi phí. */
+/**
+ * < 0 nếu `a` tốt hơn `b`. So theo bậc; `prefer` đổi chỗ bậc số kiện và chi phí.
+ * Cân tính cước (theo bậc làm tròn của hãng) đứng trước giá bao bì: cước là
+ * tiền lớn hơn và chỉ đổi khi kiện vượt/lọt ranh giới bậc (§2 quy chuẩn).
+ */
 export function compareObjective(
   a: Objective,
   b: Objective,
@@ -111,9 +141,17 @@ export function compareObjective(
 ): number {
   const tiers: [number, number][] = [[a.unplaced, b.unplaced]];
   if (prefer === 'cheapest') {
-    tiers.push([a.packaging_cost_vnd, b.packaging_cost_vnd], [a.parcels, b.parcels]);
+    tiers.push(
+      [a.billable_g, b.billable_g],
+      [a.packaging_cost_vnd, b.packaging_cost_vnd],
+      [a.parcels, b.parcels],
+    );
   } else {
-    tiers.push([a.parcels, b.parcels], [a.packaging_cost_vnd, b.packaging_cost_vnd]);
+    tiers.push(
+      [a.parcels, b.parcels],
+      [a.billable_g, b.billable_g],
+      [a.packaging_cost_vnd, b.packaging_cost_vnd],
+    );
   }
   tiers.push(
     [a.volumetric_g, b.volumetric_g],

@@ -37,6 +37,46 @@ export const NORMAL_FLOW_ORDER_STATUSES: OrderStatus[] = [
 
 export const SYNC_PLATFORMS = [MarketplacePlatform.LAZADA, MarketplacePlatform.AURELLE] as const;
 
+/**
+ * 31/10/2026 — QUY TẮC GỘP ĐƠN BỔ SUNG (GUIDE_DOC/CONSOLIDATION_RULES_DESIGN.md).
+ * Mỗi quy tắc sinh thêm 1 khoá trong `orders.consolidation_keys`; đơn gộp được khi
+ * trùng khoá cơ bản HOẶC trùng khoá của bất kỳ quy tắc đang bật nào. Thứ tự trong
+ * mảng dưới đây là thứ tự ghép khoá (cố định, không theo thứ tự Admin chọn).
+ */
+export const CONSOLIDATION_RULE_FIELDS = [
+  'phone',
+  'full_name',
+  'address_line1',
+  'city',
+  'province_name',
+  'district_name',
+  'ward_name',
+] as const;
+export type ConsolidationRuleField = (typeof CONSOLIDATION_RULE_FIELDS)[number];
+
+/** normalized = bỏ dấu + chữ thường + gộp khoảng trắng; exact = chỉ trim. SĐT luôn chuẩn hoá số. */
+export const CONSOLIDATION_RULE_MATCHES = ['normalized', 'exact'] as const;
+export type ConsolidationRuleMatch = (typeof CONSOLIDATION_RULE_MATCHES)[number];
+
+export const MAX_CONSOLIDATION_RULES = 10;
+
+export interface ConsolidationRuleFieldMatch {
+  field: ConsolidationRuleField;
+  match: ConsolidationRuleMatch;
+}
+
+export interface ConsolidationRule {
+  id: string;
+  name: string;
+  sourceText: string | null;
+  fields: ConsolidationRuleFieldMatch[];
+  /** Rỗng = mọi sàn. */
+  platforms: string[];
+  /** null = dùng consolidation.timeWindowHours chung. */
+  maxWindowHours: number | null;
+  enabled: boolean;
+}
+
 export interface OrderSyncPolicy {
   /** null = đang dùng mặc định trong code (chưa ai lưu). */
   version: number | null;
@@ -51,6 +91,7 @@ export interface OrderSyncPolicy {
     keyFields: ConsolidationKeyField[];
     timeWindowHours: number | null;
     openGroupStatuses: OpenGroupStatus[];
+    rules: ConsolidationRule[];
   };
   statuses: {
     consolidatable: OrderStatus[];
@@ -73,6 +114,7 @@ export const DEFAULT_ORDER_SYNC_POLICY: OrderSyncPolicy = {
     keyFields: ['phone', 'address_line1', 'city'],
     timeWindowHours: null,
     openGroupStatuses: ['awaiting_packaging', 'picking'],
+    rules: [],
   },
   statuses: {
     consolidatable: [...UNFULFILLED_ORDER_STATUSES],

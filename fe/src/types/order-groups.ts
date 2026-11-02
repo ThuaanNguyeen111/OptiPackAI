@@ -89,6 +89,10 @@ export type OrderGroup = {
   assignedStaffId: string | null
   orderPriority: OrderPriority | string
   packagingDeadline: string | null
+  /** Hỏa tốc AURELLE shop tự giao. Đơn hỏa tốc đánh dấu tay thì false. */
+  requiresSelfDelivery: boolean
+  /** Giờ hẹn giao khách (ISO). Có khi đơn là hỏa tốc tự giao. */
+  deliveryDeadline: string | null
   isOverdue: boolean
   stockShortage: boolean
   stockShortageItems: StockShortageItem[]
@@ -107,6 +111,11 @@ export type OrderGroup = {
   /** Tên người nhận khác nhau của các đơn còn hiệu lực. */
   recipientNames: string[]
   recipientNamesDiffer: boolean
+  /**
+   * BE: đơn còn hiệu lực ≥ 2 hoặc tên người nhận khác nhau.
+   * Không gồm cài đặt `require_scan` — FE tự OR thêm.
+   */
+  packScanRequired: boolean
   hasMaskedRecipientName: boolean
   splitFromGroupId: string | null
   mergedIntoGroupId: string | null

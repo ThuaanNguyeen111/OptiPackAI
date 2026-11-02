@@ -14,7 +14,7 @@ import { DEFAULT_MATERIAL_RULES } from '../src/modules/packaging/engine';
  * ===================================================================
  * Seed danh mục vật tư chèn MẪU (28/09/2026, P1)
  * ===================================================================
- * Tạo 5 vật tư mẫu (is_sample: true — SỐ GIẢ LẬP, thay bằng số thật khi
+ * Tạo 7 vật tư mẫu (is_sample: true — SỐ GIẢ LẬP, thay bằng số thật khi
  * có: sửa qua PATCH /packaging/materials/:id, khối lượng/giá) mỗi loại
  * nhập sẵn tồn qua stock-in (có dòng sổ), và lưu bộ luật mặc định làm
  * version 1 nếu DB chưa có bộ luật nào. Chỉ tạo mã chưa tồn tại, KHÔNG
@@ -29,6 +29,9 @@ const SAMPLE_MATERIALS = [
   { code: 'SAMPLE-AIR-PILLOW', name: 'Gối hơi lấp trống (mẫu)', type: 'air_pillow', unit: 'cái', weight_g_per_unit: 3, price_vnd_per_unit: 400, stock: 300 },
   { code: 'SAMPLE-BUBBLE-WRAP', name: 'Xốp hơi bọc hàng (mẫu)', type: 'bubble_wrap', unit: 'tấm', weight_g_per_unit: 10, price_vnd_per_unit: 800, stock: 200 },
   { code: 'SAMPLE-FRAGILE-TAPE', name: 'Tem cảnh báo hàng dễ vỡ (mẫu)', type: 'fragile_tape', unit: 'cái', weight_g_per_unit: 1, price_vnd_per_unit: 200, stock: 300 },
+  // AOFP-224 (31/10/2026) — giấy chèn (PACKAGING_STANDARD §7).
+  { code: 'SAMPLE-KRAFT-PAPER', name: 'Giấy kraft vò lấp trống (mẫu)', type: 'kraft_paper', unit: 'tờ', weight_g_per_unit: 15, price_vnd_per_unit: 300, stock: 500 },
+  { code: 'SAMPLE-TISSUE-PAPER', name: 'Giấy pelure lót đầm/túi xách (mẫu)', type: 'tissue_paper', unit: 'tờ', weight_g_per_unit: 5, price_vnd_per_unit: 200, stock: 500 },
 ] as const;
 
 async function run(): Promise<void> {

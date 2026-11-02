@@ -48,6 +48,8 @@ export interface CarrierResponse {
   code: string;
   name: string;
   volumetricDivisor: number;
+  /** AOFP-224 — bước làm tròn cân tính cước (g). */
+  weightStepG: number;
   isSample: boolean;
   isActive: boolean;
   /** C4 (14/10/2026) — 'table' = bảng cước; 'live' = cước + vận đơn từ API hãng (GHN). */
@@ -69,6 +71,7 @@ function toCarrierResponse(doc: ShippingCarrierDocument): CarrierResponse {
     code: doc.code,
     name: doc.name,
     volumetricDivisor: doc.volumetric_divisor,
+    weightStepG: doc.weight_step_g,
     isSample: doc.is_sample,
     isActive: doc.is_active,
     kind: doc.kind,

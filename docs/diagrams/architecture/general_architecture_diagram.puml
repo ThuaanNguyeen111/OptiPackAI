@@ -7,6 +7,7 @@ skinparam linetype polyline
 skinparam nodesep 50
 skinparam ranksep 60
 skinparam roundCorner 10
+UpdateBoundaryStyle($borderStyle="solid")
 
 ' 1. CLIENTS
 Boundary(c_front, "Frontend") {
@@ -34,15 +35,15 @@ Boundary(c_ext, "External Services") {
 }
 
 ' RELATIONS & PROTOCOLS
-Rel(FE_WEB, API, "HTTPS / REST")
-Rel(FE_APP, API, "HTTPS / REST")
+BiRel(FE_WEB, API, "HTTPS / REST")
+BiRel(FE_APP, API, "HTTPS / REST")
 
-Rel_Neighbor(API, WORKER, "gRPC / HTTP2")
+BiRel_Neighbor(API, WORKER, "gRPC / HTTP2")
 
-Rel(API, DB, "MongoDB Wire / TLS")
-Rel(API, CACHE, "RESP / TCP")
+BiRel(API, DB, "MongoDB Wire / TLS")
+BiRel(API, CACHE, "RESP / TCP")
 
-Rel(API, EXT_SHIP, "Webhook / REST")
-Rel(API, EXT_MKT, "Webhook / REST")
-Rel(API, EXT_AI, "HTTPS / SSE")
+BiRel(API, EXT_SHIP, "Webhook / REST")
+BiRel(API, EXT_MKT, "Webhook / REST")
+BiRel(API, EXT_AI, "HTTPS / SSE")
 @enduml

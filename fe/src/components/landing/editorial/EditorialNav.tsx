@@ -7,9 +7,9 @@ import { LandingUserAvatar } from '../LandingUserAvatar'
 
 const LINKS = [
   { href: '#top', label: 'Trang chủ' },
-  { href: '#services', label: 'Dịch vụ' },
+  { href: '#services', label: 'Tính năng' },
   { href: '#process', label: 'Quy trình' },
-  { href: '#works', label: 'Tác vụ' },
+  { href: '#works', label: 'Vai trò' },
 ] as const
 
 export function EditorialNav(): ReactNode {

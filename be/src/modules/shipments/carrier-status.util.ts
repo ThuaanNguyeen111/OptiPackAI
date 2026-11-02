@@ -92,15 +92,31 @@ export function aggregateCarrierStatus(parcelStatuses: (string | null)[]): Shipm
 }
 
 /**
+ * AOFP-224 — các đơn có hàng trong 1 kiện vận đơn: `order_ids` (kiện gộp cùng người nhận),
+ * vận đơn cũ chưa có trường này thì chỉ đơn chủ `order_id`.
+ */
+export function carrierParcelOrderIds<T>(p: { order_id?: T | null; order_ids?: readonly T[] | null }): T[] {
+  if (p.order_ids && p.order_ids.length > 0) return [...p.order_ids];
+  return p.order_id !== undefined && p.order_id !== null ? [p.order_id] : [];
+}
+
+export function carrierParcelHasOrder(
+  p: { order_id?: unknown; order_ids?: readonly unknown[] | null },
+  orderId: unknown,
+): boolean {
+  return carrierParcelOrderIds<unknown>(p).some((id) => String(id) === String(orderId));
+}
+
+/**
  * 28/10/2026 (G2) — Trạng thái hãng của RIÊNG 1 đơn trong vận đơn: chỉ gộp các kiện của đơn đó
  * (mỗi đơn có vận đơn hãng riêng). Nhóm gộp 2 đơn: kiện A giao xong thì đơn A là "đã giao" dù
  * kiện B còn đang chạy. Đơn không có kiện nào trong vận đơn → null.
  */
 export function carrierStatusOfOrder(
-  parcels: readonly { order_id?: unknown; carrier_status?: string | null }[],
+  parcels: readonly { order_id?: unknown; order_ids?: readonly unknown[] | null; carrier_status?: string | null }[],
   orderId: string,
 ): ShipmentStatus | null {
-  const own = parcels.filter((p) => String(p.order_id) === orderId);
+  const own = parcels.filter((p) => carrierParcelHasOrder(p, orderId));
   return aggregateCarrierStatus(own.map((p) => p.carrier_status ?? null));
 }
 

@@ -9,7 +9,6 @@ import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
-import { AdminAiPage } from './pages/AdminAiPage'
 import { AdminMarketplacePage } from './pages/AdminMarketplacePage'
 import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
 import { AdminOrdersPage } from './pages/AdminOrdersPage'
@@ -102,7 +101,7 @@ function App() {
                 <Route path="orders" element={<AdminOrdersPage />} />
                 <Route path="orders/:id" element={<AdminOrderDetailPage />} />
                 <Route path="order-sync" element={<OrderSyncSettingsPage />} />
-                <Route path="ai" element={<AdminAiPage />} />
+                <Route path="ai" element={<Navigate to="/app/admin" replace />} />
                 <Route path="packing-plans" element={<AdminPackingPlansPage />} />
                 <Route path="warehouse" element={<AdminWarehousePage />} />
                 <Route path="packaging-materials" element={<PackagingMaterialsPage />} />

@@ -276,6 +276,68 @@ export async function quoteShippingGroup(
   }
 }
 
+export type RecipientPreview = {
+  orderId: string
+  platformOrderId: string
+  platform: string
+  name: string
+  phone: string | null
+  street: string | null
+  wardName: string | null
+  provinceName: string | null
+  address: string | null
+  isDemo: boolean
+  demoSeq: number | null
+  assumptions: string[]
+  errorCode: string | null
+  errorMessage: string | null
+}
+
+function mapRecipientPreview(value: unknown): RecipientPreview | null {
+  const row = asRecord(value)
+  if (!row) return null
+  const orderId = pickString(row.orderId, row.order_id)
+  if (!orderId) return null
+  const assumptions = Array.isArray(row.assumptions)
+    ? row.assumptions.filter((line): line is string => typeof line === 'string')
+    : []
+  const demoSeqRaw = row.demoSeq ?? row.demo_seq
+  return {
+    orderId,
+    platformOrderId: pickString(row.platformOrderId, row.platform_order_id),
+    platform: pickString(row.platform),
+    name: pickString(row.name),
+    phone: pickString(row.phone) || null,
+    street: pickString(row.street) || null,
+    wardName: pickString(row.wardName, row.ward_name) || null,
+    provinceName: pickString(row.provinceName, row.province_name) || null,
+    address: pickString(row.address) || null,
+    isDemo: row.isDemo === true || row.is_demo === true,
+    demoSeq: typeof demoSeqRaw === 'number' && Number.isFinite(demoSeqRaw) ? demoSeqRaw : null,
+    assumptions,
+    errorCode: pickString(row.errorCode, row.error_code) || null,
+    errorMessage: pickString(row.errorMessage, row.error_message) || null,
+  }
+}
+
+/** Địa chỉ hệ thống sẽ gửi hãng cho từng đơn trong nhóm. Chỉ đọc. */
+export async function getShippingRecipients(
+  groupId: string,
+): Promise<{ recipients: RecipientPreview[] }> {
+  const res = await apiRequest<unknown>(
+    `/shipping/recipients/${encodeURIComponent(groupId)}`,
+    { auth: true },
+  )
+  const row = asRecord(res)
+  const raw = Array.isArray(row?.recipients) ? row.recipients : []
+  return {
+    recipients: raw.flatMap((item) => {
+      const mapped = mapRecipientPreview(item)
+      return mapped ? [mapped] : []
+    }),
+  }
+}
+
 export async function openShippingDocument(path: string): Promise<void> {
   const blob = await apiRequestBlob(path)
   const url = URL.createObjectURL(blob)

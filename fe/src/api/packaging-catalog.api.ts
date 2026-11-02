@@ -61,6 +61,8 @@ export type CushionMaterialType =
   | 'air_pillow'
   | 'bubble_wrap'
   | 'fragile_tape'
+  | 'kraft_paper'
+  | 'tissue_paper'
 
 export type CushionMaterial = {
   id: string

@@ -7,6 +7,7 @@ import type {
   PackingUnit,
   Placement,
 } from '../../packaging/engine/types';
+import type { ChargeRule } from './objective';
 
 /**
  * ===================================================================
@@ -43,7 +44,8 @@ export interface SolveOptions {
   seed?: number;
   /** Trần số lần giải mã (đánh giá) của BRKGA — giới hạn xác định, không dùng đồng hồ. */
   maxEvaluations?: number;
-  volumetricDivisor?: number;
+  /** Luật cân tính cước của hãng (divisor + bước làm tròn); bỏ qua = mặc định GHN. */
+  charge?: ChargeRule;
   /** Bước chia đều cặp kiện lệch tải (v2). Mặc định bật; `false` để so trước/sau. */
   balance?: boolean;
 }
@@ -71,6 +73,8 @@ export interface SolvedParcel {
   estimated_package_weight_g: number;
   /** Cân quy đổi theo thể tích NGOÀI thùng. */
   volumetric_weight_g: number;
+  /** Cân tính cước: max(cân kiện, quy đổi) làm tròn lên theo bước của hãng. */
+  billable_weight_g: number;
 }
 
 export interface UnplacedUnit {
@@ -85,7 +89,9 @@ export interface Objective {
   parcels: number;
   /** Giá thùng + vật tư (VND). */
   packaging_cost_vnd: number;
-  /** Tổng cân quy đổi (g) — thay cho cước khi chưa có bảng cước. */
+  /** Tổng cân tính cước (g, đã làm tròn bậc) — đại diện cho cước. */
+  billable_g: number;
+  /** Tổng cân quy đổi (g) — phân định khi cùng bậc cước. */
   volumetric_g: number;
   folds: number;
   /** Độ lệch tải chuẩn hóa giữa các kiện (0 = đều). */

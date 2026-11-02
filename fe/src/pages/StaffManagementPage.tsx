@@ -134,8 +134,8 @@ export function StaffManagementPage() {
             </h1>
             <p className="mt-1 max-w-xl text-sm text-ink-subtle">
               {vi
-                ? 'Xem danh sách nhân viên. Nghỉ phép kho / đóng gói / vận chuyển qua PATCH /users/:id/leave. Tạo/sửa/xóa tài khoản do Admin thực hiện.'
-                : 'Staff directory. Mark warehouse / packing / shipping staff on leave via PATCH /users/:id/leave. Create/edit/deactivate is Admin-only.'}
+                ? 'Đánh dấu nghỉ phép để hệ thống không tự giao việc cho người đó. Tạo hoặc khóa tài khoản do Admin làm.'
+                : 'Mark someone on leave so the system stops assigning them work. Admins create or lock accounts.'}
             </p>
           </div>
           <button
