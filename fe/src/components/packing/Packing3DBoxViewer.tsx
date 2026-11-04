@@ -18,6 +18,7 @@ import {
   STEP_SECONDS,
   buildPackSteps,
   innerOf,
+  isWorkAreaStep,
   orderColor,
   profileFor,
   sceneMode,
@@ -30,6 +31,7 @@ import {
 import { sharedOrderCodes } from '../../lib/parcel-order-display'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
+import { StepCamera, type CameraFocus } from './scene/StepCamera'
 
 function hasWebGL(): boolean {
   try {
@@ -157,9 +159,23 @@ function ParcelGuidePlayer({
   const minZ = -Math.max(outer.widthMm / 2000, area.size / 2)
   const maxZ = Math.max(area.center[1] + area.size / 2, mailer && !alongX ? (outer.widthMm * 1.5) / 1000 : outer.widthMm / 2000)
   const reach = Math.max(maxX - minX, maxZ - minZ)
-  // Bảng hướng dẫn che phần dưới khung: nhìn lệch về phía người xem để cảnh nằm cao hơn.
-  const target: [number, number, number] = [(minX + maxX) / 2, 0.06, (minZ + maxZ) / 2 + reach * 0.14]
-  const camera: [number, number, number] = [target[0] + reach * 0.3, reach * 1.05, target[2] + reach * 1.05]
+  const onWorkArea = isWorkAreaStep(current?.kind)
+  const [areaX, areaZ] = area.center
+  // Nắp thùng mở choãi ra ngoài thân thùng: khung toàn cảnh phải chứa cả phần này.
+  const flap = mailer ? 0 : Math.min(outer.lengthMm, outer.widthMm) / 2000
+  const fullMinX = minX - flap
+  const focus = useMemo<CameraFocus>(
+    () =>
+      onWorkArea
+        ? { center: [areaX, areaZ], width: area.size, depth: area.size, height: 0.12 }
+        : {
+            center: [(fullMinX + maxX) / 2, (minZ + maxZ) / 2],
+            width: maxX - fullMinX,
+            depth: maxZ - minZ,
+            height: outer.heightMm / 1000 + flap,
+          },
+    [onWorkArea, areaX, areaZ, area.size, fullMinX, maxX, minZ, maxZ, outer.heightMm, flap],
+  )
   const placementOrder = placement && shared ? tintOf?.(placement) : undefined
   const placementOrderCode = placement
     ? orderCodes[orderIds?.indexOf(placement.orderId ?? parcel.orderId ?? '') ?? -1]
@@ -180,7 +196,7 @@ function ParcelGuidePlayer({
       }}
     >
       <div className="h-full w-full cursor-grab active:cursor-grabbing">
-        <Canvas camera={{ position: camera, fov: 40, near: 0.01, far: 50 }}>
+        <Canvas camera={{ position: [reach, reach, reach], fov: 40, near: 0.01, far: 50 }}>
           <Suspense fallback={null}>
             <PackingScene
               boxCode={parcel.box.code}
@@ -195,9 +211,10 @@ function ParcelGuidePlayer({
               slipColors={shared ? slipColors : undefined}
             />
           </Suspense>
+          <StepCamera focus={focus} resetKey={viewKey} />
           <OrbitControls
             key={viewKey}
-            target={target}
+            makeDefault
             enablePan={false}
             minDistance={span * 0.8}
             maxDistance={reach * 3}

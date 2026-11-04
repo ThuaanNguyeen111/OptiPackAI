@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bell,
   Check,
@@ -10,20 +10,15 @@ import {
   Lock,
   LogOut,
   MapPin,
-  Plus,
   Shield,
   ShieldCheck,
   Store,
-  Trash2,
   User,
 } from 'lucide-react'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { ProfileStaffBadge } from '../components/profile/ProfileStaffBadge'
 import { Button } from '../components/ui/Button'
-import {
-  PLATFORM_META,
-  type ShopPlatform,
-} from '../context/portal-context-value'
+import { ConnectedShopsPanel } from '../components/profile/ConnectedShopsPanel'
 import { usePortal } from '../context/use-portal'
 import { useAuth } from '../context/use-auth'
 import { changePassword, setupMfa, verifyMfaSetup } from '../api/auth.api'
@@ -38,8 +33,6 @@ const inputClass =
   'w-full rounded-md border border-hairline bg-surface-2 px-3 py-2 text-sm text-ink caret-ink placeholder:text-ink-tertiary transition-shadow focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40'
 
 const readOnlyInputClass = `${inputClass} cursor-not-allowed opacity-80`
-
-const optionClass = 'bg-surface-2 text-ink'
 
 function profileInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -97,20 +90,18 @@ function FieldLabel({ children }: { children: string }) {
 
 export function ProfilePage() {
   const navigate = useNavigate()
-  const {
-    locale,
-    shops,
-    addShop,
-    removeShop,
-    activeShopIds,
-    isShopActive,
-    toggleShopActive,
-    activateAllShops,
-  } = usePortal()
+  const { locale } = usePortal()
   const { logout, session } = useAuth()
   const vi = locale === 'vi'
   const isAdmin = session?.role === UserRole.ADMIN
-  const [tab, setTab] = useState<ProfileTab>('personal')
+  // Tab nằm trên URL để link ngoài mở thẳng được, kể cả khi đang đứng ở trang này
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const tab: ProfileTab =
+    tabParam === 'marketplaces' || tabParam === 'preferences' ? tabParam : 'personal'
+  const setTab = (next: ProfileTab): void => {
+    setSearchParams(next === 'personal' ? {} : { tab: next }, { replace: true })
+  }
   const [loggingOut, setLoggingOut] = useState(false)
 
   const [fullName, setFullName] = useState('')
@@ -142,19 +133,10 @@ export function ProfilePage() {
 
   const [savingProfile, setSavingProfile] = useState(false)
   const [savingPassword, setSavingPassword] = useState(false)
-  const [refreshingOAuth, setRefreshingOAuth] = useState(false)
   const [savingPrefs, setSavingPrefs] = useState(false)
-  const [addingShop, setAddingShop] = useState(false)
-  const [showAddShop, setShowAddShop] = useState(false)
-  const [newPlatform, setNewPlatform] = useState<ShopPlatform>('shopee')
-  const [newAccount, setNewAccount] = useState('')
-  const [newStoreLabel, setNewStoreLabel] = useState('')
   const [toast, setToast] = useState<string | null>(null)
 
-  const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
-  const storeBannerLabel =
-    activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'Anh Minh Store'
-  const activeCountLabel = `${activeShopIds.length}/${shops.length}`
+
 
   function showToast(message: string) {
     setToast(message)
@@ -314,46 +296,6 @@ export function ProfilePage() {
       })
   }
 
-  async function handleAddShop(e: FormEvent) {
-    e.preventDefault()
-    const account = newAccount.trim()
-    const label = newStoreLabel.trim() || storeBannerLabel
-    if (!account) {
-      showToast(
-        vi ? 'Nhập tên tài khoản shop' : 'Enter shop account name',
-      )
-      return
-    }
-    if (
-      shops.some(
-        (s) =>
-          s.platform === newPlatform &&
-          s.account_name.toLowerCase() === account.toLowerCase(),
-      )
-    ) {
-      showToast(
-        vi ? 'Shop này đã được kết nối' : 'This shop is already connected',
-      )
-      return
-    }
-    setAddingShop(true)
-    await new Promise((r) => setTimeout(r, 700))
-    addShop({
-      platform: newPlatform,
-      account_name: account,
-      store_label: label,
-    })
-    setAddingShop(false)
-    setNewAccount('')
-    setNewStoreLabel('')
-    setShowAddShop(false)
-    showToast(
-      vi
-        ? `Đã thêm shop ${PLATFORM_META[newPlatform].label}`
-        : `Added ${PLATFORM_META[newPlatform].label} shop`,
-    )
-  }
-
   const tabs: Array<{ key: ProfileTab; label: string; icon: typeof User }> = [
     {
       key: 'personal',
@@ -447,10 +389,6 @@ export function ProfilePage() {
                         <User className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
                         {vi ? 'Thông tin hồ sơ' : 'Profile Details'}
                       </div>
-                      <p className="text-[11px] text-ink-tertiary">
-                        {storeBannerLabel} · {activeCountLabel}{' '}
-                        {vi ? 'shop đang dùng' : 'shops'}
-                      </p>
                     </div>
                     <div className="grid flex-1 gap-2.5 sm:grid-cols-2">
                       <div className="sm:col-span-2">
@@ -780,286 +718,7 @@ export function ProfilePage() {
           ) : null}
 
           {/* Tab 2 */}
-          {tab === 'marketplaces' ? (
-            <section className="rounded-xl border border-hairline bg-surface-1 p-4">
-              {isAdmin ? (
-                <div className="mb-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
-                  <p className="text-sm font-medium text-ink">
-                    {vi ? 'Kết nối Lazada (API thật)' : 'Lazada connection (live API)'}
-                  </p>
-                  <p className="mt-0.5 text-[11px] text-ink-subtle">
-                    {vi
-                      ? 'BE chỉ cho Admin gọi connect/sync/list. Dùng trang Kết nối sàn — không dùng form mock Shopee/TikTok bên dưới.'
-                      : 'Only Admin can call connect/sync/list. Use the Marketplace page — not the mock Shopee/TikTok form below.'}
-                  </p>
-                  <Link
-                    to="/app/admin/marketplace"
-                    className="mt-2 inline-flex text-xs font-medium text-primary-hover hover:underline"
-                  >
-                    {vi ? 'Mở Kết nối sàn →' : 'Open Marketplace →'}
-                  </Link>
-                </div>
-              ) : null}
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 text-sm font-medium text-ink">
-                    <Store className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-                    {vi ? 'Shop đã kết nối' : 'Connected shops'}
-                  </div>
-                  <p className="mt-0.5 text-[11px] text-ink-subtle">
-                    {vi
-                      ? `Có thể bật nhiều shop cùng lúc · đang hoạt động ${activeCountLabel}`
-                      : `Multi-shop sync · ${activeCountLabel} active`}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    variant="secondary"
-                    className="h-9 min-h-9 text-xs"
-                    onClick={() => {
-                      activateAllShops()
-                      showToast(
-                        vi
-                          ? 'Đã bật tất cả shop'
-                          : 'All shops activated',
-                      )
-                    }}
-                  >
-                    {vi ? 'Bật tất cả' : 'Activate all'}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    className="h-9 min-h-9 text-xs"
-                    onClick={() => setShowAddShop((v) => !v)}
-                  >
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    {vi ? 'Thêm shop' : 'Add shop'}
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    className="h-9 min-h-9 text-xs"
-                    disabled={refreshingOAuth}
-                    onClick={() =>
-                      void simulateSave(
-                        setRefreshingOAuth,
-                        vi
-                          ? 'Đã làm mới khóa OAuth'
-                          : 'Marketplace OAuth keys refreshed',
-                      )
-                    }
-                  >
-                    {refreshingOAuth ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Key className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    {vi ? 'Làm mới OAuth' : 'Refresh OAuth'}
-                  </Button>
-                </div>
-              </div>
-
-              {showAddShop ? (
-                <form
-                  onSubmit={handleAddShop}
-                  className="mb-3 rounded-xl border border-primary/25 bg-primary/5 p-4"
-                >
-                  <p className="mb-3 text-sm font-medium text-ink">
-                    {vi ? 'Kết nối shop mới' : 'Connect a new shop'}
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div>
-                      <FieldLabel>{vi ? 'Sàn' : 'Platform'}</FieldLabel>
-                      <select
-                        className={inputClass}
-                        value={newPlatform}
-                        onChange={(e) =>
-                          setNewPlatform(e.target.value as ShopPlatform)
-                        }
-                      >
-                        <option value="shopee" className={optionClass}>
-                          Shopee
-                        </option>
-                        <option value="tiktok" className={optionClass}>
-                          TikTok Shop
-                        </option>
-                      </select>
-                    </div>
-                    <div>
-                      <FieldLabel>
-                        {vi ? 'Tên tài khoản shop' : 'Shop account name'}
-                      </FieldLabel>
-                      <input
-                        className={inputClass}
-                        value={newAccount}
-                        onChange={(e) => setNewAccount(e.target.value)}
-                        placeholder={
-                          newPlatform === 'shopee'
-                            ? vi
-                              ? 'VD: AnhMinh_Outlet'
-                              : 'e.g. AnhMinh_Outlet'
-                            : vi
-                              ? 'VD: AnhMinh_Live'
-                              : 'e.g. AnhMinh_Live'
-                        }
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel>
-                        {vi ? 'Nhãn cửa hàng' : 'Store label'}
-                      </FieldLabel>
-                      <input
-                        className={inputClass}
-                        value={newStoreLabel}
-                        onChange={(e) => setNewStoreLabel(e.target.value)}
-                        placeholder={storeBannerLabel}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      className="h-9 min-h-9 text-xs"
-                      disabled={addingShop}
-                    >
-                      {addingShop ? (
-                        <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Plus className="mr-1.5 h-3.5 w-3.5" />
-                      )}
-                      {vi ? 'Xác nhận kết nối' : 'Confirm connect'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-9 min-h-9 text-xs"
-                      onClick={() => setShowAddShop(false)}
-                    >
-                      {vi ? 'Hủy' : 'Cancel'}
-                    </Button>
-                  </div>
-                </form>
-              ) : null}
-
-              <div className="grid gap-3 sm:grid-cols-1">
-                {shops.map((shop) => {
-                  const meta = PLATFORM_META[shop.platform]
-                  const isActive = isShopActive(shop.id)
-                  return (
-                    <div
-                      key={shop.id}
-                      className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-canvas px-4 py-3.5 ${
-                        isActive
-                          ? 'border-primary/40 ring-1 ring-primary/20'
-                          : 'border-hairline opacity-80'
-                      }`}
-                      style={{
-                        borderLeftWidth: 3,
-                        borderLeftColor: meta.accent,
-                      }}
-                    >
-                      <div className="min-w-0">
-                        <p
-                          className="text-sm font-semibold"
-                          style={{ color: meta.accent }}
-                        >
-                          {meta.label}
-                        </p>
-                        <p className="mt-0.5 font-mono text-xs text-ink-muted">
-                          {shop.account_name}
-                        </p>
-                        <p className="mt-0.5 text-[11px] text-ink-subtle">
-                          {shop.store_label} ·{' '}
-                          <span className="text-success">
-                            {vi
-                              ? 'Đã kết nối (Token còn hạn)'
-                              : 'Connected (Token valid)'}
-                          </span>
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={isActive}
-                          onClick={() => {
-                            const wasActive = isActive
-                            toggleShopActive(shop.id)
-                            if (wasActive && activeShopIds.length <= 1) {
-                              showToast(
-                                vi
-                                  ? 'Phải giữ ít nhất 1 shop đang hoạt động'
-                                  : 'Keep at least 1 shop active',
-                              )
-                              return
-                            }
-                            showToast(
-                              wasActive
-                                ? vi
-                                  ? `Đã tắt ${shop.account_name}`
-                                  : `Deactivated ${shop.account_name}`
-                                : vi
-                                  ? `Đã bật ${shop.account_name}`
-                                  : `Activated ${shop.account_name}`,
-                            )
-                          }}
-                          className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                            isActive ? 'bg-primary' : 'bg-surface-3'
-                          }`}
-                          title={
-                            isActive
-                              ? vi
-                                ? 'Tắt shop'
-                                : 'Deactivate'
-                              : vi
-                                ? 'Bật shop'
-                                : 'Activate'
-                          }
-                        >
-                          <span
-                            className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                              isActive ? 'translate-x-5' : 'translate-x-0'
-                            }`}
-                          />
-                        </button>
-                        <span
-                          className={`inline-flex h-8 items-center rounded-md border px-2 text-[11px] font-medium ${
-                            isActive
-                              ? 'border-primary/20 bg-primary/10 text-primary-hover'
-                              : 'border-hairline text-ink-subtle'
-                          }`}
-                        >
-                          {isActive
-                            ? vi
-                              ? 'Đang bật'
-                              : 'Active'
-                            : vi
-                              ? 'Tắt'
-                              : 'Off'}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          className="h-8 min-h-8 text-xs text-error hover:text-error"
-                          disabled={shops.length <= 1}
-                          onClick={() => {
-                            removeShop(shop.id)
-                            showToast(
-                              vi
-                                ? `Đã gỡ ${shop.account_name}`
-                                : `Removed ${shop.account_name}`,
-                            )
-                          }}
-                        >
-                          <Trash2 className="mr-1 h-3.5 w-3.5" />
-                          {vi ? 'Gỡ' : 'Remove'}
-                        </Button>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
-          ) : null}
+          {tab === 'marketplaces' ? <ConnectedShopsPanel isAdmin={isAdmin} vi={vi} /> : null}
 
           {/* Tab 3 */}
           {tab === 'preferences' ? (

@@ -1,6 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowDown, ArrowUp } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Boxes,
+  CheckCircle2,
+  ClipboardList,
+  Clock,
+  Leaf,
+  ReceiptText,
+  ShoppingBag,
+  Truck,
+  Undo2,
+  Warehouse,
+  Zap,
+  type LucideIcon,
+} from 'lucide-react'
 import {
   getDashboardSummary,
   type DashboardActionQueue,
@@ -12,43 +28,87 @@ import {
   type PackagingMaterialsSavings,
 } from '../api/packaging-materials.api'
 import { getPackingReport } from '../api/packing-plan.api'
+import { RevenueChart } from '../components/dashboard/RevenueChart'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
+import type { FulfillmentStage } from '../lib/stage-colors'
 import type { PackingReport } from '../types/packing-plan'
 
 type Preset = 'today' | '7' | '30' | 'custom'
-type QueueTone = 'rose' | 'amber' | 'slate'
+type AlertTone = 'danger' | 'warning'
 
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
 
-const QUEUE_ITEMS: {
+type QueueItem = {
   key: keyof DashboardActionQueue
   vi: string
   en: string
   to: string
-  tone: QueueTone
+}
+
+const ALERT_ITEMS: (QueueItem & { tone: AlertTone; icon: LucideIcon })[] = [
+  { key: 'expressOverdue', vi: 'Hỏa tốc quá hạn', en: 'Express overdue', to: '/app/order-groups', tone: 'danger', icon: Zap },
+  { key: 'deliveryFailed', vi: 'Giao thất bại', en: 'Delivery failed', to: '/app/shipping', tone: 'danger', icon: Truck },
+  { key: 'carrierBookingErrors', vi: 'Lỗi đặt vận đơn', en: 'Booking errors', to: '/app/shipping', tone: 'danger', icon: AlertTriangle },
+  { key: 'marketplaceWritebackFailed', vi: 'Ghi ngược sàn lỗi', en: 'Write-back failed', to: '/app/orders', tone: 'danger', icon: AlertTriangle },
+  { key: 'expressDueSoon', vi: 'Hỏa tốc sắp hạn', en: 'Express due soon', to: '/app/order-groups', tone: 'warning', icon: Clock },
+  { key: 'partialNeedsReview', vi: 'Thiếu hàng cần duyệt', en: 'Partial review', to: '/app/order-groups', tone: 'warning', icon: AlertTriangle },
+  { key: 'plansWithHeldParcels', vi: 'Kiện lệch cân', en: 'Held parcels', to: '/app/packing', tone: 'warning', icon: Boxes },
+  { key: 'stockShortageGroups', vi: 'Nhóm thiếu tồn', en: 'Stock shortage', to: '/app/order-groups', tone: 'warning', icon: Warehouse },
+]
+
+const STAGE_GROUPS: {
+  stage: FulfillmentStage
+  vi: string
+  en: string
+  icon: LucideIcon
+  items: QueueItem[]
 }[] = [
-  { key: 'expressOverdue', vi: 'Hỏa tốc quá hạn', en: 'Express overdue', to: '/app/order-groups', tone: 'rose' },
-  { key: 'deliveryFailed', vi: 'Giao thất bại', en: 'Delivery failed', to: '/app/shipping', tone: 'rose' },
-  { key: 'carrierBookingErrors', vi: 'Lỗi đặt vận đơn', en: 'Booking errors', to: '/app/shipping', tone: 'rose' },
-  { key: 'marketplaceWritebackFailed', vi: 'Ghi ngược sàn lỗi', en: 'Write-back failed', to: '/app/orders', tone: 'rose' },
-  { key: 'expressDueSoon', vi: 'Hỏa tốc sắp hạn', en: 'Express due soon', to: '/app/order-groups', tone: 'amber' },
-  { key: 'partialNeedsReview', vi: 'Thiếu hàng cần duyệt', en: 'Partial review', to: '/app/order-groups', tone: 'amber' },
-  { key: 'plansWithHeldParcels', vi: 'Kiện lệch cân', en: 'Held parcels', to: '/app/packing', tone: 'amber' },
-  { key: 'stockShortageGroups', vi: 'Nhóm thiếu tồn', en: 'Stock shortage', to: '/app/order-groups', tone: 'amber' },
-  { key: 'awaitingPick', vi: 'Chờ lấy hàng', en: 'Awaiting pick', to: '/app/order-groups', tone: 'slate' },
-  { key: 'picking', vi: 'Đang lấy hàng', en: 'Picking', to: '/app/order-groups', tone: 'slate' },
-  { key: 'plansAwaitingApproval', vi: 'Kế hoạch chờ duyệt', en: 'Plans to approve', to: '/app/packing', tone: 'slate' },
-  { key: 'plansAwaitingPacking', vi: 'Chờ đóng gói', en: 'Awaiting pack', to: '/app/packing', tone: 'slate' },
-  { key: 'readyToShip', vi: 'Chờ giao', en: 'Ready to ship', to: '/app/shipping', tone: 'slate' },
-  { key: 'shipmentsInFlight', vi: 'Đang giao', en: 'In transit', to: '/app/shipping', tone: 'slate' },
-  { key: 'returningToWarehouse', vi: 'Đang hoàn kho', en: 'Returning', to: '/app/shipping', tone: 'slate' },
-  { key: 'ordersAwaitingCancelConfirm', vi: 'Chờ xác nhận hủy', en: 'Cancel confirm', to: '/app/orders', tone: 'slate' },
-  { key: 'returnsToReview', vi: 'Phiếu trả chờ duyệt', en: 'Returns to review', to: '/app/returns', tone: 'slate' },
-  { key: 'returnsToReceive', vi: 'Phiếu chờ nhận', en: 'Returns to receive', to: '/app/returns', tone: 'slate' },
-  { key: 'returnsToInspect', vi: 'Phiếu chờ kiểm', en: 'Returns to inspect', to: '/app/returns', tone: 'slate' },
+  {
+    stage: 'pick',
+    vi: 'Lấy hàng',
+    en: 'Picking',
+    icon: ClipboardList,
+    items: [
+      { key: 'awaitingPick', vi: 'Chờ lấy hàng', en: 'Awaiting pick', to: '/app/order-groups' },
+      { key: 'picking', vi: 'Đang lấy hàng', en: 'In progress', to: '/app/order-groups' },
+    ],
+  },
+  {
+    stage: 'pack',
+    vi: 'Đóng gói',
+    en: 'Packing',
+    icon: Boxes,
+    items: [
+      { key: 'plansAwaitingApproval', vi: 'Kế hoạch chờ duyệt', en: 'Plans to approve', to: '/app/packing' },
+      { key: 'plansAwaitingPacking', vi: 'Chờ đóng gói', en: 'Awaiting pack', to: '/app/packing' },
+    ],
+  },
+  {
+    stage: 'ship',
+    vi: 'Giao hàng',
+    en: 'Shipping',
+    icon: Truck,
+    items: [
+      { key: 'readyToShip', vi: 'Chờ giao', en: 'Ready to ship', to: '/app/shipping' },
+      { key: 'shipmentsInFlight', vi: 'Đang giao', en: 'In transit', to: '/app/shipping' },
+    ],
+  },
+  {
+    stage: 'return',
+    vi: 'Hoàn và hủy',
+    en: 'Returns and cancels',
+    icon: Undo2,
+    items: [
+      { key: 'returningToWarehouse', vi: 'Đang hoàn kho', en: 'Returning', to: '/app/shipping' },
+      { key: 'ordersAwaitingCancelConfirm', vi: 'Chờ xác nhận hủy', en: 'Cancel confirm', to: '/app/orders' },
+      { key: 'returnsToReview', vi: 'Phiếu trả chờ duyệt', en: 'Returns to review', to: '/app/returns' },
+      { key: 'returnsToReceive', vi: 'Phiếu chờ nhận', en: 'Returns to receive', to: '/app/returns' },
+      { key: 'returnsToInspect', vi: 'Phiếu chờ kiểm', en: 'Returns to inspect', to: '/app/returns' },
+    ],
+  },
 ]
 
 const RETURN_TYPE_LABELS: Record<string, { vi: string; en: string }> = {
@@ -103,13 +163,21 @@ function formatPct(rate: number | null): string {
   return `${(rate * 100).toFixed(1)}%`
 }
 
-function formatWhen(iso: string, vi: boolean): string {
+function formatDate(iso: string, vi: boolean): string {
   const at = new Date(iso)
   if (Number.isNaN(at.getTime())) return '—'
   return new Intl.DateTimeFormat(vi ? 'vi-VN' : 'en-GB', {
     timeZone: 'Asia/Ho_Chi_Minh',
     day: '2-digit',
     month: '2-digit',
+  }).format(at)
+}
+
+function formatTime(iso: string, vi: boolean): string {
+  const at = new Date(iso)
+  if (Number.isNaN(at.getTime())) return '—'
+  return new Intl.DateTimeFormat(vi ? 'vi-VN' : 'en-GB', {
+    timeZone: 'Asia/Ho_Chi_Minh',
     hour: '2-digit',
     minute: '2-digit',
   }).format(at)
@@ -126,26 +194,38 @@ function Metric({
   value,
   hint,
   change,
+  icon: Icon,
+  tone,
+  hero = false,
 }: {
   label: string
   value: string
-  hint?: string
+  hint?: ReactNode
   change?: number | null
+  icon: LucideIcon
+  tone?: string
+  hero?: boolean
 }) {
   const up = change !== undefined && change !== null && change >= 0
   return (
-    <div className="owner-panel rounded-2xl p-4">
-      <span className="text-xs text-slate-500">{label}</span>
-      <p className="mt-1.5 font-mono text-2xl font-semibold tabular-nums text-slate-900 dark:text-white">{value}</p>
+    <div
+      className={`dash-metric ${hero ? 'dash-metric-hero' : ''}`}
+      style={tone ? ({ '--tone': tone } as React.CSSProperties) : undefined}
+    >
+      <div className="dash-metric-top">
+        <span>{label}</span>
+        <span className="dash-metric-icon">
+          <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+        </span>
+      </div>
+      <p className="dash-metric-value">{value}</p>
       {change !== undefined && change !== null ? (
-        <p
-          className={`mt-1 inline-flex items-center gap-1 text-[11px] font-semibold ${up ? 'text-emerald-600' : 'text-rose-600'}`}
-        >
-          {up ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+        <p className="dash-metric-change" data-up={up}>
+          {up ? <ArrowUp className="h-3 w-3" aria-hidden /> : <ArrowDown className="h-3 w-3" aria-hidden />}
           {(change * 100).toFixed(1)}%
         </p>
       ) : null}
-      {hint ? <p className="mt-1 text-[11px] text-slate-400">{hint}</p> : null}
+      {hint ? <p className="dash-metric-hint">{hint}</p> : null}
     </div>
   )
 }
@@ -199,15 +279,14 @@ export function DashboardPage() {
   }, [range, platform])
 
   const sales = summary?.sales
-  const toneRank: Record<QueueTone, number> = { rose: 0, amber: 1, slate: 2 }
-  const openQueue = summary
-    ? QUEUE_ITEMS.map((item) => ({ item, count: summary.actionQueue[item.key] }))
-        .filter((row) => row.count > 0)
-        .sort((x, y) => toneRank[x.item.tone] - toneRank[y.item.tone])
+  const openAlerts = summary
+    ? ALERT_ITEMS.map((item) => ({ item, count: summary.actionQueue[item.key] })).filter(
+        (row) => row.count > 0,
+      )
     : []
-  const maxDaily = Math.max(
+  const maxPlatformRevenue = Math.max(
     1,
-    ...(sales?.daily.map((day) => Math.max(day.revenuePlacedVnd, day.revenueDeliveredVnd)) ?? [1]),
+    ...(sales?.byPlatform.map((row) => row.revenuePlacedVnd) ?? [1]),
   )
 
   return (
@@ -221,153 +300,176 @@ export function DashboardPage() {
 
       <main className="flex-1 overflow-y-auto p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
-          <section className="owner-hero">
-            <div>
-              <p className="owner-hero-kicker">
-                {new Intl.DateTimeFormat(vi ? 'vi-VN' : 'en-GB', {
-                  timeZone: 'Asia/Ho_Chi_Minh',
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                }).format(new Date())}
-              </p>
-              <h1>{vi ? 'Tổng quan cửa hàng' : 'Store overview'}</h1>
+          <section>
+            <div className="dash-head">
+              <div>
+                <p className="dash-date">
+                  {new Intl.DateTimeFormat(vi ? 'vi-VN' : 'en-GB', {
+                    timeZone: 'Asia/Ho_Chi_Minh',
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                  }).format(new Date())}
+                </p>
+                <h1 className="dash-title">{vi ? 'Tổng quan cửa hàng' : 'Store overview'}</h1>
+              </div>
+              <div className="dash-controls">
+                <div className="dash-segment" role="group" aria-label={vi ? 'Khoảng thời gian' : 'Date range'}>
+                  {(
+                    [
+                      ['today', vi ? 'Hôm nay' : 'Today'],
+                      ['7', vi ? '7 ngày' : '7 days'],
+                      ['30', vi ? '30 ngày' : '30 days'],
+                      ['custom', vi ? 'Tuỳ chọn' : 'Custom'],
+                    ] as const
+                  ).map(([id, label]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={preset === id}
+                      onClick={() => setPreset(id)}
+                      className={preset === id ? 'is-active' : ''}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {preset === 'custom' ? (
+                  <>
+                    <input
+                      type="date"
+                      aria-label={vi ? 'Từ ngày' : 'From'}
+                      value={customFrom}
+                      onChange={(event) => setCustomFrom(event.target.value)}
+                      className="dash-field"
+                    />
+                    <input
+                      type="date"
+                      aria-label={vi ? 'Đến ngày' : 'To'}
+                      value={customTo}
+                      onChange={(event) => setCustomTo(event.target.value)}
+                      className="dash-field"
+                    />
+                  </>
+                ) : null}
+                <select
+                  aria-label={vi ? 'Sàn' : 'Platform'}
+                  value={platform}
+                  onChange={(event) => setPlatform(event.target.value as DashboardPlatform | '')}
+                  className="dash-field"
+                >
+                  <option value="">{vi ? 'Tất cả sàn' : 'All platforms'}</option>
+                  <option value="lazada">Lazada</option>
+                  <option value="aurelle">AURELLE</option>
+                </select>
+              </div>
             </div>
-          </section>
-
-          <section className="flex flex-wrap items-end gap-2">
-            {(
-              [
-                ['today', vi ? 'Hôm nay' : 'Today'],
-                ['7', vi ? '7 ngày' : '7 days'],
-                ['30', vi ? '30 ngày' : '30 days'],
-                ['custom', vi ? 'Tuỳ chọn' : 'Custom'],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setPreset(id)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium ${
-                  preset === id
-                    ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
-                    : 'text-slate-600 hover:bg-white dark:text-slate-300'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-            {preset === 'custom' ? (
-              <>
-                <label className="text-xs text-slate-500">
-                  {vi ? 'Từ' : 'From'}
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={(event) => setCustomFrom(event.target.value)}
-                    className="ml-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
-                  />
-                </label>
-                <label className="text-xs text-slate-500">
-                  {vi ? 'Đến' : 'To'}
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={(event) => setCustomTo(event.target.value)}
-                    className="ml-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
-                  />
-                </label>
-              </>
-            ) : null}
-            <label className="text-xs text-slate-500">
-              {vi ? 'Sàn' : 'Platform'}
-              <select
-                value={platform}
-                onChange={(event) => setPlatform(event.target.value as DashboardPlatform | '')}
-                className="ml-1 rounded-lg border border-slate-200 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
-              >
-                <option value="">{vi ? 'Tất cả' : 'All'}</option>
-                <option value="lazada">Lazada</option>
-                <option value="aurelle">AURELLE</option>
-              </select>
-            </label>
             {summary ? (
-              <p className="text-[11px] text-slate-400">
-                {vi ? 'So với ' : 'Vs '}
-                {formatWhen(summary.range.previousFrom, vi)} – {formatWhen(summary.range.previousTo, vi)}
-                {' · '}
-                {formatWhen(summary.range.generatedAt, vi)}
+              <p className="dash-note mt-2">
+                {vi ? 'So với ' : 'Compared to '}
+                {formatDate(summary.range.previousFrom, vi)} – {formatDate(summary.range.previousTo, vi)}
+                {vi ? ' · Cập nhật lúc ' : ' · Updated at '}
+                {formatTime(summary.range.generatedAt, vi)}
               </p>
             ) : null}
           </section>
 
           {rangeError ? <p className="text-xs text-rose-600">{rangeError}</p> : null}
           {error ? <p className="text-xs text-rose-600">{error}</p> : null}
-          {loading && !summary ? (
-            <p className="text-xs text-slate-500">{vi ? 'Đang tải số liệu…' : 'Loading…'}</p>
-          ) : null}
+          {loading && !summary ? <p className="dash-empty">{vi ? 'Đang tải số liệu…' : 'Loading…'}</p> : null}
 
           {summary ? (
             <>
-              <section className="owner-panel rounded-2xl">
-                <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-[var(--ls-card-border)] px-4 py-3">
-                  <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {vi ? 'Việc đang chờ' : 'Waiting on you'}
-                  </h2>
-                  <span className="text-[11px] text-slate-400">
-                    {vi ? 'Số hiện tại, không theo khoảng ngày' : 'Live count, ignores the date range'}
-                  </span>
-                </div>
-                {openQueue.length === 0 ? (
-                  <p className="px-4 py-4 text-sm text-slate-500">
-                    {vi ? 'Không có việc nào đang tồn.' : 'Nothing is waiting.'}
+              <section>
+                <h2 className="dash-section-title">
+                  {vi ? 'Cần xử lý ngay' : 'Needs attention'}
+                  <small>{vi ? 'Số hiện tại, không theo khoảng ngày' : 'Live count, ignores the date range'}</small>
+                </h2>
+                {openAlerts.length === 0 ? (
+                  <p className="dash-clear">
+                    <CheckCircle2 className="h-4 w-4" aria-hidden />
+                    {vi ? 'Không có việc gấp.' : 'Nothing urgent.'}
                   </p>
                 ) : (
-                  <ul className="m-0 grid list-none grid-cols-1 p-0 sm:grid-cols-2 lg:grid-cols-3">
-                    {openQueue.map(({ item, count }) => (
-                      <li key={item.key} className="border-b border-[var(--ls-card-border)] last:border-b-0 sm:[&:nth-last-child(-n+2)]:border-b-0 lg:[&:nth-last-child(-n+3)]:border-b-0">
+                  <div className="dash-alerts">
+                    {openAlerts.map(({ item, count }) => {
+                      const Icon = item.icon
+                      return (
                         <button
+                          key={item.key}
                           type="button"
+                          className="dash-alert"
+                          data-tone={item.tone}
                           onClick={() => navigate(item.to)}
-                          className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-[var(--ls-subtle)]"
                         >
-                          <span
-                            aria-hidden
-                            className={`h-2 w-2 shrink-0 rounded-full ${
-                              item.tone === 'rose'
-                                ? 'bg-rose-500'
-                                : item.tone === 'amber'
-                                  ? 'bg-amber-500'
-                                  : 'bg-slate-400'
-                            }`}
-                          />
-                          <span className="min-w-0 flex-1 truncate text-sm text-slate-700 dark:text-slate-200">
-                            {vi ? item.vi : item.en}
-                          </span>
-                          <span className="font-mono text-base font-semibold tabular-nums text-slate-900 dark:text-white">
-                            {count}
-                          </span>
+                          <Icon className="dash-alert-icon h-5 w-5" strokeWidth={2} aria-hidden />
+                          <span className="dash-alert-label">{vi ? item.vi : item.en}</span>
+                          <span className="dash-alert-count">{count}</span>
                         </button>
-                      </li>
-                    ))}
-                  </ul>
+                      )
+                    })}
+                  </div>
                 )}
               </section>
 
-              <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <section>
+                <h2 className="dash-section-title">{vi ? 'Việc theo bước' : 'Work by stage'}</h2>
+                <div className="dash-stages">
+                  {STAGE_GROUPS.map((group) => {
+                    const Icon = group.icon
+                    const rows = group.items
+                      .map((item) => ({ item, count: summary.actionQueue[item.key] }))
+                      .filter((row) => row.count > 0)
+                    const total = rows.reduce((sum, row) => sum + row.count, 0)
+                    return (
+                      <div key={group.stage} className="dash-stage" data-stage={group.stage}>
+                        <div className="dash-stage-head">
+                          <span className="dash-stage-icon">
+                            <Icon className="h-5 w-5" strokeWidth={2} aria-hidden />
+                          </span>
+                          <span className="dash-stage-name">{vi ? group.vi : group.en}</span>
+                          <span className="dash-stage-total">{total}</span>
+                        </div>
+                        {rows.length === 0 ? (
+                          <p className="dash-stage-idle">{vi ? 'Không có việc.' : 'Nothing waiting.'}</p>
+                        ) : (
+                          <ul className="dash-stage-rows">
+                            {rows.map(({ item, count }) => (
+                              <li key={item.key}>
+                                <button type="button" onClick={() => navigate(item.to)}>
+                                  <span>{vi ? item.vi : item.en}</span>
+                                  <b>{count}</b>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+
+              <section className="dash-metrics">
                 <Metric
-                  label={vi ? 'Đặt hàng' : 'Placed'}
+                  hero
+                  icon={ShoppingBag}
+                  label={vi ? 'Doanh thu đặt hàng' : 'Revenue placed'}
                   value={`${formatVnd(sales?.current.revenuePlacedVnd ?? 0)}₫`}
                   change={sales?.change.revenuePlacedVnd}
                   hint={`${sales?.current.ordersReceived ?? 0} ${vi ? 'đơn nhận' : 'orders'}`}
                 />
                 <Metric
-                  label={vi ? 'Đã giao' : 'Delivered'}
+                  icon={Truck}
+                  tone="var(--stage-ship)"
+                  label={vi ? 'Doanh thu đã giao' : 'Revenue delivered'}
                   value={`${formatVnd(sales?.current.revenueDeliveredVnd ?? 0)}₫`}
                   change={sales?.change.revenueDeliveredVnd}
                   hint={`${sales?.current.ordersDelivered ?? 0} ${vi ? 'đơn' : 'orders'}`}
                 />
                 <Metric
+                  icon={ReceiptText}
+                  tone="var(--stage-pick)"
                   label={vi ? 'Giá trị đơn trung bình' : 'Avg order'}
                   value={
                     sales?.current.avgOrderValueVnd === null || sales?.current.avgOrderValueVnd === undefined
@@ -378,6 +480,8 @@ export function DashboardPage() {
                   hint={`${vi ? 'Hủy' : 'Cancel'} ${formatPct(sales?.current.cancelRate ?? null)}`}
                 />
                 <Metric
+                  icon={Zap}
+                  tone="var(--status-warning)"
                   label={vi ? 'Hỏa tốc đúng hẹn' : 'Express on time'}
                   value={formatPct(summary.express.onTimeRate)}
                   hint={
@@ -392,64 +496,42 @@ export function DashboardPage() {
                 />
               </section>
 
-              <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="owner-panel rounded-2xl p-4">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {vi ? 'Doanh thu theo ngày' : 'Revenue by day'}
-                  </h3>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    {vi ? 'Cột đậm: đặt hàng. Cột nhạt: đã giao. Ngày không có đơn = 0.' : 'Solid: placed. Pale: delivered. Empty days are 0.'}
-                  </p>
-                  <div className="mt-3 flex h-36 items-end gap-px overflow-x-auto">
-                    {sales?.daily.map((day) => (
-                      <div key={day.date} className="flex h-full min-w-[8px] flex-1 items-end gap-px" title={day.date}>
-                        <span
-                          className="w-1/2 rounded-t bg-slate-800 dark:bg-slate-200"
-                          style={{ height: `${(day.revenuePlacedVnd / maxDaily) * 100}%` }}
-                        />
-                        <span
-                          className="w-1/2 rounded-t bg-emerald-400"
-                          style={{ height: `${(day.revenueDeliveredVnd / maxDaily) * 100}%` }}
-                        />
-                      </div>
-                    ))}
-                  </div>
+              <section className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+                <div className="dash-card lg:col-span-2">
+                  <h3 className="dash-card-title">{vi ? 'Doanh thu theo ngày' : 'Revenue by day'}</h3>
+                  <RevenueChart days={sales?.daily ?? []} vi={vi} />
                 </div>
-                <div className="owner-panel rounded-2xl p-4">
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    {vi ? 'Theo sàn' : 'By platform'}
-                  </h3>
+                <div className="dash-card">
+                  <h3 className="dash-card-title">{vi ? 'Doanh thu theo sàn' : 'Revenue by platform'}</h3>
                   {sales && sales.byPlatform.length === 0 ? (
-                    <p className="mt-3 text-xs text-slate-400">{vi ? 'Chưa có đơn trong kỳ.' : 'No orders in range.'}</p>
+                    <p className="dash-empty mt-3">{vi ? 'Chưa có đơn trong kỳ.' : 'No orders in range.'}</p>
                   ) : (
-                    <ul className="mt-3 space-y-2">
+                    <div className="mt-4">
                       {sales?.byPlatform.map((row) => (
-                        <li
-                          key={row.platform}
-                          className="flex items-center justify-between rounded-xl border border-slate-100 px-3 py-2 dark:border-slate-800"
-                        >
-                          <div>
-                            <p className="text-sm font-semibold">{platformLabel(row.platform)}</p>
-                            <p className="text-[11px] text-slate-500">
-                              {row.ordersReceived} {vi ? 'đơn' : 'orders'} · {vi ? 'hủy' : 'canceled'} {row.ordersCanceled}
-                            </p>
+                        <div key={row.platform} className="dash-platform">
+                          <div className="dash-platform-row">
+                            <span>{platformLabel(row.platform)}</span>
+                            <b>{formatVnd(row.revenuePlacedVnd)}₫</b>
                           </div>
-                          <div className="text-right text-xs">
-                            <p className="font-mono font-bold">{formatVnd(row.revenuePlacedVnd)}₫</p>
-                            <p className="text-slate-400">
-                              {vi ? 'Đã giao ' : 'Delivered '}
-                              {formatVnd(row.revenueDeliveredVnd)}₫
-                            </p>
+                          <div className="dash-platform-track">
+                            <span style={{ width: `${(row.revenuePlacedVnd / maxPlatformRevenue) * 100}%` }} />
                           </div>
-                        </li>
+                          <p className="dash-metric-hint">
+                            {row.ordersReceived} {vi ? 'đơn' : 'orders'} · {vi ? 'hủy' : 'canceled'} {row.ordersCanceled}
+                            {' · '}
+                            {vi ? 'đã giao' : 'delivered'} {formatVnd(row.revenueDeliveredVnd)}₫
+                          </p>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   )}
                 </div>
               </section>
 
-              <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <section className="dash-metrics">
                 <Metric
+                  icon={Truck}
+                  tone="var(--stage-ship)"
                   label={vi ? 'Phí ship' : 'Shipping cost'}
                   value={`${formatVnd(summary.costs.shippingCostVnd)}₫`}
                   hint={`${summary.costs.ordersShipped} ${vi ? 'đơn đã gửi' : 'orders shipped'}${
@@ -459,6 +541,8 @@ export function DashboardPage() {
                   }`}
                 />
                 <Metric
+                  icon={Boxes}
+                  tone="var(--stage-pack)"
                   label={vi ? 'Chi phí đóng gói' : 'Pack cost'}
                   value={`${formatVnd(summary.costs.packagingCostVnd)}₫`}
                   hint={
@@ -484,6 +568,8 @@ export function DashboardPage() {
                   }
                 />
                 <Metric
+                  icon={Leaf}
+                  tone="var(--status-good)"
                   label={vi ? 'Tiết kiệm bao bì' : 'Pack savings'}
                   value={savings ? `${formatVnd(savings.totalSavingVnd)}₫` : '…'}
                   hint={
@@ -495,7 +581,9 @@ export function DashboardPage() {
                   }
                 />
                 <Metric
-                  label={vi ? 'Giao lần đầu' : 'First attempt'}
+                  icon={CheckCircle2}
+                  tone="var(--status-good)"
+                  label={vi ? 'Giao lần đầu thành công' : 'First attempt'}
                   value={formatPct(summary.delivery.firstAttemptSuccessRate)}
                   hint={
                     summary.delivery.avgDeliveryHours === null
@@ -507,51 +595,53 @@ export function DashboardPage() {
                 />
               </section>
 
-              <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                <div className="owner-panel rounded-2xl p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold">{vi ? 'Trả hàng' : 'Returns'}</h3>
-                    <button type="button" onClick={() => navigate('/app/returns')} className="text-[11px] font-semibold text-blue-600">
+              <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                <div className="dash-card">
+                  <h3 className="dash-card-title">
+                    <Undo2 className="h-4 w-4" style={{ color: 'var(--stage-return)' }} aria-hidden />
+                    {vi ? 'Trả hàng' : 'Returns'}
+                    <button type="button" onClick={() => navigate('/app/returns')} className="dash-link">
                       {vi ? 'Mở phiếu →' : 'Open →'}
                     </button>
-                  </div>
-                  <p className="mt-2 font-mono text-2xl font-bold">{summary.returns.customerRequests}</p>
-                  <p className="text-[11px] text-slate-400">
+                  </h3>
+                  <p className="dash-metric-value">{summary.returns.customerRequests}</p>
+                  <p className="dash-metric-hint">
                     {vi ? 'Tỷ lệ trả ' : 'Return rate '}
                     {formatPct(summary.returns.returnRate)}
                   </p>
-                  <ul className="mt-3 space-y-1 text-xs">
+                  <ul className="mt-3 space-y-1 text-sm">
                     {summary.returns.byType.length === 0 ? (
-                      <li className="text-slate-400">{vi ? 'Không có phiếu trong kỳ.' : 'No requests in range.'}</li>
+                      <li className="dash-empty">{vi ? 'Không có phiếu trong kỳ.' : 'No requests in range.'}</li>
                     ) : (
                       summary.returns.byType.map((row) => (
-                        <li key={row.type} className="flex justify-between">
+                        <li key={row.type} className="dash-platform-row">
                           <span>{RETURN_TYPE_LABELS[row.type]?.[vi ? 'vi' : 'en'] ?? row.type}</span>
-                          <span className="font-mono">{row.count}</span>
+                          <b>{row.count}</b>
                         </li>
                       ))
                     )}
                   </ul>
                 </div>
-                <div className="owner-panel rounded-2xl p-4">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold">{vi ? 'Kho và vật tư' : 'Stock and materials'}</h3>
-                    <button type="button" onClick={() => navigate('/app/inventory')} className="text-[11px] font-semibold text-blue-600">
+                <div className="dash-card">
+                  <h3 className="dash-card-title">
+                    <Warehouse className="h-4 w-4" style={{ color: 'var(--stage-pick)' }} aria-hidden />
+                    {vi ? 'Kho và vật tư' : 'Stock and materials'}
+                    <button type="button" onClick={() => navigate('/app/inventory')} className="dash-link">
                       {vi ? 'Tồn kho →' : 'Inventory →'}
                     </button>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">
+                  </h3>
+                  <p className="dash-metric-hint">
                     {vi
                       ? `${summary.warehouse.shortageSkuCount} SKU thiếu · ${summary.warehouse.outOfStockSkuCount} SKU hết hàng`
                       : `${summary.warehouse.shortageSkuCount} short · ${summary.warehouse.outOfStockSkuCount} out of stock`}
                   </p>
-                  <ul className="mt-2 space-y-1 text-xs">
+                  <ul className="mt-3 space-y-1 text-sm">
                     {summary.warehouse.shortageSkus.slice(0, 5).map((row) => (
-                      <li key={row.sku} className="flex justify-between font-mono">
-                        <span>{row.sku}</span>
-                        <span>
-                          −{row.shortage} · {row.groups}
-                        </span>
+                      <li key={row.sku} className="dash-platform-row">
+                        <span className="font-mono text-xs">{row.sku}</span>
+                        <b>
+                          {vi ? `thiếu ${row.shortage} · ${row.groups} nhóm` : `short ${row.shortage} · ${row.groups} groups`}
+                        </b>
                       </li>
                     ))}
                   </ul>
@@ -559,61 +649,63 @@ export function DashboardPage() {
                     <button
                       type="button"
                       onClick={() => navigate('/app/packaging-materials')}
-                      className="mt-3 text-left text-xs text-amber-800 dark:text-amber-200"
+                      className="dash-alert mt-3"
                     >
-                      {vi ? 'Vật tư dưới mức đặt lại: ' : 'Below reorder: '}
-                      {summary.warehouse.materialsBelowReorder.map((item) => item.code).join(', ')}
+                      <AlertTriangle className="dash-alert-icon h-4 w-4" aria-hidden />
+                      <span className="dash-alert-label">
+                        {vi ? 'Vật tư dưới mức đặt lại: ' : 'Below reorder: '}
+                        {summary.warehouse.materialsBelowReorder.map((item) => item.code).join(', ')}
+                      </span>
                     </button>
                   ) : (
-                    <p className="mt-3 text-xs text-slate-400">
+                    <p className="dash-empty mt-3">
                       {vi ? 'Không có vật tư dưới mức đặt lại.' : 'No materials below reorder.'}
                     </p>
                   )}
                 </div>
               </section>
 
-              <section className="owner-panel rounded-2xl p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-sm font-bold">
-                    {vi ? 'Nhân viên đóng gói' : 'Packing staff'}
-                  </h3>
-                  <span className="text-[11px] text-slate-400">
+              <section className="dash-card">
+                <h3 className="dash-card-title">
+                  <Boxes className="h-4 w-4" style={{ color: 'var(--stage-pack)' }} aria-hidden />
+                  {vi ? 'Nhân viên đóng gói' : 'Packing staff'}
+                  <span className="dash-note ml-auto font-normal">
                     {packReport
                       ? vi
                         ? `Chờ ${packReport.avgWaitMinutes ?? '—'} phút · đóng ${packReport.avgPackMinutes ?? '—'} phút · quét ${formatPct(packReport.scanRate)}`
                         : `Wait ${packReport.avgWaitMinutes ?? '—'} min · pack ${packReport.avgPackMinutes ?? '—'} min · scan ${formatPct(packReport.scanRate)}`
                       : '…'}
                   </span>
-                </div>
+                </h3>
                 {!packReport || packReport.byStaff.length === 0 ? (
-                  <p className="mt-3 text-xs text-slate-400">
+                  <p className="dash-empty mt-3">
                     {vi ? 'Chưa có dữ liệu đóng gói trong kỳ.' : 'No packing data in this range.'}
                   </p>
                 ) : (
                   <div className="mt-3 overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                    <table className="dash-table w-full text-left">
                       <thead>
-                        <tr className="border-b border-slate-100 text-slate-500 dark:border-slate-800">
-                          <th className="pb-2 font-semibold">{vi ? 'Nhân viên' : 'Staff'}</th>
-                          <th className="pb-2 text-right font-semibold">{vi ? 'Nhóm' : 'Groups'}</th>
-                          <th className="pb-2 text-right font-semibold">{vi ? 'Kiện' : 'Parcels'}</th>
-                          <th className="pb-2 text-right font-semibold">{vi ? 'TB đóng (phút)' : 'Avg pack min'}</th>
+                        <tr>
+                          <th>{vi ? 'Nhân viên' : 'Staff'}</th>
+                          <th className="text-right">{vi ? 'Nhóm' : 'Groups'}</th>
+                          <th className="text-right">{vi ? 'Kiện' : 'Parcels'}</th>
+                          <th className="text-right">{vi ? 'TB đóng (phút)' : 'Avg pack min'}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {packReport.byStaff.map((row) => (
-                          <tr key={row.staffId} className="border-b border-slate-50 last:border-0 dark:border-slate-800/60">
-                            <td className="py-2 font-semibold">{row.name ?? row.staffId}</td>
-                            <td className="py-2 text-right font-mono">{row.groups}</td>
-                            <td className="py-2 text-right font-mono">{row.parcels}</td>
-                            <td className="py-2 text-right font-mono">{row.avgPackMinutes ?? '—'}</td>
+                          <tr key={row.staffId}>
+                            <td className="font-medium">{row.name ?? row.staffId}</td>
+                            <td className="text-right">{row.groups}</td>
+                            <td className="text-right">{row.parcels}</td>
+                            <td className="text-right">{row.avgPackMinutes ?? '—'}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 )}
-                <p className="mt-3 text-[11px] text-slate-400">
+                <p className="dash-metric-hint mt-3">
                   {vi
                     ? 'Thời gian lấy hàng trung bình và hiệu suất nhân viên kho / điều phối chưa có trên hệ thống. Bảng đóng gói không lọc theo sàn.'
                     : 'Average pick time and warehouse or coordinator efficiency are not available yet. The packing table is not filtered by platform.'}
@@ -621,7 +713,6 @@ export function DashboardPage() {
               </section>
             </>
           ) : null}
-
         </div>
       </main>
     </div>

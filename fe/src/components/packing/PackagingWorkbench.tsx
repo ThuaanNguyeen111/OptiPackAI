@@ -37,6 +37,7 @@ import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { usePortal } from '../../context/use-portal'
 import { UserRole } from '../../types/auth'
 import { ApiError, formatApiError, getApiErrorCode } from '../../lib/api'
+import { groupStatusTone } from '../../lib/stage-colors'
 import {
   groupParcelsByOrder,
   parcelBorderClass,
@@ -810,8 +811,8 @@ export function PackagingWorkbench() {
     if (!group || !plan) {
       setActionError(
         vi
-          ? 'Chưa có kế hoạch. Chờ Admin chốt hoặc bấm Tải lại.'
-          : 'No plan yet. Wait for Admin to confirm, or refresh.',
+          ? 'Chưa có kế hoạch. Hệ thống tự tính sau khi lấy hàng xong, bấm Tải lại để cập nhật.'
+          : 'No plan yet. It is computed after picking finishes. Refresh to update.',
       )
       return
     }
@@ -1603,8 +1604,10 @@ export function PackagingWorkbench() {
                     <dt className="text-ink-subtle">
                       {vi ? 'Trạng thái' : 'Status'}
                     </dt>
-                    <dd className="font-medium text-ink">
-                      {statusLabel(group.fulfillmentStatus, vi)}
+                    <dd>
+                      <Badge tone={groupStatusTone(group.fulfillmentStatus)}>
+                        {statusLabel(group.fulfillmentStatus, vi)}
+                      </Badge>
                     </dd>
                   </div>
                   <div>
@@ -1958,8 +1961,8 @@ export function PackagingWorkbench() {
                     {!plan ? (
                       <p className="mt-2 text-sm text-ink-subtle">
                         {vi
-                          ? 'Chưa có kế hoạch. Chờ Admin chốt. Không thể duyệt khi chưa có kế hoạch.'
-                          : 'No plan yet. Wait for Admin to confirm. Cannot approve without one.'}
+                          ? 'Chưa có kế hoạch. Hệ thống tự tính sau khi lấy hàng xong, có kế hoạch mới duyệt được.'
+                          : 'No plan yet. It is computed after picking finishes. Cannot approve without one.'}
                       </p>
                     ) : (
                       <div className="mt-3 space-y-3 text-sm">
@@ -2281,7 +2284,7 @@ export function PackagingWorkbench() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="guide-detail-title"
-            className="flex h-[min(92vh,880px)] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            className="flex h-[92vh] w-full max-w-[min(96vw,110rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">

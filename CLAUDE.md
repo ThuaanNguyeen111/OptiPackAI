@@ -4565,6 +4565,52 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route. (3) Chỉ đổi hiển thị 3D; bước gấp dài 3,4 s, bước đặt 1,5 s. (4) Không ảnh hưởng tính kế hoạch, toạ độ xếp, quét, niêm phong. (5) Hạn chế: co hàng trải phẳng là thủ thuật hình ảnh; lúc lật món hàng không chạm va chạm thật với sàn; món xếp trong thùng nhìn qua vách bị ám màu bìa.
 
+## 🎨 Nhật ký 04/11/2026 — Rà giao diện FE sau góp ý của giảng viên (CHƯA SỬA CODE)
+
+**Góp ý:** giao diện nhàm chán, thiếu màu, không nổi bật. Phạm vi: mọi màn trừ `storefront/`.
+
+**Cách rà:** chụp Tổng quan, Đơn, Nhóm đơn, Kho, Đóng gói, Giao hàng, Admin, trang giới thiệu, sáng và tối, bằng Vite riêng + API giả (không thêm file vào `fe/`). Số liệu trong ảnh là giả; chưa xem với dữ liệu thật.
+
+**Điểm yếu:**
+1. Màu chủ đạo `#152d35` quá tối, nhìn như đen; màn gần như chỉ có xám và trắng. Đo trong `fe/src`: slate 933 lần, mọi họ màu khác cộng lại ít hơn nhiều.
+2. Đợt làm phẳng 01/11 (`teal-shell.css`) bỏ gradient và kính mờ nhưng không thêm màu thay thế, nên làm tình trạng này rõ hơn.
+3. Mọi khối giống nhau: thẻ trắng, viền mảnh, cùng cỡ. Ở Tổng quan 17 việc chờ xếp đều 3 cột, không nhóm theo bước.
+4. Màu không nhất quán: `--app-primary` còn indigo ở `index.css`, nên nút "Nhận việc" và tab "Tất cả" ở Admin có màu tím giữa giao diện xanh; biểu đồ dùng slate-800 + emerald-400 ngoài bảng màu; trạng thái hiện bằng viên xám hoặc cam tuỳ màn.
+5. `font-mono` dùng cho số lớn ở Tổng quan nên có số 0 gạch chéo, trông như màn kỹ thuật.
+6. Trang giới thiệu (chữ có chân, hộp màu carton) đẹp hơn và không ăn nhập với phần trong app.
+
+**Nội dung sai cần sửa kèm:** sidebar ghi cứng "Anh Minh Store · 2 active · Shopee · TikTok Shop" (`context/portal-context-value.ts`) dù Shopee ngoài phạm vi; "M1 · Hàng đợi lấy hàng" (`MarketplaceOrdersView.tsx:470`); "Chờ Admin chốt" còn ở `PackagingWorkbench.tsx:813, 1961` — nhật ký 01/11 ghi đã bỏ nhưng chưa hết.
+
+**Hướng đã chốt (04/11/2026):** Việt đồng ý màu theo bước xử lý, làm thử sidebar + Tổng quan trước rồi xem ảnh mới làm tiếp.
+
+**Đã làm thử:** `styles/stages.css` (token màu bước, sidebar nền đậm, khối Tổng quan), `lib/stage-colors.ts`, `components/dashboard/RevenueChart.tsx`, viết lại phần hiển thị `DashboardPage.tsx` (giữ nguyên API và logic khoảng ngày), icon menu theo bước ở `PortalSidebar` + `AdminSidebar`. Thẻ "Anh Minh Store · Shopee · TikTok" ở sidebar thay bằng kết nối thật từ `GET /marketplace/:platform/shops`; danh sách shop giả vẫn còn ở `ProfilePage`.
+
+**Kiểm chứng:** `tsc -b` và ESLint sạch trên file đã sửa (1 cảnh báo cũ của `PortalSidebar`); chụp sáng/tối với API giả. Bảng màu chạy `validate_palette`: chế độ sáng và biểu đồ đạt; màu lấy hàng/đóng gói ở nền tối ΔE 5,3 với mù màu đỏ, chấp nhận vì luôn đi kèm icon + chữ, không dùng làm chuỗi biểu đồ. Chưa thử rê chuột trên biểu đồ, chưa xem với dữ liệu thật.
+
+**Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route; sidebar chủ shop gọi thêm 2 lần `/marketplace/:platform/shops`. (3) Sidebar đổi cho mọi vai trò; nội dung các màn khác chưa đổi nên còn nút indigo ở Admin. (4) Không ảnh hưởng `storefront/`, nghiệp vụ. (5) Bản thử này đã được áp tiếp, xem dưới.
+
+**Áp toàn bộ (04/11/2026, Việt yêu cầu thêm ẩn thanh cuộn sidebar và đổi nền):** nền trang xanh nhạt `#d3e8e4` (tối `#0b2428`), thẻ `#f7fcfb`, thanh trên `#e4f2ef`, đặt bằng token ở `:where(.owner-shell)` trong `styles/stages.css` nên không phải sửa từng trang; các class `bg-white`, `bg-slate-100`, `border-slate-*` trong vỏ app được ghi đè về token này. Thanh cuộn sidebar ẩn nhưng vẫn cuộn được, áp cho mọi vai trò. Màu chính đổi từ indigo sang xanh ngọc `#0f766e` ở `index.css`; class indigo viết cứng đổi sang teal. `Badge` nhận tone theo bước; `lib/stage-colors.ts` ánh xạ trạng thái nhóm đơn, vận đơn, phiếu trả, đơn sàn; dùng ở Nhóm đơn, Trả hàng, Đơn, Giao hàng, Kho, Đóng gói. Câu chữ: bỏ "M1 ·", "Chờ Admin chốt" (hệ thống tự tính), "Theo quyền BE", Shopee/TikTok trên trang đăng nhập.
+
+**Không đổi có chủ đích:** `recipient-color.ts` (màu phân biệt người nhận), màu 3D sản phẩm, `storefront/`.
+
+**Đăng nhập + gỡ shop giả (04/11/2026, Việt yêu cầu):** `LoginScene` + `login-scene.css` chia đôi màn, trái `#0d3b40` như sidebar, phải `#e4f2ef`; áp cho cả quên mật khẩu, đổi mật khẩu, đăng ký, OAuth vì dùng chung `LoginScene`. Thêm nhãn Email / Mật khẩu; cú đứng cạnh lời nhắn để form không nhảy khi đổi câu. Gỡ `shops`, `addShop`, `PLATFORM_META`, `DEFAULT_SHOPS` khỏi `portal-context-value.ts`, `portal-provider.tsx`, `ProfilePage`; tab "Sàn đã kết nối" nay là `components/profile/ConnectedShopsPanel.tsx` đọc `GET /marketplace/:platform/shops`, chỉ xem. Xoá `pages/SettingsPage.tsx`. Không đổi route, không đổi DB; `localStorage` cũ `optipack-shops`, `optipack-active-shops` không còn ai đọc, vô hại. Còn chữ Shopee/TikTok ở `components/landing/ActorsSection`, `AiDemoCard`, `FeatureGrid`, `HeroSection`: các file này không được trang nào dùng.
+
+**Lỗi tự gây, đã sửa (04/11/2026):** bảng `sr-only` trong `RevenueChart` làm trang Tổng quan có thêm thanh cuộn và khoảng trắng: thẻ `table` bỏ qua `height: 1px`, lại định vị absolute nên thoát khỏi vùng cuộn (đo được trang 1780 px so với khung 803 px khi có 30 ngày). Bản chụp 7 ngày không lộ vì trang đủ dài che mất. Sửa: đặt `sr-only` lên `div` bọc ngoài, `.dash-chart` có `position: relative`. **Bài học:** không gắn `sr-only` trực tiếp lên `table`; kiểm tra `documentElement.scrollHeight` với lượng dữ liệu thật.
+
+## 👟 Nhật ký 04/11/2026 — Bật lại bước đóng hộp giày trong khung 3D
+
+**[stated] Việt chọn bật lại để trình diễn**, biết hướng dẫn lệch `PACKAGING_STANDARD.md` mục 5.1 (giữ nguyên hộp gốc). Ghi đè quyết định 01/11 "giày không có bước chuẩn bị". Muốn theo đúng quy chuẩn: bỏ `prepStep` của `shoes` trong `product-models.ts`.
+
+**Code (chỉ FE):** `ItemModel.prepClip` đổi thành `prepStep: bagPrep | shoeBox`; bước mới `shoeBox` tên "Đóng hộp giày", 9 giây (clip 21 giây chạy nhanh khoảng 2,3 lần), túi xách giữ 5 giây. `ItemRig.prepBox` lấy mẫu 25 thời điểm của clip để đo vùng các món chiếm; `ModelBody` thu cả cụm vào khu chuẩn bị, sát sàn, 18% cuối bước phóng về đúng cỡ khối. Áp cho cả túi xách. Ẩn khung dây trong 2 bước này.
+
+**Kiểm chứng:** `tsc -b`, ESLint, `vite build` đạt; chụp đúng `Packing3DBoxViewer` với kế hoạch giả, đầu, giữa, cuối bước và bước đặt vào thùng. Chưa xem với đơn thật, chưa đo fps trên GPU thật.
+
+**Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route. (3) Kiện có giày thêm 1 bước mỗi đôi, phát tự động dài thêm khoảng 10 giây mỗi đôi; tổng số bước hiển thị đổi. (4) Không ảnh hưởng tính kế hoạch, toạ độ xếp, quét, niêm phong; lời hướng dẫn AI từ BE không nhắc bước này. (5) Hạn chế: lúc đầu bước giày và hộp nhỏ hơn cỡ thật vì cụm phải co cho vừa khu chuẩn bị, cuối bước mới phóng về đúng cỡ.
+
+**Sửa hộp ngược + phóng to khung 3D (04/11/2026, Việt báo, giảng viên nhận xét khung nhỏ):** `fitToBlock` khi định thức âm từng đảo trục nhỏ nhất, chính là trục cao của hộp, nên hộp lật ngược khi dài/rộng đổi chỗ; nay đảo trục nằm ngang. Món bị xếp nghiêng trong thùng: clip chuẩn bị vẫn chạy ở tư thế gốc, cuối bước mới xoay về đúng hướng xếp. Khung to hơn: `.pack-bench` đổi cột thành `15rem / 1fr / 1.3fr` (cột 3D trước đây khoá 19rem) và cao theo màn hình; hộp thoại chi tiết rộng tới 110rem; `scene/StepCamera.tsx` tính khoảng cách theo tỉ lệ khung thật, tự lại gần khu chuẩn bị ở các bước gấp, túi zip, đóng hộp, về toàn cảnh ở bước đặt và đóng nắp; người dùng kéo xoay thì nhường ngay.
+
+**Bỏ khung dây quanh món (04/11/2026, Việt yêu cầu):** gỡ lưới `wireframe` màu xanh vẽ theo khối món ở bước chuẩn bị và lúc đặt vào thùng. Kích thước khối vẫn thể hiện qua chính model đã co khít; khung của kiện gộp (`tint`) giữ nguyên vì dùng để phân biệt đơn.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.

@@ -467,8 +467,8 @@ export function MarketplaceOrdersView({
                   <div className="space-y-1">
                     <h3 className="text-[11px] font-semibold tracking-[0.08em] text-slate-500 uppercase dark:text-slate-400">
                       {vi
-                        ? 'M1 · Hàng đợi lấy hàng'
-                        : 'M1 · Batch picking queue'}
+                        ? 'Đơn từ các sàn'
+                        : 'Orders from all platforms'}
                     </h3>
                     <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
                       {vi ? (
