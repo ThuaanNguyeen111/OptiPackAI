@@ -398,16 +398,22 @@ html.dark .landing-nav-pill a:hover {
 }
 
 .lp-mark {
-  display: flex;
-  height: 32px;
-  width: 32px;
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
-  background: var(--ls-cta);
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--ls-cta-fg);
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #1a2442;
+}
+
+.brand-mark-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* ——— App chrome (Owner / Pack / Ship / Warehouse / Admin) ——— */
@@ -454,6 +460,7 @@ html.dark .landing-nav-pill a:hover {
 }
 
 .owner-stage {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
