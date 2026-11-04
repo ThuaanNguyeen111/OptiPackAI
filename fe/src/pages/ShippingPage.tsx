@@ -60,6 +60,8 @@ import {
   type ShippingServiceQuote,
 } from '../api/shipping.api'
 import { formatApiError } from '../lib/api'
+import { Badge } from '../components/ui/Badge'
+import { shipmentStatusTone } from '../lib/stage-colors'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import type { OrderGroup } from '../types/order-groups'
@@ -1008,7 +1010,7 @@ export function ShippingPage() {
       : 0
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-[#EAEEEC] dark:bg-transparent">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
@@ -1317,7 +1319,7 @@ export function ShippingPage() {
                         : 'This address override applies to every parcel on this shipment.'}
                     </p>
                     {namesDiffer ? (
-                      <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                      <p className="rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 text-[11px] font-medium text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100">
                         {vi
                           ? `Nhóm gộp nhiều người nhận — địa chỉ sửa áp dụng mọi kiện. Vận đơn có kiện của ${String(selectedGroup?.recipientNames.length ?? 0)} người nhận — mỗi kiện một mã hãng riêng.`
                           : `Merged group has multiple recipients — this address override applies to every parcel. This shipment has parcels for ${String(selectedGroup?.recipientNames.length ?? 0)} recipients — each parcel has its own carrier code.`}
@@ -1519,7 +1521,7 @@ export function ShippingPage() {
                   </p>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                   <table className="w-full border-collapse text-left">
                     <thead>
                       <tr className="border-b border-slate-200/80 bg-slate-50 text-[11px] font-bold tracking-wider text-slate-500 uppercase dark:border-slate-800 dark:bg-surface-2/50 dark:text-slate-400">
@@ -1630,20 +1632,12 @@ export function ShippingPage() {
                               </td>
                               <td className="py-3 px-3.5 text-right sm:text-left">
                                 <div className="flex flex-col items-end gap-1 sm:items-start">
-                                {isDone && rowStatus === 'delivered' ? (
-                                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white tracking-wider uppercase shadow-2xs select-none">
-                                    <Check className="h-3 w-3 stroke-[3]" />
-                                    <span>{statusLabel(rowStatus, vi)}</span>
-                                  </span>
-                                ) : rowStatus === 'packed' || rowStatus === 'delivery_failed' ? (
-                                  <span className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 tracking-wider uppercase dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300 select-none">
-                                    <span>{statusLabel(rowStatus, vi)}</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex select-none items-center gap-1 rounded-md bg-[var(--ls-cta)] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-2xs">
-                                    <span>{statusLabel(rowStatus, vi)}</span>
-                                  </span>
-                                )}
+                                <Badge tone={shipmentStatusTone(rowStatus)} className="gap-1 font-semibold">
+                                  {isDone && rowStatus === 'delivered' ? (
+                                    <Check className="h-3 w-3 stroke-[3]" aria-hidden />
+                                  ) : null}
+                                  {statusLabel(rowStatus, vi)}
+                                </Badge>
                                 {row.kind === 'shipment' &&
                                 isShipmentDeliveryOverdue(row.shipment) ? (
                                   <span className="inline-flex rounded border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
@@ -1893,7 +1887,7 @@ export function ShippingPage() {
                         <p className="text-xs text-red-600">{selected.shipment.carrierBookingError}</p>
                       ) : null}
                       {namesDiffer ? (
-                        <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                        <p className="rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 text-[11px] font-medium text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100">
                           {vi
                             ? `Nhóm gộp nhiều người nhận — địa chỉ sửa áp dụng mọi kiện. Vận đơn có kiện của ${String(selectedGroup?.recipientNames.length ?? 0)} người nhận — mỗi kiện một mã hãng riêng.`
                             : `Merged group has multiple recipients — this address override applies to every parcel. This shipment has parcels for ${String(selectedGroup?.recipientNames.length ?? 0)} recipients — each parcel has its own carrier code.`}

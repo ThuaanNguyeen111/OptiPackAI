@@ -57,6 +57,8 @@ import {
 } from '../api/warehouse.api'
 import { fetchMyProfile } from '../api/users.api'
 import { ApiError, formatApiError, getApiErrorCode } from '../lib/api'
+import { Badge } from '../components/ui/Badge'
+import { groupStatusTone } from '../lib/stage-colors'
 import { cn } from '../lib/cn'
 import { recipientBorderClass, recipientChipClass } from '../lib/recipient-color'
 import {
@@ -1375,7 +1377,7 @@ export function WarehousePage() {
         ]}
       />
 
-      <div className="flex-1 overflow-auto bg-[#F9FAFB] p-4 sm:p-6 dark:bg-[#0B0E14]">
+      <div className="flex-1 overflow-auto bg-transparent p-4 sm:p-6">
         <div className="mx-auto max-w-7xl space-y-4">
           <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/90 bg-white p-3 shadow-xs sm:px-4 sm:py-3 dark:border-slate-800 dark:bg-surface-1 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -1690,12 +1692,12 @@ export function WarehousePage() {
                       <span className="rounded border border-slate-200 bg-slate-100 px-2 py-0.5 font-mono text-xs font-semibold text-slate-800 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
                         {shortId(group?.id ?? selectedId)}
         </span>
-                      <span className="rounded-md bg-blue-100 px-2.5 py-0.5 text-xs font-bold text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                      <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                         {platformLabel(group?.platform ?? '')}
         </span>
-                      <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      <Badge tone={groupStatusTone(status)} className="font-semibold">
                         {statusLabel(status, vi)}
-                      </span>
+                      </Badge>
                       {group && isPartiallyCanceledGroup(group) ? (
                         <span className="rounded-md bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-950/50 dark:text-amber-300">
                           {vi
@@ -1814,7 +1816,7 @@ export function WarehousePage() {
                         'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs cursor-pointer',
                         group?.assignedStaffId
                           ? 'border border-slate-200 bg-white font-semibold hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1'
-                          : 'bg-indigo-600 font-semibold text-white shadow-sm hover:bg-indigo-700',
+                          : 'bg-teal-700 font-semibold text-white shadow-sm hover:bg-teal-800',
                       )}
                     >
                       <UserCheck className="h-3.5 w-3.5" />
@@ -1836,7 +1838,7 @@ export function WarehousePage() {
                         className={cn(
                           'inline-flex h-9 items-center gap-1.5 rounded-lg px-3 text-xs font-semibold cursor-pointer',
                           combinedMode
-                            ? 'border border-indigo-300 bg-indigo-50 text-indigo-900 hover:bg-indigo-100 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200'
+                            ? 'border border-teal-300 bg-teal-50 text-teal-900 hover:bg-teal-100 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-200'
                             : 'border border-slate-200 bg-white text-slate-800 hover:bg-slate-50 dark:border-slate-600 dark:bg-surface-1',
                         )}
                       >

@@ -30,6 +30,7 @@ import { Button } from '../components/ui/Button'
 import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
 import { cn } from '../lib/cn'
+import { groupStatusTone } from '../lib/stage-colors'
 import { formatApiError } from '../lib/api'
 import {
   GROUP_FULFILLMENT_STATUS_LABELS,
@@ -48,30 +49,6 @@ function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
   if (!known) return status
   return vi ? known.vi : known.en
-}
-
-function statusTone(
-  status: string,
-): 'default' | 'primary' | 'success' | 'warning' {
-  if (
-    status === 'delivered' ||
-    status === 'packed' ||
-    status === 'shipped'
-  ) {
-    return 'success'
-  }
-  if (
-    status === 'returning' ||
-    status === 'partial_needs_review' ||
-    status === 'pending_approval' ||
-    status === 'awaiting_packaging'
-  ) {
-    return 'warning'
-  }
-  if (status === 'picking' || status === 'picked' || status === 'approved_for_packing') {
-    return 'primary'
-  }
-  return 'default'
 }
 
 function toIso(value: string | Date | null | undefined): string | null {
@@ -621,7 +598,7 @@ export function OrderGroupsPage() {
                             selected
                               ? 'bg-[color-mix(in_srgb,#D4ECDD_55%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)]'
                               : g.isOverdue
-                                ? 'bg-rose-50/70 hover:bg-rose-100/70'
+                                ? 'bg-rose-50/70 hover:bg-rose-100/70 dark:bg-rose-950/40 dark:hover:bg-rose-950/60'
                                 : 'hover:bg-surface-2/80',
                           )}
                         >
@@ -663,7 +640,7 @@ export function OrderGroupsPage() {
                           </td>
                           <td className="px-3 py-3">
                             <div className="flex flex-wrap items-center justify-center gap-1">
-                              <Badge tone={statusTone(g.fulfillmentStatus)}>
+                              <Badge tone={groupStatusTone(g.fulfillmentStatus)}>
                                 {statusLabel(g.fulfillmentStatus, vi)}
                               </Badge>
                               {isPartiallyCanceledGroup(g) ? (
@@ -677,7 +654,7 @@ export function OrderGroupsPage() {
                                 </span>
                               ) : null}
                               {g.recipientNamesDiffer ? (
-                                <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800/50 dark:bg-indigo-950/40 dark:text-indigo-200">
+                                <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-800 dark:border-teal-800/50 dark:bg-teal-950/40 dark:text-teal-200">
                                   {vi
                                     ? `Gộp ${g.recipientNames.length} người nhận`
                                     : `Merged ${g.recipientNames.length} recipients`}
@@ -885,7 +862,7 @@ export function OrderGroupsPage() {
                         {vi ? 'Trạng thái' : 'Status'}
                       </dt>
                       <dd className="flex flex-wrap items-center justify-end gap-1">
-                        <Badge tone={statusTone(detail.fulfillmentStatus)}>
+                        <Badge tone={groupStatusTone(detail.fulfillmentStatus)}>
                           {statusLabel(detail.fulfillmentStatus, vi)}
                         </Badge>
                         {isPartiallyCanceledGroup(detail) ? (
@@ -939,7 +916,7 @@ export function OrderGroupsPage() {
                         <dd className="text-right text-xs text-ink">
                           {detail.recipientNames.join(' · ')}
                           {detail.recipientNamesDiffer ? (
-                            <p className="mt-1 font-medium text-indigo-700 dark:text-indigo-300">
+                            <p className="mt-1 font-medium text-teal-800 dark:text-teal-300">
                               {vi
                                 ? `Gộp ${detail.recipientNames.length} người nhận`
                                 : `Merged ${detail.recipientNames.length} recipients`}

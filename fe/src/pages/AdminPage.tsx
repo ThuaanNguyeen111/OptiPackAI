@@ -138,7 +138,7 @@ export default function AdminPage() {
                   strokeWidth={1.75}
                 />
                 <p className="mt-3 text-sm text-ink-subtle">{card.label}</p>
-                <p className="mt-1 font-mono text-2xl font-semibold text-ink">
+                <p className="mt-1 text-2xl font-semibold tabular-nums text-ink">
                   {card.value}
                 </p>
               </div>

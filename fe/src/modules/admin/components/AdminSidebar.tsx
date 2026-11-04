@@ -23,6 +23,7 @@ import { fetchMyProfile } from '../../../api/users.api'
 import { usePortal } from '../../../context/use-portal'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
+import { stageOfPath } from '../../../lib/stage-colors'
 
 type NavSection = 'directory' | 'marketplace' | 'warehouse' | 'ai'
 
@@ -172,9 +173,9 @@ export function AdminSidebar() {
         }`}
       >
         <Link
-          to="/app/admin"
+          to="/"
           className="flex min-w-0 items-center gap-2"
-          title="OptiPackAI Admin"
+          title="Về trang Home"
         >
           <span className="lp-mark h-8 w-8 shrink-0">OP</span>
           {!sidebarCollapsed ? (
@@ -246,7 +247,11 @@ export function AdminSidebar() {
                   }`
                 }
               >
-                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                <Icon
+                  className="nav-stage-icon h-4 w-4 shrink-0"
+                  data-stage={stageOfPath(to)}
+                  strokeWidth={1.75}
+                />
                 {!sidebarCollapsed ? (
                   <span>{vi ? labelVi : labelEn}</span>
                 ) : null}

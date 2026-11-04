@@ -103,7 +103,7 @@ function StatusCell({ user }: { user: AdminUser }) {
 }
 
 const actionBtn =
-  'inline-flex h-8 items-center gap-1 rounded-md border border-hairline bg-canvas px-2.5 text-xs font-medium text-ink-muted transition-colors hover:border-indigo-500/40 hover:text-ink'
+  'inline-flex h-8 items-center gap-1 rounded-md border border-hairline bg-canvas px-2.5 text-xs font-medium text-ink-muted transition-colors hover:border-teal-600/40 hover:text-ink'
 
 export function UserManagementTable({
   users,
@@ -177,7 +177,7 @@ export function UserManagementTable({
               onClick={() => setStatusFilter(tab.key)}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
                 statusFilter === tab.key
-                  ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'
+                  ? 'bg-teal-700 text-white shadow-lg shadow-teal-600/20'
                   : 'text-ink-subtle hover:bg-canvas hover:text-ink'
               }`}
             >
@@ -196,7 +196,7 @@ export function UserManagementTable({
                   : (Number(e.target.value) as Role),
               )
             }
-            className="h-9 rounded-lg border border-hairline bg-surface-1 px-2.5 font-mono text-xs text-ink focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+            className="h-9 rounded-lg border border-hairline bg-surface-1 px-2.5 font-mono text-xs text-ink focus:border-teal-600 focus:outline-none focus:ring-2 focus:ring-teal-600/30"
           >
             <option value="all">{vi ? 'Tất cả vai trò' : 'All roles'}</option>
             {ROLE_VALUES.map((r) => (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { orderStatusTone } from '../../lib/stage-colors'
 import {
   Clock,
   Layers,
@@ -55,16 +56,7 @@ function ChannelBadge({ platform }: { platform: string }) {
 }
 
 function statusToneClass(status: MarketplaceOrderStatus): string {
-  if (status === 'canceled' || status === 'failed' || status === 'returned') {
-    return 'border border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/30 dark:text-rose-400'
-  }
-  if (status === 'delivered' || status === 'shipped') {
-    return 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400'
-  }
-  if (status === 'pending' || status === 'unpaid') {
-    return 'border border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400'
-  }
-  return 'border border-[color-mix(in_srgb,var(--ls-cta,#152D35)_28%,transparent)] bg-[color-mix(in_srgb,#D4ECDD_55%,white)] text-[var(--ls-cta,#152D35)] dark:border-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_35%,transparent)] dark:bg-[color-mix(in_srgb,var(--ls-cta,#D4ECDD)_12%,transparent)] dark:text-[var(--ls-cta,#D4ECDD)]'
+  return `tone-${orderStatusTone(status)}`
 }
 
 export function OrderDetailDrawer({
@@ -225,7 +217,7 @@ export function OrderDetailDrawer({
                     </h3>
                   </div>
                   {order.isConsolidated && siblings.length > 1 ? (
-                    <span className="inline-flex items-center gap-1 rounded-md bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                    <span className="inline-flex items-center gap-1 rounded-md bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
                       <Layers className="h-3 w-3" />
                       {vi
                         ? `Gộp · ${siblings.length}`
