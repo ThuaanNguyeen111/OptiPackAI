@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
 import {
@@ -418,6 +419,8 @@ export function PackagingWorkbench() {
   const [overrideReason, setOverrideReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
   const [guideDetailOpen, setGuideDetailOpen] = useState(false)
+  /** Khung nội dung app (chừa sidebar) — chi tiết 3D phủ full vùng này. */
+  const [stageEl, setStageEl] = useState<HTMLElement | null>(null)
   const [boxStock, setBoxStock] = useState<PackagingMaterialStock[]>([])
   const [boxStockError, setBoxStockError] = useState<string | null>(null)
   const [summaries, setSummaries] = useState<Record<string, PackingPlanSummary>>({})
@@ -446,6 +449,19 @@ export function PackagingWorkbench() {
     const timer = window.setInterval(() => setNowMs(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    setStageEl(document.querySelector('.owner-stage'))
+  }, [])
+
+  useEffect(() => {
+    if (!guideDetailOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setGuideDetailOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [guideDetailOpen])
 
   // Kế hoạch đang tính: tải lại mỗi 3 giây tới khi có kết quả (khung 3D hiện "Đang tính").
   const computingGroupId = plan?.status === 'computing' ? plan.orderGroupId : null
@@ -2275,109 +2291,108 @@ export function PackagingWorkbench() {
         </aside>
       </div>
 
-      {guideDetailOpen ? (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 p-4"
-          onClick={() => setGuideDetailOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="guide-detail-title"
-            className="flex h-[92vh] w-full max-w-[min(96vw,110rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
-              <h3 id="guide-detail-title" className="text-base font-semibold text-slate-900">
-                {vi ? 'Chi tiết hướng dẫn đóng gói' : 'Packing guide details'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setGuideDetailOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-                aria-label={vi ? 'Đóng' : 'Close'}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.6fr)_22rem]">
-              <div className="min-h-[360px] bg-[#f8faff] p-3">
-                <Packing3DBoxViewer
-                  plan={plan}
-                  parcelNo={parcelNo}
-                  onParcelChange={setParcelNo}
-                  autoRotate={guide3dActive || tab === 'approved_for_packing'}
-                  className="relative h-full min-h-[340px] w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff]"
-                />
+      {guideDetailOpen && stageEl && plan
+        ? createPortal(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="guide-detail-title"
+              className="absolute inset-0 z-[80] flex flex-col overflow-hidden rounded-[inherit] bg-[var(--ls-card-solid,#fff)]"
+            >
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+                <h3 id="guide-detail-title" className="text-base font-semibold text-slate-900">
+                  {vi ? 'Chi tiết hướng dẫn đóng gói' : 'Packing guide details'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setGuideDetailOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  aria-label={vi ? 'Đóng' : 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <aside className="min-h-0 overflow-y-auto border-t border-slate-200 p-5 lg:border-t-0 lg:border-l">
-                <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                  {vi ? 'Mô tả' : 'Description'}
-                </p>
-                <p className="mt-2 text-sm font-medium text-slate-900">{boxViewerLabel(plan, parcelNo, vi)}</p>
-                <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, parcelNo, vi)}</p>
-                <div className="mt-3">
-                  <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+              <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.6fr)_22rem]">
+                <div className="min-h-0 bg-[#f8faff] p-3">
+                  <Packing3DBoxViewer
+                    plan={plan}
+                    parcelNo={parcelNo}
+                    onParcelChange={setParcelNo}
+                    autoRotate={guide3dActive || tab === 'approved_for_packing'}
+                    className="relative h-full min-h-[280px] w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff]"
+                  />
                 </div>
-                {(() => {
-                  const guide = (
-                    plan?.parcels.find((row) => row.parcelNo === parcelNo) ?? plan?.parcels[0]
-                  )?.guide
-                  return (
-                    <div className="mt-5">
-                      <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                        {vi ? 'Các bước' : 'Steps'}
-                      </p>
-                      {guide?.summary ? (
-                        <p className="mt-2 text-sm text-slate-700">{guide.summary}</p>
-                      ) : null}
-                      {guide && guide.steps.length > 0 ? (
-                        <ol className="mt-3 space-y-3">
-                          {guide.steps.map((step) => (
-                            <li key={step.step} className="flex gap-3">
-                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#152d35] text-xs font-semibold text-white">
-                                {step.step}
-                              </span>
-                              <div>
-                                <p className="text-sm text-slate-800">{step.instruction}</p>
-                                {step.tip ? (
-                                  <p className="mt-1 text-xs text-slate-500">{step.tip}</p>
-                                ) : null}
-                              </div>
-                            </li>
-                          ))}
-                        </ol>
-                      ) : (
-                        <p className="mt-2 text-sm text-slate-500">
-                          {vi
-                            ? 'Chưa có hướng dẫn từng bước.'
-                            : 'No step-by-step guide yet.'}
+                <aside className="min-h-0 overflow-y-auto border-t border-slate-200 p-5 lg:border-t-0 lg:border-l">
+                  <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                    {vi ? 'Mô tả' : 'Description'}
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-slate-900">
+                    {boxViewerLabel(plan, parcelNo, vi)}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, parcelNo, vi)}</p>
+                  <div className="mt-3">
+                    <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+                  </div>
+                  {(() => {
+                    const guide = (
+                      plan?.parcels.find((row) => row.parcelNo === parcelNo) ?? plan?.parcels[0]
+                    )?.guide
+                    return (
+                      <div className="mt-5">
+                        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                          {vi ? 'Các bước' : 'Steps'}
                         </p>
-                      )}
-                      {plan && plan.parcels.length > 0 ? (
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() => void onWriteGuide()}
-                          className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
-                        >
-                          {selectParcel(plan, parcelNo)?.guide
-                    ? vi
-                      ? 'Viết lại hướng dẫn'
-                      : 'Rewrite guide'
-                    : vi
-                      ? 'Viết hướng dẫn kiện'
-                      : 'Write parcel guide'}
-                        </button>
-                      ) : null}
-                    </div>
-                  )
-                })()}
-              </aside>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                        {guide?.summary ? (
+                          <p className="mt-2 text-sm text-slate-700">{guide.summary}</p>
+                        ) : null}
+                        {guide && guide.steps.length > 0 ? (
+                          <ol className="mt-3 space-y-3">
+                            {guide.steps.map((step) => (
+                              <li key={step.step} className="flex gap-3">
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#152d35] text-xs font-semibold text-white">
+                                  {step.step}
+                                </span>
+                                <div>
+                                  <p className="text-sm text-slate-800">{step.instruction}</p>
+                                  {step.tip ? (
+                                    <p className="mt-1 text-xs text-slate-500">{step.tip}</p>
+                                  ) : null}
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="mt-2 text-sm text-slate-500">
+                            {vi
+                              ? 'Chưa có hướng dẫn từng bước.'
+                              : 'No step-by-step guide yet.'}
+                          </p>
+                        )}
+                        {plan && plan.parcels.length > 0 ? (
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => void onWriteGuide()}
+                            className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
+                          >
+                            {selectParcel(plan, parcelNo)?.guide
+                              ? vi
+                                ? 'Viết lại hướng dẫn'
+                                : 'Rewrite guide'
+                              : vi
+                                ? 'Viết hướng dẫn kiện'
+                                : 'Write parcel guide'}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                </aside>
+              </div>
+            </div>,
+            stageEl,
+          )
+        : null}
 
       {planDialog ? (
         <div

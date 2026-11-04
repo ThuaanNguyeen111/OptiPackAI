@@ -55,6 +55,10 @@
     "npm": ">=10.0.0"
   },
   "dependencies": {
-    "otplib": "^12.0.1"
+    "clsx": "^2.1.1",
+    "framer-motion": "^14.3.0",
+    "lucide-react": "^1.57.0",
+    "otplib": "^12.0.1",
+    "tailwind-merge": "^3.7.0"
   }
 }

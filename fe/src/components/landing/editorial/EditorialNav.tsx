@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { Package } from 'lucide-react'
+import { BrandMark } from '../../brand/BrandMark'
 import { handleLandingHashClick } from '../scroll-landing'
 import { LandingAuthCta } from '../LandingAuthCta'
 import { LandingUserAvatar } from '../LandingUserAvatar'
@@ -41,9 +41,7 @@ export function EditorialNav(): ReactNode {
           onClick={(e) => handleLandingHashClick(e, '#top')}
           className="flex min-w-0 items-center gap-2 text-[var(--ed-ink)]"
         >
-          <span className="grid h-8 w-8 place-items-center rounded-full bg-[var(--ed-ink)] text-[var(--ed-sage)]">
-            <Package className="h-4 w-4" strokeWidth={2} />
-          </span>
+          <BrandMark />
           <span className="hidden truncate text-sm font-semibold tracking-tight sm:inline">
             OptiPackAI
           </span>

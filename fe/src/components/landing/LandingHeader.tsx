@@ -4,6 +4,7 @@ import { useTheme } from '../../hooks/useTheme'
 import { handleLandingHashClick } from './scroll-landing'
 import { LandingAuthCta } from './LandingAuthCta'
 import { LandingUserAvatar } from './LandingUserAvatar'
+import { BrandMark } from '../brand/BrandMark'
 
 const navLinks = [
   { href: '#ai-engine', label: 'AI Engine' },
@@ -23,7 +24,7 @@ export function LandingHeader() {
         className="landing-pill landing-brand"
         onClick={(event) => handleLandingHashClick(event, '#top')}
       >
-        <span className="lp-mark">OP</span>
+        <BrandMark />
         <span className="text-sm font-semibold tracking-tight">OptiPackAI</span>
         <span className="hidden rounded-full bg-[color-mix(in_srgb,var(--ls-cta)_14%,transparent)] px-2 py-0.5 text-[10px] font-medium text-[var(--ls-cta)] sm:inline">
           AOFP
