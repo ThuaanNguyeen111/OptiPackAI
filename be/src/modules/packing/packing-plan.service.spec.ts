@@ -59,10 +59,12 @@ function fakePlanModel() {
     const set = (update.$set ?? (update.$inc || update.$push ? {} : update)) as Record<string, unknown>;
     for (const [k, v] of Object.entries(set)) {
       if (k.includes('.')) {
-        const [root, index, field] = k.split('.') as [string, string, string];
-        const arr = d[root] as Record<string, unknown>[];
-        const item = arr[Number(index)];
-        if (item) item[field] = v;
+        // Đường dẫn bất kỳ: `parcels.0.guide`, `parcels.0.guide.rating`, `solver.inputs`.
+        const path = k.split('.');
+        const last = path[path.length - 1] ?? k;
+        let target: Record<string, unknown> | undefined = d;
+        for (const key of path.slice(0, -1)) target = target?.[key] as Record<string, unknown> | undefined;
+        if (target) target[last] = v;
       } else d[k] = v;
     }
     for (const [k, v] of Object.entries((update.$inc ?? {}) as Record<string, number>))
@@ -154,7 +156,7 @@ describe('PackingPlanService', () => {
     consumeForPack: jest.Mock;
     recordWaste: jest.Mock;
   };
-  let materialService: { planningData: jest.Mock; consumeForPack: jest.Mock };
+  let materialService: { planningData: jest.Mock; consumeForPack: jest.Mock; getActiveRules: jest.Mock };
   let notificationsService: {
     notify: jest.Mock;
     buildPendingPackagingPlanMessage: jest.Mock;
@@ -162,6 +164,13 @@ describe('PackingPlanService', () => {
     buildAbnormalPackageMessage: jest.Mock;
   };
   let guideAi: { writeGuide: jest.Mock };
+  let guideMemory: {
+    recordLog: jest.Mock;
+    latestLog: jest.Mock;
+    pickExamples: jest.Mock;
+    saveExample: jest.Mock;
+    removeExample: jest.Mock;
+  };
   let service: PackingPlanService;
   let session: PackingSessionService;
   let settings: ActivePackingSettings;
@@ -226,6 +235,7 @@ describe('PackingPlanService', () => {
     };
     materialService = {
       planningData: jest.fn(() => Promise.resolve({ catalog: [], rules: [] })),
+      getActiveRules: jest.fn(() => Promise.resolve({ version: 3, rules: [], isDefault: false })),
       consumeForPack: jest.fn(() => Promise.resolve({ consumed: [], shortfalls: [] })),
     };
     notificationsService = {
@@ -236,8 +246,24 @@ describe('PackingPlanService', () => {
     };
     guideAi = {
       writeGuide: jest.fn(() =>
-        Promise.resolve({ source: 'template', model: null, fallback_reason: 'no_api_key', summary: 's', steps: [] }),
+        Promise.resolve({
+          source: 'ai',
+          model: 'groq/test',
+          fallback_reason: null,
+          summary: 's',
+          steps: [{ step: 1, instruction: 'Đặt món.', tip: null }],
+          trace: { system_prompt: 'SYS', user_payload: '{"steps":[]}', raw_response: '{}', examples_used: 1, latency_ms: 5 },
+        }),
       ),
+    };
+    guideMemory = {
+      recordLog: jest.fn(() => Promise.resolve()),
+      latestLog: jest.fn(() => Promise.resolve({ user_payload: '{"steps":[]}', source: 'ai' })),
+      pickExamples: jest.fn(() =>
+        Promise.resolve([{ ref: 'p:1', example: { user_payload: '{}', guide: { summary: 'x', steps: [] } } }]),
+      ),
+      saveExample: jest.fn(() => Promise.resolve(true)),
+      removeExample: jest.fn(() => Promise.resolve()),
     };
     transactionSession = {
       withTransaction: jest.fn((fn: () => Promise<unknown>) => fn()),
@@ -256,6 +282,10 @@ describe('PackingPlanService', () => {
       { get: () => null } as never, // không có CP-SAT
       { get: () => Promise.resolve(settings) } as never,
       { assignOnReady: jest.fn(() => Promise.resolve(null)) } as never,
+      undefined,
+      undefined,
+      undefined,
+      guideMemory as never,
     );
     session = new PackingSessionService(
       planModel as never,
@@ -295,6 +325,24 @@ describe('PackingPlanService', () => {
       const { plan, tasks } = await service.compute(groupId);
       expect(tasks).toEqual([]);
       expect(plan.orders.every((o) => ['skipped', 'unavailable'].includes(o.cp_sat))).toBe(true);
+    });
+
+    it('05/11/2026 — mỗi kiện có bảng so sánh thùng: thùng của kiện là dòng được chọn, đủ mọi thùng trong danh mục, API trả camelCase', async () => {
+      const plan = await computed();
+      for (const parcel of plan.parcels) {
+        const comparison = parcel.box_comparison;
+        expect(comparison).not.toBeNull();
+        const chosen = comparison?.rows.find((r) => r.is_chosen);
+        expect(chosen?.box_code).toBe(parcel.box.code);
+        expect(comparison?.rows.map((r) => r.box_code).sort()).toEqual(sampleBoxes().map((b) => b.code).sort());
+        expect(comparison?.summary).not.toBe('');
+      }
+      const response = toPlanResponse(plan);
+      const first = response.parcels[0]?.boxComparison;
+      const chosenRow = first?.rows.find((r) => r.isChosen);
+      expect(chosenRow?.boxCode).toBe(plan.parcels[0]?.box.code);
+      expect(chosenRow?.score).toBe(plan.parcels[0]?.box_comparison?.rows.find((r) => r.is_chosen)?.score);
+      expect(first?.weights.billable).toBe(0.4);
     });
 
     it('nhóm chưa lấy hàng xong → PACKING_WRONG_PLAN_STATUS', async () => {
@@ -879,6 +927,21 @@ describe('PackingPlanService', () => {
       expect(updated.adjustments).toHaveLength(1);
       const order = updated.orders.find((o) => o.order_id.equals(target.order_id));
       expect(order?.proof).toBe('heuristic');
+    });
+
+    it('05/11/2026 — đổi thùng tính lại bảng so sánh của kiện đó: dòng được chọn là thùng mới', async () => {
+      const plan = await computed();
+      const target = plan.parcels[0];
+      if (!target) throw new Error('thiếu kiện');
+      const updated = await service.changeBox(
+        groupId,
+        target.parcel_no,
+        { box_code: 'SAMPLE-L', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', expected_version: plan.version },
+        userId,
+      );
+      const comparison = updated.parcels[0]?.box_comparison;
+      expect(comparison?.rows.find((r) => r.is_chosen)?.box_code).toBe('SAMPLE-L');
+      for (const p of updated.parcels) expect(p.box_comparison).not.toBeNull();
     });
 
     it('đổi sang thùng không vừa → PACKING_BOX_DOES_NOT_FIT', async () => {
@@ -1532,6 +1595,57 @@ describe('PackingPlanService', () => {
       expect(guideAi.writeGuide).toHaveBeenCalledTimes(1);
       await service.getOrCreateGuide(groupId, 1, true);
       expect(guideAi.writeGuide).toHaveBeenCalledTimes(2);
+    });
+
+    it('05/11/2026 — gửi kèm ví dụ mẫu đã chấm tốt và ghi nhật ký đúng dữ liệu đã gửi cho AI', async () => {
+      await computed();
+      const plan = await service.getOrCreateGuide(groupId, 1, false);
+      const calls = guideAi.writeGuide.mock.calls as [{ examples: unknown[] }][];
+      const sent = calls[0]?.[0];
+      expect(sent?.examples).toHaveLength(1);
+      expect(guideMemory.recordLog).toHaveBeenCalledWith(
+        expect.objectContaining({ parcelNo: 1, source: 'ai', model: 'groq/test', exampleRefs: ['p:1'] }),
+      );
+      expect(plan.parcels[0]?.guide?.examples_used).toBe(1);
+    });
+
+    it('05/11/2026 — chấm "dễ làm theo" → lưu đánh giá + thành ví dụ mẫu; chấm lại "khó hiểu" → gỡ khỏi bộ ví dụ', async () => {
+      await computed();
+      await service.getOrCreateGuide(groupId, 1, false);
+      const rated = await service.rateGuide(groupId, 1, { helpful: true, comment: 'rõ ràng' }, userId);
+      expect(rated.savedAsExample).toBe(true);
+      expect(rated.plan.parcels[0]?.guide?.rating).toMatchObject({ helpful: true, comment: 'rõ ràng' });
+      expect(guideMemory.saveExample).toHaveBeenCalledWith(expect.objectContaining({ parcelNo: 1, userPayload: '{"steps":[]}' }));
+
+      const again = await service.rateGuide(groupId, 1, { helpful: false }, userId);
+      expect(again.savedAsExample).toBe(false);
+      expect(guideMemory.removeExample).toHaveBeenCalledTimes(1);
+    });
+
+    it('05/11/2026 — chưa có hướng dẫn thì không chấm được', async () => {
+      await computed();
+      await expect(service.rateGuide(groupId, 1, { helpful: true }, userId)).rejects.toMatchObject({
+        errorCode: PACKING_ERROR_CODES.GUIDE_NOT_AVAILABLE,
+      });
+    });
+  });
+
+  describe('05/11/2026 — danh mục đổi sau lúc tính', () => {
+    it('kế hoạch chụp danh mục đã dùng; danh mục không đổi → không báo', async () => {
+      const plan = await computed();
+      expect(plan.solver.inputs?.boxes.map((b) => b.code).sort()).toEqual(sampleBoxes().map((b) => b.code).sort());
+      expect(plan.solver.inputs?.material_rules_version).toBe(3);
+      expect(await service.catalogChanges(plan)).toEqual([]);
+    });
+
+    it('Admin thêm thùng mới + đổi luật vật tư → kế hoạch báo đích danh để tính lại', async () => {
+      const plan = await computed();
+      boxService.listActiveSpecs.mockResolvedValue([...sampleBoxes(), { ...sampleBoxes()[0], code: 'NEW-BOX', name: 'Thùng mới' }]);
+      materialService.getActiveRules.mockResolvedValue({ version: 4, rules: [], isDefault: false });
+      const changes = await service.catalogChanges(plan);
+      expect(changes).toEqual(
+        expect.arrayContaining([expect.stringContaining('Thùng NEW-BOX mới'), expect.stringContaining('phiên bản 3 → 4')]),
+      );
     });
   });
 

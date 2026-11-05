@@ -24,6 +24,7 @@ import {
   DEFAULT_FRAGILE_CUSHION_MM,
   describePackingSteps,
   expandToUnits,
+  foldUnit,
   type BoxSpec,
   type ExpandOptions,
   type Orientation,
@@ -34,24 +35,28 @@ import {
   CP_SAT_MAX_UNITS,
   DEFAULT_CHARGE_RULE,
   SOLVER_VERSION,
+  compareBoxes,
   httpCpSatChecker,
   solveOrder,
   solveWithMailers,
   upgradeWithCpSat,
   type MailerSolveOptions,
   type ChargeRule,
+  type CompareBoxesOptions,
   type SolveResult,
   type SolvedParcel,
 } from './solver';
+import { summarizePlacements } from './solver/objective';
 import {
   PackingPlan,
   PackingPlanDocument,
   type CpSatState,
+  type PlanBoxComparison,
   type PlanOrder,
   type PlanParcel,
 } from './schemas/packing-plan.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
-import { freshParcelSession, renumberParcels, type Plain } from './utils/parcels.util';
+import { freshParcelSession, isLiveParcel, renumberParcels, type Plain } from './utils/parcels.util';
 import { describeSuggestion, suggestStock } from './utils/stock-suggestion.util';
 import {
   bucketAllocations,
@@ -64,9 +69,11 @@ import type {
   BackToPickingDto,
   ChangeBoxDto,
   ChangeBoxInSessionDto,
-  ManualPackDto, MoveItemDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
+  ManualPackDto, MoveItemDto, RateGuideDto, RecomputePlanDto, RejectReason } from './dto/packing-plan.dto';
 import { PackingSettingsService } from './packing-settings.service';
 import { PackerAssignmentService } from './packer-assignment.service';
+import { PackingGuideMemoryService } from './packing-guide-memory.service';
+import { diffCatalog, snapshotCatalog } from './utils/catalog-snapshot.util';
 
 /**
  * Đệm hàng dễ vỡ của 1 kế hoạch (05/10/2026: lấy từ packing_settings lúc tính,
@@ -201,6 +208,7 @@ function toPlanParcel(
   parcelNo: number,
   fragileKeys: ReadonlySet<string> = new Set(),
   shared: SharedParcelInfo = {},
+  comparison: PlanBoxComparison | null = null,
 ): PlanParcel {
   return {
     ...freshParcelSession(p.placements.some((q) => fragileKeys.has(q.item_key))),
@@ -245,7 +253,51 @@ function toPlanParcel(
     actual_weight_kg: null,
     is_abnormal: false,
     materials_shortfall: [],
+    box_comparison: comparison,
   };
+}
+
+/**
+ * (05/11/2026) Bảng so sánh thùng của 1 kiện (solver/box-comparison.ts) ở dạng lưu
+ * vào `packing_plans`. `units` = món GỐC (chưa gập) của đúng kiện đó.
+ */
+function comparisonOf(
+  solved: SolvedParcel,
+  units: PackingUnit[],
+  catalog: BoxSpec[],
+  options: CompareBoxesOptions,
+): PlanBoxComparison {
+  const c = compareBoxes(units, catalog, solved, options);
+  return {
+    prefer: c.prefer,
+    weights: { ...c.weights },
+    rows: c.rows.map((r) => ({ ...r, criteria: r.criteria ? { ...r.criteria } : null })),
+    scores_consistent: c.scores_consistent,
+    summary: c.summary,
+    generated_at: new Date(),
+  };
+}
+
+/** Món gốc của 1 kiện vừa giải, theo thứ tự đặt. */
+function unitsOfSolved(solved: SolvedParcel, byKey: ReadonlyMap<string, PackingUnit>): PackingUnit[] {
+  return solved.placements.map((q) => byKey.get(q.item_key)).filter((u): u is PackingUnit => u !== undefined);
+}
+
+/**
+ * Tồn trống cho THÙNG THAY THẾ của kiện `index`: tồn đầu vào trừ các kiện KHÁC trong
+ * cùng danh sách đang dùng mã đó (kiện này đổi thùng thì trả lại thùng của chính nó).
+ */
+function stockForAlternatives(
+  stock: ReadonlyMap<string, number> | undefined,
+  parcels: readonly { box: { code: string } }[],
+  index: number,
+): Map<string, number> | undefined {
+  if (!stock) return undefined;
+  const left = new Map(stock);
+  parcels.forEach((p, i) => {
+    if (i !== index) left.set(p.box.code, (left.get(p.box.code) ?? 0) - 1);
+  });
+  return left;
 }
 
 function fragileKeysOf(units: PackingUnit[]): Set<string> {
@@ -323,6 +375,8 @@ export class PackingPlanService {
     @Optional()
     @InjectModel(ShippingSettings.name)
     private readonly shippingSettingsModel?: Model<ShippingSettingsDocument>,
+    // (05/11/2026) nhật ký dữ liệu gửi AI + ví dụ mẫu đã chấm tốt (thiếu = không ghi, không gửi ví dụ).
+    @Optional() private readonly guideMemory?: PackingGuideMemoryService,
   ) {}
 
   /**
@@ -377,6 +431,28 @@ export class PackingPlanService {
       })
       .lean();
     return newer !== null;
+  }
+
+  /**
+   * (05/11/2026) Danh mục thùng / túi / vật tư / luật vật tư / luật cước đã đổi gì
+   * SAU lúc tính kế hoạch (rỗng = không đổi). Chỉ xét kế hoạch `ready`/`approved`
+   * có ảnh chụp (`solver.inputs`); bộ giải luôn đọc DB mới nhất ở lần tính sau.
+   */
+  async catalogChanges(plan: PackingPlanDocument): Promise<string[]> {
+    const before = plan.solver.inputs ?? null;
+    if (!before || (plan.status !== 'ready' && plan.status !== 'approved')) return [];
+    const settings = await this.settingsService.get();
+    const [boxes, materials, charge, mailers, rules] = await Promise.all([
+      this.boxService.listActiveSpecs(),
+      this.materialService.planningData(),
+      this.resolveChargeRule(),
+      settings.mailerEnabled ? this.boxService.listActiveMailerSpecs() : Promise.resolve([]),
+      this.materialService.getActiveRules(),
+    ]);
+    return diffCatalog(
+      before,
+      snapshotCatalog({ boxes, mailers, materials: materials.catalog, materialRulesVersion: rules.version, charge }),
+    );
   }
 
   async getActivePlan(groupId: string, session?: ClientSession): Promise<PackingPlanDocument | null> {
@@ -466,14 +542,23 @@ export class PackingPlanService {
     const started = Date.now();
     try {
       const allocations: Allocation[] = await this.orderGroupsService.allocatePickedItemsToOrders(groupId);
-      const [boxes, availability, materials, charge, mailers] = await Promise.all([
+      const [boxes, availability, materials, charge, mailers, rules] = await Promise.all([
         this.boxService.listActiveSpecs(),
         this.boxService.listAvailability({ groupId }),
         this.materialService.planningData(),
         this.resolveChargeRule(),
         // AOFP-224 — túi niêm phong chỉ vào bài khi Store Owner/Admin bật trong packing_settings.
         settings.mailerEnabled ? this.boxService.listActiveMailerSpecs() : Promise.resolve([]),
+        this.materialService.getActiveRules(),
       ]);
+      // (05/11/2026) Chụp danh mục đã dùng — GET kế hoạch so với hiện tại để báo `catalogStale`.
+      const inputs = snapshotCatalog({
+        boxes,
+        mailers,
+        materials: materials.catalog,
+        materialRulesVersion: rules.version,
+        charge,
+      });
       const mailerOptions: MailerSolveOptions = {
         mailers,
         fit: {
@@ -513,7 +598,8 @@ export class PackingPlanService {
         const [head] = bucket;
         if (!head) continue;
         const parcelsOfOrder = new Map<string, number>();
-        for (const p of result.parcels) {
+        const unitByKey = new Map(units.map((u) => [u.item_key, u]));
+        for (const [index, p] of result.parcels.entries()) {
           // Đơn chủ = đơn sớm nhất (thứ tự bài) có hàng trong kiện.
           const owners = bucket.filter((a) => p.placements.some((q) => ownerByKey.get(q.item_key) === a));
           const primary = owners[0] ?? head;
@@ -528,7 +614,13 @@ export class PackingPlanService {
                     return owner ? new Types.ObjectId(owner.order_id) : null;
                   }
                 : undefined,
-            }),
+            }, comparisonOf(p, unitsOfSolved(p, unitByKey), boxes, {
+              availability: stockForAlternatives(stockForOrder, result.parcels, index),
+              materials,
+              charge,
+              prefer,
+              excludeBoxCodes: exclude,
+            })),
           );
         }
 
@@ -611,6 +703,7 @@ export class PackingPlanService {
               parcels: renumberParcels(parcels, orders.map((o) => o.order_id)),
               item_profiles: toItemProfiles(allocations.flatMap((a) => a.items)),
               'solver.computation_ms': Date.now() - started,
+              'solver.inputs': inputs,
             },
           },
           { session, returnDocument: 'after' },
@@ -1608,10 +1701,11 @@ export class PackingPlanService {
           }
         : this.plain(o),
     );
+    const compared = await this.fillComparisons(plan, parcels);
     const updated = await this.planModel.findOneAndUpdate(
       { _id: plan._id, version: expectedVersion, status: opts.statuses ? { $in: opts.statuses } : 'ready', is_active: true },
       {
-        $set: { parcels: renumberParcels(parcels, orderIds), orders },
+        $set: { parcels: renumberParcels(compared, orderIds), orders },
         $push: { adjustments: adjustment },
         $inc: { version: 1 },
       },
@@ -1621,7 +1715,162 @@ export class PackingPlanService {
     return updated;
   }
 
+  /**
+   * (05/11/2026) Tính bảng so sánh thùng cho các kiện CHƯA có (kiện vừa dựng lại sau
+   * chỉnh tay, hoặc dữ liệu trước 05/11). Kiện nhập tay / đã tháo giữ null. Chỉ đọc
+   * DB (hồ sơ món, thùng, tồn) — không ghi; dựng món của 1 kiện lệch thì để null.
+   */
+  private async fillComparisons(plan: PackingPlanDocument, parcels: PlanParcel[]): Promise<PlanParcel[]> {
+    const needs = (p: PlanParcel): boolean =>
+      (p.box_comparison ?? null) === null && isLiveParcel(p) && !p.manual_layout && p.placements.length > 0;
+    if (!parcels.some(needs)) return parcels;
+    const groupId = plan.order_group_id.toString();
+    const [allocations, boxes, availability, materials, charge] = await Promise.all([
+      this.orderGroupsService.allocatePickedItemsToOrders(groupId),
+      this.boxService.listActiveSpecs(),
+      this.boxService.listAvailability({ planId: plan._id }),
+      this.materialService.planningData(),
+      this.resolveChargeRule(),
+    ]);
+    const expanded = expandAllocations(allocations, unitOptionsOf(plan));
+    const stock = new Map([...availability].map(([code, a]) => [code, a.available]));
+    const live = parcels.filter(isLiveParcel);
+    return parcels.map((p) => {
+      if (!needs(p)) return p;
+      const byKey = new Map(unitsOfParcelFrom(p, expanded).map((u) => [u.item_key, u]));
+      const ordered = p.placements.map((q) => byKey.get(q.item_key)).filter((u): u is PackingUnit => u !== undefined);
+      if (ordered.length !== p.placements.length) return p;
+      // Dựng lại kiện từ tọa độ đã lưu, cùng luật cước + vật tư hiện hành như các thùng thay thế.
+      const placements: Placement[] = p.placements.map((q) => ({
+        item_key: q.item_key,
+        sku: q.sku,
+        step: q.step,
+        x: q.x,
+        y: q.y,
+        z: q.z,
+        dx: q.dx,
+        dy: q.dy,
+        dz: q.dz,
+        orientation: ALL_ORIENTATIONS.includes(q.orientation as Orientation) ? (q.orientation as Orientation) : 'LWH',
+        folded: q.folded,
+      }));
+      const shaped = ordered.map((u, i) => (p.placements[i]?.folded === true && u.foldable === true ? foldUnit(u) : u));
+      const solved = summarizePlacements(boxSpecOf(p), shaped, placements, materials, charge);
+      return {
+        ...(p as Plain<PlanParcel>),
+        box_comparison: comparisonOf(solved, ordered, boxes, {
+          availability: stockForAlternatives(stock, live, live.indexOf(p)),
+          materials,
+          charge,
+          prefer: plan.solver.options.prefer,
+          excludeBoxCodes: plan.solver.options.exclude_box_codes,
+        }),
+      };
+    });
+  }
+
   // ------------------------------------------------------------------ hướng dẫn
+
+  /** Ghi nhật ký dữ liệu đã gửi AI; lỗi ghi nhật ký không làm hỏng việc viết hướng dẫn. */
+  private async recordGuideLog(
+    plan: PackingPlanDocument,
+    parcelNo: number,
+    guide: Awaited<ReturnType<PackingGuideAiService['writeGuide']>>,
+    exampleRefs: string[],
+  ): Promise<void> {
+    if (!this.guideMemory) return;
+    try {
+      await this.guideMemory.recordLog({
+        planId: plan._id,
+        groupId: plan.order_group_id,
+        parcelNo,
+        source: guide.source,
+        model: guide.model,
+        fallbackReason: guide.fallback_reason,
+        trace: guide.trace,
+        exampleRefs,
+      });
+    } catch (error: unknown) {
+      this.logger.warn(`Không ghi được nhật ký hướng dẫn AI: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * (05/11/2026) Nhân viên chấm hướng dẫn của 1 kiện. "Dễ làm theo" + do AI viết →
+   * thành ví dụ mẫu few-shot cho các lần viết sau; "khó hiểu" → gỡ khỏi bộ ví dụ.
+   * Không tăng version (hướng dẫn là lời, không đổi phương án).
+   */
+  async rateGuide(
+    groupId: string,
+    parcelNo: number,
+    dto: RateGuideDto,
+    userId: string,
+  ): Promise<{ plan: PackingPlanDocument; savedAsExample: boolean }> {
+    const plan = await this.requireActivePlan(groupId);
+    const parcel = this.findParcel(plan, parcelNo);
+    const guide = parcel.guide;
+    if (!guide) {
+      throw new AppException(
+        PACKING_ERROR_CODES.GUIDE_NOT_AVAILABLE,
+        'Kiện này chưa có hướng dẫn để chấm — mở hướng dẫn trước.',
+        HttpStatus.CONFLICT,
+        { groupId, parcelNo },
+      );
+    }
+    const comment = dto.comment?.trim() ? dto.comment.trim() : null;
+    let savedAsExample = false;
+    if (this.guideMemory) {
+      if (dto.helpful && guide.source === 'ai') {
+        const log = await this.guideMemory.latestLog(plan._id, parcelNo);
+        const productTypes = [
+          ...new Set(
+            plan.item_profiles
+              .filter((p) => parcel.placements.some((q) => q.sku === p.sku))
+              .map((p) => p.product_category)
+              .filter((t): t is string => t !== null),
+          ),
+        ];
+        if (log?.source === 'ai') {
+          savedAsExample = await this.guideMemory.saveExample({
+            planId: plan._id,
+            parcelNo,
+            boxCode: parcel.box.code,
+            productTypes,
+            userPayload: log.user_payload,
+            summary: guide.summary,
+            steps: guide.steps.map((s) => ({ step: s.step, instruction: s.instruction, tip: s.tip })),
+            ratedBy: userId,
+          });
+        }
+      } else {
+        await this.guideMemory.removeExample(plan._id, parcelNo);
+      }
+    }
+    const index = plan.parcels.findIndex((p) => p.parcel_no === parcelNo);
+    const updated = await this.planModel.findOneAndUpdate(
+      { _id: plan._id, is_active: true },
+      {
+        $set: {
+          [`parcels.${String(index)}.guide.rating`]: {
+            helpful: dto.helpful,
+            comment,
+            by: new Types.ObjectId(userId),
+            at: new Date(),
+          },
+        },
+      },
+      { returnDocument: 'after' },
+    );
+    if (!updated) throw this.versionConflict(groupId);
+    return { plan: updated, savedAsExample };
+  }
+
+  /** (05/11/2026) Lần viết hướng dẫn gần nhất của 1 kiện: đúng dữ liệu đã gửi cho AI và phản hồi thô. */
+  async getGuideTrace(groupId: string, parcelNo: number): Promise<Awaited<ReturnType<PackingGuideMemoryService['latestLog']>>> {
+    const plan = await this.requireActivePlan(groupId);
+    this.findParcel(plan, parcelNo);
+    return (await this.guideMemory?.latestLog(plan._id, parcelNo)) ?? null;
+  }
 
   async getOrCreateGuide(groupId: string, parcelNo: number, regenerate: boolean): Promise<PackingPlanDocument> {
     const plan = await this.requireActivePlan(groupId);
@@ -1674,12 +1923,18 @@ export class PackingPlanService {
       ]),
     );
     const box = boxSpecOf(parcel);
+    const facts = describePackingSteps(placements, box, units, profiles);
+    // (05/11/2026) Ví dụ mẫu do nhân viên chấm tốt — giống kiện này nhất (loại sản phẩm).
+    const productTypes = [...new Set(facts.map((f) => f.product_type).filter((t): t is string => t !== null))];
+    const picked = (await this.guideMemory?.pickExamples(productTypes, { planId: plan._id, parcelNo })) ?? [];
     const guide = await this.guideAi.writeGuide({
       box,
-      facts: describePackingSteps(placements, box, units, profiles),
+      facts,
       fill_ratio: parcel.fill_ratio,
       materials: parcel.materials.map((m) => ({ name: m.name, quantity: m.quantity, unit: m.unit })),
+      examples: picked.map((p) => p.example),
     });
+    await this.recordGuideLog(plan, parcelNo, guide, picked.map((p) => p.ref));
     const index = plan.parcels.findIndex((p) => p.parcel_no === parcelNo);
     // Không tăng version: hướng dẫn là lời, không đổi phương án.
     const updated = await this.planModel.findOneAndUpdate(
@@ -1693,6 +1948,8 @@ export class PackingPlanService {
             summary: guide.summary,
             steps: guide.steps,
             generated_at: new Date(),
+            examples_used: guide.trace.examples_used,
+            rating: null,
           },
         },
       },
@@ -1714,10 +1971,10 @@ export class PackingPlanService {
 
   async runCpSat(tasks: CpSatTask[]): Promise<void> {
     const packer = this.packerConfig();
-    const materials = await this.materialService.planningData();
+    const [materials, boxes] = await Promise.all([this.materialService.planningData(), this.boxService.listActiveSpecs()]);
     for (const task of tasks) {
       if (!packer) {
-        await this.applyCpSat(task, null);
+        await this.applyCpSat(task, null, { boxes, materials });
         continue;
       }
       const upgraded = await upgradeWithCpSat(
@@ -1734,7 +1991,7 @@ export class PackingPlanService {
           wallTimeLimitS: packer.wallTimeLimitS,
         },
       );
-      await this.applyCpSat(task, upgraded);
+      await this.applyCpSat(task, upgraded, { boxes, materials });
     }
   }
 
@@ -1743,7 +2000,11 @@ export class PackingPlanService {
    * chưa ai chỉnh (version không đổi kể từ lần đọc); đã duyệt thì chỉ cập nhật
    * nhãn khi phương án giữ nguyên.
    */
-  private async applyCpSat(task: CpSatTask, upgraded: SolveResult | null): Promise<void> {
+  private async applyCpSat(
+    task: CpSatTask,
+    upgraded: SolveResult | null,
+    ctx: { boxes: BoxSpec[]; materials: CompareBoxesOptions['materials'] },
+  ): Promise<void> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const plan = await this.planModel.findOne({ _id: task.planId, is_active: true, revision: task.revision });
       if (!plan) return;
@@ -1770,8 +2031,16 @@ export class PackingPlanService {
       if (canReplace) {
         const orderId = new Types.ObjectId(task.orderId);
         const kept = plan.parcels.filter((p) => !p.order_id.equals(orderId)).map((p) => this.plain(p));
+        const unitByKey = new Map(task.units.map((u) => [u.item_key, u]));
         const fresh = upgraded.parcels.map((p, i) =>
-          toPlanParcel(p, orderId, order.platform_order_id, 10_000 + i),
+          toPlanParcel(p, orderId, order.platform_order_id, 10_000 + i, fragileKeysOf(task.units), {},
+            comparisonOf(p, unitsOfSolved(p, unitByKey), ctx.boxes, {
+              availability: stockForAlternatives(task.availability, upgraded.parcels, i),
+              materials: ctx.materials,
+              charge: task.charge,
+              prefer: task.prefer,
+              excludeBoxCodes: plan.solver.options.exclude_box_codes,
+            })),
         );
         update.parcels = renumberParcels([...kept, ...fresh], plan.orders.map((o) => o.order_id));
       }

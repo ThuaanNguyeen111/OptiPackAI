@@ -29,6 +29,13 @@ import {
   MarketplaceSkuMappingSchema,
 } from '../master-skus/schemas/marketplace-sku-mapping.schema';
 import { PackagingMaterialsModule } from '../packaging-materials/packaging-materials.module';
+import { PackingGuideMemoryService } from './packing-guide-memory.service';
+import {
+  PackingGuideExample,
+  PackingGuideExampleSchema,
+  PackingGuideLog,
+  PackingGuideLogSchema,
+} from './schemas/packing-guide-memory.schema';
 
 /**
  * Kế hoạch đóng gói (04/10/2026, làm lại): bộ giải BRKGA + CP-SAT, kế hoạch
@@ -50,6 +57,9 @@ import { PackagingMaterialsModule } from '../packaging-materials/packaging-mater
       // AOFP-224 (31/10/2026) — chỉ đọc luật cân tính cước của hãng mặc định.
       { name: ShippingCarrier.name, schema: ShippingCarrierSchema },
       { name: ShippingSettings.name, schema: ShippingSettingsSchema },
+      // (05/11/2026) nhật ký dữ liệu gửi AI (TTL 30 ngày) + ví dụ mẫu đã chấm tốt.
+      { name: PackingGuideLog.name, schema: PackingGuideLogSchema },
+      { name: PackingGuideExample.name, schema: PackingGuideExampleSchema },
     ]),
     OrderGroupsModule,
     PackagingModule,
@@ -66,6 +76,7 @@ import { PackagingMaterialsModule } from '../packaging-materials/packaging-mater
     PackingReportService,
     PackingFeedbackService,
     PackerAssignmentService,
+    PackingGuideMemoryService,
   ],
   exports: [PackingPlanService, PackingReportService], // 28/10/2026 — Bảng điều khiển đọc chi phí bao bì
 })

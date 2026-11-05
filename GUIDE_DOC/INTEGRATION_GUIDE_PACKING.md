@@ -162,6 +162,8 @@ interface PackingPlan {
   cpSatPending: boolean;
   source: 'solver' | 'manual';           // manual = đóng thủ công sau từ chối
   totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number; avgFill: number };
+  catalogStale: boolean;                 // 🆕 05/11 — danh mục thùng/vật tư/luật đổi sau lúc tính (chỉ GET)
+  catalogChanges: string[];              // 🆕 05/11 — VD "Thùng M2 mới được thêm (Thùng M2)." — hiện nguyên văn
   orders: {                              // mỗi đơn một khối giải thích
     orderId: string; platformOrderId: string | null;
     status: 'ok'|'partial'|'no_fit'|'canceled';      // ≠ ok ⇒ chưa duyệt được
@@ -183,12 +185,32 @@ interface PackingPlan {
     materialsShortfall: { code: string; missing: number }[];   // thiếu thùng/vật tư/túi lúc niêm phong
     scannedCount: number; itemCount: number;
     guide: { source: 'ai'|'template'; summary: string; steps: { step:number; instruction:string; tip:string|null }[] } | null;
+    boxComparison: BoxComparison | null; // 🆕 05/11/2026 — bảng so sánh thùng (mục 2.7.1); null = kiện nhập tay / dữ liệu cũ
     // + scans[], weighings[], reviews[], unpack, sealedBy, sealedAt, boxConsumed, hasFragile
   }[];
   rejection: { reasonCode: string|null; ownerId: string|null; dueAt: string|null; overdue: boolean; resolution: 'recompute'|'manual'|'back_to_picking'|null } | null;   // 🆕 09/10: back_to_picking
   session: { assignedPackerId: string|null; startedAt: string|null; packMode: 'scan'|'quick'|null; parcelCounts: Record<string, number> };
   adjustments: { kind: string; detail: string; reason: string; note: string|null; at: string; oldBoxOutcome: 'unused'|'damaged'|null; wasteCostVnd: number }[];
   issues: …[]; activity: …[];
+}
+interface BoxComparison {               // 🆕 05/11/2026 — "vì sao thùng này mà không phải thùng khác" (mục 2.7.1)
+  prefer: 'fewest_parcels' | 'cheapest';
+  weights: { billable: number; packaging: number; fill: number; handling: number };   // 0.4 / 0.3 / 0.2 / 0.1
+  rows: {
+    boxCode: string; boxName: string; kind: 'box' | 'mailer';
+    isChosen: boolean;                   // thùng kiện đang dùng
+    eligible: boolean;                   // false ⇒ không dùng được, xem verdict
+    rank: number | null;                 // 1 = tốt nhất theo luật ưu tiên của bộ giải; null khi eligible = false
+    score: number;                       // 0–10, 1 chữ số thập phân; 0 khi eligible = false
+    criteria: { billable: number; packaging: number; fill: number; handling: number } | null;  // điểm con 0–10
+    billableWeightG: number | null; packagingCostVnd: number | null; fillRatio: number | null;
+    folds: number | null; estimatedWeightG: number | null;
+    available: number | null;            // thùng trống còn lại (đã trừ các kiện khác)
+    verdict: string;                     // câu kết luận của dòng — hiện nguyên văn
+  }[];
+  scoresConsistent: boolean;             // false ⇒ có thùng điểm cao hơn mà xếp sau (hiện cảnh báo)
+  summary: string;                       // câu tóm tắt — hiện nguyên văn trên bảng
+  generatedAt: string;
 }
 ```
 
@@ -354,6 +376,31 @@ POST …/packing-plan/parcels/:parcelNo/guide     Role: Packaging, Warehouse, Ad
 - AI **chỉ viết lời**; vị trí/xoay/thứ tự do thuật toán quyết. Khi AI lỗi hoặc không bật → `guide.source = "template"` (câu mẫu) — **vẫn dùng được**, hiển thị nhãn "Câu mẫu".
 - Giới hạn tốc độ 10 lần/phút. Không tăng `version`. Kiện `manualLayout` → `409 PACKING_GUIDE_NOT_AVAILABLE`.
 - Gọi khi mở kiện lần đầu; nút "Viết lại" gửi `regenerate: true`.
+- 🆕 05/11/2026 `guide.examplesUsed` = số ví dụ mẫu (đã được chấm tốt) gửi kèm cho AI; `guide.rating` = `{ helpful, comment, by, at } | null`.
+
+#### 2.6.1 🆕 05/11/2026 — Chấm hướng dẫn (vòng phản hồi cho AI)
+
+```
+POST …/packing-plan/parcels/:parcelNo/guide/rating     Role: Packaging, Warehouse, Admin
+{ "helpful": true, "comment": "rõ ràng" }              // comment tuỳ chọn, ≤ 300 ký tự
+→ { "plan": …, "savedAsExample": true }
+```
+
+- `helpful: true` + hướng dẫn do AI viết (`source = "ai"`) + ≤ 8 bước → kiện thành **ví dụ mẫu**: các lần viết sau, BE gửi kèm tối đa 2 ví dụ giống nhất (theo loại sản phẩm) cho AI dạng few-shot. Không fine-tune model.
+- `helpful: false` → gỡ kiện khỏi bộ ví dụ (nếu có). Chấm lại được nhiều lần, lần sau ghi đè.
+- Chưa có hướng dẫn → `409 PACKING_GUIDE_NOT_AVAILABLE`. Không tăng `version`.
+- Gợi ý UI: 2 nút 👍 "Dễ làm theo" / 👎 "Khó hiểu" dưới hướng dẫn, ô góp ý tuỳ chọn.
+
+#### 2.6.2 🆕 05/11/2026 — Xem dữ liệu đã gửi cho AI
+
+```
+GET …/packing-plan/parcels/:parcelNo/guide/trace     Role: Packaging, Store Owner, Admin
+→ { "trace": { source, model, fallbackReason, systemPrompt, userPayload, rawResponse,
+               examplesUsed, exampleRefs, latencyMs, createdAt } | null }
+```
+
+- `userPayload` là **chuỗi JSON** đúng như đã gửi trong user message (`box`, `fill_ratio`, `materials`, `steps[]`); `systemPrompt` là luật viết cố định; `rawResponse` là nội dung thô model trả (`null` khi dùng câu mẫu hoặc gọi lỗi).
+- Lưu 30 ngày (TTL), quá hạn → `trace: null`. Gợi ý UI: nút "Xem dữ liệu gửi AI" (Admin) mở hộp thoại hiện 3 khối có định dạng JSON.
 
 ### 2.7 Giải thích cho người dùng ("Vì sao phương án này?")
 
@@ -365,6 +412,45 @@ Dùng `plan.orders[]`:
 | `lowerBoundParcels` | "Tối thiểu cần N kiện" — nếu bằng số kiện hiện tại ⇒ "đã đạt mức tối thiểu"                      |
 | `explanation[]`     | Liệt kê nguyên văn                                                                                |
 | `stockSuggestion`   | Thẻ "Nhập thêm thùng X thì còn Y kiện / rẻ hơn Z đ" (chụp lúc tính; không cập nhật sau chỉnh tay) |
+
+### 2.7.1 🆕 05/11/2026 — Bảng so sánh thùng từng kiện (`parcels[].boxComparison`)
+
+Trả lời câu hỏi "vì sao chọn thùng này mà không phải thùng khác". BE xếp **đúng các món của kiện** vào **từng loại thùng** trong danh mục (cùng bộ giải + validator với đổi thùng), rồi lưu kết quả vào kiện. Bảng được tính khi bộ giải chạy xong, khi CP-SAT thay kiện, và **sau mỗi lần chỉnh tay** (đổi thùng, đổi thùng khi đang đóng, chuyển món). Kiện cũ (trước 05/11) có `null` cho tới lần chỉnh tay kế tiếp. Kiện nhập tay luôn `null`.
+
+**Gợi ý giao diện:** một bảng dưới khung 3D của kiện, mỗi `rows[]` là 1 dòng, giữ đúng thứ tự BE trả (đã xếp hạng sẵn):
+
+| Cột | Field | Ghi chú |
+| --- | --- | --- |
+| Hạng | `rank` | `null` ⇒ hiện "—" và làm mờ dòng |
+| Thùng | `boxCode` · `boxName` | dòng `isChosen` tô đậm + nhãn "Đang dùng" |
+| Điểm | `score` /10 | thanh ngang 0–10; di chuột hiện 4 điểm con `criteria` kèm trọng số `weights` |
+| Cân tính cước | `billableWeightG` | g |
+| Thùng + vật tư | `packagingCostVnd` | đ |
+| Lấp đầy | `fillRatio` | % |
+| Tồn trống | `available` | `null` ⇒ không xét tồn |
+| Kết luận | `verdict` | nguyên văn, VD "Thua thùng S: cân tính cước 1.500 g so với 500 g." |
+
+Trên bảng hiện `summary` nguyên văn. Có `scoresConsistent: false` thì thêm biểu tượng ⚠ cạnh cột Điểm: điểm tổng chỉ để so nhanh, **thứ hạng mới là quyết định thật** (theo luật bậc của bộ giải: số kiện → cân tính cước → giá thùng + vật tư → cân quy đổi → số món gập). Đừng sắp lại bảng theo `score`.
+
+**Điểm con (0–10):** `billable` = cân tính cước thấp nhất ÷ cân của thùng; `packaging` = giá thấp nhất ÷ giá của thùng; `fill` = lấp đầy của thùng ÷ lấp đầy cao nhất; `handling` = tỉ lệ món không phải gập. "Thấp nhất/cao nhất" tính trong các thùng dùng được của **cùng kiện**. Điểm tổng = Σ trọng số × điểm con.
+
+**Khi thùng đang dùng không đứng đầu** (thường sau chỉnh tay): dòng hạng 1 có `verdict` "Tốt hơn thùng X: … — có thể đổi thùng cho kiện này." Có thể đặt nút **Đổi sang thùng này** gọi route đổi thùng có sẵn (mục 2.4 khi `ready`, mục 4.1 khi đang đóng). Bảng không tự đổi gì.
+
+**Dòng không dùng được** (`eligible: false`, `score: 0`): `verdict` nêu lý do — món không vừa lòng thùng (kèm SKU và kích thước lòng), món/tổng hàng vượt tải, kho hết thùng trống (vẫn có số liệu cân/giá để xem "nếu có thùng thì thế nào"), hoặc đã bị loại khi tính lại.
+
+Ví dụ (kiện 1 áo 30×20×5 cm):
+
+```json
+{
+  "summary": "Chọn thùng S (10/10): đứng đầu theo luật ưu tiên (số kiện → cân tính cước → giá thùng + vật tư → cân quy đổi → số món gập). Xếp sau: XL (2,5/10) — thua thùng S: cân tính cước 21.000 g so với 1.500 g. 1 thùng khác không dùng được (xem lý do từng dòng).",
+  "scoresConsistent": true,
+  "rows": [
+    { "boxCode": "S",  "isChosen": true,  "eligible": true,  "rank": 1,    "score": 10,  "verdict": "Thùng đang chọn." },
+    { "boxCode": "XL", "isChosen": false, "eligible": true,  "rank": 2,    "score": 2.5, "verdict": "Thua thùng S: cân tính cước 21.000 g so với 1.500 g." },
+    { "boxCode": "XS", "isChosen": false, "eligible": false, "rank": null, "score": 0,   "verdict": "Món AO-01 không vừa lòng thùng 250×150×40 mm (mọi hướng, kể cả khi gập)." }
+  ]
+}
+```
 
 ---
 

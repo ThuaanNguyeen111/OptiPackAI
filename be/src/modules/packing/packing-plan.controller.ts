@@ -18,7 +18,7 @@ import { effectiveParcelStatus } from './utils/parcels.util';
 import { orderIdsOf } from './utils/shared-parcel.util';
 import { PackingQueueService, type GroupQueueInfo } from './packing-queue.service';
 import { averageFill } from './utils/stock-suggestion.util';
-import type { PackingPlanDocument, PlanProofLabel } from './schemas/packing-plan.schema';
+import type { PackingPlanDocument, PlanBoxComparison, PlanProofLabel } from './schemas/packing-plan.schema';
 import {
   ApprovePlanDto,
   ChangeBoxDto,
@@ -28,6 +28,7 @@ import {
   ManualPackDto,
   MoveItemDto,
   PackPlanDto,
+  RateGuideDto,
   RecomputePlanDto,
   RejectPlanDto,
   VersionedDto,
@@ -69,6 +70,82 @@ export interface BoxSourcesResponse {
   stock: BoxSourcePreview['stock'];
 }
 
+/** (05/11/2026) Bảng so sánh thùng của 1 kiện — "vì sao thùng này mà không phải thùng khác". */
+export interface BoxComparisonResponse {
+  prefer: 'fewest_parcels' | 'cheapest';
+  /** Trọng số điểm tổng (tổng = 1). */
+  weights: { billable: number; packaging: number; fill: number; handling: number };
+  /** Thùng dùng được theo thứ hạng (rank 1 = tốt nhất theo luật bậc), sau đó thùng không dùng được. */
+  rows: {
+    boxCode: string;
+    boxName: string;
+    kind: 'box' | 'mailer';
+    isChosen: boolean;
+    eligible: boolean;
+    rank: number | null;
+    /** 0–10, 1 chữ số thập phân; 0 khi không dùng được. */
+    score: number;
+    criteria: { billable: number; packaging: number; fill: number; handling: number } | null;
+    billableWeightG: number | null;
+    packagingCostVnd: number | null;
+    fillRatio: number | null;
+    folds: number | null;
+    estimatedWeightG: number | null;
+    available: number | null;
+    verdict: string;
+  }[];
+  /** false = có thùng điểm tổng cao hơn thùng xếp trên nó (điểm chỉ tham khảo). */
+  scoresConsistent: boolean;
+  summary: string;
+  generatedAt: Date;
+}
+
+export function toBoxComparisonResponse(c: PlanBoxComparison | null | undefined): BoxComparisonResponse | null {
+  if (!c) return null;
+  return {
+    prefer: c.prefer,
+    weights: { billable: c.weights.billable, packaging: c.weights.packaging, fill: c.weights.fill, handling: c.weights.handling },
+    rows: c.rows.map((r) => ({
+      boxCode: r.box_code,
+      boxName: r.box_name,
+      kind: r.kind,
+      isChosen: r.is_chosen,
+      eligible: r.eligible,
+      rank: r.rank,
+      score: r.score,
+      criteria: r.criteria
+        ? { billable: r.criteria.billable, packaging: r.criteria.packaging, fill: r.criteria.fill, handling: r.criteria.handling }
+        : null,
+      billableWeightG: r.billable_weight_g,
+      packagingCostVnd: r.packaging_cost_vnd,
+      fillRatio: r.fill_ratio,
+      folds: r.folds,
+      estimatedWeightG: r.estimated_weight_g,
+      available: r.available,
+      verdict: r.verdict,
+    })),
+    scoresConsistent: c.scores_consistent,
+    summary: c.summary,
+    generatedAt: c.generated_at,
+  };
+}
+
+/** (05/11/2026) Dữ liệu đã đưa cho AI ở lần viết hướng dẫn gần nhất của 1 kiện. */
+export interface GuideTraceResponse {
+  source: 'ai' | 'template';
+  model: string | null;
+  fallbackReason: string | null;
+  systemPrompt: string;
+  /** Chuỗi JSON dữ kiện gửi trong user message (box, fill_ratio, materials, steps). */
+  userPayload: string;
+  rawResponse: string | null;
+  examplesUsed: number;
+  /** `planId:parcelNo` của các kiện mẫu đã gửi kèm (few-shot). */
+  exampleRefs: string[];
+  latencyMs: number;
+  createdAt: Date | null;
+}
+
 export interface PackingPlanResponse {
   id: string;
   orderGroupId: string;
@@ -79,6 +156,12 @@ export interface PackingPlanResponse {
    * CHỈ `GET .../packing-plan` tính cờ này; mọi route ghi trả false — FE lấy cờ từ GET.
    */
   profileStale: boolean;
+  /**
+   * 05/11/2026 — true khi Admin đổi danh mục thùng / túi / vật tư / luật vật tư / luật cước
+   * SAU lúc tính (kế hoạch `ready`/`approved`); `catalogChanges` nêu đích danh. Chỉ GET tính.
+   */
+  catalogStale: boolean;
+  catalogChanges: string[];
   status: string;
   failureReason: string | null;
   /** Nhãn YẾU NHẤT trong các đơn (cả nhóm chỉ "tối ưu" khi mọi đơn tối ưu). */
@@ -169,10 +252,16 @@ export interface PackingPlanResponse {
       summary: string;
       steps: { step: number; instruction: string; tip: string | null }[];
       generatedAt: Date;
+      /** 05/11/2026 — số ví dụ mẫu (đã được chấm tốt) gửi kèm cho AI. */
+      examplesUsed: number;
+      /** 05/11/2026 — nhân viên chấm hướng dẫn; null = chưa chấm. */
+      rating: { helpful: boolean; comment: string | null; by: string; at: Date } | null;
     } | null;
     actualWeightKg: number | null;
     isAbnormal: boolean;
     materialsShortfall: { code: string; missing: number }[];
+    /** (05/11/2026) Bảng so sánh thùng; null = kiện nhập tay hoặc dữ liệu trước 05/11. */
+    boxComparison: BoxComparisonResponse | null;
     /** pending | sealed | held | to_unpack | voided (05/10/2026). */
     status: string;
     hasFragile: boolean;
@@ -233,6 +322,15 @@ export interface PackingPlanResponse {
     engineVersion: string;
     computationMs: number;
     options: { excludeBoxCodes: string[]; prefer: string; fragileCushionMm: number };
+    /** 05/11/2026 — danh mục bộ giải đã đọc từ DB lúc tính; null = kế hoạch trước 05/11. */
+    inputs: {
+      boxCodes: string[];
+      mailerCodes: string[];
+      materialCodes: string[];
+      materialRulesVersion: number | null;
+      volumetricDivisor: number;
+      billingStepG: number;
+    } | null;
   };
   totals: { parcels: number; packagingCostVnd: number; estimatedWeightG: number; avgFill: number };
   approvedAt: Date | null;
@@ -266,7 +364,11 @@ const dims = (d: { length_mm: number; width_mm: number; height_mm: number }): Di
   heightMm: d.height_mm,
 });
 
-export function toPlanResponse(plan: PackingPlanDocument, profileStale = false): PackingPlanResponse {
+export function toPlanResponse(
+  plan: PackingPlanDocument,
+  profileStale = false,
+  catalogChanges: string[] = [],
+): PackingPlanResponse {
   const weakest = plan.orders.reduce<PlanProofLabel | null>(
     (acc, o) => (acc === null || PROOF_RANK[o.proof] < PROOF_RANK[acc] ? o.proof : acc),
     null,
@@ -278,6 +380,8 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
     revision: plan.revision,
     version: plan.version,
     profileStale,
+    catalogStale: catalogChanges.length > 0,
+    catalogChanges,
     status: plan.status,
     failureReason: plan.failure_reason,
     proof: weakest,
@@ -371,11 +475,21 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
             summary: p.guide.summary,
             steps: p.guide.steps.map((s) => ({ step: s.step, instruction: s.instruction, tip: s.tip })),
             generatedAt: p.guide.generated_at,
+            examplesUsed: p.guide.examples_used ?? 0,
+            rating: p.guide.rating
+              ? {
+                  helpful: p.guide.rating.helpful,
+                  comment: p.guide.rating.comment,
+                  by: p.guide.rating.by.toString(),
+                  at: p.guide.rating.at,
+                }
+              : null,
           }
         : null,
       actualWeightKg: p.actual_weight_kg,
       isAbnormal: p.is_abnormal,
       materialsShortfall: p.materials_shortfall.map((s) => ({ code: s.code, missing: s.missing })),
+      boxComparison: toBoxComparisonResponse(p.box_comparison),
       status: effectiveParcelStatus(plan.status, p),
       hasFragile: p.has_fragile,
       boxConsumed: p.box_consumed || plan.status === 'packed',
@@ -477,6 +591,16 @@ export function toPlanResponse(plan: PackingPlanDocument, profileStale = false):
         prefer: plan.solver.options.prefer,
         fragileCushionMm: plan.solver.options.fragile_cushion_mm,
       },
+      inputs: plan.solver.inputs
+        ? {
+            boxCodes: plan.solver.inputs.boxes.map((b) => b.code),
+            mailerCodes: plan.solver.inputs.mailers.map((m) => m.code),
+            materialCodes: plan.solver.inputs.materials.map((m) => m.code),
+            materialRulesVersion: plan.solver.inputs.material_rules_version,
+            volumetricDivisor: plan.solver.inputs.volumetric_divisor,
+            billingStepG: plan.solver.inputs.billing_step_g,
+          }
+        : null,
     },
     // Tổng chỉ tính kiện CÒN GIAO (kiện đang/đã tháo vì đơn hủy không tính).
     totals: (() => {
@@ -548,7 +672,11 @@ export class PackingPlanController {
   async get(@Param('groupId') groupId: string): Promise<{ plan: PackingPlanResponse | null }> {
     const plan = await this.planService.getActivePlan(groupId);
     if (!plan) return { plan: null };
-    return { plan: toPlanResponse(plan, await this.planService.isProfileStale(plan)) };
+    const [profileStale, catalogChanges] = await Promise.all([
+      this.planService.isProfileStale(plan),
+      this.planService.catalogChanges(plan),
+    ]);
+    return { plan: toPlanResponse(plan, profileStale, catalogChanges) };
   }
 
   @Get('box-sources')
@@ -707,6 +835,51 @@ export class PackingPlanController {
   ): Promise<{ plan: PackingPlanResponse }> {
     return {
       plan: toPlanResponse(await this.planService.getOrCreateGuide(groupId, parcelNo, dto.regenerate === true)),
+    };
+  }
+
+  @Post('parcels/:parcelNo/guide/rating')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.WAREHOUSE_STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '(05/11/2026) Chấm hướng dẫn của 1 kiện: helpful=true + do AI viết → thành ví dụ mẫu gửi kèm AI ở lần sau; false → gỡ khỏi bộ ví dụ.',
+  })
+  async rateGuide(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+    @Body() dto: RateGuideDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<{ plan: PackingPlanResponse; savedAsExample: boolean }> {
+    const result = await this.planService.rateGuide(groupId, parcelNo, dto, user.userId);
+    return { plan: toPlanResponse(result.plan), savedAsExample: result.savedAsExample };
+  }
+
+  @Get('parcels/:parcelNo/guide/trace')
+  @Roles(UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER, UserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      '(05/11/2026) Lần viết hướng dẫn gần nhất của 1 kiện: system prompt, JSON dữ kiện đã gửi AI, phản hồi thô, model, ví dụ mẫu đã dùng. null = chưa viết / quá 30 ngày.',
+  })
+  async guideTrace(
+    @Param('groupId') groupId: string,
+    @Param('parcelNo', ParseIntPipe) parcelNo: number,
+  ): Promise<{ trace: GuideTraceResponse | null }> {
+    const log = await this.planService.getGuideTrace(groupId, parcelNo);
+    return {
+      trace: log
+        ? {
+            source: log.source,
+            model: log.model,
+            fallbackReason: log.fallback_reason,
+            systemPrompt: log.system_prompt,
+            userPayload: log.user_payload,
+            rawResponse: log.raw_response,
+            examplesUsed: log.examples_used,
+            exampleRefs: log.example_refs,
+            latencyMs: log.latency_ms,
+            createdAt: log.created_at,
+          }
+        : null,
     };
   }
 
