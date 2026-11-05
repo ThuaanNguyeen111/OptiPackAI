@@ -212,7 +212,16 @@ jobs:
       # Bắt lỗi sai schema (gõ nhầm tên field, sai apiVersion...) trước khi
       # apply lên cụm thật.
       - name: Validate schema
+        # -f: lỗi HTTP (5xx/rate limit) làm curl fail thay vì lưu trang HTML
+        # thành file .tar.gz; --retry chịu được lỗi mạng thoáng qua; sha256
+        # chặn file tải về không đúng bản phát hành.
+        env:
+          KUBECONFORM_VERSION: v0.6.7
+          KUBECONFORM_SHA256: 95f14e87aa28c09d5941f11bd024c1d02fdc0303ccaa23f61cef67bc92619d73
         run: |
-          curl -sSL -o kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
-          tar xf kubeconform.tar.gz kubeconform
+          curl -fsSL --retry 5 --retry-delay 3 --retry-all-errors \
+            -o kubeconform.tar.gz \
+            "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tar.gz" | sha256sum -c -
+          tar xzf kubeconform.tar.gz kubeconform
           ./kubeconform -strict -summary /tmp/rendered.yaml
