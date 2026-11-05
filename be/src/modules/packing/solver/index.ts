@@ -20,9 +20,22 @@ export {
 export {
   billableWeightG,
   compareObjective,
+  firstObjectiveDifference,
+  objectiveTierOrder,
+  type ObjectiveDifference,
   DEFAULT_CHARGE_RULE,
   objectiveOf,
   type ChargeRule,
 } from './objective';
 export { proveOptimality, cheapReject } from './proof';
 export { runBrkga, DEFAULT_BRKGA, type BrkgaParams } from './brkga';
+export {
+  compareBoxes,
+  COMPARISON_MAX_EVALUATIONS,
+  DEFAULT_COMPARISON_WEIGHTS,
+  type BoxComparison,
+  type BoxComparisonCriteria,
+  type BoxComparisonRow,
+  type BoxComparisonWeights,
+  type CompareBoxesOptions,
+} from './box-comparison';

@@ -139,26 +139,41 @@ export function compareObjective(
   b: Objective,
   prefer: SolvePreference = 'fewest_parcels',
 ): number {
-  const tiers: [number, number][] = [[a.unplaced, b.unplaced]];
-  if (prefer === 'cheapest') {
-    tiers.push(
-      [a.billable_g, b.billable_g],
-      [a.packaging_cost_vnd, b.packaging_cost_vnd],
-      [a.parcels, b.parcels],
-    );
-  } else {
-    tiers.push(
-      [a.parcels, b.parcels],
-      [a.billable_g, b.billable_g],
-      [a.packaging_cost_vnd, b.packaging_cost_vnd],
-    );
+  const diff = firstObjectiveDifference(a, b, prefer);
+  return diff === null ? 0 : diff.sign;
+}
+
+/** Thứ tự bậc so sánh của bộ giải — nguồn DUY NHẤT cho cả `compareObjective` lẫn lời giải thích. */
+export function objectiveTierOrder(prefer: SolvePreference = 'fewest_parcels'): (keyof Objective)[] {
+  const head: (keyof Objective)[] =
+    prefer === 'cheapest'
+      ? ['billable_g', 'packaging_cost_vnd', 'parcels']
+      : ['parcels', 'billable_g', 'packaging_cost_vnd'];
+  return ['unplaced', ...head, 'volumetric_g', 'folds', 'imbalance', 'cog'];
+}
+
+/** Bậc làm tròn trước khi so (số thực). */
+const ROUNDED_TIERS: ReadonlySet<keyof Objective> = new Set(['imbalance', 'cog']);
+
+export interface ObjectiveDifference {
+  /** Bậc ĐẦU TIÊN hai phương án khác nhau — chính là lý do bộ giải xếp hạng. */
+  tier: keyof Objective;
+  /** < 0 nếu `a` tốt hơn `b` ở bậc này. */
+  sign: number;
+  a: number;
+  b: number;
+}
+
+/** Bậc đầu tiên `a` và `b` khác nhau theo luật bậc; null = ngang nhau ở mọi bậc. */
+export function firstObjectiveDifference(
+  a: Objective,
+  b: Objective,
+  prefer: SolvePreference = 'fewest_parcels',
+): ObjectiveDifference | null {
+  for (const tier of objectiveTierOrder(prefer)) {
+    const x = ROUNDED_TIERS.has(tier) ? r3(a[tier]) : a[tier];
+    const y = ROUNDED_TIERS.has(tier) ? r3(b[tier]) : b[tier];
+    if (x !== y) return { tier, sign: x - y, a: a[tier], b: b[tier] };
   }
-  tiers.push(
-    [a.volumetric_g, b.volumetric_g],
-    [a.folds, b.folds],
-    [r3(a.imbalance), r3(b.imbalance)],
-    [r3(a.cog), r3(b.cog)],
-  );
-  for (const [x, y] of tiers) if (x !== y) return x - y;
-  return 0;
+  return null;
 }

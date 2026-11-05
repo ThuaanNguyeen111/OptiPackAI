@@ -247,6 +247,19 @@ export class GuideDto {
   regenerate?: boolean;
 }
 
+/** (05/11/2026) Chấm hướng dẫn đóng gói của 1 kiện. */
+export class RateGuideDto {
+  @ApiProperty({ description: 'true = dễ làm theo (AI viết thì thành ví dụ mẫu); false = khó hiểu.' })
+  @IsBoolean({ message: 'helpful phải là true/false' })
+  helpful!: boolean;
+
+  @ApiProperty({ required: false, maxLength: 300, description: 'Góp ý ngắn (tuỳ chọn).' })
+  @IsOptional()
+  @IsString({ message: 'comment phải là chuỗi' })
+  @MaxLength(300, { message: 'comment tối đa 300 ký tự' })
+  comment?: string;
+}
+
 export class ParcelWeightDto {
   @ApiProperty({ example: 1 })
   @IsInt({ message: 'parcel_no phải là số nguyên' })

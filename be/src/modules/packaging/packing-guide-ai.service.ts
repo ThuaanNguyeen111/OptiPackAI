@@ -8,11 +8,38 @@ import { buildTemplateGuide } from './engine';
 /** `mailer_template` (AOFP-224) = kiện túi niêm phong luôn dùng câu mẫu — lời AI viết cho thùng. */
 export type GuideFallbackReason = 'no_api_key' | 'ai_error' | 'ai_invalid_output' | 'mailer_template';
 
+/**
+ * (05/11/2026) Truy vết 1 lần viết hướng dẫn — trả lời "dữ liệu nào đã đưa cho AI":
+ * đúng system prompt, đúng JSON dữ kiện (user message) và phản hồi thô của model.
+ */
+export interface GuideTrace {
+  system_prompt: string;
+  /** JSON dữ kiện của kiện đã gửi (chuỗi, đúng như gửi đi). */
+  user_payload: string;
+  /** Nội dung thô model trả; null = không gọi AI hoặc gọi lỗi. */
+  raw_response: string | null;
+  /** Số ví dụ mẫu (few-shot) đã gửi kèm. */
+  examples_used: number;
+  latency_ms: number;
+}
+
 export interface PackingGuideResult extends GuideText {
   source: 'ai' | 'template';
   /** `nhà-cung-cấp/model` đã viết, VD `groq/openai/gpt-oss-120b`; null nếu là câu mẫu. */
   model: string | null;
   fallback_reason: GuideFallbackReason | null;
+  trace: GuideTrace;
+}
+
+/**
+ * (05/11/2026) Ví dụ mẫu = 1 hướng dẫn AI đã viết và được nhân viên đóng gói chấm
+ * "dễ làm theo". Gửi kèm dạng few-shot (cặp user/assistant) — "dataset" do chính
+ * kho tạo ra; KHÔNG fine-tune model.
+ */
+export interface GuideExample {
+  /** JSON dữ kiện của kiện mẫu, đúng như đã gửi cho AI lúc viết (xem `GuideTrace.user_payload`). */
+  user_payload: string;
+  guide: { summary: string; steps: { step: number; instruction: string; tip: string }[] };
 }
 
 export interface PackingGuideInput {
@@ -21,7 +48,12 @@ export interface PackingGuideInput {
   fill_ratio: number | null;
   /** (28/09/2026) Vật tư chèn cần chuẩn bị cho kiện — thay `bubble_wrap_count`. */
   materials: GuideMaterial[];
+  /** (05/11/2026) Ví dụ mẫu đã được chấm tốt; bỏ qua = không có. */
+  examples?: GuideExample[];
 }
+
+/** Trần số ví dụ gửi kèm — giữ prompt ngắn (tốc độ + hạn token bậc miễn phí). */
+export const MAX_GUIDE_EXAMPLES = 2;
 
 const MAX_INSTRUCTION_LENGTH = 400;
 
@@ -68,7 +100,19 @@ const RESPONSE_SCHEMA = {
   },
 } as const;
 
-type Attempt = { ok: true; guide: GuideText } | { ok: false; reason: 'ai_error' | 'ai_invalid_output' };
+type Attempt =
+  | { ok: true; guide: GuideText; raw: string }
+  | { ok: false; reason: 'ai_error' | 'ai_invalid_output'; raw: string | null };
+
+/** JSON dữ kiện của 1 kiện — dùng cho cả kiện thật lẫn ví dụ mẫu (cùng khuôn). */
+function payloadOf(
+  box: { code: string; name: string; inner_mm: BoxSpec['inner'] },
+  fillRatio: number | null,
+  materials: GuideMaterial[],
+  facts: GuideStepFacts[],
+): string {
+  return JSON.stringify({ box, fill_ratio: fillRatio, materials, steps: facts });
+}
 
 /**
  * ===================================================================
@@ -90,58 +134,89 @@ export class PackingGuideAiService {
   constructor(private readonly configService: ConfigService) {}
 
   async writeGuide(input: PackingGuideInput): Promise<PackingGuideResult> {
+    const started = Date.now();
+    const examples = (input.examples ?? []).slice(0, MAX_GUIDE_EXAMPLES);
+    const userPayload = payloadOf(
+      { code: input.box.code, name: input.box.name, inner_mm: input.box.inner },
+      input.fill_ratio,
+      input.materials,
+      input.facts,
+    );
+    const trace = (raw: string | null, used: number): GuideTrace => ({
+      system_prompt: SYSTEM_PROMPT,
+      user_payload: userPayload,
+      raw_response: raw,
+      examples_used: used,
+      latency_ms: Date.now() - started,
+    });
     const template = buildTemplateGuide(input.facts, input.box, input.fill_ratio, input.materials);
     if (input.box.kind === 'mailer') {
-      return { ...template, source: 'template', model: null, fallback_reason: 'mailer_template' };
+      return { ...template, source: 'template', model: null, fallback_reason: 'mailer_template', trace: trace(null, 0) };
     }
     const provider = this.configService.get<AiProviderConfig | null>('ai.provider', null);
-    if (!provider) return { ...template, source: 'template', model: null, fallback_reason: 'no_api_key' };
-
-    const attempt = await this.tryProvider(provider, input);
-    if (attempt.ok) {
-      return { ...attempt.guide, source: 'ai', model: `${provider.name}/${provider.model}`, fallback_reason: null };
+    if (!provider) {
+      return { ...template, source: 'template', model: null, fallback_reason: 'no_api_key', trace: trace(null, 0) };
     }
-    return { ...template, source: 'template', model: null, fallback_reason: attempt.reason };
+
+    const attempt = await this.tryProvider(provider, input, userPayload, examples);
+    if (attempt.ok) {
+      return {
+        ...attempt.guide,
+        source: 'ai',
+        model: `${provider.name}/${provider.model}`,
+        fallback_reason: null,
+        trace: trace(attempt.raw, examples.length),
+      };
+    }
+    return { ...template, source: 'template', model: null, fallback_reason: attempt.reason, trace: trace(attempt.raw, examples.length) };
   }
 
-  private async tryProvider(provider: AiProviderConfig, input: PackingGuideInput): Promise<Attempt> {
-    let raw: unknown;
+  private async tryProvider(
+    provider: AiProviderConfig,
+    input: PackingGuideInput,
+    userPayload: string,
+    examples: GuideExample[],
+  ): Promise<Attempt> {
+    let raw: string;
     try {
-      raw = await this.callProvider(provider, input);
+      raw = await this.callProvider(provider, userPayload, examples);
     } catch (error: unknown) {
       this.logger.warn(`AI "${provider.name}" lỗi khi viết hướng dẫn đóng gói: ${describeError(error)}`);
-      return { ok: false, reason: 'ai_error' };
+      return { ok: false, reason: 'ai_error', raw: null };
     }
-    const guide = parseGuide(raw, input.facts);
+    let parsed: unknown;
+    try {
+      parsed = parseContent(raw);
+    } catch {
+      return { ok: false, reason: 'ai_invalid_output', raw };
+    }
+    const guide = parseGuide(parsed, input.facts);
     if (!guide) {
       this.logger.warn(`AI "${provider.name}" trả hướng dẫn sai số bước/thứ tự/SKU — bỏ qua.`);
-      return { ok: false, reason: 'ai_invalid_output' };
+      return { ok: false, reason: 'ai_invalid_output', raw };
     }
-    return { ok: true, guide };
+    return { ok: true, guide, raw };
   }
 
-  private async callProvider(provider: AiProviderConfig, input: PackingGuideInput): Promise<unknown> {
-    const userPayload = {
-      box: { code: input.box.code, name: input.box.name, inner_mm: input.box.inner },
-      fill_ratio: input.fill_ratio,
-      materials: input.materials,
-      steps: input.facts,
-    };
+  /** Gọi model, trả NỘI DUNG THÔ (chuỗi) để vừa kiểm tra vừa lưu truy vết. */
+  private async callProvider(provider: AiProviderConfig, userPayload: string, examples: GuideExample[]): Promise<string> {
+    // Few-shot: mỗi ví dụ = 1 cặp (dữ kiện → hướng dẫn đã được chấm tốt), đặt TRƯỚC kiện thật.
+    const shots = examples.flatMap((e) => [
+      { role: 'user', content: e.user_payload },
+      { role: 'assistant', content: JSON.stringify(e.guide) },
+    ]);
     const body = {
       model: provider.model,
       temperature: 0.3,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: JSON.stringify(userPayload) },
-      ],
+      messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...shots, { role: 'user', content: userPayload }],
     };
-    const post = async (responseFormat: object): Promise<unknown> => {
+    const post = async (responseFormat: object): Promise<string> => {
       const response = await axios.post<unknown>(
         `${provider.baseUrl}/chat/completions`,
         { ...body, response_format: responseFormat },
         { headers: { Authorization: `Bearer ${provider.apiKey}` }, timeout: provider.timeoutMs },
       );
-      return extractContent(response.data);
+      return extractRawContent(response.data);
     };
 
     try {
@@ -169,15 +244,25 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
-/** Lấy JSON trong `choices[0].message.content`; chịu được khối ```json bao quanh. */
-export function extractContent(data: unknown): unknown {
+/** Chuỗi `choices[0].message.content` của phản hồi Chat Completions. */
+export function extractRawContent(data: unknown): string {
   if (!isRecord(data) || !Array.isArray(data.choices)) throw new Error('Response AI thiếu choices.');
   const first: unknown = data.choices[0];
   if (!isRecord(first) || !isRecord(first.message)) throw new Error('Response AI thiếu message.');
   const content = first.message.content;
   if (typeof content !== 'string') throw new Error('AI không trả nội dung (có thể đã từ chối).');
+  return content;
+}
+
+/** Đọc JSON trong nội dung; chịu được khối ```json bao quanh. */
+export function parseContent(content: string): unknown {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(content);
   return JSON.parse(fenced?.[1] ?? content) as unknown;
+}
+
+/** Lấy JSON trong `choices[0].message.content`; chịu được khối ```json bao quanh. */
+export function extractContent(data: unknown): unknown {
+  return parseContent(extractRawContent(data));
 }
 
 /**

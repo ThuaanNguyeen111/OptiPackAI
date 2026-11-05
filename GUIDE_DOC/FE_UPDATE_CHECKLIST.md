@@ -20,6 +20,8 @@
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
 | 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ✅ 01/11 — `ConsolidationRulesPanel` trong trang Luật gộp đơn; chưa bấm thử với dữ liệu thật |
+| 11 | 🆕 05/11 **Bảng so sánh thùng từng kiện**: dưới khung 3D, mỗi kiện 1 bảng từ `parcels[].boxComparison` (hạng, điểm /10, cước, giá, lấp đầy, tồn, kết luận), tô dòng đang dùng, cảnh báo khi `scoresConsistent = false`, (tuỳ chọn) nút "Đổi sang thùng này" | 8 | ~nửa ngày | ☐ Chưa làm |
+| 12 | 🆕 05/11 **AI hướng dẫn minh bạch + học từ kho**: banner `catalogStale` (+ `catalogChanges[]`) như `profileStale`; nút 👍/👎 chấm hướng dẫn (`POST …/guide/rating`); nút "Xem dữ liệu gửi AI" cho Admin (`GET …/guide/trace`) | 9 | ~nửa ngày | ☐ Chưa làm |
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
@@ -230,6 +232,22 @@ Việc FE (`PackagingWorkbench.tsx`):
 | 7.6 | Hàng chờ đóng gói (`PackagingWorkbench.tsx`) — 🆕 31/10 | Packaging Staff mở trang mặc định ở tab **"Đã lấy hàng" (`picked`) + phạm vi "Của tôi"** → luôn rỗng, vì nhóm `picked` chưa có kế hoạch `ready` nên chưa có người đóng. Sửa: mặc định tab `pending_approval` (việc đã giao cho mình), hoặc tab `picked` thì tự chuyển phạm vi "Tất cả". BE nay giao lại kế hoạch mồ côi mỗi phút (`INTEGRATION_GUIDE_PACKING.md` mục 1.1) |
 
 **Nghiệm thu:** bật `mailer_enabled`, seed túi (`npx ts-node scripts/seed-packaging-mailers.ts`) → đơn 1 áo ra 1 túi niêm phong, khung 3D vẽ túi; đặt 2 đơn AURELLE cùng người nhận (cùng nhóm gộp) → 1 kiện chung 2 đơn, 2 phiếu đóng gói, 1 vận đơn GHN, mã vận đơn hiện ở cả 2 đơn trên website.
+
+---
+
+## 8. 🆕 05/11/2026 — Bảng so sánh thùng từng kiện (dòng 11)
+
+**Vấn đề:** màn đóng gói chỉ hiện thùng AI chọn, người dùng không biết vì sao không phải thùng khác.
+
+**BE mới (chỉ thêm field, không đổi route):** `GET /order-groups/:groupId/packing-plan` → mỗi `parcels[]` có `boxComparison` (hoặc `null` với kiện nhập tay / kiện tính trước 05/11). Các route chỉnh tay (đổi thùng, đổi thùng khi đang đóng, chuyển món) trả về kế hoạch đã tính lại bảng. Cấu trúc, gợi ý cột và ví dụ JSON ở `INTEGRATION_GUIDE_PACKING.md` mục 2.7.1.
+
+**FE cần làm:** hiện bảng theo đúng thứ tự `rows[]` (đừng sắp lại theo điểm), hiện `summary` và `verdict` nguyên văn, làm mờ dòng `eligible: false`, đặt ⚠ khi `scoresConsistent: false`. Nút "Đổi sang thùng này" (tuỳ chọn) dùng lại route đổi thùng sẵn có.
+
+## 9. 🆕 05/11/2026 — AI hướng dẫn minh bạch + học từ kho (dòng 12)
+
+**BE mới:** `plan.catalogStale` / `plan.catalogChanges[]` (danh mục đổi sau lúc tính), `guide.rating` + `guide.examplesUsed`, `POST …/parcels/:parcelNo/guide/rating`, `GET …/parcels/:parcelNo/guide/trace`. Chi tiết: `INTEGRATION_GUIDE_PACKING.md` mục 2.6.1, 2.6.2 và `API_LIST.md`.
+
+**FE cần làm:** (1) banner "Danh mục thùng/vật tư đã đổi sau khi tính" liệt kê `catalogChanges` + nút Tính lại; (2) 👍/👎 dưới hướng dẫn, toast "Đã thêm làm ví dụ mẫu cho AI" khi `savedAsExample`; (3) Admin: nút "Xem dữ liệu gửi AI" hiện `systemPrompt`, `userPayload` (format JSON), `rawResponse`.
 
 ---
 
