@@ -1,7 +1,7 @@
 # OptiPackAI — Danh sách API đầy đủ theo Role
 
 > **Bản đồ route theo role** — quét từ `@Controller`/`@Roles` trong code. Việc FE còn thiếu: **`FE_UPDATE_CHECKLIST.md`**.
-> **Thay đổi gần nhất:** 31/10 — mục **28**: **quy tắc gộp đơn bổ sung** `/order-sync-settings/rules` (thêm/sửa/xoá, xem trước, AI dịch câu chữ thành quy tắc). 29/10 — mục **27**: giao hỏa tốc AURELLE 3 giờ (shop tự giao): `GET /storefront/delivery-options`, checkout `delivery_option`, Admin website `/storefront/admin/express/*`, `GET /shipments/shippers`, `POST /shipments` thêm `shipper_id`, nhóm hỏa tốc ghim đầu danh sách. 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
+> **Thay đổi gần nhất:** 31/10 — mục **29**: tích hợp **Tiki** (app Inhouse, đơn dropship): `GET /marketplace/tiki/connect` kết nối thẳng, `POST /orders/tiki/sync`, `GET /orders/:id/marketplace-labels`, `GET /orders/:id` thêm khối `marketplace`, vận đơn Tiki không chọn hãng. Mục **28**: **quy tắc gộp đơn bổ sung** `/order-sync-settings/rules` (thêm/sửa/xoá, xem trước, AI dịch câu chữ thành quy tắc). 29/10 — mục **27**: giao hỏa tốc AURELLE 3 giờ (shop tự giao): `GET /storefront/delivery-options`, checkout `delivery_option`, Admin website `/storefront/admin/express/*`, `GET /shipments/shippers`, `POST /shipments` thêm `shipper_id`, nhóm hỏa tốc ghim đầu danh sách. 28/10 (khuya) — mục **26**: `GET /dashboard/summary` (số liệu Bảng điều khiển). 28/10 — `GET /shipping/recipients/:groupId` (điền sẵn địa chỉ gửi hãng; địa chỉ mô phỏng cho đơn bị che, chỉ demo). 22/10 (trưa) — mục **21**: SKU AURELLE theo quy tắc OptiPack, tự nối SKU cùng mã, `PATCH /product-master/:id/retire`, webhook `product_updated`. 22/10 (sáng) — mục **20**: nhóm kẹt đóng gói vì SKU chưa đo (`packingBlocked`, `?packing_blocked=`), tên người đóng (`assignedPackerName`), tìm nhóm `?q=`, tự tính lại thiếu hàng khi có hàng về, **`POST /returns` đã tắt (410)**, hành trình hàng đổi gửi về AURELLE, `DELETE /marketplace/:platform/shops/:shopId`, nghỉ phép `PATCH /users/:id/leave`.
 > **Trước đó:** 21/10 (tối) — giữ chỗ tồn **theo kho** (nhóm đơn có `warehouseId`, quét sai kho → 409 `ORD_GROUP_WRONG_WAREHOUSE`); website: đổi hàng (`type: exchange`, `GET /storefront/orders/:id/exchange-options`), khách tự hủy yêu cầu trả (`POST /storefront/returns/:id/cancel`); phiếu trả mở 1 / đơn. 21/10 — `GET .../packing-plan/box-sources`, `seal`/`pack` nhận `box_source*`; `PUT /shipping/settings` nhận `sender_*`; 4 route PDF `/documents/bin-labels|sku-labels|picking-list|stock-receipt`. 18/10 — trả đủ hàng (`returning`), đóng gói một bước chấp nhận. 15/10 — lô hàng (mục 18), cấu hình đồng bộ (mục 19).
 > Lịch sử thay đổi theo ngày: `CLAUDE.md` (nhật ký).
 
@@ -93,7 +93,7 @@ Error response chuẩn:
 
 | Method | Route                             | Role   | Mô tả                                                    |
 | ------ | --------------------------------- | ------ | -------------------------------------------------------- |
-| GET    | `/marketplace/:platform/connect`  | Admin  | Tạo URL OAuth để kết nối shop 1 sàn (lazada/tiktok/tiki) |
+| GET    | `/marketplace/:platform/connect`  | Admin  | Tạo URL OAuth để kết nối shop 1 sàn (lazada/tiktok/tiki). 🔄 31/10: `tiki` kết nối THẲNG (không có trang đăng nhập) — BE lưu shop ngay, `authUrl` trả về là trang "kết nối thành công" của FE (mục 29) |
 | GET    | `/marketplace/:platform/shops`    | Admin, Store Owner | 🆕 (04/10/2026) Shop đã kết nối OAuth của 1 sàn, đọc từ DB, không kèm token |
 | GET    | `/marketplace/:platform/callback` | Public | Sàn tự gọi lại sau khi seller authorize; 🔄 redirect kèm `platform` |
 
@@ -114,7 +114,8 @@ Body: `{ message_id, seller_id, message_type, timestamp, data: { trade_order_id,
 | Method | Route                    | Role                   | Mô tả                                                                               |
 | ------ | ------------------------ | ---------------------- | ----------------------------------------------------------------------------------- |
 | POST   | `/orders/lazada/sync`    | Admin                  | Kích hoạt tay 1 lần đồng bộ đơn từ Lazada (giữ nguyên, tương thích ngược)           |
-| POST   | `/orders/:platform/sync` | Admin                  | 🆕 29/09/2026 — bản tổng quát, dùng cho MỌI sàn đã đăng ký adapter (`lazada`, `aurelle`...); `/orders/lazada/sync` giờ chỉ là alias gọi lại route này |
+| POST   | `/orders/:platform/sync` | Admin                  | 🆕 29/09/2026 — bản tổng quát, dùng cho MỌI sàn đã đăng ký adapter (`lazada`, `aurelle`...); `/orders/lazada/sync` giờ chỉ là alias gọi lại route này. 🔄 31/10: `tiki` → kéo event queue + quét dự phòng, trả thêm `events`, `confirmed` (mục 29) |
+| 🆕 GET | `/orders/:id/marketplace-labels` | Admin, Store Owner, Warehouse, Packaging, Coordinator | 31/10 — nhãn do sàn cấp (chỉ Tiki dropship đã xác nhận đủ hàng) (mục 29) |
 | GET    | `/orders`                | **Admin, Store Owner** | Danh sách đơn đã đồng bộ                                                            |
 | GET    | `/orders/:id`            | **Admin, Store Owner** | Chi tiết 1 đơn hàng                                                                 |
 
@@ -934,6 +935,28 @@ Mỗi lần nhập hàng tạo **lô** có **ngày nhập kho** (`received_at`).
 - **Thông báo mới** `consolidation_name_mismatch` (warning) → Store Owner, Shipping Coordinator, nhân viên kho đang giữ nhóm — khi đơn gom đến muộn / gộp tay làm nhóm có ≥ 2 tên khác nhau.
 - **Lịch sử** (`activity_logs`, loại `orders`): `order_group.split`, `order_group.merged`, `order_group.recipient_names_differ`.
 - So tên không phân biệt hoa thường, dấu, khoảng trắng; tên có `*` (sàn che) không đem so.
+
+## 29. 🆕 31/10/2026 — Tiki (app Inhouse, đơn dropship)
+
+**Nghiệp vụ (Thuận chốt 31/10):** shop Tiki "OptiPackAI Test Shop" (seller `365980`) chạy mô hình `dropship` (shop đóng gói, shipper Tiki tới kho lấy) + `instock` (hàng ở kho Tiki, Tiki tự đóng). OptiPack **chỉ nhận đơn dropship**, chỉ các món ở kho nhà bán (`inventory_type = backorder`). Tự "xác nhận đủ hàng" lên Tiki khi nhóm đơn giữ chỗ đủ tồn; thiếu hàng thì không xác nhận, còn ≤ 60 phút tới hạn thì báo Store Owner. Đồng bộ "như Lazada" (tự động + nút Đồng bộ ngay) nhưng theo cách Tiki khuyên: kéo event queue.
+
+**Cấu hình:** app Inhouse trên open.tiki.vn (Application Create → Inhouse, Seller ID `365980`), nhà bán đồng ý kết nối trên Seller Center (`Thông tin nhà bán` → `Thiết lập gian hàng`). `be/.env`: `TIKI_CLIENT_ID`, `TIKI_CLIENT_SECRET` (`TIKI_SANDBOX=false` — Tiki chỉ có production). Không cần redirect URI.
+
+| Method | Route | Role | Mô tả |
+| ------ | ----- | ---- | ----- |
+| 🔄 GET | `/marketplace/tiki/connect` | Admin | Lấy token `client_credentials` + đọc nhà bán (`GET /integration/v2/sellers/me`) → lưu shop (`shop_id` = id nhà bán Tiki). Trả `{ authUrl }` = URL trang "kết nối thành công" của FE (`CLIENT_MARKETPLACE_REDIRECT_CALLBACK?shopId=&shopName=&connected=true&platform=tiki`) — FE vẫn chỉ chuyển trang. Lỗi (sai Secret / chưa đồng ý kết nối) → 502 `MKT_TOKEN_EXCHANGE_FAILED` |
+| GET · DELETE | `/marketplace/tiki/shops`, `/marketplace/tiki/shops/:shopId` | như cũ | Danh sách / ngắt kết nối như Lazada |
+| 🔄 POST | `/orders/tiki/sync?shop_id=365980` | Admin | Đồng bộ ngay: kéo sự kiện + quét đơn tạo sau lần quét trước + đọc lại đơn Tiki còn đang xử lý, rồi tự xác nhận đủ hàng. Trả `{ fetched, upserted, newlyConsolidated, events, confirmed }` |
+| 🆕 GET | `/orders/:id/marketplace-labels` | Admin, Store Owner, Warehouse, Packaging, Coordinator | `{ platformOrderId, shippingLabelUrl, shippingStampUrl }` — link HTML Tiki cấp: nhãn dán NGOÀI kiện, tem bỏ TRONG kiện. Chưa xác nhận / không phải đơn Tiki dropship → 409 `ORD_MARKETPLACE_LABEL_UNAVAILABLE` |
+| 🔄 GET | `/orders/:id` | như cũ | Thêm `marketplace` (null với sàn khác): `{ fulfillmentType, warehouseCode, confirmationStatus: pending\|confirmed\|canceled\|not_required, confirmSlaAt, confirmError }` |
+| 🔄 POST | `/shipments` | như cũ | Nhóm đơn Tiki: KHÔNG gửi `carrier_code`/`service_code` (shipper Tiki tới lấy) → có thì 409 `SHP_MARKETPLACE_PICKUP`. Vận đơn ghi `carrierName` "Tiki tới lấy hàng" |
+| 🔄 POST | `/shipments/batch` | như cũ | Có nhóm đơn Tiki → 409 `SHP_MARKETPLACE_PICKUP` |
+| 🔄 GET · PUT | `/order-sync-settings` | như cũ | `platforms` thêm `tiki` (bật/tắt tự đồng bộ, mặc định bật) |
+
+- **Tự đồng bộ:** cron **mỗi phút** kéo event queue (OptiPack tự tạo hàng đợi `optipack-orders-<shopId>`, đăng ký `ORDER_CREATED_SUCCESSFULLY`, `ORDER_STATUS_UPDATED`, gửi lại `ack_id`); quét dự phòng theo `interval_minutes` của cài đặt đồng bộ. Đơn mới chỉ nhận khi Tiki đã tiếp nhận (bỏ `processing`, `waiting_payment`, `paid`, `payment_review`).
+- **Trạng thái Tiki → OptiPack:** `queueing`/`holded` → pending; `picking`/`packaging`/`finished_packing`/`ready_to_ship` → ready_to_ship; `shipping`/`handover_to_partner` → shipped; `successful_delivery`/`delivered`/`complete` → delivered; `canceled`/`closed` → canceled (nhóm đơn tự hủy như Lazada); `returned` → returned. Món shop đã hủy (`seller_canceled`) → món canceled.
+- **Dữ liệu đơn:** mỗi dòng có số lượng thật (`invoice.quantity`, khác Lazada luôn 1); SKU = mã nhà bán `seller_product_code` (thiếu thì SKU Tiki).
+- **Mã lỗi mới:** `ORD_MARKETPLACE_LABEL_UNAVAILABLE` (409), `SHP_MARKETPLACE_PICKUP` (409). Thông báo mới `marketplace_confirm_required` (critical, Store Owner).
 
 ## 27. 🆕 29/10/2026 — Giao hỏa tốc AURELLE 3 giờ (shop tự giao)
 

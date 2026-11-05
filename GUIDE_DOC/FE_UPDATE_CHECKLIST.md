@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8).
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -23,6 +23,7 @@
 | 11 | 🆕 05/11 **Bảng so sánh thùng từng kiện**: dưới khung 3D, mỗi kiện 1 bảng từ `parcels[].boxComparison` (hạng, điểm /10, cước, giá, lấp đầy, tồn, kết luận), tô dòng đang dùng, cảnh báo khi `scoresConsistent = false`, (tuỳ chọn) nút "Đổi sang thùng này" | 8 | ~nửa ngày | ☐ Chưa làm |
 | 12 | 🆕 05/11 **AI hướng dẫn minh bạch + học từ kho**: banner `catalogStale` (+ `catalogChanges[]`) như `profileStale`; nút 👍/👎 chấm hướng dẫn (`POST …/guide/rating`); nút "Xem dữ liệu gửi AI" cho Admin (`GET …/guide/trace`) | 9 | ~nửa ngày | ☐ Chưa làm |
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
+| 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -248,6 +249,22 @@ Việc FE (`PackagingWorkbench.tsx`):
 **BE mới:** `plan.catalogStale` / `plan.catalogChanges[]` (danh mục đổi sau lúc tính), `guide.rating` + `guide.examplesUsed`, `POST …/parcels/:parcelNo/guide/rating`, `GET …/parcels/:parcelNo/guide/trace`. Chi tiết: `INTEGRATION_GUIDE_PACKING.md` mục 2.6.1, 2.6.2 và `API_LIST.md`.
 
 **FE cần làm:** (1) banner "Danh mục thùng/vật tư đã đổi sau khi tính" liệt kê `catalogChanges` + nút Tính lại; (2) 👍/👎 dưới hướng dẫn, toast "Đã thêm làm ví dụ mẫu cho AI" khi `savedAsExample`; (3) Admin: nút "Xem dữ liệu gửi AI" hiện `systemPrompt`, `userPayload` (format JSON), `rawResponse`.
+
+## 10. 🆕 31/10/2026 — Tiki: app Inhouse, đơn dropship (dòng 13)
+
+**Nghiệp vụ:** OptiPack nhận đơn Tiki kiểu **dropship** (shop đóng gói, shipper Tiki tới kho lấy hàng, không qua GHN). Đơn về tự động như Lazada. Khi nhóm đơn giữ đủ tồn, BE **tự xác nhận đủ hàng** lên Tiki; sau đó Tiki cấp **nhãn dán ngoài kiện + tem bỏ trong kiện** (HTML). Chi tiết API: `API_LIST.md` mục 29.
+
+| # | Màn | Việc FE |
+|---|---|---|
+| 10.1 | Kết nối sàn | Thêm thẻ **Tiki** giống Lazada: nút "Kết nối" gọi `GET /marketplace/tiki/connect` rồi `window.location = authUrl` như cũ (BE đã lưu shop, `authUrl` là trang thành công của FE — **không** mở trang Tiki). Danh sách/ngắt kết nối: `GET /marketplace/tiki/shops`, `DELETE /marketplace/tiki/shops/:shopId`. Lỗi 502 `MKT_TOKEN_EXCHANGE_FAILED` → hiện message BE (sai Secret hoặc nhà bán chưa đồng ý kết nối app) |
+| 10.2 | Đơn hàng / Nhóm đơn | Nhận `platform: 'tiki'` ở bộ lọc sàn, chip/màu sàn Tiki. Nút "Đồng bộ ngay" cho Tiki: `POST /orders/tiki/sync?shop_id=` (response thêm `events`, `confirmed`) |
+| 10.3 | Chi tiết đơn (`GET /orders/:id`) | Khối mới `marketplace` (chỉ đơn Tiki): hiện "Xác nhận đủ hàng với Tiki": `pending` = "Chờ xác nhận — hạn {confirmSlaAt}" (vàng, đỏ khi còn ≤ 60 phút), `confirmed` = "Đã xác nhận", `canceled` = "Đã báo hết hàng", `confirmError` nếu có (VD kho Tiki chưa gán kho nhà bán). Không có nút xác nhận tay — BE tự xác nhận khi đủ tồn |
+| 10.4 | Màn đóng gói + màn Giao hàng | Nhóm đơn có đơn Tiki: nút **"In nhãn Tiki"** cho từng đơn → `GET /orders/:id/marketplace-labels` → mở `shippingLabelUrl` (dán ngoài kiện) và `shippingStampUrl` (bỏ trong kiện) ở tab mới để in. 409 `ORD_MARKETPLACE_LABEL_UNAVAILABLE` → "Đơn chưa xác nhận đủ hàng với Tiki" |
+| 10.5 | Màn Giao hàng | Nhóm `platform = 'tiki'`: **ẩn** chọn hãng / báo giá / lịch lấy hàng, ghi "Shipper Tiki tới lấy hàng", tạo vận đơn bằng `POST /shipments` **không** gửi `carrier_code`, `service_code`; không cho chọn vào "giao chung chuyến". Bắt 409 `SHP_MARKETPLACE_PICKUP` |
+| 10.6 | Thông báo | Loại mới `marketplace_confirm_required` (critical, Store Owner): đơn Tiki sắp hết hạn xác nhận mà còn thiếu hàng → bấm mở chi tiết đơn (`relatedEntityType: 'order'`) |
+| 10.7 | Cài đặt đồng bộ | Danh sách sàn tự có dòng **Tiki** (từ `GET /order-sync-settings`) — không cần sửa nếu màn đang render theo danh sách BE trả |
+
+**Nghiệm thu:** kết nối Tiki → shop `365980` "OptiPackAI Test Shop" hiện ở màn Kết nối sàn; đặt 1 đơn trên Tiki → trong ~1 phút đơn xuất hiện (sàn Tiki), nhóm đơn vào hàng chờ lấy; đủ tồn → chi tiết đơn chuyển "Đã xác nhận"; bấm "In nhãn Tiki" mở được 2 trang nhãn; màn Giao hàng không có ô chọn hãng cho nhóm Tiki.
 
 ---
 
