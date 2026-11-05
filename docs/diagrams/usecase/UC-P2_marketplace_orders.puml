@@ -4,10 +4,9 @@ skinparam packageStyle rectangle
 
 actor "System\nAdministrator" as Admin
 actor "System\nScheduler" as Scheduler
-actor "Marketplace\nPlatform" as Marketplace
 actor "Warehouse\nStaff" as Warehouse
 actor "Packaging\nStaff" as Packaging
-actor "Shipping\nCoordinator" as Shipping
+actor "Shipping\nStaff" as Shipping
 actor "Store\nOwner" as Owner
 
 rectangle "AOFP System" {
@@ -27,7 +26,7 @@ rectangle "AOFP System" {
   usecase "View orders" as UC_ViewOrders
 }
 
-' --- Generalization: Admin kế thừa Store Owner và Shipping Coordinator ---
+' --- Generalization: Admin kế thừa Store Owner và Shipping Staff ---
 Admin --|> Owner
 Admin --|> Shipping
 
@@ -40,19 +39,13 @@ Admin -- UC_SyncManual
 ' --- System Scheduler ---
 Scheduler -- UC_SyncAuto
 
-' --- Marketplace Platform ---
-Marketplace -- UC_Connect
-Marketplace -- UC_SyncAuto
-Marketplace -- UC_SyncManual
-Marketplace -- UC_SellerCancel
-
 ' --- Warehouse Staff ---
 Warehouse -- UC_ViewGroups
 
 ' --- Packaging Staff ---
 Packaging -- UC_ViewGroups
 
-' --- Shipping Coordinator ---
+' --- Shipping Staff ---
 Shipping -- UC_ViewGroups
 Shipping -- UC_LinkUnlink
 Shipping -- UC_Merge
