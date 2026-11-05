@@ -15,6 +15,7 @@ import { MarketplacePlatform } from './enums/platform.enum';
 import {
   MARKETPLACE_ADAPTERS,
   MarketplaceAdapter,
+  type OAuthTokenResult,
 } from './interfaces/marketplace-adapter.interface';
 import {
   encryptToken,
@@ -70,6 +71,26 @@ export class MarketplaceIntegrationService {
     adminUserId: string,
   ): Promise<string> {
     const adapter = this.getAdapter(platform);
+    // 31/10/2026 — sàn kết nối thẳng (Tiki app Inhouse): lưu shop ngay, trả về luôn URL trang
+    // "kết nối thành công" của FE — FE vẫn làm đúng 1 việc như cũ: chuyển trang tới `authUrl`.
+    if (adapter.connectDirect) {
+      let tokenResult: OAuthTokenResult;
+      try {
+        tokenResult = await adapter.connectDirect();
+      } catch (error) {
+        this.logger.error(`Kết nối thẳng ${platform} thất bại`, error);
+        throw new AppException(
+          MKT_ERROR_CODES.TOKEN_EXCHANGE_FAILED,
+          `Không kết nối được ${platform}: ${error instanceof Error ? error.message : String(error)}. Kiểm tra App ID/Secret trong be/.env và nhà bán đã đồng ý kết nối app trên Seller Center.`,
+          HttpStatus.BAD_GATEWAY,
+          { platform },
+        );
+      }
+      const shopDoc = await this.saveConnectedShop(platform, tokenResult, adminUserId);
+      const frontendUrl = this.configService.get<string>('CLIENT_MARKETPLACE_REDIRECT_CALLBACK', 'http://localhost:5173/marketplace-oauth-success');
+      const params = new URLSearchParams({ shopId: shopDoc.shop_id, shopName: shopDoc.shop_name ?? '', connected: 'true', platform });
+      return `${frontendUrl}?${params.toString()}`;
+    }
     const state = randomUUID();
 
     await this.oauthStateModel.create({
@@ -123,6 +144,15 @@ export class MarketplaceIntegrationService {
       );
     }
 
+    return this.saveConnectedShop(platform, tokenResult, stateRecord.admin_user_id);
+  }
+
+  /** Lưu (ghi đè) shop vừa kết nối — dùng chung cho OAuth callback và kết nối thẳng. */
+  private async saveConnectedShop(
+    platform: MarketplacePlatform,
+    tokenResult: OAuthTokenResult,
+    adminUserId: string,
+  ): Promise<MarketplaceShopDocument> {
     const environment: 'sandbox' | 'production' = this.isSandboxEnvironment(
       platform,
     )
@@ -139,7 +169,7 @@ export class MarketplaceIntegrationService {
       refresh_token_encrypted: encryptToken(tokenResult.refreshToken),
       access_token_expires_at: tokenResult.accessTokenExpiresAt,
       refresh_token_expires_at: tokenResult.refreshTokenExpiresAt,
-      connected_by: new Types.ObjectId(stateRecord.admin_user_id),
+      connected_by: new Types.ObjectId(adminUserId),
       is_active: true,
       // 22/10/2026 — kết nối lại sau khi Admin ngắt: xoá dấu ngắt kết nối.
       disconnected_at: null,
@@ -152,7 +182,7 @@ export class MarketplaceIntegrationService {
     const shopDoc = await this.marketplaceShopModel.findOneAndUpdate(
       { platform, shop_id: tokenResult.shopId, environment },
       upsertData,
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: 'after' },
     );
 
     this.logger.log(
@@ -361,6 +391,21 @@ export class MarketplaceIntegrationService {
       { _id: shopMongoId },
       { $set: { last_polled_at: polledAt } },
     );
+  }
+
+  /**
+   * 31/10/2026 — trạng thái event queue của shop (Tiki): mã hàng đợi + ack_id lần kéo trước.
+   * Ghi qua đây (module sở hữu marketplace_shops), module khác không ghi thẳng.
+   */
+  async saveEventQueueState(
+    shopMongoId: Types.ObjectId,
+    state: { queueCode?: string | null; ackId?: string | null; pulledAt?: Date },
+  ): Promise<void> {
+    const set: Record<string, unknown> = {};
+    if (state.queueCode !== undefined) set.event_queue_code = state.queueCode;
+    if (state.ackId !== undefined) set.event_ack_id = state.ackId;
+    if (state.pulledAt) set.last_event_pulled_at = state.pulledAt;
+    if (Object.keys(set).length > 0) await this.marketplaceShopModel.updateOne({ _id: shopMongoId }, { $set: set });
   }
 
   /**

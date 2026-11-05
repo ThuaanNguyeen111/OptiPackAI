@@ -98,7 +98,7 @@ function toResponse(p: OrderSyncPolicy): OrderSyncSettingsResponse {
     consolidation: { ...p.consolidation },
     statuses: { ...p.statuses },
     options: {
-      platforms: SYNC_PLATFORMS.map((v) => ({ value: v, label: v === MarketplacePlatform.LAZADA ? 'Lazada' : 'AURELLE' })),
+      platforms: SYNC_PLATFORMS.map((v) => ({ value: v, label: v === MarketplacePlatform.LAZADA ? 'Lazada' : v === MarketplacePlatform.TIKI ? 'Tiki' : 'AURELLE' })),
       keyFields: CONSOLIDATION_KEY_FIELDS.map((v) => ({ value: v, label: KEY_FIELD_LABELS[v] ?? v })),
       openGroupStatuses: OPEN_GROUP_STATUS_CHOICES.map((v) => ({ value: v, label: OPEN_GROUP_LABELS[v] ?? v })),
       consolidatableStatuses: UNFULFILLED_ORDER_STATUSES.map((v) => ({ value: v, label: STATUS_LABELS[v] })),

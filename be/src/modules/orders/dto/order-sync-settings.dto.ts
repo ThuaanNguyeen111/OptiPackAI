@@ -27,7 +27,7 @@ import type { ConsolidationKeyField, OpenGroupStatus } from '../order-sync-polic
 
 export class PlatformSyncToggleDto {
   @ApiPropertyOptional({ enum: SYNC_PLATFORMS })
-  @IsIn(SYNC_PLATFORMS, { message: 'platform chỉ nhận lazada hoặc aurelle' })
+  @IsIn(SYNC_PLATFORMS, { message: 'platform chỉ nhận lazada, aurelle hoặc tiki' })
   platform!: string;
 
   @ApiPropertyOptional({ example: true })

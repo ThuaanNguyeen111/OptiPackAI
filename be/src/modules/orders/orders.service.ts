@@ -6,7 +6,7 @@ import { OrderStatus, UNFULFILLED_ORDER_STATUSES } from './enums/order-status.en
 import { notPackableStatuses, orderSyncPolicy } from './order-sync-policy';
 import { computeConsolidationKeyFor, expressConsolidationKey } from './utils/consolidation-key.util';
 import { computeRuleKeys, ruleIdOfKey } from './utils/consolidation-rule.util';
-import { mapLazadaOrder } from './mappers/lazada-order.mapper';
+import { mapLazadaOrder, type MappedOrderFields } from './mappers/lazada-order.mapper';
 import { MarketplaceIntegrationService } from '../marketplace-integration';
 import {
   MARKETPLACE_ADAPTERS,
@@ -183,170 +183,11 @@ export class OrdersService {
       try {
         const rawItems = await adapter.getOrderItems(accessToken, rawOrder.order_id);
         const mapped = mapLazadaOrder(rawOrder, rawItems, platform);
-        // 15/10/2026 — khoá gom theo trường Admin chọn (mặc định trùng công thức cũ).
-        // 28/10/2026 (G4) — SĐT bị sàn che (VD "8**5") → không tự gom (khoá riêng của đơn).
-        mapped.consolidation_key = computeConsolidationKeyFor(
-          platform,
-          mapped.recipient,
-          policy.consolidation.keyFields,
-          `${shopId}:${mapped.platform_order_id}`,
+        const { consolidated } = await this.ingestMappedOrder(platform, shopId, shopDoc._id, mapped, (orderId, partnerRef) =>
+          adapter.acknowledgeOrder?.(accessToken, orderId, partnerRef),
         );
-        // 29/10/2026 — đơn giao hỏa tốc (AURELLE) không gộp với đơn nào: nhóm riêng, shop tự giao.
-        if (mapped.delivery_option === 'express') {
-          mapped.consolidation_key = expressConsolidationKey(platform, `${shopId}:${mapped.platform_order_id}`);
-        }
-        // 31/10/2026 — khoá theo quy tắc gộp bổ sung (rỗng khi chưa có quy tắc / đơn hỏa tốc / bị che).
-        const consolidationKeys = computeRuleKeys(
-          { platform, platform_order_id: mapped.platform_order_id, delivery_option: mapped.delivery_option, recipient: mapped.recipient },
-          policy.consolidation.rules,
-        );
-
-        // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
-        // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không
-        // spam lại mỗi 10 phút trong lúc đơn vẫn đang chờ seller phản hồi
-        // (cron chạy liên tục, nếu không check sẽ tạo Notification mới
-        // mỗi lần sync trong khi bản chất là CÙNG 1 sự kiện chưa xử lý).
-        const previous = await this.orderModel
-          .findOne({
-            platform,
-            shop_id: shopId,
-            platform_order_id: mapped.platform_order_id,
-          })
-          .select('need_cancel_confirm raw_statuses')
-          .lean();
-        // 22/10/2026 — người bán đã hủy trong OptiPack (sellerCancelOrder) mà website chưa kịp
-        // nhận ghi ngược → lượt sync không được "hồi sinh" đơn về pending.
-        if (previous?.raw_statuses.includes('seller_canceled')) {
-          mapped.status = OrderStatus.CANCELED;
-          mapped.raw_statuses = [...new Set([...mapped.raw_statuses, 'seller_canceled'])];
-          mapped.items = mapped.items.map((item) => ({ ...item, status: OrderStatus.CANCELED }));
-        }
-
-        const orderDoc = await this.orderModel.findOneAndUpdate(
-          {
-            platform,
-            shop_id: shopId,
-            platform_order_id: mapped.platform_order_id,
-          },
-          {
-            $set: {
-              ...mapped,
-              consolidation_keys: consolidationKeys,
-              platform,
-              shop_id: shopId,
-              marketplace_shop: shopDoc._id,
-            },
-            $setOnInsert: {
-              is_consolidated: false,
-              consolidated_group_id: null,
-              is_active: true,
-            },
-          },
-          { upsert: true, new: true },
-        );
-
         upserted += 1;
-
-        // Mục 7.6 AURELLE_MARKETPLACE_DESIGN.md — báo sàn đã lưu đơn
-        // thành công, sàn chuyển occupied_quantity sang cho OptiPack.
-        // Lazada không implement acknowledgeOrder (seller tự giao hàng,
-        // không ghi ngược Lazada — quyết định đã chốt) → `?.()` no-op.
-        // Best-effort — lỗi ghi ngược KHÔNG được làm hỏng cả lượt sync.
-        try {
-          await adapter.acknowledgeOrder?.(
-            accessToken,
-            mapped.platform_order_id,
-            orderDoc._id.toString(),
-          );
-        } catch (ackError) {
-          this.logger.warn(
-            `Acknowledge đơn ${mapped.platform_order_id} (${platform}) thất bại — không chặn sync.`,
-            ackError,
-          );
-        }
-
-        // Chỉ bắn khi CHUYỂN từ chưa cần xác nhận -> cần xác nhận (xem
-        // giải thích đọc `previous` ở trên) — báo cả Store Owner lẫn
-        // Admin, mức `critical` vì có hạn chót cứng (cancel_trigger_time),
-        // bỏ lỡ sẽ bị Lazada TỰ ĐỘNG hủy đơn, hậu quả không đảo ngược được.
-        if (mapped.need_cancel_confirm && !previous?.need_cancel_confirm) {
-          const deadlineText = mapped.cancel_trigger_time
-            ? mapped.cancel_trigger_time.toLocaleString('vi-VN')
-            : 'không xác định';
-          const title = `Đơn hàng #${mapped.platform_order_number ?? mapped.platform_order_id} cần xác nhận hủy`;
-          // Chỉ Lazada thật ghi nhận field này (AURELLE giữ field để đúng
-          // hình dạng API — Mục 5.2 AURELLE_MARKETPLACE_DESIGN.md — nhưng
-          // không có luồng hủy nào bật need_cancel_confirm=true) — nhắc
-          // đúng nơi seller cần vào theo từng sàn.
-          const sellerCenterHint =
-            platform === MarketplacePlatform.LAZADA
-              ? 'trên Lazada Seller Center'
-              : `trên ${platform}`;
-          const message = `Khách hàng yêu cầu hủy đơn #${mapped.platform_order_number ?? mapped.platform_order_id}. Vui lòng phản hồi ${sellerCenterHint} trước ${deadlineText} — nếu không, đơn sẽ TỰ ĐỘNG bị hủy.`;
-
-          await this.notificationsService.notify({
-            recipientRole: UserRole.STORE_OWNER,
-            type: NotificationType.CANCEL_CONFIRMATION_REQUIRED,
-            severity: 'critical',
-            title,
-            message,
-            relatedEntityType: 'order',
-            relatedEntityId: String(orderDoc._id),
-          });
-          await this.notificationsService.notify({
-            recipientRole: UserRole.ADMIN,
-            type: NotificationType.CANCEL_CONFIRMATION_REQUIRED,
-            severity: 'critical',
-            title,
-            message,
-            relatedEntityType: 'order',
-            relatedEntityId: String(orderDoc._id),
-          });
-        }
-
-        const wasConsolidated = await this.tryConsolidate(orderDoc);
-        if (wasConsolidated) {
-          newlyConsolidated += 1;
-        }
-
-        // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo OrderGroup THẬT
-        // NGAY trong vòng sync, không đợi cron backfill (tối đa 15 phút
-        // sau) — Warehouse/Packaging "không thấy đơn" ngay sau khi sync
-        // xong, phải đợi tới lần backfill kế tiếp mới có group để làm
-        // việc. Reload document TRƯỚC KHI gọi — tryConsolidate() ở trên
-        // dùng updateOne() (không phải orderDoc.save()), nên biến
-        // `orderDoc` trong bộ nhớ CHƯA có consolidated_group_id mới nhất.
-        try {
-          const freshOrder = await this.orderModel.findById(orderDoc._id);
-          if (freshOrder) {
-            const group =
-              await this.orderGroupsService.getOrCreateGroupForOrder(freshOrder);
-            // BỔ SUNG (29/09/2026, N1) — nếu đơn vừa sync rơi vào 1 trạng
-            // thái không còn fulfill được (khách hủy qua webhook, sự cố
-            // logistics...), kiểm tra xem CẢ NHÓM có còn đơn nào fulfill
-            // được không — hết thì tự động hủy nhóm + nhả giữ chỗ đóng gói
-            // (xem order-groups.service.ts). BEST-EFFORT, dùng chung cho cả
-            // cron lẫn webhook vì cả 2 đều gọi qua syncShopOrders() này.
-            if (notPackableStatuses().includes(freshOrder.status)) {
-              await this.orderGroupsService
-                .handleOrderBecameUnfulfillable(group._id.toString())
-                .catch((cancelError: unknown) => {
-                  this.logger.error(
-                    `Kiểm tra tự động hủy nhóm ${group._id.toString()} thất bại — không chặn lượt sync.`,
-                    cancelError,
-                  );
-                });
-            }
-          }
-        } catch (groupError) {
-          // KHÔNG fail cả lượt sync chỉ vì 1 đơn tạo group lỗi — cron
-          // backfill (order-group-backfill.scheduler.ts) là lưới an
-          // toàn, sẽ tự thử lại cho đơn này ở lượt kế tiếp.
-          this.logger.warn(
-            `Tạo OrderGroup ngay sau sync thất bại cho đơn ${orderDoc.platform_order_id} — cron backfill sẽ thử lại.`,
-            groupError,
-          );
-        }
+        if (consolidated) newlyConsolidated += 1;
       } catch (error) {
         // 1 đơn lỗi (vd field lạ chưa map được) KHÔNG được làm hỏng cả
         // batch — log lại order_id cụ thể, tiếp tục xử lý đơn tiếp theo.
@@ -367,6 +208,179 @@ export class OrdersService {
     );
 
     return { fetched: rawOrders.length, upserted, newlyConsolidated };
+  }
+
+  /**
+   * 31/10/2026 — xử lý 1 đơn ĐÃ chuẩn hóa (MappedOrderFields): tính khoá gom, lưu (upsert), báo sàn
+   * đã nhận (nếu có), báo cần xác nhận hủy, gom nhóm, tạo nhóm đơn, tự hủy nhóm nếu đơn không còn
+   * đóng gói được. Tách khỏi `syncShopOrders()` (trước đây nằm trong vòng lặp) để sàn KHÔNG cùng vỏ
+   * Lazada (Tiki — `TikiOrderSyncService`) dùng CHUNG đúng 1 luồng, không chép lại.
+   */
+  async ingestMappedOrder(
+    platform: MarketplacePlatform,
+    shopId: string,
+    shopMongoId: Types.ObjectId,
+    mapped: MappedOrderFields,
+    acknowledge?: (platformOrderId: string, partnerReference: string) => Promise<void> | undefined,
+  ): Promise<{ order: OrderDocument; consolidated: boolean }> {
+    const policy = orderSyncPolicy();
+    // 15/10/2026 — khoá gom theo trường Admin chọn (mặc định trùng công thức cũ).
+    // 28/10/2026 (G4) — SĐT bị sàn che (VD "8**5") → không tự gom (khoá riêng của đơn).
+    mapped.consolidation_key = computeConsolidationKeyFor(
+      platform,
+      mapped.recipient,
+      policy.consolidation.keyFields,
+      `${shopId}:${mapped.platform_order_id}`,
+    );
+    // 29/10/2026 — đơn giao hỏa tốc (AURELLE) không gộp với đơn nào: nhóm riêng, shop tự giao.
+    if (mapped.delivery_option === 'express') {
+      mapped.consolidation_key = expressConsolidationKey(platform, `${shopId}:${mapped.platform_order_id}`);
+    }
+    // 31/10/2026 — khoá theo quy tắc gộp bổ sung (rỗng khi chưa có quy tắc / đơn hỏa tốc / bị che).
+    const consolidationKeys = computeRuleKeys(
+      { platform, platform_order_id: mapped.platform_order_id, delivery_option: mapped.delivery_option, recipient: mapped.recipient },
+      policy.consolidation.rules,
+    );
+
+    // Đọc trạng thái need_cancel_confirm TRƯỚC KHI update — để chỉ
+    // bắn Notification đúng 1 LẦN lúc chuyển từ false -> true, không
+    // spam lại mỗi 10 phút trong lúc đơn vẫn đang chờ seller phản hồi
+    // (cron chạy liên tục, nếu không check sẽ tạo Notification mới
+    // mỗi lần sync trong khi bản chất là CÙNG 1 sự kiện chưa xử lý).
+    const previous = await this.orderModel
+      .findOne({
+        platform,
+        shop_id: shopId,
+        platform_order_id: mapped.platform_order_id,
+      })
+      .select('need_cancel_confirm raw_statuses')
+      .lean();
+    // 22/10/2026 — người bán đã hủy trong OptiPack (sellerCancelOrder) mà website chưa kịp
+    // nhận ghi ngược → lượt sync không được "hồi sinh" đơn về pending.
+    if (previous?.raw_statuses.includes('seller_canceled')) {
+      mapped.status = OrderStatus.CANCELED;
+      mapped.raw_statuses = [...new Set([...mapped.raw_statuses, 'seller_canceled'])];
+      mapped.items = mapped.items.map((item) => ({ ...item, status: OrderStatus.CANCELED }));
+    }
+
+    const orderDoc = await this.orderModel.findOneAndUpdate(
+      {
+        platform,
+        shop_id: shopId,
+        platform_order_id: mapped.platform_order_id,
+      },
+      {
+        $set: {
+          ...mapped,
+          consolidation_keys: consolidationKeys,
+          platform,
+          shop_id: shopId,
+          marketplace_shop: shopMongoId,
+        },
+        $setOnInsert: {
+          is_consolidated: false,
+          consolidated_group_id: null,
+          is_active: true,
+        },
+      },
+      { upsert: true, new: true },
+    );
+
+
+    // Mục 7.6 AURELLE_MARKETPLACE_DESIGN.md — báo sàn đã lưu đơn
+    // thành công, sàn chuyển occupied_quantity sang cho OptiPack.
+    // Lazada không implement acknowledgeOrder (seller tự giao hàng,
+    // không ghi ngược Lazada — quyết định đã chốt) → `?.()` no-op.
+    // Best-effort — lỗi ghi ngược KHÔNG được làm hỏng cả lượt sync.
+    try {
+      await acknowledge?.(mapped.platform_order_id, orderDoc._id.toString());
+    } catch (ackError) {
+      this.logger.warn(
+        `Acknowledge đơn ${mapped.platform_order_id} (${platform}) thất bại — không chặn sync.`,
+        ackError,
+      );
+    }
+
+    // Chỉ bắn khi CHUYỂN từ chưa cần xác nhận -> cần xác nhận (xem
+    // giải thích đọc `previous` ở trên) — báo cả Store Owner lẫn
+    // Admin, mức `critical` vì có hạn chót cứng (cancel_trigger_time),
+    // bỏ lỡ sẽ bị Lazada TỰ ĐỘNG hủy đơn, hậu quả không đảo ngược được.
+    if (mapped.need_cancel_confirm && !previous?.need_cancel_confirm) {
+      const deadlineText = mapped.cancel_trigger_time
+        ? mapped.cancel_trigger_time.toLocaleString('vi-VN')
+        : 'không xác định';
+      const title = `Đơn hàng #${mapped.platform_order_number ?? mapped.platform_order_id} cần xác nhận hủy`;
+      // Chỉ Lazada thật ghi nhận field này (AURELLE giữ field để đúng
+      // hình dạng API — Mục 5.2 AURELLE_MARKETPLACE_DESIGN.md — nhưng
+      // không có luồng hủy nào bật need_cancel_confirm=true) — nhắc
+      // đúng nơi seller cần vào theo từng sàn.
+      const sellerCenterHint =
+        platform === MarketplacePlatform.LAZADA
+          ? 'trên Lazada Seller Center'
+          : `trên ${platform}`;
+      const message = `Khách hàng yêu cầu hủy đơn #${mapped.platform_order_number ?? mapped.platform_order_id}. Vui lòng phản hồi ${sellerCenterHint} trước ${deadlineText} — nếu không, đơn sẽ TỰ ĐỘNG bị hủy.`;
+
+      await this.notificationsService.notify({
+        recipientRole: UserRole.STORE_OWNER,
+        type: NotificationType.CANCEL_CONFIRMATION_REQUIRED,
+        severity: 'critical',
+        title,
+        message,
+        relatedEntityType: 'order',
+        relatedEntityId: String(orderDoc._id),
+      });
+      await this.notificationsService.notify({
+        recipientRole: UserRole.ADMIN,
+        type: NotificationType.CANCEL_CONFIRMATION_REQUIRED,
+        severity: 'critical',
+        title,
+        message,
+        relatedEntityType: 'order',
+        relatedEntityId: String(orderDoc._id),
+      });
+    }
+
+    const wasConsolidated = await this.tryConsolidate(orderDoc);
+
+    // BỔ SUNG (21/09/2026, báo cáo thật từ FE) — tạo OrderGroup THẬT
+    // NGAY trong vòng sync, không đợi cron backfill (tối đa 15 phút
+    // sau) — Warehouse/Packaging "không thấy đơn" ngay sau khi sync
+    // xong, phải đợi tới lần backfill kế tiếp mới có group để làm
+    // việc. Reload document TRƯỚC KHI gọi — tryConsolidate() ở trên
+    // dùng updateOne() (không phải orderDoc.save()), nên biến
+    // `orderDoc` trong bộ nhớ CHƯA có consolidated_group_id mới nhất.
+    try {
+      const freshOrder = await this.orderModel.findById(orderDoc._id);
+      if (freshOrder) {
+        const group =
+          await this.orderGroupsService.getOrCreateGroupForOrder(freshOrder);
+        // BỔ SUNG (29/09/2026, N1) — nếu đơn vừa sync rơi vào 1 trạng
+        // thái không còn fulfill được (khách hủy qua webhook, sự cố
+        // logistics...), kiểm tra xem CẢ NHÓM có còn đơn nào fulfill
+        // được không — hết thì tự động hủy nhóm + nhả giữ chỗ đóng gói
+        // (xem order-groups.service.ts). BEST-EFFORT, dùng chung cho cả
+        // cron lẫn webhook vì cả 2 đều gọi qua syncShopOrders() này.
+        if (notPackableStatuses().includes(freshOrder.status)) {
+          await this.orderGroupsService
+            .handleOrderBecameUnfulfillable(group._id.toString())
+            .catch((cancelError: unknown) => {
+              this.logger.error(
+                `Kiểm tra tự động hủy nhóm ${group._id.toString()} thất bại — không chặn lượt sync.`,
+                cancelError,
+              );
+            });
+        }
+      }
+    } catch (groupError) {
+      // KHÔNG fail cả lượt sync chỉ vì 1 đơn tạo group lỗi — cron
+      // backfill (order-group-backfill.scheduler.ts) là lưới an
+      // toàn, sẽ tự thử lại cho đơn này ở lượt kế tiếp.
+      this.logger.warn(
+        `Tạo OrderGroup ngay sau sync thất bại cho đơn ${orderDoc.platform_order_id} — cron backfill sẽ thử lại.`,
+        groupError,
+      );
+    }
+    return { order: orderDoc, consolidated: wasConsolidated };
   }
 
   /**

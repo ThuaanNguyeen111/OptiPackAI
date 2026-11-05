@@ -190,6 +190,13 @@ export interface MappedOrderFields {
   /** 29/10/2026 — chỉ AURELLE: giao hỏa tốc + giờ hẹn giao (Lazada thật không có → standard/null). */
   delivery_option: 'standard' | 'express';
   promised_delivery_at: Date | null;
+  /** 31/10/2026 — chỉ Tiki (mapper riêng `tiki-order.mapper.ts`). Lazada/AURELLE không gửi field này. */
+  marketplace_meta?: {
+    fulfillment_type: string | null;
+    warehouse_code: string | null;
+    confirmation_status: 'pending' | 'confirmed' | 'canceled' | 'not_required';
+    confirm_sla_at: Date | null;
+  };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { MarketplacePlatform } from '../marketplace-integration/enums/platform.enum';
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
@@ -328,6 +329,15 @@ export class ShipmentsService {
     if (group.requires_self_delivery && !shipperId) {
       throw new AppException(SHIPMENT_ERROR_CODES.SHIPPER_REQUIRED, 'Nhóm giao hỏa tốc phải chọn shipper (shipper_id).', HttpStatus.BAD_REQUEST, { orderGroupId });
     }
+    // 31/10/2026 — Tiki dropship: shipper của Tiki tới kho lấy hàng theo nhãn Tiki cấp — không đặt hãng khác.
+    if (group.platform === MarketplacePlatform.TIKI && carrier) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.MARKETPLACE_PICKUP,
+        'Đơn Tiki (dropship) do shipper Tiki tới kho lấy — không chọn hãng vận chuyển. Bỏ carrier_code/service_code, in nhãn Tiki (GET /orders/:id/marketplace-labels) rồi bàn giao.',
+        HttpStatus.CONFLICT,
+        { orderGroupId },
+      );
+    }
     const shipper = shipperId ? await this.resolveShipper(shipperId) : null;
     const reusable = await this.assertNoShipment(group);
     if (carrier?.pickupAt) this.assertPickupNotPast(carrier.pickupAt);
@@ -354,6 +364,7 @@ export class ShipmentsService {
     const created = await this.runInTransaction(async (session) => {
       const extras: ShipmentExtras = { note: note ?? null };
       if (shipper) Object.assign(extras, shipper);
+      if (group.platform === MarketplacePlatform.TIKI) Object.assign(extras, { carrier_name: 'Tiki tới lấy hàng', service_name: 'Dropship' });
       if (group.requires_self_delivery) {
         // Hạn giao = giờ hẹn khách trên website (giờ đặt + 3 giờ), không theo giờ hành chính.
         Object.assign(extras, { carrier_name: 'Shop tự giao (hỏa tốc)', service_name: 'Hỏa tốc 3 giờ', due_at: group.delivery_deadline ?? undefined });
@@ -789,6 +800,14 @@ export class ShipmentsService {
     const reusable = new Map<string, ShipmentDocument | null>();
     for (const id of uniqueIds) {
       const group = await this.orderGroupsService.findOrderGroupById(id);
+      if (group.platform === MarketplacePlatform.TIKI) {
+        throw new AppException(
+          SHIPMENT_ERROR_CODES.MARKETPLACE_PICKUP,
+          `Nhóm ${id} là đơn Tiki (dropship) — shipper Tiki tới lấy, không giao qua hãng / chuyến chung. Tạo vận đơn riêng bằng POST /shipments (không chọn hãng).`,
+          HttpStatus.CONFLICT,
+          { orderGroupId: id },
+        );
+      }
       // 29/10/2026 — nhóm hỏa tốc không đi hãng, không giao chung chuyến.
       if (group.requires_self_delivery) {
         throw new AppException(
