@@ -66,7 +66,7 @@ export function OAuthSuccessPage() {
       <LoginScene
         closeTo="/login"
         artTitle="Đăng nhập Google"
-        artDescription="Hoàn tất phiên đăng nhập để quản lý công việc và phối hợp cùng đội ngũ."
+        artDescription="Đang hoàn tất đăng nhập bằng tài khoản Google đã được Admin cấp."
       >
         <div className="login-welcome" role="status" aria-live="polite">
           <div className="login-owl-stage">
@@ -111,7 +111,7 @@ export function OAuthSuccessPage() {
     <LoginScene
       closeTo="/login"
       artTitle="Đăng nhập Google"
-      artDescription="Hoàn tất phiên đăng nhập để quản lý công việc và phối hợp cùng đội ngũ."
+      artDescription="Đang hoàn tất đăng nhập bằng tài khoản Google đã được Admin cấp."
     >
       {errorMessage || missingTokens ? (
         <>

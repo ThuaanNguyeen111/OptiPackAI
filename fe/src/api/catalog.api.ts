@@ -75,6 +75,13 @@ export type UnpooledStockRow = {
   binLocationId: string
 }
 
+export type ProductDimension = {
+  lengthCm: number | null
+  widthCm: number | null
+  heightCm: number | null
+  weightKg: number | null
+}
+
 export type ProductMasterRow = {
   id: string
   platform: string
@@ -92,9 +99,17 @@ export type ProductMasterRow = {
   zipBagCode: string | null
   zipBagFolded: boolean
   canFoldInHalf: boolean
+  /** Kho đặt riêng cho SKU. null = theo loại hàng. */
+  outerRequirement: OuterRequirement | null
+  /** Giá trị đang áp sau khi xét loại hàng và cờ dễ vỡ. */
+  effectiveOuterRequirement: OuterRequirement | null
   suggestedZipBagCode?: string | null
   marketplaceStatus: string | null
   retired: boolean
+  marketplaceDimension: ProductDimension | null
+  profileConfirmedBy: string | null
+  profileConfirmedAt: string | null
+  lastSyncedAt: string | null
 }
 
 export type ConfirmPackagingProfileInput = {
@@ -109,6 +124,7 @@ export type ConfirmPackagingProfileInput = {
   zip_bag_code?: string | null
   zip_bag_folded?: boolean
   can_fold_in_half?: boolean
+  outer_requirement?: OuterRequirement | null
 }
 
 export type StockAvailability = {
@@ -117,6 +133,12 @@ export type StockAvailability = {
   onHand: number
   reserved: number
   available: number
+}
+
+export type OuterRequirement = 'mailer_ok' | 'box_required'
+
+function outerRequirementOf(value: unknown): OuterRequirement | null {
+  return value === 'mailer_ok' || value === 'box_required' ? value : null
 }
 
 function mapColor(raw: unknown): ColorRecord | null {
@@ -451,6 +473,19 @@ export async function syncProductCatalog(input: {
   })
 }
 
+function mapDimension(raw: unknown): ProductDimension | null {
+  const row = asRecord(raw)
+  if (!row) return null
+  const lengthCm = pickNumber(row.lengthCm, row.package_length_cm)
+  const widthCm = pickNumber(row.widthCm, row.package_width_cm)
+  const heightCm = pickNumber(row.heightCm, row.package_height_cm)
+  const weightKg = pickNumber(row.weightKg, row.package_weight_kg)
+  if (lengthCm == null && widthCm == null && heightCm == null && weightKg == null) {
+    return null
+  }
+  return { lengthCm, widthCm, heightCm, weightKg }
+}
+
 function mapProductMaster(raw: unknown): ProductMasterRow | null {
   const row = asRecord(raw)
   if (!row) return null
@@ -477,10 +512,20 @@ function mapProductMaster(raw: unknown): ProductMasterRow | null {
     zipBagCode: pickString(row.zipBagCode, row.zip_bag_code) || null,
     zipBagFolded: row.zipBagFolded === true || row.zip_bag_folded === true,
     canFoldInHalf: row.canFoldInHalf === true || row.can_fold_in_half === true,
+    outerRequirement: outerRequirementOf(row.outerRequirement ?? row.outer_requirement),
+    effectiveOuterRequirement: outerRequirementOf(row.effectiveOuterRequirement),
     suggestedZipBagCode: pickString(row.suggestedZipBagCode, row.suggested_zip_bag_code) || null,
     marketplaceStatus:
       pickString(row.marketplaceStatus, row.marketplace_status) || null,
     retired: row.retired === true,
+    marketplaceDimension: mapDimension(
+      row.marketplaceDimension ?? row.marketplace_dimension,
+    ),
+    profileConfirmedBy:
+      pickString(row.profileConfirmedBy, row.profile_confirmed_by) || null,
+    profileConfirmedAt:
+      pickString(row.profileConfirmedAt, row.profile_confirmed_at) || null,
+    lastSyncedAt: pickString(row.lastSyncedAt, row.last_synced_at) || null,
   }
 }
 
@@ -511,6 +556,15 @@ export async function listProductMaster(query: {
     return row ? [row] : []
   })
   return { total: items.length, items }
+}
+
+export async function getProductMaster(id: string): Promise<ProductMasterRow> {
+  const res = await apiRequest<unknown>(`/product-master/${encodeURIComponent(id)}`, {
+    auth: true,
+  })
+  const row = mapProductMaster(asRecord(res)?.data ?? res)
+  if (!row) throw new Error('SKU sàn không hợp lệ.')
+  return row
 }
 
 export async function listAllProductMaster(): Promise<ProductMasterRow[]> {

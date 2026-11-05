@@ -57,7 +57,7 @@ export function ResetPasswordPage() {
       night={night}
       closeTo="/login"
       artTitle="Mật khẩu mới"
-      artDescription="Tạo mật khẩu mạnh để tiếp tục quản lý công việc cùng đội ngũ."
+      artDescription="Đặt mật khẩu mới rồi đăng nhập lại như bình thường."
     >
       {done ? (
         <>

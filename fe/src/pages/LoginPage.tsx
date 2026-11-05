@@ -301,19 +301,27 @@ export function LoginPage() {
         {!mfaStep ? (
           <>
             <div className="login-owl-stage">
-              <h1 className="login-title login-title--with-owl">Đăng nhập</h1>
+              <div>
+                <h1 className="login-title login-title--with-owl">Đăng nhập</h1>
+                <p className="login-lead login-lead--left">
+                  Dùng tài khoản nhân viên do Admin cấp.
+                </p>
+              </div>
               {/* Bubble + cú sát nhau — title không chen giữa */}
               <div className="login-owl-cluster">
                 <LoginOwlBubble message={owlMessage} mood={owlMood} />
                 <div className="login-owl-shelf" aria-hidden>
                   <LoginOwl mood={owlMood} />
                 </div>
+                <label htmlFor="email" className="login-label login-label--owl">
+                  Email
+                </label>
                 <input
                   id="email"
                   name="email"
                   type="email"
                   autoComplete="username"
-                  placeholder="info@drakele.com"
+                  placeholder="ten@congty.vn"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   onFocus={() => setEmailFocused(true)}
@@ -334,6 +342,9 @@ export function LoginPage() {
                 }
               }}
             >
+              <label htmlFor="password" className="login-label">
+                Mật khẩu
+              </label>
               <FlashlightPasswordField
                 name="password"
                 value={password}

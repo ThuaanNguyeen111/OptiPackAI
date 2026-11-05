@@ -1006,6 +1006,7 @@ function mapPickingListItem(raw: unknown): WarehousePickingListItem | null {
     order_allocations: mapOrderAllocations(
       row.order_allocations ?? row.orderAllocations,
     ),
+    order_group_id: pickString(row.order_group_id, row.orderGroupId) || null,
   }
 }
 

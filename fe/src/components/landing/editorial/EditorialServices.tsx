@@ -1,87 +1,54 @@
 import type { ReactNode } from 'react'
-import { motion } from 'framer-motion'
-import {
-  Layers3,
-  PackageCheck,
-  Route,
-  Shuffle,
-  Truck,
-  Warehouse,
-} from 'lucide-react'
 
 const SERVICES = [
   {
-    icon: Shuffle,
-    tag: 'Sync',
+    no: '01',
     title: 'Đồng bộ đơn sàn',
-    body: 'Kéo đơn Lazada thật về MongoDB, chuẩn hóa trạng thái và sẵn sàng mở rộng TikTok/Tiki.',
+    body: 'Lazada qua Open Platform, AURELLE qua Open API ký HMAC. Đơn về theo lịch 5 phút hoặc ngay khi sàn báo.',
   },
   {
-    icon: Layers3,
-    tag: 'Consolidate',
-    title: 'Gộp đơn trùng',
-    body: 'Nhận diện cùng khách–địa chỉ, tạo nhóm đơn để lấy và đóng một lần thay vì rời rạc.',
+    no: '02',
+    title: 'Gom đơn cùng người nhận',
+    body: 'Cùng SĐT và địa chỉ thì vào chung một nhóm để lấy một lượt. Mỗi đơn vẫn giữ kiện và vận đơn riêng để trả hàng đúng đơn.',
   },
   {
-    icon: PackageCheck,
-    tag: 'AI Pack',
-    title: 'Gợi ý đóng gói',
-    body: 'Fallback First Fit Decreasing + lưới an toàn; AI thật cắm vào đúng một điểm gọi hàm.',
+    no: '03',
+    title: 'Kho có vị trí và lô',
+    body: 'Mã ô khu–dãy–kệ–tầng–ô, picking list theo lộ trình, lấy lô nhập trước, giữ chỗ để hai sàn không bán trùng một món.',
   },
   {
-    icon: Warehouse,
-    tag: 'WMS',
-    title: 'Vị trí kho & tồn',
-    body: 'Kệ 5 phần, picking list theo lộ trình, trừ tồn atomic khi quét từng SKU.',
+    no: '04',
+    title: 'Xếp thùng 3D',
+    body: 'Thuật toán di truyền tìm cách xếp vào thùng nhỏ nhất còn tồn; đơn nhỏ được CP-SAT kiểm lại để biết đã tối ưu hay chưa.',
   },
   {
-    icon: Route,
-    tag: 'Pick',
-    title: 'Lấy hàng có kiểm soát',
-    body: 'Report thiếu hàng, duyệt partial, giữ chỗ chống bán lố giữa các sàn.',
+    no: '05',
+    title: 'Vận đơn GHN',
+    body: 'Báo giá từng kiện, tạo vận đơn, in nhãn có mã GHN. Trạng thái giao về qua webhook và được gửi ngược cho sàn.',
   },
   {
-    icon: Truck,
-    tag: 'Ship',
-    title: 'Giao hàng tự thân',
-    body: 'Vận đơn, sự kiện tracking, giao lại có khoảng cách — giả lập an toàn cho demo.',
+    no: '06',
+    title: 'Trả hàng và tái dùng thùng',
+    body: 'Khách gửi yêu cầu trên AURELLE, kho nhận và kiểm. Thùng còn tốt được nhập lại để dùng cho đơn sau.',
   },
 ] as const
 
 export function EditorialServices(): ReactNode {
   return (
     <section id="services" className="ed-section">
-      <p className="ed-kicker">Dịch vụ lõi</p>
-      <h2 className="ed-title">Sáu lớp vận hành, một hợp đồng dữ liệu</h2>
-      <p className="ed-lead">
-        Mỗi khối dưới đây map thẳng vào module đang chạy — không slide lý thuyết.
-      </p>
+      <h2 className="ed-title">Hệ thống làm những việc gì</h2>
 
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {SERVICES.map((item, i) => (
-          <motion.article
-            key={item.title}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, margin: '-6%' }}
-            transition={{ delay: i * 0.05, duration: 0.4 }}
-            className="group rounded-3xl border border-[var(--ed-line)] bg-white/75 p-6 shadow-[0_8px_28px_rgba(21,45,53,0.04)] transition-transform duration-300 hover:scale-[1.02]"
-          >
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[color-mix(in_srgb,var(--ed-sage)_70%,white)] text-[var(--ed-ink)]">
-                <item.icon className="h-5 w-5" strokeWidth={1.75} />
-              </span>
-              <span className="rounded-full border border-[var(--ed-line)] px-2.5 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-[var(--ed-muted)] uppercase">
-                {item.tag}
-              </span>
-            </div>
-            <h3 className="m-0 text-lg font-semibold tracking-tight text-[var(--ed-ink)]">
+      <div className="mt-10 grid gap-x-10 gap-y-8 border-t border-[var(--ed-line)] pt-8 sm:grid-cols-2 lg:grid-cols-3">
+        {SERVICES.map((item) => (
+          <article key={item.no}>
+            <p className="ed-display m-0 text-sm tabular-nums text-[var(--ed-muted)]">{item.no}</p>
+            <h3 className="m-0 mt-2 text-lg font-semibold tracking-tight text-[var(--ed-ink)]">
               {item.title}
             </h3>
-            <p className="m-0 mt-2 text-sm leading-relaxed text-[var(--ed-ink-soft)]">
+            <p className="m-0 mt-2 text-[15px] leading-relaxed text-[var(--ed-ink-soft)]">
               {item.body}
             </p>
-          </motion.article>
+          </article>
         ))}
       </div>
     </section>

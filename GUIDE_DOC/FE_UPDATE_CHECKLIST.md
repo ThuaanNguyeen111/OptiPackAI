@@ -13,14 +13,14 @@
 |---|---|---|---|---|
 | 1 | Màn Giao hàng: **điền sẵn 4 ô địa chỉ** từ `GET /shipping/recipients/:groupId` (đơn AURELLE không phải gõ tay), chip **"Địa chỉ mô phỏng #n"** cho đơn bị che, hiện `assumptions` của báo giá | 1 | ~1 giờ | ☐ Chưa làm |
 | 2 | **Khung 3D dựng theo kế hoạch thật**: `Packing3DBoxViewer.tsx` hiện chỉ vẽ cảnh mẫu cố định (kích thước thùng đoán theo tên thùng, món hàng vẽ sẵn), **không đọc `parcels[].placements`** mà BE đã trả. Phải vẽ từng món theo `x, y, z, dx, dy, dz` (mm) + `orientation` + `folded`; scale đều, túi zip nằm trong ô, món đỡ | 2 | ~1–2 ngày | ✅ 30/10 — đã làm, chưa thử với kế hoạch thật trên trình duyệt (xem mục 2) |
-| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm). 🔄 28/10: phần Bảng điều khiển chuyển sang dòng 7 | 3 | Tuỳ | ☐ Chưa làm — tuỳ chọn |
-| 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ☐ Chưa làm |
-| 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ☐ Chưa làm |
+| 3 | (Tuỳ chọn) Chi tiết 1 sản phẩm Product Master `GET /product-master/:id` (FE chưa có hàm). 🔄 28/10: phần Bảng điều khiển chuyển sang dòng 7 | 3 | Tuỳ | ✅ 31/10 — `getProductMaster` + nút Chi tiết ở tab Nối SKU |
+| 4 | 🆕 Màn lấy hàng đơn gộp: **chia khay theo đơn** — mỗi đơn 1 màu + nhãn khay (A, B, C…), bảng "Khay của nhóm", quét SKU có ≥ 2 đơn thì hỏi bỏ vào khay nào và đếm còn lại từng khay (chỉ FE, không đổi BE) | 3.1 | ~nửa ngày | ✅ 31/10 — `WarehousePage` (đếm tạm, không lưu BE) |
+| 5 | 🆕 Màn lấy hàng (Warehouse Staff): **lấy chung các nhóm cùng người nhận** (khác sàn / liên kết tay) bằng `GET /warehouse/:warehouseId/picking-list?group_ids=` — hiện chỉ có ở màn Admin | 3.2 | ~nửa ngày | ✅ 31/10 — nút lấy chung trên `WarehousePage` |
 | 6 | 🆕 Màn đóng gói: khoá **"Đóng nhanh"** theo field mới `packScanRequired` (nhóm ≥ 2 đơn **hoặc** khác tên) thay cho `recipientNamesDiffer`; xử lý `details.reason = 'multi_order_group'` | 3.3 | ~1 giờ | ☐ Chưa làm |
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
-| 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ✅ Đã nối (31/10) |
-| 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | ☐ Chưa làm |
+| 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ✅ 01/11 — `ConsolidationRulesPanel` trong trang Luật gộp đơn; chưa bấm thử với dữ liệu thật |
+| 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -97,7 +97,7 @@ Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô 
 
 ## 3. 🆕 28/10/2026 — Màn lấy hàng cho đơn gộp (dòng 4, 5)
 
-**Hiện trạng (đọc code `main` 28/10):** `WarehousePage.tsx` đã gom theo SKU và hiện 1 dòng chữ "Chia theo đơn: Chị Lan · 5329… ×2 · Anh Tuấn · 5330… ×1" (`allocationText`, chỉ khi SKU thuộc ≥ 2 đơn). Chưa có khay/màu theo đơn, quét xong không biết món đã vào khay nào. Lấy chung nhiều nhóm (khác sàn, liên kết tay) chỉ có ở `AdminWarehousePage.tsx` (`getWarehousePickingListForGroups`), Warehouse Staff không dùng được dù BE đã cho quyền. Luồng đơn gộp đầy đủ + giới hạn BE: `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9**.
+**Hiện trạng (31/10):** `WarehousePage.tsx` đã có khay A/B/C + màu theo người nhận, bảng "Khay của nhóm", hộp chọn khay khi SKU thuộc ≥ 2 đơn, banner khác tên, và nút lấy chung nhóm liên kết (`listLinkedOrderGroups` + `getWarehousePickingListForGroups`). Đếm khay chỉ ở FE. Luồng đơn gộp đầy đủ + giới hạn BE: `INTEGRATION_GUIDE_FULFILLMENT.md` **Nghiệp vụ 9**.
 
 ### 3.1 Chia khay theo đơn (dòng 4) — chỉ FE
 
@@ -199,7 +199,7 @@ Việc FE (`PackagingWorkbench.tsx`):
 
 ## 6. 🆕 31/10/2026 — Màn quản lý quy tắc gộp đơn (dòng 9)
 
-**Nghiệp vụ:** Admin mô tả bằng câu chữ ("Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp"), AI dịch thành quy tắc, Admin xem trước rồi xác nhận. Lúc đồng bộ đơn hệ thống áp quy tắc đã lưu, **không gọi AI**. Tối đa 10 quy tắc, kết hợp với khoá gom cơ bản (`consolidation_key_fields`) theo kiểu **hoặc**. API, body, response: [`INTEGRATION_GUIDE_ORDERS.md` mục 7c](INTEGRATION_GUIDE_ORDERS.md), bảng route `API_LIST.md` mục 28. BE và FE đã xong (AOFP-223) — khối "Quy tắc gộp bổ sung" trong `fe/src/pages/order-sync/ConsolidationRulesPanel.tsx`, gọi API qua `fe/src/api/consolidation-rules.api.ts`.
+**Nghiệp vụ:** Admin mô tả bằng câu chữ ("Gộp đơn cùng SĐT và cùng phường, khác tên vẫn gộp"), AI dịch thành quy tắc, Admin xem trước rồi xác nhận. Lúc đồng bộ đơn hệ thống áp quy tắc đã lưu, **không gọi AI**. Tối đa 10 quy tắc, kết hợp với khoá gom cơ bản (`consolidation_key_fields`) theo kiểu **hoặc**. API, body, response: [`INTEGRATION_GUIDE_ORDERS.md` mục 7c](INTEGRATION_GUIDE_ORDERS.md), bảng route `API_LIST.md` mục 28. BE đã xong (AOFP-223); FE chưa làm thì hệ thống chạy y như trước.
 
 Đặt màn trong trang **Cấu hình đồng bộ & gom đơn** đang có (cùng chỗ form `/order-sync-settings`), thêm 1 tab/khối "Quy tắc gộp bổ sung".
 
@@ -225,8 +225,8 @@ Việc FE (`PackagingWorkbench.tsx`):
 | 7.1 | Product Master (`CatalogPanels.tsx`) | Thêm loại `bag` (túi xách) vào ô danh mục. Ô **"Lớp ngoài"** `outerRequirement`: `mailer_ok` (được dùng túi niêm phong) / `box_required` (bắt buộc thùng) / để trống = theo loại; hiện `effectiveOuterRequirement` (giá trị đang áp) |
 | 7.2 | Cài đặt đóng gói (`PUT /packing/settings`) | Công tắc `mailer_enabled` (mặc định tắt) + các ô `mailer_margin_width_mm`, `mailer_margin_length_mm`, `mailer_max_thickness_mm`, `split_min_saving_vnd`, `est_fee_first_step_vnd`, `est_fee_per_extra_step_vnd` |
 | 7.3 | Danh mục vật tư | Tạo vật tư `kind: 'mailer'` (túi niêm phong): nhập `width_cm`, `length_cm` (kích thước túi phẳng, không có cao), `tare_g` (bắt buộc), `max_load_g`; vật liệu chèn mới `kraft_paper`, `tissue_paper` (seed `scripts/seed-packaging-materials.ts`) |
-| 7.4 | Khung 3D (`Packing3DBoxViewer.tsx`) | `parcels[].box.kind === 'mailer'` → vẽ túi dẹt (không vẽ nắp thùng, bỏ chữ "nắp" viết cứng); hướng dẫn đóng gói của túi là câu mẫu (không qua AI) |
-| 7.5 | Màn đóng gói — kiện gộp | Kiện có `orderIds.length ≥ 2`: hiện "Kiện chung đơn A + B" (`platformOrderIds`), tô màu món theo `placements[].orderId`. Mã món dạng `AUR-A/TEE#1`. Chuyển món được giữa các kiện cùng `shareGroup`. Tem vận đơn in "A + B"; phiếu đóng gói in cho từng đơn |
+| 7.4 | ✅ 01/11 — Khung 3D (`Packing3DBoxViewer.tsx`) | `parcels[].box.kind === 'mailer'` → dựng `mailer.glb`: túi nằm cạnh chồng hàng, trượt vào, phồng, dán nắp, dán tem; không vẽ thùng, bỏ chữ "nắp". Túi chỉ dựng theo kích thước sau nhồi + lề cố định, vì API chưa trả khổ túi trải phẳng. Lời hướng dẫn từng món vẫn lấy từ `parcel.guide` |
+| 7.5 | ✅ 01/11 phần tô màu theo đơn + chú giải + bước đặt phiếu trong khung 3D; **chưa có** UI chuyển món giữa kiện cùng `shareGroup` — Màn đóng gói — kiện gộp | Kiện có `orderIds.length ≥ 2`: hiện "Kiện chung đơn A + B" (`platformOrderIds`), tô màu món theo `placements[].orderId`. Mã món dạng `AUR-A/TEE#1`. Chuyển món được giữa các kiện cùng `shareGroup`. Tem vận đơn in "A + B"; phiếu đóng gói in cho từng đơn |
 | 7.6 | Hàng chờ đóng gói (`PackagingWorkbench.tsx`) — 🆕 31/10 | Packaging Staff mở trang mặc định ở tab **"Đã lấy hàng" (`picked`) + phạm vi "Của tôi"** → luôn rỗng, vì nhóm `picked` chưa có kế hoạch `ready` nên chưa có người đóng. Sửa: mặc định tab `pending_approval` (việc đã giao cho mình), hoặc tab `picked` thì tự chuyển phạm vi "Tất cả". BE nay giao lại kế hoạch mồ côi mỗi phút (`INTEGRATION_GUIDE_PACKING.md` mục 1.1) |
 
 **Nghiệm thu:** bật `mailer_enabled`, seed túi (`npx ts-node scripts/seed-packaging-mailers.ts`) → đơn 1 áo ra 1 túi niêm phong, khung 3D vẽ túi; đặt 2 đơn AURELLE cùng người nhận (cùng nhóm gộp) → 1 kiện chung 2 đơn, 2 phiếu đóng gói, 1 vận đơn GHN, mã vận đơn hiện ở cả 2 đơn trên website.

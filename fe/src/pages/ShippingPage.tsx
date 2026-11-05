@@ -7,7 +7,6 @@ import {
   Printer,
   Download,
   MapPin,
-  Eye,
   Check,
   X,
   Loader2,
@@ -61,6 +60,8 @@ import {
   type ShippingServiceQuote,
 } from '../api/shipping.api'
 import { formatApiError } from '../lib/api'
+import { Badge } from '../components/ui/Badge'
+import { shipmentStatusTone } from '../lib/stage-colors'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import type { OrderGroup } from '../types/order-groups'
@@ -281,7 +282,6 @@ export function ShippingPage() {
   const [scanInput, setScanInput] = useState('')
   const scanInputRef = useRef<HTMLInputElement>(null)
   const [filterQuery, setFilterQuery] = useState('')
-  const [autoScanActive, setAutoScanActive] = useState(false)
 
   const [packedGroups, setPackedGroups] = useState<OrderGroup[]>([])
   const [shipments, setShipments] = useState<Shipment[]>([])
@@ -1003,10 +1003,14 @@ export function ShippingPage() {
     }
   }
 
-  const progressPct = selected ? 100 : 0
+  // Thanh "Lượt giao" = số lần đã giao / số lần tối đa (trước đây luôn 100% khi chọn kiện).
+  const progressPct =
+    selected?.kind === 'shipment' && selected.shipment.maxAttempts > 0
+      ? Math.min(100, (selected.shipment.attemptCount / selected.shipment.maxAttempts) * 100)
+      : 0
 
   return (
-    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-[#EAEEEC] dark:bg-transparent">
+    <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-hidden bg-transparent">
       <PortalTopBar
         breadcrumbs={[
           { label: 'OptiPackAI', to: '/app' },
@@ -1020,7 +1024,7 @@ export function ShippingPage() {
           <div className="flex min-w-0 items-center gap-3">
             <div className="flex shrink-0 items-center gap-2">
               <h1 className="shrink-0 text-xl font-semibold tracking-tight text-[var(--ls-ink)]">
-                {vi ? 'Vận chuyển & bàn giao' : 'Shipping & handover'}
+                {vi ? 'Giao hàng' : 'Shipping'}
               </h1>
               <button
                 type="button"
@@ -1089,7 +1093,7 @@ export function ShippingPage() {
           </div>
 
           <form onSubmit={handleScanSubmit} className="relative">
-            <div className="flex h-12 w-full items-center rounded-xl border border-slate-300 bg-white px-4 transition-colors focus-within:border-[var(--app-teal-dark,#152d35)] focus-within:ring-2 focus-within:ring-[var(--app-teal-dark,#152d35)]/20 dark:border-slate-600 dark:bg-[var(--ls-panel)]">
+            <div className="flex h-11 w-full items-center rounded-lg border border-slate-300 bg-white px-4 transition-colors focus-within:border-[var(--app-teal-dark,#152d35)] focus-within:ring-2 focus-within:ring-[var(--app-teal-dark,#152d35)]/20 dark:border-slate-600 dark:bg-[var(--ls-panel)]">
               <BarcodeLineIcon className="text-slate-700 dark:text-slate-300" />
               <input
                 ref={scanInputRef}
@@ -1105,29 +1109,6 @@ export function ShippingPage() {
                 autoComplete="off"
                 spellCheck={false}
               />
-              <button
-                type="button"
-                onClick={() => {
-                  setAutoScanActive((v) => !v)
-                  showToast(
-                    !autoScanActive
-                      ? vi
-                        ? 'Ô tìm sẽ lọc bảng khi gõ xong (Enter).'
-                        : 'Search filters the table on Enter.'
-                      : vi
-                        ? 'Đã tắt gợi ý lọc nhanh.'
-                        : 'Quick filter hint off.',
-                  )
-                }}
-                className={`inline-flex cursor-pointer items-center gap-1.5 rounded px-2 py-0.5 text-xs font-semibold select-none transition-colors ${
-                  autoScanActive
-                    ? 'bg-[var(--ls-cta)] text-white'
-                    : 'bg-[color-mix(in_srgb,var(--ls-cta)_16%,transparent)] text-[var(--ls-cta)]'
-                }`}
-              >
-                <span>AUTO</span>
-                <Eye className="h-3.5 w-3.5" />
-              </button>
             </div>
           </form>
         </div>
@@ -1338,7 +1319,7 @@ export function ShippingPage() {
                         : 'This address override applies to every parcel on this shipment.'}
                     </p>
                     {namesDiffer ? (
-                      <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                      <p className="rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 text-[11px] font-medium text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100">
                         {vi
                           ? `Nhóm gộp nhiều người nhận — địa chỉ sửa áp dụng mọi kiện. Vận đơn có kiện của ${String(selectedGroup?.recipientNames.length ?? 0)} người nhận — mỗi kiện một mã hãng riêng.`
                           : `Merged group has multiple recipients — this address override applies to every parcel. This shipment has parcels for ${String(selectedGroup?.recipientNames.length ?? 0)} recipients — each parcel has its own carrier code.`}
@@ -1540,7 +1521,7 @@ export function ShippingPage() {
                   </p>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
                   <table className="w-full border-collapse text-left">
                     <thead>
                       <tr className="border-b border-slate-200/80 bg-slate-50 text-[11px] font-bold tracking-wider text-slate-500 uppercase dark:border-slate-800 dark:bg-surface-2/50 dark:text-slate-400">
@@ -1651,20 +1632,12 @@ export function ShippingPage() {
                               </td>
                               <td className="py-3 px-3.5 text-right sm:text-left">
                                 <div className="flex flex-col items-end gap-1 sm:items-start">
-                                {isDone && rowStatus === 'delivered' ? (
-                                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white tracking-wider uppercase shadow-2xs select-none">
-                                    <Check className="h-3 w-3 stroke-[3]" />
-                                    <span>{statusLabel(rowStatus, vi)}</span>
-                                  </span>
-                                ) : rowStatus === 'packed' || rowStatus === 'delivery_failed' ? (
-                                  <span className="inline-flex items-center gap-1 rounded-md border border-amber-300/80 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-800 tracking-wider uppercase dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300 select-none">
-                                    <span>{statusLabel(rowStatus, vi)}</span>
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex select-none items-center gap-1 rounded-md bg-[var(--ls-cta)] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-white shadow-2xs">
-                                    <span>{statusLabel(rowStatus, vi)}</span>
-                                  </span>
-                                )}
+                                <Badge tone={shipmentStatusTone(rowStatus)} className="gap-1 font-semibold">
+                                  {isDone && rowStatus === 'delivered' ? (
+                                    <Check className="h-3 w-3 stroke-[3]" aria-hidden />
+                                  ) : null}
+                                  {statusLabel(rowStatus, vi)}
+                                </Badge>
                                 {row.kind === 'shipment' &&
                                 isShipmentDeliveryOverdue(row.shipment) ? (
                                   <span className="inline-flex rounded border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:border-rose-800 dark:bg-rose-950/50 dark:text-rose-200">
@@ -1914,7 +1887,7 @@ export function ShippingPage() {
                         <p className="text-xs text-red-600">{selected.shipment.carrierBookingError}</p>
                       ) : null}
                       {namesDiffer ? (
-                        <p className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-1.5 text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-100">
+                        <p className="rounded-lg border border-teal-200 bg-teal-50 px-2 py-1.5 text-[11px] font-medium text-teal-900 dark:border-teal-800 dark:bg-teal-950/40 dark:text-teal-100">
                           {vi
                             ? `Nhóm gộp nhiều người nhận — địa chỉ sửa áp dụng mọi kiện. Vận đơn có kiện của ${String(selectedGroup?.recipientNames.length ?? 0)} người nhận — mỗi kiện một mã hãng riêng.`
                             : `Merged group has multiple recipients — this address override applies to every parcel. This shipment has parcels for ${String(selectedGroup?.recipientNames.length ?? 0)} recipients — each parcel has its own carrier code.`}
@@ -2312,8 +2285,8 @@ export function ShippingPage() {
                       : 'Create a shipment for this packed group. Own fleet — no 3PL.'
                   : modalMode === 'fail'
                     ? vi
-                      ? 'Chọn lý do. Khách từ chối hoặc hết 2 lần → hệ thống tự chuyển hoàn về kho.'
-                      : 'Pick a reason. Customer refused or 2 attempts → auto return.'
+                      ? 'Chọn lý do. Khách từ chối nhận hoặc đã giao thất bại 2 lần thì hàng tự chuyển hoàn về kho.'
+                      : 'Pick a reason. If the customer refused or this is the 2nd failed attempt, the parcel returns to the warehouse.'
                     : vi
                       ? 'Thao tác ghi lên vận đơn (có kiểm tra version để tránh ghi đè).'
                       : 'This writes the shipment (version-checked).'}
