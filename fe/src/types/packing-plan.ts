@@ -66,6 +66,8 @@ export type PackingPlanParcel = {
   isAbnormal?: boolean
   scans?: PackingPlanScan[]
   guide?: PackingGuide | null
+  /** Bảng so sánh thùng của kiện (05/11/2026). null = kiện nhập tay hoặc tính trước 05/11. */
+  boxComparison?: BoxComparison | null
   orderId?: string | null
   recipientName?: string | null
   platformOrderId?: string | null
@@ -89,6 +91,10 @@ export type PackingPlan = {
   status: string
   /** true khi hồ sơ SKU được đo lại sau lúc tính kế hoạch (chỉ GET trả đúng). */
   profileStale?: boolean
+  /** true khi danh mục thùng / vật tư / luật đổi sau lúc tính (chỉ GET trả đúng). */
+  catalogStale?: boolean
+  /** Các thay đổi danh mục, hiện nguyên văn. */
+  catalogChanges?: string[]
   failureReason: string | null
   orders: {
     overParcelLimit: boolean
@@ -182,6 +188,58 @@ export type PackingGuide = {
   fallbackReason: string | null
   summary: string
   steps: { step: number; instruction: string; tip: string | null }[]
+  /** Đánh giá của người đóng gói. Hướng dẫn AI được chấm hữu ích sẽ thành ví dụ mẫu. */
+  rating?: { helpful: boolean; comment: string | null } | null
+  /** Số ví dụ mẫu đã gửi kèm cho AI lúc viết. */
+  examplesUsed?: number
+}
+
+export type BoxComparisonRow = {
+  boxCode: string
+  boxName: string
+  kind: 'box' | 'mailer'
+  /** Thùng kiện đang dùng. */
+  isChosen: boolean
+  /** false = không dùng được, xem verdict. */
+  eligible: boolean
+  /** 1 = tốt nhất theo luật ưu tiên của bộ giải. null khi không dùng được. */
+  rank: number | null
+  /** 0–10; 0 khi không dùng được. */
+  score: number
+  criteria: { billable: number; packaging: number; fill: number; handling: number } | null
+  billableWeightG: number | null
+  packagingCostVnd: number | null
+  fillRatio: number | null
+  folds: number | null
+  estimatedWeightG: number | null
+  /** Thùng trống còn lại. null = không xét tồn. */
+  available: number | null
+  verdict: string
+}
+
+export type BoxComparison = {
+  prefer: 'fewest_parcels' | 'cheapest'
+  weights: { billable: number; packaging: number; fill: number; handling: number }
+  rows: BoxComparisonRow[]
+  /** false = có thùng điểm cao hơn mà xếp sau. */
+  scoresConsistent: boolean
+  summary: string
+  generatedAt: string
+}
+
+export type PackingGuideTrace = {
+  source: 'ai' | 'template'
+  model: string | null
+  fallbackReason: string | null
+  systemPrompt: string
+  /** Chuỗi JSON đúng như đã gửi trong user message. */
+  userPayload: string
+  /** Nội dung thô model trả. null khi dùng câu mẫu hoặc gọi lỗi. */
+  rawResponse: string | null
+  examplesUsed: number
+  exampleRefs?: unknown
+  latencyMs: number | null
+  createdAt: string
 }
 
 export type PackingPlanSummary = {

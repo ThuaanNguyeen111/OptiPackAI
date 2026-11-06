@@ -74,6 +74,8 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 import { selectParcel } from '../../utils/packing-layout'
 import { PackingSessionPanel } from './PackingSessionPanel'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
+import { BoxComparisonTable } from './BoxComparisonTable'
+import { GuideRating, GuideTraceButton } from './GuideFeedback'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -418,6 +420,7 @@ export function PackagingWorkbench() {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [overrideReason, setOverrideReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
+  const [asideTab, setAsideTab] = useState<'guide' | 'compare'>('guide')
   const [guideDetailOpen, setGuideDetailOpen] = useState(false)
   /** Khung nội dung app (chừa sidebar) — chi tiết 3D phủ full vùng này. */
   const [stageEl, setStageEl] = useState<HTMLElement | null>(null)
@@ -1325,12 +1328,11 @@ export function PackagingWorkbench() {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
-      <section className="owner-hero">
-        <div>
-          <p className="owner-hero-kicker">
-            {vi ? 'Nhân viên đóng gói' : 'Packaging Staff'}
-          </p>
-          <h1>{vi ? 'Đóng gói' : 'Packing'}</h1>
+      <section className="owner-hero pack-hero">
+        <div className="pack-hero-main">
+          <div className="pack-hero-title">
+            <h1>{vi ? 'Đóng gói' : 'Packing'}</h1>
+          </div>
           <p
             className={`owner-hero-lead ${actionableCount > 0 ? 'font-medium text-[var(--ls-ink)]' : ''}`}
           >
@@ -1346,36 +1348,36 @@ export function PackagingWorkbench() {
                 ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked, plans are being computed. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
                 : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
           </p>
-          <div className="owner-hero-ctas">
-            <button
-              type="button"
-              onClick={() => void loadList()}
-              className="owner-btn-primary inline-flex items-center gap-1.5"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {vi ? 'Tải lại' : 'Refresh'}
-            </button>
-          </div>
         </div>
-        <ol className="owner-steps">
-          {queueTabs.map(([key, label, count, viewOnly], index) => (
-            <li key={key}>
-              <button
-                type="button"
-                onClick={() => setTab(key)}
-                aria-current={tab === key ? 'true' : undefined}
-              >
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                {label} ({String(count)})
-                {viewOnly ? (
-                  <em className="not-italic text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    {vi ? 'Chỉ xem' : 'View'}
-                  </em>
-                ) : null}
-              </button>
-            </li>
-          ))}
-        </ol>
+        <div className="pack-tabs-row">
+          <ol className="owner-steps pack-tabs">
+            {queueTabs.map(([key, label, count, viewOnly], index) => (
+              <li key={key}>
+                <button
+                  type="button"
+                  onClick={() => setTab(key)}
+                  aria-current={tab === key ? 'true' : undefined}
+                >
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  {label} ({String(count)})
+                  {viewOnly ? (
+                    <em className="not-italic text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                      {vi ? 'Chỉ xem' : 'View'}
+                    </em>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ol>
+          <button
+            type="button"
+            onClick={() => void loadList()}
+            className="owner-btn-primary inline-flex items-center gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            {vi ? 'Tải lại' : 'Refresh'}
+          </button>
+        </div>
       </section>
 
       <div className="pack-bench">
@@ -1593,8 +1595,11 @@ export function PackagingWorkbench() {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Package className="h-5 w-5 text-primary" />
-                  <h2 className="font-mono text-sm font-semibold text-ink">
-                    {group.id}
+                  <h2 className="text-sm font-semibold text-ink">
+                    <span className="capitalize">{group.platform}</span>{' '}
+                    <span className="font-mono" title={group.id}>
+                      #{group.id.slice(-8)}
+                    </span>
                   </h2>
                   {group.orderPriority === 'express' ? (
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
@@ -1615,7 +1620,7 @@ export function PackagingWorkbench() {
                     </span>
                   ) : null}
                 </div>
-                <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <dl className="pack-facts mt-3">
                   <div>
                     <dt className="text-ink-subtle">
                       {vi ? 'Trạng thái' : 'Status'}
@@ -1982,7 +1987,7 @@ export function PackagingWorkbench() {
                       </p>
                     ) : (
                       <div className="mt-3 space-y-3 text-sm">
-                        <dl className="grid gap-2 sm:grid-cols-2">
+                        <dl className="pack-facts">
                           <div>
                             <dt className="text-ink-subtle">
                               {vi ? 'Trạng thái kế hoạch' : 'Plan status'}
@@ -2008,6 +2013,36 @@ export function PackagingWorkbench() {
                                 ? 'Hồ sơ SKU đã được đo lại sau khi tính kế hoạch. Số đo trên kế hoạch này có thể cũ.'
                                 : 'A SKU profile was remeasured after this plan was calculated. Sizes on this plan may be out of date.'}
                             </p>
+                            <button
+                              type="button"
+                              disabled={recomputing || actionBusy}
+                              onClick={() => void onRecompute()}
+                              className="rounded-lg border border-amber-700/40 bg-white px-2 py-1 text-xs font-medium text-amber-950 disabled:opacity-50 dark:bg-transparent dark:text-amber-100"
+                            >
+                              {recomputing
+                                ? vi
+                                  ? 'Đang tính lại…'
+                                  : 'Recomputing…'
+                                : vi
+                                  ? 'Tính lại kế hoạch'
+                                  : 'Recompute plan'}
+                            </button>
+                          </div>
+                        ) : null}
+                        {plan.catalogStale ? (
+                          <div className="space-y-1.5 rounded-lg border border-amber-700/30 bg-amber-50 p-2 dark:bg-amber-950/20">
+                            <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                              {vi
+                                ? 'Danh mục thùng/vật tư đã đổi sau khi tính kế hoạch.'
+                                : 'The box/material catalog changed after this plan was calculated.'}
+                            </p>
+                            {(plan.catalogChanges ?? []).length > 0 ? (
+                              <ul className="list-disc space-y-0.5 pl-4 text-xs text-amber-900 dark:text-amber-100">
+                                {(plan.catalogChanges ?? []).map((change) => (
+                                  <li key={change}>{change}</li>
+                                ))}
+                              </ul>
+                            ) : null}
                             <button
                               type="button"
                               disabled={recomputing || actionBusy}
@@ -2183,6 +2218,10 @@ export function PackagingWorkbench() {
                 onOpenDetail={() => setGuideDetailOpen(true)}
               />
               <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+              <BoxComparisonTable
+                comparison={selectParcel(plan, parcelNo)?.boxComparison}
+                vi={vi}
+              />
               <button
                 type="button"
                 onClick={() => setGuideDetailOpen(true)}
@@ -2258,11 +2297,46 @@ export function PackagingWorkbench() {
               autoRotate={
                 guide3dActive || tab === 'approved_for_packing'
               }
-              className="relative h-full w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40"
+              className="pack-viewer relative w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40"
               onOpenDetail={() => setGuideDetailOpen(true)}
             />
-            <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
             {plan && plan.parcels.length > 0 ? (
+              <div className="pack-aside-tabs" role="tablist">
+                {(
+                  [
+                    ['guide', vi ? 'Hướng dẫn' : 'Guide'],
+                    ['compare', vi ? 'So sánh thùng' : 'Compare boxes'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={asideTab === key}
+                    onClick={() => setAsideTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {asideTab === 'compare' ? (
+              selectParcel(plan, parcelNo)?.boxComparison ? (
+                <BoxComparisonTable
+                  comparison={selectParcel(plan, parcelNo)?.boxComparison}
+                  vi={vi}
+                />
+              ) : plan && plan.parcels.length > 0 ? (
+                <p className="mt-3 text-xs text-ink-subtle">
+                  {vi
+                    ? 'Kiện này chưa có bảng so sánh (kiện nhập tay hoặc tính trước 05/11). Chỉnh tay hoặc tính lại để có bảng.'
+                    : 'No comparison for this parcel (manual or computed before 05/11).'}
+                </p>
+              ) : null
+            ) : (
+              <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+            )}
+            {asideTab === 'guide' && plan && plan.parcels.length > 0 ? (
               <div className="mt-3 space-y-2 text-xs text-ink">
                 <button
                   type="button"
@@ -2285,6 +2359,20 @@ export function PackagingWorkbench() {
                       {step.tip ? ` — ${step.tip}` : ''}
                     </p>
                   ))}
+                {guideParcel?.guide && group ? (
+                  <GuideRating
+                    key={`${String(guideParcel.parcelNo)}:${guideParcel.guide.source}`}
+                    groupId={group.id}
+                    parcelNo={guideParcel.parcelNo}
+                    guide={guideParcel.guide}
+                    vi={vi}
+                    onPlan={(next) => setPlan((current) => retainProfileStale(current, next))}
+                    onToast={setToast}
+                  />
+                ) : null}
+                {guideParcel?.guide && group && session?.role === UserRole.ADMIN ? (
+                  <GuideTraceButton groupId={group.id} parcelNo={guideParcel.parcelNo} vi={vi} />
+                ) : null}
               </div>
             ) : null}
           </div>

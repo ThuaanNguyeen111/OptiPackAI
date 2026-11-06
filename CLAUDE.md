@@ -4651,3 +4651,9 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 22e. 🆕 28/10 (tối): màn lấy hàng đơn gộp. 🔄 ĐÃ LÀM 31/10 trên `WarehousePage`: chia khay theo đơn (dòng 4 — đếm tạm phiên, không lưu BE; bảng "Khay của nhóm"; dialog chọn khay khi SKU ≥ 2 đơn); lấy chung nhóm liên kết (dòng 5 — `listLinkedOrderGroups` + `getWarehousePickingListForGroups`, pick/report/complete theo `line.group_id`). Còn dòng 6: khoá "Đóng nhanh" theo `packScanRequired`.
 22f. 🆕 29/10: đơn hỏa tốc AURELLE trên FE OptiPack — nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper (`FE_UPDATE_CHECKLIST.md` dòng 8, mục 5), chưa làm. Chạy thử đầu-cuối 1 đơn hỏa tốc (A.4) trong 8:00–14:00.
 22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.
+
+## 🖥️ Nhật ký 06/11/2026 — FE: bảng so sánh thùng + AI minh bạch (checklist dòng 11, 12; BE của Thi, AOFP-229)
+
+**Làm (chỉ FE):** `BoxComparisonTable.tsx` (bảng theo đúng thứ tự BE trả, tô dòng đang dùng, mờ dòng không dùng được, ⚠ khi `scoresConsistent=false`, tooltip 4 điểm con), `GuideFeedback.tsx` (`GuideRating` 👍/👎 + góp ý, toast khi `savedAsExample`; `GuideTraceButton` hộp thoại xem system prompt / JSON gửi / phản hồi thô, chỉ Admin), banner `catalogStale` + `catalogChanges` + nút Tính lại cạnh banner `profileStale`; kiểu `BoxComparison`, `PackingGuideTrace`, hàm `rateParcelGuide`, `getParcelGuideTrace`. Bảng đặt dưới khung 3D (cột phải desktop + khối 3D mobile) của kiện đang chọn.
+**Chưa làm:** nút "Đổi sang thùng này" trên dòng hạng 1 (tuỳ chọn; cần chọn lý do đổi thùng).
+**Kiểm chứng:** `tsc -b`, `vite build` đạt; eslint 2 lỗi `set-state-in-effect` ở PackagingWorkbench là có sẵn. Chưa chạy với kế hoạch thật, chưa xem bằng mắt.
