@@ -1087,14 +1087,13 @@
 
 .login-art-mark {
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
   place-items: center;
+  overflow: hidden;
   border-radius: 10px;
-  background: #2dd4bf;
-  font-size: 11px;
-  font-weight: 700;
-  color: #06302c;
+  background: #1a2442;
 }
 
 .login-art-carton {

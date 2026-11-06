@@ -5,6 +5,7 @@ import type {
   BoxSourceInput,
   PackingBoxSources,
   PackingFeedbackReport,
+  PackingGuideTrace,
   PackingPlan,
   PackingPlanSummary,
   PackingReport,
@@ -340,6 +341,38 @@ export function requestParcelGuide(
   return readPlan(groupId, `/parcels/${String(parcelNo)}/guide`, {
     ...(regenerate ? { regenerate: true } : {}),
   })
+}
+
+/** Chấm hướng dẫn của kiện: hữu ích thì thành ví dụ mẫu cho AI. */
+export async function rateParcelGuide(
+  groupId: string,
+  parcelNo: number,
+  input: { helpful: boolean; comment?: string },
+): Promise<{ plan: PackingPlan; savedAsExample: boolean }> {
+  const res = await apiRequest<{ plan: PackingPlan; savedAsExample?: boolean }>(
+    groupPath(groupId, `/parcels/${String(parcelNo)}/guide/rating`),
+    {
+      method: 'POST',
+      auth: true,
+      body: {
+        helpful: input.helpful,
+        ...(input.comment?.trim() ? { comment: input.comment.trim() } : {}),
+      },
+    },
+  )
+  return { plan: res.plan, savedAsExample: res.savedAsExample === true }
+}
+
+/** Dữ liệu đã gửi cho AI khi viết hướng dẫn. null khi quá 30 ngày hoặc chưa có. */
+export async function getParcelGuideTrace(
+  groupId: string,
+  parcelNo: number,
+): Promise<PackingGuideTrace | null> {
+  const res = await apiRequest<{ trace: PackingGuideTrace | null }>(
+    groupPath(groupId, `/parcels/${String(parcelNo)}/guide/trace`),
+    { auth: true },
+  )
+  return res.trace ?? null
 }
 
 export function backToPicking(
