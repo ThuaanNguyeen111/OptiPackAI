@@ -99,6 +99,37 @@ describe('PackingGuideAiService.writeGuide', () => {
     expect(result).toMatchObject({ source: 'template', fallback_reason: 'ai_invalid_output' });
   });
 
+  it('05/11/2026 — ví dụ mẫu đã được nhân viên chấm tốt gửi kèm dạng few-shot TRƯỚC dữ liệu kiện thật', async () => {
+    mockedAxios.post.mockResolvedValueOnce(reply(validAiGuide));
+    const example = {
+      user_payload: JSON.stringify({ box: { code: 'SAMPLE-S' }, steps: [fact(1, 'QUAN-30')] }),
+      guide: { summary: 'Dùng thùng S.', steps: [{ step: 1, instruction: 'Gấp quần QUAN-30 làm đôi rồi đặt sát đáy.', tip: '' }] },
+    };
+    const result = await makeService(groq).writeGuide({ ...input, examples: [example] });
+
+    const messages = (mockedAxios.post.mock.calls[0]?.[1] as { messages: { role: string; content: string }[] }).messages;
+    expect(messages.map((m) => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+    expect(messages[1]?.content).toContain('QUAN-30');
+    expect(messages[2]?.content).toContain('Gấp quần QUAN-30');
+    expect(messages[3]?.content).toContain('GIAY-42');
+    expect(result.trace.examples_used).toBe(1);
+  });
+
+  it('05/11/2026 — trả bản ghi truy vết: system prompt, JSON dữ liệu đã gửi, phản hồi thô, model', async () => {
+    mockedAxios.post.mockResolvedValueOnce(reply(validAiGuide));
+    const result = await makeService(groq).writeGuide(input);
+    expect(result.trace.system_prompt).toContain('Thuật toán đã quyết định sẵn thùng');
+    expect(JSON.parse(result.trace.user_payload)).toMatchObject({ box: { code: 'SAMPLE-M' }, steps: [{ sku: 'GIAY-42' }, { sku: 'AO-M' }] });
+    expect(result.trace.raw_response).toContain('Dùng thùng SAMPLE-M');
+    expect(result.trace.examples_used).toBe(0);
+  });
+
+  it('05/11/2026 — câu mẫu (không gọi AI) vẫn có truy vết với dữ liệu đầu vào, không có phản hồi thô', async () => {
+    const result = await makeService(null).writeGuide(input);
+    expect(result.trace.raw_response).toBeNull();
+    expect(JSON.parse(result.trace.user_payload)).toMatchObject({ steps: [{ sku: 'GIAY-42' }, { sku: 'AO-M' }] });
+  });
+
   it('model không nhận json_schema (400) -> thử lại 1 lần với json_object', async () => {
     mockedAxios.post.mockRejectedValueOnce(httpError(400));
     mockedAxios.post.mockResolvedValueOnce(reply(validAiGuide));
