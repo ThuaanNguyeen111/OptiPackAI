@@ -96,6 +96,21 @@ function ModelBody({
     () => fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
     [rig, sx, sy, sz, model.kind],
   )
+  // Hàng cứng co đều nên thấp hơn khối được cấp: hạ xuống sát đáy khối để không lơ lửng giữa không trung.
+  const sink = useMemo(() => {
+    if (model.kind !== 'rigid' || rig.finalBox.isEmpty()) return 0
+    const { min, max } = rig.finalBox
+    const turned = new Box3()
+    for (const x of [min.x, max.x]) {
+      for (const y of [min.y, max.y]) {
+        for (const z of [min.z, max.z]) {
+          turned.expandByPoint(new Vector3(x, y, z).applyQuaternion(fit.quaternion).multiply(fit.scale))
+        }
+      }
+    }
+    const height = turned.getSize(new Vector3()).y
+    return -Math.max(0, sy - height) / 2
+  }, [model.kind, rig, fit, sy])
   const clock = useMemo(() => new StepClock(), [])
   useEffect(() => {
     clock.reset()
@@ -156,13 +171,17 @@ function ModelBody({
       turnRef.current?.quaternion.slerpQuaternions(upright, fit.quaternion, 1 - settle)
       stage.rotation.set(0, 0, 0)
       stage.scale.setScalar(MathUtils.lerp(1, prepFrame.scale, settle))
-      stage.position.set(prepFrame.x * settle, prepFrame.y * settle, prepFrame.z * settle)
+      stage.position.set(
+        prepFrame.x * settle,
+        prepFrame.y * settle + sink * (1 - settle),
+        prepFrame.z * settle,
+      )
       return
     }
     if (!folding) {
       stage.rotation.set(0, 0, 0)
       stage.scale.setScalar(1)
-      stage.position.set(0, 0, 0)
+      stage.position.set(0, sink, 0)
       return
     }
     // Áo gấp úp mặt: các nếp gập về phía sau lưng nên phải hướng lên, không xuyên sàn. Gấp xong lật lại.
