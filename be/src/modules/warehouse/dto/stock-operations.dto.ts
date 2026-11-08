@@ -15,6 +15,14 @@ export class AdjustStockDto {
   @ApiPropertyOptional({ example: '1 cái rách bao bì, đã loại' })
   @IsOptional() @IsString() @MaxLength(500)
   note?: string;
+
+  // 08/11/2026 — chống ghi trùng khi app gửi lại.
+  @ApiPropertyOptional({
+    example: '0b6f7c1e-3a5d-4c1e-9a52-7d1f0c2b9e11',
+    description: 'Mã thao tác do app sinh (UUID). Gửi lại cùng mã → trả kết quả cũ, không ghi lần 2.',
+  })
+  @IsOptional() @IsString({ message: 'client_event_id phải là chuỗi' }) @MaxLength(100, { message: 'client_event_id tối đa 100 ký tự' })
+  client_event_id?: string;
 }
 
 /** K3 — chuyển hàng sang ô khác (cùng kho), ghi sổ cái 2 chiều. */
@@ -34,6 +42,14 @@ export class TransferStockDto {
   @ApiPropertyOptional()
   @IsOptional() @IsString() @MaxLength(500)
   note?: string;
+
+  // 08/11/2026 — chống ghi trùng khi app gửi lại.
+  @ApiPropertyOptional({
+    example: '0b6f7c1e-3a5d-4c1e-9a52-7d1f0c2b9e11',
+    description: 'Mã thao tác do app sinh (UUID). Gửi lại cùng mã → trả kết quả cũ, không ghi lần 2.',
+  })
+  @IsOptional() @IsString({ message: 'client_event_id phải là chuỗi' }) @MaxLength(100, { message: 'client_event_id tối đa 100 ký tự' })
+  client_event_id?: string;
 }
 
 /**

@@ -4745,6 +4745,62 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
    - Áp sang máy Thuận: `tsc` 0 lỗi.
    - Chưa chạy app thật để xem thông báo trên chuông và email.
 
+## 📱 Nhật ký 08/11/2026 — Chuẩn bị app mobile: rà soát toàn hệ thống, index hàng đợi, chống ghi trùng thao tác kho (AOFP-238, AOFP-239, docs AOFP-240)
+
+**[stated] Yêu cầu (Thuận, 08/11/2026):** gợi ý chức năng đưa từ web xuống mobile theo từng role, hiển thị ra sao; nghiên cứu các lỗi hay gặp khi đưa hệ thống xuống mobile từ nhiều nguồn và khắc phục; rà toàn bộ xem còn thiếu gì cho cả web và mobile (tối ưu DB, tối ưu hệ thống). Thuận đồng ý làm ngay phần index + chống ghi trùng; việc FE ghi vào `FE_UPDATE_CHECKLIST.md`.
+
+**Tài liệu đề xuất (Claude Docs):** "OptiPack AI Mobile — Đề xuất chức năng theo role" — https://claude.ai/artifact/KcSZ4PoSbxW5AFjm1VBDco. Gồm: nguyên tắc chọn chức năng, chức năng theo 5 role, thiết kế hiển thị, 17 lỗi hay gặp + cách khắc phục (nguồn: ilert, Pillir, Cleverence, dev.to, Computerworld), việc BE theo 4 đợt, mục 6 rà soát DB/BE/web. Tóm tắt các quyết định chính dưới đây để không phải mở doc.
+
+### 1. Hướng mobile (đề xuất, chưa code app)
+
+- Mobile chỉ nhận việc **làm tại chỗ, thao tác ngắn, cần biết ngay, dùng camera/rung/máy quét** (thoả ≥ 2/4 điều). Cấu hình kho/thùng/user/kết nối sàn, báo cáo, 3D chi tiết, sửa catalog **để lại web**.
+- Theo role: **Warehouse Staff** (việc của tôi, lấy hàng theo đường đi kho, báo thiếu, nhập/kiểm/chuyển ô, nhận hàng hoàn) là đợt 1; **Packaging Staff** (hàng đợi, duyệt kế hoạch, phiên đóng gói) đợt 2; push cho mọi role đợt 3; **Shipping Coordinator + Store Owner** (giao Hỏa Tốc có ảnh, hàng hoàn, tổng quan KPI) đợt 4. Admin chỉ xử lý gấp (thông báo, mở khoá user).
+- Mã quét vẫn là `bin_code` + `seller_sku` (sàn không có mã vạch sản phẩm). Hiển thị theo quy tắc cm/kg ở nhật ký "Đồng bộ đơn vị đo".
+- 4 việc bắt buộc khi làm app: hàng đợi ngoại tuyến + mã thao tác cho mọi lần ghi; chỉ thử lại lỗi mạng/408/429/5xx (lỗi nghiệp vụ thì dừng, giữ lại cho người dùng xem); bắt 409 thì tải lại, không ghi đè; màn hình theo từng việc có Nhập tay + Báo thiếu.
+
+### 2. Đính chính khi rà code (sửa nhận định sai của chính bản đề xuất đầu)
+
+- Giới hạn gọi API hiện là **600 lần/phút theo IP** (`THROTTLE_LIMIT_PER_MINUTE`), không phải 20 như ghi chú 18/09 trong mục Auth/Users. Ghi chú 18/09 là lịch sử; số hiện hành là 600.
+- `GET /order-groups` **đã có phân trang** (`before` + `limit`, tối đa 200, mặc định 100) và lọc `assigned_staff_id`; mục "Cursor pagination cho `GET /order-groups` (hiện giới hạn cứng 100)" ở Tầng 2 roadmap 10/09 coi như đã xong.
+- Quét món khi đóng gói (`ScanItemDto`) **đã có** `client_event_id`; các thao tác đóng gói / vận đơn / hàng hoàn khác có `expected_version` (gửi lại → 409).
+
+### 3. Đã làm
+
+**AOFP-238 — index nhóm đơn (`order-group.schema.ts`):**
+- Thêm `{ fulfillment_status: 1, created_at: -1 }`. Lý do: hàng đợi của từng role gọi `GET /order-groups?fulfillment_status=…` **không kèm `platform`**, index cũ `{platform, fulfillment_status, created_at}` sai tiền tố nên Mongo quét cả bảng + sắp trong RAM. 🔄 Ghi chú "Rule #4: fulfillment_status luôn đứng sau platform" trong schema đã sửa: Rule #4 chỉ cấm index **đơn** cho field cardinality thấp; index ghép với `created_at` là đúng ESR.
+- `{ assigned_staff_id, fulfillment_status }` → `{ assigned_staff_id, fulfillment_status, created_at: -1 }` để "việc của tôi" không sắp trong RAM; tiền tố cũ giữ nguyên nên việc đếm workload khi tự giao vẫn dùng được.
+- Mongoose tự tạo index mới lúc khởi động. Index cũ `assigned_staff_id_1_fulfillment_status_1` **vẫn còn trên Atlas** (Mongoose không tự xoá) — xoá tay được, không bắt buộc.
+
+**AOFP-239 — chống ghi trùng `restock` / `adjust` / `transfer`:**
+- Trước đây 3 thao tác kho này **không có** mã thao tác lẫn phiên bản: app gửi lại (mất mạng, timeout) thì nhập thêm cộng 2 lần, chuyển ô chuyển 2 lần, kiểm kê ghi thêm 1 dòng sổ (không lệch số nhưng thừa dòng).
+- Body 3 route nhận thêm `client_event_id?` (≤ 100 ký tự). Mã lưu trên **dòng sổ cái** (`inventory_movements.client_event_id`, unique có điều kiện `$type: 'string'`) — cùng transaction với thay đổi tồn, nên không cần collection mới. Chuyển ô chỉ ghi mã trên dòng `transfer_out`.
+- Luồng: có mã → tra sổ cái trước; đã có dòng cùng loại + cùng dòng tồn → trả kết quả cũ (dòng tồn hiện tại; chuyển ô trả nguồn + đích qua `ref_id`), không ghi gì; cùng mã khác thao tác → 409 `WH_CLIENT_EVENT_REUSED`. Hai lần gửi chạy song song: lần thua đụng unique index trong transaction (rollback toàn bộ) → bắt E11000 → trả kết quả lần thắng.
+- Không gửi mã → chạy y như cũ (không tra sổ cái).
+- Chọn lưu trên sổ cái thay vì dùng lại `pick_events` / `processed_webhook_events`: sổ cái đã ghi cùng transaction với thay đổi tồn, nên "đã ghi sổ" ⇔ "đã đổi tồn" — không có trạng thái nửa vời.
+
+### 4. Việc còn lại (theo thứ tự đề xuất; mục mới phải hỏi Thuận trước khi code)
+
+| # | Việc | Phía | Ghi chú |
+|---|---|---|---|
+| 1 | Sửa mock test thiếu hàm mới (log `clearPackingBlocked is not a function`, `scheduleShortageRecheck is not a function`, `autoCreateFromSellerSkus is not a function`) | BE | Test vẫn đạt nhưng nhánh code đó không được kiểm tra thật |
+| 2 | Tách gói theo trang, dừng polling khi tab ẩn, huỷ request cũ | FE | `FE_UPDATE_CHECKLIST.md` dòng 16, mục 13 |
+| 3 | Push FCM: đăng ký token thiết bị, gửi trong `NotificationsService.notify()` | BE | Chức năng mới |
+| 4 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | BE | Chức năng mới; tận dụng cách upload ảnh AURELLE; `shipment-event.schema.ts` đã chừa chỗ `proof{photo_urls}` |
+| 5 | Giới hạn gọi API theo user thay vì theo IP | BE | Cả kho chung 1 IP |
+| 6 | Cache tổng quan dashboard 30–60 giây bằng Redis | BE | `dashboard.service.ts` đếm lại mỗi request |
+| 7 | Tìm nhóm theo đuôi mã đang quét cả bảng (`$expr` + `$toString` `_id`) | BE | Lưu mã ngắn có index, hoặc chỉ cho tìm đủ 24 ký tự |
+| 8 | `GET /health` kiểm tra Mongo + Redis; `enableShutdownHooks()`; tắt Swagger khi production | BE | Nhỏ |
+| 9 | Phiên bản app tối thiểu (`GET /app/version`) | BE | Chỉ cần khi phát app cho người dùng thật |
+| 10 | Đọc cả bảng mapping SKU (`master-skus.service.ts`), `$regex` không neo ở Product Master | BE | Ổn với quy mô hiện tại, ghi nhận |
+
+### 5. Tác động (5 câu)
+
+1. *Đổi gì?* `order-group.schema.ts` (2 index + ghi chú Rule #4); `inventory-movement.schema.ts` (field + index), `warehouse.errors.ts`, `restock-sku.dto.ts`, `stock-operations.dto.ts`, `warehouse.controller.ts`, `warehouse.service.ts`; test mới `warehouse.service.client-event.spec.ts` (8 test). Không đụng `fe/`, AURELLE.
+2. *DB/migration?* Không migration. 2 index nhóm đơn + 1 index sổ cái tự tạo khi khởi động (Atlas tạo nền, không khoá ghi). Dòng sổ cái cũ không có `client_event_id` → không bị ràng buộc unique.
+3. *API/FE?* Thêm field tuỳ chọn, không đổi response. Mã lỗi mới `WH_CLIENT_EVENT_REUSED` (409). FE: `FE_UPDATE_CHECKLIST.md` dòng 16, mục 13; `API_LIST.md` 3 dòng route kho.
+4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Sửa ghi chú Rule #4 trong schema nhóm đơn (xem trên). Gửi lại cùng mã trả **tồn hiện tại**, không phải số lúc ghi lần đầu — nếu giữa 2 lần có người khác đổi tồn thì app thấy số mới, đúng với nguyên tắc "server là nguồn đúng cuối cùng". Index cũ trên Atlas còn lại tới khi xoá tay.
+5. *Kiểm chứng?* Trên nhánh `feature/thuan_be` (3eadabf) + thay đổi: `tsc --noEmit` 0 lỗi; ESLint thư mục `warehouse/` + schema nhóm đơn 0 lỗi; `jest` toàn bộ 149 bộ đạt, 1 bỏ qua; 1492 test đạt. Chưa chạy app thật để xem Atlas tạo index.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.

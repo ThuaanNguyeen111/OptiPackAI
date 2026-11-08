@@ -65,6 +65,11 @@ export class InventoryMovement {
   // 15/10/2026 — lô hàng bị ảnh hưởng (FIFO theo ngày nhập). Dòng cũ không có = rỗng.
   @Prop({ type: [LotAllocationSchema], default: [] }) lot_allocations!: LotAllocation[];
 
+  // 08/11/2026 — mã thao tác do app sinh (UUID) cho nhập thêm / kiểm kê / chuyển ô.
+  // App gửi lại cùng mã (hàng đợi ngoại tuyến, mạng chập chờn) → trả kết quả cũ, không
+  // cộng/trừ tồn lần 2. Chuyển ô chỉ ghi mã trên dòng transfer_out. Null = không gửi mã.
+  @Prop({ type: String, default: null }) client_event_id!: string | null;
+
   @Prop({ type: String, required: true }) actor_id!: string;
   @Prop({ type: Date, required: true }) created_at!: Date;
 }
@@ -76,6 +81,11 @@ InventoryMovementSchema.index({ warehouse_id: 1, seller_sku: 1, created_at: -1 }
 // 10/10/2026 — kiểm tra "ô/khu đã từng có nhập–xuất chưa" trước khi xoá hẳn
 // (DELETE .../permanent): lọc theo bin_location_id $in, không có warehouse_id đứng đầu.
 InventoryMovementSchema.index({ bin_location_id: 1 });
+// 08/11/2026 — chống ghi trùng: unique CÓ ĐIỀU KIỆN (chỉ dòng có mã), dòng cũ/không mã không bị ràng buộc.
+InventoryMovementSchema.index(
+  { client_event_id: 1 },
+  { unique: true, partialFilterExpression: { client_event_id: { $type: 'string' } } },
+);
 // 10/10/2026 — kiểm tra "SKU nội bộ đã từng có nhập–xuất chưa" (DELETE /master-skus/:code/permanent).
 InventoryMovementSchema.index(
   { master_sku: 1 },

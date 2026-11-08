@@ -415,7 +415,7 @@ export class WarehouseController {
       dto.quantity,
       dto.force === true, // K2 — vượt sức chứa chỉ cho qua khi FE xác nhận force
       user.userId, // K3 — sổ cái
-      { receivedAt: dto.received_at, lotCode: dto.lot_code }, // 15/10/2026 — lô hàng
+      { receivedAt: dto.received_at, lotCode: dto.lot_code, clientEventId: dto.client_event_id }, // 15/10/2026 — lô hàng; 08/11 — chống ghi trùng
     );
     this.warehouseService.notifyStockIn('nhập thêm hàng'); // 22/10/2026
     return toAssignmentResponse(doc);
