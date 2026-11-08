@@ -30,7 +30,7 @@ describe('solveWithMailers — túi niêm phong trong bộ giải', () => {
     expect(p?.placements[0]?.folded).toBe(true);
     expect(p?.materials).toEqual([]);
     const boxOnly = solveOrder(units, sampleBoxes(), {});
-    expect(boxOnly.parcels[0]?.box.code).toBe('SAMPLE-M');
+    expect(boxOnly.parcels[0]?.box.code).toBe('BOX-M');
     // (08/11/2026) Thùng M được cắt hạ sát áo → bậc 1 kg (thùng nguyên là 4 kg), túi vẫn rẻ hơn.
     expect(boxOnly.parcels[0]?.box.cut_from).toBeDefined();
     expect(boxOnly.parcels[0]?.billable_weight_g).toBe(1000);

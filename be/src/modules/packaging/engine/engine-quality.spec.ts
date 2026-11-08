@@ -104,15 +104,15 @@ describe('Engine — chất lượng xếp (Bước 2)', () => {
     it('tôn trọng tồn kho: không dùng thùng đã hết', () => {
       const units = expandToUnits(THREE_CARTON_ORDER);
       const availability = new Map([
-        ['SAMPLE-S', 0],
-        ['SAMPLE-M', 0],
-        ['SAMPLE-L', 5],
+        ['BOX-S', 0],
+        ['BOX-M', 0],
+        ['BOX-L', 5],
       ]);
       const plan = packIntoMultipleCartons(units, sampleBoxes(), {
         availability,
       });
       expect(plan.status).toBe('ok');
-      expect(plan.cartons.every((c) => c.box.code === 'SAMPLE-L')).toBe(true);
+      expect(plan.cartons.every((c) => c.box.code === 'BOX-L')).toBe(true);
     });
 
     it('hết ngân sách giữa chừng → giữ nguyên kế hoạch cũ, không hỏng', () => {

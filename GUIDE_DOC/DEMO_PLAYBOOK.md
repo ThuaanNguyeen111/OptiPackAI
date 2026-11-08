@@ -217,7 +217,7 @@ Thông điệp: website không bao giờ bán quá số kho OptiPack có; mọi 
 2. Seed túi niêm phong + giấy chèn (chạy 1 lần, trong `be/`):
    ```bash
    npx ts-node -r dotenv/config scripts/seed-packaging-mailers.ts      # MAILER-20X30 / 25X35 / 32X45 / 38X52
-   npx ts-node -r dotenv/config scripts/seed-packaging-materials.ts    # thêm SAMPLE-KRAFT-PAPER, SAMPLE-TISSUE-PAPER
+   npx ts-node -r dotenv/config scripts/seed-packaging-materials.ts    # thêm KRAFT-PAPER, TISSUE-PAPER
    ```
 3. Bật túi niêm phong (Admin): `PUT /packing/settings` body `{ "mailer_enabled": true }` → response `mailerEnabled: true`. **Chỉ bật cho demo** — chưa xác nhận GHN nhận túi làm lớp ngoài duy nhất.
 4. Hồ sơ SKU (Warehouse/Admin, `PUT /product-master/:id/packaging-profile`) — có sẵn 3 SKU đã `ready`:
@@ -232,7 +232,7 @@ Thông điệp: website không bao giờ bán quá số kho OptiPack có; mọi 
 |----|---------|----------|-----|------------------|
 | H1 | Khách → Warehouse | Đặt 1 đơn AURELLE **1 SKU-AO**; kho lấy xong | Website AURELLE → `POST .../fulfillment/pick` | ~10 giây sau nhóm `pending_approval`, kế hoạch tự giao người đóng |
 | H2 | Packaging | Mở kế hoạch | `GET /order-groups/:groupId/packing-plan` | `parcels[0].box.kind = "mailer"`, `box.code = "MAILER-25X35"`, món `folded: true`, không có vật liệu chèn |
-| H3 | (giải thích) | So với thùng | — | Cân tính cước = `max(estimatedWeightG, volumetricWeightG)` làm tròn lên bậc 500 g → **0,5 kg**. Cùng áo vào thùng mẫu phải dùng `SAMPLE-M` → bậc **4 kg** (khối lượng quy đổi = D×R×C/**5000**, đúng công thức GHN) |
+| H3 | (giải thích) | So với thùng | — | Cân tính cước = `max(estimatedWeightG, volumetricWeightG)` làm tròn lên bậc 500 g → **0,5 kg**. Cùng áo vào thùng mẫu phải dùng `BOX-M` → bậc **4 kg** (khối lượng quy đổi = D×R×C/**5000**, đúng công thức GHN) |
 | H4 | Khách → Warehouse → Packaging | Đơn **1 SKU-AO + 1 SKU-GIAY** | như H1–H2 | Mặc định **1 thùng chung** (giày dưới, áo nằm phẳng trên); `orders[0].explanation` có dòng nhắc **§6** — tách túi + thùng không rẻ hơn đủ **5.000đ** |
 | H5 | Khách → … → Packaging | Đơn **1 SKU-TUI** | như H1–H2 | Vào **thùng** (`box_required`), vật liệu có `kraft_paper` (nhồi giữ form) |
 | H6 | Khách → Warehouse | Cùng 1 người nhận đặt **2 đơn AURELLE** (A: 1 SKU-AO, B: 1 SKU-AO) → 2 đơn vào chung 1 nhóm → kho lấy xong | `GET /order-groups/:groupId` (`orders` có 2 đơn) | Nhóm 2 đơn |

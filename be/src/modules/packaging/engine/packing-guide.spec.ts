@@ -11,7 +11,7 @@ import {
 } from './types';
 
 const box: BoxSpec = {
-  code: 'SAMPLE-M',
+  code: 'BOX-M',
   name: 'Thùng M',
   inner: { length_mm: 600, width_mm: 300, height_mm: 300 },
   outer: { length_mm: 610, width_mm: 310, height_mm: 310 },
@@ -114,7 +114,7 @@ describe('buildTemplateGuide', () => {
     expect(guide.steps[0]?.instruction).toContain('GIAY');
     expect(guide.steps[0]?.instruction).toContain('Bọc xốp hơi');
     expect(guide.steps[0]?.tip).toContain('dễ vỡ');
-    expect(guide.summary).toContain('SAMPLE-M');
+    expect(guide.summary).toContain('BOX-M');
     expect(guide.summary).toContain('25%');
     expect(guide.summary).not.toContain('vật tư chèn');
   });

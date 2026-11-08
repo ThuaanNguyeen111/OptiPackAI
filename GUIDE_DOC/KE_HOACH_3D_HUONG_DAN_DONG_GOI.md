@@ -18,7 +18,7 @@ Nhân viên kho bấm lấy xong. Trong khoảng 10 giây, hệ thống tính k�
 
 Cạnh hình là câu hướng dẫn của đúng bước đang xem.
 
-Ví dụ một đơn có 1 áo polo và 1 quần dài vừa một thùng: màn hình lấy `polo.glb`, `pants.glb` và file thùng đúng mã `SAMPLE-*`, rồi xếp hai món vào lòng thùng theo tọa độ backend trả về.
+Ví dụ một đơn có 1 áo polo và 1 quần dài vừa một thùng: màn hình lấy `polo.glb`, `pants.glb` và file thùng đúng mã `BOX-*`, rồi xếp hai món vào lòng thùng theo tọa độ backend trả về.
 
 ---
 
@@ -79,7 +79,7 @@ Hiện `fe/src/types/packing-plan.ts` **cắt mất** các field dưới đây. 
 
 ```ts
 box: {
-  code: string          // "SAMPLE-S" | "SAMPLE-M" | "SAMPLE-L" | "SAMPLE-LT" hoặc mã thùng kho đã tạo
+  code: string          // "BOX-S" | "BOX-M" | "BOX-L" | "BOX-LT" hoặc mã thùng kho đã tạo
   name: string
   innerMm: { lengthMm, widthMm, heightMm }  // lòng thùng — dùng để co model thùng
   outerMm: { lengthMm, widthMm, heightMm }
@@ -165,10 +165,10 @@ File nằm trong `fe/public/models/`, trình duyệt tải bằng đường dẫ
 
 | Dữ liệu trên kế hoạch | File |
 | --- | --- |
-| `box.code = SAMPLE-S` | `/models/sampleS.glb` |
-| `SAMPLE-M` | `/models/sampleM.glb` |
-| `SAMPLE-L` | `/models/sampleL.glb` |
-| `SAMPLE-LT` | `/models/sampleLT.glb` |
+| `box.code = BOX-S` | `/models/sampleS.glb` |
+| `BOX-M` | `/models/sampleM.glb` |
+| `BOX-L` | `/models/sampleL.glb` |
+| `BOX-LT` | `/models/sampleLT.glb` |
 | `productCategory = shirt` | `/models/polo.glb` |
 | `trousers` | `/models/pants.glb` |
 | `t_shirt` | `/models/tshirt.glb` |
@@ -183,7 +183,7 @@ Không có loại `polo`. Áo polo trên kho phải gắn `productCategory = "sh
 
 Các file `shirt.glb`, `trousers.glb`, `backpack.glb`, `hat.glb`, `glasses.glb` đang phục vụ trang giới thiệu (`Hero3DCanvas`, `utils/packing-scene.ts`). Không đưa vào bảng này và không ghi đè. Áo thun dùng cho đóng gói là file riêng `tshirt.glb`.
 
-Mã thùng do seed mẫu là `SAMPLE-S` (lòng 200×150×100 mm), `SAMPLE-M` (350×250×200), `SAMPLE-L` (500×400×350), `SAMPLE-LT` (500×400×200). Kho có thể có mã khác. Khi đó dùng nhánh "vẽ thùng bằng code".
+Mã thùng do seed mẫu là `BOX-S` (lòng 200×150×100 mm), `BOX-M` (350×250×200), `BOX-L` (500×400×350), `BOX-LT` (500×400×200). Kho có thể có mã khác. Khi đó dùng nhánh "vẽ thùng bằng code".
 
 Một đơn có thể nhiều kiện. Mỗi kiện một thùng và một danh sách `placements`. Không giả định hai món luôn chung một thùng.
 

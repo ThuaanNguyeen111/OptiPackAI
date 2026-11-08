@@ -103,13 +103,13 @@ describe('Bộ giải BRKGA + EMS', () => {
   describe('gập đôi chỉ khi cần', () => {
     it('áo vừa thùng M khi trải phẳng thì không gập', () => {
       const r = solve([tee(1)]);
-      expect(r.parcels[0]?.box.code).toBe('SAMPLE-M');
+      expect(r.parcels[0]?.box.code).toBe('BOX-M');
       expect(r.parcels[0]?.placements.some((p) => p.folded === true)).toBe(false);
     });
 
     it('quần jean rộng 26 cm không vừa lòng M (25 cm) → gập để dùng M thay vì L', () => {
       const r = solve([jean(1)]);
-      expect(r.parcels[0]?.box.code).toBe('SAMPLE-M');
+      expect(r.parcels[0]?.box.code).toBe('BOX-M');
       expect(r.parcels[0]?.placements[0]?.folded).toBe(true);
     });
 
@@ -126,18 +126,18 @@ describe('Bộ giải BRKGA + EMS', () => {
       const items = [jean(1)];
       const free = solve(items);
       const usedCode = free.parcels[0]?.box.code ?? '';
-      const r = solve(items, { availability: new Map([[usedCode, 0], ['SAMPLE-L', 5]]) });
-      expect(r.parcels[0]?.box.code).toBe('SAMPLE-L');
+      const r = solve(items, { availability: new Map([[usedCode, 0], ['BOX-L', 5]]) });
+      expect(r.parcels[0]?.box.code).toBe('BOX-L');
     });
 
     it('không dùng thùng bị loại trừ', () => {
-      const r = solve([tee(2)], { excludeBoxCodes: ['SAMPLE-S', 'SAMPLE-M'] });
-      expect(r.parcels.every((p) => p.box.code === 'SAMPLE-L')).toBe(true);
+      const r = solve([tee(2)], { excludeBoxCodes: ['BOX-S', 'BOX-M'] });
+      expect(r.parcels.every((p) => p.box.code === 'BOX-L')).toBe(true);
     });
 
     it('mọi thùng vừa đều hết → OUT_OF_STOCK', () => {
       const r = solve([tee(1)], {
-        availability: new Map([['SAMPLE-S', 0], ['SAMPLE-M', 0], ['SAMPLE-L', 0]]),
+        availability: new Map([['BOX-S', 0], ['BOX-M', 0], ['BOX-L', 0]]),
       });
       expect(r.status).toBe('no_fit');
       expect(r.unplaced[0]?.code).toBe('OUT_OF_STOCK');
@@ -171,9 +171,9 @@ describe('Bộ giải BRKGA + EMS', () => {
 
     it('áo cần thùng M: thùng S bị loại có lý do cụ thể', () => {
       const r = solve([jacket()]);
-      expect(r.parcels[0]?.box.code).not.toBe('SAMPLE-S');
+      expect(r.parcels[0]?.box.code).not.toBe('BOX-S');
       expect(r.proof).toBe('optimal_global');
-      expect(r.explanation.some((e) => e.startsWith('SAMPLE-S'))).toBe(true);
+      expect(r.explanation.some((e) => e.startsWith('BOX-S'))).toBe(true);
     });
 
     it('số kiện vượt cận dưới → heuristic (không nhận tối ưu bừa)', () => {
@@ -217,16 +217,16 @@ describe('Chia đều kiện (v2, 04/10/2026)', () => {
     item('DEMO-JEAN', [38, 30, 6], 0.65, { qty: 12, category: 'trousers', stackKg: 3, fold: true }),
   ];
   const lowL = {
-    ...customBox('SAMPLE-LT', [500, 400, 200], 15000),
+    ...customBox('BOX-LT', [500, 400, 200], 15000),
     tare_g: 260,
     price_vnd: 6000,
   };
   const boxes = [...sampleBoxes(), lowL];
   const stock = new Map([
-    ['SAMPLE-S', 20],
-    ['SAMPLE-M', 0],
-    ['SAMPLE-L', 16],
-    ['SAMPLE-LT', 20],
+    ['BOX-S', 20],
+    ['BOX-M', 0],
+    ['BOX-L', 16],
+    ['BOX-LT', 20],
   ]);
 
   const spread = (r: SolveResult): number => {
