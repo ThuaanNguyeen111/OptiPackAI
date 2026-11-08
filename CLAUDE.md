@@ -4801,6 +4801,18 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Sửa ghi chú Rule #4 trong schema nhóm đơn (xem trên). Gửi lại cùng mã trả **tồn hiện tại**, không phải số lúc ghi lần đầu — nếu giữa 2 lần có người khác đổi tồn thì app thấy số mới, đúng với nguyên tắc "server là nguồn đúng cuối cùng". Index cũ trên Atlas còn lại tới khi xoá tay.
 5. *Kiểm chứng?* Trên nhánh `feature/thuan_be` (3eadabf) + thay đổi: `tsc --noEmit` 0 lỗi; ESLint thư mục `warehouse/` + schema nhóm đơn 0 lỗi; `jest` toàn bộ 149 bộ đạt, 1 bỏ qua; 1492 test đạt. Chưa chạy app thật để xem Atlas tạo index.
 
+## 🗄️ Nhật ký 09/11/2026 — Database script MongoDB sinh từ schema (Review 2, BM02 F06)
+
+**1. Vấn đề là gì?** Hướng dẫn Review 2 yêu cầu "database script khớp với ERD"; prompt rà soát (BM02) ghi F06: repo không có script nào, chỉ có schema Mongoose và script seed/migrate, nên không đối chiếu được ERD với database.
+
+**2. Đã làm gì?** Thêm `be/src/common/schemas/db-init-script.ts` (đọc mọi `*.schema.ts`, gom theo collection, sinh validator `$jsonSchema` + danh sách index), CLI `be/scripts/init-db.ts` (`npm run db:script` trong `be/`), và file kết quả `be/db/init-db.mongosh.js` (60 collection, 153 index). Chạy: `mongosh "<MONGODB_URI>" db/init-db.mongosh.js`, hoặc `npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/init-db.ts --apply`.
+
+**3. Vì sao làm như vậy?** MongoDB không có CREATE TABLE; script tương đương là `createCollection` + `createIndex`. Sinh từ chính schema Mongoose nên script luôn khớp code, không viết tay 60 collection. Validator đặt `validationAction: 'warn'`, `validationLevel: 'moderate'` để không bao giờ chặn ghi của ứng dụng; script không xóa collection/index nào. `--apply` chỉ tạo collection còn thiếu (không đổi validator collection đã có); file mongosh thì `collMod` validator cho collection đã có.
+
+**4. Đã kiểm chứng thế nào?** `db-init-script.spec.ts` (7 test): field bắt buộc/kiểu/enum/null, object lồng, mảng, index unique; với schema thật: đủ ≥ 60 collection, mỗi collection 1 schema nguồn, có index then chốt; chạy file mongosh với `db` giả lập gọi đủ mọi collection và index. Toàn bộ: tsc 0 lỗi, eslint 0 lỗi, jest 152 suite / 1.510 test đạt (trên code main có AOFP-242/243 của Thi). CHƯA chạy thật trên MongoDB (không có mongod trong môi trường kiểm thử; không chạy lên Atlas thật).
+
+**5. Còn lại / lưu ý gì?** Đổi schema xong phải chạy lại `npm run db:script` để cập nhật file `.mongosh.js` (spec không ép file phải khớp, tránh làm vỡ commit của thành viên khác). Field `Mixed` không ràng buộc kiểu. Nên chạy thử `mongosh` trên database staging trước khi dùng cho môi trường khác.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
