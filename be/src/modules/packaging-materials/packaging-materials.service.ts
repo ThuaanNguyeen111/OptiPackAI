@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { PackagingStockAlertService } from './packaging-stock-alert.service';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -107,6 +108,8 @@ export class PackagingMaterialsService {
     @InjectModel(PackagingMaterial.name) private readonly materialModel: Model<PackagingMaterialDocument>,
     @InjectModel(PackagingMovement.name) private readonly movementModel: Model<PackagingMovementDocument>,
     @InjectConnection() private readonly connection: Connection,
+    // 08/11/2026 — báo khi sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo. @Optional để spec cũ không vỡ.
+    @Optional() private readonly stockAlerts?: PackagingStockAlertService,
   ) {}
 
   // ------------------------------------------------------------ danh mục
@@ -163,10 +166,19 @@ export class PackagingMaterialsService {
     if (dto.unit_cost_vnd !== undefined) set.unit_cost_vnd = dto.unit_cost_vnd;
     if (dto.reusable !== undefined) set.reusable = dto.reusable;
     if (dto.max_reuse_cycles !== undefined) set.max_reuse_cycles = dto.max_reuse_cycles;
+    if (dto.reorder_level !== undefined) set.reorder_level = dto.reorder_level;
     if (Object.keys(set).length === 0) this.fail(E.NOTHING_TO_UPDATE, 'Không có trường nào để cập nhật.', HttpStatus.BAD_REQUEST);
-    await this.get(code);
-    const updated = await this.materialModel.findOneAndUpdate({ code }, { $set: set }, { returnDocument: 'after' });
-    return updated ?? this.get(code);
+    const before = await this.get(code);
+    const updated = (await this.materialModel.findOneAndUpdate({ code }, { $set: set }, { returnDocument: 'after' })) ?? (await this.get(code));
+    if (dto.reorder_level !== undefined && dto.reorder_level !== before.reorder_level) {
+      const stock = usableStock(updated);
+      await this.stockAlerts?.notifyIfWorse({
+        kind: updated.kind === 'box' ? 'box' : 'material', code: updated.code, name: updated.name,
+        before: stock, after: stock, previousReorderLevel: before.reorder_level, reorderLevel: updated.reorder_level,
+        trigger: 'vừa sửa ngưỡng',
+      });
+    }
+    return updated;
   }
 
   async setActive(code: string, active: boolean): Promise<PackagingMaterialDocument> {
