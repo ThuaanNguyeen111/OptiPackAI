@@ -94,9 +94,9 @@ describe('packIntoMultipleCartons', () => {
   it('trừ tồn thùng theo từng kiện: cần 3 kiện L nhưng chỉ còn 2 → phần còn lại OUT_OF_STOCK', () => {
     const items = [shoebox(6, 'HEAVY', 5)]; // 30 kg, mỗi thùng L nhận ≤ 2 hộp
     const availability = new Map([
-      ['SAMPLE-S', 0],
-      ['SAMPLE-M', 0],
-      ['SAMPLE-L', 2],
+      ['BOX-S', 0],
+      ['BOX-M', 0],
+      ['BOX-L', 2],
     ]);
     const result = plan(items, { availability });
     expect(result.status).toBe('partial');
@@ -108,9 +108,9 @@ describe('packIntoMultipleCartons', () => {
   it('đủ thùng thì dùng đủ (2 thùng L còn lại cho đơn cần 2 kiện) → ok', () => {
     const items = [shoebox(4, 'HEAVY', 5)];
     const availability = new Map([
-      ['SAMPLE-S', 0],
-      ['SAMPLE-M', 0],
-      ['SAMPLE-L', 2],
+      ['BOX-S', 0],
+      ['BOX-M', 0],
+      ['BOX-L', 2],
     ]);
     const result = plan(items, { availability });
     expect(result.status).toBe('ok');

@@ -57,10 +57,10 @@ describe('Hợp đồng 3D đóng gói', () => {
     expect(seen.size).toBe(units.length);
   });
 
-  it('quần áo chỉ LWH hoặc WLH (luôn nằm phẳng)', () => {
+  it('quần áo chưa gập chỉ LWH hoặc WLH (nằm phẳng); đã gập thì được dựng đứng (08/11/2026)', () => {
     for (const p of result.parcels) {
       for (const q of p.placements) {
-        if (clothing.has(categoryOfSku.get(q.sku) ?? '')) {
+        if (q.folded !== true && clothing.has(categoryOfSku.get(q.sku) ?? '')) {
           expect(['LWH', 'WLH']).toContain(q.orientation);
         }
       }

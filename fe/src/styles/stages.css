@@ -956,7 +956,8 @@ html.dark .owner-stage .dash-metric-hero {
 /* Thông tin nhóm: lưới nhỏ, nhãn mờ, giá trị rõ */
 .pack-facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Theo bề rộng cột chứ không theo màn hình: cột giữa hẹp thì tự xuống 2 cột thay vì bóp nhãn. */
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
   gap: 10px 16px;
   font-size: 13px;
 }
@@ -965,12 +966,6 @@ html.dark .owner-stage .dash-metric-hero {
   margin-bottom: 2px;
   font-size: 11px;
   color: var(--ls-muted);
-}
-
-@media (min-width: 1280px) {
-  .pack-facts {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
 }
 
 /* Cột 3D: khung xem cao cố định, phần dưới (vật tư, hướng dẫn, so sánh) cuộn được — ẩn thanh cuộn */

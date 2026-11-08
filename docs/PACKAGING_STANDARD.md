@@ -7,7 +7,7 @@
 
 ## 1. Vấn đề hiện tại
 
-- Mọi kiện đều là **thùng carton**: engine chỉ được chọn trong `SAMPLE-S/M/L/LT`. Một chiếc áo thun gập trong túi zip vẫn vào thùng S 20×15×10 cm (đầy 67%) — khối lượng quy đổi ~0,6 kg trong khi món hàng ~0,2 kg.
+- Mọi kiện đều là **thùng carton**: engine chỉ được chọn trong `BOX-S/M/L/LT`. Một chiếc áo thun gập trong túi zip vẫn vào thùng S 20×15×10 cm (đầy 67%) — khối lượng quy đổi ~0,6 kg trong khi món hàng ~0,2 kg.
 - Engine chấm điểm theo khối lượng quy đổi **chia 6000**, nhưng GHN tính cước **chia 5000** → engine tối ưu lệch so với tiền thật phải trả.
 - Đơn gộp (cùng người nhận) chỉ gộp **khâu lấy hàng**; đóng gói vẫn tách mỗi đơn một kiện → khách nhận nhiều kiện, trả nhiều lần cước.
 - Danh mục vật liệu không có giấy chèn; danh mục loại sản phẩm chưa có túi xách.

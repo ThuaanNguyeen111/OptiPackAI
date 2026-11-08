@@ -59,8 +59,10 @@ export interface BoxComparisonRow {
   box_name: string;
   kind: 'box' | 'mailer';
   is_chosen: boolean;
-  /** true = xếp vừa 1 thùng, còn tồn, không bị loại. */
+  /** true = xếp vừa (1 hoặc nhiều thùng cùng loại), đủ tồn, không bị loại. */
   eligible: boolean;
+  /** (08/11/2026) Số thùng loại này cần để chứa hết các món; null = không xếp được. */
+  parcels: number | null;
   /** 1 = tốt nhất theo luật bậc; null = không dùng được. */
   rank: number | null;
   /** Điểm tổng 0–10 (1 chữ số thập phân); 0 khi không dùng được. */
@@ -99,7 +101,8 @@ export interface CompareBoxesOptions {
 interface Candidate {
   box: BoxSpec;
   isChosen: boolean;
-  parcel: SolvedParcel | null;
+  /** 1 kiện, hoặc nhiều kiện cùng loại thùng khi 1 thùng không chứa hết. */
+  parcels: SolvedParcel[] | null;
   objective: Objective | null;
   available: number | null;
   ineligibleReason: string | null;
@@ -110,6 +113,26 @@ const vnd = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')}đ`;
 const grams = (n: number): string => formatGAsKg(n);
 const packagingCost = (p: SolvedParcel): number => (p.box.price_vnd ?? 0) + p.materials_cost_vnd;
 const foldsOf = (p: SolvedParcel): number => p.placements.filter((q) => q.folded === true).length;
+const sumOf = (ps: SolvedParcel[], f: (p: SolvedParcel) => number): number => ps.reduce((s, p) => s + f(p), 0);
+
+/** Số liệu gộp của một phương án (1 hay nhiều kiện): lấp đầy = thể tích hàng ÷ tổng lòng thùng. */
+function totalsOf(ps: SolvedParcel[]): {
+  billable: number;
+  packaging: number;
+  fill: number;
+  folds: number;
+  estimated: number;
+} {
+  const boxes = sumOf(ps, (p) => p.box.inner.length_mm * p.box.inner.width_mm * p.box.inner.height_mm);
+  const goods = sumOf(ps, (p) => p.placements.reduce((s, q) => s + q.dx * q.dy * q.dz, 0));
+  return {
+    billable: sumOf(ps, (p) => p.billable_weight_g),
+    packaging: sumOf(ps, packagingCost),
+    fill: boxes > 0 ? goods / boxes : 0,
+    folds: sumOf(ps, foldsOf),
+    estimated: sumOf(ps, (p) => p.estimated_package_weight_g),
+  };
+}
 
 /** Tỉ lệ "nhỏ hơn là tốt" → 0–10 so với giá trị tốt nhất. */
 function lowerIsBetter(value: number, best: number): number {
@@ -155,9 +178,9 @@ function evaluateAlternative(
   box: BoxSpec,
   available: number | null,
   options: CompareBoxesOptions,
-): { parcel: SolvedParcel | null; reason: string | null } {
+): { parcels: SolvedParcel[] | null; reason: string | null } {
   if ((options.excludeBoxCodes ?? []).includes(box.code)) {
-    return { parcel: null, reason: 'Đã bị loại khỏi lần tính này (chọn bỏ thùng khi tính lại).' };
+    return { parcels: null, reason: 'Đã bị loại khỏi lần tính này (chọn bỏ thùng khi tính lại).' };
   }
   const solved = solveOrder(units, [box], {
     materials: options.materials,
@@ -168,7 +191,7 @@ function evaluateAlternative(
   const tooLarge = solved.unplaced.find((u) => u.code === 'ITEM_TOO_LARGE');
   if (tooLarge) {
     return {
-      parcel: null,
+      parcels: null,
       reason: `Món ${skuOf(tooLarge.item_key)} không vừa lòng thùng ${dimsText(box)} (mọi hướng, kể cả khi gập).`,
     };
   }
@@ -176,25 +199,25 @@ function evaluateAlternative(
   if (tooHeavy) {
     const weight = units.find((u) => u.item_key === tooHeavy.item_key)?.weight_g ?? 0;
     return {
-      parcel: null,
+      parcels: null,
       reason: `Món ${skuOf(tooHeavy.item_key)} nặng ${grams(weight)} vượt tải ${grams(box.max_load_g)} của thùng.`,
     };
   }
-  const totalWeight = units.reduce((s, u) => s + u.weight_g, 0);
-  if (totalWeight > box.max_load_g) {
+  // (08/11/2026) 1 thùng không chứa hết thì chia nhiều thùng CÙNG loại để vẫn có số liệu so sánh.
+  if (solved.status !== 'ok' || solved.parcels.length === 0) {
+    return { parcels: null, reason: `Bộ giải không xếp được hết ${String(units.length)} món vào thùng này.` };
+  }
+  const need = solved.parcels.length;
+  if (available !== null && available < need) {
     return {
-      parcel: null,
-      reason: `Tổng hàng ${grams(totalWeight)} vượt tải ${grams(box.max_load_g)} của thùng.`,
+      parcels: solved.parcels,
+      reason:
+        need === 1
+          ? 'Xếp vừa nhưng kho đã hết thùng trống.'
+          : `Cần ${String(need)} thùng nhưng kho chỉ còn ${String(available)}.`,
     };
   }
-  const [only] = solved.parcels;
-  if (solved.status !== 'ok' || solved.parcels.length !== 1 || !only) {
-    return { parcel: null, reason: `Bộ giải không xếp được hết ${String(units.length)} món vào 1 thùng này.` };
-  }
-  if (available !== null && available <= 0) {
-    return { parcel: only, reason: 'Xếp vừa nhưng kho đã hết thùng trống.' };
-  }
-  return { parcel: only, reason: null };
+  return { parcels: solved.parcels, reason: null };
 }
 
 export function compareBoxes(
@@ -212,34 +235,35 @@ export function compareBoxes(
     {
       box: chosen.box,
       isChosen: true,
-      parcel: chosen,
+      parcels: [chosen],
       objective: objectiveOf([chosen], 0),
-      available: null,
+      available: stock ? Math.max(0, stock.get(chosen.box.code) ?? 0) : null,
       ineligibleReason: null,
     },
   ];
   for (const box of catalog) {
     if (box.code === chosen.box.code) continue;
     const available = stock ? Math.max(0, stock.get(box.code) ?? 0) : null;
-    const { parcel, reason } = evaluateAlternative(units, box, available, { ...options, charge });
+    const { parcels, reason } = evaluateAlternative(units, box, available, { ...options, charge });
     candidates.push({
       box,
       isChosen: false,
-      parcel,
-      objective: parcel ? objectiveOf([parcel], 0) : null,
+      parcels,
+      objective: parcels ? objectiveOf(parcels, 0) : null,
       available,
       ineligibleReason: reason,
     });
   }
 
   const eligible = candidates.filter(
-    (c): c is Candidate & { parcel: SolvedParcel; objective: Objective } =>
-      c.ineligibleReason === null && c.parcel !== null && c.objective !== null,
+    (c): c is Candidate & { parcels: SolvedParcel[]; objective: Objective } =>
+      c.ineligibleReason === null && c.parcels !== null && c.objective !== null,
   );
-  const parcelsOf = eligible.map((c) => c.parcel);
-  const bestBillable = Math.min(...parcelsOf.map((p) => p.billable_weight_g));
-  const bestPackaging = Math.min(...parcelsOf.map(packagingCost));
-  const bestFill = Math.max(...parcelsOf.map((p) => p.fill_ratio));
+  const totals = new Map(eligible.map((c) => [c, totalsOf(c.parcels)]));
+  const all = [...totals.values()];
+  const bestBillable = Math.min(...all.map((t) => t.billable));
+  const bestPackaging = Math.min(...all.map((t) => t.packaging));
+  const bestFill = Math.max(...all.map((t) => t.fill));
   const unitCount = Math.max(1, units.length);
 
   const ranked = [...eligible].sort((a, b) => {
@@ -250,13 +274,14 @@ export function compareBoxes(
   const chosenObjective = candidates[0]?.objective ?? objectiveOf([chosen], 0);
 
   const rows: BoxComparisonRow[] = ranked.map((c, i) => {
-    const p = c.parcel;
+    const t = totals.get(c) ?? totalsOf(c.parcels);
     const objective = c.objective;
+    const n = c.parcels.length;
     const criteria: BoxComparisonCriteria = {
-      billable: round1(lowerIsBetter(p.billable_weight_g, bestBillable)),
-      packaging: round1(lowerIsBetter(packagingCost(p), bestPackaging)),
-      fill: round1(bestFill > 0 ? (10 * p.fill_ratio) / bestFill : 10),
-      handling: round1(10 * (1 - foldsOf(p) / unitCount)),
+      billable: round1(lowerIsBetter(t.billable, bestBillable)),
+      packaging: round1(lowerIsBetter(t.packaging, bestPackaging)),
+      fill: round1(bestFill > 0 ? (10 * t.fill) / bestFill : 10),
+      handling: round1(10 * (1 - t.folds / unitCount)),
     };
     const score = round1(
       weights.billable * criteria.billable +
@@ -275,7 +300,10 @@ export function compareBoxes(
           ? `Ngang thùng ${chosen.box.code} ở mọi tiêu chí.`
           : diff.sign > 0
             ? `Thua thùng ${chosen.box.code}: ${why}.`
-            : `Tốt hơn thùng ${chosen.box.code}: ${why} — có thể đổi thùng cho kiện này.`;
+            : n > 1
+              ? `Tốt hơn thùng ${chosen.box.code}: ${why} — nhưng phải tách thành ${String(n)} kiện (tính lại để áp dụng).`
+              : `Tốt hơn thùng ${chosen.box.code}: ${why} — có thể đổi thùng cho kiện này.`;
+      if (n > 1 && diff !== null && diff.sign > 0) verdict = `Cần ${String(n)} thùng. ${verdict}`;
     }
     return {
       box_code: c.box.code,
@@ -283,14 +311,15 @@ export function compareBoxes(
       kind: c.box.kind ?? 'box',
       is_chosen: c.isChosen,
       eligible: true,
+      parcels: n,
       rank: i + 1,
       score,
       criteria,
-      billable_weight_g: p.billable_weight_g,
-      packaging_cost_vnd: packagingCost(p),
-      fill_ratio: p.fill_ratio,
-      folds: foldsOf(p),
-      estimated_weight_g: p.estimated_package_weight_g,
+      billable_weight_g: t.billable,
+      packaging_cost_vnd: t.packaging,
+      fill_ratio: t.fill,
+      folds: t.folds,
+      estimated_weight_g: t.estimated,
       available: c.available,
       verdict,
     };
@@ -298,20 +327,22 @@ export function compareBoxes(
 
   for (const c of candidates) {
     if (c.ineligibleReason === null) continue;
+    const t = c.parcels ? totalsOf(c.parcels) : null;
     rows.push({
       box_code: c.box.code,
       box_name: c.box.name,
       kind: c.box.kind ?? 'box',
       is_chosen: false,
       eligible: false,
+      parcels: c.parcels?.length ?? null,
       rank: null,
       score: 0,
       criteria: null,
-      billable_weight_g: c.parcel?.billable_weight_g ?? null,
-      packaging_cost_vnd: c.parcel ? packagingCost(c.parcel) : null,
-      fill_ratio: c.parcel?.fill_ratio ?? null,
-      folds: c.parcel ? foldsOf(c.parcel) : null,
-      estimated_weight_g: c.parcel?.estimated_package_weight_g ?? null,
+      billable_weight_g: t?.billable ?? null,
+      packaging_cost_vnd: t?.packaging ?? null,
+      fill_ratio: t?.fill ?? null,
+      folds: t?.folds ?? null,
+      estimated_weight_g: t?.estimated ?? null,
       available: c.available,
       verdict: c.ineligibleReason,
     });

@@ -64,7 +64,7 @@ describe('upgradeWithCpSat', () => {
     expect(r.explanation.some((e) => e.includes('CP-SAT chứng minh không xếp được'))).toBe(true);
     // Hợp đồng: đơn vị mm/g, biến thể đã nở sẵn, đúng thứ tự tổ hợp.
     expect(checker.calls[0]?.units).toHaveLength(2);
-    expect(checker.calls[0]?.combos[0]?.[0]?.code).toBe('SAMPLE-M');
+    expect(checker.calls[0]?.combos[0]?.[0]?.code).toBe('BOX-M');
   });
 
   it('CP-SAT tìm được tổ hợp tốt hơn và qua validator → nhận phương án mới', async () => {
@@ -89,7 +89,7 @@ describe('upgradeWithCpSat', () => {
     const r = await upgradeWithCpSat(weakResult(), units, checker);
     expect(r.proof).toBe('optimal_in_model');
     expect(r.parcels).toHaveLength(1);
-    expect(r.parcels[0]?.box.code).toBe('SAMPLE-M');
+    expect(r.parcels[0]?.box.code).toBe('BOX-M');
   });
 
   it('lời giải CP-SAT sai luật (chồng lên nhau) bị validator loại → giữ heuristic', async () => {

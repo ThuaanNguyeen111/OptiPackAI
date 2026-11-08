@@ -39,8 +39,8 @@ import { GroupFulfillmentStatus } from '../src/modules/order-groups/enums/group-
  *   npx ts-node -r tsconfig-paths/register scripts/seed-ai-guide-demo.ts --clean  # chỉ xóa
  *
  * Chỉ đụng bản ghi có shop_id = DEMO-AI-GUIDE (và pick_events /
- * packaging_recommendations của các group đó). Thùng mẫu SAMPLE-S/M/L và
- * túi zip mẫu DEMO-ZIP-S/M/L chỉ được TẠO nếu chưa có, không bị xóa khi --clean.
+ * packaging_recommendations của các group đó). Thùng mẫu BOX-S/M/L và
+ * túi zip mẫu ZIP-S/M/L chỉ được TẠO nếu chưa có, không bị xóa khi --clean.
  * ===================================================================
  */
 
@@ -64,18 +64,18 @@ interface Profile {
 const PRODUCTS: Profile[] = [
   { sku: 'DEMO-GIAY-NIKE-42', name: 'Giày Nike Air Force 1 size 42 (hộp)', cm: [33, 21, 12], kg: 0.9, fragile: false, orientation: 'upright_only', maxStackKg: 3, price: 2500000, category: ProductCategory.SHOES, bag: null },
   { sku: 'DEMO-GIAY-ADIDAS-40', name: 'Giày Adidas Ultraboost size 40 (hộp)', cm: [32, 20, 11], kg: 0.8, fragile: false, orientation: 'upright_only', maxStackKg: 3, price: 3200000, category: ProductCategory.SHOES, bag: null },
-  { sku: 'DEMO-SANDAL-39', name: 'Sandal quai ngang size 39', cm: [28, 12, 7], kg: 0.36, fragile: false, orientation: 'any', maxStackKg: 2, price: 350000, category: ProductCategory.SANDALS, bag: { code: 'DEMO-ZIP-S', folded: false } },
-  { sku: 'DEMO-AO-THUN-M', name: 'Áo thun cotton trắng size M', cm: [36, 24, 4], kg: 0.22, fragile: false, orientation: 'any', maxStackKg: 2, price: 199000, category: ProductCategory.T_SHIRT, bag: { code: 'DEMO-ZIP-M', folded: true } },
-  { sku: 'DEMO-SO-MI-L', name: 'Áo sơ mi trắng size L', cm: [36, 26, 5], kg: 0.3, fragile: false, orientation: 'any', maxStackKg: 2, price: 450000, category: ProductCategory.SHIRT, bag: { code: 'DEMO-ZIP-M', folded: true } },
-  { sku: 'DEMO-QUAN-JEAN-32', name: 'Quần jean slim size 32', cm: [38, 30, 6], kg: 0.65, fragile: false, orientation: 'any', maxStackKg: 3, price: 590000, category: ProductCategory.TROUSERS, bag: { code: 'DEMO-ZIP-L', folded: true } },
-  { sku: 'DEMO-QUAN-SHORT-M', name: 'Quần short kaki size M', cm: [30, 24, 4], kg: 0.3, fragile: false, orientation: 'any', maxStackKg: 2, price: 280000, category: ProductCategory.SHORTS, bag: { code: 'DEMO-ZIP-M', folded: false } },
+  { sku: 'DEMO-SANDAL-39', name: 'Sandal quai ngang size 39', cm: [28, 12, 7], kg: 0.36, fragile: false, orientation: 'any', maxStackKg: 2, price: 350000, category: ProductCategory.SANDALS, bag: { code: 'ZIP-S', folded: false } },
+  { sku: 'DEMO-AO-THUN-M', name: 'Áo thun cotton trắng size M', cm: [36, 24, 4], kg: 0.22, fragile: false, orientation: 'any', maxStackKg: 2, price: 199000, category: ProductCategory.T_SHIRT, bag: { code: 'ZIP-M', folded: true } },
+  { sku: 'DEMO-SO-MI-L', name: 'Áo sơ mi trắng size L', cm: [36, 26, 5], kg: 0.3, fragile: false, orientation: 'any', maxStackKg: 2, price: 450000, category: ProductCategory.SHIRT, bag: { code: 'ZIP-M', folded: true } },
+  { sku: 'DEMO-QUAN-JEAN-32', name: 'Quần jean slim size 32', cm: [38, 30, 6], kg: 0.65, fragile: false, orientation: 'any', maxStackKg: 3, price: 590000, category: ProductCategory.TROUSERS, bag: { code: 'ZIP-L', folded: true } },
+  { sku: 'DEMO-QUAN-SHORT-M', name: 'Quần short kaki size M', cm: [30, 24, 4], kg: 0.3, fragile: false, orientation: 'any', maxStackKg: 2, price: 280000, category: ProductCategory.SHORTS, bag: { code: 'ZIP-M', folded: false } },
   { sku: 'DEMO-KINH-MAT', name: 'Kính mát kèm hộp cứng', cm: [16, 7, 5], kg: 0.15, fragile: true, orientation: 'upright_only', maxStackKg: null, price: 450000, category: ProductCategory.ACCESSORY, bag: null },
 ];
 
 const SAMPLE_BAGS = [
-  { code: 'DEMO-ZIP-S', name: 'Túi zip S 25×35 cm (mẫu)', width_mm: 250, length_mm: 350, price_vnd: 500 },
-  { code: 'DEMO-ZIP-M', name: 'Túi zip M 35×45 cm (mẫu)', width_mm: 350, length_mm: 450, price_vnd: 800 },
-  { code: 'DEMO-ZIP-L', name: 'Túi zip L 45×60 cm (mẫu)', width_mm: 450, length_mm: 600, price_vnd: 1200 },
+  { code: 'ZIP-S', name: 'Túi zip S 25×35 cm (mẫu)', width_mm: 250, length_mm: 350, price_vnd: 500 },
+  { code: 'ZIP-M', name: 'Túi zip M 35×45 cm (mẫu)', width_mm: 350, length_mm: 450, price_vnd: 800 },
+  { code: 'ZIP-L', name: 'Túi zip L 45×60 cm (mẫu)', width_mm: 450, length_mm: 600, price_vnd: 1200 },
 ];
 
 /** Mỗi group: danh sách đơn, mỗi đơn là [sku, số lượng][]. */
@@ -133,10 +133,10 @@ const GROUPS: { label: string; customer: string; orders: [string, number][][] }[
 ];
 
 const SAMPLE_BOXES = [
-  { code: 'SAMPLE-S', name: 'Thùng mẫu S (số giả lập)', inner: [200, 150, 100], outer: [206, 156, 106], tare_g: 90, max_load_g: 5000, price_vnd: 2500 },
-  { code: 'SAMPLE-M', name: 'Thùng mẫu M (số giả lập)', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
-  { code: 'SAMPLE-L', name: 'Thùng mẫu L (số giả lập)', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
-  { code: 'SAMPLE-LT', name: 'Thùng mẫu L thấp (số giả lập)', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000 },
+  { code: 'BOX-S', name: 'Thùng mẫu S (số giả lập)', inner: [200, 150, 100], outer: [206, 156, 106], tare_g: 90, max_load_g: 5000, price_vnd: 2500 },
+  { code: 'BOX-M', name: 'Thùng mẫu M (số giả lập)', inner: [350, 250, 200], outer: [356, 256, 206], tare_g: 200, max_load_g: 10000, price_vnd: 4500 },
+  { code: 'BOX-L', name: 'Thùng mẫu L (số giả lập)', inner: [500, 400, 350], outer: [506, 406, 356], tare_g: 380, max_load_g: 20000, price_vnd: 8000 },
+  { code: 'BOX-LT', name: 'Thùng mẫu L thấp (số giả lập)', inner: [500, 400, 200], outer: [506, 406, 206], tare_g: 260, max_load_g: 15000, price_vnd: 6000 },
 ] as const;
 
 /**
@@ -148,11 +148,11 @@ const SAMPLE_BOXES = [
  * màn làm việc vẫn có ví dụ "Gợi ý kho thùng" (thiếu M).
  */
 const DEMO_BOX_STOCK: Record<(typeof SAMPLE_BOXES)[number]['code'], number> = {
-  'SAMPLE-S': 20,
-  'SAMPLE-M': 1,
-  'SAMPLE-L': 16,
+  'BOX-S': 20,
+  'BOX-M': 1,
+  'BOX-L': 16,
   // (04/10/2026) Cỡ trung gian: đơn sỉ dùng L thấp cho phần lẻ thay vì L đầy đủ (lấp đầy 63% → ~76%).
-  'SAMPLE-LT': 20,
+  'BOX-LT': 20,
 };
 
 function mm(values: readonly number[]): { length_mm: number; width_mm: number; height_mm: number } {

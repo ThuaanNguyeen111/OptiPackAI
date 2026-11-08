@@ -8,7 +8,7 @@ jest.mock('axios');
 const mockedAxios = jest.mocked(axios);
 
 const box: BoxSpec = {
-  code: 'SAMPLE-M',
+  code: 'BOX-M',
   name: 'Thùng M',
   inner: { length_mm: 600, width_mm: 300, height_mm: 300 },
   outer: { length_mm: 610, width_mm: 310, height_mm: 310 },
@@ -60,7 +60,7 @@ function httpError(status: number): Error & { response: { status: number } } {
 
 const aiStep1 = { step: 1, instruction: 'Đặt hộp GIAY-42 sát đáy, góc trái phía trước.', tip: '' };
 const aiStep2 = { step: 2, instruction: 'Gấp áo AO-M làm ba, đặt cạnh hộp giày.', tip: 'Vuốt phẳng áo.' };
-const validAiGuide = { summary: 'Dùng thùng SAMPLE-M cho 2 món.', steps: [aiStep1, aiStep2] };
+const validAiGuide = { summary: 'Dùng thùng BOX-M cho 2 món.', steps: [aiStep1, aiStep2] };
 
 describe('PackingGuideAiService.writeGuide', () => {
   beforeEach(() => {
@@ -102,7 +102,7 @@ describe('PackingGuideAiService.writeGuide', () => {
   it('05/11/2026 — ví dụ mẫu đã được nhân viên chấm tốt gửi kèm dạng few-shot TRƯỚC dữ liệu kiện thật', async () => {
     mockedAxios.post.mockResolvedValueOnce(reply(validAiGuide));
     const example = {
-      user_payload: JSON.stringify({ box: { code: 'SAMPLE-S' }, steps: [fact(1, 'QUAN-30')] }),
+      user_payload: JSON.stringify({ box: { code: 'BOX-S' }, steps: [fact(1, 'QUAN-30')] }),
       guide: { summary: 'Dùng thùng S.', steps: [{ step: 1, instruction: 'Gấp quần QUAN-30 làm đôi rồi đặt sát đáy.', tip: '' }] },
     };
     const result = await makeService(groq).writeGuide({ ...input, examples: [example] });
@@ -119,8 +119,8 @@ describe('PackingGuideAiService.writeGuide', () => {
     mockedAxios.post.mockResolvedValueOnce(reply(validAiGuide));
     const result = await makeService(groq).writeGuide(input);
     expect(result.trace.system_prompt).toContain('Thuật toán đã quyết định sẵn thùng');
-    expect(JSON.parse(result.trace.user_payload)).toMatchObject({ box: { code: 'SAMPLE-M' }, steps: [{ sku: 'GIAY-42' }, { sku: 'AO-M' }] });
-    expect(result.trace.raw_response).toContain('Dùng thùng SAMPLE-M');
+    expect(JSON.parse(result.trace.user_payload)).toMatchObject({ box: { code: 'BOX-M' }, steps: [{ sku: 'GIAY-42' }, { sku: 'AO-M' }] });
+    expect(result.trace.raw_response).toContain('Dùng thùng BOX-M');
     expect(result.trace.examples_used).toBe(0);
   });
 

@@ -7,12 +7,12 @@
  * hat.glb, glasses.glb) ở đây.
  */
 
-/** Thùng mẫu seed (`SAMPLE-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
+/** Thùng mẫu seed (`BOX-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
 export const BOX_MODELS: Record<string, string> = {
-  'SAMPLE-S': '/models/sampleS.glb',
-  'SAMPLE-M': '/models/sampleM.glb',
-  'SAMPLE-L': '/models/sampleL.glb',
-  'SAMPLE-LT': '/models/sampleLT.glb',
+  'BOX-S': '/models/sampleS.glb',
+  'BOX-M': '/models/sampleM.glb',
+  'BOX-L': '/models/sampleL.glb',
+  'BOX-LT': '/models/sampleLT.glb',
 }
 
 /**

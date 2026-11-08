@@ -27,6 +27,8 @@ class UnitIn(BaseModel):
     fragile: bool = False
     # None = nothing may rest on this unit (same meaning as max_stack_load_g in TS).
     max_stack_load_g: int | None = None
+    # Share of the base that must be supported (TS minSupportPct: garments 80, rigid 100).
+    min_support_pct: int = Field(default=100, ge=1, le=100)
     variants: list[VariantIn] = Field(min_length=1)
 
 

@@ -48,7 +48,7 @@ import {
   type SolveResult,
   type SolvedParcel,
 } from './solver';
-import { summarizePlacements } from './solver/objective';
+import { cutBoxToLoad, summarizePlacements, uncutBox } from './solver/objective';
 import {
   PackingPlan,
   PackingPlanDocument,
@@ -229,6 +229,8 @@ function toPlanParcel(
       tare_g: p.box.tare_g,
       max_load_g: p.box.max_load_g,
       price_vnd: p.box.price_vnd,
+      cut_from_inner_height_mm: p.box.cut_from?.inner_height_mm ?? null,
+      cut_from_outer_height_mm: p.box.cut_from?.outer_height_mm ?? null,
     },
     placements: p.placements.map((q) => ({
       ...q,
@@ -315,8 +317,10 @@ function dimsOf(d: { length_mm: number; width_mm: number; height_mm: number }): 
   return { length_mm: d.length_mm, width_mm: d.width_mm, height_mm: d.height_mm };
 }
 
+/** Thùng GỐC trong danh mục của kiện đã lưu (bỏ cắt hạ) — xếp lại/tóm tắt lại sẽ tự cắt theo chồng hàng mới. */
 function boxSpecOf(parcel: PlanParcel): BoxSpec {
-  return {
+  const { cut_from_inner_height_mm: cutInner, cut_from_outer_height_mm: cutOuter } = parcel.box;
+  return uncutBox({
     code: parcel.box.code,
     name: parcel.box.name,
     kind: parcel.box.kind ?? 'box',
@@ -325,7 +329,9 @@ function boxSpecOf(parcel: PlanParcel): BoxSpec {
     tare_g: parcel.box.tare_g,
     max_load_g: parcel.box.max_load_g,
     price_vnd: parcel.box.price_vnd,
-  };
+    ...(typeof cutInner === 'number' &&
+      typeof cutOuter === 'number' && { cut_from: { inner_height_mm: cutInner, outer_height_mm: cutOuter } }),
+  });
 }
 
 function toItemProfiles(items: PackableItem[]): PackingPlan['item_profiles'] {
@@ -1933,7 +1939,7 @@ export class PackingPlanService {
         },
       ]),
     );
-    const box = boxSpecOf(parcel);
+    const box = cutBoxToLoad(boxSpecOf(parcel), placements);
     const facts = describePackingSteps(placements, box, units, profiles);
     // (05/11/2026) Ví dụ mẫu do nhân viên chấm tốt — giống kiện này nhất (loại sản phẩm).
     const productTypes = [...new Set(facts.map((f) => f.product_type).filter((t): t is string => t !== null))];

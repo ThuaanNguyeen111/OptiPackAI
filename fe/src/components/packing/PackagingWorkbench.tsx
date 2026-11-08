@@ -54,6 +54,7 @@ import {
 } from '../../types/order-groups'
 import {
   ADJUSTMENT_REASONS,
+  boxCutNote,
   outerCm,
   PACKING_REASON_LABELS,
   REJECT_REASONS,
@@ -77,6 +78,7 @@ import { PackingSessionPanel } from './PackingSessionPanel'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 import { BoxComparisonTable } from './BoxComparisonTable'
 import { GuideRating, GuideTraceButton } from './GuideFeedback'
+import { GuideSteps } from './GuideSteps'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -209,6 +211,22 @@ function statusLabel(status: string, vi: boolean): string {
   const known = GROUP_FULFILLMENT_STATUS_LABELS[status]
   if (!known) return status
   return vi ? known.vi : known.en
+}
+
+const PLAN_STATUS_LABELS: Record<string, { vi: string; en: string }> = {
+  computing: { vi: 'Đang tính', en: 'Computing' },
+  ready: { vi: 'Chờ duyệt', en: 'Ready' },
+  approved: { vi: 'Đã duyệt', en: 'Approved' },
+  packing: { vi: 'Đang đóng', en: 'Packing' },
+  packed: { vi: 'Đã đóng', en: 'Packed' },
+  rejected: { vi: 'Bị từ chối', en: 'Rejected' },
+  failed: { vi: 'Tính lỗi', en: 'Failed' },
+  superseded: { vi: 'Đã thay', en: 'Superseded' },
+}
+
+function planStatusLabel(status: string | undefined, vi: boolean): string {
+  const known = status ? PLAN_STATUS_LABELS[status] : undefined
+  return known ? (vi ? known.vi : known.en) : (status ?? '—')
 }
 
 /** Các bước chưa có người đóng gói được giao — vẫn hiện ở phạm vi "Việc của tôi". */
@@ -1482,8 +1500,8 @@ export function PackagingWorkbench() {
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-0.5 truncate text-[11px] text-ink-muted capitalize">
-                        {g.platform} · {g.activeOrderCount}/{g.orderCount}{' '}
+                      <p className="mt-0.5 truncate text-[11px] text-ink-muted">
+                        <span className="capitalize">{g.platform}</span> · {g.activeOrderCount}/{g.orderCount}{' '}
                         {vi ? 'còn/tổng' : 'active/total'}
                         {isPartiallyCanceledGroup(g) ? (
                           <span className="font-semibold text-amber-700 dark:text-amber-300">
@@ -1497,7 +1515,7 @@ export function PackagingWorkbench() {
                       </p>
                       {summaries[g.id] ? (
                         <p className="mt-0.5 text-[10px] text-ink-subtle">
-                          {vi ? 'Kế hoạch' : 'Plan'} {summaries[g.id]?.status} ·{' '}
+                          {vi ? 'Kế hoạch' : 'Plan'} {planStatusLabel(summaries[g.id]?.status, vi).toLowerCase()} ·{' '}
                           {String(summaries[g.id]?.parcels ?? 0)} {vi ? 'kiện' : 'parcels'}
                         </p>
                       ) : null}
@@ -1633,7 +1651,7 @@ export function PackagingWorkbench() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-ink-subtle">Version</dt>
+                    <dt className="text-ink-subtle">{vi ? 'Phiên bản' : 'Version'}</dt>
                     <dd className="font-mono text-ink">{group.version}</dd>
                   </div>
                   <div>
@@ -1948,6 +1966,20 @@ export function PackagingWorkbench() {
                         {vi ? 'Kế hoạch đóng gói' : 'Packing plan'}
                       </h3>
                       {canApprove ? (
+                        <div className="flex items-center gap-2">
+                        {/* Thiếu số đo/danh mục cũ đã có nút riêng trong cảnh báo bên dưới. */}
+                        {plan && !plan.profileStale && !plan.catalogStale ? (
+                          <button
+                            type="button"
+                            disabled={recomputing || actionBusy}
+                            onClick={() => void onRecompute()}
+                            title={vi ? 'Tính lại với danh mục thùng và tồn kho hiện tại' : 'Recompute with the current box catalog and stock'}
+                            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-ink-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${recomputing ? 'animate-spin' : ''}`} aria-hidden />
+                            {recomputing ? (vi ? 'Đang tính…' : 'Computing…') : vi ? 'Tính lại' : 'Recompute'}
+                          </button>
+                        ) : null}
                         <div className="inline-flex rounded-lg border border-hairline bg-surface p-0.5">
                           <button
                             type="button"
@@ -1978,6 +2010,7 @@ export function PackagingWorkbench() {
                             {vi ? 'Điều chỉnh' : 'Adjust'}
                           </button>
                         </div>
+                        </div>
                       ) : null}
                     </div>
                     {!plan ? (
@@ -1993,7 +2026,7 @@ export function PackagingWorkbench() {
                             <dt className="text-ink-subtle">
                               {vi ? 'Trạng thái kế hoạch' : 'Plan status'}
                             </dt>
-                            <dd className="capitalize text-ink">{plan.status}</dd>
+                            <dd className="text-ink">{planStatusLabel(plan.status, vi)}</dd>
                           </div>
                           <div>
                             <dt className="text-ink-subtle">
@@ -2093,6 +2126,7 @@ export function PackagingWorkbench() {
                                 </p>
                                 <p className="font-mono text-xs text-ink-muted">
                                   {formatDimsCm(size.lengthCm, size.widthCm, size.heightCm)}
+                                  {boxCutNote(parcel.box, vi)}
                                   {' · '}
                                   {formatGAsKg(parcel.estimatedWeightG)}
                                   {parcel.shippingCostVnd != null
@@ -2124,34 +2158,51 @@ export function PackagingWorkbench() {
                             : 'No boxes in the material catalog.'}
                         </p>
                       ) : (
-                        <ul className="mt-1 space-y-1 text-xs text-ink">
-                          {boxStock.map((row) => {
-                            const size =
-                              row.lengthCm != null &&
-                              row.widthCm != null &&
-                              row.heightCm != null
-                                ? formatDimsCm(row.lengthCm, row.widthCm, row.heightCm)
-                                : null
-                            const suggested = plan?.parcels.some(
-                              (parcel) => parcel.box.code === row.code,
-                            )
-                            return (
-                              <li
-                                key={row.code}
-                                className={
-                                  suggested ? 'font-medium text-primary' : undefined
-                                }
-                              >
-                                {row.name}
-                                {size ? ` · ${size}` : ''}
-                                {' — '}
-                                {vi ? 'mới' : 'new'} {row.qtyNew}
-                                {' · '}
-                                {vi ? 'tái sử dụng' : 'reused'} {row.qtyReused}
-                              </li>
-                            )
-                          })}
-                        </ul>
+                        <table className="mt-1.5 w-full border-collapse text-xs">
+                          <thead>
+                            <tr className="text-left text-[11px] text-ink-subtle">
+                              <th scope="col" className="py-1 pr-2 font-normal">{vi ? 'Thùng' : 'Box'}</th>
+                              <th scope="col" className="py-1 pl-2 text-right font-normal">{vi ? 'Mới' : 'New'}</th>
+                              <th scope="col" className="whitespace-nowrap py-1 pl-2 text-right font-normal">{vi ? 'Tái dùng' : 'Reused'}</th>
+                            </tr>
+                          </thead>
+                          <tbody className="tabular-nums">
+                            {boxStock.map((row) => {
+                              const size =
+                                row.lengthCm != null &&
+                                row.widthCm != null &&
+                                row.heightCm != null
+                                  ? formatDimsCm(row.lengthCm, row.widthCm, row.heightCm)
+                                  : null
+                              const suggested = plan?.parcels.some(
+                                (parcel) => parcel.box.code === row.code,
+                              )
+                              return (
+                                <tr
+                                  key={row.code}
+                                  className={`border-t border-hairline ${suggested ? 'text-primary' : 'text-ink'}`}
+                                >
+                                  <th scope="row" className={`py-1 pr-2 text-left ${suggested ? 'font-semibold' : 'font-normal'}`}>
+                                    <span className="block">{row.name}</span>
+                                    <span className="block text-[11px] font-normal text-ink-muted">
+                                      {size ? <span className="font-mono">{size}</span> : null}
+                                      {suggested ? (
+                                        <span className="font-medium text-primary">
+                                          {size ? ' · ' : ''}
+                                          {vi ? 'kế hoạch đang dùng' : 'used by plan'}
+                                        </span>
+                                      ) : null}
+                                    </span>
+                                  </th>
+                                  <td className={`py-1 pl-2 text-right font-mono ${row.qtyNew === 0 ? 'text-rose-700 dark:text-rose-300' : ''}`}>
+                                    {row.qtyNew}
+                                  </td>
+                                  <td className="py-1 pl-2 text-right font-mono">{row.qtyReused}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
                       )}
                     </div>
                   </div>
@@ -2222,6 +2273,7 @@ export function PackagingWorkbench() {
               <BoxComparisonTable
                 comparison={selectParcel(plan, parcelNo)?.boxComparison}
                 vi={vi}
+                itemCount={selectParcel(plan, parcelNo)?.placements?.length ?? null}
               />
               <button
                 type="button"
@@ -2326,6 +2378,7 @@ export function PackagingWorkbench() {
                 <BoxComparisonTable
                   comparison={selectParcel(plan, parcelNo)?.boxComparison}
                   vi={vi}
+                  itemCount={selectParcel(plan, parcelNo)?.placements?.length ?? null}
                 />
               ) : plan && plan.parcels.length > 0 ? (
                 <p className="mt-3 text-xs text-ink-subtle">
@@ -2338,28 +2391,13 @@ export function PackagingWorkbench() {
               <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
             )}
             {asideTab === 'guide' && plan && plan.parcels.length > 0 ? (
-              <div className="mt-3 space-y-2 text-xs text-ink">
-                <button
-                  type="button"
-                  disabled={actionBusy}
-                  onClick={() => void onWriteGuide()}
-                  className="rounded-lg border border-hairline px-2 py-1 disabled:opacity-50"
-                >
-                  {selectParcel(plan, parcelNo)?.guide
-                    ? vi
-                      ? 'Viết lại hướng dẫn'
-                      : 'Rewrite guide'
-                    : vi
-                      ? 'Viết hướng dẫn kiện'
-                      : 'Write parcel guide'}
-                </button>
-                {(plan.parcels.find((row) => row.parcelNo === parcelNo) ?? plan.parcels[0])?.guide
-                  ?.steps.map((step) => (
-                    <p key={step.step}>
-                      {step.step}. {step.instruction}
-                      {step.tip ? ` — ${step.tip}` : ''}
-                    </p>
-                  ))}
+              <div className="mt-3 space-y-3 text-xs text-ink">
+                <GuideSteps
+                  guide={guideParcel?.guide}
+                  vi={vi}
+                  busy={actionBusy}
+                  onWrite={() => void onWriteGuide()}
+                />
                 {guideParcel?.guide && group ? (
                   <GuideRating
                     key={`${String(guideParcel.parcelNo)}:${guideParcel.guide.source}`}
@@ -2428,51 +2466,12 @@ export function PackagingWorkbench() {
                     )?.guide
                     return (
                       <div className="mt-5">
-                        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                          {vi ? 'Các bước' : 'Steps'}
-                        </p>
-                        {guide?.summary ? (
-                          <p className="mt-2 text-sm text-slate-700">{guide.summary}</p>
-                        ) : null}
-                        {guide && guide.steps.length > 0 ? (
-                          <ol className="mt-3 space-y-3">
-                            {guide.steps.map((step) => (
-                              <li key={step.step} className="flex gap-3">
-                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#152d35] text-xs font-semibold text-white">
-                                  {step.step}
-                                </span>
-                                <div>
-                                  <p className="text-sm text-slate-800">{step.instruction}</p>
-                                  {step.tip ? (
-                                    <p className="mt-1 text-xs text-slate-500">{step.tip}</p>
-                                  ) : null}
-                                </div>
-                              </li>
-                            ))}
-                          </ol>
-                        ) : (
-                          <p className="mt-2 text-sm text-slate-500">
-                            {vi
-                              ? 'Chưa có hướng dẫn từng bước.'
-                              : 'No step-by-step guide yet.'}
-                          </p>
-                        )}
-                        {plan && plan.parcels.length > 0 ? (
-                          <button
-                            type="button"
-                            disabled={actionBusy}
-                            onClick={() => void onWriteGuide()}
-                            className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
-                          >
-                            {selectParcel(plan, parcelNo)?.guide
-                              ? vi
-                                ? 'Viết lại hướng dẫn'
-                                : 'Rewrite guide'
-                              : vi
-                                ? 'Viết hướng dẫn kiện'
-                                : 'Write parcel guide'}
-                          </button>
-                        ) : null}
+                        <GuideSteps
+                          guide={guide}
+                          vi={vi}
+                          busy={actionBusy}
+                          onWrite={plan && plan.parcels.length > 0 ? () => void onWriteGuide() : undefined}
+                        />
                       </div>
                     )
                   })()}

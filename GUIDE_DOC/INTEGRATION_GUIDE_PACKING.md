@@ -176,7 +176,8 @@ interface PackingPlan {
   parcels: {
     parcelNo: number; orderId: string; platformOrderId: string | null;
     status: 'pending'|'sealed'|'held'|'to_unpack'|'voided';
-    box: { code: string; name: string; innerMm: Dims; outerMm: Dims; tareG: number; maxLoadG: number; priceVnd: number|null };
+    box: { code: string; name: string; innerMm: Dims; outerMm: Dims; tareG: number; maxLoadG: number; priceVnd: number|null;
+           cutFromInnerHeightMm: number|null }; // 🆕 08/11: thùng cắt hạ — innerMm/outerMm là số SAU cắt, đây là cao lòng gốc; null = không cắt
     placements: { itemKey: string; sku: string; step: number; x:number;y:number;z:number; dx:number;dy:number;dz:number; orientation: string; folded: boolean }[]; // tọa độ mm cho 3D
     manualLayout: boolean;               // true ⇒ không có tọa độ thật, đừng dựng 3D
     fillRatio: number; estimatedWeightG: number; actualWeightKg: number | null;
@@ -221,7 +222,7 @@ interface BoxComparison {               // 🆕 05/11/2026 — "vì sao thùng n
 ```
 POST …/packing-plan/recompute                 Role: Packaging, Admin
 { "expected_version": 3,                      // bắt buộc nếu đã có kế hoạch
-  "exclude_box_codes": ["SAMPLE-L"],          // tùy chọn: không dùng các thùng này
+  "exclude_box_codes": ["BOX-L"],          // tùy chọn: không dùng các thùng này
   "prefer": "cheapest" }                      // tùy chọn: fewest_parcels (mặc định) | cheapest
 → { "plan": … }
 ```
@@ -302,7 +303,7 @@ Nên làm **dropdown** lấy từ danh sách trên. Lý do này đi vào báo c�
 
 ```
 POST …/packing-plan/parcels/:parcelNo/change-box        Role: Packaging, Admin
-{ "expected_version": 3, "box_code": "SAMPLE-L", "reason": "BOX_TOO_TIGHT", "note": "tuỳ chọn" }
+{ "expected_version": 3, "box_code": "BOX-L", "reason": "BOX_TOO_TIGHT", "note": "tuỳ chọn" }
 ```
 
 Hệ thống xếp lại đúng các món của kiện vào thùng mới qua validator. Lỗi: `422 PACKING_BOX_DOES_NOT_FIT` (không vừa), `409 PKG_BOX_OUT_OF_STOCK` (hết thùng).
@@ -341,7 +342,7 @@ POST …/packing-plan/reject                     Role: Packaging, Admin
    { "expected_version": 5,
      "note": "Khách yêu cầu gói chung 1 thùng",          // 3–500 ký tự, bắt buộc
      "parcels": [
-       { "order_id": "<orderId>", "box_code": "SAMPLE-L", "item_keys": ["TEE#1","TEE#2","JEAN#1"] }
+       { "order_id": "<orderId>", "box_code": "BOX-L", "item_keys": ["TEE#1","TEE#2","JEAN#1"] }
      ] }
    ```
    Phủ **đủ mọi món, mỗi món đúng 1 kiện**. Hệ thống kiểm: thùng còn tồn, không quá tải. Tạo kế hoạch **mới** `source: "manual"` ở `ready` → **người KHÁC duyệt** (mục 2.3; 🔄 09/10 backend chặn thật — người lập tự duyệt → `403 PACKING_SELF_APPROVE_FORBIDDEN`) rồi đóng như bình thường. Kiện không xếp được 3D sẽ có `manualLayout: true`.
@@ -657,7 +658,7 @@ Tự ghi quét `bypass` (đánh dấu "đóng nhanh"). Kiện lệch cân vẫn 
 
 ```
 POST …/packing-plan/parcels/:parcelNo/change-box-in-session     Role: Packaging, Warehouse, Admin
-{ "expected_version": 8, "box_code": "SAMPLE-L", "reason": "BOX_TOO_TIGHT", "note": "…",
+{ "expected_version": 8, "box_code": "BOX-L", "reason": "BOX_TOO_TIGHT", "note": "…",
   "old_box_outcome": "unused" }        // BẮT BUỘC: unused | damaged
 ```
 
@@ -697,7 +698,7 @@ POST …/packing-plan/parcels/:parcelNo/unpack    Role: Packaging, Warehouse, Ad
   "box_condition": "reusable",                           // reusable (vào kho tái sử dụng) | damaged
   "recovered_materials": [ { "code": "FOAM-CORNER", "quantity": 4, "condition": "reusable" } ],   // tùy chọn
   "note": "…" }
-→ { "plan": …, "completed": false, "restocked": 3, "withoutLocation": 0, "box": "SAMPLE-M",
+→ { "plan": …, "completed": false, "restocked": 3, "withoutLocation": 0, "box": "BOX-M",
     "materials": [ { "code": "FOAM-CORNER", "quantity": 4, "outcome": "reused" } ], "lazadaPackSync": null }
 ```
 
@@ -765,9 +766,9 @@ GET /packing/reports/feedback?from&to&min_count=3
       "adjustedPlans": 14, "rejectedPlans": 4,
       "byReason": [{ "reason": "BOX_TOO_TIGHT", "count": 6 }],
       "bySku":   [{ "sku": "TEE-M-WHITE", "reason": "ITEM_DIMENSION_WRONG", "count": 4 }],
-      "byBox":   [{ "boxCode": "SAMPLE-M", "reason": "RECOMMENDED_BOX_NOT_IN_STOCK", "count": 5 }],
+      "byBox":   [{ "boxCode": "BOX-M", "reason": "RECOMMENDED_BOX_NOT_IN_STOCK", "count": 5 }],
       "rejections": { "total": 4, "open": 1, "overdue": 0, "byReason": […], "resolvedBy": { "recompute": 2, "manual": 1, "backToPicking": 0 } },
-      "waste": { "events": 2, "costVnd": 6000, "byBox": [{ "boxCode": "SAMPLE-M", "count": 2, "costVnd": 6000 }] },
+      "waste": { "events": 2, "costVnd": 6000, "byBox": [{ "boxCode": "BOX-M", "count": 2, "costVnd": 6000 }] },
       "boxSource": {                                // (21/10/2026) chọn nguồn thùng khác gợi ý (3.4.1)
         "overrides": 5,
         "byReason": [{ "reason": "REUSED_BOX_WORN", "count": 4 }],
@@ -941,7 +942,7 @@ FE giữ một danh sách và phần chi tiết đang chọn: không màn chốt
         "platformOrderId": "710000123",
         "status": "pending",
         "box": {
-          "code": "SAMPLE-M",
+          "code": "BOX-M",
           "name": "Thùng M 30×25×15",
           "innerMm": { "lengthMm": 300, "widthMm": 250, "heightMm": 150 },
           "outerMm": { "lengthMm": 306, "widthMm": 256, "heightMm": 156 },
@@ -1067,13 +1068,13 @@ POST …/packing-plan/manual
   "expected_version": 2,
   "note": "Khách yêu cầu gói chung 1 thùng",
   "parcels": [
-    { "order_id": "6ad0e9aa11b2c3d4e5f60a01", "box_code": "SAMPLE-L",
+    { "order_id": "6ad0e9aa11b2c3d4e5f60a01", "box_code": "BOX-L",
       "item_keys": ["TEE-M-WHITE#1", "TEE-M-WHITE#2"] }
   ]
 }
 ```
 
-Response: `{ "plan": { "source": "manual", "status": "ready", "revision": 2, "version": 1, "proof": "heuristic", "parcels": [ { "box": { "code": "SAMPLE-L", … }, "manualLayout": false, … } ], "adjustments": [ { "kind": "manual_pack", "reason": "OTHER", "note": "Khách yêu cầu gói chung 1 thùng", "boxCodes": ["SAMPLE-L"], … } ] } }`
+Response: `{ "plan": { "source": "manual", "status": "ready", "revision": 2, "version": 1, "proof": "heuristic", "parcels": [ { "box": { "code": "BOX-L", … }, "manualLayout": false, … } ], "adjustments": [ { "kind": "manual_pack", "reason": "OTHER", "note": "Khách yêu cầu gói chung 1 thùng", "boxCodes": ["BOX-L"], … } ] } }`
 
 Lỗi thiếu món (`422`): `error_code: "PACKING_MANUAL_PACK_INVALID"`, `message: "Còn 1 món chưa nằm trong kiện nào."`, `details: { "missing": ["TEE-M-WHITE#2"] }`.
 
@@ -1081,16 +1082,16 @@ Lỗi thiếu món (`422`): `error_code: "PACKING_MANUAL_PACK_INVALID"`, `messag
 
 ```http
 POST …/packing-plan/parcels/1/change-box-in-session
-{ "expected_version": 4, "box_code": "SAMPLE-L", "reason": "BOX_TOO_TIGHT", "old_box_outcome": "damaged" }
+{ "expected_version": 4, "box_code": "BOX-L", "reason": "BOX_TOO_TIGHT", "old_box_outcome": "damaged" }
 ```
 
-Response: `plan.parcels[0].box.code = "SAMPLE-L"` (các lần quét giữ nguyên), `plan.version = 5`, và `plan.adjustments` có thêm:
+Response: `plan.parcels[0].box.code = "BOX-L"` (các lần quét giữ nguyên), `plan.version = 5`, và `plan.adjustments` có thêm:
 
 ```json
 { "kind": "change_box_in_session",
-  "detail": "Kiện 1: SAMPLE-M → SAMPLE-L (thùng cũ: đã hỏng, ghi hao hụt)",
+  "detail": "Kiện 1: BOX-M → BOX-L (thùng cũ: đã hỏng, ghi hao hụt)",
   "reason": "BOX_TOO_TIGHT", "note": null, "at": "2026-10-08T03:40:00.000Z",
-  "skus": ["TEE-M-WHITE"], "boxCodes": ["SAMPLE-M", "SAMPLE-L"],
+  "skus": ["TEE-M-WHITE"], "boxCodes": ["BOX-M", "BOX-L"],
   "oldBoxOutcome": "damaged", "wasteCostVnd": 4500 }
 ```
 

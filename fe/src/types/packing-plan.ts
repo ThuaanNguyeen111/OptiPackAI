@@ -51,6 +51,8 @@ export type PackingPlanParcel = {
     outerMm: PackingMm
     /** Lòng thùng — món đặt theo kích thước này. */
     innerMm?: PackingMm
+    /** Thùng đã cắt hạ: chiều cao lòng GỐC (mm); innerMm/outerMm là số sau cắt. null = không cắt. */
+    cutFromInnerHeightMm?: number | null
   }
   placements?: PackingPlacement[]
   /** true = kiện nhập tay, không có tọa độ xếp thật — không dựng cảnh 3D. */
@@ -202,6 +204,8 @@ export type BoxComparisonRow = {
   isChosen: boolean
   /** false = không dùng được, xem verdict. */
   eligible: boolean
+  /** Số thùng loại này cần để chứa hết; >1 = phải tách kiện, số liệu là tổng. null = không xếp được / dữ liệu cũ. */
+  parcels?: number | null
   /** 1 = tốt nhất theo luật ưu tiên của bộ giải. null khi không dùng được. */
   rank: number | null
   /** 0–10; 0 khi không dùng được. */
@@ -406,6 +410,16 @@ export const PACKING_REASON_LABELS: Record<
     vi: 'Kế hoạch không làm được',
     en: 'Plan is unrealistic',
   },
+}
+
+/** " · cắt hạ còn 25 cm (gốc 35 cm)" khi thùng được cắt hạ; '' nếu không. */
+export function boxCutNote(box: PackingPlanParcel['box'], vi: boolean): string {
+  const from = box.cutFromInnerHeightMm
+  if (from == null || !box.innerMm) return ''
+  const cm = (mm: number): string => (mm / 10).toLocaleString(vi ? 'vi-VN' : 'en-US')
+  return vi
+    ? ` · cắt hạ còn ${cm(box.innerMm.heightMm)} cm (gốc ${cm(from)} cm)`
+    : ` · cut down to ${cm(box.innerMm.heightMm)} cm (from ${cm(from)} cm)`
 }
 
 export function outerCm(box: PackingPlanParcel['box']): {

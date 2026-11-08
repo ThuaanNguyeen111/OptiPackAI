@@ -35,6 +35,39 @@ export function billableWeightG(actualG: number, volumetricG: number, stepG: num
 const innerVolume = (b: BoxSpec): number =>
   b.inner.length_mm * b.inner.width_mm * b.inner.height_mm;
 
+/**
+ * (08/11/2026, user chốt) Cắt hạ thùng carton: chỉ cắt khi bỏ được ≥ 5 cm; chiều cao
+ * lòng sau cắt = đỉnh chồng hàng làm tròn LÊN cm chẵn. Túi niêm phong không cắt.
+ */
+export const MIN_BOX_CUT_MM = 50;
+
+/** Thùng gốc trong danh mục (bỏ phần cắt hạ nếu có). */
+export function uncutBox(box: BoxSpec): BoxSpec {
+  if (!box.cut_from) return box;
+  const { cut_from: from, ...rest } = box;
+  return {
+    ...rest,
+    inner: { ...box.inner, height_mm: from.inner_height_mm },
+    outer: { ...box.outer, height_mm: from.outer_height_mm },
+  };
+}
+
+/** Thùng cắt hạ xuống sát chồng hàng; không đáng cắt thì trả thùng gốc. */
+export function cutBoxToLoad(box: BoxSpec, placements: Placement[]): BoxSpec {
+  const base = uncutBox(box);
+  if (base.kind === 'mailer' || placements.length === 0) return base;
+  const top = Math.max(...placements.map((p) => p.z + p.dz));
+  const height = Math.min(base.inner.height_mm, Math.ceil(top / 10) * 10);
+  const saved = base.inner.height_mm - height;
+  if (saved < MIN_BOX_CUT_MM) return base;
+  return {
+    ...base,
+    inner: { ...base.inner, height_mm: height },
+    outer: { ...base.outer, height_mm: base.outer.height_mm - saved },
+    cut_from: { inner_height_mm: base.inner.height_mm, outer_height_mm: base.outer.height_mm },
+  };
+}
+
 /** Dựng kết quả 1 kiện từ trạng thái giải mã. */
 export function summarizeParcel(
   state: ParcelState,
@@ -50,14 +83,15 @@ export function summarizeParcel(
   );
 }
 
-/** Dựng kết quả 1 kiện từ thùng + món (đúng dạng) + tọa độ: cân, độ đầy, vật tư, cân quy đổi. */
+/** Dựng kết quả 1 kiện từ thùng + món (đúng dạng) + tọa độ: cân, độ đầy, vật tư, cân quy đổi — theo thùng đã cắt hạ. */
 export function summarizePlacements(
-  box: BoxSpec,
+  catalogBox: BoxSpec,
   units: PackingUnit[],
   placements: Placement[],
   materials: MaterialPlanning | undefined,
   charge: ChargeRule = DEFAULT_CHARGE_RULE,
 ): SolvedParcel {
+  const box = cutBoxToLoad(catalogBox, placements);
   const itemsWeight = units.reduce((s, u) => s + u.weight_g, 0);
   const itemsVolume = placements.reduce((s, p) => s + p.dx * p.dy * p.dz, 0);
   const fill = itemsVolume / innerVolume(box);

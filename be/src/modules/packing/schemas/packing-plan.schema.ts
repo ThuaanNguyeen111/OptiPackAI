@@ -68,6 +68,9 @@ export class PlanBox {
   @Prop({ type: Number, required: true }) tare_g!: number;
   @Prop({ type: Number, required: true }) max_load_g!: number;
   @Prop({ type: Number, default: null }) price_vnd!: number | null;
+  /** (08/11/2026) Thùng cắt hạ: chiều cao lòng/ngoài GỐC; inner_mm/outer_mm là số sau cắt. null = không cắt. */
+  @Prop({ type: Number, default: null }) cut_from_inner_height_mm?: number | null;
+  @Prop({ type: Number, default: null }) cut_from_outer_height_mm?: number | null;
 }
 export const PlanBoxSchema = SchemaFactory.createForClass(PlanBox);
 
@@ -245,6 +248,8 @@ export class PlanBoxComparisonRow {
   @Prop({ type: String, enum: ['box', 'mailer'], default: 'box' }) kind!: 'box' | 'mailer';
   @Prop({ type: Boolean, required: true }) is_chosen!: boolean;
   @Prop({ type: Boolean, required: true }) eligible!: boolean;
+  /** (08/11/2026) Số thùng loại này cần; >1 = phải tách kiện; null = không xếp được / dữ liệu cũ. */
+  @Prop({ type: Number, default: null }) parcels?: number | null;
   /** 1 = tốt nhất theo luật bậc của bộ giải; null = không dùng được. */
   @Prop({ type: Number, default: null }) rank!: number | null;
   @Prop({ type: Number, required: true }) score!: number;

@@ -146,3 +146,18 @@ def test_two_boxes_split_items() -> None:
     assert placements is not None
     assert {p.box_index for p in placements} == {0, 1}
     assert_geometry(placements, boxes)
+
+
+def test_soft_unit_may_overhang_its_supporter() -> None:
+    # Box floor fits only one unit; the 105 mm top must sit on the 100 mm base (5 mm overhang).
+    def top(pct: int) -> UnitIn:
+        u = unit("TOP", (105, 100, 20), upright=True, cap=None)
+        return u.model_copy(update={"min_support_pct": pct})
+
+    base = unit("BASE", (100, 100, 50), upright=True)
+    boxes = [box("B", (105, 100, 70))]
+    status, placements = solve([base, top(80)], boxes)
+    assert status == "feasible"
+    assert placements is not None
+    assert_geometry(placements, boxes)
+    assert solve([base, top(100)], boxes)[0] == "infeasible"

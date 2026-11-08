@@ -53,4 +53,5 @@ export {
   type GuideMaterial,
   type GuideStepText,
   type GuideText,
+  cutBoxNote,
 } from './packing-guide';
