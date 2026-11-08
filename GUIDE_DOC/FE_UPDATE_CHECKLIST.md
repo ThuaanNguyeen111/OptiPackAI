@@ -335,11 +335,11 @@ Việc FE (`PackagingWorkbench.tsx`):
 **Yêu cầu của cô:** chỉnh lại tab quản lý vật liệu đóng gói cho hợp lý, bỏ các cột trùng lặp và khó hiểu, thêm ngưỡng cho từng vật liệu, có cảnh báo gửi Admin / Warehouse Staff khi vật liệu sắp chạm ngưỡng.
 
 **BE đã có sẵn, FE không phải chờ:**
-- Mỗi thùng, túi zip, túi niêm phong và vật tư đều có ngưỡng riêng. API danh sách trả `reorderLevel`.
+- Mỗi thùng, túi zip, túi niêm phong và vật tư đều có ngưỡng riêng. API danh sách trả `reorderLevel`. 🔄 08/11 (Việt báo thiếu): `GET /packaging-materials` (nguồn của tab Túi niêm phong và Kho tái sử dụng) nay cũng trả `reorderLevel` + `stockStatus`.
 - Thùng và vật tư có thêm `stockStatus` (`in_stock` / `low_stock` / `out_of_stock`). Túi zip **không có** `stockStatus`, FE tự tính:
   - `quantityOnHand = 0` → hết hàng.
   - `quantityOnHand ≤ reorderLevel` → sắp hết.
-- Sửa ngưỡng: gửi `PATCH /packaging/{boxes|bags|materials}/:id` với `reorder_level`. Các form sửa hiện tại đã có ô này.
+- Sửa ngưỡng: gửi `PATCH /packaging/{boxes|bags|materials}/:id` với `reorder_level`. Các form sửa hiện tại đã có ô này. **Túi niêm phong:** gửi `PATCH /packaging-materials/:code` với `{ "reorder_level": 50 }`.
 - Cảnh báo `low_box_stock` / `low_material_stock` do BE tự gửi vào chuông thông báo. FE chỉ cần hiển thị như các thông báo khác; khi bấm vào thì mở trang này, đúng tab của mã đó (`relatedEntityType` = `packaging_box` / `packaging_material`, `relatedEntityId` = mã).
 
 ### Vấn đề trên màn hiện tại (`pages/PackagingMaterialsPage.tsx`, `main` 06/11)

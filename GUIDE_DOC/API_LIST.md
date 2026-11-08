@@ -675,10 +675,10 @@ Lỗi: `DOC_NO_ORDERS` (409, nhóm không còn đơn hợp lệ), `DOC_SHIPMENT_
 
 | Method         | Route                                            | Role                                     | Mô tả                                                         |
 | -------------- | ------------------------------------------------ | ---------------------------------------- | ------------------------------------------------------------- |
-| GET            | `/packaging-materials` · `/:code` · `/movements` | Admin, Store Owner, Warehouse, Packaging | Danh mục + tồn mới/tái sử dụng, sổ cái                        |
+| GET            | `/packaging-materials` · `/:code` · `/movements` | Admin, Store Owner, Warehouse, Packaging | Danh mục + tồn mới/tái sử dụng, sổ cái. 🔄 08/11/2026: mỗi dòng thêm `reorderLevel` và `stockStatus` (`in_stock` / `low_stock` / `out_of_stock`, tính trên tồn mới + tái sử dụng) |
 | GET            | `/packaging-materials/savings`                   | Admin, Store Owner                       | Tổng tiết kiệm, tỷ lệ dùng lại                                |
 | POST           | `/packaging-materials`                           | Admin                                    | Khai vật liệu (thùng: 3 kích thước; đệm: match_material_type) |
-| PATCH · DELETE | `/packaging-materials/:code`                     | Admin                                    | Sửa tên/đơn giá · vô hiệu hóa (chặn nếu còn tồn)              |
+| PATCH · DELETE | `/packaging-materials/:code`                     | Admin                                    | Sửa tên/đơn giá · vô hiệu hóa (chặn nếu còn tồn). 🔄 08/11/2026: body nhận thêm `reorder_level` (số nguyên ≥ 0); sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo thì báo Admin, Store Owner, Warehouse Staff |
 | POST           | `/packaging-materials/:code/reactivate`          | Admin                                    |                                                               |
 | POST           | `/packaging-materials/:code/purchase`            | Admin, Warehouse                         | Nhập vật liệu mới                                             |
 

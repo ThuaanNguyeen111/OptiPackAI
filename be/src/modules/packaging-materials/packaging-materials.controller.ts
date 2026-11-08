@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PackagingMaterialsService } from './packaging-materials.service';
-import { PackagingMaterialDocument } from './schemas/packaging-material.schema';
+import { PackagingMaterialDocument, usableStock } from './schemas/packaging-material.schema';
 import { CreatePackagingMaterialDto, InternalUseDto, PurchasePackagingDto, UpdatePackagingMaterialDto } from './dto/packaging-material.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -16,7 +16,15 @@ function toResponse(m: PackagingMaterialDocument): Record<string, unknown> {
     lengthCm: m.length_cm, widthCm: m.width_cm, heightCm: m.height_cm, matchMaterialType: m.match_material_type,
     unitCostVnd: m.unit_cost_vnd, reusable: m.reusable, maxReuseCycles: m.max_reuse_cycles,
     qtyNew: m.qty_new, qtyReused: m.qty_reused, qtyInternal: m.qty_internal, isActive: m.is_active,
+    // 08/11/2026 — ngưỡng + trạng thái tồn (tồn dùng được = mới + tái sử dụng), cùng cách ghi với /packaging/boxes.
+    reorderLevel: m.reorder_level,
+    stockStatus: stockStatusOf(usableStock(m), m.reorder_level),
   };
+}
+
+function stockStatusOf(stock: number, reorderLevel: number): 'in_stock' | 'low_stock' | 'out_of_stock' {
+  if (stock <= 0) return 'out_of_stock';
+  return stock <= reorderLevel ? 'low_stock' : 'in_stock';
 }
 
 const READERS = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF];
@@ -68,7 +76,7 @@ export class PackagingMaterialsController {
 
   @Patch(':code')
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Sửa tên / đơn giá / tái sử dụng / số lần tối đa. KHÔNG sửa mã, loại, kích thước.' })
+  @ApiOperation({ summary: 'Sửa tên / đơn giá / tái sử dụng / số lần tối đa / ngưỡng cảnh báo. KHÔNG sửa mã, loại, kích thước.' })
   async update(@Param('code') code: string, @Body() dto: UpdatePackagingMaterialDto): Promise<Record<string, unknown>> {
     return toResponse(await this.service.update(code, dto));
   }
