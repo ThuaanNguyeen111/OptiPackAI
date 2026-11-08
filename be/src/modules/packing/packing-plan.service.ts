@@ -1,3 +1,5 @@
+import { PackagingStockAlertService } from '../packaging-materials/packaging-stock-alert.service';
+import type { WasteResult } from '../packaging-materials/packaging-materials.service';
 import { HttpStatus, Injectable, Logger, Optional } from '@nestjs/common';
 import { ProductMaster, ProductMasterDocument } from '../product-master/schemas/product-master.schema';
 import { ShippingCarrier, ShippingCarrierDocument } from '../shipping/schemas/shipping-carrier.schema';
@@ -378,6 +380,8 @@ export class PackingPlanService {
     private readonly shippingSettingsModel?: Model<ShippingSettingsDocument>,
     // (05/11/2026) nhật ký dữ liệu gửi AI + ví dụ mẫu đã chấm tốt (thiếu = không ghi, không gửi ví dụ).
     @Optional() private readonly guideMemory?: PackingGuideMemoryService,
+    // 08/11/2026 — cảnh báo tồn khi thùng hỏng lúc đóng (hao hụt).
+    @Optional() private readonly stockAlerts?: PackagingStockAlertService,
   ) {}
 
   /**
@@ -1531,7 +1535,8 @@ export class PackingPlanService {
     }
     const parcels = plan.parcels.map((p) => (p.parcel_no === parcelNo ? replaced : this.plain(p)));
     const oldCode = parcel.box.code;
-    return this.runInTransaction(async (session) => {
+    const wasted: { stock: WasteResult['stock'] } = { stock: null };
+    const result = await this.runInTransaction(async (session) => {
       let wasteCost = 0;
       if (damaged) {
         const waste = await this.boxService.recordWaste(
@@ -1542,6 +1547,7 @@ export class PackingPlanService {
           `Thùng hỏng trước khi niêm phong (kiện ${String(parcelNo)}): ${dto.reason}`,
         );
         wasteCost = waste.taken * waste.unitCostVnd;
+        wasted.stock = waste.stock;
       }
       return this.saveManualEdit(
         plan,
@@ -1563,6 +1569,10 @@ export class PackingPlanService {
         { statuses: ['approved', 'packing'], session },
       );
     });
+    if (wasted.stock) {
+      await this.stockAlerts?.notifyIfWorse({ ...wasted.stock, kind: 'box', trigger: 'thùng hỏng lúc đóng gói, đã ghi hao hụt' });
+    }
+    return result;
   }
 
   /**

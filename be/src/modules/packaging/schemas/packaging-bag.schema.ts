@@ -36,7 +36,7 @@ export class PackagingBag {
   @Prop({ type: Number, default: 0, min: 0 })
   quantity_on_hand!: number;
 
-  /** Tồn ≤ mức này sau khi đóng → cảnh báo Admin + Store Owner. */
+  /** Tồn ≤ mức này → cảnh báo Admin + Store Owner + Warehouse Staff (báo sớm từ ngưỡng + 20%, 08/11/2026). */
   @Prop({ type: Number, default: 20, min: 0 })
   reorder_level!: number;
 

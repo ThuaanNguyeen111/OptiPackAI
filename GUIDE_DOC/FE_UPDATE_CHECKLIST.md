@@ -25,6 +25,7 @@
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
 | 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ☐ Chưa làm |
 | 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ☐ Chưa làm |
+| 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -326,6 +327,52 @@ Việc FE (`PackagingWorkbench.tsx`):
 - Đăng nhập lần lượt 5 role, mở các màn: Vật liệu đóng gói, Cài đặt đóng gói, Đóng gói (bảng so sánh thùng, cỡ thùng, cân), Giao hàng, Kho (phiếu nhập), Master SKU / Product Master, Quy tắc đóng gói.
 - Không còn chữ "mm", "g", "Gram", "Đường kính". Mọi số lẻ dùng dấu phẩy.
 - Tạo thùng lòng 35 × 25 × 12,5 cm, bì 0,15 kg → `GET /packaging/boxes` trả `inner = 350 × 250 × 125` (mm), `tareG = 150`. Mở form sửa thấy lại đúng 35 / 25 / 12,5 và 0,15.
+
+---
+
+## 12. 🆕 08/11/2026 — Sắp lại trang Vật liệu đóng gói: bỏ cột trùng, hiện ngưỡng (dòng 15)
+
+**Yêu cầu của cô:** chỉnh lại tab quản lý vật liệu đóng gói cho hợp lý, bỏ các cột trùng lặp và khó hiểu, thêm ngưỡng cho từng vật liệu, có cảnh báo gửi Admin / Warehouse Staff khi vật liệu sắp chạm ngưỡng.
+
+**BE đã có sẵn, FE không phải chờ:**
+- Mỗi thùng, túi zip, túi niêm phong và vật tư đều có ngưỡng riêng. API danh sách trả `reorderLevel`.
+- Thùng và vật tư có thêm `stockStatus` (`in_stock` / `low_stock` / `out_of_stock`). Túi zip **không có** `stockStatus`, FE tự tính:
+  - `quantityOnHand = 0` → hết hàng.
+  - `quantityOnHand ≤ reorderLevel` → sắp hết.
+- Sửa ngưỡng: gửi `PATCH /packaging/{boxes|bags|materials}/:id` với `reorder_level`. Các form sửa hiện tại đã có ô này.
+- Cảnh báo `low_box_stock` / `low_material_stock` do BE tự gửi vào chuông thông báo. FE chỉ cần hiển thị như các thông báo khác; khi bấm vào thì mở trang này, đúng tab của mã đó (`relatedEntityType` = `packaging_box` / `packaging_material`, `relatedEntityId` = mã).
+
+### Vấn đề trên màn hiện tại (`pages/PackagingMaterialsPage.tsx`, `main` 06/11)
+
+1. **Cùng một vật liệu hiện ở 2 tab với 2 kiểu số tồn.** BE lưu thùng, vật tư chèn và túi niêm phong chung một bảng (`packaging_materials`). Tab mặc định "Kho tái sử dụng" (`ReuseStockPanel`) liệt kê **cả bảng đó** với các cột Mới / Tái sử dụng / Nội bộ. Tab "Thùng" và tab "Vật liệu chống sốc" lại liệt kê lần nữa các thùng và vật tư đó với cách ghi tồn khác. Người xem không biết tin số nào. Riêng túi niêm phong hiện **chỉ** có ở tab Kho tái sử dụng.
+2. **Thêm thùng ở 2 nơi, 2 đơn vị.** Form "Thêm vật liệu" ở tab Kho tái sử dụng nhập thùng theo cm. Tab Thùng nhập theo mm. Ghi chú trên form còn phải giải thích sự khác nhau này.
+3. **Gộp 3 số vào 1 ô:** "Tồn/Giữ/Còn" (tab Thùng) và "Mới/Tái sử dụng" (tab Vật liệu chống sốc). Khó đọc và không sắp xếp được.
+4. **Thiếu cột Ngưỡng** ở tab Thùng, Vật liệu chống sốc và Kho tái sử dụng. Chỉ tab Túi zip có.
+5. **Thuật ngữ khó hiểu:**
+   - Tab Vật liệu chống sốc hiện mã thô `item.type` (VD `corner_foam`) thay vì tên tiếng Việt.
+   - Nút "Sổ" → nên là "Lịch sử nhập/xuất".
+   - Nút "Nội bộ" → nên là "Xuất dùng nội bộ".
+   - Cột "Đường kính trong (mm)" → xem mục 11.1.
+
+### Bố cục đề xuất
+
+| Tab | Cột | Ghi chú |
+|---|---|---|
+| **Thùng** | Mã + tên · Lòng thùng (cm) · Tồn · Đang giữ cho đơn · Còn dùng được · **Ngưỡng** · Trạng thái | Tách "Tồn/Giữ/Còn" thành 3 cột. Trạng thái là badge Còn / Sắp hết / Hết theo `stockStatus` |
+| **Túi zip** | Mã + tên · Khổ trải (cm) · Tồn · **Ngưỡng** · Trạng thái | Thêm cột Trạng thái (FE tự tính như trên) |
+| **Vật liệu chống sốc** | Mã + tên · Loại (tên tiếng Việt) · Tồn · **Ngưỡng** · Trạng thái | Bỏ cột "Mới/Tái sử dụng" vì vật tư chèn ít khi dùng lại; nếu cần thì để trong form sửa. Đổi `item.type` sang tên tiếng Việt (bảng `CUSHION_TYPES`) |
+| **Túi niêm phong** (tab mới) | Mã + tên · Khổ trải (cm) · Tồn · **Ngưỡng** · Trạng thái | Lọc `kind = mailer` từ API đang dùng cho tab Kho tái sử dụng; thêm/sửa túi niêm phong làm ở đây |
+| **Kho tái sử dụng** | Mã + tên · Loại · Tái sử dụng được · Chỉ dùng nội bộ · Đơn giá | Chỉ giữ phần **hàng hoàn được kiểm và dùng lại** (thùng, vật tư có `reusable`). Bỏ cột "Mới" vì số tồn mới đã có ở các tab trên. **Bỏ nút thêm vật liệu ở đây** — thêm ở đúng tab của loại đó |
+
+- Đặt tab **Thùng** làm tab mặc định thay cho "Kho tái sử dụng".
+- Dòng nào có `stockStatus = low_stock` thì tô nền vàng nhạt, `out_of_stock` thì nền đỏ nhạt. Đầu trang hiện ô tóm tắt "N vật liệu sắp hết / hết", bấm vào thì lọc ra các dòng đó.
+- Đơn vị theo mục 11 (cm, kg).
+
+**Nghiệm thu:**
+- Mỗi vật liệu chỉ có số tồn mới ở đúng một tab.
+- Tab nào cũng có cột Ngưỡng sửa được.
+- Đặt ngưỡng của một thùng cao hơn số tồn hiện có → dòng đó chuyển sang "Sắp hết".
+- Đóng gói làm tồn tụt xuống bằng hoặc dưới ngưỡng → chuông thông báo nhận cảnh báo; bấm vào thì mở đúng tab, đúng mã. (Người nhận Warehouse Staff: BE đang bổ sung, xem `CLAUDE.md` nhật ký 08/11.)
 
 ---
 

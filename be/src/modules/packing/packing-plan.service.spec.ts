@@ -1,3 +1,4 @@
+import { PackagingStockAlertService } from '../packaging-materials/packaging-stock-alert.service';
 import { Types } from 'mongoose';
 import { UserRole } from '../../common/enums/user-role.enum';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
@@ -299,6 +300,7 @@ describe('PackingPlanService', () => {
       { get: () => Promise.resolve(settings) } as never,
       notificationsService as never,
       bagService as never,
+      new PackagingStockAlertService(notificationsService as never),
     );
   });
 

@@ -7,6 +7,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '../notifications/enums/notification-type.enum';
 import { OrderGroupsService } from '../order-groups/order-groups.service';
 import { GroupFulfillmentStatus } from '../order-groups/enums/group-fulfillment-status.enum';
+import { PackagingStockAlertService } from '../packaging-materials/packaging-stock-alert.service';
 import { PackagingBoxService, type ConsumedBox } from '../packaging/packaging-box.service';
 import {
   PackagingMaterialService,
@@ -138,6 +139,7 @@ export class PackingSessionService {
     private readonly settingsService: PackingSettingsService,
     private readonly notificationsService: NotificationsService,
     private readonly bagService: PackagingBagService,
+    private readonly stockAlerts: PackagingStockAlertService,
   ) {}
 
   // ------------------------------------------------------------------ bắt đầu / hoàn tất
@@ -1195,47 +1197,22 @@ export class PackingSessionService {
     }
   }
 
+  /**
+   * 08/11/2026 — giao cho PackagingStockAlertService: báo sớm (≤ ngưỡng + 20%), dưới ngưỡng, hết;
+   * gửi Admin + Store Owner + Warehouse Staff. Chỉ báo khi mức xấu đi so với trước lúc niêm phong.
+   */
   private async notifyStock(
     consumed: ConsumedBox[],
     consumedMaterials: ConsumedMaterial[],
     shortfalls: MaterialShortfall[],
   ): Promise<void> {
-    for (const box of consumed.filter((c) => c.before > c.reorderLevel && c.after <= c.reorderLevel))
-      await this.notifyLowStock('box', box.code, box.code, box.after, box.reorderLevel, 0);
-    for (const m of consumedMaterials.filter((c) => c.before > c.reorderLevel && c.after <= c.reorderLevel))
-      await this.notifyLowStock('material', m.code, m.name, m.after, m.reorderLevel, 0);
+    const trigger = 'sau khi niêm phong kiện';
+    for (const box of consumed)
+      await this.stockAlerts.notifyIfWorse({ kind: 'box', code: box.code, name: box.code, before: box.before, after: box.after, reorderLevel: box.reorderLevel, trigger });
+    for (const m of consumedMaterials)
+      await this.stockAlerts.notifyIfWorse({ kind: 'material', code: m.code, name: m.name, before: m.before, after: m.after, reorderLevel: m.reorderLevel, trigger });
     const missingByCode = new Map<string, number>();
     for (const s of shortfalls) missingByCode.set(s.code, (missingByCode.get(s.code) ?? 0) + s.missing);
-    for (const [code, missing] of missingByCode) await this.notifyLowStock('material', code, code, 0, 0, missing);
-  }
-
-  private async notifyLowStock(
-    kind: 'box' | 'material',
-    code: string,
-    name: string,
-    after: number,
-    reorderLevel: number,
-    missing: number,
-  ): Promise<void> {
-    const what = kind === 'box' ? 'thùng' : 'vật tư';
-    const title =
-      missing > 0 ? `Thiếu ${what} ${code} khi đóng gói` : after === 0 ? `Đã hết ${what} ${name}` : `${what === 'thùng' ? 'Thùng' : 'Vật tư'} ${name} sắp hết`;
-    const message =
-      missing > 0
-        ? `Kho không đủ ${what} ${code}: thiếu ${String(missing)} so với kế hoạch. Đơn vẫn được đóng — kiểm tra lại kiện và nhập thêm.`
-        : after === 0
-          ? `Kho vừa dùng hết ${what} ${name}. Vui lòng nhập thêm.`
-          : `Kho còn ${String(after)} ${what} ${name} (mức cảnh báo ${String(reorderLevel)}). Vui lòng nhập thêm.`;
-    for (const recipientRole of [UserRole.ADMIN, UserRole.STORE_OWNER]) {
-      await this.safeNotify({
-        recipientRole,
-        type: kind === 'box' ? NotificationType.LOW_BOX_STOCK : NotificationType.LOW_MATERIAL_STOCK,
-        severity: 'warning',
-        title,
-        message,
-        relatedEntityType: kind === 'box' ? 'packaging_box' : 'packaging_material',
-        relatedEntityId: code,
-      });
-    }
+    for (const [code, missing] of missingByCode) await this.stockAlerts.notifyShortfall('material', code, missing);
   }
 }

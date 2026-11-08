@@ -2450,7 +2450,7 @@ Khảo sát 28/09 xác nhận 4 khoảng trống so với đề bài: vật tư 
 - Collection mới `packaging_materials` (5 loại: `foam_corner`, `corrugated_divider`, `air_pillow`, `bubble_wrap`, `fragile_tape`; tồn + `reorder_level`), `packaging_material_movements` (sổ riêng, không đụng sổ thùng), `packaging_material_rules` (bộ luật có version, mỗi lần lưu = document mới, bản cũ tắt; chưa có → dùng `DEFAULT_MATERIAL_RULES` trong code). Routes `/packaging/materials` (+ `/rules` GET/PUT) — chi tiết `API_LIST.md` mục 8e.
 - Engine: `engine/material-selector.ts` (`selectMaterials`, hàm thuần) — luật gồm `applies_to` (fragile/shoes/fragile_or_shoes/any) × `basis` (per_unit/per_extra_unit/per_carton/void_band). `packOrder` nhận `options.materials`; `buildOk` cộng khối lượng vật tư vào `estimated_package_weight_g`, trả `materials_weight_g/materials_cost_vnd`. `PackingUnit.product_category` (mới) để luật nhận ra giày.
 - **Vật tư là ƯỚC LƯỢNG THEO LUẬT, không vào hình học** (không chiếm thể tích trong validator, chưa mô hình hóa khoảng đệm) — khi trình bày phải nói đúng như vậy; các dải `void_band` (50%→2, 70%→4) và số lượng mặc định là số khởi đầu chưa hiệu chỉnh.
-- **Thiếu vật tư KHÔNG chặn `pack`** (khác thùng hết → 409 `PKG_BOX_OUT_OF_STOCK`): trừ `min(cần, tồn)`, ghi `materials_shortfall` trên recommendation + Notification `low_material_stock` (Admin + Store Owner; cũng báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần). Vật tư **không giữ chỗ mềm**.
+- **Thiếu vật tư KHÔNG chặn `pack`** (khác thùng hết → 409 `PKG_BOX_OUT_OF_STOCK`): trừ `min(cần, tồn)`, ghi `materials_shortfall` trên recommendation + Notification `low_material_stock` (Admin + Store Owner; cũng báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần). 🔄 08/11/2026: 3 mức (sắp chạm ≤ ngưỡng + 20%, dưới ngưỡng, hết), người nhận thêm Warehouse Staff, báo cả thùng hỏng lúc đóng và sửa ngưỡng — xem nhật ký 08/11 cảnh báo tồn. Vật tư **không giữ chỗ mềm**.
 - Hướng dẫn đóng gói: `buildTemplateGuide`/`PackingGuideInput` nhận `materials[]` thay `bubble_wrap_count`; AI được nhắc liệt kê đúng vật tư trong `summary`.
 - FE: `MaterialCatalog` (trong `/app/admin/boxes`, gồm xem luật), `StockPanel` (dùng chung với `BoxStockPanel`), bảng vật tư + chi phí ở `PackagingPlanPage`, danh sách vật tư ở màn Chuẩn bị của wizard. **Chưa vẽ vật tư trong animation 3D.**
 - Seed: `npx ts-node scripts/seed-packaging-materials.ts` (chưa chạy trên DB thật; chỉ tạo mã chưa có, an toàn chạy lại).
@@ -4679,6 +4679,66 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
    - `jest` toàn bộ: 143 bộ test đạt, 1 bỏ qua; 1459 test đạt.
    - Áp sang nhánh `feature/thuan_be` (có Tiki): `tsc` 0 lỗi.
    - Chưa chạy app thật để xem chữ trên màn hình.
+
+## 🔔 Nhật ký 08/11/2026 — Cảnh báo tồn vật liệu đóng gói: báo sớm, thêm Warehouse Staff, thêm trường hợp hao hụt và sửa ngưỡng (AOFP-232, docs AOFP-233)
+
+**[stated] Yêu cầu (góp ý của cô, Thuận chốt 08/11/2026):**
+- Cảnh báo gửi cả **Warehouse Staff**, ngoài Admin và Store Owner.
+- Báo **sớm** khi tồn ≤ ngưỡng + 20%.
+- Báo cả khi tồn giảm hoặc chạm ngưỡng do **thao tác tay**, không chỉ lúc đóng gói.
+- Việc FE ghi vào `FE_UPDATE_CHECKLIST.md`.
+
+**Trước khi sửa:**
+- Chỉ `packing-session.service.ts` gửi `low_box_stock` / `low_material_stock`, khi niêm phong kiện làm tồn đi từ trên ngưỡng xuống ≤ ngưỡng (hoặc thiếu vật tư).
+- Người nhận: Admin + Store Owner, mức `warning`.
+- Thùng hỏng lúc đóng (ghi hao hụt) và sửa ngưỡng: không có cảnh báo.
+
+**Rà các đường làm giảm tồn dùng được** (`qty_new + qty_reused`, hoặc `quantity_on_hand` với túi zip):
+- Niêm phong kiện: thùng, vật tư, túi zip.
+- Thùng hỏng lúc đổi thùng khi đang đóng: `recordWaste`.
+- "Xuất dùng nội bộ" (`internal-use`) chỉ trừ `qty_internal` (hàng hạng B), **không** thuộc tồn dùng được nên không liên quan đến ngưỡng.
+- Không có route nào chỉnh giảm tồn bằng tay khác. Vì vậy "chỉnh tay" thực tế gồm: **thùng hỏng (hao hụt)** và **sửa ngưỡng** (nâng ngưỡng lên làm tồn hiện có rơi vào mức sắp hết hoặc dưới ngưỡng).
+
+**Đã làm:**
+- **`packaging-materials/packaging-stock-alert.service.ts` (mới)** — `PackagingStockAlertService`, export từ `PackagingMaterialsModule`; module này import thêm `NotificationsModule` (chỉ phụ thuộc Mail + schema User, không tạo vòng).
+  - 3 mức:
+
+    | Mức | Điều kiện | Severity |
+    |---|---|---|
+    | `near` | tồn ≤ `earlyWarningLevel` = `max(ngưỡng + 1, ceil(ngưỡng × 1,2))`. Ngưỡng 10 → 12; ngưỡng 0 → không báo sớm | `warning` |
+    | `below` | tồn ≤ ngưỡng | `warning` |
+    | `out` | tồn = 0 | `critical` |
+  - **Chỉ báo khi mức xấu đi** (`worsenedLevel`). Đã ở "sắp hết" mà trừ tiếp trong cùng mức thì không báo lặp.
+  - Người nhận: `STOCK_ALERT_RECIPIENTS` = Admin + Store Owner + Warehouse Staff.
+  - Lỗi gửi thông báo chỉ ghi log, không làm hỏng thao tác chính.
+- **`packing-session.service.ts`:** `notifyStock` dùng service mới. Bỏ `notifyLowStock` cũ. Thiếu vật tư → `notifyShortfall` (mức `critical`, cùng 3 người nhận).
+- **Thùng hỏng lúc đóng:**
+  - `packaging-materials.service.ts` `recordWaste` trả thêm `stock` (code, name, tồn trước/sau, ngưỡng). Type `WasteResult` export.
+  - `packing-plan.service.ts` (đổi thùng khi đang đóng, `old_box_outcome` hỏng) báo **sau khi giao dịch lưu xong**.
+  - `stockAlerts` là tham số cuối, `@Optional`.
+- **Sửa ngưỡng:** `update()` của `packaging-box.service.ts`, `packaging-material.service.ts`, `packaging-bag.service.ts` so ngưỡng cũ / mới trên số tồn hiện có. `stockAlerts` `@Optional` để spec cũ dựng bằng `new` không vỡ.
+- Comment `packaging-bag.schema.ts` cập nhật theo người nhận mới.
+
+**Tác động (5 câu):**
+1. *Đổi gì?*
+   - 9 file BE (liệt kê ở trên) + service mới + `packaging-stock-alert.service.spec.ts` (8 test).
+   - `packing-plan.service.spec.ts` truyền thêm service thật vào `PackingSessionService`.
+   - Không đụng `fe/`, website AURELLE.
+2. *DB/migration?* Không. Dùng lại `reorder_level` và 2 loại thông báo `low_box_stock` / `low_material_stock` có sẵn.
+3. *API/FE?*
+   - Không đổi route hay field.
+   - Thông báo có thêm tiêu đề "… sắp chạm ngưỡng", "… đã xuống ngưỡng cảnh báo", "Đã hết …"; Warehouse Staff giờ cũng nhận (in-app + email theo role).
+   - FE: `FE_UPDATE_CHECKLIST.md` mục 12 (bấm thông báo mở đúng tab, hiển thị mức báo sớm).
+4. *Rủi ro / mâu thuẫn quy tắc?*
+   - 🔄 Thay quy tắc cũ "báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần, Admin + Store Owner" (nhật ký G4, `API_LIST.md`, `INTEGRATION_GUIDE_FULFILLMENT.md`): giờ có 3 mức, 3 người nhận.
+   - Số thông báo tăng: mỗi vật liệu tối đa 3 lần cho một lượt giảm từ đủ hàng tới hết. Mỗi lần gửi cho 3 role, kèm email theo role.
+   - Nhập thêm hàng rồi lại giảm xuống thì sẽ báo lại; đây là chủ ý.
+   - Mức báo sớm dựa trên tồn dùng được, **không trừ phần đang giữ chỗ**. Cột "Còn" trên màn Thùng (`available`) thì có trừ phần giữ chỗ, nên badge trên màn có thể vàng sớm hơn thông báo.
+5. *Kiểm chứng?*
+   - Trên nhánh `feature/thuan_be` (cfd5a8d): `tsc --noEmit` 0 lỗi; ESLint các file đổi 0 lỗi.
+   - `jest` toàn bộ: 148 bộ test đạt, 1 bỏ qua; 1483 test đạt.
+   - Áp sang máy Thuận: `tsc` 0 lỗi.
+   - Chưa chạy app thật để xem thông báo trên chuông và email.
 
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 

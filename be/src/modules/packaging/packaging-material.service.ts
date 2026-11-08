@@ -1,9 +1,11 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { PackagingStockAlertService } from '../packaging-materials/packaging-stock-alert.service';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import {
   PackagingMaterial,
   PackagingMaterialDocument,
+  usableStock,
 } from '../packaging-materials/schemas/packaging-material.schema';
 import {
   PackagingMovement,
@@ -117,6 +119,8 @@ export class PackagingMaterialService {
     private readonly rulesModel: Model<PackagingMaterialRulesDocument>,
     @InjectConnection() private readonly connection: Connection,
     private readonly materialsService: PackagingMaterialsService,
+    // 08/11/2026 — báo khi sửa ngưỡng làm tồn hiện có rơi vào mức sắp hết/dưới ngưỡng.
+    @Optional() private readonly stockAlerts?: PackagingStockAlertService,
   ) {}
 
   // ------------------------------------------------------------------
@@ -300,6 +304,13 @@ export class PackagingMaterialService {
       { returnDocument: 'after', runValidators: true },
     );
     if (!updated) throw this.notFound(id);
+    if (dto.reorder_level !== undefined && dto.reorder_level !== material.reorder_level) {
+      const stock = usableStock(updated);
+      await this.stockAlerts?.notifyIfWorse({
+        kind: 'material', code: updated.code, name: updated.name, before: stock, after: stock,
+        previousReorderLevel: material.reorder_level, reorderLevel: updated.reorder_level, trigger: 'vừa sửa ngưỡng',
+      });
+    }
     return updated;
   }
 
