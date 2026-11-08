@@ -48,4 +48,6 @@ export enum NotificationType {
   RETURN_TO_SHELF = 'return_to_shelf', // đơn hủy trước khi đóng — đem hàng đã lấy trả về đúng ô
   // 23/10/2026 — đơn gộp: nhóm có ≥ 2 người nhận KHÁC TÊN (cùng SĐT + địa chỉ)
   CONSOLIDATION_NAME_MISMATCH = 'consolidation_name_mismatch',
+  // 31/10/2026 — đơn Tiki sắp hết hạn "xác nhận đủ hàng" mà OptiPack chưa tự xác nhận được.
+  MARKETPLACE_CONFIRM_REQUIRED = 'marketplace_confirm_required',
 }

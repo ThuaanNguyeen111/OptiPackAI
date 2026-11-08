@@ -70,6 +70,17 @@ export class MarketplaceShop {
   @Prop({ type: Date, default: null })
   last_product_synced_at!: Date | null;
 
+  // 31/10/2026 — Tiki event queue: mã hàng đợi OptiPack tạo trên Tiki + ack_id của lần kéo gần nhất
+  // (gửi lại ở lần kéo sau để không nhận lại sự kiện cũ). Sàn khác luôn null.
+  @Prop({ type: String, default: null })
+  event_queue_code!: string | null;
+
+  @Prop({ type: String, default: null })
+  event_ack_id!: string | null;
+
+  @Prop({ type: Date, default: null })
+  last_event_pulled_at!: Date | null;
+
   // Admin nào bấm "Kết nối shop" — audit trail, cùng nguyên tắc
   // created_by đã áp dụng ở module Auth.
   @Prop({ type: SchemaTypes.ObjectId, ref: 'User', required: true })

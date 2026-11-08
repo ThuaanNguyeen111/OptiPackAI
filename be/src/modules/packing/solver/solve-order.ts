@@ -22,6 +22,7 @@ import type {
   UnplacedUnit,
   Variant,
 } from './types';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /**
  * ===================================================================
@@ -157,7 +158,7 @@ export function solveOrder(
       unplaced.push({
         item_key: u.item_key,
         code: 'ITEM_TOO_HEAVY',
-        reason: `Món ${u.sku} nặng ${String(u.weight_g)} g, hơn tải mọi thùng vừa cỡ.`,
+        reason: `Món ${u.sku} nặng ${formatGAsKg(u.weight_g)}, hơn tải mọi thùng vừa cỡ.`,
       });
     } else if (!fitOk.some(inStock)) {
       unplaced.push({

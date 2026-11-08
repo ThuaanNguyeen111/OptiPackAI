@@ -1,6 +1,7 @@
 import { Controller, Get, Param, ParseEnumPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiTags } from '@nestjs/swagger';
 import { OrdersService, SyncResult } from './orders.service';
+import { TikiOrderSyncService } from './tiki-order-sync.service';
 import { SyncLazadaOrdersQueryDto } from './dto/sync-lazada-orders-query.dto';
 import { ListOrdersQueryDto } from './dto/list-orders-query.dto';
 import { OrderStatus } from './enums/order-status.enum';
@@ -68,6 +69,18 @@ interface OrderDetailResponse extends OrderResponse {
   sellerCanceled: boolean;
   /** 22/10/2026 — 'replacement' = đơn thay thế do đổi hàng (không hủy kiểu người bán được). */
   origin: 'marketplace' | 'replacement';
+  /**
+   * 31/10/2026 — chỉ đơn Tiki (null với sàn khác): kiểu giao, kho Tiki, shop đã báo đủ hàng chưa
+   * (`pending` chờ xác nhận / `confirmed` / `canceled` / `not_required`), hạn xác nhận, lỗi lần
+   * tự xác nhận gần nhất.
+   */
+  marketplace: {
+    fulfillmentType: string | null;
+    warehouseCode: string | null;
+    confirmationStatus: 'pending' | 'confirmed' | 'canceled' | 'not_required';
+    confirmSlaAt: Date | null;
+    confirmError: string | null;
+  } | null;
 }
 
 @ApiTags('Orders')
@@ -75,7 +88,10 @@ interface OrderDetailResponse extends OrderResponse {
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly tikiSync: TikiOrderSyncService, // 31/10/2026
+  ) {}
 
   @Post('lazada/sync')
   @Roles(UserRole.ADMIN)
@@ -105,7 +121,19 @@ export class OrdersController {
     platform: MarketplacePlatform,
     @Query() query: SyncLazadaOrdersQueryDto,
   ): Promise<SyncResult> {
+    // 31/10/2026 — Tiki không cùng vỏ Lazada: kéo event queue + quét dự phòng (TikiOrderSyncService).
+    if (platform === MarketplacePlatform.TIKI) return this.tikiSync.syncShop(query.shop_id, { sweep: true });
     return this.ordersService.syncShopOrders(platform, query.shop_id);
+  }
+
+  @Get(':id/marketplace-labels')
+  @Roles(UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF, UserRole.PACKAGING_STAFF, UserRole.SHIPPING_COORDINATOR)
+  @ApiOperation({
+    summary:
+      '31/10/2026 — Nhãn do sàn cấp cho 1 đơn (hiện chỉ Tiki dropship, sau khi đã xác nhận đủ hàng): shippingLabelUrl (dán ngoài kiện), shippingStampUrl (bỏ trong kiện) — link HTML để in.',
+  })
+  async marketplaceLabels(@Param('id') id: string): Promise<{ platformOrderId: string; shippingLabelUrl: string | null; shippingStampUrl: string | null }> {
+    return this.tikiSync.getDropshipLabels(id);
   }
 
   @Get()
@@ -193,6 +221,15 @@ export class OrdersController {
       reverseOrderId: order.reverse_order_id,
       sellerCanceled: order.raw_statuses.includes('seller_canceled'),
       origin: order.origin ?? 'marketplace',
+      marketplace: order.marketplace_meta
+        ? {
+            fulfillmentType: order.marketplace_meta.fulfillment_type,
+            warehouseCode: order.marketplace_meta.warehouse_code,
+            confirmationStatus: order.marketplace_meta.confirmation_status,
+            confirmSlaAt: order.marketplace_meta.confirm_sla_at,
+            confirmError: order.marketplace_confirm_error ?? null,
+          }
+        : null,
       createdAt: order.created_at ?? new Date(0),
     };
   }

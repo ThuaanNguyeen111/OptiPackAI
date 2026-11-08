@@ -1,5 +1,6 @@
 import { orientedDims } from './units';
 import type { BoxSpec, PackingUnit, Placement, Violation } from './types';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 type Box3 = Pick<Placement, 'x' | 'y' | 'z' | 'dx' | 'dy' | 'dz'>;
 
@@ -206,7 +207,7 @@ export function validateCandidate(
         message:
           limit === null
             ? 'Món này không được phép đặt vật lên trên.'
-            : `Tải chồng ${String(Math.round(load))} g vượt giới hạn ${String(limit)} g.`,
+            : `Tải chồng ${formatGAsKg(load)} vượt giới hạn ${formatGAsKg(limit)}.`,
       });
     }
   });
@@ -215,7 +216,7 @@ export function validateCandidate(
   if (itemsWeight > box.max_load_g) {
     violations.push({
       code: 'BOX_LOAD_EXCEEDED',
-      message: `Hàng nặng ${String(itemsWeight)} g vượt tải thùng ${String(box.max_load_g)} g.`,
+      message: `Hàng nặng ${formatGAsKg(itemsWeight)} vượt tải thùng ${formatGAsKg(box.max_load_g)}.`,
     });
   }
   return violations;

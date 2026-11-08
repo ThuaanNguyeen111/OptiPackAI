@@ -52,7 +52,7 @@ Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ 
 > - **Shopee bị loại khỏi scope** — lý do ĐÚNG (bản ghi cũ nói "mã số thuế bắt buộc" là SAI, đã sửa): đăng ký dev account Shopee route "Shopee Seller" (cá nhân) đòi hỏi shop Shopee liên kết phải **đã đạt trạng thái Preferred Seller hoặc Mall Seller** — một shop cá nhân mới lập không bao giờ đạt được ngay. Đã đọc kỹ toàn bộ doc chính thức Shopee Open Platform (Authorization, API calls, App management, Developer account registration) để xác nhận, xem thêm ở mục "Nghiên cứu Shopee — dừng scope nhưng giữ tài liệu" bên dưới.
 > - **TikTok Shop Partner Center (API/sandbox) cũng bị xác nhận KHÔNG khả thi**: bắt buộc giấy phép kinh doanh + công ty thành lập > 1 năm, không có route cá nhân/self-developed nào. (Đã tạo được TikTok Shop **Seller Center** cá nhân — `seller-vn.tiktok.com` — nhưng đây KHÁC hoàn toàn Partner Center, không có API.)
 > - **Lazada** trở thành sàn tích hợp CHÍNH và DUY NHẤT đang code (đăng ký cá nhân chỉ cần CCCD) — đã OAuth connect + GetOrders + lưu DB thành công END-TO-END với đơn hàng thật (xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới).
-> - **TikTok Shop và Tiki**: cố ý HOÃN lại (không xóa khỏi roadmap, nhưng KHÔNG code adapter tích cực lúc này) cho tới khi 2 sàn này sẵn sàng hơn (TikTok cần chờ hướng giải quyết business license; Tiki cần chờ email xin sandbox từ `partnersupport@tiki.vn` được duyệt).
+> - **TikTok Shop và Tiki**: cố ý HOÃN lại (không xóa khỏi roadmap, nhưng KHÔNG code adapter tích cực lúc này) cho tới khi 2 sàn này sẵn sàng hơn (TikTok cần chờ hướng giải quyết business license; Tiki cần chờ email xin sandbox từ `partnersupport@tiki.vn` được duyệt). 🔄 ĐÃ THAY ĐỔI 31/10/2026 (Tiki): Tiki không cần sandbox — nhà bán cá nhân tự tạo **app Inhouse** trên open.tiki.vn; đã kết nối thật shop "OptiPackAI Test Shop" (seller 365980) và code đồng bộ đơn dropship — xem nhật ký 31/10/2026 cuối file. TikTok vẫn hoãn.
 > - **Facebook Marketplace** (C2C listing cá nhân) xác nhận KHÔNG có API công khai, Meta không có kế hoạch mở. Nếu sau này cần tích hợp Facebook, mục tiêu đúng là **Facebook Shop** (Meta Commerce/Catalog API, chỉ cần Facebook Business Manager miễn phí) — mới là hướng nghiên cứu, CHƯA quyết định đưa vào scope chính thức.
 
 ## Quyết định kiến trúc đã chốt
@@ -109,12 +109,12 @@ Adapter Pattern (`interfaces/marketplace-adapter.interface.ts`) — service/cont
 
 |                          | TikTok                                                         | Lazada                                                  | Tiki                                                                                          |
 | ------------------------ | -------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Cách ký request          | Tự HMAC riêng (GET cho 2 API token)                            | Tự HMAC riêng (path + sorted params, **UPPERCASE hex**) | **KHÔNG cần ký** — OAuth2 chuẩn, Basic Auth header                                            |
+| Cách ký request          | Tự HMAC riêng (GET cho 2 API token)                            | Tự HMAC riêng (path + sorted params, **UPPERCASE hex**) | **KHÔNG cần ký** — 🔄 31/10/2026 (đã gọi thật): app Inhouse lấy token `client_credentials` (Basic AppID:Secret), không trang đăng nhập, không refresh token; API dùng `Authorization: Bearer` |
 | `expires_in` là gì       | **Epoch tuyệt đối** (vd `1660556783`)                          | **Số giây còn lại** (vd `604800` = 7 ngày)              | **Số giây còn lại** (chuẩn OAuth2)                                                            |
-| Lấy shop_id/cipher       | Phải gọi THÊM API `GetAuthorizedShops` sau khi có access_token | Có sẵn trong response token (`country_user_info_list`)  | Xác định qua chính access_token, không cần thêm bước                                          |
-| Cơ chế nhận đơn hàng mới | Webhook (best-effort) + cron đối soát dự phòng                 | Polling định kỳ (chưa xác nhận có webhook chính thức)   | Event Queue (cơ chế RIÊNG của Tiki, KHÁC webhook — đọc tài liệu `event-queue` trước khi code) |
+| Lấy shop_id/cipher       | Phải gọi THÊM API `GetAuthorizedShops` sau khi có access_token | Có sẵn trong response token (`country_user_info_list`)  | 🔄 31/10/2026: token KHÔNG chứa id nhà bán — gọi thêm `GET /integration/v2/sellers/me` (`id`, `name`) |
+| Cơ chế nhận đơn hàng mới | Webhook (best-effort) + cron đối soát dự phòng                 | Polling định kỳ (chưa xác nhận có webhook chính thức)   | Event Queue (cơ chế RIÊNG của Tiki, KHÁC webhook — đọc tài liệu `event-queue` trước khi code). 🔄 31/10/2026: ĐÃ CODE — kéo mỗi phút + quét dự phòng theo ngày tạo (`TikiOrderSyncService`) |
 
-**Độ tin cậy thông tin**: TikTok đã tự trải nghiệm đăng ký thật (cao, nhưng Partner Center/API xác nhận KHÔNG khả thi — xem lịch sử đổi phạm vi ở đầu file). **Lazada: ĐÃ TỰ TRẢI NGHIỆM THẬT VÀ CHẠY THÀNH CÔNG END-TO-END** (không còn "chưa tự trải nghiệm" như ghi cũ) — xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới, độ tin cậy giờ là CAO NHẤT trong 3 sàn. Tiki: phần OAuth2 xác nhận qua tài liệu chính thức (cao), nhưng domain trang authorize + tên field response cụ thể vẫn là suy luận (trung bình, CHƯA test) — xem `SETUP_NOTES.md` trong module để biết chỗ nào cần test lại bằng Postman trước khi tin tưởng, và nhớ Tiki hiện đang HOÃN code (xem lịch sử đổi phạm vi).
+**Độ tin cậy thông tin**: TikTok đã tự trải nghiệm đăng ký thật (cao, nhưng Partner Center/API xác nhận KHÔNG khả thi — xem lịch sử đổi phạm vi ở đầu file). **Lazada: ĐÃ TỰ TRẢI NGHIỆM THẬT VÀ CHẠY THÀNH CÔNG END-TO-END** (không còn "chưa tự trải nghiệm" như ghi cũ) — xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới, độ tin cậy giờ là CAO NHẤT trong 3 sàn. Tiki: phần OAuth2 xác nhận qua tài liệu chính thức (cao), nhưng domain trang authorize + tên field response cụ thể vẫn là suy luận (trung bình, CHƯA test) — xem `SETUP_NOTES.md` trong module để biết chỗ nào cần test lại bằng Postman trước khi tin tưởng, và nhớ Tiki hiện đang HOÃN code (xem lịch sử đổi phạm vi). 🔄 ĐÃ THAY ĐỔI 31/10/2026: Tiki đã gọi thật (token, sellers/me, kho, danh sách đơn) — luồng authorization_code cũ bỏ hẳn; chưa có đơn thật để thử đồng bộ/xác nhận/nhãn.
 
 ## Module Orders — Lazada ĐÃ CHẠY END-TO-END (2026-09-04, đọc trước khi đụng vào `orders/` hoặc `marketplace-integration/lazada`)
 
@@ -4611,6 +4611,75 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **Bỏ khung dây quanh món (04/11/2026, Việt yêu cầu):** gỡ lưới `wireframe` màu xanh vẽ theo khối món ở bước chuẩn bị và lúc đặt vào thùng. Kích thước khối vẫn thể hiện qua chính model đã co khít; khung của kiện gộp (`tint`) giữ nguyên vì dùng để phân biệt đơn.
 
+## 🛒 Nhật ký 31/10/2026 — Tích hợp Tiki: app Inhouse, đơn dropship (AOFP-226, docs AOFP-227)
+
+**[stated] Thuận yêu cầu + chốt:** tích hợp thử Tiki "chạy như Lazada". Chỉ nhận đơn **dropship** (shop đóng gói, shipper Tiki tới lấy; bỏ đơn `instock` do kho Tiki tự đóng). **Tự xác nhận đủ hàng** lên Tiki khi đủ tồn; thiếu thì báo Store Owner. Nhận đơn bằng **event queue + quét dự phòng**. Chưa có đơn thật → hỏi Tiki Support về mock order, code trước theo tài liệu.
+
+**Đã làm cùng Thuận trước khi code:** tạo app Inhouse trên open.tiki.vn (App ID `7463062494373526`, Seller ID `365980`), nhà bán đồng ý kết nối (link trong email Tiki có `#` không chạy — vào `Thông tin nhà bán` → `Thiết lập gian hàng`), app "Connected". Gọi thử bằng Git Bash: token `client_credentials` OK (`expires_in` 1.295.999 giây, không refresh token); `sellers/me` → `operation_models: ["dropship","instock"]`; header `tiki-api` bị từ chối (doc sai) — chỉ `Bearer`; kho nhà bán `425011` gán cho kho Tiki `sgn`, `sgn3`; 0 đơn. Đọc tài liệu: Order API v2, Order/Order Item/Order Status, Operation Models, Confirm dropship, Labels, Event queue (Inhouse), Seller API, Product API, Common exceptions, Changelog (dừng ở 2020). Không mở được: Fulfillment API / Inbound / Deal (không cần cho đồng bộ đơn).
+
+**Đã làm:**
+- `tiki.adapter.ts` viết lại (bỏ authorization_code đoán cũ): `connectDirect()` (token + sellers/me), `refreshAccessToken()` = xin token mới, API đơn/kho/xác nhận dropship/nhãn/event queue, thử lại 429/5xx, lỗi đọc `errors` của Tiki; thiếu env không làm sập app. `tiki.types.ts` (kiểu response thật + đọc/ghi giờ `yyyy-MM-dd HH:mm:ss` UTC+7).
+- `MarketplaceAdapter.connectDirect?()`; `createConnectUrl()` gặp sàn kết nối thẳng thì lưu shop ngay, trả URL trang thành công của FE (FE không đổi luồng). `marketplace_shops` thêm `event_queue_code`, `event_ack_id`, `last_event_pulled_at` (ghi qua `saveEventQueueState`). Đăng ký `TikiAdapter` vào registry.
+- `OrdersService.ingestMappedOrder()` — tách thân vòng lặp `syncShopOrders()` (khoá gom, upsert, ack, cần xác nhận hủy, gom nhóm, tạo nhóm, tự hủy nhóm) thành hàm dùng chung; Lazada/AURELLE chạy y như cũ.
+- `tiki-order.mapper.ts` (món kho nhà bán, số lượng thật, SKU = `seller_product_code`, bảng trạng thái Tiki → OrderStatus, `marketplace_meta`). `orders.marketplace_meta` + 3 field OptiPack tự ghi khi xác nhận.
+- `TikiOrderSyncService` + `TikiOrderSyncScheduler` (mỗi phút; quét dự phòng theo `interval_minutes`); tự xác nhận dropship (kho nhà bán tra theo kho Tiki của đơn; lỗi thử lại sau 5 phút; 400 → đọc lại đơn); báo `marketplace_confirm_required` 1 lần khi ≤ 60 phút tới hạn mà còn thiếu.
+- `POST /orders/tiki/sync`, `GET /orders/:id/marketplace-labels`, `GET /orders/:id` thêm `marketplace`; `SYNC_PLATFORMS` thêm `tiki`; vận đơn nhóm Tiki chặn chọn hãng / gộp chuyến (`SHP_MARKETPLACE_PICKUP`).
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* `marketplace-integration/` (adapter Tiki, interface, service, module, shop schema, `.env.example`), `orders/` (service tách hàm, mapper, schema, controller, errors, policy + settings, module, service + scheduler Tiki), `notifications` enum, `shipments` (lỗi + chặn). Không đụng `fe/`, storefront.
+2. *DB/migration?* Field mới đều mặc định null (`marketplace_shops.event_*`, `orders.marketplace_meta`, `orders.marketplace_confirm_*`). Không cần script. Cài đặt đồng bộ đã lưu trước đây chưa có dòng `tiki` → coi như bật.
+3. *API/FE?* API_LIST mục 29; FE checklist dòng 13 (mục 10); INTEGRATION_GUIDE_ORDERS mục 3b; SETUP_NOTES module ghi lại kết quả gọi thật.
+4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Quy tắc "Idempotency `processed_webhook_events` bắt buộc cho event queue" (mục Kiến trúc đa sàn → 4) — lần này **không dùng bảng đó**: sự kiện Tiki chỉ là tín hiệu "đọc lại đơn X", mỗi mã đơn được gọi chi tiết rồi upsert theo `platform_order_id` (chạy 2 lần ra cùng kết quả), cron có khoá `isRunning`, mã trùng gộp trong 1 lượt. Còn rủi ro như Lazada: bấm "Đồng bộ ngay" đúng lúc cron đang chạy. Ack sự kiện SAU khi xử lý; đơn lỗi được quét dự phòng đọc lại. Trạng thái giao (`shipping` → `successful_delivery`) chỉ cập nhật trạng thái ĐƠN; vận đơn OptiPack của nhóm Tiki vẫn bấm tay (chưa tự đi theo Tiki — chờ Thuận chốt). Tiki có nhiều kho (`hn4`, `dn`) chưa gán kho nhà bán → đơn kho đó không tự xác nhận được (ghi `confirmError` + báo).
+5. *Kiểm chứng?* `tsc` 0 lỗi; eslint file đổi 0 lỗi; jest toàn bộ đạt (thêm test mapper, adapter, kết nối thẳng, đồng bộ + xác nhận, chặn vận đơn). Đã gọi thật token/sellers/me/kho/danh sách đơn bằng Git Bash; **chưa** chạy BE với Tiki thật và chưa có đơn để thử đồng bộ/xác nhận/nhãn.
+
+## 📏 Nhật ký 08/11/2026 — Đồng bộ đơn vị đo toàn hệ thống (AOFP-230, docs AOFP-231)
+
+**[stated] Yêu cầu (góp ý của cô, Việt chuyển lại; Thuận chốt 08/11/2026):** mọi khâu, mọi role phải hiển thị cùng một đơn vị: **kích thước = cm, khối lượng = kg**. Chỉ đổi phần **hiển thị**, **giữ nguyên DB và API**. Size áo ở biến thể AURELLE phải chuẩn hoá giống Master SKU.
+
+**Rà trước khi sửa (code `main` cde7e8d):**
+- DB đang dùng 2 hệ đơn vị: engine, thùng, túi, kế hoạch đóng gói, cài đặt đóng gói lưu **mm và g**; sản phẩm (Master SKU, hồ sơ đóng gói, biến thể AURELLE, bảng size) và GHN lưu **cm và kg**.
+- Màn hình lệch nhau:
+  - Tab Thùng ghi "Đường kính trong/ngoài (mm)", là **sai thuật ngữ**.
+  - Túi niêm phong lúc mm, lúc cm.
+  - Bì thùng, tải tối đa, vật tư, bảng so sánh thùng ghi g; cân kiện, sản phẩm, giao hàng ghi kg.
+  - Nhiều chỗ dùng `toFixed` nên ra dấu chấm thập phân.
+- Chữ BE tự sinh cũng lệch: bảng so sánh thùng ghi mm và g, lỗi engine ghi g, lỗi túi zip ghi mm lẫn cm trong cùng một câu.
+- Website AURELLE: nhãn cm/kg đã đúng.
+
+**Đã làm (chỉ BE):**
+- `common/utils/measure-format.util.ts` (mới):
+  - Hàm: `formatCm`, `formatMmAsCm`, `formatDimsMmAsCm`, `formatFlatMmAsCm`, `formatDimsCm`, `formatKg`, `formatGAsKg`.
+  - Kích thước: cm, tối đa 1 chữ số lẻ.
+  - Khối lượng: kg, tối đa 2 chữ số lẻ. Số > 0 mà làm tròn ra 0 thì giữ 3 chữ số lẻ, ví dụ `0,003 kg`.
+  - Định dạng `vi-VN`.
+- Đổi chữ do BE sinh sang quy tắc trên:
+  - `box-comparison.ts`: lý do loại thùng, so sánh cân tính cước, cỡ lòng thùng.
+  - `validator.ts`, `greedy-packer.ts`, `solve-order.ts`, `packing-plan.service.ts` (lập kế hoạch tay).
+  - `product-master.service.ts` (lỗi túi zip không vừa).
+  - `catalog-snapshot.util.ts` (bước cân tính cước).
+  - `parcel.util.ts` (giới hạn kiện GHN).
+  - `history.service.ts`, `notifications.service.ts`, `packing-session.service.ts` (lệch cân).
+  - Phiếu PDF (`document-renderers.ts`).
+- Prompt AI viết hướng dẫn đóng gói: thêm quy tắc "nếu nhắc số đo thì đổi sang cm/kg".
+- `storefront-admin.service.ts`: hàm `normalizeSizeLabel()`.
+  - Bỏ chữ "size" ở đầu, viết hoa: `m` → `M`, `Size M` → `M`.
+  - Dùng cho cả biến thể theo quy tắc SKU lẫn biến thể cũ (trước đây biến thể cũ chỉ `trim`).
+- **Cố ý giữ nguyên:**
+  - Mô tả Swagger của các field mm/g, vì đó là đơn vị thật của API.
+  - Câu lỗi validate kiểu "`weight_g` phải là số nguyên (g)", vì nó nói về field gửi lên.
+
+**Tác động (5 câu):**
+1. *Đổi gì?* 15 file BE (đã liệt kê ở trên), 1 util mới, 2 spec mới (`measure-format.util.spec.ts`, `storefront-size-label.spec.ts`), sửa kỳ vọng `history.service.spec.ts` (`0.4 kg` → `0,4 kg`). Không đụng `fe/` và website AURELLE.
+2. *DB/migration?* Không. Không đổi schema, không đổi tên field. Biến thể AURELLE cũ có size viết thường chỉ được chuẩn hoá khi lưu lại sản phẩm; không chạy script sửa dữ liệu cũ.
+3. *API/FE?* Không đổi route hay field. Đổi **nội dung chữ** trong response: bảng so sánh thùng, lỗi xếp thùng, thông báo, lịch sử, PDF. FE cần đổi nhãn và quy đổi ở màn hình: `FE_UPDATE_CHECKLIST.md` dòng 14 (mục 11).
+4. *Rủi ro / mâu thuẫn quy tắc?* Màn hình chỉ đồng bộ hoàn toàn khi FE làm xong dòng 14. Trước đó, chữ do BE sinh ghi cm/kg còn nhãn FE vẫn ghi mm/g. Ô nhập phải đổi cm → mm, kg → g rồi **làm tròn số nguyên**, vì BE bắt số nguyên mm/g. Ví dụ 12,35 cm thành 124 mm.
+5. *Kiểm chứng?* Trên bản sạch của `main`:
+   - `tsc --noEmit` 0 lỗi.
+   - ESLint các file đổi 0 lỗi.
+   - `jest` toàn bộ: 143 bộ test đạt, 1 bỏ qua; 1459 test đạt.
+   - Áp sang nhánh `feature/thuan_be` (có Tiki): `tsc` 0 lỗi.
+   - Chưa chạy app thật để xem chữ trên màn hình.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4649,6 +4718,7 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
 22e. 🆕 28/10 (tối): màn lấy hàng đơn gộp. 🔄 ĐÃ LÀM 31/10 trên `WarehousePage`: chia khay theo đơn (dòng 4 — đếm tạm phiên, không lưu BE; bảng "Khay của nhóm"; dialog chọn khay khi SKU ≥ 2 đơn); lấy chung nhóm liên kết (dòng 5 — `listLinkedOrderGroups` + `getWarehousePickingListForGroups`, pick/report/complete theo `line.group_id`). Còn dòng 6: khoá "Đóng nhanh" theo `packScanRequired`.
+22g. 🆕 31/10: Tiki — điền `TIKI_CLIENT_ID`/`TIKI_CLIENT_SECRET` vào `be/.env`, bấm Kết nối Tiki, chờ đơn thật (hoặc mock order nếu Tiki Support trả lời) để thử đồng bộ → tự xác nhận → in nhãn; FE checklist dòng 13 (mục 10). Chưa chốt: vận đơn nhóm Tiki có tự cập nhật theo trạng thái giao của Tiki không.
 22f. 🆕 29/10: đơn hỏa tốc AURELLE trên FE OptiPack — nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper (`FE_UPDATE_CHECKLIST.md` dòng 8, mục 5), chưa làm. Chạy thử đầu-cuối 1 đơn hỏa tốc (A.4) trong 8:00–14:00.
 22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.
 

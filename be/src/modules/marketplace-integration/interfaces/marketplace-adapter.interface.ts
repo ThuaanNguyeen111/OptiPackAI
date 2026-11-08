@@ -63,6 +63,13 @@ export interface MarketplaceAdapter {
   exchangeCodeForToken(code: string, shopId?: string): Promise<OAuthTokenResult>;
 
   /**
+   * 31/10/2026 — sàn KHÔNG có trang đăng nhập (Tiki app Inhouse: token lấy thẳng bằng App ID +
+   * Secret sau khi nhà bán đồng ý kết nối trên Seller Center). Có hàm này → "Kết nối" lưu shop
+   * ngay, không redirect sang sàn.
+   */
+  connectDirect?(): Promise<OAuthTokenResult>;
+
+  /**
    * Dùng refresh token (đã giải mã) để lấy access token mới —.
    */
   refreshAccessToken(refreshToken: string, shopId: string): Promise<OAuthTokenResult>;

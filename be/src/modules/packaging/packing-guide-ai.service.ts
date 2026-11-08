@@ -70,6 +70,7 @@ const SYSTEM_PROMPT = [
   '- Món có "folded_in_half": true thì câu phải nói gập đôi món (hoặc cả gói túi zip) theo chiều dài TRƯỚC khi đặt vào thùng.',
   '- Gọi món theo "product_type" (VD "áo thun", "quần dài/jean") kèm mã SKU cho tự nhiên; "product_type" null thì chỉ dùng mã SKU.',
   '- Mỗi câu hướng dẫn tối đa khoảng 40 từ, giọng chuyên nghiệp, không đùa.',
+  '- Dữ liệu cho kích thước bằng mm và khối lượng bằng g; nếu câu có nhắc số đo thì đổi sang cm (tối đa 1 chữ số lẻ) và kg (tối đa 2 chữ số lẻ), dùng dấu phẩy thập phân, không viết mm hay g.',
   '- "tip" là một lưu ý ngắn khi thật sự cần (hàng dễ vỡ, không được đè lên, cách gấp quần áo gọn); không cần thì để chuỗi rỗng "".',
   '- "summary" là 1–2 câu tổng quan: dùng thùng nào, bao nhiêu món, lưu ý chung trước khi dán thùng.',
   '- Nếu "materials" không rỗng thì "summary" phải liệt kê đúng tên và số lượng từng vật tư chèn cần chuẩn bị (góc xốp, tấm ngăn, gối hơi, tem...) theo dữ liệu; không tự thêm vật tư khác.',

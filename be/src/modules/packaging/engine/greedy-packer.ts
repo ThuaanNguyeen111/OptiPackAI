@@ -24,6 +24,7 @@ import type {
   PackingUnit,
   Placement,
 } from './types';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /** Trần số món cho MỘT thùng (an toàn hiệu năng); đơn lớn hơn đi sang đa kiện. */
 export const MAX_UNITS = 200;
@@ -376,7 +377,7 @@ export function classifyUnfittable(
       box_code: '-',
       code: 'ITEM_TOO_HEAVY',
       item_key: u.item_key,
-      reason: `Món ${u.sku} nặng ${String(u.weight_g)} g, hơn tải tối đa của mọi thùng (${String(maxLoad)} g).`,
+      reason: `Món ${u.sku} nặng ${formatGAsKg(u.weight_g)}, hơn tải tối đa của mọi thùng (${formatGAsKg(maxLoad)}).`,
     };
   }
   return null;

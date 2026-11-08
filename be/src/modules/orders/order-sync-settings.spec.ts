@@ -98,6 +98,7 @@ describe('OrderSyncSettingsService.update — ràng buộc nghiệp vụ', () =>
       platforms: [
         { platform: 'lazada', auto_sync_enabled: true },
         { platform: 'aurelle', auto_sync_enabled: false },
+        { platform: 'tiki', auto_sync_enabled: true }, // 31/10/2026 — Tiki vào danh sách sàn tự đồng bộ
       ],
     });
   });

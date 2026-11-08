@@ -74,6 +74,7 @@ import { PackingSettingsService } from './packing-settings.service';
 import { PackerAssignmentService } from './packer-assignment.service';
 import { PackingGuideMemoryService } from './packing-guide-memory.service';
 import { diffCatalog, snapshotCatalog } from './utils/catalog-snapshot.util';
+import { formatGAsKg } from '../../common/utils/measure-format.util';
 
 /**
  * Đệm hàng dễ vỡ của 1 kế hoạch (05/10/2026: lấy từ packing_settings lúc tính,
@@ -1214,7 +1215,7 @@ export class PackingPlanService {
       const weight = units.reduce((sum, u) => sum + u.weight_g, 0);
       if (weight > box.max_load_g) {
         throw this.manualInvalid(
-          `Kiện thùng "${box.code}" nặng ${String(weight)} g, vượt tải tối đa ${String(box.max_load_g)} g.`,
+          `Kiện thùng "${box.code}" nặng ${formatGAsKg(weight)}, vượt tải tối đa ${formatGAsKg(box.max_load_g)}.`,
           { boxCode: box.code, weightG: weight },
         );
       }

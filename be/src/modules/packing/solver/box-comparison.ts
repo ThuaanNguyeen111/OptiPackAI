@@ -7,6 +7,7 @@ import {
 } from './objective';
 import { solveOrder } from './solve-order';
 import type { Objective, SolvePreference, SolvedParcel } from './types';
+import { formatDimsMmAsCm, formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /**
  * ===================================================================
@@ -106,7 +107,7 @@ interface Candidate {
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;
 const vnd = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')}đ`;
-const grams = (n: number): string => `${Math.round(n).toLocaleString('vi-VN')} g`;
+const grams = (n: number): string => formatGAsKg(n);
 const packagingCost = (p: SolvedParcel): number => (p.box.price_vnd ?? 0) + p.materials_cost_vnd;
 const foldsOf = (p: SolvedParcel): number => p.placements.filter((q) => q.folded === true).length;
 
@@ -142,7 +143,7 @@ function describeDifference(row: Objective, ref: Objective, prefer: SolvePrefere
 }
 
 const dimsText = (b: BoxSpec): string =>
-  `${String(b.inner.length_mm)}×${String(b.inner.width_mm)}×${String(b.inner.height_mm)} mm`;
+  formatDimsMmAsCm(b.inner.length_mm, b.inner.width_mm, b.inner.height_mm);
 
 /**
  * Xếp các món vào đúng 1 thùng. Lý do "không dùng được" ưu tiên điều kiện CHẮC

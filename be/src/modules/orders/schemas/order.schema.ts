@@ -103,6 +103,23 @@ class OrderItem {
   status!: OrderStatus;
 }
 
+/** 31/10/2026 — xem `Order.marketplace_meta`. */
+@Schema({ _id: false })
+export class MarketplaceMeta {
+  @Prop({ type: String, default: null })
+  fulfillment_type!: string | null;
+
+  @Prop({ type: String, default: null })
+  warehouse_code!: string | null;
+
+  @Prop({ type: String, enum: ['pending', 'confirmed', 'canceled', 'not_required'], default: 'not_required' })
+  confirmation_status!: 'pending' | 'confirmed' | 'canceled' | 'not_required';
+
+  @Prop({ type: Date, default: null })
+  confirm_sla_at!: Date | null;
+}
+const MarketplaceMetaSchema = SchemaFactory.createForClass(MarketplaceMeta);
+
 /**
  * ===================================================================
  * COLLECTION `orders` — CHUẨN HÓA ĐƠN HÀNG TỪ MỌI SÀN VỀ 1 HÌNH DẠNG
@@ -186,6 +203,27 @@ export class Order {
 
   @Prop({ type: String, default: null })
   reverse_order_id!: string | null;
+
+  /**
+   * 31/10/2026 — thông tin vận hành riêng của sàn, đọc lại MỖI lần đồng bộ (sàn là nguồn sự
+   * thật). Hiện chỉ Tiki: `fulfillment_type` (dropship...), `warehouse_code` (kho Tiki của đơn —
+   * tra `seller_inventory_id` khi xác nhận), `confirmation_status` (shop đã báo đủ hàng chưa:
+   * pending | confirmed | canceled | not_required), `confirm_sla_at` (hạn báo đủ hàng).
+   * Lazada/AURELLE: null.
+   */
+  @Prop({ type: MarketplaceMetaSchema, default: null })
+  marketplace_meta!: MarketplaceMeta | null;
+
+  /** 31/10/2026 — OptiPack tự ghi khi gọi "xác nhận đủ hàng" lên sàn (không do đồng bộ ghi đè). */
+  @Prop({ type: Date, default: null })
+  marketplace_confirm_attempted_at!: Date | null;
+
+  @Prop({ type: String, default: null })
+  marketplace_confirm_error!: string | null;
+
+  /** Đã báo Store Owner "sắp hết hạn xác nhận đủ hàng" (chỉ báo 1 lần). */
+  @Prop({ type: Date, default: null })
+  marketplace_confirm_warned_at!: Date | null;
 
   @Prop({ type: RecipientAddress, required: true })
   recipient!: RecipientAddress;
