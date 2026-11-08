@@ -25,6 +25,7 @@ import {
   MarketplaceAdapter,
 } from '../marketplace-integration/interfaces/marketplace-adapter.interface';
 import type { LazadaProductRaw } from '../marketplace-integration/adapters/lazada.adapter';
+import { formatDimsCm, formatFlatMmAsCm } from '../../common/utils/measure-format.util';
 
 // Batch size Lazada công bố cho sku_seller_list — 50 SKU/lần gọi (AURELLE
 // dùng cùng giới hạn, xem AURELLE_MARKETPLACE_DESIGN.md Mục 7.5).
@@ -405,7 +406,7 @@ export class ProductMasterService {
         const suggested = await this.suggestZipBag(pkg);
         throw new AppException(
           PRODUCT_MASTER_ERROR_CODES.ZIP_BAG_TOO_SMALL,
-          `Túi "${zipBagCode}" (${String(bag.width_mm)}×${String(bag.length_mm)} mm) không vừa gói ${String(dto.length_cm)}×${String(dto.width_cm)}×${String(dto.height_cm)} cm.` +
+          `Túi "${zipBagCode}" (${formatFlatMmAsCm(bag.width_mm, bag.length_mm)}) không vừa gói ${formatDimsCm(dto.length_cm, dto.width_cm, dto.height_cm)}.` +
             (suggested ? ` Gợi ý: túi "${suggested}".` : ' Không túi nào trong danh mục đủ lớn — thêm túi lớn hơn.'),
           HttpStatus.UNPROCESSABLE_ENTITY,
           { zipBagCode, suggestedZipBagCode: suggested },

@@ -95,6 +95,6 @@ describe('HistoryService (23/10/2026)', () => {
     });
     const res = await service.timeline(gid.toHexString());
     expect(res.items.map((i) => i.action)).toEqual(['order.received', 'packing.plan_generated', 'packing.parcel_sealed']);
-    expect(res.items[2]?.summary).toBe('Niêm phong kiện 1: thùng SAMPLE-S, 0.4 kg — đơn 720000001');
+    expect(res.items[2]?.summary).toBe('Niêm phong kiện 1: thùng SAMPLE-S, 0,4 kg — đơn 720000001');
   });
 });

@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import type { BoxSpec, MailerSpec, MaterialSpec } from '../../packaging/engine/types';
 import type { ChargeRule } from '../solver';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /**
  * ===================================================================
@@ -90,8 +91,8 @@ export function diffCatalog(before: CatalogSnapshot, after: CatalogSnapshot): st
   }
   if (before.volumetric_divisor !== after.volumetric_divisor || before.billing_step_g !== after.billing_step_g) {
     out.push(
-      `Luật cân tính cước đã đổi (hệ số ${String(before.volumetric_divisor)}, bước ${String(before.billing_step_g)} g → ` +
-        `hệ số ${String(after.volumetric_divisor)}, bước ${String(after.billing_step_g)} g).`,
+      `Luật cân tính cước đã đổi (hệ số ${String(before.volumetric_divisor)}, bước ${formatGAsKg(before.billing_step_g)} → ` +
+        `hệ số ${String(after.volumetric_divisor)}, bước ${formatGAsKg(after.billing_step_g)}).`,
     );
   }
   return out;

@@ -11,6 +11,7 @@ import { User, UserDocument } from '../users/schemas/user.schema';
 import { MailService } from '../mail/mail.service';
 import { AppException } from '../../common/exceptions/app-exception';
 import { NOTIFICATION_ERROR_CODES } from './notifications.errors';
+import { formatKg } from '../../common/utils/measure-format.util';
 
 interface CreateNotificationInput {
   recipientUserId?: string;
@@ -324,7 +325,7 @@ export class NotificationsService {
   }): { title: string; message: string } {
     return {
       title: `Cảnh báo sai lệch cân nặng — Đơn hàng #${params.groupId}`,
-      message: `Cân nặng thực tế của đơn hàng #${params.groupId} (${String(params.actualWeightKg)} kg) chênh lệch đáng kể so với ước tính hệ thống (${String(params.estimatedWeightKg)} kg). Đề nghị kiểm tra lại nội dung đóng gói trước khi bàn giao vận chuyển.`,
+      message: `Cân nặng thực tế của đơn hàng #${params.groupId} (${formatKg(params.actualWeightKg)}) chênh lệch đáng kể so với ước tính hệ thống (${formatKg(params.estimatedWeightKg)}). Đề nghị kiểm tra lại nội dung đóng gói trước khi bàn giao vận chuyển.`,
     };
   }
 

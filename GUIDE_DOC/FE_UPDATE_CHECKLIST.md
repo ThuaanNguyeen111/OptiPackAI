@@ -24,6 +24,7 @@
 | 12 | 🆕 05/11 **AI hướng dẫn minh bạch + học từ kho**: banner `catalogStale` (+ `catalogChanges[]`) như `profileStale`; nút 👍/👎 chấm hướng dẫn (`POST …/guide/rating`); nút "Xem dữ liệu gửi AI" cho Admin (`GET …/guide/trace`) | 9 | ~nửa ngày | ☐ Chưa làm |
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
 | 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ☐ Chưa làm |
+| 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -265,6 +266,66 @@ Việc FE (`PackagingWorkbench.tsx`):
 | 10.7 | Cài đặt đồng bộ | Danh sách sàn tự có dòng **Tiki** (từ `GET /order-sync-settings`) — không cần sửa nếu màn đang render theo danh sách BE trả |
 
 **Nghiệm thu:** kết nối Tiki → shop `365980` "OptiPackAI Test Shop" hiện ở màn Kết nối sàn; đặt 1 đơn trên Tiki → trong ~1 phút đơn xuất hiện (sàn Tiki), nhóm đơn vào hàng chờ lấy; đủ tồn → chi tiết đơn chuyển "Đã xác nhận"; bấm "In nhãn Tiki" mở được 2 trang nhãn; màn Giao hàng không có ô chọn hãng cho nhóm Tiki.
+
+---
+
+## 11. 🆕 08/11/2026 — Đồng bộ đơn vị đo toàn hệ thống (dòng 14)
+
+**Yêu cầu của cô:** đồng bộ đơn vị đo trên toàn hệ thống. Mọi màn hình, mọi role phải hiển thị cùng một cách.
+
+### 11.0 Quy tắc chung — áp cho mọi màn
+
+| Loại số | Hiển thị | Ví dụ |
+|---|---|---|
+| Kích thước (thùng, túi, sản phẩm, kiện, đệm/lề trong cài đặt) | **cm**, tối đa 1 chữ số lẻ | `35 × 25 × 12,5 cm`, `0,5 cm` |
+| Khối lượng (bì thùng, tải tối đa, vật tư, sản phẩm, cân kiện, cân tính cước) | **kg**, tối đa 2 chữ số lẻ. Số > 0 mà làm tròn ra 0 thì để 3 chữ số lẻ | `0,15 kg`, `3,2 kg`, `0,003 kg` |
+
+- **Định dạng số:** dùng `toLocaleString('vi-VN', { maximumFractionDigits: 1 | 2 })`. **Không dùng `toFixed`**, vì `toFixed` ra dấu chấm (`0.45`).
+- **Nhãn:** ghi đơn vị trong ngoặc, ví dụ "Dài (cm)", "Khối lượng (kg)". Bỏ hết chữ "mm", "g", "Gram" trên giao diện.
+- **BE KHÔNG đổi field.** Tên field cho biết đơn vị gốc:
+
+  | Hậu tố field | Đơn vị gốc | Lúc hiển thị |
+  |---|---|---|
+  | `…Mm` / `…_mm` | mm | chia 10 |
+  | `…G` / `…_g` | g | chia 1000 |
+  | `…Cm` / `…Kg` | cm / kg | giữ nguyên |
+- **Ô nhập:** người dùng gõ cm hoặc kg (cho phép số lẻ). Trước khi gửi BE phải đổi về mm hoặc g và **làm tròn số nguyên**, vì BE từ chối số lẻ ở field mm/g:
+  - `Math.round(cm * 10)` cho field mm.
+  - `Math.round(kg * 1000)` cho field g.
+- **Đề xuất:** tạo `fe/src/utils/units.ts` gồm `formatCm`, `formatMmAsCm`, `formatDimsMmAsCm(l, w, h)`, `formatKg`, `formatGAsKg`, `cmToMm`, `kgToG`. Viết giống `be/src/common/utils/measure-format.util.ts` để chữ trên màn hình khớp chữ BE sinh ra.
+
+**BE đã đổi sẵn sang cm/kg — FE hiện nguyên văn, không sửa:**
+- `summary`, `verdict`, `ineligibleReason` của bảng so sánh thùng.
+- Lỗi xếp thùng và lập kế hoạch tay (`PACKING_MANUAL_INVALID`…).
+- Lỗi túi zip không vừa (`PM_ZIP_BAG_TOO_SMALL`).
+- `catalogChanges[]`.
+- Thông báo lệch cân.
+- Lịch sử thao tác.
+- Phiếu PDF.
+
+### 11.1 Danh sách chỗ phải sửa (số dòng theo `main` ngày 06/11)
+
+| # | File | Đang ghi | Sửa thành |
+|---|---|---|---|
+| 11.1 | `pages/PackagingMaterialsPage.tsx` — tab Thùng, bảng (dòng ~1020, ~1033) | Cột "Đường kính trong (mm)", ô `lengthMm×widthMm×heightMm` | Cột **"Lòng thùng (cm)"**, ô `formatDimsMmAsCm(...)`. "Đường kính" là **sai thuật ngữ** (thùng không có đường kính) |
+| 11.2 | Cùng file — `BoxForm` / `BoxEditForm` (`mmFields`, dòng ~1588, ~1667–1673) | "Đường kính trong (mm) L/W/H", "Đường kính ngoài (mm)", "Bì (g)", "Tải tối đa (g)" | "Kích thước lòng thùng (cm)" và "Kích thước ngoài thùng (cm)" — Dài / Rộng / Cao; "Khối lượng thùng rỗng (kg)"; "Tải tối đa (kg)". Gửi `cmToMm` / `kgToG`. Form sửa: hiện giá trị đã đổi về cm/kg |
+| 11.3 | Cùng file — tab Túi zip: bảng (~1161, ~1177), `BagForm` / `BagEditForm` (~1807, ~1876) | "Khổ trải (mm)", `widthMm×lengthMm`; "Rộng mm", "Dài mm" | "Khổ trải (cm)" ghi dạng `35 × 45 cm`; "Rộng (cm)", "Dài (cm)". Gửi `cmToMm` |
+| 11.4 | Cùng file — `CreateMaterialDialog` (~676–767) | "Dài cm", "Rộng cm (trải phẳng)", "Khối lượng túi (g)", "Tải tối đa (g, có thể trống)". Ghi chú "…tab Thùng (mm). Form này … theo cm". Câu lỗi có "(g)" | Nhãn "Dài (cm)"…; "Khối lượng túi (kg)", "Tải tối đa (kg, có thể để trống)". Gửi `kgToG`. Bỏ phần đơn vị trong ghi chú (giờ mọi nơi đều là cm). Sửa câu lỗi theo kg |
+| 11.5 | Cùng file — `CushionForm` / `CushionEditForm` (~1962, ~2038) | "Gram / đơn vị" | "Khối lượng / đơn vị (kg)". Hiện `weightGPerUnit / 1000`, gửi `kgToG` |
+| 11.6 | `components/packing/PackingSettingsReports.tsx` (~108, ~188–190) | "Đệm dễ vỡ (mm)", "Lề rộng túi (mm)", "Lề dài túi, gồm nắp dán (mm)", "Chồng hàng dày tối đa (mm)" | Đổi cả 4 sang **(cm)**, cho nhập 1 chữ số lẻ, gửi `cmToMm`. Giới hạn ô đổi tương ứng: 0–5 cm, 0–10 cm, 0–15 cm, 0,5–30 cm |
+| 11.7 | `components/packing/BoxComparisonTable.tsx` (~112) | `` `${billableWeightG} g` `` | `formatGAsKg(billableWeightG)` |
+| 11.8 | `components/packing/PackagingWorkbench.tsx` (~322, ~2094–2096, ~2132) | `(estimatedWeightG / 1000).toFixed(2) kg`; cỡ thùng ghép `String(lengthCm)` | `formatGAsKg(...)`; cỡ thùng dùng `formatDimsCm` để có dấu phẩy khi số lẻ |
+| 11.9 | `pages/ShippingPage.tsx` (~1519, ~1622) | `toFixed(2)} kg` | `formatKg(...)` |
+| 11.10 | `pages/WarehousePage.tsx` (~2029–2031) | `{length_cm}×{width_cm}×{height_cm} cm`, `{weight_kg} kg` (in thô, dấu chấm) | `formatDimsCm(...)`, `formatKg(...)` |
+| 11.11 | `pages/admin-warehouse/CatalogPanels.tsx` (~1002–1035) | `String(row.weightKg)`; kích thước sàn ghép chuỗi thô | `formatKg`, `formatDimsCm` (nhãn đã đúng cm/kg) |
+| 11.12 | `pages/PackagingRulesPage.tsx` (~195–198), `components/packing/Packing3DBoxViewer.tsx` (~261, ~409) | Đã ghi cm/kg nhưng mỗi file tự viết hàm `cm()` riêng | Chuyển sang dùng hàm chung trong `utils/units.ts` cho đồng nhất |
+
+**Size áo:** BE đã tự chuẩn hoá size biến thể AURELLE khi lưu (`m`, `Size M` → `M`), giống Master SKU. FE không cần làm gì, cứ hiển thị size như BE trả về.
+
+**Nghiệm thu:**
+- Đăng nhập lần lượt 5 role, mở các màn: Vật liệu đóng gói, Cài đặt đóng gói, Đóng gói (bảng so sánh thùng, cỡ thùng, cân), Giao hàng, Kho (phiếu nhập), Master SKU / Product Master, Quy tắc đóng gói.
+- Không còn chữ "mm", "g", "Gram", "Đường kính". Mọi số lẻ dùng dấu phẩy.
+- Tạo thùng lòng 35 × 25 × 12,5 cm, bì 0,15 kg → `GET /packaging/boxes` trả `inner = 350 × 250 × 125` (mm), `tareG = 150`. Mở form sửa thấy lại đúng 35 / 25 / 12,5 và 0,15.
 
 ---
 

@@ -50,6 +50,7 @@ import type {
   UnpackParcelDto,
   UnscanItemDto,
 } from './dto/packing-session.dto';
+import { formatKg } from '../../common/utils/measure-format.util';
 
 type ParcelData = Plain<PlanParcel>;
 type PlanData = Omit<Plain<PackingPlan>, 'parcels'> & { _id: Types.ObjectId; parcels: ParcelData[] };
@@ -1164,7 +1165,7 @@ export class PackingSessionService {
     const label = `${parcel.platform_order_id ?? groupId} (kiện ${String(parcel.parcel_no)})`;
     const title = `Kiện ${label} lệch cân — chờ xem lại`;
     const message =
-      `Cân thật ${actual.toFixed(2)} kg, ước tính ${estimated.toFixed(2)} kg (lệch quá ${String(Math.round(threshold * 100))}%). ` +
+      `Cân thật ${formatKg(actual)}, ước tính ${formatKg(estimated)} (lệch quá ${String(Math.round(threshold * 100))}%). ` +
       'Kiện chưa được bàn giao. Một nhân viên khác cần chấp nhận, cân lại hoặc mở kiện ra kiểm tra.';
     for (const recipientRole of [UserRole.PACKAGING_STAFF, UserRole.STORE_OWNER]) {
       await this.safeNotify({

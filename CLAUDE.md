@@ -4632,6 +4632,54 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Quy tắc "Idempotency `processed_webhook_events` bắt buộc cho event queue" (mục Kiến trúc đa sàn → 4) — lần này **không dùng bảng đó**: sự kiện Tiki chỉ là tín hiệu "đọc lại đơn X", mỗi mã đơn được gọi chi tiết rồi upsert theo `platform_order_id` (chạy 2 lần ra cùng kết quả), cron có khoá `isRunning`, mã trùng gộp trong 1 lượt. Còn rủi ro như Lazada: bấm "Đồng bộ ngay" đúng lúc cron đang chạy. Ack sự kiện SAU khi xử lý; đơn lỗi được quét dự phòng đọc lại. Trạng thái giao (`shipping` → `successful_delivery`) chỉ cập nhật trạng thái ĐƠN; vận đơn OptiPack của nhóm Tiki vẫn bấm tay (chưa tự đi theo Tiki — chờ Thuận chốt). Tiki có nhiều kho (`hn4`, `dn`) chưa gán kho nhà bán → đơn kho đó không tự xác nhận được (ghi `confirmError` + báo).
 5. *Kiểm chứng?* `tsc` 0 lỗi; eslint file đổi 0 lỗi; jest toàn bộ đạt (thêm test mapper, adapter, kết nối thẳng, đồng bộ + xác nhận, chặn vận đơn). Đã gọi thật token/sellers/me/kho/danh sách đơn bằng Git Bash; **chưa** chạy BE với Tiki thật và chưa có đơn để thử đồng bộ/xác nhận/nhãn.
 
+## 📏 Nhật ký 08/11/2026 — Đồng bộ đơn vị đo toàn hệ thống (AOFP-230, docs AOFP-231)
+
+**[stated] Yêu cầu (góp ý của cô, Việt chuyển lại; Thuận chốt 08/11/2026):** mọi khâu, mọi role phải hiển thị cùng một đơn vị: **kích thước = cm, khối lượng = kg**. Chỉ đổi phần **hiển thị**, **giữ nguyên DB và API**. Size áo ở biến thể AURELLE phải chuẩn hoá giống Master SKU.
+
+**Rà trước khi sửa (code `main` cde7e8d):**
+- DB đang dùng 2 hệ đơn vị: engine, thùng, túi, kế hoạch đóng gói, cài đặt đóng gói lưu **mm và g**; sản phẩm (Master SKU, hồ sơ đóng gói, biến thể AURELLE, bảng size) và GHN lưu **cm và kg**.
+- Màn hình lệch nhau:
+  - Tab Thùng ghi "Đường kính trong/ngoài (mm)", là **sai thuật ngữ**.
+  - Túi niêm phong lúc mm, lúc cm.
+  - Bì thùng, tải tối đa, vật tư, bảng so sánh thùng ghi g; cân kiện, sản phẩm, giao hàng ghi kg.
+  - Nhiều chỗ dùng `toFixed` nên ra dấu chấm thập phân.
+- Chữ BE tự sinh cũng lệch: bảng so sánh thùng ghi mm và g, lỗi engine ghi g, lỗi túi zip ghi mm lẫn cm trong cùng một câu.
+- Website AURELLE: nhãn cm/kg đã đúng.
+
+**Đã làm (chỉ BE):**
+- `common/utils/measure-format.util.ts` (mới):
+  - Hàm: `formatCm`, `formatMmAsCm`, `formatDimsMmAsCm`, `formatFlatMmAsCm`, `formatDimsCm`, `formatKg`, `formatGAsKg`.
+  - Kích thước: cm, tối đa 1 chữ số lẻ.
+  - Khối lượng: kg, tối đa 2 chữ số lẻ. Số > 0 mà làm tròn ra 0 thì giữ 3 chữ số lẻ, ví dụ `0,003 kg`.
+  - Định dạng `vi-VN`.
+- Đổi chữ do BE sinh sang quy tắc trên:
+  - `box-comparison.ts`: lý do loại thùng, so sánh cân tính cước, cỡ lòng thùng.
+  - `validator.ts`, `greedy-packer.ts`, `solve-order.ts`, `packing-plan.service.ts` (lập kế hoạch tay).
+  - `product-master.service.ts` (lỗi túi zip không vừa).
+  - `catalog-snapshot.util.ts` (bước cân tính cước).
+  - `parcel.util.ts` (giới hạn kiện GHN).
+  - `history.service.ts`, `notifications.service.ts`, `packing-session.service.ts` (lệch cân).
+  - Phiếu PDF (`document-renderers.ts`).
+- Prompt AI viết hướng dẫn đóng gói: thêm quy tắc "nếu nhắc số đo thì đổi sang cm/kg".
+- `storefront-admin.service.ts`: hàm `normalizeSizeLabel()`.
+  - Bỏ chữ "size" ở đầu, viết hoa: `m` → `M`, `Size M` → `M`.
+  - Dùng cho cả biến thể theo quy tắc SKU lẫn biến thể cũ (trước đây biến thể cũ chỉ `trim`).
+- **Cố ý giữ nguyên:**
+  - Mô tả Swagger của các field mm/g, vì đó là đơn vị thật của API.
+  - Câu lỗi validate kiểu "`weight_g` phải là số nguyên (g)", vì nó nói về field gửi lên.
+
+**Tác động (5 câu):**
+1. *Đổi gì?* 15 file BE (đã liệt kê ở trên), 1 util mới, 2 spec mới (`measure-format.util.spec.ts`, `storefront-size-label.spec.ts`), sửa kỳ vọng `history.service.spec.ts` (`0.4 kg` → `0,4 kg`). Không đụng `fe/` và website AURELLE.
+2. *DB/migration?* Không. Không đổi schema, không đổi tên field. Biến thể AURELLE cũ có size viết thường chỉ được chuẩn hoá khi lưu lại sản phẩm; không chạy script sửa dữ liệu cũ.
+3. *API/FE?* Không đổi route hay field. Đổi **nội dung chữ** trong response: bảng so sánh thùng, lỗi xếp thùng, thông báo, lịch sử, PDF. FE cần đổi nhãn và quy đổi ở màn hình: `FE_UPDATE_CHECKLIST.md` dòng 14 (mục 11).
+4. *Rủi ro / mâu thuẫn quy tắc?* Màn hình chỉ đồng bộ hoàn toàn khi FE làm xong dòng 14. Trước đó, chữ do BE sinh ghi cm/kg còn nhãn FE vẫn ghi mm/g. Ô nhập phải đổi cm → mm, kg → g rồi **làm tròn số nguyên**, vì BE bắt số nguyên mm/g. Ví dụ 12,35 cm thành 124 mm.
+5. *Kiểm chứng?* Trên bản sạch của `main`:
+   - `tsc --noEmit` 0 lỗi.
+   - ESLint các file đổi 0 lỗi.
+   - `jest` toàn bộ: 143 bộ test đạt, 1 bỏ qua; 1459 test đạt.
+   - Áp sang nhánh `feature/thuan_be` (có Tiki): `tsc` 0 lỗi.
+   - Chưa chạy app thật để xem chữ trên màn hình.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.

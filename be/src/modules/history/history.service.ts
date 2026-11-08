@@ -20,6 +20,7 @@ import {
   CATEGORY_LABELS, MOVEMENT_CATEGORY, PACKAGING_MOVE_LABELS, PLAN_ACTIVITY_LABELS, RETURN_SOURCE_LABELS,
   RETURN_TYPE_LABELS, ROLE_HISTORY_CATEGORIES, ROLE_LABELS, SHIPMENT_STATUS_LABELS,
 } from './history.labels';
+import { formatKg } from '../../common/utils/measure-format.util';
 
 type Detail = string | number | boolean | null;
 
@@ -457,7 +458,7 @@ export class HistoryService {
         const kg = parcel.actual_weight_kg ?? Math.round(num(parcel.estimated_weight_g) / 10) / 100;
         const boxCode = (parcel.box as { code?: string } | null | undefined)?.code ?? '?';
         out.push(base(`seal:${String(parcel.parcel_no)}`, parcel.sealed_at, 'packing.parcel_sealed',
-          `Niêm phong kiện ${String(parcel.parcel_no)}: thùng ${boxCode}, ${String(kg)} kg${parcel.platform_order_id ? ` — đơn ${parcel.platform_order_id}` : ''}`,
+          `Niêm phong kiện ${String(parcel.parcel_no)}: thùng ${boxCode}, ${formatKg(kg)}${parcel.platform_order_id ? ` — đơn ${parcel.platform_order_id}` : ''}`,
           parcel.sealed_by, { parcelNo: parcel.parcel_no, box: boxCode, weightKg: kg }));
       }
       if (p.packed_at) out.push(base('packed', p.packed_at, 'packing.packed', `Đóng gói xong ${String(parcels.length)} kiện`, p.packed_by));
