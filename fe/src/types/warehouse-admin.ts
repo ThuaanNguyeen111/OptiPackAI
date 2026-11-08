@@ -164,6 +164,8 @@ export type AdjustStockInput = {
   counted_quantity: number
   reason_code: StockAdjustReason
   note?: string
+  /** Mã thao tác chống ghi trùng khi gửi lại. */
+  client_event_id?: string
 }
 
 export type TransferStockInput = {
@@ -171,6 +173,8 @@ export type TransferStockInput = {
   quantity: number
   force?: boolean
   note?: string
+  /** Mã thao tác chống ghi trùng khi gửi lại. */
+  client_event_id?: string
 }
 
 /** PATCH gán nhầm — dời cả dòng, không nhập số lượng. */
@@ -299,6 +303,8 @@ export const WAREHOUSE_ERROR_MESSAGES: Record<string, string> = {
   WH_BIN_NOT_FOUND: 'Không tìm thấy kệ.',
   WH_BIN_NOT_IN_WAREHOUSE: 'Kệ không thuộc kho đang thao tác.',
   WH_BIN_OVER_CAPACITY: 'Vượt sức chứa ô. Xác nhận để vẫn xếp.',
+  WH_CLIENT_EVENT_REUSED:
+    'Mã thao tác này đã dùng cho một thao tác khác. Hãy đóng form, mở lại rồi thực hiện lại.',
   WH_BIN_HAS_STOCK_DESIGNATION: 'Ô còn hàng — không đổi danh mục/size/màu.',
   WH_STOCK_CHANGED: 'Tồn vừa đổi. Tải lại rồi đếm lại.',
   WH_INSUFFICIENT_STOCK: 'Ô nguồn không đủ hàng để chuyển.',

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Loader2, MapPin, PackageSearch, RefreshCw, Search, X } from 'lucide-react'
 import {
   adjustStockAssignment,
@@ -35,6 +35,7 @@ import { usePortal } from '../context/use-portal'
 import { cn } from '../lib/cn'
 import { formatApiError, getApiErrorCode } from '../lib/api'
 import { formatDateTime } from '../utils/format'
+import { newClientEventId } from '../utils/client-event-id'
 import type {
   BinLocationRecord,
   InventoryMovementRecord,
@@ -500,6 +501,8 @@ function ActionPanel({
   onDone: (message: string) => void
 }) {
   const [action, setAction] = useState<ActionId>('receive')
+  // Mỗi loại thao tác giữ một mã tới khi thành công: bấm lại sau lỗi mạng sẽ không ghi trùng.
+  const eventIds = useRef<Partial<Record<'receive' | 'count' | 'move', string>>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -516,11 +519,19 @@ function ActionPanel({
   const [supplier, setSupplier] = useState('')
   const [receiptQty, setReceiptQty] = useState(1)
 
-  async function run(task: () => Promise<string>) {
+  function eventIdFor(kind: 'receive' | 'count' | 'move'): string {
+    const current = eventIds.current[kind] ?? newClientEventId(kind)
+    eventIds.current[kind] = current
+    return current
+  }
+
+  async function run(task: () => Promise<string>, kind?: 'receive' | 'count' | 'move') {
     setBusy(true)
     setError(null)
     try {
-      onDone(await task())
+      const message = await task()
+      if (kind) delete eventIds.current[kind]
+      onDone(message)
     } catch (err: unknown) {
       setError(formatApiError(err))
     } finally {
@@ -534,7 +545,11 @@ function ActionPanel({
   }
 
   function receive() {
-    const extra = { received_at: toReceivedAtIso(receivedAt), lot_code: lotCode.trim() || undefined }
+    const extra = {
+      received_at: toReceivedAtIso(receivedAt),
+      lot_code: lotCode.trim() || undefined,
+      client_event_id: eventIdFor('receive'),
+    }
     void run(async () => {
       try {
         await restockSkuAssignment(warehouseId, row.id, receiveQty, false, extra)
@@ -545,7 +560,7 @@ function ActionPanel({
       return vi
         ? `Đã nhập ${receiveQty} cái ${row.sellerSku} vào ô ${row.binLabel}.`
         : `Received ${receiveQty} × ${row.sellerSku} into ${row.binLabel}.`
-    })
+    }, 'receive')
   }
 
   function count() {
@@ -554,15 +569,20 @@ function ActionPanel({
         counted_quantity: counted,
         reason_code: reason,
         note: note.trim() || undefined,
+        client_event_id: eventIdFor('count'),
       })
       return vi
         ? `Đã lưu kiểm kê ô ${row.binLabel}: ${row.quantityOnHand} → ${counted}.`
         : `Count saved for ${row.binLabel}: ${row.quantityOnHand} → ${counted}.`
-    })
+    }, 'count')
   }
 
   function move() {
-    const input = { to_bin_location_id: targetBin, quantity: moveQty }
+    const input = {
+      to_bin_location_id: targetBin,
+      quantity: moveQty,
+      client_event_id: eventIdFor('move'),
+    }
     const target = bins.find((bin) => bin.id === targetBin)?.binCode ?? ''
     void run(async () => {
       try {
@@ -574,7 +594,7 @@ function ActionPanel({
       return vi
         ? `Đã chuyển ${moveQty} cái từ ${row.binLabel} sang ${target}.`
         : `Moved ${moveQty} from ${row.binLabel} to ${target}.`
-    })
+    }, 'move')
   }
 
   function openLedger() {
