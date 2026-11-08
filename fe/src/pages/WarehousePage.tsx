@@ -74,6 +74,7 @@ import {
 import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
 import { formatDateTime, formatLotReceived } from '../utils/format'
 import { formatDimsCm, formatKg } from '../utils/units'
+import { newClientEventId } from '../utils/client-event-id'
 
 type QueueTab =
   | 'to_pick'
@@ -192,13 +193,6 @@ function platformLabel(platform: string): string {
   if (p === 'tiktok') return 'TikTok'
   if (p === 'tiki') return 'Tiki'
   return platform
-}
-
-function newClientEventId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID()
-  }
-  return `pick-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 function readProgress(groupId: string): PickProgress {
@@ -1126,7 +1120,7 @@ export function WarehousePage() {
         ...(activeLine.bin_location_id
           ? { bin_location_id: activeLine.bin_location_id }
           : {}),
-        client_event_id: newClientEventId(),
+        client_event_id: newClientEventId('pick'),
       })
       const nextLines = lines.map((line) =>
         line.key === activeLine.key
