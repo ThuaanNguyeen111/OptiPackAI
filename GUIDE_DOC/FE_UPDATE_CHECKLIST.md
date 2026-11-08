@@ -26,6 +26,7 @@
 | 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ☐ Chưa làm |
 | 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ☐ Chưa làm |
 | 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ☐ Chưa làm |
+| 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -373,6 +374,47 @@ Việc FE (`PackagingWorkbench.tsx`):
 - Tab nào cũng có cột Ngưỡng sửa được.
 - Đặt ngưỡng của một thùng cao hơn số tồn hiện có → dòng đó chuyển sang "Sắp hết".
 - Đóng gói làm tồn tụt xuống bằng hoặc dưới ngưỡng → chuông thông báo nhận cảnh báo; bấm vào thì mở đúng tab, đúng mã. (Người nhận Warehouse Staff: BE đang bổ sung, xem `CLAUDE.md` nhật ký 08/11.)
+
+---
+
+## 13. 🆕 08/11/2026 — Tối ưu tải trang, polling và chống ghi trùng thao tác kho (dòng 16)
+
+**Bối cảnh:** chuẩn bị app mobile, rà lại cả web. BE đã làm phần của BE (AOFP-238, AOFP-239). Phần dưới là việc của FE. Rà trên `main` 08/11.
+
+### 13.1 Tách gói theo trang (ưu tiên cao)
+
+- Hiện **không có chỗ nào dùng `React.lazy`**. `three` + `@react-three/fiber` (dùng ở `Packing3DBoxViewer.tsx`, `PackingScene.tsx`, `StepCamera.tsx`, `Hero3DCanvas.tsx`) nằm chung gói với mọi trang, nên màn đăng nhập, danh sách đơn cũng phải tải thư viện 3D.
+- Làm: `const PackingPage = lazy(() => import('./pages/...'))` cho các trang có 3D và các trang lớn (kho, đóng gói, vận chuyển), bọc `<Suspense fallback={…}>` ở router. Riêng `Hero3DCanvas` ở trang giới thiệu cũng lazy.
+- Nghiệm thu: `npx vite build` → gói chính nhỏ đi rõ rệt, `three` nằm ở chunk riêng; mở màn đăng nhập không tải chunk 3D (xem tab Network).
+
+### 13.2 Dừng polling khi tab ẩn (ưu tiên trung bình)
+
+- 7 file dùng `setInterval` (`useNotifications.ts`, `MfaDisabledNotice.tsx`, `ShippingPage.tsx`, `PackagingWorkbench.tsx`, `useLazadaConnection.ts`, `DirectConnectPanel.tsx`, `ForgotPasswordPage.tsx`), không file nào nghe `visibilitychange`.
+- Làm: khi `document.hidden` thì dừng interval; khi tab hiện lại thì gọi 1 lần ngay rồi chạy lại interval. Gợi ý viết 1 hook dùng chung `usePolling(fn, ms)`.
+- Lợi ích: giảm request khi nhân viên mở nhiều tab, đỡ chạm giới hạn 600 lần/phút theo IP (cả kho chung 1 IP).
+
+### 13.3 Huỷ request cũ khi đổi bộ lọc (ưu tiên thấp)
+
+- Chỉ 1 file dùng `AbortController`. Đổi bộ lọc nhanh (tab trạng thái nhóm đơn, ô tìm) có thể để kết quả cũ về sau ghi đè kết quả mới.
+- Làm: mỗi lần gọi danh sách tạo `AbortController` mới, huỷ cái trước.
+
+### 13.4 (Tuỳ chọn) Gửi `client_event_id` cho thao tác kho
+
+- BE (AOFP-239) nhận thêm `client_event_id` (chuỗi ≤ 100 ký tự, gợi ý `crypto.randomUUID()`) ở body của 3 route:
+  - `POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock`
+  - `POST …/adjust`
+  - `POST …/transfer`
+- Gửi lại cùng mã → BE trả **đúng kết quả lần trước** (200, cùng shape), không cộng / trừ tồn lần 2, không ghi thêm sổ kho.
+- Cùng mã nhưng khác thao tác hoặc khác dòng tồn → **409 `WH_CLIENT_EVENT_REUSED`**; hiện `message`, tạo mã mới rồi cho bấm lại.
+- Web: sinh mã 1 lần khi mở form, giữ nguyên khi bấm lại sau lỗi mạng / timeout, tạo mã mới khi mở form lần sau. Không gửi thì BE chạy như cũ.
+- App mobile: **bắt buộc** gửi (hàng đợi ngoại tuyến).
+
+### 13.5 Ghi nhận, chưa cần làm
+
+- Token lưu ở `localStorage` (`auth-storage.ts`): chấp nhận cho đồ án vì BE đã bật `helmet`; nếu sau này thêm nội dung HTML do người dùng nhập thì cần xem lại.
+- Chưa có lớp cache dữ liệu (React Query / SWR). Nếu làm thì giải luôn 13.2, 13.3; việc lớn, để sau.
+
+**Nghiệm thu chung:** build chạy, đăng nhập không tải chunk 3D; để tab ẩn 2 phút không có request polling nào trong Network; nhập thêm hàng, tắt mạng giữa chừng rồi bấm lại không bị cộng 2 lần (khi làm 13.4).
 
 ---
 
