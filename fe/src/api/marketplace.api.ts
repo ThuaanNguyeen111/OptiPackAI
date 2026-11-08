@@ -5,7 +5,7 @@ import type {
 } from '../types/marketplace-orders'
 
 export async function fetchMarketplaceConnectUrl(
-  platform: 'lazada' | 'aurelle',
+  platform: 'lazada' | 'aurelle' | 'tiki',
 ): Promise<LazadaConnectResponse> {
   return apiRequest<LazadaConnectResponse>(`/marketplace/${platform}/connect`, {
     auth: true,
@@ -72,7 +72,7 @@ export async function listMarketplaceShops(
 
 /** Ngắt OAuth của shop. Chỉ Admin. Đơn đã kéo vẫn giữ. */
 export async function disconnectMarketplaceShop(
-  platform: 'lazada' | 'aurelle',
+  platform: 'lazada' | 'aurelle' | 'tiki',
   shopId: string,
 ): Promise<void> {
   await apiRequest<unknown>(

@@ -973,10 +973,15 @@ html.dark .owner-stage .dash-metric-hero {
   }
 }
 
-/* Cột 3D: khung xem cao cố định, phần dưới (vật tư, hướng dẫn, so sánh) cuộn được */
+/* Cột 3D: khung xem cao cố định, phần dưới (vật tư, hướng dẫn, so sánh) cuộn được — ẩn thanh cuộn */
 .pack-bench-guide .pack-bench-scroll {
   overflow-y: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.pack-bench-guide .pack-bench-scroll::-webkit-scrollbar {
+  display: none;
 }
 
 .pack-viewer {

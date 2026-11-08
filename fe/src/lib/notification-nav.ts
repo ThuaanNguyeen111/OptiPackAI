@@ -11,6 +11,10 @@ export function resolveNotificationPath(
   const entityId = notif.relatedEntityId
   const type = notif.type
 
+  // Tiki: sắp hết hạn xác nhận đủ hàng — mở chi tiết đơn (khối Giao qua sàn).
+  if (type === 'marketplace_confirm_required') {
+    return entityId ? `/app/orders/${entityId}` : '/app/orders'
+  }
   if (type === 'cancel_confirmation_required') {
     return entityId ? `/app/orders/${entityId}` : '/app/orders'
   }
@@ -31,10 +35,17 @@ export function resolveNotificationPath(
       : '/app/packing'
   }
   if (type === 'low_box_stock' || type === 'low_material_stock') {
-    const tab = type === 'low_box_stock' ? 'boxes' : 'cushions'
+    // BE: relatedEntityType = packaging_box | packaging_bag | packaging_material, relatedEntityId = mã vật liệu.
+    const tab =
+      type === 'low_box_stock' || notif.relatedEntityType === 'packaging_box'
+        ? 'boxes'
+        : notif.relatedEntityType === 'packaging_bag'
+          ? 'bags'
+          : 'cushions'
+    const code = entityId ? `&code=${encodeURIComponent(entityId)}` : ''
     return role === UserRole.ADMIN
-      ? `/app/admin/packaging-materials?tab=${tab}`
-      : `/app/packaging-materials?tab=${tab}`
+      ? `/app/admin/packaging-materials?tab=${tab}${code}`
+      : `/app/packaging-materials?tab=${tab}${code}`
   }
   if (
     type === 'delivery_failed' ||

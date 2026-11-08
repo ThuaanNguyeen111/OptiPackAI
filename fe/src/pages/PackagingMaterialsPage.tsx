@@ -11,7 +11,6 @@ import {
   purchasePackagingMaterial,
   reactivatePackagingMaterial,
   updatePackagingMaterial,
-  type PackagingMaterialKind,
   type PackagingMaterialMovement,
   type PackagingMaterialsSavings,
   type PackagingMaterialStock,
@@ -53,10 +52,21 @@ import { formatApiError } from '../lib/api'
 import { cn } from '../lib/cn'
 import { UserRole } from '../types/auth'
 import { formatCurrency, formatDateTime } from '../utils/format'
+import {
+  cmToMm,
+  formatCm,
+  formatDimsCm,
+  formatDimsMmAsCm,
+  formatFlatMmAsCm,
+  gToKgInput,
+  kgToG,
+  mmToCmInput,
+  parseDecimal,
+} from '../utils/units'
 
-type TabId = 'stock' | 'boxes' | 'bags' | 'cushions'
+type TabId = 'boxes' | 'bags' | 'mailers' | 'cushions' | 'stock'
 
-const TABS: TabId[] = ['boxes', 'bags', 'cushions', 'stock']
+const TABS: TabId[] = ['boxes', 'bags', 'mailers', 'cushions', 'stock']
 
 const CUSHION_TYPES: CushionMaterialType[] = [
   'foam_corner',
@@ -92,10 +102,54 @@ function nonNegativeInt(raw: string): number | null {
   return Number.isSafeInteger(value) && value >= 0 ? value : null
 }
 
-function stockTone(status: StockStatus): 'success' | 'warning' | 'default' {
+/** Ô nhập cm (cho phép dấu phẩy, > 0) → mm số nguyên gửi API. */
+function cmInputToMm(raw: string): number | null {
+  const cm = parseDecimal(raw)
+  if (cm === null || cm <= 0) return null
+  const mm = cmToMm(cm)
+  return mm > 0 ? mm : null
+}
+
+/** Ô nhập kg (cho phép dấu phẩy, ≥ 0) → g số nguyên gửi API. */
+function kgInputToG(raw: string): number | null {
+  const kg = parseDecimal(raw)
+  if (kg === null || kg < 0) return null
+  return kgToG(kg)
+}
+
+/** Túi niêm phong và túi zip không có `stockStatus` từ BE → tự tính theo tồn và ngưỡng. */
+function computeStockStatus(onHand: number, reorderLevel: number | null): StockStatus {
+  if (onHand <= 0) return 'out_of_stock'
+  if (reorderLevel !== null && onHand <= reorderLevel) return 'low_stock'
+  return 'in_stock'
+}
+
+function stockTone(status: StockStatus): 'success' | 'warning' | 'danger' {
   if (status === 'in_stock') return 'success'
   if (status === 'low_stock') return 'warning'
-  return 'default'
+  return 'danger'
+}
+
+/** Nền dòng: sắp hết = vàng nhạt, hết = đỏ nhạt. */
+function stockRowClass(status: StockStatus): string {
+  if (status === 'low_stock') return 'bg-amber-50 dark:bg-amber-950/30'
+  if (status === 'out_of_stock') return 'bg-red-50 dark:bg-red-950/30'
+  return ''
+}
+
+const CUSHION_TYPE_LABELS: Record<CushionMaterialType, [string, string]> = {
+  foam_corner: ['Góc xốp', 'Foam corner'],
+  corrugated_divider: ['Vách ngăn bìa sóng', 'Corrugated divider'],
+  air_pillow: ['Túi khí', 'Air pillow'],
+  bubble_wrap: ['Xốp bóng khí', 'Bubble wrap'],
+  fragile_tape: ['Băng keo hàng dễ vỡ', 'Fragile tape'],
+  kraft_paper: ['Giấy kraft', 'Kraft paper'],
+  tissue_paper: ['Giấy lụa', 'Tissue paper'],
+}
+
+function cushionTypeLabel(type: string, vi: boolean): string {
+  const pair = CUSHION_TYPE_LABELS[type as CushionMaterialType] as [string, string] | undefined
+  return pair ? tx(vi, pair[0], pair[1]) : type
 }
 
 function stockLabel(status: StockStatus, vi: boolean): string {
@@ -218,13 +272,25 @@ export function PackagingMaterialsPage() {
   const adminShell = location.pathname.startsWith('/app/admin')
   const access = useMaterialAccess(session?.role)
   const rawTab = params.get('tab')
-  const tab: TabId = TABS.includes(rawTab as TabId) ? (rawTab as TabId) : 'stock'
+  const tab: TabId = TABS.includes(rawTab as TabId) ? (rawTab as TabId) : 'boxes'
+  const onlyLow = params.get('low') === '1'
+  const highlightCode = params.get('code')
 
   const tabLabel: Record<TabId, string> = {
-    stock: tx(vi, 'Kho tái sử dụng', 'Reuse stock'),
     boxes: tx(vi, 'Thùng', 'Boxes'),
     bags: tx(vi, 'Túi zip', 'Zip bags'),
+    mailers: tx(vi, 'Túi niêm phong', 'Mailers'),
     cushions: tx(vi, 'Vật liệu chống sốc', 'Shock protection'),
+    stock: tx(vi, 'Kho tái sử dụng', 'Reuse stock'),
+  }
+
+  function goTab(id: TabId, low = false) {
+    const next = new URLSearchParams(params)
+    next.set('tab', id)
+    next.delete('code')
+    if (low) next.set('low', '1')
+    else next.delete('low')
+    setParams(next, { replace: true })
   }
 
   return (
@@ -258,21 +324,41 @@ export function PackagingMaterialsPage() {
                     ? 'bg-primary text-on-primary'
                     : 'border border-hairline bg-surface-1 text-ink',
                 )}
-                onClick={() => {
-                  const next = new URLSearchParams(params)
-                  next.set('tab', id)
-                  setParams(next, { replace: true })
-                }}
+                onClick={() => goTab(id)}
               >
                 {tabLabel[id]}
               </button>
             ))}
           </div>
 
+          <LowStockSummary
+            vi={vi}
+            refreshKey={tab}
+            tabLabel={tabLabel}
+            onPick={(id) => goTab(id, true)}
+          />
+          {onlyLow ? (
+            <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+              {tx(vi, 'Đang lọc: chỉ vật liệu sắp hết / hết.', 'Filtered: low or out of stock only.')}
+              <button type="button" className="text-primary underline" onClick={() => goTab(tab)}>
+                {tx(vi, 'Bỏ lọc', 'Clear filter')}
+              </button>
+            </p>
+          ) : null}
+
+          {tab === 'boxes' ? (
+            <BoxesPanel vi={vi} access={access} onlyLow={onlyLow} highlightCode={highlightCode} />
+          ) : null}
+          {tab === 'bags' ? (
+            <BagsPanel vi={vi} access={access} onlyLow={onlyLow} highlightCode={highlightCode} />
+          ) : null}
+          {tab === 'mailers' ? (
+            <MailersPanel vi={vi} access={access} onlyLow={onlyLow} highlightCode={highlightCode} />
+          ) : null}
+          {tab === 'cushions' ? (
+            <CushionsPanel vi={vi} access={access} onlyLow={onlyLow} highlightCode={highlightCode} />
+          ) : null}
           {tab === 'stock' ? <ReuseStockPanel vi={vi} access={access} /> : null}
-          {tab === 'boxes' ? <BoxesPanel vi={vi} access={access} /> : null}
-          {tab === 'bags' ? <BagsPanel vi={vi} access={access} /> : null}
-          {tab === 'cushions' ? <CushionsPanel vi={vi} access={access} /> : null}
         </div>
       </div>
     </>
@@ -281,6 +367,93 @@ export function PackagingMaterialsPage() {
 
 type Access = ReturnType<typeof useMaterialAccess>
 
+/** Số vật liệu sắp hết / hết theo từng tab. Bấm vào để mở tab đó và lọc đúng các dòng này. */
+function LowStockSummary({
+  vi,
+  refreshKey,
+  tabLabel,
+  onPick,
+}: {
+  vi: boolean
+  refreshKey: string
+  tabLabel: Record<TabId, string>
+  onPick: (id: TabId) => void
+}) {
+  const [counts, setCounts] = useState<Partial<Record<TabId, { low: number; out: number }>> | null>(
+    null,
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    const tally = (list: { status: StockStatus }[]) => ({
+      low: list.filter((row) => row.status === 'low_stock').length,
+      out: list.filter((row) => row.status === 'out_of_stock').length,
+    })
+    void Promise.all([
+      listPackagingBoxes(true),
+      listPackagingBags(true),
+      listCushionMaterials(true),
+      listPackagingMaterials(false),
+    ])
+      .then(([boxes, bags, cushions, materials]) => {
+        if (cancelled) return
+        setCounts({
+          boxes: tally(boxes.map((row) => ({ status: row.stockStatus }))),
+          bags: tally(
+            bags.map((row) => ({ status: computeStockStatus(row.quantityOnHand, row.reorderLevel) })),
+          ),
+          mailers: tally(
+            materials
+              .filter((row) => row.kind === 'mailer')
+              .map((row) => ({ status: computeStockStatus(row.qtyNew, row.reorderLevel) })),
+          ),
+          cushions: tally(cushions.map((row) => ({ status: row.stockStatus }))),
+        })
+      })
+      .catch(() => {
+        if (!cancelled) setCounts(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [refreshKey])
+
+  if (!counts) return null
+  const entries = (Object.entries(counts) as [TabId, { low: number; out: number }][]).filter(
+    ([, value]) => value.low + value.out > 0,
+  )
+  if (entries.length === 0) return null
+  const total = entries.reduce((sum, [, value]) => sum + value.low + value.out, 0)
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+      <p className="font-medium">
+        {tx(
+          vi,
+          `${total} vật liệu sắp hết hoặc đã hết`,
+          `${total} materials are low or out of stock`,
+        )}
+      </p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {entries.map(([id, value]) => (
+          <button
+            key={id}
+            type="button"
+            className="rounded-md border border-amber-300 bg-white px-3 py-1 text-xs text-ink hover:bg-amber-100 dark:bg-transparent"
+            onClick={() => onPick(id)}
+          >
+            {tabLabel[id]}:{' '}
+            {value.out > 0 ? tx(vi, `${value.out} hết`, `${value.out} out`) : ''}
+            {value.out > 0 && value.low > 0 ? ' · ' : ''}
+            {value.low > 0 ? tx(vi, `${value.low} sắp hết`, `${value.low} low`) : ''}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** Kho tái sử dụng: chỉ hàng hoàn được kiểm và dùng lại (thùng, vật tư có `reusable`). Tồn mới xem ở tab riêng. */
 function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
   const [rows, setRows] = useState<PackagingMaterialStock[]>([])
   const [savings, setSavings] = useState<PackagingMaterialsSavings | null>(null)
@@ -290,8 +463,7 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<
-    | { kind: 'create' }
-    | { kind: 'edit' | 'purchase' | 'internal' | 'ledger'; item: PackagingMaterialStock }
+    | { kind: 'edit' | 'internal' | 'ledger'; item: PackagingMaterialStock }
     | { kind: 'deactivate'; item: PackagingMaterialStock }
     | null
   >(null)
@@ -336,6 +508,11 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
     }
   }, [access.canSeeSavings, includeInactive])
 
+  const reusableRows = useMemo(
+    () => rows.filter((item) => item.reusable && item.kind !== 'mailer'),
+    [rows],
+  )
+
   async function openLedger(item: PackagingMaterialStock) {
     setDialog({ kind: 'ledger', item })
     setLedger([])
@@ -353,6 +530,13 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
   return (
     <section className="space-y-4">
       <Banner error={error} notice={notice} />
+      <p className="text-xs text-ink-muted">
+        {tx(
+          vi,
+          'Chỉ gồm hàng hoàn đã kiểm và dùng lại được. Tồn hàng mới của từng vật liệu xem ở tab Thùng, Túi niêm phong và Vật liệu chống sốc.',
+          'Only inspected returned items that can be reused. New stock is on the Boxes, Mailers and Shock protection tabs.',
+        )}
+      </p>
       {savings ? <SavingsCards vi={vi} savings={savings} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="flex items-center gap-2 text-sm text-ink">
@@ -363,29 +547,19 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
           />
           {tx(vi, 'Hiện mục đã tắt', 'Show inactive')}
         </label>
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className="mr-1 size-4" />
-            {tx(vi, 'Tải lại', 'Reload')}
-          </Button>
-          {access.canManage ? (
-            <Button onClick={() => setDialog({ kind: 'create' })}>
-              <Plus className="mr-1 size-4" />
-              {tx(vi, 'Thêm vật liệu', 'Add material')}
-            </Button>
-          ) : null}
-        </div>
+        <Button variant="secondary" onClick={() => void load()} disabled={loading}>
+          <RefreshCw className="mr-1 size-4" />
+          {tx(vi, 'Tải lại', 'Reload')}
+        </Button>
       </div>
       <div className="overflow-auto rounded-xl border border-hairline bg-surface-1">
-        <table className="w-full min-w-[880px] text-left text-sm">
+        <table className="w-full min-w-[720px] text-left text-sm">
           <thead className="border-b border-hairline text-xs text-ink-muted">
             <tr>
-              <th className="px-3 py-2">{tx(vi, 'Mã', 'Code')}</th>
-              <th className="px-3 py-2">{tx(vi, 'Tên', 'Name')}</th>
+              <th className="px-3 py-2">{tx(vi, 'Mã / tên', 'Code / name')}</th>
               <th className="px-3 py-2">{tx(vi, 'Loại', 'Kind')}</th>
-              <th className="px-3 py-2">{tx(vi, 'Mới', 'New')}</th>
-              <th className="px-3 py-2">{tx(vi, 'Tái sử dụng', 'Reused')}</th>
-              <th className="px-3 py-2">{tx(vi, 'Nội bộ', 'Internal')}</th>
+              <th className="px-3 py-2">{tx(vi, 'Tái sử dụng được', 'Reusable')}</th>
+              <th className="px-3 py-2">{tx(vi, 'Chỉ dùng nội bộ', 'Internal only')}</th>
               <th className="px-3 py-2">{tx(vi, 'Đơn giá', 'Unit cost')}</th>
               <th className="px-3 py-2" />
             </tr>
@@ -393,60 +567,58 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-ink-muted">
+                <td colSpan={6} className="px-3 py-6 text-ink-muted">
                   <Loader2 className="mr-2 inline size-4 animate-spin" />
                   {tx(vi, 'Đang tải…', 'Loading…')}
                 </td>
               </tr>
             ) : null}
-            {!loading && rows.length === 0 ? (
+            {!loading && reusableRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-ink-muted">
-                  {tx(vi, 'Chưa có vật liệu.', 'No materials yet.')}
+                <td colSpan={6} className="px-3 py-6 text-ink-muted">
+                  {tx(vi, 'Chưa có hàng hoàn dùng lại được.', 'No reusable returned items yet.')}
                 </td>
               </tr>
             ) : null}
-            {rows.map((item) => (
+            {reusableRows.map((item) => (
               <tr key={item.code} className="border-t border-hairline">
-                <td className="px-3 py-2 font-medium text-ink">
-                  {item.code}{' '}
-                  {!item.isActive ? (
-                    <Badge tone="default">{tx(vi, 'Đã tắt', 'Off')}</Badge>
+                <td className="px-3 py-2">
+                  <div className="font-medium text-ink">
+                    {item.code}{' '}
+                    {!item.isActive ? (
+                      <Badge tone="default">{tx(vi, 'Đã tắt', 'Off')}</Badge>
+                    ) : null}
+                  </div>
+                  <div className="text-xs text-ink-muted">{item.name}</div>
+                  {item.kind === 'box' &&
+                  item.lengthCm != null &&
+                  item.widthCm != null &&
+                  item.heightCm != null ? (
+                    <div className="text-xs text-ink-muted">
+                      {formatDimsCm(item.lengthCm, item.widthCm, item.heightCm)}
+                    </div>
                   ) : null}
                 </td>
-                <td className="px-3 py-2">{item.name}</td>
                 <td className="px-3 py-2">{kindLabel(item.kind, vi)}</td>
-                <td className="px-3 py-2">{item.qtyNew}</td>
                 <td className="px-3 py-2">{item.qtyReused}</td>
                 <td className="px-3 py-2">{item.qtyInternal}</td>
                 <td className="px-3 py-2">{formatCurrency(item.unitCostVnd)}</td>
                 <td className="px-3 py-2">
                   <div className="flex flex-wrap justify-end gap-1">
                     <Button variant="ghost" onClick={() => void openLedger(item)}>
-                      {tx(vi, 'Sổ', 'Ledger')}
+                      {tx(vi, 'Lịch sử nhập/xuất', 'Movement history')}
                     </Button>
                     {access.canStock && item.isActive ? (
-                      <>
-                        <Button
-                          variant="secondary"
-                          onClick={() => setDialog({ kind: 'purchase', item })}
-                        >
-                          {tx(vi, 'Nhập', 'Receive')}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          onClick={() => setDialog({ kind: 'internal', item })}
-                        >
-                          {tx(vi, 'Nội bộ', 'Internal')}
-                        </Button>
-                      </>
+                      <Button
+                        variant="secondary"
+                        onClick={() => setDialog({ kind: 'internal', item })}
+                      >
+                        {tx(vi, 'Xuất dùng nội bộ', 'Issue for internal use')}
+                      </Button>
                     ) : null}
                     {access.canManage ? (
                       <>
-                        <Button
-                          variant="ghost"
-                          onClick={() => setDialog({ kind: 'edit', item })}
-                        >
+                        <Button variant="ghost" onClick={() => setDialog({ kind: 'edit', item })}>
                           {tx(vi, 'Sửa', 'Edit')}
                         </Button>
                         {item.isActive ? (
@@ -484,17 +656,6 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
         </table>
       </div>
 
-      {dialog?.kind === 'create' ? (
-        <CreateMaterialDialog
-          vi={vi}
-          onClose={() => setDialog(null)}
-          onDone={(message) => {
-            setNotice(message)
-            setDialog(null)
-            void load()
-          }}
-        />
-      ) : null}
       {dialog?.kind === 'edit' ? (
         <EditMaterialDialog
           vi={vi}
@@ -507,10 +668,10 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
           }}
         />
       ) : null}
-      {dialog?.kind === 'purchase' || dialog?.kind === 'internal' ? (
+      {dialog?.kind === 'internal' ? (
         <StockActionDialog
           vi={vi}
-          mode={dialog.kind}
+          mode="internal"
           item={dialog.item}
           onClose={() => setDialog(null)}
           onDone={(message) => {
@@ -522,7 +683,7 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
       ) : null}
       {dialog?.kind === 'ledger' ? (
         <Dialog
-          title={`${tx(vi, 'Sổ', 'Ledger')} ${dialog.item.code}`}
+          title={`${tx(vi, 'Lịch sử nhập/xuất', 'Movement history')} ${dialog.item.code}`}
           onClose={() => setDialog(null)}
         >
           <MovementTable vi={vi} rows={ledger} busy={busy} g4 />
@@ -557,6 +718,198 @@ function ReuseStockPanel({ vi, access }: { vi: boolean; access: Access }) {
             .finally(() => setBusy(false))
         }}
       />
+    </section>
+  )
+}
+
+/** Túi niêm phong (mailer): BE lưu chung bảng vật liệu, `kind = 'mailer'`. Tồn = tồn mới. */
+function MailersPanel({
+  vi,
+  access,
+  onlyLow,
+  highlightCode,
+}: {
+  vi: boolean
+  access: Access
+  onlyLow: boolean
+  highlightCode: string | null
+}) {
+  const [rows, setRows] = useState<PackagingMaterialStock[]>([])
+  const [showInactive, setShowInactive] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [dialog, setDialog] = useState<
+    | 'create'
+    | { kind: 'edit' | 'purchase' | 'ledger'; item: PackagingMaterialStock }
+    | null
+  >(null)
+  const [ledger, setLedger] = useState<PackagingMaterialMovement[]>([])
+
+  async function load() {
+    setLoading(true)
+    setError('')
+    try {
+      setRows((await listPackagingMaterials(showInactive)).filter((row) => row.kind === 'mailer'))
+    } catch (err) {
+      setError(formatApiError(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false
+    void listPackagingMaterials(showInactive)
+      .then((list) => {
+        if (cancelled) return
+        setRows(list.filter((row) => row.kind === 'mailer'))
+        setError('')
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(formatApiError(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [showInactive])
+
+  async function openLedger(item: PackagingMaterialStock) {
+    setDialog({ kind: 'ledger', item })
+    setLedger([])
+    setBusy(true)
+    try {
+      setLedger(await listPackagingMaterialMovements(item.code, 50))
+    } catch (err) {
+      setError(formatApiError(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const visible = rows.filter(
+    (item) => !onlyLow || computeStockStatus(item.qtyNew, item.reorderLevel) !== 'in_stock',
+  )
+
+  return (
+    <section className="space-y-3">
+      <Banner error={error} notice={notice} />
+      <Toolbar
+        vi={vi}
+        loading={loading}
+        showInactive={showInactive}
+        onToggle={setShowInactive}
+        onReload={() => void load()}
+        onCreate={access.canManage ? () => setDialog('create') : undefined}
+        createLabel={tx(vi, 'Thêm túi niêm phong', 'Add mailer')}
+      />
+      <CatalogTable
+        vi={vi}
+        loading={loading}
+        empty={tx(vi, 'Chưa có túi niêm phong.', 'No mailers yet.')}
+        headers={[
+          tx(vi, 'Mã / tên', 'Code / name'),
+          tx(vi, 'Khổ trải (cm)', 'Flat size (cm)'),
+          tx(vi, 'Tồn', 'On hand'),
+          tx(vi, 'Ngưỡng', 'Reorder'),
+          tx(vi, 'Trạng thái', 'Status'),
+          tx(vi, 'Đơn giá', 'Unit cost'),
+          '',
+        ]}
+      >
+        {visible.map((item) => {
+          const status = computeStockStatus(item.qtyNew, item.reorderLevel)
+          return (
+            <tr
+              key={item.code}
+              className={cn(
+                'border-t border-hairline',
+                stockRowClass(status),
+                highlightCode === item.code && 'ring-2 ring-inset ring-primary',
+              )}
+            >
+              <td className="px-3 py-2">
+                <div className="font-medium text-ink">{item.code}</div>
+                <div className="text-xs text-ink-muted">
+                  {item.name}
+                  {!item.isActive ? ` · ${tx(vi, 'đã tắt', 'off')}` : ''}
+                </div>
+              </td>
+              <td className="px-3 py-2">
+                {item.widthCm != null && item.lengthCm != null
+                  ? `${formatCm(item.widthCm)} × ${formatCm(item.lengthCm)} cm`
+                  : '—'}
+              </td>
+              <td className="px-3 py-2">{item.qtyNew}</td>
+              <td className="px-3 py-2">{item.reorderLevel ?? '—'}</td>
+              <td className="px-3 py-2">
+                <Badge tone={stockTone(status)}>{stockLabel(status, vi)}</Badge>
+              </td>
+              <td className="px-3 py-2">{formatCurrency(item.unitCostVnd)}</td>
+              <td className="px-3 py-2">
+                <RowActions
+                  vi={vi}
+                  canStock={access.canStock}
+                  canManage={access.canManage}
+                  canLedger={access.canSeeEngineLedger}
+                  active={item.isActive}
+                  onLedger={() => void openLedger(item)}
+                  onStock={() => setDialog({ kind: 'purchase', item })}
+                  onEdit={() => setDialog({ kind: 'edit', item })}
+                />
+              </td>
+            </tr>
+          )
+        })}
+      </CatalogTable>
+      {dialog === 'create' ? (
+        <CreateMaterialDialog
+          vi={vi}
+          onClose={() => setDialog(null)}
+          onDone={(message) => {
+            setNotice(message)
+            setDialog(null)
+            void load()
+          }}
+        />
+      ) : null}
+      {dialog && dialog !== 'create' && dialog.kind === 'edit' ? (
+        <EditMaterialDialog
+          vi={vi}
+          item={dialog.item}
+          onClose={() => setDialog(null)}
+          onDone={(message) => {
+            setNotice(message)
+            setDialog(null)
+            void load()
+          }}
+        />
+      ) : null}
+      {dialog && dialog !== 'create' && dialog.kind === 'purchase' ? (
+        <StockActionDialog
+          vi={vi}
+          mode="purchase"
+          item={dialog.item}
+          onClose={() => setDialog(null)}
+          onDone={(message) => {
+            setNotice(message)
+            setDialog(null)
+            void load()
+          }}
+        />
+      ) : null}
+      {dialog && dialog !== 'create' && dialog.kind === 'ledger' ? (
+        <Dialog
+          title={`${tx(vi, 'Lịch sử nhập/xuất', 'Movement history')} ${dialog.item.code}`}
+          onClose={() => setDialog(null)}
+        >
+          <MovementTable vi={vi} rows={ledger} busy={busy} g4 />
+        </Dialog>
+      ) : null}
     </section>
   )
 }
@@ -640,6 +993,7 @@ function MovementTable({
   )
 }
 
+/** Thêm túi niêm phong. Thùng và vật tư chèn thêm ở tab riêng của chúng (một nơi, một đơn vị). */
 function CreateMaterialDialog({
   vi,
   onClose,
@@ -649,7 +1003,6 @@ function CreateMaterialDialog({
   onClose: () => void
   onDone: (message: string) => void
 }) {
-  const [kind, setKind] = useState<PackagingMaterialKind>('box')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -659,142 +1012,79 @@ function CreateMaterialDialog({
     const code = String(data.get('code') ?? '').trim().toUpperCase()
     const name = String(data.get('name') ?? '').trim()
     const unitCost = nonNegativeInt(String(data.get('unitCost') ?? ''))
-    const cycles = positiveInt(String(data.get('cycles') ?? '3'))
     if (!/^[A-Z0-9-]{2,20}$/.test(code)) {
       setError(tx(vi, 'Mã chỉ gồm A-Z, số, gạch ngang, 2–20 ký tự.', 'Code must be 2–20 letters, digits or hyphens.'))
       return
     }
-    if (name.length < 2 || unitCost === null || cycles === null) {
-      setError(tx(vi, 'Điền đủ tên, đơn giá và số lần dùng lại.', 'Fill name, cost and reuse cycles.'))
+    if (name.length < 2 || unitCost === null) {
+      setError(tx(vi, 'Điền đủ tên và đơn giá.', 'Fill name and cost.'))
       return
     }
-    const lengthCm = positiveInt(String(data.get('length') ?? ''))
-    const widthCm = positiveInt(String(data.get('width') ?? ''))
-    const heightCm = positiveInt(String(data.get('height') ?? ''))
-    const match = String(data.get('match') ?? '').trim()
-    if (kind === 'box' && (lengthCm === null || widthCm === null || heightCm === null)) {
-      setError(tx(vi, 'Thùng cần đủ dài, rộng, cao (cm).', 'A box needs length, width and height in cm.'))
-      return
-    }
-    if (kind === 'cushioning' && match.length < 1) {
-      setError(tx(vi, 'Vật liệu chống sốc cần mã loại khớp luật.', 'Shock protection needs a matching material type.'))
-      return
-    }
-    const tareG = nonNegativeInt(String(data.get('tare') ?? ''))
+    const widthMm = cmInputToMm(String(data.get('width') ?? ''))
+    const lengthMm = cmInputToMm(String(data.get('length') ?? ''))
+    const tareG = kgInputToG(String(data.get('tare') ?? ''))
     const maxLoadText = String(data.get('maxLoad') ?? '').trim()
-    const maxLoadG = maxLoadText === '' ? null : positiveInt(maxLoadText)
-    if (kind === 'mailer') {
-      if (lengthCm === null || widthCm === null || tareG === null) {
-        setError(tx(vi, 'Túi niêm phong cần rộng, dài (cm) và khối lượng túi (g).', 'A mailer needs width, length (cm) and bag weight (g).'))
-        return
-      }
-      if (maxLoadText !== '' && maxLoadG === null) {
-        setError(tx(vi, 'Tải tối đa phải là số nguyên dương.', 'Max load must be a positive whole number.'))
-        return
-      }
+    const maxLoadG = maxLoadText === '' ? null : kgInputToG(maxLoadText)
+    if (widthMm === null || lengthMm === null || tareG === null) {
+      setError(
+        tx(
+          vi,
+          'Túi niêm phong cần rộng, dài (cm) và khối lượng túi (kg).',
+          'A mailer needs width, length (cm) and bag weight (kg).',
+        ),
+      )
+      return
+    }
+    if (maxLoadText !== '' && (maxLoadG === null || maxLoadG <= 0)) {
+      setError(tx(vi, 'Tải tối đa (kg) phải lớn hơn 0.', 'Max load (kg) must be greater than 0.'))
+      return
     }
     setBusy(true)
     void createPackagingMaterial({
       code,
       name,
-      kind,
+      kind: 'mailer',
       unitCostVnd: unitCost,
-      maxReuseCycles: cycles,
-      reusable: data.get('reusable') === 'on',
-      lengthCm: lengthCm ?? undefined,
-      widthCm: widthCm ?? undefined,
-      heightCm: heightCm ?? undefined,
-      matchMaterialType: match || undefined,
-      tareG: tareG ?? undefined,
+      maxReuseCycles: 1,
+      reusable: false,
+      // BE nhận cm cho kích thước túi (số thực), nên gửi lại giá trị cm đã làm tròn theo mm.
+      lengthCm: lengthMm / 10,
+      widthCm: widthMm / 10,
+      tareG,
       maxLoadG: maxLoadG ?? undefined,
     })
-      .then(() => onDone(tx(vi, 'Đã thêm vật liệu.', 'Material added.')))
+      .then(() => onDone(tx(vi, 'Đã thêm túi niêm phong.', 'Mailer added.')))
       .catch((err: unknown) => setError(formatApiError(err)))
       .finally(() => setBusy(false))
   }
 
   return (
-    <Dialog title={tx(vi, 'Thêm vật liệu', 'Add material')} onClose={onClose}>
+    <Dialog title={tx(vi, 'Thêm túi niêm phong', 'Add mailer')} onClose={onClose}>
       <form className="space-y-3" onSubmit={submit}>
         <Banner error={error} notice="" />
-        <p className="text-xs text-ink-muted">
-          {tx(
-            vi,
-            'Thùng muốn engine xếp vào phải khai ở tab Thùng (mm). Form này ghi tồn và đơn giá theo cm.',
-            'Boxes the packer can choose must be declared on the Boxes tab in millimetres. This form records stock and cost in centimetres.',
-          )}
-        </p>
-        <Field label={tx(vi, 'Loại', 'Kind')}>
-          <select
-            className={fieldClass}
-            value={kind}
-            onChange={(event) => setKind(event.target.value as PackagingMaterialKind)}
-          >
-            <option value="box">{tx(vi, 'Thùng', 'Box')}</option>
-            <option value="cushioning">{tx(vi, 'Vật liệu chống sốc', 'Shock protection')}</option>
-            <option value="mailer">{tx(vi, 'Túi niêm phong', 'Mailer')}</option>
-          </select>
-        </Field>
         <Field label={tx(vi, 'Mã', 'Code')}>
           <Input name="code" className={fieldClass} required maxLength={20} />
         </Field>
         <Field label={tx(vi, 'Tên', 'Name')}>
           <Input name="name" className={fieldClass} required minLength={2} maxLength={120} />
         </Field>
-        {kind === 'box' ? (
-          <div className="grid grid-cols-3 gap-2">
-            <Field label={tx(vi, 'Dài cm', 'L cm')}>
-              <Input name="length" className={fieldClass} inputMode="numeric" />
-            </Field>
-            <Field label={tx(vi, 'Rộng cm', 'W cm')}>
-              <Input name="width" className={fieldClass} inputMode="numeric" />
-            </Field>
-            <Field label={tx(vi, 'Cao cm', 'H cm')}>
-              <Input name="height" className={fieldClass} inputMode="numeric" />
-            </Field>
-          </div>
-        ) : kind === 'mailer' ? (
-          <div className="grid grid-cols-2 gap-2">
-            <Field label={tx(vi, 'Rộng cm (trải phẳng)', 'Flat width cm')}>
-              <Input name="width" className={fieldClass} inputMode="numeric" />
-            </Field>
-            <Field label={tx(vi, 'Dài cm (trải phẳng)', 'Flat length cm')}>
-              <Input name="length" className={fieldClass} inputMode="numeric" />
-            </Field>
-            <Field label={tx(vi, 'Khối lượng túi (g)', 'Bag weight (g)')}>
-              <Input name="tare" className={fieldClass} inputMode="numeric" />
-            </Field>
-            <Field label={tx(vi, 'Tải tối đa (g, có thể trống)', 'Max load (g, optional)')}>
-              <Input name="maxLoad" className={fieldClass} inputMode="numeric" />
-            </Field>
-          </div>
-        ) : (
-          <Field label={tx(vi, 'Mã loại khớp luật', 'Match type')}>
-            <select name="match" className={fieldClass} defaultValue="bubble_wrap">
-              {CUSHION_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={tx(vi, 'Rộng khổ trải (cm)', 'Flat width (cm)')}>
+            <Input name="width" className={fieldClass} inputMode="decimal" />
           </Field>
-        )}
+          <Field label={tx(vi, 'Dài khổ trải (cm)', 'Flat length (cm)')}>
+            <Input name="length" className={fieldClass} inputMode="decimal" />
+          </Field>
+          <Field label={tx(vi, 'Khối lượng túi (kg)', 'Bag weight (kg)')}>
+            <Input name="tare" className={fieldClass} inputMode="decimal" />
+          </Field>
+          <Field label={tx(vi, 'Tải tối đa (kg, có thể để trống)', 'Max load (kg, optional)')}>
+            <Input name="maxLoad" className={fieldClass} inputMode="decimal" />
+          </Field>
+        </div>
         <Field label={tx(vi, 'Đơn giá (đ)', 'Unit cost')}>
           <Input name="unitCost" className={fieldClass} inputMode="numeric" defaultValue="0" />
         </Field>
-        {kind === 'mailer' ? (
-          <input type="hidden" name="cycles" value="1" />
-        ) : (
-          <>
-            <Field label={tx(vi, 'Số lần dùng lại tối đa', 'Max reuse cycles')}>
-              <Input name="cycles" className={fieldClass} inputMode="numeric" defaultValue="3" />
-            </Field>
-            <label className="flex items-center gap-2 text-sm text-ink">
-              <input type="checkbox" name="reusable" defaultChecked />
-              {tx(vi, 'Cho phép tái sử dụng', 'Reusable')}
-            </label>
-          </>
-        )}
         <Button type="submit" disabled={busy}>
           {tx(vi, 'Lưu', 'Save')}
         </Button>
@@ -940,7 +1230,17 @@ function StockActionDialog({
   )
 }
 
-function BoxesPanel({ vi, access }: { vi: boolean; access: Access }) {
+function BoxesPanel({
+  vi,
+  access,
+  onlyLow,
+  highlightCode,
+}: {
+  vi: boolean
+  access: Access
+  onlyLow: boolean
+  highlightCode: string | null
+}) {
   const [rows, setRows] = useState<PackagingBox[]>([])
   const [showInactive, setShowInactive] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1016,25 +1316,38 @@ function BoxesPanel({ vi, access }: { vi: boolean; access: Access }) {
         loading={loading}
         empty={tx(vi, 'Chưa có thùng.', 'No boxes yet.')}
         headers={[
-          tx(vi, 'Mã', 'Code'),
-          tx(vi, 'Đường kính trong (mm)', 'Inner mm'),
-          tx(vi, 'Tồn/Giữ/Còn', 'On hand / held / free'),
+          tx(vi, 'Mã / tên', 'Code / name'),
+          tx(vi, 'Lòng thùng (cm)', 'Inner size (cm)'),
+          tx(vi, 'Tồn', 'On hand'),
+          tx(vi, 'Đang giữ cho đơn', 'Reserved'),
+          tx(vi, 'Còn dùng được', 'Available'),
+          tx(vi, 'Ngưỡng', 'Reorder'),
           tx(vi, 'Trạng thái', 'Status'),
           '',
         ]}
       >
-        {rows.map((item) => (
-          <tr key={item.id} className="border-t border-hairline">
+        {rows
+          .filter((item) => !onlyLow || item.stockStatus !== 'in_stock')
+          .map((item) => (
+          <tr
+            key={item.id}
+            className={cn(
+              'border-t border-hairline',
+              stockRowClass(item.stockStatus),
+              highlightCode === item.code && 'ring-2 ring-inset ring-primary',
+            )}
+          >
             <td className="px-3 py-2">
               <div className="font-medium text-ink">{item.code}</div>
               <div className="text-xs text-ink-muted">{item.name}</div>
             </td>
             <td className="px-3 py-2">
-              {item.inner.lengthMm}×{item.inner.widthMm}×{item.inner.heightMm}
+              {formatDimsMmAsCm(item.inner.lengthMm, item.inner.widthMm, item.inner.heightMm)}
             </td>
-            <td className="px-3 py-2">
-              {item.quantityOnHand}/{item.reserved}/{item.available}
-            </td>
+            <td className="px-3 py-2">{item.quantityOnHand}</td>
+            <td className="px-3 py-2">{item.reserved}</td>
+            <td className="px-3 py-2">{item.available}</td>
+            <td className="px-3 py-2">{item.reorderLevel}</td>
             <td className="px-3 py-2">
               <Badge tone={stockTone(item.stockStatus)}>{stockLabel(item.stockStatus, vi)}</Badge>
             </td>
@@ -1090,7 +1403,7 @@ function BoxesPanel({ vi, access }: { vi: boolean; access: Access }) {
         />
       ) : null}
       {dialog && dialog !== 'create' && dialog.kind === 'ledger' ? (
-        <Dialog title={`${tx(vi, 'Sổ', 'Ledger')} ${dialog.item.code}`} onClose={() => setDialog(null)}>
+        <Dialog title={`${tx(vi, 'Lịch sử nhập/xuất', 'Movement history')} ${dialog.item.code}`} onClose={() => setDialog(null)}>
           <MovementTable vi={vi} rows={ledger} busy={busy} />
         </Dialog>
       ) : null}
@@ -1098,7 +1411,17 @@ function BoxesPanel({ vi, access }: { vi: boolean; access: Access }) {
   )
 }
 
-function BagsPanel({ vi, access }: { vi: boolean; access: Access }) {
+function BagsPanel({
+  vi,
+  access,
+  onlyLow,
+  highlightCode,
+}: {
+  vi: boolean
+  access: Access
+  onlyLow: boolean
+  highlightCode: string | null
+}) {
   const [rows, setRows] = useState<PackagingBag[]>([])
   const [showInactive, setShowInactive] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -1157,15 +1480,31 @@ function BagsPanel({ vi, access }: { vi: boolean; access: Access }) {
         loading={loading}
         empty={tx(vi, 'Chưa có túi zip.', 'No zip bags yet.')}
         headers={[
-          tx(vi, 'Mã', 'Code'),
-          tx(vi, 'Khổ trải (mm)', 'Flat size mm'),
+          tx(vi, 'Mã / tên', 'Code / name'),
+          tx(vi, 'Khổ trải (cm)', 'Flat size (cm)'),
           tx(vi, 'Tồn', 'On hand'),
           tx(vi, 'Ngưỡng', 'Reorder'),
+          tx(vi, 'Trạng thái', 'Status'),
           '',
         ]}
       >
-        {rows.map((item) => (
-          <tr key={item.id} className="border-t border-hairline">
+        {rows
+          .filter(
+            (item) =>
+              !onlyLow ||
+              computeStockStatus(item.quantityOnHand, item.reorderLevel) !== 'in_stock',
+          )
+          .map((item) => {
+          const status = computeStockStatus(item.quantityOnHand, item.reorderLevel)
+          return (
+          <tr
+            key={item.id}
+            className={cn(
+              'border-t border-hairline',
+              stockRowClass(status),
+              highlightCode === item.code && 'ring-2 ring-inset ring-primary',
+            )}
+          >
             <td className="px-3 py-2">
               <div className="font-medium text-ink">{item.code}</div>
               <div className="text-xs text-ink-muted">
@@ -1173,11 +1512,12 @@ function BagsPanel({ vi, access }: { vi: boolean; access: Access }) {
                 {!item.isActive ? ` · ${tx(vi, 'đã tắt', 'off')}` : ''}
               </div>
             </td>
-            <td className="px-3 py-2">
-              {item.widthMm}×{item.lengthMm}
-            </td>
+            <td className="px-3 py-2">{formatFlatMmAsCm(item.widthMm, item.lengthMm)}</td>
             <td className="px-3 py-2">{item.quantityOnHand}</td>
             <td className="px-3 py-2">{item.reorderLevel}</td>
+            <td className="px-3 py-2">
+              <Badge tone={stockTone(status)}>{stockLabel(status, vi)}</Badge>
+            </td>
             <td className="px-3 py-2">
               <RowActions
                 vi={vi}
@@ -1190,7 +1530,8 @@ function BagsPanel({ vi, access }: { vi: boolean; access: Access }) {
               />
             </td>
           </tr>
-        ))}
+          )
+        })}
       </CatalogTable>
       {dialog === 'create' ? (
         <BagForm
@@ -1232,7 +1573,17 @@ function BagsPanel({ vi, access }: { vi: boolean; access: Access }) {
   )
 }
 
-function CushionsPanel({ vi, access }: { vi: boolean; access: Access }) {
+function CushionsPanel({
+  vi,
+  access,
+  onlyLow,
+  highlightCode,
+}: {
+  vi: boolean
+  access: Access
+  onlyLow: boolean
+  highlightCode: string | null
+}) {
   const [rows, setRows] = useState<CushionMaterial[]>([])
   const [rules, setRules] = useState<MaterialRules | null>(null)
   const [showInactive, setShowInactive] = useState(false)
@@ -1300,28 +1651,34 @@ function CushionsPanel({ vi, access }: { vi: boolean; access: Access }) {
         loading={loading}
         empty={tx(vi, 'Chưa có vật liệu chống sốc.', 'No shock protection yet.')}
         headers={[
-          tx(vi, 'Mã', 'Code'),
+          tx(vi, 'Mã / tên', 'Code / name'),
           tx(vi, 'Loại', 'Type'),
           tx(vi, 'Tồn', 'On hand'),
-          tx(vi, 'Mới/Tái sử dụng', 'New / reused'),
+          tx(vi, 'Ngưỡng', 'Reorder'),
+          tx(vi, 'Trạng thái', 'Status'),
           '',
         ]}
       >
-        {rows.map((item) => (
-          <tr key={item.id} className="border-t border-hairline">
+        {rows
+          .filter((item) => !onlyLow || item.stockStatus !== 'in_stock')
+          .map((item) => (
+          <tr
+            key={item.id}
+            className={cn(
+              'border-t border-hairline',
+              stockRowClass(item.stockStatus),
+              highlightCode === item.code && 'ring-2 ring-inset ring-primary',
+            )}
+          >
             <td className="px-3 py-2">
               <div className="font-medium text-ink">{item.code}</div>
               <div className="text-xs text-ink-muted">{item.name}</div>
             </td>
-            <td className="px-3 py-2">
-              {item.type}
-              <div className="text-xs text-ink-muted">
-                <Badge tone={stockTone(item.stockStatus)}>{stockLabel(item.stockStatus, vi)}</Badge>
-              </div>
-            </td>
+            <td className="px-3 py-2">{cushionTypeLabel(item.type, vi)}</td>
             <td className="px-3 py-2">{item.quantityOnHand}</td>
+            <td className="px-3 py-2">{item.reorderLevel}</td>
             <td className="px-3 py-2">
-              {item.quantityNew}/{item.quantityReused}
+              <Badge tone={stockTone(item.stockStatus)}>{stockLabel(item.stockStatus, vi)}</Badge>
             </td>
             <td className="px-3 py-2">
               <RowActions
@@ -1395,7 +1752,7 @@ function CushionsPanel({ vi, access }: { vi: boolean; access: Access }) {
         />
       ) : null}
       {dialog && dialog !== 'create' && dialog.kind === 'ledger' ? (
-        <Dialog title={`${tx(vi, 'Sổ', 'Ledger')} ${dialog.item.code}`} onClose={() => setDialog(null)}>
+        <Dialog title={`${tx(vi, 'Lịch sử nhập/xuất', 'Movement history')} ${dialog.item.code}`} onClose={() => setDialog(null)}>
           <MovementTable vi={vi} rows={ledger} busy={busy} />
         </Dialog>
       ) : null}
@@ -1519,7 +1876,7 @@ function RowActions({
     <div className="flex flex-wrap justify-end gap-1">
       {canLedger && onLedger ? (
         <Button variant="ghost" onClick={onLedger}>
-          {tx(vi, 'Sổ', 'Ledger')}
+          {tx(vi, 'Lịch sử nhập/xuất', 'Movement history')}
         </Button>
       ) : null}
       {canStock && active ? (
@@ -1585,29 +1942,30 @@ function QuantityDialog({
   )
 }
 
-function mmFields(key: 'in' | 'out', label: string) {
+/** Form nhập cm (D×R×C); lưu API vẫn mm. */
+function sizeFieldsCm(key: 'in' | 'out', label: string) {
   return (
     <div className="grid grid-cols-3 gap-2">
-      <Field label={`${label} L`}>
-        <Input name={`${key}-l`} className={fieldClass} inputMode="numeric" required />
+      <Field label={`${label} D`}>
+        <Input name={`${key}-l`} className={fieldClass} inputMode="decimal" required />
       </Field>
-      <Field label={`${label} W`}>
-        <Input name={`${key}-w`} className={fieldClass} inputMode="numeric" required />
+      <Field label={`${label} R`}>
+        <Input name={`${key}-w`} className={fieldClass} inputMode="decimal" required />
       </Field>
-      <Field label={`${label} H`}>
-        <Input name={`${key}-h`} className={fieldClass} inputMode="numeric" required />
+      <Field label={`${label} C`}>
+        <Input name={`${key}-h`} className={fieldClass} inputMode="decimal" required />
       </Field>
     </div>
   )
 }
 
-function readSize(
+function readSizeCmAsMm(
   data: FormData,
   prefix: string,
 ): { lengthMm: number; widthMm: number; heightMm: number } | null {
-  const lengthMm = positiveInt(String(data.get(`${prefix}-l`) ?? ''))
-  const widthMm = positiveInt(String(data.get(`${prefix}-w`) ?? ''))
-  const heightMm = positiveInt(String(data.get(`${prefix}-h`) ?? ''))
+  const lengthMm = cmInputToMm(String(data.get(`${prefix}-l`) ?? ''))
+  const widthMm = cmInputToMm(String(data.get(`${prefix}-w`) ?? ''))
+  const heightMm = cmInputToMm(String(data.get(`${prefix}-h`) ?? ''))
   if (lengthMm === null || widthMm === null || heightMm === null) return null
   return { lengthMm, widthMm, heightMm }
 }
@@ -1627,14 +1985,20 @@ function BoxForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const inner = readSize(data, 'in')
-    const outer = readSize(data, 'out')
-    const tare = nonNegativeInt(String(data.get('tare') ?? '0'))
-    const load = positiveInt(String(data.get('load') ?? ''))
+    const inner = readSizeCmAsMm(data, 'in')
+    const outer = readSizeCmAsMm(data, 'out')
+    const tare = kgInputToG(String(data.get('tare') ?? '0') || '0')
+    const load = kgInputToG(String(data.get('load') ?? ''))
     const priceRaw = String(data.get('price') ?? '').trim()
     const price = priceRaw === '' ? null : nonNegativeInt(priceRaw)
-    if (!inner || !outer || tare === null || load === null || (priceRaw !== '' && price === null)) {
-      setError(tx(vi, 'Kiểm tra lại số đo, bì, tải và giá.', 'Check sizes, tare, load and price.'))
+    if (!inner || !outer || tare === null || load === null || load <= 0 || (priceRaw !== '' && price === null)) {
+      setError(
+        tx(
+          vi,
+          'Kiểm tra lại kích thước (cm), khối lượng thùng rỗng (kg), tải tối đa (kg) và giá.',
+          'Check sizes (cm), empty box weight (kg), max load (kg) and price.',
+        ),
+      )
       return
     }
     setBusy(true)
@@ -1664,14 +2028,14 @@ function BoxForm({
         <Field label={tx(vi, 'Tên', 'Name')}>
           <Input name="name" className={fieldClass} required />
         </Field>
-        {mmFields('in', tx(vi, 'Đường kính trong (mm)', 'Inner mm'))}
-        {mmFields('out', tx(vi, 'Đường kính ngoài (mm)', 'Outer mm'))}
+        {sizeFieldsCm('in', tx(vi, 'Kích thước trong (cm)', 'Inner size (cm)'))}
+        {sizeFieldsCm('out', tx(vi, 'Kích thước ngoài (cm)', 'Outer size (cm)'))}
         <div className="grid grid-cols-2 gap-2">
-          <Field label={tx(vi, 'Bì (g)', 'Tare g')}>
-            <Input name="tare" className={fieldClass} defaultValue="0" />
+          <Field label={tx(vi, 'Khối lượng thùng rỗng (kg)', 'Empty box weight (kg)')}>
+            <Input name="tare" className={fieldClass} inputMode="decimal" defaultValue="0" />
           </Field>
-          <Field label={tx(vi, 'Tải tối đa (g)', 'Max load g')}>
-            <Input name="load" className={fieldClass} required />
+          <Field label={tx(vi, 'Tải tối đa (kg)', 'Max load (kg)')}>
+            <Input name="load" className={fieldClass} inputMode="decimal" required />
           </Field>
         </div>
         <Field label={tx(vi, 'Giá (đ)', 'Price')}>
@@ -1771,12 +2135,14 @@ function BagForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const width = positiveInt(String(data.get('width') ?? ''))
-    const length = positiveInt(String(data.get('length') ?? ''))
+    const width = cmInputToMm(String(data.get('width') ?? ''))
+    const length = cmInputToMm(String(data.get('length') ?? ''))
     const priceRaw = String(data.get('price') ?? '').trim()
     const price = priceRaw === '' ? null : nonNegativeInt(priceRaw)
     if (width === null || length === null || (priceRaw !== '' && price === null)) {
-      setError(tx(vi, 'Rộng, dài hoặc giá chưa hợp lệ.', 'Width, length or price is invalid.'))
+      setError(
+        tx(vi, 'Rộng, dài (cm) hoặc giá chưa hợp lệ.', 'Width, length (cm) or price is invalid.'),
+      )
       return
     }
     setBusy(true)
@@ -1804,10 +2170,10 @@ function BagForm({
           <Input name="name" className={fieldClass} required />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label={tx(vi, 'Rộng mm', 'Width mm')}>
+          <Field label={tx(vi, 'Rộng (cm)', 'Width (cm)')}>
             <Input name="width" className={fieldClass} required />
           </Field>
-          <Field label={tx(vi, 'Dài mm', 'Length mm')}>
+          <Field label={tx(vi, 'Dài (cm)', 'Length (cm)')}>
             <Input name="length" className={fieldClass} required />
           </Field>
         </div>
@@ -1842,13 +2208,15 @@ function BagEditForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const width = positiveInt(String(data.get('width') ?? ''))
-    const length = positiveInt(String(data.get('length') ?? ''))
+    const width = cmInputToMm(String(data.get('width') ?? ''))
+    const length = cmInputToMm(String(data.get('length') ?? ''))
     const priceRaw = String(data.get('price') ?? '').trim()
     const price = priceRaw === '' ? null : nonNegativeInt(priceRaw)
     const reorder = nonNegativeInt(String(data.get('reorder') ?? '0'))
     if (width === null || length === null || reorder === null || (priceRaw !== '' && price === null)) {
-      setError(tx(vi, 'Số đo hoặc giá chưa hợp lệ.', 'Size or price is invalid.'))
+      setError(
+        tx(vi, 'Kích thước (cm) hoặc giá chưa hợp lệ.', 'Size (cm) or price is invalid.'),
+      )
       return
     }
     setBusy(true)
@@ -1873,11 +2241,19 @@ function BagEditForm({
           <Input name="name" className={fieldClass} defaultValue={item.name} required />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label={tx(vi, 'Rộng mm', 'Width mm')}>
-            <Input name="width" className={fieldClass} defaultValue={String(item.widthMm)} />
+          <Field label={tx(vi, 'Rộng (cm)', 'Width (cm)')}>
+            <Input
+              name="width"
+              className={fieldClass}
+              defaultValue={mmToCmInput(item.widthMm)}
+            />
           </Field>
-          <Field label={tx(vi, 'Dài mm', 'Length mm')}>
-            <Input name="length" className={fieldClass} defaultValue={String(item.lengthMm)} />
+          <Field label={tx(vi, 'Dài (cm)', 'Length (cm)')}>
+            <Input
+              name="length"
+              className={fieldClass}
+              defaultValue={mmToCmInput(item.lengthMm)}
+            />
           </Field>
         </div>
         <Field label={tx(vi, 'Giá (đ)', 'Price')}>
@@ -1913,7 +2289,7 @@ function CushionForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const weight = nonNegativeInt(String(data.get('weight') ?? '0'))
+    const weight = kgInputToG(String(data.get('weight') ?? '0') || '0')
     const price = nonNegativeInt(String(data.get('price') ?? '0'))
     const type = String(data.get('type') ?? '') as CushionMaterialType
     if (weight === null || price === null || !CUSHION_TYPES.includes(type)) {
@@ -1951,7 +2327,7 @@ function CushionForm({
           <select name="type" className={fieldClass} defaultValue="bubble_wrap">
             {CUSHION_TYPES.map((type) => (
               <option key={type} value={type}>
-                {type}
+                {cushionTypeLabel(type, vi)}
               </option>
             ))}
           </select>
@@ -1960,8 +2336,8 @@ function CushionForm({
           <Input name="unit" className={fieldClass} defaultValue="cái" required />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label={tx(vi, 'Gram / đơn vị', 'Grams / unit')}>
-            <Input name="weight" className={fieldClass} defaultValue="1" />
+          <Field label={tx(vi, 'Khối lượng / đơn vị (kg)', 'Weight / unit (kg)')}>
+            <Input name="weight" className={fieldClass} inputMode="decimal" defaultValue="0,001" />
           </Field>
           <Field label={tx(vi, 'Giá / đơn vị', 'Price / unit')}>
             <Input name="price" className={fieldClass} defaultValue="0" />
@@ -2002,7 +2378,7 @@ function CushionEditForm({
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const data = new FormData(event.currentTarget)
-    const weight = nonNegativeInt(String(data.get('weight') ?? '0'))
+    const weight = kgInputToG(String(data.get('weight') ?? '0') || '0')
     const price = nonNegativeInt(String(data.get('price') ?? '0'))
     const reorder = nonNegativeInt(String(data.get('reorder') ?? '0'))
     if (weight === null || price === null || reorder === null) {
@@ -2036,8 +2412,13 @@ function CushionEditForm({
           <Input name="unit" className={fieldClass} defaultValue={item.unit} required />
         </Field>
         <div className="grid grid-cols-2 gap-2">
-          <Field label={tx(vi, 'Gram / đơn vị', 'Grams / unit')}>
-            <Input name="weight" className={fieldClass} defaultValue={String(item.weightGPerUnit)} />
+          <Field label={tx(vi, 'Khối lượng / đơn vị (kg)', 'Weight / unit (kg)')}>
+            <Input
+              name="weight"
+              className={fieldClass}
+              inputMode="decimal"
+              defaultValue={gToKgInput(item.weightGPerUnit)}
+            />
           </Field>
           <Field label={tx(vi, 'Giá / đơn vị', 'Price / unit')}>
             <Input name="price" className={fieldClass} defaultValue={String(item.priceVndPerUnit)} />

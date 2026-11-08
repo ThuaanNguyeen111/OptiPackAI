@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Folder,
 } from 'lucide-react'
+import { MarketplaceLabelButtons } from '../components/marketplace/MarketplaceFulfillmentBlock'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
@@ -59,7 +60,7 @@ import {
   type ShippingCarrier,
   type ShippingServiceQuote,
 } from '../api/shipping.api'
-import { formatApiError } from '../lib/api'
+import { formatApiError, getApiErrorCode } from '../lib/api'
 import { Badge } from '../components/ui/Badge'
 import { shipmentStatusTone } from '../lib/stage-colors'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
@@ -76,6 +77,7 @@ import type {
 } from '../types/shipments'
 import { isShipmentDeliveryOverdue, SHIPMENT_STATUS_LABELS } from '../types/shipments'
 import { formatCurrency, formatDateTime } from '../utils/format'
+import { formatKg } from '../utils/units'
 
 type QueueTab = 'packed' | ShipmentStatus
 type ModalMode = 'start' | 'deliver' | 'fail' | 'retry' | null
@@ -468,6 +470,8 @@ export function ShippingPage() {
   const namesDiffer = Boolean(selectedGroup?.recipientNamesDiffer)
   const expressSelf =
     selected?.kind === 'packed' && selected.group.requiresSelfDelivery === true
+  // Tiki dropship: shipper Tiki tự tới lấy — không chọn hãng, không báo giá, không hẹn lấy (BE trả 409 SHP_MARKETPLACE_PICKUP).
+  const marketplacePickup = selectedGroup?.platform === 'tiki'
 
   useEffect(() => {
     addrEditedRef.current = false
@@ -477,7 +481,7 @@ export function ShippingPage() {
     setAddrProvince('')
     setAddrPhone('')
     setRecipientHint(null)
-    if (!packedGroupId || expressSelf || carrierChoice === 'own') return
+    if (!packedGroupId || expressSelf || marketplacePickup || carrierChoice === 'own') return
     let cancelled = false
     void getShippingRecipients(packedGroupId)
       .then((res) => {
@@ -514,10 +518,10 @@ export function ShippingPage() {
     return () => {
       cancelled = true
     }
-  }, [packedGroupId, carrierChoice, expressSelf])
+  }, [packedGroupId, carrierChoice, expressSelf, marketplacePickup])
 
   useEffect(() => {
-    if (expressSelf) {
+    if (expressSelf || marketplacePickup) {
       setQuotes([])
       setQuoteError(null)
       return
@@ -557,7 +561,7 @@ export function ShippingPage() {
     }
     // Địa chỉ chỉ gửi khi đổi hãng, đổi nhóm, điền sẵn xong, hoặc bấm "Cập nhật báo giá".
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [carrierChoice, packedGroupId, quoteTick, expressSelf])
+  }, [carrierChoice, packedGroupId, quoteTick, expressSelf, marketplacePickup])
 
   useEffect(() => {
     const groupId = searchParams.get('groupId')
@@ -618,7 +622,7 @@ export function ShippingPage() {
 
   const packRec = selected ? (packRecByGroupId[rowGroupId(selected)] ?? null) : null
 
-  const sessionTotalWeight = useMemo(() => boxWeightKg(packRec).toFixed(1), [packRec])
+  const sessionTotalWeight = useMemo(() => formatKg(boxWeightKg(packRec)), [packRec])
   const sessionVolume = useMemo(() => boxVolumeCbm(packRec), [packRec])
 
   const handleScanSubmit = (e?: React.FormEvent) => {
@@ -701,7 +705,7 @@ export function ShippingPage() {
     setActionBusy(true)
     try {
       if (modalMode === 'start' && selected.kind === 'packed') {
-        const chosen = expressSelf
+        const chosen = expressSelf || marketplacePickup
           ? undefined
           : carriers.find((carrier) => carrier.code === carrierChoice)
         const created = await startShipment(selected.group.id, actionNote, {
@@ -760,7 +764,13 @@ export function ShippingPage() {
       setActionNote('')
       await reload()
     } catch (err: unknown) {
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -813,7 +823,9 @@ export function ShippingPage() {
         ? shortId(selected.group.id)
         : '—'
 
-  const chosenCarrier = carriers.find((carrier) => carrier.code === carrierChoice) ?? null
+  const chosenCarrier = marketplacePickup
+    ? null
+    : (carriers.find((carrier) => carrier.code === carrierChoice) ?? null)
   const chosenQuote = quotes.find((row) => row.serviceCode === serviceCode) ?? null
   const actorId = sessionUserId(session?.accessToken)
   const shipperLocked =
@@ -826,7 +838,7 @@ export function ShippingPage() {
     : chosenCarrier !== null && (!chosenQuote || Boolean(chosenQuote.unavailableReason))
   const batchableCount = batchIds.filter((id) => {
     const group = packedGroups.find((item) => item.id === id)
-    return Boolean(group) && group?.requiresSelfDelivery !== true
+    return Boolean(group) && group?.requiresSelfDelivery !== true && group?.platform !== 'tiki'
   }).length
   const carrierManaged = selected?.kind === 'shipment' && selected.shipment.carrierManaged === true
   const documentGroupId =
@@ -856,7 +868,7 @@ export function ShippingPage() {
   const runBatch = async () => {
     const ids = batchIds.filter((id) => {
       const group = packedGroups.find((item) => item.id === id)
-      return Boolean(group) && group?.requiresSelfDelivery !== true
+      return Boolean(group) && group?.requiresSelfDelivery !== true && group?.platform !== 'tiki'
     })
     if (!chosenCarrier || !serviceCode || ids.length === 0) return
     setActionBusy(true)
@@ -878,7 +890,13 @@ export function ShippingPage() {
           : `Created trip ${result.tripCode || ''}.`,
       )
     } catch (err: unknown) {
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -902,7 +920,13 @@ export function ShippingPage() {
       )
     } catch (err: unknown) {
       setCompareText(null)
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -920,7 +944,13 @@ export function ShippingPage() {
       await reload()
       showToast(vi ? 'Đã lưu lịch lấy hàng.' : 'Pickup time saved.')
     } catch (err: unknown) {
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -938,7 +968,13 @@ export function ShippingPage() {
       }
       focusShipment(found)
     } catch (err: unknown) {
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -957,7 +993,13 @@ export function ShippingPage() {
       await reload()
       showToast(vi ? 'Kho đã nhận hàng hoàn.' : 'Warehouse received the return.')
     } catch (err: unknown) {
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -997,7 +1039,13 @@ export function ShippingPage() {
       }
       await reload()
     } catch (err: unknown) {
-      showToast(formatApiError(err))
+      showToast(
+        getApiErrorCode(err) === 'SHP_MARKETPLACE_PICKUP'
+          ? vi
+            ? 'Đơn Tiki do shipper Tiki tự tới lấy — không chọn hãng hay hẹn lấy hàng.'
+            : 'Tiki orders are picked up by Tiki — no carrier or pickup scheduling.'
+          : formatApiError(err),
+      )
     } finally {
       setActionBusy(false)
     }
@@ -1141,7 +1189,24 @@ export function ShippingPage() {
 
           <div className="ship-bench grid grid-cols-1 gap-6 lg:grid-cols-12">
             <div className="ship-bench-main space-y-3 lg:col-span-8">
-                {expressSelf ? (
+                {marketplacePickup ? (
+                  <div className="max-w-md space-y-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs text-teal-950 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-100">
+                    <p className="font-semibold">
+                      {vi ? 'Đơn Tiki dropship — shipper Tiki tự tới lấy hàng' : 'Tiki dropship — a Tiki courier picks up'}
+                    </p>
+                    <p>
+                      {vi
+                        ? 'Không chọn hãng, không báo giá, không hẹn lấy hàng. Bấm tạo vận đơn để ghi nhận, rồi in nhãn Tiki dán ngoài kiện.'
+                        : 'No carrier choice, quote or pickup scheduling. Create the shipment to record it, then print the Tiki label.'}
+                    </p>
+                    {selectedGroup?.orders.map((order) => (
+                      <div key={order.id} className="space-y-1">
+                        <p className="font-mono text-[11px]">{order.platformOrderId}</p>
+                        <MarketplaceLabelButtons orderId={order.id} vi={vi} compact />
+                      </div>
+                    ))}
+                  </div>
+                ) : expressSelf ? (
                   <div className="max-w-sm space-y-2 rounded-xl border border-orange-200 bg-orange-50 p-3 dark:border-orange-900 dark:bg-orange-950/30">
                     <label className="block text-xs font-medium text-slate-500 dark:text-slate-400">
                       {vi ? 'Shipper tự giao' : 'Self-delivery shipper'}
@@ -1516,7 +1581,7 @@ export function ShippingPage() {
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {vi ? 'Kiện đang chọn: ' : 'Selected: '}
                     <span className="font-bold text-slate-900 dark:text-slate-100 font-mono tabular-nums">
-                      {sessionTotalWeight} kg
+                      {sessionTotalWeight}
                     </span>
                   </p>
                 </div>
@@ -1581,18 +1646,22 @@ export function ShippingPage() {
                                     <input
                                       type="checkbox"
                                       checked={batchIds.includes(row.group.id)}
-                                      disabled={row.group.requiresSelfDelivery}
+                                      disabled={row.group.requiresSelfDelivery || row.group.platform === 'tiki'}
                                       aria-label={vi ? 'Chọn giao chung chuyến' : 'Select for shared trip'}
                                       title={
                                         row.group.requiresSelfDelivery
                                           ? vi
                                             ? 'Đơn hỏa tốc không gộp chuyến'
                                             : 'Express orders cannot join a shared trip'
-                                          : undefined
+                                          : row.group.platform === 'tiki'
+                                            ? vi
+                                              ? 'Đơn Tiki do shipper Tiki tự lấy, không gộp chuyến'
+                                              : 'Tiki orders are picked up by Tiki, no shared trip'
+                                            : undefined
                                       }
                                       onClick={(event) => event.stopPropagation()}
                                       onChange={() => {
-                                        if (row.group.requiresSelfDelivery) return
+                                        if (row.group.requiresSelfDelivery || row.group.platform === 'tiki') return
                                         const id = row.group.id
                                         setBatchIds((current) =>
                                           current.includes(id)
@@ -1619,7 +1688,7 @@ export function ShippingPage() {
                               </td>
                               <td className="py-3 px-3.5 font-mono tabular-nums font-medium text-slate-700 dark:text-slate-300">
                                 {groupId in packRecByGroupId
-                                  ? `${boxWeightKg(packRecByGroupId[groupId] ?? null).toFixed(2)} kg`
+                                  ? formatKg(boxWeightKg(packRecByGroupId[groupId] ?? null))
                                   : '…'}
                               </td>
                               <td className="py-3 px-3.5">
@@ -2117,7 +2186,7 @@ export function ShippingPage() {
                 {vi ? 'Vận đơn của nhóm' : 'Group shipment'}
               </button>
             ) : null}
-            {selected?.kind === 'shipment' && !selected.shipment.shipperId ? (
+            {selected?.kind === 'shipment' && !selected.shipment.shipperId && !marketplacePickup ? (
               <label className="inline-flex items-center gap-2 text-xs">
                 <input
                   type="datetime-local"
@@ -2272,7 +2341,11 @@ export function ShippingPage() {
             <div className="mt-4 space-y-3 text-xs sm:text-sm text-slate-600 dark:text-slate-300">
               <p>
                 {modalMode === 'start'
-                  ? expressSelf
+                  ? marketplacePickup
+                    ? vi
+                      ? 'Đơn Tiki dropship: shipper Tiki tự tới lấy, không chọn hãng.'
+                      : 'Tiki dropship: a Tiki courier picks up, no carrier choice.'
+                  : expressSelf
                     ? vi
                       ? `Shop tự giao. Shipper: ${shippers.find((person) => person.id === shipperId)?.name ?? '—'}. Không chọn hãng.`
                       : 'Shop self-delivery. No carrier.'

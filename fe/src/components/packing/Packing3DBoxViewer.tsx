@@ -29,6 +29,7 @@ import {
   type SceneMode,
 } from '../../utils/packing-layout'
 import { sharedOrderCodes } from '../../lib/parcel-order-display'
+import { formatDimsMmAsCm } from '../../utils/units'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
 import { StepCamera, type CameraFocus } from './scene/StepCamera'
@@ -40,10 +41,6 @@ function hasWebGL(): boolean {
   } catch {
     return false
   }
-}
-
-function cm(mm: number): string {
-  return String(Math.round(mm / 10))
 }
 
 function ModeMessage({
@@ -257,8 +254,7 @@ function ParcelGuidePlayer({
             </p>
             {current?.kind === 'prepare' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {parcel.box.name} ({parcel.box.code}) — {cm(inner.lengthMm)} × {cm(inner.widthMm)} ×{' '}
-                {cm(inner.heightMm)} cm{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}
+                {parcel.box.name} ({parcel.box.code}) — {formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}
                 {parcel.materials.length > 0
                   ? ` · ${parcel.materials.map((m) => `${m.name} × ${String(m.quantity)}`).join(', ')}`
                   : ''}
@@ -406,7 +402,7 @@ export function Packing3DBoxViewer({
 
   const inner = parcel ? innerOf(parcel) : null
   const label = parcel
-    ? `${parcel.box.name}${inner ? ` · ${cm(inner.lengthMm)} × ${cm(inner.widthMm)} × ${cm(inner.heightMm)} cm` : ''}`
+    ? `${parcel.box.name}${inner ? ` · ${formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}` : ''}`
     : vi
       ? 'Hướng dẫn đóng gói 3D'
       : '3D packing guide'

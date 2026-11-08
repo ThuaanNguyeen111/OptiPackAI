@@ -55,6 +55,7 @@ import {
   TableRow,
 } from '../../components/ui/table'
 import { formatApiError, getApiErrorCode } from '../../lib/api'
+import { formatDimsCm, formatKg } from '../../utils/units'
 import type { CategoryRecord } from '../../types/warehouse-admin'
 
 const fieldClass =
@@ -1001,10 +1002,10 @@ function ProductMasterDetailDialog({
         [
           vi ? 'Số đo (cm)' : 'Size (cm)',
           row.lengthCm != null && row.widthCm != null && row.heightCm != null
-            ? `${row.lengthCm} × ${row.widthCm} × ${row.heightCm}`
+            ? formatDimsCm(row.lengthCm, row.widthCm, row.heightCm)
             : '—',
         ],
-        [vi ? 'Khối lượng (kg)' : 'Weight (kg)', row.weightKg != null ? String(row.weightKg) : '—'],
+        [vi ? 'Khối lượng (kg)' : 'Weight (kg)', row.weightKg != null ? formatKg(row.weightKg) : '—'],
         [vi ? 'Dễ vỡ' : 'Fragile', row.isFragile ? (vi ? 'Có' : 'Yes') : vi ? 'Không' : 'No'],
         [vi ? 'Lớp ngoài kho đặt' : 'Outer layer set', outerRequirementLabel(row.outerRequirement, vi)],
         [
@@ -1032,7 +1033,7 @@ function ProductMasterDetailDialog({
         [
           vi ? 'Số đo sàn' : 'Marketplace size',
           row.marketplaceDimension
-            ? `${row.marketplaceDimension.lengthCm} × ${row.marketplaceDimension.widthCm} × ${row.marketplaceDimension.heightCm} cm · ${row.marketplaceDimension.weightKg} kg`
+            ? `${formatDimsCm(row.marketplaceDimension.lengthCm ?? 0, row.marketplaceDimension.widthCm ?? 0, row.marketplaceDimension.heightCm ?? 0)} · ${formatKg(row.marketplaceDimension.weightKg ?? 0)}`
             : '—',
         ],
         [vi ? 'Người xác nhận' : 'Confirmed by', row.profileConfirmedBy || '—'],
@@ -1555,9 +1556,9 @@ export function LinkSkuTab({
                   ? vi
                     ? 'Chưa có kích thước'
                     : 'No size'
-                  : `${row.lengthCm}×${row.widthCm}×${row.heightCm}`}
+                  : formatDimsCm(row.lengthCm, row.widthCm ?? 0, row.heightCm ?? 0)}
               </TableCell>
-              <TableCell>{row.weightKg ?? '—'}</TableCell>
+              <TableCell>{row.weightKg != null ? formatKg(row.weightKg) : '—'}</TableCell>
               <TableCell>
                 <div className="flex flex-wrap gap-2">
                   <button

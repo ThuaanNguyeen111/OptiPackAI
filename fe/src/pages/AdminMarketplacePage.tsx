@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { Package, Store } from 'lucide-react'
-import { AurelleConnectPanel } from '../components/marketplace/AurelleConnectPanel'
+import { DirectConnectPanel } from '../components/marketplace/DirectConnectPanel'
 import { LazadaConnectPanel } from '../components/marketplace/LazadaConnectPanel'
 import { PortalTopBar } from '../components/portal/PortalTopBar'
 import { useLazadaConnection } from '../hooks/useLazadaConnection'
@@ -43,11 +43,15 @@ export function AdminMarketplacePage() {
           </section>
 
           <section className="rounded-xl border border-hairline bg-surface-1 p-4">
-            <AurelleConnectPanel locale={locale} />
+            <DirectConnectPanel locale={locale} platform="aurelle" />
           </section>
 
-          <section className="grid gap-3 sm:grid-cols-2">
-            {(['TikTok Shop', 'Tiki'] as const).map((name) => (
+          <section className="rounded-xl border border-hairline bg-surface-1 p-4">
+            <DirectConnectPanel locale={locale} platform="tiki" />
+          </section>
+
+          <section className="grid gap-3 sm:grid-cols-1">
+            {(['TikTok Shop'] as const).map((name) => (
               <div
                 key={name}
                 className="rounded-xl border border-dashed border-hairline bg-surface-1/60 p-4 opacity-70"
