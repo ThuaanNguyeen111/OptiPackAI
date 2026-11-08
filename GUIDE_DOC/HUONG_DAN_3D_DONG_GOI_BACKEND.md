@@ -47,7 +47,7 @@ Gập đôi (`can_fold_in_half`, `folded`) chỉ áp dụng cho sáu loại qu�
 
 ```json
 "box": {
-  "code": "SAMPLE-M",
+  "code": "BOX-M",
   "name": "Thùng M",
   "innerMm": { "lengthMm": 300, "widthMm": 250, "heightMm": 200 }
 }
@@ -89,7 +89,7 @@ Gập đôi (`can_fold_in_half`, `folded`) chỉ áp dụng cho sáu loại qu�
 {
   "sku": "DEMO-QUAN-JEAN-32",
   "productCategory": "trousers",
-  "zipBagCode": "DEMO-ZIP-L",
+  "zipBagCode": "ZIP-L",
   "zipBagFolded": true
 }
 ```

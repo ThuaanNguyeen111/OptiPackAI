@@ -188,9 +188,9 @@ describe('PackingPlanService', () => {
       { order_id: new Types.ObjectId().toString(), platform_order_id: 'DEMO-2', items: [shoebox(2)] },
     ];
     stock = new Map([
-      ['SAMPLE-S', 50],
-      ['SAMPLE-M', 50],
-      ['SAMPLE-L', 50],
+      ['BOX-S', 50],
+      ['BOX-M', 50],
+      ['BOX-L', 50],
     ]);
     planModel = fakePlanModel();
     orderGroupsService = {
@@ -215,7 +215,7 @@ describe('PackingPlanService', () => {
       // (21/10/2026) nguồn thùng: mỗi mã thùng mẫu có 5 mới + 2 tái sử dụng.
       list: jest.fn(() =>
         Promise.resolve(
-          ['SAMPLE-S', 'SAMPLE-M', 'SAMPLE-L'].map((code) => ({ code, name: code, qty_new: 5, qty_reused: 2, reusable: true })),
+          ['BOX-S', 'BOX-M', 'BOX-L'].map((code) => ({ code, name: code, qty_new: 5, qty_reused: 2, reusable: true })),
         ),
       ),
     };
@@ -379,21 +379,22 @@ describe('PackingPlanService', () => {
     it('kho hết thùng vừa hơn → gợi ý đúng thùng thiếu, lấp đầy và tiền rẻ hơn', async () => {
       allocations = [{ order_id: new Types.ObjectId().toString(), platform_order_id: 'DEMO-1', items: [tee(2), jean(1)] }];
       stock = new Map([
-        ['SAMPLE-S', 0],
-        ['SAMPLE-M', 0],
-        ['SAMPLE-L', 50],
+        ['BOX-S', 0],
+        ['BOX-M', 0],
+        ['BOX-L', 50],
       ]);
       const plan = await computed();
       const order = plan.orders[0];
-      expect(plan.parcels.map((p) => p.box.code)).toEqual(['SAMPLE-L']);
+      expect(plan.parcels.map((p) => p.box.code)).toEqual(['BOX-L']);
       expect(order?.stock_suggestion).toMatchObject({
         parcels: 1,
         current_parcels: 1,
         saving_vnd: 3500,
-        missing: [{ box_code: 'SAMPLE-M', needed: 1, available: 0 }],
+        missing: [{ box_code: 'BOX-M', needed: 1, available: 0 }],
       });
-      expect(order?.stock_suggestion?.avg_fill).toBeGreaterThan(order?.stock_suggestion?.current_avg_fill ?? 1);
-      expect(order?.explanation.some((l) => l.startsWith('Nếu kho có đủ thùng SAMPLE-M (thiếu 1)'))).toBe(true);
+      // (08/11/2026) Thùng L được cắt hạ sát chồng hàng nên có thể lấp đầy hơn thùng M nguyên — gợi ý dựa trên tiền, không trên lấp đầy.
+      expect(order?.stock_suggestion?.avg_fill).toBeGreaterThan(0);
+      expect(order?.explanation.some((l) => l.startsWith('Nếu kho có đủ thùng BOX-M (thiếu 1)'))).toBe(true);
     });
 
     it('đơn lớn hơn giới hạn CP-SAT mà chưa chứng minh được → ghi rõ vì sao chỉ là phương án tốt nhất tìm được', async () => {
@@ -445,9 +446,9 @@ describe('PackingPlanService', () => {
     });
 
     it('tôn trọng loại trừ thùng khi tính lại có điều kiện', async () => {
-      const { plan } = await service.compute(groupId, { exclude_box_codes: ['SAMPLE-M', 'SAMPLE-S'] });
-      expect(plan.parcels.every((p) => p.box.code === 'SAMPLE-L')).toBe(true);
-      expect(plan.solver.options.exclude_box_codes).toEqual(['SAMPLE-M', 'SAMPLE-S']);
+      const { plan } = await service.compute(groupId, { exclude_box_codes: ['BOX-M', 'BOX-S'] });
+      expect(plan.parcels.every((p) => p.box.code === 'BOX-L')).toBe(true);
+      expect(plan.solver.options.exclude_box_codes).toEqual(['BOX-M', 'BOX-S']);
     });
   });
 
@@ -674,9 +675,9 @@ describe('PackingPlanService', () => {
 
     it('approve khi còn đơn chưa xếp hết món → PACKING_HAS_UNPLACED', async () => {
       stock = new Map([
-        ['SAMPLE-S', 0],
-        ['SAMPLE-M', 0],
-        ['SAMPLE-L', 0],
+        ['BOX-S', 0],
+        ['BOX-M', 0],
+        ['BOX-L', 0],
       ]);
       const plan = await computed();
       expect(plan.orders.some((o) => o.status !== 'ok')).toBe(true);
@@ -810,7 +811,7 @@ describe('PackingPlanService', () => {
         const rejected = await rejectedPlan();
         const created = await service.manualPack(
           groupId,
-          { expected_version: rejected.version, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'Khách yêu cầu gói chung' },
+          { expected_version: rejected.version, parcels: onePerOrder(rejected, 'BOX-L'), note: 'Khách yêu cầu gói chung' },
           userId,
         );
         expect(created.source).toBe('manual');
@@ -818,7 +819,7 @@ describe('PackingPlanService', () => {
         expect(created.revision).toBe(rejected.revision + 1);
         expect(created.parcels).toHaveLength(2);
         expect(created.adjustments[0]?.kind).toBe('manual_pack');
-        expect(created.adjustments[0]?.box_codes).toEqual(['SAMPLE-L']);
+        expect(created.adjustments[0]?.box_codes).toEqual(['BOX-L']);
         expect(created.orders.every((o) => o.status === 'ok' && o.proof === 'heuristic')).toBe(true);
         expect(planModel.docs[0]?.status).toBe('superseded');
         expect(planModel.docs[0]?.rejection_resolution).toBe('manual');
@@ -829,7 +830,7 @@ describe('PackingPlanService', () => {
         const rejected = await rejectedPlan();
         const created = await service.manualPack(
           groupId,
-          { expected_version: rejected.version, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'Gói chung theo yêu cầu' },
+          { expected_version: rejected.version, parcels: onePerOrder(rejected, 'BOX-L'), note: 'Gói chung theo yêu cầu' },
           userId,
         );
         await expect(service.approve(groupId, created.version, userId)).rejects.toMatchObject({
@@ -842,13 +843,13 @@ describe('PackingPlanService', () => {
       it('chỉ dùng được khi kế hoạch đang bị từ chối', async () => {
         const plan = await computed();
         await expect(
-          service.manualPack(groupId, { expected_version: plan.version, parcels: onePerOrder(plan, 'SAMPLE-L'), note: 'x y z' }, userId),
+          service.manualPack(groupId, { expected_version: plan.version, parcels: onePerOrder(plan, 'BOX-L'), note: 'x y z' }, userId),
         ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
       });
 
       it('thiếu món → MANUAL_PACK_INVALID', async () => {
         const rejected = await rejectedPlan();
-        const parcels = onePerOrder(rejected, 'SAMPLE-L');
+        const parcels = onePerOrder(rejected, 'BOX-L');
         parcels[0]?.item_keys.pop();
         await expect(
           service.manualPack(groupId, { expected_version: rejected.version, parcels, note: 'thiếu món' }, userId),
@@ -857,7 +858,7 @@ describe('PackingPlanService', () => {
 
       it('món trùng ở 2 kiện → MANUAL_PACK_INVALID', async () => {
         const rejected = await rejectedPlan();
-        const parcels = onePerOrder(rejected, 'SAMPLE-L');
+        const parcels = onePerOrder(rejected, 'BOX-L');
         const first = parcels[0];
         if (!first) throw new Error('thiếu dữ liệu test');
         const dup = first.item_keys[0];
@@ -870,11 +871,11 @@ describe('PackingPlanService', () => {
 
       it('thùng hết tồn → PKG_BOX_OUT_OF_STOCK', async () => {
         const rejected = await rejectedPlan();
-        stock.set('SAMPLE-L', 1); // cần 2 kiện thùng L
+        stock.set('BOX-L', 1); // cần 2 kiện thùng L
         await expect(
           service.manualPack(
             groupId,
-            { expected_version: rejected.version, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'hết thùng' },
+            { expected_version: rejected.version, parcels: onePerOrder(rejected, 'BOX-L'), note: 'hết thùng' },
             userId,
           ),
         ).rejects.toMatchObject({ errorCode: 'PKG_BOX_OUT_OF_STOCK' });
@@ -885,7 +886,7 @@ describe('PackingPlanService', () => {
         await expect(
           service.manualPack(
             groupId,
-            { expected_version: rejected.version - 1, parcels: onePerOrder(rejected, 'SAMPLE-L'), note: 'cũ rồi' },
+            { expected_version: rejected.version - 1, parcels: onePerOrder(rejected, 'BOX-L'), note: 'cũ rồi' },
             userId,
           ),
         ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });
@@ -908,7 +909,7 @@ describe('PackingPlanService', () => {
       // Kiện giày không vừa thùng S (xem test đổi thùng) → S không có trong phương án của kiện đó.
       const shoesNo = plan.parcels.find((p) => p.platform_order_id === 'DEMO-2')?.parcel_no;
       const shoes = options.find((o) => o.parcelNo === shoesNo);
-      expect(shoes?.options.map((o) => o.boxCode)).not.toContain('SAMPLE-S');
+      expect(shoes?.options.map((o) => o.boxCode)).not.toContain('BOX-S');
       expect((await service.requireActivePlan(groupId)).version).toBe(plan.version); // chỉ đọc
     });
   });
@@ -921,10 +922,10 @@ describe('PackingPlanService', () => {
       const updated = await service.changeBox(
         groupId,
         target.parcel_no,
-        { box_code: 'SAMPLE-L', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', expected_version: plan.version },
+        { box_code: 'BOX-L', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', expected_version: plan.version },
         userId,
       );
-      expect(updated.parcels[0]?.box.code).toBe('SAMPLE-L');
+      expect(updated.parcels[0]?.box.code).toBe('BOX-L');
       expect(updated.version).toBe(plan.version + 1);
       expect(updated.adjustments).toHaveLength(1);
       const order = updated.orders.find((o) => o.order_id.equals(target.order_id));
@@ -938,11 +939,11 @@ describe('PackingPlanService', () => {
       const updated = await service.changeBox(
         groupId,
         target.parcel_no,
-        { box_code: 'SAMPLE-L', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', expected_version: plan.version },
+        { box_code: 'BOX-L', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', expected_version: plan.version },
         userId,
       );
       const comparison = updated.parcels[0]?.box_comparison;
-      expect(comparison?.rows.find((r) => r.is_chosen)?.box_code).toBe('SAMPLE-L');
+      expect(comparison?.rows.find((r) => r.is_chosen)?.box_code).toBe('BOX-L');
       for (const p of updated.parcels) expect(p.box_comparison).not.toBeNull();
     });
 
@@ -954,7 +955,7 @@ describe('PackingPlanService', () => {
         service.changeBox(
           groupId,
           shoes.parcel_no,
-          { box_code: 'SAMPLE-S', reason: 'OTHER', note: 'thử', expected_version: plan.version },
+          { box_code: 'BOX-S', reason: 'OTHER', note: 'thử', expected_version: plan.version },
           userId,
         ),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.BOX_DOES_NOT_FIT });
@@ -963,7 +964,7 @@ describe('PackingPlanService', () => {
     it('lý do "Khác" không ghi chú → PACKING_NOTE_REQUIRED', async () => {
       const plan = await computed();
       await expect(
-        service.changeBox(groupId, 1, { box_code: 'SAMPLE-L', reason: 'OTHER', expected_version: plan.version }, userId),
+        service.changeBox(groupId, 1, { box_code: 'BOX-L', reason: 'OTHER', expected_version: plan.version }, userId),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.NOTE_REQUIRED });
     });
 
@@ -1008,7 +1009,7 @@ describe('PackingPlanService', () => {
         service.changeBox(
           groupId,
           1,
-          { box_code: 'SAMPLE-L', reason: 'OTHER', note: 'x', expected_version: approved.version },
+          { box_code: 'BOX-L', reason: 'OTHER', note: 'x', expected_version: approved.version },
           userId,
         ),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
@@ -1421,7 +1422,7 @@ describe('PackingPlanService', () => {
       boxService.consumeForPack.mockImplementationOnce((_s: unknown, packages: { parcelNo: number; source?: string }[]) =>
         Promise.resolve([
           {
-            code: 'SAMPLE-M',
+            code: 'BOX-M',
             before: 7,
             after: 6,
             reorderLevel: 1,
@@ -1682,7 +1683,7 @@ describe('PackingPlanService', () => {
 
     /** Kiện chưa dùng thùng L + thùng L làm đích (L chứa vừa mọi kiện trong test). */
     function pendingParcel(plan: PackingPlanDocument): PackingPlanDocument['parcels'][number] {
-      const found = plan.parcels.find((p) => p.box.code !== 'SAMPLE-L');
+      const found = plan.parcels.find((p) => p.box.code !== 'BOX-L');
       if (!found) throw new Error('thiếu kiện không dùng thùng L để test');
       return found;
     }
@@ -1699,21 +1700,21 @@ describe('PackingPlanService', () => {
         parcel.parcel_no,
         {
           expected_version: plan.version,
-          box_code: 'SAMPLE-L',
+          box_code: 'BOX-L',
           reason: 'BOX_TOO_TIGHT',
           old_box_outcome: 'unused',
         },
         userId,
       );
       const changed = next.parcels.find((p) => p.parcel_no === parcel.parcel_no);
-      expect(changed?.box.code).toBe('SAMPLE-L');
+      expect(changed?.box.code).toBe('BOX-L');
       expect(changed?.status).toBe('pending');
       expect(changed?.scans).toHaveLength(1);
       expect(next.version).toBe(plan.version + 1);
       expect(boxService.recordWaste).not.toHaveBeenCalled();
       const adj = next.adjustments.at(-1);
       expect(adj).toMatchObject({ kind: 'change_box_in_session', old_box_outcome: 'unused', waste_cost_vnd: 0 });
-      expect(adj?.box_codes).toEqual([parcel.box.code, 'SAMPLE-L']);
+      expect(adj?.box_codes).toEqual([parcel.box.code, 'BOX-L']);
     });
 
     it('thùng cũ đã hỏng: trừ tồn + ghi hao hụt thùng CŨ, lưu chi phí hao hụt', async () => {
@@ -1722,7 +1723,7 @@ describe('PackingPlanService', () => {
       const next = await service.changeBoxInSession(
         groupId,
         parcel.parcel_no,
-        { expected_version: plan.version, box_code: 'SAMPLE-L', reason: 'OTHER', note: 'Thùng bị rách đáy', old_box_outcome: 'damaged' },
+        { expected_version: plan.version, box_code: 'BOX-L', reason: 'OTHER', note: 'Thùng bị rách đáy', old_box_outcome: 'damaged' },
         userId,
       );
       expect(boxService.recordWaste).toHaveBeenCalledTimes(1);
@@ -1758,7 +1759,7 @@ describe('PackingPlanService', () => {
         service.changeBoxInSession(
           groupId,
           1,
-          { expected_version: ready.version, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          { expected_version: ready.version, box_code: 'BOX-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
           userId,
         ),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.WRONG_PLAN_STATUS });
@@ -1772,7 +1773,7 @@ describe('PackingPlanService', () => {
         service.changeBoxInSession(
           groupId,
           target.parcel_no,
-          { expected_version: plan.version, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          { expected_version: plan.version, box_code: 'BOX-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
           userId,
         ),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.PARCEL_WRONG_STATUS });
@@ -1781,21 +1782,21 @@ describe('PackingPlanService', () => {
     it('thùng mới không còn tồn → PKG_BOX_OUT_OF_STOCK; version cũ → xung đột', async () => {
       const plan = await approved();
       const parcel = pendingParcel(plan);
-      stock.set('SAMPLE-L', 0);
+      stock.set('BOX-L', 0);
       await expect(
         service.changeBoxInSession(
           groupId,
           parcel.parcel_no,
-          { expected_version: plan.version, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          { expected_version: plan.version, box_code: 'BOX-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
           userId,
         ),
       ).rejects.toMatchObject({ errorCode: 'PKG_BOX_OUT_OF_STOCK' });
-      stock.set('SAMPLE-L', 50);
+      stock.set('BOX-L', 50);
       await expect(
         service.changeBoxInSession(
           groupId,
           parcel.parcel_no,
-          { expected_version: plan.version - 1, box_code: 'SAMPLE-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
+          { expected_version: plan.version - 1, box_code: 'BOX-L', reason: 'BOX_TOO_TIGHT', old_box_outcome: 'unused' },
           userId,
         ),
       ).rejects.toMatchObject({ errorCode: PACKING_ERROR_CODES.VERSION_CONFLICT });

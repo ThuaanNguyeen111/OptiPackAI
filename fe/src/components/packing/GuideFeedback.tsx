@@ -33,6 +33,7 @@ export function GuideRating({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [comment, setComment] = useState('')
+  const [showComment, setShowComment] = useState(false)
   const current = guide.rating?.helpful
 
   async function rate(helpful: boolean): Promise<void> {
@@ -54,64 +55,80 @@ export function GuideRating({
   }
 
   const buttonClass = (helpful: boolean): string =>
-    `inline-flex items-center gap-1 rounded-lg border px-2 py-1 disabled:opacity-50 ${
+    `inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50 ${
       current === helpful
-        ? 'border-primary bg-primary/10 font-medium text-primary'
-        : 'border-hairline text-ink'
+        ? 'border-primary bg-primary text-white'
+        : 'border-hairline bg-transparent text-ink hover:border-primary hover:text-primary'
     }`
 
   return (
-    <div className="space-y-1.5 rounded-lg border border-hairline p-2">
-      <p className="text-ink-muted">
-        {guide.source === 'ai'
-          ? vi
-            ? 'Hướng dẫn này dễ làm theo không?'
-            : 'Was this guide easy to follow?'
-          : vi
-            ? 'Hướng dẫn mẫu (không do AI viết).'
-            : 'Template guide (not written by AI).'}
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void rate(true)}
-          className={buttonClass(true)}
-        >
-          <ThumbsUp className="h-3.5 w-3.5" />
-          {vi ? 'Dễ làm theo' : 'Helpful'}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void rate(false)}
-          className={buttonClass(false)}
-        >
-          <ThumbsDown className="h-3.5 w-3.5" />
-          {vi ? 'Khó hiểu' : 'Confusing'}
-        </button>
-        {guide.examplesUsed ? (
-          <span className="text-ink-subtle">
-            {vi
-              ? `AI đã tham khảo ${String(guide.examplesUsed)} ví dụ mẫu`
-              : `AI used ${String(guide.examplesUsed)} example(s)`}
-          </span>
-        ) : null}
+    <div className="rounded-lg bg-surface-2 p-3 text-xs text-ink">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <p className="font-medium">
+          {guide.source === 'ai'
+            ? vi
+              ? 'Hướng dẫn này dễ làm theo không?'
+              : 'Was this guide easy to follow?'
+            : vi
+              ? 'Hướng dẫn mẫu (không do AI viết).'
+              : 'Template guide (not written by AI).'}
+        </p>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={current === true}
+            onClick={() => void rate(true)}
+            className={buttonClass(true)}
+          >
+            <ThumbsUp className="h-3.5 w-3.5" aria-hidden />
+            {vi ? 'Dễ làm theo' : 'Helpful'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            aria-pressed={current === false}
+            onClick={() => void rate(false)}
+            className={buttonClass(false)}
+          >
+            <ThumbsDown className="h-3.5 w-3.5" aria-hidden />
+            {vi ? 'Khó hiểu' : 'Confusing'}
+          </button>
+        </div>
       </div>
-      <input
-        value={comment}
-        maxLength={300}
-        onChange={(event) => setComment(event.target.value)}
-        placeholder={vi ? 'Góp ý thêm (tuỳ chọn)' : 'Optional comment'}
-        className="w-full rounded-md border border-hairline bg-transparent px-2 py-1 text-ink"
-      />
+      {showComment ? (
+        <input
+          value={comment}
+          maxLength={300}
+          autoFocus
+          onChange={(event) => setComment(event.target.value)}
+          placeholder={vi ? 'Góp ý sẽ gửi kèm khi bạn chọn đánh giá' : 'Sent along with your rating'}
+          aria-label={vi ? 'Góp ý thêm' : 'Comment'}
+          className="mt-2 h-8 w-full rounded-md border border-hairline bg-[var(--ls-card-solid,#fff)] px-2 text-ink placeholder:text-ink-subtle focus-visible:outline-2 focus-visible:outline-primary"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowComment(true)}
+          className="mt-1.5 text-ink-muted underline decoration-hairline-strong underline-offset-2 hover:text-primary"
+        >
+          {vi ? 'Thêm góp ý' : 'Add a comment'}
+        </button>
+      )}
       {guide.rating?.comment ? (
-        <p className="text-ink-subtle">
+        <p className="mt-1.5 text-ink-muted">
           {vi ? 'Góp ý đã gửi: ' : 'Last comment: '}
           {guide.rating.comment}
         </p>
       ) : null}
-      {error ? <p className="text-rose-600">{error}</p> : null}
+      {guide.examplesUsed ? (
+        <p className="mt-1.5 text-ink-subtle">
+          {vi
+            ? `AI đã tham khảo ${String(guide.examplesUsed)} ví dụ mẫu`
+            : `AI used ${String(guide.examplesUsed)} example(s)`}
+        </p>
+      ) : null}
+      {error ? <p className="mt-1.5 text-rose-600" role="alert">{error}</p> : null}
     </div>
   )
 }

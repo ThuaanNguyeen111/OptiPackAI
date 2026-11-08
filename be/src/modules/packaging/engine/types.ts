@@ -70,6 +70,11 @@ export interface BoxSpec {
   /** Tải HÀNG tối đa (không gồm bì). */
   max_load_g: number;
   price_vnd: number | null;
+  /**
+   * (08/11/2026) Thùng đã cắt hạ xuống sát chồng hàng: inner/outer là số SAU cắt,
+   * đây là chiều cao gốc trong danh mục. Thiếu = không cắt. Xem `cutBoxToLoad`.
+   */
+  cut_from?: { inner_height_mm: number; outer_height_mm: number };
 }
 
 /**

@@ -82,6 +82,8 @@ export interface BoxComparisonResponse {
     kind: 'box' | 'mailer';
     isChosen: boolean;
     eligible: boolean;
+    /** (08/11/2026) Số thùng loại này cần để chứa hết; >1 = phải tách kiện; null = không xếp được. */
+    parcels: number | null;
     rank: number | null;
     /** 0–10, 1 chữ số thập phân; 0 khi không dùng được. */
     score: number;
@@ -111,6 +113,7 @@ export function toBoxComparisonResponse(c: PlanBoxComparison | null | undefined)
       kind: r.kind,
       isChosen: r.is_chosen,
       eligible: r.eligible,
+      parcels: r.parcels ?? null,
       rank: r.rank,
       score: r.score,
       criteria: r.criteria
@@ -211,6 +214,8 @@ export interface PackingPlanResponse {
       tareG: number;
       maxLoadG: number;
       priceVnd: number | null;
+      /** (08/11/2026) Thùng đã cắt hạ: chiều cao lòng GỐC (mm); innerMm/outerMm là số sau cắt. null = không cắt. */
+      cutFromInnerHeightMm: number | null;
     };
     placements: {
       itemKey: string;
@@ -435,6 +440,7 @@ export function toPlanResponse(
         tareG: p.box.tare_g,
         maxLoadG: p.box.max_load_g,
         priceVnd: p.box.price_vnd,
+        cutFromInnerHeightMm: p.box.cut_from_inner_height_mm ?? null,
       },
       placements: p.placements.map((q) => ({
         itemKey: q.item_key,
