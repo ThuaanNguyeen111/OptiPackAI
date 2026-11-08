@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Layers, Loader2 } from 'lucide-react'
 import { MarketplaceConsolidationBadge } from './MarketplaceConsolidationBadge'
+import { MarketplaceFulfillmentBlock } from './MarketplaceFulfillmentBlock'
 import { MarketplaceOrderStatusBadge } from './MarketplaceOrderStatusBadge'
 import { PortalTopBar } from '../portal/PortalTopBar'
 import { usePortal } from '../../context/use-portal'
@@ -378,6 +379,14 @@ export function MarketplaceOrderDetailScreen({
                         </div>
                       </div>
                     </div>
+                  ) : null}
+
+                  {order.marketplace && order.marketplace.confirmationStatus !== 'not_required' ? (
+                    <MarketplaceFulfillmentBlock
+                      orderId={order.id}
+                      info={order.marketplace}
+                      vi={vi}
+                    />
                   ) : null}
 
                   {order.needCancelConfirm ||

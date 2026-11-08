@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import type { BoxComparison, BoxComparisonRow } from '../../types/packing-plan'
 import { formatCurrency } from '../../utils/format'
+import { formatGAsKg } from '../../utils/units'
 
 const CRITERIA_LABELS: Record<
   keyof NonNullable<BoxComparisonRow['criteria']>,
@@ -109,7 +110,7 @@ export function BoxComparisonTable({
                   label={vi ? 'Cân cước' : 'Billable'}
                   value={
                     row.billableWeightG != null
-                      ? `${row.billableWeightG.toLocaleString('vi-VN')} g`
+                      ? formatGAsKg(row.billableWeightG)
                       : '—'
                   }
                 />

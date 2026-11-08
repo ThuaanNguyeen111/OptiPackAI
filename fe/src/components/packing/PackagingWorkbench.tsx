@@ -67,6 +67,7 @@ import {
   type RejectReason,
 } from '../../types/packing-plan'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import { formatDimsCm, formatGAsKg, parseDecimal } from '../../utils/units'
 import { useLocalQueuePagination } from '../../hooks/useLocalQueuePagination'
 import { Badge } from '../ui/Badge'
 import { QueuePaginationBar } from '../ui/QueuePaginationBar'
@@ -361,7 +362,7 @@ function weightPrefill(plan: PackingPlan): Record<number, string> {
   const next: Record<number, string> = {}
   for (const parcel of plan.parcels) {
     const kg = parcel.actualWeightKg ?? parcel.estimatedWeightG / 1000
-    next[parcel.parcelNo] = kg > 0 ? kg.toFixed(3) : ''
+    next[parcel.parcelNo] = kg > 0 ? String(Math.round(kg * 1000) / 1000).replace('.', ',') : ''
   }
   return next
 }
@@ -372,7 +373,7 @@ function readParcelWeights(
 ): { parcel_no: number; weight_kg: number }[] | null {
   const rows: { parcel_no: number; weight_kg: number }[] = []
   for (const parcel of plan.parcels) {
-    const weight = Number(weights[parcel.parcelNo])
+    const weight = parseDecimal(weights[parcel.parcelNo] ?? '') ?? Number.NaN
     if (!Number.isFinite(weight) || weight < 0.001 || weight > 100) return null
     rows.push({ parcel_no: parcel.parcelNo, weight_kg: weight })
   }
@@ -2091,9 +2092,9 @@ export function PackagingWorkbench() {
                                   ) : null}
                                 </p>
                                 <p className="font-mono text-xs text-ink-muted">
-                                  {size.lengthCm} × {size.widthCm} × {size.heightCm} cm
+                                  {formatDimsCm(size.lengthCm, size.widthCm, size.heightCm)}
                                   {' · '}
-                                  {(parcel.estimatedWeightG / 1000).toFixed(2)} kg
+                                  {formatGAsKg(parcel.estimatedWeightG)}
                                   {parcel.shippingCostVnd != null
                                     ? ` · ${formatCurrency(parcel.shippingCostVnd)}`
                                     : ''}
@@ -2129,7 +2130,7 @@ export function PackagingWorkbench() {
                               row.lengthCm != null &&
                               row.widthCm != null &&
                               row.heightCm != null
-                                ? `${row.lengthCm}×${row.widthCm}×${row.heightCm} cm`
+                                ? formatDimsCm(row.lengthCm, row.widthCm, row.heightCm)
                                 : null
                             const suggested = plan?.parcels.some(
                               (parcel) => parcel.box.code === row.code,

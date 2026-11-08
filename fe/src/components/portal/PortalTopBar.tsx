@@ -45,6 +45,7 @@ function isCriticalTab(n: AppNotification): boolean {
   return (
     n.severity === 'critical' ||
     n.type === 'cancel_confirmation_required' ||
+    n.type === 'marketplace_confirm_required' ||
     n.type === 'sla_breach' ||
     n.type === 'missing_item'
   )

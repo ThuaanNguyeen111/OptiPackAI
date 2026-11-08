@@ -73,6 +73,7 @@ import {
 } from '../types/order-groups'
 import type { WarehousePickingListItem, WarehouseRecord } from '../types/warehouse-admin'
 import { formatDateTime, formatLotReceived } from '../utils/format'
+import { formatDimsCm, formatKg } from '../utils/units'
 
 type QueueTab =
   | 'to_pick'
@@ -2026,9 +2027,9 @@ export function WarehousePage() {
                               />
                             </div>
                             <p className="mt-1.5 text-[11px] text-slate-500">
-                              {activeLine.length_cm}×{activeLine.width_cm}×{activeLine.height_cm} cm
+                              {formatDimsCm(activeLine.length_cm, activeLine.width_cm, activeLine.height_cm)}
                 {' · '}
-                              {activeLine.weight_kg} kg
+                              {formatKg(activeLine.weight_kg)}
                               {activeLine.remainingStock != null
                                 ? ` · ${vi ? 'Tồn kệ còn' : 'Bin left'} ${activeLine.remainingStock}`
                                 : ''}

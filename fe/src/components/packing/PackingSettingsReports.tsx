@@ -7,6 +7,7 @@ import {
   updatePackingSettings,
 } from '../../api/packing-plan.api'
 import { formatApiError } from '../../lib/api'
+import { cmToMm } from '../../utils/units'
 import {
   BOX_SOURCE_REASON_LABELS,
   type BoxSourceReason,
@@ -105,15 +106,16 @@ export function PackingSettingsForm({
             />
           </label>
           <label className="text-xs text-ink-muted">
-            {vi ? 'Đệm dễ vỡ (mm)' : 'Fragile cushion (mm)'}
+            {vi ? 'Đệm dễ vỡ (cm)' : 'Fragile cushion (cm)'}
             <input
               type="number"
               min={0}
-              max={50}
+              max={5}
+              step={0.1}
               disabled={!canEdit}
-              value={settings.fragileCushionMm}
+              value={settings.fragileCushionMm / 10}
               onChange={(e) =>
-                setSettings({ ...settings, fragileCushionMm: Number(e.target.value) })
+                setSettings({ ...settings, fragileCushionMm: cmToMm(Number(e.target.value)) })
               }
               className="mt-1 w-full rounded-lg border border-hairline bg-surface px-2 py-1.5 text-sm text-ink"
             />
@@ -185,24 +187,27 @@ export function PackingSettingsForm({
               <div className="grid gap-3 sm:grid-cols-2">
                 {(
                   [
-                    ['mailerMarginWidthMm', vi ? 'Lề rộng túi (mm)' : 'Width margin (mm)', 0, 100],
-                    ['mailerMarginLengthMm', vi ? 'Lề dài túi, gồm nắp dán (mm)' : 'Length margin, incl. flap (mm)', 0, 150],
-                    ['mailerMaxThicknessMm', vi ? 'Chồng hàng dày tối đa (mm)' : 'Max stack thickness (mm)', 5, 300],
-                    ['splitMinSavingVnd', vi ? 'Chỉ tách túi + thùng khi rẻ hơn ít nhất (đ)' : 'Split only if it saves at least (VND)', 0, 1000000],
-                    ['estFeeFirstStepVnd', vi ? 'Cước ước tính bậc đầu (đ)' : 'Estimated first-step fee (VND)', 0, 1000000],
-                    ['estFeePerExtraStepVnd', vi ? 'Cước ước tính mỗi bậc thêm (đ)' : 'Estimated fee per extra step (VND)', 0, 1000000],
+                    ['mailerMarginWidthMm', vi ? 'Lề rộng túi (cm)' : 'Width margin (cm)', 0, 10, 'cm'],
+                    ['mailerMarginLengthMm', vi ? 'Lề dài túi, gồm nắp dán (cm)' : 'Length margin, incl. flap (cm)', 0, 15, 'cm'],
+                    ['mailerMaxThicknessMm', vi ? 'Chồng hàng dày tối đa (cm)' : 'Max stack thickness (cm)', 0.5, 30, 'cm'],
+                    ['splitMinSavingVnd', vi ? 'Chỉ tách túi + thùng khi rẻ hơn ít nhất (đ)' : 'Split only if it saves at least (VND)', 0, 1000000, 'vnd'],
+                    ['estFeeFirstStepVnd', vi ? 'Cước ước tính bậc đầu (đ)' : 'Estimated first-step fee (VND)', 0, 1000000, 'vnd'],
+                    ['estFeePerExtraStepVnd', vi ? 'Cước ước tính mỗi bậc thêm (đ)' : 'Estimated fee per extra step (VND)', 0, 1000000, 'vnd'],
                   ] as const
-                ).map(([key, label, min, max]) => (
+                ).map(([key, label, min, max, unit]) => (
                   <label key={key} className="text-xs text-ink-muted">
                     {label}
                     <input
                       type="number"
                       min={min}
                       max={max}
-                      step={1}
+                      step={unit === 'cm' ? 0.1 : 1}
                       disabled={!canEdit}
-                      value={settings[key]}
-                      onChange={(e) => setSettings({ ...settings, [key]: Number(e.target.value) })}
+                      value={unit === 'cm' ? settings[key] / 10 : settings[key]}
+                      onChange={(e) => {
+                        const typed = Number(e.target.value)
+                        setSettings({ ...settings, [key]: unit === 'cm' ? cmToMm(typed) : typed })
+                      }}
                       className="mt-1 w-full rounded-lg border border-hairline bg-surface px-2 py-1.5 text-sm text-ink"
                     />
                   </label>
