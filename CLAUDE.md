@@ -4717,6 +4717,11 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
   - `packing-plan.service.ts` (đổi thùng khi đang đóng, `old_box_outcome` hỏng) báo **sau khi giao dịch lưu xong**.
   - `stockAlerts` là tham số cuối, `@Optional`.
 - **Sửa ngưỡng:** `update()` của `packaging-box.service.ts`, `packaging-material.service.ts`, `packaging-bag.service.ts` so ngưỡng cũ / mới trên số tồn hiện có. `stockAlerts` `@Optional` để spec cũ dựng bằng `new` không vỡ.
+- **Bổ sung cùng ngày (Việt báo, AOFP-236):** `GET /packaging-materials` trước đây **không trả `reorderLevel`**, nên tab Túi niêm phong của FE chỉ tính được "Hết hàng" và cột Ngưỡng hiện "—". Đã sửa:
+  - `toResponse` trong `packaging-materials.controller.ts` thêm `reorderLevel` và `stockStatus` (tính trên `qty_new + qty_reused`, cùng 3 giá trị như `/packaging/boxes`).
+  - `UpdatePackagingMaterialDto` nhận `reorder_level` (số nguyên ≥ 0), để túi niêm phong sửa được ngưỡng qua `PATCH /packaging-materials/:code`.
+  - `PackagingMaterialsService.update()` báo cảnh báo khi sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo (`stockAlerts` `@Optional`).
+  - Test mới trong `packaging-materials.service.spec.ts`.
 - Comment `packaging-bag.schema.ts` cập nhật theo người nhận mới.
 
 **Tác động (5 câu):**
