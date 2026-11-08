@@ -29,6 +29,7 @@ import { usesTealAppChrome } from '../../lib/app-chrome'
 import { canSeeNavItem } from '../../lib/rbac'
 import { stageOfPath } from '../../lib/stage-colors'
 import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
+import { BrandMark } from '../brand/BrandMark'
 
 type NavSection = 'overview' | 'store' | 'logistics' | 'analytics' | 'system'
 
@@ -275,15 +276,7 @@ export function PortalSidebar() {
           className="flex min-w-0 items-center gap-2"
           title="Về trang Home"
         >
-          <span
-            className={
-              tealChrome
-                ? 'lp-mark h-8 w-8 shrink-0'
-                : 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]'
-            }
-          >
-            OP
-          </span>
+          <BrandMark className="h-8 w-8 shrink-0" />
           {!sidebarCollapsed ? (
             <span className="truncate text-sm font-semibold tracking-tight text-ink">
               OptiPackAI

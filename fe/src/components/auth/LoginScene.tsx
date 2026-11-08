@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Boxes, ClipboardList, Truck } from 'lucide-react'
 import { PackedCartonSvg } from '../landing/editorial/PackedCartonIllustration'
+import { BrandMark } from '../brand/BrandMark'
 import './login-scene.css'
 
 type LoginSceneProps = {
@@ -24,7 +25,7 @@ export function LoginScene({
       <div className="login-card">
         <aside className="login-art">
           <Link to="/" className="login-art-brand">
-            <span className="login-art-mark">OP</span>
+            <BrandMark variant="login" />
             OptiPackAI
           </Link>
           <PackedCartonSvg className="login-art-carton" />

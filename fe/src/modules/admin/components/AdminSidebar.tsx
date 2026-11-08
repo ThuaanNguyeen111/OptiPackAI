@@ -24,6 +24,7 @@ import { usePortal } from '../../../context/use-portal'
 import { ConfirmDialog } from '../../../components/ui/ConfirmDialog'
 import { useTheme } from '../../../hooks/useTheme'
 import { stageOfPath } from '../../../lib/stage-colors'
+import { BrandMark } from '../../../components/brand/BrandMark'
 
 type NavSection = 'directory' | 'marketplace' | 'warehouse' | 'ai'
 
@@ -177,7 +178,7 @@ export function AdminSidebar() {
           className="flex min-w-0 items-center gap-2"
           title="Về trang Home"
         >
-          <span className="lp-mark h-8 w-8 shrink-0">OP</span>
+          <BrandMark className="h-8 w-8 shrink-0" />
           {!sidebarCollapsed ? (
             <span className="truncate text-sm font-semibold tracking-tight text-ink">
               OptiPackAI

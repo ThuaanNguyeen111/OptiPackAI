@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Moon, Sparkles, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Hero3DCanvas } from '../marketing/Hero3DCanvas'
+import { BrandMark } from '../brand/BrandMark'
 import { useTheme } from '../../hooks/useTheme'
 
 type AuthLayoutProps = {
@@ -35,9 +36,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
 
         <div className="relative z-10 shrink-0">
           <Link to="/" className="inline-flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-xs font-bold text-on-primary shadow-[0_0_24px_rgba(15,118,110,0.4)]">
-              OP
-            </span>
+            <BrandMark className="h-9 w-9 shrink-0 shadow-[0_0_24px_rgba(15,118,110,0.4)]" />
             <span className="text-lg font-semibold tracking-tight text-ink">
               OptiPackAI
             </span>
@@ -102,9 +101,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
 
         <div className="relative z-10 flex shrink-0 items-center justify-between">
           <Link to="/" className="inline-flex items-center gap-2 lg:hidden">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-on-primary">
-              OP
-            </span>
+            <BrandMark className="h-8 w-8 shrink-0" />
             <span className="text-sm font-semibold text-ink">OptiPackAI</span>
           </Link>
           <div className="ml-auto flex items-center gap-2">

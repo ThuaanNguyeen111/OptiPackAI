@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/use-auth'
 import {
@@ -73,6 +74,8 @@ import { Packing3DBoxViewer } from './Packing3DBoxViewer'
 import { selectParcel } from '../../utils/packing-layout'
 import { PackingSessionPanel } from './PackingSessionPanel'
 import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
+import { BoxComparisonTable } from './BoxComparisonTable'
+import { GuideRating, GuideTraceButton } from './GuideFeedback'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -417,7 +420,10 @@ export function PackagingWorkbench() {
   const [rejectOpen, setRejectOpen] = useState(false)
   const [overrideReason, setOverrideReason] = useState('')
   const [guide3dActive, setGuide3dActive] = useState(false)
+  const [asideTab, setAsideTab] = useState<'guide' | 'compare'>('guide')
   const [guideDetailOpen, setGuideDetailOpen] = useState(false)
+  /** Khung nội dung app (chừa sidebar) — chi tiết 3D phủ full vùng này. */
+  const [stageEl, setStageEl] = useState<HTMLElement | null>(null)
   const [boxStock, setBoxStock] = useState<PackagingMaterialStock[]>([])
   const [boxStockError, setBoxStockError] = useState<string | null>(null)
   const [summaries, setSummaries] = useState<Record<string, PackingPlanSummary>>({})
@@ -446,6 +452,19 @@ export function PackagingWorkbench() {
     const timer = window.setInterval(() => setNowMs(Date.now()), 30_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    setStageEl(document.querySelector('.owner-stage'))
+  }, [])
+
+  useEffect(() => {
+    if (!guideDetailOpen) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setGuideDetailOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [guideDetailOpen])
 
   // Kế hoạch đang tính: tải lại mỗi 3 giây tới khi có kết quả (khung 3D hiện "Đang tính").
   const computingGroupId = plan?.status === 'computing' ? plan.orderGroupId : null
@@ -1309,12 +1328,11 @@ export function PackagingWorkbench() {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-6">
-      <section className="owner-hero">
-        <div>
-          <p className="owner-hero-kicker">
-            {vi ? 'Nhân viên đóng gói' : 'Packaging Staff'}
-          </p>
-          <h1>{vi ? 'Đóng gói' : 'Packing'}</h1>
+      <section className="owner-hero pack-hero">
+        <div className="pack-hero-main">
+          <div className="pack-hero-title">
+            <h1>{vi ? 'Đóng gói' : 'Packing'}</h1>
+          </div>
           <p
             className={`owner-hero-lead ${actionableCount > 0 ? 'font-medium text-[var(--ls-ink)]' : ''}`}
           >
@@ -1330,36 +1348,36 @@ export function PackagingWorkbench() {
                 ? `Nothing to approve yet. ${counts.picked > 0 ? `${String(counts.picked)} picked, plans are being computed. ` : ''}${counts.awaiting > 0 ? `${String(counts.awaiting)} still in warehouse (view-only). ` : ''}Refresh when a plan appears.`
                 : 'Nothing yet. After a carton plan exists, groups appear under Pending plan.'}
           </p>
-          <div className="owner-hero-ctas">
-            <button
-              type="button"
-              onClick={() => void loadList()}
-              className="owner-btn-primary inline-flex items-center gap-1.5"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              {vi ? 'Tải lại' : 'Refresh'}
-            </button>
-          </div>
         </div>
-        <ol className="owner-steps">
-          {queueTabs.map(([key, label, count, viewOnly], index) => (
-            <li key={key}>
-              <button
-                type="button"
-                onClick={() => setTab(key)}
-                aria-current={tab === key ? 'true' : undefined}
-              >
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                {label} ({String(count)})
-                {viewOnly ? (
-                  <em className="not-italic text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                    {vi ? 'Chỉ xem' : 'View'}
-                  </em>
-                ) : null}
-              </button>
-            </li>
-          ))}
-        </ol>
+        <div className="pack-tabs-row">
+          <ol className="owner-steps pack-tabs">
+            {queueTabs.map(([key, label, count, viewOnly], index) => (
+              <li key={key}>
+                <button
+                  type="button"
+                  onClick={() => setTab(key)}
+                  aria-current={tab === key ? 'true' : undefined}
+                >
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  {label} ({String(count)})
+                  {viewOnly ? (
+                    <em className="not-italic text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                      {vi ? 'Chỉ xem' : 'View'}
+                    </em>
+                  ) : null}
+                </button>
+              </li>
+            ))}
+          </ol>
+          <button
+            type="button"
+            onClick={() => void loadList()}
+            className="owner-btn-primary inline-flex items-center gap-1.5"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            {vi ? 'Tải lại' : 'Refresh'}
+          </button>
+        </div>
       </section>
 
       <div className="pack-bench">
@@ -1577,8 +1595,11 @@ export function PackagingWorkbench() {
               <div>
                 <div className="flex flex-wrap items-center gap-2">
                   <Package className="h-5 w-5 text-primary" />
-                  <h2 className="font-mono text-sm font-semibold text-ink">
-                    {group.id}
+                  <h2 className="text-sm font-semibold text-ink">
+                    <span className="capitalize">{group.platform}</span>{' '}
+                    <span className="font-mono" title={group.id}>
+                      #{group.id.slice(-8)}
+                    </span>
                   </h2>
                   {group.orderPriority === 'express' ? (
                     <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
@@ -1599,7 +1620,7 @@ export function PackagingWorkbench() {
                     </span>
                   ) : null}
                 </div>
-                <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <dl className="pack-facts mt-3">
                   <div>
                     <dt className="text-ink-subtle">
                       {vi ? 'Trạng thái' : 'Status'}
@@ -1966,7 +1987,7 @@ export function PackagingWorkbench() {
                       </p>
                     ) : (
                       <div className="mt-3 space-y-3 text-sm">
-                        <dl className="grid gap-2 sm:grid-cols-2">
+                        <dl className="pack-facts">
                           <div>
                             <dt className="text-ink-subtle">
                               {vi ? 'Trạng thái kế hoạch' : 'Plan status'}
@@ -1992,6 +2013,36 @@ export function PackagingWorkbench() {
                                 ? 'Hồ sơ SKU đã được đo lại sau khi tính kế hoạch. Số đo trên kế hoạch này có thể cũ.'
                                 : 'A SKU profile was remeasured after this plan was calculated. Sizes on this plan may be out of date.'}
                             </p>
+                            <button
+                              type="button"
+                              disabled={recomputing || actionBusy}
+                              onClick={() => void onRecompute()}
+                              className="rounded-lg border border-amber-700/40 bg-white px-2 py-1 text-xs font-medium text-amber-950 disabled:opacity-50 dark:bg-transparent dark:text-amber-100"
+                            >
+                              {recomputing
+                                ? vi
+                                  ? 'Đang tính lại…'
+                                  : 'Recomputing…'
+                                : vi
+                                  ? 'Tính lại kế hoạch'
+                                  : 'Recompute plan'}
+                            </button>
+                          </div>
+                        ) : null}
+                        {plan.catalogStale ? (
+                          <div className="space-y-1.5 rounded-lg border border-amber-700/30 bg-amber-50 p-2 dark:bg-amber-950/20">
+                            <p className="text-xs font-medium text-amber-900 dark:text-amber-100">
+                              {vi
+                                ? 'Danh mục thùng/vật tư đã đổi sau khi tính kế hoạch.'
+                                : 'The box/material catalog changed after this plan was calculated.'}
+                            </p>
+                            {(plan.catalogChanges ?? []).length > 0 ? (
+                              <ul className="list-disc space-y-0.5 pl-4 text-xs text-amber-900 dark:text-amber-100">
+                                {(plan.catalogChanges ?? []).map((change) => (
+                                  <li key={change}>{change}</li>
+                                ))}
+                              </ul>
+                            ) : null}
                             <button
                               type="button"
                               disabled={recomputing || actionBusy}
@@ -2167,6 +2218,10 @@ export function PackagingWorkbench() {
                 onOpenDetail={() => setGuideDetailOpen(true)}
               />
               <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+              <BoxComparisonTable
+                comparison={selectParcel(plan, parcelNo)?.boxComparison}
+                vi={vi}
+              />
               <button
                 type="button"
                 onClick={() => setGuideDetailOpen(true)}
@@ -2242,11 +2297,46 @@ export function PackagingWorkbench() {
               autoRotate={
                 guide3dActive || tab === 'approved_for_packing'
               }
-              className="relative h-full w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40"
+              className="pack-viewer relative w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff] dark:border-slate-800 dark:bg-slate-900/40"
               onOpenDetail={() => setGuideDetailOpen(true)}
             />
-            <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
             {plan && plan.parcels.length > 0 ? (
+              <div className="pack-aside-tabs" role="tablist">
+                {(
+                  [
+                    ['guide', vi ? 'Hướng dẫn' : 'Guide'],
+                    ['compare', vi ? 'So sánh thùng' : 'Compare boxes'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={asideTab === key}
+                    onClick={() => setAsideTab(key)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            {asideTab === 'compare' ? (
+              selectParcel(plan, parcelNo)?.boxComparison ? (
+                <BoxComparisonTable
+                  comparison={selectParcel(plan, parcelNo)?.boxComparison}
+                  vi={vi}
+                />
+              ) : plan && plan.parcels.length > 0 ? (
+                <p className="mt-3 text-xs text-ink-subtle">
+                  {vi
+                    ? 'Kiện này chưa có bảng so sánh (kiện nhập tay hoặc tính trước 05/11). Chỉnh tay hoặc tính lại để có bảng.'
+                    : 'No comparison for this parcel (manual or computed before 05/11).'}
+                </p>
+              ) : null
+            ) : (
+              <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+            )}
+            {asideTab === 'guide' && plan && plan.parcels.length > 0 ? (
               <div className="mt-3 space-y-2 text-xs text-ink">
                 <button
                   type="button"
@@ -2269,115 +2359,128 @@ export function PackagingWorkbench() {
                       {step.tip ? ` — ${step.tip}` : ''}
                     </p>
                   ))}
+                {guideParcel?.guide && group ? (
+                  <GuideRating
+                    key={`${String(guideParcel.parcelNo)}:${guideParcel.guide.source}`}
+                    groupId={group.id}
+                    parcelNo={guideParcel.parcelNo}
+                    guide={guideParcel.guide}
+                    vi={vi}
+                    onPlan={(next) => setPlan((current) => retainProfileStale(current, next))}
+                    onToast={setToast}
+                  />
+                ) : null}
+                {guideParcel?.guide && group && session?.role === UserRole.ADMIN ? (
+                  <GuideTraceButton groupId={group.id} parcelNo={guideParcel.parcelNo} vi={vi} />
+                ) : null}
               </div>
             ) : null}
           </div>
         </aside>
       </div>
 
-      {guideDetailOpen ? (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 p-4"
-          onClick={() => setGuideDetailOpen(false)}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="guide-detail-title"
-            className="flex h-[92vh] w-full max-w-[min(96vw,110rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
-              <h3 id="guide-detail-title" className="text-base font-semibold text-slate-900">
-                {vi ? 'Chi tiết hướng dẫn đóng gói' : 'Packing guide details'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setGuideDetailOpen(false)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
-                aria-label={vi ? 'Đóng' : 'Close'}
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.6fr)_22rem]">
-              <div className="min-h-[360px] bg-[#f8faff] p-3">
-                <Packing3DBoxViewer
-                  plan={plan}
-                  parcelNo={parcelNo}
-                  onParcelChange={setParcelNo}
-                  autoRotate={guide3dActive || tab === 'approved_for_packing'}
-                  className="relative h-full min-h-[340px] w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff]"
-                />
+      {guideDetailOpen && stageEl && plan
+        ? createPortal(
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="guide-detail-title"
+              className="absolute inset-0 z-[80] flex flex-col overflow-hidden rounded-[inherit] bg-[var(--ls-card-solid,#fff)]"
+            >
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-3">
+                <h3 id="guide-detail-title" className="text-base font-semibold text-slate-900">
+                  {vi ? 'Chi tiết hướng dẫn đóng gói' : 'Packing guide details'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setGuideDetailOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  aria-label={vi ? 'Đóng' : 'Close'}
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-              <aside className="min-h-0 overflow-y-auto border-t border-slate-200 p-5 lg:border-t-0 lg:border-l">
-                <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                  {vi ? 'Mô tả' : 'Description'}
-                </p>
-                <p className="mt-2 text-sm font-medium text-slate-900">{boxViewerLabel(plan, parcelNo, vi)}</p>
-                <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, parcelNo, vi)}</p>
-                <div className="mt-3">
-                  <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+              <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1.6fr)_22rem]">
+                <div className="min-h-0 bg-[#f8faff] p-3">
+                  <Packing3DBoxViewer
+                    plan={plan}
+                    parcelNo={parcelNo}
+                    onParcelChange={setParcelNo}
+                    autoRotate={guide3dActive || tab === 'approved_for_packing'}
+                    className="relative h-full min-h-[280px] w-full select-none overflow-hidden rounded-xl border border-slate-100 bg-[#f8faff]"
+                  />
                 </div>
-                {(() => {
-                  const guide = (
-                    plan?.parcels.find((row) => row.parcelNo === parcelNo) ?? plan?.parcels[0]
-                  )?.guide
-                  return (
-                    <div className="mt-5">
-                      <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
-                        {vi ? 'Các bước' : 'Steps'}
-                      </p>
-                      {guide?.summary ? (
-                        <p className="mt-2 text-sm text-slate-700">{guide.summary}</p>
-                      ) : null}
-                      {guide && guide.steps.length > 0 ? (
-                        <ol className="mt-3 space-y-3">
-                          {guide.steps.map((step) => (
-                            <li key={step.step} className="flex gap-3">
-                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#152d35] text-xs font-semibold text-white">
-                                {step.step}
-                              </span>
-                              <div>
-                                <p className="text-sm text-slate-800">{step.instruction}</p>
-                                {step.tip ? (
-                                  <p className="mt-1 text-xs text-slate-500">{step.tip}</p>
-                                ) : null}
-                              </div>
-                            </li>
-                          ))}
-                        </ol>
-                      ) : (
-                        <p className="mt-2 text-sm text-slate-500">
-                          {vi
-                            ? 'Chưa có hướng dẫn từng bước.'
-                            : 'No step-by-step guide yet.'}
+                <aside className="min-h-0 overflow-y-auto border-t border-slate-200 p-5 lg:border-t-0 lg:border-l">
+                  <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                    {vi ? 'Mô tả' : 'Description'}
+                  </p>
+                  <p className="mt-2 text-sm font-medium text-slate-900">
+                    {boxViewerLabel(plan, parcelNo, vi)}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">{boxViewerSub(plan, parcelNo, vi)}</p>
+                  <div className="mt-3">
+                    <MaterialTags materials={selectParcel(plan, parcelNo)?.materials ?? []} />
+                  </div>
+                  {(() => {
+                    const guide = (
+                      plan?.parcels.find((row) => row.parcelNo === parcelNo) ?? plan?.parcels[0]
+                    )?.guide
+                    return (
+                      <div className="mt-5">
+                        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase">
+                          {vi ? 'Các bước' : 'Steps'}
                         </p>
-                      )}
-                      {plan && plan.parcels.length > 0 ? (
-                        <button
-                          type="button"
-                          disabled={actionBusy}
-                          onClick={() => void onWriteGuide()}
-                          className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
-                        >
-                          {selectParcel(plan, parcelNo)?.guide
-                    ? vi
-                      ? 'Viết lại hướng dẫn'
-                      : 'Rewrite guide'
-                    : vi
-                      ? 'Viết hướng dẫn kiện'
-                      : 'Write parcel guide'}
-                        </button>
-                      ) : null}
-                    </div>
-                  )
-                })()}
-              </aside>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                        {guide?.summary ? (
+                          <p className="mt-2 text-sm text-slate-700">{guide.summary}</p>
+                        ) : null}
+                        {guide && guide.steps.length > 0 ? (
+                          <ol className="mt-3 space-y-3">
+                            {guide.steps.map((step) => (
+                              <li key={step.step} className="flex gap-3">
+                                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#152d35] text-xs font-semibold text-white">
+                                  {step.step}
+                                </span>
+                                <div>
+                                  <p className="text-sm text-slate-800">{step.instruction}</p>
+                                  {step.tip ? (
+                                    <p className="mt-1 text-xs text-slate-500">{step.tip}</p>
+                                  ) : null}
+                                </div>
+                              </li>
+                            ))}
+                          </ol>
+                        ) : (
+                          <p className="mt-2 text-sm text-slate-500">
+                            {vi
+                              ? 'Chưa có hướng dẫn từng bước.'
+                              : 'No step-by-step guide yet.'}
+                          </p>
+                        )}
+                        {plan && plan.parcels.length > 0 ? (
+                          <button
+                            type="button"
+                            disabled={actionBusy}
+                            onClick={() => void onWriteGuide()}
+                            className="mt-4 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 disabled:opacity-50"
+                          >
+                            {selectParcel(plan, parcelNo)?.guide
+                              ? vi
+                                ? 'Viết lại hướng dẫn'
+                                : 'Rewrite guide'
+                              : vi
+                                ? 'Viết hướng dẫn kiện'
+                                : 'Write parcel guide'}
+                          </button>
+                        ) : null}
+                      </div>
+                    )
+                  })()}
+                </aside>
+              </div>
+            </div>,
+            stageEl,
+          )
+        : null}
 
       {planDialog ? (
         <div

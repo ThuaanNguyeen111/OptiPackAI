@@ -1,4 +1,5 @@
 import { handleLandingHashClick } from './scroll-landing'
+import { BrandMark } from '../brand/BrandMark'
 
 const asideLinks = [
   { href: '#top', label: 'Tổng quan' },
@@ -14,7 +15,7 @@ export function LandingAside() {
   return (
     <aside className="landing-aside">
       <div className="landing-aside-brand">
-        <span className="lp-mark">OP</span>
+        <BrandMark />
         <div>
           <p className="text-sm font-semibold tracking-tight">OptiPackAI</p>
           <p className="text-[11px] text-[var(--ls-muted)]">AOFP · đa kênh</p>

@@ -867,3 +867,247 @@ html.dark .owner-stage .dash-metric-hero {
   font-variant-numeric: tabular-nums;
   color: var(--ls-ink);
 }
+
+/* ===== Màn Đóng gói: đầu trang gọn, chi tiết nhóm dễ đọc, cột 3D cuộn được ===== */
+.pack-hero {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.pack-hero-main {
+  min-width: 0;
+}
+
+.pack-hero-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.pack-hero .owner-hero-lead {
+  margin-top: 4px;
+  max-width: none;
+}
+
+/* Tab hàng đợi + nút Tải lại cùng một hàng */
+.pack-tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pack-tabs-row > .owner-btn-primary {
+  flex-shrink: 0;
+  height: 32px;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Tab hàng đợi: một hàng, dạng thanh phân đoạn, cuộn ngang khi hẹp */
+.pack-tabs {
+  flex: 1;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 2px;
+  overflow-x: auto;
+  padding: 3px;
+  border: 1px solid var(--ls-card-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ls-card) 70%, transparent);
+  scrollbar-width: none;
+}
+
+.pack-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.pack-tabs li {
+  flex-shrink: 0;
+}
+
+.pack-tabs button {
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  padding: 6px 12px !important;
+  font-size: 12.5px !important;
+  white-space: nowrap;
+}
+
+.pack-tabs button[aria-current='true'] {
+  background: var(--shell-tint, color-mix(in srgb, var(--ls-cta) 16%, transparent)) !important;
+  color: var(--ls-cta) !important;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(13, 59, 64, 0.12);
+}
+
+@media (min-width: 900px) {
+  .pack-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Thông tin nhóm: lưới nhỏ, nhãn mờ, giá trị rõ */
+.pack-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  font-size: 13px;
+}
+
+.pack-facts dt {
+  margin-bottom: 2px;
+  font-size: 11px;
+  color: var(--ls-muted);
+}
+
+@media (min-width: 1280px) {
+  .pack-facts {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Cột 3D: khung xem cao cố định, phần dưới (vật tư, hướng dẫn, so sánh) cuộn được */
+.pack-bench-guide .pack-bench-scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.pack-viewer {
+  height: clamp(17rem, 46vh, 28rem);
+}
+
+.pack-aside-tabs {
+  display: flex;
+  gap: 2px;
+  margin-top: 12px;
+  padding: 3px;
+  border: 1px solid var(--ls-card-border);
+  border-radius: 9px;
+}
+
+.pack-aside-tabs button {
+  flex: 1;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--ls-ink);
+  cursor: pointer;
+}
+
+.pack-aside-tabs button[aria-selected='true'] {
+  background: var(--shell-tint, color-mix(in srgb, var(--ls-cta) 16%, transparent));
+  color: var(--ls-cta);
+  font-weight: 600;
+}
+
+@media (min-width: 1024px) {
+  .pack-bench {
+    grid-template-columns: 14rem minmax(0, 1fr) minmax(0, 1.15fr);
+    height: max(34rem, calc(100svh - 11.5rem));
+  }
+}
+
+/* Chỉnh lần 2: nhãn trạng thái không bị bẻ dòng, thanh tab sát trái, khung 3D cao hơn */
+.pack-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+}
+
+.pack-facts > div {
+  min-width: 0;
+}
+
+.pack-facts dd {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.pack-tabs {
+  align-self: flex-start;
+  max-width: 100%;
+}
+
+.pack-viewer {
+  height: clamp(20rem, 54vh, 34rem);
+}
+
+/* Chỉnh lần 3: thanh tab chia đều chiều ngang, nút Tải lại cao bằng thanh, tab đang chọn nổi rõ */
+.pack-tabs-row {
+  align-items: stretch;
+}
+
+.pack-tabs-row > .owner-btn-primary {
+  height: auto;
+  align-self: stretch;
+  border-radius: 10px;
+  padding: 0 16px;
+  font-size: 12.5px;
+}
+
+.pack-tabs {
+  align-self: stretch;
+  gap: 4px;
+  padding: 4px;
+  background: var(--ls-card);
+}
+
+.pack-tabs li {
+  flex: 1 1 auto;
+  display: flex;
+}
+
+.pack-tabs button {
+  position: relative;
+  display: flex !important;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 6px !important;
+  padding: 9px 14px !important;
+  border-radius: 8px !important;
+  color: var(--ls-muted) !important;
+  transition: background 0.15s, color 0.15s;
+}
+
+.pack-tabs button:hover {
+  background: color-mix(in srgb, var(--ls-cta) 8%, transparent) !important;
+  color: var(--ls-ink) !important;
+}
+
+.pack-tabs button[aria-current='true'] {
+  background: var(--ls-card-solid, #fff) !important;
+  color: var(--ls-cta) !important;
+  font-weight: 700;
+  box-shadow:
+    0 1px 3px rgba(13, 59, 64, 0.16),
+    inset 0 -2px 0 var(--ls-cta);
+}
+
+html.dark .pack-tabs button[aria-current='true'] {
+  background: color-mix(in srgb, var(--ls-cta) 22%, transparent) !important;
+}
+
+.pack-tabs button em {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--ls-muted) 16%, transparent);
+  padding: 1px 5px;
+  font-size: 9.5px !important;
+  letter-spacing: 0.04em;
+  opacity: 1 !important;
+}
+
+@media (max-width: 899px) {
+  .pack-tabs li {
+    flex: 0 0 auto;
+  }
+}
