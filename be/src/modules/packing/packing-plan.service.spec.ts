@@ -392,7 +392,8 @@ describe('PackingPlanService', () => {
         saving_vnd: 3500,
         missing: [{ box_code: 'SAMPLE-M', needed: 1, available: 0 }],
       });
-      expect(order?.stock_suggestion?.avg_fill).toBeGreaterThan(order?.stock_suggestion?.current_avg_fill ?? 1);
+      // (08/11/2026) Thùng L được cắt hạ sát chồng hàng nên có thể lấp đầy hơn thùng M nguyên — gợi ý dựa trên tiền, không trên lấp đầy.
+      expect(order?.stock_suggestion?.avg_fill).toBeGreaterThan(0);
       expect(order?.explanation.some((l) => l.startsWith('Nếu kho có đủ thùng SAMPLE-M (thiếu 1)'))).toBe(true);
     });
 

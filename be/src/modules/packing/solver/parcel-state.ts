@@ -1,3 +1,4 @@
+import { minSupportPct } from '../../packaging/engine/units';
 import { footprintOverlapArea } from '../../packaging/engine/validator';
 import type {
   BoxSpec,
@@ -15,8 +16,8 @@ import type { Variant } from './types';
  * nên không bao giờ giao món khác; sau khi đặt, mọi EMS bị cắt được tách
  * thành tối đa 6 EMS con, rồi loại EMS quá nhỏ / nằm trọn trong EMS khác.
  *
- * Luật đỡ đáy và tải chồng GIỐNG validator (đỡ 100% diện tích đáy bằng mặt
- * trên các món ngay dưới; tải truyền xuống theo tỷ lệ diện tích tiếp xúc).
+ * Luật đỡ đáy và tải chồng GIỐNG validator (đỡ 100% diện tích đáy — đồ mềm 80% —
+ * bằng mặt trên các món ngay dưới; tải truyền xuống theo tỷ lệ diện tích tiếp xúc).
  * Validator vẫn kiểm lại kết quả cuối — đây không phải nguồn sự thật.
  * ===================================================================
  */
@@ -111,7 +112,7 @@ export class ParcelState {
         covered += area;
       }
     }
-    if (covered < v.dx * v.dy) return null;
+    if (covered * 100 < minSupportPct(v.unit) * v.dx * v.dy) return null;
     const supporters = raw.map((r) => ({
       index: r.index,
       share: r.area / covered,

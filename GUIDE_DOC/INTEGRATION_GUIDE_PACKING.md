@@ -176,7 +176,8 @@ interface PackingPlan {
   parcels: {
     parcelNo: number; orderId: string; platformOrderId: string | null;
     status: 'pending'|'sealed'|'held'|'to_unpack'|'voided';
-    box: { code: string; name: string; innerMm: Dims; outerMm: Dims; tareG: number; maxLoadG: number; priceVnd: number|null };
+    box: { code: string; name: string; innerMm: Dims; outerMm: Dims; tareG: number; maxLoadG: number; priceVnd: number|null;
+           cutFromInnerHeightMm: number|null }; // 🆕 08/11: thùng cắt hạ — innerMm/outerMm là số SAU cắt, đây là cao lòng gốc; null = không cắt
     placements: { itemKey: string; sku: string; step: number; x:number;y:number;z:number; dx:number;dy:number;dz:number; orientation: string; folded: boolean }[]; // tọa độ mm cho 3D
     manualLayout: boolean;               // true ⇒ không có tọa độ thật, đừng dựng 3D
     fillRatio: number; estimatedWeightG: number; actualWeightKg: number | null;

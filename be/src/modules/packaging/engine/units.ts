@@ -58,9 +58,22 @@ export const FLAT_CATEGORIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * (08/11/2026, user chốt) Quần áo là đồ mềm: chỉ cần được đỡ ≥ 80% diện tích đáy
+ * (vải chìa mép chút không sao). Hàng cứng — hộp giày, túi xách, mọi loại khác —
+ * vẫn phải đỡ kín 100%. Tính theo phần trăm nguyên để không lệch dấu phẩy động.
+ */
+export const SOFT_SUPPORT_PCT = 80;
+
+export function minSupportPct(unit: Pick<PackingUnit, 'product_category'>): number {
+  return FLAT_CATEGORIES.has(unit.product_category ?? '') ? SOFT_SUPPORT_PCT : 100;
+}
+
+/**
  * (22/09/2026) Gập đôi 1 món mềm: chia đôi (làm tròn lên) cạnh lớn hơn trong
  * dài/rộng, gấp đôi độ dày, cân giữ nguyên. Số đo do hệ thống tự tính (user
  * chốt), chỉ dùng khi nhờ gập mới vừa thùng nhỏ hơn.
+ * (08/11/2026, user chốt) Quần áo đã gập được dựng đứng (xếp dọc kiểu "file fold")
+ * nên mở mọi hướng; quần áo chưa gập vẫn nằm phẳng.
  */
 export function foldUnit(unit: PackingUnit): PackingUnit {
   const lengthIsLonger = unit.length_mm >= unit.width_mm;
@@ -69,6 +82,7 @@ export function foldUnit(unit: PackingUnit): PackingUnit {
     length_mm: lengthIsLonger ? Math.ceil(unit.length_mm / 2) : unit.length_mm,
     width_mm: lengthIsLonger ? unit.width_mm : Math.ceil(unit.width_mm / 2),
     height_mm: unit.height_mm * 2,
+    ...(FLAT_CATEGORIES.has(unit.product_category ?? '') && { orientations: ALL_ORIENTATIONS }),
     folded: true,
   };
 }

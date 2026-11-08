@@ -77,6 +77,15 @@ describe('compareBoxes — bảng so sánh thùng cho 1 kiện', () => {
     expect(result.rows.filter((r) => r.eligible)).toHaveLength(1);
   });
 
+  it('thùng đang chọn cũng hiện tồn trống (tính cả thùng của chính kiện này)', () => {
+    const units = expandToUnits([item('AO-01', [30, 20, 5], 0.3)]);
+    const result = compareBoxes(units, [SMALL, BIG], packInto(units, SMALL), {
+      availability: new Map([[SMALL.code, 6]]),
+    });
+    expect(result.rows.find((r) => r.is_chosen)?.available).toBe(6);
+    expect(compareBoxes(units, [SMALL], packInto(units, SMALL)).rows[0]?.available).toBeNull(); // không truyền tồn
+  });
+
   it('thùng đang chọn KHÔNG phải tốt nhất (vd. chỉnh tay sang XL) → bảng xếp thùng tốt hơn lên đầu và nói thẳng', () => {
     const units = expandToUnits([item('AO-01', [30, 20, 5], 0.3)]);
     const chosen = packInto(units, BIG);
@@ -117,4 +126,19 @@ describe('compareBoxes — bảng so sánh thùng cho 1 kiện', () => {
     expect(result.scores_consistent).toBe(false);
     expect(result.summary).toContain('Lưu ý');
   });
+
+  it('thùng không chứa hết trong 1 kiện vẫn được so: chia nhiều thùng cùng loại, xếp sau vì nhiều kiện', () => {
+    // 4 hộp 30×20×5 cm: thùng XL chứa hết; thùng FLAT chỉ cao 6 cm, đáy chứa 2 hộp → cần 2 thùng.
+    const units = expandToUnits([item('HOP', [30, 20, 5], 0.3, { qty: 4 })]);
+    const chosen = packInto(units, BIG);
+    const flat = box('FLAT', [620, 220, 60], 1000);
+
+    const result = compareBoxes(units, [BIG, flat], chosen);
+    const row = result.rows.find((r) => r.box_code === 'FLAT');
+
+    expect(row).toMatchObject({ eligible: true, parcels: 2, rank: 2 });
+    expect(row?.verdict).toMatch(/^Cần 2 thùng\. Thua thùng XL: số kiện 2 so với 1/);
+    expect(result.rows[0]).toMatchObject({ box_code: 'XL', parcels: 1, rank: 1 });
+  });
 });
+

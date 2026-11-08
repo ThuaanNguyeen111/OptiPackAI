@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import type { AiProviderConfig } from '../../config/ai.config';
 import type { BoxSpec, GuideMaterial, GuideStepFacts, GuideText } from './engine';
-import { buildTemplateGuide } from './engine';
+import { buildTemplateGuide, cutBoxNote } from './engine';
 
 /** `mailer_template` (AOFP-224) = kiện túi niêm phong luôn dùng câu mẫu — lời AI viết cho thùng. */
 export type GuideFallbackReason = 'no_api_key' | 'ai_error' | 'ai_invalid_output' | 'mailer_template';
@@ -163,6 +163,7 @@ export class PackingGuideAiService {
     if (attempt.ok) {
       return {
         ...attempt.guide,
+        summary: `${attempt.guide.summary}${cutBoxNote(input.box)}`,
         source: 'ai',
         model: `${provider.name}/${provider.model}`,
         fallback_reason: null,

@@ -31,7 +31,9 @@ describe('solveWithMailers — túi niêm phong trong bộ giải', () => {
     expect(p?.materials).toEqual([]);
     const boxOnly = solveOrder(units, sampleBoxes(), {});
     expect(boxOnly.parcels[0]?.box.code).toBe('SAMPLE-M');
-    expect(boxOnly.parcels[0]?.billable_weight_g).toBe(4000);
+    // (08/11/2026) Thùng M được cắt hạ sát áo → bậc 1 kg (thùng nguyên là 4 kg), túi vẫn rẻ hơn.
+    expect(boxOnly.parcels[0]?.box.cut_from).toBeDefined();
+    expect(boxOnly.parcels[0]?.billable_weight_g).toBe(1000);
   });
 
   it('không có túi trong danh mục → đúng kết quả bộ giải thùng cũ', () => {
@@ -81,7 +83,8 @@ describe('solveWithMailers — túi niêm phong trong bộ giải', () => {
   it('đơn trộn: tách túi + thùng khi rẻ hơn đủ ngưỡng', () => {
     // Thùng vừa khít hộp giày không còn chỗ cho áo → gộp phải dùng thùng lớn (bậc cước cao).
     const tight = priced(customBox('TIGHT', [340, 220, 130]), 0);
-    const big = priced(customBox('BIG', [400, 300, 300]), 0);
+    // Sàn rộng để kể cả khi cắt hạ, gộp chung vẫn ở bậc cước cao.
+    const big = priced(customBox('BIG', [600, 500, 300]), 0);
     const units = expandToUnits([tee(1), shoebox(1)]);
     const together = solveOrder(units, [tight, big], {});
     expect(together.parcels.map((p) => p.box.code)).toEqual(['BIG']);

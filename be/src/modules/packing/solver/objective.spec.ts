@@ -53,7 +53,8 @@ describe('Cân tính cước theo bậc', () => {
       z: 0,
       dx: 150,
       dy: 120,
-      dz: 50,
+      // Cao 6 cm trong thùng cao 10 cm: chỉ dư 4 cm < 5 cm nên KHÔNG cắt hạ — test giữ đúng phép tính cước.
+      dz: 60,
       orientation: 'LWH',
       folded: true,
     } as unknown as Placement;

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { usePortal } from '../../context/use-portal'
 import type { PackingPlacement, PackingPlan, PackingPlanParcel } from '../../types/packing-plan'
+import { boxCutNote } from '../../types/packing-plan'
 import {
   STEP_SECONDS,
   buildPackSteps,
@@ -245,16 +246,12 @@ function ParcelGuidePlayer({
         </button>
       </div>
 
-      <div className="absolute right-3 bottom-3 left-3 z-20 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
-              {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
-              {current ? ` · ${stepLabel(current.kind, vi, mailer)}` : ''}
-            </p>
+      <div className="absolute right-3 bottom-3 left-3 z-20 rounded-xl border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
+        {/* Lời bước dài/ngắn khác nhau: giới hạn chiều cao + cuộn để thẻ không phình che cảnh 3D. */}
+        <div className="max-h-28 min-h-[3.25rem] overflow-y-auto overscroll-contain px-3 pt-2.5 pb-2" aria-live="polite">
             {current?.kind === 'prepare' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {parcel.box.name} ({parcel.box.code}) — {formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}
+                {parcel.box.name} ({parcel.box.code}) — {formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}{boxCutNote(parcel.box, vi)}
                 {parcel.materials.length > 0
                   ? ` · ${parcel.materials.map((m) => `${m.name} × ${String(m.quantity)}`).join(', ')}`
                   : ''}
@@ -319,16 +316,15 @@ function ParcelGuidePlayer({
                 ))}
               </p>
             ) : null}
-            {parcel.guide ? (
-              <p className="mt-1 text-[10px] text-slate-400">
-                {parcel.guide.source === 'ai'
-                  ? `AI · ${parcel.guide.model ?? ''}`
-                  : vi
-                    ? 'Câu mẫu'
-                    : 'Template text'}
-              </p>
-            ) : null}
-          </div>
+        </div>
+        {/* Thanh điều khiển neo đáy thẻ: nút không xê dịch khi đổi bước. */}
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200/80 px-3 py-2 dark:border-slate-800">
+          <p className="min-w-0 truncate text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <span className="tabular-nums">
+              {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
+            </span>
+            {current ? <span className="font-medium text-slate-500 dark:text-slate-400"> · {stepLabel(current.kind, vi, mailer)}</span> : null}
+          </p>
           <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
