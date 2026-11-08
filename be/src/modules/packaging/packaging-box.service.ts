@@ -1,4 +1,6 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { PackagingStockAlertService } from '../packaging-materials/packaging-stock-alert.service';
+import type { WasteResult } from '../packaging-materials/packaging-materials.service';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import {
@@ -119,6 +121,8 @@ export class PackagingBoxService {
     @InjectModel(PackingPlan.name)
     private readonly planModel: Model<PackingPlanDocument>,
     private readonly materialsService: PackagingMaterialsService,
+    // 08/11/2026 — báo khi sửa ngưỡng làm tồn hiện có rơi vào mức sắp hết/dưới ngưỡng.
+    @Optional() private readonly stockAlerts?: PackagingStockAlertService,
   ) {}
 
   /**
@@ -240,7 +244,7 @@ export class PackagingBoxService {
     ref: { groupId: Types.ObjectId; planId: Types.ObjectId; parcelNo: number },
     userId: string,
     note: string,
-  ): Promise<{ taken: number; unitCostVnd: number }> {
+  ): Promise<WasteResult> {
     return this.materialsService.recordWaste(boxCode, 1, ref, userId, note, session);
   }
 
@@ -342,6 +346,13 @@ export class PackagingBoxService {
       { returnDocument: 'after', runValidators: true },
     );
     if (!updated) throw this.notFound(id);
+    if (dto.reorder_level !== undefined && dto.reorder_level !== box.reorder_level) {
+      const stock = usableStock(updated);
+      await this.stockAlerts?.notifyIfWorse({
+        kind: 'box', code: updated.code, name: updated.name, before: stock, after: stock,
+        previousReorderLevel: box.reorder_level, reorderLevel: updated.reorder_level, trigger: 'vừa sửa ngưỡng',
+      });
+    }
     return updated;
   }
 

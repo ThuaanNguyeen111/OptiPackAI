@@ -94,6 +94,13 @@ function mailerFields(dto: CreatePackagingMaterialDto): Record<string, unknown> 
 /** Tải hàng tối đa mặc định của 1 túi niêm phong (giả định — PACKAGING_STANDARD §4.3). */
 export const DEFAULT_MAILER_MAX_LOAD_G = 3000;
 
+/** 08/11/2026 — kết quả ghi hao hụt; `stock` dùng để báo tồn sau khi giao dịch lưu xong. */
+export interface WasteResult {
+  taken: number;
+  unitCostVnd: number;
+  stock: { code: string; name: string; before: number; after: number; reorderLevel: number } | null;
+}
+
 @Injectable()
 export class PackagingMaterialsService {
   constructor(
@@ -363,9 +370,9 @@ export class PackagingMaterialsService {
     actorId: string,
     note: string,
     session: ClientSession,
-  ): Promise<{ taken: number; unitCostVnd: number }> {
+  ): Promise<WasteResult> {
     const m = await this.materialModel.findOne({ code }).session(session);
-    if (!m || quantity <= 0) return { taken: 0, unitCostVnd: 0 };
+    if (!m || quantity <= 0) return { taken: 0, unitCostVnd: 0, stock: null };
     let remaining = quantity;
     let taken = 0;
     const fromNew = Math.min(remaining, m.qty_new);
@@ -388,7 +395,12 @@ export class PackagingMaterialsService {
       actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
       balance_after: usableStock(m) - taken, created_at: new Date(),
     }], { session });
-    return { taken, unitCostVnd: m.unit_cost_vnd };
+    const before = usableStock(m);
+    return {
+      taken,
+      unitCostVnd: m.unit_cost_vnd,
+      stock: { code: m.code, name: m.name, before, after: before - taken, reorderLevel: m.reorder_level },
+    };
   }
 
   /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */
