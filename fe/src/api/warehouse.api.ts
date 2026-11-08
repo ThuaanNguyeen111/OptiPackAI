@@ -1,4 +1,5 @@
 import { apiRequest, apiRequestBlob } from '../lib/api'
+import { newClientEventId } from '../utils/client-event-id'
 import type {
   AdjustStockInput,
   AssignSkuInput,
@@ -575,7 +576,7 @@ export async function restockSkuAssignment(
   assignmentId: string,
   quantity: number,
   force = false,
-  extra?: { received_at?: string; lot_code?: string },
+  extra?: { received_at?: string; lot_code?: string; client_event_id?: string },
 ): Promise<SkuBinAssignmentRecord> {
   const updated = mapAssignment(
     await apiRequest<unknown>(
@@ -587,6 +588,7 @@ export async function restockSkuAssignment(
           force,
           ...(extra?.received_at ? { received_at: extra.received_at } : {}),
           ...(extra?.lot_code ? { lot_code: extra.lot_code } : {}),
+          client_event_id: extra?.client_event_id ?? newClientEventId('restock'),
         },
         auth: true,
       },
@@ -615,7 +617,11 @@ export async function adjustStockAssignment(
   const updated = mapAssignment(
     await apiRequest<unknown>(
       `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}/adjust`,
-      { method: 'POST', body: input, auth: true },
+      {
+        method: 'POST',
+        body: { ...input, client_event_id: input.client_event_id ?? newClientEventId('adjust') },
+        auth: true,
+      },
     ),
   )
   if (!updated) throw new Error('Kiểm kê thành công nhưng server không trả dữ liệu.')
@@ -630,7 +636,11 @@ export async function transferStockAssignment(
   const res = asRecord(
     await apiRequest<unknown>(
       `/warehouse/warehouses/${warehouseId}/sku-bin-assignments/${assignmentId}/transfer`,
-      { method: 'POST', body: input, auth: true },
+      {
+        method: 'POST',
+        body: { ...input, client_event_id: input.client_event_id ?? newClientEventId('transfer') },
+        auth: true,
+      },
     ),
   )
   const from = mapAssignment(res?.from)
