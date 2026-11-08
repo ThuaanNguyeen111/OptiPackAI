@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsDateString, IsInt, IsOptional, Matches, Min } from 'class-validator';
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Matches, MaxLength, Min } from 'class-validator';
 
 export class RestockSkuDto {
   @ApiProperty({ description: 'Số lượng NHẬP THÊM (cộng dồn, không phải set lại toàn bộ)', example: 50 })
@@ -24,4 +24,12 @@ export class RestockSkuDto {
   @IsOptional()
   @Matches(/^[A-Za-z0-9-]{3,40}$/, { message: 'Mã lô chỉ gồm chữ, số, gạch ngang (3–40 ký tự)' })
   lot_code?: string;
+
+  // 08/11/2026 — chống ghi trùng khi app gửi lại.
+  @ApiPropertyOptional({
+    example: '0b6f7c1e-3a5d-4c1e-9a52-7d1f0c2b9e11',
+    description: 'Mã thao tác do app sinh (UUID). Gửi lại cùng mã → trả kết quả cũ, không ghi lần 2.',
+  })
+  @IsOptional() @IsString({ message: 'client_event_id phải là chuỗi' }) @MaxLength(100, { message: 'client_event_id tối đa 100 ký tự' })
+  client_event_id?: string;
 }

@@ -578,9 +578,12 @@ export class WarehouseService {
     quantity: number,
     force = false,
     actorId = 'system',
-    lot: { receivedAt?: string; lotCode?: string } = {},
+    lot: { receivedAt?: string; lotCode?: string; clientEventId?: string } = {},
   ): Promise<SkuBinAssignmentDocument> {
     await this.assertWarehouseActive(warehouseId); // K1
+    // 08/11/2026 — app gửi lại cùng mã thao tác → trả dòng tồn hiện tại, không cộng lần 2.
+    const replay = await this.findReplayedMovement(lot.clientEventId, 'receive', assignmentId);
+    if (replay) return this.replayAssignment(replay);
     const receivedAt = this.parseReceivedAt(lot.receivedAt);
     // 🔄 07/10/2026 — SỬA LỖI: trước đây truy vấn `warehouse_id: warehouseId` (chuỗi) trong khi
     // DB lưu ObjectId và schema bị Mongoose hiểu là Mixed (không tự ép kiểu) -> không bao giờ tìm
@@ -612,18 +615,26 @@ export class WarehouseService {
     const receiptId = new Types.ObjectId();
     const receiptCode = generateLotCode('PN');
     const lotCode = trimOrNull(lot.lotCode)?.toUpperCase() ?? receiptCode;
-    const updated = await this.runTx(async (session) => {
-      const doc = await this.assignmentModel.findOneAndUpdate(
-        { _id: assignmentId, warehouse_id: warehouseObjectId },
-        { $inc: { quantity_on_hand: quantity } },
-        { returnDocument: 'after', session },
-      );
-      if (doc) {
-        const line = await this.receiveIntoLot(doc, quantity, { receivedAt, lotCode, receiptId }, actorId, session);
-        await this.saveReceipt({ _id: receiptId, receiptCode, warehouseId: doc.warehouse_id, lotCode, receivedAt, supplier: null, note: null, lines: [line], actorId }, session);
-      }
-      return doc;
-    });
+    let updated: SkuBinAssignmentDocument | null;
+    try {
+      updated = await this.runTx(async (session) => {
+        const doc = await this.assignmentModel.findOneAndUpdate(
+          { _id: assignmentId, warehouse_id: warehouseObjectId },
+          { $inc: { quantity_on_hand: quantity } },
+          { returnDocument: 'after', session },
+        );
+        if (doc) {
+          const line = await this.receiveIntoLot(doc, quantity, { receivedAt, lotCode, receiptId, clientEventId: lot.clientEventId }, actorId, session);
+          await this.saveReceipt({ _id: receiptId, receiptCode, warehouseId: doc.warehouse_id, lotCode, receivedAt, supplier: null, note: null, lines: [line], actorId }, session);
+        }
+        return doc;
+      });
+    } catch (error: unknown) {
+      // 2 lần gửi cùng mã chạy song song: lần thua đụng unique index → trả kết quả lần thắng.
+      const raced = await this.replayAfterDuplicate(error, lot.clientEventId, 'receive', assignmentId);
+      if (raced) return this.replayAssignment(raced);
+      throw error;
+    }
     if (!updated) {
       throw new AppException(
         WAREHOUSE_ERROR_CODES.WAREHOUSE_NOT_FOUND,
@@ -1332,7 +1343,7 @@ export class WarehouseService {
     quantityBefore: number,
     actorId: string,
     session: ClientSession,
-    extra: { reasonCode?: string | null; note?: string | null; refType?: string | null; refId?: string | null; lotAllocations?: LotAllocation[] } = {},
+    extra: { reasonCode?: string | null; note?: string | null; refType?: string | null; refId?: string | null; lotAllocations?: LotAllocation[]; clientEventId?: string | null } = {},
   ): Promise<void> {
     await this.movementModel.create([{
       warehouse_id: a.warehouse_id,
@@ -1351,9 +1362,61 @@ export class WarehouseService {
       ref_type: extra.refType ?? null,
       ref_id: extra.refId ?? null,
       lot_allocations: extra.lotAllocations ?? [],
+      client_event_id: extra.clientEventId ?? null, // 08/11/2026
       actor_id: actorId,
       created_at: new Date(),
     }], { session });
+  }
+
+  /**
+   * 08/11/2026 — chống ghi trùng cho nhập thêm / kiểm kê / chuyển ô (app mobile gửi lại
+   * thao tác trong hàng đợi ngoại tuyến). Đã có dòng sổ cái mang mã này → trả dòng đó để
+   * dựng lại kết quả cũ. Cùng mã nhưng khác loại thao tác / khác dòng tồn → 409.
+   */
+  private async findReplayedMovement(
+    clientEventId: string | undefined,
+    type: MovementType,
+    assignmentId: string,
+  ): Promise<InventoryMovementDocument | null> {
+    if (!clientEventId) return null;
+    const existing = await this.movementModel.findOne({ client_event_id: clientEventId });
+    if (!existing) return null;
+    if (existing.type !== type || existing.assignment_id.toString() !== assignmentId) {
+      throw new AppException(
+        WAREHOUSE_ERROR_CODES.CLIENT_EVENT_REUSED,
+        `Mã thao tác "${clientEventId}" đã dùng cho một thao tác kho khác.`,
+        HttpStatus.CONFLICT,
+        { clientEventId, existingType: existing.type },
+      );
+    }
+    return existing;
+  }
+
+  /** Lỗi trùng khoá do 2 lần gửi cùng mã chạy song song → dòng sổ cái của lần đã ghi; khác thì null. */
+  private async replayAfterDuplicate(
+    error: unknown,
+    clientEventId: string | undefined,
+    type: MovementType,
+    assignmentId: string,
+  ): Promise<InventoryMovementDocument | null> {
+    if (!clientEventId || !this.isDuplicateKeyError(error)) return null;
+    return this.findReplayedMovement(clientEventId, type, assignmentId);
+  }
+
+  private async replayAssignment(movement: InventoryMovementDocument): Promise<SkuBinAssignmentDocument> {
+    const doc = await this.assignmentModel.findOne({ _id: movement.assignment_id });
+    if (!doc) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, 'Dòng tồn của thao tác này không còn.', HttpStatus.NOT_FOUND, { assignmentId: movement.assignment_id.toString() });
+    }
+    return doc;
+  }
+
+  private async replayTransfer(out: InventoryMovementDocument): Promise<{ from: SkuBinAssignmentDocument; to: SkuBinAssignmentDocument }> {
+    const inMovement = await this.movementModel.findOne({ ref_type: 'transfer', ref_id: out.ref_id, type: 'transfer_in' });
+    if (!inMovement) {
+      throw new AppException(WAREHOUSE_ERROR_CODES.ASSIGNMENT_NOT_FOUND, 'Không tìm thấy dòng nhận của lần chuyển ô này.', HttpStatus.NOT_FOUND, { transferId: out.ref_id });
+    }
+    return { from: await this.replayAssignment(out), to: await this.replayAssignment(inMovement) };
   }
 
   private async getAssignmentInWarehouse(warehouseId: string, assignmentId: string): Promise<SkuBinAssignmentDocument> {
@@ -1378,31 +1441,40 @@ export class WarehouseService {
     if (dto.reason_code === StockAdjustReason.OTHER && !dto.note?.trim()) {
       throw new AppException(WAREHOUSE_ERROR_CODES.NOTE_REQUIRED, 'Chọn "Lý do khác" thì bắt buộc ghi chú.', HttpStatus.BAD_REQUEST);
     }
+    // 08/11/2026 — gửi lại cùng mã: trả dòng tồn hiện tại, không ghi thêm dòng kiểm kê.
+    const replay = await this.findReplayedMovement(dto.client_event_id, 'adjust', assignmentId);
+    if (replay) return this.replayAssignment(replay);
     const current = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
     const before = current.quantity_on_hand;
-    return this.runTx(async (session) => {
-      const updated = await this.assignmentModel.findOneAndUpdate(
-        { _id: current._id, quantity_on_hand: before },
-        { $set: { quantity_on_hand: dto.counted_quantity } },
-        { returnDocument: 'after', session },
-      );
-      if (!updated) {
-        throw new AppException(
-          WAREHOUSE_ERROR_CODES.STOCK_CHANGED,
-          'Tồn kho của ô vừa thay đổi (có người lấy/nhập hàng) trong lúc kiểm kê — tải lại và đếm lại.',
-          HttpStatus.CONFLICT,
-          { assignmentId },
+    try {
+      return await this.runTx(async (session) => {
+        const updated = await this.assignmentModel.findOneAndUpdate(
+          { _id: current._id, quantity_on_hand: before },
+          { $set: { quantity_on_hand: dto.counted_quantity } },
+          { returnDocument: 'after', session },
         );
-      }
-      // 15/10/2026 — đếm thiếu: trừ lô CŨ NHẤT trước (FIFO); đếm thừa: lô mới ngày hôm nay.
-      const delta = dto.counted_quantity - before;
-      const lotAllocations =
-        delta < 0
-          ? await this.lots.consume(updated, -delta, before, session)
-          : await this.lots.add(updated, { quantity: delta, receivedAt: new Date(), source: 'count_found', note: dto.note ?? null }, before, session);
-      await this.recordMovement(updated, 'adjust', delta, before, actorId, session, { reasonCode: dto.reason_code, note: dto.note ?? null, lotAllocations });
-      return updated;
-    });
+        if (!updated) {
+          throw new AppException(
+            WAREHOUSE_ERROR_CODES.STOCK_CHANGED,
+            'Tồn kho của ô vừa thay đổi (có người lấy/nhập hàng) trong lúc kiểm kê — tải lại và đếm lại.',
+            HttpStatus.CONFLICT,
+            { assignmentId },
+          );
+        }
+        // 15/10/2026 — đếm thiếu: trừ lô CŨ NHẤT trước (FIFO); đếm thừa: lô mới ngày hôm nay.
+        const delta = dto.counted_quantity - before;
+        const lotAllocations =
+          delta < 0
+            ? await this.lots.consume(updated, -delta, before, session)
+            : await this.lots.add(updated, { quantity: delta, receivedAt: new Date(), source: 'count_found', note: dto.note ?? null }, before, session);
+        await this.recordMovement(updated, 'adjust', delta, before, actorId, session, { reasonCode: dto.reason_code, note: dto.note ?? null, lotAllocations, clientEventId: dto.client_event_id ?? null });
+        return updated;
+      });
+    } catch (error: unknown) {
+      const raced = await this.replayAfterDuplicate(error, dto.client_event_id, 'adjust', assignmentId);
+      if (raced) return this.replayAssignment(raced);
+      throw error;
+    }
   }
 
   /** Chuyển hàng sang ô khác cùng kho: trừ nguồn + cộng đích + 2 dòng sổ cái, 1 transaction. */
@@ -1413,6 +1485,9 @@ export class WarehouseService {
     actorId: string,
   ): Promise<{ from: SkuBinAssignmentDocument; to: SkuBinAssignmentDocument }> {
     await this.assertWarehouseActive(warehouseId);
+    // 08/11/2026 — gửi lại cùng mã: trả 2 dòng tồn của lần chuyển đã ghi, không chuyển lần 2.
+    const replay = await this.findReplayedMovement(dto.client_event_id, 'transfer_out', assignmentId);
+    if (replay) return this.replayTransfer(replay);
     const source = await this.getAssignmentInWarehouse(warehouseId, assignmentId);
     const dest = await this.assertBinExists(dto.to_bin_location_id);
     if (dest.warehouse_id.toString() !== warehouseId) {
@@ -1429,39 +1504,45 @@ export class WarehouseService {
       if (destTotal + dto.quantity > dest.capacity) this.throwOverCapacity(dest.bin_code, dest.capacity, destTotal, dto.quantity);
     }
     const transferId = new Types.ObjectId().toString();
-    return this.runTx(async (session) => {
-      const from = await this.assignmentModel.findOneAndUpdate(
-        { _id: source._id, quantity_on_hand: { $gte: dto.quantity } },
-        { $inc: { quantity_on_hand: -dto.quantity } },
-        { returnDocument: 'after', session },
-      );
-      if (!from) {
-        throw new AppException(
-          WAREHOUSE_ERROR_CODES.INSUFFICIENT_STOCK,
-          `Ô nguồn chỉ còn ${String(source.quantity_on_hand)} — không chuyển được ${String(dto.quantity)}.`,
-          HttpStatus.CONFLICT,
-          { available: source.quantity_on_hand, requested: dto.quantity },
+    try {
+      return await this.runTx(async (session) => {
+        const from = await this.assignmentModel.findOneAndUpdate(
+          { _id: source._id, quantity_on_hand: { $gte: dto.quantity } },
+          { $inc: { quantity_on_hand: -dto.quantity } },
+          { returnDocument: 'after', session },
         );
-      }
-      // 🔄 K4b — dòng tồn đã gộp theo SKU nội bộ thì ô đích cũng gộp theo SKU nội bộ.
-      const to = await this.assignmentModel.findOneAndUpdate(
-        source.master_sku
-          ? { warehouse_id: source.warehouse_id, master_sku: source.master_sku, bin_location_id: dest._id }
-          : { warehouse_id: source.warehouse_id, platform: source.platform, shop_id: source.shop_id, seller_sku: source.seller_sku, bin_location_id: dest._id, master_sku: null },
-        {
-          $inc: { quantity_on_hand: dto.quantity },
-          ...(source.master_sku ? { $setOnInsert: { platform: source.platform, shop_id: source.shop_id, seller_sku: source.seller_sku } } : {}),
-        },
-        { upsert: true, returnDocument: 'after', session },
-      );
-      // 15/10/2026 — chuyển theo FIFO, lô sang ô đích GIỮ nguyên ngày nhập + mã lô.
-      const moved = await this.lots.consume(from, dto.quantity, from.quantity_on_hand + dto.quantity, session);
-      const deposited = await this.lots.deposit(to, moved, to.quantity_on_hand - dto.quantity, session);
-      const extra = { refType: 'transfer', refId: transferId, note: dto.note ?? null };
-      await this.recordMovement(from, 'transfer_out', -dto.quantity, from.quantity_on_hand + dto.quantity, actorId, session, { ...extra, lotAllocations: moved });
-      await this.recordMovement(to, 'transfer_in', dto.quantity, to.quantity_on_hand - dto.quantity, actorId, session, { ...extra, lotAllocations: deposited });
-      return { from, to };
-    });
+        if (!from) {
+          throw new AppException(
+            WAREHOUSE_ERROR_CODES.INSUFFICIENT_STOCK,
+            `Ô nguồn chỉ còn ${String(source.quantity_on_hand)} — không chuyển được ${String(dto.quantity)}.`,
+            HttpStatus.CONFLICT,
+            { available: source.quantity_on_hand, requested: dto.quantity },
+          );
+        }
+        // 🔄 K4b — dòng tồn đã gộp theo SKU nội bộ thì ô đích cũng gộp theo SKU nội bộ.
+        const to = await this.assignmentModel.findOneAndUpdate(
+          source.master_sku
+            ? { warehouse_id: source.warehouse_id, master_sku: source.master_sku, bin_location_id: dest._id }
+            : { warehouse_id: source.warehouse_id, platform: source.platform, shop_id: source.shop_id, seller_sku: source.seller_sku, bin_location_id: dest._id, master_sku: null },
+          {
+            $inc: { quantity_on_hand: dto.quantity },
+            ...(source.master_sku ? { $setOnInsert: { platform: source.platform, shop_id: source.shop_id, seller_sku: source.seller_sku } } : {}),
+          },
+          { upsert: true, returnDocument: 'after', session },
+        );
+        // 15/10/2026 — chuyển theo FIFO, lô sang ô đích GIỮ nguyên ngày nhập + mã lô.
+        const moved = await this.lots.consume(from, dto.quantity, from.quantity_on_hand + dto.quantity, session);
+        const deposited = await this.lots.deposit(to, moved, to.quantity_on_hand - dto.quantity, session);
+        const extra = { refType: 'transfer', refId: transferId, note: dto.note ?? null };
+        await this.recordMovement(from, 'transfer_out', -dto.quantity, from.quantity_on_hand + dto.quantity, actorId, session, { ...extra, lotAllocations: moved, clientEventId: dto.client_event_id ?? null });
+        await this.recordMovement(to, 'transfer_in', dto.quantity, to.quantity_on_hand - dto.quantity, actorId, session, { ...extra, lotAllocations: deposited });
+        return { from, to };
+      });
+    } catch (error: unknown) {
+      const raced = await this.replayAfterDuplicate(error, dto.client_event_id, 'transfer_out', assignmentId);
+      if (raced) return this.replayTransfer(raced);
+      throw error;
+    }
   }
 
   /** Bỏ gán SKU khỏi ô — chỉ khi ô hết hàng của SKU đó. Sổ cái cũ vẫn giữ nguyên. */
@@ -1671,7 +1752,7 @@ export class WarehouseService {
   private async receiveIntoLot(
     doc: SkuBinAssignmentDocument,
     quantity: number,
-    lot: { receivedAt: Date; lotCode: string; receiptId: Types.ObjectId },
+    lot: { receivedAt: Date; lotCode: string; receiptId: Types.ObjectId; clientEventId?: string },
     actorId: string,
     session: ClientSession,
   ): Promise<StockReceiptLine> {
@@ -1685,6 +1766,7 @@ export class WarehouseService {
       refType: 'stock_receipt',
       refId: lot.receiptId.toString(),
       lotAllocations,
+      clientEventId: lot.clientEventId ?? null, // 08/11/2026 — chỉ restock 1 dòng gửi mã
     });
     return {
       assignment_id: doc._id,
