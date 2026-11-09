@@ -4813,6 +4813,21 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **5. Còn lại / lưu ý gì?** Đổi schema xong phải chạy lại `npm run db:script` để cập nhật file `.mongosh.js` (spec không ép file phải khớp, tránh làm vỡ commit của thành viên khác). Field `Mixed` không ràng buộc kiểu. Nên chạy thử `mongosh` trên database staging trước khi dùng cho môi trường khác.
 
+## 📲 Nhật ký 09/11/2026 — BE cho app mobile: tra ô theo mã quét, giới hạn gọi theo user, GET /health (AOFP-251, AOFP-252, docs AOFP-253)
+
+**1. Vấn đề là gì?** `GUIDE_DOC/BE_MOBILE_CHECKLIST.md` mục 1, 2, 5. (1) Màn nhập thêm / kiểm kê / chuyển ô trên app bắt đầu bằng quét mã ô, nhưng BE chỉ có danh sách tồn của cả kho. (2) Throttler đếm theo IP, cả kho chung 1 wifi nên mọi máy chia nhau 600 lần/phút. (5) Không có health check thật (`GET /` chỉ trả chữ).
+
+**2. Đã làm gì?**
+- `GET /warehouse/warehouses/:warehouseId/bins/by-code/:binCode` (Admin, Warehouse Staff) — `WarehouseService.findBinByCode()`: bỏ khoảng trắng, thử đúng mã rồi bản viết hoa, trả `{ bin, zoneCode, zoneName, assignments[] }`; 404 `WH_BIN_NOT_FOUND`, 400 khi id kho sai / mã rỗng. Thêm index `sku_bin_assignments { warehouse_id: 1, bin_location_id: 1 }`.
+- `common/throttle/throttle-tracker.ts` + `ThrottlerModule.forRootAsync({ getTracker })`: access token hợp lệ (verify chữ ký HS256 + hạn bằng `JWT_ACCESS_SECRET`) → khóa `user:<sub>`; không có / sai → `ip:<ip>`. Giới hạn vẫn `THROTTLE_LIMIT_PER_MINUTE` (600); `@Throttle` riêng của login / forgot-password vẫn theo IP vì chưa có token.
+- `GET /health` (`src/health/health.controller.ts`, công khai, `@SkipThrottle`): ping MongoDB (`db.admin().ping()`) và Redis (`RedisCacheService.ping()` mới), mỗi cái chờ tối đa 1,5 giây; 200 `status: 'ok'`, có cái lỗi → 503 `status: 'degraded'`. Không trả host / lỗi gốc.
+
+**3. Vì sao làm như vậy?** Tracker phải verify chữ ký: chỉ decode thì kẻ gian đổi `sub` mỗi request là có bộ đếm mới. ThrottlerGuard (APP_GUARD) chạy trước JwtAuthGuard nên chưa có `req.user`, phải tự đọc header. Ping có hạn chờ vì ioredis xếp hàng lệnh khi mất kết nối (ping trần có thể treo). Ô đã ngừng dùng vẫn trả (`isActive: false`) để app báo rõ thay vì "không tìm thấy".
+
+**4. Đã kiểm chứng thế nào?** Test mới: `throttle-tracker.spec.ts` (6: token hợp lệ, 2 user cùng IP, token ký sai secret, hết hạn, không token, thiếu secret), `health.controller.spec.ts` (4), `warehouse.service.bin-by-code.spec.ts` (3). Toàn bộ trên `main` (a389a8c) + thay đổi: tsc 0 lỗi, ESLint 0 lỗi, jest 155 bộ đạt / 1 bỏ qua, 1.523 test đạt. Chưa chạy app thật để gọi 3 route.
+
+**5. Còn lại / lưu ý gì?** Index mới tự tạo khi khởi động. FE web (`fe/src/api/health.api.ts`) vẫn gọi `GET /`, có thể chuyển sang `/health` (không bắt buộc). Mục 3 (push FCM), 4 (upload ảnh) của checklist chưa làm.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
