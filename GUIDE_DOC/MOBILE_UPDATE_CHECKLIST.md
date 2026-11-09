@@ -34,7 +34,7 @@
 | 13 | Store Owner — Tổng quan, đánh dấu Hỏa Tốc, duyệt hàng hoàn, tra cứu đơn | 8 | 4 | ☐ Chưa làm |
 | 14 | Hỗ trợ máy quét cầm tay / Bluetooth (nhận mã như bàn phím) bên cạnh camera | 4.2 | 1 | ☐ Chưa làm |
 
-**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** push FCM (đợt 3), upload ảnh bằng chứng cho giao Hỏa Tốc / kiểm hàng hoàn / báo lỗi kiện (đợt 4), giới hạn gọi API theo user thay vì theo IP, `GET /app/version`. Xem mục 9.
+**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** push FCM (đợt 3), upload ảnh bằng chứng cho giao Hỏa Tốc / kiểm hàng hoàn / báo lỗi kiện (đợt 4), `GET /app/version`. Xem mục 9.
 
 ---
 
@@ -99,6 +99,7 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 
 - `POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock` · `.../adjust` · `.../transfer`.
 - **Bắt buộc gửi `client_event_id`** (chuỗi ≤ 100 ký tự). Gửi lại cùng mã → BE trả đúng kết quả lần trước (200), không cộng / trừ lần 2.
+- Quét mã ô → `GET /warehouse/warehouses/:warehouseId/bins/by-code/:binCode` (🆕 09/11) trả ô + các SKU và tồn trên ô; 404 `WH_BIN_NOT_FOUND` = kho không có ô này.
 - Luồng: quét mã ô → chọn SKU trên ô → nhập số → xác nhận lại ("Nhập thêm 12 cái vào ô A-03-02-01?") → gửi.
 - Kiểm kê bắt nhập lý do. Chuyển ô quét cả ô nguồn và ô đích.
 
@@ -152,7 +153,8 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 |---|---|---|
 | Đăng ký thiết bị + push FCM trong `NotificationsService.notify()` | Báo đẩy cho mọi role, cảnh báo tồn vật liệu | ☐ BE chưa làm |
 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☐ BE chưa làm |
-| Giới hạn gọi API theo user thay vì theo IP | Hiện 600 lần/phút **chung cho cả kho** (chung 1 IP): app đừng gọi dồn dập | ☐ BE chưa làm |
+| Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
+| `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
 | `GET /app/version` (phiên bản app tối thiểu) | Bắt cập nhật app cũ; không cần khi chỉ demo trên máy nhóm | ☐ BE chưa làm |
 
 Đã có, mobile dùng được ngay: refresh token trả trong body, phân quyền theo role, `client_event_id` cho `pick-item` / quét món đóng gói / `restock` / `adjust` / `transfer`, `expected_version` + 409, phân trang `before` + `limit` và lọc `assigned_staff_id`, báo thiếu hàng, đơn Hỏa Tốc, thông báo in-app có phân trang, dashboard.

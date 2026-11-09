@@ -63,6 +63,26 @@ export class RedisCacheService implements OnModuleDestroy {
     await this.client.del(`user:auth:${userId}`);
   }
 
+  /** Kiểm tra Redis còn trả lời (GET /health). Có hạn chờ: ioredis xếp hàng lệnh khi mất kết nối nên ping trần có thể treo. */
+  async ping(timeoutMs = 1500): Promise<boolean> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        this.client.ping(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error('redis ping timeout'));
+          }, timeoutMs);
+        }),
+      ]);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   onModuleDestroy(): void {
     this.client.disconnect();
   }

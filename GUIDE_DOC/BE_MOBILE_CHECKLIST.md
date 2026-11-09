@@ -7,15 +7,15 @@
 
 ## A. Chặn mobile — làm trước khi làm app
 
-- [ ] **1. Tra ô kệ theo mã quét**
+- [x] **1. Tra ô kệ theo mã quét**
   - Route mới `GET /warehouse/warehouses/:warehouseId/bins/by-code/:binCode` (Admin, Warehouse Staff): trả ô kèm các SKU đang gán và tồn trên ô.
   - Vì sao: màn nhập thêm / kiểm kê / chuyển ô bắt đầu bằng quét mã ô. Hiện chỉ có `GET .../sku-bin-assignments` trả toàn bộ SKU của kho, không lọc theo mã ô.
-  - Độ lớn: nhỏ. Ghi chú: _
+  - Độ lớn: nhỏ. Ghi chú: xong 09/11/2026 (AOFP-251). Response `{ bin, zoneCode, zoneName, assignments[] }`; 404 `WH_BIN_NOT_FOUND`. Mã quét được bỏ khoảng trắng, thử cả bản viết hoa. Thêm index `{ warehouse_id, bin_location_id }`.
 
-- [ ] **2. Giới hạn gọi API theo user thay vì theo IP**
+- [x] **2. Giới hạn gọi API theo user thay vì theo IP**
   - Đổi khóa đếm của throttler sang `user id` khi đã đăng nhập (chưa đăng nhập thì vẫn theo IP).
   - Vì sao: cả kho chung một wifi (một IP), 600 lần/phút (`THROTTLE_LIMIT_PER_MINUTE`) bị chia cho mọi máy, dễ bị 429.
-  - Độ lớn: nhỏ. Ghi chú: _
+  - Độ lớn: nhỏ. Ghi chú: xong 09/11/2026 (AOFP-252). `common/throttle/throttle-tracker.ts`: token hợp lệ (đúng chữ ký, còn hạn) → `user:<id>`; không có / sai → `ip:<ip>`.
 
 - [ ] **3. Push thông báo (FCM)**
   - Route đăng ký / gỡ token thiết bị (`POST /notifications/devices`, `DELETE /notifications/devices/:token`), collection lưu token theo user, gửi push trong `NotificationsService.notify()` cùng lúc với in-app và email; token hết hạn thì tự xóa.
@@ -31,7 +31,7 @@
 
 ## B. Nên làm thêm — không chặn
 
-- [ ] **5. `GET /health`** kiểm tra kết nối MongoDB + Redis (app biết server sống hay lỗi). Nhỏ. Ghi chú: _
+- [x] **5. `GET /health`** kiểm tra kết nối MongoDB + Redis (app biết server sống hay lỗi). Nhỏ. Ghi chú: xong 09/11/2026 (AOFP-252). Công khai, không tính giới hạn gọi; 200 `{ status: 'ok', mongo: 'up', redis: 'up', uptime_s, time }`, có cái lỗi thì 503 `status: 'degraded'`.
 - [ ] **6. `GET /app/version`** trả phiên bản app tối thiểu, app cũ hơn thì bắt cập nhật. Chỉ cần khi phát app ra ngoài nhóm. Nhỏ. Ghi chú: _
 - [ ] **7. Tắt Swagger khi production; bật `enableShutdownHooks()`** trong `main.ts`. Nhỏ. Ghi chú: _
 - [ ] **8. Cache `GET /dashboard/summary` 30–60 giây bằng Redis** (hiện đếm lại toàn bộ mỗi lần Store Owner mở app). Nhỏ. Ghi chú: _

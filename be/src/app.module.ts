@@ -5,7 +5,9 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { RedisModule } from './common/redis/redis.module';
+import { makeThrottleTracker } from './common/throttle/throttle-tracker';
 import { AppController } from './app.controller';
+import { HealthController } from './health/health.controller';
 import { AppService } from './app.service';
 import databaseConfig from './config/database.config';
 import googleConfig from './config/google.config';
@@ -53,12 +55,21 @@ import { HistoryModule } from './modules/history/history.module';
       }),
       inject: [ConfigService],
     }),
-    // Giới hạn chung theo IP. Cả kho dùng chung 1 IP (NAT) và FE có polling
-    // + quét mã liên tục nên 20/phút (cũ) gây 429 giả. Route nhạy cảm
-    // (login, forgot-password, AI guide) vẫn có @Throttle riêng chặt hơn.
-    ThrottlerModule.forRoot([
-      { ttl: 60000, limit: Number(process.env.THROTTLE_LIMIT_PER_MINUTE) || 600 },
-    ]),
+    // Giới hạn chung: 🔄 09/11/2026 đếm theo USER khi có access token hợp
+    // lệ, chưa đăng nhập thì theo IP (xem common/throttle/throttle-tracker.ts)
+    // — cả kho chung 1 IP nên đếm theo IP làm các máy quét giành nhau 600
+    // lần/phút. Route nhạy cảm (login, forgot-password, AI guide) vẫn có
+    // @Throttle riêng chặt hơn.
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        throttlers: [
+          { ttl: 60000, limit: Number(process.env.THROTTLE_LIMIT_PER_MINUTE) || 600 },
+        ],
+        getTracker: makeThrottleTracker(config.get<string>('jwt.accessSecret')),
+      }),
+    }),
     // BẮT BUỘC gọi Ở GỐC APP (không phải trong OrdersModule) — mọi
     // @Cron()/@Interval() ở BẤT KỲ module con nào (kể cả các module
     // thêm sau này) chỉ hoạt động khi ScheduleModule được đăng ký ĐÚNG
@@ -93,7 +104,7 @@ import { HistoryModule } from './modules/history/history.module';
     DocumentsModule,
     CarriersModule, // C2 (08/10/2026) — đơn vị vận chuyển (GHN / mock)
   ],
-  controllers: [AppController],
+  controllers: [AppController, HealthController],
   providers: [
     AppService,
   

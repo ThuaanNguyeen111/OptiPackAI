@@ -53,6 +53,7 @@ SkuBinAssignmentSchema.index(
   { unique: true },
 );
 SkuBinAssignmentSchema.index({ warehouse_id: 1, seller_sku: 1 }); // pick-item / Picking List tra theo SKU
+SkuBinAssignmentSchema.index({ warehouse_id: 1, bin_location_id: 1 }); // 09/11/2026 — tra tồn theo ô vừa quét (app mobile)
 // K4b — 1 SKU nội bộ chỉ có 1 dòng tồn trên 1 ô (gộp tồn các sàn). Partial: chỉ áp
 // cho dòng đã gắn master_sku, dòng chưa nối không bị ảnh hưởng.
 SkuBinAssignmentSchema.index(
