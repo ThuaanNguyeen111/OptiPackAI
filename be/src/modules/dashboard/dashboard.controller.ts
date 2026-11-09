@@ -18,13 +18,13 @@ export class DashboardController {
   @Roles(UserRole.STORE_OWNER, UserRole.ADMIN)
   @ApiOperation({
     summary:
-      'Bảng điều khiển: việc cần xử lý ngay, doanh thu (đặt hàng + đã giao, so kỳ trước, theo sàn, theo ngày giờ VN), giao hàng, chi phí ship + bao bì, trả hàng, đơn hỏa tốc đúng hạn, kho thiếu/hết hàng, vật tư dưới mức đặt lại. ?from&to ISO (mặc định 30 ngày, tối đa 366), ?platform (lazada | aurelle | …).',
+      'Bảng điều khiển: việc cần xử lý ngay, doanh thu (đặt hàng + đã giao, so kỳ trước, theo sàn, theo ngày giờ VN), giao hàng, chi phí ship + bao bì, trả hàng, đơn hỏa tốc đúng hạn, kho thiếu/hết hàng, vật tư dưới mức đặt lại. ?from&to ISO (mặc định 30 ngày, tối đa 366), ?platform (lazada | aurelle | …). Kết quả được lưu tạm 5 giây theo bộ tham số (xem range.generatedAt).',
   })
   async summary(
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('platform') platform?: string,
   ): Promise<{ summary: DashboardSummary }> {
-    return { summary: await this.dashboard.summary(from, to, platform) };
+    return { summary: await this.dashboard.cachedSummary(from, to, platform) };
   }
 }

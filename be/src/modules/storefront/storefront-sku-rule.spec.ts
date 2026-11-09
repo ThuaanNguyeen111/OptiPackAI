@@ -59,6 +59,7 @@ describe('ProductMasterService — trạng thái sàn, tự nối, ngừng dùng
     const bulkWrite = jest.fn().mockResolvedValue({ upsertedCount: 2, modifiedCount: 0 });
     const findByIdAndUpdate = jest.fn().mockResolvedValue({ seller_sku: 'X', shop_id: 'S1' });
     const autoMapSellerSkus = jest.fn().mockResolvedValue(1);
+    const autoCreateFromSellerSkus = jest.fn().mockResolvedValue(undefined);
     const adapter = {
       getProducts: jest.fn().mockResolvedValue([
         { item_id: '1', skus: [{ SellerSku: 'ATHUN-005-DEN-M', Status: 'active' }, { SellerSku: 'SF-OLD', Status: 'inactive' }] },
@@ -72,9 +73,9 @@ describe('ProductMasterService — trạng thái sàn, tự nối, ngừng dùng
       { [MarketplacePlatform.AURELLE]: adapter } as never,
       undefined,
       undefined,
-      { autoMapSellerSkus } as never,
+      { autoMapSellerSkus, autoCreateFromSellerSkus } as never,
     );
-    return { service, bulkWrite, autoMapSellerSkus, findByIdAndUpdate };
+    return { service, bulkWrite, autoMapSellerSkus, autoCreateFromSellerSkus, findByIdAndUpdate };
   }
 
   it('ghi marketplace_status theo Status của sàn; chỉ tự nối SKU còn bán', async () => {
@@ -83,6 +84,12 @@ describe('ProductMasterService — trạng thái sàn, tự nối, ngừng dùng
     const ops = (bulkWrite.mock.calls[0] as [{ updateOne: { update: { $set: Record<string, unknown> } } }[]])[0];
     expect(ops.map((op) => op.updateOne.update.$set.marketplace_status)).toEqual(['active', 'inactive']);
     expect(autoMapSellerSkus).toHaveBeenCalledWith(MarketplacePlatform.AURELLE, 'S1', ['ATHUN-005-DEN-M']);
+  });
+
+  it('10/11/2026 — AURELLE: tự tạo SKU nội bộ cho SKU còn bán, bỏ SKU ngừng bán', async () => {
+    const { service, autoCreateFromSellerSkus } = build();
+    await service.syncProductsForShop(MarketplacePlatform.AURELLE, 'S1', ['ATHUN-005-DEN-M', 'SF-OLD']);
+    expect(autoCreateFromSellerSkus).toHaveBeenCalledWith([{ sellerSku: 'ATHUN-005-DEN-M', name: null }]);
   });
 
   it('setRetired: đánh dấu ngừng dùng kèm thời điểm, dùng lại thì xoá', async () => {

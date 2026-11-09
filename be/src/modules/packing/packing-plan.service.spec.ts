@@ -149,6 +149,7 @@ describe('PackingPlanService', () => {
     adjustPickedUnits: jest.Mock;
     takeReplacementUnit: jest.Mock;
     reconcileReservation: jest.Mock;
+    clearPackingBlocked: jest.Mock;
   };
   let boxService: {
     listActiveSpecs: jest.Mock;
@@ -205,6 +206,7 @@ describe('PackingPlanService', () => {
       adjustPickedUnits: jest.fn(() => Promise.resolve({ restocked: 1, withoutLocation: 0 })),
       takeReplacementUnit: jest.fn(() => Promise.resolve({ binLocationId: 'b', remainingStock: 4 })),
       reconcileReservation: jest.fn(() => Promise.resolve()),
+      clearPackingBlocked: jest.fn(() => Promise.resolve()),
     };
     settings = { ...DEFAULT_PACKING_SETTINGS };
     bagService = { consumeForParcels: jest.fn(() => Promise.resolve({ consumed: [], shortfalls: [] })) };
@@ -321,6 +323,8 @@ describe('PackingPlanService', () => {
       expect(plan.orders.every((o) => o.status === 'ok')).toBe(true);
       expect(group.fulfillment_status).toBe(GroupFulfillmentStatus.PENDING_APPROVAL);
       expect(notificationsService.notify).toHaveBeenCalledTimes(1);
+      // 10/11/2026 — tính được kế hoạch thì gỡ cờ "kẹt đóng gói" của nhóm.
+      expect(orderGroupsService.clearPackingBlocked).toHaveBeenCalledWith(groupId);
     });
 
     it('không có CP-SAT: đơn cần chứng minh thêm ghi cp_sat = unavailable, còn lại skipped; không tạo việc nền', async () => {

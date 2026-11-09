@@ -4828,6 +4828,23 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **5. Còn lại / lưu ý gì?** Index mới tự tạo khi khởi động. FE web (`fe/src/api/health.api.ts`) vẫn gọi `GET /`, có thể chuyển sang `/health` (không bắt buộc). Mục 3 (push FCM), 4 (upload ảnh) của checklist chưa làm.
 
+## 📲 Nhật ký 10/11/2026 — BE cho app mobile: Swagger theo môi trường, cache dashboard 5 giây, tìm nhóm theo đuôi mã có index, sửa mock test (BE_MOBILE_CHECKLIST mục 7–10; AOFP-256..259, docs AOFP-260)
+
+**1. Vấn đề là gì?** (7) `/api/docs` bật ở mọi môi trường, server deploy lộ toàn bộ API; `main.ts` không bật shutdown hook nên khi deploy / k8s đổi pod app bị tắt ngang. (8) Mỗi lần mở dashboard BE chạy lại khoảng 8 truy vấn đếm / tổng hợp. (9) Tìm nhóm theo đuôi mã dùng `$expr` + `$toString` `_id` → quét cả bảng. (10) Test cũ in `clearPackingBlocked / scheduleShortageRecheck / autoCreateFromSellerSkus / productMasterModel.find is not a function` vì mock thiếu hàm mới → nhánh đó không được test.
+
+**2. Đã làm gì?**
+- (7) `common/utils/swagger-enabled.util.ts`: `SWAGGER_ENABLED=true/false` ưu tiên; không đặt thì bật khi dev, TẮT khi `NODE_ENV=production`. `main.ts` gọi `app.enableShutdownHooks()`. `.env.example` thêm `SWAGGER_ENABLED`, sửa chú thích `THROTTLE_LIMIT_PER_MINUTE` (đếm theo user).
+- (8) `DashboardService.cachedSummary()` (controller dùng hàm này): lưu Promise kết quả 5 giây theo bộ `(from, to, platform)`, lần tính lỗi thì xoá khỏi cache, tối đa 50 khóa.
+- (9) Field mới `order_groups.id_reversed` (mã nhóm hex viết ngược, index thường) ghi bằng hook `pre('validate')` khi tạo nhóm; `groupIdSuffixFilters()` (`order-groups/utils/group-id-search.util.ts`) tìm đuôi mã bằng regex neo đầu `^<đuôi viết ngược>` + nhánh dự phòng `id_reversed: null` dùng cách cũ cho nhóm chưa backfill. Script `scripts/backfill-order-group-id-reversed.ts` (mặc định chạy thử, `--apply` mới ghi). `be/db/init-db.mongosh.js` sinh lại (155 index).
+- (10) Thêm hàm còn thiếu vào mock + 1 assert cho mỗi nhánh: `packing-plan.service.spec.ts` (`clearPackingBlocked` sau khi tính được kế hoạch), `returns.service.spec.ts` (`scheduleShortageRecheck('kiểm hàng hoàn')`), `storefront-sku-rule.spec.ts` (`autoCreateFromSellerSkus` chỉ SKU còn bán), `master-skus.service.spec.ts` (`productMasterModel.find` tìm SKU sàn trùng mã).
+- Tài liệu: `BE_MOBILE_CHECKLIST.md` 1.1 (chốt mục 3, 4, 6–9; tick 7–10), `API_LIST.md`, README sửa phần ghi ngược về sàn (xem mục 5).
+
+**3. Vì sao làm như vậy?** Swagger dùng biến riêng vì `docker-compose.yml`, `be/Dockerfile`, `k8s` đều đặt sẵn `NODE_ENV=production` — chỉ dựa `NODE_ENV` thì chạy Docker trên máy cũng mất Swagger. Cache trong bộ nhớ thay vì Redis (checklist ghi "bằng Redis"): giữ nguyên kiểu `Date`, gộp các request đến cùng lúc vào 1 lượt tính (lưu Promise), Redis lỗi không ảnh hưởng; 5 giây đủ ngắn để người xem không thấy trễ (Thuận chốt). Đuôi mã viết ngược thành tiền tố → regex `^…` dùng được index, đúng cách (a) Thuận chốt (lưu thêm mã, nhân viên vẫn gõ 6–8 ký tự cuối) nhưng tìm được mọi độ dài đuôi 4–23 ký tự. Nhánh dự phòng để chưa chạy backfill vẫn tìm được; index không partial để nhánh `id_reversed: null` cũng đi qua index.
+
+**4. Đã kiểm chứng thế nào?** Test mới: `swagger-enabled.util.spec.ts` (3), `dashboard.cache.spec.ts` (5: cùng tham số trong 5 giây, hết hạn, khác tham số, request đồng thời, lỗi không lưu), `group-id-search.util.spec.ts` (3), `order-group.id-reversed.spec.ts` (2: hook ghi id_reversed, có index); sửa kỳ vọng `$or` trong `order-groups.service.packing-blocked.spec.ts`. Trên `main` 3e0320c + thay đổi: tsc 0 lỗi, ESLint 0 lỗi (5 warning có sẵn ở `storefront-sku-rule.spec.ts`), jest 159 bộ đạt / 1 bỏ qua, 1.537 test đạt. Chưa chạy app thật, chưa chạy backfill trên Atlas.
+
+**5. Còn lại / lưu ý gì?** Sau khi deploy: chạy `npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/backfill-order-group-id-reversed.ts` (chạy thử) rồi thêm `--apply`. Server demo muốn xem Swagger thì đặt `SWAGGER_ENABLED=true`. `order-groups.service.recipientKeyAndCancel.spec.ts` vẫn in `orderModel.find / aggregate`, `pickEventModel.find`, `autoAssign is not a function` (mock rỗng `{}` cố ý cho nhiều nhánh best-effort) — chưa sửa. **Đính chính README (AOFP-255):** OptiPack KHÔNG ghi ngược Lazada (đã bỏ báo "đã đóng gói" lên Lazada 10/10/2026, `marketplace.config.ts`); ghi ngược chỉ cho AURELLE (trạng thái, tồn) và Tiki (tự xác nhận đủ hàng) — README đã sửa lại. Mục 3 (push FCM: chờ duyệt bảng loại push, chốt `picking_assigned`, tạo project Firebase) và 4 (upload ảnh: chờ biến Cloudinary) chưa code.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4855,7 +4872,7 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 15b. 🆕 28/10 — Đơn gộp (chi tiết `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 9.4) — 🔄 ĐÃ XỬ LÝ cùng tối: G1 chốt đúng thiết kế (mỗi đơn 1 vận đơn); ✅ G2 báo trạng thái giao theo từng đơn, ✅ G3 nhãn in người nhận từng kiện, ✅ G4 SĐT bị che không tự gộp, ✅ G7 nhóm ≥ 2 đơn bắt quét khi đóng. Còn lại: G5 (tách sau khi quét) — giữ nguyên, chấp nhận được.
 
 ### D. Hoãn có chủ đích
-16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng (chưa chọn nơi lưu). 19. Nhãn có COD / "cho xem hàng". 20. ~~API tổng hợp cho Dashboard~~ — ✅ BE xong 28/10 (`GET /dashboard/summary`); FE checklist dòng 7.
+16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng — 🔄 10/11/2026: đã chốt lưu trên Cloudinary (BE_MOBILE_CHECKLIST mục 4), chưa code. 19. Nhãn có COD / "cho xem hàng". 20. ~~API tổng hợp cho Dashboard~~ — ✅ BE xong 28/10 (`GET /dashboard/summary`); FE checklist dòng 7.
 
 ### E. Cấu hình
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".
