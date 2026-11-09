@@ -240,6 +240,13 @@ function toAssignmentResponse(
   };
 }
 
+interface BinByCodeResponse {
+  bin: BinLocationResponse;
+  zoneCode: string | null;
+  zoneName: string | null;
+  assignments: SkuBinAssignmentResponse[];
+}
+
 /**
  * ===================================================================
  * warehouse.controller.ts — MỚI (2026-09-09)
@@ -419,6 +426,28 @@ export class WarehouseController {
     );
     this.warehouseService.notifyStockIn('nhập thêm hàng'); // 22/10/2026
     return toAssignmentResponse(doc);
+  }
+
+  @Get('warehouses/:warehouseId/bins/by-code/:binCode')
+  @Roles(UserRole.ADMIN, UserRole.WAREHOUSE_STAFF)
+  @ApiOperation({
+    summary:
+      '09/11/2026 (app mobile) — Tra 1 ô theo mã vừa quét: ô + khu + các SKU và tồn đang nằm trên ô. 404 WH_BIN_NOT_FOUND nếu kho không có ô này.',
+  })
+  async findBinByCode(
+    @Param('warehouseId') warehouseId: string,
+    @Param('binCode') binCode: string,
+  ): Promise<BinByCodeResponse> {
+    const { bin, zone, assignments } = await this.warehouseService.findBinByCode(
+      warehouseId,
+      binCode,
+    );
+    return {
+      bin: toBinLocationResponse(bin),
+      zoneCode: zone?.zone_code ?? null,
+      zoneName: zone?.zone_name ?? null,
+      assignments: assignments.map((a) => toAssignmentResponse(a, bin.bin_code)),
+    };
   }
 
   @Get('sku-bin-assignments/unassigned')
