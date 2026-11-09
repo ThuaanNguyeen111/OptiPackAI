@@ -8,6 +8,7 @@ import {
 import { usePortal } from '../../context/use-portal'
 import { getAccessToken } from '../../lib/auth-storage'
 import type { AppNotification } from '../../types/notifications'
+import { setVisibleInterval } from '../../utils/visible-interval'
 
 /** Khớp chuông unread-count — poll 10s đụng Throttler 20 req/phút, trang sau login không load được. */
 const POLL_MS = 45_000
@@ -40,11 +41,11 @@ export function MfaDisabledNotice() {
     }
 
     const startId = window.setTimeout(refresh, 1500)
-    const intervalId = window.setInterval(refresh, POLL_MS)
+    const stopPolling = setVisibleInterval(refresh, POLL_MS)
     return () => {
       cancelled = true
       window.clearTimeout(startId)
-      window.clearInterval(intervalId)
+      stopPolling()
     }
   }, [])
 

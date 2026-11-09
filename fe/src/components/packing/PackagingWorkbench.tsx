@@ -79,6 +79,7 @@ import { BoxSourceFields, boxSourceError } from './BoxSourceFields'
 import { BoxComparisonTable } from './BoxComparisonTable'
 import { GuideRating, GuideTraceButton } from './GuideFeedback'
 import { GuideSteps } from './GuideSteps'
+import { setVisibleInterval } from '../../utils/visible-interval'
 
 /**
  * Bàn Packaging Staff — duyệt / điều chỉnh / từ chối kế hoạch thùng.
@@ -489,7 +490,7 @@ export function PackagingWorkbench() {
   const computingGroupId = plan?.status === 'computing' ? plan.orderGroupId : null
   useEffect(() => {
     if (!computingGroupId) return
-    const timer = window.setInterval(() => {
+    return setVisibleInterval(() => {
       void getPackingPlan(computingGroupId)
         .then((next) => {
           if (!next) return
@@ -499,7 +500,6 @@ export function PackagingWorkbench() {
         })
         .catch(() => undefined)
     }, 3000)
-    return () => window.clearInterval(timer)
   }, [computingGroupId])
 
   // Mở kiện chưa có câu hướng dẫn: xin 1 lần (AI hoặc câu mẫu). Kiện xếp tay thì không gọi (BE trả 409).
@@ -538,10 +538,10 @@ export function PackagingWorkbench() {
 
   useEffect(() => {
     const first = window.setTimeout(() => void loadBlocked(), 0)
-    const interval = window.setInterval(() => void loadBlocked(), 15000)
+    const stopPolling = setVisibleInterval(() => void loadBlocked(), 15000)
     return () => {
       window.clearTimeout(first)
-      window.clearInterval(interval)
+      stopPolling()
     }
   }, [loadBlocked])
 
