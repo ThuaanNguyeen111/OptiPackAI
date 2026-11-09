@@ -7,7 +7,7 @@
 Đồng bộ đơn từ sàn thương mại điện tử · Gộp đơn theo người nhận · Quản lý kho theo vị trí · Đề xuất đóng gói tối ưu · Giao hàng và đổi trả khép kín
 
 [![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?style=flat-square&logo=nestjs&logoColor=white)](https://nestjs.com)
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev)
 [![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/atlas)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Node](https://img.shields.io/badge/Node.js-%E2%89%A520-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
@@ -27,14 +27,15 @@ Trọng tâm của dự án là **giảm chi phí đóng gói và vận chuyển
 
 ### Điểm nổi bật
 
-- **Đồng bộ đơn hàng tự động** từ Lazada qua Lazada Open Platform (OAuth 2.0, tự làm mới token, đồng bộ định kỳ), kiến trúc adapter sẵn sàng mở rộng thêm sàn.
+- **Đồng bộ đơn hàng tự động từ nhiều kênh** — Lazada (Open Platform, OAuth 2.0, tự làm mới token, đồng bộ định kỳ), Tiki (app Inhouse, kéo đơn mỗi phút) và AURELLE (Open API tương thích Lazada, webhook có chữ ký); kiến trúc adapter cho phép thêm sàn mà không sửa luồng xử lý.
 - **Gộp đơn theo người nhận** — các đơn cùng sàn, cùng người nhận và địa chỉ được xử lý thành một nhóm đơn, một kiện hàng.
 - **Quản lý kho theo vị trí** — mã vị trí 5 cấp, một SKU có thể nằm ở nhiều ô, Picking List sắp theo lộ trình di chuyển, sổ cái biến động tồn bất biến.
 - **Giữ chỗ tồn kho theo SKU nội bộ** — gộp tồn của cùng một sản phẩm đăng trên nhiều sàn, phát hiện thiếu hàng ngay khi đơn về.
 - **Đề xuất đóng gói** — gợi ý kích thước thùng và vật liệu đệm theo kích thước, khối lượng và độ dễ vỡ của hàng; nhân viên duyệt, điều chỉnh hoặc từ chối.
 - **Quản lý vật liệu đóng gói** — tồn vật liệu mới và tái sử dụng, tự trừ khi đóng gói, thu hồi khi hàng hoàn, thống kê chi phí tiết kiệm.
-- **Giao hàng, đổi trả khép kín** — vận đơn tự giao, giới hạn số lần giao, cảnh báo quá hạn; phiếu trả hàng có kiểm định, hàng cách ly và đơn đổi hàng.
-- **Báo trạng thái đóng gói về sàn** — xác nhận "đã đóng gói" trên OptiPack được gửi lên Lazada qua Fulfillment API.
+- **Giao hàng, đổi trả khép kín** — báo giá và tạo vận đơn GHN (môi trường staging), vận đơn tự giao, giới hạn số lần giao, cảnh báo quá hạn; phiếu trả hàng có kiểm định, hàng cách ly và đơn đổi hàng.
+- **Ghi trạng thái ngược về sàn** — xác nhận "đã đóng gói" gửi lên Lazada qua Fulfillment API; trạng thái đơn, trả hàng và tồn khả dụng được đẩy lên AURELLE qua hàng đợi gửi lại tự động.
+- **Dashboard và lịch sử thao tác** — số liệu vận hành tổng hợp cho Store Owner; nhật ký thao tác theo nhóm đơn, lọc theo vai trò và xuất CSV.
 
 ---
 
@@ -63,7 +64,14 @@ Backend được xây dựng theo mô hình **modular monolith**: một ứng d�
 flowchart LR
     subgraph Channels["Kênh bán hàng"]
         LZ[Lazada Open Platform]
+        TK[Tiki Open API<br/>app Inhouse]
         AU[AURELLE · Open API<br/>app key + webhook]
+    end
+
+    subgraph External["Dịch vụ ngoài"]
+        GHN[GHN · hãng vận chuyển]
+        PKR[packer · Python OR-Tools<br/>CP-SAT]
+        AI[Dịch vụ AI<br/>viết hướng dẫn đóng gói]
     end
 
     subgraph Backend["OptiPackAI Backend · NestJS"]
@@ -73,9 +81,11 @@ flowchart LR
         WH[Warehouse<br/>Vị trí · Tồn kho · Picking]
         PK[Packing<br/>Kế hoạch đóng gói 3D]
         PM[Packaging Materials<br/>Kho thùng + vật tư · Tái sử dụng]
-        SH[Shipments · Shipping<br/>Giao hàng · Hãng/cước · Đổi trả]
+        SH[Shipments · Shipping · Carriers<br/>Giao hàng · Hãng/cước · Đổi trả]
+        WB[Marketplace Write-back<br/>Trạng thái · Tồn về sàn]
         DOC[Documents<br/>Phiếu · Nhãn · Bảng kê PDF]
         NT[Notifications]
+        DH[Dashboard · History]
     end
 
     subgraph Data["Lưu trữ"]
@@ -85,17 +95,21 @@ flowchart LR
 
     subgraph Clients["Giao diện"]
         WEB[Web Dashboard · React]
-        APP[Mobile App · Flutter]
+        APP[Mobile App · Flutter<br/>đang phát triển]
     end
 
     LZ <-->|đồng bộ đơn · báo đóng gói| MI
+    TK -->|đồng bộ đơn| MI
     AU <-->|đồng bộ đơn · webhook| MI
-    PK -.->|CP-SAT chứng minh| PKR[packer · Python OR-Tools]
+    PK -.->|CP-SAT chứng minh| PKR
+    PK -.->|lời hướng dẫn| AI
+    SH <-->|báo giá · vận đơn · webhook| GHN
     MI --> OR --> OG
     OG --> WH
     OG --> PK --> PM
     OG --> SH --> DOC
     OG --> NT
+    OG --> WB -->|trạng thái · tồn| MI
     Backend --> DB
     Backend --> RD
     WEB --> Backend
@@ -128,15 +142,17 @@ Mọi bước chuyển trạng thái của nhóm đơn đều được kiểm so
 | Phân hệ                    | Chức năng chính                                                                                                                                                                                   |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Xác thực & người dùng**  | Đăng nhập JWT với xoay vòng refresh token, xác thực hai lớp (TOTP, mã dự phòng), thiết bị tin cậy, đăng nhập Google, bắt buộc đổi mật khẩu lần đầu, nhật ký đăng nhập, giới hạn tần suất truy cập |
-| **Kết nối sàn**            | Ủy quyền OAuth 2.0, mã hóa token khi lưu, tự làm mới token sắp hết hạn, adapter riêng cho từng sàn. Lazada + AURELLE (Open API tương thích Lazada, kết nối bằng app key, webhook có chữ ký) |
+| **Kết nối sàn**            | Ủy quyền OAuth 2.0, mã hóa token khi lưu, tự làm mới token sắp hết hạn, adapter riêng cho từng sàn. Lazada + Tiki (app Inhouse, token `client_credentials`) + AURELLE (Open API tương thích Lazada, kết nối bằng app key, webhook có chữ ký) |
 | **Đơn hàng**               | Đồng bộ định kỳ và đồng bộ theo yêu cầu, chuẩn hóa trạng thái đơn, theo dõi yêu cầu hủy từ người mua                                                                                              |
 | **Nhóm đơn & fulfillment** | Gộp đơn theo người nhận, phân công nhân viên tự động, đơn hỏa tốc với hạn xử lý theo giờ làm việc, báo thiếu hàng, xác nhận đóng gói và đồng bộ trạng thái lên sàn                                |
 | **Kho hàng**               | Nhiều kho, khu, kệ, ô với mã vị trí 5 cấp; quy định danh mục, cỡ, màu cho từng ô; gợi ý ô cất hàng; nhập hàng, kiểm kê, chuyển ô; sổ cái biến động tồn; Picking List theo lộ trình                |
 | **SKU & tồn kho**          | SKU nội bộ liên kết SKU trên các sàn, danh mục và bảng màu chuẩn, giữ chỗ tồn kho theo nhóm đơn, cảnh báo thiếu hàng                                                                              |
 | **Đóng gói**               | Tự tính kế hoạch đóng gói 3D cho cả nhóm đơn (nhiều kiện/đơn) bằng BRKGA, chứng minh tối ưu bằng CP-SAT cho đơn nhỏ; chỉ dùng số đo SKU do kho xác nhận; màn làm việc 3D, đổi thùng, chuyển món, hướng dẫn đóng gói từng bước bằng AI, cân từng kiện |
 | **Vật liệu đóng gói**      | Danh mục vật liệu có đơn giá, tồn mới / tái sử dụng / nội bộ, tự trừ khi đóng gói, thu hồi khi kiểm hàng hoàn, thống kê chi phí tiết kiệm                                                         |
-| **Giao hàng & đổi trả**    | Vận đơn tự giao, tối đa hai lần giao, cảnh báo quá hạn; chọn hãng + báo cước theo kiện thật (bảng cước mẫu), giao chung chuyến cho cùng người nhận, lịch lấy hàng; phiếu đóng gói, nhãn từng kiện, bảng kê chuyến (PDF); phiếu trả hàng có kiểm định, tự tạo đơn đổi hàng |
-| **Thông báo**              | Thông báo trong ứng dụng cho các sự kiện giao thất bại, quá hạn giao, yêu cầu trả hàng, thiếu hàng                                                                                                |
+| **Giao hàng & đổi trả**    | Báo giá và tạo vận đơn GHN (staging, nhận trạng thái qua webhook), vận đơn tự giao, tối đa hai lần giao, cảnh báo quá hạn; chọn hãng + báo cước theo kiện thật (bảng cước mẫu), giao chung chuyến cho cùng người nhận, lịch lấy hàng; phiếu đóng gói, nhãn từng kiện, bảng kê chuyến (PDF); phiếu trả hàng có kiểm định, tự tạo đơn đổi hàng |
+| **Ghi ngược về sàn**       | Báo "đã đóng gói" lên Lazada; đẩy trạng thái đơn, trả hàng, đổi hàng và tồn khả dụng lên AURELLE qua hàng đợi (outbox) có gửi lại tự động |
+| **Thông báo**              | Thông báo trong ứng dụng và email cho các sự kiện giao thất bại, quá hạn giao, đơn Hỏa Tốc sắp/quá hạn, yêu cầu trả hàng, thiếu hàng                                                              |
+| **Dashboard & lịch sử**    | Số liệu vận hành tổng hợp (`GET /dashboard/summary`); nhật ký thao tác theo nhóm đơn, lọc theo vai trò, xuất CSV (`/history`)                                                                     |
 
 ---
 
@@ -158,9 +174,11 @@ Mọi bước chuyển trạng thái của nhóm đơn đều được kiểm so
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Backend**       | NestJS 11, TypeScript 5, Mongoose 9, Passport JWT, class-validator, `@nestjs/schedule`, `@nestjs/throttler`, Swagger / OpenAPI, Helmet, Nodemailer, otplib |
 | **Cơ sở dữ liệu** | MongoDB Atlas (replica set, hỗ trợ transaction), Redis (bộ nhớ đệm và trạng thái tạm)                                                                      |
-| **Frontend**      | React 18, Vite, TypeScript                                                                                                                                 |
-| **Mobile**        | Flutter                                                                                                                                                    |
-| **Tích hợp**      | Lazada Open Platform (Order API, Fulfillment API), Google OAuth 2.0, SMTP                                                                                  |
+| **Frontend**      | React 19, Vite 8, TypeScript                                                                                                                               |
+| **Website AURELLE** | Next.js 15, React 19                                                                                                                                     |
+| **Mobile**        | Flutter (đang phát triển)                                                                                                                                  |
+| **Đóng gói 3D**   | BRKGA + EMS (TypeScript, trong backend), CP-SAT (Python, OR-Tools, FastAPI)                                                                                |
+| **Tích hợp**      | Lazada Open Platform (Order API, Fulfillment API), Tiki Open API, GHN API, Google OAuth 2.0, Groq (hướng dẫn đóng gói), SMTP                              |
 | **Chất lượng mã** | Jest, ESLint, Prettier, Husky, Commitlint                                                                                                                  |
 | **Hạ tầng**       | Docker, Docker Compose, npm workspaces                                                                                                                     |
 
@@ -174,11 +192,12 @@ OptiPackAI/
 │   ├── src/
 │   │   ├── common/                  Bộ lọc lỗi, guard, interceptor, tiện ích dùng chung, Redis
 │   │   ├── config/                  Cấu hình theo namespace (database, jwt, mail, marketplace…)
+│   │   ├── health/                  GET /health — kiểm tra kết nối MongoDB và Redis
 │   │   └── modules/
 │   │       ├── auth/                Đăng nhập, MFA, Google OAuth, phân quyền
 │   │       ├── users/               Quản lý người dùng
-│   │       ├── marketplace-integration/  OAuth sàn, adapter Lazada
-│   │       ├── orders/              Đồng bộ và chuẩn hóa đơn hàng
+│   │       ├── marketplace-integration/  OAuth sàn, adapter Lazada, Tiki, AURELLE
+│   │       ├── orders/              Đồng bộ và chuẩn hóa đơn hàng, quy tắc gộp đơn
 │   │       ├── order-groups/        Gộp đơn, fulfillment, phân công, giữ chỗ tồn, báo đóng gói về sàn
 │   │       ├── warehouse/           Kho, khu, kệ, ô, tồn theo vị trí, Picking List
 │   │       ├── master-skus/         SKU nội bộ và liên kết SKU sàn
@@ -189,14 +208,21 @@ OptiPackAI/
 │   │       ├── packaging-materials/ Vật liệu đóng gói, tái sử dụng
 │   │       ├── shipments/           Vận đơn, giao hàng, giao chung chuyến, trả hàng, đổi hàng
 │   │       ├── shipping/            Hãng vận chuyển, bảng cước, báo giá
+│   │       ├── carriers/            Adapter hãng vận chuyển (GHN)
 │   │       ├── documents/           Phiếu đóng gói, nhãn, bảng kê (PDF)
 │   │       ├── marketplace-webhooks/ Nhận webhook sàn (AURELLE)
+│   │       ├── marketplace-writeback/ Ghi trạng thái và tồn ngược về sàn (outbox)
 │   │       ├── storefront/          Website bán hàng AURELLE
 │   │       ├── notifications/       Thông báo trong ứng dụng
+│   │       ├── dashboard/           Số liệu tổng hợp cho Store Owner
+│   │       ├── history/             Lịch sử thao tác, xuất CSV
+│   │       ├── activity-log/        Ghi nhật ký thao tác dùng chung
 │   │       └── mail/                Gửi email
+│   ├── db/                          Database script MongoDB (sinh từ schema, `npm run db:script`)
 │   ├── scripts/                     Khởi tạo tài khoản quản trị, script chuyển đổi dữ liệu
 │   └── test/                        Kiểm thử end-to-end
 ├── fe/                              Frontend · React + Vite
+├── mobile/                          App nhân viên vận hành · Flutter (đang phát triển)
 ├── storefront/                      Website AURELLE + cổng nhà phát triển · Next.js
 ├── packer/                          Microservice CP-SAT · Python OR-Tools
 ├── k8s/                             Manifest Kubernetes (kustomize: base + overlays local/ghcr)
@@ -211,7 +237,7 @@ OptiPackAI/
 
 ## Bắt đầu
 
-Hệ thống gồm 4 phần chạy độc lập. Chỉ **Backend** là bắt buộc; các phần còn lại bật khi cần.
+Hệ thống gồm nhiều phần chạy độc lập. Chỉ **Backend** là bắt buộc; các phần còn lại bật khi cần.
 
 | Phần | Thư mục | Công nghệ | Cổng mặc định | Bắt buộc? |
 | ---- | ------- | --------- | ------------- | --------- |
@@ -220,6 +246,7 @@ Hệ thống gồm 4 phần chạy độc lập. Chỉ **Backend** là bắt bu�
 | Website bán hàng AURELLE | `storefront/` | Next.js | `3001` | Không |
 | Service CP-SAT kiểm chứng đóng gói | `packer/` | Python (FastAPI + OR-Tools) | `8000` | Không — thiếu thì backend vẫn tính đóng gói bằng BRKGA |
 | Sàn AURELLE giả lập (Open API) | `be/scripts/aurelle-mock-server.ts` | Node.js | `4000` | Không — chỉ khi test kết nối AURELLE bằng app key |
+| App mobile cho nhân viên | `mobile/` | Flutter | — | Không — đang phát triển |
 
 ### Yêu cầu
 
@@ -232,6 +259,7 @@ Hệ thống gồm 4 phần chạy độc lập. Chỉ **Backend** là bắt bu�
 | Redis | Redis 7 hoặc tương thích (Memurai trên Windows) | Cache trạng thái đăng nhập |
 | Python | ≥ 3.12 (tùy chọn) | Service CP-SAT `packer/` |
 | Docker Desktop | mới nhất (tùy chọn) | Chạy bằng container / Kubernetes |
+| Flutter SDK | mới nhất (tùy chọn) | App mobile `mobile/` |
 
 ### Cách 1 — Chạy trực tiếp trên máy (phát triển)
 
@@ -262,6 +290,13 @@ npm run docker:infra          # chạy Redis bằng Docker (cổng 6379)
 
 ```bash
 cd be && npm run seed:admin && cd ..
+```
+
+Collection và index được Mongoose tạo tự động khi backend chạy. Nếu cần tạo trước toàn bộ collection, validator và index (ví dụ cho một cụm mới), dùng database script:
+
+```bash
+cd be && npm run db:script && cd ..          # sinh lại be/db/init-db.mongosh.js từ schema
+mongosh "<MONGODB_URI>" be/db/init-db.mongosh.js
 ```
 
 **Bước 5. Chạy ứng dụng** (ở thư mục gốc):
@@ -303,10 +338,20 @@ ngrok http --url=<domain-cố-định-của-bạn> 3000
 
 và khai báo cùng địa chỉ đó cho `LAZADA_REDIRECT_URI` (trong `be/.env` lẫn Lazada ISV Console).
 
+**Bước 9 (tùy chọn). App mobile** — cần Flutter SDK; hướng dẫn chi tiết ở [`mobile/README.md`](mobile/README.md):
+
+```bash
+cd mobile
+flutter pub get
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000      # Android emulator
+flutter run --dart-define=API_BASE_URL=http://<IP-LAN-máy-chạy-BE>:3000   # máy thật
+```
+
 | Dịch vụ | Địa chỉ |
 | ------- | ------- |
 | Backend API | `http://localhost:3000` |
 | Swagger UI | `http://localhost:3000/api/docs` |
+| Kiểm tra sức khỏe | `http://localhost:3000/health` |
 | Frontend | `http://localhost:5173` |
 | Website AURELLE | `http://localhost:3001` |
 | Service CP-SAT | `http://localhost:8000/healthz` |
@@ -369,11 +414,14 @@ Triển khai thật (image trên GHCR, CI/CD): [`docs/DEPLOYMENT.md`](docs/DEPLO
 | Email | `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`, `MAIL_FROM_ADDRESS` | Máy chủ SMTP |
 | Bảo mật | `TOKEN_ENCRYPTION_KEY` | Khóa mã hóa token sàn khi lưu |
 | Lazada | `LAZADA_APP_KEY`, `LAZADA_APP_SECRET`, `LAZADA_REDIRECT_URI`, `LAZADA_API_BASE_URL` | Ứng dụng trên Lazada Open Platform |
+| Tiki | `TIKI_CLIENT_ID`, `TIKI_CLIENT_SECRET`, `TIKI_SANDBOX`, `TIKI_TOKEN_URL`, `TIKI_API_BASE_URL` | App Inhouse trên open.tiki.vn; 2 URL để trống = mặc định `api.tiki.vn` |
 | Lazada (ghi lên sàn) | `LAZADA_WRITE_APIS_ENABLED`, `LAZADA_SHIPPING_ALLOCATE_TYPE` | Bật/tắt báo "đã đóng gói" lên shop thật (mặc định tắt) |
 | AURELLE | `AURELLE_APP_KEY`, `AURELLE_APP_SECRET`, `AURELLE_REDIRECT_URI`, `AURELLE_*_BASE_URL`, `AURELLE_WEBHOOK_URL`, `AURELLE_SELLER_ID` | Kết nối sàn AURELLE (giả lập cổng 4000) bằng app key + webhook |
 | Hướng dẫn đóng gói AI | `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL`, `AI_TIMEOUT_MS` | Groq viết lời hướng dẫn; để trống `AI_API_KEY` → dùng câu mẫu |
 | CP-SAT | `PACKER_URL`, `PACKER_ENABLED`, `PACKER_TIMEOUT_MS`, `PACKER_MAX_UNITS`, `PACKER_DET_TIME_PER_COMBO`, `PACKER_WALL_TIME_S` | Service Python kiểm chứng tối ưu; để trống `PACKER_URL` → tắt |
-| Vận chuyển GHN (14/10/2026) | `CARRIER_MODE` (`ghn_staging` / `ghn_production` / `mock`), `CARRIER_MANUAL_STATUS_ENABLED`, `CARRIER_DEFAULT_PROVINCE`, `CARRIER_DEMO_RECIPIENT_PHONE`, `GHN_BASE_URL`, `GHN_TOKEN`, `GHN_SHOP_ID`, `GHN_WEBHOOK_SECRET`, `GHN_DEFAULT_*`, `GHN_TIMEOUT_MS` | Báo giá + tạo vận đơn GHN thật (staging); `mock` = không gọi mạng. Sau khi cấu hình chạy `npx ts-node -r dotenv/config scripts/seed-ghn-carrier.ts` (trong `be/`). Xem `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` mục 11 |
+| Vận chuyển GHN | `CARRIER_MODE` (`ghn_staging` / `ghn_production` / `mock`), `CARRIER_MANUAL_STATUS_ENABLED`, `CARRIER_DEFAULT_PROVINCE`, `CARRIER_DEMO_RECIPIENT_PHONE`, `GHN_BASE_URL`, `GHN_TOKEN`, `GHN_SHOP_ID`, `GHN_WEBHOOK_SECRET`, `GHN_DEFAULT_*`, `GHN_TIMEOUT_MS` | Báo giá + tạo vận đơn GHN thật (staging); `mock` = không gọi mạng. Sau khi cấu hình chạy `npx ts-node -r dotenv/config scripts/seed-ghn-carrier.ts` (trong `be/`). Xem `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` mục 11 |
+
+| Giới hạn gọi API | `THROTTLE_LIMIT_PER_MINUTE` | Số lần gọi tối đa mỗi phút, đếm theo người dùng đã đăng nhập (chưa đăng nhập thì theo IP); mặc định 600 |
 
 Danh sách đầy đủ kèm giá trị mẫu có trong `be/.env.example`.
 
@@ -384,9 +432,12 @@ Chạy trong thư mục `be/` bằng `npx ts-node -r tsconfig-paths/register scr
 | Script | Việc làm |
 | ------ | -------- |
 | `seed-admin.ts` (`npm run seed:admin`) | Tạo tài khoản quản trị đầu tiên |
+| `init-db.ts` (`npm run db:script`) | Sinh database script `be/db/init-db.mongosh.js` từ schema; thêm `--apply` để tạo thẳng collection và index còn thiếu trên `MONGODB_URI` |
 | `seed-packaging-boxes.ts` | Tạo thùng carton mẫu (hoặc nhập từ file CSV thùng thật) |
+| `seed-packaging-mailers.ts` | Tạo túi gói hàng mẫu |
 | `seed-packaging-materials.ts` | Tạo vật tư chèn mẫu (góc xốp, túi khí...) |
 | `seed-shipping-carriers.ts` | Tạo hãng vận chuyển + bảng cước **mẫu** |
+| `seed-ghn-carrier.ts` | Tạo hãng GHN và dịch vụ sau khi cấu hình biến GHN |
 | `seed-ai-guide-demo.ts` | Tạo các nhóm đơn demo đóng gói 3D/nhiều kiện (`--clean` để xóa) |
 | `sync-product-master-now.ts` | Đồng bộ ngay danh mục sản phẩm từ sàn (`--incremental` = chỉ phần mới) |
 | `migrate-*.ts`, `backfill-*.ts` | Chuyển đổi dữ liệu cũ sau khi nâng cấp — đọc chú thích đầu file; nhiều script mặc định chỉ chạy thử, thêm `--apply` mới ghi |
@@ -415,6 +466,7 @@ Chạy trong thư mục `be/` bằng `npx ts-node -r tsconfig-paths/register scr
 | `npm run test` / `npm run test:cov` | Kiểm thử đơn vị / báo cáo độ bao phủ |
 | `npm run test:e2e` | Kiểm thử end-to-end |
 | `npm run seed:admin` | Tạo tài khoản quản trị |
+| `npm run db:script` | Sinh lại database script MongoDB từ schema |
 
 ### Lỗi hay gặp khi chạy
 
@@ -431,8 +483,6 @@ Chạy trong thư mục `be/` bằng `npx ts-node -r tsconfig-paths/register scr
 
 ## Tài liệu
 
-> 🆕 14/10/2026 — FE: danh sách việc cần chỉnh để khớp BE mới nhất ở **`GUIDE_DOC/FE_UPDATE_CHECKLIST.md`**.
-
 Swagger UI (`/api/docs`) là nguồn tham chiếu chính thức cho request và response của từng endpoint. Các route không dùng tiền tố phiên bản, ví dụ `POST /auth/login`.
 
 Tài liệu tích hợp chi tiết nằm trong `GUIDE_DOC/`, mỗi tài liệu gồm luồng nghiệp vụ, ví dụ request/response, bảng mã lỗi và hướng dẫn kiểm thử:
@@ -443,12 +493,17 @@ Tài liệu tích hợp chi tiết nằm trong `GUIDE_DOC/`, mỗi tài liệu g
 | [`INTEGRATION_GUIDE.md`](GUIDE_DOC/INTEGRATION_GUIDE.md)                                           | Xác thực và người dùng                                  |
 | [`INTEGRATION_GUIDE_ORDERS.md`](GUIDE_DOC/INTEGRATION_GUIDE_ORDERS.md)                             | Kết nối sàn và đơn hàng                                 |
 | [`INTEGRATION_GUIDE_FULFILLMENT.md`](GUIDE_DOC/INTEGRATION_GUIDE_FULFILLMENT.md)                   | Nhóm đơn, lấy hàng, đóng gói, báo trạng thái về sàn     |
+| [`INTEGRATION_GUIDE_PACKING.md`](GUIDE_DOC/INTEGRATION_GUIDE_PACKING.md)                           | Kế hoạch đóng gói 3D, phiên đóng gói, cân kiện          |
 | [`INTEGRATION_GUIDE_WAREHOUSE.md`](GUIDE_DOC/INTEGRATION_GUIDE_WAREHOUSE.md)                       | Kho, vị trí, tồn kho, Picking List                      |
 | [`INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md`](GUIDE_DOC/INTEGRATION_GUIDE_SKU_STOCK_K4_K5.md)           | SKU nội bộ và giữ chỗ tồn kho                           |
 | [`INTEGRATION_GUIDE_SHIPPING.md`](GUIDE_DOC/INTEGRATION_GUIDE_SHIPPING.md)                         | Giao hàng và trả hàng                                   |
+| [`GHN_INTEGRATION_GUIDE.md`](GUIDE_DOC/GHN_INTEGRATION_GUIDE.md)                                   | Kết nối hãng vận chuyển GHN                             |
 | [`INTEGRATION_GUIDE_PACKAGING_MATERIALS.md`](GUIDE_DOC/INTEGRATION_GUIDE_PACKAGING_MATERIALS.md)   | Vật liệu đóng gói và tái sử dụng                        |
 | [`INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md`](GUIDE_DOC/INTEGRATION_GUIDE_OPERATIONS_UTILITIES.md) | Tiện ích vận hành: quá hạn giao, hàng cách ly, đổi hàng |
 | [`DEMO_PLAYBOOK.md`](GUIDE_DOC/DEMO_PLAYBOOK.md)                                                   | Kịch bản trình diễn toàn hệ thống                       |
+| [`FE_UPDATE_CHECKLIST.md`](GUIDE_DOC/FE_UPDATE_CHECKLIST.md)                                       | Việc phía web cần chỉnh để khớp backend mới nhất        |
+| [`MOBILE_UPDATE_CHECKLIST.md`](GUIDE_DOC/MOBILE_UPDATE_CHECKLIST.md)                               | Việc phía app mobile                                    |
+| [`BE_MOBILE_CHECKLIST.md`](GUIDE_DOC/BE_MOBILE_CHECKLIST.md)                                       | Việc phía backend để app mobile chạy được               |
 
 ---
 
@@ -487,14 +542,12 @@ Type hợp lệ: `feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `c
 
 ## Định hướng phát triển
 
-- **Mở rộng kênh bán hàng** — kết nối thêm sàn thông qua lớp adapter hiện có, bao gồm sàn thương mại điện tử AURELLE do nhóm xây dựng.
+- **Mở rộng kênh bán hàng** — kết nối TikTok Shop qua lớp adapter hiện có (đang hoãn vì yêu cầu giấy phép kinh doanh của TikTok).
 - **Gộp kiện liên sàn** — các đơn trên nhiều sàn của cùng một người nhận được lấy hàng cùng lúc và giao trong một chuyến.
-- **Đồng bộ tồn kho hai chiều** — cập nhật tồn khả dụng từ kho OptiPack lên các sàn khi có nhập hàng, kiểm kê hoặc đổi trả.
-- **Mô hình AI xếp hàng 3D** — nâng cấp đề xuất đóng gói bằng thuật toán xếp hàng ba chiều cho đơn nhiều sản phẩm.
-- **Ước tính chi phí vận chuyển** — tính trước phí đóng gói và cước giao hàng cho từng kiện.
-- **Ứng dụng di động cho nhân viên kho** — quét mã QR/Barcode khi lấy hàng, cất hàng và đóng gói.
-- **Dashboard phân tích** — năng suất kho, tỷ lệ tái sử dụng vật liệu, chi phí logistics theo thời gian.
-- **Vòng đời đơn đầy đủ trên sàn** — đồng bộ các trạng thái sẵn sàng giao, đã giao và hoàn hàng về sàn.
+- **Đồng bộ tồn kho lên mọi sàn** — hiện đã đẩy tồn khả dụng lên AURELLE; mở rộng cho Lazada và Tiki.
+- **Hoàn thiện ứng dụng di động cho nhân viên** — quét mã ô kệ/SKU khi lấy hàng, cất hàng và đóng gói, hoạt động khi mất mạng; backend bổ sung push thông báo (FCM) và upload ảnh bằng chứng (xem `GUIDE_DOC/BE_MOBILE_CHECKLIST.md`).
+- **Dashboard phân tích trên web** — hiển thị số liệu thật từ `GET /dashboard/summary`: năng suất kho, tỷ lệ tái sử dụng vật liệu, chi phí logistics theo thời gian.
+- **Vòng đời đơn đầy đủ trên sàn** — đồng bộ các trạng thái sẵn sàng giao, đã giao và hoàn hàng về Lazada và Tiki.
 
 ---
 
