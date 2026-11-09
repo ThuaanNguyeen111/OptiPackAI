@@ -87,6 +87,7 @@ export function sortedPlacements(parcel: PackingPlanParcel): PackingPlacement[] 
 /**
  * prepare: thùng + vật tư. fold: gấp áo (clip có sẵn). halfFold: gập đôi thêm (placement.folded).
  * zip: cho vào túi zip + kéo khoá (clip). zipFold: gập túi. bagPrep: túi xách vào túi chống bụi (clip).
+ * shoeBox: đóng giày vào hộp (clip).
  * place: đặt vào thùng / lên chồng hàng. slip: đặt phiếu đóng gói của từng đơn (kiện gộp).
  * close: gập nắp thùng.
  * Túi niêm phong (PACKAGING_STANDARD mục 10) thay close bằng bagIn → seal → label.
@@ -98,6 +99,7 @@ export type PackStepKind =
   | 'zip'
   | 'zipFold'
   | 'bagPrep'
+  | 'shoeBox'
   | 'place'
   | 'slip'
   | 'close'
@@ -128,7 +130,7 @@ export function buildPackSteps(
     const profile = profileFor(profiles, p.sku)
     const model = itemModelFor(profile?.productCategory)
     if (model?.kind === 'garment') steps.push({ kind: 'fold', item })
-    if (model?.prepClip) steps.push({ kind: 'bagPrep', item })
+    if (model?.prepStep) steps.push({ kind: model.prepStep, item })
     if (p.folded) steps.push({ kind: 'halfFold', item })
     if (profile?.zipBagCode) {
       steps.push({ kind: 'zip', item })
@@ -172,6 +174,8 @@ export function stepLabel(kind: PackStepKind, vi: boolean, mailer = false): stri
       return vi ? 'Gập đôi túi zip' : 'Fold the zip bag'
     case 'bagPrep':
       return vi ? 'Nhồi giấy, cho vào túi chống bụi' : 'Stuff and put into the dust bag'
+    case 'shoeBox':
+      return vi ? 'Đóng hộp giày' : 'Box the shoes'
     case 'place':
       if (mailer) return vi ? 'Xếp lên chồng hàng' : 'Add to the stack'
       return vi ? 'Đặt vào thùng' : 'Place into the box'
@@ -196,6 +200,7 @@ export const STEP_SECONDS: Record<PackStepKind, number> = {
   zip: 4,
   zipFold: 1.2,
   bagPrep: 5,
+  shoeBox: 9,
   place: 1.5,
   slip: 1,
   close: 1.8,
@@ -239,6 +244,18 @@ export function workAreaFor(outer: PackingMm, inner: PackingMm, mailer: boolean)
     size,
     clearance: heightM + flap + 0.08,
   }
+}
+
+/** Bước thao tác ngay tại khu chuẩn bị: camera lại gần khu đó. */
+export function isWorkAreaStep(kind: PackStepKind | undefined): boolean {
+  return (
+    kind === 'fold' ||
+    kind === 'halfFold' ||
+    kind === 'zip' ||
+    kind === 'zipFold' ||
+    kind === 'bagPrep' ||
+    kind === 'shoeBox'
+  )
 }
 
 /** Màu theo thứ tự đơn trong kiện gộp, cùng tông với chip người nhận. */

@@ -7,23 +7,24 @@
  * hat.glb, glasses.glb) ở đây.
  */
 
-/** Thùng mẫu seed (`SAMPLE-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
+/** Thùng mẫu seed (`BOX-*`). Mã khác → vẽ thùng bằng code theo `innerMm`. */
 export const BOX_MODELS: Record<string, string> = {
-  'SAMPLE-S': '/models/sampleS.glb',
-  'SAMPLE-M': '/models/sampleM.glb',
-  'SAMPLE-L': '/models/sampleL.glb',
-  'SAMPLE-LT': '/models/sampleLT.glb',
+  'BOX-S': '/models/sampleS.glb',
+  'BOX-M': '/models/sampleM.glb',
+  'BOX-L': '/models/sampleL.glb',
+  'BOX-LT': '/models/sampleLT.glb',
 }
 
 /**
  * garment: hàng mềm, có clip gấp áo + cho vào túi zip; kéo giãn từng trục cho khít khối.
  * rigid: hàng cứng (hộp giày, túi xách), thu phóng đều, không méo.
  * prepClip: clip trong file là thao tác nhân viên phải làm (túi xách: nhồi giấy, túi chống bụi).
- * Giày không có: quy chuẩn giữ nguyên hộp gốc, chỉ hiện hộp đã đóng.
+ * Giày: bước đóng hộp bật theo yêu cầu trình diễn (04/11/2026). PACKAGING_STANDARD mục 5.1 giữ nguyên hộp gốc,
+ * nên hướng dẫn này lệch quy chuẩn; muốn theo đúng quy chuẩn thì bỏ prepStep của giày.
  */
 export type ItemModelKind = 'garment' | 'rigid'
 
-export type ItemModel = { path: string; kind: ItemModelKind; prepClip?: boolean }
+export type ItemModel = { path: string; kind: ItemModelKind; prepStep?: 'bagPrep' | 'shoeBox' }
 
 export const ITEM_MODELS: Record<string, ItemModel> = {
   shirt: { path: '/models/somi.glb', kind: 'garment' },
@@ -32,8 +33,8 @@ export const ITEM_MODELS: Record<string, ItemModel> = {
   shorts: { path: '/models/shorts.glb', kind: 'garment' },
   dress: { path: '/models/dress.glb', kind: 'garment' },
   jacket: { path: '/models/bomber.glb', kind: 'garment' },
-  shoes: { path: '/models/shoepack.glb', kind: 'rigid' },
-  bag: { path: '/models/handbag.glb', kind: 'rigid', prepClip: true },
+  shoes: { path: '/models/shoepack.glb', kind: 'rigid', prepStep: 'shoeBox' },
+  bag: { path: '/models/handbag.glb', kind: 'rigid', prepStep: 'bagPrep' },
 }
 
 /** Túi niêm phong (`box.kind = 'mailer'`): trải phẳng → phồng → dán nắp → dán tem. */

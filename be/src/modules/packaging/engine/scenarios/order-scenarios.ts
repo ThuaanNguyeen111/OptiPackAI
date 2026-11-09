@@ -90,7 +90,7 @@ export const sunglasses = (qty = 1, sku = 'GLASSES'): PackableItem =>
   item(sku, [16, 7, 5], 0.2, { qty, category: 'accessory', fragile: true });
 
 /**
- * Danh mục thùng mẫu (khớp scripts/seed-packaging-boxes.ts, TRỪ SAMPLE-LT thêm 04/10/2026 —
+ * Danh mục thùng mẫu (khớp scripts/seed-packaging-boxes.ts, TRỪ BOX-LT thêm 04/10/2026 —
  * cố ý không thêm vào đây để benchmark/kịch bản cũ còn so sánh được với kết quả đã lưu).
  */
 export function sampleBoxes(): BoxSpec[] {
@@ -110,9 +110,9 @@ export function sampleBoxes(): BoxSpec[] {
     price_vnd: price,
   });
   return [
-    mk('SAMPLE-S', [200, 150, 100], 90, 5000, 2500),
-    mk('SAMPLE-M', [350, 250, 200], 200, 10000, 4500),
-    mk('SAMPLE-L', [500, 400, 350], 380, 20000, 8000),
+    mk('BOX-S', [200, 150, 100], 90, 5000, 2500),
+    mk('BOX-M', [350, 250, 200], 200, 10000, 4500),
+    mk('BOX-L', [500, 400, 350], 380, 20000, 8000),
   ];
 }
 
@@ -519,7 +519,7 @@ export const SCENARIOS: Scenario[] = [
     group: 'kho',
     name: 'Thùng S và M hết, còn L',
     items: [tee(2)],
-    availability: { 'SAMPLE-S': 0, 'SAMPLE-M': 0, 'SAMPLE-L': 5 },
+    availability: { 'BOX-S': 0, 'BOX-M': 0, 'BOX-L': 5 },
     expected: { status: 'ok', maxCartons: 1 },
   },
   {
@@ -527,7 +527,7 @@ export const SCENARIOS: Scenario[] = [
     group: 'kho',
     name: 'Tất cả thùng hết',
     items: [tee()],
-    availability: { 'SAMPLE-S': 0, 'SAMPLE-M': 0, 'SAMPLE-L': 0 },
+    availability: { 'BOX-S': 0, 'BOX-M': 0, 'BOX-L': 0 },
     expected: { status: 'no_fit', reasonCode: 'OUT_OF_STOCK' },
   },
   {
@@ -535,7 +535,7 @@ export const SCENARIOS: Scenario[] = [
     group: 'kho',
     name: 'Đơn cần nhiều kiện nhưng chỉ còn 1 thùng L',
     items: [shoebox(5, 'SHOE-HEAVY', 5)],
-    availability: { 'SAMPLE-S': 0, 'SAMPLE-M': 0, 'SAMPLE-L': 1 },
+    availability: { 'BOX-S': 0, 'BOX-M': 0, 'BOX-L': 1 },
     expected: { status: 'no_fit' },
   },
 

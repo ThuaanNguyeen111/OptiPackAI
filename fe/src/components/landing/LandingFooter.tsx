@@ -1,5 +1,6 @@
 import { Mail } from 'lucide-react'
 import { LandingAuthCta } from './LandingAuthCta'
+import { BrandMark } from '../brand/BrandMark'
 
 const techStack = [
   'Spring Boot',
@@ -17,7 +18,7 @@ export function LandingFooter() {
         <div className="flex flex-col gap-8 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="lp-mark">OP</span>
+              <BrandMark />
               <span className="text-sm font-semibold">OptiPackAI</span>
             </div>
             <p className="mt-3 max-w-sm text-sm text-[var(--ls-muted)]">

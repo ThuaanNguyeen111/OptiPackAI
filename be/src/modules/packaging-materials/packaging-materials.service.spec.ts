@@ -31,6 +31,20 @@ describe('PackagingMaterialsService', () => {
     service = new PackagingMaterialsService(materialModel as never, movementModel as never, { startSession } as never);
   });
 
+  // 08/11/2026 — sửa ngưỡng qua PATCH /packaging-materials/:code (túi niêm phong dùng route này).
+  it('sửa ngưỡng: lưu reorder_level và báo khi tồn hiện có rơi vào mức cảnh báo', async () => {
+    const mailer = { ...boxM, code: 'MAIL-M', name: 'Túi niêm phong M', kind: 'mailer', qty_new: 40, qty_reused: 0, reorder_level: 20 };
+    materialModel.findOne.mockReturnValue(q(mailer));
+    materialModel.findOneAndUpdate.mockResolvedValue({ ...mailer, reorder_level: 50 });
+    const notifyIfWorse = jest.fn(() => Promise.resolve());
+    const withAlerts = new PackagingMaterialsService(materialModel as never, movementModel as never, { startSession } as never, { notifyIfWorse } as never);
+    const updated = await withAlerts.update('MAIL-M', { reorder_level: 50 });
+    expect(updated.reorder_level).toBe(50);
+    const set = (materialModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: Record<string, unknown> }])[1].$set;
+    expect(set.reorder_level).toBe(50);
+    expect(notifyIfWorse).toHaveBeenCalledWith(expect.objectContaining({ kind: 'material', code: 'MAIL-M', before: 40, after: 40, previousReorderLevel: 20, reorderLevel: 50 }));
+  });
+
   it('khai thùng thiếu kích thước -> 400 PKG_MATERIAL_INVALID_DEFINITION', async () => {
     await expect(service.create({ code: 'BOX-X', name: 'Thùng', kind: 'box', unit_cost_vnd: 1000 })).rejects.toMatchObject({ errorCode: E.INVALID_DEFINITION });
   });

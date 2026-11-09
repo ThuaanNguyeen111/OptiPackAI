@@ -27,6 +27,7 @@ export const NOTIFICATION_TYPES = [
   'return_to_shelf',
   'packing_blocked',
   'consolidation_name_mismatch',
+  'marketplace_confirm_required',
 ] as const
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number]
@@ -100,6 +101,10 @@ export const NOTIFICATION_TYPE_LABELS: Record<
   consolidation_name_mismatch: {
     vi: 'Nhóm gộp khác tên người nhận',
     en: 'Consolidated group has different recipient names',
+  },
+  marketplace_confirm_required: {
+    vi: 'Sắp hết hạn xác nhận đủ hàng (Tiki)',
+    en: 'Stock confirmation due soon (Tiki)',
   },
 }
 

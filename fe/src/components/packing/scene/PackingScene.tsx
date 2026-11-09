@@ -1,7 +1,7 @@
 import { Component, Suspense, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { Edges, useGLTF } from '@react-three/drei'
-import { MathUtils, Vector3, type Group } from 'three'
+import { Box3, MathUtils, Quaternion, Vector3, type Group } from 'three'
 import type { PackingItemProfile, PackingMm, PackingPlacement } from '../../../types/packing-plan'
 import {
   FOLD_CLIP_SHARE,
@@ -45,6 +45,9 @@ function Block({ size, color, wire = false }: { size: Vec3; color: string; wire?
 }
 
 /** Trạng thái clip khi xem bước `kind` của chính món đó (đã đặt/đang đặt = trạng thái cuối). */
+/** Phần cuối bước chuẩn bị: cụm đã gọn, phóng về đúng cỡ khối. */
+const PREP_SETTLE_FROM = 0.82
+
 function clipRange(rig: ItemRig, role: ItemRole, kind: PackStepKind | undefined): [number, number] {
   const { foldEnd, bagEnd, end } = rig.phases
   if (role !== 'staged') return [rig.finalTime, rig.finalTime]
@@ -58,6 +61,7 @@ function clipRange(rig: ItemRig, role: ItemRole, kind: PackStepKind | undefined)
     case 'zipFold':
       return [bagEnd, bagEnd]
     case 'bagPrep':
+    case 'shoeBox':
       return [0, end]
     default:
       return [rig.finalTime, rig.finalTime]
@@ -85,13 +89,28 @@ function ModelBody({
   const gltf = useGLTF(model.path)
   const [sx, sy, sz] = size
   const rig = useMemo(
-    () => new ItemRig(gltf.scene, gltf.animations[0], model.kind, withZip),
-    [gltf, model.kind, withZip],
+    () => new ItemRig(gltf.scene, gltf.animations[0], model.kind, withZip, Boolean(model.prepStep)),
+    [gltf, model.kind, withZip, model.prepStep],
   )
   const fit = useMemo(
     () => fitToBlock(rig.finalBox, [sx, sy, sz], model.kind === 'rigid'),
     [rig, sx, sy, sz, model.kind],
   )
+  // Hàng cứng co đều nên thấp hơn khối được cấp: hạ xuống sát đáy khối để không lơ lửng giữa không trung.
+  const sink = useMemo(() => {
+    if (model.kind !== 'rigid' || rig.finalBox.isEmpty()) return 0
+    const { min, max } = rig.finalBox
+    const turned = new Box3()
+    for (const x of [min.x, max.x]) {
+      for (const y of [min.y, max.y]) {
+        for (const z of [min.z, max.z]) {
+          turned.expandByPoint(new Vector3(x, y, z).applyQuaternion(fit.quaternion).multiply(fit.scale))
+        }
+      }
+    }
+    const height = turned.getSize(new Vector3()).y
+    return -Math.max(0, sy - height) / 2
+  }, [model.kind, rig, fit, sy])
   const clock = useMemo(() => new StepClock(), [])
   useEffect(() => {
     clock.reset()
@@ -99,6 +118,8 @@ function ModelBody({
 
   const offsetRef = useRef<Group>(null)
   const stageRef = useRef<Group>(null)
+  const turnRef = useRef<Group>(null)
+  const upright = useMemo(() => new Quaternion(), [])
   const drift = useMemo(() => new Vector3(), [])
   const startScale = useMemo(() => {
     if (model.kind !== 'garment' || rig.flatBox.isEmpty()) return 1
@@ -107,6 +128,30 @@ function ModelBody({
     return Math.min(1, areaSize / Math.max(widest, 1e-6))
   }, [model.kind, rig, fit, areaSize])
   const flipAlongX = sx >= sz
+  // Lúc đầu clip các món nằm trải rộng: thu cả cụm cho vừa khu chuẩn bị, sát sàn; cuối clip về đúng khối.
+  // Clip luôn chạy ở tư thế gốc (đáy dưới, nắp trên), kể cả khi món được xếp nghiêng trong thùng.
+  const prepFrame = useMemo(() => {
+    if (rig.prepBox.isEmpty()) return null
+    const area = new Box3()
+    const { min, max } = rig.prepBox
+    for (const x of [min.x, max.x]) {
+      for (const y of [min.y, max.y]) {
+        for (const z of [min.z, max.z]) {
+          area.expandByPoint(
+            new Vector3(x, y, z).add(fit.offset).multiply(fit.scale),
+          )
+        }
+      }
+    }
+    const span = area.getSize(new Vector3())
+    const scale = Math.min(1, areaSize / Math.max(span.x, span.z, 1e-6))
+    return {
+      scale,
+      x: -((area.min.x + area.max.x) / 2) * scale,
+      z: -((area.min.z + area.max.z) / 2) * scale,
+      y: -sy / 2 - area.min.y * scale,
+    }
+  }, [rig, fit, areaSize, sy])
 
   useFrame((_, dt) => {
     const elapsed = clock.tick(dt)
@@ -120,10 +165,23 @@ function ModelBody({
 
     const stage = stageRef.current
     if (!stage) return
+    turnRef.current?.quaternion.copy(fit.quaternion)
+    if (prepFrame && role === 'staged' && (kind === 'bagPrep' || kind === 'shoeBox')) {
+      const settle = 1 - easeInOut((p - PREP_SETTLE_FROM) / (1 - PREP_SETTLE_FROM))
+      turnRef.current?.quaternion.slerpQuaternions(upright, fit.quaternion, 1 - settle)
+      stage.rotation.set(0, 0, 0)
+      stage.scale.setScalar(MathUtils.lerp(1, prepFrame.scale, settle))
+      stage.position.set(
+        prepFrame.x * settle,
+        prepFrame.y * settle + sink * (1 - settle),
+        prepFrame.z * settle,
+      )
+      return
+    }
     if (!folding) {
       stage.rotation.set(0, 0, 0)
       stage.scale.setScalar(1)
-      stage.position.set(0, 0, 0)
+      stage.position.set(0, sink, 0)
       return
     }
     // Áo gấp úp mặt: các nếp gập về phía sau lưng nên phải hướng lên, không xuyên sàn. Gấp xong lật lại.
@@ -138,7 +196,7 @@ function ModelBody({
   return (
     <group ref={stageRef}>
       <group scale={fit.scale}>
-        <group quaternion={fit.quaternion}>
+        <group ref={turnRef} quaternion={fit.quaternion}>
           <group ref={offsetRef} position={fit.offset}>
             <primitive object={rig.root} />
           </group>
@@ -238,12 +296,6 @@ function PlacedItem({
             <boxGeometry args={size} />
             <meshBasicMaterial color={tint} transparent opacity={0.22} depthWrite={false} />
             <Edges color={tint} />
-          </mesh>
-        ) : null}
-        {role === 'placing' || (role === 'staged' && kind !== 'fold') ? (
-          <mesh>
-            <boxGeometry args={size} />
-            <meshBasicMaterial color="#2563eb" wireframe transparent opacity={0.35} />
           </mesh>
         ) : null}
       </group>

@@ -4,6 +4,8 @@ import { Order, OrderSchema } from './schemas/order.schema';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { LazadaOrderSyncScheduler } from './lazada-order-sync.scheduler';
+import { TikiOrderSyncService } from './tiki-order-sync.service';
+import { TikiOrderSyncScheduler } from './tiki-order-sync.scheduler';
 import { MarketplaceIntegrationModule } from '../marketplace-integration/marketplace-integration.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrderGroupsModule } from '../order-groups/order-groups.module';
@@ -45,7 +47,16 @@ import { ConsolidationRuleAiService } from './consolidation-rule-ai.service';
     OrderGroupsModule,
   ],
   controllers: [OrdersController, OrderSyncSettingsController, ConsolidationRulesController],
-  providers: [OrdersService, LazadaOrderSyncScheduler, OrderSyncSettingsService, ConsolidationRulesService, ConsolidationRuleAiService],
+  // 31/10/2026 — Tiki: đồng bộ qua event queue + quét dự phòng (lớp trigger riêng, pipeline chung).
+  providers: [
+    OrdersService,
+    LazadaOrderSyncScheduler,
+    OrderSyncSettingsService,
+    ConsolidationRulesService,
+    ConsolidationRuleAiService,
+    TikiOrderSyncService,
+    TikiOrderSyncScheduler,
+  ],
   exports: [OrdersService],
 })
 export class OrdersModule {}

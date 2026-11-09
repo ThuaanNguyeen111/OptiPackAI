@@ -74,6 +74,15 @@ describe('ShipmentsService — hỏa tốc tự giao', () => {
     expect(adminCode).not.toBe(SHIPMENT_ERROR_CODES.NOT_ASSIGNED_SHIPPER);
   });
 
+  it('đơn Tiki dropship (shipper Tiki tới lấy): chọn hãng hoặc gộp chuyến → SHP_MARKETPLACE_PICKUP', async () => {
+    const tikiGroup = { _id: groupId, platform: 'tiki', requires_self_delivery: false, fulfillment_status: GroupFulfillmentStatus.PACKED, __v: 1 };
+    const { service } = build(null, tikiGroup);
+    expect(await codeOf(service.startDelivery(String(groupId), actor, undefined, 1, { carrierCode: 'GHN', serviceCode: 'LIGHT' })))
+      .toBe(SHIPMENT_ERROR_CODES.MARKETPLACE_PICKUP);
+    expect(await codeOf(service.createBatch([String(groupId)], { carrierCode: 'GHN', serviceCode: 'LIGHT' }, undefined, actor)))
+      .toBe(SHIPMENT_ERROR_CODES.MARKETPLACE_PICKUP);
+  });
+
   it('danh sách shipper: Shipping Coordinator đang làm, SĐT rỗng → null', async () => {
     const { service, userModel } = build({ _id: shipperId, name: 'Cường', phone: ' ', email: 'c@x.vn' });
     expect(await service.listShippers()).toEqual([{ id: String(shipperId), name: 'Cường', phone: null, email: 'c@x.vn' }]);

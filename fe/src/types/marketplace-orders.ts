@@ -108,6 +108,28 @@ export type MarketplaceOrderDetail = MarketplaceOrderListItem & {
   reverseOrderId?: string | null
   sellerCanceled?: boolean
   origin?: 'marketplace' | 'replacement'
+  /** 31/10/2026 — đơn Tiki dropship: trạng thái xác nhận đủ hàng. null với sàn khác. */
+  marketplace?: MarketplaceFulfillmentInfo | null
+}
+
+export type MarketplaceConfirmationStatus =
+  | 'pending'
+  | 'confirmed'
+  | 'canceled'
+  | 'not_required'
+
+export type MarketplaceFulfillmentInfo = {
+  fulfillmentType: string | null
+  warehouseCode: string | null
+  confirmationStatus: MarketplaceConfirmationStatus
+  confirmSlaAt: string | null
+  confirmError: string | null
+}
+
+export type MarketplaceLabels = {
+  platformOrderId: string
+  shippingLabelUrl: string | null
+  shippingStampUrl: string | null
 }
 
 export const SELLER_CANCEL_STATUSES = [
@@ -192,11 +214,11 @@ export const MARKETPLACE_ORDERS_ERROR_MESSAGES: Record<string, string> = {
     'Phiên kết nối sàn hết hạn hoặc không hợp lệ. Hãy bấm Kết nối lại.',
   MKT_ADAPTER_NOT_REGISTERED: 'Sàn này chưa được hỗ trợ.',
   MKT_SHOP_NOT_CONNECTED:
-    'Shop chưa được kết nối hoặc đã bị ngắt. Hãy kết nối shop Lazada trước.',
+    'Shop chưa được kết nối hoặc đã bị ngắt. Hãy kết nối shop trước.',
   MKT_TOKEN_EXCHANGE_FAILED:
-    'Không đổi được mã ủy quyền từ Lazada. Hãy kết nối lại shop.',
+    'Không lấy được quyền truy cập từ sàn. Hãy kết nối lại shop; với Tiki và AURELLE, nhờ backend kiểm tra App ID/Secret.',
   MKT_TOKEN_REFRESH_FAILED:
-    'Phiên shop Lazada đã hết hạn. Admin cần kết nối lại shop từ đầu.',
+    'Phiên kết nối shop đã hết hạn. Admin cần kết nối lại shop từ đầu.',
   MKT_TOKEN_DECRYPT_FAILED:
     'Không đọc được token shop đã lưu. Liên hệ phụ trách backend.',
   MKT_WEBHOOK_SIGNATURE_INVALID: 'Chữ ký webhook không hợp lệ.',
@@ -204,7 +226,7 @@ export const MARKETPLACE_ORDERS_ERROR_MESSAGES: Record<string, string> = {
   MKT_SERVER_ERROR:
     'Máy chủ không hoàn tất kết nối shop. Hãy bấm Kết nối lại.',
   ORD_SYNC_FAILED:
-    'Đồng bộ thất bại, vui lòng thử lại sau hoặc kiểm tra trạng thái xác minh shop trên Lazada Seller Center.',
+    'Đồng bộ thất bại, vui lòng thử lại sau hoặc kiểm tra trạng thái shop trên trang quản lý của sàn.',
   ORD_UNSUPPORTED_PLATFORM: 'Sàn này chưa hỗ trợ đồng bộ đơn.',
   ORD_INVALID_ORDER_ID: 'Mã đơn không đúng định dạng.',
   ORD_ORDER_NOT_FOUND: 'Không tìm thấy đơn hàng.',
@@ -216,11 +238,11 @@ export const MARKETPLACE_ORDERS_ERROR_MESSAGES: Record<string, string> = {
 
 export function formatMarketplaceOAuthError(code: string | null): string {
   if (!code) {
-    return 'Kết nối shop Lazada không thành công. Hãy thử lại.'
+    return 'Kết nối shop không thành công. Hãy thử lại.'
   }
   return (
     MARKETPLACE_ORDERS_ERROR_MESSAGES[code] ??
-    `Kết nối shop Lazada không thành công (${code}).`
+    `Kết nối shop không thành công (${code}).`
   )
 }
 

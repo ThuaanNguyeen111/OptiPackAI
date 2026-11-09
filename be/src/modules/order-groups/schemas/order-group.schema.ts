@@ -268,7 +268,11 @@ OrderGroupSchema.index({ platform: 1, fulfillment_status: 1, created_at: -1 });
 // BỔ SUNG (2026-09-10) — phục vụ đếm "workload hiện tại" của từng
 // staff (Rule #3 ESR: assigned_staff_id equality trước, fulfillment_status
 // range/set sau) — dùng trong autoAssignStaff() để chọn người ít việc nhất.
-OrderGroupSchema.index({ assigned_staff_id: 1, fulfillment_status: 1 });
+// 🔄 08/11/2026 — thêm created_at ở cuối: "việc của tôi" (GET /order-groups?assigned_staff_id=…)
+// sắp theo created_at giảm dần; thiếu created_at thì Mongo phải sắp trong RAM. Tiền tố
+// {assigned_staff_id, fulfillment_status} giữ nguyên nên vẫn phục vụ việc đếm workload ở trên.
+// Index cũ assigned_staff_id_1_fulfillment_status_1 trên Atlas có thể xoá tay (index mới đã bao).
+OrderGroupSchema.index({ assigned_staff_id: 1, fulfillment_status: 1, created_at: -1 });
 // 22/10/2026 — tìm nhóm kẹt đóng gói theo SKU khi kho vừa đo xong SKU đó.
 OrderGroupSchema.index(
   { packing_blocked_skus: 1 },
@@ -283,9 +287,13 @@ OrderGroupSchema.index({
   is_overdue: 1,
 });
 
-// Rule #4: fulfillment_status (cardinality thấp, 9 giá trị cố định)
-// KHÔNG được đứng index riêng lẻ — luôn đứng sau platform trong compound
-// index ở trên, không tạo thêm index đơn cho riêng field này.
+// Rule #4: fulfillment_status (cardinality thấp) KHÔNG đứng index ĐƠN lẻ.
+// 🔄 08/11/2026 — ĐÃ THAY ĐỔI so với ghi chú cũ "luôn đứng sau platform": hàng đợi của
+// từng role (web + mobile) gọi GET /order-groups?fulfillment_status=… KHÔNG kèm platform,
+// nên index {platform, fulfillment_status, created_at} không dùng được (sai tiền tố) → quét
+// cả bảng + sắp trong RAM. Index ghép {fulfillment_status, created_at} dưới đây đúng ESR
+// (equality rồi sort), không phải index đơn nên không trái Rule #4.
+OrderGroupSchema.index({ fulfillment_status: 1, created_at: -1 });
 
 // BỔ SUNG (29/09/2026, Mục 9.5) — phục vụ GET /order-groups/:id/linked +
 // đếm linkedGroupCount. Partial vì phần lớn group KHÔNG có sibling khác

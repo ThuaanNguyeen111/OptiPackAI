@@ -44,6 +44,8 @@ export type PackagingMaterialStock = {
   qtyNew: number
   qtyReused: number
   qtyInternal: number
+  /** Ngưỡng cảnh báo; null nếu BE chưa trả (túi niêm phong). */
+  reorderLevel: number | null
   isActive: boolean
 }
 
@@ -111,6 +113,7 @@ function mapMaterial(raw: unknown): PackagingMaterialStock | null {
     qtyNew: pickNumber(row.qtyNew, row.qty_new),
     qtyReused: pickNumber(row.qtyReused, row.qty_reused),
     qtyInternal: pickNumber(row.qtyInternal, row.qty_internal),
+    reorderLevel: pickNullableNumber(row.reorderLevel ?? row.reorder_level),
     isActive: row.isActive !== false && row.is_active !== false,
   }
 }

@@ -27,6 +27,8 @@ export class UpdatePackagingMaterialDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(0) @Max(10_000_000) unit_cost_vnd?: number;
   @ApiPropertyOptional() @IsOptional() @IsBoolean() reusable?: boolean;
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(20) max_reuse_cycles?: number;
+  /** 08/11/2026 — ngưỡng cảnh báo tồn (tồn dùng được ≤ mức này → cảnh báo; báo sớm từ ngưỡng + 20%). */
+  @ApiPropertyOptional({ example: 50 }) @IsOptional() @IsInt() @Min(0) @Max(1_000_000) reorder_level?: number;
 }
 
 export class PurchasePackagingDto {

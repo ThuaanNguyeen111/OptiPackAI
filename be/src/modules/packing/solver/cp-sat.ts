@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { foldUnit } from '../../packaging/engine/units';
+import { foldUnit, minSupportPct } from '../../packaging/engine/units';
 import type {
   BoxSpec,
   Orientation,
@@ -42,6 +42,7 @@ export interface CpSatUnit {
   weight_g: number;
   fragile: boolean;
   max_stack_load_g: number | null;
+  min_support_pct: number;
   variants: CpSatVariant[];
 }
 export interface CpSatBox {
@@ -151,6 +152,7 @@ function toPayloadUnit(unit: PackingUnit, boxes: BoxSpec[]): CpSatUnit {
     weight_g: unit.weight_g,
     fragile: unit.is_fragile,
     max_stack_load_g: unit.max_stack_load_g,
+    min_support_pct: minSupportPct(unit),
     variants,
   };
 }

@@ -24,6 +24,7 @@ import { Button } from '../components/ui/Button'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
 import { cn } from '../lib/cn'
+import { returnStatusTone } from '../lib/stage-colors'
 import { useLocalQueuePagination } from '../hooks/useLocalQueuePagination'
 import { QueuePaginationBar } from '../components/ui/QueuePaginationBar'
 import {
@@ -35,15 +36,6 @@ import { formatDateTime } from '../utils/format'
 
 function shortId(id: string): string {
   return id.length > 10 ? id.slice(-10) : id
-}
-
-function statusTone(
-  status: string,
-): 'default' | 'primary' | 'success' | 'warning' {
-  if (status === 'closed') return 'success'
-  if (status === 'rejected') return 'warning'
-  if (status === 'requested') return 'primary'
-  return 'default'
 }
 
 const STATUS_FILTERS = [
@@ -476,7 +468,7 @@ export function ReturnsPage({
                           className={cn(
                             'cursor-pointer transition-colors',
                             selectedRow
-                              ? 'bg-indigo-50/80 dark:bg-indigo-950/30'
+                              ? 'bg-teal-50/80 dark:bg-teal-950/30'
                               : 'hover:bg-surface-2/80',
                           )}
                         >
@@ -491,7 +483,7 @@ export function ReturnsPage({
                               : row.type}
                           </td>
                           <td className="px-3 py-3">
-                            <Badge tone={statusTone(row.status)}>
+                            <Badge tone={returnStatusTone(row.status)}>
                               {statusLabel
                                 ? vi
                                   ? statusLabel.vi
@@ -560,7 +552,7 @@ export function ReturnsPage({
                   <div className="flex justify-between gap-2">
                     <dt className="text-ink-subtle">{vi ? 'Trạng thái' : 'Status'}</dt>
                     <dd>
-                      <Badge tone={statusTone(selected.status)}>
+                      <Badge tone={returnStatusTone(selected.status)}>
                         {RETURN_STATUS_LABELS[selected.status]
                           ? vi
                             ? RETURN_STATUS_LABELS[selected.status]!.vi

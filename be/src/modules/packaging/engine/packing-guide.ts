@@ -278,7 +278,14 @@ export function buildTemplateGuide(
       ? ` Chuẩn bị vật tư chèn: ${materials.map((m) => `${String(m.quantity)} ${m.unit} ${m.name}`).join(', ')}.`
       : '';
   return {
-    summary: `Dùng thùng ${box.name} (${box.code}) cho ${String(facts.length)} món${fill}. Đặt theo đúng thứ tự dưới đây, món to và cứng nằm dưới.${bags}${wrap} Đếm lại đủ ${String(facts.length)} món trước khi dán thùng.`,
+    summary: `Dùng thùng ${box.name} (${box.code}) cho ${String(facts.length)} món${fill}.${cutBoxNote(box)} Đặt theo đúng thứ tự dưới đây, món to và cứng nằm dưới.${bags}${wrap} Đếm lại đủ ${String(facts.length)} món trước khi dán thùng.`,
     steps,
   };
+}
+
+/** (08/11/2026) Câu dặn cắt hạ thùng — chèn cố định (không nhờ AI viết) để không bị bỏ sót. */
+export function cutBoxNote(box: BoxSpec): string {
+  if (!box.cut_from) return '';
+  const cm = (mm: number): string => String(mm / 10).replace('.', ',');
+  return ` Cắt hạ thùng: đo từ đáy lòng thùng lên ${cm(box.inner.height_mm)} cm (thùng gốc ${cm(box.cut_from.inner_height_mm)} cm), rọc 4 góc xuống tới vạch, gấp 4 nắp theo vạch rồi xếp hàng.`;
 }

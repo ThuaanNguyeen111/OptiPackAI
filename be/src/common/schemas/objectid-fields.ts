@@ -147,6 +147,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
       'parcels.unpack.by',
       'parcels.box_source_override.by', // 21/10/2026 — chọn nguồn thùng khác gợi ý
       'parcels.placements.order_id', // AOFP-224 (31/10/2026) — chủ món trong kiện gộp nhiều đơn
+      'parcels.guide.rating.by', // 05/11/2026 — người chấm hướng dẫn đóng gói
     ],
   },
   {
@@ -164,6 +165,9 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
     fields: [],
     arrayPath: { array: 'activity', fields: ['by'] },
   },
+  // 05/11/2026 — nhật ký dữ liệu gửi AI + ví dụ mẫu đã chấm tốt (collection mới, chưa từng có dữ liệu chuỗi).
+  { collection: 'packing_guide_logs', fields: ['plan_id', 'order_group_id'] },
+  { collection: 'packing_guide_examples', fields: ['plan_id', 'rated_by'] },
   { collection: 'packing_settings', fields: ['updated_by'] },
   { collection: 'order_sync_settings', fields: ['updated_by'] }, // 15/10/2026
   { collection: 'shipping_settings', fields: ['updated_by'] },

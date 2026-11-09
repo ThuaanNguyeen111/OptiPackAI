@@ -1,4 +1,5 @@
 import { CarrierParcel } from '../carrier.types';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /** Giới hạn kiện của GHN (tài liệu Create Order): 50 kg, mỗi cạnh 200 cm. */
 export const PARCEL_LIMITS = {
@@ -34,7 +35,7 @@ export function validateParcel(parcel: CarrierParcel): string[] {
   if (!Number.isInteger(parcel.weight_g) || parcel.weight_g <= 0) {
     problems.push('weight_g phải là số nguyên dương (gram)');
   } else if (parcel.weight_g > PARCEL_LIMITS.maxWeightG) {
-    problems.push(`weight_g vượt ${String(PARCEL_LIMITS.maxWeightG)} g`);
+    problems.push(`weight_g vượt ${formatGAsKg(PARCEL_LIMITS.maxWeightG)}`);
   }
   for (const [name, value] of sides) {
     if (!Number.isInteger(value) || value <= 0) {

@@ -89,12 +89,12 @@ describe('HistoryService (23/10/2026)', () => {
       order: [{ _id: new Types.ObjectId(), platform: 'aurelle', platform_order_id: '720000001', items: [{ sku: 'AOPOLO-010-DEN-L', quantity: 1 }], created_at: t0, consolidated_group_id: gid, origin: 'marketplace' }],
       plan: [{
         _id: new Types.ObjectId(), order_group_id: gid, revision: 1, source: 'solver', item_profiles: [{ sku: 'AOPOLO-010-DEN-L' }], activity: [],
-        parcels: [{ parcel_no: 1, platform_order_id: '720000001', box: { code: 'SAMPLE-S' }, sealed_by: null, sealed_at: new Date('2026-10-22T03:00:00Z'), actual_weight_kg: 0.4, estimated_weight_g: 400 }],
+        parcels: [{ parcel_no: 1, platform_order_id: '720000001', box: { code: 'BOX-S' }, sealed_by: null, sealed_at: new Date('2026-10-22T03:00:00Z'), actual_weight_kg: 0.4, estimated_weight_g: 400 }],
         created_at: new Date('2026-10-22T02:00:00Z'),
       }],
     });
     const res = await service.timeline(gid.toHexString());
     expect(res.items.map((i) => i.action)).toEqual(['order.received', 'packing.plan_generated', 'packing.parcel_sealed']);
-    expect(res.items[2]?.summary).toBe('Niêm phong kiện 1: thùng SAMPLE-S, 0.4 kg — đơn 720000001');
+    expect(res.items[2]?.summary).toBe('Niêm phong kiện 1: thùng BOX-S, 0,4 kg — đơn 720000001');
   });
 });

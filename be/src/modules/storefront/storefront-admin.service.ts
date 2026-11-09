@@ -33,6 +33,15 @@ export interface SkuOptions {
   colors: { code: string; name: string; hex: string | null }[];
 }
 
+/**
+ * 08/11/2026 — chuẩn hoá nhãn size biến thể giống Master SKU: bỏ khoảng trắng thừa, bỏ chữ
+ * "size" ở đầu, viết hoa ("m" / "Size M" / " size  xl " → "M" / "XL"). Rỗng → null.
+ */
+export function normalizeSizeLabel(raw: string | null | undefined): string | null {
+  const cleaned = (raw ?? '').trim().replace(/^size\s*/i, '').replace(/\s+/g, ' ').toUpperCase();
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 @Injectable()
 export class StorefrontAdminService {
   constructor(
@@ -152,7 +161,7 @@ export class StorefrontAdminService {
             if (!variant) throw new BadRequestException('Biến thể không hợp lệ');
             if (variant.sku_color_code) {
               // 22/10/2026 — SKU theo quy tắc đã cố định: màu/size là một phần của mã, không đổi được.
-              const wantSize = input.size?.trim().toUpperCase();
+              const wantSize = normalizeSizeLabel(input.size);
               if ((input.colorCode && input.colorCode !== variant.sku_color_code) || (wantSize && wantSize !== variant.size)) {
                 throw new BadRequestException(`Biến thể ${variant.sku}: màu/size nằm trong SKU nên không đổi được — thêm biến thể mới với màu/size khác.`);
               }
@@ -160,7 +169,7 @@ export class StorefrontAdminService {
               size = variant.size;
             } else {
               color = input.color?.trim() ?? null;
-              size = input.size?.trim() ?? null;
+              size = normalizeSizeLabel(input.size);
             }
           } else {
             // 22/10/2026 — biến thể MỚI: SKU bắt buộc theo quy tắc OptiPack.
@@ -271,7 +280,7 @@ export class StorefrontAdminService {
     if (!input.colorCode || !colorName) {
       throw new BadRequestException(`Biến thể ${String(index + 1)}: chọn màu trong danh mục màu OptiPack.`);
     }
-    const size = input.size?.trim().toUpperCase() ?? '';
+    const size = normalizeSizeLabel(input.size) ?? '';
     if (!rule.sizes.includes(size)) {
       throw new BadRequestException(`Biến thể ${String(index + 1)}: size phải thuộc thang size của ${rule.categoryCode} (${rule.sizes.join(', ')}).`);
     }

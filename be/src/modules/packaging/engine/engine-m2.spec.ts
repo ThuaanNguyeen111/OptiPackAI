@@ -71,9 +71,9 @@ describe('Engine M2 — lý do no_fit có mã', () => {
   it('tất cả thùng hết hàng → OUT_OF_STOCK và KHÔNG gợi ý đa kiện', () => {
     const result = packOrder(expandToUnits([tee()]), sampleBoxes(), {
       availability: new Map([
-        ['SAMPLE-M', 0],
-        ['SAMPLE-L', 0],
-        ['SAMPLE-S', 0],
+        ['BOX-M', 0],
+        ['BOX-L', 0],
+        ['BOX-S', 0],
       ]),
     });
     expect(result.status).toBe('no_fit');

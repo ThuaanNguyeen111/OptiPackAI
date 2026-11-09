@@ -5,7 +5,6 @@ import {
   Boxes,
   ClipboardList,
   Clock,
-  ChevronDown,
   Database,
   LayoutDashboard,
   LogOut,
@@ -21,14 +20,16 @@ import {
 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { fetchMyProfile } from '../../api/users.api'
-import { PLATFORM_META } from '../../context/portal-context-value'
+import { listMarketplaceShops } from '../../api/marketplace.api'
 import { usePortal } from '../../context/use-portal'
 import { useAuth } from '../../context/use-auth'
 import { ConfirmDialog } from '../ui/ConfirmDialog'
 import { useTheme } from '../../hooks/useTheme'
 import { usesTealAppChrome } from '../../lib/app-chrome'
 import { canSeeNavItem } from '../../lib/rbac'
+import { stageOfPath } from '../../lib/stage-colors'
 import { USER_ROLE_LABELS, UserRole } from '../../types/auth'
+import { BrandMark } from '../brand/BrandMark'
 
 type NavSection = 'overview' | 'store' | 'logistics' | 'analytics' | 'system'
 
@@ -177,16 +178,11 @@ export function PortalSidebar() {
     locale,
     mobileNavOpen,
     setMobileNavOpen,
-    shops,
-    activeShopIds,
-    isShopActive,
-    toggleShopActive,
-    activateAllShops,
   } = usePortal()
   const { theme, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const { logout, session } = useAuth()
-  const [storeMenuOpen, setStoreMenuOpen] = useState(false)
+  const [connectedPlatforms, setConnectedPlatforms] = useState<string[] | 'error' | null>(null)
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
   const [profileName, setProfileName] = useState<string | null>(null)
@@ -206,12 +202,6 @@ export function PortalSidebar() {
   const tealChrome = usesTealAppChrome(role)
 
   const width = sidebarCollapsed ? 'w-[72px]' : 'w-60'
-  const activeShops = shops.filter((s) => activeShopIds.includes(s.id))
-  const platformSummary = [
-    ...new Set(activeShops.map((s) => PLATFORM_META[s.platform].label)),
-  ].join(' · ')
-  const storeLabel =
-    activeShops[0]?.store_label ?? shops[0]?.store_label ?? 'OptiPackAI Store'
   const sidebarDisplayName = session
     ? (profileName ?? (locale === 'vi' ? 'Đang tải…' : 'Loading…'))
     : locale === 'vi'
@@ -234,6 +224,32 @@ export function PortalSidebar() {
       cancelled = true
     }
   }, [session?.accessToken])
+
+  useEffect(() => {
+    if (!isStoreOwner) return
+    let cancelled = false
+    const platforms = [
+      { id: 'lazada', label: 'Lazada' },
+      { id: 'aurelle', label: 'AURELLE' },
+    ] as const
+    void Promise.all(
+      platforms.map((platform) =>
+        listMarketplaceShops(platform.id)
+          .then((list) => (list.some((shop) => shop.isActive) ? platform.label : null))
+          .catch(() => 'error' as const),
+      ),
+    ).then((labels) => {
+      if (cancelled) return
+      setConnectedPlatforms(
+        labels.every((label) => label === 'error')
+          ? 'error'
+          : labels.filter((label): label is 'Lazada' | 'AURELLE' => label !== null && label !== 'error'),
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isStoreOwner])
 
   async function handleConfirmLogout() {
     setLoggingOut(true)
@@ -258,17 +274,9 @@ export function PortalSidebar() {
         <Link
           to="/"
           className="flex min-w-0 items-center gap-2"
-          title="OptiPackAI"
+          title="Về trang Home"
         >
-          <span
-            className={
-              tealChrome
-                ? 'lp-mark h-8 w-8 shrink-0'
-                : 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-[10px] font-bold text-on-primary shadow-[0_0_16px_rgba(99,102,241,0.35)]'
-            }
-          >
-            OP
-          </span>
+          <BrandMark className="h-8 w-8 shrink-0" />
           {!sidebarCollapsed ? (
             <span className="truncate text-sm font-semibold tracking-tight text-ink">
               OptiPackAI
@@ -299,86 +307,31 @@ export function PortalSidebar() {
       </div>
 
       {!sidebarCollapsed && isStoreOwner ? (
-        <div className="relative border-b border-hairline p-3">
-          <button
-            type="button"
-            onClick={() => setStoreMenuOpen((v) => !v)}
-            className="flex w-full items-center justify-between rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-left text-xs transition-colors hover:border-primary/40"
+        <div className="border-b border-hairline p-3">
+          <Link
+            to="/app/profile?tab=marketplaces"
+            onClick={() => setMobileNavOpen(false)}
+            className="block rounded-lg border border-hairline bg-surface-2 px-3 py-2 text-xs transition-colors hover:border-primary/40"
           >
-            <div className="min-w-0">
-              <p className="truncate font-medium text-ink">{storeLabel}</p>
-              <p className="truncate text-ink-subtle">
-                {activeShopIds.length} active
-                {platformSummary ? ` · ${platformSummary}` : ''}
-              </p>
-            </div>
-            <ChevronDown
-              className={`h-3.5 w-3.5 shrink-0 text-ink-subtle transition-transform ${
-                storeMenuOpen ? 'rotate-180' : ''
-              }`}
-            />
-          </button>
-          {storeMenuOpen ? (
-            <div className="absolute top-[calc(100%-4px)] right-3 left-3 z-20 overflow-hidden rounded-lg border border-hairline bg-surface-1 shadow-lg">
-              <ul className="max-h-48 overflow-y-auto py-1">
-                {shops.map((shop) => {
-                  const active = isShopActive(shop.id)
-                  return (
-                    <li key={shop.id}>
-                      <button
-                        type="button"
-                        onClick={() => toggleShopActive(shop.id)}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-2 ${
-                          active ? 'bg-primary/10 text-primary-hover' : 'text-ink'
-                        }`}
-                      >
-                        <span
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                            active
-                              ? 'border-primary bg-primary text-white'
-                              : 'border-hairline'
-                          }`}
-                        >
-                          {active ? '✓' : ''}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">
-                            {shop.account_name}
-                          </span>
-                          <span className="block text-[10px] text-ink-subtle">
-                            {PLATFORM_META[shop.platform].label} ·{' '}
-                            {shop.store_label}
-                          </span>
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-              <div className="flex border-t border-hairline">
-                <button
-                  type="button"
-                  onClick={() => {
-                    activateAllShops()
-                    setStoreMenuOpen(false)
-                  }}
-                  className="flex-1 px-3 py-2 text-[11px] font-medium text-ink-muted hover:bg-surface-2 hover:text-ink"
-                >
-                  {locale === 'vi' ? 'Chọn tất cả' : 'Select all'}
-                </button>
-                <Link
-                  to="/app/profile"
-                  onClick={() => {
-                    setStoreMenuOpen(false)
-                    setMobileNavOpen(false)
-                  }}
-                  className="flex-1 border-l border-hairline px-3 py-2 text-center text-[11px] font-medium text-primary-hover hover:bg-surface-2"
-                >
-                  {locale === 'vi' ? '+ Thêm shop' : '+ Add shop'}
-                </Link>
-              </div>
-            </div>
-          ) : null}
+            <p className="truncate font-medium text-ink">
+              {locale === 'vi' ? 'Kết nối sàn' : 'Connected platforms'}
+            </p>
+            <p className="truncate text-ink-subtle">
+              {connectedPlatforms === null
+                ? locale === 'vi'
+                  ? 'Đang kiểm tra…'
+                  : 'Checking…'
+                : connectedPlatforms === 'error'
+                  ? locale === 'vi'
+                    ? 'Chưa đọc được kết nối'
+                    : 'Could not load connections'
+                  : connectedPlatforms.length > 0
+                    ? connectedPlatforms.join(' · ')
+                    : locale === 'vi'
+                      ? 'Chưa kết nối sàn nào'
+                      : 'No platform connected'}
+            </p>
+          </Link>
         </div>
       ) : null}
 
@@ -386,11 +339,6 @@ export function PortalSidebar() {
         <div className="border-b border-hairline p-3">
           <div className="rounded-lg border border-hairline bg-surface-2 px-3 py-2">
             <p className="text-xs font-medium text-ink">{roleLabel}</p>
-            <p className="mt-0.5 text-[11px] text-ink-subtle">
-              {locale === 'vi'
-                ? 'Theo quyền BE — không thao tác ngoài phạm vi role'
-                : 'Scoped to BE role permissions'}
-            </p>
           </div>
         </div>
       ) : null}
@@ -429,7 +377,11 @@ export function PortalSidebar() {
                   }`
                 }
               >
-                <Icon className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+                <Icon
+                  className="nav-stage-icon h-4 w-4 shrink-0"
+                  data-stage={stageOfPath(to)}
+                  strokeWidth={1.75}
+                />
                 {!sidebarCollapsed ? (
                   <span>{locale === 'vi' ? labelVi : labelEn}</span>
                 ) : null}

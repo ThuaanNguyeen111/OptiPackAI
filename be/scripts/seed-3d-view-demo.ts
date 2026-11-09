@@ -33,7 +33,7 @@ import {
 const SHOP_ID = 'DEMO-3D-VIEW';
 const ORDER_NO = 'DEMO-3D-1';
 const PLATFORM = MarketplacePlatform.LAZADA;
-const ZIP_BAG = { code: 'DEMO-ZIP-L', name: 'Túi zip L 45×60 cm (mẫu)', width_mm: 450, length_mm: 600, price_vnd: 1200 };
+const ZIP_BAG = { code: 'ZIP-L', name: 'Túi zip L 45×60 cm (mẫu)', width_mm: 450, length_mm: 600, price_vnd: 1200 };
 
 const PRODUCTS: { sku: string; name: string; cm: [number, number, number]; kg: number; category: ProductCategory; zip: boolean }[] = [
   { sku: 'DEMO3D-SO-MI', name: 'Áo sơ mi dài tay', cm: [36, 26, 5], kg: 0.3, category: ProductCategory.SHIRT, zip: true },

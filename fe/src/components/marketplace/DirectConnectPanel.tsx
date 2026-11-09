@@ -12,11 +12,16 @@ import { UserRole } from '../../types/auth'
 import type { ConnectedMarketplaceShop } from '../../types/marketplace-orders'
 import { Button } from '../ui/Button'
 
-type AurelleConnectPanelProps = {
+type DirectConnectPanelProps = {
   locale: 'vi' | 'en'
+  platform: 'aurelle' | 'tiki'
 }
 
-export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
+const PLATFORM_LABEL = { aurelle: 'AURELLE', tiki: 'Tiki' } as const
+
+/** Panel kết nối thẳng bằng app key/secret (AURELLE, Tiki): không có trang đăng nhập sàn. */
+export function DirectConnectPanel({ locale, platform }: DirectConnectPanelProps) {
+  const label = PLATFORM_LABEL[platform]
   const vi = locale === 'vi'
   const { session } = useAuth()
   const isAdmin = session?.role === UserRole.ADMIN
@@ -28,13 +33,13 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
   const [disconnectingId, setDisconnectingId] = useState<string | null>(null)
 
   async function refresh() {
-    const rows = await listMarketplaceShops('aurelle')
+    const rows = await listMarketplaceShops(platform)
     setShops(rows)
   }
 
   useEffect(() => {
     let cancelled = false
-    void listMarketplaceShops('aurelle')
+    void listMarketplaceShops(platform)
       .then((rows) => {
         if (!cancelled) setShops(rows)
       })
@@ -44,15 +49,15 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [platform])
 
   function startConnect() {
     setBusy(true)
     setError(null)
     setNotice(null)
-    void fetchMarketplaceConnectUrl('aurelle')
+    void fetchMarketplaceConnectUrl(platform)
       .then(({ authUrl }) => {
-        const popup = window.open(authUrl, 'optipack-aurelle-connect')
+        const popup = window.open(authUrl, `optipack-${platform}-connect`)
         if (!popup) {
           setError(
             vi
@@ -75,13 +80,13 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
     const label = shopName || shopId
     const ok = window.confirm(
       vi
-        ? `Ngắt kết nối shop ${label}? Token hết hiệu lực, đơn đã kéo vẫn giữ. Kết nối lại bằng OAuth.`
-        : `Disconnect ${label}? The token stops working. Orders already pulled stay. Reconnect with OAuth.`,
+        ? `Ngắt kết nối shop ${label}? Token hết hiệu lực, đơn đã kéo vẫn giữ. Kết nối lại bằng nút Kết nối.`
+        : `Disconnect ${label}? The token stops working. Orders already pulled stay. Reconnect with the Connect button.`,
     )
     if (!ok) return
     setDisconnectingId(shopId)
     setError(null)
-    void disconnectMarketplaceShop('aurelle', shopId)
+    void disconnectMarketplaceShop(platform, shopId)
       .then(() => refresh())
       .catch((err: unknown) => setError(formatApiError(err)))
       .finally(() => setDisconnectingId(null))
@@ -91,7 +96,7 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
     setSyncingId(shopId)
     setError(null)
     setNotice(null)
-    void syncPlatformOrders('aurelle', shopId)
+    void syncPlatformOrders(platform, shopId)
       .then((result) => {
         setNotice(
           vi
@@ -109,7 +114,7 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-2 text-sm font-medium text-ink">
           <Store className="h-4 w-4 text-primary-hover" strokeWidth={1.75} />
-          AURELLE
+          {label}
         </div>
         <Button
           type="button"
@@ -123,7 +128,7 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
           ) : (
             <Plus className="mr-1.5 h-3.5 w-3.5" />
           )}
-          {vi ? 'Kết nối shop AURELLE' : 'Connect AURELLE shop'}
+          {vi ? `Kết nối shop ${label}` : `Connect ${label} shop`}
         </Button>
       </div>
       {error ? (
@@ -138,7 +143,7 @@ export function AurelleConnectPanel({ locale }: AurelleConnectPanelProps) {
       ) : null}
       {shops.length === 0 ? (
         <p className="text-xs text-ink-muted">
-          {vi ? 'Chưa có shop AURELLE trên máy chủ.' : 'No AURELLE shop on the server yet.'}
+          {vi ? `Chưa có shop ${label} trên máy chủ.` : `No ${label} shop on the server yet.`}
         </p>
       ) : (
         <ul className="space-y-2">

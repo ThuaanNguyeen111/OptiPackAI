@@ -44,4 +44,6 @@ export const WAREHOUSE_ERROR_CODES = {
   RECEIPT_NOT_FOUND: 'WH_RECEIPT_NOT_FOUND',
   // 22/10/2026 — mã đã nằm ở ô khác trong kho: phải xác nhận (confirm_other_bin=true) mới gán/nhập thêm ô mới
   SKU_IN_OTHER_BIN: 'WH_SKU_IN_OTHER_BIN', // 409
+  // 08/11/2026 — client_event_id đã dùng cho 1 thao tác kho KHÁC (khác loại hoặc khác dòng tồn)
+  CLIENT_EVENT_REUSED: 'WH_CLIENT_EVENT_REUSED', // 409
 } as const;

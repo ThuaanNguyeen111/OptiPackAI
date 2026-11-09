@@ -30,6 +30,11 @@ type PortalTopBarProps = {
 
 type NotifTab = 'all' | 'critical' | 'ops'
 
+/** Chữ OptiPackAI đầu dòng luôn về trang Home, không phụ thuộc từng trang truyền gì. */
+function crumbTarget(crumb: { label: string; to?: string }): string | undefined {
+  return crumb.label === 'OptiPackAI' ? '/' : crumb.to
+}
+
 function typeLabel(type: string, vi: boolean): string {
   const known = NOTIFICATION_TYPE_LABELS[type as NotificationType]
   if (known) return vi ? known.vi : known.en
@@ -40,6 +45,7 @@ function isCriticalTab(n: AppNotification): boolean {
   return (
     n.severity === 'critical' ||
     n.type === 'cancel_confirmation_required' ||
+    n.type === 'marketplace_confirm_required' ||
     n.type === 'sla_breach' ||
     n.type === 'missing_item'
   )
@@ -159,8 +165,8 @@ export function PortalTopBar({
         {breadcrumbs.map((crumb, i) => (
           <span key={crumb.label} className="flex items-center gap-1.5">
             {i > 0 ? <span className="text-ink-tertiary">/</span> : null}
-            {crumb.to ? (
-              <Link to={crumb.to} className="text-ink-subtle hover:text-ink">
+            {crumbTarget(crumb) ? (
+              <Link to={crumbTarget(crumb) ?? '/'} className="text-ink-subtle hover:text-ink">
                 {crumb.label}
               </Link>
             ) : (

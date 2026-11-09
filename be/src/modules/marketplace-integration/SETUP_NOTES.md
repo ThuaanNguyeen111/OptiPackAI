@@ -34,3 +34,13 @@ Rồi điền giá trị thật vào các biến mới trong `.env` (copy từ `
 | TikTok | Email chung nhóm | — | Chờ Partner registration review (3-5 ngày) |
 | Lazada | Email chung nhóm | CCCD 1 thành viên | "Under review" (1-3 ngày) |
 | Tiki | Email CÁ NHÂN riêng | Profile "Personal" | Chờ verify (tối đa 3 ngày) |
+
+## 🔄 31/10/2026 — Tiki: ĐÃ KẾT NỐI THẬT (app Inhouse)
+
+Các ghi chú Tiki phía trên (OAuth authorization_code qua `id.tiki.vn`, tên field `seller_id`/`seller_code` trong response token) là SUY ĐOÁN cũ — **không dùng nữa**. Đã đăng ký và gọi thử thật:
+
+- open.tiki.vn → Application Create → **Inhouse**, Seller ID `365980`, Seller name "OptiPackAI Test Shop", token endpoint auth = Basic header. App ID `7463062494373526`. Nhà bán đồng ý ở Seller Center (`Thông tin nhà bán` → `Thiết lập gian hàng`) → trạng thái app "Connected".
+- Token: `POST https://api.tiki.vn/sc/oauth2/token`, Basic AppID:Secret, `grant_type=client_credentials` → `{ access_token, expires_in: 1295999, scope: "", token_type: "bearer" }` — không refresh token.
+- `GET /integration/v2/sellers/me` (Bearer) → `operation_models: ["dropship","instock"]`. Header `tiki-api` (doc ghi) bị từ chối "Missing Authorization header".
+- Kho nhà bán `425011` "OptiPackAI Warehouse" (Bình Thạnh), gán cho kho Tiki `sgn`, `sgn3`; `hn4`, `dn` không có.
+- Secret chỉ để trong `be/.env` (`TIKI_CLIENT_SECRET`), không commit. Secret từng hiện trong 1 cuộc trò chuyện — dùng thật thì bấm "Renew secret" trên open.tiki.vn rồi cập nhật `.env`.

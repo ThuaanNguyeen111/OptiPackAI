@@ -8,6 +8,7 @@ import { useAuth } from '../context/use-auth'
 import { usePortal } from '../context/use-portal'
 import { formatApiError } from '../lib/api'
 import { UserRole } from '../types/auth'
+import { formatDimsMmAsCm } from '../utils/units'
 
 function formatVnd(amount: number): string {
   return new Intl.NumberFormat('vi-VN', {
@@ -15,11 +16,6 @@ function formatVnd(amount: number): string {
     currency: 'VND',
     maximumFractionDigits: 0,
   }).format(amount)
-}
-
-function cm(mm: number): string {
-  const value = mm / 10
-  return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
 function stockLabel(status: PackagingBox['stockStatus'], vi: boolean): string {
@@ -192,7 +188,7 @@ export function PackagingRulesPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 font-mono text-ink-muted">
-                          {cm(box.inner.lengthMm)}×{cm(box.inner.widthMm)}×{cm(box.inner.heightMm)} cm
+                          {formatDimsMmAsCm(box.inner.lengthMm, box.inner.widthMm, box.inner.heightMm)}
                         </td>
                         <td className="px-4 py-3 font-mono text-ink-muted">
                           {(box.maxLoadG / 1000).toLocaleString(vi ? 'vi-VN' : 'en-US')} kg

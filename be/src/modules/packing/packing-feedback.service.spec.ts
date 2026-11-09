@@ -73,11 +73,11 @@ describe('buildFeedback — vòng phản hồi cho Admin', () => {
 
   it('thùng được gợi ý nhưng hết hàng lặp lại → đề xuất nhập thùng, đích là thùng GỢI Ý (thùng đầu)', () => {
     const plans = [1, 2, 3].map(() =>
-      plan({ adjustments: [adjustment('RECOMMENDED_BOX_NOT_IN_STOCK', [], ['SAMPLE-M', 'SAMPLE-L'])] }),
+      plan({ adjustments: [adjustment('RECOMMENDED_BOX_NOT_IN_STOCK', [], ['BOX-M', 'BOX-L'])] }),
     );
     const report = buildFeedback(plans, range, 3);
-    expect(report.byBox).toEqual([{ boxCode: 'SAMPLE-M', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', count: 3 }]);
-    expect(report.suggestions[0]).toMatchObject({ target: { type: 'box', code: 'SAMPLE-M' } });
+    expect(report.byBox).toEqual([{ boxCode: 'BOX-M', reason: 'RECOMMENDED_BOX_NOT_IN_STOCK', count: 3 }]);
+    expect(report.suggestions[0]).toMatchObject({ target: { type: 'box', code: 'BOX-M' } });
   });
 
   it('từ chối được thống kê theo lý do + cách đã xử lý + còn mở/quá hạn', () => {
@@ -144,18 +144,18 @@ describe('buildFeedback — vòng phản hồi cho Admin', () => {
 
   it('hao hụt: chỉ tính đổi thùng lúc đóng khi thùng cũ hỏng, gom theo thùng cũ', () => {
     const waste = (cost: number): Plan['adjustments'][number] =>
-      Object.assign(adjustment('OTHER', [], ['SAMPLE-M', 'SAMPLE-L']), {
+      Object.assign(adjustment('OTHER', [], ['BOX-M', 'BOX-L']), {
         kind: 'change_box_in_session' as const,
         old_box_outcome: 'damaged' as const,
         waste_cost_vnd: cost,
       });
-    const unused = Object.assign(adjustment('OTHER', [], ['SAMPLE-M', 'SAMPLE-L']), {
+    const unused = Object.assign(adjustment('OTHER', [], ['BOX-M', 'BOX-L']), {
       kind: 'change_box_in_session' as const,
       old_box_outcome: 'unused' as const,
     });
     const report = buildFeedback([plan({ adjustments: [waste(3000), waste(3000), unused] })], range, 3);
-    expect(report.waste).toEqual({ events: 2, costVnd: 6000, byBox: [{ boxCode: 'SAMPLE-M', count: 2, costVnd: 6000 }] });
-    const reopened = Object.assign(adjustment('BOX_TOO_TIGHT', [], ['SAMPLE-M']), {
+    expect(report.waste).toEqual({ events: 2, costVnd: 6000, byBox: [{ boxCode: 'BOX-M', count: 2, costVnd: 6000 }] });
+    const reopened = Object.assign(adjustment('BOX_TOO_TIGHT', [], ['BOX-M']), {
       kind: 'unseal' as const,
       old_box_outcome: 'damaged' as const,
       waste_cost_vnd: 1000,

@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
+import { PackagingStockAlertService } from './packaging-stock-alert.service';
 import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
@@ -94,12 +95,21 @@ function mailerFields(dto: CreatePackagingMaterialDto): Record<string, unknown> 
 /** Tải hàng tối đa mặc định của 1 túi niêm phong (giả định — PACKAGING_STANDARD §4.3). */
 export const DEFAULT_MAILER_MAX_LOAD_G = 3000;
 
+/** 08/11/2026 — kết quả ghi hao hụt; `stock` dùng để báo tồn sau khi giao dịch lưu xong. */
+export interface WasteResult {
+  taken: number;
+  unitCostVnd: number;
+  stock: { code: string; name: string; before: number; after: number; reorderLevel: number } | null;
+}
+
 @Injectable()
 export class PackagingMaterialsService {
   constructor(
     @InjectModel(PackagingMaterial.name) private readonly materialModel: Model<PackagingMaterialDocument>,
     @InjectModel(PackagingMovement.name) private readonly movementModel: Model<PackagingMovementDocument>,
     @InjectConnection() private readonly connection: Connection,
+    // 08/11/2026 — báo khi sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo. @Optional để spec cũ không vỡ.
+    @Optional() private readonly stockAlerts?: PackagingStockAlertService,
   ) {}
 
   // ------------------------------------------------------------ danh mục
@@ -156,10 +166,19 @@ export class PackagingMaterialsService {
     if (dto.unit_cost_vnd !== undefined) set.unit_cost_vnd = dto.unit_cost_vnd;
     if (dto.reusable !== undefined) set.reusable = dto.reusable;
     if (dto.max_reuse_cycles !== undefined) set.max_reuse_cycles = dto.max_reuse_cycles;
+    if (dto.reorder_level !== undefined) set.reorder_level = dto.reorder_level;
     if (Object.keys(set).length === 0) this.fail(E.NOTHING_TO_UPDATE, 'Không có trường nào để cập nhật.', HttpStatus.BAD_REQUEST);
-    await this.get(code);
-    const updated = await this.materialModel.findOneAndUpdate({ code }, { $set: set }, { returnDocument: 'after' });
-    return updated ?? this.get(code);
+    const before = await this.get(code);
+    const updated = (await this.materialModel.findOneAndUpdate({ code }, { $set: set }, { returnDocument: 'after' })) ?? (await this.get(code));
+    if (dto.reorder_level !== undefined && dto.reorder_level !== before.reorder_level) {
+      const stock = usableStock(updated);
+      await this.stockAlerts?.notifyIfWorse({
+        kind: updated.kind === 'box' ? 'box' : 'material', code: updated.code, name: updated.name,
+        before: stock, after: stock, previousReorderLevel: before.reorder_level, reorderLevel: updated.reorder_level,
+        trigger: 'vừa sửa ngưỡng',
+      });
+    }
+    return updated;
   }
 
   async setActive(code: string, active: boolean): Promise<PackagingMaterialDocument> {
@@ -363,9 +382,9 @@ export class PackagingMaterialsService {
     actorId: string,
     note: string,
     session: ClientSession,
-  ): Promise<{ taken: number; unitCostVnd: number }> {
+  ): Promise<WasteResult> {
     const m = await this.materialModel.findOne({ code }).session(session);
-    if (!m || quantity <= 0) return { taken: 0, unitCostVnd: 0 };
+    if (!m || quantity <= 0) return { taken: 0, unitCostVnd: 0, stock: null };
     let remaining = quantity;
     let taken = 0;
     const fromNew = Math.min(remaining, m.qty_new);
@@ -388,7 +407,12 @@ export class PackagingMaterialsService {
       actor_id: actorId, packing_plan_id: ref.planId, parcel_no: ref.parcelNo,
       balance_after: usableStock(m) - taken, created_at: new Date(),
     }], { session });
-    return { taken, unitCostVnd: m.unit_cost_vnd };
+    const before = usableStock(m);
+    return {
+      taken,
+      unitCostVnd: m.unit_cost_vnd,
+      stock: { code: m.code, name: m.name, before, after: before - taken, reorderLevel: m.reorder_level },
+    };
   }
 
   /** Nhập thêm hàng MỚI theo _id (màn danh mục thùng/vật tư của engine). */

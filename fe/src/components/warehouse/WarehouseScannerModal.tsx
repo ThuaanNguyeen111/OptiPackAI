@@ -110,7 +110,7 @@ export function WarehouseScannerModal({
 
         <div className="space-y-4 overflow-auto p-4">
           <div className="relative aspect-[4/3] overflow-hidden rounded-xl border-2 border-[#6366F1]/50 bg-black">
-            <div className="absolute inset-0 bg-[linear-gradient(rgba(99,102,241,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(99,102,241,0.08)_1px,transparent_1px)] bg-[size:24px_24px]" />
+            <div className="absolute inset-0 bg-[linear-gradient(rgba(15,118,110,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(15,118,110,0.08)_1px,transparent_1px)] bg-[size:24px_24px]" />
             <div className="absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-[#10B981] shadow-[0_0_12px_#10B981]" />
             <div className="absolute inset-8 rounded-lg border border-[#10B981]/40" />
             {scanning ? (
@@ -186,7 +186,7 @@ export function WarehouseScannerModal({
         <div className="border-t border-[#222734] p-4">
           <Button
             variant="primary"
-            className="h-12 min-h-12 w-full text-base shadow-[0_0_24px_rgba(99,102,241,0.35)]"
+            className="h-12 min-h-12 w-full text-base shadow-[0_0_24px_rgba(15,118,110,0.35)]"
             disabled={!canConfirm || confirmed}
             onClick={handleConfirm}
           >

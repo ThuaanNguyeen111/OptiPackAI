@@ -14,10 +14,12 @@ import {
 } from 'lucide-react'
 import { usePortal } from '../../context/use-portal'
 import type { PackingPlacement, PackingPlan, PackingPlanParcel } from '../../types/packing-plan'
+import { boxCutNote } from '../../types/packing-plan'
 import {
   STEP_SECONDS,
   buildPackSteps,
   innerOf,
+  isWorkAreaStep,
   orderColor,
   profileFor,
   sceneMode,
@@ -28,8 +30,10 @@ import {
   type SceneMode,
 } from '../../utils/packing-layout'
 import { sharedOrderCodes } from '../../lib/parcel-order-display'
+import { formatDimsMmAsCm } from '../../utils/units'
 import { categoryLabel } from './product-models'
 import { PackingScene } from './scene/PackingScene'
+import { StepCamera, type CameraFocus } from './scene/StepCamera'
 
 function hasWebGL(): boolean {
   try {
@@ -38,10 +42,6 @@ function hasWebGL(): boolean {
   } catch {
     return false
   }
-}
-
-function cm(mm: number): string {
-  return String(Math.round(mm / 10))
 }
 
 function ModeMessage({
@@ -157,9 +157,23 @@ function ParcelGuidePlayer({
   const minZ = -Math.max(outer.widthMm / 2000, area.size / 2)
   const maxZ = Math.max(area.center[1] + area.size / 2, mailer && !alongX ? (outer.widthMm * 1.5) / 1000 : outer.widthMm / 2000)
   const reach = Math.max(maxX - minX, maxZ - minZ)
-  // Bảng hướng dẫn che phần dưới khung: nhìn lệch về phía người xem để cảnh nằm cao hơn.
-  const target: [number, number, number] = [(minX + maxX) / 2, 0.06, (minZ + maxZ) / 2 + reach * 0.14]
-  const camera: [number, number, number] = [target[0] + reach * 0.3, reach * 1.05, target[2] + reach * 1.05]
+  const onWorkArea = isWorkAreaStep(current?.kind)
+  const [areaX, areaZ] = area.center
+  // Nắp thùng mở choãi ra ngoài thân thùng: khung toàn cảnh phải chứa cả phần này.
+  const flap = mailer ? 0 : Math.min(outer.lengthMm, outer.widthMm) / 2000
+  const fullMinX = minX - flap
+  const focus = useMemo<CameraFocus>(
+    () =>
+      onWorkArea
+        ? { center: [areaX, areaZ], width: area.size, depth: area.size, height: 0.12 }
+        : {
+            center: [(fullMinX + maxX) / 2, (minZ + maxZ) / 2],
+            width: maxX - fullMinX,
+            depth: maxZ - minZ,
+            height: outer.heightMm / 1000 + flap,
+          },
+    [onWorkArea, areaX, areaZ, area.size, fullMinX, maxX, minZ, maxZ, outer.heightMm, flap],
+  )
   const placementOrder = placement && shared ? tintOf?.(placement) : undefined
   const placementOrderCode = placement
     ? orderCodes[orderIds?.indexOf(placement.orderId ?? parcel.orderId ?? '') ?? -1]
@@ -180,7 +194,7 @@ function ParcelGuidePlayer({
       }}
     >
       <div className="h-full w-full cursor-grab active:cursor-grabbing">
-        <Canvas camera={{ position: camera, fov: 40, near: 0.01, far: 50 }}>
+        <Canvas camera={{ position: [reach, reach, reach], fov: 40, near: 0.01, far: 50 }}>
           <Suspense fallback={null}>
             <PackingScene
               boxCode={parcel.box.code}
@@ -195,9 +209,10 @@ function ParcelGuidePlayer({
               slipColors={shared ? slipColors : undefined}
             />
           </Suspense>
+          <StepCamera focus={focus} resetKey={viewKey} />
           <OrbitControls
             key={viewKey}
-            target={target}
+            makeDefault
             enablePan={false}
             minDistance={span * 0.8}
             maxDistance={reach * 3}
@@ -231,17 +246,12 @@ function ParcelGuidePlayer({
         </button>
       </div>
 
-      <div className="absolute right-3 bottom-3 left-3 z-20 rounded-xl border border-slate-200/90 bg-white/95 p-3 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
-              {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
-              {current ? ` · ${stepLabel(current.kind, vi, mailer)}` : ''}
-            </p>
+      <div className="absolute right-3 bottom-3 left-3 z-20 rounded-xl border border-slate-200/90 bg-white/95 shadow-sm backdrop-blur-xs dark:border-slate-800 dark:bg-slate-900/95">
+        {/* Lời bước dài/ngắn khác nhau: giới hạn chiều cao + cuộn để thẻ không phình che cảnh 3D. */}
+        <div className="max-h-28 min-h-[3.25rem] overflow-y-auto overscroll-contain px-3 pt-2.5 pb-2" aria-live="polite">
             {current?.kind === 'prepare' ? (
               <p className="mt-1 text-sm text-slate-800 dark:text-slate-100">
-                {parcel.box.name} ({parcel.box.code}) — {cm(inner.lengthMm)} × {cm(inner.widthMm)} ×{' '}
-                {cm(inner.heightMm)} cm{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}
+                {parcel.box.name} ({parcel.box.code}) — {formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}{mailer ? (vi ? ' sau khi nhồi' : ' when filled') : ''}{boxCutNote(parcel.box, vi)}
                 {parcel.materials.length > 0
                   ? ` · ${parcel.materials.map((m) => `${m.name} × ${String(m.quantity)}`).join(', ')}`
                   : ''}
@@ -306,16 +316,15 @@ function ParcelGuidePlayer({
                 ))}
               </p>
             ) : null}
-            {parcel.guide ? (
-              <p className="mt-1 text-[10px] text-slate-400">
-                {parcel.guide.source === 'ai'
-                  ? `AI · ${parcel.guide.model ?? ''}`
-                  : vi
-                    ? 'Câu mẫu'
-                    : 'Template text'}
-              </p>
-            ) : null}
-          </div>
+        </div>
+        {/* Thanh điều khiển neo đáy thẻ: nút không xê dịch khi đổi bước. */}
+        <div className="flex items-center justify-between gap-3 border-t border-slate-200/80 px-3 py-2 dark:border-slate-800">
+          <p className="min-w-0 truncate text-xs font-semibold text-slate-600 dark:text-slate-300">
+            <span className="tabular-nums">
+              {vi ? 'Bước' : 'Step'} {index + 1}/{steps.length}
+            </span>
+            {current ? <span className="font-medium text-slate-500 dark:text-slate-400"> · {stepLabel(current.kind, vi, mailer)}</span> : null}
+          </p>
           <div className="flex shrink-0 items-center gap-1">
             <button
               type="button"
@@ -389,7 +398,7 @@ export function Packing3DBoxViewer({
 
   const inner = parcel ? innerOf(parcel) : null
   const label = parcel
-    ? `${parcel.box.name}${inner ? ` · ${cm(inner.lengthMm)} × ${cm(inner.widthMm)} × ${cm(inner.heightMm)} cm` : ''}`
+    ? `${parcel.box.name}${inner ? ` · ${formatDimsMmAsCm(inner.lengthMm, inner.widthMm, inner.heightMm)}` : ''}`
     : vi
       ? 'Hướng dẫn đóng gói 3D'
       : '3D packing guide'

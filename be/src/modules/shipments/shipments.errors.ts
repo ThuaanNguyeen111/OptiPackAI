@@ -28,5 +28,7 @@ export const SHIPMENT_ERROR_CODES = {
   EXPRESS_SELF_DELIVERY_REQUIRED: 'SHP_EXPRESS_SELF_DELIVERY_REQUIRED', // 409 nhóm hỏa tốc không đi hãng / không giao chung chuyến — dùng POST /shipments + shipper_id
   SHIPPER_REQUIRED: 'SHP_SHIPPER_REQUIRED', // 400 nhóm hỏa tốc phải chọn shipper
   SHIPPER_INVALID: 'SHP_SHIPPER_INVALID', // 422 shipper không phải Shipping Coordinator đang làm việc
-  NOT_ASSIGNED_SHIPPER: 'SHP_NOT_ASSIGNED_SHIPPER', // 403 vận đơn đã giao cho shipper khác — chỉ shipper đó hoặc Admin bấm
+  NOT_ASSIGNED_SHIPPER: 'SHP_NOT_ASSIGNED_SHIPPER',
+  // 31/10/2026 — đơn Tiki dropship: shipper TIKI tới kho lấy hàng → không đặt hãng / không gộp chuyến
+  MARKETPLACE_PICKUP: 'SHP_MARKETPLACE_PICKUP', // 409 // 403 vận đơn đã giao cho shipper khác — chỉ shipper đó hoặc Admin bấm
 } as const;

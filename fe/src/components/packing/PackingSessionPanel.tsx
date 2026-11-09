@@ -16,6 +16,7 @@ import {
 } from '../../api/packing-plan.api'
 import {
   ADJUSTMENT_REASONS,
+  boxCutNote,
   PACKING_REASON_LABELS,
   PARCEL_REVIEW_LABELS,
   PARCEL_REVIEW_REASONS,
@@ -163,6 +164,12 @@ export function PackingSessionPanel({
               </span>
             </p>
             <SharedParcelOrders parcel={parcel} orders={plan.orders} vi={vi} />
+            {pending && parcel.box.cutFromInnerHeightMm != null ? (
+              <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+                {vi ? 'Cắt hạ thùng trước khi xếp hàng' : 'Cut the box down before packing'}
+                {boxCutNote(parcel.box, vi)}
+              </p>
+            ) : null}
             {pending && plan.status === 'packing' ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 <input

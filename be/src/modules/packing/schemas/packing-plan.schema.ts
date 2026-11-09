@@ -68,6 +68,9 @@ export class PlanBox {
   @Prop({ type: Number, required: true }) tare_g!: number;
   @Prop({ type: Number, required: true }) max_load_g!: number;
   @Prop({ type: Number, default: null }) price_vnd!: number | null;
+  /** (08/11/2026) Thùng cắt hạ: chiều cao lòng/ngoài GỐC; inner_mm/outer_mm là số sau cắt. null = không cắt. */
+  @Prop({ type: Number, default: null }) cut_from_inner_height_mm?: number | null;
+  @Prop({ type: Number, default: null }) cut_from_outer_height_mm?: number | null;
 }
 export const PlanBoxSchema = SchemaFactory.createForClass(PlanBox);
 
@@ -119,6 +122,16 @@ export class PlanGuideStep {
 }
 export const PlanGuideStepSchema = SchemaFactory.createForClass(PlanGuideStep);
 
+/** (05/11/2026) Nhân viên đóng gói chấm hướng dẫn — "dễ làm theo" thì thành ví dụ mẫu cho AI. */
+@Schema({ _id: false })
+export class PlanGuideRating {
+  @Prop({ type: Boolean, required: true }) helpful!: boolean;
+  @Prop({ type: String, default: null }) comment!: string | null;
+  @Prop({ type: SchemaTypes.ObjectId, required: true }) by!: Types.ObjectId;
+  @Prop({ type: Date, required: true }) at!: Date;
+}
+export const PlanGuideRatingSchema = SchemaFactory.createForClass(PlanGuideRating);
+
 @Schema({ _id: false })
 export class PlanGuide {
   @Prop({ type: String, required: true, enum: ['ai', 'template'] }) source!: 'ai' | 'template';
@@ -127,6 +140,9 @@ export class PlanGuide {
   @Prop({ required: true }) summary!: string;
   @Prop({ type: [PlanGuideStepSchema], default: [] }) steps!: PlanGuideStep[];
   @Prop({ type: Date, required: true }) generated_at!: Date;
+  /** (05/11/2026) Số ví dụ mẫu đã gửi kèm cho AI lúc viết. */
+  @Prop({ type: Number, default: 0 }) examples_used?: number;
+  @Prop({ type: PlanGuideRatingSchema, default: null }) rating?: PlanGuideRating | null;
 }
 export const PlanGuideSchema = SchemaFactory.createForClass(PlanGuide);
 
@@ -204,6 +220,66 @@ export class PlanBoxSourceOverride {
 }
 export const PlanBoxSourceOverrideSchema = SchemaFactory.createForClass(PlanBoxSourceOverride);
 
+/** (05/11/2026) Điểm con 0–10 của 1 thùng trong bảng so sánh (solver/box-comparison.ts). */
+@Schema({ _id: false })
+export class PlanBoxComparisonCriteria {
+  @Prop({ type: Number, required: true }) billable!: number;
+  @Prop({ type: Number, required: true }) packaging!: number;
+  @Prop({ type: Number, required: true }) fill!: number;
+  @Prop({ type: Number, required: true }) handling!: number;
+}
+export const PlanBoxComparisonCriteriaSchema = SchemaFactory.createForClass(PlanBoxComparisonCriteria);
+
+/** (05/11/2026) Trọng số điểm tổng đã dùng — chụp lại để bảng tự giải thích được. */
+@Schema({ _id: false })
+export class PlanBoxComparisonWeights {
+  @Prop({ type: Number, required: true }) billable!: number;
+  @Prop({ type: Number, required: true }) packaging!: number;
+  @Prop({ type: Number, required: true }) fill!: number;
+  @Prop({ type: Number, required: true }) handling!: number;
+}
+export const PlanBoxComparisonWeightsSchema = SchemaFactory.createForClass(PlanBoxComparisonWeights);
+
+/** (05/11/2026) 1 dòng bảng so sánh: 1 loại thùng đã thử cho đúng các món của kiện. */
+@Schema({ _id: false })
+export class PlanBoxComparisonRow {
+  @Prop({ required: true }) box_code!: string;
+  @Prop({ required: true }) box_name!: string;
+  @Prop({ type: String, enum: ['box', 'mailer'], default: 'box' }) kind!: 'box' | 'mailer';
+  @Prop({ type: Boolean, required: true }) is_chosen!: boolean;
+  @Prop({ type: Boolean, required: true }) eligible!: boolean;
+  /** (08/11/2026) Số thùng loại này cần; >1 = phải tách kiện; null = không xếp được / dữ liệu cũ. */
+  @Prop({ type: Number, default: null }) parcels?: number | null;
+  /** 1 = tốt nhất theo luật bậc của bộ giải; null = không dùng được. */
+  @Prop({ type: Number, default: null }) rank!: number | null;
+  @Prop({ type: Number, required: true }) score!: number;
+  @Prop({ type: PlanBoxComparisonCriteriaSchema, default: null }) criteria!: PlanBoxComparisonCriteria | null;
+  @Prop({ type: Number, default: null }) billable_weight_g!: number | null;
+  @Prop({ type: Number, default: null }) packaging_cost_vnd!: number | null;
+  @Prop({ type: Number, default: null }) fill_ratio!: number | null;
+  @Prop({ type: Number, default: null }) folds!: number | null;
+  @Prop({ type: Number, default: null }) estimated_weight_g!: number | null;
+  @Prop({ type: Number, default: null }) available!: number | null;
+  @Prop({ required: true }) verdict!: string;
+}
+export const PlanBoxComparisonRowSchema = SchemaFactory.createForClass(PlanBoxComparisonRow);
+
+/**
+ * (05/11/2026) "Vì sao thùng này mà không phải thùng khác" — tính lúc bộ giải chạy
+ * xong và mỗi lần chỉnh tay. Số dòng ≤ số loại thùng trong danh mục (có giới hạn).
+ */
+@Schema({ _id: false })
+export class PlanBoxComparison {
+  @Prop({ type: String, required: true, enum: ['fewest_parcels', 'cheapest'] }) prefer!: 'fewest_parcels' | 'cheapest';
+  @Prop({ type: PlanBoxComparisonWeightsSchema, required: true }) weights!: PlanBoxComparisonWeights;
+  @Prop({ type: [PlanBoxComparisonRowSchema], default: [] }) rows!: PlanBoxComparisonRow[];
+  /** false = điểm tổng ngược thứ hạng ở ít nhất 1 cặp (điểm chỉ tham khảo). */
+  @Prop({ type: Boolean, required: true }) scores_consistent!: boolean;
+  @Prop({ required: true }) summary!: string;
+  @Prop({ type: Date, required: true }) generated_at!: Date;
+}
+export const PlanBoxComparisonSchema = SchemaFactory.createForClass(PlanBoxComparison);
+
 @Schema({ _id: false })
 export class PlanParcel {
   /** Số kiện 1..N trong cả nhóm (đánh lại sau mỗi lần chỉnh tay). */
@@ -241,6 +317,8 @@ export class PlanParcel {
   @Prop({ type: Number, default: null }) actual_weight_kg!: number | null;
   @Prop({ type: Boolean, default: false }) is_abnormal!: boolean;
   @Prop({ type: [PlanShortfallSchema], default: [] }) materials_shortfall!: PlanShortfall[];
+  /** (05/11/2026) Bảng so sánh thùng; null = kiện nhập tay / dữ liệu trước 05/11 (tính lại ở lần chỉnh tay kế tiếp). */
+  @Prop({ type: PlanBoxComparisonSchema, default: null }) box_comparison?: PlanBoxComparison | null;
   // ---- phiên đóng gói (05/10/2026) — mọi trường có mặc định, bản ghi cũ đọc được.
   @Prop({ type: String, default: 'pending', enum: PARCEL_STATUSES }) status!: ParcelStatus;
   /** Kiện có món dễ vỡ — luật "dễ vỡ chỉ dùng thùng mới" (packing_settings). */
@@ -393,11 +471,34 @@ export class PlanSolverOptions {
 }
 export const PlanSolverOptionsSchema = SchemaFactory.createForClass(PlanSolverOptions);
 
+/** (05/11/2026) Dấu vân tay 1 thùng / túi / vật tư đã dùng lúc tính (utils/catalog-snapshot.util.ts). */
+@Schema({ _id: false })
+export class PlanCatalogEntry {
+  @Prop({ required: true }) code!: string;
+  @Prop({ required: true }) name!: string;
+  @Prop({ required: true }) fingerprint!: string;
+}
+export const PlanCatalogEntrySchema = SchemaFactory.createForClass(PlanCatalogEntry);
+
+/** (05/11/2026) Ảnh chụp danh mục đầu vào của bộ giải — so với hiện tại để báo kế hoạch cũ. */
+@Schema({ _id: false })
+export class PlanCatalogSnapshot {
+  @Prop({ type: [PlanCatalogEntrySchema], default: [] }) boxes!: PlanCatalogEntry[];
+  @Prop({ type: [PlanCatalogEntrySchema], default: [] }) mailers!: PlanCatalogEntry[];
+  @Prop({ type: [PlanCatalogEntrySchema], default: [] }) materials!: PlanCatalogEntry[];
+  @Prop({ type: Number, default: null }) material_rules_version!: number | null;
+  @Prop({ type: Number, required: true }) volumetric_divisor!: number;
+  @Prop({ type: Number, required: true }) billing_step_g!: number;
+}
+export const PlanCatalogSnapshotSchema = SchemaFactory.createForClass(PlanCatalogSnapshot);
+
 @Schema({ _id: false })
 export class PlanSolver {
   @Prop({ required: true }) engine_version!: string;
   @Prop({ type: Number, default: 0 }) computation_ms!: number;
   @Prop({ type: PlanSolverOptionsSchema, required: true }) options!: PlanSolverOptions;
+  /** (05/11/2026) Danh mục đã dùng lúc tính; null = kế hoạch trước 05/11 (không so được). */
+  @Prop({ type: PlanCatalogSnapshotSchema, default: null }) inputs?: PlanCatalogSnapshot | null;
 }
 export const PlanSolverSchema = SchemaFactory.createForClass(PlanSolver);
 

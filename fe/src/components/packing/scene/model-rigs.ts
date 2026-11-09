@@ -147,7 +147,9 @@ export function fitToBlock(box: Box3, size: Vec3, uniform: boolean): Fit {
   const [c0, c1, c2] = cols as [Vector3, Vector3, Vector3]
   const rot = new Matrix4().makeBasis(c0, c1, c2)
   if (rot.determinant() < 0) {
-    cols[mo[2] ?? 2]?.negate()
+    // Phải đảo một trục để ra phép xoay thật. Đảo trục nằm ngang: đảo trục đứng sẽ lật ngược món hàng.
+    const flip = [0, 1, 2].find((k) => (to[k] ?? k) !== 1) ?? 0
+    cols[mo[flip] ?? flip]?.negate()
     rot.makeBasis(c0, c1, c2)
   }
   const scale = new Vector3()
@@ -175,13 +177,21 @@ export class ItemRig {
   readonly finalBox: Box3
   /** Hàng mềm lúc trải phẳng (đầu clip), để co cho vừa khu chuẩn bị. */
   readonly flatBox: Box3
+  /** Hàng có bước chuẩn bị: vùng các món chiếm suốt clip, để thu cho vừa khu chuẩn bị. */
+  readonly prepBox: Box3
   private readonly mixer: AnimationMixer | null
   private readonly duration: number
   private lastTime = Number.NaN
   private readonly parcelNode: Object3D | null
   private readonly parcelFinal = new Vector3()
 
-  constructor(scene: Object3D, clip: AnimationClip | undefined, kind: ItemModelKind, withZip: boolean) {
+  constructor(
+    scene: Object3D,
+    clip: AnimationClip | undefined,
+    kind: ItemModelKind,
+    withZip: boolean,
+    hasPrepStep = false,
+  ) {
     this.root = cloneSkinned(scene)
     if (kind === 'garment') {
       this.root.traverse((obj) => {
@@ -207,6 +217,14 @@ export class ItemRig {
       this.flatBox = measureVisible(this.root)
     } else {
       this.flatBox = new Box3()
+    }
+    this.prepBox = new Box3()
+    if (hasPrepStep) {
+      const samples = 24
+      for (let i = 0; i <= samples; i++) {
+        this.setTime((this.phases.end * i) / samples)
+        this.prepBox.union(measureVisible(this.root))
+      }
     }
     this.setTime(this.finalTime)
     this.finalBox = measureVisible(this.root)

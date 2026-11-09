@@ -35,6 +35,39 @@ export function billableWeightG(actualG: number, volumetricG: number, stepG: num
 const innerVolume = (b: BoxSpec): number =>
   b.inner.length_mm * b.inner.width_mm * b.inner.height_mm;
 
+/**
+ * (08/11/2026, user chốt) Cắt hạ thùng carton: chỉ cắt khi bỏ được ≥ 5 cm; chiều cao
+ * lòng sau cắt = đỉnh chồng hàng làm tròn LÊN cm chẵn. Túi niêm phong không cắt.
+ */
+export const MIN_BOX_CUT_MM = 50;
+
+/** Thùng gốc trong danh mục (bỏ phần cắt hạ nếu có). */
+export function uncutBox(box: BoxSpec): BoxSpec {
+  if (!box.cut_from) return box;
+  const { cut_from: from, ...rest } = box;
+  return {
+    ...rest,
+    inner: { ...box.inner, height_mm: from.inner_height_mm },
+    outer: { ...box.outer, height_mm: from.outer_height_mm },
+  };
+}
+
+/** Thùng cắt hạ xuống sát chồng hàng; không đáng cắt thì trả thùng gốc. */
+export function cutBoxToLoad(box: BoxSpec, placements: Placement[]): BoxSpec {
+  const base = uncutBox(box);
+  if (base.kind === 'mailer' || placements.length === 0) return base;
+  const top = Math.max(...placements.map((p) => p.z + p.dz));
+  const height = Math.min(base.inner.height_mm, Math.ceil(top / 10) * 10);
+  const saved = base.inner.height_mm - height;
+  if (saved < MIN_BOX_CUT_MM) return base;
+  return {
+    ...base,
+    inner: { ...base.inner, height_mm: height },
+    outer: { ...base.outer, height_mm: base.outer.height_mm - saved },
+    cut_from: { inner_height_mm: base.inner.height_mm, outer_height_mm: base.outer.height_mm },
+  };
+}
+
 /** Dựng kết quả 1 kiện từ trạng thái giải mã. */
 export function summarizeParcel(
   state: ParcelState,
@@ -50,14 +83,15 @@ export function summarizeParcel(
   );
 }
 
-/** Dựng kết quả 1 kiện từ thùng + món (đúng dạng) + tọa độ: cân, độ đầy, vật tư, cân quy đổi. */
+/** Dựng kết quả 1 kiện từ thùng + món (đúng dạng) + tọa độ: cân, độ đầy, vật tư, cân quy đổi — theo thùng đã cắt hạ. */
 export function summarizePlacements(
-  box: BoxSpec,
+  catalogBox: BoxSpec,
   units: PackingUnit[],
   placements: Placement[],
   materials: MaterialPlanning | undefined,
   charge: ChargeRule = DEFAULT_CHARGE_RULE,
 ): SolvedParcel {
+  const box = cutBoxToLoad(catalogBox, placements);
   const itemsWeight = units.reduce((s, u) => s + u.weight_g, 0);
   const itemsVolume = placements.reduce((s, p) => s + p.dx * p.dy * p.dz, 0);
   const fill = itemsVolume / innerVolume(box);
@@ -139,26 +173,41 @@ export function compareObjective(
   b: Objective,
   prefer: SolvePreference = 'fewest_parcels',
 ): number {
-  const tiers: [number, number][] = [[a.unplaced, b.unplaced]];
-  if (prefer === 'cheapest') {
-    tiers.push(
-      [a.billable_g, b.billable_g],
-      [a.packaging_cost_vnd, b.packaging_cost_vnd],
-      [a.parcels, b.parcels],
-    );
-  } else {
-    tiers.push(
-      [a.parcels, b.parcels],
-      [a.billable_g, b.billable_g],
-      [a.packaging_cost_vnd, b.packaging_cost_vnd],
-    );
+  const diff = firstObjectiveDifference(a, b, prefer);
+  return diff === null ? 0 : diff.sign;
+}
+
+/** Thứ tự bậc so sánh của bộ giải — nguồn DUY NHẤT cho cả `compareObjective` lẫn lời giải thích. */
+export function objectiveTierOrder(prefer: SolvePreference = 'fewest_parcels'): (keyof Objective)[] {
+  const head: (keyof Objective)[] =
+    prefer === 'cheapest'
+      ? ['billable_g', 'packaging_cost_vnd', 'parcels']
+      : ['parcels', 'billable_g', 'packaging_cost_vnd'];
+  return ['unplaced', ...head, 'volumetric_g', 'folds', 'imbalance', 'cog'];
+}
+
+/** Bậc làm tròn trước khi so (số thực). */
+const ROUNDED_TIERS: ReadonlySet<keyof Objective> = new Set(['imbalance', 'cog']);
+
+export interface ObjectiveDifference {
+  /** Bậc ĐẦU TIÊN hai phương án khác nhau — chính là lý do bộ giải xếp hạng. */
+  tier: keyof Objective;
+  /** < 0 nếu `a` tốt hơn `b` ở bậc này. */
+  sign: number;
+  a: number;
+  b: number;
+}
+
+/** Bậc đầu tiên `a` và `b` khác nhau theo luật bậc; null = ngang nhau ở mọi bậc. */
+export function firstObjectiveDifference(
+  a: Objective,
+  b: Objective,
+  prefer: SolvePreference = 'fewest_parcels',
+): ObjectiveDifference | null {
+  for (const tier of objectiveTierOrder(prefer)) {
+    const x = ROUNDED_TIERS.has(tier) ? r3(a[tier]) : a[tier];
+    const y = ROUNDED_TIERS.has(tier) ? r3(b[tier]) : b[tier];
+    if (x !== y) return { tier, sign: x - y, a: a[tier], b: b[tier] };
   }
-  tiers.push(
-    [a.volumetric_g, b.volumetric_g],
-    [a.folds, b.folds],
-    [r3(a.imbalance), r3(b.imbalance)],
-    [r3(a.cog), r3(b.cog)],
-  );
-  for (const [x, y] of tiers) if (x !== y) return x - y;
-  return 0;
+  return null;
 }

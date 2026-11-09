@@ -52,7 +52,7 @@ Hệ thống nội bộ (không multi-tenant) giúp doanh nghiệp đồng bộ 
 > - **Shopee bị loại khỏi scope** — lý do ĐÚNG (bản ghi cũ nói "mã số thuế bắt buộc" là SAI, đã sửa): đăng ký dev account Shopee route "Shopee Seller" (cá nhân) đòi hỏi shop Shopee liên kết phải **đã đạt trạng thái Preferred Seller hoặc Mall Seller** — một shop cá nhân mới lập không bao giờ đạt được ngay. Đã đọc kỹ toàn bộ doc chính thức Shopee Open Platform (Authorization, API calls, App management, Developer account registration) để xác nhận, xem thêm ở mục "Nghiên cứu Shopee — dừng scope nhưng giữ tài liệu" bên dưới.
 > - **TikTok Shop Partner Center (API/sandbox) cũng bị xác nhận KHÔNG khả thi**: bắt buộc giấy phép kinh doanh + công ty thành lập > 1 năm, không có route cá nhân/self-developed nào. (Đã tạo được TikTok Shop **Seller Center** cá nhân — `seller-vn.tiktok.com` — nhưng đây KHÁC hoàn toàn Partner Center, không có API.)
 > - **Lazada** trở thành sàn tích hợp CHÍNH và DUY NHẤT đang code (đăng ký cá nhân chỉ cần CCCD) — đã OAuth connect + GetOrders + lưu DB thành công END-TO-END với đơn hàng thật (xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới).
-> - **TikTok Shop và Tiki**: cố ý HOÃN lại (không xóa khỏi roadmap, nhưng KHÔNG code adapter tích cực lúc này) cho tới khi 2 sàn này sẵn sàng hơn (TikTok cần chờ hướng giải quyết business license; Tiki cần chờ email xin sandbox từ `partnersupport@tiki.vn` được duyệt).
+> - **TikTok Shop và Tiki**: cố ý HOÃN lại (không xóa khỏi roadmap, nhưng KHÔNG code adapter tích cực lúc này) cho tới khi 2 sàn này sẵn sàng hơn (TikTok cần chờ hướng giải quyết business license; Tiki cần chờ email xin sandbox từ `partnersupport@tiki.vn` được duyệt). 🔄 ĐÃ THAY ĐỔI 31/10/2026 (Tiki): Tiki không cần sandbox — nhà bán cá nhân tự tạo **app Inhouse** trên open.tiki.vn; đã kết nối thật shop "OptiPackAI Test Shop" (seller 365980) và code đồng bộ đơn dropship — xem nhật ký 31/10/2026 cuối file. TikTok vẫn hoãn.
 > - **Facebook Marketplace** (C2C listing cá nhân) xác nhận KHÔNG có API công khai, Meta không có kế hoạch mở. Nếu sau này cần tích hợp Facebook, mục tiêu đúng là **Facebook Shop** (Meta Commerce/Catalog API, chỉ cần Facebook Business Manager miễn phí) — mới là hướng nghiên cứu, CHƯA quyết định đưa vào scope chính thức.
 
 ## Quyết định kiến trúc đã chốt
@@ -87,7 +87,7 @@ Auth/Users KHÔNG nằm trong 5 package chính thức của đồ án nhưng là
 - **Tạo user — email trùng bị chặn tuyệt đối (2026-09-14, ĐÃ THAY ĐỔI)**: trước đây `createByAdmin()` chỉ chặn email của tài khoản `is_active: true`, unique index cũng partial theo `is_active` → Admin tạo lại đúng email của nhân viên đã vô hiệu hóa thì hệ thống **tạo thêm 1 user mới** (không ghi đè, nhưng ra 2 tài khoản cùng email). Giờ tìm email **không lọc is_active**; nếu trùng tài khoản đang hoạt động → `USER_EMAIL_IN_USE` (409); nếu trùng tài khoản đã vô hiệu hóa → `USER_EMAIL_INACTIVE` (409) kèm `details.existingUserId`, **không tạo mới, không ghi đè**. Unique `{ email: 1 }` giờ áp mọi trạng thái (bỏ `partialFilterExpression`). FE hiện lỗi trên form tạo user; với `USER_EMAIL_INACTIVE` có nút **Kích hoạt lại ngay** (gọi `POST /users/:id/reactivate`, mở lại tài khoản cũ với dữ liệu đã lưu — không lấy tên/vai trò từ form tạo mới).
 - **Admin tắt MFA hộ → thông báo user (2026-09-14, KHÔI PHỤC 2026-09-18)**: `adminDisableMfa()` gọi cổng `NotificationsService.notify()` (in-app type `mfa_disabled` + email `mfaDisabledTemplate`). FE hiện popup `MfaDisabledNotice` khi user đăng nhập / đang trong phiên. **ĐÃ THAY ĐỔI (2026-09-18)**: poll **45s** (không còn 10s) + delay 1.5s sau mount — `ThrottlerGuard` global 20 req/phút, poll 10s cộng `GET /users`/`unread-count` làm trang sau login quay spinner mãi / không có dữ liệu. `apiRequest` timeout **12s** (JwtStrategy đọc Redis trước Mongo; Redis treo thì fetch không settle). Không báo lại nếu MFA vốn đã tắt. Lỗi gửi thông báo không làm fail thao tác tắt MFA.
 - **ĐÃ VÁ (2026-09-18) — merge/sync `be/` từ main + rewrite chuông FE đã làm mất nửa luồng MFA**: enum mất `MFA_DISABLED` (chỉ còn comment), `adminDisableMfa()` về bản cũ không `notify()`, `notifications.api.ts` đổi sang `listNotifications`/`markNotificationRead` nhưng `MfaDisabledNotice` vẫn import tên cũ → Vite `MISSING_EXPORT` trắng cả `App.tsx`. **Fix**: khôi phục enum + `notify()` + `sendMfaDisabled`; popup FE dùng API chuông hiện tại (không dùng lại `fetchUnreadNotifications`). Không đụng warehouse. Verify: `npx tsc --noEmit`, `jest` users/mail, `npx vite build`.
-- Gửi email qua module `mail/` (5 template: welcome, forgot-password, account-locked, mfa-enabled, mfa-disabled) + `sendNotificationEmail()` cho thông báo vận hành — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: khối lập phương đẳng trắc 3 tông tím, phẳng, không gradient — asset gốc ở `be/assets/logo/`.
+- Gửi email qua module `mail/` (5 template: welcome, forgot-password, account-locked, mfa-enabled, mfa-disabled) + `sendNotificationEmail()` cho thông báo vận hành — mọi lời gọi `mailService.sendXxx()` PHẢI dùng `void` (không `await`), gửi mail không được phép làm fail luồng nghiệp vụ chính. Thiết kế email theo phong cách transactional doanh nghiệp thật (nền trắng, 1 màu nhấn duy nhất, chữ ngắn) — **tránh** banner màu to/nhiều box màu (dễ trông như AI generate). Logo thương hiệu: vòng tròn navy `#1A2442` + icon thùng/mũi tên trắng phẳng — asset FE `fe/public/brand/optipack-mark.png`, email/BE `be/assets/logo/` (+ `LOGO_BASE64` trong `mail.templates.ts`).
 - `ThrottlerGuard` đã gắn `APP_GUARD` global trong `app.module.ts` — `@Throttle()` trên route (login, forgot-password) giờ thực sự có tác dụng (trước đây từng bị khai config nhưng chưa gắn guard, không chặn được gì)
 - TTL tự dọn: `login_audit_logs` (180 ngày), `trusted_devices` (30 ngày), `refresh_tokens` (theo hạn token)
 
@@ -109,12 +109,12 @@ Adapter Pattern (`interfaces/marketplace-adapter.interface.ts`) — service/cont
 
 |                          | TikTok                                                         | Lazada                                                  | Tiki                                                                                          |
 | ------------------------ | -------------------------------------------------------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Cách ký request          | Tự HMAC riêng (GET cho 2 API token)                            | Tự HMAC riêng (path + sorted params, **UPPERCASE hex**) | **KHÔNG cần ký** — OAuth2 chuẩn, Basic Auth header                                            |
+| Cách ký request          | Tự HMAC riêng (GET cho 2 API token)                            | Tự HMAC riêng (path + sorted params, **UPPERCASE hex**) | **KHÔNG cần ký** — 🔄 31/10/2026 (đã gọi thật): app Inhouse lấy token `client_credentials` (Basic AppID:Secret), không trang đăng nhập, không refresh token; API dùng `Authorization: Bearer` |
 | `expires_in` là gì       | **Epoch tuyệt đối** (vd `1660556783`)                          | **Số giây còn lại** (vd `604800` = 7 ngày)              | **Số giây còn lại** (chuẩn OAuth2)                                                            |
-| Lấy shop_id/cipher       | Phải gọi THÊM API `GetAuthorizedShops` sau khi có access_token | Có sẵn trong response token (`country_user_info_list`)  | Xác định qua chính access_token, không cần thêm bước                                          |
-| Cơ chế nhận đơn hàng mới | Webhook (best-effort) + cron đối soát dự phòng                 | Polling định kỳ (chưa xác nhận có webhook chính thức)   | Event Queue (cơ chế RIÊNG của Tiki, KHÁC webhook — đọc tài liệu `event-queue` trước khi code) |
+| Lấy shop_id/cipher       | Phải gọi THÊM API `GetAuthorizedShops` sau khi có access_token | Có sẵn trong response token (`country_user_info_list`)  | 🔄 31/10/2026: token KHÔNG chứa id nhà bán — gọi thêm `GET /integration/v2/sellers/me` (`id`, `name`) |
+| Cơ chế nhận đơn hàng mới | Webhook (best-effort) + cron đối soát dự phòng                 | Polling định kỳ (chưa xác nhận có webhook chính thức)   | Event Queue (cơ chế RIÊNG của Tiki, KHÁC webhook — đọc tài liệu `event-queue` trước khi code). 🔄 31/10/2026: ĐÃ CODE — kéo mỗi phút + quét dự phòng theo ngày tạo (`TikiOrderSyncService`) |
 
-**Độ tin cậy thông tin**: TikTok đã tự trải nghiệm đăng ký thật (cao, nhưng Partner Center/API xác nhận KHÔNG khả thi — xem lịch sử đổi phạm vi ở đầu file). **Lazada: ĐÃ TỰ TRẢI NGHIỆM THẬT VÀ CHẠY THÀNH CÔNG END-TO-END** (không còn "chưa tự trải nghiệm" như ghi cũ) — xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới, độ tin cậy giờ là CAO NHẤT trong 3 sàn. Tiki: phần OAuth2 xác nhận qua tài liệu chính thức (cao), nhưng domain trang authorize + tên field response cụ thể vẫn là suy luận (trung bình, CHƯA test) — xem `SETUP_NOTES.md` trong module để biết chỗ nào cần test lại bằng Postman trước khi tin tưởng, và nhớ Tiki hiện đang HOÃN code (xem lịch sử đổi phạm vi).
+**Độ tin cậy thông tin**: TikTok đã tự trải nghiệm đăng ký thật (cao, nhưng Partner Center/API xác nhận KHÔNG khả thi — xem lịch sử đổi phạm vi ở đầu file). **Lazada: ĐÃ TỰ TRẢI NGHIỆM THẬT VÀ CHẠY THÀNH CÔNG END-TO-END** (không còn "chưa tự trải nghiệm" như ghi cũ) — xem mục "Module Orders — Lazada ĐÃ CHẠY END-TO-END" bên dưới, độ tin cậy giờ là CAO NHẤT trong 3 sàn. Tiki: phần OAuth2 xác nhận qua tài liệu chính thức (cao), nhưng domain trang authorize + tên field response cụ thể vẫn là suy luận (trung bình, CHƯA test) — xem `SETUP_NOTES.md` trong module để biết chỗ nào cần test lại bằng Postman trước khi tin tưởng, và nhớ Tiki hiện đang HOÃN code (xem lịch sử đổi phạm vi). 🔄 ĐÃ THAY ĐỔI 31/10/2026: Tiki đã gọi thật (token, sellers/me, kho, danh sách đơn) — luồng authorization_code cũ bỏ hẳn; chưa có đơn thật để thử đồng bộ/xác nhận/nhãn.
 
 ## Module Orders — Lazada ĐÃ CHẠY END-TO-END (2026-09-04, đọc trước khi đụng vào `orders/` hoặc `marketplace-integration/lazada`)
 
@@ -2450,7 +2450,7 @@ Khảo sát 28/09 xác nhận 4 khoảng trống so với đề bài: vật tư 
 - Collection mới `packaging_materials` (5 loại: `foam_corner`, `corrugated_divider`, `air_pillow`, `bubble_wrap`, `fragile_tape`; tồn + `reorder_level`), `packaging_material_movements` (sổ riêng, không đụng sổ thùng), `packaging_material_rules` (bộ luật có version, mỗi lần lưu = document mới, bản cũ tắt; chưa có → dùng `DEFAULT_MATERIAL_RULES` trong code). Routes `/packaging/materials` (+ `/rules` GET/PUT) — chi tiết `API_LIST.md` mục 8e.
 - Engine: `engine/material-selector.ts` (`selectMaterials`, hàm thuần) — luật gồm `applies_to` (fragile/shoes/fragile_or_shoes/any) × `basis` (per_unit/per_extra_unit/per_carton/void_band). `packOrder` nhận `options.materials`; `buildOk` cộng khối lượng vật tư vào `estimated_package_weight_g`, trả `materials_weight_g/materials_cost_vnd`. `PackingUnit.product_category` (mới) để luật nhận ra giày.
 - **Vật tư là ƯỚC LƯỢNG THEO LUẬT, không vào hình học** (không chiếm thể tích trong validator, chưa mô hình hóa khoảng đệm) — khi trình bày phải nói đúng như vậy; các dải `void_band` (50%→2, 70%→4) và số lượng mặc định là số khởi đầu chưa hiệu chỉnh.
-- **Thiếu vật tư KHÔNG chặn `pack`** (khác thùng hết → 409 `PKG_BOX_OUT_OF_STOCK`): trừ `min(cần, tồn)`, ghi `materials_shortfall` trên recommendation + Notification `low_material_stock` (Admin + Store Owner; cũng báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần). Vật tư **không giữ chỗ mềm**.
+- **Thiếu vật tư KHÔNG chặn `pack`** (khác thùng hết → 409 `PKG_BOX_OUT_OF_STOCK`): trừ `min(cần, tồn)`, ghi `materials_shortfall` trên recommendation + Notification `low_material_stock` (Admin + Store Owner; cũng báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần). 🔄 08/11/2026: 3 mức (sắp chạm ≤ ngưỡng + 20%, dưới ngưỡng, hết), người nhận thêm Warehouse Staff, báo cả thùng hỏng lúc đóng và sửa ngưỡng — xem nhật ký 08/11 cảnh báo tồn. Vật tư **không giữ chỗ mềm**.
 - Hướng dẫn đóng gói: `buildTemplateGuide`/`PackingGuideInput` nhận `materials[]` thay `bubble_wrap_count`; AI được nhắc liệt kê đúng vật tư trong `summary`.
 - FE: `MaterialCatalog` (trong `/app/admin/boxes`, gồm xem luật), `StockPanel` (dùng chung với `BoxStockPanel`), bảng vật tư + chi phí ở `PackagingPlanPage`, danh sách vật tư ở màn Chuẩn bị của wizard. **Chưa vẽ vật tư trong animation 3D.**
 - Seed: `npx ts-node scripts/seed-packaging-materials.ts` (chưa chạy trên DB thật; chỉ tạo mã chưa có, an toàn chạy lại).
@@ -4565,6 +4565,254 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route. (3) Chỉ đổi hiển thị 3D; bước gấp dài 3,4 s, bước đặt 1,5 s. (4) Không ảnh hưởng tính kế hoạch, toạ độ xếp, quét, niêm phong. (5) Hạn chế: co hàng trải phẳng là thủ thuật hình ảnh; lúc lật món hàng không chạm va chạm thật với sàn; món xếp trong thùng nhìn qua vách bị ám màu bìa.
 
+## 🎨 Nhật ký 04/11/2026 — Rà giao diện FE sau góp ý của giảng viên (CHƯA SỬA CODE)
+
+**Góp ý:** giao diện nhàm chán, thiếu màu, không nổi bật. Phạm vi: mọi màn trừ `storefront/`.
+
+**Cách rà:** chụp Tổng quan, Đơn, Nhóm đơn, Kho, Đóng gói, Giao hàng, Admin, trang giới thiệu, sáng và tối, bằng Vite riêng + API giả (không thêm file vào `fe/`). Số liệu trong ảnh là giả; chưa xem với dữ liệu thật.
+
+**Điểm yếu:**
+1. Màu chủ đạo `#152d35` quá tối, nhìn như đen; màn gần như chỉ có xám và trắng. Đo trong `fe/src`: slate 933 lần, mọi họ màu khác cộng lại ít hơn nhiều.
+2. Đợt làm phẳng 01/11 (`teal-shell.css`) bỏ gradient và kính mờ nhưng không thêm màu thay thế, nên làm tình trạng này rõ hơn.
+3. Mọi khối giống nhau: thẻ trắng, viền mảnh, cùng cỡ. Ở Tổng quan 17 việc chờ xếp đều 3 cột, không nhóm theo bước.
+4. Màu không nhất quán: `--app-primary` còn indigo ở `index.css`, nên nút "Nhận việc" và tab "Tất cả" ở Admin có màu tím giữa giao diện xanh; biểu đồ dùng slate-800 + emerald-400 ngoài bảng màu; trạng thái hiện bằng viên xám hoặc cam tuỳ màn.
+5. `font-mono` dùng cho số lớn ở Tổng quan nên có số 0 gạch chéo, trông như màn kỹ thuật.
+6. Trang giới thiệu (chữ có chân, hộp màu carton) đẹp hơn và không ăn nhập với phần trong app.
+
+**Nội dung sai cần sửa kèm:** sidebar ghi cứng "Anh Minh Store · 2 active · Shopee · TikTok Shop" (`context/portal-context-value.ts`) dù Shopee ngoài phạm vi; "M1 · Hàng đợi lấy hàng" (`MarketplaceOrdersView.tsx:470`); "Chờ Admin chốt" còn ở `PackagingWorkbench.tsx:813, 1961` — nhật ký 01/11 ghi đã bỏ nhưng chưa hết.
+
+**Hướng đã chốt (04/11/2026):** Việt đồng ý màu theo bước xử lý, làm thử sidebar + Tổng quan trước rồi xem ảnh mới làm tiếp.
+
+**Đã làm thử:** `styles/stages.css` (token màu bước, sidebar nền đậm, khối Tổng quan), `lib/stage-colors.ts`, `components/dashboard/RevenueChart.tsx`, viết lại phần hiển thị `DashboardPage.tsx` (giữ nguyên API và logic khoảng ngày), icon menu theo bước ở `PortalSidebar` + `AdminSidebar`. Thẻ "Anh Minh Store · Shopee · TikTok" ở sidebar thay bằng kết nối thật từ `GET /marketplace/:platform/shops`; danh sách shop giả vẫn còn ở `ProfilePage`.
+
+**Kiểm chứng:** `tsc -b` và ESLint sạch trên file đã sửa (1 cảnh báo cũ của `PortalSidebar`); chụp sáng/tối với API giả. Bảng màu chạy `validate_palette`: chế độ sáng và biểu đồ đạt; màu lấy hàng/đóng gói ở nền tối ΔE 5,3 với mù màu đỏ, chấp nhận vì luôn đi kèm icon + chữ, không dùng làm chuỗi biểu đồ. Chưa thử rê chuột trên biểu đồ, chưa xem với dữ liệu thật.
+
+**Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route; sidebar chủ shop gọi thêm 2 lần `/marketplace/:platform/shops`. (3) Sidebar đổi cho mọi vai trò; nội dung các màn khác chưa đổi nên còn nút indigo ở Admin. (4) Không ảnh hưởng `storefront/`, nghiệp vụ. (5) Bản thử này đã được áp tiếp, xem dưới.
+
+**Áp toàn bộ (04/11/2026, Việt yêu cầu thêm ẩn thanh cuộn sidebar và đổi nền):** nền trang xanh nhạt `#d3e8e4` (tối `#0b2428`), thẻ `#f7fcfb`, thanh trên `#e4f2ef`, đặt bằng token ở `:where(.owner-shell)` trong `styles/stages.css` nên không phải sửa từng trang; các class `bg-white`, `bg-slate-100`, `border-slate-*` trong vỏ app được ghi đè về token này. Thanh cuộn sidebar ẩn nhưng vẫn cuộn được, áp cho mọi vai trò. Màu chính đổi từ indigo sang xanh ngọc `#0f766e` ở `index.css`; class indigo viết cứng đổi sang teal. `Badge` nhận tone theo bước; `lib/stage-colors.ts` ánh xạ trạng thái nhóm đơn, vận đơn, phiếu trả, đơn sàn; dùng ở Nhóm đơn, Trả hàng, Đơn, Giao hàng, Kho, Đóng gói. Câu chữ: bỏ "M1 ·", "Chờ Admin chốt" (hệ thống tự tính), "Theo quyền BE", Shopee/TikTok trên trang đăng nhập.
+
+**Không đổi có chủ đích:** `recipient-color.ts` (màu phân biệt người nhận), màu 3D sản phẩm, `storefront/`.
+
+**Đăng nhập + gỡ shop giả (04/11/2026, Việt yêu cầu):** `LoginScene` + `login-scene.css` chia đôi màn, trái `#0d3b40` như sidebar, phải `#e4f2ef`; áp cho cả quên mật khẩu, đổi mật khẩu, đăng ký, OAuth vì dùng chung `LoginScene`. Thêm nhãn Email / Mật khẩu; cú đứng cạnh lời nhắn để form không nhảy khi đổi câu. Gỡ `shops`, `addShop`, `PLATFORM_META`, `DEFAULT_SHOPS` khỏi `portal-context-value.ts`, `portal-provider.tsx`, `ProfilePage`; tab "Sàn đã kết nối" nay là `components/profile/ConnectedShopsPanel.tsx` đọc `GET /marketplace/:platform/shops`, chỉ xem. Xoá `pages/SettingsPage.tsx`. Không đổi route, không đổi DB; `localStorage` cũ `optipack-shops`, `optipack-active-shops` không còn ai đọc, vô hại. Còn chữ Shopee/TikTok ở `components/landing/ActorsSection`, `AiDemoCard`, `FeatureGrid`, `HeroSection`: các file này không được trang nào dùng.
+
+**Lỗi tự gây, đã sửa (04/11/2026):** bảng `sr-only` trong `RevenueChart` làm trang Tổng quan có thêm thanh cuộn và khoảng trắng: thẻ `table` bỏ qua `height: 1px`, lại định vị absolute nên thoát khỏi vùng cuộn (đo được trang 1780 px so với khung 803 px khi có 30 ngày). Bản chụp 7 ngày không lộ vì trang đủ dài che mất. Sửa: đặt `sr-only` lên `div` bọc ngoài, `.dash-chart` có `position: relative`. **Bài học:** không gắn `sr-only` trực tiếp lên `table`; kiểm tra `documentElement.scrollHeight` với lượng dữ liệu thật.
+
+## 👟 Nhật ký 04/11/2026 — Bật lại bước đóng hộp giày trong khung 3D
+
+**[stated] Việt chọn bật lại để trình diễn**, biết hướng dẫn lệch `PACKAGING_STANDARD.md` mục 5.1 (giữ nguyên hộp gốc). Ghi đè quyết định 01/11 "giày không có bước chuẩn bị". Muốn theo đúng quy chuẩn: bỏ `prepStep` của `shoes` trong `product-models.ts`.
+
+**Code (chỉ FE):** `ItemModel.prepClip` đổi thành `prepStep: bagPrep | shoeBox`; bước mới `shoeBox` tên "Đóng hộp giày", 9 giây (clip 21 giây chạy nhanh khoảng 2,3 lần), túi xách giữ 5 giây. `ItemRig.prepBox` lấy mẫu 25 thời điểm của clip để đo vùng các món chiếm; `ModelBody` thu cả cụm vào khu chuẩn bị, sát sàn, 18% cuối bước phóng về đúng cỡ khối. Áp cho cả túi xách. Ẩn khung dây trong 2 bước này.
+
+**Kiểm chứng:** `tsc -b`, ESLint, `vite build` đạt; chụp đúng `Packing3DBoxViewer` với kế hoạch giả, đầu, giữa, cuối bước và bước đặt vào thùng. Chưa xem với đơn thật, chưa đo fps trên GPU thật.
+
+**Tác động (5 câu):** (1) Không đổi DB. (2) Không đổi route. (3) Kiện có giày thêm 1 bước mỗi đôi, phát tự động dài thêm khoảng 10 giây mỗi đôi; tổng số bước hiển thị đổi. (4) Không ảnh hưởng tính kế hoạch, toạ độ xếp, quét, niêm phong; lời hướng dẫn AI từ BE không nhắc bước này. (5) Hạn chế: lúc đầu bước giày và hộp nhỏ hơn cỡ thật vì cụm phải co cho vừa khu chuẩn bị, cuối bước mới phóng về đúng cỡ.
+
+**Sửa hộp ngược + phóng to khung 3D (04/11/2026, Việt báo, giảng viên nhận xét khung nhỏ):** `fitToBlock` khi định thức âm từng đảo trục nhỏ nhất, chính là trục cao của hộp, nên hộp lật ngược khi dài/rộng đổi chỗ; nay đảo trục nằm ngang. Món bị xếp nghiêng trong thùng: clip chuẩn bị vẫn chạy ở tư thế gốc, cuối bước mới xoay về đúng hướng xếp. Khung to hơn: `.pack-bench` đổi cột thành `15rem / 1fr / 1.3fr` (cột 3D trước đây khoá 19rem) và cao theo màn hình; hộp thoại chi tiết rộng tới 110rem; `scene/StepCamera.tsx` tính khoảng cách theo tỉ lệ khung thật, tự lại gần khu chuẩn bị ở các bước gấp, túi zip, đóng hộp, về toàn cảnh ở bước đặt và đóng nắp; người dùng kéo xoay thì nhường ngay.
+
+**Bỏ khung dây quanh món (04/11/2026, Việt yêu cầu):** gỡ lưới `wireframe` màu xanh vẽ theo khối món ở bước chuẩn bị và lúc đặt vào thùng. Kích thước khối vẫn thể hiện qua chính model đã co khít; khung của kiện gộp (`tint`) giữ nguyên vì dùng để phân biệt đơn.
+
+## 🛒 Nhật ký 31/10/2026 — Tích hợp Tiki: app Inhouse, đơn dropship (AOFP-226, docs AOFP-227)
+
+**[stated] Thuận yêu cầu + chốt:** tích hợp thử Tiki "chạy như Lazada". Chỉ nhận đơn **dropship** (shop đóng gói, shipper Tiki tới lấy; bỏ đơn `instock` do kho Tiki tự đóng). **Tự xác nhận đủ hàng** lên Tiki khi đủ tồn; thiếu thì báo Store Owner. Nhận đơn bằng **event queue + quét dự phòng**. Chưa có đơn thật → hỏi Tiki Support về mock order, code trước theo tài liệu.
+
+**Đã làm cùng Thuận trước khi code:** tạo app Inhouse trên open.tiki.vn (App ID `7463062494373526`, Seller ID `365980`), nhà bán đồng ý kết nối (link trong email Tiki có `#` không chạy — vào `Thông tin nhà bán` → `Thiết lập gian hàng`), app "Connected". Gọi thử bằng Git Bash: token `client_credentials` OK (`expires_in` 1.295.999 giây, không refresh token); `sellers/me` → `operation_models: ["dropship","instock"]`; header `tiki-api` bị từ chối (doc sai) — chỉ `Bearer`; kho nhà bán `425011` gán cho kho Tiki `sgn`, `sgn3`; 0 đơn. Đọc tài liệu: Order API v2, Order/Order Item/Order Status, Operation Models, Confirm dropship, Labels, Event queue (Inhouse), Seller API, Product API, Common exceptions, Changelog (dừng ở 2020). Không mở được: Fulfillment API / Inbound / Deal (không cần cho đồng bộ đơn).
+
+**Đã làm:**
+- `tiki.adapter.ts` viết lại (bỏ authorization_code đoán cũ): `connectDirect()` (token + sellers/me), `refreshAccessToken()` = xin token mới, API đơn/kho/xác nhận dropship/nhãn/event queue, thử lại 429/5xx, lỗi đọc `errors` của Tiki; thiếu env không làm sập app. `tiki.types.ts` (kiểu response thật + đọc/ghi giờ `yyyy-MM-dd HH:mm:ss` UTC+7).
+- `MarketplaceAdapter.connectDirect?()`; `createConnectUrl()` gặp sàn kết nối thẳng thì lưu shop ngay, trả URL trang thành công của FE (FE không đổi luồng). `marketplace_shops` thêm `event_queue_code`, `event_ack_id`, `last_event_pulled_at` (ghi qua `saveEventQueueState`). Đăng ký `TikiAdapter` vào registry.
+- `OrdersService.ingestMappedOrder()` — tách thân vòng lặp `syncShopOrders()` (khoá gom, upsert, ack, cần xác nhận hủy, gom nhóm, tạo nhóm, tự hủy nhóm) thành hàm dùng chung; Lazada/AURELLE chạy y như cũ.
+- `tiki-order.mapper.ts` (món kho nhà bán, số lượng thật, SKU = `seller_product_code`, bảng trạng thái Tiki → OrderStatus, `marketplace_meta`). `orders.marketplace_meta` + 3 field OptiPack tự ghi khi xác nhận.
+- `TikiOrderSyncService` + `TikiOrderSyncScheduler` (mỗi phút; quét dự phòng theo `interval_minutes`); tự xác nhận dropship (kho nhà bán tra theo kho Tiki của đơn; lỗi thử lại sau 5 phút; 400 → đọc lại đơn); báo `marketplace_confirm_required` 1 lần khi ≤ 60 phút tới hạn mà còn thiếu.
+- `POST /orders/tiki/sync`, `GET /orders/:id/marketplace-labels`, `GET /orders/:id` thêm `marketplace`; `SYNC_PLATFORMS` thêm `tiki`; vận đơn nhóm Tiki chặn chọn hãng / gộp chuyến (`SHP_MARKETPLACE_PICKUP`).
+
+**Tác động (5 câu hỏi):**
+1. *Đổi gì?* `marketplace-integration/` (adapter Tiki, interface, service, module, shop schema, `.env.example`), `orders/` (service tách hàm, mapper, schema, controller, errors, policy + settings, module, service + scheduler Tiki), `notifications` enum, `shipments` (lỗi + chặn). Không đụng `fe/`, storefront.
+2. *DB/migration?* Field mới đều mặc định null (`marketplace_shops.event_*`, `orders.marketplace_meta`, `orders.marketplace_confirm_*`). Không cần script. Cài đặt đồng bộ đã lưu trước đây chưa có dòng `tiki` → coi như bật.
+3. *API/FE?* API_LIST mục 29; FE checklist dòng 13 (mục 10); INTEGRATION_GUIDE_ORDERS mục 3b; SETUP_NOTES module ghi lại kết quả gọi thật.
+4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Quy tắc "Idempotency `processed_webhook_events` bắt buộc cho event queue" (mục Kiến trúc đa sàn → 4) — lần này **không dùng bảng đó**: sự kiện Tiki chỉ là tín hiệu "đọc lại đơn X", mỗi mã đơn được gọi chi tiết rồi upsert theo `platform_order_id` (chạy 2 lần ra cùng kết quả), cron có khoá `isRunning`, mã trùng gộp trong 1 lượt. Còn rủi ro như Lazada: bấm "Đồng bộ ngay" đúng lúc cron đang chạy. Ack sự kiện SAU khi xử lý; đơn lỗi được quét dự phòng đọc lại. Trạng thái giao (`shipping` → `successful_delivery`) chỉ cập nhật trạng thái ĐƠN; vận đơn OptiPack của nhóm Tiki vẫn bấm tay (chưa tự đi theo Tiki — chờ Thuận chốt). Tiki có nhiều kho (`hn4`, `dn`) chưa gán kho nhà bán → đơn kho đó không tự xác nhận được (ghi `confirmError` + báo).
+5. *Kiểm chứng?* `tsc` 0 lỗi; eslint file đổi 0 lỗi; jest toàn bộ đạt (thêm test mapper, adapter, kết nối thẳng, đồng bộ + xác nhận, chặn vận đơn). Đã gọi thật token/sellers/me/kho/danh sách đơn bằng Git Bash; **chưa** chạy BE với Tiki thật và chưa có đơn để thử đồng bộ/xác nhận/nhãn.
+
+## 📏 Nhật ký 08/11/2026 — Đồng bộ đơn vị đo toàn hệ thống (AOFP-230, docs AOFP-231)
+
+**[stated] Yêu cầu (góp ý của cô, Việt chuyển lại; Thuận chốt 08/11/2026):** mọi khâu, mọi role phải hiển thị cùng một đơn vị: **kích thước = cm, khối lượng = kg**. Chỉ đổi phần **hiển thị**, **giữ nguyên DB và API**. Size áo ở biến thể AURELLE phải chuẩn hoá giống Master SKU.
+
+**Rà trước khi sửa (code `main` cde7e8d):**
+- DB đang dùng 2 hệ đơn vị: engine, thùng, túi, kế hoạch đóng gói, cài đặt đóng gói lưu **mm và g**; sản phẩm (Master SKU, hồ sơ đóng gói, biến thể AURELLE, bảng size) và GHN lưu **cm và kg**.
+- Màn hình lệch nhau:
+  - Tab Thùng ghi "Đường kính trong/ngoài (mm)", là **sai thuật ngữ**.
+  - Túi niêm phong lúc mm, lúc cm.
+  - Bì thùng, tải tối đa, vật tư, bảng so sánh thùng ghi g; cân kiện, sản phẩm, giao hàng ghi kg.
+  - Nhiều chỗ dùng `toFixed` nên ra dấu chấm thập phân.
+- Chữ BE tự sinh cũng lệch: bảng so sánh thùng ghi mm và g, lỗi engine ghi g, lỗi túi zip ghi mm lẫn cm trong cùng một câu.
+- Website AURELLE: nhãn cm/kg đã đúng.
+
+**Đã làm (chỉ BE):**
+- `common/utils/measure-format.util.ts` (mới):
+  - Hàm: `formatCm`, `formatMmAsCm`, `formatDimsMmAsCm`, `formatFlatMmAsCm`, `formatDimsCm`, `formatKg`, `formatGAsKg`.
+  - Kích thước: cm, tối đa 1 chữ số lẻ.
+  - Khối lượng: kg, tối đa 2 chữ số lẻ. Số > 0 mà làm tròn ra 0 thì giữ 3 chữ số lẻ, ví dụ `0,003 kg`.
+  - Định dạng `vi-VN`.
+- Đổi chữ do BE sinh sang quy tắc trên:
+  - `box-comparison.ts`: lý do loại thùng, so sánh cân tính cước, cỡ lòng thùng.
+  - `validator.ts`, `greedy-packer.ts`, `solve-order.ts`, `packing-plan.service.ts` (lập kế hoạch tay).
+  - `product-master.service.ts` (lỗi túi zip không vừa).
+  - `catalog-snapshot.util.ts` (bước cân tính cước).
+  - `parcel.util.ts` (giới hạn kiện GHN).
+  - `history.service.ts`, `notifications.service.ts`, `packing-session.service.ts` (lệch cân).
+  - Phiếu PDF (`document-renderers.ts`).
+- Prompt AI viết hướng dẫn đóng gói: thêm quy tắc "nếu nhắc số đo thì đổi sang cm/kg".
+- `storefront-admin.service.ts`: hàm `normalizeSizeLabel()`.
+  - Bỏ chữ "size" ở đầu, viết hoa: `m` → `M`, `Size M` → `M`.
+  - Dùng cho cả biến thể theo quy tắc SKU lẫn biến thể cũ (trước đây biến thể cũ chỉ `trim`).
+- **Cố ý giữ nguyên:**
+  - Mô tả Swagger của các field mm/g, vì đó là đơn vị thật của API.
+  - Câu lỗi validate kiểu "`weight_g` phải là số nguyên (g)", vì nó nói về field gửi lên.
+
+**Tác động (5 câu):**
+1. *Đổi gì?* 15 file BE (đã liệt kê ở trên), 1 util mới, 2 spec mới (`measure-format.util.spec.ts`, `storefront-size-label.spec.ts`), sửa kỳ vọng `history.service.spec.ts` (`0.4 kg` → `0,4 kg`). Không đụng `fe/` và website AURELLE.
+2. *DB/migration?* Không. Không đổi schema, không đổi tên field. Biến thể AURELLE cũ có size viết thường chỉ được chuẩn hoá khi lưu lại sản phẩm; không chạy script sửa dữ liệu cũ.
+3. *API/FE?* Không đổi route hay field. Đổi **nội dung chữ** trong response: bảng so sánh thùng, lỗi xếp thùng, thông báo, lịch sử, PDF. FE cần đổi nhãn và quy đổi ở màn hình: `FE_UPDATE_CHECKLIST.md` dòng 14 (mục 11).
+4. *Rủi ro / mâu thuẫn quy tắc?* Màn hình chỉ đồng bộ hoàn toàn khi FE làm xong dòng 14. Trước đó, chữ do BE sinh ghi cm/kg còn nhãn FE vẫn ghi mm/g. Ô nhập phải đổi cm → mm, kg → g rồi **làm tròn số nguyên**, vì BE bắt số nguyên mm/g. Ví dụ 12,35 cm thành 124 mm.
+5. *Kiểm chứng?* Trên bản sạch của `main`:
+   - `tsc --noEmit` 0 lỗi.
+   - ESLint các file đổi 0 lỗi.
+   - `jest` toàn bộ: 143 bộ test đạt, 1 bỏ qua; 1459 test đạt.
+   - Áp sang nhánh `feature/thuan_be` (có Tiki): `tsc` 0 lỗi.
+   - Chưa chạy app thật để xem chữ trên màn hình.
+
+## 🔔 Nhật ký 08/11/2026 — Cảnh báo tồn vật liệu đóng gói: báo sớm, thêm Warehouse Staff, thêm trường hợp hao hụt và sửa ngưỡng (AOFP-232, docs AOFP-233)
+
+**[stated] Yêu cầu (góp ý của cô, Thuận chốt 08/11/2026):**
+- Cảnh báo gửi cả **Warehouse Staff**, ngoài Admin và Store Owner.
+- Báo **sớm** khi tồn ≤ ngưỡng + 20%.
+- Báo cả khi tồn giảm hoặc chạm ngưỡng do **thao tác tay**, không chỉ lúc đóng gói.
+- Việc FE ghi vào `FE_UPDATE_CHECKLIST.md`.
+
+**Trước khi sửa:**
+- Chỉ `packing-session.service.ts` gửi `low_box_stock` / `low_material_stock`, khi niêm phong kiện làm tồn đi từ trên ngưỡng xuống ≤ ngưỡng (hoặc thiếu vật tư).
+- Người nhận: Admin + Store Owner, mức `warning`.
+- Thùng hỏng lúc đóng (ghi hao hụt) và sửa ngưỡng: không có cảnh báo.
+
+**Rà các đường làm giảm tồn dùng được** (`qty_new + qty_reused`, hoặc `quantity_on_hand` với túi zip):
+- Niêm phong kiện: thùng, vật tư, túi zip.
+- Thùng hỏng lúc đổi thùng khi đang đóng: `recordWaste`.
+- "Xuất dùng nội bộ" (`internal-use`) chỉ trừ `qty_internal` (hàng hạng B), **không** thuộc tồn dùng được nên không liên quan đến ngưỡng.
+- Không có route nào chỉnh giảm tồn bằng tay khác. Vì vậy "chỉnh tay" thực tế gồm: **thùng hỏng (hao hụt)** và **sửa ngưỡng** (nâng ngưỡng lên làm tồn hiện có rơi vào mức sắp hết hoặc dưới ngưỡng).
+
+**Đã làm:**
+- **`packaging-materials/packaging-stock-alert.service.ts` (mới)** — `PackagingStockAlertService`, export từ `PackagingMaterialsModule`; module này import thêm `NotificationsModule` (chỉ phụ thuộc Mail + schema User, không tạo vòng).
+  - 3 mức:
+
+    | Mức | Điều kiện | Severity |
+    |---|---|---|
+    | `near` | tồn ≤ `earlyWarningLevel` = `max(ngưỡng + 1, ceil(ngưỡng × 1,2))`. Ngưỡng 10 → 12; ngưỡng 0 → không báo sớm | `warning` |
+    | `below` | tồn ≤ ngưỡng | `warning` |
+    | `out` | tồn = 0 | `critical` |
+  - **Chỉ báo khi mức xấu đi** (`worsenedLevel`). Đã ở "sắp hết" mà trừ tiếp trong cùng mức thì không báo lặp.
+  - Người nhận: `STOCK_ALERT_RECIPIENTS` = Admin + Store Owner + Warehouse Staff.
+  - Lỗi gửi thông báo chỉ ghi log, không làm hỏng thao tác chính.
+- **`packing-session.service.ts`:** `notifyStock` dùng service mới. Bỏ `notifyLowStock` cũ. Thiếu vật tư → `notifyShortfall` (mức `critical`, cùng 3 người nhận).
+- **Thùng hỏng lúc đóng:**
+  - `packaging-materials.service.ts` `recordWaste` trả thêm `stock` (code, name, tồn trước/sau, ngưỡng). Type `WasteResult` export.
+  - `packing-plan.service.ts` (đổi thùng khi đang đóng, `old_box_outcome` hỏng) báo **sau khi giao dịch lưu xong**.
+  - `stockAlerts` là tham số cuối, `@Optional`.
+- **Sửa ngưỡng:** `update()` của `packaging-box.service.ts`, `packaging-material.service.ts`, `packaging-bag.service.ts` so ngưỡng cũ / mới trên số tồn hiện có. `stockAlerts` `@Optional` để spec cũ dựng bằng `new` không vỡ.
+- **Bổ sung cùng ngày (Việt báo, AOFP-236):** `GET /packaging-materials` trước đây **không trả `reorderLevel`**, nên tab Túi niêm phong của FE chỉ tính được "Hết hàng" và cột Ngưỡng hiện "—". Đã sửa:
+  - `toResponse` trong `packaging-materials.controller.ts` thêm `reorderLevel` và `stockStatus` (tính trên `qty_new + qty_reused`, cùng 3 giá trị như `/packaging/boxes`).
+  - `UpdatePackagingMaterialDto` nhận `reorder_level` (số nguyên ≥ 0), để túi niêm phong sửa được ngưỡng qua `PATCH /packaging-materials/:code`.
+  - `PackagingMaterialsService.update()` báo cảnh báo khi sửa ngưỡng làm tồn hiện có rơi vào mức cảnh báo (`stockAlerts` `@Optional`).
+  - Test mới trong `packaging-materials.service.spec.ts`.
+- Comment `packaging-bag.schema.ts` cập nhật theo người nhận mới.
+
+**Tác động (5 câu):**
+1. *Đổi gì?*
+   - 9 file BE (liệt kê ở trên) + service mới + `packaging-stock-alert.service.spec.ts` (8 test).
+   - `packing-plan.service.spec.ts` truyền thêm service thật vào `PackingSessionService`.
+   - Không đụng `fe/`, website AURELLE.
+2. *DB/migration?* Không. Dùng lại `reorder_level` và 2 loại thông báo `low_box_stock` / `low_material_stock` có sẵn.
+3. *API/FE?*
+   - Không đổi route hay field.
+   - Thông báo có thêm tiêu đề "… sắp chạm ngưỡng", "… đã xuống ngưỡng cảnh báo", "Đã hết …"; Warehouse Staff giờ cũng nhận (in-app + email theo role).
+   - FE: `FE_UPDATE_CHECKLIST.md` mục 12 (bấm thông báo mở đúng tab, hiển thị mức báo sớm).
+4. *Rủi ro / mâu thuẫn quy tắc?*
+   - 🔄 Thay quy tắc cũ "báo khi tồn rơi xuống ≤ ngưỡng, đúng 1 lần, Admin + Store Owner" (nhật ký G4, `API_LIST.md`, `INTEGRATION_GUIDE_FULFILLMENT.md`): giờ có 3 mức, 3 người nhận.
+   - Số thông báo tăng: mỗi vật liệu tối đa 3 lần cho một lượt giảm từ đủ hàng tới hết. Mỗi lần gửi cho 3 role, kèm email theo role.
+   - Nhập thêm hàng rồi lại giảm xuống thì sẽ báo lại; đây là chủ ý.
+   - Mức báo sớm dựa trên tồn dùng được, **không trừ phần đang giữ chỗ**. Cột "Còn" trên màn Thùng (`available`) thì có trừ phần giữ chỗ, nên badge trên màn có thể vàng sớm hơn thông báo.
+5. *Kiểm chứng?*
+   - Trên nhánh `feature/thuan_be` (cfd5a8d): `tsc --noEmit` 0 lỗi; ESLint các file đổi 0 lỗi.
+   - `jest` toàn bộ: 148 bộ test đạt, 1 bỏ qua; 1483 test đạt.
+   - Áp sang máy Thuận: `tsc` 0 lỗi.
+   - Chưa chạy app thật để xem thông báo trên chuông và email.
+
+## 📱 Nhật ký 08/11/2026 — Chuẩn bị app mobile: rà soát toàn hệ thống, index hàng đợi, chống ghi trùng thao tác kho (AOFP-238, AOFP-239, docs AOFP-240)
+
+**[stated] Yêu cầu (Thuận, 08/11/2026):** gợi ý chức năng đưa từ web xuống mobile theo từng role, hiển thị ra sao; nghiên cứu các lỗi hay gặp khi đưa hệ thống xuống mobile từ nhiều nguồn và khắc phục; rà toàn bộ xem còn thiếu gì cho cả web và mobile (tối ưu DB, tối ưu hệ thống). Thuận đồng ý làm ngay phần index + chống ghi trùng; việc FE ghi vào `FE_UPDATE_CHECKLIST.md`.
+
+**Tài liệu đề xuất (Claude Docs):** "OptiPack AI Mobile — Đề xuất chức năng theo role" — https://claude.ai/artifact/KcSZ4PoSbxW5AFjm1VBDco. Gồm: nguyên tắc chọn chức năng, chức năng theo 5 role, thiết kế hiển thị, 17 lỗi hay gặp + cách khắc phục (nguồn: ilert, Pillir, Cleverence, dev.to, Computerworld), việc BE theo 4 đợt, mục 6 rà soát DB/BE/web. Tóm tắt các quyết định chính dưới đây để không phải mở doc.
+
+### 1. Hướng mobile (đề xuất, chưa code app)
+
+- Mobile chỉ nhận việc **làm tại chỗ, thao tác ngắn, cần biết ngay, dùng camera/rung/máy quét** (thoả ≥ 2/4 điều). Cấu hình kho/thùng/user/kết nối sàn, báo cáo, 3D chi tiết, sửa catalog **để lại web**.
+- Theo role: **Warehouse Staff** (việc của tôi, lấy hàng theo đường đi kho, báo thiếu, nhập/kiểm/chuyển ô, nhận hàng hoàn) là đợt 1; **Packaging Staff** (hàng đợi, duyệt kế hoạch, phiên đóng gói) đợt 2; push cho mọi role đợt 3; **Shipping Coordinator + Store Owner** (giao Hỏa Tốc có ảnh, hàng hoàn, tổng quan KPI) đợt 4. Admin chỉ xử lý gấp (thông báo, mở khoá user).
+- Mã quét vẫn là `bin_code` + `seller_sku` (sàn không có mã vạch sản phẩm). Hiển thị theo quy tắc cm/kg ở nhật ký "Đồng bộ đơn vị đo".
+- 4 việc bắt buộc khi làm app: hàng đợi ngoại tuyến + mã thao tác cho mọi lần ghi; chỉ thử lại lỗi mạng/408/429/5xx (lỗi nghiệp vụ thì dừng, giữ lại cho người dùng xem); bắt 409 thì tải lại, không ghi đè; màn hình theo từng việc có Nhập tay + Báo thiếu.
+
+### 2. Đính chính khi rà code (sửa nhận định sai của chính bản đề xuất đầu)
+
+- Giới hạn gọi API hiện là **600 lần/phút theo IP** (`THROTTLE_LIMIT_PER_MINUTE`), không phải 20 như ghi chú 18/09 trong mục Auth/Users. Ghi chú 18/09 là lịch sử; số hiện hành là 600.
+- `GET /order-groups` **đã có phân trang** (`before` + `limit`, tối đa 200, mặc định 100) và lọc `assigned_staff_id`; mục "Cursor pagination cho `GET /order-groups` (hiện giới hạn cứng 100)" ở Tầng 2 roadmap 10/09 coi như đã xong.
+- Quét món khi đóng gói (`ScanItemDto`) **đã có** `client_event_id`; các thao tác đóng gói / vận đơn / hàng hoàn khác có `expected_version` (gửi lại → 409).
+
+### 3. Đã làm
+
+**AOFP-238 — index nhóm đơn (`order-group.schema.ts`):**
+- Thêm `{ fulfillment_status: 1, created_at: -1 }`. Lý do: hàng đợi của từng role gọi `GET /order-groups?fulfillment_status=…` **không kèm `platform`**, index cũ `{platform, fulfillment_status, created_at}` sai tiền tố nên Mongo quét cả bảng + sắp trong RAM. 🔄 Ghi chú "Rule #4: fulfillment_status luôn đứng sau platform" trong schema đã sửa: Rule #4 chỉ cấm index **đơn** cho field cardinality thấp; index ghép với `created_at` là đúng ESR.
+- `{ assigned_staff_id, fulfillment_status }` → `{ assigned_staff_id, fulfillment_status, created_at: -1 }` để "việc của tôi" không sắp trong RAM; tiền tố cũ giữ nguyên nên việc đếm workload khi tự giao vẫn dùng được.
+- Mongoose tự tạo index mới lúc khởi động. Index cũ `assigned_staff_id_1_fulfillment_status_1` **vẫn còn trên Atlas** (Mongoose không tự xoá) — xoá tay được, không bắt buộc.
+
+**AOFP-239 — chống ghi trùng `restock` / `adjust` / `transfer`:**
+- Trước đây 3 thao tác kho này **không có** mã thao tác lẫn phiên bản: app gửi lại (mất mạng, timeout) thì nhập thêm cộng 2 lần, chuyển ô chuyển 2 lần, kiểm kê ghi thêm 1 dòng sổ (không lệch số nhưng thừa dòng).
+- Body 3 route nhận thêm `client_event_id?` (≤ 100 ký tự). Mã lưu trên **dòng sổ cái** (`inventory_movements.client_event_id`, unique có điều kiện `$type: 'string'`) — cùng transaction với thay đổi tồn, nên không cần collection mới. Chuyển ô chỉ ghi mã trên dòng `transfer_out`.
+- Luồng: có mã → tra sổ cái trước; đã có dòng cùng loại + cùng dòng tồn → trả kết quả cũ (dòng tồn hiện tại; chuyển ô trả nguồn + đích qua `ref_id`), không ghi gì; cùng mã khác thao tác → 409 `WH_CLIENT_EVENT_REUSED`. Hai lần gửi chạy song song: lần thua đụng unique index trong transaction (rollback toàn bộ) → bắt E11000 → trả kết quả lần thắng.
+- Không gửi mã → chạy y như cũ (không tra sổ cái).
+- Chọn lưu trên sổ cái thay vì dùng lại `pick_events` / `processed_webhook_events`: sổ cái đã ghi cùng transaction với thay đổi tồn, nên "đã ghi sổ" ⇔ "đã đổi tồn" — không có trạng thái nửa vời.
+
+### 4. Việc còn lại (theo thứ tự đề xuất; mục mới phải hỏi Thuận trước khi code)
+
+| # | Việc | Phía | Ghi chú |
+|---|---|---|---|
+| 1 | Sửa mock test thiếu hàm mới (log `clearPackingBlocked is not a function`, `scheduleShortageRecheck is not a function`, `autoCreateFromSellerSkus is not a function`) | BE | Test vẫn đạt nhưng nhánh code đó không được kiểm tra thật |
+| 2 | Tách gói theo trang, dừng polling khi tab ẩn, huỷ request cũ | FE | `FE_UPDATE_CHECKLIST.md` dòng 16, mục 13 |
+| 3 | Push FCM: đăng ký token thiết bị, gửi trong `NotificationsService.notify()` | BE | Chức năng mới |
+| 4 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | BE | Chức năng mới; tận dụng cách upload ảnh AURELLE; `shipment-event.schema.ts` đã chừa chỗ `proof{photo_urls}` |
+| 5 | Giới hạn gọi API theo user thay vì theo IP | BE | Cả kho chung 1 IP |
+| 6 | Cache tổng quan dashboard 30–60 giây bằng Redis | BE | `dashboard.service.ts` đếm lại mỗi request |
+| 7 | Tìm nhóm theo đuôi mã đang quét cả bảng (`$expr` + `$toString` `_id`) | BE | Lưu mã ngắn có index, hoặc chỉ cho tìm đủ 24 ký tự |
+| 8 | `GET /health` kiểm tra Mongo + Redis; `enableShutdownHooks()`; tắt Swagger khi production | BE | Nhỏ |
+| 9 | Phiên bản app tối thiểu (`GET /app/version`) | BE | Chỉ cần khi phát app cho người dùng thật |
+| 10 | Đọc cả bảng mapping SKU (`master-skus.service.ts`), `$regex` không neo ở Product Master | BE | Ổn với quy mô hiện tại, ghi nhận |
+
+### 5. Tác động (5 câu)
+
+1. *Đổi gì?* `order-group.schema.ts` (2 index + ghi chú Rule #4); `inventory-movement.schema.ts` (field + index), `warehouse.errors.ts`, `restock-sku.dto.ts`, `stock-operations.dto.ts`, `warehouse.controller.ts`, `warehouse.service.ts`; test mới `warehouse.service.client-event.spec.ts` (8 test). Không đụng `fe/`, AURELLE.
+2. *DB/migration?* Không migration. 2 index nhóm đơn + 1 index sổ cái tự tạo khi khởi động (Atlas tạo nền, không khoá ghi). Dòng sổ cái cũ không có `client_event_id` → không bị ràng buộc unique.
+3. *API/FE?* Thêm field tuỳ chọn, không đổi response. Mã lỗi mới `WH_CLIENT_EVENT_REUSED` (409). FE: `FE_UPDATE_CHECKLIST.md` dòng 16, mục 13; `API_LIST.md` 3 dòng route kho.
+4. *Rủi ro / mâu thuẫn quy tắc?* 🔄 Sửa ghi chú Rule #4 trong schema nhóm đơn (xem trên). Gửi lại cùng mã trả **tồn hiện tại**, không phải số lúc ghi lần đầu — nếu giữa 2 lần có người khác đổi tồn thì app thấy số mới, đúng với nguyên tắc "server là nguồn đúng cuối cùng". Index cũ trên Atlas còn lại tới khi xoá tay.
+5. *Kiểm chứng?* Trên nhánh `feature/thuan_be` (3eadabf) + thay đổi: `tsc --noEmit` 0 lỗi; ESLint thư mục `warehouse/` + schema nhóm đơn 0 lỗi; `jest` toàn bộ 149 bộ đạt, 1 bỏ qua; 1492 test đạt. Chưa chạy app thật để xem Atlas tạo index.
+
+## 🗄️ Nhật ký 09/11/2026 — Database script MongoDB sinh từ schema (Review 2, BM02 F06)
+
+**1. Vấn đề là gì?** Hướng dẫn Review 2 yêu cầu "database script khớp với ERD"; prompt rà soát (BM02) ghi F06: repo không có script nào, chỉ có schema Mongoose và script seed/migrate, nên không đối chiếu được ERD với database.
+
+**2. Đã làm gì?** Thêm `be/src/common/schemas/db-init-script.ts` (đọc mọi `*.schema.ts`, gom theo collection, sinh validator `$jsonSchema` + danh sách index), CLI `be/scripts/init-db.ts` (`npm run db:script` trong `be/`), và file kết quả `be/db/init-db.mongosh.js` (60 collection, 153 index). Chạy: `mongosh "<MONGODB_URI>" db/init-db.mongosh.js`, hoặc `npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/init-db.ts --apply`.
+
+**3. Vì sao làm như vậy?** MongoDB không có CREATE TABLE; script tương đương là `createCollection` + `createIndex`. Sinh từ chính schema Mongoose nên script luôn khớp code, không viết tay 60 collection. Validator đặt `validationAction: 'warn'`, `validationLevel: 'moderate'` để không bao giờ chặn ghi của ứng dụng; script không xóa collection/index nào. `--apply` chỉ tạo collection còn thiếu (không đổi validator collection đã có); file mongosh thì `collMod` validator cho collection đã có.
+
+**4. Đã kiểm chứng thế nào?** `db-init-script.spec.ts` (7 test): field bắt buộc/kiểu/enum/null, object lồng, mảng, index unique; với schema thật: đủ ≥ 60 collection, mỗi collection 1 schema nguồn, có index then chốt; chạy file mongosh với `db` giả lập gọi đủ mọi collection và index. Toàn bộ: tsc 0 lỗi, eslint 0 lỗi, jest 152 suite / 1.510 test đạt (trên code main có AOFP-242/243 của Thi). CHƯA chạy thật trên MongoDB (không có mongod trong môi trường kiểm thử; không chạy lên Atlas thật).
+
+**5. Còn lại / lưu ý gì?** Đổi schema xong phải chạy lại `npm run db:script` để cập nhật file `.mongosh.js` (spec không ép file phải khớp, tránh làm vỡ commit của thành viên khác). Field `Mixed` không ràng buộc kiểu. Nên chạy thử `mongosh` trên database staging trước khi dùng cho môi trường khác.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4603,5 +4851,12 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 22b. ✅ 22/10 (mục 1b) — đã nối trên FE (xem 22c).
 22. ✅ Nguồn thùng, người gửi, in PDF, đúng kho nhóm, mã chết — đã nối (xem 22c). Lô FIFO: Việt, AOFP-185.
 22e. 🆕 28/10 (tối): màn lấy hàng đơn gộp. 🔄 ĐÃ LÀM 31/10 trên `WarehousePage`: chia khay theo đơn (dòng 4 — đếm tạm phiên, không lưu BE; bảng "Khay của nhóm"; dialog chọn khay khi SKU ≥ 2 đơn); lấy chung nhóm liên kết (dòng 5 — `listLinkedOrderGroups` + `getWarehousePickingListForGroups`, pick/report/complete theo `line.group_id`). Còn dòng 6: khoá "Đóng nhanh" theo `packScanRequired`.
+22g. 🆕 31/10: Tiki — điền `TIKI_CLIENT_ID`/`TIKI_CLIENT_SECRET` vào `be/.env`, bấm Kết nối Tiki, chờ đơn thật (hoặc mock order nếu Tiki Support trả lời) để thử đồng bộ → tự xác nhận → in nhãn; FE checklist dòng 13 (mục 10). Chưa chốt: vận đơn nhóm Tiki có tự cập nhật theo trạng thái giao của Tiki không.
 22f. 🆕 29/10: đơn hỏa tốc AURELLE trên FE OptiPack — nhãn + đếm ngược, chọn shipper, khoá nút giao theo shipper (`FE_UPDATE_CHECKLIST.md` dòng 8, mục 5), chưa làm. Chạy thử đầu-cuối 1 đơn hỏa tốc (A.4) trong 8:00–14:00.
 22d. 🆕 28/10: điền sẵn địa chỉ gửi hãng ở màn Giao hàng + chip "Địa chỉ mô phỏng" (`GET /shipping/recipients/:groupId`) — `FE_UPDATE_CHECKLIST.md` mục 1, chưa làm.
+
+## 🖥️ Nhật ký 06/11/2026 — FE: bảng so sánh thùng + AI minh bạch (checklist dòng 11, 12; BE của Thi, AOFP-229)
+
+**Làm (chỉ FE):** `BoxComparisonTable.tsx` (bảng theo đúng thứ tự BE trả, tô dòng đang dùng, mờ dòng không dùng được, ⚠ khi `scoresConsistent=false`, tooltip 4 điểm con), `GuideFeedback.tsx` (`GuideRating` 👍/👎 + góp ý, toast khi `savedAsExample`; `GuideTraceButton` hộp thoại xem system prompt / JSON gửi / phản hồi thô, chỉ Admin), banner `catalogStale` + `catalogChanges` + nút Tính lại cạnh banner `profileStale`; kiểu `BoxComparison`, `PackingGuideTrace`, hàm `rateParcelGuide`, `getParcelGuideTrace`. Bảng đặt dưới khung 3D (cột phải desktop + khối 3D mobile) của kiện đang chọn.
+**Chưa làm:** nút "Đổi sang thùng này" trên dòng hạng 1 (tuỳ chọn; cần chọn lý do đổi thùng).
+**Kiểm chứng:** `tsc -b`, `vite build` đạt; eslint 2 lỗi `set-state-in-effect` ở PackagingWorkbench là có sẵn. Chưa chạy với kế hoạch thật, chưa xem bằng mắt.

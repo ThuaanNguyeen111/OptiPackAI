@@ -35,7 +35,8 @@ export const NORMAL_FLOW_ORDER_STATUSES: OrderStatus[] = [
   OrderStatus.DELIVERED,
 ];
 
-export const SYNC_PLATFORMS = [MarketplacePlatform.LAZADA, MarketplacePlatform.AURELLE] as const;
+// 31/10/2026 — thêm Tiki (bật/tắt tự đồng bộ như 2 sàn kia).
+export const SYNC_PLATFORMS = [MarketplacePlatform.LAZADA, MarketplacePlatform.AURELLE, MarketplacePlatform.TIKI] as const;
 
 /**
  * 31/10/2026 — QUY TẮC GỘP ĐƠN BỔ SUNG (GUIDE_DOC/CONSOLIDATION_RULES_DESIGN.md).
@@ -104,7 +105,7 @@ export interface OrderSyncPolicy {
 export const DEFAULT_ORDER_SYNC_POLICY: OrderSyncPolicy = {
   version: null,
   sync: {
-    autoSyncEnabled: { [MarketplacePlatform.LAZADA]: true, [MarketplacePlatform.AURELLE]: true },
+    autoSyncEnabled: { [MarketplacePlatform.LAZADA]: true, [MarketplacePlatform.AURELLE]: true, [MarketplacePlatform.TIKI]: true },
     intervalMinutes: 5,
     firstSyncLookbackDays: 30,
     syncFailedCooldownMinutes: 20,

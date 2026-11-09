@@ -15,7 +15,7 @@ import { MarketplacePlatform } from './enums/platform.enum';
 import { LazadaAdapter } from './adapters/lazada.adapter';
 import { AurelleAdapter } from './adapters/aurelle.adapter';
 // import { TikTokShopAdapter } from './adapters/tiktok-shop.adapter';
-// import { TikiAdapter } from './adapters/tiki.adapter';
+import { TikiAdapter } from './adapters/tiki.adapter'; // 31/10/2026 — Tiki app Inhouse
 
 @Module({
   imports: [
@@ -29,14 +29,16 @@ import { AurelleAdapter } from './adapters/aurelle.adapter';
     MarketplaceIntegrationService,
     LazadaAdapter,
     AurelleAdapter,
+    TikiAdapter,
 
     {
       provide: MARKETPLACE_ADAPTERS,
-      useFactory: (lazadaAdapter: LazadaAdapter, aurelleAdapter: AurelleAdapter) => ({
+      useFactory: (lazadaAdapter: LazadaAdapter, aurelleAdapter: AurelleAdapter, tikiAdapter: TikiAdapter) => ({
         [MarketplacePlatform.LAZADA]: lazadaAdapter,
         [MarketplacePlatform.AURELLE]: aurelleAdapter,
+        [MarketplacePlatform.TIKI]: tikiAdapter,
       }),
-      inject: [LazadaAdapter, AurelleAdapter],
+      inject: [LazadaAdapter, AurelleAdapter, TikiAdapter],
     },
   ],
   // BỔ SUNG (29/09/2026) — MARKETPLACE_ADAPTERS giờ CŨNG export: orders/
@@ -45,6 +47,6 @@ import { AurelleAdapter } from './adapters/aurelle.adapter';
   // LazadaAdapter như trước (xem AURELLE_MARKETPLACE_DESIGN.md Mục 9.3
   // #5). Trước đây token này CHỈ dùng nội bộ trong chính
   // MarketplaceIntegrationService — chưa có module ngoài nào cần.
-  exports: [MarketplaceIntegrationService, LazadaAdapter, AurelleAdapter, MARKETPLACE_ADAPTERS],
+  exports: [MarketplaceIntegrationService, LazadaAdapter, AurelleAdapter, TikiAdapter, MARKETPLACE_ADAPTERS],
 })
 export class MarketplaceIntegrationModule {}

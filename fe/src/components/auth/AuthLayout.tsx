@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { Moon, Sparkles, Sun } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Hero3DCanvas } from '../marketing/Hero3DCanvas'
+import { BrandMark } from '../brand/BrandMark'
 import { useTheme } from '../../hooks/useTheme'
 
 type AuthLayoutProps = {
@@ -35,9 +36,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
 
         <div className="relative z-10 shrink-0">
           <Link to="/" className="inline-flex items-center gap-2.5">
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary-hover text-xs font-bold text-on-primary shadow-[0_0_24px_rgba(99,102,241,0.4)]">
-              OP
-            </span>
+            <BrandMark className="h-9 w-9 shrink-0 shadow-[0_0_24px_rgba(15,118,110,0.4)]" />
             <span className="text-lg font-semibold tracking-tight text-ink">
               OptiPackAI
             </span>
@@ -45,7 +44,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
           <p className="mt-4 max-w-md text-sm leading-relaxed text-ink-muted">
             OptiPackAI — AI-Assisted Omnichannel Fulfillment & Packaging System
           </p>
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/35 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary-hover shadow-[0_0_20px_rgba(99,102,241,0.2)]">
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/35 bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary-hover shadow-[0_0_20px_rgba(15,118,110,0.2)]">
             <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />
             AI 3D Bin Packing & Multi-Channel Order Sync
           </div>
@@ -72,11 +71,11 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
             </div>
           </div>
           <div className="mt-3 flex gap-2">
-            <span className="rounded-md bg-[#FF6B00] px-2 py-0.5 font-mono text-[10px] font-medium text-white">
-              Shopee
+            <span className="rounded-md bg-[#0f766e] px-2 py-0.5 font-mono text-[10px] font-medium text-white">
+              Lazada
             </span>
-            <span className="rounded-md bg-[#00E5FF] px-2 py-0.5 font-mono text-[10px] font-medium text-[#0B0E14]">
-              TikTok Shop
+            <span className="rounded-md bg-[#d97706] px-2 py-0.5 font-mono text-[10px] font-medium text-white">
+              AURELLE
             </span>
           </div>
         </div>
@@ -102,9 +101,7 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
 
         <div className="relative z-10 flex shrink-0 items-center justify-between">
           <Link to="/" className="inline-flex items-center gap-2 lg:hidden">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-xs font-bold text-on-primary">
-              OP
-            </span>
+            <BrandMark className="h-8 w-8 shrink-0" />
             <span className="text-sm font-semibold text-ink">OptiPackAI</span>
           </Link>
           <div className="ml-auto flex items-center gap-2">

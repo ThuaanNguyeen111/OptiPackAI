@@ -1,4 +1,5 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { PackagingStockAlertService } from '../packaging-materials/packaging-stock-alert.service';
+import { HttpStatus, Injectable, Optional } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { ClientSession, Model, Types } from 'mongoose';
 import {
@@ -21,6 +22,8 @@ export class PackagingBagService {
     private readonly bagModel: Model<PackagingBagDocument>,
     @InjectModel(PackagingMovement.name)
     private readonly movementModel: Model<PackagingMovementDocument>,
+    // 08/11/2026 — cảnh báo tồn túi khi sửa ngưỡng. Tham số cuối + @Optional để spec cũ không vỡ.
+    @Optional() private readonly stockAlerts?: PackagingStockAlertService,
   ) {}
 
   async list(activeOnly: boolean): Promise<PackagingBagDocument[]> {
@@ -82,6 +85,7 @@ export class PackagingBagService {
       );
     }
     const measurementChanged = dto.width_mm !== undefined || dto.length_mm !== undefined;
+    const previous = await this.bagModel.findById(id).select('reorder_level').lean<{ reorder_level: number } | null>();
     const updated = await this.bagModel.findByIdAndUpdate(
       id,
       {
@@ -104,6 +108,13 @@ export class PackagingBagService {
         HttpStatus.NOT_FOUND,
         { id },
       );
+    }
+    if (previous && dto.reorder_level !== undefined && dto.reorder_level !== previous.reorder_level) {
+      await this.stockAlerts?.notifyIfWorse({
+        kind: 'material', code: updated.code, name: updated.name,
+        before: updated.quantity_on_hand, after: updated.quantity_on_hand,
+        previousReorderLevel: previous.reorder_level, reorderLevel: updated.reorder_level, trigger: 'vừa sửa ngưỡng',
+      });
     }
     return updated;
   }

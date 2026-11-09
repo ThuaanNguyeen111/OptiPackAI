@@ -129,6 +129,19 @@ Sau khi connect xong 1 lần, **`shopId` (chính là Lazada `seller_id`, ví d�
 
 ---
 
+## 3b. 🆕 31/10/2026 — Kết nối Tiki (app Inhouse) — KHÔNG có trang đăng nhập
+
+Tiki cho nhà bán tự tạo app **Inhouse** gắn đúng 1 shop: nhà bán đồng ý kết nối trên Seller Center, sau đó OptiPack lấy token thẳng bằng App ID + Secret (`client_credentials`), không có trang đăng nhập, không có callback, không có refresh token (hết hạn — thực tế 15 ngày — BE tự xin token mới).
+
+```
+Admin bấm "Kết nối Tiki" → GET /marketplace/tiki/connect
+→ BE: lấy token + GET sellers/me → lưu shop (shop_id = id nhà bán Tiki, VD 365980)
+→ Response 200: { "authUrl": "<trang kết nối thành công của FE>?shopId=365980&shopName=...&connected=true&platform=tiki" }
+FE vẫn làm đúng như Lazada: window.location = authUrl
+```
+
+Đồng bộ đơn Tiki: `POST /orders/tiki/sync?shop_id=365980` (Admin) và cron tự chạy mỗi phút (event queue) — xem `API_LIST.md` mục 29.
+
 ## 4. Đồng bộ đơn hàng — `POST /orders/lazada/sync`
 
 Gọi API này để kéo đơn hàng mới nhất từ Lazada về hệ thống. Đây **không phải** real-time webhook — Lazada Open Platform tuy CÓ webhook chính thức (xác nhận 15/09/2026) nhưng OptiPackAI cố ý **hoãn bật webhook cho Lazada tới lúc deploy có domain HTTPS thật** (Lazada bắt buộc chứng chỉ OV/EV, ngrok dev không đạt — xem CLAUDE.md), nên việc đồng bộ Lazada vẫn là **polling chủ động**: FE có thể gọi nút "Đồng bộ ngay", hoặc dựa vào cron nền (mỗi 10 phút, xem mục 2 bước 6).

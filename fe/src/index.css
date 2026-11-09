@@ -5,15 +5,16 @@
 @import '@fontsource/jetbrains-mono/500.css';
 @import 'tailwindcss';
 @import './styles/teal-shell.css';
+@import './styles/stages.css';
 
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Fallback before bootstrapTheme() runs — overridden by html.dark / html.light */
 :root {
-  --app-primary: #6366f1;
-  --app-primary-hover: #818cf8;
-  --app-primary-focus: #6366f1;
-  --app-on-primary: #ffffff;
+  --app-primary: #14b8a6;
+  --app-primary-hover: #2dd4bf;
+  --app-primary-focus: #14b8a6;
+  --app-on-primary: #06241f;
   --app-ink: #f3f4f6;
   --app-ink-muted: #cbd5e1;
   --app-ink-subtle: #94a3b8;
@@ -33,13 +34,13 @@
   --app-ghost-border: #222734;
 }
 
-/* Dark — OptiPackAI obsidian · indigo AI accent + marketplace brands */
+/* Dark — OptiPackAI obsidian · teal accent + marketplace brands */
 html.dark {
-  /* Accent — indigo (AI / primary CTA) */
-  --app-primary: #6366f1;
-  --app-primary-hover: #818cf8;
-  --app-primary-focus: #6366f1;
-  --app-on-primary: #ffffff;
+  /* Accent — teal (primary CTA) */
+  --app-primary: #14b8a6;
+  --app-primary-hover: #2dd4bf;
+  --app-primary-focus: #14b8a6;
+  --app-on-primary: #06241f;
   /* Text */
   --app-ink: #f3f4f6;
   --app-ink-muted: #cbd5e1;
@@ -63,9 +64,9 @@ html.dark {
 }
 
 html.light {
-  --app-primary: #6366f1;
-  --app-primary-hover: #4f46e5;
-  --app-primary-focus: #6366f1;
+  --app-primary: #0f766e;
+  --app-primary-hover: #115e59;
+  --app-primary-focus: #0f766e;
   --app-on-primary: #ffffff;
   --app-ink: #000000;
   --app-ink-muted: #3a3a3c;

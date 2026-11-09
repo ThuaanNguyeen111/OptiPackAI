@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import bwipjs from 'bwip-js';
 import QRCode from 'qrcode';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 /**
  * ===================================================================
@@ -57,8 +58,7 @@ async function qrPng(text: string): Promise<Buffer> {
 const formatDate = (date: Date): string =>
   date.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
 const formatVnd = (value: number): string => `${value.toLocaleString('vi-VN')} đ`;
-const formatKg = (grams: number): string =>
-  `${(grams / 1000).toLocaleString('vi-VN', { maximumFractionDigits: 3 })} kg`;
+const formatKg = (grams: number): string => formatGAsKg(grams);
 
 // ---------------------------------------------------------------------------
 // PHIẾU ĐÓNG GÓI

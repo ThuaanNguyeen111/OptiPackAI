@@ -13,8 +13,12 @@ skinparam defaultFontName Arial
 skinparam defaultFontSize 13
 skinparam ArrowFontSize 11
 skinparam shadowing false
-skinparam nodesep 25
-skinparam ranksep 30
+skinparam linetype ortho
+skinparam nodesep 60
+skinparam ranksep 40
+skinparam roundCorner 12
+skinparam stateFontSize 12
+skinparam minClassWidth 120
 skinparam ArrowColor Black
 skinparam stateBorderColor Black
 skinparam stateBackgroundColor White
@@ -48,11 +52,11 @@ PENDING -left-> CANCELED : Cancel
 UNPAID -right-> FAILED
 
 SHIPPED -left-> FAILED_DELIVERY
-FAILED_DELIVERY --> SHIPPED : Retry
+FAILED_DELIVERY -right-> SHIPPED : Retry
 FAILED_DELIVERY -down-> SHIPPED_BACK
 SHIPPED_BACK -down-> SHIPPED_BACK_SUCCESS
-SHIPPED_BACK_SUCCESS --> RETURNED
-DELIVERED --> RETURNED : Customer return
-RETURNED --> [*]
+SHIPPED_BACK_SUCCESS -down-> RETURNED
+DELIVERED -down-> RETURNED : Customer return
+RETURNED -down-> [*]
 
 @enduml

@@ -2,6 +2,7 @@ import { apiRequest } from '../lib/api'
 import type {
   ListOrdersParams,
   ListOrdersResponse,
+  MarketplaceLabels,
   MarketplaceOrderDetail,
   SyncLazadaResult,
 } from '../types/marketplace-orders'
@@ -36,7 +37,7 @@ export async function getOrderById(
 }
 
 export async function syncPlatformOrders(
-  platform: 'lazada' | 'aurelle',
+  platform: 'lazada' | 'aurelle' | 'tiki',
   shopId: string,
 ): Promise<SyncLazadaResult> {
   const query = toQuery({ shop_id: shopId })
@@ -44,6 +45,11 @@ export async function syncPlatformOrders(
     method: 'POST',
     auth: true,
   })
+}
+
+/** Nhãn do sàn cấp (Tiki dropship, sau khi đã xác nhận đủ hàng). 409 ORD_MARKETPLACE_LABEL_UNAVAILABLE nếu chưa có. */
+export async function getMarketplaceLabels(id: string): Promise<MarketplaceLabels> {
+  return apiRequest<MarketplaceLabels>(`/orders/${id}/marketplace-labels`, { auth: true })
 }
 
 export async function syncLazadaOrders(

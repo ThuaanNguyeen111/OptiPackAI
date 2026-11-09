@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**.
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8).
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -20,7 +20,13 @@
 | 7 | 🆕 **Bảng điều khiển dùng số thật**: bỏ `data/dashboard-mock.ts` và các số viết cứng trong `DashboardPage.tsx`, đọc `GET /dashboard/summary` (+ 3 API báo cáo có sẵn). FE **tự chọn** thư viện biểu đồ và cách trình bày | 4 | ~1–2 ngày | ☐ Chưa làm |
 | 8 | 🆕 **Đơn hỏa tốc AURELLE (shop tự giao 3 giờ)**: nhãn + đếm ngược ở các hàng chờ (lấy, đóng, giao), màn Giao hàng chọn **shipper** thay cho hãng, chỉ shipper được giao mới bấm giao/thất bại, xử lý 6 mã lỗi mới | 5 | ~1 ngày | ☐ Chưa làm |
 | 9 | 🆕 **Màn quản lý quy tắc gộp đơn** (Admin; Store Owner chỉ xem): danh sách quy tắc, ô gõ câu chữ → AI dịch → form ô tích → xem trước số nhóm → Xác nhận lưu; dự phòng quy tắc mẫu khi AI lỗi | 6 | ~1 ngày | ✅ 01/11 — `ConsolidationRulesPanel` trong trang Luật gộp đơn; chưa bấm thử với dữ liệu thật |
+| 11 | 🆕 05/11 **Bảng so sánh thùng từng kiện**: dưới khung 3D, mỗi kiện 1 bảng từ `parcels[].boxComparison` (hạng, điểm /10, cước, giá, lấp đầy, tồn, kết luận), tô dòng đang dùng, cảnh báo khi `scoresConsistent = false`, (tuỳ chọn) nút "Đổi sang thùng này" | 8 | ~nửa ngày | ✅ Đã làm 06/11 (nút "Đổi sang thùng này" tuỳ chọn chưa làm) |
+| 12 | 🆕 05/11 **AI hướng dẫn minh bạch + học từ kho**: banner `catalogStale` (+ `catalogChanges[]`) như `profileStale`; nút 👍/👎 chấm hướng dẫn (`POST …/guide/rating`); nút "Xem dữ liệu gửi AI" cho Admin (`GET …/guide/trace`) | 9 | ~nửa ngày | ✅ Đã làm 06/11 |
 | 10 | 🆕 31/10 (AOFP-224) **Quy chuẩn đóng gói thời trang**: loại SP `bag` + chọn `outerRequirement` ở Product Master, cài đặt túi niêm phong, vẽ túi niêm phong khi `box.kind = 'mailer'`, hiện kiện gộp nhiều đơn (`orderIds`, `platformOrderIds`, `placements[].orderId`) | 7 | ~1 ngày | 🟡 01/11 — đã làm 7.1, 7.2, 7.3, 7.5 (trừ tô màu 3D), 7.6; **còn 7.4 vẽ túi 3D và tô màu món theo đơn trong khung 3D** |
+| 13 | 🆕 **Tiki**: thẻ "Kết nối Tiki" ở màn Kết nối sàn, nút Đồng bộ ngay, nhãn sàn Tiki trên đơn/nhóm, khối "Xác nhận đủ hàng" trên chi tiết đơn, nút **In nhãn Tiki** (đóng gói + giao hàng), màn Giao hàng ẩn chọn hãng cho nhóm Tiki | 10 | ~1 ngày | ☐ Chưa làm |
+| 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ☐ Chưa làm |
+| 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ☐ Chưa làm |
+| 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -79,7 +85,7 @@ Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô 
 
 ## 2. Khung 3D dựng theo kế hoạch thật (dòng 2)
 
-> ✅ **30/10/2026 — đã làm** theo [KE_HOACH_3D_HUONG_DAN_DONG_GOI.md](KE_HOACH_3D_HUONG_DAN_DONG_GOI.md): type đọc `placements`, `box.innerMm`, `manualLayout`, `itemProfiles`; bảng file model `fe/src/components/packing/product-models.ts`; hàm thuần `fe/src/utils/packing-layout.ts`; cảnh `fe/src/components/packing/scene/` (dùng clip gấp áo / túi zip có sẵn trong file GLB, ẩn tay / túi nilon / băng keo / nhãn, khít khối `dx×dy×dz`, hàng cứng co đều, nắp thùng gập); viewer có tab kiện + từng bước + câu hướng dẫn; `PackagingWorkbench` tự xin hướng dẫn 1 lần khi `guide` null, tải lại mỗi 3 giây khi kế hoạch đang tính. Đã chụp màn bằng kế hoạch mẫu (SAMPLE-L, 5 món). **Còn phải làm:** thử với kế hoạch thật đã `ready` trên trình duyệt; điền nguồn / giấy phép model trong `fe/public/models/CREDITS.md`. Phần mô tả bên dưới giữ làm lịch sử.
+> ✅ **30/10/2026 — đã làm** theo [KE_HOACH_3D_HUONG_DAN_DONG_GOI.md](KE_HOACH_3D_HUONG_DAN_DONG_GOI.md): type đọc `placements`, `box.innerMm`, `manualLayout`, `itemProfiles`; bảng file model `fe/src/components/packing/product-models.ts`; hàm thuần `fe/src/utils/packing-layout.ts`; cảnh `fe/src/components/packing/scene/` (dùng clip gấp áo / túi zip có sẵn trong file GLB, ẩn tay / túi nilon / băng keo / nhãn, khít khối `dx×dy×dz`, hàng cứng co đều, nắp thùng gập); viewer có tab kiện + từng bước + câu hướng dẫn; `PackagingWorkbench` tự xin hướng dẫn 1 lần khi `guide` null, tải lại mỗi 3 giây khi kế hoạch đang tính. Đã chụp màn bằng kế hoạch mẫu (BOX-L, 5 món). **Còn phải làm:** thử với kế hoạch thật đã `ready` trên trình duyệt; điền nguồn / giấy phép model trong `fe/public/models/CREDITS.md`. Phần mô tả bên dưới giữ làm lịch sử.
 
 **Hiện trạng (đọc code 28/10):** `fe/src/components/packing/Packing3DBoxViewer.tsx` nhận `boxLabel` rồi đoán kích thước thùng theo chuỗi tên ("Hộp A2", "CARTON-M1"…) và vẽ vài món quần áo/phụ kiện cố định. Không file FE nào đọc `placements`; kiểu `PackingPlan` ở `fe/src/types/packing-plan.ts` chưa có trường này.
 
@@ -230,6 +236,185 @@ Việc FE (`PackagingWorkbench.tsx`):
 | 7.6 | Hàng chờ đóng gói (`PackagingWorkbench.tsx`) — 🆕 31/10 | Packaging Staff mở trang mặc định ở tab **"Đã lấy hàng" (`picked`) + phạm vi "Của tôi"** → luôn rỗng, vì nhóm `picked` chưa có kế hoạch `ready` nên chưa có người đóng. Sửa: mặc định tab `pending_approval` (việc đã giao cho mình), hoặc tab `picked` thì tự chuyển phạm vi "Tất cả". BE nay giao lại kế hoạch mồ côi mỗi phút (`INTEGRATION_GUIDE_PACKING.md` mục 1.1) |
 
 **Nghiệm thu:** bật `mailer_enabled`, seed túi (`npx ts-node scripts/seed-packaging-mailers.ts`) → đơn 1 áo ra 1 túi niêm phong, khung 3D vẽ túi; đặt 2 đơn AURELLE cùng người nhận (cùng nhóm gộp) → 1 kiện chung 2 đơn, 2 phiếu đóng gói, 1 vận đơn GHN, mã vận đơn hiện ở cả 2 đơn trên website.
+
+---
+
+## 8. 🆕 05/11/2026 — Bảng so sánh thùng từng kiện (dòng 11)
+
+**Vấn đề:** màn đóng gói chỉ hiện thùng AI chọn, người dùng không biết vì sao không phải thùng khác.
+
+**BE mới (chỉ thêm field, không đổi route):** `GET /order-groups/:groupId/packing-plan` → mỗi `parcels[]` có `boxComparison` (hoặc `null` với kiện nhập tay / kiện tính trước 05/11). Các route chỉnh tay (đổi thùng, đổi thùng khi đang đóng, chuyển món) trả về kế hoạch đã tính lại bảng. Cấu trúc, gợi ý cột và ví dụ JSON ở `INTEGRATION_GUIDE_PACKING.md` mục 2.7.1.
+
+**FE cần làm:** hiện bảng theo đúng thứ tự `rows[]` (đừng sắp lại theo điểm), hiện `summary` và `verdict` nguyên văn, làm mờ dòng `eligible: false`, đặt ⚠ khi `scoresConsistent: false`. Nút "Đổi sang thùng này" (tuỳ chọn) dùng lại route đổi thùng sẵn có.
+
+## 9. 🆕 05/11/2026 — AI hướng dẫn minh bạch + học từ kho (dòng 12)
+
+**BE mới:** `plan.catalogStale` / `plan.catalogChanges[]` (danh mục đổi sau lúc tính), `guide.rating` + `guide.examplesUsed`, `POST …/parcels/:parcelNo/guide/rating`, `GET …/parcels/:parcelNo/guide/trace`. Chi tiết: `INTEGRATION_GUIDE_PACKING.md` mục 2.6.1, 2.6.2 và `API_LIST.md`.
+
+**FE cần làm:** (1) banner "Danh mục thùng/vật tư đã đổi sau khi tính" liệt kê `catalogChanges` + nút Tính lại; (2) 👍/👎 dưới hướng dẫn, toast "Đã thêm làm ví dụ mẫu cho AI" khi `savedAsExample`; (3) Admin: nút "Xem dữ liệu gửi AI" hiện `systemPrompt`, `userPayload` (format JSON), `rawResponse`.
+
+## 10. 🆕 31/10/2026 — Tiki: app Inhouse, đơn dropship (dòng 13)
+
+**Nghiệp vụ:** OptiPack nhận đơn Tiki kiểu **dropship** (shop đóng gói, shipper Tiki tới kho lấy hàng, không qua GHN). Đơn về tự động như Lazada. Khi nhóm đơn giữ đủ tồn, BE **tự xác nhận đủ hàng** lên Tiki; sau đó Tiki cấp **nhãn dán ngoài kiện + tem bỏ trong kiện** (HTML). Chi tiết API: `API_LIST.md` mục 29.
+
+| # | Màn | Việc FE |
+|---|---|---|
+| 10.1 | Kết nối sàn | Thêm thẻ **Tiki** giống Lazada: nút "Kết nối" gọi `GET /marketplace/tiki/connect` rồi `window.location = authUrl` như cũ (BE đã lưu shop, `authUrl` là trang thành công của FE — **không** mở trang Tiki). Danh sách/ngắt kết nối: `GET /marketplace/tiki/shops`, `DELETE /marketplace/tiki/shops/:shopId`. Lỗi 502 `MKT_TOKEN_EXCHANGE_FAILED` → hiện message BE (sai Secret hoặc nhà bán chưa đồng ý kết nối app) |
+| 10.2 | Đơn hàng / Nhóm đơn | Nhận `platform: 'tiki'` ở bộ lọc sàn, chip/màu sàn Tiki. Nút "Đồng bộ ngay" cho Tiki: `POST /orders/tiki/sync?shop_id=` (response thêm `events`, `confirmed`) |
+| 10.3 | Chi tiết đơn (`GET /orders/:id`) | Khối mới `marketplace` (chỉ đơn Tiki): hiện "Xác nhận đủ hàng với Tiki": `pending` = "Chờ xác nhận — hạn {confirmSlaAt}" (vàng, đỏ khi còn ≤ 60 phút), `confirmed` = "Đã xác nhận", `canceled` = "Đã báo hết hàng", `confirmError` nếu có (VD kho Tiki chưa gán kho nhà bán). Không có nút xác nhận tay — BE tự xác nhận khi đủ tồn |
+| 10.4 | Màn đóng gói + màn Giao hàng | Nhóm đơn có đơn Tiki: nút **"In nhãn Tiki"** cho từng đơn → `GET /orders/:id/marketplace-labels` → mở `shippingLabelUrl` (dán ngoài kiện) và `shippingStampUrl` (bỏ trong kiện) ở tab mới để in. 409 `ORD_MARKETPLACE_LABEL_UNAVAILABLE` → "Đơn chưa xác nhận đủ hàng với Tiki" |
+| 10.5 | Màn Giao hàng | Nhóm `platform = 'tiki'`: **ẩn** chọn hãng / báo giá / lịch lấy hàng, ghi "Shipper Tiki tới lấy hàng", tạo vận đơn bằng `POST /shipments` **không** gửi `carrier_code`, `service_code`; không cho chọn vào "giao chung chuyến". Bắt 409 `SHP_MARKETPLACE_PICKUP` |
+| 10.6 | Thông báo | Loại mới `marketplace_confirm_required` (critical, Store Owner): đơn Tiki sắp hết hạn xác nhận mà còn thiếu hàng → bấm mở chi tiết đơn (`relatedEntityType: 'order'`) |
+| 10.7 | Cài đặt đồng bộ | Danh sách sàn tự có dòng **Tiki** (từ `GET /order-sync-settings`) — không cần sửa nếu màn đang render theo danh sách BE trả |
+
+**Nghiệm thu:** kết nối Tiki → shop `365980` "OptiPackAI Test Shop" hiện ở màn Kết nối sàn; đặt 1 đơn trên Tiki → trong ~1 phút đơn xuất hiện (sàn Tiki), nhóm đơn vào hàng chờ lấy; đủ tồn → chi tiết đơn chuyển "Đã xác nhận"; bấm "In nhãn Tiki" mở được 2 trang nhãn; màn Giao hàng không có ô chọn hãng cho nhóm Tiki.
+
+---
+
+## 11. 🆕 08/11/2026 — Đồng bộ đơn vị đo toàn hệ thống (dòng 14)
+
+**Yêu cầu của cô:** đồng bộ đơn vị đo trên toàn hệ thống. Mọi màn hình, mọi role phải hiển thị cùng một cách.
+
+### 11.0 Quy tắc chung — áp cho mọi màn
+
+| Loại số | Hiển thị | Ví dụ |
+|---|---|---|
+| Kích thước (thùng, túi, sản phẩm, kiện, đệm/lề trong cài đặt) | **cm**, tối đa 1 chữ số lẻ | `35 × 25 × 12,5 cm`, `0,5 cm` |
+| Khối lượng (bì thùng, tải tối đa, vật tư, sản phẩm, cân kiện, cân tính cước) | **kg**, tối đa 2 chữ số lẻ. Số > 0 mà làm tròn ra 0 thì để 3 chữ số lẻ | `0,15 kg`, `3,2 kg`, `0,003 kg` |
+
+- **Định dạng số:** dùng `toLocaleString('vi-VN', { maximumFractionDigits: 1 | 2 })`. **Không dùng `toFixed`**, vì `toFixed` ra dấu chấm (`0.45`).
+- **Nhãn:** ghi đơn vị trong ngoặc, ví dụ "Dài (cm)", "Khối lượng (kg)". Bỏ hết chữ "mm", "g", "Gram" trên giao diện.
+- **BE KHÔNG đổi field.** Tên field cho biết đơn vị gốc:
+
+  | Hậu tố field | Đơn vị gốc | Lúc hiển thị |
+  |---|---|---|
+  | `…Mm` / `…_mm` | mm | chia 10 |
+  | `…G` / `…_g` | g | chia 1000 |
+  | `…Cm` / `…Kg` | cm / kg | giữ nguyên |
+- **Ô nhập:** người dùng gõ cm hoặc kg (cho phép số lẻ). Trước khi gửi BE phải đổi về mm hoặc g và **làm tròn số nguyên**, vì BE từ chối số lẻ ở field mm/g:
+  - `Math.round(cm * 10)` cho field mm.
+  - `Math.round(kg * 1000)` cho field g.
+- **Đề xuất:** tạo `fe/src/utils/units.ts` gồm `formatCm`, `formatMmAsCm`, `formatDimsMmAsCm(l, w, h)`, `formatKg`, `formatGAsKg`, `cmToMm`, `kgToG`. Viết giống `be/src/common/utils/measure-format.util.ts` để chữ trên màn hình khớp chữ BE sinh ra.
+
+**BE đã đổi sẵn sang cm/kg — FE hiện nguyên văn, không sửa:**
+- `summary`, `verdict`, `ineligibleReason` của bảng so sánh thùng.
+- Lỗi xếp thùng và lập kế hoạch tay (`PACKING_MANUAL_INVALID`…).
+- Lỗi túi zip không vừa (`PM_ZIP_BAG_TOO_SMALL`).
+- `catalogChanges[]`.
+- Thông báo lệch cân.
+- Lịch sử thao tác.
+- Phiếu PDF.
+
+### 11.1 Danh sách chỗ phải sửa (số dòng theo `main` ngày 06/11)
+
+| # | File | Đang ghi | Sửa thành |
+|---|---|---|---|
+| 11.1 | `pages/PackagingMaterialsPage.tsx` — tab Thùng, bảng (dòng ~1020, ~1033) | Cột "Đường kính trong (mm)", ô `lengthMm×widthMm×heightMm` | Cột **"Lòng thùng (cm)"**, ô `formatDimsMmAsCm(...)`. "Đường kính" là **sai thuật ngữ** (thùng không có đường kính) |
+| 11.2 | Cùng file — `BoxForm` / `BoxEditForm` (`mmFields`, dòng ~1588, ~1667–1673) | "Đường kính trong (mm) L/W/H", "Đường kính ngoài (mm)", "Bì (g)", "Tải tối đa (g)" | "Kích thước lòng thùng (cm)" và "Kích thước ngoài thùng (cm)" — Dài / Rộng / Cao; "Khối lượng thùng rỗng (kg)"; "Tải tối đa (kg)". Gửi `cmToMm` / `kgToG`. Form sửa: hiện giá trị đã đổi về cm/kg |
+| 11.3 | Cùng file — tab Túi zip: bảng (~1161, ~1177), `BagForm` / `BagEditForm` (~1807, ~1876) | "Khổ trải (mm)", `widthMm×lengthMm`; "Rộng mm", "Dài mm" | "Khổ trải (cm)" ghi dạng `35 × 45 cm`; "Rộng (cm)", "Dài (cm)". Gửi `cmToMm` |
+| 11.4 | Cùng file — `CreateMaterialDialog` (~676–767) | "Dài cm", "Rộng cm (trải phẳng)", "Khối lượng túi (g)", "Tải tối đa (g, có thể trống)". Ghi chú "…tab Thùng (mm). Form này … theo cm". Câu lỗi có "(g)" | Nhãn "Dài (cm)"…; "Khối lượng túi (kg)", "Tải tối đa (kg, có thể để trống)". Gửi `kgToG`. Bỏ phần đơn vị trong ghi chú (giờ mọi nơi đều là cm). Sửa câu lỗi theo kg |
+| 11.5 | Cùng file — `CushionForm` / `CushionEditForm` (~1962, ~2038) | "Gram / đơn vị" | "Khối lượng / đơn vị (kg)". Hiện `weightGPerUnit / 1000`, gửi `kgToG` |
+| 11.6 | `components/packing/PackingSettingsReports.tsx` (~108, ~188–190) | "Đệm dễ vỡ (mm)", "Lề rộng túi (mm)", "Lề dài túi, gồm nắp dán (mm)", "Chồng hàng dày tối đa (mm)" | Đổi cả 4 sang **(cm)**, cho nhập 1 chữ số lẻ, gửi `cmToMm`. Giới hạn ô đổi tương ứng: 0–5 cm, 0–10 cm, 0–15 cm, 0,5–30 cm |
+| 11.7 | `components/packing/BoxComparisonTable.tsx` (~112) | `` `${billableWeightG} g` `` | `formatGAsKg(billableWeightG)` |
+| 11.8 | `components/packing/PackagingWorkbench.tsx` (~322, ~2094–2096, ~2132) | `(estimatedWeightG / 1000).toFixed(2) kg`; cỡ thùng ghép `String(lengthCm)` | `formatGAsKg(...)`; cỡ thùng dùng `formatDimsCm` để có dấu phẩy khi số lẻ |
+| 11.9 | `pages/ShippingPage.tsx` (~1519, ~1622) | `toFixed(2)} kg` | `formatKg(...)` |
+| 11.10 | `pages/WarehousePage.tsx` (~2029–2031) | `{length_cm}×{width_cm}×{height_cm} cm`, `{weight_kg} kg` (in thô, dấu chấm) | `formatDimsCm(...)`, `formatKg(...)` |
+| 11.11 | `pages/admin-warehouse/CatalogPanels.tsx` (~1002–1035) | `String(row.weightKg)`; kích thước sàn ghép chuỗi thô | `formatKg`, `formatDimsCm` (nhãn đã đúng cm/kg) |
+| 11.12 | `pages/PackagingRulesPage.tsx` (~195–198), `components/packing/Packing3DBoxViewer.tsx` (~261, ~409) | Đã ghi cm/kg nhưng mỗi file tự viết hàm `cm()` riêng | Chuyển sang dùng hàm chung trong `utils/units.ts` cho đồng nhất |
+
+**Size áo:** BE đã tự chuẩn hoá size biến thể AURELLE khi lưu (`m`, `Size M` → `M`), giống Master SKU. FE không cần làm gì, cứ hiển thị size như BE trả về.
+
+**Nghiệm thu:**
+- Đăng nhập lần lượt 5 role, mở các màn: Vật liệu đóng gói, Cài đặt đóng gói, Đóng gói (bảng so sánh thùng, cỡ thùng, cân), Giao hàng, Kho (phiếu nhập), Master SKU / Product Master, Quy tắc đóng gói.
+- Không còn chữ "mm", "g", "Gram", "Đường kính". Mọi số lẻ dùng dấu phẩy.
+- Tạo thùng lòng 35 × 25 × 12,5 cm, bì 0,15 kg → `GET /packaging/boxes` trả `inner = 350 × 250 × 125` (mm), `tareG = 150`. Mở form sửa thấy lại đúng 35 / 25 / 12,5 và 0,15.
+
+---
+
+## 12. 🆕 08/11/2026 — Sắp lại trang Vật liệu đóng gói: bỏ cột trùng, hiện ngưỡng (dòng 15)
+
+**Yêu cầu của cô:** chỉnh lại tab quản lý vật liệu đóng gói cho hợp lý, bỏ các cột trùng lặp và khó hiểu, thêm ngưỡng cho từng vật liệu, có cảnh báo gửi Admin / Warehouse Staff khi vật liệu sắp chạm ngưỡng.
+
+**BE đã có sẵn, FE không phải chờ:**
+- Mỗi thùng, túi zip, túi niêm phong và vật tư đều có ngưỡng riêng. API danh sách trả `reorderLevel`. 🔄 08/11 (Việt báo thiếu): `GET /packaging-materials` (nguồn của tab Túi niêm phong và Kho tái sử dụng) nay cũng trả `reorderLevel` + `stockStatus`.
+- Thùng và vật tư có thêm `stockStatus` (`in_stock` / `low_stock` / `out_of_stock`). Túi zip **không có** `stockStatus`, FE tự tính:
+  - `quantityOnHand = 0` → hết hàng.
+  - `quantityOnHand ≤ reorderLevel` → sắp hết.
+- Sửa ngưỡng: gửi `PATCH /packaging/{boxes|bags|materials}/:id` với `reorder_level`. Các form sửa hiện tại đã có ô này. **Túi niêm phong:** gửi `PATCH /packaging-materials/:code` với `{ "reorder_level": 50 }`.
+- Cảnh báo `low_box_stock` / `low_material_stock` do BE tự gửi vào chuông thông báo. FE chỉ cần hiển thị như các thông báo khác; khi bấm vào thì mở trang này, đúng tab của mã đó (`relatedEntityType` = `packaging_box` / `packaging_material`, `relatedEntityId` = mã).
+
+### Vấn đề trên màn hiện tại (`pages/PackagingMaterialsPage.tsx`, `main` 06/11)
+
+1. **Cùng một vật liệu hiện ở 2 tab với 2 kiểu số tồn.** BE lưu thùng, vật tư chèn và túi niêm phong chung một bảng (`packaging_materials`). Tab mặc định "Kho tái sử dụng" (`ReuseStockPanel`) liệt kê **cả bảng đó** với các cột Mới / Tái sử dụng / Nội bộ. Tab "Thùng" và tab "Vật liệu chống sốc" lại liệt kê lần nữa các thùng và vật tư đó với cách ghi tồn khác. Người xem không biết tin số nào. Riêng túi niêm phong hiện **chỉ** có ở tab Kho tái sử dụng.
+2. **Thêm thùng ở 2 nơi, 2 đơn vị.** Form "Thêm vật liệu" ở tab Kho tái sử dụng nhập thùng theo cm. Tab Thùng nhập theo mm. Ghi chú trên form còn phải giải thích sự khác nhau này.
+3. **Gộp 3 số vào 1 ô:** "Tồn/Giữ/Còn" (tab Thùng) và "Mới/Tái sử dụng" (tab Vật liệu chống sốc). Khó đọc và không sắp xếp được.
+4. **Thiếu cột Ngưỡng** ở tab Thùng, Vật liệu chống sốc và Kho tái sử dụng. Chỉ tab Túi zip có.
+5. **Thuật ngữ khó hiểu:**
+   - Tab Vật liệu chống sốc hiện mã thô `item.type` (VD `corner_foam`) thay vì tên tiếng Việt.
+   - Nút "Sổ" → nên là "Lịch sử nhập/xuất".
+   - Nút "Nội bộ" → nên là "Xuất dùng nội bộ".
+   - Cột "Đường kính trong (mm)" → xem mục 11.1.
+
+### Bố cục đề xuất
+
+| Tab | Cột | Ghi chú |
+|---|---|---|
+| **Thùng** | Mã + tên · Lòng thùng (cm) · Tồn · Đang giữ cho đơn · Còn dùng được · **Ngưỡng** · Trạng thái | Tách "Tồn/Giữ/Còn" thành 3 cột. Trạng thái là badge Còn / Sắp hết / Hết theo `stockStatus` |
+| **Túi zip** | Mã + tên · Khổ trải (cm) · Tồn · **Ngưỡng** · Trạng thái | Thêm cột Trạng thái (FE tự tính như trên) |
+| **Vật liệu chống sốc** | Mã + tên · Loại (tên tiếng Việt) · Tồn · **Ngưỡng** · Trạng thái | Bỏ cột "Mới/Tái sử dụng" vì vật tư chèn ít khi dùng lại; nếu cần thì để trong form sửa. Đổi `item.type` sang tên tiếng Việt (bảng `CUSHION_TYPES`) |
+| **Túi niêm phong** (tab mới) | Mã + tên · Khổ trải (cm) · Tồn · **Ngưỡng** · Trạng thái | Lọc `kind = mailer` từ API đang dùng cho tab Kho tái sử dụng; thêm/sửa túi niêm phong làm ở đây |
+| **Kho tái sử dụng** | Mã + tên · Loại · Tái sử dụng được · Chỉ dùng nội bộ · Đơn giá | Chỉ giữ phần **hàng hoàn được kiểm và dùng lại** (thùng, vật tư có `reusable`). Bỏ cột "Mới" vì số tồn mới đã có ở các tab trên. **Bỏ nút thêm vật liệu ở đây** — thêm ở đúng tab của loại đó |
+
+- Đặt tab **Thùng** làm tab mặc định thay cho "Kho tái sử dụng".
+- Dòng nào có `stockStatus = low_stock` thì tô nền vàng nhạt, `out_of_stock` thì nền đỏ nhạt. Đầu trang hiện ô tóm tắt "N vật liệu sắp hết / hết", bấm vào thì lọc ra các dòng đó.
+- Đơn vị theo mục 11 (cm, kg).
+
+**Nghiệm thu:**
+- Mỗi vật liệu chỉ có số tồn mới ở đúng một tab.
+- Tab nào cũng có cột Ngưỡng sửa được.
+- Đặt ngưỡng của một thùng cao hơn số tồn hiện có → dòng đó chuyển sang "Sắp hết".
+- Đóng gói làm tồn tụt xuống bằng hoặc dưới ngưỡng → chuông thông báo nhận cảnh báo; bấm vào thì mở đúng tab, đúng mã. (Người nhận Warehouse Staff: BE đang bổ sung, xem `CLAUDE.md` nhật ký 08/11.)
+
+---
+
+## 13. 🆕 08/11/2026 — Tối ưu tải trang, polling và chống ghi trùng thao tác kho (dòng 16)
+
+**Bối cảnh:** chuẩn bị app mobile, rà lại cả web. BE đã làm phần của BE (AOFP-238, AOFP-239). Phần dưới là việc của FE. Rà trên `main` 08/11.
+
+### 13.1 Tách gói theo trang (ưu tiên cao)
+
+- Hiện **không có chỗ nào dùng `React.lazy`**. `three` + `@react-three/fiber` (dùng ở `Packing3DBoxViewer.tsx`, `PackingScene.tsx`, `StepCamera.tsx`, `Hero3DCanvas.tsx`) nằm chung gói với mọi trang, nên màn đăng nhập, danh sách đơn cũng phải tải thư viện 3D.
+- Làm: `const PackingPage = lazy(() => import('./pages/...'))` cho các trang có 3D và các trang lớn (kho, đóng gói, vận chuyển), bọc `<Suspense fallback={…}>` ở router. Riêng `Hero3DCanvas` ở trang giới thiệu cũng lazy.
+- Nghiệm thu: `npx vite build` → gói chính nhỏ đi rõ rệt, `three` nằm ở chunk riêng; mở màn đăng nhập không tải chunk 3D (xem tab Network).
+
+### 13.2 Dừng polling khi tab ẩn (ưu tiên trung bình)
+
+- 7 file dùng `setInterval` (`useNotifications.ts`, `MfaDisabledNotice.tsx`, `ShippingPage.tsx`, `PackagingWorkbench.tsx`, `useLazadaConnection.ts`, `DirectConnectPanel.tsx`, `ForgotPasswordPage.tsx`), không file nào nghe `visibilitychange`.
+- Làm: khi `document.hidden` thì dừng interval; khi tab hiện lại thì gọi 1 lần ngay rồi chạy lại interval. Gợi ý viết 1 hook dùng chung `usePolling(fn, ms)`.
+- Lợi ích: giảm request khi nhân viên mở nhiều tab, đỡ chạm giới hạn 600 lần/phút theo IP (cả kho chung 1 IP).
+
+### 13.3 Huỷ request cũ khi đổi bộ lọc (ưu tiên thấp)
+
+- Chỉ 1 file dùng `AbortController`. Đổi bộ lọc nhanh (tab trạng thái nhóm đơn, ô tìm) có thể để kết quả cũ về sau ghi đè kết quả mới.
+- Làm: mỗi lần gọi danh sách tạo `AbortController` mới, huỷ cái trước.
+
+### 13.4 (Tuỳ chọn) Gửi `client_event_id` cho thao tác kho
+
+- BE (AOFP-239) nhận thêm `client_event_id` (chuỗi ≤ 100 ký tự, gợi ý `crypto.randomUUID()`) ở body của 3 route:
+  - `POST /warehouse/warehouses/:warehouseId/sku-bin-assignments/:assignmentId/restock`
+  - `POST …/adjust`
+  - `POST …/transfer`
+- Gửi lại cùng mã → BE trả **đúng kết quả lần trước** (200, cùng shape), không cộng / trừ tồn lần 2, không ghi thêm sổ kho.
+- Cùng mã nhưng khác thao tác hoặc khác dòng tồn → **409 `WH_CLIENT_EVENT_REUSED`**; hiện `message`, tạo mã mới rồi cho bấm lại.
+- Web: sinh mã 1 lần khi mở form, giữ nguyên khi bấm lại sau lỗi mạng / timeout, tạo mã mới khi mở form lần sau. Không gửi thì BE chạy như cũ.
+- App mobile: **bắt buộc** gửi (hàng đợi ngoại tuyến).
+
+### 13.5 Ghi nhận, chưa cần làm
+
+- Token lưu ở `localStorage` (`auth-storage.ts`): chấp nhận cho đồ án vì BE đã bật `helmet`; nếu sau này thêm nội dung HTML do người dùng nhập thì cần xem lại.
+- Chưa có lớp cache dữ liệu (React Query / SWR). Nếu làm thì giải luôn 13.2, 13.3; việc lớn, để sau.
+
+**Nghiệm thu chung:** build chạy, đăng nhập không tải chunk 3D; để tab ẩn 2 phút không có request polling nào trong Network; nhập thêm hàng, tắt mạng giữa chừng rồi bấm lại không bị cộng 2 lần (khi làm 13.4).
 
 ---
 
@@ -488,7 +673,7 @@ Lọc riêng: `GET /order-groups?packing_blocked=true`. Kho bấm "Xác nhận s
 
   Query (đều tuỳ chọn): `category` (nhiều loại cách nhau dấu phẩy), `from`, `to` (ISO 8601; mặc định 30 ngày gần nhất), `before` (con trỏ trang sau), `limit` (1–100, mặc định 50), `actor_id`, `mine=true` (chỉ việc của tôi), `sku`, `order_group_id`, `order_code` (mã đơn sàn). Lọc loại không được phép → `403`.
   Trả `{ items: HistoryItem[], nextBefore: string | null, categories: [{ code, label }] }`.
-- `HistoryItem`: `{ id, occurredAt, category, categoryLabel, action, summary, actor: { id, name, role } | null, orderGroupId, entity: { type, id, code } | null, skus, quantity, fromStatus, toStatus, details }`. **`summary` là câu tiếng Việt hiển thị thẳng**, VD *"Bắt đầu giao SHP-1 qua GHN · Hàng nhẹ → Nguyễn Văn A (12 Lê Lợi, …) — mã GHN123"*, *"Niêm phong kiện 1: thùng SAMPLE-S, 0.4 kg — đơn 720000001"*, *"Nhập lô LOT-… (phiếu PN-…): 30 sản phẩm, 2 mã"*. `details` là các field phụ (vận chuyển: `carrier, service, trackingCode, recipientName, recipientPhone, recipientAddress, costVnd, attempt, reason`; kho: `bin, quantityBefore, quantityAfter, reason, note`; phiếu nhập: `lotCode, receivedAt, supplier, lines`…).
+- `HistoryItem`: `{ id, occurredAt, category, categoryLabel, action, summary, actor: { id, name, role } | null, orderGroupId, entity: { type, id, code } | null, skus, quantity, fromStatus, toStatus, details }`. **`summary` là câu tiếng Việt hiển thị thẳng**, VD *"Bắt đầu giao SHP-1 qua GHN · Hàng nhẹ → Nguyễn Văn A (12 Lê Lợi, …) — mã GHN123"*, *"Niêm phong kiện 1: thùng BOX-S, 0.4 kg — đơn 720000001"*, *"Nhập lô LOT-… (phiếu PN-…): 30 sản phẩm, 2 mã"*. `details` là các field phụ (vận chuyển: `carrier, service, trackingCode, recipientName, recipientPhone, recipientAddress, costVnd, attempt, reason`; kho: `bin, quantityBefore, quantityAfter, reason, note`; phiếu nhập: `lotCode, receivedAt, supplier, lines`…).
 - `GET /history/categories` — mảng loại vai trò hiện tại được xem.
 - `GET /history/order-groups/:id/timeline` — dòng thời gian **cũ → mới** của 1 nhóm đơn: đơn về → đổi trạng thái → từng lần lấy hàng (ô, số lượng, ai lấy) → tính/duyệt/phân công/bắt đầu/niêm phong từng kiện/xong → vận chuyển (hãng, mã, người nhận, giao thất bại/lại/hoàn) → trả hàng (từng bước) → nhập lại kệ. Mọi vai trò. `{ orderGroupId, items }`.
 - `GET /history/export` — CSV mở bằng Excel, cùng bộ lọc, tối đa 5.000 dòng (Admin, Store Owner).

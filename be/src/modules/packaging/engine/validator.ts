@@ -1,5 +1,6 @@
-import { orientedDims } from './units';
+import { minSupportPct, orientedDims } from './units';
 import type { BoxSpec, PackingUnit, Placement, Violation } from './types';
+import { formatGAsKg } from '../../../common/utils/measure-format.util';
 
 type Box3 = Pick<Placement, 'x' | 'y' | 'z' | 'dx' | 'dy' | 'dz'>;
 
@@ -40,14 +41,17 @@ export function directSupporters(
   return result;
 }
 
-/** Đáy phải nằm trên sàn thùng hoặc được đỡ TOÀN BỘ diện tích. */
-export function isFullySupported(item: Box3, others: Box3[]): boolean {
+/**
+ * Đáy phải nằm trên sàn thùng hoặc được đỡ ≥ `minPct`% diện tích (mặc định 100 —
+ * đồ mềm truyền `minSupportPct(unit)` = 80, xem units.ts).
+ */
+export function isFullySupported(item: Box3, others: Box3[], minPct = 100): boolean {
   if (item.z === 0) return true;
   const covered = directSupporters(item, others).reduce(
     (sum, s) => sum + s.area,
     0,
   );
-  return covered >= item.dx * item.dy;
+  return covered * 100 >= minPct * item.dx * item.dy;
 }
 
 /**
@@ -182,11 +186,15 @@ export function validateCandidate(
         });
       }
     }
-    if (!isFullySupported(p, placements)) {
+    const minPct = unit ? minSupportPct(unit) : 100;
+    if (!isFullySupported(p, placements, minPct)) {
       violations.push({
         code: 'NO_SUPPORT',
         item_key: p.item_key,
-        message: 'Đáy món không được đỡ toàn bộ.',
+        message:
+          minPct < 100
+            ? `Đáy món được đỡ dưới ${String(minPct)}% diện tích.`
+            : 'Đáy món không được đỡ toàn bộ.',
       });
     }
   });
@@ -206,7 +214,7 @@ export function validateCandidate(
         message:
           limit === null
             ? 'Món này không được phép đặt vật lên trên.'
-            : `Tải chồng ${String(Math.round(load))} g vượt giới hạn ${String(limit)} g.`,
+            : `Tải chồng ${formatGAsKg(load)} vượt giới hạn ${formatGAsKg(limit)}.`,
       });
     }
   });
@@ -215,7 +223,7 @@ export function validateCandidate(
   if (itemsWeight > box.max_load_g) {
     violations.push({
       code: 'BOX_LOAD_EXCEEDED',
-      message: `Hàng nặng ${String(itemsWeight)} g vượt tải thùng ${String(box.max_load_g)} g.`,
+      message: `Hàng nặng ${formatGAsKg(itemsWeight)} vượt tải thùng ${formatGAsKg(box.max_load_g)}.`,
     });
   }
   return violations;

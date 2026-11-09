@@ -5,7 +5,10 @@ The model is deliberately STRICTER than the TypeScript validator, so every
 
 * support: a unit rests on the floor, OR entirely on one supporter, OR on two
   supporters whose top faces exactly cover its base (split along x or along y);
-  the validator also accepts covers made of 3+ pieces;
+  the validator also accepts covers made of 3+ pieces; a soft unit
+  (min_support_pct < 100) resting on ONE supporter may overhang it by at most 5%
+  of its size on each side of each axis, i.e. >= 0.9 * 0.9 = 81% covered, which is
+  still >= the 80% the validator asks for;
 * stack load: each supporter is charged the FULL weight resting on the unit it
   carries (the validator splits it by contact area);
 * a fragile unit or one with no stack allowance has nothing touching its top face.
@@ -183,10 +186,15 @@ def solve_combo(
             on = m.new_bool_var(f"on_{i}_{j}")
             m.add_implication(on, same[(i, j)])
             m.add(z[i] == z[j] + dz[j]).only_enforce_if(on)
-            m.add(x[j] <= x[i]).only_enforce_if(on)
-            m.add(x[i] + dx[i] <= x[j] + dx[j]).only_enforce_if(on)
-            m.add(y[j] <= y[i]).only_enforce_if(on)
-            m.add(y[i] + dy[i] <= y[j] + dy[j]).only_enforce_if(on)
+            if units[i].min_support_pct < 100:
+                for p, dp in ((x, dx), (y, dy)):
+                    m.add(20 * (p[j] - p[i]) <= dp[i]).only_enforce_if(on)
+                    m.add(20 * (p[i] + dp[i] - p[j] - dp[j]) <= dp[i]).only_enforce_if(on)
+            else:
+                m.add(x[j] <= x[i]).only_enforce_if(on)
+                m.add(x[i] + dx[i] <= x[j] + dx[j]).only_enforce_if(on)
+                m.add(y[j] <= y[i]).only_enforce_if(on)
+                m.add(y[i] + dy[i] <= y[j] + dy[j]).only_enforce_if(on)
             options.append(on)
             rests_on.setdefault((i, j), []).append(on)
 
