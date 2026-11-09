@@ -21,7 +21,7 @@ describe('ReturnsService — G3', () => {
 
   let returnModel: { findById: jest.Mock; exists: jest.Mock; create: jest.Mock; findOneAndUpdate: jest.Mock; findByIdAndUpdate: jest.Mock; find: jest.Mock };
   let shipmentModel: { findOne: jest.Mock };
-  let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock; getOrCreateGroupForOrder: jest.Mock; getPickedQuantitiesForGroup: jest.Mock; getOrderedQuantitiesForGroup: jest.Mock };
+  let orderGroupsService: { findOrderGroupById: jest.Mock; getPackableItemsForGroup: jest.Mock; transitionFulfillmentStatus: jest.Mock; getOrCreateGroupForOrder: jest.Mock; getPickedQuantitiesForGroup: jest.Mock; getOrderedQuantitiesForGroup: jest.Mock; scheduleShortageRecheck: jest.Mock };
   let warehouseService: { restockReturnedItem: jest.Mock };
   let packagingMaterialsService: { recoverFromReturn: jest.Mock };
   let orderModel: { findOne: jest.Mock; create: jest.Mock };
@@ -45,6 +45,7 @@ describe('ReturnsService — G3', () => {
       getOrCreateGroupForOrder: jest.fn().mockResolvedValue({ _id: new Types.ObjectId() }),
       getPickedQuantitiesForGroup: jest.fn().mockResolvedValue(new Map()),
       getOrderedQuantitiesForGroup: jest.fn().mockResolvedValue(new Map([['A', 2]])),
+      scheduleShortageRecheck: jest.fn(),
     };
     warehouseService = { restockReturnedItem: jest.fn().mockResolvedValue(undefined) };
     packagingMaterialsService = { recoverFromReturn: jest.fn().mockResolvedValue([]) };
@@ -175,6 +176,8 @@ describe('ReturnsService — G3', () => {
       }, 'wh-1');
       expect(warehouseService.restockReturnedItem).toHaveBeenCalledTimes(1);
       expect(warehouseService.restockReturnedItem).toHaveBeenCalledWith(expect.objectContaining({ sellerSku: 'A', quantity: 1, binLocationId: binId, returnRequestId: rmaId.toString() }), expect.anything());
+      // 10/11/2026 — hàng hoàn vào kệ → xếp lượt tính lại các nhóm đang thiếu hàng.
+      expect(orderGroupsService.scheduleShortageRecheck).toHaveBeenCalledWith('kiểm hàng hoàn');
       expect((returnModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { status: string } }])[1].$set.status).toBe(ReturnStatus.CLOSED);
     });
   });
