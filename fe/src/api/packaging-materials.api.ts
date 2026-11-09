@@ -1,4 +1,5 @@
 import { apiRequest } from '../lib/api'
+import type { StockStatus } from './packaging-catalog.api'
 
 export type PackagingMaterialsSavings = {
   totalSavingVnd: number
@@ -44,8 +45,10 @@ export type PackagingMaterialStock = {
   qtyNew: number
   qtyReused: number
   qtyInternal: number
-  /** Ngưỡng cảnh báo; null nếu BE chưa trả (túi niêm phong). */
+  /** Ngưỡng cảnh báo; null nếu BE bản cũ chưa trả. */
   reorderLevel: number | null
+  /** BE tính trên tồn dùng được (mới + tái sử dụng); null nếu BE bản cũ chưa trả. */
+  stockStatus: StockStatus | null
   isActive: boolean
 }
 
@@ -90,6 +93,10 @@ function pickNullableNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null
 }
 
+function pickStockStatus(value: unknown): StockStatus | null {
+  return value === 'in_stock' || value === 'low_stock' || value === 'out_of_stock' ? value : null
+}
+
 function pickString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -114,6 +121,7 @@ function mapMaterial(raw: unknown): PackagingMaterialStock | null {
     qtyReused: pickNumber(row.qtyReused, row.qty_reused),
     qtyInternal: pickNumber(row.qtyInternal, row.qty_internal),
     reorderLevel: pickNullableNumber(row.reorderLevel ?? row.reorder_level),
+    stockStatus: pickStockStatus(row.stockStatus ?? row.stock_status),
     isActive: row.isActive !== false && row.is_active !== false,
   }
 }

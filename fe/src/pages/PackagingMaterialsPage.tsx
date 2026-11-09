@@ -117,11 +117,16 @@ function kgInputToG(raw: string): number | null {
   return kgToG(kg)
 }
 
-/** Túi niêm phong và túi zip không có `stockStatus` từ BE → tự tính theo tồn và ngưỡng. */
+/** Túi zip không có `stockStatus` từ BE → tự tính theo tồn và ngưỡng. */
 function computeStockStatus(onHand: number, reorderLevel: number | null): StockStatus {
   if (onHand <= 0) return 'out_of_stock'
   if (reorderLevel !== null && onHand <= reorderLevel) return 'low_stock'
   return 'in_stock'
+}
+
+/** Túi niêm phong: ưu tiên trạng thái BE (tính trên tồn mới + tái sử dụng); BE bản cũ thì tự tính. */
+function mailerStatus(item: PackagingMaterialStock): StockStatus {
+  return item.stockStatus ?? computeStockStatus(item.qtyNew + item.qtyReused, item.reorderLevel)
 }
 
 function stockTone(status: StockStatus): 'success' | 'warning' | 'danger' {
@@ -405,7 +410,7 @@ function LowStockSummary({
           mailers: tally(
             materials
               .filter((row) => row.kind === 'mailer')
-              .map((row) => ({ status: computeStockStatus(row.qtyNew, row.reorderLevel) })),
+              .map((row) => ({ status: mailerStatus(row) })),
           ),
           cushions: tally(cushions.map((row) => ({ status: row.stockStatus }))),
         })
@@ -792,7 +797,7 @@ function MailersPanel({
   }
 
   const visible = rows.filter(
-    (item) => !onlyLow || computeStockStatus(item.qtyNew, item.reorderLevel) !== 'in_stock',
+    (item) => !onlyLow || mailerStatus(item) !== 'in_stock',
   )
 
   return (
@@ -822,7 +827,7 @@ function MailersPanel({
         ]}
       >
         {visible.map((item) => {
-          const status = computeStockStatus(item.qtyNew, item.reorderLevel)
+          const status = mailerStatus(item)
           return (
             <tr
               key={item.code}
@@ -844,7 +849,7 @@ function MailersPanel({
                   ? `${formatCm(item.widthCm)} × ${formatCm(item.lengthCm)} cm`
                   : '—'}
               </td>
-              <td className="px-3 py-2">{item.qtyNew}</td>
+              <td className="px-3 py-2">{item.qtyNew + item.qtyReused}</td>
               <td className="px-3 py-2">{item.reorderLevel ?? '—'}</td>
               <td className="px-3 py-2">
                 <Badge tone={stockTone(status)}>{stockLabel(status, vi)}</Badge>

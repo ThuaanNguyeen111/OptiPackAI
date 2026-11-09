@@ -1,9 +1,13 @@
 import { Link } from 'react-router-dom'
 import { Moon, Sparkles, Sun } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { Hero3DCanvas } from '../marketing/Hero3DCanvas'
+import { lazy, Suspense, type ReactNode } from 'react'
 import { BrandMark } from '../brand/BrandMark'
 import { useTheme } from '../../hooks/useTheme'
+
+// Bản xem trước 3D nặng (three): tải sau, không chặn form đăng nhập.
+const Hero3DCanvas = lazy(() =>
+  import('../marketing/Hero3DCanvas').then((m) => ({ default: m.Hero3DCanvas })),
+)
 
 type AuthLayoutProps = {
   children: ReactNode
@@ -52,7 +56,9 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
 
         {show3dPreview(mode) ? (
           <div className="relative z-10 flex min-h-0 flex-1 flex-col justify-center py-4">
-            <Hero3DCanvas className="h-[260px] xl:h-[300px]" />
+            <Suspense fallback={<div className="h-[260px] xl:h-[300px]" aria-hidden />}>
+              <Hero3DCanvas className="h-[260px] xl:h-[300px]" />
+            </Suspense>
           </div>
         ) : null}
 
@@ -144,7 +150,9 @@ export function AuthLayout({ children, mode }: AuthLayoutProps) {
         >
           {show3dPreview(mode) ? (
             <div className="mb-5 shrink-0 lg:hidden">
-              <Hero3DCanvas className="h-[220px]" />
+              <Suspense fallback={<div className="h-[220px]" aria-hidden />}>
+                <Hero3DCanvas className="h-[220px]" />
+              </Suspense>
             </div>
           ) : null}
           {children}

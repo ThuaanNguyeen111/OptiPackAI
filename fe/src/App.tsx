@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import {
   ForceChangeRoute,
@@ -9,37 +10,93 @@ import { AdminLayout } from './components/layout/AdminLayout'
 import { AppLayout } from './components/layout/AppLayout'
 import { AuthProvider } from './context/auth-provider'
 import { PortalProvider } from './context/portal-provider'
-import { AdminMarketplacePage } from './pages/AdminMarketplacePage'
-import { AdminOrderDetailPage } from './pages/AdminOrderDetailPage'
-import { AdminOrdersPage } from './pages/AdminOrdersPage'
-import AdminPage from './pages/AdminPage'
-import { AdminRolesPage } from './pages/AdminRolesPage'
-import { AdminPackingPlansPage } from './pages/AdminPackingPlansPage'
-import { AdminWarehousePage } from './pages/AdminWarehousePage'
-import { AnalyticsReportPage } from './pages/AnalyticsReportPage'
 import { ChangePasswordPage } from './pages/ChangePasswordPage'
-import { DashboardPage } from './pages/DashboardPage'
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage'
-import { HistoryPage } from './pages/HistoryPage'
-import { LandingPage } from './pages/LandingPage'
 import { LoginPage } from './pages/LoginPage'
 import { MarketplaceOAuthSuccessPage } from './pages/MarketplaceOAuthSuccessPage'
 import { OAuthSuccessPage } from './pages/OAuthSuccessPage'
-import { OrderDetailPage } from './pages/OrderDetailPage'
-import { OrderGroupsPage } from './pages/OrderGroupsPage'
-import { OrdersPage } from './pages/OrdersPage'
-import { PackagingMaterialsPage } from './pages/PackagingMaterialsPage'
-import { PackagingRulesPage } from './pages/PackagingRulesPage'
-import { PackingPage } from './pages/PackingPage'
-import { ProfilePage } from './pages/ProfilePage'
 import { RegisterPage } from './pages/RegisterPage'
 import { ResetPasswordPage } from './pages/ResetPasswordPage'
-import { ReturnsPage } from './pages/ReturnsPage'
-import { OrderSyncSettingsPage } from './pages/OrderSyncSettingsPage'
-import { ShippingPage } from './pages/ShippingPage'
-import { StaffManagementPage } from './pages/StaffManagementPage'
-import { WarehouseInventoryPage } from './pages/WarehouseInventoryPage'
-import { WarehousePage } from './pages/WarehousePage'
+
+// Mỗi trang là một gói riêng: màn đăng nhập không phải tải `three` và các trang nặng.
+const AdminMarketplacePage = lazy(() =>
+  import('./pages/AdminMarketplacePage').then((m) => ({ default: m.AdminMarketplacePage })),
+)
+const AdminOrderDetailPage = lazy(() =>
+  import('./pages/AdminOrderDetailPage').then((m) => ({ default: m.AdminOrderDetailPage })),
+)
+const AdminOrdersPage = lazy(() =>
+  import('./pages/AdminOrdersPage').then((m) => ({ default: m.AdminOrdersPage })),
+)
+const AdminRolesPage = lazy(() =>
+  import('./pages/AdminRolesPage').then((m) => ({ default: m.AdminRolesPage })),
+)
+const AdminPackingPlansPage = lazy(() =>
+  import('./pages/AdminPackingPlansPage').then((m) => ({ default: m.AdminPackingPlansPage })),
+)
+const AdminWarehousePage = lazy(() =>
+  import('./pages/AdminWarehousePage').then((m) => ({ default: m.AdminWarehousePage })),
+)
+const AnalyticsReportPage = lazy(() =>
+  import('./pages/AnalyticsReportPage').then((m) => ({ default: m.AnalyticsReportPage })),
+)
+const DashboardPage = lazy(() =>
+  import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
+)
+const HistoryPage = lazy(() =>
+  import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage })),
+)
+const LandingPage = lazy(() =>
+  import('./pages/LandingPage').then((m) => ({ default: m.LandingPage })),
+)
+const OrderDetailPage = lazy(() =>
+  import('./pages/OrderDetailPage').then((m) => ({ default: m.OrderDetailPage })),
+)
+const OrderGroupsPage = lazy(() =>
+  import('./pages/OrderGroupsPage').then((m) => ({ default: m.OrderGroupsPage })),
+)
+const OrdersPage = lazy(() =>
+  import('./pages/OrdersPage').then((m) => ({ default: m.OrdersPage })),
+)
+const PackagingMaterialsPage = lazy(() =>
+  import('./pages/PackagingMaterialsPage').then((m) => ({ default: m.PackagingMaterialsPage })),
+)
+const PackagingRulesPage = lazy(() =>
+  import('./pages/PackagingRulesPage').then((m) => ({ default: m.PackagingRulesPage })),
+)
+const PackingPage = lazy(() =>
+  import('./pages/PackingPage').then((m) => ({ default: m.PackingPage })),
+)
+const ProfilePage = lazy(() =>
+  import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
+)
+const ReturnsPage = lazy(() =>
+  import('./pages/ReturnsPage').then((m) => ({ default: m.ReturnsPage })),
+)
+const OrderSyncSettingsPage = lazy(() =>
+  import('./pages/OrderSyncSettingsPage').then((m) => ({ default: m.OrderSyncSettingsPage })),
+)
+const ShippingPage = lazy(() =>
+  import('./pages/ShippingPage').then((m) => ({ default: m.ShippingPage })),
+)
+const StaffManagementPage = lazy(() =>
+  import('./pages/StaffManagementPage').then((m) => ({ default: m.StaffManagementPage })),
+)
+const WarehouseInventoryPage = lazy(() =>
+  import('./pages/WarehouseInventoryPage').then((m) => ({ default: m.WarehouseInventoryPage })),
+)
+const WarehousePage = lazy(() =>
+  import('./pages/WarehousePage').then((m) => ({ default: m.WarehousePage })),
+)
+const AdminPage = lazy(() => import('./pages/AdminPage'))
+
+function PageFallback() {
+  return (
+    <div className="grid min-h-[40vh] place-items-center text-sm text-slate-500" role="status">
+      Đang tải…
+    </div>
+  )
+}
 
 function PortalRoot() {
   return (
@@ -54,6 +111,7 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route index element={<LandingPage />} />
           <Route path="oauth-success" element={<OAuthSuccessPage />} />
@@ -113,6 +171,7 @@ function App() {
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </AuthProvider>
     </BrowserRouter>
   )
