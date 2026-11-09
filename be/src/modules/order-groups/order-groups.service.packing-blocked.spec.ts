@@ -173,8 +173,10 @@ describe('Tìm nhóm theo ?q=', () => {
 
     await service.listOrderGroups({ q: '5beca05d93' });
     const query = (groupFind.mock.calls[0] as unknown as [{ $or: Record<string, unknown>[] }])[0];
+    // 10/11/2026 — đuôi mã tìm qua id_reversed (index, regex neo đầu) + nhánh dự phòng cho nhóm chưa backfill.
     expect(query.$or).toEqual([
-      { $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: '5beca05d93$' } } },
+      { id_reversed: { $regex: '^39d50aceb5' } },
+      { id_reversed: null, $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: '5beca05d93$' } } },
       { _id: { $in: [groupId] } },
     ]);
     expect(distinct).toHaveBeenCalledWith('consolidated_group_id', expect.objectContaining({

@@ -75,6 +75,7 @@ import { NotificationType } from '../notifications/enums/notification-type.enum'
 import { UserRole } from '../../common/enums/user-role.enum';
 import { User, UserDocument } from '../users/schemas/user.schema';
 import { addBusinessHours } from './utils/add-business-hours.util';
+import { groupIdSuffixFilters } from './utils/group-id-search.util';
 import { StaffAssignmentService } from './staff-assignment.service';
 // Đọc TRỰC TIẾP schema PackingPlan (module packing/) — cùng pattern cross-module
 // đã dùng cho Order/ProductMaster/SkuBinAssignment ở trên, tránh vòng lặp import
@@ -1329,7 +1330,8 @@ export class OrderGroupsService {
       or.push({ _id: new Types.ObjectId(lower) });
     } else if (/^[0-9a-f]{4,23}$/.test(lower)) {
       // Chỉ chữ số hex đã kiểm ở trên → an toàn khi ghép vào regex.
-      or.push({ $expr: { $regexMatch: { input: { $toString: '$_id' }, regex: `${lower}$` } } });
+      // 🔄 10/11/2026 — tìm qua id_reversed có index (trước: $toString _id, quét cả bảng).
+      or.push(...groupIdSuffixFilters(lower));
     }
     const codes = [...new Set([search, search.toUpperCase()])];
     const groupIds = await this.orderModel.distinct('consolidated_group_id', {
