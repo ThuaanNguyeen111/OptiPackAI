@@ -1,10 +1,13 @@
 name: CI
 
 on:
+  # Nhánh khác main được kiểm tra qua pull_request; nếu push cũng chạy thì mỗi
+  # lần push vào nhánh có PR sẽ chạy CI 2 lần (ref khác nhau nên không huỷ nhau).
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 # Push liên tiếp lên cùng 1 nhánh: huỷ lượt chạy cũ, chỉ giữ lượt mới nhất.
 concurrency:
@@ -141,64 +144,46 @@ jobs:
         run: pytest -q
 
   docker:
-    name: Docker build (không push)
+    name: Docker build ${{ matrix.name }} (không push)
     runs-on: ubuntu-latest
-    # Chỉ chạy khi code đã qua được test/build — tránh tốn ~5 phút build image
+    # Chỉ build ở PR: trên main, release.yml đã build lại đủ image ngay sau CI,
+    # build ở đây nữa là trùng và làm deploy chậm thêm ~4 phút.
+    if: github.event_name == 'pull_request'
+    # Chỉ chạy khi code đã qua được test/build — tránh tốn công build image
     # cho commit chắc chắn hỏng.
-    needs: [be, fe, packer]
+    needs: [be, fe, storefront, packer]
+    # 4 image build song song thay vì nối tiếp (~4,5 phút → ~1,5 phút).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: be
+            dockerfile: be/Dockerfile
+            build_args: ''
+          - name: packer
+            dockerfile: packer/Dockerfile
+            build_args: ''
+          - name: fe
+            dockerfile: fe/Dockerfile
+            build_args: VITE_API_URL=http://localhost:3000/api
+          - name: storefront
+            dockerfile: storefront/Dockerfile
+            build_args: NEXT_PUBLIC_API_URL=http://localhost:3000/api
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
-      # Build context là THƯ MỤC GỐC cho cả 3 image (npm workspaces).
-      - name: Build backend image
+      # Build context là THƯ MỤC GỐC cho mọi image (npm workspaces).
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: be/Dockerfile
+          file: ${{ matrix.dockerfile }}
           push: false
-          cache-from: type=gha,scope=be
-          cache-to: type=gha,mode=max,scope=be
-
-      - name: Build packer image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: packer/Dockerfile
-          push: false
-          cache-from: type=gha,scope=packer
-          cache-to: type=gha,mode=max,scope=packer
-
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: fe/Dockerfile
-          push: false
-          build-args: VITE_API_URL=http://localhost:3000/api
-          cache-from: type=gha,scope=fe
-          cache-to: type=gha,mode=max,scope=fe
-
-      - name: Kiểm tra storefront đã có trong repo chưa
-        id: check
-        run: |
-          if [ -f storefront/Dockerfile ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build storefront image
-        if: steps.check.outputs.exists == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: storefront/Dockerfile
-          push: false
-          build-args: NEXT_PUBLIC_API_URL=http://localhost:3000/api
-          cache-from: type=gha,scope=storefront
-          cache-to: type=gha,mode=max,scope=storefront
+          build-args: ${{ matrix.build_args }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
   k8s:
     name: Kubernetes manifests (kustomize + kubeconform)

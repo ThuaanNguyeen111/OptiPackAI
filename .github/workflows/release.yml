@@ -85,7 +85,8 @@ jobs:
           PATHS: ${{ matrix.paths }}
           ARG_NAME: ${{ matrix.build_arg }}
         run: |
-          IMG="$IMAGE_PREFIX-${{ matrix.name }}"
+          # Owner repo có chữ hoa (ThuaanNguyeen111) mà ghcr bắt buộc chữ thường.
+          IMG="${IMAGE_PREFIX,,}-${{ matrix.name }}"
           ARG=""; [ -n "$ARG_NAME" ] && ARG="$ARG_NAME=$API_URL"
           KEY=$( { for p in $PATHS; do git rev-parse "HEAD:$p"; done; echo "$ARG"; } | sha256sum | cut -c1-16)
           TAGS="$IMG:sha-${SHA::7}"
