@@ -1,6 +1,6 @@
 # FE — Việc còn phải làm để khớp Backend
 
-> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8).
+> **Phiên bản 4.0 — 28/10/2026.** Đối chiếu code FE trên `main` (28/10, sau khi Thuận báo đã làm hết): **28/30 dòng cũ đã nối thật** trên màn; **dòng 30 (khung 3D) và dòng 6 (tuỳ chọn) chưa làm** → đưa lại lên bảng việc bên dưới. Cùng ngày rà luồng đơn gộp từ đầu đến giao: thêm dòng 4–5 (màn lấy hàng đơn gộp, mục 3); tối 28/10 thêm dòng 6 (khoá "Đóng nhanh" nhóm ≥ 2 đơn, mục 3.3); khuya 28/10 BE có API Bảng điều khiển → dòng 7 (mục 4), dòng 3 chỉ còn phần Product Master; 29/10 giao hỏa tốc AURELLE 3 giờ → dòng 8 (mục 5). 31/10 quy tắc gộp đơn bổ sung (AI dịch câu chữ) → dòng 9 (mục 6). Phần đã xong → thu gọn vào [phụ lục ✅](#phụ-lục--đã-hoàn-thành) cuối file (bấm để mở lại chi tiết khi cần tra). Phần trên chỉ ghi **việc FE đang phải làm**. 31/10: tích hợp **Tiki** (dòng 11, mục 8). 10/11: **ảnh bằng chứng** (dòng 17, mục 14 — chặn nút Giao thành công của vận đơn shop tự giao).
 > Lịch sử phiên bản: 3.5 (28/10, thêm 1h) · 3.4 (25/10, đối chiếu FE) · 3.3 (23/10, 1e–1g) · 3.2 (22/10 chiều, 1d) · 3.1 (22/10, 1b) · 3.0 (21/10). Lịch sử chi tiết ở `CLAUDE.md`.
 
 **Quy ước chung (giữ nguyên):** mọi nút đổi trạng thái gửi `expected_version` = `version` đọc lần gần nhất; `409 *_CONFLICT` → tải lại rồi cho bấm lại. Lỗi luôn là `{ error_code, message, details }` — hiện `message`, rẽ nhánh theo `error_code`. `fe/src/lib/api.ts` đã tự gắn token, tự refresh khi 401, có `apiRequestBlob` để tải PDF.
@@ -27,6 +27,7 @@
 | 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ✅ 09/11 — `utils/units.ts` (cm/kg, dấu phẩy), ô nhập đổi về mm/g |
 | 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ✅ 09/11 — `PackagingMaterialsPage` 5 tab, cột Ngưỡng + trạng thái, tab Túi niêm phong đọc `stockStatus` của BE |
 | 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | 🟡 09/11 — đã làm `React.lazy` (gói chính 2,4 MB → 271 kB), dừng polling khi tab ẩn, `client_event_id` kho; **còn** huỷ request cũ khi đổi bộ lọc (13.3) |
+| 17 | 🆕 10/11 **Ảnh bằng chứng** (⚠ **chặn**): màn Giao hàng — nút **Giao thành công** của vận đơn **shop tự giao** (không có hãng, gồm hỏa tốc) phải **mở camera chụp ảnh** (máy tính: webcam qua `getUserMedia`; không có camera thì cho chọn ảnh từ máy), gửi `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /shipments/:id/deliver` — thiếu ảnh BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Tuỳ chọn: ảnh ở Giao thất bại, Kiểm hàng hoàn, Báo lỗi kiện; hiện ảnh ở lịch sử vận đơn / phiếu trả / sự cố kiện | 14 | ~nửa ngày | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -417,6 +418,28 @@ Việc FE (`PackagingWorkbench.tsx`):
 **Nghiệm thu chung:** build chạy, đăng nhập không tải chunk 3D; để tab ẩn 2 phút không có request polling nào trong Network; nhập thêm hàng, tắt mạng giữa chừng rồi bấm lại không bị cộng 2 lần (khi làm 13.4).
 
 ---
+
+## 14. 🆕 10/11/2026 — Ảnh bằng chứng (dòng 17)
+
+**Vì sao chặn:** từ 10/11 BE bắt vận đơn shop tự giao (vận đơn **không có `carrierCode`**, gồm giao hỏa tốc có shipper) phải có ≥ 1 ảnh khi bấm Giao thành công. FE web hiện gửi `POST /shipments/:id/deliver` không kèm ảnh → nhận 400 `SHP_PROOF_PHOTO_REQUIRED`. Vận đơn hãng mẫu cập nhật tay và route cũ `fulfillment/deliver` không bị ảnh hưởng.
+
+**14.1 Gửi ảnh (bắt buộc làm):**
+1. Nút Giao thành công (vận đơn không có `carrierCode`): mở **hộp thoại chụp ảnh bằng camera** (máy tính dùng webcam, điện thoại dùng camera sau), tối đa 3 ảnh. Thẻ `<input type="file" capture>` **không** mở được webcam trên máy tính (trình duyệt máy tính bỏ qua `capture`, chỉ mở hộp chọn file) → phải dùng API camera của trình duyệt:
+   - Mở camera: `navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1600 } } })` → gắn stream vào thẻ `<video autoplay playsInline>` để người dùng nhìn thấy hình.
+   - Bấm **Chụp**: vẽ khung hình hiện tại lên `<canvas>` (`ctx.drawImage(video, 0, 0)`), rồi `canvas.toBlob(cb, 'image/jpeg', 0.8)` → được 1 file JPG (thường 200–500 KB, dưới hạn 10 MB). Hiện ảnh nhỏ xem trước, cho **Chụp lại** / bỏ từng ảnh.
+   - Đóng hộp thoại hoặc gửi xong: tắt camera (`stream.getTracks().forEach(t => t.stop())`), nếu không đèn webcam vẫn sáng.
+   - Trình duyệt chỉ cho mở camera trên `https://` hoặc `http://localhost` (chạy dev trên máy là được; mở bằng IP LAN `http://192.168...` thì **không** mở được camera). Lần đầu trình duyệt hỏi quyền camera.
+   - **Dự phòng:** máy không có camera, người dùng chặn quyền, hoặc lỗi `NotAllowedError` / `NotFoundError` → hiện thông báo và nút "Chọn ảnh từ máy" (`<input type="file" accept="image/*" multiple>`, VD ảnh shipper gửi qua Zalo).
+   - Nút "Xác nhận giao thành công" **mờ** cho tới khi có ≥ 1 ảnh (BE cũng chặn, xem bước 4).
+2. `POST /proof-photos` dạng `FormData` (mỗi ảnh `formData.append('files', blob, 'proof-1.jpg')` — ảnh chụp từ canvas là Blob nên phải truyền thêm tên file; **không** tự đặt header `Content-Type`, để trình duyệt tự thêm boundary) → `{ photos: [{ url }] }`.
+3. Gửi `POST /shipments/:id/deliver` body `{ expected_version, note?, photo_urls: photos.map(p => p.url) }`.
+4. Thiếu ảnh → BE trả 400 `SHP_PROOF_PHOTO_REQUIRED`. Lỗi ảnh: `PROOF_PHOTO_TOO_LARGE` / `PROOF_PHOTO_INVALID_TYPE` / `PROOF_PHOTO_TOO_MANY` → báo người dùng chọn lại; `PROOF_PHOTO_UPLOAD_FAILED` (502) → cho thử lại; `PROOF_PHOTO_NOT_CONFIGURED` (503) → báo Admin cấu hình Cloudinary.
+
+**14.2 Tuỳ chọn (không chặn):** dùng lại hộp thoại chụp ảnh ở 14.1, cùng cách gửi `photo_urls` ở Giao thất bại (`/fail`), Kiểm hàng hoàn (`POST /returns/:id/inspect`), Báo lỗi kiện (`.../packing-plan/report-issue`).
+
+**14.3 Hiện ảnh:** `GET /shipments/:id/events` mỗi sự kiện có `photoUrls` (ảnh nhỏ bấm phóng to); phiếu trả `inspectionPhotoUrls`; kế hoạch đóng gói `issues[].photoUrls`. URL là ảnh JPG công khai trên Cloudinary, dùng thẳng trong `<img>`.
+
+Chi tiết + mã lỗi: `API_LIST.md` mục 30.
 
 ## Phụ lục ✅ — đã hoàn thành
 

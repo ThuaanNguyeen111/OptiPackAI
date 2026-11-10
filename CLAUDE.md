@@ -4845,6 +4845,23 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 
 **5. Còn lại / lưu ý gì?** Sau khi deploy: chạy `npx ts-node -r tsconfig-paths/register -r dotenv/config scripts/backfill-order-group-id-reversed.ts` (chạy thử) rồi thêm `--apply`. Server demo muốn xem Swagger thì đặt `SWAGGER_ENABLED=true`. `order-groups.service.recipientKeyAndCancel.spec.ts` vẫn in `orderModel.find / aggregate`, `pickEventModel.find`, `autoAssign is not a function` (mock rỗng `{}` cố ý cho nhiều nhánh best-effort) — chưa sửa. **Đính chính README (AOFP-255):** OptiPack KHÔNG ghi ngược Lazada (đã bỏ báo "đã đóng gói" lên Lazada 10/10/2026, `marketplace.config.ts`); ghi ngược chỉ cho AURELLE (trạng thái, tồn) và Tiki (tự xác nhận đủ hàng) — README đã sửa lại. Mục 3 (push FCM: chờ duyệt bảng loại push, chốt `picking_assigned`, tạo project Firebase) và 4 (upload ảnh: chờ biến Cloudinary) chưa code.
 
+## 📷 Nhật ký 10/11/2026 — Ảnh bằng chứng trên Cloudinary (BE_MOBILE_CHECKLIST mục 4; AOFP-261, docs AOFP-262)
+
+**1. Vấn đề là gì?** App mobile (giao Hỏa Tốc, nhận / kiểm hàng hoàn, báo lỗi kiện) cần nút chụp ảnh, nhưng BE không có nơi lưu ảnh và các thao tác không nhận ảnh. `shipment-event.schema.ts` chỉ chừa chỗ ghi chú.
+
+**2. Đã làm gì?**
+- Module mới `modules/proof-photos/`: `POST /proof-photos` (Admin, Store Owner, Warehouse, Packaging, Shipping), `multipart` field `files`, 1–3 ảnh ≤ 10 MB, nhận diện JPG/PNG/WebP/HEIC theo byte đầu file. Gửi thẳng REST upload của Cloudinary có chữ ký SHA-1 (`axios` sẵn có, không thêm thư viện), tham số `folder=optipack/proof`, `format=jpg`, `transformation=c_limit,w_1600,h_1600/q_auto`. Trả `{ photos: [{ url, publicId, width, height, bytes }] }`. Thiếu `CLOUDINARY_*` → 503 `PROOF_PHOTO_NOT_CONFIGURED`; Cloudinary lỗi → 502 `PROOF_PHOTO_UPLOAD_FAILED` (log không có body/secret).
+- Decorator `@IsProofPhotoUrls()` cho field `photo_urls` (≤ 3 URL, phải là `https://res.cloudinary.com/<CLOUDINARY_CLOUD_NAME>/image/upload/[v…/]optipack/proof/…`): `DeliverShipmentDto` (mới), `FailShipmentDto`, `InspectReturnDto`, `ReportIssueDto`.
+- Lưu: `shipment_events.photo_urls` (response `photoUrls`), `return_requests.inspection_photo_urls` (`inspectionPhotoUrls`), `packing_plans.issues[].photo_urls` (`issues[].photoUrls`).
+- `ShipmentsService.markDelivered(..., photoUrls)`: vận đơn **không có `carrier_code`** (shop tự giao, gồm hỏa tốc) mà mảng ảnh rỗng → 400 `SHP_PROOF_PHOTO_REQUIRED`. `undefined` (route legacy `fulfillment/deliver`) → không kiểm.
+- `.env.example`: `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`. Thuận đã có tài khoản Cloudinary (cloud `bfaxotyp`), tự điền key/secret vào `be/.env`.
+
+**3. Vì sao làm như vậy?** Thuận chốt (10/11): Cloudinary (đăng ký nhanh, tự nén; Firebase Storage bắt gói Blaze từ 03/02/2026, Supabase dừng project sau 1 tuần không dùng, R2 phải tự cấu hình), 10 MB/ảnh (giới hạn ảnh gói Free), 3 ảnh/thao tác, bắt buộc ảnh theo cách hãng giao hàng làm (GHN chụp ảnh khi giao thành công; giao thất bại bắt liên hệ shop + chọn lý do, không bắt ảnh). Upload qua BE (không để app gửi thẳng Cloudinary) để giữ secret ở server và kiểm tra quyền, dung lượng, định dạng. Kiểm URL thuộc đúng cloud + thư mục để không gắn được ảnh ở nơi khác. Vận đơn hãng mẫu cập nhật tay không bắt ảnh (đang giả lập hãng ngoài — ảnh thuộc về hãng).
+
+**4. Đã kiểm chứng thế nào?** Test mới: `proof-photo.util.spec.ts` (4 — nhận diện định dạng; chữ ký khớp ví dụ trong tài liệu Cloudinary `bfd09f95…583e`; kiểm URL; thiếu biến môi trường), `proof-photos.service.spec.ts` (4 — chưa cấu hình, kiểm số/dung lượng/định dạng trước khi gửi, request đúng URL + thư mục + có chữ ký + không chứa secret, Cloudinary lỗi), `is-proof-photo-urls.decorator.spec.ts` (3), `shipments.service.proof-photo.spec.ts` (5); thêm assert ảnh ở `returns.service.spec.ts` (inspect) và `packing-plan.service.spec.ts` (report-issue). Trên `main` cdbefd2 + thay đổi: tsc 0 lỗi, ESLint 0 lỗi (97 warning có sẵn), jest 163 bộ đạt / 1 bỏ qua, 1.554 test đạt. **Chưa gửi ảnh thật lên Cloudinary** (cần key trong `be/.env` của Thuận).
+
+**5. Còn lại / lưu ý gì?** ⚠ Web FE: nút Giao thành công của vận đơn shop tự giao giờ bắt ảnh → `FE_UPDATE_CHECKLIST.md` dòng 17 / mục 14 (chặn). App mobile: `MOBILE_UPDATE_CHECKLIST.md` mục 9a. Ảnh không tự xoá trên Cloudinary (25 credit/tháng đủ cho đồ án). Thử thật: điền key → Swagger `POST /proof-photos` 1 ảnh → dùng URL trả về gọi `POST /shipments/:id/deliver`. Mục 3 (push FCM) vẫn chờ Thuận.
+
 ## 📋 VIỆC CÒN LẠI — cập nhật 22/10/2026 (đọc mục này trước khi bắt đầu phiên mới)
 
 **[stated] Quyết định đã chốt (21–22/10/2026):** giao hàng giả lập cho cả Lazada lẫn AURELLE; trả hàng CHỈ còn qua AURELLE (khách tự gửi trên website, Store Owner/Admin duyệt trên OptiPack, các bước nhận → kiểm → đóng giữ nguyên). Phiếu hoàn tự tạo khi giao thất bại giữ cho cả 2 sàn.
@@ -4872,7 +4889,7 @@ Nghiệp vụ 7 của guide có thêm ghi chú 🔄 (câu "1 đơn = 1 Order Gro
 15b. 🆕 28/10 — Đơn gộp (chi tiết `INTEGRATION_GUIDE_FULFILLMENT.md` Nghiệp vụ 9.4) — 🔄 ĐÃ XỬ LÝ cùng tối: G1 chốt đúng thiết kế (mỗi đơn 1 vận đơn); ✅ G2 báo trạng thái giao theo từng đơn, ✅ G3 nhãn in người nhận từng kiện, ✅ G4 SĐT bị che không tự gộp, ✅ G7 nhóm ≥ 2 đơn bắt quét khi đóng. Còn lại: G5 (tách sau khi quét) — giữ nguyên, chấp nhận được.
 
 ### D. Hoãn có chủ đích
-16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. Ảnh bằng chứng giao hàng — 🔄 10/11/2026: đã chốt lưu trên Cloudinary (BE_MOBILE_CHECKLIST mục 4), chưa code. 19. Nhãn có COD / "cho xem hàng". 20. ~~API tổng hợp cho Dashboard~~ — ✅ BE xong 28/10 (`GET /dashboard/summary`); FE checklist dòng 7.
+16. Webhook Lazada (chờ domain có chứng chỉ OV/EV). 17. Đẩy tồn lên Lazada (thử trên shop thật trước). 18. ✅ Ảnh bằng chứng giao hàng — 10/11/2026 (AOFP-261): `POST /proof-photos` lưu trên Cloudinary, xem nhật ký 10/11/2026 "Ảnh bằng chứng". 19. Nhãn có COD / "cho xem hàng". 20. ~~API tổng hợp cho Dashboard~~ — ✅ BE xong 28/10 (`GET /dashboard/summary`); FE checklist dòng 7.
 
 ### E. Cấu hình
 21. Thêm `PACKER_URL=http://127.0.0.1:8000` vào `be/.env` + chạy `packer/` nếu muốn nhãn "tối ưu có chứng minh".

@@ -149,7 +149,7 @@ Mọi bước chuyển trạng thái của nhóm đơn đều được kiểm so
 | **SKU & tồn kho**          | SKU nội bộ liên kết SKU trên các sàn, danh mục và bảng màu chuẩn, giữ chỗ tồn kho theo nhóm đơn, cảnh báo thiếu hàng                                                                              |
 | **Đóng gói**               | Tự tính kế hoạch đóng gói 3D cho cả nhóm đơn (nhiều kiện/đơn) bằng BRKGA, chứng minh tối ưu bằng CP-SAT cho đơn nhỏ; chỉ dùng số đo SKU do kho xác nhận; màn làm việc 3D, đổi thùng, chuyển món, hướng dẫn đóng gói từng bước bằng AI, cân từng kiện |
 | **Vật liệu đóng gói**      | Danh mục vật liệu có đơn giá, tồn mới / tái sử dụng / nội bộ, tự trừ khi đóng gói, thu hồi khi kiểm hàng hoàn, thống kê chi phí tiết kiệm                                                         |
-| **Giao hàng & đổi trả**    | Báo giá và tạo vận đơn GHN (staging, nhận trạng thái qua webhook), vận đơn tự giao, tối đa hai lần giao, cảnh báo quá hạn; chọn hãng + báo cước theo kiện thật (bảng cước mẫu), giao chung chuyến cho cùng người nhận, lịch lấy hàng; phiếu đóng gói, nhãn từng kiện, bảng kê chuyến (PDF); phiếu trả hàng có kiểm định, tự tạo đơn đổi hàng |
+| **Giao hàng & đổi trả**    | Báo giá và tạo vận đơn GHN (staging, nhận trạng thái qua webhook), vận đơn tự giao có ảnh bằng chứng, tối đa hai lần giao, cảnh báo quá hạn; chọn hãng + báo cước theo kiện thật (bảng cước mẫu), giao chung chuyến cho cùng người nhận, lịch lấy hàng; phiếu đóng gói, nhãn từng kiện, bảng kê chuyến (PDF); phiếu trả hàng có kiểm định, tự tạo đơn đổi hàng |
 | **Ghi ngược về sàn**       | Đẩy trạng thái đơn, trả hàng, đổi hàng và tồn khả dụng lên AURELLE qua hàng đợi (outbox) có gửi lại tự động; tự xác nhận đủ hàng cho đơn Tiki. Không ghi ngược lên Lazada |
 | **Thông báo**              | Thông báo trong ứng dụng và email cho các sự kiện giao thất bại, quá hạn giao, đơn Hỏa Tốc sắp/quá hạn, yêu cầu trả hàng, thiếu hàng                                                              |
 | **Dashboard & lịch sử**    | Số liệu vận hành tổng hợp (`GET /dashboard/summary`); nhật ký thao tác theo nhóm đơn, lọc theo vai trò, xuất CSV (`/history`)                                                                     |
@@ -178,7 +178,7 @@ Mọi bước chuyển trạng thái của nhóm đơn đều được kiểm so
 | **Website AURELLE** | Next.js 15, React 19                                                                                                                                     |
 | **Mobile**        | Flutter (đang phát triển)                                                                                                                                  |
 | **Đóng gói 3D**   | BRKGA + EMS (TypeScript, trong backend), CP-SAT (Python, OR-Tools, FastAPI)                                                                                |
-| **Tích hợp**      | Lazada Open Platform (Order API, Product API), Tiki Open API, GHN API, Google OAuth 2.0, Groq (hướng dẫn đóng gói), SMTP                              |
+| **Tích hợp**      | Lazada Open Platform (Order API, Product API), Tiki Open API, GHN API, Cloudinary (ảnh bằng chứng), Google OAuth 2.0, Groq (hướng dẫn đóng gói), SMTP                              |
 | **Chất lượng mã** | Jest, ESLint, Prettier, Husky, Commitlint                                                                                                                  |
 | **Hạ tầng**       | Docker, Docker Compose, npm workspaces                                                                                                                     |
 
@@ -210,6 +210,7 @@ OptiPackAI/
 │   │       ├── shipping/            Hãng vận chuyển, bảng cước, báo giá
 │   │       ├── carriers/            Adapter hãng vận chuyển (GHN)
 │   │       ├── documents/           Phiếu đóng gói, nhãn, bảng kê (PDF)
+│   │       ├── proof-photos/        Ảnh bằng chứng (giao hàng, kiểm hàng hoàn, lỗi kiện) trên Cloudinary
 │   │       ├── marketplace-webhooks/ Nhận webhook sàn (AURELLE)
 │   │       ├── marketplace-writeback/ Ghi trạng thái và tồn ngược về sàn (outbox)
 │   │       ├── storefront/          Website bán hàng AURELLE
@@ -420,6 +421,7 @@ Triển khai thật (image trên GHCR, CI/CD): [`docs/DEPLOYMENT.md`](docs/DEPLO
 | CP-SAT | `PACKER_URL`, `PACKER_ENABLED`, `PACKER_TIMEOUT_MS`, `PACKER_MAX_UNITS`, `PACKER_DET_TIME_PER_COMBO`, `PACKER_WALL_TIME_S` | Service Python kiểm chứng tối ưu; để trống `PACKER_URL` → tắt |
 | Vận chuyển GHN | `CARRIER_MODE` (`ghn_staging` / `ghn_production` / `mock`), `CARRIER_MANUAL_STATUS_ENABLED`, `CARRIER_DEFAULT_PROVINCE`, `CARRIER_DEMO_RECIPIENT_PHONE`, `GHN_BASE_URL`, `GHN_TOKEN`, `GHN_SHOP_ID`, `GHN_WEBHOOK_SECRET`, `GHN_DEFAULT_*`, `GHN_TIMEOUT_MS` | Báo giá + tạo vận đơn GHN thật (staging); `mock` = không gọi mạng. Sau khi cấu hình chạy `npx ts-node -r dotenv/config scripts/seed-ghn-carrier.ts` (trong `be/`). Xem `GUIDE_DOC/GHN_INTEGRATION_GUIDE.md` mục 11 |
 
+| Ảnh bằng chứng | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Lấy ở console.cloudinary.com (Dashboard + Settings > API Keys); để trống → `POST /proof-photos` trả 503, chức năng khác vẫn chạy |
 | Swagger | `SWAGGER_ENABLED` | Để trống: bật khi chạy dev, tắt khi `NODE_ENV=production` (Docker, k8s); `true` / `false` để ép bật / tắt |
 | Giới hạn gọi API | `THROTTLE_LIMIT_PER_MINUTE` | Số lần gọi tối đa mỗi phút, đếm theo người dùng đã đăng nhập (chưa đăng nhập thì theo IP); mặc định 600 |
 
@@ -546,7 +548,7 @@ Type hợp lệ: `feat` `fix` `docs` `style` `refactor` `perf` `test` `build` `c
 - **Mở rộng kênh bán hàng** — kết nối TikTok Shop qua lớp adapter hiện có (đang hoãn vì yêu cầu giấy phép kinh doanh của TikTok).
 - **Gộp kiện liên sàn** — các đơn trên nhiều sàn của cùng một người nhận được lấy hàng cùng lúc và giao trong một chuyến.
 - **Đồng bộ tồn kho lên mọi sàn** — hiện đã đẩy tồn khả dụng lên AURELLE; mở rộng cho Lazada và Tiki.
-- **Hoàn thiện ứng dụng di động cho nhân viên** — quét mã ô kệ/SKU khi lấy hàng, cất hàng và đóng gói, hoạt động khi mất mạng; backend bổ sung push thông báo (FCM) và upload ảnh bằng chứng (xem `GUIDE_DOC/BE_MOBILE_CHECKLIST.md`).
+- **Hoàn thiện ứng dụng di động cho nhân viên** — quét mã ô kệ/SKU khi lấy hàng, cất hàng và đóng gói, hoạt động khi mất mạng; backend bổ sung push thông báo (FCM) (xem `GUIDE_DOC/BE_MOBILE_CHECKLIST.md`).
 - **Dashboard phân tích trên web** — hiển thị số liệu thật từ `GET /dashboard/summary`: năng suất kho, tỷ lệ tái sử dụng vật liệu, chi phí logistics theo thời gian.
 - **Vòng đời đơn đầy đủ trên sàn** — đồng bộ các trạng thái sẵn sàng giao, đã giao và hoàn hàng về Lazada và Tiki.
 
