@@ -1,6 +1,8 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, SchemaTypes, Types } from 'mongoose';
 
+export const GUIDE_STYLE_PROMPT_MAX_LENGTH = 4000;
+
 /**
  * ===================================================================
  * packing_settings — luật đóng gói Store Owner/Admin chỉnh được (05/10/2026)
@@ -49,6 +51,10 @@ export class PackingSettings {
   /** Cước ước tính để so tách/gộp: bậc đầu + mỗi bậc thêm (giả định — không thay báo giá GHN). */
   @Prop({ type: Number, default: 22000, min: 0 }) est_fee_first_step_vnd!: number;
   @Prop({ type: Number, default: 2500, min: 0 }) est_fee_per_extra_step_vnd!: number;
+
+  /** (09/11/2026) Phần văn phong system prompt AI hướng dẫn đóng gói; null = mặc định trong code. */
+  @Prop({ type: String, default: null, maxlength: GUIDE_STYLE_PROMPT_MAX_LENGTH })
+  guide_style_prompt!: string | null;
 
   @Prop({ type: SchemaTypes.ObjectId, default: null }) updated_by!: Types.ObjectId | null;
   @Prop({ type: Boolean, default: true }) is_active!: boolean;

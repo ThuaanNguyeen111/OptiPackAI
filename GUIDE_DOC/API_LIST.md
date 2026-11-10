@@ -297,8 +297,8 @@ mỗi kiện:  pending ──quét đủ món──► seal + cân ──┬─ 
 
 | Method | Route | Role | Mô tả |
 | ------ | ----- | ---- | ----- |
-| GET | `/packing/settings` | Packaging, Warehouse, Store Owner, Admin | `{ settings: { version, abnormalWeightThreshold, fragileCushionMm, defaultPrefer, maxParcelsPerOrder, allowReusedBoxForFragile, requireScan, updatedBy, updatedAt } }` — `version: null` = đang dùng mặc định (0.2 / 5 mm / fewest_parcels / không giới hạn / false / false) |
-| PUT | `/packing/settings` | Store Owner, Admin | Body (đều tùy chọn): `expected_version`, `abnormal_weight_threshold` (0.01–1), `fragile_cushion_mm` (0–50), `default_prefer`, `max_parcels_per_order` (≥1, `null` = bỏ giới hạn), `allow_reused_box_for_fragile`, `require_scan`. Mỗi lần lưu = 1 version mới (giữ lịch sử). Trùng/lệch version → 409 `PACKING_SETTINGS_CONFLICT` |
+| GET | `/packing/settings` | Packaging, Warehouse, Store Owner, Admin | `{ settings: { version, abnormalWeightThreshold, fragileCushionMm, defaultPrefer, maxParcelsPerOrder, allowReusedBoxForFragile, requireScan, guideStylePrompt, guideStylePromptIsDefault, updatedBy, updatedAt } }` — `version: null` = đang dùng mặc định (0.2 / 5 mm / fewest_parcels / không giới hạn / false / false) |
+| PUT | `/packing/settings` | Store Owner, Admin | Body (đều tùy chọn): `expected_version`, `abnormal_weight_threshold` (0.01–1), `fragile_cushion_mm` (0–50), `default_prefer`, `max_parcels_per_order` (≥1, `null` = bỏ giới hạn), `allow_reused_box_for_fragile`, `require_scan`, `guide_style_prompt` (09/11: văn phong prompt AI hướng dẫn, ≤ 4000 ký tự, `null` = khôi phục mặc định). Mỗi lần lưu = 1 version mới (giữ lịch sử). Trùng/lệch version → 409 `PACKING_SETTINGS_CONFLICT` |
 
 Ngưỡng lệch cân + luật dễ vỡ + bắt buộc quét áp dụng **ngay** cho các lần niêm phong sau. Đệm dễ vỡ, mục tiêu mặc định, số kiện tối đa áp dụng cho **lần tính kế hoạch tiếp theo** (kế hoạch đã tính giữ đệm đã chụp trong `solver.options.fragileCushionMm`).
 

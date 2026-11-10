@@ -27,6 +27,7 @@
 | 14 | 🆕 08/11 **Đồng bộ đơn vị đo**: mọi màn hiển thị kích thước bằng **cm**, khối lượng bằng **kg** (dấu phẩy thập phân); sửa nhãn sai "Đường kính trong/ngoài" → "Kích thước lòng/ngoài thùng"; ô nhập cm/kg đổi về mm/g khi gửi BE; 12 chỗ cụ thể ở mục 11 | 11 | ~1 ngày | ☐ Chưa làm |
 | 15 | 🆕 08/11 **Sắp lại trang Vật liệu đóng gói**: mỗi vật liệu chỉ hiện số tồn ở 1 tab (hiện thùng/vật tư bị lặp ở tab "Kho tái sử dụng"), tách "Tồn/Giữ/Còn" thành 3 cột, thêm cột **Ngưỡng** + trạng thái Sắp hết/Hết ở mọi tab, tab riêng cho túi niêm phong, đổi mã loại vật tư sang tên tiếng Việt | 12 | ~1 ngày | ☐ Chưa làm |
 | 16 | 🆕 08/11 **Tối ưu tải trang + chuẩn bị mobile**: tách gói theo trang (`React.lazy`, nhất là trang 3D), dừng polling khi tab ẩn, huỷ request cũ khi đổi bộ lọc; (tuỳ chọn) gửi `client_event_id` khi nhập thêm / kiểm kê / chuyển ô và bắt 409 `WH_CLIENT_EVENT_REUSED` | 13 | ~1 ngày | ☐ Chưa làm |
+| 17 | 🆕 09/11 **Văn phong prompt AI hướng dẫn đóng gói**: khung soạn `guide_style_prompt` + nút "Khôi phục mặc định" ở trang Cài đặt đóng gói | 14 | ~2 giờ | ☐ Chưa làm |
 
 Không việc nào làm hỏng màn hiện tại: dòng 1 chưa nối thì 4 ô vẫn rỗng và BE vẫn tự lấy địa chỉ của đơn; dòng 2 chưa làm thì khung 3D vẫn hiện cảnh mẫu (nhưng **không đúng kế hoạch** — không nên dùng để minh hoạ "3D bin packing" khi demo).
 
@@ -415,6 +416,20 @@ Việc FE (`PackagingWorkbench.tsx`):
 - Chưa có lớp cache dữ liệu (React Query / SWR). Nếu làm thì giải luôn 13.2, 13.3; việc lớn, để sau.
 
 **Nghiệm thu chung:** build chạy, đăng nhập không tải chunk 3D; để tab ẩn 2 phút không có request polling nào trong Network; nhập thêm hàng, tắt mạng giữa chừng rồi bấm lại không bị cộng 2 lần (khi làm 13.4).
+
+---
+
+## 14. 🆕 09/11/2026 — Cấu hình văn phong prompt AI hướng dẫn đóng gói (dòng 17)
+
+**BE xong.** System prompt gửi AI = **phần lõi cố định** (số bước, mỗi câu có SKU, không đổi vị trí, khuôn JSON) + **phần văn phong** Store Owner/Admin sửa được. Lưu chung bản cài đặt đóng gói (có version, lịch sử).
+
+| # | Màn | Việc FE |
+|---|---|---|
+| 14.1 | Cài đặt đóng gói | Thêm khung soạn nhiều dòng **"Văn phong hướng dẫn AI"**, hiện `settings.guideStylePrompt` (đã có sẵn văn bản mặc định). Lưu bằng `PUT /packing/settings { guide_style_prompt, expected_version }`. Tối đa 4000 ký tự; gửi chuỗi trống → 400 |
+| 14.2 | Cài đặt đóng gói | Nút **"Khôi phục mặc định"** gửi `guide_style_prompt: null`. Khi `guideStylePromptIsDefault: true` thì hiện nhãn "Mặc định" và khoá nút |
+| 14.3 | Cài đặt đóng gói | Ghi chú dưới khung: "Không sửa được phần quy tắc bắt buộc và định dạng trả về. Hướng dẫn đã tạo không tự viết lại, bấm **Viết lại** ở kiện để áp dụng." |
+
+**Nghiệm thu:** sửa văn phong → viết lại hướng dẫn 1 kiện → `GET …/guide/trace` thấy đoạn mới trong `systemPrompt` → khôi phục mặc định → nhãn "Mặc định" hiện lại.
 
 ---
 

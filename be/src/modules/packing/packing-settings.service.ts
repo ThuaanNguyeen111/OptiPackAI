@@ -3,6 +3,7 @@ import { InjectConnection, InjectModel } from '@nestjs/mongoose';
 import { Connection, Model, Types } from 'mongoose';
 import { AppException } from '../../common/exceptions/app-exception';
 import { DEFAULT_FRAGILE_CUSHION_MM } from '../packaging/engine';
+import { DEFAULT_GUIDE_STYLE_PROMPT } from '../packaging/packing-guide-ai.service';
 import { PackingSettings, PackingSettingsDocument } from './schemas/packing-settings.schema';
 import { PACKING_ERROR_CODES } from './packing.errors';
 import type { UpdatePackingSettingsDto } from './dto/packing-session.dto';
@@ -24,6 +25,10 @@ export interface ActivePackingSettings {
   splitMinSavingVnd: number;
   estFeeFirstStepVnd: number;
   estFeePerExtraStepVnd: number;
+  /** (09/11/2026) Phần văn phong system prompt AI đang có hiệu lực (đã bù mặc định). */
+  guideStylePrompt: string;
+  /** true = đang dùng DEFAULT_GUIDE_STYLE_PROMPT (chưa ai sửa hoặc đã khôi phục). */
+  guideStylePromptIsDefault: boolean;
   updatedBy: string | null;
   updatedAt: Date | null;
 }
@@ -43,6 +48,8 @@ export const DEFAULT_PACKING_SETTINGS: ActivePackingSettings = {
   splitMinSavingVnd: 5000,
   estFeeFirstStepVnd: 22000,
   estFeePerExtraStepVnd: 2500,
+  guideStylePrompt: DEFAULT_GUIDE_STYLE_PROMPT,
+  guideStylePromptIsDefault: true,
   updatedBy: null,
   updatedAt: null,
 };
@@ -68,9 +75,11 @@ export class PackingSettingsService {
         | 'split_min_saving_vnd'
         | 'est_fee_first_step_vnd'
         | 'est_fee_per_extra_step_vnd'
+        | 'guide_style_prompt'
       >
     >;
     const d = DEFAULT_PACKING_SETTINGS;
+    const stylePrompt = m.guide_style_prompt ?? null;
     return {
       version: doc.version,
       abnormalWeightThreshold: doc.abnormal_weight_threshold,
@@ -86,6 +95,8 @@ export class PackingSettingsService {
       splitMinSavingVnd: m.split_min_saving_vnd ?? d.splitMinSavingVnd,
       estFeeFirstStepVnd: m.est_fee_first_step_vnd ?? d.estFeeFirstStepVnd,
       estFeePerExtraStepVnd: m.est_fee_per_extra_step_vnd ?? d.estFeePerExtraStepVnd,
+      guideStylePrompt: stylePrompt ?? d.guideStylePrompt,
+      guideStylePromptIsDefault: stylePrompt === null,
       updatedBy: doc.updated_by?.toString() ?? null,
       updatedAt: doc.created_at ?? null,
     };
@@ -120,6 +131,13 @@ export class PackingSettingsService {
               split_min_saving_vnd: dto.split_min_saving_vnd ?? current.splitMinSavingVnd,
               est_fee_first_step_vnd: dto.est_fee_first_step_vnd ?? current.estFeeFirstStepVnd,
               est_fee_per_extra_step_vnd: dto.est_fee_per_extra_step_vnd ?? current.estFeePerExtraStepVnd,
+              // undefined = giữ nguyên; null = khôi phục mặc định.
+              guide_style_prompt:
+                dto.guide_style_prompt === undefined
+                  ? current.guideStylePromptIsDefault
+                    ? null
+                    : current.guideStylePrompt
+                  : (dto.guide_style_prompt?.trim() ?? null),
               updated_by: new Types.ObjectId(userId),
               is_active: true,
             },
