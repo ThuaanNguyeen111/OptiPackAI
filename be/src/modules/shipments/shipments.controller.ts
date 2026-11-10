@@ -223,7 +223,7 @@ function actorOf(user: AuthenticatedUser): ShipmentActor {
  * Tạm thời Shipping Coordinator bấm toàn bộ nút giao hàng (chưa có role shipper).
  */
 @ApiTags('Shipments')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('shipments')
 export class ShipmentsController {

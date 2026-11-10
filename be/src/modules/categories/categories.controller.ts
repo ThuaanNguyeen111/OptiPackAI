@@ -23,7 +23,7 @@ function toResponse(doc: CategoryDocument): CategoryResponse {
 
 /** K2 (26/09/2026) — danh mục sản phẩm 2 cấp. Dùng `code` làm định danh trên URL (dễ đọc, không đổi). */
 @ApiTags('Categories')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('categories')
 export class CategoriesController {
