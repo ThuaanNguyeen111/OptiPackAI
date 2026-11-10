@@ -172,12 +172,87 @@ Chi tiết và mã lỗi: `API_LIST.md` mục 30. Link ảnh là link Cloudinary
 
 ### 9b. Push FCM (BE xong 10/11/2026)
 
+🟡 **App đã nối 10/11/2026 tối (chưa build / chạy thử):** `lib/core/push/push_service.dart` (xin quyền, tạo kênh, gửi / gỡ token, hiện push khi app mở, bấm push → `/pick/:groupId` với loại lấy hàng, còn lại về `/`), `main.dart` (`Firebase.initializeApp`, handler chạy nền), `AuthController` (`start()` khi vào app / mở lại phiên, `stop()` trước khi đăng xuất), `ApiClient.delete`, Gradle (`com.google.gms.google-services` 4.4.2, desugaring), Manifest (`POST_NOTIFICATIONS`, kênh mặc định), `pubspec.yaml` (`firebase_core ^4.0.0`, `firebase_messaging ^16.0.0`, `flutter_local_notifications ^20.1.0`), `android/app/google-services.json` (project `optipack-f6d4a`). Việc còn lại: `flutter pub get`, `flutter test`, chạy trên máy thật và thử theo bước dưới.
+
 1. Thêm `firebase_core` + `firebase_messaging`, đặt `google-services.json` (project Firebase của nhóm, package `vn.optipack.optipack_mobile`) vào `android/app/`. Web không dùng Firebase.
 2. Tạo kênh thông báo Android id **`optipack_alerts`** (độ quan trọng cao) lúc mở app — BE gửi push vào kênh này.
 3. Sau khi đăng nhập (và khi `onTokenRefresh`): `POST /notifications/devices` body `{ token, platform: 'android', app_version }` → `{ registered, push_enabled }`. Gọi trực tiếp, **không** đưa vào hàng đợi ngoại tuyến (mất mạng thì gửi lại lần mở app sau).
 4. Đăng xuất: `DELETE /notifications/devices/<token>` trước khi xoá access token.
 5. Bấm push: đọc `data.related_entity_type` + `data.related_entity_id` để mở đúng màn (như bấm thông báo trong chuông); có `data.notification_id` thì `PATCH /notifications/:id/read`. `data.type` để chọn icon/màu.
 6. Loại có push (còn lại chỉ hiện trong chuông): `API_LIST.md` mục 31. Mới: `picking_assigned` (Warehouse Staff được giao lấy hàng một nhóm) → mở màn lấy hàng của nhóm đó.
+
+### 9c. Thử push FCM (cho người test: Việt, Phượng, Thi)
+
+**Khoá Firebase của BE dùng chung cả nhóm** (Thuận chốt 10/11/2026): Thuận gửi file khoá qua Zalo, mỗi người tự chạy BE + FE + mobile trên máy mình. App dùng `mobile/android/app/google-services.json` (đã có trong repo, project `optipack-f6d4a`).
+
+**Cài khoá trên máy mình (1 lần, ~2 phút)**
+1. `git pull` (lấy code push + `google-services.json`).
+2. Tải file khoá Thuận gửi trên Zalo, **giữ nguyên tên** `optipack-f6d4a-firebase-adminsdk-fbsvc-bc48e12379.json`.
+3. Tạo thư mục **`mobile/keys/`** trong repo rồi đặt file vào: `mobile/keys/optipack-f6d4a-firebase-adminsdk-fbsvc-bc48e12379.json`. Thư mục này đã nằm trong `.gitignore` → `git status` không hiện file, không lỡ commit.
+4. Trong `be/.env` của mình thêm (hoặc sửa) đúng 1 dòng:
+   ```
+   FCM_SERVICE_ACCOUNT_FILE=../mobile/keys/optipack-f6d4a-firebase-adminsdk-fbsvc-bc48e12379.json
+   ```
+   `../` = đi ra khỏi `be/` sang `mobile/` — luôn chạy BE bằng `npm run start:dev` **trong `be/`**.
+5. Khởi động lại BE (`Ctrl + C` → `npm run start:dev`).
+6. Chạy app trên điện thoại thật — làm theo phần ngay dưới.
+
+Không có file khoá thì BE vẫn chạy, thông báo vẫn hiện trong chuông; chỉ không gửi push (`push_enabled: false`). Không đưa file khoá vào commit / file zip nộp bài.
+
+**Chạy app trên máy ảo Android (không cần điện thoại) — nhận push được**
+
+Chỉ chạy được trên **máy ảo Android** (Android Emulator). `flutter run -d windows` / `-d chrome` **không** nhận push (Firebase Messaging của nhóm chỉ cấu hình cho Android).
+
+1. Mở **Android Studio** → **Device Manager** → **+ (Create Virtual Device)** → chọn máy có biểu tượng **Play Store** ở cột Play Store (VD **Pixel 8**) → Next.
+2. Chọn bản hệ điều hành có chữ **Google Play** (VD API 35 "Google Play"), bấm tải nếu chưa có → Next → Finish. Không chọn bản "AOSP" / không có Google (không nhận push).
+3. Bấm ▶ để bật máy ảo. Đăng nhập tài khoản Google trong máy ảo **không bắt buộc**; push không đến thì đăng nhập rồi mở CH Play cho Google Play services tự cập nhật.
+4. Ở thư mục `mobile/`: `flutter pub get` rồi **`flutter run`** (không cần `--dart-define`: mặc định app gọi `http://10.0.2.2:3000` = BE trên chính máy tính; không cần mở tường lửa). Nhiều máy thì thêm `-d emulator-5554` (xem `flutter devices`).
+5. Làm tiếp bước 8 phần điện thoại thật (đăng nhập Warehouse Staff → Cho phép thông báo) rồi bảng **Các bước thử**. Push hiện ở thanh thông báo của máy ảo (kéo từ trên xuống).
+
+Giới hạn máy ảo: quét mã bằng camera chỉ là camera giả → dùng ô **nhập tay** mã ô / SKU; máy cần RAM ≥ 8 GB (máy ảo chiếm ~2–3 GB). Demo trước hội đồng nên dùng điện thoại thật.
+
+**Chạy app trên điện thoại thật (Android)**
+
+Cần: điện thoại Android có **CH Play / Google Play** (Huawei đời mới không có → không nhận push), máy tính đã cài Flutter + Android SDK (`flutter doctor` không báo lỗi mục Android), điện thoại và máy tính **chung một wifi**.
+
+1. **Bật chế độ nhà phát triển trên điện thoại:** Cài đặt → Thông tin điện thoại → bấm **Số hiệu bản tạo (Build number)** 7 lần (Xiaomi: bấm **Phiên bản MIUI / HyperOS**; Samsung: Thông tin phần mềm → Số hiệu bản tạo) → nhập mã khoá máy.
+2. **Bật gỡ lỗi:** Cài đặt → Hệ thống → **Tuỳ chọn nhà phát triển** → bật **Gỡ lỗi USB**. Xiaomi bật thêm **Cài đặt qua USB** và **Gỡ lỗi USB (cài đặt bảo mật)**.
+3. **Kết nối máy — chọn 1:**
+   - **Cáp USB (dễ nhất):** cắm cáp → điện thoại hỏi "Cho phép gỡ lỗi USB?" → tick "Luôn cho phép" → **Cho phép**.
+   - **Không dây (Android 11+):** Tuỳ chọn nhà phát triển → **Gỡ lỗi không dây** → bật → **Ghép nối thiết bị bằng mã QR** → trong Android Studio: Device Manager → **Pair Devices Using Wi‑Fi** → quét mã QR hiện trên máy tính. Hoặc dùng mã 6 số: chạy `adb pair <IP:cổng ghép nối>` rồi `adb connect <IP:cổng>` (2 cổng khác nhau, xem trên màn Gỡ lỗi không dây).
+4. **Kiểm tra máy đã nhận:** `flutter devices` → phải thấy tên điện thoại (không chỉ Windows / Chrome / Edge).
+5. **Lấy IP máy chạy BE:** `ipconfig` → dòng **IPv4 Address** của card wifi (VD `192.168.1.10`). **Không** dùng `localhost` hay `10.0.2.2` (2 địa chỉ đó chỉ đúng với máy ảo).
+6. **Mở cổng 3000 trên Windows** (1 lần, PowerShell **Run as administrator**):
+   ```powershell
+   New-NetFirewallRule -DisplayName "OptiPack BE 3000" -Direction Inbound -Protocol TCP -LocalPort 3000 -Action Allow -Profile Private
+   ```
+   Wifi phải đặt là **Private network** (Cài đặt → Mạng → wifi đang dùng → Private). Kiểm tra: mở trình duyệt **trên điện thoại** vào `http://192.168.1.10:3000/health` → thấy `"status":"ok"` là điện thoại gọi được BE.
+7. **Chạy app:** ở thư mục `mobile/`:
+   ```
+   flutter pub get
+   flutter run --dart-define=API_BASE_URL=http://192.168.1.10:3000
+   ```
+   Có nhiều máy thì thêm `-d <id máy>` (lấy ở `flutter devices`). Lần đầu build mất vài phút; app tự cài lên điện thoại (icon OptiPackAI).
+8. **Đăng nhập:** tài khoản **Warehouse Staff** → "Vào trang làm việc" → điện thoại hỏi quyền thông báo → **Cho phép**. Terminal in `FCM token: …` (dùng ở bước thử 3). Lỡ bấm "Không cho phép": Cài đặt → Ứng dụng → OptiPackAI → Thông báo → bật.
+9. **Máy Xiaomi / Oppo / Vivo / Realme:** Cài đặt → Ứng dụng → OptiPackAI → bật **Tự khởi chạy (Autostart)**, Tiết kiệm pin → **Không hạn chế**. Không bật thì push lúc app tắt có thể không đến.
+10. Sửa code xong: trong terminal `flutter run` bấm `r` (tải lại nóng) hoặc `R` (khởi động lại); đổi Gradle / Manifest / `pubspec.yaml` thì dừng (`q`) và chạy lại bước 7.
+
+**Các bước thử** (mỗi bước ghi Đạt / Không đạt vào sheet test)
+
+| # | Thao tác | Kết quả đúng |
+|---|---|---|
+| 1 | Swagger (BE đang dùng) → `POST /notifications/devices` body `{ "token": "test-token-1234567890abcdef", "platform": "android" }` | `push_enabled: true` (máy BE đã có khoá) |
+| 2 | Mở app trên **điện thoại thật** (có Google Play), đăng nhập **Warehouse Staff** → "Vào trang làm việc" | Điện thoại hỏi quyền thông báo → bấm **Cho phép**; terminal `flutter run` in `FCM token: …` |
+| 3 | Firebase console → **Messaging → New campaign → Notifications** → nhập tiêu đề + nội dung → **Send test message** → dán token bước 2 → **Test** | Điện thoại hiện thông báo (thử cả lúc app mở và lúc app tắt) |
+| 4 | Vuốt tắt app. Swagger đăng nhập **Admin** → `GET /order-groups/staff/search` lấy `staffId` → `POST /order-groups/{id}/assign` body `{ "staff_id": "<staffId>" }` (nhóm chưa giao cho người này) | Điện thoại hiện **"Bạn được giao lấy hàng một nhóm đơn"** |
+| 5 | Bấm thông báo bước 4 | App mở màn **lấy hàng của đúng nhóm đó**; thông báo trong chuông chuyển đã đọc |
+| 6 | Mở app, gán thêm 1 nhóm khác cho người đó (như bước 4) | Thông báo hiện ngay khi app đang mở |
+| 7 | Gán lại **đúng người đang nhận** nhóm ở bước 4 | **Không** có thông báo mới |
+| 8 | Đánh dấu Hỏa Tốc 1 nhóm (`PATCH /order-groups/{id}/priority`) rồi gán cho người đó | Tiêu đề "Đơn Hỏa Tốc: bạn được giao lấy hàng", có hạn đóng gói |
+| 9 | Trên app bấm **Đăng xuất**, rồi gán 1 nhóm khác cho người đó | Điện thoại **không** nhận push (máy đã gỡ khỏi BE) |
+| 10 | Loại chỉ trong app: làm 1 việc sinh `low_box_stock` hoặc `sync_failed` | Có trong chuông, **không** có push |
+
+**Không nhận được push — kiểm tra theo thứ tự:** (1) bước 1 ra `push_enabled: false` → máy BE chưa có khoá / sai đường dẫn / chưa khởi động lại BE; (2) bước 3 không nhận → điện thoại chưa cho phép thông báo, không có Google Play, hoặc đang tiết kiệm pin (Xiaomi / Oppo: bật Tự khởi chạy); (3) bước 3 nhận mà bước 4 không → xem log BE dòng có `push` / `FCM` (`Không lấy được access token FCM` = khoá sai hoặc đã bị xoá); (4) app báo lỗi mạng → sai `API_BASE_URL` hoặc tường lửa máy BE.
 
 Đã có, mobile dùng được ngay: refresh token trả trong body, phân quyền theo role, `client_event_id` cho `pick-item` / quét món đóng gói / `restock` / `adjust` / `transfer`, `expected_version` + 409, phân trang `before` + `limit` và lọc `assigned_staff_id`, báo thiếu hàng, đơn Hỏa Tốc, thông báo in-app có phân trang, dashboard.
 

@@ -451,6 +451,8 @@ BE vừa thêm push cho app mobile (`API_LIST.md` mục 31). Phía web chỉ c�
 
 Thông báo gửi đích danh người được giao (`related_entity_type: order_group`); nhóm Hỏa Tốc có `severity: warning` và câu có hạn đóng gói.
 
+**Thử push trên điện thoại** (người test FE / mobile): làm theo `MOBILE_UPDATE_CHECKLIST.md` mục **9c** — gồm cách test khi file khoá Firebase chỉ nằm ở máy Thuận.
+
 **Không cần FE làm:** `POST/DELETE /notifications/devices` (chỉ app mobile dùng), `GET /shipments?shipper_id=` (bộ lọc mới cho app; web tuỳ chọn dùng nếu muốn có tab "Vận đơn của tôi"), sửa Swagger `JWT-auth` (chỉ ảnh hưởng trang `/api/docs`).
 
 ## Phụ lục ✅ — đã hoàn thành
