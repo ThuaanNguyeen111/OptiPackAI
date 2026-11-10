@@ -1449,9 +1449,9 @@ export class OrderGroupsService {
   ): Promise<Map<string, GroupOrderCounts>> {
     const result = new Map<string, GroupOrderCounts>();
     if (groupIds.length === 0) return result;
-    // KHÔNG thêm `is_consolidated: true` vào $match dù index consolidated_group_id là
-    // partial theo field đó: nhóm 1 đơn có consolidated_group_id nhưng is_consolidated
-    // vẫn false (xem getOrCreateGroupForOrder) — thêm điều kiện sẽ đếm thiếu.
+    // KHÔNG thêm `is_consolidated: true` vào $match: nhóm 1 đơn có consolidated_group_id
+    // nhưng is_consolidated vẫn false (xem getOrCreateGroupForOrder) — thêm điều kiện sẽ
+    // đếm thiếu. 🔄 10/11/2026 (BE-3): index consolidated_group_id nay không còn partial.
     const rows = await this.orderModel.aggregate<{
       _id: Types.ObjectId;
       active: number;

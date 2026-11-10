@@ -342,11 +342,12 @@ OrderSchema.index(
 );
 
 /**
- * (d) Tra cứu theo nhóm gộp (trang chi tiết 1 gói hàng gồm nhiều đơn) —
- *     PARTIAL vì phần lớn đơn có is_consolidated=false, không cần index
- *     những đơn không thuộc nhóm nào.
+ * (d) Tra cứu theo nhóm (`find({ consolidated_group_id })`, đếm đơn của nhóm, lấy hàng, đóng gói).
+ *     🔄 ĐÃ ĐỔI 10/11/2026 (BE-3): bỏ partial `is_consolidated: true`. Nhóm 1 đơn vẫn có
+ *     `consolidated_group_id` nhưng `is_consolidated = false`, và mọi truy vấn theo nhóm
+ *     không lọc `is_consolidated` → planner không dùng được index partial, quét cả bảng.
+ *     Index thường: gần như mọi đơn đều thuộc 1 nhóm (backfill 15 phút), nên partial cũng
+ *     không nhỏ hơn bao nhiêu. DB cũ: chạy scripts/rebuild-orders-group-index.ts --apply
+ *     (cùng tên index `consolidated_group_id_1`, khác tuỳ chọn → MongoDB không tự thay).
  */
-OrderSchema.index(
-  { consolidated_group_id: 1 },
-  { partialFilterExpression: { is_consolidated: true } },
-);
+OrderSchema.index({ consolidated_group_id: 1 });
