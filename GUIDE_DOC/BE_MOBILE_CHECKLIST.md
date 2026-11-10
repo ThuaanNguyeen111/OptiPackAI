@@ -39,7 +39,7 @@
     4. iOS bỏ qua cho demo (push trên iPhone cần tài khoản Apple Developer trả phí).
   - Độ lớn: vừa. Ghi chú: _
 
-- [ ] **4. Upload ảnh bằng chứng**
+- [x] **4. Upload ảnh bằng chứng**
   - Route upload ảnh, thêm `photo_urls` cho: giao thành công / thất bại (`/shipments/:id/deliver`, `/fail`), kiểm hàng hoàn (`/returns/:id/inspect`), báo lỗi kiện (`packing-plan/report-issue`). `shipment-event.schema.ts` đã chừa chỗ `proof{photo_urls}`.
   - Vì sao: màn giao Hỏa Tốc, nhận hàng hoàn, báo lỗi kiện có nút chụp ảnh.
   - **Đã chốt (10/11/2026):**
@@ -51,7 +51,7 @@
       - Kiểm hàng hoàn, báo lỗi kiện: không bắt buộc ảnh.
       - Đơn GHN: ảnh nằm bên GHN, BE không xử lý.
   - **Cần trước (Thuận làm):** tạo tài khoản Cloudinary, điền `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` vào `be/.env` (không commit). Chưa điền thì route upload trả lỗi "chưa cấu hình", các chức năng khác vẫn chạy.
-  - Độ lớn: vừa. Ghi chú: _
+  - Độ lớn: vừa. Ghi chú: xong 10/11/2026 (AOFP-261). Module `proof-photos`: `POST /proof-photos` (field `files`, 1–3 ảnh) gửi thẳng Cloudinary bằng REST có chữ ký (dùng `axios` sẵn có, không thêm thư viện), thu nhỏ ≤ 1600 px, lưu JPG ở thư mục `optipack/proof`. `photo_urls` chỉ nhận URL đúng cloud + thư mục (decorator `@IsProofPhotoUrls`). Lưu ảnh: `shipment_events.photo_urls`, `return_requests.inspection_photo_urls`, `packing_plans.issues[].photo_urls`. Thiếu ảnh khi shop tự giao thành công → 400 `SHP_PROOF_PHOTO_REQUIRED`. Route cũ `order-groups/:id/fulfillment/deliver` (legacy) không kiểm ảnh. **Web FE phải thêm chụp/tải ảnh ở nút Giao thành công** (`FE_UPDATE_CHECKLIST.md` dòng 17), nếu không sẽ bị chặn với vận đơn shop tự giao.
 
 ## B. Nên làm thêm — không chặn
 
@@ -73,7 +73,7 @@
 ## Thứ tự đề xuất
 
 1. ✅ Đã xong 10/11/2026: **10, 7, 8, 9**.
-2. **4** — code được ngay; chạy thật khi Thuận điền biến Cloudinary.
+2. ✅ Đã xong 10/11/2026: **4**.
 3. **3** — sau khi Thuận duyệt bảng loại push, chốt `picking_assigned` và tạo xong project Firebase.
 
 ## Đã có sẵn — mobile dùng được ngay (không cần làm)

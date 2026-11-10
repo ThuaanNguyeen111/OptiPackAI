@@ -1,6 +1,6 @@
 # Mobile (Flutter) — Việc phải làm để nối Backend
 
-> **Phiên bản 1.0 — 09/11/2026.** Dành cho người làm app mobile (Flutter, BM04 RF-07). Viết theo cùng khuôn `FE_UPDATE_CHECKLIST.md` (file đó là của web). Nguồn: đề xuất chức năng mobile theo role (08/11/2026, mục "📱 Nhật ký 08/11/2026" trong `CLAUDE.md`) và route thật trong `API_LIST.md`.
+> **Phiên bản 1.1 — 10/11/2026** (1.0 — 09/11/2026; 1.1: BE đã có upload ảnh bằng chứng, mục 9). Dành cho người làm app mobile (Flutter, BM04 RF-07). Viết theo cùng khuôn `FE_UPDATE_CHECKLIST.md` (file đó là của web). Nguồn: đề xuất chức năng mobile theo role (08/11/2026, mục "📱 Nhật ký 08/11/2026" trong `CLAUDE.md`) và route thật trong `API_LIST.md`.
 
 **Quy ước chung (giống web):**
 - Mọi request cần đăng nhập gửi `Authorization: Bearer <access_token>`.
@@ -34,7 +34,7 @@
 | 13 | Store Owner — Tổng quan, đánh dấu Hỏa Tốc, duyệt hàng hoàn, tra cứu đơn | 8 | 4 | ☐ Chưa làm |
 | 14 | Hỗ trợ máy quét cầm tay / Bluetooth (nhận mã như bàn phím) bên cạnh camera | 4.2 | 1 | ☐ Chưa làm |
 
-**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** push FCM (đợt 3), upload ảnh bằng chứng cho giao Hỏa Tốc / kiểm hàng hoàn / báo lỗi kiện (đợt 4), `GET /app/version`. Xem mục 9.
+**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** push FCM (đợt 3). Xem mục 9. 🔄 10/11/2026: upload ảnh bằng chứng **đã có** (mục 9a); `GET /app/version` **bỏ** (app không đưa lên store, demo chạy `flutter run` nên luôn là bản mới).
 
 ---
 
@@ -107,7 +107,7 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 
 - Kiện giao thất bại quay về: `POST /shipments/:id/receive-return`.
 - Hàng khách trả: `POST /returns/:id/receive`, sau đó `POST /returns/:id/inspect` (kết quả restock / quarantine / discard).
-- Chụp ảnh tình trạng hàng: **chờ BE có API upload ảnh** (mục 9). Trước khi có, chỉ ghi chú bằng chữ.
+- Chụp ảnh tình trạng hàng (không bắt buộc): gửi ảnh lên `POST /proof-photos` rồi gửi `photo_urls` kèm `POST /returns/:id/inspect` (mục 9a).
 
 ## 5. Packaging Staff (đợt 2)
 
@@ -122,7 +122,7 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 - Quét món vào kiện: `POST /order-groups/:groupId/packing-plan/parcels/:parcelNo/scan` body `{ code, quantity?, scan_method, client_event_id }` — không cần `expected_version`, được đưa vào hàng đợi ngoại tuyến.
 - Gỡ món quét nhầm: `.../parcels/:parcelNo/unscan`.
 - Niêm phong + nhập cân thực tế: `.../parcels/:parcelNo/seal` body `{ expected_version, weight_kg }`. Lệch cân thì kiện chuyển `held`, chờ người khác xem lại.
-- Báo lỗi kiện (hỏng, thiếu, nhầm món): `.../report-issue`.
+- Báo lỗi kiện (hỏng, thiếu, nhầm món): `.../report-issue`. Có thể kèm ảnh món lỗi (`photo_urls`, không bắt buộc, mục 9a).
 - Đủ chi tiết body và mã lỗi ở `API_LIST.md` mục 8a.
 
 ## 6. Thông báo (dòng 11)
@@ -137,7 +137,7 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 - Kiện đã đóng: `GET /order-groups?fulfillment_status=packed`.
 - Tạo vận đơn: `POST /shipments`. Nhãn PDF: mở link nhãn để in bằng máy in Bluetooth hoặc gửi sang máy tính.
 - Giao Hỏa Tốc: `POST /shipments/:id/deliver` · `/fail` (chọn lý do từ `GET /shipments/reason-codes`) · `/retry`. Vận đơn có shipper thì chỉ shipper đó (hoặc Admin) bấm được (403 `SHP_NOT_ASSIGNED_SHIPPER`).
-- Ảnh bằng chứng giao hàng: **chờ BE** (mục 9).
+- Ảnh bằng chứng giao hàng (mục 9a): vận đơn **shop tự giao** (không có hãng, gồm Hỏa Tốc) bấm "Giao thành công" **bắt buộc chụp ≥ 1 ảnh** (thiếu → 400 `SHP_PROOF_PHOTO_REQUIRED`). Giao thất bại: bắt chọn lý do, ảnh không bắt buộc.
 - **Không gọi** các route cũ `/order-groups/:id/fulfillment/ship|deliver|return` (đã đánh dấu LEGACY).
 
 ## 8. Store Owner (đợt 4, dòng 13)
@@ -152,10 +152,20 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 | Việc | Ảnh hưởng mobile | Trạng thái |
 |---|---|---|
 | Đăng ký thiết bị + push FCM trong `NotificationsService.notify()` | Báo đẩy cho mọi role, cảnh báo tồn vật liệu | ☐ BE chưa làm |
-| Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☐ BE chưa làm |
+| Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☑ BE xong 10/11/2026 (mục 9a) |
 | Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
 | `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
-| `GET /app/version` (phiên bản app tối thiểu) | Bắt cập nhật app cũ; không cần khi chỉ demo trên máy nhóm | ☐ BE chưa làm |
+| `GET /app/version` (phiên bản app tối thiểu) | Bắt cập nhật app cũ; không cần khi chỉ demo trên máy nhóm | ✖ Bỏ 10/11/2026 (app không đưa lên store) |
+
+### 9a. Ảnh bằng chứng (BE xong 10/11/2026)
+
+1. Chụp ảnh (tối đa 3), **nén trước khi gửi** (VD cạnh dài ~1600 px, JPG chất lượng ~80) để gửi nhanh và đỡ tốn dung lượng. BE nhận JPG / PNG / WebP / HEIC, mỗi ảnh ≤ 10 MB.
+2. `POST /proof-photos` (`multipart/form-data`, field `files`) → `{ photos: [{ url, ... }] }`.
+3. Gửi `photo_urls: [url, ...]` kèm thao tác: `POST /shipments/:id/deliver` (shop tự giao: bắt buộc ≥ 1), `/shipments/:id/fail`, `POST /returns/:id/inspect`, `.../packing-plan/report-issue` (không bắt buộc).
+4. Mất mạng: giữ ảnh trong hàng đợi ngoại tuyến cùng thao tác, có mạng thì gửi ảnh trước rồi mới gửi thao tác (các route này dùng `expected_version`, 409 → tải lại). Lỗi `PROOF_PHOTO_UPLOAD_FAILED` (502) → cho thử lại; `PROOF_PHOTO_NOT_CONFIGURED` (503) → server chưa cấu hình, báo Admin.
+5. Xem lại ảnh: `GET /shipments/:id/events` (`photoUrls`), phiếu trả `inspectionPhotoUrls`, kế hoạch đóng gói `issues[].photoUrls`.
+
+Chi tiết và mã lỗi: `API_LIST.md` mục 30.
 
 Đã có, mobile dùng được ngay: refresh token trả trong body, phân quyền theo role, `client_event_id` cho `pick-item` / quét món đóng gói / `restock` / `adjust` / `transfer`, `expected_version` + 409, phân trang `before` + `limit` và lọc `assigned_staff_id`, báo thiếu hàng, đơn Hỏa Tốc, thông báo in-app có phân trang, dashboard.
 

@@ -17,6 +17,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
+import { IsProofPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 import {
   ADJUSTMENT_REASONS,
   BOX_SOURCE_REASONS,
@@ -196,6 +197,11 @@ export class ReportIssueDto extends VersionedDto {
   @IsOptional()
   @IsMongoId({ message: 'bin_location_id không hợp lệ' })
   bin_location_id?: string;
+
+  @ApiProperty({ required: false, type: [String], description: '10/11/2026 — ảnh món lỗi (tối đa 3, URL từ POST /proof-photos). Không bắt buộc.' })
+  @IsOptional()
+  @IsProofPhotoUrls()
+  photo_urls?: string[];
 
   @ApiProperty({ required: false })
   @IsOptional()

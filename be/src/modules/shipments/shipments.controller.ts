@@ -15,6 +15,7 @@ import {
   RetryShipmentDto,
   SchedulePickupDto,
   ShipmentActionDto,
+  DeliverShipmentDto,
   SimulateCarrierStatusDto,
   StartShipmentDto,
   UpdateToLocationDto,
@@ -208,6 +209,8 @@ function toEventResponse(e: ShipmentEventDocument): Record<string, unknown> {
     // C5 (14/10/2026) — sự kiện của hãng: nguồn + trạng thái gốc.
     source: e.source ?? null,
     carrierStatus: e.carrier_status ?? null,
+    // 10/11/2026 — ảnh bằng chứng (giao thành công / thất bại).
+    photoUrls: e.photo_urls ?? [],
   };
 }
 
@@ -341,16 +344,16 @@ export class ShipmentsController {
 
   @Post(':id/deliver')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
-  @ApiOperation({ summary: '[Giao thành công] out_for_delivery -> delivered; nhóm đơn -> delivered.' })
-  async deliver(@Param('id') id: string, @Body() dto: ShipmentActionDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.markDelivered(id, dto.expected_version, actorOf(user), dto.note));
+  @ApiOperation({ summary: '[Giao thành công] out_for_delivery -> delivered; nhóm đơn -> delivered. 🆕 10/11: vận đơn shop tự giao (không có hãng) bắt buộc photo_urls ≥ 1 ảnh (POST /proof-photos) → 400 SHP_PROOF_PHOTO_REQUIRED.' })
+  async deliver(@Param('id') id: string, @Body() dto: DeliverShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
+    return toShipmentResponse(await this.shipmentsService.markDelivered(id, dto.expected_version, actorOf(user), dto.note, undefined, dto.photo_urls ?? []));
   }
 
   @Post(':id/fail')
   @Roles(UserRole.SHIPPING_COORDINATOR, UserRole.ADMIN)
   @ApiOperation({ summary: '[Giao thất bại] Chọn lý do. Lần 2 hoặc "khách từ chối" -> hệ thống TỰ chuyển hoàn về kho.' })
   async fail(@Param('id') id: string, @Body() dto: FailShipmentDto, @CurrentUser() user: AuthenticatedUser): Promise<ShipmentResponse> {
-    return toShipmentResponse(await this.shipmentsService.markFailed(id, dto.expected_version, dto.reason_code, actorOf(user), dto.note, dto.reschedule_at));
+    return toShipmentResponse(await this.shipmentsService.markFailed(id, dto.expected_version, dto.reason_code, actorOf(user), dto.note, dto.reschedule_at, dto.photo_urls));
   }
 
   @Post(':id/retry')
