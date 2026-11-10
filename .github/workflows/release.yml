@@ -1,18 +1,29 @@
-name: Release images
+name: Release & deploy
 
-# Đẩy image lên GitHub Container Registry (ghcr.io) để cụm Kubernetes thật
-# pull về. Không tự động apply lên cụm nào — bước deploy vẫn do người chạy
-# (xem k8s/README.md), tránh việc CI tự đụng vào môi trường thật.
+# CI xanh trên main → build image lên ghcr.io → SSH vào VPS k3s apply với tag
+# sha-<commit>. Image nào mã nguồn không đổi thì không build lại, chỉ gắn thêm tag.
+#
+# GitHub → Settings → Secrets and variables → Actions, tạo các secret cho job deploy:
+#   DEPLOY_HOST         IP server, vd 162.4.176.64
+#   DEPLOY_PORT         cổng SSH của server, vd 24700 (bỏ trống = 22)
+#   DEPLOY_SSH_KEY      private key SSH (public key nằm trong ~/.ssh/authorized_keys của root trên server)
+#   DEPLOY_KNOWN_HOSTS  output của `ssh-keyscan -p <PORT> <IP>` (chống giả mạo server)
+# Bí mật backend KHÔNG nằm trên GitHub: đặt sẵn file /root/optipackai/be.env trên
+# server (chmod 600); mỗi lần deploy nạp lại Secret k8s từ file đó.
 on:
-  push:
+  # Chỉ chạy khi workflow CI chạy xong trên main; job build tự bỏ qua nếu CI đỏ.
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
     branches: [main]
+  push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       api_url:
         description: 'URL backend mà trình duyệt gọi (nhúng vào bundle FE/storefront lúc build)'
         required: true
-        default: 'http://api.optipackai.local'
+        default: 'https://optipack.io.vn/api'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -22,9 +33,13 @@ env:
   REGISTRY: ghcr.io
   # ghcr yêu cầu chữ thường toàn bộ đường dẫn image.
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/optipackai
+  # Với workflow_run, github.sha là đầu main lúc kích hoạt, chưa chắc là commit CI vừa kiểm tra.
+  SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  API_URL: ${{ inputs.api_url || 'https://optipack.io.vn/api' }}
 
 jobs:
   build-push:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -35,60 +50,117 @@ jobs:
         include:
           - name: be
             dockerfile: be/Dockerfile
-            build_args: ''
+            paths: be package.json package-lock.json
+            build_arg: ''
           - name: fe
             dockerfile: fe/Dockerfile
-            build_args: VITE_API_URL=${{ inputs.api_url || 'http://api.optipackai.local' }}
+            paths: fe package.json package-lock.json
+            build_arg: VITE_API_URL
           - name: storefront
             dockerfile: storefront/Dockerfile
-            build_args: NEXT_PUBLIC_API_URL=${{ inputs.api_url || 'http://api.optipackai.local' }}
+            paths: storefront package.json package-lock.json
+            build_arg: NEXT_PUBLIC_API_URL
           - name: packer
             dockerfile: packer/Dockerfile
-            build_args: ''
+            paths: packer
+            build_arg: ''
     steps:
       - uses: actions/checkout@v4
-
-      - name: Bỏ qua nếu Dockerfile chưa tồn tại
-        id: check
-        run: |
-          if [ -f "${{ matrix.dockerfile }}" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Chưa có ${{ matrix.dockerfile }} — bỏ qua image ${{ matrix.name }}."
-          fi
+        with:
+          ref: ${{ env.SHA }}
 
       - uses: docker/setup-buildx-action@v3
-        if: steps.check.outputs.exists == 'true'
 
       - uses: docker/login-action@v3
-        if: steps.check.outputs.exists == 'true'
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Tính tag cho image
-        if: steps.check.outputs.exists == 'true'
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE_PREFIX }}-${{ matrix.name }}
-          tags: |
-            type=ref,event=branch
-            type=semver,pattern={{version}}
-            type=sha,format=short
-            type=raw,value=latest,enable={{is_default_branch}}
+      # src-<key> = băm nội dung các thư mục/file image dùng (+ build arg). Tag này
+      # đã có trên ghcr nghĩa là đúng mã nguồn đó đã build rồi → khỏi build lại.
+      - name: Tính tag và kiểm tra image đã có chưa
+        id: plan
+        env:
+          PATHS: ${{ matrix.paths }}
+          ARG_NAME: ${{ matrix.build_arg }}
+        run: |
+          IMG="$IMAGE_PREFIX-${{ matrix.name }}"
+          ARG=""; [ -n "$ARG_NAME" ] && ARG="$ARG_NAME=$API_URL"
+          KEY=$( { for p in $PATHS; do git rev-parse "HEAD:$p"; done; echo "$ARG"; } | sha256sum | cut -c1-16)
+          TAGS="$IMG:sha-${SHA::7}"
+          [ "${{ github.ref }}" = refs/heads/main ] && TAGS="$TAGS,$IMG:latest"
+          [ "${{ github.ref_type }}" = tag ] && TAGS="$TAGS,$IMG:${GITHUB_REF_NAME#v}"
+          {
+            echo "src=$IMG:src-$KEY"
+            echo "tags=$TAGS"
+            echo "arg=$ARG"
+          } >> "$GITHUB_OUTPUT"
+          if docker buildx imagetools inspect "$IMG:src-$KEY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ matrix.name }}: mã nguồn không đổi, dùng lại $IMG:src-$KEY"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Gắn tag mới cho image có sẵn (không build)
+        if: steps.plan.outputs.exists == 'true'
+        env:
+          SRC: ${{ steps.plan.outputs.src }}
+          TAGS: ${{ steps.plan.outputs.tags }}
+        run: docker buildx imagetools create $(printf -- '-t %s ' ${TAGS//,/ }) "$SRC"
 
       - name: Build & push
-        if: steps.check.outputs.exists == 'true'
+        if: steps.plan.outputs.exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          build-args: ${{ matrix.build_args }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.plan.outputs.arg }}
+          tags: ${{ steps.plan.outputs.src }},${{ steps.plan.outputs.tags }}
+          labels: org.opencontainers.image.revision=${{ env.SHA }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+  deploy:
+    needs: build-push
+    # Chỉ main mới lên server; tag v* chỉ phát hành image.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+
+      - name: Ghim tag image theo commit
+        run: |
+          sed -i "s/newTag: latest/newTag: sha-${SHA::7}/" k8s/overlays/ghcr/kustomization.yaml
+
+      - name: Chuẩn bị SSH
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Apply lên k3s
+        env:
+          HOST: ${{ secrets.DEPLOY_HOST }}
+          PORT: ${{ secrets.DEPLOY_PORT }}
+        run: |
+          tar -czf - k8s scripts/k8s-create-secret.sh | ssh -i ~/.ssh/id_deploy -p "${PORT:-22}" "root@$HOST" '
+            set -euo pipefail
+            d=$(mktemp -d); trap "rm -rf $d" EXIT
+            tar -xzf - -C "$d" && cd "$d"
+            ENV_FILE=/root/optipackai/be.env bash scripts/k8s-create-secret.sh
+            kubectl apply -k k8s/overlays/ghcr
+            for x in redis packer be fe storefront aurelle; do
+              kubectl -n optipackai rollout status deploy/$x --timeout=300s
+            done
+            kubectl -n optipackai get pods'

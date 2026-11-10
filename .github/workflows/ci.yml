@@ -176,7 +176,7 @@ jobs:
           context: .
           file: fe/Dockerfile
           push: false
-          build-args: VITE_API_URL=http://localhost:3000
+          build-args: VITE_API_URL=http://localhost:3000/api
           cache-from: type=gha,scope=fe
           cache-to: type=gha,mode=max,scope=fe
 
@@ -196,7 +196,7 @@ jobs:
           context: .
           file: storefront/Dockerfile
           push: false
-          build-args: NEXT_PUBLIC_API_URL=http://localhost:3000
+          build-args: NEXT_PUBLIC_API_URL=http://localhost:3000/api
           cache-from: type=gha,scope=storefront
           cache-to: type=gha,mode=max,scope=storefront
 

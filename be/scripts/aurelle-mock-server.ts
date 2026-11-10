@@ -480,7 +480,7 @@ if (!mongoUri) {
   process.exit(1);
 }
 
-void connectStorefrontStore(mongoUri).then(() => app.listen(PORT, '127.0.0.1', () => {
+void connectStorefrontStore(mongoUri).then(() => app.listen(PORT, process.env.AURELLE_MOCK_HOST ?? '127.0.0.1', () => {
   console.log(`AURELLE mock server (tham chiếu Mục 7-8) chạy tại http://localhost:${String(PORT)}`);
   console.log(`Developer Console: http://localhost:${String(PORT)}/developer`);
 }));
