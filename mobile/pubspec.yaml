@@ -44,6 +44,10 @@ dependencies:
   mobile_scanner: ^7.5.0
   intl: ^0.20.3
   uuid: ^4.6.0
+  # 10/11/2026 — push FCM (MOBILE_UPDATE_CHECKLIST 9b)
+  firebase_core: ^4.0.0
+  firebase_messaging: ^16.0.0
+  flutter_local_notifications: ^20.1.0
 
 dev_dependencies:
   flutter_test:

@@ -31,7 +31,7 @@ const READERS = [UserRole.ADMIN, UserRole.STORE_OWNER, UserRole.WAREHOUSE_STAFF,
 
 /** G4 (27/09/2026) — vật liệu đóng gói + tái sử dụng. */
 @ApiTags('Packaging Materials')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('packaging-materials')
 export class PackagingMaterialsController {

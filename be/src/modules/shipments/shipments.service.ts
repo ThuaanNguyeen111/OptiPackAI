@@ -284,6 +284,8 @@ export class ShipmentsService {
     overdueOnly?: boolean; // lọc vận đơn đã bị cron gắn cờ quá hạn giao
     tripCode?: string; // gộp thi_dev — vận đơn cùng chuyến
     carrierCode?: string;
+    shipperId?: string; // 10/11/2026 — id người dùng đã giải `me` ở controller
+    before?: Date; // 10/11/2026 — con trỏ: updated_at < before, bỏ qua page
     page: number;
     limit: number;
   }): Promise<{ items: ShipmentDocument[]; total: number }> {
@@ -295,9 +297,17 @@ export class ShipmentsService {
     if (params.orderGroupId && Types.ObjectId.isValid(params.orderGroupId)) {
       filter.order_group_id = new Types.ObjectId(params.orderGroupId);
     }
+    if (params.shipperId) {
+      if (!Types.ObjectId.isValid(params.shipperId)) return { items: [], total: 0 };
+      filter.shipper_id = new Types.ObjectId(params.shipperId);
+    }
+    // total đếm theo bộ lọc, không tính con trỏ — app dùng để hiện "x việc".
+    const countFilter = { ...filter };
+    if (params.before) filter.updated_at = { $lt: params.before };
+    const skip = params.before ? 0 : (params.page - 1) * params.limit;
     const [items, total] = await Promise.all([
-      this.shipmentModel.find(filter).sort({ updated_at: -1 }).skip((params.page - 1) * params.limit).limit(params.limit),
-      this.shipmentModel.countDocuments(filter),
+      this.shipmentModel.find(filter).sort({ updated_at: -1, _id: -1 }).skip(skip).limit(params.limit),
+      this.shipmentModel.countDocuments(countFilter),
     ]);
     return { items, total };
   }

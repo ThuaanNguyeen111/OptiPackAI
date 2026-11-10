@@ -8,7 +8,7 @@ import { MarketplaceStockPushService, type StockPushResult } from './marketplace
 
 /** (21/10/2026) Đẩy tồn bán được sang AURELLE ngay, khỏi chờ cron 1 phút. */
 @ApiTags('Marketplace Writeback')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('marketplace-writeback')
 export class MarketplaceStockPushController {

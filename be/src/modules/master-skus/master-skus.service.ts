@@ -24,6 +24,7 @@ import {
 } from '../order-groups/schemas/stock-reservation.schema';
 import { moveReservations } from '../order-groups/reservation-key.util';
 import { stockKeyOf } from './stock-key.util';
+import { normalizeSellerSku } from './seller-sku.util';
 
 export function buildMasterSkuCode(p: { category_code: string; model_no: number; color_code: string; size: string }): string {
   return `${p.category_code}-${String(p.model_no).padStart(3, '0')}-${p.color_code}-${p.size}`;
@@ -44,9 +45,8 @@ export const AUTO_CREATE_ACTOR = 'system:auto-create';
 /** 22/10/2026 — người tạo của liên kết SKU tự nối (sổ cái ghi actor này). */
 export const AUTO_MAP_ACTOR = 'system:auto-map';
 
-export function normalizeSellerSku(sku: string): string {
-  return sku.trim().toUpperCase();
-}
+// 10/11/2026 (BE-5) — hàm chuyển sang ./seller-sku.util.ts; giữ re-export cho các chỗ import cũ.
+export { normalizeSellerSku } from './seller-sku.util';
 
 /**
  * ===================================================================
@@ -444,8 +444,10 @@ export class MasterSkusService {
    * sổ cái (ref "sku_merge") rồi xóa dòng cũ. Idempotent: dòng đã gắn nhãn bị bỏ qua.
    */
   private async tagStockForMapping(platform: MarketplacePlatform, shopId: string, sellerSku: string, masterSku: string, actorId: string, session: ClientSession): Promise<{ tagged: number; merged: number }> {
-    const exact = new RegExp(`^${sellerSku.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i');
-    const rows = await this.assignmentModel.find({ platform, shop_id: shopId, seller_sku: exact, master_sku: null }).session(session);
+    // 10/11/2026 (BE-5) — so theo mã đã chuẩn hoá có index (trước: regex không phân biệt hoa/thường, quét bảng).
+    const rows = await this.assignmentModel
+      .find({ platform, shop_id: shopId, seller_sku_normalized: normalizeSellerSku(sellerSku), master_sku: null })
+      .session(session);
     let tagged = 0;
     let merged = 0;
     for (const row of rows) {

@@ -63,7 +63,7 @@ function toReturnResponse(d: ReturnRequestDocument): Record<string, unknown> {
  * thì hệ thống tự tạo phiếu ở bước "đã nhận".
  */
 @ApiTags('Returns')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('returns')
 export class ReturnsController {

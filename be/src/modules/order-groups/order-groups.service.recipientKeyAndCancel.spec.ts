@@ -18,8 +18,22 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
     findById: jest.Mock;
     find: jest.Mock;
     findOneAndUpdate: jest.Mock;
+    updateOne: jest.Mock;
   };
-  let orderModel: { countDocuments: jest.Mock; updateOne: jest.Mock; find?: jest.Mock };
+  let orderModel: { countDocuments: jest.Mock; updateOne: jest.Mock; find: jest.Mock; aggregate: jest.Mock };
+  let pickEventModel: { find: jest.Mock };
+  let staffAssignmentService: { autoAssign: jest.Mock };
+
+  // 10/11/2026 (BE-6) — truy vấn Mongoose giả: select/sort/limit/session trả lại chính nó,
+  // lean() / await trả `value`. Trước đây mock rỗng `{}` làm các nhánh phụ (giữ chỗ, trả hàng
+  // dư về kệ, tự giao việc) văng "is not a function" và bị catch nuốt — nhánh không được kiểm.
+  function query(value: unknown): Record<string, unknown> {
+    const q: Record<string, unknown> = {};
+    for (const m of ['select', 'sort', 'limit', 'skip', 'session', 'populate']) q[m] = (): unknown => q;
+    q.lean = (): Promise<unknown> => Promise.resolve(value);
+    q.exec = q.lean;
+    return q;
+  }
   let packingPlanModel: { updateMany: jest.Mock; findOne: jest.Mock; updateOne: jest.Mock };
   let stockReservationService: { releaseGroup: jest.Mock; reconcile: jest.Mock };
   let notificationsService: {
@@ -52,11 +66,16 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       findById: jest.fn(),
       find: jest.fn(),
       findOneAndUpdate: jest.fn(),
+      updateOne: jest.fn().mockResolvedValue({}),
     };
     orderModel = {
       countDocuments: jest.fn(),
       updateOne: jest.fn().mockResolvedValue({}),
+      find: jest.fn(() => query([])),
+      aggregate: jest.fn().mockResolvedValue([]),
     };
+    pickEventModel = { find: jest.fn(() => query([])) };
+    staffAssignmentService = { autoAssign: jest.fn().mockResolvedValue({}) };
     packingPlanModel = {
       updateMany: jest.fn().mockResolvedValue({}),
       // Chưa có phiên đóng gói (kế hoạch packing/packed) → luồng hủy như trước 05/10/2026.
@@ -79,11 +98,11 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       orderModel as never,
       {} as never, // productMasterModel — không dùng trong đường code này
       {} as never, // skuBinAssignmentModel
-      {} as never, // pickEventModel
+      pickEventModel as never,
       {} as never, // userModel
       packingPlanModel as never,
       notificationsService as never,
-      {} as never, // staffAssignmentService
+      staffAssignmentService as never,
       {} as never, // connection
       {} as never, // inventoryMovementModel
       {} as never, // mappingModel
@@ -110,6 +129,8 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
       );
       const [callArg] = orderGroupModel.create.mock.calls[0] ?? [];
       expect(callArg?.recipient_key).toHaveLength(64); // sha256 hex
+      // Nhánh phụ chạy thật (không còn văng "is not a function"): tự giao việc lấy hàng + giữ chỗ.
+      expect(staffAssignmentService.autoAssign).toHaveBeenCalledWith(createdGroup._id.toString());
     });
   });
 
@@ -228,6 +249,8 @@ describe('OrderGroupsService — recipient_key + N1 auto-cancel', () => {
 
       expect(orderGroupModel.findOneAndUpdate).not.toHaveBeenCalled();
       expect(packingPlanModel.updateMany).not.toHaveBeenCalled();
+      // Đang lấy hàng → đã đọc lượt quét để tính phần dư trả về kệ (chưa quét gì → không trả).
+      expect(pickEventModel.find).toHaveBeenCalled();
     });
   });
 

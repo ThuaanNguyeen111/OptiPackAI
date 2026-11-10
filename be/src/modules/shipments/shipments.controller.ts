@@ -223,7 +223,7 @@ function actorOf(user: AuthenticatedUser): ShipmentActor {
  * Tạm thời Shipping Coordinator bấm toàn bộ nút giao hàng (chưa có role shipper).
  */
 @ApiTags('Shipments')
-@ApiBearerAuth()
+@ApiBearerAuth('JWT-auth')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('shipments')
 export class ShipmentsController {
@@ -243,11 +243,14 @@ export class ShipmentsController {
   @ApiQuery({ name: 'overdue', required: false, description: 'true = chỉ vận đơn quá hạn giao' })
   @ApiQuery({ name: 'trip_code', required: false })
   @ApiQuery({ name: 'carrier_code', required: false })
+  @ApiQuery({ name: 'shipper_id', required: false, description: '`me` = vận đơn gán cho người đang đăng nhập, hoặc id người dùng' })
+  @ApiQuery({ name: 'before', required: false, description: 'Con trỏ: `updatedAt` của vận đơn cuối trang trước (ISO); có thì bỏ qua page' })
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
-  @ApiOperation({ summary: 'Danh sách vận đơn (lọc theo trạng thái / nhóm đơn / chuyến / hãng).' })
+  @ApiOperation({ summary: 'Danh sách vận đơn (lọc theo trạng thái / nhóm đơn / chuyến / hãng / shipper). 🆕 10/11: `shipper_id=me` cho "Việc của tôi" của shipper trên app; con trỏ `before`.' })
   async list(
     @Query() q: ListShipmentsQueryDto,
+    @CurrentUser() user: AuthenticatedUser,
   ): Promise<{ items: ShipmentResponse[]; total: number; page: number; limit: number }> {
     const p = q.page ?? 1;
     const l = q.limit ?? 20;
@@ -257,6 +260,8 @@ export class ShipmentsController {
       overdueOnly: q.overdue === 'true',
       tripCode: q.trip_code,
       carrierCode: q.carrier_code,
+      shipperId: q.shipper_id ? (q.shipper_id.toLowerCase() === 'me' ? user.userId : q.shipper_id) : undefined,
+      before: q.before ? new Date(q.before) : undefined,
       page: p,
       limit: l,
     });

@@ -100,6 +100,7 @@ export const OBJECT_ID_FIELDS: ObjectIdFieldEntry[] = [
     collection: 'notifications',
     fields: ['recipient_user_id', 'related_entity_id'],
   },
+  { collection: 'device_tokens', fields: ['user_id'] }, // 10/11/2026 — thiết bị nhận push
   { collection: 'stock_reservations', fields: ['order_group_id', 'warehouse_id'] }, // warehouse_id: 21/10/2026
   { collection: 'stock_reservation_totals', fields: ['warehouse_id'] }, // 21/10/2026
   {
