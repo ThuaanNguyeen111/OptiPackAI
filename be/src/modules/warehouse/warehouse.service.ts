@@ -45,7 +45,7 @@ import { LotAllocation, StockLot, StockLotDocument } from './schemas/stock-lot.s
 import { StockReceipt, StockReceiptDocument, StockReceiptLine } from './schemas/stock-receipt.schema';
 import { OldestLotInfo, StockLotLedger, fifoDateOf, generateLotCode, trimOrNull } from './stock-lot.ledger';
 import { CreateStockReceiptDto, ListStockLotsQueryDto } from './dto/stock-receipt.dto';
-import { sellerSkuEqualsIgnoreCase } from '../master-skus/stock-key.util';
+import { sellerSkuEqualsIgnoreCase, sellerSkuMatch } from '../master-skus/stock-key.util';
 
 /** Ngày nhập được phép lệch lên tương lai tối đa (đồng hồ máy khách lệch). */
 const RECEIVED_AT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
@@ -1972,7 +1972,7 @@ export class WarehouseService {
     const doc = await this.assignmentModel.findOne(
       master
         ? { warehouse_id: warehouseId, bin_location_id: binId, master_sku: master }
-        : { warehouse_id: warehouseId, bin_location_id: binId, platform: line.platform, shop_id: line.shop_id, seller_sku: sellerSkuEqualsIgnoreCase(line.seller_sku), master_sku: null },
+        : { warehouse_id: warehouseId, bin_location_id: binId, platform: line.platform, shop_id: line.shop_id, ...sellerSkuMatch(line.seller_sku), master_sku: null },
     );
     if (!doc) {
       throw new AppException(
