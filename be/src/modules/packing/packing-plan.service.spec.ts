@@ -1488,12 +1488,18 @@ describe('PackingPlanService', () => {
       plan = (await session.scan(groupId, 1, { code: q.sku, scan_method: 'barcode' }, userId)).plan;
       const after = await session.reportIssue(
         groupId,
-        { parcel_no: 1, item_key: plan.parcels[0]?.scans[0]?.item_key ?? q.item_key, issue: 'damaged', resolution: 'replace', warehouse_id: new Types.ObjectId().toString(), expected_version: plan.version },
+        {
+          parcel_no: 1, item_key: plan.parcels[0]?.scans[0]?.item_key ?? q.item_key, issue: 'damaged', resolution: 'replace',
+          warehouse_id: new Types.ObjectId().toString(), expected_version: plan.version,
+          photo_urls: ['https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/hong.jpg'],
+        },
         userId,
       );
       expect(orderGroupsService.adjustPickedUnits).toHaveBeenCalledWith(groupId, [{ sku: q.sku, quantity: 1 }], expect.objectContaining({ restock: false, kind: 'pack_issue' }));
       expect(orderGroupsService.takeReplacementUnit).toHaveBeenCalled();
       expect(after.issues).toHaveLength(1);
+      // 10/11/2026 — ảnh món lỗi lưu kèm sự cố.
+      expect(after.issues[0]?.photo_urls).toEqual(['https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/hong.jpg']);
       expect(after.parcels[0]?.scans).toHaveLength(0);
     });
 

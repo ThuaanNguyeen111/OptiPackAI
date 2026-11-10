@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsMongoId, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { IsProofPhotoUrls } from '../../proof-photos/is-proof-photo-urls.decorator';
 import { DeliveryFailureReason } from '../enums/delivery-failure-reason.enum';
 import { ToLocationDto } from '../../shipping/dto/shipping.dto';
 
@@ -85,7 +86,20 @@ export class ShipmentActionDto {
   note?: string;
 }
 
+const PHOTO_URLS_EXAMPLE = ['https://res.cloudinary.com/<cloud>/image/upload/v1/optipack/proof/abc.jpg'];
+
+/** 10/11/2026 — Giao thành công: shop tự giao (vận đơn không có hãng) bắt buộc ≥ 1 ảnh. */
+export class DeliverShipmentDto extends ShipmentActionDto {
+  @ApiPropertyOptional({ type: [String], example: PHOTO_URLS_EXAMPLE, description: 'Ảnh bằng chứng (tối đa 3), URL lấy từ POST /proof-photos. Vận đơn shop tự giao (không có hãng): bắt buộc ≥ 1 ảnh.' })
+  @IsOptional() @IsProofPhotoUrls()
+  photo_urls?: string[];
+}
+
 export class FailShipmentDto extends ShipmentActionDto {
+  @ApiPropertyOptional({ type: [String], example: PHOTO_URLS_EXAMPLE, description: 'Ảnh bằng chứng (tối đa 3), URL lấy từ POST /proof-photos. Không bắt buộc.' })
+  @IsOptional() @IsProofPhotoUrls()
+  photo_urls?: string[];
+
   @ApiProperty({ enum: DeliveryFailureReason, example: DeliveryFailureReason.CUSTOMER_UNREACHABLE })
   @IsEnum(DeliveryFailureReason)
   reason_code!: DeliveryFailureReason;

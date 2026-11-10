@@ -37,6 +37,7 @@ import { StorefrontModule } from './modules/storefront/storefront.module';
 import { MarketplaceWebhooksModule } from './modules/marketplace-webhooks/marketplace-webhooks.module';
 import { MarketplaceWritebackModule } from './modules/marketplace-writeback/marketplace-writeback.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { ProofPhotosModule } from './modules/proof-photos/proof-photos.module';
 import { ShippingModule } from './modules/shipping/shipping.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { CarriersModule } from './modules/carriers/carriers.module';
@@ -100,6 +101,7 @@ import { HistoryModule } from './modules/history/history.module';
     MarketplaceWebhooksModule,
     MarketplaceWritebackModule,
     DashboardModule, // 28/10/2026 — số liệu Bảng điều khiển (chỉ đọc)
+    ProofPhotosModule, // 10/11/2026 — ảnh bằng chứng (Cloudinary)
     ShippingModule,
     DocumentsModule,
     CarriersModule, // C2 (08/10/2026) — đơn vị vận chuyển (GHN / mock)

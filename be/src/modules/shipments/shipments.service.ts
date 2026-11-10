@@ -176,6 +176,8 @@ interface TransitionStep {
   actor: ShipmentActor;
   reasonCode?: string | null;
   note?: string | null;
+  /** 10/11/2026 — ảnh bằng chứng (URL Cloudinary). */
+  photoUrls?: string[];
 }
 
 /**
@@ -401,13 +403,26 @@ export class ShipmentsService {
     return live ? this.bookCarrierParcels(created._id.toString()) : created;
   }
 
-  /** [Coordinator] Giao thành công. */
-  async markDelivered(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, groupExpectedVersion?: number): Promise<ShipmentDocument> {
+  /**
+   * [Coordinator] Giao thành công.
+   * 10/11/2026 — `photoUrls`: ảnh bằng chứng. Vận đơn shop tự giao (không có hãng) gọi từ nút
+   * "Giao thành công" (controller luôn truyền mảng) phải có ≥ 1 ảnh; vận đơn hãng mẫu thì không bắt.
+   * `undefined` = gọi nội bộ (route cũ fulfillment/deliver) → không kiểm ảnh.
+   */
+  async markDelivered(shipmentId: string, expectedVersion: number, actor: ShipmentActor, note?: string, groupExpectedVersion?: number, photoUrls?: string[]): Promise<ShipmentDocument> {
     const shipment = await this.getShipment(shipmentId);
     this.assertNotCarrierManaged(shipment);
     this.assertShipperActor(shipment, actor);
+    if (photoUrls?.length === 0 && !shipment.carrier_code) {
+      throw new AppException(
+        SHIPMENT_ERROR_CODES.PROOF_PHOTO_REQUIRED,
+        `Vận đơn ${shipment.shipment_code} do shop tự giao — chụp ít nhất 1 ảnh bằng chứng giao hàng (POST /proof-photos, gửi kèm photo_urls).`,
+        HttpStatus.BAD_REQUEST,
+        { shipmentId: shipment._id.toString() },
+      );
+    }
     return this.applyTransition(shipment, expectedVersion, [
-      { to: ShipmentStatus.DELIVERED, eventType: ShipmentEventType.DELIVERED, actor, note },
+      { to: ShipmentStatus.DELIVERED, eventType: ShipmentEventType.DELIVERED, actor, note, photoUrls },
     ], { delivered_at: new Date() }, { target: GroupFulfillmentStatus.DELIVERED, expectedVersion: groupExpectedVersion });
   }
 
@@ -416,7 +431,7 @@ export class ShipmentsService {
    * - khách từ chối nhận, hoặc đã hết số lần giao -> TỰ chuyển hoàn về kho;
    * - ngược lại -> chờ giao lại.
    */
-  async markFailed(shipmentId: string, expectedVersion: number, reason: DeliveryFailureReason, actor: ShipmentActor, note?: string, rescheduleAt?: string): Promise<ShipmentDocument> {
+  async markFailed(shipmentId: string, expectedVersion: number, reason: DeliveryFailureReason, actor: ShipmentActor, note?: string, rescheduleAt?: string, photoUrls?: string[]): Promise<ShipmentDocument> {
     if (reason === DeliveryFailureReason.OTHER && !note?.trim()) {
       throw new AppException(SHIPMENT_ERROR_CODES.NOTE_REQUIRED, 'Chọn "Lý do khác" thì bắt buộc ghi chú cụ thể.', HttpStatus.BAD_REQUEST);
     }
@@ -426,7 +441,7 @@ export class ShipmentsService {
     const autoReturn = reason === DeliveryFailureReason.CUSTOMER_REFUSED || shipment.attempt_count >= shipment.max_attempts;
 
     const steps: TransitionStep[] = [
-      { to: ShipmentStatus.DELIVERY_FAILED, eventType: ShipmentEventType.DELIVERY_FAILED, actor, reasonCode: reason, note },
+      { to: ShipmentStatus.DELIVERY_FAILED, eventType: ShipmentEventType.DELIVERY_FAILED, actor, reasonCode: reason, note, photoUrls },
     ];
     if (autoReturn) {
       steps.push({
@@ -726,6 +741,7 @@ export class ShipmentsService {
       actor_role: step.actor.role,
       reason_code: step.reasonCode ?? null,
       note: step.note ?? null,
+      ...(step.photoUrls?.length ? { photo_urls: step.photoUrls } : {}),
       occurred_at: new Date(),
     }], { session });
 

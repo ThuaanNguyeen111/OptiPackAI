@@ -180,6 +180,17 @@ describe('ReturnsService — G3', () => {
       expect(orderGroupsService.scheduleShortageRecheck).toHaveBeenCalledWith('kiểm hàng hoàn');
       expect((returnModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { status: string } }])[1].$set.status).toBe(ReturnStatus.CLOSED);
     });
+
+    it('10/11/2026 — ảnh hàng hoàn lúc kiểm được lưu vào phiếu (không gửi → [])', async () => {
+      const photo = 'https://res.cloudinary.com/demo/image/upload/v1/optipack/proof/rma.jpg';
+      await service.inspect(rmaId.toString(), {
+        expected_version: 0,
+        lines: [{ seller_sku: 'A', quantity: 2, result: InspectionResult.QUARANTINE }],
+        photo_urls: [photo],
+      }, 'wh-1');
+      const set = (returnModel.findOneAndUpdate.mock.calls[0] as [unknown, { $set: { inspection_photo_urls: string[] } }])[1].$set;
+      expect(set.inspection_photo_urls).toEqual([photo]);
+    });
   });
   describe('G4 — sửa điểm yếu + thu hồi vật liệu', () => {
     it('phiếu hoàn giao thất bại lấy SỐ LƯỢNG ĐÃ QUÉT THẬT, không phải số đặt', async () => {
