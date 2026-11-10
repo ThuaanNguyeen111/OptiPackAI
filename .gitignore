@@ -16,6 +16,8 @@ out/
 be/.env
 # 10/11/2026 — khoá service account Firebase (push FCM): luôn để ngoài repo; chặn thêm nếu lỡ chép vào
 *-firebase-adminsdk-*.json
+# Khoá Firebase dùng chung của nhóm (gửi qua Zalo), đặt ở mobile/keys/ — KHÔNG commit
+mobile/keys/
 fe/.env
 mobile/.env
 

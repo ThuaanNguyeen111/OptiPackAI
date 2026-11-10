@@ -18,7 +18,10 @@ export interface FcmServiceAccount {
   privateKey: string;
 }
 
-/** Đọc file JSON service account (đường dẫn trong FCM_SERVICE_ACCOUNT_FILE, để ngoài repo). Thiếu / sai → null. */
+/**
+ * Đọc file JSON service account (đường dẫn trong FCM_SERVICE_ACCOUNT_FILE; tương đối thì tính từ thư mục
+ * chạy BE — be/; nhóm để file ở `mobile/keys/`, đã .gitignore). Thiếu / sai → null.
+ */
 export function readFcmServiceAccount(env: NodeJS.ProcessEnv, readFile: (path: string) => string = (p) => readFileSync(p, 'utf8')): FcmServiceAccount | null {
   const path = env.FCM_SERVICE_ACCOUNT_FILE?.trim();
   if (!path) return null;
