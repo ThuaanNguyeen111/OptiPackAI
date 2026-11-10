@@ -216,6 +216,8 @@ ShipmentSchema.index({ status: 1, updated_at: -1 });
 // Bảng kê chuyến (documents/manifest/:tripCode) + lọc theo hãng.
 ShipmentSchema.index({ trip_code: 1 }, { partialFilterExpression: { trip_code: { $type: 'string' } } });
 ShipmentSchema.index({ carrier_code: 1, created_at: -1 });
+// 10/11/2026 — "Việc của tôi" của shipper trên app (GET /shipments?shipper_id=me&status=…).
+ShipmentSchema.index({ shipper_id: 1, status: 1, updated_at: -1 }, { partialFilterExpression: { shipper_id: { $type: 'objectId' } } });
 // C5 — webhook GHN tìm vận đơn theo mã hãng của từng kiện.
 ShipmentSchema.index(
   { 'carrier_parcels.carrier_order_code': 1 },

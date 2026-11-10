@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsIn, IsInt, IsMongoId, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsISO8601, IsMongoId, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import { ShipmentStatus } from '../enums/shipment-status.enum';
 import { ReturnStatus } from '../enums/return.enums';
 
@@ -47,6 +47,18 @@ export class ListShipmentsQueryDto extends PageQueryDto {
   @IsOptional()
   @IsString()
   carrier_code?: string;
+
+  /** 10/11/2026 — App mobile: "Việc của tôi" của shipper. Nhận `me` (người đang đăng nhập) hoặc id người dùng. */
+  @ApiPropertyOptional({ example: 'me', description: 'Lọc vận đơn được gán cho shipper: `me` = người đang đăng nhập, hoặc id người dùng.' })
+  @IsOptional()
+  @Matches(/^(me|[a-f0-9]{24})$/i, { message: 'shipper_id phải là "me" hoặc ObjectId hợp lệ' })
+  shipper_id?: string;
+
+  /** 10/11/2026 — Phân trang kiểu con trỏ cho app: truyền `updatedAt` của vận đơn cuối trang trước. */
+  @ApiPropertyOptional({ description: 'Con trỏ phân trang: `updatedAt` của vận đơn cuối trang trước (ISO). Có `before` thì bỏ qua `page`.' })
+  @IsOptional()
+  @IsISO8601({}, { message: 'before phải là thời điểm ISO' })
+  before?: string;
 }
 
 export class ListReturnsQueryDto extends PageQueryDto {
