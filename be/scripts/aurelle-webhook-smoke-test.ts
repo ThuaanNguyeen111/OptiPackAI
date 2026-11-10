@@ -26,14 +26,14 @@ import { createHmac } from 'crypto';
  *   AURELLE_APP_SECRET=<đúng giá trị server đang dùng> \
  *   npx ts-node scripts/aurelle-webhook-smoke-test.ts
  *
- * Tùy chọn: BASE_URL (mặc định http://localhost:3000).
+ * Tùy chọn: BASE_URL (mặc định http://localhost:3000/api).
  *
  * Mỗi case in PASS/FAIL theo đúng HTTP status/response mong đợi. Có
  * FAIL → exit code 1.
  * ===================================================================
  */
 
-const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000';
+const BASE_URL = process.env.BASE_URL ?? 'http://localhost:3000/api';
 const APP_KEY = process.env.AURELLE_APP_KEY ?? '';
 const APP_SECRET = process.env.AURELLE_APP_SECRET ?? '';
 

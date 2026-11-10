@@ -1,6 +1,6 @@
 # Domain thật (thay ingress *.optipackai.local của base):
 #   https://optipack.io.vn         → fe
-#   https://optipack.io.vn/api/... → be (cắt tiền tố /api vì route backend đặt ở gốc)
+#   https://optipack.io.vn/api/... → be (backend tự có global prefix /api)
 #   https://shop.optipack.io.vn    → storefront
 # packer KHÔNG ra Internet: chỉ be gọi nội bộ http://packer:8000.
 # HTTPS: cert-manager + Let's Encrypt (ClusterIssuer trong cluster-issuer.yaml).
@@ -31,17 +31,13 @@ spec:
             backend:
               service: { name: storefront, port: { number: 3001 } }
 ---
-# Ingress riêng vì rewrite-target áp cho cả object. Dùng chung chứng chỉ optipack-tls.
+# Ingress riêng để giới hạn body upload chỉ cho API. Dùng chung chứng chỉ optipack-tls.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: optipack-api
   annotations:
-    nginx.ingress.kubernetes.io/use-regex: 'true'
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/proxy-body-size: '10m'
-    # Cookie admin storefront đặt path=/storefront/admin; trình duyệt thấy URL có /api phía trước.
-    nginx.ingress.kubernetes.io/proxy-cookie-path: /storefront/admin /api/storefront/admin
 spec:
   ingressClassName: nginx
   tls:
@@ -51,7 +47,7 @@ spec:
     - host: optipack.io.vn
       http:
         paths:
-          - path: /api(/|$)(.*)
-            pathType: ImplementationSpecific
+          - path: /api
+            pathType: Prefix
             backend:
               service: { name: be, port: { number: 3000 } }
