@@ -73,10 +73,10 @@
 - [x] **11. Lọc vận đơn theo shipper** (`MOBILE_BE_REQUESTS.md` mục 2) — màn "Việc của tôi" của shipper Hỏa Tốc. Nhỏ.
   - **Đã chốt (10/11/2026):** chỉ thêm bộ lọc, **không** thu hẹp quyền xem (web vẫn cho Coordinator xem mọi vận đơn).
   - Ghi chú: xong 10/11/2026 (AOFP-264). `GET /shipments?shipper_id=me|<userId>&status=…&before=<updatedAt>&limit=`; có `before` thì bỏ qua `page` (con trỏ theo `updated_at`), `total` vẫn là tổng theo bộ lọc. Index `{ shipper_id, status, updated_at }` (partial).
-- [ ] **12. Đăng nhập Google cho app mobile** (`MOBILE_BE_REQUESTS.md` mục 6). Vừa.
+- [x] **12. Đăng nhập Google cho app mobile** (`MOBILE_BE_REQUESTS.md` mục 6). Vừa.
   - **Đã chốt (10/11/2026): làm sau push**, theo cách 1: `POST /auth/google/mobile` nhận `id_token`, kiểm với Google, áp đúng luật web (chỉ tài khoản đã có; `ACCOUNT_NOT_REGISTERED`, `ACCOUNT_INACTIVE`, `ACCOUNT_LOCKED`, `EMAIL_NOT_VERIFIED`), trả cùng dạng `POST /auth/login`.
-  - **Cần trước (Thuận làm):** tạo OAuth client Android trong Google Cloud (package `vn.optipack.optipack_mobile` + SHA-1 của khoá ký app), cho BE biết client id.
-  - Ghi chú: _
+  - **Cần trước khi chạy thật (Thuận làm):** tạo OAuth client **Android** trong **cùng project Google Cloud với client Web** (`GOOGLE_CLIENT_ID`), package `vn.optipack.optipack_mobile` + SHA-1 của khoá ký app. BE **không** cần client id Android (id_token cấp cho client Web). Hướng dẫn: `MOBILE_UPDATE_CHECKLIST.md` mục 9d.
+  - Ghi chú: xong 11/11/2026 (AOFP-277). `POST /auth/google/mobile` `{ id_token }` → kiểm qua Google `tokeninfo`, `aud` ∈ `GOOGLE_CLIENT_ID` + `GOOGLE_EXTRA_AUDIENCES`, `iss`, `exp`; dùng chung `completeGoogleLogin()` với web; trả cùng dạng `/auth/login`. Kèm: `POST /auth/logout` nhận `push_token` → gỡ máy khỏi push. Chưa thử với điện thoại thật.
 
 **Giữ nguyên đã chốt khi đối chiếu `MOBILE_BE_REQUESTS.md` (10/11/2026):** mục 6 `GET /app/version` vẫn **bỏ** (file mobile ghi "phát cho người dùng thật" nhưng Thuận chốt app không đưa lên store); link ảnh bằng chứng **giữ công khai** (link Cloudinary ngẫu nhiên, khó đoán; không ký hạn).
 
@@ -85,7 +85,7 @@
 1. ✅ Đã xong 10/11/2026: **10, 7, 8, 9**.
 2. ✅ Đã xong 10/11/2026: **4**.
 3. ✅ Đã xong 10/11/2026 tối: **3** (code), **11**. Chạy thật **3** khi Thuận tạo project Firebase và điền `FCM_SERVICE_ACCOUNT_FILE`.
-4. **12** — đăng nhập Google cho mobile, sau khi có OAuth client Android.
+4. ✅ 11/11/2026: **12** (BE). Chạy thật khi có OAuth client Android + app nối nút Google (mục 9d).
 
 ## Đã có sẵn — mobile dùng được ngay (không cần làm)
 

@@ -1,0 +1,74 @@
+# Giao việc — Phiếu nhập kho có minh chứng + OCR đối chiếu số lượng
+
+> **Phiên bản 1.0 — 11/11/2026.** Người giao: Thuận. Người nhận: ____________. Hạn đề xuất: code xong cuối tuần 11 (20/11/2026), tài liệu + test case trước 27/11.
+> Nguồn yêu cầu: góp ý của hội đồng (Phượng ghi lại). Chức năng **chưa có dòng code nào** — người nhận tự nghiên cứu, chốt nghiệp vụ với Thuận rồi mới code.
+
+---
+
+## 1. Hội đồng yêu cầu gì
+
+1. **Minh chứng:** khi nhập hàng hoặc mua vật liệu đóng gói, phải tải **phiếu nhập kho / phiếu giao hàng của nhà cung cấp** (tờ giấy NCC gửi kèm hàng: loại hàng hoặc vật liệu, số lượng, ngày nhập) lên hệ thống và **lưu làm minh chứng trong lịch sử**.
+2. **Bắt lệch bằng OCR:** hội đồng sẽ hỏi *"phiếu ghi 50 mà nhân viên nhập 48 thì hệ thống có biết không?"* → hệ thống **tự đọc chữ trên ảnh phiếu (OCR)**, đối chiếu với số đã nhập, báo dòng lệch; **cho sửa tay** khi OCR đọc sai.
+
+Gợi ý chia 2 bước để kịp hạn: **bước 1** = lưu ảnh phiếu làm minh chứng (nhỏ, bắt buộc phải có); **bước 2** = OCR + đối chiếu + sửa tay.
+
+## 2. Hiện trạng code (đọc trước khi làm)
+
+| Phần | Đã có | Chưa có |
+|---|---|---|
+| Phiếu nhập hàng | `POST /warehouse/warehouses/:warehouseId/receipts` (Admin, Warehouse Staff), `GET .../receipts`, `GET .../receipts/:receiptId`. Code: `be/src/modules/warehouse/` — schema `schemas/stock-receipt.schema.ts` (`receipt_code`, `warehouse_id`, `lot_code`, `received_at`, `supplier`, `note`, `lines[]` = assignment / bin / lot / platform / shop / `seller_sku` / `master_sku` / `quantity`, `total_quantity`, `created_by`), DTO `dto/stock-receipt.dto.ts`. PDF phiếu nhập: `GET /documents/stock-receipt/:warehouseId/:receiptId` | Không nhận file đính kèm, không lưu ảnh phiếu, không OCR |
+| Mua vật liệu đóng gói | `POST /packaging-materials/:code/purchase` (`quantity`, `note`) — `be/src/modules/packaging-materials/packaging-materials.service.ts` `purchase()`, ghi sổ `movementModel` | Không có NCC, không có ảnh phiếu |
+| Lưu ảnh | `POST /proof-photos` (module `be/src/modules/proof-photos/`): nhận 1–3 ảnh JPG/PNG/WebP/HEIC ≤ 10 MB, lưu Cloudinary thư mục `optipack/proof`, trả `url`. Biến `CLOUDINARY_*` đã có trong `be/.env` | Thư mục / quy tắc riêng cho ảnh phiếu, nhận PDF |
+| AI | `be/src/config/ai.config.ts`: Groq (`AI_BASE_URL` mặc định `https://api.groq.com/openai/v1`), đang dùng cho AI hướng dẫn đóng gói và AI dịch quy tắc gộp đơn | Gọi model đọc ảnh |
+| Web FE | Màn nhập hàng: `fe/src/pages/WarehouseInventoryPage.tsx` (`createStockReceipt` trong `fe/src/api/warehouse.api.ts`); mua vật liệu: `fe/src/pages/PackagingMaterialsPage.tsx` (`purchasePackagingMaterial`) | Bước tải phiếu, bảng đối chiếu |
+
+## 3. Câu hỏi nghiệp vụ phải chốt với Thuận TRƯỚC khi code
+
+| # | Câu hỏi | Đề xuất (tham khảo, người nhận tự cân nhắc) |
+|---|---|---|
+| Q1 | Dùng dịch vụ OCR nào? | **Groq vision** — dùng lại key Groq đã có; theo tài liệu Groq (`console.groq.com/docs/vision`, đọc 10/11/2026) model `qwen/qwen3.8-27b` nhận ảnh (≤ 3 ảnh / request, URL ảnh ≤ 20 MB) và JSON mode → trả thẳng `{ supplier, date, lines: [{ name, code, quantity, unit }] }`. Phương án khác: Azure Document Intelligence (Free 500 trang/tháng, cần tài khoản Azure, chưa kiểm tiếng Việt); OCR.space (Free 25.000 lượt/tháng, ảnh ≤ 1 MB, chỉ trả chữ thô, phải tự tách dòng). **Kiểm lại hạn mức miễn phí trước khi chọn** |
+| Q2 | Số nhập lệch số trên phiếu thì sao? | **Không chặn**, bắt nhập **lý do** cho dòng lệch, gắn nhãn "Lệch phiếu" trong lịch sử, báo Store Owner (thông báo in-app). Lý do: NCC hay giao thiếu / có hàng lỗi — chặn thì kho kẹt. Phương án khác: chặn đến khi khớp; hoặc chờ Admin duyệt rồi mới cộng tồn |
+| Q3 | Bắt buộc ảnh phiếu không? | **Bắt buộc** khi nhập hàng từ NCC và mua vật liệu (chính là minh chứng hội đồng cần); **không bắt** với nhập lại hàng hoàn, kiểm kê, chuyển ô |
+| Q4 | Thứ tự thao tác? | **Chụp phiếu → OCR điền sẵn dòng → nhân viên chọn SKU cho từng dòng, đếm hàng thật, sửa số → lưu.** Lưu cả số OCR đọc, số đã lưu, ai sửa gì. Phương án khác: nhập tay như hiện nay rồi tải phiếu, hệ thống đối chiếu sau |
+| Q5 | Phiếu là ảnh hay PDF, mấy trang? | Ảnh (1–3 tấm / phiếu). PDF tuỳ chọn: Cloudinary đổi được trang PDF thành ảnh |
+| Q6 | Ghép dòng trên phiếu NCC với SKU nội bộ thế nào? (Tên trên phiếu NCC khác tên SKU, VD "Áo thun đỏ M" ↔ `AT-001-RED-M`) | Tự khớp nếu phiếu in đúng mã SKU / mã NCC đã lưu; còn lại nhân viên chọn tay. Có thể nhớ "tên trên phiếu → SKU" cho lần sau |
+| Q7 | Ai được sửa số OCR? Ai xem được lệch? | Người nhập (Warehouse Staff / Admin) sửa, có log; Store Owner + Admin xem danh sách phiếu lệch |
+
+## 4. Gợi ý thiết kế (sau khi đã chốt — sửa theo câu trả lời)
+
+**BE (`be/`)**
+- Ảnh phiếu: upload qua route riêng (VD `POST /stock-receipt-photos`) hoặc mở rộng `proof-photos` với thư mục `optipack/receipts`; chỉ nhận URL đúng cloud + thư mục (học theo `@IsProofPhotoUrls()`).
+- OCR: `POST /stock-receipts/ocr` nhận URL ảnh → trả các dòng đọc được + độ tin cậy. **Không** tự cộng tồn ở bước này.
+- Phiếu nhập: thêm vào `StockReceipt` (và lần mua vật liệu) — `document_photo_urls[]`, `ocr: { provider, read_at, lines[{ text, code, quantity }] }`, mỗi dòng `ocr_quantity`, `mismatch_reason`, `edited_by`; cờ `has_mismatch` có index để lọc.
+- Lỗi rõ ràng theo chuẩn dự án: `{ error_code, message, details }`, tiền tố mã lỗi theo module (VD `WH_RECEIPT_PHOTO_REQUIRED`, `WH_RECEIPT_OCR_FAILED`, `WH_RECEIPT_MISMATCH_REASON_REQUIRED`).
+- OCR lỗi / hết hạn mức → vẫn cho nhập tay (không chặn kho), ghi nhận "chưa đối chiếu".
+- Thông báo lệch: gọi `NotificationsService.notify()` (thêm loại thông báo mới vào `notification-type.enum.ts`; nếu cần push thì cập nhật `notifications/push/push-policy.ts`).
+- Ghi lịch sử thao tác (`activity_logs`) cho: tải phiếu, sửa số OCR, lưu phiếu lệch.
+
+**Web FE (`fe/`)**: bước tải / chụp phiếu ở màn nhập hàng và mua vật liệu (dùng lại hộp thoại webcam của ảnh bằng chứng, `FE_UPDATE_CHECKLIST.md` mục 14.1), bảng **"Theo phiếu – Đã nhập – Lệch"**, ô lý do cho dòng lệch, xem lại ảnh phiếu trong chi tiết phiếu nhập và lịch sử.
+
+## 5. Quy tắc dự án (bắt buộc)
+
+- Làm trên nhánh riêng của mình; commit `type(AOFP-<số>): mô tả viết thường`, header ≤ 100 ký tự, mỗi chức năng 1 commit + 1 commit docs. Xem số AOFP lớn nhất trên GitHub trước khi đặt (hiện 274).
+- Pre-commit chạy `npm test` — phải đạt. Trước khi đẩy: `npx tsc --noEmit`, `npx eslint`, `npx jest` trong `be/`.
+- Schema mới: field `X | null` khai `type:` tường minh trong `@Prop()`; field ObjectId dùng `SchemaTypes.ObjectId` và thêm vào `be/src/common/schemas/objectid-fields.ts`; sinh lại `be/db/init-db.mongosh.js` bằng `npm run db:script`.
+- **Không commit** `be/.env`, key Groq / Cloudinary, ảnh phiếu thật có thông tin NCC.
+- Ghi nhật ký 5 câu vào `CLAUDE.md` (vấn đề / đã làm / vì sao / kiểm chứng / còn lại); route mới vào `GUIDE_DOC/API_LIST.md`; việc web vào `GUIDE_DOC/FE_UPDATE_CHECKLIST.md`.
+
+## 6. Tài liệu phải cập nhật
+
+| Tài liệu | Nội dung |
+|---|---|
+| Report 3 — SRS | Yêu cầu chức năng mới: tải phiếu, OCR, đối chiếu, sửa tay, xử lý lệch (+ business rule cho Q2, Q3) |
+| Report 4 — SDD | Sơ đồ tuần tự "Nhập kho có phiếu + OCR"; cập nhật class / ERD (`stock_receipts`) |
+| Report 5 — Test | Test case: thiếu ảnh, OCR khớp, OCR lệch có / không lý do, OCR lỗi → nhập tay, sửa số OCR, xem lại ảnh |
+| `API_LIST.md`, `FE_UPDATE_CHECKLIST.md`, `CLAUDE.md` | Như mục 5 |
+
+## 7. Nghiệm thu (demo trước hội đồng)
+
+1. Nhập hàng **không** tải phiếu → bị chặn (nếu chốt Q3 = bắt buộc).
+2. Chụp phiếu NCC "Áo thun đỏ M — 50" → hệ thống tự điền dòng, số 50.
+3. Nhân viên đếm thật được 48, sửa thành 48 → hệ thống bắt ghi lý do → lưu → phiếu gắn nhãn "Lệch phiếu", Store Owner nhận thông báo.
+4. Mở lại chi tiết phiếu / lịch sử → thấy ảnh phiếu, số OCR đọc (50), số đã nhập (48), lý do, người sửa, thời điểm.
+5. OCR lỗi (tắt mạng / sai key) → vẫn nhập tay được, phiếu ghi "chưa đối chiếu".
+6. Mua vật liệu (VD BOX-M × 100) có ảnh phiếu → tương tự bước 2–4.

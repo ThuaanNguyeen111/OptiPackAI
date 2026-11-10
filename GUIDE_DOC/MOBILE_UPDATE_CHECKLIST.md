@@ -34,7 +34,7 @@
 | 13 | Store Owner — Tổng quan, đánh dấu Hỏa Tốc, duyệt hàng hoàn, tra cứu đơn | 8 | 4 | ☐ Chưa làm |
 | 14 | Hỗ trợ máy quét cầm tay / Bluetooth (nhận mã như bàn phím) bên cạnh camera | 4.2 | 1 | ☐ Chưa làm |
 
-**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** đăng nhập Google cho mobile (BE làm sau push). Xem mục 9. 🔄 10/11/2026: upload ảnh bằng chứng **đã có** (mục 9a); push FCM **đã có** (mục 9b, cần project Firebase để chạy thật); `GET /app/version` **bỏ** (app không đưa lên store, demo chạy `flutter run` nên luôn là bản mới).
+**Chờ BE làm trước (mobile chưa làm được, đừng tự chế):** 🔄 11/11/2026: đăng nhập Google cho mobile **đã có** (mục 9d). Xem mục 9. 🔄 10/11/2026: upload ảnh bằng chứng **đã có** (mục 9a); push FCM **đã có** (mục 9b, cần project Firebase để chạy thật); `GET /app/version` **bỏ** (app không đưa lên store, demo chạy `flutter run` nên luôn là bản mới).
 
 ---
 
@@ -154,7 +154,7 @@ Danh sách nhóm đơn và thông báo gọi `limit` 20–30, cuộn thêm bằn
 |---|---|---|
 | Đăng ký thiết bị + push FCM trong `NotificationsService.notify()` | Báo đẩy cho mọi role | ☑ BE xong 10/11/2026 (mục 9b) — chạy thật khi có project Firebase |
 | Lọc vận đơn theo shipper | "Việc của tôi" của shipper (mục 7) | ☑ BE xong 10/11/2026 |
-| Đăng nhập Google cho mobile (`POST /auth/google/mobile` nhận `id_token`) | Nút Google trên màn đăng nhập | ☐ BE làm sau push (cần OAuth client Android + SHA-1) |
+| Đăng nhập Google cho mobile (`POST /auth/google/mobile` nhận `id_token`) | Nút Google trên màn đăng nhập | ☑ BE xong 11/11/2026 (mục 9d) — cần OAuth client Android + SHA-1 |
 | Upload ảnh bằng chứng (giao Hỏa Tốc, kiểm hàng hoàn, báo lỗi kiện) | Các nút chụp ảnh ở mục 4.5, 5.2, 7 | ☑ BE xong 10/11/2026 (mục 9a) |
 | Giới hạn gọi API theo user thay vì theo IP | Mỗi người đăng nhập có 600 lần/phút riêng | ☑ BE xong 09/11/2026 |
 | `GET /health` | App kiểm tra server sống / MongoDB, Redis lỗi (200 hoặc 503) | ☑ BE xong 09/11/2026 |
@@ -253,6 +253,27 @@ Cần: điện thoại Android có **CH Play / Google Play** (Huawei đời mớ
 | 10 | Loại chỉ trong app: làm 1 việc sinh `low_box_stock` hoặc `sync_failed` | Có trong chuông, **không** có push |
 
 **Không nhận được push — kiểm tra theo thứ tự:** (1) bước 1 ra `push_enabled: false` → máy BE chưa có khoá / sai đường dẫn / chưa khởi động lại BE; (2) bước 3 không nhận → điện thoại chưa cho phép thông báo, không có Google Play, hoặc đang tiết kiệm pin (Xiaomi / Oppo: bật Tự khởi chạy); (3) bước 3 nhận mà bước 4 không → xem log BE dòng có `push` / `FCM` (`Không lấy được access token FCM` = khoá sai hoặc đã bị xoá); (4) app báo lỗi mạng → sai `API_BASE_URL` hoặc tường lửa máy BE.
+
+### 9d. Đăng nhập Google trên app (BE xong 11/11/2026)
+
+BE: `POST /auth/google/mobile` body `{ id_token }` → trả **cùng dạng `POST /auth/login`** (`access_token`, `refresh_token`, `must_change_password`, `role`); xử lý y như đăng nhập mật khẩu. Chỉ tài khoản **đã có** trong hệ thống (không tự đăng ký). Lỗi: `AUTH_GOOGLE_ACCOUNT_NOT_REGISTERED` → "Email chưa có tài khoản, liên hệ Admin"; `AUTH_GOOGLE_ID_TOKEN_INVALID` → "Đăng nhập Google thất bại, thử lại"; `AUTH_ACCOUNT_INACTIVE`, `AUTH_PASSWORD_DEADLINE_LOCKED` (403) giống đăng nhập thường. Đăng xuất: gửi thêm `push_token` (FCM token đang dùng) trong body `POST /auth/logout` → BE gỡ máy khỏi push (thay cho `DELETE /notifications/devices/:token`, dùng 1 trong 2).
+
+**A. Google Cloud (Thuận làm 1 lần; mỗi bạn chạy `flutter run` gửi SHA-1 máy mình cho Thuận thêm vào):**
+1. Mở [console.cloud.google.com](https://console.cloud.google.com) → chọn **đúng project đang chứa client Web** của BE (client có id = `GOOGLE_CLIENT_ID` trong `be/.env`).
+2. Lấy SHA-1 khoá debug trên máy chạy `flutter run`: `cd mobile/android` rồi `.\gradlew signingReport` → dòng `SHA1:` ở mục `Variant: debug`. (Hoặc `keytool -list -v -keystore %USERPROFILE%\.android\debug.keystore -alias androiddebugkey -storepass android -keypass android`.)
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID** → Application type **Android** → Package name `vn.optipack.optipack_mobile` → dán SHA-1 → Create. Mỗi máy (mỗi bạn chạy `flutter run`) có khoá debug riêng → tạo thêm 1 client Android cho mỗi SHA-1.
+4. **OAuth consent screen**: nếu đang "Testing" thì thêm email Google của người test vào **Test users**.
+5. BE **không** cần biến mới (id_token cấp cho client Web). `GOOGLE_EXTRA_AUDIENCES` để trống.
+
+**B. App (Flutter) — nhóm mobile tự làm** (chi tiết từng bước + bảng thử: `FE_UPDATE_CHECKLIST.md` mục 16):
+- [ ] `pubspec.yaml`: `google_sign_in: ^7.2.0`.
+- [ ] Khởi tạo 1 lần: `await GoogleSignIn.instance.initialize(serverClientId: '<GOOGLE_CLIENT_ID của BE — client Web>')` (truyền qua `--dart-define=GOOGLE_SERVER_CLIENT_ID=...`, không ghi cứng secret — client id không phải secret).
+- [ ] Bấm nút: `final user = await GoogleSignIn.instance.authenticate();` → `final idToken = user.authentication.idToken;` → `POST /auth/google/mobile { id_token }` → lưu token như đăng nhập thường (kể cả `must_change_password`).
+- [ ] Bắt `GoogleSignInException` mã `canceled` → im lặng (người dùng tự đóng). Nếu vừa chọn tài khoản đã báo `canceled` → thường do **sai SHA-1 / package** ở bước A.3.
+- [ ] Đăng xuất: `GoogleSignIn.instance.signOut()` + gửi `push_token` trong `/auth/logout`.
+- [ ] Mở khoá nút "Tiếp tục với Google (chờ BE)" ở `mobile/lib/features/auth/login_screen.dart`.
+
+**Thử:** tài khoản Google trùng email 1 user đang hoạt động → vào đúng màn theo role; email lạ → báo chưa có tài khoản; Admin vô hiệu hoá user đó → `AUTH_ACCOUNT_INACTIVE`.
 
 Đã có, mobile dùng được ngay: refresh token trả trong body, phân quyền theo role, `client_event_id` cho `pick-item` / quét món đóng gói / `restock` / `adjust` / `transfer`, `expected_version` + 409, phân trang `before` + `limit` và lọc `assigned_staff_id`, báo thiếu hàng, đơn Hỏa Tốc, thông báo in-app có phân trang, dashboard.
 
