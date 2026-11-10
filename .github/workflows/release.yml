@@ -23,7 +23,7 @@ on:
       api_url:
         description: 'URL backend mà trình duyệt gọi (nhúng vào bundle FE/storefront lúc build)'
         required: true
-        default: 'http://api.optipackai.local'
+        default: 'https://optipack.io.vn/api'
 
 concurrency:
   group: release-${{ github.ref }}
@@ -35,7 +35,7 @@ env:
   IMAGE_PREFIX: ghcr.io/${{ github.repository_owner }}/optipackai
   # Với workflow_run, github.sha là đầu main lúc kích hoạt, chưa chắc là commit CI vừa kiểm tra.
   SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
-  API_URL: ${{ inputs.api_url || 'http://api.optipackai.local' }}
+  API_URL: ${{ inputs.api_url || 'https://optipack.io.vn/api' }}
 
 jobs:
   build-push:
